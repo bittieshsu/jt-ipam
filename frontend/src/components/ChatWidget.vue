@@ -85,6 +85,17 @@ const trace = ref<ChatMessage[]>([]);
 const showTrace = ref(false);
 const conversationId = ref<string | null>(null);   // 多輪同一段對話 → 後端 append
 const showHistory = ref(false);
+// 檢視歷程對話時，把「進行中的對話」暫存起來，回到對話 / 送新問題時還原
+const savedLive = ref<{ messages: UiMessage[]; conversationId: string | null; trace: ChatMessage[] } | null>(null);
+function backToLive() {
+  if (savedLive.value) {
+    messages.value = savedLive.value.messages;
+    conversationId.value = savedLive.value.conversationId;
+    trace.value = savedLive.value.trace;
+    savedLive.value = null;
+  }
+  showHistory.value = false;
+}
 const history = ref<ConversationSummary[]>([]);
 const historyLoading = ref(false);
 const msg = useMessage();
@@ -96,7 +107,7 @@ const visibleMessages = computed(() =>
 
 async function send() {
   if (!input.value.trim() || loading.value) return;
-  showHistory.value = false;   // 在歷程清單時送新問題 → 自動切回最新對話內容
+  backToLive();   // 送新問題 → 自動切回「進行中的對話」（不續寫正在檢視的歷程）
   const userMsg: UiMessage = { role: "user", content: input.value.trim(), ts: new Date().toISOString() };
   messages.value.push(userMsg);
   input.value = "";
@@ -163,11 +174,13 @@ function reset() {
   trace.value = [];
   showTrace.value = false;
   conversationId.value = null;   // 新對話
+  savedLive.value = null;
 }
 
 async function toggleHistory() {
-  showHistory.value = !showHistory.value;
-  if (showHistory.value) await loadHistory();
+  if (showHistory.value) { backToLive(); return; }   // 關閉歷程清單 = 回到進行中的對話
+  showHistory.value = true;
+  await loadHistory();
 }
 async function loadHistory() {
   historyLoading.value = true;
@@ -180,6 +193,10 @@ async function loadHistory() {
 async function openConversation(id: string) {
   try {
     const conv = await getConversation(id);
+    // 第一次從進行中對話點進歷程 → 先暫存進行中對話，之後可「回到對話」還原
+    if (!savedLive.value) {
+      savedLive.value = { messages: messages.value, conversationId: conversationId.value, trace: trace.value };
+    }
     messages.value = conv.messages.map((m) => ({
       role: m.role as ChatMessage["role"],
       content: m.content,

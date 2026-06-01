@@ -280,9 +280,14 @@ async def sync_devices(
             if ipa is not None:
                 if is_up:
                     ipa.last_seen_librenms = datetime.now(UTC)
-                # feature A：把 LibreNMS 裝置 hostname 寫成此 IP 的 librenms 觀測
-                # （是否生效仍由全域優先序決定；預設 manual > librenms）
-                dev_hostname = d.get("hostname")
+                # feature A：把 LibreNMS 裝置名稱寫成此 IP 的 librenms 觀測。
+                # OPNsense 等常把 hostname 設成 IP（如 192.168.11.1），真正的名稱
+                # 在 sysName（如 fw-002.3u）→ hostname 是 IP 時改採 sysName。
+                dev_hostname = (d.get("hostname") or "").strip()
+                sysname = (d.get("sysName") or d.get("sysname") or "").strip()
+                if (not dev_hostname or _looks_like_ip(dev_hostname)) \
+                        and sysname and not _looks_like_ip(sysname):
+                    dev_hostname = sysname
                 if dev_hostname and not _looks_like_ip(dev_hostname):
                     await apply_observation(
                         session, ip=ipa, source="librenms", hostname=dev_hostname,

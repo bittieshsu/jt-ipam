@@ -164,8 +164,12 @@ async function nuFqdn() { nu.value.fqdnRes = await callTool("fqdn", { name: nu.v
 async function nuDns() { nu.value.dnsRes = await callTool("dns-lookup", { name: nu.value.dnsName, type: nu.value.dnsType }); }
 
 // ── 郵件 / DNS 診斷（MX / SPF / DKIM / DMARC）──
-const mail = ref<{ domain: string; selector: string; res: any }>({ domain: "example.com", selector: "default", res: null });
+const mail = ref<{ domain: string; selector: string; res: any }>({ domain: "example.com", selector: "", res: null });
 async function runMail() { mail.value.res = await callTool("dns-mail", { domain: mail.value.domain, dkim_selector: mail.value.selector }); }
+
+// ── GeoIP（MaxMind GeoLite2 web service；需先在系統設定填憑證）──
+const geo = ref<{ ip: string; res: any }>({ ip: "8.8.8.8", res: null });
+async function runGeo() { geo.value.res = await callTool("geoip", { ip: geo.value.ip }); }
 
 // ── 機房電力試算（純前端計算）──
 const pw = ref({ volts: 220, amps: 16, phase: "1", pf: 0.95, watts: 1000, battWh: 1500, loadW: 500, pduA: 16 });
@@ -425,7 +429,7 @@ async function runEui64() {
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><DnsIcon /></n-icon>{{ t('tools_page.t_mail') }}</span></template>
             <div class="nu-row">
               <n-input v-model:value="mail.domain" placeholder="example.com" @keyup.enter="runMail" />
-              <n-input v-model:value="mail.selector" placeholder="dkim selector" style="flex: 0 1 120px" @keyup.enter="runMail" />
+              <n-input v-model:value="mail.selector" :placeholder="t('tools_page.dkim_selector_ph')" style="flex: 0 1 150px" @keyup.enter="runMail" />
               <n-button type="primary" class="nu-go" @click="runMail"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <div v-if="mail.res" style="margin-top:10px; font-size:12px; line-height:1.7">
@@ -435,6 +439,23 @@ async function runEui64() {
               <div v-if="mail.res.dkim"><strong>DKIM ({{ mail.res.dkim_selector }}):</strong> <code style="word-break:break-all">{{ (mail.res.dkim || []).join(' ') || '—' }}</code></div>
             </div>
           </n-card>
+
+          <!-- GeoIP -->
+          <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><AddressesIcon /></n-icon>{{ t('tools_page.t_geoip') }}</span></template>
+            <div class="nu-row">
+              <n-input v-model:value="geo.ip" placeholder="8.8.8.8" @keyup.enter="runGeo" />
+              <n-button type="primary" class="nu-go" @click="runGeo"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
+            </div>
+            <div v-if="geo.res" style="margin-top:10px; font-size:12px; line-height:1.7">
+              <div v-if="geo.res.error"><n-tag type="warning">{{ geo.res.error === 'not_configured' ? t('tools_page.geoip_not_set') : geo.res.error }}</n-tag></div>
+              <template v-else>
+                <div><strong>{{ geo.res.country || '—' }}</strong> <span v-if="geo.res.country_iso">({{ geo.res.country_iso }})</span> {{ geo.res.city || '' }} {{ (geo.res.subdivisions||[]).join(' / ') }}</div>
+                <div v-if="geo.res.latitude != null">lat/lng: {{ geo.res.latitude }}, {{ geo.res.longitude }} <span v-if="geo.res.time_zone">· {{ geo.res.time_zone }}</span></div>
+                <div v-if="geo.res.asn">AS{{ geo.res.asn }} {{ geo.res.as_org || '' }}</div>
+                <div v-if="geo.res.network">{{ geo.res.network }}</div>
+              </template>
+            </div>
+          </n-card>
         </div>
 
         <!-- 機房電力試算 -->
@@ -442,29 +463,29 @@ async function runEui64() {
         <div class="nu-grid">
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.pw_load') }}</span></template>
             <div class="nu-row">
-              <n-input-number v-model:value="pw.volts" :min="1" style="width: 90px"><template #suffix>V</template></n-input-number>
-              <n-input-number v-model:value="pw.amps" :min="0" style="width: 90px"><template #suffix>A</template></n-input-number>
-              <n-input-number v-model:value="pw.pf" :min="0" :max="1" :step="0.01" style="width: 90px"><template #suffix>PF</template></n-input-number>
+              <n-input-number v-model:value="pw.volts" :min="1" :show-button="false" style="width: 96px"><template #suffix>V</template></n-input-number>
+              <n-input-number v-model:value="pw.amps" :min="0" :show-button="false" style="width: 96px"><template #suffix>A</template></n-input-number>
+              <n-input-number v-model:value="pw.pf" :min="0" :max="1" :step="0.01" :show-button="false" style="width: 96px"><template #suffix>PF</template></n-input-number>
               <n-select v-model:value="pw.phase" :options="phaseOpts" style="width: 100px; flex:0 0 auto" />
             </div>
             <div style="margin-top:10px"><strong>{{ pwLoadW.toLocaleString() }} W</strong> · {{ (pwLoadW/1000).toFixed(2) }} kW</div>
           </n-card>
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.pw_heat') }}</span></template>
             <div class="nu-row">
-              <n-input-number v-model:value="pw.watts" :min="0" :step="100" style="width: 140px"><template #suffix>W</template></n-input-number>
+              <n-input-number v-model:value="pw.watts" :min="0" :step="100" :show-button="false" style="width: 140px"><template #suffix>W</template></n-input-number>
             </div>
             <div style="margin-top:10px"><strong>{{ pwBtu.toLocaleString() }} BTU/hr</strong></div>
           </n-card>
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.pw_ups') }}</span></template>
             <div class="nu-row">
-              <n-input-number v-model:value="pw.battWh" :min="0" :step="100" style="width: 120px"><template #suffix>Wh</template></n-input-number>
-              <n-input-number v-model:value="pw.loadW" :min="1" :step="50" style="width: 120px"><template #suffix>W</template></n-input-number>
+              <n-input-number v-model:value="pw.battWh" :min="0" :step="100" :show-button="false" style="width: 120px"><template #suffix>Wh</template></n-input-number>
+              <n-input-number v-model:value="pw.loadW" :min="1" :step="50" :show-button="false" style="width: 120px"><template #suffix>W</template></n-input-number>
             </div>
             <div style="margin-top:10px"><strong>≈ {{ pwUpsMin }} {{ t('tools_page.pw_minutes') }}</strong></div>
           </n-card>
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.pw_pdu') }}</span></template>
             <div class="nu-row">
-              <n-input-number v-model:value="pw.pduA" :min="1" style="width: 140px"><template #suffix>A</template></n-input-number>
+              <n-input-number v-model:value="pw.pduA" :min="1" :show-button="false" style="width: 140px"><template #suffix>A</template></n-input-number>
             </div>
             <div style="margin-top:10px"><strong>{{ pwPduSafe }} A</strong> ({{ t('tools_page.pw_safe80') }})</div>
           </n-card>
@@ -492,5 +513,13 @@ async function runEui64() {
 .nu-row > .n-input { flex: 1 1 140px; min-width: 0; }
 .nu-go { flex: 0 0 auto; }
 .nu-h { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+/* 每個小工具卡片要有明顯邊框，深色主題也分得出來 */
+.nu-grid :deep(.n-card) {
+  border: 1px solid rgba(127, 127, 127, 0.28);
+  background: rgba(127, 127, 127, 0.035);
+}
+.nu-grid :deep(.n-card > .n-card-header) {
+  border-bottom: 1px solid rgba(127, 127, 127, 0.18);
+}
 .nu-section { margin: 18px 0 8px; font-size: 14px; opacity: 0.85; }
 </style>

@@ -27,7 +27,7 @@ import {
 } from "naive-ui";
 import { NIcon } from "naive-ui";
 import { SettingsIcon, UsersIcon, LockIcon, LocationsIcon } from "@/icons";
-import { getMapProvider, setMapProvider } from "@/api/basic";
+import { getMapProvider, setMapProvider, getGeoipConfig, setGeoipConfig } from "@/api/basic";
 import QRCode from "qrcode";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores/auth";
@@ -95,6 +95,32 @@ async function changeMapProvider(p: "osm" | "google") {
     msg.success(t("common.ok"));
   } catch {
     msg.error(t("errors.network"));
+  }
+}
+
+// ── GeoIP（MaxMind GeoLite2 web service）──
+const geoipAccount = ref("");
+const geoipKey = ref("");
+const geoipHasKey = ref(false);
+const geoipSaving = ref(false);
+async function loadGeoip() {
+  try {
+    const c = await getGeoipConfig();
+    geoipAccount.value = c.account_id ?? "";
+    geoipHasKey.value = c.has_key;
+  } catch { /* ignore */ }
+}
+async function saveGeoip() {
+  geoipSaving.value = true;
+  try {
+    const c = await setGeoipConfig(geoipAccount.value.trim() || null, geoipKey.value.trim() || null);
+    geoipHasKey.value = c.has_key;
+    geoipKey.value = "";
+    msg.success(t("common.saved"));
+  } catch {
+    msg.error(t("errors.network"));
+  } finally {
+    geoipSaving.value = false;
   }
 }
 
@@ -180,6 +206,7 @@ onMounted(() => {
   void loadPrefs();
   if (me.value?.is_admin) {
     getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
+    void loadGeoip();
   }
 });
 </script>
@@ -353,6 +380,20 @@ onMounted(() => {
             />
             <div style="font-size: 11px; opacity: 0.65; margin-top: 4px;">
               {{ t("settings.system.map_provider_hint") }}
+            </div>
+          </div>
+
+          <!-- GeoIP（MaxMind GeoLite2 web service）-->
+          <div>
+            <label>{{ t("settings.system.geoip") }}</label>
+            <n-input v-model:value="geoipAccount" :placeholder="t('settings.system.geoip_account')" style="margin-bottom: 8px" />
+            <n-input v-model:value="geoipKey" type="password" show-password-on="click"
+                     :placeholder="geoipHasKey ? t('settings.system.geoip_key_set') : t('settings.system.geoip_key')" />
+            <div style="margin-top: 8px">
+              <n-button size="small" :loading="geoipSaving" @click="saveGeoip">{{ t("common.save") }}</n-button>
+            </div>
+            <div style="font-size: 11px; opacity: 0.65; margin-top: 4px;">
+              {{ t("settings.system.geoip_hint") }}
             </div>
           </div>
         </n-space>

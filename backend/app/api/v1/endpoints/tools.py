@@ -10,8 +10,10 @@ import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
+from app.core.db import get_session
 from app.schemas.base import StrictModel
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -406,6 +408,18 @@ async def dns_lookup(
     return out
 
 
+@router.get("/geoip")
+async def geoip(
+    _user: CurrentUser,
+    ip: Annotated[str, Query(min_length=1, max_length=64)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """IP 地理位置查詢（MaxMind GeoLite2 web service；需管理者先在系統設定填憑證）。"""
+    addr = _addr_or_400(ip)
+    from app.services.geoip import geoip_lookup
+    return await geoip_lookup(session, str(addr))
+
+
 @router.get("/dns-mail")
 async def dns_mail(
     _user: CurrentUser,
@@ -431,8 +445,10 @@ async def dns_mail(
                 return sorted(f"{r.preference} {r.exchange.to_text().rstrip('.')}" for r in ans)
             return ["".join(s.decode() if isinstance(s, bytes) else s for s in r.strings)
                     if hasattr(r, "strings") else r.to_text().strip('"') for r in ans]
-        except Exception as exc:  # noqa: BLE001 — 回報而非中斷
-            return [f"__error__:{type(exc).__name__}"]
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            return []   # 沒有這筆記錄 → 空（前端顯示「—」）
+        except Exception:  # noqa: BLE001 — timeout/servfail 等：靜默回空，不把錯誤字串塞進結果
+            return []
 
     def _work() -> dict:
         mx = _q(domain, "MX")

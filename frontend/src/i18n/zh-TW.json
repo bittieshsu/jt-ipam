@@ -801,6 +801,9 @@
     "lookup": "查詢",
     "split_btn": "切割",
     "t_mail": "郵件 / DNS 診斷 (MX / SPF / DKIM)",
+    "t_geoip": "GeoIP 地理位置查詢",
+    "geoip_not_set": "尚未設定 MaxMind 憑證（請到設定→系統）",
+    "dkim_selector_ph": "DKIM selector（選填，如 default）",
     "power_calc": "機房電力試算",
     "pw_load": "電力負載 / 容量",
     "pw_heat": "散熱 (W → BTU)",
@@ -1288,7 +1291,12 @@
     "system": {
       "tab": "系統",
       "map_provider": "地圖供應商",
-      "map_provider_hint": "全域設定：地點頁的地圖預覽要用哪家服務。OpenStreetMap 免金鑰；Google Maps 在某些地區圖資較佳。"
+      "map_provider_hint": "全域設定：地點頁的地圖預覽要用哪家服務。OpenStreetMap 免金鑰；Google Maps 在某些地區圖資較佳。",
+      "geoip": "GeoIP（MaxMind）",
+      "geoip_account": "MaxMind Account ID",
+      "geoip_key": "MaxMind License Key",
+      "geoip_key_set": "（已設定，留空＝保留原本）",
+      "geoip_hint": "填 MaxMind 帳號的 Account ID 與 License Key，工具頁的 GeoIP 查詢即可使用（走 GeoLite2 web service，免本地資料庫）。Key 加密儲存。"
     }
   },
   "errors": {

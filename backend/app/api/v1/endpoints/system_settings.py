@@ -213,6 +213,53 @@ async def put_map_provider(
     return MapProviderOut(provider=prov)
 
 
+# ─────────────────── GeoIP（MaxMind GeoLite2 web service）───────────────────
+class GeoIPConfigOut(StrictModel):
+    account_id: str | None = None
+    has_key: bool = False
+
+
+class GeoIPConfigIn(StrictModel):
+    account_id: Annotated[str | None, Field(max_length=64)] = None
+    license_key: Annotated[str | None, Field(max_length=128)] = None   # 留空＝保留原本
+
+
+@router.get("/geoip", response_model=GeoIPConfigOut)
+async def get_geoip(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> GeoIPConfigOut:
+    from app.services.geoip import get_geoip_creds
+    acct, key = await get_geoip_creds(session)
+    return GeoIPConfigOut(account_id=acct, has_key=bool(key))
+
+
+@router.put("/geoip", response_model=GeoIPConfigOut)
+async def put_geoip(
+    payload: GeoIPConfigIn,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> GeoIPConfigOut:
+    from app.services.geoip import get_geoip_creds, set_geoip_creds
+    await set_geoip_creds(
+        session, account_id=payload.account_id, license_key=payload.license_key,
+        updated_by=user.id,
+    )
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "geoip", "account_id": payload.account_id,
+              "key_changed": bool(payload.license_key)},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    acct, key = await get_geoip_creds(session)
+    return GeoIPConfigOut(account_id=acct, has_key=bool(key))
+
+
 class LLMConfigOut(StrictModel):
     enabled: bool
     url: str

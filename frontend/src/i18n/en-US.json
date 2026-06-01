@@ -801,6 +801,9 @@
     "lookup": "Lookup",
     "split_btn": "Split",
     "t_mail": "Mail / DNS diagnostics (MX / SPF / DKIM)",
+    "t_geoip": "GeoIP location lookup",
+    "geoip_not_set": "MaxMind credentials not set (Settings → System)",
+    "dkim_selector_ph": "DKIM selector (optional, e.g. default)",
     "power_calc": "Data-center power calculators",
     "pw_load": "Power load / capacity",
     "pw_heat": "Heat (W → BTU)",
@@ -1288,7 +1291,12 @@
     "system": {
       "tab": "System",
       "map_provider": "Map provider",
-      "map_provider_hint": "Global setting: which service the Locations map preview uses. OpenStreetMap needs no API key; Google Maps has better coverage in some regions."
+      "map_provider_hint": "Global setting: which service the Locations map preview uses. OpenStreetMap needs no API key; Google Maps has better coverage in some regions.",
+      "geoip": "GeoIP (MaxMind)",
+      "geoip_account": "MaxMind Account ID",
+      "geoip_key": "MaxMind License Key",
+      "geoip_key_set": "(set — leave blank to keep)",
+      "geoip_hint": "Enter your MaxMind Account ID and License Key to enable the GeoIP tool (uses the GeoLite2 web service, no local DB). The key is stored encrypted."
     }
   },
   "errors": {

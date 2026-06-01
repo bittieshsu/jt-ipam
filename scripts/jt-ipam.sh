@@ -483,8 +483,8 @@ cmd_upgrade() {
 
     ver_of() { grep -m1 '"version"' "$ROOT/frontend/package.json" | sed -E 's/.*"version"\s*:\s*"([^"]+)".*/\1/'; }
     alembic_head() {
-      ( cd "$ROOT/backend"; set -a; source "$ENV_FILE"; set +a; \
-        as_user .venv/bin/alembic current 2>/dev/null | head -1 ) || true
+      # 必須在 sudo 的子 shell 內 source env（sudo 會清掉父層環境變數）
+      ( as_user bash -c "cd '$ROOT/backend'; set -a; source '$ENV_FILE'; set +a; .venv/bin/alembic current" 2>/dev/null | head -1 ) || true
     }
 
     local OLD_VER OLD_REV
@@ -539,7 +539,8 @@ cmd_upgrade() {
 
     # ── 5. 資料庫 migration ──
     log "alembic upgrade head…"
-    ( cd "$ROOT/backend"; set -a; source "$ENV_FILE"; set +a; as_user .venv/bin/alembic upgrade head )
+    # env 要在 sudo 的子 shell 內 source（sudo 預設不帶父層環境變數）
+    as_user bash -c "cd '$ROOT/backend'; set -a; source '$ENV_FILE'; set +a; .venv/bin/alembic upgrade head"
 
     # ── 6. 前端 build（優先 pnpm，無則 npm）──
     log "建置前端…"

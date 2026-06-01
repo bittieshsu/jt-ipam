@@ -192,6 +192,16 @@ export async function setMapProvider(provider: "osm" | "google"): Promise<void> 
   await apiClient.put("/api/v1/system/map-provider", { provider });
 }
 
+export interface GeoIPConfig { account_id: string | null; has_key: boolean; }
+export async function getGeoipConfig(): Promise<GeoIPConfig> {
+  const { data } = await apiClient.get<GeoIPConfig>("/api/v1/system/geoip");
+  return data;
+}
+export async function setGeoipConfig(account_id: string | null, license_key: string | null): Promise<GeoIPConfig> {
+  const { data } = await apiClient.put<GeoIPConfig>("/api/v1/system/geoip", { account_id, license_key });
+  return data;
+}
+
 export async function listLocations(): Promise<Paginated<Location>> {
   const { data } = await apiClient.get<Paginated<Location>>("/api/v1/locations", {
     params: { page: 1, page_size: 200 },

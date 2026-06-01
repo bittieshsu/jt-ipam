@@ -381,7 +381,7 @@ async def update_rack(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="rack", object_id=str(obj.id), action="update",
-        diff={"before": before, "changes": changes},
+        diff={"before": before, "changes": payload.model_dump(exclude_unset=True, mode="json")},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()

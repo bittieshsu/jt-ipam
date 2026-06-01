@@ -320,9 +320,12 @@ async function save() {
           :title="`${r.name} · ${r.u_height}U`"
           @pointerdown.stop="onMarkerDown(r, $event)"
         >
-          <n-icon :size="13"><RacksIcon /></n-icon>
-          <span class="m-name">{{ r.name }}</span>
-          <span class="m-u">{{ r.u_height }}U</span>
+          <!-- 標籤反向縮放 → 不論平面圖縮放比例都維持可讀的螢幕字級 -->
+          <div class="rb-label" :style="handleStyle">
+            <n-icon :size="13"><RacksIcon /></n-icon>
+            <span class="m-name">{{ r.name }}</span>
+            <span class="m-u">{{ r.u_height }}U</span>
+          </div>
           <span v-if="editMode" class="m-rot" :style="handleStyle" :title="t('racks.fp_rotate')"
                 @pointerdown.stop="onRotateDown(r, $event)">⟳</span>
           <span v-if="editMode" class="m-x" :style="handleStyle" @pointerdown.stop @click.stop="unplace(r)">×</span>
