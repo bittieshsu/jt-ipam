@@ -15,6 +15,14 @@ import { Virt, type ProxmoxInstance } from "@/api/phase3";
 import { autoSort } from "@/composables/useTableSort";
 
 const { t } = useI18n();
+
+// VM 狀態翻譯（running/stopped/paused/suspended…）；沒對到就原樣顯示
+function vmStatusLabel(s: string | null | undefined): string {
+  if (!s) return "—";
+  const key = `virt.vm_status.${s}`;
+  const tr = t(key);
+  return tr === key ? s : tr;
+}
 const msg = useMessage();
 const tab = ref<"clusters" | "vms" | "proxmox">("clusters");
 
@@ -190,7 +198,7 @@ const vmCols = computed<DataTableColumns<any>>(() => autoSort([
     render: (r) => h(NTag, {
       size: "small",
       type: r.status === "running" ? "success" : r.status === "stopped" ? "default" : "warning",
-    }, () => r.status ?? "—"),
+    }, () => vmStatusLabel(r.status)),
   },
 ]));
 const proxmoxCols = computed<DataTableColumns<ProxmoxInstance>>(() => autoSort([

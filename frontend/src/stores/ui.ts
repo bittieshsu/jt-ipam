@@ -34,12 +34,23 @@ export const useUiStore = defineStore("ui", () => {
     return theme.value;
   });
 
-  function setTheme(value: Theme) {
-    theme.value = value;
-    localStorage.setItem("theme", value);
+  // 把佈景 / 語言寫回後端偏好（跨裝置同步）；未登入就略過。persist=false 用於
+  // 從後端套用時，避免回寫造成迴圈。
+  async function persistPref(patch: Record<string, unknown>) {
+    if (!localStorage.getItem("access_token")) return;
+    try {
+      const { updatePreferences } = await import("@/api/preferences");
+      await updatePreferences(patch as any);
+    } catch { /* 失敗不影響本地；下次 hydrate 會以後端為準 */ }
   }
 
-  function setLocale(value: Locale) {
+  function setTheme(value: Theme, persist = true) {
+    theme.value = value;
+    localStorage.setItem("theme", value);
+    if (persist) void persistPref({ theme: value });
+  }
+
+  function setLocale(value: Locale, persist = true) {
     locale.value = value;
     localStorage.setItem("locale", value);
     try {
@@ -48,6 +59,18 @@ export const useUiStore = defineStore("ui", () => {
     } catch {
       // i18n 尚未注入時略過 (store 初始化時會發生)
     }
+    if (persist) void persistPref({ locale: value });
+  }
+
+  // 啟動 / 登入後呼叫：用後端偏好覆寫本地（跨裝置同步），不回寫。
+  async function hydrateFromServer() {
+    if (!localStorage.getItem("access_token")) return;
+    try {
+      const { getPreferences } = await import("@/api/preferences");
+      const p = await getPreferences();
+      if (p?.theme) setTheme(p.theme as Theme, false);
+      if (p?.locale) setLocale(p.locale as Locale, false);
+    } catch { /* ignore */ }
   }
 
   // 同步 <html lang> 與 dark/light class(CSS variables hook)
@@ -61,5 +84,5 @@ export const useUiStore = defineStore("ui", () => {
     { immediate: true },
   );
 
-  return { theme, locale, effectiveTheme, setTheme, setLocale };
+  return { theme, locale, effectiveTheme, setTheme, setLocale, hydrateFromServer };
 });

@@ -151,7 +151,8 @@ async def create_subnet(
 
     try:
         await assert_no_overlap(
-            session, cidr=payload.cidr, vrf_id=payload.vrf_id
+            session, cidr=payload.cidr, vrf_id=payload.vrf_id,
+            allow_overlap=payload.allow_overlap,
         )
     except SubnetOverlap as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -168,6 +169,7 @@ async def create_subnet(
     )
 
     data = payload.model_dump()
+    data.pop("allow_overlap", None)   # 僅建立時的旗標，非欄位
     data["master_subnet_id"] = master_id
     data["custom_fields"] = validated_cf or None
     subnet = Subnet(**data)

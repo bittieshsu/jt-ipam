@@ -49,6 +49,11 @@ export async function createDNSServer(payload: DNSServerCreate): Promise<DNSServ
   return data;
 }
 
+export async function updateDNSServer(id: string, payload: Partial<DNSServerCreate>): Promise<DNSServer> {
+  const { data } = await apiClient.patch<DNSServer>(`/api/v1/dns/servers/${id}`, payload);
+  return data;
+}
+
 export async function deleteDNSServer(id: string): Promise<void> {
   await apiClient.delete(`/api/v1/dns/servers/${id}`);
 }
@@ -212,6 +217,24 @@ export interface OPNsenseRule {
 export async function listFirewallRules(fwId: string, page = 1): Promise<Paginated<OPNsenseRule>> {
   const { data } = await apiClient.get<Paginated<OPNsenseRule>>(
     `/api/v1/firewalls/opnsense/${fwId}/rules`, { params: { page, page_size: 500 } },
+  );
+  return data;
+}
+
+export interface OPNsenseSyncedAlias {
+  id: string;
+  name: string;
+  alias_type: string | null;
+  description: string | null;
+  enabled: boolean;
+  content: string[];
+  member_count: number;
+  last_synced_at: string | null;
+}
+
+export async function listFirewallAliases(fwId: string): Promise<OPNsenseSyncedAlias[]> {
+  const { data } = await apiClient.get<OPNsenseSyncedAlias[]>(
+    `/api/v1/firewalls/opnsense/${fwId}/aliases`,
   );
   return data;
 }

@@ -46,6 +46,8 @@ import {
   Settings,
   Tools,
   GraphUp,
+  ScaleFrameEnlarge,
+  SendDiagonal,
   Hammer,
   // Admin / 安全
   ShieldCheck,
@@ -123,6 +125,7 @@ export const AddressesIcon = IpAddressTag;
 export const IPChangesIcon = ClockRotateRight;
 export const VlansIcon = Internet;
 export const VrfsIcon = Link;
+export const LinkIcon = Link;
 export const NatIcon = RefreshDouble;
 export const DevicesIcon = Server;
 export const RacksIcon = ServerConnection;
@@ -130,6 +133,8 @@ export const LocationsIcon = MapPin;
 export const PinIcon = Pin;
 export const RequestsIcon = MultiplePages;
 export const TopologyIcon = GraphUp;
+export const FitIcon = ScaleFrameEnlarge;
+export const SendIcon = SendDiagonal;
 export const ToolsIcon = Hammer;
 export const SettingsIcon = Settings;
 

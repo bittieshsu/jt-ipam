@@ -42,6 +42,7 @@ dependencies = [
     "pyrad>=2.4",                  # Radius 認證
     "dnspython>=2.6",              # BIND 9 AXFR + nsupdate (TSIG)
     "pywinrm>=0.5",                # Windows DNS（WinRM + PowerShell）
+    "geoip2>=4.8",                 # GeoIP：MaxMind GeoLite2/GeoIP2 mmdb 本地查詢（含 maxminddb reader）
 
     # ── SSO（Phase 3）──
     "authlib>=1.3",                # OIDC / OAuth2

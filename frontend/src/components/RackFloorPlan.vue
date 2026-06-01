@@ -217,8 +217,17 @@ function boxStyle(r: Rack) {
     top: (r.pos_y as number) * 100 + "%",
     transform: `translate(-50%, -50%) rotate(${r.pos_rot || 0}deg)`,
   };
+  // 寬度：有手動拉過(pos_w) 用比例，否則固定 46px
   s.width = r.pos_w != null ? r.pos_w * 100 + "%" : "46px";
-  s.height = r.pos_h != null ? r.pos_h * 100 + "%" : boxHeight(r) + "px";
+  // 高度：有手動拉過(pos_h) 用比例；否則若有實體寬/深(mm) 就按俯視腳印比例(深/寬)畫，
+  //       讓平面圖上的機櫃方框反映真實形狀；都沒有才退回 U 數估高。
+  if (r.pos_h != null) {
+    s.height = r.pos_h * 100 + "%";
+  } else if (r.width_mm && r.depth_mm) {
+    s.height = Math.round(46 * (r.depth_mm / r.width_mm)) + "px";
+  } else {
+    s.height = boxHeight(r) + "px";
+  }
   return s;
 }
 

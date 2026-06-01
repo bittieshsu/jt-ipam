@@ -38,7 +38,8 @@ export function renderMarkdown(src: string): string {
 
   let inCode = false;
   let codeBuf: string[] = [];
-  let listType: "ul" | "ol" | null = null;
+  // 用堆疊追蹤巢狀清單（依縮排深度），讓 AI 回應的多層清單保留縮排
+  const stack: { type: "ul" | "ol"; indent: number }[] = [];
   let para: string[] = [];
 
   const flushPara = () => {
@@ -47,8 +48,20 @@ export function renderMarkdown(src: string): string {
       para = [];
     }
   };
-  const closeList = () => {
-    if (listType) { out.push(`</${listType}>`); listType = null; }
+  const closeList = () => { while (stack.length) out.push(`</${stack.pop()!.type}>`); };
+  const indentOf = (s: string): number => (/^(\s*)/.exec(s)?.[1] ?? "").replace(/\t/g, "  ").length;
+  const listItem = (indent: number, type: "ul" | "ol", content: string) => {
+    flushPara();
+    while (stack.length && stack[stack.length - 1].indent > indent) {
+      out.push(`</${stack.pop()!.type}>`);
+    }
+    const top = stack[stack.length - 1];
+    if (!top || top.indent < indent) {
+      out.push(`<${type}>`); stack.push({ type, indent });
+    } else if (top.indent === indent && top.type !== type) {
+      out.push(`</${stack.pop()!.type}>`); out.push(`<${type}>`); stack.push({ type, indent });
+    }
+    out.push(`<li>${inline(content)}</li>`);
   };
 
   for (const raw of lines) {
@@ -78,22 +91,12 @@ export function renderMarkdown(src: string): string {
       continue;
     }
 
-    // 有序清單
+    // 有序清單（依縮排巢狀）
     const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-    if (ol) {
-      flushPara();
-      if (listType !== "ol") { closeList(); out.push("<ol>"); listType = "ol"; }
-      out.push(`<li>${inline(ol[1])}</li>`);
-      continue;
-    }
-    // 無序清單
+    if (ol) { listItem(indentOf(line), "ol", ol[1]); continue; }
+    // 無序清單（依縮排巢狀）
     const ul = /^\s*[-*+]\s+(.*)$/.exec(line);
-    if (ul) {
-      flushPara();
-      if (listType !== "ul") { closeList(); out.push("<ul>"); listType = "ul"; }
-      out.push(`<li>${inline(ul[1])}</li>`);
-      continue;
-    }
+    if (ul) { listItem(indentOf(line), "ul", ul[1]); continue; }
 
     // 一般段落行
     closeList();

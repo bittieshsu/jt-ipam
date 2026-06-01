@@ -496,12 +496,15 @@ async function runEui64() {
 </template>
 
 <style scoped>
-/* 網路小工具：響應式兩欄（窄螢幕自動單欄）的緊湊卡片，不要全寬堆疊 */
+/* 網路小工具：最多兩欄，不要擠到三欄；窄螢幕自動單欄 */
 .nu-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: start;
+}
+@media (max-width: 820px) {
+  .nu-grid { grid-template-columns: 1fr; }
 }
 /* 每個小工具的輸入 + 查詢鈕排成一列；窄時自動換行 */
 .nu-row {

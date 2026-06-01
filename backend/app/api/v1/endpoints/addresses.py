@@ -220,6 +220,50 @@ async def get_address(
     return out
 
 
+@router.get("/{address_id}/relations")
+async def get_address_relations(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """IP 的上下關係鏈：區段 → 子網路 → 位址 → 裝置 → 機櫃 → 機房。
+    每個節點 {type,id,label,sub}；缺的環節省略。前端橫向串成關係圖。"""
+    from app.models.section import Section
+    from app.models.device import Device
+    from app.models.location import Location, Rack
+
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "read")
+
+    chain: list[dict] = []
+    subnet = await session.get(Subnet, obj.subnet_id) if obj.subnet_id else None
+    if subnet is not None and subnet.section_id:
+        sec = await session.get(Section, subnet.section_id)
+        if sec is not None:
+            chain.append({"type": "section", "id": str(sec.id), "label": sec.name})
+    if subnet is not None:
+        chain.append({"type": "subnet", "id": str(subnet.id),
+                      "label": str(subnet.cidr), "sub": subnet.description})
+    chain.append({"type": "ip", "id": str(obj.id),
+                  "label": str(obj.ip).split("/")[0], "sub": obj.hostname})
+    if obj.device_id:
+        dev = await session.get(Device, obj.device_id)
+        if dev is not None:
+            chain.append({"type": "device", "id": str(dev.id), "label": dev.name})
+            if dev.rack_id:
+                rk = await session.get(Rack, dev.rack_id)
+                if rk is not None:
+                    chain.append({"type": "rack", "id": str(rk.id), "label": rk.name})
+            loc_id = dev.location_id
+            if loc_id:
+                loc = await session.get(Location, loc_id)
+                if loc is not None:
+                    chain.append({"type": "location", "id": str(loc.id), "label": loc.name})
+    return {"chain": chain}
+
+
 @router.get("/{address_id}/history", response_model=list[IPChangeLogRead])
 async def get_address_history(
     address_id: uuid.UUID,
@@ -302,6 +346,45 @@ async def get_address_hostname_sources(
             for r in rows
         ],
     }
+
+
+@router.delete("/{address_id}/hostname-sources/{source}", status_code=204)
+async def clear_address_hostname_source(
+    address_id: uuid.UUID,
+    source: str,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    """清掉某 IP 某來源的 hostname 觀測（例如過時的「手動: tp-link-c7」），
+    然後依優先序重算有效 hostname。"""
+    from sqlalchemy import delete as _delete
+    from app.models.ip_hostname import IPHostnameObservation
+    from app.services.hostname import recompute_effective
+
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "write")
+    await session.execute(
+        _delete(IPHostnameObservation).where(
+            IPHostnameObservation.ip_id == address_id,
+            IPHostnameObservation.source == source,
+        )
+    )
+    # 若這個來源剛好是目前 pin，順手取消 pin
+    if obj.hostname_source_pin == source:
+        obj.hostname_source_pin = None
+    await recompute_effective(session, ip=obj)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip_address", object_id=str(obj.id), action="update",
+        diff={"cleared_hostname_source": source},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
 
 
 @router.post("", response_model=IPAddressRead, status_code=status.HTTP_201_CREATED)
@@ -446,6 +529,13 @@ async def update_address(
 
     for key, value in changes.items():
         setattr(obj, key, value)
+
+    # 把這個 IP 指派給某裝置 → 若該裝置還沒設主要 IP，順手補上（雙向連結方便）
+    if changes.get("device_id"):
+        from app.models.device import Device as _Device
+        dev = await session.get(_Device, changes["device_id"])
+        if dev is not None and dev.primary_ip_id is None:
+            dev.primary_ip_id = obj.id
 
     # feature B：逐欄記錄人為編輯（hostname 改走 apply_observation，這裡不含它）
     await log_field_diffs(

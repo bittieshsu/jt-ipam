@@ -1091,6 +1091,68 @@ async def link_ipsec_peers(session: AsyncSession) -> int:
     return linked
 
 
+def _opn_selected(v: Any) -> str:
+    """OPNsense get-view 的 select 欄位 → 取被選中的 key（逗號分隔）；純量原樣回字串。"""
+    if isinstance(v, dict):
+        sel = [k for k, o in v.items()
+               if isinstance(o, dict) and str(o.get("selected")) in ("1", "true", "True")]
+        return ",".join(sel)
+    return "" if v is None else str(v)
+
+
+def _opn_members(content: Any) -> list[str]:
+    """OPNsense alias content → 成員字串列表。"""
+    if isinstance(content, dict):
+        sel = [k for k, o in content.items()
+               if isinstance(o, dict) and str(o.get("selected")) in ("1", "true", "True")]
+        return sel or list(content.keys())
+    if isinstance(content, str):
+        return [x.strip() for x in content.replace(",", "\n").split("\n") if x.strip()]
+    if isinstance(content, list):
+        return [str(x) for x in content]
+    return []
+
+
+async def sync_aliases(session: AsyncSession, fw: OPNsenseFirewall) -> dict[str, Any]:
+    """把 OPNsense 上的 alias 定義拉回 jt-ipam（唯讀檢視用）。"""
+    from app.models.firewall import OPNsenseSyncedAlias
+
+    aliases = await list_aliases(fw)
+    now = datetime.now(UTC)
+    existing = {
+        a.name: a for a in (await session.execute(
+            select(OPNsenseSyncedAlias).where(OPNsenseSyncedAlias.firewall_id == fw.id)
+        )).scalars().all()
+    }
+    seen: set[str] = set()
+    for a in aliases:
+        raw_name = a.get("name")
+        name = raw_name if isinstance(raw_name, str) and raw_name else _opn_selected(raw_name)
+        if not name:
+            continue
+        seen.add(name)
+        desc = a.get("description")
+        desc = desc if isinstance(desc, str) else _opn_selected(desc)
+        en_raw = a.get("enabled")
+        en = _opn_selected(en_raw) if isinstance(en_raw, dict) else str(en_raw if en_raw is not None else "1")
+        members = _opn_members(a.get("content"))
+        row = existing.get(name)
+        if row is None:
+            row = OPNsenseSyncedAlias(firewall_id=fw.id, name=name)
+            session.add(row)
+        row.alias_type = (_opn_selected(a.get("type")) or None)
+        row.description = desc or None
+        row.enabled = en in ("1", "true", "True")
+        row.content = members
+        row.member_count = len(members)
+        row.opn_uuid = str(a.get("uuid")) if a.get("uuid") else None
+        row.last_synced_at = now
+    for name, row in existing.items():
+        if name not in seen:
+            await session.delete(row)
+    return {"count": len(seen)}
+
+
 async def sync_all_for_firewall(
     session: AsyncSession, fw: OPNsenseFirewall,
 ) -> list[dict[str, Any]]:
@@ -1134,6 +1196,11 @@ async def sync_all_for_firewall(
             out.append({"task": "nat", **(await sync_nat_rules(session, fw))})
         except OPNsenseError as exc:
             out.append({"task": "nat", "error": str(exc)})
+    # alias 定義一律拉回（唯讀檢視）；失敗只記錄
+    try:
+        out.append({"task": "aliases", **(await sync_aliases(session, fw))})
+    except OPNsenseError as exc:
+        out.append({"task": "aliases", "error": str(exc)})
     # VPN（site-to-site WireGuard / IPsec）一律嘗試；外掛 / API 不存在會被容錯吞掉
     try:
         out.append({"task": "vpn", **(await sync_vpn_tunnels(session, fw))})

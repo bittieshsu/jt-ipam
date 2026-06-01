@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
@@ -17,6 +17,9 @@ import { useUiStore } from "@/stores/ui";
 
 const ui = useUiStore();
 const { effectiveTheme, locale } = storeToRefs(ui);
+
+// 啟動時用後端偏好同步佈景 / 語言（跨裝置一致）
+onMounted(() => { void ui.hydrateFromServer(); });
 
 const naiveTheme = computed(() => (effectiveTheme.value === "dark" ? darkTheme : null));
 const naiveLocale = computed(() => (locale.value === "zh-TW" ? zhTW : enUS));
@@ -46,20 +49,28 @@ const _menuActive = {
   itemIconColorChildActive: PRIMARY_HOVER,
 };
 
-// 淺色：白卡 + 柔和灰底，三層對比
+// 淺色：白卡 + 柔和冷灰底，三層對比；狀態色更鮮明
 const lightOverrides = {
   common: {
     ..._common,
-    bodyColor:    "#f4f6fb",
+    bodyColor:    "#eef1f8",
     cardColor:    "#ffffff",
     modalColor:   "#ffffff",
     popoverColor: "#ffffff",
     tableColor:   "#ffffff",
     dividerColor: "#e6e9f0",
     borderColor:  "#e2e6ee",
-    textColor1: "#111827",
-    textColor2: "#374151",
-    textColor3: "#6b7280",
+    textColor1: "#0f172a",
+    textColor2: "#334155",
+    textColor3: "#64748b",
+    infoColor:        "#2563eb",
+    infoColorHover:   "#3b82f6",
+    successColor:     PRIMARY,
+    successColorHover: PRIMARY_HOVER,
+    warningColor:     "#f59e0b",
+    warningColorHover: "#fbbf24",
+    errorColor:       "#ef4444",
+    errorColorHover:  "#f87171",
   },
   LayoutSider:  { color: "#ffffff", borderColor: "#e6e9f0" },
   LayoutHeader: { color: "#ffffff", borderColor: "#e6e9f0" },
@@ -69,25 +80,33 @@ const lightOverrides = {
   Tabs: { tabTextColorActiveLine: PRIMARY, barColor: PRIMARY },
 };
 
-// 深色：分層的深石板色（非純黑），細邊框 + 適度對比，避免「整片黑」
+// 深色：科幻風——藍黑深色 + 青色(cyan)點綴、霓光綠主色，分層藍石板，細邊框帶藍調
 const darkOverrides = {
   common: {
     ..._common,
-    bodyColor:    "#0b0f17",
-    cardColor:    "#141a23",
-    modalColor:   "#141a23",
-    popoverColor: "#171e28",
-    tableColor:   "#121821",
-    dividerColor: "rgba(255, 255, 255, 0.08)",
-    borderColor:  "rgba(255, 255, 255, 0.11)",
-    textColor1: "#e6edf5",
-    textColor2: "#aeb7c4",
-    textColor3: "#7d8794",
+    bodyColor:    "#070b14",
+    cardColor:    "#0f1825",
+    modalColor:   "#0f1825",
+    popoverColor: "#132030",
+    tableColor:   "#0d1622",
+    dividerColor: "rgba(120, 180, 255, 0.10)",
+    borderColor:  "rgba(120, 180, 255, 0.14)",
+    textColor1: "#e8f0fb",
+    textColor2: "#aab8cc",
+    textColor3: "#7585a0",
     primaryColorHover: "#34d399",
+    infoColor:        "#22d3ee",
+    infoColorHover:   "#67e8f9",
+    successColor:     "#10b981",
+    successColorHover: "#34d399",
+    warningColor:     "#f59e0b",
+    warningColorHover: "#fbbf24",
+    errorColor:       "#fb7185",
+    errorColorHover:  "#fda4af",
   },
-  LayoutSider:  { color: "#0e131c", borderColor: "rgba(255,255,255,0.07)" },
-  LayoutHeader: { color: "#0e131c", borderColor: "rgba(255,255,255,0.07)" },
-  Card: { color: "#141a23", borderColor: "rgba(255,255,255,0.08)" },
+  LayoutSider:  { color: "#0a1019", borderColor: "rgba(120,180,255,0.10)" },
+  LayoutHeader: { color: "#0a1019", borderColor: "rgba(120,180,255,0.10)" },
+  Card: { color: "#0f1825", borderColor: "rgba(120,180,255,0.12)" },
   Menu: {
     ..._menuActive,
     itemColorActive:          "rgba(52, 211, 153, 0.16)",
@@ -171,9 +190,14 @@ td.col-actions .n-space { flex-wrap: nowrap !important; }
    只影響標題，資料 cell 仍照各欄 ellipsis 設定截斷。 */
 .n-data-table-th__title { white-space: nowrap; }
 
-/* 卡片標頭 extra 區（明細頁的 重新整理 / 欄位 等）按鈕一律 medium 高度，
-   避免 popover-trigger 與一般按鈕視覺上一高一矮 */
-.n-card-header__extra .n-button:not(.n-button--small-type) {
+/* 統一按鈕高度：把 size="small" 的工具列按鈕（重新整理 / 欄位 / 匯出 / 篩選區等）
+   一律拉到與 medium 同高 34px，避免一排按鈕高低不齊。tiny（表格內 icon、chat）與
+   text 按鈕不動。ColumnPicker / ExportButton 的 trigger 也吃得到。 */
+.n-button--small-type:not(.n-button--text):not(.n-button--tiny-type) {
+  --n-height: 34px;
+  min-height: 34px;
+}
+.n-card-header__extra .n-button:not(.n-button--tiny-type) {
   --n-height: 34px;
   min-height: 34px;
 }
@@ -225,5 +249,34 @@ html[data-theme="dark"] .n-data-table-td {
 }
 html[data-theme="dark"] .n-data-table-tr:hover .n-data-table-td {
   background-color: rgba(148, 163, 184, 0.06) !important;
+}
+
+/* ── 深色科幻風點綴 ── */
+/* 主畫面背景：極淡的藍/青徑向光暈，從深藍黑浮出層次（非整片死黑） */
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(1200px 700px at 12% -8%, rgba(34, 211, 238, 0.06), transparent 60%),
+    radial-gradient(1100px 600px at 100% 0%, rgba(52, 211, 153, 0.05), transparent 55%),
+    #070b14;
+}
+html[data-theme="dark"] .n-card { backdrop-filter: saturate(1.05); }
+/* 卡片標題列改藍青漸層帶，科幻一點 */
+html[data-theme="dark"] .n-card > .n-card-header {
+  background: linear-gradient(90deg, rgba(34,211,238,0.10), rgba(52,211,153,0.06));
+}
+/* 主要按鈕：淡淡霓光 */
+html[data-theme="dark"] .n-button.n-button--primary-type:not(.n-button--disabled) {
+  box-shadow: 0 0 0 1px rgba(52,211,153,0.25), 0 2px 10px rgba(16,185,129,0.18);
+}
+/* 側欄選中項：左側青綠光條 */
+html[data-theme="dark"] .n-menu .n-menu-item-content--selected::before {
+  content: "";
+  position: absolute; left: 0; top: 14%; bottom: 14%; width: 3px;
+  background: linear-gradient(#22d3ee, #34d399);
+  border-radius: 0 3px 3px 0; box-shadow: 0 0 8px rgba(34,211,238,0.6);
+}
+/* 淺色：卡片標題列改為非常淡的品牌綠帶，比純灰更有生氣 */
+html[data-theme="light"] .n-card > .n-card-header {
+  background: linear-gradient(90deg, rgba(24,160,88,0.07), rgba(37,99,235,0.04));
 }
 </style>

@@ -23,11 +23,14 @@ import {
   NAlert,
   NCode,
   NPopconfirm,
+  NSwitch,
+  NTag,
   useMessage,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
+import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { SettingsIcon, UsersIcon, LockIcon, LocationsIcon } from "@/icons";
-import { getMapProvider, setMapProvider, getGeoipConfig, setGeoipConfig } from "@/api/basic";
+import { getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign, getGeoipConfig, setGeoipConfig, updateGeoipDbNow, type GeoIPConfig, type RackNameAlign } from "@/api/basic";
 import QRCode from "qrcode";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores/auth";
@@ -36,7 +39,6 @@ import {
   getPreferences,
   updatePreferences,
 } from "@/api/preferences";
-import { setOnlineGraceMinutes as onGraceChange } from "@/composables/useLivenessSettings";
 import {
   type UserPreferences,
 } from "@/api/preferences";
@@ -56,9 +58,9 @@ async function loadPrefs() {
   prefsLoading.value = true;
   try {
     prefs.value = await getPreferences();
-    // 同步到 ui store(讓主題 / 語言馬上反映)
+    // locale 同步到 ui store；theme 不在這裡覆寫——以 ui store(localStorage) 為準，
+    // 否則使用者剛在右上切換的佈景會在開設定頁時被後端舊值蓋回去。
     ui.setLocale(prefs.value.locale);
-    ui.setTheme(prefs.value.theme);
   } catch {
     msg.error(t("errors.network"));
   } finally {
@@ -98,23 +100,44 @@ async function changeMapProvider(p: "osm" | "google") {
   }
 }
 
-// ── GeoIP（MaxMind GeoLite2 web service）──
+// ── 機櫃示意圖：裝置名稱對齊（全域）──
+const rackAlign = ref<RackNameAlign>("left");
+const rackAlignOpts = computed(() => [
+  { label: t("settings.system.align_left"), value: "left" },
+  { label: t("settings.system.align_center"), value: "center" },
+  { label: t("settings.system.align_right"), value: "right" },
+]);
+async function changeRackAlign(a: RackNameAlign) {
+  rackAlign.value = a;
+  try { await setRackNameAlign(a); msg.success(t("common.ok")); }
+  catch { msg.error(t("errors.network")); }
+}
+
+// ── GeoIP（MaxMind 本地 mmdb + 排程更新）──
+const geoip = ref<GeoIPConfig | null>(null);
 const geoipAccount = ref("");
 const geoipKey = ref("");
-const geoipHasKey = ref(false);
 const geoipSaving = ref(false);
+const geoipUpdating = ref(false);
+const geoipEditionOpts = computed(() => (geoip.value?.all_editions ?? []).map((e) => ({ label: e, value: e })));
+const geoipFreqOpts = computed(() => (geoip.value?.frequencies ?? []).map((f) => ({ label: t(`settings.system.freq_${f.replace("-", "_")}`), value: f })));
 async function loadGeoip() {
   try {
-    const c = await getGeoipConfig();
-    geoipAccount.value = c.account_id ?? "";
-    geoipHasKey.value = c.has_key;
+    geoip.value = await getGeoipConfig();
+    geoipAccount.value = geoip.value.account_id ?? "";
   } catch { /* ignore */ }
 }
 async function saveGeoip() {
+  if (!geoip.value) return;
   geoipSaving.value = true;
   try {
-    const c = await setGeoipConfig(geoipAccount.value.trim() || null, geoipKey.value.trim() || null);
-    geoipHasKey.value = c.has_key;
+    geoip.value = await setGeoipConfig({
+      account_id: geoipAccount.value.trim() || null,
+      license_key: geoipKey.value.trim() || null,
+      editions: geoip.value.editions,
+      auto_update: geoip.value.auto_update,
+      frequency: geoip.value.frequency,
+    });
     geoipKey.value = "";
     msg.success(t("common.saved"));
   } catch {
@@ -122,6 +145,23 @@ async function saveGeoip() {
   } finally {
     geoipSaving.value = false;
   }
+}
+async function updateGeoipNow() {
+  geoipUpdating.value = true;
+  try {
+    const r = await updateGeoipDbNow();
+    geoip.value = r.config;
+    if (r.result?.error === "not_configured") msg.warning(t("settings.system.geoip_need_creds"));
+    else msg.success(t("settings.system.geoip_updated"));
+  } catch {
+    msg.error(t("errors.network"));
+  } finally {
+    geoipUpdating.value = false;
+  }
+}
+function fmtBytes(n: number | null): string {
+  if (!n) return "—";
+  return n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : (n / 1e3).toFixed(0) + " KB";
 }
 
 // ── TOTP enrollment ──
@@ -206,6 +246,7 @@ onMounted(() => {
   void loadPrefs();
   if (me.value?.is_admin) {
     getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
+    getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
     void loadGeoip();
   }
 });
@@ -319,7 +360,7 @@ onMounted(() => {
           <div>
             <label>{{ t("settings.prefs.theme") }}</label>
             <n-select
-              :value="prefs.theme"
+              :value="ui.theme"
               :options="themeOptions"
               @update:value="(v: any) => patchPref('theme', v)"
             />
@@ -349,54 +390,8 @@ onMounted(() => {
               @update:value="(v: any) => patchPref('page_size', v)"
             />
           </div>
-          <div>
-            <label>{{ t("settings.prefs.online_grace_minutes") }}</label>
-            <n-input-number
-              :value="prefs.online_grace_minutes ?? 30"
-              :min="1"
-              :max="10080"
-              @update:value="(v: any) => { patchPref('online_grace_minutes', v); onGraceChange(v); }"
-            />
-            <div style="font-size: 11px; opacity: 0.65; margin-top: 4px;">
-              {{ t("settings.prefs.online_grace_minutes_hint") }}
-            </div>
-          </div>
         </n-space>
         <p v-else style="opacity: 0.7">{{ t("common.loading") }}</p>
-      </n-tab-pane>
-
-      <!-- System (admin only)：全域系統設定 -->
-      <n-tab-pane v-if="me?.is_admin" name="system">
-        <template #tab>
-          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><LocationsIcon /></n-icon>{{ t('settings.system.tab') }}</span>
-        </template>
-        <n-space vertical :size="16" style="max-width: 480px">
-          <div>
-            <label>{{ t("settings.system.map_provider") }}</label>
-            <n-select
-              :value="mapProvider"
-              :options="mapProviderOpts"
-              @update:value="changeMapProvider"
-            />
-            <div style="font-size: 11px; opacity: 0.65; margin-top: 4px;">
-              {{ t("settings.system.map_provider_hint") }}
-            </div>
-          </div>
-
-          <!-- GeoIP（MaxMind GeoLite2 web service）-->
-          <div>
-            <label>{{ t("settings.system.geoip") }}</label>
-            <n-input v-model:value="geoipAccount" :placeholder="t('settings.system.geoip_account')" style="margin-bottom: 8px" />
-            <n-input v-model:value="geoipKey" type="password" show-password-on="click"
-                     :placeholder="geoipHasKey ? t('settings.system.geoip_key_set') : t('settings.system.geoip_key')" />
-            <div style="margin-top: 8px">
-              <n-button size="small" :loading="geoipSaving" @click="saveGeoip">{{ t("common.save") }}</n-button>
-            </div>
-            <div style="font-size: 11px; opacity: 0.65; margin-top: 4px;">
-              {{ t("settings.system.geoip_hint") }}
-            </div>
-          </div>
-        </n-space>
       </n-tab-pane>
 
       <!-- LLM (admin only) -->

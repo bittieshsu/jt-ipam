@@ -378,6 +378,25 @@ async def list_members(
     return rows
 
 
+@router.get("/users/{user_id}/groups", response_model=list[GroupRead])
+async def list_user_groups(
+    user_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Any:
+    """某使用者所屬的角色 / 群組（給「使用者 → 指派角色」UI 用）。"""
+    u = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if u is None:
+        raise HTTPException(404, detail="user not found")
+    rows = (
+        await session.execute(
+            select(Group).join(
+                UserGroupMember, UserGroupMember.group_id == Group.id
+            ).where(UserGroupMember.user_id == user_id).order_by(Group.name)
+        )
+    ).scalars().all()
+    return rows
+
+
 @router.post("/groups/{group_id}/members/{user_id}", status_code=204)
 async def add_member(
     group_id: uuid.UUID, user_id: uuid.UUID,

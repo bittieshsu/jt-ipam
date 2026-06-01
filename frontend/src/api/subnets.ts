@@ -69,6 +69,7 @@ export interface SubnetCreate {
   gateway?: string | null;
   dns_servers?: string | null;
   location_id?: string | null;
+  allow_overlap?: boolean;
 }
 
 export interface SubnetUpdate {

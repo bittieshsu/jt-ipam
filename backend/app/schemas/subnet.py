@@ -71,7 +71,8 @@ class SubnetBase(StrictModel):
 
 
 class SubnetCreate(SubnetBase):
-    pass
+    # 明確允許與現有網段重疊（例如同 CIDR 但單位/地點不同）；僅建立時用，不存欄位
+    allow_overlap: bool = False
 
 
 class SubnetUpdate(StrictModel):

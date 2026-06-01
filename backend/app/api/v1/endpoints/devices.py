@@ -140,6 +140,52 @@ async def get_device_vlans(
     ]
 
 
+async def _resolve_device_ips(session: AsyncSession, devices: list) -> dict:
+    """解析每台 device 的「有效管理 IP」供清單/明細顯示。
+    優先序：primary_ip_id → LibreNMS 已知管理 IP（primary_ip/hostname）→ 裝置名稱本身是 IP。
+    （多數 device 沒有連 IPAddress，但 LibreNMS 知道、或名稱就是 IP，否則 IP 欄會整排空白。）
+    """
+    import ipaddress as _ip
+    from app.models.address import IPAddress
+    from app.models.librenms import LibreNMSDevice
+
+    pip_ids = {d.primary_ip_id for d in devices if d.primary_ip_id}
+    pip_map: dict = {}
+    if pip_ids:
+        for pid, ip in (await session.execute(
+            select(IPAddress.id, IPAddress.ip).where(IPAddress.id.in_(pip_ids))
+        )).all():
+            pip_map[pid] = str(ip).split("/")[0]
+    dev_ids = [d.id for d in devices]
+    ln_map: dict = {}
+    if dev_ids:
+        for jid, pip, host in (await session.execute(
+            select(LibreNMSDevice.jt_ipam_device_id, LibreNMSDevice.primary_ip,
+                   LibreNMSDevice.hostname).where(LibreNMSDevice.jt_ipam_device_id.in_(dev_ids))
+        )).all():
+            for cand in (pip, host):
+                if not cand:
+                    continue
+                try:
+                    ln_map[jid] = str(_ip.ip_address(str(cand).split("/")[0].strip()))
+                    break
+                except ValueError:
+                    continue
+    out: dict = {}
+    for d in devices:
+        ip = pip_map.get(d.primary_ip_id) if d.primary_ip_id else None
+        if not ip:
+            ip = ln_map.get(d.id)
+        if not ip:
+            try:
+                ip = str(_ip.ip_address((d.name or "").strip()))
+            except ValueError:
+                ip = None
+        if ip:
+            out[d.id] = ip
+    return out
+
+
 @router.get("", response_model=Paginated[DeviceRead])
 async def list_devices(
     _user: CurrentUser,
@@ -167,24 +213,79 @@ async def list_devices(
     stmt = stmt.order_by(Device.name).offset((page - 1) * page_size).limit(page_size)
     rows = list((await session.execute(stmt)).scalars().all())
     total = int(await session.scalar(cstmt) or 0)
-    # 批次解析每台 device 的管理 IP（primary_ip_id → ip 字串）供清單顯示
-    pip_ids = {r.primary_ip_id for r in rows if r.primary_ip_id}
-    ip_map: dict[uuid.UUID, str] = {}
-    if pip_ids:
-        from app.models.address import IPAddress
-        for pid, ip in (await session.execute(
-            select(IPAddress.id, IPAddress.ip).where(IPAddress.id.in_(pip_ids))
+    # 批次解析每台 device 的有效管理 IP（primary_ip → LibreNMS → 名稱是 IP）
+    ip_map = await _resolve_device_ips(session, rows)
+    # 找出與裝置有效 IP 相符、但還沒連到本裝置的 IPAddress → 提供「一鍵關聯」按鈕
+    from sqlalchemy import func as _func
+    from app.models.address import IPAddress
+    eff_ips = {v for v in ip_map.values() if v}
+    addr_by_ip: dict[str, tuple] = {}
+    if eff_ips:
+        for aid, ahost, adev in (await session.execute(
+            select(IPAddress.id, _func.host(IPAddress.ip), IPAddress.device_id)
+            .where(_func.host(IPAddress.ip).in_(eff_ips))
         )).all():
-            ip_map[pid] = str(ip).split("/")[0]
+            addr_by_ip.setdefault(str(ahost), (aid, adev))
     items = []
     for r in rows:
         d = DeviceRead.model_validate(r)
-        if r.primary_ip_id:
-            d.ip = ip_map.get(r.primary_ip_id)
+        d.ip = ip_map.get(r.id)
+        if d.ip and d.ip in addr_by_ip:
+            aid, adev = addr_by_ip[d.ip]
+            if adev != r.id:   # 還沒連到本裝置 → 可一鍵關聯
+                d.ip_match_id = str(aid)
         items.append(d)
     return Paginated[DeviceRead](
         items=items, total=total, page=page, page_size=page_size,
     )
+
+
+@router.get("/{device_id}/relations")
+async def get_device_relations(
+    device_id: uuid.UUID,
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """裝置的上下關係鏈：機房 → 機櫃 → 裝置 → 主要 IP → 子網路 → 區段。"""
+    from app.models.address import IPAddress
+    from app.models.subnet import Subnet
+    from app.models.section import Section
+    from app.models.location import Location, Rack
+
+    dev = await session.get(Device, device_id)
+    if dev is None:
+        raise HTTPException(404, detail="Device not found")
+    chain: list[dict] = []
+    if dev.location_id:
+        loc = await session.get(Location, dev.location_id)
+        if loc is not None:
+            chain.append({"type": "location", "id": str(loc.id), "label": loc.name})
+    if dev.rack_id:
+        rk = await session.get(Rack, dev.rack_id)
+        if rk is not None:
+            chain.append({"type": "rack", "id": str(rk.id), "label": rk.name})
+    chain.append({"type": "device", "id": str(dev.id), "label": dev.name})
+    # 主要 IP（沒設就抓任一連到本裝置的 IP）→ 子網路 → 區段
+    ip = None
+    if dev.primary_ip_id:
+        ip = await session.get(IPAddress, dev.primary_ip_id)
+    if ip is None:
+        ip = (await session.execute(
+            select(IPAddress).where(IPAddress.device_id == dev.id).limit(1)
+        )).scalar_one_or_none()
+    if ip is not None:
+        chain.append({"type": "ip", "id": str(ip.id),
+                      "label": str(ip.ip).split("/")[0], "sub": ip.hostname})
+        if ip.subnet_id:
+            sn = await session.get(Subnet, ip.subnet_id)
+            if sn is not None:
+                chain.append({"type": "subnet", "id": str(sn.id),
+                              "label": str(sn.cidr), "sub": sn.description})
+                if sn.section_id:
+                    sec = await session.get(Section, sn.section_id)
+                    if sec is not None:
+                        chain.append({"type": "section", "id": str(sec.id), "label": sec.name})
+    return {"chain": chain}
 
 
 @router.get("/{device_id}", response_model=DeviceRead)
@@ -196,7 +297,10 @@ async def get_device(
     obj = await session.get(Device, device_id)
     if obj is None:
         raise HTTPException(404, detail="Device not found")
-    return DeviceRead.model_validate(obj)
+    d = DeviceRead.model_validate(obj)
+    ips = await _resolve_device_ips(session, [obj])
+    d.ip = ips.get(obj.id)
+    return d
 
 
 @router.post("", response_model=DeviceRead, status_code=201,
@@ -255,6 +359,12 @@ async def update_device(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     for k, v in changes.items():
         setattr(obj, k, v)
+    # 設了主要 IP → 同時把該 IP 的 device_id 指回本裝置（雙向連結，IP 清單/拓樸才接得起來）
+    if changes.get("primary_ip_id"):
+        from app.models.address import IPAddress
+        pip = await session.get(IPAddress, changes["primary_ip_id"])
+        if pip is not None and pip.device_id != obj.id:
+            pip.device_id = obj.id
     await append_audit(
         session,
         actor_user_id=str(user.id),

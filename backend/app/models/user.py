@@ -132,8 +132,8 @@ class UserPreference(Base):
     page_size: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     # 每張表要顯示的欄位偏好，e.g. {"addresses": ["ip","hostname","state"], ...}
     table_columns: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    # 「last_seen 超過幾分鐘就視為離線」— 預設 30 分鐘
-    online_grace_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    # 註：上線判定閾值已改為全域系統設定（system_settings.online_grace_minutes），
+    # 不再是個人偏好。
     # Dashboard 釘選的子網路 UUID 清單（顯示「常用子網路」卡片）
     pinned_subnet_ids: Mapped[list[str] | None] = mapped_column(JSONB)
 

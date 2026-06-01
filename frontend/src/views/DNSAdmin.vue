@@ -7,11 +7,11 @@ import {
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
-  listDNSServers, createDNSServer, deleteDNSServer, testDNSServer,
+  listDNSServers, createDNSServer, updateDNSServer, deleteDNSServer, testDNSServer,
   type DNSServer, type DNSServerType,
 } from "@/api/integrations";
 import {
-  DnsIcon, PlusIcon, DeleteIcon, RefreshIcon, TestIcon, SaveIcon, CancelIcon,
+  DnsIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, TestIcon, SaveIcon, CancelIcon,
 } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -90,8 +90,22 @@ async function refresh() {
   catch { msg.error(t("errors.network")); }
   finally { loading.value = false; }
 }
+const editingId = ref<string | null>(null);
 function openCreate() {
+  editingId.value = null;
   form.value = emptyForm();
+  show.value = true;
+}
+function openEdit(r: DNSServer) {
+  editingId.value = r.id;
+  const f = emptyForm();
+  f.name = r.name;
+  f.type = r.type as DNSServerType;
+  f.enabled = r.enabled;
+  // endpoint 可能是 api_url 或 server_address，依類型回填到對應欄位（祕密欄留空＝不變）
+  if (["powerdns", "unbound_opnsense", "univention_ucs"].includes(r.type)) f.api_url = r.endpoint ?? "";
+  else f.server_address = r.endpoint ?? "";
+  form.value = f;
   show.value = true;
 }
 async function submit() {
@@ -116,7 +130,8 @@ async function submit() {
     if (Object.keys(extra).length) payload.extra_config = JSON.stringify(extra);
   }
   try {
-    await createDNSServer(payload);
+    if (editingId.value) await updateDNSServer(editingId.value, payload);
+    else await createDNSServer(payload);
     show.value = false;
     msg.success(t("common.ok"));
     await refresh();
@@ -153,8 +168,9 @@ const allCols = computed<DataTableColumns<DNSServer>>(() => autoSort([
   },
   { title: "auth", key: "is_authoritative", width: 90, render: (r) => r.is_authoritative ? "✓" : "—" },
   {
-    title: t("common.actions"), key: "actions", className: "col-actions", width: 96,
+    title: t("common.actions"), key: "actions", className: "col-actions", width: 124,
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
+      iconAction(EditIcon, t("common.edit"), () => openEdit(r)),
       iconAction(TestIcon, t("common.test"), () => test(r.id)),
       h(NPopconfirm, { onPositiveClick: () => del(r.id) }, {
         trigger: () => iconAction(DeleteIcon, t("common.delete"), () => {}, "error"),

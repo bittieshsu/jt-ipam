@@ -262,6 +262,17 @@ const columns = computed<DataTableColumns<IPAddress>>(() => {
   });
 });
 
+// scroll-x 依「目前顯示的欄位」動態算總寬，而非固定 1228；隱藏欄位後就不會
+// 再硬撐出右側空白與不必要的水平捲軸（有 minWidth 的欄會自動撐滿剩餘寬度）。
+const scrollX = computed(() => {
+  let w = 36;  // selection 欄
+  for (const c of columns.value as any[]) {
+    if (c.type === "selection") continue;
+    w += (c.width ?? c.minWidth ?? 120);
+  }
+  return w;
+});
+
 // 給 ColumnPicker 用的全可選欄位 label
 const columnPickerItems = computed(() => [
   { key: "live", label: t("cols.live_dot") },
@@ -388,7 +399,7 @@ onMounted(() => {
       :data="rows"
       :loading="loading"
       remote
-      :scroll-x="1228"
+      :scroll-x="scrollX"
       :row-key="(row: IPAddress) => row.id"
       :checked-row-keys="checkedKeys"
       @update:checked-row-keys="(keys: DataTableRowKey[]) => checkedKeys = keys"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, ref, watch } from "vue";
+import { computed, h, ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useFloatingHScroll } from "@/composables/useFloatingHScroll";
@@ -189,6 +189,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.import"),        key: "import",         icon: renderIcon(ImportIcon) },
           { label: () => t("nav.plugins"),       key: "plugins",        icon: renderIcon(PluginsIcon) },
           { label: () => "LLM / AI",             key: "llm_settings",   icon: renderIcon(SettingsIcon) },
+          { label: () => t("nav.system_settings"), key: "system_settings", icon: renderIcon(SettingsIcon) },
           { label: () => t("nav.chat_history"),  key: "chat_history",   icon: renderIcon(ChatHistoryIcon) },
         ],
       },
@@ -242,6 +243,21 @@ async function handleUserMenu(key: string) {
 
 
 const siderCollapsed = ref(false);
+
+// 視窗太窄時自動收折左側選單；變寬再自動展開（區間內仍可手動切換）。
+const NARROW_PX = 920;
+function readWidth() { return typeof window !== "undefined" ? window.innerWidth : 1920; }
+const winW = ref(readWidth());
+function onResize() { winW.value = readWidth(); }
+watch(winW, (w, prev) => {
+  if (w < NARROW_PX && prev >= NARROW_PX) siderCollapsed.value = true;
+  else if (w >= NARROW_PX && prev < NARROW_PX) siderCollapsed.value = false;
+});
+onMounted(() => {
+  window.addEventListener("resize", onResize);
+  if (winW.value < NARROW_PX) siderCollapsed.value = true;
+});
+onBeforeUnmount(() => window.removeEventListener("resize", onResize));
 
 // ── 左側選單可拖動改變寬度 ──
 const SIDER_MIN = 180;
@@ -447,10 +463,14 @@ function startDrag(e: MouseEvent) {
   margin-left: 16px;
 }
 .app-sider :deep(.n-submenu-children > .n-menu-item),
+.app-sider :deep(.n-submenu-children > .n-submenu),
 .app-sider :deep(.n-submenu-children > .n-submenu > .n-menu-item) { position: relative; }
-/* 垂直主幹：每個直接子列各畫一段（只含該列、不含群組展開的子項），相鄰列相接成連續線 */
+/* 垂直主幹：
+   - 葉節點(.n-menu-item)：畫滿該列高度
+   - 群組(.n-submenu)：畫滿「整個群組」高度（含展開的子項）→ 展開時相鄰群組之間
+     主幹不會斷掉（修正：原本只畫群組標題列，子項展開後就出現缺口接不下去）。 */
 .app-sider :deep(.n-submenu-children > .n-menu-item)::after,
-.app-sider :deep(.n-submenu-children > .n-submenu > .n-menu-item)::after {
+.app-sider :deep(.n-submenu-children > .n-submenu:not(:last-child))::after {
   content: "";
   position: absolute;
   left: 0;
@@ -459,11 +479,17 @@ function startDrag(e: MouseEvent) {
   border-left: 1px dashed rgba(150, 150, 150, 0.5);
   pointer-events: none;
 }
-/* 最後一個直接子項：垂直線只到中點（連到自己後就轉進來，不再往下畫） */
+/* 最後一個直接子項：垂直線只到中點（連到自己後就轉進來，不再往下畫）。
+   群組則畫在它的標題列上（不延伸到自己的子項區）。 */
 .app-sider :deep(.n-submenu-children > .n-menu-item:last-child)::after,
 .app-sider :deep(.n-submenu-children > .n-submenu:last-child > .n-menu-item)::after {
-  bottom: auto;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
   height: 50%;
+  border-left: 1px dashed rgba(150, 150, 150, 0.5);
+  pointer-events: none;
 }
 /* 水平接出 */
 .app-sider :deep(.n-submenu-children > .n-menu-item)::before,

@@ -12,6 +12,7 @@ import {
   NButton,
   NTag,
   NPopover,
+  NModal,
   useMessage,
   type DataTableColumns,
 } from "naive-ui";
@@ -92,6 +93,31 @@ const objTypeOptions = [
 const filterAction = ref("");
 const limit = ref(50);
 const offset = ref(0);
+
+// 點列 → 開明細 modal（把 diff 的 JSON 整理成好讀的表格）
+const detailRow = ref<AuditLog | null>(null);
+function rowProps(row: AuditLog) {
+  return { style: "cursor: pointer", onClick: () => { detailRow.value = row; } };
+}
+function fmtVal(v: unknown): string {
+  if (v == null) return "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+const detailDiff = computed<{ mode: string; rows: any[] }>(() => {
+  const d = detailRow.value?.diff as any;
+  if (!d || typeof d !== "object") return { mode: "none", rows: [] };
+  if (d.before && d.changes) {
+    return {
+      mode: "update",
+      rows: Object.keys(d.changes).map((f) => ({
+        field: f, before: fmtVal(d.before?.[f]), after: fmtVal(d.changes[f]),
+      })),
+    };
+  }
+  const obj = d.changes ?? d.after ?? d;
+  return { mode: "single", rows: Object.entries(obj).map(([k, v]) => ({ field: k, value: fmtVal(v) })) };
+});
 
 const allColumns = computed<DataTableColumns<AuditLog>>(() => autoSort([
   { title: t("audit.id"), key: "id", width: 70 },
@@ -222,7 +248,7 @@ onMounted(() => { void refresh(); });
       <ColumnPicker :all="auditPickerItems" :visible="auditVis"
                     @update:visible="auditSet" @reset="auditReset" />
       <ExportButton :columns="columns" :rows="rows" filename="audit" :title="t('audit.title')" />
-      <span style="opacity: 0.6">total: {{ total }}</span>
+      <span style="opacity: 0.6">{{ t("common.total_n", { n: total }) }}</span>
     </n-space>
     <n-data-table
       :columns="columns" :data="rows" :loading="loading"
@@ -232,11 +258,59 @@ onMounted(() => { void refresh(); });
         itemCount: total,
         onUpdatePage: (p) => { offset = (p - 1) * limit; void refresh(); },
       }"
-      remote :bordered="false" :scroll-x="1240"
+      remote :bordered="false" :scroll-x="1240" :row-props="rowProps"
     >
       <template #empty>
         <n-space justify="center">{{ t("common.no_data") }}</n-space>
       </template>
     </n-data-table>
+
+    <n-modal :show="!!detailRow" preset="card" style="width: 760px; max-width: 94vw"
+             :title="t('audit.detail_title')" @update:show="(v: boolean) => { if (!v) detailRow = null; }">
+      <div v-if="detailRow">
+        <table class="audit-meta">
+          <tbody>
+            <tr><th>{{ t("audit.ts") }}</th><td>{{ fmtDateTime(detailRow.ts) }}</td></tr>
+            <tr><th>{{ t("audit.actor") }}</th><td>{{ detailRow.actor_user_id ?? "(system)" }}<span v-if="detailRow.actor_ip"> · {{ detailRow.actor_ip }}</span></td></tr>
+            <tr><th>{{ t("audit.object_type") }}</th><td>{{ detailRow.object_type }} <span v-if="detailRow.object_id" style="opacity:.6">({{ detailRow.object_id }})</span></td></tr>
+            <tr><th>{{ t("audit.action") }}</th><td>{{ detailRow.action }}</td></tr>
+            <tr><th>{{ t("audit.this_hash") }}</th><td style="word-break:break-all; font-family:monospace; font-size:11px">{{ detailRow.this_hash_hex }}</td></tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top: 14px; font-weight: 600">{{ t("audit.diff") }}</div>
+        <n-space v-if="!detailDiff.rows.length" justify="center" style="padding: 14px; opacity:.6">—</n-space>
+        <table v-else class="audit-diff">
+          <thead v-if="detailDiff.mode === 'update'">
+            <tr><th>{{ t("cols.key") }}</th><th>{{ t("audit.before") }}</th><th>{{ t("audit.after") }}</th></tr>
+          </thead>
+          <thead v-else>
+            <tr><th>{{ t("cols.key") }}</th><th>{{ t("audit.value") }}</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in detailDiff.rows" :key="row.field">
+              <td class="k">{{ row.field }}</td>
+              <template v-if="detailDiff.mode === 'update'">
+                <td class="old">{{ row.before }}</td>
+                <td class="new">{{ row.after }}</td>
+              </template>
+              <td v-else>{{ row.value }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </n-modal>
   </n-card>
 </template>
+
+<style scoped>
+.audit-meta { width: 100%; border-collapse: collapse; font-size: 13px; }
+.audit-meta th { text-align: left; white-space: nowrap; padding: 3px 12px 3px 0; color: var(--n-text-color-3, #888); font-weight: 500; vertical-align: top; width: 1%; }
+.audit-meta td { padding: 3px 0; word-break: break-all; }
+.audit-diff { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+.audit-diff th { text-align: left; padding: 4px 8px; border-bottom: 1px solid rgba(127,127,127,0.25); color: var(--n-text-color-3, #888); font-weight: 500; }
+.audit-diff td { padding: 4px 8px; border-bottom: 1px solid rgba(127,127,127,0.12); word-break: break-all; vertical-align: top; }
+.audit-diff td.k { font-family: monospace; white-space: nowrap; }
+.audit-diff td.old { color: #c0392b; text-decoration: line-through; opacity: 0.8; }
+.audit-diff td.new { color: #18a058; }
+</style>

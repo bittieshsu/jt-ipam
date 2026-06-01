@@ -183,6 +183,26 @@ async def test_firewall(
     return {"ok": True, "alias_count": len(info.get("alias", {}).get("aliases", {}).get("alias", {}) or {})}
 
 
+@router.get("/{fw_id}/aliases")
+async def list_synced_aliases(
+    fw_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[dict[str, Any]]:
+    """從 OPNsense 同步回來的 alias 定義（唯讀）。"""
+    from app.models.firewall import OPNsenseSyncedAlias
+    rows = (await session.execute(
+        select(OPNsenseSyncedAlias)
+        .where(OPNsenseSyncedAlias.firewall_id == fw_id)
+        .order_by(OPNsenseSyncedAlias.name)
+    )).scalars().all()
+    return [{
+        "id": str(a.id), "name": a.name, "alias_type": a.alias_type,
+        "description": a.description, "enabled": a.enabled,
+        "content": a.content or [], "member_count": a.member_count,
+        "last_synced_at": a.last_synced_at.isoformat() if a.last_synced_at else None,
+    } for a in rows]
+
+
 @router.post("/{fw_id}/sync")
 async def sync_firewall(
     fw_id: uuid.UUID,

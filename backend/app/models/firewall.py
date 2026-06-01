@@ -93,3 +93,32 @@ class OPNsenseAliasMapping(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             "firewall_id", "alias_name", name="opnsense_alias_mapping_unique",
         ),
     )
+
+
+class OPNsenseSyncedAlias(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """從 OPNsense 拉回來的 alias 定義（唯讀檢視用）。
+
+    與 OPNsenseAliasMapping（jt-ipam→OPNsense 的推送規則）不同，這張表是把
+    OPNsense 上「實際存在的 alias」同步回來，方便在 jt-ipam 內查閱。
+    """
+
+    __tablename__ = "opnsense_synced_aliases"
+
+    firewall_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("opnsense_firewalls.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    alias_type: Mapped[str | None] = mapped_column(String(32))   # host / network / port / url …
+    description: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    content: Mapped[list[str] | None] = mapped_column(JSONB)      # 成員列表
+    member_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    opn_uuid: Mapped[str | None] = mapped_column(String(64))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("firewall_id", "name", name="opnsense_synced_alias_unique"),
+    )

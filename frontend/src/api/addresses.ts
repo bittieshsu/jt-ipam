@@ -64,6 +64,7 @@ export interface IPAddressCreate {
   switch_port?: string | null;
   note?: string | null;
   customer_id?: string | null;
+  device_id?: string | null;
 }
 
 export async function createAddress(payload: IPAddressCreate): Promise<IPAddress> {

@@ -22,7 +22,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
-import { TopologyIcon, RefreshIcon } from "@/icons";
+import { TopologyIcon, RefreshIcon, FitIcon } from "@/icons";
 import { useRouter } from "vue-router";
 import cytoscape from "cytoscape";
 import coseBilkent from "cytoscape-cose-bilkent";
@@ -66,6 +66,7 @@ const VIA_LABELS = computed<Record<string, string>>(() => ({
   ip: t("topology.via_ip"),
   name: t("topology.via_name"),
   arp: t("topology.via_arp"),
+  librenms: t("topology.via_librenms"),
 }));
 const TYPE_LABELS = computed<Record<string, string>>(() => ({
   router: t("topology.type_router"),
@@ -164,7 +165,9 @@ const NODE_COLOURS: Record<string, string> = {
 const { pinned, ensureLoaded } = usePinnedSubnets();
 
 // 圖例可點：點暗某類別 → 圖上隱藏該類節點（及其連線）
-const hiddenTypes = ref<Set<string>>(new Set());
+// 預設先把「伺服器 / 其他」這類點暗——它們數量最多、最會把網路骨幹（防火牆/路由器/
+// 交換器/AP/子網路/VPN）洗掉。使用者點圖例即可重新顯示。
+const hiddenTypes = ref<Set<string>>(new Set(["server", "storage", "ipmi", "other"]));
 const LEGEND_GROUPS: Record<string, string[]> = {
   firewall: ["firewall"], router: ["router"], switch: ["switch"], ap: ["ap"],
   server: ["server", "storage", "ipmi", "other"], vpn_site: ["vpn_site"], subnet: ["subnet"],
@@ -329,9 +332,13 @@ function render(data: TopologyData) {
     ],
     layout: {
       name: "cose-bilkent",
-      idealEdgeLength: 90,
-      nodeRepulsion: 4500,
-      edgeElasticity: 0.45,
+      // 拉長邊、加大斥力，並把「標籤尺寸」算進節點碰撞 → 節點與邊上的文字
+      // （VPN 端點 / tunnel 名 / IP）才不會疊在一起。
+      idealEdgeLength: 150,
+      nodeRepulsion: 9000,
+      edgeElasticity: 0.4,
+      nodeDimensionsIncludeLabels: true,
+      gravity: 0.25,
       animate: false,
     } as any,
   });
@@ -380,30 +387,33 @@ onUnmounted(() => {
       </n-space>
     </template>
     <template #header-extra>
-      <n-space align="center">
-        <n-select
-          v-model:value="subnetIds"
-          :options="subnetOptions"
-          multiple filterable clearable
-          :placeholder="t('topology.filter_subnets')"
-          style="min-width: 240px; max-width: 460px"
-          :consistent-menu-width="false"
-          :max-tag-count="2"
-        />
+      <n-button @click="refresh" size="small">
+        <template #icon><n-icon><RefreshIcon /></n-icon></template>
+        {{ t("common.refresh") }}
+      </n-button>
+    </template>
+    <n-space class="topo-toolbar" align="center" :wrap="true" style="margin-bottom: 12px; row-gap: 8px">
+      <n-select
+        v-model:value="subnetIds"
+        :options="subnetOptions"
+        multiple filterable clearable
+        :placeholder="t('topology.filter_subnets')"
+        style="min-width: 240px; max-width: 460px"
+        :consistent-menu-width="false"
+        :max-tag-count="2"
+      />
         <n-checkbox v-model:checked="includeWireless">{{ t("topology.wireless") }}</n-checkbox>
         <n-checkbox v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
         <n-checkbox v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>
           <n-button @click="zoomBy(0.83)" :title="t('topology.zoom_out')">－</n-button>
-          <n-button @click="fitView">{{ t("topology.fit") }}</n-button>
+          <n-button @click="fitView">
+            <template #icon><n-icon><FitIcon /></n-icon></template>
+            {{ t("topology.fit") }}
+          </n-button>
         </n-button-group>
-        <n-button @click="refresh">
-          <template #icon><n-icon><RefreshIcon /></n-icon></template>
-          {{ t("common.refresh") }}
-        </n-button>
       </n-space>
-    </template>
     <n-spin :show="loading">
       <div class="topology-shell">
         <div ref="containerRef" class="cy"></div>

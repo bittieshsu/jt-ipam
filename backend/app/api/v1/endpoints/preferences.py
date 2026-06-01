@@ -23,7 +23,6 @@ def _defaults() -> UserPreferenceRead:
         calendar="gregorian",
         page_size=50,
         table_columns=None,
-        online_grace_minutes=30,
         pinned_subnet_ids=None,
     )
 

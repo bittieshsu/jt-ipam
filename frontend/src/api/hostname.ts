@@ -28,6 +28,11 @@ export async function getHostnameSources(addressId: string): Promise<HostnameSou
   return data;
 }
 
+// 清掉某 IP 某來源的 hostname 觀測（例如過時的「手動: tp-link-c7」）
+export async function clearHostnameSource(addressId: string, source: string): Promise<void> {
+  await apiClient.delete(`/api/v1/addresses/${addressId}/hostname-sources/${encodeURIComponent(source)}`);
+}
+
 // 全域優先序 (admin)
 export async function getHostnamePrecedence(): Promise<HostnamePrecedence> {
   const { data } = await apiClient.get<HostnamePrecedence>(

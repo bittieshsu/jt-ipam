@@ -104,7 +104,7 @@ onMounted(load);
       </div>
       <div>
         <n-space align="center" style="margin-bottom: 4px">
-          <label style="margin: 0">Chat model</label>
+          <label style="margin: 0">{{ t("llm_settings.chat_model") }}</label>
           <n-button text size="tiny" @click="loadModels" :loading="modelsLoading">
             <template #icon><n-icon><RefreshIcon /></n-icon></template>
             {{ t("llm_settings.reload_list") }}
@@ -123,7 +123,7 @@ onMounted(load);
         />
       </div>
       <div>
-        <label>Embedding model</label>
+        <label>{{ t("llm_settings.embedding_model") }}</label>
         <n-select
           :value="llm.embedding_model"
           :options="modelOptions"

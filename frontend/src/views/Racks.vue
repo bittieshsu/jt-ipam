@@ -20,7 +20,8 @@ import {
   type DataTableRowKey,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
-import { RacksIcon, DeleteIcon, PlusIcon, EditIcon, SaveIcon, CancelIcon, LocationsIcon } from "@/icons";
+import { RacksIcon, DeleteIcon, PlusIcon, EditIcon, SaveIcon, CancelIcon, LocationsIcon, PinIcon } from "@/icons";
+import { usePinned } from "@/composables/usePinned";
 import { useRouter } from "vue-router";
 import { apiClient } from "@/api/client";
 import RackDiagram from "@/components/RackDiagram.vue";
@@ -37,6 +38,8 @@ interface Rack {
   id: string;
   name: string;
   u_height: number;
+  width_mm?: number | null;
+  depth_mm?: number | null;
   location_id: string | null;
   description: string | null;
   numbering?: "top-down" | "bottom-up";
@@ -78,6 +81,9 @@ const locations = ref<Location[]>([]);
 const roomId = ref<string | null>(null);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
+const pin = usePinned("racks");
+const locPin = usePinned("locations");   // 在「機房」頁釘選的常用機房
+const displayRows = computed(() => pin.sortPinnedFirst(filteredRows.value));
 const roomDiagrams = ref<RD[]>([]);
 const roomLoading = ref(false);
 const locationOptions = computed(() =>
@@ -153,8 +159,13 @@ const allColumns = computed<DataTableColumns<Rack>>(() => [
   { title: t("common.description"), key: "description", render: (r) => r.description ?? "—",
     sorter: (a, b) => (a.description ?? "").localeCompare(b.description ?? "") },
   {
-    title: t("common.actions"), key: "actions", width: 96, className: "col-actions",
+    title: t("common.actions"), key: "actions", width: 128, className: "col-actions",
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
+      h(NButton, {
+        size: "small", quaternary: true,
+        type: pin.isPinned(r.id) ? "warning" : "default", title: t("common.pin"),
+        onClick: (e: MouseEvent) => { e.stopPropagation(); pin.toggle(r.id); },
+      }, { icon: () => h(NIcon, { color: pin.isPinned(r.id) ? "#f0a020" : undefined }, () => h(PinIcon)) }),
       iconBtn(EditIcon, t("common.edit"), () => openEdit(r)),
       h(NPopconfirm, { onPositiveClick: () => removeRack(r) }, {
         trigger: () => iconBtn(DeleteIcon, t("common.delete"), () => {}, "error"),
@@ -173,17 +184,20 @@ const showEdit = ref(false);
 const editing = ref<Rack | null>(null);
 const form = ref({
   name: "", u_height: 42, location_id: null as string | null, description: "",
+  width_mm: null as number | null, depth_mm: null as number | null,
   numbering: "top-down" as "top-down" | "bottom-up", face: "front" as "front" | "rear",
 });
 function openCreate() {
   editing.value = null;
-  form.value = { name: "", u_height: 42, location_id: roomId.value, description: "", numbering: "top-down", face: "front" };
+  form.value = { name: "", u_height: 42, location_id: roomId.value, description: "",
+    width_mm: null, depth_mm: null, numbering: "top-down", face: "front" };
   showEdit.value = true;
 }
 function openEdit(r: Rack) {
   editing.value = r;
   form.value = {
     name: r.name, u_height: r.u_height, location_id: r.location_id, description: r.description ?? "",
+    width_mm: r.width_mm ?? null, depth_mm: r.depth_mm ?? null,
     numbering: r.numbering ?? "top-down", face: r.face ?? "front",
   };
   showEdit.value = true;
@@ -203,6 +217,8 @@ async function submitRack() {
     u_height: form.value.u_height,
     location_id: form.value.location_id ?? null,
     description: form.value.description.trim() || null,
+    width_mm: form.value.width_mm ?? null,
+    depth_mm: form.value.depth_mm ?? null,
     numbering: form.value.numbering,
     face: form.value.face,
   };
@@ -261,9 +277,18 @@ watch(selected, (v) => {
 
 onMounted(() => {
   void refresh();
-  listLocations().then((r) => { locations.value = r.items; }).catch(() => { /* silent */ });
-  // 有釘選機房 → 進來預設先看它（watch(roomId) 會載入該機房整排機櫃）
-  if (pinnedRoom.value && !roomId.value && !selected.value) roomId.value = pinnedRoom.value;
+  listLocations().then((r) => {
+    locations.value = r.items;
+    // 進來預設機房（watch(roomId) 會載入整排機櫃）：
+    //   1) 舊的單一釘選 PINNED_ROOM_KEY
+    //   2) 在「機房」頁釘選的常用機房（取第一個仍存在的）
+    if (!roomId.value && !selected.value) {
+      let def: string | null =
+        (pinnedRoom.value && r.items.some((l) => l.id === pinnedRoom.value)) ? pinnedRoom.value : null;
+      if (!def) def = locPin.ids.value.find((id) => r.items.some((l) => l.id === id)) ?? null;
+      if (def) roomId.value = def;
+    }
+  }).catch(() => { /* silent */ });
 });
 </script>
 
@@ -371,7 +396,7 @@ onMounted(() => {
       </n-space>
       <n-data-table
         :columns="columns"
-        :data="filteredRows"
+        :data="displayRows"
         :loading="loading"
         :pagination="{ pageSize: 50 }"
         :bordered="false"
@@ -398,6 +423,20 @@ onMounted(() => {
         <n-form-item :label="t('racks.u_height')">
           <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="width: 100%" />
         </n-form-item>
+        <n-space :wrap="false">
+          <n-form-item :label="t('racks.width_mm')" style="flex: 1">
+            <n-input-number v-model:value="form.width_mm" :min="100" :max="2000" :step="50"
+                            clearable placeholder="600" style="width: 100%">
+              <template #suffix>mm</template>
+            </n-input-number>
+          </n-form-item>
+          <n-form-item :label="t('racks.depth_mm')" style="flex: 1">
+            <n-input-number v-model:value="form.depth_mm" :min="100" :max="3000" :step="50"
+                            clearable placeholder="1000" style="width: 100%">
+              <template #suffix>mm</template>
+            </n-input-number>
+          </n-form-item>
+        </n-space>
         <n-form-item :label="t('racks.numbering')">
           <n-select v-model:value="form.numbering" :options="numberingOpts" />
         </n-form-item>

@@ -189,7 +189,7 @@ onMounted(() => { void refresh(); });
       </n-button>
       <ColumnPicker :all="grpPicker" :visible="grpVis"
                     @update:visible="grpSet" @reset="grpReset" />
-      <span style="opacity: 0.6">total: {{ total }}</span>
+      <span style="opacity: 0.6">{{ t("common.total_n", { n: total }) }}</span>
     </n-space>
     <n-data-table :columns="columns" :data="rows" :loading="loading" :bordered="false" :scroll-x="716">
       <template #empty>

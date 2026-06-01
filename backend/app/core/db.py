@@ -19,9 +19,11 @@ from app.core.config import get_settings
 def _json_dumps_utf8(obj: Any) -> str:
     """JSONB 序列化 — ensure_ascii=False 讓中文以原生 UTF-8 bytes 流向 PG，
     避免被轉成 \\uXXXX escape 後在 SQL_ASCII encoding 的 DB 解碼失敗。
+    default=str：UUID / datetime 等非原生 JSON 型別一律轉字串（稽核 diff 常含
+    UUID FK，否則整批 update 端點都會 500）。
     """
     import json
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def _build_engine() -> AsyncEngine:

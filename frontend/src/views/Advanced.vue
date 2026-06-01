@@ -317,10 +317,10 @@ onMounted(() => { void loadAll(); });
 
     <n-modal v-model:show="showCreate" preset="card" style="width: 520px">
       <template #header>
-        <n-space align="center">
+        <div style="display: flex; align-items: center; gap: 8px; line-height: 1">
           <n-icon :size="20"><PlusIcon /></n-icon>
           <span>{{ t(`advanced.create_${createKind}`) }}</span>
-        </n-space>
+        </div>
       </template>
 
       <n-form label-placement="top">
@@ -395,30 +395,30 @@ onMounted(() => { void loadAll(); });
             <n-select v-model:value="form.status"
                       :options="['active','planned','provisioning','offline','decommissioned'].map(v => ({label: v, value: v}))" />
           </n-form-item>
-          <n-space :size="12">
+          <div class="circuit-row">
             <n-form-item :label="t('circuits.down_kbps')" :show-feedback="false">
-              <n-input-number v-model:value="form.down_kbps" :min="0" :step="1000" style="width: 150px" />
+              <n-input-number v-model:value="form.down_kbps" :min="0" :step="1000" style="width: 100%" />
             </n-form-item>
             <n-form-item :label="t('circuits.up_kbps')" :show-feedback="false">
-              <n-input-number v-model:value="form.up_kbps" :min="0" :step="1000" style="width: 150px" />
+              <n-input-number v-model:value="form.up_kbps" :min="0" :step="1000" style="width: 100%" />
             </n-form-item>
-          </n-space>
-          <n-space :size="12">
+          </div>
+          <div class="circuit-row">
             <n-form-item :label="t('circuits.commit_kbps')" :show-feedback="false">
-              <n-input-number v-model:value="form.commit_rate_kbps" :min="0" :step="1000" style="width: 150px" />
+              <n-input-number v-model:value="form.commit_rate_kbps" :min="0" :step="1000" style="width: 100%" />
             </n-form-item>
             <n-form-item :label="t('circuits.monthly_fee')" :show-feedback="false">
-              <n-input-number v-model:value="form.monthly_fee_cents" :min="0" style="width: 150px" />
+              <n-input-number v-model:value="form.monthly_fee_cents" :min="0" style="width: 100%" />
             </n-form-item>
-          </n-space>
-          <n-space :size="12">
+          </div>
+          <div class="circuit-row">
             <n-form-item :label="t('circuits.install_date')" :show-feedback="false">
-              <n-date-picker v-model:formatted-value="form.install_date" value-format="yyyy-MM-dd" type="date" clearable style="width: 170px" />
+              <n-date-picker v-model:formatted-value="form.install_date" value-format="yyyy-MM-dd" type="date" clearable style="width: 100%" />
             </n-form-item>
             <n-form-item :label="t('circuits.contract_end')" :show-feedback="false">
-              <n-date-picker v-model:formatted-value="form.contract_end_date" value-format="yyyy-MM-dd" type="date" clearable style="width: 170px" />
+              <n-date-picker v-model:formatted-value="form.contract_end_date" value-format="yyyy-MM-dd" type="date" clearable style="width: 100%" />
             </n-form-item>
-          </n-space>
+          </div>
           <n-form-item :label="t('sections.description')">
             <n-input v-model:value="form.description" type="textarea" :rows="2" />
           </n-form-item>
@@ -483,4 +483,7 @@ onMounted(() => { void loadAll(); });
 <style scoped>
 /* 拆成獨立頁面時隱藏頁籤列（只顯示該模組內容） */
 .single-mode :deep(.n-tabs-nav) { display: none; }
+/* Circuit 表單兩欄：等寬、輸入框填滿欄寬、上緣對齊（取代會錯位的固定寬 n-space） */
+.circuit-row { display: flex; gap: 12px; }
+.circuit-row > * { flex: 1 1 0; min-width: 0; }
 </style>

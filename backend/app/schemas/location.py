@@ -46,6 +46,9 @@ class RackBase(StrictModel):
     name: Annotated[str, Field(min_length=1, max_length=64)]
     location_id: uuid.UUID | None = None
     u_height: Annotated[int, Field(ge=1, le=99)] = 42
+    # 實體尺寸（mm）；機房平面圖用真實腳印按比例畫機櫃方框
+    width_mm: Annotated[int | None, Field(ge=100, le=2000)] = None
+    depth_mm: Annotated[int | None, Field(ge=100, le=3000)] = None
     description: Annotated[str | None, Field(max_length=1024)] = None
     numbering: RackNumbering = "top-down"
     face: RackFace = "front"
@@ -59,6 +62,8 @@ class RackUpdate(StrictModel):
     name: Annotated[str | None, Field(min_length=1, max_length=64)] = None
     location_id: uuid.UUID | None = None
     u_height: Annotated[int | None, Field(ge=1, le=99)] = None
+    width_mm: Annotated[int | None, Field(ge=100, le=2000)] = None
+    depth_mm: Annotated[int | None, Field(ge=100, le=3000)] = None
     description: Annotated[str | None, Field(max_length=1024)] = None
     numbering: RackNumbering | None = None
     face: RackFace | None = None

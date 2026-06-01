@@ -311,6 +311,53 @@ async def build_topology(
                     _add(d_str, str(sn.id), None, "arp")
                     break
 
+        # (librenms) 用 LibreNMS 已知的管理 IP（primary_ip / hostname）關聯 device→subnet。
+        #   交換器 / AP / 伺服器常沒有 IPAddress 連結、名稱也不是 IP，但 LibreNMS 知道
+        #   它的管理 IP。這就是把 L2 裝置「掛進它所屬子網路」的訊號，否則它們會變成
+        #   孤立節點，被前端藏掉（switch-003 / ap-001 不顯示就是這個原因）。
+        #   注意：jt_ipam_device_id 可能指向「以 IP 命名」的重複裝置，而使用者看到的
+        #   節點是「友善名稱」那一筆（同名重複）。所以除了用 jt_ipam_device_id 連，
+        #   也用 sysname / hostname 去 match 同名的可見裝置節點，兩邊都連到子網路，
+        #   重複裝置在收斂前也不會有人「不見」。
+        name_to_dev: dict[str, str] = {}
+        for _ds, _dev in device_objs.items():
+            nm = (_dev.name or "").strip().lower()
+            if nm:
+                name_to_dev.setdefault(nm, _ds)
+        ln_ip_rows = (await session.execute(
+            select(LibreNMSDevice.jt_ipam_device_id, LibreNMSDevice.primary_ip,
+                   LibreNMSDevice.hostname, LibreNMSDevice.sysname)
+        )).all()
+        for dev_id, pip, host, sysname in ln_ip_rows:
+            mgmt = None
+            for cand_ip in (pip, host):
+                if not cand_ip:
+                    continue
+                try:
+                    mgmt = _ipaddr.ip_address(str(cand_ip).split("/")[0].strip())
+                    break
+                except ValueError:
+                    continue
+            if mgmt is None:
+                continue
+            sub_id = None
+            for sn, net in cand:
+                if mgmt in net:
+                    sub_id = str(sn.id)
+                    break
+            if sub_id is None:
+                continue
+            # 解析出所有對得上的可見裝置節點：直接連結 + 同名（sysname/hostname）
+            targets: set[str] = set()
+            if dev_id is not None and str(dev_id) in visible_device_ids:
+                targets.add(str(dev_id))
+            for nm in (sysname, host):
+                key = (str(nm).strip().lower()) if nm else ""
+                if key and key in name_to_dev:
+                    targets.add(name_to_dev[key])
+            for d_str in targets:
+                _add(d_str, sub_id, str(mgmt), "librenms")
+
         # subnet nodes（只建有被關聯到的）
         used_subnet_ids = {s_str for (_, s_str) in assoc}
         if used_subnet_ids:
@@ -387,6 +434,13 @@ async def build_topology(
                 data["location"] = loc_names[str(dev.location_id)]
             ln = ln_map.get(d_str)
             if ln is not None:
+                # Device.type 多半是 "other"（LibreNMS 早期 sync 沒細分）；用 os/hardware
+                # 重新推一次，讓 AP/交換器/伺服器在圖例與顏色上分得出來。
+                if data.get("type") in (None, "other"):
+                    from app.services.librenms import _infer_device_type
+                    refined = _infer_device_type(ln)
+                    if refined != "other":
+                        data["type"] = refined
                 if ln.os:
                     data["os"] = ln.os
                 if ln.hardware:

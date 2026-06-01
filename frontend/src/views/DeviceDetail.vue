@@ -12,6 +12,8 @@ import { DevicesIcon, RefreshIcon, EditIcon } from "@/icons";
 import { apiClient } from "@/api/client";
 import { listAddresses } from "@/api/addresses";
 import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
+import { getDeviceRelations, type RelationNode } from "@/api/relations";
+import RelationChain from "@/components/RelationChain.vue";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import type { IPAddress } from "@/types";
@@ -45,6 +47,7 @@ const router = useRouter();
 const msg = useMessage();
 
 const device = ref<Device | null>(null);
+const relations = ref<RelationNode[]>([]);
 const location = ref<Location | null>(null);
 const rack = ref<Rack | null>(null);
 const addresses = ref<IPAddress[]>([]);
@@ -65,6 +68,7 @@ async function load(id: string) {
     ]);
     device.value = dev;
     addresses.value = addrs.items;
+    getDeviceRelations(id).then((c) => { relations.value = c; }).catch(() => { relations.value = []; });
     getDeviceVlans(id).then((v) => { vlans.value = v; }).catch(() => { vlans.value = []; });
     getDeviceLibrenms(id).then((l) => { lnms.value = l; }).catch(() => { lnms.value = null; });
     apiClient.get(`/api/v1/devices/${id}/integrations`).then((r) => { integrations.value = r.data; }).catch(() => { integrations.value = null; });
@@ -114,6 +118,14 @@ function stateTag(state: string) {
   return h(NTag, { type: map[state] ?? "default", size: "small" }, () => label);
 }
 
+// LibreNMS device status：1=up / 0=down（原始值對使用者沒意義，翻成上線/離線）
+function lnmsStatusLabel(s: unknown): string {
+  if (s == null || s === "") return "—";
+  const v = String(s);
+  if (v === "1" || v.toLowerCase() === "up") return t("topology.status_up");
+  if (v === "0" || v.toLowerCase() === "down") return t("topology.status_down");
+  return v;
+}
 function lastSeen(r: IPAddress): string {
   const arr = [r.last_seen_scanner, r.last_seen_librenms, r.last_seen_dns].filter(Boolean) as string[];
   if (!arr.length) return "—";
@@ -227,6 +239,10 @@ onMounted(() => {
         </n-descriptions>
       </n-card>
 
+      <n-card v-if="device && relations.length > 1" :title="t('relations.title')" size="small">
+        <relation-chain :nodes="relations" :current-id="device.id" />
+      </n-card>
+
       <n-card v-if="device" :title="`${t('addresses.ip_list_title')}(${addresses.length})`">
         <template #header-extra>
           <n-space>
@@ -258,13 +274,13 @@ onMounted(() => {
       <n-card v-if="device && lnms" title="LibreNMS">
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
-          <n-descriptions-item label="hostname">{{ lnms.hostname ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('cols.hostname')">{{ lnms.hostname ?? "—" }}</n-descriptions-item>
           <n-descriptions-item label="OS">{{ lnms.os ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="hardware">{{ lnms.hardware ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="version">{{ lnms.version ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="serial">{{ lnms.serial ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="status">{{ lnms.status ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="primary IP">{{ lnms.primary_ip ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.hardware')">{{ lnms.hardware ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('cols.version')">{{ lnms.version ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('devices.serial')">{{ lnms.serial ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('common.status')">{{ lnmsStatusLabel(lnms.status) }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.primary_ip')">{{ lnms.primary_ip ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('scanAgentHelp.col_last_seen')">{{ fmtDateTime(lnms.last_seen_at) }}</n-descriptions-item>
         </n-descriptions>
       </n-card>
@@ -273,13 +289,13 @@ onMounted(() => {
       <n-card v-if="integrations && integrations.wazuh" title="Wazuh" style="margin-top: 16px">
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
-          <n-descriptions-item label="agent">{{ integrations.wazuh.name ?? "—" }} ({{ integrations.wazuh.agent_id }})</n-descriptions-item>
-          <n-descriptions-item label="status">{{ integrations.wazuh.status ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.wz_agent')">{{ integrations.wazuh.name ?? "—" }} ({{ integrations.wazuh.agent_id }})</n-descriptions-item>
+          <n-descriptions-item :label="t('common.status')">{{ integrations.wazuh.status ?? "—" }}</n-descriptions-item>
           <n-descriptions-item label="OS">{{ integrations.wazuh.os_platform ?? "—" }} {{ integrations.wazuh.os_version ?? "" }}</n-descriptions-item>
-          <n-descriptions-item label="agent version">{{ integrations.wazuh.agent_version ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="group">{{ integrations.wazuh.group ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="CVE (high/crit)">{{ integrations.wazuh.cve_high ?? 0 }} / {{ integrations.wazuh.cve_critical ?? 0 }}</n-descriptions-item>
-          <n-descriptions-item label="instance">{{ integrations.wazuh.instance ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.wz_agent_version')">{{ integrations.wazuh.agent_version ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.wz_group')">{{ integrations.wazuh.group ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.wz_cve')">{{ integrations.wazuh.cve_high ?? 0 }} / {{ integrations.wazuh.cve_critical ?? 0 }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.wz_instance')">{{ integrations.wazuh.instance ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('scanAgentHelp.col_last_seen')">{{ fmtDateTime(integrations.wazuh.last_keep_alive) }}</n-descriptions-item>
         </n-descriptions>
       </n-card>

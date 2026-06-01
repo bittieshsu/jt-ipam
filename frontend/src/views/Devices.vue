@@ -13,9 +13,10 @@ import {
   listLocations, listRacks, type Location, type Rack,
 } from "@/api/basic";
 import {
-  DevicesIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, EyeIcon,
+  DevicesIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, EyeIcon, LinkIcon,
 } from "@/icons";
 import { cmpNatural } from "@/utils/sort";
+import { listAddresses } from "@/api/addresses";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
@@ -64,6 +65,7 @@ const form = ref<{
   u_position: number | null;
   u_size: number | null;
   customer_id: string | null;
+  primary_ip_id: string | null;
 }>({
   name: "", fqdn: "", type: "server",
   vendor: "", model: "", serial: "",
@@ -71,10 +73,26 @@ const form = ref<{
   location_id: null, rack_id: null,
   u_position: null, u_size: null,
   customer_id: null,
+  primary_ip_id: null,
 });
 
 const typeOpts = ["server", "switch", "router", "firewall", "ap", "storage", "ipmi", "other"]
   .map((v) => ({ label: v, value: v }));
+
+// 主要 IP 選擇：載入位址清單供 device 綁定（設了會雙向連結，IP 清單/拓樸接得起來）
+const ipAddrs = ref<{ id: string; ip: string; hostname: string | null }[]>([]);
+async function loadAddresses() {
+  if (ipAddrs.value.length) return;
+  try {
+    const r = await listAddresses({ pageSize: 500 });
+    ipAddrs.value = r.items.map((a: any) => ({ id: a.id, ip: a.ip, hostname: a.hostname }));
+  } catch { /* silent */ }
+}
+const ipOptions = computed(() =>
+  ipAddrs.value.map((a) => ({
+    label: a.hostname ? `${a.ip} — ${a.hostname}` : a.ip,
+    value: a.id,
+  })));
 
 const locationOpts = computed(() => locations.value.map((l) => ({ label: l.name, value: l.id })));
 
@@ -107,9 +125,10 @@ function openCreate() {
   form.value = {
     name: "", fqdn: "", type: "server", vendor: "", model: "", serial: "",
     description: "", location_id: null, rack_id: null,
-    u_position: null, u_size: null, customer_id: null,
+    u_position: null, u_size: null, customer_id: null, primary_ip_id: null,
   };
   void ensureCustomersLoaded();
+  void loadAddresses();
   show.value = true;
 }
 
@@ -122,8 +141,10 @@ function openEdit(r: Device) {
     location_id: r.location_id, rack_id: r.rack_id,
     u_position: r.u_position, u_size: r.u_size,
     customer_id: r.customer_id ?? null,
+    primary_ip_id: (r as any).primary_ip_id ?? null,
   };
   void ensureCustomersLoaded();
+  void loadAddresses();
   show.value = true;
 }
 
@@ -156,6 +177,7 @@ async function submit() {
       u_position: form.value.u_position,
       u_size: form.value.u_size,
       customer_id: form.value.customer_id,
+      primary_ip_id: form.value.primary_ip_id,
     };
     if (editing.value) await updateDevice(editing.value.id, payload);
     else await createDevice(payload);
@@ -186,6 +208,14 @@ const columnPickerItems = computed(() => [
   { key: "customer_id", label: t("cols.unit") },
   { key: "actions", label: t("cols.actions") },
 ]);
+async function linkMatchingIp(r: Device) {
+  if (!r.ip_match_id) return;
+  try {
+    await updateDevice(r.id, { primary_ip_id: r.ip_match_id } as any);
+    msg.success(t("common.ok"));
+    await refresh();
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
 function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
   return h(NTooltip, null, {
     trigger: () => h(NButton, { size: "small", quaternary: true, type,
@@ -260,6 +290,7 @@ const allCols = computed<DataTableColumns<Device>>(() => [
   {
     title: t("common.actions"), key: "actions", className: "col-actions", width: 136,
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
+      ...(r.ip_match_id ? [iconAction(LinkIcon, t("devices.link_matching_ip"), () => linkMatchingIp(r), "primary")] : []),
       iconAction(EyeIcon, t("common.view"),
         () => router.push({ name: "device-detail", params: { id: r.id } })),
       iconAction(EditIcon, t("common.edit"), () => openEdit(r)),
@@ -371,6 +402,10 @@ onMounted(async () => {
         </n-space>
         <n-form-item :label="t('devices.serial')">
           <n-input v-model:value="form.serial" />
+        </n-form-item>
+        <n-form-item :label="t('devices.primary_ip')">
+          <n-select v-model:value="form.primary_ip_id" :options="ipOptions" filterable clearable
+                    :placeholder="t('common.not_specified')" />
         </n-form-item>
 
         <h4 style="margin: 8px 0 4px 0">{{ t("devices.placement_section") }}</h4>

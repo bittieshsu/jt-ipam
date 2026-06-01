@@ -26,6 +26,7 @@ import {
 } from "@/api/chat";
 import { fmtRelative, fmtDateTime } from "@/utils/datetime";
 import { BubbleStar } from "@iconoir/vue";
+import { CancelIcon, SendIcon } from "@/icons";
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
 
@@ -254,7 +255,9 @@ async function removeConversation(id: string) {
             {{ showTrace ? t("chat.hide_trace") : t("chat.trace") }}
           </n-button>
           <n-button text size="tiny" @click="reset">{{ t("chat.reset") }}</n-button>
-          <n-button text size="tiny" @click="open = false">×</n-button>
+          <n-button quaternary circle size="small" :title="t('common.cancel')" @click="open = false">
+            <template #icon><n-icon :size="18"><CancelIcon /></n-icon></template>
+          </n-button>
         </n-space>
       </template>
 
@@ -316,6 +319,7 @@ async function removeConversation(id: string) {
         />
         <n-button type="primary" :loading="loading" :disabled="!input.trim()"
                   @click="send" class="chat-send-btn">
+          <template #icon><n-icon><SendIcon /></n-icon></template>
           {{ t("chat.send") }}
         </n-button>
       </div>

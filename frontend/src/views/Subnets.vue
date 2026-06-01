@@ -81,6 +81,7 @@ const form = ref({
   gateway: "" as string,
   dns_servers: "" as string,
   location_id: null as string | null,
+  allow_overlap: false,
 });
 
 // 目前掃描代理只實作 ICMP ping + 從 ARP 表補 MAC（snmp/nmap/mdns/netbios 尚未實作）
@@ -123,6 +124,7 @@ function openCreate() {
     threshold_pct: null,
     scan_agent_id: null,
     gateway: "", dns_servers: "", location_id: null,
+    allow_overlap: false,
   };
   showEdit.value = true;
 }
@@ -144,6 +146,7 @@ function openEdit(r: Subnet) {
     gateway: r.gateway ?? "",
     dns_servers: r.dns_servers ?? "",
     location_id: r.location_id ?? null,
+    allow_overlap: false,
   };
   showEdit.value = true;
 }
@@ -187,6 +190,7 @@ async function submit() {
         gateway: form.value.gateway.trim() || null,
         dns_servers: form.value.dns_servers.trim() || null,
         location_id: form.value.location_id ?? null,
+        allow_overlap: form.value.allow_overlap,
       });
     }
     showEdit.value = false;
@@ -478,11 +482,14 @@ onMounted(() => {
         </n-space>
       </template>
       <n-form label-placement="left" label-width="120">
-        <n-form-item label="CIDR *" required>
+        <n-form-item label="CIDR" required>
           <n-input v-model:value="form.cidr" placeholder="192.168.1.0/24"
                    :disabled="!!editing" />
         </n-form-item>
-        <n-form-item :label="t('subnets.section') + ' *'" required>
+        <n-form-item v-if="!editing" :label="t('subnets.allow_overlap')">
+          <n-checkbox v-model:checked="form.allow_overlap">{{ t("subnets.allow_overlap_hint") }}</n-checkbox>
+        </n-form-item>
+        <n-form-item :label="t('subnets.section')" required>
           <n-select v-model:value="form.section_id" :options="sectionOpts" filterable />
         </n-form-item>
         <n-form-item :label="t('common.description')">

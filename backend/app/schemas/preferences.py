@@ -17,7 +17,6 @@ class UserPreferenceRead(StrictModel):
     calendar: Literal["gregorian", "minguo"]
     page_size: int
     table_columns: dict[str, Any] | None = None
-    online_grace_minutes: int = 30
     pinned_subnet_ids: list[uuid.UUID] | None = None
 
 
@@ -28,5 +27,4 @@ class UserPreferenceUpdate(StrictModel):
     calendar: Literal["gregorian", "minguo"] | None = None
     page_size: Annotated[int | None, Field(ge=10, le=500)] = None
     table_columns: dict[str, Any] | None = None
-    online_grace_minutes: Annotated[int | None, Field(ge=1, le=10080)] = None  # 1 分鐘 ~ 7 天
     pinned_subnet_ids: list[uuid.UUID] | None = None

@@ -23,26 +23,22 @@ async function loadOnce() {
   if (loaded) return;
   loaded = true;
   try {
-    const { data } = await apiClient.get<{ online_grace_minutes?: number }>(
-      "/api/v1/me/preferences",
-    );
-    if (data?.online_grace_minutes && data.online_grace_minutes > 0) {
-      onlineGraceMinutes.value = data.online_grace_minutes;
-      localStorage.setItem(LS_KEY, String(data.online_grace_minutes));
+    // 上線判定閾值改為「全域系統設定」（管理員設），不再是個人偏好
+    const { data } = await apiClient.get<{ minutes?: number }>("/api/v1/system/online-grace");
+    if (data?.minutes && data.minutes > 0) {
+      onlineGraceMinutes.value = data.minutes;
+      localStorage.setItem(LS_KEY, String(data.minutes));
     }
   } catch {}
 }
 void loadOnce();
 
+// 由管理員在「系統設定」調整（全域）。
 export async function setOnlineGraceMinutes(n: number): Promise<void> {
-  if (n < 1 || n > 10080) throw new Error("超出範圍 (1 ~ 10080 分鐘)");
+  if (n < 1 || n > 43200) throw new Error("超出範圍 (1 ~ 43200 分鐘)");
   onlineGraceMinutes.value = n;
   localStorage.setItem(LS_KEY, String(n));
-  try {
-    await apiClient.patch("/api/v1/me/preferences", { online_grace_minutes: n });
-  } catch {
-    // 失敗不回滾 UI；下次 loadOnce 會以後端為準
-  }
+  await apiClient.put("/api/v1/system/online-grace", { minutes: n });
 }
 
 /** 根據最新 last_seen 時戳 (ms) 算狀態。 */

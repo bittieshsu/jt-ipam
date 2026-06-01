@@ -32,6 +32,8 @@ export interface Rack {
   id: string;
   name: string;
   u_height: number;
+  width_mm: number | null;
+  depth_mm: number | null;
   location_id: string | null;
   description: string | null;
   pos_x: number | null;

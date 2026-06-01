@@ -173,14 +173,24 @@ class SyncSummary:
 def _infer_device_type(ldev: LibreNMSDevice) -> str:
     """從 LibreNMS os/hardware/sysObjectID 粗略推 jt-ipam Device.type。"""
     blob = " ".join(filter(None, [ldev.os, ldev.hardware, ldev.sysObjectID or ""])).lower()
-    if any(k in blob for k in ("firewall", "pfsense", "opnsense", "fortigate", "palo alto", "asa")):
+    if any(k in blob for k in ("firewall", "pfsense", "opnsense", "fortigate", "fortios",
+                               "palo alto", "panos", "asa", "sonicwall", "checkpoint")):
         return "firewall"
-    if any(k in blob for k in ("switch", "catalyst", "nexus", "procurve", "ex2", "ex3", "ex4")):
-        return "switch"
-    if any(k in blob for k in ("router", "ios-xe", "routeros", "mikrotik", "vyos", "isr")):
-        return "router"
-    if any(k in blob for k in ("access point", "wireless", "aironet", "unifi ap", "wifi")):
+    # AP 要排在 switch 前面：unifi/aruba 等常同時含 wireless 與 switch 字樣
+    if any(k in blob for k in ("access point", "wireless", "aironet", "unifi", "wifi",
+                               "aruba", "ruckus", "meraki mr", "airos", "openwrt-ap")):
         return "ap"
+    if any(k in blob for k in ("switch", "catalyst", "nexus", "procurve", "powerconnect",
+                               "ex2", "ex3", "ex4", "dlink", "d-link", "dgs", "des",
+                               "mellanox", "onyx", "arista", "comware", "junos")):
+        return "switch"
+    if any(k in blob for k in ("router", "ios-xe", "routeros", "mikrotik", "vyos", "isr",
+                               "draytek", "vigor", "edgeos", "openwrt")):
+        return "router"
+    if any(k in blob for k in ("proxmox", "linux", "windows", "ubuntu", "debian", "centos",
+                               "freebsd", "esxi", "vmware", "dsm", "synology", "truenas",
+                               "freenas", "macos", "server")):
+        return "server"
     return "other"
 
 
@@ -217,7 +227,7 @@ async def link_librenms_device(
         _cand["snmp"] = str(ldev.sysname)
     name = (
         (await resolve_device_name(session, _cand))
-        or ldev.hostname or ldev.sysname or ldev.primary_ip
+        or ldev.sysname or ldev.hostname or ldev.primary_ip
         or f"librenms-{ldev.legacy_device_id}"
     ).strip()
 

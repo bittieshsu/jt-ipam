@@ -78,6 +78,8 @@ erDiagram
 | is_builtin | bool | 例如 admin / readonly 等內建群組 |
 
 ### 2.3 `user_group_members`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | user_id | UUID FK | |
 | group_id | UUID FK | |
 | (PK: user_id, group_id) | | |
@@ -96,6 +98,8 @@ erDiagram
 INDEX: (parent_id), (name)
 
 ### 2.5 `vlan_domains`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | name | citext UNIQUE | |
 | description | text | |
@@ -179,6 +183,8 @@ UNIQUE (subnet_id, ip)
 INDEX: GIST(ip), (hostname trgm), (mac)
 
 ### 2.10 `locations`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | name | text | |
 | address | text | |
@@ -187,6 +193,8 @@ INDEX: GIST(ip), (hostname trgm), (mac)
 | description | text | |
 
 ### 2.11 `racks`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | location_id | UUID FK | |
 | name | text | |
@@ -194,6 +202,8 @@ INDEX: GIST(ip), (hostname trgm), (mac)
 | description | text | |
 
 ### 2.12 `devices`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | name | text | |
 | primary_ip_id | UUID FK ip_addresses.id | |
@@ -211,6 +221,8 @@ INDEX: GIST(ip), (hostname trgm), (mac)
 ### 2.13 `nat_translations`
 phpIPAM 三種 NAT：
 
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | name | text | |
 | type | text | one_to_one / many_to_one / port_forward |
@@ -223,6 +235,8 @@ phpIPAM 三種 NAT：
 | description | text | |
 
 ### 2.14 `audit_logs`（A08 / A09）
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | bigint | PK（單調遞增） |
 | ts | timestamptz | |
 | actor_user_id | UUID FK | NULL 表系統 |
@@ -241,6 +255,8 @@ INDEX: (object_type, object_id), (actor_user_id), (ts)
 > SHA-256 鏈在寫入時用 advisory lock 序列化，避免併發插入導致鏈錯亂。
 
 ### 2.15 `encrypted_secrets`（A02）
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | object_type | text | dns_server / librenms_instance / api_token / totp / ... |
 | object_id | UUID | |
@@ -253,6 +269,8 @@ INDEX: (object_type, object_id), (actor_user_id), (ts)
 UNIQUE (object_type, object_id, field, key_id)
 
 ### 2.16 `api_tokens`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | user_id | UUID FK | |
 | name | text | |
@@ -266,6 +284,8 @@ UNIQUE (object_type, object_id, field, key_id)
 | revoked_at | timestamptz | |
 
 ### 2.17 `custom_field_definitions`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | object_type | text | section / subnet / ip / device |
 | name | text | |
@@ -282,6 +302,8 @@ UNIQUE (object_type, name)
 ### 2.18 `permissions` (一般化)
 **Section 與 Subnet 的權限統一表**：
 
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | id | UUID | |
 | object_type | text | section / subnet |
 | object_id | UUID | |
@@ -292,6 +314,8 @@ UNIQUE (object_type, name)
 預設未設定 = none（deny-by-default，A01）。
 
 ### 2.19 `user_preferences`
+| 欄位 | 型別 | 說明 |
+|---|---|---|
 | user_id | UUID PK | |
 | locale | text | zh-TW / en-US |
 | theme | text | light / dark / auto |

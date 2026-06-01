@@ -62,7 +62,8 @@
     "power": "電力",
     "vpn_tunnels": "站對站 VPN",
     "migration": "phpIPAM 匯入",
-    "import": "RIPE/TWNIC"
+    "import": "RIPE/TWNIC",
+    "system_settings": "系統設定"
   },
   "topbar": {
     "search": "搜尋…",
@@ -87,6 +88,7 @@
     "cancel": "取消",
     "search": "搜尋",
     "filter": "篩選",
+    "total_n": "共 {n} 筆",
     "loading": "載入中…",
     "no_data": "無資料",
     "confirm_delete": "確定刪除？此操作無法復原。",
@@ -136,7 +138,9 @@
     "skipped_n": "跳過 {n}",
     "failed_n": "失敗 {n}",
     "enable": "啟用",
-    "confirm_delete_short": "確定刪除？"
+    "confirm_delete_short": "確定刪除？",
+    "export": "匯出",
+    "pin": "釘選/取消釘選"
   },
   "cols": {
     "name": "名稱",
@@ -283,7 +287,11 @@
     "filter_action": "篩選動作 (如 create、login_success)",
     "verify_chain": "驗證鏈完整性",
     "chain_ok": "鏈完整 (已檢查 {n} 筆)",
-    "chain_broken": "鏈異常，第一個錯誤位於 #{id}"
+    "chain_broken": "鏈異常，第一個錯誤位於 #{id}",
+    "detail_title": "稽核明細",
+    "before": "變更前",
+    "after": "變更後",
+    "value": "值"
   },
   "users": {
     "title": "使用者",
@@ -426,7 +434,13 @@
     "type_location": "地點",
     "level_read": "讀取",
     "level_write": "編輯",
-    "level_admin": "管理"
+    "level_admin": "管理",
+    "users_hint": "點使用者列即可指派角色 / 編輯權限",
+    "superuser": "超級管理員",
+    "superuser_note": "此使用者是超級管理員，擁有所有權限（不受角色限制）。",
+    "assign_roles": "指派角色",
+    "advanced_grants": "進階：物件層級授權",
+    "advanced_hint": "直接對此使用者授權特定物件；一般情況用上方角色即可。"
   },
   "chat_admin": {
     "user": "使用者",
@@ -479,6 +493,7 @@
     "via_ip": "已連結 IP",
     "via_name": "名稱即 IP",
     "via_arp": "ARP 鄰接",
+    "via_librenms": "LibreNMS 管理 IP",
     "status_up": "上線",
     "status_down": "離線",
     "open_device": "開啟裝置頁",
@@ -524,7 +539,7 @@
     "saved": "順序已更新",
     "src": {
       "manual": "手動",
-      "dns": "DNS (權威伺服器)",
+      "dns": "DNS",
       "librenms": "LibreNMS",
       "opnsense": "OPNsense",
       "scanner": "掃描代理",
@@ -613,7 +628,9 @@
     "scan_methods": "掃描方法",
     "scan_agent_ph": "掃描代理（跨網段時指定；留空＝由 jt-ipam 主機直接掃）",
     "threshold_pct": "使用率門檻 (%)",
-    "threshold_ph": "超過此百分比警示"
+    "threshold_ph": "超過此百分比警示",
+    "allow_overlap": "允許重疊",
+    "allow_overlap_hint": "允許與現有網段重疊（例如同 CIDR 但單位 / 地點不同）"
   },
   "csv_import": {
     "title": "匯入 IP 清單 (CSV)",
@@ -704,7 +721,9 @@
     "rack_placeholder": "選擇機櫃",
     "rack_pick_location_first": "請先選地點",
     "error_name_required": "請填名稱",
-    "error_location_for_rack": "選了機櫃就要選對應的地點"
+    "error_location_for_rack": "選了機櫃就要選對應的地點",
+    "primary_ip": "主要 IP",
+    "link_matching_ip": "關聯相符的 IP 位址"
   },
   "locations": {
     "site": "場域",
@@ -712,10 +731,13 @@
     "latitude": "緯度 (latitude)",
     "longitude": "經度 (longitude)",
     "map": "地圖",
-    "map_preview": "地圖預覽"
+    "map_preview": "地圖預覽",
+    "map_all_hint": "所有已設經緯度的地點；點標記可編輯。"
   },
   "racks": {
     "u_height": "U 高度",
+    "width_mm": "寬度 (mm)",
+    "depth_mm": "深度 (mm)",
     "add": "新增機櫃",
     "select_placeholder": "選擇機櫃",
     "room_placeholder": "選擇機房（看整排機櫃）",
@@ -746,7 +768,8 @@
     "face_rear": "背面",
     "diagram_title": "機櫃示意圖",
     "diagram_empty": "請選擇機櫃以顯示 U 位視覺化。",
-    "all_title": "所有機櫃"
+    "all_title": "所有機櫃",
+    "fp_location_hint": "完整的機櫃拖拉定位，請到「機櫃」頁選此機房編輯。"
   },
   "requests": {
     "title": "IP 申請",
@@ -807,7 +830,7 @@
     "power_calc": "機房電力試算",
     "pw_load": "電力負載 / 容量",
     "pw_heat": "散熱 (W → BTU)",
-    "pw_ups": "UPS 後備時間估算",
+    "pw_ups": "UPS 續航時間估算",
     "pw_pdu": "PDU 安全負載",
     "pw_minutes": "分鐘",
     "pw_safe80": "額定 80%",
@@ -930,7 +953,11 @@
     "sync_sources": "同步來源",
     "sync_filter_rules": "Filter rules (防火牆規則)",
     "sync_nat_rules": "NAT 規則 (Port Forward / 1:1 / Outbound)",
-    "sync_sources_hint": "開啟後 sync 時會拉 OPNsense 對應資料，並 stamp 對到的 IP 的「最後出現 (scanner)」+ 自動補 MAC / hostname"
+    "sync_sources_hint": "開啟後 sync 時會拉 OPNsense 對應資料，並 stamp 對到的 IP 的「最後出現 (scanner)」+ 自動補 MAC / hostname",
+    "aliases": "Aliases",
+    "aliases_hint": "從 OPNsense 同步回來的 alias 定義（唯讀）；按防火牆的「立即同步」會一併更新。",
+    "members": "成員數",
+    "content": "內容"
   },
   "wazuh_admin": {
     "title": "Wazuh 整合",
@@ -1081,6 +1108,13 @@
     "group": "群組"
   },
   "virt": {
+    "vm_status": {
+      "running": "執行中",
+      "stopped": "已停止",
+      "paused": "已暫停",
+      "suspended": "休眠",
+      "unknown": "未知"
+    },
     "clusters": "叢集",
     "vms": "VM",
     "proxmox": "Proxmox 連線",
@@ -1296,7 +1330,25 @@
       "geoip_account": "MaxMind Account ID",
       "geoip_key": "MaxMind License Key",
       "geoip_key_set": "（已設定，留空＝保留原本）",
-      "geoip_hint": "填 MaxMind 帳號的 Account ID 與 License Key，工具頁的 GeoIP 查詢即可使用（走 GeoLite2 web service，免本地資料庫）。Key 加密儲存。"
+      "geoip_hint": "填 MaxMind 帳號的 Account ID 與 License Key（加密儲存）。有下載本地 mmdb 時優先用本地查詢（離線、快）；沒有則退回 GeoLite2 web service。",
+      "geoip_editions": "資料庫版本 (editions)",
+      "geoip_auto": "自動更新",
+      "geoip_update_now": "立即更新",
+      "geoip_db_missing": "尚未下載",
+      "geoip_last_update": "上次更新",
+      "geoip_updated": "已更新本地資料庫",
+      "geoip_need_creds": "請先填並儲存 MaxMind 憑證",
+      "geoip_freq_advice": "更新頻率建議：GeoLite2（免費）MaxMind 每週二、週五發佈 → 選「每週兩次」即可，設每日無意義；GeoIP2（付費）City/Country 每週發佈 → 「每週一次」足夠，需最新可選每日。",
+      "freq_daily": "每日",
+      "freq_twice_weekly": "每週兩次",
+      "freq_weekly": "每週一次",
+      "freq_monthly": "每月一次",
+      "geoip_asn_note": "提示：GeoLite2-ASN 雖為免費，但部分舊版 / 未啟用該產品的 MaxMind 免費帳號可能無權下載；若更新時 ASN 顯示失敗，請到 MaxMind 帳號確認已訂閱 GeoLite2 ASN。",
+      "rack_name_align": "機櫃裝置名稱對齊",
+      "rack_name_align_hint": "機櫃示意圖中裝置名稱的水平對齊方式。",
+      "align_left": "靠左",
+      "align_center": "置中",
+      "align_right": "靠右"
     }
   },
   "errors": {
@@ -1314,7 +1366,7 @@
   },
   "column_picker": {
     "columns": "欄位",
-    "reset": "恢復預設"
+    "reset": "還原預設值"
   },
   "customer_detail": {
     "internal_name": "內部名稱",
@@ -1353,7 +1405,9 @@
     "ollama_unreachable": "無法連 Ollama：{err}",
     "pick_model": "選擇模型",
     "reload_list": "重新載入清單",
-    "timeout_sec": "Timeout (秒)"
+    "chat_model": "對話模型",
+    "embedding_model": "嵌入模型",
+    "timeout_sec": "逾時 (秒)"
   },
   "rack_diagram": {
     "empty": "此機櫃尚無裝置",
@@ -1383,5 +1437,23 @@
     "unpin": "取消釘選",
     "scan_agent": "掃描代理",
     "scan_agent_ph": "跨網段時指定；留空＝由 jt-ipam 主機直接掃"
+  },
+  "device_detail": {
+    "hardware": "硬體",
+    "primary_ip": "主要 IP",
+    "wz_agent": "代理",
+    "wz_agent_version": "代理版本",
+    "wz_group": "群組",
+    "wz_cve": "CVE（高/重大）",
+    "wz_instance": "Wazuh 來源"
+  },
+  "relations": {
+    "title": "關係圖（上下層物件）",
+    "wrap_hint": "接續到下一排"
+  },
+  "system_settings": {
+    "title": "系統設定（全域）",
+    "grp_display": "顯示與地圖",
+    "grp_liveness": "上線判定"
   }
 }

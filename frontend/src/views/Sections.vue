@@ -267,7 +267,7 @@ onMounted(() => {
         </n-space>
       </template>
       <n-form label-placement="left" label-width="120">
-        <n-form-item :label="t('common.name') + ' *'" required>
+        <n-form-item :label="t('common.name')" required>
           <n-input v-model:value="form.name" />
         </n-form-item>
         <n-form-item :label="t('common.description')">

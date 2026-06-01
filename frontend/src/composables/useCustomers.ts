@@ -31,7 +31,7 @@ async function ensureLoaded(): Promise<void> {
 export function useCustomers() {
   const options = computed(() =>
     all.value.map((c) => ({
-      label: c.title ? `${c.name} (${c.title})` : c.name,
+      label: (c.title && c.title !== c.name) ? `${c.name} (${c.title})` : c.name,
       value: c.id,
     })),
   );

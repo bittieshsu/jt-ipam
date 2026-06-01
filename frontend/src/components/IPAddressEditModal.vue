@@ -17,12 +17,14 @@ import {
 import type { IPAddress } from "@/types";
 import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
-import { getHostnameSources, type HostnameSources } from "@/api/hostname";
+import { getHostnameSources, clearHostnameSource, type HostnameSources } from "@/api/hostname";
 import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 import { useCustomers } from "@/composables/useCustomers";
 import { useRouter } from "vue-router";
 import { listDevices, type Device } from "@/api/basic";
+import { getAddressRelations, type RelationNode } from "@/api/relations";
+import RelationChain from "@/components/RelationChain.vue";
 
 const router = useRouter();
 const { options: customerOptions, labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
@@ -39,6 +41,15 @@ async function loadDevices() {
 function deviceLabel(id: string | null | undefined): string {
   if (!id) return "—";
   return devices.value.find((d) => d.id === id)?.name ?? id.slice(0, 8) + "…";
+}
+const deviceOptions = computed(() =>
+  devices.value.map((d) => ({ label: d.name, value: d.id })));
+
+const relations = ref<RelationNode[]>([]);
+async function loadRelations() {
+  relations.value = [];
+  if (!props.address?.id) return;
+  try { relations.value = await getAddressRelations(props.address.id); } catch { /* silent */ }
 }
 
 function goDevice(id: string | null | undefined) {
@@ -110,6 +121,7 @@ interface FormState {
   ptr_ignore: boolean;
   note: string;
   customer_id: string | null;
+  device_id: string | null;
   hostname_source_pin: string;  // "" = 自動 (跟全域優先序)
 }
 
@@ -121,6 +133,7 @@ function emptyForm(): FormState {
     owner: "", switch_port: "",
     exclude_from_ping: false, ptr_ignore: false, note: "",
     customer_id: null,
+    device_id: null,
     hostname_source_pin: "",
   };
 }
@@ -137,6 +150,7 @@ function fromAddress(a: IPAddress): FormState {
     ptr_ignore: !!a.ptr_ignore,
     note: a.note ?? "",
     customer_id: a.customer_id ?? null,
+    device_id: (a as any).device_id ?? null,
     hostname_source_pin: a.hostname_source_pin ?? "",
   };
 }
@@ -158,6 +172,7 @@ watch(
     if (props.show) {
       void ensureCustomersLoaded();
       void loadDevices();
+      void loadRelations();
     }
   },
 );
@@ -215,6 +230,20 @@ async function loadHostnameSources() {
   } catch { /* silent */ }
 }
 
+// 清掉某來源的 hostname 觀測（過時的「手動: …」等）→ 後端重算有效名稱
+async function clearSource(source: string) {
+  if (!props.address?.id) return;
+  try {
+    await clearHostnameSource(props.address.id, source);
+    hostnameSourcesLoaded.value = false;
+    await loadHostnameSources();
+    if (props.address) emit("saved", props.address);
+    msg.success(t("common.ok"));
+  } catch (e: any) {
+    msg.error(e?.response?.data?.detail ?? t("errors.server"));
+  }
+}
+
 // pin 下拉選項：auto + 有觀測的來源 (顯示該來源回報的 hostname)
 const pinOptions = computed(() => {
   const opts: Array<{ label: string; value: string }> = [
@@ -264,6 +293,7 @@ async function save() {
         switch_port: form.value.switch_port.trim() || null,
         note: form.value.note.trim() || null,
         customer_id: form.value.customer_id ?? null,
+        device_id: form.value.device_id ?? null,
       });
       msg.success(t("common.ok"));
       emit("created", created);
@@ -282,6 +312,7 @@ async function save() {
       ptr_ignore: form.value.ptr_ignore,
       note: form.value.note.trim() || null,
       customer_id: form.value.customer_id ?? null,
+      device_id: form.value.device_id ?? null,
       hostname_source_pin: form.value.hostname_source_pin || null,
     };
     const updated = await updateAddress(props.address?.id, payload);
@@ -379,6 +410,8 @@ async function remove() {
                 v-for="o in hostnameSources.observations" :key="o.source"
                 size="small" :bordered="false"
                 :type="o.hostname === props.address?.hostname ? 'success' : 'default'"
+                closable
+                @close="clearSource(o.source)"
               >
                 {{ labelSource(o.source) }}: {{ o.hostname }}
               </n-tag>
@@ -403,6 +436,12 @@ async function remove() {
           <n-descriptions-item :label="t('common.created_at')">{{ fmtDateTime(props.address?.created_at) }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.updated_at')" :span="2">{{ fmtDateTime(props.address?.updated_at) }}</n-descriptions-item>
         </n-descriptions>
+
+        <!-- 上下關係鏈：區段 → 子網路 → 位址 → 裝置 → 機櫃 → 機房 -->
+        <div v-if="!editMode && relations.length > 1" style="margin-top: 14px">
+          <div style="font-size: 12px; opacity: 0.6; margin-bottom: 6px">{{ t("relations.title") }}</div>
+          <relation-chain :nodes="relations" :current-id="props.address?.id" />
+        </div>
 
         <!-- 異動記錄 (feature B)，展開才載入 -->
         <n-collapse v-if="!editMode && props.address" style="margin-top: 12px" @update:expanded-names="onHistoryToggle">
@@ -473,6 +512,10 @@ async function remove() {
           </n-form-item>
           <n-form-item :label="t('nav.customers')">
             <n-select v-model:value="form.customer_id" :options="customerOptions"
+                      :placeholder="t('common.not_specified')" clearable filterable />
+          </n-form-item>
+          <n-form-item :label="t('nav.devices')">
+            <n-select v-model:value="form.device_id" :options="deviceOptions"
                       :placeholder="t('common.not_specified')" clearable filterable />
           </n-form-item>
           <n-space :size="24">

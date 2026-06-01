@@ -213,38 +213,135 @@ async def put_map_provider(
     return MapProviderOut(provider=prov)
 
 
-# ─────────────────── GeoIP（MaxMind GeoLite2 web service）───────────────────
-class GeoIPConfigOut(StrictModel):
-    account_id: str | None = None
-    has_key: bool = False
+# ─────────────────── 機櫃示意圖：裝置名稱對齊（全域）───────────────────
+class RackNameAlignOut(StrictModel):
+    align: str   # "left" | "center" | "right"
 
 
+@public_router.get("/rack-name-align", response_model=RackNameAlignOut)
+async def get_rack_name_align(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> RackNameAlignOut:
+    from app.models.system_setting import SystemSetting
+    row = await session.get(SystemSetting, "rack_name_align")
+    align = (row.value.get("align") if row and isinstance(row.value, dict) else None) or "left"
+    return RackNameAlignOut(align=align if align in ("left", "center", "right") else "left")
+
+
+@router.put("/rack-name-align", response_model=RackNameAlignOut)
+async def put_rack_name_align(
+    payload: RackNameAlignOut,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> RackNameAlignOut:
+    from app.models.system_setting import SystemSetting
+    from sqlalchemy.orm.attributes import flag_modified
+    align = payload.align if payload.align in ("left", "center", "right") else "left"
+    row = await session.get(SystemSetting, "rack_name_align")
+    if row is None:
+        row = SystemSetting(key="rack_name_align", value={}, updated_by=user.id)
+        session.add(row)
+    row.value = {"align": align}
+    row.updated_by = user.id
+    flag_modified(row, "value")
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "rack_name_align", "align": align},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return RackNameAlignOut(align=align)
+
+
+# ─────────────────── 上線判定閾值（全域，管理員設）───────────────────
+class OnlineGraceOut(StrictModel):
+    minutes: Annotated[int, Field(ge=1, le=43200)]
+
+
+@public_router.get("/online-grace", response_model=OnlineGraceOut)
+async def get_online_grace(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> OnlineGraceOut:
+    from app.models.system_setting import SystemSetting
+    row = await session.get(SystemSetting, "online_grace_minutes")
+    m = (row.value.get("minutes") if row and isinstance(row.value, dict) else None) or 30
+    try:
+        m = int(m)
+    except (TypeError, ValueError):
+        m = 30
+    return OnlineGraceOut(minutes=min(43200, max(1, m)))
+
+
+@router.put("/online-grace", response_model=OnlineGraceOut)
+async def put_online_grace(
+    payload: OnlineGraceOut,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> OnlineGraceOut:
+    from app.models.system_setting import SystemSetting
+    from sqlalchemy.orm.attributes import flag_modified
+    m = min(43200, max(1, int(payload.minutes)))
+    row = await session.get(SystemSetting, "online_grace_minutes")
+    if row is None:
+        row = SystemSetting(key="online_grace_minutes", value={}, updated_by=user.id)
+        session.add(row)
+    row.value = {"minutes": m}
+    row.updated_by = user.id
+    flag_modified(row, "value")
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "online_grace_minutes", "minutes": m},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return OnlineGraceOut(minutes=m)
+
+
+# ─────────────────── GeoIP（MaxMind 本地 mmdb + 排程更新）───────────────────
 class GeoIPConfigIn(StrictModel):
     account_id: Annotated[str | None, Field(max_length=64)] = None
     license_key: Annotated[str | None, Field(max_length=128)] = None   # 留空＝保留原本
+    editions: list[Annotated[str, Field(max_length=32)]] | None = None
+    auto_update: bool | None = None
+    frequency: Annotated[str | None, Field(max_length=16)] = None
 
 
-@router.get("/geoip", response_model=GeoIPConfigOut)
+@router.get("/geoip")
 async def get_geoip(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> GeoIPConfigOut:
-    from app.services.geoip import get_geoip_creds
-    acct, key = await get_geoip_creds(session)
-    return GeoIPConfigOut(account_id=acct, has_key=bool(key))
+) -> dict[str, Any]:
+    from app.services.geoip import (
+        ALL_EDITIONS, FREQUENCIES, get_geoip_config,
+    )
+    cfg = await get_geoip_config(session)
+    cfg["all_editions"] = ALL_EDITIONS
+    cfg["frequencies"] = list(FREQUENCIES.keys())
+    return cfg
 
 
-@router.put("/geoip", response_model=GeoIPConfigOut)
+@router.put("/geoip")
 async def put_geoip(
     payload: GeoIPConfigIn,
     user: CurrentUser,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> GeoIPConfigOut:
-    from app.services.geoip import get_geoip_creds, set_geoip_creds
-    await set_geoip_creds(
+) -> dict[str, Any]:
+    from app.services.geoip import get_geoip_config, set_geoip_config
+    await set_geoip_config(
         session, account_id=payload.account_id, license_key=payload.license_key,
-        updated_by=user.id,
+        editions=payload.editions, auto_update=payload.auto_update,
+        frequency=payload.frequency, updated_by=user.id,
     )
     await append_audit(
         session, actor_user_id=str(user.id),
@@ -252,12 +349,35 @@ async def put_geoip(
         actor_user_agent=request.headers.get("user-agent"),
         object_type="system", object_id=None, action="update",
         diff={"target": "geoip", "account_id": payload.account_id,
-              "key_changed": bool(payload.license_key)},
+              "key_changed": bool(payload.license_key),
+              "editions": payload.editions, "auto_update": payload.auto_update,
+              "frequency": payload.frequency},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    acct, key = await get_geoip_creds(session)
-    return GeoIPConfigOut(account_id=acct, has_key=bool(key))
+    return await get_geoip_config(session)
+
+
+@router.post("/geoip/update")
+async def update_geoip_now(
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """立即下載/更新本地 mmdb（手動觸發；排程由 systemd timer 跑）。"""
+    from app.services.geoip import get_geoip_config, update_databases
+    result = await update_databases(session)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "geoip_db_update", "result": result},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    cfg = await get_geoip_config(session)
+    return {"result": result, "config": cfg}
 
 
 class LLMConfigOut(StrictModel):

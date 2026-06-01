@@ -33,6 +33,9 @@ class Rack(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     u_height: Mapped[int] = mapped_column(Integer, default=42, nullable=False)
+    # 實體尺寸（mm）：機房平面圖用來把機櫃方框依真實腳印按比例呈現。null = 用預設。
+    width_mm: Mapped[int | None] = mapped_column(Integer)
+    depth_mm: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str | None] = mapped_column(Text)
     # U 編號方向：top-down＝最上面是最大 U（標準機櫃）；bottom-up＝最上面是 U1。
     numbering: Mapped[str] = mapped_column(

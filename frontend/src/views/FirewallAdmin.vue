@@ -17,6 +17,7 @@ import {
   listFirewalls, createFirewall, updateFirewall, deleteFirewall, testFirewall, syncFirewall,
   listAliasMappings, createAliasMapping, deleteAliasMapping, syncOneMapping,
   listFirewallRules, type OPNsenseRule,
+  listFirewallAliases, type OPNsenseSyncedAlias,
   type OPNsenseFirewall, type OPNsenseAliasMapping,
 } from "@/api/integrations";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -56,7 +57,7 @@ const rulePicker = [
 ];
 
 const msg = useMessage();
-const tab = ref<"firewalls" | "mappings" | "rules">("firewalls");
+const tab = ref<"firewalls" | "mappings" | "rules" | "aliases">("firewalls");
 const fws = ref<OPNsenseFirewall[]>([]);
 
 // Rules tab
@@ -77,6 +78,35 @@ async function loadRules() {
     rulesLoading.value = false;
   }
 }
+// Aliases tab（從 OPNsense 拉回的 alias 定義）
+const aliasesFw = ref<string | null>(null);
+const aliases = ref<OPNsenseSyncedAlias[]>([]);
+const { query: aliasFilterQ, filtered: aliasesFiltered } = useTableQuickFilter(aliases);
+const aliasesLoading = ref(false);
+async function loadAliases() {
+  if (!aliasesFw.value) { aliases.value = []; return; }
+  aliasesLoading.value = true;
+  try {
+    aliases.value = await listFirewallAliases(aliasesFw.value);
+  } catch (e: any) {
+    msg.error(e?.response?.data?.detail ?? t("errors.network"));
+  } finally {
+    aliasesLoading.value = false;
+  }
+}
+const aliasCols = computed<DataTableColumns<OPNsenseSyncedAlias>>(() => autoSort([
+  { title: t("common.name"), key: "name", minWidth: 160, ellipsis: { tooltip: true } },
+  { title: t("cols.type"), key: "alias_type", width: 110, render: (a) => a.alias_type ?? "—" },
+  { title: t("cols.enabled"), key: "enabled", width: 70,
+    render: (a) => h(NTag, { type: a.enabled ? "success" : "default", size: "small" }, () => a.enabled ? "✓" : "—") },
+  { title: t("firewall_admin.members"), key: "member_count", width: 90,
+    sorter: (a, b) => a.member_count - b.member_count,
+    render: (a) => String(a.member_count) },
+  { title: t("firewall_admin.content"), key: "content", minWidth: 240, ellipsis: { tooltip: true },
+    render: (a) => (a.content || []).join(", ") || "—" },
+  { title: t("common.description"), key: "description", minWidth: 160, ellipsis: { tooltip: true },
+    render: (a) => a.description ?? "—" },
+]));
 function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
   return h(NTooltip, null, {
     trigger: () => h(NButton, { size: "small", quaternary: true, type,
@@ -437,6 +467,40 @@ onMounted(() => { void refresh(); });
           v-if="rulesFw"
           :columns="ruleCols" :data="rulesFiltered" :loading="rulesLoading"
           :bordered="false" size="small" :scroll-x="910"
+          :pagination="{ pageSize: 100, showSizePicker: true, pageSizes: [50, 100, 200, 500] }"
+        />
+        <n-empty v-else :description="t('firewall_admin.pick_firewall_to_view')" />
+      </n-tab-pane>
+
+      <n-tab-pane name="aliases">
+        <template #tab>
+          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><ListIcon /></n-icon>{{ t("firewall_admin.aliases") }}</span>
+        </template>
+        <n-alert type="info" size="small" :show-icon="true" style="margin-bottom: 12px">
+          {{ t("firewall_admin.aliases_hint") }}
+        </n-alert>
+        <n-space style="margin-bottom: 12px" align="center">
+          <n-select
+            v-model:value="aliasesFw"
+            :options="fwOptions"
+            :placeholder="t('firewall_admin.pick_firewall')"
+            style="width: 240px"
+            @update:value="loadAliases"
+          />
+          <n-button @click="loadAliases" :loading="aliasesLoading">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("common.refresh") }}
+          </n-button>
+          <span v-if="aliasesFw && aliases.length" style="opacity: 0.7;">
+            {{ t("common.total_n", { n: aliases.length }) }}
+          </span>
+          <n-input v-model:value="aliasFilterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
+          <ExportButton :columns="aliasCols" :rows="aliases" filename="firewall-aliases" :title="t('firewall_admin.aliases')" />
+        </n-space>
+        <n-data-table
+          v-if="aliasesFw"
+          :columns="aliasCols" :data="aliasesFiltered" :loading="aliasesLoading"
+          :bordered="false" size="small" :scroll-x="860"
           :pagination="{ pageSize: 100, showSizePicker: true, pageSizes: [50, 100, 200, 500] }"
         />
         <n-empty v-else :description="t('firewall_admin.pick_firewall_to_view')" />

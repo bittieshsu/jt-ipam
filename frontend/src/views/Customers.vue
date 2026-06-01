@@ -211,7 +211,7 @@ onMounted(() => { void refresh(); });
         </n-space>
       </template>
       <n-form label-placement="left" label-width="100">
-        <n-form-item :label="t('common.name') + ' *'" required>
+        <n-form-item :label="t('common.name')" required>
           <n-input v-model:value="form.name" :placeholder="t('customers.name_ph')" />
         </n-form-item>
         <n-form-item :label="t('common.description')">

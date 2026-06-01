@@ -108,6 +108,7 @@ export interface Device {
   id: string; name: string; type: string;
   fqdn: string | null;
   ip?: string | null;     // 由清單 endpoint 解析 primary_ip 填入
+  ip_match_id?: string | null;   // 有相符但未連結的 IPAddress → 可一鍵關聯
   vendor: string | null; model: string | null; serial: string | null;
   location_id: string | null; rack_id: string | null;
   u_position: number | null; u_size: number | null;
@@ -192,13 +193,48 @@ export async function setMapProvider(provider: "osm" | "google"): Promise<void> 
   await apiClient.put("/api/v1/system/map-provider", { provider });
 }
 
-export interface GeoIPConfig { account_id: string | null; has_key: boolean; }
+export async function getOnlineGrace(): Promise<number> {
+  try {
+    const { data } = await apiClient.get<{ minutes: number }>("/api/v1/system/online-grace");
+    return Number(data.minutes) || 30;
+  } catch { return 30; }
+}
+export async function setOnlineGrace(minutes: number): Promise<void> {
+  await apiClient.put("/api/v1/system/online-grace", { minutes });
+}
+
+export type RackNameAlign = "left" | "center" | "right";
+export async function getRackNameAlign(): Promise<RackNameAlign> {
+  try {
+    const { data } = await apiClient.get<{ align: string }>("/api/v1/system/rack-name-align");
+    return (["left", "center", "right"].includes(data.align) ? data.align : "left") as RackNameAlign;
+  } catch { return "left"; }
+}
+export async function setRackNameAlign(align: RackNameAlign): Promise<void> {
+  await apiClient.put("/api/v1/system/rack-name-align", { align });
+}
+
+export interface GeoIPDb { edition: string; present: boolean; size: number | null; built_at: string | null; }
+export interface GeoIPConfig {
+  account_id: string | null; has_key: boolean;
+  editions: string[]; auto_update: boolean; frequency: string;
+  last_update_at: string | null; last_error: string | null;
+  dbs: GeoIPDb[]; all_editions: string[]; frequencies: string[];
+}
+export interface GeoIPConfigPatch {
+  account_id?: string | null; license_key?: string | null;
+  editions?: string[]; auto_update?: boolean; frequency?: string;
+}
 export async function getGeoipConfig(): Promise<GeoIPConfig> {
   const { data } = await apiClient.get<GeoIPConfig>("/api/v1/system/geoip");
   return data;
 }
-export async function setGeoipConfig(account_id: string | null, license_key: string | null): Promise<GeoIPConfig> {
-  const { data } = await apiClient.put<GeoIPConfig>("/api/v1/system/geoip", { account_id, license_key });
+export async function setGeoipConfig(patch: GeoIPConfigPatch): Promise<GeoIPConfig> {
+  const { data } = await apiClient.put<GeoIPConfig>("/api/v1/system/geoip", patch);
+  return data;
+}
+export async function updateGeoipDbNow(): Promise<{ result: any; config: GeoIPConfig }> {
+  const { data } = await apiClient.post("/api/v1/system/geoip/update");
   return data;
 }
 

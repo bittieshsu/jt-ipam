@@ -76,8 +76,12 @@ async def assert_no_overlap(
     cidr: str,
     vrf_id: uuid.UUID | None,
     exclude_id: uuid.UUID | None = None,
+    allow_overlap: bool = False,
 ) -> None:
-    """若該 VRF 不允許重疊（allow_overlap=false 或 VRF 為 NULL），則禁止重疊新增。"""
+    """若該 VRF 不允許重疊（allow_overlap=false 或 VRF 為 NULL），則禁止重疊新增。
+    allow_overlap=True 為使用者明確允許（例如同 CIDR 但單位/地點不同）→ 直接放行。"""
+    if allow_overlap:
+        return
     if vrf_id is not None:
         vrf = await session.get(VRF, vrf_id)
         if vrf is not None and vrf.allow_overlap:

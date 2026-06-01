@@ -156,6 +156,11 @@ export async function listGroupMembers(groupId: string): Promise<User[]> {
   return data;
 }
 
+export async function getUserGroups(userId: string): Promise<Group[]> {
+  const { data } = await apiClient.get<Group[]>(`/api/v1/users/${userId}/groups`);
+  return data;
+}
+
 export async function addGroupMember(groupId: string, userId: string): Promise<void> {
   await apiClient.post(`/api/v1/groups/${groupId}/members/${userId}`);
 }

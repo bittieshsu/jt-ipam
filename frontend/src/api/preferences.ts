@@ -8,8 +8,6 @@ export interface UserPreferences {
   page_size: number;
   // 每張表要顯示哪些欄位 (key 由 view 自訂，e.g. "addresses")
   table_columns: Record<string, string[]> | null;
-  // last_seen 超過多久就視為離線 (分鐘)；預設 30
-  online_grace_minutes: number;
   // Dashboard 常用子網路 UUID 清單
   pinned_subnet_ids: string[] | null;
 }

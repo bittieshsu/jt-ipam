@@ -47,6 +47,7 @@ const routes: RouteRecordRaw[] = [
       { path: "customers", name: "customers", component: () => import("@/views/Customers.vue"), meta: { admin: true } },
       { path: "customers/:id", name: "customer-detail", component: () => import("@/views/CustomerDetail.vue"), meta: { admin: true } },
       { path: "llm", name: "llm_settings", component: () => import("@/views/LLMSettings.vue"), meta: { admin: true } },
+      { path: "system-settings", name: "system_settings", component: () => import("@/views/SystemSettings.vue"), meta: { admin: true } },
       { path: "chat-history", name: "chat_history", component: () => import("@/views/ChatHistoryAdmin.vue"), meta: { admin: true } },
       { path: "my-chat-history", name: "my_chat_history", component: () => import("@/views/MyChatHistory.vue") },
       { path: "permissions", name: "permissions", component: () => import("@/views/Permissions.vue"), meta: { admin: true } },

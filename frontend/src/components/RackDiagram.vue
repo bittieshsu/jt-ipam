@@ -8,25 +8,39 @@
  *  - 點 device 跳詳情
  *  - U 編號從上到下標示，符合機房現場認知
  */
-import { computed, ref } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { NCard, NTag, NEmpty, NAlert, NSpace, NTooltip, NButton, NIcon } from "naive-ui";
+import { NCard, NTag, NEmpty, NAlert, NSpace, NTooltip, NButton, NIcon, NDropdown } from "naive-ui";
 import type { RackDiagram } from "@/api/racks";
 import { rackTypeColor as colorFor } from "@/utils/rackColors";
 import { ExportIcon } from "@/icons";
+import { getRackNameAlign, type RackNameAlign } from "@/api/basic";
+
+// 全域設定：機櫃中裝置名稱靠左/置中/靠右（管理員在系統設定調整）
+const nameAlign = ref<RackNameAlign>("left");
+onMounted(() => { void getRackNameAlign().then((a) => { nameAlign.value = a; }); });
+const nameJustify = computed(() =>
+  nameAlign.value === "center" ? "center" : nameAlign.value === "right" ? "flex-end" : "flex-start");
 
 const { t } = useI18n();
 
-// 匯出機櫃圖為 draw.io 可編輯的 SVG（rect/line/text，可在 draw.io 取消群組後編輯）
-function exportSvg() {
+const GEO = { rowH: 24, colW: 260, gutter: 32, pad: 12, headerH: 30 };
+const esc = (s: unknown) => String(s ?? "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c] as string));
+
+function devLabel(dev: any): string {
+  // 機櫃示意圖只標裝置名稱 + 類型，不標 IP
+  return `${dev.name} · ${dev.type}`;
+}
+
+// 共用：產生機櫃 SVG 字串 + 尺寸
+function buildSvg(): { svg: string; W: number; H: number } | null {
   const d = props.diagram;
-  if (!d) return;
-  const rowH = 24, colW = 260, gutter = 32, pad = 12, headerH = 30;
+  if (!d) return null;
+  const { rowH, colW, gutter, pad, headerH } = GEO;
   const U = d.u_height || 0;
   const W = gutter + colW + pad * 2;
   const H = headerH + U * rowH + pad * 2;
-  const esc = (s: unknown) => String(s ?? "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] as string));
   const p: string[] = [];
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" font-family="sans-serif">`);
   p.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
@@ -45,15 +59,92 @@ function exportSvg() {
     const yTop = top + (U - uTop) * rowH;
     const hgt = dev.u_size * rowH;
     p.push(`<rect x="${gutter + 2}" y="${yTop + 1}" width="${colW - 4}" height="${hgt - 2}" rx="3" fill="${colorFor(dev.type)}" stroke="rgba(0,0,0,0.3)"/>`);
-    const ipPart = (dev as any).primary_ip ? " · " + esc((dev as any).primary_ip) : "";
-    p.push(`<text x="${gutter + 10}" y="${yTop + hgt / 2 + 4}" font-size="11" font-weight="bold" fill="#ffffff">${esc(dev.name)} · ${esc(dev.type)}${ipPart}</text>`);
+    const a = nameAlign.value;
+    const tx = a === "center" ? gutter + colW / 2 : a === "right" ? gutter + colW - 10 : gutter + 10;
+    const anchor = a === "center" ? "middle" : a === "right" ? "end" : "start";
+    p.push(`<text x="${tx}" y="${yTop + hgt / 2 + 4}" text-anchor="${anchor}" font-size="11" font-weight="bold" fill="#ffffff">${esc(devLabel(dev))}</text>`);
   }
   p.push(`</svg>`);
-  const blob = new Blob([p.join("\n")], { type: "image/svg+xml" });
+  return { svg: p.join("\n"), W, H };
+}
+
+function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `rack-${d.name}.svg`; a.click();
+  a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+}
+
+function exportSvg() {
+  const r = buildSvg();
+  if (!r) return;
+  download(new Blob([r.svg], { type: "image/svg+xml" }), `rack-${props.diagram!.name}.svg`);
+}
+
+// SVG → canvas → PNG（2x 解析度）
+function exportPng() {
+  const r = buildSvg();
+  if (!r) return;
+  const scale = 2;
+  const img = new Image();
+  const svgUrl = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(r.svg)));
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = r.W * scale; canvas.height = r.H * scale;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob((blob) => { if (blob) download(blob, `rack-${props.diagram!.name}.png`); }, "image/png");
+  };
+  img.src = svgUrl;
+}
+
+// 匯出為 draw.io（.drawio）：mxGraphModel，機櫃框 + 每台裝置一個可編輯方塊
+function exportDrawio() {
+  const d = props.diagram;
+  if (!d) return;
+  const { rowH, colW, gutter, pad, headerH } = GEO;
+  const U = d.u_height || 0;
+  const top = headerH + pad;
+  const cells: string[] = [];
+  cells.push('<mxCell id="0"/>');
+  cells.push('<mxCell id="1" parent="0"/>');
+  // 標題（放外框上方，不與最上層裝置重疊）
+  cells.push(`<mxCell id="title" value="${esc(`Rack: ${d.name} (${U}U)`)}" style="text;html=1;align=left;verticalAlign=middle;fontStyle=1;fontSize=14;" vertex="1" parent="1"><mxGeometry x="${gutter}" y="${pad}" width="${colW}" height="20" as="geometry"/></mxCell>`);
+  // 機櫃外框：明確較粗框線（strokeWidth=2，對應示意圖的外框粗細）
+  cells.push(`<mxCell id="rack" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#888888;strokeWidth=2;" vertex="1" parent="1"><mxGeometry x="${gutter}" y="${top}" width="${colW}" height="${U * rowH}" as="geometry"/></mxCell>`);
+  // 左側 U 數編號（與示意圖一致）
+  for (let i = 0; i < U; i++) {
+    const uNum = U - i;
+    const y = top + i * rowH;
+    cells.push(`<mxCell id="u${uNum}" value="${uNum}" style="text;html=1;align=right;verticalAlign=middle;fontSize=10;fontColor=#666666;" vertex="1" parent="1"><mxGeometry x="${gutter - 28}" y="${y}" width="24" height="${rowH}" as="geometry"/></mxCell>`);
+  }
+  let n = 0;
+  for (const dev of (d.devices || [])) {
+    if (!dev.u_position || !dev.u_size) continue;
+    const uTop = dev.u_position + dev.u_size - 1;
+    const yTop = top + (U - uTop) * rowH;
+    const hgt = dev.u_size * rowH;
+    const fill = colorFor(dev.type);
+    cells.push(`<mxCell id="dev${n++}" value="${esc(devLabel(dev))}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=#000000;fontColor=#ffffff;fontStyle=1;align=${nameAlign.value};spacingLeft=6;spacingRight=6;" vertex="1" parent="1"><mxGeometry x="${gutter + 2}" y="${yTop + 1}" width="${colW - 4}" height="${hgt - 2}" as="geometry"/></mxCell>`);
+  }
+  const xml =
+    `<mxfile host="jt-ipam"><diagram name="${esc(d.name)}">` +
+    `<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" math="0" shadow="0">` +
+    `<root>${cells.join("")}</root></mxGraphModel></diagram></mxfile>`;
+  download(new Blob([xml], { type: "application/xml" }), `rack-${d.name}.drawio`);
+}
+
+const exportOptions = computed(() => [
+  { label: "SVG", key: "svg" },
+  { label: "PNG", key: "png" },
+  { label: "draw.io", key: "drawio" },
+]);
+function onExport(key: string) {
+  if (key === "svg") exportSvg();
+  else if (key === "png") exportPng();
+  else if (key === "drawio") exportDrawio();
 }
 const router = useRouter();
 function goDevice(id: string) {
@@ -128,10 +219,12 @@ const cells = computed<Cell[]>(() => {
 <template>
   <n-card v-if="diagram" :title="`Rack: ${diagram.name} (${diagram.u_height}U)`">
     <template #header-extra>
-      <n-button size="tiny" quaternary @click="exportSvg" :title="t('rack_diagram.export_svg_hint')">
-        <template #icon><n-icon><ExportIcon /></n-icon></template>
-        SVG
-      </n-button>
+      <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
+        <n-button size="tiny" quaternary :title="t('rack_diagram.export_svg_hint')">
+          <template #icon><n-icon><ExportIcon /></n-icon></template>
+          {{ t("common.export") }}
+        </n-button>
+      </n-dropdown>
     </template>
     <n-space vertical :size="12">
       <n-alert
@@ -161,7 +254,7 @@ const cells = computed<Cell[]>(() => {
                 <div
                   class="u-row u-occupied"
                   :class="{ 'u-top': cell.device.is_top, 'u-bottom': cell.device.is_bottom, 'u-hl': hoveredId === cell.device.id }"
-                  :style="{ background: colorFor(cell.device.type) }"
+                  :style="{ background: colorFor(cell.device.type), justifyContent: nameJustify }"
                   @mouseenter="hoveredId = cell.device.id"
                   @mouseleave="hoveredId = null"
                   @click="goDevice(cell.device.id)"
@@ -171,7 +264,6 @@ const cells = computed<Cell[]>(() => {
                     <n-tag size="tiny" :bordered="false" style="margin-left: 6px">
                       {{ cell.device.type }}
                     </n-tag>
-                    <span v-if="cell.device.primary_ip" class="d-ip">{{ cell.device.primary_ip }}</span>
                   </template>
                 </div>
               </template>

@@ -62,7 +62,8 @@
     "power": "Power",
     "vpn_tunnels": "Site-to-Site VPN",
     "migration": "phpIPAM Migration",
-    "import": "RIPE / TWNIC Import"
+    "import": "RIPE / TWNIC Import",
+    "system_settings": "System Settings"
   },
   "topbar": {
     "search": "Search…",
@@ -87,6 +88,7 @@
     "cancel": "Cancel",
     "search": "Search",
     "filter": "Filter",
+    "total_n": "Total: {n}",
     "loading": "Loading…",
     "no_data": "No data",
     "confirm_delete": "Confirm delete? This action cannot be undone.",
@@ -136,7 +138,9 @@
     "skipped_n": "Skipped {n}",
     "failed_n": "Failed {n}",
     "enable": "Enable",
-    "confirm_delete_short": "Confirm delete?"
+    "confirm_delete_short": "Confirm delete?",
+    "export": "Export",
+    "pin": "Pin / unpin"
   },
   "cols": {
     "name": "Name",
@@ -283,7 +287,11 @@
     "filter_action": "Filter action (e.g. create, login_success)",
     "verify_chain": "Verify chain integrity",
     "chain_ok": "Chain intact (checked {n} entries)",
-    "chain_broken": "Chain broken at #{id}"
+    "chain_broken": "Chain broken at #{id}",
+    "detail_title": "Audit detail",
+    "before": "Before",
+    "after": "After",
+    "value": "Value"
   },
   "users": {
     "title": "Users",
@@ -426,7 +434,13 @@
     "type_location": "Location",
     "level_read": "Read",
     "level_write": "Edit",
-    "level_admin": "Manage"
+    "level_admin": "Manage",
+    "users_hint": "Click a user to assign roles / edit permissions",
+    "superuser": "Superuser",
+    "superuser_note": "This user is a superuser and has all permissions (roles don't restrict).",
+    "assign_roles": "Assign roles",
+    "advanced_grants": "Advanced: object-level grants",
+    "advanced_hint": "Grant specific objects directly to this user; normally roles above are enough."
   },
   "chat_admin": {
     "user": "User",
@@ -479,6 +493,7 @@
     "via_ip": "Linked IP",
     "via_name": "Name is IP",
     "via_arp": "ARP adjacency",
+    "via_librenms": "LibreNMS mgmt IP",
     "status_up": "Up",
     "status_down": "Down",
     "open_device": "Open device page",
@@ -613,7 +628,9 @@
     "scan_methods": "Scan methods",
     "scan_agent_ph": "Scan agent (specify for cross-subnet; blank = scan from jt-ipam host directly)",
     "threshold_pct": "Usage threshold (%)",
-    "threshold_ph": "Alert above this percentage"
+    "threshold_ph": "Alert above this percentage",
+    "allow_overlap": "Allow overlap",
+    "allow_overlap_hint": "Allow overlapping an existing subnet (e.g. same CIDR but different unit / location)"
   },
   "csv_import": {
     "title": "Import addresses (CSV)",
@@ -704,7 +721,9 @@
     "rack_placeholder": "Pick a rack",
     "rack_pick_location_first": "Pick a location first",
     "error_name_required": "Name is required",
-    "error_location_for_rack": "When picking a rack, also pick its location"
+    "error_location_for_rack": "When picking a rack, also pick its location",
+    "primary_ip": "Primary IP",
+    "link_matching_ip": "Link matching IP address"
   },
   "locations": {
     "site": "Site",
@@ -712,10 +731,13 @@
     "latitude": "Latitude",
     "longitude": "Longitude",
     "map": "Map",
-    "map_preview": "Map preview"
+    "map_preview": "Map preview",
+    "map_all_hint": "All locations with coordinates; click a marker to edit."
   },
   "racks": {
     "u_height": "U",
+    "width_mm": "Width (mm)",
+    "depth_mm": "Depth (mm)",
     "add": "Add rack",
     "select_placeholder": "Select a rack",
     "room_placeholder": "Select a room (whole row)",
@@ -746,7 +768,8 @@
     "face_rear": "Rear",
     "diagram_title": "Rack diagram",
     "diagram_empty": "Select a rack to view its U layout.",
-    "all_title": "All racks"
+    "all_title": "All racks",
+    "fp_location_hint": "For full rack drag-and-drop placement, open this room in the Racks page."
   },
   "requests": {
     "title": "IP Requests",
@@ -930,7 +953,11 @@
     "sync_sources": "Sync sources",
     "sync_filter_rules": "Filter rules",
     "sync_nat_rules": "NAT rules (Port Forward / 1:1 / Outbound)",
-    "sync_sources_hint": "When on, sync pulls matching OPNsense data, stamps matched IPs’ last-seen (scanner), and auto-fills MAC / hostname."
+    "sync_sources_hint": "When on, sync pulls matching OPNsense data, stamps matched IPs’ last-seen (scanner), and auto-fills MAC / hostname.",
+    "aliases": "Aliases",
+    "aliases_hint": "Alias definitions pulled from OPNsense (read-only); refreshed when you sync the firewall.",
+    "members": "Members",
+    "content": "Content"
   },
   "wazuh_admin": {
     "title": "Wazuh",
@@ -1118,7 +1145,14 @@
     "standalone": "Standalone",
     "clustered": "Clustered",
     "cluster_auto_ph": "Leave blank: auto-created from the PVE cluster name on sync",
-    "help_path": "Path /"
+    "help_path": "Path /",
+    "vm_status": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "paused": "Paused",
+      "suspended": "Suspended",
+      "unknown": "Unknown"
+    }
   },
   "physical": {
     "cabling": "Cabling",
@@ -1296,7 +1330,25 @@
       "geoip_account": "MaxMind Account ID",
       "geoip_key": "MaxMind License Key",
       "geoip_key_set": "(set — leave blank to keep)",
-      "geoip_hint": "Enter your MaxMind Account ID and License Key to enable the GeoIP tool (uses the GeoLite2 web service, no local DB). The key is stored encrypted."
+      "geoip_hint": "Enter your MaxMind Account ID and License Key (stored encrypted). When a local mmdb is downloaded, lookups use it (offline, fast); otherwise they fall back to the GeoLite2 web service.",
+      "geoip_editions": "Database editions",
+      "geoip_auto": "Auto-update",
+      "geoip_update_now": "Update now",
+      "geoip_db_missing": "not downloaded",
+      "geoip_last_update": "Last update",
+      "geoip_updated": "Local databases updated",
+      "geoip_need_creds": "Set and save MaxMind credentials first",
+      "geoip_freq_advice": "Update frequency: GeoLite2 (free) is published Tue & Fri → 'Twice weekly' is ideal (daily is pointless). GeoIP2 (paid) City/Country is published weekly → 'Weekly' suffices; choose Daily only if you need the freshest.",
+      "freq_daily": "Daily",
+      "freq_twice_weekly": "Twice weekly",
+      "freq_weekly": "Weekly",
+      "freq_monthly": "Monthly",
+      "geoip_asn_note": "Note: GeoLite2-ASN is free, but some older / not-enabled MaxMind free accounts may not be entitled to it. If the ASN download fails, check your MaxMind account is subscribed to GeoLite2 ASN.",
+      "rack_name_align": "Rack device-name alignment",
+      "rack_name_align_hint": "Horizontal alignment of device names in the rack diagram.",
+      "align_left": "Left",
+      "align_center": "Center",
+      "align_right": "Right"
     }
   },
   "errors": {
@@ -1353,7 +1405,9 @@
     "ollama_unreachable": "Cannot reach Ollama: {err}",
     "pick_model": "Pick a model",
     "reload_list": "Reload list",
-    "timeout_sec": "Timeout (s)"
+    "timeout_sec": "Timeout (s)",
+    "chat_model": "Chat model",
+    "embedding_model": "Embedding model"
   },
   "rack_diagram": {
     "empty": "No devices in this rack",
@@ -1383,5 +1437,23 @@
     "unpin": "Unpin",
     "scan_agent": "Scan agent",
     "scan_agent_ph": "Specify for cross-subnet scanning; blank = scan from the jt-ipam host directly"
+  },
+  "device_detail": {
+    "hardware": "Hardware",
+    "primary_ip": "Primary IP",
+    "wz_agent": "Agent",
+    "wz_agent_version": "Agent version",
+    "wz_group": "Group",
+    "wz_cve": "CVE (high/crit)",
+    "wz_instance": "Wazuh instance"
+  },
+  "relations": {
+    "title": "Relationships",
+    "wrap_hint": "continues on next row"
+  },
+  "system_settings": {
+    "title": "System Settings (global)",
+    "grp_display": "Display & map",
+    "grp_liveness": "Liveness"
   }
 }

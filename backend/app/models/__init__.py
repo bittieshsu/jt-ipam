@@ -27,7 +27,7 @@ from app.models.customer import Customer
 from app.models.device import Device
 from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.encrypted_secret import EncryptedSecret
-from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall
+from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall, OPNsenseSyncedAlias
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_hostname import IPHostnameObservation
 from app.models.ip_request import IPRequest, IPRequestEvent
@@ -97,6 +97,7 @@ __all__ = [
     "Notification",
     "OPNsenseAliasMapping",
     "OPNsenseFirewall",
+    "OPNsenseSyncedAlias",
     "Permission",
     "PhpIPAMMigrationMapping",
     "PowerFeed",

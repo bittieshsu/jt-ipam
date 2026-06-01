@@ -19,8 +19,9 @@ from app.models.system_setting import SystemSetting
 
 DEVNAME_KEY = "device_name_precedence"
 DEVNAME_SOURCES = ("manual", "librenms", "dns", "proxmox", "opnsense", "snmp")
-# 預設：手動最優先，其次 LibreNMS、DNS、Proxmox VM 名稱、OPNsense、SNMP sysName
-DEFAULT_DEVNAME_ORDER: list[str] = ["manual", "librenms", "dns", "proxmox", "opnsense", "snmp"]
+# 預設：手動最優先，其次 SNMP sysName（人類可讀），再來才是 LibreNMS hostname
+# （常常就是 IP，當名稱不佳）、DNS、Proxmox VM 名稱、OPNsense。
+DEFAULT_DEVNAME_ORDER: list[str] = ["manual", "snmp", "librenms", "dns", "proxmox", "opnsense"]
 _TTL = 60.0
 _cache: dict[str, tuple[float, list[str], list[str]]] = {}
 

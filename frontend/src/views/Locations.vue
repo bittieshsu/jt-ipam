@@ -11,17 +11,56 @@ import {
   getMapProvider, type Location,
 } from "@/api/basic";
 import {
-  LocationsIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon,
+  LocationsIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, PinIcon,
 } from "@/icons";
+import { usePinned } from "@/composables/usePinned";
+import LocationsMap from "@/components/LocationsMap.vue";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
+import { uploadFloorplan, getFloorplanObjectURL, deleteFloorplan } from "@/api/racks";
+
+// ── 機房平面圖（在編輯既有機房時可上傳/檢視/移除；完整定位編輯在「機櫃」頁）──
+const fpUrl = ref<string | null>(null);
+const fpHas = ref(false);
+const fpBusy = ref(false);
+const fpInput = ref<HTMLInputElement | null>(null);
+function revokeFp() { if (fpUrl.value) { URL.revokeObjectURL(fpUrl.value); fpUrl.value = null; } }
+async function loadFp(id: string) {
+  revokeFp(); fpHas.value = false;
+  try { fpUrl.value = await getFloorplanObjectURL(id); fpHas.value = true; } catch { fpHas.value = false; }
+}
+function pickFp() { fpInput.value?.click(); }
+async function onFpFile(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0];
+  if (!f || !editing.value) return;
+  fpBusy.value = true;
+  try { await uploadFloorplan(editing.value.id, f); await loadFp(editing.value.id); msg.success(t("common.ok")); }
+  catch (err: any) { msg.error(err?.response?.data?.detail ?? t("errors.server")); }
+  finally { fpBusy.value = false; if (fpInput.value) fpInput.value.value = ""; }
+}
+async function removeFp() {
+  if (!editing.value) return;
+  try { await deleteFloorplan(editing.value.id); revokeFp(); fpHas.value = false; }
+  catch (err: any) { msg.error(err?.response?.data?.detail ?? t("errors.server")); }
+}
 
 const { t } = useI18n();
 const msg = useMessage();
 const rows = ref<Location[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
+const pin = usePinned("locations");
+const displayRows = computed(() => pin.sortPinnedFirst(filteredRows.value));
+
+// 世界地圖標記：有經緯度的地點
+const mapPoints = computed(() => rows.value
+  .filter((r) => r.latitude != null && r.longitude != null)
+  .map((r) => ({ id: r.id, name: r.name, lat: Number(r.latitude), lng: Number(r.longitude) })));
+function onMapSelect(id: string) {
+  const r = rows.value.find((x) => x.id === id);
+  if (r) openEdit(r);
+}
 const loading = ref(false);
 const show = ref(false);
 const editing = ref<Location | null>(null);
@@ -67,6 +106,7 @@ async function refresh() {
 function openCreate() {
   editing.value = null;
   form.value = { name: "", address: "", description: "", latitude: null, longitude: null };
+  revokeFp(); fpHas.value = false;
   show.value = true;
 }
 function openEdit(r: Location) {
@@ -75,6 +115,7 @@ function openEdit(r: Location) {
     name: r.name, address: r.address ?? "", description: r.description ?? "",
     latitude: r.latitude ?? null, longitude: r.longitude ?? null,
   };
+  void loadFp(r.id);
   show.value = true;
 }
 async function submit() {
@@ -127,8 +168,13 @@ const allCols = computed<DataTableColumns<Location>>(() => [
   { title: t("common.description"), key: "description", minWidth: 200, ellipsis: { tooltip: true }, render: (r) => r.description ?? "—",
     sorter: (a, b) => (a.description ?? "").localeCompare(b.description ?? "") },
   {
-    title: t("common.actions"), key: "actions", className: "col-actions", width: 96,
+    title: t("common.actions"), key: "actions", className: "col-actions", width: 128,
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
+      h(NButton, {
+        size: "small", quaternary: true,
+        type: pin.isPinned(r.id) ? "warning" : "default", title: t("common.pin"),
+        onClick: (e: MouseEvent) => { e.stopPropagation(); pin.toggle(r.id); },
+      }, { icon: () => h(NIcon, { color: pin.isPinned(r.id) ? "#f0a020" : undefined }, () => h(PinIcon)) }),
       iconAction(EditIcon, t("common.edit"), () => openEdit(r)),
       h(NPopconfirm, { onPositiveClick: () => del(r) }, {
         trigger: () => iconAction(DeleteIcon, t("common.delete"), () => {}, "error"),
@@ -138,7 +184,7 @@ const allCols = computed<DataTableColumns<Location>>(() => [
   },
 ]);
 const cols = computed<DataTableColumns<Location>>(() =>
-  allCols.value.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key)),
+  allCols.value.filter((c: any) => c.type === "selection" || c.key === "actions" || visibleKeys.value.includes(c.key)),
 );
 onMounted(() => { void refresh(); getMapProvider().then((p) => { mapProvider.value = p; }); });
 </script>
@@ -178,8 +224,9 @@ onMounted(() => { void refresh(); getMapProvider().then((p) => { mapProvider.val
       </n-popconfirm>
       <n-button size="small" @click="checkedKeys = []">{{ t("common.clear_selection") }}</n-button>
     </n-space>
+    <locations-map v-if="mapPoints.length" :points="mapPoints" style="margin-bottom: 12px" @select="onMapSelect" />
     <n-data-table
-      :columns="cols" :data="filteredRows" :loading="loading" :bordered="false"
+      :columns="cols" :data="displayRows" :loading="loading" :bordered="false"
       :scroll-x="876"
       :row-key="(row: Location) => row.id"
       :checked-row-keys="checkedKeys"
@@ -211,6 +258,31 @@ onMounted(() => { void refresh(); getMapProvider().then((p) => { mapProvider.val
         </n-form-item>
         <n-form-item :label="t('sections.description')">
           <n-input v-model:value="form.description" type="textarea" :rows="2" />
+        </n-form-item>
+        <n-form-item v-if="editing" :label="t('racks.floor_plan')">
+          <div style="width: 100%">
+            <input ref="fpInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                   style="display:none" @change="onFpFile" />
+            <img v-if="fpHas && fpUrl" :src="fpUrl" alt="floor plan"
+                 style="display:block; width:100%; max-height:220px; object-fit:contain;
+                        border:1px solid var(--n-border-color,#ddd); border-radius:6px; background:rgba(127,127,127,.05)" />
+            <n-space style="margin-top: 8px">
+              <n-button size="small" :loading="fpBusy" @click="pickFp">
+                <template #icon><n-icon><PlusIcon /></n-icon></template>
+                {{ fpHas ? t("racks.fp_replace") : t("racks.fp_upload") }}
+              </n-button>
+              <n-popconfirm v-if="fpHas" @positive-click="removeFp">
+                <template #trigger>
+                  <n-button size="small" type="error" quaternary>
+                    <template #icon><n-icon><DeleteIcon /></n-icon></template>
+                    {{ t("racks.fp_remove") }}
+                  </n-button>
+                </template>
+                {{ t("racks.fp_remove_confirm") }}
+              </n-popconfirm>
+            </n-space>
+            <div style="font-size:12px; opacity:0.6; margin-top:4px">{{ t("racks.fp_location_hint") }}</div>
+          </div>
         </n-form-item>
       </n-form>
       <n-space justify="end">

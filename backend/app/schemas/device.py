@@ -70,5 +70,6 @@ class DeviceRead(DeviceBase):
     id: uuid.UUID
     primary_ip_id: uuid.UUID | None
     ip: str | None = None   # 由 endpoint 解析 primary_ip_id 後填入（清單顯示用）
+    ip_match_id: str | None = None   # 有相符但未連結的 IPAddress → 可一鍵關聯
     created_at: datetime
     updated_at: datetime

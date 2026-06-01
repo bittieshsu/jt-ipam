@@ -285,7 +285,7 @@ onMounted(() => { void refresh(); });
       <ColumnPicker :all="usrPicker" :visible="usrVis"
                     @update:visible="usrSet" @reset="usrReset" />
       <ExportButton :columns="columns" :rows="rows" filename="users" :title="t('users.title')" />
-      <span style="opacity: 0.6">total: {{ total }}</span>
+      <span style="opacity: 0.6">{{ t("common.total_n", { n: total }) }}</span>
     </n-space>
 
     <n-data-table
