@@ -187,7 +187,7 @@ function detectedTagType(d: string): "info" | "success" | "warning" | "default" 
 </script>
 
 <template>
-  <n-space align="center" :wrap="false" :size="6" style="width: 380px; flex-shrink: 0;">
+  <n-space class="global-search" align="center" :wrap="false" :size="6">
     <n-auto-complete
       v-model:value="q"
       :options="options as any"
@@ -197,7 +197,7 @@ function detectedTagType(d: string): "info" | "success" | "warning" | "default" 
       :placeholder="tr('global_search.placeholder')"
       clearable
       :get-show="() => q.trim().length >= 2"
-      style="width: 320px"
+      class="global-search__input"
       @select="(v: string) => navigateTo(v)"
     />
     <n-tag
@@ -210,3 +210,13 @@ function detectedTagType(d: string): "info" | "success" | "warning" | "default" 
     </n-tag>
   </n-space>
 </template>
+
+<style scoped>
+/* 桌機固定寬度；窄螢幕(手機)改成可縮、最寬不超過容器，避免撐破頂列 */
+.global-search { width: 380px; flex-shrink: 0; }
+.global-search__input { width: 320px; }
+@media (max-width: 640px) {
+  .global-search { width: 100%; flex: 1 1 100%; flex-shrink: 1; }
+  .global-search__input { width: 100%; min-width: 0; }
+}
+</style>

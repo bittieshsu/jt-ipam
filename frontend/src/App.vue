@@ -279,4 +279,56 @@ html[data-theme="dark"] .n-menu .n-menu-item-content--selected::before {
 html[data-theme="light"] .n-card > .n-card-header {
   background: linear-gradient(90deg, rgba(24,160,88,0.07), rgba(37,99,235,0.04));
 }
+
+/* ════════════════════════════════════════════════════════════════
+   手機 / 窄視窗排版（≤640px）
+   主畫面只剩 ~320px 寬，預設多欄佈局會把文字擠成一字一行。下面把幾個
+   全站共用的容器在窄螢幕改成「直向堆疊」，免去逐頁改。
+   ════════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  /* 內容區與卡片留白縮小，把寶貴的水平空間還給內容 */
+  .n-layout-content .n-layout-scroll-container { padding: 10px !important; }
+  .n-card > .n-card__content { padding: 12px !important; }
+  .n-card > .n-card-header { padding: 12px 12px 10px !important; }
+
+  /* 卡片標題列：標題與「操作按鈕區(header-extra)」改上下堆疊，
+     避免長標題(如 192.168.1.0/24)被按鈕擠到一字一行 */
+  .n-card > .n-card-header { flex-wrap: wrap; row-gap: 8px; }
+  .n-card > .n-card-header > .n-card-header__main { flex: 1 1 100%; min-width: 0; }
+  .n-card > .n-card-header > .n-card-header__extra {
+    flex: 1 1 100%; margin-left: 0 !important; justify-content: flex-start;
+  }
+  .n-card > .n-card-header > .n-card-header__extra .n-space { justify-content: flex-start; }
+
+  /* bordered Descriptions：把表格攤平成單欄堆疊
+     （原本 :column=3 → 6 格擠在一行，CJK 與 IP 都被折成直書）。
+     label 一行、值一行，邊框維持卡片感。 */
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table,
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table tbody,
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table-row,
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table-header,
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table-content {
+    display: block !important;
+    width: auto !important;
+  }
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table-header {
+    /* label 列：淡底、小字、不換行折字 */
+    white-space: normal;
+    font-size: 12px;
+    opacity: 0.85;
+    padding: 6px 12px !important;
+  }
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table-content {
+    padding: 8px 12px !important;
+    word-break: break-word;
+  }
+  /* 相鄰列之間補一條分隔線（block 化後原本的格線會消失） */
+  .n-descriptions.n-descriptions--bordered .n-descriptions-table-row + .n-descriptions-table-row {
+    border-top: 1px solid var(--n-merged-td-color, rgba(128,128,128,0.18));
+  }
+
+  /* 頂列工具區（語言 / 佈景 / 通知 / 使用者）允許換行，
+     否則窄螢幕全擠成一列、選單與登出按鈕被推出畫面外點不到 */
+  .topbar .n-space { flex-wrap: wrap !important; }
+}
 </style>

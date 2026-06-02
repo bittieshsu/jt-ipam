@@ -785,6 +785,7 @@
     "face_front": "Front",
     "face_rear": "Rear",
     "diagram_title": "Rack diagram",
+    "common": "Common",
     "rear_legend": "R = mounted on rack rear",
     "diagram_empty": "Select a rack to view its U layout.",
     "all_title": "All racks",

@@ -14,7 +14,6 @@ import {
   NFormItem,
   NInput,
   NInputNumber,
-  NTag,
   NTooltip,
   useMessage,
   type DataTableColumns,
@@ -278,21 +277,19 @@ watch(selected, (v) => {
 });
 
 onMounted(async () => {
-  // 先載機房並決定預設機房（watch(roomId) 會載入整排機櫃並清掉單櫃選取）：
-  //   1) 舊的單一釘選 PINNED_ROOM_KEY
-  //   2) 在「機房」頁釘選的常用機房（取第一個仍存在的）
-  // 必須在 refresh() 預設第一個機櫃「之前」決定，否則 selected 會先被設、跳過機房。
+  // 先 refresh() 把所有機櫃載進 rows（loadRoom 依賴它過濾該機房的機櫃，
+  // 否則「機櫃示意圖」會誤判此機房尚無機櫃）。refresh 可能先預設第一個機櫃。
+  await refresh();
   try {
     const r = await listLocations();
     locations.value = r.items;
-    if (!roomId.value && !selected.value) {
-      let def: string | null =
-        (pinnedRoom.value && r.items.some((l) => l.id === pinnedRoom.value)) ? pinnedRoom.value : null;
-      if (!def) def = locPin.ids.value.find((id) => r.items.some((l) => l.id === id)) ?? null;
-      if (def) roomId.value = def;
-    }
+    // 決定預設機房（優先 pinnedRoom，其次機房頁釘選的第一個）；設定後 watch(roomId)
+    // 會清掉單櫃選取並用「整排機櫃」檢視覆蓋 refresh 的單櫃預設。
+    let def: string | null =
+      (pinnedRoom.value && r.items.some((l) => l.id === pinnedRoom.value)) ? pinnedRoom.value : null;
+    if (!def) def = locPin.ids.value.find((id) => r.items.some((l) => l.id === id)) ?? null;
+    if (def) roomId.value = def;
   } catch { /* silent */ }
-  await refresh();
 });
 
 // ── 點空 U 位 → 挑裝置放入 ──
@@ -465,31 +462,31 @@ async function confirmPickDevice() {
         </n-form-item>
         <n-space :wrap="false">
           <n-form-item :label="t('racks.width_mm')" style="flex: 1">
-            <n-space vertical :size="4" style="width: 100%">
+            <n-space vertical :size="6" style="width: 100%">
               <n-input-number v-model:value="form.width_mm" :min="100" :max="2000" :step="50"
                               clearable placeholder="600" style="width: 100%">
                 <template #suffix>mm</template>
               </n-input-number>
-              <n-space :size="4">
-                <n-tag v-for="w in WIDTH_PRESETS" :key="w" size="small" checkable
-                       :checked="form.width_mm === w" @click="form.width_mm = w">
-                  {{ w }}
-                </n-tag>
-              </n-space>
+              <div class="preset-chips">
+                <span class="preset-chips__label">{{ t("racks.common") }}</span>
+                <button v-for="w in WIDTH_PRESETS" :key="w" type="button"
+                        class="preset-chip" :class="{ 'preset-chip--on': form.width_mm === w }"
+                        @click="form.width_mm = w">{{ w }}</button>
+              </div>
             </n-space>
           </n-form-item>
           <n-form-item :label="t('racks.depth_mm')" style="flex: 1">
-            <n-space vertical :size="4" style="width: 100%">
+            <n-space vertical :size="6" style="width: 100%">
               <n-input-number v-model:value="form.depth_mm" :min="100" :max="3000" :step="50"
                               clearable placeholder="1000" style="width: 100%">
                 <template #suffix>mm</template>
               </n-input-number>
-              <n-space :size="4">
-                <n-tag v-for="d in DEPTH_PRESETS" :key="d" size="small" checkable
-                       :checked="form.depth_mm === d" @click="form.depth_mm = d">
-                  {{ d }}
-                </n-tag>
-              </n-space>
+              <div class="preset-chips">
+                <span class="preset-chips__label">{{ t("racks.common") }}</span>
+                <button v-for="d in DEPTH_PRESETS" :key="d" type="button"
+                        class="preset-chip" :class="{ 'preset-chip--on': form.depth_mm === d }"
+                        @click="form.depth_mm = d">{{ d }}</button>
+              </div>
             </n-space>
           </n-form-item>
         </n-space>
@@ -559,5 +556,40 @@ async function confirmPickDevice() {
   border-radius: 3px;
   color: white;
   font-family: monospace;
+}
+/* 寬/深常見尺寸快選膠囊 */
+.preset-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preset-chips__label {
+  font-size: 12px;
+  opacity: 0.55;
+  margin-right: 2px;
+}
+.preset-chip {
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.28));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-variant-numeric: tabular-nums;
+}
+.preset-chip:hover {
+  border-color: #18a058;
+  color: #18a058;
+}
+.preset-chip--on {
+  background: #18a058;
+  border-color: #18a058;
+  color: #fff;
+  font-weight: 600;
 }
 </style>
