@@ -28,6 +28,7 @@ class RackDeviceSlot(StrictModel):
     u_position: int   # bottom-most U (1-based, 1 = 最下面)
     u_size: int
     primary_ip: str | None
+    rack_face: str | None = None   # front / rear（安裝方向）
 
 
 class RackDiagram(StrictModel):
@@ -128,6 +129,7 @@ async def rack_diagram(
                 u_position=d.u_position,
                 u_size=d.u_size,
                 primary_ip=ip_map.get(d.primary_ip_id) if d.primary_ip_id else fallback_ip.get(d.id),
+                rack_face=d.rack_face,
             )
         )
 

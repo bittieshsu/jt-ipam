@@ -785,6 +785,7 @@
     "face_front": "正面",
     "face_rear": "背面",
     "diagram_title": "機櫃示意圖",
+    "rear_legend": "R＝安裝於機櫃後側",
     "diagram_empty": "請選擇機櫃以顯示 U 位視覺化。",
     "all_title": "所有機櫃",
     "fp_location_hint": "完整的機櫃拖拉定位，請到「機櫃」頁選此機房編輯。",

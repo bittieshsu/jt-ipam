@@ -263,7 +263,8 @@ SQL
     cd "$BACKEND_DIR"
     sudo -u "$JTIPAM_USER" "$PYTHON_BIN" -m venv .venv
     sudo -u "$JTIPAM_USER" .venv/bin/pip install --upgrade pip wheel
-    sudo -u "$JTIPAM_USER" .venv/bin/pip install -e ".[dev]"
+    # prod 只裝執行期相依（與 upgrade 一致）；開發/測試工具請另跑 pip install -e ".[dev]"
+    sudo -u "$JTIPAM_USER" .venv/bin/pip install -e .
 
     # ── 6. backend.env ──
     log "Generating /etc/jt-ipam/backend.env…"

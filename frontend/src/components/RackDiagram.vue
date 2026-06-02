@@ -63,6 +63,12 @@ function buildSvg(): { svg: string; W: number; H: number } | null {
     const tx = a === "center" ? gutter + colW / 2 : a === "right" ? gutter + colW - 10 : gutter + 10;
     const anchor = a === "center" ? "middle" : a === "right" ? "end" : "start";
     p.push(`<text x="${tx}" y="${yTop + hgt / 2 + 4}" text-anchor="${anchor}" font-size="11" font-weight="bold" fill="#ffffff">${esc(devLabel(dev))}</text>`);
+    // 安裝於機櫃後側 → 右上角標一個 R 角標（前側為預設，不標）
+    if (dev.rack_face === "rear") {
+      const rx = gutter + colW - 2;
+      p.push(`<path d="M${rx - 14} ${yTop + 1} L${rx} ${yTop + 1} L${rx} ${yTop + 15} Z" fill="rgba(0,0,0,0.55)"/>`);
+      p.push(`<text x="${rx - 2}" y="${yTop + 11}" text-anchor="end" font-size="9" font-weight="bold" fill="#ffffff">R</text>`);
+    }
   }
   p.push(`</svg>`);
   return { svg: p.join("\n"), W, H };
@@ -296,6 +302,7 @@ const cells = computed<Cell[]>(() => {
         <span class="legend-item" :style="{ background: colorFor('storage') }">storage</span>
         <span class="legend-item" :style="{ background: colorFor('ap') }">ap</span>
         <span class="legend-item" :style="{ background: colorFor('ipmi') }">ipmi</span>
+        <span class="legend-note">{{ t("racks.rear_legend") }}</span>
       </div>
     </n-space>
   </n-card>
@@ -403,5 +410,10 @@ const cells = computed<Cell[]>(() => {
   border-radius: 3px;
   color: white;
   font-family: monospace;
+}
+.legend-note {
+  font-size: 12px;
+  opacity: 0.7;
+  align-self: center;
 }
 </style>
