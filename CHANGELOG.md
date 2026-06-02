@@ -4,9 +4,23 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
-## [Unreleased]
+## [0.4.32] — 2026-06-02
 
 ### Added
+- Device install direction (migration 0057): a device can be marked as mounted
+  on the **rack front or rear**; the rack presentation-face field was removed.
+- Version-info admin page: current version + Python and key backend package
+  versions, with a button to check the latest version on GitHub.
+- Locations list shows **rack count / device count** columns; subnets list shows
+  a **pinned** column with one-click toggle.
+- IP-address editor offers a one-click **link to a matching device** (mirror of
+  the device→IP link button).
+- Common rack width/depth **preset chips** in the rack form; the rack page
+  auto-selects a pinned location on entry.
+- Table export can fetch the **full dataset** (not just the visible page) on
+  remote-paginated lists (Addresses / Audit / Users / Devices).
+- GitHub Actions CI now actually runs and gates: frontend (eslint flat config /
+  vue-tsc / vitest / build) and backend (alembic / pytest / bandit / gitleaks).
 - Device ↔ IP linking: the device list resolves an effective management IP
   (primary_ip → LibreNMS mgmt IP → name-is-IP), renders it as a clickable link
   when a matching address object exists, and offers a one-click "link" button
@@ -38,6 +52,18 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
   flapping when an IP has multiple A records.
 - Hostname precedence now includes the Wazuh and AdGuard sources in the order
   list (they were observed but missing from the precedence UI).
+- Floor-plan racks rotate to **any angle** (soft-snap to orthogonal), not just
+  0/90/180/270; footprint scales by real width/depth.
+- VPN tunnel pairing is labelled by method (migration 0058): WireGuard pubkey
+  (reliable) vs IPsec endpoint-match (best-effort); IPsec matching also maps each
+  firewall's own tunnel local endpoints to raise hit rate.
+- Reworded taglines from "next-generation" to "self-hosted, integration-focused"
+  across Pages / README / SPEC / app; Pages emphasizes OSS integration + phpIPAM
+  import, adds accent colors, and splits Install / Upgrade / Uninstall.
+
+### Security
+- OPNsense config.xml parsed via **defusedxml** (XXE); subnet overlap/master SQL
+  fully parameterized; bandit clean at medium+ severity.
 
 ### Fixed
 - Subnet-pin persistence survived a refresh inconsistently — pins now persist
@@ -50,7 +76,10 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 ### Tests
 - Added regression coverage: model precedence, subnet overlap, exact IP search,
   scan auto-discovery, hostname-source clearing, hostname-order completeness,
-  and device IP-matching flags.
+  device IP-matching flags, device/address relation chains, OPNsense alias
+  parse+sync, LibreNMS device link, DNS pull naming, Wazuh/Proxmox sync,
+  IPsec pairing, version endpoint, rack-face/location-counts, and a frontend
+  usePinned unit test.
 
 ## [0.4.31] — 2026-06-01
 
