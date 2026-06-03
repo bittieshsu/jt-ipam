@@ -152,7 +152,7 @@ const newFw = ref({
   name: "", api_url: "", api_key: "", api_secret: "",
   verify_tls: true,
   sync_dhcp: false, sync_arp: false, sync_openvpn: false,
-  sync_rules: false, sync_nat: false,
+  sync_rules: false, sync_nat: false, sync_aliases: true,
   sync_interval_seconds: 300,
   description: "",
 });
@@ -162,7 +162,7 @@ function openFwCreate() {
   newFw.value = {
     name: "", api_url: "", api_key: "", api_secret: "", verify_tls: true,
     sync_dhcp: false, sync_arp: false, sync_openvpn: false,
-    sync_rules: false, sync_nat: false,
+    sync_rules: false, sync_nat: false, sync_aliases: true,
     sync_interval_seconds: 300, description: "",
   };
   showFw.value = true;
@@ -173,7 +173,7 @@ function openFwEdit(r: OPNsenseFirewall) {
     name: r.name, api_url: r.api_url, api_key: "", api_secret: "",
     verify_tls: r.verify_tls,
     sync_dhcp: r.sync_dhcp, sync_arp: r.sync_arp, sync_openvpn: r.sync_openvpn,
-    sync_rules: r.sync_rules, sync_nat: r.sync_nat,
+    sync_rules: r.sync_rules, sync_nat: r.sync_nat, sync_aliases: (r as any).sync_aliases ?? true,
     sync_interval_seconds: r.sync_interval_seconds ?? 300,
     description: r.description ?? "",
   };
@@ -235,6 +235,7 @@ async function submitFw() {
         sync_openvpn: newFw.value.sync_openvpn,
         sync_rules: newFw.value.sync_rules,
         sync_nat: newFw.value.sync_nat,
+        sync_aliases: newFw.value.sync_aliases,
         sync_interval_seconds: newFw.value.sync_interval_seconds,
         description: newFw.value.description || undefined,
       };
@@ -254,6 +255,7 @@ async function submitFw() {
         sync_openvpn: newFw.value.sync_openvpn,
         sync_rules: newFw.value.sync_rules,
         sync_nat: newFw.value.sync_nat,
+        sync_aliases: newFw.value.sync_aliases,
         sync_interval_seconds: newFw.value.sync_interval_seconds,
         description: newFw.value.description || undefined,
       } as any);
@@ -574,6 +576,7 @@ onMounted(() => {
             <n-checkbox v-model:checked="newFw.sync_openvpn">OpenVPN sessions</n-checkbox>
             <n-checkbox v-model:checked="newFw.sync_rules">{{ t("firewall_admin.sync_filter_rules") }}</n-checkbox>
             <n-checkbox v-model:checked="newFw.sync_nat">{{ t("firewall_admin.sync_nat_rules") }}</n-checkbox>
+            <n-checkbox v-model:checked="newFw.sync_aliases">{{ t("firewall_admin.sync_aliases_label") }}</n-checkbox>
           </n-space>
           <template #feedback>
             <span style="opacity: 0.7; font-size: 12px;">

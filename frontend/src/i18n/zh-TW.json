@@ -1002,7 +1002,8 @@
     "aliases_hint": "從 OPNsense 同步回來的別名定義（唯讀）；按防火牆的「立即同步」會一併更新。",
     "members": "成員數",
     "content": "內容",
-    "func_title": "防火牆規則 / 別名"
+    "func_title": "防火牆規則 / 別名",
+    "sync_aliases_label": "別名 (Aliases)"
   },
   "wazuh_admin": {
     "title": "Wazuh 整合",

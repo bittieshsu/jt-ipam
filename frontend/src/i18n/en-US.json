@@ -1002,7 +1002,8 @@
     "aliases_hint": "Alias definitions pulled from OPNsense (read-only); refreshed when you sync the firewall.",
     "members": "Members",
     "content": "Content",
-    "func_title": "Firewall rules / aliases"
+    "func_title": "Firewall rules / aliases",
+    "sync_aliases_label": "Aliases"
   },
   "wazuh_admin": {
     "title": "Wazuh",

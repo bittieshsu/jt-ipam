@@ -22,6 +22,7 @@ class OPNsenseFirewallBase(StrictModel):
     sync_openvpn: bool = False
     sync_rules: bool = False
     sync_nat: bool = False
+    sync_aliases: bool = True
     description: Annotated[str | None, Field(max_length=2048)] = None
 
 
@@ -43,6 +44,7 @@ class OPNsenseFirewallUpdate(StrictModel):
     sync_openvpn: bool | None = None
     sync_rules: bool | None = None
     sync_nat: bool | None = None
+    sync_aliases: bool | None = None
     description: Annotated[str | None, Field(max_length=2048)] = None
 
 
