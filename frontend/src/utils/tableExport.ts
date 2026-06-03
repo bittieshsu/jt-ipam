@@ -238,7 +238,12 @@ export function columnsForExport(tableColumns: any[]): ExportColumn[] {
   for (const c of tableColumns) {
     if (!c || c.type === "selection" || c.type === "expand") continue;
     if (!c.key || c.key === "actions") continue;
-    const label = typeof c.title === "function" ? c.key : (c.title ?? c.key);
+    // title 可能是字串或 () => string（i18n 欄位多為函式）→ 呼叫取翻譯後標題，失敗才退回 key
+    let label: unknown = c.title;
+    if (typeof c.title === "function") {
+      try { label = c.title(); } catch { label = c.key; }
+    }
+    if (label == null || typeof label === "object") label = c.key;
     out.push({ key: String(c.key), label: String(label) });
   }
   return out;
