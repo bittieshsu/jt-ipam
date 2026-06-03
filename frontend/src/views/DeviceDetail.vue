@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpace, NIcon, NButton, NDescriptions, NDescriptionsItem,
-  NTag, NDataTable, NSpin,
+  NTag, NDataTable, NSpin, NTooltip,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
@@ -16,6 +16,7 @@ import { getDeviceRelations, type RelationNode } from "@/api/relations";
 import RelationChain from "@/components/RelationChain.vue";
 import RackDiagram from "@/components/RackDiagram.vue";
 import DevicePortsPanel from "@/components/DevicePortsPanel.vue";
+import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import { getRackDiagram } from "@/api/racks";
 type RackDiagramData = Awaited<ReturnType<typeof getRackDiagram>>;
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
@@ -160,7 +161,12 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
   { title: t("cols.vendor"), key: "mac_vendor", width: 140,
     ellipsis: { tooltip: true }, render: (r) => r.mac_vendor ?? "—" },
   { title: t("addresses.switch_port"), key: "switch_port", minWidth: 180,
-    ellipsis: { tooltip: true }, render: (r) => r.switch_port ?? "" },
+    ellipsis: { tooltip: false },
+    render: (r) => !r.switch_port ? ""
+      : h(NTooltip, null, {
+          trigger: () => h(SwitchPortLabel, { value: r.switch_port, dim: r.switch_port_confident === false }),
+          default: () => r.switch_port_confident === false
+            ? t("addresses.switch_port_uncertain") : r.switch_port }) },
   { title: t("common.description"), key: "description", minWidth: 140,
     ellipsis: { tooltip: true }, render: (r) => r.description ?? "" },
   { title: t("addresses.last_seen"), key: "last_seen", width: 170, render: (r) => lastSeen(r) },
@@ -287,6 +293,7 @@ onMounted(() => {
           :pagination="{ pageSize: 50, showSizePicker: true, pageSizes: [25, 50, 100] }"
           :bordered="false"
           size="small"
+          :scroll-x="1120"
           :row-props="(row: IPAddress) => ({
             style: 'cursor: pointer',
             onClick: () => openRow(row),
@@ -368,6 +375,9 @@ onMounted(() => {
 .entity-link:hover { text-decoration: underline; }
 /* 第一張卡片：左資訊 + 右側機櫃圖（標示本機位置） */
 .dev-head-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+/* 寬表(IP 清單)用內部水平捲動吸收寬度，卡片不被撐爆溢出 */
+:deep(.n-card) { min-width: 0; }
+:deep(.n-data-table) { max-width: 100%; }
 .dev-head-info { flex: 1 1 420px; min-width: 0; }
 .dev-head-rack { flex: 0 0 auto; max-width: 320px; }
 @media (max-width: 900px) { .dev-head-rack { max-width: 100%; flex: 1 1 100%; } }
