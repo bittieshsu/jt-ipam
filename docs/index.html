@@ -50,8 +50,16 @@
   .hero .lead{font-size:clamp(16px,2.2vw,20px);color:var(--body);max-width:760px}
   .hero .cta{display:flex;gap:12px;margin-top:28px;flex-wrap:wrap}
   .pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:26px}
-  .pill{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:13px;
-    color:var(--green-d);font-weight:600}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
+    border-radius:999px;padding:5px 13px;font-size:13px;color:var(--ink);font-weight:600}
+  .pill::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--green);flex:none}
+  /* 點色彩輪替：綠為主、其它點綴，整列不會單一色 */
+  .pill:nth-child(6n+1)::before{background:#18a058}
+  .pill:nth-child(6n+2)::before{background:#6366f1}
+  .pill:nth-child(6n+3)::before{background:#f59e0b}
+  .pill:nth-child(6n+4)::before{background:#0ea5e9}
+  .pill:nth-child(6n+5)::before{background:#ec4899}
+  .pill:nth-child(6n+6)::before{background:#10b981}
   section{padding:60px 0}
   section.alt{background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
   .sec-head{max-width:720px;margin-bottom:34px}
