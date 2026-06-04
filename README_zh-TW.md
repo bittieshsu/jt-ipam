@@ -20,9 +20,9 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 
 完整規格見 [`docs/SPEC.md`](docs/SPEC.md)。
 
-## Graylog 日誌補實（DSV 對照表）
+## Graylog 記錄補實（DSV 對照表）
 
-jt-ipam 會**即時**產生一份 IP → 主機名稱 / FQDN 的對照表，讓 Graylog 的「DSV File from HTTP」資料配接器直接抓取，把日誌裡只有 IP 的事件自動補上可讀名稱。
+jt-ipam 會**即時**產生一份 IP → 主機名稱 / FQDN 的對照表，讓 Graylog 的「DSV File from HTTP」資料配接器直接抓取，把記錄裡只有 IP 的事件自動補上可讀名稱。
 
 - 在 **管理 → 系統設定 → Graylog DSV** 啟用：設定路徑代稱、輸出格式（CSV / TSV）並產生存取 token
 - 端點 `GET /api/v1/lookup/<路徑>?token=<token>`，每次請求即時查詢資料庫產生

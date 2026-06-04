@@ -30,8 +30,8 @@ const GEO = { rowH: 24, colW: 260, gutter: 32, pad: 12, headerH: 30 };
 const esc = (s: unknown) => String(s ?? "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c] as string));
 
 function devLabel(dev: any): string {
-  // 機櫃示意圖只標裝置名稱 + 類型，不標 IP
-  return `${dev.name} · ${dev.type}`;
+  // 機櫃示意圖（含匯出）只標裝置名稱，與畫面一致；不加類型 / IP
+  return dev.name;
 }
 
 // 共用：產生機櫃 SVG 字串 + 尺寸

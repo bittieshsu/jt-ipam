@@ -157,15 +157,16 @@
   .hub-svg{width:100%;max-width:760px;height:auto;display:block;margin:0 auto}
   .hub-node text{paint-order:stroke}
   .hub-cap{text-align:center;font-size:13px;opacity:.7;margin:6px 0 0}
-  /* Graylog 說明小卡 */
-  .gl-note{max-width:760px;margin:26px auto 0;background:#f6faf8;border:1px solid var(--line);
-    border-left:4px solid #0891b2;border-radius:12px;padding:18px 22px;text-align:left}
-  .gl-note h4{margin:0 0 8px;font-size:15px;display:flex;align-items:center;gap:8px}
-  .gl-note h4::before{content:"";width:9px;height:9px;border-radius:50%;background:#0891b2;flex:0 0 auto}
-  .gl-note p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.7}
+  /* Graylog 說明卡（現代扁平風：無框、柔和底、膠囊標題）*/
+  .gl-note{max-width:780px;margin:28px auto 0;background:#f7f9fb;border:none;border-radius:16px;
+    padding:22px 26px;text-align:left}
+  .gl-note h4{margin:0 0 10px;font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:7px;
+    color:#0e7490;background:rgba(8,145,178,.1);padding:5px 12px;border-radius:999px}
+  .gl-note h4::before{content:"";width:7px;height:7px;border-radius:50%;background:#0891b2}
+  .gl-note p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.75}
   .gl-note ul{margin:10px 0 0;padding-left:18px}
-  .gl-note li{font-size:13px;color:var(--muted);line-height:1.7;margin:2px 0}
-  .gl-note code{background:rgba(8,145,178,.1);color:#0e7490;padding:1px 6px;border-radius:5px;font-size:12px}
+  .gl-note li{font-size:13px;color:var(--muted);line-height:1.75;margin:2px 0}
+  .gl-note code{background:rgba(8,145,178,.1);color:#0e7490;padding:1px 6px;border-radius:6px;font-size:12px}
   .integrations{display:flex;flex-wrap:wrap;gap:10px}
   .chip{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);
     border-radius:10px;padding:9px 14px;font-weight:600;color:var(--ink);font-size:14px}
@@ -350,7 +351,7 @@
   <div class="wrap">
     <div class="sec-head">
       <h2><span class="zh">原生整合多套開源軟體</span><span class="en">Integrates many open-source tools</span></h2>
-      <p><span class="zh">核心價值就是「整合」：把你既有的多套開源網路與安全軟體串成一個檢視中樞：集中檢視、單向 pull、不改動來源。並支援從 phpIPAM 匯入既有資料、無痛遷移。</span><span class="en">Integration is the core value: tie your existing open-source network & security tools into one hub — centralized, pull-only, non-invasive. Plus data import & smooth migration from phpIPAM.</span></p>
+      <p><span class="zh">核心價值就是「整合」：把你既有的多套開源網路與安全軟體串成一個檢視中樞：集中檢視、單向拉取、不改動來源。並支援從 phpIPAM 匯入既有資料、無痛遷移。</span><span class="en">Integration is the core value: tie your existing open-source network & security tools into one hub — centralized, pull-only, non-invasive. Plus data import & smooth migration from phpIPAM.</span></p>
     </div>
     <div class="hub-wrap">
       <svg class="hub-svg" viewBox="0 0 900 520" role="img"
@@ -388,7 +389,7 @@
         <text x="450" y="276" text-anchor="middle" fill="#cfeede" font-size="11">IPAM hub</text>
         <text x="450" y="291" text-anchor="middle" fill="#cfeede" font-size="10">pull-only · on-prem</text>
       </svg>
-      <p class="hub-cap"><span class="zh">所有整合皆為單向 pull、不改動來源；資料集中在自家機房。</span><span class="en">All integrations are pull-only and non-invasive; data stays centralized on-prem.</span></p>
+      <p class="hub-cap"><span class="zh">所有整合皆為單向拉取、不改動來源；資料集中在自家機房。</span><span class="en">All integrations are pull-only and non-invasive; data stays centralized on-prem.</span></p>
     </div>
     <div class="integrations">
       <span class="chip"><i></i>phpIPAM<span class="zh">(資料匯入 / 遷移)</span><span class="en"> (data import / migration)</span></span>
@@ -408,8 +409,8 @@
       <span class="chip"><i></i>Graylog (Lookup Table)</span>
     </div>
     <div class="gl-note">
-      <h4><span class="zh">Graylog 日誌補上主機名稱</span><span class="en">Graylog log enrichment</span></h4>
-      <p><span class="zh">jt-ipam 即時產生 IP → 主機名稱 / FQDN 對照表，供 Graylog「DSV File from HTTP」配接器抓取，把日誌中只有 IP 的事件自動補上可讀名稱。在管理區開關、設定路徑與 token 即可，詳細欄位與格式說明見設定頁與 README。</span><span class="en">jt-ipam serves a live IP → hostname / FQDN lookup table for Graylog's "DSV File from HTTP" adapter, so log events carrying only an IP get a readable name automatically. Toggle it and set the path and token in the admin area; field and format details are on the settings page and in the README.</span></p>
+      <h4><span class="zh">Graylog 記錄補上主機名稱</span><span class="en">Graylog log enrichment</span></h4>
+      <p><span class="zh">jt-ipam 即時產生 IP → 主機名稱 / FQDN 對照表，供 Graylog「DSV File from HTTP」配接器抓取，把記錄中只有 IP 的事件自動補上可讀名稱。在管理區開關、設定路徑與 token 即可，詳細欄位與格式說明見設定頁與 README。</span><span class="en">jt-ipam serves a live IP → hostname / FQDN lookup table for Graylog's "DSV File from HTTP" adapter, so log events carrying only an IP get a readable name automatically. Toggle it and set the path and token in the admin area; field and format details are on the settings page and in the README.</span></p>
     </div>
   </div>
 </section>

@@ -412,7 +412,7 @@ function startDrag(e: MouseEvent) {
               @select="handleUserMenu"
             >
               <n-button text style="display: flex; gap: 6px; align-items: center">
-                <span>{{ me.username }}</span>
+                <span>{{ me.display_name || me.username }}</span>
                 <n-tooltip v-if="me.is_admin" :delay="0">
                   <template #trigger>
                     <n-icon :size="15" :component="AdminIcon" style="color: #18a058" />
