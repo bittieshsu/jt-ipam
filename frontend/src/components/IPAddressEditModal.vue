@@ -425,6 +425,14 @@ async function remove() {
             <n-button type="primary" size="small" @click="editMode = true">
               <template #icon><n-icon><EditIcon /></n-icon></template>{{ t("common.edit") }}
             </n-button>
+            <n-popconfirm @positive-click="remove">
+              <template #trigger>
+                <n-button type="error" ghost size="small" :loading="deleting">
+                  <template #icon><n-icon><DeleteIcon /></n-icon></template>{{ t("common.delete") }}
+                </n-button>
+              </template>
+              {{ t("common.confirm_delete") }}
+            </n-popconfirm>
             <n-button size="small" @click="emit('back')">
               <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>{{ t("common.back") }}
             </n-button>
