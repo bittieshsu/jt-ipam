@@ -24,6 +24,7 @@ async def topology(
     include_wireless: bool = Query(True),
     include_vpn: bool = Query(True),
     include_l3: bool = Query(True),
+    online_only: bool = Query(False, description="只畫上線的裝置"),
 ) -> dict[str, Any]:
     return await build_topology(
         session,
@@ -33,4 +34,5 @@ async def topology(
         include_wireless=include_wireless,
         include_vpn=include_vpn,
         include_l3=include_l3,
+        online_only=online_only,
     )

@@ -545,7 +545,8 @@
     "toggle_hint": "Click a legend item to hide / show that node type",
     "fit": "Fit",
     "zoom_in": "Zoom in",
-    "zoom_out": "Zoom out"
+    "zoom_out": "Zoom out",
+    "online_only": "Online only"
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",

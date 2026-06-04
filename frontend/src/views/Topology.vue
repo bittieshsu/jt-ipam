@@ -38,6 +38,7 @@ const containerRef = ref<HTMLDivElement | null>(null);
 const includeWireless = ref(true);
 const includeVpn = ref(true);
 const includeL3 = ref(true);
+const onlineOnly = ref(false);   // 預設：不管上線與否都畫
 const loading = ref(false);
 const selected = ref<Record<string, any> | null>(null);
 
@@ -291,6 +292,7 @@ async function refresh() {
       includeWireless: includeWireless.value,
       includeVpn: includeVpn.value,
       includeL3: includeL3.value,
+      onlineOnly: onlineOnly.value,
       subnetIds: subnetIds.value,
     });
     render(data);
@@ -441,7 +443,7 @@ function render(data: TopologyData) {
 }
 
 watch(subnetIds, () => { void refresh(); });
-watch([includeWireless, includeVpn, includeL3], () => {
+watch([includeWireless, includeVpn, includeL3, onlineOnly], () => {
   void refresh();
 });
 
@@ -496,6 +498,7 @@ onUnmounted(() => {
         <n-checkbox v-model:checked="includeWireless">{{ t("topology.wireless") }}</n-checkbox>
         <n-checkbox v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
         <n-checkbox v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
+        <n-checkbox v-model:checked="onlineOnly">{{ t("topology.online_only") }}</n-checkbox>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>
           <n-button @click="zoomBy(0.83)" :title="t('topology.zoom_out')">－</n-button>

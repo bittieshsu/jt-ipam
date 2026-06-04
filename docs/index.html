@@ -34,8 +34,9 @@
     display:inline-block;box-shadow:0 2px 8px rgba(24,160,88,.4)}
   .nav-links{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap;align-items:center}
   .nav-links a{color:var(--body);font-size:14px;font-weight:500}
-  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;
-    font-size:15px;border:1px solid transparent;cursor:pointer;transition:.15s}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 18px;border-radius:10px;
+    font-weight:600;font-size:15px;line-height:1.3;font-family:inherit;border:1px solid transparent;
+    cursor:pointer;transition:.15s;box-sizing:border-box;vertical-align:middle}
   .btn-primary{background:var(--green);color:#fff;box-shadow:0 4px 14px rgba(24,160,88,.32)}
   .btn-primary:hover{background:var(--green-h);text-decoration:none}
   .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink)}
@@ -53,18 +54,14 @@
   .hero .lead{font-size:clamp(15.5px,1.9vw,18.5px);color:var(--muted);max-width:600px;margin:0 auto;line-height:1.85}
   .hero-points{list-style:none;padding:0;margin:30px auto 0;max-width:860px;display:flex;
     flex-wrap:wrap;justify-content:center;gap:10px}
-  .hero-points li{display:inline-flex;align-items:center;gap:8px;background:#fff;
-    border:1px solid var(--line);border-radius:12px;padding:9px 15px;font-size:14.5px;
-    color:var(--body);line-height:1.4;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-  .hero-points li svg{flex:0 0 auto;color:var(--green)}
+  .hero-points li{display:inline-flex;align-items:center;gap:10px;background:#fff;
+    border:1px solid var(--line);border-radius:999px;padding:8px 17px 8px 9px;font-size:14.5px;
+    color:var(--ink);line-height:1.4;box-shadow:0 2px 10px rgba(15,23,42,.06)}
+  /* 綠色圓形打勾徽章，乾淨有質感、不用花花綠綠的底色 */
+  .hero-points li svg{flex:0 0 auto;width:23px;height:23px;padding:4px;box-sizing:border-box;
+    color:#fff;background:linear-gradient(135deg,var(--green),var(--green-h));border-radius:50%;
+    box-shadow:0 2px 6px rgba(24,160,88,.35)}
   .hero-points b{color:var(--ink);font-weight:700}
-  /* 三顆重點各給不同色調，整區不再單一綠 */
-  .hero-points li:nth-child(1){background:#e9f6ef;border-color:#bfe6cf}
-  .hero-points li:nth-child(1) svg{color:#0c7a43}
-  .hero-points li:nth-child(2){background:#ecedfe;border-color:#cdd2fb}
-  .hero-points li:nth-child(2) svg{color:#4f46e5}
-  .hero-points li:nth-child(3){background:#fff4e3;border-color:#f6dcb0}
-  .hero-points li:nth-child(3) svg{color:#b45309}
   .hero .cta{display:flex;gap:12px;margin-top:38px;flex-wrap:wrap;justify-content:center}
   .pills{display:flex;gap:9px;flex-wrap:wrap;margin-top:36px;justify-content:center;max-width:720px;margin-left:auto;margin-right:auto}
   .pill{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
@@ -245,6 +242,11 @@
       <a class="btn btn-primary" href="#install"><span class="zh">一行指令安裝</span><span class="en">Install in one line</span></a>
       <a class="btn btn-ghost" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener"><span class="zh">前往 GitHub 專案</span><span class="en">Go to GitHub project</span></a>
     </div>
+    <!-- hero 大圖(建議放「儀表板」整頁截圖)-->
+    <div class="hero-shot">
+      <img class="shot shot-hero" src="shots/dashboard.png" loading="lazy"
+           alt="jt-ipam 儀表板 / Dashboard" />
+    </div>
     <div class="pills">
       <span class="pill"><span class="zh">整合多套開源軟體</span><span class="en">Integrates many OSS tools</span></span>
       <span class="pill"><span class="zh">phpIPAM 資料匯入</span><span class="en">phpIPAM data import</span></span>
@@ -256,11 +258,6 @@
       <span class="pill"><span class="zh">整合 AD / LDAP</span><span class="en">AD / LDAP integration</span></span>
       <span class="pill"><span class="zh">深色 / 淺色雙主題</span><span class="en">Dark / light themes</span></span>
       <span class="pill"><span class="zh">多語言介面</span><span class="en">Multilingual UI</span></span>
-    </div>
-    <!-- hero 大圖(建議放「儀表板」整頁截圖)-->
-    <div class="hero-shot">
-      <img class="shot shot-hero" src="shots/dashboard.png" loading="lazy"
-           alt="jt-ipam 儀表板 / Dashboard" />
     </div>
   </div>
 </header>
@@ -521,7 +518,7 @@
   <div class="wrap">
     <div class="sec-head">
       <h2><span class="zh">本地 AI 加值</span><span class="en">Local AI value</span></h2>
-      <p><span class="zh">走自架 Ollama，資料不外流。問答、摘要、異常偵測都在自家機房完成。實測搭配 <code>gemma4:26b</code> 效果良好。</span><span class="en">Powered by self-hosted Ollama — data never leaves your network. Q&A, summaries and anomaly detection, all on-prem. In our testing, <code>gemma4:26b</code> works well.</span></p>
+      <p><span class="zh">走自架 Ollama，資料不外流。問答、摘要、異常偵測都在自家機房完成。</span><span class="en">Powered by self-hosted Ollama — data never leaves your network. Q&A, summaries and anomaly detection, all on-prem.</span></p>
     </div>
     <div class="grid g3">
       <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.5 7.2L4 20l1-4.5A8 8 0 1 1 21 12z"/></svg></span><span class="zh">智慧助理</span><span class="en">Smart assistant</span></h3><p><span class="zh">用自然語言查 IP / 子網路 / 裝置，透過 jt-ipam 內建的 MCP 工具直接讀取你的 IPAM 資料。</span><span class="en">Ask about IPs / subnets / devices in natural language; jt-ipam's built-in MCP tools read your live IPAM data.</span></p></div>
@@ -575,9 +572,13 @@ sudo <span class="g">bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade</span></pre>
     var btn = document.getElementById('langBtn');
     var KEY = 'jtipam-doc-lang';
     if (localStorage.getItem(KEY) === 'en') document.body.classList.add('lang-en');
+    // 按鈕顯示「要切換過去」的語言：中文版顯示 English、英文版顯示 繁體中文
+    function setBtn(){ btn.textContent = document.body.classList.contains('lang-en') ? '繁體中文' : 'English'; }
+    setBtn();
     btn.addEventListener('click', function(){
       document.body.classList.toggle('lang-en');
       localStorage.setItem(KEY, document.body.classList.contains('lang-en') ? 'en' : 'zh');
+      setBtn();
     });
   })();
   // 畫面導覽：點擊擷圖放大

@@ -545,7 +545,8 @@
     "toggle_hint": "點圖例可隱藏 / 顯示該類節點",
     "fit": "全貌",
     "zoom_in": "放大",
-    "zoom_out": "縮小"
+    "zoom_out": "縮小",
+    "online_only": "只畫上線"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",

@@ -40,6 +40,7 @@ async def build_topology(
     include_wireless: bool = True,
     include_vpn: bool = True,
     include_l3: bool = True,
+    online_only: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, Any]] = []
@@ -103,6 +104,17 @@ async def build_topology(
     if vis_dev is not None:
         dstmt = dstmt.where(Device.id.in_(vis_dev))
     devices = list((await session.execute(dstmt)).scalars().all())
+    # 只畫上線：限縮成「至少有一個 IP 的 effective_status = online」的裝置
+    if online_only:
+        online_ids = {
+            str(row[0]) for row in (await session.execute(
+                select(IPAddress.device_id).where(
+                    IPAddress.device_id.is_not(None),
+                    IPAddress.effective_status == "online",
+                ).distinct()
+            )).all() if row[0]
+        }
+        devices = [d for d in devices if str(d.id) in online_ids]
     device_objs: dict[str, Device] = {}
     for d in devices:  # type: ignore[assignment]
         device_objs[str(d.id)] = d  # type: ignore[assignment]
