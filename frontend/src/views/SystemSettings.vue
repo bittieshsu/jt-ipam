@@ -9,7 +9,7 @@ import {
   NCard, NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NButton, NTag, useMessage,
 } from "naive-ui";
 import { AdminIcon, SaveIcon, RefreshIcon, CopyIcon } from "@/icons";
-import { getGraylogDsv, putGraylogDsv, getLdap, putLdap, testLdap, type LdapConfig,
+import { getGraylogDsv, putGraylogDsv, getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward } from "@/api/system";
 import { listGroups } from "@/api/admin";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
@@ -182,6 +182,20 @@ async function doTestLdap() {
     msg.success(`${t("settings.system.ldap_test_ok")} — ${r.who_am_i || r.server}`);
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("settings.system.ldap_test_fail")); }
   finally { ldapTesting.value = false; }
+}
+// 用真實帳密測試完整驗證流程
+const ldapTestUser = ref("");
+const ldapTestPw = ref("");
+const ldapAuthTesting = ref(false);
+async function doTestLdapAuth() {
+  if (!ldapTestUser.value || !ldapTestPw.value) { msg.warning(t("settings.system.ldap_authtest_need")); return; }
+  ldapAuthTesting.value = true;
+  try {
+    const r = await testLdapAuth(ldapTestUser.value, ldapTestPw.value);
+    msg.success(`✓ ${r.dn}${r.is_admin ? " · 管理員" : ""}${r.display_name ? " · " + r.display_name : ""}`, { duration: 8000 });
+    ldapTestPw.value = "";
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("settings.system.ldap_test_fail")); }
+  finally { ldapAuthTesting.value = false; }
 }
 
 // 稽核轉送到 Graylog
@@ -431,6 +445,15 @@ onMounted(() => {
             <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("settings.system.ldap_test") }}
           </n-button>
         </n-space>
+        <div class="fld" style="margin-top:14px; border-top:1px dashed var(--n-border-color,#eee); padding-top:12px">
+          <label>{{ t("settings.system.ldap_authtest") }}</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <n-input v-model:value="ldapTestUser" :placeholder="t('settings.system.ldap_authtest_user')" style="flex:1; min-width:140px" />
+            <n-input v-model:value="ldapTestPw" type="password" show-password-on="click" :placeholder="t('settings.system.ldap_authtest_pw')" style="flex:1; min-width:140px" @keyup.enter="doTestLdapAuth" />
+            <n-button :loading="ldapAuthTesting" @click="doTestLdapAuth">{{ t("settings.system.ldap_authtest_btn") }}</n-button>
+          </div>
+          <div class="hint" style="margin-top:4px">{{ t("settings.system.ldap_authtest_hint") }}</div>
+        </div>
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("settings.system.ldap_hint") }}</div>
       </section>
 

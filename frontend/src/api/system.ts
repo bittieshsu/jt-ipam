@@ -36,6 +36,10 @@ export async function testLdap(): Promise<{ bound: boolean; server: string; port
   const { data } = await apiClient.post("/api/v1/system/ldap/test", {});
   return data;
 }
+export async function testLdapAuth(username: string, password: string): Promise<{ ok: boolean; dn: string; username: string; display_name: string | null; email: string | null; is_admin: boolean }> {
+  const { data } = await apiClient.post("/api/v1/system/ldap/test-auth", { username, password });
+  return data;
+}
 
 // ── 稽核轉送到 Graylog ──
 export interface AuditForward { enabled: boolean; host: string | null; port: number; protocol: "tcp" | "udp"; fmt: "gelf" | "syslog" | "cef"; }

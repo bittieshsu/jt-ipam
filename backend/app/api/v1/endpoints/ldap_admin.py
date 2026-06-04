@@ -124,3 +124,32 @@ async def ldap_test_conn(
         raise HTTPException(503, detail=str(exc)) from exc
     except ldap_auth.LDAPAuthError as exc:
         raise HTTPException(502, detail=f"LDAP error: {exc}") from exc
+
+
+class LdapTestAuth(StrictModel):
+    username: str
+    password: str
+
+
+@admin_router.post("/ldap/test-auth")
+async def ldap_test_auth(
+    payload: LdapTestAuth, _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """用一組真實帳密跑完整 LDAP 驗證流程（admin bind → 搜尋使用者 → 以該使用者 bind），
+    回報找到的 DN / 顯示名稱 / email / 是否為管理員，協助診斷篩選條件與帳密。"""
+    cfg = await get_ldap_config(session)
+    account = payload.username.split("@")[0].strip()
+    try:
+        info = await ldap_auth.authenticate(cfg, account, payload.password)
+    except ldap_auth.LDAPInvalidCredentials as exc:
+        raise HTTPException(401, detail=f"帳號或密碼錯誤 / 找不到使用者：{exc}") from exc
+    except ldap_auth.LDAPNotConfigured as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+    except ldap_auth.LDAPAuthError as exc:
+        raise HTTPException(502, detail=f"LDAP error: {exc}") from exc
+    return {
+        "ok": True, "dn": info.dn, "username": info.username,
+        "display_name": info.display_name, "email": info.email,
+        "is_admin": info.is_admin,
+    }

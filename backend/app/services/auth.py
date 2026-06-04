@@ -141,8 +141,19 @@ async def authenticate(
             await session.commit()
             raise InvalidCredentials from exc
         if user is None:
+            # email 唯一：若 LDAP 回的 email 已被別的帳號（例如同名本機帳號）佔用，
+            # 改用領域命名空間的 email，避免自動建帳號因 unique 衝突而失敗
+            prov_email = info.email or f"{account}@ldap.local"
+            if prov_email:
+                taken = (await session.execute(
+                    select(User.id).where(User.email == prov_email))).first()
+                if taken:
+                    prov_email = f"{account}@ldap.local"
+                    if (await session.execute(
+                            select(User.id).where(User.email == prov_email))).first():
+                        prov_email = f"{stored}.local"
             user = User(
-                username=stored, email=info.email or f"{account}@ldap.local",
+                username=stored, email=prov_email,
                 display_name=info.display_name, auth_provider="ldap",
                 external_subject=info.dn, is_active=True, is_admin=info.is_admin,
             )
