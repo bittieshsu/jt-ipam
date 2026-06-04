@@ -66,7 +66,7 @@
     "system_settings": "系統設定",
     "version": "版本資訊",
     "firewall_admin": "OPNsense 連線",
-    "virt_admin": "Proxmox 連線",
+    "virt_admin": "Proxmox VE 連線",
     "oui_admin": "MAC 製造商 (OUI)",
     "system_admin": "系統管理員"
   },
@@ -577,7 +577,7 @@
       "snmp": "LibreNMS (sysName)"
     },
     "model_title": "裝置型號來源順序",
-    "model_subtitle": "多個來源（LibreNMS hardware / Proxmox / OPNsense）提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
+    "model_subtitle": "多個來源（LibreNMS hardware / Proxmox VE / OPNsense）提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
   },
   "addresses": {
     "search_placeholder": "搜尋所有欄位 (IP / 主機名稱 / MAC / 描述 / 擁有者 / 交換器位置 / 備註)",
@@ -1192,7 +1192,7 @@
     },
     "clusters": "叢集",
     "vms": "VM",
-    "proxmox": "Proxmox 連線",
+    "proxmox": "Proxmox VE 連線",
     "cluster": "叢集",
     "type": "類型",
     "node": "節點名稱",
@@ -1200,15 +1200,15 @@
     "bridge": "橋接",
     "last_sync": "最近同步",
     "add_cluster": "新增叢集",
-    "add_proxmox": "新增 Proxmox 連線",
+    "add_proxmox": "新增 Proxmox VE 連線",
     "pick_cluster": "請選擇叢集",
     "auth_username": "帳號",
     "token_id": "API Token ID",
     "token_secret": "Token Secret",
     "interval": "同步間隔 (秒)",
-    "token_hint": "請在 Proxmox 後台「資料中心 → 權限 → API Token」建立 Token，並授予唯讀權限。",
+    "token_hint": "請在 Proxmox VE 後台「資料中心 → 權限 → API Token」建立 Token，並授予唯讀權限。",
     "help_title": "如何取得 API Token",
-    "help_step1": "Proxmox 後台「資料中心 → 權限 → API Token」建立 Token（建議取消勾選「權限分離」較單純）。",
+    "help_step1": "Proxmox VE 後台「資料中心 → 權限 → API Token」建立 Token（建議取消勾選「權限分離」較單純）。",
     "help_step2": "到「資料中心 → 權限 → 新增 → API Token 權限」，把 Token 指派為：",
     "help_step3": "把上面的 Token ID 與 Secret 填回此表單即可。",
     "test_ok": "連線測試成功",
@@ -1216,7 +1216,7 @@
     "err_need_cluster": "請先選擇叢集 (沒有叢集請先到「叢集」分頁新增)",
     "err_token_secret": "Token Secret 至少 8 個字元",
     "multinode_hint": "同一叢集可新增多台節點連線。同步時系統會自動挑選健康的節點抓取整個叢集資料，某節點故障時自動換手到其他節點。",
-    "edit_proxmox": "編輯 Proxmox 連線",
+    "edit_proxmox": "編輯 Proxmox VE 連線",
     "clone": "複製",
     "api_url_primary": "API URL（主節點）",
     "extra_urls": "其他節點 API URL（容錯）",
@@ -1228,7 +1228,7 @@
     "clustered": "叢集",
     "cluster_auto_ph": "留空：同步時自動依 PVE 叢集名稱建立",
     "help_path": "路徑 /",
-    "proxmox_admin_title": "Proxmox 連線"
+    "proxmox_admin_title": "Proxmox VE 連線"
   },
   "physical": {
     "cabling": "佈線",

@@ -50,7 +50,7 @@ async function syncProxmox(id: string) {
   const target = row?.api_url ?? id.slice(0, 8);
   try {
     await Virt.syncProxmox(id);
-    msg.success(t("tasks.queued_toast", { kind: "Proxmox sync", target }));
+    msg.success(t("tasks.queued_toast", { kind: "Proxmox VE sync", target }));
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
 async function testProxmox(id: string) {

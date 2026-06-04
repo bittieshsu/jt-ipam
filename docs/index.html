@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>jt-ipam — 可自架的整合型 IPAM</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / Wazuh / Proxmox / Ollama LLM，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
+<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / Wazuh / Proxmox VE / Ollama LLM，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
 <style>
   :root{
     --green:#18a058; --green-h:#36ad6a; --green-d:#0c7a43;
@@ -91,9 +91,13 @@
   .card h3{font-size:18px;margin:0 0 8px;display:flex;align-items:center;gap:9px}
   .card p{margin:0;font-size:14.5px;color:var(--body)}
   /* 物件關係圖 */
-  .model-wrap{max-width:900px;margin:6px auto 0}
+  #model{padding:92px 0}
+  .model-wrap{max-width:900px;margin:22px auto 0}
   .model-svg{width:100%;height:auto;display:block}
-  .model-cap{text-align:center;font-size:13px;color:var(--muted);margin:14px auto 0;max-width:760px}
+  .model-cap{text-align:center;font-size:13px;color:var(--muted);margin:26px auto 0;max-width:760px}
+  #model .grid{margin-top:40px !important}
+  #model .card{padding:26px}
+  #model .card p{margin-bottom:0}
   /* 多單位 / MSP 強調帶 */
   .callout-sec{background:linear-gradient(135deg,#0c7a43,#18a058,#36ad6a)}
   .callout{display:flex;align-items:center;gap:26px}
@@ -234,12 +238,12 @@
       <li><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         <span><span class="zh"><b>權限控管、稽核軌跡、自動同步</b>：用一套系統取代試算表</span><span class="en"><b>Permissions, an audit trail and auto-sync</b> — one system replaces the spreadsheet</span></span></li>
       <li><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-        <span><span class="zh">整合 <b>DNS、LibreNMS、OPNsense、Proxmox</b> 等既有系統</span><span class="en">Integrates your existing <b>DNS, LibreNMS, OPNsense, Proxmox</b></span></span></li>
+        <span><span class="zh">整合 <b>DNS、LibreNMS、OPNsense、Proxmox VE</b> 等既有系統</span><span class="en">Integrates your existing <b>DNS, LibreNMS, OPNsense, Proxmox VE</b></span></span></li>
       <li><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         <span><span class="zh">IP 與網路狀態<b>集中在同一處</b></span><span class="en">IP and network state, <b>all in one place</b></span></span></li>
     </ul>
     <div class="cta">
-      <a class="btn btn-primary" href="#install"><span class="zh">一行指令安裝</span><span class="en">Install in one line</span></a>
+      <a class="btn btn-primary" href="#install"><span class="zh">一行指令立刻安裝</span><span class="en">Install now in one line</span></a>
       <a class="btn btn-ghost" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener"><span class="zh">前往 GitHub 專案</span><span class="en">Go to GitHub project</span></a>
     </div>
     <!-- hero 大圖(建議放「儀表板」整頁截圖)-->
@@ -354,6 +358,7 @@
           <line x1="450" y1="260" x2="298" y2="431" stroke="#14b8a6"/>
           <line x1="450" y1="260" x2="109" y2="302" stroke="#f43f5e"/>
           <line x1="450" y1="260" x2="176" y2="142" stroke="#6366f1"/>
+          <line x1="450" y1="260" x2="450" y2="468" stroke="#0891b2"/>
         </g>
         <!-- spoke nodes(單行標籤，避免在窄螢幕被截斷；完整清單見下方 chips)-->
         <g class="hub-node" font-size="15" font-weight="600" text-anchor="middle">
@@ -364,6 +369,7 @@
           <g transform="translate(298,431)"><rect x="-72" y="-19" width="144" height="38" rx="10" fill="#14b8a6"/><text y="5" fill="#fff">Wazuh</text></g>
           <g transform="translate(109,302)"><rect x="-72" y="-19" width="144" height="38" rx="10" fill="#f43f5e"/><text y="5" fill="#fff">phpIPAM</text></g>
           <g transform="translate(176,142)"><rect x="-72" y="-19" width="144" height="38" rx="10" fill="#6366f1"/><text y="5" fill="#fff">DNS</text></g>
+          <g transform="translate(450,468)"><rect x="-72" y="-19" width="144" height="38" rx="10" fill="#0891b2"/><text y="5" fill="#fff">Graylog</text></g>
         </g>
         <!-- hub -->
         <circle cx="450" cy="260" r="62" fill="url(#hubg)"/>
@@ -390,6 +396,7 @@
       <span class="chip"><i></i>MaxMind GeoIP</span>
       <span class="chip"><i></i>Graylog<span class="zh">(DSV 對照表)</span><span class="en"> (DSV lookup)</span></span>
     </div>
+    <p class="hub-cap" style="margin-top:14px"><span class="zh"><b>Graylog 日誌補實：</b>jt-ipam 即時產生 IP → 主機名稱 / FQDN 對照表，供 Graylog「DSV File from HTTP」配接器抓取，把日誌中只有 IP 的事件自動補上可讀名稱；在管理區開關、設定路徑與 token 即可。<br>每列兩欄 —— 第 1 欄＝IP（key）、第 2 欄＝主機名稱或 FQDN（value），只輸出有主機名稱的 IP；格式為 UTF-8 的 CSV（每欄雙引號，如 <code>"10.1.1.141","log1.example.com"</code>）或 TSV（Tab 分隔）。</span><span class="en"><b>Graylog enrichment:</b> jt-ipam serves a live IP → hostname / FQDN lookup table for Graylog's "DSV File from HTTP" adapter, so log events carrying only an IP get a readable name automatically — toggle it, set the path and token in the admin area.<br>Two columns per row — column 1 = IP (key), column 2 = hostname or FQDN (value), emitting only IPs that have a hostname; format is UTF-8 CSV (every field double-quoted, e.g. <code>"10.1.1.141","log1.example.com"</code>) or TSV (tab-separated).</span></p>
   </div>
 </section>
 
@@ -415,7 +422,7 @@
       <div class="screen-txt">
         <span class="num">02</span>
         <h3><span class="zh">IP 明細</span><span class="en">IP detail</span></h3>
-        <p><span class="zh">每個 IP 都有一份完整檔案：主機名稱依多來源優先序自動決定（掃描代理 / LibreNMS / DNS / 手動），並帶出 MAC 廠商、交換器埠位、所屬裝置與相關 NAT。下方還有「區段→子網路→IP→裝置」上下層關係圖，以及逐欄的人為異動記錄：誰在何時改了哪個欄位一清二楚，責任歸屬不再靠記憶。</span><span class="en">Every IP gets a full record: the hostname is resolved by multi-source precedence (scan agent / LibreNMS / DNS / manual), alongside MAC vendor, switch port, owning device and related NAT. Below it sits a section→subnet→IP→device hierarchy graph and a per-field change log — exactly who changed which field and when, no guesswork.</span></p>
+        <p><span class="zh">每個 IP 都有一份完整檔案：主機名稱依多來源優先序自動決定（掃描代理 / LibreNMS / DNS / 手動），並帶出 MAC 廠商、交換器埠位、所屬裝置與相關 NAT。下方還有「區段→子網路→IP→裝置」上下層關係圖，以及逐欄的人為異動記錄：誰在何時改了哪個欄位一清二楚，責任歸屬不再靠記憶。系統還會自動辨識 IP 與裝置的關聯（例如主機名稱對得上某一台裝置），管理者按一下「確認」即可把兩者串起來，不必手動翻找。</span><span class="en">Every IP gets a full record: the hostname is resolved by multi-source precedence (scan agent / LibreNMS / DNS / manual), alongside MAC vendor, switch port, owning device and related NAT. Below it sits a section→subnet→IP→device hierarchy graph and a per-field change log — exactly who changed which field and when, no guesswork. jt-ipam also auto-detects likely IP↔device matches (e.g. a hostname that matches a device) and links them with one click once the admin confirms — no manual hunting.</span></p>
       </div>
     </div>
 
@@ -424,7 +431,7 @@
       <div class="screen-txt">
         <span class="num">03</span>
         <h3><span class="zh">IP 拓樸圖</span><span class="en">IP topology</span></h3>
-        <p><span class="zh">整合掃描代理、LibreNMS、OPNsense、Proxmox 等多種系統的資料，自動推測 裝置↔子網路 的鄰接關係，並把實體佈線、無線、站對站 VPN 與 L3 連線分別以不同線型畫出。可依子網路篩選、自由縮放，整張圖再匯出成 PNG / SVG / draw.io 放進維運文件。</span><span class="en">It combines data from the scan agent, LibreNMS, OPNsense and Proxmox to infer device↔subnet adjacency, drawing physical, wireless, site-to-site VPN and L3 links each with its own line style. Filter by subnet, zoom freely, and export the whole graph to PNG / SVG / draw.io for your runbooks.</span></p>
+        <p><span class="zh">整合掃描代理、LibreNMS、OPNsense、Proxmox VE 等多種系統的資料，自動推測 裝置↔子網路 的鄰接關係，並把實體佈線、無線、站對站 VPN 與 L3 連線分別以不同線型畫出。可依子網路篩選、自由縮放，整張圖再匯出成 PNG / SVG / draw.io 放進維運文件。</span><span class="en">It combines data from the scan agent, LibreNMS, OPNsense and Proxmox VE to infer device↔subnet adjacency, drawing physical, wireless, site-to-site VPN and L3 links each with its own line style. Filter by subnet, zoom freely, and export the whole graph to PNG / SVG / draw.io for your runbooks.</span></p>
       </div>
     </div>
 
@@ -451,7 +458,7 @@
       <div class="screen-txt">
         <span class="num">06</span>
         <h3><span class="zh">裝置 / 連接埠</span><span class="en">Devices / Ports</span></h3>
-        <p><span class="zh">裝置明細把所在機櫃位置、規格與連接埠清單整合在同一頁；每個連接埠顯示自身實體 MAC、連線對端與跳接穿透對應，欄位皆可排序。連接埠會在 LibreNMS / OPNsense / Proxmox 同步時自動帶入，不必手動一筆筆建立，新裝置上線即有完整介面清單。</span><span class="en">Device detail brings rack position, specs and a sortable port list onto one page — each port shows its own MAC, connected peer and pass-through mapping. Ports are auto-populated on LibreNMS / OPNsense / Proxmox sync, so you never build them by hand; a new device arrives with its full interface list.</span></p>
+        <p><span class="zh">裝置明細把所在機櫃位置、規格與連接埠清單整合在同一頁；每個連接埠顯示自身實體 MAC、連線對端與跳接穿透對應，欄位皆可排序。連接埠會在 LibreNMS / OPNsense / Proxmox VE 同步時自動帶入，不必手動一筆筆建立，新裝置上線即有完整介面清單。</span><span class="en">Device detail brings rack position, specs and a sortable port list onto one page — each port shows its own MAC, connected peer and pass-through mapping. Ports are auto-populated on LibreNMS / OPNsense / Proxmox VE sync, so you never build them by hand; a new device arrives with its full interface list.</span></p>
       </div>
     </div>
 
@@ -496,7 +503,7 @@
       <div class="screen-txt">
         <span class="num">11</span>
         <h3><span class="zh">主機名稱 / ARP 來源優先順序</span><span class="en">Source precedence</span></h3>
-        <p><span class="zh">同一個 IP 或裝置，可能同時被掃描代理、DNS、LibreNMS、OPNsense、Proxmox、Wazuh、AdGuard 回報不同的值，到底以誰為準？<b>主機名稱、ARP / MAC、裝置名稱、裝置型號</b>各自都有一份來源優先順序，用拖拉排序自訂、可個別停用；系統據此自動解析出最可信的結果，不再每次同步互相蓋來蓋去。</span><span class="en">The same IP or device may be reported with different values by the scan agent, DNS, LibreNMS, OPNsense, Proxmox, Wazuh and AdGuard — which one wins? <b>Hostname, ARP / MAC, device name and device model</b> each have their own source-precedence list you reorder by drag (and can disable individually); jt-ipam resolves the most trustworthy value accordingly, so syncs stop overwriting one another.</span></p>
+        <p><span class="zh">同一個 IP 或裝置，可能同時被掃描代理、DNS、LibreNMS、OPNsense、Proxmox VE、Wazuh、AdGuard 回報不同的值，到底以誰為準？<b>主機名稱、ARP / MAC、裝置名稱、裝置型號</b>各自都有一份來源優先順序，用拖拉排序自訂、可個別停用；系統據此自動解析出最可信的結果，不再每次同步互相蓋來蓋去。</span><span class="en">The same IP or device may be reported with different values by the scan agent, DNS, LibreNMS, OPNsense, Proxmox VE, Wazuh and AdGuard — which one wins? <b>Hostname, ARP / MAC, device name and device model</b> each have their own source-precedence list you reorder by drag (and can disable individually); jt-ipam resolves the most trustworthy value accordingly, so syncs stop overwriting one another.</span></p>
       </div>
     </div>
   </div>
