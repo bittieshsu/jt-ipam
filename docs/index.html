@@ -287,29 +287,29 @@
       <p><span class="zh">不是一堆各自獨立的清單——每個物件都有明確的上下層與關聯。</span><span class="en">Not a pile of disconnected lists — every object has a clear hierarchy and links.</span></p>
     </div>
     <div class="model-wrap">
-      <svg class="model-svg" viewBox="0 0 1180 98" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC',sans-serif" role="img" aria-label="jt-ipam object model">
+      <svg class="model-svg" viewBox="0 0 1196 116" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC',sans-serif" role="img" aria-label="jt-ipam object model">
         <defs>
-          <marker id="mh" markerWidth="9" markerHeight="9" refX="6" refY="4" orient="auto">
-            <path d="M0 1 L6 4 L0 7" fill="none" stroke="#9fb0c0" stroke-width="1.5"/>
-          </marker>
+          <filter id="nsh" x="-20%" y="-30%" width="140%" height="180%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#1e293b" flood-opacity="0.13"/>
+          </filter>
         </defs>
-        <!-- 一整條橫排：機房→機櫃→裝置→虛擬化→IP→子網路→區段（同儀表板關係列）-->
-        <g stroke="#cbd5e1" stroke-width="2" fill="none">
-          <line x1="160" y1="49"  x2="186" y2="49"  marker-end="url(#mh)"/>
-          <line x1="328" y1="49"  x2="354" y2="49"  marker-end="url(#mh)"/>
-          <line x1="496" y1="49"  x2="522" y2="49"  marker-end="url(#mh)"/>
-          <line x1="664" y1="49"  x2="690" y2="49"  marker-end="url(#mh)"/>
-          <line x1="832" y1="49"  x2="858" y2="49"  marker-end="url(#mh)"/>
-          <line x1="1000" y1="49" x2="1026" y2="49" marker-end="url(#mh)"/>
+        <!-- 機房→機櫃→裝置→虛擬化→IP→子網路→區段（同儀表板關係列）；節點間 chevron 箭頭 -->
+        <g stroke="#aebccb" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M167 52 l8 6 l-8 6"/>
+          <path d="M335 52 l8 6 l-8 6"/>
+          <path d="M503 52 l8 6 l-8 6"/>
+          <path d="M671 52 l8 6 l-8 6"/>
+          <path d="M839 52 l8 6 l-8 6"/>
+          <path d="M1007 52 l8 6 l-8 6"/>
         </g>
-        <g font-size="14.5" font-weight="700" text-anchor="middle">
-          <g transform="translate(20,20)"><rect width="140" height="58" rx="12" fill="#e6f4fb"/><text x="70" y="34" fill="#0369a1" class="zh">機房 / 地點</text><text x="70" y="34" fill="#0369a1" class="en">Room / Site</text></g>
-          <g transform="translate(188,20)"><rect width="140" height="58" rx="12" fill="#efeafe"/><text x="70" y="34" fill="#6d28d9" class="zh">機櫃</text><text x="70" y="34" fill="#6d28d9" class="en">Rack</text></g>
-          <g transform="translate(356,20)"><rect width="140" height="58" rx="12" fill="#eaecfe"/><text x="70" y="34" fill="#4338ca" class="zh">裝置</text><text x="70" y="34" fill="#4338ca" class="en">Device</text></g>
-          <g transform="translate(524,20)"><rect width="140" height="58" rx="12" fill="#fdeaf3"/><text x="70" y="34" fill="#be185d" class="zh">虛擬化 (VM)</text><text x="70" y="34" fill="#be185d" class="en">Virtualization</text></g>
-          <g transform="translate(692,20)"><rect width="140" height="58" rx="12" fill="#e7f6ee"/><text x="70" y="34" fill="#0c7a43" class="zh">IP 位址</text><text x="70" y="34" fill="#0c7a43" class="en">IP address</text></g>
-          <g transform="translate(860,20)"><rect width="140" height="58" rx="12" fill="#fef3e2"/><text x="70" y="34" fill="#b45309" class="zh">子網路</text><text x="70" y="34" fill="#b45309" class="en">Subnet</text></g>
-          <g transform="translate(1028,20)"><rect width="140" height="58" rx="12" fill="#fdecec"/><text x="70" y="34" fill="#c0392b" class="zh">區段</text><text x="70" y="34" fill="#c0392b" class="en">Section</text></g>
+        <g font-size="15" font-weight="700" text-anchor="middle">
+          <g transform="translate(20,24)"><rect width="146" height="68" rx="16" fill="#eef6fc" stroke="#0369a1" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#0369a1"/><text x="80" y="40" fill="#0369a1" class="zh">機房 / 地點</text><text x="80" y="40" fill="#0369a1" class="en">Room / Site</text></g>
+          <g transform="translate(188,24)"><rect width="146" height="68" rx="16" fill="#f2eefd" stroke="#6d28d9" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#6d28d9"/><text x="80" y="40" fill="#6d28d9" class="zh">機櫃</text><text x="80" y="40" fill="#6d28d9" class="en">Rack</text></g>
+          <g transform="translate(356,24)"><rect width="146" height="68" rx="16" fill="#eef0fe" stroke="#4338ca" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#4338ca"/><text x="80" y="40" fill="#4338ca" class="zh">裝置</text><text x="80" y="40" fill="#4338ca" class="en">Device</text></g>
+          <g transform="translate(524,24)"><rect width="146" height="68" rx="16" fill="#fdeef5" stroke="#be185d" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#be185d"/><text x="80" y="40" fill="#be185d" class="zh">虛擬化 (VM)</text><text x="80" y="40" fill="#be185d" class="en">Virtualization</text></g>
+          <g transform="translate(692,24)"><rect width="146" height="68" rx="16" fill="#eaf7f0" stroke="#0c7a43" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#0c7a43"/><text x="80" y="40" fill="#0c7a43" class="zh">IP 位址</text><text x="80" y="40" fill="#0c7a43" class="en">IP address</text></g>
+          <g transform="translate(860,24)"><rect width="146" height="68" rx="16" fill="#fef6e9" stroke="#b45309" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#b45309"/><text x="80" y="40" fill="#b45309" class="zh">子網路</text><text x="80" y="40" fill="#b45309" class="en">Subnet</text></g>
+          <g transform="translate(1028,24)"><rect width="146" height="68" rx="16" fill="#fdeeee" stroke="#c0392b" stroke-opacity="0.35" filter="url(#nsh)"/><circle cx="22" cy="34" r="4" fill="#c0392b"/><text x="80" y="40" fill="#c0392b" class="zh">區段</text><text x="80" y="40" fill="#c0392b" class="en">Section</text></g>
         </g>
       </svg>
       <p class="model-cap"><span class="zh">區段 → 子網路 → IP 位址（邏輯定址）；機房 / 地點 → 機櫃 → 裝置（實體資產）。一個 IP 指派給一台裝置，虛擬化叢集的 VM 也對應裝置並佔用 IP。儀表板一眼看出各層級數量，點任一節點即可深入；全部還能再歸屬到單位 / 客戶。</span><span class="en">Section → Subnet → IP address (logical) and Room/Site → Rack → Device (physical). An IP is assigned to a device, and virtualization VMs map to devices and consume IPs. The dashboard shows counts at each level — click any node to drill in; everything can also be owned by a tenant / client.</span></p>
