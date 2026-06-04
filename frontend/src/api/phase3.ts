@@ -402,6 +402,18 @@ export const Physical = {
     const { data } = await apiClient.get<PortTrace>(`/api/v1/ports/${id}/trace`);
     return data;
   },
+  async createPanel(p: { name: string; location_id?: string | null; description?: string | null }): Promise<PowerPanel> {
+    const { data } = await apiClient.post<PowerPanel>("/api/v1/power-panels", p);
+    return data;
+  },
+  async createFeed(p: { panel_id: string; name: string; description?: string | null }): Promise<PowerFeed> {
+    const { data } = await apiClient.post<PowerFeed>("/api/v1/power-feeds", p);
+    return data;
+  },
+  async createOutlet(p: { feed_id?: string | null; name: string; description?: string | null }): Promise<PowerOutlet> {
+    const { data } = await apiClient.post<PowerOutlet>("/api/v1/power-outlets", p);
+    return data;
+  },
   // 連線：建一條 cable + 兩端 termination（都接到 device_port）
   async connectPorts(aPortId: string, bPortId: string, opts: { type?: string; color?: string; label?: string; length_m?: number } = {}): Promise<void> {
     const { data: cable } = await apiClient.post<Cable>("/api/v1/cables", {

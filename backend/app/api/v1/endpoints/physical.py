@@ -57,6 +57,10 @@ class CableRead(StrictModel):
     length_m: float | None
     description: str | None
     status: str
+    a_end: str | None = None       # 「裝置 / 連接埠」可讀字串
+    b_end: str | None = None
+    a_device_id: uuid.UUID | None = None
+    b_device_id: uuid.UUID | None = None
 
 
 class CableWrite(StrictModel):
@@ -96,10 +100,51 @@ async def list_cables(
         .offset((page - 1) * page_size).limit(page_size)
     )).scalars().all())
     total = int(await session.scalar(select(func.count()).select_from(Cable)) or 0)
-    return Paginated[CableRead](
-        items=[CableRead.model_validate(r) for r in rows],
-        total=total, page=page, page_size=page_size,
-    )
+
+    # 兩端「裝置 / 連接埠」解析：把各 cable 的 A/B termination 還原成可讀字串
+    cable_ids = [r.id for r in rows]
+    ends: dict[uuid.UUID, dict[str, Any]] = {cid: {} for cid in cable_ids}
+    if cable_ids:
+        terms = list((await session.execute(
+            select(CableTermination).where(CableTermination.cable_id.in_(cable_ids))
+        )).scalars().all())
+        # 預載相關 device_port → device 名稱
+        port_ids = [t.object_id for t in terms if t.object_type == "device_port"]
+        dev_ids = [t.object_id for t in terms if t.object_type == "device"]
+        ports: dict[uuid.UUID, DevicePort] = {}
+        if port_ids:
+            ports = {p.id: p for p in (await session.execute(
+                select(DevicePort).where(DevicePort.id.in_(port_ids))
+            )).scalars().all()}
+        dev_name: dict[uuid.UUID, str] = {}
+        need_dev = set(dev_ids) | {p.device_id for p in ports.values()}
+        if need_dev:
+            dev_name = {d.id: d.name for d in (await session.execute(
+                select(Device).where(Device.id.in_(need_dev))
+            )).scalars().all()}
+        for t in terms:
+            label = None
+            device_id = None
+            if t.object_type == "device_port" and t.object_id in ports:
+                p = ports[t.object_id]
+                device_id = p.device_id
+                label = f"{dev_name.get(p.device_id, '?')} / {p.name}"
+            elif t.object_type == "device":
+                device_id = t.object_id
+                label = dev_name.get(t.object_id, str(t.object_id)[:8])
+            else:
+                label = t.port_label or t.object_type
+            ends[t.cable_id][t.side] = {"label": label, "device_id": device_id}
+
+    items = []
+    for r in rows:
+        e = ends.get(r.id, {})
+        a, b = e.get("A") or {}, e.get("B") or {}
+        items.append(CableRead.model_validate(r).model_copy(update={
+            "a_end": a.get("label"), "b_end": b.get("label"),
+            "a_device_id": a.get("device_id"), "b_device_id": b.get("device_id"),
+        }))
+    return Paginated[CableRead](items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("/cables", response_model=CableRead, status_code=201,
