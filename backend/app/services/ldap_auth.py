@@ -77,12 +77,18 @@ def _bind_admin_sync(cfg: LdapConfig) -> Connection:
         receive_timeout=int(cfg.timeout),
         raise_exceptions=True,
     )
-    if cfg.use_starttls and not cfg.use_ssl:
-        if not conn.open():
-            raise LDAPAuthError("LDAP open failed")
-        if not conn.start_tls():
-            raise LDAPAuthError("LDAP StartTLS failed")
-    if not conn.bind():
+    try:
+        if cfg.use_starttls and not cfg.use_ssl:
+            conn.open()
+            conn.start_tls()
+        ok = conn.bind()
+    except LDAPException as exc:
+        # ldap3 在 raise_exceptions=True 時對 bind 失敗丟原生例外（含 AD 帳密錯誤）；轉成我們的型別
+        msg = str(exc)
+        if "invalidCredentials" in msg or "data 52e" in msg or "InvalidCredentials" in exc.__class__.__name__:
+            raise LDAPInvalidCredentials(f"bind rejected (帳號或密碼錯誤): {msg}") from exc
+        raise LDAPAuthError(f"LDAP bind failed: {exc.__class__.__name__}: {msg}") from exc
+    if not ok:
         raise LDAPAuthError(f"LDAP admin bind failed: {conn.last_error}")
     return conn
 
