@@ -484,6 +484,6 @@ onMounted(() => { void loadAll(); });
 /* 拆成獨立頁面時隱藏頁籤列（只顯示該模組內容） */
 .single-mode :deep(.n-tabs-nav) { display: none; }
 /* Circuit 表單兩欄：等寬、輸入框填滿欄寬、上緣對齊（取代會錯位的固定寬 n-space） */
-.circuit-row { display: flex; gap: 12px; }
+.circuit-row { display: flex; gap: 12px; margin-bottom: 14px; }
 .circuit-row > * { flex: 1 1 0; min-width: 0; }
 </style>
