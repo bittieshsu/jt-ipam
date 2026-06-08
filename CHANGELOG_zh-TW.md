@@ -4,6 +4,38 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.110] — 2026-06-08
+
+### 修正（create-admin CLI）
+- 當指定的帳號名稱命中某帳號、而 email 命中另一個帳號（或同一 email 被多個帳號共用）時，
+  `create-admin` 會以 `MultipleResultsFound` 崩潰。改成分開查 username 與 email，遇到衝突
+  時回清楚的錯誤而非崩潰。
+- `--force-update` 現在會把指定的 username/email 一併寫回該帳號 —— 先前只重設密碼，導致
+  帶了新的 `--email` 卻被忽略、畫面仍顯示舊位址。
+
+## [0.4.109] — 2026-06-08
+
+### 新增（MCP / AI 工具）
+- **10 個新 MCP 工具**，補上先前 AI 查不到的實體：`list_circuits`、`list_providers`、
+  `list_asns`、`list_tenants`、`list_contacts`、`list_ssids`、`list_cables`、
+  `cable_trace`、`list_power`、`list_wazuh_agents`。
+
+### 變更（MCP 欄位跟上近期功能成長）
+- `list_subnet_ips` 補回 `effective_status`（上線/離線）與 `os_family`。
+- `list_nat` 解析出真正的來源/目的 IP，並加入介面、別名、disabled/no_rdr、ip_version
+  （原本只有名稱/協定/埠）。
+- `get_subnet_detail` 補 scan_method、掃描代理、VRF、上層子網路、是否歸檔。
+- `get_device` 補單位、fqdn、地點、說明、電源埠；`list_devices` 補單位 + fqdn。
+- `list_vms` 補租戶/主要 IP/裝置 + 網路介面。
+- `get_ip_detail` 補 `effective_probes`；`list_customers` 補 title/address；
+  `stats_overview` 加計 VM / 電路 / 供應商 / ASN / 租戶 / 聯絡人 / 佈線。
+
+### 安全（MCP RBAC 收斂）
+- MCP HTTP/stdio 的 `tools/call` 先前**完全沒有**可見性閘。現在 MCP 協定與 NL chat
+  共用同一個 `authorize_tool`：零權限帳號擋掉所有資料工具；全域基礎設施工具
+  （VLAN/VRF/NAT/防火牆/DNS/VM/VPN/電路/佈線/電力/Wazuh…）需 admin 或萬用讀取；
+  異動工具需 admin。`tools/list` 與 LLM 工具清單都依可呼叫範圍過濾。
+
 ## [0.4.108] — 2026-06-07
 
 ### 修正

@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.110] — 2026-06-08
+
+### Fixed (create-admin CLI)
+- `create-admin` crashed with `MultipleResultsFound` when the given username matched
+  one account and the email matched a different one (or an email was shared by more
+  than one account). The lookup now queries username and email separately and
+  reports a clear conflict instead of crashing.
+- `--force-update` now also writes the supplied username/email onto the matched
+  account — previously it reset only the password, so a new `--email` was silently
+  ignored and the old address kept showing.
+
+## [0.4.109] — 2026-06-08
+
+### Added (MCP / AI tools)
+- **10 new MCP tools** for entities that had no AI coverage: `list_circuits`,
+  `list_providers`, `list_asns`, `list_tenants`, `list_contacts`, `list_ssids`,
+  `list_cables`, `cable_trace`, `list_power`, `list_wazuh_agents`.
+
+### Changed (MCP field coverage caught up with recent feature growth)
+- `list_subnet_ips` now returns `effective_status` (online/offline) + `os_family`.
+- `list_nat` now resolves real source/destination IPs and adds interface, aliases,
+  disabled/no_rdr, ip_version (was name/proto/ports only).
+- `get_subnet_detail` adds scan_method, scan agent, VRF, parent subnet, archived.
+- `get_device` adds customer, fqdn, location, description, power ports;
+  `list_devices` adds customer + fqdn.
+- `list_vms` adds tenant/primary_ip/device + network interfaces.
+- `get_ip_detail` adds `effective_probes`; `list_customers` adds title/address;
+  `stats_overview` now also counts VMs / circuits / providers / ASNs / tenants /
+  contacts / cables.
+
+### Security (MCP RBAC hardening)
+- The MCP HTTP/stdio dispatch (`tools/call`) previously applied **no** visibility
+  gate. Both the MCP protocol and the NL-chat path now share one `authorize_tool`
+  gate: zero-visibility users are denied all data tools, global-infrastructure
+  tools (VLAN/VRF/NAT/firewall/DNS/VM/VPN/circuits/cables/power/Wazuh…) require
+  admin-or-wildcard read, and mutating tools require admin. `tools/list` and the
+  LLM tool list are filtered to what the caller may actually call.
+
 ## [0.4.108] — 2026-06-07
 
 ### Fixed
