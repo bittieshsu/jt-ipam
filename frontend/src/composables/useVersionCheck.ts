@@ -30,18 +30,23 @@ export function useVersionCheck() {
           duration: 0,
           closable: true,
           render: () =>
-            h("span", { style: "display:inline-flex;align-items:center;gap:10px" }, [
-              h("span", t("update.new_version", { v: deployed })),
-              h(
-                "a",
-                {
-                  href: "#",
-                  style: "color:var(--primary-color,#18a058);font-weight:600;text-decoration:none",
-                  onClick: (e: MouseEvent) => { e.preventDefault(); window.location.reload(); },
-                },
-                t("update.reload"),
-              ),
-            ]),
+            h(
+              "div",
+              {
+                title: t("update.new_version_v", { v: deployed }),
+                style:
+                  "display:inline-flex;align-items:center;gap:8px;cursor:pointer;"
+                  + "border:1px solid var(--primary-color,#18a058);border-radius:10px;"
+                  + "padding:8px 16px;background:rgba(24,160,88,.1);"
+                  + "box-shadow:0 4px 14px rgba(0,0,0,.15);"
+                  + "font-weight:600;color:var(--primary-color,#18a058);white-space:nowrap",
+                onClick: () => window.location.reload(),
+              },
+              [
+                h("span", { style: "font-size:15px" }, "🔄"),
+                h("span", t("update.banner")),
+              ],
+            ),
         });
       }
     } catch { /* 離線 / 尚未部署 version.json → 略過 */ }

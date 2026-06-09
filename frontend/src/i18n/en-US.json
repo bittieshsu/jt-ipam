@@ -554,6 +554,8 @@
     "history_title": "Notification history"
   },
   "update": {
+    "banner": "An update is available — click here to reload the latest version",
+    "new_version_v": "New version v{v}",
     "new_version": "A new version v{v} is available — ",
     "reload": "click to refresh"
   },

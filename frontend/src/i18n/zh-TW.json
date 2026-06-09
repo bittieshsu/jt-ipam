@@ -554,6 +554,8 @@
     "history_title": "通知記錄"
   },
   "update": {
+    "banner": "系統有更新，請按此重新整理載入最新版本",
+    "new_version_v": "新版本 v{v}",
     "new_version": "已有新版本 v{v}，",
     "reload": "點此重新整理"
   },
