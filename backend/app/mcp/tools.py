@@ -1130,6 +1130,57 @@ async def list_dns_zones(session: AsyncSession, *, user: User, limit: int = 200)
     } for z in rows]}
 
 
+async def list_dns_records(
+    session: AsyncSession, *, user: User,
+    name: str | None = None, rtype: str | None = None,
+    missing_ip: bool = False, limit: int = 200,
+) -> dict[str, Any]:
+    """List DNS records pulled from integrated servers (A/AAAA/PTR — IP↔name mapping).
+    Filter by name/value substring (name) and record type (rtype). missing_ip=true →
+    only A/AAAA records whose target IP has no matching address in IPAM. Each row marks
+    has_ipam_ip (resolved by actual IP value) and the source DNS server."""
+    from sqlalchemy import or_ as _or
+
+    from app.models.address import IPAddress as _IPA
+    from app.models.dns import DNSRecord, DNSServer, DNSZone
+    stmt = select(DNSRecord)
+    if name:
+        pat = f"%{name.strip()}%"
+        stmt = stmt.where(_or(DNSRecord.name.ilike(pat), DNSRecord.value.ilike(pat)))
+    if rtype:
+        stmt = stmt.where(DNSRecord.type == rtype.strip().upper())
+    if missing_ip:
+        ip_here = (
+            select(_IPA.id).where(func.host(_IPA.ip) == DNSRecord.value)
+            .correlate(DNSRecord).exists()
+        )
+        stmt = stmt.where(DNSRecord.type.in_(("A", "AAAA")), ~ip_here)
+    stmt = stmt.order_by(DNSRecord.name, DNSRecord.type).limit(min(limit, 500))
+    rows = list((await session.execute(stmt)).scalars().all())
+    ip_vals = {r.value for r in rows if r.type in ("A", "AAAA") and r.value}
+    have: set[str] = set()
+    if ip_vals:
+        for (host,) in (await session.execute(
+            select(func.host(_IPA.ip)).where(func.host(_IPA.ip).in_(ip_vals))
+        )).all():
+            have.add(str(host))
+    zone_ids = {r.zone_id for r in rows if r.zone_id}
+    zsrv: dict[Any, str] = {}
+    if zone_ids:
+        for zid, sname in (await session.execute(
+            select(DNSZone.id, DNSServer.name)
+            .join(DNSServer, DNSServer.id == DNSZone.server_id)
+            .where(DNSZone.id.in_(zone_ids))
+        )).all():
+            zsrv[zid] = sname
+    return {"records": [{
+        "name": r.name, "type": r.type, "value": r.value,
+        "consistency_state": r.consistency_state,
+        "has_ipam_ip": (r.value in have) if r.type in ("A", "AAAA") else None,
+        "server": zsrv.get(r.zone_id),
+    } for r in rows]}
+
+
 async def list_ip_requests(
     session: AsyncSession, *, user: User, status: str | None = None, limit: int = 200,
 ) -> dict[str, Any]:
@@ -2005,6 +2056,16 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "List DNS zones.",
         "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
+    "list_dns_records": {
+        "fn": list_dns_records,
+        "description": "List DNS records from integrated servers (A/AAAA/PTR). Filter by name/value "
+                       "substring (name) and type (rtype). missing_ip=true → only A/AAAA whose target IP "
+                       "has no matching IPAM address. Each row marks has_ipam_ip and the source server.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"}, "rtype": {"type": "string"},
+            "missing_ip": {"type": "boolean"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "list_ip_requests": {
         "fn": list_ip_requests,
         "description": "List IP allocation requests. Non-admins see only their own. Optional status filter (pending/approved/rejected…).",
@@ -2276,8 +2337,8 @@ UTILITY_TOOLS: frozenset[str] = frozenset({
 # 對應 CLAUDE.md 的 require_global_read 分類；只被指派特定物件的部門帳號一律擋。
 GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_vlans", "list_vrfs", "list_nat", "list_firewalls", "list_firewall_rules",
-    "list_firewall_aliases", "list_dns_servers", "list_dns_zones", "check_dns_consistency",
-    "dns_lookup",
+    "list_firewall_aliases", "list_dns_servers", "list_dns_zones", "list_dns_records",
+    "check_dns_consistency", "dns_lookup",
     "list_vms", "list_wireless_links", "list_vpn_tunnels", "list_scan_agents",
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
