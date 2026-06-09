@@ -214,19 +214,19 @@ function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
   });
 }
 const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
-  { title: t("common.name"), key: "name", minWidth: 160, ellipsis: { tooltip: true } },
+  { title: t("common.name"), key: "name", minWidth: 140, ellipsis: { tooltip: true } },
   {
-    title: t("common.enabled"), key: "enabled", width: 90,
+    title: t("common.enabled"), key: "enabled", width: 76,
     render: (r) => h(NTag, { size: "small", type: r.enabled ? "success" : "default" },
       () => r.enabled ? t("common.enabled") : t("common.disabled")),
   },
   {
-    title: t("scanAgentHelp.col_key"), key: "has_key", width: 96,
+    title: t("scanAgentHelp.col_key"), key: "has_key", width: 82,
     render: (r) => h(NTag, { size: "small", type: r.has_key ? "info" : "warning" },
       () => r.has_key ? t("scanAgentHelp.key_set") : t("scanAgentHelp.key_none")),
   },
   {
-    title: t("scanAgentHelp.col_version"), key: "agent_version", width: 132,
+    title: t("scanAgentHelp.col_version"), key: "agent_version", width: 110,
     render: (r) => {
       if (!r.agent_version) return "—";
       const outdated = !!r.server_agent_version && r.agent_version !== r.server_agent_version;
@@ -243,19 +243,19 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
     },
   },
   {
-    title: t("cols.source_ip"), key: "source_ip", width: 140,
+    title: t("cols.source_ip"), key: "source_ip", width: 128,
     render: (r) => r.last_source_ip
       ? h("span", { style: "font-family:monospace" }, r.last_source_ip) : "—",
   },
   {
-    title: t("scanAgentHelp.col_subnets"), key: "subnet_count", width: 78,
+    title: t("scanAgentHelp.col_subnets"), key: "subnet_count", width: 64,
     render: (r) => r.subnet_count ?? 0,
   },
-  { title: t("scanAgentHelp.col_last_seen"), key: "last_seen_at", width: 186,
+  { title: t("scanAgentHelp.col_last_seen"), key: "last_seen_at", width: 168,
     render: (r) => h("span", { style: "white-space:nowrap" }, fmtDateTime(r.last_seen_at)) },
-  { title: t("scanAgentHelp.col_last_error"), key: "last_error", minWidth: 160, ellipsis: { tooltip: true }, render: (r) => r.last_error ?? "—" },
+  { title: t("scanAgentHelp.col_last_error"), key: "last_error", width: 150, ellipsis: { tooltip: true }, render: (r) => r.last_error ?? "—" },
   {
-    title: t("common.actions"), key: "actions", className: "col-actions", width: 172,
+    title: t("common.actions"), key: "actions", className: "col-actions", width: 140,
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
       h(NPopconfirm, { onPositiveClick: () => scanNow(r) }, {
         trigger: () => iconAction(SyncIcon, t("scan_agent.scan_now"), () => {}, "primary"),
@@ -303,7 +303,7 @@ onMounted(() => { void refresh(); });
                     @update:visible="saSet" @reset="saReset" />
       <ExportButton :columns="cols" :rows="rows" filename="scan-agents" :title="t('nav.scan_agents')" />
     </n-space>
-    <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1046" />
+    <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1058" />
 
     <!-- 建立 / 編輯 -->
     <n-modal v-model:show="show" preset="card" style="width: 460px">
