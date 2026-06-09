@@ -34,6 +34,8 @@ import { useEntityLinks } from "@/composables/useEntityLinks";
 import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
 import { useSubnetTree } from "@/composables/useSubnetTree";
 import { computed } from "vue";
+import { useTablePagination } from "@/composables/useTablePagination";
+const pg = useTablePagination();
 
 const { labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
 const { bump: bumpSubnetTree } = useSubnetTree();
@@ -385,7 +387,7 @@ onMounted(() => {
       :row-key="(row: Subnet) => row.id"
       :checked-row-keys="checkedKeys"
       @update:checked-row-keys="(keys: DataTableRowKey[]) => checkedKeys = keys"
-      :pagination="{ pageSize: 50 }"
+      :pagination="pg"
       :bordered="false"
       :scroll-x="986"
       :row-props="(row: Subnet) => ({

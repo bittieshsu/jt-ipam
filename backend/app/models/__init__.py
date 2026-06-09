@@ -30,7 +30,7 @@ from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall, OPNsense
 from app.models.firewall_rule import OPNsenseRule
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_hostname import IPHostnameObservation
-from app.models.ip_request import IPRequest, IPRequestEvent
+from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
 from app.models.location import Location, Rack
 from app.models.migration_mapping import PhpIPAMMigrationMapping
@@ -98,6 +98,7 @@ __all__ = [
     "IPHostnameObservation",
     "IPRequest",
     "IPRequestEvent",
+    "IPRequestStageApproval",
     "LibreNMSDevice",
     "LibreNMSInstance",
     "Location",

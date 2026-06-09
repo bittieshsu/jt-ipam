@@ -535,3 +535,53 @@ export async function syncAdGuard(id: string): Promise<unknown> {
     { timeout: LONG_OP_TIMEOUT_MS });
   return data;
 }
+
+// ── DNS 記錄（從整合 DNS server 取回）──
+export interface DnsRecord {
+  id: string;
+  zone_id: string;
+  name: string;
+  type: string;
+  value: string;
+  ttl: number;
+  source: string;
+  consistency_state: string;   // consistent / dns_only / ipam_only / mismatch
+  ipam_address_id: string | null;
+  matched_ip_id: string | null;   // 依 IP 值實查 ip_addresses 的對應結果（A/AAAA）
+  server_id: string | null;       // 來源整合 DNS 伺服器
+  server_name: string | null;
+  last_seen_at: string | null;
+}
+
+export async function listDnsRecords(params: {
+  q?: string; ip?: string; missing_ip?: boolean; consistency?: string;
+  server_id?: string; rtype?: string; page?: number; page_size?: number;
+} = {}): Promise<{ items: DnsRecord[]; total: number; page: number; page_size: number }> {
+  const { data } = await apiClient.get("/api/v1/dns/records", {
+    params: {
+      q: params.q || undefined,
+      ip: params.ip || undefined,
+      missing_ip: params.missing_ip || undefined,
+      consistency: params.consistency || undefined,
+      server_id: params.server_id || undefined,
+      rtype: params.rtype || undefined,
+      page: params.page ?? 1,
+      page_size: params.page_size ?? 300,
+    },
+  });
+  return data;
+}
+
+export async function listDnsRecordTypeCounts(params: {
+  q?: string; ip?: string; missing_ip?: boolean; server_id?: string;
+} = {}): Promise<{ type: string; count: number }[]> {
+  const { data } = await apiClient.get("/api/v1/dns/records/type-counts", {
+    params: {
+      q: params.q || undefined,
+      ip: params.ip || undefined,
+      missing_ip: params.missing_ip || undefined,
+      server_id: params.server_id || undefined,
+    },
+  });
+  return data;
+}

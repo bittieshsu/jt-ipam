@@ -101,6 +101,8 @@ const diagramLoading = ref(false);
 const locations = ref<Location[]>([]);
 const roomId = ref<string | null>(null);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
+import { useTablePagination } from "@/composables/useTablePagination";
+const pg = useTablePagination();
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 const pin = usePinned("racks");
 const locPin = usePinned("locations");   // 在「機房」頁釘選的常用機房
@@ -590,7 +592,7 @@ function onMergedExport(key: string) {
         :columns="columns"
         :data="displayRows"
         :loading="loading"
-        :pagination="{ pageSize: 50 }"
+        :pagination="pg"
         :bordered="false"
         :row-key="(row: Rack) => row.id"
         :checked-row-keys="checkedKeys"

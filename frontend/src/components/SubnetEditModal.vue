@@ -306,8 +306,9 @@ async function submit() {
         <n-space vertical style="width: 100%">
           <n-checkbox v-model:checked="form.scan_enabled">{{ t("subnets.scan_enable") }}</n-checkbox>
           <div v-if="catalog.probes.length"
-               :style="{ opacity: form.scan_enabled ? 1 : 0.5, pointerEvents: form.scan_enabled ? 'auto' : 'none' }">
-            <div style="font-size: 13px; margin-bottom: 4px;">{{ t("scan_probes.subnet_probes") }}</div>
+               :style="{ opacity: form.scan_enabled ? 1 : 0.5, pointerEvents: form.scan_enabled ? 'auto' : 'none',
+                         marginLeft: '8px', paddingLeft: '14px', borderLeft: '2px solid var(--n-border-color, rgba(0,0,0,.08))' }">
+            <div style="font-size: 13px; margin-bottom: 4px; opacity:.7">{{ t("scan_probes.subnet_probes") }}</div>
             <n-checkbox-group v-model:value="form.scan_method" :disabled="!form.scan_enabled">
               <n-space vertical size="small">
                 <n-checkbox v-for="p in catalog.probes" :key="p.key" :value="p.key"

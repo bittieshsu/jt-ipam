@@ -77,7 +77,7 @@ const ipColumnPickerItems = [
   { key: "stale_days", label: t("stale.col_stale") },
   { key: "note", label: t("cols.note") },
 ];
-import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon } from "@/icons";
+import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon, AddressesIcon } from "@/icons";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { apiClient } from "@/api/client";
 import { listAddresses } from "@/api/addresses";
@@ -140,6 +140,23 @@ function dhcpInfoForIp(ip: string | null | undefined): DhcpRangeInfo | null {
 function isDhcpIp(ip: string | null | undefined): boolean {
   return dhcpInfoForIp(ip) != null;
 }
+// 只屬於「本子網路」的 DHCP 發放範圍（給資訊欄顯示 + 只看 DHCP 用）；無資料就空
+const subnetDhcpRanges = computed<DhcpRangeInfo[]>(() => {
+  const cidr = subnet.value?.cidr;
+  if (!cidr || cidr.includes(":")) return [];
+  const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/.exec(cidr);
+  if (!m) return [];
+  const prefix = Number(m[2]);
+  const base = ipv4ToInt(m[1]);
+  if (base == null) return [];
+  const total = prefix >= 32 ? 1 : 2 ** (32 - prefix);
+  const netInt = prefix === 0 ? 0 : (base & ((~0 << (32 - prefix)) >>> 0)) >>> 0;
+  const lo = netInt, hi = netInt + total - 1;
+  return dhcpRanges.value
+    .filter((r) => r.a >= lo && r.a <= hi)
+    .sort((x, y) => x.a - y.a);
+});
+const onlyDhcp = ref(false);
 
 const section = ref<Section | null>(null);
 const vlan = ref<VLAN | null>(null);
@@ -534,6 +551,8 @@ function ipMatchesFilter(a: IPAddress): boolean {
 const ipRows = computed<any[]>(() => {
   // 失聯篩選開啟時：只列符合的已登記 IP，不插入閒置區間列
   if (staleFilterOn.value) return staleMatches.value.filter(ipMatchesFilter);
+  // 只看 DHCP：只列落在 DHCP 發放範圍內的已登記 IP，不插入閒置區間列
+  if (onlyDhcp.value) return addresses.value.filter((a) => isDhcpIp(a.ip)).filter(ipMatchesFilter);
   // 有搜尋字時：只列符合的已登記 IP，不插入閒置區間列
   if (ipFilterText.value.trim()) return addresses.value.filter(ipMatchesFilter);
   const cidr = subnet.value?.cidr;
@@ -703,6 +722,15 @@ onMounted(() => {
             </span>
           </n-descriptions-item>
           <n-descriptions-item :label="t('subnets.threshold')">{{ subnet.threshold_pct != null ? `${subnet.threshold_pct}%` : "—" }}</n-descriptions-item>
+          <n-descriptions-item v-if="subnetDhcpRanges.length" :label="t('subnets.dhcp_ranges')" :span="3">
+            <div style="display: flex; flex-wrap: wrap; gap: 6px">
+              <n-tag v-for="(r, i) in subnetDhcpRanges" :key="i" size="small" type="warning" :bordered="false"
+                     style="white-space: normal; height: auto; max-width: 100%">
+                <span style="font-family: monospace">{{ r.start }} – {{ r.end }}</span>
+                <span style="opacity: .7; margin-left: 6px">{{ r.server }}{{ r.source ? ` · ${r.source}` : "" }}</span>
+              </n-tag>
+            </div>
+          </n-descriptions-item>
           <n-descriptions-item :label="t('subnets.gateway')">
             <span v-if="subnet.gateway" style="font-family: monospace">{{ subnet.gateway }}</span>
             <span v-else>—</span>
@@ -775,6 +803,12 @@ onMounted(() => {
                       @click="staleFilterOn = !staleFilterOn">
               <template #icon><n-icon><MissingIcon /></n-icon></template>
               {{ t("stale.filter_label") }}
+            </n-button>
+            <n-button v-if="subnetDhcpRanges.length" size="small"
+                      :type="onlyDhcp ? 'warning' : 'default'"
+                      @click="onlyDhcp = !onlyDhcp">
+              <template #icon><n-icon><AddressesIcon /></n-icon></template>
+              {{ t("subnets.only_dhcp") }}
             </n-button>
             <ColumnPicker :all="ipColumnPickerItems" :visible="ipVisibleKeys"
                           @update:visible="setIpVisible" @reset="resetIpVisible" />

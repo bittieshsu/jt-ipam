@@ -20,6 +20,8 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useCustomers } from "@/composables/useCustomers";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { computed } from "vue";
+import { useTablePagination } from "@/composables/useTablePagination";
+const pg = useTablePagination();
 const { t } = useI18n();
 
 const { visibleKeys: snVis, setVisible: snSet, reset: snReset } = useColumnPrefs(
@@ -209,7 +211,7 @@ onMounted(() => {
           :columns="columns"
           :data="subnets"
           :loading="loading"
-          :pagination="{ pageSize: 50 }"
+          :pagination="pg"
           :bordered="false"
           :row-props="(row: Subnet) => ({
             style: 'cursor: pointer',

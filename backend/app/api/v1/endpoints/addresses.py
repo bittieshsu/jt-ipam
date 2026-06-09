@@ -628,6 +628,15 @@ async def update_address(
     for key, value in changes.items():
         setattr(obj, key, value)
 
+    # MAC 與 hostname 同屬「多來源優先序」欄位：人工編輯的 MAC 要標記 mac_source="manual"
+    # （ARP 優先序中 manual rank 最高），否則下一次掃描/ARP 同步會用 scanner 等來源把它蓋掉。
+    # 清空 MAC 時一併清掉來源。
+    if "mac" in changes:
+        if obj.mac:
+            obj.mac_source = "manual"
+        else:
+            obj.mac_source = None
+
     # 同步 excluded_probes ⇄ exclude_from_ping：icmp 視為同一件事，保留既有「不掃 ping」行為
     if "excluded_probes" in changes or "exclude_from_ping" in changes:
         from app.core.scan_probes import normalize_probes as _norm_probes

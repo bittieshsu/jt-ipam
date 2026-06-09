@@ -274,6 +274,8 @@ const newMap = ref({
 
 import { listSections } from "@/api/sections";
 import { listSubnets } from "@/api/subnets";
+import { useTablePagination } from "@/composables/useTablePagination";
+const pg = useTablePagination();
 const sectionOpts = ref<{ label: string; value: string }[]>([]);
 const subnetOpts = ref<{ label: string; value: string }[]>([]);
 
@@ -620,7 +622,7 @@ onMounted(() => {
           v-if="rulesFw"
           :columns="ruleCols" :data="rulesView" :loading="rulesLoading"
           :bordered="false" size="small" :scroll-x="910"
-          :pagination="{ pageSize: 100, showSizePicker: true, pageSizes: [50, 100, 200, 500] }"
+          :pagination="pg"
         />
         <n-empty v-else :description="t('firewall_admin.pick_firewall_to_view')" />
       </n-tab-pane>
@@ -656,7 +658,7 @@ onMounted(() => {
           v-if="aliasesFw"
           :columns="aliasCols" :data="aliasesFiltered" :loading="aliasesLoading"
           :bordered="false" size="small" :scroll-x="860"
-          :pagination="{ pageSize: 100, showSizePicker: true, pageSizes: [50, 100, 200, 500] }"
+          :pagination="pg"
         />
         <n-empty v-else :description="t('firewall_admin.pick_firewall_to_view')" />
       </n-tab-pane>

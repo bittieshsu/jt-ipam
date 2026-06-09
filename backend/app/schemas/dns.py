@@ -81,6 +81,16 @@ class DNSRecordRead(StrictModel):
     consistency_state: str
     ipam_address_id: uuid.UUID | None
     last_seen_at: datetime | None
+    # 依「IP 值」實查 ip_addresses 是否有對應位址（A/AAAA）；非 sync 的 hostname 比對結果
+    matched_ip_id: uuid.UUID | None = None
+    # 此記錄來自哪台整合 DNS 伺服器（來源欄顯示用）
+    server_id: uuid.UUID | None = None
+    server_name: str | None = None
+
+
+class DNSRecordTypeCount(StrictModel):
+    type: str
+    count: int
 
 
 class ConsistencyReportItem(StrictModel):

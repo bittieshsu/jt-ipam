@@ -30,6 +30,8 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useAuthStore } from "@/stores/auth";
 import { storeToRefs } from "pinia";
+import { useTablePagination } from "@/composables/useTablePagination";
+const pg = useTablePagination();
 const { t } = useI18n();
 
 const { me } = storeToRefs(useAuthStore());
@@ -332,7 +334,7 @@ onMounted(() => {
         <n-data-table
           :columns="ipColumns"
           :data="addresses"
-          :pagination="{ pageSize: 50, showSizePicker: true, pageSizes: [25, 50, 100] }"
+          :pagination="pg"
           :bordered="false"
           size="small"
           :scroll-x="1020"

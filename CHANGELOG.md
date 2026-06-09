@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.113] — 2026-06-09
+
+### Added — IP request approval gate + notifications
+- **Configurable approval policy** (Admin → IP Request Approval) with four modes so
+  each site can pick: `admin only`; `administrators + designated users/groups`
+  (single gate, any one approves); **parallel sign-off** (multiple gates, any order,
+  all must approve); and **sequential multi-stage** (ordered gates, each with its own
+  approvers — must pass gate 1→2→3…). Plus a separation-of-duties self-approval
+  toggle. Per-step approvals are tracked in a new `ip_request_stage_approvals` table
+  (migration 0073). Approve/reject authorize via the policy, not a blanket admin check.
+- The request detail page shows **gate progress** (which gates passed / which is
+  awaiting); each sequential gate's approvers are notified only when it's their turn.
+- **Inline approve / reject** on the IP Requests list for approvers (pending rows),
+  in addition to the request detail page.
+- Request detail: fully localized; shows the subnet CIDR (linked) and, for pending
+  requests, the **IP that will be allocated** — including the auto-picked first-free
+  IP — which the **approver can change** before approving.
+- **Approver notifications**: when a request is submitted, every approver gets an
+  in-app bell notification and (if the Email channel is enabled) an email.
+- **Notification channels settings** (Admin → Notification Channels): an SMTP/email
+  channel (host/port/TLS/credentials/from, encrypted password, test-send button).
+  Telegram / Slack / Teams / Nextcloud / Zulip are shown as "in development".
+
+### Added — DHCP
+- Subnet detail shows a **DHCP ranges** row when OPNsense DHCP pool ranges exist for
+  that subnet (hidden when none), and a **DHCP-only** filter on its IP list.
+
+### Added — DNS records (Advanced → DNS Records)
+- New page listing DNS records pulled from integrated DNS servers, with search, an
+  **IP lookup** (find records matching an IP — forward A/AAAA or the IP's PTR), and a
+  **"no matching IP"** filter (A/AAAA records whose target isn't in IPAM).
+
+## [0.4.112] — 2026-06-09
+
+### Fixed
+- **Manually-edited MAC was not protected from sync overwrite.** Unlike hostname
+  (which records a `manual` observation), editing an IP's MAC in the UI only set
+  `ip.mac` without marking `mac_source="manual"`, so the next scan/ARP sync could
+  clobber it. The IP-edit endpoint now stamps `mac_source="manual"` on manual MAC
+  edits (highest ARP precedence) and clears the source when the MAC is cleared.
+  (Hostname's manual-vs-precedence path was verified correct end-to-end; if a
+  manually-set hostname seems to vanish, hard-refresh — it is usually a stale SPA
+  bundle, not the backend.)
+- IP Requests toolbar: the status filter select was `small` while the buttons next
+  to it were default size, so it sat shorter — aligned to the same height.
+
 ## [0.4.111] — 2026-06-08
 
 ### Security (MCP per-object RBAC scoping)
