@@ -45,6 +45,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_devices": {}, "list_customers": {}, "list_nat": {}, "list_sections": {},
     "list_vrfs": {}, "list_vpn_tunnels": {}, "list_firewalls": {}, "list_firewall_rules": {},
     "list_firewall_aliases": {}, "list_dns_servers": {}, "list_dns_zones": {},
+    "list_dns_records": {},
     "list_ip_requests": {}, "list_scan_agents": {}, "list_arp": {}, "list_fdb": {},
     "wazuh_missing_agents": {}, "list_vms": {}, "list_wireless_links": {},
     "list_circuits": {}, "list_providers": {}, "list_asns": {}, "list_tenants": {},

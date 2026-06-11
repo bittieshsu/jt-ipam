@@ -14,9 +14,6 @@ SAML flow：
 
 from __future__ import annotations
 
-import base64
-import binascii
-import json
 import logging
 from typing import Annotated, Any
 
@@ -297,19 +294,23 @@ async def oidc_callback(
     except oidc_service.OIDCError as exc:
         raise HTTPException(502, detail=str(exc)) from exc
 
-    # 合併 ID Token payload 的 claims，補 userinfo 沒有的欄位 —— 例如 Microsoft Entra ID
-    # 的 graph userinfo 不含 groups，groups 只在 ID Token 裡。userinfo 已有的鍵不覆蓋。
-    # 安全性：此處不驗 ID Token 簽章（信賴 TLS + 前面已驗 state/nonce）；解析失敗不中斷登入。
+    # 合併 ID Token 的 claims，補 userinfo 沒有的欄位 —— 例如 Microsoft Entra ID 的
+    # graph userinfo 不含 groups，groups 只在 ID Token 裡。userinfo 已有的鍵不覆蓋。
+    # 安全性（OWASP A07）：ID Token 的 claims（尤其 groups → admin 提權）必須先用 JWKS
+    # 驗簽 + 檢 aud/iss/nonce 才可信任；驗證失敗則只用 userinfo（不合併未驗 claims），
+    # 既擋掉偽造 groups 的提權，又不因 IdP 偶發問題把使用者鎖在登入頁外。
     id_token_raw = token_data.get("id_token") or ""
-    if id_token_raw and id_token_raw.count(".") >= 2:
+    if id_token_raw:
         try:
-            payload_b64 = id_token_raw.split(".")[1]
-            payload_b64 += "=" * (-len(payload_b64) % 4)  # base64url padding
-            id_claims: dict[str, Any] = json.loads(base64.urlsafe_b64decode(payload_b64))
+            id_claims = await oidc_service.verify_id_token(
+                cfg, id_token_raw, nonce=payload.get("nonce"),
+            )
             for k, v in id_claims.items():
                 claims.setdefault(k, v)
-        except (ValueError, binascii.Error, json.JSONDecodeError) as exc:
-            logging.getLogger("sso").warning("OIDC ID Token payload parse failed: %s", exc)
+        except oidc_service.OIDCError as exc:
+            logging.getLogger("sso").warning(
+                "OIDC ID Token verification failed, using userinfo only: %s", exc,
+            )
 
     try:
         user = await oidc_service.upsert_user_from_oidc(

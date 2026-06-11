@@ -215,6 +215,9 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
     ip_rows = (
         await session.execute(ip_stmt)
     ).all()
+    # 注意：未設 scope_subnet_ids 時，重疊網段的同一 IP 字串會在此 dict 互相覆寫，
+    # 只留最後一筆 → hostname/agent 可能掛到任一同 IP 的 IPAddress。有重疊網段的
+    # 部署應在該 Wazuh instance 設 scope_subnet_ids 把比對限定在正確子網路內。
     ip_map: dict[str, Any] = {str(ip).split("/", 1)[0]: aid for aid, ip in ip_rows}
 
     for raw in agents_raw:

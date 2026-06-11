@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.129] — 2026-06-11
+
+### Security
+- **RBAC IDOR fixes** — several detail/aggregate endpoints accepted an object id without an
+  object-level visibility check, letting any signed-in account read objects outside its scope:
+  `GET /devices/{id}` and its sub-resources (`/integrations` exposed Wazuh CVE counts + Proxmox
+  VMs, plus `/librenms`, `/vlans`, `/relations`), `GET /customers/{id}` and `/{id}/summary`
+  (full per-customer asset dump), and `GET /racks/{id}/diagram`. All now require object `read`
+  permission (404 on no access). The MCP `get_topology` tool no longer leaks the full topology
+  to scoped accounts (was missing the `user` filter) and is gated as global-read; the REST
+  `GET /topology` is gated with `require_global_read` to match.
+- **OIDC ID Token verification** — the callback previously base64-decoded the ID Token and
+  trusted its claims (including `groups`, which drives admin promotion) without verifying the
+  signature. It now verifies the ID Token against the provider's JWKS (signature + `aud`/`iss`/
+  `nonce`) before trusting any claim; on failure it falls back to userinfo only instead of
+  trusting unverified groups.
+- **CSV export formula injection** — IP address CSV export now escapes cells beginning with
+  `= + - @` / tab / CR so spreadsheets don't execute them as formulas.
+
+### Fixed
+- **Integration sync resilience** — `jt-ipam-sync.py` now rolls back the session before writing
+  `last_error` in every integration's exception handler; a single failing instance (e.g. an
+  AdGuard `MultipleResultsFound` on overlapping subnets) no longer aborts the whole sync run.
+- **Overlapping subnets** — AdGuard sync (`sync_clients` / `sync_rewrites`) and the MCP ARP
+  lookup matched `IPAddress.ip` with `scalar_one_or_none()`; with overlapping subnets the same
+  IP yields multiple rows → `MultipleResultsFound`. Changed to `limit(1)` + `first()`.
+- **Non-UCS DNS server connection tests** — BIND 9 (dnspython `OSError`/connection-refused),
+  Windows DNS (WinRM/`requests` exceptions), PowerDNS and OPNsense Unbound (non-JSON responses
+  on auth failure) leaked raw exceptions that the `/dns/servers/{id}/test` endpoint didn't catch,
+  producing a 500 with no message. Adapters now wrap these as `DNSAdapterError`, and the test
+  endpoint has a safety net that turns any unexpected error into a readable 502.
+
+### UI / Docs
+- Fixed a missing i18n key on the section detail page ("display order" showed the raw key).
+- Added error feedback to the notifications "mark all read" and group-members actions.
+- Terminology: use 「外掛」 (not 「插件」) for "plugin" in zh-TW docs.
+
 ## [0.4.128] — 2026-06-10
 
 ### Fixed / Improved

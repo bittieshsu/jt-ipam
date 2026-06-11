@@ -273,8 +273,9 @@ async def trace_mac(
     vis_sub = await visible_ids(session, user=user, object_type="subnet")
     vis_dev = await visible_ids(session, user=user, object_type="device")
     if arp is not None and vis_sub is not None:
+        # 重疊網段：同 IP 可能多筆 → limit(1)+first()，避免 MultipleResultsFound
         ip_sub = (await session.execute(
-            select(IPAddress.subnet_id).where(IPAddress.ip == arp.ip))).scalar_one_or_none()
+            select(IPAddress.subnet_id).where(IPAddress.ip == arp.ip).limit(1))).scalars().first()
         if ip_sub is None or ip_sub not in vis_sub:
             arp = None
     if fdb is not None and vis_dev is not None and (
@@ -1093,7 +1094,7 @@ async def get_topology(
         sub = await _resolve_subnet(session, user=user, subnet_id=None, subnet_cidr=subnet_cidr)
         subnet_ids = [sub.id]
     graph = await build_topology(
-        session, subnet_ids=subnet_ids, include_l3=include_l3, include_vpn=include_vpn,
+        session, user=user, subnet_ids=subnet_ids, include_l3=include_l3, include_vpn=include_vpn,
     )
     labels = {n["data"]["id"]: n["data"].get("label") for n in graph["nodes"]}
     edges = [{
@@ -2342,7 +2343,7 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_vms", "list_wireless_links", "list_vpn_tunnels", "list_scan_agents",
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
-    "list_power", "list_wazuh_agents", "wazuh_missing_agents",
+    "list_power", "list_wazuh_agents", "wazuh_missing_agents", "get_topology",
 })
 
 

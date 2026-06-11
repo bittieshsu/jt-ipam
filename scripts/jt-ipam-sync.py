@@ -60,14 +60,17 @@ async def _run() -> int:
             interval = timedelta(seconds=fw.sync_interval_seconds)
             if fw.last_sync_at and fw.last_sync_at + interval > now:
                 continue
+            name = fw.name
             try:
                 results = await fw_svc.sync_all_for_firewall(session, fw)
                 await session.commit()
-                log.info("opnsense %s: %d mappings", fw.name, len(results))
+                log.info("opnsense %s: %d mappings", name, len(results))
             except Exception as exc:  # noqa: BLE001
+                # 失敗的 transaction 先 rollback，否則接著的 commit 會二次爆 → 中斷整輪 sync
+                await session.rollback()
                 fw.last_error = str(exc)
                 await session.commit()
-                log.error("opnsense %s sync failed: %s", fw.name, exc)
+                log.error("opnsense %s sync failed: %s", name, exc)
                 failed += 1
 
         # ── Wazuh ──
@@ -80,14 +83,16 @@ async def _run() -> int:
             interval = timedelta(seconds=inst.sync_interval_seconds)
             if inst.last_sync_at and inst.last_sync_at + interval > now:
                 continue
+            name = inst.name
             try:
                 summary = await wazuh_svc.sync_agents(session, inst)
                 await session.commit()
-                log.info("wazuh %s: %s", inst.name, summary)
+                log.info("wazuh %s: %s", name, summary)
             except Exception as exc:  # noqa: BLE001
+                await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
-                log.error("wazuh %s sync failed: %s", inst.name, exc)
+                log.error("wazuh %s sync failed: %s", name, exc)
                 failed += 1
 
         # ── LibreNMS ──
@@ -100,14 +105,16 @@ async def _run() -> int:
             interval = timedelta(seconds=inst.sync_interval_seconds)
             if inst.last_sync_at and inst.last_sync_at + interval > now:
                 continue
+            name = inst.name
             try:
                 summary = await librenms_svc.sync_instance(session, inst)
                 await session.commit()
-                log.info("librenms %s: %s", inst.name, summary)
+                log.info("librenms %s: %s", name, summary)
             except Exception as exc:  # noqa: BLE001
+                await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
-                log.error("librenms %s sync failed: %s", inst.name, exc)
+                log.error("librenms %s sync failed: %s", name, exc)
                 failed += 1
 
         # ── AdGuard ──
@@ -120,14 +127,16 @@ async def _run() -> int:
             interval = timedelta(seconds=inst.sync_interval_seconds)
             if inst.last_sync_at and inst.last_sync_at + interval > now:
                 continue
+            name = inst.name
             try:
                 summary = await adguard_svc.sync_instance(session, inst)
                 await session.commit()
-                log.info("adguard %s: %s", inst.name, summary)
+                log.info("adguard %s: %s", name, summary)
             except Exception as exc:  # noqa: BLE001
+                await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
-                log.error("adguard %s sync failed: %s", inst.name, exc)
+                log.error("adguard %s sync failed: %s", name, exc)
                 failed += 1
 
         # ── Proxmox（同一 cluster 多節點 → 自動挑健康節點同步，故障換手）──
@@ -151,7 +160,9 @@ async def _run() -> int:
                 await session.commit()
                 log.info("proxmox cluster %s: %s", cluster_id, summary.to_dict())
             except Exception as exc:  # noqa: BLE001
-                await session.commit()  # 寫回各節點 healthcheck 失敗的 last_error
+                # 失敗的 transaction 無法 commit，先 rollback 讓 session 恢復可用，
+                # 否則下一個 cluster 的查詢會 PendingRollbackError 連鎖中斷整輪
+                await session.rollback()
                 log.error("proxmox cluster %s sync failed: %s", cluster_id, exc)
                 failed += 1
 
@@ -166,12 +177,15 @@ async def _run() -> int:
             last = getattr(srv, "last_pull_at", None) or getattr(srv, "last_sync_at", None)
             if last and last + dns_interval > now:
                 continue
+            name = srv.name
             try:
                 summary = await pull_server(session, srv)
                 await session.commit()
-                log.info("dns %s: %s", srv.name, summary)
+                log.info("dns %s: %s", name, summary)
             except Exception as exc:  # noqa: BLE001
-                log.error("dns %s sync failed: %s", srv.name, exc)
+                # rollback 讓 session 恢復可用，否則下一個 DNS server 的查詢會連鎖失敗
+                await session.rollback()
+                log.error("dns %s sync failed: %s", name, exc)
                 failed += 1
 
     return 1 if failed else 0

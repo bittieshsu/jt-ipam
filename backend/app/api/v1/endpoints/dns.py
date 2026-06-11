@@ -233,6 +233,10 @@ async def test_server(
         info = await adapter.healthcheck()
     except DNSAdapterError as exc:
         raise HTTPException(502, detail=str(exc)) from exc
+    except Exception as exc:
+        # 安全網：任何 adapter 漏接的連線例外（winrm/dnspython/json…）都轉成可懂的 502，
+        # 不讓連線測試變成無訊息的 500。
+        raise HTTPException(502, detail=f"{exc.__class__.__name__}: {exc}") from exc
     finally:
         await adapter.close()
     return {"ok": True, "server": info}

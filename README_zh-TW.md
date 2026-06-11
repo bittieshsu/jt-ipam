@@ -1,4 +1,4 @@
-# jt-ipam v0.4.128
+# jt-ipam v0.4.129
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -187,7 +187,7 @@ jt-ipam/
 │       ├── api/v1/    # REST API
 │       ├── services/  # 商業邏輯（ai / oui / opnsense / topology / search / permission）
 │       ├── mcp/       # MCP server + tools（給 LLM 用戶端）
-│       └── plugins/   # 插件系統
+│       └── plugins/   # 外掛系統
 ├── frontend/          # Vue 3 + TS
 │   └── src/{views,components,composables,api,stores,i18n,router}
 └── scripts/           # jt-ipam.sh（install/upgrade/uninstall）、ci.sh、oui_refresh.py
@@ -198,7 +198,7 @@ jt-ipam/
 - **Phase 1（完成）** — phpIPAM 對等功能 + 改良（區段/子網路/IP/VLAN/VRF/NAT/裝置/機櫃/地點/IP 申請、TOTP/API-Token/RBAC、phpIPAM 匯入、CSV/RIPE/TWNIC、視覺化子網路格、強制 TLS）
 - **Phase 2（完成）** — 多家 DNS + 深度 LibreNMS 整合（裝置/ARP/FDB/實際狀態）+ 異常偵測 + SHA-256 稽核鏈 + pgvector AI 語意搜尋
 - **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense 防火牆同步 + Wazuh agent 盤點
-- **Phase 4（完成、已縮減範圍）** — MCP server + 本地 LLM 自然語言（LLM Server）+ 插件機制
+- **Phase 4（完成、已縮減範圍）** — MCP server + 本地 LLM 自然語言（LLM Server）+ 外掛機制
 
 ## 授權
 

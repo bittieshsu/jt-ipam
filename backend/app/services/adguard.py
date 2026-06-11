@@ -141,12 +141,14 @@ async def sync_clients(session: AsyncSession, inst: AdGuardInstance) -> dict[str
         primary_mac = macs[0] if macs else None
         for ip in ips:
             seen += 1
+            # 重疊網段：同一 IP 字串可能對到多筆（未設 scope 時尤甚）→ 用 limit(1)+first()
+            # 取代 scalar_one_or_none()，否則 MultipleResultsFound 會炸掉整批 sync
             ip_stmt = select(IPAddress).where(IPAddress.ip == ip)
             if scope_ids:
                 ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(scope_ids))
             ipa = (
-                await session.execute(ip_stmt)
-            ).scalar_one_or_none()
+                await session.execute(ip_stmt.limit(1))
+            ).scalars().first()
             if ipa is None:
                 continue
             ipa.last_seen_dns = datetime.now(UTC)
@@ -183,12 +185,13 @@ async def sync_rewrites(session: AsyncSession, inst: AdGuardInstance) -> dict[st
         parts = answer.split(".")
         if not (len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)):
             continue
+        # 重疊網段：同 IP 多筆 → limit(1)+first()，避免 MultipleResultsFound 炸掉整批 sync
         ip_stmt = select(IPAddress).where(IPAddress.ip == answer)
         if scope_ids:
             ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(scope_ids))
         ipa = (
-            await session.execute(ip_stmt)
-        ).scalar_one_or_none()
+            await session.execute(ip_stmt.limit(1))
+        ).scalars().first()
         if ipa is None:
             continue
         ipa.last_seen_dns = datetime.now(UTC)

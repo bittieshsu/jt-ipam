@@ -4,6 +4,38 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.129] — 2026-06-11
+
+### 安全性
+- **RBAC IDOR 修補** — 多個詳情／彙整端點只憑物件 id 取資料、未做物件層級可見性檢查，
+  讓任何已登入帳號都能讀到範圍外的物件：`GET /devices/{id}` 及其子資源（`/integrations`
+  會洩漏 Wazuh CVE 數量＋Proxmox VM，另含 `/librenms`、`/vlans`、`/relations`）、
+  `GET /customers/{id}` 與 `/{id}/summary`（傾印整個客戶資產）、`GET /racks/{id}/diagram`。
+  以上全部改為需要物件 `read` 權限（無權限回 404）。MCP `get_topology` 工具不再把整張拓樸
+  洩漏給受限帳號（原本漏傳 `user` 過濾），並歸為全域讀取；REST `GET /topology` 也補上
+  `require_global_read` 一致化。
+- **OIDC ID Token 驗簽** — callback 原本只把 ID Token base64 解開就信任其 claims（含決定
+  admin 提權的 `groups`），未驗簽章。現在改用 provider 的 JWKS 驗證 ID Token（簽章＋
+  `aud`/`iss`/`nonce`）後才信任 claims；驗證失敗則退回只用 userinfo，不信任未驗的 groups。
+- **CSV 匯出公式注入** — IP 位址 CSV 匯出對以 `= + - @`／tab／CR 開頭的欄位前置跳脫，
+  避免試算表把內容當公式執行。
+
+### 修正
+- **整合同步韌性** — `jt-ipam-sync.py` 在每個整合的例外處理寫 `last_error` 前先 rollback；
+  單一實例失敗（例如 AdGuard 在重疊網段上 `MultipleResultsFound`）不再中斷整輪同步。
+- **重疊網段** — AdGuard 同步（`sync_clients` / `sync_rewrites`）與 MCP ARP 查詢以
+  `scalar_one_or_none()` 比對 `IPAddress.ip`；重疊網段下同一 IP 會有多筆 → `MultipleResultsFound`。
+  改用 `limit(1)` + `first()`。
+- **UCS 以外的 DNS 伺服器連線測試** — BIND 9（dnspython `OSError`／連線被拒）、Windows DNS
+  （WinRM／`requests` 例外）、PowerDNS 與 OPNsense Unbound（認證失敗回非 JSON）會漏出原始例外，
+  而 `/dns/servers/{id}/test` 端點沒接到 → 變成無訊息的 500。各 adapter 現在把這些包成
+  `DNSAdapterError`，端點也加了安全網把任何非預期錯誤轉成可讀的 502。
+
+### UI / 文件
+- 修正區段詳情頁缺少的 i18n key（「顯示順序」原本顯示原始 key）。
+- 通知「全部標為已讀」與群組成員操作補上錯誤提示。
+- 用詞：繁中文件 plugin 一律用「外掛」（不用「插件」）。
+
 ## [0.4.128] — 2026-06-10
 
 ### 修正 / 改善
