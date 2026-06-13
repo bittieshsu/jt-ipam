@@ -4,6 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.135] — 2026-06-13
+
+### 憑證派送 — 後續補強
+- **跨發行版 agent 安裝器** — cert-agent 安裝器自動偵測套件管理器(apt / dnf / yum / zypper),
+  支援 Debian 11/12/13、Ubuntu 22.04/24.04/26.04、RHEL / Rocky / AlmaLinux / CentOS、Fedora、
+  openSUSE/SLES(皆 systemd);PyYAML 依各發行版正確套件名安裝。
+- **新增 profile** — 加入 `pbs`(Proxmox Backup Server:`proxy.pem`/`proxy.key`,重載
+  `proxmox-backup-proxy`);`apache` profile 改為重載 `apache2` 或 `httpd`(哪個有用哪個),
+  Debian/Ubuntu 與 RHEL/SUSE 都能用。
+- **「安裝說明」按鈕**(派送代理分頁,比照掃描代理):一行式安裝指令、設定檔範例、支援的發行版、
+  `--dry-run` 提示。
+- **進階下的唯讀憑證現況** — 非管理員的唯讀檢視者(具萬用讀取)現在可在「進階」看各代理的派送現況
+  (最後更新、有效日、到期日、剩餘天數、是否最新/飄移)。新增 `GET /cert-agents/status`
+  (`require_global_read` 把關)。
+
 ## [0.4.134] — 2026-06-13
 
 ### 修正

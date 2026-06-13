@@ -22,7 +22,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_admin
+from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import decrypt_secret
@@ -89,6 +89,49 @@ async def download_agent() -> PlainTextResponse:
     if not p.exists():
         raise HTTPException(404, detail="agent not found")
     return PlainTextResponse(p.read_text(), media_type="text/x-python")
+
+
+# ─────────────────── 唯讀現況（global-read：admin 或唯讀檢視者）───────────────────
+
+@router.get("/status", dependencies=[Depends(require_global_read)])
+async def agents_status(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """各代理的憑證派送現況（最後更新 / 有效日 / 到期日 / 剩餘天數 / 是否最新）。
+    屬全域基礎設施檢視：非管理員但具萬用讀取（唯讀檢視者）亦可看;掛在「進階」。"""
+    cur_rows = (await session.execute(
+        select(Certificate, CertVersion)
+        .join(CertVersion, CertVersion.certificate_id == Certificate.id)
+        .where(CertVersion.is_current.is_(True))
+    )).all()
+    cur = {cert.name: ver for cert, ver in cur_rows}
+    now = datetime.now(UTC)
+    agents = (await session.execute(select(CertAgent).order_by(CertAgent.name))).scalars().all()
+
+    out: list[dict[str, Any]] = []
+    for a in agents:
+        deps: list[dict[str, Any]] = []
+        for d in (a.reported or []):
+            if not isinstance(d, dict):
+                continue
+            ver = cur.get(d.get("cert"))
+            na = ver.not_after if ver else None
+            deps.append({
+                "cert": d.get("cert"), "profile": d.get("profile"), "status": d.get("status"),
+                "applied_at": d.get("applied_at"), "dry_run": d.get("dry_run"),
+                "reported_fingerprint": d.get("fingerprint"),
+                "current_fingerprint": ver.fingerprint_sha256 if ver else None,
+                "up_to_date": bool(ver and d.get("fingerprint") == ver.fingerprint_sha256),
+                "not_before": ver.not_before.isoformat() if ver and ver.not_before else None,
+                "not_after": na.isoformat() if na else None,
+                "days_remaining": (na - now).days if na else None,
+            })
+        out.append({
+            "agent": a.name, "enabled": a.enabled,
+            "last_seen_at": a.last_seen_at.isoformat() if a.last_seen_at else None,
+            "agent_version": a.agent_version, "deployments": deps,
+        })
+    return {"agents": out}
 
 
 # ─────────────────── 管理面（admin）───────────────────

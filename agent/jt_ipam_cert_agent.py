@@ -52,7 +52,7 @@ except ImportError:
     sys.stderr.write("需要 PyYAML:apt-get install -y python3-yaml(或 pip install pyyaml)\n")
     sys.exit(2)
 
-__version__ = "0.4.134"
+__version__ = "0.4.135"
 
 DEFAULT_CONFIG = "/etc/jt-ipam-cert-agent/config.yaml"
 STATE_DIR = "/var/lib/jt-ipam-cert-agent"
@@ -66,11 +66,12 @@ PROFILES: dict[str, dict] = {
                   ("key", "{base}/{cert}.key", 0o600)],
         "test": "nginx -t", "reload": "systemctl reload nginx",
     },
-    "apache": {
+    "apache": {  # Debian/Ubuntu=apache2、RHEL/SUSE=httpd → reload 兩者都試
         "files": [("cert", "{base}/{cert}.crt", 0o644),
                   ("chain", "{base}/{cert}.chain.pem", 0o644),
                   ("key", "{base}/{cert}.key", 0o600)],
-        "test": "apachectl configtest", "reload": "systemctl reload apache2",
+        "test": "apachectl configtest 2>/dev/null || httpd -t",
+        "reload": "systemctl reload apache2 2>/dev/null || systemctl reload httpd",
     },
     "haproxy": {
         "files": [("combined", "{base}/{cert}.pem", 0o600)],
@@ -84,6 +85,11 @@ PROFILES: dict[str, dict] = {
     "pmg": {  # Proxmox Mail Gateway:pmgproxy(/etc/pmg/pmg-api.pem 含 key+cert)
         "files": [("combined", "/etc/pmg/pmg-api.pem", 0o600)],
         "test": None, "reload": "systemctl restart pmgproxy",
+    },
+    "pbs": {  # Proxmox Backup Server:proxy.pem(fullchain) + proxy.key
+        "files": [("fullchain", "/etc/proxmox-backup/proxy.pem", 0o640),
+                  ("key", "/etc/proxmox-backup/proxy.key", 0o600)],
+        "test": None, "reload": "systemctl reload proxmox-backup-proxy",
     },
     "postfix": {
         "files": [("fullchain", "{base}/{cert}.fullchain.pem", 0o644),

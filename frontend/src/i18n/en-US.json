@@ -18,6 +18,35 @@
     "sso_saml": "Sign in with SAML",
     "or_sso": "Or use SSO"
   },
+  "certStatus": {
+    "col_agent": "Agent",
+    "col_cert": "Certificate",
+    "col_profile": "Service",
+    "col_status": "Status",
+    "col_updated": "Last update",
+    "col_valid_from": "Valid from",
+    "col_expires": "Expires",
+    "col_remaining": "Days left",
+    "up_to_date": "Up to date",
+    "drift": "Not latest",
+    "no_report": "No report yet",
+    "expired": "Expired",
+    "days_left": "{n} days"
+  },
+  "certHelp": {
+    "button": "Install instructions",
+    "title": "Install the distribution agent on a site host",
+    "intro": "Install an agent on each host where certificates should auto-rotate. The agent periodically checks jt-ipam for a newer version and, if found, downloads it, writes it to the right paths, runs a config-test, reloads the service, and rolls back on failure.",
+    "step1": "Create an agent in the Distribution Agents tab and copy its one-time key.",
+    "step2": "Run the one-liner below as root on the target host (replace the key with the one you copied).",
+    "step3": "Edit deployments in /etc/jt-ipam-cert-agent/config.yaml, test with --dry-run, then let the timer distribute automatically.",
+    "oneliner_label": "One-liner install (root):",
+    "distros": "Supports Debian 11/12/13, Ubuntu 22.04/24.04/26.04, RHEL/Rocky/AlmaLinux/CentOS, Fedora, openSUSE/SLES (auto-detects apt/dnf/yum/zypper). Keep JT_IPAM_INSECURE=1 if the server uses a self-signed cert.",
+    "config_label": "Config example (config.yaml):",
+    "profiles": "Built-in profiles: nginx / apache(httpd) / haproxy / postfix / dovecot / pve / pmg / pbs / zimbra / generic (generic requires custom *_path and reload).",
+    "dryrun": "Dry-run first (no changes): python3 /usr/local/lib/jt-ipam-cert-agent/jt_ipam_cert_agent.py --config /etc/jt-ipam-cert-agent/config.yaml --dry-run",
+    "copy": "Copy"
+  },
   "certs": {
     "tab_certs": "Certificates",
     "tab_agents": "Distribution Agents",
@@ -92,6 +121,7 @@
     "custom_fields": "Custom Fields",
     "scan_agents": "Scan Agents",
     "certificates": "Certificates",
+    "cert_status": "Certificate status",
     "webhooks": "Webhooks",
     "anomaly": "Anomaly Detection",
     "advanced": "Tenancy / Contacts / ASN",

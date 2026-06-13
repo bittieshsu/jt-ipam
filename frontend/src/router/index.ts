@@ -72,6 +72,7 @@ const routes: RouteRecordRaw[] = [
       { path: "advanced/contacts", name: "adv-contacts", component: () => import("@/views/Advanced.vue"), props: { mode: "contacts" } },
       { path: "advanced/wireless", name: "adv-wireless", component: () => import("@/views/Advanced.vue"), props: { mode: "wireless" } },
       { path: "advanced/dns-records", name: "adv-dns-records", component: () => import("@/views/DnsRecords.vue") },
+      { path: "advanced/cert-status", name: "adv-cert-status", component: () => import("@/views/CertStatus.vue") },
       { path: "virt", name: "virt", component: () => import("@/views/Virtualization.vue") },
       { path: "virt-admin", name: "virt_admin", component: () => import("@/views/Virtualization.vue"), meta: { admin: true } },
       { path: "cabling", name: "cabling", component: () => import("@/views/Physical.vue"), props: { mode: "cabling" } },

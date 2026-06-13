@@ -202,6 +202,7 @@ const menuOptions = computed<MenuOption[]>(() => {
         { label: () => t("advanced.contacts"),   key: "adv-contacts", icon: renderIcon(UsersIcon) },
         { label: () => t("advanced.wireless"),   key: "adv-wireless", icon: renderIcon(ScanAgentsIcon) },
         { label: () => t("nav.dns_records"),     key: "adv-dns-records", icon: renderIcon(DnsIcon) },
+        { label: () => t("nav.cert_status"),     key: "adv-cert-status", icon: renderIcon(LockIcon) },
         { label: () => t("nav.virtualization"), key: "virt",     icon: renderIcon(VirtualizationIcon) },
         { label: () => t("nav.firewall"),       key: "firewall",    icon: renderIcon(FirewallIcon) },
         { label: () => t("nav.nat"),            key: "nat",         icon: renderIcon(NatIcon) },

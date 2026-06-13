@@ -7,7 +7,7 @@ import {
   NFormItem, NInput, NInputNumber, NDynamicTags, NSelect, NPopconfirm, NAlert,
   NCheckbox, useMessage, type DataTableColumns,
 } from "naive-ui";
-import { PlusIcon, RefreshIcon, CopyIcon, LockIcon } from "@/icons";
+import { PlusIcon, RefreshIcon, CopyIcon, LockIcon, InfoIcon } from "@/icons";
 import {
   listCertificates, createCertificate, deleteCertificate, uploadVersion, generateSelfSigned,
   listCertAgents, createCertAgent, rotateCertAgentKey, deleteCertAgent,
@@ -127,6 +127,18 @@ async function removeAgent(a: CertAgent) {
 }
 function copy(s: string) { navigator.clipboard?.writeText(s); msg.success(t("common.copied")); }
 
+// ── 安裝說明 ──
+const showHelp = ref(false);
+const serverOrigin = window.location.origin;
+const installerOneLiner = computed(() =>
+  `curl -fsSLk ${serverOrigin}/api/v1/cert-agents/installer.sh | sudo `
+  + `JT_IPAM_URL=${serverOrigin} JT_IPAM_AGENT_KEY=${newKey.value || "<建立代理時的-KEY>"} JT_IPAM_INSECURE=1 bash`);
+const configExample = `deployments:
+  - cert: wildcard-example-com
+    profile: nginx
+  - cert: mail-cert
+    profile: pmg`;
+
 const certCols = computed<DataTableColumns<Certificate>>(() => [
   { title: t("cols.name"), key: "name" },
   { title: t("certs.domains"), key: "domains",
@@ -191,16 +203,18 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() => [
       <!-- 派送代理 -->
       <n-tab-pane name="agents" :tab="t('certs.tab_agents')">
         <n-space justify="space-between" style="margin-bottom: 10px">
-          <n-button type="primary" size="small" @click="newKey = null; showNewAgent = true">
-            <template #icon><n-icon :component="PlusIcon" /></template>{{ t("certs.new_agent") }}
-          </n-button>
+          <n-space :size="8">
+            <n-button type="primary" size="small" @click="newKey = null; showNewAgent = true">
+              <template #icon><n-icon :component="PlusIcon" /></template>{{ t("certs.new_agent") }}
+            </n-button>
+            <n-button size="small" @click="showHelp = true">
+              <template #icon><n-icon :component="InfoIcon" /></template>{{ t("certHelp.button") }}
+            </n-button>
+          </n-space>
           <n-button size="small" quaternary @click="loadAgents">
             <template #icon><n-icon :component="RefreshIcon" /></template>{{ t("common.refresh") }}
           </n-button>
         </n-space>
-        <n-alert type="info" :bordered="false" :show-icon="true" style="margin-bottom: 10px">
-          {{ t("certs.agent_help") }}
-        </n-alert>
         <n-data-table :columns="agentCols" :data="agents" size="small" :row-key="(r:CertAgent) => r.id" />
       </n-tab-pane>
     </n-tabs>
@@ -283,5 +297,32 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() => [
       <n-button v-if="!newKey" type="primary" @click="doCreateAgent">{{ t("common.save") }}</n-button>
       <n-button v-else @click="showNewAgent = false">{{ t("common.close") }}</n-button>
     </template>
+  </n-modal>
+
+  <!-- 安裝說明 -->
+  <n-modal v-model:show="showHelp" preset="card" :title="t('certHelp.title')"
+           style="width: 720px; max-width: 92vw">
+    <n-alert type="info" :bordered="false" :show-icon="true" style="margin-bottom: 14px">
+      {{ t("certHelp.intro") }}
+    </n-alert>
+    <ol style="padding-left: 18px; margin: 0 0 12px; line-height: 1.9">
+      <li>{{ t("certHelp.step1") }}</li>
+      <li>{{ t("certHelp.step2") }}</li>
+      <li>{{ t("certHelp.step3") }}</li>
+    </ol>
+
+    <div style="font-weight: 600; margin: 10px 0 4px">{{ t("certHelp.oneliner_label") }}</div>
+    <n-space align="center" :wrap="false">
+      <code style="flex: 1; word-break: break-all; background: var(--n-color-embedded); padding: 8px; border-radius: 4px; font-size: 12px">{{ installerOneLiner }}</code>
+      <n-button size="small" secondary @click="copy(installerOneLiner)">
+        <template #icon><n-icon :component="CopyIcon" /></template>{{ t("certHelp.copy") }}
+      </n-button>
+    </n-space>
+    <div style="font-size: 12px; opacity: .7; margin-top: 6px">{{ t("certHelp.distros") }}</div>
+
+    <div style="font-weight: 600; margin: 16px 0 4px">{{ t("certHelp.config_label") }}</div>
+    <pre style="background: var(--n-color-embedded); padding: 10px; border-radius: 4px; font-size: 12px; white-space: pre-wrap">{{ configExample }}</pre>
+    <div style="font-size: 12px; opacity: .8; margin-top: 6px">{{ t("certHelp.profiles") }}</div>
+    <div style="font-size: 12px; opacity: .8; margin-top: 8px">{{ t("certHelp.dryrun") }}</div>
   </n-modal>
 </template>

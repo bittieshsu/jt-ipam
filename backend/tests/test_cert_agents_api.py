@@ -104,3 +104,34 @@ async def test_bad_agent_key_401(client, auth_headers):
 async def test_agent_list_requires_admin(client):
     r = await client.get("/api/v1/cert-agents")
     assert r.status_code in (401, 403)
+
+
+async def test_status_payload_and_global_read(client, auth_headers):
+    cid, name, fp = await _cert_with_version(client, auth_headers)
+    key = await _make_agent(client, auth_headers, [cid])
+    await client.post("/api/v1/cert-agents/report", headers={"X-Agent-Key": key}, json={
+        "deployments": [{"cert": name, "profile": "nginx", "fingerprint": fp,
+                         "status": "ok", "dry_run": False}]})
+    r = await client.get("/api/v1/cert-agents/status", headers=auth_headers)  # admin = global-read
+    assert r.status_code == 200, r.text
+    a = next(x for x in r.json()["agents"] if any(d["cert"] == name for d in x["deployments"]))
+    dep = next(d for d in a["deployments"] if d["cert"] == name)
+    assert dep["up_to_date"] is True
+    assert dep["not_after"] is not None
+    assert dep["days_remaining"] is not None
+
+
+async def test_status_forbidden_for_non_global_read(client, db_session):
+    import uuid as _uuid
+
+    from app.core.security import hash_password
+    from app.models.user import User
+    from app.services.auth import issue_access_token
+    u = User(username=f"dep-{_uuid.uuid4().hex[:6]}", email=f"{_uuid.uuid4().hex[:6]}@t.local",
+             display_name="dep", password_hash=hash_password("TestPassword2026!"),
+             auth_provider="local", is_active=True, is_admin=False)
+    db_session.add(u)
+    await db_session.commit()
+    token = issue_access_token(u)
+    r = await client.get("/api/v1/cert-agents/status", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403  # 非 admin 且無萬用讀取 → 403

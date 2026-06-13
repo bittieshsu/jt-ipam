@@ -105,3 +105,29 @@ export async function rotateCertAgentKey(id: string): Promise<CertAgentCreated> 
 export async function deleteCertAgent(id: string): Promise<void> {
   await apiClient.delete(`/cert-agents/${id}`);
 }
+
+// ── 唯讀現況（進階，global-read 可看）──
+export interface CertStatusDeployment {
+  cert: string | null;
+  profile: string | null;
+  status: string | null;
+  applied_at: string | null;
+  dry_run: boolean | null;
+  reported_fingerprint: string | null;
+  current_fingerprint: string | null;
+  up_to_date: boolean;
+  not_before: string | null;
+  not_after: string | null;
+  days_remaining: number | null;
+}
+export interface CertAgentStatus {
+  agent: string;
+  enabled: boolean;
+  last_seen_at: string | null;
+  agent_version: string | null;
+  deployments: CertStatusDeployment[];
+}
+export async function getCertAgentStatus(): Promise<{ agents: CertAgentStatus[] }> {
+  const { data } = await apiClient.get("/cert-agents/status");
+  return data;
+}

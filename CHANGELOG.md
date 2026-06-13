@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.135] — 2026-06-13
+
+### Certificate distribution — follow-ups
+- **Cross-distro agent installer** — the cert-agent installer now auto-detects the package
+  manager (apt / dnf / yum / zypper), so it works on Debian 11/12/13, Ubuntu 22.04/24.04/26.04,
+  RHEL / Rocky / AlmaLinux / CentOS, Fedora and openSUSE/SLES (all systemd). PyYAML is installed
+  via the right package name per distro.
+- **More profiles** — added `pbs` (Proxmox Backup Server: `proxy.pem`/`proxy.key`, reloads
+  `proxmox-backup-proxy`). The `apache` profile now reloads `apache2` or `httpd` (whichever exists),
+  so it works on Debian/Ubuntu and RHEL/SUSE.
+- **Install-instructions button** on the Distribution Agents tab (like Scan Agents): one-liner
+  install command, config example, supported distros, and the `--dry-run` hint.
+- **Read-only certificate status under Advanced** — a non-admin viewer with global read can now
+  see each agent's deployment status (last update, valid-from, expiry, days remaining, up-to-date
+  vs drift) via a new Advanced menu entry. New `GET /cert-agents/status` (gated `require_global_read`).
+
 ## [0.4.134] — 2026-06-13
 
 ### Fixed
