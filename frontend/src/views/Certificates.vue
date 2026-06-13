@@ -10,6 +10,7 @@ import {
 import { PlusIcon, RefreshIcon, CopyIcon, LockIcon, InfoIcon, SaveIcon } from "@/icons";
 import {
   listCertificates, createCertificate, deleteCertificate, uploadVersion, generateSelfSigned,
+  setCertSource, fetchCertNow,
   listCertAgents, createCertAgent, rotateCertAgentKey, deleteCertAgent,
   type Certificate, type CertAgent,
 } from "@/api/certificates";
@@ -121,6 +122,56 @@ async function removeCert(c: Certificate) {
   catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
 
+// ── 自動抓取來源 ──
+const showSource = ref(false);
+const sourceTarget = ref<Certificate | null>(null);
+const sourceForm = ref({
+  source_type: "none" as "none" | "url" | "sftp",
+  fetch_interval_hours: 24,
+  cert_url: "", key_url: "", chain_url: "",
+  host: "", port: 22, username: "", cert_path: "", key_path: "", chain_path: "",
+  source_password: "", source_private_key: "",
+});
+function openSource(c: Certificate) {
+  sourceTarget.value = c;
+  const cfg = (c.source_config ?? {}) as any;
+  sourceForm.value = {
+    source_type: (c.source_type as any) || "none",
+    fetch_interval_hours: Math.max(1, Math.round((c.fetch_interval_seconds || 86400) / 3600)),
+    cert_url: cfg.cert_url ?? "", key_url: cfg.key_url ?? "", chain_url: cfg.chain_url ?? "",
+    host: cfg.host ?? "", port: cfg.port ?? 22, username: cfg.username ?? "",
+    cert_path: cfg.cert_path ?? "", key_path: cfg.key_path ?? "", chain_path: cfg.chain_path ?? "",
+    source_password: "", source_private_key: "",
+  };
+  showSource.value = true;
+}
+async function saveSource() {
+  if (!sourceTarget.value) return;
+  const f = sourceForm.value;
+  let cfg: Record<string, unknown> = {};
+  if (f.source_type === "url") cfg = { cert_url: f.cert_url, key_url: f.key_url || undefined, chain_url: f.chain_url || undefined };
+  else if (f.source_type === "sftp") cfg = { host: f.host, port: f.port, username: f.username, cert_path: f.cert_path, key_path: f.key_path || undefined, chain_path: f.chain_path || undefined };
+  try {
+    await setCertSource(sourceTarget.value.id, {
+      source_type: f.source_type, source_config: cfg,
+      fetch_interval_seconds: Math.max(300, f.fetch_interval_hours * 3600),
+      source_password: f.source_password || undefined,
+      source_private_key: f.source_private_key || undefined,
+    });
+    showSource.value = false; await loadCerts(); msg.success(t("common.saved"));
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
+async function doFetchNow(c: Certificate) {
+  try {
+    const r = await fetchCertNow(c.id);
+    if (r.status === "updated") msg.success(t("certSource.fetched_updated"));
+    else if (r.status === "skipped") msg.info(t("certSource.fetched_skipped"));
+    else if (r.status === "error") msg.error(r.error ?? t("errors.server"));
+    else msg.info(String(r.status));
+    await loadCerts();
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
+
 // ── 派送代理 ──
 const showNewAgent = ref(false);
 const agentForm = ref({ name: "", description: "", scope_cert_ids: [] as string[] });
@@ -164,9 +215,19 @@ const certCols = computed<DataTableColumns<Certificate>>(() => [
       h(NTag, { size: "small" }, () => d))) },
   { title: t("certs.expiry"), key: "exp", render: expiryTag },
   { title: t("certs.versions"), key: "version_count", width: 80 },
-  { title: t("cols.actions"), key: "actions", width: 280, render: (c) => h(NSpace, { size: 6 }, () => [
+  { title: t("certSource.col_source"), key: "source", width: 90, render: (c) =>
+    c.source_type === "none"
+      ? h("span", { style: "opacity:.5" }, "—")
+      : h(NTag, { size: "small", type: c.last_fetch_error ? "error" : "info" },
+          () => c.source_type.toUpperCase()) },
+  { title: t("cols.actions"), key: "actions", width: 420, render: (c) => h(NSpace, { size: 6 }, () => [
     h(NButton, { size: "small", onClick: () => openUpload(c) }, () => t("certs.upload_version")),
     h(NButton, { size: "small", onClick: () => openSelf(c) }, () => t("certs.self_signed")),
+    h(NButton, { size: "small", onClick: () => openSource(c) }, () => t("certSource.source")),
+    c.source_type !== "none"
+      ? h(NButton, { size: "small", type: "primary", ghost: true, onClick: () => doFetchNow(c) },
+          () => t("certSource.fetch_now"))
+      : null,
     h(NPopconfirm, { onPositiveClick: () => removeCert(c) }, {
       trigger: () => h(NButton, { size: "small", tertiary: true, type: "error" }, () => t("common.delete")),
       default: () => t("certs.delete_confirm") }),
@@ -309,6 +370,49 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() => [
     </n-form>
     <template #footer>
       <n-button type="primary" @click="doSelf">{{ t("certs.generate") }}</n-button>
+    </template>
+  </n-modal>
+
+  <!-- 自動抓取來源 -->
+  <n-modal v-model:show="showSource" preset="card"
+           :title="`${t('certSource.title')} — ${sourceTarget?.name}`" style="max-width: 600px">
+    <n-form>
+      <n-form-item :label="t('certSource.type')">
+        <n-radio-group v-model:value="sourceForm.source_type" size="small">
+          <n-radio-button value="none">{{ t("certSource.type_none") }}</n-radio-button>
+          <n-radio-button value="url">URL</n-radio-button>
+          <n-radio-button value="sftp">SFTP</n-radio-button>
+        </n-radio-group>
+      </n-form-item>
+
+      <template v-if="sourceForm.source_type === 'url'">
+        <n-form-item label="cert_url"><n-input v-model:value="sourceForm.cert_url" placeholder="https://ca/cert.pem" /></n-form-item>
+        <n-form-item label="key_url"><n-input v-model:value="sourceForm.key_url" :placeholder="t('certSource.optional_reuse_key')" /></n-form-item>
+        <n-form-item label="chain_url"><n-input v-model:value="sourceForm.chain_url" :placeholder="t('certSource.optional')" /></n-form-item>
+      </template>
+
+      <template v-else-if="sourceForm.source_type === 'sftp'">
+        <n-form-item :label="t('certSource.host')"><n-input v-model:value="sourceForm.host" placeholder="ca.example.com" /></n-form-item>
+        <n-form-item :label="t('certSource.port')"><n-input-number v-model:value="sourceForm.port" :min="1" :max="65535" /></n-form-item>
+        <n-form-item :label="t('certSource.username')"><n-input v-model:value="sourceForm.username" /></n-form-item>
+        <n-form-item label="cert_path"><n-input v-model:value="sourceForm.cert_path" placeholder="/etc/ssl/cert.pem" /></n-form-item>
+        <n-form-item label="key_path"><n-input v-model:value="sourceForm.key_path" :placeholder="t('certSource.optional_reuse_key')" /></n-form-item>
+        <n-form-item label="chain_path"><n-input v-model:value="sourceForm.chain_path" :placeholder="t('certSource.optional')" /></n-form-item>
+        <n-form-item :label="t('certSource.password')"><n-input v-model:value="sourceForm.source_password" type="password" show-password-on="click" :placeholder="t('certSource.secret_keep')" /></n-form-item>
+        <n-form-item :label="t('certSource.private_key')"><n-input v-model:value="sourceForm.source_private_key" type="textarea" :rows="3" :placeholder="t('certSource.secret_keep')" /></n-form-item>
+      </template>
+
+      <n-form-item v-if="sourceForm.source_type !== 'none'" :label="t('certSource.interval_hours')">
+        <n-input-number v-model:value="sourceForm.fetch_interval_hours" :min="1" :max="720" />
+      </n-form-item>
+    </n-form>
+    <n-alert v-if="sourceTarget?.last_fetch_error" type="error" :bordered="false" style="margin-top: 4px">
+      {{ t("certSource.last_error") }}: {{ sourceTarget.last_fetch_error }}
+    </n-alert>
+    <template #footer>
+      <n-button type="primary" @click="saveSource">
+        <template #icon><n-icon :component="SaveIcon" /></template>{{ t("common.save") }}
+      </n-button>
     </template>
   </n-modal>
 

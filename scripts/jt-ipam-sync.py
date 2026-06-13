@@ -202,6 +202,24 @@ async def _run() -> int:
                 log.error("dns %s sync failed: %s", name, exc)
                 failed += 1
 
+        # ── 憑證自動抓取來源（URL / SFTP，依各憑證 fetch_interval 節流）──
+        try:
+            from app.models.certificate import Certificate
+            from app.services.cert_fetch import fetch_certificate
+            srcs = (await session.execute(
+                select(Certificate).where(Certificate.source_type != "none")
+            )).scalars().all()
+            for c in srcs:
+                interval = timedelta(seconds=c.fetch_interval_seconds)
+                if c.last_fetch_at and c.last_fetch_at + interval > now:
+                    continue
+                res = await fetch_certificate(session, c, actor_user_id=None)  # 自行 commit
+                if res.get("status") in ("updated", "error"):
+                    log.info("cert fetch %s: %s", c.name, res)
+        except Exception as exc:  # noqa: BLE001
+            await session.rollback()
+            log.error("cert fetch sweep failed: %s", exc)
+
         # ── 憑證到期 / 飄移告警 ──（去重保證每輪呼叫也不洗版）
         try:
             from app.services.cert_alert import check_cert_alerts

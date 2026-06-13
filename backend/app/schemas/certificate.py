@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
@@ -57,6 +57,22 @@ class CertificateRead(StrictModel):
     current_not_after: datetime | None = None
     current_days_remaining: int | None = None
     version_count: int = 0
+    # 自動抓取來源狀態（source_config 不含機敏:URL/host/路徑/帳號;密碼/key 在 encrypted_secret）
+    source_type: str = "none"
+    source_config: dict[str, Any] | None = None
+    fetch_interval_seconds: int = 86400
+    last_fetch_at: datetime | None = None
+    last_fetch_error: str | None = None
+
+
+class CertSourceUpdate(StrictModel):
+    """設定自動抓取來源。source_config 放非機敏設定;密碼/私鑰另傳(write-only)。"""
+    source_type: Literal["none", "url", "sftp"] = "none"
+    # url: {cert_url, key_url?, chain_url?}  sftp: {host, port?, username, cert_path, key_path?, chain_path?}
+    source_config: dict[str, Any] = Field(default_factory=dict)
+    fetch_interval_seconds: Annotated[int, Field(ge=300, le=2592000)] = 86400
+    source_password: str | None = None        # write-only:SFTP 密碼
+    source_private_key: str | None = None      # write-only:SFTP 私鑰(PEM)
 
 
 # ─────────────────── Cert Agents ───────────────────

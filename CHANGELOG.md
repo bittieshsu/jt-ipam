@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.138] — 2026-06-13
+
+### Added — Certificate auto-fetch source
+- A certificate can now have an **auto-fetch source** (in addition to upload / paste / self-signed):
+  the system periodically (and on demand via "Fetch now") pulls the renewed bundle from the source,
+  and **only stores a new version if the content actually changed** — if the fingerprint matches the
+  current version it is skipped (no-op). If the source provides no key, the current version's key is
+  reused (common for renewals that keep the same key).
+- Sources: **URL** (fetched via the SSRF-guarded safe_http client) and **SFTP** (asyncssh; the host
+  is checked against the SSRF block-list). Credentials (SFTP password / private key) are AES-GCM
+  encrypted (`encrypted_secret`) and never returned. New migration `0076`.
+- Endpoints: `PUT /certificates/{id}/source`, `POST /certificates/{id}/fetch-now`; the sync timer
+  auto-fetches each source-backed certificate on its own interval. Frontend: per-certificate source
+  config (URL/SFTP) + "Fetch now", with last-fetch error surfaced.
+- CIFS / NFS are out of scope for now (the backend runs non-root and can't mount); use a pre-mounted
+  path or fetch via URL/SFTP.
+
 ## [0.4.137] — 2026-06-13
 
 ### Fixed

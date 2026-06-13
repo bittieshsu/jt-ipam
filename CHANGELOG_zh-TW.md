@@ -4,6 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.138] — 2026-06-13
+
+### 新增 — 憑證自動抓取來源
+- 憑證除了上傳 / 貼上 / 自簽,現在可設**自動抓取來源**:系統定期(或按「立即抓取」)從來源拉續約後
+  的 bundle,**只有內容真的變了才存新版** —— fingerprint 與目前版本相同就跳過(不處理)。來源若沒
+  提供私鑰,沿用目前版本的 key(多數續約不換 key)。
+- 來源:**URL**(走 SSRF 防護的 safe_http)與 **SFTP**(asyncssh;host 先過 SSRF 黑名單)。帳密
+  (SFTP 密碼 / 私鑰)AES-GCM 加密(`encrypted_secret`)、不回明文。新增 migration `0076`。
+- 端點:`PUT /certificates/{id}/source`、`POST /certificates/{id}/fetch-now`;sync timer 依各憑證
+  間隔自動抓取。前端:每張憑證的來源設定(URL/SFTP)+「立即抓取」,並顯示上次抓取錯誤。
+- CIFS / NFS 暫不做(backend 非 root 無法掛載);請改用預掛路徑或 URL/SFTP。
+
 ## [0.4.137] — 2026-06-13
 
 ### 修正

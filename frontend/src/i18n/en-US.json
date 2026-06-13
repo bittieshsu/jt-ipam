@@ -33,6 +33,26 @@
     "expired": "Expired",
     "days_left": "{n} days"
   },
+  "certSource": {
+    "col_source": "Source",
+    "source": "Auto source",
+    "fetch_now": "Fetch now",
+    "fetched_updated": "Fetched a new version and updated",
+    "fetched_skipped": "Source certificate is the same as current, no change",
+    "title": "Auto-fetch source",
+    "type": "Source type",
+    "type_none": "Off",
+    "optional": "optional",
+    "optional_reuse_key": "optional (blank = reuse current key)",
+    "host": "Host",
+    "port": "Port",
+    "username": "Username",
+    "password": "Password",
+    "private_key": "Private key (PEM)",
+    "secret_keep": "blank = keep stored",
+    "interval_hours": "Fetch interval (hours)",
+    "last_error": "Last fetch error"
+  },
   "certHelp": {
     "button": "Install instructions",
     "title": "Install the distribution agent on a site host",

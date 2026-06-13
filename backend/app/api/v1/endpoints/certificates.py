@@ -24,9 +24,11 @@ from app.schemas.certificate import (
     CertificateCreate,
     CertificateRead,
     CertificateUpdate,
+    CertSourceUpdate,
     CertVersionRead,
     SelfSignedRequest,
 )
+from app.services.cert_fetch import fetch_certificate, save_cert_secret
 from app.services.cert_service import CertError, CertInfo, generate_self_signed, validate_bundle
 
 router = APIRouter(prefix="/certificates", tags=["certificates"],
@@ -227,6 +229,52 @@ async def upload_version(
         info=info, user=user, request=request, action="cert_version_upload",
     )
     return CertVersionRead.model_validate(v, from_attributes=True)
+
+
+@router.put("/{cert_id}/source", response_model=CertificateRead)
+async def set_source(
+    cert_id: uuid.UUID,
+    payload: CertSourceUpdate,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CertificateRead:
+    """設定 / 更新自動抓取來源(URL / SFTP)。密碼/私鑰 AES-GCM 加密儲存,不回明文。"""
+    cert = await session.get(Certificate, cert_id)
+    if cert is None:
+        raise HTTPException(404, detail="Not found")
+    cert.source_type = payload.source_type
+    cert.source_config = payload.source_config or {}
+    cert.fetch_interval_seconds = payload.fetch_interval_seconds
+    if payload.source_password:
+        await save_cert_secret(session, cert_id, "source_password", payload.source_password)
+    if payload.source_private_key:
+        await save_cert_secret(session, cert_id, "source_private_key", payload.source_private_key)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="certificate", object_id=str(cert_id), action="cert_source_set",
+        diff={"source_type": payload.source_type},  # 不含機敏
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return await _to_read(session, cert)
+
+
+@router.post("/{cert_id}/fetch-now")
+async def fetch_now(
+    cert_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """立即從來源抓一次(手動)。fingerprint 不同才會存新版。"""
+    cert = await session.get(Certificate, cert_id)
+    if cert is None:
+        raise HTTPException(404, detail="Not found")
+    if cert.source_type == "none":
+        raise HTTPException(400, detail="此憑證未設定自動來源")
+    return await fetch_certificate(session, cert, actor_user_id=user.id)
 
 
 @router.post("/{cert_id}/self-signed", response_model=CertVersionRead, status_code=201)

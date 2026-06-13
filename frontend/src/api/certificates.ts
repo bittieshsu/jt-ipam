@@ -29,6 +29,19 @@ export interface Certificate {
   current_not_after: string | null;
   current_days_remaining: number | null;
   version_count: number;
+  source_type: string;
+  source_config: Record<string, unknown> | null;
+  fetch_interval_seconds: number;
+  last_fetch_at: string | null;
+  last_fetch_error: string | null;
+}
+
+export interface CertSourcePayload {
+  source_type: "none" | "url" | "sftp";
+  source_config: Record<string, unknown>;
+  fetch_interval_seconds: number;
+  source_password?: string | null;
+  source_private_key?: string | null;
 }
 
 export interface CertAgent {
@@ -78,6 +91,15 @@ export async function generateSelfSigned(
   id: string, payload: { common_name: string; sans: string[]; days: number },
 ): Promise<CertVersion> {
   const { data } = await apiClient.post(`/api/v1/certificates/${id}/self-signed`, payload);
+  return data;
+}
+
+export async function setCertSource(id: string, payload: CertSourcePayload): Promise<Certificate> {
+  const { data } = await apiClient.put(`/api/v1/certificates/${id}/source`, payload);
+  return data;
+}
+export async function fetchCertNow(id: string): Promise<{ status: string; error?: string; fingerprint?: string; not_after?: string }> {
+  const { data } = await apiClient.post(`/api/v1/certificates/${id}/fetch-now`);
   return data;
 }
 
