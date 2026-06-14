@@ -15,19 +15,16 @@
 #   TLS_BASE=/etc/ssl/jt-ipam  # default write directory for built-in profiles
 #
 #   # Each deployment is a group of DEPLOY_<N>_* lines (one setting per line). N = 1, 2, 3, ...
-#   # Custom paths (you choose where the files go + how to reload):
+#   # Pick the service via PROFILE (it also provides the correct reload command):
 #   DEPLOY_1_CERT=wildcard-example-com          # which jt-ipam certificate
-#   DEPLOY_1_FULLCHAIN=/etc/nginx/ssl/site.pem  # cert + chain file path
-#   DEPLOY_1_KEY=/etc/nginx/ssl/site.key        # private key file path
-#   DEPLOY_1_RELOAD=systemctl reload nginx      # reload command
-#   # Optional: DEPLOY_1_CHAIN= / DEPLOY_1_CRT= (leaf only) / DEPLOY_1_COMBINED= / DEPLOY_1_TEST=
-#
-#   # Or use a built-in profile (fixed paths, no need to specify paths/reload):
-#   DEPLOY_2_CERT=mail-cert
-#   DEPLOY_2_PROFILE=pmg     # nginx apache haproxy postfix dovecot pve pmg pbs zimbra
+#   DEPLOY_1_PROFILE=nginx                      # nginx apache haproxy postfix dovecot pve pmg pbs zimbra
+#   DEPLOY_1_FULLCHAIN=/etc/nginx/ssl/site.pem  # optional: override where the cert (cert+chain) goes
+#   DEPLOY_1_KEY=/etc/nginx/ssl/site.key        # optional: override where the private key goes
+#   # Optional overrides: DEPLOY_1_CHAIN= / DEPLOY_1_CRT= (leaf only) / DEPLOY_1_COMBINED=
+#   # Advanced: DEPLOY_1_RELOAD= / DEPLOY_1_TEST= override the profile's reload / config-test command.
 #
 # Usage: jt_ipam_cert_agent.sh [--config PATH] [--dry-run] [--version]
-AGENT_VERSION=0.4.151
+AGENT_VERSION=0.4.152
 
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"

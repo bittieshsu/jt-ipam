@@ -4,6 +4,13 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.152] — 2026-06-14
+
+### 變更
+- 派送代理設定改以 `DEPLOY_<N>_PROFILE`（服務）為主，**重載指令由 profile 提供**，一般情況不必再寫
+  `DEPLOY_<N>_RELOAD`。可只設「憑證 + 服務」，或再加自訂路徑（`FULLCHAIN`/`KEY`…）覆寫位置但仍沿用 profile
+  的重載；`DEPLOY_<N>_RELOAD` 降為自訂服務時才用的進階覆寫。範本與安裝說明同步更新。
+
 ## [0.4.151] — 2026-06-14
 
 ### 變更 — 派送代理設定改一行一個設定

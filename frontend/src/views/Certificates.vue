@@ -259,13 +259,13 @@ const installerOneLiner = computed(() =>
   `curl -fsSLk ${serverOrigin}/api/v1/cert-agents/installer.sh | sudo `
   + `JT_IPAM_URL=${serverOrigin} JT_IPAM_AGENT_KEY=${newKey.value || "<建立代理時的-KEY>"} JT_IPAM_INSECURE=1 bash`);
 const uninstallOneLiner = `curl -fsSLk ${serverOrigin}/api/v1/cert-agents/installer.sh | sudo JT_IPAM_UNINSTALL=1 bash`;
-const configExample = `# 自訂路徑（一行一個設定）
+const configExample = `# 一行一個設定。PROFILE 決定服務（含重載指令）
 DEPLOY_1_CERT=wildcard-example-com
+DEPLOY_1_PROFILE=nginx
 DEPLOY_1_FULLCHAIN=/etc/nginx/ssl/site.pem
 DEPLOY_1_KEY=/etc/nginx/ssl/site.key
-DEPLOY_1_RELOAD=systemctl reload nginx
 
-# 或用內建 profile（固定路徑）
+# 最簡：只設憑證 + 服務（路徑用 profile 預設）
 DEPLOY_2_CERT=mail-cert
 DEPLOY_2_PROFILE=pmg`;
 

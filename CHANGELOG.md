@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.152] — 2026-06-14
+
+### Changed
+- Distribution-agent config now centers on `DEPLOY_<N>_PROFILE` (the service), which **provides the reload
+  command**, so `DEPLOY_<N>_RELOAD` is no longer needed in the common case. Set just "cert + service", or
+  add custom paths (`FULLCHAIN`/`KEY`…) to override where files go while still using the profile's reload;
+  `DEPLOY_<N>_RELOAD` is demoted to an advanced override for custom services. Template and help updated.
+
 ## [0.4.151] — 2026-06-14
 
 ### Changed — distribution-agent config is now one setting per line
