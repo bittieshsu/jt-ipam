@@ -59,10 +59,12 @@
     "test": "測試連線",
     "test_ok": "連線成功",
     "test_fail": "連線失敗",
-    "gen_key": "自動產生金鑰",
-    "gen_key_hint": "由 jt-ipam 產生 SSH 金鑰並儲存,公鑰請貼到 SFTP 主機。",
+    "gen_key": "自動產生並安裝金鑰",
+    "gen_key_hint": "由 jt-ipam 產生 SSH 金鑰並儲存;已填登入密碼時會直接登入主機安裝公鑰（免手動貼）。",
     "key_generated": "已產生並儲存金鑰,請複製下方公鑰加到主機",
-    "pub_key_label": "公鑰（加到 SFTP 主機的 ~/.ssh/authorized_keys）"
+    "key_installed": "已產生金鑰並自動安裝到主機",
+    "pub_key_label": "公鑰（請手動加到 SFTP 主機的 ~/.ssh/authorized_keys）",
+    "pub_key_installed": "公鑰（已自動安裝到 SFTP 主機 ~/.ssh/authorized_keys）"
   },
   "certHelp": {
     "button": "安裝說明",

@@ -112,6 +112,20 @@ async def test_list_reports_version_and_ip(client, auth_headers):
     assert item["last_source_ip"]  # 來源 IP 有記錄
 
 
+async def test_patch_and_rotate_agent_return_200(client, auth_headers):
+    """PATCH 代理 / rotate-key 要回 200 — 回歸 commit 後 updated_at(onupdate)過期 500。"""
+    r = await client.post("/api/v1/cert-agents", headers=auth_headers,
+                          json={"name": f"agent-{uuid.uuid4().hex[:6]}", "scope_cert_ids": []})
+    aid = r.json()["id"]
+    rp = await client.patch(f"/api/v1/cert-agents/{aid}", headers=auth_headers,
+                            json={"description": "edited"})
+    assert rp.status_code == 200, rp.text
+    assert rp.json()["description"] == "edited"
+    rr = await client.post(f"/api/v1/cert-agents/{aid}/rotate-key", headers=auth_headers)
+    assert rr.status_code == 200, rr.text
+    assert rr.json()["enroll_key"]
+
+
 async def test_bad_agent_key_401(client, auth_headers):
     await _cert_with_version(client, auth_headers)
     rc = await client.get("/api/v1/cert-agents/check", headers={"X-Agent-Key": "wrong"})

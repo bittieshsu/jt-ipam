@@ -32,6 +32,7 @@ from app.services.cert_fetch import (
     FetchError,
     fetch_certificate,
     generate_source_ssh_keypair,
+    install_public_key_sftp,
     load_cert_secret,
     probe_source_connection,
     save_cert_secret,
@@ -166,6 +167,7 @@ async def update_certificate(
     for k, v in data.items():
         setattr(obj, k, v)
     await session.commit()
+    await session.refresh(obj)  # commit 後 updated_at(onupdate)過期 → refresh 免 model_validate 同步 lazy IO 500
     return await _to_read(session, obj)
 
 
@@ -312,11 +314,16 @@ async def test_source(
 @router.post("/{cert_id}/source/ssh-keypair")
 async def gen_source_ssh_keypair(
     cert_id: uuid.UUID,
+    payload: CertSourceUpdate,
     user: CurrentUser,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> dict[str, str]:
-    """產生並儲存 jt-ipam 端登入 SFTP 來源用的 SSH 金鑰對；回傳公鑰（私鑰加密存,不回明文）。"""
+) -> dict[str, object]:
+    """產生並儲存 jt-ipam 端登入 SFTP 來源用的 SSH 金鑰對。
+
+    若是 SFTP 且有登入密碼（表單填的或已存的）,直接用密碼登入主機把公鑰寫進 authorized_keys
+    （免使用者手動貼）。回傳公鑰 + 是否已自動安裝 + 訊息。私鑰加密存,不回明文。
+    """
     cert = await session.get(Certificate, cert_id)
     if cert is None:
         raise HTTPException(404, detail="Not found")
@@ -330,7 +337,18 @@ async def gen_source_ssh_keypair(
         diff={"public_key": pub}, request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return {"public_key": pub}
+    # 有密碼就直接幫忙安裝公鑰到主機（免手動貼）。失敗不影響金鑰已產生,回 installed=false + 原因。
+    installed, message = False, ""
+    if payload.source_type == "sftp":
+        password = payload.source_password or await load_cert_secret(
+            session, cert_id, "source_password")
+        try:
+            message = await install_public_key_sftp(
+                payload.source_config, password=password or "", public_key=pub)
+            installed = True
+        except FetchError as exc:
+            message = str(exc)
+    return {"public_key": pub, "installed": installed, "message": message}
 
 
 @router.post("/{cert_id}/self-signed", response_model=CertVersionRead, status_code=201)

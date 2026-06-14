@@ -220,6 +220,7 @@ async def update_agent(
     for k, v in data.items():
         setattr(obj, k, v)
     await session.commit()
+    await session.refresh(obj)  # commit 後 updated_at(onupdate)過期 → refresh 免 model_validate 同步 lazy IO 500
     return _to_read(obj)
 
 
@@ -235,6 +236,7 @@ async def rotate_key(
     raw_key = _new_key()
     obj.enroll_key_hash = _key_hash(raw_key)
     await session.commit()
+    await session.refresh(obj)  # commit 後 updated_at(onupdate)過期 → refresh 免 model_validate 同步 lazy IO 500
     return CertAgentCreated(**_to_read(obj).model_dump(), enroll_key=raw_key)
 
 

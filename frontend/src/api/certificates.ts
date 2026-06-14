@@ -107,8 +107,8 @@ export async function testCertSource(id: string, payload: CertSourcePayload): Pr
   const { data } = await apiClient.post(`/api/v1/certificates/${id}/source/test`, payload);
   return data;
 }
-export async function genCertSourceSshKey(id: string): Promise<{ public_key: string }> {
-  const { data } = await apiClient.post(`/api/v1/certificates/${id}/source/ssh-keypair`);
+export async function genCertSourceSshKey(id: string, payload: CertSourcePayload): Promise<{ public_key: string; installed: boolean; message: string }> {
+  const { data } = await apiClient.post(`/api/v1/certificates/${id}/source/ssh-keypair`, payload);
   return data;
 }
 

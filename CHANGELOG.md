@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.143] — 2026-06-14
+
+### Fixed — a class of post-commit serialization 500s (found via flow review)
+- `updated_at` has a SQL-side `onupdate=func.now()`, so it's expired after an UPDATE flush; several cert
+  endpoints serialized the ORM object right after commit, triggering a sync lazy load → `MissingGreenlet`
+  500. Added `session.refresh` after commit (matching other endpoints): `PATCH /certificates/{id}`,
+  `PATCH /cert-agents/{id}`, `POST /cert-agents/{id}/rotate-key` (v0.4.142 already fixed
+  `PUT /certificates/{id}/source`).
+
+### Changed — generating a key now installs the public key on the host
+- Since jt-ipam already has the SFTP login password, "Generate key" now **logs in with the password and
+  appends the public key to `~/.ssh/authorized_keys`** (idempotent), so you don't have to paste it. On
+  success it shows "installed"; with no password or on failure the key is still generated and the public
+  key is shown for manual install with the reason (`POST /certificates/{id}/source/ssh-keypair` now takes
+  the source config and returns installed/message).
+
 ## [0.4.142] — 2026-06-14
 
 ### Fixed

@@ -154,6 +154,7 @@ function openSource(c: Certificate) {
     source_password: "", source_private_key: "",
   };
   sshPubKey.value = "";
+  sshInstalled.value = false;
   showSource.value = true;
 }
 function buildSourcePayload() {
@@ -187,15 +188,18 @@ async function testSource() {
   finally { testing.value = false; }
 }
 const sshPubKey = ref("");
+const sshInstalled = ref(false);
 const genningKey = ref(false);
 async function genSshKey() {
   if (!sourceTarget.value) return;
   genningKey.value = true;
   try {
-    const r = await genCertSourceSshKey(sourceTarget.value.id);
+    const r = await genCertSourceSshKey(sourceTarget.value.id, buildSourcePayload());
     sshPubKey.value = r.public_key;
+    sshInstalled.value = r.installed;
     sourceForm.value.source_private_key = "";  // 已存於後端,表單留空＝沿用
-    msg.success(t("certSource.key_generated"));
+    if (r.installed) msg.success(r.message || t("certSource.key_installed"));
+    else msg.warning(`${t("certSource.key_generated")}${r.message ? "（" + r.message + "）" : ""}`);
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
   finally { genningKey.value = false; }
 }
@@ -524,8 +528,10 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
               </n-button>
               <span style="font-size:12px;opacity:.6">{{ t("certSource.gen_key_hint") }}</span>
             </n-space>
-            <n-alert v-if="sshPubKey" type="success" :bordered="true" :show-icon="false" style="font-size:12px">
-              <div style="font-weight:600;margin-bottom:4px">{{ t("certSource.pub_key_label") }}</div>
+            <n-alert v-if="sshPubKey" :type="sshInstalled ? 'success' : 'warning'" :bordered="true" :show-icon="false" style="font-size:12px">
+              <div style="font-weight:600;margin-bottom:4px">
+                {{ sshInstalled ? t("certSource.pub_key_installed") : t("certSource.pub_key_label") }}
+              </div>
               <n-input :value="sshPubKey" type="textarea" :rows="2" readonly style="font-family:monospace;font-size:11px" />
               <n-space :size="6" style="margin-top:6px">
                 <n-button size="tiny" secondary @click="copy(sshPubKey)">

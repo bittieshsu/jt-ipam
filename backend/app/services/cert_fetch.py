@@ -161,6 +161,54 @@ def generate_source_ssh_keypair(comment: str = "jt-ipam-cert-source") -> tuple[s
     return priv, pub
 
 
+async def install_public_key_sftp(cfg: dict[str, Any], *, password: str, public_key: str) -> str:
+    """用密碼登入 SFTP 主機,把 public_key 加進 ~/.ssh/authorized_keys(冪等)。回成功訊息。
+
+    僅在使用者已提供登入密碼時可用(否則無法登入安裝)。失敗 raise FetchError。
+    """
+    host = cfg.get("host")
+    username = cfg.get("username")
+    if not host or not username:
+        raise FetchError("安裝公鑰需要 host + username")
+    if not password:
+        raise FetchError("自動安裝公鑰需要登入密碼(請填密碼,或自行把公鑰貼到主機)")
+    _check_host_safe(host)
+    pub = public_key.strip()
+
+    async def _install() -> str:
+        async with asyncssh.connect(
+            host=host, port=int(cfg.get("port", 22)), username=username,
+            password=password, known_hosts=None,
+        ) as conn, conn.start_sftp_client() as sftp:
+            try:
+                await sftp.mkdir(".ssh")
+            except Exception:  # 目錄已存在等
+                pass
+            try:
+                await sftp.chmod(".ssh", 0o700)
+            except Exception:
+                pass
+            path = ".ssh/authorized_keys"
+            existing = ""
+            if await sftp.exists(path):
+                async with sftp.open(path, "r") as f:
+                    existing = await f.read()
+            if pub in existing:
+                return "公鑰已存在於主機 authorized_keys（未重複加入）"
+            sep = "" if (not existing or existing.endswith("\n")) else "\n"
+            async with sftp.open(path, "a") as f:
+                await f.write(f"{sep}{pub}\n")
+            await sftp.chmod(path, 0o600)
+            return "已將公鑰安裝到主機 ~/.ssh/authorized_keys"
+
+    try:
+        return await asyncio.wait_for(_install(), timeout=30)
+    except FetchError:
+        raise
+    except Exception as exc:
+        raise FetchError(f"安裝公鑰失敗:{exc.__class__.__name__}: {exc}") from exc
+
+
 async def probe_source_connection(
     cfg: dict[str, Any], *, source_type: str,
     password: str | None = None, private_key: str | None = None,

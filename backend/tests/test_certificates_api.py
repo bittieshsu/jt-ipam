@@ -128,6 +128,15 @@ async def test_set_source_returns_200(client, auth_headers):
     assert "source_password" not in r.json()
 
 
+async def test_patch_certificate_returns_200(client, auth_headers):
+    """PATCH 憑證要回 200 — 回歸 commit 後 updated_at(onupdate)過期的 MissingGreenlet 500。"""
+    cid = await _create_cert(client, auth_headers)
+    r = await client.patch(f"/api/v1/certificates/{cid}", headers=auth_headers,
+                           json={"description": "updated"})
+    assert r.status_code == 200, r.text
+    assert r.json()["description"] == "updated"
+
+
 async def test_source_test_connection_blocked_host(client, auth_headers):
     """測試連線端點：SSRF 封鎖主機 → ok:false（不真的連外、快速失敗）。"""
     cid = await _create_cert(client, auth_headers)
@@ -142,14 +151,30 @@ async def test_source_test_connection_blocked_host(client, auth_headers):
 
 
 async def test_gen_source_ssh_keypair(client, auth_headers):
-    """自動產生 SSH 金鑰：回 ed25519 公鑰，私鑰只加密存、不外洩明文。"""
+    """自動產生 SSH 金鑰：回 ed25519 公鑰，私鑰只加密存、不外洩明文；source_type none 不嘗試安裝。"""
     cid = await _create_cert(client, auth_headers)
-    r = await client.post(f"/api/v1/certificates/{cid}/source/ssh-keypair", headers=auth_headers)
+    r = await client.post(f"/api/v1/certificates/{cid}/source/ssh-keypair", headers=auth_headers,
+                          json={"source_type": "none", "source_config": {}})
     assert r.status_code == 200, r.text
     pub = r.json()["public_key"]
     assert pub.startswith("ssh-ed25519 ")
+    assert r.json()["installed"] is False
     assert "private" not in r.json()
     assert "BEGIN" not in str(r.json())
+
+
+async def test_gen_keypair_install_blocked_host(client, auth_headers):
+    """SFTP + 封鎖主機：金鑰仍產生(回公鑰),但 installed:false + 可讀原因(SSRF 快速失敗)。"""
+    cid = await _create_cert(client, auth_headers)
+    r = await client.post(f"/api/v1/certificates/{cid}/source/ssh-keypair", headers=auth_headers, json={
+        "source_type": "sftp",
+        "source_config": {"host": "169.254.169.254", "username": "root"},
+        "source_password": "pw",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["public_key"].startswith("ssh-ed25519 ")
+    assert r.json()["installed"] is False
+    assert r.json()["message"]
 
 
 async def test_requires_admin(client, db_session):

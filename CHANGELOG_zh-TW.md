@@ -4,6 +4,20 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.143] — 2026-06-14
+
+### 修正 — commit 後序列化的一類 500（流程檢查找出）
+- `updated_at` 有 SQL 端 `onupdate=func.now()`,UPDATE flush 後該欄過期;憑證模組數個端點 commit 後直接
+  `model_validate` ORM 物件 → 同步情境 lazy IO `MissingGreenlet` 500。補上 commit 後 `session.refresh`
+  (與其它端點一致):`PATCH /certificates/{id}`、`PATCH /cert-agents/{id}`、`POST /cert-agents/{id}/rotate-key`
+  (v0.4.142 已先修 `PUT /certificates/{id}/source`)。
+
+### 變更 — 自動產生金鑰時直接登入主機安裝公鑰
+- 既然 jt-ipam 已有 SFTP 登入密碼,「自動產生金鑰」現在會**直接用密碼登入主機,把公鑰寫進
+  `~/.ssh/authorized_keys`**(冪等、不重複),免使用者手動貼。安裝成功顯示「已安裝」;沒有密碼或安裝失敗
+  則金鑰仍已產生,退回顯示公鑰供手動貼上並附原因(`POST /certificates/{id}/source/ssh-keypair` 改收來源
+  設定 + 回 installed/message)。
+
 ## [0.4.142] — 2026-06-14
 
 ### 修正
