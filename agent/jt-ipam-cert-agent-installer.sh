@@ -80,17 +80,28 @@ AUTO_UPDATE=true
 TLS_BASE=/etc/ssl/jt-ipam
 
 # Each deployment is a group of DEPLOY_<N>_* lines (one setting per line). N = 1, 2, 3, ...
-# Pick the service via PROFILE (it also provides the correct reload command).
+# Pick the service via PROFILE; it provides the file paths AND the reload command.
 #
-# Simplest - profile decides the paths too:
 #DEPLOY_1_CERT=wildcard-example-com
-#DEPLOY_1_PROFILE=nginx     # nginx apache haproxy postfix dovecot pve pmg pbs zimbra
+#DEPLOY_1_PROFILE=nginx
 #
-# Or override where the files go (keep PROFILE for the reload):
-#DEPLOY_1_FULLCHAIN=/etc/nginx/ssl/site.pem   # where to write the cert (cert + chain)
-#DEPLOY_1_KEY=/etc/nginx/ssl/site.key         # where to write the private key
-# Optional: DEPLOY_1_CHAIN=  DEPLOY_1_CRT= (leaf only)  DEPLOY_1_COMBINED=
-# Advanced: DEPLOY_1_RELOAD= / DEPLOY_1_TEST= override the profile's reload / config-test command.
+# Built-in PROFILE values (default paths use TLS_BASE above; <cert> = the cert name):
+#   nginx    fullchain <base>/<cert>.fullchain.pem + key <base>/<cert>.key       reload: systemctl reload nginx
+#   apache   cert <base>/<cert>.crt + chain .chain.pem + key .key                reload: systemctl reload apache2 || httpd
+#   haproxy  combined <base>/<cert>.pem (cert+chain+key)                         reload: systemctl reload haproxy
+#   postfix  fullchain <base>/<cert>.fullchain.pem + key .key                    reload: systemctl reload postfix
+#   dovecot  fullchain <base>/<cert>.fullchain.pem + key .key                    reload: systemctl reload dovecot
+#   pve      /etc/pve/local/pveproxy-ssl.pem + .key                              reload: systemctl restart pveproxy
+#   pmg      /etc/pmg/pmg-api.pem (cert+chain+key)                               reload: systemctl restart pmgproxy
+#   pbs      /etc/proxmox-backup/proxy.pem + .key                                reload: systemctl reload proxmox-backup-proxy
+#   zimbra   Zimbra cert deployment
+#   generic  no fixed paths/reload - you set the paths and RELOAD yourself (below)
+#
+# Optionally override where the files go (keep PROFILE for the reload):
+#   DEPLOY_1_FULLCHAIN=  cert + chain          DEPLOY_1_KEY=       private key
+#   DEPLOY_1_CRT=        leaf cert only        DEPLOY_1_CHAIN=     intermediate chain
+#   DEPLOY_1_COMBINED=   cert + chain + key in one file
+# Advanced: DEPLOY_1_RELOAD= / DEPLOY_1_TEST=  override the profile's reload / config-test command.
 EOF
     chmod 0600 "$CONF"
     echo "Created config template: $CONF (edit DEPLOY_N before enabling)"

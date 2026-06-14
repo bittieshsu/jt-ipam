@@ -15,16 +15,28 @@
 #   TLS_BASE=/etc/ssl/jt-ipam  # default write directory for built-in profiles
 #
 #   # Each deployment is a group of DEPLOY_<N>_* lines (one setting per line). N = 1, 2, 3, ...
-#   # Pick the service via PROFILE (it also provides the correct reload command):
+#   # Pick the service via PROFILE; it provides the file paths AND the reload command:
 #   DEPLOY_1_CERT=wildcard-example-com          # which jt-ipam certificate
-#   DEPLOY_1_PROFILE=nginx                      # nginx apache haproxy postfix dovecot pve pmg pbs zimbra
-#   DEPLOY_1_FULLCHAIN=/etc/nginx/ssl/site.pem  # optional: override where the cert (cert+chain) goes
-#   DEPLOY_1_KEY=/etc/nginx/ssl/site.key        # optional: override where the private key goes
-#   # Optional overrides: DEPLOY_1_CHAIN= / DEPLOY_1_CRT= (leaf only) / DEPLOY_1_COMBINED=
+#   DEPLOY_1_PROFILE=nginx
+#
+#   # Built-in PROFILE values (default paths use TLS_BASE; <cert> = the cert name):
+#   #   nginx    fullchain <base>/<cert>.fullchain.pem + key .key   reload: systemctl reload nginx
+#   #   apache   cert .crt + chain .chain.pem + key .key            reload: systemctl reload apache2 || httpd
+#   #   haproxy  combined <base>/<cert>.pem (cert+chain+key)        reload: systemctl reload haproxy
+#   #   postfix  fullchain <base>/<cert>.fullchain.pem + key .key   reload: systemctl reload postfix
+#   #   dovecot  fullchain <base>/<cert>.fullchain.pem + key .key   reload: systemctl reload dovecot
+#   #   pve      /etc/pve/local/pveproxy-ssl.pem + .key             reload: systemctl restart pveproxy
+#   #   pmg      /etc/pmg/pmg-api.pem (cert+chain+key)              reload: systemctl restart pmgproxy
+#   #   pbs      /etc/proxmox-backup/proxy.pem + .key               reload: systemctl reload proxmox-backup-proxy
+#   #   zimbra   Zimbra cert deployment
+#   #   generic  no fixed paths/reload - you set the paths + RELOAD yourself
+#
+#   # Optional: override where files go (keep PROFILE for the reload):
+#   #   DEPLOY_1_FULLCHAIN= (cert+chain)  DEPLOY_1_KEY=  DEPLOY_1_CRT= (leaf)  DEPLOY_1_CHAIN=  DEPLOY_1_COMBINED=
 #   # Advanced: DEPLOY_1_RELOAD= / DEPLOY_1_TEST= override the profile's reload / config-test command.
 #
 # Usage: jt_ipam_cert_agent.sh [--config PATH] [--dry-run] [--version]
-AGENT_VERSION=0.4.152
+AGENT_VERSION=0.4.153
 
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"

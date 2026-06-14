@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.153] — 2026-06-14
+
+### Changed
+- The agent config template comments now **list every built-in profile** (nginx / apache / haproxy /
+  postfix / dovecot / pve / pmg / pbs / zimbra / generic) with each one's default file paths and reload
+  command, so opening the config file shows exactly what's available.
+
 ## [0.4.152] — 2026-06-14
 
 ### Changed

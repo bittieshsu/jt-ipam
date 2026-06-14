@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.153] — 2026-06-14
+
+### 變更
+- 派送代理設定檔範本的註解**完整列出所有內建 profile**（nginx / apache / haproxy / postfix / dovecot /
+  pve / pmg / pbs / zimbra / generic），含各自的預設檔案路徑與重載指令，打開設定檔就看得到能用哪些。
+
 ## [0.4.152] — 2026-06-14
 
 ### 變更
