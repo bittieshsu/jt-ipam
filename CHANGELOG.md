@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.150] — 2026-06-14
+
+### Changed
+- The distribution-agent scripts (`jt_ipam_cert_agent.sh` and the installer) are now fully English
+  (comments, terminal output, config template), matching the `scripts/*.sh` convention — scripts that run
+  on customer terminals don't contain Chinese.
+- The installer gains an **uninstall** mode: `JT_IPAM_UNINSTALL=1` stops and removes the timer / service,
+  agent program, config and state (certificate files already deployed to services are kept). The install
+  help modal now includes the uninstall one-liner.
+
 ## [0.4.149] — 2026-06-14
 
 ### Added — re-viewable agent key & install command

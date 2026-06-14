@@ -79,6 +79,8 @@
     "config_label": "設定檔範例（/etc/jt-ipam-cert-agent/config）：",
     "profiles": "內建 profile：nginx / apache(httpd) / haproxy / postfix / dovecot / pve / pmg / pbs / zimbra / generic（generic 需自訂 *_path 與 reload）。",
     "dryrun": "先試跑不動檔：bash /usr/local/lib/jt-ipam-cert-agent/jt_ipam_cert_agent.sh --config /etc/jt-ipam-cert-agent/config --dry-run",
+    "uninstall_label": "移除派送代理（root）：",
+    "uninstall_note": "會停用並移除 timer / service、代理程式、設定檔與狀態；已派送到各服務的憑證檔不會被刪除。",
     "requirements": "需求：代理是純 bash，只相依 curl + coreutils（無需 Python / jq / YAML）；需以 root（或對憑證寫入路徑與 reload 指令有權限的帳號）執行；installer 會裝一個 systemd timer 定期跑（預設每日）。",
     "autoupdate": "自我更新：server 上的代理程式有新版時，代理會自動下載、驗證 sha256、以不中斷方式換檔並以新版重新執行（失敗只記錄、不影響當次部署）。在 config 設 AUTO_UPDATE=false 可停用。管理頁的「派送代理」清單會顯示各代理目前版本，落後時標「可更新」。",
     "copy": "複製"

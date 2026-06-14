@@ -1,36 +1,50 @@
 #!/usr/bin/env bash
-# jt-ipam 憑證派送代理一鍵安裝器（純 bash 代理，systemd timer）。
+# jt-ipam certificate distribution agent one-shot installer (systemd timer).
 #
-# 支援:Debian 11/12/13、Ubuntu 22.04/24.04/26.04、RHEL/Rocky/AlmaLinux/CentOS、Fedora、
-#       openSUSE/SLES（apt / dnf / yum / zypper 自動偵測；皆走 systemd）。
-# 代理本身只相依 curl + coreutils（無 Python / jq / YAML）。
-# 目標站台 profile:nginx / apache(httpd) / haproxy / postfix / dovecot /
-#                  Proxmox VE(pve) / Proxmox Mail Gateway(pmg) / Proxmox Backup Server(pbs) /
-#                  Zimbra / generic（自訂路徑+reload）。
+# Supported: Debian 11/12/13, Ubuntu 22.04/24.04/26.04, RHEL/Rocky/AlmaLinux/CentOS, Fedora,
+#            openSUSE/SLES (apt / dnf / yum / zypper auto-detected; all use systemd).
+# The agent itself depends only on curl + coreutils (no Python / jq / YAML).
+# Target-site profiles: nginx / apache(httpd) / haproxy / postfix / dovecot /
+#                       Proxmox VE(pve) / Proxmox Mail Gateway(pmg) / Proxmox Backup Server(pbs) /
+#                       Zimbra / generic (custom paths + reload).
 #
-# 用法:
+# Usage:
 #   sudo JT_IPAM_URL=https://ipam.example.com JT_IPAM_AGENT_KEY=<key> ./jt-ipam-cert-agent-installer.sh
-# 選項:
-#   JT_IPAM_INSECURE=1      server 憑證為自簽時設 1（config 寫 VERIFY_TLS=false）
-#   JT_IPAM_ONCALENDAR=...  自訂排程（預設 daily）
+# Options:
+#   JT_IPAM_INSECURE=1      set to 1 when the server cert is self-signed (writes VERIFY_TLS=false)
+#   JT_IPAM_ONCALENDAR=...  custom schedule (default: daily)
+#   JT_IPAM_UNINSTALL=1     remove the agent (timer, service, agent files, config and state) and exit
 #
-# 重跑會重新下載最新 agent 並覆蓋;設定檔（含你的 deployments）不會被覆蓋。
+# Re-running re-downloads the latest agent and overwrites it; your config (with your deployments) is kept.
 set -euo pipefail
 
 DEST=/usr/local/lib/jt-ipam-cert-agent
 CONFDIR=/etc/jt-ipam-cert-agent
 CONF="$CONFDIR/config"
 AGENT="$DEST/jt_ipam_cert_agent.sh"
+STATEDIR=/var/lib/jt-ipam-cert-agent
 SVC=jt-ipam-cert-agent
 
+[[ $EUID -eq 0 ]] || { echo "Run as root / sudo" >&2; exit 1; }
+
+# ── Uninstall ──
+if [[ -n "${JT_IPAM_UNINSTALL:-}" ]]; then
+    systemctl stop "${SVC}.timer" "${SVC}.service" 2>/dev/null || true
+    systemctl disable "${SVC}.timer" 2>/dev/null || true
+    rm -f "/etc/systemd/system/${SVC}.timer" "/etc/systemd/system/${SVC}.service"
+    systemctl daemon-reload 2>/dev/null || true
+    rm -rf "$DEST" "$CONFDIR" "$STATEDIR"
+    echo "Uninstalled: removed timer/service, ${DEST}, ${CONFDIR} and ${STATEDIR}."
+    echo "Note: certificate files already deployed to your services are left untouched."
+    exit 0
+fi
+
 : "${JT_IPAM_URL:?JT_IPAM_URL is required, e.g. https://ipam.example.com}"
-: "${JT_IPAM_AGENT_KEY:?JT_IPAM_AGENT_KEY is required（建立 cert-agent 時取得）}"
+: "${JT_IPAM_AGENT_KEY:?JT_IPAM_AGENT_KEY is required (obtained when creating a cert-agent)}"
 JT_IPAM_INSECURE="${JT_IPAM_INSECURE:-}"
 JT_IPAM_ONCALENDAR="${JT_IPAM_ONCALENDAR:-daily}"
 
-[[ $EUID -eq 0 ]] || { echo "請用 root / sudo 執行" >&2; exit 1; }
-
-# ── 套件管理器偵測（只為了在缺 curl 時補裝）──
+# ── Detect package manager (only needed to install curl if missing) ──
 if   command -v apt-get >/dev/null; then PM=apt
 elif command -v dnf     >/dev/null; then PM=dnf
 elif command -v yum     >/dev/null; then PM=yum
@@ -47,16 +61,16 @@ pkg_install() {
     esac
 }
 
-# ── 唯一相依:curl（coreutils 在所有發行版本來就有）──
-command -v curl >/dev/null || pkg_install curl || { echo "需要 curl，請手動安裝" >&2; exit 1; }
+# ── Only dependency: curl (coreutils ships on every distro) ──
+command -v curl >/dev/null || pkg_install curl || { echo "curl is required, please install it manually" >&2; exit 1; }
 
-# ── 下載 agent ──
+# ── Download agent ──
 install -d "$DEST" "$CONFDIR"
 CURL_OPTS=(-fsSL); [[ -n "$JT_IPAM_INSECURE" ]] && CURL_OPTS+=(-k)
 curl "${CURL_OPTS[@]}" "${JT_IPAM_URL%/}/api/v1/cert-agents/agent.sh" -o "$AGENT"
 chmod 0755 "$AGENT"
 
-# ── 設定檔（只在不存在時建樣板，不覆蓋你的 deployments）──
+# ── Config (create a template only if absent; never overwrite your deployments) ──
 if [[ ! -f "$CONF" ]]; then
     cat > "$CONF" <<EOF
 SERVER=${JT_IPAM_URL%/}
@@ -65,19 +79,20 @@ VERIFY_TLS=$([[ -n "$JT_IPAM_INSECURE" ]] && echo false || echo true)
 AUTO_UPDATE=true
 TLS_BASE=/etc/ssl/jt-ipam
 
-# 列出此主機要部署哪些憑證、用哪個 profile（每行一個 DEPLOY_N，「;」分隔 key=value）。
-# 內建 profile:nginx / apache / haproxy / postfix / dovecot / pve / pmg / pbs / zimbra / generic
-# generic 必須自訂 *_path 與 reload。範例:
+# List which certificates this host deploys and with which profile (one DEPLOY_N per line,
+# ";"-separated key=value).
+# Built-in profiles: nginx / apache / haproxy / postfix / dovecot / pve / pmg / pbs / zimbra / generic
+# generic requires custom *_path and reload. Examples:
 #DEPLOY_1="cert=wildcard-example-com; profile=nginx"
 #DEPLOY_2="cert=mail-cert; profile=pmg"
 EOF
     chmod 0600 "$CONF"
-    echo "已建立設定檔樣板:$CONF（請編輯 DEPLOY_N 後再啟用）"
+    echo "Created config template: $CONF (edit DEPLOY_N before enabling)"
 else
-    echo "設定檔已存在，保留不動:$CONF"
+    echo "Config already exists, leaving it untouched: $CONF"
 fi
 
-# ── systemd service + timer（各發行版皆 systemd）──
+# ── systemd service + timer (all distros use systemd) ──
 cat > "/etc/systemd/system/${SVC}.service" <<EOF
 [Unit]
 Description=jt-ipam certificate distribution agent
@@ -106,8 +121,8 @@ systemctl daemon-reload
 systemctl enable "${SVC}.timer" >/dev/null 2>&1 || true
 systemctl start "${SVC}.timer"
 
-echo "完成（套件管理器:${PM:-unknown}）。下一步:"
-echo "  1) 編輯 ${CONF} 的 DEPLOY_N"
-echo "  2) 先試跑（不動檔）: bash ${AGENT} --config ${CONF} --dry-run"
-echo "  3) 正式跑一次:       bash ${AGENT} --config ${CONF}"
-echo "  排程:${SVC}.timer（${JT_IPAM_ONCALENDAR}）;狀態:systemctl status ${SVC}.timer"
+echo "Done (package manager: ${PM:-unknown}). Next steps:"
+echo "  1) Edit DEPLOY_N in ${CONF}"
+echo "  2) Dry-run first (no changes): bash ${AGENT} --config ${CONF} --dry-run"
+echo "  3) Run once for real:          bash ${AGENT} --config ${CONF}"
+echo "  Schedule: ${SVC}.timer (${JT_IPAM_ONCALENDAR}); status: systemctl status ${SVC}.timer"

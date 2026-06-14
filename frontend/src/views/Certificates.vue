@@ -258,6 +258,7 @@ const serverOrigin = window.location.origin;
 const installerOneLiner = computed(() =>
   `curl -fsSLk ${serverOrigin}/api/v1/cert-agents/installer.sh | sudo `
   + `JT_IPAM_URL=${serverOrigin} JT_IPAM_AGENT_KEY=${newKey.value || "<建立代理時的-KEY>"} JT_IPAM_INSECURE=1 bash`);
+const uninstallOneLiner = `curl -fsSLk ${serverOrigin}/api/v1/cert-agents/installer.sh | sudo JT_IPAM_UNINSTALL=1 bash`;
 const configExample = `DEPLOY_1="cert=wildcard-example-com; profile=nginx"
 DEPLOY_2="cert=mail-cert; profile=pmg"`;
 
@@ -674,7 +675,16 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
       </div>
     </div>
 
-    <n-divider style="margin: 6px 0 16px" />
+    <n-divider style="margin: 6px 0 14px" />
+    <div class="help-subtle" style="font-weight: 600; margin-bottom: 6px">{{ t("certHelp.uninstall_label") }}</div>
+    <n-space align="center" :wrap="false" :size="8">
+      <code class="help-code">{{ uninstallOneLiner }}</code>
+      <n-button size="small" secondary @click="copy(uninstallOneLiner)">
+        <template #icon><n-icon :component="CopyIcon" /></template>{{ t("certHelp.copy") }}
+      </n-button>
+    </n-space>
+    <div class="help-note" style="margin-bottom: 14px">{{ t("certHelp.uninstall_note") }}</div>
+
     <n-space vertical :size="10">
       <n-alert type="default" :bordered="true" :show-icon="false" style="font-size: 12px">
         {{ t("certHelp.requirements") }}

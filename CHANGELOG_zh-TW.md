@@ -4,6 +4,14 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.150] — 2026-06-14
+
+### 變更
+- 派送代理腳本（`jt_ipam_cert_agent.sh` 與 installer）全部改英文（註解、終端輸出、設定檔範本），
+  比照 `scripts/*.sh` 慣例——在客戶終端機執行的腳本不夾中文。
+- installer 新增**移除**模式：`JT_IPAM_UNINSTALL=1` 會停用並移除 timer / service、代理程式、設定檔與狀態
+  （已派送到各服務的憑證檔保留不動）；安裝說明彈窗加上「移除派送代理」的一行式指令。
+
 ## [0.4.149] — 2026-06-14
 
 ### 新增 — 派送代理可再次檢視 Key 與安裝指令
