@@ -13,6 +13,7 @@ import {
   NSpace,
   NAlert,
   NDivider,
+  NDropdown,
 } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores/auth";
@@ -26,12 +27,18 @@ const route = useRoute();
 const auth = useAuthStore();
 const { mfaToken } = storeToRefs(auth);
 
-// 登入頁語言切換（未登入，不寫回後端偏好）
+// 登入頁語言切換（未登入，不寫回後端偏好）：點開下拉再選，不是一按就切
 const ui = useUiStore();
 const { locale } = storeToRefs(ui);
-const otherLocaleLabel = computed(() => (locale.value === "zh-TW" ? "English" : "繁體中文"));
-function toggleLocale() {
-  ui.setLocale(locale.value === "zh-TW" ? "en-US" : "zh-TW", false);
+const localeMenuOptions = [
+  { label: "繁體中文", key: "zh-TW" },
+  { label: "English", key: "en-US" },
+];
+const currentLocaleLabel = computed(
+  () => localeMenuOptions.find((o) => o.key === locale.value)?.label ?? "",
+);
+function pickLocale(k: string | number) {
+  ui.setLocale(String(k) as "zh-TW" | "en-US", false);
 }
 
 const username = ref("");
@@ -143,10 +150,12 @@ function ssoSaml() {
             <img src="/favicon.svg" alt="jt-ipam" class="login-logo" />
             <span>{{ t('login.title') }}</span>
           </span>
-          <n-button text size="small" class="login-lang" @click="toggleLocale">
-            <template #icon><n-icon><Globe /></n-icon></template>
-            {{ otherLocaleLabel }}
-          </n-button>
+          <n-dropdown trigger="click" :options="localeMenuOptions" @select="pickLocale">
+            <n-button text size="small" class="login-lang">
+              <template #icon><n-icon><Globe /></n-icon></template>
+              {{ currentLocaleLabel }}
+            </n-button>
+          </n-dropdown>
         </div>
       </template>
       <n-alert v-if="errorMsg" type="error" style="margin-bottom: 12px">

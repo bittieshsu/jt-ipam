@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.184] — 2026-06-16
+
+### 變更
+- **登入頁語言切換改為點開下拉再選**（列出兩種語言），不再是一按就切。
+- **來源順序頁的「儲存順序」按鈕加上儲存 icon**（五個區塊都加）。
+
 ## [0.4.183] — 2026-06-16
 
 ### 變更

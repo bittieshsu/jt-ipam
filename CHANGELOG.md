@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.184] — 2026-06-16
+
+### Changed
+- **Login language switcher is now a click-to-open dropdown** listing both languages, instead of a button
+  that toggled immediately.
+- **"Save order" buttons on the source-precedence page now have a save icon** (all five sections).
+
 ## [0.4.183] — 2026-06-16
 
 ### Changed
