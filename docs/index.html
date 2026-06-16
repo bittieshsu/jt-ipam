@@ -210,6 +210,27 @@
 </style>
 </head>
 <body>
+<script>
+  /* 在內容繪製前先決定語言，避免先閃一下中文再切英文。
+     語言來源優先序：網址 ?lang= > localStorage 偏好 > 預設英文（無參數、無偏好時）。 */
+  (function(){
+    try{
+      function norm(v){ v = (v || '').toLowerCase();
+        if (v === 'en' || v === 'en-us') return 'en';
+        if (v === 'zh' || v === 'zh-tw' || v === 'zh-hant') return 'zh';
+        return null; }
+      var u = null; try { u = norm(new URLSearchParams(location.search).get('lang')); } catch (e) {}
+      var lang = u || norm(localStorage.getItem('jtipam-doc-lang')) || 'en';
+      if (lang === 'en') document.body.classList.add('lang-en');
+      document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'zh-Hant');
+      if (u){ try {
+        localStorage.setItem('jtipam-doc-lang', u);
+        var url = new URL(location.href); url.searchParams.set('lang', u === 'en' ? 'en' : 'zh-TW');
+        history.replaceState(null, '', url);
+      } catch (e) {} }
+    } catch (e) {}
+  })();
+</script>
 <nav>
   <div class="wrap nav-in">
     <span class="brand">
@@ -632,16 +653,21 @@
 
 <div id="lightbox"><img id="lightbox-img" alt="" /></div>
 <script>
+  // 初始語言已由 <body> 開頭的 inline script 決定（避免閃爍）；這裡只負責按鈕切換。
   (function(){
     var btn = document.getElementById('langBtn');
     var KEY = 'jtipam-doc-lang';
-    if (localStorage.getItem(KEY) === 'en') document.body.classList.add('lang-en');
+    function isEn(){ return document.body.classList.contains('lang-en'); }
     // 按鈕顯示「要切換過去」的語言：中文版顯示 English、英文版顯示 繁體中文
-    function setBtn(){ btn.textContent = document.body.classList.contains('lang-en') ? '繁體中文' : 'English'; }
+    function setBtn(){ btn.textContent = isEn() ? '繁體中文' : 'English'; }
     setBtn();
     btn.addEventListener('click', function(){
-      document.body.classList.toggle('lang-en');
-      localStorage.setItem(KEY, document.body.classList.contains('lang-en') ? 'en' : 'zh');
+      var en = !isEn();
+      document.body.classList.toggle('lang-en', en);
+      document.documentElement.setAttribute('lang', en ? 'en' : 'zh-Hant');
+      localStorage.setItem(KEY, en ? 'en' : 'zh');
+      // 切換時把語言寫進網址（English→?lang=en、繁體中文→?lang=zh-TW），方便分享/書籤
+      try { var u = new URL(location.href); u.searchParams.set('lang', en ? 'en' : 'zh-TW'); history.replaceState(null, '', u); } catch (e) {}
       setBtn();
     });
   })();

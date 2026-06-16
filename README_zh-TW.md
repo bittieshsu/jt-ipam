@@ -9,7 +9,7 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![OWASP](https://img.shields.io/badge/OWASP-Top%2010%3A2025-000000)
 
-**🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/)**
+**🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/?lang=zh-TW)**
 
 > 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、Proxmox VE、Wazuh 與本地 AI。
 >
