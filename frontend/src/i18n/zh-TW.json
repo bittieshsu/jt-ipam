@@ -906,6 +906,8 @@
     "source_opnsense": "OPNsense",
     "source_wazuh": "Wazuh",
     "source_adguard": "AdGuard",
+    "source_netbios": "NetBIOS",
+    "source_mdns": "mDNS",
     "effective_online": "上線",
     "effective_offline": "離線",
     "effective_unknown": "未知",

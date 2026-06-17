@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.187] — 2026-06-17
+
+### 變更
+- **NetBIOS / mDNS 主機名稱來源在 IP 詳情顯示在地化標籤**（來源標籤與「釘選主機名稱來源」下拉），與來源優先序頁
+  一致。新增回歸測試：驗證掃描代理回報的 NetBIOS / mDNS 名稱會各自記成獨立的 `netbios` / `mdns` 觀測來源。
+
 ## [0.4.186] — 2026-06-17
 
 ### 修正

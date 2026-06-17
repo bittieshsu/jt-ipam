@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.187] — 2026-06-17
+
+### Changed
+- **NetBIOS / mDNS hostname sources now show localized labels** in the IP detail panel (the source tags
+  and the "pin hostname source" dropdown), matching the source-precedence page. Added a regression test
+  asserting NetBIOS / mDNS names from a scan-agent report are recorded as distinct `netbios` / `mdns`
+  observation sources.
+
 ## [0.4.186] — 2026-06-17
 
 ### Fixed

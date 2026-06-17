@@ -369,7 +369,7 @@ const pinOptions = computed(() => {
     { label: t("hostnameSrc.auto"), value: "" },
   ];
   for (const o of hostnameSources.value?.observations ?? []) {
-    opts.push({ label: `${o.source} — ${o.hostname}`, value: o.source });
+    opts.push({ label: `${labelSource(o.source)} — ${o.hostname}`, value: o.source });
   }
   return opts;
 });
