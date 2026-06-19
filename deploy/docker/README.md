@@ -7,9 +7,11 @@
 
 ## 快速開始
 
-在本目錄（`deploy/docker/`）執行：
+`gen-env.sh`、`docker-compose.yml` 等檔案都在 repo 的 `deploy/docker/` 內，所以**先 git clone 取得專案**：
 
 ```bash
+git clone https://github.com/jasoncheng7115/jt-ipam.git
+cd jt-ipam/deploy/docker
 ./gen-env.sh                    # 產生 .env 並填入隨機密鑰（只需一次）
 docker compose up -d --build    # 建置映像並啟動
 ```

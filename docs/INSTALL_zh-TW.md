@@ -172,7 +172,9 @@ openssl s_client -connect ipam.example.com:443 -servername ipam.example.com </de
 `web`（nginx：服務前端 + 反代 `/api`，首次啟動自動產自簽 HTTPS 憑證）。
 
 ```bash
-cd deploy/docker
+# 先 git clone 取得專案——gen-env.sh / docker-compose.yml 都在 repo 的 deploy/docker/ 內
+git clone https://github.com/jasoncheng7115/jt-ipam.git
+cd jt-ipam/deploy/docker
 ./gen-env.sh                   # 產生 .env 並填入隨機密鑰（只需一次）
 docker compose up -d --build   # 建置映像並啟動
 # 開瀏覽器到 https://localhost（首次自簽憑證，瀏覽器跳警告自行信任）

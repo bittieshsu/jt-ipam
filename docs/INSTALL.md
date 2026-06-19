@@ -176,7 +176,9 @@ loop that replaces the systemd timer), and `web` (nginx serving the frontend + r
 self-signed HTTPS cert on first run).
 
 ```bash
-cd deploy/docker
+# clone the repo first — gen-env.sh / docker-compose.yml live inside it under deploy/docker/
+git clone https://github.com/jasoncheng7115/jt-ipam.git
+cd jt-ipam/deploy/docker
 ./gen-env.sh                   # create .env with random secrets (once)
 docker compose up -d --build   # build images and start the stack
 # then open https://localhost  (self-signed cert on first run — trust the warning)
