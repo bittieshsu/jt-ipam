@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.4.205] — 2026-06-19
+
+### Fixed
+- **Two Docker Compose startup issues** (caught by actually running `docker compose` end-to-end):
+  1. **`.env.example` had `BACKEND_BIND_HOST=0.0.0.0`, which the security check rejects** in nginx mode (it
+     requires a loopback bind) → changed to `127.0.0.1`; the container's uvicorn still binds `0.0.0.0` (via the
+     image CMD, only on the compose network, not published to the host).
+  2. **`sync` / `web` started before DB migrations finished** (`depends_on: service_started` only waits for the
+     container to start) → `backend` now has a healthcheck (healthy once uvicorn is listening = after
+     migrations), and `sync` / `web` use `depends_on: service_healthy`, eliminating the first-boot
+     `relation "opnsense_firewalls" does not exist` error.
+- Verified by a full `docker compose up`: all 5 services healthy, HTTP→HTTPS redirect, frontend and `/api`
+  proxy both return 200, admin auto-created, admin login returns an access token, and the `sync` loop runs
+  with zero errors.
+
 ## [0.4.204] — 2026-06-19
 
 ### Added

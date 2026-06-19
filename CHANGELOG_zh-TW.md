@@ -4,6 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.4.205] — 2026-06-19
+
+### 修正
+- **Docker Compose 部署兩個啟動問題**（用 docker compose 完整實跑後抓到）：
+  1. **`.env.example` 的 `BACKEND_BIND_HOST=0.0.0.0` 會被安全檢核擋下**（nginx 模式要求綁 loopback）→ 改成
+     `127.0.0.1`；容器內 uvicorn 仍以 `0.0.0.0` 綁（由映像 CMD 控制、只在 compose 網路內、不對主機開埠）。
+  2. **`sync` / `web` 在資料庫遷移完成前就啟動**（`depends_on: service_started` 只等容器起來）→ `backend`
+     加 healthcheck（uvicorn 開始監聽＝遷移已跑完才算 healthy），`sync` / `web` 改 `depends_on: service_healthy`，
+     不再出現首次啟動 `relation "opnsense_firewalls" does not exist`。
+- 已用 `docker compose up` 完整實跑驗證：5 個服務健康、HTTP→HTTPS 轉址、前端與 `/api` 反代皆 200、admin 自動建立、
+  管理員登入回 access_token、`sync` 迴圈 0 錯誤。
+
 ## [0.4.204] — 2026-06-19
 
 ### 新增

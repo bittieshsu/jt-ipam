@@ -48,6 +48,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # becomes healthy only once uvicorn is listening — which is AFTER the entrypoint
+    # has finished `alembic upgrade head` (migrations run before uvicorn starts).
+    # sync/web wait on this so they never touch a half-migrated DB.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
+      interval: 5s
+      timeout: 4s
+      retries: 40
+      start_period: 30s
     restart: unless-stopped
 
   # background sync loop (replaces the systemd jt-ipam-sync.timer). Skips the
@@ -71,7 +80,7 @@ services:
       postgres:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   web:
@@ -88,7 +97,8 @@ services:
     volumes:
       - ./certs:/etc/nginx/certs
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
