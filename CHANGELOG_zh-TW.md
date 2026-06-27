@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.29] — 2026-06-27
+
+### 修正
+- **noVNC／xterm 主控台畫面加上與 RDP 一致的外框**（邊框＋圓角＋陰影），不再是無框貼齊。
+
+
 ## [0.5.28] — 2026-06-27
 
 ### 修正

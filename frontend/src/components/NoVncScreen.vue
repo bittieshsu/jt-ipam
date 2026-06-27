@@ -342,7 +342,9 @@ async function removeCred() {
 .vnc-status[data-state="connecting"] { color: #f0a020; background: rgba(240,160,32,.12); }
 .vnc-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .vnc-ip { opacity: .7; font-variant-numeric: tabular-nums; }
-.vnc-canvas-box { flex: 1; min-height: 360px; background: #000; border-radius: 6px; overflow: hidden; }
+.vnc-canvas-box { flex: 1; min-height: 360px; background: #000; border-radius: 10px;
+  border: 1px solid #2b2b30; box-shadow: 0 10px 30px rgba(0,0,0,.30), 0 3px 10px rgba(0,0,0,.20);
+  overflow: hidden; }
 .vnc-canvas-box.vnc-full { min-height: 0; }
 .vnc-canvas-box.vnc-native { overflow: auto; }
 /* xterm（CT）終端機留一點內距，不要貼齊邊緣（比照 SSH 主控台）*/

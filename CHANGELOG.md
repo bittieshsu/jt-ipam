@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.29] — 2026-06-27
+
+### Fixed
+- **noVNC / xterm console screen now has the same framed look as the RDP console** — border, rounded corners
+  and drop shadow (previously it was flush with no frame).
+
+
 ## [0.5.28] — 2026-06-27
 
 ### Fixed
