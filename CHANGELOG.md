@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.10] — 2026-06-27
+
+### Fixed
+- **"Add address" inside a subnet's IP list had no IP input field**, so submitting failed with HTTP 422
+  (missing IP) (issue #14). The create form now shows a required **IP** field (prefilled from context when
+  one is provided), and submitting with an empty IP is blocked client-side with a clear message.
+
+
 ## [0.5.9] — 2026-06-27
 
 ### Added

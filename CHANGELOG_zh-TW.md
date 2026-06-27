@@ -4,6 +4,13 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.10] — 2026-06-27
+
+### 修正
+- **子網路 IP 清單裡的「新增位址」沒有 IP 欄位可填**，按下新增會以 HTTP 422（缺 IP）失敗（issue #14）。新增表單
+  現在會顯示必填的 **IP** 欄位（有帶入值時自動預填），IP 留空送出會在前端先擋下並提示。
+
+
 ## [0.5.9] — 2026-06-27
 
 ### 新增

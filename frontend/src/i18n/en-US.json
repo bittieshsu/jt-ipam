@@ -1060,7 +1060,8 @@
     "exact_match": "Exact match",
     "exact_match_hint": "When on, IP / hostname must equal the query exactly; off is substring match (e.g. searching 192.168.1.1 no longer also returns 192.168.1.10 / 192.168.1.100). Enter a search term first.",
     "link_matching_device": "Link matching device \"{name}\"",
-    "related_nat": "Related NAT rules ({n})"
+    "related_nat": "Related NAT rules ({n})",
+    "ip_required": "Please enter an IP address"
   },
   "subnets": {
     "title": "Subnets",
