@@ -677,7 +677,7 @@
     "err_generic": "連線發生錯誤",
     "paste": "貼上",
     "paste_hint": "把本機剪貼簿文字送到被控端，再於遠端按 Ctrl+V 貼上",
-    "paste_sent": "文字已送到被控端剪貼簿，請於遠端按 Ctrl+V 貼上",
+    "paste_sent": "已送 {n} 字到被控端剪貼簿，請於遠端按 Ctrl+V 貼上",
     "paste_denied": "無法讀取瀏覽器剪貼簿（請允許剪貼簿權限）",
     "paste_empty": "剪貼簿是空的"
   },

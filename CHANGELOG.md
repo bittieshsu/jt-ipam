@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.35] — 2026-06-28
+
+### Fixed
+- **RDP: modifier shortcuts (Ctrl+V / Ctrl+C / Ctrl+A …) now work — which makes the clipboard paste actually
+  paste.** Letter/number keys were sent as Unicode characters, and RDP does not combine a Unicode key event
+  with the scancode Ctrl/Alt modifier, so Ctrl+V did nothing (it just typed "v"). When a modifier is held the
+  key is now sent as a scancode. Verified end-to-end against a real Windows host (server issues
+  `CB_FORMAT_DATA_REQUEST` on Ctrl+V and we answer with the clipboard text).
+- The RDP Paste button now reports the number of characters actually sent to the remote clipboard.
+
+
 ## [0.5.34] — 2026-06-28
 
 ### Fixed

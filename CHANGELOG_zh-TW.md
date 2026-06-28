@@ -4,6 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.35] — 2026-06-28
+
+### 修正
+- **RDP：修飾鍵組合（Ctrl+V／Ctrl+C／Ctrl+A…）現在可用 —— 剪貼簿貼上也才真的貼得出來。** 原本字母／數字鍵
+  以 unicode 字元送出，而 RDP 的 unicode 鍵事件不會與 scancode 的 Ctrl/Alt 修飾鍵組合，所以 Ctrl+V 沒作用
+  （只會打出「v」）。現在按住修飾鍵時，該鍵改用 scancode 送出。已對真實 Windows 主機端到端驗證（Ctrl+V 時
+  被控端回 `CB_FORMAT_DATA_REQUEST`、我們回傳剪貼簿文字）。
+- RDP「貼上」鈕現在會回報實際送進被控端剪貼簿的字數。
+
+
 ## [0.5.34] — 2026-06-28
 
 ### 修正

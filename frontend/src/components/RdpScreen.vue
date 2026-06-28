@@ -134,9 +134,8 @@ async function pasteToRemote() {
   try { text = await navigator.clipboard.readText(); }
   catch { msg.error(t("rdp.paste_denied")); return; }
   if (!text) { msg.warning(t("rdp.paste_empty")); return; }
-  wsSend({ type: "clip", text });
+  wsSend({ type: "clip", text });   // 後端回 clip_ack 才提示實際送出字數
   canvasEl.value?.focus();
-  msg.success(t("rdp.paste_sent"));
 }
 
 // 送出特殊按鍵（RDP 一律 Windows 目標 → 不含 macOS 組合）
@@ -191,7 +190,7 @@ function onWheel(e: WheelEvent) {
 }
 function onKey(e: KeyboardEvent, pressed: boolean) {
   e.preventDefault();
-  wsSend({ type: "k", key: e.key, ch: e.key && e.key.length === 1 ? e.key : "", p: pressed });
+  wsSend({ type: "k", key: e.key, code: e.code, ch: e.key && e.key.length === 1 ? e.key : "", p: pressed });
 }
 
 async function connect() {
@@ -264,6 +263,10 @@ async function startSession(w: number, h: number) {
       case "status":
         if (payload.state === "connected") { phase.value = "connected"; nextTick(() => canvasEl.value?.focus()); }
         else if (payload.state === "disconnected") phase.value = "closed";
+        break;
+      case "clip_ack":
+        if (payload.ok && payload.n > 0) msg.success(t("rdp.paste_sent", { n: payload.n }));
+        else msg.warning(t("rdp.paste_empty"));
         break;
       case "error":
         phase.value = "error";

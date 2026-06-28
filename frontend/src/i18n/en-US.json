@@ -677,7 +677,7 @@
     "err_generic": "Connection error",
     "paste": "Paste",
     "paste_hint": "Send your local clipboard text to the remote, then press Ctrl+V there",
-    "paste_sent": "Text sent to the remote clipboard — press Ctrl+V on the remote to paste",
+    "paste_sent": "Sent {n} characters to the remote clipboard — press Ctrl+V on the remote to paste",
     "paste_denied": "Cannot read the browser clipboard (allow clipboard permission)",
     "paste_empty": "Clipboard is empty"
   },

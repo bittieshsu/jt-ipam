@@ -22,6 +22,7 @@ import asyncio
 import base64
 import contextlib
 import json
+import logging
 import secrets
 import uuid
 from datetime import UTC, datetime
@@ -81,6 +82,21 @@ _SPECIAL_KEYS: dict[str, tuple[int, bool]] = {
     "F1": (0x3B, False), "F2": (0x3C, False), "F3": (0x3D, False), "F4": (0x3E, False),
     "F5": (0x3F, False), "F6": (0x40, False), "F7": (0x41, False), "F8": (0x42, False),
     "F9": (0x43, False), "F10": (0x44, False), "F11": (0x57, False), "F12": (0x58, False),
+}
+
+# DOM e.code → PC Set-1 掃描碼。按住修飾鍵（Ctrl/Alt/Meta）時，字母/數字鍵要走 scancode，
+# 否則 unicode 字元事件不會與 scancode 修飾鍵組合（→ Ctrl+V、Ctrl+C… 全失效，只會打出字元）。
+_CODE_SCANCODES: dict[str, int] = {
+    "KeyA": 0x1E, "KeyB": 0x30, "KeyC": 0x2E, "KeyD": 0x20, "KeyE": 0x12, "KeyF": 0x21,
+    "KeyG": 0x22, "KeyH": 0x23, "KeyI": 0x17, "KeyJ": 0x24, "KeyK": 0x25, "KeyL": 0x26,
+    "KeyM": 0x32, "KeyN": 0x31, "KeyO": 0x18, "KeyP": 0x19, "KeyQ": 0x10, "KeyR": 0x13,
+    "KeyS": 0x1F, "KeyT": 0x14, "KeyU": 0x16, "KeyV": 0x2F, "KeyW": 0x11, "KeyX": 0x2D,
+    "KeyY": 0x15, "KeyZ": 0x2C,
+    "Digit1": 0x02, "Digit2": 0x03, "Digit3": 0x04, "Digit4": 0x05, "Digit5": 0x06,
+    "Digit6": 0x07, "Digit7": 0x08, "Digit8": 0x09, "Digit9": 0x0A, "Digit0": 0x0B,
+    "Minus": 0x0C, "Equal": 0x0D, "BracketLeft": 0x1A, "BracketRight": 0x1B,
+    "Backslash": 0x2B, "Semicolon": 0x27, "Quote": 0x28, "Backquote": 0x29,
+    "Comma": 0x33, "Period": 0x34, "Slash": 0x35,
 }
 
 # 同時在線 session 計數（單核 GIL 下限制並發；0 = 不限）
@@ -436,6 +452,7 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                     })
 
     async def pump_in() -> None:
+        mods_down: set[str] = set()   # 目前按住的 Ctrl/Alt/Meta（決定字母鍵走 scancode 還是 unicode）
         with contextlib.suppress(WebSocketDisconnect, Exception):
             while True:
                 try:
@@ -456,9 +473,15 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                 elif t == "k":
                     pressed = bool(msg.get("p"))
                     key = msg.get("key", "")
+                    code = msg.get("code", "")
                     if key in _SPECIAL_KEYS:
                         sc, ext = _SPECIAL_KEYS[key]
                         await conn.send_key_scancode(sc, pressed, ext)
+                        if key in ("Control", "Alt", "Meta"):
+                            mods_down.add(key) if pressed else mods_down.discard(key)
+                    elif mods_down and code in _CODE_SCANCODES:
+                        # 按住 Ctrl/Alt/Meta 時改用 scancode（unicode 字元不會與 scancode 修飾鍵組合）
+                        await conn.send_key_scancode(_CODE_SCANCODES[code], pressed, False)
                     else:
                         ch = msg.get("ch", "")
                         if len(ch) == 1:
@@ -467,9 +490,16 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                     # 控制端貼上：把文字寫進被控端剪貼簿（單向、純文字、長度上限 100k）
                     if clip_enabled:
                         text = str(msg.get("text", ""))[:100000]
+                        ok = False
                         if text:
-                            with contextlib.suppress(Exception):
+                            try:
                                 await conn.set_current_clipboard_text(text)
+                                ok = True
+                            except Exception as e:
+                                logging.getLogger("jt-ipam.rdp").warning("clip set failed: %r", e)
+                        # 回報實際收到/設定的字數，前端據此提示
+                        with contextlib.suppress(Exception):
+                            await send({"type": "clip_ack", "n": len(text), "ok": ok})
                 elif t == "ping":
                     await send({"type": "pong"})
                 elif t == "close":
