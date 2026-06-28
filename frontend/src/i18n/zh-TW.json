@@ -674,7 +674,12 @@
     "err_username": "請輸入帳號",
     "err_ticket": "無法建立連線（權限或網路問題）",
     "err_ws": "WebSocket 連線失敗",
-    "err_generic": "連線發生錯誤"
+    "err_generic": "連線發生錯誤",
+    "paste": "貼上",
+    "paste_hint": "把本機剪貼簿文字送到被控端，再於遠端按 Ctrl+V 貼上",
+    "paste_sent": "文字已送到被控端剪貼簿，請於遠端按 Ctrl+V 貼上",
+    "paste_denied": "無法讀取瀏覽器剪貼簿（請允許剪貼簿權限）",
+    "paste_empty": "剪貼簿是空的"
   },
   "vnc": {
     "connect": "VNC 連線",
@@ -2089,7 +2094,9 @@
       "graylog_g_lan_title": "3. 只對內網網段做判斷",
       "graylog_g_lan": "公網 IP 查這張表沒有意義（表裡只有你內網的 IP）。在 pipeline rule 用 cidr_match() 先判斷 IP 是否落在 RFC1918 內網網段（10/8、172.16/12、192.168/16），是內網才查表，省資源也避免誤判。把 src_ip 換成你實際的 IP 欄位名：",
       "graylog_g_note": "提示：lookup_value() 的 key 要用 to_string() 轉成字串；cidr_match() 第二個參數要用 to_ip() 轉成 IP 型別。若你的記錄同時有來源/目的 IP，可複製這條 rule 改成 dst_ip → dst_hostname。",
-      "map_builtin": "內建（離線）"
+      "map_builtin": "內建（離線）",
+      "rdp_clip_paste": "允許 RDP 控制端貼上文字到被控端",
+      "rdp_clip_paste_hint": "開啟後，RDP 連線工具列會出現「貼上」鈕，可把本機剪貼簿的文字送進被控端剪貼簿（單向、純文字，再於遠端按 Ctrl+V）。預設關閉；被控端的剪貼簿不會回傳。"
     }
   },
   "errors": {
@@ -2357,7 +2364,8 @@
   "system_settings": {
     "title": "系統設定（全域）",
     "grp_display": "顯示與地圖",
-    "grp_liveness": "上線判定"
+    "grp_liveness": "上線判定",
+    "grp_security": "資安"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",

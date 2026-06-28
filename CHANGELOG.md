@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.32] — 2026-06-28
+
+### Added
+- **RDP console: optional one-way clipboard paste (controller → controlled host).** A new "貼上" button in the
+  RDP toolbar pushes your local clipboard text into the remote's clipboard (text only; then press Ctrl+V on the
+  remote). The remote clipboard is **never** sent back to the browser/server. Gated by a new admin security
+  toggle **管理 → 系統設定 → 資安 → 允許 RDP 控制端貼上文字到被控端**, **off by default (deny by default)**.
+  Backend only attaches the RDP clipboard (cliprdr) channel when the toggle is on; pastes are length-capped.
+  Verified end-to-end against a real Windows RDP host.
+
+
 ## [0.5.31] — 2026-06-28
 
 ### Fixed

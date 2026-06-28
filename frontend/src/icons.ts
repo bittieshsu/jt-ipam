@@ -90,6 +90,7 @@ import {
   List,
   ChatBubbleQuestion,
   Download,
+  PasteClipboard,
 } from "@iconoir/vue";
 
 // ── 通用 ──
@@ -190,6 +191,7 @@ export const TestIcon = CheckCircle;
  */
 export const ChatHistoryIcon = ChatBubbleQuestion;
 export const ExportIcon = Download;
+export const PasteIcon = PasteClipboard;
 export const CopyIcon = Copy;
 export const TerminalIcon = Terminal;
 // 螢幕外框 + 字母圖示：RDP=R / VNC=V，靠字母直接區分（比找近似 glyph 更直觀）。

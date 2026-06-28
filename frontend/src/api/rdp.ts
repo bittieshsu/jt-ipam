@@ -45,6 +45,7 @@ export interface RdpTicket {
   ws_path: string;
   default_size: { width: number; height: number };
   has_saved_creds: boolean;
+  clipboard_paste?: boolean;   // 管理者是否允許「控制端貼上文字到被控端」
   ttl: number;
 }
 

@@ -197,6 +197,9 @@ async def issue_rdp_ticket(
         ).limit(1)
     )).first()
 
+    from app.services.system_config import get_rdp_clipboard_paste
+    clip_enabled = await get_rdp_clipboard_paste(session)
+
     ticket = secrets.token_urlsafe(32)
     payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
     await _redis_client().set(_ticket_key(ticket), payload, ex=_TICKET_TTL)
@@ -206,6 +209,7 @@ async def issue_rdp_ticket(
         "ws_path": f"/api/v1/addresses/{ip.id}/rdp/ws",
         "default_size": {"width": 1280, "height": 800},
         "has_saved_creds": saved is not None,
+        "clipboard_paste": clip_enabled,
         "ttl": _TICKET_TTL,
     }
 
@@ -260,6 +264,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             return
         allowed = await can_use_rdp(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
+        from app.services.system_config import get_rdp_clipboard_paste
+        clip_enabled = await get_rdp_clipboard_paste(s)
     if not allowed:
         await websocket.close(code=4403)
         return
@@ -331,7 +337,12 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         # 5) 建立 RDP 連線（NLA / CredSSP+NTLM）
         await send({"type": "status", "state": "connecting"})
         io = RDPIOSettings()
-        io.channels = []
+        # 預設不啟用任何虛擬通道；僅在管理者開啟「控制端貼上」時才掛剪貼簿通道（cliprdr）
+        if clip_enabled:
+            from aardwolf.extensions.RDPECLIP.channel import RDPECLIPChannel
+            io.channels = [RDPECLIPChannel]
+        else:
+            io.channels = []
         io.video_width = width
         io.video_height = height
         io.video_bpp_min = 24
@@ -372,7 +383,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         )
         await send({"type": "status", "state": "connected", "width": width, "height": height})
 
-        await _bridge(websocket, conn, send)
+        await _bridge(websocket, conn, send, clip_enabled=clip_enabled)
 
     except WebSocketDisconnect:
         pass
@@ -397,8 +408,12 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
 
 
-async def _bridge(websocket: WebSocket, conn: Any, send: Any) -> None:
-    """雙向 pump：RDP 視訊→ws（PNG tile）、ws→直接呼叫 send_mouse/send_key。"""
+async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: bool = False) -> None:
+    """雙向 pump：RDP 視訊→ws（PNG tile）、ws→直接呼叫 send_mouse/send_key。
+
+    clip_enabled 時額外接受 {type:"clip", text} → 單向把文字塞進被控端剪貼簿（控制端→被控端）。
+    伺服器→控制端的剪貼簿一律不回傳（pump_out 只送視訊），維持單向、不外洩被控端剪貼簿。
+    """
 
     async def pump_out() -> None:
         with contextlib.suppress(Exception):
@@ -441,6 +456,13 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any) -> None:
                         ch = msg.get("ch", "")
                         if len(ch) == 1:
                             await conn.send_key_char(ch, pressed)
+                elif t == "clip":
+                    # 控制端貼上：把文字寫進被控端剪貼簿（單向、純文字、長度上限 100k）
+                    if clip_enabled:
+                        text = str(msg.get("text", ""))[:100000]
+                        if text:
+                            with contextlib.suppress(Exception):
+                                await conn.set_current_clipboard_text(text)
                 elif t == "ping":
                     await send({"type": "pong"})
                 elif t == "close":

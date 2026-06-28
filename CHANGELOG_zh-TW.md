@@ -4,6 +4,15 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.32] — 2026-06-28
+
+### 新增
+- **RDP 主控台：選用的單向貼上（控制端 → 被控端）。** RDP 工具列新增「貼上」鈕，把本機剪貼簿的文字送進被控端
+  剪貼簿（純文字，再於遠端按 Ctrl+V）。被控端的剪貼簿**不會**回傳到瀏覽器／伺服器。由管理者設定
+  **管理 → 系統設定 → 資安 → 允許 RDP 控制端貼上文字到被控端**控制，**預設關閉（deny by default）**。
+  後端只有在開啟時才掛 RDP 剪貼簿（cliprdr）通道，貼上長度有上限。已對真實 Windows RDP 主機端到端驗證。
+
+
 ## [0.5.31] — 2026-06-28
 
 ### 修正

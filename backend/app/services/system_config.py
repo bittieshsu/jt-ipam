@@ -210,6 +210,35 @@ async def set_ai_chat_retention_days(
     return days
 
 
+# ─────────────────── 連線管理資安設定（console security）───────────────────
+CONSOLE_SECURITY_KEY = "console_security"
+
+
+async def get_rdp_clipboard_paste(session: AsyncSession) -> bool:
+    """是否允許 RDP 控制端把文字貼到被控端（剪貼簿單向重導）。預設關閉（deny by default）。"""
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row and isinstance(row.value, dict):
+        return bool(row.value.get("rdp_clipboard_paste", False))
+    return False
+
+
+async def set_rdp_clipboard_paste(
+    session: AsyncSession, *, enabled: bool, updated_by_user_id: uuid.UUID | None = None,
+) -> bool:
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row is None:
+        row = SystemSetting(key=CONSOLE_SECURITY_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    current = dict(row.value or {})
+    current["rdp_clipboard_paste"] = bool(enabled)
+    row.value = current
+    row.updated_by = updated_by_user_id
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
+    return bool(enabled)
+
+
 # ─────────────────── Graylog DSV 查表（lookup table adapter）───────────────────
 
 GRAYLOG_DSV_KEY = "graylog_dsv"

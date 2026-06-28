@@ -8,14 +8,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "v
 import { useI18n } from "vue-i18n";
 import {
   NForm, NFormItem, NInput, NButton, NSpace, NAlert, NIcon, NSpin, NTag,
-  NSelect, NSwitch, NPopconfirm, NCard, NDropdown, useMessage,
+  NSelect, NSwitch, NPopconfirm, NCard, NDropdown, NTooltip, useMessage,
 } from "naive-ui";
 import {
   requestRdpTicket, buildRdpWsUrl,
   listRdpCredentials, createRdpCredential, deleteRdpCredential, type RdpCredential,
 } from "@/api/rdp";
 import { buildSendKeysMenu, makeSendCombo } from "@/composables/useSendKeys";
-import { DisplayIcon, CancelIcon, RefreshIcon, DeleteIcon, ChevronDownIcon, ExpandIcon, KeyIcon } from "@/icons";
+import { DisplayIcon, CancelIcon, RefreshIcon, DeleteIcon, ChevronDownIcon, ExpandIcon, KeyIcon, PasteIcon } from "@/icons";
 
 const props = withDefaults(defineProps<{
   addressId: string;
@@ -127,6 +127,18 @@ function wsSend(obj: Record<string, unknown>) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
+// 控制端貼上文字到被控端（需管理者於系統設定開啟；單向、純文字）
+const clipboardPaste = ref(false);
+async function pasteToRemote() {
+  let text = "";
+  try { text = await navigator.clipboard.readText(); }
+  catch { msg.error(t("rdp.paste_denied")); return; }
+  if (!text) { msg.warning(t("rdp.paste_empty")); return; }
+  wsSend({ type: "clip", text });
+  canvasEl.value?.focus();
+  msg.success(t("rdp.paste_sent"));
+}
+
 // 送出特殊按鍵（RDP 一律 Windows 目標 → 不含 macOS 組合）
 const sendKeysMenu = buildSendKeysMenu(false);
 const _sendCombo = makeSendCombo(wsSend);
@@ -225,6 +237,7 @@ async function startSession(w: number, h: number) {
     errorMsg.value = e?.response?.data?.detail || t("rdp.err_ticket");
     return;
   }
+  clipboardPaste.value = !!ticket.clipboard_paste;
   await nextTick();
   if (!canvasEl.value) { phase.value = "error"; errorMsg.value = t("rdp.err_ticket"); return; }
   canvasEl.value.width = w; canvasEl.value.height = h;
@@ -387,6 +400,15 @@ onBeforeUnmount(teardown);
               {{ t("rdp.send_keys") }}<n-icon :component="ChevronDownIcon" style="margin-left:2px" />
             </n-button>
           </n-dropdown>
+          <!-- 控制端貼上文字到被控端（管理者開啟才出現）：寫入被控端剪貼簿，再於遠端 Ctrl+V -->
+          <n-tooltip v-if="phase === 'connected' && clipboardPaste">
+            <template #trigger>
+              <n-button size="tiny" @click="pasteToRemote">
+                <template #icon><n-icon :component="PasteIcon" /></template>{{ t("rdp.paste") }}
+              </n-button>
+            </template>
+            {{ t("rdp.paste_hint") }}
+          </n-tooltip>
           <!-- 重新調整大小：以目前視窗大小重連，取得原生清晰畫面（RDP 無法連線中熱改解析度） -->
           <n-button v-if="phase === 'connected'" size="tiny" @click="reconnectFit">
             <template #icon><n-icon :component="ExpandIcon" /></template>{{ t("rdp.refit") }}

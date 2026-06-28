@@ -304,6 +304,41 @@ async def put_map_provider(
     return MapProviderOut(provider=prov)
 
 
+class ConsoleSecurityOut(StrictModel):
+    # 允許 RDP 控制端把文字貼到被控端（剪貼簿單向重導；預設關閉）
+    rdp_clipboard_paste: bool = False
+
+
+@public_router.get("/console-security", response_model=ConsoleSecurityOut)
+async def get_console_security(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ConsoleSecurityOut:
+    from app.services.system_config import get_rdp_clipboard_paste
+    return ConsoleSecurityOut(rdp_clipboard_paste=await get_rdp_clipboard_paste(session))
+
+
+@router.put("/console-security", response_model=ConsoleSecurityOut)
+async def put_console_security(
+    payload: ConsoleSecurityOut,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ConsoleSecurityOut:
+    from app.services.system_config import set_rdp_clipboard_paste
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "console_security", "rdp_clipboard_paste": payload.rdp_clipboard_paste},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    enabled = await set_rdp_clipboard_paste(
+        session, enabled=payload.rdp_clipboard_paste, updated_by_user_id=user.id)
+    return ConsoleSecurityOut(rdp_clipboard_paste=enabled)
+
+
 # 本機地圖圖磚代理（OSM）：讓「OpenStreetMap」供應商在維持嚴格 CSP（img-src 'self'）+ COEP require-corp
 # 下仍能在頁內顯示圖磚。URL 由伺服器端組（只連 OSM、z/x/y 驗證為整數範圍）→ 非開放代理、非 SSRF。
 # 供 <img> 載入故不帶 auth header（token 走 Authorization，圖磚標籤帶不了）；由 nginx /api 限流保護。

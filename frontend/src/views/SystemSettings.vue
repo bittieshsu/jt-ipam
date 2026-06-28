@@ -13,7 +13,8 @@ import { AdminIcon, SaveIcon, RefreshIcon } from "@/icons";
 import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
-  getSamlConfig, putSamlConfig, testSaml, type SamlConfig } from "@/api/system";
+  getSamlConfig, putSamlConfig, testSaml, type SamlConfig,
+  getConsoleSecurity, setConsoleSecurity } from "@/api/system";
 import { listGroups } from "@/api/admin";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import {
@@ -27,6 +28,14 @@ const { t } = useI18n();
 const msg = useMessage();
 
 // 地圖供應商
+// 連線管理資安：RDP 控制端貼上文字到被控端（預設關閉）
+const rdpClipPaste = ref(false);
+async function changeRdpClipPaste(v: boolean) {
+  rdpClipPaste.value = v;
+  try { await setConsoleSecurity({ rdp_clipboard_paste: v }); msg.success(t("common.ok")); }
+  catch { rdpClipPaste.value = !v; msg.error(t("errors.network")); }
+}
+
 const mapProvider = ref<"builtin" | "osm" | "google">("builtin");
 const mapProviderOpts = computed(() => [
   { label: t("settings.system.map_builtin"), value: "builtin" },
@@ -267,6 +276,7 @@ async function doTestAf() {
 }
 
 onMounted(() => {
+  getConsoleSecurity().then((c) => { rdpClipPaste.value = c.rdp_clipboard_paste; }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
   getOnlineGrace().then((m) => { grace.value = m; }).catch(() => {});
@@ -288,6 +298,18 @@ onMounted(() => {
       </n-space>
     </template>
     <div class="ss-wrap">
+      <!-- 資安：連線管理 -->
+      <section class="ss-group">
+        <h3 class="ss-h">{{ t("system_settings.grp_security") }}</h3>
+        <div class="ss-grid">
+          <div class="fld">
+            <label>{{ t("settings.system.rdp_clip_paste") }}</label>
+            <n-switch :value="rdpClipPaste" @update:value="changeRdpClipPaste" />
+            <div class="hint">{{ t("settings.system.rdp_clip_paste_hint") }}</div>
+          </div>
+        </div>
+      </section>
+
       <!-- 顯示與地圖 -->
       <section class="ss-group">
         <h3 class="ss-h">{{ t("system_settings.grp_display") }}</h3>

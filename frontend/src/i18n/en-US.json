@@ -674,7 +674,12 @@
     "err_username": "Username is required",
     "err_ticket": "Could not establish connection (permission or network issue)",
     "err_ws": "WebSocket connection failed",
-    "err_generic": "Connection error"
+    "err_generic": "Connection error",
+    "paste": "Paste",
+    "paste_hint": "Send your local clipboard text to the remote, then press Ctrl+V there",
+    "paste_sent": "Text sent to the remote clipboard — press Ctrl+V on the remote to paste",
+    "paste_denied": "Cannot read the browser clipboard (allow clipboard permission)",
+    "paste_empty": "Clipboard is empty"
   },
   "vnc": {
     "connect": "VNC",
@@ -2091,7 +2096,9 @@
       "graylog_g_lan_title": "3. Only match internal subnets",
       "graylog_g_lan": "Looking up public IPs against this table is pointless (it only contains your internal IPs). In the pipeline rule, use cidr_match() to first test whether the IP falls within the RFC1918 private ranges (10/8, 172.16/12, 192.168/16) and only look it up when it does — saving resources and avoiding false hits. Replace src_ip with your actual IP field name:",
       "graylog_g_note": "Tip: the lookup_value() key must be cast with to_string(); the second argument of cidr_match() must be cast with to_ip(). If your messages carry both source and destination IPs, duplicate the rule for dst_ip → dst_hostname.",
-      "map_builtin": "Built-in (offline)"
+      "map_builtin": "Built-in (offline)",
+      "rdp_clip_paste": "Allow RDP paste from controller to remote",
+      "rdp_clip_paste_hint": "When enabled, the RDP toolbar shows a Paste button that pushes your local clipboard text into the remote clipboard (one-way, text only — then press Ctrl+V on the remote). Off by default; the remote clipboard is never sent back."
     }
   },
   "errors": {
@@ -2359,7 +2366,8 @@
   "system_settings": {
     "title": "System Settings (global)",
     "grp_display": "Display & map",
-    "grp_liveness": "Liveness"
+    "grp_liveness": "Liveness",
+    "grp_security": "Security"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",
