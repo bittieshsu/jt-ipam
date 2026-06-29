@@ -237,7 +237,7 @@ const allColumns: DataTableColumns<IPAddress> = [
     sorter: true,
   },
   {
-    title: () => t("addresses.switch_port"), key: "switch_port", width: 140, ellipsis: { tooltip: false },
+    title: () => t("addresses.switch_port"), key: "switch_port", width: 210, ellipsis: { tooltip: false },
     render: (r) => switchPortCell(r), sorter: true,
   },
   {

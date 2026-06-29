@@ -398,7 +398,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
     } },
   { title: t("addresses.owner"), key: "owner", width: 120,
     ellipsis: { tooltip: true }, render: (r) => r.owner ?? "" },
-  { title: t("addresses.switch_port"), key: "switch_port", width: 160,
+  { title: t("addresses.switch_port"), key: "switch_port", width: 210,
     ellipsis: { tooltip: false },   // 裁切但不開 cell tooltip，否則會跟下方 NTooltip 疊成兩個彈框
     render: (r) => !r.switch_port ? ""
       : h(NTooltip, null, {

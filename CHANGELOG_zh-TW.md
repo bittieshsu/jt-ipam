@@ -4,6 +4,13 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.42] — 2026-06-29
+
+### 修正
+- **IP 清單「交換器位置」欄位加寬**，完整顯示 `交換器@埠號`（例 `switch-003@eth1/0/24`），不再截成
+  `switch-003@eth1/…`。
+
+
 ## [0.5.41] — 2026-06-29
 
 ### 修正

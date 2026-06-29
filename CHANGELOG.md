@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.42] — 2026-06-29
+
+### Fixed
+- **IP list "switch port" column widened** so it shows the full `switch@port` (e.g. `switch-003@eth1/0/24`)
+  instead of truncating to `switch-003@eth1/…`.
+
+
 ## [0.5.41] — 2026-06-29
 
 ### Fixed
