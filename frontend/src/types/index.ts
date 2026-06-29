@@ -105,6 +105,10 @@ export interface IPAddress {
   switch_port_confident: boolean | null;
   discovery_source: string;
   in_dhcp_lease?: boolean;
+  is_dhcp_server?: boolean;     // 手動標記為 DHCP 伺服器
+  dhcp_server_auto?: boolean;   // 自動：對應到已整合防火牆 IP
+  is_gateway?: boolean;         // 所屬子網路閘道
+  in_dhcp_range?: boolean;      // 落在 DHCP pool 範圍內
   last_seen_scanner: string | null;
   last_seen_librenms: string | null;
   last_seen_dns: string | null;

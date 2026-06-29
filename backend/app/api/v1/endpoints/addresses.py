@@ -81,6 +81,49 @@ async def _require_subnet_perm(
     return subnet
 
 
+async def _enrich_special_flags(
+    session: AsyncSession, items: list[Any], rows: list[Any]
+) -> None:
+    """批次推導清單視覺化用的特殊角色旗標：閘道 / 在 DHCP 範圍 / DHCP 伺服器（對應防火牆 IP）。
+    來源資料（防火牆 / DHCP pool）本身受權限管控，但這裡只回布林旗標，故所有可見此 IP 的使用者都看得到標記。
+    """
+    import ipaddress as _ip
+    from urllib.parse import urlparse
+
+    from app.models.dhcp import DHCPPoolRange
+    from app.models.firewall import OPNsenseFirewall
+    from app.models.pfsense import PfSenseFirewall
+
+    if not rows:
+        return
+    subnet_ids = list({r.subnet_id for r in rows})
+    gw_map = dict((await session.execute(
+        select(Subnet.id, Subnet.gateway).where(Subnet.id.in_(subnet_ids))
+    )).all())
+    ranges: list[tuple[int, int]] = []
+    for s, e in (await session.execute(select(DHCPPoolRange.start_ip, DHCPPoolRange.end_ip))).all():
+        try:
+            ranges.append((int(_ip.ip_address(str(s))), int(_ip.ip_address(str(e)))))
+        except ValueError:
+            continue
+    fw_ips: set[str] = set()
+    for model in (OPNsenseFirewall, PfSenseFirewall):
+        for (url,) in (await session.execute(select(model.api_url))).all():
+            h = urlparse(url).hostname if url else None
+            if h:
+                fw_ips.add(h)
+    for it, r in zip(items, rows, strict=False):
+        ipstr = str(r.ip)
+        gw = gw_map.get(r.subnet_id)
+        it.is_gateway = bool(gw) and ipstr == str(gw)
+        it.dhcp_server_auto = ipstr in fw_ips
+        try:
+            n = int(_ip.ip_address(ipstr))
+            it.in_dhcp_range = any(a <= n <= b for a, b in ranges)
+        except ValueError:
+            it.in_dhcp_range = False
+
+
 @router.get("", response_model=Paginated[IPAddressRead])
 async def list_addresses(
     user: CurrentUser,
@@ -202,6 +245,8 @@ async def list_addresses(
         it.subnet_scan_enabled = scan_map.get(r.subnet_id)
         if r.device_id:
             it.device_name = dev_map.get(r.device_id)
+    # 特殊角色旗標（閘道 / DHCP 範圍 / DHCP 伺服器）→ 清單視覺化
+    await _enrich_special_flags(session, items, rows)
     total = int(await session.scalar(count_stmt) or 0)
     return Paginated[IPAddressRead](items=items, total=total, page=page, page_size=page_size)
 

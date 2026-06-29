@@ -123,6 +123,8 @@ class IPAddressUpdate(StrictModel):
     vnc_enabled: bool | None = None
     # PVE 主控台（noVNC/xterm）連線管理開關（沿用 IP 編輯權限；僅對應到 PVE VM/CT 的 IP 有意義）
     novnc_enabled: bool | None = None
+    # 手動標記此 IP 是 DHCP 伺服器（清單視覺化用）
+    is_dhcp_server: bool | None = None
     # ip / subnet_id 不允許更新；如要搬移走專用 endpoint
 
 
@@ -138,6 +140,11 @@ class IPAddressRead(IPAddressBase):
     id: uuid.UUID
     discovery_source: str
     in_dhcp_lease: bool = False   # 自動判定：目前有 DHCP 租約（由 OPNsense lease 同步維護）
+    # ── 清單視覺化用的特殊角色旗標 ──
+    is_dhcp_server: bool = False     # 手動標記為 DHCP 伺服器
+    dhcp_server_auto: bool = False   # 自動：此 IP = 已整合 OPNsense/pfSense 防火牆的 IP（讀取端推導）
+    is_gateway: bool = False         # 此 IP = 所屬子網路的閘道（讀取端推導）
+    in_dhcp_range: bool = False      # 此 IP 落在 OPNsense DHCP pool 範圍內（讀取端推導）
     hostname_source_pin: str | None = None
     switch_port_confident: bool | None = None
     os_guess: str | None = None

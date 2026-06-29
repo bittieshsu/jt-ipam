@@ -1069,7 +1069,16 @@
     "exact_match_hint": "When on, IP / hostname must equal the query exactly; off is substring match (e.g. searching 192.168.1.1 no longer also returns 192.168.1.10 / 192.168.1.100). Enter a search term first.",
     "link_matching_device": "Link matching device \"{name}\"",
     "related_nat": "Related NAT rules ({n})",
-    "ip_required": "Please enter an IP address"
+    "ip_required": "Please enter an IP address",
+    "role_gateway": "Gateway",
+    "role_gateway_hint": "This IP is the subnet's gateway",
+    "role_dhcp_server": "DHCP server",
+    "role_dhcp_server_manual": "Manually marked as a DHCP server",
+    "role_dhcp_server_auto": "Matches an integrated OPNsense / pfSense firewall IP",
+    "role_dhcp_range": "DHCP",
+    "role_dhcp_range_hint": "This IP is within a DHCP range / currently has a lease",
+    "is_dhcp_server": "Mark as DHCP server",
+    "is_dhcp_server_hint": "Flag this IP as a DHCP server in the IP list. IPs that match an integrated OPNsense / pfSense firewall are flagged automatically."
   },
   "subnets": {
     "title": "Subnets",

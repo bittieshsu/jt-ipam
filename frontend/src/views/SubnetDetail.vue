@@ -37,6 +37,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import SubnetEditModal from "@/components/SubnetEditModal.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
+import IpRoleTags from "@/components/IpRoleTags.vue";
 import OsIcon from "@/components/OsIcon.vue";
 import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
 const { t, locale } = useI18n();
@@ -358,7 +359,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
     colSpan: (r: any) => r.__gap ? gapSpan.value : 1,
     render: (r) => (r as any).__gap
       ? h("div", { style: "text-align: center; color: var(--n-text-color-3, #999); font-style: italic" }, gapLabel(r))
-      : r.ip },
+      : h("span", { style: "display:inline-flex;align-items:center" }, [String(r.ip), h(IpRoleTags, { row: r, hideRange: true })]) },
   { title: t("addresses.hostname"), key: "hostname", minWidth: 120,
     ellipsis: { tooltip: true }, render: (r) => (r as any).__gap ? "" : (r.hostname ?? "") },
   { title: t("common.status"), key: "state", width: 100,

@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.46] — 2026-06-29
+
+### Added
+- **IP list: special-role markers on each IP** — **Gateway** (the subnet's gateway), **DHCP server**
+  (auto-detected when the IP matches an integrated OPNsense/pfSense firewall, plus a manual per-IP toggle in
+  the IP editor), and **in DHCP range / lease**. Shown as small colour-coded tags with tooltips next to the IP.
+
+
 ## [0.5.45] — 2026-06-29
 
 ### Changed

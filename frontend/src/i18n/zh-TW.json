@@ -1069,7 +1069,16 @@
     "exact_match_hint": "開啟時，IP / 主機名稱需與搜尋字「完全相等」；關閉則為包含比對（例：搜尋 192.168.1.1 不會再撈到 192.168.1.10、192.168.1.100）。需先輸入搜尋字。",
     "link_matching_device": "關聯相符的裝置「{name}」",
     "related_nat": "關聯的 NAT 規則 ({n})",
-    "ip_required": "請輸入 IP 位址"
+    "ip_required": "請輸入 IP 位址",
+    "role_gateway": "閘道",
+    "role_gateway_hint": "此 IP 是所屬子網路的閘道",
+    "role_dhcp_server": "DHCP 伺服器",
+    "role_dhcp_server_manual": "已手動標記為 DHCP 伺服器",
+    "role_dhcp_server_auto": "對應到已整合的 OPNsense／pfSense 防火牆 IP",
+    "role_dhcp_range": "DHCP",
+    "role_dhcp_range_hint": "此 IP 落在 DHCP 發放範圍／目前有租約",
+    "is_dhcp_server": "標記為 DHCP 伺服器",
+    "is_dhcp_server_hint": "在 IP 清單以「DHCP 伺服器」標記此 IP。對應到已整合 OPNsense／pfSense 防火牆的 IP 會自動標記。"
   },
   "subnets": {
     "title": "子網路",

@@ -4,6 +4,14 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.46] — 2026-06-29
+
+### 新增
+- **IP 清單：每筆 IP 的特殊角色標記** —— **閘道**（所屬子網路閘道）、**DHCP 伺服器**（對應到已整合 OPNsense／
+  pfSense 防火牆 IP 時自動標記，另在 IP 編輯視窗有手動開關）、以及**在 DHCP 範圍／租約內**。以 IP 旁的小色標
+  ＋tooltip 呈現。
+
+
 ## [0.5.45] — 2026-06-29
 
 ### 變更

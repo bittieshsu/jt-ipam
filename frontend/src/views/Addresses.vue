@@ -30,6 +30,7 @@ import { AddressesIcon, RefreshIcon, DeleteIcon } from "@/icons";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
+import IpRoleTags from "@/components/IpRoleTags.vue";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import OsIcon from "@/components/OsIcon.vue";
@@ -213,8 +214,9 @@ const allColumns: DataTableColumns<IPAddress> = [
   { type: "selection" },
   { title: "", key: "live", width: 28, render: (r) => liveDot(r) },
   {
-    title: () => t("addresses.ip"), key: "ip", width: 150,
+    title: () => t("addresses.ip"), key: "ip", width: 200,
     sorter: true,
+    render: (r) => h("span", { style: "display:inline-flex;align-items:center" }, [String(r.ip), h(IpRoleTags, { row: r })]),
   },
   {
     title: () => t("addresses.hostname"), key: "hostname", minWidth: 140, ellipsis: { tooltip: true },
