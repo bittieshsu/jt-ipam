@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.41] — 2026-06-29
+
+### Fixed
+- **Locations map (built-in) now zooms in to fit all markers** instead of always showing a wide ~24°×16°
+  view, so nearby sites no longer collapse into what looks like a single point. A small minimum view is kept
+  only to avoid over-zooming a single/very-close point (the built-in low-res basemap would blur).
+
+
 ## [0.5.40] — 2026-06-29
 
 ### Changed

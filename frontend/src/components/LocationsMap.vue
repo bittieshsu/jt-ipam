@@ -35,8 +35,10 @@ const svgView = computed(() => {
   if (!pts.length) return null;
   const xs = pts.map((p) => ex(p.lng)), ys = pts.map((p) => ey(p.lat));
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  let spanX = Math.max(Math.max(...xs) - Math.min(...xs), 24) * 1.4;
-  let spanY = Math.max(Math.max(...ys) - Math.min(...ys), 16) * 1.4;
+  // 視野 = 所有點的範圍 + 邊距，盡量放大到剛好框住所有點（不再硬撐成 24°×16° 害得近距離的點擠成一團）。
+  // 最小視野只用來避免單點 / 極近點過度放大（內建低解析底圖會糊）。
+  let spanX = Math.max(Math.max(...xs) - Math.min(...xs), 1.2) * 1.3;
+  let spanY = Math.max(Math.max(...ys) - Math.min(...ys), 0.8) * 1.3;
   const aspect = W / H;
   if (spanX / spanY < aspect) spanX = spanY * aspect; else spanY = spanX / aspect;
   const vw = Math.min(spanX, 360), vh = Math.min(spanY, 180);
