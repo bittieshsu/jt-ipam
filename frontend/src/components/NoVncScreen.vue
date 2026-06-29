@@ -41,6 +41,7 @@ const realmOpts = [
   { label: "ad (Active Directory)", value: "ad" }, { label: "ldap (LDAP)", value: "ldap" },
 ];
 const remember = ref(false);
+const ctHintDismissed = ref(false);
 const savedCreds = ref<PveCredential[]>([]);
 const selectedCredId = ref<string | null>(null);
 const protoLabel = computed(() => (props.kind === "ct" ? "xterm" : "noVNC"));
@@ -333,6 +334,11 @@ async function removeCred() {
           </n-button>
         </n-space>
       </div>
+      <!-- LXC（xterm）有時需先按一下 Enter 才會出現提示字元 → 連上時給提示，可關閉 -->
+      <n-alert v-if="phase === 'connected' && !isVm && !ctHintDismissed" type="info" :show-icon="true"
+               closable size="small" style="margin-bottom:6px" @close="ctHintDismissed = true">
+        {{ t("novnc.lxc_enter_hint") }}
+      </n-alert>
       <div ref="screenBox" class="vnc-canvas-box"
            :class="{ 'vnc-full': fullHeight, 'vnc-native': scaleMode === 'native', 'vnc-term': !isVm, 'term-dim': phase === 'closed' }"></div>
     </div>

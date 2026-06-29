@@ -2499,6 +2499,7 @@
     "state_connected": "Connected",
     "no_store_hint": "Credentials are used only for this session (not stored); you must have Console permission on this VM/CT.",
     "use_saved_hint": "Using a saved PVE credential: the password is stored encrypted on the server, decrypted only at connect time, never returned to the browser.",
-    "state_closed": "Closed"
+    "state_closed": "Closed",
+    "lxc_enter_hint": "PVE LXC console quirk: if you only see a cursor and no prompt, click the screen and press Enter once."
   }
 }

@@ -2497,6 +2497,7 @@
     "state_connected": "已連線",
     "no_store_hint": "帳號與密碼僅用於本次連線（不儲存於伺服器）；需對此 VM/CT 有 Console 權限才連得上。",
     "use_saved_hint": "使用已儲存的 PVE 帳密：密碼以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
-    "state_closed": "已關閉"
+    "state_closed": "已關閉",
+    "lxc_enter_hint": "PVE LXC 主控台特性：若畫面只有游標、沒有提示字元，請先在畫面中按一下 Enter。"
   }
 }

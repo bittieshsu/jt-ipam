@@ -4,6 +4,13 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.36] — 2026-06-29
+
+### 新增
+- **PVE LXC（xterm）主控台：可關閉的提示橫幅** —— 若畫面只有游標、沒有提示字元，提醒你在畫面中按一下 Enter
+  （PVE LXC 主控台的已知特性）。
+
+
 ## [0.5.35] — 2026-06-28
 
 ### 修正

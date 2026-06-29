@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.36] — 2026-06-29
+
+### Added
+- **PVE LXC (xterm) console: a dismissible hint banner** reminds you to click the screen and press Enter once
+  if only a cursor shows and no prompt appears (a known PVE LXC console quirk).
+
+
 ## [0.5.35] — 2026-06-28
 
 ### Fixed
