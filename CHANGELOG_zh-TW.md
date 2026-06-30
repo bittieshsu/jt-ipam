@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.54] — 2026-06-30
+
+### 變更
+- 變更密碼對話框：標題與下方兩個按鈕（取消／變更密碼）補上 icon，與其它對話框一致。
+
+
 ## [0.5.53] — 2026-06-30
 
 ### 變更

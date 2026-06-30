@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /** 本機帳號自助變更密碼。外部認證帳號（LDAP/SSO）不會看到入口（MainLayout 以 auth_provider 過濾）。 */
 import { computed, ref, watch } from "vue";
-import { NModal, NCard, NForm, NFormItem, NInput, NButton, NSpace, useMessage } from "naive-ui";
+import { NModal, NCard, NForm, NFormItem, NInput, NButton, NSpace, NIcon, useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { apiClient } from "@/api/client";
+import { LockIcon, SaveIcon, CancelIcon } from "@/icons";
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: "update:show", v: boolean): void }>();
@@ -51,7 +52,12 @@ async function submit() {
 
 <template>
   <n-modal :show="show" @update:show="(v) => emit('update:show', v)">
-    <n-card style="max-width: 440px" :title="t('account.change_password')" :bordered="false" role="dialog">
+    <n-card style="max-width: 440px" :bordered="false" role="dialog">
+      <template #header>
+        <span style="display:inline-flex;align-items:center;gap:8px">
+          <n-icon :size="18"><LockIcon /></n-icon>{{ t("account.change_password") }}
+        </span>
+      </template>
       <n-form @submit.prevent="submit">
         <n-form-item :label="t('account.current_pw')">
           <n-input v-model:value="current" type="password" show-password-on="click"
@@ -72,8 +78,12 @@ async function submit() {
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="emit('update:show', false)">{{ t("common.cancel") }}</n-button>
+          <n-button @click="emit('update:show', false)">
+            <template #icon><n-icon><CancelIcon /></n-icon></template>
+            {{ t("common.cancel") }}
+          </n-button>
           <n-button type="primary" :disabled="!canSubmit" :loading="busy" @click="submit">
+            <template #icon><n-icon><SaveIcon /></n-icon></template>
             {{ t("account.change_password") }}
           </n-button>
         </n-space>

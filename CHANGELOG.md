@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.54] — 2026-06-30
+
+### Changed
+- Change-password dialog: added an icon to the title and to both footer buttons (cancel / change), matching the
+  other dialogs.
+
+
 ## [0.5.53] — 2026-06-30
 
 ### Changed
