@@ -150,7 +150,7 @@ onBeforeUnmount(() => { cleanupWs(); try { term?.dispose(); } catch { /* */ } })
           </n-form-item>
           <template v-if="!form.credentialId">
             <n-form-item :label="t('bmc.username')">
-              <n-input v-model:value="form.username" placeholder="ADMIN / admin2" />
+              <n-input v-model:value="form.username" placeholder="ADMIN / root" />
             </n-form-item>
             <n-form-item :label="t('bmc.password')">
               <n-input v-model:value="form.password" type="password" show-password-on="click" @keydown.enter="connect" />

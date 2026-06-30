@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.62] — 2026-07-01
+
+### 變更
+- BMC 主控台：帳號輸入框改用通用範例（`ADMIN / root`）。
+
+
 ## [0.5.61] — 2026-07-01
 
 ### 新增

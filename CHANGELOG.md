@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.62] — 2026-07-01
+
+### Changed
+- BMC console: generic username placeholder (`ADMIN / root`).
+
+
 ## [0.5.61] — 2026-07-01
 
 ### Added
