@@ -236,10 +236,13 @@ backend 容器啟動時會**自動**跑資料庫遷移（entrypoint 執行 `alem
 **內網／無外網主機**（外網 build、內網 run）：在有外網的主機把映像 build 好、帶進內網載入 —— 安裝與升級同一套流程。
 
 ```bash
-# 在有外網的主機（在 deploy/docker/ 下）
-git pull && ./offline-export.sh        # → jt-ipam-images-<sha>.tar.gz（app + postgres/redis 映像）
+# 在有外網的主機：先取得原始碼，再 build + 打包
+git clone https://github.com/jasoncheng7115/jt-ipam.git
+cd jt-ipam/deploy/docker
+./offline-export.sh                    # → jt-ipam-images-<sha>.tar.gz（app + postgres/redis 映像）
+                                       #（之後要升級：先 git pull 取新版，再重跑 offline-export.sh）
 
-# 把壓縮檔 + jt-ipam repo 資料夾複製到內網主機，然後在那邊：
+# 把壓縮檔 + 整個 jt-ipam repo 資料夾複製到內網主機，在 deploy/docker/ 下執行：
 ./gen-env.sh                           # 僅首次安裝（需 openssl，免外網）
 ./offline-import.sh jt-ipam-images-<sha>.tar.gz   # docker load + up -d --no-build --pull never
 ```

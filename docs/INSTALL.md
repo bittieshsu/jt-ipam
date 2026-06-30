@@ -247,10 +247,13 @@ Database migrations run **automatically** when the backend container starts (its
 host, carry them over, and load them — same flow for install and upgrade.
 
 ```bash
-# on the internet-connected host (in deploy/docker/)
-git pull && ./offline-export.sh        # -> jt-ipam-images-<sha>.tar.gz (app + postgres/redis images)
+# on the internet-connected host: get the source, then build + pack
+git clone https://github.com/jasoncheng7115/jt-ipam.git
+cd jt-ipam/deploy/docker
+./offline-export.sh                    # -> jt-ipam-images-<sha>.tar.gz (app + postgres/redis images)
+                                       # (to upgrade later: git pull first, then re-run offline-export.sh)
 
-# copy that archive + the jt-ipam repo folder to the air-gapped host, then there:
+# copy that archive + the whole jt-ipam repo folder to the air-gapped host, then in deploy/docker/:
 ./gen-env.sh                           # first install only (needs openssl, no internet)
 ./offline-import.sh jt-ipam-images-<sha>.tar.gz   # docker load + up -d --no-build --pull never
 ```

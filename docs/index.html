@@ -689,9 +689,10 @@ cd jt-ipam/deploy/docker &amp;&amp; ./gen-env.sh &amp;&amp; <span class="g">dock
       </p>
 
       <h3 class="dz-h3"><span class="zh">內網／離線主機（無外網）</span><span class="en">Air-gapped / offline host</span></h3>
-      <pre><span class="zh"># 有外網的主機：build 並打包映像</span><span class="en"># internet-connected host: build & pack images</span>
-git pull &amp;&amp; <span class="g">./offline-export.sh</span>            <span class="zh"># → jt-ipam-images-&lt;sha&gt;.tar.gz</span><span class="en"># → jt-ipam-images-&lt;sha&gt;.tar.gz</span>
-<span class="zh"># 把壓縮檔 + repo 複製到內網主機，再執行：</span><span class="en"># copy that archive + the repo to the offline host, then:</span>
+      <pre><span class="zh"># 有外網的主機：取得原始碼、build 並打包映像</span><span class="en"># internet-connected host: get the source, build & pack images</span>
+git clone https://github.com/jasoncheng7115/jt-ipam.git
+cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>   <span class="zh"># → jt-ipam-images-&lt;sha&gt;.tar.gz（升級時先 git pull 取新版再 export）</span><span class="en"># → jt-ipam-images-&lt;sha&gt;.tar.gz (to upgrade: git pull first, then re-export)</span>
+<span class="zh"># 把壓縮檔 + 整個 jt-ipam repo 複製到內網主機，在 deploy/docker/ 下執行：</span><span class="en"># copy that archive + the whole jt-ipam repo to the offline host, then in deploy/docker/:</span>
 ./gen-env.sh &amp;&amp; <span class="g">./offline-import.sh jt-ipam-images-&lt;sha&gt;.tar.gz</span></pre>
       <p style="margin:10px 0 0" class="disclaimer">
         <span class="zh">沒有外網（連不到 Docker Hub）時：在有網路的主機 <code>offline-export.sh</code> 把四個映像（app + postgres/redis）打包成一個壓縮檔，帶到內網用 <code>offline-import.sh</code> 載入並啟動（<code>--no-build --pull never</code>，只用壓縮檔裡的映像）。<strong>升級</strong>就是再 export 新壓縮檔、複製過去、再 import 一次，<code>.env</code> 不動。</span>

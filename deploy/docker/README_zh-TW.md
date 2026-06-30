@@ -61,10 +61,11 @@ docker compose logs -f backend   # 看遷移 / 啟動記錄
 
 若目標主機**沒有外網**（連不到 Docker Hub），就在有網路的主機把映像 build 好、帶進內網載入 —— 安裝與升級都適用。
 
-**在有外網的主機**（在 `deploy/docker/` 下）：
+**在有外網的主機** —— 先取得原始碼再 build：
 
 ```bash
-git pull                       # 切到你要派送的版本
+git clone https://github.com/jasoncheng7115/jt-ipam.git   # 首次（之後要派送新版就 git pull）
+cd jt-ipam/deploy/docker
 ./offline-export.sh            # build + 拉 base 映像 → jt-ipam-images-<sha>.tar.gz
 ```
 

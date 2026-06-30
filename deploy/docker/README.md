@@ -72,10 +72,11 @@ docker compose logs -f backend   # watch migration / boot logs
 If the target host has **no internet** (can't reach Docker Hub), build the images on an
 internet-connected host, carry them over, and load them — for both install and upgrade.
 
-**On the internet-connected host** (in `deploy/docker/`):
+**On the internet-connected host** — get the source first, then build:
 
 ```bash
-git pull                       # get the version you want to ship
+git clone https://github.com/jasoncheng7115/jt-ipam.git   # first time (later: git pull to ship a newer version)
+cd jt-ipam/deploy/docker
 ./offline-export.sh            # build + pull base images -> jt-ipam-images-<sha>.tar.gz
 ```
 
