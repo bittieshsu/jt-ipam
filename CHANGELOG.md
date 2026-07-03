@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.90] — 2026-07-03
+
+### Fixed
+- **Connections table status dot for overlapping subnets** — when one physical host is split across multiple overlapping-subnet records for the same IP, the connection-enabled record could show offline because the scanner / LibreNMS only stamps one record per IP. The Connections view now borrows the freshest last-seen from the same IP's other records within the user's visible scope, so the dot reflects the host's real liveness (RBAC-safe: only records the user can see).
+
+
 ## [0.5.89] — 2026-07-03
 
 ### Added
