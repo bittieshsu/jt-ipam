@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.96] — 2026-07-07
+
+### 修正
+- **作業表格對 DNS／pfSense／OPNsense 同步顯示「0」** —— 接續 LibreNMS 那個修正:DNS 同步的 summary（`pulled_zones/pulled_records/hostname_obs`）、pfSense 心跳（`arp/rules/aliases/nat`）、OPNsense 心跳（`mappings`）用的 key 計數彙總不認得,所以即使有撈到資料仍顯示 0。現在都對應到了,並加上退路（總數 = 新增 + 更新），讓任何有資料的同步都顯示有意義的數字。同步本身已驗證確實有撈資料（DNS 7 zones／119 records、pfSense 6 ARP／8 rules、OPNsense 9 筆別名對應）。
+
+
 ## [0.5.95] — 2026-07-07
 
 ### 新增

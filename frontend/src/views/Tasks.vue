@@ -152,6 +152,20 @@ function aggregateCounts(summary: any): { ins: number; upd: number; err: number;
     return out;
   }
 
+  // 2b) DNS sync: {pulled_zones, pulled_records, mismatches, dns_only, ipam_only, hostname_obs}
+  if ("pulled_records" in summary || "pulled_zones" in summary) {
+    out.total = n(summary.pulled_records);
+    out.upd = n(summary.hostname_obs);   // 套用到 IPAM 的主機名稱觀測數
+    return out;
+  }
+
+  // 2c) pfSense 排程心跳：{arp, aliases, rules, nat}（每輪重新同步的項目數）
+  if ("arp" in summary && "rules" in summary && "nat" in summary && typeof summary.arp === "number") {
+    out.upd = n(summary.arp) + n(summary.aliases) + n(summary.rules) + n(summary.nat);
+    out.total = out.upd;
+    return out;
+  }
+
   // 3) 通用：top-level 數字，或「一層巢狀分組」
   //    （librenms：{devices:{seen,inserted,updated}, arp:{...}, fdb:{...}, vlans:{seen,upserted,mappings}}）
   const bump = (k: string, v: number) => {
@@ -168,6 +182,9 @@ function aggregateCounts(summary: any): { ins: number; upd: number; err: number;
       }
     }
   }
+  // 沒有明確的「總數」欄位命中時（如 OPNsense 心跳 {mappings:9}），用 新增+更新 當總數，
+  // 至少反映「有做事」，不要顯示成 0。
+  if (out.total === 0) out.total = out.ins + out.upd;
   return out;
 }
 
@@ -208,6 +225,28 @@ function formatSummary(kind: string, summary: any): string {
     }
     if (!lines.length) return t("tasks.summary.no_change");
     return lines.join("；");
+  }
+
+  // 2b) DNS sync 風格：{pulled_zones, pulled_records, mismatches, dns_only, ipam_only, hostname_obs}
+  if ("pulled_records" in summary || "pulled_zones" in summary) {
+    const p: string[] = [];
+    if (num(summary.pulled_zones)) p.push(`zones ${num(summary.pulled_zones)}`);
+    if (num(summary.pulled_records)) p.push(`records ${num(summary.pulled_records)}`);
+    if (num(summary.hostname_obs)) p.push(`hostname ${num(summary.hostname_obs)}`);
+    if (num(summary.mismatches)) p.push(`mismatch ${num(summary.mismatches)}`);
+    if (num(summary.dns_only)) p.push(`DNS-only ${num(summary.dns_only)}`);
+    if (num(summary.ipam_only)) p.push(`IPAM-only ${num(summary.ipam_only)}`);
+    return p.length ? p.join("；") : t("tasks.summary.no_change");
+  }
+
+  // 2c) pfSense 心跳：{arp, aliases, rules, nat}
+  if ("arp" in summary && "rules" in summary && "nat" in summary && typeof summary.arp === "number") {
+    const p: string[] = [];
+    if (num(summary.arp)) p.push(`ARP ${num(summary.arp)}`);
+    if (num(summary.rules)) p.push(`rules ${num(summary.rules)}`);
+    if (num(summary.aliases)) p.push(`aliases ${num(summary.aliases)}`);
+    if (num(summary.nat)) p.push(`NAT ${num(summary.nat)}`);
+    return p.length ? p.join("；") : t("tasks.summary.no_change");
   }
 
   // 3) LibreNMS sync 風格：{instance, devices_seen, devices_inserted, ...}

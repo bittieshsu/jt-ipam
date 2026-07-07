@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.96] — 2026-07-07
+
+### Fixed
+- **Tasks table showed "0" totals for DNS / pfSense / OPNsense syncs** — following the LibreNMS fix, the DNS sync summary (`pulled_zones/pulled_records/hostname_obs`), the pfSense heartbeat (`arp/rules/aliases/nat`) and the OPNsense heartbeat (`mappings`) used keys the count aggregation didn't recognise, so the Tasks table rendered 0 even though the syncs pulled data. These shapes are now mapped, plus a fallback (total = added + updated) so any sync with data shows a meaningful count. The syncs themselves were verified pulling data (DNS 7 zones / 119 records, pfSense 6 ARP / 8 rules, OPNsense 9 alias mappings).
+
+
 ## [0.5.95] — 2026-07-07
 
 ### Added
