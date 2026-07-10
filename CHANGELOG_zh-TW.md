@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.101] — 2026-07-10
+
+### 變更
+- 儀表板:「總容量」KPI 改名為 **「IP 總容量」**,明確它是 IP 位址的總容量。
+
+
 ## [0.5.100] — 2026-07-09
 
 ### 修正

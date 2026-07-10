@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.101] — 2026-07-10
+
+### Changed
+- Dashboard: renamed the "Total capacity" KPI to **"Total IP capacity"** to make clear it's the total IP address capacity.
+
+
 ## [0.5.100] — 2026-07-09
 
 ### Fixed
