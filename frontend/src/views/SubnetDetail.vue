@@ -142,7 +142,7 @@ async function loadDhcpRanges() {
       if (a != null && b != null) {
         out.push({
           a: Math.min(a, b), b: Math.max(a, b),
-          server: r.firewall_name || "—",
+          server: r.source_name || "—",
           source: (r.source || "").toUpperCase(),
           start: r.start_ip, end: r.end_ip,
         });
