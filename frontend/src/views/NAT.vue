@@ -114,6 +114,7 @@ const sourceFwFilter = ref<string | null>(null);
 const sourceKindOpts = computed(() => [
   { label: "OPNsense", value: "opnsense" },
   { label: "pfSense",  value: "pfsense" },
+  { label: "FortiGate", value: "fortigate" },
   { label: "phpIPAM",  value: "phpipam" },
   { label: t("cols.manual"),     value: "manual" },
 ]);
@@ -366,6 +367,7 @@ const allCols = computed<DataTableColumns<NAT>>(() => autoSort([
       if (!r.source_label) return "—";
       const type = r.source_kind === "opnsense" ? "info"
                  : r.source_kind === "pfsense"  ? "success"
+                 : r.source_kind === "fortigate" ? "error"
                  : r.source_kind === "phpipam"  ? "warning"
                  : "default";
       return h(NTag, { size: "small", type, bordered: false }, () => r.source_label);

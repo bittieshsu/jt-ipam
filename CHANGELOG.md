@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.115] — 2026-07-29
+
+### Added
+- **FortiGate integration (Beta)** — a standalone integration alongside OPNsense and pfSense, each keeping its own settings and sync. Reads over the FortiOS REST API (**GET only — nothing on the firewall is ever modified**) and supports **multiple VDOMs** (listed explicitly or auto-discovered; a non-VDOM appliance falls back to `root`):
+  - **DHCP leases** and **ARP** mark existing addresses (`in_dhcp_lease`, MAC, hostname) and never create addresses, matching the other firewall integrations
+  - **DHCP address ranges** land in the shared multi-source range table as `fortigate`
+  - **IPsec site-to-site tunnels** go to the existing VPN tunnel table; **SSL-VPN sessions** stamp the assigned tunnel IP
+  - **NAT** (VIP → DNAT / port forward, IP pool → SNAT) joins the existing NAT page with a FortiGate source filter
+  - **Policies** and **address objects / groups** are mirrored into their own tables with a read-only per-VDOM viewer
+  - **Test connection** runs a per-endpoint diagnosis (which endpoints are readable and how many rows), so field differences between FortiOS versions are easy to spot
+- Registered `fortigate` as a hostname and MAC precedence source so it participates in the existing precedence settings.
+
+### Notes
+- Authentication uses the `Authorization: Bearer` header. The `?access_token=` URL form is deliberately not used — it is covered by PSIRT FG-IR-24-268 and is disabled by default from FortiOS 7.4.5 / 7.6.1. API tokens are also unavailable in FIPS-CC mode, which the error message now calls out.
+- Built without access to a live appliance: endpoint paths and field names follow the official documentation and every field is parsed tolerantly, so a differing FortiOS version degrades to "that item returns nothing" instead of breaking the rest of the sync. Hence **Beta** — use the connection diagnosis against a real appliance to confirm.
+- No install or upgrade changes are needed (no new dependency, service or package). The backend must be able to reach the FortiGate management interface; appliances on private networks require `OUTBOUND_ALLOW_PRIVATE`.
+
+
 ## [0.5.114] — 2026-07-29
 
 ### Fixed

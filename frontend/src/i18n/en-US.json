@@ -281,8 +281,10 @@
     "system_logs": "System logs",
     "graylog_dsv": "Graylog integration",
     "pfsense": "pfSense",
+    "fortigate": "FortiGate",
     "windows_dhcp": "Windows DHCP",
-    "pfsense_fw": "Firewall (pfSense)"
+    "pfsense_fw": "Firewall (pfSense)",
+    "fortigate_fw": "Firewall (FortiGate)"
   },
   "topbar": {
     "search": "Search…",
@@ -626,7 +628,7 @@
     "saved_cred_ph": "Use a saved credential…",
     "saved_cred_del_confirm": "Delete this saved credential?",
     "remember": "Remember",
-    "remember_label_ph": "Name (blank = user@IP)",
+    "remember_label_ph": "Name (blank = user{'@'}IP)",
     "store_hint": "When checked, this credential is stored encrypted on the server (only you can use it; plaintext is never returned) so you can reuse it next time.",
     "use_saved_hint": "Using a saved credential: the secret is stored encrypted on the server and only decrypted at connect time on the backend; it's never returned to the browser.",
     "err_save_cred": "Failed to save credential",
@@ -667,7 +669,7 @@
     "saved_cred_ph": "Choose a saved credential…",
     "saved_cred_del_confirm": "Delete this saved credential?",
     "remember": "Remember credential",
-    "remember_label_ph": "Name (defaults to user@IP)",
+    "remember_label_ph": "Name (defaults to user{'@'}IP)",
     "no_store_hint": "Username and password are used only for this session and are not stored on the server.",
     "store_hint": "When checked, this credential is stored encrypted on the server (only you can use it; plaintext is never returned); reusable next time.",
     "use_saved_hint": "Using a saved credential: the password is kept encrypted on the server, decrypted only at connect time on the backend, and never returned to the browser.",
@@ -710,7 +712,7 @@
     "saved_cred_ph": "Choose a saved password…",
     "saved_cred_del_confirm": "Delete this saved password?",
     "remember": "Remember password",
-    "remember_label_ph": "Name (defaults to vnc@IP)",
+    "remember_label_ph": "Name (defaults to vnc{'@'}IP)",
     "no_store_hint": "The password is used only for this session and is not stored on the server.",
     "store_hint": "When checked, the password is stored encrypted on the server (only you can use it; plaintext is never returned); reusable next time.",
     "use_saved_hint": "Using a saved password: kept encrypted on the server, decrypted only at connect time on the backend, never returned to the browser.",
@@ -1028,7 +1030,8 @@
       "wazuh": "Wazuh",
       "adguard": "AdGuard",
       "snmp": "LibreNMS (sysName)",
-      "windows_dhcp": "Windows DHCP"
+      "windows_dhcp": "Windows DHCP",
+      "fortigate": "FortiGate"
     },
     "model_title": "Device model source order",
     "model_subtitle": "When multiple sources (LibreNMS hardware / Proxmox VE / OPNsense) provide a device model, higher = preferred; manual is highest and can't be disabled. Drag to reorder."
@@ -1094,7 +1097,8 @@
     "role_dhcp_range_hint": "This IP is within a DHCP range / currently has a lease",
     "is_dhcp_server": "Mark as DHCP server",
     "is_dhcp_server_hint": "Flag this IP as a DHCP server in the IP list. IPs that match an integrated OPNsense / pfSense firewall are flagged automatically.",
-    "source_windows_dhcp": "Windows DHCP"
+    "source_windows_dhcp": "Windows DHCP",
+    "source_fortigate": "FortiGate"
   },
   "subnets": {
     "title": "Subnets",
@@ -1598,7 +1602,7 @@
     "field_type": "Data type",
     "options": "Choices",
     "options_placeholder": "One per line, e.g.\nproduction\nstaging\ndev",
-    "options_hint": "Newline-separated; stored as {\"choices\": [...]} JSON",
+    "options_hint": "Newline-separated; stored as {'{'}\"choices\": [...]{'}'} JSON",
     "validation_regex": "Validation regex",
     "regex_hint": "Input must match; e.g. plate number ^[A-Z]{3}-[0-9]{4}$",
     "required": "Required",
@@ -1871,7 +1875,7 @@
     "ssh_known_host_placeholder": "Click 'Fetch host fingerprint' to populate; or paste single-line ssh-keyscan output manually",
     "ssh_keypair_title": "Steps (do this once for the first phpIPAM import)",
     "ssh_step1_html": "On <b>any machine</b> (jt-ipam server itself is fine) run: <code>ssh-keygen -t ed25519 -f phpipam_migrate -N ''</code> — produces <code>phpipam_migrate</code> (private) and <code>phpipam_migrate.pub</code> (public).",
-    "ssh_step2_html": "<b>Append</b> <code>phpipam_migrate.pub</code> to <code>~/.ssh/authorized_keys</code> on the phpIPAM host (for the SSH user below). e.g. <code>cat phpipam_migrate.pub | ssh root@phpipam-host 'cat >> ~/.ssh/authorized_keys'</code>",
+    "ssh_step2_html": "<b>Append</b> <code>phpipam_migrate.pub</code> to <code>~/.ssh/authorized_keys</code> on the phpIPAM host (for the SSH user below). e.g. <code>cat phpipam_migrate.pub {'|'} ssh root{'@'}phpipam-host 'cat >> ~/.ssh/authorized_keys'</code>",
     "ssh_step3_html": "Back here, paste the <b>private key</b> (entire <code>phpipam_migrate</code> file) into the field below → click 'Fetch host fingerprint' → run import.",
     "ssh_step4_html": "After import, remove that key from the phpIPAM host's <code>authorized_keys</code>. The private key is not stored in jt-ipam — used once per request.",
     "ssh_subsection_target": "1. Target phpIPAM host",
@@ -2417,7 +2421,7 @@
     },
     "enable": "Enable",
     "secret_keep": "(set — leave blank to keep)",
-    "tg_hint": "Create a bot via @BotFather for the token; add the bot to a group/channel, then get the Chat ID via @userinfobot or getUpdates.",
+    "tg_hint": "Create a bot via {'@'}BotFather for the token; add the bot to a group/channel, then get the Chat ID via {'@'}userinfobot or getUpdates.",
     "slack_hint": "Create one under Slack App → Incoming Webhooks and paste the channel's Webhook URL.",
     "teams_hint": "Create an Incoming Webhook (connector / Workflows) on the channel and paste the URL.",
     "nc_hint": "On Nextcloud, install a Talk bot (occ talk:bot:install) for the secret, add it to a conversation, then get the conversation token.",
@@ -2432,7 +2436,7 @@
     "zulip_stream": "Stream",
     "zulip_topic": "Topic",
     "webhook_title": "Generic Webhook",
-    "webhook_hint": "POSTs JSON to your URL: { \"app\":\"jt-ipam\", \"subject\":..., \"text\":... }. Works with n8n, custom endpoints, etc.; an optional Bearer token is sent as the Authorization header.",
+    "webhook_hint": "POSTs JSON to your URL: {'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":... {'}'}. Works with n8n, custom endpoints, etc.; an optional Bearer token is sent as the Authorization header.",
     "webhook_token": "Bearer token (optional)",
     "webhook_token_ph": "leave blank for no Authorization header"
   },
@@ -2741,5 +2745,30 @@
     "scopes": "Scopes (address ranges)",
     "leases": "Leases",
     "test_ok": "Connection OK — {n} scope(s) found"
+  },
+  "fortigate": {
+    "title": "FortiGate",
+    "view_title": "Firewall (FortiGate)",
+    "intro": "Read-only sync from FortiGate over the FortiOS REST API (GET only — nothing on the firewall is ever modified). Needs an API token from a read-only REST API admin, and the backend must be able to reach the appliance's management interface.",
+    "token": "API token",
+    "token_keep": "API token (leave blank to keep current)",
+    "token_hint": "Create a REST API admin on the FortiGate and generate a token. The token is sent in the Authorization header (the ?access_token= URL form is deprecated and disabled by default since FortiOS 7.4.5/7.6.1). Note: API tokens are unavailable in FIPS-CC mode.",
+    "vdom_ph": "Leave blank to auto-discover all VDOMs (or list them: root, vdom1)",
+    "vdom_auto": "auto (all)",
+    "pull_what": "What to pull",
+    "policies": "Policies",
+    "addresses": "Address objects",
+    "diagnose": "Test connection",
+    "diag_summary": "{ok} of {total} endpoints readable",
+    "diag_rows": "{n} row(s)",
+    "pick_firewall": "Pick a FortiGate",
+    "all_vdoms": "All VDOMs",
+    "none_configured": "No FortiGate configured yet — add one under Admin → FortiGate integration.",
+    "col_action": "Action",
+    "col_src": "Source (intf / addr)",
+    "col_dst": "Destination (intf / addr)",
+    "col_service": "Service",
+    "col_value": "Value / members",
+    "kind_group": "Address group"
   }
 }

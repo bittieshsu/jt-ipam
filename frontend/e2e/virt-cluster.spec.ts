@@ -36,8 +36,13 @@ test.describe("虛擬化 → 叢集 新增/刪除（issue 回報）", () => {
     await row.locator("button.n-button--error-type").click();
     const confirmBtn = page.locator(".n-popconfirm__action button").last();
     await expect(confirmBtn).toBeVisible();
-    await page.mouse.move(0, 0);           // 移開滑鼠，收掉刪除鈕的 tooltip（會蓋住 popconfirm）
-    await confirmBtn.click({ force: true });
+    // 刪除鈕的 tooltip 會蓋在 popconfirm 上，走座標的點擊（即使 force）會被 tooltip 接走，
+    // 改用 dispatchEvent 直接送到按鈕本身。
+    const deleted = page.waitForResponse(
+      (r) => r.request().method() === "DELETE" && r.url().includes("/virt/clusters/"),
+    );
+    await confirmBtn.dispatchEvent("click");
+    await deleted;
 
     // 從列表消失
     await expect(page.locator(".n-data-table-tr", { hasText: name })).toHaveCount(0, { timeout: 10_000 });

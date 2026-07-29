@@ -281,8 +281,10 @@
     "system_logs": "系統記錄",
     "graylog_dsv": "整合 Graylog",
     "pfsense": "整合 pfSense",
+    "fortigate": "整合 FortiGate",
     "windows_dhcp": "整合 Windows DHCP",
-    "pfsense_fw": "防火牆 (pfSense)"
+    "pfsense_fw": "防火牆 (pfSense)",
+    "fortigate_fw": "防火牆 (FortiGate)"
   },
   "topbar": {
     "search": "搜尋…",
@@ -626,7 +628,7 @@
     "saved_cred_ph": "選擇已儲存的帳密…",
     "saved_cred_del_confirm": "刪除這筆已存帳密？",
     "remember": "記住此帳密",
-    "remember_label_ph": "名稱（留空自動以 帳號@IP 命名）",
+    "remember_label_ph": "名稱（留空自動以 帳號{'@'}IP 命名）",
     "store_hint": "勾選後此帳密將以加密方式存於伺服器（僅你本人可用、明文絕不回傳）；下次可直接選用。",
     "use_saved_hint": "使用已儲存的帳密：密碼以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
     "err_save_cred": "儲存帳密失敗",
@@ -667,7 +669,7 @@
     "saved_cred_ph": "選擇已儲存的帳密…",
     "saved_cred_del_confirm": "刪除這筆已存帳密？",
     "remember": "記住此帳密",
-    "remember_label_ph": "名稱（留空自動以 帳號@IP 命名）",
+    "remember_label_ph": "名稱（留空自動以 帳號{'@'}IP 命名）",
     "no_store_hint": "帳號與密碼僅用於本次連線，不會儲存於伺服器。",
     "store_hint": "勾選後此帳密將以加密方式存於伺服器（僅你本人可用、明文絕不回傳）；下次可直接選用。",
     "use_saved_hint": "使用已儲存的帳密：密碼以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
@@ -710,7 +712,7 @@
     "saved_cred_ph": "選擇已儲存的密碼…",
     "saved_cred_del_confirm": "刪除這筆已存密碼？",
     "remember": "記住此密碼",
-    "remember_label_ph": "名稱（留空自動以 vnc@IP 命名）",
+    "remember_label_ph": "名稱（留空自動以 vnc{'@'}IP 命名）",
     "no_store_hint": "密碼僅用於本次連線，不會儲存於伺服器。",
     "store_hint": "勾選後此密碼將以加密方式存於伺服器（僅你本人可用、明文絕不回傳）；下次可直接選用。",
     "use_saved_hint": "使用已儲存的密碼：以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
@@ -1028,7 +1030,8 @@
       "wazuh": "Wazuh",
       "adguard": "AdGuard",
       "snmp": "LibreNMS (sysName)",
-      "windows_dhcp": "Windows DHCP"
+      "windows_dhcp": "Windows DHCP",
+      "fortigate": "FortiGate"
     },
     "model_title": "裝置型號來源順序",
     "model_subtitle": "多個來源（LibreNMS hardware / Proxmox VE / OPNsense）提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
@@ -1094,7 +1097,8 @@
     "role_dhcp_range_hint": "此 IP 落在 DHCP 發放範圍／目前有租約",
     "is_dhcp_server": "標記為 DHCP 伺服器",
     "is_dhcp_server_hint": "在 IP 清單以「DHCP 伺服器」標記此 IP。對應到已整合 OPNsense／pfSense 防火牆的 IP 會自動標記。",
-    "source_windows_dhcp": "Windows DHCP"
+    "source_windows_dhcp": "Windows DHCP",
+    "source_fortigate": "FortiGate"
   },
   "subnets": {
     "title": "子網路",
@@ -1596,7 +1600,7 @@
     "field_type": "資料類型",
     "options": "選用值",
     "options_placeholder": "一行一個選項，例如：\nproduction\nstaging\ndev",
-    "options_hint": "用換行分隔；存到 DB 時自動轉成 {\"choices\": [...]} JSON",
+    "options_hint": "用換行分隔；存到 DB 時自動轉成 {'{'}\"choices\": [...]{'}'} JSON",
     "validation_regex": "驗證正規表達式",
     "regex_hint": "輸入時必須匹配；例如車牌號 ^[A-Z]{3}-[0-9]{4}$",
     "required": "必填",
@@ -1869,7 +1873,7 @@
     "ssh_known_host_placeholder": "點下方「取得 Host fingerprint」按鈕，確認後自動填入；或手動貼 ssh-keyscan 輸出 (單行)",
     "ssh_keypair_title": "操作流程 (首次匯入 phpIPAM 時做一次就好)",
     "ssh_step1_html": "在 <b>任何一台機器</b>(建議 jt-ipam 本機) 跑：<code>ssh-keygen -t ed25519 -f phpipam_migrate -N ''</code>，會產生 <code>phpipam_migrate</code>(私鑰) 與 <code>phpipam_migrate.pub</code>(公鑰) 兩個檔。",
-    "ssh_step2_html": "把 <code>phpipam_migrate.pub</code> 的內容 <b>追加</b> 到 phpIPAM 主機的 <code>~/.ssh/authorized_keys</code>(用下面 SSH 使用者那個帳號)。例：<code>cat phpipam_migrate.pub | ssh root@phpipam-host 'cat >> ~/.ssh/authorized_keys'</code>",
+    "ssh_step2_html": "把 <code>phpipam_migrate.pub</code> 的內容 <b>追加</b> 到 phpIPAM 主機的 <code>~/.ssh/authorized_keys</code>（用下面 SSH 使用者那個帳號）。例：<code>cat phpipam_migrate.pub {'|'} ssh root{'@'}phpipam-host 'cat >> ~/.ssh/authorized_keys'</code>",
     "ssh_step3_html": "回到本頁，把 <b>私鑰</b>(<code>phpipam_migrate</code> 整個檔案內容) 貼到下方欄位 → 按「取得 Host fingerprint」確認後執行匯入。",
     "ssh_step4_html": "匯入完成後，從 phpIPAM 主機的 <code>authorized_keys</code> 把這把 key 移除即可。私鑰不會存進 jt-ipam，只在這次 request 用一次。",
     "ssh_subsection_target": "步驟 1 — 目標 phpIPAM 主機",
@@ -2415,7 +2419,7 @@
     },
     "enable": "啟用",
     "secret_keep": "（已設定，留空＝不變更）",
-    "tg_hint": "用 @BotFather 建立 bot 取得 Token；把 bot 加進群組／頻道後，Chat ID 可用 @userinfobot 或 getUpdates 取得。",
+    "tg_hint": "用 {'@'}BotFather 建立 bot 取得 Token；把 bot 加進群組／頻道後，Chat ID 可用 {'@'}userinfobot 或 getUpdates 取得。",
     "slack_hint": "在 Slack App →「Incoming Webhooks」建立，貼上該頻道的 Webhook URL。",
     "teams_hint": "在頻道 → 連接器／Workflows 建立「Incoming Webhook」，貼上產生的網址。",
     "nc_hint": "在 Nextcloud 用 talk bot（occ talk:bot:install）取得密鑰，並把 bot 加進對話後取得對話 Token。",
@@ -2430,7 +2434,7 @@
     "zulip_stream": "串流 (Stream)",
     "zulip_topic": "主題 (Topic)",
     "webhook_title": "通用 Webhook",
-    "webhook_hint": "POST 一段 JSON 到你指定的 URL：{ \"app\":\"jt-ipam\", \"subject\":..., \"text\":... }。可串 n8n、自寫端點等；選填 Bearer token 會以 Authorization 標頭帶上。",
+    "webhook_hint": "POST 一段 JSON 到你指定的 URL：{'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":... {'}'}。可串 n8n、自寫端點等；選填 Bearer token 會以 Authorization 標頭帶上。",
     "webhook_token": "Bearer Token（選填）",
     "webhook_token_ph": "留空＝不帶授權標頭"
   },
@@ -2739,5 +2743,30 @@
     "scopes": "發放範圍（scope）",
     "leases": "租約",
     "test_ok": "連線成功 —— 找到 {n} 個發放範圍"
+  },
+  "fortigate": {
+    "title": "FortiGate",
+    "view_title": "防火牆 (FortiGate)",
+    "intro": "透過 FortiOS REST API 唯讀同步 FortiGate（只執行 GET，不會更動防火牆上的任何設定）。需要一組唯讀 REST API 管理員的 API token，且後端要連得到該設備的管理介面。",
+    "token": "API token",
+    "token_keep": "API token（留空表示不更改）",
+    "token_hint": "請在 FortiGate 建立 REST API 管理員並產生 token。token 以 Authorization 標頭傳送（?access_token= 網址參數形式已淘汰，FortiOS 7.4.5／7.6.1 起預設停用）。注意：FIPS-CC 模式不支援 API token。",
+    "vdom_ph": "留空＝自動探索全部 VDOM（或自行列出：root, vdom1）",
+    "vdom_auto": "自動（全部）",
+    "pull_what": "要拉取的資料",
+    "policies": "防火牆政策",
+    "addresses": "位址物件",
+    "diagnose": "測試連線",
+    "diag_summary": "{total} 個端點中有 {ok} 個可讀取",
+    "diag_rows": "{n} 筆",
+    "pick_firewall": "選擇 FortiGate",
+    "all_vdoms": "全部 VDOM",
+    "none_configured": "尚未設定 FortiGate —— 請到「管理 → 整合 FortiGate」新增。",
+    "col_action": "動作",
+    "col_src": "來源（介面／位址）",
+    "col_dst": "目的（介面／位址）",
+    "col_service": "服務",
+    "col_value": "值／成員",
+    "kind_group": "位址群組"
   }
 }

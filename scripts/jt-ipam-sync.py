@@ -32,6 +32,7 @@ async def _run() -> int:
 
     from app.core.db import SessionLocal
     from app.models.adguard import AdGuardInstance
+    from app.models.fortigate import FortiGateFirewall
     from app.models.windows_dhcp import WindowsDhcpServer
     from app.models.dns import DNSServer
     from app.models.firewall import OPNsenseFirewall
@@ -40,6 +41,7 @@ async def _run() -> int:
     from app.models.virt import ProxmoxInstance, VirtCluster
     from app.models.wazuh import WazuhInstance
     from app.services import adguard as adguard_svc
+    from app.services import fortigate as fortigate_svc
     from app.services import windows_dhcp as windows_dhcp_svc
     from app.services import librenms as librenms_svc
     from app.services import opnsense_firewall as fw_svc
@@ -203,6 +205,33 @@ async def _run() -> int:
                 log.error("adguard %s sync failed: %s", name, exc)
                 failed += 1
                 await _hb(session, kind="adguard.sync", target_type="adguard_instance",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── FortiGate（Beta；FortiOS REST API 唯讀）──
+        fgs = (
+            await session.execute(
+                select(FortiGateFirewall).where(FortiGateFirewall.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in fgs:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await fortigate_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("fortigate %s: %s", name, summary)
+                await _hb(session, kind="fortigate.sync", target_type="fortigate_firewall",
+                          target_id=inst.id, target_label=name, ok=True,
+                          summary=summary if isinstance(summary, dict) else None)
+            except Exception as exc:  # noqa: BLE001
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("fortigate %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="fortigate.sync", target_type="fortigate_firewall",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
 
         # ── Windows DHCP Server（Beta；WinRM 唯讀拉 scope/租約）──

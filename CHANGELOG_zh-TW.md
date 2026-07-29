@@ -4,6 +4,24 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.115] — 2026-07-29
+
+### 新增
+- **FortiGate 整合（Beta）** —— 與 OPNsense、pfSense 並列的獨立整合，各自保有自己的設定與同步。透過 FortiOS REST API 讀取（**只執行 GET，不會更動防火牆上的任何設定**），並支援**多 VDOM**（可自行列出或自動探索；非 VDOM 模式的設備退回 `root`）：
+  - **DHCP 租約**與 **ARP** 只標記既有位址（`in_dhcp_lease`、MAC、主機名稱），**絕不自動新建位址**，與其他防火牆整合一致
+  - **DHCP 發放範圍**寫入共用的多來源範圍表，來源標為 `fortigate`
+  - **IPsec 站對站通道**寫入既有的 VPN 通道表；**SSL-VPN 連線**則標記其配發到的通道 IP
+  - **NAT**（VIP → DNAT／port forward、IP pool → SNAT）併入既有 NAT 規則頁，可用「FortiGate」來源篩選
+  - **防火牆政策**與**位址物件／群組**鏡像進各自的資料表，並提供可依 VDOM 篩選的唯讀檢視頁
+  - **測試連線**會逐端點做連線診斷（哪些端點讀得到、各幾筆），方便快速看出不同 FortiOS 版本的欄位差異
+- 已將 `fortigate` 登錄為主機名稱與 MAC 的來源，可納入既有的來源優先序設定。
+
+### 附註
+- 認證使用 `Authorization: Bearer` 標頭。刻意不採用 `?access_token=` 網址參數形式 —— 該形式屬 PSIRT FG-IR-24-268 範圍，且自 FortiOS 7.4.5／7.6.1 起預設停用。另外 FIPS-CC 模式不支援 API token，錯誤訊息會明確提示這點。
+- 開發期間**沒有實機可測**：端點路徑與欄位名依官方文件，且所有欄位一律容錯解析，因此 FortiOS 版本差異只會讓「該項抓不到資料」，不會拖垮其他同步。故標示為 **Beta** —— 請用連線診斷對實機確認。
+- **安裝／升級不需任何改動**（無新套件、無新服務、無新系統套件）。後端需連得到 FortiGate 管理介面；設備位於私有網段時需啟用 `OUTBOUND_ALLOW_PRIVATE`。
+
+
 ## [0.5.114] — 2026-07-29
 
 ### 修正
