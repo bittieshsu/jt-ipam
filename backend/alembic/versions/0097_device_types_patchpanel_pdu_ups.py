@@ -17,7 +17,7 @@ depends_on = None
 _OLD = "type IN ('server','switch','router','firewall','ap','storage','ipmi','other')"
 _NEW = ("type IN ('server','switch','router','firewall','ap','storage','ipmi',"
         "'patch_panel','pdu','ups','other')")
-# 約束在歷史裡可能被命名慣例前綴（甚至雙重前綴），用 IF EXISTS 全掃再重建
+# 約束在歷史裡可能被命名慣例首碼（甚至雙重首碼），用 IF EXISTS 全掃再重建
 _NAMES = (
     "device_type_valid",
     "ck_devices_device_type_valid",

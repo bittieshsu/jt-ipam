@@ -1,7 +1,7 @@
 """FortiGate 整合（Beta）：實例 / 政策 / 位址物件三張表 + 放寬 nat_translations.external_id
 
 external_id 原本 String(64)；FortiGate 的 NAT 以 `<vdom>:<物件名>` 當外部識別，
-FortiOS 物件名可長達 79 字，加上 VDOM 前綴會超過 64 → 放寬到 200（純放寬，不影響既有值）。
+FortiOS 物件名可長達 79 字，加上 VDOM 首碼會超過 64 → 放寬到 200（純放寬，不影響既有值）。
 
 Revision ID: 0100_fortigate
 Revises: 0099_windows_dhcp_servers

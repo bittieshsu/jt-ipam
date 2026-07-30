@@ -24,7 +24,7 @@ import asyncssh
 
 # 相容（legacy）演算法：連老舊網路裝置用（如 D-Link DGS-1510、老 switch / 防火牆，
 # 這類機種常只提供 CBC 加密、group1 / group14-sha1 金鑰交換、ssh-rsa（SHA-1）host key）。
-# 以 "+" 前綴「附加」到 asyncssh 預設集之後 → 連現代裝置時仍優先協商強演算法（chacha20 /
+# 以 "+" 首碼「附加」到 asyncssh 預設集之後 → 連現代裝置時仍優先協商強演算法（chacha20 /
 # aes-gcm / curve25519 / ed25519），只有對方完全不支援時才退到這些較舊的。
 # 刻意排除真正破掉的 arcfour / blowfish / cast / des。
 LEGACY_SSH_ALGS: dict[str, str] = {

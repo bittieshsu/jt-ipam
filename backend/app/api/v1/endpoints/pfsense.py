@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_admin
+from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
@@ -21,6 +21,13 @@ from app.services import pfsense as svc
 
 router = APIRouter(
     prefix="/pfsense", tags=["pfsense"], dependencies=[Depends(require_admin)],
+)
+# 已同步的規則／別名屬「全域基礎設施資料」→ 唯讀檢視給具全域讀取權者，
+# 與 FortiGate 一致（唯讀檢視頁「防火牆 (pfSense)」掛在「進階」而非管理區）。
+# 實例清單也在這裡：檢視頁要用它列出可選的防火牆；PfSenseRead 不含 API key
+# （只有 has_key 布林旗標）。異動與「即時連到設備抓 NAT」仍限 admin。
+view_router = APIRouter(
+    prefix="/pfsense", tags=["pfsense"], dependencies=[Depends(require_global_read)],
 )
 
 
@@ -97,7 +104,7 @@ async def _get_or_404(session: AsyncSession, fw_id: uuid.UUID) -> PfSenseFirewal
     return fw
 
 
-@router.get("")
+@view_router.get("")
 async def list_firewalls(
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -234,7 +241,7 @@ async def sync_firewall(
     return {"ok": True, "counts": counts}
 
 
-@router.get("/{fw_id}/rules")
+@view_router.get("/{fw_id}/rules")
 async def list_rules(
     fw_id: uuid.UUID, session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
@@ -255,7 +262,7 @@ async def get_nat(
         raise HTTPException(502, detail=str(exc)) from exc
 
 
-@router.get("/{fw_id}/aliases")
+@view_router.get("/{fw_id}/aliases")
 async def list_aliases(
     fw_id: uuid.UUID, session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:

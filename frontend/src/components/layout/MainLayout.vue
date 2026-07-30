@@ -35,7 +35,7 @@ import {
   // Phase 3 / Admin
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon, ChatHistoryIcon,
-  DnsIcon, LibreNMSIcon, FirewallIcon, DhcpServerIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon,
+  DnsIcon, LibreNMSIcon, FirewallIcon, DhcpServerIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon,
@@ -322,6 +322,8 @@ const userMenuOptions = computed(() => [
   { label: t("topbar.user_menu.profile"),     key: "profile",     icon: renderIcon(UserOutline, 16) },
   { label: t("topbar.user_menu.preferences"), key: "preferences", icon: renderIcon(SettingsIcon, 16) },
   { label: t("topbar.user_menu.my_chat_history"), key: "my_chat_history", icon: renderIcon(ChatHistoryIcon, 16) },
+  // API 權杖：自助功能，每個帳號管自己的（權杖繼承該帳號權限）
+  { label: t("nav.api_tokens"),                key: "api_tokens",  icon: renderIcon(KeyIcon, 16) },
   // 變更密碼：僅本機帳號（外部 IdP / LDAP 由來源端管理）
   ...(me.value?.auth_provider === "local"
     ? [{ label: t("account.change_password"), key: "change_password", icon: renderIcon(LockIcon, 16) }]
@@ -352,6 +354,8 @@ async function handleUserMenu(key: string) {
     router.push({ name: "settings" });
   } else if (key === "my_chat_history") {
     router.push({ name: "my_chat_history" });
+  } else if (key === "api_tokens") {
+    router.push({ name: "api_tokens" });
   } else if (key === "change_password") {
     pwModalShow.value = true;
   }

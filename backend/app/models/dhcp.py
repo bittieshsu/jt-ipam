@@ -19,14 +19,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
-# 允許的來源整合（source_type）
-DHCP_SOURCE_TYPES = ("opnsense", "pfsense", "windows_dhcp")
+# 允許的來源整合（source_type）。新增 DHCP 來源整合時要一起加進來，
+# 否則這份清單會跟實際寫進 source_type 的值脫節（目前沒有 CHECK 約束在讀它，
+# 但它是這張表「有哪些來源」的唯一書面依據）。
+DHCP_SOURCE_TYPES = ("opnsense", "pfsense", "windows_dhcp", "fortigate")
 
 
 class DHCPPoolRange(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "dhcp_pool_ranges"
 
-    # 哪個整合寫的（不設 FK：跨三張來源表；各整合刪除時自行清除自己的列）
+    # 哪個整合寫的（不設 FK：跨多張來源表；各整合刪除時自行清除自己的列）
     source_type: Mapped[str] = mapped_column(String(24), nullable=False)
     source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     source_name: Mapped[str | None] = mapped_column(String(128))   # 顯示用快照（免跨表 join）

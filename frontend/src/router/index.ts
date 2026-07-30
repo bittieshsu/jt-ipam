@@ -58,6 +58,10 @@ const routes: RouteRecordRaw[] = [
       { path: "tasks", name: "tasks", component: () => import("@/views/Tasks.vue") },
       { path: "topology", name: "topology", component: () => import("@/views/Topology.vue") },
       { path: "settings", name: "settings", component: () => import("@/views/Settings.vue") },
+      // API 權杖是自助功能（每個帳號管自己的），不掛 admin。
+      // 路徑刻意放在 /account/ 底下：nginx 是 `location /api/`（帶斜線）所以 /api-tokens
+      // 其實不會被反代吃掉，但只差一個字元，換成 /account/ 就不必依賴那個細節。
+      { path: "account/api-tokens", name: "api_tokens", component: () => import("@/views/ApiTokens.vue") },
       { path: "notifications", name: "notifications", component: () => import("@/views/Notifications.vue") },
       // Admin
       { path: "audit", name: "audit", component: () => import("@/views/Audit.vue"), meta: { admin: true } },

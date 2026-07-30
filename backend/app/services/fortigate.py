@@ -339,7 +339,7 @@ async def sync_vpn(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             existing.b_endpoint = str(d.get("rgwy") or "")[:255] or None
             existing.pairing_method = "ipsec_endpoint"
             tunnels += 1
-    # 清掉這台先前建立、這次沒看到的隧道（只動自己的命名前綴）
+    # 清掉這台先前建立、這次沒看到的隧道（只動自己的命名首碼）
     stale = (await session.execute(
         select(VPNTunnel).where(VPNTunnel.name.like(f"{prefix}%"))
     )).scalars().all()

@@ -2,7 +2,7 @@
 
 驗證 LEGACY_SSH_ALGS：
 - 涵蓋連老舊網路裝置所需的四類演算法（enc / kex / mac / host key）
-- 以 "+" 前綴附加（現代裝置仍優先強演算法）
+- 以 "+" 首碼附加（現代裝置仍優先強演算法）
 - 刻意排除真正破掉的 arcfour / blowfish / cast / des
 - asyncssh 能吃這份設定（SSHClientConnectionOptions 建得起來）
 """
@@ -28,7 +28,7 @@ def test_legacy_algs_include_client_ssh_rsa_signature():
 
 
 def test_legacy_algs_are_additive():
-    # 每一項都用 "+" 前綴 → 附加到 asyncssh 預設集之後，不取代
+    # 每一項都用 "+" 首碼 → 附加到 asyncssh 預設集之後，不取代
     for spec in LEGACY_SSH_ALGS.values():
         assert spec.startswith("+"), spec
 

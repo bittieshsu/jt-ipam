@@ -284,7 +284,8 @@
     "fortigate": "整合 FortiGate",
     "windows_dhcp": "整合 Windows DHCP",
     "pfsense_fw": "防火牆 (pfSense)",
-    "fortigate_fw": "防火牆 (FortiGate)"
+    "fortigate_fw": "防火牆 (FortiGate)",
+    "api_tokens": "API 權杖"
   },
   "topbar": {
     "search": "搜尋…",
@@ -2768,5 +2769,36 @@
     "col_service": "服務",
     "col_value": "值／成員",
     "kind_group": "位址群組"
+  },
+  "api_tokens": {
+    "title": "API 權杖",
+    "intro": "API 權杖用來讓外部程式呼叫 jt-ipam 的 API。權杖繼承你這個帳號的權限，明文只在建立當下顯示一次。",
+    "manual_link": "API 使用手冊",
+    "create_title": "建立 API 權杖",
+    "name": "名稱",
+    "name_ph": "用途說明，例如：監控腳本",
+    "name_required": "請輸入名稱",
+    "expires_in_days": "有效天數（1～365）",
+    "prefix": "首碼",
+    "scope": "權限範圍",
+    "scope_full": "不限制（沿用本帳號權限，可讀可寫）",
+    "scope_read": "唯讀（禁止任何會改資料的操作）",
+    "scope_hint": "唯讀權杖遇到 POST／PATCH／PUT／DELETE 一律回 403。要進一步限制只能存取特定物件，請另建低權限使用者、用權限管理授權指定物件，再以該帳號建立權杖。",
+    "tag_read": "唯讀",
+    "tag_full": "不限制",
+    "status": "狀態",
+    "st_active": "有效",
+    "st_expired": "已到期",
+    "st_revoked": "已撤銷",
+    "expires_at": "到期時間",
+    "last_used": "最後使用",
+    "last_used_ip": "最後使用 IP",
+    "revoke": "撤銷",
+    "revoke_confirm": "撤銷後立即失效，且無法復原。確定要撤銷嗎？",
+    "revoked": "已撤銷",
+    "created_title": "權杖已建立",
+    "created_warn": "請立刻複製並妥善保存 —— 關閉這個視窗後就再也看不到明文了。",
+    "created_usage": "用法（放在 Authorization 標頭）：",
+    "created_done": "我已保存好"
   }
 }

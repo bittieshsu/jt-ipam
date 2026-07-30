@@ -136,7 +136,7 @@ async def test_dhcp_ranges_written_with_own_source(db_session, admin_user, monke
 
 @pytest.mark.anyio
 async def test_nat_vip_and_ippool(db_session, admin_user, monkeypatch) -> None:
-    """VIP 的 mappedip 是 [{"range": ...}]；external_id 帶 VDOM 前綴且不與其他來源衝突。"""
+    """VIP 的 mappedip 是 [{"range": ...}]；external_id 帶 VDOM 首碼且不與其他來源衝突。"""
     from app.models.nat import NATTranslation
     fw = await _mk_fw(db_session, "fgt-nat", vdoms=["root"])
     _patch_api(monkeypatch, {
@@ -264,15 +264,16 @@ async def test_delete_firewall_cleans_shared_tables(db_session, admin_user, monk
         external_id="root:x"))
     await db_session.commit()
 
-    await db_session.execute(
-        __import__("sqlalchemy").delete(DHCPPoolRange).where(
-            DHCPPoolRange.source_type == "fortigate", DHCPPoolRange.source_id == fw.id))
-    await db_session.execute(
-        __import__("sqlalchemy").delete(NATTranslation).where(
-            NATTranslation.source_origin == f"fortigate:{fw.id}"))
-    await db_session.commit()
+    # 呼叫端點真正用的那個清理函式，不要在測試裡重寫一份同樣的 DELETE ——
+    # 否則端點漏清共用表，這個測試照樣會綠。
+    from app.api.v1.endpoints.fortigate import cleanup_shared_rows
+
+    await cleanup_shared_rows(db_session, fw.id)
+    await db_session.flush()
 
     assert await db_session.scalar(select(func.count()).select_from(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "fortigate")) == 0
     assert await db_session.scalar(select(func.count()).select_from(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "opnsense")) == 1      # 其他來源不受影響
+    assert await db_session.scalar(select(func.count()).select_from(NATTranslation).where(
+        NATTranslation.source_origin == f"fortigate:{fw.id}")) == 0

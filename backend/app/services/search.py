@@ -33,7 +33,7 @@ ResultType = Literal[
 ]
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:\-]){2,5}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{6,12}$")
-# MAC 片段（前綴）：含分隔符的 hex 片段，如 "bc:24" / "bc:24:11" / "bc-24"。
+# MAC 片段（首碼）：含分隔符的 hex 片段，如 "bc:24" / "bc:24:11" / "bc-24"。
 # 至少一組分隔，每段 1~2 個 hex；用來讓使用者打部分 MAC 也能搜到。
 _MAC_FRAGMENT_RE = re.compile(r"^[0-9A-Fa-f]{2}([:\-][0-9A-Fa-f]{1,2}){1,5}$")
 

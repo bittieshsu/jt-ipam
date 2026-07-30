@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.116] — 2026-07-30
+
+### Security
+- **API token `scopes` are now actually enforced.** The column existed and could be set, but **nothing in the codebase ever read it** — a token created with `scopes: ["read"]` could still delete subnets, because tokens simply inherited their owner's full RBAC permissions. A read-only token now gets `403` on `POST`/`PATCH`/`PUT`/`DELETE`, enforced at all three places that accept a `jt_` token: the REST API, the phpIPAM compatibility layer, and MCP (which reuses its existing read-only mode, since JSON-RPC is always `POST`).
+  - `scopes: []` still means unrestricted, so **existing tokens keep working**.
+  - Creating a token with any other scope value (`write`, `subnets:read`, …) is now rejected with `422` rather than silently accepted and ignored.
+  - Exception: `DELETE /api/phpipam/<app>/user/` (revoking your own token) stays allowed for read-only tokens — that reduces privilege rather than changing data, and blocking it would break the classic login → query → logout flow.
+  - `object_filters` is still **not** enforced. To restrict a token to specific objects, create a low-privilege user, grant it those objects via RBAC, and create the token as that user. The field is now documented as reserved in both the API schema and the UI.
+
+### Security
+- **RBAC audit across recently-added features — six real gaps closed.** Every claim below was verified against the code before changing anything.
+  - **GraphQL was a parallel API surface that RBAC had never caught up with.** It is not a FastAPI route, so it does not appear in dependency-tree scans and was nearly missed entirely. Three resolvers had no authorization at all: `devices` (any authenticated account could enumerate every device), `vlans` (bypassed the `require_global_read` that guards `GET /api/v1/vlans`), and `trace_ip` (ARP/FDB lookup — resolve any IP to its switch and port). All three now apply the same checks as their REST counterparts, via a `_assert_global_read()` helper that mirrors `require_global_read` exactly.
+  - **IDOR on locations**: `GET /locations/{id}` and `GET /locations/{id}/floorplan` only required *authentication*, so any signed-in account could read any location and download any machine-room floor plan by id. Both now require `require_object_perm("location", "read")`. A systematic scan of every per-object detail endpoint confirmed these two were the only gaps.
+  - **`total` leaked global counts** on `GET /sections` and `GET /subnets`: rows were filtered *after* pagination while the count query had no visibility condition, so a restricted account learned how many sections/subnets exist system-wide — and pagination was broken (pages returned fewer than `page_size` rows, sometimes none). Both now apply the visible-id filter to the query *before* paginating, so `total` is the visible count.
+  - **Firewall read-only views were inconsistent**: pfSense's rules/aliases were admin-only while the frontend「防火牆 (pfSense)」view page sits under Advanced (not Admin), so a non-admin with global read saw the menu entry and hit 403. FortiGate had the same defect from a different angle — its view page needs `GET /fortigate` to enumerate firewalls, and that endpoint was on the admin router. Both are now split consistently: stored read data and the instance list are `require_global_read`; writes and the live device fetch (`GET /pfsense/{id}/nat`) stay `require_admin`. Verified first that neither read schema exposes a token (`has_key` is only a boolean flag), with a test pinning that.
+- Ten regression tests added, each reverse-verified: removing the corresponding fix turns its test red. That step caught a flaw in the tests themselves — the `total` tests originally used a zero-permission account, which short-circuits before the count query runs and so could not detect the leak at all; they now use *partial* visibility (three objects, one granted).
+
+### Notes
+- Three audit findings were investigated and **rejected** as incorrect: `/customers/{id}/summary` does not leak (a read grant on a customer legitimately inherits down to its sections/subnets/IPs/devices — pinned by a test on the inheritance table); `/vlans` and `/vrfs` are `require_global_read`, not `require_admin`; and the sidebar already hides VLAN/VRF/NAT for accounts without global read.
+- Adding `can_edit` gating to the integration admin pages was also rejected: those routes are `meta: { admin: true }` and `can_edit` is unconditionally true for admins, so it would be dead code.
+
+### Added
+- **API token management UI** (user menu → API tokens). Previously tokens could only be created by calling the API with a JWT — there was no page for it at all, which made handing an API token to a customer awkward. Lists your own tokens with status, scope, expiry and last use; creates them with a read-only or unrestricted choice; shows the plaintext exactly once with a copy button and a ready-to-paste `curl` example; revokes with confirmation.
+- **API manual on GitHub Pages** (`docs/api.html`, bilingual, linked from the site nav): token auth and scopes, conventions and pagination, error and status-code reference, how the permission model shapes results, the core resources (sections / subnets / addresses / devices) with parameter tables and `curl` examples, an index of all ~500 routes by area, the phpIPAM-compatible API, Graylog DSV lookups, MCP, agent protocols, rate limits, CORS, and how to obtain the OpenAPI spec.
+
+### Fixed
+- **`DHCP_SOURCE_TYPES` had gone stale**: FortiGate already wrote `source_type="fortigate"` into `dhcp_pool_ranges`, but the constant still listed only opnsense / pfsense / windows_dhcp. Nothing read the constant, so nothing was broken at runtime — but it was the only written record of which sources that table carries, and it had silently drifted. Added `fortigate`, plus a test that scans the service layer for `source_type=` literals and fails if any is undeclared (or declared but unused), so it cannot drift again.
+- The FortiGate delete test **reimplemented** the endpoint's cleanup SQL instead of exercising it, so it would have passed even if the endpoint had forgotten to clean the shared `dhcp_pool_ranges` / `nat_translations` rows. Extracted that cleanup into `cleanup_shared_rows()` and pointed the test at the real function.
+- Terminology: replaced the remaining "前綴" with "首碼" (Taiwan usage) across the Chinese changelog and code comments, keeping the entries that describe the terminology change itself.
+
 ## [0.5.115] — 2026-07-29
 
 ### Added

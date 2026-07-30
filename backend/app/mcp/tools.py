@@ -824,7 +824,7 @@ async def allocate_ip(
     （取最精確的一個）來配發，使用者不必先知道子網路。"""
     if not user.is_admin:
         raise IPAMToolError("allocate_ip requires admin")
-    # 只給 requested_ip 時，自動推導包含它的子網路（最長前綴優先）
+    # 只給 requested_ip 時，自動推導包含它的子網路（最長首碼優先）
     if not subnet_id and not subnet_cidr and requested_ip:
         row = (await session.execute(
             text(

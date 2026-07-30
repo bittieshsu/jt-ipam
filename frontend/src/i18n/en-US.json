@@ -284,7 +284,8 @@
     "fortigate": "FortiGate",
     "windows_dhcp": "Windows DHCP",
     "pfsense_fw": "Firewall (pfSense)",
-    "fortigate_fw": "Firewall (FortiGate)"
+    "fortigate_fw": "Firewall (FortiGate)",
+    "api_tokens": "API tokens"
   },
   "topbar": {
     "search": "Search…",
@@ -2770,5 +2771,36 @@
     "col_service": "Service",
     "col_value": "Value / members",
     "kind_group": "Address group"
+  },
+  "api_tokens": {
+    "title": "API tokens",
+    "intro": "API tokens let external programs call the jt-ipam API. A token inherits your account's permissions, and the plaintext is shown only once, at creation.",
+    "manual_link": "API manual",
+    "create_title": "Create an API token",
+    "name": "Name",
+    "name_ph": "What it's for, e.g. monitoring script",
+    "name_required": "Please enter a name",
+    "expires_in_days": "Valid for (1–365 days)",
+    "prefix": "Prefix",
+    "scope": "Scope",
+    "scope_full": "Unrestricted (inherits this account's permissions, read and write)",
+    "scope_read": "Read-only (no operation that changes data)",
+    "scope_hint": "A read-only token gets 403 on POST/PATCH/PUT/DELETE. To restrict a token to specific objects, create a low-privilege user, grant it those objects under Permissions, and create the token as that user.",
+    "tag_read": "Read-only",
+    "tag_full": "Unrestricted",
+    "status": "Status",
+    "st_active": "Active",
+    "st_expired": "Expired",
+    "st_revoked": "Revoked",
+    "expires_at": "Expires",
+    "last_used": "Last used",
+    "last_used_ip": "Last used IP",
+    "revoke": "Revoke",
+    "revoke_confirm": "Revoking takes effect immediately and cannot be undone. Revoke this token?",
+    "revoked": "Revoked",
+    "created_title": "Token created",
+    "created_warn": "Copy it now and store it safely — once you close this dialog the plaintext is gone for good.",
+    "created_usage": "Usage (send it in the Authorization header):",
+    "created_done": "I've saved it"
   }
 }

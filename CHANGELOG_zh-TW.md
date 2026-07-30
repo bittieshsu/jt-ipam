@@ -4,6 +4,36 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.116] — 2026-07-30
+
+### 安全性
+- **API 權杖的 `scopes` 現在真的生效了。** 這個欄位一直存在、也可以填，但**整個程式庫從來沒有任何地方讀取它** —— 填了 `scopes: ["read"]` 的權杖照樣能刪子網路，因為權杖單純繼承擁有者的完整 RBAC 權限。現在唯讀權杖遇到 `POST`／`PATCH`／`PUT`／`DELETE` 一律回 `403`，三個會接受 `jt_` 權杖的地方都補上了：REST API、phpIPAM 相容層，以及 MCP（JSON-RPC 永遠是 `POST`，所以改走它既有的唯讀模式）。
+  - `scopes: []` 仍然代表不限制，所以**既有權杖不會失效**。
+  - 建立時填其他 scope 值（`write`、`subnets:read`…）現在會被拒絕回 `422`，不再默默收下卻不執行。
+  - 例外：`DELETE /api/phpipam/<app>/user/`（撤銷自己的權杖）對唯讀權杖照樣放行 —— 那是降權、不是異動資料，擋掉會讓老腳本的「登入 → 查詢 → 登出」流程斷在最後一步。
+  - `object_filters` 目前**仍不生效**。要限制權杖只能碰特定物件，請另建低權限使用者、用 RBAC 授權指定物件，再以該帳號建立權杖。這個欄位現在在 API schema 與介面上都明確標註為保留欄位。
+
+### 安全性
+- **近期新增功能的 RBAC 稽核 —— 修好 6 個真漏洞。** 下面每一條都先對照程式碼驗證過才動手。
+  - **GraphQL 是一個 RBAC 從來沒跟上的平行 API 表面。** 它不是 FastAPI 路由，不會出現在 dependency 樹掃描裡，差點整個漏掉。三個 resolver 完全沒有授權檢查：`devices`（任何已登入帳號可列舉全部裝置）、`vlans`（繞過守著 `GET /api/v1/vlans` 的 `require_global_read`）、`trace_ip`（ARP／FDB 反查 —— 把任意 IP 解析到它所在的交換器與連接埠）。三者現在都套上與 REST 相同的檢查，透過與 `require_global_read` 完全一致的 `_assert_global_read()`。
+  - **地點的 IDOR**：`GET /locations/{id}` 與 `GET /locations/{id}/floorplan` 只要求**認證**，所以任何已登入帳號憑 id 就能讀任何地點、下載任何機房平面圖。兩支現在都要 `require_object_perm("location", "read")`。系統性掃過所有逐物件詳情端點，確認缺口只有這兩支。
+  - **`total` 洩漏全域數量**：`GET /sections` 與 `GET /subnets` 是**先分頁再過濾**，而 count 查詢完全沒有可見性條件，所以受限帳號會得知全系統有幾個區段／子網路 —— 而且分頁是壞的（每頁回傳少於 `page_size`，有時整頁空白）。兩支都改成**先**把可見範圍套進查詢再分頁，`total` 才是可見筆數。
+  - **防火牆唯讀檢視守門不一致**：pfSense 的規則／別名是 admin 專屬，但前端「防火牆 (pfSense)」檢視頁掛在「進階」（不是管理區），所以具全域讀取的非 admin 看得到選單卻撞 403。FortiGate 從另一個角度有同樣的缺陷 —— 它的檢視頁要用 `GET /fortigate` 列舉防火牆，而那支掛在 admin router 上。兩邊現在一致拆開：已同步的讀取資料與實例清單為 `require_global_read`，異動與即時連到設備抓取（`GET /pfsense/{id}/nat`）維持 `require_admin`。放寬前先確認兩個 read schema 都不含權杖（`has_key` 只是布林旗標），並加測試釘住。
+- 新增 10 個回歸測試，並逐一反向驗證：拆掉對應的修正，該測試就會變紅。這一步抓到測試本身的缺陷 —— `total` 的測試原本用零權限帳號，會在 count 查詢執行前就短路，根本測不到那個洩漏；現在改用**部分可見**（3 個物件授權 1 個）。
+
+### 附註
+- 稽核有 3 項結論經查證後**不採納**：`/customers/{id}/summary` 沒有洩漏（對客戶的 read 本來就會向下繼承到旗下 section／subnet／IP／裝置 —— 已用測試釘住繼承表）；`/vlans` 與 `/vrfs` 是 `require_global_read` 而不是 `require_admin`；側邊選單早就會對無全域讀取的帳號隱藏 VLAN／VRF／NAT。
+- 「整合管理頁要加 `can_edit` 反灰」也不採納：那些路由都是 `meta: { admin: true }`，而 `can_edit` 對 admin 一律為真，加了是死程式碼。
+
+### 新增
+- **API 權杖管理介面**（使用者選單 → API 權杖）。以前只能用 JWT 呼叫 API 才建得出權杖，根本沒有對應頁面，要發一把權杖給客戶很不方便。現在可列出自己的權杖（狀態／權限範圍／到期／最後使用）、建立時選唯讀或不限制、建立完成一次性顯示明文並附複製鈕與可直接貼上的 `curl` 範例、撤銷前二次確認。
+- **GitHub Pages 上的 API 使用手冊**（`docs/api.html`，雙語，已掛進站台導覽）：權杖認證與權限範圍、通用慣例與分頁、錯誤與狀態碼對照、權限模型如何影響回傳結果、核心資源（區段／子網路／IP 位址／裝置）的參數表與 `curl` 範例、約 500 條路由依分類的完整索引、phpIPAM 相容 API、Graylog DSV 查表、MCP、代理協定、速率限制、CORS，以及怎麼取得 OpenAPI 規格。
+
+### 修正
+- **`DHCP_SOURCE_TYPES` 已經過期**：FortiGate 早就在往 `dhcp_pool_ranges` 寫 `source_type="fortigate"`，但這個常數還只列 opnsense／pfsense／windows_dhcp。因為沒有任何程式在讀它，執行期沒壞掉 —— 但它是「這張表有哪些來源」的唯一書面依據，而它默默漂走了。已補上 `fortigate`，並加一個測試去掃 service 層所有 `source_type=` 字面值，只要有沒登錄的（或登錄了卻沒人用的）就紅，讓它不能再漂。
+- FortiGate 的刪除測試原本**自己重寫一份**端點的清理 SQL，而不是去跑那段真正的邏輯 —— 端點若漏清共用的 `dhcp_pool_ranges`／`nat_translations`，測試照樣會綠。已把清理抽成 `cleanup_shared_rows()`，測試改打真正的函式。
+- 用詞：把繁中變更記錄與程式註解裡殘留的「前綴」一律改成「首碼」（台灣慣用），描述這項用詞變更本身的條目維持原樣。
+
 ## [0.5.115] — 2026-07-29
 
 ### 新增
@@ -25,7 +55,7 @@
 ## [0.5.114] — 2026-07-29
 
 ### 修正
-- 繁中選單：Windows DHCP 補上「整合 」前綴（「整合 Windows DHCP」），與同區塊其他整合項目一致。
+- 繁中選單：Windows DHCP 補上「整合 」首碼（「整合 Windows DHCP」），與同區塊其他整合項目一致。
 
 
 ## [0.5.113] — 2026-07-29
@@ -265,7 +295,7 @@
 ## [0.5.79] — 2026-07-02
 
 ### 變更
-- 通知用詞：站內通知 → 通知（依台灣慣用，去掉「站內」前綴）。
+- 通知用詞：站內通知 → 通知（依台灣慣用，去掉「站內」首碼）。
 
 
 ## [0.5.78] — 2026-07-02
@@ -1744,9 +1774,9 @@
 
 ### 修正
 - **憑證頁 405 /「伺服器發生錯誤」(憑證 API client 路徑漏 /api/v1)** — `certificates.ts` 的
-  API 呼叫(以及 `integrations.ts` 的重疊網段檢查)漏掉共用 axios client 需要的 `/api/v1` 前綴
+  API 呼叫(以及 `integrations.ts` 的重疊網段檢查)漏掉共用 axios client 需要的 `/api/v1` 首碼
   (它的 baseURL 是 `/`)，導致請求打到 SPA 路徑(`/certificates`、`/cert-agents`)→ nginx 對
-  POST 回 405、對 GET 回 index.html。已全部補上正確前綴。憑證管理頁、派送代理、產自簽、進階現況
+  POST 回 405、對 GET 回 index.html。已全部補上正確首碼。憑證管理頁、派送代理、產自簽、進階現況
   頁都正常了。
 - 補上憑證/代理「儲存」按鈕漏掉的 icon。
 
@@ -1913,7 +1943,7 @@
 - **IP 位址**：新增 `in_dhcp_lease`（migration 0074）由 OPNsense DHCP lease 同步**自動標記/撤銷**；
   phpIPAM 匯入來源改標 `phpipam`（原本一律誤標「手動」）；OPNsense DHCP/ARP 同步加上防火牆關聯子網路
   範圍 + `limit(1)`，修重疊網段同 IP 的 `MultipleResultsFound` 整批 crash。
-- **全域搜尋**：支援**部分 MAC 前綴**（如 `bc:24`）；DNS 記錄搜尋結果改導向「進階 → DNS 記錄」並把名稱代入搜尋。
+- **全域搜尋**：支援**部分 MAC 首碼**（如 `bc:24`）；DNS 記錄搜尋結果改導向「進階 → DNS 記錄」並把名稱代入搜尋。
 - **機櫃**：合併單卡也能匯出 **SVG / PNG / draw.io**（整機房多櫃並排）；draw.io 方塊改**直角**與畫面一致。
 - **AI 對話**：零相依 Markdown 渲染器支援 **GFM 表格**（修表格亂掉）。
 - **MCP**：新增 `list_dns_records` 工具；AI 回答「某子網路還有幾個可用 IP」改呼叫實際資料而非純 CIDR 算術。
@@ -2042,7 +2072,7 @@
 
 ### 變更
 - 新增的子網段繼承父網段的單位；`rebuild_subnet_hierarchy` 會自動修補（多層串接）。
-- 左側子網路樹：下層子網段改為真正可展開的巢狀節點＋連接線（取代「↳」前綴）；父節點標題仍可點進詳情。
+- 左側子網路樹：下層子網段改為真正可展開的巢狀節點＋連接線（取代「↳」首碼）；父節點標題仍可點進詳情。
 - 左側選單版本號字體放大。
 
 ### 修正

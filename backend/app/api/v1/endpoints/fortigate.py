@@ -41,7 +41,9 @@ async def _get_or_404(session: AsyncSession, fw_id: uuid.UUID) -> FortiGateFirew
     return fw
 
 
-@router.get("", response_model=Paginated[FortiGateRead])
+# 實例清單掛 view_router（全域讀取）而不是 admin —— 唯讀檢視頁「防火牆 (FortiGate)」
+# 要用它列出可選的防火牆。回應不含 API token（FortiGateRead 沒有該欄位）。
+@view_router.get("", response_model=Paginated[FortiGateRead])
 async def list_firewalls(
     session: Annotated[AsyncSession, Depends(get_session)],
     page: int = Query(1, ge=1, le=10_000),
@@ -112,13 +114,14 @@ async def update_firewall(
     return FortiGateRead.model_validate(fw)
 
 
-@router.delete("/{fw_id}", status_code=204)
-async def delete_firewall(
-    fw_id: uuid.UUID, user: CurrentUser, request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> None:
-    fw = await _get_or_404(session, fw_id)
-    # 政策／位址物件有外鍵 cascade；DHCP 範圍與 NAT 是共用表、無 cascade → 自行清自己的列
+async def cleanup_shared_rows(session: AsyncSession, fw_id: uuid.UUID) -> None:
+    """清掉這台 FortiGate 寫進共用表的列（不 commit，由呼叫端決定交易邊界）。
+
+    政策／位址物件有外鍵 cascade 可依靠；但 `dhcp_pool_ranges` 與 `nat_translations`
+    是多來源共用表、沒有 cascade，必須自己清、且只能清自己的列 ——
+    所以兩個條件都要帶 `source_type`／`source_origin` 限定，不可只用 id。
+    抽成函式是為了讓測試能直接驗這段真正的邏輯，而不是在測試裡重寫一份。
+    """
     from app.models.dhcp import DHCPPoolRange
     from app.models.nat import NATTranslation
     await session.execute(delete(DHCPPoolRange).where(
@@ -127,6 +130,15 @@ async def delete_firewall(
     await session.execute(delete(NATTranslation).where(
         NATTranslation.source_origin == f"fortigate:{fw_id}",
     ))
+
+
+@router.delete("/{fw_id}", status_code=204)
+async def delete_firewall(
+    fw_id: uuid.UUID, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    fw = await _get_or_404(session, fw_id)
+    await cleanup_shared_rows(session, fw_id)
     await session.delete(fw)
     await append_audit(
         session, actor_user_id=str(user.id),
