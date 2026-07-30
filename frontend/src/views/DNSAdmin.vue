@@ -37,6 +37,7 @@ const dnsPicker = computed(() => [
 const msg = useMessage();
 const rows = ref<DNSServer[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
+import { apiErrMsg } from "@/api/client";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 const loading = ref(false);
 const show = ref(false);
@@ -99,7 +100,7 @@ const showVerifyTls = computed(() => form.value.type === "univention_ucs");
 async function refresh() {
   loading.value = true;
   try { rows.value = (await listDNSServers()).items ?? []; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 const editingId = ref<string | null>(null);

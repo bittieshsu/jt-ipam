@@ -19,6 +19,7 @@ import { autoSort } from "@/composables/useTableSort";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 import ColumnPicker from "@/components/ColumnPicker.vue";
+import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -196,7 +197,7 @@ async function save(regenerate = false) {
       enabled: dsv.value.enabled, fmt: dsv.value.fmt, path: dsv.value.path, regenerate_token: regenerate,
     });
     msg.success(t("common.saved"));
-  } catch { msg.error(t("errors.network")); } finally { saving.value = false; }
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { saving.value = false; }
 }
 function copy(text: string) {
   if (text) { void navigator.clipboard.writeText(text); msg.success(t("common.copied_clipboard")); }

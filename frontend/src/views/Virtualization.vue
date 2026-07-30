@@ -24,6 +24,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useRoute } from "vue-router";
 import { useTablePagination } from "@/composables/useTablePagination";
+import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -52,7 +53,7 @@ async function refresh() {
   try {
     [clusters.value, vms.value, proxmox.value]
       = await Promise.all([Virt.clusters(), Virt.vms(), Virt.proxmox()]);
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 async function syncProxmox(id: string) {

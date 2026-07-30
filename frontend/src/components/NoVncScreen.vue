@@ -15,6 +15,7 @@ import {
 } from "@/icons";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 import { buildSendKeysMenu } from "@/composables/useSendKeys";
+import { apiErrMsg } from "@/api/client";
 import {
   requestNovncTicket, buildNovncWsUrl, listPveCredentials, createPveCredential,
   deletePveCredential, type PveCredential,
@@ -230,7 +231,7 @@ function backToForm() { cleanup(); phase.value = "form"; errorMsg.value = ""; }
 async function removeCred() {
   if (!selectedCredId.value) return;
   try { await deletePveCredential(selectedCredId.value); await loadCreds(); selectedCredId.value = null; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
 }
 </script>
 

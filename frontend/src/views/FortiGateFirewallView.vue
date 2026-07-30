@@ -15,6 +15,7 @@ import {
   type FortiGateFirewall, type FortiGatePolicy, type FortiGateAddressObject,
 } from "@/api/fortigate";
 import { autoSort } from "@/composables/useTableSort";
+import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -38,7 +39,7 @@ async function loadFirewalls() {
   try {
     firewalls.value = (await listFortiGate()).items;
     if (!fwId.value && firewalls.value.length) fwId.value = firewalls.value[0].id;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 async function loadData() {
@@ -49,7 +50,7 @@ async function loadData() {
       listFortiGatePolicies(fwId.value, vdom.value ?? undefined),
       listFortiGateAddresses(fwId.value, vdom.value ?? undefined),
     ]);
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 

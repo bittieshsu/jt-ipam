@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.117] — 2026-07-30
+
+### Fixed
+- **"Test connection" on FortiGate could appear frozen for ~100 seconds.** The diagnostics ran its 10 endpoint probes sequentially, so against an unreachable appliance — a mistyped IP or a firewall dropping packets, which is exactly what you hit the first time you configure one — each probe waited out its own 10-second timeout and they accumulated. The probes are independent GETs, so they now run concurrently: measured 11.9s instead of ~100s, with every endpoint still reporting its own result. Found by actually clicking the button in a browser rather than by reading the code.
+- **A permission error reported itself as a connection failure.** Opening a global-infrastructure page (e.g. VLAN) as an account without global read produced the toast "連線失敗，請稍後再試" — the backend had correctly returned `403` and leaked no data, but the message told the user the system was broken rather than that they lacked permission. `403` is now localized centrally in the API client, and the 48 `catch` blocks that unconditionally reported a connection failure now prefer the backend's message (via a new `apiErrMsg()` helper), so permission and validation errors stop being mislabelled.
+- **VLAN page did not grey out its write buttons** for read-only accounts, unlike the equivalent VRF / NAT / Physical pages — a user with no write permission could open the create form and only fail on submit. Wired `can_edit` into both create buttons, both edit buttons and both delete confirmations.
+
+### Notes
+- The `can_edit` gating rejected in 0.5.116 was rejected for *admin-only* pages, where it is genuinely dead code (anyone who can open them is an admin, and `can_edit` is unconditionally true for admins). VLAN is reachable with only global read, so there the gating does matter — this corrects that earlier judgement.
+- No install/upgrade changes and no migration.
+
 ## [0.5.116] — 2026-07-30
 
 ### Security

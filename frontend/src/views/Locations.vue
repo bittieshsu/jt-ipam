@@ -55,6 +55,7 @@ const { options: customerOptions, ensureLoaded: ensureCustomerOptsLoaded } = use
 const msg = useMessage();
 const rows = ref<Location[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
+import { apiErrMsg } from "@/api/client";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 const pin = usePinned("locations");
 const displayRows = computed(() => pin.sortPinnedFirst(filteredRows.value));
@@ -107,7 +108,7 @@ async function doBulkDelete() {
 async function refresh() {
   loading.value = true;
   try { rows.value = (await listLocations()).items; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 function openCreate() {

@@ -2164,7 +2164,8 @@
     "server": "伺服器發生錯誤",
     "session_expired": "登入已逾時，請重新登入",
     "admin_required": "需要管理員權限才能執行此操作",
-    "no_visible_resources": "您目前沒有可檢視的資源權限，請聯絡管理員指派"
+    "no_visible_resources": "您目前沒有可檢視的資源權限，請聯絡管理員指派",
+    "forbidden": "您沒有檢視此項目的權限，請聯絡管理員"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",

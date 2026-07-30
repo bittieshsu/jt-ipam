@@ -18,6 +18,7 @@ import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getUiDisplay, setUiDisplay } from "@/api/system";
 import { listGroups } from "@/api/admin";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
+import { apiErrMsg } from "@/api/client";
 import {
   getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign,
   getOnlineGrace, setOnlineGrace,
@@ -43,7 +44,7 @@ async function changeDimDays(v: number | null) {
   const days = Math.max(0, Math.min(3650, Math.round(v ?? 0)));
   changeLogDimDays.value = days;
   try { await setUiDisplay({ change_log_dim_days: days }); msg.success(t("common.ok")); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 const mapProvider = ref<"builtin" | "osm" | "google">("builtin");
@@ -54,7 +55,7 @@ const mapProviderOpts = computed(() => [
 ]);
 async function changeMapProvider(p: "builtin" | "osm" | "google") {
   mapProvider.value = p;
-  try { await setMapProvider(p); msg.success(t("common.ok")); } catch { msg.error(t("errors.network")); }
+  try { await setMapProvider(p); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 // 機櫃裝置名稱對齊
@@ -66,7 +67,7 @@ const rackAlignOpts = computed(() => [
 ]);
 async function changeRackAlign(a: RackNameAlign) {
   rackAlign.value = a;
-  try { await setRackNameAlign(a); msg.success(t("common.ok")); } catch { msg.error(t("errors.network")); }
+  try { await setRackNameAlign(a); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 // 上線判定閾值（分鐘）
@@ -74,7 +75,7 @@ const grace = ref(30);
 async function changeGrace(v: number | null) {
   const n = v ?? 30;
   grace.value = n;
-  try { await setOnlineGrace(n); msg.success(t("common.ok")); } catch { msg.error(t("errors.network")); }
+  try { await setOnlineGrace(n); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 // GeoIP
@@ -101,7 +102,7 @@ async function saveGeoip() {
     });
     geoipKey.value = "";
     msg.success(t("common.saved"));
-  } catch { msg.error(t("errors.network")); } finally { geoipSaving.value = false; }
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { geoipSaving.value = false; }
 }
 async function updateGeoipNow() {
   geoipUpdating.value = true;
@@ -110,7 +111,7 @@ async function updateGeoipNow() {
     geoip.value = r.config;
     if (r.result?.error === "not_configured") msg.warning(t("settings.system.geoip_need_creds"));
     else msg.success(t("settings.system.geoip_updated"));
-  } catch { msg.error(t("errors.network")); } finally { geoipUpdating.value = false; }
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { geoipUpdating.value = false; }
 }
 function fmtBytes(n: number | null): string {
   if (!n) return "—";
@@ -167,7 +168,7 @@ async function clearLdapPw() {
     ldap.value = await putLdap({ ...rest, bind_password: "" });
     ldapPw.value = "";
     msg.success(t("common.ok"));
-  } catch { msg.error(t("errors.network")); } finally { ldapSaving.value = false; }
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { ldapSaving.value = false; }
 }
 async function doTestLdap() {
   ldapTesting.value = true;

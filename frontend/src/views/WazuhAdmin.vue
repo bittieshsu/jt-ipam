@@ -56,6 +56,7 @@ const agents = ref<WazuhAgent[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 const { query: agentFilterQ, filtered: agentsFiltered } = useTableQuickFilter(agents);
 import { useTablePagination } from "@/composables/useTablePagination";
+import { apiErrMsg } from "@/api/client";
 const pg = useTablePagination();
 const missing = ref<MissingAgent[]>([]);
 const loading = ref(false);
@@ -115,7 +116,7 @@ async function refresh() {
     insts.value = i.items;
     agents.value = a;
     missing.value = m;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 async function submit() {

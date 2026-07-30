@@ -16,6 +16,7 @@ import {
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
+import { apiErrMsg } from "@/api/client";
 const { t } = useI18n();
 
 const { visibleKeys: cfVis, setVisible: cfSet, reset: cfReset } = useColumnPrefs(
@@ -88,7 +89,7 @@ function stringifyOptions(opts: Record<string, unknown> | null): string {
 async function refresh() {
   loading.value = true;
   try { rows.value = (await listCustomFields()).items; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 function openCreate() {

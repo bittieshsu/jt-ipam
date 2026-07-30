@@ -277,3 +277,35 @@ async def test_delete_firewall_cleans_shared_tables(db_session, admin_user, monk
         DHCPPoolRange.source_type == "opnsense")) == 1      # 其他來源不受影響
     assert await db_session.scalar(select(func.count()).select_from(NATTranslation).where(
         NATTranslation.source_origin == f"fortigate:{fw.id}")) == 0
+
+
+@pytest.mark.anyio
+async def test_diagnose_probes_run_concurrently(monkeypatch) -> None:
+    """診斷的 10 支探測必須並行。
+
+    循序跑的話，對「不可達主機」（IP 填錯／防火牆丟包 —— 客戶第一次設定最常遇到的
+    情況）會累加成 10 × 逾時 ≈ 100 秒，前端診斷視窗看起來像凍住。
+    """
+    import asyncio
+    import time
+    import types
+
+    async def slow_get(fw, path, *, vdom=None, timeout=15.0):
+        await asyncio.sleep(0.3)                     # 模擬等到逾時
+        raise fg.FortiGateError("transport: ConnectTimeout")
+
+    monkeypatch.setattr(fg, "_api_get", slow_get)
+    fw = types.SimpleNamespace(
+        id=uuid.uuid4(), api_url="https://192.0.2.241", vdoms=["root"],
+        verify_tls=False, scope_subnet_ids=None, name="bh",
+    )
+    started = time.monotonic()
+    out = await fg.diagnose(fw)
+    elapsed = time.monotonic() - started
+
+    n = len(out["checks"])
+    assert n == 10, f"探測數變成 {n}，測試需同步更新"
+    # 並行 → 約等於單支耗時；循序會是 n 倍。留寬裕倍數避免 CI 抖動誤判。
+    assert elapsed < 0.3 * 4, f"耗時 {elapsed:.2f}s 接近循序（{0.3 * n:.2f}s）→ 並行沒生效"
+    # 並行不能犧牲診斷資訊：每支都要各自回報錯誤
+    assert all(not c["ok"] and c.get("error") for c in out["checks"])

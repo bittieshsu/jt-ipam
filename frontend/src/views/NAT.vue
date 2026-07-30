@@ -260,11 +260,12 @@ async function refresh() {
         : undefined,
     })).items;
   }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 
 import { watch } from "vue";
+import { apiErrMsg } from "@/api/client";
 watch([filterDeviceId, sourceKindFilter, sourceFwFilter], () => { void refresh(); });
 function openCreate() {
   viewOnly.value = false;

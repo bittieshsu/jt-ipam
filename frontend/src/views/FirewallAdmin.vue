@@ -276,6 +276,7 @@ const newMap = ref({
 import { listSections } from "@/api/sections";
 import { listSubnets } from "@/api/subnets";
 import { useTablePagination } from "@/composables/useTablePagination";
+import { apiErrMsg } from "@/api/client";
 const pg = useTablePagination();
 const sectionOpts = ref<{ label: string; value: string }[]>([]);
 const subnetOpts = ref<{ label: string; value: string }[]>([]);
@@ -322,7 +323,7 @@ async function refresh() {
       if (!aliasesFw.value) { aliasesFw.value = f.items[0].id; void loadAliases(); }
       if (!rulesFw.value) { rulesFw.value = f.items[0].id; void loadRules(); }
     }
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 function scopePayload() {

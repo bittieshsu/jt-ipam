@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import uuid
 from datetime import UTC, datetime
@@ -42,6 +43,9 @@ EP_VIP = "/api/v2/cmdb/firewall/vip"
 EP_IPPOOL = "/api/v2/cmdb/firewall/ippool"
 EP_ADDRESS = "/api/v2/cmdb/firewall/address"
 EP_ADDRGRP = "/api/v2/cmdb/firewall/addrgrp"
+
+# 連線診斷單支探測的逾時。10 支並行跑，所以最壞情況約等於這個值，而不是它的 10 倍。
+_DIAG_TIMEOUT = 10.0
 
 
 class FortiGateError(Exception):
@@ -537,17 +541,23 @@ async def diagnose(fw: FortiGateFirewall) -> dict[str, Any]:
     except FortiGateError as exc:
         raise FortiGateError(f"無法取得 VDOM 清單：{exc}") from exc
     out["vdoms"] = vdoms
-    checks: list[dict[str, Any]] = []
-    for label, path in (
+    probes = (
         ("dhcp_leases", EP_DHCP_LEASES), ("dhcp_servers", EP_DHCP_SERVERS), ("arp", EP_ARP),
         ("vpn_ipsec", EP_VPN_IPSEC), ("vpn_ssl", EP_VPN_SSL), ("policy", EP_POLICY),
         ("vip", EP_VIP), ("ippool", EP_IPPOOL), ("address", EP_ADDRESS), ("addrgrp", EP_ADDRGRP),
-    ):
+    )
+
+    async def _probe(label: str, path: str) -> dict[str, Any]:
         try:
-            rows = _rows(await _api_get(fw, path, vdom=vdoms[0], timeout=10.0))
-            checks.append({"endpoint": label, "ok": True, "rows": len(rows)})
+            rows = _rows(await _api_get(fw, path, vdom=vdoms[0], timeout=_DIAG_TIMEOUT))
+            return {"endpoint": label, "ok": True, "rows": len(rows)}
         except FortiGateError as exc:
-            checks.append({"endpoint": label, "ok": False, "error": str(exc)[:200]})
+            return {"endpoint": label, "ok": False, "error": str(exc)[:200]}
+
+    # 並行探測：這 10 支是彼此獨立的 GET，循序跑的話對「不可達主機」會累加成
+    # 10 × 逾時 ≈ 100 秒，前端診斷視窗看起來像凍住 —— 而 IP 填錯／防火牆丟包
+    # 正是客戶第一次設定最常遇到的情況。並行後最壞情況約等於單一逾時。
+    checks = list(await asyncio.gather(*(_probe(lbl, p) for lbl, p in probes)))
     out["checks"] = checks
     out["ok_count"] = sum(1 for c in checks if c["ok"])
     return out

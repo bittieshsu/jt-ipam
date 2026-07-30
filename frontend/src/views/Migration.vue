@@ -8,7 +8,7 @@ import {
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { migrationStatus, getMigrationConfig, saveMigrationConfig, type MappingStat } from "@/api/phase3";
-import { apiClient } from "@/api/client";
+import { apiClient, apiErrMsg } from "@/api/client";
 import { getTask } from "@/api/tasks";
 import {
   MigrationIcon, RefreshIcon, EyeIcon, SaveIcon, WarnIcon,
@@ -150,7 +150,7 @@ const cols: DataTableColumns<MappingStat> = [
 async function refresh() {
   loading.value = true;
   try { stats.value = await migrationStatus(); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 

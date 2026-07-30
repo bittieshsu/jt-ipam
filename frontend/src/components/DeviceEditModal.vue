@@ -16,6 +16,7 @@ import { getRackDiagram, type RackDiagram } from "@/api/racks";
 import { listAddresses } from "@/api/addresses";
 import { EditIcon, PlusIcon, SaveIcon, CancelIcon, RacksIcon } from "@/icons";
 import { useCustomers } from "@/composables/useCustomers";
+import { apiErrMsg } from "@/api/client";
 
 const props = defineProps<{ show: boolean; device: Device | null }>();
 const emit = defineEmits<{ (e: "update:show", v: boolean): void; (e: "saved"): void }>();
@@ -150,7 +151,7 @@ async function openUPicker() {
   uPickerLoading.value = true;
   showUPicker.value = true;
   try { uPickerDiagram.value = await getRackDiagram(form.value.rack_id); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { uPickerLoading.value = false; }
 }
 function pickU(u: number) {

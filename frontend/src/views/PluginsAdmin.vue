@@ -10,6 +10,7 @@ import { PluginsIcon, RefreshIcon, OkIcon, FailIcon } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
+import { apiErrMsg } from "@/api/client";
 const { t } = useI18n();
 
 const { visibleKeys: plVis, setVisible: plSet, reset: plReset } = useColumnPrefs(
@@ -36,7 +37,7 @@ async function refresh() {
     const r = await listPlugins();
     rows.value = r.plugins;
     count.value = r.count;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 const allCols = computed<DataTableColumns<PluginInfo>>(() => autoSort([

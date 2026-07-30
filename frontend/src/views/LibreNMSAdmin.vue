@@ -42,6 +42,7 @@ const lnPicker = computed(() => [
 const msg = useMessage();
 const rows = ref<LibreNMSInstance[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
+import { apiErrMsg } from "@/api/client";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 const loading = ref(false);
 const show = ref(false);
@@ -67,7 +68,7 @@ async function loadSubnetOptions() {
 async function refresh() {
   loading.value = true;
   try { rows.value = (await listLibreNMS()).items; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 function openCreate() {

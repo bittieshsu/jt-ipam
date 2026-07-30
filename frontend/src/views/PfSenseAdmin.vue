@@ -20,6 +20,7 @@ import { autoSort } from "@/composables/useTableSort";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
+import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -81,7 +82,7 @@ function openEdit(r: PfSense) {
 async function refresh() {
   loading.value = true;
   try { rows.value = (await listPfSense(50, 0)).items; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 async function submit() {

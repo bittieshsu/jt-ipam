@@ -16,6 +16,7 @@ import {
 } from "@/api/system";
 import { listMcpTools, type McpTool } from "@/api/chat";
 import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon } from "@/icons";
+import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -69,7 +70,7 @@ async function loadModels() {
 
 async function load() {
   try { llm.value = await getLLMConfig(); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   // 未啟用 Ollama 連接時不要自動去抓清單（否則會冒出「無法連 Ollama」錯誤）
   if (llm.value?.enabled) void loadModels();
 }

@@ -4,7 +4,7 @@ const _authBtn = useAuthStore();
 import { computed, h, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { apiClient } from "@/api/client";
+import { apiClient, apiErrMsg } from "@/api/client";
 import {
   NCard, NDataTable, NSpace, NIcon, NButton, NModal, NForm, NFormItem,
   NInput, NInputNumber, NInputGroup, NSelect, NPopconfirm, NTag, NTooltip, NSpin,
@@ -133,7 +133,7 @@ async function refresh() {
     rows.value = d.items;
     locations.value = l.items;
     racks.value = rk.items;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 
@@ -232,7 +232,7 @@ async function openUPicker() {
   uPickerLoading.value = true;
   showUPicker.value = true;
   try { uPickerDiagram.value = await getRackDiagram(form.value.rack_id); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { uPickerLoading.value = false; }
 }
 function pickU(u: number) {

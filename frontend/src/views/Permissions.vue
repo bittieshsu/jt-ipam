@@ -14,7 +14,7 @@ import {
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
-import { apiClient } from "@/api/client";
+import { apiClient, apiErrMsg } from "@/api/client";
 import {
   listUsers, listGroups, getUserGroups, addGroupMember, removeGroupMember,
   type User, type Group,
@@ -83,7 +83,7 @@ async function loadLists() {
     roles.value = gs.items;
     objectTypes.value = r.object_types;
     levels.value = r.levels;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
   for (const [tt, cfg] of Object.entries(TYPE_CFG)) {
     try {
@@ -107,7 +107,7 @@ async function openUser(u: User) {
     ]);
     userRoleIds.value = new Set(gs.map((g) => g.id));
     grants.value = gr;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 async function toggleRole(role: Group, on: boolean) {
@@ -120,7 +120,7 @@ async function toggleRole(role: Group, on: boolean) {
     if (on) next.add(role.id); else next.delete(role.id);
     userRoleIds.value = next;
     msg.success(t("common.ok"));
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { busyRole.value = null; }
 }
 
@@ -145,7 +145,7 @@ async function addGrant() {
 async function removeGrant(id: string) {
   if (!sel.value) return;
   try { await deletePermission(id); grants.value = await listPermissions("user", sel.value.id); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
 }
 function targetLabel(g: PermissionGrant): string {
   if (g.object_id === null) return t("perm.all");

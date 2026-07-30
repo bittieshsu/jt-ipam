@@ -53,6 +53,7 @@ const rows = ref<ScanAgent[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 import { useTablePagination } from "@/composables/useTablePagination";
+import { apiErrMsg } from "@/api/client";
 const pg = useTablePagination();
 const loading = ref(false);
 const show = ref(false);
@@ -130,7 +131,7 @@ const installerOneLiner = computed(() =>
 async function refresh() {
   loading.value = true;
   try { rows.value = (await listScanAgents()).items; }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 function openCreate() {

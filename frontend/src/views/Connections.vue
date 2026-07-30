@@ -21,6 +21,7 @@ import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import OsCell from "@/components/OsCell.vue";
 import { renderIcon } from "@/icons";
 import type { IPAddress } from "@/types";
+import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -110,7 +111,7 @@ function onBmcRowMenu(key: string, row: IPAddress) { if (key === "popout") openB
 async function refresh() {
   loading.value = true;
   try { rows.value = await listConnectionTargets(); }
-  catch { msg.error(t("errors.network")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 onMounted(() => {

@@ -19,6 +19,7 @@ import {
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
+import { apiErrMsg } from "@/api/client";
 const { t } = useI18n();
 
 const { visibleKeys: agVis, setVisible: agSet, reset: agReset } = useColumnPrefs(
@@ -65,7 +66,7 @@ async function refresh() {
   try {
     const r = await listAdGuard();
     rows.value = r.items;
-  } catch { msg.error(t("errors.network")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 
