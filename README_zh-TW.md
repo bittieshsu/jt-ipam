@@ -11,7 +11,7 @@
 
 **🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/?lang=zh-TW)**
 
-> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、Proxmox VE、Wazuh 與本地 AI。
+> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Windows DHCP Server、Proxmox VE、Wazuh 與本地 AI。
 >
 > 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：Apache-2.0｜English: [README.md](README.md)
 
@@ -74,7 +74,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 
 ## 核心物件
 
-`區段 → 子網路 → IP 位址`，外加 `裝置` / `機櫃` / `地點`、`客戶`（管理單位）、`VLAN` / `VRF`、`NAT`、OPNsense / pfSense 防火牆，以及 IEEE OUI 廠商對照表（每月更新）。
+`區段 → 子網路 → IP 位址`，外加 `裝置` / `機櫃` / `地點`、`客戶`（管理單位）、`VLAN` / `VRF`、`NAT`、OPNsense / pfSense / FortiGate 防火牆，以及 IEEE OUI 廠商對照表（每月更新）。
 
 ## 權限（RBAC）
 
@@ -234,7 +234,7 @@ jt-ipam/
 
 - **Phase 1（完成）** — phpIPAM 對等功能 + 改良（區段/子網路/IP/VLAN/VRF/NAT/裝置/機櫃/地點/IP 申請、TOTP/API-Token/RBAC、phpIPAM 匯入、CSV/RIPE/TWNIC、視覺化子網路格、強制 TLS）
 - **Phase 2（完成）** — 多家 DNS + 深度 LibreNMS 整合（裝置/ARP/FDB/實際狀態）+ 異常偵測 + SHA-256 稽核鏈 + pgvector AI 語意搜尋
-- **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense 防火牆同步 + Wazuh agent 盤點
+- **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense / FortiGate 防火牆同步 + Wazuh agent 盤點
 - **Phase 4（完成、已縮減範圍）** — MCP server + 本地 LLM 自然語言（LLM Server）+ 外掛機制
 
 ## 授權
