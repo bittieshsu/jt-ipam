@@ -17,6 +17,8 @@ from typing import Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.safe_http import assert_url_safe
+
 log = logging.getLogger("notify_channels")
 
 # webhook 型通知的管道鍵（email 另外由 email_users 處理）
@@ -31,7 +33,16 @@ def _msg(subject: str, text: str | None) -> str:
 
 async def _post(url: str, *, json: dict | None = None, data: dict | None = None,
                 headers: dict | None = None, auth: tuple[str, str] | None = None) -> None:
-    # follow_redirects=False：避免以重導繞過設定的目標。admin-only 設定，等同 SMTP 信任模型。
+    """送出 webhook 型通知。
+
+    SSRF：先過 `assert_url_safe`（與其他整合同一套檢查：擋 link-local / 雲端 metadata
+    等，私有網段預設擋、`OUTBOUND_ALLOW_PRIVATE` 開啟才放行內網 webhook 接收端）。
+    這一步很重要 —— 失敗時下面會把回應內容前 200 字放進錯誤訊息、而那訊息會顯示在
+    設定頁與 last_error，等於可以拿任意 URL 的回應片段回來。
+    這裡不用 `safe_request()` 只因為它不收 `data=` / `auth=`（表單編碼與 Basic Auth）；
+    檢查用的是同一個函式。`follow_redirects=False`：避免以重導繞過檢查過的目標。
+    """
+    assert_url_safe(url)
     async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
         r = await client.post(url, json=json, data=data, headers=headers, auth=auth)
         if r.status_code >= 300:

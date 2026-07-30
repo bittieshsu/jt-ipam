@@ -58,6 +58,7 @@ from app.services.permission import (
     filter_visible,
     get_object_permission,
     has_permission,
+    visible_ids,
 )
 
 router = APIRouter(prefix="/addresses", tags=["addresses"])
@@ -165,6 +166,17 @@ async def list_addresses(
         active_subnets = select(Subnet.id).where(Subnet.archived_at.is_(None))
         stmt = stmt.where(IPAddress.subnet_id.in_(active_subnets))
         count_stmt = count_stmt.where(IPAddress.subnet_id.in_(active_subnets))
+        # A01：可見性要在查詢階段就套進去（含 count_stmt），不能只在分頁後篩 rows。
+        # 只篩 rows 的話 total 會是「全系統未歸檔子網路的 IP 總數」→ 受限帳號看到遠大於
+        # 自己可見的筆數（洩漏規模），而且每頁不足 page_size、後面幾頁可能整頁空白。
+        vis_subnets = await visible_ids(session, user=user, object_type="subnet", required="read")
+        if vis_subnets is not None:      # None＝全部可見（admin 或萬用授權）
+            if not vis_subnets:          # 空 set＝沒有任何可見子網路
+                return Paginated[IPAddressRead](
+                    items=[], total=0, page=page, page_size=page_size,
+                )
+            stmt = stmt.where(IPAddress.subnet_id.in_(vis_subnets))
+            count_stmt = count_stmt.where(IPAddress.subnet_id.in_(vis_subnets))
 
     if q:
         if exact:

@@ -46,8 +46,13 @@ const TYPE_CFG: Record<string, { ep: string; label: string }> = {
   section:  { ep: "/api/v1/sections", label: "name" },
   subnet:   { ep: "/api/v1/subnets", label: "cidr" },
   device:   { ep: "/api/v1/devices", label: "name" },
-  rack:     { ep: "/api/v1/locations/racks", label: "name" },
-  location: { ep: "/api/v1/locations/locations", label: "name" },
+  // 機櫃／地點的端點是 /api/v1/racks 與 /api/v1/locations —— 雖然兩者實作在後端
+  // endpoints/locations.py 同一個檔案，但那個 router 沒有 /locations 前綴。
+  // 原本誤寫成 /api/v1/locations/racks 與 /api/v1/locations/locations，會被
+  // /locations/{location_id} 接走、UUID 解析失敗回 400 → 清單載不出來，
+  // 結果是「無法對機櫃／地點授權」。
+  rack:     { ep: "/api/v1/racks", label: "name" },
+  location: { ep: "/api/v1/locations", label: "name" },
 };
 const labelMap = ref<Record<string, string>>({});
 const typeOptions = ref<Record<string, { label: string; value: string }[]>>({});

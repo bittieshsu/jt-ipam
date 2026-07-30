@@ -19,6 +19,7 @@ import {
 import { storeToRefs } from "pinia";
 import { useUiStore } from "@/stores/ui";
 import { useAuthStore } from "@/stores/auth";
+import { apiClient } from "@/api/client";
 import { listSubnets } from "@/api/subnets";
 import { useCustomers } from "@/composables/useCustomers";
 import { useSubnetTree } from "@/composables/useSubnetTree";
@@ -173,6 +174,20 @@ watch([inSubnetContext, currentSubnetId, navSubnets], () => {
   expandedKeys.value = [...keys];
 });
 
+// 「進階」裡的整合唯讀檢視頁，若該整合完全沒設定，頁面只會顯示「尚未設定 X」，
+// 等於空選項 → 依後端回報的設定狀態隱藏。初值全 true：載入完成前不要讓選單閃一下才消失。
+const intgPresence = ref<Record<string, boolean>>({
+  opnsense: true, pfsense: true, fortigate: true, dns: true, cert_agents: true, proxmox: true,
+});
+async function loadIntegrationPresence() {
+  try {
+    const { data } = await apiClient.get("/api/v1/system/integration-presence");
+    intgPresence.value = data;
+  } catch {
+    // 讀不到（例如無全域讀取權）→ 保持預設值，交給後端把關，不要因此藏掉選單
+  }
+}
+
 const menuOptions = computed<MenuOption[]>(() => {
   const base: MenuOption[] = [
     { label: () => t("nav.dashboard"),   key: "dashboard",  icon: renderIcon(DashboardIcon) },
@@ -200,13 +215,19 @@ const menuOptions = computed<MenuOption[]>(() => {
         { label: () => t("advanced.circuits"),   key: "adv-circuits", icon: renderIcon(PhysicalIcon) },
         { label: () => t("advanced.contacts"),   key: "adv-contacts", icon: renderIcon(UsersIcon) },
         { label: () => t("advanced.wireless"),   key: "adv-wireless", icon: renderIcon(ScanAgentsIcon) },
-        { label: () => t("nav.dns_records"),     key: "adv-dns-records", icon: renderIcon(DnsIcon) },
-        { label: () => t("nav.cert_status"),     key: "adv-cert-status", icon: renderIcon(LockIcon) },
+        ...(intgPresence.value.dns
+          ? [{ label: () => t("nav.dns_records"), key: "adv-dns-records", icon: renderIcon(DnsIcon) }] : []),
+        ...(intgPresence.value.cert_agents
+          ? [{ label: () => t("nav.cert_status"), key: "adv-cert-status", icon: renderIcon(LockIcon) }] : []),
         { label: () => t("nav.connections"),     key: "adv-connections", icon: renderIcon(TerminalIcon) },
-        { label: () => t("nav.virtualization"), key: "virt",     icon: renderIcon(VirtualizationIcon) },
-        { label: () => t("nav.firewall"),       key: "firewall",    icon: renderIcon(FirewallIcon) },
-        { label: () => t("nav.pfsense_fw"),     key: "pfsense_fw",  icon: renderIcon(FirewallIcon) },
-        { label: () => t("nav.fortigate_fw"),   key: "fortigate_fw", icon: renderIcon(FirewallIcon) },
+        ...(intgPresence.value.proxmox
+          ? [{ label: () => t("nav.virtualization"), key: "virt", icon: renderIcon(VirtualizationIcon) }] : []),
+        ...(intgPresence.value.opnsense
+          ? [{ label: () => t("nav.firewall"), key: "firewall", icon: renderIcon(FirewallIcon) }] : []),
+        ...(intgPresence.value.pfsense
+          ? [{ label: () => t("nav.pfsense_fw"), key: "pfsense_fw", icon: renderIcon(FirewallIcon) }] : []),
+        ...(intgPresence.value.fortigate
+          ? [{ label: () => t("nav.fortigate_fw"), key: "fortigate_fw", icon: renderIcon(FirewallIcon) }] : []),
         { label: () => t("nav.nat"),            key: "nat",         icon: renderIcon(NatIcon) },
         { label: () => t("nav.cabling"),        key: "cabling",     icon: renderIcon(PhysicalIcon) },
         { label: () => t("nav.power"),          key: "power",       icon: renderIcon(PowerIcon) },
@@ -380,6 +401,7 @@ function onSiderScroll() {
   if (siderScrollEl) menuScrolled.value = siderScrollEl.scrollTop > 2;
 }
 onMounted(() => {
+  void loadIntegrationPresence();
   window.addEventListener("resize", onResize);
   if (winW.value < NARROW_PX) siderCollapsed.value = true;
   void nextTick(() => {

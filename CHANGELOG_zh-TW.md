@@ -4,6 +4,26 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.118] — 2026-07-30
+
+### 安全性
+- **停用 TOTP 現在需要重新驗證身分（A07）。** `POST /auth/totp/disable` 原本只要有效 session 就放行 —— 任何拿到 access token 的人（XSS、竊取的權杖、未鎖的螢幕、一把不受限的 API 權杖）都能一個請求關掉帳號的 2FA，讓它降回只有密碼。原本有寫稽核，但稽核是偵測不是預防。現在本機帳號要給現行密碼；外部認證帳號（LDAP／OIDC／SAML，本地沒有密碼雜湊）要給當前的 6 位數驗證碼。同一個檔案裡的變更密碼本來就要求現行密碼 —— 正是這個不一致讓我判斷它是疏漏而非設計決定。
+- **最後一個有效的 admin 不能再被降權或停用。** `DELETE /users/{id}` 早就拒絕刪掉最後一個 admin，但 `PATCH` 用 `is_admin: false` 或 `is_active: false` 可以達到同樣結果，讓所有人永久進不了管理區（稽核／使用者／整合／系統設定），只能靠伺服器 shell 救回。`PATCH` 現在一樣回 `409`。
+- **Webhook 通知改走 SSRF 檢查。** `notify_channels._post` 原本刻意不走 `safe_request`，理由是目標由管理員設定、等同 SMTP 信任模型。但它在非 2xx 時會把回應內容前 200 位元組放進錯誤訊息，而那訊息會顯示在設定頁與 `last_error` —— 等於給管理員一個「讀取任意內部 URL 一小段回應」的原語（例如雲端 metadata）。現在會先呼叫 `assert_url_safe()`（其他 20 個服務用的同一套檢查），並維持 `follow_redirects=False`。
+
+### 修正
+- **`GET /addresses` 的 `total` 洩漏全域數量。** 0.5.116 為區段與子網路修好的同一個缺陷，還留在最大的那張表上：count 查詢帶了子網路／區段／未歸檔等條件，卻從未帶可見性條件 —— 可見性只在分頁後對 rows 生效。受限帳號看到的總數遠大於自己看得到的，而且分頁是壞的。
+- **兩支 MCP 工具在重疊網段下處理錯誤。** `switch_port_for_ip` 對 `IPAddress.ip == ip` 沒有 scope 也沒有 `limit(1)` 就 `scalar_one_or_none()`，所以在重疊網段部署下（多客戶共用 `192.168.1.0/24`，本專案的核心情境）會拋 `MultipleResultsFound`、整支工具掛掉。它和 `get_ip_detail` 還都是**先任取一筆才驗可見性**，取到不可見子網路那筆就回「IP 不存在」，即使呼叫者看得到另一個子網路的同一個 IP。兩者現在都改成先把可見範圍套進查詢、再取一筆。
+- **權限管理頁無法對機櫃或機房授權。** 它請求的是 `/api/v1/locations/racks` 與 `/api/v1/locations/locations`，但正確路徑是 `/api/v1/racks` 與 `/api/v1/locations` —— 兩者都被 `/locations/{location_id}` 接走、UUID 解析失敗回 `400`，所以那兩種物件的清單永遠是空的。
+- **9 個 i18n key 從未翻譯**，直接以原始 key 顯示：作業頁的觸發方式欄位與它的兩個值、BMC 序列主控台疑難排解的四條、連線管理頁的兩個 MAC 欄位。另外移除兩個只存在於 en-US 的孤兒 key。
+
+### 變更
+- **「進階」選單不再顯示背後空無一物的整合檢視。** 防火牆（OPNsense／pfSense／FortiGate）、虛擬化、DNS 記錄、憑證派送，只有在該整合至少設定了一個實例時才出現；否則那些頁面只會顯示「尚未設定」。背後是新的 `GET /system/integration-presence`，只回布林值、掛在全域讀取，所以具全域讀取的非 admin 也能拿到正確選單。
+
+### 附註
+- 安裝／升級不需任何改動，也沒有 migration。
+- 其中兩項是靠「在真實瀏覽器把每個路由用兩種語系都渲染一遍」找到的，另外兩項是針對先前版本已經被咬過的缺陷模式做掃描找到的。`vue-tsc`、ESLint 與正式建置都抓不到這一類問題。
+
 ## [0.5.117] — 2026-07-30
 
 ### 修正

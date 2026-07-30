@@ -18,6 +18,7 @@ from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
     TokenResponse,
+    TotpDisableRequest,
 )
 from app.schemas.totp import ConfirmRequest, EnrollResponse, VerifyRequest
 from app.schemas.user import UserMe
@@ -212,12 +213,35 @@ async def totp_confirm(
 
 @router.post("/totp/disable", status_code=204)
 async def totp_disable(
+    payload: TotpDisableRequest,
     user: CurrentUser,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
+    """停用 TOTP —— 需要升級驗證（A07）。
+
+    光憑一個有效 session 就能關掉 2FA 的話，任何拿到 access token 的人
+    （XSS / 竊取的權杖 / 未鎖的螢幕 / 一把不受限的 API 權杖）都能把帳號降回
+    只有密碼。同一支檔案的變更密碼本來就要求現行密碼，這裡補上一致的要求。
+    """
     if not totp_service.is_enabled(user):
         raise HTTPException(status_code=409, detail="TOTP not enabled")
+
+    from app.core.security import verify_password
+
+    verified = False
+    if payload.password and user.auth_provider == "local" and user.password_hash:
+        verified = verify_password(payload.password, user.password_hash)
+        if not verified:
+            raise HTTPException(status_code=400, detail="current_password_incorrect")
+    elif payload.code:
+        # 外部認證帳號本地沒有密碼雜湊 → 用當前的 TOTP 碼證明持有裝置
+        verified = await totp_service.verify_code(user, payload.code)
+        if not verified:
+            raise HTTPException(status_code=400, detail="Invalid TOTP code")
+    if not verified:
+        raise HTTPException(status_code=400, detail="reauth_required")
+
     await totp_service.disable(session, user=user)
 
     from app.core.audit import append_audit

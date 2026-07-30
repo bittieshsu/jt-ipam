@@ -80,9 +80,25 @@ test.describe("TOTP 狀態顯示（issue 回報）", () => {
     await openSecurityTab(page);
     await expect(page.getByText("已啟用", { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // 停用 → popconfirm 確認 → 回未啟用
+    // 停用需要升級驗證（A07）：本機帳號要再輸一次目前密碼，光有 session 不夠
     await page.getByRole("button", { name: "停用 TOTP" }).click();
-    await page.getByRole("button", { name: /確定|確認|Confirm|是/ }).click();
+    const dlg = page.locator(".n-modal");
+    await expect(dlg).toBeVisible();
+
+    // 先確認「不給密碼就不能停用」——按下去要被擋，狀態維持已啟用
+    await dlg.getByRole("button", { name: "停用 TOTP" }).click();
+    await page.waitForTimeout(500);
+    await expect(page.getByText("已啟用", { exact: true })).toBeVisible();
+
+    // 密碼錯誤也要被擋
+    await dlg.locator('input[type="password"]').fill("definitely-not-the-password");
+    await dlg.getByRole("button", { name: "停用 TOTP" }).click();
+    await page.waitForTimeout(800);
+    await expect(page.getByText("已啟用", { exact: true })).toBeVisible();
+
+    // 正確密碼 → 才真的停用
+    await dlg.locator('input[type="password"]').fill(ADMIN_PASS);
+    await dlg.getByRole("button", { name: "停用 TOTP" }).click();
     await expect(page.getByText("未啟用", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: "啟用 TOTP" })).toBeVisible();
   });

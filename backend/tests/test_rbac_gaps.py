@@ -141,6 +141,51 @@ async def test_subnets_total_scales_with_visibility(db_session) -> None:
     )
 
 
+@pytest.mark.anyio
+async def test_addresses_total_scales_with_visibility(db_session) -> None:
+    """IP 位址清單的 `total` 也必須是可見筆數。
+
+    這支是最容易被忽略的一個：`count_stmt` 有套 subnet_id／section_id／未歸檔等條件，
+    看起來「有過濾」，但**可見性**卻只在分頁後對 rows 生效 —— 於是 total 會是
+    全系統未歸檔子網路的 IP 總數。IP 又是最大的表，落差最明顯。
+    """
+    from app.api.v1.endpoints.addresses import list_addresses
+    from app.models.address import IPAddress
+    from app.models.subnet import Subnet
+
+    sec = Section(name=f"rbac-sec-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    subs = []
+    for i in range(2):
+        sub = Subnet(cidr=f"10.{210 + i}.0.0/24", section_id=sec.id)
+        db_session.add(sub)
+        subs.append(sub)
+    await db_session.flush()
+    for i, sub in enumerate(subs):
+        for j in range(1, 4):                      # 每個子網路 3 個 IP
+            db_session.add(IPAddress(subnet_id=sub.id, ip=f"10.{210 + i}.0.{j}"))
+    await db_session.commit()
+
+    global_count = int(
+        await db_session.scalar(select(func.count()).select_from(IPAddress)) or 0
+    )
+    assert global_count >= 6
+
+    user = await _limited_user(db_session)
+    await _grant(db_session, user, "subnet", subs[0].id)   # 只授權其中一個子網路
+
+    out = await list_addresses(
+        user, db_session, subnet_id=None, section_id=None, customer_id=None,
+        device_id=None, q=None, exact=False, sort=None, order="asc",
+        page=1, page_size=100,
+    )
+    assert len(out.items) == 3, f"看到 {len(out.items)} 筆，應只看到被授權子網路的 3 筆"
+    assert out.total == 3, (
+        f"total={out.total} 但只可見 3 筆（全系統 {global_count} 筆）→ count 沒套可見性"
+    )
+
+
 # ── 3. GraphQL 不得成為繞過 REST 限制的旁路 ─────────────────────────
 
 
@@ -198,6 +243,47 @@ async def test_graphql_devices_filtered_for_limited_user(db_session) -> None:
 
     got = await Query().devices(_Info(), type=None, limit=200)  # type: ignore[arg-type]
     assert got == [], f"零權限帳號看到了 {len(got)} 台裝置"
+
+
+# ── 3b. 重疊網段：先縮可見範圍再取一筆（不可先取後驗）─────────────────
+
+
+@pytest.mark.anyio
+async def test_mcp_ip_lookup_survives_overlapping_subnets(db_session, admin_user) -> None:
+    """重疊網段下（多客戶共用同一段），依 IP 查詢的 MCP 工具不能崩潰。
+
+    `switch_port_for_ip` 原本是 `select(...).where(IPAddress.ip == ip)` 無 scope
+    無 limit 再 `scalar_one_or_none()` → 同一個 IP 字串跨多個子網路各有一筆時
+    會拋 MultipleResultsFound，整個工具掛掉（已知地雷 #7）。
+
+    註：這裡用 admin（全部可見）驗「不崩潰」這個核心回歸。受限帳號的
+    「先縮範圍再取一筆」順序另由 `switch_port_for_ip` / `get_ip_detail` 的
+    程式碼結構保證（可見性條件直接進 SQL），不在此重複建構授權情境。
+    """
+    from app.mcp.tools import get_ip_detail, switch_port_for_ip
+    from app.models.address import IPAddress
+    from app.models.subnet import Subnet
+
+    sec = Section(name=f"ovl-sec-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    dup_ip = "192.168.77.50"
+    for _ in range(2):          # 兩個「重疊」子網路各有同一個 IP 字串
+        sub = Subnet(cidr="192.168.77.0/24", section_id=sec.id)
+        db_session.add(sub)
+        await db_session.flush()
+        db_session.add(IPAddress(subnet_id=sub.id, ip=dup_ip))
+    await db_session.commit()
+
+    dupes = int(await db_session.scalar(
+        select(func.count()).select_from(IPAddress).where(IPAddress.ip == dup_ip)
+    ) or 0)
+    assert dupes == 2, f"測試前提不成立：同 IP 只有 {dupes} 筆"
+
+    # 修正前這兩支都會拋 MultipleResultsFound
+    got = await switch_port_for_ip(db_session, user=admin_user, ip=dup_ip)
+    assert got["ip"] == dup_ip
+    assert (await get_ip_detail(db_session, user=admin_user, ip=dup_ip))["found"] is True
 
 
 # ── 4. 防火牆唯讀檢視：pfSense 與 FortiGate 的守門要一致 ─────────────
@@ -296,3 +382,133 @@ def test_customer_is_ancestor_of_its_resources() -> None:
         assert "customer" in _ANCESTOR_TYPES[child], (
             f"customer 不再是 {child} 的上層 → /customers/{{id}}/summary 必須改成逐物件過濾"
         )
+
+
+# ── 6. 不能把最後一個 admin 降權／停用（PATCH 與 DELETE 要一致）─────────
+
+
+@pytest.mark.anyio
+async def test_cannot_demote_or_deactivate_last_admin(db_session) -> None:
+    """DELETE 早就擋「刪最後一個 admin」，但 PATCH 可以把他降權／停用 → 全系統鎖死。
+
+    真的發生時只能靠伺服器 shell 跑 `python -m app.cli.bootstrap create-admin
+    --force-update` 救回來，對客戶自管的實例就是一張支援單。
+    """
+    from app.api.v1.endpoints.users import UserUpdate, update_user
+    from fastapi import HTTPException
+
+    class _Req:
+        client = None
+        headers: dict[str, str] = {}
+        state = type("S", (), {"request_id": str(uuid.uuid4()), "user_id": ""})()
+
+    # 先確保「只有一個有效 admin」：把其他 admin 停用
+    others = (await db_session.execute(
+        select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
+    )).scalars().all()
+    for o in others:
+        o.is_active = False
+    solo = User(
+        username=f"solo-admin-{uuid.uuid4().hex[:8]}",
+        email=f"solo-{uuid.uuid4().hex[:8]}@test.local",
+        display_name="Solo Admin",
+        password_hash="x", auth_provider="local", is_active=True, is_admin=True,
+    )
+    db_session.add(solo)
+    await db_session.flush()
+
+    for field in ("is_admin", "is_active"):
+        with pytest.raises(HTTPException) as exc:
+            await update_user(
+                solo.id, UserUpdate(**{field: False}), _Req(), db_session,  # type: ignore[arg-type]
+            )
+        assert exc.value.status_code == 409, f"{field}=False 竟被允許 → 會鎖死管理區"
+        assert "last active admin" in str(exc.value.detail)
+
+    # 還有第二個 admin 時就該放行
+    second = User(
+        username=f"second-admin-{uuid.uuid4().hex[:8]}",
+        email=f"second-{uuid.uuid4().hex[:8]}@test.local",
+        display_name="Second Admin",
+        password_hash="x", auth_provider="local", is_active=True, is_admin=True,
+    )
+    db_session.add(second)
+    await db_session.flush()
+    await update_user(solo.id, UserUpdate(is_admin=False), _Req(), db_session)  # type: ignore[arg-type]
+    await db_session.refresh(solo)
+    assert solo.is_admin is False
+
+
+# ── 7. 停用 TOTP 需要升級驗證（A07）────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_totp_disable_requires_reauth(db_session) -> None:
+    """光有 session 不能關掉 2FA。
+
+    否則任何拿到 access token 的人（XSS / 竊取的權杖 / 未鎖的螢幕 / 一把不受限的
+    API 權杖）都能把帳號降回只有密碼。同檔案的變更密碼本來就要求現行密碼。
+    """
+    from app.api.v1.endpoints.auth import totp_disable
+    from app.core.security import hash_password
+    from app.schemas.auth import TotpDisableRequest
+    from app.services import totp as totp_service
+    from fastapi import HTTPException
+
+    class _Req:
+        client = None
+        headers: dict[str, str] = {}
+        state = type("S", (), {"request_id": str(uuid.uuid4())})()
+
+    pw = "TotpDisablePw2026!"
+    u = User(
+        username=f"totp-{uuid.uuid4().hex[:8]}",
+        email=f"totp-{uuid.uuid4().hex[:8]}@test.local",
+        display_name="TOTP User",
+        password_hash=hash_password(pw), auth_provider="local",
+        is_active=True, is_admin=False,
+    )
+    db_session.add(u)
+    await db_session.flush()
+    # 直接種一個已啟用的 TOTP
+    secret = totp_service.begin_enrollment()
+    await totp_service.confirm_enrollment(
+        db_session, user=u, secret=secret,
+        code=__import__("pyotp").TOTP(secret).now(),
+    )
+    await db_session.flush()
+    assert totp_service.is_enabled(u) is True
+
+    # 什麼都不給 → 400，且 TOTP 仍啟用
+    with pytest.raises(HTTPException) as exc:
+        await totp_disable(TotpDisableRequest(), u, _Req(), db_session)  # type: ignore[arg-type]
+    assert exc.value.status_code == 400
+    assert totp_service.is_enabled(u) is True
+
+    # 密碼錯 → 400，且 TOTP 仍啟用
+    with pytest.raises(HTTPException) as exc:
+        await totp_disable(
+            TotpDisableRequest(password="wrong-password"), u, _Req(), db_session,  # type: ignore[arg-type]
+        )
+    assert exc.value.status_code == 400
+    assert totp_service.is_enabled(u) is True
+
+    # 正確密碼 → 成功停用
+    await totp_disable(TotpDisableRequest(password=pw), u, _Req(), db_session)  # type: ignore[arg-type]
+    assert totp_service.is_enabled(u) is False
+
+
+def test_webhook_notify_goes_through_ssrf_guard() -> None:
+    """webhook 通知必須過 SSRF 檢查。
+
+    失敗時會把回應內容前 200 字放進錯誤訊息、顯示在設定頁與 last_error ——
+    沒有這道檢查等於給管理員一個「讀任意內部 URL 回應片段」的原語
+    （例如雲端 metadata）。其他 20 個服務都走同一套檢查。
+    """
+    import inspect
+
+    from app.services import notify_channels
+
+    src = inspect.getsource(notify_channels._post)
+    assert "assert_url_safe(url)" in src, "notify_channels._post 沒有過 SSRF 檢查"
+    assert "follow_redirects=False" in src, "不可跟隨重導（會繞過已檢查的目標）"

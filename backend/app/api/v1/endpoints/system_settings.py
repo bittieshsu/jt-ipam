@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_admin
+from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.safe_http import UnsafeOutboundURL, safe_request
@@ -32,6 +32,9 @@ router = APIRouter(prefix="/system", tags=["system"], dependencies=[Depends(requ
 # 不需 admin 的系統讀取路由（例如 Locations 地圖預覽要讀全域 map_provider）。
 # 寫入（PUT）仍掛在上面的 admin 路由，只有 admin 能改。
 public_router = APIRouter(prefix="/system", tags=["system"])
+# 需要登入且具全域讀取（不是 admin 專屬）的系統層唯讀資訊
+view_router = APIRouter(prefix="/system", tags=["system"],
+                        dependencies=[Depends(require_global_read)])
 
 
 class HostnamePrecedenceOut(StrictModel):
@@ -1274,3 +1277,38 @@ async def test_notification_channel(
     except Exception as exc:
         raise HTTPException(502, detail=f"send failed: {str(exc)[:300]}") from exc
     return {"ok": True}
+
+
+# ── 整合是否已設定（給側邊選單用）──────────────────────────────────
+@view_router.get("/integration-presence")
+async def integration_presence(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, bool]:
+    """各整合是否至少有一個實例。
+
+    「進階」選單裡的整合唯讀檢視頁（防火牆 / 虛擬化 / DNS 記錄 / 憑證派送），
+    在該整合完全沒設定時只會顯示「尚未設定 X」，等於是空選項 —— 前端據此隱藏。
+    只回布林值、不回任何實例內容，所以掛 global_read 就夠（無需 admin），
+    否則具全域讀取的非 admin 會看不到自己有權限看的選單。
+    """
+    from sqlalchemy import func, select
+
+    from app.models.certificate import CertAgent
+    from app.models.dns import DNSServer
+    from app.models.firewall import OPNsenseFirewall
+    from app.models.fortigate import FortiGateFirewall
+    from app.models.pfsense import PfSenseFirewall
+    from app.models.virt import ProxmoxInstance
+
+    out: dict[str, bool] = {}
+    for key, model in (
+        ("opnsense", OPNsenseFirewall),
+        ("pfsense", PfSenseFirewall),
+        ("fortigate", FortiGateFirewall),
+        ("dns", DNSServer),
+        ("cert_agents", CertAgent),
+        ("proxmox", ProxmoxInstance),
+    ):
+        n = await session.scalar(select(func.count()).select_from(model))
+        out[key] = bool(n)
+    return out
