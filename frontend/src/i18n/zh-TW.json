@@ -1514,7 +1514,9 @@
     "error_token_too_short": "API token 至少 8 字元",
     "url_ph": "https://librenms.example.com (不含結尾 /)",
     "verify_tls": "驗證 TLS 憑證",
-    "verify_tls_hint": "LibreNMS 用自簽憑證、或用 IP 連線導致主機名稱不符時，關閉此項即可連線（等同不驗證憑證）。"
+    "verify_tls_hint": "LibreNMS 用自簽憑證、或用 IP 連線導致主機名稱不符時，關閉此項即可連線（等同不驗證憑證）。",
+    "sync_links": "LLDP / CDP 鄰居",
+    "sync_links_hint": "撈 LibreNMS 探到的鄰居連線（links）。這是對端自己宣告的，交換器之間的 trunk 也畫得出來 —— 那正是 FDB 推導最不準的地方。需要對方有開 LLDP／CDP，且 LibreNMS 的 xdp discovery 有跑到；來源沒資料時不算錯誤。"
   },
   "firewall": {
     "scope_title": "關聯範圍 (NAT 對應)",

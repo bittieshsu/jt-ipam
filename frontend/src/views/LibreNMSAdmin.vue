@@ -51,7 +51,7 @@ const form = ref({
   name: "", api_url: "", api_token: "",
   enabled: true,
   verify_tls: true,
-  sync_devices: true, sync_arp: true, sync_fdb: true, sync_vlans: true,
+  sync_devices: true, sync_arp: true, sync_fdb: true, sync_vlans: true, sync_links: true,
   use_for_status: true, auto_add_devices: true, auto_create_ips: true,
   sync_interval_seconds: 300,
   scope_subnet_ids: [] as string[],
@@ -77,7 +77,7 @@ function openCreate() {
     name: "", api_url: "", api_token: "",
     enabled: true,
     verify_tls: true,
-    sync_devices: true, sync_arp: true, sync_fdb: true, sync_vlans: true,
+    sync_devices: true, sync_arp: true, sync_fdb: true, sync_vlans: true, sync_links: true,
     use_for_status: true, auto_add_devices: true, auto_create_ips: true,
     sync_interval_seconds: 300, scope_subnet_ids: [],
   };
@@ -95,6 +95,7 @@ function openEdit(r: LibreNMSInstance) {
     sync_arp: r.sync_arp,
     sync_fdb: r.sync_fdb,
     sync_vlans: r.sync_vlans,
+    sync_links: r.sync_links ?? true,
     use_for_status: r.use_for_status,
     auto_add_devices: r.auto_add_devices,
     auto_create_ips: r.auto_create_ips,
@@ -121,6 +122,7 @@ async function submit() {
         sync_arp: form.value.sync_arp,
         sync_fdb: form.value.sync_fdb,
         sync_vlans: form.value.sync_vlans,
+        sync_links: form.value.sync_links,
         use_for_status: form.value.use_for_status,
         auto_add_devices: form.value.auto_add_devices,
         auto_create_ips: form.value.auto_create_ips,
@@ -274,6 +276,11 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           <div class="row"><span>{{ t('librenms_admin.sync_arp') }}</span><n-switch size="small" v-model:value="form.sync_arp" /></div>
           <div class="row"><span>{{ t('librenms_admin.sync_fdb') }}</span><n-switch size="small" v-model:value="form.sync_fdb" /></div>
           <div class="row"><span>{{ t('librenms_admin.sync_vlans') }}</span><n-switch size="small" v-model:value="form.sync_vlans" /></div>
+          <div class="row">
+            <span>{{ t('librenms_admin.sync_links') }}</span>
+            <n-switch size="small" v-model:value="form.sync_links" />
+          </div>
+          <p class="hint">{{ t("librenms_admin.sync_links_hint") }}</p>
           <div class="row"><span>{{ t('librenms_admin.use_for_status') }}</span><n-switch size="small" v-model:value="form.use_for_status" /></div>
           <div class="row"><span>{{ t('librenms_admin.auto_add_devices') }}</span><n-switch size="small" v-model:value="form.auto_add_devices" /></div>
           <div class="row"><span>{{ t('librenms_admin.auto_create_ips') }}</span><n-switch size="small" v-model:value="form.auto_create_ips" /></div>

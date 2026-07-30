@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.119] — 2026-07-30
+
+### Added
+- **LibreNMS LLDP / CDP neighbour sync.** LibreNMS discovers link-layer neighbours via its `xdp` module; jt-ipam now mirrors them into `librenms_links`. Unlike the existing FDB/ARP inference — which learns adjacency from observed traffic and uses "the port with the fewest MACs is the access port" as a heuristic — LLDP/CDP is *declared by the far end*, so switch-to-switch trunks come out correctly. That is precisely where the FDB heuristic is weakest, because a trunk port carries many MACs. Neighbours whose far end is not itself monitored are kept too: they only carry the LLDP-advertised hostname/platform strings, which is exactly the signal for "this port goes to an unmanaged device". Per-instance toggle (`sync_links`, on by default), read endpoint `GET /api/v1/librenms/links` at global read, and migration 0101.
+  - **An empty source is not an error.** Verified against a live LibreNMS: when nothing has been discovered, `GET /api/v0/resources/links` returns `404` with `{"message": "Links do not exist"}`. That is a valid state, not a failure, and is treated as zero rows — otherwise one environment without LLDP enabled would break the whole LibreNMS sync round.
+
+### Notes
+- **Endpoint paths were confirmed against a live instance; the field parsing was not.** The production LibreNMS (82 devices) has an empty `links` table, so there was no real payload to validate against — every field is therefore read tolerantly and a rename between LibreNMS versions degrades to a blank column rather than a failed sync. Field names follow the LibreNMS `links` schema. `/api/v0/resources/links/all` does not exist; it is parsed as `links/{id}` and returns `400`.
+- No install/upgrade changes.
+
 ## [0.5.118] — 2026-07-30
 
 ### Security

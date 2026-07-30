@@ -99,6 +99,7 @@ CATEGORY: dict[str, str] = {
     "ssh_credentials": "integrations",
     # synced（可重新拉取的鏡像）
     "librenms_devices": "synced",
+    "librenms_links": "synced",
     "arp_entries": "synced",
     "fdb_entries": "synced",
     "device_vlans": "synced",

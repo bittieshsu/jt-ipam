@@ -31,6 +31,7 @@ from app.models.librenms import (
     FDBEntry,
     LibreNMSDevice,
     LibreNMSInstance,
+    LibreNMSLink,
 )
 from app.models.physical import DevicePort
 from app.models.subnet import Subnet
@@ -142,6 +143,9 @@ class SyncSummary:
     vlans_seen: int = 0
     vlans_upserted: int = 0
     vlan_mappings: int = 0
+    links_seen: int = 0
+    links_upserted: int = 0
+    links_pruned: int = 0
     ip_mac_filled: int = 0   # 自動把 ARP 學到的 MAC 填回 IPAddress 表
     errors: list[str] = field(default_factory=list)
 
@@ -983,6 +987,112 @@ def _norm_mac(raw: object) -> str | None:
 # ─────────────────── 主入口 ───────────────────
 
 
+def _first(d: dict[str, Any], *keys: str) -> Any:
+    """依序取第一個有值的 key —— LibreNMS 各版本欄位名略有出入。"""
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, "", []):
+            return v
+    return None
+
+
+async def sync_links(
+    session: AsyncSession, instance: LibreNMSInstance,
+) -> tuple[int, int, int]:
+    """撈 LibreNMS 的 LLDP / CDP 鄰居（links 表）→ 鏡像進 `librenms_links`。
+
+    回 `(seen, upserted, pruned)`。
+
+    來源端點：`GET /api/v0/resources/links`（全域）。**已對實機確認過路徑**：
+    LibreNMS 認得這條路由，沒有資料時回 404 且 body 是
+    `{"status":"error","message":"Links do not exist"}` —— 這代表「links 表是空的」
+    而不是「端點不支援」，所以那個 404 要當成「0 筆」正常處理，不能當錯誤讓整輪 sync 掛掉。
+    （`/api/v0/resources/links/all` 不存在，會被當成 `links/{id}` 回 400。）
+
+    欄位一律容錯取：LibreNMS 各版本欄位名略有出入，抓不到就留空，不讓單一欄位
+    拖垮整批。對端未被監控時 `remote_device_id` 為 0/空 —— 這種只有 LLDP 通報字串
+    的鄰居仍然要留下來，那正是「接到未納管交換器」的線索。
+    """
+    if not instance.sync_links:
+        return 0, 0, 0
+
+    try:
+        data = await _api_get(instance, "/api/v0/resources/links", timeout=60.0)
+    except LibreNMSError as exc:
+        # 沒有任何鄰居資料 → LibreNMS 回 404 "Links do not exist"，這是正常狀態
+        if "Links do not exist" in str(exc) or ": 404" in str(exc):
+            data = {"links": []}
+        else:
+            raise
+
+    rows = data.get("links") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        rows = []
+
+    def _int(v: object) -> int | None:
+        try:
+            n = int(str(v))
+        except (TypeError, ValueError):
+            return None
+        return n or None          # LibreNMS 用 0 表示「沒有對應」
+
+    def _txt(v: object) -> str | None:
+        s2 = str(v).strip() if v is not None else ""
+        return s2 or None
+
+    seen = upserted = 0
+    now = datetime.now(UTC)
+    fresh_ids: set[int] = set()
+
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        lid = _int(_first(r, "id", "link_id"))
+        if lid is None:
+            continue
+        seen += 1
+        fresh_ids.add(lid)
+
+        existing = (await session.execute(
+            select(LibreNMSLink).where(
+                LibreNMSLink.instance_id == instance.id,
+                LibreNMSLink.legacy_link_id == lid,
+            )
+        )).scalars().first()
+        if existing is None:
+            existing = LibreNMSLink(instance_id=instance.id, legacy_link_id=lid)
+            session.add(existing)
+
+        existing.protocol = _txt(_first(r, "protocol"))
+        existing.active = bool(_first(r, "active") in (1, "1", True, "true", None))
+        existing.local_device_id = _int(_first(r, "local_device_id"))
+        existing.local_port_id = _int(_first(r, "local_port_id"))
+        existing.local_port_name = _txt(_first(r, "local_port", "local_ifname", "ifName"))
+        existing.remote_device_id = _int(_first(r, "remote_device_id"))
+        existing.remote_port_id = _int(_first(r, "remote_port_id"))
+        existing.remote_hostname = _txt(_first(r, "remote_hostname", "remote_device"))
+        existing.remote_port = _txt(_first(r, "remote_port", "remote_ifname"))
+        existing.remote_platform = _txt(_first(r, "remote_platform"))
+        existing.remote_version = _txt(_first(r, "remote_version"))
+        existing.last_seen_at = now
+        upserted += 1
+
+    await session.flush()
+
+    # 清掉這個實例先前有、這次沒看到的鄰居（拔線 / 對端下線 → 關係就不該留著）
+    stale = select(LibreNMSLink.id).where(LibreNMSLink.instance_id == instance.id)
+    if fresh_ids:
+        stale = stale.where(LibreNMSLink.legacy_link_id.not_in(fresh_ids))
+    stale_ids = list((await session.execute(stale)).scalars().all())
+    pruned = 0
+    if stale_ids:
+        await session.execute(
+            delete(LibreNMSLink).where(LibreNMSLink.id.in_(stale_ids))
+        )
+        pruned = len(stale_ids)
+    return seen, upserted, pruned
+
+
 async def sync_instance(
     session: AsyncSession, instance: LibreNMSInstance,
 ) -> SyncSummary:
@@ -1010,6 +1120,10 @@ async def sync_instance(
         if instance.sync_vlans:
             s, u, m = await sync_vlans(session, instance)
             summary.vlans_seen, summary.vlans_upserted, summary.vlan_mappings = s, u, m
+            await session.commit()
+        if instance.sync_links:
+            s, u, pr = await sync_links(session, instance)
+            summary.links_seen, summary.links_upserted, summary.links_pruned = s, u, pr
             await session.commit()
         if instance.use_for_status:
             await recompute_effective_status(session, instance)

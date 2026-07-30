@@ -1514,7 +1514,9 @@
     "error_token_too_short": "API token must be at least 8 chars",
     "url_ph": "https://librenms.example.com (no trailing /)",
     "verify_tls": "Verify TLS certificate",
-    "verify_tls_hint": "Turn off to connect when LibreNMS uses a self-signed cert or the hostname doesn't match (e.g. connecting by IP) — skips certificate verification."
+    "verify_tls_hint": "Turn off to connect when LibreNMS uses a self-signed cert or the hostname doesn't match (e.g. connecting by IP) — skips certificate verification.",
+    "sync_links": "LLDP / CDP neighbours",
+    "sync_links_hint": "Pull the neighbour links LibreNMS discovered. These are declared by the far end, so switch-to-switch trunks come out right — exactly where FDB inference is weakest. Requires LLDP/CDP on the peer and LibreNMS xdp discovery to have run; an empty source is not treated as an error."
   },
   "firewall": {
     "scope_title": "Association scope (NAT mapping)",

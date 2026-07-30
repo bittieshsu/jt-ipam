@@ -90,6 +90,7 @@ export interface LibreNMSInstance {
   sync_arp: boolean;
   sync_fdb: boolean;
   sync_vlans: boolean;
+  sync_links: boolean;
   scope_subnet_ids: string[] | null;
   use_for_status: boolean;
   auto_add_devices: boolean;
@@ -121,6 +122,7 @@ export interface LibreNMSInstanceCreate {
   sync_arp?: boolean;
   sync_fdb?: boolean;
   sync_vlans?: boolean;
+  sync_links?: boolean;
   scope_subnet_ids?: string[] | null;
   use_for_status?: boolean;
   auto_add_devices?: boolean;
@@ -165,6 +167,7 @@ export interface LibreNMSInstanceUpdate {
   sync_arp?: boolean;
   sync_fdb?: boolean;
   sync_vlans?: boolean;
+  sync_links?: boolean;
   scope_subnet_ids?: string[] | null;
   use_for_status?: boolean;
   auto_add_devices?: boolean;

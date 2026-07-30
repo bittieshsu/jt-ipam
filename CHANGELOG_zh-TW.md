@@ -4,6 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.119] — 2026-07-30
+
+### 新增
+- **LibreNMS 的 LLDP / CDP 鄰居同步。** LibreNMS 用它的 `xdp` 模組探鏈路層鄰居，jt-ipam 現在把這些鏡像進 `librenms_links`。與既有的 FDB／ARP 推導不同 —— 那是從觀察到的流量學鄰接關係，並用「該埠 MAC 數最少者為 access port」當啟發法 —— LLDP／CDP 是**對端自己宣告的**，所以交換器之間的 trunk 也能正確畫出來。那正是 FDB 啟發法最不準的地方，因為 trunk 埠上本來就有大量 MAC。對端沒有被監控的鄰居也會保留：那種只帶著 LLDP 通報的 hostname／platform 字串，正是「這個埠接到未納管設備」的線索。逐實例開關（`sync_links`，預設開）、唯讀端點 `GET /api/v1/librenms/links`（全域讀取）、migration 0101。
+  - **來源是空的不算錯誤。** 對實機確認過：什麼都沒探到時，`GET /api/v0/resources/links` 回 `404` 且 body 是 `{"message": "Links do not exist"}`。那是合法狀態不是失敗，會當成 0 筆處理 —— 否則一個沒開 LLDP 的環境就會把整輪 LibreNMS sync 弄掛。
+
+### 附註
+- **端點路徑對實機確認過，欄位解析沒有。** prod 的 LibreNMS（82 台裝置）`links` 表是空的，沒有真實回應可以驗，所以每個欄位都容錯讀取；LibreNMS 改版換欄位名時只會讓那一欄留空，不會讓整輪同步失敗。欄位名依 LibreNMS 的 `links` schema。`/api/v0/resources/links/all` 不存在，會被當成 `links/{id}` 回 `400`。
+- 安裝／升級不需任何改動。
+
 ## [0.5.118] — 2026-07-30
 
 ### 安全性
