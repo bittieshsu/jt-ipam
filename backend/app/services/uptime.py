@@ -157,3 +157,109 @@ async def uptime_for_ips(
         # 有轉換記錄、或目前就有存活來源（掃描代理／LibreNMS），都算「有在監測」
         "has_source": bool(rows) or monitored,
     }
+
+
+async def uptime_batch(
+    session: AsyncSession, ip_ids: list[uuid.UUID], *, days: int = 90,
+) -> list[dict[str, Any]]:
+    """一次算多個 IP，**每個 IP 各一條**（儀表板區塊用）。
+
+    與 `uptime_for_ips` 的差別：那支是把多個 IP 合併成一條（裝置的多個位址算同一台
+    機器）；這支是每個 IP 獨立一條。
+
+    刻意只打兩次 DB（轉換記錄一次、目前狀態一次）再在記憶體裡分組 —— 30 個 IP
+    各自呼叫 `uptime_for_ips` 會變成 60 次查詢。
+    """
+    if not ip_ids:
+        return []
+
+    today = datetime.now(UTC).date()
+    start_day = today - timedelta(days=days - 1)
+    start_dt = datetime.combine(start_day, datetime.min.time(), tzinfo=UTC)
+
+    ev_rows = list((await session.execute(
+        select(IPChangeLog.ip_id, IPChangeLog.created_at, IPChangeLog.new_value)
+        .where(IPChangeLog.ip_id.in_(ip_ids), IPChangeLog.field == "effective_status")
+        .order_by(IPChangeLog.created_at)
+    )).all())
+    by_ip: dict[uuid.UUID, list[tuple[datetime, str | None]]] = {}
+    for i, ts, nv in ev_rows:
+        if i is not None:
+            by_ip.setdefault(i, []).append((ts, nv))
+
+    meta: dict[uuid.UUID, tuple[str, str | None, str | None, bool, datetime]] = {}
+    for i, ipv, host, st, seen_s, seen_l, created in (await session.execute(
+        select(
+            IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.effective_status,
+            IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.created_at,
+        ).where(IPAddress.id.in_(ip_ids))
+    )).all():
+        meta[i] = (str(ipv).split("/")[0], host, st, bool(seen_s or seen_l), created)
+
+    out: list[dict[str, Any]] = []
+    for ip_id in ip_ids:                      # 依使用者排的順序回，不用 DB 順序
+        if ip_id not in meta:
+            continue
+        ip_text, hostname, cur_status, has_live_source, created_at = meta[ip_id]
+        evs = by_ip.get(ip_id, [])
+
+        state: bool | None = None
+        for ts, nv in evs:
+            if ts < start_dt:
+                state = status_is_up(nv)
+            else:
+                break
+        day_events: dict[date, list[str | None]] = {}
+        for ts, nv in evs:
+            if ts >= start_dt:
+                day_events.setdefault(ts.date(), []).append(nv)
+
+        # 與 uptime_for_ips 相同：沒有轉換不代表沒在監測（從沒斷過就不會有轉換）
+        backfill_from: date | None = None
+        if not evs and has_live_source and status_is_up(cur_status) is not None:
+            state = status_is_up(cur_status)
+            backfill_from = max(start_day, created_at.date())
+
+        items: list[dict[str, str]] = []
+        known = down_days = 0
+        cur = state
+        for n in range(days):
+            d = start_day + timedelta(days=n)
+            if backfill_from is not None and d < backfill_from:
+                items.append({"date": d.isoformat(), "status": "unknown"})
+                continue
+            up = cur is True
+            down = cur is False
+            for nv in day_events.get(d, []):
+                cur = status_is_up(nv)
+                if cur is True:
+                    up = True
+                elif cur is False:
+                    down = True
+            if up and down:
+                st2 = "partial"
+                known += 1
+                down_days += 1
+            elif down:
+                st2 = "down"
+                known += 1
+                down_days += 1
+            elif up:
+                st2 = "up"
+                known += 1
+            else:
+                st2 = "unknown"
+            items.append({"date": d.isoformat(), "status": st2})
+
+        out.append({
+            "ip_id": str(ip_id),
+            "ip": ip_text,
+            "hostname": hostname,
+            "days": days,
+            "items": items,
+            "uptime_pct": (round((known - down_days) / known * 100, 3) if known else None),
+            "known_days": known,
+            "down_days": down_days,
+            "has_source": bool(evs) or has_live_source,
+        })
+    return out

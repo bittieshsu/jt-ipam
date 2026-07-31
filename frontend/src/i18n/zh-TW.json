@@ -448,7 +448,7 @@
     "last_report": "最後回報",
     "source_ip": "來源 IP",
     "os": "OS",
-    "last_alive": "最後存活",
+    "last_alive": "最後上線",
     "last_login": "最後登入",
     "hostname": "主機名稱",
     "owner": "擁有者",
@@ -1182,7 +1182,7 @@
     "tip_stale": "超過 {grace} 分鐘、但 {staleMax} 分鐘內仍曾出現過 —— 可能剛漏掃或網路抖動，尚未判定為離線",
     "tip_offline": "超過 {staleMax} 分鐘無任何偵測記錄；或已登記且有啟用掃描卻從未偵測到",
     "tip_reserved": "狀態手動標記為「保留」",
-    "tip_unknown": "無從判定存活：此 IP 刻意略過 Ping 偵測，或所屬子網路未啟用掃描",
+    "tip_unknown": "無從判定是否上線：此 IP 刻意略過 Ping 偵測，或所屬子網路未啟用掃描",
     "tip_free": "此 IP 尚未登記（未配發）"
   },
   "tasks": {
@@ -1486,7 +1486,7 @@
     "error_username_required": "帳號必填（此 DNS 類型以帳密認證）"
   },
   "scope_overlap": {
-    "warning": "偵測到有重疊網段（同一個 IP 存在於多個子網路）。此整合未設定「限定子網路範圍」，同步時可能把存活狀態／DHCP／MAC 標到錯誤單位的同 IP。建議在下方指定關聯子網路範圍。"
+    "warning": "偵測到有重疊網段（同一個 IP 存在於多個子網路）。此整合未設定「限定子網路範圍」，同步時可能把上線狀態／DHCP／MAC 標到錯誤單位的同 IP。建議在下方指定關聯子網路範圍。"
   },
   "librenms_admin": {
     "title": "LibreNMS 整合",
@@ -1583,7 +1583,7 @@
     "view_ip": "檢視 IP",
     "col_os": "作業系統",
     "col_version": "版本",
-    "col_last_alive": "最後存活",
+    "col_last_alive": "最後上線",
     "col_user": "帳號",
     "col_last_sync": "最後同步",
     "col_last_error": "最後錯誤",
@@ -2820,17 +2820,24 @@
     "created_done": "我已保存好"
   },
   "uptime": {
-    "title": "存活狀況",
+    "title": "可用性",
     "today": "今天",
     "days_ago": "{n} 天前",
-    "uptime": "正常運作",
+    "uptime": "可用",
     "st_up": "正常",
     "st_down": "整天離線",
     "st_unknown": "無資料",
     "no_source": "未監測",
     "no_data": "尚無資料",
     "basis": "（依 {n} 天有資料期間計算）",
-    "no_source_hint": "這個 IP 沒有存活監測來源（掃描代理或 LibreNMS），所以沒有歷史可畫。灰色代表無資料，不代表正常。",
-    "st_partial": "曾中斷"
+    "no_source_hint": "這個 IP 沒有上線偵測來源（掃描代理或 LibreNMS），所以沒有歷史可畫。灰色代表無資料，不代表正常。",
+    "st_partial": "曾中斷",
+    "dash_title": "可用性追蹤",
+    "dash_edit": "編輯追蹤清單",
+    "dash_empty": "尚未選擇要追蹤的 IP",
+    "dash_pick": "選擇 IP",
+    "dash_ph": "搜尋 IP 或主機名稱",
+    "dash_hint": "最多可選 {n} 個 IP。灰色代表該日無資料（該 IP 沒有上線偵測來源），不代表正常。",
+    "dash_over": "超過上限 {n} 個，請移除一些"
   }
 }

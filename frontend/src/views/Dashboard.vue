@@ -12,6 +12,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import DashboardUptime from "@/components/DashboardUptime.vue";
 import { useRouter } from "vue-router";
 import {
   NCard,
@@ -251,6 +252,9 @@ onMounted(() => { void load(); void loadPins(); });
           </template>
         </div>
       </n-card>
+
+      <!-- 存活狀況追蹤：使用者自選 IP（上限 30），佔整列全寬 -->
+      <DashboardUptime />
 
       <div class="row-2col">
         <!-- Donut 使用率 — SVG stroke-dasharray，currentColor 跟主題色 -->

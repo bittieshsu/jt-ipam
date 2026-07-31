@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.125] — 2026-07-31
+
+### Added
+- **Availability watchlist on the dashboard** — a full-width block where you pick the IPs you care about (up to 30) and see all of their 90-day bars stacked and aligned, each with its uptime percentage. Rows link through to the IP. The selection is stored per account in the existing generic `user_preferences.pinned` map, so it follows you across browsers and needs no schema change.
+  - Backed by a new `POST /api/v1/addresses/uptime/batch`, which does two queries regardless of how many IPs are requested — calling the per-IP endpoint thirty times would have been sixty round trips. It returns one series *per IP* (unlike the device endpoint, which merges an entire device into one), preserves the order you arranged them in, and **silently drops IPs you cannot see** rather than erroring, so the block does not break when permissions change.
+  - The same honesty rules as the detail-page bar: an IP with no liveness source is entirely grey and its percentage shows "—" rather than 0% or 100%.
+
 ## [0.5.124] — 2026-07-31
 
 ### Fixed

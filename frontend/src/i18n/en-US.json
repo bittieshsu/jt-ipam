@@ -2831,6 +2831,13 @@
     "no_data": "No data yet",
     "basis": "(over {n} days with data)",
     "no_source_hint": "This IP has no liveness source (scan agent or LibreNMS), so there is no history to plot. Grey means no data — not that it was up.",
-    "st_partial": "Had an outage"
+    "st_partial": "Had an outage",
+    "dash_title": "Availability watchlist",
+    "dash_edit": "Edit watchlist",
+    "dash_empty": "No IPs selected yet",
+    "dash_pick": "Pick IPs",
+    "dash_ph": "Search by IP or hostname",
+    "dash_hint": "Up to {n} IPs. Grey means no data for that day (the IP has no liveness source) — not that it was up.",
+    "dash_over": "More than {n} selected — please remove some"
   }
 }

@@ -17,6 +17,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response
+from pydantic import Field
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1080,3 +1081,38 @@ async def get_address_uptime(
 
     from app.services.uptime import uptime_for_ips
     return await uptime_for_ips(session, [address_id], days=days)
+
+
+class _UptimeBatchIn(StrictModel):
+    # 上限 30：儀表板區塊的設計上限，也避免一次算太多天 × 太多 IP
+    ip_ids: Annotated[list[uuid.UUID], Field(max_length=30)]
+    days: Annotated[int, Field(ge=7, le=365)] = 90
+
+
+@router.post("/uptime/batch")
+async def uptime_batch_endpoint(
+    payload: _UptimeBatchIn,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """一次取多個 IP 的每日存活狀態，每個 IP 各一條（儀表板區塊用）。
+
+    A01：只回使用者看得見的 IP —— 不可因為對方把 id 塞進清單就吐出來。
+    看不到的直接略過（不報錯），這樣儀表板不會因為權限變動就整個壞掉。
+    """
+    from app.services.uptime import uptime_batch
+
+    if not payload.ip_ids:
+        return {"items": []}
+
+    # 先縮到可見子網路，再取這些 IP —— 與清單端點同一套規則
+    vis = await visible_ids(session, user=user, object_type="subnet", required="read")
+    stmt = select(IPAddress.id).where(IPAddress.id.in_(payload.ip_ids))
+    if vis is not None:
+        if not vis:
+            return {"items": []}
+        stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+    allowed = set((await session.execute(stmt)).scalars().all())
+    ordered = [i for i in payload.ip_ids if i in allowed]   # 保留使用者排的順序
+
+    return {"items": await uptime_batch(session, ordered, days=payload.days)}
