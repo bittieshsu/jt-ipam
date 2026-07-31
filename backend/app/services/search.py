@@ -216,7 +216,7 @@ async def _search_vlan_number(
 async def _search_vmid(
     session: AsyncSession, *, user: User, vmid: int, limit: int
 ) -> list[SearchHit]:
-    """以 Proxmox VMID 找 VM/CT，回傳其主 IP（導到 IP 詳情，可開 PVE 主控台）。"""
+    """以 Proxmox VMID 找 VM/CT，回傳其主 IP（導到 IP 詳細資料，可開 PVE 主控台）。"""
     from app.models.address import IPAddress
     from app.models.virt import VirtualMachine
     rows = list((await session.execute(
@@ -240,7 +240,7 @@ async def _search_vmid(
         if ip is None or ip.subnet_id not in visible:
             continue
         kindlabel = "CT" if vm.kind == "ct" else "VM"
-        # type=vm → 前端歸「虛擬化」群組、以 VM 名稱為主標（點擊導到該 IP 詳情，可開主控台）
+        # type=vm → 前端歸「虛擬化」群組、以 VM 名稱為主標（點擊導到該 IP 詳細資料，可開主控台）
         hits.append(SearchHit(
             type="vm", id=str(ip.id), label=vm.name,
             sublabel=f"{kindlabel} · VMID {vmid} · {ip.ip}", score=0.99,

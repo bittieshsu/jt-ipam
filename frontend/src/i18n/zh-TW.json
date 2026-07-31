@@ -2590,7 +2590,9 @@
     "no_store_hint": "帳號與密碼僅用於本次連線（不儲存於伺服器）；需對此 VM/CT 有 Console 權限才連得上。",
     "use_saved_hint": "使用已儲存的 PVE 帳密：密碼以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
     "state_closed": "已關閉",
-    "lxc_enter_hint": "沒看到提示字元？按一下 Enter"
+    "lxc_enter_hint": "沒看到提示字元？按一下 Enter",
+    "tfa_code": "兩階段驗證碼",
+    "tfa_code_ph": "輸入驗證器上的 6 位數"
   },
   "account": {
     "change_password": "變更密碼",

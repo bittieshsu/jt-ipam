@@ -332,7 +332,7 @@ async def get_address(
     out.rdp_available = await can_use_rdp(session, user=user, ip=obj)
     out.vnc_available = await can_use_vnc(session, user=user, ip=obj)
     await _fill_pve_console(session, obj, out, user)
-    # 算出此 IP 實際會被執行的探測（子網路要跑 − IP 略過 ∩ 代理能力）給詳情頁顯示
+    # 算出此 IP 實際會被執行的探測（子網路要跑 − IP 略過 ∩ 代理能力）給詳細資料頁顯示
     out.effective_probes = await _effective_probes_for(session, obj)
     # OS 依來源優先序（scanner/librenms/wazuh）解析有效值 + 來源
     from app.services.os_precedence import effective_os

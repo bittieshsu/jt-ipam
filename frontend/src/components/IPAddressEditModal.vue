@@ -199,7 +199,7 @@ const editMode = ref(false);
 const saving = ref(false);
 const deleting = ref(false);
 
-// 卡片寬度不足時，SSH/RDP/VNC 連線按鈕收成只有 icon（inline 詳情頁用）
+// 卡片寬度不足時，SSH/RDP/VNC 連線按鈕收成只有 icon（inline 詳細資料頁用）
 const rootEl = ref<any>(null);
 const consoleCompact = ref(false);
 let cro: ResizeObserver | null = null;
@@ -534,7 +534,7 @@ async function remove() {
       :role="inline ? undefined : 'dialog'"
       :aria-modal="inline ? undefined : 'true'"
     >
-      <!-- 標題：IP + 狀態標籤並排（比照裝置詳情的 名稱+類型標籤）-->
+      <!-- 標題：IP + 狀態標籤並排（比照裝置詳細資料的 名稱+類型標籤）-->
       <template #header>
         <span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap">
           <span>{{ props.address?.ip ?? props.createContext?.ip ?? '' }}</span>
@@ -560,7 +560,7 @@ async function remove() {
           </n-tooltip>
         </span>
       </template>
-      <!-- inline(頁面)模式：操作鈕放右上，比照裝置詳情頁 -->
+      <!-- inline(頁面)模式：操作鈕放右上，比照裝置詳細資料頁 -->
       <template v-if="inline && !isCreate" #header-extra>
         <n-space align="center" :size="8" :wrap-item="false">
           <template v-if="!editMode">

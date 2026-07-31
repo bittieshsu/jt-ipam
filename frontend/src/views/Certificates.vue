@@ -636,7 +636,7 @@ const agentExportRows = computed(() => agentsFiltered.value.map((a) => {
 }));
 const agentColsAll = computed<DataTableColumns<CertAgent>>(() => autoSort([
   { title: t("cols.name"), key: "name", minWidth: 120, ellipsis: { tooltip: true },
-    // 有對應裝置時，名稱可點去裝置詳情；未對應則純文字
+    // 有對應裝置時，名稱可點去裝置詳細資料；未對應則純文字
     render: (a) => a.device_id
       ? h(NTooltip, null, {
           trigger: () => links.device(a.device_id, a.name),
@@ -678,7 +678,7 @@ const agentColsAll = computed<DataTableColumns<CertAgent>>(() => autoSort([
   { title: t("cols.source_ip"), key: "source_ip", minWidth: 150,
     render: (a) => a.last_source_ip
       ? h("div", { style: "display:flex;align-items:center;gap:4px;flex-wrap:wrap" }, [
-          // 來源 IP 若對到 IPAM 的 IPAddress → 可點進該位址詳情；否則純文字
+          // 來源 IP 若對到 IPAM 的 IPAddress → 可點進該位址詳細資料；否則純文字
           a.source_ip_id
             ? h("span", { style: "font-family:monospace" }, [links.ipById(a.source_ip_id, a.last_source_ip)])
             : h("span", { style: "font-family:monospace" }, a.last_source_ip),

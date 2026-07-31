@@ -73,7 +73,7 @@ function extractRefs(trace: ChatMessage[] | undefined): ChatRef[] {
     for (const dv of d.devices ?? []) add("device", dv.id, dv.name);
     for (const sn of d.subnets ?? []) add("subnet", sn.id, sn.cidr);
     for (const lo of d.locations ?? []) add("location", lo.id, lo.name);
-    // 單筆詳情
+    // 單筆詳細資料
     if (d.id && d.name && d.type && ("u_position" in d || "vendor" in d)) add("device", d.id, d.name);
     if (d.subnet_id && d.cidr) add("subnet", d.subnet_id, d.cidr);
   }

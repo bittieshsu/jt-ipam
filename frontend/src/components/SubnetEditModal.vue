@@ -37,7 +37,7 @@ import { useScanProbes, probeLabel } from "@/api/scanProbes";
 const props = defineProps<{
   show: boolean;
   editing: Subnet | null;
-  // 從子網路詳情「新增下層子網路」帶過來時，預選此區段（僅新增模式套用）
+  // 從子網路詳細資料「新增下層子網路」帶過來時，預選此區段（僅新增模式套用）
   presetSectionId?: string | null;
 }>();
 const emit = defineEmits<{

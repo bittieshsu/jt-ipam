@@ -508,7 +508,7 @@ async def get_device(
     session: AsyncSession, *, user: User,
     device_id: str | None = None, name: str | None = None,
 ) -> dict[str, Any]:
-    """裝置詳情：基本資料 + IP 清單 + （透過 LibreNMS）VLAN 與 switch port。"""
+    """裝置詳細資料：基本資料 + IP 清單 + （透過 LibreNMS）VLAN 與 switch port。"""
     dev: Device | None = None
     if device_id:
         dev = await session.get(Device, _as_uuid(device_id, "device_id"))

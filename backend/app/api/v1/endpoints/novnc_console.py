@@ -62,6 +62,9 @@ class NovncTicketIn(BaseModel):
     password: str | None = None
     realm: str | None = None
     credential_id: uuid.UUID | None = None
+    # PVE 帳號啟用兩階段驗證時的 6 位數驗證碼（issue #23）。
+    # 第一次不用帶；後端回 tfa_required 後前端再帶著它重送。
+    tfa_code: str | None = None
 
 
 async def _resolve_creds(
@@ -108,10 +111,18 @@ async def issue_novnc_ticket(
     pve_user, password = await _resolve_creds(session, user, ip, payload)
     # 用使用者帳密登入 PVE → vncproxy/termproxy（權限不足在這裡就擋下）
     try:
-        pve_ticket, csrf = await pvec.pve_login(target.base_url, pve_user, password, target.verify_tls)
+        pve_ticket, csrf = await pvec.pve_login(
+            target.base_url, pve_user, password, target.verify_tls,
+            tfa_code=payload.tfa_code,
+        )
         vncticket, port = await pvec.pve_console_proxy(target, pve_ticket, csrf)
     except pvec.PveConsoleError as e:
-        raise HTTPException(status_code=e.http_status, detail=str(e)) from e
+        # 帶上 code：前端要能分辨 tfa_required（跳出驗證碼輸入）與其他失敗。
+        # detail 保持含 message 欄位，既有只讀字串的呼叫端不會變成 [object Object]。
+        raise HTTPException(
+            status_code=e.http_status,
+            detail={"code": e.code, "message": str(e)},
+        ) from e
     finally:
         del password
 

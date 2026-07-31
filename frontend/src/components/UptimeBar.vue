@@ -46,7 +46,7 @@ import { useI18n } from "vue-i18n";
 import { NTag, NTooltip } from "naive-ui";
 import { apiClient, apiErrMsg } from "@/api/client";
 
-// 同一個元件服務兩種來源：IP 詳情頁與裝置詳情頁（裝置會合併它名下所有 IP）
+// 同一個元件服務兩種來源：IP 詳細資料頁與裝置詳細資料頁（裝置會合併它名下所有 IP）
 const props = withDefaults(
   defineProps<{ addressId?: string; deviceId?: string; days?: number }>(),
   { addressId: undefined, deviceId: undefined, days: 90 },

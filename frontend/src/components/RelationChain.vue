@@ -55,7 +55,7 @@ function go(n: RelationNode) {
     case "section":  router.push({ name: "section-detail", params: { id: n.id } }); break;
     case "subnet":   router.push({ name: "subnet-detail", params: { id: n.id } }); break;
     case "vm":       router.push({ name: "virt" }); break;
-    // PVE 節點：對得到實體裝置（id 為 UUID）就跳裝置詳情；無實體裝置（id 以 pve: 開頭）則不動作
+    // PVE 節點：對得到實體裝置（id 為 UUID）就跳裝置詳細資料；無實體裝置（id 以 pve: 開頭）則不動作
     case "vmnode":   if (!n.id.startsWith("pve:")) router.push({ name: "device-detail", params: { id: n.id } }); break;
     case "device":   router.push({ name: "device-detail", params: { id: n.id } }); break;
     case "ip":       router.push({ name: "addresses", query: { q: n.label } }); break;

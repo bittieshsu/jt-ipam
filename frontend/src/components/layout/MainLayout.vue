@@ -63,7 +63,7 @@ const accountLabel = computed(() => {
   return u.includes("@") ? u : `${u}@local`;
 });
 
-// ── 子網路導覽 tree（在子網路詳情頁時，左側選單把子網路展開、依客戶分組）──
+// ── 子網路導覽 tree（在子網路詳細資料頁時，左側選單把子網路展開、依客戶分組）──
 const { labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
 const navSubnets = ref<Subnet[]>([]);
 let navSubnetsLoaded = false;
@@ -83,7 +83,7 @@ watch(subnetTreeVersion, () => { if (inSubnetContext.value) void loadNavSubnets(
 const currentSubnetId = computed(() =>
   route.name === "subnet-detail" ? (route.params.id as string) : null,
 );
-// 在「子網路」清單頁或某個子網路詳情頁時，左選單就展開子網路樹
+// 在「子網路」清單頁或某個子網路詳細資料頁時，左選單就展開子網路樹
 const inSubnetContext = computed(() =>
   route.name === "subnets" || route.name === "subnet-detail",
 );

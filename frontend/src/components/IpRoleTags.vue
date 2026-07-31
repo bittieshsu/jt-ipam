@@ -3,7 +3,7 @@
  * IP 角色標記（清單視覺化）：閘道 / DHCP 伺服器 / 在 DHCP 範圍內。
  * 用緊湊 icon（+tooltip）呈現，避免寬文字標籤把 IP 欄擠成一條線。
  * 旗標由後端讀取端推導（is_gateway / is_dhcp_server / dhcp_server_auto / in_dhcp_range / in_dhcp_lease）。
- * hideRange=true 時不畫「DHCP 範圍」點（給本身已有 DHCP 欄位的表格，如子網路詳情）。
+ * hideRange=true 時不畫「DHCP 範圍」點（給本身已有 DHCP 欄位的表格，如子網路詳細資料）。
  */
 import { NIcon, NTooltip } from "naive-ui";
 import { useI18n } from "vue-i18n";

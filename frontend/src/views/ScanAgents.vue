@@ -297,7 +297,7 @@ const cols = computed<DataTableColumns<ScanAgent>>(() =>
   allCols.value.filter((c: any) => saVis.value.includes(c.key)),
 );
 
-// 相依套件詳情
+// 相依套件詳細資料
 const toolsShow = ref(false);
 const toolsRow = ref<ScanAgent | null>(null);
 function openTools(r: ScanAgent) { toolsRow.value = r; toolsShow.value = true; }
@@ -353,7 +353,7 @@ onMounted(() => { void refresh(); });
     </n-space>
     <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1080" :pagination="pg" />
 
-    <!-- 相依套件詳情 -->
+    <!-- 相依套件詳細資料 -->
     <n-modal v-model:show="toolsShow" preset="card" :title="t('scan_agent.deps_title')" style="width: 720px; max-width: 94vw">
       <p class="hint" style="margin-top:0">{{ t("scan_agent.deps_hint") }}</p>
       <table class="dep-tbl">

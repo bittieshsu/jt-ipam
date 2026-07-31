@@ -185,7 +185,7 @@ async def _resolve_links(
 
 
 async def _to_reads(session: AsyncSession, agents: list[CertAgent]) -> list[CertAgentRead]:
-    """list/詳情用：_to_read + 補 device_name / source_ip_id。"""
+    """list/詳細資料用：_to_read + 補 device_name / source_ip_id。"""
     items = [_to_read(a) for a in agents]
     device_names, source_ip_ids = await _resolve_links(session, agents)
     for it, a in zip(items, agents, strict=True):

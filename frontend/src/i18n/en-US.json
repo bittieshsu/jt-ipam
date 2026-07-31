@@ -2590,7 +2590,9 @@
     "no_store_hint": "Credentials are used only for this session (not stored); you must have Console permission on this VM/CT.",
     "use_saved_hint": "Using a saved PVE credential: the password is stored encrypted on the server, decrypted only at connect time, never returned to the browser.",
     "state_closed": "Closed",
-    "lxc_enter_hint": "No prompt? Press Enter once"
+    "lxc_enter_hint": "No prompt? Press Enter once",
+    "tfa_code": "Two-factor code",
+    "tfa_code_ph": "6-digit code from your authenticator"
   },
   "account": {
     "change_password": "Change password",

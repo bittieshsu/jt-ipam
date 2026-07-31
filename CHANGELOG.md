@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.124] — 2026-07-31
+
+### Fixed
+- **PVE console failed for accounts with two-factor authentication enabled** (GitHub issue #23, reported by @kelp45705753-bit). Proxmox answers `/access/ticket` for a TFA-enabled account with **HTTP 200** and a *challenge* ticket — `{"ticket": "PVE:!tfa!…", "NeedTFA": 1}` — not an error. That was taken as a normal ticket, so the failure only surfaced later when opening the websocket, with a message that gave no hint of the real cause. Login now detects the challenge and exchanges it for a real ticket using `tfa-challenge` plus `password=totp:<code>`; if no code was supplied it returns a distinct `tfa_required` so the console asks for the 6-digit code instead of dropping into an opaque error. A wrong or expired code is reported as such rather than being passed on to the websocket. Accounts without TFA still make a single request.
+
+### Changed
+- Terminology: replaced "詳情" with "詳細資料" and "膠囊" with plainer wording across comments and the Chinese changelog (Taiwan usage).
+
+### Notes
+- The TFA exchange follows the documented Proxmox flow but **could not be tested against a live TFA-enabled PVE account**; the unit tests cover the challenge, the successful exchange, a wrong code and the untouched non-TFA path.
+
 ## [0.5.123] — 2026-07-31
 
 ### Fixed
@@ -1429,7 +1440,7 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
   that source and the Graylog setup guide below re-renders for it (correct lookup URL, Lookup Table
   names, key/value columns and a matching pipeline rule — IP→hostname keeps the LAN cidr_match guard,
   firewall rule/alias sources use a plain rid/alias lookup), with a fade/slide transition when switching.
-  The page also drops its fixed max-width and uses the full width. Term: "詳情" → "詳細資料".
+  The page also drops its fixed max-width and uses the full width. Term: "詳細資料" → "詳細資料".
 
 ## [0.4.192] — 2026-06-18
 
