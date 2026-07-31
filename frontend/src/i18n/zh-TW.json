@@ -2816,5 +2816,18 @@
     "created_warn": "請立刻複製並妥善保存 —— 關閉這個視窗後就再也看不到明文了。",
     "created_usage": "用法（放在 Authorization 標頭）：",
     "created_done": "我已保存好"
+  },
+  "uptime": {
+    "title": "存活狀況",
+    "today": "今天",
+    "days_ago": "{n} 天前",
+    "uptime": "正常運作",
+    "st_up": "正常",
+    "st_down": "曾中斷",
+    "st_unknown": "無資料",
+    "no_source": "未監測",
+    "no_data": "尚無資料",
+    "basis": "（依 {n} 天有資料期間計算）",
+    "no_source_hint": "這個 IP 沒有存活監測來源（掃描代理或 LibreNMS），所以沒有歷史可畫。灰色代表無資料，不代表正常。"
   }
 }

@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import { NCard, NDescriptions, NDescriptionsItem, NSpin, NSpace, NTag, useMessage } from "naive-ui";
 import { getAddress } from "@/api/addresses";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
+import UptimeBar from "@/components/UptimeBar.vue";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import type { IPAddress } from "@/types";
 
@@ -126,6 +127,11 @@ watch(() => route.params.id, (id) => { if (id) load(String(id)); });
         @bmc-open="openBmc"
         @bmc-popout="openBmcPopout"
       />
+
+      <!-- 存活狀況長條圖：由 effective_status 的轉換記錄重建每日狀態 -->
+      <n-card v-if="addr" size="small" :bordered="true">
+        <UptimeBar :address-id="addr.id" :days="90" />
+      </n-card>
 
       <!-- 掃描項目（唯讀，由探測結果推導）；OS 已併入上方主要欄位表 -->
       <n-card v-if="addr && showScanSection" size="small" :bordered="true">

@@ -1060,3 +1060,23 @@ async def import_csv(
         runner=_runner,
     )
     return {"task_id": str(task.id), "status": task.status, "dry_run": False}
+
+
+@router.get("/{address_id}/uptime")
+async def get_address_uptime(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    days: int = Query(90, ge=7, le=365),
+) -> dict[str, Any]:
+    """單一 IP 的每日存活狀態（status page 式長條圖用）。
+
+    重建規則與「沒資料不得算成正常」等原則見 `app/services/uptime.py`。
+    """
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "read")
+
+    from app.services.uptime import uptime_for_ips
+    return await uptime_for_ips(session, [address_id], days=days)

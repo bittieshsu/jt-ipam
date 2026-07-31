@@ -14,6 +14,7 @@ import { listAddresses, updateAddress } from "@/api/addresses";
 import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
 import { getDeviceRelations, type RelationNode } from "@/api/relations";
 import RelationChain from "@/components/RelationChain.vue";
+import UptimeBar from "@/components/UptimeBar.vue";
 import RackDiagram from "@/components/RackDiagram.vue";
 import DevicePortsPanel from "@/components/DevicePortsPanel.vue";
 import DevicePowerPortsPanel from "@/components/DevicePowerPortsPanel.vue";
@@ -312,6 +313,11 @@ onMounted(() => {
             <RackDiagram :diagram="rackDiagram" :show-legend="false" :highlight-id="device.id" :compact="true" :bare="true" />
           </div>
         </div>
+      </n-card>
+
+      <!-- 存活狀況：合併此裝置名下所有 IP 的狀態轉換 -->
+      <n-card v-if="device" size="small">
+        <UptimeBar :device-id="device.id" :days="90" />
       </n-card>
 
       <n-card v-if="device && relations.length > 1" :title="() => cardHead(TopologyIcon, t('relations.title'))" size="small">

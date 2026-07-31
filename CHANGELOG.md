@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.122] — 2026-07-31
+
+### Added
+- **Availability bar on the IP detail and device detail pages** — a 90-day status-page style strip, green for up, amber for a day with an outage, grey for no data. Device bars merge every IP on that device: a day is marked as an outage if *any* of its IPs went down, so a single failed interface still surfaces.
+  - There is no per-IP time series in the schema, so daily state is *reconstructed* from the `effective_status` transitions already recorded in `ip_change_log`: a state holds until the next transition, and anything before the first transition is unknown.
+  - **Days without data are grey, never green.** An IP with no liveness source (scan agent or LibreNMS) shows an entirely grey bar, which is the honest signal — it means "not monitored", not "was fine". A tooltip says so.
+  - **The uptime percentage counts only days that have data.** An IP monitored for three days, all up, reads 100% rather than being diluted by 87 grey days or scored as if grey were downtime. The denominator is shown next to the figure so the number cannot be read out of context.
+  - Grey uses the Naive UI theme variable rather than a fixed colour, so it stays subtle in dark mode; green and amber are fixed because they are status semantics that read correctly in both themes.
+
 ## [0.5.121] — 2026-07-31
 
 ### Fixed

@@ -2816,5 +2816,18 @@
     "created_warn": "Copy it now and store it safely — once you close this dialog the plaintext is gone for good.",
     "created_usage": "Usage (send it in the Authorization header):",
     "created_done": "I've saved it"
+  },
+  "uptime": {
+    "title": "Availability",
+    "today": "Today",
+    "days_ago": "{n} days ago",
+    "uptime": "uptime",
+    "st_up": "Up",
+    "st_down": "Had an outage",
+    "st_unknown": "No data",
+    "no_source": "Not monitored",
+    "no_data": "No data yet",
+    "basis": "(over {n} days with data)",
+    "no_source_hint": "This IP has no liveness source (scan agent or LibreNMS), so there is no history to plot. Grey means no data — not that it was up."
   }
 }
