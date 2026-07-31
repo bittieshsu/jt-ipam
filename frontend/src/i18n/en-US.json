@@ -2823,11 +2823,12 @@
     "days_ago": "{n} days ago",
     "uptime": "uptime",
     "st_up": "Up",
-    "st_down": "Had an outage",
+    "st_down": "Down all day",
     "st_unknown": "No data",
     "no_source": "Not monitored",
     "no_data": "No data yet",
     "basis": "(over {n} days with data)",
-    "no_source_hint": "This IP has no liveness source (scan agent or LibreNMS), so there is no history to plot. Grey means no data — not that it was up."
+    "no_source_hint": "This IP has no liveness source (scan agent or LibreNMS), so there is no history to plot. Grey means no data — not that it was up.",
+    "st_partial": "Had an outage"
   }
 }

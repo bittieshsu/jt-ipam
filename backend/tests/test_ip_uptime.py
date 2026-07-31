@@ -59,17 +59,21 @@ async def test_state_persists_between_transitions(db_session, admin_user) -> Non
     ipa = await _mk_ip(db_session, admin_user)
     now = datetime.now(UTC)
     db_session.add(_ev(ipa, now - timedelta(days=9), "online (scanner)"))
-    db_session.add(_ev(ipa, now - timedelta(days=4), "offline"))
+    db_session.add(_ev(ipa, now - timedelta(days=5), "offline"))
     db_session.add(_ev(ipa, now - timedelta(days=3), "online (librenms)"))
     await db_session.commit()
 
     out = await get_address_uptime(ipa.id, admin_user, db_session, days=10)
     by_date = {i["date"]: i["status"] for i in out["items"]}
-    d = (now - timedelta(days=7)).date().isoformat()
-    assert by_date[d] == "up", "轉換之間的日子沒有延續狀態"
+
+    # 轉換之間的日子要延續狀態
+    assert by_date[(now - timedelta(days=7)).date().isoformat()] == "up"
+    # 當天開始是上線、中途轉離線 → 有斷有通 = partial（橘）
+    assert by_date[(now - timedelta(days=5)).date().isoformat()] == "partial"
+    # 前一天就已離線、整天都沒通 → down（紅）。這是「持續離線」與「短暫中斷」的差別
     assert by_date[(now - timedelta(days=4)).date().isoformat()] == "down"
-    # 有中斷的當天算 down（即使當天稍後又復線）
-    assert by_date[(now - timedelta(days=3)).date().isoformat()] == "down"
+    # 當天由離線恢復 → 同樣是 partial
+    assert by_date[(now - timedelta(days=3)).date().isoformat()] == "partial"
     assert by_date[(now - timedelta(days=1)).date().isoformat()] == "up"
 
 
@@ -153,7 +157,7 @@ async def test_device_uptime_merges_all_its_ips(db_session, admin_user) -> None:
     out = await get_device_uptime(dev.id, db_session, days=7)
     by_date = {i["date"]: i["status"] for i in out["items"]}
     assert by_date[(now - timedelta(days=4)).date().isoformat()] == "up"
-    assert by_date[(now - timedelta(days=2)).date().isoformat()] == "down", (
+    assert by_date[(now - timedelta(days=2)).date().isoformat()] in ("down", "partial"), (
         "其中一個 IP 中斷卻沒反映在裝置上"
     )
     assert out["has_source"] is True

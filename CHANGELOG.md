@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.123] — 2026-07-31
+
+### Fixed
+- **A never-interrupted IP was drawn as "not monitored".** The bar was reconstructed purely from `effective_status` transitions, but an IP that has been up ever since it was added produces *no transitions at all* — so it came out entirely grey even while the page above it showed "online, last seen 30 seconds ago". "No transitions" is not "no monitoring". The reconstruction now also reads the IP's current status and `last_seen_*`: with a liveness source and no transitions in the window, the current state is backfilled from when the IP was added (earlier than that stays unknown). Two real production IPs went from 90 grey days to 67 green days at 100%.
+- **A month of continuous downtime looked like a month of separate blips.** Every day with any downtime was amber, so an IP offline since early July rendered as 29 identical amber marks. Days are now split: amber means the day had both up and down time (a real outage window), red means it was down all day. The same production IP now reads as 29 red days and 2 amber, which is what actually happened.
+
+### Changed
+- Bars are square rather than pill-shaped, and the cursor is a pointer over them since each one has a tooltip.
+
 ## [0.5.122] — 2026-07-31
 
 ### Added
