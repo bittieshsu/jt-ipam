@@ -309,3 +309,33 @@ async def test_diagnose_probes_run_concurrently(monkeypatch) -> None:
     assert elapsed < 0.3 * 4, f"耗時 {elapsed:.2f}s 接近循序（{0.3 * n:.2f}s）→ 並行沒生效"
     # 並行不能犧牲診斷資訊：每支都要各自回報錯誤
     assert all(not c["ok"] and c.get("error") for c in out["checks"])
+
+
+@pytest.mark.anyio
+async def test_vpn_reports_endpoint_unavailable(db_session, admin_user, monkeypatch) -> None:
+    """端點讀不到時要明講，不能偽裝成「0 個連線」。
+
+    客戶實測回報 `ssl_sessions: 0` —— 但那有兩種完全不同的意思：「當下沒人連線」
+    與「端點失敗被吞掉」。無實機開發時，這正是判斷解析對不對最需要分辨的地方。
+    """
+    fw = await _mk_fw(db_session, "fgt-vpn-flags", vdoms=["root"])
+
+    # SSL 端點掛掉、IPsec 正常 → 只有 ssl_unavailable
+    _patch_api(monkeypatch, {fg.EP_VPN_IPSEC: []}, fail={fg.EP_VPN_SSL})
+    out = await fg.sync_vpn(db_session, fw, ["root"])
+    assert out["ssl_sessions"] == 0
+    assert out.get("ssl_unavailable") is True
+    assert "ipsec_unavailable" not in out
+
+    # 兩個都正常且真的沒人連線 → 0 但不得有旗標（才能與「失敗」區分）
+    _patch_api(monkeypatch, {fg.EP_VPN_IPSEC: [], fg.EP_VPN_SSL: []})
+    out = await fg.sync_vpn(db_session, fw, ["root"])
+    assert out["ssl_sessions"] == 0
+    assert "ssl_unavailable" not in out
+    assert "ipsec_unavailable" not in out
+
+    # 兩個都掛 → 兩個旗標都要有
+    _patch_api(monkeypatch, {}, fail={fg.EP_VPN_IPSEC, fg.EP_VPN_SSL})
+    out = await fg.sync_vpn(db_session, fw, ["root"])
+    assert out.get("ssl_unavailable") is True
+    assert out.get("ipsec_unavailable") is True

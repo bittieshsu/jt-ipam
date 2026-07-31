@@ -4,10 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.121] — 2026-07-31
+
+### Fixed
+- **FortiGate VPN sync could not distinguish "nothing connected" from "endpoint unreadable".** Both produced `ssl_sessions: 0`, because a failing endpoint was swallowed with `except FortiGateError: continue`. A customer's real sync reported exactly that, and there was no way to tell from the audit summary whether the SSL-VPN parsing worked at all. The summary now carries `ssl_unavailable` / `ipsec_unavailable` when every VDOM's endpoint failed, so a genuine zero and a silent failure look different — which matters most for an integration developed without a live device.
+
+### Notes
+- **FortiGate is now validated against a real appliance** for VDOM discovery, ARP (454), DHCP leases (339), DHCP ranges (3), address objects (632), firewall policies (211), NAT (14) and IPsec tunnels (4), thanks to a customer enabling every sync toggle. SSL-VPN sessions reported 0; with the change above, a future run will say whether that means "nobody connected" or "endpoint unreadable".
+
 ## [0.5.120] — 2026-07-31
 
 ### Fixed
-- **The audit log's Target column showed a truncated UUID for every integration.** A customer testing FortiGate spotted rows reading `66456d2e…` instead of the instance name — with several instances of the same type, the log could not tell you which one had synced. `_LABEL_REGISTRY` only covered 14 object types; every integration instance, agent, certificate and API token fell through to the raw id. Added 26 more (all verified to resolve against their model and column), and integration rows now link to their settings page instead of rendering as plain text. A test pins that every registry entry resolves and that no integration type is missing, since adding an integration without registering it silently regresses to UUIDs.
+- **The audit log's Target column showed a truncated UUID for every integration.** A customer testing FortiGate spotted rows reading `a1b2c3d4…` instead of the instance name — with several instances of the same type, the log could not tell you which one had synced. `_LABEL_REGISTRY` only covered 14 object types; every integration instance, agent, certificate and API token fell through to the raw id. Added 26 more (all verified to resolve against their model and column), and integration rows now link to their settings page instead of rendering as plain text. A test pins that every registry entry resolves and that no integration type is missing, since adding an integration without registering it silently regresses to UUIDs.
 
 ## [0.5.119] — 2026-07-30
 

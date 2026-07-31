@@ -306,17 +306,26 @@ async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
     return matched
 
 
-async def sync_vpn(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> dict[str, int]:
-    """IPsec 站對站 → 共用 vpn_tunnels；SSL-VPN 連線 → 只 stamp 配發到的 IP。"""
+async def sync_vpn(
+    session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str],
+) -> dict[str, Any]:
+    """IPsec 站對站 → 共用 vpn_tunnels；SSL-VPN 連線 → 只 stamp 配發到的 IP。
+
+    回傳除了計數，端點整個讀不到時還會多一個 `*_unavailable` 旗標。
+    沒有它的話 `ssl_sessions: 0` 有兩種完全不同的意思 ——「當下沒人連線」與
+    「端點失敗被吞掉」—— 從稽核摘要看不出是哪一種，而這正是判斷解析對不對
+    最需要分辨的地方。"""
     from app.models.physical import VPNTunnel
 
     scope_ids = _scope(fw)
     prefix = f"{fw.name}/ipsec/"
     seen_names: set[str] = set()
     tunnels = 0
+    ipsec_ok = False
     for vdom in vdoms:
         try:
             rows = _rows(await _api_get(fw, EP_VPN_IPSEC, vdom=vdom))
+            ipsec_ok = True
         except FortiGateError:
             rows = []
         for d in rows:
@@ -352,11 +361,13 @@ async def sync_vpn(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             await session.delete(t)
 
     sessions = 0
+    ssl_ok = False
     for vdom in vdoms:
         try:
             rows = _rows(await _api_get(fw, EP_VPN_SSL, vdom=vdom))
         except FortiGateError:
             continue
+        ssl_ok = True
         for d in rows:
             # 配發到的通道 IP 在巢狀 subsessions[].aip（頂層沒有 assigned_ip/tunnel_ip）；
             # subsession_desc 形如 "aip:2.3.4.5"，當退路。remote_host 是用戶端來源位址、
@@ -372,7 +383,13 @@ async def sync_vpn(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
                 ip = _valid_ip(cand)
                 if ip and await _stamp_ip_seen(session, ip, subnet_ids=scope_ids):
                     sessions += 1
-    return {"tunnels": tunnels, "ssl_sessions": sessions}
+    out: dict[str, Any] = {"tunnels": tunnels, "ssl_sessions": sessions}
+    if not ssl_ok:
+        # 所有 VDOM 的 SSL-VPN 端點都讀不到 → 明講，別讓它偽裝成「0 個連線」
+        out["ssl_unavailable"] = True
+    if not ipsec_ok:
+        out["ipsec_unavailable"] = True
+    return out
 
 
 async def sync_policies(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
