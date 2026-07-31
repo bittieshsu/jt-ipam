@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.127] — 2026-08-01
+
+### Added
+- **Certificate distribution to Windows / IIS**, via a new PowerShell agent (`agent/jt_ipam_cert_agent.ps1`) alongside the existing bash one. Windows PowerShell 5.1 — built into Windows Server 2016 and later — is all it needs: no modules, no Python, no OpenSSL.
+  - IIS does not read certificates from files; it binds one held in the Windows certificate store, by thumbprint. So rather than "write files, test config, reload", the agent **imports the certificate, repoints the HTTPS binding, then opens a real TLS connection to check which certificate is actually being served** — and puts the previous one back if it is not the expected one. Verifying by observation rather than by a command's exit code also means it does not depend on parsing `netsh` output, which is localized.
+  - The PKCS#12 handed to Windows is deliberately encrypted with **PBESv1-SHA1-3DES**. The library default (PBESv2/AES-256-CBC) cannot be imported by the CryptoAPI on Server 2016/2012R2, and it fails with a misleading "the password is incorrect". The agent generates a random password per run and keeps it in memory, so the private key is never written to disk on the way in.
+  - Three deployment profiles: `iis` (import + rebind), `store` (import only, for Exchange / RD Gateway / your own software that takes a thumbprint) and `files` (write PEM/PFX to paths you choose, then run a command). Private-key files get an ACL of SYSTEM + Administrators only, set by well-known SID rather than by group name — the name is localized on non-English Windows.
+  - `jt-ipam-cert-agent-installer.ps1` registers a daily Task Scheduler job running as SYSTEM, and supports `-Uninstall`. The agent self-updates against the server the same way the bash one does.
+  - The certificate agent page now has a Linux / Windows switch that changes the install commands, the supported-OS list, the deployment profiles and the config generator. The "latest agent version" indicator shows both agents, since they version independently.
+
+### Changed
+- `GET /cert-agents/bundle/raw?part=pkcs12` accepts an `X-Pfx-Password` header, which also selects the Windows-compatible PKCS#12 encryption. Without the header the behaviour is unchanged (unencrypted), so the existing jetty profile is unaffected.
+
 ## [0.5.126] — 2026-08-01
 
 ### Fixed

@@ -121,7 +121,9 @@
     "run_title": "在主機上執行",
     "run_dry": "先試跑（不會動到任何檔）：",
     "run_real": "確認沒問題後正式跑一次：",
-    "scope_hint": "這裡只列出此代理範圍內的憑證；要派送其它憑證，請先在憑證頁把它加入此代理的範圍。"
+    "scope_hint": "這裡只列出此代理範圍內的憑證；要派送其它憑證，請先在憑證頁把它加入此代理的範圍。",
+    "binding": "IIS 繫結",
+    "binding_hint": "格式為「位址:埠」。填 IP（如 0.0.0.0:443）為非 SNI 繫結；填主機名稱（如 www.example.com:443）為 SNI 繫結。此繫結要先在 IIS 建好。"
   },
   "certFiles": {
     "title": "憑證資訊 / 檔案",
@@ -2840,5 +2842,24 @@
     "dash_hint": "最多可選 {n} 個 IP。灰色代表該日無資料（該 IP 沒有上線偵測來源），不代表正常。",
     "dash_over": "超過上限 {n} 個，請移除一些",
     "dash_ip_gone": "（已無法存取的 IP）"
+  },
+  "certOs": {
+    "linux": "Linux",
+    "windows": "Windows / IIS",
+    "win_note": "Windows 代理走 PowerShell 5.1（Windows Server 2016 以上內建），不需安裝額外模組。IIS 綁的是憑證存放區裡的憑證而不是檔案，所以代理是「匯入存放區 → 換上繫結 → 連線驗證 → 失敗自動還原」。HTTPS 繫結本身要先在 IIS 建好，代理只換憑證、不改站台設定。"
+  },
+  "certHelpWin": {
+    "intro": "在每台要自動換憑證的 Windows 主機上裝一個代理。代理會定時向 jt-ipam 檢查有沒有新版憑證，有的話下載、匯入憑證存放區、把 IIS 的 HTTPS 繫結換成新憑證，接著實際連上去確認送出的是新憑證，不對就自動還原。",
+    "step2": "建立代理後，打開該代理（新增完的視窗，或清單的「檢視」鈕）會顯示它專屬的一段安裝指令——已帶好 key，在目標主機以**系統管理員身分**開啟 PowerShell 貼上執行即可。",
+    "step3": "貼好設定後，在該主機先用 -DryRun 試跑確認；沒問題之後排程就會自動派送（進階：也可手動編輯設定檔的 DEPLOY_1_*）。",
+    "uninstall_label": "移除派送代理（系統管理員身分的 PowerShell）：",
+    "uninstall_note": "會移除排程工作、代理程式、設定檔與狀態；**已匯入憑證存放區的憑證不會被刪除**（它們正在被繫結使用）。",
+    "service_note": "安裝後的排程：Windows 工作排程器的「jt-ipam-cert-agent」工作（預設每日、以 SYSTEM 執行）。看記錄：C:\\ProgramData\\jt-ipam-cert-agent\\last-run.log。立即手動跑一次：schtasks /Run /TN jt-ipam-cert-agent。",
+    "requirements": "需求：Windows Server 2016 以上內建的 PowerShell 5.1（不需安裝額外模組、不需 Python 或 OpenSSL）；要以系統管理員執行（匯入 LocalMachine\\My 與變更 http.sys 的 SSL 繫結都需要）。IIS 的 HTTPS 繫結要先建好，代理只換憑證、不改站台設定。"
+  },
+  "certGenWin": {
+    "intro": "選憑證與派送方式即可產生設定檔內容；產生後複製，貼到該主機的 C:\\ProgramData\\jt-ipam-cert-agent\\config。",
+    "paste_hint": "把這段貼到該主機的 C:\\ProgramData\\jt-ipam-cert-agent\\config。",
+    "services": "派送方式（可多選）"
   }
 }

@@ -157,15 +157,22 @@ def validate_bundle(cert_pem: str, key_pem: str, chain_pem: str | None = None) -
 
 def export_cert_file(
     cert_pem: str, key_pem: str, chain_pem: str | None, fmt: str,
-    *, name: str = "certificate", pfx_password: str = "",
+    *, name: str = "certificate", pfx_password: str = "", pfx_legacy: bool = False,
 ) -> tuple[bytes, str, str]:
     """把版本 PEM 轉成可下載檔案。回 (bytes, media_type, filename)。
 
     fmt：cert / key / chain / fullchain / combined（PEM）、der（leaf DER）、pfx（PKCS#12）。
     pfx 可選密碼（空＝不加密）。私鑰相關格式由呼叫端做 admin 授權 + 稽核。
+
+    `pfx_legacy`（需搭配密碼）：改用 **PBESv1-SHA1-3DES** 加密。預設的
+    `BestAvailableEncryption` 在目前的 cryptography 是 PBESv2 / AES-256-CBC，
+    **Windows Server 2016 / 2012R2 的 CryptoAPI 匯不進去**（而且錯誤訊息是誤導的
+    「密碼不正確」）。要給 Windows／IIS 用的 PFX 一律走 legacy。
     """
+    from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.serialization import (
         BestAvailableEncryption,
+        PrivateFormat,
         load_pem_private_key,
         pkcs12,
     )
@@ -193,7 +200,20 @@ def export_cert_file(
         leaf = x509.load_pem_x509_certificate(cert_pem.encode())
         key = load_pem_private_key(key_pem.encode(), password=None)
         cas = x509.load_pem_x509_certificates(ch.encode()) if ch.strip() else []
-        enc = BestAvailableEncryption(pfx_password.encode()) if pfx_password else NoEncryption()
+        if not pfx_password:
+            enc = NoEncryption()
+        elif pfx_legacy:
+            # SHA1 在這裡不是「選一個雜湊」,而是 PBESv1 這個格式本身的定義
+            # （pbeWithSHA1And3-KeyTripleDES-CBC）—— Windows 匯得進去的就是這種。
+            # 換成 SHA256 就不再是 PBESv1、Windows 一樣匯不進去,失去這條路的意義。
+            enc = (
+                PrivateFormat.PKCS12.encryption_builder()
+                .key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC)
+                .hmac_hash(hashes.SHA1())  # noqa: S303  # nosec B303 - PKCS#12 PBESv1 格式要求
+                .build(pfx_password.encode())
+            )
+        else:
+            enc = BestAvailableEncryption(pfx_password.encode())
         data = pkcs12.serialize_key_and_certificates(safe.encode(), key, leaf, cas, enc)
         return data, "application/x-pkcs12", f"{safe}.pfx"
     raise CertError(f"unknown format: {fmt}")

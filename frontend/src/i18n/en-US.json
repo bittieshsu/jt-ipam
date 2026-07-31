@@ -121,7 +121,9 @@
     "run_title": "Run on the host",
     "run_dry": "Dry-run first (no changes):",
     "run_real": "Then run it for real:",
-    "scope_hint": "Only certificates within this agent's scope are listed; to deploy others, add them to the agent on the Certificates page."
+    "scope_hint": "Only certificates within this agent's scope are listed; to deploy others, add them to the agent on the Certificates page.",
+    "binding": "IIS binding",
+    "binding_hint": "Written as address:port. An IP (0.0.0.0:443) is a non-SNI binding; a hostname (www.example.com:443) is an SNI binding. The binding must already exist in IIS."
   },
   "certFiles": {
     "title": "Certificate info / files",
@@ -2840,5 +2842,24 @@
     "dash_hint": "Up to {n} IPs. Grey means no data for that day (the IP has no liveness source) — not that it was up.",
     "dash_over": "More than {n} selected — please remove some",
     "dash_ip_gone": "(IP no longer accessible)"
+  },
+  "certOs": {
+    "linux": "Linux",
+    "windows": "Windows / IIS",
+    "win_note": "The Windows agent runs on PowerShell 5.1 (built into Windows Server 2016 and later); no extra modules needed. IIS binds a certificate held in the Windows certificate store rather than a file, so the agent imports it, repoints the binding, verifies over a real TLS connection, and rolls back on failure. The HTTPS binding itself must already exist in IIS — the agent swaps the certificate, it does not change site configuration."
+  },
+  "certHelpWin": {
+    "intro": "Install one agent on each Windows host that should renew its certificates automatically. The agent periodically asks jt-ipam whether a newer version exists; if so it downloads it, imports it into the Windows certificate store, repoints the IIS HTTPS binding at it, then opens a real TLS connection to confirm the new certificate is being served — and rolls back if it is not.",
+    "step2": "Once the agent exists, opening it (from the creation dialog or the list's View button) shows its own install command with the key already filled in. Paste it into an **elevated** PowerShell on the target host.",
+    "step3": "After saving the config, do a -DryRun on that host first; once it looks right the scheduled task takes over (advanced: you can also edit the DEPLOY_1_* lines by hand).",
+    "uninstall_label": "Remove the agent (from an elevated PowerShell):",
+    "uninstall_note": "Removes the scheduled task, the agent, its config and state. **Certificates already imported into the Windows certificate store are left in place** — they are in use by the bindings.",
+    "service_note": "Scheduling: a Windows Task Scheduler job named \"jt-ipam-cert-agent\" (daily by default, running as SYSTEM). Log: C:\\ProgramData\\jt-ipam-cert-agent\\last-run.log. Run once now: schtasks /Run /TN jt-ipam-cert-agent.",
+    "requirements": "Requirements: Windows PowerShell 5.1, built into Windows Server 2016 and later (no extra modules, no Python, no OpenSSL). Must run as Administrator — both importing into LocalMachine\\My and changing http.sys SSL bindings require it. The IIS HTTPS binding must already exist; the agent swaps the certificate, it does not change site configuration."
+  },
+  "certGenWin": {
+    "intro": "Pick the certificates and how to deploy them; copy the result into C:\\ProgramData\\jt-ipam-cert-agent\\config on that host.",
+    "paste_hint": "Paste this into C:\\ProgramData\\jt-ipam-cert-agent\\config on that host.",
+    "services": "Deploy as (multiple allowed)"
   }
 }

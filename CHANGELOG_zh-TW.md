@@ -4,6 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.127] — 2026-08-01
+
+### 新增
+- **憑證派送支援 Windows / IIS**，新增 PowerShell 代理（`agent/jt_ipam_cert_agent.ps1`）與既有的 bash 代理並存。只需要 Windows Server 2016 以上內建的 PowerShell 5.1 —— 不裝模組、不需要 Python 或 OpenSSL。
+  - IIS 不從檔案讀憑證，它綁的是 Windows 憑證存放區裡的憑證（以 thumbprint 指定）。所以代理不是「寫檔 → 測設定 → 重載」，而是**匯入憑證 → 換上 HTTPS 繫結 → 實際開一條 TLS 連線看送出來的到底是哪張憑證** —— 不是預期的那張就把舊的綁回去。用「觀察到的結果」而不是「指令的回傳碼」來驗證，順帶也不必去解析 `netsh` 的輸出（那是會被在地化的）。
+  - 交給 Windows 的 PKCS#12 刻意用 **PBESv1-SHA1-3DES** 加密。函式庫預設的 PBESv2/AES-256-CBC 在 Server 2016／2012R2 的 CryptoAPI 匯不進去，而且錯誤訊息是誤導的「密碼不正確」。代理每次執行自產一組隨機密碼且只留在記憶體，私鑰不會為了匯入而落地。
+  - 三種派送方式：`iis`（匯入 + 換繫結）、`store`（只匯入，給 Exchange／RD 閘道／自家程式自行指定 thumbprint）、`files`（把 PEM/PFX 寫到指定路徑再跑一個指令）。私鑰檔的權限收成只有 SYSTEM 與系統管理員，而且是用 well-known SID 而非群組名稱設定 —— 群組名稱在非英文版 Windows 是在地化的，用名稱比對等於誰都沒授權。
+  - `jt-ipam-cert-agent-installer.ps1` 會註冊每日執行、以 SYSTEM 身分跑的工作排程，並支援 `-Uninstall`。代理也和 bash 版一樣會對 server 自我更新。
+  - 憑證派送代理頁新增 Linux／Windows 切換，會連帶改變安裝指令、支援的作業系統清單、派送方式選項與設定檔產生器。「最新代理版本」會同時顯示兩支代理的版本（它們各自演進）。
+
+### 變更
+- `GET /cert-agents/bundle/raw?part=pkcs12` 可帶 `X-Pfx-Password` 標頭，帶了就同時選用 Windows 相容的 PKCS#12 加密。不帶時行為完全不變（不加密），既有的 jetty 用法不受影響。
+
 ## [0.5.126] — 2026-08-01
 
 ### 修正
