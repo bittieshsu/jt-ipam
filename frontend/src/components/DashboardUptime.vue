@@ -67,7 +67,7 @@
         multiple
         filterable
         clearable
-        :options="ipOptions"
+        :options="selectOptions"
         :loading="optLoading"
         :max-tag-count="6"
         :placeholder="t('uptime.dash_ph')"
@@ -89,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import {
@@ -120,6 +120,22 @@ const pickerShow = ref(false);
 const draft = ref<string[]>([]);
 const ipOptions = ref<{ label: string; value: string }[]>([]);
 const optLoading = ref(false);
+// id → 顯示文字。搜尋會把 ipOptions 整個換掉，已選那筆的 option 就不見了；
+// n-select 找不到 option 時會把 value（UUID）當標籤畫出來 —— 所以要自己留一份。
+const labelCache = ref<Record<string, string>>({});
+
+function ipLabel(ip: string, hostname: string | null): string {
+  return hostname ? `${ip} — ${hostname}` : ip;
+}
+
+/** 搜尋結果 ＋ 已選但不在結果裡的項目（後者補在最前面，才不會被搜尋洗掉標籤）。 */
+const selectOptions = computed(() => {
+  const inList = new Set(ipOptions.value.map((o) => o.value));
+  const missing = draft.value
+    .filter((id) => !inList.has(id))
+    .map((id) => ({ label: labelCache.value[id] ?? t("uptime.dash_ip_gone"), value: id }));
+  return [...missing, ...ipOptions.value];
+});
 
 async function load() {
   if (!ids.value.length) { rows.value = []; return; }
@@ -129,6 +145,8 @@ async function load() {
       ip_ids: ids.value.slice(0, MAX), days: DAYS,
     });
     rows.value = data.items ?? [];
+    // 批次結果本身就帶 ip/hostname → 已追蹤的那些不必再打一次 API 才有標籤
+    for (const r of rows.value) labelCache.value[r.ip_id] = ipLabel(r.ip, r.hostname);
   } catch {
     rows.value = [];
   } finally {
@@ -140,10 +158,11 @@ async function loadOptions(q?: string) {
   optLoading.value = true;
   try {
     const res = await listAddresses({ page: 1, pageSize: 200, q: q || undefined });
-    ipOptions.value = res.items.map((a: any) => ({
-      label: a.hostname ? `${a.ip} — ${a.hostname}` : a.ip,
-      value: a.id,
-    }));
+    ipOptions.value = res.items.map((a: any) => {
+      const label = ipLabel(a.ip, a.hostname);
+      labelCache.value[a.id] = label;
+      return { label, value: a.id };
+    });
   } catch {
     ipOptions.value = [];
   } finally {

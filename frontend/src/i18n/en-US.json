@@ -2838,6 +2838,7 @@
     "dash_pick": "Pick IPs",
     "dash_ph": "Search by IP or hostname",
     "dash_hint": "Up to {n} IPs. Grey means no data for that day (the IP has no liveness source) — not that it was up.",
-    "dash_over": "More than {n} selected — please remove some"
+    "dash_over": "More than {n} selected — please remove some",
+    "dash_ip_gone": "(IP no longer accessible)"
   }
 }

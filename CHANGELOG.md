@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.126] — 2026-08-01
+
+### Fixed
+- **Dashboard availability watchlist showed a raw UUID instead of the IP once you typed in the picker.** Searching replaced the whole option list with the matches, so the option backing an already-selected IP disappeared — and with no option to resolve, the select fell back to rendering its raw value. Selected entries now keep their label via a local cache and are always merged into the option list. An IP that has become inaccessible shows an explicit note rather than a UUID.
+
 ## [0.5.125] — 2026-07-31
 
 ### Added
