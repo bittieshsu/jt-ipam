@@ -107,7 +107,7 @@ const isWin = computed(() => agentOs.value === "windows");
 
 // 安裝說明：支援的 OS / 發行版（醒目標籤呈現）
 const SUPPORTED_OS_WINDOWS = [
-  "Windows Server 2016", "Windows Server 2019", "Windows Server 2022", "Windows Server 2025",
+  "Windows Server 2019", "Windows Server 2022", "Windows Server 2025",
   "Windows 10 / 11（IIS）",
 ];
 const SUPPORTED_OS_LINUX = [

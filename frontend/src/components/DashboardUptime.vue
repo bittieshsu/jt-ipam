@@ -1,13 +1,11 @@
 <template>
   <n-card size="small" class="dash-uptime">
     <template #header>
-      <n-space align="center" :size="8">
-        <n-icon :component="IPChangesIcon" :size="18" />
-        <span>{{ t("uptime.dash_title") }}</span>
+      <CardTitle :icon="IPChangesIcon" :text="t('uptime.dash_title')">
         <n-tag v-if="ids.length" size="small" round :bordered="false">
           {{ ids.length }} / {{ MAX }}
         </n-tag>
-      </n-space>
+      </CardTitle>
     </template>
     <template #header-extra>
       <n-button size="small" @click="openPicker">
@@ -95,6 +93,7 @@ import { useRouter } from "vue-router";
 import {
   NAlert, NButton, NCard, NEmpty, NIcon, NModal, NSelect, NSpace, NSpin, NTag, NTooltip,
 } from "naive-ui";
+import CardTitle from "@/components/CardTitle.vue";
 import { IPChangesIcon, SettingsIcon } from "@/icons";
 import { apiClient } from "@/api/client";
 import { listAddresses } from "@/api/addresses";

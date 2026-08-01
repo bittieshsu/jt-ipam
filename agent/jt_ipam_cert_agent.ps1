@@ -9,7 +9,7 @@
   it, verifies the switch by actually opening a TLS connection, rolls back on failure, and
   reports the result back to jt-ipam.
 
-  Requirements: Windows PowerShell 5.1 (ships with Windows Server 2016+) run as
+  Requirements: Windows PowerShell 5.1 (ships with Windows Server 2019+) run as
   Administrator. No extra modules, no Python, no OpenSSL.
 
   Why this differs from the Linux agent: IIS does not read certificates from files. It binds
@@ -392,8 +392,9 @@ function Set-StateFingerprint {
 function Get-CertificatePfx {
     <# Fetch the certificate as a Windows-importable PKCS#12. The password is random per run
        and only ever lives in memory: it exists so the server can hand back a PBESv1 (legacy)
-       PFX, which is the encryption Windows CryptoAPI can actually import -- the default
-       PBESv2/AES-256 fails on Server 2016/2012R2 with a misleading "password is incorrect". #>
+       PFX, the form every version of the Windows CryptoAPI accepts. The blob is decrypted and
+       imported immediately and never touches the disk, so the weaker algorithm guards nothing
+       an attacker could reach -- see export_cert_file() on the server for the full reasoning. #>
     param([string] $Cert)
     $bytes = New-Object byte[] 24
     [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)

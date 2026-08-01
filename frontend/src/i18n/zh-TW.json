@@ -2846,7 +2846,7 @@
   "certOs": {
     "linux": "Linux",
     "windows": "Windows / IIS",
-    "win_note": "Windows 代理走 PowerShell 5.1（Windows Server 2016 以上內建），不需安裝額外模組。IIS 綁的是憑證存放區裡的憑證而不是檔案，所以代理是「匯入存放區 → 換上繫結 → 連線驗證 → 失敗自動還原」。HTTPS 繫結本身要先在 IIS 建好，代理只換憑證、不改站台設定。"
+    "win_note": "Windows 代理走 PowerShell 5.1（Windows Server 2019 以上內建），不需安裝額外模組。IIS 綁的是憑證存放區裡的憑證而不是檔案，所以代理是「匯入存放區 → 換上繫結 → 連線驗證 → 失敗自動還原」。HTTPS 繫結本身要先在 IIS 建好，代理只換憑證、不改站台設定。"
   },
   "certHelpWin": {
     "intro": "在每台要自動換憑證的 Windows 主機上裝一個代理。代理會定時向 jt-ipam 檢查有沒有新版憑證，有的話下載、匯入憑證存放區、把 IIS 的 HTTPS 繫結換成新憑證，接著實際連上去確認送出的是新憑證，不對就自動還原。",
@@ -2855,7 +2855,7 @@
     "uninstall_label": "移除派送代理（系統管理員身分的 PowerShell）：",
     "uninstall_note": "會移除排程工作、代理程式、設定檔與狀態；**已匯入憑證存放區的憑證不會被刪除**（它們正在被繫結使用）。",
     "service_note": "安裝後的排程：Windows 工作排程器的「jt-ipam-cert-agent」工作（預設每日、以 SYSTEM 執行）。看記錄：C:\\ProgramData\\jt-ipam-cert-agent\\last-run.log。立即手動跑一次：schtasks /Run /TN jt-ipam-cert-agent。",
-    "requirements": "需求：Windows Server 2016 以上內建的 PowerShell 5.1（不需安裝額外模組、不需 Python 或 OpenSSL）；要以系統管理員執行（匯入 LocalMachine\\My 與變更 http.sys 的 SSL 繫結都需要）。IIS 的 HTTPS 繫結要先建好，代理只換憑證、不改站台設定。"
+    "requirements": "需求：Windows Server 2019 以上內建的 PowerShell 5.1（不需安裝額外模組、不需 Python 或 OpenSSL）；要以系統管理員執行（匯入 LocalMachine\\My 與變更 http.sys 的 SSL 繫結都需要）。IIS 的 HTTPS 繫結要先建好，代理只換憑證、不改站台設定。"
   },
   "certGenWin": {
     "intro": "選憑證與派送方式即可產生設定檔內容；產生後複製，貼到該主機的 C:\\ProgramData\\jt-ipam-cert-agent\\config。",

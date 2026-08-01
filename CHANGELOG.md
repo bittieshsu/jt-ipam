@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.130] — 2026-08-01
+
+### Changed
+- **Windows certificate distribution is now documented as Windows Server 2019 and later.** Server 2016 is dropped as a supported target. The PKCS#12 handed to the agent stays PBESv1-SHA1-3DES, but for a different reason than before: it is the form every version of the Windows CryptoAPI accepts, and the encryption here guards nothing an attacker can reach — the blob is generated per request, encrypted with a random password that only ever lives in memory, and imported and discarded without ever touching the disk. Trading a known-working path for a stronger algorithm that protects nothing was not worth it. (Verified on a real host: both PBESv1 and PBESv2 import fine on current builds, so this is a compatibility floor, not a limitation.)
+
+### Fixed
+- **Every dashboard card now has an icon in its header, and the icon, title and count tag line up.** Only the availability card had an icon, which made it look bolted on rather than part of the page. The alignment was off because the header was laid out with a spacing component that wraps each child separately, so an 18px icon, a line of text and a 22px tag each sat on their own baseline. Card headers now go through one small shared component with a single flex rule, so alignment is decided in one place rather than per card — measured at 0.01px across all ten.
+
 ## [0.5.129] — 2026-08-01
 
 ### Fixed

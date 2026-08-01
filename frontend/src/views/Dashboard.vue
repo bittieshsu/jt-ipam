@@ -28,9 +28,13 @@ import {
 import { getOverview, type DashboardOverview } from "@/api/dashboard";
 import { listLocations, listRacks } from "@/api/basic";
 import { usePinned } from "@/composables/usePinned";
+import CardTitle from "@/components/CardTitle.vue";
 import {
   DashboardIcon, SectionsIcon, SubnetsIcon, AddressesIcon, AuditIcon, LocationsIcon, RacksIcon, DevicesIcon, VirtualizationIcon,
+  TopologyIcon, UsageIcon, CustomersIcon, PinIcon,
 } from "@/icons";
+// 即時狀態卡片：用「訊號/天線」語意，與側邊選單的掃描代理同一顆
+import { Antenna as LiveIcon } from "@iconoir/vue";
 import { Database as CapacityIcon } from "@iconoir/vue";
 
 const { t } = useI18n();
@@ -236,7 +240,10 @@ onMounted(() => { void load(); void loadPins(); });
 
       <!-- 關係圖（上下層物件）：機房→機櫃→裝置→虛擬機→IP→子網路→區段，每層放本系統總數。
            每一層都列出（即使 0），讓人看出完整層級與上下關聯。 -->
-      <n-card :title="t('dashboard.hierarchy_title')" size="small" class="hier-card">
+      <n-card size="small" class="hier-card">
+        <template #header>
+          <CardTitle :icon="TopologyIcon" :text="t('dashboard.hierarchy_title')" />
+        </template>
         <div class="hier-chain">
           <template v-for="(layer, i) in hierLayers" :key="layer.key">
             <span v-if="i > 0" class="hier-arrow">→</span>
@@ -258,7 +265,10 @@ onMounted(() => { void load(); void loadPins(); });
 
       <div class="row-2col">
         <!-- Donut 使用率 — SVG stroke-dasharray，currentColor 跟主題色 -->
-        <n-card :title="t('dashboard.card_ip_usage')" class="row-card">
+        <n-card class="row-card">
+          <template #header>
+            <CardTitle :icon="UsageIcon" :text="t('dashboard.card_ip_usage')" />
+          </template>
           <n-space vertical align="center" justify="center" style="height: 100%">
             <svg class="donut-svg" viewBox="0 0 100 100" width="180" height="180">
               <!-- track -->
@@ -288,7 +298,10 @@ onMounted(() => { void load(); void loadPins(); });
         </n-card>
 
         <!-- 狀態指示燈 -->
-        <n-card :title="t('dashboard.card_indicator')" class="row-card">
+        <n-card class="row-card">
+          <template #header>
+            <CardTitle :icon="LiveIcon" :text="t('dashboard.card_indicator')" />
+          </template>
           <n-space vertical :size="16">
             <div class="indicator-row">
               <span class="dot dot-on"></span>
@@ -322,7 +335,10 @@ onMounted(() => { void load(); void loadPins(); });
       <!-- 統計圖表 2×2 -->
       <div class="chart-grid">
         <!-- 裝置類型分布 -->
-        <n-card :title="t('dashboard.chart_device_types')" size="small">
+        <n-card size="small">
+          <template #header>
+            <CardTitle :icon="DevicesIcon" :text="t('dashboard.chart_device_types')" />
+          </template>
           <div v-if="!deviceTypes.length" class="chart-empty">{{ t("common.no_data") }}</div>
           <div v-else class="hbars">
             <div v-for="d in deviceTypes" :key="d.type" class="hbar-row" @click="go('devices')">
@@ -336,7 +352,10 @@ onMounted(() => { void load(); void loadPins(); });
         </n-card>
 
         <!-- 機櫃 U 使用率 -->
-        <n-card :title="t('dashboard.chart_rack_usage')" size="small">
+        <n-card size="small">
+          <template #header>
+            <CardTitle :icon="RacksIcon" :text="t('dashboard.chart_rack_usage')" />
+          </template>
           <div v-if="!rackUsage.length" class="chart-empty">{{ t("common.no_data") }}</div>
           <div v-else class="hbars">
             <div v-for="r in rackUsage" :key="r.rack_id" class="hbar-row" @click="go('racks')">
@@ -350,7 +369,10 @@ onMounted(() => { void load(); void loadPins(); });
         </n-card>
 
         <!-- 各單位資源占比 -->
-        <n-card :title="t('dashboard.chart_customer_res')" size="small">
+        <n-card size="small">
+          <template #header>
+            <CardTitle :icon="CustomersIcon" :text="t('dashboard.chart_customer_res')" />
+          </template>
           <div v-if="!custResources.length" class="chart-empty">{{ t("common.no_data") }}</div>
           <div v-else>
             <div class="chart-legend">
@@ -373,7 +395,10 @@ onMounted(() => { void load(); void loadPins(); });
         </n-card>
 
         <!-- 近 14 日 稽核 / IP 異動 趨勢 -->
-        <n-card :title="t('dashboard.chart_activity_trend')" size="small">
+        <n-card size="small">
+          <template #header>
+            <CardTitle :icon="AuditIcon" :text="t('dashboard.chart_activity_trend')" />
+          </template>
           <div class="chart-legend">
             <span><i style="background:#f59e0b"></i>{{ t("dashboard.chart_audit_events") }} · {{ trendTotals.audit }}</span>
             <span><i style="background:#0ea5e9"></i>{{ t("nav.ip_changes") }} · {{ trendTotals.ip }}</span>
@@ -401,7 +426,10 @@ onMounted(() => { void load(); void loadPins(); });
       </div>
 
       <!-- Pinned subnets(使用者釘選) -->
-      <n-card v-if="data.pinned_subnets?.length" :title="t('dashboard.pinned_subnets')">
+      <n-card v-if="data.pinned_subnets?.length" >
+        <template #header>
+          <CardTitle :icon="PinIcon" :text="t('dashboard.pinned_subnets')" />
+        </template>
         <n-space vertical :size="8">
           <div
             v-for="row in data.pinned_subnets"
@@ -427,7 +455,10 @@ onMounted(() => { void load(); void loadPins(); });
       </n-card>
 
       <!-- 常用機房 / 地點 -->
-      <n-card v-if="pinnedLocations.length" :title="t('dashboard.pinned_locations')">
+      <n-card v-if="pinnedLocations.length" >
+        <template #header>
+          <CardTitle :icon="PinIcon" :text="t('dashboard.pinned_locations')" />
+        </template>
         <n-space vertical :size="8">
           <div v-for="l in pinnedLocations" :key="l.id" class="loc-row" @click="go('locations')">
             <n-icon :size="16" style="opacity:.6;flex:0 0 auto"><LocationsIcon /></n-icon>
@@ -445,7 +476,10 @@ onMounted(() => { void load(); void loadPins(); });
       </n-card>
 
       <!-- 常用機櫃 -->
-      <n-card v-if="pinnedRacks.length" :title="t('dashboard.pinned_racks')">
+      <n-card v-if="pinnedRacks.length" >
+        <template #header>
+          <CardTitle :icon="PinIcon" :text="t('dashboard.pinned_racks')" />
+        </template>
         <n-space vertical :size="6">
           <div v-for="r in pinnedRacks" :key="r.id" class="row-line" @click="go('racks')">
             <n-icon :size="16" style="opacity:.6"><RacksIcon /></n-icon>
@@ -456,7 +490,10 @@ onMounted(() => { void load(); void loadPins(); });
       </n-card>
 
       <!-- Top fullest subnets -->
-      <n-card :title="t('dashboard.card_top_full')">
+      <n-card>
+        <template #header>
+          <CardTitle :icon="SubnetsIcon" :text="t('dashboard.card_top_full')" />
+        </template>
         <n-space vertical :size="8">
           <div
             v-for="row in data.top_full_subnets"
@@ -486,7 +523,10 @@ onMounted(() => { void load(); void loadPins(); });
 
       <!-- Section heat：以「平均子網路使用率」為熱度（避免單一大網段把整體拉到 0），
            並列出各子網路使用率分布，讓卡片資訊更充實 -->
-      <n-card :title="t('dashboard.card_section_heat')">
+      <n-card>
+        <template #header>
+          <CardTitle :icon="SectionsIcon" :text="t('dashboard.card_section_heat')" />
+        </template>
         <n-space vertical :size="16">
           <div
             v-for="row in data.section_heat"

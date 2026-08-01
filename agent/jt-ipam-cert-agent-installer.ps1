@@ -5,7 +5,7 @@
 .DESCRIPTION
   Downloads the agent from your jt-ipam server, writes a config file, and registers a daily
   scheduled task that runs it as SYSTEM. Windows PowerShell 5.1 (built into Windows Server
-  2016 and later) is all that is required -- no extra modules.
+  2019 and later) is all that is required -- no extra modules.
 
   Run from an elevated PowerShell prompt:
 

@@ -2846,7 +2846,7 @@
   "certOs": {
     "linux": "Linux",
     "windows": "Windows / IIS",
-    "win_note": "The Windows agent runs on PowerShell 5.1 (built into Windows Server 2016 and later); no extra modules needed. IIS binds a certificate held in the Windows certificate store rather than a file, so the agent imports it, repoints the binding, verifies over a real TLS connection, and rolls back on failure. The HTTPS binding itself must already exist in IIS — the agent swaps the certificate, it does not change site configuration."
+    "win_note": "The Windows agent runs on PowerShell 5.1 (built into Windows Server 2019 and later); no extra modules needed. IIS binds a certificate held in the Windows certificate store rather than a file, so the agent imports it, repoints the binding, verifies over a real TLS connection, and rolls back on failure. The HTTPS binding itself must already exist in IIS — the agent swaps the certificate, it does not change site configuration."
   },
   "certHelpWin": {
     "intro": "Install one agent on each Windows host that should renew its certificates automatically. The agent periodically asks jt-ipam whether a newer version exists; if so it downloads it, imports it into the Windows certificate store, repoints the IIS HTTPS binding at it, then opens a real TLS connection to confirm the new certificate is being served — and rolls back if it is not.",
@@ -2855,7 +2855,7 @@
     "uninstall_label": "Remove the agent (from an elevated PowerShell):",
     "uninstall_note": "Removes the scheduled task, the agent, its config and state. **Certificates already imported into the Windows certificate store are left in place** — they are in use by the bindings.",
     "service_note": "Scheduling: a Windows Task Scheduler job named \"jt-ipam-cert-agent\" (daily by default, running as SYSTEM). Log: C:\\ProgramData\\jt-ipam-cert-agent\\last-run.log. Run once now: schtasks /Run /TN jt-ipam-cert-agent.",
-    "requirements": "Requirements: Windows PowerShell 5.1, built into Windows Server 2016 and later (no extra modules, no Python, no OpenSSL). Must run as Administrator — both importing into LocalMachine\\My and changing http.sys SSL bindings require it. The IIS HTTPS binding must already exist; the agent swaps the certificate, it does not change site configuration."
+    "requirements": "Requirements: Windows PowerShell 5.1, built into Windows Server 2019 and later (no extra modules, no Python, no OpenSSL). Must run as Administrator — both importing into LocalMachine\\My and changing http.sys SSL bindings require it. The IIS HTTPS binding must already exist; the agent swaps the certificate, it does not change site configuration."
   },
   "certGenWin": {
     "intro": "Pick the certificates and how to deploy them; copy the result into C:\\ProgramData\\jt-ipam-cert-agent\\config on that host.",

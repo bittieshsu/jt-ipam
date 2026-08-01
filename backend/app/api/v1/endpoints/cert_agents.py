@@ -560,9 +560,9 @@ async def agent_bundle_raw(
     part：cert=葉、chain=中繼、fullchain=cert+chain、key=私鑰、combined=cert+chain+key、pkcs12=PKCS#12 keystore（jetty 用）。
     scope 限定 + 每次下載稽核（key/combined/pkcs12 視為取私鑰）。
 
-    `X-Pfx-Password`（僅 pkcs12）：帶了就回**Windows 相容**的 PKCS#12
-    （PBESv1-SHA1-3DES）。Windows 代理每次執行都自產一組隨機密碼要走這條 ——
-    預設的 PBESv2/AES-256 在 Windows Server 2016/2012R2 匯入會失敗。
+    `X-Pfx-Password`（僅 pkcs12）：帶了就回 **Windows CryptoAPI 全版本都吃**的 PKCS#12
+    （PBESv1-SHA1-3DES）。Windows 代理每次執行自產一組隨機密碼走這條，該 PFX 只存在
+    記憶體、不落地 —— 演算法選擇的理由見 `cert_service.export_cert_file`。
     """
     if part not in ("cert", "key", "chain", "fullchain", "combined", "pkcs12"):
         raise HTTPException(400, detail="invalid part")

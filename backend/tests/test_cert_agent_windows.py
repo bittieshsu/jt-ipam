@@ -1,7 +1,8 @@
 """Windows / IIS 憑證派送代理：Windows 相容 PKCS#12、agent.ps1 下載、版本比對。
 
-重點在「Windows 匯得進去」這件事 —— 預設的 PBESv2/AES-256 PFX 在 Server 2016/2012R2
-的 CryptoAPI 會失敗（而且錯誤訊息是誤導的「密碼不正確」），所以要斷言真的產出 PBESv1。
+重點在「Windows 匯得進去」這件事 —— PBESv1 是 Windows CryptoAPI 全版本都吃的形式，
+所以要斷言真的產出 PBESv1 而不是預設的 PBESv2/AES-256（後者失敗時訊息是誤導的
+「密碼不正確」，會讓人往密碼方向查）。理由詳見 `cert_service.export_cert_file`。
 """
 
 from __future__ import annotations

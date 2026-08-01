@@ -164,10 +164,14 @@ def export_cert_file(
     fmt：cert / key / chain / fullchain / combined（PEM）、der（leaf DER）、pfx（PKCS#12）。
     pfx 可選密碼（空＝不加密）。私鑰相關格式由呼叫端做 admin 授權 + 稽核。
 
-    `pfx_legacy`（需搭配密碼）：改用 **PBESv1-SHA1-3DES** 加密。預設的
-    `BestAvailableEncryption` 在目前的 cryptography 是 PBESv2 / AES-256-CBC，
-    **Windows Server 2016 / 2012R2 的 CryptoAPI 匯不進去**（而且錯誤訊息是誤導的
-    「密碼不正確」）。要給 Windows／IIS 用的 PFX 一律走 legacy。
+    `pfx_legacy`（需搭配密碼）：改用 **PBESv1-SHA1-3DES** 加密，給 Windows／IIS 代理用。
+
+    為什麼刻意用比較弱的演算法：這個 PFX 是即時產生、用**每次執行隨機產生的密碼**加密、
+    走 TLS 傳給代理（同一條通道的 `part=key` 本來就會回傳明文私鑰）、在代理端只存在記憶體
+    幾毫秒就被匯入丟棄，**從不落地**。所以這裡的加密強度沒有實際攻擊面。
+    另一邊，PBESv1 是 Windows CryptoAPI 全版本都吃的形式，而預設的 PBESv2 / AES-256-CBC
+    只在較新的 Windows 上驗證過 —— 拿一條確定可用的路徑去換保護不到東西的強度提升不划算，
+    而且它失敗時的訊息是誤導的「密碼不正確」，會讓人往密碼的方向查。
     """
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.serialization import (
