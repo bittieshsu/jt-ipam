@@ -163,12 +163,25 @@ Write-Step "Registering the daily scheduled task ($Time)"
 # cmd.exe is still the executable so that the >> redirection into the log works.
 $taskArgs = "/c powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$AGENT_PATH"" >> ""$LOG_PATH"" 2>&1"
 $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $taskArgs
-$trigger = New-ScheduledTaskTrigger -Daily -At $Time
+
+# The Linux agent runs from a systemd timer with RandomizedDelaySec=600 and Persistent=true.
+# These are the same two properties: spread the load so every host does not hit the server on
+# the same second, and catch up a run that was missed because the machine was off.
+$trigger = New-ScheduledTaskTrigger -Daily -At $Time -RandomDelay (New-TimeSpan -Minutes 10)
+
+# Task Scheduler has no systemd equivalent for these, and its defaults are wrong for us:
+# it refuses to start a task on battery and stops one that switches to battery, which would
+# silently skip renewals on a laptop or a VM that reports a battery. ExecutionTimeLimit
+# defaults to three days -- a hung run would block every later one until then.
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
+
 # By SID, not "SYSTEM"/"NT AUTHORITY\SYSTEM": those names are localized on a non-English
 # Windows, and the account would not resolve.
 $principal = New-ScheduledTaskPrincipal -UserId "S-1-5-18" -LogonType ServiceAccount -RunLevel Highest
 $null = Register-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger `
-    -Principal $principal -Description "jt-ipam certificate distribution" -Force
+    -Principal $principal -Settings $settings -Description "jt-ipam certificate distribution" -Force
 
 Write-Host ""
 Write-Host "Installed." -ForegroundColor Green

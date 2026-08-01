@@ -21,6 +21,8 @@ import pytest
 
 AGENT_SH = Path(__file__).resolve().parents[2] / "agent" / "jt_ipam_cert_agent.sh"
 AGENT_PS1 = Path(__file__).resolve().parents[2] / "agent" / "jt_ipam_cert_agent.ps1"
+INSTALLER_PS1 = Path(__file__).resolve().parents[2] / "agent" / "jt-ipam-cert-agent-installer.ps1"
+INSTALLER_SH = Path(__file__).resolve().parents[2] / "agent" / "jt-ipam-cert-agent-installer.sh"
 
 
 def _extract_bash_function(src: str, name: str) -> str:
@@ -110,3 +112,24 @@ def test_windows_agent_reads_the_binding_not_the_probe():
     assert re.search(r"\$now = Get-ServedThumbprint", src)
     # 比對的是 40 位十六進位指紋值,不是會被在地化的 netsh 標籤
     assert "[0-9a-fA-F]{40}" in src
+
+
+def test_windows_schedule_matches_the_linux_timer():
+    """Windows 排程要有 Linux systemd timer 的等價設定，外加 Windows 才有的兩個陷阱。
+
+    Linux 端是 `Type=oneshot` 的 service 由 timer 叫起來（不是常駐服務），timer 設了
+    `RandomizedDelaySec=600`（抖動）與 `Persistent=true`（錯過的補跑）。Windows 工作排程器
+    是對應物，但它的預設值會**拒絕在電池供電時啟動、且切到電池就停掉** —— 筆電或有回報
+    電池的 VM 會默默跳過續簽。
+    """
+    sh = INSTALLER_SH.read_text()
+    assert "RandomizedDelaySec=600" in sh and "Persistent=true" in sh, "Linux 端的基準變了，這裡要跟著調"
+
+    ps = INSTALLER_PS1.read_text()
+    assert "-RandomDelay" in ps, "缺抖動：所有主機會在同一秒打伺服器"
+    assert "-StartWhenAvailable" in ps, "缺補跑：關機錯過的那次就永遠不會補"
+    assert "-AllowStartIfOnBatteries" in ps and "-DontStopIfGoingOnBatteries" in ps, \
+        "Task Scheduler 預設會因電池而不跑／中途停止"
+    assert "-ExecutionTimeLimit" in ps, "預設 3 天，卡住的執行會擋住後續每一次"
+    # 服務 vs 排程：Windows 這邊刻意用排程（對應 oneshot+timer），不是常駐服務
+    assert "New-Service" not in ps and "sc.exe" not in ps

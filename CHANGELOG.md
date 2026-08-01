@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.129] — 2026-08-01
+
+### Fixed
+- **The Windows scheduled task was missing the properties that make the Linux timer reliable.** The bash agent runs as a `Type=oneshot` unit driven by a systemd timer with `RandomizedDelaySec=600` and `Persistent=true`; the Windows task had neither, so every host would poll on the same second and a run missed because the machine was off was simply lost. It now sets `-RandomDelay 10m` and `-StartWhenAvailable` to match.
+  - Two more come from Task Scheduler defaults that have no systemd equivalent and are wrong here: it **refuses to start a task on battery power and stops one that switches to battery**, which would silently skip renewals on a laptop or on a VM that reports a battery. Both are now disabled. `ExecutionTimeLimit` is also capped at an hour — the default is three days, long enough for one hung run to block every later one.
+  - For the record, since it comes up: the agent is a scheduled task rather than a Windows service **because that is what the Linux one is** — a one-shot process run on a timer, not a resident daemon. A service would mean writing a sleep loop for no benefit.
+
 ## [0.5.128] — 2026-08-01
 
 ### Fixed

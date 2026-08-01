@@ -4,6 +4,13 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.129] — 2026-08-01
+
+### 修正
+- **Windows 排程漏了讓 Linux timer 可靠的那幾個設定。** bash 代理是 `Type=oneshot` 的單元、由 systemd timer 帶起來，timer 上設了 `RandomizedDelaySec=600`（抖動）與 `Persistent=true`（錯過補跑）；Windows 排程兩個都沒有，等於所有主機會在同一秒打伺服器，而且主機關機錯過的那次就直接消失。現在補上 `-RandomDelay 10 分鐘` 與 `-StartWhenAvailable`。
+  - 另外兩個來自工作排程器的預設值，systemd 沒有對應而且在這裡是錯的：它**預設拒絕在電池供電時啟動，切換到電池還會把執行中的工作停掉** —— 筆電、或是有回報電池的虛擬機會默默跳過續簽。兩者都已關閉。`ExecutionTimeLimit` 也收到 1 小時（預設 3 天，久到足以讓一次卡住的執行擋掉後面每一次）。
+  - 順帶說明這個常被問到的點：代理做成**排程而不是 Windows 服務，是因為 Linux 端本來就是排程** —— 一個由 timer 定時叫起來、跑完就結束的程序，不是常駐 daemon。做成服務等於要自己寫 sleep 迴圈常駐，沒有好處。
+
 ## [0.5.128] — 2026-08-01
 
 ### 修正
