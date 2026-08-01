@@ -66,7 +66,7 @@ param(
     [switch] $Help
 )
 
-$AGENT_VERSION = "1.0.0"
+$AGENT_VERSION = "1.0.2"
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
@@ -156,12 +156,21 @@ function Get-Cfg {
 function Test-CfgTrue { param([string] $Value) return @("true", "1", "yes", "on") -contains $Value.ToLowerInvariant() }
 
 if (-not $Config) { $Config = $DEFAULT_CONFIG }
-$CFG = Read-ConfigFile -Path $Config
 
-$SERVER = (Get-Cfg $CFG "SERVER").TrimEnd("/")
-$AGENT_KEY = Get-Cfg $CFG "AGENT_KEY"
-if (-not $SERVER) { throw "config missing SERVER" }
-if (-not $AGENT_KEY) { throw "config missing AGENT_KEY" }
+# Startup problems are the operator's to fix (missing or incomplete config), so report them
+# as one readable line. Letting the exception escape prints a PowerShell stack trace with the
+# offending source line, which buries the actual message.
+try {
+    $CFG = Read-ConfigFile -Path $Config
+    $SERVER = (Get-Cfg $CFG "SERVER").TrimEnd("/")
+    $AGENT_KEY = Get-Cfg $CFG "AGENT_KEY"
+    if (-not $SERVER) { throw "config is missing SERVER (e.g. SERVER=https://ipam.example.com)" }
+    if (-not $AGENT_KEY) { throw "config is missing AGENT_KEY (copy it from the jt-ipam cert agent page)" }
+} catch {
+    Write-Host "error: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "       config file: $Config"
+    exit 2
+}
 $VERIFY_TLS = Test-CfgTrue (Get-Cfg $CFG "VERIFY_TLS" "true")
 $AUTO_UPDATE = Test-CfgTrue (Get-Cfg $CFG "AUTO_UPDATE" "true")
 $REMOVE_OLD_CERT = Test-CfgTrue (Get-Cfg $CFG "REMOVE_OLD_CERT" "false")
@@ -273,6 +282,26 @@ function Get-ServedThumbprint {
     }
 }
 
+function Get-HttpSysCertificate {
+    <# The thumbprint http.sys has registered for *this specific* binding, or $null.
+
+       Why this cannot be inferred from a TLS probe: an SNI binding with no registration is
+       still answered, by the catch-all non-SNI binding on the same port. Probing therefore
+       reports the fallback certificate, and if that happens to be the certificate we are
+       deploying, "is it already bound?" answers yes for a binding that has nothing bound at
+       all -- the agent then reports success without registering anything. That is exactly
+       what happened on a two-SNI-site IIS host.
+
+       netsh output is localized, so this matches the 40-hex-digit thumbprint *value* rather
+       than any label. The appid GUID in the same output is dash-separated, so it cannot
+       produce a 40-character run. #>
+    param([object] $Parts)
+    $r = Invoke-Native "netsh" @("http", "show", "sslcert", $Parts.Key)
+    $m = [regex]::Match($r.Output, "(?<![0-9a-fA-F])[0-9a-fA-F]{40}(?![0-9a-fA-F])")
+    if ($m.Success) { return $m.Value.ToUpperInvariant() }
+    return $null
+}
+
 function Set-HttpSysCertificate {
     <# Point an http.sys SSL binding at a thumbprint. Uses netsh rather than the
        WebAdministration module because netsh is always present (the IIS PowerShell provider
@@ -316,27 +345,45 @@ function Send-Report {
 
 # ─────────────────── State ───────────────────
 
+function Get-DeploymentTarget {
+    <# What makes this deployment distinct from another one using the same certificate and
+       profile. Without it the state key would be just cert+profile, and a second binding
+       served by the same certificate -- two SNI sites on 443, say -- would be skipped as
+       "already up to date" forever: silently never renewed, while reporting ok. #>
+    param([hashtable] $D, [string] $Profile)
+    switch ($Profile) {
+        "iis"   { return (Get-Cfg $D "BINDING" "0.0.0.0:443") }
+        "files" { return (@("CRT", "CHAIN", "FULLCHAIN", "KEY", "COMBINED", "PFX") |
+                          ForEach-Object { Get-Cfg $D $_ }) -join "|" }
+        default { return "" }   # store: importing the same certificate twice is one operation
+    }
+}
+
 function Get-StateFingerprint {
-    param([string] $Cert, [string] $Profile)
+    param([string] $Cert, [string] $Profile, [string] $Target)
     if (-not (Test-Path -LiteralPath $STATE_FILE)) { return "" }
     foreach ($line in (Get-Content -LiteralPath $STATE_FILE -Encoding UTF8)) {
         $p = $line -split "`t"
-        if ($p.Count -ge 3 -and $p[0] -eq $Cert -and $p[1] -eq $Profile) { return $p[2] }
+        # 4 columns is the current format. A 3-column line was written by an older agent and
+        # has no target recorded, so only trust it when this deployment has no target either.
+        if ($p.Count -ge 4 -and $p[0] -eq $Cert -and $p[1] -eq $Profile -and $p[2] -eq $Target) { return $p[3] }
+        if ($p.Count -eq 3 -and $p[0] -eq $Cert -and $p[1] -eq $Profile -and $Target -eq "") { return $p[2] }
     }
     return ""
 }
 
 function Set-StateFingerprint {
-    param([string] $Cert, [string] $Profile, [string] $Fingerprint)
+    param([string] $Cert, [string] $Profile, [string] $Target, [string] $Fingerprint)
     $keep = @()
     if (Test-Path -LiteralPath $STATE_FILE) {
         foreach ($line in (Get-Content -LiteralPath $STATE_FILE -Encoding UTF8)) {
             $p = $line -split "`t"
-            if ($p.Count -ge 3 -and $p[0] -eq $Cert -and $p[1] -eq $Profile) { continue }
+            if ($p.Count -ge 4 -and $p[0] -eq $Cert -and $p[1] -eq $Profile -and $p[2] -eq $Target) { continue }
+            if ($p.Count -eq 3 -and $p[0] -eq $Cert -and $p[1] -eq $Profile) { continue }  # replace old-format line
             if ($line.Trim()) { $keep += $line }
         }
     }
-    $keep += ("{0}`t{1}`t{2}" -f $Cert, $Profile, $Fingerprint)
+    $keep += ("{0}`t{1}`t{2}`t{3}" -f $Cert, $Profile, $Target, $Fingerprint)
     Set-Content -LiteralPath $STATE_FILE -Value $keep -Encoding UTF8
 }
 
@@ -372,8 +419,9 @@ function Invoke-DeployIis {
         return $true
     }
 
-    $old = Get-ServedThumbprint -TargetHost $probeHost -Port $parts.Port -SniHost $sniHost
-    Write-Dbg "currently served thumbprint: $(if ($old) { $old } else { '(none)' })"
+    # What this binding actually has registered -- not what the port happens to serve.
+    $old = Get-HttpSysCertificate -Parts $parts
+    Write-Dbg "registered on $($parts.Key): $(if ($old) { $old } else { '(nothing)' })"
 
     $bundle = Get-CertificatePfx -Cert $Cert
     $thumb = Import-JtCertificate -Pfx $bundle.Bytes -Password $bundle.Password
@@ -435,8 +483,11 @@ function Invoke-DeployIis {
             Add-Report $Cert "iis" "failed" $Fingerprint $NotAfter "verify failed ($detail), rollback failed"
         }
     } else {
-        # Nothing was being served before, so there is nothing to roll back to. Most likely
-        # the site has no HTTPS binding on this port yet -- say so instead of just "failed".
+        # Nothing was being served before, so there is no previous certificate to restore --
+        # but we did create an http.sys registration, so take it back out rather than leaving
+        # a reservation on a port no site answers on. Most likely cause: the admin has not
+        # created the HTTPS binding in IIS yet, so say that instead of just "failed".
+        $null = Invoke-Native "netsh" @("http", "delete", "sslcert", $parts.Key)
         Write-Log "[$Cert/iis] cannot verify ($detail) -- does IIS have an HTTPS binding on $($parts.Key)?"
         Add-Report $Cert "iis" "failed" $Fingerprint $NotAfter "cannot verify ($detail); is there an IIS HTTPS binding on $($parts.Key)?"
     }
@@ -619,7 +670,8 @@ while ($true) {
     foreach ($k in $CFG.Keys) {
         if ($k.StartsWith($prefix)) { $D[$k.Substring($prefix.Length)] = $CFG[$k] }
     }
-    $prof = Get-Cfg $D "PROFILE" "iis"   # not $prof -- that is an automatic variable
+    $prof = Get-Cfg $D "PROFILE" "iis"   # named $prof: $profile is an automatic variable
+    $target = Get-DeploymentTarget -D $D -Profile $prof
     $n++
 
     if (-not $byName.ContainsKey($cert)) {
@@ -630,7 +682,7 @@ while ($true) {
     $fp = $byName[$cert].fingerprint
     $na = $byName[$cert].not_after
 
-    if (-not $DryRun -and -not $Force -and (Get-StateFingerprint -Cert $cert -Profile $prof) -eq $fp) {
+    if (-not $DryRun -and -not $Force -and (Get-StateFingerprint -Cert $cert -Profile $prof -Target $target) -eq $fp) {
         # Already applied locally. Still report, so the server reflects this deployment even
         # when nothing changed (e.g. after re-keying the agent).
         Write-Log "[$cert/$prof] already up to date ($($fp.Substring(0, [Math]::Min(12, $fp.Length)))...), skipping"
@@ -655,7 +707,7 @@ while ($true) {
     }
 
     if ($ok) {
-        if (-not $DryRun) { Set-StateFingerprint -Cert $cert -Profile $prof -Fingerprint $fp }
+        if (-not $DryRun) { Set-StateFingerprint -Cert $cert -Profile $prof -Target $target -Fingerprint $fp }
     } else {
         $failed = 1
     }

@@ -67,7 +67,7 @@ function Assert-Admin {
 
 function Remove-Install {
     Write-Step "Removing scheduled task and files"
-    $null = Invoke-Native "schtasks.exe" @("/Delete", "/TN", $TASK_NAME, "/F")
+    Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $INSTALL_DIR) { Remove-Item -LiteralPath $INSTALL_DIR -Recurse -Force }
     # Config holds the agent key; state and log are ours too.
     if (Test-Path -LiteralPath $DATA_DIR) { Remove-Item -LiteralPath $DATA_DIR -Recurse -Force }
@@ -156,13 +156,19 @@ foreach ($sid in @("S-1-5-18", "S-1-5-32-544")) {   # SYSTEM, Administrators
 Set-Acl -LiteralPath $CONFIG_PATH -AclObject $acl
 
 Write-Step "Registering the daily scheduled task ($Time)"
-# schtasks.exe rather than the ScheduledTasks module: it exists on every supported Windows,
-# including Server Core installs where the module may be absent.
-$action = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$AGENT_PATH`" >> `"$LOG_PATH`" 2>&1"
-$null = Invoke-Native "schtasks.exe" @("/Delete", "/TN", $TASK_NAME, "/F")
-$create = Invoke-Native "schtasks.exe" @("/Create", "/TN", $TASK_NAME, "/TR", "cmd.exe /c $action",
-                                         "/SC", "DAILY", "/ST", $Time, "/RU", "SYSTEM", "/RL", "HIGHEST", "/F")
-if ($create.ExitCode -ne 0) { throw "could not register the scheduled task: $($create.Output)" }
+# Register-ScheduledTask rather than schtasks.exe: schtasks takes the whole command as a
+# single /TR argument, and its quoting rules mangle any path containing a space -- which the
+# default install path under "C:\Program Files" always does. Register-ScheduledTask passes
+# the argument string through verbatim, so the embedded quotes survive.
+# cmd.exe is still the executable so that the >> redirection into the log works.
+$taskArgs = "/c powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$AGENT_PATH"" >> ""$LOG_PATH"" 2>&1"
+$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $taskArgs
+$trigger = New-ScheduledTaskTrigger -Daily -At $Time
+# By SID, not "SYSTEM"/"NT AUTHORITY\SYSTEM": those names are localized on a non-English
+# Windows, and the account would not resolve.
+$principal = New-ScheduledTaskPrincipal -UserId "S-1-5-18" -LogonType ServiceAccount -RunLevel Highest
+$null = Register-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger `
+    -Principal $principal -Description "jt-ipam certificate distribution" -Force
 
 Write-Host ""
 Write-Host "Installed." -ForegroundColor Green

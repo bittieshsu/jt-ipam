@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.128] — 2026-08-01
+
+### Fixed
+Found by running the new Windows agent against a real Windows 11 + IIS host, not by review. Two of them reported success while doing nothing at all.
+
+- **A second deployment of the same certificate was silently skipped and reported as done.** Deployment state was keyed on certificate + profile only, so a host serving one certificate on two bindings — two SNI sites on 443, say — only ever updated the first. The second was treated as "already up to date" forever: never renewed, while reporting ok. State is now also keyed on what makes the deployment distinct (the binding for `iis`, the output paths for `files`). **The same flaw was in the shipped bash agent** for manual-mode deployments writing one certificate to several paths, and is fixed there too (agent 0.4.174). State written by an older agent is still honoured, but only for deployments that have no distinct target.
+- **On a host with several IIS sites, the SNI bindings were never given a certificate — and it reported success.** Deciding "is the right certificate already bound?" was done by opening a TLS connection, but an SNI binding with nothing registered is still answered by the catch-all non-SNI binding on the same port. When that fallback happened to serve the certificate being deployed, the agent concluded it was already bound, reported ok and recorded the deployment as done, while `netsh http show sslcert` showed no registration at all for that hostname. The question is now put to http.sys about that specific binding instead, matching the 40-hex-digit thumbprint value rather than netsh's localized labels.
+- **The Windows installer could never register its scheduled task.** `schtasks /TR` takes the whole command as one argument and its quoting mangles any path containing a space — which the default install path under `C:\Program Files` always does. Switched to `Register-ScheduledTask`, which passes the argument string through verbatim. The task principal is set by SID rather than the name "SYSTEM", which is localized.
+- A failed IIS deployment with no previously bound certificate left behind an http.sys registration on a port no site answers on; it is now removed, so a failure leaves nothing behind.
+- A missing or incomplete config printed a PowerShell stack trace that buried the actual message. It now prints one readable line and exits 2.
+
 ## [0.5.127] — 2026-08-01
 
 ### Added
