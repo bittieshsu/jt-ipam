@@ -53,7 +53,10 @@ function Invoke-Native {
     try {
         $out = & $File @Arguments 2>&1
         $rc = $LASTEXITCODE          # capture before anything else can touch it
-        return [pscustomobject]@{ Output = ($out | Out-String).Trim(); ExitCode = $rc }
+        $text = ($out | Out-String).Trim()
+        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch "^\s*\+|^\s*at |CategoryInfo|FullyQualifiedErrorId" })
+        $brief = ($lines | Select-Object -First 3) -join " / "
+        return [pscustomobject]@{ Output = $text; Brief = $brief; ExitCode = $rc }
     } finally { $ErrorActionPreference = $prev }
 }
 

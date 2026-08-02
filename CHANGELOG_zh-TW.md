@@ -4,6 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.132] — 2026-08-02
+
+### 新增
+- **憑證派送支援 WinRM、遠端桌面與 LDAPS。** WinRM 在這裡特別有意義，因為 **jt-ipam 自己就是 WinRM 的客戶端**（Windows DNS / DHCP 整合走 5986）—— 那些主機換上正式憑證之後，jt-ipam 這端才能把 TLS 驗證打開，而不是一直關著。兩者都已在實體 Windows 主機驗證，並用 `openssl s_client` 從外部確認，而不是採信代理自己的日誌。
+  - 遠端桌面的 thumbprint 存在 WMI 而不是 http.sys，所以該 profile 寫進 WMI 後再以 TLS 確認。**探測失敗不會直接觸發還原** —— 會先把設定值讀回來比對，因為「遠端桌面根本沒啟用」和「設定失敗」是兩回事。
+  - LDAPS 讀的是服務存放區 `NTDS\My` 而非 `LocalMachine\My`，憑證放進一般存放區對它毫無作用。`store` profile 現在可指定目標存放區，寫進 NTDS 後並以 rootDSE 的 `renewServerCertificate` 操作請網域控制站重新載入（否則它會繼續用舊憑證直到自行輪替）。**這條路徑沒有實機驗證**（需要網域控制站）；IIS、WinRM、遠端桌面則有。
+  - WinRM 拒絕憑證時代理會講出原因 —— 憑證的 CN/SAN 必須含這台主機的名稱，且要有「伺服器驗證」EKU。原始的 `WSManFault` 完全看不出這件事。
+
+- **UDP 埠探測，三態呈現而非二元。** UDP 沒有交握，「沒有回應」證明不了任何事 —— 可能開著但不回應、被防火牆丟棄，或封包遺失。把它顯示成「開啟」就是安靜地說謊，所以它自成一態，交給使用者判斷。「確定關閉」是收到 ICMP port unreachable（用 connected UDP socket 就抓得到，不需要 raw socket）。53 與 123 會送真實的 DNS 查詢與 NTP client 封包，收到協定回應（並解讀成 `DNS NOERROR`、`NTP stratum 3` 之類）才算確定開啟。
+
+### 修正
+- **`upgrade` 從來不安裝作業系統套件，所以既有部署升級後會拿到新功能卻沒有讓它能動的執行檔。** 0.5.131 加的 ping 與路徑追蹤只有全新安裝才會裝到相依套件。現在兩條路徑跑同一個檢查，只補缺少的、且失敗不中斷升級。
+- 版本資訊（管理）新增「選用相依」清單與安裝狀態，缺套件在這裡就看得到，而不是等使用者回報「按了沒反應」。
+- 外部指令的輸出在寫進回報欄位前會先精簡：在地化的 `WSManFault` 加上 PowerShell 錯誤記錄長達數百字，真正的訊息反而被埋掉。
+
 ## [0.5.131] — 2026-08-02
 
 ### 新增

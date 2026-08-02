@@ -102,3 +102,37 @@ def test_tool_availability_shape():
     caps = nd.tool_availability()
     assert set(caps) == {"ping", "tracepath", "traceroute", "tcp"}
     assert caps["tcp"] is True      # 純 Python，不依賴外部指令
+
+
+def test_udp_probe_payloads_are_real_protocol_packets():
+    """空封包多數服務不會回應 —— 常見埠要送真的協定封包才拿得到「確定開啟」。"""
+    dns_name, dns_pkt = nd._UDP_PROBES[53]
+    assert dns_name == "dns"
+    assert dns_pkt[2:4] == b"\x01\x00"          # standard query, RD
+    assert dns_pkt[-4:] == b"\x00\x02\x00\x01"  # NS / IN
+    ntp_name, ntp_pkt = nd._UDP_PROBES[123]
+    assert ntp_name == "ntp"
+    assert len(ntp_pkt) == 48
+    assert ntp_pkt[0] == 0x1B          # LI=0 VN=3 Mode=3 (client)
+
+
+@pytest.mark.parametrize(("probe", "data", "expected"), [
+    ("dns", b"\x12\x34\x81\x80" + b"\x00" * 8, "DNS NOERROR"),
+    ("dns", b"\x12\x34\x81\x83" + b"\x00" * 8, "DNS NXDOMAIN"),
+    ("dns", b"\x12\x34\x81\x85" + b"\x00" * 8, "DNS REFUSED"),
+    ("ntp", b"\x1c\x03" + b"\x00" * 46, "NTP stratum 3"),
+    ("empty", b"whatever", None),
+    ("dns", b"\x12", None),                     # 太短不能亂解讀
+])
+def test_reply_is_described_in_human_terms(probe, data, expected):
+    assert nd._describe_reply(probe, data) == expected
+
+
+def test_udp_states_are_three_not_two():
+    """「沒有回應」在 UDP 無法判定，必須自成一態。
+
+    把它顯示成「開啟」是安靜地說謊：可能開著不回應、被防火牆丟棄、或封包遺失。
+    這裡守的是資料結構本身 —— 預設值就是 no_reply，而不是 open 或 closed。
+    """
+    r = nd.UdpResult(target="192.0.2.1", port=161)
+    assert r.state == "no_reply"

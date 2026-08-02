@@ -254,6 +254,26 @@ security_headers_notice() {
     echo
 }
 
+# Optional OS packages the running app shells out to. Kept in one place and called from
+# BOTH install and upgrade: an existing deployment that upgrades gets the new features, and
+# without this it would get them without the binaries that make them work.
+# Never fatal -- the app detects what is missing at runtime and disables just that tool.
+ensure_runtime_deps() {
+    local missing=()
+    command -v ping >/dev/null 2>&1 || missing+=("iputils-ping")
+    command -v tracepath >/dev/null 2>&1 || missing+=("iputils-tracepath")
+    if [ "${#missing[@]}" -eq 0 ]; then
+        log "Runtime dependencies present (ping, tracepath)"
+        return 0
+    fi
+    log "Installing runtime dependencies: ${missing[*]}"
+    if apt-get install -y -qq "${missing[@]}" >/dev/null 2>&1; then
+        log "Installed ${missing[*]}"
+    else
+        warn "could not install ${missing[*]} — the connectivity diagnostics in Tools → IP addresses will show those tools as unavailable"
+    fi
+}
+
 cmd_install() {
     # -- default parameters --
     local TLS_MODE="nginx"
@@ -308,12 +328,7 @@ cmd_install() {
     #    → `sudo: command not found`（客戶回報手動補 PG 後卡住的第二關多半是這個）。
     apt-get install -y -qq ca-certificates curl gnupg sudo
 
-    # Connectivity diagnostics in the web UI (Tools -> IP addresses) shell out to these.
-    # Both are tiny and iputils-ping is usually present already. Installed without -y failing
-    # the run: if a distribution names them differently the UI detects their absence at
-    # runtime and greys the affected tool out rather than erroring.
-    apt-get install -y -qq iputils-ping iputils-tracepath 2>/dev/null || \
-        warn "could not install iputils-ping / iputils-tracepath; ping and traceroute in the web UI will be unavailable"
+    ensure_runtime_deps
 
     # 套件是否可安裝：用命令替換、**不要** `apt-cache madison X | grep -q .`。
     # 在 `set -o pipefail` 下，madison 對「有多個候選版本」的套件（如 Debian 13 的 postgresql-17
@@ -776,6 +791,10 @@ cmd_upgrade() {
     OLD_VER="$(ver_of)"
     OLD_REV="$(as_user git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
     log "Before upgrade: version ${OLD_VER}  commit ${OLD_REV}  alembic $(alembic_head)"
+
+    # Same OS packages as a fresh install — a feature added in a newer version may need a
+    # binary the existing host does not have yet.
+    ensure_runtime_deps
 
     # -- rollback guidance on failure --
     local DUMP_PATH=""

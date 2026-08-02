@@ -2372,7 +2372,12 @@
     "host_os": "作業系統",
     "host_kernel": "核心版本",
     "package": "套件",
-    "installed": "版本"
+    "installed": "版本",
+    "section_optional": "選用相依",
+    "section_optional_hint": "缺少不影響服務運作，但會讓對應功能無法使用",
+    "optional_present": "已安裝",
+    "optional_absent": "未安裝",
+    "optional_missing": "缺少 {pkgs}：對應功能會標示為不可用。安裝後即可使用（重新執行 jt-ipam.sh upgrade 也會自動補上）。"
   },
   "dns_records": {
     "title": "DNS 記錄",
@@ -2917,6 +2922,12 @@
     "path_mtu": "路徑 MTU {n}",
     "trace_hint": "優先使用 tracepath（不需特權，並會回報路徑 MTU，可用來診斷 MTU 黑洞）。沒有回應的躍點也會列出，不會略過。",
     "tcp_hint": "對於擋 ICMP 的主機，這比 ping 可靠 —— 測的是實際要用的那個服務埠。",
-    "truncated": "逾時，以下為已探到的部分"
+    "truncated": "逾時，以下為已探到的部分",
+    "udp": "UDP 埠探測",
+    "probe": "探測封包",
+    "udp_open": "確定開啟",
+    "udp_closed": "確定關閉",
+    "udp_no_reply": "無法判定",
+    "udp_note": "UDP 沒有交握，「沒有回應」無法判定 —— 可能是開著但不回應、被防火牆丟棄，或封包遺失，所以獨立成一種狀態而不是當成開啟。「確定關閉」是收到 ICMP port unreachable。對 53（DNS）與 123（NTP）會送出真實的協定封包，收到協定回應才算確定開啟。"
   }
 }

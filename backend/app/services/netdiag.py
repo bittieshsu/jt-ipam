@@ -394,3 +394,124 @@ def tool_availability() -> dict[str, Any]:
         "traceroute": bool(shutil.which("traceroute")),
         "tcp": True,   # 純 Python，永遠可用
     }
+
+
+# ─────────────────── UDP 探測 ───────────────────
+
+@dataclass
+class UdpResult:
+    target: str
+    port: int
+    state: str = "no_reply"     # open / closed / no_reply
+    probe: str = "empty"        # 送出去的是哪種封包
+    latency_ms: float | None = None
+    reply_bytes: int | None = None
+    detail: str | None = None
+
+
+def _dns_query_packet() -> bytes:
+    """對根區送一個 NS 查詢。任何 DNS 伺服器都會回應，所以「有回應」＝確定開著。"""
+    return (b"\x12\x34"            # transaction id
+            b"\x01\x00"            # standard query, recursion desired
+            b"\x00\x01\x00\x00\x00\x00\x00\x00"
+            b"\x00"                # root
+            b"\x00\x02\x00\x01")   # NS, IN
+
+
+def _ntp_packet() -> bytes:
+    """LI=0 VN=3 Mode=3（client），其餘留空 —— 48 bytes。"""
+    return b"\x1b" + b"\x00" * 47
+
+
+# 對這些埠送真實協定封包，才拿得到「確定開啟」而不是一片沉默。
+_UDP_PROBES: dict[int, tuple[str, bytes]] = {
+    53: ("dns", _dns_query_packet()),
+    123: ("ntp", _ntp_packet()),
+}
+
+
+class _UdpProto(asyncio.DatagramProtocol):
+    def __init__(self, done: asyncio.Future) -> None:
+        self.done = done
+
+    def datagram_received(self, data: bytes, addr: object) -> None:
+        if not self.done.done():
+            self.done.set_result(("open", data))
+
+    def error_received(self, exc: Exception) -> None:
+        # ICMP port unreachable 會以 ConnectionRefusedError 回到這裡 ——
+        # 這是 UDP 唯一能「確定關閉」的訊號，不需要 raw socket。
+        if not self.done.done():
+            self.done.set_result(("closed", b""))
+
+
+async def udp_check(
+    targets: list[str], ports: list[int], *, timeout: float = 2.0, concurrency: int = 16,
+) -> list[UdpResult]:
+    """UDP 埠探測。
+
+    ⚠️ **UDP 沒有交握，「沒有回應」本質上無法判定** —— 可能開著但不回應、被防火牆
+    丟棄、或封包遺失。所以這裡回三種狀態而不是二元的開/關：
+
+      open     收到回應（或 ICMP 以外的資料）→ 確定開著
+      closed   收到 ICMP port unreachable    → 確定關閉
+      no_reply 什麼都沒收到                   → **無法判定**，交給使用者判斷
+
+    把 no_reply 顯示成「開啟」會是安靜地說謊，所以它自成一態。
+    對 53 / 123 會送真實協定封包，否則多數服務根本不會回應空封包。
+    """
+    concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
+    timeout = max(0.2, min(timeout, 10.0))
+    for p in ports:
+        if not 1 <= p <= 65535:
+            raise NetDiagError(f"埠號超出範圍：{p}")
+    if len(targets) * len(ports) > MAX_TARGETS * 4:
+        raise NetDiagError("目標與埠的組合過多")
+
+    sem = asyncio.Semaphore(concurrency)
+    started = time.monotonic()
+
+    async def one(host: str, port: int) -> UdpResult:
+        async with sem:
+            if time.monotonic() - started > OVERALL_DEADLINE:
+                return UdpResult(target=host, port=port, detail="整體時間上限已到，未執行")
+            name, payload = _UDP_PROBES.get(port, ("empty", b"\x00"))
+            res = UdpResult(target=host, port=port, probe=name)
+            loop = asyncio.get_running_loop()
+            done: asyncio.Future = loop.create_future()
+            transport = None
+            t0 = time.monotonic()
+            try:
+                transport, _ = await loop.create_datagram_endpoint(
+                    lambda: _UdpProto(done), remote_addr=(host, port))
+                transport.sendto(payload)
+                state, data = await asyncio.wait_for(done, timeout=timeout)
+                res.state = state
+                res.latency_ms = round((time.monotonic() - t0) * 1000, 2)
+                if state == "open":
+                    res.reply_bytes = len(data)
+                    res.detail = _describe_reply(name, data)
+            except TimeoutError:
+                res.state = "no_reply"
+            except OSError as exc:
+                res.state = "closed" if isinstance(exc, ConnectionRefusedError) else "no_reply"
+                res.detail = exc.strerror or str(exc)
+            finally:
+                if transport is not None:
+                    transport.close()
+            return res
+
+    jobs = [one(t, p) for t in targets for p in ports]
+    return list(await asyncio.gather(*jobs))
+
+
+def _describe_reply(probe: str, data: bytes) -> str | None:
+    """對已知協定，把回應解讀成一句人看得懂的話。"""
+    if probe == "dns" and len(data) >= 4:
+        rcode = data[3] & 0x0F
+        names = {0: "NOERROR", 1: "FORMERR", 2: "SERVFAIL", 3: "NXDOMAIN", 5: "REFUSED"}
+        return f"DNS {names.get(rcode, f'rcode={rcode}')}"
+    if probe == "ntp" and len(data) >= 48:
+        stratum = data[1]
+        return f"NTP stratum {stratum}" if stratum else "NTP (kiss-o'-death / 未同步)"
+    return None

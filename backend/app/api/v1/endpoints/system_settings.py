@@ -963,6 +963,18 @@ async def get_version_info() -> dict[str, Any]:
             info["host"]["postgres"] = str(_pg).split()[0] if _pg else None
     except SQLAlchemyError:
         pass
+
+    # 選用的作業系統相依：功能會隨版本新增，但既有主機不一定有對應的執行檔。
+    # 在這裡露出來，管理員才不用等使用者回報「按了沒反應」才發現缺套件。
+    from app.services.netdiag import tool_availability
+    caps = tool_availability()
+    info["host"]["optional_tools"] = {
+        "ping": {"present": caps["ping"], "package": "iputils-ping",
+                 "used_by": "Tools → IP addresses → ping"},
+        "tracepath": {"present": caps["tracepath"] or caps["traceroute"],
+                      "package": "iputils-tracepath",
+                      "used_by": "Tools → IP addresses → traceroute"},
+    }
     return info
 
 

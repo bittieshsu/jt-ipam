@@ -379,3 +379,31 @@ async def net_tcp(
     except netdiag.NetDiagError as exc:
         raise _bad(exc) from exc
     return {"count": len(results), "results": [asdict(r) for r in results]}
+
+
+class _UdpIn(StrictModel):
+    targets: Annotated[str, Field(min_length=1, max_length=4096)]
+    ports: Annotated[list[int], Field(min_length=1, max_length=8)]
+    timeout: Annotated[float, Field(ge=0.2, le=10.0)] = 2.0
+    concurrency: Annotated[int, Field(ge=1, le=netdiag.MAX_CONCURRENCY)] = 16
+
+
+@router.post("/net/udp")
+async def net_udp(
+    payload: _UdpIn, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """UDP 埠探測。回三種狀態（open / closed / no_reply）——「沒回應」在 UDP 是
+    無法判定的，不能當成開啟。對 53 / 123 會送真實協定封包。"""
+    try:
+        targets = netdiag.expand_targets(payload.targets)
+    except netdiag.NetDiagError as exc:
+        raise _bad(exc) from exc
+    await _diag_guard(session, user, request, "net_udp",
+                      {"count": len(targets), "ports": payload.ports, "sample": targets[:5]})
+    try:
+        results = await netdiag.udp_check(
+            targets, payload.ports, timeout=payload.timeout, concurrency=payload.concurrency)
+    except netdiag.NetDiagError as exc:
+        raise _bad(exc) from exc
+    return {"count": len(results), "results": [asdict(r) for r in results]}

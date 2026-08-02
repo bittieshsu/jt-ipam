@@ -66,7 +66,7 @@ param(
     [switch] $Help
 )
 
-$AGENT_VERSION = "1.0.2"
+$AGENT_VERSION = "1.1.0"
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
@@ -95,7 +95,13 @@ function Invoke-Native {
     try {
         $out = & $File @Arguments 2>&1
         $rc = $LASTEXITCODE          # capture before anything else can touch it
-        return [pscustomobject]@{ Output = ($out | Out-String).Trim(); ExitCode = $rc }
+        # Native tools can emit a screenful of localized text plus a PowerShell error record.
+        # Keep the first few meaningful lines: enough to act on, short enough for a report field.
+        $text = ($out | Out-String).Trim()
+        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch "^\s*\+|\.ps1:\d+|CategoryInfo|FullyQualifiedErrorId" })
+        $brief = ($lines | Select-Object -First 3) -join " / "
+        if ($brief.Length -gt 300) { $brief = $brief.Substring(0, 300) + "..." }
+        return [pscustomobject]@{ Output = $text; Brief = $brief; ExitCode = $rc }
     } finally { $ErrorActionPreference = $prev }
 }
 function Write-Dbg { param([string] $Message) if ($DebugLog) { Write-Log "[debug] $Message" } }
@@ -210,12 +216,14 @@ function Import-JtCertificate {
     <# Import a PKCS#12 blob into LocalMachine\My straight from memory and return its
        thumbprint. Deliberately never writes the PFX to disk: it holds the private key, and a
        temp file would leave it readable on the filesystem until the file is cleaned up. #>
-    param([byte[]] $Pfx, [string] $Password)
+    param([byte[]] $Pfx, [string] $Password, [string] $StoreName = "My")
     $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet -bor `
              [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor `
              [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable
     $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($Pfx, $Password, $flags)
-    $store = [Security.Cryptography.X509Certificates.X509Store]::new("My", "LocalMachine")
+    # StoreName is normally "My". A domain controller serving LDAPS reads its certificate
+    # from the service store "NTDS\My" instead -- putting it in LocalMachine\My does nothing.
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new($StoreName, "LocalMachine")
     $store.Open("ReadWrite")
     try { $store.Add($cert) } finally { $store.Close() }
     return $cert.Thumbprint
@@ -313,7 +321,7 @@ function Set-HttpSysCertificate {
     $netshArgs = @("http", "add", "sslcert", $Parts.Key, "certhash=$Thumbprint",
                    "appid=$IIS_APPID", "certstorename=MY")
     $r = Invoke-Native "netsh" $netshArgs
-    if ($r.ExitCode -ne 0) { throw "netsh add sslcert failed: $($r.Output)" }
+    if ($r.ExitCode -ne 0) { throw "netsh add sslcert failed: $($r.Brief)" }
     Write-Dbg "netsh add sslcert $($Parts.Key) -> $Thumbprint"
 }
 
@@ -355,7 +363,10 @@ function Get-DeploymentTarget {
         "iis"   { return (Get-Cfg $D "BINDING" "0.0.0.0:443") }
         "files" { return (@("CRT", "CHAIN", "FULLCHAIN", "KEY", "COMBINED", "PFX") |
                           ForEach-Object { Get-Cfg $D $_ }) -join "|" }
-        default { return "" }   # store: importing the same certificate twice is one operation
+        "winrm" { return "winrm:" + (Get-Cfg $D "PORT" "5986") }
+        "rdp"   { return "rdp:" + (Get-Cfg $D "PORT" "3389") }
+        "store" { return (Get-Cfg $D "STORE" "My") }
+        default { return "" }
     }
 }
 
@@ -495,6 +506,158 @@ function Invoke-DeployIis {
     return $false
 }
 
+function Invoke-LdapsReload {
+    <# Tell a domain controller to reload its LDAPS certificate.
+
+       Dropping the certificate into NTDS\My is not enough on its own: the DC keeps serving
+       the old one until it rotates, which can take hours. This rootDSE operation is the
+       documented way to make it pick the new one up immediately. #>
+    try {
+        Add-Type -AssemblyName System.DirectoryServices.Protocols -ErrorAction Stop
+        $conn = New-Object DirectoryServices.Protocols.LdapConnection("localhost")
+        $conn.SessionOptions.ProtocolVersion = 3
+        $req = New-Object DirectoryServices.Protocols.ModifyRequest(
+            "", [DirectoryServices.Protocols.DirectoryAttributeOperation]::Replace,
+            "renewServerCertificate", "1")
+        $null = $conn.SendRequest($req)
+        $conn.Dispose()
+        Write-Log "[ldaps] asked the domain controller to reload its certificate"
+    } catch {
+        # Not fatal: the certificate is already in the store, the DC will get there on its own.
+        Write-Log "[ldaps] could not trigger a reload ($($_.Exception.Message)); the DC will pick it up on its own"
+    }
+}
+
+function Invoke-DeployWinrm {
+    <# WinRM over HTTPS (5986).
+
+       Worth its own profile because jt-ipam is itself a WinRM client: the Windows DNS and
+       DHCP integrations talk to Windows hosts over 5986. Those listeners normally carry the
+       self-signed certificate `winrm quickconfig` generates, which is why TLS verification
+       usually has to be turned off at the jt-ipam end -- and which expires, taking remote
+       management down at exactly the moment you need it to fix things. #>
+    param([hashtable] $D, [string] $Cert, [string] $Fingerprint, [string] $NotAfter)
+    $port = [int] (Get-Cfg $D "PORT" "5986")
+    $probeHost = Get-Cfg $D "PROBE" "127.0.0.1"
+
+    if ($DryRun) {
+        Write-Log "[$Cert/winrm] would import and point the HTTPS listener at it"
+        Add-Report $Cert "winrm" "dry-run" $Fingerprint $NotAfter "would rebind listener :$port"
+        return $true
+    }
+
+    $old = Get-ServedThumbprint -TargetHost $probeHost -Port $port -SniHost $probeHost
+    $bundle = Get-CertificatePfx -Cert $Cert
+    $thumb = Import-JtCertificate -Pfx $bundle.Bytes -Password $bundle.Password
+    Write-Log "[$Cert/winrm] imported into LocalMachine\My ($thumb)"
+    if ($old -eq $thumb) {
+        Add-Report $Cert "winrm" "ok" $Fingerprint $NotAfter "already in use on :$port"
+        return $true
+    }
+
+    $sel = "winrm/config/Listener?Address=*+Transport=HTTPS"
+    $r = Invoke-Native "winrm.cmd" @("set", $sel, "@{CertificateThumbprint=`"$thumb`"}")
+    if ($r.ExitCode -ne 0) {
+        # `set` fails when there is no HTTPS listener yet -- the usual first-time case.
+        Write-Dbg "set failed, creating an HTTPS listener instead: $($r.Output)"
+        $r = Invoke-Native "winrm.cmd" @(
+            "create", $sel,
+            "@{Hostname=`"$env:COMPUTERNAME`";CertificateThumbprint=`"$thumb`"}")
+    }
+    if ($r.ExitCode -ne 0) {
+        # 最常見的原因不是權限，是憑證不符合 WinRM 的要求：CN/SAN 必須含這台的主機名稱，
+        # 且要有「伺服器驗證」EKU。單看 WSManFault 看不出這件事，所以明講。
+        $why = "$($r.Brief) -- WinRM requires the certificate's CN/SAN to include this host's " +
+               "name ($env:COMPUTERNAME) and to have the Server Authentication EKU"
+        Write-Log "[$Cert/winrm] could not configure the listener: $why"
+        Add-Report $Cert "winrm" "failed" $Fingerprint $NotAfter $why
+        return $false
+    }
+
+    $now = Get-ServedThumbprint -TargetHost $probeHost -Port $port -SniHost $probeHost
+    if ($now -eq $thumb) {
+        Write-Log "[$Cert/winrm] listener on :$port now serving $thumb"
+        Add-Report $Cert "winrm" "ok" $Fingerprint $NotAfter "listener :$port"
+        return $true
+    }
+    $detail = if ($now) { "serving $now" } else { "no TLS response on ${probeHost}:$port" }
+    if ($old) {
+        $null = Invoke-Native "winrm.cmd" @("set", $sel, "@{CertificateThumbprint=`"$old`"}")
+        Write-Log "[$Cert/winrm] verification failed ($detail), rolled back to $old"
+        Add-Report $Cert "winrm" "failed" $Fingerprint $NotAfter "verify failed ($detail), rolled back"
+    } else {
+        Write-Log "[$Cert/winrm] cannot verify ($detail) -- is the WinRM HTTPS listener enabled?"
+        Add-Report $Cert "winrm" "failed" $Fingerprint $NotAfter "cannot verify ($detail)"
+    }
+    return $false
+}
+
+function Invoke-DeployRdp {
+    <# Remote Desktop (3389). Unlike IIS this has nothing to do with http.sys -- the
+       thumbprint lives in WMI, so this profile writes there and then confirms over TLS. #>
+    param([hashtable] $D, [string] $Cert, [string] $Fingerprint, [string] $NotAfter)
+    $port = [int] (Get-Cfg $D "PORT" "3389")
+    $probeHost = Get-Cfg $D "PROBE" "127.0.0.1"
+    $ns = "root\CIMV2\TerminalServices"
+
+    if ($DryRun) {
+        Write-Log "[$Cert/rdp] would import and set the Remote Desktop certificate"
+        Add-Report $Cert "rdp" "dry-run" $Fingerprint $NotAfter "would rebind :$port"
+        return $true
+    }
+
+    $ts = Get-WmiObject -Class Win32_TSGeneralSetting -Namespace $ns `
+            -Filter "TerminalName='RDP-tcp'" -ErrorAction SilentlyContinue
+    if (-not $ts) {
+        Write-Log "[$Cert/rdp] Remote Desktop settings not found (is Remote Desktop installed?)"
+        Add-Report $Cert "rdp" "failed" $Fingerprint $NotAfter "Win32_TSGeneralSetting not available"
+        return $false
+    }
+    $old = $ts.SSLCertificateSHA1Hash
+
+    $bundle = Get-CertificatePfx -Cert $Cert
+    $thumb = Import-JtCertificate -Pfx $bundle.Bytes -Password $bundle.Password
+    Write-Log "[$Cert/rdp] imported into LocalMachine\My ($thumb)"
+    if ($old -eq $thumb) {
+        Add-Report $Cert "rdp" "ok" $Fingerprint $NotAfter "already in use"
+        return $true
+    }
+
+    try {
+        $ts.SSLCertificateSHA1Hash = $thumb
+        $null = $ts.Put()
+    } catch {
+        Write-Log "[$Cert/rdp] could not set the certificate: $($_.Exception.Message)"
+        Add-Report $Cert "rdp" "failed" $Fingerprint $NotAfter $_.Exception.Message
+        return $false
+    }
+
+    Start-Sleep -Seconds 2      # the change is not picked up instantly
+    $now = Get-ServedThumbprint -TargetHost $probeHost -Port $port -SniHost $probeHost
+    if ($now -eq $thumb) {
+        Write-Log "[$Cert/rdp] Remote Desktop on :$port now serving $thumb"
+        Add-Report $Cert "rdp" "ok" $Fingerprint $NotAfter "bound on :$port"
+        return $true
+    }
+
+    # A failed probe does not prove the change failed -- Remote Desktop may simply be
+    # switched off on this host. Read the setting back before deciding to roll anything back.
+    $check = (Get-WmiObject -Class Win32_TSGeneralSetting -Namespace $ns `
+                -Filter "TerminalName='RDP-tcp'" -ErrorAction SilentlyContinue).SSLCertificateSHA1Hash
+    if ($check -eq $thumb) {
+        Write-Log "[$Cert/rdp] setting applied, but :$port did not serve it (is Remote Desktop enabled?)"
+        Add-Report $Cert "rdp" "ok" $Fingerprint $NotAfter "applied; could not verify on :$port"
+        return $true
+    }
+    if ($old) {
+        $ts.SSLCertificateSHA1Hash = $old
+        $null = $ts.Put()
+    }
+    Write-Log "[$Cert/rdp] could not apply, restored the previous certificate"
+    Add-Report $Cert "rdp" "failed" $Fingerprint $NotAfter "could not apply, rolled back"
+    return $false
+}
+
 function Invoke-DeployStore {
     param([hashtable] $D, [string] $Cert, [string] $Fingerprint, [string] $NotAfter)
     if ($DryRun) {
@@ -502,12 +665,18 @@ function Invoke-DeployStore {
         Add-Report $Cert "store" "dry-run" $Fingerprint $NotAfter "would import"
         return $true
     }
+    $storeName = Get-Cfg $D "STORE" "My"
     $bundle = Get-CertificatePfx -Cert $Cert
-    $thumb = Import-JtCertificate -Pfx $bundle.Bytes -Password $bundle.Password
-    Write-Log "[$Cert/store] imported into LocalMachine\My ($thumb)"
+    $thumb = Import-JtCertificate -Pfx $bundle.Bytes -Password $bundle.Password -StoreName $storeName
+    Write-Log "[$Cert/store] imported into LocalMachine\$storeName ($thumb)"
+
+    # Once the certificate is in NTDS\My the domain controller still has to be told, or it
+    # keeps serving the old one until it rotates on its own (which can be hours).
+    if ($storeName -like "NTDS*") { Invoke-LdapsReload }
+
     $reload = Get-Cfg $D "RELOAD"
     if ($reload) { $null = Invoke-Native "cmd.exe" @("/c", $reload) }
-    Add-Report $Cert "store" "ok" $Fingerprint $NotAfter "thumbprint $thumb"
+    Add-Report $Cert "store" "ok" $Fingerprint $NotAfter "store=$storeName thumbprint $thumb"
     return $true
 }
 
@@ -588,7 +757,7 @@ function Invoke-DeployFiles {
         $r = Invoke-Native "cmd.exe" @("/c", $reload)
         if ($r.ExitCode -ne 0) {
             Write-Log "[$Cert/files] wrote files but reload failed: $($r.Output)"
-            Add-Report $Cert "files" "failed" $Fingerprint $NotAfter "reload failed: $($r.Output)"
+            Add-Report $Cert "files" "failed" $Fingerprint $NotAfter "reload failed: $($r.Brief)"
             return $false
         }
     }
@@ -695,10 +864,12 @@ while ($true) {
     try {
         switch ($prof) {
             "iis"   { $ok = Invoke-DeployIis   -D $D -Cert $cert -Fingerprint $fp -NotAfter $na }
+            "winrm" { $ok = Invoke-DeployWinrm -D $D -Cert $cert -Fingerprint $fp -NotAfter $na }
+            "rdp"   { $ok = Invoke-DeployRdp   -D $D -Cert $cert -Fingerprint $fp -NotAfter $na }
             "store" { $ok = Invoke-DeployStore -D $D -Cert $cert -Fingerprint $fp -NotAfter $na }
             "files" { $ok = Invoke-DeployFiles -D $D -Cert $cert -Fingerprint $fp -NotAfter $na }
             default {
-                Write-Log "[$cert/$prof] unknown profile (use iis, store or files)"
+                Write-Log "[$cert/$prof] unknown profile (use iis, winrm, rdp, store or files)"
                 Add-Report $cert $prof "failed" $fp $na "unknown profile '$prof'"
             }
         }

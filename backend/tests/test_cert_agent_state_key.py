@@ -83,6 +83,22 @@ def test_bash_state_key_separates_deployments_with_same_cert_and_profile(tmp_pat
     assert got["legacy_with_target"] == ""
 
 
+def _extract_ps_function(src: str, name: str) -> str:
+    """抓出 PowerShell 函式本體（大括號配對），讓斷言能限縮到單一函式。"""
+    i = src.index(f"function {name} ")
+    depth, j, started = 0, i, False
+    while j < len(src):
+        if src[j] == "{":
+            depth += 1
+            started = True
+        elif src[j] == "}":
+            depth -= 1
+            if started and depth == 0:
+                return src[i:j + 1]
+        j += 1
+    raise AssertionError(f"{name} 的大括號沒有配對")
+
+
 def test_windows_agent_keys_state_by_target():
     """PowerShell 版沒有本機可執行的環境，至少守住「目標有被算進狀態鍵」這件事。
 
@@ -105,11 +121,16 @@ def test_windows_agent_reads_the_binding_not_the_probe():
     """
     src = AGENT_PS1.read_text()
     assert "function Get-HttpSysCertificate" in src
-    # 判斷是否已綁好的 $old 要來自 http.sys 查詢，不是來自探測
-    assert re.search(r"\$old = Get-HttpSysCertificate -Parts \$parts", src)
-    assert not re.search(r"\$old = Get-ServedThumbprint", src), "不可再用探測結果決定是否已綁好"
+
+    # 只針對 IIS 那支函式斷言。WinRM 與 RDP 用探測是**對的**：WinRM 每個位址/埠只有一個
+    # 接聽器、RDP 只有一組憑證，探測回來的就是要換掉的那個，沒有「被別的繫結回應」的問題。
+    # IIS 的 SNI 繫結才有那個陷阱，所以禁令要限縮在這裡，而不是全檔一律禁止。
+    iis = _extract_ps_function(src, "Invoke-DeployIis")
+    assert re.search(r"\$old = Get-HttpSysCertificate -Parts \$parts", iis)
+    assert not re.search(r"\$old = Get-ServedThumbprint", iis), \
+        "IIS 不可再用探測結果決定是否已綁好（SNI 繫結會被萬用繫結回應）"
     # 探測仍要留著，但只用於「換完之後真的送出了嗎」
-    assert re.search(r"\$now = Get-ServedThumbprint", src)
+    assert re.search(r"\$now = Get-ServedThumbprint", iis)
     # 比對的是 40 位十六進位指紋值,不是會被在地化的 netsh 標籤
     assert "[0-9a-fA-F]{40}" in src
 

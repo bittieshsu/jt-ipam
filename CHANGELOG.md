@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.132] — 2026-08-02
+
+### Added
+- **Certificate distribution for WinRM, Remote Desktop and LDAPS.** WinRM matters here because jt-ipam is itself a WinRM client — the Windows DNS and DHCP integrations talk over 5986 — so a proper certificate on those hosts is what lets TLS verification be turned on at the jt-ipam end instead of left off. Both were verified on a real Windows host, each confirmed from outside with `openssl s_client` rather than by trusting the agent's own log.
+  - Remote Desktop keeps its thumbprint in WMI rather than http.sys, so that profile writes there and then confirms over TLS. A failed probe does not by itself trigger a rollback: the setting is read back first, because Remote Desktop simply being switched off is not the same as the change having failed.
+  - LDAPS reads from the service store `NTDS\My`, not `LocalMachine\My` — a certificate placed in the usual store does nothing for it. The `store` profile now takes a target store, and after writing to an NTDS store it asks the domain controller to reload via the rootDSE `renewServerCertificate` operation, since otherwise it keeps serving the old certificate until it rotates on its own. **This path is not verified on real hardware** (it needs a domain controller); IIS, WinRM and Remote Desktop are.
+  - When WinRM refuses a certificate the agent now says why — the certificate's CN/SAN must include the host's own name and carry the Server Authentication EKU. The raw `WSManFault` gives no hint of that.
+
+- **UDP port probing**, reported in three states rather than two. UDP has no handshake, so silence proves nothing — the port may be open but not replying, filtered, or the packet may have been lost. Calling that "open" would be quietly wrong, so it is its own state and the operator judges. "Closed" means an ICMP port unreachable came back, which a connected UDP socket surfaces without needing raw sockets. Ports 53 and 123 get a real DNS query and NTP client packet, so a protocol reply — decoded to `DNS NOERROR`, `NTP stratum 3` and so on — is what makes them definitively open.
+
+### Fixed
+- **`upgrade` never installed OS packages, so existing deployments got new features without the binaries they need.** The ping and traceroute tools added in 0.5.131 were only pulled in on a fresh install. Both paths now run the same check, which installs only what is missing and never fails the run.
+- Version information (admin) now lists optional dependencies and whether they are present, so a missing package is visible there rather than surfacing as a tool that silently does nothing.
+- Output from external commands is trimmed before it reaches a report field: a localized `WSManFault` plus a PowerShell error record ran to several hundred characters and buried the actual message.
+
 ## [0.5.131] — 2026-08-02
 
 ### Added

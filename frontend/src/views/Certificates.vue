@@ -126,7 +126,7 @@ const PROFILE_OPTIONS_LINUX = [
   "pve", "pmg", "pbs", "pdm", "zimbra",
   "files",
 ];
-const PROFILE_OPTIONS_WINDOWS = ["iis", "store", "files"];
+const PROFILE_OPTIONS_WINDOWS = ["iis", "winrm", "rdp", "store", "files"];
 const PROFILE_OPTIONS = computed(() => isWin.value ? PROFILE_OPTIONS_WINDOWS : PROFILE_OPTIONS_LINUX);
 // IIS 繫結：位址:埠（位址是 IP → 非 SNI；是主機名稱 → SNI）
 const genWinBinding = ref("0.0.0.0:443");
@@ -166,7 +166,15 @@ function profileFiles(profile: string, cert: string): { kind: string; path: stri
         { kind: "匯入憑證存放區", path: "LocalMachine\\My" },
         { kind: "換上 HTTPS 繫結的憑證", path: genWinBinding.value },
       ];
-      case "store": return [{ kind: "只匯入憑證存放區（不動繫結）", path: "LocalMachine\\My" }];
+      case "winrm": return [
+        { kind: "匯入憑證存放區", path: "LocalMachine\\My" },
+        { kind: "換上 WinRM HTTPS 接聽器憑證", path: "連接埠 5986" },
+      ];
+      case "rdp": return [
+        { kind: "匯入憑證存放區", path: "LocalMachine\\My" },
+        { kind: "換上遠端桌面憑證", path: "連接埠 3389" },
+      ];
+      case "store": return [{ kind: "只匯入憑證存放區（可指定，LDAPS 用 NTDS\\My）", path: "LocalMachine\\My" }];
       case "files": return [{ kind: "寫檔（路徑在下方「進階」自訂）", path: "C:\\...\\site.pem / site.key" }];
       default: return [];
     }

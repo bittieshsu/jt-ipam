@@ -5,9 +5,9 @@
     </n-divider>
     <div class="nd-note">{{ t("netdiag.section_note") }}</div>
 
-    <n-grid :cols="1" y-gap="14">
+    <div class="nd-grid">
       <!-- Ping -->
-      <n-gi>
+      <div class="nd-wide">
         <n-card size="small">
           <template #header>
             <CardTitle :icon="LiveIcon" :text="t('netdiag.ping')">
@@ -38,10 +38,10 @@
           <n-data-table v-if="ping.rows.length" size="small" :columns="pingCols" :data="ping.rows"
                         :bordered="true" style="margin-top:8px" />
         </n-card>
-      </n-gi>
+      </div>
 
       <!-- 路徑追蹤 -->
-      <n-gi>
+      <div class="nd-wide">
         <n-card size="small">
           <template #header>
             <CardTitle :icon="TopologyIcon" :text="t('netdiag.trace')">
@@ -71,10 +71,10 @@
           <n-data-table v-if="trace.res?.hops.length" size="small" :columns="hopCols"
                         :data="trace.res.hops" :bordered="true" style="margin-top:8px" />
         </n-card>
-      </n-gi>
+      </div>
 
       <!-- TCP 埠 -->
-      <n-gi>
+      <div>
         <n-card size="small">
           <template #header><CardTitle :icon="LinkIcon" :text="t('netdiag.tcp')" /></template>
           <n-input v-model:value="tcp.targets" type="textarea" :rows="2"
@@ -94,8 +94,32 @@
           <n-data-table v-if="tcp.rows.length" size="small" :columns="tcpCols" :data="tcp.rows"
                         :bordered="true" style="margin-top:8px" />
         </n-card>
-      </n-gi>
-    </n-grid>
+      </div>
+      <!-- UDP 埠 -->
+      <div>
+        <n-card size="small">
+          <template #header><CardTitle :icon="LinkIcon" :text="t('netdiag.udp')" /></template>
+          <n-input v-model:value="udp.targets" type="textarea" :rows="2"
+                   :placeholder="t('netdiag.targets_ph')" />
+          <n-space align="center" :size="14" style="margin-top:10px" :wrap="true">
+            <span class="nd-lbl">{{ t("netdiag.ports") }}
+              <n-input v-model:value="udp.ports" size="small" style="width:180px" placeholder="53, 123, 161" />
+            </span>
+            <span class="nd-lbl">{{ t("netdiag.timeout") }}
+              <n-input-number v-model:value="udp.timeout" :min="1" :max="10" size="small" style="width:92px" />
+            </span>
+            <n-button type="primary" :loading="udp.busy" @click="runUdp">
+              <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("netdiag.run") }}
+            </n-button>
+          </n-space>
+          <n-alert type="warning" :bordered="false" :show-icon="false" class="nd-udp-note">
+            {{ t("netdiag.udp_note") }}
+          </n-alert>
+          <n-data-table v-if="udp.rows.length" size="small" :columns="udpCols" :data="udp.rows"
+                        :bordered="true" style="margin-top:8px" />
+        </n-card>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -103,7 +127,7 @@
 import { computed, h, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NButton, NCard, NDataTable, NDivider, NGi, NGrid, NIcon, NInput, NInputNumber,
+  NAlert, NButton, NCard, NDataTable, NDivider, NIcon, NInput, NInputNumber,
   NSpace, NTag, useMessage,
 } from "naive-ui";
 import { LinkIcon, SearchIcon, TopologyIcon } from "@/icons";
@@ -123,12 +147,17 @@ interface PingRow {
 interface Hop { hop: number; host: string | null; rtt_ms: number | null; note: string | null }
 interface TraceRes { target: string; tool: string; path_mtu: number | null; truncated: boolean; hops: Hop[] }
 interface TcpRow { target: string; port: number; open: boolean; latency_ms: number | null; error: string | null }
+interface UdpRow {
+  target: string; port: number; state: "open" | "closed" | "no_reply";
+  probe: string; latency_ms: number | null; reply_bytes: number | null; detail: string | null;
+}
 
 const caps = ref<Caps | null>(null);
 const ping = reactive({ targets: "", count: 3, timeout: 2, concurrency: 8, busy: false, rows: [] as PingRow[] });
 // 預設 15：內網目標會提早結束；對不回應的網際網路目標，躍點數直接決定等待時間
 const trace = reactive({ target: "", maxHops: 15, busy: false, res: null as TraceRes | null });
 const tcp = reactive({ targets: "", ports: "443, 22", timeout: 2, busy: false, rows: [] as TcpRow[] });
+const udp = reactive({ targets: "", ports: "53, 123", timeout: 3, busy: false, rows: [] as UdpRow[] });
 
 const pingSummary = computed(() => {
   const up = ping.rows.filter((r) => r.alive).length;
@@ -174,6 +203,36 @@ const tcpCols = computed(() => [
   { title: t("netdiag.note"), key: "error", render: (r: TcpRow) => r.error || "" },
 ]);
 
+const UDP_COLOR: Record<string, string> = { open: "#18a058", closed: "#d03050", no_reply: "#9aa0a6" };
+const udpCols = computed(() => [
+  { title: t("netdiag.target"), key: "target", width: 170 },
+  { title: t("netdiag.port"), key: "port", width: 80 },
+  {
+    title: t("netdiag.state"), key: "state", width: 150,
+    render: (r: UdpRow) => h("span", null, [
+      h("span", { style: `display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${UDP_COLOR[r.state]}` }),
+      t(`netdiag.udp_${r.state}`),
+    ]),
+  },
+  { title: t("netdiag.probe"), key: "probe", width: 90 },
+  { title: t("netdiag.latency"), key: "latency_ms", width: 110,
+    render: (r: UdpRow) => (r.latency_ms === null ? "—" : `${r.latency_ms} ms`) },
+  { title: t("netdiag.note"), key: "detail", render: (r: UdpRow) => r.detail || "" },
+]);
+
+async function runUdp() {
+  if (!udp.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
+  const ports = udp.ports.split(/[\s,;]+/).filter(Boolean).map(Number).filter((x) => x >= 1 && x <= 65535);
+  if (!ports.length) { msg.error(t("netdiag.need_port")); return; }
+  udp.busy = true;
+  try {
+    const { data } = await apiClient.post("/api/v1/tools/net/udp", {
+      targets: udp.targets, ports, timeout: udp.timeout,
+    });
+    udp.rows = data.results;
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { udp.busy = false; }
+}
+
 async function runPing() {
   if (!ping.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
   ping.busy = true;
@@ -218,8 +277,22 @@ onMounted(async () => {
 
 <style scoped>
 .nd-div { font-size: 13px; font-weight: 600; }
+/* 與上方計算工具用同一組格線參數（2 欄、12px、820px 收合），整頁節奏才一致 */
+.nd-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+/* 輸入與結果表都寬的（ping、路徑追蹤）佔滿整列，硬塞成半欄反而更擠 */
+.nd-wide { grid-column: 1 / -1; }
+@media (max-width: 820px) {
+  .nd-grid { grid-template-columns: 1fr; }
+  .nd-wide { grid-column: auto; }
+}
 .nd-note { font-size: 12.5px; line-height: 1.7; color: var(--n-text-color-disabled); margin-bottom: 14px; }
 .nd-hint { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--n-text-color-disabled); }
 .nd-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.nd-udp-note { margin-top: 10px; font-size: 12px; line-height: 1.7; }
 .nd-sum { margin-top: 10px; font-size: 13px; font-weight: 600; }
 </style>

@@ -2372,7 +2372,12 @@
     "host_os": "OS",
     "host_kernel": "Kernel",
     "package": "Package",
-    "installed": "Version"
+    "installed": "Version",
+    "section_optional": "Optional dependencies",
+    "section_optional_hint": "Absence does not affect the service, only the feature that uses it",
+    "optional_present": "installed",
+    "optional_absent": "missing",
+    "optional_missing": "Missing {pkgs}: the matching tools show as unavailable. Installing them is enough (re-running jt-ipam.sh upgrade also pulls them in)."
   },
   "dns_records": {
     "title": "DNS Records",
@@ -2917,6 +2922,12 @@
     "path_mtu": "path MTU {n}",
     "trace_hint": "Prefers tracepath (no privileges needed, and it reports path MTU — useful for diagnosing MTU black holes). Hops that do not answer are listed rather than omitted.",
     "tcp_hint": "More reliable than ping for hosts that block ICMP — it tests the service port you actually use.",
-    "truncated": "timed out — showing hops discovered so far"
+    "truncated": "timed out — showing hops discovered so far",
+    "udp": "UDP port probe",
+    "probe": "Probe",
+    "udp_open": "Open",
+    "udp_closed": "Closed",
+    "udp_no_reply": "Indeterminate",
+    "udp_note": "UDP has no handshake, so silence proves nothing — the port may be open but not replying, filtered by a firewall, or the packet may have been lost. That is reported as its own state rather than as open. \"Closed\" means an ICMP port unreachable came back. Ports 53 (DNS) and 123 (NTP) get a real protocol packet, so a protocol reply is what makes them definitively open."
   }
 }

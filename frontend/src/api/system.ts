@@ -197,6 +197,8 @@ export interface VersionInfo {
     nginx: string | null;
     node: string | null;
     postgres: string | null;
+    /** 選用的作業系統相依：功能存在但主機不一定裝了對應執行檔 */
+    optional_tools?: Record<string, { present: boolean; package: string; used_by: string }>;
   };
 }
 
