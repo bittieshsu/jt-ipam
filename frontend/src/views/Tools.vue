@@ -40,6 +40,7 @@ import {
 } from "naive-ui";
 import { apiClient } from "@/api/client";
 import { ToolsIcon, AddressesIcon, SubnetsIcon, GridIcon, DevicesIcon, ListIcon, SearchIcon, DnsIcon, PowerIcon } from "@/icons";
+import NetDiagTools from "@/components/NetDiagTools.vue";
 import { fmtDateTime } from "@/utils/datetime";
 
 const msg = useMessage();
@@ -287,6 +288,8 @@ async function runEui64() {
             </div>
           </n-card>
         </div>
+        <!-- 上面是純計算；以下會實際從伺服器送封包，所以獨立成一區並加分隔線 -->
+        <NetDiagTools />
       </n-tab-pane>
 
       <!-- ═══════════ 子網路 / CIDR ═══════════ -->

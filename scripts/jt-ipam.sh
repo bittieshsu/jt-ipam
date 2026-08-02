@@ -308,6 +308,13 @@ cmd_install() {
     #    → `sudo: command not found`（客戶回報手動補 PG 後卡住的第二關多半是這個）。
     apt-get install -y -qq ca-certificates curl gnupg sudo
 
+    # Connectivity diagnostics in the web UI (Tools -> IP addresses) shell out to these.
+    # Both are tiny and iputils-ping is usually present already. Installed without -y failing
+    # the run: if a distribution names them differently the UI detects their absence at
+    # runtime and greys the affected tool out rather than erroring.
+    apt-get install -y -qq iputils-ping iputils-tracepath 2>/dev/null || \
+        warn "could not install iputils-ping / iputils-tracepath; ping and traceroute in the web UI will be unavailable"
+
     # 套件是否可安裝：用命令替換、**不要** `apt-cache madison X | grep -q .`。
     # 在 `set -o pipefail` 下，madison 對「有多個候選版本」的套件（如 Debian 13 的 postgresql-17
     # 同時有 17.10 安全更新與 17.9）會輸出多行，`grep -q` 命中第一行就關閉管線 → 上游 apt-cache 寫

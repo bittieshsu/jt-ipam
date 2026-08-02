@@ -279,12 +279,48 @@ export async function saveMigrationConfig(p: Record<string, unknown>): Promise<M
 
 // ─────────────────── RIPE / TWNIC import ───────────────────
 
-export async function ripePreview(payload: { handle?: string; cidr?: string }): Promise<unknown> {
-  const { data } = await apiClient.post("/api/v1/import/ripe/preview", payload);
+// ── RIPE / TWNIC 網段匯入 ──
+// 線上查詢走 RDAP（RIPE 直連；TWNIC 由 APNIC 轉到 twnic.rdap.apnic.net —— TWNIC 是
+// APNIC 底下的 NIR）。RDAP 只查得到「IP/CIDR → 網段」，查不到 handle，所以另有一條
+// 「貼上 whois 文字」給 handle 之類的查詢用。
+export type RdapSource = "ripe" | "twnic";
+
+export interface ImportPlan {
+  cidr: string;
+  description: string | null;
+  country: string | null;
+  netname: string | null;
+}
+export interface RdapNetworkInfo {
+  handle: string | null;
+  name: string | null;
+  country: string | null;
+  type: string | null;
+  status: string[];
+  remarks: string[];
+  entities: { handle: string | null; roles: string[]; name: string | null }[];
+  source_url: string | null;
+}
+export interface ImportPreview { count: number; plans: ImportPlan[]; network?: RdapNetworkInfo }
+export interface ImportResult {
+  inserted: number; skipped: number; total_plans: number;
+  errored: { cidr: string; error: string }[]; source_url?: string;
+}
+
+export async function rdapPreview(payload: { source: RdapSource; query: string }): Promise<ImportPreview> {
+  const { data } = await apiClient.post("/api/v1/import/rdap/preview", payload);
   return data;
 }
-export async function ripeCommit(payload: { handle?: string; cidr?: string; section_id: string }): Promise<unknown> {
-  const { data } = await apiClient.post("/api/v1/import/ripe/commit", payload);
+export async function rdapCommit(payload: { source: RdapSource; query: string; section_id: string }): Promise<ImportResult> {
+  const { data } = await apiClient.post("/api/v1/import/rdap/commit", payload);
+  return data;
+}
+export async function whoisPreview(payload: { text: string }): Promise<ImportPreview> {
+  const { data } = await apiClient.post("/api/v1/import/whois/preview", payload);
+  return data;
+}
+export async function whoisCommit(payload: { text: string; section_id: string }): Promise<ImportResult> {
+  const { data } = await apiClient.post("/api/v1/import/whois/commit", payload);
   return data;
 }
 

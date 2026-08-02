@@ -91,17 +91,32 @@ function renderLocation(o: Record<string, any>) {
     cell(COLLBL.last_seen_at, pretty("last_seen_at", o.last_seen_at)),
   ]);
 }
+function renderMac(o: Record<string, any>) {
+  // 本地管理位址（虛擬機／容器／手機 MAC 隨機化）沒有 OUI 登記，查不到廠商是正常的。
+  // 標出來才看得懂：同一 IP 上「真實 MAC + 隨機 MAC」多半是同一台裝置，不是兩台在搶。
+  const tag = o.local
+    ? h("span", { class: "mac-tag mac-tag--local" }, t("anomaly.mac_local"))
+    : (o.vendor ? h("span", { class: "mac-tag" }, String(o.vendor)) : null);
+  return h("div", { style: "display:flex;align-items:baseline;gap:8px;font-size:12.5px" }, [
+    h("span", { style: "font-family:var(--jt-mono,monospace)" }, o.mac ?? "—"),
+    tag,
+    h("span", { style: "opacity:.55;margin-left:auto;white-space:nowrap" },
+      pretty("last_seen_at", o.last_seen_at)),
+  ]);
+}
 function renderVal(k: string, v: any) {
   if (v == null || v === "") return "—";
+  if (k === "macs" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:3px" }, v.map(renderMac));
+  }
   if (k === "ips" && Array.isArray(v)) {
     if (!v.length) return h("span", { style: "opacity:.5" }, "—");
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
       v.map((it: any) => h("div", null, it.hostname ? `${it.ip}（${it.hostname}）` : it.ip)));
   }
   if (Array.isArray(v)) {
-    const loc = v.length > 0 && v[0] && typeof v[0] === "object" && ("port" in v[0] || "last_seen_at" in v[0]);
     return h("div", { style: "display:flex;flex-direction:column;gap:3px" },
-      v.map((it: any) => loc
+      v.map((it: any) => k === "locations"
         ? renderLocation(it)
         : h("div", { style: "font-size:12.5px" }, it && typeof it === "object" ? objLine(it) : String(it))));
   }
@@ -171,6 +186,10 @@ async function run() {
       <n-tabs v-else v-model:value="activeTab" type="line" animated>
         <n-tab-pane v-for="c in CATEGORIES" :key="c.key" :name="c.key"
                     :tab="`${c.label()} (${catRows(c.key).length})`">
+          <!-- 每個類別先講清楚「這是什麼、為什麼會出現」，否則一長串 IP 沒人看得懂 -->
+          <n-alert type="default" :bordered="false" :show-icon="false" class="cat-note">
+            {{ t(`anomaly.explain_${c.key}`) }}
+          </n-alert>
           <template v-if="catRows(c.key).length">
             <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
               <ColumnPicker :all="pickerItems(c.key)" :visible="prefs[c.key].visibleKeys.value"
@@ -185,3 +204,14 @@ async function run() {
     </template>
   </n-card>
 </template>
+
+<style scoped>
+.cat-note { margin: 4px 0 14px; font-size: 12.5px; line-height: 1.7; }
+.mac-tag {
+  font-size: 11px; padding: 0 6px; border-radius: 3px; white-space: nowrap;
+  background: var(--n-color-embedded, rgba(128, 128, 128, .12));
+  color: var(--n-text-color-disabled);
+}
+/* 本地管理／隨機位址：標成警示色，因為它是「多半不是真衝突」的主要線索 */
+.mac-tag--local { background: rgba(240, 160, 32, .16); color: #b26a00; }
+</style>

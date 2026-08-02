@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.131] — 2026-08-02
+
+### Added
+- **TWNIC import now works** — it had been a "planned" placeholder. Both registries are now queried live over RDAP: RIPE directly, TWNIC via APNIC, which redirects Taiwanese networks to TWNIC's own database (APNIC is authoritative for Taiwan; TWNIC is its national registry). The preview shows the registration — netname, country, address range, allocation type, contacts, remarks and the URL the data came from — before anything is written.
+  - RDAP cannot find a network from a handle: APNIC returns 404 for entity lookups and RIPE's response carries no networks. The Handle field promised something the protocol cannot deliver, so it is gone; searching by handle or organisation is now done by pasting whois output, which the existing parser handles.
+  - **The RIPE tab was broken too**: the page posted JSON while the endpoint expected a file upload, so it answered 422. Neither field had ever been connected to anything.
+- **Connectivity diagnostics in Tools → IP addresses**: ping (many targets at once, with a concurrency setting), traceroute and a TCP port check. Targets accept IPs, hostnames or a CIDR that expands to its hosts.
+  - Nothing goes through a shell — commands are executed with an argument list, and targets are validated as addresses or hostnames as a second line of defence. Target count, concurrency, per-target timeout and an overall deadline are all capped, and each run is rate-limited per user and written to the audit log, so the server cannot be turned into a scanner.
+  - Traceroute prefers `tracepath`: it needs no privileges and reports path MTU, which `traceroute` does not. Hops that do not answer are listed rather than omitted — hiding them makes a path look like it goes 1→3→5 with nothing in between. If it runs out of time the hops found so far are returned rather than discarded.
+  - The TCP check is often more useful than ping: a host that drops ICMP still answers on the port you actually care about.
+
+### Fixed
+- **The IP conflict list showed no MAC addresses at all.** The renderer decided an array was location data if its entries had a `last_seen_at` field — which the MAC entries also have — so it drew "device / port" columns for objects that have neither, leaving a table of dashes and omitting the one thing the report exists to show.
+- **Conflicts are now readable.** Each MAC carries its OUI vendor, and addresses with the locally-administered bit set are labelled as such. On a real deployment 64 of 133 conflicting MACs are locally administered — virtual machines, containers and phone MAC randomisation — so an IP showing a real MAC alongside a randomised one is usually one device that changed address, not two fighting over an IP. Every anomaly category now also explains what it means and why entries appear. (The vendor lookup was itself wrong at first: `vendor_map()` is keyed by the normalised 6-digit prefix, not the full MAC, so every vendor came back empty — silently, with no error.)
+- `detect_ip_conflicts` returned the raw `IPv4Address` and MAC objects asyncpg produces for INET/MACADDR columns instead of strings (known pitfall #10).
+
 ## [0.5.130] — 2026-08-01
 
 ### Changed

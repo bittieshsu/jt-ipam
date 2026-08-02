@@ -24,6 +24,7 @@ from app.models.address import IPAddress
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice
 from app.models.user import User
 from app.services.notification import deliver_event, push_notification
+from app.services.oui import mac_prefix, vendor_map
 
 
 @dataclass
@@ -46,6 +47,21 @@ class AnomalyReport:
         }
 
 
+def _is_locally_administered(mac: str) -> bool:
+    """第一個位元組的 bit 1 為 1 ＝ 本地管理位址（不是廠商燒錄的全球唯一位址）。
+
+    為什麼要標出來：虛擬機、容器、以及手機的 MAC 隨機化隱私功能都會用這類位址，
+    它們沒有 OUI 登記所以查不到廠商。同一個 IP 上出現這種位址，多半是同一台裝置換了
+    位址（重新連線、遷移、故障接手），而不是兩台機器搶同一個 IP —— 不標示的話，
+    這些會混在真正的衝突裡讓整張表看起來像雜訊。
+    """
+    try:
+        first = int(mac.replace(":", "").replace("-", "")[:2], 16)
+    except (ValueError, IndexError):
+        return False
+    return bool(first & 0b10)
+
+
 async def detect_ip_conflicts(
     session: AsyncSession, *, window: timedelta = timedelta(hours=1),
 ) -> list[dict[str, Any]]:
@@ -58,18 +74,32 @@ async def detect_ip_conflicts(
             .group_by(ARPEntry.ip, ARPEntry.mac)
         )
     ).all()
+    # asyncpg 把 INET/MACADDR 回成物件不是字串（已知地雷 #10）——
+    # 在這裡就轉成字串，否則呼叫端拿去比對或塞進別的查詢會失敗。
     by_ip: dict[str, list[tuple[str, datetime]]] = defaultdict(list)
     for ip, mac, _cnt, last in rows:
-        by_ip[ip].append((mac, last))
+        by_ip[str(ip)].append((str(mac), last))
+
+    conflicts = {ip: pairs for ip, pairs in by_ip.items() if len({m for m, _ in pairs}) >= 2}
+
+    # 帶上 OUI 廠商：兩個裸 MAC 位址擺在一起看不出是誰在打架，
+    # 「Dell vs Apple」才讓人知道該去找哪一台。一次批次查完，不要逐筆查。
+    vendors = await vendor_map(
+        session, [m for pairs in conflicts.values() for m, _ in pairs],
+    )
 
     out: list[dict[str, Any]] = []
-    for ip, pairs in by_ip.items():
-        if len({m for m, _ in pairs}) < 2:
-            continue
+    for ip, pairs in conflicts.items():
         out.append({
             "ip": ip,
             "macs": [
-                {"mac": m, "last_seen_at": dt.isoformat()}
+                {
+                    "mac": m,
+                    # vendor_map 的 key 是正規化後的 6 碼前綴，不是完整 MAC
+                    "vendor": vendors.get(mac_prefix(m) or ""),
+                    "local": _is_locally_administered(m),
+                    "last_seen_at": dt.isoformat(),
+                }
                 for m, dt in sorted(pairs, key=lambda x: x[1], reverse=True)
             ],
         })
