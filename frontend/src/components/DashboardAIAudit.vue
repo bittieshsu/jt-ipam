@@ -62,12 +62,14 @@ onMounted(async () => {
 <style scoped>
 .dash-ai { width: 100%; }
 .ai-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+/* 跟儀表板其他 KPI 卡片一樣有框線 —— 只有底色的話，跟卡片底色相近時等於沒有邊界 */
 .ai-cell {
-  padding: 12px; border-radius: 6px; cursor: pointer; text-align: center;
-  background: var(--n-color-embedded, rgba(128, 128, 128, .06));
-  transition: opacity .12s ease;
+  padding: 12px; border-radius: 8px; cursor: pointer; text-align: center;
+  background: var(--n-color, #fff);
+  border: 1px solid var(--n-border-color, rgba(0, 0, 0, .09));
+  transition: transform .12s ease, box-shadow .12s ease;
 }
-.ai-cell:hover { opacity: .8; }
+.ai-cell:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
 .ai-n { font-size: 22px; font-weight: 700; line-height: 1.2; }
 .ai-l { font-size: 12px; color: var(--n-text-color-disabled); margin-top: 2px; }
 .ai-high .ai-n { color: #d03050; }

@@ -1157,7 +1157,10 @@
     "err_scan_agent_required": "已啟用掃描，請選擇掃描方式：本機直接掃 或 指定掃描代理（Docker／跨網段請選代理）",
     "ai_audit": "AI 巡檢",
     "ai_audit_enable": "納入 AI 巡檢",
-    "ai_audit_hint": "勾選後，這個子網路的位址會被納入排程巡檢送給語言模型分析。取消勾選就完全不送 —— 敏感網段可以在這裡排除。"
+    "ai_audit_hint": "勾選後，這個子網路的位址會被納入排程巡檢送給語言模型分析。取消勾選就完全不送 —— 敏感網段可以在這裡排除。",
+    "checks": "檢查",
+    "anomaly_enable": "納入異常偵測",
+    "anomaly_hint": "取消勾選後，這個子網路的位址不會出現在異常偵測的任何清單裡（未授權 IP、失聯 IP…）。訪客或實驗網段建議關掉。"
   },
   "csv_import": {
     "title": "匯入 IP 清單 (CSV)",
@@ -1462,7 +1465,8 @@
     "subtitle": "IP / 子網路 / MAC / DNS / 電力的計算與查詢工具，全部也可在 AI 助理中使用",
     "oui_search_ph": "依首碼(22 / 00:11)或廠商名搜尋",
     "oui_search_count": "找到 {n} 筆",
-    "oui_managed_in_admin": "（資料庫維護在管理區）"
+    "oui_managed_in_admin": "（資料庫維護在管理區）",
+    "cat_netdiag": "連線診斷"
   },
   "dns_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -1690,7 +1694,11 @@
     "explain_unauthorized_ips": "在網路上實際偵測到、但 IPAM 裡沒有登記的 IP。可能是未經申請就自行設定的裝置，也可能只是還沒補登記。",
     "rogue_dhcp": "非法 DHCP 伺服器",
     "rogue_dhcp_warn": "以下主機在網段上回應了 DHCP 請求，但沒有被標記為 DHCP 伺服器。這通常代表有人接了不該接的設備（家用路由器、誤開 DHCP 的虛擬機），會把錯誤的位址與閘道發給其他機器。確認無誤的話，請到該 IP 的詳細資料把它標記為 DHCP 伺服器。",
-    "explain_rogue_dhcp": "在網段上回應 DHCP、但沒有被標記為 DHCP 伺服器的主機。這代表有東西在發 IP，而它不在你的規劃裡 —— 常見來源是有人接了家用路由器、或某台虛擬機忘了關 DHCP。需要掃描代理開啟「DHCP 伺服器偵測」探測才會有資料。"
+    "explain_rogue_dhcp": "在網段上回應 DHCP、但沒有被標記為 DHCP 伺服器的主機。這代表有東西在發 IP，而它不在你的規劃裡 —— 常見來源是有人接了家用路由器、或某台虛擬機忘了關 DHCP。需要掃描代理開啟「DHCP 伺服器偵測」探測才會有資料。",
+    "scope_btn": "偵測範圍",
+    "scope_title": "要偵測哪些子網路",
+    "scope_none": "尚未選擇任何子網路",
+    "scope_hint": "只有列在這裡的子網路會被偵測。訪客、實驗、外包商網段本來就會一直有異常，留著只會把真正該處理的埋掉。這裡跟子網路編輯頁的「納入異常偵測」是同一個設定。"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2892,7 +2900,11 @@
     "dash_ph": "搜尋 IP 或主機名稱",
     "dash_hint": "最多可選 {n} 個 IP。灰色代表該日無資料（該 IP 沒有上線偵測來源），不代表正常。",
     "dash_over": "超過上限 {n} 個，請移除一些",
-    "dash_ip_gone": "（已無法存取的 IP）"
+    "dash_ip_gone": "（已無法存取的 IP）",
+    "sort_by": "排序",
+    "sort_sla": "可用率",
+    "sort_asc": "遞增",
+    "sort_desc": "遞減"
   },
   "certOs": {
     "linux": "Linux",
@@ -2973,7 +2985,13 @@
     "tls_hint": "顯示對方實際送出的憑證。刻意不先驗證就取回 —— 憑證有問題（自簽、過期、名稱不符）正是最需要看到的時候；是否通過系統信任庫另外單獨標示，不會因為驗不過就什麼都不給。",
     "http_hint": "取狀態碼、轉址過程與關鍵標頭。預設不驗證 TLS，對方憑證有問題時仍拿得到結果（要看憑證請用上方的 TLS 憑證檢查）。",
     "rdns_hint": "整批查 PTR，用來找出網段裡哪些位址沒有反解 —— 逐台查太慢也看不出全貌。",
-    "rdns_summary": "有 PTR 的 {n} / {total}"
+    "rdns_summary": "有 PTR 的 {n} / {total}",
+    "icmp_howto_link": "怎麼修？",
+    "icmp_howto_title": "讓 ping 能送出封包",
+    "icmp_howto_why": "後端是以 systemd 服務執行，而該服務的沙箱設定（NoNewPrivileges）會讓 ping 指令自帶的 cap_net_raw 失效 —— 在終端機手動跑 ping 正常，在這裡卻送不出封包。這不代表目標不可達。二選一即可。",
+    "icmp_howto_a": "作法 A（建議）：放寬核心的 ICMP 群組範圍。這只允許送「ICMP echo」，不能自訂封包、也不能側錄流量 —— 比給整個後端 CAP_NET_RAW 小很多。",
+    "icmp_howto_b": "作法 B：直接給後端服務 CAP_NET_RAW。權限比較大（可自行組裝原始封包），只在 A 不可行時採用。",
+    "icmp_howto_note": "兩者都不需要重新安裝，改完 A 立即生效、改完 B 需重啟後端。TCP／UDP／TLS／HTTP 這幾項工具不受影響，本來就不需要特權。"
   },
   "ai_audit": {
     "title": "AI 巡檢",

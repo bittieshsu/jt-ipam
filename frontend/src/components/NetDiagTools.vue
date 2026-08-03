@@ -201,17 +201,36 @@
       </div>
     </div>
   </div>
+    <!-- ICMP 被服務沙箱擋住時的排除說明。給的是可以照做的指令，不是「請洽管理員」 -->
+    <n-modal v-model:show="icmpHelpShow" preset="card" style="max-width: 720px"
+             :title="t('netdiag.icmp_howto_title')">
+      <n-alert type="warning" :bordered="false" style="margin-bottom:12px">
+        {{ t("netdiag.icmp_howto_why") }}
+      </n-alert>
+      <p class="howto-p">{{ t("netdiag.icmp_howto_a") }}</p>
+      <pre class="howto-pre">sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+# 開機後保留：
+echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-jt-ipam-ping.conf</pre>
+      <p class="howto-p">{{ t("netdiag.icmp_howto_b") }}</p>
+      <pre class="howto-pre">sudo systemctl edit jt-ipam-backend
+# 貼上：
+[Service]
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart jt-ipam-backend</pre>
+      <p class="howto-note">{{ t("netdiag.icmp_howto_note") }}</p>
+    </n-modal>
 </template>
 
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NDivider,
+  NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NDivider, NModal,
   NIcon, NInput, NInputNumber, NSpace, NTag, useMessage,
 } from "naive-ui";
-import { DnsIcon, LinkIcon, LockIcon, SearchIcon, TopologyIcon } from "@/icons";
-import { Antenna as LiveIcon } from "@iconoir/vue";
+import { DnsIcon, LinkIcon, LockIcon, NetDiagIcon as LiveIcon, SearchIcon, TopologyIcon } from "@/icons";
 import CardTitle from "@/components/CardTitle.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
 
@@ -223,6 +242,7 @@ interface Caps { ping: boolean; tracepath: boolean; traceroute: boolean; tcp: bo
 interface PingRow {
   target: string; alive: boolean; sent: number; received: number;
   loss_pct: number | null; rtt_avg_ms: number | null; error: string | null;
+  error_code?: string | null;
 }
 interface Hop { hop: number; host: string | null; rtt_ms: number | null; note: string | null }
 interface TraceRes { target: string; tool: string; path_mtu: number | null; truncated: boolean; hops: Hop[] }
@@ -265,6 +285,9 @@ function dot(ok: boolean) {
   return h("span", { style: `display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${ok ? "#18a058" : "#d03050"}` });
 }
 
+// ICMP 被沙箱擋住時的「怎麼修」說明
+const icmpHelpShow = ref(false);
+
 const pingCols = computed(() => [
   { title: t("netdiag.target"), key: "target", width: 190 },
   {
@@ -275,7 +298,22 @@ const pingCols = computed(() => [
     render: (r: PingRow) => (r.loss_pct === null ? "—" : `${r.loss_pct}%`) },
   { title: t("netdiag.rtt_avg"), key: "rtt_avg_ms", width: 120,
     render: (r: PingRow) => (r.rtt_avg_ms === null ? "—" : `${r.rtt_avg_ms} ms`) },
-  { title: t("netdiag.note"), key: "error", render: (r: PingRow) => r.error || "" },
+  {
+    title: t("netdiag.note"), key: "error",
+    render: (r: PingRow) => {
+      if (!r.error) return "";
+      // 送不出封包時只講「壞了」沒有用 —— 旁邊放一個點得下去的「怎麼修」
+      if (r.error_code !== "icmp_blocked") return r.error;
+      return h("span", {}, [
+        r.error,
+        " ",
+        h(NButton, {
+          text: true, type: "primary", size: "tiny",
+          onClick: () => { icmpHelpShow.value = true; },
+        }, { default: () => t("netdiag.icmp_howto_link") }),
+      ]);
+    },
+  },
 ]);
 
 const hopCols = computed(() => [
@@ -440,6 +478,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.howto-p { margin: 10px 0 6px; font-size: 13px; line-height: 1.8; }
+.howto-pre {
+  margin: 0; padding: 10px 12px; font-size: 12px; line-height: 1.7;
+  background: var(--n-color-embedded, rgba(128, 128, 128, .08));
+  border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+}
+.howto-note { margin-top: 12px; font-size: 12px; color: var(--n-text-color-disabled); line-height: 1.8; }
 .nd-div { font-size: 13px; font-weight: 600; }
 /* 與上方計算工具用同一組格線參數（2 欄、12px、820px 收合），整頁節奏才一致 */
 .nd-grid { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -185,16 +186,34 @@ async def detect_mac_drifts(
     return out
 
 
+async def _anomaly_subnet_ids(session: AsyncSession) -> set[Any]:
+    """有開啟異常偵測的子網路 ID。"""
+    from app.models.subnet import Subnet
+    return {
+        r[0] for r in (await session.execute(
+            select(Subnet.id).where(Subnet.anomaly_enabled.is_(True))
+        )).all()
+    }
+
+
 async def detect_ghost_ips(
     session: AsyncSession, *, days: int = 30,
 ) -> list[dict[str, Any]]:
-    """IPAM 有的 IP，但 ARP 從未看過或上次看到 > days 天前。"""
+    """IPAM 有的 IP，但 ARP 從未看過或上次看到 > days 天前。
+
+    只看有開啟異常偵測的子網路 —— 訪客／實驗網段本來就常常一堆位址沒人在用，
+    報出來只會把真正該處理的埋掉。
+    """
     cutoff = datetime.now(UTC) - timedelta(days=days)
+    subnet_ids = await _anomaly_subnet_ids(session)
+    if not subnet_ids:
+        return []
     # 取所有有寫進 IPAM 但其實沒 last_seen_scanner / last_seen_librenms 的
     rows = (
         await session.execute(
             select(IPAddress)
             .where(
+                IPAddress.subnet_id.in_(subnet_ids),
                 (
                     (IPAddress.last_seen_scanner.is_(None))
                     | (IPAddress.last_seen_scanner < cutoff)
@@ -202,7 +221,7 @@ async def detect_ghost_ips(
                 & (
                     (IPAddress.last_seen_librenms.is_(None))
                     | (IPAddress.last_seen_librenms < cutoff)
-                )
+                ),
             )
             .limit(500)
         )
@@ -219,8 +238,46 @@ async def detect_ghost_ips(
     ]
 
 
+def _is_noise_address(ip: str) -> bool:
+    """這個位址天生就不該被當成「未授權裝置」。
+
+    最大宗是 **169.254.x.x**（DHCP 拿不到位址時自己指派的 link-local）—— 那是「這台
+    機器沒拿到 IP」的徵狀，不是有人偷接東西。實測一台正式站台的未授權清單 53 筆全是
+    這個，真正該看的東西整個被埋掉。
+
+    另外排除多點傳送／保留位址與網段的網路位址、廣播位址：它們不對應到任何一台機器。
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True          # 解析不出來的字串一律不報
+    return bool(
+        addr.is_link_local or addr.is_multicast or addr.is_loopback
+        or addr.is_unspecified or addr.is_reserved
+    )
+
+
+async def _anomaly_networks(session: AsyncSession) -> list[Any]:
+    """有開啟異常偵測的子網路（網段物件）。"""
+    from app.models.subnet import Subnet
+    rows = (await session.execute(
+        select(Subnet.cidr).where(Subnet.anomaly_enabled.is_(True))
+    )).all()
+    nets = []
+    for (cidr,) in rows:
+        try:
+            nets.append(ipaddress.ip_network(str(cidr), strict=False))
+        except ValueError:
+            continue
+    return nets
+
+
 async def detect_unauthorized_ips(session: AsyncSession) -> list[dict[str, Any]]:
-    """ARP 看到但 IPAM 沒紀錄的 IP。"""
+    """ARP 看到但 IPAM 沒紀錄的 IP。
+
+    只看**有開啟異常偵測的子網路**範圍內的位址。落在所有子網路之外的位址，本來就不是
+    這套 IPAM 在管的東西，報出來只會製造雜訊。
+    """
     arp_ips_rows = (
         await session.execute(
             select(ARPEntry.ip).group_by(ARPEntry.ip).limit(2000)
@@ -235,7 +292,24 @@ async def detect_unauthorized_ips(session: AsyncSession) -> list[dict[str, Any]]
     ).all()
     ipam_ips = {str(r[0]).split("/")[0] for r in ipam_ips_rows}
 
-    unauthorized = sorted(arp_ips - ipam_ips)
+    nets = await _anomaly_networks(session)
+
+    def _in_scope(ip: str) -> bool:
+        if _is_noise_address(ip):
+            return False
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        # 網段的網路位址／廣播位址不對應到機器（/31、/32 例外，那兩種沒有這個概念）
+        for net in nets:
+            if addr in net:
+                if net.prefixlen < 31 and addr in (net.network_address, net.broadcast_address):
+                    return False
+                return True
+        return False
+
+    unauthorized = sorted(ip for ip in (arp_ips - ipam_ips) if _in_scope(ip))
     return [{"ip": ip} for ip in unauthorized[:200]]
 
 

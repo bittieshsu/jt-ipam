@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.136] — 2026-08-03
+
+### Fixed
+- **The ping tool returned 500 on any machine where the unprivileged ICMP socket could be opened.** uvloop does not implement `loop.sock_sendto` / `sock_recv`, so that path raised `NotImplementedError` immediately. Machines where the socket could *not* be opened were fine, because they fall back to the external `ping` — meaning this only surfaced after following our own instructions to widen `net.ipv4.ping_group_range`. Fallbacks added; verified against localhost and the gateway.
+
+### Changed
+- **Anomaly detection can be limited to chosen subnets** (the "Scope" button on the Anomalies page, or "Include in anomaly detection" on the subnet edit page — both write the same field). Guest, lab and contractor segments are noisy by nature; excluding them stops the findings that matter from being buried.
+- **Unauthorised IPs are no longer flooded with 169.254.x.x.** Those are link-local addresses a machine assigns itself when DHCP fails — a symptom of "no address", not of someone plugging in a rogue device. On a production site all 53 entries were this. Multicast and reserved addresses, subnet network/broadcast addresses (which map to no machine), and anything outside every subnet are excluded too.
+- **AI review moved into the Admin area, right after Anomaly detection.** Both look for problems, but they are **deliberately not merged**: anomaly detection reports measured facts (ARP really did see two MACs), while AI review is a model's inference and can be wrong. One combined list would make it impossible to tell which conclusions can simply be trusted.
+- **When ping cannot send, there is now a "How to fix" link next to the error**, opening two options you can actually follow (widen `ping_group_range`, or grant the service `CAP_NET_RAW`) with the difference in privilege spelled out. Before it only said what was broken.
+- **Connectivity diagnostics moved to its own tab.** These tools really do send packets from the server, are rate-limited and audited — quite unlike the pure calculators above them on the same page.
+- **AI review: high and medium findings get a coloured bar down the left**, so the ones worth reading first are obvious. Low findings get none — a bar on every row is no emphasis at all. The counters are now bordered cards, matching the dashboard KPIs.
+- **AI review body text no longer wraps early.** It had a 78ch line cap, but a Chinese character is about two `ch`, so that worked out to 39 characters — a wide screen showed a narrow column with a large empty margin.
+- **Uptime tracking can be sorted** (in Edit tracking list): by IP, hostname or uptime, ascending or descending. Rows with no data always sort last — that is "unknown", not "0%".
+
 ## [0.5.135] — 2026-08-03
 
 ### Added

@@ -86,7 +86,7 @@
     <n-empty v-if="!loading && !rows.length" :description="t('ai_audit.none')" style="margin:28px 0" />
 
     <n-spin :show="loading">
-      <div v-for="f in rows" :key="f.id" class="fx">
+      <div v-for="f in rows" :key="f.id" class="fx" :class="`fx-${f.severity}`">
         <div class="fx-head">
           <n-tag :type="sevType(f.severity)" size="small" round :bordered="false">
             {{ t(`ai_audit.sev_${f.severity}`) }}
@@ -412,13 +412,16 @@ onBeforeUnmount(stopPolling);
 
 /* 嚴重度統計：跟儀表板那塊同一組數字、同一組顏色。點一下＝篩選 */
 .sev-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+/* 跟儀表板的 KPI 卡片一致：有框線才看得出這是四個獨立的數字 */
 .sev-cell {
-  padding: 10px; border-radius: 6px; cursor: pointer; text-align: center;
-  background: var(--n-color-embedded, rgba(128, 128, 128, .06));
-  border: 1px solid transparent; transition: border-color .12s ease, opacity .12s ease;
+  padding: 12px; border-radius: 8px; cursor: pointer; text-align: center;
+  background: var(--n-color, #fff);
+  border: 1px solid var(--n-border-color, rgba(0, 0, 0, .09));
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
 }
-.sev-cell:hover { opacity: .85; }
-.sev-cell.on { border-color: currentColor; }
+.sev-cell:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
+/* 被選為篩選條件時邊框轉成該嚴重度的顏色，看得出目前在篩什麼 */
+.sev-cell.on { border-color: currentColor; box-shadow: 0 0 0 1px currentColor inset; }
 .sev-n { font-size: 20px; font-weight: 700; line-height: 1.2; }
 .sev-l { font-size: 12px; color: var(--n-text-color-disabled); margin-top: 2px; }
 .sev-high { color: #d03050; }
@@ -440,21 +443,31 @@ onBeforeUnmount(stopPolling);
 }
 .run-hint { margin-top: 6px; font-size: 12px; color: var(--n-text-color-disabled); }
 .run-bg { margin-top: 6px; font-size: 12px; color: var(--n-color-target, #36ad6a); }
-.fx { padding: 16px 0 18px; border-bottom: 1px solid var(--n-border-color); }
+.fx { position: relative; padding: 16px 0 18px; border-bottom: 1px solid var(--n-border-color); }
 .fx:last-child { border-bottom: none; }
+/* 高／中在左邊帶一條色條，一眼就分得出哪幾筆要先看。
+   低不加 —— 每一列都有色條等於沒有重點。 */
+.fx-high, .fx-medium { padding-left: 14px; }
+.fx-high::before, .fx-medium::before {
+  content: ""; position: absolute; left: 0; top: 15px; bottom: 16px;
+  width: 3px; border-radius: 3px;
+}
+.fx-high::before { background: #d03050; }
+.fx-medium::before { background: #f0a020; }
 .fx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 /* 標題自己一級，不跟標籤和時間擠在同一個字級 */
 .fx-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
 .fx-spacer { flex: 1 1 auto; }
 .fx-when { font-size: 12px; color: var(--n-text-color-disabled); white-space: nowrap; }
-/* 內文縮排對齊標題、限制行寬 —— 一行拉到 1400px 寬，眼睛跳行會找不到位置 */
+/* 不設 max-width：中文一個字約等於兩個 ch，78ch 換算成中文只有 39 個字，
+   在寬螢幕上右邊會空一大片、每兩三個字就折一次，比長行更難讀 */
 .fx-detail {
   margin: 0 0 8px; font-size: 13.5px; line-height: 1.9;
-  max-width: 78ch; color: var(--n-text-color-2);
+  color: var(--n-text-color-2);
 }
 .fx-rec {
   display: flex; gap: 8px; align-items: baseline;
-  margin-bottom: 8px; font-size: 13.5px; line-height: 1.9; max-width: 78ch;
+  margin-bottom: 8px; font-size: 13.5px; line-height: 1.9;
 }
 .fx-rec-tag {
   flex: 0 0 auto; font-size: 11.5px; padding: 1px 8px; border-radius: 4px;

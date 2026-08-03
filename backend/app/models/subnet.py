@@ -66,6 +66,11 @@ class Subnet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     ai_audit_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False)
 
+    # 是否納入異常偵測。預設納入；訪客／實驗網段這類「本來就會亂」的可以關掉，
+    # 免得把真正該看的東西淹沒。
+    anomaly_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False)
+
     scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     scan_method: Mapped[list[str]] = mapped_column(
         ARRAY(String),

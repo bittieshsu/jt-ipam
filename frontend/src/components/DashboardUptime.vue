@@ -22,7 +22,7 @@
 
     <n-spin v-else :show="loading">
       <div class="rows">
-        <div v-for="r in rows" :key="r.ip_id" class="row">
+        <div v-for="r in sortedRows" :key="r.ip_id" class="row">
           <a class="row-label" :title="r.hostname ? `${r.ip} — ${r.hostname}` : r.ip"
              @click="goIp(r.ip_id)">
             <span class="row-ip">{{ r.ip }}</span>
@@ -80,6 +80,21 @@
       <div v-if="draft.length > MAX" class="over">
         {{ t("uptime.dash_over", { n: MAX }) }}
       </div>
+
+      <!-- 排序：追蹤十幾個位址時，順序決定了「一眼看到什麼」——
+           想先看最差的就用可用率遞增，想照網段掃就用 IP -->
+      <div class="sort-row">
+        <span class="sort-label">{{ t("uptime.sort_by") }}</span>
+        <n-radio-group v-model:value="draftSortKey" size="small">
+          <n-radio-button value="ip">IP</n-radio-button>
+          <n-radio-button value="hostname">{{ t("addresses.hostname") }}</n-radio-button>
+          <n-radio-button value="sla">{{ t("uptime.sort_sla") }}</n-radio-button>
+        </n-radio-group>
+        <n-radio-group v-model:value="draftSortDir" size="small">
+          <n-radio-button value="asc">{{ t("uptime.sort_asc") }}</n-radio-button>
+          <n-radio-button value="desc">{{ t("uptime.sort_desc") }}</n-radio-button>
+        </n-radio-group>
+      </div>
       <template #footer>
         <n-space justify="end">
           <n-button @click="pickerShow = false">{{ t("common.cancel") }}</n-button>
@@ -97,7 +112,8 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import {
-  NAlert, NButton, NCard, NEmpty, NIcon, NModal, NSelect, NSpace, NSpin, NTag, NTooltip,
+  NAlert, NButton, NCard, NEmpty, NIcon, NModal, NRadioButton, NRadioGroup,
+  NSelect, NSpace, NSpin, NTag, NTooltip,
 } from "naive-ui";
 import CardTitle from "@/components/CardTitle.vue";
 import { IPChangesIcon, SettingsIcon } from "@/icons";
@@ -187,10 +203,74 @@ function onSearch(q: string) {
 }
 
 function openPicker() {
+  draftSortKey.value = sortKey.value;
+  draftSortDir.value = sortDir.value;
   draft.value = [...ids.value];
   pickerShow.value = true;
   void loadOptions();
 }
+
+// 排序偏好存在 user_preferences.table_columns（既有的表格顯示偏好袋，免加欄位）
+type SortKey = "ip" | "hostname" | "sla";
+type SortDir = "asc" | "desc";
+const sortKey = ref<SortKey>("ip");
+const sortDir = ref<SortDir>("asc");
+const draftSortKey = ref<SortKey>("ip");
+const draftSortDir = ref<SortDir>("asc");
+
+const SORT_PREF_KEY = "uptime_sort";
+
+async function loadSort() {
+  try {
+    const { data } = await apiClient.get<{ table_columns: Record<string, unknown> | null }>(
+      "/api/v1/me/preferences",
+    );
+    const v = data?.table_columns?.[SORT_PREF_KEY] as { key?: SortKey; dir?: SortDir } | undefined;
+    if (v?.key) sortKey.value = v.key;
+    if (v?.dir) sortDir.value = v.dir;
+  } catch { /* 沒登入 / 失敗 → 用預設 */ }
+}
+
+async function saveSort() {
+  try {
+    const { data } = await apiClient.get<{ table_columns: Record<string, unknown> | null }>(
+      "/api/v1/me/preferences",
+    );
+    // 讀回整包再寫：只送自己這一格會把別的表格的欄位偏好整個蓋掉
+    const bag = { ...(data?.table_columns ?? {}) };
+    bag[SORT_PREF_KEY] = { key: sortKey.value, dir: sortDir.value };
+    await apiClient.patch("/api/v1/me/preferences", { table_columns: bag });
+  } catch { /* 後端失敗不回滾 UI */ }
+}
+
+/** IPv4 轉可比較的數值；非 IPv4 退回字串比較。 */
+function ipOrder(ip: string): number {
+  const p = ip.split(".");
+  if (p.length !== 4) return Number.NaN;
+  return p.reduce((acc, x) => acc * 256 + (Number(x) || 0), 0);
+}
+
+const sortedRows = computed(() => {
+  const dir = sortDir.value === "asc" ? 1 : -1;
+  return [...rows.value].sort((a, b) => {
+    if (sortKey.value === "sla") {
+      // 沒有資料的排最後（不管遞增遞減）—— 它不是「可用率 0」，是「不知道」
+      const av = a.uptime_pct, bv = b.uptime_pct;
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      return (av - bv) * dir;
+    }
+    if (sortKey.value === "hostname") {
+      return (a.hostname || "").localeCompare(b.hostname || "", undefined, { numeric: true }) * dir;
+    }
+    const an = ipOrder(a.ip), bn = ipOrder(b.ip);
+    if (Number.isNaN(an) || Number.isNaN(bn)) {
+      return a.ip.localeCompare(b.ip, undefined, { numeric: true }) * dir;
+    }
+    return (an - bn) * dir;
+  });
+});
 
 function save() {
   // usePinned 只提供 toggle → 用差集把它推到 draft 的內容
@@ -198,6 +278,9 @@ function save() {
   const after = new Set(draft.value.slice(0, MAX));
   for (const id of before) if (!after.has(id)) toggle(id);
   for (const id of after) if (!before.has(id)) toggle(id);
+  sortKey.value = draftSortKey.value;
+  sortDir.value = draftSortDir.value;
+  void saveSort();
   pickerShow.value = false;
   void load();
 }
@@ -206,7 +289,7 @@ function goIp(id: string) {
   router.push({ name: "address-detail", params: { id } }).catch(() => {});
 }
 
-onMounted(load);
+onMounted(() => { void loadSort(); void load(); });
 watch(ids, load, { deep: true });
 </script>
 
@@ -252,4 +335,6 @@ watch(ids, load, { deep: true });
   padding-left: 220px; padding-right: 56px;
 }
 .over { margin-top: 8px; font-size: 12px; color: #d03050; }
+.sort-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.sort-label { font-size: 13px; color: var(--n-text-color-3); }
 </style>

@@ -1157,7 +1157,10 @@
     "err_scan_agent_required": "Scanning is enabled — choose how to scan: the local host, or a scan agent (use an agent for Docker / cross-segment).",
     "ai_audit": "AI review",
     "ai_audit_enable": "Include in AI review",
-    "ai_audit_hint": "When ticked, addresses in this subnet are included in the scheduled review sent to the language model. Untick to exclude it entirely — useful for sensitive segments."
+    "ai_audit_hint": "When ticked, addresses in this subnet are included in the scheduled review sent to the language model. Untick to exclude it entirely — useful for sensitive segments.",
+    "checks": "Checks",
+    "anomaly_enable": "Include in anomaly detection",
+    "anomaly_hint": "When unticked, addresses in this subnet never appear in any anomaly list (unauthorised IPs, ghost IPs…). Worth turning off for guest or lab segments."
   },
   "csv_import": {
     "title": "Import addresses (CSV)",
@@ -1462,7 +1465,8 @@
     "subtitle": "Calculators & lookups for IP / subnet / MAC / DNS / power — all also available in the AI assistant",
     "oui_search_ph": "Search by prefix (22 / 00:11) or vendor name",
     "oui_search_count": "{n} matches",
-    "oui_managed_in_admin": "(database maintained in admin)"
+    "oui_managed_in_admin": "(database maintained in admin)",
+    "cat_netdiag": "Connectivity"
   },
   "dns_admin": {
     "scope_subnets": "Limit to subnets",
@@ -1690,7 +1694,11 @@
     "explain_unauthorized_ips": "IPs actually seen on the network but not recorded in IPAM. Could be a device configured without going through a request, or simply a record not added yet.",
     "rogue_dhcp": "Rogue DHCP servers",
     "rogue_dhcp_warn": "These hosts answered a DHCP request on the segment but are not marked as DHCP servers. Usually that means something is plugged in that should not be — a consumer router, or a VM with DHCP left on — handing out wrong addresses and gateways to other machines. If one is legitimate, mark it as a DHCP server on that address's detail page.",
-    "explain_rogue_dhcp": "Hosts that answered DHCP on a segment but are not marked as DHCP servers. Something is handing out addresses that is not in your plan — usually a consumer router someone plugged in, or a VM with DHCP left on. Requires the \"DHCP server discovery\" probe to be enabled on the scan agent."
+    "explain_rogue_dhcp": "Hosts that answered DHCP on a segment but are not marked as DHCP servers. Something is handing out addresses that is not in your plan — usually a consumer router someone plugged in, or a VM with DHCP left on. Requires the \"DHCP server discovery\" probe to be enabled on the scan agent.",
+    "scope_btn": "Scope",
+    "scope_title": "Which subnets to check",
+    "scope_none": "No subnets selected",
+    "scope_hint": "Only the subnets listed here are checked. Guest, lab and contractor segments are noisy by nature, and leaving them in buries the findings that matter. This is the same setting as \"Include in anomaly detection\" on the subnet edit page."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2892,7 +2900,11 @@
     "dash_ph": "Search by IP or hostname",
     "dash_hint": "Up to {n} IPs. Grey means no data for that day (the IP has no liveness source) — not that it was up.",
     "dash_over": "More than {n} selected — please remove some",
-    "dash_ip_gone": "(IP no longer accessible)"
+    "dash_ip_gone": "(IP no longer accessible)",
+    "sort_by": "Sort by",
+    "sort_sla": "Uptime",
+    "sort_asc": "Ascending",
+    "sort_desc": "Descending"
   },
   "certOs": {
     "linux": "Linux",
@@ -2973,7 +2985,13 @@
     "tls_hint": "Shows the certificate the host actually serves. It is fetched without verifying first on purpose — a broken certificate (self-signed, expired, wrong name) is exactly when you need to see it. Whether it validates against the system trust store is reported separately rather than turning into a failure.",
     "http_hint": "Status, redirect chain and the headers that matter. TLS is not verified by default so you still get a result from a host with certificate problems (use the TLS check above to inspect the certificate).",
     "rdns_hint": "Looks up PTR records in bulk to find which addresses in a range have no reverse DNS — tedious to establish one lookup at a time.",
-    "rdns_summary": "{n} of {total} have a PTR"
+    "rdns_summary": "{n} of {total} have a PTR",
+    "icmp_howto_link": "How to fix",
+    "icmp_howto_title": "Let ping send packets",
+    "icmp_howto_why": "The backend runs as a systemd service whose sandbox (NoNewPrivileges) makes the cap_net_raw file capability on /bin/ping inert — ping works in a shell but cannot send anything from here. It does not mean the target is unreachable. Either option below fixes it.",
+    "icmp_howto_a": "Option A (recommended): widen the kernel's ICMP group range. This permits ICMP echo only — no crafted packets, no sniffing — which is far narrower than granting the whole backend CAP_NET_RAW.",
+    "icmp_howto_b": "Option B: grant CAP_NET_RAW to the backend service. Broader (it allows building arbitrary raw packets); use only if A is not possible.",
+    "icmp_howto_note": "Neither requires reinstalling. A takes effect immediately; B needs a backend restart. The TCP / UDP / TLS / HTTP tools are unaffected — they never needed privileges."
   },
   "ai_audit": {
     "title": "AI review",

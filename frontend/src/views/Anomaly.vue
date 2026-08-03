@@ -4,10 +4,13 @@ import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpace, NIcon, NButton, NAlert, NStatistic, NGrid, NGi, NDataTable, NEmpty,
-  NTabs, NTabPane, useMessage, type DataTableColumns,
+  NTabs, NTabPane, NModal, NSelect, useMessage, type DataTableColumns,
 } from "naive-ui";
 import { runAnomalyScan, type AnomalyReport } from "@/api/phase3";
-import { AnomalyIcon, TestIcon, InfoIcon } from "@/icons";
+import { AnomalyIcon, TestIcon, InfoIcon, SettingsIcon } from "@/icons";
+import { listSubnets, setAnomalyScope } from "@/api/subnets";
+import { apiErrMsg } from "@/api/client";
+import type { Subnet } from "@/types";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -18,6 +21,41 @@ const pg = useTablePagination();
 const loading = ref(false);
 const report = ref<AnomalyReport | null>(null);
 const lastRunAt = ref<string | null>(null);
+
+// 偵測範圍（寫的是 subnets.anomaly_enabled，跟子網路編輯頁同一個欄位）
+const scopeShow = ref(false);
+const scopeSaving = ref(false);
+const scopeIds = ref<string[]>([]);
+const subnets = ref<Subnet[]>([]);
+const subnetsLoading = ref(false);
+const subnetOptions = computed(() => subnets.value.map((s) => ({
+  label: s.description ? `${s.cidr} — ${s.description}` : s.cidr,
+  value: s.id,
+})));
+
+async function loadSubnets() {
+  subnetsLoading.value = true;
+  try {
+    const r = await listSubnets({ pageSize: 500 });
+    subnets.value = r.items;
+    scopeIds.value = r.items.filter((s) => s.anomaly_enabled).map((s) => s.id);
+  } catch { /* 沒權限就留空，不擋整頁 */ } finally { subnetsLoading.value = false; }
+}
+
+function openScope() {
+  scopeShow.value = true;
+  void loadSubnets();
+}
+
+async function saveScope() {
+  scopeSaving.value = true;
+  try {
+    await setAnomalyScope(scopeIds.value);
+    msg.success(t("common.saved"));
+    scopeShow.value = false;
+  } catch (e) { msg.error(apiErrMsg(e)); await loadSubnets(); }
+  finally { scopeSaving.value = false; }
+}
 const activeTab = ref("ip_conflicts");
 
 type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips" | "rogue_dhcp";
@@ -176,7 +214,30 @@ async function run() {
       <span v-if="lastRunAt" style="opacity: 0.7; font-size: 13px">
         {{ t("anomaly.last_run") }}: {{ lastRunAt }}
       </span>
+      <n-button size="small" quaternary @click="openScope">
+        <template #icon><n-icon><SettingsIcon /></n-icon></template>
+        {{ t("anomaly.scope_btn") }}
+      </n-button>
     </n-space>
+
+    <!-- 偵測範圍：訪客／實驗網段本來就會一堆異常，留著只會把真正該處理的埋掉 -->
+    <n-modal v-model:show="scopeShow" preset="card" style="max-width: 620px"
+             :title="t('anomaly.scope_title')">
+      <n-alert type="info" :bordered="false" style="margin-bottom:12px">
+        {{ t("anomaly.scope_hint") }}
+      </n-alert>
+      <n-select v-model:value="scopeIds" multiple filterable clearable
+                :options="subnetOptions" :loading="subnetsLoading"
+                :placeholder="t('anomaly.scope_none')" />
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="scopeShow = false">{{ t("common.cancel") }}</n-button>
+          <n-button type="primary" :loading="scopeSaving" @click="saveScope">
+            {{ t("common.save") }}
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
     <n-alert v-if="!report" type="info">
       <template #icon><n-icon><InfoIcon /></n-icon></template>

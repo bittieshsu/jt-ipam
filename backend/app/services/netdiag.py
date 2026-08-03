@@ -106,6 +106,12 @@ def expand_targets(raw: str | list[str]) -> list[str]:
     return out
 
 
+ICMP_BLOCKED = (
+    "ping 無法送出封包：服務沙箱使 cap_net_raw 失效，且此群組不在 "
+    "net.ipv4.ping_group_range 內。這不代表目標不可達。"
+)
+
+
 @dataclass
 class PingResult:
     target: str
@@ -117,6 +123,9 @@ class PingResult:
     rtt_avg_ms: float | None = None
     rtt_max_ms: float | None = None
     error: str | None = None
+    # 機器可辨識的失敗原因（目前只有 "icmp_blocked"）。讓 UI 能在旁邊放「怎麼修」的
+    # 說明 —— 只丟一句錯誤訊息，使用者知道壞了卻不知道要做什麼。
+    error_code: str | None = None
 
 
 # `ping -c N -W t` 的統計行，各發行版格式略有差異，只抓需要的數字
@@ -233,6 +242,43 @@ def _checksum(data: bytes) -> int:
     return ~total & 0xFFFF
 
 
+async def _sock_sendto(loop: Any, sock: Any, data: bytes, addr: Any) -> None:
+    """`loop.sock_sendto`，uvloop 上退回執行緒版本。
+
+    uvloop 沒有實作 `sock_sendto`，直接呼叫會丟 `NotImplementedError`。socket 是
+    non-blocking 的，`sendto` 不會卡住，丟到執行緒只是為了拿到一致的介面。
+    """
+    try:
+        await loop.sock_sendto(sock, data, addr)
+    except NotImplementedError:
+        await loop.run_in_executor(None, sock.sendto, data, addr)
+
+
+async def _sock_recv(loop: Any, sock: Any, n: int) -> bytes:
+    """`loop.sock_recv`；uvloop 沒有時退回自己等可讀。"""
+    try:
+        return await loop.sock_recv(sock, n)
+    except NotImplementedError:
+        fut = loop.create_future()
+
+        def _ready() -> None:
+            loop.remove_reader(sock.fileno())
+            if not fut.done():
+                try:
+                    fut.set_result(sock.recv(n))
+                except OSError as exc:
+                    fut.set_exception(exc)
+
+        loop.add_reader(sock.fileno(), _ready)
+        try:
+            return await fut
+        finally:
+            try:
+                loop.remove_reader(sock.fileno())
+            except (OSError, ValueError):
+                pass
+
+
 async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
     """用非特權 ICMP socket 自己送 echo request。
 
@@ -260,9 +306,12 @@ async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
         sock.setblocking(False)
         try:
             t0 = time.monotonic()
-            await loop.sock_sendto(sock, _icmp_echo(seq, ident), (ip, 0))
+            # uvloop 沒有實作 loop.sock_sendto（會丟 NotImplementedError）。
+            # 不接住的話整支請求會 500 —— 而且只在「socket 開得起來」的機器上才會發生，
+            # 開不起來的機器反而正常（因為走外部 ping）。
+            await _sock_sendto(loop, sock, _icmp_echo(seq, ident), (ip, 0))
             try:
-                data = await asyncio.wait_for(loop.sock_recv(sock, 1024), timeout=timeout)
+                data = await asyncio.wait_for(_sock_recv(loop, sock, 1024), timeout=timeout)
             except TimeoutError:
                 continue
             # 非特權 socket 收到的是不含 IP 標頭的 ICMP 訊息；type 0 = echo reply
@@ -321,9 +370,11 @@ async def ping_many(
                 first = next((ln for ln in out.splitlines() if ln.strip()), "")
                 # 外部 ping 一個字都沒吐＝它自己起不來，多半是 NoNewPrivileges 讓
                 # cap_net_raw 失效。回「沒有回應」會被誤讀成「目標不通」——那是說謊。
-                res.error = first[:200] or (
-                    "ping 無法送出封包：服務沙箱使 cap_net_raw 失效，且此群組不在 "
-                    "net.ipv4.ping_group_range 內。這不代表目標不可達。")
+                # 帶一個機器可辨識的代碼，前端才能在旁邊給「怎麼修」的說明。
+                # 只丟一句「送不出封包」，使用者知道壞了卻不知道要做什麼。
+                res.error = first[:200] or ICMP_BLOCKED
+                if not first:
+                    res.error_code = "icmp_blocked"
             return res
 
     return list(await asyncio.gather(*(one(t) for t in targets)))
