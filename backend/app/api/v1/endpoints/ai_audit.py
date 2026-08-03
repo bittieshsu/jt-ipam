@@ -1,13 +1,16 @@
 """AI 巡檢的查詢與操作端點。
 
-權限分兩層，刻意不同：
+**整支端點都限管理員**（`require_admin`），包含只是看發現的那幾支。
 
-- **看發現**：`require_global_read`。巡檢結論是跨物件的整體觀察（「這幾個網段沒有監測
-  涵蓋」），無法逐物件授權；照 CLAUDE.md 的三類資料分法，這屬於全域基礎設施檢視。
-- **執行 / 忽略**：`require_admin`。手動觸發會把資料送給 LLM 並消耗資源，忽略則是改變
-  別人也看得到的狀態。
+原本「看發現」只需要 `require_global_read`，但這個功能已經放在管理區、跟其它管理功能
+並列。權限跟位置對不起來的話，會出現「選單看不到、直接打網址卻進得去」——
+那是最糟的一種：看起來有管控，實際上沒有。
 
-執行巡檢時取樣**以發起者的可見範圍為準**（見 `services/ai_audit._collect`）。
+理由不只是位置：巡檢結論是模型對整個環境的推測，會點名到哪些網段沒有監測、哪些管理
+介面放在一般網段 —— 那等於一份跨部門的弱點清單，不該給只被指派特定物件的帳號看。
+
+執行巡檢時取樣仍**以發起者的可見範圍為準**（見 `services/ai_audit._collect`），
+就算是管理員也一樣。
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
+from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.models.ai_finding import AIFinding
@@ -44,13 +47,13 @@ def _out(f: AIFinding) -> dict[str, Any]:
     }
 
 
-@router.get("/summary", dependencies=[Depends(require_global_read)])
+@router.get("/summary", dependencies=[Depends(require_admin)])
 async def summary(session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
     """儀表板用的摘要：未處理發現的嚴重度分佈與最後執行時間。"""
     return await latest_summary(session)
 
 
-@router.get("/findings", dependencies=[Depends(require_global_read)])
+@router.get("/findings", dependencies=[Depends(require_admin)])
 async def list_findings(
     session: Annotated[AsyncSession, Depends(get_session)],
     status: Annotated[str, Query(pattern="^(open|dismissed|all)$")] = "open",
@@ -168,7 +171,7 @@ def _percent(ev: dict[str, Any]) -> int:
     return min(99, int(2 + (ev.get("current", 0) / total) * 95))
 
 
-@router.get("/status", dependencies=[Depends(require_global_read)])
+@router.get("/status", dependencies=[Depends(require_admin)])
 async def run_status(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:

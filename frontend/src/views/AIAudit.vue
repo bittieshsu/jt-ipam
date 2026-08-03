@@ -86,22 +86,33 @@
     <n-empty v-if="!loading && !rows.length" :description="t('ai_audit.none')" style="margin:28px 0" />
 
     <n-spin :show="loading">
-      <div v-for="f in rows" :key="f.id" class="fx" :class="`fx-${f.severity}`">
+      <!-- 欄位標題：點一下換排序。發現是一則一則的長文，不適合塞進表格，
+           但至少要能照嚴重度或時間排 —— 20 筆混在一起時，順序決定看不看得完 -->
+      <div v-if="rows.length" class="fx-thead">
+        <span v-for="c in COLS" :key="c.key" class="th" :class="[`th-${c.key}`, { on: sortKey === c.key }]"
+              @click="toggleSort(c.key)">
+          {{ t(c.i18n) }}
+          <span v-if="sortKey === c.key" class="th-dir">{{ sortAsc ? "▲" : "▼" }}</span>
+        </span>
+      </div>
+
+      <div v-for="f in sortedRows" :key="f.id" class="fx" :class="`fx-${f.severity}`">
         <div class="fx-head">
           <n-tag :type="sevType(f.severity)" size="small" round :bordered="false">
             {{ t(`ai_audit.sev_${f.severity}`) }}
           </n-tag>
-          <n-tag size="small" round :bordered="false">{{ t(`ai_audit.cat_${f.category}`) }}</n-tag>
-          <h3 class="fx-title">{{ f.title }}</h3>
-          <span class="fx-spacer" />
+          <span class="fx-what">
+            <n-tag size="small" round :bordered="false">{{ t(`ai_audit.cat_${f.category}`) }}</n-tag>
+            <h3 class="fx-title">{{ f.title }}</h3>
+          </span>
           <span class="fx-when">{{ fmtDateTime(f.created_at) }}</span>
           <n-button v-if="canRun && f.status === 'open'" size="tiny" secondary
-                    @click="dismiss(f.id)">
+                    style="justify-self:end" @click="dismiss(f.id)">
             <template #icon><n-icon><DismissIcon /></n-icon></template>
             {{ t("ai_audit.dismiss") }}
           </n-button>
           <n-button v-else-if="canRun" size="tiny" secondary type="primary"
-                    @click="restore(f.id)">
+                    style="justify-self:end" @click="restore(f.id)">
             <template #icon><n-icon><RestoreIcon /></n-icon></template>
             {{ t("ai_audit.restore") }}
           </n-button>
@@ -191,6 +202,44 @@ const canRun = computed(() => !!auth.me?.is_admin);
 const sevOptions = computed(() => ["high", "medium", "low"].map((s) => ({
   label: t(`ai_audit.sev_${s}`), value: s,
 })));
+
+// 欄位標題（點一下排序）。發現本身是長文，用表格反而難讀 —— 只把「可以排序的那幾件事」
+// 做成標題列。
+const COLS = [
+  { key: "severity", i18n: "ai_audit.col_severity" },
+  { key: "what", i18n: "ai_audit.col_what" },
+  { key: "created_at", i18n: "ai_audit.col_when" },
+  { key: "action", i18n: "ai_audit.col_action" },
+] as const;
+
+type SortKey = (typeof COLS)[number]["key"];
+const sortKey = ref<SortKey>("severity");
+const sortAsc = ref(false);          // 預設嚴重度由高到低
+
+const SEV_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+function toggleSort(k: SortKey) {
+  if (k === "action") return;        // 「動作」沒有排序的意義
+  if (sortKey.value === k) sortAsc.value = !sortAsc.value;
+  else { sortKey.value = k; sortAsc.value = k === "what"; }
+}
+
+const sortedRows = computed(() => {
+  const dir = sortAsc.value ? 1 : -1;
+  return [...rows.value].sort((a, b) => {
+    if (sortKey.value === "created_at") {
+      return (Date.parse(a.created_at || "") - Date.parse(b.created_at || "")) * dir;
+    }
+    if (sortKey.value === "what") {
+      // 先照分類、同分類再照標題 —— 同一類的問題排在一起才好一次處理完
+      const c = t(`ai_audit.cat_${a.category}`).localeCompare(t(`ai_audit.cat_${b.category}`));
+      return (c !== 0 ? c : a.title.localeCompare(b.title, undefined, { numeric: true })) * dir;
+    }
+    const d = (SEV_ORDER[a.severity] ?? 0) - (SEV_ORDER[b.severity] ?? 0);
+    // 同嚴重度時用時間當第二順位，順序才穩定（否則每次重新整理都跳來跳去）
+    return (d !== 0 ? d : Date.parse(a.created_at || "") - Date.parse(b.created_at || "")) * dir;
+  });
+});
 
 function sevType(s: string) {
   return s === "high" ? "error" : s === "medium" ? "warning" : "default";
@@ -454,20 +503,45 @@ onBeforeUnmount(stopPolling);
 }
 .fx-high::before { background: #d03050; }
 .fx-medium::before { background: #f0a020; }
-.fx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+/* 標題列與資料列共用同一組欄寬，才會對得齊 */
+.fx-thead, .fx-head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 152px 92px;
+  align-items: center; gap: 8px;
+}
+.fx-thead {
+  padding: 0 0 8px 14px; border-bottom: 1px solid var(--n-border-color);
+  font-size: 12px; color: var(--n-text-color-disabled);
+}
+.th { cursor: pointer; user-select: none; white-space: nowrap; }
+.th:hover { color: var(--n-text-color); }
+.th.on { color: var(--n-color-target, #36ad6a); font-weight: 600; }
+.th-dir { margin-left: 3px; font-size: 10px; }
+.th-created_at, .th-action { text-align: right; }
+.th-action { cursor: default; }
+.th-action:hover { color: var(--n-text-color-disabled); }
+.fx-head { margin-bottom: 8px; }
+/* 「狀況」欄：分類標籤 + 標題 */
+.fx-what { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* 標題自己一級，不跟標籤和時間擠在同一個字級 */
-.fx-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
-.fx-spacer { flex: 1 1 auto; }
-.fx-when { font-size: 12px; color: var(--n-text-color-disabled); white-space: nowrap; }
+.fx-title {
+  margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fx-when {
+  font-size: 12px; color: var(--n-text-color-disabled);
+  white-space: nowrap; text-align: right;
+}
 /* 不設 max-width：中文一個字約等於兩個 ch，78ch 換算成中文只有 39 個字，
    在寬螢幕上右邊會空一大片、每兩三個字就折一次，比長行更難讀 */
+/* 內文從「狀況」欄的位置開始，跟標題對齊 */
 .fx-detail {
-  margin: 0 0 8px; font-size: 13.5px; line-height: 1.9;
+  margin: 0 0 8px 60px; font-size: 13.5px; line-height: 1.9;
   color: var(--n-text-color-2);
 }
 .fx-rec {
   display: flex; gap: 8px; align-items: baseline;
-  margin-bottom: 8px; font-size: 13.5px; line-height: 1.9;
+  margin: 0 0 8px 60px; font-size: 13.5px; line-height: 1.9;
 }
 .fx-rec-tag {
   flex: 0 0 auto; font-size: 11.5px; padding: 1px 8px; border-radius: 4px;
@@ -475,7 +549,7 @@ onBeforeUnmount(stopPolling);
   position: relative; top: -1px;
 }
 .fx-ev {
-  margin-top: 8px; padding: 6px 10px; border-radius: 4px;
+  margin: 8px 0 0 60px; padding: 6px 10px; border-radius: 4px;
   background: var(--n-color-embedded, rgba(128, 128, 128, .08));
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
   font-size: 12px; line-height: 1.7;

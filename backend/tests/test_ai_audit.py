@@ -170,15 +170,24 @@ def test_run_and_dismiss_require_admin():
     assert "require_admin" in _route_deps("/api/v1/ai-audit/dismiss", "POST")
 
 
-def test_findings_require_global_read():
-    """巡檢結論是跨物件觀察，無法逐物件授權 → 依 CLAUDE.md 的分類屬全域基礎設施檢視。
+def test_every_endpoint_requires_admin():
+    """整支限管理員 —— 包含只是「看發現」的那幾支。
 
-    沒掛的話，只被指派特定物件的部門帳號就能看到整個環境的分析結果。
+    功能放在管理區，權限就要跟位置對得起來。只把選單藏起來、網址照樣進得去的話，
+    那是最糟的一種：看起來有管控，實際上沒有。
+
+    另外，巡檢結論本身就是一份跨部門的弱點清單（哪些網段沒監測、哪些管理介面放在
+    一般網段），不該給只被指派特定物件的帳號看。
     """
-    for path in ("/api/v1/ai-audit/findings", "/api/v1/ai-audit/summary"):
-        deps = _route_deps(path, "GET")
-        assert "require_global_read" in deps, f"{path} 缺 global_read 管控"
-        assert "require_admin" not in deps, f"{path} 不該限管理員（唯讀檢視者也要看得到）"
+    for path, method in (
+        ("/api/v1/ai-audit/findings", "GET"),
+        ("/api/v1/ai-audit/summary", "GET"),
+        ("/api/v1/ai-audit/status", "GET"),
+        ("/api/v1/ai-audit/run", "POST"),
+        ("/api/v1/ai-audit/dismiss", "POST"),
+        ("/api/v1/ai-audit/restore", "POST"),
+    ):
+        assert "require_admin" in _route_deps(path, method), f"{method} {path} 沒限管理員"
 
 
 class _FakeUser:

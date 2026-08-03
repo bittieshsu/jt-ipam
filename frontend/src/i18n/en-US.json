@@ -3036,7 +3036,11 @@
     "ev_details": "details",
     "related_ips": "IPs involved",
     "restore": "Restore",
-    "dismiss_done": "Dismissed. Future reviews will auto-dismiss the same finding; to undo, switch to \"Dismissed\" and press Restore."
+    "dismiss_done": "Dismissed. Future reviews will auto-dismiss the same finding; to undo, switch to \"Dismissed\" and press Restore.",
+    "col_severity": "Severity",
+    "col_what": "Finding",
+    "col_when": "Date",
+    "col_action": "Action"
   },
   "ip_peek": {
     "not_found": "Not found in IPAM",

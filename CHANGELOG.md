@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.137] — 2026-08-03
+
+### Changed
+- **Every AI review endpoint now requires admin.** Once the feature moved into the Admin area, the permissions had to match the placement — reading findings previously only needed global read, which produced the worst combination: hidden from the menu but reachable by URL. That looks like access control without being any. The route guard and the dashboard block were tightened to match (a non-admin would only have seen a block that 403s). The reason is not only placement: a review is effectively a cross-department weakness list — which segments have no monitoring, which management interfaces sit in general subnets — and should not be visible to accounts scoped to a few objects.
+- **The findings list has sortable column headers** (severity / finding / date / action). Findings are long-form text and read badly as a table, so only the sortable parts became a header row. Default is severity high-to-low, with time as the tie-break so the order does not jump around between refreshes.
+
 ## [0.5.136] — 2026-08-03
 
 ### Fixed

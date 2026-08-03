@@ -3036,7 +3036,11 @@
     "ev_details": "細節",
     "related_ips": "相關 IP",
     "restore": "取消忽略",
-    "dismiss_done": "已忽略。往後的巡檢再找到同一件事也會自動忽略；要改回來請切到「已忽略」按「取消忽略」。"
+    "dismiss_done": "已忽略。往後的巡檢再找到同一件事也會自動忽略；要改回來請切到「已忽略」按「取消忽略」。",
+    "col_severity": "嚴重度",
+    "col_what": "狀況",
+    "col_when": "日期時間",
+    "col_action": "動作"
   },
   "ip_peek": {
     "not_found": "IPAM 中查無這個位址",

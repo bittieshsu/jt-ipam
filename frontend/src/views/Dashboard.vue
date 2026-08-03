@@ -40,8 +40,12 @@ import { Antenna as LiveIcon } from "@iconoir/vue";
 import { Database as CapacityIcon } from "@iconoir/vue";
 
 const { t } = useI18n();
-// LLM 沒啟用就不顯示 AI 巡檢區（跟 AI 對話小工具同一個判斷，避免一邊有一邊沒有）
-const aiEnabled = computed(() => !!useAuthStore().me?.ai_enabled);
+// AI 巡檢區的顯示條件：LLM 有啟用（跟 AI 對話小工具同一個判斷）**且**是管理員。
+// 這個功能整支端點都限管理員 —— 非管理員看到區塊只會拿到 403，等於放一塊壞掉的畫面。
+const aiEnabled = computed(() => {
+  const me = useAuthStore().me;
+  return !!me?.ai_enabled && !!me?.is_admin;
+});
 const router = useRouter();
 const msg = useMessage();
 const data = ref<DashboardOverview | null>(null);
