@@ -598,6 +598,11 @@ class LLMConfigOut(StrictModel):
     num_ctx: int | None = None
     mcp_external_enabled: bool = False
     mcp_api_key_set: bool = False        # 是否已產生對外 MCP 金鑰（不回明文）
+    ai_audit_enabled: bool = False
+    ai_audit_times: list[str] = []       # 每天執行的時刻（"HH:MM"，伺服器本地時區）
+    ai_audit_model: str | None = None    # None＝沿用對話模型
+    ai_audit_num_ctx: int | None = None  # None＝沿用對話模型的上下文長度
+    server_timezone: str = ""            # 排程時刻是照這個時區算的，UI 要講清楚
 
 
 class LLMConfigPatch(StrictModel):
@@ -609,6 +614,20 @@ class LLMConfigPatch(StrictModel):
     # 0 / 空＝沿用模型/Ollama 預設；上限取寬鬆合理值（128k）
     num_ctx: Annotated[int | None, Field(ge=0, le=131072)] = None
     mcp_external_enabled: bool | None = None
+    ai_audit_enabled: bool | None = None
+    # 每天執行的時刻清單（"HH:MM"）。不合法的項目會被丟掉，不會整組失效。
+    ai_audit_times: Annotated[list[str] | None, Field(max_length=24)] = None
+    # 巡檢專用模型；空字串＝清掉，回去沿用對話模型（所以 min_length 是 0）
+    ai_audit_model: Annotated[str | None, Field(max_length=128)] = None
+    # 巡檢專用上下文長度；0＝清掉，回去沿用對話模型的設定
+    ai_audit_num_ctx: Annotated[int | None, Field(ge=0, le=131072)] = None
+
+
+def _server_tz() -> str:
+    """伺服器本地時區名稱。排程時刻是照它算的 —— 畫面上不寫清楚就會有人設錯 8 小時。"""
+    from datetime import datetime
+    tz = datetime.now().astimezone().tzinfo
+    return str(getattr(tz, "key", None) or tz or "")
 
 
 def _llm_out(cfg: Any) -> LLMConfigOut:
@@ -619,6 +638,11 @@ def _llm_out(cfg: Any) -> LLMConfigOut:
         num_ctx=cfg.num_ctx,
         mcp_external_enabled=cfg.mcp_external_enabled,
         mcp_api_key_set=bool(cfg.mcp_api_key),
+        ai_audit_enabled=cfg.ai_audit_enabled,
+        ai_audit_times=cfg.ai_audit_times,
+        ai_audit_model=cfg.ai_audit_model,
+        ai_audit_num_ctx=cfg.ai_audit_num_ctx,
+        server_timezone=_server_tz(),
     )
 
 
@@ -647,6 +671,10 @@ async def patch_llm(
         timeout=changes.get("timeout"),
         num_ctx=changes.get("num_ctx"),
         mcp_external_enabled=changes.get("mcp_external_enabled"),
+        ai_audit_enabled=changes.get("ai_audit_enabled"),
+        ai_audit_times=changes.get("ai_audit_times"),
+        ai_audit_model=changes.get("ai_audit_model"),
+        ai_audit_num_ctx=changes.get("ai_audit_num_ctx"),
         updated_by_user_id=user.id,
     )
     await append_audit(

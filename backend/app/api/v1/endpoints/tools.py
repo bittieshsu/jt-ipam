@@ -407,3 +407,74 @@ async def net_udp(
     except netdiag.NetDiagError as exc:
         raise _bad(exc) from exc
     return {"count": len(results), "results": [asdict(r) for r in results]}
+
+
+class _TlsIn(StrictModel):
+    targets: Annotated[str, Field(min_length=1, max_length=4096)]
+    port: Annotated[int, Field(ge=1, le=65535)] = 443
+    server_name: Annotated[str | None, Field(max_length=253)] = None
+    timeout: Annotated[float, Field(ge=1.0, le=15.0)] = 5.0
+
+
+@router.post("/net/tls")
+async def net_tls(
+    payload: _TlsIn, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """看對方實際送出的憑證：主體 / 簽發者 / 效期 / SAN / 是否受信任 / 名稱是否相符。"""
+    try:
+        targets = netdiag.expand_targets(payload.targets)
+    except netdiag.NetDiagError as exc:
+        raise _bad(exc) from exc
+    await _diag_guard(session, user, request, "net_tls",
+                      {"count": len(targets), "port": payload.port, "sample": targets[:5]})
+    results = await netdiag.tls_check(
+        targets, payload.port, server_name=payload.server_name, timeout=payload.timeout)
+    return {"count": len(results), "results": [asdict(r) for r in results]}
+
+
+class _HttpIn(StrictModel):
+    url: Annotated[str, Field(min_length=1, max_length=2048)]
+    timeout: Annotated[float, Field(ge=1.0, le=30.0)] = 10.0
+    max_redirects: Annotated[int, Field(ge=0, le=10)] = 5
+    verify_tls: bool = False
+
+
+@router.post("/net/http")
+async def net_http(
+    payload: _HttpIn, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """狀態碼、轉址鏈與關鍵回應標頭。"""
+    await _diag_guard(session, user, request, "net_http", {"url": payload.url[:200]})
+    res = await netdiag.http_check(
+        payload.url, timeout=payload.timeout, max_redirects=payload.max_redirects,
+        verify_tls=payload.verify_tls)
+    out = asdict(res)
+    out["redirects"] = [asdict(h) for h in res.redirects]
+    return out
+
+
+class _RdnsIn(StrictModel):
+    targets: Annotated[str, Field(min_length=1, max_length=4096)]
+    timeout: Annotated[float, Field(ge=0.5, le=10.0)] = 3.0
+    concurrency: Annotated[int, Field(ge=1, le=netdiag.MAX_CONCURRENCY)] = 16
+
+
+@router.post("/net/rdns")
+async def net_rdns(
+    payload: _RdnsIn, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """整批查 PTR —— 用來找出網段裡哪些位址沒有反解。"""
+    try:
+        targets = netdiag.expand_targets(payload.targets)
+    except netdiag.NetDiagError as exc:
+        raise _bad(exc) from exc
+    await _diag_guard(session, user, request, "net_rdns",
+                      {"count": len(targets), "sample": targets[:5]})
+    results = await netdiag.rdns_many(
+        targets, timeout=payload.timeout, concurrency=payload.concurrency)
+    return {"count": len(results),
+            "with_ptr": sum(1 for r in results if r.ptr),
+            "results": [asdict(r) for r in results]}

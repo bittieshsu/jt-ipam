@@ -240,6 +240,7 @@ export interface AnomalyReport {
   mac_drifts: any[];
   ghost_ips: any[];
   unauthorized_ips: any[];
+  rogue_dhcp: any[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {

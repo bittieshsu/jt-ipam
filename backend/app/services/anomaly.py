@@ -5,6 +5,9 @@
 - MAC 變動：同 MAC 在多個 switch+port 跳動（1h 內）
 - 失聯 IP：IPAM 有 IP 紀錄但 ARP/FDB 從未看過超過 N 天
 - 未授權設備：ARP 出現的 IP 但 IPAM 沒有
+- **非法 DHCP 伺服器**：掃描代理在網段上收到 DHCPOFFER，但該位址沒有被標記為 DHCP
+  伺服器。這是少數「一出現幾乎必定有事」的異常 —— 多半是有人插了台家用路由器，或某台
+  虛擬機誤開了 DHCP，會把租約發給不該拿的機器。
 
 每次偵測結果寫站內通知 + Webhook 事件 + audit。
 """
@@ -33,6 +36,7 @@ class AnomalyReport:
     mac_drifts: list[dict[str, Any]] = field(default_factory=list)
     ghost_ips: list[dict[str, Any]] = field(default_factory=list)
     unauthorized_ips: list[dict[str, Any]] = field(default_factory=list)
+    rogue_dhcp: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -40,9 +44,11 @@ class AnomalyReport:
             "mac_drifts": self.mac_drifts,
             "ghost_ips": self.ghost_ips,
             "unauthorized_ips": self.unauthorized_ips,
+            "rogue_dhcp": self.rogue_dhcp,
             "total": (
                 len(self.ip_conflicts) + len(self.mac_drifts)
                 + len(self.ghost_ips) + len(self.unauthorized_ips)
+                + len(self.rogue_dhcp)
             ),
         }
 
@@ -233,6 +239,69 @@ async def detect_unauthorized_ips(session: AsyncSession) -> list[dict[str, Any]]
     return [{"ip": ip} for ip in unauthorized[:200]]
 
 
+async def detect_rogue_dhcp(
+    session: AsyncSession, *, within_days: int = 7,
+) -> list[dict[str, Any]]:
+    """在網段上回應 DHCP、但沒有被標記為 DHCP 伺服器的主機。
+
+    合法與否是**查詢時**才比對的：把它存成欄位的話，管理員事後把某台標記為合法，
+    舊記錄仍然會寫著非法。
+
+    `via_relay` 的回應不算 —— 經由中繼轉送過來的伺服器本來就不在這個網段上，
+    拿本網段的標記去判它會是必然的誤報。
+    """
+    from app.models.dhcp_sighting import DHCPSighting
+    from app.models.subnet import Subnet
+
+    cutoff = datetime.now(UTC) - timedelta(days=within_days)
+    rows = (await session.execute(
+        select(DHCPSighting, Subnet.cidr)
+        .join(Subnet, Subnet.id == DHCPSighting.subnet_id)
+        .where(DHCPSighting.last_seen_at >= cutoff,
+               DHCPSighting.via_relay.is_(False))
+        .order_by(DHCPSighting.last_seen_at.desc())
+        .limit(200)
+    )).all()
+    if not rows:
+        return []
+
+    # 哪些位址被標記為合法的 DHCP 伺服器（依子網路分開看：同一個 IP 字串在不同
+    # 網段是不同台機器）
+    marked = {
+        (r[0], str(r[1]))
+        for r in (await session.execute(
+            select(IPAddress.subnet_id, IPAddress.ip)
+            .where(IPAddress.is_dhcp_server.is_(True))
+        )).all()
+    }
+
+    out: list[dict[str, Any]] = []
+    for sighting, cidr in rows:
+        server_ip = str(sighting.server_ip)
+        if (sighting.subnet_id, server_ip) in marked:
+            continue
+        mac = str(sighting.server_mac) if sighting.server_mac else None
+        out.append({
+            "subnet_id": str(sighting.subnet_id),
+            "subnet_cidr": str(cidr),
+            "server_ip": server_ip,
+            "mac": mac,
+            "vendor": None,          # 下面統一補（一次查完 OUI，避免逐筆打 DB）
+            "offered_ip": str(sighting.offered_ip) if sighting.offered_ip else None,
+            "router": str(sighting.router) if sighting.router else None,
+            "first_seen_at": sighting.first_seen_at,
+            "last_seen_at": sighting.last_seen_at,
+        })
+
+    macs = [o["mac"] for o in out if o["mac"]]
+    if macs:
+        vendors = await vendor_map(session, macs)
+        for o in out:
+            if o["mac"]:
+                o["vendor"] = vendors.get(mac_prefix(o["mac"]))
+    return out
+
+
 async def run_detection(
     session: AsyncSession, *, notify_admins: bool = True,
 ) -> AnomalyReport:
@@ -242,6 +311,7 @@ async def run_detection(
         mac_drifts=await detect_mac_drifts(session),
         ghost_ips=await detect_ghost_ips(session),
         unauthorized_ips=await detect_unauthorized_ips(session),
+        rogue_dhcp=await detect_rogue_dhcp(session),
     )
 
     if notify_admins:
@@ -261,6 +331,7 @@ async def run_detection(
                 ("MAC 變動", "notif.anom_mac_drift", report.mac_drifts),
                 ("失聯 IP", "notif.anom_ghost", report.ghost_ips),
                 ("未授權 IP", "notif.anom_unauthorized", report.unauthorized_ips),
+                ("非法 DHCP 伺服器", "notif.anom_rogue_dhcp", report.rogue_dhcp),
             ):
                 if not items:
                     continue

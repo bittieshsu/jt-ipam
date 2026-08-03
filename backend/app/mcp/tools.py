@@ -1040,13 +1040,90 @@ async def list_subnet_ips(
 
 
 async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """OPNsense 防火牆清單（不含密鑰）。"""
+    """所有防火牆清單（OPNsense / pfSense / FortiGate，不含密鑰）。每筆帶 `vendor` 標明廠牌。
+
+    三種廠牌一起回：只回其中一種的話，模型會拿一份不完整的清單當成全部去回答
+    「我們有哪些防火牆」—— 那比答不出來更糟。
+    """
     from app.models.firewall import OPNsenseFirewall
-    rows = (await session.execute(select(OPNsenseFirewall).limit(limit))).scalars().all()
-    return {"firewalls": [{
-        "id": str(f.id), "name": f.name, "api_url": f.api_url, "enabled": f.enabled,
-        "last_sync_at": f.last_sync_at, "last_error": f.last_error, "description": f.description,
-    } for f in rows]}
+    from app.models.fortigate import FortiGateFirewall
+    from app.models.pfsense import PfSenseFirewall
+
+    out: list[dict[str, Any]] = []
+    for vendor, model in (("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
+                          ("fortigate", FortiGateFirewall)):
+        rows = (await session.execute(select(model).limit(limit))).scalars().all()
+        out.extend({
+            "id": str(f.id), "vendor": vendor, "name": f.name,
+            "api_url": getattr(f, "api_url", None), "enabled": f.enabled,
+            "last_sync_at": f.last_sync_at, "last_error": f.last_error,
+            "description": getattr(f, "description", None),
+        } for f in rows)
+    return {"firewalls": out[:limit]}
+
+
+async def list_dhcp_ranges(
+    session: AsyncSession, *, user: User, limit: int = 300,
+) -> dict[str, Any]:
+    """各整合同步回來的 DHCP 發放範圍（OPNsense / pfSense / FortiGate / Windows DHCP）。
+
+    每筆帶來源整合（`source_type` / `source_name`）與 DHCP 引擎（`source`：kea / isc /
+    windows）。「這個 IP 是不是落在 DHCP 池裡」這種問題要靠它，不能拿子網路去猜。
+    """
+    from app.models.dhcp import DHCPPoolRange
+    rows = (await session.execute(
+        select(DHCPPoolRange).order_by(DHCPPoolRange.source_type, DHCPPoolRange.start_ip)
+        .limit(limit)
+    )).scalars().all()
+    return {"ranges": [{
+        "source_type": r.source_type, "source_name": r.source_name,
+        "subnet_cidr": str(r.subnet_cidr) if r.subnet_cidr else None,
+        "start_ip": str(r.start_ip), "end_ip": str(r.end_ip),
+        "family": r.family, "engine": r.source, "synced_at": r.synced_at,
+    } for r in rows]}
+
+
+async def list_fortigate_policies(
+    session: AsyncSession, *, user: User,
+    firewall_name: str | None = None, vdom: str | None = None, limit: int = 200,
+) -> dict[str, Any]:
+    """FortiGate 防火牆政策（唯讀鏡像）。可依防火牆名稱與 VDOM 篩選。"""
+    from app.models.fortigate import FortiGateFirewall, FortiGatePolicy
+    stmt = select(FortiGatePolicy, FortiGateFirewall.name).join(
+        FortiGateFirewall, FortiGateFirewall.id == FortiGatePolicy.firewall_id)
+    if firewall_name:
+        stmt = stmt.where(FortiGateFirewall.name == firewall_name)
+    if vdom:
+        stmt = stmt.where(FortiGatePolicy.vdom == vdom)
+    rows = (await session.execute(
+        stmt.order_by(FortiGatePolicy.vdom, FortiGatePolicy.policyid).limit(limit))).all()
+    return {"policies": [{
+        "firewall": fw_name, "vdom": p.vdom, "policyid": p.policyid, "name": p.name,
+        "status": p.status, "action": p.action, "srcintf": p.srcintf, "dstintf": p.dstintf,
+        "srcaddr": p.srcaddr, "dstaddr": p.dstaddr, "service": p.service, "nat": p.nat,
+        "comments": p.comments,
+    } for p, fw_name in rows]}
+
+
+async def list_fortigate_addresses(
+    session: AsyncSession, *, user: User,
+    firewall_name: str | None = None, vdom: str | None = None, limit: int = 300,
+) -> dict[str, Any]:
+    """FortiGate 位址物件與位址群組（唯讀鏡像）。群組的 `members` 是成員名稱清單。"""
+    from app.models.fortigate import FortiGateAddressObject, FortiGateFirewall
+    stmt = select(FortiGateAddressObject, FortiGateFirewall.name).join(
+        FortiGateFirewall, FortiGateFirewall.id == FortiGateAddressObject.firewall_id)
+    if firewall_name:
+        stmt = stmt.where(FortiGateFirewall.name == firewall_name)
+    if vdom:
+        stmt = stmt.where(FortiGateAddressObject.vdom == vdom)
+    rows = (await session.execute(
+        stmt.order_by(FortiGateAddressObject.vdom, FortiGateAddressObject.name)
+        .limit(limit))).all()
+    return {"addresses": [{
+        "firewall": fw_name, "vdom": a.vdom, "name": a.name, "kind": a.kind,
+        "obj_type": a.obj_type, "value": a.value, "members": a.members, "comment": a.comment,
+    } for a, fw_name in rows]}
 
 
 async def list_firewall_rules(
@@ -1907,6 +1984,29 @@ async def list_connection_targets(
     return {"items": items, "count": len(items)}
 
 
+async def list_ai_findings(
+    session: AsyncSession, user: User, *, severity: str | None = None, limit: int = 20,
+) -> dict[str, Any]:
+    """AI 巡檢的未處理發現。
+
+    這些是模型自己的推測，不是查核過的事實 —— 一併回傳 `evidence`，讓對話端有依據
+    可以轉述，而不是把推測講成結論。
+    """
+    from app.models.ai_finding import AIFinding
+    stmt = select(AIFinding).where(AIFinding.status == "open")
+    if severity in ("low", "medium", "high"):
+        stmt = stmt.where(AIFinding.severity == severity)
+    rows = (await session.execute(
+        stmt.order_by(AIFinding.created_at.desc()).limit(max(1, min(int(limit), 100)))
+    )).scalars().all()
+    return {"note": "These are AI inferences, not verified facts.",
+            "findings": [{
+                "severity": f.severity, "category": f.category, "title": f.title,
+                "detail": f.detail, "recommendation": f.recommendation,
+                "evidence": f.evidence,
+                "found_at": f.created_at.isoformat() if f.created_at else None,
+            } for f in rows]}
+
 TOOLS: dict[str, dict[str, Any]] = {
     "search_ip": {
         "fn": search_ip,
@@ -2199,8 +2299,32 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_firewalls": {
         "fn": list_firewalls,
-        "description": "List OPNsense firewalls (no secrets).",
+        "description": ("List all firewalls across vendors — OPNsense, pfSense and FortiGate "
+                        "(no secrets). Each entry carries a `vendor` field."),
         "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}}},
+    },
+    "list_dhcp_ranges": {
+        "fn": list_dhcp_ranges,
+        "description": ("List DHCP pool ranges synced from the firewall / DHCP integrations "
+                        "(OPNsense, pfSense, FortiGate, Windows DHCP). Use this to tell whether "
+                        "an address falls inside a DHCP pool — do not guess from the subnet."),
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
+    "list_fortigate_policies": {
+        "fn": list_fortigate_policies,
+        "description": "List FortiGate firewall policies. Filter by firewall_name and/or vdom.",
+        "parameters": {"type": "object", "properties": {
+            "firewall_name": {"type": "string"}, "vdom": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
+    "list_fortigate_addresses": {
+        "fn": list_fortigate_addresses,
+        "description": ("List FortiGate address objects and address groups. "
+                        "Filter by firewall_name and/or vdom."),
+        "parameters": {"type": "object", "properties": {
+            "firewall_name": {"type": "string"}, "vdom": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
     "list_firewall_rules": {
         "fn": list_firewall_rules,
@@ -2251,6 +2375,16 @@ TOOLS: dict[str, dict[str, Any]] = {
         "fn": list_scan_agents,
         "description": "List scan agents and their status.",
         "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}}},
+    },
+    "list_ai_findings": {
+        "fn": list_ai_findings,
+        "description": "Open findings from the scheduled AI inventory review: severity, category, "
+                       "title, detail, recommendation and the evidence the model cited. These are "
+                       "the model's own inferences, not verified facts -- always present them as "
+                       "such and cite the evidence when relaying them.",
+        "parameters": {"type": "object", "properties": {
+            "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100}}},
     },
     "list_certificates": {
         "fn": list_certificates,
@@ -2526,6 +2660,8 @@ UTILITY_TOOLS: frozenset[str] = frozenset({
 
 # 全域基礎設施工具（無法逐物件授權）→ 僅 admin 或具萬用讀取權限者可呼叫。
 # 對應 CLAUDE.md 的 require_global_read 分類；只被指派特定物件的部門帳號一律擋。
+
+
 GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_vlans", "list_vrfs", "list_nat", "list_firewalls", "list_firewall_rules",
     "list_firewall_aliases", "list_dns_servers", "list_dns_zones", "list_dns_records",
@@ -2534,7 +2670,8 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
     "list_power", "list_wazuh_agents", "wazuh_missing_agents", "get_topology",
-    "list_certificates", "list_cert_distribution",
+    "list_certificates", "list_cert_distribution", "list_ai_findings",
+    "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
 })
 
 

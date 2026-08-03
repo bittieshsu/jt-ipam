@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import os
 import re
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 MAX_TARGETS = 64
@@ -197,11 +199,99 @@ def _ping_binary(target: str) -> str:
     return "ping"
 
 
+def icmp_socket_available() -> bool:
+    """能不能開非特權 ICMP datagram socket。
+
+    Linux 的 `net.ipv4.ping_group_range` 就是為此而生：群組落在範圍內即可送 ICMP，
+    **不需要任何 capability**。這比給整個後端 CAP_NET_RAW 安全得多。
+    """
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+    except OSError:
+        return False
+    sock.close()
+    return True
+
+
+def _icmp_echo(seq: int, ident: int, payload: bytes = b"jt-ipam") -> bytes:
+    """組一個 ICMP echo request（type 8）。核心會在送出時填好識別碼。"""
+    import struct
+    head = struct.pack("!BBHHH", 8, 0, 0, ident, seq)
+    chk = _checksum(head + payload)
+    return struct.pack("!BBHHH", 8, 0, chk, ident, seq) + payload
+
+
+def _checksum(data: bytes) -> int:
+    if len(data) % 2:
+        data += b"\x00"
+    total = 0
+    for i in range(0, len(data), 2):
+        total += (data[i] << 8) + data[i + 1]
+    total = (total >> 16) + (total & 0xFFFF)
+    total += total >> 16
+    return ~total & 0xFFFF
+
+
+async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
+    """用非特權 ICMP socket 自己送 echo request。
+
+    不呼叫外部 `ping` 的原因：服務單元設了 `NoNewPrivileges=true`，那會讓 `ping` 的
+    file capability（cap_net_raw）**完全失效** —— 在 shell 裡好好的，在服務底下卻連
+    127.0.0.1 都不通。自己開 datagram socket 就不需要任何 capability。
+    """
+    import socket
+    import struct
+
+    res = PingResult(target=target, sent=count)
+    loop = asyncio.get_running_loop()
+    try:
+        addr = await loop.getaddrinfo(target, None, family=socket.AF_INET,
+                                      type=socket.SOCK_DGRAM)
+        ip = addr[0][4][0]
+    except OSError as exc:
+        res.error = f"名稱解析失敗：{exc.strerror or exc}"
+        return res
+
+    rtts: list[float] = []
+    ident = os.getpid() & 0xFFFF
+    for seq in range(count):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+        sock.setblocking(False)
+        try:
+            t0 = time.monotonic()
+            await loop.sock_sendto(sock, _icmp_echo(seq, ident), (ip, 0))
+            try:
+                data = await asyncio.wait_for(loop.sock_recv(sock, 1024), timeout=timeout)
+            except TimeoutError:
+                continue
+            # 非特權 socket 收到的是不含 IP 標頭的 ICMP 訊息；type 0 = echo reply
+            if len(data) >= 8 and data[0] == 0:
+                got_seq = struct.unpack("!H", data[6:8])[0]
+                if got_seq == seq:
+                    rtts.append((time.monotonic() - t0) * 1000)
+        except OSError as exc:
+            res.error = exc.strerror or str(exc)
+            return res
+        finally:
+            sock.close()
+
+    res.received = len(rtts)
+    res.alive = res.received > 0
+    res.loss_pct = round((count - res.received) / count * 100, 1)
+    if rtts:
+        res.rtt_min_ms = round(min(rtts), 3)
+        res.rtt_avg_ms = round(sum(rtts) / len(rtts), 3)
+        res.rtt_max_ms = round(max(rtts), 3)
+    return res
+
+
 async def ping_many(
     targets: list[str], *, count: int = 3, timeout: float = 2.0, concurrency: int = 8,
 ) -> list[PingResult]:
     """對多個目標並行 ping。回傳順序與輸入一致（方便逐列對照）。"""
-    if shutil.which("ping") is None and shutil.which("ping6") is None:
+    native = icmp_socket_available()
+    if not native and shutil.which("ping") is None and shutil.which("ping6") is None:
         raise NetDiagUnavailable("伺服器上找不到 ping（請安裝 iputils-ping）")
     count = max(1, min(count, MAX_COUNT))
     concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
@@ -215,6 +305,8 @@ async def ping_many(
         async with sem:
             if time.monotonic() - started > OVERALL_DEADLINE:
                 return PingResult(target=t, error="整體時間上限已到，未執行")
+            if native:
+                return await _ping_native(t, count, timeout)
             argv = [_ping_binary(t), "-n", "-c", str(count), "-W", str(int(max(1, timeout))), t]
             try:
                 _, out = await _run(argv, per_target)
@@ -227,7 +319,11 @@ async def ping_many(
             if not res.sent and not res.alive:
                 # 沒有統計行通常是名稱解析失敗一類；把第一行原文帶回去比「失敗」有用
                 first = next((ln for ln in out.splitlines() if ln.strip()), "")
-                res.error = first[:200] or "沒有回應"
+                # 外部 ping 一個字都沒吐＝它自己起不來，多半是 NoNewPrivileges 讓
+                # cap_net_raw 失效。回「沒有回應」會被誤讀成「目標不通」——那是說謊。
+                res.error = first[:200] or (
+                    "ping 無法送出封包：服務沙箱使 cap_net_raw 失效，且此群組不在 "
+                    "net.ipv4.ping_group_range 內。這不代表目標不可達。")
             return res
 
     return list(await asyncio.gather(*(one(t) for t in targets)))
@@ -515,3 +611,240 @@ def _describe_reply(probe: str, data: bytes) -> str | None:
         stratum = data[1]
         return f"NTP stratum {stratum}" if stratum else "NTP (kiss-o'-death / 未同步)"
     return None
+
+
+# ─────────────────── TLS 憑證檢查 ───────────────────
+
+@dataclass
+class TlsResult:
+    target: str
+    port: int
+    ok: bool = False
+    subject: str | None = None
+    issuer: str | None = None
+    not_before: str | None = None
+    not_after: str | None = None
+    days_remaining: int | None = None
+    sans: list[str] = field(default_factory=list)
+    serial: str | None = None
+    sig_algorithm: str | None = None
+    tls_version: str | None = None
+    cipher: str | None = None
+    self_signed: bool = False
+    trusted: bool | None = None       # 對系統信任庫驗得過嗎
+    hostname_match: bool | None = None
+    error: str | None = None
+
+
+def _name_str(name: Any) -> str:
+    from cryptography.x509.oid import NameOID
+    try:
+        cn = name.get_attributes_for_oid(NameOID.COMMON_NAME)
+        if cn:
+            return str(cn[0].value)
+    except Exception:
+        pass
+    return name.rfc4514_string()
+
+
+async def tls_check(
+    targets: list[str], port: int = 443, *, server_name: str | None = None,
+    timeout: float = 5.0, concurrency: int = 8,
+) -> list[TlsResult]:
+    """看對方實際送出的是什麼憑證。
+
+    刻意**不驗證**就先取回憑證 —— 這支工具的用途正是「這台送的到底是哪一張、什麼時候到期」，
+    憑證有問題（自簽、過期、名稱不符）才更需要看得到。是否通過系統信任庫另外單獨回報，
+    不會因為驗不過就什麼都不給。
+    """
+    import ssl
+
+    from cryptography import x509
+
+    concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
+    timeout = max(1.0, min(timeout, 15.0))
+    sem = asyncio.Semaphore(concurrency)
+
+    async def one(host: str) -> TlsResult:
+        async with sem:
+            sni = server_name or host
+            res = TlsResult(target=host, port=port)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            writer = None
+            try:
+                _reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port, ssl=ctx, server_hostname=sni),
+                    timeout=timeout)
+                sslobj = writer.get_extra_info("ssl_object")
+                der = sslobj.getpeercert(binary_form=True)
+                res.tls_version = sslobj.version()
+                c = sslobj.cipher()
+                res.cipher = c[0] if c else None
+                cert = x509.load_der_x509_certificate(der)
+                res.ok = True
+                res.subject = _name_str(cert.subject)
+                res.issuer = _name_str(cert.issuer)
+                res.not_before = cert.not_valid_before_utc.isoformat()
+                res.not_after = cert.not_valid_after_utc.isoformat()
+                res.days_remaining = (cert.not_valid_after_utc
+                                      - datetime.now(UTC)).days
+                res.serial = format(cert.serial_number, "x")
+                res.sig_algorithm = cert.signature_algorithm_oid._name
+                res.self_signed = cert.subject == cert.issuer
+                try:
+                    san = cert.extensions.get_extension_for_class(
+                        x509.SubjectAlternativeName).value
+                    res.sans = san.get_values_for_type(x509.DNSName)
+                except x509.ExtensionNotFound:
+                    res.sans = []
+                res.hostname_match = _hostname_matches(sni, res.subject, res.sans)
+            except TimeoutError:
+                res.error = "逾時"
+            except ssl.SSLError as exc:
+                res.error = f"TLS 交握失敗：{exc.reason or exc}"
+            except OSError as exc:
+                res.error = exc.strerror or str(exc)
+            finally:
+                if writer is not None:
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except (OSError, ssl.SSLError):
+                        pass
+            if res.ok:
+                res.trusted = await _verify_trusted(host, port, sni, timeout)
+            return res
+
+    return list(await asyncio.gather(*(one(t) for t in targets)))
+
+
+def _hostname_matches(name: str, subject: str | None, sans: list[str]) -> bool:
+    """RFC 6125 的簡化比對：SAN 優先，沒有 SAN 才看 CN；支援單層萬用字元。"""
+    candidates = sans or ([subject] if subject else [])
+    n = name.lower().rstrip(".")
+    for c in candidates:
+        c = (c or "").lower().rstrip(".")
+        if c == n:
+            return True
+        if c.startswith("*.") and "." in n and n.split(".", 1)[1] == c[2:]:
+            return True
+    return False
+
+
+async def _verify_trusted(host: str, port: int, sni: str, timeout: float) -> bool:
+    """再連一次，這次開啟完整驗證 —— 通過與否單獨回報，不影響上面的憑證內容。"""
+    import ssl
+    ctx = ssl.create_default_context()
+    writer = None
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port, ssl=ctx, server_hostname=sni), timeout=timeout)
+        return True
+    except (ssl.SSLError, OSError, TimeoutError):
+        return False
+    finally:
+        if writer is not None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (OSError, ssl.SSLError):
+                pass
+
+
+# ─────────────────── HTTP 檢查 ───────────────────
+
+@dataclass
+class HttpHop:
+    url: str
+    status: int
+    location: str | None = None
+
+
+@dataclass
+class HttpResult:
+    url: str
+    ok: bool = False
+    status: int | None = None
+    final_url: str | None = None
+    elapsed_ms: float | None = None
+    server: str | None = None
+    content_type: str | None = None
+    hsts: str | None = None
+    redirects: list[HttpHop] = field(default_factory=list)
+    error: str | None = None
+
+
+async def http_check(url: str, *, timeout: float = 10.0, max_redirects: int = 5,
+                     verify_tls: bool = False) -> HttpResult:
+    """取狀態碼、轉址鏈與幾個關鍵標頭。
+
+    預設**不驗證 TLS**：這是診斷工具，對方憑證有問題正是要看的事情之一，
+    因驗證失敗而什麼都拿不到反而沒用（是否受信任請用 TLS 憑證檢查那支）。
+    """
+    import httpx
+
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    timeout = max(1.0, min(timeout, 30.0))
+    max_redirects = max(0, min(max_redirects, 10))
+    res = HttpResult(url=url)
+    current = url
+    t0 = time.monotonic()
+    try:
+        async with httpx.AsyncClient(verify=verify_tls, follow_redirects=False,
+                                     timeout=timeout, trust_env=False) as client:
+            for _ in range(max_redirects + 1):
+                r = await client.get(current)
+                if r.is_redirect and r.headers.get("location"):
+                    res.redirects.append(HttpHop(url=current, status=r.status_code,
+                                                 location=r.headers["location"]))
+                    current = str(r.next_request.url) if r.next_request else r.headers["location"]
+                    continue
+                res.ok = True
+                res.status = r.status_code
+                res.final_url = str(r.url)
+                res.server = r.headers.get("server")
+                res.content_type = r.headers.get("content-type")
+                res.hsts = r.headers.get("strict-transport-security")
+                break
+            else:
+                res.error = f"轉址超過 {max_redirects} 次"
+    except Exception as exc:
+        res.error = f"{type(exc).__name__}: {exc}"
+    res.elapsed_ms = round((time.monotonic() - t0) * 1000, 1)
+    return res
+
+
+# ─────────────────── 批次反向 DNS ───────────────────
+
+@dataclass
+class RdnsResult:
+    ip: str
+    ptr: str | None = None
+    error: str | None = None
+
+
+async def rdns_many(targets: list[str], *, timeout: float = 3.0,
+                    concurrency: int = 16) -> list[RdnsResult]:
+    """整批查 PTR。用途是「這個網段哪些位址沒有反解」—— 逐台查太慢也看不出全貌。"""
+    concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
+    timeout = max(0.5, min(timeout, 10.0))
+    loop = asyncio.get_running_loop()
+    sem = asyncio.Semaphore(concurrency)
+
+    async def one(ip: str) -> RdnsResult:
+        async with sem:
+            try:
+                info = await asyncio.wait_for(
+                    loop.getnameinfo((ip, 0), 0), timeout=timeout)
+            except TimeoutError:
+                return RdnsResult(ip=ip, error="逾時")
+            except OSError as exc:
+                return RdnsResult(ip=ip, error=exc.strerror or str(exc))
+            name = info[0]
+            # 沒有 PTR 時 getnameinfo 會把 IP 原樣回來 —— 那不是主機名稱
+            return RdnsResult(ip=ip, ptr=None if name == ip else name)
+
+    return list(await asyncio.gather(*(one(t) for t in targets)))

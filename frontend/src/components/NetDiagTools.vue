@@ -74,7 +74,7 @@
       </div>
 
       <!-- TCP 埠 -->
-      <div>
+      <div class="nd-wide">
         <n-card size="small">
           <template #header><CardTitle :icon="LinkIcon" :text="t('netdiag.tcp')" /></template>
           <n-input v-model:value="tcp.targets" type="textarea" :rows="2"
@@ -96,7 +96,7 @@
         </n-card>
       </div>
       <!-- UDP 埠 -->
-      <div>
+      <div class="nd-wide">
         <n-card size="small">
           <template #header><CardTitle :icon="LinkIcon" :text="t('netdiag.udp')" /></template>
           <n-input v-model:value="udp.targets" type="textarea" :rows="2"
@@ -119,6 +119,86 @@
                         :bordered="true" style="margin-top:8px" />
         </n-card>
       </div>
+      <!-- TLS 憑證檢查 -->
+      <div class="nd-wide">
+        <n-card size="small">
+          <template #header><CardTitle :icon="LockIcon" :text="t('netdiag.tls')" /></template>
+          <n-input v-model:value="tls.targets" type="textarea" :rows="2"
+                   :placeholder="t('netdiag.targets_ph')" />
+          <n-space align="center" :size="14" style="margin-top:10px" :wrap="true">
+            <span class="nd-lbl">{{ t("netdiag.port") }}
+              <n-input-number v-model:value="tls.port" :min="1" :max="65535" size="small" style="width:110px" />
+            </span>
+            <span class="nd-lbl">SNI
+              <n-input v-model:value="tls.sni" size="small" style="width:200px"
+                       :placeholder="t('netdiag.sni_ph')" />
+            </span>
+            <n-button type="primary" :loading="tls.busy" @click="runTls">
+              <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("netdiag.run") }}
+            </n-button>
+          </n-space>
+          <div class="nd-hint">{{ t("netdiag.tls_hint") }}</div>
+          <n-data-table v-if="tls.rows.length" size="small" :columns="tlsCols" :data="tls.rows"
+                        :bordered="true" :scroll-x="1050" style="margin-top:8px" />
+        </n-card>
+      </div>
+
+      <!-- HTTP 檢查 -->
+      <div class="nd-wide">
+        <n-card size="small">
+          <template #header><CardTitle :icon="DnsIcon" :text="t('netdiag.http')" /></template>
+          <n-space align="center" :size="14" :wrap="true">
+            <n-input v-model:value="http.url" style="width:420px"
+                     placeholder="https://example.com" @keyup.enter="runHttp" />
+            <span class="nd-lbl">{{ t("netdiag.timeout") }}
+              <n-input-number v-model:value="http.timeout" :min="1" :max="30" size="small" style="width:92px" />
+            </span>
+            <n-button type="primary" :loading="http.busy" @click="runHttp">
+              <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("netdiag.run") }}
+            </n-button>
+          </n-space>
+          <div class="nd-hint">{{ t("netdiag.http_hint") }}</div>
+          <template v-if="http.res">
+            <div class="nd-sum">
+              <span v-if="http.res.status">{{ http.res.status }} · {{ http.res.final_url }}</span>
+              <span v-else style="color:#d03050">{{ http.res.error }}</span>
+              <span v-if="http.res.elapsed_ms" style="opacity:.6;margin-left:8px">{{ http.res.elapsed_ms }} ms</span>
+            </div>
+            <n-descriptions v-if="http.res.status" bordered size="small" :column="2"
+                            label-placement="left" style="margin-top:8px">
+              <n-descriptions-item label="Server">{{ http.res.server || "—" }}</n-descriptions-item>
+              <n-descriptions-item label="Content-Type">{{ http.res.content_type || "—" }}</n-descriptions-item>
+              <n-descriptions-item label="HSTS" :span="2">{{ http.res.hsts || "—" }}</n-descriptions-item>
+            </n-descriptions>
+            <template v-if="http.res.redirects.length">
+              <div class="nd-hint" style="margin-top:8px">{{ t("netdiag.redirect_chain") }}</div>
+              <div v-for="(hop, i) in http.res.redirects" :key="i" class="nd-hop">
+                <b>{{ hop.status }}</b> {{ hop.url }} → {{ hop.location }}
+              </div>
+            </template>
+          </template>
+        </n-card>
+      </div>
+
+      <!-- 批次反向 DNS -->
+      <div class="nd-wide">
+        <n-card size="small">
+          <template #header><CardTitle :icon="DnsIcon" :text="t('netdiag.rdns')" /></template>
+          <n-input v-model:value="rdns.targets" type="textarea" :rows="2"
+                   :placeholder="t('netdiag.targets_ph')" />
+          <n-space align="center" :size="14" style="margin-top:10px" :wrap="true">
+            <n-button type="primary" :loading="rdns.busy" @click="runRdns">
+              <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("netdiag.run") }}
+            </n-button>
+          </n-space>
+          <div class="nd-hint">{{ t("netdiag.rdns_hint") }}</div>
+          <div v-if="rdns.rows.length" class="nd-sum">
+            {{ t("netdiag.rdns_summary", { n: rdns.withPtr, total: rdns.rows.length }) }}
+          </div>
+          <n-data-table v-if="rdns.rows.length" size="small" :columns="rdnsCols" :data="rdns.rows"
+                        :bordered="true" style="margin-top:8px" />
+        </n-card>
+      </div>
     </div>
   </div>
 </template>
@@ -127,10 +207,10 @@
 import { computed, h, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NAlert, NButton, NCard, NDataTable, NDivider, NIcon, NInput, NInputNumber,
-  NSpace, NTag, useMessage,
+  NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NDivider,
+  NIcon, NInput, NInputNumber, NSpace, NTag, useMessage,
 } from "naive-ui";
-import { LinkIcon, SearchIcon, TopologyIcon } from "@/icons";
+import { DnsIcon, LinkIcon, LockIcon, SearchIcon, TopologyIcon } from "@/icons";
 import { Antenna as LiveIcon } from "@iconoir/vue";
 import CardTitle from "@/components/CardTitle.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
@@ -147,6 +227,19 @@ interface PingRow {
 interface Hop { hop: number; host: string | null; rtt_ms: number | null; note: string | null }
 interface TraceRes { target: string; tool: string; path_mtu: number | null; truncated: boolean; hops: Hop[] }
 interface TcpRow { target: string; port: number; open: boolean; latency_ms: number | null; error: string | null }
+interface TlsRow {
+  target: string; port: number; ok: boolean; subject: string | null; issuer: string | null;
+  not_after: string | null; days_remaining: number | null; sans: string[];
+  self_signed: boolean; trusted: boolean | null; hostname_match: boolean | null;
+  tls_version: string | null; error: string | null;
+}
+interface HttpHopRow { url: string; status: number; location: string | null }
+interface HttpRes {
+  status: number | null; final_url: string | null; elapsed_ms: number | null;
+  server: string | null; content_type: string | null; hsts: string | null;
+  redirects: HttpHopRow[]; error: string | null;
+}
+interface RdnsRow { ip: string; ptr: string | null; error: string | null }
 interface UdpRow {
   target: string; port: number; state: "open" | "closed" | "no_reply";
   probe: string; latency_ms: number | null; reply_bytes: number | null; detail: string | null;
@@ -158,6 +251,9 @@ const ping = reactive({ targets: "", count: 3, timeout: 2, concurrency: 8, busy:
 const trace = reactive({ target: "", maxHops: 15, busy: false, res: null as TraceRes | null });
 const tcp = reactive({ targets: "", ports: "443, 22", timeout: 2, busy: false, rows: [] as TcpRow[] });
 const udp = reactive({ targets: "", ports: "53, 123", timeout: 3, busy: false, rows: [] as UdpRow[] });
+const tls = reactive({ targets: "", port: 443, sni: "", busy: false, rows: [] as TlsRow[] });
+const http = reactive({ url: "", timeout: 10, busy: false, res: null as HttpRes | null });
+const rdns = reactive({ targets: "", busy: false, withPtr: 0, rows: [] as RdnsRow[] });
 
 const pingSummary = computed(() => {
   const up = ping.rows.filter((r) => r.alive).length;
@@ -233,6 +329,74 @@ async function runUdp() {
   } catch (e) { msg.error(apiErrMsg(e)); } finally { udp.busy = false; }
 }
 
+// 憑證到期天數用顏色分級：30 天內紅、90 天內橘 —— 一眼看出哪張該處理
+function daysTag(d: number | null) {
+  if (d === null) return "—";
+  const color = d < 0 ? "#d03050" : d <= 30 ? "#d03050" : d <= 90 ? "#f0a020" : "#18a058";
+  return h("span", { style: `color:${color};font-weight:600` },
+    d < 0 ? t("netdiag.expired") : t("netdiag.days_left", { n: d }));
+}
+function yesNo(v: boolean | null, goodIsTrue = true) {
+  if (v === null) return "—";
+  const good = goodIsTrue ? v : !v;
+  return h("span", { style: `color:${good ? "#18a058" : "#f0a020"}` },
+    v ? t("common.yes") : t("common.no"));
+}
+
+const tlsCols = computed(() => [
+  { title: t("netdiag.target"), key: "target", width: 160 },
+  { title: t("netdiag.tls_subject"), key: "subject", width: 200,
+    render: (r: TlsRow) => r.subject || h("span", { style: "color:#d03050" }, r.error || "—") },
+  { title: t("netdiag.tls_issuer"), key: "issuer", width: 200 },
+  { title: t("netdiag.tls_expiry"), key: "days_remaining", width: 130,
+    render: (r: TlsRow) => daysTag(r.days_remaining) },
+  { title: t("netdiag.tls_trusted"), key: "trusted", width: 90, render: (r: TlsRow) => yesNo(r.trusted) },
+  { title: t("netdiag.tls_name_match"), key: "hostname_match", width: 100,
+    render: (r: TlsRow) => yesNo(r.hostname_match) },
+  { title: t("netdiag.tls_self_signed"), key: "self_signed", width: 90,
+    render: (r: TlsRow) => yesNo(r.self_signed, false) },
+  { title: "TLS", key: "tls_version", width: 100 },
+]);
+
+const rdnsCols = computed(() => [
+  { title: "IP", key: "ip", width: 200 },
+  { title: "PTR", key: "ptr",
+    render: (r: RdnsRow) => r.ptr || h("span", { style: "opacity:.5" }, t("netdiag.no_ptr")) },
+  { title: t("netdiag.note"), key: "error", render: (r: RdnsRow) => r.error || "" },
+]);
+
+async function runTls() {
+  if (!tls.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
+  tls.busy = true;
+  try {
+    const { data } = await apiClient.post("/api/v1/tools/net/tls", {
+      targets: tls.targets, port: tls.port, server_name: tls.sni || null,
+    });
+    tls.rows = data.results;
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { tls.busy = false; }
+}
+
+async function runHttp() {
+  if (!http.url.trim()) { msg.error(t("netdiag.need_target")); return; }
+  http.busy = true;
+  try {
+    const { data } = await apiClient.post("/api/v1/tools/net/http", {
+      url: http.url, timeout: http.timeout,
+    });
+    http.res = data;
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { http.busy = false; }
+}
+
+async function runRdns() {
+  if (!rdns.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
+  rdns.busy = true;
+  try {
+    const { data } = await apiClient.post("/api/v1/tools/net/rdns", { targets: rdns.targets });
+    rdns.rows = data.results;
+    rdns.withPtr = data.with_ptr;
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { rdns.busy = false; }
+}
+
 async function runPing() {
   if (!ping.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
   ping.busy = true;
@@ -278,21 +442,14 @@ onMounted(async () => {
 <style scoped>
 .nd-div { font-size: 13px; font-weight: 600; }
 /* 與上方計算工具用同一組格線參數（2 欄、12px、820px 收合），整頁節奏才一致 */
-.nd-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-items: start;
-}
-/* 輸入與結果表都寬的（ping、路徑追蹤）佔滿整列，硬塞成半欄反而更擠 */
+.nd-grid { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
 .nd-wide { grid-column: 1 / -1; }
-@media (max-width: 820px) {
-  .nd-grid { grid-template-columns: 1fr; }
-  .nd-wide { grid-column: auto; }
-}
+/* 表格儲存格不要從字中間斷行 —— "Connection refused" 曾被折成 "Connectio n refused" */
+.nd :deep(.n-data-table td) { word-break: keep-all; overflow-wrap: anywhere; }
 .nd-note { font-size: 12.5px; line-height: 1.7; color: var(--n-text-color-disabled); margin-bottom: 14px; }
 .nd-hint { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--n-text-color-disabled); }
 .nd-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .nd-udp-note { margin-top: 10px; font-size: 12px; line-height: 1.7; }
+.nd-hop { font-size: 12.5px; line-height: 1.7; opacity: .85; }
 .nd-sum { margin-top: 10px; font-size: 13px; font-weight: 600; }
 </style>

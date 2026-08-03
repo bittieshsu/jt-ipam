@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,28 @@ from app.models.system_setting import SystemSetting
 
 LLM_KEY = "llm"
 _TTL_SEC = 60.0
+MAX_AUDIT_TIMES = 12          # 一天排 12 次已經遠超需要，再多只是誤設
+
+
+def normalize_times(raw: Any) -> list[str]:
+    """把使用者/DB 給的排程時刻整理成乾淨的 "HH:MM" 清單（去重、排序、去掉不合法的）。
+
+    無法解析的項目**直接丟掉而不是報錯**：這是排程設定，一個打錯的字不該讓整組時刻
+    連同還能用的那些一起失效。
+    """
+    out: set[str] = set()
+    for item in raw if isinstance(raw, list) else []:
+        text = str(item).strip()
+        if ":" not in text:
+            continue
+        hh, _, mm = text.partition(":")
+        try:
+            h, m = int(hh), int(mm)
+        except ValueError:
+            continue
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            out.add(f"{h:02d}:{m:02d}")
+    return sorted(out)[:MAX_AUDIT_TIMES]
 
 
 @dataclass
@@ -36,6 +59,18 @@ class LLMConfig:
     mcp_external_enabled: bool = False
     mcp_api_key: str | None = None          # 明文（已解密）；僅程序內使用，不外傳
     mcp_principal_user_id: str | None = None  # MCP 金鑰所代表的管理員身份（唯讀，僅供 RBAC 可見範圍）
+    # AI 巡檢：定期讓模型檢視 IPAM 資料找可疑之處。預設關閉 —— 它會把資料送給 LLM，
+    # 該不該做是使用者的決定，不是升版就自動開始跑的事。
+    ai_audit_enabled: bool = False
+    # 每天在這些時刻各跑一次（"HH:MM"，伺服器本地時區）。用時刻而不是「每 N 小時」：
+    # 巡檢要排在離峰跑，間隔式排程會隨著每次執行時間漂移，最後跑在什麼時候沒人說得準。
+    ai_audit_times: list[str] = field(default_factory=lambda: ["03:30"])
+    # 巡檢用的模型。留空＝沿用對話模型 —— 巡檢是長提示詞的批次工作，適合的模型
+    # 不一定跟互動對話同一個（可以換更大的、或反過來換更省的）。
+    ai_audit_model: str | None = None
+    # 巡檢用的上下文長度。留空＝沿用對話模型的設定。開大一點可以一批塞更多資料
+    # （批次少、跑得快），代價是更多記憶體／VRAM。
+    ai_audit_num_ctx: int | None = None
 
 
 _MCP_AAD = b"llm:mcp_api_key"
@@ -112,6 +147,20 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
             cfg.mcp_api_key = _dec_mcp(str(v["mcp_api_key_enc"]))
         if v.get("mcp_principal_user_id"):
             cfg.mcp_principal_user_id = str(v["mcp_principal_user_id"])
+        if isinstance(v.get("ai_audit_enabled"), bool):
+            cfg.ai_audit_enabled = v["ai_audit_enabled"]
+        if v.get("ai_audit_model"):
+            cfg.ai_audit_model = str(v["ai_audit_model"]).strip() or None
+        if v.get("ai_audit_num_ctx") is not None:
+            try:
+                n = int(v["ai_audit_num_ctx"])
+                cfg.ai_audit_num_ctx = n if n > 0 else None
+            except (ValueError, TypeError):
+                pass
+        if isinstance(v.get("ai_audit_times"), list):
+            times = normalize_times(v["ai_audit_times"])
+            if times:
+                cfg.ai_audit_times = times
 
     _cache[LLM_KEY] = (now, cfg)
     return cfg
@@ -127,6 +176,10 @@ async def set_llm_config(
     timeout: float | None = None,
     num_ctx: int | None = None,
     mcp_external_enabled: bool | None = None,
+    ai_audit_enabled: bool | None = None,
+    ai_audit_times: list[str] | None = None,
+    ai_audit_model: str | None = None,
+    ai_audit_num_ctx: int | None = None,
     updated_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     row = await session.get(SystemSetting, LLM_KEY)
@@ -138,6 +191,18 @@ async def set_llm_config(
     if url is not None: current["url"] = str(url).strip().rstrip("/")
     if embedding_model is not None: current["embedding_model"] = embedding_model.strip()
     if chat_model is not None: current["chat_model"] = chat_model.strip()
+    if ai_audit_enabled is not None: current["ai_audit_enabled"] = bool(ai_audit_enabled)
+    # 空字串＝清掉，回去沿用對話模型（不是「存一個空模型名」）
+    if ai_audit_model is not None: current["ai_audit_model"] = ai_audit_model.strip() or None
+    # 0 ＝清掉，回去沿用對話模型的上下文長度
+    if ai_audit_num_ctx is not None:
+        current["ai_audit_num_ctx"] = int(ai_audit_num_ctx) if int(ai_audit_num_ctx) > 0 else None
+    if ai_audit_times is not None:
+        times = normalize_times(ai_audit_times)
+        # 一個時刻都排不出來就不要存 —— 存成空清單等於安靜地把排程關掉，
+        # 但畫面上開關還是開著
+        if times:
+            current["ai_audit_times"] = times
     if timeout is not None: current["timeout"] = float(timeout)
     if num_ctx is not None: current["num_ctx"] = int(num_ctx) if int(num_ctx) > 0 else None
     if mcp_external_enabled is not None: current["mcp_external_enabled"] = bool(mcp_external_enabled)
@@ -175,6 +240,39 @@ async def rotate_mcp_api_key(
     await session.commit()
     _bust()
     return key
+
+
+# ─────────────────── AI 巡檢的上次執行時間 ───────────────────
+AI_AUDIT_KEY = "ai_audit_state"
+
+
+async def get_ai_audit_last_run(session: AsyncSession) -> datetime | None:
+    """上次巡檢執行完成的時間（不論有沒有產生發現）。
+
+    這個必須獨立記錄，**不能拿最後一筆發現的時間當作「上次執行時間」**：一次乾淨的
+    巡檢什麼都不會寫，於是排程會誤判成「從沒跑過」，每一輪同步（約 5 分鐘）就再打
+    一次 LLM —— 環境越乾淨，模型被打得越兇。
+    """
+    row = await session.get(SystemSetting, AI_AUDIT_KEY)
+    if row and isinstance(row.value, dict):
+        v = row.value.get("last_run_at")
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v)
+            except ValueError:
+                return None
+    return None
+
+
+async def set_ai_audit_last_run(session: AsyncSession, *, at: datetime) -> None:
+    row = await session.get(SystemSetting, AI_AUDIT_KEY)
+    if row is None:
+        row = SystemSetting(key=AI_AUDIT_KEY, value={})
+        session.add(row)
+    row.value = {**(row.value or {}), "last_run_at": at.isoformat()}
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
 
 
 # ─────────────────── AI chat 歷程保留設定 ───────────────────

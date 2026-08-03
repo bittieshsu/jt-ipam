@@ -234,6 +234,10 @@ const menuOptions = computed<MenuOption[]>(() => {
         { label: () => t("nav.vpn_tunnels"),    key: "vpn-tunnels", icon: renderIcon(VpnIcon) },
       ],
     },
+    // LLM 沒啟用時整個藏起來：進去也只會看到一個按不動的「立即執行」
+    // （跟 AI 對話小工具同一個判斷）
+    ...(me.value?.ai_enabled
+      ? [{ label: () => t("nav.ai_audit"), key: "ai_audit", icon: renderIcon(AnomalyIcon) }] : []),
     { label: () => t("nav.tools"),       key: "tools",      icon: renderIcon(ToolsIcon) },
     { label: () => t("nav.tasks"),       key: "tasks",      icon: renderIcon(TasksIcon) },
   ];

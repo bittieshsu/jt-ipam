@@ -8,7 +8,7 @@ import {
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
-import { DevicesIcon, RefreshIcon, EditIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon } from "@/icons";
+import { DevicesIcon, RefreshIcon, EditIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon } from "@/icons";
 import { apiClient } from "@/api/client";
 import { listAddresses, updateAddress } from "@/api/addresses";
 import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
@@ -72,6 +72,9 @@ const location = ref<Location | null>(null);
 const rack = ref<Rack | null>(null);
 const rackDiagram = ref<RackDiagramData | null>(null);
 const addresses = ref<IPAddress[]>([]);
+// 手動標記（is_dhcp_server）與整合推導（dhcp_server_auto）都算 —— 與 IpRoleTags 判斷一致
+const dhcpServerIps = computed(() =>
+  addresses.value.filter((a: any) => a.is_dhcp_server || a.dhcp_server_auto).map((a) => a.ip));
 
 // 新增 IP 對應：把一個現有 IP 指派給本裝置（一個裝置可多 IP）
 const showLinkIp = ref(false);
@@ -257,6 +260,17 @@ onMounted(() => {
             <n-icon :size="22"><DevicesIcon /></n-icon>
             <span>{{ device.name }}</span>
             <n-tag :type="typeColor(device.type)" size="small">{{ t(`devices.type_${device.type}`) }}</n-tag>
+            <!-- 這台是不是 DHCP 伺服器，是由它名下的 IP 帶的旗標決定的；
+                 只在 IP 那層顯示的話，看裝置時完全不知道它扮演這個角色。 -->
+            <n-tooltip v-if="dhcpServerIps.length" trigger="hover">
+              <template #trigger>
+                <n-tag type="warning" size="small" :bordered="false">
+                  <template #icon><n-icon :component="DhcpServerIcon" /></template>
+                  {{ t("addresses.role_dhcp_server") }}
+                </n-tag>
+              </template>
+              {{ t("devices.dhcp_server_via", { ips: dhcpServerIps.join(", ") }) }}
+            </n-tooltip>
           </n-space>
         </template>
         <template #header-extra>

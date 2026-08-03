@@ -108,6 +108,7 @@ const form = ref({
   customer_id: null as string | null,
   is_pool: false,
   is_full: false,
+  ai_audit_enabled: true,
   scan_enabled: false,
   scan_method: ["icmp"] as string[],
   threshold_pct: null as number | null,
@@ -163,6 +164,7 @@ function resetForm() {
       master_subnet_id: (r as any).master_subnet_id ?? null,
       customer_id: r.customer_id ?? null,
       is_pool: r.is_pool, is_full: r.is_full,
+      ai_audit_enabled: r.ai_audit_enabled ?? true,
       scan_enabled: r.scan_enabled,
       scan_method: [...(r.scan_method ?? ["icmp"])],
       threshold_pct: r.threshold_pct,
@@ -180,6 +182,7 @@ function resetForm() {
       description: "",
       vlan_id: null, vrf_id: null, master_subnet_id: null, customer_id: null,
       is_pool: false, is_full: false,
+      ai_audit_enabled: true,
       scan_enabled: false, scan_method: ["icmp"],
       threshold_pct: null,
       scan_agent_id: null,
@@ -222,6 +225,7 @@ async function submit() {
         customer_id: form.value.customer_id ?? null,
         is_pool: form.value.is_pool,
         is_full: form.value.is_full,
+        ai_audit_enabled: form.value.ai_audit_enabled,
         scan_enabled: form.value.scan_enabled,
         scan_method: form.value.scan_method,
         threshold_pct: form.value.threshold_pct ?? null,
@@ -240,6 +244,7 @@ async function submit() {
         vrf_id: form.value.vrf_id ?? null,
         customer_id: form.value.customer_id ?? null,
         is_pool: form.value.is_pool, is_full: form.value.is_full,
+        ai_audit_enabled: form.value.ai_audit_enabled,
         scan_enabled: form.value.scan_enabled,
         scan_method: form.value.scan_method,
         threshold_pct: form.value.threshold_pct ?? null,
@@ -314,6 +319,14 @@ async function submit() {
         <n-space>
           <n-checkbox v-model:checked="form.is_pool">{{ t("subnets.is_pool") }}</n-checkbox>
           <n-checkbox v-model:checked="form.is_full">{{ t("subnets.is_full") }}</n-checkbox>
+        </n-space>
+      </n-form-item>
+      <n-form-item :label="t('subnets.ai_audit')">
+        <n-space vertical size="small" style="width: 100%">
+          <n-checkbox v-model:checked="form.ai_audit_enabled">
+            {{ t("subnets.ai_audit_enable") }}
+          </n-checkbox>
+          <span style="font-size: 12px; opacity: .7">{{ t("subnets.ai_audit_hint") }}</span>
         </n-space>
       </n-form-item>
       <n-form-item :label="t('subnets.scan')">

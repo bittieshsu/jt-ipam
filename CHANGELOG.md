@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.135] — 2026-08-03
+
+### Added
+- **Rogue DHCP server detection** (scan agent). The agent broadcasts one standard DHCPDISCOVER on the segment and records everything that answers; **any host handing out addresses that is not marked as a DHCP server** is listed in a red banner at the top of the Anomalies page, with its address, subnet, MAC, vendor, the address it offered and the gateway it pointed at. This is one of the few findings that almost always means something real — usually a consumer router someone plugged in, or a VM with DHCP left on, handing wrong addresses and gateways to the whole segment.
+  - **Off by default**: it broadcasts on the segment, so whether to do it is decided per subnet in that subnet's scan settings.
+  - Sends only DISCOVER, never REQUEST — it does not actually take an address.
+  - Whether a server is legitimate is decided **at query time**, not baked into the sighting: mark one as legitimate later and the old records follow, rather than leaving a permanently wrong "rogue" label behind.
+  - The comparison is per subnet — with overlapping ranges (several units sharing 192.168.1.0/24), one segment's marking is never mistaken for another's authorisation.
+  - Relayed offers are not flagged: that server was never on this segment to begin with.
+- **Each subnet can be included in or excluded from the AI review** — a tick box on the subnet edit page, or a multi-select under Admin → LLM / AI. Both write **the same field**, so either place works. Sensitive segments can be excluded entirely and are never sent to the model.
+- **AI review** — have the language model look over the IPAM data this system manages and flag what is suspicious, inconsistent or a security concern (addresses recorded as in use but never seen alive, hosts whose name and role disagree, duplicate or contradictory records, subnets with no monitoring coverage at all…). Three entry points: a new **AI review** page in the sidebar, a summary block on the dashboard, and an on/off switch plus schedule under Admin → LLM / AI (off by default). The schedule rides on the existing sync timer rather than adding a job; the page also has a **Run now** button so you do not have to wait for it.
+  - **Sampling goes through permissions first**: a review only sees what the account it runs as can see, rather than handing the whole database to the model.
+  - **Every finding carries its evidence**, with the IPs clickable so you can check the claim. Without evidence a finding is just an assertion you cannot verify.
+  - **Model output is treated as untrusted input**: invented severities and categories are downgraded, fields are truncated, and anything that will not parse is discarded whole.
+  - "Nothing found this time" and "the model is broken" are kept apart — conflate them and you either report a failure as all-clear, or all-clear as a failure.
+  - Findings are written in **the language of the account that ran them** (Traditional Chinese / English).
+  - **The model used for the review can be set separately** (Admin → LLM / AI). Leave it empty to use the AI chat model. A review sends a lot of data in one batch, which is a different trade-off from interactive chat — point it at a larger model for better judgement, or a smaller one to save compute.
+  - **The schedule is a list of times of day, not an interval** — add as many as you want. An interval drifts with each run, and after a few days nobody can say whether it hits the LLM at 3am or mid-morning. Times follow the server's timezone, which the settings page states outright.
+  - **The inventory is split into batches sized to the model's context**, and the run reports which batch it is on, how many addresses are in scope, which model is being used and how many findings so far — with a progress bar and elapsed time.
+  - **Runs as a background job**: "Run now" returns immediately and the review continues on the server. Close the tab, switch pages, reload — the progress and the result are still there when you come back. It used to be tied to the connection, so leaving the page cancelled the whole thing and ten minutes of work was simply gone.
+  - Pressing it again while one is running is refused (409) rather than queued — two at once is not faster, they starve the same LLM.
+  - **Caps the output length of each batch**: a model was observed stuck in a repetition loop, writing 54,000 characters in one batch and burning the entire timeout before failing.
+  - **Dismissing is permanent but reversible.** Once a finding is dismissed as a false positive, later reviews file the same finding straight into Dismissed instead of surfacing it again every day. Matching uses a fingerprint of category plus the evidence IP list, not the title — the model rewords titles every run, so title matching would almost never hit. Pressed it by mistake? Switch to "Dismissed" and press Restore.
+  - **Turns off the model's thinking mode**: thinking counts against the output budget — gemma4 was observed writing 10,401 characters of thinking in one batch, which truncated the actual answer and made all three batches unparseable, storing nothing. With it off, the same data produced 5 findings. Older Ollama versions that reject the parameter are automatically retried without it.
+  - **The review's context length (num_ctx) can be set separately**, empty meaning inherit from the chat model. It decides how many records fit in one batch: larger means fewer batches and a faster run, at the cost of memory/VRAM.
+  - **Truncated JSON keeps the findings that were completed**, instead of discarding the batch. Only a response with no complete finding at all counts as a failure.
+  - The schedule's "last run" is recorded on its own rather than inferred from the newest finding — otherwise a clean review writes nothing, the scheduler reads that as "never ran", and hits the LLM again every sync cycle (~5 minutes).
+- **AI chat and MCP catch up with the recent features**: `list_firewalls` now covers OPNsense, pfSense and FortiGate together (returning only one vendor lets the model present half a list as the whole thing); new `list_dhcp_ranges` (DHCP pool ranges synced from the integrations), `list_fortigate_policies`, `list_fortigate_addresses` and `list_ai_findings`. The system prompt now also mentions certificate custody and distribution, DHCP ranges and review findings.
+
+### Fixed
+
+- **The BIND 9 integration could not work at all** (customer report, since v0.5.129): it connects, shows as enabled, syncs without error — and returns zero DNS records, always. Two things were saved but never took effect:
+  - **There was no field for the zone list.** DNS has no way to enumerate zones, so the sync only reads zones that are listed explicitly — and the form had nowhere to list them, so no AXFR ever happened. The settings page now has a "Zones" field (reverse zones included), and a sync with none configured **fails with a clear message** instead of quietly returning nothing.
+  - **The TSIG key was never split.** The field asks for `algorithm:keyname:base64key`, but the backend treated the whole string as the secret and read the key name from somewhere that was never written — so the key name was always empty, which is the same as having no TSIG, and BIND refuses the transfer. It is now parsed as the placeholder describes.
+  - Also fixed: BIND9 settings were only written to extra_config when a username or TLS-verify option was present — BIND9 has neither, so even the zone list was discarded.
+
+- **Sending the whole inventory in one request overflowed the context, got truncated, and the model answered with prose — while the screen looked like "finished, nothing found".** In production, 360 addresses came to ~75,000 characters, far past `num_ctx=16384`; Ollama quietly drops the front of the prompt, so the model received half an instruction set and wrote a "network overview" essay instead. Fixed in three places: the data is **split into batches** sized to the context, Ollama is asked for `format=json` to force structured output, and the token estimate counts **CJK characters as one token each** (estimating Chinese at "4 characters per token" undercounts badly).
+- **A failed run was invisible on screen.** The error only appeared as a toast that disappears, while the "last run" timestamp updated anyway — together those read as success. Failures now leave a persistent error on the page, including what the model actually replied.
+- **500s from mismatched timestamp types**: the model declared a naive `DateTime` while the column is `timestamptz` — reads were fine, writing a timezone-aware value blew up. This broke dismissing a review finding entirely, and circuits' install / contract-end dates (a 500 when set through the API with a timezone). Added a test that sweeps every timestamp column across all models so it does not happen again.
+
+## [0.5.133] — 2026-08-02
+
+### Added
+- **Three more diagnostics in Tools → IP addresses**, all requiring no privileges:
+  - **TLS certificate check** — what the host actually serves: subject, issuer, validity with days remaining colour-coded, SAN, negotiated version and cipher. It fetches the certificate *without* verifying first, on purpose: a self-signed, expired or wrong-name certificate is exactly what you need to look at, and refusing to show it would defeat the point. Whether it validates against the system trust store, whether the name matches and whether it is self-signed are reported as separate columns rather than collapsing into "failed".
+  - **HTTP check** — status, the full redirect chain and the headers worth seeing (Server, Content-Type, HSTS).
+  - **Bulk reverse DNS** — which addresses in a range have a PTR and which do not, with a count. Establishing that one lookup at a time is tedious enough that people skip it.
+- **A device's detail page now shows when it is a DHCP server**, with a tooltip naming which of its addresses carries the role. The flag already existed and the IP list already displayed it; looking at the device gave no hint, so the same host told you different things depending on which page you opened.
+- The same role tags (gateway, DHCP server, in DHCP range) now appear on the IP detail page, which was showing less than the list it was reached from.
+
+### Fixed
+- **The connectivity diagnostics are no longer half in two columns and half in one.** Every one of them produces a result table, and half-width was too narrow — the TCP card was breaking "Connection refused" mid-word into "Connectio n refused". They are now uniformly full-width, and table cells no longer break inside a word. The calculators above stay in two columns: they are compact key-value widgets, so being consistently different reads better than forcing them to match.
+
 ## [0.5.132] — 2026-08-02
 
 ### Added

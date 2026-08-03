@@ -357,6 +357,44 @@ async def _run() -> int:
             await session.rollback()
             log.error("cert alert check failed: %s", exc)
 
+        # ── AI 巡檢 ──
+        # 沿用這個 timer 而不是另建一個：每輪只判斷「距上次是否已達設定的間隔」，
+        # 沒到就直接跳過。預設關閉，要在 管理 → LLM / AI 明確打開才會跑。
+        try:
+            from sqlalchemy import select as _s
+
+            from app.models.user import User
+            from app.services.ai_audit import due, run_audit
+            from app.services.system_config import get_ai_audit_last_run, get_llm_config
+
+            cfg = await get_llm_config(session)
+            if cfg.enabled and cfg.ai_audit_enabled:
+                # 用獨立記錄的「上次執行時間」，不是最後一筆發現的時間 ——
+                # 沒有發現的巡檢什麼都不會寫，靠發現回推會判成從沒跑過而每輪重跑
+                last = await get_ai_audit_last_run(session)
+                if due(last, cfg.ai_audit_times):
+                    # 排程沒有「發起者」，取一個管理員當取樣身分 —— 巡檢仍然走 RBAC，
+                    # 只是這裡的可見範圍由該管理員決定，而不是無條件全庫。
+                    principal = None
+                    if cfg.mcp_principal_user_id:
+                        principal = await session.get(User, cfg.mcp_principal_user_id)
+                    if principal is None:
+                        principal = (await session.execute(
+                            _s(User).where(User.is_admin.is_(True), User.is_active.is_(True))
+                            .order_by(User.created_at).limit(1)
+                        )).scalars().first()
+                    if principal is None:
+                        log.warning("ai audit: no admin to run as, skipped")
+                    else:
+                        r = await run_audit(session, principal)
+                        if r.error:
+                            log.error("ai audit failed: %s", r.error)
+                        else:
+                            log.info("ai audit: %s finding(s)", r.findings)
+        except Exception as exc:  # noqa: BLE001
+            await session.rollback()
+            log.error("ai audit check failed: %s", exc)
+
     return 1 if failed else 0
 
 

@@ -49,6 +49,7 @@ const routes: RouteRecordRaw[] = [
       { path: "subnets/:id", name: "subnet-detail", component: () => import("@/views/SubnetDetail.vue") },
       { path: "addresses", name: "addresses", component: () => import("@/views/Addresses.vue") },
       { path: "addresses/:id", name: "address-detail", component: () => import("@/views/IPDetail.vue") },
+      { path: "ai-audit", name: "ai_audit", component: () => import("@/views/AIAudit.vue") },
       { path: "ip-changes", name: "ip_changes", component: () => import("@/views/IPChanges.vue") },
       { path: "hostname-precedence", name: "hostname_precedence", component: () => import("@/views/HostnamePrecedence.vue"), meta: { admin: true } },
       { path: "racks", name: "racks", component: () => import("@/views/Racks.vue") },

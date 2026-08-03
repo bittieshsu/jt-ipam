@@ -23,7 +23,8 @@
     <n-spin v-else :show="loading">
       <div class="rows">
         <div v-for="r in rows" :key="r.ip_id" class="row">
-          <a class="row-label" :title="r.hostname || r.ip" @click="goIp(r.ip_id)">
+          <a class="row-label" :title="r.hostname ? `${r.ip} — ${r.hostname}` : r.ip"
+             @click="goIp(r.ip_id)">
             <span class="row-ip">{{ r.ip }}</span>
             <span v-if="r.hostname" class="row-host">{{ r.hostname }}</span>
           </a>
@@ -38,10 +39,15 @@
               </div>
             </n-tooltip>
           </div>
-          <span class="row-pct">
-            <template v-if="r.uptime_pct !== null">{{ r.uptime_pct }}%</template>
-            <template v-else>—</template>
-          </span>
+          <n-tooltip v-if="r.uptime_pct !== null" trigger="hover" :delay="80">
+            <template #trigger>
+              <span class="row-pct">{{ Math.round(r.uptime_pct) }}%</span>
+            </template>
+            <!-- 整數看趨勢、小數看差別：99% 跟 99.4% 在畫面上要能分得出來，
+                 但預設就秀三位小數只會讓一整欄變成雜訊 -->
+            <div style="font-variant-numeric:tabular-nums">{{ pct3(r.uptime_pct) }}%</div>
+          </n-tooltip>
+          <span v-else class="row-pct">—</span>
         </div>
       </div>
       <div class="rows-foot">
@@ -123,6 +129,11 @@ const optLoading = ref(false);
 // n-select 找不到 option 時會把 value（UUID）當標籤畫出來 —— 所以要自己留一份。
 const labelCache = ref<Record<string, string>>({});
 
+/** 百分比的小數三位（滑過去才看，預設只顯示整數）。 */
+function pct3(v: number): string {
+  return v.toFixed(3);
+}
+
 function ipLabel(ip: string, hostname: string | null): string {
   return hostname ? `${ip} — ${hostname}` : ip;
 }
@@ -203,15 +214,24 @@ watch(ids, load, { deep: true });
 .dash-uptime { width: 100%; }
 .rows { display: flex; flex-direction: column; gap: 6px; }
 /* 標籤固定寬、長條吃掉剩下全部 → 每一列的長條左右對齊 */
-.row { display: grid; grid-template-columns: 190px minmax(0, 1fr) 56px; align-items: center; gap: 10px; }
+.row { display: grid; grid-template-columns: 210px minmax(0, 1fr) 46px; align-items: center; gap: 10px; }
+/* IP 與主機名稱同一行、基線對齊：兩行式在每列高度不一致時（有些沒有主機名稱）
+   會讓整欄看起來參差不齊 */
 .row-label {
-  display: flex; flex-direction: column; line-height: 1.25; min-width: 0;
-  cursor: pointer; text-decoration: none;
+  display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  cursor: pointer; text-decoration: none; line-height: 1.4;
 }
 .row-label:hover .row-ip { color: #18a058; }
-.row-ip { font-size: 13px; font-weight: 600; color: var(--n-text-color); }
+.row-ip {
+  /* 固定寬度讓主機名稱在每一列都從同一個位置開始 —— 位址長度不一（192.168.1.3 vs
+     192.168.1.111），只靠 gap 的話主機名稱那一欄會參差不齊。放不下的（IPv6）才撐開。 */
+  flex: 0 0 auto; min-width: 112px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px; font-weight: 600; color: var(--n-text-color);
+  font-variant-numeric: tabular-nums;
+}
 .row-host {
-  font-size: 11.5px; color: var(--n-text-color-disabled);
+  flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--n-text-color-disabled);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .row-bar { display: flex; gap: 1px; height: 22px; }
@@ -221,12 +241,15 @@ watch(ids, load, { deep: true });
 .bar-partial { background: #f0a020; }
 .bar-down { background: #d03050; }
 .bar-unknown { background: var(--n-border-color); }
-.row-pct { font-size: 12px; font-weight: 600; text-align: right; color: var(--n-text-color); }
+.row-pct {
+  font-size: 12px; font-weight: 600; text-align: right; color: var(--n-text-color);
+  font-variant-numeric: tabular-nums; cursor: default; display: block;
+}
 .rows-foot {
   display: flex; justify-content: space-between; margin-top: 8px;
   font-size: 12px; color: var(--n-text-color-disabled);
   /* 對齊長條區（跳過左側標籤欄與右側百分比欄） */
-  padding-left: 200px; padding-right: 66px;
+  padding-left: 220px; padding-right: 56px;
 }
 .over { margin-top: 8px; font-size: 12px; color: #d03050; }
 </style>

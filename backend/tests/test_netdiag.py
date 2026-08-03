@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 from app.services import netdiag as nd
 
@@ -136,3 +138,20 @@ def test_udp_states_are_three_not_two():
     """
     r = nd.UdpResult(target="192.0.2.1", port=161)
     assert r.state == "no_reply"
+
+
+def test_hostname_matching_follows_san_then_cn_with_wildcards():
+    assert nd._hostname_matches("a.example.com", "CN=x", ["a.example.com"])
+    assert nd._hostname_matches("a.example.com", "CN=x", ["*.example.com"])
+    assert not nd._hostname_matches("a.b.example.com", "CN=x", ["*.example.com"])  # 只吃一層
+    assert not nd._hostname_matches("other.com", "CN=x", ["a.example.com"])
+    # 沒有 SAN 才退回 CN —— 有 SAN 就不該再看 CN
+    assert nd._hostname_matches("host.example", "host.example", [])
+    assert not nd._hostname_matches("host.example", "host.example", ["other.example"])
+
+
+def test_ping_failure_message_does_not_claim_the_target_is_down():
+    """權限不足時不能只說「沒有回應」—— 那會被讀成「目標不通」。"""
+    src = (pathlib.Path(nd.__file__)).read_text()
+    assert "這不代表目標不可達" in src
+    assert "ping_group_range" in src

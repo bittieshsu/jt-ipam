@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -532,8 +532,14 @@ def _build_chat_context(
                 "consistency), VPN tunnels (WireGuard / IPsec / OpenVPN, incl. site-to-"
                 "site), NAT, VLANs, VRFs, racks, sections, firewalls and their rules/"
                 "aliases, network topology (get_topology), ARP/FDB, IP-allocation "
-                "requests, scan agents, virtual machines, wireless links, customers, and "
-                "Wazuh security-coverage gaps (wazuh_missing_agents). Before saying you "
+                "requests, scan agents, virtual machines, wireless links, customers, "
+                "Wazuh security-coverage gaps (wazuh_missing_agents), TLS certificates and "
+                "their distribution to hosts (list_certificates / list_cert_distribution — "
+                "metadata only, private keys are never exposed), DHCP pool ranges "
+                "(list_dhcp_ranges), and AI review findings (list_ai_findings — these are "
+                "model inferences, not verified facts; say so when you repeat them). "
+                "list_firewalls covers OPNsense, pfSense and FortiGate together; FortiGate "
+                "policies and address objects have their own tools. Before saying you "
                 "cannot determine something, check whether a relevant tool exists and "
                 "call it (e.g. list_vpn_tunnels for site-to-site VPN, get_topology for "
                 "how things connect, list_firewall_rules for firewall policy). "
@@ -825,3 +831,123 @@ async def reindex_all(session: AsyncSession) -> dict[str, int]:
     await session.commit()
 
     return stats
+
+
+async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = None,
+                   model: str | None = None, force_json: bool = False,
+                   max_output_tokens: int | None = None, no_thinking: bool = False,
+                   num_ctx: int | None = None,
+                   on_chunk: Callable[[str, str], Awaitable[None]] | None = None) -> str:
+    """單次、不帶工具的對話 —— 給 AI 巡檢這類「送一段提示詞、要一段結構化輸出」的用途。
+
+    刻意**不掛 IPAM 工具**：巡檢的資料已經由呼叫端依可見範圍取好並放進提示詞裡，
+    再讓模型去呼叫工具只會多一條繞過權限的路。
+
+    `timeout` 留空＝用 LLM 設定裡的值（那個是為互動對話調的）。背景批次要自己給一個
+    夠長的值 —— 幾百筆資料的提示詞用互動逾時去跑，幾乎每次都會逾時。
+    `model` 留空＝用設定的對話模型。
+    `force_json=True` 會要求 Ollama 只輸出 JSON —— 光靠提示詞說「只回 JSON」不夠，
+    模型（尤其提示詞很長時）常常改寫一段散文回來。
+    `max_output_tokens` 限制產出長度。沒有上限的話，模型有機會卡在重複輸出的迴圈裡，
+    把整個逾時燒完才失敗（實測看過一批產出 34,000 字還沒停）。
+    `no_thinking=True` 關掉思考模式。**思考過程也算在產出額度裡** —— 實測 gemma4 一批
+    寫了 10,401 字的思考，結果真正的答案被額度切斷。舊版 Ollama 不認這個欄位，
+    被拒絕時會自動退回不帶它重送。
+    `on_chunk(片段, 種類)` 有給就改走串流：一批要跑好幾分鐘，沒有中途訊號的話畫面上
+    完全看不出模型是在算還是已經卡死。種類是 "thinking"（思考過程）或 "content"
+    （最終輸出）—— 會思考的模型前幾分鐘只吐 thinking，兩者要分開才講得清楚現況。
+    """
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    if not cfg.enabled:
+        raise AINotConfigured("Ollama is disabled")
+    url = f"{cfg.url.rstrip('/')}/api/chat"
+    body = {
+        "model": model or cfg.chat_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": on_chunk is not None,
+        "options": _chat_options(cfg),
+    }
+    if force_json:
+        body["format"] = "json"
+    if max_output_tokens:
+        body["options"] = {**body["options"], "num_predict": int(max_output_tokens)}
+    if num_ctx:
+        body["options"] = {**body["options"], "num_ctx": int(num_ctx)}
+    if no_thinking:
+        body["think"] = False
+    wait = timeout or cfg.timeout
+    try:
+        if on_chunk is not None:
+            return await _raw_chat_streamed(url, body, wait, on_chunk)
+        resp = await safe_request("POST", url, headers={"Content-Type": "application/json"},
+                                  json=body, timeout=wait)
+        if _rejected_think(resp):
+            body.pop("think", None)
+            resp = await safe_request("POST", url, headers={"Content-Type": "application/json"},
+                                      json=body, timeout=wait)
+    except UnsafeOutboundURL as exc:
+        raise AIError(f"SSRF guard: {exc}") from exc
+    except httpx.ReadTimeout as exc:
+        raise AIError(
+            f"LLM 伺服器在 {int(wait)} 秒內沒有回覆完（模型太慢或資料量太大）"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise AIError(f"transport: {exc.__class__.__name__}") from exc
+    if resp.status_code != 200:
+        raise AIError(f"Ollama chat {resp.status_code}: {resp.text[:200]}")
+    return str(((resp.json().get("message") or {}).get("content")) or "")
+
+
+def _rejected_think(resp: Any) -> bool:
+    """舊版 Ollama 不認 `think` 欄位 —— 認出這種錯誤，好退回不帶它重送。"""
+    if resp.status_code == 200 or "think" not in (resp.text or "").lower():
+        return False
+    return True
+
+
+async def _raw_chat_streamed(
+    url: str, body: dict[str, Any], wait: float,
+    on_chunk: Callable[[str, str], Awaitable[None]],
+) -> str:
+    """串流版：邊收邊回報，最後把整段內容拼回來給呼叫端解析。"""
+    try:
+        return await _stream_once(url, body, wait, on_chunk)
+    except AIError as exc:
+        # 舊版 Ollama 不認 `think`：拿掉重來一次，而不是整批失敗
+        if "think" not in str(exc).lower() or "think" not in body:
+            raise
+        body.pop("think", None)
+        return await _stream_once(url, body, wait, on_chunk)
+
+
+async def _stream_once(
+    url: str, body: dict[str, Any], wait: float,
+    on_chunk: Callable[[str, str], Awaitable[None]],
+) -> str:
+    parts: list[str] = []
+    async with safe_stream("POST", url, headers={"Content-Type": "application/json"},
+                           json=body, timeout=wait) as resp:
+        if resp.status_code != 200:
+            detail = (await resp.aread()).decode("utf-8", "replace")[:200]
+            raise AIError(f"Ollama chat {resp.status_code}: {detail}")
+        async for line in resp.aiter_lines():
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+            except ValueError:
+                continue          # Ollama 偶爾夾非 JSON 行；跳過即可
+            msg = data.get("message") or {}
+            # 會思考的模型（gemma4 等）先吐一大段 thinking，content 要等到最後才出現。
+            # 只看 content 的話，畫面會停住好幾分鐘完全沒有動靜 —— 實際上模型正在想。
+            thinking = str(msg.get("thinking") or "")
+            if thinking:
+                await on_chunk(thinking, "thinking")
+            piece = str(msg.get("content") or "")
+            if piece:
+                parts.append(piece)
+                await on_chunk(piece, "content")
+            if data.get("error"):
+                raise AIError(f"Ollama: {str(data['error'])[:200]}")
+    return "".join(parts)

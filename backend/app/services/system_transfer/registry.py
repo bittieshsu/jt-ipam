@@ -124,6 +124,11 @@ CATEGORY: dict[str, str] = {
     "notifications": "operational",
     "ai_chat_conversations": "operational",
     "ai_chat_messages": "operational",
+    # 巡檢發現是對「某一刻的資料」下的推測，搬到另一台機器未必還成立 —— 屬歷史紀錄，
+    # 不是要跟著搬的設定
+    "ai_findings": "operational",
+    # DHCP 觀測是「某個時刻在那個網路上看到的事」，換一台機器就不成立
+    "dhcp_sightings": "operational",
     "phpipam_migration_mapping": "operational",
     # oui
     "oui_vendors": "oui",

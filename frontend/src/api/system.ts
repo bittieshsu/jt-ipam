@@ -138,6 +138,11 @@ export interface LLMConfig {
   num_ctx?: number | null;
   mcp_external_enabled: boolean;
   mcp_api_key_set: boolean;
+  ai_audit_enabled: boolean;
+  ai_audit_times: string[];
+  ai_audit_model: string | null;
+  ai_audit_num_ctx: number | null;
+  server_timezone: string;
 }
 
 export interface LLMConfigPatch {
@@ -148,6 +153,10 @@ export interface LLMConfigPatch {
   timeout?: number;
   num_ctx?: number | null;
   mcp_external_enabled?: boolean;
+  ai_audit_enabled?: boolean;
+  ai_audit_times?: string[];
+  ai_audit_model?: string;
+  ai_audit_num_ctx?: number;
 }
 
 export async function getLLMConfig(): Promise<LLMConfig> {
@@ -239,5 +248,73 @@ export async function getUiDisplay(): Promise<UiDisplay> {
 }
 export async function setUiDisplay(p: UiDisplay): Promise<UiDisplay> {
   const { data } = await apiClient.put<UiDisplay>("/api/v1/system/ui-display", p);
+  return data;
+}
+
+
+// ── AI 巡檢 ──
+export interface AIFinding {
+  id: string; run_id: string; severity: "low" | "medium" | "high"; category: string;
+  title: string; detail: string; recommendation: string | null;
+  evidence: Record<string, unknown> | null;
+  object_type: string | null; object_id: string | null;
+  status: string; created_at: string | null;
+}
+export interface AIAuditSummary {
+  ip_count: number;
+  counts: { low: number; medium: number; high: number };
+  total: number; last_run_at: string | null;
+}
+
+export async function getAIAuditSummary(): Promise<AIAuditSummary> {
+  const { data } = await apiClient.get("/api/v1/ai-audit/summary");
+  return data;
+}
+export async function listAIFindings(params: { status?: string; severity?: string; page?: number; page_size?: number } = {}) {
+  const { data } = await apiClient.get("/api/v1/ai-audit/findings", { params });
+  return data as { items: AIFinding[]; total: number; page: number; page_size: number };
+}
+export async function runAIAudit(): Promise<{ task_id: string; status: string }> {
+  const { data } = await apiClient.post("/api/v1/ai-audit/run");
+  return data;
+}
+
+// 巡檢跑十幾分鐘，而且是背景作業 —— 進度存在作業列，不在瀏覽器裡。
+// 所以關掉分頁、切走再回來都看得到現況（之前綁在連線上，一離開就整個消失）。
+export interface AIAuditProgress {
+  stage?: "collecting" | "analyzing" | "saving" | "done";
+  current?: number;
+  total?: number;
+  ips?: number;
+  model?: string;
+  found?: number;
+  batch?: number;
+  written?: number;
+  phase?: string;
+}
+
+export interface AIAuditTask {
+  id: string;
+  status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  progress: number;
+  summary: { live?: AIAuditProgress; findings?: number; error?: string | null } | null;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export async function getAIAuditStatus(): Promise<{ task: AIAuditTask | null }> {
+  const { data } = await apiClient.get("/api/v1/ai-audit/status");
+  return data;
+}
+
+export async function dismissAIFindings(ids: string[]): Promise<{ dismissed: number }> {
+  const { data } = await apiClient.post("/api/v1/ai-audit/dismiss", { ids });
+  return data;
+}
+
+// 忽略會影響往後每一次巡檢（同一件事之後都自動忽略）→ 一定要能反悔
+export async function restoreAIFindings(ids: string[]): Promise<{ restored: number }> {
+  const { data } = await apiClient.post("/api/v1/ai-audit/restore", { ids });
   return data;
 }

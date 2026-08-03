@@ -7,7 +7,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NCard, NSpace, NIcon, NAlert, NSwitch, NInput, NInputNumber, NSelect, NButton, NTag,
+  NCard, NSpace, NIcon, NAlert, NSwitch, NInput, NInputNumber, NSelect, NButton, NTag, NTimePicker,
   NPopconfirm, NModal, useMessage,
 } from "naive-ui";
 import {
@@ -15,7 +15,9 @@ import {
   type LLMConfig, type LLMConfigPatch, type OllamaModel,
 } from "@/api/system";
 import { listMcpTools, type McpTool } from "@/api/chat";
-import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon } from "@/icons";
+import { listSubnets, setAIAuditScope } from "@/api/subnets";
+import type { Subnet } from "@/types";
+import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon, AnomalyIcon, PlusIcon, DeleteIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
@@ -53,6 +55,66 @@ const chatModelOptions = computed(() =>
     ...o,
     disabled: isEmbedModel(o.value) && o.value !== llm.value?.chat_model,
   })));
+// 巡檢模型下拉：同樣排除嵌入模型；清空＝沿用對話模型（不是「沒有模型」）
+const auditModelOptions = computed(() =>
+  modelOptions.value.map((o) => ({
+    ...o,
+    disabled: isEmbedModel(o.value) && o.value !== llm.value?.ai_audit_model,
+  })));
+
+// 巡檢範圍。存的是每個子網路的 ai_audit_enabled 欄位（跟子網路編輯頁同一個），
+// 不是另外存一份清單 —— 存兩份遲早會出現「這裡看是開的、那裡看是關的」。
+const subnets = ref<Subnet[]>([]);
+const subnetsLoading = ref(false);
+const auditScope = ref<string[]>([]);
+const subnetOptions = computed(() => subnets.value.map((s) => ({
+  label: s.description ? `${s.cidr} — ${s.description}` : s.cidr,
+  value: s.id,
+})));
+
+async function loadSubnets() {
+  subnetsLoading.value = true;
+  try {
+    const r = await listSubnets({ pageSize: 500 });
+    subnets.value = r.items;
+    auditScope.value = r.items.filter((s) => s.ai_audit_enabled).map((s) => s.id);
+  } catch { /* 沒權限或載入失敗 → 這一格留空，不擋整頁 */ } finally { subnetsLoading.value = false; }
+}
+
+async function saveScope(ids: string[]) {
+  try {
+    await setAIAuditScope(ids);
+    msg.success(t("common.saved"));
+  } catch (e) { msg.error(apiErrMsg(e)); await loadSubnets(); }
+}
+
+// 排程時刻。n-time-picker 吃毫秒時間戳，設定存的是 "HH:MM" —— 兩邊在這裡轉換。
+const auditTimes = computed(() => llm.value?.ai_audit_times?.length
+  ? [...llm.value.ai_audit_times] : ["03:30"]);
+
+function hhmmToMs(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map((x) => Number(x) || 0);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+
+function setTime(index: number, formatted: string | null) {
+  if (!formatted) return;
+  const next = [...auditTimes.value];
+  next[index] = formatted;
+  patch({ ai_audit_times: next });
+}
+
+function addTime() {
+  patch({ ai_audit_times: [...auditTimes.value, "12:00"] });
+}
+
+function removeTime(index: number) {
+  const next = auditTimes.value.filter((_, i) => i !== index);
+  // 一個都不留等於安靜地把排程關掉，但開關還是開著 —— 後端也會擋，這裡先不讓它發生
+  if (next.length) patch({ ai_audit_times: next });
+}
 
 async function loadModels() {
   modelsLoading.value = true;
@@ -167,7 +229,7 @@ async function loadTools() {
   catch { /* ignore */ }
 }
 
-onMounted(() => { void load(); void loadTools(); });
+onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
 </script>
 
 <template>
@@ -250,6 +312,81 @@ onMounted(() => { void load(); void loadTools(); });
       </div>
     </n-space>
     <p v-else style="opacity: 0.7">{{ t("common.loading") }}</p>
+  </n-card>
+
+  <!-- AI 巡檢排程 -->
+  <n-card v-if="llm" style="margin-top:16px">
+    <template #header>
+      <n-space align="center" :size="8">
+        <n-icon :size="18" :component="AnomalyIcon" />
+        <span>{{ t("llm_settings.audit_title") }}</span>
+      </n-space>
+    </template>
+    <n-alert type="warning" :bordered="false" :show-icon="true" style="margin-bottom:14px">
+      {{ t("llm_settings.audit_warning") }}
+    </n-alert>
+    <n-space vertical :size="14">
+      <div>
+        <n-switch :value="llm.ai_audit_enabled"
+                  @update:value="(v: boolean) => patch({ ai_audit_enabled: v })" />
+        <span style="margin-left:10px">{{ t("llm_settings.audit_enabled") }}</span>
+        <p class="hint">{{ t("llm_settings.audit_enabled_hint") }}</p>
+      </div>
+      <div>
+        <label>{{ t("llm_settings.audit_model") }}</label>
+        <n-select
+          :value="llm.ai_audit_model"
+          :options="auditModelOptions"
+          :loading="modelsLoading"
+          :disabled="!llm.ai_audit_enabled"
+          :placeholder="t('llm_settings.audit_model_inherit', { model: llm.chat_model })"
+          clearable
+          filterable
+          style="max-width: 420px"
+          @update:value="(v: string | null) => patch({ ai_audit_model: v ?? '' })"
+        />
+        <p class="hint">{{ t("llm_settings.audit_model_hint") }}</p>
+      </div>
+      <div>
+        <label>{{ t("llm_settings.audit_num_ctx") }}</label>
+        <n-input-number :value="llm.ai_audit_num_ctx" :min="0" :max="131072" :step="2048"
+                        :disabled="!llm.ai_audit_enabled" clearable style="width: 220px"
+                        :placeholder="String(llm.num_ctx ?? 4096)"
+                        @update:value="(v: number | null) => patch({ ai_audit_num_ctx: v ?? 0 })" />
+        <p class="hint">{{ t("llm_settings.audit_num_ctx_hint", { n: llm.num_ctx ?? 4096 }) }}</p>
+      </div>
+      <div>
+        <label>{{ t("llm_settings.audit_scope") }}</label>
+        <n-select v-model:value="auditScope" multiple filterable clearable
+                  :options="subnetOptions" :loading="subnetsLoading"
+                  :disabled="!llm.ai_audit_enabled"
+                  :placeholder="t('llm_settings.audit_scope_none')"
+                  style="max-width: 560px" @update:value="saveScope" />
+        <p class="hint">{{ t("llm_settings.audit_scope_hint") }}</p>
+      </div>
+      <div>
+        <label>{{ t("llm_settings.audit_times") }}</label>
+        <div class="times">
+          <div v-for="(tm, i) in auditTimes" :key="i" class="time-row">
+            <n-time-picker :value="hhmmToMs(tm)" format="HH:mm" :disabled="!llm.ai_audit_enabled"
+                           style="width: 130px"
+                           @update:formatted-value="(v: string | null) => setTime(i, v)" />
+            <n-button quaternary size="small" :disabled="!llm.ai_audit_enabled || auditTimes.length <= 1"
+                      @click="removeTime(i)">
+              <template #icon><n-icon><DeleteIcon /></n-icon></template>
+            </n-button>
+          </div>
+          <n-button size="small" dashed :disabled="!llm.ai_audit_enabled || auditTimes.length >= 12"
+                    @click="addTime">
+            <template #icon><n-icon><PlusIcon /></n-icon></template>
+            {{ t("llm_settings.audit_add_time") }}
+          </n-button>
+        </div>
+        <p class="hint">
+          {{ t("llm_settings.audit_times_hint", { tz: llm.server_timezone || "—" }) }}
+        </p>
+      </div>
+    </n-space>
   </n-card>
 
   <!-- 對外提供 MCP：讓其它系統（外部 LLM 客戶端 / 自動化）以 HTTP 呼叫本站 MCP -->
@@ -397,6 +534,8 @@ label {
   margin-bottom: 4px;
   opacity: 0.8;
 }
+.times { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.time-row { display: flex; align-items: center; gap: 2px; }
 .hint { margin: 4px 0 0; font-size: 12px; opacity: 0.6; line-height: 1.5; max-width: 560px; }
 .tools-cap { margin: 0 0 12px; font-size: 13px; opacity: 0.7; }
 .tool-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }

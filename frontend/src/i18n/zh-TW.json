@@ -287,7 +287,8 @@
     "windows_dhcp": "整合 Windows DHCP",
     "pfsense_fw": "防火牆 (pfSense)",
     "fortigate_fw": "防火牆 (FortiGate)",
-    "api_tokens": "API 權杖"
+    "api_tokens": "API 權杖",
+    "ai_audit": "AI 巡檢"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1153,7 +1154,10 @@
     "allow_overlap_hint": "允許與現有網段重疊（例如同 CIDR 但單位 / 地點不同）",
     "ip_total": "IP 總數",
     "scan_agent_local": "本機直接掃（jt-ipam 主機）",
-    "err_scan_agent_required": "已啟用掃描，請選擇掃描方式：本機直接掃 或 指定掃描代理（Docker／跨網段請選代理）"
+    "err_scan_agent_required": "已啟用掃描，請選擇掃描方式：本機直接掃 或 指定掃描代理（Docker／跨網段請選代理）",
+    "ai_audit": "AI 巡檢",
+    "ai_audit_enable": "納入 AI 巡檢",
+    "ai_audit_hint": "勾選後，這個子網路的位址會被納入排程巡檢送給語言模型分析。取消勾選就完全不送 —— 敏感網段可以在這裡排除。"
   },
   "csv_import": {
     "title": "匯入 IP 清單 (CSV)",
@@ -1280,7 +1284,8 @@
     "rack_side": "占寬",
     "rack_side_full": "整 U（全寬）",
     "rack_side_left": "左半 U",
-    "rack_side_right": "右半 U"
+    "rack_side_right": "右半 U",
+    "dhcp_server_via": "此裝置名下的 {ips} 被標示為 DHCP 伺服器"
   },
   "locations": {
     "site": "場域",
@@ -1485,7 +1490,10 @@
     "help_windows_dns": "透過 WinRM 連到 Windows DNS 主機；帳號需 DNS 管理權，建議走 HTTPS (5986)。",
     "help_ucs": "直接呼叫 Univention UCS 的 UDM REST API（/univention/udm/…），不連 UCS 內的 BIND9。API URL 填 https://<ucs主機>；帳號用具 DNS 寫權者（如 Administrator）；自簽憑證可關閉「驗證 TLS 憑證」。",
     "edit": "編輯 DNS 服務",
-    "error_username_required": "帳號必填（此 DNS 類型以帳密認證）"
+    "error_username_required": "帳號必填（此 DNS 類型以帳密認證）",
+    "zones": "Zone 清單（BIND9）",
+    "zones_ph": "例：corp.local、9.42.10.in-addr.arpa（輸入後按 Enter）",
+    "zones_hint": "DNS 協定沒有「列出所有 zone」的方法，所以要明確指定要同步哪些 zone（含反解 zone）。沒有指定的話同步會跑完但一筆記錄都沒有。BIND 端也要允許本系統對這些 zone 做 AXFR（allow-transfer）。"
   },
   "scope_overlap": {
     "warning": "偵測到有重疊網段（同一個 IP 存在於多個子網路）。此整合未設定「限定子網路範圍」，同步時可能把上線狀態／DHCP／MAC 標到錯誤單位的同 IP。建議在下方指定關聯子網路範圍。"
@@ -1679,7 +1687,10 @@
     "explain_ip_conflicts": "同一個 IP 在最近 1 小時的 ARP 記錄中對應到兩個以上的 MAC。標成「本地管理/隨機」的位址沒有廠商登記 —— 虛擬機、容器、以及手機的 MAC 隱私隨機化都會產生這種位址；同一個 IP 同時出現「真實 MAC ＋ 隨機 MAC」，通常是同一台裝置換了位址（重新連線、遷移、網卡接手），不是兩台機器在搶同一個 IP。真正需要處理的，是兩個 MAC 都查得到廠商、且分屬不同裝置的情況。",
     "explain_mac_drifts": "同一個 MAC 在最近 1 小時內出現在兩個以上的交換器埠。正常情況是裝置換了位置或無線漫遊；若同一時間出現在多個埠，可能是網路迴圈或 MAC 被偽造。",
     "explain_ghost_ips": "IPAM 中登記為已配發，但長時間沒有任何存活跡象（掃描代理與 LibreNMS 都沒看到）的 IP。多半是已退役卻沒回收的登記，可用來清理位址空間。",
-    "explain_unauthorized_ips": "在網路上實際偵測到、但 IPAM 裡沒有登記的 IP。可能是未經申請就自行設定的裝置，也可能只是還沒補登記。"
+    "explain_unauthorized_ips": "在網路上實際偵測到、但 IPAM 裡沒有登記的 IP。可能是未經申請就自行設定的裝置，也可能只是還沒補登記。",
+    "rogue_dhcp": "非法 DHCP 伺服器",
+    "rogue_dhcp_warn": "以下主機在網段上回應了 DHCP 請求，但沒有被標記為 DHCP 伺服器。這通常代表有人接了不該接的設備（家用路由器、誤開 DHCP 的虛擬機），會把錯誤的位址與閘道發給其他機器。確認無誤的話，請到該 IP 的詳細資料把它標記為 DHCP 伺服器。",
+    "explain_rogue_dhcp": "在網段上回應 DHCP、但沒有被標記為 DHCP 伺服器的主機。這代表有東西在發 IP，而它不在你的規劃裡 —— 常見來源是有人接了家用路由器、或某台虛擬機忘了關 DHCP。需要掃描代理開啟「DHCP 伺服器偵測」探測才會有資料。"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2283,7 +2294,22 @@
     "tools_title": "jt-ipam MCP 工具",
     "tools_intro": "AI 助理與外部 MCP 客戶端可呼叫以下 {n} 個工具（其中 {m} 個會異動資料、執行前需確認）。查詢類即時回答；異動類在 AI 對話中會先停下來請你按「確認」。",
     "tools_mutating": "異動",
-    "tools_readonly": "唯讀"
+    "tools_readonly": "唯讀",
+    "audit_title": "AI 巡檢排程",
+    "audit_enabled": "啟用排程巡檢",
+    "audit_enabled_hint": "啟用後，系統會在下方設定的時刻自動把 IPAM 資料送給語言模型分析，找出可疑或有資安疑慮之處。預設關閉。",
+    "audit_warning": "巡檢會把子網路、IP、裝置的結構性資料（位址、主機名稱、狀態、最後出現時間等）送到你設定的 LLM 伺服器。取樣範圍依執行身分的權限決定，不會超出其可見範圍；但仍請確認該 LLM 伺服器是你信任的環境。",
+    "audit_model": "巡檢使用的模型",
+    "audit_model_inherit": "沿用對話模型（{model}）",
+    "audit_model_hint": "留空＝跟 AI 對話用同一個模型。巡檢是一次送進大量資料的批次工作，跟互動對話的取捨不一樣 —— 可以另外指定較大的模型換取判斷品質，或指定較小的模型省算力。",
+    "audit_times": "排程時間",
+    "audit_add_time": "新增時間",
+    "audit_times_hint": "每天在這些時刻各跑一次。時間以伺服器時區為準（{tz}）。用時刻而不是「每 N 小時」，是因為間隔式排程會跟著每次執行時間往後漂，跑幾天之後就沒人說得準它是在半夜還是上班時間打 LLM。",
+    "audit_scope": "巡檢範圍（子網路）",
+    "audit_scope_none": "尚未選擇任何子網路",
+    "audit_scope_hint": "只有列在這裡的子網路會被送給模型分析。這裡跟子網路編輯頁的「納入 AI 巡檢」是同一個設定，改哪邊都一樣。",
+    "audit_num_ctx": "巡檢的上下文長度（num_ctx）",
+    "audit_num_ctx_hint": "留空＝沿用對話模型的設定（目前 {n}）。這個值決定一批能塞多少筆資料：開大一點批次變少、整體更快，代價是更多記憶體／VRAM。設太小的話資料會被切成很多批，模型也更容易漏掉跨網段的問題。"
   },
   "rack_diagram": {
     "empty": "此機櫃尚無裝置",
@@ -2727,7 +2753,8 @@
     "cert_deployed_body": "代理「{agent}」已在 {profile} 套用「{cert}」的新版憑證。",
     "cert_deployed_body_nosvc": "代理「{agent}」已套用「{cert}」的新版憑證。",
     "ghost_reminder": "失聯 IP 提醒：{cidr}",
-    "ghost_reminder_body": "子網路 {cidr} 有 {n} 個 IP 失聯超過 {days} 天（由 {user} 提出）。"
+    "ghost_reminder_body": "子網路 {cidr} 有 {n} 個 IP 失聯超過 {days} 天（由 {user} 提出）。",
+    "anom_rogue_dhcp": "非法 DHCP 伺服器：新增 {count} 筆"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",
@@ -2928,6 +2955,73 @@
     "udp_open": "確定開啟",
     "udp_closed": "確定關閉",
     "udp_no_reply": "無法判定",
-    "udp_note": "UDP 沒有交握，「沒有回應」無法判定 —— 可能是開著但不回應、被防火牆丟棄，或封包遺失，所以獨立成一種狀態而不是當成開啟。「確定關閉」是收到 ICMP port unreachable。對 53（DNS）與 123（NTP）會送出真實的協定封包，收到協定回應才算確定開啟。"
+    "udp_note": "UDP 沒有交握，「沒有回應」無法判定 —— 可能是開著但不回應、被防火牆丟棄，或封包遺失，所以獨立成一種狀態而不是當成開啟。「確定關閉」是收到 ICMP port unreachable。對 53（DNS）與 123（NTP）會送出真實的協定封包，收到協定回應才算確定開啟。",
+    "tls": "TLS 憑證檢查",
+    "http": "HTTP 檢查",
+    "rdns": "批次反向 DNS",
+    "tls_subject": "憑證主體",
+    "tls_issuer": "簽發者",
+    "tls_expiry": "效期",
+    "tls_trusted": "受信任",
+    "tls_name_match": "名稱相符",
+    "tls_self_signed": "自簽",
+    "sni_ph": "留空＝用目標本身",
+    "expired": "已過期",
+    "days_left": "剩 {n} 天",
+    "no_ptr": "（無 PTR）",
+    "redirect_chain": "轉址過程",
+    "tls_hint": "顯示對方實際送出的憑證。刻意不先驗證就取回 —— 憑證有問題（自簽、過期、名稱不符）正是最需要看到的時候；是否通過系統信任庫另外單獨標示，不會因為驗不過就什麼都不給。",
+    "http_hint": "取狀態碼、轉址過程與關鍵標頭。預設不驗證 TLS，對方憑證有問題時仍拿得到結果（要看憑證請用上方的 TLS 憑證檢查）。",
+    "rdns_hint": "整批查 PTR，用來找出網段裡哪些位址沒有反解 —— 逐台查太慢也看不出全貌。",
+    "rdns_summary": "有 PTR 的 {n} / {total}"
+  },
+  "ai_audit": {
+    "title": "AI 巡檢",
+    "run_now": "立即執行",
+    "view_all": "查看全部",
+    "none": "目前沒有未處理的發現",
+    "all_severity": "所有嚴重度",
+    "st_open": "未處理",
+    "st_dismissed": "已忽略",
+    "dismiss": "忽略",
+    "recommendation": "建議",
+    "evidence": "依據資料",
+    "last_run": "最後執行：{at}",
+    "run_done": "完成，產生 {n} 筆發現",
+    "sev_high": "高",
+    "sev_medium": "中",
+    "sev_low": "低",
+    "cat_exposure": "對外暴露",
+    "cat_stale": "疑似遺留",
+    "cat_conflict": "資料衝突",
+    "cat_naming": "命名不符",
+    "cat_coverage": "監測涵蓋",
+    "cat_policy": "政策落差",
+    "cat_other": "其他",
+    "disclaimer": "以下是語言模型對 IPAM 資料的推測，不是查核過的事實。模型可能用非常肯定的語氣講錯話 —— 請對照每筆發現附上的「依據資料」自行判斷後再行動。",
+    "dashboard_note": "AI 推測，非查核事實",
+    "stage_collecting": "正在取樣資料…",
+    "stage_analyzing": "模型分析中…",
+    "stage_saving": "儲存結果…",
+    "stage_done": "完成",
+    "progress_hint": "第 {batch} 批 · 共 {ips} 筆 IP · 模型 {model} · 目前找到 {found} 筆",
+    "run_failed": "上次執行失敗：",
+    "progress_written": "模型已寫出 {n} 字",
+    "progress_thinking": "模型思考中（已 {n} 字）",
+    "run_unknown_error": "執行失敗（沒有錯誤訊息）",
+    "run_background": "巡檢在背景執行，可以離開這一頁",
+    "ev_note": "說明",
+    "ev_reason": "原因",
+    "ev_hostnames": "主機名稱",
+    "ev_subnets": "子網路",
+    "ev_devices": "裝置",
+    "ev_details": "細節",
+    "related_ips": "相關 IP",
+    "restore": "取消忽略",
+    "dismiss_done": "已忽略。往後的巡檢再找到同一件事也會自動忽略；要改回來請切到「已忽略」按「取消忽略」。"
+  },
+  "ip_peek": {
+    "not_found": "IPAM 中查無這個位址",
+    "role": "角色"
   }
 }

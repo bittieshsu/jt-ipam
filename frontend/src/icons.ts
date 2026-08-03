@@ -113,6 +113,8 @@ export const UpgradeIcon = ArrowUpCircle;
 export const InfoIcon = InfoCircle;
 export const EyeIcon = Eye;
 export const EyeOffIcon = EyeClosed;
+// 「忽略」：判斷為誤報而收起來，不是刪除 —— 用閉眼比用叉叉貼切
+export const DismissIcon = EyeClosed;
 
 // ── 狀態 ──
 export const OkIcon = CheckCircle;

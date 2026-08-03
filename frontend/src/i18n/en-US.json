@@ -287,7 +287,8 @@
     "windows_dhcp": "Windows DHCP",
     "pfsense_fw": "Firewall (pfSense)",
     "fortigate_fw": "Firewall (FortiGate)",
-    "api_tokens": "API tokens"
+    "api_tokens": "API tokens",
+    "ai_audit": "AI review"
   },
   "topbar": {
     "search": "Search…",
@@ -1153,7 +1154,10 @@
     "allow_overlap_hint": "Allow overlapping an existing subnet (e.g. same CIDR but different unit / location)",
     "ip_total": "Total IPs",
     "scan_agent_local": "Local scan (jt-ipam host)",
-    "err_scan_agent_required": "Scanning is enabled — choose how to scan: the local host, or a scan agent (use an agent for Docker / cross-segment)."
+    "err_scan_agent_required": "Scanning is enabled — choose how to scan: the local host, or a scan agent (use an agent for Docker / cross-segment).",
+    "ai_audit": "AI review",
+    "ai_audit_enable": "Include in AI review",
+    "ai_audit_hint": "When ticked, addresses in this subnet are included in the scheduled review sent to the language model. Untick to exclude it entirely — useful for sensitive segments."
   },
   "csv_import": {
     "title": "Import addresses (CSV)",
@@ -1280,7 +1284,8 @@
     "rack_side": "Width",
     "rack_side_full": "Full U",
     "rack_side_left": "Left half",
-    "rack_side_right": "Right half"
+    "rack_side_right": "Right half",
+    "dhcp_server_via": "{ips} on this device is marked as a DHCP server"
   },
   "locations": {
     "site": "Site",
@@ -1485,7 +1490,10 @@
     "help_windows_dns": "Connects to a Windows DNS host over WinRM; the account needs DNS admin rights — prefer HTTPS (5986).",
     "help_ucs": "Calls the Univention UCS UDM REST API (/univention/udm/…) directly — not the internal BIND9. API URL = https://<ucs-host>; use an account with DNS write rights (e.g. Administrator); turn off TLS verification for self-signed certs.",
     "edit": "Edit DNS server",
-    "error_username_required": "Username is required (this DNS type uses credential auth)"
+    "error_username_required": "Username is required (this DNS type uses credential auth)",
+    "zones": "Zones (BIND9)",
+    "zones_ph": "e.g. corp.local, 9.42.10.in-addr.arpa (press Enter after each)",
+    "zones_hint": "DNS has no way to enumerate zones, so the zones to sync must be listed explicitly (including reverse zones). Without them the sync completes but returns nothing. BIND must also allow this system to AXFR those zones (allow-transfer)."
   },
   "scope_overlap": {
     "warning": "Overlapping subnets detected (the same IP exists in more than one subnet). This integration has no subnet scope set, so a sync may stamp liveness / DHCP / MAC onto the wrong tenant's copy of an IP. Consider setting the subnet scope below."
@@ -1679,7 +1687,10 @@
     "explain_ip_conflicts": "One IP seen with two or more MACs in the last hour of ARP data. Addresses tagged as locally administered have no vendor registration — virtual machines, containers and phone MAC randomisation all produce them. An IP showing both a real MAC and a randomised one is usually a single device that changed address (reconnect, migration, NIC failover) rather than two machines fighting over an IP. The ones worth acting on are those where both MACs resolve to a vendor and belong to different devices.",
     "explain_mac_drifts": "One MAC seen on two or more switch ports within the last hour. Normally this is a device that moved or roamed; seen on several ports at once it can mean a network loop or a spoofed MAC.",
     "explain_ghost_ips": "IPs marked as assigned in IPAM but with no sign of life for a long time (neither the scan agent nor LibreNMS has seen them). Usually decommissioned hosts whose records were never reclaimed — useful for cleaning up address space.",
-    "explain_unauthorized_ips": "IPs actually seen on the network but not recorded in IPAM. Could be a device configured without going through a request, or simply a record not added yet."
+    "explain_unauthorized_ips": "IPs actually seen on the network but not recorded in IPAM. Could be a device configured without going through a request, or simply a record not added yet.",
+    "rogue_dhcp": "Rogue DHCP servers",
+    "rogue_dhcp_warn": "These hosts answered a DHCP request on the segment but are not marked as DHCP servers. Usually that means something is plugged in that should not be — a consumer router, or a VM with DHCP left on — handing out wrong addresses and gateways to other machines. If one is legitimate, mark it as a DHCP server on that address's detail page.",
+    "explain_rogue_dhcp": "Hosts that answered DHCP on a segment but are not marked as DHCP servers. Something is handing out addresses that is not in your plan — usually a consumer router someone plugged in, or a VM with DHCP left on. Requires the \"DHCP server discovery\" probe to be enabled on the scan agent."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2283,7 +2294,22 @@
     "tools_title": "jt-ipam MCP tools",
     "tools_intro": "The AI assistant and external MCP clients can call these {n} tools ({m} of which change data and require confirmation). Read-only tools answer instantly; mutating ones pause in the AI chat for you to confirm.",
     "tools_mutating": "Mutating",
-    "tools_readonly": "Read-only"
+    "tools_readonly": "Read-only",
+    "audit_title": "AI review schedule",
+    "audit_enabled": "Enable scheduled review",
+    "audit_enabled_hint": "When on, IPAM data is sent to the language model at the times set below to look for anything suspicious or a security concern. Off by default.",
+    "audit_warning": "The review sends structural data about subnets, IPs and devices (addresses, hostnames, status, last-seen times) to the LLM server you configured. Sampling follows the permissions of the account it runs as and never exceeds what that account can see — but do make sure that LLM server is somewhere you trust.",
+    "audit_model": "Model used for the review",
+    "audit_model_inherit": "Same as the chat model ({model})",
+    "audit_model_hint": "Leave empty to use the same model as AI chat. A review sends a lot of data in one batch, which is a different trade-off from interactive chat — you can point it at a larger model for better judgement, or a smaller one to save compute.",
+    "audit_times": "Schedule",
+    "audit_add_time": "Add time",
+    "audit_times_hint": "Runs once at each of these times every day, in the server's timezone ({tz}). Times rather than an interval, because an interval drifts with each run — after a few days nobody can say whether it hits the LLM at 3am or mid-morning.",
+    "audit_scope": "Scope (subnets)",
+    "audit_scope_none": "No subnets selected",
+    "audit_scope_hint": "Only the subnets listed here are sent to the model. This is the same setting as \"Include in AI review\" on the subnet edit page — changing either changes both.",
+    "audit_num_ctx": "Context length for the review (num_ctx)",
+    "audit_num_ctx_hint": "Leave empty to use the chat model's setting (currently {n}). This decides how many records fit in one batch: larger means fewer batches and a faster run, at the cost of memory/VRAM. Too small and the data is split into many batches, which also makes cross-subnet problems easier for the model to miss."
   },
   "rack_diagram": {
     "empty": "No devices in this rack",
@@ -2727,7 +2753,8 @@
     "cert_deployed_body": "Agent “{agent}” applied the new “{cert}” certificate to {profile}.",
     "cert_deployed_body_nosvc": "Agent “{agent}” applied the new “{cert}” certificate.",
     "ghost_reminder": "Stale IP reminder: {cidr}",
-    "ghost_reminder_body": "Subnet {cidr} has {n} IPs stale for over {days} days (raised by {user})."
+    "ghost_reminder_body": "Subnet {cidr} has {n} IPs stale for over {days} days (raised by {user}).",
+    "anom_rogue_dhcp": "Rogue DHCP servers: {count} new"
   },
   "system_transfer": {
     "title": "System Export / Import",
@@ -2928,6 +2955,73 @@
     "udp_open": "Open",
     "udp_closed": "Closed",
     "udp_no_reply": "Indeterminate",
-    "udp_note": "UDP has no handshake, so silence proves nothing — the port may be open but not replying, filtered by a firewall, or the packet may have been lost. That is reported as its own state rather than as open. \"Closed\" means an ICMP port unreachable came back. Ports 53 (DNS) and 123 (NTP) get a real protocol packet, so a protocol reply is what makes them definitively open."
+    "udp_note": "UDP has no handshake, so silence proves nothing — the port may be open but not replying, filtered by a firewall, or the packet may have been lost. That is reported as its own state rather than as open. \"Closed\" means an ICMP port unreachable came back. Ports 53 (DNS) and 123 (NTP) get a real protocol packet, so a protocol reply is what makes them definitively open.",
+    "tls": "TLS certificate check",
+    "http": "HTTP check",
+    "rdns": "Bulk reverse DNS",
+    "tls_subject": "Subject",
+    "tls_issuer": "Issuer",
+    "tls_expiry": "Validity",
+    "tls_trusted": "Trusted",
+    "tls_name_match": "Name match",
+    "tls_self_signed": "Self-signed",
+    "sni_ph": "blank = use the target",
+    "expired": "expired",
+    "days_left": "{n} days left",
+    "no_ptr": "(no PTR)",
+    "redirect_chain": "Redirect chain",
+    "tls_hint": "Shows the certificate the host actually serves. It is fetched without verifying first on purpose — a broken certificate (self-signed, expired, wrong name) is exactly when you need to see it. Whether it validates against the system trust store is reported separately rather than turning into a failure.",
+    "http_hint": "Status, redirect chain and the headers that matter. TLS is not verified by default so you still get a result from a host with certificate problems (use the TLS check above to inspect the certificate).",
+    "rdns_hint": "Looks up PTR records in bulk to find which addresses in a range have no reverse DNS — tedious to establish one lookup at a time.",
+    "rdns_summary": "{n} of {total} have a PTR"
+  },
+  "ai_audit": {
+    "title": "AI review",
+    "run_now": "Run now",
+    "view_all": "View all",
+    "none": "No open findings",
+    "all_severity": "All severities",
+    "st_open": "Open",
+    "st_dismissed": "Dismissed",
+    "dismiss": "Dismiss",
+    "recommendation": "Recommendation",
+    "evidence": "Evidence",
+    "last_run": "Last run: {at}",
+    "run_done": "Done — {n} finding(s)",
+    "sev_high": "High",
+    "sev_medium": "Medium",
+    "sev_low": "Low",
+    "cat_exposure": "Exposure",
+    "cat_stale": "Stale",
+    "cat_conflict": "Conflict",
+    "cat_naming": "Naming",
+    "cat_coverage": "Coverage",
+    "cat_policy": "Policy",
+    "cat_other": "Other",
+    "disclaimer": "These are a language model's inferences about your IPAM data, not verified facts. Models state wrong things confidently — check the evidence attached to each finding and judge for yourself before acting on it.",
+    "dashboard_note": "AI inference, not verified fact",
+    "stage_collecting": "Collecting data…",
+    "stage_analyzing": "Model is analysing…",
+    "stage_saving": "Saving results…",
+    "stage_done": "Done",
+    "progress_hint": "Batch {batch} · {ips} addresses · model {model} · {found} finding(s) so far",
+    "run_failed": "Last run failed: ",
+    "progress_written": "{n} characters written",
+    "progress_thinking": "model is thinking ({n} characters)",
+    "run_unknown_error": "Run failed (no error message)",
+    "run_background": "The review runs in the background — you can leave this page",
+    "ev_note": "note",
+    "ev_reason": "reason",
+    "ev_hostnames": "hostnames",
+    "ev_subnets": "subnets",
+    "ev_devices": "devices",
+    "ev_details": "details",
+    "related_ips": "IPs involved",
+    "restore": "Restore",
+    "dismiss_done": "Dismissed. Future reviews will auto-dismiss the same finding; to undo, switch to \"Dismissed\" and press Restore."
+  },
+  "ip_peek": {
+    "not_found": "Not found in IPAM",
+    "role": "Role"
   }
 }

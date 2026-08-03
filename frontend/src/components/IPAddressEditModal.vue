@@ -19,6 +19,7 @@ import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } fro
 import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
 import { getHostnameSources, clearHostnameSource, type HostnameSources } from "@/api/hostname";
 import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon } from "@/icons";
+import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useCustomers } from "@/composables/useCustomers";
@@ -684,7 +685,12 @@ async function remove() {
                         :label-style="{ width: '132px', whiteSpace: 'nowrap', verticalAlign: 'top' }"
                         :content-style="{ verticalAlign: 'top', wordBreak: 'break-word', minWidth: '160px' }">
           <n-descriptions-item :label="t('addresses.ip')">{{ props.address?.ip }}</n-descriptions-item>
-          <n-descriptions-item :label="t('common.status')">{{ labelState(props.address?.state) }}</n-descriptions-item>
+          <n-descriptions-item :label="t('common.status')">
+            {{ labelState(props.address?.state) }}
+            <!-- 角色旗標（閘道 / DHCP 伺服器 / 在 DHCP 範圍內…）清單頁早就顯示了，
+                 詳細資料頁卻看不到 —— 同一個 IP 在兩個畫面資訊不一致很容易誤判。 -->
+            <IpRoleTags v-if="props.address" :row="props.address" style="margin-left:8px" />
+          </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.hostname')">
             <span>{{ props.address?.hostname ?? "—" }}</span>
             <n-tag v-if="hostnameSources?.pin" size="tiny" type="warning" :bordered="false"

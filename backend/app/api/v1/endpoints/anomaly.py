@@ -36,6 +36,7 @@ async def scan(
             "mac_drifts": len(report.mac_drifts),
             "ghost_ips": len(report.ghost_ips),
             "unauthorized_ips": len(report.unauthorized_ips),
+            "rogue_dhcp": len(report.rogue_dhcp),
         },
         request_id=getattr(request.state, "request_id", None),
     )
