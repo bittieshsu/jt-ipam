@@ -27,6 +27,9 @@ import {
   Refresh,
   RefreshDouble,
   ArrowUpCircle,
+  Percentage,
+  SortDown,
+  SortUp,
   Search,
   Xmark,
   LinkSlash,
@@ -44,6 +47,7 @@ import {
   Internet,
   IpAddressTag,
   Server,
+  Text,
   ServerConnection,
   Settings,
   GraphUp,
@@ -75,6 +79,7 @@ import {
   SunLight,
   Database,
   Send,
+  Activity,
   Antenna,
   BrainResearch,
   Flash,
@@ -138,6 +143,11 @@ export const DashboardIcon = Home;
 export const SectionsIcon = Folder;
 export const SubnetsIcon = Network;
 export const AddressesIcon = IpAddressTag;
+// 排序控制項用：排序欄位（IP／主機名稱／可用率）與方向（遞增／遞減）
+export const HostnameIcon = Text;
+export const SlaIcon = Percentage;
+export const SortAscIcon = SortUp;
+export const SortDescIcon = SortDown;
 export const IPChangesIcon = ClockRotateRight;
 export const VlansIcon = Internet;
 export const VrfsIcon = Link;
@@ -152,8 +162,10 @@ export const LocationsIcon = MapPin;
 export const PinIcon = Pin;
 export const RequestsIcon = MultiplePages;
 export const TopologyIcon = GraphUp;
-// 連線診斷（ping / traceroute / port…）：實際送封包的那一類工具
-export const NetDiagIcon = Antenna;
+// 連線診斷（ping / traceroute / port…）：實際送封包的那一類工具。
+// 不能用 Antenna —— 那是「無線連線」與「掃描代理」在用的，選單上會撞在一起。
+// 用脈搏線：這一類工具量的就是「通不通、多快」。
+export const NetDiagIcon = Activity;
 export const FitIcon = ScaleFrameEnlarge;
 export const SendIcon = SendDiagonal;
 export const ToolsIcon = Hammer;

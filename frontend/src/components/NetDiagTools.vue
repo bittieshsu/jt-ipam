@@ -1,8 +1,7 @@
 <template>
   <div class="nd">
-    <n-divider style="margin: 22px 0 14px">
-      <span class="nd-div">{{ t("netdiag.section") }}</span>
-    </n-divider>
+    <!-- 已經是獨立頁籤，不必再放一條寫著同樣字的分隔線；說明留著（它講的是
+         「封包從伺服器送出、不是從你的電腦」，那件事不會因為換了位置就不用講） -->
     <div class="nd-note">{{ t("netdiag.section_note") }}</div>
 
     <div class="nd-grid">
@@ -227,7 +226,7 @@ sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart jt-ipam-backend</
 import { computed, h, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NDivider, NModal,
+  NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NModal,
   NIcon, NInput, NInputNumber, NSpace, NTag, useMessage,
 } from "naive-ui";
 import { DnsIcon, LinkIcon, LockIcon, NetDiagIcon as LiveIcon, SearchIcon, TopologyIcon } from "@/icons";

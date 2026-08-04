@@ -93,6 +93,7 @@ async def _enrich_special_flags(
     from urllib.parse import urlparse
 
     from app.models.dhcp import DHCPPoolRange
+    from app.models.dhcp_sighting import DHCPSighting
     from app.models.firewall import OPNsenseFirewall
     from app.models.pfsense import PfSenseFirewall
 
@@ -114,11 +115,24 @@ async def _enrich_special_flags(
             h = urlparse(url).hostname if url else None
             if h:
                 fw_ips.add(h)
+    # 掃描代理實際觀測到「這個位址在回應 DHCP」的時間。設定與實測是兩件事：
+    # 標記了不代表真的在發，沒標記也不代表沒有在發 —— 兩個都要看得到。
+    observed: dict[tuple[Any, str], Any] = {}
+    for sub_id, srv_ip, seen in (await session.execute(
+        select(DHCPSighting.subnet_id, DHCPSighting.server_ip, DHCPSighting.last_seen_at)
+        .where(DHCPSighting.subnet_id.in_(subnet_ids))
+    )).all():
+        key = (sub_id, str(srv_ip))
+        if key not in observed or seen > observed[key]:
+            observed[key] = seen
+
     for it, r in zip(items, rows, strict=False):
         ipstr = str(r.ip)
         gw = gw_map.get(r.subnet_id)
         it.is_gateway = bool(gw) and ipstr == str(gw)
         it.dhcp_server_auto = ipstr in fw_ips
+        seen_at = observed.get((r.subnet_id, ipstr))
+        it.dhcp_observed_at = seen_at.isoformat() if seen_at else None
         try:
             n = int(_ip.ip_address(ipstr))
             it.in_dhcp_range = any(a <= n <= b for a, b in ranges)

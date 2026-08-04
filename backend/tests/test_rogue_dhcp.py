@@ -99,3 +99,26 @@ def test_probe_is_off_by_default():
     """DHCP 偵測會在網段上廣播 —— 該不該做由管理員逐個子網路決定，不是預設就開。"""
     from app.core.scan_probes import PROBES
     assert PROBES["dhcp"]["default_on"] is False
+
+
+# ── 三層探測模型：漏掉中間那層 = 勾了也不會跑 ────────────────────────────────
+# 實際發生：子網路勾了「DHCP 伺服器偵測」、代理也回報做得到，但**代理本身沒啟用**
+# 這項探測，於是伺服器在 poll 時就把它濾掉了。畫面上一切正常，探測一整天沒跑過，
+# dhcp_sightings 一筆都沒有。
+
+def test_poll_intersects_agent_enabled_with_subnet_request():
+    """poll 回給代理的探測清單 = 代理啟用 ∩ 子網路要跑。"""
+    from app.core.scan_probes import normalize_probes
+
+    agent_enabled = set(normalize_probes(["icmp", "arp", "os"]))     # 代理沒開 dhcp
+    subnet_wants = normalize_probes(["icmp", "arp", "dhcp"])
+    out = [p for p in subnet_wants if p in agent_enabled]
+    assert "dhcp" not in out, "這正是實際發生的事：子網路勾了但代理沒開 → 被濾掉"
+    assert out == ["icmp", "arp"]
+
+
+def test_probe_catalogue_exposes_dhcp_for_the_agent_ceiling():
+    """dhcp 必須是可以被列進代理允許清單的合法探測，否則使用者根本開不了。"""
+    from app.core.scan_probes import VALID_PROBES, normalize_probes
+    assert "dhcp" in VALID_PROBES
+    assert normalize_probes(["icmp", "dhcp"]) == ["icmp", "dhcp"]

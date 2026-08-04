@@ -430,7 +430,9 @@
     "secs": "s",
     "mins": "min",
     "hours": "h",
-    "days": "d"
+    "days": "d",
+    "agent_off": "off on agent",
+    "agent_off_hint": "This agent can perform the probe, but it is not enabled on the agent itself — ticking it here will not make it run. Edit the agent on the Scan agents page and add this probe to its allowed list."
   },
   "cols": {
     "name": "Name",
@@ -1104,7 +1106,10 @@
     "is_dhcp_server": "Mark as DHCP server",
     "is_dhcp_server_hint": "Flag this IP as a DHCP server in the IP list. IPs that match an integrated OPNsense / pfSense firewall are flagged automatically.",
     "source_windows_dhcp": "Windows DHCP",
-    "source_fortigate": "FortiGate"
+    "source_fortigate": "FortiGate",
+    "role_dhcp_observed": "the scan agent received a DHCPOFFER from it at {at}",
+    "role_dhcp_rogue": "Rogue DHCP server",
+    "role_dhcp_rogue_hint": "It hands out addresses on the segment but is not marked as a DHCP server. If it is legitimate, turn on \"Mark as DHCP server\" for this address."
   },
   "subnets": {
     "title": "Subnets",
@@ -1288,7 +1293,9 @@
     "rack_side_full": "Full U",
     "rack_side_left": "Left half",
     "rack_side_right": "Right half",
-    "dhcp_server_via": "{ips} on this device is marked as a DHCP server"
+    "dhcp_server_via": "{ips} on this device is marked as a DHCP server",
+    "search_ph": "Search name / model / serial",
+    "truncated": "showing {shown} of {total} — use search to reach the rest"
   },
   "locations": {
     "site": "Site",
@@ -1530,7 +1537,7 @@
     "verify_tls": "Verify TLS certificate",
     "verify_tls_hint": "Turn off to connect when LibreNMS uses a self-signed cert or the hostname doesn't match (e.g. connecting by IP) — skips certificate verification.",
     "sync_links": "LLDP / CDP neighbours",
-    "sync_links_hint": "Pull the neighbour links LibreNMS discovered. These are declared by the far end, so switch-to-switch trunks come out right — exactly where FDB inference is weakest. Requires LLDP/CDP on the peer and LibreNMS xdp discovery to have run; an empty source is not treated as an error."
+    "sync_links_hint": "Pulls the neighbour links LibreNMS discovered. These are declared by the far end, so even switch-to-switch trunks come out right — exactly where deriving topology from FDB is least reliable. Requires LLDP/CDP enabled on the far end and LibreNMS's xdp discovery to have run. No data from the source is not treated as an error."
   },
   "firewall": {
     "scope_title": "Association scope (NAT mapping)",
@@ -3040,7 +3047,8 @@
     "col_severity": "Severity",
     "col_what": "Finding",
     "col_when": "Date",
-    "col_action": "Action"
+    "col_action": "Action",
+    "ref_not_found": "\"{name}\" not found in IPAM — it may have been deleted, or the model got the name wrong"
   },
   "ip_peek": {
     "not_found": "Not found in IPAM",

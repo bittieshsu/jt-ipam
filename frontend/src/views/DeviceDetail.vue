@@ -4,14 +4,14 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpace, NIcon, NButton, NDescriptions, NDescriptionsItem,
-  NTag, NDataTable, NSpin, NTooltip, NModal, NSelect,
+  NTag, NDataTable, NSpin, NTooltip, NModal, NSelect, NPopconfirm,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
-import { DevicesIcon, RefreshIcon, EditIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon } from "@/icons";
-import { apiClient } from "@/api/client";
+import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon } from "@/icons";
+import { apiClient, apiErrMsg } from "@/api/client";
 import { listAddresses, updateAddress } from "@/api/addresses";
-import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
+import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, deleteDevice, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
 import { getDeviceRelations, type RelationNode } from "@/api/relations";
 import RelationChain from "@/components/RelationChain.vue";
 import UptimeBar from "@/components/UptimeBar.vue";
@@ -108,6 +108,23 @@ const vlans = ref<DeviceVLAN[]>([]);
 const lnms = ref<DeviceLibreNMS | null>(null);
 const integrations = ref<{ wazuh: any; vm: any } | null>(null);
 const loading = ref(false);
+const deleting = ref(false);
+
+async function removeDevice() {
+  if (!device.value) return;
+  deleting.value = true;
+  try {
+    await deleteDevice(device.value.id);
+    msg.success(t("common.deleted"));
+    // 刪掉之後留在這一頁只會看到一個已經不存在的物件 → 回清單
+    router.push({ name: "devices" });
+  } catch (e) {
+    // 裝置被別的東西參照時後端會擋（例如還有 IP 掛在上面）→ 把原因照實顯示
+    msg.error(apiErrMsg(e));
+  } finally {
+    deleting.value = false;
+  }
+}
 
 const selected = ref<IPAddress | null>(null);
 const modalShow = ref(false);
@@ -279,6 +296,16 @@ onMounted(() => {
               <template #icon><n-icon><EditIcon /></n-icon></template>
               {{ t("common.edit") }}
             </n-button>
+            <!-- 刪除放在詳細資料頁：從清單點進來看完之後要刪，不該再退回清單找那一列 -->
+            <n-popconfirm @positive-click="removeDevice">
+              <template #trigger>
+                <n-button type="error" ghost size="small" :loading="deleting">
+                  <template #icon><n-icon><DeleteIcon /></n-icon></template>
+                  {{ t("common.delete") }}
+                </n-button>
+              </template>
+              {{ t("common.confirm_delete") }}
+            </n-popconfirm>
             <n-button @click="router.push({ name: 'devices' })" size="small">
               <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
               {{ t("common.back") }}

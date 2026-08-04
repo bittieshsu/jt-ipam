@@ -89,16 +89,24 @@
       <!-- 欄位標題：點一下換排序。發現是一則一則的長文，不適合塞進表格，
            但至少要能照嚴重度或時間排 —— 20 筆混在一起時，順序決定看不看得完 -->
       <div v-if="rows.length" class="fx-thead">
-        <span v-for="c in COLS" :key="c.key" class="th" :class="[`th-${c.key}`, { on: sortKey === c.key }]"
+        <span v-for="c in COLS" :key="c.key" class="th"
+              :class="[`th-${c.key}`, { on: sortKey === c.key, sortable: c.key !== 'action' }]"
               @click="toggleSort(c.key)">
           {{ t(c.i18n) }}
-          <span v-if="sortKey === c.key" class="th-dir">{{ sortAsc ? "▲" : "▼" }}</span>
+          <!-- 排序箭頭每一欄都在（未啟用時淡化），跟系統其他表格一致：
+               只有目前排序欄才顯示箭頭的話，使用者不知道其他欄也可以點 -->
+          <span v-if="c.key !== 'action'" class="th-sorter"
+                :class="{ asc: sortKey === c.key && sortAsc, desc: sortKey === c.key && !sortAsc }">
+            <i class="up" />
+            <i class="down" />
+          </span>
         </span>
       </div>
 
       <div v-for="f in sortedRows" :key="f.id" class="fx" :class="`fx-${f.severity}`">
         <div class="fx-head">
-          <n-tag :type="sevType(f.severity)" size="small" round :bordered="false">
+          <n-tag :type="sevType(f.severity)" size="small" round :bordered="false"
+                 class="fx-sev">
             {{ t(`ai_audit.sev_${f.severity}`) }}
           </n-tag>
           <span class="fx-what">
@@ -133,6 +141,11 @@
             </template>
             <IpPeek :ip="ip" :data="ipCache[ip]" />
           </n-popover>
+          <!-- 裝置與子網路也要能點過去查證 —— 只印一個名字，還是要人自己去搜尋 -->
+          <span v-for="d in evList(f.evidence, 'devices')" :key="`d-${d}`"
+                class="fx-ref" @click="goDevice(d)">{{ d }}</span>
+          <span v-for="n in evList(f.evidence, 'subnets')" :key="`s-${n}`"
+                class="fx-ref" @click="goSubnet(n)">{{ n }}</span>
           <span v-for="[k, v] in evRest(f.evidence)" :key="k" class="fx-ev-kv">
             <b>{{ evKeyLabel(k) }}</b>{{ v }}
           </span>
@@ -153,6 +166,8 @@ import {
 import { AnomalyIcon, DismissIcon, ListIcon, RefreshIcon, TestIcon, RestoreIcon } from "@/icons";
 import IpPeek, { type IpPeekData } from "@/components/IpPeek.vue";
 import { listAddresses } from "@/api/addresses";
+import { listDevices } from "@/api/basic";
+import { listSubnets } from "@/api/subnets";
 import CardTitle from "@/components/CardTitle.vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { apiErrMsg } from "@/api/client";
@@ -322,15 +337,55 @@ function evIps(ev: Record<string, unknown> | null): string[] {
   return Array.isArray(v) ? v.map((x) => String(x)).slice(0, 30) : [];
 }
 
+/** evidence 裡的字串陣列（devices / subnets…）。 */
+function evList(ev: Record<string, unknown> | null, key: string): string[] {
+  const v = ev?.[key];
+  if (Array.isArray(v)) return v.map((x) => String(x)).slice(0, 20);
+  return typeof v === "string" && v.trim() ? [v.trim()] : [];
+}
+
+// 已經做成可點連結的鍵不再重複列一次純文字
+const LINKED_KEYS = new Set(["ips", "devices", "subnets"]);
+
 function evRest(ev: Record<string, unknown> | null): [string, string][] {
   if (!ev) return [];
   return Object.entries(ev)
-    .filter(([k]) => k !== "ips")
+    .filter(([k]) => !LINKED_KEYS.has(k))
     .map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]);
 }
 
 function goIp(ip: string) {
   router.push({ name: "addresses", query: { q: ip, exact: "1" } }).catch(() => {});
+}
+
+/** 裝置名稱 → 直接開該裝置的詳細資料；找不到才退回清單並說明。
+ *  只把人帶到未篩選的整份清單，等於沒有幫上忙。 */
+async function goDevice(name: string) {
+  try {
+    const r = await listDevices({ pageSize: 500 });
+    const hit = r.items.find((d) => d.name === name)
+      ?? r.items.find((d) => d.name?.toLowerCase() === name.toLowerCase());
+    if (hit) {
+      await router.push({ name: "device-detail", params: { id: hit.id } });
+      return;
+    }
+  } catch { /* 查不到就往下走 */ }
+  msg.warning(t("ai_audit.ref_not_found", { name }));
+  router.push({ name: "devices" }).catch(() => {});
+}
+
+/** 子網路 CIDR → 直接開該子網路。 */
+async function goSubnet(cidr: string) {
+  try {
+    const r = await listSubnets({ pageSize: 500 });
+    const hit = r.items.find((x) => String(x.cidr) === cidr);
+    if (hit) {
+      await router.push({ name: "subnet-detail", params: { id: hit.id } });
+      return;
+    }
+  } catch { /* 查不到就往下走 */ }
+  msg.warning(t("ai_audit.ref_not_found", { name: cidr }));
+  router.push({ name: "subnets" }).catch(() => {});
 }
 
 async function load() {
@@ -492,11 +547,15 @@ onBeforeUnmount(stopPolling);
 }
 .run-hint { margin-top: 6px; font-size: 12px; color: var(--n-text-color-disabled); }
 .run-bg { margin-top: 6px; font-size: 12px; color: var(--n-color-target, #36ad6a); }
-.fx { position: relative; padding: 16px 0 18px; border-bottom: 1px solid var(--n-border-color); }
+.fx {
+  position: relative; padding: 16px 12px 18px 14px;
+  border-bottom: 1px solid var(--n-border-color);
+}
 .fx:last-child { border-bottom: none; }
 /* 高／中在左邊帶一條色條，一眼就分得出哪幾筆要先看。
-   低不加 —— 每一列都有色條等於沒有重點。 */
-.fx-high, .fx-medium { padding-left: 14px; }
+   低不加 —— 每一列都有色條等於沒有重點。
+   **內縮是每一列都給**，只有色條本身有無不同：只縮有色條的那幾列，
+   會讓它們的文字比其他列往右跑，整頁看起來像沒對齊。 */
 .fx-high::before, .fx-medium::before {
   content: ""; position: absolute; left: 0; top: 15px; bottom: 16px;
   width: 3px; border-radius: 3px;
@@ -509,20 +568,41 @@ onBeforeUnmount(stopPolling);
   grid-template-columns: 52px minmax(0, 1fr) 152px 92px;
   align-items: center; gap: 8px;
 }
+/* 底色與圓角跟其他頁的表格表頭一致（子網路、IP 位址…都是 n-data-table）。
+   顏色取自 App.vue 送下來的 --table-th-color，不在這裡複製一份色碼 —— 複製的話
+   主題一改就會有一個地方沒跟上。 */
 .fx-thead {
-  padding: 0 0 8px 14px; border-bottom: 1px solid var(--n-border-color);
-  font-size: 12px; color: var(--n-text-color-disabled);
+  padding: 9px 12px 9px 14px; margin: 4px 0 0;
+  background: var(--table-th-color, rgba(128, 128, 128, .06));
+  border-top: 1px solid var(--n-border-color);
+  border-bottom: 1px solid var(--n-border-color);
+  font-size: 13px; font-weight: 500; color: var(--n-text-color-2);
 }
-.th { cursor: pointer; user-select: none; white-space: nowrap; }
-.th:hover { color: var(--n-text-color); }
+.th {
+  display: inline-flex; align-items: center; gap: 4px;
+  user-select: none; white-space: nowrap;
+}
+.th.sortable { cursor: pointer; }
+.th.sortable:hover { color: var(--n-text-color); }
 .th.on { color: var(--n-color-target, #36ad6a); font-weight: 600; }
-.th-dir { margin-left: 3px; font-size: 10px; }
-.th-created_at, .th-action { text-align: right; }
-.th-action { cursor: default; }
-.th-action:hover { color: var(--n-text-color-disabled); }
+/* 排序箭頭：上下兩個小三角，未選中時兩個都淡；選中時對應方向那個亮起來
+   （跟 n-data-table 的 sorter 一樣的視覺語彙） */
+.th-sorter { display: inline-flex; flex-direction: column; gap: 1px; line-height: 0; }
+.th-sorter i {
+  width: 0; height: 0; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent;
+  opacity: .3;
+}
+.th-sorter i.up { border-bottom: 4px solid currentColor; }
+.th-sorter i.down { border-top: 4px solid currentColor; }
+.th-sorter.asc i.up, .th-sorter.desc i.down { opacity: 1; }
+.th-created_at, .th-action { justify-content: flex-end; }
+.th-severity { justify-content: center; }
 .fx-head { margin-bottom: 8px; }
 /* 「狀況」欄：分類標籤 + 標題 */
 .fx-what { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 標籤只包到字，並在欄位裡置中 —— 預設會被拉成整欄寬，看起來像色塊而不是標籤 */
+.fx-sev { justify-self: center; }
+.th-severity { text-align: center; }
 /* 標題自己一級，不跟標籤和時間擠在同一個字級 */
 .fx-title {
   margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4;
@@ -560,6 +640,12 @@ onBeforeUnmount(stopPolling);
   color: var(--n-color-target, #36ad6a); text-decoration: underline dotted;
 }
 .fx-ip:hover { text-decoration: underline; }
+/* 裝置 / 子網路：同樣可點，但用一般字體區分於位址（位址是等寬） */
+.fx-ref {
+  cursor: pointer; color: var(--n-color-target, #36ad6a);
+  text-decoration: underline dotted;
+}
+.fx-ref:hover { text-decoration: underline; }
 .fx-ev-kv { color: var(--n-text-color-3); word-break: break-word; }
 .fx-ev-kv b { font-weight: 500; color: var(--n-text-color-disabled); margin-right: 4px; }
 </style>

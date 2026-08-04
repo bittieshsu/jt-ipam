@@ -147,6 +147,9 @@ class IPAddressRead(IPAddressBase):
     dhcp_server_auto: bool = False   # 自動：此 IP = 已整合 OPNsense/pfSense 防火牆的 IP（讀取端推導）
     is_gateway: bool = False         # 此 IP = 所屬子網路的閘道（讀取端推導）
     in_dhcp_range: bool = False      # 此 IP 落在 OPNsense DHCP pool 範圍內（讀取端推導）
+    # 掃描代理實際觀測到這個位址在回應 DHCP 的時間（讀取端推導）。
+    # 跟 is_dhcp_server 是兩回事：那個是「有沒有登記」，這個是「有沒有真的在發」。
+    dhcp_observed_at: str | None = None
     hostname_source_pin: str | None = None
     switch_port_confident: bool | None = None
     os_guess: str | None = None

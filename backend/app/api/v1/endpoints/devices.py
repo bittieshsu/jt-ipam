@@ -6,7 +6,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
@@ -204,11 +204,28 @@ async def list_devices(
     type: str | None = Query(None),
     location_id: uuid.UUID | None = Query(None),
     rack_id: uuid.UUID | None = Query(None),
+    q: Annotated[str | None, Query(max_length=128)] = None,
     page: int = Query(1, ge=1, le=10_000),
     page_size: int = Query(50, ge=1, le=500),
 ) -> Paginated[DeviceRead]:
+    """裝置清單。
+
+    `q` 是**伺服器端**搜尋（名稱／型號／序號／製造商，不分大小寫）。
+    這一支一定要有：畫面只載得下前幾百筆，若搜尋只在已載入的那幾筆上做，
+    使用者新增的裝置只要排序落在載入範圍之外，就會「列表看不到、用名字也搜不到」，
+    但從機櫃點進去卻看得到 —— 客戶就是這樣回報的。
+    """
     stmt = select(Device)
     cstmt = select(func.count()).select_from(Device)
+    if q:
+        like = f"%{q.strip()}%"
+        cond = or_(
+            Device.name.ilike(like),
+            Device.model.ilike(like),
+            Device.serial.ilike(like),
+            Device.description.ilike(like),
+        )
+        stmt = stmt.where(cond); cstmt = cstmt.where(cond)
     if type is not None:
         stmt = stmt.where(Device.type == type); cstmt = cstmt.where(Device.type == type)
     if location_id is not None:

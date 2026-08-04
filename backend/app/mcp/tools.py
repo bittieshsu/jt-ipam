@@ -2007,6 +2007,39 @@ async def list_ai_findings(
                 "found_at": f.created_at.isoformat() if f.created_at else None,
             } for f in rows]}
 
+async def list_anomalies(
+    session: AsyncSession, user: User, *, kind: str | None = None, limit: int = 20,
+) -> dict[str, Any]:
+    """異常偵測結果（IP 衝突／MAC 變動／失聯 IP／未授權 IP／非法 DHCP）。
+
+    與 AI 巡檢不同：這裡是量到的事實（ARP 真的看到兩個 MAC），不是模型的推測。
+    對話端可以直接轉述，不必加「可能」。
+
+    偵測是即時算出來的（沒有結果表）。這裡**逐條呼叫偵測函式，不走 run_detection** ——
+    那支除了發通知（使用者在對話裡問一句，不該讓全體管理員收到信）之外，結尾還會無條件
+    session.commit()，會把同一個 session 裡其他未定的異動一起送出去。查詢就只該查詢。
+    """
+    from app.services import anomaly as _an
+    detectors = {
+        "ip_conflicts": _an.detect_ip_conflicts,
+        "mac_drifts": _an.detect_mac_drifts,
+        "ghost_ips": _an.detect_ghost_ips,
+        "unauthorized_ips": _an.detect_unauthorized_ips,
+        "rogue_dhcp": _an.detect_rogue_dhcp,
+    }
+    n = max(1, min(int(limit), 100))
+    if kind:
+        key = kind.strip().lower()
+        if key not in detectors:
+            return {"error": f"unknown kind: {kind}", "available": sorted(detectors)}
+        detectors = {key: detectors[key]}
+    buckets = {k: list(await fn(session)) for k, fn in detectors.items()}
+    return {
+        "counts": {k: len(v) for k, v in buckets.items()},
+        "items": {k: v[:n] for k, v in buckets.items()},
+    }
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "search_ip": {
         "fn": search_ip,
@@ -2376,6 +2409,19 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "List scan agents and their status.",
         "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}}},
     },
+    "list_anomalies": {
+        "fn": list_anomalies,
+        "description": "Anomaly detection results (measured facts, not AI inference): IP "
+                       "conflicts, MAC drifts, ghost IPs, unauthorised IPs, rogue DHCP servers.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "description":
+                         "ip_conflicts | mac_drifts | ghost_ips | unauthorized_ips | rogue_dhcp"},
+                "limit": {"type": "integer", "description": "max items per kind (default 20)"},
+            },
+        },
+    },
     "list_ai_findings": {
         "fn": list_ai_findings,
         "description": "Open findings from the scheduled AI inventory review: severity, category, "
@@ -2670,8 +2716,17 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
     "list_power", "list_wazuh_agents", "wazuh_missing_agents", "get_topology",
-    "list_certificates", "list_cert_distribution", "list_ai_findings",
+    "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
+})
+
+
+# 僅管理員可呼叫的唯讀工具。
+# 對應 CLAUDE.md 的「純管理資料」分類：AI 巡檢結論與異常偵測清單本身就是一份跨部門的
+# 弱點盤點（哪些網段沒監測、哪裡有未授權裝置），REST 端已是 require_admin。
+# MCP 是同一份資料的另一道門，鎖不一樣就等於沒鎖 —— 這個專案在 get_topology 踩過一次。
+ADMIN_TOOLS: frozenset[str] = frozenset({
+    "list_ai_findings", "list_anomalies",
 })
 
 
@@ -2701,6 +2756,7 @@ async def authorize_tool(session: AsyncSession, user: User, name: str) -> str | 
 
     - 純計算工具：永遠放行
     - 異動工具：需 admin
+    - 管理資料唯讀工具（巡檢／異常）：需 admin
     - 全域基礎設施工具：需 admin 或萬用讀取
     - 其餘（逐物件資料）：需至少有可見範圍；工具內部再依 visible_ids 過濾
     """
@@ -2708,6 +2764,8 @@ async def authorize_tool(session: AsyncSession, user: User, name: str) -> str | 
         return None
     if name in MUTATING_TOOLS and not getattr(user, "is_admin", False):
         return "permission_denied: 此操作需要管理員權限。"
+    if name in ADMIN_TOOLS and not getattr(user, "is_admin", False):
+        return "permission_denied: 此為管理資料，僅限管理員檢視。"
     if await has_no_visibility(session, user):
         return "permission_denied: 你目前沒有可檢視的資源權限，請聯絡管理員指派。"
     if name in GLOBAL_READ_TOOLS and not await has_global_read(session, user):

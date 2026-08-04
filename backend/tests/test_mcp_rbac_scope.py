@@ -165,10 +165,13 @@ _STATELESS_TOOLS = frozenset({
 
 def test_every_tool_is_classified():
     """新工具必須明確歸類，不能什麼都沒掛就上線。"""
-    from app.mcp.tools import GLOBAL_READ_TOOLS, TOOLS
-    unclassified = set(TOOLS) - GLOBAL_READ_TOOLS - _PER_OBJECT_TOOLS - _STATELESS_TOOLS
+    from app.mcp.tools import ADMIN_TOOLS, GLOBAL_READ_TOOLS, TOOLS
+    unclassified = (
+        set(TOOLS) - ADMIN_TOOLS - GLOBAL_READ_TOOLS - _PER_OBJECT_TOOLS - _STATELESS_TOOLS
+    )
     assert not unclassified, (
         f"這些 MCP 工具沒有歸類：{sorted(unclassified)}。"
-        "全域基礎設施資料要加進 GLOBAL_READ_TOOLS；逐物件資料要自己過 visible_ids "
-        "並登記在 _PER_OBJECT_TOOLS；純計算的登記在 _STATELESS_TOOLS。"
+        "純管理資料（稽核／巡檢／異常等）要加進 ADMIN_TOOLS；全域基礎設施資料要加進 "
+        "GLOBAL_READ_TOOLS；逐物件資料要自己過 visible_ids 並登記在 _PER_OBJECT_TOOLS；"
+        "純計算的登記在 _STATELESS_TOOLS。"
     )

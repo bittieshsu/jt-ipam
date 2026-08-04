@@ -106,8 +106,9 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
         if not vis_sub:
             return {"subnets": [], "ips": [], "devices": [], "empty": True}
         sub_q = sub_q.where(Subnet.id.in_(vis_sub))
-    subnets = [{"id": str(i), "cidr": str(c), "description": d}
-               for i, c, d in (await session.execute(sub_q.limit(MAX_SAMPLE))).all()]
+    sub_rows = (await session.execute(sub_q.limit(MAX_SAMPLE))).all()
+    # 子網路的 id 內部還要用來過濾 IP，但送給模型的只有 CIDR 與說明
+    subnets = [{"cidr": str(c), "description": d} for _i, c, d in sub_rows]
 
     ip_q = select(
         IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.state,
@@ -120,12 +121,12 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
         else:
             ip_q = ip_q.where(IPAddress.id.in_(vis_ip))
     # IP 也跟著子網路的範圍走 —— 否則勾掉的網段照樣被整段送給模型
-    ip_q = ip_q.where(IPAddress.subnet_id.in_([uuid.UUID(s["id"]) for s in subnets])
-                      if subnets else IPAddress.id.is_(None))
+    ip_q = ip_q.where(IPAddress.subnet_id.in_([r[0] for r in sub_rows])
+                      if sub_rows else IPAddress.id.is_(None))
     ips = []
     for row in (await session.execute(ip_q.limit(MAX_SAMPLE))).all():
         ips.append({
-            "id": str(row[0]), "ip": str(row[1]), "hostname": row[2], "state": row[3],
+            "ip": str(row[1]), "hostname": row[2], "state": row[3],
             "status": row[4], "source": row[5], "dhcp_server": row[6],
             "last_seen_scanner": row[7].isoformat() if row[7] else None,
             "last_seen_librenms": row[8].isoformat() if row[8] else None,
@@ -136,8 +137,10 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
     dev_q = select(Device.id, Device.name, Device.type)
     if vis_dev is not None:
         dev_q = dev_q.where(Device.id.in_(vis_dev)) if vis_dev else dev_q.where(Device.id.is_(None))
-    devices = [{"id": str(i), "name": n, "type": t}
-               for i, n, t in (await session.execute(dev_q.limit(MAX_SAMPLE))).all()]
+    # 只給名稱與類型，不給 UUID —— 給了模型就會把 UUID 寫進發現裡，
+    # 而人看著一串 UUID 完全不知道那是哪台機器
+    devices = [{"name": n, "type": t}
+               for _i, n, t in (await session.execute(dev_q.limit(MAX_SAMPLE))).all()]
 
     return {"subnets": subnets, "ips": ips, "devices": devices,
             "empty": not (subnets or ips or devices)}
@@ -171,19 +174,41 @@ Rules you must follow:
 - Write title, detail and recommendation in {language}. Keep hostnames, IP addresses and
   other identifiers exactly as they appear in the data — do not translate or reword them.
 
+In `evidence`, cite the records using these keys so they can be linked to:
+- "ips": the IP addresses, exactly as they appear (e.g. ["10.0.0.1"])
+- "devices": device NAMES (e.g. ["switch-005"]) — never internal UUIDs, they mean
+  nothing to a person reading the finding and cannot be looked up by eye
+- "subnets": subnet CIDRs (e.g. ["10.0.0.0/24"])
+- "note": one short sentence on what in the data led to this
+Put identifiers in these keys rather than burying them inside "note".
+
 Answer with JSON only, no prose, in exactly this shape:
 {"findings":[{"severity":"low","category":"stale","title":"...","detail":"...",
-"recommendation":"...","evidence":{"ips":["10.0.0.1"],"note":"..."}}]}
+"recommendation":"...","evidence":{"ips":["10.0.0.1"],"devices":["sw1"],"note":"..."}}]}
 
 Inventory:
 """
 
 
+# 台灣用詞對照。模型的中文預設是中國用語，不給對照表的話幾乎必然寫成「信息」「網絡」
+# 「缺失」這一類 —— 使用者一看就知道不是自家的東西。
+# 這是**盡力而為**：模型不一定每個都照做，所以 UI 上的固定字串一律走 i18n，
+# 只有模型產生的敘述才依賴這份提示。
+_ZH_TW_TERMS = (
+    "「子網路」不用「子網」、「裝置」不用「設備」、「上線」不用「在線」、"
+    "「對應」不用「映射」、「相關」不用「涉及」、「缺少」不用「缺失」、"
+    "「資訊」不用「信息」、「網路」不用「網絡」、「伺服器」不用「服務器」、"
+    "「預設」不用「默認」、「設定」不用「配置」、「支援」不用「支持」、"
+    "「品質」不用「質量」、「透過」不用「通過」、「軟體」不用「軟件」、"
+    "「硬體」不用「硬件」、「程式」不用「程序」、「檔案」不用「文件」、"
+    "「登入」不用「登錄」、「還原」不用「回滾」、「選用」不用「可選」"
+)
+
 _LANGUAGES = {
-    # 用詞提示是盡力而為（模型不一定照做），但不給的話它幾乎必然寫成中國用語
-    "zh-TW": ("Traditional Chinese as used in Taiwan (繁體中文，台灣用語：用「子網路」"
-              "不用「子網」、「裝置」不用「設備」、「上線」不用「在線」、"
-              "「對應」不用「映射」、「相關」不用「涉及」，標點用全形)"),
+    "zh-TW": (
+        "Traditional Chinese as used in Taiwan（繁體中文，台灣用語，標點用全形）。"
+        "特別注意這些對照，寫錯會一眼看出不是台灣的產品：" + _ZH_TW_TERMS
+    ),
     "en-US": "English",
 }
 
@@ -200,6 +225,34 @@ async def _language_for(session: AsyncSession, user: User) -> str:
         select(UserPreference.locale).where(UserPreference.user_id == user.id)
     )).scalar_one_or_none()
     return _LANGUAGES.get(loc or "", _LANGUAGES["zh-TW"])
+
+
+# 提示詞裡的用詞對照是「盡力而為」—— 模型不一定照做（實測：叫它別用「涉及」，它
+# 下一輪還是寫了）。所以存進資料庫之前再做一次**確定性**的替換。
+#
+# 只放「在台灣的技術文件裡幾乎不可能是正確用法」的詞。像「通過」（通過測試）、
+# 「支持」（支持某個立場）、「程序」（法律程序）這種一詞兩義的，替換會改錯句意，
+# 只留在提示詞裡靠模型自律。
+_ZH_TW_FIXUPS: tuple[tuple[str, str], ...] = (
+    # 先長後短：「IP 地址」要在「地址」之前，否則會先被短的吃掉
+    ("涉及裝置", "相關裝置"), ("涉及的", "相關的"), ("涉及到", "相關的"),
+    ("IP 地址", "IP 位址"), ("IP地址", "IP 位址"), ("地址", "位址"),
+    ("信息", "資訊"), ("網絡", "網路"), ("服務器", "伺服器"),
+    ("默認", "預設"), ("軟件", "軟體"), ("硬件", "硬體"),
+    ("內存", "記憶體"), ("端口", "連接埠"), ("登錄", "登入"),
+    ("缺失", "缺少"), ("在線", "上線"), ("映射", "對應"),
+    ("子網掩碼", "子網路遮罩"), ("交換機", "交換器"), ("路由器", "路由器"),
+)
+
+
+def zh_tw_fixup(text: str) -> str:
+    """把模型寫出來的中國用語換成台灣用語。
+
+    只動敘述文字，**不動 evidence** —— 那裡面是主機名稱與位址，一個字都不能改。
+    """
+    for bad, good in _ZH_TW_FIXUPS:
+        text = text.replace(bad, good)
+    return text
 
 
 def _clean(text: str | None, limit: int) -> str:
@@ -304,12 +357,14 @@ def _parse(raw: str) -> list[dict[str, Any]] | None:
         sev = str(it.get("severity", "")).lower()
         cat = str(it.get("category", "")).lower()
         ev = it.get("evidence")
+        rec = _clean(it.get("recommendation"), 2000) or None
         out.append({
             "severity": sev if sev in SEVERITIES else "low",   # 自創等級一律降為 low
             "category": cat if cat in CATEGORIES else "other",
-            "title": title,
-            "detail": _clean(it.get("detail"), 4000),
-            "recommendation": _clean(it.get("recommendation"), 2000) or None,
+            # 敘述套台灣用詞修正；evidence 不動（裡面是主機名稱與位址）
+            "title": zh_tw_fixup(title),
+            "detail": zh_tw_fixup(_clean(it.get("detail"), 4000)),
+            "recommendation": zh_tw_fixup(rec) if rec else None,
             "evidence": ev if isinstance(ev, dict) else ({"note": str(ev)[:2000]} if ev else None),
         })
     return out

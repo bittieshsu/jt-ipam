@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.138] — 2026-08-04
+
+### Fixed
+- **The device list only ever showed the first 200 devices, and the search box could not reach the rest.** A site with 272 devices saw 272 on the dashboard and "200 rows" on the Devices page. The list requested a single page, and the on-page search filtered only the rows already loaded — so a newly added device whose name sorted past the first 200 was invisible *and* unsearchable, while opening it from its rack worked fine (that view queries by rack and returns a small result set). Reported by a customer as "new devices do not show up, and searching by name does not find them either". The list now pages through the full set, and search is done by the server (name / model / serial / description, case-insensitive) so it reaches devices beyond what is loaded. Above 5,000 devices the list says how many of the total it is showing instead of silently truncating.
+
+### Added
+- **AI chat and MCP can now be asked about anomaly detection** (`list_anomalies`): IP conflicts, MAC drifts, ghost IPs, unauthorised IPs and rogue DHCP servers. AI review findings were already reachable (`list_ai_findings`). The two are deliberately reported differently — anomaly results are measured facts and can be stated plainly, AI review findings are the model's inference and come back tagged as such with their evidence. The query is read-only and explicitly does not send the notifications a scheduled scan would.
+
+### Security
+- **AI review findings were reachable through AI chat by non-admins.** In 0.5.137 every AI review REST endpoint was tightened to admin, but the MCP tool was left one tier lower (global read), so a read-only viewer with wildcard read permission could not see the page yet could ask the chat for its conclusions — the same data behind two doors with two different locks. Both the findings and the new anomaly tool are now admin-only, and the tool classification test that would have caught this now recognises the admin tier, so a future tool cannot be added without picking a tier.
+
+### Changed
+- **The sort controls in the uptime tracking dialog have icons**, matching every other button in the product — they were the only plain-text buttons left in that dialog.
+- **Devices can be deleted from the device detail page.** Previously deletion existed only in the list — which is exactly where a device you cannot find is not deletable either.
+
 ## [0.5.137] — 2026-08-03
 
 ### Changed

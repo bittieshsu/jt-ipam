@@ -13,7 +13,7 @@ import uuid
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-from app.mcp.tools import GLOBAL_READ_TOOLS, TOOLS
+from app.mcp.tools import ADMIN_TOOLS, TOOLS
 from app.services import ai_audit as aa
 
 
@@ -111,13 +111,15 @@ def test_due_handles_a_last_run_in_another_timezone():
     assert aa.due(last_utc, ["03:30"], _at(2, 14, 0)) is False
 
 
-def test_mcp_tool_is_registered_and_globally_gated():
-    """巡檢結論是跨物件觀察，無法逐物件授權 → 必須掛全域讀取管控。
+def test_mcp_tool_is_registered_and_admin_gated():
+    """巡檢結論限管理員 —— 要和 REST 端的 require_admin 同一級。
 
-    漏掉的話就會變成「透過 AI 對話繞過 RBAC」—— 這個專案踩過一次（get_topology）。
+    工具原本掛在「全域讀取」那一級，於是有萬用讀取權限的唯讀檢視者，選單裡看不到巡檢，
+    卻能在 AI 對話裡把結論問出來。同一份資料兩道門、兩把鎖，等於沒鎖
+    （這個專案在 get_topology 踩過一次）。
     """
     assert "list_ai_findings" in TOOLS
-    assert "list_ai_findings" in GLOBAL_READ_TOOLS
+    assert "list_ai_findings" in ADMIN_TOOLS
 
 
 def test_mcp_tool_labels_output_as_inference():
@@ -938,3 +940,46 @@ async def test_previously_dismissed_findings_do_not_come_back(monkeypatch, db_se
                                  AIFinding.title == "重複的紀錄").limit(1)
     )).scalar_one()
     assert again.status == "dismissed", "應該直接以已忽略存下（留紀錄，但不吵人）"
+
+
+# ── 台灣用詞：提示詞是盡力而為，存檔前再做一次確定性替換 ────────────────────────
+# 實際發生：提示詞已經寫了「相關」不用「涉及」，模型下一輪還是寫了「涉及裝置」。
+# 使用者一看就知道不是自家的東西。
+
+@pytest.mark.parametrize(("bad", "good"), [
+    ("主機名稱缺失", "主機名稱缺少"),
+    ("涉及裝置：sw1", "相關裝置：sw1"),
+    ("IP 地址 10.0.0.1", "IP 位址 10.0.0.1"),
+    ("這台服務器的網絡信息", "這台伺服器的網路資訊"),
+    ("默認端口", "預設連接埠"),
+    ("交換機在線", "交換器上線"),
+])
+def test_mainland_terms_are_rewritten(bad, good):
+    assert aa.zh_tw_fixup(bad) == good
+
+
+def test_ambiguous_words_are_left_alone():
+    """一詞兩義的不能替換 —— 改了會把句意改掉，比用錯詞更糟。"""
+    for text in ("通過測試", "支持這個做法", "法律程序", "配置檔"):
+        assert aa.zh_tw_fixup(text) == text
+
+
+def test_fixup_is_applied_to_narrative_but_not_evidence():
+    out = aa.parse_findings(
+        '{"findings":[{"title":"主機名稱缺失","detail":"IP 地址不一致",'
+        '"recommendation":"補上信息","category":"other",'
+        '"evidence":{"note":"涉及 host-1","ips":["10.0.0.1"]}}]}')
+    f = out[0]
+    assert f["title"] == "主機名稱缺少"
+    assert f["detail"] == "IP 位址不一致"
+    assert f["recommendation"] == "補上資訊"
+    # evidence 一個字都不能動 —— 裡面是主機名稱與位址，改了就對不上實際資料
+    assert f["evidence"]["note"] == "涉及 host-1"
+    assert f["evidence"]["ips"] == ["10.0.0.1"]
+
+
+def test_snapshot_gives_the_model_names_not_uuids():
+    """快照不給 UUID，模型才不會把 UUID 寫進發現裡（人看著一串 UUID 不知道是哪台）。"""
+    import inspect
+    src = inspect.getsource(aa._collect)
+    assert '"id": str(i)' not in src, "裝置/子網路不應該再把 UUID 送給模型"

@@ -270,8 +270,66 @@ ensure_runtime_deps() {
     if apt-get install -y -qq "${missing[@]}" >/dev/null 2>&1; then
         log "Installed ${missing[*]}"
     else
-        warn "could not install ${missing[*]} — the connectivity diagnostics in Tools → IP addresses will show those tools as unavailable"
+        warn "could not install ${missing[*]} — the connectivity diagnostics in Tools will show those tools as unavailable"
     fi
+}
+
+# Let the backend send ICMP echo.
+#
+# The backend runs as a systemd service with NoNewPrivileges=true, which makes the
+# cap_net_raw file capability on /bin/ping inert: ping works in a shell but sends
+# nothing from the service. Without this, the Ping tool reports "no reply" for every
+# target -- indistinguishable from "the target is down", which is worse than an error.
+#
+# We widen net.ipv4.ping_group_range rather than granting the service CAP_NET_RAW:
+# it permits ICMP echo datagram sockets only -- no crafted packets, no sniffing --
+# which is a far narrower grant than raw-socket capability for the whole backend.
+# Many distributions already ship it open for exactly this reason.
+#
+# Set JT_IPAM_SKIP_PING_SYSCTL=1 to skip (the Tools page then explains how to do it
+# by hand). Undo with: rm /etc/sysctl.d/99-jt-ipam-ping.conf && sysctl --system
+ensure_icmp_capability() {
+    local conf="/etc/sysctl.d/99-jt-ipam-ping.conf"
+    if [ "${JT_IPAM_SKIP_PING_SYSCTL:-0}" = "1" ]; then
+        log "Skipping ICMP sysctl (JT_IPAM_SKIP_PING_SYSCTL=1) -- the Ping tool will report 'cannot send'"
+        return 0
+    fi
+    local cur
+    cur="$(sysctl -n net.ipv4.ping_group_range 2>/dev/null || echo "")"
+    # Already open for all groups? Leave the system alone.
+    if [ "${cur//[[:space:]]/ }" = "0 2147483647" ]; then
+        log "ICMP already permitted for unprivileged sockets"
+        return 0
+    fi
+    if [ ! -w /etc/sysctl.d ] 2>/dev/null; then
+        warn "cannot write ${conf} -- the Ping tool will report 'cannot send'; see Tools -> Connectivity for the manual fix"
+        return 0
+    fi
+    printf '# jt-ipam: allow unprivileged ICMP echo so the Ping tool can send packets.\n# Remove this file and run `sysctl --system` to undo.\nnet.ipv4.ping_group_range = 0 2147483647\n' > "$conf"
+    sysctl -q -p "$conf" >/dev/null 2>&1 || true
+
+    # Verify by reading the value back. Writing the file is not the same as it taking
+    # effect: inside an unprivileged LXC container this sysctl is read-only, and `sysctl -p`
+    # fails with "Invalid argument". Leaving the file there would be worse than useless --
+    # it looks configured while ping stays broken forever, including after a reboot.
+    cur="$(sysctl -n net.ipv4.ping_group_range 2>/dev/null || echo "")"
+    if [ "${cur//[[:space:]]/ }" = "0 2147483647" ]; then
+        log "Enabled unprivileged ICMP echo (${conf})"
+        return 0
+    fi
+
+    rm -f "$conf"
+    warn "this host does not allow net.ipv4.ping_group_range to be changed$(         [ "$(systemd-detect-virt 2>/dev/null)" = "lxc" ] && printf ' (typical inside an LXC container)')"
+    warn "the Ping tool will report 'cannot send packets'. Everything else (TCP / UDP / TLS / HTTP"
+    warn "checks) is unaffected -- those never needed privileges."
+    warn "To enable ICMP here, grant the backend service the capability instead:"
+    warn "    sudo systemctl edit jt-ipam-backend      # then add:"
+    warn "    [Service]"
+    warn "    AmbientCapabilities=CAP_NET_RAW"
+    warn "    CapabilityBoundingSet=CAP_NET_RAW"
+    warn "    sudo systemctl daemon-reload && sudo systemctl restart jt-ipam-backend"
+    warn "(This is a wider grant than the sysctl -- it permits building arbitrary raw packets --"
+    warn " which is why it is not applied automatically.)"
 }
 
 cmd_install() {
@@ -329,6 +387,7 @@ cmd_install() {
     apt-get install -y -qq ca-certificates curl gnupg sudo
 
     ensure_runtime_deps
+    ensure_icmp_capability
 
     # 套件是否可安裝：用命令替換、**不要** `apt-cache madison X | grep -q .`。
     # 在 `set -o pipefail` 下，madison 對「有多個候選版本」的套件（如 Debian 13 的 postgresql-17
@@ -795,6 +854,7 @@ cmd_upgrade() {
     # Same OS packages as a fresh install — a feature added in a newer version may need a
     # binary the existing host does not have yet.
     ensure_runtime_deps
+    ensure_icmp_capability
 
     # -- rollback guidance on failure --
     local DUMP_PATH=""

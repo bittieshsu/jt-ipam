@@ -86,13 +86,23 @@
       <div class="sort-row">
         <span class="sort-label">{{ t("uptime.sort_by") }}</span>
         <n-radio-group v-model:value="draftSortKey" size="small">
-          <n-radio-button value="ip">IP</n-radio-button>
-          <n-radio-button value="hostname">{{ t("addresses.hostname") }}</n-radio-button>
-          <n-radio-button value="sla">{{ t("uptime.sort_sla") }}</n-radio-button>
+          <n-radio-button value="ip">
+            <span class="btn-ic"><n-icon :component="AddressesIcon" />IP</span>
+          </n-radio-button>
+          <n-radio-button value="hostname">
+            <span class="btn-ic"><n-icon :component="HostnameIcon" />{{ t("addresses.hostname") }}</span>
+          </n-radio-button>
+          <n-radio-button value="sla">
+            <span class="btn-ic"><n-icon :component="SlaIcon" />{{ t("uptime.sort_sla") }}</span>
+          </n-radio-button>
         </n-radio-group>
         <n-radio-group v-model:value="draftSortDir" size="small">
-          <n-radio-button value="asc">{{ t("uptime.sort_asc") }}</n-radio-button>
-          <n-radio-button value="desc">{{ t("uptime.sort_desc") }}</n-radio-button>
+          <n-radio-button value="asc">
+            <span class="btn-ic"><n-icon :component="SortAscIcon" />{{ t("uptime.sort_asc") }}</span>
+          </n-radio-button>
+          <n-radio-button value="desc">
+            <span class="btn-ic"><n-icon :component="SortDescIcon" />{{ t("uptime.sort_desc") }}</span>
+          </n-radio-button>
         </n-radio-group>
       </div>
       <template #footer>
@@ -116,7 +126,10 @@ import {
   NSelect, NSpace, NSpin, NTag, NTooltip,
 } from "naive-ui";
 import CardTitle from "@/components/CardTitle.vue";
-import { IPChangesIcon, SettingsIcon } from "@/icons";
+import {
+  AddressesIcon, HostnameIcon, IPChangesIcon, SettingsIcon,
+  SlaIcon, SortAscIcon, SortDescIcon,
+} from "@/icons";
 import { apiClient } from "@/api/client";
 import { listAddresses } from "@/api/addresses";
 import { usePinned } from "@/composables/usePinned";
@@ -337,4 +350,6 @@ watch(ids, load, { deep: true });
 .over { margin-top: 8px; font-size: 12px; color: #d03050; }
 .sort-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .sort-label { font-size: 13px; color: var(--n-text-color-3); }
+/* icon 與文字在按鈕內同一基線，間距才不會看起來一邊寬一邊窄 */
+.btn-ic { display: inline-flex; align-items: center; gap: 5px; }
 </style>

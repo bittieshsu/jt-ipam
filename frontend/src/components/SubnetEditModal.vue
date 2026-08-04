@@ -64,6 +64,11 @@ const allSubnets = ref<Subnet[]>([]);
 const LOCAL_SCAN = "__local__";
 const scanAgentOpts = ref<{ label: string; value: string }[]>([]);
 const agentAvail = ref<Record<string, string[]>>({});
+// 代理端「管理員有開啟」的探測。三層模型：代理能力 ∩ **代理啟用** ∩ 子網路要跑。
+// 少了中間這層，會出現「子網路勾了、代理也做得到，但伺服器在 poll 時就把它濾掉」——
+// 畫面上一切正常，探測永遠不會跑（實際踩過：DHCP 偵測勾了一整天，一筆觀測都沒有）。
+const agentEnabled = ref<Record<string, string[]>>({});
+
 // 選定掃描代理「實際能跑」的探測集合；代理沒回報(空)時回 null = 不限制
 const selectedAgentProbes = computed<Set<string> | null>(() => {
   const id = form.value.scan_agent_id;
@@ -71,9 +76,21 @@ const selectedAgentProbes = computed<Set<string> | null>(() => {
   const av = agentAvail.value[id];
   return av && av.length ? new Set(av) : null;
 });
+const selectedAgentEnabled = computed<Set<string> | null>(() => {
+  const id = form.value.scan_agent_id;
+  if (!id) return null;
+  const en = agentEnabled.value[id];
+  return en && en.length ? new Set(en) : null;
+});
 function probeUnsupported(key: string): boolean {
   const s = selectedAgentProbes.value;
   return !!s && !s.has(key);
+}
+/** 代理做得到、但管理員沒在代理上開啟 → 勾了也不會跑，要講出來。 */
+function probeNotEnabledOnAgent(key: string): boolean {
+  if (probeUnsupported(key)) return false;      // 那是另一種情況（工具沒裝）
+  const en = selectedAgentEnabled.value;
+  return !!en && !en.has(key);
 }
 // 探測所需的工具 / 安裝指令（與掃描代理頁一致）
 const PROBE_INSTALL: Record<string, string> = {
@@ -140,6 +157,9 @@ async function loadAuxOpts() {
     // 記錄每個代理「實際能跑」的探測（available_probes）→ 子網路勾選時據此反灰不支援項
     agentAvail.value = Object.fromEntries(
       ag.items.map((a) => [a.id, (a as any).available_probes ?? []]),
+    );
+    agentEnabled.value = Object.fromEntries(
+      ag.items.map((a) => [a.id, (a as any).enabled_probes ?? []]),
     );
   } catch { /* silent */ }
   try {
@@ -349,6 +369,14 @@ async function submit() {
                 <n-checkbox v-for="p in catalog.probes" :key="p.key" :value="p.key"
                             :disabled="probeUnsupported(p.key)">
                   {{ probeLabel(p, locale) }}
+                  <n-tooltip v-if="probeNotEnabledOnAgent(p.key)" trigger="hover">
+                    <template #trigger>
+                      <n-tag size="tiny" type="warning" style="margin-left: 4px">
+                        {{ t("scan_probes.agent_off") }}
+                      </n-tag>
+                    </template>
+                    {{ t("scan_probes.agent_off_hint") }}
+                  </n-tooltip>
                   <n-tooltip v-if="p.intrusive" trigger="hover">
                     <template #trigger>
                       <n-tag size="tiny" type="warning" style="margin-left: 4px;">
