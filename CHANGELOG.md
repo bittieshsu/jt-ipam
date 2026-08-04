@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.139] — 2026-08-04
+
+### Added
+- **AI review findings can be filtered by category** (exposure / stale / conflict / naming / coverage / policy / other), next to the existing severity filter. Every finding already carried the tag; being able to see it but not filter on it meant picking out "all the exposed management interfaces" from a page of high-severity findings had to be done by eye.
+
 ## [0.5.138] — 2026-08-04
 
 ### Fixed

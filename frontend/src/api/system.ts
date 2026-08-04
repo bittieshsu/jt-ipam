@@ -270,7 +270,7 @@ export async function getAIAuditSummary(): Promise<AIAuditSummary> {
   const { data } = await apiClient.get("/api/v1/ai-audit/summary");
   return data;
 }
-export async function listAIFindings(params: { status?: string; severity?: string; page?: number; page_size?: number } = {}) {
+export async function listAIFindings(params: { status?: string; severity?: string; category?: string; page?: number; page_size?: number } = {}) {
   const { data } = await apiClient.get("/api/v1/ai-audit/findings", { params });
   return data as { items: AIFinding[]; total: number; page: number; page_size: number };
 }

@@ -3048,7 +3048,8 @@
     "col_what": "狀況",
     "col_when": "日期時間",
     "col_action": "動作",
-    "ref_not_found": "在 IPAM 中找不到「{name}」—— 可能已經被刪除，或模型記錯了名稱"
+    "ref_not_found": "在 IPAM 中找不到「{name}」—— 可能已經被刪除，或模型記錯了名稱",
+    "all_category": "所有分類"
   },
   "ip_peek": {
     "not_found": "IPAM 中查無這個位址",

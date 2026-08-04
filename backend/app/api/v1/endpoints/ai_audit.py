@@ -28,7 +28,7 @@ from app.core.audit import append_audit
 from app.core.db import get_session
 from app.models.ai_finding import AIFinding
 from app.schemas.base import StrictModel
-from app.services.ai_audit import SEVERITIES, latest_summary, run_audit
+from app.services.ai_audit import CATEGORIES, SEVERITIES, latest_summary, run_audit
 from app.services.background_tasks import spawn_task
 
 router = APIRouter(prefix="/ai-audit", tags=["ai-audit"])
@@ -58,6 +58,7 @@ async def list_findings(
     session: Annotated[AsyncSession, Depends(get_session)],
     status: Annotated[str, Query(pattern="^(open|dismissed|all)$")] = "open",
     severity: Annotated[str | None, Query(max_length=16)] = None,
+    category: Annotated[str | None, Query(max_length=48)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict[str, Any]:
@@ -69,6 +70,11 @@ async def list_findings(
     if severity in SEVERITIES:
         stmt = stmt.where(AIFinding.severity == severity)
         count_stmt = count_stmt.where(AIFinding.severity == severity)
+    # 認不得的分類就當沒篩（比照 severity）—— 舊網址帶著已淘汰的分類進來時，
+    # 寧可回全部也不要整頁 422
+    if category in CATEGORIES:
+        stmt = stmt.where(AIFinding.category == category)
+        count_stmt = count_stmt.where(AIFinding.category == category)
     total = (await session.execute(count_stmt)).scalar_one()
     rows = (await session.execute(
         stmt.order_by(AIFinding.created_at.desc()).offset((page - 1) * page_size).limit(page_size)

@@ -3048,7 +3048,8 @@
     "col_what": "Finding",
     "col_when": "Date",
     "col_action": "Action",
-    "ref_not_found": "\"{name}\" not found in IPAM — it may have been deleted, or the model got the name wrong"
+    "ref_not_found": "\"{name}\" not found in IPAM — it may have been deleted, or the model got the name wrong",
+    "all_category": "All categories"
   },
   "ip_peek": {
     "not_found": "Not found in IPAM",

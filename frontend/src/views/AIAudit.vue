@@ -78,6 +78,11 @@
                 :options="sevOptions" :placeholder="t('ai_audit.all_severity')"
                 :render-label="renderSevLabel" :render-tag="renderSevTag"
                 @update:value="load" />
+      <!-- 分類（對外暴露／資料衝突…）：每則發現都掛著這個標籤，能看不能篩的話，
+           一整頁高嚴重度裡要挑出「所有暴露的管理介面」只能用眼睛掃 -->
+      <n-select v-model:value="category" size="small" clearable style="width:160px"
+                :options="catOptions" :placeholder="t('ai_audit.all_category')"
+                @update:value="load" />
       <span v-if="summary?.last_run_at" class="hint">
         {{ t("ai_audit.last_run", { at: fmtDateTime(summary.last_run_at) }) }}
       </span>
@@ -189,6 +194,7 @@ const loading = ref(false);
 const running = ref(false);
 const status = ref("open");
 const severity = ref<string | null>(null);
+const category = ref<string | null>(null);
 
 // 執行進度
 const stage = ref<string>("");
@@ -216,6 +222,13 @@ const canRun = computed(() => !!auth.me?.is_admin);
 
 const sevOptions = computed(() => ["high", "medium", "low"].map((s) => ({
   label: t(`ai_audit.sev_${s}`), value: s,
+})));
+
+// 與後端 services/ai_audit.py 的 CATEGORIES 同一組；漏一個會出現沒有標籤的選項
+// （backend/tests/test_ai_audit_category_filter.py 會檢查翻譯是否齊全）
+const CATEGORIES = ["exposure", "stale", "conflict", "naming", "coverage", "policy", "other"];
+const catOptions = computed(() => CATEGORIES.map((c) => ({
+  label: t(`ai_audit.cat_${c}`), value: c,
 })));
 
 // 欄位標題（點一下排序）。發現本身是長文，用表格反而難讀 —— 只把「可以排序的那幾件事」
@@ -392,7 +405,12 @@ async function load() {
   loading.value = true;
   try {
     const [f, s] = await Promise.all([
-      listAIFindings({ status: status.value, severity: severity.value || undefined, page_size: 200 }),
+      listAIFindings({
+        status: status.value,
+        severity: severity.value || undefined,
+        category: category.value || undefined,
+        page_size: 200,
+      }),
       getAIAuditSummary(),
     ]);
     rows.value = f.items;
