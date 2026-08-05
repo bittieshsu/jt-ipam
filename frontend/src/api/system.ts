@@ -314,6 +314,12 @@ export async function dismissAIFindings(ids: string[]): Promise<{ dismissed: num
 }
 
 // 忽略會影響往後每一次巡檢（同一件事之後都自動忽略）→ 一定要能反悔
+/** 清空整份發現清單（含已忽略）。是刪除不是忽略 —— 忽略會讓下次巡檢自動略過同一件事。 */
+export async function clearAIFindings(): Promise<{ deleted: number }> {
+  const { data } = await apiClient.delete("/api/v1/ai-audit/findings");
+  return data;
+}
+
 export async function restoreAIFindings(ids: string[]): Promise<{ restored: number }> {
   const { data } = await apiClient.post("/api/v1/ai-audit/restore", { ids });
   return data;

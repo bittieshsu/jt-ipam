@@ -125,6 +125,13 @@ async def _run() -> int:
             name = inst.name
             try:
                 summary = await wazuh_svc.sync_agents(session, inst)
+                # SCA（資安組態評估）：用同一組 API 憑證，失敗不影響 agent 同步本身
+                try:
+                    n = await wazuh_svc.sync_sca(session, inst)
+                    if n and isinstance(summary, dict):
+                        summary["sca"] = n
+                except Exception as exc:   # noqa: BLE001
+                    log.warning("wazuh %s sca: %s", inst.name, exc)
                 await session.commit()
                 log.info("wazuh %s: %s", name, summary)
                 await _hb(session, kind="wazuh.sync", target_type="wazuh_instance",

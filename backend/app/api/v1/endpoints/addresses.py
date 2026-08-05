@@ -126,8 +126,22 @@ async def _enrich_special_flags(
         if key not in observed or seen > observed[key]:
             observed[key] = seen
 
+    # DHCP 固定分配的明細（綁哪張網卡、哪台 DHCP）。清單頁靠 ip_addresses.dhcp_reserved
+    # 這個旗標就夠了，但詳細資料要講得出「綁給誰」，否則使用者只知道有、不知道是什麼。
+    from app.models.dhcp import DHCPReservation
+    resv: dict[Any, dict[str, Any]] = {}
+    for rr in (await session.execute(
+        select(DHCPReservation).where(DHCPReservation.ip_address_id.in_([r.id for r in rows]))
+    )).scalars().all():
+        resv.setdefault(rr.ip_address_id, {
+            "mac": rr.mac, "hostname": rr.hostname, "description": rr.description,
+            "source_name": rr.source_name, "source_type": rr.source_type,
+            "engine": rr.source,
+        })
+
     for it, r in zip(items, rows, strict=False):
         ipstr = str(r.ip)
+        it.dhcp_reservation = resv.get(r.id)
         gw = gw_map.get(r.subnet_id)
         it.is_gateway = bool(gw) and ipstr == str(gw)
         it.dhcp_server_auto = ipstr in fw_ips

@@ -70,7 +70,10 @@ onMounted(async () => {
   transition: transform .12s ease, box-shadow .12s ease;
 }
 .ai-cell:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
-.ai-n { font-size: 22px; font-weight: 700; line-height: 1.2; }
+.ai-n {
+  font-size: 24px; font-weight: 700; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
 .ai-l { font-size: 12px; color: var(--n-text-color-disabled); margin-top: 2px; }
 .ai-high .ai-n { color: #d03050; }
 .ai-medium .ai-n { color: #f0a020; }

@@ -38,6 +38,7 @@ class AnomalyReport:
     ghost_ips: list[dict[str, Any]] = field(default_factory=list)
     unauthorized_ips: list[dict[str, Any]] = field(default_factory=list)
     rogue_dhcp: list[dict[str, Any]] = field(default_factory=list)
+    external_exposure: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,10 +47,11 @@ class AnomalyReport:
             "ghost_ips": self.ghost_ips,
             "unauthorized_ips": self.unauthorized_ips,
             "rogue_dhcp": self.rogue_dhcp,
+            "external_exposure": self.external_exposure,
             "total": (
                 len(self.ip_conflicts) + len(self.mac_drifts)
                 + len(self.ghost_ips) + len(self.unauthorized_ips)
-                + len(self.rogue_dhcp)
+                + len(self.rogue_dhcp) + len(self.external_exposure)
             ),
         }
 
@@ -376,6 +378,183 @@ async def detect_rogue_dhcp(
     return out
 
 
+
+
+async def detect_external_exposure(session: AsyncSession) -> list[dict[str, Any]]:
+    """對外曝險：哪些內部主機被開到外面，而且狀態不對。
+
+    **只讀 jt-ipam 已同步進來的資料表**（`nat_translations`、`opnsense_rules`、
+    `dns_records`、`ip_addresses`…），不會連到防火牆或任何設備 —— 這是異常偵測，
+    每輪都要跑，不能依賴外部服務通不通。
+
+    這裡全部是算得出來的事實，所以放異常偵測而不是 AI 巡檢：可以直接講「這台對外開著」，
+    不必加「可能」。
+
+    曝險來源有兩種，都取自同步結果：
+      NAT     ── `nat_translations` 裡未停用、且目標指到某個 IP 的規則
+      防火牆規則 ── WAN 介面上 action=pass、direction=in 且目的地是某個內部 IP 的規則
+
+    每個位址只報一次，取最嚴重的一種：
+      exposed_archived    子網路已歸檔，門卻還開著 —— 退役沒退乾淨
+      exposed_offline     主機已離線，門還開著
+      exposed_unmonitored 對外開放，但 Wazuh／LibreNMS 都沒看著它
+    另外獨立一種（與上面互斥的另一份清單）：
+      dns_to_offline      DNS 還指著這個位址，主機卻已離線
+
+    **不用 owner 當判準**：實機上 360 個 IP 只有 1 個填了 owner，拿它當訊號會把幾乎每一台
+    對外主機都標成問題。owner 只當附註帶出去，讓看的人知道找誰。
+    """
+    import ipaddress as _ipaddr
+
+    from app.models.dns import DNSRecord
+    from app.models.firewall_rule import OPNsenseRule
+    from app.models.nat import NATTranslation
+    from app.models.subnet import Subnet
+    from app.models.wazuh import WazuhAgent
+
+    # ── 1. NAT（已同步的表）
+    exposures: dict[Any, dict[str, Any]] = {}   # ip_id → {ports, rules}
+
+    def _note(ip_id: Any, port_label: str | None, rule: dict[str, Any]) -> None:
+        e = exposures.setdefault(ip_id, {"ports": [], "rules": []})
+        if port_label and port_label not in e["ports"]:
+            e["ports"].append(port_label)
+        e["rules"].append(rule)
+
+    nat_rows = (await session.execute(
+        select(NATTranslation).where(
+            NATTranslation.disabled.is_(False),
+            NATTranslation.dst_ip_id.is_not(None),
+        )
+    )).scalars().all()
+    for nat in nat_rows:
+        proto = (nat.protocol or "any").lower()
+        _note(nat.dst_ip_id,
+              f"{proto}/{nat.dst_port}" if nat.dst_port else proto,
+              {"source": "nat", "name": nat.name, "type": nat.type,
+               "interface": nat.src_interface})
+
+    # ── 2. 防火牆規則（已同步的表）：WAN 介面上放行進來、且目的地就是某台內部主機
+    #     目的地可能是別名（如 allowlist_taiwan）→ 只在解析得出 IP 時才算
+    fw_rows = (await session.execute(
+        select(OPNsenseRule).where(
+            OPNsenseRule.enabled.is_(True),
+            func.lower(OPNsenseRule.action) == "pass",
+        )
+    )).scalars().all()
+    wanted: dict[str, list[OPNsenseRule]] = {}
+    for r in fw_rows:
+        iface = (r.interface or "").upper()
+        if "WAN" not in iface:      # 只看對外介面；LAN→LAN 的放行不是曝險
+            continue
+        if (r.direction or "in").lower() != "in":
+            continue
+        dest = (r.destination_net or "").strip()
+        try:
+            _ipaddr.ip_address(dest)
+        except ValueError:
+            continue                # 別名或網段 → 指不到單一主機，略過
+        wanted.setdefault(dest, []).append(r)
+    if wanted:
+        for ip_id, host in (await session.execute(
+            select(IPAddress.id, func.host(IPAddress.ip))
+            .where(func.host(IPAddress.ip).in_(list(wanted)))
+        )).all():
+            for r in wanted.get(str(host), []):
+                proto = (r.protocol or "any").lower()
+                _note(ip_id,
+                      f"{proto}/{r.destination_port}" if r.destination_port else proto,
+                      {"source": "firewall_rule", "name": r.description,
+                       "type": "pass", "interface": r.interface})
+
+    out: list[dict[str, Any]] = []
+    if exposures:
+        rows = (await session.execute(
+            select(IPAddress, Subnet)
+            .join(Subnet, IPAddress.subnet_id == Subnet.id)
+            .where(IPAddress.id.in_(list(exposures)))
+        )).all()
+        ip_ids = [ipa.id for ipa, _ in rows]
+        # 失聯的 agent 不算「有監控」—— 它沒有在看任何東西，而且它登記的 IP 可能早被回收
+        from app.services.wazuh import agent_represents_ip
+        ip_by_id = {ipa.id: ipa for ipa, _ in rows}
+        monitored: set[Any] = {
+            wa.jt_ipam_address_id
+            for wa in (await session.execute(
+                select(WazuhAgent).where(WazuhAgent.jt_ipam_address_id.in_(ip_ids))
+            )).scalars().all()
+            if wa.jt_ipam_address_id
+            and agent_represents_ip(wa, ip_by_id.get(wa.jt_ipam_address_id))
+        }
+        dev_ids = [ipa.device_id for ipa, _ in rows if ipa.device_id]
+        if dev_ids:
+            ln = {
+                r[0] for r in (await session.execute(
+                    select(LibreNMSDevice.jt_ipam_device_id)
+                    .where(LibreNMSDevice.jt_ipam_device_id.in_(dev_ids))
+                )).all() if r[0]
+            }
+            monitored |= {ipa.id for ipa, _ in rows if ipa.device_id in ln}
+
+        for ipa, subnet in rows:
+            if subnet.archived_at is not None:
+                kind = "exposed_archived"
+            elif ipa.effective_status == "offline":
+                kind = "exposed_offline"
+            elif ipa.id not in monitored:
+                kind = "exposed_unmonitored"
+            else:
+                continue    # 對外開放、活著、也有人看著 → 正常，不報
+            e = exposures[ipa.id]
+            out.append({
+                "kind": kind,
+                "ip_address_id": str(ipa.id),
+                "ip": str(ipa.ip),
+                "hostname": ipa.hostname,
+                "owner": ipa.owner,
+                "effective_status": ipa.effective_status,
+                "subnet": str(subnet.cidr),
+                "monitored": ipa.id in monitored,
+                "ports": e["ports"],
+                "rules": e["rules"],
+                "names": [],
+            })
+
+    # ── 3. DNS 還指著，主機卻已離線（同樣只讀已同步的 dns_records）
+    #     用實際 IP 值比對，不靠 ipam_address_id —— 實機上那個欄位 121 筆全是空的
+    dns_rows = (await session.execute(
+        select(DNSRecord.name, DNSRecord.value, IPAddress.id, IPAddress.hostname,
+               IPAddress.owner, Subnet.cidr)
+        .join(IPAddress, func.host(IPAddress.ip) == DNSRecord.value)
+        .join(Subnet, IPAddress.subnet_id == Subnet.id)
+        .where(
+            func.upper(DNSRecord.type).in_(("A", "AAAA")),
+            IPAddress.effective_status == "offline",
+        )
+    )).all()
+    # 每一筆都給同一組欄位（ports / rules / monitored 也要有），前端才不必為了
+    # 少數幾種 kind 特別判斷 —— 少一個鍵就會是一個 undefined 錯誤
+    by_ip: dict[Any, dict[str, Any]] = {}
+    for name, value, ip_id, host, owner, cidr in dns_rows:
+        rec = by_ip.setdefault(ip_id, {
+            "kind": "dns_to_offline",
+            "ip_address_id": str(ip_id),
+            "ip": str(value),
+            "hostname": host,
+            "owner": owner,
+            "effective_status": "offline",
+            "subnet": str(cidr),
+            "monitored": False,
+            "ports": [],
+            "rules": [],
+            "names": [],
+        })
+        if name not in rec["names"]:
+            rec["names"].append(name)
+    out.extend(by_ip.values())
+    return out
+
+
 async def run_detection(
     session: AsyncSession, *, notify_admins: bool = True,
 ) -> AnomalyReport:
@@ -386,6 +565,7 @@ async def run_detection(
         ghost_ips=await detect_ghost_ips(session),
         unauthorized_ips=await detect_unauthorized_ips(session),
         rogue_dhcp=await detect_rogue_dhcp(session),
+        external_exposure=await detect_external_exposure(session),
     )
 
     if notify_admins:
@@ -406,6 +586,7 @@ async def run_detection(
                 ("失聯 IP", "notif.anom_ghost", report.ghost_ips),
                 ("未授權 IP", "notif.anom_unauthorized", report.unauthorized_ips),
                 ("非法 DHCP 伺服器", "notif.anom_rogue_dhcp", report.rogue_dhcp),
+                ("對外曝險", "notif.anom_exposure", report.external_exposure),
             ):
                 if not items:
                     continue

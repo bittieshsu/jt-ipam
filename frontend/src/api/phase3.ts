@@ -241,6 +241,7 @@ export interface AnomalyReport {
   ghost_ips: any[];
   unauthorized_ips: any[];
   rogue_dhcp: any[];
+  external_exposure: any[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {

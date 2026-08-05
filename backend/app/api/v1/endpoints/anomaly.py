@@ -37,6 +37,7 @@ async def scan(
             "ghost_ips": len(report.ghost_ips),
             "unauthorized_ips": len(report.unauthorized_ips),
             "rogue_dhcp": len(report.rogue_dhcp),
+            "external_exposure": len(report.external_exposure),
         },
         request_id=getattr(request.state, "request_id", None),
     )

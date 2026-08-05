@@ -241,12 +241,17 @@ async def link_librenms_device(
     # 1. 用 primary_ip 對到已存在的 IPAddress → 其 device_id
     ipa = None
     if ldev.primary_ip:
-        ipa = (await session.execute(
+        # 重疊網段（例如甲乙兩單位都用 192.168.1.0/24）下，同一個 IP 是兩台不同機器。
+        # 取兩筆來判斷：剛好一筆才採用；多筆＝分不出是誰的，寧可不對應也不要掛錯 ——
+        # 掛錯會把甲單位的裝置資料寫進乙單位的紀錄，而且沒有人會發現。
+        # 要讓這些位址對應得上，就在該實例設定「限定子網路範圍」。
+        cands = (await session.execute(
             select(IPAddress)
             .where(IPAddress.ip == ldev.primary_ip)
             .where(IPAddress.subnet_id.in_(scope_ids) if scope_ids else sa_true())
-            .limit(1)
-        )).scalars().first()
+            .limit(2)
+        )).scalars().all()
+        ipa = cands[0] if len(cands) == 1 else None
         if ipa is not None and ipa.device_id is not None:
             ldev.jt_ipam_device_id = ipa.device_id
             return ipa.device_id, False

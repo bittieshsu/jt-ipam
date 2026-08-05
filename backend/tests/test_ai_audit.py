@@ -935,11 +935,14 @@ async def test_previously_dismissed_findings_do_not_come_back(monkeypatch, db_se
     # 同一件事不再算成未處理的新發現；另一件事照常
     assert second.findings == 1, "已忽略的發現又跳回未處理了"
 
-    again = (await db_session.execute(
-        _select(AIFinding).where(AIFinding.run_id == second.run_id,
-                                 AIFinding.title == "重複的紀錄").limit(1)
-    )).scalar_one()
-    assert again.status == "dismissed", "應該直接以已忽略存下（留紀錄，但不吵人）"
+    # 已忽略的那一筆維持一列就好，不要每跑一次就再存一份。
+    # （原本每輪都補一列「已忽略」的紀錄，跑久了「已忽略」分頁會塞滿同一件事的複本 ——
+    #   跟未處理清單累積成 62 筆是同一個毛病。）
+    rows = (await db_session.execute(
+        _select(AIFinding).where(AIFinding.title == "重複的紀錄")
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == "dismissed"
 
 
 # ── 台灣用詞：提示詞是盡力而為，存檔前再做一次確定性替換 ────────────────────────

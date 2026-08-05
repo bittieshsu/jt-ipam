@@ -14,6 +14,7 @@ import {
   NSpin,
   NButton,
   NCheckbox,
+  NInput,
   NAlert,
   NDataTable,
   NTag,

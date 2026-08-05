@@ -58,13 +58,15 @@ async function saveScope() {
 }
 const activeTab = ref("ip_conflicts");
 
-type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips" | "rogue_dhcp";
+type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
+  | "rogue_dhcp" | "external_exposure";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
   { key: "ghost_ips", label: () => t("anomaly.ghost_ips") },
   { key: "unauthorized_ips", label: () => t("anomaly.unauthorized") },
   { key: "rogue_dhcp", label: () => t("anomaly.rogue_dhcp") },
+  { key: "external_exposure", label: () => t("anomaly.exposure") },
 ];
 
 const rogueTitle = computed(() =>
@@ -73,7 +75,8 @@ const rogueTitle = computed(() =>
 const anyFindings = computed(() => {
   const r = report.value;
   return !!r && (r.ip_conflicts.length + r.mac_drifts.length + r.ghost_ips.length
-    + r.unauthorized_ips.length + (r.rogue_dhcp?.length ?? 0)) > 0;
+    + r.unauthorized_ips.length + (r.rogue_dhcp?.length ?? 0)
+    + (r.external_exposure?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return (report.value?.[key] as Record<string, any>[]) ?? [];
@@ -87,6 +90,8 @@ const COLLBL: Record<string, string> = {
   ip_address_id: "IP 物件 ID", reason: "原因", subnet: "子網路", state: "狀態",
   server_ip: "DHCP 伺服器 IP", subnet_cidr: "子網路", vendor: "廠商",
   offered_ip: "發出的 IP", router: "指定的閘道", first_seen_at: "首次發現",
+  kind: "狀況", ports: "對外開放的埠", monitored: "監控涵蓋",
+  effective_status: "存活狀態", names: "DNS 名稱", owner: "負責人", rules: "來源規則",
 };
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
@@ -96,8 +101,15 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   unauthorized_ips: ["ip"],
   rogue_dhcp: ["server_ip", "subnet_cidr", "mac", "vendor", "offered_ip", "router",
                "first_seen_at", "last_seen_at"],
+  external_exposure: ["kind", "ip", "hostname", "ports", "subnet", "monitored",
+                      "effective_status", "names", "owner", "rules", "ip_address_id"],
 };
-const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = { ghost_ips: ["ip_address_id"] };
+const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
+  ghost_ips: ["ip_address_id"],
+  // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
+  // 預設不顯示，需要的人可在「欄位」自行勾選
+  external_exposure: ["ip_address_id", "owner", "rules"],
+};
 
 // 每個類別一份欄位顯示偏好
 const prefs = {} as Record<CatKey, ReturnType<typeof useColumnPrefs>>;
@@ -112,6 +124,13 @@ function pickerItems(key: CatKey) {
 
 function pretty(k: string, val: any): string {
   if (val == null || val === "") return "";
+  // kind 是分類代碼（exposed_unmonitored…），要翻成看得懂的字，不能把 enum 直接印給人看
+  if (k === "kind") return t(`anomaly.exp_${val}`);
+  if (k === "monitored") return val ? t("common.yes") : t("common.no");
+  if (Array.isArray(val)) {
+    return val.map((x) => (typeof x === "object" && x !== null ? objLine(x) : String(x)))
+      .join("、");
+  }
   if (k.includes("device_id")) return String(val).slice(0, 8);
   if (k.includes("last_seen") || k.includes("_at") || k.includes("time")) return fmtDateTime(String(val));   // 轉本地時區
   return String(val);

@@ -235,6 +235,35 @@ async def dismiss(
     return {"dismissed": len(rows)}
 
 
+@router.delete("/findings", dependencies=[Depends(require_admin)])
+async def clear_findings(
+    user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """清空整份發現清單，讓下一次巡檢從頭report。
+
+    這裡是**刪除**，不是「全部忽略」，兩者結果完全相反：忽略會留下指紋，往後每一次巡檢
+    遇到同一件事都自動忽略 —— 用忽略實作「清除」，等於把這些發現永久封住，而使用者想要
+    的是清掉之後重新分析一次。
+
+    連同已忽略的一起刪：那些記錄正是「不要再報這件事」的依據，留著就等於沒清。
+    """
+    from sqlalchemy import delete as _delete
+    n = int(await session.scalar(select(func.count()).select_from(AIFinding)) or 0)
+    await session.execute(_delete(AIFinding))
+    await append_audit(
+        session,
+        actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ai_audit", object_id=None, action="clear",
+        diff={"count": n},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"deleted": n}
+
+
 @router.post("/restore", dependencies=[Depends(require_admin)])
 async def restore(
     payload: _DismissIn, user: CurrentUser, request: Request,

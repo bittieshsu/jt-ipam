@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.144] — 2026-08-05
+
+### Added
+- **Security configuration assessment (SCA) on the device page.** Wazuh scores each host against benchmarks (CIS, vendor-specific) and reports how many checks pass and fail; jt-ipam now stores that per agent and shows it on the Wazuh card. A host running several benchmarks shows the **lowest-scoring** one — showing the flattering number would be self-congratulation. On a production site 35 agents have data, the worst at 23/100 (112 passed, 361 failed).
+
+  This is deliberately **not** CVE counts. Wazuh removed all vulnerability endpoints from the manager API in 4.8 — verified by listing the 150 routes this server actually exposes, none of which concern vulnerabilities — and the only remaining source is the Wazuh Indexer. That would require a second, long-lived credential able to read **every alert in the SIEM**, in exchange for two numbers, plus a dependency on an internal index name that a future release can rename. The trade is not worth it, so the integration is not offered; a brief implementation of it was removed before release rather than shipped half-considered.
+
+### Changed
+- **Integrations no longer guess when an address is ambiguous.** With overlapping subnets — two departments both using 192.168.1.0/24 — the same IP string is two different machines. Wazuh built its lookup table with a dict (later rows silently overwriting earlier ones) and LibreNMS took the first row, so which record received the data depended on database row order. Both now decline to match when an address resolves to more than one record, and report how many were skipped, because attaching data to the wrong department is worse than attaching none: with no data you go and look, with wrong data you never find out — and across departments it is a data leak. Setting "limit to subnets" on the integration narrows the candidates back to one and restores matching.
+
+## [0.5.143] — 2026-08-05
+
+### Fixed
+- **The Wazuh card claimed "0 / 0" vulnerabilities for machines that had never been checked.** The CVE fetch called `/vulnerability/*` on the Wazuh manager API — endpoints **removed in Wazuh 4.8** (the production server is 4.14.5 and returns 404). The error was swallowed, the columns stayed NULL, and the UI rendered NULL as 0. Reporting "no vulnerabilities" for something never examined is worse than reporting nothing.
+
+## [0.5.142] — 2026-08-05
+
+### Fixed
+- **AI review findings accumulated across runs instead of replacing them.** Four scheduled runs had left 62 open findings, most of them the same handful of issues restated. The fingerprint is category plus the set of cited IPs, and the model regroups those IPs differently each time — `{.97,.46,.129} + {.54}` became `{.54,.129,.46} + {.97}` the next day, which reads as a new fingerprint. A review is a snapshot of what is wrong now, not an append-only log, so each run now reconciles the open list: findings that are still present keep their original discovery time, findings that are gone are removed, and dismissed ones are left alone as the suppression record rather than being re-inserted on every run.
+- **Search results now say which subnet a record belongs to.** With overlapping subnets the same address legitimately exists more than once, and the two rows were indistinguishable — while one said online with 100% availability and the other said offline with 0%, because one subnet has scanning enabled and the other does not.
+- **Hostname source tags no longer offer a delete affordance.** They are observations of what each source reported; which one is used is decided by the hostname precedence setting. Offering an X implied the choice was made there, and anything deleted came back on the next sync.
+
+### Added
+- **DHCP reservations are now synced and shown** — whether an address is bound to a specific NIC rather than handed out dynamically. Supported on every DHCP source: OPNsense (Kea reservations *and* ISC static mappings from config.xml — one production firewall uses each, so both paths are needed), pfSense static mappings, Windows DHCP reservations, and FortiGate `reserved-address`. Shown as a "Reserved" tag with the bound MAC and originating DHCP server on the address detail page, and as an icon in the address list. Entries with no IP are skipped: a static mapping without an address only identifies a NIC, it does not reserve anything.
+
+  This matters because of the mix-up fixed in 0.5.141, where a laptop's OS was attributed to a VM: the address involved was **dynamic**, so it got recycled to another machine. A reserved address is not recycled — so "is this address pinned?" is exactly what you want to know when data appears to belong to the wrong host.
+
+## [0.5.141] — 2026-08-04
+
+### Added
+- **External exposure detection**, as a new category in Anomaly detection: which internal hosts are reachable from outside, and whether their state justifies it. Four rules — exposed with no monitoring coverage at all, exposed while offline, exposed from an archived subnet, and DNS still pointing at an offline host. It reads only what is already synced into jt-ipam (NAT rules, firewall rules, DNS records) and never contacts a firewall or device during detection. This sits in Anomaly detection rather than AI review on purpose: these are computed facts, so they can be stated plainly rather than hedged. Also queryable through AI chat and MCP via `list_anomalies`.
+
+### Fixed
+- **A macOS host's identity was being pasted onto a Linux VM.** An IP showed OS "macOS (source: Wazuh)" while its MAC said Proxmox and no macOS VM existed. The Wazuh agent `laptop-a1.local` — a laptop, status *disconnected* — still had that DHCP address recorded from months earlier, and the address had since been recycled to a VM. Agents were matched to addresses by IP alone, so the stale claim won. A disconnected agent is now ignored when the address has been seen alive *after* the agent stopped checking in; a machine that is merely powered off (no newer liveness evidence) still keeps its data. The same rule now decides monitoring coverage in exposure detection — a disconnected agent is not watching anything.
+- **Underscores inside identifiers were rendered as italics in AI chat.** `recent_ip_changes` came out as recent*ip*changes. CommonMark deliberately forbids intra-word emphasis with underscores, precisely for snake_case names; our minimal renderer did not have that condition. It also mangled identifiers inside inline code.
+
+### Fixed
+- **Every OPNsense NAT rule was recorded as disabled.** The config.xml parser tested whether the `<disabled>` element was *present*, but this firewall writes the value explicitly — `<disabled>0</disabled>` means enabled, and presence-testing read that as disabled. On a live site all 44 NAT rules showed as disabled; after the fix, 28 are enabled and 16 genuinely are not. The parser now accepts both conventions (presence-only in older configs, explicit 0/1 in newer ones), and the same class of bug on the JSON API path — `bool("0")` is `True` — is fixed with it. This is also why exposure detection initially found nothing: the data it reads was wrong, not the rule.
+- **Three components used in templates were never imported**, so they silently vanished at runtime, rendering their slot content as bare text in the wrong place: the customer dropdown when editing a location, the IP filter box on a subnet's detail page, and the member-subnet tags on the VLAN page. A CI check now scans every `.vue` for `<n-…>` tags that are not imported in that file — this class of bug passes typecheck, lint and build.
+
+## [0.5.140] — 2026-08-04
+
+### Added
+- **AI review findings can be cleared in one go**, so the next review starts from a blank slate. This is a *delete*, deliberately not a "dismiss all": dismissing records a fingerprint so the same finding is skipped on every future run, which would have permanently buried exactly what you wanted re-examined. Dismissed findings go too — those records are what suppresses them, so keeping them would mean nothing was really cleared. The confirmation says so, and the operation is audited.
+- **AI review is now listed on the feature map page** (docs/features.html). It was described on the front page but missing from the map.
+
+### Changed
+- **AI review counters use the same size as every other statistic in the product** (24px). They were 20px on the review page and 22px on the dashboard, which read as a size smaller than the KPI cards right above them.
+
 ## [0.5.139] — 2026-08-04
 
 ### Added

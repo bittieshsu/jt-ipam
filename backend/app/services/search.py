@@ -86,13 +86,16 @@ def _detect_query_kind(q: str) -> str:
 async def _search_ip_exact(
     session: AsyncSession, *, user: User, ip: str, limit: int
 ) -> list[SearchHit]:
-    rows = list(
-        (
-            await session.execute(
-                select(IPAddress).where(IPAddress.ip == ip, IPAddress.subnet_id.in_(select(Subnet.id).where(Subnet.archived_at.is_(None)))).limit(limit)
-            )
-        ).scalars().all()
-    )
+    # 帶出所屬子網路：重疊網段下同一個 IP 會有多筆，兩列長得一模一樣的話，
+    # 使用者是在猜自己點的是哪一筆 —— 而那些紀錄的存活狀態可能完全不同。
+    pairs = list((await session.execute(
+        select(IPAddress, Subnet.cidr)
+        .join(Subnet, IPAddress.subnet_id == Subnet.id)
+        .where(IPAddress.ip == ip, Subnet.archived_at.is_(None))
+        .limit(limit)
+    )).all())
+    rows = [r for r, _ in pairs]
+    cidr_by_id = {r.id: str(c) for r, c in pairs}
     if not rows:
         return []
     visible_subnets = set(
@@ -106,7 +109,7 @@ async def _search_ip_exact(
             type="ip_address",
             id=str(r.id),
             label=str(r.ip).split("/")[0],
-            sublabel=r.hostname,
+            sublabel=" · ".join(x for x in (r.hostname, cidr_by_id.get(r.id)) if x),
             score=1.0,
         )
         for r in rows

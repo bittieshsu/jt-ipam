@@ -2026,6 +2026,7 @@ async def list_anomalies(
         "ghost_ips": _an.detect_ghost_ips,
         "unauthorized_ips": _an.detect_unauthorized_ips,
         "rogue_dhcp": _an.detect_rogue_dhcp,
+        "external_exposure": _an.detect_external_exposure,
     }
     n = max(1, min(int(limit), 100))
     if kind:
@@ -2412,12 +2413,15 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_anomalies": {
         "fn": list_anomalies,
         "description": "Anomaly detection results (measured facts, not AI inference): IP "
-                       "conflicts, MAC drifts, ghost IPs, unauthorised IPs, rogue DHCP servers.",
+                       "conflicts, MAC drifts, ghost IPs, unauthorised IPs, rogue DHCP servers, and "
+                       "externally exposed hosts (NAT / WAN firewall rules, cross-checked "
+                       "against liveness, monitoring coverage and DNS).",
         "parameters": {
             "type": "object",
             "properties": {
                 "kind": {"type": "string", "description":
-                         "ip_conflicts | mac_drifts | ghost_ips | unauthorized_ips | rogue_dhcp"},
+                         "ip_conflicts | mac_drifts | ghost_ips | unauthorized_ips | "
+                         "rogue_dhcp | external_exposure"},
                 "limit": {"type": "integer", "description": "max items per kind (default 20)"},
             },
         },

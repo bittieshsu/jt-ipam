@@ -159,6 +159,8 @@ export const RacksIcon = ServerConnection;
 export const GatewayIcon = Internet;
 export const DhcpServerIcon = Server;
 export const LocationsIcon = MapPin;
+// DHCP 固定分配：這個位址被綁給某張網卡，不會被回收給別台
+export const ReservedIcon = Lock;
 export const PinIcon = Pin;
 export const RequestsIcon = MultiplePages;
 export const TopologyIcon = GraphUp;

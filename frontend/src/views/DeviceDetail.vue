@@ -107,6 +107,11 @@ async function doLinkIp() {
 const vlans = ref<DeviceVLAN[]>([]);
 const lnms = ref<DeviceLibreNMS | null>(null);
 const integrations = ref<{ wazuh: any; vm: any } | null>(null);
+/** SCA 分數的顏色：低分＝很多項目不符基準。門檻取整數十位，避免給人「剛好及格」的錯覺。 */
+function scaType(score: number): "error" | "warning" | "success" {
+  if (score < 50) return "error";
+  return score < 80 ? "warning" : "success";
+}
 const loading = ref(false);
 const deleting = ref(false);
 
@@ -439,7 +444,35 @@ onMounted(() => {
           <n-descriptions-item label="OS">{{ integrations.wazuh.os_platform ?? "—" }} {{ integrations.wazuh.os_version ?? "" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_agent_version')">{{ integrations.wazuh.agent_version ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_group')">{{ integrations.wazuh.group ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item :label="t('device_detail.wz_cve')">{{ integrations.wazuh.cve_high ?? 0 }} / {{ integrations.wazuh.cve_critical ?? 0 }}</n-descriptions-item>
+          <!-- 資安體質用 SCA（資安組態評估）呈現。
+               漏洞數（CVE）拿不到：Wazuh 4.8 起 manager API 已無漏洞端點，唯一來源是
+               Wazuh Indexer —— 接上去要一組能讀取整個 SIEM 事件的憑證，代價與收益不成
+               比例，所以不接，也就不顯示一個永遠空白（或假裝是 0）的欄位。 -->
+          <n-descriptions-item v-if="integrations.wazuh.sca_score != null" :label="t('device_detail.wz_sca')">
+            <n-tooltip :delay="150">
+              <template #trigger>
+                <span>
+                  <n-tag size="small" :type="scaType(integrations.wazuh.sca_score)" :bordered="false">
+                    {{ integrations.wazuh.sca_score }}
+                  </n-tag>
+                  <span style="margin-left:6px">
+                    {{ t("device_detail.wz_sca_counts", {
+                      pass: integrations.wazuh.sca_pass ?? 0,
+                      fail: integrations.wazuh.sca_fail ?? 0 }) }}
+                  </span>
+                </span>
+              </template>
+              <div style="max-width:320px;line-height:1.6">
+                <div>{{ integrations.wazuh.sca_policy }}</div>
+                <div v-if="(integrations.wazuh.sca_policy_count ?? 1) > 1">
+                  {{ t("device_detail.wz_sca_worst", { n: integrations.wazuh.sca_policy_count }) }}
+                </div>
+                <div v-if="integrations.wazuh.sca_scanned_at">
+                  {{ fmtDateTime(integrations.wazuh.sca_scanned_at) }}
+                </div>
+              </div>
+            </n-tooltip>
+          </n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_instance')">{{ integrations.wazuh.instance ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('scanAgentHelp.col_last_seen')">{{ fmtDateTime(integrations.wazuh.last_keep_alive) }}</n-descriptions-item>
         </n-descriptions>

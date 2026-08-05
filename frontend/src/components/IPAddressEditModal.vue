@@ -17,7 +17,7 @@ import {
 import type { IPAddress } from "@/types";
 import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
-import { getHostnameSources, clearHostnameSource, type HostnameSources } from "@/api/hostname";
+import { getHostnameSources, type HostnameSources } from "@/api/hostname";
 import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon } from "@/icons";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
@@ -75,6 +75,16 @@ async function loadDhcpRanges() {
     dhcpRanges.value = out;
   } catch { /* silent */ }
 }
+/** DHCP 固定分配的明細（後端在讀取端帶出來）。 */
+const resv = computed<any | null>(() => (props.address as any)?.dhcp_reservation ?? null);
+const resvLine = computed(() => {
+  const r = resv.value;
+  if (!r) return t("addresses.dhcp_reserved_tag");
+  const parts = [r.mac, r.hostname, r.source_name ? `@${r.source_name}` : null]
+    .filter(Boolean);
+  return parts.length ? parts.join("　·　") : t("addresses.dhcp_reserved_tag");
+});
+
 const dhcpInfo = computed<DhcpInfo | null>(() => {
   const ip = (props.address?.ip ?? "").split("/")[0];
   const n = ip ? _ip2int(ip) : null;
@@ -396,20 +406,6 @@ async function loadHostnameSources() {
   } catch { /* silent */ }
 }
 
-// 清掉某來源的 hostname 觀測（過時的「手動: …」等）→ 後端重算有效名稱
-async function clearSource(source: string) {
-  if (!props.address?.id) return;
-  try {
-    await clearHostnameSource(props.address.id, source);
-    hostnameSourcesLoaded.value = false;
-    await loadHostnameSources();
-    if (props.address) emit("saved", props.address);
-    msg.success(t("common.ok"));
-  } catch (e: any) {
-    msg.error(e?.response?.data?.detail ?? t("errors.server"));
-  }
-}
-
 // pin 下拉選項：auto + 有觀測的來源 (顯示該來源回報的 hostname)
 const pinOptions = computed(() => {
   const opts: Array<{ label: string; value: string }> = [
@@ -543,6 +539,28 @@ async function remove() {
           <n-tag v-else :type="stateType" size="small">{{ labelState(props.address?.state) }}</n-tag>
           <!-- 「真的有 DHCP 租約」與「只是落在 DHCP 池範圍內」是兩回事：
                後者常見於在池範圍內設固定 IP 的機器，標成 DHCP 會誤導，改用中性的「DHCP 範圍」。 -->
+          <!-- 固定分配（DHCP reservation）：這個位址被綁給某張網卡，不會被回收給別台。
+               與上面的「DHCP／DHCP 範圍」是不同的事實，所以分開標。 -->
+          <n-tooltip v-if="props.address?.dhcp_reserved" :delay="0">
+            <template #trigger>
+              <n-tag type="success" size="small" :bordered="false">
+                {{ t("addresses.dhcp_reserved_tag") }}
+              </n-tag>
+            </template>
+            <div style="max-width:300px;line-height:1.5">
+              <div>{{ t("addresses.dhcp_reserved_hint") }}</div>
+              <template v-if="resv">
+                <div v-if="resv.mac" style="margin-top:4px">
+                  <strong>{{ t("addresses.dhcp_reserved_mac") }}：</strong>{{ resv.mac }}
+                </div>
+                <div v-if="resv.source_name">
+                  <strong>{{ t("addresses.dhcp_server") }}：</strong>{{ resv.source_name }}
+                  <span v-if="resv.engine">（{{ resv.engine }}）</span>
+                </div>
+                <div v-if="resv.hostname">{{ t("addresses.hostname") }}：{{ resv.hostname }}</div>
+              </template>
+            </div>
+          </n-tooltip>
           <n-tooltip v-if="dhcpInfo || props.address?.in_dhcp_lease" :delay="0">
             <template #trigger>
               <n-tag :type="props.address?.in_dhcp_lease ? 'warning' : 'default'" size="small" :bordered="false">
@@ -746,12 +764,13 @@ async function remove() {
             :label="t('hostnameSrc.sources')" :span="2"
           >
             <n-space :size="6" style="flex-wrap: wrap">
+              <!-- 純顯示，不提供刪除：這裡是「各來源分別回報了什麼」的觀測記錄，
+                   實際採用哪一個由主機名稱優先序決定。給一個 X 會讓人以為要在這裡挑，
+                   而且刪掉之後下次同步又會回來。 -->
               <n-tag
                 v-for="o in hostnameSources.observations" :key="o.source"
                 size="small" :bordered="false"
                 :type="o.hostname === props.address?.hostname ? 'success' : 'default'"
-                closable
-                @close="clearSource(o.source)"
               >
                 {{ labelSource(o.source) }}: {{ o.hostname }}
               </n-tag>
@@ -769,6 +788,10 @@ async function remove() {
           <n-descriptions-item :label="t('addresses.exclude_from_ping')">{{ props.address?.exclude_from_ping ? "✓" : "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.ptr_ignore')">{{ props.address?.ptr_ignore ? "✓" : "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.source')">{{ labelSource(props.address?.discovery_source) }}</n-descriptions-item>
+          <!-- 有固定分配才顯示這一列：沒有的話多一列「否」只是噪音 -->
+          <n-descriptions-item v-if="props.address?.dhcp_reserved" :label="t('addresses.dhcp_reserved_tag')">
+            {{ resvLine }}
+          </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.effective_status')">{{ effectiveDisplay }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_scanner')">{{ fmtDateTime(props.address?.last_seen_scanner) }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_librenms')">{{ fmtDateTime(props.address?.last_seen_librenms) }}</n-descriptions-item>

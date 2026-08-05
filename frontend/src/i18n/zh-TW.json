@@ -1109,7 +1109,10 @@
     "source_fortigate": "FortiGate",
     "role_dhcp_observed": "掃描代理於 {at} 實際收到它回應的 DHCPOFFER",
     "role_dhcp_rogue": "非法 DHCP 伺服器",
-    "role_dhcp_rogue_hint": "它在網段上發位址，但沒有被標記為 DHCP 伺服器。確認無誤的話請在此 IP 開啟「標記為 DHCP 伺服器」。"
+    "role_dhcp_rogue_hint": "它在網段上發位址，但沒有被標記為 DHCP 伺服器。確認無誤的話請在此 IP 開啟「標記為 DHCP 伺服器」。",
+    "dhcp_reserved_tag": "固定分配",
+    "dhcp_reserved_hint": "DHCP 上把這個位址綁給指定的網卡，不會被回收後發給別台機器。",
+    "dhcp_reserved_mac": "綁定網卡"
   },
   "subnets": {
     "title": "子網路",
@@ -1705,7 +1708,13 @@
     "scope_btn": "偵測範圍",
     "scope_title": "要偵測哪些子網路",
     "scope_none": "尚未選擇任何子網路",
-    "scope_hint": "只有列在這裡的子網路會被偵測。訪客、實驗、外包商網段本來就會一直有異常，留著只會把真正該處理的埋掉。這裡跟子網路編輯頁的「納入異常偵測」是同一個設定。"
+    "scope_hint": "只有列在這裡的子網路會被偵測。訪客、實驗、外包商網段本來就會一直有異常，留著只會把真正該處理的埋掉。這裡跟子網路編輯頁的「納入異常偵測」是同一個設定。",
+    "exposure": "對外曝險",
+    "exp_exposed_unmonitored": "對外開放且無監控",
+    "exp_exposed_offline": "已離線仍對外開放",
+    "exp_exposed_archived": "已歸檔仍對外開放",
+    "exp_dns_to_offline": "DNS 指向已離線主機",
+    "exp_hint": "以下全部取自已同步進 jt-ipam 的資料（NAT 規則、防火牆規則、DNS 記錄），偵測時不會連線到防火牆或任何設備。"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2388,7 +2397,10 @@
     "wz_agent_version": "代理版本",
     "wz_group": "群組",
     "wz_cve": "CVE（高/重大）",
-    "wz_instance": "Wazuh 來源"
+    "wz_instance": "Wazuh 來源",
+    "wz_sca": "資安組態評估",
+    "wz_sca_counts": "通過 {pass} ／ 未通過 {fail}",
+    "wz_sca_worst": "此機共 {n} 個基準，顯示分數最低的一個"
   },
   "relations": {
     "title": "關係圖（上下層物件）",
@@ -2769,7 +2781,8 @@
     "cert_deployed_body_nosvc": "代理「{agent}」已套用「{cert}」的新版憑證。",
     "ghost_reminder": "失聯 IP 提醒：{cidr}",
     "ghost_reminder_body": "子網路 {cidr} 有 {n} 個 IP 失聯超過 {days} 天（由 {user} 提出）。",
-    "anom_rogue_dhcp": "非法 DHCP 伺服器：新增 {count} 筆"
+    "anom_rogue_dhcp": "非法 DHCP 伺服器：新增 {count} 筆",
+    "anom_exposure": "對外曝險：新增 {count} 筆"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",
@@ -3049,7 +3062,10 @@
     "col_when": "日期時間",
     "col_action": "動作",
     "ref_not_found": "在 IPAM 中找不到「{name}」—— 可能已經被刪除，或模型記錯了名稱",
-    "all_category": "所有分類"
+    "all_category": "所有分類",
+    "clear_all": "清除全部",
+    "clear_confirm": "將刪除全部發現，包含已忽略的。下一次巡檢會重新報告這些項目，包含先前判定為誤報的。確定要清除嗎？",
+    "cleared": "已清除 {n} 筆發現"
   },
   "ip_peek": {
     "not_found": "IPAM 中查無這個位址",

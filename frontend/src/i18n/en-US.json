@@ -1109,7 +1109,10 @@
     "source_fortigate": "FortiGate",
     "role_dhcp_observed": "the scan agent received a DHCPOFFER from it at {at}",
     "role_dhcp_rogue": "Rogue DHCP server",
-    "role_dhcp_rogue_hint": "It hands out addresses on the segment but is not marked as a DHCP server. If it is legitimate, turn on \"Mark as DHCP server\" for this address."
+    "role_dhcp_rogue_hint": "It hands out addresses on the segment but is not marked as a DHCP server. If it is legitimate, turn on \"Mark as DHCP server\" for this address.",
+    "dhcp_reserved_tag": "Reserved",
+    "dhcp_reserved_hint": "DHCP binds this address to a specific NIC, so it will not be recycled to another machine.",
+    "dhcp_reserved_mac": "Bound to MAC"
   },
   "subnets": {
     "title": "Subnets",
@@ -1705,7 +1708,13 @@
     "scope_btn": "Scope",
     "scope_title": "Which subnets to check",
     "scope_none": "No subnets selected",
-    "scope_hint": "Only the subnets listed here are checked. Guest, lab and contractor segments are noisy by nature, and leaving them in buries the findings that matter. This is the same setting as \"Include in anomaly detection\" on the subnet edit page."
+    "scope_hint": "Only the subnets listed here are checked. Guest, lab and contractor segments are noisy by nature, and leaving them in buries the findings that matter. This is the same setting as \"Include in anomaly detection\" on the subnet edit page.",
+    "exposure": "External exposure",
+    "exp_exposed_unmonitored": "Exposed, no monitoring",
+    "exp_exposed_offline": "Offline but still exposed",
+    "exp_exposed_archived": "Archived but still exposed",
+    "exp_dns_to_offline": "DNS points at an offline host",
+    "exp_hint": "All of this comes from data already synced into jt-ipam (NAT rules, firewall rules, DNS records). Detection never contacts a firewall or any device."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2388,7 +2397,10 @@
     "wz_agent_version": "Agent version",
     "wz_group": "Group",
     "wz_cve": "CVE (high/crit)",
-    "wz_instance": "Wazuh instance"
+    "wz_instance": "Wazuh instance",
+    "wz_sca": "Config assessment",
+    "wz_sca_counts": "{pass} passed / {fail} failed",
+    "wz_sca_worst": "{n} benchmarks on this host; showing the lowest-scoring one"
   },
   "relations": {
     "title": "Relationships",
@@ -2769,7 +2781,8 @@
     "cert_deployed_body_nosvc": "Agent “{agent}” applied the new “{cert}” certificate.",
     "ghost_reminder": "Stale IP reminder: {cidr}",
     "ghost_reminder_body": "Subnet {cidr} has {n} IPs stale for over {days} days (raised by {user}).",
-    "anom_rogue_dhcp": "Rogue DHCP servers: {count} new"
+    "anom_rogue_dhcp": "Rogue DHCP servers: {count} new",
+    "anom_exposure": "External exposure: {count} new"
   },
   "system_transfer": {
     "title": "System Export / Import",
@@ -3049,7 +3062,10 @@
     "col_when": "Date",
     "col_action": "Action",
     "ref_not_found": "\"{name}\" not found in IPAM — it may have been deleted, or the model got the name wrong",
-    "all_category": "All categories"
+    "all_category": "All categories",
+    "clear_all": "Clear all",
+    "clear_confirm": "This deletes every finding, including dismissed ones. The next review will report them again, including any you marked as false positives. Clear them?",
+    "cleared": "Cleared {n} findings"
   },
   "ip_peek": {
     "not_found": "Not found in IPAM",

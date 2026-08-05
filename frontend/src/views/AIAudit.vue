@@ -10,6 +10,16 @@
         <n-button size="small" :loading="loading" @click="load">
           <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
         </n-button>
+        <!-- 清除是刪除、不是全部忽略：忽略會留下指紋，往後同一件事都自動略過，
+             跟「清掉再重新分析一次」正好相反。所以確認文字要把後果講明白。 -->
+        <n-popconfirm v-if="canRun && (summary?.total ?? 0) > 0" @positive-click="clearAll">
+          <template #trigger>
+            <n-button size="small" :loading="clearing">
+              <template #icon><n-icon><DeleteIcon /></n-icon></template>{{ t("ai_audit.clear_all") }}
+            </n-button>
+          </template>
+          {{ t("ai_audit.clear_confirm") }}
+        </n-popconfirm>
         <n-button v-if="canRun" size="small" type="primary" :loading="running" @click="runNow">
           <template #icon><n-icon><TestIcon /></n-icon></template>{{ t("ai_audit.run_now") }}
         </n-button>
@@ -165,10 +175,13 @@ import { computed, h, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
-  NAlert, NButton, NCard, NEmpty, NIcon, NPopover, NProgress, NRadioButton,
-  NRadioGroup, NSelect, NSpace, NSpin, NTag, useMessage, type SelectOption,
+  NAlert, NButton, NCard, NEmpty, NIcon, NPopconfirm, NPopover, NProgress,
+  NRadioButton, NRadioGroup, NSelect, NSpace, NSpin, NTag, useMessage,
+  type SelectOption,
 } from "naive-ui";
-import { AnomalyIcon, DismissIcon, ListIcon, RefreshIcon, TestIcon, RestoreIcon } from "@/icons";
+import {
+  AnomalyIcon, DeleteIcon, DismissIcon, ListIcon, RefreshIcon, RestoreIcon, TestIcon,
+} from "@/icons";
 import IpPeek, { type IpPeekData } from "@/components/IpPeek.vue";
 import { listAddresses } from "@/api/addresses";
 import { listDevices } from "@/api/basic";
@@ -177,7 +190,7 @@ import CardTitle from "@/components/CardTitle.vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { apiErrMsg } from "@/api/client";
 import {
-  dismissAIFindings, getAIAuditStatus, getAIAuditSummary, listAIFindings,
+  clearAIFindings, dismissAIFindings, getAIAuditStatus, getAIAuditSummary, listAIFindings,
   restoreAIFindings, runAIAudit,
   type AIAuditSummary, type AIAuditTask, type AIFinding,
 } from "@/api/system";
@@ -219,6 +232,18 @@ const elapsedText = computed(() => {
 
 // 執行與忽略是管理員操作（後端仍是唯一真相，這裡只是不要給看得到卻按不動的按鈕）
 const canRun = computed(() => !!auth.me?.is_admin);
+
+const clearing = ref(false);
+/** 清空整份清單，讓下一次巡檢重新報告（包含先前判定為誤報而忽略的）。 */
+async function clearAll() {
+  clearing.value = true;
+  try {
+    const r = await clearAIFindings();
+    msg.success(t("ai_audit.cleared", { n: r.deleted }));
+    await load();
+  } catch (e) { msg.error(apiErrMsg(e)); }
+  finally { clearing.value = false; }
+}
 
 const sevOptions = computed(() => ["high", "medium", "low"].map((s) => ({
   label: t(`ai_audit.sev_${s}`), value: s,
@@ -544,7 +569,10 @@ onBeforeUnmount(stopPolling);
 .sev-cell:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
 /* 被選為篩選條件時邊框轉成該嚴重度的顏色，看得出目前在篩什麼 */
 .sev-cell.on { border-color: currentColor; box-shadow: 0 0 0 1px currentColor inset; }
-.sev-n { font-size: 20px; font-weight: 700; line-height: 1.2; }
+.sev-n {
+  font-size: 24px; font-weight: 700; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
 .sev-l { font-size: 12px; color: var(--n-text-color-disabled); margin-top: 2px; }
 .sev-high { color: #d03050; }
 .sev-medium { color: #f0a020; }

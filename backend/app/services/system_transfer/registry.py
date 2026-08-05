@@ -114,6 +114,7 @@ CATEGORY: dict[str, str] = {
     "virtual_machines": "synced",
     "vm_interfaces": "synced",
     "dhcp_pool_ranges": "synced",
+    "dhcp_reservations": "synced",
     # operational（短暫／歷史）
     "audit_logs": "operational",
     "ip_change_log": "operational",

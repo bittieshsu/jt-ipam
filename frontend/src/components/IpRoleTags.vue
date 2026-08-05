@@ -11,7 +11,7 @@
  */
 import { NIcon, NTooltip } from "naive-ui";
 import { useI18n } from "vue-i18n";
-import { GatewayIcon, DhcpServerIcon } from "@/icons";
+import { GatewayIcon, DhcpServerIcon, ReservedIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 
 const props = withDefaults(defineProps<{ row: any; hideRange?: boolean }>(), { hideRange: false });
@@ -23,10 +23,12 @@ const inRange = () => !props.hideRange && (r().in_dhcp_range || r().in_dhcp_leas
 const observedAt = () => r().dhcp_observed_at as string | null | undefined;
 // 觀測到、但沒有被標記為 DHCP 伺服器 → 就是非法 DHCP
 const isRogueDhcp = () => !!observedAt() && !isDhcpServer();
+// DHCP 上把這個位址綁給某張網卡 —— 位址不會被回收給別台
+const isReserved = () => !!r().dhcp_reserved;
 </script>
 
 <template>
-  <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt()" class="ip-roles">
+  <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt() || isReserved()" class="ip-roles">
     <n-tooltip v-if="r().is_gateway" :delay="150">
       <template #trigger><n-icon :size="15" color="#2080f0" class="r-ic"><GatewayIcon /></n-icon></template>
       {{ t("addresses.role_gateway") }} — {{ t("addresses.role_gateway_hint") }}
@@ -49,6 +51,10 @@ const isRogueDhcp = () => !!observedAt() && !isDhcpServer();
       {{ t("addresses.role_dhcp_rogue") }} —
       {{ t("addresses.role_dhcp_observed", { at: fmtDateTime(observedAt()!) }) }}
       <br>{{ t("addresses.role_dhcp_rogue_hint") }}
+    </n-tooltip>
+    <n-tooltip v-if="isReserved()" :delay="150">
+      <template #trigger><n-icon :size="14" color="#18a058" class="r-ic"><ReservedIcon /></n-icon></template>
+      {{ t("addresses.dhcp_reserved_tag") }} — {{ t("addresses.dhcp_reserved_hint") }}
     </n-tooltip>
     <n-tooltip v-if="inRange()" :delay="150">
       <template #trigger><span class="r-dot" /></template>
