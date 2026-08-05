@@ -48,7 +48,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_dns_records": {},
     "list_ip_requests": {}, "list_scan_agents": {}, "list_arp": {}, "list_fdb": {},
     "list_certificates": {}, "list_cert_distribution": {},
-    "list_ai_findings": {}, "list_anomalies": {}, "list_dhcp_ranges": {},
+    "list_ai_findings": {}, "list_anomalies": {}, "investigate_ip": {"ip": "10.0.0.1"}, "list_dhcp_ranges": {},
     "list_fortigate_policies": {}, "list_fortigate_addresses": {},
     "list_connection_targets": {},
     "wazuh_missing_agents": {}, "list_vms": {}, "list_wireless_links": {},

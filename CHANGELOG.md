@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.146] — 2026-08-05
+
+### Added
+- **Investigate mode.** One button on an address gathers everything known about it into a single view: the record, other records for the same address in overlapping subnets, what each source reports as its hostname and OS, monitoring coverage, ARP history, recent changes, and — for global readers — DNS, NAT and firewall rules. Contradictions are computed and shown at the top, because that is the point: sources disagreeing on the hostname, a disconnected agent still claiming the address, several MACs seen on one address.
+
+  Tracking down the two problems fixed earlier this week meant paging through six screens each time. On the address that had macOS attributed to a Linux VM, the dossier shows the whole story at once — four sources reporting four different names, and a disconnected macOS agent still attached.
+
+  Facts and inference stay separate: the dossier is what can be looked up, and a model's reading is only produced when asked for, labelled as inference. If the model is unavailable the feature still works — collecting the clues in one place is what saves the time, not the prose. Also available to AI chat and MCP as `investigate_ip`.
+
+## [0.5.145] — 2026-08-05
+
+### Added
+- **Three more rules in Anomaly detection**, all computed facts rather than inference:
+  - **Dangling DNS** — an A/AAAA record pointing at an address that does not exist in IPAM at all. On an external zone that is the precondition for subdomain takeover: the name still resolves, the address is unmanaged, and whoever obtains it inherits the name. Only A/AAAA are examined, since a CNAME's value is a name and would "never be found" by definition. A production zone had 8, including one pointing at a Docker bridge address.
+  - **Duplicate records in overlapping subnets** — the same address recorded in two subnets where one contains the other. Two departments registering the identical CIDR is deliberate multi-tenant use and is *not* reported; containment almost always means a mistake. It matters because integrations stamp only one of the records, so the other's liveness freezes — on a production site this showed a running machine as offline with 0% availability.
+  - **Suspicious changes** — bulk deletion by one account, repeated login failures from one source, and any permission/account/token change. Deletions with no actor are excluded: those are integrations replacing their own rows during a sync (one such sync deleted 967 rows in 19 minutes), and including them would put routine work at the top of the list and bury real mistakes. "Out of hours" is deliberately not a rule: it needs a reliable timezone and working-hours policy, and a rule that cries wolf trains people to ignore the whole list.
+
+### Changed
+- **Hovering a hostname in AI review evidence now shows a summary card**, as hovering an IP already did. Both are clues for checking a finding, so both should be equally cheap to check.
+
 ## [0.5.144] — 2026-08-05
 
 ### Added

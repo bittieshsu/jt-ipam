@@ -1714,7 +1714,13 @@
     "exp_exposed_offline": "已離線仍對外開放",
     "exp_exposed_archived": "已歸檔仍對外開放",
     "exp_dns_to_offline": "DNS 指向已離線主機",
-    "exp_hint": "以下全部取自已同步進 jt-ipam 的資料（NAT 規則、防火牆規則、DNS 記錄），偵測時不會連線到防火牆或任何設備。"
+    "exp_hint": "以下全部取自已同步進 jt-ipam 的資料（NAT 規則、防火牆規則、DNS 記錄），偵測時不會連線到防火牆或任何設備。",
+    "dangling_dns": "懸空 DNS",
+    "dup_ip": "重複的 IP 紀錄",
+    "changes": "可疑的變更",
+    "chg_bulk_delete": "短時間內大量刪除",
+    "chg_login_failures": "反覆登入失敗",
+    "chg_privilege_change": "權限／帳號變更"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2782,7 +2788,10 @@
     "ghost_reminder": "失聯 IP 提醒：{cidr}",
     "ghost_reminder_body": "子網路 {cidr} 有 {n} 個 IP 失聯超過 {days} 天（由 {user} 提出）。",
     "anom_rogue_dhcp": "非法 DHCP 伺服器：新增 {count} 筆",
-    "anom_exposure": "對外曝險：新增 {count} 筆"
+    "anom_exposure": "對外曝險：新增 {count} 筆",
+    "anom_dangling_dns": "懸空 DNS：新增 {count} 筆",
+    "anom_dup_ip": "重複的 IP 紀錄：新增 {count} 筆",
+    "anom_changes": "可疑的變更：新增 {count} 筆"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",
@@ -3070,5 +3079,18 @@
   "ip_peek": {
     "not_found": "IPAM 中查無這個位址",
     "role": "角色"
+  },
+  "investigate": {
+    "title": "調查",
+    "not_found": "查不到這個位址，或你沒有檢視它的權限。",
+    "other_records": "同位址的其他紀錄",
+    "monitoring": "監控涵蓋",
+    "ask_ai": "請 AI 判讀",
+    "ai_reading": "AI 判讀",
+    "ai_note": "以下是語言模型對上面那些事實的推測，不是查核過的結論。",
+    "conflict_names": "各來源回報的主機名稱不一致（{n} 種）",
+    "conflict_stale_agent": "Wazuh agent「{name}」已失聯，這個位址之後仍被偵測到活著 —— 它登記的位址可能已經換人使用",
+    "conflict_duplicate": "同一個位址在 {n} 個子網路中都有紀錄（重疊網段）",
+    "conflict_macs": "ARP 上看過 {n} 個不同的 MAC —— 單一主機不會這樣"
   }
 }

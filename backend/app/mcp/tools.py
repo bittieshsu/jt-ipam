@@ -2027,6 +2027,9 @@ async def list_anomalies(
         "unauthorized_ips": _an.detect_unauthorized_ips,
         "rogue_dhcp": _an.detect_rogue_dhcp,
         "external_exposure": _an.detect_external_exposure,
+        "dangling_dns": _an.detect_dangling_dns,
+        "duplicate_ip_records": _an.detect_duplicate_ip_records,
+        "suspicious_changes": _an.detect_suspicious_changes,
     }
     n = max(1, min(int(limit), 100))
     if kind:
@@ -2039,6 +2042,18 @@ async def list_anomalies(
         "counts": {k: len(v) for k, v in buckets.items()},
         "items": {k: v[:n] for k, v in buckets.items()},
     }
+
+
+async def investigate_ip(
+    session: AsyncSession, user: User, *, ip: str,
+) -> dict[str, Any]:
+    """把一個位址散落在各處的線索收成一份檔案（只回事實，不做推論）。
+
+    可見性由 collect_dossier 依子網路授權處理；全域基礎設施那幾段（NAT／防火牆／DNS）
+    只有具全域讀取權限者才會拿到。
+    """
+    from app.services.investigate import collect_dossier
+    return await collect_dossier(session, user=user, ip=str(ip).strip())
 
 
 TOOLS: dict[str, dict[str, Any]] = {
@@ -2410,6 +2425,19 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "List scan agents and their status.",
         "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}}},
     },
+    "investigate_ip": {
+        "fn": investigate_ip,
+        "description": "Everything known about one IP address in one place: the record, "
+                       "other records for the same address in overlapping subnets, what "
+                       "each source reports as its hostname and OS, monitoring coverage, "
+                       "ARP history, recent changes, and (for global readers) DNS, NAT "
+                       "and firewall rules. Facts only, no inference.",
+        "parameters": {
+            "type": "object",
+            "properties": {"ip": {"type": "string", "description": "IPv4 or IPv6"}},
+            "required": ["ip"],
+        },
+    },
     "list_anomalies": {
         "fn": list_anomalies,
         "description": "Anomaly detection results (measured facts, not AI inference): IP "
@@ -2421,7 +2449,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "kind": {"type": "string", "description":
                          "ip_conflicts | mac_drifts | ghost_ips | unauthorized_ips | "
-                         "rogue_dhcp | external_exposure"},
+                         "rogue_dhcp | external_exposure | dangling_dns | duplicate_ip_records | suspicious_changes"},
                 "limit": {"type": "integer", "description": "max items per kind (default 20)"},
             },
         },

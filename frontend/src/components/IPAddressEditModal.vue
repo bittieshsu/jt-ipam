@@ -18,7 +18,8 @@ import type { IPAddress } from "@/types";
 import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
 import { getHostnameSources, type HostnameSources } from "@/api/hostname";
-import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon } from "@/icons";
+import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon } from "@/icons";
+import InvestigateModal from "@/components/InvestigateModal.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime } from "@/utils/datetime";
@@ -84,6 +85,8 @@ const resvLine = computed(() => {
     .filter(Boolean);
   return parts.length ? parts.join("　·　") : t("addresses.dhcp_reserved_tag");
 });
+
+const investigating = ref(false);
 
 const dhcpInfo = computed<DhcpInfo | null>(() => {
   const ip = (props.address?.ip ?? "").split("/")[0];
@@ -662,6 +665,10 @@ async function remove() {
             <!-- 連線鈕（SSH/RDP/VNC/PVE/BMC）與編輯/刪除間只留一條分隔線 -->
             <n-divider v-if="props.address?.ssh_available || props.address?.rdp_available || props.address?.vnc_available || props.address?.novnc_available || props.address?.bmc_available"
                        key="hx-conn-div" vertical />
+            <!-- 調查：把這個位址散在各處的線索收在一起（追問題時最花時間的就是到處翻） -->
+            <n-button key="hx-inv" size="small" @click="investigating = true">
+              <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("investigate.title") }}
+            </n-button>
             <n-button key="hx-edit" type="primary" size="small" @click="editMode = true">
               <template #icon><n-icon><EditIcon /></n-icon></template>{{ t("common.edit") }}
             </n-button>
@@ -1020,6 +1027,8 @@ async function remove() {
       </template>
     </n-card>
   </component>
+  <InvestigateModal v-if="props.address?.ip"
+                    v-model:show="investigating" :ip="String(props.address.ip)" />
 </template>
 
 <style scoped>

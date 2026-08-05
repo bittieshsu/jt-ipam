@@ -156,9 +156,17 @@
             </template>
             <IpPeek :ip="ip" :data="ipCache[ip]" />
           </n-popover>
-          <!-- 裝置與子網路也要能點過去查證 —— 只印一個名字，還是要人自己去搜尋 -->
-          <span v-for="d in evList(f.evidence, 'devices')" :key="`d-${d}`"
-                class="fx-ref" @click="goDevice(d)">{{ d }}</span>
+          <!-- 裝置與子網路也要能點過去查證 —— 只印一個名字，還是要人自己去搜尋。
+               主機名稱也要能懸停看摘要：同一列裡 IP 有、主機名稱沒有，
+               使用者得先點進去才知道那台是什麼。 -->
+          <n-popover v-for="d in evList(f.evidence, 'devices')" :key="`d-${d}`"
+                     trigger="hover" :delay="120" placement="top"
+                     @update:show="(v: boolean) => v && loadDev(d)">
+            <template #trigger>
+              <span class="fx-ref" @click="goDevice(d)">{{ d }}</span>
+            </template>
+            <DevicePeek :name="d" :data="devCache[d]" />
+          </n-popover>
           <span v-for="n in evList(f.evidence, 'subnets')" :key="`s-${n}`"
                 class="fx-ref" @click="goSubnet(n)">{{ n }}</span>
           <span v-for="[k, v] in evRest(f.evidence)" :key="k" class="fx-ev-kv">
@@ -183,6 +191,7 @@ import {
   AnomalyIcon, DeleteIcon, DismissIcon, ListIcon, RefreshIcon, RestoreIcon, TestIcon,
 } from "@/icons";
 import IpPeek, { type IpPeekData } from "@/components/IpPeek.vue";
+import DevicePeek, { type DevicePeekData } from "@/components/DevicePeek.vue";
 import { listAddresses } from "@/api/addresses";
 import { listDevices } from "@/api/basic";
 import { listSubnets } from "@/api/subnets";
@@ -341,6 +350,29 @@ function evKeyLabel(k: string) {
 
 // IP 詳細卡片：滑過去才查，查過就快取（同一筆發現裡同一個 IP 只查一次）
 const ipCache = ref<Record<string, IpPeekData | undefined>>({});
+const devCache = ref<Record<string, DevicePeekData | undefined>>({});
+
+/** 懸停時才抓裝置摘要（抓過就留著）。用伺服器端搜尋，不必把整份裝置清單拉下來。 */
+async function loadDev(name: string) {
+  if (name in devCache.value) return;
+  devCache.value[name] = undefined;
+  try {
+    const r = await listDevices({ q: name, pageSize: 20 });
+    const hit = r.items.find((d) => d.name === name)
+      ?? r.items.find((d) => d.name?.toLowerCase() === name.toLowerCase());
+    devCache.value[name] = hit
+      ? {
+          type: hit.type, ip: (hit as any).ip ?? null,
+          vendor: (hit as any).vendor ?? null, model: (hit as any).model ?? null,
+          serial: (hit as any).serial ?? null,
+          location: (hit as any).location_name ?? null,
+          description: hit.description ?? null,
+        }
+      : { missing: true };
+  } catch {
+    devCache.value[name] = { missing: true };
+  }
+}
 
 async function loadIp(ip: string) {
   if (ipCache.value[ip] !== undefined) return;
@@ -400,7 +432,7 @@ function goIp(ip: string) {
  *  只把人帶到未篩選的整份清單，等於沒有幫上忙。 */
 async function goDevice(name: string) {
   try {
-    const r = await listDevices({ pageSize: 500 });
+    const r = await listDevices({ q: name, pageSize: 20 });
     const hit = r.items.find((d) => d.name === name)
       ?? r.items.find((d) => d.name?.toLowerCase() === name.toLowerCase());
     if (hit) {

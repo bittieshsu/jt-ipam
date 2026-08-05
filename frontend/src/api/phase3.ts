@@ -242,6 +242,9 @@ export interface AnomalyReport {
   unauthorized_ips: any[];
   rogue_dhcp: any[];
   external_exposure: any[];
+  dangling_dns: any[];
+  duplicate_ip_records: any[];
+  suspicious_changes: any[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {

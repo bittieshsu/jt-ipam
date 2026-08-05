@@ -15,7 +15,7 @@ import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const msg = useMessage();
 const pg = useTablePagination();
 const loading = ref(false);
@@ -59,7 +59,7 @@ async function saveScope() {
 const activeTab = ref("ip_conflicts");
 
 type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
-  | "rogue_dhcp" | "external_exposure";
+  | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
@@ -67,6 +67,9 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "unauthorized_ips", label: () => t("anomaly.unauthorized") },
   { key: "rogue_dhcp", label: () => t("anomaly.rogue_dhcp") },
   { key: "external_exposure", label: () => t("anomaly.exposure") },
+  { key: "dangling_dns", label: () => t("anomaly.dangling_dns") },
+  { key: "duplicate_ip_records", label: () => t("anomaly.dup_ip") },
+  { key: "suspicious_changes", label: () => t("anomaly.changes") },
 ];
 
 const rogueTitle = computed(() =>
@@ -76,7 +79,8 @@ const anyFindings = computed(() => {
   const r = report.value;
   return !!r && (r.ip_conflicts.length + r.mac_drifts.length + r.ghost_ips.length
     + r.unauthorized_ips.length + (r.rogue_dhcp?.length ?? 0)
-    + (r.external_exposure?.length ?? 0)) > 0;
+    + (r.external_exposure?.length ?? 0) + (r.dangling_dns?.length ?? 0)
+    + (r.duplicate_ip_records?.length ?? 0) + (r.suspicious_changes?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return (report.value?.[key] as Record<string, any>[]) ?? [];
@@ -91,6 +95,9 @@ const COLLBL: Record<string, string> = {
   server_ip: "DHCP 伺服器 IP", subnet_cidr: "子網路", vendor: "廠商",
   offered_ip: "發出的 IP", router: "指定的閘道", first_seen_at: "首次發現",
   kind: "狀況", ports: "對外開放的埠", monitored: "監控涵蓋",
+  name: "名稱", value: "指向", type: "型別", zone: "區域", server: "DNS 伺服器",
+  records: "重複的紀錄", actor: "操作者", actor_ip: "來源 IP",
+  action: "動作", count: "次數", first_at: "最早", object_type: "物件類型",
   effective_status: "存活狀態", names: "DNS 名稱", owner: "負責人", rules: "來源規則",
 };
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
@@ -103,6 +110,10 @@ const CAT_KEYS: Record<CatKey, string[]> = {
                "first_seen_at", "last_seen_at"],
   external_exposure: ["kind", "ip", "hostname", "ports", "subnet", "monitored",
                       "effective_status", "names", "owner", "rules", "ip_address_id"],
+  dangling_dns: ["name", "value", "type", "zone", "server"],
+  duplicate_ip_records: ["ip", "records"],
+  suspicious_changes: ["kind", "actor", "actor_ip", "object_type", "action",
+                       "count", "first_at", "last_at"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   ghost_ips: ["ip_address_id"],
@@ -125,7 +136,14 @@ function pickerItems(key: CatKey) {
 function pretty(k: string, val: any): string {
   if (val == null || val === "") return "";
   // kind 是分類代碼（exposed_unmonitored…），要翻成看得懂的字，不能把 enum 直接印給人看
-  if (k === "kind") return t(`anomaly.exp_${val}`);
+  // kind 橫跨兩類（對外曝險 exp_* 與可疑變更 chg_*），找得到才翻，找不到就原樣顯示
+  if (k === "kind") {
+    for (const p of ["anomaly.exp_", "anomaly.chg_"]) {
+      const key = `${p}${val}`;
+      if (te(key)) return t(key);
+    }
+    return String(val);
+  }
   if (k === "monitored") return val ? t("common.yes") : t("common.no");
   if (Array.isArray(val)) {
     return val.map((x) => (typeof x === "object" && x !== null ? objLine(x) : String(x)))

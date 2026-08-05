@@ -1714,7 +1714,13 @@
     "exp_exposed_offline": "Offline but still exposed",
     "exp_exposed_archived": "Archived but still exposed",
     "exp_dns_to_offline": "DNS points at an offline host",
-    "exp_hint": "All of this comes from data already synced into jt-ipam (NAT rules, firewall rules, DNS records). Detection never contacts a firewall or any device."
+    "exp_hint": "All of this comes from data already synced into jt-ipam (NAT rules, firewall rules, DNS records). Detection never contacts a firewall or any device.",
+    "dangling_dns": "Dangling DNS",
+    "dup_ip": "Duplicate IP records",
+    "changes": "Suspicious changes",
+    "chg_bulk_delete": "Bulk deletion in a short window",
+    "chg_login_failures": "Repeated login failures",
+    "chg_privilege_change": "Permission / account change"
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2782,7 +2788,10 @@
     "ghost_reminder": "Stale IP reminder: {cidr}",
     "ghost_reminder_body": "Subnet {cidr} has {n} IPs stale for over {days} days (raised by {user}).",
     "anom_rogue_dhcp": "Rogue DHCP servers: {count} new",
-    "anom_exposure": "External exposure: {count} new"
+    "anom_exposure": "External exposure: {count} new",
+    "anom_dangling_dns": "Dangling DNS: {count} new",
+    "anom_dup_ip": "Duplicate IP records: {count} new",
+    "anom_changes": "Suspicious changes: {count} new"
   },
   "system_transfer": {
     "title": "System Export / Import",
@@ -3070,5 +3079,18 @@
   "ip_peek": {
     "not_found": "Not found in IPAM",
     "role": "Role"
+  },
+  "investigate": {
+    "title": "Investigate",
+    "not_found": "No such address, or you cannot view it.",
+    "other_records": "Other records for this address",
+    "monitoring": "Monitoring",
+    "ask_ai": "Ask AI to read this",
+    "ai_reading": "AI reading",
+    "ai_note": "The following is a language model's inference from the facts above, not a verified conclusion.",
+    "conflict_names": "Sources disagree on the hostname ({n} different names)",
+    "conflict_stale_agent": "Wazuh agent \"{name}\" is disconnected and the address has been seen alive since — its claim may be stale",
+    "conflict_duplicate": "This address is recorded in {n} subnets (overlapping)",
+    "conflict_macs": "{n} different MACs seen in ARP — unusual for a single host"
   }
 }

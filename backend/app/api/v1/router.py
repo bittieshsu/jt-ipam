@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     firewall,
     fortigate,
     import_external,
+    investigate,
     ip_changes,
     ip_requests,
     librenms,
@@ -112,6 +113,7 @@ api_v1_router.include_router(ip_changes.router)
 api_v1_router.include_router(rack_diagram.router)
 api_v1_router.include_router(migration.router)
 api_v1_router.include_router(ai_audit.router)
+api_v1_router.include_router(investigate.router)
 api_v1_router.include_router(import_external.router)
 api_v1_router.include_router(scan_agents.router)
 api_v1_router.include_router(certificates.router)
