@@ -4,6 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.147] — 2026-08-05
+
+### 修正
+- **在 `net.ipv4.ping_group_range` 改不動的主機上，Ping 工具現在能用了** —— 也就是所有 LXC 容器，因為核心是宿主的。安裝與升級本來就會偵測這種情況、而且會**讀回設定值確認真的生效**（不是寫了檔案就當成功），但接著只是印出說明、把事情丟回給管理者。現在兩條路徑會自己套用替代方案：以 systemd drop-in 授予後端 `CAP_NET_RAW`，並把 `CapabilityBoundingSet` 收斂到只剩這一個能力 —— 比服務原本的預設更嚴格。
+
+  已在非特權 LXC 容器實測：容器內的 capability 邊界是全開的，**不需要動 Proxmox 宿主**。`AmbientCapabilities` 由 systemd 直接授予，因此不受 `NoNewPrivileges=yes` 影響 —— 那個設定正是讓 `setcap` 那條路無聲失效的原因。
+
+  兩條路徑接著都會**讀回執行中的服務實際拿到什麼**，並明講 ping 到底能不能用。寫了 unit 檔不等於生效：那正是 sysctl 那條路踩過的坑 —— 檔案寫好了、值從未套用，ping 一直是壞的卻看起來設定完成。不想授予可設 `JT_IPAM_NO_NET_RAW=1`；其餘連線檢查（TCP／UDP／TLS／HTTP）本來就不需要任何權限。
+
+### 變更
+- **API 手冊改成一次只顯示一節**，不再是一整頁 16 節、目錄只能在裡面跳來跳去。左側目錄會標示所在位置，每一節底部有上一節／下一節 —— 手冊是要讀完的，不只是跳著查。分節是在執行時做的，所以關掉 JavaScript 整份仍然完整可讀，`#錨點` 深連結、瀏覽器上一頁／下一頁與語言切換也都照常。
+
 ## [0.5.146] — 2026-08-05
 
 ### 新增

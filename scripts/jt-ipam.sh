@@ -319,17 +319,73 @@ ensure_icmp_capability() {
     fi
 
     rm -f "$conf"
-    warn "this host does not allow net.ipv4.ping_group_range to be changed$(         [ "$(systemd-detect-virt 2>/dev/null)" = "lxc" ] && printf ' (typical inside an LXC container)')"
-    warn "the Ping tool will report 'cannot send packets'. Everything else (TCP / UDP / TLS / HTTP"
-    warn "checks) is unaffected -- those never needed privileges."
-    warn "To enable ICMP here, grant the backend service the capability instead:"
-    warn "    sudo systemctl edit jt-ipam-backend      # then add:"
-    warn "    [Service]"
-    warn "    AmbientCapabilities=CAP_NET_RAW"
-    warn "    CapabilityBoundingSet=CAP_NET_RAW"
-    warn "    sudo systemctl daemon-reload && sudo systemctl restart jt-ipam-backend"
-    warn "(This is a wider grant than the sysctl -- it permits building arbitrary raw packets --"
-    warn " which is why it is not applied automatically.)"
+    log "net.ipv4.ping_group_range cannot be changed on this host$(         [ "$(systemd-detect-virt 2>/dev/null)" = "lxc" ] && printf ' (normal inside an LXC container: the kernel belongs to the host)')"
+    grant_net_raw_capability
+}
+
+# Fallback when the sysctl route is unavailable: give the backend service CAP_NET_RAW.
+#
+# Verified inside an unprivileged LXC container: the container's capability bounding set is
+# full, so this works without touching the Proxmox host. The service runs as the non-root
+# `jtipam` user, which is why it needs the grant at all.
+#
+# AmbientCapabilities is applied by systemd itself, so it works despite NoNewPrivileges=yes
+# (that setting only disables *file* capabilities, i.e. the setcap route). CapabilityBoundingSet
+# is pinned to the same single capability, which is narrower than the service's default.
+#
+# Set JT_IPAM_NO_NET_RAW=1 to decline: everything except the Ping tool works without it
+# (TCP / UDP / TLS / HTTP checks never needed privileges).
+grant_net_raw_capability() {
+    local dir="/etc/systemd/system/jt-ipam-backend.service.d"
+    local conf="${dir}/10-netraw.conf"
+    if [ "${JT_IPAM_NO_NET_RAW:-0}" = "1" ]; then
+        rm -f "$conf"
+        warn "JT_IPAM_NO_NET_RAW=1 -- the Ping tool will report 'cannot send packets'"
+        return 0
+    fi
+    if ! command -v systemctl >/dev/null 2>&1; then
+        warn "no systemd here -- the Ping tool will report 'cannot send packets'"
+        return 0
+    fi
+    mkdir -p "$dir"
+    cat > "$conf" <<'NETRAW'
+# jt-ipam: the Ping tool needs to open an ICMP socket. The service runs as a non-root user,
+# and on this host net.ipv4.ping_group_range could not be widened (typical inside LXC, where
+# the kernel belongs to the host).
+#
+# AmbientCapabilities is granted by systemd directly, so it survives NoNewPrivileges=yes.
+# The bounding set is pinned to the same single capability.
+#
+# To undo: delete this file, then `systemctl daemon-reload && systemctl restart jt-ipam-backend`.
+[Service]
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NETRAW
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    log "Granted CAP_NET_RAW to jt-ipam-backend so the Ping tool can send (${conf})"
+}
+
+# Read back what the *running* service actually got. Writing a unit file is not the same as
+# it taking effect -- exactly the trap the sysctl route fell into, where a file was written,
+# the value never applied, and ping stayed broken while looking configured.
+verify_icmp_ready() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    local cur
+    cur="$(sysctl -n net.ipv4.ping_group_range 2>/dev/null || echo "")"
+    if [ "${cur//[[:space:]]/ }" = "0 2147483647" ]; then
+        log "Ping tool: ready (unprivileged ICMP allowed by sysctl)"
+        return 0
+    fi
+    local pid amb
+    pid="$(systemctl show jt-ipam-backend -p MainPID --value 2>/dev/null || echo 0)"
+    amb="$(awk '/^CapAmb:/{print $2}' "/proc/${pid}/status" 2>/dev/null || echo "")"
+    # CAP_NET_RAW is bit 13
+    if [ -n "$amb" ] && [ "$(( 0x${amb} >> 13 & 1 ))" = "1" ]; then
+        log "Ping tool: ready (backend holds CAP_NET_RAW)"
+        return 0
+    fi
+    warn "Ping tool: NOT available on this host -- it will report 'cannot send packets'."
+    warn "Everything else (TCP / UDP / TLS / HTTP checks) is unaffected; those never needed privileges."
 }
 
 cmd_install() {
@@ -742,6 +798,7 @@ EOF
         /usr/local/bin/jt-ipam-backup.sh
     systemctl daemon-reload
     systemctl enable --now jt-ipam-backend
+    verify_icmp_ready
     # Periodically sync OPNsense / Wazuh / LibreNMS (per each instance's own sync_interval_seconds)
     systemctl enable --now jt-ipam-sync.timer
     # Daily backup at 03:30; keep 14 days under /var/backups/jt-ipam/
@@ -953,6 +1010,9 @@ cmd_upgrade() {
     systemctl restart "$SVC"
     sleep 4
     systemctl is-active --quiet "$SVC" || die "$SVC did not come up after restart; check journalctl -u $SVC"
+    # Existing installs upgraded from a version without the capability drop-in get it here,
+    # and either way we read back what the running service actually holds.
+    verify_icmp_ready
 
     trap - ERR
     log "Upgrade complete: ${OLD_VER} (${OLD_REV}) -> ${NEW_VER} (${NEW_REV})  alembic $(alembic_head)"

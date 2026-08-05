@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.147] — 2026-08-05
+
+### Fixed
+- **The Ping tool now works on hosts where `net.ipv4.ping_group_range` cannot be widened** — which is every LXC container, since the kernel belongs to the host. Install and upgrade already detected that case and verified the sysctl actually took effect rather than assuming it; they then printed instructions and left it to the operator. They now apply the alternative themselves: a systemd drop-in granting the backend `CAP_NET_RAW`, with `CapabilityBoundingSet` pinned to that one capability, which is narrower than the service's default.
+
+  Verified on an unprivileged LXC container: the container's capability bounding set is full, so no change on the Proxmox host is needed. `AmbientCapabilities` is applied by systemd itself, so it survives `NoNewPrivileges=yes` — the setting that makes the `setcap` route silently useless.
+
+  Both paths then **read back what the running service actually holds** and say plainly whether ping is available. Writing a unit file is not the same as it taking effect: that is precisely the trap the sysctl route fell into, where a file was written, the value never applied, and ping stayed broken while looking configured. Set `JT_IPAM_NO_NET_RAW=1` to decline the grant; every other connectivity check (TCP / UDP / TLS / HTTP) works without it.
+
+### Changed
+- **The API manual shows one section at a time** instead of being a single 16-section page that the contents list only jumped around within. The contents list marks where you are, and each section ends with links to the previous and next one — a manual is meant to be read through, not only jumped into. Sections are grouped at runtime, so the page still reads completely with JavaScript disabled, and `#anchor` deep links, browser back/forward and the language toggle all keep working.
+
 ## [0.5.146] — 2026-08-05
 
 ### Added
