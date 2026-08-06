@@ -124,7 +124,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { listSubnets } from "@/api/subnets";
-import { ESXi, type ESXiDiagStep, type ESXiInstance } from "@/api/esxi";
+import { ESXi, type ESXiDiagStep, type ESXiInstance, type ESXiPayload } from "@/api/esxi";
 import { apiErrMsg } from "@/api/client";
 import { DeleteIcon, EditIcon, PlusIcon, RefreshIcon, SyncIcon, TestIcon, VirtualizationIcon } from "@/icons";
 import { useTablePagination } from "@/composables/useTablePagination";
@@ -191,7 +191,7 @@ function openEdit(r: ESXiInstance) {
 async function save() {
   saving.value = true;
   try {
-    const payload: Record<string, unknown> = {
+    const payload: ESXiPayload = {
       name: form.value.name, api_url: form.value.api_url, username: form.value.username,
       enabled: form.value.enabled, verify_tls: form.value.verify_tls,
       sync_interval_seconds: form.value.sync_interval_seconds,

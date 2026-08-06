@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.150] — 2026-08-06
+
+### Fixed
+- **A VMware host could not be added at all.** `POST /api/v1/esxi` returned 422 `extra_forbidden` on every attempt, so the integration was unusable from the moment it shipped — and it went out twice that way.
+
+  The failover-address field was added to the model, the migration and the form, but to none of the schemas. Request schemas here forbid unknown fields, and the form always sends that key (as `null` when blank), so every submission was rejected. The 33 existing ESXi tests were all green because they exercise the SOAP parsing and the sync — **none of them goes through a schema**.
+
+  The field is now accepted on create and update, clearing it stores null rather than an empty string, and eight endpoint tests cover the contract, one of them posting the form's exact payload including the blank fields the customer had. A further test asserts that **every non-internal model column is reachable through the Create and Update schemas**, so this class of defect fails loudly next time; a column deliberately kept internal must be listed as such. A sweep of all 50 request schemas found no second instance.
+
+  The frontend client took `Record<string, unknown>`, which is why type-checking never noticed. It is typed now — though that only catches typos, not front/back drift; the request-level tests are what actually catch this.
+
 ## [0.5.149] — 2026-08-06
 
 ### Changed

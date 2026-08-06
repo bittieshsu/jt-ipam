@@ -42,14 +42,14 @@ async def _fixture(db_session):
     db_session.add_all([sub, dev])
     await db_session.flush()
     db_session.add_all([
-        DevicePort(device_id=dev.id, name="eth0", mac_address="00:11:32:a1:d3:7f"),
-        DevicePort(device_id=dev.id, name="eth1", mac_address="00:11:32:a1:d3:80"),
+        DevicePort(device_id=dev.id, name="eth0", mac_address="00:00:5e:00:53:01"),
+        DevicePort(device_id=dev.id, name="eth1", mac_address="00:00:5e:00:53:02"),
     ])
     # 第一個 IP 有 device_id；第二個沒有，只能靠 MAC 對到 eth1
     a = IPAddress(subnet_id=sub.id, ip="198.51.100.10", hostname=dev.name,
-                  mac="00:11:32:a1:d3:7f", device_id=dev.id)
+                  mac="00:00:5e:00:53:01", device_id=dev.id)
     b = IPAddress(subnet_id=sub.id, ip="198.51.100.11", hostname=dev.name,
-                  mac="00:11:32:a1:d3:80")
+                  mac="00:00:5e:00:53:02")
     db_session.add_all([a, b])
     await db_session.flush()
     return dev, sub

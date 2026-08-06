@@ -15,7 +15,7 @@ import pytest
 from app.services import ip_device_link as link
 
 
-async def _fixture(db_session, *, second_mac="00:11:32:a1:d3:80"):
+async def _fixture(db_session, *, second_mac="00:00:5e:00:53:02"):
     from app.models.address import IPAddress
     from app.models.device import Device
     from app.models.physical import DevicePort
@@ -30,12 +30,12 @@ async def _fixture(db_session, *, second_mac="00:11:32:a1:d3:80"):
     db_session.add_all([sub, dev])
     await db_session.flush()
     db_session.add_all([
-        DevicePort(device_id=dev.id, name="eth0", mac_address="00:11:32:a1:d3:7f"),
+        DevicePort(device_id=dev.id, name="eth0", mac_address="00:00:5e:00:53:01"),
         DevicePort(device_id=dev.id, name="eth1", mac_address=second_mac),
     ])
-    a = IPAddress(subnet_id=sub.id, ip="198.51.100.10", mac="00:11:32:a1:d3:7f",
+    a = IPAddress(subnet_id=sub.id, ip="198.51.100.10", mac="00:00:5e:00:53:01",
                   device_id=dev.id)
-    b = IPAddress(subnet_id=sub.id, ip="198.51.100.11", mac="00:11:32:a1:d3:80")
+    b = IPAddress(subnet_id=sub.id, ip="198.51.100.11", mac="00:00:5e:00:53:02")
     db_session.add_all([a, b])
     await db_session.flush()
     return dev, a, b
@@ -75,7 +75,7 @@ async def test_an_ambiguous_mac_is_left_alone(db_session):
     db_session.add(other)
     await db_session.flush()
     db_session.add(DevicePort(device_id=other.id, name="eth9",
-                              mac_address="00:11:32:a1:d3:80"))
+                              mac_address="00:00:5e:00:53:02"))
     await db_session.flush()
 
     await link.link_by_port_mac(db_session)
@@ -96,7 +96,7 @@ async def test_an_existing_link_is_never_overwritten(db_session):
     await db_session.flush()
     a.device_id = manual.id
     db_session.add(DevicePort(device_id=dev.id, name="eth2",
-                              mac_address="00:11:32:a1:d3:7f"))
+                              mac_address="00:00:5e:00:53:01"))
     await db_session.flush()
 
     await link.link_by_port_mac(db_session)

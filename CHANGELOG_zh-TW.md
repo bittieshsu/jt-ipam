@@ -4,6 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.150] — 2026-08-06
+
+### 修正
+- **VMware 主機完全無法新增。** `POST /api/v1/esxi` 每次都回 422 `extra_forbidden`，整合從發布的那一刻起就不能用 —— 而且是連續兩版帶著這個問題出去。
+
+  備援位址欄位加在了 model、migration 與前端表單，卻**一個 schema 都沒加**。本專案的請求 schema 一律禁止未知欄位，而表單每次都會送這個鍵（留空時送 `null`），於是每一次送出都被擋下。既有的 33 條 ESXi 測試全綠，因為它們測的是 SOAP 解析與同步 —— **沒有一條經過 schema**。
+
+  現在新增與編輯都收得下，清空時存 NULL 而非空字串，並補了 8 條端點測試，其中一條**一字不差照抄表單送出的 payload**（含客戶那種全部留空的情況）。另有一條守門測試斷言 **model 上每個非內部欄位都必須能透過 Create／Update schema 抵達**，刻意不對外開放的欄位要明確列出 —— 讓這一類缺陷下次會大聲失敗。全庫 50 個請求 schema 掃過，沒有第二個同類問題。
+
+  前端的 client 型別是 `Record<string, unknown>`，所以型別檢查從頭到尾沒有察覺。已經收緊 —— 但這只擋得掉打錯字，擋不掉前後端不同步；真正抓得到的是那些實際打到後端的請求測試。
+
 ## [0.5.149] — 2026-08-06
 
 ### 變更

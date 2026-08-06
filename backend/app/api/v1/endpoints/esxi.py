@@ -48,6 +48,7 @@ async def create_instance(
 ) -> Any:
     inst = ESXiInstance(
         name=payload.name, api_url=str(payload.api_url).rstrip("/"),
+        extra_api_urls=payload.extra_api_urls or None,
         username=payload.username, enabled=payload.enabled,
         verify_tls=payload.verify_tls,
         sync_interval_seconds=payload.sync_interval_seconds,
@@ -85,6 +86,10 @@ async def update_instance(
     for k, v in data.items():
         if k == "api_url" and v is not None:
             v = str(v).rstrip("/")
+        # 清空備援位址存 NULL，與建立時的 `or None` 一致 —— 存成空字串會讓
+        # 「有沒有設過」在資料層變得模稜兩可
+        if k == "extra_api_urls":
+            v = v or None
         setattr(inst, k, v)
     if new_pwd:
         enc, nonce = svc.encrypt_password(inst.id, new_pwd)
