@@ -7,16 +7,23 @@
       <div v-if="data.hostname" class="peek-row">
         <span class="k">{{ t("addresses.hostname") }}</span><span class="v">{{ data.hostname }}</span>
       </div>
+      <!-- 這是兩個不同的欄位，不是一個狀態的兩個標籤：
+           「狀態」是人登記的用途，「實際狀態」是監測量到的存活。兩個擠在同一列、
+           又直接印英文原始值，看到的人只會覺得「怎麼又 active 又 unknown」。 -->
       <div class="peek-row">
-        <span class="k">{{ t("common.status") }}</span>
+        <span class="k">{{ t("addresses.state") }}</span>
         <span class="v">
           <n-tag size="tiny" :bordered="false" :type="data.state === 'active' ? 'success' : 'default'">
-            {{ data.state }}
+            {{ stateLabel(data.state) }}
           </n-tag>
-          <n-tag v-if="data.effective_status" size="tiny" :bordered="false"
-                 :type="String(data.effective_status).startsWith('online') ? 'success' : 'warning'"
-                 style="margin-left:4px">
-            {{ data.effective_status }}
+        </span>
+      </div>
+      <div v-if="data.effective_status" class="peek-row">
+        <span class="k">{{ t("addresses.effective_status") }}</span>
+        <span class="v">
+          <n-tag size="tiny" :bordered="false"
+                 :type="String(data.effective_status).startsWith('online') ? 'success' : 'warning'">
+            {{ effectiveLabel(data.effective_status) }}
           </n-tag>
         </span>
       </div>
@@ -67,7 +74,7 @@ export interface IpPeekData {
 }
 
 const props = defineProps<{ ip: string; data?: IpPeekData | null }>();
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 const lastSeen = computed(() => (props.data?.last_seen ? fmtDateTime(props.data.last_seen) : ""));
 
@@ -81,6 +88,21 @@ const roles = computed(() => {
   if (d.in_dhcp_range) out.push(t("addresses.role_dhcp_range"));
   return out;
 });
+// 兩個欄位各有自己的字彙表；查不到就原樣顯示，不要憑空造字
+function stateLabel(v?: string | null): string {
+  const k = `addresses.state_${String(v || "")}`;
+  return te(k) ? t(k) : String(v || "—");
+}
+// effective_status 帶著來源，如 "online (scanner)" —— 前段翻譯，來源原樣保留
+function effectiveLabel(v?: string | null): string {
+  const raw = String(v || "");
+  const m = /^([a-z]+)(?:\s*\((.+)\))?$/.exec(raw);
+  if (!m) return raw;
+  const k = `addresses.effective_${m[1]}`;
+  const base = te(k) ? t(k) : m[1];
+  return m[2] ? `${base}（${m[2]}）` : base;
+}
+
 </script>
 
 <style scoped>

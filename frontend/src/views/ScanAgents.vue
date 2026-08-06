@@ -89,7 +89,7 @@ const intervalChecked = computed(() =>
 );
 const lightChecked = computed(() => intervalChecked.value.filter((p) => p.klass === "light"));
 
-/** 快迴圈節奏＝所有輕型間隔的最小值（下限 60 秒）—— 與後端 fast_interval() 同一條規則。
+/** 快迴圈頻率＝所有輕型間隔的最小值（下限 60 秒）—— 與後端 fast_interval() 同一條規則。
  *  這個數字就是「多久掃一次」，把它算給使用者看，不然改了輕型間隔也不知道影響什麼。 */
 const fastInterval = computed(() => {
   const light = lightChecked.value.map(
@@ -459,27 +459,32 @@ onMounted(() => { void refresh(); });
             </n-checkbox-group>
           </n-space>
         </n-form-item>
-        <!-- 掃描節奏：輕型每輪都跑，快迴圈＝其中最小的間隔；重型只在自己的間隔到了才跑 -->
+        <!-- 掃描頻率：輕型每輪都跑，快迴圈＝其中最小的間隔；重型只在自己的間隔到了才跑。
+             六個間隔各佔一整列會把對話框拉得很長，改成「名稱｜輸入｜換算」三欄對齊，
+             一眼就能左右比較各探測的間隔。 -->
         <n-form-item v-if="intervalChecked.length" :label="t('scan_probes.cadence')">
-          <div class="probe-hint">
-            {{ t("scan_probes.cadence_hint", { n: humanInterval(fastInterval) }) }}
+          <div class="iv-wrap">
+            <div class="probe-hint iv-hint">
+              {{ t("scan_probes.cadence_hint", { n: humanInterval(fastInterval) }) }}
+            </div>
+            <div class="iv-grid">
+              <template v-for="p in intervalChecked" :key="p.key">
+                <span class="iv-k">{{ probeLabel(p, locale) }}</span>
+                <n-input-number
+                  v-model:value="probeIntervals[p.key]"
+                  :min="p.min_interval_seconds"
+                  :placeholder="String(p.default_interval_seconds)"
+                  size="small"
+                  style="width: 148px"
+                >
+                  <template #suffix>{{ t("scan_probes.secs") }}</template>
+                </n-input-number>
+                <span class="iv-approx">
+                  ≈ {{ humanInterval(probeIntervals[p.key] ?? p.default_interval_seconds) }}
+                </span>
+              </template>
+            </div>
           </div>
-        </n-form-item>
-        <n-form-item
-          v-for="p in intervalChecked" :key="p.key"
-          :label="`${probeLabel(p, locale)} — ${t('scan_probes.interval')}`"
-        >
-          <n-input-number
-            v-model:value="probeIntervals[p.key]"
-            :min="p.min_interval_seconds"
-            :placeholder="String(p.default_interval_seconds)"
-            style="width: 100%"
-          >
-            <template #suffix>{{ t("scan_probes.secs") }}</template>
-          </n-input-number>
-          <span class="probe-hint" style="margin-left:8px;white-space:nowrap">
-            ≈ {{ humanInterval(probeIntervals[p.key] ?? p.default_interval_seconds) }}
-          </span>
         </n-form-item>
       </n-form>
       <template #footer>
@@ -625,4 +630,11 @@ onMounted(() => { void refresh(); });
 .dep-tbl th { font-weight: 600; opacity: .7; font-size: 12px; }
 .dep-tbl code { font-size: 12px; background: rgba(128,128,128,.1); border-radius: 4px; padding: 1px 5px; }
 .hint { font-size: 12px; opacity: .65; line-height: 1.5; margin: 8px 0; }
+.iv-wrap { width: 100%; }
+.iv-hint { margin-bottom: 10px; }
+/* 名稱｜輸入｜換算 —— 名稱欄用 max-content，最長的那個決定寬度，全部靠左對齊 */
+.iv-grid { display: grid; grid-template-columns: max-content 148px max-content;
+  gap: 8px 12px; align-items: center; }
+.iv-k { font-size: 13px; }
+.iv-approx { font-size: 12px; opacity: 0.55; white-space: nowrap; }
 </style>

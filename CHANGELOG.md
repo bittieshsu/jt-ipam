@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.149] — 2026-08-06
+
+### Changed
+- **The VMware ESXi / vCenter integration is now in the README and on the project pages.** It shipped in 0.5.148 as that release's headline feature and was mentioned in neither — Proxmox VE appeared 5 times in the README and VMware not once. A capability nobody can find out about may as well not exist.
+- **"Scan cadence" reads as "scan frequency" in Traditional Chinese.** 節奏 is not how this is said in Taiwan.
+- **The per-probe intervals are laid out as an aligned three-column grid** (name, value, human-readable equivalent) instead of six full-width stacked fields. Six probes turned the dialog into a long scroll, and comparing intervals meant scrolling between them.
+
+### Fixed
+- **A traceroute now streams one hop at a time instead of showing nothing for a minute.** A hop that does not answer can only be confirmed once its timeout expires, so 15 hops take 30–60 seconds — during which the button simply looked unresponsive, with no way to tell running from hung from broken.
+
+  The part that would have failed silently: `tracepath` block-buffers its stdout when it is a pipe, so every line arrives at once when the process exits (measured: all of it at 6.02s). The command is now run under `stdbuf -oL`, after which lines genuinely arrive at +0.02s, +3.02s and +6.03s. The response also sets `X-Accel-Buffering: no`, because nginx otherwise holds the whole stream until it completes. Without either of those, the streaming code would have looked correct and changed nothing on screen.
+
+- **Ping now spaces its packets, and both code paths agree.** Asking for 10 pings returned instantly: it really did send and receive 10, but the whole burst finished in 53 ms. A 50 ms burst cannot show jitter or intermittent loss, and devices that rate-limit ICMP report loss that isn't real. Worse, the two paths measured different things entirely — a host that can open an ICMP socket took 0.05s, one falling back to `ping -c 10` took about 9 seconds, and which you got depended on the host. Both now space packets by 0.25s (10 pings ≈ 2.3s), verified against production.
+- **The address hover card showed two unlabelled English values side by side** — `active` and `unknown` — which reads as one contradictory status. They are two different fields: what the address is recorded as, and what monitoring has actually observed. They are now separate labelled rows using the same translations as the rest of the app, so `online (scanner)` reads as 上線（scanner）. A component test asserts what is rendered, since this was purely a display defect that type-checking cannot catch.
+
 ## [0.5.148] — 2026-08-06
 
 ### Added

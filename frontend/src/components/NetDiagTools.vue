@@ -67,7 +67,7 @@
           </n-space>
           <div class="nd-hint">{{ t("netdiag.trace_hint") }}</div>
           <div class="nd-hint">{{ t("netdiag.trace_slow_hint") }}</div>
-          <div v-if="trace.res" class="nd-sum">
+          <div v-if="trace.res?.tool" class="nd-sum">
             {{ t("netdiag.trace_tool", { tool: trace.res.tool }) }}
             <template v-if="trace.res.path_mtu"> · {{ t("netdiag.path_mtu", { n: trace.res.path_mtu }) }}</template>
             <n-tag v-if="trace.res.truncated" size="small" type="warning" :bordered="false"
@@ -253,6 +253,7 @@ import { DnsIcon, InfoIcon, LinkIcon, LockIcon, NetDiagIcon as LiveIcon, SearchI
 import { MAX_PORTS, parsePorts } from "@/utils/ports";
 import CardTitle from "@/components/CardTitle.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
+import { traceStream } from "@/api/tools";
 
 const MAX_TARGETS = 64;
 const { t } = useI18n();
@@ -476,12 +477,24 @@ async function runTrace() {
   if (!trace.target.trim()) { msg.error(t("netdiag.need_target")); return; }
   trace.busy = true;
   trace.elapsed = 0;
+  // 邊跑邊長：先給一個空殼，每收到一跳就 push 一列進去
+  trace.res = { target: trace.target, tool: "", path_mtu: null, truncated: false, hops: [] };
   traceTimer = setInterval(() => { trace.elapsed += 1; }, 1000);
   try {
-    const { data } = await apiClient.post("/api/v1/tools/net/traceroute", {
-      target: trace.target, max_hops: trace.maxHops,
+    await traceStream(trace.target, trace.maxHops, (ev) => {
+      if (ev.type === "hop") {
+        trace.res!.hops.push({
+          hop: ev.hop!, host: ev.host ?? null,
+          rtt_ms: ev.rtt_ms ?? null, note: ev.note ?? null,
+        });
+      } else if (ev.type === "done") {
+        trace.res!.tool = ev.tool ?? "";
+        trace.res!.path_mtu = ev.path_mtu ?? null;
+        trace.res!.truncated = !!ev.truncated;
+      } else if (ev.type === "error") {
+        msg.error(ev.detail ?? t("errors.server"));
+      }
     });
-    trace.res = data;
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally {
     trace.busy = false;
@@ -520,7 +533,7 @@ onMounted(async () => {
 }
 .howto-note { margin-top: 12px; font-size: 12px; color: var(--n-text-color-disabled); line-height: 1.8; }
 .nd-div { font-size: 13px; font-weight: 600; }
-/* 與上方計算工具用同一組格線參數（2 欄、12px、820px 收合），整頁節奏才一致 */
+/* 與上方計算工具用同一組格線參數（2 欄、12px、820px 收合），整頁看起來才一致 */
 .nd-grid { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
 .nd-wide { grid-column: 1 / -1; }
 /* 表格儲存格不要從字中間斷行 —— "Connection refused" 曾被折成 "Connectio n refused" */

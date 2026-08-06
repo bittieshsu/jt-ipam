@@ -1,4 +1,4 @@
-# jt-ipam v0.5.148
+# jt-ipam v0.5.149
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -11,7 +11,7 @@
 
 **🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/?lang=zh-TW)**
 
-> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Windows DHCP Server、Proxmox VE、Wazuh 與本地 AI。
+> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Windows DHCP Server、Proxmox VE、VMware ESXi / vCenter、Wazuh 與本地 AI。
 >
 > 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：Apache-2.0｜English: [README.md](README.md)
 
@@ -23,7 +23,7 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 
 - **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS（讀取正反解狀態，可選擇性推送記錄）
 - **LibreNMS**：裝置同步、ARP / FDB 抓取、上線狀態互補、自動加入監控
-- **基礎設施**：Proxmox VE、Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），以及 **FortiGate（Beta）** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM）
+- **基礎設施**：Proxmox VE、**VMware ESXi / vCenter（Beta）** —— 同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP，與 Proxmox 寫進同一組虛擬化資料表；Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），以及 **FortiGate（Beta）** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM）
 - **DHCP**：各家各自設定 —— OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
 - **Graylog**：提供 IP→主機名稱/FQDN 的 DSV 對照表端點，供 Graylog「DSV File from HTTP」資料配接器抓取
 - **本地 AI**：LLM Server 自然語言查詢 + 語意搜尋（預設自架、資料不外送；也可明確改接 OpenAI 相容端點），並提供 MCP server（stdio / Streamable HTTP）；實測搭配 `gemma4:26b` 效果良好
@@ -234,7 +234,7 @@ jt-ipam/
 
 - **Phase 1（完成）** — phpIPAM 對等功能 + 改良（區段/子網路/IP/VLAN/VRF/NAT/裝置/機櫃/地點/IP 申請、TOTP/API-Token/RBAC、phpIPAM 匯入、CSV/RIPE/TWNIC、視覺化子網路格、強制 TLS）
 - **Phase 2（完成）** — 多家 DNS + 深度 LibreNMS 整合（裝置/ARP/FDB/實際狀態）+ 異常偵測 + SHA-256 稽核鏈 + pgvector AI 語意搜尋
-- **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense / FortiGate 防火牆同步 + Wazuh agent 盤點
+- **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense / FortiGate 防火牆同步 + VMware ESXi / vCenter 盤點 + Wazuh agent 盤點
 - **Phase 4（完成、已縮減範圍）** — MCP server + 本地 LLM 自然語言（LLM Server）+ 外掛機制
 
 ## 授權

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>jt-ipam — 為整合而生的 IPAM</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / pfSense / FortiGate / Windows DHCP Server / Wazuh / Proxmox VE / LLM Server，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
+<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / pfSense / FortiGate / Windows DHCP Server / Wazuh / Proxmox VE / VMware ESXi / LLM Server，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
 <style>
   :root{
     --green:#18a058; --green-h:#36ad6a; --green-d:#0c7a43;
@@ -284,7 +284,7 @@
       <li><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         <span><span class="zh"><b>權限控管、稽核軌跡、自動同步</b>：用一套系統取代試算表</span><span class="en"><b>Permissions, an audit trail and auto-sync</b> — one system replaces the spreadsheet</span></span></li>
       <li><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-        <span><span class="zh">整合 <b>DNS、LibreNMS、OPNsense、pfSense、FortiGate、Proxmox VE</b> 等既有系統</span><span class="en">Integrates your existing <b>DNS, LibreNMS, OPNsense, pfSense, FortiGate, Proxmox VE</b></span></span></li>
+        <span><span class="zh">整合 <b>DNS、LibreNMS、OPNsense、pfSense、FortiGate、Proxmox VE、VMware ESXi / vCenter</b> 等既有系統</span><span class="en">Integrates your existing <b>DNS, LibreNMS, OPNsense, pfSense, FortiGate, Proxmox VE, VMware ESXi / vCenter</b></span></span></li>
       <li><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         <span><span class="zh">IP 與網路狀態<b>集中在同一處</b></span><span class="en">IP and network state, <b>all in one place</b></span></span></li>
     </ul>
@@ -453,6 +453,7 @@
       <span class="chip"><i></i>Windows DHCP</span>
       <span class="chip"><i></i>Wazuh</span>
       <span class="chip"><i></i>Proxmox VE</span>
+      <span class="chip"><i></i>VMware ESXi / vCenter</span>
       <span class="chip"><i></i>LLM Server</span>
       <span class="chip"><i></i>RIPE</span>
       <span class="chip"><i></i>TWNIC</span>
@@ -497,7 +498,7 @@
       <div class="screen-txt">
         <span class="num">03</span>
         <h3><span class="zh">IP 拓樸圖</span><span class="en">IP topology</span></h3>
-        <p><span class="zh">整合掃描代理、LibreNMS、OPNsense、pfSense、Proxmox VE 等多種系統的資料，自動推測 裝置↔子網路 的鄰接關係，並把實體佈線、無線、站對站 VPN 與 L3 連線分別以不同線型畫出。可依子網路篩選、自由縮放，底部圖例的節點類別可點選，開關各類裝置 / 子網路要不要顯示；整張圖再匯出成 PNG / SVG / draw.io 放進維運文件。</span><span class="en">It combines data from the scan agent, LibreNMS, OPNsense, pfSense and Proxmox VE to infer device↔subnet adjacency, drawing physical, wireless, site-to-site VPN and L3 links each with its own line style. Filter by subnet, zoom freely, click the node categories in the legend to toggle whether each device / subnet type is shown, and export the whole graph to PNG / SVG / draw.io for your runbooks.</span></p>
+        <p><span class="zh">整合掃描代理、LibreNMS、OPNsense、pfSense、Proxmox VE、VMware ESXi / vCenter 等多種系統的資料，自動推測 裝置↔子網路 的鄰接關係，並把實體佈線、無線、站對站 VPN 與 L3 連線分別以不同線型畫出。可依子網路篩選、自由縮放，底部圖例的節點類別可點選，開關各類裝置 / 子網路要不要顯示；整張圖再匯出成 PNG / SVG / draw.io 放進維運文件。</span><span class="en">It combines data from the scan agent, LibreNMS, OPNsense, pfSense, Proxmox VE and VMware ESXi / vCenter to infer device↔subnet adjacency, drawing physical, wireless, site-to-site VPN and L3 links each with its own line style. Filter by subnet, zoom freely, click the node categories in the legend to toggle whether each device / subnet type is shown, and export the whole graph to PNG / SVG / draw.io for your runbooks.</span></p>
       </div>
     </div>
 

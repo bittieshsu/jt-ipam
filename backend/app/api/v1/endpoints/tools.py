@@ -8,10 +8,12 @@ OWASP A05：所有輸入透過 stdlib `ipaddress` 解析（service 層），拒�
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -352,6 +354,39 @@ async def net_traceroute(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"target": res.target, "tool": res.tool, "path_mtu": res.path_mtu,
             "truncated": res.truncated, "hops": [asdict(h) for h in res.hops]}
+
+
+@router.post("/net/traceroute/stream")
+async def net_traceroute_stream(
+    payload: _TraceIn, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> StreamingResponse:
+    """路徑追蹤，一跳一列地邊跑邊送（SSE）。
+
+    沒回應的躍點要等滿逾時才能確定，15 跳可能要 30～60 秒。整批做完才回應的話，
+    使用者看到的是一個按下去長時間毫無反應的按鈕 —— 分不出是在跑、卡住、還是壞了。
+    """
+    try:
+        target = netdiag.normalize_target(payload.target)
+    except netdiag.NetDiagError as exc:
+        raise _bad(exc) from exc
+    await _diag_guard(session, user, request, "net_traceroute", {"target": target})
+
+    async def gen() -> Any:
+        try:
+            async for ev in netdiag.traceroute_stream(target, max_hops=payload.max_hops):
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except netdiag.NetDiagUnavailable as exc:
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+        except netdiag.NetDiagError as exc:
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        # X-Accel-Buffering：nginx 預設會把上游回應緩衝起來，一路憋到結束才送出 ——
+        # 那樣後端再怎麼逐行吐，瀏覽器還是最後才一次收到。
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 class _TcpIn(StrictModel):

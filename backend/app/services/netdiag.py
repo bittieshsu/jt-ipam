@@ -18,11 +18,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import os
 import re
 import shutil
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -315,6 +317,20 @@ async def _sock_recv(loop: Any, sock: Any, n: int) -> bytes:
                 pass
 
 
+# 封包之間的間隔（秒）。標準 ping 是 1 秒，網頁上等 10 秒太久；0.25 秒既能拉開時間軸
+# （看得到抖動與間歇掉包），10 次也只要 2.5 秒。**不能小於 0.2** —— iputils 的 ping
+# 在 -i < 0.2 時要求 root，那會讓外部那條路整個不能用。
+PING_INTERVAL = 0.25
+
+
+def ping_argv(target: str, *, count: int, timeout: float) -> list[str]:
+    """外部 ping 的指令。明確帶 -i，不要靠它每秒一個的預設值 —— 那會讓同一組設定
+    在兩條路徑上量到完全不同的東西（自己送 0.05 秒 vs 外部 9 秒）。"""
+    return [_ping_binary(target), "-n", "-c", str(count),
+            "-i", str(PING_INTERVAL),
+            "-W", str(int(max(1, timeout))), target]
+
+
 async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
     """用非特權 ICMP socket 自己送 echo request。
 
@@ -343,6 +359,10 @@ async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
     rtts: list[float] = []
     ident = os.getpid() & 0xFFFF
     for seq in range(count):
+        # 封包之間要拉開 —— 連發量到的是同一個 50 毫秒瞬間，看不到抖動也看不到
+        # 間歇掉包，而且對 ICMP 有速率限制的裝置會回報出不存在的遺失。
+        if seq:
+            await asyncio.sleep(PING_INTERVAL)
         sock = socket.socket(socket.AF_INET, kind, socket.IPPROTO_ICMP)
         sock.setblocking(False)
         try:
@@ -400,7 +420,7 @@ async def ping_many(
     concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
     timeout = max(0.5, min(timeout, 10.0))
     # 單目標最壞情況約 count × timeout，再加點餘裕；另有整體期限兜底
-    per_target = count * timeout + 5.0
+    per_target = count * (timeout + PING_INTERVAL) + 5.0
     sem = asyncio.Semaphore(concurrency)
     started = time.monotonic()
 
@@ -410,7 +430,7 @@ async def ping_many(
                 return PingResult(target=t, error="整體時間上限已到，未執行")
             if native:
                 return await _ping_native(t, count, timeout)
-            argv = [_ping_binary(t), "-n", "-c", str(count), "-W", str(int(max(1, timeout))), t]
+            argv = ping_argv(t, count=count, timeout=timeout)
             try:
                 _, out = await _run(argv, per_target)
             except TimeoutError:
@@ -530,6 +550,130 @@ async def traceroute(target: str, *, max_hops: int = 20, timeout: float = 0.0) -
     res = parse(target, out)
     res.truncated = truncated
     return res
+
+
+
+class TracepathIncremental:
+    """逐行解析 tracepath 輸出，一次吐一跳。
+
+    與 `parse_tracepath` 規則相同（同一跳的重複探測只留第一筆、`[LOCALHOST]` 不算一跳、
+    沒回應的那跳照樣列出來），差別只在它是邊讀邊吐，好讓畫面能一列一列長出來。
+    """
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        self.path_mtu: int | None = None
+        self._seen: set[int] = set()
+
+    def feed(self, line: str) -> dict[str, Any] | None:
+        m = _PMTU_RE.search(line)
+        if m and self.path_mtu is None:
+            self.path_mtu = int(m.group(1))
+        m2 = _TRACEPATH_RE.match(line)
+        if not m2:
+            return None
+        hop = int(m2.group(1))
+        host = m2.group(2)
+        if host == "[LOCALHOST]" or hop in self._seen:
+            return None
+        self._seen.add(hop)
+        no_reply = host == "no reply"
+        return {
+            "type": "hop", "hop": hop,
+            "host": None if no_reply else host,
+            "rtt_ms": float(m2.group(3)) if m2.group(3) else None,
+            "note": "無回應" if no_reply else ((m2.group(4) or "").strip() or None),
+        }
+
+
+class TracerouteIncremental:
+    """`traceroute` 的逐行版（沒有 tracepath 時的退路）。"""
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        self.path_mtu: int | None = None
+
+    def feed(self, line: str) -> dict[str, Any] | None:
+        m = _TRACEROUTE_RE.match(line)
+        if not m or line.lstrip().startswith("traceroute"):
+            return None
+        rest = m.group(2).strip()
+        rtt = re.search(r"([\d.]+)\s*ms", rest)
+        host = None if rest.startswith("*") else rest.split()[0]
+        return {
+            "type": "hop", "hop": int(m.group(1)), "host": host,
+            "rtt_ms": float(rtt.group(1)) if rtt else None,
+            "note": None if host else "無回應",
+        }
+
+
+def trace_argv(target: str, *, max_hops: int) -> list[str]:
+    """組出路徑追蹤的指令。
+
+    **前面掛 `stdbuf -oL` 是這整個功能的關鍵**：C 程式的 stdout 接到 pipe 時是整塊
+    緩衝的，所有行會等到行程結束才一次湧出（實測 6.02 秒時全部到達）。加了它才會
+    +0.02 / +3.02 / +6.03 逐行送達。沒有 stdbuf 的系統仍可執行，只是退回一次呈現。
+    """
+    if shutil.which("tracepath"):
+        argv = ["tracepath", "-n", "-m", str(max_hops), target]
+    elif shutil.which("traceroute"):
+        argv = ["traceroute", "-n", "-m", str(max_hops), "-w", "2", target]
+    else:
+        raise NetDiagUnavailable(
+            "伺服器上找不到 tracepath 或 traceroute（請安裝 iputils-tracepath）"
+        )
+    return (["stdbuf", "-oL", *argv] if shutil.which("stdbuf") else argv)
+
+
+async def traceroute_stream(
+    target: str, *, max_hops: int = 20, timeout: float = 0.0,
+) -> AsyncIterator[dict[str, Any]]:
+    """邊跑邊吐：每解析出一跳就 yield 一個 hop，結束時 yield 一個 done。
+
+    沒回應的躍點要等滿逾時才能確定，15 跳可能要 30～60 秒 —— 全部壓到最後才呈現的話，
+    使用者只會看到一個按下去長時間毫無反應的按鈕，分不出是在跑、卡住、還是壞了。
+    """
+    max_hops = max(1, min(max_hops, MAX_HOPS))
+    timeout = max(5.0, min(timeout if timeout > 0 else 6.0 + max_hops * 3.5, OVERALL_DEADLINE))
+    argv = trace_argv(target, max_hops=max_hops)
+    tool = "tracepath" if "tracepath" in argv else "traceroute"
+    parser: Any = (TracepathIncremental(target) if tool == "tracepath"
+                   else TracerouteIncremental(target))
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+    except OSError as exc:
+        raise NetDiagError(f"無法執行：{exc}") from exc
+
+    truncated = False
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remain = deadline - time.monotonic()
+            if remain <= 0:
+                truncated = True
+                break
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remain)
+            except TimeoutError:
+                truncated = True
+                break
+            if not raw:
+                break
+            hop = parser.feed(raw.decode("utf-8", "replace").rstrip())
+            if hop:
+                yield hop
+    finally:
+        # 逾時或用戶端中斷時一定要收掉子行程，否則 tracepath 會繼續跑到自己結束
+        if proc.returncode is None:
+            proc.kill()
+            with contextlib.suppress(ProcessLookupError):
+                await proc.wait()
+
+    yield {"type": "done", "tool": tool, "target": target,
+           "path_mtu": parser.path_mtu, "truncated": truncated}
 
 
 @dataclass

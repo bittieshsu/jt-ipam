@@ -1119,7 +1119,8 @@
     "role_dhcp_rogue_hint": "It hands out addresses on the segment but is not marked as a DHCP server. If it is legitimate, turn on \"Mark as DHCP server\" for this address.",
     "dhcp_reserved_tag": "Reserved",
     "dhcp_reserved_hint": "DHCP binds this address to a specific NIC, so it will not be recycled to another machine.",
-    "dhcp_reserved_mac": "Bound to MAC"
+    "dhcp_reserved_mac": "Bound to MAC",
+    "state": "State"
   },
   "subnets": {
     "title": "Subnets",
@@ -3049,7 +3050,7 @@
     "port_invalid": "Skipped (not understood): {s}",
     "port_overflow": "Over the limit of {n} ports; only the first ones were checked",
     "trace_running": "running for {s}s…",
-    "trace_slow_hint": "Hops that never answer must time out before we can be sure, so 15 hops takes roughly 30-60 seconds; results appear together at the end."
+    "trace_slow_hint": "A hop that does not answer can only be confirmed after its timeout, so 15 hops take roughly 30–60 seconds; rows appear one hop at a time as they arrive, so there is nothing to wait for."
   },
   "ai_audit": {
     "title": "AI review",
