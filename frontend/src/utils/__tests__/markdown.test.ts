@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderMarkdown } from "../markdown";
+import { renderInlineMarkdown, renderMarkdown } from "../markdown";
 
 describe("renderMarkdown", () => {
   // 客戶回報：AI 對話裡的工具名稱 `recent_ip_changes` 被渲染成 recent<em>ip</em>changes，
@@ -39,5 +39,35 @@ describe("renderMarkdown", () => {
 
   it("仍然會跳脫 HTML（不能因為改規則而開了注入）", () => {
     expect(renderMarkdown("<img src=x onerror=alert(1)>")).not.toContain("<img");
+  });
+});
+
+describe("renderInlineMarkdown", () => {
+  // AI 巡檢的標題／說明／建議也是模型寫的，同樣會夾 markdown。但它們被放進既有的
+  // <h3> / <p> 裡，不能再包一層區塊標籤 —— 巢狀 <p> 是無效 HTML，瀏覽器會自己拆開。
+  it("把行內 code 渲染出來，不留下反引號", () => {
+    const html = renderInlineMarkdown("發現裝置 `dhcp1` 具備 DHCP 伺服器功能");
+    expect(html).toContain("<code>dhcp1</code>");
+    expect(html).not.toContain("`");
+  });
+
+  it("不產生區塊標籤", () => {
+    const html = renderInlineMarkdown("一段說明");
+    expect(html).not.toContain("<p>");
+    expect(html).not.toContain("<ul>");
+  });
+
+  it("粗體與斜體照樣支援", () => {
+    expect(renderInlineMarkdown("這是 **重點**")).toContain("<strong>重點</strong>");
+  });
+
+  it("底線識別字不會被當成斜體", () => {
+    // 巡檢文字常出現 dhcp_server、scan_agent 這類欄位名
+    expect(renderInlineMarkdown("但 dhcp_server 欄位為 false")).toContain("dhcp_server");
+    expect(renderInlineMarkdown("但 dhcp_server 欄位為 false")).not.toContain("<em>");
+  });
+
+  it("HTML 一律跳脫", () => {
+    expect(renderInlineMarkdown("<img src=x onerror=alert(1)>")).not.toContain("<img");
   });
 });

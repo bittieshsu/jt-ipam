@@ -54,7 +54,7 @@
             </div>
           </n-collapse-item>
 
-          <n-collapse-item v-if="osList.length" :title="t('addresses.os')" name="os">
+          <n-collapse-item v-if="osList.length" :title="t('cols.os')" name="os">
             <div v-for="o in osList" :key="o" class="inv-row">{{ o }}</div>
           </n-collapse-item>
 
@@ -90,7 +90,8 @@
                            :title="`${t('nav.ip_changes')}（${d.changes.length}）`" name="chg">
             <div v-for="(c, i) in d.changes" :key="i" class="inv-row">
               {{ fmtDateTime(c.at) }} · {{ c.field || c.event }}
-              <span v-if="c.old || c.new">：{{ c.old || "—" }} → {{ c.new || "—" }}</span>
+              <span v-if="c.old || c.new">：<ChangeValue :field="c.field" :value="c.old" />
+                → <ChangeValue :field="c.field" :value="c.new" /></span>
             </div>
           </n-collapse-item>
         </n-collapse>
@@ -129,6 +130,7 @@ import { investigate } from "@/api/investigate";
 import { TestIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 import { renderMarkdown } from "@/utils/markdown";
+import ChangeValue from "@/components/ChangeValue.vue";
 
 const props = defineProps<{ show: boolean; ip: string }>();
 defineEmits<{ (e: "update:show", v: boolean): void }>();

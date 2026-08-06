@@ -288,7 +288,10 @@
     "pfsense_fw": "防火牆 (pfSense)",
     "fortigate_fw": "防火牆 (FortiGate)",
     "api_tokens": "API 權杖",
-    "ai_audit": "AI 巡檢"
+    "ai_audit": "AI 巡檢",
+    "virt_pve": "虛擬化 (Proxmox VE)",
+    "virt_vmware": "虛擬化 (VMware)",
+    "esxi_admin": "整合 VMware"
   },
   "topbar": {
     "search": "搜尋…",
@@ -380,7 +383,9 @@
     "please_enter": "請輸入",
     "disconnected": "連線已中斷",
     "disconnected_err": "連線發生錯誤",
-    "disconnected_hint": "請點右上「重新連線」重試"
+    "disconnected_hint": "請點右上「重新連線」重試",
+    "username": "帳號",
+    "password": "密碼"
   },
   "scan_agent": {
     "outdated": "可更新",
@@ -432,7 +437,9 @@
     "hours": "小時",
     "days": "天",
     "agent_off": "代理未啟用",
-    "agent_off_hint": "這個掃描代理做得到這項探測，但管理員沒有在代理上開啟它 —— 在這裡勾了也不會跑。請到「掃描代理」頁編輯該代理，把這項探測加進允許清單。"
+    "agent_off_hint": "這個掃描代理做得到這項探測，但管理員沒有在代理上開啟它 —— 在這裡勾了也不會跑。請到「掃描代理」頁編輯該代理，把這項探測加進允許清單。",
+    "cadence": "掃描節奏",
+    "cadence_hint": "目前每 {n} 掃一輪。輕型探測每輪都跑，這個節奏就是其中最短的間隔；重型探測只在自己的間隔到了才跑。"
   },
   "cols": {
     "name": "名稱",
@@ -2286,9 +2293,9 @@
     "title": "LLM / AI 全域設定",
     "admin_global_settings": "管理員全域設定",
     "admin_note": "此頁為 {strong}；改了會覆寫 .env 並寫進 system_settings 表，所有 user 跟自動化 (embedding / chat / MCP) 共用這份組態。",
-    "enable_ollama": "啟用 Ollama 伺服器連接",
+    "enable_ollama": "啟用 LLM 伺服器連接",
     "model_not_found": "{model} (未在 Ollama 找到)",
-    "ollama_unreachable": "無法連 Ollama：{err}",
+    "ollama_unreachable": "無法連上 LLM 伺服器：{err}",
     "pick_model": "選擇模型",
     "reload_list": "重新載入清單",
     "chat_model": "對話模型",
@@ -2339,7 +2346,22 @@
     "audit_scope_none": "尚未選擇任何子網路",
     "audit_scope_hint": "只有列在這裡的子網路會被送給模型分析。這裡跟子網路編輯頁的「納入 AI 巡檢」是同一個設定，改哪邊都一樣。",
     "audit_num_ctx": "巡檢的上下文長度（num_ctx）",
-    "audit_num_ctx_hint": "留空＝沿用對話模型的設定（目前 {n}）。這個值決定一批能塞多少筆資料：開大一點批次變少、整體更快，代價是更多記憶體／VRAM。設太小的話資料會被切成很多批，模型也更容易漏掉跨網段的問題。"
+    "audit_num_ctx_hint": "留空＝沿用對話模型的設定（目前 {n}）。這個值決定一批能塞多少筆資料：開大一點批次變少、整體更快，代價是更多記憶體／VRAM。設太小的話資料會被切成很多批，模型也更容易漏掉跨網段的問題。",
+    "provider": "LLM 供應商",
+    "provider_ollama": "Ollama（自架）",
+    "provider_openai": "OpenAI 相容端點",
+    "provider_hint": "OpenAI 相容可接 ChatGPT、vLLM、LM Studio、OpenRouter 等；Ollama 本身也提供 /v1 相容層。",
+    "provider_egress_warn": "選用外部服務時，IPAM 的網段、主機名稱與拓樸會送到該服務。若要求資料不出網，請維持自架的 Ollama。",
+    "api_base": "API Base URL",
+    "api_base_hint": "填到 /v1 為止即可（例如 https://api.openai.com/v1）；沒有填 /v1 會自動補上。",
+    "api_key": "API 金鑰",
+    "api_key_set": "（已設定，留空不變更）",
+    "api_key_hint": "本地端點（vLLM／LM Studio）多半不需要金鑰，留空即可。金鑰只會存下來供呼叫使用，不會回傳到畫面。",
+    "embed_check": "檢查維度",
+    "embed_ok": "維度相符（{dim} 維），語意搜尋可用。",
+    "embed_dim_mismatch": "模型回 {dim} 維，資料庫欄位是 {expected} 維 —— 不相符，語意搜尋會索引不到任何資料。請改用維度相符的嵌入模型。",
+    "embed_failed": "取不到向量：{err}",
+    "embed_hint": "嵌入模型的輸出維度必須是 {expected}（資料庫欄位的維度）。維度不合時不會有錯誤訊息，症狀只有「語意搜尋永遠沒有結果」，所以換模型後請按上面檢查一次。"
   },
   "rack_diagram": {
     "empty": "此機櫃尚無裝置",
@@ -3020,7 +3042,14 @@
     "icmp_howto_why": "後端是以 systemd 服務執行，而該服務的沙箱設定（NoNewPrivileges）會讓 ping 指令自帶的 cap_net_raw 失效 —— 在終端機手動跑 ping 正常，在這裡卻送不出封包。這不代表目標不可達。二選一即可。",
     "icmp_howto_a": "作法 A（建議）：放寬核心的 ICMP 群組範圍。這只允許送「ICMP echo」，不能自訂封包、也不能側錄流量 —— 比給整個後端 CAP_NET_RAW 小很多。",
     "icmp_howto_b": "作法 B：直接給後端服務 CAP_NET_RAW。權限比較大（可自行組裝原始封包），只在 A 不可行時採用。",
-    "icmp_howto_note": "兩者都不需要重新安裝，改完 A 立即生效、改完 B 需重啟後端。TCP／UDP／TLS／HTTP 這幾項工具不受影響，本來就不需要特權。"
+    "icmp_howto_note": "兩者都不需要重新安裝，改完 A 立即生效、改完 B 需重啟後端。TCP／UDP／TLS／HTTP 這幾項工具不受影響，本來就不需要特權。",
+    "ports_ph": "443, 22, 8006-8010",
+    "ports_ph_udp": "53, 123, 161",
+    "ports_hint": "以逗號或空白分隔。連續埠用「-」表示範圍，例如 8006-8010。單次最多 16 個埠 —— 這是連通性診斷工具，不是連接埠掃描器。",
+    "port_invalid": "看不懂而略過：{s}",
+    "port_overflow": "超過單次上限 {n} 個埠，只測前面的",
+    "trace_running": "已等待 {s} 秒…",
+    "trace_slow_hint": "沒有回應的躍點必須等滿逾時才能確定，因此 15 跳約需 30～60 秒；結果會一次呈現。"
   },
   "ai_audit": {
     "title": "AI 巡檢",
@@ -3092,5 +3121,24 @@
     "conflict_stale_agent": "Wazuh agent「{name}」已失聯，這個位址之後仍被偵測到活著 —— 它登記的位址可能已經換人使用",
     "conflict_duplicate": "同一個位址在 {n} 個子網路中都有紀錄（重疊網段）",
     "conflict_macs": "ARP 上看過 {n} 個不同的 MAC —— 單一主機不會這樣"
+  },
+  "esxi": {
+    "title": "ESXi / vCenter",
+    "beta_note": "此整合尚未在實機上驗證，欄位可能需要調整。「測試連線」會逐步回報卡在哪一步。",
+    "url_hint": "ESXi 主機或 vCenter 的網址（SOAP 端點固定為 /sdk）",
+    "user_hint": "建議使用唯讀帳號 —— 本整合只讀不寫",
+    "diag": "連線診斷",
+    "synced": "已同步 {n} 台 VM（對應 IP {m} 個）",
+    "create_title": "新增 VMware 連線",
+    "edit_title": "編輯 VMware 連線",
+    "api_url_primary": "API URL（vCenter 或 ESXi）",
+    "extra_urls": "其他位址（容錯）",
+    "extra_urls_ph": "一行一個，例如 https://esxi2.example.com；主位址連不上時自動換這些",
+    "failover_hint": "可填多個位址備援：同步時依序嘗試，主位址故障會自動換到下一個。",
+    "help_title": "如何準備帳號",
+    "help_step1": "在 vCenter 或 ESXi 建立一個唯讀帳號（vSphere 內建的唯讀角色即可）—— 本整合只讀不寫。",
+    "help_step2": "URL 填 vCenter 或 ESXi 主機位址即可，SOAP 端點固定為 /sdk，不必自己加。",
+    "help_step3": "自簽憑證請把「驗證 TLS 憑證」關閉，否則連線會被憑證驗證擋下。",
+    "page_title": "VMware 連線"
   }
 }

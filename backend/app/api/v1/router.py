@@ -23,6 +23,7 @@ from app.api.v1.endpoints import (
     devices,
     dhcp,
     dns,
+    esxi,
     firewall,
     fortigate,
     import_external,
@@ -114,6 +115,7 @@ api_v1_router.include_router(rack_diagram.router)
 api_v1_router.include_router(migration.router)
 api_v1_router.include_router(ai_audit.router)
 api_v1_router.include_router(investigate.router)
+api_v1_router.include_router(esxi.router)
 api_v1_router.include_router(import_external.router)
 api_v1_router.include_router(scan_agents.router)
 api_v1_router.include_router(certificates.router)

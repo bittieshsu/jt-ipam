@@ -286,6 +286,10 @@ cd jt-ipam/deploy/docker
 | `SAML_*` | — | 啟用 SAML SSO |
 | `LDAP_*` | — | LDAP/AD 認證 |
 | `OLLAMA_ENABLED` | — | 開啟 AI 語意搜尋 + chat |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | LLM Server 位址 |
+| `OLLAMA_CHAT_MODEL` | `gemma4:26b` | 對話模型 |
+| `OLLAMA_EMBEDDING_MODEL` | `granite-embedding:278m` | 嵌入模型，**維度必須等於 `EMBEDDING_DIM`** |
+| `EMBEDDING_DIM` | `768` | 資料庫 `vector(N)` 欄位的維度；改這個要一併改 migration |
 
 完整列表見 `app/core/config.py` Settings class。
 
@@ -352,6 +356,24 @@ SAML_ADMIN_GROUPS=jt-ipam-admins
 ---
 
 ## 5. 備份與還原
+
+### LLM / AI（選用）
+
+AI 對話與語意搜尋預設走**自架的 Ollama**，資料不出自己的網路。安裝腳本不會幫你裝 LLM Server —— 它通常跑在另一台有顯示卡的機器上。
+
+```bash
+# 在 LLM Server 上（範例）
+ollama pull gemma4:26b                 # 對話模型
+ollama pull granite-embedding:278m     # 嵌入模型（768 維、多語系）
+```
+
+然後在 **管理 → LLM / AI** 填上位址與兩個模型即可。
+
+> ⚠️ **嵌入模型的輸出維度必須等於 `EMBEDDING_DIM`（預設 768）**，那是資料庫 `vector(N)` 欄位的維度。維度不合時**不會有錯誤訊息**，唯一的症狀是「語意搜尋永遠沒有結果」—— 因為每一筆索引寫入都失敗了。換模型之後請按設定頁的「**檢查維度**」驗一次，它會直接告訴你模型回幾維、欄位要幾維。
+>
+> 另外，**只支援英文的嵌入模型（如 `nomic-embed-text`）會把不同的中文描述壓成同一個向量**，維度看起來對、搜尋也有結果，但排序是亂的。要換模型的話，挑多語系的，並拿自己實際在用的描述比對一下不同描述是否得到不同結果。
+
+想改接外部服務（ChatGPT、vLLM、LM Studio、OpenRouter 等 OpenAI 相容端點）也可以，設定頁選「OpenAI 相容」並填入 API 金鑰（AES-GCM 加密存放）。**這代表網段、主機名稱與拓樸會送到該服務** —— 要求資料不出網的話請維持自架的 Ollama。
 
 ### 自動備份
 

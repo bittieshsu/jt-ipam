@@ -126,7 +126,8 @@
           </n-tag>
           <span class="fx-what">
             <n-tag size="small" round :bordered="false">{{ t(`ai_audit.cat_${f.category}`) }}</n-tag>
-            <h3 class="fx-title">{{ f.title }}</h3>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <h3 class="fx-title" v-html="renderInlineMarkdown(f.title)"></h3>
           </span>
           <span class="fx-when">{{ fmtDateTime(f.created_at) }}</span>
           <n-button v-if="canRun && f.status === 'open'" size="tiny" secondary
@@ -140,10 +141,14 @@
             {{ t("ai_audit.restore") }}
           </n-button>
         </div>
-        <p v-if="f.detail" class="fx-detail">{{ f.detail }}</p>
+        <!-- 這三段都是模型寫的文字，會夾 `code`、**粗體** 這類語法 —— 當純文字印會
+             把反引號直接顯示在畫面上。用行內版渲染器（跳脫在前、不產生區塊標籤）。 -->
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <p v-if="f.detail" class="fx-detail" v-html="renderInlineMarkdown(f.detail)"></p>
         <div v-if="f.recommendation" class="fx-rec">
           <span class="fx-rec-tag">{{ t("ai_audit.recommendation") }}</span>
-          <span>{{ f.recommendation }}</span>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <span v-html="renderInlineMarkdown(f.recommendation)"></span>
         </div>
         <!-- 依據資料一定要看得到：沒有它，上面那段話就無從查證。
              IP 直接做成連結 —— 查證要能一鍵翻到那筆紀錄，不是叫人自己去搜尋。 -->
@@ -197,6 +202,7 @@ import { listDevices } from "@/api/basic";
 import { listSubnets } from "@/api/subnets";
 import CardTitle from "@/components/CardTitle.vue";
 import { fmtDateTime } from "@/utils/datetime";
+import { renderInlineMarkdown } from "@/utils/markdown";
 import { apiErrMsg } from "@/api/client";
 import {
   clearAIFindings, dismissAIFindings, getAIAuditStatus, getAIAuditSummary, listAIFindings,

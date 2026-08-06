@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
@@ -591,6 +591,9 @@ async def update_geoip_now(
 
 class LLMConfigOut(StrictModel):
     enabled: bool
+    # ollama（原生）或 openai（OpenAI 相容端點）。金鑰只回「有沒有設」，不回明文。
+    provider: str = "ollama"
+    api_key_set: bool = False
     url: str
     embedding_model: str
     chat_model: str
@@ -607,6 +610,9 @@ class LLMConfigOut(StrictModel):
 
 class LLMConfigPatch(StrictModel):
     enabled: bool | None = None
+    provider: Literal["ollama", "openai"] | None = None
+    # 空字串＝清掉金鑰（本地 vLLM／LM Studio 多半不需要），所以 min_length 是 0
+    api_key: Annotated[str | None, Field(min_length=0, max_length=512)] = None
     url: Annotated[str | None, Field(min_length=4, max_length=512)] = None
     embedding_model: Annotated[str | None, Field(min_length=1, max_length=128)] = None
     chat_model: Annotated[str | None, Field(min_length=1, max_length=128)] = None
@@ -635,6 +641,7 @@ def _llm_out(cfg: Any) -> LLMConfigOut:
         enabled=cfg.enabled, url=cfg.url,
         embedding_model=cfg.embedding_model,
         chat_model=cfg.chat_model, timeout=cfg.timeout,
+        provider=cfg.provider, api_key_set=bool(cfg.api_key),
         num_ctx=cfg.num_ctx,
         mcp_external_enabled=cfg.mcp_external_enabled,
         mcp_api_key_set=bool(cfg.mcp_api_key),
@@ -665,6 +672,8 @@ async def patch_llm(
     await set_llm_config(
         session,
         enabled=changes.get("enabled"),
+        provider=changes.get("provider"),
+        api_key=changes.get("api_key"),
         url=changes.get("url"),
         embedding_model=changes.get("embedding_model"),
         chat_model=changes.get("chat_model"),
@@ -730,26 +739,23 @@ async def list_ollama_models(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """列出 Ollama 上目前已 pull 的模型清單（給設定頁的下拉選用）。"""
+    """列出 LLM 端點上可用的模型清單（給設定頁的下拉選用）。
+
+    Ollama 走 `/api/tags`、OpenAI 相容走 `/v1/models` —— 兩者的回應結構也不同。
+    """
+    from app.services import ai as ai_mod
+
     cfg = await get_llm_config(session)
-    url = f"{cfg.url.rstrip('/')}/api/tags"
+    provider = getattr(cfg, "provider", "ollama") or "ollama"
+    url = ai_mod.models_url(cfg.url, provider)
+    headers = ai_mod.auth_headers(provider, getattr(cfg, "api_key", None))
     try:
-        resp = await safe_request("GET", url, timeout=10.0)
+        resp = await safe_request("GET", url, timeout=10.0, headers=headers)
     except httpx.HTTPError as exc:
         return {"models": [], "error": f"{type(exc).__name__}: {exc}"}
     if resp.status_code != 200:
         return {"models": [], "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
-    data = resp.json() or {}
-    out = []
-    for m in (data.get("models") or []):
-        out.append({
-            "name": m.get("name"),
-            "size": m.get("size"),
-            "modified_at": m.get("modified_at"),
-            "family": (m.get("details") or {}).get("family"),
-            "parameter_size": (m.get("details") or {}).get("parameter_size"),
-        })
-    return {"models": out}
+    return {"models": ai_mod.parse_models(resp.json() or {}, provider)}
 
 
 # ─────────────────── RBAC：權限指派 ───────────────────
@@ -1335,6 +1341,7 @@ async def integration_presence(
 
     from app.models.certificate import CertAgent
     from app.models.dns import DNSServer
+    from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.pfsense import PfSenseFirewall
@@ -1348,6 +1355,7 @@ async def integration_presence(
         ("dns", DNSServer),
         ("cert_agents", CertAgent),
         ("proxmox", ProxmoxInstance),
+        ("esxi", ESXiInstance),
     ):
         n = await session.scalar(select(func.count()).select_from(model))
         out[key] = bool(n)

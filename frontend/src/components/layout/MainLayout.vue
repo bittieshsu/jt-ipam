@@ -37,7 +37,7 @@ import {
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
   AiAuditIcon, ChatHistoryIcon,
-  DnsIcon, LibreNMSIcon, FirewallIcon, DhcpServerIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
+  DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon,
@@ -179,6 +179,7 @@ watch([inSubnetContext, currentSubnetId, navSubnets], () => {
 // 等於空選項 → 依後端回報的設定狀態隱藏。初值全 true：載入完成前不要讓選單閃一下才消失。
 const intgPresence = ref<Record<string, boolean>>({
   opnsense: true, pfsense: true, fortigate: true, dns: true, cert_agents: true, proxmox: true,
+  esxi: true,
 });
 async function loadIntegrationPresence() {
   try {
@@ -222,7 +223,9 @@ const menuOptions = computed<MenuOption[]>(() => {
           ? [{ label: () => t("nav.cert_status"), key: "adv-cert-status", icon: renderIcon(LockIcon) }] : []),
         { label: () => t("nav.connections"),     key: "adv-connections", icon: renderIcon(TerminalIcon) },
         ...(intgPresence.value.proxmox
-          ? [{ label: () => t("nav.virtualization"), key: "virt", icon: renderIcon(VirtualizationIcon) }] : []),
+          ? [{ label: () => t("nav.virt_pve"), key: "virt", icon: renderIcon(VirtualizationIcon) }] : []),
+        ...(intgPresence.value.esxi
+          ? [{ label: () => t("nav.virt_vmware"), key: "virt_vmware", icon: renderIcon(VirtualizationIcon) }] : []),
         ...(intgPresence.value.opnsense
           ? [{ label: () => t("nav.firewall"), key: "firewall", icon: renderIcon(FirewallIcon) }] : []),
         ...(intgPresence.value.pfsense
@@ -266,8 +269,9 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.firewall_admin"), key: "firewall_admin", icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.pfsense"),        key: "pfsense",        icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.fortigate"),      key: "fortigate",      icon: renderIcon(FirewallIcon) },
-          { label: () => t("nav.windows_dhcp"),  key: "windows_dhcp",   icon: renderIcon(DhcpServerIcon) },
+          { label: () => t("nav.windows_dhcp"),  key: "windows_dhcp",   icon: renderIcon(WindowsDhcpIcon) },
           { label: () => t("nav.virt_admin"),    key: "virt_admin",     icon: renderIcon(VirtualizationIcon) },
+          { label: () => t("nav.esxi_admin"),    key: "esxi_admin",     icon: renderIcon(VirtualizationIcon) },
           { label: () => t("nav.wazuh"),         key: "wazuh",          icon: renderIcon(WazuhIcon) },
           { label: () => t("nav.graylog_dsv"),   key: "graylog_dsv",    icon: renderIcon(ExportIcon) },
           { label: () => t("nav.scan_agents"),   key: "scan_agents",    icon: renderIcon(ScanAgentsIcon) },

@@ -20,6 +20,7 @@ import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchP
 import { getHostnameSources, type HostnameSources } from "@/api/hostname";
 import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon } from "@/icons";
 import InvestigateModal from "@/components/InvestigateModal.vue";
+import ChangeValue from "@/components/ChangeValue.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime } from "@/utils/datetime";
@@ -137,15 +138,6 @@ function labelSource(v: string | null | undefined): string {
   const key = `addresses.source_${v}`;
   const out = t(key);
   return out === key ? v : out;
-}
-// 異動記錄的值顯示：switch_port 用「裝置@埠號」（只換第一個 " / "，埠內斜線不動），與位置顯示一致
-function fmtChangeVal(field: string | null | undefined, v: string | null | undefined): string {
-  if (v == null) return "∅";
-  if (field === "switch_port") {
-    const idx = v.indexOf(" / ");
-    if (idx >= 0) return v.slice(0, idx) + "@" + v.slice(idx + 3);
-  }
-  return v;
 }
 function labelEffective(v: string | null | undefined): string {
   if (!v) return "—";
@@ -852,9 +844,9 @@ async function remove() {
                   </template>
                   <n-text v-if="h.old_value != null || h.new_value != null" style="font-size: 13px">
                     <span v-if="h.field">{{ h.field }}: </span>
-                    <n-text depth="3" delete>{{ fmtChangeVal(h.field, h.old_value) }}</n-text>
+                    <n-text depth="3" delete><ChangeValue :field="h.field" :value="h.old_value" /></n-text>
                     →
-                    <n-text strong>{{ fmtChangeVal(h.field, h.new_value) }}</n-text>
+                    <n-text strong><ChangeValue :field="h.field" :value="h.new_value" /></n-text>
                   </n-text>
                   <n-text v-if="h.note" depth="3" style="font-size: 12px; display: block">{{ h.note }}</n-text>
                 </n-timeline-item>

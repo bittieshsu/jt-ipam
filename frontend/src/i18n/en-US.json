@@ -288,7 +288,10 @@
     "pfsense_fw": "Firewall (pfSense)",
     "fortigate_fw": "Firewall (FortiGate)",
     "api_tokens": "API tokens",
-    "ai_audit": "AI review"
+    "ai_audit": "AI review",
+    "virt_pve": "Virtualization (Proxmox VE)",
+    "virt_vmware": "Virtualization (VMware)",
+    "esxi_admin": "VMware"
   },
   "topbar": {
     "search": "Search…",
@@ -380,7 +383,9 @@
     "please_enter": "Please enter",
     "disconnected": "Disconnected",
     "disconnected_err": "Connection error",
-    "disconnected_hint": "Click Reconnect (top right) to retry"
+    "disconnected_hint": "Click Reconnect (top right) to retry",
+    "username": "Username",
+    "password": "Password"
   },
   "scan_agent": {
     "outdated": "update available",
@@ -432,7 +437,9 @@
     "hours": "h",
     "days": "d",
     "agent_off": "off on agent",
-    "agent_off_hint": "This agent can perform the probe, but it is not enabled on the agent itself — ticking it here will not make it run. Edit the agent on the Scan agents page and add this probe to its allowed list."
+    "agent_off_hint": "This agent can perform the probe, but it is not enabled on the agent itself — ticking it here will not make it run. Edit the agent on the Scan agents page and add this probe to its allowed list.",
+    "cadence": "Scan cadence",
+    "cadence_hint": "Currently one round every {n}. Light probes run every round, so this is the shortest of their intervals; heavy probes run only when their own interval is due."
   },
   "cols": {
     "name": "Name",
@@ -2286,9 +2293,9 @@
     "title": "LLM / AI global settings",
     "admin_global_settings": "admin global settings",
     "admin_note": "This page holds {strong}; changes overwrite .env and persist to system_settings. All users and automation (embedding / chat / MCP) share this config.",
-    "enable_ollama": "Enable Ollama server connection",
+    "enable_ollama": "Enable LLM server connection",
     "model_not_found": "{model} (not found in Ollama)",
-    "ollama_unreachable": "Cannot reach Ollama: {err}",
+    "ollama_unreachable": "Cannot reach the LLM server: {err}",
     "pick_model": "Pick a model",
     "reload_list": "Reload list",
     "timeout_sec": "Timeout (s)",
@@ -2339,7 +2346,22 @@
     "audit_scope_none": "No subnets selected",
     "audit_scope_hint": "Only the subnets listed here are sent to the model. This is the same setting as \"Include in AI review\" on the subnet edit page — changing either changes both.",
     "audit_num_ctx": "Context length for the review (num_ctx)",
-    "audit_num_ctx_hint": "Leave empty to use the chat model's setting (currently {n}). This decides how many records fit in one batch: larger means fewer batches and a faster run, at the cost of memory/VRAM. Too small and the data is split into many batches, which also makes cross-subnet problems easier for the model to miss."
+    "audit_num_ctx_hint": "Leave empty to use the chat model's setting (currently {n}). This decides how many records fit in one batch: larger means fewer batches and a faster run, at the cost of memory/VRAM. Too small and the data is split into many batches, which also makes cross-subnet problems easier for the model to miss.",
+    "provider": "LLM provider",
+    "provider_ollama": "Ollama (self-hosted)",
+    "provider_openai": "OpenAI-compatible",
+    "provider_hint": "OpenAI-compatible covers ChatGPT, vLLM, LM Studio, OpenRouter and others; Ollama also exposes a /v1 compatibility layer.",
+    "provider_egress_warn": "With an external service, your subnets, hostnames and topology are sent to that provider. Keep the self-hosted Ollama if data must not leave your network.",
+    "api_base": "API base URL",
+    "api_base_hint": "Up to /v1 is enough (e.g. https://api.openai.com/v1); /v1 is appended if omitted.",
+    "api_key": "API key",
+    "api_key_set": "(set - leave blank to keep)",
+    "api_key_hint": "Local endpoints (vLLM, LM Studio) usually need no key; leave blank. The key is stored for calls only and never returned to the browser.",
+    "embed_check": "Check dimension",
+    "embed_ok": "Dimensions match ({dim}); semantic search is usable.",
+    "embed_dim_mismatch": "The model returns {dim} dimensions but the database column holds {expected} — they do not match, so nothing will ever be indexed. Choose an embedding model of the matching size.",
+    "embed_failed": "No vector returned: {err}",
+    "embed_hint": "The embedding model must output {expected} dimensions (the database column size). A mismatch raises no visible error — the only symptom is that semantic search never returns anything — so check after changing the model."
   },
   "rack_diagram": {
     "empty": "No devices in this rack",
@@ -3020,7 +3042,14 @@
     "icmp_howto_why": "The backend runs as a systemd service whose sandbox (NoNewPrivileges) makes the cap_net_raw file capability on /bin/ping inert — ping works in a shell but cannot send anything from here. It does not mean the target is unreachable. Either option below fixes it.",
     "icmp_howto_a": "Option A (recommended): widen the kernel's ICMP group range. This permits ICMP echo only — no crafted packets, no sniffing — which is far narrower than granting the whole backend CAP_NET_RAW.",
     "icmp_howto_b": "Option B: grant CAP_NET_RAW to the backend service. Broader (it allows building arbitrary raw packets); use only if A is not possible.",
-    "icmp_howto_note": "Neither requires reinstalling. A takes effect immediately; B needs a backend restart. The TCP / UDP / TLS / HTTP tools are unaffected — they never needed privileges."
+    "icmp_howto_note": "Neither requires reinstalling. A takes effect immediately; B needs a backend restart. The TCP / UDP / TLS / HTTP tools are unaffected — they never needed privileges.",
+    "ports_ph": "443, 22, 8006-8010",
+    "ports_ph_udp": "53, 123, 161",
+    "ports_hint": "Comma- or space-separated. Use “-” for a range, e.g. 8006-8010. Up to 16 ports per run - this is a connectivity check, not a port scanner.",
+    "port_invalid": "Skipped (not understood): {s}",
+    "port_overflow": "Over the limit of {n} ports; only the first ones were checked",
+    "trace_running": "running for {s}s…",
+    "trace_slow_hint": "Hops that never answer must time out before we can be sure, so 15 hops takes roughly 30-60 seconds; results appear together at the end."
   },
   "ai_audit": {
     "title": "AI review",
@@ -3092,5 +3121,24 @@
     "conflict_stale_agent": "Wazuh agent \"{name}\" is disconnected and the address has been seen alive since — its claim may be stale",
     "conflict_duplicate": "This address is recorded in {n} subnets (overlapping)",
     "conflict_macs": "{n} different MACs seen in ARP — unusual for a single host"
+  },
+  "esxi": {
+    "title": "ESXi / vCenter",
+    "beta_note": "Not yet verified against real hardware; fields may need adjusting. \"Test connection\" reports which step fails.",
+    "url_hint": "URL of the ESXi host or vCenter (the SOAP endpoint is always /sdk)",
+    "user_hint": "A read-only account is recommended — this integration never writes",
+    "diag": "Connection diagnostics",
+    "synced": "Synced {n} VMs ({m} addresses matched)",
+    "create_title": "Add VMware connection",
+    "edit_title": "Edit VMware connection",
+    "api_url_primary": "API URL (vCenter or ESXi)",
+    "extra_urls": "Additional addresses (failover)",
+    "extra_urls_ph": "One per line, e.g. https://esxi2.example.com; used when the primary is unreachable",
+    "failover_hint": "Several addresses can be listed: sync tries them in order and moves on when the primary is down.",
+    "help_title": "Preparing the account",
+    "help_step1": "Create a read-only account on vCenter or ESXi (the built-in read-only role is enough) - this integration never writes.",
+    "help_step2": "Enter the vCenter or ESXi address only; the SOAP endpoint is always /sdk and is appended for you.",
+    "help_step3": "For a self-signed certificate, turn TLS verification off or the connection will be rejected.",
+    "page_title": "VMware connections"
   }
 }

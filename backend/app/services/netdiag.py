@@ -208,19 +208,55 @@ def _ping_binary(target: str) -> str:
     return "ping"
 
 
-def icmp_socket_available() -> bool:
-    """能不能開非特權 ICMP datagram socket。
-
-    Linux 的 `net.ipv4.ping_group_range` 就是為此而生：群組落在範圍內即可送 ICMP，
-    **不需要任何 capability**。這比給整個後端 CAP_NET_RAW 安全得多。
-    """
+def _can_open(kind: int) -> bool:
     import socket
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+        sock = socket.socket(socket.AF_INET, kind, socket.IPPROTO_ICMP)
     except OSError:
         return False
     sock.close()
     return True
+
+
+def icmp_socket_kind() -> int | None:
+    """這台機器能用哪一種 ICMP socket 送封包（不能就回 None）。
+
+    優先非特權的 datagram socket：`net.ipv4.ping_group_range` 就是為此而生，
+    群組落在範圍內即可送 ICMP，**不需要任何 capability**。
+
+    退而求其次用 raw socket（需要 CAP_NET_RAW）。**LXC 容器一定走這條** ——
+    那個 sysctl 屬於宿主核心，容器內改不動。
+
+    為什麼不退回外部 `/usr/bin/ping`：服務單元的
+    `SystemCallFilter=~@privileged` 會直接殺掉它 —— iputils 的 ping 啟動時呼叫
+    `capset()` 丟棄多餘權限，那支被 seccomp 擋下，行程 SIGSYS 結束、連錯誤訊息都沒有。
+    自己送就沒有這個問題，也不必為了 ping 放寬沙箱。
+    """
+    import socket
+    for kind in (socket.SOCK_DGRAM, socket.SOCK_RAW):
+        if _can_open(kind):
+            return kind
+    return None
+
+
+def icmp_socket_available() -> bool:
+    """能不能自己送 ICMP（兩種 socket 任一可用即可）。"""
+    return icmp_socket_kind() is not None
+
+
+def _icmp_payload(data: bytes, kind: int) -> bytes:
+    """從收到的封包取出 ICMP 部分。
+
+    raw socket 收到的**含 IP 標頭**，datagram socket 不含。不跳過的話會把 IP 標頭
+    當成 ICMP 讀，永遠對不到 seq —— 表現是「送得出去但每一個都逾時」，比完全不能送更難查。
+
+    標頭長度看 IHL（第一個 byte 的低 4 bits × 4），不是固定 20：帶選項的封包會更長。
+    """
+    import socket
+    if kind != socket.SOCK_RAW or not data:
+        return data
+    ihl = (data[0] & 0x0F) * 4
+    return data[ihl:] if 0 < ihl <= len(data) else data
 
 
 def _icmp_echo(seq: int, ident: int, payload: bytes = b"jt-ipam") -> bytes:
@@ -290,6 +326,11 @@ async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
     import struct
 
     res = PingResult(target=target, sent=count)
+    kind = icmp_socket_kind()
+    if kind is None:
+        res.error = ICMP_BLOCKED
+        res.error_code = "icmp_blocked"
+        return res
     loop = asyncio.get_running_loop()
     try:
         addr = await loop.getaddrinfo(target, None, family=socket.AF_INET,
@@ -302,7 +343,7 @@ async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
     rtts: list[float] = []
     ident = os.getpid() & 0xFFFF
     for seq in range(count):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
+        sock = socket.socket(socket.AF_INET, kind, socket.IPPROTO_ICMP)
         sock.setblocking(False)
         try:
             t0 = time.monotonic()
@@ -310,15 +351,28 @@ async def _ping_native(target: str, count: int, timeout: float) -> PingResult:
             # 不接住的話整支請求會 500 —— 而且只在「socket 開得起來」的機器上才會發生，
             # 開不起來的機器反而正常（因為走外部 ping）。
             await _sock_sendto(loop, sock, _icmp_echo(seq, ident), (ip, 0))
-            try:
-                data = await asyncio.wait_for(_sock_recv(loop, sock, 1024), timeout=timeout)
-            except TimeoutError:
-                continue
-            # 非特權 socket 收到的是不含 IP 標頭的 ICMP 訊息；type 0 = echo reply
-            if len(data) >= 8 and data[0] == 0:
-                got_seq = struct.unpack("!H", data[6:8])[0]
-                if got_seq == seq:
+            # **要讀到對的那一個為止**。raw socket 會收到本機所有的 ICMP 流量 ——
+            # 包括我們自己剛送出的那一個 request（loopback 上一定看得到）、
+            # 以及其他行程 ping 別台的往來。只讀一次的話，讀到不相干的封包就會被
+            # 當成逾時：實測 127.0.0.1 變成 0/2、區網主機掉一半，看起來像網路有問題。
+            deadline = t0 + timeout
+            while True:
+                remain = deadline - time.monotonic()
+                if remain <= 0:
+                    break
+                try:
+                    data = await asyncio.wait_for(_sock_recv(loop, sock, 1024), timeout=remain)
+                except TimeoutError:
+                    break
+                msg = _icmp_payload(data, kind)
+                if len(msg) < 8 or msg[0] != 0:      # type 0 = echo reply
+                    continue                          # 自己的 request（type 8）等等
+                got_id, got_seq = struct.unpack("!HH", msg[4:8])
+                # datagram socket 的 id 由核心改寫，只能比對 seq；raw 兩個都比對，
+                # 才不會把別人的回應算成自己的
+                if got_seq == seq and (kind != socket.SOCK_RAW or got_id == ident):
                     rtts.append((time.monotonic() - t0) * 1000)
+                    break
         except OSError as exc:
             res.error = exc.strerror or str(exc)
             return res

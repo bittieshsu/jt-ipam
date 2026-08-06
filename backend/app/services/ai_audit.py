@@ -30,8 +30,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.address import IPAddress
 from app.models.ai_finding import AIFinding
 from app.models.device import Device
+from app.models.physical import DevicePort
 from app.models.subnet import Subnet
 from app.models.user import User
+from app.services.arp_precedence import normalize_mac
 from app.services.permission import visible_ids
 from app.services.system_config import (
     get_ai_audit_last_run,
@@ -114,6 +116,7 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
         IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.state,
         IPAddress.effective_status, IPAddress.discovery_source, IPAddress.is_dhcp_server,
         IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.description,
+        IPAddress.device_id, IPAddress.mac,
     )
     if vis_ip is not None:
         if not vis_ip:
@@ -123,24 +126,40 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
     # IP 也跟著子網路的範圍走 —— 否則勾掉的網段照樣被整段送給模型
     ip_q = ip_q.where(IPAddress.subnet_id.in_([r[0] for r in sub_rows])
                       if sub_rows else IPAddress.id.is_(None))
+    ip_rows = (await session.execute(ip_q.limit(MAX_SAMPLE))).all()
+
+    vis_dev = await visible_ids(session, user=user, object_type="device", required="read")
+    dev_q = select(Device.id, Device.name, Device.type)
+    if vis_dev is not None:
+        dev_q = dev_q.where(Device.id.in_(vis_dev)) if vis_dev else dev_q.where(Device.id.is_(None))
+    dev_rows = (await session.execute(dev_q.limit(MAX_SAMPLE))).all()
+    # 只給名稱與類型，不給 UUID —— 給了模型就會把 UUID 寫進發現裡，
+    # 而人看著一串 UUID 完全不知道那是哪台機器
+    devices = [{"name": n, "type": t} for _i, n, t in dev_rows]
+
+    # ── 每筆 IP 屬於哪台機器。**沒有這個欄位，模型就只看得到「兩個 IP 剛好同名」**，
+    # 於是把一台雙網卡機器報成「重複的 IP 紀錄」（實機誤報）。
+    # 兩條線索都要用：device_id 直接指定，以及 MAC 對到某台裝置的連接埠 ——
+    # 第二張網卡的 IP 往往沒有 device_id，但它的 MAC 就在該裝置的 eth1 上。
+    # 名稱只在該裝置屬於這個帳號可見範圍時才填，否則等於繞過 RBAC 洩漏裝置名稱。
+    dev_name = {i: n for i, n, _t in dev_rows}
+    port_rows = (await session.execute(
+        select(DevicePort.device_id, DevicePort.mac_address)
+        .where(DevicePort.mac_address.isnot(None))
+    )).all()
+    by_port_mac = {normalize_mac(m): d for d, m in port_rows if normalize_mac(m)}
+
     ips = []
-    for row in (await session.execute(ip_q.limit(MAX_SAMPLE))).all():
+    for row in ip_rows:
+        owner = row[10] or by_port_mac.get(normalize_mac(row[11]))
         ips.append({
             "ip": str(row[1]), "hostname": row[2], "state": row[3],
             "status": row[4], "source": row[5], "dhcp_server": row[6],
             "last_seen_scanner": row[7].isoformat() if row[7] else None,
             "last_seen_librenms": row[8].isoformat() if row[8] else None,
             "description": row[9],
+            "device": dev_name.get(owner) if owner else None,
         })
-
-    vis_dev = await visible_ids(session, user=user, object_type="device", required="read")
-    dev_q = select(Device.id, Device.name, Device.type)
-    if vis_dev is not None:
-        dev_q = dev_q.where(Device.id.in_(vis_dev)) if vis_dev else dev_q.where(Device.id.is_(None))
-    # 只給名稱與類型，不給 UUID —— 給了模型就會把 UUID 寫進發現裡，
-    # 而人看著一串 UUID 完全不知道那是哪台機器
-    devices = [{"name": n, "type": t}
-               for _i, n, t in (await session.execute(dev_q.limit(MAX_SAMPLE))).all()]
 
     return {"subnets": subnets, "ips": ips, "devices": devices,
             "empty": not (subnets or ips or devices)}
@@ -163,6 +182,13 @@ Security is a first-class part of this review, not an afterthought. Look specifi
 Other things worth reporting: addresses recorded as in use but never seen alive; duplicate or
 contradictory records; subnets with no monitoring coverage; naming that breaks an otherwise
 consistent convention.
+
+Each address carries a "device" field naming the machine it belongs to, where that is known.
+A multi-homed machine legitimately holds several addresses — one per network interface — so
+several addresses sharing a "device", or sharing a hostname while naming the same "device",
+is normal and is NOT a duplicate or a conflict. Report a conflict only when the records
+genuinely disagree, for example the same address appearing twice, or one hostname naming two
+different devices.
 
 Rules you must follow:
 - Report only what the data below actually supports. Do not speculate beyond it.

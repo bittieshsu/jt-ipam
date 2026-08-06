@@ -544,12 +544,14 @@ async def sync_arp(
         if ipa is not None:
             ipa.last_seen_librenms = now
             from app.services.arp_precedence import consider_mac
+            # 舊值要在覆寫前先取：寫死 None 的話，異動記錄的舊值永遠空白，
+            # 看不出「從哪個 MAC 換成哪個」——真的換網卡時反而查不出來
+            prev_mac = str(ipa.mac) if ipa.mac else None
             if await consider_mac(session, ip=ipa, mac=mac, source="librenms"):
                 filled += 1
-                # feature B：ARP 學到 MAC（原本沒有）
                 await log_change(
                     session, ip=ipa, event_type="arp_changed",
-                    field="mac", old=None, new=mac, source="librenms",
+                    field="mac", old=prev_mac, new=mac, source="librenms",
                 )
 
     return seen, inserted, updated, filled

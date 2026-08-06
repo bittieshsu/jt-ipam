@@ -131,7 +131,11 @@ export async function testSaml(): Promise<{ entity_id?: string; sso_url?: string
 
 export interface LLMConfig {
   enabled: boolean;
+  /** ollama（自架）或 openai（OpenAI 相容端點）。舊設定沒有這個欄位，視為 ollama。 */
+  provider?: string;
   url: string;
+  /** 金鑰只回「有沒有設」，本身不回傳到瀏覽器。 */
+  api_key_set?: boolean;
   embedding_model: string;
   chat_model: string;
   timeout: number;
@@ -147,7 +151,9 @@ export interface LLMConfig {
 
 export interface LLMConfigPatch {
   enabled?: boolean;
+  provider?: string;
   url?: string;
+  api_key?: string;
   embedding_model?: string;
   chat_model?: string;
   timeout?: number;
@@ -322,5 +328,18 @@ export async function clearAIFindings(): Promise<{ deleted: number }> {
 
 export async function restoreAIFindings(ids: string[]): Promise<{ restored: number }> {
   const { data } = await apiClient.post("/api/v1/ai-audit/restore", { ids });
+  return data;
+}
+
+export interface EmbeddingCheck {
+  ok: boolean;
+  dim: number | null;
+  expected: number;
+  error: string | null;
+}
+
+/** 實際取一次向量，確認嵌入模型的維度與資料庫欄位相符。 */
+export async function checkEmbedding(): Promise<EmbeddingCheck> {
+  const { data } = await apiClient.get<EmbeddingCheck>("/api/v1/ai/embedding-check");
   return data;
 }

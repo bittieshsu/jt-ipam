@@ -33,6 +33,18 @@ function inline(s: string): string {
   return s;
 }
 
+/**
+ * 只做行內語法（code / 連結 / 粗體 / 斜體），不產生段落、清單這些區塊標籤。
+ *
+ * 給「模型寫的一句話要放進既有 <h3>／<p> 裡」的地方用 —— 例如 AI 巡檢的標題、
+ * 說明與建議。用區塊版的話會生出巢狀 <p>，那是無效 HTML，瀏覽器會自行拆開，
+ * 版面就跑掉了。
+ */
+export function renderInlineMarkdown(src: string): string {
+  if (!src) return "";
+  return inline(escapeHtml(src.replace(/\r\n/g, "\n")));
+}
+
 export function renderMarkdown(src: string): string {
   if (!src) return "";
   const text = escapeHtml(src.replace(/\r\n/g, "\n"));

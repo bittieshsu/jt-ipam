@@ -47,6 +47,7 @@ import {
   Internet,
   IpAddressTag,
   Server,
+  Windows,
   Text,
   ServerConnection,
   Settings,
@@ -158,6 +159,9 @@ export const RacksIcon = ServerConnection;
 // IP 角色標記（清單視覺化，緊湊 icon）：閘道 / DHCP 伺服器
 export const GatewayIcon = Internet;
 export const DhcpServerIcon = Server;
+// 「整合 Windows DHCP」選單用。不共用 DhcpServerIcon —— 那個是 IP 清單上的「DHCP 伺服器
+// 角色」標記，語意不同；而且 Server 這顆與 Proxmox／VMware 長得一樣，三個選單分不出來。
+export const WindowsDhcpIcon = Windows;
 export const LocationsIcon = MapPin;
 // DHCP 固定分配：這個位址被綁給某張網卡，不會被回收給別台
 export const ReservedIcon = Lock;

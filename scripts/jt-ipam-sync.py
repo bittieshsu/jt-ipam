@@ -32,6 +32,7 @@ async def _run() -> int:
 
     from app.core.db import SessionLocal
     from app.models.adguard import AdGuardInstance
+    from app.models.esxi import ESXiInstance
     from app.models.fortigate import FortiGateFirewall
     from app.models.windows_dhcp import WindowsDhcpServer
     from app.models.dns import DNSServer
@@ -112,7 +113,32 @@ async def _run() -> int:
                 await _hb(session, kind="pfsense.sync", target_type="pfsense_firewall",
                           target_id=fw.id, target_label=name, ok=False, error=str(exc))
 
-        # ── Wazuh ──
+    
+    # ── ESXi / vCenter ──
+    for inst in (await session.execute(
+        select(ESXiInstance).where(ESXiInstance.enabled.is_(True))
+    )).scalars().all():
+        interval = timedelta(seconds=inst.sync_interval_seconds)
+        if inst.last_sync_at and inst.last_sync_at + interval > now:
+            continue
+        name = inst.name
+        try:
+            from app.services import esxi as esxi_svc
+            summary = await esxi_svc.sync_instance(session, inst)
+            await session.commit()
+            log.info("esxi %s: %s", name, summary)
+            await _hb(session, kind="esxi.sync", target_type="esxi_instance",
+                      target_id=inst.id, target_label=name, ok=True, summary=summary)
+        except Exception as exc:  # noqa: BLE001
+            # 先 rollback 再寫 last_error：不 rollback 會二次爆、連鎖中斷整輪
+            await session.rollback()
+            inst.last_error = str(exc)[:2000]
+            await session.commit()
+            log.error("esxi %s sync failed: %s", name, exc)
+            failed += 1
+            await _hb(session, kind="esxi.sync", target_type="esxi_instance",
+                      target_id=inst.id, target_label=name, ok=False, error=str(exc))
+    # ── Wazuh ──
         wzs = (
             await session.execute(
                 select(WazuhInstance).where(WazuhInstance.enabled.is_(True))

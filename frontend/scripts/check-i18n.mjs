@@ -98,7 +98,9 @@ let missing = 0;
 for (const file of srcFiles) {
   const src = readFileSync(file, "utf-8");
   // 後面接 + 的是字串拼接（t("a.b_" + kind)）→ 略過，那不是完整的 key
-  for (const m of src.matchAll(/\bt\(\s*"([a-zA-Z0-9_.]+)"\s*(.?)/g)) {
+  // 單引號與雙引號都要掃：只掃雙引號的話，`t('a.b')` 這種寫法整條被跳過 ——
+  // v0.5.146 的調查視窗就是這樣漏掉一個不存在的鍵，畫面直接顯示 "addresses.os"。
+  for (const m of src.matchAll(/\bt\(\s*["']([a-zA-Z0-9_.]+)["']\s*(.?)/g)) {
     const [, key, next] = m;
     if (next === "+" || key.endsWith(".") || key.endsWith("_")) continue;
     for (const loc of Object.keys(dicts)) {

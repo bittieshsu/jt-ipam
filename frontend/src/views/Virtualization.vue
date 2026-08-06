@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from "@/stores/auth";
 const _authBtn = useAuthStore();
-import { computed, h, onMounted, reactive, ref } from "vue";
+import { computed, h, onMounted, reactive, ref, type ComputedRef, type Ref } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
@@ -43,15 +43,29 @@ function vmStatusLabel(s: string | null | undefined): string {
 const msg = useMessage();
 const tab = ref<"clusters" | "vms" | "proxmox">("clusters");
 
-const clusters = ref<any[]>([]);
-const vms = ref<any[]>([]);
+/** 這一頁顯示哪個平台。虛擬化拆成「PVE」與「VMware」兩個選單項，同一個元件、不同 props。
+ *  不給就顯示全部（管理區的 virt-admin 走這條）。 */
+const props = defineProps<{ platform?: "proxmox" | "vmware" }>();
+
+const allClusters = ref<any[]>([]);
+const allVms = ref<any[]>([]);
 const proxmox = ref<any[]>([]);
 const loading = ref(false);
+
+// 依平台篩：叢集看 type，VM 跟著自己的叢集走
+const clusters = computed(() => (props.platform
+  ? allClusters.value.filter((c) => c.type === props.platform)
+  : allClusters.value));
+const vms = computed(() => {
+  if (!props.platform) return allVms.value;
+  const ids = new Set(clusters.value.map((c) => c.id));
+  return allVms.value.filter((v) => ids.has(v.cluster_id));
+});
 
 async function refresh() {
   loading.value = true;
   try {
-    [clusters.value, vms.value, proxmox.value]
+    [allClusters.value, allVms.value, proxmox.value]
       = await Promise.all([Virt.clusters(), Virt.vms(), Virt.proxmox()]);
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
@@ -315,7 +329,10 @@ const proxmoxCols = computed<DataTableColumns<ProxmoxInstance>>(() => autoSort([
 ]));
 
 // 每張表的欄位顯示偏好 + 即時篩選。操作欄(key="actions"/"_")永遠保留。
-function useVirtPrefs(name: string, cols: typeof clusterCols, rows: typeof clusters, defaultHidden: string[] = []) {
+// rows 收 Ref 或 ComputedRef 都要能用：clusters/vms 依平台篩選後變成 computed，
+// proxmox 仍是一般的 ref
+function useVirtPrefs(name: string, cols: typeof clusterCols,
+                      rows: Ref<any[]> | ComputedRef<any[]>, defaultHidden: string[] = []) {
   const allKeys = cols.value
     .filter((c: any) => c.key && c.key !== "actions" && c.key !== "_")
     .map((c: any) => String(c.key));

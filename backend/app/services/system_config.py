@@ -55,6 +55,11 @@ class LLMConfig:
     # 對話模型的上下文長度（Ollama num_ctx）。None＝沿用模型／Ollama 預設（通常 4096）。
     # 工具多、注入資料量大的對話容易超過預設而被截斷，可在此調高（耗更多記憶體/VRAM）。
     num_ctx: int | None = None
+    # 供應商：ollama（原生 API）或 openai（OpenAI 相容端點，可接 ChatGPT / vLLM /
+    # LM Studio / OpenRouter…）。**預設 ollama** —— 接雲端等於把網段、主機名稱、拓樸
+    # 送到外部服務，那是使用者要明確選擇的事，不是升版就自動改變的行為。
+    provider: str = "ollama"
+    api_key: str | None = None      # 明文（已解密）；僅供 openai 相容端點的 Bearer
     # 對外提供 MCP（讓其它系統以 HTTP 呼叫 /api/mcp）：預設關閉，打開才接受外部 MCP 呼叫。
     mcp_external_enabled: bool = False
     mcp_api_key: str | None = None          # 明文（已解密）；僅程序內使用，不外傳
@@ -74,27 +79,37 @@ class LLMConfig:
 
 
 _MCP_AAD = b"llm:mcp_api_key"
+# LLM 供應商金鑰用自己的 AAD：兩把金鑰用途不同，密文不該能互換位置使用。
+_LLM_KEY_AAD = b"llm:api_key"
 
 
-def _enc_mcp(plain: str) -> str:
+def _enc(plain: str, aad: bytes) -> str:
     import base64 as _b64
 
     from app.core.security import encrypt_secret
-    ct, nonce = encrypt_secret(plain, aad=_MCP_AAD)
+    ct, nonce = encrypt_secret(plain, aad=aad)
     return "v1:" + _b64.b64encode(nonce).decode() + ":" + _b64.b64encode(ct).decode()
 
 
-def _dec_mcp(blob: str) -> str | None:
+def _dec(blob: str, aad: bytes) -> str | None:
     import base64 as _b64
 
     from app.core.security import decrypt_secret
     try:
         _ver, b_nonce, b_ct = blob.split(":", 2)
         return decrypt_secret(
-            _b64.b64decode(b_ct), _b64.b64decode(b_nonce), aad=_MCP_AAD,
+            _b64.b64decode(b_ct), _b64.b64decode(b_nonce), aad=aad,
         ).decode("utf-8")
     except Exception:
         return None
+
+
+def _enc_mcp(plain: str) -> str:
+    return _enc(plain, _MCP_AAD)
+
+
+def _dec_mcp(blob: str) -> str | None:
+    return _dec(blob, _MCP_AAD)
 
 
 _cache: dict[str, tuple[float, LLMConfig]] = {}
@@ -130,6 +145,13 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
             cfg.embedding_model = str(v["embedding_model"])
         if v.get("chat_model"):
             cfg.chat_model = str(v["chat_model"])
+        if v.get("provider") in ("ollama", "openai"):
+            cfg.provider = str(v["provider"])
+        if v.get("api_key_enc"):
+            cfg.api_key = _dec(str(v["api_key_enc"]), _LLM_KEY_AAD)
+        elif v.get("api_key"):
+            # 舊資料（v0.5.148 之前短暫存過明文）：讀得回來，但下次存檔就會換成密文
+            cfg.api_key = str(v["api_key"])
         if v.get("timeout") is not None:
             try:
                 cfg.timeout = float(v["timeout"])
@@ -180,6 +202,8 @@ async def set_llm_config(
     ai_audit_times: list[str] | None = None,
     ai_audit_model: str | None = None,
     ai_audit_num_ctx: int | None = None,
+    provider: str | None = None,
+    api_key: str | None = None,
     updated_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     row = await session.get(SystemSetting, LLM_KEY)
@@ -203,6 +227,13 @@ async def set_llm_config(
         # 但畫面上開關還是開著
         if times:
             current["ai_audit_times"] = times
+    if provider in ("ollama", "openai"): current["provider"] = provider
+    # 空字串＝清掉金鑰（本地 vLLM／LM Studio 多半不需要）；沒帶這個欄位就不動它，
+    # 才不會因為改別的設定而把金鑰洗掉
+    if api_key is not None:
+        key = api_key.strip()
+        current.pop("api_key", None)          # 順手清掉可能存在的舊明文欄位
+        current["api_key_enc"] = _enc(key, _LLM_KEY_AAD) if key else None
     if timeout is not None: current["timeout"] = float(timeout)
     if num_ctx is not None: current["num_ctx"] = int(num_ctx) if int(num_ctx) > 0 else None
     if mcp_external_enabled is not None: current["mcp_external_enabled"] = bool(mcp_external_enabled)

@@ -11,8 +11,8 @@ import {
   NPopconfirm, NModal, useMessage,
 } from "naive-ui";
 import {
-  getLLMConfig, patchLLMConfig, listOllamaModels, revealMcpKey, rotateMcpKey,
-  type LLMConfig, type LLMConfigPatch, type OllamaModel,
+  getLLMConfig, patchLLMConfig, listOllamaModels, revealMcpKey, rotateMcpKey, checkEmbedding,
+  type LLMConfig, type LLMConfigPatch, type OllamaModel, type EmbeddingCheck,
 } from "@/api/system";
 import { listMcpTools, type McpTool } from "@/api/chat";
 import { listSubnets, setAIAuditScope } from "@/api/subnets";
@@ -130,15 +130,32 @@ async function loadModels() {
   }
 }
 
+const providerOptions = computed(() => [
+  { label: t("llm_settings.provider_ollama"), value: "ollama" },
+  { label: t("llm_settings.provider_openai"), value: "openai" },
+]);
+
+// 嵌入維度檢查：模型回幾維、資料庫要幾維、通不通
+const embedBusy = ref(false);
+const embedResult = ref<EmbeddingCheck | null>(null);
+async function doCheckEmbedding() {
+  embedBusy.value = true;
+  try { embedResult.value = await checkEmbedding(); }
+  catch (e) { msg.error(apiErrMsg(e)); }
+  finally { embedBusy.value = false; }
+}
+
 async function load() {
   try { llm.value = await getLLMConfig(); }
   catch (e) { msg.error(apiErrMsg(e)); }
-  // 未啟用 Ollama 連接時不要自動去抓清單（否則會冒出「無法連 Ollama」錯誤）
+  // 未啟用連接時不要自動去抓清單（否則會冒出「無法連上 LLM 伺服器」錯誤）
   if (llm.value?.enabled) void loadModels();
 }
 
-// URL 改了也重新拉 model 清單 (換 Ollama 機器時可能不同)；僅在已啟用時
+// URL 改了也重新拉 model 清單 (換 LLM 伺服器時可能不同)；僅在已啟用時
 watch(() => llm.value?.url, () => { if (llm.value?.url && llm.value?.enabled) void loadModels(); });
+// 換供應商等於換端點（/api/tags ↔ /v1/models），清單一定要重拉，否則下拉會留著上一家的模型
+watch(() => llm.value?.provider, () => { if (llm.value?.url && llm.value?.enabled) void loadModels(); });
 // 啟用切換：開啟才去抓清單；關閉時清掉清單與錯誤（避免殘留「無法連」）
 watch(() => llm.value?.enabled, (en) => {
   if (en) { if (llm.value?.url) void loadModels(); }
@@ -240,7 +257,8 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
         <span>{{ t("llm_settings.title") }}</span>
       </n-space>
     </template>
-    <n-space v-if="llm" vertical :size="16" style="max-width: 640px">
+    <!-- 不限寬：說明文字在寬螢幕上只佔一半版面、右邊整片空白，讀起來被硬折行 -->
+    <n-space v-if="llm" vertical :size="16" style="width: 100%">
       <n-alert type="info" size="small">
         <span v-html="t('llm_settings.admin_note', { strong: `<strong>${t('llm_settings.admin_global_settings')}</strong>` })" />
       </n-alert>
@@ -249,12 +267,39 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
         <n-switch :value="llm.enabled" @update:value="(v: boolean) => patch({ enabled: v })" />
       </div>
       <div>
-        <label>Ollama URL</label>
+        <label>{{ t("llm_settings.provider") }}</label>
+        <n-select
+          :value="llm.provider ?? 'ollama'"
+          :options="providerOptions"
+          @update:value="(v: string) => patch({ provider: v })"
+        />
+        <p class="hint">{{ t("llm_settings.provider_hint") }}</p>
+      </div>
+      <!-- 選了外部供應商就要講清楚資料會離開自己的網路。
+           這個專案的賣點是「自架 LLM、資料不外流」，改成雲端是使用者的選擇，
+           但不能讓它悄悄發生。 -->
+      <n-alert v-if="(llm.provider ?? 'ollama') === 'openai'" type="warning"
+               :bordered="false" :show-icon="true">
+        {{ t("llm_settings.provider_egress_warn") }}
+      </n-alert>
+      <div>
+        <label>{{ (llm.provider ?? 'ollama') === 'openai' ? t("llm_settings.api_base") : "Ollama URL" }}</label>
         <n-input
           :value="llm.url"
-          placeholder="http://127.0.0.1:11434"
+          :placeholder="(llm.provider ?? 'ollama') === 'openai'
+            ? 'https://api.openai.com/v1' : 'http://127.0.0.1:11434'"
           @update:value="(v: string) => patch({ url: v })"
         />
+        <p v-if="(llm.provider ?? 'ollama') === 'openai'" class="hint">
+          {{ t("llm_settings.api_base_hint") }}
+        </p>
+      </div>
+      <div v-if="(llm.provider ?? 'ollama') === 'openai'">
+        <label>{{ t("llm_settings.api_key") }}</label>
+        <n-input type="password" show-password-on="click"
+                 :placeholder="llm.api_key_set ? t('llm_settings.api_key_set') : 'sk-…'"
+                 @update:value="(v: string) => patch({ api_key: v })" />
+        <p class="hint">{{ t("llm_settings.api_key_hint") }}</p>
       </div>
       <div>
         <n-space align="center" style="margin-bottom: 4px">
@@ -277,7 +322,13 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
         />
       </div>
       <div>
-        <label>{{ t("llm_settings.embedding_model") }}</label>
+        <n-space align="center" style="margin-bottom: 4px">
+          <label style="margin: 0">{{ t("llm_settings.embedding_model") }}</label>
+          <n-button text size="tiny" :loading="embedBusy" @click="doCheckEmbedding">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("llm_settings.embed_check") }}
+          </n-button>
+        </n-space>
         <n-select
           :value="llm.embedding_model"
           :options="embeddingModelOptions"
@@ -286,6 +337,16 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           filterable
           @update:value="(v: string) => patch({ embedding_model: v })"
         />
+        <!-- 選錯嵌入模型時唯一的症狀是「語意搜尋永遠沒有結果」，畫面上沒有任何線索
+             指向維度不合 —— 所以要能當場問一次、把實際維度講出來。 -->
+        <p v-if="embedResult" class="hint" :style="embedResult.ok ? 'color:#18a058' : 'color:#e88080'">
+          {{ embedResult.ok
+            ? t("llm_settings.embed_ok", { dim: embedResult.dim })
+            : embedResult.dim
+              ? t("llm_settings.embed_dim_mismatch", { dim: embedResult.dim, expected: embedResult.expected })
+              : t("llm_settings.embed_failed", { err: String(embedResult.error).slice(0, 120) }) }}
+        </p>
+        <p class="hint">{{ t("llm_settings.embed_hint", { expected: embedResult?.expected ?? 768 }) }}</p>
       </div>
       <div>
         <label>{{ t("llm_settings.timeout_sec") }}</label>
@@ -342,7 +403,7 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           :placeholder="t('llm_settings.audit_model_inherit', { model: llm.chat_model })"
           clearable
           filterable
-          style="max-width: 420px"
+          style="width: 100%"
           @update:value="(v: string | null) => patch({ ai_audit_model: v ?? '' })"
         />
         <p class="hint">{{ t("llm_settings.audit_model_hint") }}</p>
@@ -361,7 +422,7 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
                   :options="subnetOptions" :loading="subnetsLoading"
                   :disabled="!llm.ai_audit_enabled"
                   :placeholder="t('llm_settings.audit_scope_none')"
-                  style="max-width: 560px" @update:value="saveScope" />
+                  style="width: 100%" @update:value="saveScope" />
         <p class="hint">{{ t("llm_settings.audit_scope_hint") }}</p>
       </div>
       <div>
@@ -420,18 +481,17 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           <code class="mcp-v">Streamable HTTP（JSON-RPC 2.0, POST）</code>
           <span class="mcp-or">{{ t("llm_settings.mcp_transport_note") }}</span>
         </div>
-        <div class="mcp-info-row">
+        <div class="mcp-info-row mcp-auth-hd">
           <span class="mcp-k">{{ t("llm_settings.mcp_auth_header") }}</span>
           <span class="mcp-or">{{ t("llm_settings.mcp_auth_choose") }}</span>
         </div>
-        <div class="mcp-info-row mcp-info-sub">
+        <!-- 兩種寫法各一列，名稱與值各自對齊成欄；原本擠在同一行讀起來像一串亂碼 -->
+        <div class="mcp-auth-grid">
           <span class="mcp-kn">{{ t("llm_settings.mcp_header_name") }}</span>
           <code class="mcp-v">X-Auth-Token</code>
           <span class="mcp-kn">{{ t("llm_settings.mcp_header_value") }}</span>
           <code class="mcp-v">&lt;API KEY&gt;</code>
-        </div>
-        <div class="mcp-info-row mcp-info-sub">
-          <span class="mcp-or">{{ t("llm_settings.mcp_or") }}</span>
+
           <span class="mcp-kn">{{ t("llm_settings.mcp_header_name") }}</span>
           <code class="mcp-v">Authorization</code>
           <span class="mcp-kn">{{ t("llm_settings.mcp_header_value") }}</span>
@@ -536,7 +596,7 @@ label {
 }
 .times { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .time-row { display: flex; align-items: center; gap: 2px; }
-.hint { margin: 4px 0 0; font-size: 12px; opacity: 0.6; line-height: 1.5; max-width: 560px; }
+.hint { margin: 4px 0 0; font-size: 12px; opacity: 0.6; line-height: 1.5; }
 .tools-cap { margin: 0 0 12px; font-size: 13px; opacity: 0.7; }
 .tool-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .tool-item { border: 1px solid var(--n-border-color, #eee); border-radius: 8px; padding: 10px 12px; }
@@ -553,6 +613,12 @@ label {
 .mcp-info { margin: 14px 0 4px; border: 1px solid var(--n-border-color, #eee); border-radius: 8px;
   padding: 10px 12px; background: rgba(128,128,128,0.04); }
 .mcp-info-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; font-size: 13px; }
+.mcp-auth-hd { margin-bottom: 2px; }
+/* 名稱／值 兩組欄位；auto 讓標籤只佔文字寬度，值欄可伸展 */
+.mcp-auth-grid {
+  display: grid; grid-template-columns: auto auto auto minmax(0, 1fr);
+  gap: 6px 8px; align-items: center; margin: 2px 0 8px 12px;
+}
 .mcp-k { min-width: 96px; opacity: 0.65; font-size: 12.5px; }
 .mcp-v { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px;
   background: rgba(128,128,128,0.12); border-radius: 5px; padding: 2px 7px; word-break: break-all; }

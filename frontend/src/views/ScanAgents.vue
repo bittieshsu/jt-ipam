@@ -81,12 +81,21 @@ function probeInstall(key: string): string {
     "請確認掃描代理主機具備該探測所需的系統工具與權限（例如 root / cap_net_raw、可連到 DNS 等）。"
   );
 }
-// 已勾選的重型探測（需顯示間隔輸入）
-const heavyChecked = computed(() =>
-  catalog.value.probes.filter(
-    (p) => p.klass === "heavy" && enabledProbes.value.includes(p.key),
-  ),
+// 已勾選的探測（每一種都可以設自己的間隔）。
+// 原本只讓重型探測設間隔，但後端本來就吃全部七種 —— 輕型只是沒有畫面可設，
+// 使用者只能用預設值，也看不出「多久掃一次」是怎麼決定的。
+const intervalChecked = computed(() =>
+  catalog.value.probes.filter((p) => enabledProbes.value.includes(p.key)),
 );
+const lightChecked = computed(() => intervalChecked.value.filter((p) => p.klass === "light"));
+
+/** 快迴圈節奏＝所有輕型間隔的最小值（下限 60 秒）—— 與後端 fast_interval() 同一條規則。
+ *  這個數字就是「多久掃一次」，把它算給使用者看，不然改了輕型間隔也不知道影響什麼。 */
+const fastInterval = computed(() => {
+  const light = lightChecked.value.map(
+    (p) => probeIntervals.value[p.key] ?? p.default_interval_seconds);
+  return light.length ? Math.max(60, Math.min(...light)) : 300;
+});
 // 秒數 → 人類可讀（天 / 小時 / 分 / 秒），給間隔輸入框旁的換算提示
 function humanInterval(secs: number | null | undefined): string {
   const s = Number(secs || 0);
@@ -153,10 +162,10 @@ function openEdit(r: ScanAgent) {
   void getAgentSubnets(r.id).then((ids) => { form.value.subnet_ids = ids; }).catch(() => {});
   show.value = true;
 }
-// 只送出已勾選的重型探測間隔（輕型走預設，不送）
+// 送出所有已勾選探測的間隔（後端會再對各項的最小值做把關）
 function buildProbeIntervals(): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const p of heavyChecked.value) {
+  for (const p of intervalChecked.value) {
     const v = probeIntervals.value[p.key];
     out[p.key] = v != null ? v : p.default_interval_seconds;
   }
@@ -450,8 +459,14 @@ onMounted(() => { void refresh(); });
             </n-checkbox-group>
           </n-space>
         </n-form-item>
+        <!-- 掃描節奏：輕型每輪都跑，快迴圈＝其中最小的間隔；重型只在自己的間隔到了才跑 -->
+        <n-form-item v-if="intervalChecked.length" :label="t('scan_probes.cadence')">
+          <div class="probe-hint">
+            {{ t("scan_probes.cadence_hint", { n: humanInterval(fastInterval) }) }}
+          </div>
+        </n-form-item>
         <n-form-item
-          v-for="p in heavyChecked" :key="p.key"
+          v-for="p in intervalChecked" :key="p.key"
           :label="`${probeLabel(p, locale)} — ${t('scan_probes.interval')}`"
         >
           <n-input-number

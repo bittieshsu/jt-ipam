@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.148] — 2026-08-06
+
+### Added
+
+- **OpenAI-compatible LLM endpoints.** The provider setting adds an OpenAI-compatible mode alongside Ollama, which covers ChatGPT, vLLM, LM Studio, OpenRouter and anything else speaking that protocol — and Ollama's own `/v1` layer.
+
+  **The default stays Ollama, and switching is deliberate.** This project's premise is that a self-hosted model keeps your data on your own network; sending subnets, hostnames and topology to an outside service is a decision for the operator to make, not a behaviour that changes on upgrade. The settings page says so explicitly when the external option is selected, rather than leaving it implied.
+
+  The differences between the two are real and each was handled rather than papered over: different chat and embedding paths, different reply shapes, `options` (`num_ctx`) being Ollama-only and rejected elsewhere, and a model list at `/v1/models` instead of `/api/tags` — that last one would have left the model dropdown quietly empty with nothing on screen to explain it. A base URL already ending in `/v1` is not doubled. No key is sent when none is configured, because local endpoints usually want none and an empty `Bearer` reads as a failed authentication.
+
+  The key is **encrypted at rest** (AES-GCM, its own AAD), like every other secret in this project — a paid credential should not sit in clear text in `system_settings` where a database backup or an open `psql` would show it. It is never returned to the browser; the page only reports whether one is set.
+
+- **VMware ESXi / vCenter integration (Beta).** One implementation covers both a standalone ESXi host and vCenter — they are the same VIM API on `/sdk`, and a ContainerView absorbs the difference in inventory depth. Virtual machines land in the **same tables as Proxmox**, so topology, AI chat and the MCP `list_vms` tool needed no changes at all.
+
+  **The SOAP is hand-written rather than using pyvmomi.** The SDK would bypass `safe_request` — the layer that performs the SSRF check, re-validates the URL after every redirect, and applies the configured TLS verification — and every other outbound integration in this project goes through it. Read-only inventory needs only five calls, so the trade of a security-architecture exception for a little convenience was not worth making. It also means no new dependency.
+
+  Read-only throughout: nothing is ever written back to ESXi. Parsing tolerates missing fields by design, because they are genuinely absent in normal operation — a powered-off VM has no `guest.*`, a VM without VMware Tools reports no address, a template has no `runtime.host`. Continuation tokens are followed, since dropping one loses the rest of a large inventory **silently**.
+
+  The settings page reports connection diagnostics step by step rather than a single pass/fail: which call failed is what you actually need. A wrong password surfaces VMware's own message, because VMware returns authentication failures as a SOAP Fault over HTTP 500, which otherwise reads as a bare server error.
+
+- **The virtualisation view is split into "Virtualization (Proxmox VE)" and "Virtualization (VMware)"**, each listing only its own platform.
+
+- **Semantic search never worked, on any installation.** The shipped default embedding model returns 4096-dimensional vectors while the database column is `vector(768)`, so every single index write raised — and the error was swallowed by a `return False`. On the production box all three tables held zero embeddings. Nothing on screen ever said so: a full-table reindex reported `{subnets: 0, ip_addresses: 0, devices: 0}`, which is indistinguishable from "there was nothing to index".
+
+  Three changes, because the silence was the real defect: reindex now reports **how many failed and why** (the same run on production then said `failed: 97` with the mismatch spelled out); the settings page has a **Check dimension** button that asks the model for a vector and states what it returned versus what the column holds; and the default is now `granite-embedding:278m`, which is 768-dimensional.
+
+  The replacement was chosen by testing, not by dimension count. `nomic-embed-text` is also 768 but returned **byte-identical vectors for different Chinese descriptions** — it is an English-only model, and the distinct strings collapsed to the same unknown tokens. That would have looked fixed while ranking results at random. The model that shipped was verified to produce distinct vectors for the actual descriptions in use, down to two that differ by one word.
+
+### Changed
+- **Every probe now has a configurable interval on the scan agent page**, not only the heavy ones. The backend already accepted all seven and clamped each to its own minimum; the light probes simply had no field, so they were stuck on defaults. The page also states the resulting cadence ("one round every 5 minutes"), because the fast loop is the shortest light-probe interval — a coupling that previously existed only in the code.
+- **The i18n check now scans single-quoted keys too.** It only matched `t("…")`, so `t('addresses.os')` was skipped entirely — a key that did not exist and rendered as the raw key on screen. Strengthening the check found that one immediately, and it was the only one.
+- **Switch-port values in the investigate view use `device@port`**, matching the address detail page. The formatter is now shared rather than duplicated: one copy would eventually drift from the other.
+
+### Fixed
+- **A full reindex could deadlock against the integration sync** and abort the whole run — it held one transaction across every row of `ip_addresses`, which `jt-ipam-sync` updates every five minutes. It now commits in batches, so the conflict window is 25 rows rather than the whole table. Found by running a reindex on production for the first time it was ever capable of succeeding.
+
 ## [0.5.147] — 2026-08-05
 
 ### Fixed
