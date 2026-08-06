@@ -381,7 +381,14 @@ ollama pull gemma4:26b                 # chat model
 ollama pull granite-embedding:278m     # embedding model (768-dim, multilingual)
 ```
 
-Then fill in the URL and the two models under **Admin → LLM / AI**.
+Then fill in the URL and the two models under **Admin → LLM / AI**, press **Check dimension** to confirm they match, and press **Rebuild index** to populate vectors for existing records.
+
+> **Read this if you are upgrading.** An upgrade does **not** repair semantic search on its own; three things need a hand:
+> 1. The shipped default is now `granite-embedding:278m`, but that only applies **if you never saved an embedding model on the settings page** — a value in the database wins, and yours is probably the old one.
+> 2. The new model has to be pulled on your LLM server yourself.
+> 3. Existing records only get vectors once you press **Rebuild index**.
+>
+> The settings page probes the dimension when it loads and says so if they do not match — which is precisely what the old behaviour lacked: a mismatch produced no error at all, only "semantic search never returns anything".
 
 > ⚠️ **The embedding model's output dimension must equal `EMBEDDING_DIM` (768 by default)** — the size of the database's `vector(N)` column. A mismatch produces **no error message at all**; the only symptom is that semantic search never returns anything, because every index write failed. After changing the embedding model, press **Check dimension** on the settings page: it reports what the model returned versus what the column holds.
 >

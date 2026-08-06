@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.151] — 2026-08-07
+
+### Changed
+- **An upgrade cannot repair semantic search on its own, so the settings page now says so instead of staying silent.** 0.5.148 fixed the shipped default and made the failure reportable, but for an existing installation none of that takes effect by itself: a saved embedding model in the database wins over the new default, the replacement model still has to be pulled on your own LLM server, and existing records only get vectors once a reindex runs. An upgraded site would have kept returning nothing from semantic search, with nothing on screen explaining why — the same silence as before.
+
+  The settings page now **probes the dimension when it loads** and states plainly when the model's output does not match the database column. It also has a **Rebuild index** button: the endpoint has existed all along, but there was no way to reach it from the interface, so there was no way to make semantic search actually start working. Both install guides gained an "if you are upgrading" section listing the three steps that genuinely need a hand.
+
+  Fully automatic was neither possible nor right: this project cannot pull a model onto someone else's LLM server, and silently overwriting a model an operator chose is not a thing an upgrade should do. What it can do is fail loudly and offer the fix in one click.
+
 ## [0.5.150] — 2026-08-06
 
 ### Fixed

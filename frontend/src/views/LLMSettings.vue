@@ -12,7 +12,9 @@ import {
 } from "naive-ui";
 import {
   getLLMConfig, patchLLMConfig, listOllamaModels, revealMcpKey, rotateMcpKey, checkEmbedding,
+  reindexEmbeddings,
   type LLMConfig, type LLMConfigPatch, type OllamaModel, type EmbeddingCheck,
+  type ReindexResult,
 } from "@/api/system";
 import { listMcpTools, type McpTool } from "@/api/chat";
 import { listSubnets, setAIAuditScope } from "@/api/subnets";
@@ -138,6 +140,16 @@ const providerOptions = computed(() => [
 // 嵌入維度檢查：模型回幾維、資料庫要幾維、通不通
 const embedBusy = ref(false);
 const embedResult = ref<EmbeddingCheck | null>(null);
+const reindexBusy = ref(false);
+const reindexResult = ref<ReindexResult | null>(null);
+async function doReindex() {
+  reindexBusy.value = true;
+  reindexResult.value = null;
+  try { reindexResult.value = await reindexEmbeddings(); }
+  catch (e) { msg.error(apiErrMsg(e)); }
+  finally { reindexBusy.value = false; }
+}
+
 async function doCheckEmbedding() {
   embedBusy.value = true;
   try { embedResult.value = await checkEmbedding(); }
@@ -149,7 +161,7 @@ async function load() {
   try { llm.value = await getLLMConfig(); }
   catch (e) { msg.error(apiErrMsg(e)); }
   // 未啟用連接時不要自動去抓清單（否則會冒出「無法連上 LLM 伺服器」錯誤）
-  if (llm.value?.enabled) void loadModels();
+  if (llm.value?.enabled) { void loadModels(); void doCheckEmbedding(); }
 }
 
 // URL 改了也重新拉 model 清單 (換 LLM 伺服器時可能不同)；僅在已啟用時
@@ -347,6 +359,23 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
               : t("llm_settings.embed_failed", { err: String(embedResult.error).slice(0, 120) }) }}
         </p>
         <p class="hint">{{ t("llm_settings.embed_hint", { expected: embedResult?.expected ?? 768 }) }}</p>
+        <!-- 換過模型之後，既有物件的向量還是空的 —— 沒有這顆按鈕，使用者無從讓
+             語意搜尋真的開始運作（端點一直都在，只是畫面上沒有入口）。 -->
+        <n-space align="center" style="margin-top:8px">
+          <n-button size="small" :loading="reindexBusy" @click="doReindex">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("llm_settings.reindex") }}
+          </n-button>
+          <span v-if="reindexResult" class="hint" style="margin:0"
+                :style="reindexResult.failed ? 'color:#e88080' : 'color:#18a058'">
+            {{ reindexResult.failed
+              ? t("llm_settings.reindex_failed", { n: reindexResult.failed,
+                    err: String(reindexResult.error).slice(0, 100) })
+              : t("llm_settings.reindex_ok", { n: reindexResult.subnets
+                    + reindexResult.ip_addresses + reindexResult.devices }) }}
+          </span>
+        </n-space>
+        <p class="hint">{{ t("llm_settings.reindex_hint") }}</p>
       </div>
       <div>
         <label>{{ t("llm_settings.timeout_sec") }}</label>

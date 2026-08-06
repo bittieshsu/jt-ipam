@@ -2362,7 +2362,11 @@
     "embed_ok": "Dimensions match ({dim}); semantic search is usable.",
     "embed_dim_mismatch": "The model returns {dim} dimensions but the database column holds {expected} — they do not match, so nothing will ever be indexed. Choose an embedding model of the matching size.",
     "embed_failed": "No vector returned: {err}",
-    "embed_hint": "The embedding model must output {expected} dimensions (the database column size). A mismatch raises no visible error — the only symptom is that semantic search never returns anything — so check after changing the model."
+    "embed_hint": "The embedding model must output {expected} dimensions (the database column size). A mismatch raises no visible error — the only symptom is that semantic search never returns anything — so check after changing the model.",
+    "reindex": "Rebuild index",
+    "reindex_ok": "Done — {n} records indexed.",
+    "reindex_failed": "{n} failed: {err}",
+    "reindex_hint": "After changing the embedding model, existing records still hold the old vectors (or none); rebuild once so semantic search covers them. This can take several minutes depending on how much data you have."
   },
   "rack_diagram": {
     "empty": "No devices in this rack",

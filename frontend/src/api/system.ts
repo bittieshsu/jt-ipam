@@ -343,3 +343,17 @@ export async function checkEmbedding(): Promise<EmbeddingCheck> {
   const { data } = await apiClient.get<EmbeddingCheck>("/api/v1/ai/embedding-check");
   return data;
 }
+
+export interface ReindexResult {
+  subnets: number;
+  ip_addresses: number;
+  devices: number;
+  failed: number;
+  error: string | null;
+}
+
+/** 重新計算所有描述的向量。慢（依資料量可能數分鐘），只在換模型或初次設定後需要。 */
+export async function reindexEmbeddings(): Promise<ReindexResult> {
+  const { data } = await apiClient.post<ReindexResult>("/api/v1/ai/reindex");
+  return data;
+}
