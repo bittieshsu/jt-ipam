@@ -44,7 +44,7 @@ VMS = """<?xml version="1.0" encoding="UTF-8"?>
     <propSet><name>guest.ipAddress</name><val>198.51.100.21</val></propSet>
     <propSet><name>runtime.host</name><val type="HostSystem">host-9</val></propSet>
     <propSet><name>guest.net</name><val>
-      <GuestNicInfo><macAddress>00:50:56:aa:bb:01</macAddress>
+      <GuestNicInfo><macAddress>00:50:56:aa:bb:01</macAddress><network>VM Network</network>
         <ipAddress>198.51.100.21</ipAddress><connected>true</connected></GuestNicInfo>
       <GuestNicInfo><macAddress>00:50:56:aa:bb:02</macAddress>
         <ipAddress>198.51.100.22</ipAddress></GuestNicInfo>
@@ -159,3 +159,58 @@ def test_envelope_has_the_vim_namespace():
     body = esxi.build_login("ha-sessionmgr", "u", "p")
     assert 'xmlns="urn:vim25"' in body
     assert "<_this type=\"SessionManager\">ha-sessionmgr</_this>" in body
+
+
+# ─────────── VM 的 IP 要挑得對（實機回報）───────────
+
+def test_a_link_local_address_is_not_the_vm_ip():
+    """客戶回報：VMware 的 VM 抓到 `fe80::…`。
+
+    鏈路本地位址（IPv6 fe80::/10、IPv4 169.254/16）在同一個網段之外沒有意義，
+    當不了管理位址、也對不到 IPAM 裡的任何子網路。VMware Tools 在客體還沒拿到
+    位址、或只有 IPv6 自動組態時就會回報這種位址。
+    **寧可留白，也不要填一個沒有用的位址** —— 留白看得出「還沒拿到」，
+    填了 fe80 只會讓人以為那就是它的位址。
+    """
+    assert esxi.pick_vm_ip(["fe80::a64b:c1bf:a707:5638"]) is None
+    assert esxi.pick_vm_ip(["169.254.10.5"]) is None
+    assert esxi.pick_vm_ip(["127.0.0.1", "::1"]) is None
+
+
+def test_ipv4_wins_over_ipv6():
+    """兩者都有時取 IPv4：IPAM 的子網路、NAT、防火牆規則絕大多數以 IPv4 表達。"""
+    assert esxi.pick_vm_ip(["2001:db8::5", "198.51.100.20"]) == "198.51.100.20"
+
+
+def test_a_real_ipv6_is_still_accepted_when_it_is_all_there_is():
+    assert esxi.pick_vm_ip(["fe80::1", "2001:db8::5"]) == "2001:db8::5"
+
+
+def test_garbage_and_blanks_are_ignored():
+    assert esxi.pick_vm_ip(["", None, "not-an-ip", "198.51.100.7"]) == "198.51.100.7"
+    assert esxi.pick_vm_ip([]) is None
+
+
+def test_the_reported_case_a_windows_guest_with_both_addresses():
+    """客戶實機（vSphere 畫面）：一台 Windows 客體同時有 IPv4 與 fe80，我們挑到了 fe80。
+
+    VMware Tools 版本較舊時，`guest.ipAddress` 未必是那個有用的位址，NIC 清單的順序
+    也不保證 IPv4 在前。所以兩條路徑都要走同一套挑選規則，不能其中一條沒過濾。
+    """
+    # guest.ipAddress 回鏈路本地（最壞情況），NIC 清單裡才有真正的 IPv4
+    assert esxi.pick_vm_ip(["fe80::1a2b:3c4d:5e6f:7a8b",
+                            "192.168.120.193"]) == "192.168.120.193"
+    # 反過來，NIC 清單以 fe80 開頭也要挑對
+    assert esxi.pick_vm_ip(["fe80::1a2b:3c4d:5e6f:7a8b", "fe80::2",
+                            "192.168.120.193"]) == "192.168.120.193"
+
+
+def test_the_port_group_is_captured():
+    """VMware 沒有「橋接」，對應的是 port group。
+
+    之前沒讀這個欄位，所以畫面上那一欄永遠空白 —— 而空白分不出「沒有這個資料」
+    與「抓失敗」，使用者只能猜。
+    """
+    vms, _ = esxi.parse_vms(VMS)
+    web = next(v for v in vms if v["moid"] == "vm-101")
+    assert web["nics"][0]["network"] == "VM Network"

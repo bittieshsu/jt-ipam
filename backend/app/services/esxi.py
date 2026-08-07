@@ -294,8 +294,13 @@ def parse_vms(xml: str) -> tuple[list[dict[str, Any]], str | None]:
                         (c.text or "").strip()
                         for c in nic if _tag(c) == "ipAddress" and (c.text or "").strip()
                     ]
-                    if mac or ips:
-                        vm["nics"].append({"mac": (mac or "").lower() or None, "ips": ips})
+                    # port group（`network`）＝這張網卡接在哪個網路上。VMware 沒有
+                    # 「橋接」的概念，port group 就是對應的東西 —— 之前沒讀，所以那一欄
+                    # 一直是空的，而畫面上分不出「沒有這個資料」與「抓失敗」。
+                    net = _text(nic, "network")
+                    if mac or ips or net:
+                        vm["nics"].append({"mac": (mac or "").lower() or None, "ips": ips,
+                                           "network": net or None})
         if vm["moid"] or vm["name"]:
             out.append(vm)
     return out, token
@@ -500,6 +505,36 @@ def _scope_ids(inst: ESXiInstance) -> set[Any]:
     return out
 
 
+def pick_vm_ip(candidates: list[str | None]) -> str | None:
+    """從 VMware Tools 回報的位址裡挑一個「有用」的。
+
+    實機回報：VM 的 IP 欄出現 `fe80::a64b:c1bf:a707:5638`。鏈路本地位址
+    （IPv6 `fe80::/10`、IPv4 `169.254/16`）在同一段之外沒有意義 —— 當不了管理位址，
+    也對不到 IPAM 裡的任何子網路。客體還沒拿到位址、或只有 IPv6 自動組態時，
+    Tools 就會回報這種位址。
+
+    **寧可留白，也不要填一個沒有用的位址**：留白看得出「還沒拿到」，
+    填了 fe80 只會讓人以為那就是它的位址。IPv4 優先 —— IPAM 的子網路、NAT、
+    防火牆規則絕大多數以 IPv4 表達。
+    """
+    import ipaddress as _ip
+
+    v4: list[str] = []
+    v6: list[str] = []
+    for raw in candidates:
+        t = (raw or "").strip()
+        if not t:
+            continue
+        try:
+            addr = _ip.ip_address(t)
+        except ValueError:
+            continue
+        if addr.is_link_local or addr.is_loopback or addr.is_unspecified or addr.is_multicast:
+            continue
+        (v4 if addr.version == 4 else v6).append(str(addr))
+    return (v4 or v6 or [None])[0]
+
+
 async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, int]:
     """把 VM 清單鏡像進共用的虛擬化資料表。
 
@@ -568,11 +603,13 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
         for i, nic in enumerate(v.get("nics") or []):
             session.add(VMInterface(
                 vm_id=row.id, name=f"nic{i}", mac=nic.get("mac"),
-                primary_ip=(nic.get("ips") or [None])[0]))
+                bridge=nic.get("network"),
+                primary_ip=pick_vm_ip(list(nic.get("ips") or []))))
 
-        # 主要 IP：只比對既有的 IPAddress，不新建
-        cand = v.get("ip") or next(
-            (ip for n in (v.get("nics") or []) for ip in (n.get("ips") or [])), None)
+        # 主要 IP：只比對既有的 IPAddress，不新建。位址挑選見 pick_vm_ip ——
+        # 鏈路本地（fe80::/169.254）一律不採用，IPv4 優先。
+        cand = pick_vm_ip([v.get("ip"),
+                           *(ip for n in (v.get("nics") or []) for ip in (n.get("ips") or []))])
         if cand:
             stmt = select(IPAddress.id).where(func.host(IPAddress.ip) == cand)
             if scope:

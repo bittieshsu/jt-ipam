@@ -390,6 +390,24 @@ async def _run() -> int:
             await session.rollback()
             log.error("cert alert check failed: %s", exc)
 
+        # ── 依網卡 MAC 把 IP 掛回所屬裝置 ──
+        # 預設關閉：升級之後突然多出一個每 5 分鐘自動改資料的作業，本身就是不該
+        # 發生的事。開啟後也只填空的、不覆寫、不移除，並依十條規則跳過任何有疑慮的
+        # 情形。跳過的筆數一起記進 log —— 「全部被守門擋下」不能看起來跟「沒事可做」
+        # 一樣。
+        try:
+            from app.services.ip_device_link import link_by_port_mac
+            from app.services.system_config import get_autolink_config
+            cfg = await get_autolink_config(session)
+            if cfg["enabled"]:
+                st = await link_by_port_mac(
+                    session, scope_subnet_ids=cfg["scope_subnet_ids"])
+                if st.linked or st.skipped_ambiguous or st.skipped_customer:
+                    log.info("ip-device autolink: %s", st.summary())
+        except Exception as exc:  # noqa: BLE001
+            await session.rollback()
+            log.error("ip-device autolink failed: %s", exc)
+
         # ── AI 巡檢 ──
         # 沿用這個 timer 而不是另建一個：每輪只判斷「距上次是否已達設定的間隔」，
         # 沒到就直接跳過。預設關閉，要在 管理 → LLM / AI 明確打開才會跑。

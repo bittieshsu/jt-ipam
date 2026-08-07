@@ -16,7 +16,11 @@
     "mfa_failed": "驗證碼錯誤或已逾期",
     "sso_oidc": "用 OIDC 單一登入",
     "sso_saml": "用 SAML 單一登入",
-    "or_sso": "或使用 SSO"
+    "or_sso": "或使用 SSO",
+    "unreachable": "連不上伺服器。請確認網路，或伺服器上的 jt-ipam 服務是否正在執行 —— 這不是帳號密碼的問題。",
+    "server_down": "伺服器目前無法處理登入（HTTP {code}）。後端服務可能未啟動或啟動失敗；請檢查 systemctl status jt-ipam-backend —— 這不是帳號密碼的問題。",
+    "too_many": "嘗試次數過多，請稍候再試。",
+    "locked": "此帳號已被鎖定，請聯繫管理員。"
   },
   "certStatus": {
     "col_agent": "派送代理",
@@ -1306,7 +1310,12 @@
     "rack_side_right": "右半 U",
     "dhcp_server_via": "此裝置名下的 {ips} 被標示為 DHCP 伺服器",
     "search_ph": "搜尋名稱 / 型號 / 序號",
-    "truncated": "顯示 {shown} / 共 {total} 筆（請用搜尋找其餘裝置）"
+    "truncated": "顯示 {shown} / 共 {total} 筆（請用搜尋找其餘裝置）",
+    "virtuality": "虛實",
+    "virtual": "虛擬",
+    "physical": "實體",
+    "filter_subnet": "子網路",
+    "filter_subnet_all": "全部子網路"
   },
   "locations": {
     "site": "場域",
@@ -1851,7 +1860,9 @@
     "clustered": "叢集",
     "cluster_auto_ph": "留空：同步時自動依 PVE 叢集名稱建立",
     "help_path": "路徑 /",
-    "proxmox_admin_title": "Proxmox VE 連線"
+    "proxmox_admin_title": "Proxmox VE 連線",
+    "other_platform_hint": "這一頁只顯示這個平台的內容。您有 {n} 台虛擬機屬於「{name}」。",
+    "other_platform_go": "前往該頁"
   },
   "physical": {
     "cabling": "佈線",
@@ -2439,7 +2450,8 @@
     "title": "關係圖（上下層物件）",
     "wrap_hint": "接續到下一排",
     "vm": "虛擬機",
-    "pve_node": "PVE 節點"
+    "pve_node": "PVE 節點",
+    "esxi_host": "ESXi 主機"
   },
   "version": {
     "title": "版本資訊",
@@ -3125,7 +3137,14 @@
     "conflict_names": "各來源回報的主機名稱不一致（{n} 種）",
     "conflict_stale_agent": "Wazuh agent「{name}」已失聯，這個位址之後仍被偵測到活著 —— 它登記的位址可能已經換人使用",
     "conflict_duplicate": "同一個位址在 {n} 個子網路中都有紀錄（重疊網段）",
-    "conflict_macs": "ARP 上看過 {n} 個不同的 MAC —— 單一主機不會這樣"
+    "conflict_macs": "ARP 上看過 {n} 個不同的 MAC —— 單一主機不會這樣",
+    "export": "匯出報告",
+    "sec_names": "主機名稱來源",
+    "sec_mon": "監控涵蓋",
+    "sec_fw": "防火牆",
+    "sec_changes": "IP 異動記錄",
+    "ai_progress": "{s} 秒 · 已產出 {n} 字（思考 {think} 字）",
+    "sec_other": "同位址的其他紀錄"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -3145,5 +3164,22 @@
     "help_step2": "URL 填 vCenter 或 ESXi 主機位址即可，SOAP 端點固定為 /sdk，不必自己加。",
     "help_step3": "自簽憑證請把「驗證 TLS 憑證」關閉，否則連線會被憑證驗證擋下。",
     "page_title": "VMware 連線"
+  },
+  "autolink": {
+    "title": "依網卡 MAC 自動掛裝置",
+    "enable": "啟用",
+    "enable_hint": "每輪同步（約 5 分鐘）把「沒有裝置關聯、但 MAC 對得到某台裝置實體連接埠」的 IP 掛上去。預設關閉。",
+    "scope": "限定子網路範圍",
+    "scope_all": "留空＝全部子網路",
+    "scope_hint": "重疊網段環境下，可以只在你確定乾淨的網段裡自動掛。",
+    "preview": "預覽",
+    "preview_result": "會掛上 {n} 筆",
+    "preview_skipped": "跳過：{s}",
+    "skip_ambiguous_mac": "同一 MAC 對到多台",
+    "skip_manually_edited": "人工改過",
+    "skip_invalid_mac": "MAC 不可用",
+    "skip_hostname_mismatch": "主機名稱矛盾",
+    "skip_customer_conflict": "跨單位",
+    "rules_hint": "只填空的、永不覆寫、也不會移除既有關聯。同一個 MAC 對到多台裝置、MAC 屬於協定保留或非單播位址、主機名稱明確指向另一台、跨單位衝突、封存的子網路 —— 一律跳過不猜。每一筆都會寫進 IP 異動記錄，可回溯也可還原。"
   }
 }

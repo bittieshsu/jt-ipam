@@ -20,6 +20,7 @@ import {
 } from "@/icons";
 import { cmpNatural } from "@/utils/sort";
 import { listAddresses } from "@/api/addresses";
+import { listSubnets } from "@/api/subnets";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
@@ -146,7 +147,7 @@ async function fetchDevices(q?: string): Promise<{ items: Device[]; total: numbe
   const big = 500;   // 後端 page_size 上限
   let total = 0;
   for (let p = 1; ; p += 1) {
-    const res = await listDevices({ page: p, pageSize: big, q });
+    const res = await listDevices({ page: p, pageSize: big, q, subnetId: subnetFilter.value });
     total = res.total;
     all.push(...res.items);
     if (res.items.length === 0 || all.length >= res.total || all.length >= MAX_ROWS) break;
@@ -176,7 +177,7 @@ async function fetchAllForExport(): Promise<Device[]> {
   const big = 500;   // 後端 page_size 上限
   let p = 1;
   for (;;) {
-    const res = await listDevices({ page: p, pageSize: big });
+    const res = await listDevices({ page: p, pageSize: big, subnetId: subnetFilter.value });
     all.push(...res.items);
     if (res.items.length === 0 || all.length >= res.total) break;
     p++;
@@ -313,6 +314,20 @@ async function del(r: Device) {
   catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
 
+// 依子網路篩選裝置：「這個網段要停電維護，會影響哪些機器」是每次維護前都要問的事。
+// 篩選在**後端**做（EXISTS on ip_addresses），不是把整份清單抓回來再過濾 ——
+// 這個專案已經因為「只載第一頁再前端過濾」讓客戶看不到自己的裝置一次。
+const subnetFilter = ref<string | null>(null);
+const subnetOptions = ref<{ label: string; value: string }[]>([]);
+async function loadSubnetOptions() {
+  try {
+    const rows = await listSubnets({ pageSize: 500 });
+    const items = Array.isArray(rows) ? rows : (rows as any).items ?? [];
+    subnetOptions.value = items.map((x: any) => ({
+      label: x.description ? `${x.cidr}（${x.description}）` : x.cidr, value: x.id }));
+  } catch { /* 沒權限就不顯示選項，篩選仍可留空 */ }
+}
+
 const { visibleKeys, setVisible, reset } = useColumnPrefs(
   "devices",
   ["name", "ip", "fqdn", "type", "vendor", "model", "location_id", "rack_id", "customer_id", "actions"],
@@ -385,6 +400,15 @@ const allCols = computed<DataTableColumns<Device>>(() => [
     sorter: (a, b) => a.type.localeCompare(b.type),
   },
   {
+    // 虛擬 / 實體：同步進來的虛擬機在清單上與實體機長得一模一樣，
+    // 分不出來的話，「這台可以斷電維護嗎」這種問題就得逐台去查。
+    title: t("devices.virtuality"), key: "is_virtual",
+    render: (r) => h(NTag, { size: "small", type: r.is_virtual ? "warning" : "default",
+                             bordered: false },
+      () => t(r.is_virtual ? "devices.virtual" : "devices.physical")),
+    sorter: (a, b) => Number(!!a.is_virtual) - Number(!!b.is_virtual),
+  },
+  {
     title: t("devices.vendor"), key: "vendor",
     render: (r) => r.vendor ?? "—",
     sorter: (a, b) => (a.vendor ?? "").localeCompare(b.vendor ?? ""),
@@ -445,6 +469,7 @@ const cols = computed<DataTableColumns<Device>>(() =>
 import { useRoute } from "vue-router";
 const route = useRoute();
 onMounted(async () => {
+  void loadSubnetOptions();
   await refresh();
   void ensureCustomersLoaded();
   // 從別處帶關鍵字進來（例如 AI 巡檢的依據資料點裝置名稱、找不到精確裝置時的退路）——
@@ -473,6 +498,11 @@ onMounted(async () => {
     <n-space style="margin-bottom: 12px" align="center">
       <n-input v-model:value="filterQ" :placeholder="t('devices.search_ph')" clearable
                style="width: 220px" @update:value="onFilterInput" />
+
+        <n-select v-model:value="subnetFilter" clearable filterable size="small"
+                  style="width: 220px" :options="subnetOptions"
+                  :placeholder="t('devices.filter_subnet_all')"
+                  @update:value="() => refresh()" />
       <!-- 只載入一頁時要明講還有多少沒顯示，不能讓人以為這就是全部 -->
       <n-tag v-if="truncated" size="small" type="warning" :bordered="false">
         {{ t("devices.truncated", { shown: rows.length, total: totalOnServer }) }}

@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.152] — 2026-08-07
+
+### Added
+
+- **The investigate view can export a report** (`.md` / `.txt` / `.html` / `.csv`) — the facts and the AI reading together, for a handover note, a ticket attachment or an audit trail. Produced entirely in the browser, so **no new dependency and nothing to change in install or upgrade**. Text and CSV carry a UTF-8 BOM because Excel otherwise opens Chinese as mojibake; Markdown deliberately does not, since a BOM breaks the first heading.
+- **AI chat can answer whether an address is reachable from the internet** and which ports are open. The investigate view already put NAT forwards and firewall rules side by side, but only if you knew to open it; the question people actually ask is one sentence long. The tool reports facts only and does not pronounce on whether that exposure is appropriate — that depends on what the host is meant to do, which only a person knows. It sits at the same permission level as the NAT and firewall listings.
+- **The AI reading streams**, with elapsed seconds and character counts, instead of leaving a button that looks dead for a minute. Thinking and output are counted separately, because a reasoning model emits nothing else for the first stretch.
+- **The AI reading is told which patterns are normal for the host it is looking at.** A reverse proxy with twenty names resolving to it was reported as "a striking contradiction between the DNS records and the hostname sources" — the model did what it was told, since the prompt asks it to call out contradictions and nothing said that shape is ordinary for a proxy. Role signals are now computed from the facts and passed in, with the instruction that a false contradiction is worse than none because it buries the real ones.
+- **A VMware NIC now records its port group.** That column was blank because nothing ever read it, and a blank cell cannot be told apart from a failed fetch.
+- **Devices can be filtered by subnet**, and the list and detail pages say whether a device is virtual or physical. The kind is derived from the virtual-machine inventory rather than stored, so there is no second copy of the truth to maintain or to go stale.
+- **Addresses can be attached to their device automatically, by NIC MAC.** A multi-homed machine's second address usually has no device: the existing LibreNMS sync links only the primary one. The device page's address list is then incomplete, and the AI review reported such a pair as a duplicate record — while the MAC was sitting on that device's `eth1` port all along. The system already knew; it just never used it.
+
+  **Off by default, and the switch is deliberate.** An upgrade that quietly starts a job which rewrites data every five minutes is not something anyone asked for. It can be limited to chosen subnets, following the `scope_subnet_ids` convention every other integration here uses, and a **Preview** reports what it would attach before it is turned on — the same evidence that made the first run trustworthy (39 of 41 candidates were independently corroborated by hostname).
+
+  Ten rules decide when *not* to act, and none of them tries to guess better: an existing link is never overwritten and never removed; a MAC found on more than one device is left alone; an address whose device field a person has edited — including cleared — is never touched again, because otherwise clearing a wrong link would simply see it restored on the next round; protocol-reserved MACs (VRRP, HSRP) are shared across machines by definition; malformed and non-unicast MACs are rejected, since the port MAC column is free text and hand-editable, where `"N/A"` normalises to a non-empty `"a"` and would key a lookup; a hostname naming a different device is a contradiction between two independent signals; a customer conflict is respected, resolved through the subnet when the address itself has none; archived subnets are left alone.
+
+  Every attachment is written to the IP change log with what it matched on, so it can be traced and reversed. Each round logs both what was attached and what was skipped, per reason — "everything was blocked" must not look like "nothing to do".
+
+  One residual risk is stated rather than papered over: a link is never re-evaluated, so a NIC moved to another machine will leave a link that is quietly wrong. That belongs to after-the-fact detection, not to more guessing at write time.
+
+- **A login failure now says which kind of failure it was.** With the backend down, every request returned 502 and the login page still said "check your username and password" — blaming the operator's credentials for a service outage, so the natural response is to retype the password and doubt the account while the real problem is elsewhere. Only a 401 means the server actually checked and rejected the credentials; an unreachable server, a 5xx, rate limiting and a locked account now each say what they are, and the server-side ones point at `systemctl status jt-ipam-backend`.
+
 ## [0.5.151] — 2026-08-07
 
 ### Changed

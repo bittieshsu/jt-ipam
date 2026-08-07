@@ -12,6 +12,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { apiClient } from "@/api/client";
 import DashboardUptime from "@/components/DashboardUptime.vue";
 import DashboardAIAudit from "@/components/DashboardAIAudit.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -165,11 +166,25 @@ const trendHoverPt = computed(() => trendHover.value != null ? trend.value[trend
 
 // ── 上下關係鏈：機房 → 機櫃 → 裝置 → IP 位址 → 子網路 → 區段 ──
 // 每層放本系統該層物件總數；即使是 0 也照列，讓人看出完整層級與關聯。
+// 虛擬化拆成 PVE 與 VMware 兩頁之後，這個節點的目的地不能再寫死。
+// 實機回報：客戶只有 vCenter，點下 169 卻被送到 PVE 那一頁看到 0 筆，
+// 於是以為 VM 沒有進來。改成依實際設定了哪個平台決定；兩個都有就先去 PVE，
+// 那一頁會顯示「另有 N 台在 VMware」並附連結。
+const intg = ref<Record<string, boolean>>({});
+onMounted(async () => {
+  try {
+    const { data: p } = await apiClient.get("/api/v1/system/integration-presence");
+    intg.value = p;
+  } catch { /* 讀不到就用預設路由，交給頁面上的提示引導 */ }
+});
+const virtRoute = computed(() =>
+  (intg.value.esxi && !intg.value.proxmox) ? "virt_vmware" : "virt");
+
 const hierLayers = computed(() => [
   { key: "locations", label: "nav.locations",     icon: LocationsIcon,      value: data.value?.locations ?? 0, route: "locations", color: "#0ea5e9" },
   { key: "racks",     label: "nav.racks",         icon: RacksIcon,          value: data.value?.racks ?? 0,     route: "racks",     color: "#6366f1" },
   { key: "devices",   label: "nav.devices",       icon: DevicesIcon,        value: data.value?.devices ?? 0,   route: "devices",   color: "#8b5cf6" },
-  { key: "vms",       label: "nav.virtualization", icon: VirtualizationIcon, value: data.value?.vms ?? 0,       route: "virt",      color: "#ec4899" },
+  { key: "vms",       label: "nav.virtualization", icon: VirtualizationIcon, value: data.value?.vms ?? 0,       route: virtRoute.value, color: "#ec4899" },
   { key: "addresses", label: "nav.addresses",     icon: AddressesIcon,      value: data.value?.addresses ?? 0, route: "addresses", color: "#18a058" },
   { key: "subnets",   label: "nav.subnets",       icon: SubnetsIcon,        value: data.value?.subnets ?? 0,   route: "subnets",   color: "#f59e0b" },
   { key: "sections",  label: "nav.sections",      icon: SectionsIcon,       value: data.value?.sections ?? 0,  route: "sections",  color: "#ef4444" },

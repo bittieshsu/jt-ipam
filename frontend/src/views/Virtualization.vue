@@ -22,12 +22,13 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const route = useRoute();
+const router = useRouter();
 const pg = useTablePagination();
 // 管理區（virt_admin）：只放 Proxmox 連線；功能/進階區（virt）：叢集 + VM
 const adminMode = computed(() => route.name === "virt_admin");
@@ -61,6 +62,18 @@ const vms = computed(() => {
   const ids = new Set(clusters.value.map((c) => c.id));
   return allVms.value.filter((v) => ids.has(v.cluster_id));
 });
+
+// 另一個平台有幾台 VM —— 用來把「空白頁」變成「你要的東西在另一頁」
+const otherPlatformCount = computed(() => {
+  if (!props.platform) return 0;
+  const otherIds = new Set(allClusters.value
+    .filter((c) => c.type !== props.platform).map((c) => c.id));
+  return allVms.value.filter((v) => otherIds.has(v.cluster_id)).length;
+});
+
+function goOtherPlatform() {
+  void router.push({ name: props.platform === "vmware" ? "virt" : "virt_vmware" });
+}
 
 async function refresh() {
   loading.value = true;
@@ -364,9 +377,23 @@ onMounted(() => {
     <template #header>
       <n-space align="center" :wrap-item="false">
         <n-icon :size="22"><VirtualizationIcon /></n-icon>
-        <span>{{ adminMode ? t("virt.proxmox_admin_title") : t("nav.virtualization") }}</span>
+        <!-- 兩個選單項共用這個元件；標題不寫平台的話，使用者根本分不出自己在哪一頁 ——
+             實機回報「vCenter 設定成功、說讀到 169 台，但虛擬化頁面看不到 VM」，就是
+             人在 PVE 那一頁找 VMware 的資料。 -->
+        <span>{{ adminMode ? t("virt.proxmox_admin_title")
+                 : (platform === "vmware" ? t("nav.virt_vmware")
+                    : platform === "proxmox" ? t("nav.virt_pve") : t("nav.virtualization")) }}</span>
       </n-space>
     </template>
+    <!-- 空頁面要能自己解釋。這一頁沒東西、別的平台卻有，那不是「沒有資料」，
+         是「資料不在這一頁」—— 兩者對使用者的意義完全不同。 -->
+    <n-alert v-if="otherPlatformCount > 0" type="info" :bordered="false"
+             style="margin-bottom: 12px">
+      {{ t("virt.other_platform_hint", { n: otherPlatformCount,
+            name: platform === "vmware" ? t("nav.virt_pve") : t("nav.virt_vmware") }) }}
+      <n-button text type="primary" size="small" style="margin-left:6px"
+                @click="goOtherPlatform">{{ t("virt.other_platform_go") }}</n-button>
+    </n-alert>
     <n-tabs v-model:value="tab" type="line">
       <n-tab-pane v-if="!adminMode" name="clusters">
         <template #tab>

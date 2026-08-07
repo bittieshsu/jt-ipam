@@ -97,13 +97,28 @@
         </n-collapse>
 
         <!-- 模型的判讀與上面的事實分開放，而且標明是推測 -->
+        <!-- 匯出報告：把這一頁的事實與 AI 判讀一起帶走（交接、報修單、稽核附件都會用到）。
+             四種格式都是瀏覽器端產生，沒有新的相依套件。 -->
+        <div class="inv-export">
+          <span class="inv-export-k">{{ t("investigate.export") }}</span>
+          <n-button v-for="f in (['md', 'txt', 'html', 'csv'] as ReportFormat[])" :key="f"
+                    size="tiny" secondary @click="doExport(f)">.{{ f }}</n-button>
+        </div>
         <div class="inv-ai">
           <n-button v-if="!narrative" size="small" :loading="asking" @click="ask">
             <template #icon><n-icon><TestIcon /></n-icon></template>
             {{ t("investigate.ask_ai") }}
           </n-button>
           <template v-else>
-            <div class="inv-ai-hd">{{ t("investigate.ai_reading") }}</div>
+            <div class="inv-ai-hd">
+              {{ t("investigate.ai_reading") }}
+              <!-- 秒數與字數：跑很久的時候，這是唯一能看出「它還活著」的東西 -->
+              <span v-if="asking || elapsed" class="inv-ai-prog">
+                {{ t("investigate.ai_progress", {
+                     s: elapsed, n: narrative.length,
+                     think: thinkChars }) }}
+              </span>
+            </div>
             <div class="inv-ai-note">{{ t("investigate.ai_note") }}</div>
             <div class="inv-ai-body" v-html="renderMarkdown(narrative)" />
           </template>
@@ -127,9 +142,11 @@ import {
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { investigate } from "@/api/investigate";
+import { narrativeStream } from "@/api/investigate";
 import { TestIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 import { renderMarkdown } from "@/utils/markdown";
+import { downloadReport, type ReportFormat, type ReportSection } from "@/utils/investigateReport";
 import ChangeValue from "@/components/ChangeValue.vue";
 
 const props = defineProps<{ show: boolean; ip: string }>();
@@ -188,15 +205,92 @@ async function load() {
   } finally { loading.value = false; }
 }
 
+// 判讀進度：秒數與字數。會思考的模型前幾分鐘只吐思考內容，所以兩者分開計數 ——
+// 只顯示「處理中」的話，使用者分不出模型在想、卡住、還是壞了。
+const elapsed = ref(0);
+const thinkChars = ref(0);
+let ticker: ReturnType<typeof setInterval> | null = null;
+
 async function ask() {
   asking.value = true;
+  narrative.value = "";
+  narrativeError.value = "";
+  elapsed.value = 0;
+  thinkChars.value = 0;
+  ticker = setInterval(() => { elapsed.value += 1; }, 1000);
   try {
-    const r = await investigate(props.ip, true, locale.value);
-    narrative.value = r.narrative ?? "";
-    narrativeError.value = r.narrative_error ?? "";
+    await narrativeStream(props.ip, locale.value, (ev) => {
+      if (ev.type === "thinking") thinkChars.value += (ev.text ?? "").length;
+      else if (ev.type === "content") narrative.value += ev.text ?? "";
+      else if (ev.type === "done") { if (ev.text) narrative.value = ev.text; }
+      else if (ev.type === "error") narrativeError.value = ev.detail ?? "";
+      if (ev.elapsed != null) elapsed.value = Math.round(ev.elapsed);
+    });
   } catch (e: any) {
     narrativeError.value = e?.message ?? String(e);
-  } finally { asking.value = false; }
+  } finally {
+    asking.value = false;
+    if (ticker) { clearInterval(ticker); ticker = null; }
+  }
+}
+
+// ── 匯出報告（.md / .txt / .html / .csv）
+// 純瀏覽器端，零相依 —— 安裝與升級不必追加任何套件。中文編碼見 investigateReport.ts。
+function sectionsForReport(): ReportSection[] {
+  // **照畫面上實際渲染的欄位取值**。第一版是照記憶猜的（v.hostname、r.rtype、
+  // v.firewall、c.summary），結果匯出的摘要整排「—」、DNS 每行 undefined、
+  // 異動記錄倒出原始 JSON —— 匯出跟畫面必須是同一份資料的同一種讀法。
+  const v = d.value ?? {};
+  const fmtChange = (c: any) => {
+    const head = `${fmtDateTime(c.at)} · ${c.field || c.event}`;
+    return (c.old || c.new) ? `${head}：${c.old ?? "—"} → ${c.new ?? "—"}` : head;
+  };
+  return [
+    { title: t("investigate.sec_names"),
+      lines: (v.hostname_sources ?? []).map((h: any) => `${h.source}：${h.hostname}`) },
+    { title: "OS", lines: osList.value },
+    { title: t("investigate.sec_mon"), lines: monitorList.value },
+    { title: "ARP",
+      lines: (v.arp ?? []).map((a: any) => `${a.mac} · ${fmtDateTime(a.last_seen_at)}`) },
+    { title: "DNS",
+      lines: (v.dns ?? []).map((r: any) => `${r.type} ${r.name}`) },
+    { title: "NAT",
+      lines: (v.nat ?? []).map((n: any) =>
+        [n.name, `${n.protocol ?? ""}/${n.port ?? ""}`, n.interface,
+         n.disabled ? t("common.disabled") : ""].filter(Boolean).join(" · ")) },
+    { title: t("investigate.sec_fw"),
+      lines: (v.firewall_rules ?? []).map((r: any) =>
+        `${r.action} ${r.interface} ${r.protocol}/${r.port}`
+        + (r.description ? ` — ${r.description}` : "")) },
+    { title: t("investigate.sec_other"),
+      lines: (v.other_records ?? []).map((o: any) =>
+        `${o.subnet} · ${o.hostname ?? "—"} · ${o.effective_status ?? "—"}`) },
+    { title: t("investigate.sec_changes"),
+      lines: (v.changes ?? []).map(fmtChange) },
+  ];
+}
+
+function doExport(fmt: ReportFormat) {
+  const a = d.value?.address ?? {};
+  downloadReport({
+    ip: props.ip,
+    generatedAt: fmtDateTime(new Date().toISOString()),
+    summary: [
+      [t("addresses.hostname"), a.hostname ?? "—"],
+      [t("nav.subnets"), a.subnet ? (a.subnet_description
+        ? `${a.subnet}（${a.subnet_description}）` : a.subnet) : "—"],
+      [t("common.status"), `${a.state ?? "—"} / ${a.effective_status ?? "—"}`],
+      ["MAC", a.mac ?? "—"],
+      [t("addresses.switch_port"), a.switch_port ?? "—"],
+    ] as [string, string][],
+    conflicts: conflicts.value,
+    sections: sectionsForReport(),
+    narrative: narrative.value || undefined,
+    narrativeNote: narrative.value ? t("investigate.ai_note") : undefined,
+    // HTML 版把判讀的 markdown 真的渲染出來（**粗體**、`code`、清單），
+    // 不要把原始標記直接印在報告上
+    narrativeHtml: narrative.value ? renderMarkdown(narrative.value) : undefined,
+  }, fmt);
 }
 
 watch(() => [props.show, props.ip], ([s]) => { if (s) void load(); }, { immediate: true });
@@ -214,4 +308,8 @@ watch(() => [props.show, props.ip], ([s]) => { if (s) void load(); }, { immediat
 .inv-ai-note { font-size: 11.5px; opacity: .6; margin-bottom: 8px; }
 .inv-ai-body { font-size: 13px; line-height: 1.85; }
 .inv-ai-err { color: #d03050; font-size: 12.5px; margin-top: 6px; }
+.inv-export { display: flex; align-items: center; gap: 6px; margin-top: 14px;
+  padding-top: 12px; border-top: 1px solid var(--n-border-color, #eee); }
+.inv-export-k { font-size: 12.5px; opacity: .7; margin-right: 2px; }
+.inv-ai-prog { font-weight: 400; font-size: 12px; opacity: .6; margin-left: 8px; }
 </style>

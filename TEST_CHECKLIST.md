@@ -177,6 +177,10 @@ Release flow: run the checklist → all green → bump version → deploy
   zero. A candidate model must also produce **different vectors for different Traditional Chinese
   descriptions** (English-only models collapse them and look fine while ranking at random).
 - [ ] **Add address in a subnet**: the create form has a required IP field (issue #14).
+- [ ] **Attach IPs by NIC MAC** (Admin → 系統設定): off by default on an existing install; **Preview**
+  reports a count plus per-reason skips and changes nothing; enabling it attaches on the next sync round
+  and writes one IP-change-log row per address with the match reason. Clear a device link by hand, then
+  confirm the next round does **not** restore it (the rule that keeps the job from fighting the operator).
 
 ### Recent (v0.5.6x–0.5.7x)
 

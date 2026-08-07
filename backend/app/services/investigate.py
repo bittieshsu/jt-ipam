@@ -194,3 +194,45 @@ async def collect_dossier(
         )).scalars().all()
     ]
     return out
+
+
+def infer_role_hints(dossier: dict[str, Any]) -> list[str]:
+    """從事實裡算出「這台在扮演什麼角色」的訊號。
+
+    由來（實機）：一台反向代理有 20 筆 A 記錄指向它，AI 判讀把這件事說成「DNS 記錄與
+    主機名稱來源顯著矛盾」。那不是模型的錯 —— 送過去的只是一串域名，沒有任何訊號說明
+    多個域名指向同一個位址對反向代理是常態，而提示詞又特別要求它「指出矛盾」。
+
+    這裡只描述**觀察到的樣態**，不下「安全 / 不安全」「設定錯誤」這類判斷 ——
+    那取決於這台本來該做什麼，而那件事只有人知道。
+    """
+    hints: list[str] = []
+
+    names = {str(r.get("name") or "").strip().lower()
+             for r in (dossier.get("dns") or []) if r.get("name")}
+    if len(names) >= 5:
+        hints.append(
+            f"{len(names)} distinct DNS names resolve to this address. Many names on one"
+            " address is the normal shape of a reverse proxy, load balancer or shared"
+            " web host — do not report it as a contradiction on its own."
+        )
+
+    nat_ports = sorted({str(n.get("port")) for n in (dossier.get("nat") or []) if n.get("port")})
+    web = [p for p in nat_ports if p in ("80", "443", "8080", "8443")]
+    if web:
+        hints.append(
+            f"Ports {', '.join(web)} are forwarded to this address from outside, which is"
+            " what a public web entry point looks like."
+        )
+    other = [p for p in nat_ports if p not in web]
+    if other:
+        hints.append(f"Also forwarded from outside: ports {', '.join(other)}.")
+
+    macs = {str(a.get("mac")) for a in (dossier.get("arp") or []) if a.get("mac")}
+    if len(macs) > 2:
+        hints.append(
+            f"{len(macs)} different MAC addresses have used this address over time. That is"
+            " expected in a DHCP range and unexpected for a statically assigned server —"
+            " which of the two this is, the record should say."
+        )
+    return hints

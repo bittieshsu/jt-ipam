@@ -209,6 +209,7 @@ async def list_devices(
     type: str | None = Query(None),
     location_id: uuid.UUID | None = Query(None),
     rack_id: uuid.UUID | None = Query(None),
+    subnet_id: uuid.UUID | None = Query(None),
     q: Annotated[str | None, Query(max_length=128)] = None,
     page: int = Query(1, ge=1, le=10_000),
     page_size: int = Query(50, ge=1, le=500),
@@ -238,6 +239,13 @@ async def list_devices(
         cstmt = cstmt.where(Device.location_id == location_id)
     if rack_id is not None:
         stmt = stmt.where(Device.rack_id == rack_id); cstmt = cstmt.where(Device.rack_id == rack_id)
+    if subnet_id is not None:
+        # 「這個網段裡有哪些裝置」——「某某網段要停電維護，會影響誰」這種問題的第一步。
+        # 用 EXISTS 而非 JOIN：一台裝置在同一個網段可能有多個 IP，JOIN 會讓它重複出現。
+        from app.models.address import IPAddress as _IPA
+        cond_sub = select(_IPA.id).where(
+            _IPA.device_id == Device.id, _IPA.subnet_id == subnet_id).exists()
+        stmt = stmt.where(cond_sub); cstmt = cstmt.where(cond_sub)
     # RBAC：只回該 user 可見的裝置（admin / wildcard → vis is None → 不過濾）
     from app.services.permission import visible_ids
     vis = await visible_ids(session, user=_user, object_type="device")
@@ -260,9 +268,16 @@ async def list_devices(
             .where(_func.host(IPAddress.ip).in_(eff_ips))
         )).all():
             addr_by_ip.setdefault(str(ahost), (aid, adev))
+    # 虛擬 / 實體：一次撈出所有 VM 名稱，避免逐台查
+    from app.models.virt import VirtualMachine as _VM
+    vm_names = {
+        (n or "").strip().lower()
+        for n in (await session.execute(select(_VM.name))).scalars().all() if n
+    }
     items = []
     for r in rows:
         d = DeviceRead.model_validate(r)
+        d.is_virtual = (r.name or "").strip().lower() in vm_names
         d.ip = ip_map.get(r.id)
         if d.ip and d.ip in addr_by_ip:
             aid, adev = addr_by_ip[d.ip]
@@ -331,6 +346,9 @@ async def get_device_relations(
                     )).scalar_one_or_none()
             cluster = await session.get(VirtCluster, vm.cluster_id) if vm.cluster_id else None
             csub = cluster.name if cluster is not None else None
+            # 平台要跟著節點走：關係圖原本一律標成「PVE 節點」並連到 PVE 那一頁，
+            # 但 VMware 的 VM 掛的是 ESXi 主機 —— 標錯名字、也連錯地方。
+            plat = (cluster.type if cluster is not None else None) or "proxmox"
             if node_dev is not None and node_dev.id != dev.id:
                 if node_dev.location_id:
                     nloc = await session.get(Location, node_dev.location_id)
@@ -340,9 +358,16 @@ async def get_device_relations(
                     nrk = await session.get(Rack, node_dev.rack_id)
                     if nrk is not None:
                         chain.append({"type": "rack", "id": str(nrk.id), "label": nrk.name})
-                chain.append({"type": "vmnode", "id": str(node_dev.id), "label": node_dev.name, "sub": csub})
+                chain.append({"type": "vmnode", "id": str(node_dev.id), "label": node_dev.name,
+                              "sub": csub, "platform": plat})
             elif vm.node:
-                chain.append({"type": "vmnode", "id": "pve:" + vm.node, "label": vm.node, "sub": csub})
+                chain.append({"type": "vmnode", "id": "host:" + vm.node, "label": vm.node,
+                              "sub": csub, "platform": plat})
+            # 虛擬機本身也要畫（實體節點 → 虛擬機 → 這台裝置）。
+            # 少了它，同一台機器在 IP 詳細資料頁看得到虛擬機、在裝置詳細資料頁卻看不到，
+            # 兩頁講的是同一件事卻長得不一樣。
+            chain.append({"type": "vm", "id": str(vm.id), "label": vm.name, "sub": csub,
+                          "platform": plat})
     chain.append({"type": "device", "id": str(dev.id), "label": dev.name})
     # 主要 IP（沒設就抓任一連到本裝置的 IP）→ 子網路 → 區段
     ip = None
@@ -383,6 +408,11 @@ async def get_device(
     d = DeviceRead.model_validate(obj)
     ips = await _resolve_device_ips(session, [obj])
     d.ip = ips.get(obj.id)
+    # 虛擬 / 實體：詳細資料頁也要看得到（與清單同一套判斷）
+    from app.models.virt import VirtualMachine as _VM
+    d.is_virtual = bool(await session.scalar(
+        select(_VM.id).where(func.lower(_VM.name) == (obj.name or "").strip().lower()).limit(1)
+    ))
     return d
 
 

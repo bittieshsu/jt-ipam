@@ -758,6 +758,78 @@ async def list_ollama_models(
     return {"models": ai_mod.parse_models(resp.json() or {}, provider)}
 
 
+# ─────────────────── 依 MAC 自動掛裝置 ───────────────────
+
+
+class AutolinkOut(StrictModel):
+    enabled: bool = False
+    scope_subnet_ids: list[str] | None = None
+
+
+class AutolinkPatch(StrictModel):
+    enabled: bool | None = None
+    scope_subnet_ids: list[str] | None = None
+
+
+@router.get("/ip-device-autolink", response_model=AutolinkOut)
+async def get_autolink(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Any:
+    from app.services.system_config import get_autolink_config
+    return AutolinkOut(**await get_autolink_config(session))
+
+
+@router.put("/ip-device-autolink", response_model=AutolinkOut)
+async def put_autolink(
+    payload: AutolinkPatch, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Any:
+    from app.services.system_config import set_autolink_config
+    cfg = await set_autolink_config(
+        session, enabled=payload.enabled, scope_subnet_ids=payload.scope_subnet_ids,
+        updated_by_user_id=user.id,
+    )
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system_setting", object_id=None, action="update",
+        diff={"target": "ip_device_autolink", **cfg},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return AutolinkOut(**cfg)
+
+
+@router.post("/ip-device-autolink/preview")
+async def preview_autolink(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """先看會動到什麼再開啟 —— 這是會改資料的作業。
+
+    只計算不寫入，並附上明細；跳過的筆數也一起回報（「全部被守門擋下」不能看起來
+    跟「沒事可做」一樣）。
+    """
+    from app.services.ip_device_link import link_by_port_mac
+    from app.services.system_config import get_autolink_config
+    cfg = await get_autolink_config(session)
+    st = await link_by_port_mac(session, dry_run=True,
+                               scope_subnet_ids=cfg["scope_subnet_ids"])
+    return {
+        "would_link": st.linked,
+        "samples": st.samples[:100],
+        "skipped": {
+            "ambiguous_mac": st.skipped_ambiguous,
+            "manually_edited": st.skipped_manual,
+            "invalid_mac": st.skipped_invalid_mac,
+            "hostname_mismatch": st.skipped_hostname_mismatch,
+            "customer_conflict": st.skipped_customer,
+        },
+    }
+
+
 # ─────────────────── RBAC：權限指派 ───────────────────
 import uuid as _uuid
 from typing import Literal as _Literal

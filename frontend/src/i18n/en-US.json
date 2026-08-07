@@ -16,7 +16,11 @@
     "mfa_failed": "Invalid or expired code",
     "sso_oidc": "Sign in with OIDC",
     "sso_saml": "Sign in with SAML",
-    "or_sso": "Or use SSO"
+    "or_sso": "Or use SSO",
+    "unreachable": "Cannot reach the server. Check your network, or whether the jt-ipam service is running — this is not a credentials problem.",
+    "server_down": "The server cannot handle logins right now (HTTP {code}). The backend may be down or failing to start; check systemctl status jt-ipam-backend — this is not a credentials problem.",
+    "too_many": "Too many attempts. Please wait and try again.",
+    "locked": "This account is locked. Please contact an administrator."
   },
   "certStatus": {
     "col_agent": "Agent",
@@ -1306,7 +1310,12 @@
     "rack_side_right": "Right half",
     "dhcp_server_via": "{ips} on this device is marked as a DHCP server",
     "search_ph": "Search name / model / serial",
-    "truncated": "showing {shown} of {total} — use search to reach the rest"
+    "truncated": "showing {shown} of {total} — use search to reach the rest",
+    "virtuality": "Kind",
+    "virtual": "Virtual",
+    "physical": "Physical",
+    "filter_subnet": "Subnet",
+    "filter_subnet_all": "All subnets"
   },
   "locations": {
     "site": "Site",
@@ -1851,7 +1860,9 @@
       "suspended": "Suspended",
       "unknown": "Unknown"
     },
-    "proxmox_admin_title": "Proxmox VE connections"
+    "proxmox_admin_title": "Proxmox VE connections",
+    "other_platform_hint": "This page shows one platform only. You have {n} virtual machines under \"{name}\".",
+    "other_platform_go": "Go there"
   },
   "physical": {
     "cabling": "Cabling",
@@ -2439,7 +2450,8 @@
     "title": "Relationships",
     "wrap_hint": "continues on next row",
     "vm": "VM",
-    "pve_node": "PVE node"
+    "pve_node": "PVE node",
+    "esxi_host": "ESXi host"
   },
   "version": {
     "title": "Version Info",
@@ -3125,7 +3137,14 @@
     "conflict_names": "Sources disagree on the hostname ({n} different names)",
     "conflict_stale_agent": "Wazuh agent \"{name}\" is disconnected and the address has been seen alive since — its claim may be stale",
     "conflict_duplicate": "This address is recorded in {n} subnets (overlapping)",
-    "conflict_macs": "{n} different MACs seen in ARP — unusual for a single host"
+    "conflict_macs": "{n} different MACs seen in ARP — unusual for a single host",
+    "export": "Export report",
+    "sec_names": "Hostname sources",
+    "sec_mon": "Monitoring",
+    "sec_fw": "Firewall",
+    "sec_changes": "IP change log",
+    "ai_progress": "{s}s · {n} chars ({think} thinking)",
+    "sec_other": "Other records for this address"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -3145,5 +3164,22 @@
     "help_step2": "Enter the vCenter or ESXi address only; the SOAP endpoint is always /sdk and is appended for you.",
     "help_step3": "For a self-signed certificate, turn TLS verification off or the connection will be rejected.",
     "page_title": "VMware connections"
+  },
+  "autolink": {
+    "title": "Attach IPs to devices by NIC MAC",
+    "enable": "Enable",
+    "enable_hint": "Each sync round (about 5 minutes), attach addresses that have no device but whose MAC matches a device's physical port. Off by default.",
+    "scope": "Limit to subnets",
+    "scope_all": "Blank = all subnets",
+    "scope_hint": "With overlapping subnets, you can restrict this to the ranges you know are clean.",
+    "preview": "Preview",
+    "preview_result": "{n} would be attached",
+    "preview_skipped": "skipped: {s}",
+    "skip_ambiguous_mac": "MAC on several devices",
+    "skip_manually_edited": "edited by a person",
+    "skip_invalid_mac": "unusable MAC",
+    "skip_hostname_mismatch": "hostname contradicts",
+    "skip_customer_conflict": "different customer",
+    "rules_hint": "Only fills what is empty; never overwrites and never removes an existing link. A MAC found on several devices, a protocol-reserved or non-unicast MAC, a hostname naming a different device, a customer conflict, an archived subnet — all are skipped rather than guessed. Every change is written to the IP change log, so it can be traced and undone."
   }
 }

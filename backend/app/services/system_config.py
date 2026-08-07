@@ -1007,3 +1007,46 @@ async def set_notification_matrix(
     flag_modified(row, "value")
     await session.commit()
     return await get_notification_matrix(session)
+
+
+# ─────────────────── 依 MAC 自動掛裝置（ip_device_autolink）───────────────────
+AUTOLINK_KEY = "ip_device_autolink"
+
+
+async def get_autolink_config(session: AsyncSession) -> dict[str, Any]:
+    """是否讓每輪同步依網卡 MAC 把 IP 掛回所屬裝置，以及限定的子網路範圍。
+
+    **預設關閉（deny by default）。** 升級之後突然多出一個每 5 分鐘自動改資料的背景
+    作業，本身就是不該發生的事 —— 使用者沒要求過。範圍留空＝全部子網路，比照本專案
+    其他整合的 `scope_subnet_ids` 慣例（重疊網段下要能把範圍收到確定乾淨的網段）。
+    """
+    row = await session.get(SystemSetting, AUTOLINK_KEY)
+    v = row.value if row and isinstance(row.value, dict) else {}
+    scope = v.get("scope_subnet_ids")
+    return {
+        "enabled": bool(v.get("enabled", False)),
+        "scope_subnet_ids": [str(x) for x in scope] if isinstance(scope, list) and scope else None,
+    }
+
+
+async def set_autolink_config(
+    session: AsyncSession, *, enabled: bool | None = None,
+    scope_subnet_ids: list[str] | None = None,
+    updated_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    row = await session.get(SystemSetting, AUTOLINK_KEY)
+    if row is None:
+        row = SystemSetting(key=AUTOLINK_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    current = dict(row.value or {})
+    if enabled is not None:
+        current["enabled"] = bool(enabled)
+    if scope_subnet_ids is not None:
+        # 空清單＝清掉範圍限制（回到全部子網路），不是「一個都不含」
+        current["scope_subnet_ids"] = [str(x) for x in scope_subnet_ids] or None
+    row.value = current
+    row.updated_by = updated_by_user_id
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
+    return await get_autolink_config(session)

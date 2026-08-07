@@ -2056,6 +2056,40 @@ async def investigate_ip(
     return await collect_dossier(session, user=user, ip=str(ip).strip())
 
 
+
+async def check_ip_exposure(session: AsyncSession, user: User, ip: str) -> dict[str, Any]:
+    """這個位址對外開了什麼 —— NAT 轉發與防火牆放行規則。
+
+    「調查」畫面本來就把這些湊在一起，但只有人點進去才看得到。使用者真正會問的是
+    「192.0.2.10 有對外開放嗎、開了哪些埠」，那是一句話的問題，不該要人先知道
+    要去哪一頁、再自己讀四張表。
+
+    只回事實：有哪些 NAT 轉發、哪些防火牆規則允許進入。**不下「安全或不安全」的結論**
+    —— 那取決於這台機器本來就該不該對外，而那件事只有人知道。
+    """
+    from app.services.investigate import collect_dossier
+
+    d = await collect_dossier(session, user=user, ip=ip)
+    if not d.get("found"):
+        return {"found": False, "ip": ip}
+    nat = d.get("nat") or []
+    fw = [r for r in (d.get("firewall") or []) if str(r.get("action", "")).lower() == "pass"]
+    ports = sorted({str(n.get("port")) for n in nat if n.get("port")}
+                   | {str(r.get("port")) for r in fw if r.get("port")})
+    return {
+        "found": True,
+        "ip": ip,
+        "hostname": d.get("hostname"),
+        # 有 NAT 轉發＝從外網打得到；沒有不代表安全（可能走反向代理或另一條路徑）
+        "reachable_from_wan": bool(nat),
+        "open_ports": ports,
+        "nat_rules": nat,
+        "firewall_allow_rules": fw,
+        "note": ("Facts only. NAT forwards and pass rules are listed; whether that is"
+                 " appropriate depends on what this host is meant to do."),
+    }
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "search_ip": {
         "fn": search_ip,
@@ -2325,6 +2359,14 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "description": {"type": "string"},
             },
         },
+    },
+    "check_ip_exposure": {
+        "fn": check_ip_exposure,
+        "description": ("Whether an IP is reachable from the internet and which ports are open:"
+                        " NAT port-forwards plus firewall pass rules that target it."
+                        " Use for questions like 'is 10.0.0.5 exposed?' or 'what ports are open on X?'."),
+        "parameters": {"type": "object", "properties": {"ip": {"type": "string"}},
+                       "required": ["ip"]},
     },
     "get_ip_detail": {
         "fn": get_ip_detail,
@@ -2750,6 +2792,9 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_power", "list_wazuh_agents", "wazuh_missing_agents", "get_topology",
     "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
+    # NAT 與防火牆規則是全域基礎設施資料 —— 與 list_nat / list_firewall_rules 同一層，
+    # 不能因為它是「以 IP 為單位查」就鬆一級（改端點權限時要同步收 MCP，這裡踩過）。
+    "check_ip_exposure",
 })
 
 
