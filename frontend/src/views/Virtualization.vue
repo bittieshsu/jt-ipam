@@ -263,9 +263,17 @@ const clusterCols = computed<DataTableColumns<any>>(() => autoSort([
   },
 ]));
 // 每個 NIC 一行（IP / bridge / MAC 三欄同 index 對齊）— 多 IP 一看就知道對應關係
-function stackedCell(arr?: string[] | null) {
+function stackedCell(arr?: string[] | null, links?: Record<string, string> | null) {
   if (!arr || !arr.length) return "—";
-  return h("div", { class: "nic-stack" }, arr.map((v) => h("div", { class: "nic-line" }, v)));
+  return h("div", { class: "nic-stack" }, arr.map((v) => {
+    const id = links?.[v];
+    return h("div", { class: "nic-line" }, id
+      ? h("a", {
+          class: "nic-link",
+          onClick: () => router.push({ name: "address-detail", params: { id } }),
+        }, v)
+      : v);
+  }));
 }
 const vmCols = computed<DataTableColumns<any>>(() => autoSort([
   { title: t("common.name"), key: "name" },
@@ -283,7 +291,10 @@ const vmCols = computed<DataTableColumns<any>>(() => autoSort([
   { title: t("virt.node"), key: "node", render: (r) => r.node ?? "—" },
   {
     title: "IP", key: "ips", minWidth: 150,
-    render: (r) => stackedCell(r.ips),
+    // 在 IPAM 裡找得到的位址就做成連結 —— 資料早就在系統裡，不該要人複製那串數字、
+    // 切到 IP 位址頁再貼上搜尋。找不到、或重疊網段下分不出是哪一筆時維持純文字
+    // （後端不給 id）：給錯的連結比沒有連結更糟，因為使用者會信它。
+    render: (r) => stackedCell(r.ips, r.ip_links),
   },
   {
     title: t("virt.bridge"), key: "bridges", minWidth: 100,
@@ -565,4 +576,6 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 .nic-line + .nic-line { border-top: 1px dashed rgba(127, 127, 127, 0.18); }
+.nic-link { color: var(--primary-color, #18a058); cursor: pointer; }
+.nic-link:hover { text-decoration: underline; }
 </style>

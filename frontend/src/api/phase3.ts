@@ -410,7 +410,9 @@ export async function deleteDevicePowerPort(id: string): Promise<void> {
 // ─────────────────── Virt ───────────────────
 
 export interface VirtCluster { id: string; name: string; type: string | null; is_standalone: boolean; description: string | null; }
-export interface VirtualMachine { id: string; name: string; cluster_id: string | null; node: string | null; kind: string | null; status: string | null; ips: string[]; macs: string[]; bridges: string[]; }
+export interface VirtualMachine { id: string; name: string; cluster_id: string | null; node: string | null; kind: string | null; status: string | null; ips: string[]; macs: string[]; bridges: string[];
+  /** IP 字串 → IPAM 位址 id。重疊網段下分不出是哪一筆時後端不會給。 */
+  ip_links?: Record<string, string>; }
 export interface ProxmoxInstance { id: string; name: string; api_url: string; extra_api_urls: string[]; node: string | null; auth_username: string; auth_token_id: string; verify_tls: boolean; sync_interval_seconds: number; enabled: boolean; scope_subnet_ids?: string[] | null; last_sync_at: string | null; last_error: string | null; }
 
 export interface ProxmoxWrite {

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.153] — 2026-08-07
+
+### Changed
+- **An address on the virtualisation pages links to its IPAM record.** The data was already in the system, but reading a VM's address and checking how it is registered meant copying the digits, switching page and pasting them into a search.
+
+  **A link only appears when exactly one record matches.** With overlapping subnets — different units sharing `192.168.1.0/24`, which this project exists to support — the same address string legitimately has several records, and there is no way to tell which one a VM's address refers to. In that case the text stays plain: a wrong link is worse than no link, because people trust it. Verified against production: of 79 addresses on VM interfaces, 78 resolve to exactly one record and become links.
+
 ## [0.5.152] — 2026-08-07
 
 ### Added
