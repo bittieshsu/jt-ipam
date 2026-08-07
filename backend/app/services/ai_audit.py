@@ -102,15 +102,36 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
 
     # 只巡檢有勾「納入 AI 巡檢」的子網路。這是在 RBAC **之後**再收窄，不是繞過它 ——
     # 勾了但看不到的子網路，仍然看不到。
-    sub_q = select(Subnet.id, Subnet.cidr, Subnet.description).where(
+    sub_q = select(Subnet.id, Subnet.cidr, Subnet.description, Subnet.scan_enabled).where(
         Subnet.ai_audit_enabled.is_(True))
     if vis_sub is not None:
         if not vis_sub:
             return {"subnets": [], "ips": [], "devices": [], "empty": True}
         sub_q = sub_q.where(Subnet.id.in_(vis_sub))
     sub_rows = (await session.execute(sub_q.limit(MAX_SAMPLE))).all()
-    # 子網路的 id 內部還要用來過濾 IP，但送給模型的只有 CIDR 與說明
-    subnets = [{"cidr": str(c), "description": d} for _i, c, d in sub_rows]
+
+    # 每個網段的掃描涵蓋：有沒有在掃、掃到過幾筆。
+    # **少了這個，模型分不出「沒在監控」與「在掃但這些位址從來沒回應」** —— 實機上
+    # 就把一個有開掃描、233 筆中 130 筆掃到過的網段，報成「可能存在監控盲點」並建議
+    # 去檢查監控涵蓋。同一份資料，兩種完全不同的處置。
+    cover: dict[Any, tuple[int, int]] = {}
+    if sub_rows:
+        for sid, seen, total in (await session.execute(
+            select(IPAddress.subnet_id,
+                   func.count().filter(IPAddress.last_seen_scanner.isnot(None)),
+                   func.count())
+            .where(IPAddress.subnet_id.in_([r[0] for r in sub_rows]))
+            .group_by(IPAddress.subnet_id)
+        )).all():
+            cover[sid] = (int(seen or 0), int(total or 0))
+
+    # 子網路的 id 內部還要用來過濾 IP，送給模型的是 CIDR、說明與掃描涵蓋
+    subnets = []
+    for sid, c, d, scan_on in sub_rows:
+        seen, total = cover.get(sid, (0, 0))
+        subnets.append({"cidr": str(c), "description": d,
+                        "scan_enabled": bool(scan_on),
+                        "ips_seen": seen, "ips_total": total})
 
     ip_q = select(
         IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.state,
@@ -182,6 +203,12 @@ Security is a first-class part of this review, not an afterthought. Look specifi
 Other things worth reporting: addresses recorded as in use but never seen alive; duplicate or
 contradictory records; subnets with no monitoring coverage; naming that breaks an otherwise
 consistent convention.
+
+Each subnet carries `scan_enabled` and how many of its addresses a scanner has ever seen
+(`ips_seen` of `ips_total`). Use them before calling anything a monitoring blind spot: a subnet
+that is scanned and where many addresses have been seen is **covered**, and addresses in it that
+were never seen are stale records or hosts that answer no probe — not a coverage gap. Recommending
+someone check monitoring coverage when scanning already works there sends them to the wrong place.
 
 Each address carries a "device" field naming the machine it belongs to, where that is known.
 A multi-homed machine legitimately holds several addresses — one per network interface — so
@@ -544,7 +571,8 @@ async def _run_audit(
     await _emit("saving", total, total)
     items = _dedupe(items)[:MAX_FINDINGS]
 
-    kept = await reconcile_findings(session, run_id, items)
+    kept = await reconcile_findings(session, run_id, items,
+                                    model_name=cfg.ai_audit_model or cfg.chat_model)
     await session.commit()
     await _emit("done", total, total, found=kept)
     return AuditRun(
@@ -557,6 +585,7 @@ async def _run_audit(
 
 async def reconcile_findings(
     session: AsyncSession, run_id: Any, items: list[dict[str, Any]],
+    model_name: str | None = None,
 ) -> int:
     """把「未處理」清單對齊這一次的結果，回傳這次實際留下的未處理筆數。
 
@@ -598,7 +627,8 @@ async def reconcile_findings(
                 setattr(cur, k, v)
             cur.run_id = run_id
         else:
-            session.add(AIFinding(run_id=run_id, fingerprint=fp, status="open", **it))
+            session.add(AIFinding(run_id=run_id, fingerprint=fp, status="open",
+                                  model=model_name, **it))
         kept += 1
 
     # 這次沒再出現的未處理發現 → 移除（否則清單只會愈長愈長）

@@ -39,6 +39,10 @@ class AIFinding(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # 時不要又跳回未處理 —— 不用標題算，因為標題每次都是模型重寫的。
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
 
+    # 寫出這條結論的模型。巡檢是推測不是事實，而不同模型的品質差很多 ——
+    # 換過模型之後若分不出哪幾條是舊模型寫的，就無從判斷新模型到底有沒有比較好。
+    model: Mapped[str | None] = mapped_column(String(128))
+
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")  # open/dismissed
     dismissed_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))

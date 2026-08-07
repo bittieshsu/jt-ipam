@@ -86,7 +86,7 @@ async def push_ip(
     """為單一 IP 推送 A/AAAA + PTR 到所有相關 DNS server。
 
     需要 IPAddress.hostname 才能建 forward；否則只 push PTR。
-    forward_zone_suffix：例 "example.com"；hostname 後接此 suffix 形成 FQDN。
+    forward_zone_suffix：例 "example.net"；hostname 後接此 suffix 形成 FQDN。
     """
     summary: dict[str, list[str]] = {"pushed": [], "errored": []}
     if not ip_address.subnet_id:

@@ -120,16 +120,20 @@
 
       <div v-for="f in sortedRows" :key="f.id" class="fx" :class="`fx-${f.severity}`">
         <div class="fx-head">
-          <n-tag :type="sevType(f.severity)" size="small" round :bordered="false"
-                 class="fx-sev">
+          <span class="fx-sev-cell" :class="f.severity">
             {{ t(`ai_audit.sev_${f.severity}`) }}
-          </n-tag>
+          </span>
           <span class="fx-what">
             <n-tag size="small" round :bordered="false">{{ t(`ai_audit.cat_${f.category}`) }}</n-tag>
             <!-- eslint-disable-next-line vue/no-v-html -->
             <h3 class="fx-title" v-html="renderInlineMarkdown(f.title)"></h3>
           </span>
-          <span class="fx-when">{{ fmtDateTime(f.created_at) }}</span>
+          <span class="fx-when">
+            <!-- 哪個模型寫的：巡檢是推測，換過模型之後要分得出哪幾條出自哪一個，
+                 否則無從判斷新模型到底有沒有比較好 -->
+            <span v-if="f.model" class="fx-model">{{ t("ai_audit.by_model", { m: f.model }) }}</span>
+            {{ fmtDateTime(f.created_at) }}
+          </span>
           <n-button v-if="canRun && f.status === 'open'" size="tiny" secondary
                     style="justify-self:end" @click="dismiss(f.id)">
             <template #icon><n-icon><DismissIcon /></n-icon></template>
@@ -309,9 +313,6 @@ const sortedRows = computed(() => {
   });
 });
 
-function sevType(s: string) {
-  return s === "high" ? "error" : s === "medium" ? "warning" : "default";
-}
 
 const SEV_COLOR: Record<string, string> = {
   high: "#d03050", medium: "#f0a020", low: "#909399",
@@ -636,16 +637,13 @@ onBeforeUnmount(stopPolling);
   border-bottom: 1px solid var(--n-border-color);
 }
 .fx:last-child { border-bottom: none; }
-/* 高／中在左邊帶一條色條，一眼就分得出哪幾筆要先看。
-   低不加 —— 每一列都有色條等於沒有重點。
-   **內縮是每一列都給**，只有色條本身有無不同：只縮有色條的那幾列，
-   會讓它們的文字比其他列往右跑，整頁看起來像沒對齊。 */
-.fx-high::before, .fx-medium::before {
-  content: ""; position: absolute; left: 0; top: 15px; bottom: 16px;
-  width: 3px; border-radius: 3px;
-}
-.fx-high::before { background: #d03050; }
-.fx-medium::before { background: #f0a020; }
+/* 嚴重度直接用那一格的底色表示，不再另外畫左側色條 ——
+   同一件事講兩次，色條還會讓每一列的左緣看起來對不齊。 */
+.fx-sev-cell { display: flex; align-items: center; justify-content: center;
+  align-self: stretch; border-radius: 6px; padding: 4px 0; font-size: 12.5px; }
+.fx-sev-cell.high { background: rgba(208, 48, 80, 0.14); color: #d03050; font-weight: 600; }
+.fx-sev-cell.medium { background: rgba(240, 160, 32, 0.16); color: #b3760f; font-weight: 600; }
+.fx-sev-cell.low { background: rgba(128, 128, 128, 0.12); color: var(--n-text-color-disabled); }
 /* 標題列與資料列共用同一組欄寬，才會對得齊 */
 .fx-thead, .fx-head {
   display: grid;
@@ -685,7 +683,6 @@ onBeforeUnmount(stopPolling);
 /* 「狀況」欄：分類標籤 + 標題 */
 .fx-what { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* 標籤只包到字，並在欄位裡置中 —— 預設會被拉成整欄寬，看起來像色塊而不是標籤 */
-.fx-sev { justify-self: center; }
 .th-severity { text-align: center; }
 /* 標題自己一級，不跟標籤和時間擠在同一個字級 */
 .fx-title {
@@ -732,4 +729,5 @@ onBeforeUnmount(stopPolling);
 .fx-ref:hover { text-decoration: underline; }
 .fx-ev-kv { color: var(--n-text-color-3); word-break: break-word; }
 .fx-ev-kv b { font-weight: 500; color: var(--n-text-color-disabled); margin-right: 4px; }
+.fx-model { opacity: .55; margin-right: 8px; font-size: 11.5px; }
 </style>

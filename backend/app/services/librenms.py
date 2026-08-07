@@ -408,7 +408,7 @@ async def sync_devices(
                     ipa.last_seen_librenms = datetime.now(UTC)
                 # feature A：把 LibreNMS 裝置名稱寫成此 IP 的 librenms 觀測。
                 # OPNsense 等常把 hostname 設成 IP（如 192.168.11.1），真正的名稱
-                # 在 sysName（如 fw-002.3u）→ hostname 是 IP 時改採 sysName。
+                # 在 sysName（如 fw-01.example.net）→ hostname 是 IP 時改採 sysName。
                 dev_hostname = (d.get("hostname") or "").strip()
                 sysname = (d.get("sysName") or d.get("sysname") or "").strip()
                 if (not dev_hostname or _looks_like_ip(dev_hostname)) \
@@ -697,7 +697,7 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
         select(LibreNMSDevice.id, LibreNMSDevice.hostname, LibreNMSDevice.sysname,
                LibreNMSDevice.primary_ip)
     )).all()
-    # 批次查 switch primary_ip 對應的 IPAddress.hostname（把 192.168.1.9 → switch-003.example.com）
+    # 批次查 switch primary_ip 對應的 IPAddress.hostname（把 10.0.0.9 → switch-01.example.net）
     sw_ips = [str(ip) for _sid, _h, _sn, ip in sw_rows if ip]
     ip_host: dict[str, str] = {}
     if sw_ips:

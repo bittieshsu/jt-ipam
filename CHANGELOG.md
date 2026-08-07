@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.154] — 2026-08-07
+
+### Changed
+- **The AI review knows whether a subnet is actually being scanned.** A finding read "a large number of unmonitored IP addresses… this may indicate a monitoring blind spot" and advised checking whether monitoring covers the subnet. The subnet *was* being scanned, by an assigned agent, and 130 of its 233 addresses had been seen. The advice sent the reader to the wrong place: what those 103 addresses need is stale records cleaned up, or a check on hosts that answer no probe.
+
+  The model was not wrong so much as under-informed — each subnet in the snapshot carried only a CIDR and a description, with nothing that could distinguish "not monitored" from "monitored, and these never answered". Subnets now carry `scan_enabled` and how many of their addresses a scanner has ever seen, with the instruction that a scanned subnet where many addresses have been seen is covered, and that recommending a coverage check when scanning already works there sends someone to the wrong place.
+
+- **Each finding records which model wrote it** (migration 0112). A review is inference, and models differ; after switching models there was no way to tell which conclusions came from which, and therefore no way to judge whether the new one is actually better.
+
+- **"AI inference, not verified fact" now reads "An AI reading of your IPAM data — worth checking yourself."** The original phrasing denied the thing's value; it is inference drawn from facts, which is worth reading as long as you confirm it.
+
+- **Severity is shown as the background of its own cell** instead of a coloured bar down the left edge of each row. The bar said the same thing twice, and left rows visibly misaligned — which the layout then had to compensate for.
+
 ## [0.5.153] — 2026-08-07
 
 ### Changed

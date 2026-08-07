@@ -43,6 +43,12 @@
                  style="margin-right:4px">{{ r }}</n-tag>
         </span>
       </div>
+      <div v-if="allocation" class="peek-row">
+        <span class="k">{{ t("ip_peek.allocation") }}</span>
+        <span class="v">
+          <n-tag size="tiny" :bordered="false">{{ allocation }}</n-tag>
+        </span>
+      </div>
       <div v-if="data.description" class="peek-row">
         <span class="k">{{ t("common.description") }}</span>
         <span class="v">{{ data.description }}</span>
@@ -79,14 +85,21 @@ const { t, te } = useI18n();
 const lastSeen = computed(() => (props.data?.last_seen ? fmtDateTime(props.data.last_seen) : ""));
 
 // 角色標籤：查證一筆「這台在發 DHCP」的發現時，這是最想先看到的一行
+// 「角色」是這台機器在網路上扮演什麼（閘道、DHCP 伺服器）。
+// 位址落在 DHCP 發放範圍**不是角色**，那是這個位址怎麼配發的 —— 兩件事混在同一列，
+// 會讓人以為那台機器跟 DHCP 有什麼職務關係。分成兩列。
 const roles = computed(() => {
   const d = props.data;
   if (!d) return [];
   const out: string[] = [];
   if (d.is_gateway) out.push(t("addresses.role_gateway"));
   if (d.is_dhcp_server) out.push(t("addresses.role_dhcp_server"));
-  if (d.in_dhcp_range) out.push(t("addresses.role_dhcp_range"));
   return out;
+});
+const allocation = computed(() => {
+  const d = props.data;
+  if (!d?.in_dhcp_range) return null;
+  return t("addresses.dhcp_in_range_tag");
 });
 // 兩個欄位各有自己的字彙表；查不到就原樣顯示，不要憑空造字
 function stateLabel(v?: string | null): string {

@@ -1732,12 +1732,16 @@
     "exp_exposed_archived": "Archived but still exposed",
     "exp_dns_to_offline": "DNS points at an offline host",
     "exp_hint": "All of this comes from data already synced into jt-ipam (NAT rules, firewall rules, DNS records). Detection never contacts a firewall or any device.",
-    "dangling_dns": "Dangling DNS",
+    "dangling_dns": "Stale DNS records",
     "dup_ip": "Duplicate IP records",
     "changes": "Suspicious changes",
     "chg_bulk_delete": "Bulk deletion in a short window",
     "chg_login_failures": "Repeated login failures",
-    "chg_privilege_change": "Permission / account change"
+    "chg_privilege_change": "Permission / account change",
+    "explain_dangling_dns": "DNS records pointing at an address that no longer exists in the IPAM, or that no source has seen in a long time. Besides sending people to a service that isn't there, someone else may claim that address and take over the name.",
+    "explain_external_exposure": "Addresses opened to the internet by NAT or a firewall rule whose state does not match — no monitoring at all, offline, or in an archived subnet. An open door nobody watches is the one to deal with first.",
+    "explain_duplicate_ip_records": "The same address has a record in each of two subnets that contain one another. Integration syncs stamp only one of them, so the other's liveness and hostname stay frozen at their old values.",
+    "explain_suspicious_changes": "A burst of changes in a short window, or changes from a source you would not expect. These are observed patterns only; whether they are a problem is your call."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -3092,7 +3096,7 @@
     "cat_policy": "Policy",
     "cat_other": "Other",
     "disclaimer": "These are a language model's inferences about your IPAM data, not verified facts. Models state wrong things confidently — check the evidence attached to each finding and judge for yourself before acting on it.",
-    "dashboard_note": "AI inference, not verified fact",
+    "dashboard_note": "An AI reading of your IPAM data — worth checking yourself",
     "stage_collecting": "Collecting data…",
     "stage_analyzing": "Model is analysing…",
     "stage_saving": "Saving results…",
@@ -3120,11 +3124,13 @@
     "all_category": "All categories",
     "clear_all": "Clear all",
     "clear_confirm": "This deletes every finding, including dismissed ones. The next review will report them again, including any you marked as false positives. Clear them?",
-    "cleared": "Cleared {n} findings"
+    "cleared": "Cleared {n} findings",
+    "by_model": "Model: {m}"
   },
   "ip_peek": {
     "not_found": "Not found in IPAM",
-    "role": "Role"
+    "role": "Role",
+    "allocation": "Allocation"
   },
   "investigate": {
     "title": "Investigate",

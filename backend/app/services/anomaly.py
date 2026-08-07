@@ -349,8 +349,10 @@ async def detect_rogue_dhcp(
     if not rows:
         return []
 
-    # 哪些位址被標記為合法的 DHCP 伺服器（依子網路分開看：同一個 IP 字串在不同
-    # 網段是不同台機器）
+    # ── 這個位址是不是「已知合法」的 DHCP 伺服器。
+    #
+    # 人工標記**維持逐子網路比對**：重疊網段（多單位共用 192.168.1.0/24）下，
+    # 同一個 IP 字串在不同網段是不同機器，只比對字串等於把別人的授權套到自己頭上。
     marked = {
         (r[0], str(r[1]))
         for r in (await session.execute(
@@ -359,10 +361,37 @@ async def detect_rogue_dhcp(
         )).all()
     }
 
+    # 整合中的防火牆是另一回事：那是**我們自己在管的設備**，租約、規則、NAT 都是
+    # 我們同步進來的，還要人來勾一個框說「它是 DHCP 伺服器」並不合理。
+    #
+    # 這條之所以可以跨網段成立、而人工標記不行，差別在證據強度：「我們管理這台防火牆」
+    # 是確定的事實；「別的網段有人勾過同一個 IP 字串」不是（實機：一台服務多個網段的
+    # 路由器，在別的網段被看到時會變成永遠消不掉的誤報）。
+    integrated: set[str] = set()
+    from urllib.parse import urlparse
+
+    from app.models.firewall import OPNsenseFirewall
+    _fw_models = [OPNsenseFirewall]
+    try:
+        from app.models.pfsense import PfSenseFirewall
+        _fw_models.append(PfSenseFirewall)
+    except Exception:
+        pass
+    try:
+        from app.models.fortigate import FortiGateFirewall
+        _fw_models.append(FortiGateFirewall)
+    except Exception:
+        pass
+    for model in _fw_models:
+        for (url,) in (await session.execute(select(model.api_url))).all():
+            host = (urlparse(str(url)).hostname or "").strip()
+            if host:
+                integrated.add(host)
+
     out: list[dict[str, Any]] = []
     for sighting, cidr in rows:
         server_ip = str(sighting.server_ip)
-        if (sighting.subnet_id, server_ip) in marked:
+        if (sighting.subnet_id, server_ip) in marked or server_ip in integrated:
             continue
         mac = str(sighting.server_mac) if sighting.server_mac else None
         out.append({

@@ -265,6 +265,8 @@ export interface AIFinding {
   evidence: Record<string, unknown> | null;
   object_type: string | null; object_id: string | null;
   status: string; created_at: string | null;
+  /** 寫出這條結論的模型 —— 換過模型後要分得出哪幾條出自哪一個 */
+  model?: string | null;
 }
 export interface AIAuditSummary {
   ip_count: number;

@@ -10,6 +10,7 @@ import { runAnomalyScan, type AnomalyReport } from "@/api/phase3";
 import { AnomalyIcon, TestIcon, InfoIcon, SettingsIcon } from "@/icons";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
 import { apiErrMsg } from "@/api/client";
+import { autoSort } from "@/composables/useTableSort";
 import type { Subnet } from "@/types";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
@@ -210,7 +211,9 @@ function renderVal(k: string, v: any) {
 // 依該類別的可見欄位（已套欄位偏好）組欄位
 function catCols(key: CatKey): DataTableColumns<any> {
   const visible = prefs[key].visibleKeys.value;
-  return CAT_KEYS[key].filter((k) => visible.includes(k)).map((k) => {
+  // autoSort：與全站表格一致，替沒有自訂 sorter 的欄位補上預設排序。
+  // 這幾張表原本整排標頭都不能排 —— 十幾筆 MAC 變動想按時間或按網段看都做不到。
+  return autoSort(CAT_KEYS[key].filter((k) => visible.includes(k)).map((k) => {
     const wide = k === "locations" || k === "macs";
     return {
       title: COLLBL[k] ?? k,
@@ -219,7 +222,7 @@ function catCols(key: CatKey): DataTableColumns<any> {
       ellipsis: wide || k === "ips" ? false : { tooltip: true },
       render: (r: any) => renderVal(k, r[k]),
     };
-  });
+  }));
 }
 
 async function run() {

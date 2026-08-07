@@ -43,6 +43,8 @@ def _out(f: AIFinding) -> dict[str, Any]:
         "object_type": f.object_type,
         "object_id": str(f.object_id) if f.object_id else None,
         "status": f.status,
+        # 哪個模型寫的：巡檢是推測，換模型後要能分辨哪幾條出自哪一個
+        "model": f.model,
         "created_at": f.created_at.isoformat() if f.created_at else None,
     }
 
