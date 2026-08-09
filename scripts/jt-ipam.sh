@@ -106,7 +106,18 @@ build_frontend() {
     chown -R "$owner" node_modules dist 2>/dev/null || true
 }
 
-# Idempotently add WebSocket upgrade support (SSH terminal) to an EXISTING nginx
+# Every console protocol whose WebSocket needs the nginx upgrade headers.
+# Adding a protocol here is the ONLY place to change: both the fresh-install
+# template check and the upgrade patch below are derived from it.
+#
+# Getting this wrong fails in a way that is hard to read: without the upgrade
+# headers nginx forwards a plain GET, the backend has no HTTP route at that
+# path, and the browser sees a bare 404 with nothing to suggest the proxy.
+# That is exactly how SFTP shipped broken in 0.5.155.
+WS_PROTOCOLS='ssh|sftp|rdp|vnc|novnc|bmc'
+WS_LOCATION_LINE="location ~ ^/api/v1/addresses/[0-9a-fA-F-]+/(${WS_PROTOCOLS})/ws\$ {"
+
+# Idempotently add WebSocket upgrade support (consoles) to an EXISTING nginx
 # site on upgrade. Fresh installs already ship the correct template; upgrade
 # deliberately leaves the (often hand-customized) site config alone, so we patch
 # only the two WS bits in-place when missing.
@@ -117,21 +128,24 @@ patch_nginx_websocket() {
     local site=/etc/nginx/sites-available/jt-ipam
     [[ -f "$site" ]] || return 0                       # not nginx mode → nothing to do
     command -v nginx >/dev/null 2>&1 || return 0
-    grep -qE 'bmc\)/ws' "$site" && return 0     # already fully patched (incl. BMC SOL)
+    # Already lists every current protocol → nothing to do
+    grep -qF "(${WS_PROTOCOLS})/ws" "$site" && return 0
 
     local bak="${site}.pre-ws.bak"
 
-    # Existing WS location (any older subset) → widen it to ssh+rdp+vnc+novnc+bmc.
-    if grep -qE '/(ssh|rdp|vnc|novnc)[/)]' "$site" || grep -q '/ssh/ws' "$site"; then
-        log "Widening nginx WebSocket location to cover SSH + RDP + VNC + noVNC + BMC…"
+    # An existing WS location with ANY protocol list → rewrite the whole line to
+    # the current one. Matching the line rather than each historical list means a
+    # newly added protocol can never be missed (four hand-written substitutions
+    # used to be needed, and SFTP was the one that got forgotten).
+    if grep -qE 'location ~ \^/api/v1/addresses/\[0-9a-fA-F-\]\+/.*/ws\$' "$site"; then
+        log "Widening nginx WebSocket location to cover ${WS_PROTOCOLS}…"
         cp -p "$site" "$bak" 2>/dev/null || true
-        sed -i 's#/ssh/ws$ {#/(ssh|rdp|vnc|novnc|bmc)/ws$ {#' "$site"
-        sed -i 's#(ssh|rdp)/ws$ {#(ssh|rdp|vnc|novnc|bmc)/ws$ {#' "$site"
-        sed -i 's#(ssh|rdp|vnc)/ws$ {#(ssh|rdp|vnc|novnc|bmc)/ws$ {#' "$site"
-        sed -i 's#(ssh|rdp|vnc|novnc)/ws$ {#(ssh|rdp|vnc|novnc|bmc)/ws$ {#' "$site"
+        awk -v repl="    ${WS_LOCATION_LINE}" \
+            '/location ~ \^\/api\/v1\/addresses\/\[0-9a-fA-F-\]\+\/.*\/ws\$/ { print repl; next } { print }' \
+            "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
         if nginx -t >/dev/null 2>&1; then
             systemctl reload nginx 2>/dev/null || true
-            log "nginx WebSocket location widened (SSH + RDP + VNC + noVNC + BMC) + reloaded."
+            log "nginx WebSocket location widened (${WS_PROTOCOLS}) + reloaded."
         else
             warn "nginx -t failed after widening WS location; restoring previous config."
             cp -p "$bak" "$site" 2>/dev/null || true
@@ -139,7 +153,7 @@ patch_nginx_websocket() {
         return 0
     fi
 
-    log "Patching nginx site for WebSocket (SSH + RDP + VNC + BMC console)…"
+    log "Patching nginx site for console WebSocket (${WS_PROTOCOLS})…"
     cp -p "$site" "$bak" 2>/dev/null || true
 
     # 1) http-level map (skip if some connection_upgrade map already exists)
@@ -153,10 +167,10 @@ patch_nginx_websocket() {
     # 2) dedicated WS location, inserted before the first "location /api/ {"
     # NB: set headers explicitly (do NOT include jt-ipam-proxy.conf) — that snippet
     # already sets proxy_read_timeout, and re-declaring it here = "duplicate directive".
-    awk '
+    awk -v wsloc="    ${WS_LOCATION_LINE}" '
       !ins && /location \/api\/ \{/ {
-        print "    # jt-ipam-conn-ws: SSH + RDP + VNC console WebSocket (long-lived)";
-        print "    location ~ ^/api/v1/addresses/[0-9a-fA-F-]+/(ssh|rdp|vnc|novnc|bmc)/ws$ {";
+        print "    # jt-ipam-conn-ws: console WebSocket (long-lived)";
+        print wsloc;
         print "        proxy_pass http://127.0.0.1:8000;";
         print "        proxy_http_version 1.1;";
         print "        proxy_set_header Host               $host;";

@@ -3210,6 +3210,7 @@
     "connect_hint": "SFTP: browse and transfer files on this host",
     "connect_to": "SFTP to {ip}",
     "enable_label": "Enable SFTP file transfer",
-    "enable_hint": "When enabled, authorized users can open the SFTP file browser from this IP's detail page. Independent of SSH: file transfer can be allowed without a terminal (same permission strength, over the same SSH connection)."
+    "enable_hint": "When enabled, authorized users can open the SFTP file browser from this IP's detail page. Independent of SSH: file transfer can be allowed without a terminal (same permission strength, over the same SSH connection).",
+    "err_ws_closed": "The connection closed before it was established (code {code}). On a freshly upgraded site, or behind your own reverse proxy, this usually means the proxy is not forwarding the WebSocket upgrade headers — check that the console location in nginx lists sftp."
   }
 }

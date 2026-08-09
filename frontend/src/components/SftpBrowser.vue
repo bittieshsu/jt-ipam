@@ -38,6 +38,8 @@ const msg = useMessage();
 /** 連線階段 —— 與 SSH／RDP／VNC 主控台同一組狀態名，狀態列也才能共用同一套樣式。 */
 const phase = ref<"form" | "connecting" | "connected" | "error" | "closed">("form");
 const connecting = computed(() => phase.value === "connecting");
+/** 是否已經在看檔案清單（連上了、或連上後才斷線）—— 其餘階段都停留在連線卡片上。 */
+const onFileList = computed(() => phase.value === "connected" || phase.value === "closed");
 const errorMsg = ref("");
 const cwd = ref("/");
 const entries = ref<SftpEntry[]>([]);
@@ -186,8 +188,15 @@ async function connect() {
       }
     };
 
-    ws.onclose = () => {
-      phase.value = phase.value === "connected" ? "closed" : "error";
+    ws.onclose = (ev) => {
+      const wasConnected = phase.value === "connected";
+      phase.value = wasConnected ? "closed" : "error";
+      // 還沒連上就被關掉，而且後端也沒送 error —— 這時什麼都不說，畫面看起來像
+      // 「按了沒反應」。實際遇過的原因是反向代理沒轉發 WebSocket 升級標頭
+      // （nginx 的 location 少列 sftp），瀏覽器只看得到連線被關閉。
+      if (!wasConnected && !errorMsg.value) {
+        errorMsg.value = t("sftp.err_ws_closed", { code: ev.code || 0 });
+      }
       pending?.reject(new Error(t("sftp.disconnected"))); pending = null;
     };
   } catch (e: any) {
@@ -346,9 +355,11 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
 </script>
 
 <template>
-  <div class="sftp-wrap" :class="{ 'sftp-full': fullHeight, 'sftp-center': fullHeight && phase === 'form' }">
-    <!-- 連線設定表單（版面與 SSH 終端機一致：卡片 + 左標籤表單 + 說明 + 右下連線鈕） -->
-    <div v-if="phase === 'form' || phase === 'error'" class="sftp-form">
+  <div class="sftp-wrap"
+       :class="{ 'sftp-full': fullHeight, 'sftp-center': fullHeight && !onFileList }">
+    <!-- 連線設定表單（版面與 SSH 終端機一致：卡片 + 左標籤表單 + 說明 + 右下連線鈕）
+         連線中也留在這裡：按下連線後把卡片挪走會讓畫面整個跳一下，而失敗時又跳回來 -->
+    <div v-if="!onFileList" class="sftp-form">
       <n-card size="small" :bordered="true">
         <template #header>
           <span style="display:flex;align-items:center;gap:8px">

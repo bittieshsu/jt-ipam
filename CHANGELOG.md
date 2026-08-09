@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.157] — 2026-08-09
+
+### Fixed
+- **SFTP could not connect at all in a real deployment** (both 0.5.155 and 0.5.156). Picking a credential and clicking connect made the form flicker and come back, with no message.
+
+  The cause was not SFTP itself: nginx forwards the WebSocket upgrade headers only for `(ssh|rdp|vnc|novnc|bmc)/ws`, and **`sftp` was not on that list**. Without those headers nginx passes a plain GET to the backend, which has only a WebSocket route at that path and no HTTP one — so it answers 404. The browser sees nothing but a closed connection, with no hint that a proxy is involved. Local development hides this: vite's dev proxy forwards WebSockets for all of `/api`.
+
+  Fixed in both nginx templates and the installer; `jt-ipam.sh upgrade` now **widens the location on existing sites automatically** (back up, then `nginx -t`, reload only on success, restore on failure). The four hand-written substitutions that each matched one historical protocol list are replaced by a single whole-line rewrite, so the next protocol cannot be half-added.
+
+- **A failed connection no longer stays silent.** When the WebSocket closes before the session is established, the screen now says so — with the close code, and a pointer to the most common cause (a proxy not forwarding the upgrade headers) — instead of dropping back to the form without a word.
+
+- **The connect card no longer jumps.** It was centered only in the "form" phase, so pressing connect threw it to the top-left corner and a failure threw it back. It now stays put through connecting and failure.
+
+### Tests
+- Added a cross-check: every `/<protocol>/ws` endpoint the backend registers must appear in both nginx templates and the installer's protocol list. Removing `sftp` turns it red — which is exactly what shipped.
+
 ## [0.5.156] — 2026-08-09
 
 ### Changed
