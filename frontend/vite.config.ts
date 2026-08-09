@@ -72,6 +72,21 @@ export default defineConfig(({ mode }) => {
           target: env.VITE_API_BASE_URL ?? "http://localhost:8000",
           changeOrigin: true,
           secure: false,
+          // WebSocket（SSH／SFTP／AI 串流）也要代理，否則本機驗證時連不上 ——
+          // 正式環境是 nginx 同源反代，本機沒有這一段就與正式行為不一致
+          ws: true,
+        },
+      },
+    },
+    // `vite preview` 服務的是正式 build。本機用瀏覽器驗證時走這條路，
+    // 所以它也要有同一份代理，否則前端打的 /api 會落到 preview 自己身上。
+    preview: {
+      proxy: {
+        "/api": {
+          target: env.VITE_API_BASE_URL ?? "http://localhost:8000",
+          changeOrigin: true,
+          secure: false,
+          ws: true,
         },
       },
     },

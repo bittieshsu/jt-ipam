@@ -256,3 +256,5 @@ export const OpenNewWindowIcon = OpenNewWindow;
 export function renderIcon(Icon: any, size = 18) {
   return () => h(NIcon, { size }, () => h(Icon));
 }
+/** SFTP 檔案傳輸（沿用資料夾圖示 —— 這個功能就是在瀏覽遠端目錄） */
+export const FilesIcon = Folder;

@@ -330,14 +330,19 @@ async function loadSubnetOptions() {
 
 const { visibleKeys, setVisible, reset } = useColumnPrefs(
   "devices",
-  ["name", "ip", "fqdn", "type", "vendor", "model", "location_id", "rack_id", "customer_id", "actions"],
-  ["name", "ip", "type", "vendor", "model", "location_id", "rack_id", "customer_id", "actions"],
+  // 全部可選欄位 / 預設顯示的欄位。**新增欄位要兩份都加** —— 只加到 catCols 的話，
+  // 欄位存在卻不在預設清單裡，使用者得自己去「欄位」勾才看得到（真實瀏覽器巡檢抓到）。
+  ["name", "ip", "fqdn", "type", "is_virtual", "vendor", "model", "location_id", "rack_id",
+   "customer_id", "actions"],
+  ["name", "ip", "type", "is_virtual", "vendor", "model", "location_id", "rack_id",
+   "customer_id", "actions"],
 );
 const columnPickerItems = computed(() => [
   { key: "name", label: t("cols.name") },
   { key: "ip", label: "IP" },
   { key: "fqdn", label: "FQDN" },
   { key: "type", label: t("cols.type") },
+  { key: "is_virtual", label: t("devices.virtuality") },
   { key: "vendor", label: t("cols.vendor") },
   { key: "model", label: t("cols.model") },
   { key: "location_id", label: t("cols.location") },

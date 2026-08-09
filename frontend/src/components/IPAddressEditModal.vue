@@ -18,7 +18,7 @@ import type { IPAddress } from "@/types";
 import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
 import { getHostnameSources, type HostnameSources } from "@/api/hostname";
-import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon } from "@/icons";
+import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon , FilesIcon } from "@/icons";
 import InvestigateModal from "@/components/InvestigateModal.vue";
 import ChangeValue from "@/components/ChangeValue.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
@@ -183,6 +183,7 @@ const emit = defineEmits<{
   (e: "created", v: IPAddress): void;
   (e: "back"): void;
   (e: "ssh-open"): void;
+  (e: "sftp-open"): void;
   (e: "ssh-popout"): void;
   (e: "rdp-open"): void;
   (e: "rdp-popout"): void;
@@ -590,6 +591,20 @@ async function remove() {
                   </n-button-group>
                 </template>
                 {{ t("ssh.connect") }}
+              </n-tooltip>
+              <!-- SFTP：與 SSH 同一道權限閘門，所以同一個條件顯示。
+                   分成兩顆而不是塞進同一顆的下拉：上下傳檔案跟開終端機是兩件不同的事，
+                   要用的人通常一開始就知道自己要哪一個。 -->
+              <n-tooltip :delay="200">
+                <template #trigger>
+                  <n-button-group key="hx-sftp">
+                    <n-button size="small" @click="emit('sftp-open')">
+                      <template #icon><n-icon><FilesIcon /></n-icon></template>
+                      <span v-if="!consoleCompact">{{ t("sftp.connect_btn") }}</span>
+                    </n-button>
+                  </n-button-group>
+                </template>
+                {{ t("sftp.connect_hint") }}
               </n-tooltip>
             </template>
             <!-- RDP 連線分割按鈕：主鍵新分頁、下箭頭另開視窗（僅在啟用且有權限時顯示） -->

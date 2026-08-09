@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.155] — 2026-08-09
+
+### Added
+- **SFTP file browser.** You could already open an SSH terminal on an address, but getting a config file onto that host — or a log excerpt off it — meant reaching for another tool and entering the credentials again. IP detail now offers an SFTP entry point: list, navigate, download, upload, make a directory, rename, delete, all in the browser.
+
+  **It is the same gate as SSH**: the same `can_use_ssh` permission, the same single-use ticket (60 seconds, one redemption, bound to that address), the same stored credentials. Open, close, download, upload, mkdir, rename and delete are all audited — directory listings are not, since they would drown the audit trail.
+
+  A single file is capped at 100 MB and a directory listing at 2000 entries; both limits are stated on screen rather than silently applied. Uploads are truncated to the declared size, so a client cannot declare one size and send more. When the remote does not report a file's size the browser shows "—" rather than 0 B — those are different facts.
+
+### Fixed
+- **Consoles could not connect against older Redis.** Single-use tickets called Redis `GETDEL`, which only exists in **6.2 and later**. Older deployments answered `unknown command GETDEL`, so SSH, RDP, VNC, noVNC and BMC — five consoles — all failed to connect, showing nothing more specific than a connection failure. The same operation now runs as a Lua script (`EVAL` has existed since Redis 2.6), preserving single-use semantics.
+
+  This surfaced while verifying SFTP in a real browser: the fake Redis used by the unit tests implements `getdel`, so no amount of unit testing would have caught it.
+
 ## [0.5.154] — 2026-08-07
 
 ### Changed

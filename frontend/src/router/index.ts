@@ -15,6 +15,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/SshConsole.vue"),
   },
   {
+    // 另開視窗的全頁 SFTP 檔案瀏覽器（與 SSH 同一道權限閘門）
+    path: "/sftp/:id",
+    name: "sftp-console",
+    component: () => import("@/views/SftpConsole.vue"),
+  },
+  {
     // 另開視窗的全頁 RDP 畫面（不套 MainLayout 側欄；仍需登入）
     path: "/rdp/:id",
     name: "rdp-console",

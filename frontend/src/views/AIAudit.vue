@@ -132,7 +132,7 @@
             <!-- 哪個模型寫的：巡檢是推測，換過模型之後要分得出哪幾條出自哪一個，
                  否則無從判斷新模型到底有沒有比較好 -->
             <span v-if="f.model" class="fx-model">{{ t("ai_audit.by_model", { m: f.model }) }}</span>
-            {{ fmtDateTime(f.created_at) }}
+            <span class="fx-date">{{ fmtDateTime(f.created_at) }}</span>
           </span>
           <n-button v-if="canRun && f.status === 'open'" size="tiny" secondary
                     style="justify-self:end" @click="dismiss(f.id)">
@@ -647,7 +647,7 @@ onBeforeUnmount(stopPolling);
 /* 標題列與資料列共用同一組欄寬，才會對得齊 */
 .fx-thead, .fx-head {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 152px 92px;
+  grid-template-columns: 52px minmax(0, 1fr) minmax(150px, max-content) 92px;
   align-items: center; gap: 8px;
 }
 /* 底色與圓角跟其他頁的表格表頭一致（子網路、IP 位址…都是 n-data-table）。
@@ -689,10 +689,14 @@ onBeforeUnmount(stopPolling);
   margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 模型與日期各自一行：擠在同一行會把這一欄撐寬，溢出去蓋到右邊的動作按鈕上
+   （實機截圖看到「忽略」被日期壓住）。模型名稱可能很長，所以獨立一行並可縮排。 */
 .fx-when {
   font-size: 12px; color: var(--n-text-color-disabled);
-  white-space: nowrap; text-align: right;
+  text-align: right; display: flex; flex-direction: column; align-items: flex-end;
+  gap: 1px; min-width: 0;
 }
+.fx-when .fx-date { white-space: nowrap; }
 /* 不設 max-width：中文一個字約等於兩個 ch，78ch 換算成中文只有 39 個字，
    在寬螢幕上右邊會空一大片、每兩三個字就折一次，比長行更難讀 */
 /* 內文從「狀況」欄的位置開始，跟標題對齊 */
@@ -729,5 +733,6 @@ onBeforeUnmount(stopPolling);
 .fx-ref:hover { text-decoration: underline; }
 .fx-ev-kv { color: var(--n-text-color-3); word-break: break-word; }
 .fx-ev-kv b { font-weight: 500; color: var(--n-text-color-disabled); margin-right: 4px; }
-.fx-model { opacity: .55; margin-right: 8px; font-size: 11.5px; }
+.fx-model { opacity: .55; font-size: 11.5px; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
