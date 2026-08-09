@@ -3189,17 +3189,6 @@
     "rules_hint": "只填空的、永不覆寫、也不會移除既有關聯。同一個 MAC 對到多台裝置、MAC 屬於協定保留或非單播位址、主機名稱明確指向另一台、跨單位衝突、封存的子網路 —— 一律跳過不猜。每一筆都會寫進 IP 異動記錄，可回溯也可還原。"
   },
   "sftp": {
-    "target": "目標主機",
-    "saved_cred": "已存的連線帳密",
-    "saved_cred_ph": "選擇已存帳密（或留空手動輸入）",
-    "username": "帳號",
-    "auth": "認證方式",
-    "auth_password": "密碼",
-    "auth_key": "私鑰",
-    "password": "密碼",
-    "private_key": "私鑰",
-    "passphrase": "私鑰密語",
-    "port": "連接埠",
     "connect": "連線",
     "disconnected": "連線已中斷",
     "up": "上一層",
@@ -3217,7 +3206,10 @@
     "col_size": "大小",
     "col_mtime": "修改時間",
     "col_mode": "權限",
-    "connect_btn": "檔案",
-    "connect_hint": "SFTP：瀏覽與上下傳這台主機上的檔案"
+    "connect_btn": "SFTP 檔案",
+    "connect_hint": "SFTP：瀏覽與上下傳這台主機上的檔案",
+    "connect_to": "SFTP 連線到 {ip}",
+    "enable_label": "啟用 SFTP 檔案傳輸",
+    "enable_hint": "啟用後，具權限者可在此 IP 詳細資料頁開啟 SFTP 檔案瀏覽器。與 SSH 各自獨立：可以只開傳檔、不開終端機（權限強度相同，走同一條 SSH 連線）。"
   }
 }

@@ -356,8 +356,9 @@ async def get_address(
     out = IPAddressRead.model_validate(obj)
     out.mac_vendor = await vendor_for_mac(session, obj.mac)
     # SSH 連線管理：是否可對此 IP 開終端機（依權限算好給前端顯示按鈕）
-    from app.services.permission import can_use_rdp, can_use_ssh, can_use_vnc
+    from app.services.permission import can_use_rdp, can_use_sftp, can_use_ssh, can_use_vnc
     out.ssh_available = await can_use_ssh(session, user=user, ip=obj)
+    out.sftp_available = await can_use_sftp(session, user=user, ip=obj)
     out.rdp_available = await can_use_rdp(session, user=user, ip=obj)
     out.vnc_available = await can_use_vnc(session, user=user, ip=obj)
     await _fill_pve_console(session, obj, out, user)
@@ -816,8 +817,9 @@ async def update_address(
     await session.refresh(obj)
     out = IPAddressRead.model_validate(obj); out.mac_vendor = await vendor_for_mac(session, obj.mac)
     # 與 get_address 一致：算 ssh/rdp/vnc_available，否則存檔後前端拿不到、按鈕要等重整才出現
-    from app.services.permission import can_use_rdp, can_use_ssh, can_use_vnc
+    from app.services.permission import can_use_rdp, can_use_sftp, can_use_ssh, can_use_vnc
     out.ssh_available = await can_use_ssh(session, user=user, ip=obj)
+    out.sftp_available = await can_use_sftp(session, user=user, ip=obj)
     out.rdp_available = await can_use_rdp(session, user=user, ip=obj)
     out.vnc_available = await can_use_vnc(session, user=user, ip=obj)
     await _fill_pve_console(session, obj, out, user)

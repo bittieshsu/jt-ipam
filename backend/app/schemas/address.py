@@ -117,6 +117,8 @@ class IPAddressUpdate(StrictModel):
     hostname_source_pin: Annotated[str | None, Field(max_length=16)] = None
     # SSH 連線管理開關（沿用 IP 編輯權限）
     ssh_enabled: bool | None = None
+    # SFTP 檔案傳輸開關（與 SSH 各自獨立：可以只開傳檔、不開終端機）
+    sftp_enabled: bool | None = None
     # RDP 連線管理開關（沿用 IP 編輯權限）
     rdp_enabled: bool | None = None
     # VNC 連線管理開關（沿用 IP 編輯權限）
@@ -171,6 +173,9 @@ class IPAddressRead(IPAddressBase):
     # SSH 連線管理：是否已啟用 + 目前使用者是否可用（後端依權限算好給前端顯示按鈕）
     ssh_enabled: bool = False
     ssh_available: bool = False
+    # SFTP 檔案傳輸：是否已啟用 + 目前使用者是否可用
+    sftp_enabled: bool = False
+    sftp_available: bool = False
     # RDP 連線管理：是否已啟用 + 目前使用者是否可用
     rdp_enabled: bool = False
     rdp_available: bool = False

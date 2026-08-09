@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.156] — 2026-08-09
+
+### Changed
+- **The SFTP connect screen now matches the SSH console.** The previous release gave SFTP its own form — labels above, fields stacked down the page — which looked nothing like SSH, RDP or VNC. The same task shaped differently per protocol asks the user to learn it twice. It is now the same card form (left-aligned labels, auth-method radio, hint block, connect button bottom-right), and once connected, the same status bar (green pill, hostname, protocol tag, disconnect).
+
+  Also filled in what should have been there from the start: **"remember these credentials"** (into the same per-user encrypted vault SSH uses), **deleting a stored credential**, and **reconnecting after a disconnect** without retyping.
+
+- **SFTP is now its own toggle** (migration 0113). It previously rode on `ssh_enabled`, so enabling SSH also enabled file transfer. In practice those are not always the same decision: a host may be meant for dropping in a config or pulling a log, without handing out a shell. The **authorization model deliberately stays identical to SSH** — someone who can read and write remote files holds effectively the same power as someone with a shell, and "it's only file transfer" is not a reason to loosen it.
+
+  **On upgrade, existing rows inherit `ssh_enabled`**: under 0.5.155 an SSH-enabled address could already use SFTP, so defaulting everything to off would make the feature silently disappear. Anyone who wants it withdrawn can simply switch it off.
+
+- **The entry button now reads "SFTP Files"** — it previously said just "Files", which did not say which kind of connection it opened.
+
+### Security
+- Raised the floor on three transitive build-time dependencies (none ship to the browser): `nanoid` ≥ 3.3.17 (custom generators loop indefinitely when size is zero) and `brace-expansion` ≥ 1.1.18 / 2.1.4 / 5.0.9 (DoS via unbounded intermediate arrays). `pnpm audit` goes from four high findings to none.
+
 ## [0.5.155] — 2026-08-09
 
 ### Added

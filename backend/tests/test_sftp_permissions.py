@@ -1,7 +1,8 @@
-"""SFTP 的權限閘門必須與 SSH 完全一致。
+"""SFTP 的權限閘門：獨立的開關，但與 SSH 同等強度的授權。
 
-SFTP 是遠端檔案讀寫 —— 如果它比 SSH 鬆一級，等於在 SSH 旁邊開了一道沒鎖的門。
-反過來也要成立：能開 SSH 的人本來就能在 shell 裡讀寫檔案，SFTP 不該額外再要求什麼。
+`sftp_enabled` 與 `ssh_enabled` 各自獨立 —— 可以只開放傳檔、不開放終端機（反之亦然）。
+但**授權模型必須一樣嚴**：SFTP 是遠端檔案讀寫，若它比 SSH 鬆一級，等於在 SSH 旁邊開了
+一道沒鎖的門。
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ async def _user(db_session, *, can_ssh: bool, admin: bool = False):
     return u
 
 
-async def _ip(db_session):
+async def _ip(db_session, *, ssh: bool = True, sftp: bool = True):
     from app.models.address import IPAddress
     from app.models.section import Section
     from app.models.subnet import Subnet
@@ -32,7 +33,7 @@ async def _ip(db_session):
     sub = Subnet(section_id=sec.id, cidr="198.51.100.0/24")
     db_session.add(sub)
     await db_session.flush()
-    ipa = IPAddress(subnet_id=sub.id, ip="198.51.100.5", ssh_enabled=True)
+    ipa = IPAddress(subnet_id=sub.id, ip="198.51.100.5", ssh_enabled=ssh, sftp_enabled=sftp)
     db_session.add(ipa)
     await db_session.flush()
     return ipa
@@ -50,10 +51,10 @@ async def test_a_user_without_ssh_rights_cannot_get_an_sftp_ticket(client: Async
 
 
 @pytest.mark.anyio
-async def test_the_gate_is_the_same_one_ssh_uses(client: AsyncClient, db_session):
-    """同一個帳號、同一個位址：SSH 與 SFTP 的判斷結果必須一致。
+async def test_both_open_means_the_same_verdict_for_the_same_user(client: AsyncClient, db_session):
+    """兩個開關都開時，同一個帳號在 SSH 與 SFTP 上的判斷結果必須一致。
 
-    兩邊各自實作一套判斷，遲早會有一邊被改鬆 —— 這條測試守的是那個。
+    兩邊各自實作一套授權判斷，遲早會有一邊被改鬆 —— 這條測試守的是那個。
     """
     from app.services.auth import issue_access_token
     u = await _user(db_session, can_ssh=False)
@@ -63,6 +64,33 @@ async def test_the_gate_is_the_same_one_ssh_uses(client: AsyncClient, db_session
     ssh = await client.post(f"/api/v1/addresses/{ipa.id}/ssh/ticket", headers=h)
     sftp = await client.post(f"/api/v1/addresses/{ipa.id}/sftp/ticket", headers=h)
     assert ssh.status_code == sftp.status_code
+
+
+@pytest.mark.anyio
+async def test_sftp_off_blocks_sftp_even_when_ssh_is_on(client: AsyncClient, db_session, fake_redis):
+    """只開 SSH 不開 SFTP：admin 也拿不到 SFTP ticket，但 SSH 照常。
+
+    這是「獨立開關」的重點 —— 若 SFTP 還是看 ssh_enabled，這條會過不了。
+    """
+    from app.services.auth import issue_access_token
+    u = await _user(db_session, can_ssh=True, admin=True)
+    ipa = await _ip(db_session, ssh=True, sftp=False)
+    await db_session.commit()
+    h = {"Authorization": f"Bearer {issue_access_token(u)}"}
+    assert (await client.post(f"/api/v1/addresses/{ipa.id}/sftp/ticket", headers=h)).status_code == 403
+    assert (await client.post(f"/api/v1/addresses/{ipa.id}/ssh/ticket", headers=h)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_ssh_off_still_allows_sftp_when_sftp_is_on(client: AsyncClient, db_session, fake_redis):
+    """只開 SFTP 不開 SSH：傳得了檔，但開不了終端機 —— 這正是這個開關存在的理由。"""
+    from app.services.auth import issue_access_token
+    u = await _user(db_session, can_ssh=True, admin=True)
+    ipa = await _ip(db_session, ssh=False, sftp=True)
+    await db_session.commit()
+    h = {"Authorization": f"Bearer {issue_access_token(u)}"}
+    assert (await client.post(f"/api/v1/addresses/{ipa.id}/sftp/ticket", headers=h)).status_code == 200
+    assert (await client.post(f"/api/v1/addresses/{ipa.id}/ssh/ticket", headers=h)).status_code == 403
 
 
 @pytest.mark.anyio
@@ -96,7 +124,9 @@ class _FakeRedis:
 @pytest.fixture
 def fake_redis(monkeypatch):
     fake = _FakeRedis()
+    # 兩個端點都要換掉：它們各自 `from ... import _redis_client`，只改來源模組沒有用
     monkeypatch.setattr("app.api.v1.endpoints.sftp_console._redis_client", lambda: fake)
+    monkeypatch.setattr("app.api.v1.endpoints.ssh_console._redis_client", lambda: fake)
     monkeypatch.setattr("app.core.rate_limit._redis_client", lambda: fake)
     return fake
 

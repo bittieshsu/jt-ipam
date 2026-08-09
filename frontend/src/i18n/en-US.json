@@ -3189,17 +3189,6 @@
     "rules_hint": "Only fills what is empty; never overwrites and never removes an existing link. A MAC found on several devices, a protocol-reserved or non-unicast MAC, a hostname naming a different device, a customer conflict, an archived subnet — all are skipped rather than guessed. Every change is written to the IP change log, so it can be traced and undone."
   },
   "sftp": {
-    "target": "Target host",
-    "saved_cred": "Saved credentials",
-    "saved_cred_ph": "Pick a saved credential (or leave blank to type one)",
-    "username": "Username",
-    "auth": "Authentication",
-    "auth_password": "Password",
-    "auth_key": "Private key",
-    "password": "Password",
-    "private_key": "Private key",
-    "passphrase": "Key passphrase",
-    "port": "Port",
     "connect": "Connect",
     "disconnected": "Connection closed",
     "up": "Up",
@@ -3217,7 +3206,10 @@
     "col_size": "Size",
     "col_mtime": "Modified",
     "col_mode": "Mode",
-    "connect_btn": "Files",
-    "connect_hint": "SFTP: browse and transfer files on this host"
+    "connect_btn": "SFTP Files",
+    "connect_hint": "SFTP: browse and transfer files on this host",
+    "connect_to": "SFTP to {ip}",
+    "enable_label": "Enable SFTP file transfer",
+    "enable_hint": "When enabled, authorized users can open the SFTP file browser from this IP's detail page. Independent of SSH: file transfer can be allowed without a terminal (same permission strength, over the same SSH connection)."
   }
 }

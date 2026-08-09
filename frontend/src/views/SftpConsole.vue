@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 另開視窗的全頁 SFTP 檔案瀏覽器（與 SSH 終端機同一個開法）。 */
+/** 另開視窗的全頁 SFTP 檔案瀏覽器（與 SshConsole 同一個做法）。 */
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -28,16 +28,18 @@ onMounted(async () => {
 
 <template>
   <div class="sftp-page">
-    <n-spin v-if="loading" />
-    <n-result v-else-if="failed || !addr" status="404" :title="t('errors.not_found')" />
-    <template v-else>
-      <h2 class="sftp-title">SFTP · {{ addr.ip }}<span v-if="addr.hostname"> · {{ addr.hostname }}</span></h2>
-      <SftpBrowser :address-id="addr.id" :host="String(addr.ip).split('/')[0]" />
-    </template>
+    <n-spin v-if="loading" :show="true" style="margin:80px auto;display:block" />
+    <n-result v-else-if="failed || !addr" status="403" :title="t('ssh.err_generic')" />
+    <SftpBrowser v-else :address-id="addr.id" :host="String(addr.ip).split('/')[0]"
+                 :hostname="addr.hostname" :device-name="addr.device_name" full-height />
   </div>
 </template>
 
 <style scoped>
-.sftp-page { padding: 16px 20px; height: 100vh; box-sizing: border-box; overflow: auto; }
-.sftp-title { font-size: 16px; margin: 0 0 12px; font-weight: 600; }
+/* 與 SshConsole 同一套：獨立全頁 route（不在 MainLayout 的 n-layout 內），
+   所以要自己跟著主題上底色，否則深色模式下淺色文字會落在白底上。
+   position:fixed + inset:0 精準填滿視窗，捲動交給裡面的表格。 */
+.sftp-page { position: fixed; inset: 0; display: flex; flex-direction: column;
+  padding: 16px; box-sizing: border-box; overflow: hidden; background: #eef1f8; color: #1f2937; }
+html[data-theme="dark"] .sftp-page { background: #070b14; color: #e8f0fb; }
 </style>

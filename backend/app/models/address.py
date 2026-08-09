@@ -93,6 +93,11 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     # TOFU 信任後釘選的 host key（單行 known_host 格式；非機密，僅防 MITM）。
     ssh_host_key: Mapped[str | None] = mapped_column(Text)
+    # SFTP 檔案瀏覽器：獨立於 SSH 的開關 —— 有些主機只想開放傳檔、不想開終端機。
+    # 走的是同一條 SSH 連線，所以仍需 SSH 服務可用，但要不要開放由這個欄位決定。
+    sftp_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=text("false")
+    )
     # RDP 連線管理：是否對此 IP 啟用 RDP（控制詳細資料頁 RDP 按鈕是否出現）。
     rdp_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default=text("false")

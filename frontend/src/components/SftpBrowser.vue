@@ -2,8 +2,11 @@
 /**
  * SFTP 檔案瀏覽器：先換 ticket → 開 WebSocket → 後端橋接 asyncssh 的 SFTP。
  *
- * 與 SSH 終端機共用同一道權限閘門與同一個憑證金庫 —— 能開 SSH 的人本來就能在 shell 裡
- * 讀寫檔案，所以這裡不另設一套權限；但也絕不能比它鬆。
+ * 開關與 SSH 各自獨立（`sftp_enabled`），但**授權模型刻意完全相同**，憑證也共用同一個
+ * 個人加密金庫 —— 能讀寫遠端檔案的人，實質能力與能開 shell 的人同一級。
+ *
+ * 版面刻意與 SshTerminal 一致（卡片式連線表單 → 狀態列 + 內容區）：同一套操作在不同
+ * 協定間長得不一樣，使用者得重新學一次。
  *
  * 下載採「收完再存檔」：這個功能是給設定檔、憑證、log 片段用的，後端已把單檔上限訂在
  * 100 MB，收在記憶體再落地最單純。真要搬大檔請用 scp/rsync —— 把工具用在它擅長的地方，
@@ -12,37 +15,56 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NAlert, NButton, NDataTable, NIcon, NInput, NInputNumber, NPopconfirm,
-  NSelect, NSpace, NSpin, useMessage,
+  NAlert, NButton, NCard, NDataTable, NForm, NFormItem, NIcon, NInput,
+  NInputNumber, NPopconfirm, NRadio, NRadioGroup, NSelect, NSpace, NSpin, NSwitch,
+  NTag, useMessage,
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import { h } from "vue";
 import {
-  buildSshWsUrl, listSshCredentials, requestSftpTicket,
-  type SftpEntry, type SshCredential,
+  buildSshWsUrl, createSshCredential, deleteSshCredential, listSshCredentials,
+  requestSftpTicket, type SftpEntry, type SshCredential,
 } from "@/api/ssh";
 import { fmtDateTime } from "@/utils/datetime";
-import { RefreshIcon, PlusIcon } from "@/icons";
+import { RefreshIcon, PlusIcon, FilesIcon, CancelIcon, DeleteIcon } from "@/icons";
 
-const props = defineProps<{ addressId: string; host: string }>();
+const props = defineProps<{
+  addressId: string; host: string;
+  hostname?: string | null; deviceName?: string | null; fullHeight?: boolean;
+}>();
 const { t } = useI18n();
 const msg = useMessage();
 
-const connected = ref(false);
-const connecting = ref(false);
+/** 連線階段 —— 與 SSH／RDP／VNC 主控台同一組狀態名，狀態列也才能共用同一套樣式。 */
+const phase = ref<"form" | "connecting" | "connected" | "error" | "closed">("form");
+const connecting = computed(() => phase.value === "connecting");
 const errorMsg = ref("");
 const cwd = ref("/");
 const entries = ref<SftpEntry[]>([]);
 const truncated = ref(false);
 const busy = ref(false);
 
-// ── 連線設定（與 SSH 相同：已存憑證，或當次輸入）
+// ── 連線設定（與 SSH 相同：已存憑證，或當次輸入；也可以順手存起來）
 const creds = ref<SshCredential[]>([]);
+const remember = ref(false);
+const rememberLabel = ref("");
 const form = ref({
   credential_id: null as string | null,
   username: "", port: 22, auth: "password" as "password" | "key",
   password: "", private_key: "", passphrase: "",
 });
+const credOptions = computed(() =>
+  creds.value.map((c) => ({ label: `${c.label || c.username}（${c.auth_type}）`, value: c.id })));
+
+async function delSelectedCred() {
+  const id = form.value.credential_id;
+  if (!id) return;
+  try {
+    await deleteSshCredential(id);
+    form.value.credential_id = null;
+    await loadCreds();
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? String(e)); }
+}
 
 let ws: WebSocket | null = null;
 /** 下載中的檔案：收到 file_begin 後開始累積二進位框，file_end 才落地。 */
@@ -64,7 +86,33 @@ function request(obj: Record<string, unknown>): Promise<any> {
 
 async function connect() {
   errorMsg.value = "";
-  connecting.value = true;
+  if (!form.value.credential_id && !form.value.username.trim()) {
+    errorMsg.value = t("ssh.err_username"); return;
+  }
+  phase.value = "connecting";
+
+  // 勾了「記住」→ 先存進金庫，之後就以 reference 連線（與 SSH 同一個金庫、同一套作法）
+  if (!form.value.credential_id && remember.value) {
+    try {
+      const saved = await createSshCredential({
+        label: rememberLabel.value.trim() || `${form.value.username.trim()}@${props.host}`,
+        username: form.value.username.trim(),
+        auth_type: form.value.auth,
+        target_ip_id: props.addressId,
+        password: form.value.auth === "password" ? form.value.password : undefined,
+        private_key: form.value.auth === "key" ? form.value.private_key : undefined,
+        passphrase: form.value.auth === "key" ? form.value.passphrase : undefined,
+      });
+      form.value.credential_id = saved.id;
+      remember.value = false;
+      void loadCreds();
+    } catch (e: any) {
+      phase.value = "error";
+      errorMsg.value = e?.response?.data?.detail || t("ssh.err_save_cred");
+      return;
+    }
+  }
+
   try {
     const tk = await requestSftpTicket(props.addressId);
     ws = new WebSocket(buildSshWsUrl(tk.ws_path, tk.ticket));
@@ -97,8 +145,7 @@ async function connect() {
       const m = JSON.parse(ev.data);
       switch (m.type) {
         case "ready":
-          connected.value = true;
-          connecting.value = false;
+          phase.value = "connected";
           cwd.value = m.cwd || "/";
           void refresh();
           break;
@@ -132,21 +179,33 @@ async function connect() {
           break;
         case "error":
           errorMsg.value = m.message ?? "";
-          connecting.value = false;
+          // 連線階段失敗要退回表單，否則使用者卡在一片空白、無從重試
+          if (phase.value !== "connected") phase.value = "error";
           pending?.reject(new Error(m.message)); pending = null;
           break;
       }
     };
 
     ws.onclose = () => {
-      connected.value = false;
-      connecting.value = false;
+      phase.value = phase.value === "connected" ? "closed" : "error";
       pending?.reject(new Error(t("sftp.disconnected"))); pending = null;
     };
   } catch (e: any) {
     errorMsg.value = e?.response?.data?.detail ?? String(e);
-    connecting.value = false;
+    phase.value = "error";
   }
+}
+
+function disconnect() {
+  try { ws?.close(); } catch { /* noop */ }
+  phase.value = "closed";
+}
+
+/** 回到連線表單重連（沿用已選的憑證，不必重打帳密）。 */
+function reconnect() {
+  entries.value = [];
+  errorMsg.value = "";
+  phase.value = "form";
 }
 
 async function refresh(path?: string) {
@@ -287,66 +346,121 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
 </script>
 
 <template>
-  <div class="sftp-wrap">
-    <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom: 12px">
-      {{ errorMsg }}
-    </n-alert>
-
-    <!-- 未連線：沿用 SSH 那套設定（已存憑證優先，否則當次輸入） -->
-    <div v-if="!connected" class="sftp-conn">
-      <n-space vertical size="large" style="max-width: 460px">
-        <div>
-          <label>{{ t("sftp.target") }}</label>
-          <div class="mono">{{ host }}</div>
-        </div>
-        <div v-if="creds.length">
-          <label>{{ t("sftp.saved_cred") }}</label>
-          <n-select v-model:value="form.credential_id" clearable
-                    :placeholder="t('sftp.saved_cred_ph')"
-                    :options="creds.map((c) => ({ label: `${c.username}（${c.auth_type}）`, value: c.id }))" />
-        </div>
-        <template v-if="!form.credential_id">
-          <div>
-            <label>{{ t("sftp.username") }}</label>
-            <n-input v-model:value="form.username" placeholder="root" />
-          </div>
-          <div>
-            <label>{{ t("sftp.auth") }}</label>
-            <n-select v-model:value="form.auth" :options="[
-              { label: t('sftp.auth_password'), value: 'password' },
-              { label: t('sftp.auth_key'), value: 'key' }]" />
-          </div>
-          <div v-if="form.auth === 'password'">
-            <label>{{ t("sftp.password") }}</label>
-            <n-input v-model:value="form.password" type="password" show-password-on="click" />
-          </div>
-          <template v-else>
-            <div>
-              <label>{{ t("sftp.private_key") }}</label>
-              <n-input v-model:value="form.private_key" type="textarea" :rows="4"
-                       placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
-            </div>
-            <div>
-              <label>{{ t("sftp.passphrase") }}</label>
-              <n-input v-model:value="form.passphrase" type="password" show-password-on="click" />
-            </div>
-          </template>
+  <div class="sftp-wrap" :class="{ 'sftp-full': fullHeight, 'sftp-center': fullHeight && phase === 'form' }">
+    <!-- 連線設定表單（版面與 SSH 終端機一致：卡片 + 左標籤表單 + 說明 + 右下連線鈕） -->
+    <div v-if="phase === 'form' || phase === 'error'" class="sftp-form">
+      <n-card size="small" :bordered="true">
+        <template #header>
+          <span style="display:flex;align-items:center;gap:8px">
+            <n-icon :component="FilesIcon" :size="18" />
+            <span>{{ t("sftp.connect_to", { ip: host }) }}</span>
+          </span>
         </template>
-        <div>
-          <label>{{ t("sftp.port") }}</label>
-          <n-input-number v-model:value="form.port" :min="1" :max="65535" />
+
+        <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom:12px">
+          {{ errorMsg }}
+        </n-alert>
+
+        <!-- 已存帳密（個人保管）：選一筆即以 reference 連線 -->
+        <div v-if="credOptions.length" class="sftp-saved-row">
+          <span class="sftp-saved-label">{{ t("ssh.saved_cred") }}</span>
+          <n-select v-model:value="form.credential_id" :options="credOptions" clearable size="small"
+                    :placeholder="t('ssh.saved_cred_ph')" style="flex:1" />
+          <n-popconfirm v-if="form.credential_id" @positive-click="delSelectedCred">
+            <template #trigger>
+              <n-button quaternary type="error" size="small">
+                <template #icon><n-icon :component="DeleteIcon" /></template>
+              </n-button>
+            </template>
+            {{ t("ssh.saved_cred_del_confirm") }}
+          </n-popconfirm>
         </div>
-        <n-button type="primary" :loading="connecting" @click="connect">
-          {{ t("sftp.connect") }}
-        </n-button>
-      </n-space>
+
+        <n-form label-placement="left" :label-width="92" size="small">
+          <!-- 手動輸入（未選已存帳密時才顯示）-->
+          <template v-if="!form.credential_id">
+            <n-form-item :label="t('ssh.auth_method')">
+              <n-radio-group v-model:value="form.auth">
+                <n-radio value="password">{{ t("ssh.auth_password") }}</n-radio>
+                <n-radio value="key">{{ t("ssh.auth_key") }}</n-radio>
+              </n-radio-group>
+            </n-form-item>
+            <n-form-item :label="t('ssh.username')">
+              <n-input v-model:value="form.username" placeholder="root" autofocus
+                       @keyup.enter="connect" />
+            </n-form-item>
+            <n-form-item v-if="form.auth === 'password'" :label="t('ssh.password')">
+              <n-input v-model:value="form.password" type="password" show-password-on="click"
+                       @keyup.enter="connect" />
+            </n-form-item>
+            <template v-else>
+              <n-form-item :label="t('ssh.private_key')">
+                <n-input v-model:value="form.private_key" type="textarea"
+                         :autosize="{ minRows: 4, maxRows: 8 }"
+                         placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
+              </n-form-item>
+              <n-form-item :label="t('ssh.passphrase')">
+                <n-input v-model:value="form.passphrase" type="password" show-password-on="click" />
+              </n-form-item>
+            </template>
+          </template>
+
+          <n-form-item :label="t('ssh.port')">
+            <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width:140px" />
+          </n-form-item>
+
+          <!-- 記住此帳密（僅手動模式）-->
+          <n-form-item v-if="!form.credential_id" :label="t('ssh.remember')">
+            <n-space vertical :size="4" style="width:100%">
+              <n-switch v-model:value="remember" />
+              <n-input v-if="remember" v-model:value="rememberLabel" size="small"
+                       :placeholder="t('ssh.remember_label_ph')" />
+            </n-space>
+          </n-form-item>
+
+          <n-alert :show-icon="false" type="info" style="margin-bottom:10px">
+            {{ form.credential_id ? t("ssh.use_saved_hint") : (remember ? t("ssh.store_hint") : t("ssh.no_store_hint")) }}
+          </n-alert>
+          <n-space justify="end">
+            <n-button type="primary" :loading="connecting" @click="connect">
+              <template #icon><n-icon :component="FilesIcon" /></template>
+              {{ t("sftp.connect") }}
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-card>
     </div>
 
-    <!-- 已連線：路徑列 + 檔案清單 -->
-    <template v-else>
-      <n-space align="center" style="margin-bottom: 10px">
+    <!-- 已連線／已中斷：狀態列 + 檔案清單（狀態列與 SSH 主控台同一套） -->
+    <div v-else class="sftp-area" :class="{ 'sftp-full': fullHeight }">
+      <div class="sftp-toolbar">
+        <span class="sftp-status" :data-state="phase">
+          <n-spin v-if="phase === 'connecting'" :size="12" />
+          <span v-else class="sftp-dot" />
+          <span>{{ t(`ssh.state_${phase}`) }}</span>
+          <span class="sftp-ip">{{ host }}</span>
+          <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
+          <span class="conn-proto conn-proto--sftp">SFTP</span>
+          <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
+        </span>
+        <n-space :size="8" align="center">
+          <n-button v-if="phase === 'connected'" size="tiny" type="error" ghost @click="disconnect">
+            <template #icon><n-icon :component="CancelIcon" /></template>{{ t("ssh.disconnect") }}
+          </n-button>
+          <n-button v-else size="tiny" type="primary" ghost @click="reconnect">
+            {{ t("ssh.reconnect") }}
+          </n-button>
+        </n-space>
+      </div>
+
+      <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom:8px">
+        {{ errorMsg }}
+      </n-alert>
+
+      <!-- 路徑列與操作 -->
+      <n-space align="center" class="sftp-pathbar" :class="{ 'term-dim': phase !== 'connected' }">
         <n-button size="small" :disabled="cwd === '/'" @click="goUp">{{ t("sftp.up") }}</n-button>
-        <n-input :value="cwd" style="width: 360px"
+        <n-input :value="cwd" class="mono" style="width: 360px"
                  @update:value="(v: string) => (cwd = v)"
                  @keyup.enter="() => refresh()" />
         <n-button size="small" :loading="busy" @click="() => refresh()">
@@ -368,18 +482,57 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         {{ t("sftp.truncated") }}
       </n-alert>
 
-      <n-data-table :columns="cols" :data="entries" :loading="busy" size="small"
-                    :bordered="true" :max-height="520" virtual-scroll />
-    </template>
-
-    <n-spin v-if="connecting" />
+      <div class="sftp-table" :class="{ 'sftp-full': fullHeight, 'term-dim': phase !== 'connected' }">
+        <n-data-table :columns="cols" :data="entries" :loading="busy" size="small"
+                      :bordered="true" flex-height style="height:100%" virtual-scroll />
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.sftp-wrap { padding: 4px; }
-.sftp-conn label { display: block; font-size: 12px; opacity: .8; margin-bottom: 4px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+/* 版面與 SshTerminal 對齊：全頁模式時表單置中、內容區填滿剩餘高度 */
+.sftp-wrap { width: 100%; }
+.sftp-wrap.sftp-full { height: 100%; display: flex; flex-direction: column; }
+.sftp-wrap.sftp-center { justify-content: center; align-items: center; }
+.sftp-wrap.sftp-center .sftp-form { width: 560px; max-width: 92vw; }
+.sftp-form { max-width: 560px; }
+.sftp-area { display: flex; flex-direction: column; }
+.sftp-area.sftp-full { flex: 1; min-height: 0; }
+.sftp-table { height: 420px; }
+.sftp-table.sftp-full { flex: 1; height: auto; min-height: 0; }
+.sftp-pathbar { margin-bottom: 10px; }
+
+/* 狀態列 —— 與 SSH 主控台同一套（同樣的圓角膠囊、同樣的狀態配色） */
+.sftp-toolbar { display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 2px; gap: 8px; margin-bottom: 8px; }
+.sftp-status { font-size: 13px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 3px 11px; border-radius: 999px; font-weight: 500;
+  background: rgba(128, 128, 128, .12); color: #888; }
+.sftp-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.sftp-ip { opacity: .7; font-variant-numeric: tabular-nums; }
+.sftp-status[data-state="connected"] { color: #18a058; background: rgba(24, 160, 88, .14); }
+.sftp-status[data-state="connected"] .sftp-dot { animation: sftp-pulse 1.8s infinite; }
+.sftp-status[data-state="connecting"] { color: #d99812; background: rgba(217, 152, 18, .14); }
+.sftp-status[data-state="error"] { color: #d03050; background: rgba(208, 48, 80, .14); }
+.sftp-status[data-state="closed"] { color: #888; background: rgba(128, 128, 128, .14); }
+@keyframes sftp-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(24, 160, 88, .5); }
+  70%  { box-shadow: 0 0 0 6px rgba(24, 160, 88, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(24, 160, 88, 0); }
+}
+/* 協定標籤（與 SSH 的 conn-proto 同一套，換個色） */
+.conn-proto { font-weight: 700; font-size: 11px; letter-spacing: .4px; line-height: 1;
+  padding: 2px 7px; border-radius: 999px; }
+.conn-proto--sftp { color: #2080f0; background: rgba(32,128,240,.16); }
+/* 已中斷：反灰並停用互動，讓使用者一眼看出連線沒了（與 SSH 相同處理） */
+.term-dim { filter: grayscale(1) brightness(.55); pointer-events: none; transition: filter .25s; }
+:deep(.n-card > .n-card-header) { display: flex; align-items: center; padding-top: 12px; padding-bottom: 12px; }
+.sftp-saved-row { display: flex; align-items: center; margin-bottom: 18px; }
+.sftp-saved-label { width: 92px; flex: none; box-sizing: border-box; text-align: right;
+  padding-right: 12px; font-size: 14px; }
+.sftp-saved-row :deep(.n-button) { margin-left: 6px; }
+.mono :deep(input) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
 .sftp-dir { color: var(--primary-color, #18a058); cursor: pointer; font-weight: 600; }
 .sftp-file { cursor: default; }
 </style>

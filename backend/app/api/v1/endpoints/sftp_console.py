@@ -1,8 +1,9 @@
 """IP 位址的 SFTP 檔案傳輸：ticket 換發 + WebSocket↔SFTP 橋接。
 
-**權限與 SSH 完全同一道閘門**（`can_use_ssh`）—— 能開 SSH 的人本來就能在 shell 裡讀寫
-檔案，SFTP 不會多給任何權限；反過來說，也絕不能比 SSH 鬆。憑證同樣走個人加密金庫或
-當次輸入，明文只在記憶體、用完即丟。
+**獨立開關、與 SSH 同等強度的授權**（`can_use_sftp`）—— 開放傳檔與開放終端機是兩件事，
+各自有自己的開關（`sftp_enabled` / `ssh_enabled`）；但授權模型刻意完全相同：能讀寫遠端
+檔案的人，實質能力與能開 shell 的人同一級，不該因為「只是傳檔」而放寬。憑證同樣走個人
+加密金庫或當次輸入，明文只在記憶體、用完即丟。
 
 WS 帶不了 Authorization header → 沿用 SSH 那套：先以 JWT 換 60 秒單次 ticket，再開 WS。
 
@@ -40,7 +41,7 @@ from app.core.tickets import take_once
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
-from app.services.permission import can_use_ssh
+from app.services.permission import can_use_sftp
 from app.services.sftp import (
     CHUNK_BYTES,
     MAX_ENTRIES,
@@ -77,7 +78,7 @@ async def issue_sftp_ticket(
     ip = await session.get(IPAddress, address_id)
     if ip is None:
         raise HTTPException(status_code=404, detail="Address not found")
-    if not await can_use_ssh(session, user=user, ip=ip):
+    if not await can_use_sftp(session, user=user, ip=ip):
         # 不洩漏存在性差異 —— 一律 403（與 SSH 相同）
         raise HTTPException(status_code=403, detail="無 SSH／SFTP 連線權限")
 
@@ -180,7 +181,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         if user is None or not user.is_active or ip is None:
             await websocket.close(code=4403)
             return
-        allowed = await can_use_ssh(s, user=user, ip=ip)
+        allowed = await can_use_sftp(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
     if not allowed:
         await websocket.close(code=4403)

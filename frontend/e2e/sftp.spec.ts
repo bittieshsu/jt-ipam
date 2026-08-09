@@ -22,15 +22,19 @@ test.skip(!ADMIN_PASS || !TARGET_IP_ID || !SFTP_ROOT,
   "需要 E2E_ADMIN_PASS、E2E_SFTP_IP_ID 與 E2E_SFTP_ROOT");
 test.setTimeout(180_000);
 
-async function connect(page: any) {
+async function login(page: any) {
   await page.goto("/login");
   await page.getByPlaceholder(/帳號|Username/).fill(ADMIN_USER);
   await page.getByPlaceholder(/密碼|Password/).fill(ADMIN_PASS);
   await page.getByRole("button", { name: /登入/ }).click();
   await page.waitForURL((u: URL) => !u.pathname.includes("/login"));
+}
 
+async function connect(page: any) {
+  await login(page);
   await page.goto(`/sftp/${TARGET_IP_ID}`);
-  await expect(page.getByText("目標主機")).toBeVisible();
+  // 連線表單的版面與 SSH 終端機一致：卡片標題「SFTP 連線到 <ip>」
+  await expect(page.getByText(/SFTP 連線到/)).toBeVisible();
   await page.getByPlaceholder("root").fill(SFTP_USER);
   // 密碼欄（第一個 password 型別的輸入框）
   await page.locator('input[type="password"]').first().fill(SFTP_PASS);
@@ -114,4 +118,31 @@ test("新增資料夾、改名、刪除都真的作用在遠端", async ({ page 
   await page.getByRole("button", { name: /確[定認]|是/ }).last().click();
   await expect(page.locator("table").getByText("e2e-改名後")).toBeHidden({ timeout: 15_000 });
   expect(existsSync(`${SFTP_ROOT}/e2e-改名後`), "遠端沒有真的刪掉").toBe(false);
+});
+
+test("SFTP 是獨立開關：關掉之後只有 SFTP 入口消失，SSH 還在", async ({ page }) => {
+  // 開關存不存得住只有走完「改→存→重載」才知道；只看畫面切換到了不算數
+  await login(page);
+  const url = `/addresses/${TARGET_IP_ID}`;
+  await page.goto(url);
+  await expect(page.getByRole("button", { name: "SFTP 檔案" })).toBeVisible();
+
+  await page.getByRole("button", { name: "編輯" }).first().click();
+  await page.getByText("啟用 SFTP 檔案傳輸").scrollIntoViewIfNeeded();
+  await page.locator(".n-form-item", { hasText: "啟用 SFTP 檔案傳輸" })
+    .locator(".n-switch").click();
+  await page.getByRole("button", { name: /儲存|保存/ }).first().click();
+
+  await page.goto(url);                               // 重載：值真的存進資料庫了嗎
+  await expect(page.getByRole("button", { name: "SFTP 檔案" })).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "SSH 連線" })).toBeVisible();  // SSH 不受影響
+
+  // 收尾：開回來，讓其他測試（與後續手動操作）看到的狀態不變
+  await page.getByRole("button", { name: "編輯" }).first().click();
+  await page.getByText("啟用 SFTP 檔案傳輸").scrollIntoViewIfNeeded();
+  await page.locator(".n-form-item", { hasText: "啟用 SFTP 檔案傳輸" })
+    .locator(".n-switch").click();
+  await page.getByRole("button", { name: /儲存|保存/ }).first().click();
+  await page.goto(url);
+  await expect(page.getByRole("button", { name: "SFTP 檔案" })).toBeVisible({ timeout: 15_000 });
 });
