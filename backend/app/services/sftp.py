@@ -102,3 +102,65 @@ def to_entry(dirpath: str, name: str, attrs: Any) -> Entry:
 def sort_entries(entries: list[Entry]) -> list[Entry]:
     """目錄在前、再依名稱（不分大小寫）—— 與一般檔案管理員一致。"""
     return sorted(entries, key=lambda e: (not e.is_dir, e.name.lower()))
+
+
+# 遠端拒絕時 asyncssh 丟出的例外，類別名稱對使用者毫無意義（「SFTPNoSuchFile:
+# No such file」看不出是哪條路徑、也不知道下一步該做什麼）。這裡把最常見的幾種
+# 換成看得懂的句子，並且**一定把路徑講出來** —— 打錯路徑時那才是唯一有用的資訊。
+_FRIENDLY: dict[str, str] = {
+    "SFTPNoSuchFile": "找不到「{path}」，請確認路徑是否正確。",
+    "SFTPNoSuchPath": "找不到「{path}」，請確認路徑是否正確。",
+    "FileNotFoundError": "找不到「{path}」，請確認路徑是否正確。",
+    "SFTPPermissionDenied": "沒有權限存取「{path}」（遠端主機以這個帳號拒絕了）。",
+    "PermissionError": "沒有權限存取「{path}」（遠端主機以這個帳號拒絕了）。",
+    "SFTPNotADirectory": "「{path}」不是資料夾。",
+    "NotADirectoryError": "「{path}」不是資料夾。",
+    "SFTPIsADirectory": "「{path}」是資料夾，不能當成檔案處理。",
+    "IsADirectoryError": "「{path}」是資料夾，不能當成檔案處理。",
+    "SFTPFileAlreadyExists": "「{path}」已經存在。",
+    "FileExistsError": "「{path}」已經存在。",
+    "SFTPDirNotEmpty": "資料夾「{path}」還有東西，請先清空再刪除。",
+    "SFTPNoSpaceOnFilesystem": "遠端磁碟空間不足，寫不進「{path}」。",
+    "SFTPQuotaExceeded": "已超過遠端的容量配額，寫不進「{path}」。",
+    "SFTPWriteProtect": "遠端檔案系統是唯讀的，寫不進「{path}」。",
+}
+
+
+def friendly_error(exc: BaseException, *, path: str | None = None) -> str:
+    """把遠端的錯誤換成使用者看得懂的句子。
+
+    對不認得的例外**不要編故事**：保留原訊息（去掉類別名稱那個前綴），並在知道路徑時
+    附上路徑。寧可訊息平淡，也不要把一個沒見過的失敗說成別的東西。
+    """
+    shown = path or "(未指定路徑)"
+    tmpl = _FRIENDLY.get(type(exc).__name__)
+    if tmpl:
+        return tmpl.format(path=shown)
+    detail = str(exc).strip()
+    if not detail:
+        return f"操作「{shown}」失敗（{type(exc).__name__}）。"
+    if path:
+        return f"操作「{shown}」失敗：{detail}"
+    return f"操作失敗：{detail}"
+
+
+# 連線階段的失敗（還沒進到檔案操作），訊息要說得出「連不上哪裡、下一步查什麼」。
+# 原本直接回 "ConnectionRefusedError: [Errno 111] Connection refused"。
+_CONNECT_FRIENDLY: dict[str, str] = {
+    "ConnectionRefusedError": "連不上 {target}：對方拒絕連線 —— 確認該主機的 SSH 服務有在這個連接埠監聽。",
+    "TimeoutError": "連線到 {target} 逾時 —— 確認網路可達，以及防火牆是否擋住這個連接埠。",
+    "ConnectionResetError": "與 {target} 的連線被重設 —— 對方可能拒絕了這個來源或這種連線方式。",
+    "PermissionDenied": "{target} 拒絕了這組帳密（認證失敗）。",
+    "HostKeyNotVerifiable": "{target} 的主機金鑰無法驗證。",
+    "OSError": "連不上 {target}。",
+}
+
+
+def friendly_connect_error(exc: BaseException, *, host: str, port: int) -> str:
+    """連線階段的錯誤訊息。認不出來的一樣保留原訊息，不要編。"""
+    target = f"{host}:{port}"
+    tmpl = _CONNECT_FRIENDLY.get(type(exc).__name__)
+    if tmpl:
+        return tmpl.format(target=target)
+    detail = str(exc).strip()
+    return f"連不上 {target}：{detail}" if detail else f"連不上 {target}（{type(exc).__name__}）。"

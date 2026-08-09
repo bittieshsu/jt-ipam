@@ -47,6 +47,8 @@ from app.services.sftp import (
     MAX_ENTRIES,
     SftpError,
     check_size,
+    friendly_connect_error,
+    friendly_error,
     normalize_path,
     sort_entries,
     to_entry,
@@ -200,6 +202,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
 
     conn = None
     sftp = None
+    port = 22          # 先給預設值：錯誤處理會用到，設定還沒讀到就失敗時不能是未定義
     try:
         cfg = json.loads(await websocket.receive_text())
         if cfg.get("type") != "config":
@@ -229,9 +232,11 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 await send({"type": "error", "message": "訊息格式錯誤"})
                 continue
             op = req.get("type")
+            # 失敗訊息要講得出「是哪條路徑」—— 打錯路徑時那是唯一有用的資訊
+            failed_path: str | None = None
             try:
                 if op == "list":
-                    path = normalize_path(req.get("path"), cwd=str(cwd))
+                    path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     names = await sftp.readdir(path)
                     entries = []
                     truncated = False
@@ -249,7 +254,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     })
 
                 elif op == "get":
-                    path = normalize_path(req.get("path"), cwd=str(cwd))
+                    path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     st = await sftp.stat(path)
                     size = check_size(getattr(st, "size", None), what="下載")
                     await send({"type": "file_begin", "path": path,
@@ -266,7 +271,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     await audit("sftp_download", {"path": path, "bytes": sent})
 
                 elif op == "put":
-                    path = normalize_path(req.get("path"), cwd=str(cwd))
+                    path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     size = check_size(req.get("size"), what="上傳")
                     await send({"type": "put_ready", "path": path})
                     written = 0
@@ -282,7 +287,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     await audit("sftp_upload", {"path": path, "bytes": written})
 
                 elif op == "mkdir":
-                    path = normalize_path(req.get("path"), cwd=str(cwd))
+                    path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     await sftp.mkdir(path)
                     await send({"type": "ok", "op": "mkdir", "path": path})
                     await audit("sftp_mkdir", {"path": path})
@@ -295,7 +300,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     await audit("sftp_rename", {"from": src, "to": dst})
 
                 elif op == "delete":
-                    path = normalize_path(req.get("path"), cwd=str(cwd))
+                    path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     if req.get("is_dir"):
                         await sftp.rmdir(path)
                     else:
@@ -311,8 +316,10 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             except SftpError as exc:
                 await send({"type": "error", "message": str(exc)})
             except (asyncssh.SFTPError, OSError) as exc:
-                # 遠端拒絕（權限不足、檔案不存在…）是正常情況，要把原因說出來
-                await send({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+                # 遠端拒絕（權限不足、檔案不存在…）是正常情況，要把原因說成人話：
+                # 原本直接回 "SFTPNoSuchFile: No such file"，看不出是哪條路徑
+                await send({"type": "error",
+                            "message": friendly_error(exc, path=failed_path)})
 
     except WebSocketDisconnect:
         pass
@@ -325,7 +332,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 pass
     except (asyncssh.Error, OSError) as exc:
         try:
-            await send({"type": "error", "message": f"連線失敗：{type(exc).__name__}: {exc}"})
+            await send({"type": "error",
+                        "message": friendly_connect_error(exc, host=host, port=port)})
         except Exception:
             pass
     finally:

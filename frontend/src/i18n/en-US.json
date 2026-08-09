@@ -3211,6 +3211,21 @@
     "connect_to": "SFTP to {ip}",
     "enable_label": "Enable SFTP file transfer",
     "enable_hint": "When enabled, authorized users can open the SFTP file browser from this IP's detail page. Independent of SSH: file transfer can be allowed without a terminal (same permission strength, over the same SSH connection).",
-    "err_ws_closed": "The connection closed before it was established (code {code}). On a freshly upgraded site, or behind your own reverse proxy, this usually means the proxy is not forwarding the WebSocket upgrade headers — check that the console location in nginx lists sftp."
+    "err_ws_closed": "The connection closed before it was established (code {code}). On a freshly upgraded site, or behind your own reverse proxy, this usually means the proxy is not forwarding the WebSocket upgrade headers — check that the console location in nginx lists sftp.",
+    "filter_ph": "Filter this directory…",
+    "filter_note": "Showing {shown} of {total} entries in this directory.",
+    "batch_selected": "{n} selected",
+    "batch_download": "Download",
+    "batch_move": "Move",
+    "batch_delete": "Delete",
+    "batch_clear": "Clear selection",
+    "batch_delete_confirm": "Delete the {n} selected entries? This runs on the remote host and cannot be undone.",
+    "batch_move_prompt": "Move to which directory? (absolute path)",
+    "batch_no_files": "No files in the selection — directories cannot be downloaded directly.",
+    "batch_downloaded": "Downloaded {n} file(s)",
+    "batch_downloaded_skipped_dirs": "Downloaded {n} file(s); skipped {dirs} director(ies), which cannot be downloaded directly",
+    "batch_deleted": "Deleted {n} entries",
+    "batch_moved": "Moved {n} entries to {dir}",
+    "batch_partial_fail": "Some entries failed: {names}"
   }
 }

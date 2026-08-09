@@ -26,7 +26,10 @@ import {
   requestSftpTicket, type SftpEntry, type SshCredential,
 } from "@/api/ssh";
 import { fmtDateTime } from "@/utils/datetime";
-import { RefreshIcon, PlusIcon, FilesIcon, CancelIcon, DeleteIcon } from "@/icons";
+import {
+  RefreshIcon, FilesIcon, CancelIcon, DeleteIcon, EditIcon,
+  DownloadIcon, UploadIcon, NewFolderIcon, FilterIcon, MoveIcon, UpLevelIcon,
+} from "@/icons";
 
 const props = defineProps<{
   addressId: string; host: string;
@@ -219,6 +222,7 @@ function reconnect() {
 
 async function refresh(path?: string) {
   busy.value = true;
+  checkedKeys.value = [];      // 換目錄還留著上一層的勾選 → 會刪錯東西
   try { await request({ type: "list", path: path ?? cwd.value }); }
   catch (e: any) { msg.error(e?.message ?? String(e)); }
   finally { busy.value = false; }
@@ -310,13 +314,32 @@ function fmtSize(n: number | null): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** 小按鈕：icon + 文字（表格操作欄用）。 */
+function actionBtn(icon: any, label: string, onClick: () => void, type?: "error") {
+  return h(NButton, { size: "tiny", secondary: true, type, onClick }, {
+    icon: () => h(NIcon, null, { default: () => h(icon) }),
+    default: () => label,
+  });
+}
+
 const cols = computed<DataTableColumns<SftpEntry>>(() => [
+  { type: "selection" },
   {
     title: t("sftp.col_name"), key: "name", minWidth: 240,
     render: (r) => h("a", {
-      class: r.is_dir ? "sftp-dir" : "sftp-file",
+      class: ["sftp-name", r.is_dir ? "sftp-dir" : "sftp-file"],
+      // 行內樣式而非 scoped CSS：這些元素是 render function 產生的，不帶 data-v 標記，
+      // scoped 樣式套不到它們（量到檔案名稱比資料夾少縮排 16px 就是這個原因）
+      style: "display:inline-flex;align-items:center;gap:6px",
       onClick: () => enter(r),
-    }, `${r.is_dir ? "📁 " : ""}${r.name}${r.is_link ? " ↗" : ""}`),
+    }, [
+      // 檔案沒有 icon，仍要佔掉與資料夾完全相同的寬度，否則兩種列的名稱對不齊。
+      // 用固定尺寸的 icon 元件而不是 emoji —— emoji 寬度由字型決定，量到過差 17px。
+      h("span", { style: "width:16px;height:16px;flex:none;display:inline-flex;"
+                       + "align-items:center;justify-content:center;overflow:hidden" },
+        r.is_dir ? [h(NIcon, { size: 16 }, { default: () => h(FilesIcon) })] : []),
+      h("span", null, `${r.name}${r.is_link ? " ↗" : ""}`),
+    ]),
     sorter: (a, b) => Number(!!b.is_dir) - Number(!!a.is_dir)
       || a.name.localeCompare(b.name),
   },
@@ -329,22 +352,94 @@ const cols = computed<DataTableColumns<SftpEntry>>(() => [
   { title: t("sftp.col_mode"), key: "mode", width: 120,
     render: (r) => h("span", { class: "mono" }, r.mode ?? "—") },
   {
-    title: t("common.actions"), key: "actions", width: 210,
-    render: (r) => h(NSpace, { size: 4 }, () => [
-      r.is_dir ? null : h(NButton, {
-        size: "tiny", secondary: true, onClick: () => download(r),
-      }, () => t("sftp.download")),
-      h(NButton, {
-        size: "tiny", secondary: true, onClick: () => doRename(r),
-      }, () => t("sftp.rename")),
+    title: t("common.actions"), key: "actions", width: 230,
+    render: (r) => h(NSpace, { size: 4, wrap: false }, () => [
+      r.is_dir ? null : actionBtn(DownloadIcon, t("sftp.download"), () => download(r)),
+      actionBtn(EditIcon, t("sftp.rename"), () => doRename(r)),
       h(NPopconfirm, { onPositiveClick: () => doDelete(r) }, {
-        trigger: () => h(NButton, { size: "tiny", secondary: true, type: "error" },
-          () => t("common.delete")),
+        trigger: () => h(NButton, { size: "tiny", secondary: true, type: "error" }, {
+          icon: () => h(NIcon, null, { default: () => h(DeleteIcon) }),
+          default: () => t("common.delete"),
+        }),
         default: () => t("sftp.delete_confirm", { name: r.name }),
       }),
     ]),
   },
 ]);
+
+// ── 篩選：只篩目前這一頁的清單（遠端不重撈，因為列出來的就是全部了）
+const filterText = ref("");
+const shownEntries = computed(() => {
+  const q = filterText.value.trim().toLowerCase();
+  if (!q) return entries.value;
+  return entries.value.filter((e) => e.name.toLowerCase().includes(q));
+});
+
+// ── 批次作業
+const checkedKeys = ref<string[]>([]);
+const checkedRows = computed(() =>
+  entries.value.filter((e) => checkedKeys.value.includes(e.path)));
+
+/** 每次換目錄或重新整理都清空勾選 —— 留著上一個目錄的選取會刪錯東西。 */
+function clearSelection() { checkedKeys.value = []; }
+
+async function batchDownload() {
+  const files = checkedRows.value.filter((r) => !r.is_dir);
+  const dirs = checkedRows.value.length - files.length;
+  if (!files.length) { msg.warning(t("sftp.batch_no_files")); return; }
+  busy.value = true;
+  try {
+    // 逐個下載：每個檔案都是獨立的一次傳輸，同時進行只會互相排隊
+    for (const f of files) await request({ type: "get", path: f.path });
+    // 資料夾不能當檔案下載 —— 要講出來，不能安靜地少傳幾個
+    msg.success(dirs
+      ? t("sftp.batch_downloaded_skipped_dirs", { n: files.length, dirs })
+      : t("sftp.batch_downloaded", { n: files.length }));
+  } catch (e: any) { msg.error(e?.message ?? String(e)); }
+  finally { busy.value = false; }
+}
+
+async function batchDelete() {
+  const rows = checkedRows.value;
+  if (!rows.length) return;
+  busy.value = true;
+  const failed: string[] = [];
+  try {
+    for (const r of rows) {
+      try { await request({ type: "delete", path: r.path, is_dir: r.is_dir }); }
+      catch { failed.push(r.name); }        // 一個失敗不該讓其他的也不做
+    }
+    // 部分失敗要說清楚是哪幾個，否則使用者以為全刪了
+    if (failed.length) msg.error(t("sftp.batch_partial_fail", { names: failed.join("、") }));
+    else msg.success(t("sftp.batch_deleted", { n: rows.length }));
+  } finally {
+    clearSelection();
+    await refresh();
+    busy.value = false;
+  }
+}
+
+async function batchMove() {
+  const rows = checkedRows.value;
+  if (!rows.length) return;
+  const dest = window.prompt(t("sftp.batch_move_prompt"), cwd.value);
+  if (!dest || !dest.trim()) return;
+  const dir = dest.trim().replace(/\/+$/, "") || "/";
+  busy.value = true;
+  const failed: string[] = [];
+  try {
+    for (const r of rows) {
+      try { await request({ type: "rename", path: r.path, to: `${dir}/${r.name}` }); }
+      catch { failed.push(r.name); }
+    }
+    if (failed.length) msg.error(t("sftp.batch_partial_fail", { names: failed.join("、") }));
+    else msg.success(t("sftp.batch_moved", { n: rows.length, dir }));
+  } finally {
+    clearSelection();
+    await refresh();
+    busy.value = false;
+  }
+}
 
 async function loadCreds() {
   try { creds.value = await listSshCredentials(props.addressId); } catch { /* 沒有就手動輸入 */ }
@@ -464,14 +559,20 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         </n-space>
       </div>
 
+      <!-- 檔案操作區：路徑、操作與清單包在同一個框裡（狀態列刻意留在框外，
+           與 SSH 主控台一致：那一列講的是連線，不是檔案）。 -->
+      <div class="sftp-panel" :class="{ 'sftp-full': fullHeight }">
       <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom:8px">
         {{ errorMsg }}
       </n-alert>
 
       <!-- 路徑列與操作 -->
       <n-space align="center" class="sftp-pathbar" :class="{ 'term-dim': phase !== 'connected' }">
-        <n-button size="small" :disabled="cwd === '/'" @click="goUp">{{ t("sftp.up") }}</n-button>
-        <n-input :value="cwd" class="mono" style="width: 360px"
+        <n-button size="small" :disabled="cwd === '/'" @click="goUp">
+          <template #icon><n-icon><UpLevelIcon /></n-icon></template>
+          {{ t("sftp.up") }}
+        </n-button>
+        <n-input :value="cwd" class="mono" style="width: 320px"
                  @update:value="(v: string) => (cwd = v)"
                  @keyup.enter="() => refresh()" />
         <n-button size="small" :loading="busy" @click="() => refresh()">
@@ -479,23 +580,62 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           {{ t("common.refresh") }}
         </n-button>
         <n-button size="small" @click="doMkdir">
-          <template #icon><n-icon><PlusIcon /></n-icon></template>
+          <template #icon><n-icon><NewFolderIcon /></n-icon></template>
           {{ t("sftp.new_folder") }}
         </n-button>
         <n-button size="small" type="primary" @click="() => uploadInput?.click()">
+          <template #icon><n-icon><UploadIcon /></n-icon></template>
           {{ t("sftp.upload") }}
         </n-button>
         <input ref="uploadInput" type="file" style="display:none" @change="onUpload" />
+        <!-- 篩選只作用在目前這個目錄的清單（列出來的就是全部，不必回遠端重撈） -->
+        <n-input v-model:value="filterText" clearable style="width: 200px"
+                 :placeholder="t('sftp.filter_ph')">
+          <template #prefix><n-icon><FilterIcon /></n-icon></template>
+        </n-input>
+      </n-space>
+
+      <!-- 勾選後才出現的批次列：沒選東西時不佔版面，也不會讓人誤按 -->
+      <n-space v-if="checkedKeys.length" align="center" class="sftp-batchbar">
+        <span class="sftp-batch-count">{{ t("sftp.batch_selected", { n: checkedKeys.length }) }}</span>
+        <n-button size="small" :loading="busy" @click="batchDownload">
+          <template #icon><n-icon><DownloadIcon /></n-icon></template>
+          {{ t("sftp.batch_download") }}
+        </n-button>
+        <n-button size="small" :loading="busy" @click="batchMove">
+          <template #icon><n-icon><MoveIcon /></n-icon></template>
+          {{ t("sftp.batch_move") }}
+        </n-button>
+        <n-popconfirm @positive-click="batchDelete">
+          <template #trigger>
+            <n-button size="small" type="error" secondary :loading="busy">
+              <template #icon><n-icon><DeleteIcon /></n-icon></template>
+              {{ t("sftp.batch_delete") }}
+            </n-button>
+          </template>
+          {{ t("sftp.batch_delete_confirm", { n: checkedKeys.length }) }}
+        </n-popconfirm>
+        <n-button size="small" quaternary @click="clearSelection">
+          {{ t("sftp.batch_clear") }}
+        </n-button>
       </n-space>
 
       <!-- 截斷要明講：畫面上少幾千個檔案而不說，等於騙人 -->
       <n-alert v-if="truncated" type="warning" :bordered="false" style="margin-bottom: 8px">
         {{ t("sftp.truncated") }}
       </n-alert>
+      <!-- 篩選掉了多少也要說，否則會以為目錄裡就只有這幾個 -->
+      <div v-if="filterText.trim()" class="sftp-filter-note">
+        {{ t("sftp.filter_note", { shown: shownEntries.length, total: entries.length }) }}
+      </div>
 
       <div class="sftp-table" :class="{ 'sftp-full': fullHeight, 'term-dim': phase !== 'connected' }">
-        <n-data-table :columns="cols" :data="entries" :loading="busy" size="small"
-                      :bordered="true" flex-height style="height:100%" virtual-scroll />
+        <n-data-table :columns="cols" :data="shownEntries" :loading="busy" size="small"
+                      :row-key="(r: SftpEntry) => r.path"
+                      :checked-row-keys="checkedKeys"
+                      :bordered="false" flex-height style="height:100%" virtual-scroll
+                      @update:checked-row-keys="(k: any) => (checkedKeys = k as string[])" />
+      </div>
       </div>
     </div>
   </div>
@@ -509,6 +649,14 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
 .sftp-wrap.sftp-center .sftp-form { width: 560px; max-width: 92vw; }
 .sftp-form { max-width: 560px; }
 .sftp-area { display: flex; flex-direction: column; }
+/* 檔案操作區的外框：與 SSH 終端機那個深色框同一個角色 —— 把「這一塊是遠端主機的內容」
+   框起來，狀態列留在框外。 */
+.sftp-panel { border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px;
+  padding: 10px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  display: flex; flex-direction: column; min-height: 0; }
+.sftp-panel.sftp-full { flex: 1; }
+html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(200, 210, 230, .18);
+  box-shadow: none; }
 .sftp-area.sftp-full { flex: 1; min-height: 0; }
 .sftp-table { height: 420px; }
 .sftp-table.sftp-full { flex: 1; height: auto; min-height: 0; }
@@ -544,6 +692,12 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
   padding-right: 12px; font-size: 14px; }
 .sftp-saved-row :deep(.n-button) { margin-left: 6px; }
 .mono :deep(input) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
-.sftp-dir { color: var(--primary-color, #18a058); cursor: pointer; font-weight: 600; }
-.sftp-file { cursor: default; }
+/* 表格內的名稱由 render function 產生（不帶 data-v），所以要用 :deep 才套得到；
+   對齊本身走行內樣式，見 cols 的 render。 */
+:deep(.sftp-dir) { color: var(--primary-color, #18a058); cursor: pointer; font-weight: 600; }
+:deep(.sftp-file) { cursor: default; }
+.sftp-batchbar { margin-bottom: 10px; padding: 6px 10px; border-radius: 6px;
+  background: rgba(32, 128, 240, .08); }
+.sftp-batch-count { font-size: 13px; font-weight: 500; }
+.sftp-filter-note { font-size: 12px; opacity: .7; margin-bottom: 6px; }
 </style>

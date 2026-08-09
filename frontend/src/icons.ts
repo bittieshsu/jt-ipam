@@ -98,6 +98,11 @@ import {
   List,
   ChatBubbleQuestion,
   Download,
+  Upload,
+  FolderPlus,
+  Filter,
+  ArrowRight,
+  ArrowUp,
   PasteClipboard,
 } from "@iconoir/vue";
 
@@ -222,6 +227,12 @@ export const TestIcon = CheckCircle;
  */
 export const ChatHistoryIcon = ChatBubbleQuestion;
 export const ExportIcon = Download;
+export const DownloadIcon = Download;
+export const UploadIcon = Upload;
+export const NewFolderIcon = FolderPlus;
+export const FilterIcon = Filter;
+export const MoveIcon = ArrowRight;   // 搬移到其他目錄
+export const UpLevelIcon = ArrowUp;   // 回上一層目錄
 export const PasteIcon = PasteClipboard;
 export const CopyIcon = Copy;
 export const TerminalIcon = Terminal;

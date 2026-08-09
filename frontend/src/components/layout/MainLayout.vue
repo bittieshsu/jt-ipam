@@ -585,8 +585,12 @@ function startDrag(e: MouseEvent) {
 </template>
 
 <style scoped>
+/* 側欄 logo 欄與頂端列共用同一個高度：兩者各自由內容撐高的話，底邊會差幾 px，
+   在左上角形成一道對不齊的缺口（實機回報）。高度綁在同一個變數上就不會再飄。 */
 .brand {
-  padding: 14px 16px;
+  height: var(--app-header-h, 56px);
+  box-sizing: border-box;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   /* logo + 系統名 + 版本固定在頂端，選單捲動時仍可見（用 naive 的 sider 底色避免穿透）*/
@@ -601,7 +605,7 @@ function startDrag(e: MouseEvent) {
   box-shadow: 0 6px 12px -6px rgba(0, 0, 0, 0.28);
 }
 .brand-collapsed {
-  padding: 14px 0;
+  padding: 0;
   justify-content: center;
 }
 .brand-logo {
@@ -610,7 +614,11 @@ function startDrag(e: MouseEvent) {
   display: block;
 }
 .topbar {
-  padding: 8px 16px;
+  height: var(--app-header-h, 56px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
   /* 頂端列固定，內容捲動時保持可見 */
   position: sticky;
   top: 0;

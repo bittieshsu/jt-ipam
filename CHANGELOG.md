@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.159] — 2026-08-09
+
+### Fixed
+- **The sidebar logo panel and the top bar did not end at the same line**, leaving a visible notch in the top-left corner. Each was sized by its own content (`14+32+14` against `8+content+8`); a few pixels apart is enough to see. Both are now bound to one `--app-header-h` with `box-sizing: border-box`, so they cannot drift apart again.
+- **The SFTP filter field was shorter than the path field** (it was the small size). Both measure 34px now.
+
+### Changed
+- **The SFTP file area has a frame**: path bar, batch bar and listing sit in one panel, with the **connection status row deliberately outside it** — that row is about the connection, not the files, matching the SSH console.
+- **"Up one level" gained an icon**; every button in that row now has one.
+
+### Tests
+- New `e2e/layout.spec.ts` measures the two bottom edges and fails if they differ by more than a pixel.
+- A layout test for SFTP: the frame exists, the status row is outside it, path and filter fields match in height, and all four buttons carry icons.
+- Fixed self-contamination in the batch test: without emptying the destination first, a second run failed to move (name already taken) while the assertions still passed — green for no reason.
+
+## [0.5.158] — 2026-08-09
+
+### Added
+- **Batch operations in SFTP.** Rows are selectable; selecting any reveals a batch bar with **download, move and delete**. Move asks for an absolute destination path; delete asks for confirmation.
+  - Directories cannot be downloaded as files, so the result **says how many were skipped** rather than quietly sending fewer.
+  - If some entries fail, the message **names them**; one failure neither stops the rest nor lets the others pass for a success.
+  - Changing directory or refreshing clears the selection — carrying a selection across directories deletes the wrong things.
+- **A filter field** narrows the current directory as you type, with a line below stating "showing N of M entries in this directory" so a filtered view is never mistaken for the whole directory.
+
+### Changed
+- **Icons on the buttons**: upload, new folder, download, rename, delete, and the three batch actions.
+- **Directory and file names line up**: files have no icon but reserve exactly the icon's width. (Measured, not eyeballed: an emoji was 17px off, and switching to an icon component was still 16px off because **scoped CSS does not reach elements built in a render function** — the fix is inline styles.)
+- **Remote errors are written for people.** The screen used to show the exception class ("SFTPNoSuchFile: No such file"); it now says which path could not be found — the one piece of information that matters when a path is mistyped. Permission denied, not-a-directory, already-exists, directory-not-empty, disk full and read-only filesystem each have their own wording, and anything unmapped **keeps its original message rather than being given an invented one**.
+- **Connection failures too**: "Cannot reach 192.0.2.10:2222: the host refused the connection — check that its SSH service is listening on that port" replaces `ConnectionRefusedError: [Errno 111]`.
+
 ## [0.5.157] — 2026-08-09
 
 ### Fixed

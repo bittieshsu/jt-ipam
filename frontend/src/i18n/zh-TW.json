@@ -3211,6 +3211,21 @@
     "connect_to": "SFTP 連線到 {ip}",
     "enable_label": "啟用 SFTP 檔案傳輸",
     "enable_hint": "啟用後，具權限者可在此 IP 詳細資料頁開啟 SFTP 檔案瀏覽器。與 SSH 各自獨立：可以只開傳檔、不開終端機（權限強度相同，走同一條 SSH 連線）。",
-    "err_ws_closed": "連線在建立完成前就被關閉（代碼 {code}）。若這台是剛升級或自行架設反向代理的站台，多半是代理沒有把 WebSocket 升級標頭轉給後端 —— 請確認 nginx 的主控台 location 有列到 sftp。"
+    "err_ws_closed": "連線在建立完成前就被關閉（代碼 {code}）。若這台是剛升級或自行架設反向代理的站台，多半是代理沒有把 WebSocket 升級標頭轉給後端 —— 請確認 nginx 的主控台 location 有列到 sftp。",
+    "filter_ph": "篩選這個目錄…",
+    "filter_note": "篩選後顯示 {shown} 項，這個目錄共 {total} 項。",
+    "batch_selected": "已選 {n} 項",
+    "batch_download": "下載",
+    "batch_move": "移動",
+    "batch_delete": "刪除",
+    "batch_clear": "取消選取",
+    "batch_delete_confirm": "確定刪除選取的 {n} 項？此操作在遠端主機上執行，無法復原。",
+    "batch_move_prompt": "移動到哪個目錄？（輸入絕對路徑）",
+    "batch_no_files": "選取的項目裡沒有檔案 —— 資料夾不能直接下載。",
+    "batch_downloaded": "已下載 {n} 個檔案",
+    "batch_downloaded_skipped_dirs": "已下載 {n} 個檔案；略過 {dirs} 個資料夾（資料夾不能直接下載）",
+    "batch_deleted": "已刪除 {n} 項",
+    "batch_moved": "已移動 {n} 項到 {dir}",
+    "batch_partial_fail": "有幾項沒有成功：{names}"
   }
 }

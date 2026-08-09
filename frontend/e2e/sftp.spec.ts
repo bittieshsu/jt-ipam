@@ -5,7 +5,7 @@
  * 或下載下來少了幾個 chunk，兩者在畫面上看起來都一樣正常。
  */
 import { test, expect } from "@playwright/test";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,6 +53,85 @@ test("連線後可以列出遠端目錄", async ({ page }) => {
   // 含中文的檔名不可以變成亂碼
   expect(body, "中文檔名壞掉").toContain("readme-中文.txt");
   await page.screenshot({ path: "test-results/sftp-list.png" });
+});
+
+test("目錄與檔案的名稱要對齊（檔案左邊留同寬的空位）", async ({ page }) => {
+  await connect(page);
+  // 用量的，不用看的：曾經因為 emoji 寬度、以及 scoped CSS 套不到 render function
+  // 產生的元素，兩次都差了 16～17px，而截圖乍看之下很像對齊了
+  const rows = await page.locator(".sftp-name").all();
+  const xs: number[] = [];
+  for (const r of rows.slice(0, 6)) {
+    const box = await r.locator("span").last().boundingBox();
+    if (box) xs.push(Math.round(box.x));
+  }
+  expect(xs.length, "抓不到名稱欄").toBeGreaterThan(1);
+  expect(new Set(xs).size, `名稱起始位置不一致：${xs}`).toBe(1);
+});
+
+test("檔案操作區的版面：外框、狀態列在框外、控制項同高、按鈕都有 icon", async ({ page }) => {
+  await connect(page);
+  // 外框把「遠端主機的內容」框起來；狀態列講的是連線，刻意留在框外
+  const panel = await page.locator(".sftp-panel").boundingBox();
+  const status = await page.locator(".sftp-toolbar").boundingBox();
+  expect(panel && status, "抓不到面板或狀態列").toBeTruthy();
+  expect(status!.y + status!.height, "狀態列被包進框裡了").toBeLessThanOrEqual(panel!.y + 1);
+  const border = await page.locator(".sftp-panel")
+    .evaluate((e) => getComputedStyle(e).borderTopWidth);
+  expect(parseFloat(border), "面板沒有外框").toBeGreaterThan(0);
+
+  // 路徑欄與篩選欄同高（篩選欄曾經是 small，矮一截）
+  const pathH = (await page.locator(".sftp-pathbar .n-input").first().boundingBox())!.height;
+  const filtH = (await page.locator(".sftp-pathbar .n-input").last().boundingBox())!.height;
+  expect(Math.abs(pathH - filtH), `路徑欄 ${pathH} vs 篩選欄 ${filtH}`).toBeLessThanOrEqual(1);
+
+  // 這排按鈕每一顆都要有 icon
+  for (const name of [/上一層/, /重新整理/, /新增資料夾/, /上傳檔案/]) {
+    expect(await page.getByRole("button", { name }).first().locator("svg").count(),
+      `按鈕 ${name} 少了 icon`).toBeGreaterThan(0);
+  }
+});
+
+test("篩選只縮小目前目錄的清單，並說出篩掉了多少", async ({ page }) => {
+  await connect(page);
+  const total = await page.locator("tbody tr").count();
+  await page.getByPlaceholder(/篩選這個目錄/).fill("app.log");
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  // 只顯示一部分卻不說，會讓人以為目錄裡就只有這些
+  await expect(page.locator(".sftp-filter-note")).toContainText(String(total));
+  await page.getByPlaceholder(/篩選這個目錄/).fill("");
+  await expect(page.locator("tbody tr")).toHaveCount(total);
+});
+
+test("批次移動與批次刪除都真的作用在遠端", async ({ page }) => {
+  // 準備三個檔案 + 一個空的目的地資料夾，全部直接寫在遠端根目錄上。
+  // 目的地要先清空：留著上一輪搬過去的同名檔，這次的搬移會因為「已存在」而失敗，
+  // 而後面的 existsSync 又剛好是 true —— 測試會綠得毫無意義。
+  rmSync(`${SFTP_ROOT}/batch-dest`, { recursive: true, force: true });
+  mkdirSync(`${SFTP_ROOT}/batch-dest`, { recursive: true });
+  for (const n of ["b1.txt", "b2.txt", "b3.txt"]) {
+    writeFileSync(`${SFTP_ROOT}/${n}`, `x-${n}\n`, "utf-8");
+  }
+  await connect(page);
+
+  // 勾兩個 → 批次移動
+  for (const n of ["b1.txt", "b2.txt"]) {
+    await page.locator("tr", { hasText: n }).locator(".n-checkbox").first().click();
+  }
+  await expect(page.getByText(/已選 2 項/)).toBeVisible();
+  await page.evaluate(() => { window.prompt = () => "/batch-dest"; });
+  await page.getByRole("button", { name: "移動" }).click();
+  await expect(page.locator("table").getByText("b1.txt")).toBeHidden({ timeout: 20_000 });
+  expect(existsSync(`${SFTP_ROOT}/batch-dest/b1.txt`), "b1 沒有真的搬過去").toBe(true);
+  expect(existsSync(`${SFTP_ROOT}/batch-dest/b2.txt`), "b2 沒有真的搬過去").toBe(true);
+  expect(existsSync(`${SFTP_ROOT}/b1.txt`), "原位置還留著").toBe(false);
+
+  // 剩下的那個 → 批次刪除
+  await page.locator("tr", { hasText: "b3.txt" }).locator(".n-checkbox").first().click();
+  await page.getByRole("button", { name: "刪除", exact: true }).first().click();
+  await page.getByRole("button", { name: /確[定認]|是/ }).last().click();
+  await expect(page.locator("table").getByText("b3.txt")).toBeHidden({ timeout: 20_000 });
+  expect(existsSync(`${SFTP_ROOT}/b3.txt`), "b3 沒有真的刪掉").toBe(false);
 });
 
 test("可以進到子目錄再回上一層", async ({ page }) => {
