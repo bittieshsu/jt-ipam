@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.161] — 2026-08-10
+
+### Fixed (install; customer reports)
+- **Installing on a host that already runs PostgreSQL failed with `extension "vector" is not available`.** The installer picked the version apt could install (16), but jt-ipam connects to `127.0.0.1:5432` — the cluster that was **already there** (18, in this case). pgvector went to 16, so 18 never had it. The installer now asks the running cluster for its version and installs pgvector for that, and **no longer pulls a second server package** (which would create a second cluster on another port). A cluster below 16, or one with no matching pgvector available, now stops the install with a message that says so.
+- **A failed extension no longer passes silently.** The `psql` heredoc lacked `ON_ERROR_STOP`, so `CREATE EXTENSION vector` printed its error and still exited 0 — surfacing a hundred lines later as an alembic traceback. It now stops there and names the package to install.
+- **`/usr/local/bin/pnpm: No such file or directory`.** The pnpm install line sent npm's error to `/dev/null` with `|| true` and then fell back to a path that did not exist. It now keeps the output, tries three ways of installing pnpm, and verifies `pnpm --version` runs before continuing; on failure it prints what npm actually said plus the manual command.
+- **The installer no longer says "Done" when nothing is running.** Before finishing it checks the env file, the frontend dist, the service state, the listening port, and nginx in nginx mode — and lists whatever is missing.
+- **Direct TLS on port 443 now gets `CAP_NET_BIND_SERVICE` automatically** (whenever `--bind-port` is below 1024). Without it the unit starts and dies immediately with `Permission denied`, which reads like a certificate problem but is a port problem.
+
+### Documentation
+- **Does `--tls-mode self-signed` need nginx or apache? No.** The most frequently asked install question is now answered in INSTALL and the FAQ: that mode is a complete HTTPS service on its own and **listens on 8443 by default, not 443**, with commands to confirm it.
+- Added "how to use 443 instead" (including the privileged-port capability) and full steps for adding nginx later; plus a warning that a hand-written nginx config **must copy the WebSocket upgrade block**, or the consoles cannot connect and the browser shows only a bare 404.
+- FAQ entries for all three install failures, including how to recover on older versions.
+
+## [0.5.160] — 2026-08-10
+
+### Fixed
+- **A subnet with scanning enabled was never actually scanned** (customer report). Leaving the subnet's scan agent blank displayed "Local scan (jt-ipam host)" — but nothing in the backend schedules a local scan: the only entry point is a manual API call, and the frontend never calls it. The setting looked complete while liveness never updated.
+
+  Scanning now **always runs through an agent**:
+  - **Install and upgrade set up a scan agent on the jt-ipam host itself** (with the probe tools nmap / samba-common-bin / avahi-utils) and flag it as the local one. Idempotent: an existing agent is left alone, and its key is never re-issued (that would kick the running agent off); a failure here warns rather than failing the install.
+  - **Migration 0114** points existing subnets that had scanning enabled but no agent at the local agent, so an upgrade starts scanning them for real.
+  - The dropdown's blank option changed from "Local scan (jt-ipam host)" to **"(unassigned — will not be scanned)"**, and selecting it states plainly that the subnet will not be scanned and where to add an agent. The host's own agent is listed as "name (agent on the jt-ipam host)".
+
+  Worth stating outright: the probe checkboxes (ARP, reverse PTR, NetBIOS, mDNS, DHCP server detection, OS detection) have only ever been executed by an agent.
+
+### Added
+- `python -m app.cli.scan_agent ensure-local` — creates the local scan agent and prints its one-time key (used by the installer; leaves an existing one untouched).
+
 ## [0.5.159] — 2026-08-09
 
 ### Fixed

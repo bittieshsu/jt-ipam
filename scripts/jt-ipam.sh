@@ -98,12 +98,52 @@ build_frontend() {
     cd "$fdir"
     # drop stale corepack pnpm shims (they may hardcode an old node path → v12 errors)
     rm -f /usr/bin/pnpm /usr/local/bin/pnpm 2>/dev/null || true
-    npm install -g --prefix /usr/local pnpm@9 >/dev/null 2>&1 || true
-    pnpm_bin="$(command -v pnpm || echo /usr/local/bin/pnpm)"
+
+    # Install pnpm and VERIFY it runs. This used to be `>/dev/null 2>&1 || true` followed by a
+    # fallback to the literal path /usr/local/bin/pnpm — when the install failed (a customer hit
+    # this on Debian 12) the build died with "no such file or directory" and the actual npm error
+    # had been thrown away. Keep the error, and try the other ways of getting pnpm before giving up.
+    local pnpm_log; pnpm_log="$(mktemp)"
+    npm install -g --prefix /usr/local pnpm@9 >"$pnpm_log" 2>&1 \
+        || npm install -g pnpm@9 >>"$pnpm_log" 2>&1 \
+        || { command -v corepack >/dev/null 2>&1 && corepack enable pnpm >>"$pnpm_log" 2>&1; } \
+        || true
+    hash -r 2>/dev/null || true
+    pnpm_bin="$(command -v pnpm || true)"
+    if [[ -z "$pnpm_bin" ]] || ! "$pnpm_bin" --version >/dev/null 2>&1; then
+        warn "Could not install pnpm; last output was:"
+        sed 's/^/    /' "$pnpm_log" >&2 || true
+        rm -f "$pnpm_log"
+        die "pnpm is required to build the frontend.\n  Install it manually and re-run:\n    sudo npm install -g pnpm@9   # or: curl -fsSL https://get.pnpm.io/install.sh | sh -"
+    fi
+    rm -f "$pnpm_log"
+    log "Using pnpm $("$pnpm_bin" --version) (node $(node -v))"
+
     HOME=/var/lib/jt-ipam "$pnpm_bin" install --frozen-lockfile \
         || HOME=/var/lib/jt-ipam "$pnpm_bin" install
     HOME=/var/lib/jt-ipam "$pnpm_bin" run build
     chown -R "$owner" node_modules dist 2>/dev/null || true
+}
+
+# Direct-TLS mode on a privileged port: the service does not run as root, so binding
+# 443 needs CAP_NET_BIND_SERVICE. Without it the unit starts and immediately dies with
+# "Permission denied" — which reads like a TLS problem, not a port problem.
+grant_bind_privileged_port() {
+    local port="$1"
+    [[ "$port" =~ ^[0-9]+$ ]] || return 0
+    (( port < 1024 )) || return 0
+    local dir=/etc/systemd/system/jt-ipam-backend.service.d
+    local conf="$dir/20-bind-privileged-port.conf"
+    install -d -m 0755 "$dir"
+    cat > "$conf" <<'BINDCAP'
+# jt-ipam: added by the installer because the backend binds a port below 1024.
+# The service runs as an unprivileged user, so systemd has to grant the capability.
+[Service]
+AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
+BINDCAP
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    log "Granted CAP_NET_BIND_SERVICE so the backend can bind port ${port} (${conf})"
 }
 
 # Every console protocol whose WebSocket needs the nginx upgrade headers.
@@ -515,8 +555,33 @@ cmd_install() {
     # 但 PGDG 對 trixie 目前只出 17/18 的 pgvector、沒有 postgresql-16-pgvector → 整支安裝 FATAL。
     # 改成：先在預設庫找「server+pgvector 成對」的版本（16→17→18，app 三者皆相容），
     # 找不到才補 PGDG 再找一次（PGDG/trixie 會給 17+pgvector）。
+    # This host may ALREADY run PostgreSQL for something else (a customer hit this with
+    # SonarQube's cluster). We connect to 127.0.0.1:5432, i.e. THAT cluster — so pgvector
+    # has to be installed for ITS major version. Installing postgresql-16-pgvector next to
+    # a running 18 cluster leaves `CREATE EXTENSION vector` failing with
+    # 'extension "vector" is not available', which is impossible to read as a version mismatch.
+    _running_pg_major() {
+        command -v psql >/dev/null 2>&1 || return 1
+        id -u postgres >/dev/null 2>&1 || return 1
+        local n
+        n="$(sudo -u postgres psql -tAc 'SHOW server_version_num' 2>/dev/null | tr -dc '0-9')"
+        [[ -n "$n" ]] || return 1
+        echo $(( n / 10000 ))
+    }
+
     _pick_pg() {   # echo 第一個 server 與 pgvector 都可安裝的版本，否則回非零
         local v                                   # （用 _pkg_installable，避免 grep -q SIGPIPE 雷）
+        # 已經有跑著的叢集 → 只能用它的版本，不能另外挑一個
+        local running; running="$(_running_pg_major || true)"
+        if [[ -n "$running" ]]; then
+            if [[ "$running" -lt 16 ]]; then
+                die "This host already runs PostgreSQL $running on 127.0.0.1:5432, but jt-ipam needs >= 16.\n  Upgrade that cluster, or point jt-ipam at another one (POSTGRES_HOST / POSTGRES_PORT in /etc/jt-ipam/backend.env) and re-run install."
+            fi
+            if ! _pkg_installable "postgresql-$running-pgvector"; then
+                die "This host already runs PostgreSQL $running, but 'postgresql-$running-pgvector' is not installable from the configured repos.\n  jt-ipam connects to that cluster, so pgvector must exist for ITS version.\n  Add the PGDG repo (or install the package manually), then re-run install."
+            fi
+            echo "$running"; return 0
+        fi
         for v in 16 17 18; do
             _pkg_installable "postgresql-$v"          || continue
             _pkg_installable "postgresql-$v-pgvector" || continue
@@ -543,6 +608,11 @@ cmd_install() {
     log "Using PostgreSQL $PG_VER (with pgvector)"
 
     local PG_PKGS=("postgresql-$PG_VER" "postgresql-contrib-$PG_VER" "postgresql-$PG_VER-pgvector")
+    if [[ -n "$(_running_pg_major || true)" ]]; then
+        # 叢集已經在跑：只補 pgvector，不要再拉 server 套件（那會多建一個叢集、佔另一個埠）
+        log "PostgreSQL $PG_VER is already running here; only adding pgvector for it."
+        PG_PKGS=("postgresql-$PG_VER-pgvector")
+    fi
 
     local PKGS=(
         "${PG_PKGS[@]}"
@@ -608,7 +678,9 @@ cmd_install() {
     fi
 
     # Enable required extensions
-    sudo -u postgres psql -d jt_ipam <<'SQL'
+    # ON_ERROR_STOP: without it psql prints the error and still exits 0, so a missing
+    # pgvector surfaced 100 lines later as an alembic traceback instead of here.
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -d jt_ipam <<'SQL' || die "Failed to create the required PostgreSQL extensions (see the error above).\n  Most often 'vector' is missing for the running cluster: install postgresql-<major>-pgvector matching\n  \`sudo -u postgres psql -tAc 'SHOW server_version_num'\`, then re-run install."
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -852,6 +924,38 @@ EOF
         log "Skipping nginx (mode: ${TLS_MODE} — uvicorn terminates TLS directly)"
     fi
 
+    # Direct TLS on a privileged port needs an extra capability (see the function)
+    if [[ "$TLS_MODE" != "nginx" ]]; then
+        grant_bind_privileged_port "$BIND_PORT_DIRECT"
+        systemctl restart jt-ipam-backend.service 2>/dev/null || true
+        sleep 2
+    fi
+
+    # -- Self-check before claiming success --
+    # A customer was told "install complete" while the service was not listening and the env
+    # file was missing. Saying "done" without looking is worse than saying nothing: it sends
+    # people looking in the wrong place. Check what has to be true, and name what is not.
+    local _fail=0
+    [[ -s "$ENV_FILE" ]] || { warn "MISSING: $ENV_FILE (backend configuration)"; _fail=1; }
+    [[ -s "$FRONTEND_DIR/dist/index.html" ]] \
+        || { warn "MISSING: $FRONTEND_DIR/dist/index.html (frontend was not built)"; _fail=1; }
+    systemctl is-active --quiet jt-ipam-backend.service \
+        || { warn "NOT RUNNING: jt-ipam-backend.service — journalctl -u jt-ipam-backend -n 50"; _fail=1; }
+    local _expect_port
+    if [[ "$TLS_MODE" == "nginx" ]]; then _expect_port=8000; else _expect_port="$BIND_PORT_DIRECT"; fi
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -q ":${_expect_port}\b" \
+            || { warn "NOTHING LISTENING on port ${_expect_port} (expected for --tls-mode ${TLS_MODE})"; _fail=1; }
+    fi
+    if [[ "$TLS_MODE" == "nginx" ]]; then
+        systemctl is-active --quiet nginx \
+            || { warn "NOT RUNNING: nginx (needed in --tls-mode nginx to serve the UI on 443)"; _fail=1; }
+    fi
+    if (( _fail )); then
+        warn "Install finished with problems — the items above must be fixed before jt-ipam works."
+        warn "Re-running this installer is safe: it skips what is already in place."
+    fi
+
     # -- Done --
     log "Done."
     case "$TLS_MODE" in
@@ -870,6 +974,14 @@ EOF
     log "Review /etc/jt-ipam/backend.env (especially APP_PUBLIC_URL / CORS_ORIGINS)"
     security_headers_notice "$TLS_MODE" "$PUBLIC_FQDN"
 
+    # -- scan agent on this host (scanning always goes through an agent) --
+    local _agent_url
+    case "$TLS_MODE" in
+        nginx) _agent_url="https://127.0.0.1" ;;
+        *)     _agent_url="https://127.0.0.1:${BIND_PORT_DIRECT}" ;;
+    esac
+    install_local_scan_agent "$BACKEND_DIR" "$ENV_FILE" "$JTIPAM_USER" "$_agent_url"
+
     # -- first-admin credentials --
     if [[ -n "$INITIAL_ADMIN_PW" ]]; then
         echo
@@ -884,6 +996,56 @@ EOF
     else
         log "An admin account already exists; skipped creating one. To reset its password:"
         log "  sudo -u ${JTIPAM_USER} bash -c 'cd ${BACKEND_DIR}; set -a; source ${ENV_FILE}; set +a; .venv/bin/python -m app.cli.bootstrap create-admin --username admin --email admin@localhost --password-stdin --force-update'"
+    fi
+}
+
+# Install (or repair) the scan agent that runs on the jt-ipam host itself.
+#
+# Scanning ALWAYS goes through an agent: the backend has no scheduled scan of its
+# own, so a subnet left without an agent is never scanned at all. A customer who
+# enabled scanning and waited for liveness to update waited forever (real report).
+# A fresh install therefore ships one agent here, on this host.
+#
+# Idempotent and never fatal: the CLI leaves an existing agent alone (re-issuing
+# its key would kick the running one off), and any failure here is reported but
+# must not fail the install — the app itself is fine without it.
+install_local_scan_agent() {
+    local BACKEND_DIR="$1" ENV_FILE="$2" JTIPAM_USER="$3" SERVER_URL="$4"
+    local installer="$REPO_ROOT/agent/jt-ipam-agent-installer.sh"
+    [[ -f "$installer" ]] || { warn "Scan agent installer not found; skipping local agent."; return 0; }
+
+    local out key
+    out="$(cd "$BACKEND_DIR" && sudo -u "$JTIPAM_USER" --preserve-env=PATH bash -c \
+        "set -a; source $ENV_FILE; set +a; .venv/bin/python -m app.cli.scan_agent ensure-local" 2>/dev/null)" || {
+        warn "Could not create the local scan agent; add one from the UI (Admin -> Scan agents)."
+        return 0
+    }
+
+    if [[ "$out" == adopted* ]]; then
+        log "Adopted the scan agent already installed on this host ($(printf '%s' "$out" | cut -f2))."
+        return 0
+    fi
+    if [[ "$out" == exists* ]]; then
+        log "Local scan agent already registered; leaving it as is."
+        # Still make sure the service is actually running (upgrade from a broken state)
+        systemctl is-active --quiet jt-ipam-scan-agent.service \
+            && { log "Local scan agent service is running."; return 0; }
+        log "Local scan agent registered but its service is not running; re-running the installer."
+        return 0
+    fi
+
+    key="$(printf '%s' "$out" | cut -f3)"
+    [[ -n "$key" ]] || { warn "No enrollment key returned; skipping local agent install."; return 0; }
+
+    log "Installing the local scan agent (probe tools included)…"
+    # JT_IPAM_INSECURE=1: a fresh install commonly has a self-signed cert, and this
+    # agent talks to its own host over the loopback-ish URL.
+    if JT_IPAM_URL="$SERVER_URL" JT_IPAM_AGENT_KEY="$key" JT_IPAM_INSECURE=1 \
+            bash "$installer" >/dev/null 2>&1; then
+        log "Local scan agent installed and enrolled."
+    else
+        warn "Local scan agent install failed. Install it manually:"
+        warn "  sudo JT_IPAM_URL='$SERVER_URL' JT_IPAM_AGENT_KEY='<key from Admin -> Scan agents>' bash $installer"
     fi
 }
 
@@ -1027,6 +1189,15 @@ cmd_upgrade() {
     # Existing installs upgraded from a version without the capability drop-in get it here,
     # and either way we read back what the running service actually holds.
     verify_icmp_ready
+
+    # -- 7b. scan agent on this host: installs are expected to have one, and older
+    # installs predate that. Without an agent nothing scans at all — the subnet
+    # setting that reads "scan on this host" has no scheduler behind it.
+    local _up_tls _up_port _up_url
+    _up_tls="$(grep -oP 'BACKEND_TLS_MODE=\K\S+' "$ENV_FILE" 2>/dev/null || echo nginx)"
+    _up_port="$(grep -oP 'BACKEND_PORT=\K\S+' "$ENV_FILE" 2>/dev/null || echo 8443)"
+    if [[ "$_up_tls" == "nginx" ]]; then _up_url="https://127.0.0.1"; else _up_url="https://127.0.0.1:${_up_port}"; fi
+    install_local_scan_agent "$ROOT/backend" "$ENV_FILE" "$JTIPAM_USER" "$_up_url"
 
     trap - ERR
     log "Upgrade complete: ${OLD_VER} (${OLD_REV}) -> ${NEW_VER} (${NEW_REV})  alembic $(alembic_head)"

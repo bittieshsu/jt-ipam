@@ -158,13 +158,73 @@ sudo install -m 0640 -o root -g jtipam /path/to/your-key.pem  /etc/jt-ipam/tls/s
 # restart the service to apply (uvicorn reads --ssl-certfile/--ssl-keyfile at startup)
 sudo systemctl restart jt-ipam-backend
 
-# confirm the new cert is live (in direct mode the backend listens on 443 directly)
-openssl s_client -connect ipam.example.com:443 -servername ipam.example.com </dev/null 2>/dev/null \
+# confirm the new cert is live (for the port, see "Which port" below)
+openssl s_client -connect ipam.example.com:8443 -servername ipam.example.com </dev/null 2>/dev/null \
     | openssl x509 -noout -issuer -subject -dates
 ```
 
 > To regenerate a self-signed cert yourself: `sudo bash /opt/jt-ipam/scripts/generate-self-signed-cert.sh` then `systemctl restart jt-ipam-backend`.
-> To move from direct to an nginx reverse proxy: set `BACKEND_TLS_MODE=nginx` in `/etc/jt-ipam/backend.env`, install the nginx site, then restart the backend + reload nginx.
+
+#### Which port does it listen on? (**8443 by default, not 443**)
+
+In `self-signed` / `direct` mode uvicorn terminates TLS itself and **listens on 8443 by default** —
+the URL is `https://<your-fqdn>:8443/`. "Port 443 never came up" after an install is almost always
+this, not a failed install. The actual value lives in `BACKEND_BIND_PORT` in `/etc/jt-ipam/backend.env`.
+
+To use 443 without nginx:
+
+```bash
+# at install time (preferred: the installer also grants the capability needed for a privileged port)
+sudo ./scripts/jt-ipam.sh install --tls-mode self-signed --public-fqdn ipam.example.com --bind-port 443
+
+# on an existing install:
+sudo sed -i 's/^BACKEND_BIND_PORT=.*/BACKEND_BIND_PORT=443/' /etc/jt-ipam/backend.env
+sudo sed -i 's#^APP_PUBLIC_URL=.*#APP_PUBLIC_URL=https://ipam.example.com#' /etc/jt-ipam/backend.env
+sudo install -d /etc/systemd/system/jt-ipam-backend.service.d
+sudo tee /etc/systemd/system/jt-ipam-backend.service.d/20-bind-privileged-port.conf >/dev/null <<'EOF'
+[Service]
+AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart jt-ipam-backend
+```
+
+> The service does not run as root, so binding a port below 1024 **requires**
+> `CAP_NET_BIND_SERVICE`. Without it the unit starts and dies immediately with
+> `Permission denied`, which reads like a certificate problem but is a port problem.
+
+#### Do I need nginx in self-signed mode?
+
+**No.** `self-signed` / `direct` is a complete HTTPS service on its own; no web server required.
+Reasons to add nginx anyway: you want 443 without granting the service a capability, you share 443
+with other sites on the same host, or you want the reverse proxy's hardened headers (see 2.7).
+If you do, **switch to nginx mode** rather than putting TLS in front of TLS:
+
+```bash
+sudo apt install -y nginx
+
+# 1) backend back to loopback + plain HTTP (nginx terminates TLS)
+sudo sed -i 's/^BACKEND_TLS_MODE=.*/BACKEND_TLS_MODE=nginx/' /etc/jt-ipam/backend.env
+sudo sed -i 's/^BACKEND_BIND_PORT=.*/BACKEND_BIND_PORT=8000/' /etc/jt-ipam/backend.env
+sudo sed -i 's#^APP_PUBLIC_URL=.*#APP_PUBLIC_URL=https://ipam.example.com#' /etc/jt-ipam/backend.env
+
+# 2) install the nginx site (replace the template server_name with your FQDN)
+sudo install -d -m 0755 /etc/nginx/snippets
+sudo install -m 0644 /opt/jt-ipam/deploy/nginx/jt-ipam-proxy.conf /etc/nginx/snippets/jt-ipam-proxy.conf
+sudo sed 's/ipam\.example\.com/ipam.example.com/g' /opt/jt-ipam/deploy/nginx/jt-ipam.conf \
+    | sudo tee /etc/nginx/sites-available/jt-ipam >/dev/null
+sudo ln -sf /etc/nginx/sites-available/jt-ipam /etc/nginx/sites-enabled/jt-ipam
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# 3) certificates where nginx can read them — the template reads
+#    /etc/jt-ipam/tls/server.crt and server.key (the existing self-signed pair works)
+
+sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload nginx
+```
+
+> The bundled nginx template already contains the WebSocket upgrade block the consoles need
+> (SSH / SFTP / RDP / VNC / noVNC / BMC). **If you write your own config, copy that block** —
+> without the upgrade headers the consoles cannot connect and the browser shows only a bare 404.
 
 ### 2.7 Production standard: hardened nginx reverse proxy
 
@@ -530,6 +590,59 @@ Decide for yourself whether to keep the backups (`/var/backups/jt-ipam/`).
 ---
 
 ## 9. FAQ
+
+**Q: I installed with `--tls-mode self-signed`. Do I still need nginx or apache?**
+A: **No.** In this mode uvicorn terminates TLS itself; the install is already a complete HTTPS
+service with no web server involved. The URL is `https://<your-fqdn>:8443/` (**8443 by default,
+not 443**). To confirm:
+
+```bash
+sudo systemctl status jt-ipam-backend        # expect active (running)
+sudo ss -ltnp | grep 8443                    # expect uvicorn listening
+curl -kI https://127.0.0.1:8443/             # expect HTTP/1.1 200
+```
+
+To move to 443, or to add nginx later, see 2.6 "Which port" and "Do I need nginx".
+
+**Q: The install stopped at `extension "vector" is not available`, but postgresql-16-pgvector is installed?**
+A: This host most likely **already runs a PostgreSQL cluster** (from SonarQube, GitLab, …).
+jt-ipam connects to `127.0.0.1:5432`, i.e. that existing cluster, so pgvector has to be installed
+for **its** major version — installing it for another version has no effect:
+
+```bash
+sudo -u postgres psql -tAc 'SHOW server_version_num'   # e.g. 180004 → major 18
+sudo apt install -y postgresql-18-pgvector
+sudo -u postgres psql -d jt_ipam -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+```
+
+> Since v0.5.161 the installer detects the running cluster's version, installs the matching
+> pgvector, no longer pulls a second server package (which would create a second cluster), and
+> stops with a readable message if extension creation fails instead of surfacing it later as an
+> alembic traceback.
+
+**Q: The install stopped at `/usr/local/bin/pnpm: No such file or directory`?**
+A: pnpm failed to install and the older script discarded npm's error. Install it and re-run
+(the installer is safe to re-run; completed steps are skipped):
+
+```bash
+sudo npm install -g pnpm@9      # or: curl -fsSL https://get.pnpm.io/install.sh | sh -
+sudo ./scripts/jt-ipam.sh install --tls-mode self-signed --public-fqdn ipam.example.com
+```
+
+> Since v0.5.161 the script keeps npm's output, tries three ways of getting pnpm, and verifies
+> `pnpm --version` runs before continuing.
+
+**Q: The installer said "Done" but nothing is running?**
+A: Since v0.5.161 the installer self-checks before saying so (env file, frontend dist, service
+state, listening port, and nginx in nginx mode) and lists whatever is missing. On older versions,
+check by hand:
+
+```bash
+ls -l /etc/jt-ipam/backend.env                 # configuration present?
+ls -l /opt/jt-ipam/frontend/dist/index.html    # frontend built?
+sudo systemctl status jt-ipam-backend
+sudo journalctl -u jt-ipam-backend -n 50 --no-pager
+```
 
 **Q: backend won't start, journal shows "ENCRYPTION_KEY: invalid format"?**
 A: ENCRYPTION_KEY must be 32-byte base64 (44 chars ending in `=`). The installer generates it;

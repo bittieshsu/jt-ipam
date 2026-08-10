@@ -16,6 +16,7 @@ import {
   NButton,
   NIcon,
   NPopover,
+  NAlert,
   useMessage,
 } from "naive-ui";
 import {
@@ -63,6 +64,8 @@ const allSubnets = ref<Subnet[]>([]);
 // 掃描代理下拉的「本機直接掃」哨兵值（對應後端 scan_agent_id=null）；與真正的代理 UUID 區分
 const LOCAL_SCAN = "__local__";
 const scanAgentOpts = ref<{ label: string; value: string }[]>([]);
+/** 本機（jt-ipam 主機）上那個代理，安裝時自動建立；沒有就是沒裝。 */
+const localAgent = ref<{ id: string; name: string; last_seen_at: string | null } | null>(null);
 const agentAvail = ref<Record<string, string[]>>({});
 // 代理端「管理員有開啟」的探測。三層模型：代理能力 ∩ **代理啟用** ∩ 子網路要跑。
 // 少了中間這層，會出現「子網路勾了、代理也做得到，但伺服器在 poll 時就把它濾掉」——
@@ -150,9 +153,17 @@ async function loadAuxOpts() {
   } catch { /* silent */ }
   try {
     const ag = await listScanAgents();
+    const local = ag.items.find((a) => a.is_local);
+    localAgent.value = local
+      ? { id: local.id, name: local.name, last_seen_at: local.last_seen_at }
+      : null;
     scanAgentOpts.value = [
-      { label: t("subnets.scan_agent_local"), value: LOCAL_SCAN },
-      ...ag.items.map((a) => ({ label: a.name, value: a.id })),
+      // 「不指派」是誠實的說法：掃描一律走代理，沒指派就是不會掃
+      { label: t("subnets.scan_agent_none"), value: LOCAL_SCAN },
+      ...ag.items.map((a) => ({
+        label: a.is_local ? t("subnets.scan_agent_local_named", { name: a.name }) : a.name,
+        value: a.id,
+      })),
     ];
     // 記錄每個代理「實際能跑」的探測（available_probes）→ 子網路勾選時據此反灰不支援項
     agentAvail.value = Object.fromEntries(
@@ -411,9 +422,21 @@ async function submit() {
         </n-space>
       </n-form-item>
       <n-form-item v-if="form.scan_enabled" :label="t('subnets.scan_agent')">
-        <n-select v-model:value="form.scan_agent_id" :options="scanAgentOpts"
-                  clearable
-                  :placeholder="t('subnets.scan_agent_ph')" />
+        <n-space vertical :size="6" style="width:100%">
+          <n-select v-model:value="form.scan_agent_id" :options="scanAgentOpts"
+                    clearable
+                    :placeholder="t('subnets.scan_agent_ph')" />
+          <!-- 沒有指派代理＝不會掃。這一點原本完全看不出來：畫面寫「本機直接掃」，
+               但後端沒有任何排程會去執行它，客戶開了掃描卻永遠等不到結果。 -->
+          <n-alert v-if="!form.scan_agent_id || form.scan_agent_id === LOCAL_SCAN"
+                   type="warning" :show-icon="false" :bordered="false">
+            {{ t("subnets.scan_agent_none_hint") }}
+          </n-alert>
+          <!-- 本機根本沒裝代理 → 直接給安裝指引，不要讓人自己猜 -->
+          <n-alert v-else-if="!localAgent" type="info" :show-icon="false" :bordered="false">
+            {{ t("subnets.scan_agent_no_local_hint") }}
+          </n-alert>
+        </n-space>
       </n-form-item>
       <n-form-item :label="t('subnets.threshold_pct')">
         <n-input-number v-model:value="form.threshold_pct" :min="0" :max="100" clearable

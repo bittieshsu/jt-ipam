@@ -56,6 +56,8 @@ export interface ScanAgent {
   description: string | null;
   agent_url: string | null;
   enabled: boolean;
+  /** 跑在 jt-ipam 主機上的那一個（安裝時自動建立） */
+  is_local: boolean;
   has_key: boolean;
   agent_version: string | null;
   server_agent_version: string | null;

@@ -78,6 +78,8 @@ class ScanAgentRead(StrictModel):
     description: str | None
     agent_url: str | None
     enabled: bool
+    # 跑在 jt-ipam 主機上的那一個（安裝時自動建立）—— UI 靠它判斷「本機有沒有代理」
+    is_local: bool = False
     has_key: bool = False
     agent_version: str | None = None
     server_agent_version: str | None = None   # server 端 agent.py 版本；UI 比對標「可更新」
