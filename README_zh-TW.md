@@ -1,4 +1,4 @@
-# jt-ipam v0.5.165
+# jt-ipam v0.5.166
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -161,6 +161,14 @@ curl -fsSL https://raw.githubusercontent.com/jasoncheng7115/jt-ipam/main/scripts
 升級：`sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade`（**腳本內含 `git pull`**，直接跑即可），接著備份 → 相依 → alembic → build → 重啟。詳見 [`docs/INSTALL.md`](docs/INSTALL.md)。
 
 > **選用：Docker Compose。** 另有一條次要部署路徑在 [`deploy/docker/`](deploy/docker/)（`./gen-env.sh` 後 `docker compose up -d --build`；之後用 `./update.sh` 升版）。主力且完整支援的仍是 systemd + apt。
+
+### 裝好了但怪怪的？先跑健檢
+
+```bash
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor
+```
+
+一次檢查設定檔、後端有沒有真的回應、資料庫與 pgvector、資料庫版本是否到最新、前端版本是否與後端一致、排程與備份目錄、最近一次同步結果、本機掃描代理。**每個檢查不到的項目都會直接印出可以照著執行的修法**（`→` 開頭那行），不必先讀 log 猜原因。回報問題時附上這份輸出最省時間。
 
 ### 首次登入與重置管理員密碼
 

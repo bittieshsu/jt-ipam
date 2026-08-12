@@ -400,14 +400,15 @@ const allCols = computed<DataTableColumns<Device>>(() => [
     sorter: (a, b) => (a.fqdn ?? "").localeCompare(b.fqdn ?? ""),
   },
   {
-    title: t("devices.type"), key: "type",
+    // 給足寬度：最長的標籤是「無線基地台 (AP)」，沒有寬度時會溢出、壓到隔壁的「虛實」
+    title: t("devices.type"), key: "type", width: 148,
     render: (r) => h(NTag, { size: "small", type: "info" }, () => t(`devices.type_${r.type}`)),
     sorter: (a, b) => a.type.localeCompare(b.type),
   },
   {
     // 虛擬 / 實體：同步進來的虛擬機在清單上與實體機長得一模一樣，
     // 分不出來的話，「這台可以斷電維護嗎」這種問題就得逐台去查。
-    title: t("devices.virtuality"), key: "is_virtual",
+    title: t("devices.virtuality"), key: "is_virtual", width: 92,
     render: (r) => h(NTag, { size: "small", type: r.is_virtual ? "warning" : "default",
                              bordered: false },
       () => t(r.is_virtual ? "devices.virtual" : "devices.physical")),
@@ -453,7 +454,10 @@ const allCols = computed<DataTableColumns<Device>>(() => [
     sorter: (a, b) => customerLabelFor(a.customer_id).localeCompare(customerLabelFor(b.customer_id)),
   },
   {
-    title: t("common.actions"), key: "actions", className: "col-actions", width: 136,
+    // 釘在右側 + 放得下四顆（連結 IP／檢視／編輯／刪除）：欄位一多表格就橫向溢出，
+    // 最後一顆會被推到可視範圍外（實機回報「刪除鈕跑出右邊」）。
+    title: t("common.actions"), key: "actions", className: "col-actions",
+    width: 172, fixed: "right",
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
       ...(r.ip_match_id ? [iconAction(LinkIcon, t("devices.link_matching_ip"), () => linkMatchingIp(r), "primary")] : []),
       iconAction(EyeIcon, t("common.view"),

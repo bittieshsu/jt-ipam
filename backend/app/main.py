@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 log.info("ai_chat_history_purged", removed=removed, retention_days=days)
     except Exception as exc:
         log.warning("ai_chat_purge_failed", error=str(exc))
-    # 啟動時確保內建角色存在（冪等）
+    # 啟動時確保內建角色存在（冪等，且函式內以 advisory lock 擋多 worker 同時 seed 的競態）
     try:
         from app.core.db import SessionLocal
         from app.services.permission import seed_default_roles
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 log.info("default_roles_seeded", created=n)
     except Exception as exc:
         log.warning("seed_default_roles_failed", error=str(exc))
-    # 啟動時確保內建電路類型存在（表為空才塞，冪等）
+    # 啟動時確保內建電路類型存在（表為空才塞，冪等；同樣在函式內排隊）
     try:
         from app.api.v1.endpoints.advanced import seed_default_circuit_types
         from app.core.db import SessionLocal

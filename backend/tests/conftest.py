@@ -135,6 +135,18 @@ async def db_session(_engine):  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture
+def session_factory(_engine):  # type: ignore[no-untyped-def]
+    """可開「多個各自獨立連線」的 session 工廠。
+
+    給需要模擬並行的測試用（例如多個 uvicorn worker 同時啟動時的 seed 競態）——
+    共用同一個 session 模擬不出競態，那只是同一條連線上的循序操作。
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    return async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@pytest.fixture
 async def client():  # type: ignore[no-untyped-def]
     """FastAPI httpx async client；endpoint 用真正的 get_session。"""
     from httpx import ASGITransport, AsyncClient

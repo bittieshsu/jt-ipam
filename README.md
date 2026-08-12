@@ -1,4 +1,4 @@
-# jt-ipam v0.5.165
+# jt-ipam v0.5.166
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -167,6 +167,14 @@ The script installs `postgresql-16` / `python3.12` / `nginx` / `redis`, creates 
 Upgrade an existing install with `sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade` — **the script runs `git pull` itself**, then backup → deps → alembic → build → restart. See [`docs/INSTALL.md`](docs/INSTALL.md).
 
 > **Optional: Docker Compose.** A secondary deploy path lives in [`deploy/docker/`](deploy/docker/) (`./gen-env.sh` then `docker compose up -d --build`; update later with `./update.sh`). systemd + apt remains the primary, fully-supported method.
+
+### Installed, but something looks off? Run the health check
+
+```bash
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor
+```
+
+It checks the configuration file, whether the backend actually answers, the database and its `pgvector` extension, whether the schema is at the latest revision, whether the built frontend matches the backend version, the timers and the backup directory, the last sync result, and the local scan agent. **Anything it can't confirm comes with a command you can copy and run** (the `→` line) — no log archaeology required. Including this output makes a bug report much faster to act on.
 
 ### First login & resetting the admin password
 

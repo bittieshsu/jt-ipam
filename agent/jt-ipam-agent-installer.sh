@@ -2,7 +2,7 @@
 # jt-ipam scan agent one-line installer (systemd, no Docker).
 #
 # Usage:
-#   sudo JT_IPAM_URL=https://192.0.2.10 JT_IPAM_AGENT_KEY=<key> ./jt-ipam-agent-installer.sh
+#   sudo JT_IPAM_URL=https://ipam.example.com JT_IPAM_AGENT_KEY=<key> ./jt-ipam-agent-installer.sh
 # Optional:
 #   JT_IPAM_INTERVAL=300   JT_IPAM_INSECURE=1   (set 1 for self-signed server cert)
 #
@@ -14,7 +14,7 @@ DEST=/opt/jt-ipam-agent
 SVC=jt-ipam-scan-agent
 ENVFILE=/etc/jt-ipam-agent.env
 
-: "${JT_IPAM_URL:?JT_IPAM_URL is required, e.g. https://192.0.2.10}"
+: "${JT_IPAM_URL:?JT_IPAM_URL is required, e.g. https://ipam.example.com}"
 : "${JT_IPAM_AGENT_KEY:?JT_IPAM_AGENT_KEY is required (get it when creating an agent in jt-ipam)}"
 JT_IPAM_INTERVAL="${JT_IPAM_INTERVAL:-300}"
 JT_IPAM_INSECURE="${JT_IPAM_INSECURE:-}"

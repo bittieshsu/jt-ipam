@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.166] — 2026-08-12
+
+### Added
+- **`jt-ipam.sh doctor`, a one-command health check.** It checks the configuration file, whether the backend actually answers, the database and its `pgvector` extension, whether the schema is at the latest revision, whether the built frontend matches the backend version, the timers and the backup directory, the last sync result, and the local scan agent. **Anything it can't confirm comes with a command you can copy and run**, so nobody has to go log-hunting first; attaching its output is enough to open a useful bug report. (It deliberately decides "is the service up?" by connecting rather than by looking for a bound port — minimal images often lack `iproute2`, so an `ss`-based check reports a failure while the service is fine, and a diagnostic that lies is worse than no diagnostic.)
+- **`scripts/test-fresh-install.sh` runs a real first-time install in a clean-OS container** and verifies the parts that only ever break at a customer site: the backend answers, the backup and sync timers actually reach `Result=success`, the backup unit self-heals when its directory is deleted, and `doctor` comes back clean. It is now a required release step (TEST_CHECKLIST 5b). **Install bugs cannot reproduce on a machine that is already installed** — every install failure customers reported had that in common.
+
+### Fixed
+- **A fresh install in nginx mode was unreachable from a browser** (found by the container test above, before any customer hit it). The installer only ever ran `systemctl reload nginx` — and reload against a service that was never started just prints `nginx.service is not active, cannot reload` and moves on, with the exit status swallowed. The config was written, the certificate was in place and the backend was healthy, but nginx had never been started and was not enabled at boot, so **nothing served the UI**. A single function now handles it: test the config, enable it at boot, start or reload as appropriate, and **verify it is actually running** — saying plainly that jt-ipam is unreachable until it is.
+- **Neither the health check nor the install test treats `/healthz` as end-to-end evidence any more**: the nginx site answers that path itself with a static `return 200 "ok"`, so it stays green with the backend completely stopped — it only ever proved nginx was alive. Both now request a route that has to be proxied (an unauthenticated 401 counts as "the backend answered"; a dead backend gives 502).
+- **A fresh install logged a red `duplicate key ... uq_groups_name` exception on first start.** Seeding the built-in roles and circuit types is idempotent, but **uvicorn starts several workers at once**: four processes see an empty table simultaneously, all INSERT, and the losers hit the unique constraint. Nothing was actually broken — the winner had already seeded — but the first thing a customer saw in the log looked like a failed install. The seed functions now take a PostgreSQL advisory lock so callers queue up (the lock lives with the invariant it protects, so every call path is covered). **Idempotent is not the same as concurrency-safe**; there is now a regression test that really does run them concurrently.
+- **The backup service failed the first time it ran after a fresh install** (reported by a customer on Debian 12). `jt-ipam-backup.service` listed `/var/backups/jt-ipam` in `ReadWritePaths` before anything created it, and systemd refuses to start with `226/NAMESPACE` — an error that names nothing about the actual cause, leaving the customer to create the directory by hand. Install and upgrade now create the directories the units need, and the unit itself no longer fails when one is missing.
+- **`pgvector` was installed for the wrong PostgreSQL major** when the host already had a cluster on a different version, so the database connected but the extension was absent (which shows up as semantic search and AI features quietly returning nothing). The installer now detects the **running** cluster's major and installs the matching `postgresql-N-pgvector`.
+- **A failing frontend dependency install was swallowed**, so the installer finished with no usable frontend. It now shows the full output, verifies the build artifacts afterwards, and stops with a clear message if either step failed.
+
+### Changed
+- **SFTP's new folder, rename and move now use in-app dialogs** rather than the browser's `window.prompt`. A native prompt looks like a system warning, ignores the theme, and leaves nowhere for guidance or validation.
+- **Move offers both a path field and a clickable directory browser**: type an absolute path at the top, or walk the directory list below (directories only, since a file cannot be a destination). The button states the destination outright — "Move here: /some/path". An empty level says so rather than looking broken.
+- **Large directories are paginated** instead of being truncated with "showing part of it". The listing cap went from 2000 to 20000 entries (paginating removed the reason it was kept low); beyond that it still truncates, and still says so.
+
+### Fixed
+- **In the device list the type tag overlapped the physical/virtual column, and the delete button sat past the table's right edge.** The type column had no width (its longest label is "Wireless AP") and the actions column had 136px for four buttons and was not pinned. Same family as the scan-agent page, and the same fix: enough width plus `fixed: right`.
+
+### Tests
+- The SFTP e2e specs drive the real dialogs now, and assert that **no native browser dialog appears** — reintroducing `window.prompt` turns them red.
+- Fixed two races in the tests themselves: with a fixed filename, a leftover file from the previous run made "the row is in the table" true before the drop even happened, so the test read the file mid-write and got an empty string. Filenames are now unique per run.
+
 ## [0.5.165] — 2026-08-12
 
 ### Fixed (**major: several integrations had not run at all since v0.5.150**)

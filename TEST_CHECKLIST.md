@@ -57,12 +57,29 @@ Release flow: run the checklist → all green → bump version → deploy
 
 ## 5b. Deploy-script flows (throwaway environment, **never run install on dev/prod**)
 
-- [ ] **Fresh install**: on a clean LXC/VM run `scripts/install-debian.sh`; the
-  service comes up and you can log in
+Every install problem customers have reported was invisible on an already-working
+box, because there the thing is already there: a pre-existing PostgreSQL cluster
+on a different major (so `pgvector` got installed for the wrong one), a `pnpm
+install` that failed silently and left no frontend, an installer that printed
+"Done" while nothing was running, and a backup unit whose `ReadWritePaths`
+directory did not exist yet — which systemd reports as `226/NAMESPACE`, an error
+that names nothing about the actual cause. **A clean-OS install is the only way
+to see what a customer sees.**
+
+- [ ] **Fresh install from a clean OS — required**: `scripts/test-fresh-install.sh
+  debian:12` exits 0. It starts a throwaway systemd container, copies the tree in,
+  runs `scripts/jt-ipam.sh install`, then checks the things that only break in the
+  field: the backend *answers* on its port, `jt-ipam-backup` and `jt-ipam-sync`
+  actually run to `Result=success`, the backup unit survives its directory being
+  deleted, and `doctor` agrees with reality
+- [ ] Run it for **the oldest supported distro and the newest** (`debian:12`,
+  `ubuntu:24.04`); PG-major and Node-version differences live there
 - [ ] **Upgrade**: against a previous-version environment run
-  `scripts/jt-ipam-upgrade.sh`; it upgrades cleanly and can roll back if needed
+  `scripts/jt-ipam.sh upgrade`; it upgrades cleanly and can roll back if needed
 - [ ] If this release added a directory / package / service / DB extension / env,
-  confirm **both scripts are in sync**
+  confirm **`install` and `upgrade` are both in sync** — and that `doctor` checks it
+- [ ] **`scripts/jt-ipam.sh doctor` on prod after deploying**: every line green, or
+  the `→ fix` line is one a customer could follow without asking us
 - [ ] **(A) Default admin credentials**: fresh install prints the `admin` account +
   random password at the end and saves it to `/etc/jt-ipam/.admin-initial-password`
   (root 0600); that password logs in

@@ -19,7 +19,7 @@ running copy, the agent downloads the new agent.py, overwrites itself and re-exe
 每個探測的「上次執行時間」存在記憶體裡，依此節流。
 
 Environment variables:
-  JT_IPAM_URL        e.g. https://192.0.2.10      (required)
+  JT_IPAM_URL        e.g. https://ipam.example.com    (required)
   JT_IPAM_AGENT_KEY  enrollment key from the agent page (required)
   JT_IPAM_INTERVAL   fallback fast-loop seconds if server omits interval_seconds, default 300
   JT_IPAM_INSECURE   =1 to skip TLS verification (self-signed server)

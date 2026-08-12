@@ -52,9 +52,12 @@ ensure_node() {
     fi
     if [[ -n "${SUDO_USER:-}" ]]; then
         local h nb
-        # ⚠️ `set -e` + `pipefail`：`var=$(pipeline)` 若 pipeline 失敗，整個賦值就失敗 → 腳本「靜默」
-        # 結束（無錯誤訊息）。這裡 find 對不存在的 ~/.nvm 會非零、`| head` 也可能 SIGPIPE 上游 →
-        # 一定要 `|| true`。客戶 Debian 13 安裝「印完 Building frontend… 就回到提示字元」的真凶就是這行。
+        # WARNING: with `set -e` + `pipefail`, `var=$(pipeline)` fails the whole
+        # assignment when the pipeline fails, so the script exits SILENTLY with no
+        # error at all. Here `find` returns non-zero when ~/.nvm does not exist, and
+        # `| head` can SIGPIPE its upstream -- hence the mandatory `|| true`. This one
+        # line was why a customer's Debian 13 install printed "Building frontend..."
+        # and dropped straight back to the prompt.
         h=$(getent passwd "$SUDO_USER" | cut -d: -f6 || true)
         nb=$(find "$h/.nvm/versions/node" -maxdepth 2 -name node -type f 2>/dev/null | sort -Vr | head -1 || true)
         if [[ -n "$nb" ]] && [[ "$("$nb" -v 2>/dev/null | sed 's/^v//; s/\..*//')" -ge 18 ]]; then
@@ -146,6 +149,17 @@ BINDCAP
     log "Granted CAP_NET_BIND_SERVICE so the backend can bind port ${port} (${conf})"
 }
 
+
+# Directories that sandboxed units reference must exist before the unit starts.
+# With ProtectSystem=strict + ReadWritePaths=<dir>, a missing <dir> makes systemd fail at
+# namespace setup with 226/NAMESPACE and the message "Failed at step NAMESPACE spawning
+# <ExecStart>: No such file or directory" — which reads as "the script is missing" and sends
+# people looking in the wrong place entirely (a customer lost time to exactly this).
+ensure_unit_dirs() {
+    install -d -m 0700 /var/backups/jt-ipam 2>/dev/null || true
+    install -d -m 0755 /etc/jt-ipam 2>/dev/null || true
+}
+
 # Every console protocol whose WebSocket needs the nginx upgrade headers.
 # Adding a protocol here is the ONLY place to change: both the fresh-install
 # template check and the upgrade patch below are derived from it.
@@ -156,6 +170,33 @@ BINDCAP
 # That is exactly how SFTP shipped broken in 0.5.155.
 WS_PROTOCOLS='ssh|sftp|rdp|vnc|novnc|bmc'
 WS_LOCATION_LINE="location ~ ^/api/v1/addresses/[0-9a-fA-F-]+/(${WS_PROTOCOLS})/ws\$ {"
+
+# Apply an nginx config change: test it, make sure nginx is actually RUNNING and
+# enabled at boot, then pick reload or start as appropriate.
+#
+# Why this is a function and not an inline `systemctl reload nginx`: reload on a
+# stopped unit does nothing except print "nginx.service is not active, cannot
+# reload" -- and, since the message goes by in a wall of install output and the
+# exit status is swallowed, a fresh install could finish with a fully configured
+# nginx that had never been started and was not enabled at boot. Everything looked
+# installed; the product was simply unreachable. Caught by scripts/test-fresh-install.sh.
+apply_nginx_config() {
+    if ! nginx -t >/dev/null 2>&1; then
+        warn "nginx config test failed; leaving the running config alone. Check: sudo nginx -t"
+        return 1
+    fi
+    systemctl enable nginx >/dev/null 2>&1 || true
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx || systemctl restart nginx || true
+    else
+        systemctl start nginx || true
+    fi
+    if systemctl is-active --quiet nginx; then
+        return 0
+    fi
+    warn "nginx did not start. jt-ipam is unreachable until it does -- check: systemctl status nginx"
+    return 1
+}
 
 # Idempotently add WebSocket upgrade support (consoles) to an EXISTING nginx
 # site on upgrade. Fresh installs already ship the correct template; upgrade
@@ -183,8 +224,7 @@ patch_nginx_websocket() {
         awk -v repl="    ${WS_LOCATION_LINE}" \
             '/location ~ \^\/api\/v1\/addresses\/\[0-9a-fA-F-\]\+\/.*\/ws\$/ { print repl; next } { print }' \
             "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
-        if nginx -t >/dev/null 2>&1; then
-            systemctl reload nginx 2>/dev/null || true
+        if apply_nginx_config; then
             log "nginx WebSocket location widened (${WS_PROTOCOLS}) + reloaded."
         else
             warn "nginx -t failed after widening WS location; restoring previous config."
@@ -230,8 +270,7 @@ patch_nginx_websocket() {
       { print }
     ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
 
-    if nginx -t >/dev/null 2>&1; then
-        systemctl reload nginx 2>/dev/null || true
+    if apply_nginx_config; then
         log "nginx WebSocket patch applied + reloaded."
     else
         warn "nginx -t failed after WebSocket patch; restoring previous config."
@@ -264,6 +303,7 @@ Commands:
                  --tls-mode {nginx|direct|self-signed}   (default nginx)
                  --public-fqdn <fqdn>                     (default ipam.example.com)
                  --bind-port <port>                       (for direct/self-signed, default 8443)
+  doctor       check a running install and print an exact fix for anything wrong
   upgrade      upgrade existing install (git pull -> backup -> pip -> alembic -> build -> restart)
                  --no-pull                                skip git pull
                  --force                                  discard local changes to tracked files (e.g. an edited
@@ -489,26 +529,33 @@ cmd_install() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
 
-    # 最小化容器（如乾淨 Debian 12 / Ubuntu LXC）常缺這些基礎工具：
-    #  - curl / gpg / ca-certificates：「加 PGDG repo」那步（curl | gpg）在裝主要套件清單前就會用到；
-    #    Debian 12 預設無 PG16、必走 PGDG，不先補齊會在加 repo 時直接失敗。
-    #  - sudo：後面 PostgreSQL 設定全用 `sudo -u postgres psql …`，最小化 Debian 容器常無 sudo
-    #    → `sudo: command not found`（客戶回報手動補 PG 後卡住的第二關多半是這個）。
+    # Minimal images (a clean Debian 12 or an Ubuntu LXC) are missing these basics:
+    #  - curl / gpg / ca-certificates: the "add the PGDG repo" step (curl | gpg) runs
+    #    BEFORE the main package list is installed. Debian 12 has no PG16 by default,
+    #    so PGDG is unavoidable and this step fails outright without them.
+    #  - sudo: all the PostgreSQL setup below goes through `sudo -u postgres psql ...`,
+    #    and minimal Debian containers frequently have no sudo -> `sudo: command not
+    #    found`. This is usually the second wall customers hit after installing PG.
     apt-get install -y -qq ca-certificates curl gnupg sudo
 
     ensure_runtime_deps
     ensure_icmp_capability
 
-    # 套件是否可安裝：用命令替換、**不要** `apt-cache madison X | grep -q .`。
-    # 在 `set -o pipefail` 下，madison 對「有多個候選版本」的套件（如 Debian 13 的 postgresql-17
-    # 同時有 17.10 安全更新與 17.9）會輸出多行，`grep -q` 命中第一行就關閉管線 → 上游 apt-cache 寫
-    # 第二行時收到 SIGPIPE(141) → pipefail 把整條管線判失敗 → 套件「明明有」卻被當成沒有。這正是
-    # 客戶 Debian 13 native PG17 沒被選到、白繞 PGDG 又 FATAL 的真正主因（單一版本的發行版只有一行、
-    # 不會 SIGPIPE，所以一直沒被發現）。命令替換會把 stdout 全收完，無管線、不會 SIGPIPE。
+    # Is a package installable? Use command substitution -- NOT `apt-cache madison X
+    # | grep -q .`. Under `set -o pipefail`, madison prints several lines for packages
+    # with multiple candidates (Debian 13's postgresql-17 has both the 17.10 security
+    # update and 17.9). `grep -q` closes the pipe on the first match, apt-cache gets
+    # SIGPIPE (141) writing the second line, and pipefail then calls the whole pipeline
+    # a failure -- so a package that plainly exists is treated as missing. That is the
+    # real reason a customer's Debian 13 never picked native PG17, detoured through
+    # PGDG and died. Distros with a single candidate print one line and never SIGPIPE,
+    # which is why it went unnoticed for so long. Command substitution reads stdout to
+    # completion: no pipe, no SIGPIPE.
     _pkg_installable() { [ -n "$(apt-cache madison "$1" 2>/dev/null)" ]; }
 
     # Detect available Python (newest to oldest, needs >= 3.11).
-    # madison 只認「真的裝得到」的（apt-cache show 會比對 Provides、不可靠）。
+    # madison only reports what is genuinely installable (apt-cache show also matches
+    # Provides, which is not reliable here).
     local PYTHON_BIN=""
     local PYTHON_PKGS=()
     local ver
@@ -531,17 +578,22 @@ cmd_install() {
     fi
     log "Using $PYTHON_BIN for backend venv"
 
-    # PostgreSQL：不寫死版本。優先用發行版「預設庫裡已有」的 postgresql-NN（>=16）。
-    # 為何不一律用 16：Ubuntu 26.04 預設是 PG 17/18、預設庫沒有 postgresql-16，舊版會去
-    # 加 PGDG 的 16；但 PGDG 對「剛發布的 Ubuntu codename」常延遲數月才上架 → apt-get update
-    # 直接 404、整個安裝中斷（客戶回報的「ubuntu26 裝不起來」即此）。改成優先用發行版自帶的
-    # PG（app 對 16/17/18 皆相容），都沒有才退回 PGDG 裝 16。pgvector 用對應版本套件。
+    # PostgreSQL: never hard-code the version. Prefer a postgresql-NN (>=16) that the
+    # distro already carries in its default repos.
+    # Why not always 16: Ubuntu 26.04 ships PG 17/18 and has no postgresql-16, so the
+    # old code went and added PGDG's 16 -- but PGDG often takes months to publish for a
+    # freshly released Ubuntu codename, so `apt-get update` 404s and the install dies.
+    # That is the reported "ubuntu26 won't install". The app works on 16/17/18, so use
+    # whatever the distro provides and fall back to PGDG 16 only if there is nothing.
+    # pgvector is then installed for that same major.
     _add_pgdg_repo() {
-        # keyring 放 /etc/apt/keyrings（自有檔名），**不要**用
-        # /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg：那是 postgresql-common
-        # 套件自己的檔，已存在時 gpg --dearmor 會跳 "File exists. Overwrite?" 去開 /dev/tty，
-        # 非互動下直接 dearmoring failed → 金鑰沒寫成 → PGDG 簽章無效 → pgvector 抓不到（客戶
-        # 回報 Debian 12 卡在這）。`--yes` 確保可覆寫、整支腳本可重入。
+        # Put the keyring in /etc/apt/keyrings under our own filename. Do NOT reuse
+        # /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg: that file belongs to
+        # postgresql-common, and when it already exists `gpg --dearmor` prompts "File
+        # exists. Overwrite?" on /dev/tty. Non-interactively that is an immediate
+        # "dearmoring failed" -> no key written -> PGDG signatures invalid -> pgvector
+        # unavailable. A customer's Debian 12 stalled exactly here. `--yes` keeps the
+        # overwrite unattended and the whole script re-runnable.
         local keyring=/etc/apt/keyrings/jt-ipam-pgdg.gpg
         install -d /etc/apt/keyrings
         curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
@@ -550,11 +602,14 @@ cmd_install() {
             > /etc/apt/sources.list.d/pgdg.list
         apt-get update -qq
     }
-    # 關鍵：只挑「server 套件」與「對應 postgresql-N-pgvector」**兩者都裝得到**的 PG 版本。
-    # 不能只看 server 再硬退回 16：客戶 Debian 13（trixie）回報——native 未被選到、退回 PGDG 16，
-    # 但 PGDG 對 trixie 目前只出 17/18 的 pgvector、沒有 postgresql-16-pgvector → 整支安裝 FATAL。
-    # 改成：先在預設庫找「server+pgvector 成對」的版本（16→17→18，app 三者皆相容），
-    # 找不到才補 PGDG 再找一次（PGDG/trixie 會給 17+pgvector）。
+    # The rule: only pick a PG major where BOTH the server package AND the matching
+    # postgresql-N-pgvector are installable. Checking the server alone and falling back
+    # to 16 is what broke a customer's Debian 13 (trixie): native was skipped, PGDG 16
+    # was chosen, but PGDG/trixie currently ships pgvector for 17/18 only -- no
+    # postgresql-16-pgvector -- so the install went FATAL. Now: look for a
+    # server+pgvector pair in the default repos first (16 -> 17 -> 18; the app supports
+    # all three), and only add PGDG and look again if none is found (PGDG/trixie
+    # provides 17 with pgvector).
     # This host may ALREADY run PostgreSQL for something else (a customer hit this with
     # SonarQube's cluster). We connect to 127.0.0.1:5432, i.e. THAT cluster — so pgvector
     # has to be installed for ITS major version. Installing postgresql-16-pgvector next to
@@ -569,9 +624,10 @@ cmd_install() {
         echo $(( n / 10000 ))
     }
 
-    _pick_pg() {   # echo 第一個 server 與 pgvector 都可安裝的版本，否則回非零
-        local v                                   # （用 _pkg_installable，避免 grep -q SIGPIPE 雷）
-        # 已經有跑著的叢集 → 只能用它的版本，不能另外挑一個
+    _pick_pg() {   # echo the first major where server AND pgvector are both installable
+        local v     # (via _pkg_installable, which avoids the grep -q SIGPIPE trap above)
+        # A cluster is already running -> we must use ITS major; picking another one
+        # installs pgvector where the database isn't.
         local running; running="$(_running_pg_major || true)"
         if [[ -n "$running" ]]; then
             if [[ "$running" -lt 16 ]]; then
@@ -592,9 +648,10 @@ cmd_install() {
     local PG_VER
     PG_VER="$(_pick_pg || true)"
     if [[ -z "$PG_VER" ]]; then
-        # 預設庫沒找到成對版本，先重跑一次 apt-get update 再試：涵蓋「安裝當下 apt index 還沒
-        # 更新好/上一輪抓取暫時失敗」的情況——客戶 Debian 13 native 明明有 postgresql-17 +
-        # postgresql-17-pgvector 卻沒被選到、白繞 PGDG 退回 16。重整索引後多半就能直接走原生。
+        # No pair in the default repos: refresh the index and try once more. This covers
+        # a stale or partially-failed apt index at install time -- a customer's Debian 13
+        # had postgresql-17 and postgresql-17-pgvector available yet neither was picked,
+        # so it detoured through PGDG down to 16. After a refresh, native usually works.
         warn "no PostgreSQL (>=16) with matching pgvector yet; refreshing apt index and retrying…"
         apt-get update -qq || true
         PG_VER="$(_pick_pg || true)"
@@ -609,7 +666,8 @@ cmd_install() {
 
     local PG_PKGS=("postgresql-$PG_VER" "postgresql-contrib-$PG_VER" "postgresql-$PG_VER-pgvector")
     if [[ -n "$(_running_pg_major || true)" ]]; then
-        # 叢集已經在跑：只補 pgvector，不要再拉 server 套件（那會多建一個叢集、佔另一個埠）
+        # A cluster is already running: add pgvector only. Pulling the server package
+        # again would create a SECOND cluster on another port.
         log "PostgreSQL $PG_VER is already running here; only adding pgvector for it."
         PG_PKGS=("postgresql-$PG_VER-pgvector")
     fi
@@ -643,6 +701,12 @@ cmd_install() {
         /var/lib/jt-ipam /var/log/jt-ipam \
         /var/lib/jt-ipam/uploads /var/lib/jt-ipam/uploads/floorplans
     install -d -m 0755 "$ETC_DIR"
+    # The backup directory has to exist first: jt-ipam-backup.service uses
+    # ProtectSystem=strict + ReadWritePaths, and when a listed path is missing systemd
+    # fails while setting up the mount namespace (226/NAMESPACE). The message reads like
+    # "can't find /usr/local/bin/jt-ipam-backup.sh", pointing at entirely the wrong
+    # thing -- a customer lost time to exactly this.
+    ensure_unit_dirs
 
     # Make jtipam own the whole project directory (including .git): so venv / node_modules / dist are writable,
     # and so later upgrades running git pull as jtipam don't fail because .git is owned by root (especially when bootstrap clones as root).
@@ -824,8 +888,9 @@ EOF
     INITIAL_ADMIN_PW=""
     if [[ ! -f "$ADMIN_PW_RECORD" ]]; then
         local _gen_pw _tmp_pw
-        # `head -c 20` 提早關管線會 SIGPIPE 上游 tr → pipefail+set -e 會中斷安裝；20 字早已截到、
-        # 加 `|| true` 只消化退出碼、不影響已擷取的密碼內容。
+        # `head -c 20` closes the pipe early and SIGPIPEs the upstream tr, which with
+        # pipefail + set -e would abort the install. The 20 characters are already
+        # captured, so `|| true` swallows only the exit status, not the password.
         _gen_pw="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 20 || true)"
         _tmp_pw="$(mktemp)"; chmod 600 "$_tmp_pw"; printf '%s' "$_gen_pw" > "$_tmp_pw"; chown "$JTIPAM_USER" "$_tmp_pw"
         # create-admin errors (non-zero) if an admin already exists → then we just skip silently
@@ -915,10 +980,10 @@ EOF
         # To swap in a real cert: cp your cert + key to the paths above, then sudo systemctl reload nginx
         # Let's Encrypt route: edit /etc/nginx/sites-available/jt-ipam to point ssl_certificate at
         #   /etc/letsencrypt/live/${PUBLIC_FQDN}/{fullchain,privkey}.pem, then run certbot
-        if nginx -t; then
-            systemctl reload nginx
+        if apply_nginx_config; then
+            log "nginx running and enabled at boot"
         else
-            warn "nginx config test failed; review /etc/nginx/sites-available/jt-ipam"
+            warn "review /etc/nginx/sites-available/jt-ipam"
         fi
     else
         log "Skipping nginx (mode: ${TLS_MODE} — uvicorn terminates TLS directly)"
@@ -1047,6 +1112,203 @@ install_local_scan_agent() {
         warn "Local scan agent install failed. Install it manually:"
         warn "  sudo JT_IPAM_URL='$SERVER_URL' JT_IPAM_AGENT_KEY='<key from Admin -> Scan agents>' bash $installer"
     fi
+}
+
+# =============================================================================
+# cmd_doctor — check a live install and say exactly what to do about anything wrong
+#
+# Written because the failures customers actually hit were all *legible only if you
+# already knew where to look*: a backup unit dying at 226/NAMESPACE that reads like a
+# missing script, a sync timer marked failed because one firewall was unreachable,
+# pgvector installed for the wrong PostgreSQL major, an integration silently not
+# scanning because no agent was assigned. Each check below prints a fix, not a verdict.
+# =============================================================================
+cmd_doctor() {
+    local ENV_FILE="${ENV_FILE:-/etc/jt-ipam/backend.env}"
+    local ROOT="$REPO_ROOT"
+    local BACKEND_DIR="$ROOT/backend"
+    local problems=0
+    local warns=0
+    _bad()  { echo -e "  \033[1;31m✗\033[0m $1"; [[ -n "${2:-}" ]] && echo -e "      → $2"; problems=$((problems+1)); }
+    _warn() { echo -e "  \033[1;33m!\033[0m $1"; [[ -n "${2:-}" ]] && echo -e "      → $2"; warns=$((warns+1)); }
+    _ok()   { echo -e "  \033[1;32m✓\033[0m $1"; }
+
+    echo "jt-ipam doctor — $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo
+
+    # ── configuration ──
+    echo "Configuration"
+    if [[ -s "$ENV_FILE" ]]; then
+        _ok "$ENV_FILE present"
+    else
+        _bad "$ENV_FILE missing or empty" \
+             "re-run: sudo $0 install --tls-mode <nginx|self-signed> --public-fqdn <fqdn>"
+    fi
+    local TLS_MODE PORT
+    TLS_MODE="$(grep -oP '^BACKEND_TLS_MODE=\K\S+' "$ENV_FILE" 2>/dev/null || echo nginx)"
+    PORT="$(grep -oP '^BACKEND_BIND_PORT=\K\S+' "$ENV_FILE" 2>/dev/null || echo 8000)"
+    _ok "TLS mode: $TLS_MODE (backend port $PORT)"
+
+    # ── services ──
+    echo
+    echo "Services"
+    if systemctl is-active --quiet jt-ipam-backend; then
+        _ok "jt-ipam-backend running"
+    else
+        _bad "jt-ipam-backend is not running" "journalctl -u jt-ipam-backend -n 50 --no-pager"
+    fi
+    # Decide "is it up?" by connecting, not by looking for a bound port: minimal
+    # images often lack iproute2, so an `ss`-based check reports a failure while
+    # the service is perfectly fine. A diagnostic that lies is worse than none.
+    local health_url
+    if [[ "$TLS_MODE" == "nginx" ]]; then health_url="http://127.0.0.1:${PORT}/healthz"
+    else health_url="https://127.0.0.1:${PORT}/healthz"; fi
+    if curl -fsSk --max-time 10 "$health_url" >/dev/null 2>&1; then
+        _ok "backend answers on $health_url"
+    else
+        _bad "backend does not answer on $health_url" \
+             "journalctl -u jt-ipam-backend -n 50 --no-pager"
+    fi
+    if [[ "$TLS_MODE" == "nginx" ]]; then
+        if systemctl is-active --quiet nginx; then
+            _ok "nginx running"
+        else
+            _bad "nginx is not running — the UI is unreachable until it is" \
+                 "sudo systemctl enable --now nginx   (then: systemctl status nginx)"
+        fi
+        # The path users actually take: 443 -> nginx -> backend. The backend can be
+        # perfectly healthy on 8000 while nobody can reach the product.
+        #
+        # Deliberately NOT /healthz: the nginx site answers that one itself with a
+        # static `return 200 "ok"`, so it stays green with the backend stopped -- it
+        # proves nginx is alive and nothing more. Use a route that must be proxied;
+        # 401 (unauthenticated) is a perfectly good "the backend answered", while a
+        # dead backend gives 502.
+        local code
+        code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
+                 "https://127.0.0.1/api/v1/system/version" 2>/dev/null || echo 000)"
+        if [[ "$code" =~ ^[1-4] ]]; then
+            _ok "reachable end to end over HTTPS (nginx -> backend, HTTP $code)"
+        elif [[ "$code" == "000" ]]; then
+            _bad "nothing answers HTTPS on port 443 -- this is what users hit" \
+                 "sudo nginx -t && sudo systemctl restart nginx"
+        else
+            _bad "nginx answers but cannot reach the backend (HTTP $code)" \
+                 "sudo systemctl restart jt-ipam-backend && journalctl -u jt-ipam-backend -n 50 --no-pager"
+        fi
+        local site=/etc/nginx/sites-available/jt-ipam
+        if [[ -f "$site" ]] && grep -qF "(${WS_PROTOCOLS})/ws" "$site"; then
+            _ok "nginx forwards WebSocket for all consoles"
+        else
+            _bad "nginx WebSocket location is missing or out of date" \
+                 "sudo $0 upgrade   (rewrites it; consoles cannot connect without it)"
+        fi
+    fi
+
+    # ── database ──
+    echo
+    echo "Database"
+    if command -v psql >/dev/null 2>&1 && id -u postgres >/dev/null 2>&1; then
+        local pgmaj
+        pgmaj="$(sudo -u postgres psql -tAc 'SHOW server_version_num' 2>/dev/null | tr -dc '0-9')"
+        if [[ -n "$pgmaj" ]]; then
+            pgmaj=$(( pgmaj / 10000 ))
+            _ok "PostgreSQL $pgmaj reachable"
+            local dbname; dbname="$(grep -oP '^POSTGRES_DB=\K\S+' "$ENV_FILE" 2>/dev/null || echo jt_ipam)"
+            if sudo -u postgres psql -d "$dbname" -tAc \
+                    "SELECT 1 FROM pg_extension WHERE extname='vector'" 2>/dev/null | grep -q 1; then
+                _ok "pgvector extension present"
+            else
+                _bad "pgvector is not enabled in database '$dbname'" \
+                     "sudo apt install -y postgresql-${pgmaj}-pgvector && sudo -u postgres psql -d $dbname -c 'CREATE EXTENSION IF NOT EXISTS vector;'"
+            fi
+        else
+            _bad "cannot reach PostgreSQL as the postgres user" "systemctl status postgresql"
+        fi
+    else
+        _warn "psql not available; skipped database checks"
+    fi
+    if [[ -x "$BACKEND_DIR/.venv/bin/alembic" ]]; then
+        local head cur
+        head="$(cd "$BACKEND_DIR" && sudo -u "${JTIPAM_USER:-jtipam}" bash -c \
+            "set -a; source $ENV_FILE; set +a; .venv/bin/alembic heads 2>/dev/null" | awk '{print $1}' | head -1)"
+        cur="$(cd "$BACKEND_DIR" && sudo -u "${JTIPAM_USER:-jtipam}" bash -c \
+            "set -a; source $ENV_FILE; set +a; .venv/bin/alembic current 2>/dev/null" | awk '{print $1}' | tail -1)"
+        if [[ -n "$head" && "$cur" == "$head"* ]]; then
+            _ok "database schema at head ($head)"
+        else
+            _bad "database schema is behind (current '${cur:-none}', head '${head:-?}')" \
+                 "sudo $0 upgrade"
+        fi
+    fi
+
+    # ── frontend ──
+    echo
+    echo "Frontend"
+    if [[ -s "$ROOT/frontend/dist/index.html" ]]; then
+        local fev bev
+        fev="$(grep -oP '"version":"\K[^"]+' "$ROOT/frontend/dist/version.json" 2>/dev/null || echo '?')"
+        bev="$(grep -oP '^__version__ = "\K[^"]+' "$BACKEND_DIR/app/version.py" 2>/dev/null || echo '?')"
+        if [[ "$fev" == "$bev" ]]; then
+            _ok "frontend built and matches backend ($fev)"
+        else
+            _warn "frontend build is $fev but backend is $bev" "sudo $0 upgrade   (rebuilds the frontend)"
+        fi
+    else
+        _bad "frontend was never built (no dist/index.html)" "sudo $0 upgrade"
+    fi
+
+    # ── scheduled work ──
+    echo
+    echo "Scheduled work"
+    local t
+    for t in jt-ipam-sync.timer jt-ipam-backup.timer; do
+        systemctl is-active --quiet "$t" && _ok "$t enabled" \
+            || _bad "$t is not running" "sudo systemctl enable --now $t"
+    done
+    # Without the directory the backup unit dies at 226/NAMESPACE, and the message
+    # looks like "script not found".
+    if [[ -d /var/backups/jt-ipam ]]; then
+        local latest
+        latest="$(ls -1t /var/backups/jt-ipam 2>/dev/null | head -1)"
+        if [[ -n "$latest" ]]; then
+            _ok "backups present (latest: $latest)"
+        else
+            _warn "backup directory exists but is empty" "sudo systemctl start jt-ipam-backup.service"
+        fi
+    else
+        _bad "/var/backups/jt-ipam is missing — the backup unit will fail at 226/NAMESPACE" \
+             "sudo install -d -m 0700 /var/backups/jt-ipam"
+    fi
+    local sync_res
+    sync_res="$(systemctl show jt-ipam-sync.service -p Result --value 2>/dev/null)"
+    if [[ -z "$sync_res" || "$sync_res" == "success" ]]; then
+        _ok "last sync run completed"
+    else
+        _bad "last sync run ended with '$sync_res'" "journalctl -u jt-ipam-sync -n 60 --no-pager"
+    fi
+
+    # ── scanning ──
+    echo
+    echo "Scanning"
+    if systemctl is-active --quiet jt-ipam-scan-agent 2>/dev/null; then
+        _ok "local scan agent running"
+    else
+        _warn "no scan agent on this host — subnets assigned to it will not be scanned" \
+              "sudo $0 upgrade   (installs one), or add an agent under Admin → Scan agents"
+    fi
+
+    echo
+    if (( problems )); then
+        echo -e "\033[1;31m$problems problem(s), $warns warning(s) — follow the → lines above\033[0m"
+        return 1
+    fi
+    if (( warns )); then
+        echo -e "\033[1;33mNo problems, $warns warning(s)\033[0m"
+        return 0
+    fi
+    echo -e "\033[1;32mAll checks passed\033[0m"
+    return 0
 }
 
 # =============================================================================
@@ -1180,6 +1442,13 @@ cmd_upgrade() {
 
     # -- 6b. ensure nginx forwards WebSocket (SSH terminal); idempotent, safe no-op if already present --
     patch_nginx_websocket
+
+    # -- 6c. directories the sandboxed units require --
+    # Installs from older versions never created /var/backups/jt-ipam, while
+    # jt-ipam-backup.service lists it in ReadWritePaths -- so the daily backup died at
+    # 226/NAMESPACE every night, with a message that looked like "backup script not
+    # found".
+    ensure_unit_dirs
 
     # -- 7. restart backend --
     log "Restarting $SVC…"
@@ -1370,6 +1639,7 @@ main() {
         install)   shift; cmd_install "$@" ;;
         upgrade)   shift; cmd_upgrade "$@" ;;
         uninstall) shift; cmd_uninstall "$@" ;;
+        doctor)    shift; cmd_doctor "$@" ;;
         *)
             echo "[error] Unknown command: $cmd" >&2
             echo >&2

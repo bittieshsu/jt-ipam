@@ -23,7 +23,7 @@ import uuid
 from collections import defaultdict
 from typing import Any, Literal
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.permission import Permission
@@ -394,10 +394,23 @@ DEFAULT_ROLES: dict[str, dict[str, str]] = {
 }
 
 
+# 啟動時 seed 用的 advisory lock 鍵（任意常數，只要各 seed 不同）
+SEED_LOCK_ROLES = 0x6A74_0001
+
+
 async def seed_default_roles(session: AsyncSession) -> int:
-    """建立 5 個內建角色（群組 + wildcard 授權），冪等。回傳新建角色數。"""
+    """建立 5 個內建角色（群組 + wildcard 授權），冪等。回傳新建角色數。
+
+    ⚠️ 冪等（重跑安全）不等於**並行安全**：多個 uvicorn worker 是同時啟動的，會同時看到
+    空表、同時 INSERT，輸的那幾個吃到 UniqueViolation。功能沒壞（贏的那個已經建好），但
+    每次全新安裝的 journal 都會噴一整段紅色 SQL 例外，客戶第一次看 log 就先被嚇到。
+    因此在這裡拿 advisory lock 讓呼叫端排隊 —— 鎖要跟它保護的不變式放在一起，任何
+    呼叫路徑都受保護。鎖在同一個交易裡，函式結尾 commit 時自動釋放；後面的 worker 在
+    READ COMMITTED 下每個 statement 取新快照，看得到前一個已建好的資料。
+    """
     from app.models.user import Group
 
+    await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": SEED_LOCK_ROLES})
     created = 0
     for role_name, grants in DEFAULT_ROLES.items():
         grp = (await session.execute(

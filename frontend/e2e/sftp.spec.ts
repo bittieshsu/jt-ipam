@@ -49,6 +49,16 @@ async function connect(page: any) {
   await expect(page.getByText("nginx.conf").or(page.getByText("etc"))).toBeVisible({ timeout: 20_000 });
 }
 
+
+/** 填「新增資料夾 / 重新命名」的對話框（v0.5.166 起不再用 window.prompt）。 */
+async function fillNameDialog(page: any, name: string) {
+  const dlg = page.locator(".n-modal");
+  await expect(dlg).toBeVisible();
+  await dlg.locator("input").first().fill(name);
+  await dlg.getByRole("button", { name: "確定" }).first().click();
+  await expect(dlg).toBeHidden({ timeout: 20_000 });
+}
+
 test("連線後可以列出遠端目錄", async ({ page }) => {
   await connect(page);
   const body = await page.locator("body").innerText();
@@ -123,8 +133,12 @@ test("批次移動與批次刪除都真的作用在遠端", async ({ page }) => 
     await page.locator("tr", { hasText: n }).locator(".n-checkbox").first().click();
   }
   await expect(page.getByText(/已選 2 項/)).toBeVisible();
-  await page.evaluate(() => { window.prompt = () => "/batch-dest"; });
   await page.getByRole("button", { name: "移動" }).click();
+  // 對話框：可直接打路徑（也可以點下方目錄樹）
+  const moveDlg = page.locator(".n-modal");
+  await expect(moveDlg).toBeVisible();
+  await moveDlg.locator("input").first().fill("/batch-dest");
+  await page.getByRole("button", { name: /移到這裡/ }).click();
   await expect(page.locator("table").getByText("b1.txt")).toBeHidden({ timeout: 20_000 });
   expect(existsSync(`${SFTP_ROOT}/batch-dest/b1.txt`), "b1 沒有真的搬過去").toBe(true);
   expect(existsSync(`${SFTP_ROOT}/batch-dest/b2.txt`), "b2 沒有真的搬過去").toBe(true);
@@ -140,23 +154,26 @@ test("批次移動與批次刪除都真的作用在遠端", async ({ page }) => 
 
 test("拖曳多個檔案進來會全部上傳到目前目錄", async ({ page }) => {
   await connect(page);
-  for (const n of ["drop-a.txt", "drop-b.txt"]) rmSync(`${SFTP_ROOT}/${n}`, { force: true });
+  // 檔名每次不同 —— 用固定檔名時，上一輪留下的同名檔會讓「表格出現這一列」在拖曳前
+  // 就已經成立，測試於是搶在寫入完成前去讀檔，讀到空字串（這條實際踩過）
+  const a = `drop-a-${Date.now()}.txt`;
+  const bn = `drop-b-${Date.now()}.txt`;
 
   // 用真的 DataTransfer 觸發 dragenter/drop —— 檔案有沒有落地，回頭讀磁碟才算數
-  const dt = await page.evaluateHandle(() => {
+  const dt = await page.evaluateHandle(([na, nb]) => {
     const d = new DataTransfer();
-    d.items.add(new File(["A\n"], "drop-a.txt", { type: "text/plain" }));
-    d.items.add(new File(["B\n"], "drop-b.txt", { type: "text/plain" }));
+    d.items.add(new File(["A\n"], na, { type: "text/plain" }));
+    d.items.add(new File(["B\n"], nb, { type: "text/plain" }));
     return d;
-  });
+  }, [a, bn]);
   await page.locator(".sftp-panel").dispatchEvent("dragenter", { dataTransfer: dt });
   // 拖曳中要看得出來會放到哪裡，否則使用者不知道自己放對地方沒有
   await expect(page.locator(".sftp-dropzone")).toBeVisible();
   await page.locator(".sftp-panel").dispatchEvent("drop", { dataTransfer: dt });
 
-  await expect(page.locator("table").getByText("drop-b.txt")).toBeVisible({ timeout: 30_000 });
-  expect(readFileSync(`${SFTP_ROOT}/drop-a.txt`, "utf-8"), "第一個檔案沒落地或內容不對").toBe("A\n");
-  expect(readFileSync(`${SFTP_ROOT}/drop-b.txt`, "utf-8"), "第二個檔案沒落地或內容不對").toBe("B\n");
+  await expect(page.locator("table").getByText(bn)).toBeVisible({ timeout: 30_000 });
+  expect(readFileSync(`${SFTP_ROOT}/${a}`, "utf-8"), "第一個檔案沒落地或內容不對").toBe("A\n");
+  expect(readFileSync(`${SFTP_ROOT}/${bn}`, "utf-8"), "第二個檔案沒落地或內容不對").toBe("B\n");
 });
 
 test("上傳檔案選取框可以複選", async ({ page }) => {
@@ -208,17 +225,19 @@ test("上傳的檔案真的出現在遠端，而且內容正確", async ({ page 
 
 test("新增資料夾、改名、刪除都真的作用在遠端", async ({ page }) => {
   await connect(page);
-  // 三個操作都會改變遠端主機的檔案系統 —— 每一步都回頭看磁碟，不看畫面提示
-  page.on("dialog", () => { /* prompt 由下面的 evaluate 攔截，這裡不處理 */ });
+  // 三個操作都會改變遠端主機的檔案系統 —— 每一步都回頭看磁碟，不看畫面提示。
+  // 瀏覽器原生對話框不該再出現：出現就代表哪裡還在用 window.prompt。
+  let nativeDialog = false;
+  page.on("dialog", async (d: any) => { nativeDialog = true; await d.dismiss(); });
 
-  await page.evaluate(() => { window.prompt = () => "e2e-新資料夾"; });
   await page.getByRole("button", { name: "新增資料夾" }).click();
+  await fillNameDialog(page, "e2e-新資料夾");
   await expect(page.locator("table").getByText("e2e-新資料夾")).toBeVisible({ timeout: 15_000 });
   expect(existsSync(`${SFTP_ROOT}/e2e-新資料夾`), "遠端沒有真的建出資料夾").toBe(true);
 
-  await page.evaluate(() => { window.prompt = () => "e2e-改名後"; });
   await page.locator("tr", { hasText: "e2e-新資料夾" })
     .getByRole("button", { name: "重新命名" }).click();
+  await fillNameDialog(page, "e2e-改名後");
   await expect(page.locator("table").getByText("e2e-改名後")).toBeVisible({ timeout: 15_000 });
   expect(existsSync(`${SFTP_ROOT}/e2e-改名後`), "遠端沒有真的改名").toBe(true);
   expect(existsSync(`${SFTP_ROOT}/e2e-新資料夾`), "舊名字還留著").toBe(false);
@@ -228,6 +247,7 @@ test("新增資料夾、改名、刪除都真的作用在遠端", async ({ page 
   await page.getByRole("button", { name: /確[定認]|是/ }).last().click();
   await expect(page.locator("table").getByText("e2e-改名後")).toBeHidden({ timeout: 15_000 });
   expect(existsSync(`${SFTP_ROOT}/e2e-改名後`), "遠端沒有真的刪掉").toBe(false);
+  expect(nativeDialog, "還有地方在用瀏覽器原生對話框").toBe(false);
 });
 
 test("SFTP 是獨立開關：關掉之後只有 SFTP 入口消失，SSH 還在", async ({ page }) => {
