@@ -3208,7 +3208,7 @@
     "rename_prompt": "New name for {name}",
     "rename_no_slash": "Names cannot contain / — rename only works within the same directory.",
     "delete_confirm": "Delete {name}? This runs on the remote host and cannot be undone.",
-    "truncated": "This directory has too many entries to show them all — open a subdirectory, or use the terminal.",
+    "truncated": "This directory has a very large number of entries, so only the first part was fetched — page through what was fetched below; for the rest, open a subdirectory or use the terminal.",
     "col_name": "Name",
     "col_size": "Size",
     "col_mtime": "Modified",
@@ -3238,7 +3238,13 @@
     "upload_partial_fail": "Uploaded {ok}; these failed: {names}",
     "uploading_progress": "Uploading {done}/{total}: {name}",
     "drop_here": "Drop to upload into {dir}",
-    "drop_dirs_skipped": "Skipped {n} folder(s) — only files can be dropped for now."
+    "drop_dirs_skipped": "Skipped {n} folder(s) — only files can be dropped for now.",
+    "name_ph": "Enter a name",
+    "move_title": "Move {n} item(s) to…",
+    "move_path_ph": "Type an absolute destination path, or pick one below",
+    "move_go": "Go",
+    "move_here": "Move here: {dir}",
+    "move_no_subdirs": "No subdirectories here (you can still move into this directory, or type a path above)"
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",

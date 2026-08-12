@@ -3208,7 +3208,7 @@
     "rename_prompt": "{name} 的新名稱",
     "rename_no_slash": "名稱不能含有 /，只能在同一層改名。",
     "delete_confirm": "確定刪除 {name}？此操作在遠端主機上執行，無法復原。",
-    "truncated": "這個目錄的項目太多，只顯示前面一部分 —— 請進到子目錄，或用終端機處理。",
+    "truncated": "這個目錄的項目非常多，只取回前面一部分 —— 已取回的可用下方分頁瀏覽；要看更完整的內容請進到子目錄，或用終端機處理。",
     "col_name": "名稱",
     "col_size": "大小",
     "col_mtime": "修改時間",
@@ -3238,7 +3238,13 @@
     "upload_partial_fail": "已上傳 {ok} 個；這幾個沒有成功：{names}",
     "uploading_progress": "上傳中 {done}/{total}：{name}",
     "drop_here": "放開以上傳到 {dir}",
-    "drop_dirs_skipped": "略過 {n} 個資料夾 —— 目前只能拖曳檔案。"
+    "drop_dirs_skipped": "略過 {n} 個資料夾 —— 目前只能拖曳檔案。",
+    "name_ph": "請輸入名稱",
+    "move_title": "移動 {n} 項到…",
+    "move_path_ph": "直接輸入目的地絕對路徑，或在下方點選",
+    "move_go": "前往",
+    "move_here": "移到這裡：{dir}",
+    "move_no_subdirs": "這一層沒有子目錄（可直接移到這裡，或在上方輸入路徑）"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",

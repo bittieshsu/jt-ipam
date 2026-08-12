@@ -72,6 +72,20 @@ else
   bad "frontend/node_modules not found -- skipping frontend checks"
 fi
 
+# Bold that will not render: `**「text」**` is printed literally, because a `**` run
+# cannot open when it follows a Han character and precedes a full-width bracket.
+# NB: the frontend block above leaves us in $ROOT/frontend — come back first.
+cd "$ROOT"
+step "docs bold syntax (CJK)"
+if python3 scripts/check-md-bold.py README.md README_zh-TW.md CHANGELOG.md CHANGELOG_zh-TW.md \
+       docs/INSTALL.md docs/INSTALL_zh-TW.md TEST_CHECKLIST.md >/dev/null 2>&1; then
+  ok "docs bold"
+else
+  python3 scripts/check-md-bold.py README.md README_zh-TW.md CHANGELOG.md CHANGELOG_zh-TW.md \
+       docs/INSTALL.md docs/INSTALL_zh-TW.md TEST_CHECKLIST.md 2>&1 | tail -12
+  bad "docs bold -- these ** will be printed as-is; write 「**text**」 instead"
+fi
+
 echo
 if [[ $FAIL -eq 0 ]]; then echo -e "\033[1;32mCI OK — safe to release\033[0m"; else echo -e "\033[1;31mCI FAILED — fix the red items before releasing\033[0m"; fi
 exit $FAIL

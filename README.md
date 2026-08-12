@@ -1,4 +1,4 @@
-# jt-ipam v0.5.164
+# jt-ipam v0.5.165
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -80,20 +80,29 @@ source — and it matters, because the "unauthorised IPs" anomaly check is defin
 
 | Source | When IPAM has no such address | Toggle | Default | Subnet placement |
 |---|---|---|---|---|
-| **Scan agent** | **Creates it** | none | always creates | only inside subnets assigned to that agent with scanning enabled |
-| **LibreNMS** | May create (device primary IP only, never ARP neighbours) | `auto_create_ips` | **on** | longest prefix; refuses when ambiguous |
-| **Proxmox VE** | May create | "trust addresses from virtualization" | **off** | longest prefix; refuses when ambiguous |
-| **VMware / ESXi** | May create | "trust addresses from virtualization" | **off** | longest prefix; refuses when ambiguous |
-| **OPNsense / pfSense** | May create (DHCP leases) | "create addresses IPAM does not have" | **off** | longest prefix; refuses when ambiguous |
+| **Scan agent** | **Creates it** | no toggle | always creates | only inside subnets assigned to that agent with scanning enabled |
+| **LibreNMS** | May create (device primary IP only, never ARP neighbours) | "Auto-create discovered IPs" | **on by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
+| **Proxmox VE** | May create | "Trust addresses from virtualization" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
+| **VMware / ESXi** | May create | "Trust addresses from virtualization" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
+| **OPNsense / pfSense** | May create (DHCP leases) | "Create addresses IPAM does not have" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
 | AdGuard / Wazuh / DNS / Windows DHCP / FortiGate | **Match only, never create** | — | — | — |
 | CSV import / phpIPAM migration | Created from the imported data (an explicit user action) | — | — | as imported |
 
 **Shared rule**: every auto-creation path uses the same decision
-(`services/ip_autocreate.py`) — longest-prefix match on existing subnets, and
-**nothing is created when overlapping subnets make it ambiguous** (several tenants each
-holding `192.168.1.0/24` is this project's core scenario; filing a record under the wrong
-tenant is worse than not filing it). Setting an integration's subnet scope removes the
-ambiguity.
+(`services/ip_autocreate.py`) — **put the address in the smallest subnet that contains it;
+if which one is unclear, create nothing**.
+
+For example:
+- `10.1.1.5` falls inside both `10.0.0.0/8` and `10.1.1.0/24` → it goes into the **smaller**
+  `10.1.1.0/24`.
+- Tenants A and B **each have their own `192.168.1.0/24`** → there is no way to tell whose
+  machine this is, so **nothing is created**. Filing a record under the wrong tenant is worse
+  than having no record.
+- The address is inside no existing subnet → nothing is created (subnets are never invented).
+
+The second case disappears once you set that integration's subnet scope to your own
+subnets: only yours remain as candidates, the choice is clear, and records are created
+normally.
 
 > ⚠️ **Enabling auto-creation trades away part of your detection.** A machine that obtained
 > an address is not necessarily one that belongs in IPAM: once an unauthorised device is

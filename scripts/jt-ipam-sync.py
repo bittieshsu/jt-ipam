@@ -114,31 +114,31 @@ async def _run() -> int:
                           target_id=fw.id, target_label=name, ok=False, error=str(exc))
 
     
-    # ── ESXi / vCenter ──
-    for inst in (await session.execute(
-        select(ESXiInstance).where(ESXiInstance.enabled.is_(True))
-    )).scalars().all():
-        interval = timedelta(seconds=inst.sync_interval_seconds)
-        if inst.last_sync_at and inst.last_sync_at + interval > now:
-            continue
-        name = inst.name
-        try:
-            from app.services import esxi as esxi_svc
-            summary = await esxi_svc.sync_instance(session, inst)
-            await session.commit()
-            log.info("esxi %s: %s", name, summary)
-            await _hb(session, kind="esxi.sync", target_type="esxi_instance",
-                      target_id=inst.id, target_label=name, ok=True, summary=summary)
-        except Exception as exc:  # noqa: BLE001
-            # 先 rollback 再寫 last_error：不 rollback 會二次爆、連鎖中斷整輪
-            await session.rollback()
-            inst.last_error = str(exc)[:2000]
-            await session.commit()
-            log.error("esxi %s sync failed: %s", name, exc)
-            failed += 1
-            await _hb(session, kind="esxi.sync", target_type="esxi_instance",
-                      target_id=inst.id, target_label=name, ok=False, error=str(exc))
-    # ── Wazuh ──
+        # ── ESXi / vCenter ──
+        for inst in (await session.execute(
+            select(ESXiInstance).where(ESXiInstance.enabled.is_(True))
+        )).scalars().all():
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                from app.services import esxi as esxi_svc
+                summary = await esxi_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("esxi %s: %s", name, summary)
+                await _hb(session, kind="esxi.sync", target_type="esxi_instance",
+                          target_id=inst.id, target_label=name, ok=True, summary=summary)
+            except Exception as exc:  # noqa: BLE001
+                # 先 rollback 再寫 last_error：不 rollback 會二次爆、連鎖中斷整輪
+                await session.rollback()
+                inst.last_error = str(exc)[:2000]
+                await session.commit()
+                log.error("esxi %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="esxi.sync", target_type="esxi_instance",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+        # ── Wazuh ──
         wzs = (
             await session.execute(
                 select(WazuhInstance).where(WazuhInstance.enabled.is_(True))
@@ -446,11 +446,39 @@ async def _run() -> int:
             await session.rollback()
             log.error("ai audit check failed: %s", exc)
 
-    return 1 if failed else 0
+    # 個別整合連不到對方（防火牆離線、憑證過期…）是**回報事項**，不是這支排程失敗：
+    # 錯誤已寫進該實例的 last_error、畫面上看得到、log 也有。以前這裡回 1，於是
+    # systemd 把整輪標成 failed，`systemctl status` 永遠紅著 —— 真正壞掉的時候反而
+    # 分不出來（客戶與我們自己都因此誤判過一次）。只有「這一輪根本跑不完」才回非零。
+    if failed:
+        log.info("sync completed with %d integration error(s) — see last_error on each instance",
+                 failed)
+    return 0
+
+
+async def _run_and_dispose() -> int:
+    """跑完一定要 dispose engine —— 這是短命腳本用 async engine 的必要收尾。
+
+    少了它，連線池裡的 asyncpg 連線會留到直譯器關閉時才被 GC 回收；那時事件迴圈與
+    greenlet 都已經沒了，SQLAlchemy 在 finalizer 裡呼叫 `terminate()` 會炸出
+    `RuntimeError: greenlet is being finalized` / `MissingGreenlet`，行程以非零結束。
+    systemd 於是把每一輪都記成 failed（我們自己的 prod 24 小時內 259 次），而且
+    **排在腳本最後面的 AI 巡檢再也沒被執行過** —— 表面症狀是「排程設了卻不會跑」。
+    """
+    from app.core.db import engine
+
+    try:
+        return await _run()
+    finally:
+        # dispose 本身出問題也不該蓋掉主要結果，這裡吞掉並記錄就好
+        try:
+            await engine.dispose()
+        except Exception as exc:
+            log.warning("engine dispose failed: %s", exc)
 
 
 def main() -> None:
-    sys.exit(asyncio.run(_run()))
+    sys.exit(asyncio.run(_run_and_dispose()))
 
 
 if __name__ == "__main__":

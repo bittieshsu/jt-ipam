@@ -17,7 +17,7 @@ import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCard, NDataTable, NForm, NFormItem, NIcon, NInput,
   NInputNumber, NPopconfirm, NRadio, NRadioGroup, NSelect, NSpace, NSpin, NSwitch,
-  NTag, useMessage,
+  NTag, NModal, NInputGroup, useMessage,
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import { h } from "vue";
@@ -26,6 +26,7 @@ import {
   requestSftpTicket, type SftpEntry, type SshCredential,
 } from "@/api/ssh";
 import { fmtDateTime } from "@/utils/datetime";
+import { useTablePagination } from "@/composables/useTablePagination";
 import {
   RefreshIcon, FilesIcon, CancelIcon, DeleteIcon, EditIcon,
   DownloadIcon, UploadIcon, NewFolderIcon, FilterIcon, MoveIcon, UpLevelIcon,
@@ -79,6 +80,8 @@ let ws: WebSocket | null = null;
 let incoming: { name: string; size: number; chunks: Uint8Array[]; got: number } | null = null;
 /** 等待中的請求：讓 send 之後可以 await 到結果。 */
 let pending: { resolve: (v: any) => void; reject: (e: Error) => void } | null = null;
+/** 這次的 list 只是「對話框在瀏覽目錄」，不要動主畫面的清單。 */
+let browsingOnly = false;
 
 function send(obj: Record<string, unknown>) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -158,9 +161,13 @@ async function connect() {
           void refresh();
           break;
         case "list":
-          cwd.value = m.path;
-          entries.value = m.entries ?? [];
-          truncated.value = !!m.truncated;
+          // 移動對話框也用同一個 list 取目錄 —— 那時候不能動主畫面的狀態，
+          // 否則「已勾選的那幾列」會被換掉，按下移動時就什麼都不剩了（實際踩過）。
+          if (!browsingOnly) {
+            cwd.value = m.path;
+            entries.value = m.entries ?? [];
+            truncated.value = !!m.truncated;
+          }
           pending?.resolve(m); pending = null;
           break;
         case "file_begin":
@@ -329,27 +336,39 @@ async function onDrop(ev: DragEvent) {
   await uploadFiles(files);
 }
 
-async function doMkdir() {
-  const name = window.prompt(t("sftp.new_folder_prompt"));
-  if (!name) return;
-  busy.value = true;
-  try {
-    await request({ type: "mkdir", path: `${cwd.value.replace(/\/+$/, "")}/${name}` });
-    await refresh();
-  } catch (e: any) { msg.error(e?.message ?? String(e)); }
-  finally { busy.value = false; }
+// ── 名稱輸入對話框（新增資料夾 / 重新命名）
+// 用應用程式自己的對話框，不用 window.prompt：瀏覽器原生對話框長得跟系統警告一樣、
+// 不受主題影響、也沒辦法做驗證與說明。
+const nameDlg = ref<{ mode: "mkdir" | "rename"; value: string; row: SftpEntry | null } | null>(null);
+const nameDlgTitle = computed(() =>
+  nameDlg.value?.mode === "mkdir" ? t("sftp.new_folder") : t("sftp.rename"));
+const nameDlgShow = computed({
+  get: () => nameDlg.value !== null,
+  set: (v: boolean) => { if (!v) nameDlg.value = null; },
+});
+
+function doMkdir() {
+  nameDlg.value = { mode: "mkdir", value: "", row: null };
 }
 
-async function doRename(row: SftpEntry) {
-  const name = window.prompt(t("sftp.rename_prompt", { name: row.name }), row.name);
-  // 取消（null）與「改成同一個名字」都不該送出去
-  if (!name || name === row.name) return;
-  // 只准改同一層的檔名：帶 / 的輸入會變成搬移，那是另一件事，先擋掉
+function doRename(row: SftpEntry) {
+  nameDlg.value = { mode: "rename", value: row.name, row };
+}
+
+async function submitNameDlg() {
+  const d = nameDlg.value;
+  if (!d) return;
+  const name = d.value.trim();
+  if (!name) return;
+  // 名稱不能含 /：那會變成搬移到別的目錄，是另一件事（要搬請用「移動」）
   if (name.includes("/")) { msg.error(t("sftp.rename_no_slash")); return; }
+  if (d.mode === "rename" && d.row && name === d.row.name) { nameDlg.value = null; return; }
   busy.value = true;
   try {
     const dir = cwd.value.replace(/\/+$/, "");
-    await request({ type: "rename", path: row.path, to: `${dir}/${name}` });
+    if (d.mode === "mkdir") await request({ type: "mkdir", path: `${dir}/${name}` });
+    else await request({ type: "rename", path: d.row!.path, to: `${dir}/${name}` });
+    nameDlg.value = null;
     await refresh();
   } catch (e: any) { msg.error(e?.message ?? String(e)); }
   finally { busy.value = false; }
@@ -433,6 +452,9 @@ const shownEntries = computed(() => {
   return entries.value.filter((e) => e.name.toLowerCase().includes(q));
 });
 
+// 目錄很大時分頁顯示 —— 原本只能截斷後說「只顯示一部分」，現在整份都拿得到、翻頁看
+const pagination = useTablePagination();
+
 // ── 批次作業
 const checkedKeys = ref<string[]>([]);
 const checkedRows = computed(() =>
@@ -477,12 +499,55 @@ async function batchDelete() {
   }
 }
 
-async function batchMove() {
-  const rows = checkedRows.value;
+// ── 移動對話框：可直接打路徑，也可以點目錄一層層瀏覽
+const moveDlg = ref(false);
+const moveDest = ref("/");            // 目的地（輸入框與瀏覽同步）
+const moveDirs = ref<SftpEntry[]>([]); // 目前瀏覽層的子目錄
+const moveLoading = ref(false);
+
+/** 按下「移動」當下要搬的項目 —— 快照起來，不受之後瀏覽目錄影響。 */
+const movingRows = ref<SftpEntry[]>([]);
+
+function openMoveDlg() {
+  if (!checkedRows.value.length) return;
+  movingRows.value = [...checkedRows.value];
+  moveDest.value = cwd.value;
+  moveDlg.value = true;
+  void browseMove(cwd.value);
+}
+
+/** 列出某層的子目錄給對話框點選（只顯示目錄 —— 檔案不能當搬移目的地）。 */
+async function browseMove(path: string) {
+  moveLoading.value = true;
+  browsingOnly = true;
+  try {
+    const m = await request({ type: "list", path });
+    moveDest.value = m.path;
+    moveDirs.value = (m.entries ?? []).filter((e: SftpEntry) => e.is_dir);
+  } catch (e: any) {
+    msg.error(e?.message ?? String(e));
+  } finally {
+    browsingOnly = false;
+    moveLoading.value = false;
+  }
+}
+
+function moveUp() {
+  const p = moveDest.value.replace(/\/+$/, "");
+  void browseMove(p.slice(0, p.lastIndexOf("/")) || "/");
+}
+
+async function confirmMove() {
+  const dir = moveDest.value.trim().replace(/\/+$/, "") || "/";
+  moveDlg.value = false;
+  await batchMove(dir);
+  await refresh();          // 對話框瀏覽過別的目錄，回到原本這一層
+}
+
+async function batchMove(dest: string) {
+  const rows = movingRows.value.length ? movingRows.value : checkedRows.value;
   if (!rows.length) return;
-  const dest = window.prompt(t("sftp.batch_move_prompt"), cwd.value);
-  if (!dest || !dest.trim()) return;
-  const dir = dest.trim().replace(/\/+$/, "") || "/";
+  const dir = dest.replace(/\/+$/, "") || "/";
   busy.value = true;
   const failed: string[] = [];
   try {
@@ -674,7 +739,7 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           <template #icon><n-icon><DownloadIcon /></n-icon></template>
           {{ t("sftp.batch_download") }}
         </n-button>
-        <n-button size="small" :loading="busy" @click="batchMove">
+        <n-button size="small" :loading="busy" @click="openMoveDlg">
           <template #icon><n-icon><MoveIcon /></n-icon></template>
           {{ t("sftp.batch_move") }}
         </n-button>
@@ -708,10 +773,60 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         {{ t("sftp.filter_note", { shown: shownEntries.length, total: entries.length }) }}
       </div>
 
+      <!-- 名稱輸入（新增資料夾 / 重新命名）：應用程式自己的對話框 -->
+      <n-modal v-model:show="nameDlgShow" preset="card" style="width: 420px; max-width: 92vw"
+               :title="nameDlgTitle">
+        <n-input v-if="nameDlg" v-model:value="nameDlg.value" autofocus
+                 :placeholder="t('sftp.name_ph')" @keyup.enter="submitNameDlg" />
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="nameDlg = null">{{ t("common.cancel") }}</n-button>
+            <n-button type="primary" :loading="busy" @click="submitNameDlg">
+              {{ t("common.confirm") }}
+            </n-button>
+          </n-space>
+        </template>
+      </n-modal>
+
+      <!-- 移動：可直接打路徑，也可以點目錄一層層瀏覽 -->
+      <n-modal v-model:show="moveDlg" preset="card" style="width: 560px; max-width: 94vw"
+               :title="t('sftp.move_title', { n: checkedKeys.length })">
+        <n-space vertical :size="10" style="width:100%">
+          <n-input-group>
+            <n-input v-model:value="moveDest" class="mono" :placeholder="t('sftp.move_path_ph')"
+                     @keyup.enter="browseMove(moveDest)" />
+            <n-button :loading="moveLoading" @click="browseMove(moveDest)">
+              {{ t("sftp.move_go") }}
+            </n-button>
+          </n-input-group>
+          <div class="move-tree">
+            <div class="move-row" @click="moveUp">
+              <n-icon :size="16"><UpLevelIcon /></n-icon><span>{{ t("sftp.up") }}</span>
+            </div>
+            <div v-for="d in moveDirs" :key="d.path" class="move-row" @click="browseMove(d.path)">
+              <n-icon :size="16" color="#18a058"><FilesIcon /></n-icon><span>{{ d.name }}</span>
+            </div>
+            <!-- 空目錄也要講出來，不然會以為是壞掉了 -->
+            <div v-if="!moveDirs.length && !moveLoading" class="move-empty">
+              {{ t("sftp.move_no_subdirs") }}
+            </div>
+          </div>
+        </n-space>
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="moveDlg = false">{{ t("common.cancel") }}</n-button>
+            <n-button type="primary" :loading="busy" @click="confirmMove">
+              {{ t("sftp.move_here", { dir: moveDest }) }}
+            </n-button>
+          </n-space>
+        </template>
+      </n-modal>
+
       <div class="sftp-table" :class="{ 'sftp-full': fullHeight, 'term-dim': phase !== 'connected' }">
         <n-data-table :columns="cols" :data="shownEntries" :loading="busy" size="small"
                       :row-key="(r: SftpEntry) => r.path"
                       :checked-row-keys="checkedKeys"
+                      :pagination="pagination"
                       :bordered="false" flex-height style="height:100%" virtual-scroll
                       @update:checked-row-keys="(k: any) => (checkedKeys = k as string[])" />
       </div>

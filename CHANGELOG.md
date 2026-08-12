@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.165] — 2026-08-12
+
+### Fixed (**major: several integrations had not run at all since v0.5.150**)
+- **The scheduled sync stopped after its first two integrations.** In `jt-ipam-sync.py` the ESXi block lost four spaces of indentation, which did two things: it ran against an **already-closed session**, and **every block from Wazuh onwards ended up nested inside the ESXi `for` loop**. On any host without an enabled ESXi instance that loop body never executes — so **Wazuh, LibreNMS, ARP pruning, AdGuard, FortiGate, Windows DHCP, Proxmox, DNS, certificate fetch, certificate alerts, IP-to-device autolink and the AI review all silently stopped**, with nothing on screen to show it.
+
+  The leaked connection then raised `RuntimeError: greenlet is being finalized` during interpreter shutdown, so systemd recorded every run as failed (259 times in 24 hours on our own prod). The `MissingGreenlet` a customer reported has the same root cause.
+
+  One visible symptom was "**the AI review schedule is set but never runs**" — that code sits at the end of the script and was never reached. After the fix, on prod: every integration runs again, the AI review produced 19 findings, and the greenlet errors are gone.
+
+- **Added `await engine.dispose()` before the script exits.** Without it the pooled asyncpg connections survive until interpreter shutdown, where the event loop and greenlet are gone and `terminate()` blows up.
+
+- **A single unreachable integration no longer marks the whole run as failed.** An offline firewall is a *reported* condition (written to that instance's last_error and visible in the UI), yet the script exited non-zero, so `systemctl status jt-ipam-sync` stayed red forever — which made a genuine failure indistinguishable from a device being down (it misled both a customer and us). Non-zero is now reserved for a run that could not complete, and the log states "sync completed with N integration error(s)".
+
+### Tests
+- Added `tests/test_sync_script_structure.py`: an AST check that **every integration block is a direct child of the session block**, failing if any becomes nested inside another loop. Restoring the broken indentation turns 9 of its 12 cases red. Python does not report this kind of indentation as an error — it simply means something else — so only a structural check can hold it.
+
 ## [0.5.164] — 2026-08-12
 
 ### Changed (**behaviour change — please read**)
