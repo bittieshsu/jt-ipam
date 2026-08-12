@@ -35,9 +35,13 @@ async function connect(page: any) {
   await page.goto(`/sftp/${TARGET_IP_ID}`);
   // 連線表單的版面與 SSH 終端機一致：卡片標題「SFTP 連線到 <ip>」
   await expect(page.getByText(/SFTP 連線到/)).toBeVisible();
-  await page.getByPlaceholder("root").fill(SFTP_USER);
-  // 密碼欄（第一個 password 型別的輸入框）
-  await page.locator('input[type="password"]').first().fill(SFTP_PASS);
+  // 有已存帳密時會自動選取（與 SSH 一致），此時手動欄位不會出現 —— 兩種情況都要能連
+  const manual = page.getByPlaceholder("root");
+  if (await manual.isVisible().catch(() => false)) {
+    await manual.fill(SFTP_USER);
+    // 密碼欄（第一個 password 型別的輸入框）
+    await page.locator('input[type="password"]').first().fill(SFTP_PASS);
+  }
   await page.locator(".n-input-number input").first().fill(SFTP_PORT);
   await page.keyboard.press("Tab");
   await page.getByRole("button", { name: "連線" }).click();
@@ -132,6 +136,33 @@ test("批次移動與批次刪除都真的作用在遠端", async ({ page }) => 
   await page.getByRole("button", { name: /確[定認]|是/ }).last().click();
   await expect(page.locator("table").getByText("b3.txt")).toBeHidden({ timeout: 20_000 });
   expect(existsSync(`${SFTP_ROOT}/b3.txt`), "b3 沒有真的刪掉").toBe(false);
+});
+
+test("拖曳多個檔案進來會全部上傳到目前目錄", async ({ page }) => {
+  await connect(page);
+  for (const n of ["drop-a.txt", "drop-b.txt"]) rmSync(`${SFTP_ROOT}/${n}`, { force: true });
+
+  // 用真的 DataTransfer 觸發 dragenter/drop —— 檔案有沒有落地，回頭讀磁碟才算數
+  const dt = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(new File(["A\n"], "drop-a.txt", { type: "text/plain" }));
+    d.items.add(new File(["B\n"], "drop-b.txt", { type: "text/plain" }));
+    return d;
+  });
+  await page.locator(".sftp-panel").dispatchEvent("dragenter", { dataTransfer: dt });
+  // 拖曳中要看得出來會放到哪裡，否則使用者不知道自己放對地方沒有
+  await expect(page.locator(".sftp-dropzone")).toBeVisible();
+  await page.locator(".sftp-panel").dispatchEvent("drop", { dataTransfer: dt });
+
+  await expect(page.locator("table").getByText("drop-b.txt")).toBeVisible({ timeout: 30_000 });
+  expect(readFileSync(`${SFTP_ROOT}/drop-a.txt`, "utf-8"), "第一個檔案沒落地或內容不對").toBe("A\n");
+  expect(readFileSync(`${SFTP_ROOT}/drop-b.txt`, "utf-8"), "第二個檔案沒落地或內容不對").toBe("B\n");
+});
+
+test("上傳檔案選取框可以複選", async ({ page }) => {
+  await connect(page);
+  // 只能單選的話，要傳十個檔案就得開十次對話框
+  await expect(page.locator('input[type="file"]')).toHaveAttribute("multiple", /.*/);
 });
 
 test("可以進到子目錄再回上一層", async ({ page }) => {

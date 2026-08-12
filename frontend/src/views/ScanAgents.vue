@@ -211,6 +211,14 @@ async function del(r: ScanAgent) {
   try { await deleteScanAgent(r.id); await refresh(); }
   catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
+/** 對話框裡的刪除：刪完要關掉對話框，否則會停在一個已經不存在的代理上。 */
+async function delFromModal() {
+  if (!editing.value) return;
+  await del(editing.value);
+  show.value = false;
+  editing.value = null;
+}
+
 async function scanNow(r: ScanAgent) {
   try {
     const res = await scanNowAgent(r.id);
@@ -287,7 +295,10 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
     render: (r) => h("span", { style: "white-space:nowrap" }, fmtDateTime(r.last_seen_at)) },
   { title: t("scanAgentHelp.col_last_error"), key: "last_error", minWidth: 150, ellipsis: { tooltip: true }, render: (r) => r.last_error ?? "—" },
   {
-    title: t("common.actions"), key: "actions", className: "col-actions", width: 140,
+    // 釘在右側 + 放得下四顆按鈕：欄位一多，表格就會橫向溢出，刪除鈕整個被推到畫面外
+    // （實機回報「缺少刪除功能」，其實是看不到）。與使用者／憑證頁的作法一致。
+    title: t("common.actions"), key: "actions", className: "col-actions",
+    width: 180, fixed: "right",
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
       h(NPopconfirm, { onPositiveClick: () => scanNow(r) }, {
         trigger: () => iconAction(SyncIcon, t("scan_agent.scan_now"), () => {}, "primary"),
@@ -297,7 +308,10 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
       iconAction(RefreshIcon, t("scanAgentHelp.rotate"), () => rotate(r)),
       h(NPopconfirm, { onPositiveClick: () => del(r) }, {
         trigger: () => iconAction(DeleteIcon, t("common.delete"), () => {}, "error"),
-        default: () => t("common.confirm_delete"),
+        // 掃描一律要有代理：刪掉它，指派給它的子網路就沒有人掃了 —— 要先講
+        default: () => (r.subnet_count
+          ? t("scan_agent.delete_confirm_with_subnets", { name: r.name, n: r.subnet_count })
+          : t("scan_agent.delete_confirm", { name: r.name })),
       }),
     ]),
   },
@@ -488,13 +502,27 @@ onMounted(() => { void refresh(); });
         </n-form-item>
       </n-form>
       <template #footer>
-        <n-space justify="end">
-          <n-button @click="show = false">
-            <template #icon><n-icon><CancelIcon /></n-icon></template>{{ t("common.cancel") }}
-          </n-button>
-          <n-button type="primary" @click="submit">
-            <template #icon><n-icon><SaveIcon /></n-icon></template>{{ t("common.save") }}
-          </n-button>
+        <n-space justify="space-between" align="center">
+          <!-- 刪除放左側、與儲存分開：這是不可復原的動作，不該緊鄰主要按鈕 -->
+          <n-popconfirm v-if="editing" @positive-click="delFromModal">
+            <template #trigger>
+              <n-button type="error" ghost>
+                <template #icon><n-icon><DeleteIcon /></n-icon></template>{{ t("common.delete") }}
+              </n-button>
+            </template>
+            {{ editing.subnet_count
+              ? t("scan_agent.delete_confirm_with_subnets", { name: editing.name, n: editing.subnet_count })
+              : t("scan_agent.delete_confirm", { name: editing.name }) }}
+          </n-popconfirm>
+          <span v-else />
+          <n-space>
+            <n-button @click="show = false">
+              <template #icon><n-icon><CancelIcon /></n-icon></template>{{ t("common.cancel") }}
+            </n-button>
+            <n-button type="primary" @click="submit">
+              <template #icon><n-icon><SaveIcon /></n-icon></template>{{ t("common.save") }}
+            </n-button>
+          </n-space>
         </n-space>
       </template>
     </n-modal>

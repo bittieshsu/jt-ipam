@@ -406,7 +406,9 @@
     "dep_redundant": "替代（可略）",
     "deps_note": "缺工具的探測不會執行。Debian/Ubuntu 用上方指令安裝後，代理下次回報即自動解鎖；其他發行版請裝對應套件（如 RHEL：samba-common-tools）。",
     "scan_now_done": "已排程；代理最多 {n} 秒後會立即執行一次掃描。",
-    "scan_now_confirm": "立刻對此代理負責、且已啟用掃描的子網路執行一次掃描（含已啟用的探測項目）？"
+    "scan_now_confirm": "立刻對此代理負責、且已啟用掃描的子網路執行一次掃描（含已啟用的探測項目）？",
+    "delete_confirm": "確定刪除掃描代理「{name}」？",
+    "delete_confirm_with_subnets": "確定刪除掃描代理「{name}」？目前有 {n} 個子網路指派給它，刪除後那些子網路就沒有代理可掃 —— 記得改指派給其他代理。"
   },
   "os_precedence": {
     "title": "OS 來源優先順序",
@@ -3229,6 +3231,11 @@
     "batch_downloaded_skipped_dirs": "已下載 {n} 個檔案；略過 {dirs} 個資料夾（資料夾不能直接下載）",
     "batch_deleted": "已刪除 {n} 項",
     "batch_moved": "已移動 {n} 項到 {dir}",
-    "batch_partial_fail": "有幾項沒有成功：{names}"
+    "batch_partial_fail": "有幾項沒有成功：{names}",
+    "uploaded_many": "已上傳 {n} 個檔案",
+    "upload_partial_fail": "已上傳 {ok} 個；這幾個沒有成功：{names}",
+    "uploading_progress": "上傳中 {done}/{total}：{name}",
+    "drop_here": "放開以上傳到 {dir}",
+    "drop_dirs_skipped": "略過 {n} 個資料夾 —— 目前只能拖曳檔案。"
   }
 }

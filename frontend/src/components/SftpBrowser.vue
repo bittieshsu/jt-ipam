@@ -58,8 +58,11 @@ const form = ref({
   username: "", port: 22, auth: "password" as "password" | "key",
   password: "", private_key: "", passphrase: "",
 });
-const credOptions = computed(() =>
-  creds.value.map((c) => ({ label: `${c.label || c.username}（${c.auth_type}）`, value: c.id })));
+const credOptions = computed(() => creds.value.map((c) => ({
+  // 標籤格式與 SSH 主控台一致
+  label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）`,
+  value: c.id,
+})));
 
 async function delSelectedCred() {
   const id = form.value.credential_id;
@@ -245,30 +248,85 @@ async function download(row: SftpEntry) {
 }
 
 const uploadInput = ref<HTMLInputElement | null>(null);
+/** 拖曳中（游標在面板上且帶著檔案）—— 用來顯示「放開以上傳」的提示。 */
+const dragging = ref(false);
+let dragDepth = 0;          // dragenter/leave 會在子元素間跳動，用計數才不會閃爍
+/** 多檔上傳的進度：第幾個 / 共幾個。 */
+const uploadProgress = ref<{ done: number; total: number; name: string } | null>(null);
 
-async function onUpload(ev: Event) {
-  const file = (ev.target as HTMLInputElement).files?.[0];
-  if (!file || !ws) return;
+/** 送一個檔案到目前目錄。失敗直接往外拋，由呼叫端決定要不要繼續其他檔案。 */
+async function putOneFile(file: File) {
+  if (!ws) throw new Error(t("sftp.disconnected"));
+  const path = `${cwd.value.replace(/\/+$/, "")}/${file.name}`;
+  await request({ type: "put", path, size: file.size });
+  // put_ready 之後才開始送二進位框，一次 256 KiB
+  const CHUNK = 256 * 1024;
+  const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
+  for (let off = 0; off < file.size; off += CHUNK) {
+    const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+    ws.send(buf);
+  }
+  await done;
+}
+
+/** 上傳一批檔案：逐個送（同一條連線，並行只會互相排隊）。 */
+async function uploadFiles(files: File[]) {
+  if (!files.length || !ws) return;
   busy.value = true;
+  const failed: string[] = [];
   try {
-    const path = `${cwd.value.replace(/\/+$/, "")}/${file.name}`;
-    await request({ type: "put", path, size: file.size });
-    // put_ready 之後才開始送二進位框，一次 256 KiB
-    const CHUNK = 256 * 1024;
-    const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
-    for (let off = 0; off < file.size; off += CHUNK) {
-      const buf = await file.slice(off, off + CHUNK).arrayBuffer();
-      ws.send(buf);
+    for (const [i, file] of files.entries()) {
+      uploadProgress.value = { done: i, total: files.length, name: file.name };
+      // 一個檔案失敗不該讓其餘的都不傳；最後一次講清楚是哪幾個
+      try { await putOneFile(file); } catch (e: any) {
+        failed.push(`${file.name}（${e?.message ?? String(e)}）`);
+      }
     }
-    await done;
-    msg.success(t("sftp.uploaded", { name: file.name }));
+    const ok = files.length - failed.length;
+    if (failed.length) msg.error(t("sftp.upload_partial_fail", { ok, names: failed.join("、") }));
+    else if (files.length === 1) msg.success(t("sftp.uploaded", { name: files[0].name }));
+    else msg.success(t("sftp.uploaded_many", { n: files.length }));
     await refresh();
-  } catch (e: any) {
-    msg.error(e?.message ?? String(e));
   } finally {
+    uploadProgress.value = null;
     busy.value = false;
     if (uploadInput.value) uploadInput.value.value = "";
   }
+}
+
+async function onUpload(ev: Event) {
+  const list = (ev.target as HTMLInputElement).files;
+  await uploadFiles(list ? Array.from(list) : []);
+}
+
+// ── 拖曳上傳
+function onDragEnter(ev: DragEvent) {
+  if (!ev.dataTransfer?.types?.includes("Files")) return;   // 拖文字進來不該亮起來
+  dragDepth += 1;
+  dragging.value = true;
+}
+function onDragOver(ev: DragEvent) {
+  if (!ev.dataTransfer?.types?.includes("Files")) return;
+  ev.preventDefault();                       // 不攔的話瀏覽器會直接開啟那個檔案
+  ev.dataTransfer.dropEffect = "copy";
+}
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) dragging.value = false;
+}
+async function onDrop(ev: DragEvent) {
+  ev.preventDefault();
+  dragDepth = 0;
+  dragging.value = false;
+  if (phase.value !== "connected") return;
+  const dt = ev.dataTransfer;
+  if (!dt) return;
+  // 資料夾拖進來時 webkitGetAsEntry().isDirectory 為真 —— 目前只收檔案，要講出來
+  const items = Array.from(dt.items ?? []);
+  const dirs = items.filter((it) => (it as any).webkitGetAsEntry?.()?.isDirectory).length;
+  const files = Array.from(dt.files ?? []).filter((f) => f.size > 0 || !dirs);
+  if (dirs) msg.warning(t("sftp.drop_dirs_skipped", { n: dirs }));
+  await uploadFiles(files);
 }
 
 async function doMkdir() {
@@ -442,7 +500,14 @@ async function batchMove() {
 }
 
 async function loadCreds() {
-  try { creds.value = await listSshCredentials(props.addressId); } catch { /* 沒有就手動輸入 */ }
+  try {
+    creds.value = await listSshCredentials(props.addressId);
+    // 有已存帳密就預設選最近一筆（與 SSH 主控台一致）：不必再輸入，直接按連線；
+    // 要改用其他帳密把下拉清空即可，手動欄位就會回來。
+    if (!form.value.credential_id && creds.value.length) {
+      form.value.credential_id = creds.value[0].id;
+    }
+  } catch { /* 沒有就手動輸入 */ }
 }
 void loadCreds();
 
@@ -561,7 +626,14 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
 
       <!-- 檔案操作區：路徑、操作與清單包在同一個框裡（狀態列刻意留在框外，
            與 SSH 主控台一致：那一列講的是連線，不是檔案）。 -->
-      <div class="sftp-panel" :class="{ 'sftp-full': fullHeight }">
+      <div class="sftp-panel" :class="{ 'sftp-full': fullHeight, 'sftp-dropping': dragging }"
+           @dragenter="onDragEnter" @dragover="onDragOver"
+           @dragleave="onDragLeave" @drop="onDrop">
+        <!-- 拖曳中：整塊面板都是放置區，並講明會放到哪個目錄 -->
+        <div v-if="dragging" class="sftp-dropzone">
+          <n-icon :size="28"><UploadIcon /></n-icon>
+          <span>{{ t("sftp.drop_here", { dir: cwd }) }}</span>
+        </div>
       <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom:8px">
         {{ errorMsg }}
       </n-alert>
@@ -587,7 +659,7 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           <template #icon><n-icon><UploadIcon /></n-icon></template>
           {{ t("sftp.upload") }}
         </n-button>
-        <input ref="uploadInput" type="file" style="display:none" @change="onUpload" />
+        <input ref="uploadInput" type="file" multiple style="display:none" @change="onUpload" />
         <!-- 篩選只作用在目前這個目錄的清單（列出來的就是全部，不必回遠端重撈） -->
         <n-input v-model:value="filterText" clearable style="width: 200px"
                  :placeholder="t('sftp.filter_ph')">
@@ -616,9 +688,16 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           {{ t("sftp.batch_delete_confirm", { n: checkedKeys.length }) }}
         </n-popconfirm>
         <n-button size="small" quaternary @click="clearSelection">
+          <template #icon><n-icon><CancelIcon /></n-icon></template>
           {{ t("sftp.batch_clear") }}
         </n-button>
       </n-space>
+
+      <!-- 多檔上傳時講出進度：不然畫面只是卡著，不知道還有幾個 -->
+      <div v-if="uploadProgress && uploadProgress.total > 1" class="sftp-filter-note">
+        {{ t("sftp.uploading_progress", {
+          done: uploadProgress.done + 1, total: uploadProgress.total, name: uploadProgress.name }) }}
+      </div>
 
       <!-- 截斷要明講：畫面上少幾千個檔案而不說，等於騙人 -->
       <n-alert v-if="truncated" type="warning" :bordered="false" style="margin-bottom: 8px">
@@ -655,6 +734,12 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
   padding: 10px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
   display: flex; flex-direction: column; min-height: 0; }
 .sftp-panel.sftp-full { flex: 1; }
+/* 拖曳中：整塊面板變成放置區 */
+.sftp-panel { position: relative; }
+.sftp-panel.sftp-dropping { border-color: #18a058; border-style: dashed; }
+.sftp-dropzone { position: absolute; inset: 0; z-index: 5; display: flex; gap: 10px;
+  flex-direction: column; align-items: center; justify-content: center; pointer-events: none;
+  background: rgba(24, 160, 88, .10); color: #18a058; font-weight: 600; border-radius: 8px; }
 html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(200, 210, 230, .18);
   box-shadow: none; }
 .sftp-area.sftp-full { flex: 1; min-height: 0; }

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.162] — 2026-08-12
+
+### Fixed
+- **The scan agent delete button was pushed off screen** (reported as "there is no delete"). It had always been there, but with enough columns the table overflowed horizontally and the fourth action button was simply out of view. The actions column is now **pinned right** and wide enough for four buttons (matching the users and certificates pages). The confirmation also states **how many subnets are assigned to that agent** — scanning always needs one, so deleting it leaves those subnets unscanned.
+- **The edit dialog has a delete button too**, bottom-left and away from Save: an irreversible action should not sit next to the primary one.
+- **SFTP uploads accept multiple files.** The picker was single-select, so ten files meant opening it ten times. Multiple files are sent one at a time with an "Uploading 3/10" line; failures are named individually rather than stopping the batch.
+- **A saved SFTP credential is now selected by default** (as in the SSH console): the most recent one is picked, the manual fields collapse, and Connect just works. Clear the dropdown to go back to entering credentials by hand.
+- **"Clear selection" gained its icon**, so all four batch buttons match.
+
+### Added
+- **Drag-and-drop upload in SFTP**: drop files onto the file area to upload them into the current directory. While dragging, the whole panel becomes a drop zone labelled with the destination path. Dropped folders are reported as skipped (files only for now).
+
 ## [0.5.161] — 2026-08-10
 
 ### Fixed (install; customer reports)
