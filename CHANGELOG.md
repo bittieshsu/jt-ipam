@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.164] — 2026-08-12
+
+### Changed (**behaviour change — please read**)
+- **Proxmox no longer creates IP records unconditionally.** It was the one integration that created any address IPAM did not have, with **no toggle at all**. That is now governed by "trust addresses from virtualization", **off by default** (migration 0116).
+
+  ⚠️ **Upgrading changes behaviour**: VM and node IPs that used to appear on their own no longer do. To restore it, switch the toggle on under the Proxmox VE integration. This is deliberate — auto-recording removes those addresses from the "unauthorised IPs" anomaly check (whose test is "seen in ARP, absent from IPAM"), and that trade should be an explicit choice.
+
+- **Fixed an overlapping-subnet hazard in Proxmox while there.** It picked a subnet with `ORDER BY masklen(cidr) DESC LIMIT 1`, which **silently chooses one** when two tenants each hold `192.168.1.0/24` — potentially filing a VM under someone else's subnet. It now uses the same decision as every other integration: **ambiguous means don't create**.
+
+### Added
+- **VMware / ESXi gains the same "trust addresses from virtualization" toggle** (off by default). It previously never created anything, only matched existing records.
+- **A dedicated "Which sources create IP records on their own?" table in the README and on the site**, listing scan agent / LibreNMS / Proxmox / VMware / OPNsense / pfSense / the remaining integrations / imports with their toggles and defaults — previously only discoverable by reading the source.
+- The auto-recorded marker now covers the `proxmox` and `vmware` sources too.
+
 ## [0.5.163] — 2026-08-12
 
 ### Added

@@ -216,6 +216,18 @@
   .integrations .chip:nth-child(5n+3) i{background:#f59e0b}
   .integrations .chip:nth-child(5n+4) i{background:#0ea5e9}
   .integrations .chip:nth-child(5n+5) i{background:#ec4899}
+
+/* 資料來源行為表：欄位多，窄螢幕讓它自己橫向捲，不要硬擠成一團 */
+.tbl-wrap{overflow-x:auto;margin:18px 0 12px;border:1px solid var(--line,#e4e8f0);border-radius:10px}
+.src-tbl{width:100%;border-collapse:collapse;font-size:14.5px;min-width:640px;background:var(--card,#fff)}
+.src-tbl th,.src-tbl td{padding:10px 14px;text-align:left;vertical-align:top;
+  border-bottom:1px solid var(--line,#e4e8f0)}
+.src-tbl thead th{background:rgba(24,160,88,.07);font-weight:600;white-space:nowrap}
+.src-tbl tbody tr:last-child td{border-bottom:0}
+.src-tbl code{font-size:13px;padding:1px 5px;border-radius:4px;background:rgba(128,128,128,.14)}
+.src-note{font-size:14px;opacity:.85;line-height:1.7}
+.src-warn{font-size:14px;line-height:1.7;padding:12px 14px;border-radius:8px;
+  background:rgba(240,160,32,.10);border:1px solid rgba(240,160,32,.35)}
 </style>
 </head>
 <body>
@@ -466,6 +478,59 @@
     </div>
   </div>
 </section>
+
+<section id="autocreate">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow"><span class="zh">資料來源行為</span><span class="en">Source behaviour</span></span>
+      <h2><span class="zh">哪些來源會自己新增 IP 紀錄？</span><span class="en">Which sources create IP records on their own?</span></h2>
+      <p><span class="zh">整合看到一個 IPAM 裡還沒有的位址時，行為不是每個來源都一樣 —— 而且會直接影響「未授權 IP」異常偵測（它的判定是「ARP 看得到、IPAM 沒有」）。</span><span class="en">When an integration sees an address IPAM does not have, the behaviour differs by source — and it directly affects the &quot;unauthorised IPs&quot; anomaly check, whose test is &quot;seen in ARP, absent from IPAM&quot;.</span></p>
+    </div>
+
+    <div class="tbl-wrap">
+      <table class="src-tbl">
+        <thead>
+          <tr>
+            <th><span class="zh">來源</span><span class="en">Source</span></th>
+            <th><span class="zh">IPAM 沒有該位址時</span><span class="en">When IPAM has no such address</span></th>
+            <th><span class="zh">開關</span><span class="en">Toggle</span></th>
+            <th><span class="zh">預設</span><span class="en">Default</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><b><span class="zh">掃描代理</span><span class="en">Scan agent</span></b></td>
+              <td><span class="zh"><b>自動建立</b>（限已指派且有開掃描的子網路）</span><span class="en"><b>Creates it</b> (only in assigned subnets with scanning on)</span></td>
+              <td>—</td><td><span class="zh">一律建</span><span class="en">always</span></td></tr>
+          <tr><td><b>LibreNMS</b></td>
+              <td><span class="zh">可自動建立（只建裝置主 IP）</span><span class="en">May create (device primary IP only)</span></td>
+              <td><code>auto_create_ips</code></td><td><b><span class="zh">開</span><span class="en">on</span></b></td></tr>
+          <tr><td><b>Proxmox VE</b></td>
+              <td><span class="zh">可自動建立</span><span class="en">May create</span></td>
+              <td><span class="zh">信任虛擬化取得的 IP</span><span class="en">Trust addresses from virtualization</span></td>
+              <td><b><span class="zh">關</span><span class="en">off</span></b></td></tr>
+          <tr><td><b>VMware / ESXi</b></td>
+              <td><span class="zh">可自動建立</span><span class="en">May create</span></td>
+              <td><span class="zh">信任虛擬化取得的 IP</span><span class="en">Trust addresses from virtualization</span></td>
+              <td><b><span class="zh">關</span><span class="en">off</span></b></td></tr>
+          <tr><td><b>OPNsense / pfSense</b></td>
+              <td><span class="zh">可自動建立（DHCP 租約）</span><span class="en">May create (DHCP leases)</span></td>
+              <td><span class="zh">自動建立 IPAM 沒有的位址</span><span class="en">Create addresses IPAM does not have</span></td>
+              <td><b><span class="zh">關</span><span class="en">off</span></b></td></tr>
+          <tr><td>AdGuard / Wazuh / DNS / Windows DHCP / FortiGate</td>
+              <td><span class="zh"><b>只比對既有，不建</b></span><span class="en"><b>Match only, never create</b></span></td>
+              <td>—</td><td>—</td></tr>
+          <tr><td><span class="zh">CSV 匯入 / phpIPAM 遷移</span><span class="en">CSV import / phpIPAM migration</span></td>
+              <td><span class="zh">依匯入內容建立（使用者明示的動作）</span><span class="en">Created from imported data (explicit user action)</span></td>
+              <td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="src-note"><span class="zh"><b>共通規則：</b>自動建立一律走同一套判斷 —— 用最長首碼找唯一命中的子網路；<b>重疊網段造成歧義時寧可不建</b>（多個單位各有 192.168.1.0/24 是本專案的核心情境，把紀錄掛到錯的單位比不建更糟）。在整合設定裡指定「限定子網路範圍」即可消除歧義。</span><span class="en"><b>Shared rule:</b> every auto-creation path uses one decision — longest-prefix match, and <b>nothing is created when overlapping subnets make it ambiguous</b> (several tenants each holding 192.168.1.0/24 is this project's core scenario; filing under the wrong tenant is worse than not filing). Setting an integration's subnet scope removes the ambiguity.</span></p>
+    <p class="src-warn"><span class="zh">⚠️ <b>開啟自動建立＝放棄一部分偵測能力。</b>拿得到位址的機器不等於該被收錄的機器：私接的設備一旦被自動建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡。自動建立的紀錄在 IP 清單上會標示為「自動收錄（未登記）」，請定期檢視。</span><span class="en">⚠️ <b>Enabling auto-creation trades away part of your detection.</b> A machine that obtained an address is not necessarily one that belongs in IPAM: once an unauthorised device is recorded, it no longer appears under &quot;unauthorised IPs&quot;. Auto-created records are flagged &quot;Auto-recorded (unregistered)&quot; in the IP list — review them regularly.</span></p>
+  </div>
+</section>
+
 
 <section id="screens">
   <div class="wrap">

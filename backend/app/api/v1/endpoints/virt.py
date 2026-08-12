@@ -98,6 +98,8 @@ class ProxmoxInstanceCreate(StrictModel):
     enabled: bool = True
     sync_interval_seconds: Annotated[int, Field(ge=60, le=86400)] = 600
     scope_subnet_ids: list[str] | None = None
+    # 信任虛擬化回報的 IP：IPAM 沒有時自動建立（預設關閉；風險見模型註解）
+    auto_create_ips: bool | None = None
 
 
 class ProxmoxInstanceUpdate(StrictModel):
@@ -110,6 +112,8 @@ class ProxmoxInstanceUpdate(StrictModel):
     enabled: bool | None = None
     sync_interval_seconds: Annotated[int | None, Field(ge=60, le=86400)] = None
     scope_subnet_ids: list[str] | None = None
+    # 信任虛擬化回報的 IP：IPAM 沒有時自動建立（預設關閉；風險見模型註解）
+    auto_create_ips: bool | None = None
 
 
 class ProxmoxInstanceRead(StrictModel):
@@ -123,6 +127,8 @@ class ProxmoxInstanceRead(StrictModel):
     enabled: bool
     sync_interval_seconds: int
     scope_subnet_ids: list[str] | None = None
+    # 信任虛擬化回報的 IP：IPAM 沒有時自動建立（預設關閉；風險見模型註解）
+    auto_create_ips: bool | None = None
     last_sync_at: Any
     last_error: str | None
 
@@ -371,6 +377,7 @@ async def create_proxmox(
         enabled=payload.enabled,
         sync_interval_seconds=payload.sync_interval_seconds,
         scope_subnet_ids=payload.scope_subnet_ids,
+        auto_create_ips=bool(payload.auto_create_ips),
     )
     session.add(obj)
     await session.flush()
@@ -434,7 +441,7 @@ async def update_proxmox(
         urls = data["extra_api_urls"] or []
         obj.extra_api_urls = "\n".join(str(u).rstrip("/") for u in urls) or None
     for k in ("auth_username", "auth_token_id", "verify_tls", "enabled",
-              "sync_interval_seconds", "scope_subnet_ids"):
+              "sync_interval_seconds", "scope_subnet_ids", "auto_create_ips"):
         if k in data and data[k] is not None:
             setattr(obj, k, data[k])
 

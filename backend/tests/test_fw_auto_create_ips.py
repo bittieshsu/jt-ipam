@@ -72,6 +72,26 @@ async def test_scope_limits_the_candidates(db_session) -> None:
 
 
 @pytest.mark.anyio
+async def test_virtualization_defaults_to_off_too(db_session) -> None:
+    """Proxmox 與 VMware 也預設關。
+
+    Proxmox 原本是**無條件自動建立**，改成開關後預設關 —— 這是刻意的行為變更：
+    自動收錄會讓那些位址不再出現在「未授權 IP」偵測裡，該由使用者明示同意。
+    """
+    from app.models.esxi import ESXiInstance
+    from app.models.virt import ProxmoxInstance
+
+    px = ProxmoxInstance(api_url="https://192.0.2.3", auth_username="root@pam",
+                         auth_token_id="jt")
+    esx = ESXiInstance(name=f"esx-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.4",
+                       username="ro", password_enc=b"x", password_nonce=b"y")
+    db_session.add_all([px, esx])
+    await db_session.flush()
+    assert px.auto_create_ips is False
+    assert esx.auto_create_ips is False
+
+
+@pytest.mark.anyio
 async def test_default_is_off_on_both_firewalls(db_session) -> None:
     """預設必須是關閉的 —— 升級後不該有人突然發現 IPAM 多出一批沒登記過的機器。"""
     from app.models.firewall import OPNsenseFirewall

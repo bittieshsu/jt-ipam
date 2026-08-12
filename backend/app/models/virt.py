@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB, MACADDR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -151,6 +152,12 @@ class ProxmoxInstance(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # 限定 sync 解析 IP 的子網路範圍（解決重疊網段）。空 = 全域比對。存 subnet UUID 字串陣列。
     scope_subnet_ids: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # 信任虛擬化回報的 IP：IPAM 沒有該筆位址時自動建立。**預設關閉** ——
+    # 自動收錄會讓那些位址不再出現在「未授權 IP」異常偵測裡（該偵測的判定是
+    # 「ARP 看得到、IPAM 沒有」），要不要放棄那道訊號應該由使用者明示。
+    auto_create_ips: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=text("false")
+    )
     sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=600, nullable=False)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)

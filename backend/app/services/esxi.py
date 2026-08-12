@@ -545,6 +545,7 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
     """
     from app.models.address import IPAddress
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
+    from app.services.ip_autocreate import addable_subnets, subnet_for_ip_str
 
     async with Session(inst) as s:
         vms = await s.list_vms()
@@ -569,6 +570,9 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
     scope = _scope_ids(inst)
     seen: set[Any] = set()
     matched_ip = 0
+    created_ip = 0
+    # 開了「信任虛擬化取得的 IP」才準備候選子網路
+    create_in = await addable_subnets(session, scope) if inst.auto_create_ips else None
 
     for v in vms:
         moid = v.get("moid") or v.get("name")
@@ -606,7 +610,7 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
                 bridge=nic.get("network"),
                 primary_ip=pick_vm_ip(list(nic.get("ips") or []))))
 
-        # 主要 IP：只比對既有的 IPAddress，不新建。位址挑選見 pick_vm_ip ——
+        # 主要 IP：預設只比對既有的 IPAddress。位址挑選見 pick_vm_ip ——
         # 鏈路本地（fe80::/169.254）一律不採用，IPv4 優先。
         cand = pick_vm_ip([v.get("ip"),
                            *(ip for n in (v.get("nics") or []) for ip in (n.get("ips") or []))])
@@ -619,6 +623,17 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
             if len(ids) == 1:
                 row.primary_ip_id = ids[0]
                 matched_ip += 1
+            elif not ids and create_in is not None:
+                # 開了「信任虛擬化取得的 IP」：落點唯一時才建（規則見 ip_autocreate）
+                sid = subnet_for_ip_str(create_in, cand)
+                if sid is not None:
+                    ipa = IPAddress(subnet_id=sid, ip=cand, state="active",
+                                    discovery_source="vmware")
+                    session.add(ipa)
+                    await session.flush()
+                    row.primary_ip_id = ipa.id
+                    matched_ip += 1
+                    created_ip += 1
 
     # 這次沒看到的 VM → 從清單移除（VM 被刪掉了）
     stale = (await session.execute(
@@ -632,4 +647,7 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
 
     inst.last_sync_at = now
     inst.last_error = None
-    return {"vms": len(vms), "matched_ip": matched_ip, "removed": removed}
+    out = {"vms": len(vms), "matched_ip": matched_ip, "removed": removed}
+    if created_ip:
+        out["created_ip"] = created_ip      # 自動建了幾筆，別讓它靜悄悄發生
+    return out

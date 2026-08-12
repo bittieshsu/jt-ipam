@@ -53,6 +53,7 @@ async def create_instance(
         verify_tls=payload.verify_tls,
         sync_interval_seconds=payload.sync_interval_seconds,
         scope_subnet_ids=payload.scope_subnet_ids,
+        auto_create_ips=bool(payload.auto_create_ips),
         description=payload.description,
         password_enc=b"placeholder", password_nonce=b"placeholder",
     )

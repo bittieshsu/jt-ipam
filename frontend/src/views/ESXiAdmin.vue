@@ -62,6 +62,17 @@
             <ScopeOverlapWarning :scope-empty="!form.scope_subnet_ids?.length" />
           </div>
         </n-form-item>
+        <n-form-item :label="t('virt_autocreate.label')">
+          <div style="width:100%">
+            <n-switch v-model:value="form.auto_create_ips" />
+            <div style="font-size:11px;opacity:.65;margin-top:4px">{{ t("virt_autocreate.hint") }}</div>
+            <!-- 開了就等於放棄一道偵測，這件事必須在開關旁邊講 -->
+            <n-alert v-if="form.auto_create_ips" type="warning" :show-icon="false" :bordered="false"
+                     style="margin-top:6px">
+              {{ t("virt_autocreate.risk") }}
+            </n-alert>
+          </div>
+        </n-form-item>
         <div style="margin: -8px 0 4px">
           <span style="font-size: 11px; opacity: .7">{{ t("virt.scope_hint") }}</span>
         </div>
@@ -147,6 +158,7 @@ const form = ref({
   name: "", api_url: "", extra_api_urls: "", username: "", password: "",
   enabled: true, verify_tls: true, sync_interval_seconds: 300, description: "",
   scope_subnet_ids: [] as string[],
+  auto_create_ips: false,
 });
 
 const modalTitle = computed(() =>
@@ -172,7 +184,7 @@ function openCreate() {
   editing.value = null;
   form.value = { name: "", api_url: "", extra_api_urls: "", username: "", password: "",
     enabled: true, verify_tls: true, sync_interval_seconds: 300, description: "",
-    scope_subnet_ids: [] };
+    scope_subnet_ids: [], auto_create_ips: false };
   show.value = true;
 }
 
@@ -184,6 +196,7 @@ function openEdit(r: ESXiInstance) {
     enabled: r.enabled, verify_tls: r.verify_tls,
     sync_interval_seconds: r.sync_interval_seconds, description: r.description ?? "",
     scope_subnet_ids: r.scope_subnet_ids ?? [],
+    auto_create_ips: !!(r as any).auto_create_ips,
   };
   show.value = true;
 }
@@ -198,6 +211,7 @@ async function save() {
       description: form.value.description || null,
       extra_api_urls: form.value.extra_api_urls || null,
       scope_subnet_ids: form.value.scope_subnet_ids?.length ? form.value.scope_subnet_ids : null,
+      auto_create_ips: form.value.auto_create_ips,
     };
     // 編輯時密碼留空＝不變更（不要把既有密碼洗成空字串）
     if (form.value.password) payload.password = form.value.password;

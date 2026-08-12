@@ -422,6 +422,8 @@ export interface ProxmoxWrite {
   auth_username: string; auth_token_id: string; token_secret?: string;
   verify_tls?: boolean; enabled?: boolean; sync_interval_seconds?: number;
   scope_subnet_ids?: string[] | null;
+  /** 信任虛擬化取得的 IP：IPAM 沒有時自動建立（預設關） */
+  auto_create_ips?: boolean;
 }
 
 export const Virt = {

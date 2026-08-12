@@ -29,7 +29,8 @@ const isReserved = () => !!r().dhcp_reserved;
 // 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約。
 // 而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡（那道偵測看的是
 // 「ARP 看得到、IPAM 沒有」）—— 所以它必須在清單上一眼認得出來。
-const isAutoAdded = () => ["opnsense", "pfsense"].includes(String(r().discovery_source ?? ""));
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware"];
+const isAutoAdded = () => AUTO_SOURCES.includes(String(r().discovery_source ?? ""));
 </script>
 
 <template>

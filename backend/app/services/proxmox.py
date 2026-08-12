@@ -32,6 +32,11 @@ from app.models.virt import (
     VirtualMachine,
     VMInterface,
 )
+from app.services.ip_autocreate import (
+    SubnetCandidates,
+    addable_subnets,
+    subnet_for_ip_str,
+)
 
 
 class ProxmoxError(Exception):
@@ -212,18 +217,20 @@ def _agent_ipv4_by_mac(agent_data: dict[str, Any]) -> dict[str, str]:
 
 async def _link_ip_to_ipam(
     session: AsyncSession, ip_text: str | None, mac: str | None, hostname: str | None,
-    *, scope_ids: set[Any] | None = None,
+    *, scope_ids: set[Any] | None = None, create_in: SubnetCandidates | None = None,
 ) -> Any:
     """把 Proxmox 撈到的 VM/CT IP+MAC+主機名稱對應進 IPAM 的 ip_addresses。
 
-    - 找出包含此 IP 的子網路（沒有就跳過，不亂建）
     - 既有 IP：補 MAC（原本空才補，避免蓋掉 scanner/ARP）；記 proxmox 主機名稱觀測
-    - 沒有的 IP：在該子網路新建一筆（discovery_source=proxmox）
+    - 沒有的 IP：**只有 create_in 有值時**（實例開了 auto_create_ips）才在唯一命中的
+      子網路新建一筆（discovery_source=proxmox）。落點判斷走 services/ip_autocreate：
+      重疊網段造成歧義時不建 —— 這裡原本是 `ORDER BY masklen DESC LIMIT 1`，會在
+      兩個單位共用同一個 CIDR 時靜靜挑一個，把 VM 掛到別人的網段底下。
     - **PVE 不知道 IP 時**（qemu 沒裝 guest agent、非 LXC、也沒有 cloud-init ipconfig）
       改用 VM 網卡 MAC 比對「IPAM 已知的 IP」（scanner/ARP 早就學到），只比對既有、絕不新建
     回傳對應到的 IPAddress（給呼叫端回填 VM.primary_ip_id），無對應子網路則 None。
     """
-    from sqlalchemy import func, text
+    from sqlalchemy import func
 
     from app.models.address import IPAddress
     from app.services.hostname import apply_observation
@@ -244,21 +251,18 @@ async def _link_ip_to_ipam(
                                     hostname=hostname, tiebreak_min=True)
         return ipa
 
-    row = (await session.execute(
-        text("SELECT id FROM subnets WHERE cidr >>= CAST(:ip AS inet) "
-             "ORDER BY masklen(cidr) DESC LIMIT 1"),
-        {"ip": ip_text},
-    )).first()
-    if not row:
-        return None  # 沒對應子網路 → 不建
-    subnet_id = row[0]
-
-    ipa = (await session.execute(
-        select(IPAddress).where(
-            func.host(IPAddress.ip) == ip_text, IPAddress.subnet_id == subnet_id,
-        )
-    )).scalar_one_or_none()
+    # 先找既有紀錄（重疊網段下同 IP 可能有多筆 → 限定在 scope 內，並取第一筆而非
+    # scalar_one_or_none，後者會在多筆時炸掉整批同步）
+    e_stmt = select(IPAddress).where(func.host(IPAddress.ip) == ip_text)
+    if scope_ids:
+        e_stmt = e_stmt.where(IPAddress.subnet_id.in_(list(scope_ids)))
+    ipa = (await session.execute(e_stmt.limit(1))).scalars().first()
     if ipa is None:
+        if create_in is None:
+            return None                       # 沒開「信任虛擬化取得的 IP」→ 不建
+        subnet_id = subnet_for_ip_str(create_in, ip_text)
+        if subnet_id is None:
+            return None                       # 沒有唯一落點（無包含網段或重疊歧義）→ 不建
         ipa = IPAddress(subnet_id=subnet_id, ip=ip_text, state="active",
                         discovery_source="proxmox")
         if mac:
@@ -464,6 +468,8 @@ async def sync_instance(
     summary = SyncSummary()
     # 重疊網段：若 instance 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
     scope_ids = _scope_subnet_uuids(instance)
+    # 開了「信任虛擬化取得的 IP」才準備候選子網路（沒開就完全不建）
+    create_in = await addable_subnets(session, scope_ids) if instance.auto_create_ips else None
     try:
         base = await _resolve_base(session, instance)
         cl_name, standalone = await _derive_cluster(session, instance, base)
@@ -508,7 +514,8 @@ async def sync_instance(
             continue
         # 節點 host 本身的網路（管理 IP + 各介面 IP/MAC）→ IPAM
         nip = node_ip_map.get(node_name)
-        if nip and await _link_ip_to_ipam(session, nip, None, node_name):
+        if nip and await _link_ip_to_ipam(session, nip, None, node_name,
+                                          scope_ids=scope_ids, create_in=create_in):
             summary.ipam_linked += 1
         try:
             host_ifaces = (await _api_get(
@@ -517,7 +524,8 @@ async def sync_instance(
             for itf in host_ifaces:
                 addr = _clean_ip(itf.get("address"))
                 hw = (itf.get("hwaddr") or "").strip().lower() or None
-                if addr and await _link_ip_to_ipam(session, addr, hw, node_name):
+                if addr and await _link_ip_to_ipam(session, addr, hw, node_name,
+                                                   scope_ids=scope_ids, create_in=create_in):
                     summary.ipam_linked += 1
             # 把節點網路介面（bridge / 實體NIC / bond / vlan）建成該節點裝置的連接埠
             await _sync_node_ports(session, node_name, nip, host_ifaces, scope_ids)
@@ -637,7 +645,8 @@ async def sync_instance(
                 # 沒有 IP 也要試（PVE 不知道 IP 時走 MAC 後援比對既有 IP），否則沒裝
                 # guest agent 的 VM 永遠對不到、主機名稱與 primary_ip 都補不上。
                 if ip or mac:
-                    linked = await _link_ip_to_ipam(session, ip, mac, vm.name, scope_ids=scope_ids)
+                    linked = await _link_ip_to_ipam(session, ip, mac, vm.name,
+                                                    scope_ids=scope_ids, create_in=create_in)
                     if linked is not None:
                         summary.ipam_linked += 1
                         # 回填 VM 主 IP（給 PVE 主控台 noVNC/xterm 用：IP→VM 解析）。

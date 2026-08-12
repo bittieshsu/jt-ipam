@@ -3244,5 +3244,10 @@
     "label": "Create addresses IPAM does not have",
     "hint": "While syncing DHCP leases, create a record for an address IPAM does not know yet (only inside this firewall's associated subnets, and only when the subnet is unambiguous). When off, such data is skipped and the sync summary reports how many were skipped.",
     "risk": "Risk: a machine that obtained a DHCP address is not necessarily a machine that belongs in IPAM. Someone plugging in an unauthorised device and getting a lease would be recorded as a legitimate entry — and once it is in IPAM it no longer appears under \"unauthorised IPs\" in anomaly detection, whose whole test is \"seen in ARP, absent from IPAM\". Auto-created records are flagged as unregistered in the IP list; review them regularly."
+  },
+  "virt_autocreate": {
+    "label": "Trust addresses reported by virtualization (create ones IPAM lacks)",
+    "hint": "During sync, create a record when a VM or node address is not yet in IPAM (only within the configured subnet scope, and only when the subnet is unambiguous). When off, only existing records are matched.",
+    "risk": "Risk: an address visible on the hypervisor is not necessarily one that belongs in IPAM (test machines, throwaway clones, systems someone else manages). And once recorded, that address stops appearing under \"unauthorised IPs\" in anomaly detection, whose whole test is \"seen in ARP, absent from IPAM\". Auto-created records are flagged as unregistered in the IP list; review them regularly."
   }
 }

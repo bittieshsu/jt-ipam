@@ -1,4 +1,4 @@
-# jt-ipam v0.5.163
+# jt-ipam v0.5.164
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -71,6 +71,34 @@ Just want a login now? Step 3 alone is enough. The same guide is built into the 
 - **Boxes / colors look broken (e.g. glances)** — set the serial login's `TERM` to `xterm-256color` (serial-getty often defaults to `vt220`).
 - **Emoji (⚠️ etc.) in the OS boot messages** — those are systemd's own glyphs; add `systemd.setenv=SYSTEMD_EMOJI=0` to the kernel cmdline. For emoji on the **BIOS** screen, set the BIOS Console Redirection **Terminal Type = VT100+** (not VT-UTF8).
 - **Console area is tiny with black margins** — serial can't auto-negotiate window size; use the console's **Fit to window** button (it sends an `stty rows/cols` command — press it at a shell prompt), or run `stty rows N cols N` yourself.
+
+## Which sources create IP records on their own?
+
+When an integration sees an address IPAM does not have yet, the behaviour differs by
+source — and it matters, because the "unauthorised IPs" anomaly check is defined as
+**"seen in ARP, absent from IPAM"**. Hence this table:
+
+| Source | When IPAM has no such address | Toggle | Default | Subnet placement |
+|---|---|---|---|---|
+| **Scan agent** | **Creates it** | none | always creates | only inside subnets assigned to that agent with scanning enabled |
+| **LibreNMS** | May create (device primary IP only, never ARP neighbours) | `auto_create_ips` | **on** | longest prefix; refuses when ambiguous |
+| **Proxmox VE** | May create | "trust addresses from virtualization" | **off** | longest prefix; refuses when ambiguous |
+| **VMware / ESXi** | May create | "trust addresses from virtualization" | **off** | longest prefix; refuses when ambiguous |
+| **OPNsense / pfSense** | May create (DHCP leases) | "create addresses IPAM does not have" | **off** | longest prefix; refuses when ambiguous |
+| AdGuard / Wazuh / DNS / Windows DHCP / FortiGate | **Match only, never create** | — | — | — |
+| CSV import / phpIPAM migration | Created from the imported data (an explicit user action) | — | — | as imported |
+
+**Shared rule**: every auto-creation path uses the same decision
+(`services/ip_autocreate.py`) — longest-prefix match on existing subnets, and
+**nothing is created when overlapping subnets make it ambiguous** (several tenants each
+holding `192.168.1.0/24` is this project's core scenario; filing a record under the wrong
+tenant is worse than not filing it). Setting an integration's subnet scope removes the
+ambiguity.
+
+> ⚠️ **Enabling auto-creation trades away part of your detection.** A machine that obtained
+> an address is not necessarily one that belongs in IPAM: once an unauthorised device is
+> recorded, it **no longer appears under "unauthorised IPs"**. Auto-created records are
+> flagged "Auto-recorded (unregistered)" in the IP list — review them regularly.
 
 ## Core entities
 

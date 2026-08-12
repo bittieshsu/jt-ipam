@@ -149,6 +149,7 @@ function emptyPxForm() {
     auth_username: "root@pam", auth_token_id: "", token_secret: "",
     verify_tls: false, enabled: true, sync_interval_seconds: 600,
     scope_subnet_ids: [] as string[],
+    auto_create_ips: false,
   };
 }
 const pxForm = ref(emptyPxForm());
@@ -180,6 +181,7 @@ function fillFromRow(r: ProxmoxInstance) {
     enabled: r.enabled,
     sync_interval_seconds: r.sync_interval_seconds,
     scope_subnet_ids: r.scope_subnet_ids ?? [],
+    auto_create_ips: !!(r as any).auto_create_ips,
   };
 }
 function openPxEdit(r: ProxmoxInstance) {
@@ -209,6 +211,7 @@ async function submitPx() {
         verify_tls: f.verify_tls, enabled: f.enabled,
         sync_interval_seconds: f.sync_interval_seconds,
         scope_subnet_ids: f.scope_subnet_ids,
+        auto_create_ips: f.auto_create_ips,
       };
       if (f.token_secret) payload.token_secret = f.token_secret;  // 留空＝不變
       await Virt.updateProxmox(editingPxId.value, payload);
@@ -219,6 +222,7 @@ async function submitPx() {
         token_secret: f.token_secret, verify_tls: f.verify_tls,
         enabled: f.enabled, sync_interval_seconds: f.sync_interval_seconds,
         scope_subnet_ids: f.scope_subnet_ids,
+        auto_create_ips: f.auto_create_ips,
       });
     }
     showPx.value = false;
@@ -523,6 +527,18 @@ onMounted(() => {
         <div style="margin: -8px 0 4px">
           <span style="font-size: 11px; opacity: .7">{{ t("virt.scope_hint") }}</span>
         </div>
+        <n-form-item :label="t('virt_autocreate.label')">
+          <div style="width:100%">
+            <n-switch v-model:value="pxForm.auto_create_ips" />
+            <div style="font-size:11px;opacity:.65;margin-top:4px">{{ t("virt_autocreate.hint") }}</div>
+            <!-- 開了就等於放棄一道偵測，這件事必須在開關旁邊講 -->
+            <n-alert v-if="pxForm.auto_create_ips" type="warning" :show-icon="false" :bordered="false"
+                     style="margin-top:6px">
+              {{ t("virt_autocreate.risk") }}
+            </n-alert>
+          </div>
+        </n-form-item>
+
         <n-alert type="info" :title="t('virt.help_title')" :bordered="false"
                  style="margin-top: 4px">
           <ol class="px-help">
