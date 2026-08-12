@@ -103,6 +103,7 @@ import {
   Filter,
   ArrowRight,
   ArrowUp,
+  HelpCircle,
   PasteClipboard,
 } from "@iconoir/vue";
 
@@ -233,6 +234,7 @@ export const NewFolderIcon = FolderPlus;
 export const FilterIcon = Filter;
 export const MoveIcon = ArrowRight;   // 搬移到其他目錄
 export const UpLevelIcon = ArrowUp;   // 回上一層目錄
+export const UnregisteredIcon = HelpCircle;   // 自動收錄、未經登記的位址
 export const PasteIcon = PasteClipboard;
 export const CopyIcon = Copy;
 export const TerminalIcon = Terminal;

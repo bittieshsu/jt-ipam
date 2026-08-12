@@ -78,6 +78,7 @@ async def create_firewall(
         scope_location_id=payload.scope_location_id,
         scope_customer_id=payload.scope_customer_id,
         scope_subnet_ids=payload.scope_subnet_ids,
+        auto_create_ips=bool(payload.auto_create_ips),
         iface_subnet_map=(
             {k: str(v) for k, v in payload.iface_subnet_map.items()}
             if payload.iface_subnet_map else None

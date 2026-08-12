@@ -215,6 +215,7 @@ interface FwForm {
   scope_location_id: string | null;
   scope_customer_id: string | null;
   scope_subnet_ids: string[];
+  auto_create_ips: boolean;
   iface_map_rows: IfaceMapRow[];
 }
 function blankFwForm(): FwForm {
@@ -224,7 +225,7 @@ function blankFwForm(): FwForm {
     sync_rules: false, sync_nat: false, sync_aliases: true, expose_dsv: false,
     sync_interval_seconds: 300, description: "",
     scope_location_id: null, scope_customer_id: null,
-    scope_subnet_ids: [], iface_map_rows: [],
+    scope_subnet_ids: [], auto_create_ips: false, iface_map_rows: [],
   };
 }
 const newFw = ref<FwForm>(blankFwForm());
@@ -248,6 +249,7 @@ function openFwEdit(r: OPNsenseFirewall) {
     scope_location_id: r.scope_location_id ?? null,
     scope_customer_id: r.scope_customer_id ?? null,
     scope_subnet_ids: r.scope_subnet_ids ? [...r.scope_subnet_ids] : [],
+    auto_create_ips: !!(r as any).auto_create_ips,
     iface_map_rows: r.iface_subnet_map
       ? Object.entries(r.iface_subnet_map).map(([iface, subnet_id]) => ({ iface, subnet_id }))
       : [],
@@ -336,6 +338,7 @@ function scopePayload() {
     scope_location_id: newFw.value.scope_location_id || null,
     scope_customer_id: newFw.value.scope_customer_id || null,
     scope_subnet_ids: newFw.value.scope_subnet_ids.length ? newFw.value.scope_subnet_ids : null,
+    auto_create_ips: newFw.value.auto_create_ips,
     iface_subnet_map: Object.keys(ifaceMap).length ? ifaceMap : null,
   };
 }
@@ -739,6 +742,16 @@ onMounted(() => {
               <n-select v-model:value="newFw.scope_subnet_ids" :options="subnetOpts"
                         multiple clearable filterable :placeholder="t('firewall.scope_subnets')" />
               <ScopeOverlapWarning :scope-empty="!newFw.scope_subnet_ids?.length" />
+            </div>
+            <div>
+              <div style="font-size: 12px; opacity: 0.8; margin-bottom: 2px;">{{ t("fw_autocreate.label") }}</div>
+              <n-switch v-model:value="newFw.auto_create_ips" />
+              <div style="font-size: 11px; opacity: 0.65; margin-top: 4px;">{{ t("fw_autocreate.hint") }}</div>
+              <!-- 開了就等於放棄一道偵測，這件事必須在開關旁邊講，不能只寫在文件裡 -->
+              <n-alert v-if="newFw.auto_create_ips" type="warning" :show-icon="false" :bordered="false"
+                       style="margin-top: 6px;">
+                {{ t("fw_autocreate.risk") }}
+              </n-alert>
             </div>
             <div>
               <div style="font-size: 12px; opacity: 0.8; margin-bottom: 2px;">{{ t("firewall.scope_iface_map") }}</div>

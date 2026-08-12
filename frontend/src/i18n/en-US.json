@@ -1126,7 +1126,9 @@
     "dhcp_reserved_tag": "Reserved",
     "dhcp_reserved_hint": "DHCP binds this address to a specific NIC, so it will not be recycled to another machine.",
     "dhcp_reserved_mac": "Bound to MAC",
-    "state": "State"
+    "state": "State",
+    "role_auto_added": "Auto-recorded (unregistered)",
+    "role_auto_added_hint": "Created automatically by {src}'s DHCP sync; nobody registered it by hand. Confirm this device is expected."
   },
   "subnets": {
     "title": "Subnets",
@@ -3237,5 +3239,10 @@
     "uploading_progress": "Uploading {done}/{total}: {name}",
     "drop_here": "Drop to upload into {dir}",
     "drop_dirs_skipped": "Skipped {n} folder(s) — only files can be dropped for now."
+  },
+  "fw_autocreate": {
+    "label": "Create addresses IPAM does not have",
+    "hint": "While syncing DHCP leases, create a record for an address IPAM does not know yet (only inside this firewall's associated subnets, and only when the subnet is unambiguous). When off, such data is skipped and the sync summary reports how many were skipped.",
+    "risk": "Risk: a machine that obtained a DHCP address is not necessarily a machine that belongs in IPAM. Someone plugging in an unauthorised device and getting a lease would be recorded as a legitimate entry — and once it is in IPAM it no longer appears under \"unauthorised IPs\" in anomaly detection, whose whole test is \"seen in ARP, absent from IPAM\". Auto-created records are flagged as unregistered in the IP list; review them regularly."
   }
 }

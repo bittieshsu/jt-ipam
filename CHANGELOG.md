@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.163] — 2026-08-12
+
+### Added
+- **An "create addresses IPAM does not have" toggle for OPNsense and pfSense** (migration 0115, **off by default**). The firewall DHCP/ARP sync only ever stamped addresses that already existed; anything else was dropped, silently — a customer had to read the source to find out. With the toggle on, an address present in a DHCP lease but absent from IPAM is created.
+
+  Placement reuses the LibreNMS rule (now extracted to `services/ip_autocreate.py` and shared by all three integrations): longest-prefix match, **created only when exactly one subnet matches**. Where overlapping subnets make it ambiguous (two tenants each holding 192.168.1.0/24), **nothing is created** — filing a record under the wrong tenant is worse than not filing it. Setting the integration's subnet scope removes the ambiguity.
+
+  ⚠️ **The risk is stated next to the toggle**: a machine that obtained a DHCP address is not necessarily one that belongs in IPAM. An unauthorised device that got a lease would be recorded as a legitimate entry — **and once in IPAM it stops appearing under "unauthorised IPs" in anomaly detection**, whose entire test is "seen in ARP, absent from IPAM". Hence off by default, with the warning shown when it is switched on.
+
+- **Auto-recorded addresses are flagged in the IP list** (amber icon plus explanation): "Auto-recorded (unregistered) — created automatically by PFSENSE's DHCP sync; nobody registered it by hand. Confirm this device is expected."
+
+### Changed
+- **Sync summaries report how many entries were skipped because IPAM had no such address** (`skipped_no_ipam_record`), and how many were created. This was previously silent.
+- `discovery_source` now permits `pfsense` (only `opnsense` was allowed).
+
 ## [0.5.162] — 2026-08-12
 
 ### Fixed

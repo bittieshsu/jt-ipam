@@ -11,7 +11,7 @@
  */
 import { NIcon, NTooltip } from "naive-ui";
 import { useI18n } from "vue-i18n";
-import { GatewayIcon, DhcpServerIcon, ReservedIcon } from "@/icons";
+import { GatewayIcon, DhcpServerIcon, ReservedIcon, UnregisteredIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 
 const props = withDefaults(defineProps<{ row: any; hideRange?: boolean }>(), { hideRange: false });
@@ -25,10 +25,22 @@ const observedAt = () => r().dhcp_observed_at as string | null | undefined;
 const isRogueDhcp = () => !!observedAt() && !isDhcpServer();
 // DHCP 上把這個位址綁給某張網卡 —— 位址不會被回收給別台
 const isReserved = () => !!r().dhcp_reserved;
+// 防火牆的 DHCP 同步自動建進來的、沒有人登記過的位址。
+// 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約。
+// 而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡（那道偵測看的是
+// 「ARP 看得到、IPAM 沒有」）—— 所以它必須在清單上一眼認得出來。
+const isAutoAdded = () => ["opnsense", "pfsense"].includes(String(r().discovery_source ?? ""));
 </script>
 
 <template>
-  <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt() || isReserved()" class="ip-roles">
+  <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt() || isReserved() || isAutoAdded()"
+        class="ip-roles">
+    <!-- 自動收錄、未經登記 —— 用橘色（提醒而非錯誤）並講清楚它的來歷 -->
+    <n-tooltip v-if="isAutoAdded()" :delay="150">
+      <template #trigger><n-icon :size="15" color="#f0a020" class="r-ic"><UnregisteredIcon /></n-icon></template>
+      {{ t("addresses.role_auto_added") }} —
+      {{ t("addresses.role_auto_added_hint", { src: String(r().discovery_source).toUpperCase() }) }}
+    </n-tooltip>
     <n-tooltip v-if="r().is_gateway" :delay="150">
       <template #trigger><n-icon :size="15" color="#2080f0" class="r-ic"><GatewayIcon /></n-icon></template>
       {{ t("addresses.role_gateway") }} — {{ t("addresses.role_gateway_hint") }}

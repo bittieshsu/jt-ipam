@@ -23,6 +23,11 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 from app.services.hostname import apply_observation
+from app.services.ip_autocreate import (
+    SubnetCandidates,
+    addable_subnets,
+    subnet_for_ip_str,
+)
 
 # pfSense-pkg-RESTAPI v2 端點（如不同版本路徑有異，於此集中調整）
 EP_VERSION = "/api/v2/system/version"
@@ -89,8 +94,12 @@ async def test_connection(fw: PfSenseFirewall) -> dict[str, Any]:
 async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
+    create_in: SubnetCandidates | None = None,
 ) -> bool:
-    """找到 jt-ipam IPAddress 就 stamp last_seen_scanner（pfSense 證據等同 scanner）。"""
+    """找到 jt-ipam IPAddress 就 stamp last_seen_scanner（pfSense 證據等同 scanner）。
+
+    `create_in` 有值＝防火牆開了自動建立，對不到時可在這些候選子網路內建一筆。
+    """
     ip = _valid_ip(ip)
     if ip is None:
         return False
@@ -99,7 +108,16 @@ async def _stamp_ip_seen(
         stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
     ipa = (await session.execute(stmt.limit(1))).scalars().first()
     if ipa is None:
-        return False
+        # 沒有這筆 IP：只有在防火牆開了 auto_create_ips、而且落點子網路唯一時才建
+        # （規則見 services/ip_autocreate.py；歧義寧可不建，也不要掛到別的單位）
+        if create_in is None:
+            return False
+        sid = subnet_for_ip_str(create_in, ip)
+        if sid is None:
+            return False
+        ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="pfsense")
+        session.add(ipa)
+        await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
     ipa.last_seen_scanner = datetime.now(UTC)
     if dhcp:
         ipa.in_dhcp_lease = True
@@ -161,6 +179,7 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PfSenseFirewall) -> int:
     if not isinstance(rows, list):
         return 0
     scope_ids = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
+    create_in = await addable_subnets(session, scope_ids) if fw.auto_create_ips else None
     seen = 0
     leased_ips: set[str] = set()
     for d in rows:
@@ -172,7 +191,7 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PfSenseFirewall) -> int:
         ipstr = str(ip).split("/")[0]
         leased_ips.add(ipstr)
         if await _stamp_ip_seen(session, ipstr, mac=_mac_of(d), hostname=_host_of(d),
-                                subnet_ids=scope_ids, dhcp=True):
+                                subnet_ids=scope_ids, dhcp=True, create_in=create_in):
             seen += 1
     # 撤銷：scope 內原本標 in_dhcp_lease、但這次租約已消失的 IP（只在有設 scope 時做，
     # 避免多台 pfSense/OPNsense 全域範圍互相清掉對方的標記）。

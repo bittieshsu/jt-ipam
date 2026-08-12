@@ -37,6 +37,11 @@ from app.models.address import IPAddress
 from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall
 from app.models.subnet import Subnet
 from app.services.hostname import apply_observation
+from app.services.ip_autocreate import (
+    SubnetCandidates,
+    addable_subnets,
+    subnet_for_ip_str,
+)
 
 
 class OPNsenseError(RuntimeError):
@@ -327,8 +332,9 @@ async def _stamp_ip_seen(
     session: AsyncSession, ip: str,
     *, mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
+    create_in: SubnetCandidates | None = None,
 ) -> bool:
-    """找到 jt-ipam IPAddress 就 stamp last_seen_scanner，回傳是否找到。
+    """找到 jt-ipam IPAddress 就 stamp last_seen_scanner，回傳是否找到（或已建立）。
 
     OPNsense 給的資料相當於我們自己 scanner 的證據，所以塞 last_seen_scanner。
     DHCP/ARP 是當下事實 → 有 MAC / hostname 就覆寫舊值。
@@ -343,7 +349,16 @@ async def _stamp_ip_seen(
         stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
     ipa = (await session.execute(stmt.limit(1))).scalars().first()
     if ipa is None:
-        return False
+        # 沒有這筆 IP：只有在防火牆開了 auto_create_ips、而且落點子網路唯一時才建
+        # （規則見 services/ip_autocreate.py；歧義寧可不建，也不要掛到別的單位）
+        if create_in is None:
+            return False
+        sid = subnet_for_ip_str(create_in, ip)
+        if sid is None:
+            return False
+        ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="opnsense")
+        session.add(ipa)
+        await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
     ipa.last_seen_scanner = datetime.now(UTC)
     if dhcp:
         ipa.in_dhcp_lease = True
@@ -353,6 +368,17 @@ async def _stamp_ip_seen(
     if hostname:
         await apply_observation(session, ip=ipa, source="opnsense", hostname=hostname)
     return True
+
+
+
+async def _ip_exists(
+    session: AsyncSession, ip: str, subnet_ids: list[uuid.UUID] | None,
+) -> bool:
+    """這筆 IP 原本在不在 —— 用來區分「對到既有」與「這次新建」。"""
+    stmt = select(IPAddress).where(IPAddress.ip == ip)
+    if subnet_ids:
+        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
+    return (await session.execute(stmt.limit(1))).scalars().first() is not None
 
 
 async def sync_dhcp_ranges(
@@ -518,6 +544,9 @@ async def sync_dhcp_leases(
     errors: list[str] = []
     scope_ids = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
     leased_ips: set[str] = set()
+    # 開了自動建立才去查候選子網路（沒開就省一次查詢）
+    create_in = await addable_subnets(session, scope_ids) if fw.auto_create_ips else None
+    before_created = 0
 
     for path, kind in sources:
         try:
@@ -542,9 +571,12 @@ async def sync_dhcp_leases(
                 continue
             seen += 1
             leased_ips.add(ip)
+            existed = await _ip_exists(session, ip, scope_ids)
             if await _stamp_ip_seen(session, ip, mac=mac, hostname=host,
-                                    subnet_ids=scope_ids, dhcp=True):
+                                    subnet_ids=scope_ids, dhcp=True, create_in=create_in):
                 matched += 1
+                if not existed:
+                    before_created += 1
 
     # 撤銷：此防火牆關聯子網路內、原本標 in_dhcp_lease 但這次租約已消失的 IP → 清旗標。
     # 只在有設定關聯子網路範圍時做，避免多台 OPNsense（全域範圍）互相清掉對方的租約標記。
@@ -559,6 +591,10 @@ async def sync_dhcp_leases(
         await session.execute(stmt.values(in_dhcp_lease=False))
 
     out: dict[str, int] = {"seen": seen, "matched": matched}
+    # 對不到的筆數要說出來：原本完全靜默，客戶只能自己讀原始碼才知道資料被丟掉
+    out["skipped_no_ipam_record"] = seen - matched
+    if before_created:
+        out["created"] = before_created
     if used_sources:
         out["sources"] = ",".join(used_sources)  # type: ignore[assignment]
     if errors:

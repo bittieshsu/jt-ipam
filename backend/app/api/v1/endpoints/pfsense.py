@@ -46,6 +46,8 @@ class PfSenseRead(StrictModel):
     sync_rules: bool
     expose_dsv: bool
     scope_subnet_ids: list[uuid.UUID] | None = None
+    # DHCP 有、IPAM 沒有的位址是否自動建立（預設關閉；風險見 models 註解）
+    auto_create_ips: bool | None = None
     description: str | None = None
     alias_count: int = 0
     rule_count: int = 0
@@ -69,6 +71,8 @@ class PfSenseCreate(StrictModel):
     sync_rules: bool = False
     expose_dsv: bool = False
     scope_subnet_ids: list[uuid.UUID] | None = None
+    # DHCP 有、IPAM 沒有的位址是否自動建立（預設關閉；風險見 models 註解）
+    auto_create_ips: bool | None = None
     description: str | None = None
 
 
@@ -86,6 +90,8 @@ class PfSenseUpdate(StrictModel):
     sync_rules: bool | None = None
     expose_dsv: bool | None = None
     scope_subnet_ids: list[uuid.UUID] | None = None
+    # DHCP 有、IPAM 沒有的位址是否自動建立（預設關閉；風險見 models 註解）
+    auto_create_ips: bool | None = None
     description: str | None = None
 
 
@@ -136,6 +142,7 @@ async def create_firewall(
         sync_dhcp=payload.sync_dhcp, sync_dhcp_ranges=payload.sync_dhcp_ranges,
         sync_arp=payload.sync_arp, sync_aliases=payload.sync_aliases,
         scope_subnet_ids=payload.scope_subnet_ids, description=payload.description,
+        auto_create_ips=bool(payload.auto_create_ips),
     )
     session.add(fw)
     await append_audit(
