@@ -33,6 +33,11 @@ class ScanAgent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # 才講得出「沒有的話請自行安裝」—— 靠 last_source_ip 猜不準（NAT／多網卡）。
     is_local: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False,
                                            server_default=text("false"))
+    # 掃到一個 IPAM 沒登錄的位址時，要不要自動建一筆。**預設關閉**：
+    # 被自動收錄的位址從此不再出現在「未授權 IP」異常偵測裡（那道偵測看的正是
+    # 「掃得到、IPAM 沒有」），等於有人私接一台機器就會安靜地變成正式紀錄。
+    auto_create_ips: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False,
+                                                  server_default=text("false"))
 
     # AES-GCM 加密的 token（舊 pull 模型用）
     api_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)

@@ -602,7 +602,11 @@ class LLMConfigOut(StrictModel):
     mcp_external_enabled: bool = False
     mcp_api_key_set: bool = False        # 是否已產生對外 MCP 金鑰（不回明文）
     ai_audit_enabled: bool = False
-    ai_audit_times: list[str] = []       # 每天執行的時刻（"HH:MM"，伺服器本地時區）
+    ai_audit_times: list[str] = []       # 執行時刻（"HH:MM"，伺服器本地時區）
+    # 排程的「哪幾天」：daily / weekly（配 weekdays）／monthly（配 month_day）
+    ai_audit_frequency: str = "daily"
+    ai_audit_weekdays: list[int] = []    # 1=週一 … 7=週日
+    ai_audit_month_day: int = 1          # 1–31；短月自動落在該月最後一天
     ai_audit_model: str | None = None    # None＝沿用對話模型
     ai_audit_num_ctx: int | None = None  # None＝沿用對話模型的上下文長度
     server_timezone: str = ""            # 排程時刻是照這個時區算的，UI 要講清楚
@@ -621,8 +625,12 @@ class LLMConfigPatch(StrictModel):
     num_ctx: Annotated[int | None, Field(ge=0, le=131072)] = None
     mcp_external_enabled: bool | None = None
     ai_audit_enabled: bool | None = None
-    # 每天執行的時刻清單（"HH:MM"）。不合法的項目會被丟掉，不會整組失效。
+    # 執行時刻清單（"HH:MM"）。不合法的項目會被丟掉，不會整組失效。
     ai_audit_times: Annotated[list[str] | None, Field(max_length=24)] = None
+    ai_audit_frequency: Literal["daily", "weekly", "monthly"] | None = None
+    # 1=週一 … 7=週日；空清單不會被存（那等於排程永遠不觸發，但畫面上還開著）
+    ai_audit_weekdays: Annotated[list[int] | None, Field(max_length=7)] = None
+    ai_audit_month_day: Annotated[int | None, Field(ge=1, le=31)] = None
     # 巡檢專用模型；空字串＝清掉，回去沿用對話模型（所以 min_length 是 0）
     ai_audit_model: Annotated[str | None, Field(max_length=128)] = None
     # 巡檢專用上下文長度；0＝清掉，回去沿用對話模型的設定
@@ -647,6 +655,9 @@ def _llm_out(cfg: Any) -> LLMConfigOut:
         mcp_api_key_set=bool(cfg.mcp_api_key),
         ai_audit_enabled=cfg.ai_audit_enabled,
         ai_audit_times=cfg.ai_audit_times,
+        ai_audit_frequency=cfg.ai_audit_frequency,
+        ai_audit_weekdays=cfg.ai_audit_weekdays,
+        ai_audit_month_day=cfg.ai_audit_month_day,
         ai_audit_model=cfg.ai_audit_model,
         ai_audit_num_ctx=cfg.ai_audit_num_ctx,
         server_timezone=_server_tz(),
@@ -682,6 +693,9 @@ async def patch_llm(
         mcp_external_enabled=changes.get("mcp_external_enabled"),
         ai_audit_enabled=changes.get("ai_audit_enabled"),
         ai_audit_times=changes.get("ai_audit_times"),
+        ai_audit_frequency=changes.get("ai_audit_frequency"),
+        ai_audit_weekdays=changes.get("ai_audit_weekdays"),
+        ai_audit_month_day=changes.get("ai_audit_month_day"),
         ai_audit_model=changes.get("ai_audit_model"),
         ai_audit_num_ctx=changes.get("ai_audit_num_ctx"),
         updated_by_user_id=user.id,

@@ -1,4 +1,4 @@
-# jt-ipam v0.5.166
+# jt-ipam v0.5.167
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -80,7 +80,7 @@ source — and it matters, because the "unauthorised IPs" anomaly check is defin
 
 | Source | When IPAM has no such address | Toggle | Default | Subnet placement |
 |---|---|---|---|---|
-| **Scan agent** | **Creates it** | no toggle | always creates | only inside subnets assigned to that agent with scanning enabled |
+| **Scan agent** | Can create it | "Record unregistered IPs automatically" | **Off** | only inside subnets assigned to that agent with scanning enabled |
 | **LibreNMS** | May create (device primary IP only, never ARP neighbours) | "Auto-create discovered IPs" | **on by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
 | **Proxmox VE** | May create | "Trust addresses from virtualization" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
 | **VMware / ESXi** | May create | "Trust addresses from virtualization" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
@@ -107,7 +107,8 @@ normally.
 > ⚠️ **Enabling auto-creation trades away part of your detection.** A machine that obtained
 > an address is not necessarily one that belongs in IPAM: once an unauthorised device is
 > recorded, it **no longer appears under "unauthorised IPs"**. Auto-created records are
-> flagged "Auto-recorded (unregistered)" in the IP list — review them regularly.
+> flagged "Auto-recorded (unregistered)" in the IP list (orange icon) and outlined in orange on the
+> subnet grid, where the legend carries an "Auto-recorded" count — review them regularly.
 
 ## Core entities
 

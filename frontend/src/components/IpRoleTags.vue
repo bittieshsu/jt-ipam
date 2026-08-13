@@ -25,11 +25,11 @@ const observedAt = () => r().dhcp_observed_at as string | null | undefined;
 const isRogueDhcp = () => !!observedAt() && !isDhcpServer();
 // DHCP 上把這個位址綁給某張網卡 —— 位址不會被回收給別台
 const isReserved = () => !!r().dhcp_reserved;
-// 防火牆的 DHCP 同步自動建進來的、沒有人登記過的位址。
-// 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約。
-// 而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡（那道偵測看的是
-// 「ARP 看得到、IPAM 沒有」）—— 所以它必須在清單上一眼認得出來。
-const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware"];
+// 由整合自動建進來、沒有人登記過的位址（DHCP 租約／虛擬化回報／掃描代理探索）。
+// 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約、
+// 或剛好被掃到。而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡
+// （那道偵測看的是「看得到、IPAM 沒有」）—— 所以它必須在清單上一眼認得出來。
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner"];
 const isAutoAdded = () => AUTO_SOURCES.includes(String(r().discovery_source ?? ""));
 </script>
 

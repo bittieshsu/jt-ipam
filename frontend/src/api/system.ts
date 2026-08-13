@@ -144,6 +144,9 @@ export interface LLMConfig {
   mcp_api_key_set: boolean;
   ai_audit_enabled: boolean;
   ai_audit_times: string[];
+  ai_audit_frequency: string;
+  ai_audit_weekdays: number[];
+  ai_audit_month_day: number;
   ai_audit_model: string | null;
   ai_audit_num_ctx: number | null;
   server_timezone: string;
@@ -161,6 +164,9 @@ export interface LLMConfigPatch {
   mcp_external_enabled?: boolean;
   ai_audit_enabled?: boolean;
   ai_audit_times?: string[];
+  ai_audit_frequency?: string;
+  ai_audit_weekdays?: number[];
+  ai_audit_month_day?: number;
   ai_audit_model?: string;
   ai_audit_num_ctx?: number;
 }

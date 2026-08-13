@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.167] — 2026-08-13
+
+### Added
+- **The AI review can now be scheduled weekly or monthly**, not just "at these times every day". The schedule is now two dimensions: **which days** (daily / chosen weekdays / a chosen day of the month) x **what times** (the existing list). Picking the 31st runs on the **last day** of months that are shorter — rather than skipping those months entirely. That failure mode (a condition that is simply never true) produces no error and no log entry; it just looks like the feature is not working, so it is pinned down by tests.
+- **Scan agents have a "Record unregistered IPs automatically" toggle, off by default.** A scan agent used to create a record for every live address IPAM did not know about, **unconditionally** — the last of the three source families still doing so (0115 covered OPNsense/pfSense, 0116 Proxmox/VMware). WARNING: **this changes behaviour** — after upgrading, scan agents no longer record new addresses until you turn this on under Scan agents. The reason: once an address is recorded it **no longer appears in unauthorised-IP detection** (whose whole test is "we can see it, IPAM does not have it"), so a machine somebody plugged in without asking would quietly become a normal-looking record.
+- **The subnet grid now marks auto-recorded addresses**: cells created automatically by an integration or a scan agent, which nobody registered by hand, are drawn **green with an orange outline** (same state as before, but visibly unregistered), and the legend gained an "Auto-recorded (n)" entry. The orange marker in the IP list now also covers the scan agent — it previously recognised only OPNsense/pfSense/Proxmox/VMware, so scanner-created records carried no marker at all.
+
+### Changed
+- **Dismissing an AI review finding now asks first.** Dismissing is not "hide it this time": every later review skips that finding automatically, and undoing it means finding it again under the Dismissed tab. It uses the same popconfirm as "Clear all" on that page rather than a second pattern.
+- The subnet detail's "Import CSV" and "Export CSV" buttons got icons (upload / download arrows), matching the rest of that row.
+
+### Fixed
+- **Addresses dropped during a scan-agent report are now counted.** There were two silent paths — auto-recording switched off, and "no assigned, scanning-enabled subnet contains this address" — and both simply `continue`d, so all a user saw was "it scanned and nothing happened", with nothing on screen pointing at the real cause. The response now carries `created`, `skipped_not_in_ipam` and `skipped_no_subnet`.
+- The "auto-recorded" tooltip claimed the address came from a DHCP sync, but the sources now include virtualisation and scan agents. It is worded generally and states the cost (unauthorised-IP detection stops listing it).
+- The schedule hint said runs happen "at these times every day", which stopped being true once the frequency became configurable.
+
 ## [0.5.166] — 2026-08-12
 
 ### Added

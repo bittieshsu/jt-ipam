@@ -58,6 +58,7 @@ export interface ScanAgent {
   enabled: boolean;
   /** 跑在 jt-ipam 主機上的那一個（安裝時自動建立） */
   is_local: boolean;
+  auto_create_ips: boolean;
   has_key: boolean;
   agent_version: string | null;
   server_agent_version: string | null;
@@ -82,7 +83,7 @@ export async function listScanAgents(): Promise<Paginated<ScanAgent>> {
   return data;
 }
 export async function createScanAgent(p: {
-  name: string; description?: string; enabled?: boolean;
+  name: string; description?: string; enabled?: boolean; auto_create_ips?: boolean;
   enabled_probes?: string[]; probe_intervals?: Record<string, number>;
 }): Promise<ScanAgentCreated> {
   const { data } = await apiClient.post<ScanAgentCreated>("/api/v1/scan-agents", p);
@@ -97,7 +98,7 @@ export async function scanNowAgent(id: string): Promise<{ queued: boolean; eta_s
   return data;
 }
 export async function updateScanAgent(id: string, p: Partial<{
-  description: string; enabled: boolean;
+  description: string; enabled: boolean; auto_create_ips: boolean;
   enabled_probes: string[]; probe_intervals: Record<string, number>;
 }>): Promise<ScanAgent> {
   const { data } = await apiClient.patch<ScanAgent>(`/api/v1/scan-agents/${id}`, p);

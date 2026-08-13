@@ -1128,7 +1128,7 @@
     "dhcp_reserved_mac": "Bound to MAC",
     "state": "State",
     "role_auto_added": "Auto-recorded (unregistered)",
-    "role_auto_added_hint": "Created automatically by {src}'s DHCP sync; nobody registered it by hand. Confirm this device is expected."
+    "role_auto_added_hint": "This address was created automatically by {src}; nobody registered it by hand. Check that the device is meant to be there — once it is recorded, it no longer shows up in unauthorised-IP detection."
   },
   "subnets": {
     "title": "Subnets",
@@ -1219,7 +1219,9 @@
     "tip_offline": "No detection for over {staleMax} min; or registered with scanning enabled but never seen",
     "tip_reserved": "Manually marked as reserved",
     "tip_unknown": "Liveness unknown: ping is excluded for this IP, or its subnet has scanning disabled",
-    "tip_free": "This IP is not registered yet (unallocated)"
+    "tip_free": "This IP is not registered yet (unallocated)",
+    "auto_added": "Auto-recorded",
+    "tip_auto_added": "Addresses created automatically by an integration or a scan agent, which nobody registered by hand (orange outline). They still have their own online/offline state, so this count does not add up with the others. Note: once an address is recorded, unauthorised-IP detection no longer lists it."
   },
   "tasks": {
     "title": "Tasks",
@@ -2364,7 +2366,7 @@
     "audit_model_hint": "Leave empty to use the same model as AI chat. A review sends a lot of data in one batch, which is a different trade-off from interactive chat — you can point it at a larger model for better judgement, or a smaller one to save compute.",
     "audit_times": "Schedule",
     "audit_add_time": "Add time",
-    "audit_times_hint": "Runs once at each of these times every day, in the server's timezone ({tz}). Times rather than an interval, because an interval drifts with each run — after a few days nobody can say whether it hits the LLM at 3am or mid-morning.",
+    "audit_times_hint": "Runs once at each of these times on scheduled days (which days is set by the frequency above), in the server's timezone ({tz}). Times rather than an interval, because an interval drifts with each run — after a few days nobody can say whether it hits the LLM at 3am or mid-morning.",
     "audit_scope": "Scope (subnets)",
     "audit_scope_none": "No subnets selected",
     "audit_scope_hint": "Only the subnets listed here are sent to the model. This is the same setting as \"Include in AI review\" on the subnet edit page — changing either changes both.",
@@ -2388,7 +2390,20 @@
     "reindex": "Rebuild index",
     "reindex_ok": "Done — {n} records indexed.",
     "reindex_failed": "{n} failed: {err}",
-    "reindex_hint": "After changing the embedding model, existing records still hold the old vectors (or none); rebuild once so semantic search covers them. This can take several minutes depending on how much data you have."
+    "reindex_hint": "After changing the embedding model, existing records still hold the old vectors (or none); rebuild once so semantic search covers them. This can take several minutes depending on how much data you have.",
+    "audit_freq": "Frequency",
+    "audit_freq_daily": "Daily",
+    "audit_freq_weekly": "Weekly",
+    "audit_freq_monthly": "Monthly",
+    "audit_weekdays_ph": "Pick days (more than one allowed)",
+    "audit_month_day_hint": "If you pick the 31st, months with 30 days (and February) run on their last day instead, rather than skipping the month entirely.",
+    "weekday_1": "Monday",
+    "weekday_2": "Tuesday",
+    "weekday_3": "Wednesday",
+    "weekday_4": "Thursday",
+    "weekday_5": "Friday",
+    "weekday_6": "Saturday",
+    "weekday_7": "Sunday"
   },
   "rack_diagram": {
     "empty": "No devices in this rack",
@@ -3088,6 +3103,7 @@
     "st_open": "Open",
     "st_dismissed": "Dismissed",
     "dismiss": "Dismiss",
+    "dismiss_confirm": "Once dismissed, later reviews will not report this finding again. Dismiss it? (You can undo it under “Dismissed”.)",
     "recommendation": "Recommendation",
     "evidence": "Evidence",
     "last_run": "Last run: {at}",
@@ -3255,5 +3271,9 @@
     "label": "Trust addresses reported by virtualization (create ones IPAM lacks)",
     "hint": "During sync, create a record when a VM or node address is not yet in IPAM (only within the configured subnet scope, and only when the subnet is unambiguous). When off, only existing records are matched.",
     "risk": "Risk: an address visible on the hypervisor is not necessarily one that belongs in IPAM (test machines, throwaway clones, systems someone else manages). And once recorded, that address stops appearing under \"unauthorised IPs\" in anomaly detection, whose whole test is \"seen in ARP, absent from IPAM\". Auto-created records are flagged as unregistered in the IP list; review them regularly."
+  },
+  "scan_agents": {
+    "auto_create_ips": "Record unregistered IPs automatically",
+    "auto_create_ips_hint": "When a scan finds an address that IPAM does not have, create a record for it (marked as discovered by the scan agent, with an orange marker in the list and the grid). Off by default: once an address is recorded, unauthorised-IP detection no longer lists it — so a machine someone plugged in without asking would quietly become an official record. While this is off, scanned addresses that are not registered are not lost; they keep showing up in anomaly detection."
   }
 }

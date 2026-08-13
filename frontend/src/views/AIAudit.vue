@@ -134,11 +134,18 @@
             <span v-if="f.model" class="fx-model">{{ t("ai_audit.by_model", { m: f.model }) }}</span>
             <span class="fx-date">{{ fmtDateTime(f.created_at) }}</span>
           </span>
-          <n-button v-if="canRun && f.status === 'open'" size="tiny" secondary
-                    style="justify-self:end" @click="dismiss(f.id)">
-            <template #icon><n-icon><DismissIcon /></n-icon></template>
-            {{ t("ai_audit.dismiss") }}
-          </n-button>
+          <!-- 忽略要先問過：它不是「收起這一次」，而是往後同一件事都不再報告
+               （指紋會留著，之後每次巡檢比對到就直接略過）。按錯了要到「已忽略」
+               分頁才找得回來，所以照「清除」的作法用 popconfirm 擋一次。 -->
+          <n-popconfirm v-if="canRun && f.status === 'open'" @positive-click="dismiss(f.id)">
+            <template #trigger>
+              <n-button size="tiny" secondary style="justify-self:end">
+                <template #icon><n-icon><DismissIcon /></n-icon></template>
+                {{ t("ai_audit.dismiss") }}
+              </n-button>
+            </template>
+            {{ t("ai_audit.dismiss_confirm") }}
+          </n-popconfirm>
           <n-button v-else-if="canRun" size="tiny" secondary type="primary"
                     style="justify-self:end" @click="restore(f.id)">
             <template #icon><n-icon><RestoreIcon /></n-icon></template>

@@ -90,6 +90,19 @@ async function saveScope(ids: string[]) {
   } catch (e) { msg.error(apiErrMsg(e)); await loadSubnets(); }
 }
 
+// 排程的「哪幾天」。時刻（下面的 auditTimes）是另一個維度：兩者相乘才是實際的執行時機。
+const freqOptions = computed(() => (["daily", "weekly", "monthly"] as const).map((f) => ({
+  label: t(`llm_settings.audit_freq_${f}`), value: f,
+})));
+// 1=週一 … 7=週日（ISO），與後端一致
+const weekdayOptions = computed(() => [1, 2, 3, 4, 5, 6, 7].map((d) => ({
+  label: t(`llm_settings.weekday_${d}`), value: d,
+})));
+const auditFreq = computed(() => llm.value?.ai_audit_frequency || "daily");
+const auditWeekdays = computed(() => (llm.value?.ai_audit_weekdays?.length
+  ? [...llm.value.ai_audit_weekdays] : [1]));
+const auditMonthDay = computed(() => llm.value?.ai_audit_month_day || 1);
+
 // 排程時刻。n-time-picker 吃毫秒時間戳，設定存的是 "HH:MM" —— 兩邊在這裡轉換。
 const auditTimes = computed(() => llm.value?.ai_audit_times?.length
   ? [...llm.value.ai_audit_times] : ["03:30"]);
@@ -453,6 +466,29 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
                   :placeholder="t('llm_settings.audit_scope_none')"
                   style="width: 100%" @update:value="saveScope" />
         <p class="hint">{{ t("llm_settings.audit_scope_hint") }}</p>
+      </div>
+      <div>
+        <label>{{ t("llm_settings.audit_freq") }}</label>
+        <n-space align="center" :size="12" :wrap="true">
+          <n-select :value="auditFreq" :options="freqOptions" style="width: 160px"
+                    :disabled="!llm.ai_audit_enabled"
+                    @update:value="(v: string) => patch({ ai_audit_frequency: v })" />
+          <!-- 每週：可複選；一天都不選等於排程永遠不觸發，所以後端不會存空清單 -->
+          <n-select v-if="auditFreq === 'weekly'" :value="auditWeekdays" multiple
+                    :options="weekdayOptions" style="min-width: 280px"
+                    :disabled="!llm.ai_audit_enabled"
+                    :placeholder="t('llm_settings.audit_weekdays_ph')"
+                    @update:value="(v: number[]) => v.length && patch({ ai_audit_weekdays: v })" />
+          <!-- 每月：1–31。設 31 遇到只有 30 天（或 2 月）的月份會落在該月最後一天，
+               不是整個月都不跑 —— 提示文字要講出來，否則使用者以為排程壞了 -->
+          <n-input-number v-if="auditFreq === 'monthly'" :value="auditMonthDay"
+                          :min="1" :max="31" style="width: 130px"
+                          :disabled="!llm.ai_audit_enabled"
+                          @update:value="(v: number | null) => v && patch({ ai_audit_month_day: v })" />
+        </n-space>
+        <p v-if="auditFreq === 'monthly'" class="hint">
+          {{ t("llm_settings.audit_month_day_hint") }}
+        </p>
       </div>
       <div>
         <label>{{ t("llm_settings.audit_times") }}</label>

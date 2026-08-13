@@ -45,6 +45,22 @@ def normalize_times(raw: Any) -> list[str]:
     return sorted(out)[:MAX_AUDIT_TIMES]
 
 
+def normalize_weekdays(raw: Any) -> list[int]:
+    """整理「每週的哪幾天」：1=週一 … 7=週日（ISO），去重、排序、丟掉範圍外的。
+
+    跟 normalize_times 同樣的原則：一個壞值不該讓整組設定失效。
+    """
+    out: set[int] = set()
+    for item in raw if isinstance(raw, list) else []:
+        try:
+            d = int(item)
+        except (ValueError, TypeError):
+            continue
+        if 1 <= d <= 7:
+            out.add(d)
+    return sorted(out)
+
+
 @dataclass
 class LLMConfig:
     enabled: bool
@@ -70,6 +86,13 @@ class LLMConfig:
     # 每天在這些時刻各跑一次（"HH:MM"，伺服器本地時區）。用時刻而不是「每 N 小時」：
     # 巡檢要排在離峰跑，間隔式排程會隨著每次執行時間漂移，最後跑在什麼時候沒人說得準。
     ai_audit_times: list[str] = field(default_factory=lambda: ["03:30"])
+    # 排程的「哪幾天」：daily＝每天（預設，維持既有安裝的行為）／
+    # weekly＝每週的指定幾天（ai_audit_weekdays，1=週一 … 7=週日）／
+    # monthly＝每月的指定某一天（ai_audit_month_day；設 31 遇到短月會落在該月最後一天，
+    # 不是整個月都不跑 —— 那種安靜地不執行最難查）
+    ai_audit_frequency: str = "daily"
+    ai_audit_weekdays: list[int] = field(default_factory=lambda: [1])
+    ai_audit_month_day: int = 1
     # 巡檢用的模型。留空＝沿用對話模型 —— 巡檢是長提示詞的批次工作，適合的模型
     # 不一定跟互動對話同一個（可以換更大的、或反過來換更省的）。
     ai_audit_model: str | None = None
@@ -183,6 +206,19 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
             times = normalize_times(v["ai_audit_times"])
             if times:
                 cfg.ai_audit_times = times
+        if str(v.get("ai_audit_frequency", "")) in ("daily", "weekly", "monthly"):
+            cfg.ai_audit_frequency = str(v["ai_audit_frequency"])
+        if isinstance(v.get("ai_audit_weekdays"), list):
+            days = normalize_weekdays(v["ai_audit_weekdays"])
+            if days:
+                cfg.ai_audit_weekdays = days
+        if v.get("ai_audit_month_day") is not None:
+            try:
+                d = int(v["ai_audit_month_day"])
+                if 1 <= d <= 31:
+                    cfg.ai_audit_month_day = d
+            except (ValueError, TypeError):
+                pass
 
     _cache[LLM_KEY] = (now, cfg)
     return cfg
@@ -200,6 +236,9 @@ async def set_llm_config(
     mcp_external_enabled: bool | None = None,
     ai_audit_enabled: bool | None = None,
     ai_audit_times: list[str] | None = None,
+    ai_audit_frequency: str | None = None,
+    ai_audit_weekdays: list[int] | None = None,
+    ai_audit_month_day: int | None = None,
     ai_audit_model: str | None = None,
     ai_audit_num_ctx: int | None = None,
     provider: str | None = None,
@@ -227,6 +266,15 @@ async def set_llm_config(
         # 但畫面上開關還是開著
         if times:
             current["ai_audit_times"] = times
+    if ai_audit_frequency in ("daily", "weekly", "monthly"):
+        current["ai_audit_frequency"] = ai_audit_frequency
+    if ai_audit_weekdays is not None:
+        days = normalize_weekdays(ai_audit_weekdays)
+        # 一天都排不出來就不要存：空清單＝週排程永遠不會觸發，但畫面上開關還開著
+        if days:
+            current["ai_audit_weekdays"] = days
+    if ai_audit_month_day is not None and 1 <= int(ai_audit_month_day) <= 31:
+        current["ai_audit_month_day"] = int(ai_audit_month_day)
     if provider in ("ollama", "openai"): current["provider"] = provider
     # 空字串＝清掉金鑰（本地 vLLM／LM Studio 多半不需要）；沒帶這個欄位就不動它，
     # 才不會因為改別的設定而把金鑰洗掉

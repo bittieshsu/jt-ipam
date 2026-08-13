@@ -423,7 +423,10 @@ async def _run() -> int:
                 # 用獨立記錄的「上次執行時間」，不是最後一筆發現的時間 ——
                 # 沒有發現的巡檢什麼都不會寫，靠發現回推會判成從沒跑過而每輪重跑
                 last = await get_ai_audit_last_run(session)
-                if due(last, cfg.ai_audit_times):
+                if due(last, cfg.ai_audit_times,
+                       frequency=cfg.ai_audit_frequency,
+                       weekdays=cfg.ai_audit_weekdays,
+                       month_day=cfg.ai_audit_month_day):
                     # 排程沒有「發起者」，取一個管理員當取樣身分 —— 巡檢仍然走 RBAC，
                     # 只是這裡的可見範圍由該管理員決定，而不是無條件全庫。
                     principal = None

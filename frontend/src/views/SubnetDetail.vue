@@ -28,7 +28,11 @@ import {
   type DataTableColumns,
   useMessage,
 } from "naive-ui";
-import { EditIcon } from "@/icons";
+import {
+  EditIcon,
+  UploadIcon,
+  ExportIcon,
+} from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 import { autoSort } from "@/composables/useTableSort";
 import { useCustomers } from "@/composables/useCustomers";
@@ -671,7 +675,10 @@ onMounted(() => {
             </n-button>
             <n-popover trigger="click" placement="bottom-end" :width="360">
               <template #trigger>
-                <n-button size="small">{{ t("csv_import.button") }}</n-button>
+                <n-button size="small">
+                  <template #icon><n-icon><UploadIcon /></n-icon></template>
+                  {{ t("csv_import.button") }}
+                </n-button>
               </template>
               <n-space vertical :size="12">
                 <n-alert type="info" size="small">
@@ -695,7 +702,10 @@ onMounted(() => {
                 </n-card>
               </n-space>
             </n-popover>
-            <n-button size="small" @click="handleExport">{{ t("csv_import.export_button") }}</n-button>
+            <n-button size="small" @click="handleExport">
+              <template #icon><n-icon><ExportIcon /></n-icon></template>
+              {{ t("csv_import.export_button") }}
+            </n-button>
             <n-popconfirm v-if="subnet" @positive-click="delThisSubnet">
               <template #trigger>
                 <n-button size="small" type="error" :loading="deleting">

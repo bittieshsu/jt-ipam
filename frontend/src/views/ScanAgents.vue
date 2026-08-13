@@ -5,7 +5,7 @@ import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NIcon, NButton, NModal, NForm, NFormItem,
   NInput, NSwitch, NPopconfirm, NTag, NInputGroup, NAlert, NSelect, NTooltip,
-  NCheckbox, NCheckboxGroup, NInputNumber, NPopover,
+  NCheckbox, NCheckboxGroup, NInputNumber, NPopover, NText,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
@@ -59,7 +59,8 @@ const loading = ref(false);
 const show = ref(false);
 const showHelp = ref(false);
 const editing = ref<ScanAgent | null>(null);
-const form = ref({ name: "", description: "", enabled: true, subnet_ids: [] as string[] });
+const form = ref({ name: "", description: "", enabled: true, autoCreate: false,
+                   subnet_ids: [] as string[] });
 // 每代理探測設定
 const enabledProbes = ref<string[]>([]);
 const probeIntervals = ref<Record<string, number>>({});
@@ -145,7 +146,7 @@ async function refresh() {
 }
 function openCreate() {
   editing.value = null;
-  form.value = { name: "", description: "", enabled: true, subnet_ids: [] };
+  form.value = { name: "", description: "", enabled: true, autoCreate: false, subnet_ids: [] };
   enabledProbes.value = ["icmp"];
   probeIntervals.value = {};
   enabledProbes.value.forEach(ensureInterval);
@@ -154,7 +155,8 @@ function openCreate() {
 }
 function openEdit(r: ScanAgent) {
   editing.value = r;
-  form.value = { name: r.name, description: r.description ?? "", enabled: r.enabled, subnet_ids: [] };
+  form.value = { name: r.name, description: r.description ?? "", enabled: r.enabled,
+                 autoCreate: !!r.auto_create_ips, subnet_ids: [] };
   enabledProbes.value = [...(r.enabled_probes ?? [])];
   probeIntervals.value = { ...(r.probe_intervals ?? {}) };
   enabledProbes.value.forEach(ensureInterval);
@@ -177,6 +179,7 @@ async function submit() {
       await updateScanAgent(editing.value.id, {
         description: form.value.description || undefined,
         enabled: form.value.enabled,
+        auto_create_ips: form.value.autoCreate,
         enabled_probes: enabledProbes.value,
         probe_intervals: buildProbeIntervals(),
       });
@@ -187,6 +190,7 @@ async function submit() {
         name: form.value.name,
         description: form.value.description || undefined,
         enabled: form.value.enabled,
+        auto_create_ips: form.value.autoCreate,
         enabled_probes: enabledProbes.value,
         probe_intervals: buildProbeIntervals(),
       });
@@ -426,6 +430,16 @@ onMounted(() => { void refresh(); });
         </n-form-item>
         <n-form-item :label="t('common.enabled')">
           <n-switch v-model:value="form.enabled" />
+        </n-form-item>
+        <!-- 自動收錄未登錄的位址：預設關閉，而且要把代價講清楚 —— 收錄之後那個位址
+             就不會再被「未授權 IP」偵測列出來，等於私接的機器會安靜地變成正式紀錄。 -->
+        <n-form-item :label="t('scan_agents.auto_create_ips')">
+          <n-space vertical size="small" style="width:100%">
+            <n-switch v-model:value="form.autoCreate" />
+            <n-text depth="3" style="font-size:12px">
+              {{ t("scan_agents.auto_create_ips_hint") }}
+            </n-text>
+          </n-space>
         </n-form-item>
         <n-form-item :label="t('scanAgentHelp.assign_subnets')">
           <n-select v-model:value="form.subnet_ids" :options="subnetOpts"

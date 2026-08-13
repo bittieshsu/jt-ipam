@@ -194,6 +194,14 @@ const aggregated = computed<AggCell[] | null>(() => {
   return out;
 });
 
+// 由整合／掃描代理自動建進來、沒有人登記過的位址。狀態照舊（可能上線也可能離線），
+// 但要能一眼認出「這不是有人登記的」—— 它一旦進了 IPAM 就不會再被「未授權 IP」
+// 偵測列出來，等於私接的機器會安靜地變成正式紀錄。清單上是橘色 icon，格子圖用橘框。
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner"];
+function isAutoAdded(a: IPAddress | null): boolean {
+  return !!a && AUTO_SOURCES.includes(String((a as any).discovery_source ?? ""));
+}
+
 // 回傳 { color, kind } — kind 用來決定 cell 額外樣式 (free 走空心 dashed)
 function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } {
   if (cell.state === "free" || !cell.addr) {
@@ -230,9 +238,12 @@ function cellStatusLabel(cell: Cell): string {
 }
 
 // 圖例筆數：依 cell 顏色分類統計 (dhcp 併入 stale，未登記＝free)
+// auto 是「疊在顏色上」的另一個維度（自動收錄的位址仍然有自己的上線／離線狀態），
+// 所以它跟其它項目相加不會等於總數 —— 圖例文字要講清楚，不然看起來像算錯。
 const legendCounts = computed(() => {
-  const c = { online: 0, stale: 0, offline: 0, reserved: 0, unknown: 0, free: 0 };
+  const c = { online: 0, stale: 0, offline: 0, reserved: 0, unknown: 0, free: 0, auto: 0 };
   for (const a of props.addresses) {
+    if (isAutoAdded(a)) c.auto++;
     const st = a.state || "used";
     if (st === "reserved") { c.reserved++; continue; }
     if (st === "dhcp") { c.stale++; continue; }
@@ -263,9 +274,13 @@ function aggColor(pct: number): string {
         v-for="c in directCells"
         :key="c.ip"
         class="cell"
-        :class="cellStyle(c).kind === 'free' ? 'cell-free' : 'cell-filled'"
+        :class="[
+          cellStyle(c).kind === 'free' ? 'cell-free' : 'cell-filled',
+          isAutoAdded(c.addr) ? 'cell-auto' : '',
+        ]"
         :style="{ background: cellStyle(c).background }"
-        @mouseenter="(e) => showTip(e, `${c.ip}${c.hostname ? ' · ' + c.hostname : ''} · ${cellStatusLabel(c)}`)"
+        @mouseenter="(e) => showTip(e, `${c.ip}${c.hostname ? ' · ' + c.hostname : ''} · ${cellStatusLabel(c)}`
+          + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : ''))"
         @mousemove="moveTip"
         @mouseleave="hideTip"
         @click="() => {
@@ -307,6 +322,7 @@ function aggColor(pct: number): string {
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-offline, #ef4444)' }"></i>{{ t("visualisation.offline") }} ({{ legendCounts.offline }})</span></template>{{ t("visualisation.tip_offline", { staleMax: staleMaxMin }) }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-reserved, #3b82f6)' }"></i>{{ t("visualisation.reserved") }} ({{ legendCounts.reserved }})</span></template>{{ t("visualisation.tip_reserved") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}</n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item"><i class="legend-auto" :style="{ background: 'var(--jt-cell-active, #22c55e)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
     </div>
   </div>
@@ -335,10 +351,19 @@ function aggColor(pct: number): string {
   outline: 0 solid transparent;
   box-sizing: border-box;
 }
+.cell.cell-auto {
+  /* 自動收錄、沒有人登記過：保留原本的狀態顏色，外加橘色描邊。
+     用 inset box-shadow 而不是 border —— border 會改變格子的實際尺寸，
+     讓整張圖的對齊在有／沒有這個標記時跳動。 */
+  box-shadow: inset 0 0 0 2px #f0a020;
+}
 .cell.cell-free {
   /* 空格：dashed border，視覺權重明顯弱於 unknown 的實心灰 */
   border: 1px dashed rgba(127, 127, 127, 0.55);
   background: transparent !important;
+}
+.legend-item i.legend-auto {
+  box-shadow: inset 0 0 0 2px #f0a020;
 }
 .cell:hover {
   transform: scale(1.7);

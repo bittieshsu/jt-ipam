@@ -61,6 +61,7 @@ class ScanAgentCreate(StrictModel):
     name: Annotated[str, Field(min_length=1, max_length=128)]
     description: Annotated[str | None, Field(max_length=1024)] = None
     enabled: bool = True
+    auto_create_ips: bool = False
     enabled_probes: list[str] | None = None
     probe_intervals: dict[str, int] | None = None
 
@@ -68,6 +69,7 @@ class ScanAgentCreate(StrictModel):
 class ScanAgentUpdate(StrictModel):
     description: Annotated[str | None, Field(max_length=1024)] = None
     enabled: bool | None = None
+    auto_create_ips: bool | None = None
     enabled_probes: list[str] | None = None
     probe_intervals: dict[str, int] | None = None
 
@@ -80,6 +82,8 @@ class ScanAgentRead(StrictModel):
     enabled: bool
     # 跑在 jt-ipam 主機上的那一個（安裝時自動建立）—— UI 靠它判斷「本機有沒有代理」
     is_local: bool = False
+    # 掃到未登錄的位址要不要自動建立（預設關閉，見 model 的說明）
+    auto_create_ips: bool = False
     has_key: bool = False
     agent_version: str | None = None
     server_agent_version: str | None = None   # server 端 agent.py 版本；UI 比對標「可更新」
@@ -214,6 +218,7 @@ async def create_agent(
         name=payload.name,
         description=payload.description,
         enabled=payload.enabled,
+        auto_create_ips=payload.auto_create_ips,
         enroll_key_hash=_key_hash(raw_key),
         enabled_probes=scan_probes.normalize_probes(payload.enabled_probes)
         or list(scan_probes.DEFAULT_AGENT_PROBES),
@@ -309,11 +314,13 @@ async def update_agent(
     if obj is None:
         raise HTTPException(404, detail="Agent not found")
 
-    before = {"enabled": obj.enabled}
+    before = {"enabled": obj.enabled, "auto_create_ips": obj.auto_create_ips}
     if payload.description is not None:
         obj.description = payload.description
     if payload.enabled is not None:
         obj.enabled = payload.enabled
+    if payload.auto_create_ips is not None:
+        obj.auto_create_ips = payload.auto_create_ips
     if payload.enabled_probes is not None:
         obj.enabled_probes = scan_probes.normalize_probes(payload.enabled_probes) or ["icmp"]
     if payload.probe_intervals is not None:
@@ -566,6 +573,8 @@ async def agent_report(
 
     updated = 0
     created = 0
+    skipped_not_in_ipam = 0
+    skipped_no_subnet = 0
     for item in payload.results:
         if not item.alive:
             continue
@@ -575,6 +584,12 @@ async def agent_report(
         # 重疊網段下可能有多筆同 IP；限定 agent 子網路後通常唯一，取第一筆
         ipa = (await session.execute(stmt.limit(1))).scalar_one_or_none()
         if ipa is None:
+            if not agent.auto_create_ips:
+                # 沒開自動收錄 → 這個位址活著但 IPAM 沒有它，就讓它留在
+                # 「未授權 IP」異常偵測裡（判定正是「掃得到、IPAM 沒有」）。
+                # 回報筆數，別讓資料靜靜消失——看不到的丟棄是先前吃過虧的地方。
+                skipped_not_in_ipam += 1
+                continue
             # 掃描代理發現的新 IP → 自動加進它所屬（有開掃描）的子網路
             try:
                 aip = _ipaddr.ip_address(str(item.ip).split("/")[0])
@@ -582,6 +597,10 @@ async def agent_report(
                 continue
             sub_id = next((sid for net, sid in addable_nets if aip in net), None)
             if sub_id is None:
+                # 開了自動收錄，卻沒有任何「指派給這個代理且有開掃描」的子網路包含它。
+                # 這裡原本是靜靜 continue —— 使用者只會看到「掃了但什麼都沒發生」，
+                # 而真正的原因（子網路沒指派給代理）畫面上完全沒有線索。
+                skipped_no_subnet += 1
                 continue
             ipa = IPAddress(
                 subnet_id=sub_id, ip=str(item.ip).split("/")[0], state="active",
@@ -636,7 +655,11 @@ async def agent_report(
     agent.last_seen_at = now
     agent.last_error = None
     await session.commit()
+    # created / skipped_not_in_ipam 都要回報：使用者才看得出「掃到但沒收錄」有幾個，
+    # 而不是以為掃描器什麼都沒發現（自動收錄預設關閉，這個數字通常就是差額）
     return {"received": len(payload.results), "updated": updated,
+            "created": created, "skipped_not_in_ipam": skipped_not_in_ipam,
+            "skipped_no_subnet": skipped_no_subnet,
             "dhcp_servers": dhcp_seen}
 
 
