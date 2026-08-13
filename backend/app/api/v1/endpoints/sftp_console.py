@@ -47,11 +47,13 @@ from app.services.sftp import (
     MAX_ENTRIES,
     SftpError,
     check_size,
+    describe_rmdir_failure,
     friendly_connect_error,
     friendly_error,
     normalize_path,
     sort_entries,
     to_entry,
+    walk_for_delete,
 )
 from app.services.ssh_tunnel import LEGACY_SSH_ALGS
 
@@ -301,13 +303,41 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
 
                 elif op == "delete":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
-                    if req.get("is_dir"):
-                        await sftp.rmdir(path)
-                    else:
+                    if not req.get("is_dir"):
                         await sftp.remove(path)
-                    await send({"type": "ok", "op": "delete", "path": path})
-                    await audit("sftp_delete", {"path": path,
-                                                "is_dir": bool(req.get("is_dir"))})
+                        await send({"type": "ok", "op": "delete", "path": path})
+                        await audit("sftp_delete", {"path": path, "is_dir": False})
+                    elif req.get("recursive"):
+                        # 連同內容刪除：由前端明示（它會先確認過項目數）。
+                        # 深度優先、且不跟著符號連結走 —— 見 services/sftp.walk_for_delete。
+                        plan = await walk_for_delete(sftp, path)
+                        for kind, target in plan:
+                            if kind == "dir":
+                                await sftp.rmdir(target)
+                            else:
+                                await sftp.remove(target)
+                        await send({"type": "ok", "op": "delete", "path": path,
+                                    "removed": len(plan)})
+                        await audit("sftp_delete", {"path": path, "is_dir": True,
+                                                    "recursive": True,
+                                                    "removed": len(plan)})
+                    else:
+                        try:
+                            await sftp.rmdir(path)
+                        except Exception as exc:      # 失敗原因要自己查，見下方註解
+                            # SFTP v3 對「目錄非空」只會回一個沒有意義的通用失敗
+                            # （asyncssh: SFTPFailure("Failure")），所以這裡自己列一次
+                            # 目錄，才講得出「還有幾個項目」以及下一步能做什麼。
+                            message, was_empty = await describe_rmdir_failure(
+                                sftp, path, exc)
+                            await send({"type": "error", "op": "delete", "path": path,
+                                        "code": "dir_empty_required" if was_empty
+                                                else "dir_not_empty",
+                                        "message": message})
+                            failed_path = None
+                            continue
+                        await send({"type": "ok", "op": "delete", "path": path})
+                        await audit("sftp_delete", {"path": path, "is_dir": True})
 
                 elif op == "close":
                     break

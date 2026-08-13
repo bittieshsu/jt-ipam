@@ -573,20 +573,25 @@ async def _run_audit(
     items = _dedupe(items)[:MAX_FINDINGS]
 
     kept = await reconcile_findings(session, run_id, items,
-                                    model_name=cfg.ai_audit_model or cfg.chat_model)
+                                    model_name=cfg.ai_audit_model or cfg.chat_model,
+                                    # 有批次失敗 → 這輪不完整，不能拿它去判定誰已解決
+                                    partial=bool(errors))
     await session.commit()
     await _emit("done", total, total, found=kept)
     return AuditRun(
         run_id=run_id, findings=kept, skipped=len(errors),
-        # 部分批次失敗仍然回報，但不擋掉已經拿到的發現 —— 兩者都要讓人知道
-        error=(f"{len(errors)}/{total} 批分析失敗（結果可能不完整）：{errors[0]}"
+        # 部分批次失敗仍然回報，但不擋掉已經拿到的發現 —— 兩者都要讓人知道。
+        # 也要講出「這次沒有移除任何既有發現」，否則使用者會納悶清單為什麼沒縮。
+        error=(f"{len(errors)}/{total} 批分析失敗（結果可能不完整）；"
+               f"為避免把沒檢查到的問題誤判為已解決，這次不移除既有發現。"
+               f"第一個錯誤：{errors[0]}"
                if errors else None),
     )
 
 
 async def reconcile_findings(
     session: AsyncSession, run_id: Any, items: list[dict[str, Any]],
-    model_name: str | None = None,
+    model_name: str | None = None, *, partial: bool = False,
 ) -> int:
     """把「未處理」清單對齊這一次的結果，回傳這次實際留下的未處理筆數。
 
@@ -599,6 +604,11 @@ async def reconcile_findings(
     - 這次還在的：沿用原本那一列（保留發現時間，才看得出從什麼時候就這樣）
     - 這次沒有了：刪掉（問題解決了，或模型換了說法）
     - 這次新出現的：新增
+
+    `partial=True`（有批次失敗）時**不刪除**。巡檢是分批送給模型的，只要有一批失敗，
+    那一批的資料這次根本沒有被檢查過，它裡面的問題自然不會出現在結果裡 —— 照常對齊
+    就會把它們當成「已經解決」而刪掉，畫面上看起來像問題自己好了。寧可留著一筆可能
+    已修好的，也不要讓一個還在的問題安靜消失。
     """
     dismissed_fps = {
         fp for (fp,) in (await session.execute(
@@ -632,10 +642,12 @@ async def reconcile_findings(
                                   model=model_name, **it))
         kept += 1
 
-    # 這次沒再出現的未處理發現 → 移除（否則清單只會愈長愈長）
-    for fp, row in existing.items():
-        if fp not in seen:
-            await session.delete(row)
+    # 這次沒再出現的未處理發現 → 移除（否則清單只會愈長愈長）。
+    # 但這一輪如果有批次失敗，「沒再出現」不代表「已經解決」，只代表沒被看過。
+    if not partial:
+        for fp, row in existing.items():
+            if fp not in seen:
+                await session.delete(row)
 
     await session.flush()
     return kept

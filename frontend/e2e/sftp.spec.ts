@@ -276,3 +276,33 @@ test("SFTP 是獨立開關：關掉之後只有 SFTP 入口消失，SSH 還在",
   await page.goto(url);
   await expect(page.getByRole("button", { name: "SFTP 檔案" })).toBeVisible({ timeout: 15_000 });
 });
+
+test("刪除有內容的資料夾：先問過，確認後連同內容一起刪", async ({ page }) => {
+  // 這是使用者實際回報的畫面：按刪除只得到一句「失敗：Failure」。
+  // 原因是 SFTP v3 沒有「目錄非空」這個狀態碼，伺服器只能回通用失敗，
+  // 於是畫面上既沒說原因、也沒說下一步。
+  const dir = `deldir-${Date.now()}`;
+  mkdirSync(`${SFTP_ROOT}/${dir}/inner`, { recursive: true });
+  writeFileSync(`${SFTP_ROOT}/${dir}/f1.txt`, "x");
+  writeFileSync(`${SFTP_ROOT}/${dir}/inner/f2.txt`, "x");
+
+  await login(page);
+  await connect(page);
+
+  const row = page.locator("tbody tr", { hasText: dir }).first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.getByRole("button", { name: "刪除" }).click();
+  await page.getByRole("button", { name: /^確定$|^確認$/ }).first().click();
+
+  // 要出現「不是空的」的說明，而且講得出項目數 —— 不能只丟伺服器那句 Failure
+  const dlg = page.locator(".n-modal", { hasText: "不是空的" });
+  await expect(dlg).toBeVisible({ timeout: 15_000 });
+  await expect(dlg).toContainText("2");
+  await expect(dlg).not.toContainText("Failure");
+
+  await dlg.getByRole("button", { name: "連同內容一起刪除" }).click();
+
+  // 斷言在遠端檔案系統上真的沒了，而不是相信畫面說「已刪除」
+  await expect.poll(() => existsSync(`${SFTP_ROOT}/${dir}`), { timeout: 20_000 })
+    .toBe(false);
+});

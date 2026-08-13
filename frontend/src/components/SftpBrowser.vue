@@ -192,12 +192,17 @@ async function connect() {
         case "ok":
           pending?.resolve(m); pending = null;
           break;
-        case "error":
+        case "error": {
           errorMsg.value = m.message ?? "";
           // 連線階段失敗要退回表單，否則使用者卡在一片空白、無從重試
           if (phase.value !== "connected") phase.value = "error";
-          pending?.reject(new Error(m.message)); pending = null;
+          // 帶上 code：有些失敗是可以補救的（例如資料夾不是空的 → 問要不要連內容一起刪），
+          // 只丟字串的話呼叫端只能把它當成一般錯誤顯示
+          const err = new Error(m.message) as Error & { code?: string };
+          err.code = m.code;
+          pending?.reject(err); pending = null;
           break;
+        }
       }
     };
 
@@ -379,6 +384,31 @@ async function doDelete(row: SftpEntry) {
   try {
     await request({ type: "delete", path: row.path, is_dir: row.is_dir });
     await refresh();
+  } catch (e: any) {
+    // 資料夾有內容：SFTP 不會刪有東西的資料夾。與其只說失敗，不如把後端查到的
+    // 項目數講出來，並讓使用者明確決定要不要連內容一起刪（這是破壞性的，要問過）
+    if (e?.code === "dir_not_empty") {
+      errorMsg.value = "";
+      confirmRecursive.value = { path: row.path, detail: e.message ?? "" };
+    } else {
+      msg.error(e?.message ?? String(e));
+    }
+  } finally { busy.value = false; }
+}
+
+/** 待確認的「連同內容刪除」；null＝沒有待確認的 */
+const confirmRecursive = ref<{ path: string; detail: string } | null>(null);
+
+async function doDeleteRecursive() {
+  const target = confirmRecursive.value;
+  confirmRecursive.value = null;
+  if (!target) return;
+  busy.value = true;
+  try {
+    const r = await request({ type: "delete", path: target.path, is_dir: true,
+                              recursive: true });
+    msg.success(t("sftp.deleted_recursive", { n: r?.removed ?? 0 }));
+    await refresh();
   } catch (e: any) { msg.error(e?.message ?? String(e)); }
   finally { busy.value = false; }
 }
@@ -485,13 +515,23 @@ async function batchDelete() {
   busy.value = true;
   const failed: string[] = [];
   try {
+    const nonEmpty: string[] = [];
     for (const r of rows) {
       try { await request({ type: "delete", path: r.path, is_dir: r.is_dir }); }
-      catch { failed.push(r.name); }        // 一個失敗不該讓其他的也不做
+      catch (e: any) {
+        // 有內容的資料夾另外列：那不是「刪不掉」，而是要先決定要不要連內容刪，
+        // 混在一般失敗裡會讓人以為壞了
+        if (e?.code === "dir_not_empty") nonEmpty.push(r.name);
+        else failed.push(r.name);           // 一個失敗不該讓其他的也不做
+      }
     }
     // 部分失敗要說清楚是哪幾個，否則使用者以為全刪了
+    if (nonEmpty.length) {
+      msg.warning(t("sftp.batch_dirs_not_empty", { names: nonEmpty.join("、") }),
+                  { duration: 8000 });
+    }
     if (failed.length) msg.error(t("sftp.batch_partial_fail", { names: failed.join("、") }));
-    else msg.success(t("sftp.batch_deleted", { n: rows.length }));
+    else if (!nonEmpty.length) msg.success(t("sftp.batch_deleted", { n: rows.length }));
   } finally {
     clearSelection();
     await refresh();
@@ -783,6 +823,27 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
             <n-button @click="nameDlg = null">{{ t("common.cancel") }}</n-button>
             <n-button type="primary" :loading="busy" @click="submitNameDlg">
               {{ t("common.confirm") }}
+            </n-button>
+          </n-space>
+        </template>
+      </n-modal>
+
+      <!-- 資料夾有內容：刪掉整棵樹是破壞性的，要明確問過，並且把數量講出來 -->
+      <n-modal :show="!!confirmRecursive" preset="card" style="width: 460px; max-width: 92vw"
+               :title="t('sftp.delete_dir_title')" @update:show="(v: boolean) => {
+                 if (!v) confirmRecursive = null;
+               }">
+        <n-space vertical size="small">
+          <span>{{ confirmRecursive?.detail }}</span>
+          <n-alert type="warning" :bordered="false" :show-icon="true">
+            {{ t("sftp.delete_dir_warning") }}
+          </n-alert>
+        </n-space>
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="confirmRecursive = null">{{ t("common.cancel") }}</n-button>
+            <n-button type="error" :loading="busy" @click="doDeleteRecursive">
+              {{ t("sftp.delete_dir_confirm") }}
             </n-button>
           </n-space>
         </template>

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.169] — 2026-08-13
+
+### Fixed
+- **A partly failed AI review deleted findings it had never looked at.** The review is sent to the model in batches; when one batch fails (a timeout, a reply that will not parse as JSON), that batch's data **was not examined at all this round**, so its problems naturally do not appear in the results. The reconcile step only asked "did this come back again?", concluded those findings were resolved, and removed them — on screen the problems appeared to have fixed themselves while they were still there.
+
+  A run with any failed batch now only adds and updates, **never deletes**, and says so in the result: "to avoid treating unexamined problems as resolved, existing findings were not removed this time" (otherwise the only visible effect is a list that mysteriously did not shrink). Better to keep one finding that may already be fixed than to let a real one disappear quietly.
+
+## [0.5.168] — 2026-08-13
+
+### Fixed
+- **Deleting a folder over SFTP failed with nothing but "Failure"** (reported by a user). **SFTP v3 has no "directory not empty" status code** — a server asked to remove a folder with contents can only answer with the generic failure, which asyncssh surfaces verbatim as `SFTPFailure("Failure")`. The screen said neither why nor what to do next. (The message table did have `SFTPDirNotEmpty`, but that exception almost never appears in practice.)
+
+  A failed delete now **works out the reason itself**: it lists the directory, and if there is anything in it says so plainly — "the folder X is not empty (N items left)" — then asks whether to **delete it along with its contents**. If the directory really is empty (so the failure has another cause, usually permissions) the original error is kept rather than claiming it is not empty. Batch deletes list non-empty folders separately instead of mixing them in with real failures.
+
+  The recursive delete **does not follow symbolic links**; it removes the link itself. Following one would delete things outside the tree being removed, which is data loss rather than an inconvenience. Verified against a real SFTP server: after removing a directory containing a subdirectory and a symlink, the file the link pointed at was untouched.
+
 ## [0.5.167] — 2026-08-13
 
 ### Added

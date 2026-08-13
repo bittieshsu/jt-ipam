@@ -3260,7 +3260,12 @@
     "move_path_ph": "直接輸入目的地絕對路徑，或在下方點選",
     "move_go": "前往",
     "move_here": "移到這裡：{dir}",
-    "move_no_subdirs": "這一層沒有子目錄（可直接移到這裡，或在上方輸入路徑）"
+    "move_no_subdirs": "這一層沒有子目錄（可直接移到這裡，或在上方輸入路徑）",
+    "delete_dir_title": "資料夾不是空的",
+    "delete_dir_warning": "連同裡面的所有內容一起刪除，無法復原。符號連結只會移除連結本身，不會刪到它指向的資料。",
+    "delete_dir_confirm": "連同內容一起刪除",
+    "deleted_recursive": "已刪除 {n} 個項目。",
+    "batch_dirs_not_empty": "這些資料夾不是空的，沒有刪除：{names}。請逐一點「刪除」，再選擇是否連同內容一起刪。"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",
