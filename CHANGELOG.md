@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.170] — 2026-08-13
+
+### Fixed
+- **The SFTP file browser was only partly masked after a disconnect** (reported by a user). The dimming was applied **piece by piece** — the path bar and the table were covered, while the pagination row and alerts stayed bright and looked usable. Applying it piece by piece always misses one, and "looks clickable but nothing happens" is harder to understand than "obviously disabled". The whole panel is now masked at once: the content stays visible underneath (so you can still see what was there), nothing in it is interactive, and the centre of the panel says the connection dropped, notes that the listing may no longer match the remote host, and offers a reconnect button.
+- **Pressing "Disconnect" dropped back to the connection form with "the connection was closed before it was established (code 1005)".** `disconnect()` set the state to "closed" first, and the WebSocket's onclose then read that state to decide whether it had ever connected — finding something other than "connected", it concluded the connection had failed before it opened. The user's own click looked like a connection error. A dedicated flag now records whether the session ever came up, rather than inferring it from the state.
+
 ## [0.5.169] — 2026-08-13
 
 ### Fixed

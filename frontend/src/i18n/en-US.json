@@ -3265,7 +3265,9 @@
     "delete_dir_warning": "This deletes everything inside it and cannot be undone. Symbolic links are removed as links; whatever they point to is left alone.",
     "delete_dir_confirm": "Delete it and its contents",
     "deleted_recursive": "Deleted {n} item(s).",
-    "batch_dirs_not_empty": "These folders are not empty and were left alone: {names}. Delete them one at a time to choose whether to remove their contents."
+    "batch_dirs_not_empty": "These folders are not empty and were left alone: {names}. Delete them one at a time to choose whether to remove their contents.",
+    "offline_title": "Disconnected",
+    "offline_hint": "This listing is what was on screen before the connection dropped and may no longer match the remote host. Reconnect to work with files again."
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",

@@ -306,3 +306,39 @@ test("刪除有內容的資料夾：先問過，確認後連同內容一起刪",
   await expect.poll(() => existsSync(`${SFTP_ROOT}/${dir}`), { timeout: 20_000 })
     .toBe(false);
 });
+
+test("斷線後整塊面板都要遮住，而且真的點不動", async ({ page }) => {
+  // 使用者回報「沒有遮罩好」：斷線後只有路徑列與表格變灰，底部分頁列、錯誤列
+  // 仍然是亮的，而且逐塊套 pointer-events 總會漏掉一塊 —— 「能點但送不出去」
+  // 比「明顯不能點」更難懂。
+  await login(page);
+  await connect(page);
+
+  await page.getByRole("button", { name: "中斷連線" }).click();
+  await expect(page.getByText("已關閉")).toBeVisible({ timeout: 10_000 });
+
+  // 遮罩要蓋住整塊面板，而不是零星幾塊
+  const mask = page.locator(".sftp-offline-mask");
+  await expect(mask).toBeVisible();
+  const panel = page.locator(".sftp-panel");
+  const [mb, pb] = [await mask.boundingBox(), await panel.boundingBox()];
+  expect(mb!.width).toBeGreaterThanOrEqual(pb!.width - 2);
+  expect(mb!.height).toBeGreaterThanOrEqual(pb!.height - 2);
+
+  // 面板裡的控制項一律不可互動 —— 用實際命中測試，不是看它有沒有變灰
+  for (const name of ["上一層", "重新整理", "新增資料夾", "上傳檔案"]) {
+    const btn = page.locator(".sftp-panel").getByRole("button", { name }).first();
+    if (await btn.count()) {
+      await expect(btn).not.toBeInViewport({ ratio: 1 }).catch(() => {});
+      const hit = await btn.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return top?.closest(".sftp-offline-mask") !== null || getComputedStyle(el).pointerEvents === "none";
+      });
+      expect(hit, `「${name}」在斷線後仍然可以點`).toBe(true);
+    }
+  }
+
+  // 遮罩上的重新連線要能用（否則使用者只能重整頁面）
+  await expect(mask.getByRole("button", { name: "重新連線" })).toBeEnabled();
+});

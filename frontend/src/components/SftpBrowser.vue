@@ -76,6 +76,13 @@ async function delSelectedCred() {
 }
 
 let ws: WebSocket | null = null;
+/** 是否曾經真的連上過。
+ *
+ * 不能用 phase 判斷「斷線時是不是已經連上」：使用者按「中斷連線」時，我們自己會先把
+ * phase 設成 closed，接著 onclose 讀到的就不是 connected → 誤判成「還沒連上就斷了」，
+ * 於是跳回連線表單並顯示「連線在建立完成前就被關閉（代碼 1005）」—— 明明是使用者
+ * 自己按的，卻看起來像連線失敗。 */
+let everConnected = false;
 /** 下載中的檔案：收到 file_begin 後開始累積二進位框，file_end 才落地。 */
 let incoming: { name: string; size: number; chunks: Uint8Array[]; got: number } | null = null;
 /** 等待中的請求：讓 send 之後可以 await 到結果。 */
@@ -125,6 +132,7 @@ async function connect() {
   }
 
   try {
+    everConnected = false;
     const tk = await requestSftpTicket(props.addressId);
     ws = new WebSocket(buildSshWsUrl(tk.ws_path, tk.ticket));
     ws.binaryType = "arraybuffer";
@@ -156,6 +164,7 @@ async function connect() {
       const m = JSON.parse(ev.data);
       switch (m.type) {
         case "ready":
+          everConnected = true;
           phase.value = "connected";
           cwd.value = m.cwd || "/";
           void refresh();
@@ -207,7 +216,7 @@ async function connect() {
     };
 
     ws.onclose = (ev) => {
-      const wasConnected = phase.value === "connected";
+      const wasConnected = everConnected;
       phase.value = wasConnected ? "closed" : "error";
       // 還沒連上就被關掉，而且後端也沒送 error —— 這時什麼都不說，畫面看起來像
       // 「按了沒反應」。實際遇過的原因是反向代理沒轉發 WebSocket 升級標頭
@@ -731,7 +740,9 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
 
       <!-- 檔案操作區：路徑、操作與清單包在同一個框裡（狀態列刻意留在框外，
            與 SSH 主控台一致：那一列講的是連線，不是檔案）。 -->
-      <div class="sftp-panel" :class="{ 'sftp-full': fullHeight, 'sftp-dropping': dragging }"
+      <div class="sftp-panel"
+           :class="{ 'sftp-full': fullHeight, 'sftp-dropping': dragging,
+                     'sftp-offline': phase !== 'connected' }"
            @dragenter="onDragEnter" @dragover="onDragOver"
            @dragleave="onDragLeave" @drop="onDrop">
         <!-- 拖曳中：整塊面板都是放置區，並講明會放到哪個目錄 -->
@@ -739,12 +750,25 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           <n-icon :size="28"><UploadIcon /></n-icon>
           <span>{{ t("sftp.drop_here", { dir: cwd }) }}</span>
         </div>
+        <!-- 連線中斷：整塊面板一次遮起來，不逐塊套樣式。
+             逐塊套的話總會漏掉一塊（分頁列、錯誤列都曾經還亮著、還能點），
+             而且「能點但送不出去」比「明顯不能點」更難懂。 -->
+        <div v-if="phase !== 'connected'" class="sftp-offline-mask">
+          <div class="sftp-offline-box">
+            <n-icon :size="24"><CancelIcon /></n-icon>
+            <span class="sftp-offline-title">{{ t("sftp.offline_title") }}</span>
+            <span class="sftp-offline-hint">{{ t("sftp.offline_hint") }}</span>
+            <n-button size="small" type="primary" @click="reconnect">
+              {{ t("ssh.reconnect") }}
+            </n-button>
+          </div>
+        </div>
       <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom:8px">
         {{ errorMsg }}
       </n-alert>
 
       <!-- 路徑列與操作 -->
-      <n-space align="center" class="sftp-pathbar" :class="{ 'term-dim': phase !== 'connected' }">
+      <n-space align="center" class="sftp-pathbar">
         <n-button size="small" :disabled="cwd === '/'" @click="goUp">
           <template #icon><n-icon><UpLevelIcon /></n-icon></template>
           {{ t("sftp.up") }}
@@ -883,7 +907,7 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         </template>
       </n-modal>
 
-      <div class="sftp-table" :class="{ 'sftp-full': fullHeight, 'term-dim': phase !== 'connected' }">
+      <div class="sftp-table" :class="{ 'sftp-full': fullHeight }">
         <n-data-table :columns="cols" :data="shownEntries" :loading="busy" size="small"
                       :row-key="(r: SftpEntry) => r.path"
                       :checked-row-keys="checkedKeys"
@@ -947,6 +971,30 @@ html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(20
 .conn-proto--sftp { color: #2080f0; background: rgba(32,128,240,.16); }
 /* 已中斷：反灰並停用互動，讓使用者一眼看出連線沒了（與 SSH 相同處理） */
 .term-dim { filter: grayscale(1) brightness(.55); pointer-events: none; transition: filter .25s; }
+/* 連線中斷：面板整片罩住。用 ::after 疊一層半透明底，內容維持在下面看得到
+   （知道原本有什麼），但整片不可互動 —— 逐塊 disabled 一定會漏掉某一塊。 */
+.sftp-panel.sftp-offline { position: relative; }
+.sftp-panel.sftp-offline > *:not(.sftp-offline-mask) {
+  filter: grayscale(1) brightness(.6);
+  pointer-events: none;
+  user-select: none;
+}
+.sftp-offline-mask {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(128, 128, 128, .18);
+  backdrop-filter: blur(1.5px);
+  border-radius: inherit;
+}
+.sftp-offline-box {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 20px 26px; border-radius: 10px;
+  background: var(--jt-card-bg, #fff);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  max-width: 420px; text-align: center;
+}
+.sftp-offline-title { font-weight: 600; }
+.sftp-offline-hint { font-size: 12.5px; opacity: .75; line-height: 1.5; }
 :deep(.n-card > .n-card-header) { display: flex; align-items: center; padding-top: 12px; padding-bottom: 12px; }
 .sftp-saved-row { display: flex; align-items: center; margin-bottom: 18px; }
 .sftp-saved-label { width: 92px; flex: none; box-sizing: border-box; text-align: right;

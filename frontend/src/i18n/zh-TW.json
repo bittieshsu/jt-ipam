@@ -3265,7 +3265,9 @@
     "delete_dir_warning": "連同裡面的所有內容一起刪除，無法復原。符號連結只會移除連結本身，不會刪到它指向的資料。",
     "delete_dir_confirm": "連同內容一起刪除",
     "deleted_recursive": "已刪除 {n} 個項目。",
-    "batch_dirs_not_empty": "這些資料夾不是空的，沒有刪除：{names}。請逐一點「刪除」，再選擇是否連同內容一起刪。"
+    "batch_dirs_not_empty": "這些資料夾不是空的，沒有刪除：{names}。請逐一點「刪除」，再選擇是否連同內容一起刪。",
+    "offline_title": "連線已中斷",
+    "offline_hint": "這份清單是斷線前的內容，可能已經和遠端不一致。重新連線後才能繼續操作檔案。"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",
