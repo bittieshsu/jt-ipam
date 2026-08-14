@@ -295,7 +295,8 @@
     "ai_audit": "AI review",
     "virt_pve": "Virtualization (Proxmox VE)",
     "virt_vmware": "Virtualization (VMware)",
-    "esxi_admin": "VMware"
+    "esxi_admin": "VMware",
+    "fw_rule_changes": "Firewall rule changes"
   },
   "topbar": {
     "search": "Search…",
@@ -3286,5 +3287,15 @@
   "scan_agents": {
     "auto_create_ips": "Record unregistered IPs automatically",
     "auto_create_ips_hint": "When a scan finds an address that IPAM does not have, create a record for it (marked as discovered by the scan agent, with an orange marker in the list and the grid). Off by default: once an address is recorded, unauthorised-IP detection no longer lists it — so a machine someone plugged in without asking would quietly become an official record. While this is off, scanned addresses that are not registered are not lost; they keep showing up in anomaly detection."
+  },
+  "fw_changes": {
+    "title": "Firewall rule changes",
+    "when": "When",
+    "firewall": "Firewall",
+    "rules": "Rules",
+    "diff": "What changed",
+    "baseline": "(first snapshot, used as the comparison baseline)",
+    "hint": "The rule sentinel compares OPNsense / pfSense / FortiGate rules on every sync and records an entry (and notifies admins) only when something really changed. A permit rule appearing overnight is the classic sign of a compromised firewall — this page is the full record for verifying it.",
+    "empty": "No rule changes recorded yet."
   }
 }

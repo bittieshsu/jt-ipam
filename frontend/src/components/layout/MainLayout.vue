@@ -257,6 +257,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.oui_admin"),     key: "oui_admin",      icon: renderIcon(DevicesIcon) },
           { label: () => t("nav.hostname_precedence"), key: "hostname_precedence", icon: renderIcon(AddressesIcon) },
           { label: () => t("nav.anomaly"),       key: "anomaly",        icon: renderIcon(AnomalyIcon) },
+          { label: () => t("nav.fw_rule_changes"), key: "fw_rule_changes", icon: renderIcon(FirewallIcon) },
           // 排在異常偵測後面：兩者都是「找問題」，但一個是量到的事實、一個是模型的
           // 推測，刻意分成兩頁而不是合併 —— 混在一起會分不出哪些結論可以直接相信。
           // LLM 沒啟用就整個藏起來（跟 AI 對話小工具同一個判斷）。

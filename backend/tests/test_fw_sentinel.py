@@ -141,3 +141,26 @@ async def test_sentinel_failure_does_not_break_sync(db_session) -> None:
         rules = None
 
     await run_sentinel(db_session, source_type="pfsense", instance=Boom())
+
+
+@pytest.mark.anyio
+async def test_history_endpoint_requires_admin(client) -> None:
+    r = await client.get("/api/v1/anomalies/fw-rule-changes")
+    assert r.status_code in (401, 403), "規則內容是純管理資料，未認證不可讀"
+
+
+@pytest.mark.anyio
+async def test_history_endpoint_returns_diffs(client, auth_headers, db_session) -> None:
+    fid = uuid.uuid4()
+    await snapshot_if_changed(db_session, source_type="pfsense", instance_id=fid,
+                              instance_name="fw-hist", rules=[_r("1")])
+    await snapshot_if_changed(db_session, source_type="pfsense", instance_id=fid,
+                              instance_name="fw-hist",
+                              rules=[_r("1"), _r("2", dst_port="3389")])
+    await db_session.commit()
+    r = await client.get("/api/v1/anomalies/fw-rule-changes", headers=auth_headers)
+    assert r.status_code == 200
+    items = [i for i in r.json()["items"] if i["instance_name"] == "fw-hist"]
+    assert len(items) == 2
+    assert items[0]["is_baseline"] is False and items[0]["diff"]["added"][0]["key"] == "2"
+    assert items[1]["is_baseline"] is True

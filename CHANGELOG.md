@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.173] — 2026-08-15
+
+### Added
+- **A "Firewall rule changes" view** (next to anomaly detection, admin-only). The sentinel notification says "details are in the snapshot" — but 0.5.172 had no screen that showed snapshots, so the notification pointed at a place that did not exist. This page lists every change event with its full diff (added / removed / changed, with before-and-after values per field); the first snapshot is labelled as the comparison baseline. Rule descriptions render as plain text (never v-html), so injection phrases stay literal.
+
+### Fixed
+- **Snapshot timestamps now come from the application.** They relied on PostgreSQL's `now()`, which is the **transaction** timestamp — two snapshots in one transaction got identical times, making "the latest snapshot" unstable, so the sentinel could diff against the wrong baseline. Caught by a test taking two snapshots in a single transaction.
+
 ## [0.5.172] — 2026-08-15
 
 ### Added (security x AI, three pieces)

@@ -82,3 +82,28 @@ async def triage(
         object_type="anomaly", object_id=None, action="triage", diff={"ip": ip})
     return result
 
+
+
+@router.get("/fw-rule-changes", dependencies=[Depends(require_admin)])
+async def fw_rule_changes(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = 50,
+) -> dict[str, Any]:
+    """防火牆規則異動歷史（哨兵快照，admin 限定 —— 規則內容屬純管理資料）。
+
+    通知只給摘要；這裡回完整 diff，讓「細節到快照裡看」是真的做得到的事。
+    """
+    from sqlalchemy import select as _select
+
+    from app.models.fw_snapshot import FwRuleSnapshot
+
+    limit = max(1, min(int(limit or 50), 200))
+    rows = (await session.execute(
+        _select(FwRuleSnapshot).order_by(FwRuleSnapshot.taken_at.desc()).limit(limit)
+    )).scalars().all()
+    return {"items": [{
+        "id": str(r.id), "source_type": r.source_type, "instance_name": r.instance_name,
+        "taken_at": r.taken_at.isoformat(), "rule_count": r.rule_count,
+        "is_baseline": r.diff is None,
+        "diff": r.diff,
+    } for r in rows]}

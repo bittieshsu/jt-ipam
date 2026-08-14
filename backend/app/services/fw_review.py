@@ -136,8 +136,13 @@ async def snapshot_if_changed(
         return None
 
     diff = diff_rules(list(prev.rules), rules) if prev is not None else None
+    # taken_at 用應用層時間，不能靠 server_default now()：PostgreSQL 的 now() 是
+    # **交易**時間戳 —— 同一交易內兩份快照時間相同，「取最新一份」的排序就會抖動
+    #（測試在單一交易裡連拍兩份時抓到的；prod 上兩輪 sync 也可能被批次包在一起）。
+    from datetime import UTC, datetime
     session.add(FwRuleSnapshot(
         source_type=source_type, instance_id=instance_id, instance_name=instance_name,
+        taken_at=datetime.now(UTC),
         rules_hash=h, rule_count=len(rules), rules=rules, diff=diff))
     await session.flush()
     return diff

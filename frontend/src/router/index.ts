@@ -111,6 +111,7 @@ const routes: RouteRecordRaw[] = [
       { path: "webhooks", name: "webhooks", component: () => import("@/views/Webhooks.vue"), meta: { admin: true } },
       { path: "nat", name: "nat", component: () => import("@/views/NAT.vue") },
       { path: "anomaly", name: "anomaly", component: () => import("@/views/Anomaly.vue"), meta: { admin: true } },
+      { path: "fw-rule-changes", name: "fw_rule_changes", component: () => import("@/views/FwRuleChanges.vue"), meta: { admin: true } },
       { path: "advanced", name: "advanced", component: () => import("@/views/Advanced.vue") },
       { path: "advanced/tenancy", name: "adv-tenancy", component: () => import("@/views/Advanced.vue"), props: { mode: "tenancy" } },
       { path: "advanced/asn", name: "adv-asn", component: () => import("@/views/Advanced.vue"), props: { mode: "asn" } },

@@ -295,7 +295,8 @@
     "ai_audit": "AI 巡檢",
     "virt_pve": "虛擬化 (Proxmox VE)",
     "virt_vmware": "虛擬化 (VMware)",
-    "esxi_admin": "整合 VMware"
+    "esxi_admin": "整合 VMware",
+    "fw_rule_changes": "防火牆規則異動"
   },
   "topbar": {
     "search": "搜尋…",
@@ -3286,5 +3287,15 @@
   "scan_agents": {
     "auto_create_ips": "自動收錄未登錄的 IP",
     "auto_create_ips_hint": "掃到一個 IPAM 裡沒有的位址時，自動建立一筆紀錄（來源標為掃描代理，清單與指示計上會有橘色標記）。預設關閉：位址一旦收錄進來，就不會再被「未授權 IP」偵測列出來 —— 有人私接一台機器、剛好被掃到，也會安靜地變成正式紀錄。關閉時掃到的未登錄位址不會消失，仍會出現在異常偵測裡。"
+  },
+  "fw_changes": {
+    "title": "防火牆規則異動",
+    "when": "時間",
+    "firewall": "防火牆",
+    "rules": "規則數",
+    "diff": "異動內容",
+    "baseline": "（初次快照，作為比對基準）",
+    "hint": "規則哨兵在每輪同步比對三家防火牆（OPNsense／pfSense／FortiGate）的規則，只有真的變更才記錄一筆並通知管理員。半夜多出一條放行規則是防火牆被入侵或留後門的經典徵兆——這一頁就是查證用的完整記錄。",
+    "empty": "還沒有記錄到任何規則異動。"
   }
 }
