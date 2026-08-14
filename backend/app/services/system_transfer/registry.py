@@ -104,6 +104,7 @@ CATEGORY: dict[str, str] = {
     "fdb_entries": "synced",
     "device_vlans": "synced",
     "opnsense_rules": "synced",
+    "fw_rule_snapshots": "synced",
     "opnsense_synced_aliases": "synced",
     "opnsense_rule_labels": "synced",
     "pfsense_synced_aliases": "synced",

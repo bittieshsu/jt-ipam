@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.172] — 2026-08-15
+
+### Added (security x AI, three pieces)
+- **A firewall rule-change sentinel.** We sync rules from three firewall families (OPNsense / pfSense / FortiGate), but nothing ever watched them — a permit rule appearing overnight is the classic sign of a compromised firewall or an insider backdoor, and each sync silently overwrote the previous state. Every sync now normalises the rules and hashes them; **only when the hash differs is a snapshot row stored (with a per-rule diff)** and admins notified (switchable in the notification matrix). Reordering rules in the UI does **not** count as a change (cry wolf twice and nobody reads the alert again), the first snapshot is a baseline and does not alert, and rule descriptions are untrusted text — the notification body is assembled from plain data, never through an LLM. A sentinel failure cannot break the sync itself.
+- **IP forensics (`get_ip_history` MCP tool).** The first question in any incident is "who was this IP at the time". Ask in AI chat and get the evidence timeline: field-level change log (with source), ARP IP-MAC bindings (a MAC change is immediately visible), per-source hostname observations, and DHCP-server sightings. All deterministic retrieval; interpretation is left to the human or the model. RBAC matches the IP detail rules — a restricted account asking about an IP it cannot see gets **no ARP/MAC data** (otherwise history queries become a side door around permissions).
+- **An AI triage card for unauthorised IPs.** Each row of the anomaly page's unauthorised-IP list gains an "AI triage" button: OUI vendor, per-source hostnames, MACs and switch ports are assembled for the local LLM, which produces a card — what this device most likely is, the risk, and where to look next (admin-only; clearly labelled as inference, with the raw evidence returned alongside). **Injection resistance is the core of the design**: hostnames are attacker-controlled text (a hostile device can set its mDNS name to an injection phrase), so every untrusted field is fenced in `<data>` markers, truncated, fence-breaking sequences are neutralised, and the model is told data is not instructions — pinned by adversarial tests.
+
 ## [0.5.171] — 2026-08-14
 
 ### Fixed

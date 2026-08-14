@@ -1593,6 +1593,9 @@ async def sync_all_for_firewall(
     if fw.sync_rules:
         try:
             out.append({"task": "rules", **(await sync_filter_rules(session, fw))})
+            # 規則哨兵：跟上一份快照 diff，變了就通知（sync 完才看得到完整清單）
+            from app.services.fw_review import run_sentinel
+            await run_sentinel(session, source_type="opnsense", instance=fw)
         except OPNsenseError as exc:
             out.append({"task": "rules", "error": str(exc)})
     if fw.sync_nat:

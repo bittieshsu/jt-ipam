@@ -148,7 +148,7 @@ async def test_admin_stats_overview_has_global(db_session, admin_user):
 _PER_OBJECT_TOOLS = frozenset({
     "list_subnets", "list_sections", "list_devices", "list_customers", "list_racks",
     "list_locations", "list_subnet_ips", "get_subnet_detail", "get_subnet_usage",
-    "get_device", "get_ip_detail", "get_customer_summary", "search_ip", "global_search",
+    "get_device", "get_ip_detail", "get_ip_history", "get_customer_summary", "search_ip", "global_search",
     "find_free_ip", "find_free_ips", "recent_ip_changes", "stats_overview",
     "list_ip_requests", "switch_port_for_ip", "trace_mac", "allocate_ip", "update_ip",
     "create_subnet", "create_device", "approve_ip_request", "reject_ip_request",

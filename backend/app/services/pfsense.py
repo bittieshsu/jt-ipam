@@ -462,6 +462,8 @@ async def sync_instance(session: AsyncSession, fw: PfSenseFirewall) -> dict[str,
         counts["aliases"] = await sync_aliases(session, fw)
     if fw.sync_rules:
         counts["rules"] = await sync_rules(session, fw)
+        from app.services.fw_review import run_sentinel
+        await run_sentinel(session, source_type="pfsense", instance=fw)
         counts["nat"] = await sync_nat(session, fw)
     fw.last_sync_at = datetime.now(UTC)
     fw.last_error = None

@@ -1,4 +1,4 @@
-# jt-ipam v0.5.171
+# jt-ipam v0.5.172
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -26,7 +26,7 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 - **基礎設施**：Proxmox VE、**VMware ESXi / vCenter（Beta）** —— 同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP，與 Proxmox 寫進同一組虛擬化資料表；Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），以及 **FortiGate（Beta）** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM）
 - **DHCP**：各家各自設定 —— OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
 - **Graylog**：提供 IP→主機名稱/FQDN 的 DSV 對照表端點，供 Graylog「DSV File from HTTP」資料配接器抓取
-- **本地 AI**：LLM Server 自然語言查詢 + 語意搜尋（預設自架、資料不外送；也可明確改接 OpenAI 相容端點），並提供 MCP server（stdio / Streamable HTTP）；實測搭配 `gemma4:26b` 效果良好
+- **本地 AI**：LLM Server 自然語言查詢 + 語意搜尋（預設自架、資料不外送；也可明確改接 OpenAI 相容端點），並提供 MCP server（stdio / Streamable HTTP）；實測搭配 `gemma4:26b` 效果良好。資安面：**防火牆規則異動哨兵**（三家防火牆的規則每輪同步做快照 diff，半夜多出一條放行規則會通知管理員）、**IP 鑑識問答**（在 AI 對話問「這個 IP 上週是誰」，回欄位級異動＋ARP/MAC＋各來源主機名稱的證據時間軸）、**未授權 IP 的 AI 鑑識卡**（把 OUI／主機名稱／交換器埠彙整成「這最可能是什麼設備＋下一步查哪」的判讀，證據定界防 prompt-injection）
 
 也內建：**瀏覽器內遠端連線管理** —— SSH 終端機、**SFTP 檔案瀏覽器**（免另開工具就能上下傳檔案），外加 RDP、VNC 桌面與 **BMC 序列主控台**（IPMI SOL，不經作業系統的獨立連線）（RDP/VNC/BMC 為 **Beta**），全部在瀏覽器內，連線帳密預設不儲存、可選用**個人加密憑證金庫**（by-user、AES-GCM），物件層級 RBAC、單次 ticket→WebSocket 連線與完整稽核（RDP/VNC 走選用相依，僅在有預編譯 wheel 時才安裝，不影響基礎安裝）、**IP 申請審核流程**（可設多關卡會簽 / 依序關卡，站內 + Email 通知）、**DNS 記錄檢視**（找出沒有對應 IPAM 的記錄）、**掃描代理**（ICMP/ARP/反解/NetBIOS/mDNS/OS 探測；安裝時會在主機上自動裝一個，掃描一律由代理執行）、**憑證集中保管與派送**（商業 / 自簽憑證一次上傳，純 bash 代理依排程自動派送到 nginx/apache/caddy/haproxy/Proxmox VE·PMG·PBS/Zimbra…等服務並重載；另有 **Windows / IIS 的 PowerShell 代理**，匯入 Windows 憑證存放區、換上 HTTPS 繫結，並實際連線確認送出的是新憑證，不對就自動還原；私鑰加密保存、到期告警、可手動續簽）、**機房平面圖 + 機櫃 U 位圖**（含半 U / 正背面、SVG/PNG/draw.io 匯出）、**纜線追蹤**（多跳穿透）、IP 異動記錄與失聯 IP 回收、通用表格欄位選擇 + 多格式匯出。
 

@@ -62,6 +62,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     # ── 查無資料 → 預期 IPAMToolError 或空 dict ──
     "search_ip": {"ip": "10.0.0.1"},
     "get_ip_detail": {"ip": "10.0.0.1"},
+    "get_ip_history": {"ip": "10.0.0.1"},
     "check_ip_exposure": {"ip": "10.0.0.1"},
     "get_subnet_usage": {"subnet_id": _U},
     "trace_mac": {"mac": "00:11:22:33:44:55"},

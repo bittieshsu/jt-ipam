@@ -9,7 +9,7 @@ import {
 import { runAnomalyScan, type AnomalyReport } from "@/api/phase3";
 import { AnomalyIcon, TestIcon, InfoIcon, SettingsIcon } from "@/icons";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
-import { apiErrMsg } from "@/api/client";
+import { apiClient, apiErrMsg } from "@/api/client";
 import { autoSort } from "@/composables/useTableSort";
 import type { Subnet } from "@/types";
 import { useTablePagination } from "@/composables/useTablePagination";
@@ -213,7 +213,7 @@ function catCols(key: CatKey): DataTableColumns<any> {
   const visible = prefs[key].visibleKeys.value;
   // autoSort：與全站表格一致，替沒有自訂 sorter 的欄位補上預設排序。
   // 這幾張表原本整排標頭都不能排 —— 十幾筆 MAC 變動想按時間或按網段看都做不到。
-  return autoSort(CAT_KEYS[key].filter((k) => visible.includes(k)).map((k) => {
+  const cols = autoSort(CAT_KEYS[key].filter((k) => visible.includes(k)).map((k) => {
     const wide = k === "locations" || k === "macs";
     return {
       title: COLLBL[k] ?? k,
@@ -223,6 +223,29 @@ function catCols(key: CatKey): DataTableColumns<any> {
       render: (r: any) => renderVal(k, r[k]),
     };
   }));
+  // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」
+  if (key === "unauthorized_ips") {
+    cols.push({
+      title: t("anomaly.triage_col"), key: "_triage", width: 110,
+      render: (r: any) => h(NButton, {
+        size: "tiny", secondary: true, loading: triageBusy.value === r.ip,
+        onClick: () => doTriage(r.ip),
+      }, { default: () => t("anomaly.triage_btn") }),
+    } as any);
+  }
+  return cols;
+}
+
+const triageBusy = ref<string | null>(null);
+const triageResult = ref<{ ip: string; card: string; disclaimer: string } | null>(null);
+async function doTriage(ip: string) {
+  triageBusy.value = ip;
+  try {
+    const { data } = await apiClient.post("/api/v1/anomalies/triage", { ip });
+    triageResult.value = data;
+  } catch (e: any) {
+    msg.error(e?.response?.data?.detail ?? t("errors.server"));
+  } finally { triageBusy.value = null; }
 }
 
 async function run() {
@@ -326,6 +349,16 @@ async function run() {
       </n-tabs>
     </template>
   </n-card>
+
+  <!-- AI 鑑識卡：模型輸出以純文字呈現（pre-wrap），免 markdown 渲染的注入面 -->
+  <n-modal :show="!!triageResult" preset="card" style="width: 560px; max-width: 94vw"
+           :title="t('anomaly.triage_title', { ip: triageResult?.ip ?? '' })"
+           @update:show="(v: boolean) => { if (!v) triageResult = null; }">
+    <n-alert type="warning" :bordered="false" style="margin-bottom: 10px">
+      {{ triageResult?.disclaimer }}
+    </n-alert>
+    <div style="white-space: pre-wrap; font-size: 13.5px; line-height: 1.7">{{ triageResult?.card }}</div>
+  </n-modal>
 </template>
 
 <style scoped>

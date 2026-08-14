@@ -1750,7 +1750,10 @@
     "explain_dangling_dns": "DNS 記錄指向的位址在 IPAM 裡已經不存在、或早就沒有任何來源看過它。這種記錄除了讓人連到不存在的服務之外，也可能被他人先一步佔用那個位址而接管該名稱。",
     "explain_external_exposure": "被 NAT 或防火牆開放到外網的位址，狀態卻不對勁 —— 例如沒有任何監控、已離線、或所屬網段已封存。開著卻沒人在看的入口最值得先處理。",
     "explain_duplicate_ip_records": "同一個位址在互相包含的網段裡各有一筆紀錄。整合同步只會標到其中一筆，另一筆的存活狀態與主機名稱會永遠停在舊值。",
-    "explain_suspicious_changes": "短時間內的大量異動、或非預期來源做的異動。這裡只列出觀察到的模式，是否有問題要由您判斷。"
+    "explain_suspicious_changes": "短時間內的大量異動、或非預期來源做的異動。這裡只列出觀察到的模式，是否有問題要由您判斷。",
+    "triage_col": "AI 判讀",
+    "triage_btn": "AI 判讀",
+    "triage_title": "AI 鑑識：{ip}"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2578,7 +2581,8 @@
       "cert_expiring": "憑證即將到期 / 已過期",
       "cert_deployed": "代理成功更換新憑證",
       "cert_drift": "憑證飄移（某代理未套到最新版）",
-      "anomaly_detected": "異常偵測有新發現"
+      "anomaly_detected": "異常偵測有新發現",
+      "firewall_rules_changed": "防火牆規則有異動（哨兵）"
     },
     "enable": "啟用",
     "secret_keep": "（已設定，留空＝不變更）",

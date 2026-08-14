@@ -41,6 +41,7 @@ from app.models.fortigate import (
     FortiGateFirewall,
     FortiGatePolicy,
 )
+from app.models.fw_snapshot import FwRuleSnapshot
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_hostname import IPHostnameObservation
 from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval

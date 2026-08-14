@@ -626,6 +626,8 @@ async def sync_instance(session: AsyncSession, fw: FortiGateFirewall) -> dict[st
         counts.update(await sync_vpn(session, fw, vdoms))
     if fw.sync_policies:
         counts["policies"] = await sync_policies(session, fw, vdoms)
+        from app.services.fw_review import run_sentinel
+        await run_sentinel(session, source_type="fortigate", instance=fw)
     if fw.sync_nat:
         counts["nat"] = await sync_nat(session, fw, vdoms)
     if fw.sync_addresses:

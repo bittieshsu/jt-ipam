@@ -907,6 +907,96 @@ async def allocate_ip(
 
 # ─────────────────── 新增工具：完整覆蓋系統功能 ───────────────────
 
+async def get_ip_history(
+    session: AsyncSession, *, user: User, ip: str, days: int = 30,
+) -> dict[str, Any]:
+    """IP 鑑識：某個 IP 在指定期間內「是誰」的證據時間軸。
+
+    資安事件調查的第一個問題永遠是「那個 IP 當時是誰」。把四種既有證據依時間彙整：
+    異動記錄（欄位級，含來源）、ARP（IP↔MAC 對應與最後出現時間）、主機名稱觀測
+    （各來源獨立）、DHCP 觀測。全部是確定性檢索 —— 判讀交給呼叫端（人或模型），
+    資料本身不做任何推測。
+
+    RBAC 與 get_ip_detail 同規：先縮到可見子網路，重疊網段下不會把別單位的同 IP
+    洩出來，也不會因為先取到不可見那筆而假報「查無」。
+    """
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError as exc:
+        raise IPAMToolError(f"Invalid IP: {exc}") from exc
+    from datetime import UTC, datetime, timedelta
+    days = max(1, min(int(days or 30), 365))
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    from app.models.dhcp_sighting import DHCPSighting
+    from app.models.ip_change_log import IPChangeLog
+    from app.models.ip_hostname import IPHostnameObservation
+    from app.models.librenms import ARPEntry
+
+    vis = await visible_ids(session, user=user, object_type="subnet")
+    ip_stmt = select(IPAddress).where(IPAddress.ip == ip)
+    if vis is not None:
+        if not vis:
+            return {"ip": ip, "days": days, "visible": False, "events": []}
+        ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(vis))
+    ipa = (await session.execute(ip_stmt.limit(1))).scalars().first()
+
+    events: list[dict[str, Any]] = []
+    # ARP／DHCP 觀測不掛在子網路底下（全域基礎設施資料）。受限帳號只有在
+    # 「看得到這個 IP 的登錄紀錄」時才給 —— 否則對未登錄 IP 查歷史就能繞過
+    # 可見性把 MAC 對應撈出來（admin／萬用讀取者 vis is None，不受此限）。
+    can_see_global_evidence = (vis is None) or (ipa is not None)
+
+    # 異動記錄：who/what/when，含來源（scanner/librenms/manual…）
+    ch_stmt = (select(IPChangeLog)
+               .where(IPChangeLog.ip_text == ip, IPChangeLog.created_at >= since))
+    if vis is not None:
+        ch_stmt = ch_stmt.where(IPChangeLog.subnet_id.in_(vis))
+    for c in (await session.execute(
+            ch_stmt.order_by(IPChangeLog.created_at.desc()).limit(200))).scalars().all():
+        events.append({"at": c.created_at.isoformat(), "kind": "change",
+                       "source": c.source, "event": c.event_type, "field": c.field,
+                       "old": c.old_value, "new": c.new_value})
+
+    # ARP：這個 IP 綁過哪些 MAC（換 MAC ＝ 換機器或偽冒，是鑑識關鍵）
+    for a in ([] if not can_see_global_evidence else (await session.execute(
+            select(ARPEntry).where(ARPEntry.ip == ip)
+            .order_by(ARPEntry.last_seen_at.desc()).limit(20))).scalars().all()):
+        events.append({"at": a.last_seen_at.isoformat() if a.last_seen_at else None,
+                       "kind": "arp", "mac": str(a.mac),
+                       "first_seen": a.first_seen_at.isoformat() if getattr(a, "first_seen_at", None) else None})
+
+    # 主機名稱觀測：各來源（rdns/netbios/mdns/dhcp…）各自的說法
+    if ipa is not None:
+        for o in (await session.execute(
+                select(IPHostnameObservation)
+                .where(IPHostnameObservation.ip_id == ipa.id)
+                .order_by(IPHostnameObservation.observed_at.desc()).limit(20))).scalars().all():
+            events.append({"at": o.observed_at.isoformat() if o.observed_at else None,
+                           "kind": "hostname", "source": o.source,
+                           "hostname": o.hostname})
+
+    # DHCP 觀測（掃描代理看到誰在回應 DHCP —— 非法 DHCP 調查用）
+    for d in ([] if not can_see_global_evidence else (await session.execute(
+            select(DHCPSighting).where(DHCPSighting.server_ip == ip)
+            .order_by(DHCPSighting.last_seen_at.desc()).limit(5))).scalars().all()):
+        events.append({"at": d.last_seen_at.isoformat() if d.last_seen_at else None,
+                       "kind": "dhcp_server_sighting", "mac": str(d.server_mac) if getattr(d, "server_mac", None) else None})
+
+    events.sort(key=lambda e: e.get("at") or "", reverse=True)
+    return {
+        "ip": ip, "days": days, "visible": True,
+        "registered": ipa is not None,
+        "current": None if ipa is None else {
+            "hostname": ipa.hostname, "mac": str(ipa.mac) if ipa.mac else None,
+            "status": ipa.effective_status, "state": ipa.state,
+            "discovery_source": ipa.discovery_source,
+        },
+        "events": events,
+        "note": "資料為系統記錄的原始證據；時間為 UTC。判讀請以多筆證據交叉為準。",
+    }
+
+
 async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[str, Any]:
     """單一 IP 的完整資料：狀態 / 主機名稱 / MAC / 擁有者 / 裝置 / 交換器埠 / 客戶 / 最後上線來源。"""
     try:
@@ -2367,6 +2457,14 @@ TOOLS: dict[str, dict[str, Any]] = {
                         " Use for questions like 'is 10.0.0.5 exposed?' or 'what ports are open on X?'."),
         "parameters": {"type": "object", "properties": {"ip": {"type": "string"}},
                        "required": ["ip"]},
+    },
+    "get_ip_history": {
+        "fn": get_ip_history,
+        "description": "Forensic timeline for one IP: field-level change log, ARP MAC bindings, per-source hostname observations, DHCP sightings. Answers 'who was this IP on that day'.",
+        "parameters": {"type": "object", "properties": {
+            "ip": {"type": "string"},
+            "days": {"type": "integer", "description": "lookback window, default 30, max 365"}},
+            "required": ["ip"]},
     },
     "get_ip_detail": {
         "fn": get_ip_detail,

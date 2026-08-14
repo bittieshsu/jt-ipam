@@ -1750,7 +1750,10 @@
     "explain_dangling_dns": "DNS records pointing at an address that no longer exists in the IPAM, or that no source has seen in a long time. Besides sending people to a service that isn't there, someone else may claim that address and take over the name.",
     "explain_external_exposure": "Addresses opened to the internet by NAT or a firewall rule whose state does not match — no monitoring at all, offline, or in an archived subnet. An open door nobody watches is the one to deal with first.",
     "explain_duplicate_ip_records": "The same address has a record in each of two subnets that contain one another. Integration syncs stamp only one of them, so the other's liveness and hostname stay frozen at their old values.",
-    "explain_suspicious_changes": "A burst of changes in a short window, or changes from a source you would not expect. These are observed patterns only; whether they are a problem is your call."
+    "explain_suspicious_changes": "A burst of changes in a short window, or changes from a source you would not expect. These are observed patterns only; whether they are a problem is your call.",
+    "triage_col": "AI triage",
+    "triage_btn": "AI triage",
+    "triage_title": "AI triage: {ip}"
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2578,7 +2581,8 @@
       "cert_expiring": "Certificate expiring / expired",
       "cert_deployed": "Agent deployed a new certificate",
       "cert_drift": "Certificate drift (an agent is not up to date)",
-      "anomaly_detected": "Anomaly detection found new issues"
+      "anomaly_detected": "Anomaly detection found new issues",
+      "firewall_rules_changed": "Firewall rules changed (sentinel)"
     },
     "enable": "Enable",
     "secret_keep": "(set — leave blank to keep)",
