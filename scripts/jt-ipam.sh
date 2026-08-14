@@ -1315,6 +1315,7 @@ cmd_doctor() {
 # cmd_upgrade — upgrade existing install (original scripts/jt-ipam-upgrade.sh logic, preserved verbatim)
 # =============================================================================
 cmd_upgrade() {
+    local UPGRADE_ARGS=("$@")
     local ROOT="$REPO_ROOT"
     local ENV_FILE="${ENV_FILE:-/etc/jt-ipam/backend.env}"
     local SVC="jt-ipam-backend"
@@ -1404,6 +1405,22 @@ cmd_upgrade() {
     NEW_REV="$(as_user git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
     if [[ "$OLD_REV" == "$NEW_REV" && $DO_PULL -eq 1 ]]; then
       log "Already up to date (commit unchanged); still runs migration / build once to ensure consistency."
+    fi
+
+    # The pull may have rewritten THIS script, and bash reads a script
+    # incrementally by byte offset -- so once the file underneath changes, the
+    # rest of this run is undefined. In practice bash simply STOPS at that point
+    # and exits 0: the upgrade prints "git pull", reports success, and never runs
+    # the backup, the migration, the build or the restart. Nothing looks wrong.
+    # (Reproduced directly: a script that rewrites itself mid-run stops dead with
+    # exit code 0.) That also meant every fix we ship to this script only took
+    # effect one upgrade later, because the old copy was still driving.
+    #
+    # So: hand over to the new copy exactly once, skipping the pull it already did.
+    if [[ "$OLD_REV" != "$NEW_REV" && "${JT_IPAM_UPGRADE_REEXEC:-0}" != "1" ]]; then
+        log "The upgrade script itself was updated (${OLD_REV} -> ${NEW_REV}); continuing with the new version…"
+        export JT_IPAM_UPGRADE_REEXEC=1
+        exec bash "$ROOT/scripts/jt-ipam.sh" upgrade --no-pull "${UPGRADE_ARGS[@]}"
     fi
 
     # -- 3. back up the database (use the existing script if present) --

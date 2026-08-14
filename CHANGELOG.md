@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.171] — 2026-08-14
+
+### Fixed
+- **After `git pull`, the rest of an upgrade still ran from the old copy of the script.** The new code was pulled correctly, but the backup, the migration, the frontend build, the systemd units and the nginx configuration all ran the old logic — meaning **fixes to installation and upgrade only took effect on the customer's *second* upgrade**, while the first one looked completely normal and exited 0. The script now hands over to the new version once the pull has updated it (with `--no-pull`, since the pull already happened; a flag prevents handing over in a loop; nothing re-runs when the commit is unchanged).
+
+  WARNING: **this fix lives in the new script**, so the upgrade that pulls it is still driven by the old one. **Sites on 0.5.170 or earlier should run `upgrade` twice** (or run `jt-ipam.sh doctor` afterwards and follow whatever it prints). After that, once is enough.
+
 ## [0.5.170] — 2026-08-13
 
 ### Fixed
