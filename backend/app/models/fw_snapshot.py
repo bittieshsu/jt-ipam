@@ -28,4 +28,6 @@ class FwRuleSnapshot(Base):
     rules_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     rule_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     rules: Mapped[list] = mapped_column(JSONB, nullable=False)  # type: ignore[type-arg]
-    diff: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # type: ignore[type-arg]
+    # none_as_null：Python None 要存成 SQL NULL，不是 JSON null —— 否則
+    # 「diff IS NULL＝baseline」在 SQL 層永遠不成立（prod 實資料抓到的）
+    diff: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)  # type: ignore[type-arg]

@@ -164,3 +164,22 @@ async def test_history_endpoint_returns_diffs(client, auth_headers, db_session) 
     assert len(items) == 2
     assert items[0]["is_baseline"] is False and items[0]["diff"]["added"][0]["key"] == "2"
     assert items[1]["is_baseline"] is True
+
+
+@pytest.mark.anyio
+async def test_baseline_diff_is_sql_null_not_json_null(db_session) -> None:
+    """baseline 的 diff 要存成 SQL NULL。
+
+    SQLAlchemy 的 JSON 欄位預設把 Python None 存成 **JSON null**，於是
+    `diff IS NULL` 在 SQL 層永遠 false —— API 恰好沒事（round-trip 回 None），
+    但任何直接下 SQL 的查詢（報表、之後的功能）都會誤判。prod 實資料抓到的。
+    """
+    from sqlalchemy import text as sa_text
+
+    fid = uuid.uuid4()
+    await snapshot_if_changed(db_session, source_type="pfsense", instance_id=fid,
+                              instance_name="fw-null", rules=[_r("1")])
+    is_null = (await db_session.execute(sa_text(
+        "SELECT diff IS NULL FROM fw_rule_snapshots WHERE instance_id = :i"),
+        {"i": str(fid)})).scalar_one()
+    assert is_null is True, "diff 存成了 JSON null 而非 SQL NULL"

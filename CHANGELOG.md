@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.174] — 2026-08-15
+
+### Fixed
+- **Baseline snapshots now store their diff as SQL NULL.** SQLAlchemy's JSON columns serialise Python None as **JSON null** by default, so "`diff IS NULL` means baseline" never held at the SQL level — the API happened to be fine (it reads back as None), but any direct SQL (reports, future features) would misjudge it. Found on the first real snapshots in production; existing rows were normalised as well.
+
 ## [0.5.173] — 2026-08-15
 
 ### Added

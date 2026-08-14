@@ -4,6 +4,11 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.174] — 2026-08-15
+
+### 修正
+- **baseline 快照的 diff 改存 SQL NULL。** SQLAlchemy 的 JSON 欄位預設把 Python None 序列化成 **JSON null**，於是「`diff IS NULL`＝初次快照」在 SQL 層永遠不成立——API 恰好沒事（讀回來還是 None），但任何直接下 SQL 的查詢（報表、之後的功能）都會誤判。在 prod 首輪真實快照上發現；既有資料已一併轉正。
+
 ## [0.5.173] — 2026-08-15
 
 ### 新增
