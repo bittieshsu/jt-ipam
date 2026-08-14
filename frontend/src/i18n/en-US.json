@@ -1754,7 +1754,9 @@
     "explain_suspicious_changes": "A burst of changes in a short window, or changes from a source you would not expect. These are observed patterns only; whether they are a problem is your call.",
     "triage_col": "AI triage",
     "triage_btn": "AI triage",
-    "triage_title": "AI triage: {ip}"
+    "triage_title": "AI triage: {ip}",
+    "fw_rot": "Firewall rule rot",
+    "explain_fw_rule_rot": "Parts of the active ruleset that are already wrong: port forwards whose target is not in IPAM (likely reclaimed), any-to-any permits (that interface effectively has no firewall), and management ports (SSH/RDP/VNC/IPMI) open to any source on a WAN interface. Manual NAT entries and disabled rules are excluded."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2861,7 +2863,8 @@
     "anom_exposure": "External exposure: {count} new",
     "anom_dangling_dns": "Dangling DNS: {count} new",
     "anom_dup_ip": "Duplicate IP records: {count} new",
-    "anom_changes": "Suspicious changes: {count} new"
+    "anom_changes": "Suspicious changes: {count} new",
+    "anom_fw_rot": "Firewall rule rot: {count} new"
   },
   "system_transfer": {
     "title": "System Export / Import",

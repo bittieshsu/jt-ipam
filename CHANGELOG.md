@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.175] — 2026-08-15
+
+### Added
+- **A new anomaly category: firewall rule rot.** The rule-change sentinel watches *changes*; this watches what is *already wrong* in the active ruleset: (1) **dangling port forwards** — synced, enabled forwards whose target address is not in IPAM (usually reclaimed, so traffic goes to an unknown host); (2) **any-to-any permits** (that interface effectively has no firewall); (3) **management ports** (SSH/Telnet/RDP/VNC/IPMI) **open to any source on a WAN interface**. All deterministic, and deliberately conservative — manual NAT entries do not count as dangling (an unlinked IP is normal there), disabled rules are skipped, and SSH-to-any on a LAN is everyday practice: this page's enemy is the false positive. The any-any and management-port checks start with pfSense (the most stable data shape); OPNsense/FortiGate follow once verified per vendor.
+- The docs feature page gained the v0.5.172–174 security-AI entries (rule sentinel / IP forensics / triage cards).
+
 ## [0.5.174] — 2026-08-15
 
 ### Fixed

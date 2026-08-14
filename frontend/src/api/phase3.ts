@@ -248,6 +248,7 @@ export interface AnomalyReport {
   dangling_dns: any[];
   duplicate_ip_records: any[];
   suspicious_changes: any[];
+  fw_rule_rot: any[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {

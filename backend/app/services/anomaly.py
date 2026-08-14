@@ -42,6 +42,7 @@ class AnomalyReport:
     dangling_dns: list[dict[str, Any]] = field(default_factory=list)
     duplicate_ip_records: list[dict[str, Any]] = field(default_factory=list)
     suspicious_changes: list[dict[str, Any]] = field(default_factory=list)
+    fw_rule_rot: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,10 +55,12 @@ class AnomalyReport:
             "dangling_dns": self.dangling_dns,
             "duplicate_ip_records": self.duplicate_ip_records,
             "suspicious_changes": self.suspicious_changes,
+            "fw_rule_rot": self.fw_rule_rot,
             "total": (
                 len(self.ip_conflicts) + len(self.mac_drifts)
                 + len(self.ghost_ips) + len(self.unauthorized_ips)
                 + len(self.rogue_dhcp) + len(self.external_exposure)
+                + len(self.fw_rule_rot)
                 + len(self.dangling_dns) + len(self.duplicate_ip_records)
                 + len(self.suspicious_changes)
             ),
@@ -763,6 +766,7 @@ async def run_detection(
         dangling_dns=await detect_dangling_dns(session),
         duplicate_ip_records=await detect_duplicate_ip_records(session),
         suspicious_changes=await detect_suspicious_changes(session),
+        fw_rule_rot=await detect_fw_rule_rot(session),
     )
 
     if notify_admins:
@@ -787,6 +791,7 @@ async def run_detection(
                 ("懸空 DNS", "notif.anom_dangling_dns", report.dangling_dns),
                 ("重複的 IP 紀錄", "notif.anom_dup_ip", report.duplicate_ip_records),
                 ("可疑的變更", "notif.anom_changes", report.suspicious_changes),
+                ("防火牆規則腐化", "notif.anom_fw_rot", report.fw_rule_rot),
             ):
                 if not items:
                     continue
@@ -807,3 +812,70 @@ async def run_detection(
 
     await session.commit()
     return report
+
+
+# ── 防火牆規則腐化（rule rot）──
+# 規則是資安邊界，但沒有人回頭看它們：埠轉發指向早已回收的位址、any-any 放行、
+# WAN 開管理埠。這裡全是確定性檢查 —— 這一頁的敵人是誤報，所以每一條都刻意保守：
+# 手動 NAT 不算懸空（沒連 IP 是常態）、停用中的不報（不在生效路徑）、
+# 管理埠只看 WAN 類介面（LAN 開 SSH 給 any 是日常）。
+
+_MGMT_PORTS = {"22", "23", "3389", "5900", "623"}
+_MGMT_SERVICES = {"ssh", "telnet", "rdp", "vnc"}
+
+
+def _is_any(v: Any) -> bool:
+    """規則的來源／目的是不是「任意」。pfSense 是物件（{"any": ...}），其餘是字串。"""
+    if v is None:
+        return False
+    if isinstance(v, dict):
+        return "any" in v or v.get("network") in ("any", "*")
+    return str(v).strip().lower() in ("any", "*", "all")
+
+
+async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
+    from app.models.nat import NATTranslation
+    from app.models.pfsense import PfSenseFirewall
+
+    items: list[dict[str, Any]] = []
+
+    # (1) 懸空 NAT：防火牆同步來的、生效中的 port forward，目標解析不到 IPAM。
+    #     手動建立的（source_origin 空）不算 —— 手動 NAT 沒連 IP 是常態。
+    rows = (await session.execute(
+        select(NATTranslation).where(
+            NATTranslation.type == "port_forward",
+            NATTranslation.disabled.is_(False),
+            NATTranslation.source_origin.is_not(None),
+            NATTranslation.dst_ip_id.is_(None),
+        ).limit(100))).scalars().all()
+    for n in rows:
+        items.append({"kind": "dangling_nat", "name": n.name,
+                      "source": (n.source_origin or "").split(":")[0],
+                      "port": n.dst_port,
+                      "descr": (n.description or "")[:120],
+                      "detail": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記"})
+
+    # (2)(3) any-any 放行與 WAN 管理埠：pfSense 精簡規則（JSONB）。
+    #     OPNsense / FortiGate 的規則表欄位語意各異，先做 pfSense（資料形狀最穩定），
+    #     其餘兩家由規則異動哨兵盯變更；誤報比漏報傷害大，逐家驗證過才納入。
+    fws = (await session.execute(
+        select(PfSenseFirewall).where(PfSenseFirewall.rules.is_not(None)))).scalars().all()
+    for fw in fws:
+        for r in (fw.rules or []):
+            if not isinstance(r, dict) or r.get("disabled"):
+                continue
+            if str(r.get("type") or "").lower() not in ("pass", "match"):
+                continue
+            iface = str(r.get("interface") or "").lower()
+            dport = str(r.get("destination_port") or "").strip().lower()
+            if _is_any(r.get("source")) and _is_any(r.get("destination")):
+                items.append({"kind": "any_any", "name": fw.name, "source": "pfsense",
+                              "interface": iface, "descr": (r.get("descr") or "")[:120],
+                              "detail": "any → any 放行 —— 等於這個介面沒有防火牆"})
+            if "wan" in iface and _is_any(r.get("source")) and (
+                    dport in _MGMT_PORTS or dport in _MGMT_SERVICES):
+                items.append({"kind": "mgmt_exposed", "name": fw.name, "source": "pfsense",
+                              "interface": iface, "port": dport,
+                              "descr": (r.get("descr") or "")[:120],
+                              "detail": "WAN 介面對任意來源開放管理埠"})
+    return items[:200]

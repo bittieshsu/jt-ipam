@@ -41,6 +41,7 @@ async def scan(
             "dangling_dns": len(report.dangling_dns),
             "duplicate_ip_records": len(report.duplicate_ip_records),
             "suspicious_changes": len(report.suspicious_changes),
+            "fw_rule_rot": len(report.fw_rule_rot),
         },
         request_id=getattr(request.state, "request_id", None),
     )

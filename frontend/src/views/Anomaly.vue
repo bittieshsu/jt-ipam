@@ -60,7 +60,8 @@ async function saveScope() {
 const activeTab = ref("ip_conflicts");
 
 type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
-  | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes";
+  | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes"
+  | "fw_rule_rot";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
@@ -71,6 +72,7 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "dangling_dns", label: () => t("anomaly.dangling_dns") },
   { key: "duplicate_ip_records", label: () => t("anomaly.dup_ip") },
   { key: "suspicious_changes", label: () => t("anomaly.changes") },
+  { key: "fw_rule_rot", label: () => t("anomaly.fw_rot") },
 ];
 
 const rogueTitle = computed(() =>
@@ -81,7 +83,8 @@ const anyFindings = computed(() => {
   return !!r && (r.ip_conflicts.length + r.mac_drifts.length + r.ghost_ips.length
     + r.unauthorized_ips.length + (r.rogue_dhcp?.length ?? 0)
     + (r.external_exposure?.length ?? 0) + (r.dangling_dns?.length ?? 0)
-    + (r.duplicate_ip_records?.length ?? 0) + (r.suspicious_changes?.length ?? 0)) > 0;
+    + (r.duplicate_ip_records?.length ?? 0) + (r.suspicious_changes?.length ?? 0)
+    + (r.fw_rule_rot?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return (report.value?.[key] as Record<string, any>[]) ?? [];
@@ -100,6 +103,7 @@ const COLLBL: Record<string, string> = {
   records: "重複的紀錄", actor: "操作者", actor_ip: "來源 IP",
   action: "動作", count: "次數", first_at: "最早", object_type: "物件類型",
   effective_status: "存活狀態", names: "DNS 名稱", owner: "負責人", rules: "來源規則",
+  source: "來源", interface: "介面", descr: "規則描述", detail: "說明",
 };
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
@@ -115,6 +119,7 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   duplicate_ip_records: ["ip", "records"],
   suspicious_changes: ["kind", "actor", "actor_ip", "object_type", "action",
                        "count", "first_at", "last_at"],
+  fw_rule_rot: ["kind", "name", "source", "interface", "port", "descr", "detail"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   ghost_ips: ["ip_address_id"],

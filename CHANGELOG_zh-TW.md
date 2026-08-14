@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.175] — 2026-08-15
+
+### 新增
+- **異常偵測新類別「防火牆規則腐化」。** 規則異動哨兵盯「變更」，這一類盯「已經不對勁的現狀」：①**懸空埠轉發**——防火牆同步來的、生效中的 port forward，目標位址不在 IPAM（多半已回收，流量正轉向不明主機）；②**any → any 放行**（等於該介面沒有防火牆）；③**WAN 介面對任意來源開放管理埠**（SSH／Telnet／RDP／VNC／IPMI）。全部是確定性檢查，而且刻意保守——手動建立的 NAT 不算懸空（沒連 IP 是常態）、停用中的規則不報、LAN 開 SSH 給 any 是日常不報：這一頁的敵人是誤報，狼來了幾次就沒有人看。any-any 與管理埠檢查先做 pfSense（資料形狀最穩定），OPNsense／FortiGate 逐家驗證後再納入。
+- docs 功能頁補上 v0.5.172–174 的資安×AI 條目（規則哨兵／IP 鑑識／AI 鑑識卡）。
+
 ## [0.5.174] — 2026-08-15
 
 ### 修正
