@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.176] — 2026-08-15
+
+### Changed
+- Wording (zh-TW): watcher-type features are no longer called 哨兵 ("sentinel", uncommon in Taiwan); they are 異動偵測 ("change detection"), matching the existing 異常偵測 (anomaly detection). Notification matrix, the rule-changes page and docs updated; sentinel *values* in code comments are now 保留值.
+
 ## [0.5.175] — 2026-08-15
 
 ### Added

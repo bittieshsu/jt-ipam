@@ -61,7 +61,7 @@ const sections = ref<Section[]>([]);
 const vlans = ref<VLAN[]>([]);
 const vrfs = ref<VRF[]>([]);
 const allSubnets = ref<Subnet[]>([]);
-// 掃描代理下拉的「本機直接掃」哨兵值（對應後端 scan_agent_id=null）；與真正的代理 UUID 區分
+// 掃描代理下拉的「本機直接掃」保留值（對應後端 scan_agent_id=null）；與真正的代理 UUID 區分
 const LOCAL_SCAN = "__local__";
 const scanAgentOpts = ref<{ label: string; value: string }[]>([]);
 /** 本機（jt-ipam 主機）上那個代理，安裝時自動建立；沒有就是沒裝。 */
@@ -242,7 +242,7 @@ async function submit() {
   if (form.value.scan_enabled && !form.value.scan_agent_id) {
     msg.error(t("subnets.err_scan_agent_required")); return;
   }
-  // "__local__" 哨兵＝由 jt-ipam 主機本機掃 → 後端存 scan_agent_id=null
+  // "__local__" 保留值＝由 jt-ipam 主機本機掃 → 後端存 scan_agent_id=null
   const scanAgentId = (form.value.scan_agent_id === LOCAL_SCAN || !form.value.scan_enabled)
     ? null : form.value.scan_agent_id;
   saving.value = true;

@@ -90,7 +90,7 @@ async def fw_rule_changes(
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: int = 50,
 ) -> dict[str, Any]:
-    """防火牆規則異動歷史（哨兵快照，admin 限定 —— 規則內容屬純管理資料）。
+    """防火牆規則異動歷史（異動偵測快照，admin 限定 —— 規則內容屬純管理資料）。
 
     通知只給摘要；這裡回完整 diff，讓「細節到快照裡看」是真的做得到的事。
     """

@@ -1014,7 +1014,7 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("cert.deployed", True, False),        # 代理成功部署新憑證
     ("cert.drift", True, False),           # 憑證飄移（某代理未套到最新版）
     ("anomaly.detected", True, False),     # 異常偵測有新發現
-    ("firewall.rules_changed", True, False),  # 防火牆規則有異動（哨兵）
+    ("firewall.rules_changed", True, False),  # 防火牆規則有異動
 )
 
 

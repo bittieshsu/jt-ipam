@@ -1,12 +1,12 @@
-"""防火牆規則哨兵：只在「真的變了」的時候說話，說的內容必須可信。
+"""防火牆規則異動偵測：只在「真的變了」的時候說話，說的內容必須可信。
 
-對抗式重點（哨兵最大的敵人是狼來了與漏報）：
+對抗式重點（異動偵測最大的敵人是狼來了與漏報）：
 - **排序不是變更**：規則在 UI 被拖動位置、API 回傳順序不穩定，都不可以觸發告警 ——
   誤報幾次之後沒有人會再看這個通知。
 - **baseline 不告警**：剛接上整合的第一輪不是「有人改了規則」。
 - **描述文字是不可信輸入**：規則 descr 可以被防火牆管理者（或入侵者）寫成
   prompt-injection 語句；通知本文由純資料組字，不經 LLM，注入語句只會被當字面文字。
-- **哨兵掛了不可以弄壞 sync**：規則資料比告警重要。
+- **偵測掛了不可以弄壞 sync**：規則資料比告警重要。
 """
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ async def test_two_instances_do_not_cross_talk(db_session) -> None:
 
 @pytest.mark.anyio
 async def test_sentinel_failure_does_not_break_sync(db_session) -> None:
-    """哨兵內部炸掉 → run_sentinel 吞下並記 log，不往外拋（sync 本體要活著）。"""
+    """偵測內部炸掉 → run_sentinel 吞下並記 log，不往外拋（sync 本體要活著）。"""
     from app.services.fw_review import run_sentinel
 
     class Boom:
