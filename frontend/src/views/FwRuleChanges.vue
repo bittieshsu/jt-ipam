@@ -7,7 +7,7 @@
  */
 import { onMounted, ref, h } from "vue";
 import {
-  NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton,
+  NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NModal,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
@@ -64,6 +64,18 @@ function renderDiff(row: Change) {
   return h("div", null, blocks.filter(Boolean));
 }
 
+/** AI 解讀：偵測是確定性的，解讀層按需觸發 —— 帶上目標位址的全系統整合證據。 */
+const aiBusy = ref<string | null>(null);
+const aiResult = ref<{ card: string; disclaimer: string } | null>(null);
+async function analyze(row: Change) {
+  aiBusy.value = row.id;
+  try {
+    const { data } = await apiClient.post(`/api/v1/anomalies/fw-rule-changes/${row.id}/analyze`);
+    aiResult.value = data;
+  } catch (e: any) { msg.error(apiErrMsg(e)); }
+  finally { aiBusy.value = null; }
+}
+
 const cols: DataTableColumns<Change> = autoSort([
   { title: t("fw_changes.when"), key: "taken_at", width: 170,
     render: (r) => fmtDateTime(r.taken_at) },
@@ -74,6 +86,11 @@ const cols: DataTableColumns<Change> = autoSort([
     ]) },
   { title: t("fw_changes.rules"), key: "rule_count", width: 90 },
   { title: t("fw_changes.diff"), key: "diff", render: (r) => renderDiff(r) },
+  { title: t("fw_changes.ai"), key: "_ai", width: 110,
+    render: (r) => r.is_baseline ? null : h(NButton, {
+      size: "tiny", secondary: true, loading: aiBusy.value === r.id,
+      onClick: () => analyze(r),
+    }, { default: () => t("fw_changes.ai_btn") }) },
 ]);
 </script>
 
@@ -99,4 +116,14 @@ const cols: DataTableColumns<Change> = autoSort([
     <n-empty v-if="!loading && !items.length" style="margin: 24px 0"
              :description="t('fw_changes.empty')" />
   </n-card>
+
+  <!-- AI 解讀卡：模型輸出以純文字呈現（pre-wrap），不進 v-html -->
+  <n-modal :show="!!aiResult" preset="card" style="width: 560px; max-width: 94vw"
+           :title="t('fw_changes.ai_title')"
+           @update:show="(v: boolean) => { if (!v) aiResult = null; }">
+    <n-alert type="warning" :bordered="false" style="margin-bottom: 10px">
+      {{ aiResult?.disclaimer }}
+    </n-alert>
+    <div style="white-space: pre-wrap; font-size: 13.5px; line-height: 1.7">{{ aiResult?.card }}</div>
+  </n-modal>
 </template>

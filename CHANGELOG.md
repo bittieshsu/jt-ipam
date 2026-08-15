@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.177] — 2026-08-15
+
+### Added
+- **AI analysis for firewall rule changes** (a button on each change in the rule-changes page; admin-only, on demand). Detection and alerting stay fully deterministic; the AI is an interpretation layer — and it brings **system-wide evidence about the target address** to the model: IPAM registration and change timeline, ARP/MAC, whether a Wazuh agent is present (an unmonitored host is one more reason for suspicion), reverse DNS, what other NAT exposures the host already has, whether it is a VM, and which subnet/customer owns it — information the IPAM has and the firewall does not. Output is three fixed sections: what the change does / risk assessment / what to do next.
+- That system-wide evidence layer (`full_ip_context`) now also feeds the AI triage card for unauthorised IPs — both features share it. A failing evidence source just loses one line; it cannot blank the card.
+
+### Fixed
+- Target lookups only accept genuine single addresses: **networks (e.g. 10.0.0.0/24) were being treated as hosts** — caught by an adversarial test; aliases and "any" are also skipped, and lookups are capped.
+
 ## [0.5.176] — 2026-08-15
 
 ### Changed

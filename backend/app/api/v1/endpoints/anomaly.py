@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -108,3 +109,38 @@ async def fw_rule_changes(
         "is_baseline": r.diff is None,
         "diff": r.diff,
     } for r in rows]}
+
+@router.post("/fw-rule-changes/{snapshot_id}/analyze", dependencies=[Depends(require_admin)])
+async def fw_rule_change_analyze(
+    snapshot_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """對一筆規則異動產 AI 解讀卡（admin 限定，按需觸發）。
+
+    偵測與告警永遠是確定性的；這裡是解讀層 —— 帶上目標位址的全系統整合證據
+    （IPAM／ARP／Wazuh／DNS／NAT 曝露／虛擬化／管理單位）讓模型判讀。
+    """
+    from fastapi import HTTPException
+
+    from app.models.fw_snapshot import FwRuleSnapshot
+    from app.services.fw_review import analyze_change
+
+    snap = await session.get(FwRuleSnapshot, snapshot_id)
+    if snap is None:
+        raise HTTPException(404, detail="找不到這筆快照")
+    if not snap.diff:
+        raise HTTPException(422, detail="初次快照是比對基準，沒有異動可以解讀")
+    try:
+        result = await analyze_change(session, user, snap)
+    except Exception as exc:
+        raise HTTPException(502, detail=f"AI 解讀失敗：{exc}") from exc
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="anomaly", object_id=None, action="fw_analyze",
+        diff={"snapshot": str(snapshot_id)})
+    return result
+

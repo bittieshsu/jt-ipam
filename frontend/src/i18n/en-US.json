@@ -3299,6 +3299,9 @@
     "diff": "What changed",
     "baseline": "(first snapshot, used as the comparison baseline)",
     "hint": "The rule sentinel compares OPNsense / pfSense / FortiGate rules on every sync and records an entry (and notifies admins) only when something really changed. A permit rule appearing overnight is the classic sign of a compromised firewall — this page is the full record for verifying it.",
-    "empty": "No rule changes recorded yet."
+    "empty": "No rule changes recorded yet.",
+    "ai": "AI analysis",
+    "ai_btn": "AI analysis",
+    "ai_title": "AI analysis (with system-wide evidence)"
   }
 }

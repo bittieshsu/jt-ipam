@@ -101,8 +101,114 @@ async def triage_ip(session: AsyncSession, user: Any, ip: str) -> dict[str, Any]
 
     ev = await gather_evidence(session, user, ip)
     prompt = build_prompt(ip, ev)
+    # 全系統整合證據（Wazuh／DNS／NAT 曝露／虛擬化／管理單位）—— 與規則異動解讀共用
+    extra = await full_ip_context(session, user, ip)
+    if extra:
+        prompt = prompt.replace("證據：", "證據：\n" + "\n".join(extra), 1)
     card = await raw_chat(session, prompt, timeout=120.0,
                           max_output_tokens=800, no_thinking=True)
     return {"ip": ip, "card": card.strip(), "evidence": ev["history"]["events"][:30],
             "macs": ev["macs"], "vendors": ev["vendors"],
             "disclaimer": "此為語言模型依觀測證據所做的推測，請對照證據後再行動。"}
+
+async def full_ip_context(session: AsyncSession, user: Any, ip: str) -> list[str]:
+    """某個 IP 在**全系統**的整合證據，一行一條、不可信欄位已定界。
+
+    這是鑑識卡與防火牆規則 AI 解讀共用的證據層 —— 使用者要求「完整利用系統內
+    所有資料」：鑑識時間軸（異動／ARP／主機名稱）之外，再拉裝置與 Wazuh、DNS
+    反查、其它 NAT 曝露、虛擬化歸屬、子網路與管理單位。全部確定性查詢、各自
+    失敗不影響其他來源（缺一種資料不該讓整張卡開天窗）。
+    """
+    import structlog
+
+    from app.mcp.tools import get_ip_history
+    from app.models.address import IPAddress
+    from app.models.customer import Customer
+    from app.models.device import Device
+    from app.models.dns import DNSRecord
+    from app.models.nat import NATTranslation
+    from app.models.subnet import Subnet
+    from app.models.virt import VirtualMachine, VMInterface
+    from app.models.wazuh import WazuhAgent
+
+    log = structlog.get_logger("ip_context")
+    lines: list[str] = []
+
+    async def safe(name: str, coro):
+        try:
+            return await coro
+        except Exception:
+            log.warning("ip_context_source_failed", source=name, ip=ip, exc_info=True)
+            return None
+
+    hist = await safe("history", get_ip_history(session, user=user, ip=ip, days=30))
+    ipa = None
+    if hist:
+        cur = hist.get("current") or {}
+        lines.append(f"IPAM 登錄: {'有' if hist.get('registered') else '無'} "
+                     f"hostname=<data>{fence(cur.get('hostname'))}</data> "
+                     f"狀態={fence(cur.get('status'))} 建立來源={fence(cur.get('discovery_source'))}")
+        for e in (hist.get("events") or [])[:8]:
+            k = e.get("kind")
+            if k == "arp":
+                lines.append(f"ARP: MAC {e.get('mac')} @ {e.get('at')}")
+            elif k == "hostname":
+                lines.append(f"名稱[{fence(e.get('source'))}]: <data>{fence(e.get('hostname'))}</data>")
+            elif k == "change":
+                lines.append(f"異動[{fence(e.get('source'))}] {fence(e.get('field'))}: "
+                             f"<data>{fence(e.get('old'))}</data>→<data>{fence(e.get('new'))}</data>")
+        if hist.get("registered"):
+            ipa = (await session.execute(
+                select(IPAddress).where(IPAddress.ip == ip).limit(1))).scalars().first()
+
+    # 子網路歸屬＋管理單位：規則指到「別的單位的網段」是重要訊號
+    if ipa is not None:
+        sub = await session.get(Subnet, ipa.subnet_id)
+        if sub is not None:
+            cust = await session.get(Customer, sub.customer_id) if sub.customer_id else None
+            lines.append(f"所屬子網路: {sub.cidr} 說明=<data>{fence(sub.description)}</data>"
+                         + (f" 管理單位=<data>{fence(cust.name)}</data>" if cust else ""))
+        if ipa.device_id:
+            dev = await session.get(Device, ipa.device_id)
+            if dev is not None:
+                lines.append(f"連結裝置: <data>{fence(dev.name)}</data> 類型={fence(dev.type)}")
+
+    # Wazuh：這台有沒有裝安全代理（有代理＝受管；沒有＝多一分可疑）
+    wa = await safe("wazuh", session.execute(
+        select(WazuhAgent).where(WazuhAgent.ip == ip).limit(1)))
+    if wa is not None:
+        agent = wa.scalars().first()
+        if agent is not None:
+            lines.append(f"Wazuh 代理: <data>{fence(agent.name)}</data> 狀態={fence(agent.status)} "
+                         f"OS=<data>{fence(getattr(agent, 'os_name', None))}</data>")
+        else:
+            lines.append("Wazuh 代理: 無（此主機未受安全監控）")
+
+    # DNS 反查：有正式名字的機器通常是正式服務
+    dns = await safe("dns", session.execute(
+        select(DNSRecord).where(DNSRecord.value == ip).limit(5)))
+    if dns is not None:
+        for r in dns.scalars().all():
+            lines.append(f"DNS 記錄: <data>{fence(r.name)}</data> ({fence(r.type)})")
+
+    # 其它 NAT 曝露：同一台被開了幾個對外口
+    if ipa is not None:
+        nats = await safe("nat", session.execute(
+            select(NATTranslation).where(NATTranslation.dst_ip_id == ipa.id,
+                                         NATTranslation.disabled.is_(False)).limit(5)))
+        if nats is not None:
+            for n in nats.scalars().all():
+                lines.append(f"NAT 曝露: <data>{fence(n.name)}</data> 埠={n.dst_port} "
+                             f"來源={fence((n.source_origin or 'manual').split(':')[0])}")
+
+    # 虛擬化：是不是 VM、掛在哪個叢集（實體私接 vs 虛擬機開錯，是兩種事件）
+    vmi = await safe("virt", session.execute(
+        select(VMInterface, VirtualMachine).join(VirtualMachine)
+        .where(VMInterface.primary_ip == ip).limit(1)))
+    if vmi is not None:
+        row = vmi.first()
+        if row is not None:
+            lines.append(f"虛擬機: <data>{fence(row[1].name)}</data>（虛擬化平台回報）")
+
+    return lines
+
