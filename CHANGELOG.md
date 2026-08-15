@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.187] — 2026-08-15
+
+### Added
+- **AI analysis results can be downloaded as a report**: the modal footer gained "Download .md" / "Download .txt" — .md keeps the original markdown (with a header carrying the firewall, time, model and disclaimer), .txt strips the markup (BOM-prefixed so Chinese text opens cleanly); zero-dependency, generated entirely in the browser.
+- **The analysis shows which model produced it**: the backend returns the configured chat model with the result, shown in the modal footer and embedded in downloaded reports — different models carry different credibility, so it is part of the finding.
+
+### Changed
+- The acknowledge and AI columns merged into a single "Actions" column: column headers identical to the button labels inside read like an accidental duplicate (user feedback); once acknowledged, the button gives way to the status text in place.
+
 ## [0.5.186] — 2026-08-15
 
 ### Changed

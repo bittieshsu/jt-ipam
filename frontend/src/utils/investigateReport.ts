@@ -26,6 +26,11 @@ function download(text: string, filename: string, mime: string, bom: boolean): v
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+/** 給「一段文字直接存檔」的輕量出口（如 AI 解讀報告）——沿用同一套 BOM 規則。 */
+export function downloadTextFile(text: string, filename: string, fmt: "md" | "txt"): void {
+  download(text, filename, fmt === "md" ? "text/markdown" : "text/plain", fmt === "txt");
+}
+
 /** 報告的一個區塊：標題 + 若干行。行留空的區塊不輸出，免得報告一半是空標題。 */
 export interface ReportSection {
   title: string;

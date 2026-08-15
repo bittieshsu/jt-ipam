@@ -13,9 +13,10 @@ import {
 import { useI18n } from "vue-i18n";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { fmtDateTime } from "@/utils/datetime";
-import { AiAuditIcon, EyeIcon, FirewallIcon, OkIcon, RefreshIcon, renderIcon } from "@/icons";
+import { AiAuditIcon, DownloadIcon, EyeIcon, FirewallIcon, OkIcon, RefreshIcon, renderIcon } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import { renderMarkdown } from "@/utils/markdown";
+import { downloadTextFile } from "@/utils/investigateReport";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -71,8 +72,32 @@ function renderDiff(row: Change) {
  *  LLM 要跑幾十秒，所以按下去是**背景執行**：使用者可以繼續看表格、
  *  同時解讀多筆；完成後該列長出「檢視結果」按鈕（結果留在頁面裡可重看）。 */
 const aiBusy = ref<Set<string>>(new Set());
-const aiResults = ref<Record<string, { card: string; disclaimer: string }>>({});
+const aiResults = ref<Record<string, { card: string; disclaimer: string; model?: string }>>({});
 const aiShow = ref<string | null>(null);
+
+/** 下載解讀報告：.md 保留原始 markdown；.txt 去掉標記符號成純文字。 */
+function downloadAi(fmt: "md" | "txt") {
+  const id = aiShow.value;
+  const res = id ? aiResults.value[id] : null;
+  if (!id || !res) return;
+  const row = items.value.find((i) => i.id === id);
+  const header = [
+    `# ${t("fw_changes.ai_title")}`,
+    "",
+    `- ${t("fw_changes.firewall")}：${row?.instance_name ?? ""}（${row?.source_type ?? ""}）`,
+    `- ${t("fw_changes.when")}：${row ? fmtDateTime(row.taken_at) : ""}`,
+    `- ${t("fw_changes.ai_model")}：${res.model ?? "—"}`,
+    "",
+    `> ${res.disclaimer}`,
+    "",
+  ].join("\n");
+  const body = header + res.card + "\n";
+  const text = fmt === "md" ? body : body
+    .replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "").replace(/^>\s?/gm, "");
+  const stamp = (row?.taken_at ?? "").slice(0, 19).replace(/[T:]/g, "-");
+  downloadTextFile(text, `fw-change-ai-${row?.instance_name ?? "report"}-${stamp}.${fmt}`, fmt);
+}
 async function analyze(row: Change) {
   aiBusy.value.add(row.id); aiBusy.value = new Set(aiBusy.value);
   try {
@@ -109,16 +134,17 @@ const cols: DataTableColumns<Change> = autoSort([
     ]) },
   { title: t("fw_changes.rules"), key: "rule_count", width: 90 },
   { title: t("fw_changes.diff"), key: "diff", render: (r) => renderDiff(r) },
-  { title: t("fw_changes.ack_col"), key: "_ack", width: 150,
-    render: (r) => r.is_baseline ? null : (r.ack
-      ? h("span", { style: "font-size:12px;opacity:.75" },
-          `✓ ${t("fw_changes.acked")}${r.ack.note ? "：" + r.ack.note.slice(0, 40) : ""}`)
-      : h(NButton, { size: "tiny", secondary: true,
-                     onClick: () => { ackTarget.value = r; ackNote.value = ""; } },
-          { icon: renderIcon(OkIcon, 15), default: () => t("fw_changes.ack_btn") })) },
-  { title: t("fw_changes.ai"), key: "_ai", width: 200,
+  // 單一「操作」欄：欄位標題若與裡面的按鈕同名（認可／AI 解讀）會像重複貼了兩次
+  //（使用者回饋）；認可後按鈕原位換成狀態文字。
+  { title: t("common.actions"), key: "_actions", width: 320,
     render: (r) => r.is_baseline ? null : h("span",
-      { style: "display:inline-flex;align-items:center;gap:6px" }, [
+      { style: "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap" }, [
+        r.ack
+          ? h("span", { style: "font-size:12px;opacity:.75" },
+              `✓ ${t("fw_changes.acked")}${r.ack.note ? "：" + r.ack.note.slice(0, 40) : ""}`)
+          : h(NButton, { size: "tiny", secondary: true,
+                         onClick: () => { ackTarget.value = r; ackNote.value = ""; } },
+              { icon: renderIcon(OkIcon, 15), default: () => t("fw_changes.ack_btn") }),
         h(NButton, {
           size: "tiny", secondary: true, loading: aiBusy.value.has(r.id),
           disabled: aiBusy.value.has(r.id),
@@ -183,6 +209,22 @@ const cols: DataTableColumns<Change> = autoSort([
     </n-alert>
     <!-- eslint-disable-next-line vue/no-v-html -->
     <div class="fwai-body" v-html="renderMarkdown(aiShow ? aiResults[aiShow]?.card ?? '' : '')" />
+    <template #footer>
+      <div class="fwai-foot">
+        <span class="fwai-model">{{ t("fw_changes.ai_model") }}：{{
+          (aiShow ? aiResults[aiShow]?.model : "") || "—" }}</span>
+        <n-space :size="8">
+          <n-button size="small" secondary @click="downloadAi('md')">
+            <template #icon><n-icon><DownloadIcon /></n-icon></template>
+            {{ t("fw_changes.ai_dl_md") }}
+          </n-button>
+          <n-button size="small" secondary @click="downloadAi('txt')">
+            <template #icon><n-icon><DownloadIcon /></n-icon></template>
+            {{ t("fw_changes.ai_dl_txt") }}
+          </n-button>
+        </n-space>
+      </div>
+    </template>
   </n-modal>
 </template>
 
@@ -192,4 +234,6 @@ const cols: DataTableColumns<Change> = autoSort([
   padding: 1px 5px; font-size: 12px; }
 .fwai-body :deep(p) { margin: 6px 0; }
 .fwai-body :deep(ul), .fwai-body :deep(ol) { margin: 4px 0; padding-left: 20px; }
+.fwai-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fwai-model { font-size: 12px; opacity: .65; }
 </style>

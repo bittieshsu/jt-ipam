@@ -16,6 +16,7 @@ test("fw-rule-changes AI 解讀流程", async ({ page }) => {
       body: JSON.stringify({
         card: "**1. 這次異動做了什麼**\n\n新增規則允許 `8443` 連往 **內部主機**。\n\n- 風險等級：低",
         disclaimer: "此為語言模型推測",
+        model: "gemma4:26b",
       }),
     });
   });
@@ -28,6 +29,12 @@ test("fw-rule-changes AI 解讀流程", async ({ page }) => {
 
   await page.goto(BASE + "/fw-rule-changes");
   await expect(page.getByText("router-e2e").first()).toBeVisible({ timeout: 15000 });
+
+  // 欄位標題是「操作」，不得與按鈕同名（認可／AI 解讀 各出現兩次會像貼錯）
+  const thead = page.locator("thead").first();
+  await expect(thead).toContainText("操作");
+  expect(await thead.innerText()).not.toContain("認可");
+  expect(await thead.innerText()).not.toContain("AI 解讀");
 
   // 非 baseline 那列要有帶 icon 的認可與 AI 解讀按鈕
   const ackBtn = page.getByRole("button", { name: "認可" }).first();
@@ -54,4 +61,24 @@ test("fw-rule-changes AI 解讀流程", async ({ page }) => {
   expect(await modal.locator(".fwai-body code").count()).toBeGreaterThan(0);
   const bodyText = await modal.locator(".fwai-body").innerText();
   expect(bodyText).not.toContain("**");
+
+  // 模型標示與下載報告（.md 保留 markdown；.txt 純文字無 ** 標記）
+  await expect(modal.getByText(/模型：gemma4:26b/)).toBeVisible();
+  const [dlMd] = await Promise.all([
+    page.waitForEvent("download"),
+    modal.getByRole("button", { name: "下載 .md" }).click(),
+  ]);
+  expect(dlMd.suggestedFilename()).toMatch(/^fw-change-ai-.*\.md$/);
+  const fs = await import("node:fs/promises");
+  const mdText = await fs.readFile((await dlMd.path())!, "utf-8");
+  expect(mdText).toContain("**內部主機**");
+  expect(mdText).toContain("gemma4:26b");
+  const [dlTxt] = await Promise.all([
+    page.waitForEvent("download"),
+    modal.getByRole("button", { name: "下載 .txt" }).click(),
+  ]);
+  expect(dlTxt.suggestedFilename()).toMatch(/\.txt$/);
+  const txtText = await fs.readFile((await dlTxt.path())!, "utf-8");
+  expect(txtText).toContain("內部主機");
+  expect(txtText).not.toContain("**");
 });

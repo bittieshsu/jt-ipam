@@ -310,5 +310,8 @@ async def analyze_change(session: AsyncSession, user: Any, snap: Any) -> dict[st
 
     card = await raw_chat(session, prompt, timeout=120.0,
                           max_output_tokens=900, no_thinking=True)
-    return {"id": str(snap.id), "card": card.strip(),
+    # 解讀出自哪個模型是判讀品質的一部分（不同模型可信度不同），跟著結果一起回
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    return {"id": str(snap.id), "card": card.strip(), "model": cfg.chat_model,
             "disclaimer": "此為語言模型依異動內容與 IPAM 證據所做的推測，請對照原始資料後再行動。"}
