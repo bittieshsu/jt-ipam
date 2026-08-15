@@ -2,11 +2,13 @@ export interface TraceHopEvent {
   type: "hop" | "done" | "error";
   hop?: number;
   host?: string | null;
+  fqdn?: string | null;
   rtt_ms?: number | null;
   note?: string | null;
   tool?: string;
   path_mtu?: number | null;
   truncated?: boolean;
+  reached?: boolean;
   detail?: string;
 }
 

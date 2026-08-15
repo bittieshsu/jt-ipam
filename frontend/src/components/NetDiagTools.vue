@@ -55,9 +55,14 @@
             <span class="nd-lbl">{{ t("netdiag.max_hops") }}
               <n-input-number v-model:value="trace.maxHops" :min="1" :max="30" size="small" style="width:92px" />
             </span>
-            <n-button type="primary" :loading="trace.busy"
+            <!-- 執行中變成「取消」：長作業不能只有轉圈，要給使用者反悔的路。
+                 loading 轉圈拿掉——轉圈中的按鈕看起來不可按，跟「可以按取消」矛盾。 -->
+            <n-button :type="trace.busy ? 'warning' : 'primary'"
                       :disabled="caps ? !(caps.tracepath || caps.traceroute) : false" @click="runTrace">
-              <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("netdiag.run") }}
+              <template #icon>
+                <n-icon><CancelIcon v-if="trace.busy" /><SearchIcon v-else /></n-icon>
+              </template>
+              {{ trace.busy ? t("common.cancel") : t("netdiag.run") }}
             </n-button>
             <!-- 路徑追蹤要跑數十秒（沒有回應的躍點必須等滿逾時才知道它不會回）。
                  不顯示已等待時間的話，畫面只有轉圈，看起來像當掉。 -->
@@ -70,6 +75,8 @@
           <div v-if="trace.res?.tool" class="nd-sum">
             {{ t("netdiag.trace_tool", { tool: trace.res.tool }) }}
             <template v-if="trace.res.path_mtu"> · {{ t("netdiag.path_mtu", { n: trace.res.path_mtu }) }}</template>
+            <n-tag v-if="trace.res.reached === false && !trace.busy" size="small" type="warning" :bordered="false"
+                   style="margin-left:6px" :title="t('netdiag.not_reached_tip')">{{ t("netdiag.not_reached") }}</n-tag>
             <n-tag v-if="trace.res.truncated" size="small" type="warning" :bordered="false"
                    style="margin-left:8px">{{ t("netdiag.truncated") }}</n-tag>
           </div>
@@ -249,7 +256,7 @@ import {
   NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NModal,
   NIcon, NTooltip, NInput, NInputNumber, NSpace, NTag, useMessage,
 } from "naive-ui";
-import { DnsIcon, InfoIcon, LinkIcon, LockIcon, NetDiagIcon as LiveIcon, SearchIcon, TopologyIcon } from "@/icons";
+import { DnsIcon, InfoIcon, LinkIcon, LockIcon, NetDiagIcon as LiveIcon, SearchIcon, TopologyIcon, CancelIcon } from "@/icons";
 import { MAX_PORTS, parsePorts } from "@/utils/ports";
 import CardTitle from "@/components/CardTitle.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
@@ -265,8 +272,8 @@ interface PingRow {
   loss_pct: number | null; rtt_avg_ms: number | null; error: string | null;
   error_code?: string | null;
 }
-interface Hop { hop: number; host: string | null; rtt_ms: number | null; note: string | null }
-interface TraceRes { target: string; tool: string; path_mtu: number | null; truncated: boolean; hops: Hop[] }
+interface Hop { hop: number; host: string | null; fqdn?: string | null; rtt_ms: number | null; note: string | null }
+interface TraceRes { target: string; tool: string; path_mtu: number | null; truncated: boolean; reached?: boolean; hops: Hop[] }
 interface TcpRow { target: string; port: number; open: boolean; latency_ms: number | null; error: string | null }
 interface TlsRow {
   target: string; port: number; ok: boolean; subject: string | null; issuer: string | null;
@@ -340,7 +347,12 @@ const pingCols = computed(() => [
 const hopCols = computed(() => [
   { title: "#", key: "hop", width: 60 },
   { title: t("netdiag.hop_host"), key: "host",
-    render: (h2: Hop) => h2.host || h("span", { style: "opacity:.5" }, t("netdiag.no_reply")) },
+    // 有反查到名稱就一起顯示（fqdn ＋ 淡色 IP）—— 跟終端機 traceroute 的閱讀體驗一致
+    render: (h2: Hop) => h2.host
+      ? (h2.fqdn
+          ? h("span", null, [h2.fqdn, h("span", { style: "opacity:.55;margin-left:6px" }, `(${h2.host})`)])
+          : h2.host)
+      : h("span", { style: "opacity:.5" }, t("netdiag.no_reply")) },
   { title: t("netdiag.rtt"), key: "rtt_ms", width: 120,
     render: (h2: Hop) => (h2.rtt_ms === null ? "—" : `${h2.rtt_ms} ms`) },
   { title: t("netdiag.note"), key: "note", render: (h2: Hop) => h2.note || "" },
@@ -472,32 +484,47 @@ async function runPing() {
 }
 
 let traceTimer: ReturnType<typeof setInterval> | null = null;
+// 取消用：長作業（15 跳可能 30～60 秒）跑著的時候，按鈕要能取消而不是只能等。
+// abort 會讓 fetch 中斷 → 後端 StreamingResponse 收到斷線，netdiag 的 finally 會 kill 子行程。
+let traceAbort: AbortController | null = null;
+
+function cancelTrace() {
+  traceAbort?.abort();
+}
 
 async function runTrace() {
+  if (trace.busy) { cancelTrace(); return; }
   if (!trace.target.trim()) { msg.error(t("netdiag.need_target")); return; }
   trace.busy = true;
   trace.elapsed = 0;
   // 邊跑邊長：先給一個空殼，每收到一跳就 push 一列進去
   trace.res = { target: trace.target, tool: "", path_mtu: null, truncated: false, hops: [] };
   traceTimer = setInterval(() => { trace.elapsed += 1; }, 1000);
+  traceAbort = new AbortController();
   try {
     await traceStream(trace.target, trace.maxHops, (ev) => {
       if (ev.type === "hop") {
         trace.res!.hops.push({
-          hop: ev.hop!, host: ev.host ?? null,
+          hop: ev.hop!, host: ev.host ?? null, fqdn: ev.fqdn ?? null,
           rtt_ms: ev.rtt_ms ?? null, note: ev.note ?? null,
         });
       } else if (ev.type === "done") {
         trace.res!.tool = ev.tool ?? "";
         trace.res!.path_mtu = ev.path_mtu ?? null;
         trace.res!.truncated = !!ev.truncated;
+        trace.res!.reached = ev.reached;
       } else if (ev.type === "error") {
         msg.error(ev.detail ?? t("errors.server"));
       }
-    });
-  } catch (e) { msg.error(apiErrMsg(e)); }
+    }, traceAbort.signal);
+  } catch (e: any) {
+    // 使用者自己按的取消不是錯誤，跳紅色訊息只會讓人以為壞了
+    if (e?.name === "AbortError") msg.info(t("netdiag.trace_cancelled"));
+    else msg.error(apiErrMsg(e));
+  }
   finally {
     trace.busy = false;
+    traceAbort = null;
     if (traceTimer) { clearInterval(traceTimer); traceTimer = null; }
   }
 }

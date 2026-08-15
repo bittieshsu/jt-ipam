@@ -1,4 +1,4 @@
-# jt-ipam v0.5.184
+# jt-ipam v0.5.185
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -13,7 +13,7 @@
 
 > 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Windows DHCP Server、Proxmox VE、VMware ESXi / vCenter、Wazuh 與本地 AI。
 >
-> 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：Apache-2.0｜English: [README.md](README.md)
+> 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：AGPL-3.0｜English: [README.md](README.md)
 
 ---
 
@@ -280,4 +280,4 @@ jt-ipam/
 
 ## 授權
 
-Apache-2.0｜商業支援請聯繫 Jason Tools。
+AGPL-3.0-or-later｜商業支援請聯繫 Jason Tools。

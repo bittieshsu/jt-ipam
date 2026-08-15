@@ -458,6 +458,7 @@ async def ping_many(
 class TraceHop:
     hop: int
     host: str | None = None
+    fqdn: str | None = None      # 反查得到的名稱（查不到＝None，不顯示）
     rtt_ms: float | None = None
     note: str | None = None
 
@@ -469,6 +470,7 @@ class TraceResult:
     hops: list[TraceHop] = field(default_factory=list)
     path_mtu: int | None = None
     truncated: bool = False      # 逾時被截斷：下面的躍點是已探到的部分，不是完整路徑
+    reached: bool = False        # 最後一跳是不是目的地本人 —— 不是的話要明講，不能默默停在半路
     raw: str = ""
 
 
@@ -533,15 +535,16 @@ async def traceroute(target: str, *, max_hops: int = 20, timeout: float = 0.0) -
     # 逾時要跟著躍點數走：對不回 port-unreachable 的目標（如 8.8.8.8），tracepath
     # 會一路探到最大躍點，每跳都要等。固定 45 秒配預設 20 跳＝開箱必定逾時。
     timeout = max(5.0, min(timeout if timeout > 0 else 6.0 + max_hops * 3.5, OVERALL_DEADLINE))
-    if shutil.which("tracepath"):
+    tr = _find_tool("traceroute")
+    if tr:
+        argv = [tr, "-I", "-n", "-q", "1", "-m", str(max_hops), "-w", "2", target]
+        parse = parse_traceroute
+    elif shutil.which("tracepath"):
         argv = ["tracepath", "-n", "-m", str(max_hops), target]
         parse = parse_tracepath
-    elif shutil.which("traceroute"):
-        argv = ["traceroute", "-n", "-m", str(max_hops), "-w", "2", target]
-        parse = parse_traceroute
     else:
         raise NetDiagUnavailable(
-            "伺服器上找不到 tracepath 或 traceroute（請安裝 iputils-tracepath）"
+            "伺服器上找不到 traceroute 或 tracepath（請安裝 traceroute）"
         )
     try:
         out, truncated = await _run_partial(argv, timeout)
@@ -607,6 +610,34 @@ class TracerouteIncremental:
         }
 
 
+def _find_tool(name: str) -> str | None:
+    """找執行檔：服務的 PATH 常常沒有 /usr/sbin（systemd 環境），traceroute 就住在那
+    —— shutil.which 找不到不代表沒裝。明確補查常見 sbin 路徑。"""
+    import os
+    found = shutil.which(name)
+    if found:
+        return found
+    for cand in (f"/usr/sbin/{name}", f"/sbin/{name}", f"/usr/local/sbin/{name}"):
+        if os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+async def rdns(ip: str, timeout: float = 0.8) -> str | None:
+    """反查 FQDN：查得到就附在節點旁（跟終端機 traceroute 的體驗一致）。
+
+    短逾時、失敗回 None —— 反查慢或沒有 PTR 不該拖慢整條追蹤，更不該報錯。
+    """
+    import socket
+    try:
+        loop = asyncio.get_running_loop()
+        name, _ = await asyncio.wait_for(
+            loop.getnameinfo((ip, 0), socket.NI_NAMEREQD), timeout=timeout)
+        return None if name == ip else name
+    except Exception:
+        return None
+
+
 def trace_argv(target: str, *, max_hops: int) -> list[str]:
     """組出路徑追蹤的指令。
 
@@ -614,13 +645,18 @@ def trace_argv(target: str, *, max_hops: int) -> list[str]:
     緩衝的，所有行會等到行程結束才一次湧出（實測 6.02 秒時全部到達）。加了它才會
     +0.02 / +3.02 / +6.03 逐行送達。沒有 stdbuf 的系統仍可執行，只是退回一次呈現。
     """
-    if shutil.which("tracepath"):
+    # 優先 `traceroute -I`（ICMP）：tracepath 用 UDP 高埠，路徑後段與許多目的地
+    # （例如 8.8.8.8 之前的骨幹）會把它濾掉 —— 實測同一條路 mac 的 traceroute
+    # 9 跳到站，tracepath 第 8 跳起全靜默、永遠「未到達」。ICMP echo 幾乎都放行。
+    # CAP_NET_RAW 已由 systemd AmbientCapabilities 授予且子行程繼承（LXC ping 同一套）。
+    tr = _find_tool("traceroute")
+    if tr:
+        argv = [tr, "-I", "-n", "-q", "1", "-m", str(max_hops), "-w", "2", target]
+    elif shutil.which("tracepath"):
         argv = ["tracepath", "-n", "-m", str(max_hops), target]
-    elif shutil.which("traceroute"):
-        argv = ["traceroute", "-n", "-m", str(max_hops), "-w", "2", target]
     else:
         raise NetDiagUnavailable(
-            "伺服器上找不到 tracepath 或 traceroute（請安裝 iputils-tracepath）"
+            "伺服器上找不到 traceroute 或 tracepath（請安裝 traceroute）"
         )
     return (["stdbuf", "-oL", *argv] if shutil.which("stdbuf") else argv)
 
@@ -636,7 +672,8 @@ async def traceroute_stream(
     max_hops = max(1, min(max_hops, MAX_HOPS))
     timeout = max(5.0, min(timeout if timeout > 0 else 6.0 + max_hops * 3.5, OVERALL_DEADLINE))
     argv = trace_argv(target, max_hops=max_hops)
-    tool = "tracepath" if "tracepath" in argv else "traceroute"
+    # argv 可能被 stdbuf -oL 前綴，判斷工具要掃整個 argv，不能只看第一個
+    tool = "traceroute" if any("traceroute" in a for a in argv[:3]) else "tracepath"
     parser: Any = (TracepathIncremental(target) if tool == "tracepath"
                    else TracerouteIncremental(target))
 
@@ -648,6 +685,7 @@ async def traceroute_stream(
         raise NetDiagError(f"無法執行：{exc}") from exc
 
     truncated = False
+    last_host: str | None = None
     deadline = time.monotonic() + timeout
     try:
         while True:
@@ -664,6 +702,10 @@ async def traceroute_stream(
                 break
             hop = parser.feed(raw.decode("utf-8", "replace").rstrip())
             if hop:
+                host = hop.get("host")
+                if host and hop.get("note") != "no reply":
+                    last_host = str(host)
+                    hop["fqdn"] = await rdns(last_host)
                 yield hop
     finally:
         # 逾時或用戶端中斷時一定要收掉子行程，否則 tracepath 會繼續跑到自己結束
@@ -672,8 +714,11 @@ async def traceroute_stream(
             with contextlib.suppress(ProcessLookupError):
                 await proc.wait()
 
+    # 有到目的地嗎？最後一個「有回應」的躍點得是目標本人 —— 沒到要明講，
+    # 默默停在半路看起來像結果，其實是半份結果。
+    reached = last_host == target
     yield {"type": "done", "tool": tool, "target": target,
-           "path_mtu": parser.path_mtu, "truncated": truncated}
+           "path_mtu": parser.path_mtu, "truncated": truncated, "reached": reached}
 
 
 @dataclass
@@ -736,7 +781,7 @@ def tool_availability() -> dict[str, Any]:
     return {
         "ping": bool(shutil.which("ping") or shutil.which("ping6")),
         "tracepath": bool(shutil.which("tracepath")),
-        "traceroute": bool(shutil.which("traceroute")),
+        "traceroute": bool(_find_tool("traceroute")),
         "tcp": True,   # 純 Python，永遠可用
     }
 

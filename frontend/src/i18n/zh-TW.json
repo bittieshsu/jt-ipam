@@ -946,7 +946,7 @@
     "title": "通知",
     "mark_all_read": "全部標為已讀",
     "empty": "沒有通知",
-    "view_all": "查看全部",
+    "view_all": "檢視全部",
     "history_title": "通知記錄"
   },
   "update": {
@@ -1711,7 +1711,7 @@
     "category": "類別",
     "filter_rule": "篩選規則關聯",
     "filter_rule_ph": "對應的防火牆規則名稱 / id",
-    "alias_goto": "點擊到防火牆頁查看此 alias",
+    "alias_goto": "點擊到防火牆頁檢視此 alias",
     "type_one_to_one": "1:1 NAT (雙向)",
     "type_many_to_one": "多對一 (PAT / 出網)",
     "type_port_forward": "Port forward (連接埠轉發)",
@@ -3107,12 +3107,15 @@
     "port_invalid": "看不懂而略過：{s}",
     "port_overflow": "超過單次上限 {n} 個埠，只測前面的",
     "trace_running": "已等待 {s} 秒…",
-    "trace_slow_hint": "沒有回應的躍點必須等滿逾時才能確定，因此 15 跳約需 30～60 秒；結果會一跳一列即時出現，不必等全部跑完。"
+    "trace_slow_hint": "沒有回應的躍點必須等滿逾時才能確定，因此 15 跳約需 30～60 秒；結果會一跳一列即時出現，不必等全部跑完。",
+    "trace_cancelled": "已取消路徑追蹤。",
+    "not_reached": "未到達目的地",
+    "not_reached_tip": "最後一個有回應的躍點不是目的地本人。tracepath 用 UDP 高埠探測，路徑後段常被過濾；伺服器安裝 traceroute 後會自動改用 ICMP（幾乎都放行）。"
   },
   "ai_audit": {
     "title": "AI 巡檢",
     "run_now": "立即執行",
-    "view_all": "查看全部",
+    "view_all": "檢視全部",
     "none": "目前沒有未處理的發現",
     "all_severity": "所有嚴重度",
     "st_open": "未處理",
@@ -3344,6 +3347,14 @@
     "col_status": "實際狀態",
     "col_descr": "說明",
     "all_sources": "全部防火牆",
-    "search_ph": "搜尋 IP／主機名稱／名稱…"
+    "search_ph": "搜尋 IP／主機名稱／名稱…",
+    "all_via": "全部類型",
+    "all_proto": "全部協定",
+    "all_status": "全部狀態",
+    "all_owner": "全部單位",
+    "paired": "配對",
+    "paired_tip": "同一個目標 IP 與連接埠同時有 NAT 轉發與放行規則——它們是一組（埠轉發常帶關聯放行規則）。",
+    "st_online": "上線",
+    "st_offline": "離線"
   }
 }

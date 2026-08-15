@@ -122,7 +122,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 通知過多時內部捲動，不讓彈窗長過畫面（標題與「查看全部」維持固定可見） */
+/* 通知過多時內部捲動，不讓彈窗長過畫面（標題與「檢視全部」維持固定可見） */
 .notif-scroll {
   max-height: min(60vh, 460px);
   overflow-y: auto;

@@ -356,8 +356,14 @@ ensure_runtime_deps() {
     local missing=()
     command -v ping >/dev/null 2>&1 || missing+=("iputils-ping")
     command -v tracepath >/dev/null 2>&1 || missing+=("iputils-tracepath")
+    # traceroute: preferred over tracepath for path tracing. tracepath probes with
+    # high UDP ports which are commonly filtered late in the path (a trace to
+    # 8.8.8.8 went silent after hop 7 and never "reached" it); traceroute -I uses
+    # ICMP echo, which almost always gets through. It lives in /usr/sbin.
+    { command -v traceroute >/dev/null 2>&1 || [ -x /usr/sbin/traceroute ]; } \
+        || missing+=("traceroute")
     if [ "${#missing[@]}" -eq 0 ]; then
-        log "Runtime dependencies present (ping, tracepath)"
+        log "Runtime dependencies present (ping, tracepath, traceroute)"
         return 0
     fi
     log "Installing runtime dependencies: ${missing[*]}"

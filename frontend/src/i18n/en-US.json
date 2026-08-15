@@ -3107,7 +3107,10 @@
     "port_invalid": "Skipped (not understood): {s}",
     "port_overflow": "Over the limit of {n} ports; only the first ones were checked",
     "trace_running": "running for {s}s…",
-    "trace_slow_hint": "A hop that does not answer can only be confirmed after its timeout, so 15 hops take roughly 30–60 seconds; rows appear one hop at a time as they arrive, so there is nothing to wait for."
+    "trace_slow_hint": "A hop that does not answer can only be confirmed after its timeout, so 15 hops take roughly 30–60 seconds; rows appear one hop at a time as they arrive, so there is nothing to wait for.",
+    "trace_cancelled": "Trace cancelled.",
+    "not_reached": "destination not reached",
+    "not_reached_tip": "The last responding hop is not the destination itself. tracepath probes with high UDP ports, which are often filtered late in the path; once traceroute is installed the server switches to ICMP, which almost always gets through."
   },
   "ai_audit": {
     "title": "AI review",
@@ -3344,6 +3347,14 @@
     "col_status": "Live status",
     "col_descr": "Description",
     "all_sources": "All firewalls",
-    "search_ph": "Search IP / hostname / name…"
+    "search_ph": "Search IP / hostname / name…",
+    "all_via": "All types",
+    "all_proto": "All protocols",
+    "all_status": "All statuses",
+    "all_owner": "All customers",
+    "paired": "paired",
+    "paired_tip": "The same target IP and port has both a NAT forward and a permit rule — they belong together (port forwards usually carry an associated rule).",
+    "st_online": "online",
+    "st_offline": "offline"
   }
 }

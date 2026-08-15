@@ -5,7 +5,7 @@ description = "jt-ipam — 新世代 IPAM 系統後端"
 authors = [
     {name = "Jason Tools Co., Ltd.", email = "support@example.com"},
 ]
-license = {text = "Apache-2.0"}
+license = {text = "AGPL-3.0-or-later"}
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 

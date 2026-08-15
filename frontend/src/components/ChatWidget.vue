@@ -547,6 +547,8 @@ async function removeConversation(id: string) {
   --n-color-hover: rgba(24, 160, 88, 0.12);
 }
 .chat-seg :deep(.seg-btn .n-button__content) { align-items: center; line-height: 1; }
+.chat-seg :deep(.seg-btn .n-button__icon) { display: flex; align-items: center; justify-content: center; line-height: 1; }
+.chat-seg :deep(.seg-btn .n-icon) { display: flex; }
 .chat-seg :deep(.seg-btn + .seg-btn) {
   border-left: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.28));
 }
@@ -555,6 +557,9 @@ async function removeConversation(id: string) {
    分段外框 + 分隔線仍讓它明顯是一組可按的按鈕。 */
 @container (max-width: 520px) {
   .chat-act-label { display: none; }
+  /* 只剩 icon 時：n-button 仍為 icon 預留與文字的間距（icon margin），
+     icon 就會偏左；行高再把它壓低半格。歸零間距並強制置中。 */
+  .chat-seg :deep(.seg-btn .n-button__icon) { margin: 0; }
   .chat-seg :deep(.seg-btn) { padding: 0 9px; }
 }
 .chat-input-row {

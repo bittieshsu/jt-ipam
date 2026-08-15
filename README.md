@@ -1,4 +1,4 @@
-# jt-ipam v0.5.184
+# jt-ipam v0.5.185
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -13,7 +13,7 @@
 
 > A self-hosted, integration-focused IPAM, independently developed with an operation flow familiar to phpIPAM users, deeply integrated with multiple DNS servers, LibreNMS, OPNsense, pfSense, FortiGate, Windows DHCP Server, Proxmox VE, VMware ESXi / vCenter, Wazuh, and a local LLM.
 >
-> By Jason Tools Co., Ltd. · License: Apache-2.0 · 繁體中文: [README_zh-TW.md](README_zh-TW.md)
+> By Jason Tools Co., Ltd. · License: AGPL-3.0 · 繁體中文: [README_zh-TW.md](README_zh-TW.md)
 
 ---
 
@@ -286,4 +286,4 @@ jt-ipam/
 
 ## License
 
-Apache-2.0. Commercial support: contact Jason Tools.
+AGPL-3.0-or-later. Commercial support: contact Jason Tools.

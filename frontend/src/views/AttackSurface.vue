@@ -49,19 +49,51 @@ async function load() {
 }
 onMounted(load);
 
-// 來源篩選：清單由資料動態產生（有 manual 或未來新增廠牌時不必改這裡）
+// 篩選：選項一律由資料動態產生（新增廠牌／協定／單位都不必改程式）。
+// 各下拉與搜尋框是「且」的關係，疊加過濾。
 const sourceFilter = ref<string | null>(null);
-const sourceOptions = computed(() => {
-  const seen = [...new Set(items.value.map((i) => i.source))].sort();
-  return [{ label: t("surface.all_sources"), value: "__all__" },
-          ...seen.map((s) => ({ label: s, value: s }))];
-});
-// 隨打即找：資料已全在前端，逐字過濾 IP／主機名稱／名稱／說明／埠
+const viaFilter = ref<string | null>(null);
+const protoFilter = ref<string | null>(null);
+const statusFilter = ref<string | null>(null);
+const ownerFilter = ref<string | null>(null);
 const searchText = ref("");
+
+function opts(values: (string | null | undefined)[], allLabel: string) {
+  const seen = [...new Set(values.filter((v): v is string => !!v))].sort();
+  return [{ label: allLabel, value: "__all__" },
+          ...seen.map((v) => ({ label: v, value: v }))];
+}
+const sourceOptions = computed(() => opts(items.value.map((i) => i.source), t("surface.all_sources")));
+const viaOptions = computed(() => [
+  { label: t("surface.all_via"), value: "__all__" },
+  { label: "NAT", value: "nat" }, { label: t("surface.rule"), value: "rule" },
+]);
+const protoOptions = computed(() => opts(items.value.map((i) => i.protocol), t("surface.all_proto")));
+const statusOptions = computed(() => opts(items.value.map((i) => i.identity.status), t("surface.all_status")));
+const ownerOptions = computed(() => opts(items.value.map((i) => i.identity.customer), t("surface.all_owner")));
+
+// NAT ↔ 規則配對：pfSense/OPNsense 的埠轉發常帶一條關聯放行規則。
+// 同目標 IP＋同埠同時存在 NAT 列與規則列 → 兩列都標「配對」，一眼看出它們是一組。
+// 純資料比對，不猜語意；對不上的（例如規則沒寫埠）就不標。
+const pairedKeys = computed(() => {
+  const nat = new Set<string>(), rule = new Set<string>();
+  for (const i of items.value) {
+    const key = `${i.identity.ip ?? "?"}:${i.port ?? ""}`;
+    (i.via === "nat" ? nat : rule).add(key);
+  }
+  return new Set([...nat].filter((k) => rule.has(k)));
+});
+const isPaired = (r: Entry) => pairedKeys.value.has(`${r.identity.ip ?? "?"}:${r.port ?? ""}`);
+
+const pick = (f: string | null, v: string | null | undefined) =>
+  !f || f === "__all__" || (v ?? "") === f;
 const shown = computed(() => {
-  let out = (!sourceFilter.value || sourceFilter.value === "__all__")
-    ? items.value
-    : items.value.filter((i) => i.source === sourceFilter.value);
+  let out = items.value.filter((i) =>
+    pick(sourceFilter.value, i.source)
+    && pick(viaFilter.value, i.via)
+    && pick(protoFilter.value, i.protocol)
+    && pick(statusFilter.value, i.identity.status)
+    && pick(ownerFilter.value, i.identity.customer));
   const q = searchText.value.trim().toLowerCase();
   if (q) {
     out = out.filter((i) =>
@@ -90,8 +122,13 @@ const allCols: Record<string, any> = {
     render: (r: Entry) => r.port ?? "—" },
   hostname: { title: () => t("surface.col_hostname"), key: "hostname", width: 160,
     render: (r: Entry) => r.identity.hostname || "—" },
-  via: { title: () => t("surface.col_via"), key: "via", width: 90,
-    render: (r: Entry) => r.via === "nat" ? "NAT" : t("surface.rule") },
+  via: { title: () => t("surface.col_via"), key: "via", width: 130,
+    render: (r: Entry) => h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
+      r.via === "nat" ? "NAT" : t("surface.rule"),
+      isPaired(r) ? h(NTag, { size: "tiny", type: "info", bordered: false,
+                              title: t("surface.paired_tip") },
+                      { default: () => t("surface.paired") }) : null,
+    ]) },
   name: { title: () => t("surface.col_name"), key: "name", width: 220,
     ellipsis: { tooltip: true }, render: (r: Entry) => r.name || "—" },
   firewall: { title: () => t("surface.col_firewall"), key: "firewall", width: 180,
@@ -108,8 +145,18 @@ const allCols: Record<string, any> = {
           ? h(NTag, { size: "tiny", type: "success" }, { default: () => r.identity.wazuh })
           : h("span", { style: "opacity:.6" }, t("surface.no_agent")))
       : "—" },
-  status: { title: () => t("surface.col_status"), key: "status", width: 120,
-    render: (r: Entry) => r.identity.status || "—" },
+  status: { title: () => t("surface.col_status"), key: "status", width: 130,
+    render: (r: Entry) => {
+      const raw = r.identity.status;
+      if (!raw) return "—";
+      const online = raw.toLowerCase().startsWith("online");
+      const src = (raw.match(/\(([^)]+)\)/)?.[1]) ?? "";
+      return h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
+        h("i", { style: `width:8px;height:8px;border-radius:50%;flex:none;background:${online ? "#22c55e" : "#ef4444"}` }),
+        online ? t("surface.st_online") : t("surface.st_offline"),
+        src ? h("span", { style: "opacity:.55;font-size:11.5px" }, src) : null,
+      ]);
+    } },
   descr: { title: () => t("surface.col_descr"), key: "descr", ellipsis: { tooltip: true } },
 };
 const cols = computed<DataTableColumns<Entry>>(
@@ -134,8 +181,16 @@ const cols = computed<DataTableColumns<Entry>>(
         <template #prefix><n-icon><SearchIcon /></n-icon></template>
       </n-input>
       <n-select v-model:value="sourceFilter" :options="sourceOptions"
-                style="width: 160px"
+                style="width: 150px"
                 :placeholder="t('surface.all_sources')" clearable />
+      <n-select v-model:value="viaFilter" :options="viaOptions" style="width: 120px"
+                :placeholder="t('surface.all_via')" clearable />
+      <n-select v-model:value="protoFilter" :options="protoOptions" style="width: 120px"
+                :placeholder="t('surface.all_proto')" clearable />
+      <n-select v-model:value="statusFilter" :options="statusOptions" style="width: 140px"
+                :placeholder="t('surface.all_status')" clearable />
+      <n-select v-model:value="ownerFilter" :options="ownerOptions" style="width: 170px"
+                :placeholder="t('surface.all_owner')" clearable />
       <ColumnPicker :all="pickerCols" :visible="visibleKeys"
                     @update:visible="setVisible" @reset="reset" />
       <n-button size="small" :loading="loading" @click="load">

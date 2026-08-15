@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.185] — 2026-08-15
+
+### License change
+- **Relicensed from Apache-2.0 to AGPL-3.0-or-later as of this release.** The AGPL's network copyleft means anyone offering a modified jt-ipam as a service must publish their source — closed-source derivatives are no longer possible. Releases up to and including v0.5.184 remain available under their original Apache-2.0 terms.
+
+### Added
+- **Path trace, three hands-on fixes**: (1) it now prefers `traceroute -I` (ICMP) — tracepath probes with high UDP ports that are commonly filtered late in the path, so the same route a terminal reached in 9 hops went silent after hop 7 for us and never "arrived"; ICMP almost always gets through (10 hops to destination in testing). The install/upgrade script now installs the traceroute package. (2) Each hop shows its **reverse-DNS name** alongside the IP (matching the terminal traceroute experience; a short timeout keeps unresolvable hops from slowing the trace). (3) The result **states whether the destination was reached** — an unreached trace gets a labelled tag with an explanation instead of silently stopping mid-path and looking finished.
+- **The trace button becomes "Cancel" while running**: a 30–60-second job cannot offer only a spinner; cancelling aborts the stream and the backend kills the probe process immediately. A user's own cancel shows as info, not a red error.
+- **Four more dropdowns on the exposed-services list**: type (NAT/rule), protocol, status and customer — options derived from the data, stacking with the firewall filter and the search box.
+- **NAT ↔ rule pairing**: when the same target IP and port has both a NAT forward and a permit rule, both rows carry a "paired" tag (port forwards usually travel with an associated rule) — pure data matching, nothing guessed.
+
+### Changed
+- The live-status column no longer prints raw strings like `online (librenms)` — a green/red dot with a localized label and a small source note instead.
+- The AI chat's three header icons are now properly centred (the icon slot kept its text gap when labels were hidden, nudging icons low-left).
+- zh-TW wording: 查看 → 檢視.
+
 ## [0.5.184] — 2026-08-15
 
 ### Changed
