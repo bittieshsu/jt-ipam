@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, text
+from sqlalchemy import DateTime, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,3 +31,7 @@ class FwRuleSnapshot(Base):
     # none_as_null：Python None 要存成 SQL NULL，不是 JSON null —— 否則
     # 「diff IS NULL＝baseline」在 SQL 層永遠不成立（prod 實資料抓到的）
     diff: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)  # type: ignore[type-arg]
+    # 認領（0119）：誰確認了這筆變更＋說明。沒被認領的異動＝稽核上「無人說明的變更」
+    ack_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    ack_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ack_note: Mapped[str | None] = mapped_column(Text, nullable=True)

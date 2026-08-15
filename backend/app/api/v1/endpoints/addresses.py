@@ -21,7 +21,7 @@ from pydantic import Field
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser
+from app.api.v1.dependencies import CurrentUser, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.models.address import IPAddress
@@ -341,6 +341,26 @@ async def _effective_probes_for(session: AsyncSession, obj: IPAddress) -> list[s
         if ag is not None:
             agent_enabled = list(ag.enabled_probes or [])
     return effective_probes(list(sub.scan_method or []), list(obj.excluded_probes or []), agent_enabled)
+
+
+@router.get("/{address_id}/firewall", dependencies=[Depends(require_global_read)])
+async def get_address_firewall(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """這個 IP 被哪些防火牆規則／NAT／別名管到（反向查詢）。
+
+    權限雙閘：IP 本身要可讀（物件級），且防火牆規則屬**全域基礎設施資料**，
+    依 RBAC 分類需 require_global_read —— 部門帳號看得到自己的 IP，
+    但規則內容不屬於它的可見範圍。
+    """
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "read")
+    from app.services.fw_lookup import rules_touching_ip
+    return await rules_touching_ip(session, str(obj.ip))
 
 
 @router.get("/{address_id}", response_model=IPAddressRead)

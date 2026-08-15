@@ -1129,7 +1129,10 @@
     "dhcp_reserved_mac": "Bound to MAC",
     "state": "State",
     "role_auto_added": "Auto-recorded (unregistered)",
-    "role_auto_added_hint": "This address was created automatically by {src}; nobody registered it by hand. Check that the device is meant to be there — once it is recorded, it no longer shows up in unauthorised-IP detection."
+    "role_auto_added_hint": "This address was created automatically by {src}; nobody registered it by hand. Check that the device is meant to be there — once it is recorded, it no longer shows up in unauthorised-IP detection.",
+    "fw_title": "Firewall rules ({n} explicitly covering this IP)",
+    "fw_aliases": "Member of aliases",
+    "fw_any_note": "Rules with any as source or destination also apply; they are not listed."
   },
   "subnets": {
     "title": "Subnets",
@@ -3302,6 +3305,11 @@
     "empty": "No rule changes recorded yet.",
     "ai": "AI analysis",
     "ai_btn": "AI analysis",
-    "ai_title": "AI analysis (with system-wide evidence)"
+    "ai_title": "AI analysis (with system-wide evidence)",
+    "ack_col": "Acknowledge",
+    "ack_btn": "Acknowledge",
+    "acked": "Acknowledged",
+    "ack_title": "Acknowledge this change",
+    "ack_ph": "Note (e.g. opened 443 per ticket #123)"
   }
 }

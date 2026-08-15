@@ -878,4 +878,47 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
                               "interface": iface, "port": dport,
                               "descr": (r.get("descr") or "")[:120],
                               "detail": "WAN 介面對任意來源開放管理埠"})
+    # (4) 別名腐化：別名成員落在「本 IPAM 管理且有開異常偵測」的網段內、卻沒有
+    #     IP 紀錄 —— 規則看起來沒變，但別名內容已經指向不明位址。
+    #     只看管理範圍內的成員：別名裡放外部位址（放行遠端端點、封鎖清單）是常態，
+    #     不設這個門檻會把每個外部 IP 都誤報成腐化。
+    from app.models.firewall import OPNsenseSyncedAlias
+    from app.models.pfsense import PfSenseSyncedAlias
+
+    nets = await _anomaly_networks(session)
+    if nets:
+        ipam_ips = {str(r[0]).split("/")[0] for r in
+                    (await session.execute(select(IPAddress.ip))).all()}
+
+        def _stale_members(members: list | None) -> list[str]:
+            out = []
+            for m in (members or [])[:500]:
+                text = str(m).strip()
+                if "/" in text:
+                    continue          # 網段成員不判定（涵蓋範圍太廣，逐一比對必誤報）
+                try:
+                    addr = ipaddress.ip_address(text)
+                except ValueError:
+                    continue
+                if text in ipam_ips:
+                    continue
+                if any(addr in n for n in nets):
+                    out.append(text)
+            return out[:10]
+
+        for alias in (await session.execute(
+                select(OPNsenseSyncedAlias).where(OPNsenseSyncedAlias.enabled.is_(True))
+        )).scalars().all():
+            stale = _stale_members(alias.content)
+            if stale:
+                items.append({"kind": "alias_rot", "name": alias.name, "source": "opnsense",
+                              "descr": (alias.description or "")[:120],
+                              "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄"})
+        for alias in (await session.execute(select(PfSenseSyncedAlias))).scalars().all():
+            stale = _stale_members(alias.members)
+            if stale:
+                items.append({"kind": "alias_rot", "name": alias.name, "source": "pfsense",
+                              "descr": (alias.descr or "")[:120],
+                              "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄"})
+
     return items[:200]

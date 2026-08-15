@@ -7,7 +7,7 @@
  */
 import { onMounted, ref, h } from "vue";
 import {
-  NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NModal,
+  NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NModal, NInput,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
@@ -23,6 +23,7 @@ interface Change {
   id: string; source_type: string; instance_name: string; taken_at: string;
   rule_count: number; is_baseline: boolean;
   diff: { added: any[]; removed: any[]; changed: any[] } | null;
+  ack: { at: string; note: string } | null;
 }
 const items = ref<Change[]>([]);
 const loading = ref(false);
@@ -76,6 +77,22 @@ async function analyze(row: Change) {
   finally { aiBusy.value = null; }
 }
 
+/** 認領：把異動標記為「已知變更＋說明」。沒被認領的異動＝稽核上無人說明的變更。 */
+const ackTarget = ref<Change | null>(null);
+const ackNote = ref("");
+const ackBusy = ref(false);
+async function submitAck() {
+  if (!ackTarget.value) return;
+  ackBusy.value = true;
+  try {
+    await apiClient.post(`/api/v1/anomalies/fw-rule-changes/${ackTarget.value.id}/ack`,
+                         { note: ackNote.value.trim() });
+    ackTarget.value = null; ackNote.value = "";
+    await load();
+  } catch (e: any) { msg.error(apiErrMsg(e)); }
+  finally { ackBusy.value = false; }
+}
+
 const cols: DataTableColumns<Change> = autoSort([
   { title: t("fw_changes.when"), key: "taken_at", width: 170,
     render: (r) => fmtDateTime(r.taken_at) },
@@ -86,6 +103,13 @@ const cols: DataTableColumns<Change> = autoSort([
     ]) },
   { title: t("fw_changes.rules"), key: "rule_count", width: 90 },
   { title: t("fw_changes.diff"), key: "diff", render: (r) => renderDiff(r) },
+  { title: t("fw_changes.ack_col"), key: "_ack", width: 150,
+    render: (r) => r.is_baseline ? null : (r.ack
+      ? h("span", { style: "font-size:12px;opacity:.75" },
+          `✓ ${t("fw_changes.acked")}${r.ack.note ? "：" + r.ack.note.slice(0, 40) : ""}`)
+      : h(NButton, { size: "tiny", secondary: true,
+                     onClick: () => { ackTarget.value = r; ackNote.value = ""; } },
+          { default: () => t("fw_changes.ack_btn") })) },
   { title: t("fw_changes.ai"), key: "_ai", width: 110,
     render: (r) => r.is_baseline ? null : h(NButton, {
       size: "tiny", secondary: true, loading: aiBusy.value === r.id,
@@ -116,6 +140,22 @@ const cols: DataTableColumns<Change> = autoSort([
     <n-empty v-if="!loading && !items.length" style="margin: 24px 0"
              :description="t('fw_changes.empty')" />
   </n-card>
+
+  <!-- 認領：合規證據鏈（誰確認了這筆變更、為什麼） -->
+  <n-modal :show="!!ackTarget" preset="card" style="width: 460px; max-width: 92vw"
+           :title="t('fw_changes.ack_title')"
+           @update:show="(v: boolean) => { if (!v) ackTarget = null; }">
+    <n-input v-model:value="ackNote" type="textarea" :rows="3"
+             :placeholder="t('fw_changes.ack_ph')" />
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="ackTarget = null">{{ t("common.cancel") }}</n-button>
+        <n-button type="primary" :loading="ackBusy" @click="submitAck">
+          {{ t("common.confirm") }}
+        </n-button>
+      </n-space>
+    </template>
+  </n-modal>
 
   <!-- AI 解讀卡：模型輸出以純文字呈現（pre-wrap），不進 v-html -->
   <n-modal :show="!!aiResult" preset="card" style="width: 560px; max-width: 94vw"

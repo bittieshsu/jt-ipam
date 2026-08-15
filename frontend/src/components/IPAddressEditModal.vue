@@ -14,6 +14,8 @@ import {
   NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider,
   useMessage,
 } from "naive-ui";
+import { useAuthStore } from "@/stores/auth";
+import { apiClient } from "@/api/client";
 import type { IPAddress } from "@/types";
 import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
@@ -116,6 +118,20 @@ async function loadRelatedNat() {
     relatedNat.value = res.items as any;
   } catch { /* silent */ }
 }
+// 此 IP 被哪些防火牆規則／別名管到（反向查詢）。
+// 防火牆規則屬全域基礎設施資料：無 has_global_read 的帳號不打這支、也不顯示區塊。
+const fwInfo = ref<{ rules: any[]; nat: any[]; aliases: any[] } | null>(null);
+const auth = useAuthStore();
+async function loadFirewall() {
+  fwInfo.value = null;
+  if (!props.address?.id) return;
+  if (auth.me?.has_global_read === false) return;
+  try {
+    const { data } = await apiClient.get(`/api/v1/addresses/${props.address.id}/firewall`);
+    fwInfo.value = data;
+  } catch { /* silent — 沒有整合防火牆時就不顯示 */ }
+}
+
 function goNat() {
   emit("update:show", false);
   void router.push({ name: "nat" });
@@ -341,6 +357,7 @@ watch(
       void loadDhcpRanges();
       void loadRelations();
       void loadRelatedNat();
+      void loadFirewall();
     }
   },
   { immediate: true },
@@ -824,6 +841,27 @@ async function remove() {
         <div v-if="!editMode && relations.length > 1" style="margin-top: 14px">
           <div style="font-size: 12px; opacity: 0.6; margin-bottom: 6px">{{ t("relations.title") }}</div>
           <relation-chain :nodes="relations" :current-id="props.address?.id" />
+        </div>
+
+        <!-- 防火牆反查：這個 IP 被哪些規則／別名管到（any 規則不列，另以一句話註明） -->
+        <div v-if="!editMode && fwInfo && (fwInfo.rules.length || fwInfo.aliases.length)"
+             style="margin-top: 14px">
+          <div style="font-size: 12px; opacity: 0.6; margin-bottom: 6px">
+            {{ t("addresses.fw_title", { n: fwInfo.rules.length }) }}
+          </div>
+          <div v-for="(r, i) in fwInfo.rules.slice(0, 12)" :key="i"
+               style="font-size: 12.5px; line-height: 1.8">
+            <n-tag size="tiny" style="margin-right: 6px">{{ r.source_type }}</n-tag>
+            {{ r.firewall }}｜{{ r.action }} {{ r.src }} → {{ r.dst }}{{ r.dst_port ? ":" + r.dst_port : "" }}
+            <span style="opacity:.6">（{{ r.match }}{{ r.descr ? "；" + r.descr : "" }}）</span>
+          </div>
+          <div v-if="fwInfo.aliases.length" style="font-size: 12.5px; margin-top: 4px">
+            {{ t("addresses.fw_aliases") }}：
+            <n-tag v-for="a in fwInfo.aliases" :key="a.name" size="tiny" style="margin-right: 4px">
+              {{ a.name }}（{{ a.source_type }}）
+            </n-tag>
+          </div>
+          <div style="font-size: 11.5px; opacity: 0.55; margin-top: 4px">{{ t("addresses.fw_any_note") }}</div>
         </div>
 
         <!-- 關聯的 NAT 規則 -->

@@ -99,3 +99,70 @@ async def test_report_includes_new_category(db_session) -> None:
     d = r.to_dict()
     assert d["fw_rule_rot"] == [{"kind": "any_any"}]
     assert d["total"] >= 1, "新類別沒算進 total —— 儀表板數字會對不上"
+
+
+@pytest.mark.anyio
+async def test_alias_rot_ignores_external_members(db_session) -> None:
+    """別名腐化：只報「管理網段內、IPAM 卻沒有」的成員。
+
+    別名裡放外部位址（遠端端點、封鎖清單）是常態 —— 沒有這個門檻，
+    每個外部 IP 都會被誤報成腐化。
+    """
+    from app.models.firewall import OPNsenseFirewall, OPNsenseSyncedAlias
+    from app.models.section import Section
+    from app.models.subnet import Subnet
+
+    sec = Section(name=f"s-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    # 管理網段（有開異常偵測）
+    db_session.add(Subnet(section_id=sec.id, cidr="198.51.100.0/24", anomaly_enabled=True))
+    fw = OPNsenseFirewall(name=f"opn-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.1",
+                          api_key_enc=b"x", api_key_nonce=b"y",
+                          api_secret_enc=b"x", api_secret_nonce=b"y")
+    db_session.add(fw)
+    await db_session.flush()
+    db_session.add(OPNsenseSyncedAlias(
+        firewall_id=fw.id, name="web_servers", alias_type="host", enabled=True,
+        content=["198.51.100.50",     # 管理網段內、IPAM 沒有 → 該報
+                 "8.8.8.8",           # 外部位址 → 不報
+                 "203.0.113.0/24"],   # 網段成員 → 不判定
+        member_count=3))
+    await db_session.flush()
+
+    items = await detect_fw_rule_rot(db_session)
+    rot = [i for i in items if i["kind"] == "alias_rot" and i["name"] == "web_servers"]
+    assert len(rot) == 1
+    assert "198.51.100.50" in rot[0]["detail"]
+    assert "8.8.8.8" not in rot[0]["detail"], "外部位址被誤報成腐化"
+
+
+@pytest.mark.anyio
+async def test_ack_flow(client, auth_headers, db_session) -> None:
+    """認領：baseline 不可認領（422）；認領後歷史端點帶出狀態。"""
+    from app.services.fw_review import snapshot_if_changed
+
+    fid = uuid.uuid4()
+    base = {"key": "1", "action": "pass", "interface": "lan", "protocol": "tcp",
+            "src": "any", "src_port": "", "dst": "any", "dst_port": "",
+            "descr": "", "disabled": "0"}
+    await snapshot_if_changed(db_session, source_type="pfsense", instance_id=fid,
+                              instance_name="fw-ack", rules=[base])
+    await snapshot_if_changed(db_session, source_type="pfsense", instance_id=fid,
+                              instance_name="fw-ack",
+                              rules=[base, {**base, "key": "2", "dst_port": "443"}])
+    await db_session.commit()
+    from sqlalchemy import select as _sel
+    from app.models.fw_snapshot import FwRuleSnapshot
+    rows = (await db_session.execute(_sel(FwRuleSnapshot).where(
+        FwRuleSnapshot.instance_id == fid).order_by(FwRuleSnapshot.taken_at))).scalars().all()
+
+    r = await client.post(f"/api/v1/anomalies/fw-rule-changes/{rows[0].id}/ack",
+                          json={"note": "x"}, headers=auth_headers)
+    assert r.status_code == 422, "baseline 不需要認領"
+    r = await client.post(f"/api/v1/anomalies/fw-rule-changes/{rows[1].id}/ack",
+                          json={"note": "開放 443 是我做的，工單 #123"}, headers=auth_headers)
+    assert r.status_code == 200
+    r = await client.get("/api/v1/anomalies/fw-rule-changes", headers=auth_headers)
+    item = next(i for i in r.json()["items"] if i["id"] == str(rows[1].id))
+    assert item["ack"] and "工單 #123" in item["ack"]["note"]

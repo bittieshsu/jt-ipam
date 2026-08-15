@@ -81,6 +81,7 @@ async def triage(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
+        request_id=getattr(request.state, "request_id", None),
         object_type="anomaly", object_id=None, action="triage", diff={"ip": ip})
     return result
 
@@ -108,6 +109,9 @@ async def fw_rule_changes(
         "taken_at": r.taken_at.isoformat(), "rule_count": r.rule_count,
         "is_baseline": r.diff is None,
         "diff": r.diff,
+        "ack": None if r.ack_at is None else {
+            "at": r.ack_at.isoformat(), "note": r.ack_note or "",
+        },
     } for r in rows]}
 
 @router.post("/fw-rule-changes/{snapshot_id}/analyze", dependencies=[Depends(require_admin)])
@@ -140,7 +144,44 @@ async def fw_rule_change_analyze(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
+        request_id=getattr(request.state, "request_id", None),
         object_type="anomaly", object_id=None, action="fw_analyze",
         diff={"snapshot": str(snapshot_id)})
     return result
+
+@router.post("/fw-rule-changes/{snapshot_id}/ack", dependencies=[Depends(require_admin)])
+async def fw_rule_change_ack(
+    snapshot_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """認領一筆規則異動：這是已知變更＋說明（合規證據鏈）。
+
+    沒被認領的異動累積起來就是稽核報表：「本月 N 筆防火牆變更，M 筆無人說明」。
+    """
+    from datetime import UTC, datetime
+
+    from fastapi import HTTPException
+
+    from app.models.fw_snapshot import FwRuleSnapshot
+
+    snap = await session.get(FwRuleSnapshot, snapshot_id)
+    if snap is None:
+        raise HTTPException(404, detail="找不到這筆快照")
+    if snap.diff is None:
+        raise HTTPException(422, detail="初次快照是比對基準，不需要認領")
+    snap.ack_by = user.id
+    snap.ack_at = datetime.now(UTC)
+    snap.ack_note = str(payload.get("note") or "")[:500]
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        request_id=getattr(request.state, "request_id", None),
+        object_type="anomaly", object_id=None, action="fw_ack",
+        diff={"snapshot": str(snapshot_id), "note": snap.ack_note})
+    await session.commit()
+    return {"ok": True, "at": snap.ack_at.isoformat()}
 

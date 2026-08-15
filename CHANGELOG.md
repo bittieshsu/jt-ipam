@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.178] — 2026-08-15
+
+### Added (three applications of the synced firewall rules)
+- **A "Firewall" block on the IP detail view** — the reverse question: which rules explicitly cover this IP (exact address / covering network / alias membership, each with its match reason), which NAT entries point at it, which aliases contain it. `any` rules are deliberately not listed (every any-rule matches every IP; listing them is pure noise) — a footnote says they also apply. Dual-gated: the IP must be readable, and firewall rules are global-infrastructure data requiring global read.
+- **Alias-rot detection** (part of the firewall-rule-rot anomaly category): alias members that fall inside subnets this IPAM manages but have no IP record — the rule looks unchanged while the alias now points at an unknown address. External members are normal and never flagged.
+- **Acknowledgements for rule changes** (the compliance trail): an admin can mark each change as known, with a note (e.g. a ticket number). Unacknowledged changes accumulate into exactly what an audit asks for: "N firewall changes this month, M unexplained."
+
+### Fixed
+- Three new endpoints logged audits without `request_id` (two were latent in earlier versions; the tests forced them out).
+
 ## [0.5.177] — 2026-08-15
 
 ### Added
