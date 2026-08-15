@@ -3312,6 +3312,8 @@
     "empty": "No rule changes recorded yet.",
     "ai": "AI analysis",
     "ai_btn": "AI analysis",
+    "ai_done": "AI analysis finished — click View result",
+    "ai_view": "View result",
     "ai_title": "AI analysis (with system-wide evidence)",
     "ack_col": "Acknowledge",
     "ack_btn": "Acknowledge",

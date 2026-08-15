@@ -13,8 +13,9 @@ import {
 import { useI18n } from "vue-i18n";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { fmtDateTime } from "@/utils/datetime";
-import { FirewallIcon, RefreshIcon } from "@/icons";
+import { AiAuditIcon, EyeIcon, FirewallIcon, OkIcon, RefreshIcon, renderIcon } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
+import { renderMarkdown } from "@/utils/markdown";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -66,19 +67,23 @@ function renderDiff(row: Change) {
   return h("div", { style: "display:flex;flex-direction:column;gap:3px;padding:4px 0" }, rows);
 }
 
-/** AI 解讀：偵測是確定性的，解讀層按需觸發 —— 帶上目標位址的全系統整合證據。 */
-const aiBusy = ref<string | null>(null);
-const aiResult = ref<{ card: string; disclaimer: string } | null>(null);
+/** AI 解讀：偵測是確定性的，解讀層按需觸發 —— 帶上目標位址的全系統整合證據。
+ *  LLM 要跑幾十秒，所以按下去是**背景執行**：使用者可以繼續看表格、
+ *  同時解讀多筆；完成後該列長出「檢視結果」按鈕（結果留在頁面裡可重看）。 */
+const aiBusy = ref<Set<string>>(new Set());
+const aiResults = ref<Record<string, { card: string; disclaimer: string }>>({});
+const aiShow = ref<string | null>(null);
 async function analyze(row: Change) {
-  aiBusy.value = row.id;
+  aiBusy.value.add(row.id); aiBusy.value = new Set(aiBusy.value);
   try {
     const { data } = await apiClient.post(`/api/v1/anomalies/fw-rule-changes/${row.id}/analyze`);
-    aiResult.value = data;
+    aiResults.value = { ...aiResults.value, [row.id]: data };
+    msg.success(t("fw_changes.ai_done"));
   } catch (e: any) { msg.error(apiErrMsg(e)); }
-  finally { aiBusy.value = null; }
+  finally { aiBusy.value.delete(row.id); aiBusy.value = new Set(aiBusy.value); }
 }
 
-/** 認領：把異動標記為「已知變更＋說明」。沒被認領的異動＝稽核上無人說明的變更。 */
+/** 認可：把異動標記為「已知變更＋說明」。沒被認可的異動＝稽核上無人說明的變更。 */
 const ackTarget = ref<Change | null>(null);
 const ackNote = ref("");
 const ackBusy = ref(false);
@@ -110,12 +115,21 @@ const cols: DataTableColumns<Change> = autoSort([
           `✓ ${t("fw_changes.acked")}${r.ack.note ? "：" + r.ack.note.slice(0, 40) : ""}`)
       : h(NButton, { size: "tiny", secondary: true,
                      onClick: () => { ackTarget.value = r; ackNote.value = ""; } },
-          { default: () => t("fw_changes.ack_btn") })) },
-  { title: t("fw_changes.ai"), key: "_ai", width: 110,
-    render: (r) => r.is_baseline ? null : h(NButton, {
-      size: "tiny", secondary: true, loading: aiBusy.value === r.id,
-      onClick: () => analyze(r),
-    }, { default: () => t("fw_changes.ai_btn") }) },
+          { icon: renderIcon(OkIcon, 15), default: () => t("fw_changes.ack_btn") })) },
+  { title: t("fw_changes.ai"), key: "_ai", width: 200,
+    render: (r) => r.is_baseline ? null : h("span",
+      { style: "display:inline-flex;align-items:center;gap:6px" }, [
+        h(NButton, {
+          size: "tiny", secondary: true, loading: aiBusy.value.has(r.id),
+          disabled: aiBusy.value.has(r.id),
+          onClick: () => analyze(r),
+        }, { icon: renderIcon(AiAuditIcon, 15), default: () => t("fw_changes.ai_btn") }),
+        aiResults.value[r.id]
+          ? h(NButton, { size: "tiny", type: "primary", secondary: true,
+                         onClick: () => { aiShow.value = r.id; } },
+              { icon: renderIcon(EyeIcon, 15), default: () => t("fw_changes.ai_view") })
+          : null,
+      ]) },
 ]);
 </script>
 
@@ -143,7 +157,7 @@ const cols: DataTableColumns<Change> = autoSort([
              :description="t('fw_changes.empty')" />
   </n-card>
 
-  <!-- 認領：合規證據鏈（誰確認了這筆變更、為什麼） -->
+  <!-- 認可：合規證據鏈（誰確認了這筆變更、為什麼） -->
   <n-modal :show="!!ackTarget" preset="card" style="width: 460px; max-width: 92vw"
            :title="t('fw_changes.ack_title')"
            @update:show="(v: boolean) => { if (!v) ackTarget = null; }">
@@ -159,13 +173,23 @@ const cols: DataTableColumns<Change> = autoSort([
     </template>
   </n-modal>
 
-  <!-- AI 解讀卡：模型輸出以純文字呈現（pre-wrap），不進 v-html -->
-  <n-modal :show="!!aiResult" preset="card" style="width: 560px; max-width: 94vw"
+  <!-- AI 解讀卡：走全站共用的零相依 markdown 渲染器（先跳脫再產標籤，無注入面）——
+       原本 pre-wrap 純文字會把 **粗體** 的星號原樣露出（使用者截圖） -->
+  <n-modal :show="!!aiShow" preset="card" style="width: 560px; max-width: 94vw"
            :title="t('fw_changes.ai_title')"
-           @update:show="(v: boolean) => { if (!v) aiResult = null; }">
+           @update:show="(v: boolean) => { if (!v) aiShow = null; }">
     <n-alert type="warning" :bordered="false" style="margin-bottom: 10px">
-      {{ aiResult?.disclaimer }}
+      {{ aiShow ? aiResults[aiShow]?.disclaimer : "" }}
     </n-alert>
-    <div style="white-space: pre-wrap; font-size: 13.5px; line-height: 1.7">{{ aiResult?.card }}</div>
+    <!-- eslint-disable-next-line vue/no-v-html -->
+    <div class="fwai-body" v-html="renderMarkdown(aiShow ? aiResults[aiShow]?.card ?? '' : '')" />
   </n-modal>
 </template>
+
+<style scoped>
+.fwai-body { font-size: 13px; line-height: 1.85; }
+.fwai-body :deep(code) { background: rgba(128, 128, 128, .14); border-radius: 4px;
+  padding: 1px 5px; font-size: 12px; }
+.fwai-body :deep(p) { margin: 6px 0; }
+.fwai-body :deep(ul), .fwai-body :deep(ol) { margin: 4px 0; padding-left: 20px; }
+</style>

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.186] — 2026-08-15
+
+### Changed
+- **Firewall rule-change AI analysis now runs in the background**: the LLM takes tens of seconds and the UI used to block on it; the button now returns immediately (multiple rows can analyze concurrently) and a "View result" button grows next to it when done — the result stays on the page for re-reading.
+- **The AI result modal renders markdown** via the site-wide zero-dependency renderer (escape-then-tag, no injection surface) — model output like `**bold**` previously showed its literal asterisks.
+- zh-TW: 認領 → 認可 (more formal); the acknowledge and AI-analysis buttons gained icons, matching the site convention.
+
 ## [0.5.185] — 2026-08-15
 
 ### License change

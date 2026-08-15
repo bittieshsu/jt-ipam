@@ -157,9 +157,9 @@ async def fw_rule_change_ack(
     session: Annotated[AsyncSession, Depends(get_session)],
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """認領一筆規則異動：這是已知變更＋說明（合規證據鏈）。
+    """認可一筆規則異動：這是已知變更＋說明（合規證據鏈）。
 
-    沒被認領的異動累積起來就是稽核報表：「本月 N 筆防火牆變更，M 筆無人說明」。
+    沒被認可的異動累積起來就是稽核報表：「本月 N 筆防火牆變更，M 筆無人說明」。
     """
     from datetime import UTC, datetime
 
@@ -171,7 +171,7 @@ async def fw_rule_change_ack(
     if snap is None:
         raise HTTPException(404, detail="找不到這筆快照")
     if snap.diff is None:
-        raise HTTPException(422, detail="初次快照是比對基準，不需要認領")
+        raise HTTPException(422, detail="初次快照是比對基準，不需要認可")
     snap.ack_by = user.id
     snap.ack_at = datetime.now(UTC)
     snap.ack_note = str(payload.get("note") or "")[:500]
