@@ -212,6 +212,12 @@ function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } 
   if (cell.state === "dhcp")
     return { background: "var(--jt-cell-dhcp, #f59e0b)", kind: "filled" };
 
+  // 自動收錄：整格紫色。前兩版（橘框→橘角標）在幾百個小格子裡都被回報「看不到」；
+  // 調色盤裡沒有紫（綠/紅/琥珀/藍/灰都用掉了），整格換色才真的搶眼。
+  // 狀態（上線/離線）仍在滑鼠提示裡，圖例也明講這一點。
+  if (isAutoAdded(cell.addr)) {
+    return { background: "var(--jt-cell-auto, #8b5cf6)", kind: "filled" };
+  }
   const kind = classifyAddressLiveness(cell.addr);
   const colorMap = {
     online: "var(--jt-cell-active, #22c55e)",
@@ -322,7 +328,7 @@ function aggColor(pct: number): string {
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-offline, #ef4444)' }"></i>{{ t("visualisation.offline") }} ({{ legendCounts.offline }})</span></template>{{ t("visualisation.tip_offline", { staleMax: staleMaxMin }) }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-reserved, #3b82f6)' }"></i>{{ t("visualisation.reserved") }} ({{ legendCounts.reserved }})</span></template>{{ t("visualisation.tip_reserved") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i class="legend-auto" :style="{ background: 'var(--jt-cell-active, #22c55e)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-auto, #8b5cf6)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
     </div>
   </div>
@@ -351,37 +357,10 @@ function aggColor(pct: number): string {
   outline: 0 solid transparent;
   box-sizing: border-box;
 }
-.cell.cell-auto {
-  /* 自動收錄、沒有人登記過：狀態底色不變，右上角一枚橘色角標。
-     原本用橘色描邊，實測在幾百個小格子裡太容易被忽略（使用者回饋）——
-     角標的形狀差異比顏色差異醒目得多，綠底紅底上都看得見。 */
-  position: relative;
-  overflow: hidden;
-}
-.cell.cell-auto::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  border-left: 7px solid transparent;
-  border-top: 7px solid #f0a020;
-}
 .cell.cell-free {
   /* 空格：dashed border，視覺權重明顯弱於 unknown 的實心灰 */
   border: 1px dashed rgba(127, 127, 127, 0.55);
   background: transparent !important;
-}
-.legend-item i.legend-auto {
-  position: relative;
-  overflow: hidden;
-}
-.legend-item i.legend-auto::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  border-left: 7px solid transparent;
-  border-top: 7px solid #f0a020;
 }
 .cell:hover {
   transform: scale(1.7);

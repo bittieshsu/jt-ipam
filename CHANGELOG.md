@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.183] — 2026-08-15
+
+### Changed
+- **Third take on the subnet grid's auto-recorded marker: solid purple cells.** An orange outline and then an orange corner badge were both reported "still too small" among hundreds of tiny cells — a few pixels can never stand out. Purple is the one colour the palette does not use (green/red/amber/blue/grey are taken), so the whole cell changes colour and is unmissable; liveness moves to the tooltip and the legend says so. The IP list's auto-recorded marker turned purple to match.
+
 ## [0.5.182] — 2026-08-15
 
 ### Changed

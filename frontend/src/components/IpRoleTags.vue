@@ -38,7 +38,7 @@ const isAutoAdded = () => AUTO_SOURCES.includes(String(r().discovery_source ?? "
         class="ip-roles">
     <!-- 自動收錄、未經登記 —— 用橘色（提醒而非錯誤）並講清楚它的來歷 -->
     <n-tooltip v-if="isAutoAdded()" :delay="150">
-      <template #trigger><n-icon :size="15" color="#f0a020" class="r-ic"><UnregisteredIcon /></n-icon></template>
+      <template #trigger><n-icon :size="15" color="#8b5cf6" class="r-ic"><UnregisteredIcon /></n-icon></template>
       {{ t("addresses.role_auto_added") }} —
       {{ t("addresses.role_auto_added_hint", { src: String(r().discovery_source).toUpperCase() }) }}
     </n-tooltip>

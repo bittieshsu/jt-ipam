@@ -1228,7 +1228,7 @@
     "tip_unknown": "Liveness unknown: ping is excluded for this IP, or its subnet has scanning disabled",
     "tip_free": "This IP is not registered yet (unallocated)",
     "auto_added": "Auto-recorded",
-    "tip_auto_added": "Addresses created automatically by an integration or a scan agent, which nobody registered by hand (orange outline). They still have their own online/offline state, so this count does not add up with the others. Note: once an address is recorded, unauthorised-IP detection no longer lists it."
+    "tip_auto_added": "Addresses created automatically by an integration or a scan agent, which nobody registered by hand — shown as solid purple cells (liveness moves to the tooltip). Note: once recorded, unauthorised-IP detection no longer lists them."
   },
   "tasks": {
     "title": "Tasks",
