@@ -297,7 +297,7 @@
     "virt_vmware": "Virtualization (VMware)",
     "esxi_admin": "VMware",
     "fw_rule_changes": "Firewall rule changes",
-    "attack_surface": "Attack surface"
+    "attack_surface": "Exposed services"
   },
   "topbar": {
     "search": "Search…",
@@ -3314,7 +3314,7 @@
     "ack_ph": "Note (e.g. opened 443 per ticket #123)"
   },
   "surface": {
-    "title": "Attack surface",
+    "title": "Exposed services inventory",
     "target": "Target",
     "via": "Via",
     "protocol": "Protocol",
@@ -3325,6 +3325,18 @@
     "unregistered": "unregistered",
     "no_agent": "no agent",
     "hint": "An inventory of externally reachable IPs and ports, each with its IPAM identity. “Unregistered” means an external opening points at a host IPAM does not know — a red flag in itself.",
-    "empty": "No determinable external openings (or no firewall integrated yet)."
+    "empty": "No determinable external openings (or no firewall integrated yet).",
+    "col_ip": "IP",
+    "col_port": "Port",
+    "col_hostname": "Hostname",
+    "col_via": "Type",
+    "col_name": "Name",
+    "col_firewall": "Firewall",
+    "col_protocol": "Protocol",
+    "col_owner": "Customer / subnet",
+    "col_wazuh": "Wazuh",
+    "col_status": "Live status",
+    "col_descr": "Description",
+    "all_sources": "All firewalls"
   }
 }

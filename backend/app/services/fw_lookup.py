@@ -203,13 +203,20 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
         }
 
     # ── NAT port forwards（三家共用的正規化表）──
+    from app.models.fortigate import FortiGateFirewall
+    inst_names: dict[str, str] = {}
+    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall):
+        for f in (await session.execute(select(model))).scalars().all():
+            inst_names[str(f.id)] = f.name
     for n in (await session.execute(
             select(NATTranslation).where(
                 NATTranslation.type == "port_forward",
                 NATTranslation.disabled.is_(False)).limit(300))).scalars().all():
         ident = await identity(None, n.dst_ip_id) if n.dst_ip_id else {"registered": False}
+        origin = (n.source_origin or "manual").split(":")
         items.append({
-            "via": "nat", "source": (n.source_origin or "manual").split(":")[0],
+            "via": "nat", "source": origin[0],
+            "firewall": inst_names.get(origin[1]) if len(origin) > 1 else None,
             "name": n.name, "protocol": n.protocol,
             "port": n.dst_port, "descr": (n.description or "")[:120],
             "identity": ident,
@@ -245,7 +252,8 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
             if not target:
                 continue
             items.append({
-                "via": "rule", "source": "pfsense", "name": fw.name,
+                "via": "rule", "source": "pfsense", "firewall": fw.name,
+                "name": (r.get("descr") or str(r.get("tracker") or ""))[:120],
                 "protocol": r.get("protocol"), "port": str(r.get("destination_port") or ""),
                 "descr": (r.get("descr") or "")[:120],
                 "identity": await identity(target),
@@ -264,7 +272,8 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
             continue
         items.append({
             "via": "rule", "source": "opnsense",
-            "name": opn_names.get(r.firewall_id, "?"),
+            "firewall": opn_names.get(r.firewall_id, "?"),
+            "name": (r.description or "")[:120],
             "protocol": r.protocol, "port": str(getattr(r, "destination_port", "") or ""),
             "descr": (r.description or "")[:120],
             "identity": await identity(target),

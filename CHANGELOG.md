@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.180] — 2026-08-15
+
+### Changed
+- Page renamed: "Attack surface" → "**Exposed services**" — it says what the page actually lists, and avoids colliding with the existing external-exposure anomaly category.
+- **Every column split apart** (from real-world use): "192.168.1.134:4443 (meet)" crammed into one cell and "NAT | name" into another — IP, port, hostname, type (NAT/rule), name and firewall (vendor + instance) are now separate, sortable columns; NAT rows gained the firewall instance name (previously vendor only).
+- Added the **site-wide column picker** (same preference store, synced across devices) and a **firewall source dropdown** (options derived from the data, so manual entries or future vendors need no code change).
+
 ## [0.5.179] — 2026-08-15
 
 ### Added

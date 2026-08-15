@@ -297,7 +297,7 @@
     "virt_vmware": "虛擬化 (VMware)",
     "esxi_admin": "整合 VMware",
     "fw_rule_changes": "防火牆規則異動",
-    "attack_surface": "對外攻擊面"
+    "attack_surface": "對外開放服務"
   },
   "topbar": {
     "search": "搜尋…",
@@ -3314,7 +3314,7 @@
     "ack_ph": "說明（例：開放 443 對應工單 #123）"
   },
   "surface": {
-    "title": "對外攻擊面",
+    "title": "對外開放服務盤點",
     "target": "目標",
     "via": "途徑",
     "protocol": "協定",
@@ -3325,6 +3325,18 @@
     "unregistered": "未登錄",
     "no_agent": "無代理",
     "hint": "從外面可達的 IP 與連接埠盤點，每項配 IPAM 身分。「未登錄」代表對外開口指向 IPAM 沒有的主機——本身就是要查的紅旗。",
-    "empty": "沒有可判定的對外開口（或尚未整合防火牆）。"
+    "empty": "沒有可判定的對外開口（或尚未整合防火牆）。",
+    "col_ip": "IP",
+    "col_port": "埠",
+    "col_hostname": "主機名稱",
+    "col_via": "類型",
+    "col_name": "名稱",
+    "col_firewall": "防火牆",
+    "col_protocol": "協定",
+    "col_owner": "單位／網段",
+    "col_wazuh": "Wazuh",
+    "col_status": "實際狀態",
+    "col_descr": "說明",
+    "all_sources": "全部防火牆"
   }
 }
