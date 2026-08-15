@@ -1,33 +1,36 @@
 <script setup lang="ts">
 /**
- * 對外開放服務盤點：從外面可達的服務，每項配 IPAM 身分。
+ * 對外開放服務清單：從外面可達的服務，每項配 IPAM 身分。
  *
- * 異常偵測的「對外曝險」是抓問題；這一頁是**盤點**——資安稽核第一個要的東西。
- * 只列明確可判定的開口；未登錄的目標用紅色標出（對外開口指向不明主機，本身就是紅旗）。
+ * 異常偵測的「對外曝險」是抓問題；這一頁是**清單**——資安稽核第一個要的東西。
+ * 只列明確可判定的開口；未登錄的目標用紅色標出（對外開口指向不明主機，本身就是警訊）。
  * 欄位拆開（IP／埠／主機名稱／類型／名稱／防火牆各自獨立）才能排序與比對；
  * 欄位顯示走全站的欄位偏好，來源可依防火牆廠牌篩選。
  */
 import { computed, onMounted, ref, h } from "vue";
 import {
-  NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NSelect,
+  NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NSelect, NInput,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { apiClient, apiErrMsg } from "@/api/client";
-import { FirewallIcon, RefreshIcon } from "@/icons";
+import { FirewallIcon, RefreshIcon, SearchIcon } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
+import { useRouter } from "vue-router";
+import { useEntityLinks } from "@/composables/useEntityLinks";
 
 const { t } = useI18n();
 const msg = useMessage();
 const pg = useTablePagination();
+const links = useEntityLinks(useRouter());
 
 interface Entry {
   via: string; source: string; firewall: string | null; name: string;
   protocol: string | null; port: number | string | null; descr: string;
-  identity: { registered: boolean; ip?: string; hostname?: string | null;
+  identity: { registered: boolean; ip?: string; ip_id?: string; hostname?: string | null;
               status?: string | null; subnet?: string | null;
               customer?: string | null; wazuh?: string | null };
 }
@@ -53,10 +56,21 @@ const sourceOptions = computed(() => {
   return [{ label: t("surface.all_sources"), value: "__all__" },
           ...seen.map((s) => ({ label: s, value: s }))];
 });
-const shown = computed(() =>
-  (!sourceFilter.value || sourceFilter.value === "__all__")
+// 隨打即找：資料已全在前端，逐字過濾 IP／主機名稱／名稱／說明／埠
+const searchText = ref("");
+const shown = computed(() => {
+  let out = (!sourceFilter.value || sourceFilter.value === "__all__")
     ? items.value
-    : items.value.filter((i) => i.source === sourceFilter.value));
+    : items.value.filter((i) => i.source === sourceFilter.value);
+  const q = searchText.value.trim().toLowerCase();
+  if (q) {
+    out = out.filter((i) =>
+      [i.identity.ip, i.identity.hostname, i.name, i.descr, String(i.port ?? ""),
+       i.firewall, i.identity.customer, i.identity.subnet]
+        .some((v) => (v ?? "").toString().toLowerCase().includes(q)));
+  }
+  return out;
+});
 
 const ALL_KEYS = ["ip", "port", "hostname", "via", "name", "firewall",
                   "protocol", "owner", "wazuh", "status", "descr"];
@@ -66,7 +80,10 @@ const pickerCols = computed(() => ALL_KEYS.map((k) => ({ key: k, label: t(`surfa
 const allCols: Record<string, any> = {
   ip: { title: () => t("surface.col_ip"), key: "ip", width: 150,
     render: (r: Entry) => r.identity.registered
-      ? r.identity.ip
+      // IPAM 有這筆 → 點過去 IP 卡片（全站同一套 entity link）
+      ? (r.identity.ip_id
+          ? links.ipById(r.identity.ip_id, r.identity.ip ?? "")
+          : r.identity.ip)
       : h("span", null, ["?", h(NTag, { size: "tiny", type: "error", style: "margin-left:6px" },
           { default: () => t("surface.unregistered") })]) },
   port: { title: () => t("surface.col_port"), key: "port", width: 90,
@@ -107,22 +124,25 @@ const cols = computed<DataTableColumns<Entry>>(
         <span>{{ t("surface.title") }}</span>
       </n-space>
     </template>
-    <template #header-extra>
-      <n-space align="center">
-        <n-select v-model:value="sourceFilter" :options="sourceOptions"
-                  size="small" style="width: 160px"
-                  :placeholder="t('surface.all_sources')" clearable />
-        <ColumnPicker :all="pickerCols" :visible="visibleKeys"
-                      @update:visible="setVisible" @reset="reset" />
-        <n-button size="small" :loading="loading" @click="load">
-          <template #icon><n-icon><RefreshIcon /></n-icon></template>
-          {{ t("common.refresh") }}
-        </n-button>
-      </n-space>
-    </template>
     <n-alert type="info" :bordered="false" style="margin-bottom: 12px">
       {{ t("surface.hint") }}<template v-if="note"><br>{{ note }}</template>
     </n-alert>
+    <!-- 工具列與其它頁一致：放內文、不佔卡片標題列；全部 size=small 高度對齊 -->
+    <n-space align="center" style="margin-bottom: 10px">
+      <n-input v-model:value="searchText" clearable style="width: 220px"
+               :placeholder="t('surface.search_ph')">
+        <template #prefix><n-icon><SearchIcon /></n-icon></template>
+      </n-input>
+      <n-select v-model:value="sourceFilter" :options="sourceOptions"
+                style="width: 160px"
+                :placeholder="t('surface.all_sources')" clearable />
+      <ColumnPicker :all="pickerCols" :visible="visibleKeys"
+                    @update:visible="setVisible" @reset="reset" />
+      <n-button size="small" :loading="loading" @click="load">
+        <template #icon><n-icon><RefreshIcon /></n-icon></template>
+        {{ t("common.refresh") }}
+      </n-button>
+    </n-space>
     <n-data-table :columns="cols" :data="shown" :loading="loading" size="small"
                   :row-key="(r: Entry, i?: number) => `${r.name}-${r.port}-${i}`"
                   :pagination="pg" :bordered="false" />

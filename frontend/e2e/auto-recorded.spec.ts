@@ -102,10 +102,11 @@ test("指示計：自動收錄的位址有橘色描邊，圖例列出筆數", as
   const marked = grid.locator(".cell.cell-auto");
   await expect(marked).toHaveCount(1);
 
-  // 顏色要靠實際樣式驗，不能只看有沒有 class：class 在但 CSS 沒生效是這專案踩過的坑
-  // （scoped CSS 對 render function 產生的元素不生效）
-  const shadow = await marked.evaluate((el) => getComputedStyle(el).boxShadow);
-  expect(shadow).toContain("240, 160, 32");   // #f0a020
+  // 樣式要靠 computed style 驗，不能只看有沒有 class：class 在但 CSS 沒生效是這專案踩過的坑
+  // （scoped CSS 對 render function 產生的元素不生效）。角標畫在 ::after 的 border-top。
+  const badge = await marked.evaluate(
+    (el) => getComputedStyle(el, "::after").borderTopColor);
+  expect(badge).toContain("240, 160, 32");   // #f0a020 角標
 });
 
 test("掃描代理：有「自動收錄未登錄的 IP」開關，且預設關閉", async ({ page }) => {

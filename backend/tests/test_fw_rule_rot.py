@@ -170,7 +170,7 @@ async def test_ack_flow(client, auth_headers, db_session) -> None:
 
 @pytest.mark.anyio
 async def test_attack_surface_lists_only_determinable_entries(db_session) -> None:
-    """攻擊面盤點：只列明確可判定的對外開口，未登錄目標要標紅旗。
+    """攻擊面盤點：只列明確可判定的對外開口，未登錄目標要標警訊。
 
     稽核拿去簽名的清單不能有猜的成分 —— 目的為別名／any／網段的 WAN 規則不列。
     """
@@ -221,7 +221,7 @@ async def test_attack_surface_lists_only_determinable_entries(db_session) -> Non
     items = await attack_surface(db_session)
     names = {i["name"] for i in items}
     assert "pf-web" in names
-    assert "pf-mystery" in names, "懸空轉發是紅旗，更要列"
+    assert "pf-mystery" in names, "懸空轉發是警訊，更要列"
     assert "pf-off" not in names, "停用的不在攻擊面上"
     web = next(i for i in items if i["name"] == "pf-web")
     assert web["identity"]["registered"] and web["identity"]["hostname"] == "web-a"

@@ -3314,7 +3314,7 @@
     "ack_ph": "Note (e.g. opened 443 per ticket #123)"
   },
   "surface": {
-    "title": "Exposed services inventory",
+    "title": "Exposed services list",
     "target": "Target",
     "via": "Via",
     "protocol": "Protocol",
@@ -3337,6 +3337,7 @@
     "col_wazuh": "Wazuh",
     "col_status": "Live status",
     "col_descr": "Description",
-    "all_sources": "All firewalls"
+    "all_sources": "All firewalls",
+    "search_ph": "Search IP / hostname / name…"
   }
 }

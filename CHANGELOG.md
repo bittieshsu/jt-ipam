@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.181] — 2026-08-15
+
+### Changed (a round of hands-on feedback on the exposed-services page)
+- The toolbar (search / firewall filter / columns / refresh) **moved into the card body**; card headers no longer hold controls, and all four controls share one height.
+- Added a **type-to-filter search box** (IP / hostname / name / description / port).
+- **Registered IPs link straight to their IP card** (the site-wide entity links).
+- The subnet grid's auto-recorded marker became an **orange corner badge** — the outline was too easy to miss among hundreds of small cells; legend updated.
+- zh-TW wording: 紅旗→警訊, 盤點→清單, 逐家→逐一.
+
 ## [0.5.180] — 2026-08-15
 
 ### Changed

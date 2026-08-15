@@ -352,10 +352,19 @@ function aggColor(pct: number): string {
   box-sizing: border-box;
 }
 .cell.cell-auto {
-  /* 自動收錄、沒有人登記過：保留原本的狀態顏色，外加橘色描邊。
-     用 inset box-shadow 而不是 border —— border 會改變格子的實際尺寸，
-     讓整張圖的對齊在有／沒有這個標記時跳動。 */
-  box-shadow: inset 0 0 0 2px #f0a020;
+  /* 自動收錄、沒有人登記過：狀態底色不變，右上角一枚橘色角標。
+     原本用橘色描邊，實測在幾百個小格子裡太容易被忽略（使用者回饋）——
+     角標的形狀差異比顏色差異醒目得多，綠底紅底上都看得見。 */
+  position: relative;
+  overflow: hidden;
+}
+.cell.cell-auto::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-left: 7px solid transparent;
+  border-top: 7px solid #f0a020;
 }
 .cell.cell-free {
   /* 空格：dashed border，視覺權重明顯弱於 unknown 的實心灰 */
@@ -363,7 +372,16 @@ function aggColor(pct: number): string {
   background: transparent !important;
 }
 .legend-item i.legend-auto {
-  box-shadow: inset 0 0 0 2px #f0a020;
+  position: relative;
+  overflow: hidden;
+}
+.legend-item i.legend-auto::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-left: 7px solid transparent;
+  border-top: 7px solid #f0a020;
 }
 .cell:hover {
   transform: scale(1.7);

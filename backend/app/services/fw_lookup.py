@@ -162,12 +162,12 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
 async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
     """對外攻擊面清單：從外面可達的 IP:port，每項配 IPAM 身分。
 
-    異常偵測的「對外曝險」是抓問題；這裡是**盤點** —— 資安稽核第一個要的東西。
+    異常偵測的「對外曝險」是抓問題；這裡是**清單** —— 資安稽核第一個要的東西。
     保守原則同規則腐化：**只列明確可判定的**——
-    - NAT port forward（生效中）：目標經 dst_ip_id 連結，或本來就懸空（那本身是紅旗）。
+    - NAT port forward（生效中）：目標經 dst_ip_id 連結，或本來就懸空（那本身是警訊）。
     - WAN 介面上、目的為單一 IP 的放行規則（pfSense JSONB＋OPNsense 規則表）。
     - 目的是別名／any／網段的規則**不列**：展開猜測會產生假清單，假清單比沒有更危險
-      （稽核拿去簽名的東西不能有猜的成分）。FortiGate 欄位語意逐家驗證後再納入。
+      （稽核拿去簽名的東西不能有猜的成分）。FortiGate 欄位語意逐一驗證後再納入。
     """
     from app.models.address import IPAddress
     from app.models.customer import Customer
@@ -181,7 +181,7 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
 
     async def identity(ip_str: str | None, ip_id: Any = None) -> dict[str, Any]:
-        """目標的 IPAM 身分。未登錄不是省略，是紅旗 —— 對外開口指向不明主機。"""
+        """目標的 IPAM 身分。未登錄不是省略，是警訊 —— 對外開口指向不明主機。"""
         ipa = None
         if ip_id is not None:
             ipa = await session.get(IPAddress, ip_id)
@@ -195,7 +195,7 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
         wa = (await session.execute(
             select(WazuhAgent).where(WazuhAgent.ip == str(ipa.ip)).limit(1))).scalars().first()
         return {
-            "registered": True, "ip": str(ipa.ip),
+            "registered": True, "ip": str(ipa.ip), "ip_id": str(ipa.id),
             "hostname": ipa.hostname, "status": ipa.effective_status,
             "subnet": str(sub.cidr) if sub else None,
             "customer": cust.name if cust else None,

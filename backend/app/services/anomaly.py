@@ -857,7 +857,7 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
 
     # (2)(3) any-any 放行與 WAN 管理埠：pfSense 精簡規則（JSONB）。
     #     OPNsense / FortiGate 的規則表欄位語意各異，先做 pfSense（資料形狀最穩定），
-    #     其餘兩家由規則異動偵測盯變更；誤報比漏報傷害大，逐家驗證過才納入。
+    #     其餘兩家由規則異動偵測盯變更；誤報比漏報傷害大，逐一驗證過才納入。
     fws = (await session.execute(
         select(PfSenseFirewall).where(PfSenseFirewall.rules.is_not(None)))).scalars().all()
     for fw in fws:
