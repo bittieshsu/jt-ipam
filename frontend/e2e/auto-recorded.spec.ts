@@ -104,8 +104,10 @@ test("指示計：自動收錄的位址有橘色描邊，圖例列出筆數", as
 
   // 樣式要靠 computed style 驗，不能只看有沒有 class（scoped CSS 對 render function
   // 產生的元素不生效，是這專案踩過的坑）。自動收錄＝整格紫色。
-  const bg = await marked.evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(bg).toContain("139, 92, 246");   // #8b5cf6 紫
+  // 對角雙色：漸層在 backgroundImage；紫（自動收錄）與狀態色都要在
+  const bg = await marked.evaluate((el) => getComputedStyle(el).backgroundImage);
+  expect(bg).toContain("139, 92, 246");   // #8b5cf6 紫（左上半）
+  expect(bg).toContain("linear-gradient");   // 右下半保留狀態色
 });
 
 test("掃描代理：有「自動收錄未登錄的 IP」開關，且預設關閉", async ({ page }) => {

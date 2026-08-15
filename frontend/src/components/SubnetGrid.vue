@@ -212,12 +212,6 @@ function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } 
   if (cell.state === "dhcp")
     return { background: "var(--jt-cell-dhcp, #f59e0b)", kind: "filled" };
 
-  // 自動收錄：整格紫色。前兩版（橘框→橘角標）在幾百個小格子裡都被回報「看不到」；
-  // 調色盤裡沒有紫（綠/紅/琥珀/藍/灰都用掉了），整格換色才真的搶眼。
-  // 狀態（上線/離線）仍在滑鼠提示裡，圖例也明講這一點。
-  if (isAutoAdded(cell.addr)) {
-    return { background: "var(--jt-cell-auto, #8b5cf6)", kind: "filled" };
-  }
   const kind = classifyAddressLiveness(cell.addr);
   const colorMap = {
     online: "var(--jt-cell-active, #22c55e)",
@@ -225,6 +219,13 @@ function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } 
     offline: "var(--jt-cell-offline, #ef4444)",
     unknown: "var(--jt-cell-unknown, #6b7280)",
   };
+  // 自動收錄：對角雙色 —— 左上半紫（自動收錄）、右下半保留狀態色（上線/離線）。
+  // 第一版橘框、第二版角標都「太小看不到」；第三版整格紫又看不出在不在線上。
+  // 各佔半格，兩個資訊都一眼可見；紫是調色盤唯一沒用過的顏色。
+  if (isAutoAdded(cell.addr)) {
+    return { background: `linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, ${colorMap[kind]} 50% 100%)`,
+             kind: "filled" };
+  }
   return { background: colorMap[kind], kind: "filled" };
 }
 
@@ -328,7 +329,7 @@ function aggColor(pct: number): string {
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-offline, #ef4444)' }"></i>{{ t("visualisation.offline") }} ({{ legendCounts.offline }})</span></template>{{ t("visualisation.tip_offline", { staleMax: staleMaxMin }) }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-reserved, #3b82f6)' }"></i>{{ t("visualisation.reserved") }} ({{ legendCounts.reserved }})</span></template>{{ t("visualisation.tip_reserved") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-auto, #8b5cf6)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, var(--jt-cell-active, #22c55e) 50% 100%)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
     </div>
   </div>

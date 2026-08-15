@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.184] — 2026-08-15
+
+### Changed
+- **Final form of the grid's auto-recorded marker: diagonal two-colour cells.** Solid purple (0.5.183) was unmissable but hid liveness — prominence and status should not be a trade-off. The upper-left half is purple (auto-recorded) and the lower-right half keeps the normal liveness colour; both facts are visible at a glance, legend updated.
+
 ## [0.5.183] — 2026-08-15
 
 ### Changed
