@@ -375,6 +375,10 @@ async def get_address(
     await _require_subnet_perm(session, user, obj.subnet_id, "read")
     out = IPAddressRead.model_validate(obj)
     out.mac_vendor = await vendor_for_mac(session, obj.mac)
+    # 虛擬化對應：IP 或 MAC 命中 VM 網卡 → 標示為虛擬機（顯示用，不寫回資料）
+    from app.services.fw_lookup import vm_match_for
+    out.virt_vm = await vm_match_for(session, ip=str(obj.ip).split("/")[0],
+                                     macs=[str(obj.mac)] if obj.mac else None)
     # SSH 連線管理：是否可對此 IP 開終端機（依權限算好給前端顯示按鈕）
     from app.services.permission import can_use_rdp, can_use_sftp, can_use_ssh, can_use_vnc
     out.ssh_available = await can_use_ssh(session, user=user, ip=obj)

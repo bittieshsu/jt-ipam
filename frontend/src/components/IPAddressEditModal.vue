@@ -596,9 +596,9 @@ async function remove() {
           </n-tooltip>
         </span>
       </template>
-      <!-- inline(頁面)模式：操作鈕放右上，比照裝置詳細資料頁 -->
-      <template v-if="inline && !isCreate" #header-extra>
-        <n-space align="center" :size="8" :wrap-item="false">
+      <!-- inline(頁面)模式：操作工具列自標題列搬到內文最上方 -->
+      <n-space v-if="inline && !isCreate" align="center" justify="end" :size="8" :wrap-item="false"
+               style="margin-bottom: 10px">
           <template v-if="!editMode">
             <!-- SSH 連線分割按鈕：主鍵嵌入終端機、下箭頭可另開視窗（僅在啟用且有權限時顯示） -->
             <template v-if="props.address?.ssh_available">
@@ -730,8 +730,7 @@ async function remove() {
               <template #icon><n-icon><SaveIcon /></n-icon></template>{{ t("common.save") }}
             </n-button>
           </template>
-        </n-space>
-      </template>
+      </n-space>
 
       <div v-if="props.address || isCreate">
         <!-- view mode -->
@@ -830,6 +829,13 @@ async function remove() {
             {{ resvLine }}
           </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.effective_status')">{{ effectiveDisplay }}</n-descriptions-item>
+          <!-- 虛擬化對應：比對到 VM 網卡才顯示「虛擬機」；比對不到不顯示——
+               「查無」是「不知道」，不是「實體機」，反向斷言是誤導 -->
+          <n-descriptions-item v-if="(props.address as any)?.virt_vm" :label="t('addresses.virt')">
+            <n-tag size="small" type="info">{{ t('addresses.virt_vm_tag') }}</n-tag>
+            <span style="margin-left:6px">{{ (props.address as any).virt_vm.vm }}
+              <span style="opacity:.65">@ {{ (props.address as any).virt_vm.cluster || (props.address as any).virt_vm.platform }}</span></span>
+          </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_scanner')">{{ fmtDateTime(props.address?.last_seen_scanner) }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_librenms')">{{ fmtDateTime(props.address?.last_seen_librenms) }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_dns')">{{ fmtDateTime(props.address?.last_seen_dns) }}</n-descriptions-item>

@@ -522,24 +522,23 @@ function onMergedExport(key: string) {
         <template v-if="roomDiagrams.length">
           <!-- 合併單卡：所有機櫃排進同一張卡（去各櫃外框，加小標題） -->
           <n-card v-if="mergedView" :title="t('racks.merged_title')">
-            <template #header-extra>
-              <div style="display:flex; align-items:center; gap:8px">
-                <n-button-group size="tiny">
-                  <n-button :type="mergedFace === 'front' ? 'primary' : 'default'" @click="mergedFace = 'front'">
-                    {{ t("racks.face_front") }}
-                  </n-button>
-                  <n-button :type="mergedFace === 'rear' ? 'primary' : 'default'" @click="mergedFace = 'rear'">
-                    {{ t("racks.face_rear") }}<span v-if="mergedHasRear" style="margin-left:3px">•</span>
-                  </n-button>
-                </n-button-group>
-                <n-dropdown trigger="click" :options="mergedExportOptions" @select="onMergedExport">
-                  <n-button size="tiny">
-                    <template #icon><n-icon><ExportIcon /></n-icon></template>
-                    {{ t("common.export") }}
-                  </n-button>
-                </n-dropdown>
-              </div>
-            </template>
+            <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+            <n-space align="center" justify="end" style="margin-bottom: 10px">
+              <n-button-group size="tiny">
+                <n-button :type="mergedFace === 'front' ? 'primary' : 'default'" @click="mergedFace = 'front'">
+                  {{ t("racks.face_front") }}
+                </n-button>
+                <n-button :type="mergedFace === 'rear' ? 'primary' : 'default'" @click="mergedFace = 'rear'">
+                  {{ t("racks.face_rear") }}<span v-if="mergedHasRear" style="margin-left:3px">•</span>
+                </n-button>
+              </n-button-group>
+              <n-dropdown trigger="click" :options="mergedExportOptions" @select="onMergedExport">
+                <n-button size="tiny">
+                  <template #icon><n-icon><ExportIcon /></n-icon></template>
+                  {{ t("common.export") }}
+                </n-button>
+              </n-dropdown>
+            </n-space>
             <div class="rack-row">
               <div v-for="d in roomDiagrams" :key="d.rack_id" class="merged-rack">
                 <div class="merged-rack__name">

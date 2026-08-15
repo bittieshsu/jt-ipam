@@ -172,6 +172,9 @@ class IPAddressRead(IPAddressBase):
     subnet_scan_enabled: bool | None = None
     # SSH 連線管理：是否已啟用 + 目前使用者是否可用（後端依權限算好給前端顯示按鈕）
     ssh_enabled: bool = False
+    # 虛擬化對應：這個 IP 是虛擬化平台回報的某台 VM →（顯示用）。
+    # None＝比對不到，**不代表實體機**（整合可能沒涵蓋），前端不得反向標示。
+    virt_vm: dict | None = None
     ssh_available: bool = False
     # SFTP 檔案傳輸：是否已啟用 + 目前使用者是否可用
     sftp_enabled: bool = False

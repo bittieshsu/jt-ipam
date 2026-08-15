@@ -530,20 +530,19 @@ onUnmounted(() => {
         <span>{{ t("nav.topology") }}</span>
       </n-space>
     </template>
-    <template #header-extra>
-      <n-space :size="8" :wrap-item="false">
-        <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
-          <n-button size="small">
-            <template #icon><n-icon><ExportIcon /></n-icon></template>
-            {{ t("common.export") }}
-          </n-button>
-        </n-dropdown>
-        <n-button @click="refresh" size="small">
-          <template #icon><n-icon><RefreshIcon /></n-icon></template>
-          {{ t("common.refresh") }}
+    <!-- 控制列：自標題列搬到內文最上方 -->
+    <n-space align="center" justify="end" style="margin-bottom: 10px">
+      <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
+        <n-button size="small">
+          <template #icon><n-icon><ExportIcon /></n-icon></template>
+          {{ t("common.export") }}
         </n-button>
-      </n-space>
-    </template>
+      </n-dropdown>
+      <n-button @click="refresh" size="small">
+        <template #icon><n-icon><RefreshIcon /></n-icon></template>
+        {{ t("common.refresh") }}
+      </n-button>
+    </n-space>
     <n-space class="topo-toolbar" align="center" :wrap="true" style="margin-bottom: 12px; row-gap: 8px">
       <n-select
         v-model:value="subnetIds"

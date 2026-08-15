@@ -162,18 +162,17 @@ onMounted(() => {
             <span>{{ section.name }}</span>
           </n-space>
         </template>
-        <template #header-extra>
-          <n-space :size="8">
-            <n-button type="primary" size="small" @click="openEdit">
-              <template #icon><n-icon><EditIcon /></n-icon></template>
-              {{ t("common.edit") }}
-            </n-button>
-            <n-button @click="router.push({ name: 'sections' })" size="small">
-              <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
-              {{ t("common.back") }}
-            </n-button>
-          </n-space>
-        </template>
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+        <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <n-button type="primary" size="small" @click="openEdit">
+            <template #icon><n-icon><EditIcon /></n-icon></template>
+            {{ t("common.edit") }}
+          </n-button>
+          <n-button @click="router.push({ name: 'sections' })" size="small">
+            <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
+            {{ t("common.back") }}
+          </n-button>
+        </n-space>
         <n-descriptions bordered :column="2" size="small">
           <n-descriptions-item :label="t('common.name')">{{ section.name }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.subnet_count')">{{ section.subnet_count ?? 0 }}</n-descriptions-item>
@@ -192,21 +191,20 @@ onMounted(() => {
             <span>{{ t("nav.subnets") }} ({{ subnets.length }})</span>
           </n-space>
         </template>
-        <template #header-extra>
-          <n-space>
-            <ColumnPicker :all="snPicker" :visible="snVis"
-                          @update:visible="snSet" @reset="snReset" />
-            <n-button
-              v-if="section"
-              @click="load(section.id)"
-              :loading="loading"
-              size="small"
-            >
-              <template #icon><n-icon><RefreshIcon /></n-icon></template>
-              {{ t("common.refresh") }}
-            </n-button>
-          </n-space>
-        </template>
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+        <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <ColumnPicker :all="snPicker" :visible="snVis"
+                        @update:visible="snSet" @reset="snReset" />
+          <n-button
+            v-if="section"
+            @click="load(section.id)"
+            :loading="loading"
+            size="small"
+          >
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("common.refresh") }}
+          </n-button>
+        </n-space>
         <n-data-table
           :columns="columns"
           :data="subnets"

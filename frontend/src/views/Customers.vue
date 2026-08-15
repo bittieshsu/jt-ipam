@@ -186,23 +186,22 @@ onMounted(() => { void refresh(); });
         <span>{{ t("customers.title") }}</span>
       </n-space>
     </template>
-    <template #header-extra>
-      <n-space>
-        <n-input v-model:value="q" :placeholder="t('common.search_name')" clearable
-                 style="width: 240px" @keyup.enter="refresh" />
-        <n-button @click="refresh" :loading="loading">
-          <template #icon><n-icon><RefreshIcon /></n-icon></template>
-          {{ t("common.refresh") }}
-        </n-button>
-        <n-button type="primary" @click="openCreate">
-          <template #icon><n-icon><PlusIcon /></n-icon></template>
-          {{ t("common.create") }}
-        </n-button>
-        <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                      @update:visible="setVisible" @reset="reset" />
-        <ExportButton :columns="cols" :rows="rows" filename="customers" :title="t('nav.customers')" />
-      </n-space>
-    </template>
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+    <n-space align="center" justify="end" style="margin-bottom: 10px">
+      <n-input v-model:value="q" :placeholder="t('common.search_name')" clearable
+               style="width: 240px" @keyup.enter="refresh" />
+      <n-button @click="refresh" :loading="loading">
+        <template #icon><n-icon><RefreshIcon /></n-icon></template>
+        {{ t("common.refresh") }}
+      </n-button>
+      <n-button type="primary" @click="openCreate">
+        <template #icon><n-icon><PlusIcon /></n-icon></template>
+        {{ t("common.create") }}
+      </n-button>
+      <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
+                    @update:visible="setVisible" @reset="reset" />
+      <ExportButton :columns="cols" :rows="rows" filename="customers" :title="t('nav.customers')" />
+    </n-space>
     <n-data-table
       :columns="cols" :data="rows" :loading="loading"
       :bordered="false" :scroll-x="1054"

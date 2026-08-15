@@ -295,19 +295,18 @@ onMounted(() => { void refresh(); });
 
 <template>
   <n-card :title="() => h('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, [h(NIcon, { size: 18 }, () => h(PhysicalIcon)), t('ports.title')])" size="small">
-    <template #header-extra>
-      <n-space :size="8">
-        <n-button v-if="admin" size="small" type="primary" @click="openCreate">
-          <template #icon><n-icon><PlusIcon /></n-icon></template>{{ t("ports.add") }}
-        </n-button>
-        <n-button v-if="admin" size="small" :loading="importing" @click="importPorts">
-          <template #icon><n-icon><LinkIcon /></n-icon></template>{{ t("ports.import") }}
-        </n-button>
-        <n-button size="small" @click="refresh" :loading="loading">
-          <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
-        </n-button>
-      </n-space>
-    </template>
+    <!-- 控制列：自標題列搬到內文最上方 -->
+    <n-space align="center" justify="end" style="margin-bottom: 10px">
+      <n-button v-if="admin" size="small" type="primary" @click="openCreate">
+        <template #icon><n-icon><PlusIcon /></n-icon></template>{{ t("ports.add") }}
+      </n-button>
+      <n-button v-if="admin" size="small" :loading="importing" @click="importPorts">
+        <template #icon><n-icon><LinkIcon /></n-icon></template>{{ t("ports.import") }}
+      </n-button>
+      <n-button size="small" @click="refresh" :loading="loading">
+        <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
+      </n-button>
+    </n-space>
     <n-data-table :columns="cols" :data="ports" :loading="loading" size="small" :bordered="false" :pagination="pg">
       <template #empty><div style="text-align:center;opacity:.5;padding:12px">{{ t("ports.empty") }}</div></template>
     </n-data-table>
@@ -351,14 +350,15 @@ onMounted(() => { void refresh(); });
 
     <!-- trace -->
     <n-modal v-model:show="showTrace" preset="card" style="width:520px" :title="t('ports.trace_title', { p: traceTitle })">
-      <template #header-extra>
+      <!-- 控制列：自標題列搬到內文最上方 -->
+      <n-space align="center" justify="end" style="margin-bottom: 10px">
         <n-dropdown v-if="traceConnected" trigger="click" :options="traceExportOptions" @select="onTraceExport">
           <n-button size="tiny">
             <template #icon><n-icon><ExportIcon /></n-icon></template>
             {{ t("common.download") }}
           </n-button>
         </n-dropdown>
-      </template>
+      </n-space>
       <div v-if="!trace" style="text-align:center;padding:20px;opacity:.6">…</div>
       <div v-else-if="!traceConnected" style="text-align:center;padding:20px;opacity:.6">{{ t("ports.not_connected") }}</div>
       <div v-else class="trace-chain">

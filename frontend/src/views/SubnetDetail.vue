@@ -646,77 +646,76 @@ onMounted(() => {
             <span>{{ subnet.cidr }}</span>
           </n-space>
         </template>
-        <template #header-extra>
-          <n-space>
-            <n-button v-if="subnet" size="small" @click="openSubnetEdit">
-              <template #icon><n-icon><EditIcon /></n-icon></template>
-              {{ t("common.edit") }}
-            </n-button>
-            <n-button v-if="subnet" size="small" @click="addChildSubnet">
-              <template #icon><n-icon><SubnetsIcon /></n-icon></template>
-              {{ t("subnet_detail.add_child") }}
-            </n-button>
-            <n-button
-              v-if="subnet"
-              size="small"
-              :type="isPinned(subnet.id) ? 'primary' : 'default'"
-              @click="togglePinned(subnet.id)"
-            >
-              <template #icon><n-icon><PinIcon /></n-icon></template>
-              {{ isPinned(subnet.id) ? t('subnet_detail.unpin') : t('subnet_detail.pin') }}
-            </n-button>
-            <n-button
-              v-if="section"
-              size="small"
-              @click="router.push({ name: 'section-detail', params: { id: section.id } })"
-            >
-              <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
-              {{ section.name }}
-            </n-button>
-            <n-popover trigger="click" placement="bottom-end" :width="360">
-              <template #trigger>
-                <n-button size="small">
-                  <template #icon><n-icon><UploadIcon /></n-icon></template>
-                  {{ t("csv_import.button") }}
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+        <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <n-button v-if="subnet" size="small" @click="openSubnetEdit">
+            <template #icon><n-icon><EditIcon /></n-icon></template>
+            {{ t("common.edit") }}
+          </n-button>
+          <n-button v-if="subnet" size="small" @click="addChildSubnet">
+            <template #icon><n-icon><SubnetsIcon /></n-icon></template>
+            {{ t("subnet_detail.add_child") }}
+          </n-button>
+          <n-button
+            v-if="subnet"
+            size="small"
+            :type="isPinned(subnet.id) ? 'primary' : 'default'"
+            @click="togglePinned(subnet.id)"
+          >
+            <template #icon><n-icon><PinIcon /></n-icon></template>
+            {{ isPinned(subnet.id) ? t('subnet_detail.unpin') : t('subnet_detail.pin') }}
+          </n-button>
+          <n-button
+            v-if="section"
+            size="small"
+            @click="router.push({ name: 'section-detail', params: { id: section.id } })"
+          >
+            <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
+            {{ section.name }}
+          </n-button>
+          <n-popover trigger="click" placement="bottom-end" :width="360">
+            <template #trigger>
+              <n-button size="small">
+                <template #icon><n-icon><UploadIcon /></n-icon></template>
+                {{ t("csv_import.button") }}
+              </n-button>
+            </template>
+            <n-space vertical :size="12">
+              <n-alert type="info" size="small">
+                <span v-html="t('csv_import.hint_html')" />
+              </n-alert>
+              <n-checkbox v-model:checked="dryRun">
+                {{ t("csv_import.dry_run") }}
+              </n-checkbox>
+              <n-upload
+                :custom-request="uploadCsv"
+                :show-file-list="false"
+                accept=".csv,text/csv"
+                :disabled="importBusy"
+              >
+                <n-button :loading="importBusy" type="primary" size="small">
+                  {{ t("csv_import.select_file") }}
                 </n-button>
-              </template>
-              <n-space vertical :size="12">
-                <n-alert type="info" size="small">
-                  <span v-html="t('csv_import.hint_html')" />
-                </n-alert>
-                <n-checkbox v-model:checked="dryRun">
-                  {{ t("csv_import.dry_run") }}
-                </n-checkbox>
-                <n-upload
-                  :custom-request="uploadCsv"
-                  :show-file-list="false"
-                  accept=".csv,text/csv"
-                  :disabled="importBusy"
-                >
-                  <n-button :loading="importBusy" type="primary" size="small">
-                    {{ t("csv_import.select_file") }}
-                  </n-button>
-                </n-upload>
-                <n-card v-if="importResult" size="small" :title="t('csv_import.result_title')">
-                  <pre>{{ JSON.stringify(importResult, null, 2) }}</pre>
-                </n-card>
-              </n-space>
-            </n-popover>
-            <n-button size="small" @click="handleExport">
-              <template #icon><n-icon><ExportIcon /></n-icon></template>
-              {{ t("csv_import.export_button") }}
-            </n-button>
-            <n-popconfirm v-if="subnet" @positive-click="delThisSubnet">
-              <template #trigger>
-                <n-button size="small" type="error" :loading="deleting">
-                  <template #icon><n-icon><DeleteIcon /></n-icon></template>
-                  {{ t("common.delete") }}
-                </n-button>
-              </template>
-              {{ t("subnet_detail.delete_confirm") }}
-            </n-popconfirm>
-          </n-space>
-        </template>
+              </n-upload>
+              <n-card v-if="importResult" size="small" :title="t('csv_import.result_title')">
+                <pre>{{ JSON.stringify(importResult, null, 2) }}</pre>
+              </n-card>
+            </n-space>
+          </n-popover>
+          <n-button size="small" @click="handleExport">
+            <template #icon><n-icon><ExportIcon /></n-icon></template>
+            {{ t("csv_import.export_button") }}
+          </n-button>
+          <n-popconfirm v-if="subnet" @positive-click="delThisSubnet">
+            <template #trigger>
+              <n-button size="small" type="error" :loading="deleting">
+                <template #icon><n-icon><DeleteIcon /></n-icon></template>
+                {{ t("common.delete") }}
+              </n-button>
+            </template>
+            {{ t("subnet_detail.delete_confirm") }}
+          </n-popconfirm>
+        </n-space>
         <n-descriptions bordered :column="3" size="small" label-placement="left">
           <n-descriptions-item :label="t('subnets.cidr')">{{ subnet.cidr }}</n-descriptions-item>
           <n-descriptions-item :label="t('subnets.section')">
@@ -829,38 +828,37 @@ onMounted(() => {
             <span>{{ t("addresses.ip_list_title") }} ({{ addresses.length }})</span>
           </n-space>
         </template>
-        <template #header-extra>
-          <n-space align="center">
-            <n-input v-model:value="ipFilterText" size="small" clearable
-                     :placeholder="t('common.filter')" style="width: 200px">
-              <template #prefix><n-icon><SearchIcon /></n-icon></template>
-            </n-input>
-            <n-button v-if="subnet" type="primary" size="small" :disabled="_authBtn.me?.can_edit === false" @click="onAddAddress">
-              <template #icon><n-icon><PlusIcon /></n-icon></template>
-              {{ t("subnet_detail.add_address") }}
-            </n-button>
-            <n-button size="small" :type="staleFilterOn ? 'warning' : 'default'"
-                      @click="staleFilterOn = !staleFilterOn">
-              <template #icon><n-icon><MissingIcon /></n-icon></template>
-              {{ t("stale.filter_label") }}
-            </n-button>
-            <n-button v-if="subnetDhcpRanges.length" size="small"
-                      :type="onlyDhcp ? 'warning' : 'default'"
-                      @click="onlyDhcp = !onlyDhcp">
-              <template #icon><n-icon><AddressesIcon /></n-icon></template>
-              {{ t("subnets.only_dhcp") }}
-            </n-button>
-            <ColumnPicker :all="ipColumnPickerItems" :visible="ipVisibleKeys"
-                          @update:visible="setIpVisible" @reset="resetIpVisible" />
-            <ExportButton v-if="subnet" size="small" :columns="ipColumns" :rows="addresses"
-                          :filename="`ip-${subnet.cidr.replace('/', '_')}`"
-                          :title="`${t('addresses.ip_list_title')} ${subnet.cidr}`" />
-            <n-button @click="load(subnet.id)" :loading="loading">
-              <template #icon><n-icon><RefreshIcon /></n-icon></template>
-              {{ t("common.refresh") }}
-            </n-button>
-          </n-space>
-        </template>
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+        <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <n-input v-model:value="ipFilterText" size="small" clearable
+                   :placeholder="t('common.filter')" style="width: 200px">
+            <template #prefix><n-icon><SearchIcon /></n-icon></template>
+          </n-input>
+          <n-button v-if="subnet" type="primary" size="small" :disabled="_authBtn.me?.can_edit === false" @click="onAddAddress">
+            <template #icon><n-icon><PlusIcon /></n-icon></template>
+            {{ t("subnet_detail.add_address") }}
+          </n-button>
+          <n-button size="small" :type="staleFilterOn ? 'warning' : 'default'"
+                    @click="staleFilterOn = !staleFilterOn">
+            <template #icon><n-icon><MissingIcon /></n-icon></template>
+            {{ t("stale.filter_label") }}
+          </n-button>
+          <n-button v-if="subnetDhcpRanges.length" size="small"
+                    :type="onlyDhcp ? 'warning' : 'default'"
+                    @click="onlyDhcp = !onlyDhcp">
+            <template #icon><n-icon><AddressesIcon /></n-icon></template>
+            {{ t("subnets.only_dhcp") }}
+          </n-button>
+          <ColumnPicker :all="ipColumnPickerItems" :visible="ipVisibleKeys"
+                        @update:visible="setIpVisible" @reset="resetIpVisible" />
+          <ExportButton v-if="subnet" size="small" :columns="ipColumns" :rows="addresses"
+                        :filename="`ip-${subnet.cidr.replace('/', '_')}`"
+                        :title="`${t('addresses.ip_list_title')} ${subnet.cidr}`" />
+          <n-button @click="load(subnet.id)" :loading="loading">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("common.refresh") }}
+          </n-button>
+        </n-space>
         <!-- 失聯 IP 篩選：按下表頭「只看失聯 IP」才展開 -->
         <div v-if="staleFilterOn" class="stale-bar">
           <div class="stale-row">

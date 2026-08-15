@@ -81,5 +81,8 @@ class DeviceRead(DeviceBase):
     # 多開一個欄位只會多一份要人維護、而且會過期的真相。名稱對得到 virtual_machines
     # 就是虛擬 —— 與關係圖用來接 VM 的判斷同一套。
     is_virtual: bool = False
+    # 虛擬化對應明細（顯示用）：{vm, cluster, platform}；None＝比對不到，
+    # **不代表實體機**（整合可能沒涵蓋）
+    virt_vm: dict | None = None
     created_at: datetime
     updated_at: datetime

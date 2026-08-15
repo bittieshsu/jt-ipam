@@ -1133,7 +1133,9 @@
     "role_auto_added_hint": "這筆位址是由 {src} 自動建立的，沒有人手動登記過。請確認它是否為預期中的設備 —— 自動收錄之後，它就不會再被「未授權 IP」偵測列出來。",
     "fw_title": "防火牆規則（明確涵蓋此 IP 的 {n} 條）",
     "fw_aliases": "所屬別名",
-    "fw_any_note": "來源或目的為 any 的規則也適用於此 IP，未列出。"
+    "fw_any_note": "來源或目的為 any 的規則也適用於此 IP，未列出。",
+    "virt": "虛實",
+    "virt_vm_tag": "虛擬機"
   },
   "subnets": {
     "title": "子網路",
@@ -1329,7 +1331,8 @@
     "virtual": "虛擬",
     "physical": "實體",
     "filter_subnet": "子網路",
-    "filter_subnet_all": "全部子網路"
+    "filter_subnet_all": "全部子網路",
+    "vm_tag": "虛擬機"
   },
   "locations": {
     "site": "場域",
@@ -3311,7 +3314,10 @@
     "ack_btn": "認領",
     "acked": "已認領",
     "ack_title": "認領這筆異動",
-    "ack_ph": "說明（例：開放 443 對應工單 #123）"
+    "ack_ph": "說明（例：開放 443 對應工單 #123）",
+    "d_add": "新增",
+    "d_del": "移除",
+    "d_chg": "修改"
   },
   "surface": {
     "title": "對外開放服務清單",

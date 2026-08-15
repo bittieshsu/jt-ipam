@@ -380,12 +380,13 @@ onUnmounted(() => {
           <span>{{ t("nav.tasks") }}</span>
         </n-space>
       </template>
-      <template #header-extra>
+      <!-- 控制列：自標題列搬到內文最上方 -->
+      <n-space align="center" justify="end" style="margin-bottom: 10px">
         <n-button size="small" @click="() => { fetchActive(); fetchHistory(); }">
           <template #icon><n-icon><RefreshIcon /></n-icon></template>
           {{ t("common.refresh") }}
         </n-button>
-      </template>
+      </n-space>
 
       <n-tabs type="line" animated>
         <n-tab-pane name="active">

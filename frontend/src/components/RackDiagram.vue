@@ -313,8 +313,9 @@ const cells = computed<Cell[]>(() => {
 <template>
   <n-card v-if="diagram" class="rack-diagram-card" :class="{ 'rd-compact': compact, 'rd-bare': bare }"
           :bordered="!bare" :title="bare ? undefined : `${t('nav.racks')}: ${diagram.name} (${diagram.u_height}U)`">
-    <template v-if="controls" #header-extra>
-      <div style="display:flex; align-items:center; gap:8px">
+    <n-space vertical :size="12">
+      <!-- 控制列：自標題列搬到內文最上方 -->
+      <n-space v-if="controls" align="center" justify="end" style="margin-bottom: 10px">
         <n-button-group size="tiny">
           <n-button :type="faceView === 'front' ? 'primary' : 'default'" @click="faceView = 'front'">
             {{ t("racks.face_front") }}
@@ -329,9 +330,7 @@ const cells = computed<Cell[]>(() => {
             {{ t("common.export") }}
           </n-button>
         </n-dropdown>
-      </div>
-    </template>
-    <n-space vertical :size="12">
+      </n-space>
       <n-alert
         v-if="diagram.conflicts.length > 0"
         type="warning"

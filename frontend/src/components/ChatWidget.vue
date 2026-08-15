@@ -335,7 +335,8 @@ async function removeConversation(id: string) {
           </n-tooltip>
         </n-space>
       </template>
-      <template #header-extra>
+      <!-- 控制列：自標題列搬到內文最上方 -->
+      <n-space align="center" justify="end" style="margin-bottom: 10px">
         <div class="chat-actions">
           <!-- 三顆動作鈕收進一個有外框 + 分隔線的分段控制，明顯看得出是按鈕 -->
           <div class="chat-seg">
@@ -356,7 +357,7 @@ async function removeConversation(id: string) {
             <template #icon><n-icon :size="18"><CancelIcon /></n-icon></template>
           </n-button>
         </div>
-      </template>
+      </n-space>
 
       <div v-if="showHistory" class="chat-history">
         <n-spin v-if="historyLoading" size="small" style="margin: 8px" />

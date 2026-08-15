@@ -50,19 +50,20 @@ function renderDiff(row: Change) {
     return h("span", { style: "opacity:.65" }, t("fw_changes.baseline"));
   }
   const d = row.diff!;
-  const blocks: any[] = [];
-  const mk = (label: string, color: string, rows: string[]) => rows.length
-    ? h("div", { style: "margin: 2px 0" }, [
-        h("span", { style: `color:${color};font-weight:600;margin-right:6px` }, label),
-        h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
-          rows.map((x) => h("div", null, x))),
-      ]) : null;
-  blocks.push(mk("＋", "#d03050", (d.added ?? []).map(ruleLine)));
-  blocks.push(mk("－", "#888", (d.removed ?? []).map(ruleLine)));
-  blocks.push(mk("Δ", "#f0a020", (d.changed ?? []).map(
-    (c: any) => `${c.descr || c.key}：${(c.fields ?? []).map(
-      (f: string) => `${f} ${c.old?.[f] ?? ""} → ${c.new?.[f] ?? ""}`).join("、")}`)));
-  return h("div", null, blocks.filter(Boolean));
+  // 每一列＝一條規則：小型彩色標籤（新增/移除/修改）與規則文字**同一行**——
+  // 原本紅色「＋」自己佔一行、規則文字掉到下一行，看起來像排版壞掉（使用者截圖）。
+  const line = (tagText: string, tagType: "error" | "default" | "warning", text: string) =>
+    h("div", { style: "display:flex;align-items:baseline;gap:6px;font-size:12.5px;line-height:1.7" }, [
+      h(NTag, { size: "tiny", type: tagType, style: "flex:none" }, { default: () => tagText }),
+      h("span", null, text),
+    ]);
+  const rows: any[] = [];
+  for (const r of (d.added ?? [])) rows.push(line(t("fw_changes.d_add"), "error", ruleLine(r)));
+  for (const r of (d.removed ?? [])) rows.push(line(t("fw_changes.d_del"), "default", ruleLine(r)));
+  for (const c of (d.changed ?? [])) rows.push(line(t("fw_changes.d_chg"), "warning",
+    `${c.descr || c.key}：${(c.fields ?? []).map(
+      (f: string) => `${f} ${c.old?.[f] ?? ""} → ${c.new?.[f] ?? ""}`).join("、")}`));
+  return h("div", { style: "display:flex;flex-direction:column;gap:3px;padding:4px 0" }, rows);
 }
 
 /** AI 解讀：偵測是確定性的，解讀層按需觸發 —— 帶上目標位址的全系統整合證據。 */
@@ -126,12 +127,13 @@ const cols: DataTableColumns<Change> = autoSort([
         <span>{{ t("fw_changes.title") }}</span>
       </n-space>
     </template>
-    <template #header-extra>
+    <!-- 控制列：自標題列搬到內文最上方 -->
+    <n-space align="center" justify="end" style="margin-bottom: 10px">
       <n-button size="small" :loading="loading" @click="load">
         <template #icon><n-icon><RefreshIcon /></n-icon></template>
         {{ t("common.refresh") }}
       </n-button>
-    </template>
+    </n-space>
     <n-alert type="info" :bordered="false" style="margin-bottom: 12px">
       {{ t("fw_changes.hint") }}
     </n-alert>

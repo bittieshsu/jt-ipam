@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.182] — 2026-08-15
+
+### Changed
+- **Site-wide layout rule: card headers hold no controls.** Buttons, dropdowns, inputs and column pickers moved from card header rows into a toolbar at the top of the card body across 23 views/components (racks, section/subnet/device/customer detail, IP requests, topology, tasks, notifications, API tokens, AI review, chat history, rule changes, dashboard widgets, IP detail and more). Behaviour and permission conditions untouched — only the position changed. Verified by a browser sweep: 13 main pages with zero header controls, no blank pages, no JS errors.
+- Firewall rule-change diffs: the red "+" no longer sits on its own line — small coloured tags (added/removed/changed) now share the line with the rule text.
+
+### Added
+- **IP and device cards show virtual/physical.** Correlated with the virtualisation integrations (Proxmox/VMware): when an IP or MAC matches a VM interface, a "Virtual machine" tag appears with the VM name and cluster; devices are matched three ways — name, primary IP, and port MACs (a renamed VM still matches by IP/MAC). **No match shows nothing** — the integration may simply not cover that host; "unknown" is not "physical", and asserting otherwise would mislead (pinned by a test).
+
 ## [0.5.181] — 2026-08-15
 
 ### Changed (a round of hands-on feedback on the exposed-services page)

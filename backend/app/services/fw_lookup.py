@@ -280,3 +280,35 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
         })
 
     return items[:500]
+
+
+async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
+                       macs: list[str] | None = None) -> dict[str, Any] | None:
+    """這個 IP／這些 MAC 是不是虛擬化平台回報的某台 VM。
+
+    對應鏈：VMInterface.primary_ip == ip，或 VMInterface.mac ∈ macs。
+    比對得到才回 {vm, cluster, platform}；比對不到回 None ——
+    **比對不到不代表是實體機**（虛擬化整合可能沒涵蓋），呼叫端不得反向斷言。
+    多筆命中（同 IP 多張網卡）取第一筆即可，都是同一台 VM 的機率遠大於誤配。
+    """
+    from app.models.virt import VirtCluster, VirtualMachine, VMInterface
+
+    conds = []
+    if ip:
+        conds.append(VMInterface.primary_ip == ip)
+    if macs:
+        conds.append(VMInterface.mac.in_(macs))
+    if not conds:
+        return None
+    from sqlalchemy import or_
+    row = (await session.execute(
+        select(VMInterface, VirtualMachine)
+        .join(VirtualMachine, VMInterface.vm_id == VirtualMachine.id)
+        .where(or_(*conds)).limit(1))).first()
+    if row is None:
+        return None
+    vm = row[1]
+    cluster = await session.get(VirtCluster, vm.cluster_id)
+    return {"vm": vm.name,
+            "cluster": cluster.name if cluster else None,
+            "platform": cluster.type if cluster else "proxmox"}

@@ -1133,7 +1133,9 @@
     "role_auto_added_hint": "This address was created automatically by {src}; nobody registered it by hand. Check that the device is meant to be there — once it is recorded, it no longer shows up in unauthorised-IP detection.",
     "fw_title": "Firewall rules ({n} explicitly covering this IP)",
     "fw_aliases": "Member of aliases",
-    "fw_any_note": "Rules with any as source or destination also apply; they are not listed."
+    "fw_any_note": "Rules with any as source or destination also apply; they are not listed.",
+    "virt": "Virtualisation",
+    "virt_vm_tag": "Virtual machine"
   },
   "subnets": {
     "title": "Subnets",
@@ -1329,7 +1331,8 @@
     "virtual": "Virtual",
     "physical": "Physical",
     "filter_subnet": "Subnet",
-    "filter_subnet_all": "All subnets"
+    "filter_subnet_all": "All subnets",
+    "vm_tag": "VM"
   },
   "locations": {
     "site": "Site",
@@ -3311,7 +3314,10 @@
     "ack_btn": "Acknowledge",
     "acked": "Acknowledged",
     "ack_title": "Acknowledge this change",
-    "ack_ph": "Note (e.g. opened 443 per ticket #123)"
+    "ack_ph": "Note (e.g. opened 443 per ticket #123)",
+    "d_add": "added",
+    "d_del": "removed",
+    "d_chg": "changed"
   },
   "surface": {
     "title": "Exposed services list",

@@ -413,6 +413,16 @@ async def get_device(
     d.is_virtual = bool(await session.scalar(
         select(_VM.id).where(func.lower(_VM.name) == (obj.name or "").strip().lower()).limit(1)
     ))
+    # 虛擬化對應明細：名稱比對之外，再用主 IP 與連接埠 MAC 對 VM 網卡 ——
+    # 改過名的 VM 名稱比對不到，IP/MAC 仍然對得到
+    from app.models.physical import DevicePort
+    from app.services.fw_lookup import vm_match_for
+    macs = [str(m) for (m,) in (await session.execute(
+        select(DevicePort.mac_address).where(DevicePort.device_id == obj.id,
+                                             DevicePort.mac_address.is_not(None)).limit(10))).all()]
+    d.virt_vm = await vm_match_for(session, ip=d.ip, macs=macs or None)
+    if d.virt_vm:
+        d.is_virtual = True
     return d
 
 

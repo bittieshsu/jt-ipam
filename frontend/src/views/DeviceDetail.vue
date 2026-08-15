@@ -282,6 +282,14 @@ onMounted(() => {
             <n-icon :size="22"><DevicesIcon /></n-icon>
             <span>{{ device.name }}</span>
             <n-tag :type="typeColor(device.type)" size="small">{{ t(`devices.type_${device.type}`) }}</n-tag>
+            <!-- 虛實：由虛擬化整合對應（名稱／IP／MAC 對到 VM）。對不到不標——不知道≠實體機 -->
+            <n-tooltip v-if="(device as any).virt_vm" trigger="hover">
+              <template #trigger>
+                <n-tag type="info" size="small">{{ t("devices.vm_tag") }}</n-tag>
+              </template>
+              {{ (device as any).virt_vm.vm }} @ {{ (device as any).virt_vm.cluster || (device as any).virt_vm.platform }}
+            </n-tooltip>
+            <n-tag v-else-if="device.is_virtual" type="info" size="small">{{ t("devices.vm_tag") }}</n-tag>
             <!-- 這台是不是 DHCP 伺服器，是由它名下的 IP 帶的旗標決定的；
                  只在 IP 那層顯示的話，看裝置時完全不知道它扮演這個角色。 -->
             <n-tooltip v-if="dhcpServerIps.length" trigger="hover">
@@ -295,28 +303,27 @@ onMounted(() => {
             </n-tooltip>
           </n-space>
         </template>
-        <template #header-extra>
-          <n-space :size="8">
-            <n-button type="primary" size="small" @click="editShow = true">
-              <template #icon><n-icon><EditIcon /></n-icon></template>
-              {{ t("common.edit") }}
-            </n-button>
-            <!-- 刪除放在詳細資料頁：從清單點進來看完之後要刪，不該再退回清單找那一列 -->
-            <n-popconfirm @positive-click="removeDevice">
-              <template #trigger>
-                <n-button type="error" ghost size="small" :loading="deleting">
-                  <template #icon><n-icon><DeleteIcon /></n-icon></template>
-                  {{ t("common.delete") }}
-                </n-button>
-              </template>
-              {{ t("common.confirm_delete") }}
-            </n-popconfirm>
-            <n-button @click="router.push({ name: 'devices' })" size="small">
-              <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
-              {{ t("common.back") }}
-            </n-button>
-          </n-space>
-        </template>
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+        <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <n-button type="primary" size="small" @click="editShow = true">
+            <template #icon><n-icon><EditIcon /></n-icon></template>
+            {{ t("common.edit") }}
+          </n-button>
+          <!-- 刪除放在詳細資料頁：從清單點進來看完之後要刪，不該再退回清單找那一列 -->
+          <n-popconfirm @positive-click="removeDevice">
+            <template #trigger>
+              <n-button type="error" ghost size="small" :loading="deleting">
+                <template #icon><n-icon><DeleteIcon /></n-icon></template>
+                {{ t("common.delete") }}
+              </n-button>
+            </template>
+            {{ t("common.confirm_delete") }}
+          </n-popconfirm>
+          <n-button @click="router.push({ name: 'devices' })" size="small">
+            <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
+            {{ t("common.back") }}
+          </n-button>
+        </n-space>
         <div class="dev-head-row">
           <div class="dev-head-info">
         <n-descriptions bordered :column="3" size="small" label-placement="left">
@@ -375,20 +382,19 @@ onMounted(() => {
       <DevicePowerPortsPanel v-if="device" :device-id="device.id" :device-name="device.name" :admin="isAdmin" />
 
       <n-card v-if="device" :title="() => cardHead(AddressesIcon, `${t('addresses.ip_list_title')} (${addresses.length})`)">
-        <template #header-extra>
-          <n-space>
-            <n-button size="small" type="primary" @click="openLinkIp">
-              <template #icon><n-icon><LinkIcon /></n-icon></template>
-              {{ t("devices.link_ip") }}
-            </n-button>
-            <ColumnPicker size="small" :all="ipColumnPickerItems" :visible="ipVisibleKeys"
-                          @update:visible="setIpVisible" @reset="resetIpVisible" />
-            <n-button size="small" @click="load(device.id)" :loading="loading">
-              <template #icon><n-icon><RefreshIcon /></n-icon></template>
-              {{ t("common.refresh") }}
-            </n-button>
-          </n-space>
-        </template>
+<!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
+        <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <n-button size="small" type="primary" @click="openLinkIp">
+            <template #icon><n-icon><LinkIcon /></n-icon></template>
+            {{ t("devices.link_ip") }}
+          </n-button>
+          <ColumnPicker size="small" :all="ipColumnPickerItems" :visible="ipVisibleKeys"
+                        @update:visible="setIpVisible" @reset="resetIpVisible" />
+          <n-button size="small" @click="load(device.id)" :loading="loading">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("common.refresh") }}
+          </n-button>
+        </n-space>
         <n-data-table
           :columns="ipColumns"
           :data="addresses"
