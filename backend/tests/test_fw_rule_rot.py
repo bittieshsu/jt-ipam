@@ -166,3 +166,68 @@ async def test_ack_flow(client, auth_headers, db_session) -> None:
     r = await client.get("/api/v1/anomalies/fw-rule-changes", headers=auth_headers)
     item = next(i for i in r.json()["items"] if i["id"] == str(rows[1].id))
     assert item["ack"] and "工單 #123" in item["ack"]["note"]
+
+
+@pytest.mark.anyio
+async def test_attack_surface_lists_only_determinable_entries(db_session) -> None:
+    """攻擊面盤點：只列明確可判定的對外開口，未登錄目標要標紅旗。
+
+    稽核拿去簽名的清單不能有猜的成分 —— 目的為別名／any／網段的 WAN 規則不列。
+    """
+    from app.models.address import IPAddress
+    from app.models.pfsense import PfSenseFirewall
+    from app.models.section import Section
+    from app.models.subnet import Subnet
+    from app.services.fw_lookup import attack_surface
+
+    sec = Section(name=f"s-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    sub = Subnet(section_id=sec.id, cidr="198.51.100.0/24")
+    db_session.add(sub)
+    await db_session.flush()
+    ipa = IPAddress(subnet_id=sub.id, ip="198.51.100.7", state="used", hostname="web-a")
+    db_session.add(ipa)
+    await db_session.flush()
+
+    db_session.add_all([
+        NATTranslation(name="pf-web", type="port_forward", protocol="tcp",
+                       dst_ip_id=ipa.id, dst_port=443,
+                       source_origin="pfsense:x", disabled=False),
+        NATTranslation(name="pf-mystery", type="port_forward", protocol="tcp",
+                       dst_port=8443, source_origin="pfsense:x", disabled=False),
+        NATTranslation(name="pf-off", type="port_forward", protocol="tcp",
+                       dst_port=22, source_origin="pfsense:x", disabled=True),
+    ])
+    fw = PfSenseFirewall(name=f"pf-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.2",
+                         api_key_enc=b"x", api_key_nonce=b"y",
+                         rules=[
+                             {"tracker": "r1", "type": "pass", "interface": "wan",
+                              "protocol": "tcp", "source": "any",
+                              "destination": "198.51.100.7", "destination_port": "443",
+                              "descr": "wan rule", "disabled": False},
+                             {"tracker": "r2", "type": "pass", "interface": "wan",
+                              "protocol": "tcp", "source": "any",
+                              "destination": "web_alias", "destination_port": "80",
+                              "descr": "alias dst", "disabled": False},
+                             {"tracker": "r3", "type": "pass", "interface": "lan",
+                              "protocol": "tcp", "source": "any",
+                              "destination": "198.51.100.8", "destination_port": "80",
+                              "descr": "lan rule", "disabled": False},
+                         ])
+    db_session.add(fw)
+    await db_session.flush()
+
+    items = await attack_surface(db_session)
+    names = {i["name"] for i in items}
+    assert "pf-web" in names
+    assert "pf-mystery" in names, "懸空轉發是紅旗，更要列"
+    assert "pf-off" not in names, "停用的不在攻擊面上"
+    web = next(i for i in items if i["name"] == "pf-web")
+    assert web["identity"]["registered"] and web["identity"]["hostname"] == "web-a"
+    mystery = next(i for i in items if i["name"] == "pf-mystery")
+    assert mystery["identity"]["registered"] is False, "未登錄目標要標出來"
+    descrs = {i.get("descr") for i in items}
+    assert "wan rule" in descrs
+    assert "alias dst" not in descrs, "別名目的不可展開猜測"
+    assert "lan rule" not in descrs, "LAN 規則不是對外攻擊面"

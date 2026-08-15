@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.179] — 2026-08-15
+
+### Added
+- **An "Attack surface" inventory page** (next to firewall rule changes; for admins and read-all accounts with global read — auditors are exactly its audience). It aggregates what is reachable from outside — enabled NAT port forwards plus WAN permits whose destination is a single IP — each entry with its IPAM identity (hostname, customer/subnet, Wazuh agent presence, live status). **"Unregistered" is flagged in red**: an external opening pointing at a host IPAM does not know is a red flag in itself. Anomaly detection's external-exposure check finds problems; this page is the inventory an audit asks for first. Rules whose destination is an alias / any / a network are **not expanded by guesswork** (a list an auditor signs must contain nothing guessed) — the page states its scope plainly.
+
 ## [0.5.178] — 2026-08-15
 
 ### Added (three applications of the synced firewall rules)

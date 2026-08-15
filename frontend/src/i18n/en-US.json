@@ -296,7 +296,8 @@
     "virt_pve": "Virtualization (Proxmox VE)",
     "virt_vmware": "Virtualization (VMware)",
     "esxi_admin": "VMware",
-    "fw_rule_changes": "Firewall rule changes"
+    "fw_rule_changes": "Firewall rule changes",
+    "attack_surface": "Attack surface"
   },
   "topbar": {
     "search": "Search…",
@@ -3311,5 +3312,19 @@
     "acked": "Acknowledged",
     "ack_title": "Acknowledge this change",
     "ack_ph": "Note (e.g. opened 443 per ticket #123)"
+  },
+  "surface": {
+    "title": "Attack surface",
+    "target": "Target",
+    "via": "Via",
+    "protocol": "Protocol",
+    "owner": "Customer / subnet",
+    "status": "Live status",
+    "descr": "Description",
+    "rule": "rule",
+    "unregistered": "unregistered",
+    "no_agent": "no agent",
+    "hint": "An inventory of externally reachable IPs and ports, each with its IPAM identity. “Unregistered” means an external opening points at a host IPAM does not know — a red flag in itself.",
+    "empty": "No determinable external openings (or no firewall integrated yet)."
   }
 }

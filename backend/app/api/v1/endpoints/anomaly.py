@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_admin
+from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.services.anomaly import run_detection
@@ -184,4 +184,22 @@ async def fw_rule_change_ack(
         diff={"snapshot": str(snapshot_id), "note": snap.ack_note})
     await session.commit()
     return {"ok": True, "at": snap.ack_at.isoformat()}
+
+@router.get("/attack-surface")
+async def get_attack_surface(
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _gr: Annotated[None, Depends(require_global_read)],
+) -> dict[str, Any]:
+    """對外攻擊面盤點（require_global_read：稽核員這類萬用唯讀帳號正是它的受眾）。
+
+    只列明確可判定的對外開口；目的是別名／any／網段的規則不展開猜測 ——
+    稽核拿去簽名的清單不能有猜的成分。
+    """
+    from app.services.fw_lookup import attack_surface
+
+    items = await attack_surface(session)
+    return {"items": items,
+            "note": "僅列明確可判定的對外開口（NAT 轉發與目的為單一 IP 的 WAN 放行）；"
+                    "目的為別名／any／網段的規則未展開，FortiGate 待逐家驗證後納入。"}
 

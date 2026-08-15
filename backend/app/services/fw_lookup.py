@@ -157,3 +157,117 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
             })
 
     return out
+
+
+async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
+    """對外攻擊面清單：從外面可達的 IP:port，每項配 IPAM 身分。
+
+    異常偵測的「對外曝險」是抓問題；這裡是**盤點** —— 資安稽核第一個要的東西。
+    保守原則同規則腐化：**只列明確可判定的**——
+    - NAT port forward（生效中）：目標經 dst_ip_id 連結，或本來就懸空（那本身是紅旗）。
+    - WAN 介面上、目的為單一 IP 的放行規則（pfSense JSONB＋OPNsense 規則表）。
+    - 目的是別名／any／網段的規則**不列**：展開猜測會產生假清單，假清單比沒有更危險
+      （稽核拿去簽名的東西不能有猜的成分）。FortiGate 欄位語意逐家驗證後再納入。
+    """
+    from app.models.address import IPAddress
+    from app.models.customer import Customer
+    from app.models.firewall import OPNsenseFirewall
+    from app.models.firewall_rule import OPNsenseRule
+    from app.models.nat import NATTranslation
+    from app.models.pfsense import PfSenseFirewall
+    from app.models.subnet import Subnet
+    from app.models.wazuh import WazuhAgent
+
+    items: list[dict[str, Any]] = []
+
+    async def identity(ip_str: str | None, ip_id: Any = None) -> dict[str, Any]:
+        """目標的 IPAM 身分。未登錄不是省略，是紅旗 —— 對外開口指向不明主機。"""
+        ipa = None
+        if ip_id is not None:
+            ipa = await session.get(IPAddress, ip_id)
+        elif ip_str:
+            ipa = (await session.execute(
+                select(IPAddress).where(IPAddress.ip == ip_str).limit(1))).scalars().first()
+        if ipa is None:
+            return {"registered": False}
+        sub = await session.get(Subnet, ipa.subnet_id)
+        cust = (await session.get(Customer, sub.customer_id)) if (sub and sub.customer_id) else None
+        wa = (await session.execute(
+            select(WazuhAgent).where(WazuhAgent.ip == str(ipa.ip)).limit(1))).scalars().first()
+        return {
+            "registered": True, "ip": str(ipa.ip),
+            "hostname": ipa.hostname, "status": ipa.effective_status,
+            "subnet": str(sub.cidr) if sub else None,
+            "customer": cust.name if cust else None,
+            "wazuh": None if wa is None else (wa.status or "present"),
+        }
+
+    # ── NAT port forwards（三家共用的正規化表）──
+    for n in (await session.execute(
+            select(NATTranslation).where(
+                NATTranslation.type == "port_forward",
+                NATTranslation.disabled.is_(False)).limit(300))).scalars().all():
+        ident = await identity(None, n.dst_ip_id) if n.dst_ip_id else {"registered": False}
+        items.append({
+            "via": "nat", "source": (n.source_origin or "manual").split(":")[0],
+            "name": n.name, "protocol": n.protocol,
+            "port": n.dst_port, "descr": (n.description or "")[:120],
+            "identity": ident,
+        })
+
+    # ── WAN 放行規則、目的為單一 IP ──
+    def _single_ip(v: Any) -> str | None:
+        if isinstance(v, dict):
+            for x in v.values():
+                r = _single_ip(x)
+                if r:
+                    return r
+            return None
+        t = str(v or "").strip()
+        if not t or "/" in t or t.lower() in ("any", "*", "all"):
+            return None
+        try:
+            ipaddress.ip_address(t)
+        except ValueError:
+            return None
+        return t
+
+    for fw in (await session.execute(
+            select(PfSenseFirewall).where(PfSenseFirewall.rules.is_not(None)))).scalars().all():
+        for r in (fw.rules or []):
+            if not isinstance(r, dict) or r.get("disabled"):
+                continue
+            if str(r.get("type") or "").lower() not in ("pass", "match"):
+                continue
+            if "wan" not in str(r.get("interface") or "").lower():
+                continue
+            target = _single_ip(r.get("destination"))
+            if not target:
+                continue
+            items.append({
+                "via": "rule", "source": "pfsense", "name": fw.name,
+                "protocol": r.get("protocol"), "port": str(r.get("destination_port") or ""),
+                "descr": (r.get("descr") or "")[:120],
+                "identity": await identity(target),
+            })
+
+    opn_names = {f.id: f.name for f in (await session.execute(
+        select(OPNsenseFirewall))).scalars().all()}
+    for r in (await session.execute(
+            select(OPNsenseRule).where(OPNsenseRule.enabled.is_(True)))).scalars().all():
+        if "wan" not in str(r.interface or "").lower():
+            continue
+        if str(r.action or "").lower() not in ("pass", "accept"):
+            continue
+        target = _single_ip(r.destination_net)
+        if not target:
+            continue
+        items.append({
+            "via": "rule", "source": "opnsense",
+            "name": opn_names.get(r.firewall_id, "?"),
+            "protocol": r.protocol, "port": str(getattr(r, "destination_port", "") or ""),
+            "descr": (r.description or "")[:120],
+            "identity": await identity(target),
+        })
+
+    return items[:500]
