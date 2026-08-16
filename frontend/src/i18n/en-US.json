@@ -2498,7 +2498,7 @@
     "check_latest": "Check latest on GitHub",
     "update_available": "Update available: v{v}",
     "up_to_date": "Up to date",
-    "releases": "Go to Releases",
+    "releases": "Open the GitHub project",
     "check_failed": "Could not reach GitHub to check",
     "packages": "Packages",
     "packages_hint": "Key packages actually installed on the backend.",
@@ -3339,6 +3339,7 @@
     "unregistered": "unregistered",
     "no_agent": "no agent",
     "hint": "An inventory of externally reachable IPs and ports, each with its IPAM identity. “Unregistered” means an external opening points at a host IPAM does not know — a red flag in itself.",
+    "scope_note": "Only unambiguous openings are listed (NAT forwards and WAN passes targeting a single IP); rules targeting aliases / any / networks are not expanded; FortiGate sources join once verified per vendor.",
     "empty": "No determinable external openings (or no firewall integrated yet).",
     "col_ip": "IP",
     "col_port": "Port",
@@ -3359,6 +3360,7 @@
     "all_owner": "All customers",
     "paired": "paired",
     "paired_tip": "The same target IP and port has both a NAT forward and a permit rule — they belong together (port forwards usually carry an associated rule).",
+    "paired_with": "Paired with:",
     "st_online": "online",
     "st_offline": "offline"
   }

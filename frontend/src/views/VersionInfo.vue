@@ -222,5 +222,6 @@ onMounted(load);
 .ver-pkg__ver {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px; font-weight: 600;
+  white-space: nowrap; flex: none;   /* 「已安裝」這類狀態字不可折行（使用者回饋） */
 }
 </style>

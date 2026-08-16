@@ -1001,10 +1001,18 @@ def _gather_version_info() -> dict[str, Any]:
 
     # 後端 Python 套件（含連線管理用：asyncssh〔SSH〕、aardwolf〔RDP/VNC，選用〕、
     #                    websockets〔PVE noVNC/xterm 主控台代理〕、Pillow）
+    # 完整列出 pyproject 的執行期相依（使用者要求核對「有沒有沒顯示出來的」）——
+    # 新增相依時記得同步這份清單（TEST_CHECKLIST 手動點檢版本頁時會對照）。
     pkgs = [
-        "fastapi", "starlette", "sqlalchemy", "pydantic", "asyncpg", "alembic",
-        "uvicorn", "httpx", "redis", "argon2-cffi", "cryptography", "defusedxml",
-        "authlib", "mcp", "asyncssh", "aardwolf", "websockets", "pillow",
+        "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic-settings",
+        "asyncpg", "alembic", "uvicorn", "httpx", "redis", "celery",
+        "argon2-cffi", "cryptography", "defusedxml", "pyjwt", "pyotp",
+        "python-multipart", "email-validator",
+        "authlib", "python3-saml", "ldap3", "pyrad",
+        "pymysql", "asyncssh", "dnspython", "pywinrm", "geoip2",
+        "strawberry-graphql", "pgvector", "mcp",
+        "aardwolf", "websockets", "pillow",
+        "structlog", "python-json-logger",
     ]
     versions: dict[str, str | None] = {}
     for p in pkgs:
@@ -1088,12 +1096,15 @@ async def get_version_info() -> dict[str, Any]:
     # 在這裡露出來，管理員才不用等使用者回報「按了沒反應」才發現缺套件。
     from app.services.netdiag import tool_availability
     caps = tool_availability()
+    # traceroute 是路徑追蹤的主力（ICMP；v0.5.185 起優先）、tracepath 只是退路——
+    # 分開列，缺主力時管理員才知道該補哪個套件。
     info["host"]["optional_tools"] = {
         "ping": {"present": caps["ping"], "package": "iputils-ping",
                  "used_by": "Tools → IP addresses → ping"},
-        "tracepath": {"present": caps["tracepath"] or caps["traceroute"],
-                      "package": "iputils-tracepath",
-                      "used_by": "Tools → IP addresses → traceroute"},
+        "traceroute": {"present": caps["traceroute"], "package": "traceroute",
+                       "used_by": "Tools → IP addresses → traceroute"},
+        "tracepath": {"present": caps["tracepath"], "package": "iputils-tracepath",
+                      "used_by": "traceroute fallback"},
     }
     return info
 
@@ -1168,7 +1179,8 @@ async def check_latest_version() -> dict[str, Any]:
         "latest": latest,
         # 只有「數字序確實比現行新」才算有更新（修 0.4.79>0.4.199 的字串比較 bug）
         "update_available": bool(latest and _ver_tuple(latest) > _ver_tuple(__version__)),
-        "release_url": f"https://github.com/{_GITHUB_REPO}/releases",
+        # 專案不建 GitHub release，/releases 是空頁 → 連去專案首頁
+        "release_url": f"https://github.com/{_GITHUB_REPO}",
         "error": error,
     }
 

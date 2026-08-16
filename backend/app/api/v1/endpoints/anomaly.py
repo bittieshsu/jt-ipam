@@ -199,7 +199,7 @@ async def get_attack_surface(
     from app.services.fw_lookup import attack_surface
 
     items = await attack_surface(session)
-    return {"items": items,
-            "note": "僅列明確可判定的對外開口（NAT 轉發與目的為單一 IP 的 WAN 放行）；"
-                    "目的為別名／any／網段的規則未展開；FortiGate 待各廠牌逐一驗證後納入。"}
+    # 範圍說明由前端 i18n 提供（surface.scope_note）——後端硬寫中文會讓英文介面
+    # 冒出中文（使用者截圖）。
+    return {"items": items}
 

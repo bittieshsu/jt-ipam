@@ -198,6 +198,9 @@ async def test_attack_surface_lists_only_determinable_entries(db_session) -> Non
                        dst_port=8443, source_origin="pfsense:x", disabled=False),
         NATTranslation(name="pf-off", type="port_forward", protocol="tcp",
                        dst_port=22, source_origin="pfsense:x", disabled=True),
+        # 目標 IP 與埠都不明（OPNsense Anti-Lockout 這類自動規則）→ 不可判定，不列
+        NATTranslation(name="anti-lockout-like", type="port_forward", protocol="tcp",
+                       source_origin="opnsense:x", disabled=False),
     ])
     fw = PfSenseFirewall(name=f"pf-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.2",
                          api_key_enc=b"x", api_key_nonce=b"y",
@@ -223,6 +226,7 @@ async def test_attack_surface_lists_only_determinable_entries(db_session) -> Non
     assert "pf-web" in names
     assert "pf-mystery" in names, "懸空轉發是警訊，更要列"
     assert "pf-off" not in names, "停用的不在攻擊面上"
+    assert "anti-lockout-like" not in names, "IP 與埠都不明＝不可判定，列了只是噪音"
     web = next(i for i in items if i["name"] == "pf-web")
     assert web["identity"]["registered"] and web["identity"]["hostname"] == "web-a"
     mystery = next(i for i in items if i["name"] == "pf-mystery")

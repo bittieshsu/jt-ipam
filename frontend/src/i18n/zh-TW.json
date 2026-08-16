@@ -2498,7 +2498,7 @@
     "check_latest": "檢查 GitHub 最新版",
     "update_available": "有新版本：v{v}",
     "up_to_date": "已是最新版",
-    "releases": "前往 Releases",
+    "releases": "前往 GitHub 專案",
     "check_failed": "無法連到 GitHub 檢查版本",
     "packages": "套件版本",
     "packages_hint": "以下為後端實際安裝的主要套件版本。",
@@ -3339,6 +3339,7 @@
     "unregistered": "未登錄",
     "no_agent": "無代理",
     "hint": "從外面可達的 IP 與連接埠完整清單，每項配 IPAM 身分。「未登錄」代表對外開口指向 IPAM 沒有的主機——本身就是要查的警訊。",
+    "scope_note": "僅列明確可判定的對外開口（NAT 轉發與目的為單一 IP 的 WAN 放行）；目的為別名／any／網段的規則未展開；FortiGate 待各廠牌逐一驗證後納入。",
     "empty": "沒有可判定的對外開口（或尚未整合防火牆）。",
     "col_ip": "IP",
     "col_port": "埠",
@@ -3359,6 +3360,7 @@
     "all_owner": "全部單位",
     "paired": "配對",
     "paired_tip": "同一個目標 IP 與連接埠同時有 NAT 轉發與放行規則——它們是一組（埠轉發常帶關聯放行規則）。",
+    "paired_with": "與它配對的是：",
     "st_online": "上線",
     "st_offline": "離線"
   }

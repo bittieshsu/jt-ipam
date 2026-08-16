@@ -6,11 +6,15 @@
  * 只列明確可判定的開口；未登錄的目標用紅色標出（對外開口指向不明主機，本身就是警訊）。
  * 欄位拆開（IP／埠／主機名稱／類型／名稱／防火牆各自獨立）才能排序與比對；
  * 欄位顯示走全站的欄位偏好，來源可依防火牆廠牌篩選。
+ *
+ * ⚠️ API 回的是巢狀物件（identity.ip 等），進表格前先攤平成 Row——
+ * 欄位 key 對不到資料列的話，autoSort 的 sorter 取到的全是 undefined，
+ * 點欄位標題永遠沒反應（使用者回饋）。排序／篩選／搜尋一律吃攤平後的欄位。
  */
 import { computed, onMounted, ref, h } from "vue";
 import {
   NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NSelect, NInput,
-  useMessage, type DataTableColumns,
+  NPopover, useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { apiClient, apiErrMsg } from "@/api/client";
@@ -34,8 +38,17 @@ interface Entry {
               status?: string | null; subnet?: string | null;
               customer?: string | null; wazuh?: string | null };
 }
+/** 攤平後的表格列：欄位 key 與 column key 一一對應，排序／搜尋才有得比。 */
+interface Row {
+  ip: string | null; ip_id?: string; registered: boolean;
+  port: number | null; portText: string;
+  hostname: string | null; via: string; name: string;
+  firewall: string | null; source: string; protocol: string | null;
+  owner: string | null; wazuh: string | null;
+  status: string | null; online: boolean | null; statusSrc: string;
+  descr: string; key: string;
+}
 const items = ref<Entry[]>([]);
-const note = ref("");
 const loading = ref(false);
 
 async function load() {
@@ -43,11 +56,33 @@ async function load() {
   try {
     const { data } = await apiClient.get("/api/v1/anomalies/attack-surface");
     items.value = data.items ?? [];
-    note.value = data.note ?? "";
   } catch (e: any) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
 onMounted(load);
+
+const rows = computed<Row[]>(() => items.value.map((i) => {
+  const ident = i.identity ?? { registered: false };
+  const raw = ident.status ?? null;
+  const online = raw ? raw.toLowerCase().startsWith("online") : null;
+  const pn = Number(i.port);
+  return {
+    ip: ident.ip ?? null, ip_id: ident.ip_id, registered: !!ident.registered,
+    // 埠轉成數字才能正確排序（來源混雜 int 與字串；空字串／區間視為無埠）
+    port: i.port == null || i.port === "" || Number.isNaN(pn) ? null : pn,
+    portText: i.port == null || i.port === "" ? "" : String(i.port),
+    hostname: ident.hostname ?? null,
+    via: i.via, name: i.name || "", firewall: i.firewall, source: i.source,
+    // 協定統一大寫（NAT 同步存小寫、規則存大寫，混著顯示很刺眼——使用者回饋）
+    protocol: i.protocol ? String(i.protocol).toUpperCase() : null,
+    owner: ident.customer || ident.subnet || null,
+    wazuh: ident.wazuh ?? null,
+    status: raw ? (online ? t("surface.st_online") : t("surface.st_offline")) : null,
+    online, statusSrc: raw ? ((raw.match(/\(([^)]+)\)/)?.[1]) ?? "") : "",
+    descr: i.descr || "",
+    key: `${ident.ip ?? "?"}:${i.port ?? ""}`,
+  };
+}));
 
 // 篩選：選項一律由資料動態產生（新增廠牌／協定／單位都不必改程式）。
 // 各下拉與搜尋框是「且」的關係，疊加過濾。
@@ -60,45 +95,54 @@ const searchText = ref("");
 
 function opts(values: (string | null | undefined)[], allLabel: string) {
   const seen = [...new Set(values.filter((v): v is string => !!v))].sort();
-  return [{ label: allLabel, value: "__all__" },
-          ...seen.map((v) => ({ label: v, value: v }))];
+  return [{ label: allLabel, value: "__all__" }, ...seen.map((v) => ({ label: v, value: v }))];
 }
-const sourceOptions = computed(() => opts(items.value.map((i) => i.source), t("surface.all_sources")));
+const sourceOptions = computed(() => opts(rows.value.map((r) => r.source), t("surface.all_sources")));
 const viaOptions = computed(() => [
   { label: t("surface.all_via"), value: "__all__" },
   { label: "NAT", value: "nat" }, { label: t("surface.rule"), value: "rule" },
 ]);
-const protoOptions = computed(() => opts(items.value.map((i) => i.protocol), t("surface.all_proto")));
-const statusOptions = computed(() => opts(items.value.map((i) => i.identity.status), t("surface.all_status")));
-const ownerOptions = computed(() => opts(items.value.map((i) => i.identity.customer), t("surface.all_owner")));
+const protoOptions = computed(() => opts(rows.value.map((r) => r.protocol), t("surface.all_proto")));
+const statusOptions = computed(() => opts(rows.value.map((r) => r.status), t("surface.all_status")));
+const ownerOptions = computed(() => opts(rows.value.map((r) => r.owner), t("surface.all_owner")));
 
 // NAT ↔ 規則配對：pfSense/OPNsense 的埠轉發常帶一條關聯放行規則。
 // 同目標 IP＋同埠同時存在 NAT 列與規則列 → 兩列都標「配對」，一眼看出它們是一組。
 // 純資料比對，不猜語意；對不上的（例如規則沒寫埠）就不標。
 const pairedKeys = computed(() => {
   const nat = new Set<string>(), rule = new Set<string>();
-  for (const i of items.value) {
-    const key = `${i.identity.ip ?? "?"}:${i.port ?? ""}`;
-    (i.via === "nat" ? nat : rule).add(key);
-  }
+  for (const r of rows.value) (r.via === "nat" ? nat : rule).add(r.key);
   return new Set([...nat].filter((k) => rule.has(k)));
 });
-const isPaired = (r: Entry) => pairedKeys.value.has(`${r.identity.ip ?? "?"}:${r.port ?? ""}`);
+const isPaired = (r: Row) => pairedKeys.value.has(r.key);
+
+// 配對標籤要說得出「跟誰配對」（使用者回饋）：同鍵的其它列就是配對對象，
+// hover／點擊標籤彈出卡片列出來（類型＋名稱＋防火牆）。
+const pairMap = computed(() => {
+  const m = new Map<string, Row[]>();
+  for (const r of rows.value) {
+    if (!pairedKeys.value.has(r.key)) continue;
+    if (!m.has(r.key)) m.set(r.key, []);
+    m.get(r.key)!.push(r);
+  }
+  return m;
+});
+const counterparts = (r: Row): Row[] =>
+  (pairMap.value.get(r.key) ?? []).filter((x) => x !== r);
 
 const pick = (f: string | null, v: string | null | undefined) =>
   !f || f === "__all__" || (v ?? "") === f;
 const shown = computed(() => {
-  let out = items.value.filter((i) =>
-    pick(sourceFilter.value, i.source)
-    && pick(viaFilter.value, i.via)
-    && pick(protoFilter.value, i.protocol)
-    && pick(statusFilter.value, i.identity.status)
-    && pick(ownerFilter.value, i.identity.customer));
+  let out = rows.value.filter((r) =>
+    pick(sourceFilter.value, r.source)
+    && pick(viaFilter.value, r.via)
+    && pick(protoFilter.value, r.protocol)
+    && pick(statusFilter.value, r.status)
+    && pick(ownerFilter.value, r.owner));
   const q = searchText.value.trim().toLowerCase();
   if (q) {
-    out = out.filter((i) =>
-      [i.identity.ip, i.identity.hostname, i.name, i.descr, String(i.port ?? ""),
-       i.firewall, i.identity.customer, i.identity.subnet]
+    out = out.filter((r) =>
+      [r.ip, r.hostname, r.name, r.descr, r.portText, r.firewall, r.owner]
         .some((v) => (v ?? "").toString().toLowerCase().includes(q)));
   }
   return out;
@@ -111,56 +155,73 @@ const pickerCols = computed(() => ALL_KEYS.map((k) => ({ key: k, label: t(`surfa
 
 const allCols: Record<string, any> = {
   ip: { title: () => t("surface.col_ip"), key: "ip", width: 150,
-    render: (r: Entry) => r.identity.registered
+    render: (r: Row) => r.registered
       // IPAM 有這筆 → 點過去 IP 卡片（全站同一套 entity link）
-      ? (r.identity.ip_id
-          ? links.ipById(r.identity.ip_id, r.identity.ip ?? "")
-          : r.identity.ip)
+      ? (r.ip_id ? links.ipById(r.ip_id, r.ip ?? "") : r.ip)
       : h("span", null, ["?", h(NTag, { size: "tiny", type: "error", style: "margin-left:6px" },
           { default: () => t("surface.unregistered") })]) },
   port: { title: () => t("surface.col_port"), key: "port", width: 90,
-    render: (r: Entry) => r.port ?? "—" },
+    render: (r: Row) => r.portText || "—" },
   hostname: { title: () => t("surface.col_hostname"), key: "hostname", width: 160,
-    render: (r: Entry) => r.identity.hostname || "—" },
+    render: (r: Row) => r.hostname || "—" },
   via: { title: () => t("surface.col_via"), key: "via", width: 130,
-    render: (r: Entry) => h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
+    render: (r: Row) => h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
       r.via === "nat" ? "NAT" : t("surface.rule"),
-      isPaired(r) ? h(NTag, { size: "tiny", type: "info", bordered: false,
-                              title: t("surface.paired_tip") },
-                      { default: () => t("surface.paired") }) : null,
+      isPaired(r) ? h(NPopover, { trigger: "hover", placement: "right" }, {
+        trigger: () => h(NTag, { size: "tiny", type: "info", bordered: false,
+                                 style: "cursor: pointer" },
+                         { default: () => t("surface.paired") }),
+        default: () => h("div", { style: "max-width: 340px; font-size: 12.5px; line-height: 1.8" }, [
+          h("div", { style: "opacity:.7; margin-bottom: 2px" }, t("surface.paired_with")),
+          ...counterparts(r).map((c) => h("div",
+            { style: "display:flex;align-items:center;gap:6px" }, [
+              h(NTag, { size: "tiny", type: c.via === "nat" ? "warning" : "success",
+                        bordered: false, style: "flex:none" },
+                { default: () => c.via === "nat" ? "NAT" : t("surface.rule") }),
+              h("span", null, c.name || "—"),
+              c.firewall ? h("span", { style: "opacity:.6" }, `（${c.firewall}）`) : null,
+            ])),
+          h("div", { style: "opacity:.6; margin-top: 4px; font-size: 11.5px" },
+            t("surface.paired_tip")),
+        ]),
+      }) : null,
     ]) },
   name: { title: () => t("surface.col_name"), key: "name", width: 220,
-    ellipsis: { tooltip: true }, render: (r: Entry) => r.name || "—" },
+    ellipsis: { tooltip: true }, render: (r: Row) => r.name || "—" },
   firewall: { title: () => t("surface.col_firewall"), key: "firewall", width: 180,
-    render: (r: Entry) => h("span", null, [
+    render: (r: Row) => h("span", null, [
       h(NTag, { size: "tiny", style: "margin-right:6px" }, { default: () => r.source }),
       r.firewall || "—",
     ]) },
-  protocol: { title: () => t("surface.col_protocol"), key: "protocol", width: 90 },
+  protocol: { title: () => t("surface.col_protocol"), key: "protocol", width: 90,
+    render: (r: Row) => r.protocol || "—" },
   owner: { title: () => t("surface.col_owner"), key: "owner", width: 190,
-    render: (r: Entry) => r.identity.customer || r.identity.subnet || "—" },
+    render: (r: Row) => r.owner || "—" },
   wazuh: { title: "Wazuh", key: "wazuh", width: 110,
-    render: (r: Entry) => r.identity.registered
-      ? (r.identity.wazuh
-          ? h(NTag, { size: "tiny", type: "success" }, { default: () => r.identity.wazuh })
+    render: (r: Row) => r.registered
+      ? (r.wazuh
+          ? h(NTag, { size: "tiny", type: "success" }, { default: () => r.wazuh })
           : h("span", { style: "opacity:.6" }, t("surface.no_agent")))
       : "—" },
   status: { title: () => t("surface.col_status"), key: "status", width: 130,
-    render: (r: Entry) => {
-      const raw = r.identity.status;
-      if (!raw) return "—";
-      const online = raw.toLowerCase().startsWith("online");
-      const src = (raw.match(/\(([^)]+)\)/)?.[1]) ?? "";
+    render: (r: Row) => {
+      if (!r.status) return "—";
       return h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
-        h("i", { style: `width:8px;height:8px;border-radius:50%;flex:none;background:${online ? "#22c55e" : "#ef4444"}` }),
-        online ? t("surface.st_online") : t("surface.st_offline"),
-        src ? h("span", { style: "opacity:.55;font-size:11.5px" }, src) : null,
+        h("i", { style: `width:8px;height:8px;border-radius:50%;flex:none;background:${r.online ? "#22c55e" : "#ef4444"}` }),
+        r.status,
+        r.statusSrc ? h("span", { style: "opacity:.55;font-size:11.5px" }, r.statusSrc) : null,
       ]);
     } },
-  descr: { title: () => t("surface.col_descr"), key: "descr", ellipsis: { tooltip: true } },
+  descr: { title: () => t("surface.col_descr"), key: "descr", minWidth: 200,
+    ellipsis: { tooltip: true } },
 };
-const cols = computed<DataTableColumns<Entry>>(
+const cols = computed<DataTableColumns<Row>>(
   () => autoSort(ALL_KEYS.filter((k) => visibleKeys.value.includes(k)).map((k) => allCols[k])));
+// 表格要在卡片內水平捲動，不能溢出卡片右緣（使用者截圖）：
+// scroll-x 取「可見欄寬總和」，欄位少的時候不強撐寬度。
+const scrollX = computed(() =>
+  ALL_KEYS.filter((k) => visibleKeys.value.includes(k))
+    .reduce((sum, k) => sum + (allCols[k].width ?? allCols[k].minWidth ?? 160), 0));
 </script>
 
 <template>
@@ -172,7 +233,7 @@ const cols = computed<DataTableColumns<Entry>>(
       </n-space>
     </template>
     <n-alert type="info" :bordered="false" style="margin-bottom: 12px">
-      {{ t("surface.hint") }}<template v-if="note"><br>{{ note }}</template>
+      {{ t("surface.hint") }}<br>{{ t("surface.scope_note") }}
     </n-alert>
     <!-- 工具列與其它頁一致：放內文、不佔卡片標題列；全部 size=small 高度對齊 -->
     <n-space align="center" style="margin-bottom: 10px">
@@ -199,7 +260,8 @@ const cols = computed<DataTableColumns<Entry>>(
       </n-button>
     </n-space>
     <n-data-table :columns="cols" :data="shown" :loading="loading" size="small"
-                  :row-key="(r: Entry, i?: number) => `${r.name}-${r.port}-${i}`"
+                  :scroll-x="scrollX"
+                  :row-key="(r: Row, i?: number) => `${r.key}-${r.via}-${i}`"
                   :pagination="pg" :bordered="false" />
     <n-empty v-if="!loading && !shown.length" style="margin: 24px 0"
              :description="t('surface.empty')" />

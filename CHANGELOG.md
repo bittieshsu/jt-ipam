@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.189] — 2026-08-16
+
+### Fixed (exposed-services list, a round of hands-on feedback)
+- **Clicking column headers did nothing**: column keys pointed at nested fields (`identity.ip` etc.) so the sorters compared undefineds. Rows are now flattened before entering the table; sort/filter/search all read flat fields, and ports sort numerically (sources mix ints and strings).
+- **The table overflowed the card's right edge**: added `scroll-x` sized to the visible columns, so it scrolls inside the card.
+- **Mixed-case protocols** (tcp vs TCP): normalized to uppercase in cells and the filter dropdown.
+- **"? unregistered" noise**: NAT entries with neither a target IP nor a port (OPNsense's Anti-Lockout auto-rule and kin) are undeterminable and no longer listed; dangling forwards that do carry a port stay — those are red flags.
+- **Chinese text leaking into the English UI**: the scope note was hardcoded Chinese from the backend; it now comes from frontend i18n.
+
+### Added
+- **The "paired" tag is now interactive**: hovering pops a card listing the counterpart entries (type + name + firewall) — previously the tag never said what it paired with.
+
+### Changed (version info page)
+- The backend package list now covers the **complete runtime dependency set** (34 packages — pyjwt/pyotp/ldap3/dnspython/pywinrm/python3-saml/pgvector/geoip2/celery/… were missing).
+- Optional dependencies list **traceroute (preferred) and tracepath (fallback) separately**, and the "installed" badge no longer wraps.
+- "Go to Releases" now links to the GitHub project — releases aren't published for this repo, so the old link landed on an empty page.
+
 ## [0.5.188] — 2026-08-16
 
 ### Changed

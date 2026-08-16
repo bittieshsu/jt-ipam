@@ -213,6 +213,10 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
                 NATTranslation.type == "port_forward",
                 NATTranslation.disabled.is_(False)).limit(300))).scalars().all():
         ident = await identity(None, n.dst_ip_id) if n.dst_ip_id else {"registered": False}
+        # 目標 IP 與埠**都**不明（如 OPNsense 的 Anti-Lockout 自動規則）→ 不可判定，
+        # 列出來只是一排「? 未登錄」噪音（使用者回饋）；未登錄但有埠的仍要列——懸空轉發是警訊。
+        if not ident.get("ip") and not n.dst_port:
+            continue
         origin = (n.source_origin or "manual").split(":")
         items.append({
             "via": "nat", "source": origin[0],
