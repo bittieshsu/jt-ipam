@@ -36,6 +36,17 @@ test("fw-rule-changes AI 解讀流程", async ({ page }) => {
   expect(await thead.innerText()).not.toContain("認可");
   expect(await thead.innerText()).not.toContain("AI 解讀");
 
+  // 欄寬：操作欄夠放按鈕就好，多餘寬度優先給異動內容（量幾何、不要用看的）
+  const thCells = page.locator("thead th");
+  const widths: Record<string, number> = {};
+  for (let i = 0; i < await thCells.count(); i++) {
+    const txt = (await thCells.nth(i).innerText()).trim();
+    widths[txt] = (await thCells.nth(i).boundingBox())?.width ?? 0;
+  }
+  expect(widths["操作"]).toBeLessThanOrEqual(200);
+  const widest = Math.max(...Object.values(widths));
+  expect(widths["異動內容"]).toBe(widest);
+
   // 非 baseline 那列要有帶 icon 的認可與 AI 解讀按鈕
   const ackBtn = page.getByRole("button", { name: "認可" }).first();
   const aiBtn = page.getByRole("button", { name: "AI 解讀" }).first();

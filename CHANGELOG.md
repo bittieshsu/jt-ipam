@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.188] — 2026-08-16
+
+### Changed
+- Rule-change table width rebalanced: the actions column shrinks to just fit its buttons (185px, the View-result button wraps when it appears) so spare width goes to the diff column; the meaningless sort arrow on the actions column is gone too.
+
 ## [0.5.187] — 2026-08-15
 
 ### Added

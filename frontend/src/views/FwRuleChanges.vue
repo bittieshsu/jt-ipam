@@ -136,7 +136,9 @@ const cols: DataTableColumns<Change> = autoSort([
   { title: t("fw_changes.diff"), key: "diff", render: (r) => renderDiff(r) },
   // 單一「操作」欄：欄位標題若與裡面的按鈕同名（認可／AI 解讀）會像重複貼了兩次
   //（使用者回饋）；認可後按鈕原位換成狀態文字。
-  { title: t("common.actions"), key: "_actions", width: 320,
+  // 寬度只留到剛好放下兩顆按鈕（使用者回饋：多餘寬度優先給異動內容），
+  // 「檢視結果」長出來或認可說明較長時靠 flex-wrap 換行。
+  { title: t("common.actions"), key: "_actions", width: 185, className: "col-actions",
     render: (r) => r.is_baseline ? null : h("span",
       { style: "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap" }, [
         r.ack

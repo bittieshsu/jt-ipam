@@ -4,6 +4,11 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.188] — 2026-08-16
+
+### 變更
+- 規則異動表的欄寬重新分配：操作欄縮到剛好放下按鈕（185px，「檢視結果」長出來時換行），多餘寬度優先留給「異動內容」；操作欄同時拿掉無意義的排序箭頭。
+
 ## [0.5.187] — 2026-08-15
 
 ### 新增
