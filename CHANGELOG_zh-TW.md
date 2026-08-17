@@ -4,6 +4,12 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.190] — 2026-08-17
+
+### 修正
+- **direct（uvicorn 直出 TLS）模式的 UI 從來無人供應**（客戶回報：doctor 全綠、`/healthz` 正常，但瀏覽器開 `https://主機:8443/` 只得到 `{"detail":"Not Found"}`）：direct 模式跳過 nginx（正確），但後端也沒掛前端靜態檔。後端現在偵測到 `frontend/dist` 就把 SPA 掛在根路徑（掛在最後，API 路由永遠優先）——`/` 與前端路由（重新整理／直接輸入網址）都回 index.html；API 的 404 保持 JSON 不被吃掉；index.html 與 version.json 帶 no-cache（版本自動偵測依賴它），hash 過的 assets 維持可快取。nginx 模式不受影響（nginx 自己出 dist，這段打不到）。
+- **doctor 補 direct 模式的端到端 UI 檢查**：只驗 `/healthz` 會在上述情況下整片綠燈——API 活著但使用者打開的頁面是 404。現在直接要求 `https://127.0.0.1:埠/` 回 HTML，不是就亮紅燈並指向升級。
+
 ## [0.5.189] — 2026-08-16
 
 ### 修正（對外開放服務清單，一輪實際使用回饋）

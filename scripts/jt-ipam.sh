@@ -1209,6 +1209,19 @@ cmd_doctor() {
             _bad "nginx WebSocket location is missing or out of date" \
                  "sudo $0 upgrade   (rewrites it; consoles cannot connect without it)"
         fi
+    else
+        # direct mode: uvicorn must serve the SPA itself (no nginx to do it).
+        # /healthz alone is not end-to-end -- a customer had every check green
+        # while https://host:8443/ answered {"detail":"Not Found"}: the API was
+        # fine and nobody was serving the UI. Ask for the page users actually load.
+        local root_body
+        root_body="$(curl -fsk --max-time 10 "https://127.0.0.1:${PORT}/" 2>/dev/null || true)"
+        if [[ "${root_body,,}" == *"<!doctype html"* ]]; then
+            _ok "UI served end to end on https://127.0.0.1:${PORT}/"
+        else
+            _bad "backend answers but the UI is not served on / (users get a JSON 404)" \
+                 "upgrade to >=0.5.190 (backend serves the SPA in direct mode), then: sudo systemctl restart jt-ipam-backend"
+        fi
     fi
 
     # ── database ──

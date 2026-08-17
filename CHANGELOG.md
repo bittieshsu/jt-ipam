@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.190] — 2026-08-17
+
+### Fixed
+- **In direct TLS mode (uvicorn terminating TLS) nothing ever served the UI** (customer report: doctor all green, `/healthz` fine, but `https://host:8443/` answered `{"detail":"Not Found"}`): direct mode skips nginx — correctly — but the backend never mounted the frontend either. The backend now serves the SPA from `frontend/dist` when present, mounted last so API routes always win: `/` and client-side routes (refresh / direct URL) return index.html, API 404s stay JSON, index.html and version.json carry no-cache (the update detector depends on it) while hashed assets remain cacheable. nginx mode is unaffected — nginx serves dist itself and this mount is never reached.
+- **doctor gained an end-to-end UI check for direct mode**: `/healthz` alone stayed green through the failure above — the API was alive while the page users load was a 404. It now requires `https://127.0.0.1:<port>/` to answer HTML, and points at the upgrade when it does not.
+
 ## [0.5.189] — 2026-08-16
 
 ### Fixed (exposed-services list, a round of hands-on feedback)

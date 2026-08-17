@@ -28,6 +28,49 @@ from app.core.middleware import (
 )
 
 
+def _mount_spa(app: FastAPI) -> None:
+    """有 frontend/dist 就把 SPA 掛在根路徑（fallback 到 index.html）。
+
+    - 404 → 回 index.html：前端 client-side 路由（/attack-surface 這類）直接輸入
+      網址或重新整理才進得來。真正的 API 404 不受影響 —— /api、/healthz 這些
+      route 在 mount 之前註冊，永遠先匹配。
+    - index.html／version.json 帶 no-cache：長壽分頁的版本自動偵測靠 version.json，
+      index 被快取則發新版後一直跑舊 bundle；hash 過的 /assets 維持可快取。
+    - dist 不存在（純 API 部署、CI）就不掛，行為與過去一致。
+    """
+    from pathlib import Path
+
+    from starlette.staticfiles import StaticFiles
+    from starlette.types import Scope
+
+    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if not (dist / "index.html").is_file():
+        return
+
+    class _SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope: Scope):  # type: ignore[override]
+            # API 命名空間的 404 保持 JSON（不可被 fallback 吃掉變成回 HTML）——
+            # 前端 client 靠 JSON 錯誤判斷；回 index.html 會變成「JSON 解析失敗」的迷惑錯誤
+            spa_fallback = path.split("/", 1)[0] not in ("api", "graphql", "mcp", "healthz")
+            # Starlette 找不到檔案是「拋」HTTPException(404)，不是回 404 response —— 兩種都要接
+            fell_back = False
+            try:
+                resp = await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code != 404 or not spa_fallback:
+                    raise
+                resp = await super().get_response("index.html", scope)
+                fell_back = True
+            if not fell_back and resp.status_code == 404 and spa_fallback:
+                resp = await super().get_response("index.html", scope)
+                fell_back = True
+            if fell_back or path in ("index.html", "version.json", "."):
+                resp.headers["cache-control"] = "no-cache"
+            return resp
+
+    app.mount("/", _SPAStaticFiles(directory=str(dist), html=True), name="spa")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
@@ -141,6 +184,12 @@ def create_app() -> FastAPI:
     # ── Plugins（Phase 4）──
     from app.plugins import load_plugins
     load_plugins(app)
+
+    # ── SPA（direct／self-signed 模式）──
+    # nginx 模式由 nginx 出 dist，這個 mount 打不到；direct 模式跳過 nginx，
+    # 沒有這段的話 UI 無人供應 —— 客戶開 https://host:8443/ 只拿到
+    # {"detail":"Not Found"}（2026-08-17 客戶回報）。掛在最後，API route 永遠優先。
+    _mount_spa(app)
 
     # ── Exception handlers ──
     @app.exception_handler(RequestValidationError)
