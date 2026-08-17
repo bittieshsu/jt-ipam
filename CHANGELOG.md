@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.191] — 2026-08-17
+
+### Changed
+- **The unauthorized-IP AI triage now matches the firewall rule-change AI analysis** (the same feedback batch resurfaced on this page): the column header reads "Actions" instead of duplicating the button label; the result modal renders markdown via the site-wide escape-then-tag renderer instead of leaking literal asterisks; the analysis runs in the background with a View-result button growing on completion (results stay on the page, multiple rows concurrently); the button gained an icon; the modal names the model that produced the reading; and the report can be downloaded as .md/.txt with an IP/model/disclaimer header.
+
 ## [0.5.190] — 2026-08-17
 
 ### Fixed

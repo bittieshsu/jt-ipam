@@ -107,7 +107,11 @@ async def triage_ip(session: AsyncSession, user: Any, ip: str) -> dict[str, Any]
         prompt = prompt.replace("證據：", "證據：\n" + "\n".join(extra), 1)
     card = await raw_chat(session, prompt, timeout=120.0,
                           max_output_tokens=800, no_thinking=True)
-    return {"ip": ip, "card": card.strip(), "evidence": ev["history"]["events"][:30],
+    # 判讀出自哪個模型是品質的一部分（與規則異動 AI 解讀一致），跟結果一起回
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    return {"ip": ip, "card": card.strip(), "model": cfg.chat_model,
+            "evidence": ev["history"]["events"][:30],
             "macs": ev["macs"], "vendors": ev["vendors"],
             "disclaimer": "此為語言模型依觀測證據所做的推測，請對照證據後再行動。"}
 

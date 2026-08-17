@@ -7,7 +7,9 @@ import {
   NTabs, NTabPane, NModal, NSelect, useMessage, type DataTableColumns,
 } from "naive-ui";
 import { runAnomalyScan, type AnomalyReport } from "@/api/phase3";
-import { AnomalyIcon, TestIcon, InfoIcon, SettingsIcon } from "@/icons";
+import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, InfoIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
+import { renderMarkdown } from "@/utils/markdown";
+import { downloadTextFile } from "@/utils/investigateReport";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { autoSort } from "@/composables/useTableSort";
@@ -228,29 +230,64 @@ function catCols(key: CatKey): DataTableColumns<any> {
       render: (r: any) => renderVal(k, r[k]),
     };
   }));
-  // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」
+  // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」。
+  // 欄位標題用「操作」——與按鈕同名看起來像重複貼兩次（使用者回饋，與規則異動頁同一批）。
   if (key === "unauthorized_ips") {
     cols.push({
-      title: t("anomaly.triage_col"), key: "_triage", width: 110,
-      render: (r: any) => h(NButton, {
-        size: "tiny", secondary: true, loading: triageBusy.value === r.ip,
-        onClick: () => doTriage(r.ip),
-      }, { default: () => t("anomaly.triage_btn") }),
+      title: t("common.actions"), key: "_triage", width: 200, className: "col-actions",
+      render: (r: any) => h("span",
+        { style: "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap" }, [
+          h(NButton, {
+            size: "tiny", secondary: true, loading: triageBusy.value.has(r.ip),
+            disabled: triageBusy.value.has(r.ip),
+            onClick: () => doTriage(r.ip),
+          }, { icon: renderIcon(AiAuditIcon, 15), default: () => t("anomaly.triage_btn") }),
+          triageResults.value[r.ip]
+            ? h(NButton, { size: "tiny", type: "primary", secondary: true,
+                           onClick: () => { triageShow.value = r.ip; } },
+                { icon: renderIcon(EyeIcon, 15), default: () => t("fw_changes.ai_view") })
+            : null,
+        ]),
     } as any);
   }
   return cols;
 }
 
-const triageBusy = ref<string | null>(null);
-const triageResult = ref<{ ip: string; card: string; disclaimer: string } | null>(null);
+// AI 判讀：LLM 要跑幾十秒 —— 背景執行，完成後該列長出「檢視結果」，
+// 結果留在頁面可重看（與防火牆規則異動的 AI 解讀同一套體驗）。
+interface TriageResult { ip: string; card: string; disclaimer: string; model?: string }
+const triageBusy = ref<Set<string>>(new Set());
+const triageResults = ref<Record<string, TriageResult>>({});
+const triageShow = ref<string | null>(null);
 async function doTriage(ip: string) {
-  triageBusy.value = ip;
+  triageBusy.value.add(ip); triageBusy.value = new Set(triageBusy.value);
   try {
     const { data } = await apiClient.post("/api/v1/anomalies/triage", { ip });
-    triageResult.value = data;
+    triageResults.value = { ...triageResults.value, [ip]: data };
+    msg.success(t("fw_changes.ai_done"));
   } catch (e: any) {
     msg.error(e?.response?.data?.detail ?? t("errors.server"));
-  } finally { triageBusy.value = null; }
+  } finally { triageBusy.value.delete(ip); triageBusy.value = new Set(triageBusy.value); }
+}
+
+/** 下載判讀報告：.md 保留原始 markdown；.txt 去標記純文字（與規則異動頁一致）。 */
+function downloadTriage(fmt: "md" | "txt") {
+  const ip = triageShow.value;
+  const res = ip ? triageResults.value[ip] : null;
+  if (!ip || !res) return;
+  const header = [
+    `# ${t("anomaly.triage_title", { ip })}`,
+    "",
+    `- ${t("fw_changes.ai_model")}：${res.model ?? "—"}`,
+    "",
+    `> ${res.disclaimer}`,
+    "",
+  ].join("\n");
+  const body = header + res.card + "\n";
+  const text = fmt === "md" ? body : body
+    .replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "").replace(/^>\s?/gm, "");
+  downloadTextFile(text, `ip-triage-${ip}.${fmt}`, fmt);
 }
 
 async function run() {
@@ -355,18 +392,43 @@ async function run() {
     </template>
   </n-card>
 
-  <!-- AI 鑑識卡：模型輸出以純文字呈現（pre-wrap），免 markdown 渲染的注入面 -->
-  <n-modal :show="!!triageResult" preset="card" style="width: 560px; max-width: 94vw"
-           :title="t('anomaly.triage_title', { ip: triageResult?.ip ?? '' })"
-           @update:show="(v: boolean) => { if (!v) triageResult = null; }">
+  <!-- AI 鑑識卡：走全站共用 markdown 渲染器（先跳脫再產標籤，無注入面）——
+       原本 pre-wrap 純文字會把 **粗體** 的星號原樣露出（使用者截圖）；＋模型標示＋下載 -->
+  <n-modal :show="!!triageShow" preset="card" style="width: 560px; max-width: 94vw"
+           :title="t('anomaly.triage_title', { ip: triageShow ?? '' })"
+           @update:show="(v: boolean) => { if (!v) triageShow = null; }">
     <n-alert type="warning" :bordered="false" style="margin-bottom: 10px">
-      {{ triageResult?.disclaimer }}
+      {{ triageShow ? triageResults[triageShow]?.disclaimer : "" }}
     </n-alert>
-    <div style="white-space: pre-wrap; font-size: 13.5px; line-height: 1.7">{{ triageResult?.card }}</div>
+    <!-- eslint-disable-next-line vue/no-v-html -->
+    <div class="triage-body" v-html="renderMarkdown(triageShow ? triageResults[triageShow]?.card ?? '' : '')" />
+    <template #footer>
+      <div class="triage-foot">
+        <span class="triage-model">{{ t("fw_changes.ai_model") }}：{{
+          (triageShow ? triageResults[triageShow]?.model : "") || "—" }}</span>
+        <n-space :size="8">
+          <n-button size="small" secondary @click="downloadTriage('md')">
+            <template #icon><n-icon><DownloadIcon /></n-icon></template>
+            {{ t("fw_changes.ai_dl_md") }}
+          </n-button>
+          <n-button size="small" secondary @click="downloadTriage('txt')">
+            <template #icon><n-icon><DownloadIcon /></n-icon></template>
+            {{ t("fw_changes.ai_dl_txt") }}
+          </n-button>
+        </n-space>
+      </div>
+    </template>
   </n-modal>
 </template>
 
 <style scoped>
+.triage-body { font-size: 13px; line-height: 1.85; }
+.triage-body :deep(code) { background: rgba(128, 128, 128, .14); border-radius: 4px;
+  padding: 1px 5px; font-size: 12px; }
+.triage-body :deep(p) { margin: 6px 0; }
+.triage-body :deep(ul), .triage-body :deep(ol) { margin: 4px 0; padding-left: 20px; }
+.triage-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.triage-model { font-size: 12px; opacity: .65; }
 .cat-note { margin: 4px 0 14px; font-size: 12.5px; line-height: 1.7; }
 .rogue-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .rogue-chip {
