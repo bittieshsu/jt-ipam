@@ -1762,7 +1762,7 @@
     "triage_col": "AI 判讀",
     "triage_btn": "AI 判讀",
     "triage_title": "AI 鑑識：{ip}",
-    "fw_rot": "防火牆規則腐化",
+    "fw_rot": "防火牆規則劣化",
     "explain_fw_rule_rot": "生效中的規則裡「已經不對勁」的部分：埠轉發指向 IPAM 沒有的位址（目標可能已回收）、any → any 放行（等於該介面沒有防火牆）、WAN 介面對任意來源開放管理埠（SSH／RDP／VNC／IPMI）。手動建立的 NAT 與停用中的規則不列入。"
   },
   "webhooks": {
@@ -2871,7 +2871,7 @@
     "anom_dangling_dns": "失效 DNS 記錄：新增 {count} 筆",
     "anom_dup_ip": "重複的 IP 紀錄：新增 {count} 筆",
     "anom_changes": "可疑的變更：新增 {count} 筆",
-    "anom_fw_rot": "防火牆規則腐化：新增 {count} 筆"
+    "anom_fw_rot": "防火牆規則劣化：新增 {count} 筆"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",

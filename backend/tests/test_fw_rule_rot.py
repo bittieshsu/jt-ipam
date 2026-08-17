@@ -1,4 +1,4 @@
-"""防火牆規則腐化偵測：懸空 NAT／any-any 放行／WAN 開管理埠。
+"""防火牆規則劣化偵測：懸空 NAT／any-any 放行／WAN 開管理埠。
 
 這一頁最大的敵人是誤報 —— 異常清單狼來了幾次就沒有人看。所以對抗式重點是
 **不該報的都要忍住**：
@@ -103,10 +103,10 @@ async def test_report_includes_new_category(db_session) -> None:
 
 @pytest.mark.anyio
 async def test_alias_rot_ignores_external_members(db_session) -> None:
-    """別名腐化：只報「管理網段內、IPAM 卻沒有」的成員。
+    """別名劣化：只報「管理網段內、IPAM 卻沒有」的成員。
 
     別名裡放外部位址（遠端端點、封鎖清單）是常態 —— 沒有這個門檻，
-    每個外部 IP 都會被誤報成腐化。
+    每個外部 IP 都會被誤報成劣化。
     """
     from app.models.firewall import OPNsenseFirewall, OPNsenseSyncedAlias
     from app.models.section import Section
@@ -134,7 +134,7 @@ async def test_alias_rot_ignores_external_members(db_session) -> None:
     rot = [i for i in items if i["kind"] == "alias_rot" and i["name"] == "web_servers"]
     assert len(rot) == 1
     assert "198.51.100.50" in rot[0]["detail"]
-    assert "8.8.8.8" not in rot[0]["detail"], "外部位址被誤報成腐化"
+    assert "8.8.8.8" not in rot[0]["detail"], "外部位址被誤報成劣化"
 
 
 @pytest.mark.anyio

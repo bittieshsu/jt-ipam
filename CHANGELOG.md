@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.192] — 2026-08-17
+
+### Fixed
+- **The hostname-sources row and FDB tag on the IP detail page appeared only sometimes** (user report: "am I doing it wrong or is it the system?" — it was the system): the watch that loads them lacked `immediate`, so opening the modal from the list (show toggling) triggered it while a direct URL / refresh (inline mode, where the condition holds from mount and never changes) never did — the whole row vanished. `immediate: true` makes both entry paths identical.
+
+### Changed
+- zh-TW wording: 腐化 → 劣化 (firewall rule/alias decay).
+
 ## [0.5.191] — 2026-08-17
 
 ### Changed

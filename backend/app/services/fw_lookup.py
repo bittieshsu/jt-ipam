@@ -163,7 +163,7 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
     """對外攻擊面清單：從外面可達的 IP:port，每項配 IPAM 身分。
 
     異常偵測的「對外曝險」是抓問題；這裡是**清單** —— 資安稽核第一個要的東西。
-    保守原則同規則腐化：**只列明確可判定的**——
+    保守原則同規則劣化：**只列明確可判定的**——
     - NAT port forward（生效中）：目標經 dst_ip_id 連結，或本來就懸空（那本身是警訊）。
     - WAN 介面上、目的為單一 IP 的放行規則（pfSense JSONB＋OPNsense 規則表）。
     - 目的是別名／any／網段的規則**不列**：展開猜測會產生假清單，假清單比沒有更危險

@@ -791,7 +791,7 @@ async def run_detection(
                 ("懸空 DNS", "notif.anom_dangling_dns", report.dangling_dns),
                 ("重複的 IP 紀錄", "notif.anom_dup_ip", report.duplicate_ip_records),
                 ("可疑的變更", "notif.anom_changes", report.suspicious_changes),
-                ("防火牆規則腐化", "notif.anom_fw_rot", report.fw_rule_rot),
+                ("防火牆規則劣化", "notif.anom_fw_rot", report.fw_rule_rot),
             ):
                 if not items:
                     continue
@@ -814,7 +814,7 @@ async def run_detection(
     return report
 
 
-# ── 防火牆規則腐化（rule rot）──
+# ── 防火牆規則劣化（rule rot）──
 # 規則是資安邊界，但沒有人回頭看它們：埠轉發指向早已回收的位址、any-any 放行、
 # WAN 開管理埠。這裡全是確定性檢查 —— 這一頁的敵人是誤報，所以每一條都刻意保守：
 # 手動 NAT 不算懸空（沒連 IP 是常態）、停用中的不報（不在生效路徑）、
@@ -878,10 +878,10 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
                               "interface": iface, "port": dport,
                               "descr": (r.get("descr") or "")[:120],
                               "detail": "WAN 介面對任意來源開放管理埠"})
-    # (4) 別名腐化：別名成員落在「本 IPAM 管理且有開異常偵測」的網段內、卻沒有
+    # (4) 別名劣化：別名成員落在「本 IPAM 管理且有開異常偵測」的網段內、卻沒有
     #     IP 紀錄 —— 規則看起來沒變，但別名內容已經指向不明位址。
     #     只看管理範圍內的成員：別名裡放外部位址（放行遠端端點、封鎖清單）是常態，
-    #     不設這個門檻會把每個外部 IP 都誤報成腐化。
+    #     不設這個門檻會把每個外部 IP 都誤報成劣化。
     from app.models.firewall import OPNsenseSyncedAlias
     from app.models.pfsense import PfSenseSyncedAlias
 

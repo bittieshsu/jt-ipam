@@ -451,9 +451,12 @@ async function loadSwitchPort() {
   catch { switchPort.value = null; }
 }
 
+// immediate：inline（IP 詳細資料頁）模式下 show 一開始就是 true、id 一開始就有值，
+// 沒有 immediate 這個 watch 永遠不觸發 → 直接開網址／重新整理時「主機名稱來源」
+// 與 FDB 標籤整列消失，只有從清單開彈窗（show false→true）才看得到（使用者回報）。
 watch(() => [props.show, props.address?.id], () => {
   if (props.show && props.address?.id) { void loadHostnameSources(); void loadSwitchPort(); }
-});
+}, { immediate: true });
 
 function close() {
   // inline(頁面)模式：檢視中按取消＝返回上一頁；編輯中＝退出編輯
