@@ -863,6 +863,8 @@
     "model_tip": "Model: {model}\nLocal inference, nothing leaves the host",
     "model_tip_none": "Local inference, nothing leaves the host",
     "history": "History",
+    "expand": "Expand window",
+    "collapse": "Restore size",
     "hide_history": "Back to chat",
     "no_history": "No conversations yet",
     "untitled": "(untitled)",

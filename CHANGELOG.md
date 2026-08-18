@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.193] — 2026-08-18
+
+### Added
+- **AI chat panel can now be expanded**: a maximize toggle sits to the right of the close (X) button; it grows the panel leftward and upward to roughly two-thirds of the screen (anchored bottom-right), with the message area filling the extra height and the input pinned to the bottom. Click again to restore the original size.
+
 ## [0.5.192] — 2026-08-17
 
 ### Fixed

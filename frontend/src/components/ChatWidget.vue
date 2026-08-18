@@ -25,7 +25,7 @@ import {
 } from "@/api/chat";
 import { fmtRelative, fmtDateTime } from "@/utils/datetime";
 import { BubbleStar } from "@iconoir/vue";
-import { CancelIcon, SendIcon, ChatHistoryIcon, ToolsIcon, RefreshIcon, WarnIcon } from "@/icons";
+import { CancelIcon, SendIcon, ChatHistoryIcon, ToolsIcon, RefreshIcon, WarnIcon, ExpandIcon, ReduceIcon } from "@/icons";
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
 
@@ -92,6 +92,8 @@ function goRef(r: ChatRef) {
 }
 
 const open = ref(false);
+// 放大模式：往左、往上擴展到約 2/3 畫面（仍固定右下角）
+const expanded = ref(false);
 const input = ref("");
 const messages = ref<UiMessage[]>([]);
 const loading = ref(false);
@@ -322,7 +324,7 @@ async function removeConversation(id: string) {
     <n-icon :size="26"><BubbleStar /></n-icon>
   </button>
 
-  <div v-if="open" class="chat-shell">
+  <div v-if="open" class="chat-shell" :class="{ 'chat-shell--max': expanded }">
     <n-card size="small" :bordered="false">
       <template #header>
         <n-space class="chat-title-row" align="center" :size="6" :wrap="false">
@@ -355,6 +357,16 @@ async function removeConversation(id: string) {
           </div>
           <n-button quaternary circle size="small" :title="t('common.cancel')" @click="open = false">
             <template #icon><n-icon :size="18"><CancelIcon /></n-icon></template>
+          </n-button>
+          <n-button quaternary circle size="small" class="chat-expand-btn"
+                    :title="expanded ? t('chat.collapse') : t('chat.expand')"
+                    @click="expanded = !expanded">
+            <template #icon>
+              <n-icon :size="17">
+                <ReduceIcon v-if="expanded" />
+                <ExpandIcon v-else />
+              </n-icon>
+            </template>
           </n-button>
         </div>
       </n-space>
@@ -511,6 +523,29 @@ async function removeConversation(id: string) {
   flex-direction: column;
   /* 讓 header 動作鈕能依「視窗實際寬度」決定要不要收成 icon */
   container-type: inline-size;
+}
+/* 放大模式：固定右下角不動，往左與上擴到約 2/3 畫面；對話區改用彈性高度吃滿 */
+.chat-shell--max {
+  width: min(66vw, calc(100vw - 48px));
+  height: min(72vh, calc(100vh - 48px));
+  max-height: none;
+}
+.chat-shell--max :deep(.n-card) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.chat-shell--max :deep(.n-card-content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-shell--max .chat-scroll,
+.chat-shell--max .chat-history {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 /* 標題：字體調小 + 不換行，避免把「本地 Ollama」標籤擠到第二行 */
 /* 標題列與動作區放不下時整列換行（動作區掉到第二列），避免標題/標籤與按鈕重疊 */

@@ -863,6 +863,8 @@
     "model_tip": "模型：{model}\n本地推論，內容不外送",
     "model_tip_none": "本地推論，內容不外送",
     "history": "歷程",
+    "expand": "放大視窗",
+    "collapse": "還原大小",
     "hide_history": "回到對話",
     "no_history": "尚無對話紀錄",
     "untitled": "（未命名對話）",
