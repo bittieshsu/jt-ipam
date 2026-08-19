@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.195] — 2026-08-19
+
+### Fixed
+- **One unreadable FortiGate endpoint aborted the whole instance sync.** A real device reported "9 of 10 endpoints readable" (its firmware answers the DHCP-lease monitor path with the web UI instead of JSON). Because `sync_instance` ran the sections in one unguarded sequence, that single failure stopped ARP, policies, NAT and address objects from syncing at all, while the UI showed one error line — it looked like the whole firewall was broken. Each section is now isolated; partial failures are recorded in `last_error` (never silently reported as success) and the remaining sections still sync.
+
+### Changed
+- TEST_CHECKLIST gained section 7c (integration sync resilience): section isolation, partial failure recorded in `last_error`, no chain abort across instances, errors that carry evidence, and a connection test that reflects what the sync actually gets.
+- The FortiGate connection test no longer reports a bare "response is not JSON". It now carries the evidence — `content-type` and the first 120 characters — and, when the body is HTML, says plainly that the firewall answered with a web page rather than the API, which means either that firmware has no such endpoint or the API administrator cannot read that resource.
+
 ## [0.5.194] — 2026-08-19
 
 ### Fixed

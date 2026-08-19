@@ -117,3 +117,21 @@ POSTGRES_DB=jt_ipam_test .venv/bin/alembic upgrade head
 JTIPAM_TEST_DATABASE_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/jt_ipam_test" .venv/bin/pytest -q
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 ```
+
+## 7c. 整合同步的韌性 —— **每個整合都適用，不只這次動到的那個**
+
+實機本來就是「部分可讀」。防火牆回報「10 個端點中有 9 個可讀取」是常態而非異常：
+韌體版本有差異，唯讀 API 帳號也很少能讀到每一項資源。絕對不可以發生的是**一支端點
+讀不到就把其餘同步一起帶走**（v0.5.195：DHCP 租約路徑讀不到，導致 ARP、政策、NAT 與
+位址物件通通不同步，而畫面上只有一行錯誤）。
+
+- [ ] **區段隔離**：故意讓一支端點失敗（改成錯的路徑，或收掉那一項權限），確認其餘區段照常同步
+- [ ] **部分失敗看得見**：實例會把失敗內容寫進 `last_error`；有失敗的那一輪絕不可以對使用者顯示成完全成功
+- [ ] **不可跨實例連鎖中止**：單一實例失敗不能讓整輪同步停掉（寫 `last_error` 前要先 `session.rollback()`，
+  否則下一次寫入會二次爆炸）
+- [ ] **錯誤訊息要帶證據**：「回應不是 JSON」這種訊息在現場毫無用處。要附狀態碼、`content-type`
+  與回應開頭約 120 字，並指出最可能的原因（例如裝置回的是網頁介面 → 該韌體沒有這支端點，
+  或 API 帳號讀不到）
+- [ ] **測試連線要反映真實**：逐端點診斷顯示的結果必須與同步實際拿到的一致 ——
+  不可以對同步讀不到的東西打綠勾
+

@@ -95,7 +95,17 @@ async def _api_get(
     try:
         body = resp.json()
     except ValueError as exc:
-        raise FortiGateError(f"回應不是 JSON（{path}）") from exc
+        # 200 但不是 JSON，實務上幾乎都是 FortiOS 直接回了網頁介面的 HTML
+        # （該韌體版本／機型沒有這支端點，或 token 走不到 monitor 範圍被導去登入頁）。
+        # 訊息一定要帶回證據，否則現場只看到「不是 JSON」無從判斷要調什麼。
+        ctype = resp.headers.get("content-type", "?")
+        snippet = " ".join(resp.text[:120].split())
+        hint = ""
+        if "html" in ctype.lower() or snippet.lower().startswith(("<!doctype", "<html")):
+            hint = "（回的是網頁而非 API：此韌體版本可能沒有這支端點，或 API 管理員讀不到該資源）"
+        raise FortiGateError(
+            f"回應不是 JSON（{path}）：content-type={ctype} 內容開頭={snippet!r}{hint}",
+        ) from exc
     return _unwrap(body)
 
 
@@ -612,26 +622,49 @@ async def diagnose(fw: FortiGateFirewall) -> dict[str, Any]:
 
 
 async def sync_instance(session: AsyncSession, fw: FortiGateFirewall) -> dict[str, Any]:
-    """跑此實例所有啟用的同步；設定 last_sync_at / last_error。"""
+    """跑此實例所有啟用的同步；設定 last_sync_at / last_error。
+
+    **每個區段各自隔離**：實機上很常見「10 支端點有 9 支可讀」（某支在該韌體版本
+    不存在、或 API 管理員讀不到）。若不隔離，DHCP 租約一掛就會讓 ARP／政策／位址
+    物件全部不同步，而畫面上只看得到一行錯誤 —— 看起來像整台壞掉。
+    """
     vdoms = await list_vdoms(fw)
     counts: dict[str, Any] = {"vdoms": len(vdoms)}
+    errors: dict[str, str] = {}
+
+    async def _section(name: str, coro_factory: Any) -> None:
+        try:
+            result = await coro_factory()
+            if isinstance(result, dict):
+                counts.update(result)
+            else:
+                counts[name] = result
+        except FortiGateError as exc:
+            errors[name] = str(exc)[:200]
+
     if fw.sync_dhcp:
-        counts["dhcp"] = await sync_dhcp_leases(session, fw, vdoms)
+        await _section("dhcp", lambda: sync_dhcp_leases(session, fw, vdoms))
     if fw.sync_dhcp_ranges:
-        counts["dhcp_ranges"] = await sync_dhcp_ranges(session, fw, vdoms)
-        counts["dhcp_reservations"] = await sync_dhcp_reservations(session, fw, vdoms)
+        await _section("dhcp_ranges", lambda: sync_dhcp_ranges(session, fw, vdoms))
+        await _section("dhcp_reservations", lambda: sync_dhcp_reservations(session, fw, vdoms))
     if fw.sync_arp:
-        counts["arp"] = await sync_arp(session, fw, vdoms)
+        await _section("arp", lambda: sync_arp(session, fw, vdoms))
     if fw.sync_vpn:
-        counts.update(await sync_vpn(session, fw, vdoms))
+        await _section("vpn", lambda: sync_vpn(session, fw, vdoms))
     if fw.sync_policies:
-        counts["policies"] = await sync_policies(session, fw, vdoms)
-        from app.services.fw_review import run_sentinel
-        await run_sentinel(session, source_type="fortigate", instance=fw)
+        await _section("policies", lambda: sync_policies(session, fw, vdoms))
+        if "policies" not in errors:
+            from app.services.fw_review import run_sentinel
+            await run_sentinel(session, source_type="fortigate", instance=fw)
     if fw.sync_nat:
-        counts["nat"] = await sync_nat(session, fw, vdoms)
+        await _section("nat", lambda: sync_nat(session, fw, vdoms))
     if fw.sync_addresses:
-        counts["addresses"] = await sync_addresses(session, fw, vdoms)
+        await _section("addresses", lambda: sync_addresses(session, fw, vdoms))
+
     fw.last_sync_at = datetime.now(UTC)
-    fw.last_error = None
+    # 部分失敗要留下痕跡（否則使用者以為全部同步成功），但不影響其他區段
+    fw.last_error = ("部分區段失敗：" + "；".join(f"{k}: {v}" for k, v in errors.items())
+                     if errors else None)
+    if errors:
+        counts["errors"] = errors
     return counts

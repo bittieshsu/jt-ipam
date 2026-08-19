@@ -237,6 +237,27 @@ defect is in *what the model was able to ask*.
   while 虛擬化 (VMware) lists only VMware. Device / IP links from PVE VMs still resolve.
 - [ ] Delete instance; periodic `jt-ipam-sync` picks up enabled instances every ~5 min without errors.
 
+## 7c. Integration sync resilience — **applies to every integration, not just the one you changed**
+
+Real devices are partially readable. A firewall answering "9 of 10 endpoints OK" is the
+normal case, not an anomaly: firmware versions differ, and a read-only API account rarely
+reaches every resource. What must never happen is one unreadable endpoint taking the rest
+of the sync down with it (v0.5.195: an unreadable DHCP-lease path stopped ARP, policies,
+NAT and address objects from syncing at all, while the UI showed a single error line).
+
+- [ ] **Section isolation**: force one endpoint to fail (point it at a wrong path or revoke
+  that one permission) and confirm every other section still syncs
+- [ ] **Partial failure is visible**: the instance records what failed in `last_error`; a run
+  with failures is never reported to the user as fully successful
+- [ ] **No chain abort across instances**: one failing instance must not stop the sync round
+  for the others (`session.rollback()` before writing `last_error`, or the next write explodes too)
+- [ ] **Errors carry evidence**: a message like "response is not JSON" is useless in the field.
+  Include status code, `content-type` and the first ~120 bytes, and name the likely cause
+  (e.g. the device answered with its web UI, meaning that firmware lacks the endpoint or the
+  API account cannot read it)
+- [ ] **Connection test reflects reality**: the per-endpoint diagnostic shows the same result
+  the sync would get — never a green tick for something the sync cannot read
+
 ## 8. Recent feature spot-checks
 
 - [ ] **Notification matrix** (Admin → 通知發送設定): toggle events × (in-app / email); save persists; events fire

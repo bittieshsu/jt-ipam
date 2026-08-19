@@ -339,3 +339,41 @@ async def test_vpn_reports_endpoint_unavailable(db_session, admin_user, monkeypa
     out = await fg.sync_vpn(db_session, fw, ["root"])
     assert out.get("ssl_unavailable") is True
     assert out.get("ipsec_unavailable") is True
+
+
+@pytest.mark.anyio
+async def test_one_dead_endpoint_does_not_abort_whole_sync(db_session, monkeypatch) -> None:
+    """實機常見「10 支端點有 9 支可讀」：單一區段失敗不可讓整台同步中止。
+
+    使用者實機回報 dhcp_leases 回 200 但不是 JSON（該韌體沒有這支端點）。原本
+    sync_instance 沒隔離 → ARP／政策／位址物件全部不同步，畫面只顯示一行錯誤。
+    """
+    from app.services import fortigate as fg
+
+    fw = FortiGateFirewall(
+        name=f"fg-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.20",
+        api_token_enc=b"x", api_token_nonce=b"y",
+        sync_dhcp=True, sync_arp=True, sync_policies=False, sync_nat=False,
+        sync_addresses=False, sync_vpn=False, sync_dhcp_ranges=False,
+    )
+    db_session.add(fw)
+    await db_session.flush()
+
+    async def _vdoms(_fw):
+        return ["root"]
+
+    async def _dead(*_a, **_k):
+        raise fg.FortiGateError("回應不是 JSON（/api/v2/monitor/system/dhcp）")
+
+    async def _arp_ok(*_a, **_k):
+        return 7
+
+    monkeypatch.setattr(fg, "list_vdoms", _vdoms)
+    monkeypatch.setattr(fg, "sync_dhcp_leases", _dead)
+    monkeypatch.setattr(fg, "sync_arp", _arp_ok)
+
+    counts = await fg.sync_instance(db_session, fw)
+    assert counts["arp"] == 7, "DHCP 失敗把 ARP 一起帶走了"
+    assert "dhcp" in counts["errors"]
+    assert fw.last_error and "dhcp" in fw.last_error, "部分失敗要留痕，不能假裝全部成功"
+    assert fw.last_sync_at is not None
