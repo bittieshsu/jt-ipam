@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.194] — 2026-08-19
+
+### Fixed
+- **LDAP login returned HTTP 500 when the LDAP user shared an email with an existing local account** (user report: the same person legitimately has both a local and an LDAP account). The LDAP bind actually succeeded; the request then died committing the auto-provisioned user because `users.email` was a unique key. Email is contact information, not identity — identity is the username — so migration 0120 drops the unique index (a plain index remains). Both login lookups are now realm-scoped (`email` matches only LDAP accounts in the LDAP realm and only non-LDAP accounts in the local realm) and no longer use `scalar_one_or_none()`, so duplicate emails cannot turn into a `MultipleResultsFound` 500 either.
+- **AI answers about one subnet were computed from whole-system data**: `wazuh_missing_agents` had no subnet parameter at all, so "which hosts in 198.51.100.0/24 have no Wazuh agent" returned every IP in the system (the reply mixed in 203.0.113.x and 192.0.2.x). The same gap existed in `list_wazuh_agents`, `list_fdb`, `list_dhcp_ranges`, `list_vms` and `list_nat`; `list_power`/`list_racks`/`list_devices` could not be limited to a rack or location. All of them now take a scope parameter (resolved through the existing visibility check) and return `scope`, and their tool descriptions require the model to pass it and to state the coverage.
+- **Silent truncation in AI list tools**: several tools returned only a `limit`-clipped array with no total, so the model presented one page as the complete answer. They now return `count` (total in scope) alongside `returned`.
+- `list_devices` and `list_racks` applied the visibility filter *after* the SQL `LIMIT`, so a restricted account received fewer rows than requested and the count included rows it could not see. Visibility is now part of the query.
+
+### Changed
+- `list_ip_requests` now derives its scope from the shared permission tier (global read) instead of its own ad-hoc admin check, so tools and REST endpoints cannot drift apart.
+- The user list no longer repeats the realm suffix in the account column (`jason@ldap` shows as `jason`); the authentication-method column already carries it. The stored username is unchanged and the full value stays in the tooltip.
+
 ## [0.5.193] — 2026-08-18
 
 ### Added
@@ -266,7 +278,7 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
   ⚠️ **Upgrading changes behaviour**: VM and node IPs that used to appear on their own no longer do. To restore it, switch the toggle on under the Proxmox VE integration. This is deliberate — auto-recording removes those addresses from the "unauthorised IPs" anomaly check (whose test is "seen in ARP, absent from IPAM"), and that trade should be an explicit choice.
 
-- **Fixed an overlapping-subnet hazard in Proxmox while there.** It picked a subnet with `ORDER BY masklen(cidr) DESC LIMIT 1`, which **silently chooses one** when two tenants each hold `192.168.1.0/24` — potentially filing a VM under someone else's subnet. It now uses the same decision as every other integration: **ambiguous means don't create**.
+- **Fixed an overlapping-subnet hazard in Proxmox while there.** It picked a subnet with `ORDER BY masklen(cidr) DESC LIMIT 1`, which **silently chooses one** when two tenants each hold `198.51.100.0/24` — potentially filing a VM under someone else's subnet. It now uses the same decision as every other integration: **ambiguous means don't create**.
 
 ### Added
 - **VMware / ESXi gains the same "trust addresses from virtualization" toggle** (off by default). It previously never created anything, only matched existing records.
@@ -278,7 +290,7 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 ### Added
 - **An "create addresses IPAM does not have" toggle for OPNsense and pfSense** (migration 0115, **off by default**). The firewall DHCP/ARP sync only ever stamped addresses that already existed; anything else was dropped, silently — a customer had to read the source to find out. With the toggle on, an address present in a DHCP lease but absent from IPAM is created.
 
-  Placement reuses the LibreNMS rule (now extracted to `services/ip_autocreate.py` and shared by all three integrations): longest-prefix match, **created only when exactly one subnet matches**. Where overlapping subnets make it ambiguous (two tenants each holding 192.168.1.0/24), **nothing is created** — filing a record under the wrong tenant is worse than not filing it. Setting the integration's subnet scope removes the ambiguity.
+  Placement reuses the LibreNMS rule (now extracted to `services/ip_autocreate.py` and shared by all three integrations): longest-prefix match, **created only when exactly one subnet matches**. Where overlapping subnets make it ambiguous (two tenants each holding 198.51.100.0/24), **nothing is created** — filing a record under the wrong tenant is worse than not filing it. Setting the integration's subnet scope removes the ambiguity.
 
   ⚠️ **The risk is stated next to the toggle**: a machine that obtained a DHCP address is not necessarily one that belongs in IPAM. An unauthorised device that got a lease would be recorded as a legitimate entry — **and once in IPAM it stops appearing under "unauthorised IPs" in anomaly detection**, whose entire test is "seen in ARP, absent from IPAM". Hence off by default, with the warning shown when it is switched on.
 
@@ -423,7 +435,7 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 ### Changed
 - **An address on the virtualisation pages links to its IPAM record.** The data was already in the system, but reading a VM's address and checking how it is registered meant copying the digits, switching page and pasting them into a search.
 
-  **A link only appears when exactly one record matches.** With overlapping subnets — different units sharing `192.168.1.0/24`, which this project exists to support — the same address string legitimately has several records, and there is no way to tell which one a VM's address refers to. In that case the text stays plain: a wrong link is worse than no link, because people trust it. Verified against production: of 79 addresses on VM interfaces, 78 resolve to exactly one record and become links.
+  **A link only appears when exactly one record matches.** With overlapping subnets — different units sharing `198.51.100.0/24`, which this project exists to support — the same address string legitimately has several records, and there is no way to tell which one a VM's address refers to. In that case the text stays plain: a wrong link is worse than no link, because people trust it. Verified against production: of 79 addresses on VM interfaces, 78 resolve to exactly one record and become links.
 
 ## [0.5.152] — 2026-08-07
 
@@ -558,7 +570,7 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
   This is deliberately **not** CVE counts. Wazuh removed all vulnerability endpoints from the manager API in 4.8 — verified by listing the 150 routes this server actually exposes, none of which concern vulnerabilities — and the only remaining source is the Wazuh Indexer. That would require a second, long-lived credential able to read **every alert in the SIEM**, in exchange for two numbers, plus a dependency on an internal index name that a future release can rename. The trade is not worth it, so the integration is not offered; a brief implementation of it was removed before release rather than shipped half-considered.
 
 ### Changed
-- **Integrations no longer guess when an address is ambiguous.** With overlapping subnets — two departments both using 192.168.1.0/24 — the same IP string is two different machines. Wazuh built its lookup table with a dict (later rows silently overwriting earlier ones) and LibreNMS took the first row, so which record received the data depended on database row order. Both now decline to match when an address resolves to more than one record, and report how many were skipped, because attaching data to the wrong department is worse than attaching none: with no data you go and look, with wrong data you never find out — and across departments it is a data leak. Setting "limit to subnets" on the integration narrows the candidates back to one and restores matching.
+- **Integrations no longer guess when an address is ambiguous.** With overlapping subnets — two departments both using 198.51.100.0/24 — the same IP string is two different machines. Wazuh built its lookup table with a dict (later rows silently overwriting earlier ones) and LibreNMS took the first row, so which record received the data depended on database row order. Both now decline to match when an address resolves to more than one record, and report how many were skipped, because attaching data to the wrong department is worse than attaching none: with no data you go and look, with wrong data you never find out — and across departments it is a data leak. Setting "limit to subnets" on the integration narrows the candidates back to one and restores matching.
 
 ## [0.5.143] — 2026-08-05
 
@@ -647,7 +659,7 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
   - **Off by default**: it broadcasts on the segment, so whether to do it is decided per subnet in that subnet's scan settings.
   - Sends only DISCOVER, never REQUEST — it does not actually take an address.
   - Whether a server is legitimate is decided **at query time**, not baked into the sighting: mark one as legitimate later and the old records follow, rather than leaving a permanently wrong "rogue" label behind.
-  - The comparison is per subnet — with overlapping ranges (several units sharing 192.168.1.0/24), one segment's marking is never mistaken for another's authorisation.
+  - The comparison is per subnet — with overlapping ranges (several units sharing 198.51.100.0/24), one segment's marking is never mistaken for another's authorisation.
   - Relayed offers are not flagged: that server was never on this segment to begin with.
 - **Each subnet can be included in or excluded from the AI review** — a tick box on the subnet edit page, or a multi-select under Admin → LLM / AI. Both write **the same field**, so either place works. Sensitive segments can be excluded entirely and are never sent to the model.
 - **AI review** — have the language model look over the IPAM data this system manages and flag what is suspicious, inconsistent or a security concern (addresses recorded as in use but never seen alive, hosts whose name and role disagree, duplicate or contradictory records, subnets with no monitoring coverage at all…). Three entry points: a new **AI review** page in the sidebar, a summary block on the dashboard, and an on/off switch plus schedule under Admin → LLM / AI (off by default). The schedule rides on the existing sync timer rather than adding a job; the page also has a **Run now** button so you do not have to wait for it.
@@ -836,7 +848,7 @@ Found by running the new Windows agent against a real Windows 11 + IIS host, not
 
 ### Fixed
 - **`GET /addresses` leaked a global count in `total`.** The same defect fixed in 0.5.116 for sections and subnets was still present on the largest table: the count query carried the subnet/section/archived filters but never the visibility condition, which was applied only to rows after pagination. A restricted account saw a total far larger than what it could see, and pagination was broken.
-- **Two MCP tools mishandled overlapping subnets.** `switch_port_for_ip` queried `IPAddress.ip == ip` with no scope and no `limit(1)` before `scalar_one_or_none()`, so in an overlapping-subnet deployment — several customers sharing `192.168.1.0/24`, the product's core scenario — it raised `MultipleResultsFound` and the tool failed outright. Both it and `get_ip_detail` also checked visibility *after* picking an arbitrary row, so picking a row in an invisible subnet reported "IP not found" even when the caller could see the same IP in another subnet. Both now scope the query first and then take one row.
+- **Two MCP tools mishandled overlapping subnets.** `switch_port_for_ip` queried `IPAddress.ip == ip` with no scope and no `limit(1)` before `scalar_one_or_none()`, so in an overlapping-subnet deployment — several customers sharing `198.51.100.0/24`, the product's core scenario — it raised `MultipleResultsFound` and the tool failed outright. Both it and `get_ip_detail` also checked visibility *after* picking an arbitrary row, so picking a row in an invisible subnet reported "IP not found" even when the caller could see the same IP in another subnet. Both now scope the query first and then take one row.
 - **The Permissions page could not grant rack or location permissions.** It requested `/api/v1/locations/racks` and `/api/v1/locations/locations`; the real paths are `/api/v1/racks` and `/api/v1/locations`, so both were swallowed by `/locations/{location_id}`, failed UUID parsing and returned `400` — leaving those two object lists permanently empty.
 - **Nine i18n keys were never translated** and rendered as raw keys: the task trigger column and its two values, four BMC serial-console troubleshooting entries, and the two MAC columns on the connections page. Also removed two orphan keys that existed only in en-US.
 

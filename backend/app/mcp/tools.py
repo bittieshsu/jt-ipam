@@ -169,6 +169,22 @@ async def _resolve_subnet(
     return subnet
 
 
+async def _scope_subnet(
+    session: AsyncSession, *, user: User,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
+) -> tuple[list[uuid.UUID] | None, str]:
+    """清單工具的共用範圍解析：回 (subnet_ids | None 代表全域, 範圍標籤)。
+
+    沒有範圍參數時，問「某網段有哪些…」的答案會變成全站資料 —— 這類錯誤每個數字
+    單獨看都是真的，最難察覺。解析同時走 `_resolve_subnet` 的可見性把關。
+    """
+    if not (subnet_cidr or subnet_id):
+        return None, "all"
+    subnet = await _resolve_subnet(
+        session, user=user, subnet_id=subnet_id, subnet_cidr=subnet_cidr)
+    return [subnet.id], str(subnet.cidr)
+
+
 async def find_free_ips(
     session: AsyncSession, *, user: User,
     subnet_cidr: str | None = None, subnet_id: str | None = None,
@@ -397,20 +413,25 @@ async def stats_overview(session: AsyncSession, *, user: User) -> dict[str, Any]
 
 
 async def list_racks(
-    session: AsyncSession, *, user: User, limit: int = 200,
+    session: AsyncSession, *, user: User, limit: int = 200, location_id: str | None = None,
 ) -> dict[str, Any]:
-    """列出機櫃（含所在地點與已掛裝置數）。"""
+    """列出機櫃（含所在地點與已掛裝置數）。問某機房要帶 location_id。"""
     limit = min(int(limit), 500)
-    rows = (await session.execute(
-        select(Rack, Location.name)
-        .outerjoin(Location, Location.id == Rack.location_id)
-        .order_by(Rack.name).limit(limit)
-    )).all()
+    stmt = (select(Rack, Location.name)
+            .outerjoin(Location, Location.id == Rack.location_id))
+    scope = "all"
+    if location_id:
+        stmt = stmt.where(Rack.location_id == _as_uuid(location_id, "location_id"))
+        scope = f"location:{location_id}"
+    # 可見性推進 SQL（同 list_devices：先截斷再過濾會漏資料且總數失真）
     vis = await visible_ids(session, user=user, object_type="rack")
+    if vis is not None:
+        stmt = stmt.where(Rack.id.in_(list(vis)) if vis else sa_false())
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (await session.execute(stmt.order_by(Rack.name).limit(limit))).all()
     out = []
     for rack, loc_name in rows:
-        if vis is not None and rack.id not in vis:
-            continue
         devs = list((await session.execute(
             select(Device.name, Device.type, Device.u_position, Device.u_size, Device.rack_face)
             .where(Device.rack_id == rack.id).order_by(Device.u_position)
@@ -436,7 +457,7 @@ async def list_racks(
             ],
             "description": rack.description,
         })
-    return {"racks": out, "count": len(out)}
+    return {"scope": scope, "count": total, "returned": len(out), "racks": out}
 
 
 async def list_locations(
@@ -470,21 +491,36 @@ async def list_locations(
 async def list_devices(
     session: AsyncSession, *, user: User,
     name: str | None = None, type: str | None = None, limit: int = 100,
+    location_id: str | None = None, rack_id: str | None = None,
 ) -> dict[str, Any]:
-    """列出/搜尋裝置（可給 name 子字串或 type 過濾）；含地點、機櫃、IP 數。"""
+    """列出/搜尋裝置（可給 name 子字串或 type 過濾）；含地點、機櫃、IP 數。
+
+    問「某機房／某機櫃有哪些裝置」要帶 location_id / rack_id，否則回的是全站裝置。
+    """
     limit = min(int(limit), 500)
     stmt = select(Device)
     if name:
         stmt = stmt.where(Device.name.ilike(f"%{name}%"))
     if type:
         stmt = stmt.where(Device.type == type)
-    rows = list((await session.execute(stmt.order_by(Device.name).limit(limit))).scalars().all())
+    scope = "all"
+    if location_id:
+        stmt = stmt.where(Device.location_id == _as_uuid(location_id, "location_id"))
+        scope = f"location:{location_id}"
+    if rack_id:
+        stmt = stmt.where(Device.rack_id == _as_uuid(rack_id, "rack_id"))
+        scope = f"rack:{rack_id}"
+    # 可見性推進 SQL：先截斷再過濾會讓受限帳號拿到不足 limit 的結果，
+    # 且總數會把看不到的也算進去
     vis = await visible_ids(session, user=user, object_type="device")
+    if vis is not None:
+        stmt = stmt.where(Device.id.in_(list(vis)) if vis else sa_false())
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = list((await session.execute(stmt.order_by(Device.name).limit(limit))).scalars().all())
     cust_cache: dict[Any, str | None] = {}
     out = []
     for d in rows:
-        if vis is not None and d.id not in vis:
-            continue
         ip_count = int(await session.scalar(
             select(func.count()).select_from(IPAddress).where(IPAddress.device_id == d.id)
         ) or 0)
@@ -501,7 +537,7 @@ async def list_devices(
             "u_position": d.u_position, "u_size": d.u_size, "rack_face": d.rack_face,
             "rack_id": str(d.rack_id) if d.rack_id else None,
         })
-    return {"devices": out, "count": len(out)}
+    return {"scope": scope, "count": total, "returned": len(out), "devices": out}
 
 
 async def get_device(
@@ -588,11 +624,21 @@ async def list_customers(
 
 async def list_nat(
     session: AsyncSession, *, user: User, limit: int = 100,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
 ) -> dict[str, Any]:
-    """列出 NAT 規則。"""
+    """列出 NAT 規則。問某網段對外開了什麼要帶 subnet_cidr。"""
     limit = min(int(limit), 500)
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    stmt = select(NATTranslation)
+    if scope_ids is not None:
+        in_scope = select(IPAddress.id).where(IPAddress.subnet_id.in_(scope_ids))
+        stmt = stmt.where(NATTranslation.src_ip_id.in_(in_scope)
+                          | NATTranslation.dst_ip_id.in_(in_scope))
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
     rows = list((await session.execute(
-        select(NATTranslation).order_by(NATTranslation.name).limit(limit)
+        stmt.order_by(NATTranslation.name).limit(limit)
     )).scalars().all())
     ip_cache: dict[Any, str | None] = {}
 
@@ -618,7 +664,7 @@ async def list_nat(
             "source_origin": r.source_origin,
             "description": r.description,
         })
-    return {"nat_rules": out, "count": len(out)}
+    return {"scope": scope, "count": total, "returned": len(out), "nat_rules": out}
 
 
 async def list_sections(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
@@ -771,7 +817,7 @@ async def switch_port_for_ip(
     """查某 IP 接在哪台 switch 的哪個 port（用 FDB；access port = 該 port MAC 數最少者）。"""
     # 先把可見範圍套進查詢、再取一筆 —— 不可「先任取一筆再檢查可見性」。
     # 原寫法有兩個問題：
-    #  (1) 沒 scope 也沒 limit(1) → 重疊網段（多客戶共用 192.168.1.0/24）下同一個 IP
+    #  (1) 沒 scope 也沒 limit(1) → 重疊網段（多客戶共用 198.51.100.0/24）下同一個 IP
     #      字串會有多筆，`scalar_one_or_none()` 拋 MultipleResultsFound 直接炸掉；
     #  (2) 任取一筆才驗權限 → 若剛好取到不可見子網路那筆就回「IP not found」，
     #      即使使用者其實看得到另一個子網路的同一個 IP。
@@ -1004,7 +1050,7 @@ async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[s
     except ValueError as exc:
         raise IPAMToolError(f"Invalid IP: {exc}") from exc
     # RBAC：先縮到可見子網路再取一筆。若「先任取一筆再驗可見性」，在重疊網段
-    # （多客戶共用 192.168.1.0/24）下可能取到不可見那筆而回報「查無」——
+    # （多客戶共用 198.51.100.0/24）下可能取到不可見那筆而回報「查無」——
     # 但使用者其實看得到另一個子網路的同一個 IP，那是假的查無。
     vis = await visible_ids(session, user=user, object_type="subnet")
     stmt = select(IPAddress).where(IPAddress.ip == ip)
@@ -1154,6 +1200,7 @@ async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200)
 
 async def list_dhcp_ranges(
     session: AsyncSession, *, user: User, limit: int = 300,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
 ) -> dict[str, Any]:
     """各整合同步回來的 DHCP 發放範圍（OPNsense / pfSense / FortiGate / Windows DHCP）。
 
@@ -1161,11 +1208,19 @@ async def list_dhcp_ranges(
     windows）。「這個 IP 是不是落在 DHCP 池裡」這種問題要靠它，不能拿子網路去猜。
     """
     from app.models.dhcp import DHCPPoolRange
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    stmt = select(DHCPPoolRange)
+    if scope_ids is not None:
+        # 範圍表存的是 CIDR 字串，直接以該子網路的 cidr 比對
+        stmt = stmt.where(DHCPPoolRange.subnet_cidr.in_(
+            select(Subnet.cidr).where(Subnet.id.in_(scope_ids))))
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
     rows = (await session.execute(
-        select(DHCPPoolRange).order_by(DHCPPoolRange.source_type, DHCPPoolRange.start_ip)
-        .limit(limit)
+        stmt.order_by(DHCPPoolRange.source_type, DHCPPoolRange.start_ip).limit(limit)
     )).scalars().all()
-    return {"ranges": [{
+    return {"scope": scope, "count": total, "returned": len(rows), "ranges": [{
         "source_type": r.source_type, "source_name": r.source_name,
         "subnet_cidr": str(r.subnet_cidr) if r.subnet_cidr else None,
         "start_ip": str(r.start_ip), "end_ip": str(r.end_ip),
@@ -1364,16 +1419,22 @@ async def list_dns_records(
 async def list_ip_requests(
     session: AsyncSession, *, user: User, status: str | None = None, limit: int = 200,
 ) -> dict[str, Any]:
-    """IP 申請工作流清單。非管理員只看自己提出的。"""
+    """IP 申請工作流清單。
+
+    可見範圍與 REST 端點同一套判定，不另立規則：admin 或具全域讀取權限者看得到全部，
+    其餘只看自己提出的（避免同一件事有兩套邏輯，日後各自演化到不一致）。
+    """
     from app.models.ip_request import IPRequest
     stmt = select(IPRequest)
-    if not user.is_admin:
+    if not await has_global_read(session, user):
         stmt = stmt.where(IPRequest.requester_user_id == user.id)
     if status:
         stmt = stmt.where(IPRequest.status == status)
-    stmt = stmt.order_by(IPRequest.created_at.desc()).limit(limit)
-    rows = (await session.execute(stmt)).scalars().all()
-    return {"requests": [{
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (await session.execute(
+        stmt.order_by(IPRequest.created_at.desc()).limit(limit))).scalars().all()
+    return {"count": total, "returned": len(rows), "requests": [{
         "id": str(r.id), "status": r.status, "subnet_id": str(r.subnet_id),
         "requested_ip": r.requested_ip, "hostname": r.hostname, "purpose": r.purpose,
         "description": r.description, "created_at": r.created_at,
@@ -1499,25 +1560,54 @@ async def list_arp(
 
 async def list_fdb(
     session: AsyncSession, *, user: User, mac: str | None = None, limit: int = 50,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
 ) -> dict[str, Any]:
-    """交換器 FDB 紀錄（MAC↔埠）。"""
+    """交換器 FDB 紀錄（MAC↔埠）。問某網段的機器接在哪要帶 subnet_cidr。"""
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
     stmt = select(FDBEntry)
     if mac:
         stmt = stmt.where(FDBEntry.mac == mac.strip().lower())
+    if scope_ids is not None:
+        # FDB 只有 MAC 沒有 IP → 以該網段 IP 已知的 MAC 反查
+        stmt = stmt.where(FDBEntry.mac.in_(
+            select(IPAddress.mac).where(
+                IPAddress.subnet_id.in_(scope_ids), IPAddress.mac.is_not(None))))
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
     stmt = stmt.order_by(FDBEntry.last_seen_at.desc()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
-    return {"fdb": [{
+    return {"scope": scope, "count": total, "returned": len(rows), "fdb": [{
         "mac": str(e.mac), "vlan": e.vlan_id_num, "port": e.port_name,
         "device_id": str(e.device_id) if e.device_id else None, "source": e.source,
         "last_seen_at": e.last_seen_at,
     } for e in rows]}
 
 
-async def wazuh_missing_agents(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """有設主機名稱、卻沒裝 Wazuh agent 的 IP（資安覆蓋缺口）。"""
+async def wazuh_missing_agents(
+    session: AsyncSession, *, user: User, limit: int = 200,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
+) -> dict[str, Any]:
+    """有設主機名稱、卻沒裝 Wazuh agent 的 IP（資安覆蓋缺口）。
+
+    問「某網段有誰沒裝」一定要帶 subnet_cidr/subnet_id：不帶會回全站缺口，
+    模型就會把別的網段當成該網段的答案（曾實際發生：問 1.0/24 卻回 11.x/40.x）。
+    """
     from app.services.wazuh import find_missing_agents
-    rows = await find_missing_agents(session)
-    return {"missing_count": len(rows), "missing": rows[:limit]}
+    scope_ids: list[uuid.UUID] | None = None
+    scope_label = "all"
+    if subnet_cidr or subnet_id:
+        subnet = await _resolve_subnet(
+            session, user=user, subnet_id=subnet_id, subnet_cidr=subnet_cidr)
+        scope_ids = [subnet.id]
+        scope_label = str(subnet.cidr)
+    rows = await find_missing_agents(session, subnet_ids=scope_ids)
+    return {
+        "scope": scope_label,          # 回答時必須說明涵蓋範圍
+        "missing_count": len(rows),    # 此範圍內的總數（非全站）
+        "returned": min(len(rows), limit),
+        "missing": rows[:limit],
+    }
 
 
 async def get_customer_summary(
@@ -1550,10 +1640,21 @@ async def get_customer_summary(
     }
 
 
-async def list_vms(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """虛擬機清單（Proxmox VE 等同步回來）。"""
+async def list_vms(
+    session: AsyncSession, *, user: User, limit: int = 200,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
+) -> dict[str, Any]:
+    """虛擬機清單（Proxmox VE 等同步回來）。問某網段有哪些 VM 要帶 subnet_cidr。"""
     from app.models.virt import VirtualMachine, VMInterface
-    rows = list((await session.execute(select(VirtualMachine).limit(limit))).scalars().all())
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    stmt = select(VirtualMachine)
+    if scope_ids is not None:
+        stmt = stmt.where(VirtualMachine.primary_ip_id.in_(
+            select(IPAddress.id).where(IPAddress.subnet_id.in_(scope_ids))))
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = list((await session.execute(stmt.limit(limit))).scalars().all())
     out = []
     for v in rows:
         ifaces = list((await session.execute(
@@ -1571,7 +1672,7 @@ async def list_vms(session: AsyncSession, *, user: User, limit: int = 200) -> di
                 "name": i.name, "mac": i.mac, "primary_ip": i.primary_ip, "bridge": i.bridge,
             } for i in ifaces],
         })
-    return {"vms": out, "count": len(out)}
+    return {"scope": scope, "count": total, "returned": len(out), "vms": out}
 
 
 async def list_wireless_links(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
@@ -1700,11 +1801,34 @@ async def cable_trace(session: AsyncSession, *, user: User, cable_id: str) -> di
     }
 
 
-async def list_power(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """電力清單：饋線（電壓/電流/相位）與插座（接到哪台裝置）。"""
+async def list_power(
+    session: AsyncSession, *, user: User, limit: int = 200, rack_id: str | None = None,
+) -> dict[str, Any]:
+    """電力清單：饋線（電壓/電流/相位）與插座（接到哪台裝置）。
+
+    問「某機櫃／某機房的電力」要帶 rack_id，否則回的是全站電力。
+    """
     from app.models.physical import PowerFeed, PowerOutlet
-    feeds = list((await session.execute(select(PowerFeed).limit(min(int(limit), 500)))).scalars().all())
-    outlets = list((await session.execute(select(PowerOutlet).limit(min(int(limit), 500)))).scalars().all())
+    lim = min(int(limit), 500)
+    fstmt = select(PowerFeed)
+    ostmt = select(PowerOutlet)
+    scope = "all"
+    if rack_id:
+        rid = _as_uuid(rack_id, "rack_id")
+        vis = await visible_ids(session, user=user, object_type="rack")
+        if vis is not None and rid not in vis:
+            raise IPAMToolError("rack not visible to this user")
+        scope = f"rack:{rid}"
+        fstmt = fstmt.where(PowerFeed.rack_id == rid)
+        # 插座掛在饋線上 → 以範圍內的饋線反查
+        ostmt = ostmt.where(PowerOutlet.feed_id.in_(select(PowerFeed.id).where(
+            PowerFeed.rack_id == rid)))
+    feed_total = int(await session.scalar(
+        select(func.count()).select_from(fstmt.subquery())) or 0)
+    outlet_total = int(await session.scalar(
+        select(func.count()).select_from(ostmt.subquery())) or 0)
+    feeds = list((await session.execute(fstmt.limit(lim))).scalars().all())
+    outlets = list((await session.execute(ostmt.limit(lim))).scalars().all())
     feed_out = [{
         "id": str(f.id), "name": f.name, "voltage_v": f.voltage_v, "amperage_a": f.amperage_a,
         "phase": f.phase, "supply_type": f.supply_type,
@@ -1717,16 +1841,30 @@ async def list_power(session: AsyncSession, *, user: User, limit: int = 200) -> 
             "id": str(o.id), "label": o.label, "feed_id": str(o.feed_id) if o.feed_id else None,
             "device": dev.name if dev else None,
         })
-    return {"feeds": feed_out, "outlets": outlet_out}
+    return {"scope": scope, "feed_count": feed_total, "outlet_count": outlet_total,
+            "feeds_returned": len(feed_out), "outlets_returned": len(outlet_out),
+            "feeds": feed_out, "outlets": outlet_out}
 
 
-async def list_wazuh_agents(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """Wazuh 代理清單（狀態、OS、版本、CVE 數）。"""
+async def list_wazuh_agents(
+    session: AsyncSession, *, user: User, limit: int = 200,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
+) -> dict[str, Any]:
+    """Wazuh 代理清單（狀態、OS、版本、CVE 數）。問某網段時要帶 subnet_cidr。"""
     from app.models.wazuh import WazuhAgent
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    stmt = select(WazuhAgent)
+    if scope_ids is not None:
+        # agent 以 jt_ipam_address_id 對映 IP → 用該 IP 的子網路限縮
+        stmt = stmt.where(WazuhAgent.jt_ipam_address_id.in_(
+            select(IPAddress.id).where(IPAddress.subnet_id.in_(scope_ids))))
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
     rows = (await session.execute(
-        select(WazuhAgent).order_by(WazuhAgent.name).limit(min(int(limit), 500))
+        stmt.order_by(WazuhAgent.name).limit(min(int(limit), 500))
     )).scalars().all()
-    return {"agents": [{
+    return {"scope": scope, "count": total, "returned": len(rows), "agents": [{
         "id": str(a.id), "agent_id": a.agent_id, "name": a.name, "ip": a.ip,
         "status": a.status, "os_platform": a.os_platform, "os_version": a.os_version,
         "agent_version": a.agent_version, "group": a.group,
@@ -2284,7 +2422,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "parameters": {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "location_id": {"type": "string", "description": "Restrict to one location (機房); otherwise all racks"},
+            },
         },
     },
     "list_locations": {
@@ -2308,6 +2449,8 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "name": {"type": "string"},
                 "type": {"type": "string"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "location_id": {"type": "string", "description": "Restrict to one location (機房)"},
+                "rack_id": {"type": "string", "description": "Restrict to one rack"},
             },
         },
     },
@@ -2335,10 +2478,14 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_nat": {
         "fn": list_nat,
-        "description": "List NAT rules (NAT 規則).",
+        "description": "List NAT rules (NAT 規則). If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. The reply carries 'scope' and 'count'; state them.",
         "parameters": {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"},
+                "subnet_id": {"type": "string"},
+            },
         },
     },
     "switch_port_for_ip": {
@@ -2497,7 +2644,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": ("List DHCP pool ranges synced from the firewall / DHCP integrations "
                         "(OPNsense, pfSense, FortiGate, Windows DHCP). Use this to tell whether "
                         "an address falls inside a DHCP pool — do not guess from the subnet."),
-        "parameters": {"type": "object", "properties": {
+        "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
     "list_fortigate_policies": {
@@ -2629,14 +2776,20 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_fdb": {
         "fn": list_fdb,
-        "description": "Switch FDB entries (MAC↔port/VLAN). Filter by mac.",
-        "parameters": {"type": "object", "properties": {
+        "description": "Switch FDB entries (MAC↔port/VLAN). Filter by mac. If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. The reply carries 'scope' and 'count'; state them.",
+        "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"},
             "mac": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
     "wazuh_missing_agents": {
         "fn": wazuh_missing_agents,
-        "description": "IPs that have a hostname but no active Wazuh agent (security coverage gap).",
-        "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+        "description": ("IPs that have a hostname but no active Wazuh agent (security coverage gap). "
+                        "If the question is about one subnet/CIDR, you MUST pass subnet_cidr "
+                        "(e.g. '198.51.100.0/24') — otherwise the result covers the whole system "
+                        "and answering with it would be wrong. The reply includes 'scope'; state it."),
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            "subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"},
+            "subnet_id": {"type": "string"}}},
     },
     "get_customer_summary": {
         "fn": get_customer_summary,
@@ -2646,8 +2799,8 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_vms": {
         "fn": list_vms,
-        "description": "List virtual machines (synced from Proxmox VE etc.).",
-        "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+        "description": "List virtual machines (synced from Proxmox VE etc.). If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. The reply carries 'scope' and 'count'; state them.",
+        "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
     "list_wireless_links": {
         "fn": list_wireless_links,
@@ -2751,7 +2904,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "fn": calc_aggregate,
         "description": "Collapse/aggregate multiple CIDRs (comma- or space-separated) into the minimal set.",
         "parameters": {"type": "object", "properties": {
-            "cidrs": {"type": "string", "description": "e.g. '192.168.0.0/24, 192.168.1.0/24'"}},
+            "cidrs": {"type": "string", "description": "e.g. '192.168.0.0/24, 198.51.100.0/24'"}},
             "required": ["cidrs"]},
     },
     "calc_netmask": {
@@ -2848,12 +3001,12 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_power": {
         "fn": list_power,
         "description": "List power feeds (voltage/amperage/phase) and outlets (which device each outlet powers).",
-        "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+        "parameters": {"type": "object", "properties": {"rack_id": {"type": "string", "description": "Restrict to one rack"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
     "list_wazuh_agents": {
         "fn": list_wazuh_agents,
-        "description": "List Wazuh agents (status, OS, version, CVE critical/high counts). For the coverage GAP use wazuh_missing_agents instead.",
-        "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+        "description": "List Wazuh agents (status, OS, version, CVE critical/high counts). For the coverage GAP use wazuh_missing_agents instead. If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. The reply carries 'scope' and 'count'; state them.",
+        "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
 }
 

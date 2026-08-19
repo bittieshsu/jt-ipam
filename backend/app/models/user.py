@@ -39,7 +39,9 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
 
     username: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False, index=True)
-    email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False, index=True)
+    # email 不是身分識別（username 才是）：同一人常同時有本機與 LDAP/SSO 帳號，
+    # email 相同是常態 → 不設唯一鍵（migration 0120）
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False, index=True)
     display_name: Mapped[str | None] = mapped_column(Text)
 
     password_hash: Mapped[str | None] = mapped_column(Text)  # NULL = 由外部 IdP 認證

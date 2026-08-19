@@ -123,9 +123,15 @@ async def authenticate(
             await _reject("ldap_disabled")
         account = username.split("@")[0].strip()       # 容錯：使用者多打 @領域時去掉
         stored = f"{account}@ldap"
+        # email 允許重複（同一人常同時有本機與 LDAP 帳號），所以 email 這一路
+        # 必須限定在 LDAP 帳號內，否則會撈到同 email 的本機帳號去改它；
+        # 且不可用 scalar_one_or_none（多筆同 email 會炸 MultipleResultsFound）
         user = (await session.execute(
-            select(User).where((User.username == stored) | (User.email == username))
-        )).scalar_one_or_none()
+            select(User).where(
+                (User.username == stored)
+                | ((User.email == username) & (User.auth_provider == "ldap")),
+            ).order_by((User.username == stored).desc()).limit(1)   # 帳號精準命中優先
+        )).scalars().first()
         if user is not None:
             await _ensure_active(user)
         try:
@@ -148,10 +154,16 @@ async def authenticate(
                 taken = (await session.execute(
                     select(User.id).where(User.email == prov_email))).first()
                 if taken:
-                    prov_email = f"{account}@ldap.local"
-                    if (await session.execute(
-                            select(User.id).where(User.email == prov_email))).first():
-                        prov_email = f"{stored}.local"
+                    # 依序退到領域命名空間的 email；仍撞號就加短隨機碼，
+                    # 保證自動建帳號不會因 unique 衝突而整個登入失敗
+                    import uuid as _uuid4
+
+                    for cand in (f"{account}@ldap.local", f"{stored}@ldap.local",
+                                 f"{account}-{_uuid4.uuid4().hex[:8]}@ldap.local"):
+                        if not (await session.execute(
+                                select(User.id).where(User.email == cand))).first():
+                            prov_email = cand
+                            break
             user = User(
                 username=stored, email=prov_email,
                 display_name=info.display_name, auth_provider="ldap",
@@ -170,8 +182,14 @@ async def authenticate(
             user.is_admin = info.is_admin
             if info.display_name:
                 user.display_name = info.display_name
-            if info.email:
-                user.email = info.email
+            # email 是唯一鍵：LDAP 回的 email 常與同一人的本機帳號重複，
+            # 硬寫進去會在 commit 時撞 unique 而讓整個登入回 500（帳密其實是對的）。
+            # 撞號就保留原本 email，登入照常放行。
+            if info.email and info.email != user.email:
+                clash = (await session.execute(select(User.id).where(
+                    User.email == info.email, User.id != user.id))).first()
+                if not clash:
+                    user.email = info.email
         user.failed_login_count = 0
         user.locked_until = None
         user.last_login_at = now
@@ -181,8 +199,13 @@ async def authenticate(
         return user
 
     # ───────────── 本機 realm（預設）─────────────
-    stmt = select(User).where((User.username == username) | (User.email == username))
-    user = (await session.execute(stmt)).scalar_one_or_none()
+    # 同上：email 可重複 → 以 email 登入時排除 LDAP 帳號（那要走 ldap 領域），
+    # 並以帳號精準命中優先、取一筆，避免 MultipleResultsFound
+    stmt = (select(User).where(
+        (User.username == username)
+        | ((User.email == username) & (User.auth_provider != "ldap")),
+    ).order_by((User.username == username).desc()).limit(1))
+    user = (await session.execute(stmt)).scalars().first()
     if user is None:
         await _reject("no_user")
     await _ensure_active(user)

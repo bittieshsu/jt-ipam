@@ -28,6 +28,10 @@ Release flow: run the checklist → all green → bump version → deploy
   `alembic downgrade -1` then `upgrade head` round-trip
 - [ ] No "model changed but migration forgotten": after upgrading to head the app
   starts without an asyncpg "column does not exist" error
+- [ ] **Constraint changes**: when a migration drops or adds a UNIQUE constraint, audit
+  every query that relied on it. `scalar_one_or_none()` on a column that can now repeat
+  becomes a 500 the moment a second row appears (v0.5.194: `users.email`), and code that
+  wrote the column unconditionally starts hitting IntegrityError
 
 ## 3. Backend integration tests (test DB + pytest, thorough)
 
@@ -37,6 +41,22 @@ Release flow: run the checklist → all green → bump version → deploy
   endpoints return 401/403)
 - [ ] Core CRUD: sections / subnets / addresses / devices / customers / locations / racks
 - [ ] Audit chain: write operations are audited and chain integrity verifies
+
+## 3b. Authentication realms & account identity
+
+Login spans local / LDAP / RADIUS / OIDC / SAML, and the same human legitimately owns
+accounts in more than one of them. Every defect here reaches the user as "I cannot log in",
+with the real cause hidden in a traceback.
+
+- [ ] Log in through **every configured realm**; a wrong password returns 401 with a generic
+  message (no account enumeration) while the server log records the specific reason
+- [ ] **Same person, two realms**: a local account and an LDAP/SSO account sharing one email
+  both log in, and neither overwrites the other's row (v0.5.194: the shared email hit the
+  UNIQUE index and returned 500 *after* the LDAP bind had already succeeded)
+- [ ] **Auto-provisioning**: first external login creates the account, second updates it;
+  a collision on any unique column degrades gracefully instead of failing the login
+- [ ] Lockout after repeated failures, then unlock; a deactivated account is refused
+- [ ] Logging in by email (not username) resolves to exactly one account per realm
 
 ## 4. Key API smoke (against prod after deploy, mostly read-only)
 
@@ -139,6 +159,30 @@ the reverse proxy dropped the WebSocket upgrade.
   works, and TOTP still logs in
 - [ ] **Security**: download / analyze / apply all require admin + validate task ownership;
   spool files are 0600 in a 0700 dir; no plaintext secret or passphrase in logs/responses
+
+## 5e. AI chat / MCP tools — **every release that touches tools, prompts, or the data they read**
+
+Wrong AI answers do not look wrong: every number in them is real, just computed over the
+wrong set. Unit tests pass because each tool returns exactly what it was asked for — the
+defect is in *what the model was able to ask*.
+
+- [ ] **Scope**: for each tool returning per-object data, ask a question naming one subnet /
+  rack / location and confirm the answer contains only that scope. Regression to guard:
+  "which hosts in 198.51.100.0/24 have no Wazuh agent" answered with the whole system
+  because the tool had no subnet parameter at all (v0.5.194)
+- [ ] **Schema exposes the scope**: the tool description tells the model it MUST pass the
+  scope for a scoped question, and the reply carries `scope` so the answer can state coverage
+- [ ] **No silent truncation**: every list tool returns `count` (total in scope) next to
+  `returned`; ask something exceeding `limit` and confirm the answer says it is a partial list
+  instead of presenting one page as the total
+- [ ] **Permission tiers**: each new/changed tool sits in the right tier (mutating / admin /
+  global-read / per-object) and `allowed_tool_names()` hides it from accounts that cannot call
+  it. Verify through the actual AI chat with a restricted account, not only in unit tests
+- [ ] **Read-only stays read-only**: analysis/triage tools never write, never notify, never commit
+- [ ] **Prompt injection**: attacker-controlled text (mDNS hostname, firewall rule description)
+  stays fenced and truncated; the adversarial tests still pass
+- [ ] **Facts come from tools, not arithmetic**: usage / free / count answers are fetched, never
+  computed by the model from a CIDR
 
 ## 6. Manual page review (browser, after deploy)
 

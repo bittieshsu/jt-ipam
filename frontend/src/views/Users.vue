@@ -228,8 +228,23 @@ function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
     default: () => label,
   });
 }
+// 帳號的領域後綴（jason@ldap）在有「認證方式」欄位時是重複資訊；只去掉已知領域，
+// 不動一般含 @ 的帳號（例如以 email 當帳號的本機使用者）
+const REALM_SUFFIXES = ["@ldap", "@radius", "@oidc", "@saml"];
+function stripRealm(username: string): string {
+  for (const suf of REALM_SUFFIXES) {
+    if (username.toLowerCase().endsWith(suf)) return username.slice(0, -suf.length);
+  }
+  return username;
+}
+
 const allColumns = computed<DataTableColumns<User>>(() => autoSort([
-  { title: t("users.username"), key: "username", minWidth: 160, ellipsis: { tooltip: true } },
+  {
+    // 領域已有獨立欄位 → 帳號欄不再重複顯示 @ldap 後綴（實際 username 不變，
+    // tooltip 仍給完整值，避免「畫面看到的跟真正的帳號不同」造成另一種混淆）
+    title: t("users.username"), key: "username", minWidth: 160, ellipsis: { tooltip: true },
+    render: (r) => h("span", { title: r.username }, stripRealm(r.username)),
+  },
   { title: t("users.email"), key: "email", minWidth: 150, ellipsis: { tooltip: true } },
   { title: t("users.display_name"), key: "display_name", minWidth: 120, ellipsis: { tooltip: true }, render: (r) => r.display_name ?? "—" },
   {
