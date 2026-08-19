@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.196] — 2026-08-20
+
+### Fixed
+- **FortiGate DHCP lease sync failed against a real device even though the response was valid JSON.** FortiOS returns several JSON documents concatenated (one per VDOM/scope, with no array wrapping them), so the standard parser stopped at the second document with "Extra data" and the whole DHCP section was reported as "response is not JSON" — while the body plainly started with `{"http_method":"GET","results":[...]}`. Responses are now parsed document by document and their `results` merged. Genuinely non-JSON bodies (a login page, for instance) still raise, and the error now includes the parser's own message, which is what distinguishes "several documents" from "not JSON at all".
+
 ## [0.5.195] — 2026-08-19
 
 ### Fixed

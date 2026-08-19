@@ -4,6 +4,11 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.196] — 2026-08-20
+
+### 修正
+- **FortiGate 的 DHCP 租約同步在實機上失敗，但回應其實是合法的 JSON。** FortiOS 會把好幾份 JSON 直接串在一起回（每個 VDOM／範圍一份，外面沒有陣列包起來），標準解析器在第二份開頭丟出 `Extra data`，於是整段 DHCP 被判成「回應不是 JSON」——儘管內容開頭明明是 `{"http_method":"GET","results":[...]}`。現在改為逐份解析並合併各份的 `results`。真正不是 JSON 的回應（例如登入網頁）仍然會報錯，且錯誤訊息現在會帶上解析器本身的訊息，那正是分辨「多份文件相接」與「根本不是 JSON」的關鍵。
+
 ## [0.5.195] — 2026-08-19
 
 ### 修正

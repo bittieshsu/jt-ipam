@@ -375,5 +375,51 @@ async def test_one_dead_endpoint_does_not_abort_whole_sync(db_session, monkeypat
     counts = await fg.sync_instance(db_session, fw)
     assert counts["arp"] == 7, "DHCP 失敗把 ARP 一起帶走了"
     assert "dhcp" in counts["errors"]
-    assert fw.last_error and "dhcp" in fw.last_error, "部分失敗要留痕，不能假裝全部成功"
+    assert fw.last_error is not None, "部分失敗要留痕，不能假裝全部成功"
+    assert "dhcp" in fw.last_error
     assert fw.last_sync_at is not None
+
+
+def test_concatenated_json_documents_are_parsed() -> None:
+    """FortiOS 實機把多份 JSON 直接串在一起回 —— 標準解析器會丟 Extra data。
+
+    客戶站台實際症狀：`monitor/system/dhcp` 的 content-type 是 application/json、
+    內容開頭也是合法的 `{"http_method":"GET","results":[...]}`，卻被判成「不是 JSON」，
+    整段 DHCP 同步失效。根因是回應由多份文件相接（每 VDOM 一份），不是內容有問題。
+    """
+    import json as _json
+
+    from app.services.fortigate import _loads_tolerant, _unwrap
+
+    doc1 = {"http_method": "GET", "results": [
+        {"ip": "198.51.100.84", "reserved": False,
+         "mac": "00:00:5e:00:53:bb", "hostname": "phone-a"}], "vdom": "root"}
+    doc2 = {"http_method": "GET", "results": [
+        {"ip": "203.0.113.10", "reserved": True,
+         "mac": "00:00:5e:00:53:cc", "hostname": "printer-b"}], "vdom": "vd2"}
+    raw = _json.dumps(doc1) + _json.dumps(doc2)
+
+    with pytest.raises(ValueError, match="Extra data"):
+        _json.loads(raw)          # 這正是舊行為失敗的地方
+
+    rows = _unwrap(_loads_tolerant(raw))
+    assert [r["ip"] for r in rows] == ["198.51.100.84", "203.0.113.10"]
+    assert [r["hostname"] for r in rows] == ["phone-a", "printer-b"]
+
+
+def test_single_document_still_unwraps() -> None:
+    """單一文件（絕大多數情況）行為不變。"""
+    import json as _json
+
+    from app.services.fortigate import _loads_tolerant, _unwrap
+
+    raw = _json.dumps({"http_method": "GET", "results": [{"ip": "198.51.100.5"}]})
+    assert _unwrap(_loads_tolerant(raw)) == [{"ip": "198.51.100.5"}]
+
+
+def test_real_html_body_still_raises() -> None:
+    """回網頁時仍要拋 ValueError（讓上層產生帶證據的錯誤訊息）。"""
+    from app.services.fortigate import _loads_tolerant
+
+    with pytest.raises(ValueError, match="Expecting value"):
+        _loads_tolerant("<!DOCTYPE html><html><body>login</body></html>")

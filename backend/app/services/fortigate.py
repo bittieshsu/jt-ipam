@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -93,7 +94,7 @@ async def _api_get(
     if resp.status_code != 200:
         raise FortiGateError(f"FortiGate GET {path}: {resp.status_code} {resp.text[:200]}")
     try:
-        body = resp.json()
+        body = _loads_tolerant(resp.text)
     except ValueError as exc:
         # 200 但不是 JSON，實務上幾乎都是 FortiOS 直接回了網頁介面的 HTML
         # （該韌體版本／機型沒有這支端點，或 token 走不到 monitor 範圍被導去登入頁）。
@@ -103,10 +104,35 @@ async def _api_get(
         hint = ""
         if "html" in ctype.lower() or snippet.lower().startswith(("<!doctype", "<html")):
             hint = "（回的是網頁而非 API：此韌體版本可能沒有這支端點，或 API 管理員讀不到該資源）"
+        # 解析器的原始訊息要帶上（例如 Extra data 就直指「多份文件相接」），
+        # 否則看到開頭是合法 JSON 會誤判成端點不存在
         raise FortiGateError(
-            f"回應不是 JSON（{path}）：content-type={ctype} 內容開頭={snippet!r}{hint}",
+            f"回應不是 JSON（{path}）：{exc} content-type={ctype} 內容開頭={snippet!r}{hint}",
         ) from exc
     return _unwrap(body)
+
+
+def _loads_tolerant(text: str) -> Any:
+    """解析 FortiOS 回應，容忍「多個 JSON 文件相接」。
+
+    實機（FortiOS，客戶站台）對 `monitor/system/dhcp` 回的是好幾份 JSON 直接串在一起
+    （每個 VDOM／範圍一份，外面沒有陣列包起來）。`resp.json()` 會在第二份的開頭丟
+    `Extra data`，於是一份**內容完全合法**的回應被判成「不是 JSON」，整段 DHCP 同步
+    直接失效。逐份解析後交給 `_unwrap` 合併 results。
+    """
+    dec = json.JSONDecoder()
+    docs: list[Any] = []
+    idx, n = 0, len(text)
+    while idx < n:
+        while idx < n and text[idx].isspace():
+            idx += 1
+        if idx >= n:
+            break
+        obj, idx = dec.raw_decode(text, idx)   # 任何一份壞掉就照樣拋 ValueError
+        docs.append(obj)
+    if not docs:
+        raise ValueError("empty response")
+    return docs[0] if len(docs) == 1 else docs
 
 
 def _unwrap(body: Any) -> Any:
