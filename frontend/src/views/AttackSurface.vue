@@ -329,7 +329,7 @@ const scrollX = computed(() =>
         <n-empty v-if="!loading && !shown.length" style="margin: 24px 0"
                  :description="t('surface.empty')" />
       </n-tab-pane>
-      <n-tab-pane name="fqdn" :tab="`FQDN (${fqdnRows.length})`">
+      <n-tab-pane name="fqdn" :tab="`${t('surface.tab_fqdn')} (${fqdnRows.length})`">
         <!-- 沒有 DNS 名稱的開口在這個視角看不到 → 明講筆數，避免被當成全部 -->
         <n-alert v-if="noFqdnCount" type="warning" :bordered="false" size="small"
                  style="margin-bottom: 10px">

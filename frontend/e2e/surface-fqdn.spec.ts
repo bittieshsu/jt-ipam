@@ -25,7 +25,7 @@ test("對外開放服務：FQDN 視角列出名稱並連回 IP", async ({ page }
   await expect(page.getByText(/^以 IP 檢視 \(/)).toBeVisible();
   await expect(page.locator("thead").first()).toContainText("IP");
 
-  await page.getByText(/^FQDN \(/).click();
+  await page.getByText(/^以 FQDN 檢視 \(/).click();
   const head = page.locator("thead").first();
   await expect(head).toContainText("FQDN");
   await expect(head).toContainText("對外開放的埠");

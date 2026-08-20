@@ -4,6 +4,11 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.198] — 2026-08-20
+
+### 變更
+- 對外開放服務的兩個頁籤改為對稱用語：「以 IP 檢視」與「以 FQDN 檢視」，不再一個是完整句、一個只有縮寫。
+
 ## [0.5.197] — 2026-08-20
 
 ### 新增

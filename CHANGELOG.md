@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.198] — 2026-08-20
+
+### Changed
+- The two tabs on the exposed-services page now read as a pair — "By IP" and "By FQDN" — instead of one being a phrase and the other a bare acronym.
+
 ## [0.5.197] — 2026-08-20
 
 ### Added

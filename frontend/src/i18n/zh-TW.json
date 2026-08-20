@@ -3338,6 +3338,7 @@
     "status": "實際狀態",
     "descr": "說明",
     "rule": "規則",
+    "tab_fqdn": "以 FQDN 檢視",
     "tab_ip": "以 IP 檢視",
     "col_fqdn": "FQDN",
     "col_ports": "對外開放的埠",

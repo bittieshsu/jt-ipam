@@ -3338,6 +3338,7 @@
     "status": "Live status",
     "descr": "Description",
     "rule": "rule",
+    "tab_fqdn": "By FQDN",
     "tab_ip": "By IP",
     "col_fqdn": "FQDN",
     "col_ports": "Open ports",
