@@ -2,8 +2,10 @@
 import { computed, ref, h } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
+import { useRoute, useRouter } from "vue-router";
+import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
-  NCard, NSpace, NIcon, NButton, NAlert, NStatistic, NGrid, NGi, NDataTable, NEmpty,
+  NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty,
   NTabs, NTabPane, NModal, NSelect, useMessage, type DataTableColumns,
 } from "naive-ui";
 import { runAnomalyScan, type AnomalyReport } from "@/api/phase3";
@@ -59,7 +61,16 @@ async function saveScope() {
   } catch (e) { msg.error(apiErrMsg(e)); await loadSubnets(); }
   finally { scopeSaving.value = false; }
 }
-const activeTab = ref("ip_conflicts");
+const CATEGORY_KEYS = [
+  "ip_conflicts", "mac_drifts", "ghost_ips", "unauthorized_ips", "rogue_dhcp",
+  "external_exposure", "dangling_dns", "duplicate_ip_records", "suspicious_changes",
+  "fw_rule_rot",
+];
+const route = useRoute();
+const links = useEntityLinks(useRouter());
+// 通知點進來要落在對應的頁籤（?tab=fw_rule_rot），不是丟到第一個分類讓人自己找
+const activeTab = ref(
+  CATEGORY_KEYS.includes(String(route.query.tab)) ? String(route.query.tab) : "ip_conflicts");
 
 type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes"
@@ -79,6 +90,19 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
 
 const rogueTitle = computed(() =>
   t("anomaly.rogue_dhcp") + `（${report.value?.rogue_dhcp?.length ?? 0}）`);
+
+// 首屏四張統計卡；數字 > 0 用警示色，一眼看得出哪一類有事
+const statCards = computed(() => {
+  const r = report.value;
+  if (!r) return [];
+  return [
+    { key: "ip_conflicts", label: t("anomaly.ip_conflicts"), value: r.ip_conflicts.length },
+    { key: "mac_drifts", label: t("anomaly.mac_drifts"), value: r.mac_drifts.length },
+    { key: "ghost_ips", label: t("anomaly.ghost_ips"), value: r.ghost_ips.length },
+    { key: "unauthorized_ips", label: t("anomaly.unauthorized"),
+      value: r.unauthorized_ips.length },
+  ];
+});
 
 const anyFindings = computed(() => {
   const r = report.value;
@@ -196,15 +220,28 @@ function renderMac(o: Record<string, any>) {
       pretty("last_seen_at", o.last_seen_at)),
   ]);
 }
-function renderVal(k: string, v: any) {
+// 表格裡的 IP 要能點進 IP 詳細資料（回報：看到可疑 IP 卻只能自己複製去搜）。
+// 有 ip_address_id 就直接開那一筆；只有文字就帶去 /addresses?q=<ip> 搜尋。
+function renderIp(row: any, ipText: string) {
+  return row?.ip_address_id
+    ? links.ipById(row.ip_address_id, ipText)
+    : links.ipByText(ipText);
+}
+function renderVal(k: string, v: any, row?: any) {
   if (v == null || v === "") return "—";
-  if (k === "macs" && Array.isArray(v)) {
-    return h("div", { style: "display:flex;flex-direction:column;gap:3px" }, v.map(renderMac));
+  if ((k === "ip" || k === "server_ip" || k === "offered_ip") && typeof v === "string") {
+    return renderIp(row, v);
   }
   if (k === "ips" && Array.isArray(v)) {
     if (!v.length) return h("span", { style: "opacity:.5" }, "—");
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
-      v.map((it: any) => h("div", null, it.hostname ? `${it.ip}（${it.hostname}）` : it.ip)));
+      v.map((it: any) => h("div", null, [
+        it.ip_address_id ? links.ipById(it.ip_address_id, it.ip) : links.ipByText(it.ip),
+        it.hostname ? h("span", { style: "opacity:.7" }, `（${it.hostname}）`) : null,
+      ])));
+  }
+  if (k === "macs" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:3px" }, v.map(renderMac));
   }
   if (Array.isArray(v)) {
     return h("div", { style: "display:flex;flex-direction:column;gap:3px" },
@@ -227,7 +264,7 @@ function catCols(key: CatKey): DataTableColumns<any> {
       key: k,
       minWidth: wide ? 420 : (k === "ips" ? 220 : 140),
       ellipsis: wide || k === "ips" ? false : { tooltip: true },
-      render: (r: any) => renderVal(k, r[k]),
+      render: (r: any) => renderVal(k, r[k], r),
     };
   }));
   // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」。
@@ -363,11 +400,16 @@ async function run() {
         </div>
       </n-alert>
 
-      <n-grid :cols="4" x-gap="12" style="margin-bottom: 16px">
-        <n-gi><n-statistic :label="t('anomaly.ip_conflicts')" :value="report.ip_conflicts.length" /></n-gi>
-        <n-gi><n-statistic :label="t('anomaly.mac_drifts')" :value="report.mac_drifts.length" /></n-gi>
-        <n-gi><n-statistic :label="t('anomaly.ghost_ips')" :value="report.ghost_ips.length" /></n-gi>
-        <n-gi><n-statistic :label="t('anomaly.unauthorized')" :value="report.unauthorized_ips.length" /></n-gi>
+      <!-- 統計卡：有框有底色才看得出是一組數字，且點下去直接切到那一類（回報） -->
+      <n-grid :cols="4" x-gap="12" y-gap="12" style="margin-bottom: 16px">
+        <n-gi v-for="s in statCards" :key="s.key">
+          <div class="anom-stat" :class="{ 'anom-stat--hit': s.value > 0 }"
+               role="button" tabindex="0"
+               @click="activeTab = s.key" @keyup.enter="activeTab = s.key">
+            <div class="anom-stat__label">{{ s.label }}</div>
+            <div class="anom-stat__value">{{ s.value }}</div>
+          </div>
+        </n-gi>
       </n-grid>
       <n-empty v-if="!anyFindings" :description="t('anomaly.none_found')" style="margin: 24px 0" />
 
@@ -422,6 +464,24 @@ async function run() {
 </template>
 
 <style scoped>
+/* 統計卡：外框 + 底色，數字有值時轉為警示色（原本是裸數字，看起來像沒對齊的散字） */
+.anom-stat {
+  border: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: rgba(127, 127, 127, 0.04);
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .1s ease;
+}
+.anom-stat:hover { border-color: #18a058; transform: translateY(-1px); }
+.anom-stat__label { font-size: 12.5px; opacity: .7; }
+.anom-stat__value { font-size: 26px; font-weight: 600; line-height: 1.25; }
+.anom-stat--hit {
+  border-color: rgba(240, 160, 32, .55);
+  background: rgba(240, 160, 32, .09);
+}
+.anom-stat--hit .anom-stat__value { color: #d97706; }
+
 .triage-body { font-size: 13px; line-height: 1.85; }
 .triage-body :deep(code) { background: rgba(128, 128, 128, .14); border-radius: 4px;
   padding: 1px 5px; font-size: 12px; }

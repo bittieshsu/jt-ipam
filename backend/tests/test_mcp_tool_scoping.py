@@ -94,3 +94,50 @@ async def test_scoped_tools_expose_subnet_param() -> None:
                  "list_dhcp_ranges", "list_vms", "list_nat"):
         props = TOOLS[name]["parameters"]["properties"]
         assert "subnet_cidr" in props, f"{name} 沒有子網路參數 → 問某網段只能回全站"
+
+
+@pytest.mark.anyio
+async def test_attack_surface_tool_answers_by_fqdn(db_session, admin_user) -> None:
+    """AI 要能用名字問：「meet.example.net 對外開了什麼」。
+
+    對話裡人講的是主機名字，不是位址；沒有這個入口，模型只能要使用者自己先查 IP。
+    """
+    from app.mcp.tools import TOOLS
+    from app.models.dns import DNSRecord, DNSServer, DNSZone
+    from app.models.nat import NATTranslation
+
+    a, _b, ips = await _two_subnets(db_session)
+    db_session.add(NATTranslation(
+        name="pf-web", type="port_forward", protocol="tcp",
+        dst_ip_id=ips[0].id, dst_port=443, source_origin="pfsense:x", disabled=False))
+    srv = DNSServer(name=f"dns-{uuid.uuid4().hex[:6]}", type="bind9",
+                    server_address="192.0.2.53")
+    db_session.add(srv)
+    await db_session.flush()
+    zone = DNSZone(server_id=srv.id, name="example.net", type="forward")
+    db_session.add(zone)
+    await db_session.flush()
+    db_session.add(DNSRecord(zone_id=zone.id, name="meet", type="A",
+                             value=str(ips[0].ip)))
+    await db_session.flush()
+
+    fn = TOOLS["list_attack_surface"]["fn"]
+    by_name = await fn(db_session, user=admin_user, fqdn="meet.example.net")
+    assert by_name["count"] == 1, "用 FQDN 問不到自己的對外開口"
+    assert by_name["items"][0]["port"] == 443
+    assert "meet.example.net" in by_name["items"][0]["fqdns"]
+    assert by_name["scope"] == "fqdn:meet.example.net"
+
+    other = await fn(db_session, user=admin_user, fqdn="nope.example.net")
+    assert other["count"] == 0, "不該把別人的開口算進來"
+
+
+@pytest.mark.anyio
+async def test_anomaly_tool_exposes_fw_rule_rot() -> None:
+    """規則劣化要能經由 AI 問到（原本這一類從偵測工具裡漏掉）。"""
+    import inspect
+
+    from app.mcp.tools import TOOLS
+
+    src = inspect.getsource(TOOLS["list_anomalies"]["fn"])
+    assert "fw_rule_rot" in src, "AI 問不到防火牆規則劣化"

@@ -283,7 +283,66 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
             "identity": await identity(target),
         })
 
-    return items[:500]
+    items = items[:500]
+    await _attach_fqdns(session, items)
+    return items
+
+
+async def _attach_fqdns(session: AsyncSession, items: list[dict[str, Any]]) -> None:
+    """替每一項補上「指向這個 IP 的 FQDN」，供 FQDN 視角檢視。
+
+    稽核與對外服務盤點時，人記得的是名字不是位址：問「meet.example.com 對外開了什麼」
+    比問「198.51.100.7 開了什麼」自然得多。名稱由 IPAM 已同步的 DNS 記錄推導 ——
+    A/AAAA 直接指向該 IP，CNAME 再往上一層（別名同樣到得了那台主機）。
+    **不做即時 DNS 查詢**：清單要可重現，且不能因為外部解析變動而每次不同。
+    """
+    from app.models.dns import DNSRecord, DNSZone
+
+    ips = {str(it["identity"].get("ip")) for it in items if it["identity"].get("ip")}
+    if not ips:
+        return
+
+    def _fqdn(name: str, zone: str) -> str:
+        n, z = (name or "").strip().rstrip("."), (zone or "").strip().rstrip(".")
+        if not n or n == "@":
+            return z
+        return n if (z and n.endswith(f".{z}")) or not z else f"{n}.{z}"
+
+    rows = (await session.execute(
+        select(DNSRecord.name, DNSRecord.type, DNSRecord.value, DNSZone.name)
+        .join(DNSZone, DNSZone.id == DNSRecord.zone_id)
+        .where(DNSRecord.type.in_(("A", "AAAA", "CNAME")))
+    )).all()
+
+    by_ip: dict[str, set[str]] = {}
+    fqdn_to_ip: dict[str, str] = {}
+    cnames: list[tuple[str, str]] = []     # (別名 FQDN, 指向的目標)
+    for name, rtype, value, zone in rows:
+        fq = _fqdn(str(name), str(zone))
+        val = str(value or "").strip().rstrip(".")
+        if rtype in ("A", "AAAA"):
+            if val in ips:
+                by_ip.setdefault(val, set()).add(fq)
+                fqdn_to_ip[fq.lower()] = val
+        else:
+            cnames.append((fq, val))
+
+    # CNAME 逐層跟進（限 3 層，避免自我指向的迴圈）
+    for _ in range(3):
+        progressed = False
+        for alias, target in cnames:
+            ip = fqdn_to_ip.get(target.lower())
+            if ip and alias.lower() not in fqdn_to_ip:
+                by_ip.setdefault(ip, set()).add(alias)
+                fqdn_to_ip[alias.lower()] = ip
+                progressed = True
+        if not progressed:
+            break
+
+    for it in items:
+        ip = it["identity"].get("ip")
+        if ip:
+            it["identity"]["fqdns"] = sorted(by_ip.get(str(ip), ()))
 
 
 async def vm_match_for(session: AsyncSession, *, ip: str | None = None,

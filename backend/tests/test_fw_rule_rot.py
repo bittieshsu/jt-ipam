@@ -235,3 +235,50 @@ async def test_attack_surface_lists_only_determinable_entries(db_session) -> Non
     assert "wan rule" in descrs
     assert "alias dst" not in descrs, "別名目的不可展開猜測"
     assert "lan rule" not in descrs, "LAN 規則不是對外攻擊面"
+
+
+@pytest.mark.anyio
+async def test_attack_surface_attaches_fqdns(db_session) -> None:
+    """FQDN 視角：對外開口要能用名字找到（A 直接命中、CNAME 別名也算）。
+
+    稽核問的是「meet.example.net 對外開了什麼」，不是「198.51.100.7 開了什麼」。
+    名稱一律取自 IPAM 已同步的 DNS 記錄，不做即時解析（清單必須可重現）。
+    """
+    from app.models.address import IPAddress
+    from app.models.dns import DNSRecord, DNSServer, DNSZone
+    from app.models.section import Section
+    from app.models.subnet import Subnet
+    from app.services.fw_lookup import attack_surface
+
+    sec = Section(name=f"s-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    sub = Subnet(section_id=sec.id, cidr="198.51.100.0/24")
+    db_session.add(sub)
+    await db_session.flush()
+    ipa = IPAddress(subnet_id=sub.id, ip="198.51.100.7", state="used", hostname="web-a")
+    db_session.add(ipa)
+    await db_session.flush()
+    db_session.add(NATTranslation(
+        name="pf-web", type="port_forward", protocol="tcp",
+        dst_ip_id=ipa.id, dst_port=443, source_origin="pfsense:x", disabled=False))
+
+    srv = DNSServer(name=f"dns-{uuid.uuid4().hex[:6]}", type="bind9", server_address="192.0.2.53")
+    db_session.add(srv)
+    await db_session.flush()
+    zone = DNSZone(server_id=srv.id, name="example.net", type="forward")
+    db_session.add(zone)
+    await db_session.flush()
+    db_session.add_all([
+        DNSRecord(zone_id=zone.id, name="web", type="A", value="198.51.100.7"),
+        DNSRecord(zone_id=zone.id, name="meet", type="CNAME", value="web.example.net"),
+        DNSRecord(zone_id=zone.id, name="other", type="A", value="203.0.113.9"),
+    ])
+    await db_session.flush()
+
+    items = await attack_surface(db_session)
+    web = next(i for i in items if i["name"] == "pf-web")
+    fqdns = web["identity"]["fqdns"]
+    assert "web.example.net" in fqdns, "A 記錄沒對應到"
+    assert "meet.example.net" in fqdns, "CNAME 別名也到得了這台，必須列入"
+    assert "other.example.net" not in fqdns, "別的 IP 的名稱被錯掛上來"

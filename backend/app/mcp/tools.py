@@ -1610,6 +1610,53 @@ async def wazuh_missing_agents(
     }
 
 
+
+async def list_attack_surface(
+    session: AsyncSession, *, user: User, fqdn: str | None = None,
+    ip: str | None = None, limit: int = 200,
+) -> dict[str, Any]:
+    """對外開放服務清單（從外面可達的 IP:port，每項配 IPAM 身分與 DNS 名稱）。
+
+    支援兩種問法，因為人記得的常是名字不是位址：
+    - `fqdn="meet.example.net"` → 先由 DNS 記錄對應到 IP，再列該 IP 的對外開口
+    - `ip="198.51.100.7"` → 直接列該位址的開口
+    兩者都不給就是全部（回傳的 `scope` 會標明）。
+    """
+    from app.services.fw_lookup import attack_surface
+
+    items = await attack_surface(session)
+    scope = "all"
+    if fqdn:
+        want = fqdn.strip().rstrip(".").lower()
+        items = [i for i in items
+                 if any(f.lower() == want for f in (i["identity"].get("fqdns") or []))]
+        scope = f"fqdn:{want}"
+    elif ip:
+        want_ip = ip.strip()
+        items = [i for i in items if str(i["identity"].get("ip") or "") == want_ip]
+        scope = f"ip:{want_ip}"
+    n = max(1, min(int(limit), 500))
+    return {
+        "scope": scope,
+        "count": len(items),
+        "returned": min(len(items), n),
+        # 未登錄的目標本身就是警訊，一併帶出來讓對話端可以指出來
+        "items": [{
+            "ip": i["identity"].get("ip"),
+            "registered": i["identity"].get("registered"),
+            "hostname": i["identity"].get("hostname"),
+            "fqdns": i["identity"].get("fqdns") or [],
+            "port": i.get("port"), "protocol": i.get("protocol"),
+            "via": i.get("via"), "source": i.get("source"),
+            "firewall": i.get("firewall"), "name": i.get("name"),
+            "customer": i["identity"].get("customer"),
+            "subnet": i["identity"].get("subnet"),
+            "wazuh": i["identity"].get("wazuh"),
+            "status": i["identity"].get("status"),
+        } for i in items[:n]],
+    }
+
+
 async def get_customer_summary(
     session: AsyncSession, *, user: User,
     customer_id: str | None = None, name: str | None = None,
@@ -2258,6 +2305,7 @@ async def list_anomalies(
         "dangling_dns": _an.detect_dangling_dns,
         "duplicate_ip_records": _an.detect_duplicate_ip_records,
         "suspicious_changes": _an.detect_suspicious_changes,
+        "fw_rule_rot": _an.detect_fw_rule_rot,      # 原本漏掉 → AI 問不到規則劣化
     }
     n = max(1, min(int(limit), 100))
     if kind:
@@ -2791,6 +2839,19 @@ TOOLS: dict[str, dict[str, Any]] = {
             "subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"},
             "subnet_id": {"type": "string"}}},
     },
+    "list_attack_surface": {
+        "fn": list_attack_surface,
+        "description": ("Externally reachable services (the attack surface): IP:port entries "
+                        "with their IPAM identity and the DNS names that resolve to them. "
+                        "Ask by name with fqdn='meet.example.net' (resolved through synced DNS "
+                        "records) or by address with ip=. The reply carries 'scope' and 'count'; "
+                        "state them. Entries marked registered=false point at hosts IPAM does "
+                        "not know — that is itself a finding worth reporting."),
+        "parameters": {"type": "object", "properties": {
+            "fqdn": {"type": "string", "description": "Restrict to services reachable via this FQDN"},
+            "ip": {"type": "string", "description": "Restrict to this address"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "get_customer_summary": {
         "fn": get_customer_summary,
         "description": "Counts of sections/subnets/devices/IPs for a customer. Provide customer_id or name.",
@@ -3041,6 +3102,7 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
     "list_power", "list_wazuh_agents", "wazuh_missing_agents", "get_topology",
+    "list_attack_surface",
     "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
     # NAT 與防火牆規則是全域基礎設施資料 —— 與 list_nat / list_firewall_rules 同一層，

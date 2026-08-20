@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.197] — 2026-08-20
+
+### Added
+- **The exposed-services list can now be read by name**: a second tab shows the same data grouped by FQDN, resolved through the DNS records IPAM already syncs (A/AAAA directly, CNAME aliases followed up to three hops). No live resolution is performed — an audit list has to be reproducible, not dependent on what external DNS happens to answer today. Exposures with no DNS name are counted and named in the FQDN view so one page is never mistaken for the whole picture, and the IP view stays the default.
+- `list_attack_surface` for AI chat / MCP: ask by name (`fqdn=`) or by address (`ip=`), with `scope`, a true `count`, and unregistered targets flagged.
+
+### Fixed
+- **Clicking a notification did nothing.** The bell only marked it read — it never navigated — and the link the backend wrote pointed at `/anomalies` while the route is `/anomaly`, so even the notification page led nowhere. Notifications now carry the category (`/anomaly?tab=fw_rule_rot`) and the page opens on that tab. Only same-site paths are followed.
+- **AI could not be asked about firewall rule decay**: `fw_rule_rot` was missing from the anomaly tool's detector list, so that category was invisible to the assistant.
+- IP values in the anomaly tables link to the IP detail page (by id when known, otherwise a search), instead of leaving the reader to copy the address elsewhere.
+
+### Changed
+- The anomaly summary numbers are now bordered cards with a background: a non-zero count turns amber, and clicking a card switches to that category.
+
 ## [0.5.196] — 2026-08-20
 
 ### Fixed

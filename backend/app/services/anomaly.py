@@ -781,17 +781,22 @@ async def run_detection(
         ).scalars().all()
 
         if ch.get("in_app") or ch.get("email"):
-            for category, tkey, items in (
-                ("IP 衝突", "notif.anom_ip_conflict", report.ip_conflicts),
-                ("MAC 變動", "notif.anom_mac_drift", report.mac_drifts),
-                ("失聯 IP", "notif.anom_ghost", report.ghost_ips),
-                ("未授權 IP", "notif.anom_unauthorized", report.unauthorized_ips),
-                ("非法 DHCP 伺服器", "notif.anom_rogue_dhcp", report.rogue_dhcp),
-                ("對外曝險", "notif.anom_exposure", report.external_exposure),
-                ("懸空 DNS", "notif.anom_dangling_dns", report.dangling_dns),
-                ("重複的 IP 紀錄", "notif.anom_dup_ip", report.duplicate_ip_records),
-                ("可疑的變更", "notif.anom_changes", report.suspicious_changes),
-                ("防火牆規則劣化", "notif.anom_fw_rot", report.fw_rule_rot),
+            # tab：通知要能點進「那一類」的頁籤，不是只丟到頁面頂端讓人自己找
+            for category, tkey, tab, items in (
+                ("IP 衝突", "notif.anom_ip_conflict", "ip_conflicts", report.ip_conflicts),
+                ("MAC 變動", "notif.anom_mac_drift", "mac_drifts", report.mac_drifts),
+                ("失聯 IP", "notif.anom_ghost", "ghost_ips", report.ghost_ips),
+                ("未授權 IP", "notif.anom_unauthorized", "unauthorized_ips",
+                 report.unauthorized_ips),
+                ("非法 DHCP 伺服器", "notif.anom_rogue_dhcp", "rogue_dhcp", report.rogue_dhcp),
+                ("對外曝險", "notif.anom_exposure", "external_exposure",
+                 report.external_exposure),
+                ("懸空 DNS", "notif.anom_dangling_dns", "dangling_dns", report.dangling_dns),
+                ("重複的 IP 紀錄", "notif.anom_dup_ip", "duplicate_ip_records",
+                 report.duplicate_ip_records),
+                ("可疑的變更", "notif.anom_changes", "suspicious_changes",
+                 report.suspicious_changes),
+                ("防火牆規則劣化", "notif.anom_fw_rot", "fw_rule_rot", report.fw_rule_rot),
             ):
                 if not items:
                     continue
@@ -800,7 +805,9 @@ async def run_detection(
                     for admin in admins:
                         await push_notification(
                             session, user_id=admin.id, severity="warning", title=title,
-                            body="詳見「異常偵測」頁面。", link="/anomalies", object_type="anomaly",
+                            body="詳見「異常偵測」頁面。",
+                            # 路由是 /anomaly（單數）—— 舊值 /anomalies 是錯的，點了會 404
+                            link=f"/anomaly?tab={tab}", object_type="anomaly",
                             title_key=tkey, body_key="notif.anom_body", params={"count": len(items)},
                         )
                 if ch.get("email"):

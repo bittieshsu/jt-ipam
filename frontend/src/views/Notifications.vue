@@ -52,7 +52,8 @@ async function clickItem(n: Notification) {
       // ignore
     }
   }
-  if (n.link) void router.push(n.link);
+  // 只接受站內路徑（不吃 //host 這種外部導向）
+  if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) void router.push(n.link);
 }
 
 async function clearAll() {

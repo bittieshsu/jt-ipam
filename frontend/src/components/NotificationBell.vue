@@ -52,6 +52,12 @@ async function clickItem(n: Notification) {
       // ignore
     }
   }
+  // 通知要帶得到現場：只標已讀等於使用者還得自己找那一頁（回報過）。
+  // link 是後端給的站內路徑（例如 /anomaly?tab=fw_rule_rot）；外部網址不接受，
+  // 避免通知內容變成開放導向。
+  if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) {
+    void router.push(n.link);
+  }
 }
 
 async function clearAll() {

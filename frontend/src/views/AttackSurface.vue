@@ -14,7 +14,7 @@
 import { computed, onMounted, ref, h } from "vue";
 import {
   NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NSelect, NInput,
-  NPopover, useMessage, type DataTableColumns,
+  NPopover, NTabs, NTabPane, useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { apiClient, apiErrMsg } from "@/api/client";
@@ -36,7 +36,7 @@ interface Entry {
   protocol: string | null; port: number | string | null; descr: string;
   identity: { registered: boolean; ip?: string; ip_id?: string; hostname?: string | null;
               status?: string | null; subnet?: string | null;
-              customer?: string | null; wazuh?: string | null };
+              customer?: string | null; wazuh?: string | null; fqdns?: string[] };
 }
 /** 攤平後的表格列：欄位 key 與 column key 一一對應，排序／搜尋才有得比。 */
 interface Row {
@@ -46,7 +46,7 @@ interface Row {
   firewall: string | null; source: string; protocol: string | null;
   owner: string | null; wazuh: string | null;
   status: string | null; online: boolean | null; statusSrc: string;
-  descr: string; key: string;
+  descr: string; key: string; fqdns: string[];
 }
 const items = ref<Entry[]>([]);
 const loading = ref(false);
@@ -80,6 +80,7 @@ const rows = computed<Row[]>(() => items.value.map((i) => {
     status: raw ? (online ? t("surface.st_online") : t("surface.st_offline")) : null,
     online, statusSrc: raw ? ((raw.match(/\(([^)]+)\)/)?.[1]) ?? "") : "",
     descr: i.descr || "",
+    fqdns: ident.fqdns ?? [],
     key: `${ident.ip ?? "?"}:${i.port ?? ""}`,
   };
 }));
@@ -142,11 +143,71 @@ const shown = computed(() => {
   const q = searchText.value.trim().toLowerCase();
   if (q) {
     out = out.filter((r) =>
-      [r.ip, r.hostname, r.name, r.descr, r.portText, r.firewall, r.owner]
+      [r.ip, r.hostname, r.name, r.descr, r.portText, r.firewall, r.owner,
+       r.fqdns.join(" ")]
         .some((v) => (v ?? "").toString().toLowerCase().includes(q)));
   }
   return out;
 });
+
+// ── FQDN 視角 ───────────────────────────────────────────────
+// 稽核與對外服務盤點時，人記得的是名字不是位址（「meet 對外開了什麼」）。
+// 名稱來自 IPAM 已同步的 DNS 記錄（A/AAAA 直接命中、CNAME 別名往上追），
+// 不做即時解析 —— 清單要可重現，不能因為外部 DNS 變動而每次不同。
+interface FqdnRow {
+  fqdn: string; ip: string | null; ip_id?: string; registered: boolean;
+  ports: string; portCount: number; owner: string | null;
+  status: string | null; online: boolean | null;
+  firewalls: string; names: string; key: string;
+}
+const fqdnRows = computed<FqdnRow[]>(() => {
+  const by = new Map<string, Row[]>();
+  for (const r of shown.value) {
+    for (const f of r.fqdns) {
+      if (!by.has(f)) by.set(f, []);
+      by.get(f)!.push(r);
+    }
+  }
+  return [...by.entries()].map(([fqdn, rs]) => {
+    const ports = [...new Set(rs.map((r) => (r.protocol ? `${r.protocol.toLowerCase()}/` : "")
+                                            + (r.portText || "—")))].sort();
+    const first = rs[0];
+    return {
+      fqdn, ip: first.ip, ip_id: first.ip_id, registered: first.registered,
+      ports: ports.join("、"), portCount: ports.length,
+      owner: first.owner, status: first.status, online: first.online,
+      firewalls: [...new Set(rs.map((r) => r.firewall).filter(Boolean))].join("、"),
+      names: [...new Set(rs.map((r) => r.name).filter(Boolean))].join("、"),
+      key: fqdn,
+    };
+  }).sort((a, b) => a.fqdn.localeCompare(b.fqdn));
+});
+// 有對外開口、卻沒有任何 DNS 名稱對應 —— FQDN 視角看不到它們，要明講有幾筆，
+// 否則使用者會以為「FQDN 頁籤的筆數就是全部」。
+const noFqdnCount = computed(() => shown.value.filter((r) => !r.fqdns.length).length);
+
+const fqdnCols = computed<DataTableColumns<FqdnRow>>(() => autoSort([
+  { title: () => t("surface.col_fqdn"), key: "fqdn", width: 260, ellipsis: { tooltip: true } },
+  { title: () => t("surface.col_ip"), key: "ip", width: 150,
+    render: (r: FqdnRow) => r.registered && r.ip_id
+      ? links.ipById(r.ip_id, r.ip ?? "") : (r.ip ?? "—") },
+  { title: () => t("surface.col_ports"), key: "ports", minWidth: 200,
+    ellipsis: { tooltip: true }, render: (r: FqdnRow) => r.ports || "—" },
+  { title: () => t("surface.col_name"), key: "names", minWidth: 200,
+    ellipsis: { tooltip: true }, render: (r: FqdnRow) => r.names || "—" },
+  { title: () => t("surface.col_firewall"), key: "firewalls", width: 180,
+    render: (r: FqdnRow) => r.firewalls || "—" },
+  { title: () => t("surface.col_owner"), key: "owner", width: 190,
+    render: (r: FqdnRow) => r.owner || "—" },
+  { title: () => t("surface.col_status"), key: "status", width: 130,
+    render: (r: FqdnRow) => r.status
+      ? h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
+          h("i", { style: `width:8px;height:8px;border-radius:50%;flex:none;background:${r.online ? "#22c55e" : "#ef4444"}` }),
+          r.status,
+        ])
+      : "—" },
+]));
+const tab = ref<"ip" | "fqdn">("ip");
 
 const ALL_KEYS = ["ip", "port", "hostname", "via", "name", "firewall",
                   "protocol", "owner", "wazuh", "status", "descr"];
@@ -259,11 +320,27 @@ const scrollX = computed(() =>
         {{ t("common.refresh") }}
       </n-button>
     </n-space>
-    <n-data-table :columns="cols" :data="shown" :loading="loading" size="small"
-                  :scroll-x="scrollX"
-                  :row-key="(r: Row, i?: number) => `${r.key}-${r.via}-${i}`"
-                  :pagination="pg" :bordered="false" />
-    <n-empty v-if="!loading && !shown.length" style="margin: 24px 0"
-             :description="t('surface.empty')" />
+    <n-tabs v-model:value="tab" type="line" animated size="small">
+      <n-tab-pane name="ip" :tab="`${t('surface.tab_ip')} (${shown.length})`">
+        <n-data-table :columns="cols" :data="shown" :loading="loading" size="small"
+                      :scroll-x="scrollX"
+                      :row-key="(r: Row, i?: number) => `${r.key}-${r.via}-${i}`"
+                      :pagination="pg" :bordered="false" />
+        <n-empty v-if="!loading && !shown.length" style="margin: 24px 0"
+                 :description="t('surface.empty')" />
+      </n-tab-pane>
+      <n-tab-pane name="fqdn" :tab="`FQDN (${fqdnRows.length})`">
+        <!-- 沒有 DNS 名稱的開口在這個視角看不到 → 明講筆數，避免被當成全部 -->
+        <n-alert v-if="noFqdnCount" type="warning" :bordered="false" size="small"
+                 style="margin-bottom: 10px">
+          {{ t("surface.no_fqdn_note", { n: noFqdnCount }) }}
+        </n-alert>
+        <n-data-table :columns="fqdnCols" :data="fqdnRows" :loading="loading" size="small"
+                      :scroll-x="1110" :row-key="(r: FqdnRow) => r.key"
+                      :pagination="pg" :bordered="false" />
+        <n-empty v-if="!loading && !fqdnRows.length" style="margin: 24px 0"
+                 :description="t('surface.empty_fqdn')" />
+      </n-tab-pane>
+    </n-tabs>
   </n-card>
 </template>
