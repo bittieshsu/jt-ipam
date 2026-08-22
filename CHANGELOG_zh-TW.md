@@ -4,6 +4,11 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.199] — 2026-08-22
+
+### 變更
+- **FortiGate 整合移除 Beta 標示。** 當初標 Beta 是因為只能照文件實作、沒有實機可驗；後來在客戶實機上驗證過，也因此找出並修掉兩個真正要緊的缺陷——單一端點讀不到會中止整台同步（0.5.195），以及 FortiOS 會把多份 JSON 串在一起回應（0.5.196）。容錯解析與區段隔離都保留，拿掉的只是標示。
+
 ## [0.5.198] — 2026-08-20
 
 ### 變更

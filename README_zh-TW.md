@@ -1,4 +1,4 @@
-# jt-ipam v0.5.198
+# jt-ipam v0.5.199
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -23,7 +23,7 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 
 - **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS（讀取正反解狀態，可選擇性推送記錄）
 - **LibreNMS**：裝置同步、ARP / FDB 抓取、上線狀態互補、自動加入監控
-- **基礎設施**：Proxmox VE、**VMware ESXi / vCenter（Beta）** —— 同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP，與 Proxmox 寫進同一組虛擬化資料表；Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），以及 **FortiGate（Beta）** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM）
+- **基礎設施**：Proxmox VE、**VMware ESXi / vCenter（Beta）** —— 同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP，與 Proxmox 寫進同一組虛擬化資料表；Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），以及 **FortiGate** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM）
 - **DHCP**：各家各自設定 —— OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
 - **Graylog**：提供 IP→主機名稱/FQDN 的 DSV 對照表端點，供 Graylog「DSV File from HTTP」資料配接器抓取
 - **本地 AI**：LLM Server 自然語言查詢 + 語意搜尋（預設自架、資料不外送；也可明確改接 OpenAI 相容端點），並提供 MCP server（stdio / Streamable HTTP）；實測搭配 `gemma4:26b` 效果良好。資安面：**防火牆規則異動偵測**（三家防火牆的規則每輪同步做快照 diff，半夜多出一條放行規則會通知管理員）、**IP 鑑識問答**（在 AI 對話問「這個 IP 上週是誰」，回欄位級異動＋ARP/MAC＋各來源主機名稱的證據時間軸）、**未授權 IP 的 AI 鑑識卡**（把 OUI／主機名稱／交換器埠彙整成「這最可能是什麼設備＋下一步查哪」的判讀，證據定界防 prompt-injection）

@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.199] — 2026-08-22
+
+### Changed
+- **FortiGate is no longer marked Beta.** The label existed because the integration was written against the documentation with no hardware to test on; it has since been validated against a customer's live device, which surfaced and fixed the two defects that mattered — one unreadable endpoint aborting the whole instance sync (0.5.195) and FortiOS concatenating several JSON documents in one response (0.5.196). The tolerant parsing and per-section isolation stay; only the label is gone.
+
 ## [0.5.198] — 2026-08-20
 
 ### Changed

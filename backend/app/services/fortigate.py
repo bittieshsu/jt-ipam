@@ -1,11 +1,12 @@
-"""FortiGate 同步服務（Beta）—— FortiOS REST API，**全程唯讀（只打 GET）**。
+"""FortiGate 同步服務 —— FortiOS REST API，**全程唯讀（只打 GET）**。
 
 安全 / 相容重點：
 - 認證用 `Authorization: Bearer <token>` **標頭**；不用 `?access_token=` 網址參數
   （PSIRT FG-IR-24-268；FortiOS 7.4.5 / 7.6.1 起預設停用該形式）
 - 走既有 `safe_request`（SSRF 白名單）；金鑰 AES-GCM 加密、aad 綁實例 id
 - 多 VDOM：`?vdom=<名稱>` 逐一撈；VDOM 清單可自動探索，非 VDOM 模式退回 root
-- **無實機可驗** → 所有欄位一律容錯解析：抓不到就略過該筆／該項，不讓單一端點拖垮整輪同步
+- 容錯解析：欄位抓不到就略過該筆／該項；**單一端點失敗不拖垮整輪**（實機常態是「10 支有 9 支可讀」）
+- 已於客戶實機驗證（v0.5.195 區段隔離、v0.5.196 多份 JSON 相接的解析）
 """
 
 from __future__ import annotations

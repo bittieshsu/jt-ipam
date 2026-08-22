@@ -1,4 +1,4 @@
-# jt-ipam v0.5.198
+# jt-ipam v0.5.199
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -23,7 +23,7 @@ Familiar to phpIPAM users so they are productive from day one, but built from sc
 
 - **DNS** — PowerDNS, BIND 9, OPNsense Unbound, Univention UCS, Microsoft Windows DNS (reads forward/reverse status, optional record push)
 - **LibreNMS** — device sync, ARP / FDB harvesting, online-status reconciliation, auto-onboarding to monitoring
-- **Infrastructure** — Proxmox VE, **VMware ESXi / vCenter (Beta)** — one setup covering both a standalone ESXi host and vCenter, read-only over the vSphere API for virtual machines, NICs and addresses, landing in the same virtualisation tables as Proxmox; Wazuh, OPNsense / pfSense (alias / rule / NAT sync), and **FortiGate (Beta)** — read-only over the FortiOS REST API (DHCP leases and ranges, ARP, IPsec tunnels and SSL-VPN sessions, policies, NAT, address objects; multi-VDOM)
+- **Infrastructure** — Proxmox VE, **VMware ESXi / vCenter (Beta)** — one setup covering both a standalone ESXi host and vCenter, read-only over the vSphere API for virtual machines, NICs and addresses, landing in the same virtualisation tables as Proxmox; Wazuh, OPNsense / pfSense (alias / rule / NAT sync), and **FortiGate** — read-only over the FortiOS REST API (DHCP leases and ranges, ARP, IPsec tunnels and SSL-VPN sessions, policies, NAT, address objects; multi-VDOM)
 - **DHCP** — each server is configured on its own: OPNsense (Kea/ISC) and pfSense sync leases and address ranges over their REST APIs; **Windows DHCP Server (Beta)** is read-only over WinRM + PowerShell (`Get-*` only, needs WinRM reachable — 5986/HTTPS by default). Addresses inside a pool are flagged in the IP list and detail view.
 - **Graylog** — exposes an IP→hostname/FQDN DSV lookup endpoint for Graylog's "DSV File from HTTP" data adapter
 - **Local AI** — natural-language queries and semantic search over LLM Server (self-hosted by default, so data never leaves the host; an OpenAI-compatible endpoint can be selected explicitly instead), plus an MCP server (stdio and Streamable HTTP transports) so external LLM clients can drive the IPAM; `gemma4:26b` works well in our testing Security-side AI: a **firewall rule-change sentinel** (per-sync snapshot diffs of all three firewall families; a permit rule appearing overnight notifies admins), **IP forensics in chat** (ask "who was this IP last week" and get the field-level change log, ARP/MAC bindings and per-source hostnames as an evidence timeline), and an **AI triage card for unauthorised IPs** (OUI vendor, hostnames and switch port assembled into "what this likely is and where to look next", with evidence fencing against prompt injection).

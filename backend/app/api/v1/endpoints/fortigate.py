@@ -1,4 +1,4 @@
-"""FortiGate 整合 endpoints（Beta，admin only）。
+"""FortiGate 整合 endpoints（admin only）。
 
 與 OPNsense / pfSense 各自獨立：這裡只管 FortiGate 自己的設定與同步。
 `/test` 回「連線診斷」—— 逐端點回報通不通與筆數，方便無實機開發後上線時快速對齊。

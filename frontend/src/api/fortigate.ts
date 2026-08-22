@@ -1,7 +1,7 @@
 import { apiClient } from "@/api/client";
 import type { Paginated } from "@/types";
 
-// FortiGate 整合（Beta）。路徑帶 /api/v1 前綴（baseURL 為 /）。
+// FortiGate 整合。路徑帶 /api/v1 前綴（baseURL 為 /）。
 
 export interface FortiGateFirewall {
   id: string;

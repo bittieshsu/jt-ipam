@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * FortiGate 整合（Beta）—— 與 OPNsense / pfSense 各自獨立設定。
+ * FortiGate 整合 —— 與 OPNsense / pfSense 各自獨立設定。
  * 走 FortiOS REST API 唯讀拉取（只打 GET，不會更動 FortiGate 任何設定）。
  * 「測試連線」回逐端點診斷，方便對齊不同 FortiOS 版本的欄位差異。
  */
@@ -217,7 +217,6 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
       <n-space align="center" :wrap-item="false">
         <n-icon :size="22"><FirewallIcon /></n-icon>
         <span>{{ t("fortigate.title") }}</span>
-        <n-tag type="warning" size="small" :bordered="false">Beta</n-tag>
       </n-space>
     </template>
 

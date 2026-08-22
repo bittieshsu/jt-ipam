@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /**
- * FortiGate 防火牆檢視（唯讀，Beta）：政策 / 位址物件，可依 VDOM 篩選。
+ * FortiGate 防火牆檢視（唯讀）：政策 / 位址物件，可依 VDOM 篩選。
  * 資料由 FortiGate 整合同步進來；本頁不呼叫 FortiGate、也不修改任何設定。
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NCard, NDataTable, NSpace, NSelect, NTag, NIcon, NEmpty, NTabs, NTabPane,
+  NCard, NDataTable, NSpace, NSelect, NIcon, NEmpty, NTabs, NTabPane,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { FirewallIcon } from "@/icons";
@@ -97,7 +97,6 @@ const addrCols = computed<DataTableColumns<FortiGateAddressObject>>(() => autoSo
       <n-space align="center" :wrap-item="false">
         <n-icon :size="22"><FirewallIcon /></n-icon>
         <span>{{ t("fortigate.view_title") }}</span>
-        <n-tag type="warning" size="small" :bordered="false">Beta</n-tag>
       </n-space>
     </template>
 
