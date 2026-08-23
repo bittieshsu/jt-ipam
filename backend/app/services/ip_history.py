@@ -9,8 +9,10 @@ hostname/mac/arp 變更、上下線。查詢端在 endpoints/ip_changes.py。
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ip_change_log import IPChangeLog
@@ -39,6 +41,10 @@ def _s(v: Any) -> str | None:
     return str(v)
 
 
+# 翻動摺疊的時間窗：同一輪同步（含同一交易內）互相覆寫都落在這個範圍內
+_FLAP_WINDOW = timedelta(minutes=10)
+
+
 async def log_change(
     session: AsyncSession,
     *,
@@ -51,7 +57,25 @@ async def log_change(
     actor_user_id: str | uuid.UUID | None = None,
     note: str | None = None,
 ) -> None:
-    """寫一筆 IP 異動記錄。"""
+    """寫一筆 IP 異動記錄。
+
+    **翻動摺疊**：若上一筆同 IP 同欄位剛好是這次的反向（A→B 之後 B→A）且發生在
+    `_FLAP_WINDOW` 之內，就把那一筆刪掉、這一筆也不寫 —— 淨效果是零，記兩筆只是噪音。
+    來由：兩個 Wazuh 代理登記同一個 IP，每輪同步互相覆寫，實機十天洗出 620 筆，
+    把真正有意義的人為編輯完全埋掉。根因在各 sync 端用 tiebreak 收斂，這裡是最後一道防線。
+    """
+    if field is not None:
+        prev = (await session.execute(
+            select(IPChangeLog).where(
+                IPChangeLog.ip_id == ip.id, IPChangeLog.field == field,
+            ).order_by(IPChangeLog.created_at.desc()).limit(1)
+        )).scalars().first()
+        if (prev is not None
+                and prev.old_value == _s(new) and prev.new_value == _s(old)
+                and prev.created_at is not None
+                and datetime.now(UTC) - prev.created_at <= _FLAP_WINDOW):
+            await session.delete(prev)
+            return
     session.add(
         IPChangeLog(
             ip_id=ip.id,

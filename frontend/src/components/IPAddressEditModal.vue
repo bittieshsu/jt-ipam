@@ -9,7 +9,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NModal, NCard, NSpace, NButton, NDescriptions, NDescriptionsItem,
-  NForm, NFormItem, NInput, NSelect, NSwitch, NPopconfirm, NTag, NIcon,
+  NForm, NFormItem, NInput, NSelect, NSwitch, NPopconfirm, NTag, NIcon, NPagination,
   NCollapse, NCollapseItem, NTimeline, NTimelineItem, NText, NEmpty, NSpin,
   NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider,
   useMessage,
@@ -18,7 +18,8 @@ import { useAuthStore } from "@/stores/auth";
 import { apiClient } from "@/api/client";
 import type { IPAddress } from "@/types";
 import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
-import { getAddressHistory, getAddressSwitchPort, type IPChangeLog, type SwitchPortInfo } from "@/api/ip_history";
+import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
+  type SwitchPortInfo } from "@/api/ip_history";
 import { getHostnameSources, type HostnameSources } from "@/api/hostname";
 import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon , FilesIcon } from "@/icons";
 import InvestigateModal from "@/components/InvestigateModal.vue";
@@ -372,30 +373,50 @@ const stateType = computed<"success" | "info" | "warning" | "error" | "default">
        : "default";
 });
 
-// ── 異動記錄 (feature B)：展開時才載入；每頁 100 筆，可「載入更多」 ──
-const HISTORY_PAGE = 100;
+// ── 異動記錄：展開時才載入。**分頁 + 篩選 + 總數** ──
+// 實機單一 IP 最多 1,838 筆、且幾乎全是同一種事件（整合互相覆寫主機名稱），
+// 原本的「載入更多」要按 18 次、也看不出總共幾筆 → 改成先篩選再翻頁。
+const HISTORY_PAGE = 50;
 const history = ref<IPChangeLog[]>([]);
+const historyTotal = ref(0);
+const historyPage = ref(1);
+const historyEventOpts = ref<HistoryFacet[]>([]);
+const historySourceOpts = ref<HistoryFacet[]>([]);
+const historyEvent = ref<string | null>(null);
+const historySource = ref<string | null>(null);
 const historyLoading = ref(false);
 const historyLoaded = ref(false);
-const historyHasMore = ref(false);
+const historyPageCount = computed(() =>
+  Math.max(1, Math.ceil(historyTotal.value / HISTORY_PAGE)));
 
-async function loadHistory(more = false) {
+async function loadHistory() {
   if (!props.address?.id) return;
-  if (!more && historyLoaded.value) return;
   historyLoading.value = true;
   try {
-    const offset = more ? history.value.length : 0;
-    const page = await getAddressHistory(props.address.id, HISTORY_PAGE, offset);
-    history.value = more ? [...history.value, ...page] : page;
-    historyHasMore.value = page.length === HISTORY_PAGE;
+    const page = await getAddressHistory(props.address.id, {
+      limit: HISTORY_PAGE,
+      offset: (historyPage.value - 1) * HISTORY_PAGE,
+      event_type: historyEvent.value ?? undefined,
+      source: historySource.value ?? undefined,
+    });
+    history.value = page.items;
+    historyTotal.value = page.total;
+    // 選項以「未篩選」為母體，選了之後其他選項不會消失
+    historyEventOpts.value = page.event_types;
+    historySourceOpts.value = page.sources;
     historyLoaded.value = true;
   } catch { /* silent */ } finally {
     historyLoading.value = false;
   }
 }
 
+function onHistoryFilter() {
+  historyPage.value = 1;      // 換篩選條件一律回第一頁，否則會停在不存在的頁
+  void loadHistory();
+}
+
 function onHistoryToggle(names: Array<string | number>) {
-  if (names.includes("history")) void loadHistory();
+  if (names.includes("history") && !historyLoaded.value) void loadHistory();
 }
 
 function eventLabel(e: string): string {
@@ -433,11 +454,33 @@ const pinOptions = computed(() => {
   return opts;
 });
 
+// 交換器位置：儲存格式是「交換器 / 埠」（LibreNMS 同步就是這樣寫），
+// 顯示與編輯都以 @ 呈現。這裡把單一字串拆成兩格、存檔前再組回去。
+const swName = ref("");
+const swPort = ref("");
+function splitSwitchPort(v: string): [string, string] {
+  const i = (v || "").indexOf(" / ");
+  return i < 0 ? [v || "", ""] : [v.slice(0, i), v.slice(i + 3)];
+}
+watch(() => form.value.switch_port, (v) => {
+  const [a, b] = splitSwitchPort(v || "");
+  if (a !== swName.value) swName.value = a;
+  if (b !== swPort.value) swPort.value = b;
+}, { immediate: true });
+watch([swName, swPort], ([a, b]) => {
+  const name = (a || "").trim();
+  const port = (b || "").trim();
+  form.value.switch_port = port ? `${name} / ${port}` : name;
+});
+
 // 換 IP 時清掉舊快取
 watch(() => props.address?.id, () => {
   history.value = [];
   historyLoaded.value = false;
-  historyHasMore.value = false;
+  historyTotal.value = 0;
+  historyPage.value = 1;
+  historyEvent.value = null;
+  historySource.value = null;
   hostnameSources.value = null;
   hostnameSourcesLoaded.value = false;
   switchPort.value = null;
@@ -893,8 +936,29 @@ async function remove() {
 
         <!-- 異動記錄 (feature B)，展開才載入 -->
         <n-collapse v-if="!editMode && props.address" style="margin-top: 12px" @update:expanded-names="onHistoryToggle">
-          <n-collapse-item :title="t('ipChanges.history')" name="history">
+          <n-collapse-item name="history">
+            <!-- 標題帶總數：不然使用者不知道自己看到的是全部還是一頁 -->
+            <template #header>
+              {{ t("ipChanges.history") }}
+              <n-text v-if="historyLoaded" depth="3" style="font-size: 12.5px">
+                （{{ historyTotal }}）
+              </n-text>
+            </template>
             <n-spin :show="historyLoading">
+              <!-- 篩選：整合互相覆寫會讓單一事件類型灌爆清單，先篩再看才有意義 -->
+              <n-space v-if="historyLoaded && (historyEventOpts.length > 1 || historySourceOpts.length > 1)"
+                       :size="8" style="margin-bottom: 8px">
+                <n-select v-model:value="historyEvent" clearable size="small" style="width: 190px"
+                          :placeholder="t('ipChanges.all_events')"
+                          :options="historyEventOpts.map((o) => ({
+                            label: `${eventLabel(o.value)}（${o.count}）`, value: o.value }))"
+                          @update:value="onHistoryFilter" />
+                <n-select v-model:value="historySource" clearable size="small" style="width: 190px"
+                          :placeholder="t('ipChanges.all_sources')"
+                          :options="historySourceOpts.map((o) => ({
+                            label: `${labelSource(o.value)}（${o.count}）`, value: o.value }))"
+                          @update:value="onHistoryFilter" />
+              </n-space>
               <n-empty v-if="historyLoaded && !history.length" :description="t('ipChanges.empty')" size="small" />
               <n-timeline v-else style="padding: 4px 0">
                 <n-timeline-item
@@ -919,10 +983,9 @@ async function remove() {
                   <n-text v-if="h.note" depth="3" style="font-size: 12px; display: block">{{ h.note }}</n-text>
                 </n-timeline-item>
               </n-timeline>
-              <div v-if="historyHasMore" style="text-align: center; margin-top: 8px">
-                <n-button size="small" :loading="historyLoading" @click="loadHistory(true)">
-                  {{ t("common.load_more") }}
-                </n-button>
+              <div v-if="historyPageCount > 1" style="display:flex; justify-content:center; margin-top: 10px">
+                <n-pagination v-model:page="historyPage" :page-count="historyPageCount"
+                              size="small" @update:page="loadHistory" />
               </div>
             </n-spin>
           </n-collapse-item>
@@ -957,8 +1020,21 @@ async function remove() {
             <n-form-item :label="t('addresses.owner')" style="flex: 1 1 240px">
               <n-input v-model:value="form.owner" />
             </n-form-item>
-            <n-form-item :label="t('addresses.switch_port')" style="flex: 1 1 200px">
-              <n-input v-model:value="form.switch_port" />
+            <!-- 交換器位置：拆成兩格。單一輸入框會讓人照著唯讀畫面打成 sw@port，
+                 但實際儲存格式是「交換器 / 埠」，打錯就顯示成一整團字串 -->
+            <n-form-item :label="t('addresses.switch_port')" style="flex: 1 1 320px">
+              <n-space :size="6" :wrap-item="false" style="width: 100%">
+                <n-input v-model:value="swName" :placeholder="t('addresses.switch_name_ph')"
+                         style="flex: 1 1 55%" />
+                <span style="align-self: center; color: #18a058; font-weight: 700">@</span>
+                <n-input v-model:value="swPort" :placeholder="t('addresses.switch_port_ph')"
+                         style="flex: 1 1 45%" />
+              </n-space>
+              <template #feedback>
+                <span style="font-size: 11.5px; opacity: .7">
+                  {{ t("addresses.switch_port_hint") }}
+                </span>
+              </template>
             </n-form-item>
           </n-space>
           <n-form-item :label="t('common.description')">

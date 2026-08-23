@@ -1137,7 +1137,10 @@
     "fw_aliases": "Member of aliases",
     "fw_any_note": "Rules with any as source or destination also apply; they are not listed.",
     "virt": "Virtualisation",
-    "virt_vm_tag": "Virtual machine"
+    "virt_vm_tag": "Virtual machine",
+    "switch_name_ph": "Switch name",
+    "switch_port_ph": "Port (e.g. eth1/0/6)",
+    "switch_port_hint": "Maintained by the LibreNMS sync; a value entered by hand is overwritten on the next sync."
   },
   "subnets": {
     "title": "Subnets",

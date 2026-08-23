@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.200] — 2026-08-23
+
+### Fixed
+- **A single IP could accumulate thousands of change-log entries that said nothing.** Two Wazuh agents registered against the same address overwrote each other's hostname on every sync round, writing a pair of entries each time — one address had flipped 620 times in ten days, and the worst had 1,838 entries, every one of them the same event, burying the edits a person actually made. The Wazuh sync now converges on one name the way the Proxmox sync already did, and `log_change` drops an entry whose immediate predecessor is its exact inverse within ten minutes: the net effect is zero, so recording both is noise.
+- **The switch-port field could not be edited correctly.** The stored format is `switch / port` while the read view renders it as `switch@port`, so anyone copying what they saw typed a value that displayed as one unbroken string. Editing now has separate switch and port inputs with the `@` shown between them, and the canonical format is composed on save. The field also states plainly that the LibreNMS sync maintains it and will overwrite a value entered by hand.
+
+### Changed
+- The change-log section on the IP detail page shows the total in its header, filters by event type and source (each option carrying its own count), and pages through 50 at a time instead of an endless "load more". The endpoint returns the total and the available filter values rather than a bare array — with 1,838 entries behind it, a single page of results tells the reader nothing about how much they are not seeing.
+
 ## [0.5.199] — 2026-08-22
 
 ### Changed

@@ -303,7 +303,11 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
                 from app.services.hostname import apply_observation
                 ipa = await session.get(IPAddress, addr_id)
                 if ipa is not None:
-                    await apply_observation(session, ip=ipa, source="wazuh", hostname=agent_name)
+                    # 多個代理可能登記同一個 IP（DHCP 位址被回收再配給別台，舊代理的登記沒清）
+                    # → 用 tiebreak 穩定收斂到同一個名字；否則每輪同步兩個代理互相覆寫，
+                    # 一天可以洗出好幾百筆 hostname_changed（實機：單一 IP 十天內翻 620 次）
+                    await apply_observation(session, ip=ipa, source="wazuh",
+                                            hostname=agent_name, tiebreak_min=True)
 
         if existing is None:
             obj = WazuhAgent(

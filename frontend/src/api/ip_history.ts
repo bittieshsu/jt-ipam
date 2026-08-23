@@ -35,15 +35,26 @@ export interface IPChangeFilter {
   page_size?: number;
 }
 
-// 單一 IP 的異動記錄 (詳細資料頁展開用)；offset 分頁（前端「載入更多」）
+export interface HistoryFacet { value: string; count: number }
+export interface AddressHistoryPage {
+  items: IPChangeLog[];
+  total: number;              // 目前篩選條件下的總數（非本頁筆數）
+  returned: number;
+  event_types: HistoryFacet[];
+  sources: HistoryFacet[];
+}
+
+// 單一 IP 的異動記錄（詳細資料頁展開用）。回傳帶總數與篩選選項 ——
+// 實機單一 IP 可達 1,800+ 筆，只回一頁陣列會讓人以為那就是全部。
 export async function getAddressHistory(
   addressId: string,
-  limit = 100,
-  offset = 0,
-): Promise<IPChangeLog[]> {
-  const { data } = await apiClient.get<IPChangeLog[]>(
+  opts: { limit?: number; offset?: number; event_type?: string; source?: string } = {},
+): Promise<AddressHistoryPage> {
+  const { data } = await apiClient.get<AddressHistoryPage>(
     `/api/v1/addresses/${addressId}/history`,
-    { params: { limit, offset } },
+    { params: { limit: opts.limit ?? 100, offset: opts.offset ?? 0,
+                event_type: opts.event_type || undefined,
+                source: opts.source || undefined } },
   );
   return data;
 }

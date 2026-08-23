@@ -801,8 +801,8 @@
     "title": "IP 異動記錄",
     "subtitle": "所有 IP 位址的變更歷史 (hostname / MAC / ARP / 上下線 / 人為編輯)",
     "search_placeholder": "搜尋 IP / 欄位 / 新舊值 / 備註",
-    "all_events": "所有事件",
-    "all_sources": "所有來源",
+    "all_events": "全部事件",
+    "all_sources": "全部來源",
     "col_time": "時間",
     "col_ip": "IP",
     "col_event": "事件",
@@ -1137,7 +1137,10 @@
     "fw_aliases": "所屬別名",
     "fw_any_note": "來源或目的為 any 的規則也適用於此 IP，未列出。",
     "virt": "虛實",
-    "virt_vm_tag": "虛擬機"
+    "virt_vm_tag": "虛擬機",
+    "switch_name_ph": "交換器名稱",
+    "switch_port_ph": "埠（如 eth1/0/6）",
+    "switch_port_hint": "此欄由 LibreNMS 同步維護；手動填的值會在下次同步時被覆寫。"
   },
   "subnets": {
     "title": "子網路",
@@ -3317,8 +3320,8 @@
     "ai_done": "AI 解讀完成，點「檢視結果」查閱",
     "ai_view": "檢視結果",
     "ai_model": "模型",
-    "ai_dl_md": "\u4e0b\u8f09 .md",
-    "ai_dl_txt": "\u4e0b\u8f09 .txt",
+    "ai_dl_md": "下載 .md",
+    "ai_dl_txt": "下載 .txt",
     "ai_title": "AI 解讀（含全系統整合證據）",
     "ack_col": "認可",
     "ack_btn": "認可",
