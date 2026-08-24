@@ -1895,7 +1895,7 @@
     "other_platform_hint": "這一頁只顯示這個平台的內容。您有 {n} 台虛擬機屬於「{name}」。",
     "other_platform_go": "前往該頁",
     "pve_fw": "防火牆",
-    "posture": "實際姿態",
+    "posture": "防護狀態",
     "why": "判定依據",
     "guest": "guest",
     "inherited": "繼承預設",
@@ -1904,7 +1904,13 @@
     "posture_filtered": "白名單",
     "posture_blocked": "全擋",
     "pve_fw_hint": "PVE 防火牆管的是東西向（同一虛擬化環境內部）與主機層的存取，不代表從外部可達；對外開放請看「對外開放服務」。「規則不生效」表示該 guest 寫了規則，但叢集、guest 或網卡三個開關至少有一個沒開。",
-    "all_postures": "全部姿態"
+    "all_postures": "全部防護狀態",
+    "rule_count": "規則數",
+    "no_rules": "這台沒有任何防火牆規則（含繼承）",
+    "expand_ref": "展開",
+    "rule_disabled": "已停用",
+    "from": "來源",
+    "to": "目的"
   },
   "physical": {
     "cabling": "佈線",

@@ -87,7 +87,18 @@ interface FwState {
   cluster_policy_in: string | null; guest_policy_in: string | null;
   guest_policy_in_explicit: boolean; guest_enabled_explicit: boolean;
 }
+interface FwRule {
+  scope: string; node: string | null; vmid: number | null; pos: number;
+  direction: string | null; action: string | null; enabled: boolean;
+  proto: string | null; dport: string | null; source: string | null;
+  dest: string | null; macro: string | null; group_ref: string | null;
+  comment: string | null;
+}
 const fwStates = ref<FwState[]>([]);
+const fwRules = ref<FwRule[]>([]);
+const fwGroups = ref<{ name: string; comment: string | null; rules: FwRule[] }[]>([]);
+const fwIpsets = ref<{ scope: string; vmid: number | null; kind: string;
+                       name: string; members: string[] }[]>([]);
 const fwCounts = ref<Record<string, number>>({});
 const fwPosture = ref<string | null>(null);
 const fwLoading = ref(false);
@@ -106,8 +117,40 @@ async function loadFw() {
     const { data } = await apiClient.get("/api/v1/virt/pve-firewall");
     fwStates.value = data.states ?? [];
     fwCounts.value = data.posture_counts ?? {};
+    fwRules.value = data.rules ?? [];
+    fwGroups.value = data.groups ?? [];
+    fwIpsets.value = data.ipsets ?? [];
   } catch { /* silent */ } finally { fwLoading.value = false; }
 }
+
+// 「這台到底設了哪些規則」——只給判定結果不給規則，等於只講結論不給證據。
+// guest 自己的規則之外，叢集與節點層的規則也會作用在它身上，所以一併列出並標明來源層。
+function rulesForGuest(vmid: number): FwRule[] {
+  const own = fwRules.value.filter((r) => r.scope === "guest" && r.vmid === vmid);
+  const inherited = fwRules.value.filter((r) => r.scope !== "guest");
+  return [...own, ...inherited];
+}
+const SCOPE_LABEL: Record<string, string> = {
+  guest: "guest", node: "node", datacenter: "datacenter",
+};
+/** 規則裡引用到的名稱（安全群組／IPSet／alias）→ 展開後的內容，給 popover 用 */
+function refDetail(r: FwRule): string | null {
+  if (r.group_ref) {
+    const g = fwGroups.value.find((x) => x.name === r.group_ref);
+    if (!g) return null;
+    return (g.rules ?? []).map((x) =>
+      `${x.direction ?? "?"} ${x.action ?? "?"} ${x.proto ?? ""}${x.dport ? "/" + x.dport : ""}`
+        .trim()).join("\n") || "（空群組）";
+  }
+  const name = r.source || r.dest;
+  if (!name) return null;
+  // guest 層同名會遮蔽叢集層，查找順序要一致
+  const set = fwIpsets.value.find((x) => x.name === name && x.scope === "guest"
+                                         && x.vmid === r.vmid)
+    ?? fwIpsets.value.find((x) => x.name === name && x.scope === "datacenter");
+  return set ? (set.members ?? []).join("\n") || "（空集合）" : null;
+}
+
 const postureOptions = computed(() => POSTURE_ORDER.map((k) => ({
   label: `${postureLabel(k)}（${fwCounts.value[k] ?? 0}）`, value: k })));
 const fwRows = computed(() =>
@@ -115,7 +158,37 @@ const fwRows = computed(() =>
                   : fwStates.value);
 
 const fwCols = computed<DataTableColumns<FwState>>(() => autoSort([
+  // key "_" 是 useVirtPrefs 保留鍵：不進欄位選擇清單，但一定保留（展開欄不該被藏掉）
+  { type: "expand", key: "_", expandable: () => true,
+    renderExpand: (r: FwState) => h("div", { class: "fw-rules" },
+      rulesForGuest(r.vmid).length === 0
+        ? [h("span", { style: "opacity:.6;font-size:12.5px" }, t("virt.no_rules"))]
+        : rulesForGuest(r.vmid).map((x) => h("div", { class: "fw-rule" }, [
+            h(NTag, { size: "tiny", bordered: false,
+                      type: x.scope === "guest" ? "success" : "default" },
+              { default: () => SCOPE_LABEL[x.scope] ?? x.scope }),
+            h("span", { class: "fw-rule__body" }, [
+              `${x.direction ?? "?"} · ${x.action ?? "?"}`,
+              x.proto ? ` · ${x.proto}` : "",
+              x.dport ? `/${x.dport}` : "",
+              x.source ? ` · ${t("virt.from")} ${x.source}` : "",
+              x.dest ? ` · ${t("virt.to")} ${x.dest}` : "",
+              x.macro ? ` · ${x.macro}` : "",
+            ]),
+            // 引用到群組／IPSet 時，內容用 popover 展開（不展開等於沒說）
+            refDetail(x) ? h(NTooltip, null, {
+              trigger: () => h(NTag, { size: "tiny", type: "info", bordered: false,
+                                       style: "cursor:pointer" },
+                               { default: () => t("virt.expand_ref") }),
+              default: () => h("pre", { style: "margin:0;font-size:12px" },
+                                refDetail(x) ?? ""),
+            }) : null,
+            x.enabled ? null : h(NTag, { size: "tiny", type: "warning", bordered: false },
+                                 { default: () => t("virt.rule_disabled") }),
+          ]))) } as any,
   { title: "VMID", key: "vmid", width: 90 },
+  { title: () => t("virt.rule_count"), key: "rule_count", width: 100,
+    render: (r: FwState) => rulesForGuest(r.vmid).filter((x) => x.scope === "guest").length },
   { title: t("virt.kind"), key: "guest_kind", width: 90,
     render: (r: FwState) => r.guest_kind ?? "—" },
   { title: t("virt.node"), key: "node", width: 140, render: (r: FwState) => r.node ?? "—" },
@@ -123,7 +196,7 @@ const fwCols = computed<DataTableColumns<FwState>>(() => autoSort([
     render: (r: FwState) => h(NTag, { size: "small", type: postureType(r.posture),
                                       bordered: false },
                               { default: () => postureLabel(r.posture) }) },
-  // 為什麼是這個姿態：把三個開關攤開，使用者才知道要去哪一層開
+  // 為什麼是這個防護狀態：把三個開關攤開，使用者才知道要去哪一層開
   { title: t("virt.why"), key: "why", minWidth: 320,
     render: (r: FwState) => h("span", { style: "font-size:12.5px" }, [
       `${t("virt.cluster")}: ${r.cluster_enabled ? "on" : "off"}`,
@@ -517,7 +590,7 @@ onMounted(() => {
         <n-alert type="info" :bordered="false" size="small" style="margin-bottom: 10px">
           {{ t("virt.pve_fw_hint") }}
         </n-alert>
-        <!-- 姿態分布：規則存在不等於生效，這一列才是重點。
+        <!-- 防護狀態分布：規則存在不等於生效，這一列才是重點。
              四張等寬卡片對齊，點一下即篩選（與異常偵測頁的統計卡同一套視覺） -->
         <div class="fw-postures">
           <div v-for="k in POSTURE_ORDER" :key="k" class="fw-posture"
@@ -529,7 +602,7 @@ onMounted(() => {
             <div class="fw-posture__value">{{ fwCounts[k] ?? 0 }}</div>
           </div>
         </div>
-        <!-- 工具列與其他分頁一致：搜尋 / 姿態篩選 / 重新整理 / 欄位 / 匯出 -->
+        <!-- 工具列與其他分頁一致：搜尋 / 防護狀態篩選 / 重新整理 / 欄位 / 匯出 -->
         <n-space align="center" style="margin: 10px 0">
           <n-input v-model:value="fwP.query" clearable style="width:180px"
                    :placeholder="t('common.filter')" />
@@ -543,7 +616,9 @@ onMounted(() => {
           <ExportButton :columns="fwP.visibleCols" :rows="fwP.filtered"
                         filename="pve-firewall" :title="t('virt.pve_fw')" />
         </n-space>
+        <!-- row-key 必要：沒有它，展開一列會把每一列都展開（naive-ui 分不出是哪一列） -->
         <n-data-table :columns="fwP.visibleCols" :data="fwP.filtered" :loading="fwLoading"
+                      :row-key="(r: FwState) => r.vmid"
                       :bordered="false" :pagination="pg" :scroll-x="900" />
       </n-tab-pane>
       <n-tab-pane v-if="adminMode" name="proxmox">
@@ -670,7 +745,11 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 姿態統計卡：等寬對齊。原本用大小不一的 tag 排一列，視覺很亂（回報） */
+/* 展開後的規則列：一行一條，來源層用標籤標示（guest / node / datacenter） */
+.fw-rules { display: flex; flex-direction: column; gap: 4px; padding: 4px 2px; }
+.fw-rule { display: flex; align-items: center; gap: 6px; font-size: 12.5px; flex-wrap: wrap; }
+.fw-rule__body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* 防護狀態統計卡：等寬對齊。原本用大小不一的 tag 排一列，視覺很亂（回報） */
 .fw-postures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .fw-posture {
   border: 1px solid var(--n-border-color, rgba(128,128,128,.28));

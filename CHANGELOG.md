@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.203] — 2026-08-24
+
+### Added
+- **The PVE firewall tab now shows the rules themselves.** It stated a verdict for each guest without showing the evidence, which left the obvious question — which rules does this VM actually have? — unanswerable. Every row expands to its rules, with the guest's own rules first and the datacenter and node rules that also apply to it below, each tagged with the level it comes from. Disabled rules are marked, and a rule referencing a security group, IPSet or alias can be expanded to its contents, since a bare name says nothing. A rule-count column makes it visible at a glance which guests carry rules at all.
+
+### Changed
+- zh-TW wording: 姿態 → 防護狀態 (posture). The former was a literal translation and is not how this is said in Taiwan.
+
 ## [0.5.202] — 2026-08-24
 
 ### Changed
