@@ -38,6 +38,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import threading
 import sys
 import time
 import urllib.request
@@ -709,6 +710,131 @@ def scan_once() -> None:
         print("[report] nothing to report", flush=True)
 
 
+# ─────────────────── On-demand probe jobs (Tools page) ───────────────────
+# The server cannot reach us: we only dial out. So on-demand probes arrive through a
+# long-poll queue -- we ask for work, run it locally, and post the result back.
+#
+# SECURITY: we validate every job ourselves and never pass anything to a shell.
+# The server is not trusted to have validated for us: if the server is compromised,
+# this check is the last thing standing between it and arbitrary probing of the
+# customer network. Only these four read-only probe kinds are ever executed.
+_JOB_KINDS = ("ping", "tcp", "traceroute", "rdns")
+_JOB_MAX_TARGETS = 64
+_JOB_MAX_PORTS = 64
+_HOSTNAME_OK = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+                          r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+
+
+def _job_valid_target(t: str) -> str | None:
+    s = (t or "").strip()
+    if not s or len(s) > 253:
+        return None
+    try:
+        ipaddress.ip_address(s)
+        return s
+    except ValueError:
+        pass
+    return s if _HOSTNAME_OK.match(s) else None
+
+
+def _job_run_ping(targets: list[str], count: int, timeout: float) -> list[dict]:
+    out = []
+    for t in targets:
+        argv = ["ping", "-c", str(count), "-W", str(int(max(1, timeout))), t]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True,
+                               timeout=count * timeout + 5)
+            ok = r.returncode == 0
+            out.append({"target": t, "alive": ok, "output": (r.stdout or "")[-2000:]})
+        except Exception as exc:  # noqa: BLE001
+            out.append({"target": t, "alive": False, "error": f"{type(exc).__name__}"})
+    return out
+
+
+def _job_run_tcp(targets: list[str], ports: list[int], timeout: float) -> list[dict]:
+    out = []
+    for t in targets:
+        opened, closed = [], []
+        for p in ports:
+            try:
+                with socket.create_connection((t, p), timeout=timeout):
+                    opened.append(p)
+            except Exception:  # noqa: BLE001
+                closed.append(p)
+        out.append({"target": t, "open": opened, "closed": closed})
+    return out
+
+
+def _job_run_traceroute(target: str, max_hops: int) -> dict:
+    for tool in ("tracepath", "traceroute"):
+        exe = shutil.which(tool)
+        if not exe:
+            continue
+        argv = ([exe, "-m", str(max_hops), target] if tool == "traceroute"
+                else [exe, "-m", str(max_hops), target])
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=max_hops * 3 + 10)
+            return {"target": target, "tool": tool, "output": (r.stdout or "")[-8000:]}
+        except Exception as exc:  # noqa: BLE001
+            return {"target": target, "tool": tool, "error": f"{type(exc).__name__}"}
+    return {"target": target, "error": "no traceroute tool available (tracepath/traceroute)"}
+
+
+def _job_execute(kind: str, params: dict) -> tuple[object, str | None]:
+    """Run one job. Returns (result, error). Never raises."""
+    if kind not in _JOB_KINDS:
+        return None, f"unsupported probe: {kind}"
+    raw = params.get("targets") or []
+    items = raw if isinstance(raw, list) else re.split(r"[\s,]+", str(raw))
+    targets = [x for x in (_job_valid_target(t) for t in items if t) if x]
+    if not targets:
+        return None, "no valid target"
+    if len(targets) > _JOB_MAX_TARGETS:
+        return None, f"too many targets (max {_JOB_MAX_TARGETS})"
+    try:
+        if kind == "ping":
+            count = max(1, min(int(params.get("count") or 3), 10))
+            timeout = max(0.5, min(float(params.get("timeout") or 2.0), 10.0))
+            return _job_run_ping(targets, count, timeout), None
+        if kind == "tcp":
+            ports = [int(p) for p in (params.get("ports") or []) if 1 <= int(p) <= 65535]
+            if not ports:
+                return None, "no valid port"
+            if len(ports) > _JOB_MAX_PORTS:
+                return None, f"too many ports (max {_JOB_MAX_PORTS})"
+            timeout = max(0.2, min(float(params.get("timeout") or 1.5), 10.0))
+            return _job_run_tcp(targets, ports, timeout), None
+        if kind == "traceroute":
+            hops = max(1, min(int(params.get("max_hops") or 20), 30))
+            return _job_run_traceroute(targets[0], hops), None
+        return [{"target": t, "hostname": _rdns(t)} for t in targets], None
+    except Exception as exc:  # noqa: BLE001
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _jobs_loop() -> None:
+    """Long-poll for on-demand probes. Runs in its own thread.
+
+    Wrapped so that any failure here can never take the scanning loop down with it --
+    the agent's primary job is scanning; this is an extra.
+    """
+    while True:
+        try:
+            resp = _req("GET", "/api/v1/scan-agents/jobs?wait=25") or {}
+            for job in resp.get("jobs") or []:
+                jid, kind = job.get("id"), job.get("kind")
+                result, error = _job_execute(str(kind), job.get("params") or {})
+                try:
+                    _req("POST", f"/api/v1/scan-agents/jobs/{jid}/result",
+                         {"result": result, "error": error})
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[jobs] report failed: {type(exc).__name__}", file=sys.stderr,
+                          flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[jobs] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            time.sleep(10)      # back off; do not hammer a server that is down
+
+
 def main() -> int:
     if not SERVER or not KEY:
         print("ERROR: JT_IPAM_URL and JT_IPAM_AGENT_KEY environment variables are required",
@@ -718,6 +844,9 @@ def main() -> int:
           f"insecure={INSECURE} auto_update={AUTO_UPDATE}", flush=True)
     # fast loop 由 server 的 interval_seconds 決定；poll 失敗時退回 env INTERVAL。
     sleep_for = INTERVAL
+    # On-demand probe jobs run in a separate thread: scanning must not wait on them,
+    # and a failure there must not stop scanning.
+    threading.Thread(target=_jobs_loop, name="jt-ipam-jobs", daemon=True).start()
     while True:
         try:
             scan_once()

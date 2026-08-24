@@ -567,3 +567,72 @@ async def delete_proxmox(
     )
     await session.delete(obj)
     await session.commit()
+
+# ─────────────────── PVE 防火牆（東西向分段）───────────────────
+@router.get("/pve-firewall")
+async def pve_firewall(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    vmid: int | None = Query(None),
+    posture: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+) -> dict[str, Any]:
+    """PVE 防火牆的規則與各 guest 的實際姿態。
+
+    **這是東西向／主機層的管制，不代表對外可達**，因此不併入對外開放服務清單。
+    回傳的 `posture` 已經把三個生效開關與預設政策合併判定過，呼叫端不要自己重算。
+    """
+    from app.models.pve_firewall import (
+        PVEFirewallGroup,
+        PVEFirewallIPSet,
+        PVEFirewallRule,
+        PVEFirewallState,
+    )
+
+    st_stmt = select(PVEFirewallState)
+    if vmid is not None:
+        st_stmt = st_stmt.where(PVEFirewallState.vmid == vmid)
+    if posture:
+        st_stmt = st_stmt.where(PVEFirewallState.posture == posture)
+    states = list((await session.execute(st_stmt.limit(limit))).scalars().all())
+
+    r_stmt = select(PVEFirewallRule)
+    if vmid is not None:
+        # 該 guest 的規則 ＋ 上層（叢集／節點）規則都要看得到，否則會以為它沒有任何管制
+        r_stmt = r_stmt.where(
+            (PVEFirewallRule.vmid == vmid) | (PVEFirewallRule.scope != "guest"))
+    rules = list((await session.execute(
+        r_stmt.order_by(PVEFirewallRule.scope, PVEFirewallRule.pos).limit(limit)
+    )).scalars().all())
+
+    groups = list((await session.execute(select(PVEFirewallGroup))).scalars().all())
+    ipsets = list((await session.execute(select(PVEFirewallIPSet).limit(limit))).scalars().all())
+
+    counts: dict[str, int] = {}
+    for s_ in (await session.execute(
+            select(PVEFirewallState.posture, func.count())
+            .group_by(PVEFirewallState.posture))).all():
+        counts[str(s_[0])] = int(s_[1])
+
+    return {
+        "posture_counts": counts,          # 全域分布（不隨篩選縮放，才看得出比例）
+        "states": [{
+            "vmid": s_.vmid, "guest_kind": s_.guest_kind, "node": s_.node_name,
+            "effective": s_.effective, "posture": s_.posture,
+            "cluster_enabled": s_.cluster_enabled, "guest_enabled": s_.guest_enabled,
+            "nic_firewall": s_.nic_firewall,
+            "cluster_policy_in": s_.cluster_policy_in,
+            "guest_policy_in": s_.guest_policy_in,
+            "guest_policy_in_explicit": s_.guest_policy_in_explicit,
+            "guest_enabled_explicit": s_.guest_enabled_explicit,
+        } for s_ in states],
+        "rules": [{
+            "scope": r.scope, "node": r.node_name, "vmid": r.vmid, "pos": r.pos,
+            "direction": r.direction, "action": r.action, "enabled": r.enabled,
+            "proto": r.proto, "dport": r.dport, "source": r.source, "dest": r.dest,
+            "macro": r.macro, "group_ref": r.group_ref, "comment": r.comment,
+        } for r in rules],
+        "groups": [{"name": g.name, "comment": g.comment, "rules": g.rules} for g in groups],
+        "ipsets": [{"scope": i.scope, "vmid": i.vmid, "kind": i.kind, "name": i.name,
+                    "members": i.members_resolved} for i in ipsets],
+    }

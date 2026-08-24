@@ -63,6 +63,12 @@ from app.models.physical import (
     PowerPanel,
     VPNTunnel,
 )
+from app.models.pve_firewall import (
+    PVEFirewallGroup,
+    PVEFirewallIPSet,
+    PVEFirewallRule,
+    PVEFirewallState,
+)
 from app.models.scan_agent import ScanAgent
 from app.models.section import Section
 from app.models.ssh_credential import SSHCredential
@@ -128,6 +134,10 @@ __all__ = [
     "OPNsenseFirewall",
     "OPNsenseRuleLabel",
     "OPNsenseSyncedAlias",
+    "PVEFirewallGroup",
+    "PVEFirewallIPSet",
+    "PVEFirewallRule",
+    "PVEFirewallState",
     "Permission",
     "PfSenseFirewall",
     "PfSenseSyncedAlias",

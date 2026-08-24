@@ -1857,8 +1857,8 @@
     "proxmox": "Proxmox VE 連線",
     "cluster": "叢集",
     "type": "類型",
-    "node": "節點名稱",
-    "kind": "類別",
+    "node": "節點",
+    "kind": "類型",
     "bridge": "橋接",
     "last_sync": "最近同步",
     "add_cluster": "新增叢集",
@@ -1893,7 +1893,17 @@
     "help_path": "路徑 /",
     "proxmox_admin_title": "Proxmox VE 連線",
     "other_platform_hint": "這一頁只顯示這個平台的內容。您有 {n} 台虛擬機屬於「{name}」。",
-    "other_platform_go": "前往該頁"
+    "other_platform_go": "前往該頁",
+    "pve_fw": "防火牆",
+    "posture": "實際姿態",
+    "why": "判定依據",
+    "guest": "guest",
+    "inherited": "繼承預設",
+    "posture_unprotected": "規則不生效",
+    "posture_open": "預設放行",
+    "posture_filtered": "白名單",
+    "posture_blocked": "全擋",
+    "pve_fw_hint": "PVE 防火牆管的是東西向（同一虛擬化環境內部）與主機層的存取，不代表從外部可達；對外開放請看「對外開放服務」。「規則不生效」表示該 guest 寫了規則，但叢集、guest 或網卡三個開關至少有一個沒開。"
   },
   "physical": {
     "cabling": "佈線",
@@ -3115,7 +3125,14 @@
     "trace_slow_hint": "沒有回應的躍點必須等滿逾時才能確定，因此 15 跳約需 30～60 秒；結果會一跳一列即時出現，不必等全部跑完。",
     "trace_cancelled": "已取消路徑追蹤。",
     "not_reached": "未到達目的地",
-    "not_reached_tip": "最後一個有回應的躍點不是目的地本人。tracepath 用 UDP 高埠探測，路徑後段常被過濾；伺服器安裝 traceroute 後會自動改用 ICMP（幾乎都放行）。"
+    "not_reached_tip": "最後一個有回應的躍點不是目的地本人。tracepath 用 UDP 高埠探測，路徑後段常被過濾；伺服器安裝 traceroute 後會自動改用 ICMP（幾乎都放行）。",
+    "source": "執行來源",
+    "source_server": "伺服器（jt-ipam 主機）",
+    "source_agent": "掃描代理",
+    "agent_running": "已指派給代理，等待結果…",
+    "agent_failed": "代理回報失敗",
+    "agent_timeout": "等待代理結果逾時（代理可能離線）",
+    "agent_note": "封包會由該掃描代理所在的網段送出，而不是 jt-ipam 主機；適合驗證客戶站台內部的連通性。僅管理員可用。"
   },
   "ai_audit": {
     "title": "AI 巡檢",

@@ -142,6 +142,7 @@ class SyncSummary:
     interfaces_seen: int = 0
     ipam_linked: int = 0
     errors: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)   # 各子同步的細項（如防火牆）
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +154,7 @@ class SyncSummary:
             "interfaces_seen": self.interfaces_seen,
             "ipam_linked": self.ipam_linked,
             "errors": self.errors[:20],
+            **self.extra,
         }
 
 
@@ -495,6 +497,7 @@ async def sync_instance(
 
     nodes = nodes_data.get("data") or []
     summary.nodes_seen = len(nodes)
+    fw_guests: list[dict[str, Any]] = []      # 給防火牆同步用（node/kind/vmid/config）
 
     # 各節點 host 的管理 IP（cluster/status 的 node 項帶 ip）
     node_ip_map: dict[str, str] = {}
@@ -607,6 +610,10 @@ async def sync_instance(
                 )).get("data") or {}
             except ProxmoxError:
                 cfg = {}
+            # 防火牆同步要用同一份 config（網卡的 firewall=1 旗標只在這裡看得到），
+            # 不另外再打一次 API
+            fw_guests.append({"node": node_name, "kind": kind_path,
+                              "vmid": int(vmid), "config": cfg})
 
             # qemu running → 用 guest agent 撈活的 IP（以 MAC 對映），等同 ARP
             agent_ips: dict[str, str] = {}
@@ -654,8 +661,23 @@ async def sync_instance(
                         if vm.primary_ip_id is None:
                             vm.primary_ip_id = linked.id
 
+    # ── 防火牆（東西向分段；可獨立關閉）──
+    # **區段隔離**：讀不到防火牆不得影響上面已完成的 VM／網路／IPAM 同步。
+    # 實機常態是部分端點可讀，整段中止會讓使用者以為整台壞掉（FortiGate 那次的教訓）。
+    if getattr(instance, "sync_firewall", False):
+        try:
+            from app.services.pve_firewall import sync_firewall as _sync_fw
+
+            async def _fw_get(path: str) -> Any:
+                return (await _api_get(session, instance, path, base_url=base)).get("data")
+
+            fw_counts = await _sync_fw(session, instance, base, _fw_get, fw_guests)
+            summary.extra["firewall"] = fw_counts
+        except Exception as exc:
+            summary.errors.append(f"firewall: {exc}")
+
     instance.last_sync_at = datetime.now(UTC)
-    instance.last_error = None
+    instance.last_error = "；".join(summary.errors) if summary.errors else None
     await session.commit()
     return summary
 

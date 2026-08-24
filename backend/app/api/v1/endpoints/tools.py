@@ -9,6 +9,7 @@ OWASP A05：所有輸入透過 stdlib `ipaddress` 解析（service 層），拒�
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict
 from typing import Annotated, Any
 
@@ -17,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser
+from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import check_rate_limit
@@ -513,3 +514,66 @@ async def net_rdns(
     return {"count": len(results),
             "with_ptr": sum(1 for r in results if r.ptr),
             "results": [asdict(r) for r in results]}
+
+# ─────────────────── 從掃描代理執行探測 ───────────────────
+# 為什麼要有這個：伺服器只看得到自己那一段網路。要確認「客戶站台內部通不通」，
+# 必須從**那個網段裡面**打。掃描代理本來就裝在各網段，重用它比另外開防火牆安全得多。
+#
+# 權限：**限管理員**。從代理執行探測等於能對客戶內網發包，比從伺服器執行的既有工具
+# 影響範圍大得多，不適用一般使用者。
+class _AgentProbeIn(StrictModel):
+    agent_id: uuid.UUID
+    kind: Annotated[str, Field(min_length=1, max_length=16)]
+    targets: Annotated[str, Field(min_length=1, max_length=4096)]
+    ports: str | None = None
+    count: int | None = None
+    timeout: float | None = None
+    max_hops: int | None = None
+
+
+@router.post("/net/agent-probe", status_code=202)
+async def agent_probe(
+    payload: _AgentProbeIn, user: Annotated[Any, Depends(require_admin)], request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """指派一次探測給某個掃描代理，回傳工作 id（結果另外查）。"""
+    from app.models.scan_agent import ScanAgent
+    from app.services.agent_probe import ProbeJobError, create_job
+
+    agent = await session.get(ScanAgent, payload.agent_id)
+    if agent is None or not agent.enabled:
+        raise HTTPException(status_code=404, detail="agent not found or disabled")
+
+    await _diag_guard(session, user, request, f"agent_{payload.kind}",
+                      {"agent": str(payload.agent_id), "targets": payload.targets[:200]})
+    try:
+        job = await create_job(
+            session, agent_id=payload.agent_id, kind=payload.kind,
+            params={"targets": payload.targets, "ports": payload.ports,
+                    "count": payload.count, "timeout": payload.timeout,
+                    "max_hops": payload.max_hops},
+            requested_by=user.id,
+        )
+    except ProbeJobError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await session.commit()
+    return {"job_id": str(job.id), "status": job.status}
+
+
+@router.get("/net/agent-probe/{job_id}")
+async def agent_probe_result(
+    job_id: uuid.UUID, _user: Annotated[Any, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """查一次探測的結果。前端輪詢這支直到 status 不是 pending/running。"""
+    from app.models.agent_probe_job import AgentProbeJob
+    from app.services.agent_probe import expire_stale
+
+    await expire_stale(session)
+    await session.commit()
+    job = await session.get(AgentProbeJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"job_id": str(job.id), "kind": job.kind, "status": job.status,
+            "result": job.result, "error": job.error,
+            "created_at": job.created_at, "finished_at": job.finished_at}

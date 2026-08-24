@@ -4,6 +4,27 @@
          「封包從伺服器送出、不是從你的電腦」，那件事不會因為換了位置就不用講） -->
     <div class="nd-note">{{ t("netdiag.section_note") }}</div>
 
+    <!-- 執行來源：預設從伺服器送出；選代理則由該網段的代理在當地執行 -->
+    <n-space align="center" :size="10" style="margin-bottom: 10px">
+      <span style="font-size: 13px; opacity: .75">{{ t("netdiag.source") }}</span>
+      <n-select v-model:value="source" :options="sourceOptions" size="small"
+                style="width: 260px" />
+      <n-spin v-if="agentBusy" :size="14" />
+      <span v-if="agentBusy" style="font-size: 12.5px; opacity: .7">
+        {{ t("netdiag.agent_running") }}
+      </span>
+    </n-space>
+    <n-alert v-if="source !== 'server'" type="info" :bordered="false" size="small"
+             style="margin-bottom: 10px">
+      {{ t("netdiag.agent_note") }}
+    </n-alert>
+    <n-card v-if="agentOut" size="small" style="margin-bottom: 12px">
+      <template #header>
+        <span style="font-size: 13.5px">{{ agentOut.agent }} · {{ agentOut.kind }}</span>
+      </template>
+      <pre class="nd-agent-out">{{ agentOut.text }}</pre>
+    </n-card>
+
     <div class="nd-grid">
       <!-- Ping -->
       <div class="nd-wide">
@@ -254,7 +275,7 @@ import { computed, h, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NModal,
-  NIcon, NTooltip, NInput, NInputNumber, NSpace, NTag, useMessage,
+  NIcon, NTooltip, NInput, NInputNumber, NSelect, NSpace, NSpin, NTag, useMessage,
 } from "naive-ui";
 import { DnsIcon, InfoIcon, LinkIcon, LockIcon, NetDiagIcon as LiveIcon, SearchIcon, TopologyIcon, CancelIcon } from "@/icons";
 import { MAX_PORTS, parsePorts } from "@/utils/ports";
@@ -462,6 +483,10 @@ async function runHttp() {
 }
 
 async function runRdns() {
+  if (source.value !== "server") {
+    await runViaAgent("rdns", { targets: rdns.targets });
+    return;
+  }
   if (!rdns.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
   rdns.busy = true;
   try {
@@ -471,8 +496,68 @@ async function runRdns() {
   } catch (e) { msg.error(apiErrMsg(e)); } finally { rdns.busy = false; }
 }
 
+// ── 執行來源：伺服器本身，或某個掃描代理 ──
+// 伺服器只看得到自己那一段網路。要確認「客戶站台內部通不通」就得從那個網段裡面打，
+// 而掃描代理本來就裝在各網段。代理只由內往外連，所以請求走工作佇列：
+// 建立工作 → 代理長輪詢領取 → 當地執行 → 回報 → 這裡輪詢取回。
+const source = ref<string>("server");
+const agents = ref<{ label: string; value: string }[]>([]);
+const agentBusy = ref(false);
+const agentOut = ref<{ agent: string; kind: string; text: string } | null>(null);
+
+const sourceOptions = computed(() => [
+  { label: t("netdiag.source_server"), value: "server" },
+  ...agents.value,
+]);
+
+async function loadAgents() {
+  try {
+    const { data } = await apiClient.get("/api/v1/scan-agents", { params: { page_size: 100 } });
+    agents.value = (data.items ?? [])
+      .filter((a: any) => a.enabled)
+      .map((a: any) => ({ label: `${t("netdiag.source_agent")}：${a.name}`, value: a.id }));
+  } catch {
+    agents.value = [];      // 非管理員看不到代理清單 → 只留「伺服器」，不是錯誤
+  }
+}
+onMounted(loadAgents);
+
+/** 指派給代理執行並等結果。回傳格式化後的文字（不同探測形狀不同，統一以純文字呈現）。 */
+async function runViaAgent(kind: string, params: Record<string, unknown>): Promise<void> {
+  agentBusy.value = true;
+  agentOut.value = null;
+  try {
+    const { data } = await apiClient.post("/api/v1/tools/net/agent-probe",
+                                          { agent_id: source.value, kind, ...params });
+    const jobId = data.job_id;
+    const deadline = Date.now() + 90_000;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 800));
+      const { data: j } = await apiClient.get(`/api/v1/tools/net/agent-probe/${jobId}`);
+      if (j.status === "done" || j.status === "failed" || j.status === "expired") {
+        const label = sourceOptions.value.find((o) => o.value === source.value)?.label ?? "";
+        agentOut.value = {
+          agent: label, kind,
+          text: j.error ? `${t("netdiag.agent_failed")}：${j.error}`
+                        : JSON.stringify(j.result, null, 2),
+        };
+        return;
+      }
+      if (Date.now() > deadline) {
+        agentOut.value = { agent: "", kind, text: t("netdiag.agent_timeout") };
+        return;
+      }
+    }
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { agentBusy.value = false; }
+}
+
 async function runPing() {
   if (!ping.targets.trim()) { msg.error(t("netdiag.need_target")); return; }
+  if (source.value !== "server") {
+    await runViaAgent("ping", { targets: ping.targets, count: ping.count,
+                                timeout: ping.timeout });
+    return;
+  }
   ping.busy = true;
   try {
     const { data } = await apiClient.post("/api/v1/tools/net/ping", {
@@ -495,6 +580,10 @@ function cancelTrace() {
 async function runTrace() {
   if (trace.busy) { cancelTrace(); return; }
   if (!trace.target.trim()) { msg.error(t("netdiag.need_target")); return; }
+  if (source.value !== "server") {
+    await runViaAgent("traceroute", { targets: trace.target, max_hops: trace.maxHops });
+    return;
+  }
   trace.busy = true;
   trace.elapsed = 0;
   // 邊跑邊長：先給一個空殼，每收到一跳就 push 一列進去
@@ -536,6 +625,11 @@ async function runTcp() {
   if (parsed.overflow) { msg.warning(t("netdiag.port_overflow", { n: MAX_PORTS })); }
   const ports = parsed.ports;
   if (!ports.length) { msg.error(t("netdiag.need_port")); return; }
+  if (source.value !== "server") {
+    await runViaAgent("tcp", { targets: tcp.targets, ports: ports.join(","),
+                               timeout: tcp.timeout });
+    return;
+  }
   tcp.busy = true;
   try {
     const { data } = await apiClient.post("/api/v1/tools/net/tcp", {
@@ -552,6 +646,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.nd-agent-out {
+  margin: 0; max-height: 320px; overflow: auto; font-size: 12.5px; line-height: 1.55;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(127, 127, 127, .07); padding: 10px 12px; border-radius: 8px;
+  white-space: pre-wrap; word-break: break-word;
+}
 .howto-p { margin: 10px 0 6px; font-size: 13px; line-height: 1.8; }
 .howto-pre {
   margin: 0; padding: 10px 12px; font-size: 12px; line-height: 1.7;

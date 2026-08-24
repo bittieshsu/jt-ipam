@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -728,3 +730,53 @@ async def delete_agent(
     )
     await session.delete(obj)
     await session.commit()
+
+# ─────────────────── 工具探測工作（代理端；X-Agent-Key 驗證）───────────────────
+@router.get("/jobs", include_in_schema=False)
+async def agent_take_jobs(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    x_agent_key: Annotated[str | None, Header()] = None,
+    wait: int = Query(0, ge=0, le=25),
+) -> dict[str, Any]:
+    """代理領取待辦探測（長輪詢）。
+
+    `wait` 秒內若沒有待辦就回空陣列。長輪詢讓「使用者按下按鈕」到「代理開始跑」只差不到一秒，
+    卻不需要任何入站連線 —— 代理仍然只由內往外連。
+    """
+    from app.services.agent_probe import claim_jobs
+
+    agent = await _agent_from_key(session, x_agent_key)
+    deadline = time.monotonic() + wait
+    while True:
+        jobs = await claim_jobs(session, agent_id=agent.id)
+        if jobs:
+            await session.commit()
+            return {"jobs": [{"id": str(j.id), "kind": j.kind, "params": j.params}
+                             for j in jobs]}
+        await session.commit()
+        if time.monotonic() >= deadline:
+            return {"jobs": []}
+        await asyncio.sleep(1.0)
+
+
+class _JobResultIn(StrictModel):
+    result: Any = None
+    error: str | None = None
+
+
+@router.post("/jobs/{job_id}/result", include_in_schema=False)
+async def agent_job_result(
+    job_id: uuid.UUID, payload: _JobResultIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    x_agent_key: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """代理回報結果。只能結束自己領到的工作（服務層會驗 agent_id）。"""
+    from app.services.agent_probe import finish_job
+
+    agent = await _agent_from_key(session, x_agent_key)
+    ok = await finish_job(session, agent_id=agent.id, job_id=job_id,
+                          result=payload.result, error=payload.error)
+    await session.commit()
+    if not ok:
+        raise HTTPException(status_code=404, detail="job not found or already finished")
+    return {"ok": True}

@@ -1893,7 +1893,17 @@
     },
     "proxmox_admin_title": "Proxmox VE connections",
     "other_platform_hint": "This page shows one platform only. You have {n} virtual machines under \"{name}\".",
-    "other_platform_go": "Go there"
+    "other_platform_go": "Go there",
+    "pve_fw": "Firewall",
+    "posture": "Effective posture",
+    "why": "Why",
+    "guest": "Guest",
+    "inherited": "inherited",
+    "posture_unprotected": "Rules inert",
+    "posture_open": "Default allow",
+    "posture_filtered": "Allow-list",
+    "posture_blocked": "All blocked",
+    "pve_fw_hint": "The PVE firewall governs east-west and host-level access inside the virtualisation environment; it does not mean a guest is reachable from outside — see Exposed services for that. \"Rules inert\" means the guest has rules but at least one of the cluster, guest or NIC switches is off."
   },
   "physical": {
     "cabling": "Cabling",
@@ -3115,7 +3125,14 @@
     "trace_slow_hint": "A hop that does not answer can only be confirmed after its timeout, so 15 hops take roughly 30–60 seconds; rows appear one hop at a time as they arrive, so there is nothing to wait for.",
     "trace_cancelled": "Trace cancelled.",
     "not_reached": "destination not reached",
-    "not_reached_tip": "The last responding hop is not the destination itself. tracepath probes with high UDP ports, which are often filtered late in the path; once traceroute is installed the server switches to ICMP, which almost always gets through."
+    "not_reached_tip": "The last responding hop is not the destination itself. tracepath probes with high UDP ports, which are often filtered late in the path; once traceroute is installed the server switches to ICMP, which almost always gets through.",
+    "source": "Run from",
+    "source_server": "Server (jt-ipam host)",
+    "source_agent": "Scan agent",
+    "agent_running": "Handed to the agent, waiting…",
+    "agent_failed": "The agent reported a failure",
+    "agent_timeout": "Timed out waiting for the agent (it may be offline)",
+    "agent_note": "Packets leave from the network where that scan agent runs, not from the jt-ipam host — use it to test reachability inside a customer site. Admins only."
   },
   "ai_audit": {
     "title": "AI review",

@@ -90,7 +90,14 @@ CATEGORY: dict[str, str] = {
     "wazuh_instances": "integrations",
     "opnsense_firewalls": "integrations",
     "proxmox_instances": "integrations",
+    # PVE 防火牆：整合拉回、可重新同步的鏡像資料（與 ARP/FDB/規則同性質）
+    "pve_firewall_rules": "synced",
+    "pve_firewall_state": "synced",
+    "pve_firewall_groups": "synced",
+    "pve_firewall_ipsets": "synced",
     "scan_agents": "integrations",
+    # 探測工作是短命的執行紀錄（兩分鐘就過期），與稽核／背景作業同歸短暫資料
+    "agent_probe_jobs": "operational",
     "cert_agents": "integrations",
     "webhook_subscriptions": "integrations",
     "windows_dhcp_servers": "integrations",

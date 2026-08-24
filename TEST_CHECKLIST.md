@@ -258,6 +258,23 @@ NAT and address objects from syncing at all, while the UI showed a single error 
 - [ ] **Connection test reflects reality**: the per-endpoint diagnostic shows the same result
   the sync would get — never a green tick for something the sync cannot read
 
+## 7d. Probes run from a scan agent — **whenever the probe queue or the agent changes**
+
+Letting the server hand work to an agent turns that agent into something that runs network
+probes on request inside a customer network. The feature is only as safe as its narrowest check.
+
+- [ ] **Kind allowlist**: anything outside ping / tcp / traceroute / rdns is refused — by the
+  backend *and independently by the agent* (a compromised backend must not be able to widen it)
+- [ ] **Target validation**: shell metacharacters, command substitution and argument injection
+  (`-oProxyCommand=…`) are rejected; arguments are always passed as a list, never through a shell
+- [ ] **Limits hold**: target count, port count, per-agent pending jobs, and clamped
+  count/timeout values
+- [ ] **Ownership**: an agent can only finish a job it claimed itself
+- [ ] **Expiry**: with the agent stopped, a queued job expires instead of running late when the
+  agent returns — a probe answering minutes after the question is worse than no answer
+- [ ] **Round trip on a real agent**: create → claim → execute → report → read result, and the
+  UI states which agent produced the output
+
 ## 8. Recent feature spot-checks
 
 - [ ] **Notification matrix** (Admin → 通知發送設定): toggle events × (in-app / email); save persists; events fire

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.201] — 2026-08-24
+
+### Added
+- **Proxmox VE firewall sync.** The east-west layer was invisible: rules written at the datacenter, node and guest levels never reached IPAM, so a guest could look unmanaged while carrying a dozen rules — or look protected while none of them applied. Three things decide whether a rule does anything, and all three are now read and combined into a single posture: the cluster switch, the guest switch, and **the per-NIC `firewall=1` flag that lives in the VM config rather than the firewall API**. The default policy matters more than the rules themselves — `policy_in=ACCEPT` with no rules is wide open while the rule list looks clean — so `policy_in`/`policy_out` are stored alongside a flag recording whether the value was set explicitly or inherited, because the API omits keys that were never configured. Security groups, IPSets and aliases are expanded (a guest-level name shadows a datacenter one), and unresolvable members are marked rather than dropped, since dropping them makes a rule look narrower than it is. Deliberately **not** merged into the exposed-services list: a PVE rule is not a statement about reachability from outside.
+- **Network probes can be run from a scan agent instead of the server.** The server only sees its own segment; verifying reachability inside a customer site has to happen from that segment. Because agents only ever dial out, the request travels as a queued job — created by the backend, long-polled by the agent, executed locally, reported back. Admins only, since it means sending packets inside someone's network: the probe kind is restricted to ping/tcp/traceroute/rdns, targets must parse as an address or hostname, arguments are passed as a list and never through a shell, jobs expire if no agent takes them, and **the agent re-validates everything itself** rather than trusting what the backend handed it.
+
 ## [0.5.200] — 2026-08-23
 
 ### Fixed

@@ -11,7 +11,7 @@ import {
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
-  VirtualizationIcon, RefreshIcon, SyncIcon, PlusIcon, TestIcon, DeleteIcon,
+  VirtualizationIcon, RefreshIcon, SyncIcon, PlusIcon, TestIcon, DeleteIcon, FirewallIcon,
   EditIcon, CloneIcon, AdvancedIcon, DevicesIcon,
 } from "@/icons";
 import { Virt, type ProxmoxInstance } from "@/api/phase3";
@@ -24,7 +24,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useRoute, useRouter } from "vue-router";
 import { useTablePagination } from "@/composables/useTablePagination";
-import { apiErrMsg } from "@/api/client";
+import { apiClient, apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -74,6 +74,63 @@ const otherPlatformCount = computed(() => {
 function goOtherPlatform() {
   void router.push({ name: props.platform === "vmware" ? "virt" : "virt_vmware" });
 }
+
+// ── PVE 防火牆（東西向分段）──
+// 重點不是「有幾條規則」，而是**那些規則到底生不生效**：要三個開關都開
+// （叢集 / guest / 每張網卡的 firewall=1），生效後再看預設政策 policy_in。
+// 這些判定後端已經收斂成 posture，前端只顯示、不重算。
+interface FwState {
+  vmid: number; guest_kind: string | null; node: string | null;
+  effective: boolean; posture: string;
+  cluster_enabled: boolean; guest_enabled: boolean;
+  nic_firewall: Record<string, boolean> | null;
+  cluster_policy_in: string | null; guest_policy_in: string | null;
+  guest_policy_in_explicit: boolean; guest_enabled_explicit: boolean;
+}
+const fwStates = ref<FwState[]>([]);
+const fwCounts = ref<Record<string, number>>({});
+const fwPosture = ref<string | null>(null);
+const fwLoading = ref(false);
+
+const POSTURE_TYPE: Record<string, "error" | "warning" | "success" | "info"> = {
+  unprotected: "error", open: "warning", blocked: "info", filtered: "success",
+};
+const postureType = (k: string) => POSTURE_TYPE[k] ?? "default";
+const postureLabel = (k: string) => t(`virt.posture_${k}`);
+
+async function loadFw() {
+  fwLoading.value = true;
+  try {
+    const { data } = await apiClient.get("/api/v1/virt/pve-firewall");
+    fwStates.value = data.states ?? [];
+    fwCounts.value = data.posture_counts ?? {};
+  } catch { /* silent */ } finally { fwLoading.value = false; }
+}
+const fwRows = computed(() =>
+  fwPosture.value ? fwStates.value.filter((s) => s.posture === fwPosture.value)
+                  : fwStates.value);
+
+const fwCols = computed(() => [
+  { title: "VMID", key: "vmid", width: 90 },
+  { title: t("virt.kind"), key: "guest_kind", width: 90,
+    render: (r: FwState) => r.guest_kind ?? "—" },
+  { title: t("virt.node"), key: "node", width: 140, render: (r: FwState) => r.node ?? "—" },
+  { title: t("virt.posture"), key: "posture", width: 150,
+    render: (r: FwState) => h(NTag, { size: "small", type: postureType(r.posture),
+                                      bordered: false },
+                              { default: () => postureLabel(r.posture) }) },
+  // 為什麼是這個姿態：把三個開關攤開，使用者才知道要去哪一層開
+  { title: t("virt.why"), key: "why", minWidth: 320,
+    render: (r: FwState) => h("span", { style: "font-size:12.5px" }, [
+      `${t("virt.cluster")}: ${r.cluster_enabled ? "on" : "off"}`,
+      ` · ${t("virt.guest")}: ${r.guest_enabled ? "on" : "off"}`,
+      r.guest_enabled_explicit ? "" : `（${t("virt.inherited")}）`,
+      ` · NIC: ${Object.entries(r.nic_firewall ?? {})
+        .map(([k, v]) => `${k}=${v ? "on" : "off"}`).join(" ") || "—"}`,
+      ` · policy_in: ${r.guest_policy_in ?? "—"}`,
+      r.guest_policy_in_explicit ? "" : `（${t("virt.inherited")}）`,
+    ]) },
+]);
 
 async function refresh() {
   loading.value = true;
@@ -380,6 +437,7 @@ const vmP = useVirtPrefs("vms", vmCols, vms, ["legacy_vmid"]);
 const proxmoxP = useVirtPrefs("proxmox", proxmoxCols, proxmox);
 
 onMounted(() => {
+  void loadFw();
   tab.value = adminMode.value ? "proxmox" : "clusters";
   void refresh();
   void ensureCustomerOptsLoaded();
@@ -443,6 +501,29 @@ onMounted(() => {
           <ExportButton :columns="vmP.visibleCols" :rows="vmP.filtered" filename="virt-vms" :title="t('virt.vms')" />
         </n-space>
         <n-data-table :columns="vmP.visibleCols" :data="vmP.filtered" :loading="loading" :bordered="false" :pagination="pg" />
+      </n-tab-pane>
+      <!-- PVE 防火牆：東西向／主機層分段。刻意不與「對外開放服務」混在一起 ——
+           PVE 規則不代表對外可達，混談會製造假的曝險警訊 -->
+      <n-tab-pane v-if="!adminMode" name="pvefw">
+        <template #tab>
+          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><FirewallIcon /></n-icon>{{ `${t('virt.pve_fw')} (${fwStates.length})` }}</span>
+        </template>
+        <n-alert type="info" :bordered="false" size="small" style="margin-bottom: 10px">
+          {{ t("virt.pve_fw_hint") }}
+        </n-alert>
+        <!-- 姿態分布：規則存在不等於生效，這一列才是重點 -->
+        <n-space :size="10" style="margin-bottom: 10px">
+          <n-tag v-for="(n, k) in fwCounts" :key="k" :type="postureType(String(k))"
+                 size="small" round style="cursor:pointer"
+                 @click="fwPosture = fwPosture === k ? null : String(k)">
+            {{ postureLabel(String(k)) }}：{{ n }}
+          </n-tag>
+          <n-button size="small" :loading="fwLoading" @click="loadFw">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
+          </n-button>
+        </n-space>
+        <n-data-table :columns="fwCols" :data="fwRows" :loading="fwLoading"
+                      :bordered="false" :pagination="pg" />
       </n-tab-pane>
       <n-tab-pane v-if="adminMode" name="proxmox">
         <template #tab>

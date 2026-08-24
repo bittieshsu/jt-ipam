@@ -158,6 +158,10 @@ class ProxmoxInstance(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     auto_create_ips: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default=text("false")
     )
+    # 防火牆同步可獨立關閉（讀取失敗時比照 FortiGate 做區段隔離，不影響 VM／網路同步）
+    sync_firewall: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default=text("true")
+    )
     sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=600, nullable=False)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
