@@ -1903,7 +1903,8 @@
     "posture_open": "Default allow",
     "posture_filtered": "Allow-list",
     "posture_blocked": "All blocked",
-    "pve_fw_hint": "The PVE firewall governs east-west and host-level access inside the virtualisation environment; it does not mean a guest is reachable from outside — see Exposed services for that. \"Rules inert\" means the guest has rules but at least one of the cluster, guest or NIC switches is off."
+    "pve_fw_hint": "The PVE firewall governs east-west and host-level access inside the virtualisation environment; it does not mean a guest is reachable from outside — see Exposed services for that. \"Rules inert\" means the guest has rules but at least one of the cluster, guest or NIC switches is off.",
+    "all_postures": "All postures"
   },
   "physical": {
     "cabling": "Cabling",

@@ -96,6 +96,8 @@ const POSTURE_TYPE: Record<string, "error" | "warning" | "success" | "info"> = {
   unprotected: "error", open: "warning", blocked: "info", filtered: "success",
 };
 const postureType = (k: string) => POSTURE_TYPE[k] ?? "default";
+// 固定順序呈現（依風險由高到低），否則每次載入順序會跟著物件鍵值變動
+const POSTURE_ORDER = ["unprotected", "open", "blocked", "filtered"] as const;
 const postureLabel = (k: string) => t(`virt.posture_${k}`);
 
 async function loadFw() {
@@ -106,11 +108,13 @@ async function loadFw() {
     fwCounts.value = data.posture_counts ?? {};
   } catch { /* silent */ } finally { fwLoading.value = false; }
 }
+const postureOptions = computed(() => POSTURE_ORDER.map((k) => ({
+  label: `${postureLabel(k)}（${fwCounts.value[k] ?? 0}）`, value: k })));
 const fwRows = computed(() =>
   fwPosture.value ? fwStates.value.filter((s) => s.posture === fwPosture.value)
                   : fwStates.value);
 
-const fwCols = computed(() => [
+const fwCols = computed<DataTableColumns<FwState>>(() => autoSort([
   { title: "VMID", key: "vmid", width: 90 },
   { title: t("virt.kind"), key: "guest_kind", width: 90,
     render: (r: FwState) => r.guest_kind ?? "—" },
@@ -130,7 +134,7 @@ const fwCols = computed(() => [
       ` · policy_in: ${r.guest_policy_in ?? "—"}`,
       r.guest_policy_in_explicit ? "" : `（${t("virt.inherited")}）`,
     ]) },
-]);
+]));
 
 async function refresh() {
   loading.value = true;
@@ -435,6 +439,8 @@ function useVirtPrefs(name: string, cols: typeof clusterCols,
 const clusterP = useVirtPrefs("clusters", clusterCols, clusters);
 const vmP = useVirtPrefs("vms", vmCols, vms, ["legacy_vmid"]);
 const proxmoxP = useVirtPrefs("proxmox", proxmoxCols, proxmox);
+// 防火牆分頁比照其他分頁：共用搜尋 / 欄位選擇 / 排序 / 匯出，不另做一套
+const fwP = useVirtPrefs("pvefw", fwCols as any, fwRows);
 
 onMounted(() => {
   void loadFw();
@@ -511,19 +517,34 @@ onMounted(() => {
         <n-alert type="info" :bordered="false" size="small" style="margin-bottom: 10px">
           {{ t("virt.pve_fw_hint") }}
         </n-alert>
-        <!-- 姿態分布：規則存在不等於生效，這一列才是重點 -->
-        <n-space :size="10" style="margin-bottom: 10px">
-          <n-tag v-for="(n, k) in fwCounts" :key="k" :type="postureType(String(k))"
-                 size="small" round style="cursor:pointer"
-                 @click="fwPosture = fwPosture === k ? null : String(k)">
-            {{ postureLabel(String(k)) }}：{{ n }}
-          </n-tag>
+        <!-- 姿態分布：規則存在不等於生效，這一列才是重點。
+             四張等寬卡片對齊，點一下即篩選（與異常偵測頁的統計卡同一套視覺） -->
+        <div class="fw-postures">
+          <div v-for="k in POSTURE_ORDER" :key="k" class="fw-posture"
+               :class="[`fw-posture--${k}`, { 'is-active': fwPosture === k }]"
+               role="button" tabindex="0"
+               @click="fwPosture = fwPosture === k ? null : k"
+               @keyup.enter="fwPosture = fwPosture === k ? null : k">
+            <div class="fw-posture__label">{{ postureLabel(k) }}</div>
+            <div class="fw-posture__value">{{ fwCounts[k] ?? 0 }}</div>
+          </div>
+        </div>
+        <!-- 工具列與其他分頁一致：搜尋 / 姿態篩選 / 重新整理 / 欄位 / 匯出 -->
+        <n-space align="center" style="margin: 10px 0">
+          <n-input v-model:value="fwP.query" clearable style="width:180px"
+                   :placeholder="t('common.filter')" />
+          <n-select v-model:value="fwPosture" clearable style="width:170px"
+                    :placeholder="t('virt.all_postures')" :options="postureOptions" />
           <n-button size="small" :loading="fwLoading" @click="loadFw">
             <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
           </n-button>
+          <ColumnPicker :all="fwP.items" :visible="fwP.visibleKeys"
+                        @update:visible="fwP.setVisible" @reset="fwP.reset" />
+          <ExportButton :columns="fwP.visibleCols" :rows="fwP.filtered"
+                        filename="pve-firewall" :title="t('virt.pve_fw')" />
         </n-space>
-        <n-data-table :columns="fwCols" :data="fwRows" :loading="fwLoading"
-                      :bordered="false" :pagination="pg" />
+        <n-data-table :columns="fwP.visibleCols" :data="fwP.filtered" :loading="fwLoading"
+                      :bordered="false" :pagination="pg" :scroll-x="900" />
       </n-tab-pane>
       <n-tab-pane v-if="adminMode" name="proxmox">
         <template #tab>
@@ -649,6 +670,25 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 姿態統計卡：等寬對齊。原本用大小不一的 tag 排一列，視覺很亂（回報） */
+.fw-postures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.fw-posture {
+  border: 1px solid var(--n-border-color, rgba(128,128,128,.28));
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+  background: rgba(127,127,127,.04);
+  transition: border-color .15s ease, background .15s ease, transform .1s ease;
+}
+.fw-posture:hover { transform: translateY(-1px); }
+.fw-posture.is-active { box-shadow: 0 0 0 2px rgba(24,160,88,.35) inset; }
+.fw-posture__label { font-size: 12.5px; opacity: .72; }
+.fw-posture__value { font-size: 22px; font-weight: 600; line-height: 1.3; }
+.fw-posture--unprotected { border-color: rgba(208,48,80,.5); background: rgba(208,48,80,.08); }
+.fw-posture--unprotected .fw-posture__value { color: #d03050; }
+.fw-posture--open { border-color: rgba(240,160,32,.55); background: rgba(240,160,32,.09); }
+.fw-posture--open .fw-posture__value { color: #d97706; }
+.fw-posture--blocked { border-color: rgba(32,128,240,.4); background: rgba(32,128,240,.07); }
+.fw-posture--filtered { border-color: rgba(24,160,88,.45); background: rgba(24,160,88,.08); }
+.fw-posture--filtered .fw-posture__value { color: #18a058; }
 .px-help {
   margin: 0;
   padding-left: 18px;

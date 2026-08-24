@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.202] — 2026-08-24
+
+### Changed
+- The PVE firewall tab now carries the same table furniture as every other tab: a filter box, a posture dropdown (each option showing its own count), sortable column headers, the column picker and export. The posture summary is four equal-width cards ordered by risk instead of a row of differently sized tags, and the selected one is outlined.
+
 ## [0.5.201] — 2026-08-24
 
 ### Added
