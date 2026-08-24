@@ -1,4 +1,4 @@
-# jt-ipam v0.5.203
+# jt-ipam v0.5.204
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -11,7 +11,7 @@
 
 **🌐 [Project site / 專案介紹網站 →](https://jasoncheng7115.github.io/jt-ipam/?lang=en)**
 
-> A self-hosted, integration-focused IPAM, independently developed with an operation flow familiar to phpIPAM users, deeply integrated with multiple DNS servers, LibreNMS, OPNsense, pfSense, FortiGate, Windows DHCP Server, Proxmox VE, VMware ESXi / vCenter, Wazuh, and a local LLM.
+> A self-hosted, integration-focused IPAM, independently developed with an operation flow familiar to phpIPAM users, deeply integrated with multiple DNS servers, LibreNMS, OPNsense, pfSense, FortiGate, Windows DHCP Server, Proxmox VE, VMware ESXi / vCenter, Wazuh, Zabbix, and a local LLM.
 >
 > By Jason Tools Co., Ltd. · License: AGPL-3.0 · 繁體中文: [README_zh-TW.md](README_zh-TW.md)
 
@@ -23,6 +23,7 @@ Familiar to phpIPAM users so they are productive from day one, but built from sc
 
 - **DNS** — PowerDNS, BIND 9, OPNsense Unbound, Univention UCS, Microsoft Windows DNS (reads forward/reverse status, optional record push)
 - **LibreNMS** — device sync, ARP / FDB harvesting, online-status reconciliation, auto-onboarding to monitoring
+- **Zabbix** — read-only complement on the monitoring side: host-to-IP mapping, availability as an extra evidence source for effective status, maintenance windows, and a **monitoring coverage gap** (addresses IPAM has a hostname for that Zabbix is not watching). ARP/FDB stay with LibreNMS — they are not part of Zabbix's built-in data
 - **Infrastructure** — Proxmox VE, **VMware ESXi / vCenter (Beta)** — one setup covering both a standalone ESXi host and vCenter, read-only over the vSphere API for virtual machines, NICs and addresses, landing in the same virtualisation tables as Proxmox; Wazuh, OPNsense / pfSense (alias / rule / NAT sync), and **FortiGate** — read-only over the FortiOS REST API (DHCP leases and ranges, ARP, IPsec tunnels and SSL-VPN sessions, policies, NAT, address objects; multi-VDOM)
 - **DHCP** — each server is configured on its own: OPNsense (Kea/ISC) and pfSense sync leases and address ranges over their REST APIs; **Windows DHCP Server (Beta)** is read-only over WinRM + PowerShell (`Get-*` only, needs WinRM reachable — 5986/HTTPS by default). Addresses inside a pool are flagged in the IP list and detail view.
 - **Graylog** — exposes an IP→hostname/FQDN DSV lookup endpoint for Graylog's "DSV File from HTTP" data adapter
@@ -133,7 +134,10 @@ Security is a day-one requirement; every module and PR is checked against **OWAS
 - A03 — parameterized SQLAlchemy, strict Pydantic v2 validation, CSP + output escaping
 - A05 — HSTS, CSP, X-Frame-Options, Referrer-Policy
 - A07 — TOTP MFA, account lockout, HttpOnly+Secure+SameSite cookies, API-token TTL
-- A08 — SHA-256 audit chain
+- A08 — SHA-256 audit chain, verified every sync round and anchored outside the database
+  (`/var/lib/jt-ipam/audit-anchors.jsonl` + journald), because the chain alone cannot detect
+  the tail being cut off. `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` sets the id verification starts
+  from, for deployments carrying older records that can no longer be made verifiable
 - A09 — structured audit logging
 - A10 — SSRF allow-listing for all outbound integrations; metadata / link-local blocked
 

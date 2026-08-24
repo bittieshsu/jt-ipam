@@ -297,7 +297,8 @@
     "virt_vmware": "Virtualization (VMware)",
     "esxi_admin": "VMware",
     "fw_rule_changes": "Firewall rule changes",
-    "attack_surface": "Exposed services"
+    "attack_surface": "Exposed services",
+    "zabbix": "Zabbix integration"
   },
   "topbar": {
     "search": "Search…",
@@ -3398,5 +3399,29 @@
     "paired_with": "Paired with:",
     "st_online": "online",
     "st_offline": "offline"
+  },
+  "zabbix": {
+    "title": "Zabbix integration",
+    "intro": "Zabbix complements the monitoring picture: host-to-IP mapping, availability, maintenance windows, and a monitoring coverage gap (addresses IPAM knows about but Zabbix does not monitor). Read-only — nothing in Zabbix is modified. ARP/FDB are not part of Zabbix's built-in data; keep using LibreNMS for those.",
+    "test": "Test connection",
+    "auth": "Authentication",
+    "auth_token": "API token",
+    "auth_password": "Username / password",
+    "token": "API token",
+    "token_keep": "API token (leave blank to keep)",
+    "password_keep": "Password (leave blank to keep)",
+    "url_hint": "The Zabbix frontend URL is enough (/api_jsonrpc.php is appended automatically). API tokens require Zabbix 5.4 or newer.",
+    "version": "Version",
+    "hosts_readable": "Host list readable, {n} host(s)",
+    "hosts": "Hosts",
+    "monitored": "Monitored",
+    "unmonitored": "Not monitored",
+    "available": "Availability",
+    "maintenance": "In maintenance",
+    "linked": "Linked to IP",
+    "groups": "Host groups",
+    "gap": "Monitoring coverage gap",
+    "gap_scoped": "Within the configured subnet scope, {n} address(es) with a known hostname are not monitored by this Zabbix.",
+    "gap_global": "{n} address(es) with a known hostname are not monitored by this Zabbix (no subnet scope configured on this instance)."
   }
 }

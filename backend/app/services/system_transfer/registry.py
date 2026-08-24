@@ -96,6 +96,8 @@ CATEGORY: dict[str, str] = {
     "pve_firewall_groups": "synced",
     "pve_firewall_ipsets": "synced",
     "scan_agents": "integrations",
+    "zabbix_instances": "integrations",
+    "zabbix_hosts": "synced",
     # 探測工作是短命的執行紀錄（兩分鐘就過期），與稽核／背景作業同歸短暫資料
     "agent_probe_jobs": "operational",
     "cert_agents": "integrations",

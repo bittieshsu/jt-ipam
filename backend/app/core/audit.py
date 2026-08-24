@@ -73,8 +73,30 @@ def _genesis_hash() -> bytes:
     return hashlib.sha256(raw.encode("utf-8")).digest()
 
 
+def _pending_last_hash(session: AsyncSession) -> bytes | None:
+    """同一交易內尚未 flush 的稽核記錄中，最後寫入的那一筆的 this_hash。
+
+    正式 session 是 `autoflush=False`，所以同一交易連寫多筆時（批次刪除是典型），
+    後面幾筆用 SELECT 是看不到前面幾筆的 —— 於是它們全部接到同一個前置雜湊，
+    鏈就此斷掉。prod 上因此累積了 28 個斷點。改成先看自己交易裡的待寫入項目，
+    比強制 flush 安全：不會連帶把呼叫端還沒準備好的其他物件一起寫出去。
+    """
+    from app.models.audit import AuditLog
+
+    pending = [o for o in session.new if isinstance(o, AuditLog)]
+    if not pending:
+        return None
+    return max(pending, key=lambda o: getattr(o, "_chain_seq", 0)).this_hash
+
+
 async def _get_prev_hash(session: AsyncSession) -> bytes:
-    """取出最後一筆的 this_hash；空表時用 genesis。"""
+    """取出最後一筆的 this_hash；空表時用 genesis。
+
+    先看同一交易內待寫入的（`_pending_last_hash`），再看資料庫。
+    """
+    inflight = _pending_last_hash(session)
+    if inflight is not None:
+        return inflight
     from app.models.audit import AuditLog  # local import 避免循環
 
     stmt = select(AuditLog.this_hash).order_by(AuditLog.id.desc()).limit(1)
@@ -135,6 +157,10 @@ async def append_audit(
         prev_hash=prev,
         this_hash=this_hash,
     )
+    # 交易內序號：同一交易可能連寫多筆，`_pending_last_hash` 靠它決定誰是最後一筆
+    seq = session.info.get("_audit_seq", 0) + 1
+    session.info["_audit_seq"] = seq
+    entry._chain_seq = seq        # 只在同一交易內用的暫時屬性
     session.add(entry)
 
     # best-effort 轉送到 Graylog（syslog / CEF / GELF）；任何錯誤都不影響主交易
@@ -145,19 +171,28 @@ async def append_audit(
         pass
 
 
-async def verify_chain(session: AsyncSession, *, limit: int | None = None) -> tuple[bool, int | None]:
-    """驗證整條鏈；回傳 (是否完整, 第一個出錯的 audit id)。
+async def verify_chain(
+    session: AsyncSession, *, limit: int | None = None,
+    after_id: int | None = None, expected_prev: str | None = None,
+) -> tuple[bool, int | None]:
+    """驗證鏈；回傳 (是否完整, 第一個出錯的 audit id)。
 
     管理 / 排程定期執行；發現 false 立即發告警。
+
+    `after_id` + `expected_prev`：**增量驗證**。從上次錨定的位置往後驗即可，
+    不必每輪重走整條鏈（實機已有數千筆，且只會愈長）。兩者要一起給——
+    只給 after_id 卻不給起始雜湊，等於從一個未經驗證的點開始信任。
     """
     from app.models.audit import AuditLog
 
     stmt = select(AuditLog).order_by(AuditLog.id.asc())
+    if after_id is not None:
+        stmt = stmt.where(AuditLog.id > after_id)
     if limit is not None:
         stmt = stmt.limit(limit)
     result = await session.execute(stmt)
 
-    expected_prev = _genesis_hash()
+    expected_prev = expected_prev or _genesis_hash()
     for row in result.scalars():
         record = {
             "ts": row.ts.isoformat(),

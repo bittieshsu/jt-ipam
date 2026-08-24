@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.204] — 2026-08-24
+
+### Added
+- **The audit chain is now verified on a schedule and anchored outside the database.** A hash chain proves that no record was altered or removed *in the middle* — but it cannot detect the one thing an intruder would actually do, which is cut off the tail: delete the last N entries and what remains still verifies perfectly. Every sync round now verifies the chain and appends the newest entry's hash, id and total count to `/var/lib/jt-ipam/audit-anchors.jsonl` and to the system journal. If that anchored entry later goes missing, or its hash changed, or the total shrank, every admin gets an alert naming which of the three it was. Verification is incremental — it resumes from the last anchor instead of rewalking the whole chain each round. A test in the suite deliberately truncates the tail and asserts that chain verification alone still reports "intact", so the reason this module exists cannot be quietly forgotten.
+- **Zabbix integration.** Zabbix is the most widely deployed open-source NMS in Taiwan, and it is positioned here as a *complement* to LibreNMS rather than a replacement: it contributes host-to-IP mapping, availability as a third evidence source for effective status, maintenance windows (so a host under maintenance is not reported as missing), and a monitoring coverage gap — addresses IPAM knows the hostname of that Zabbix is not watching. What it deliberately does not claim is ARP/FDB, which is not in Zabbix's built-in data and would need per-site custom SNMP items. Authentication accepts an API token (5.4+) or username/password; both are encrypted at rest. As with every other integration it only stamps addresses that already exist, honours the subnet scope, and takes `limit(1)` so overlapping ranges cannot abort a whole sync round.
+
+### Security
+- **Dependency vulnerabilities: 85 down to 1.** A `pip-audit` sweep found advisories across 17 packages, several of them in the request path — starlette, aiohttp, python-multipart, pyjwt, cryptography, pillow. All are upgraded and the minimum versions are pinned in `pyproject.toml` so a fresh install cannot land back on a vulnerable release. The one remaining finding is `diskcache` 5.6.3, pulled in transitively, for which no fixed version exists upstream yet.
+
+### Fixed
+- **Audit records written in the same transaction all chained off the same predecessor.** `append_audit` added its row without flushing, and production sessions run with `autoflush=False`, so a bulk operation writing several audit rows at once had every one of them point at the same previous hash — a real break in the chain, caused by the writer rather than by anyone tampering. Production had accumulated 28 such breaks, 26 of them from NAT bulk-delete. Each entry now chains off the previous one within the same transaction. The reason no test caught this is worth stating: the test fixture used SQLAlchemy's default `autoflush=True`, which hid the bug; the regression test now disables it to match production.
+- `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` sets the id verification starts from. Existing deployments carry records that can no longer be made verifiable — breaks left by the writer bug above, and on our own production a batch of 1,953 rows from one day of end-to-end test traffic written by a different build — and rewriting historical hashes to "repair" them would itself be tampering. The baseline draws an explicit line instead, and every round logs a warning naming what is not covered, so the compromise stays visible rather than silent.
+
 ## [0.5.203] — 2026-08-24
 
 ### Added

@@ -297,7 +297,8 @@
     "virt_vmware": "虛擬化 (VMware)",
     "esxi_admin": "整合 VMware",
     "fw_rule_changes": "防火牆規則異動",
-    "attack_surface": "對外開放服務"
+    "attack_surface": "對外開放服務",
+    "zabbix": "整合 Zabbix"
   },
   "topbar": {
     "search": "搜尋…",
@@ -3398,5 +3399,29 @@
     "paired_with": "與它配對的是：",
     "st_online": "上線",
     "st_offline": "離線"
+  },
+  "zabbix": {
+    "title": "整合 Zabbix",
+    "intro": "Zabbix 是監控面的補充來源：拉主機與 IP 的對應、存活狀態、維護狀態，並算出「監控涵蓋缺口」（IPAM 有、Zabbix 沒監控的位址）。全程唯讀，不會更動 Zabbix 任何設定。ARP／FDB 不在 Zabbix 內建資料裡，仍請以 LibreNMS 為主。",
+    "test": "測試連線",
+    "auth": "認證方式",
+    "auth_token": "API token",
+    "auth_password": "帳號密碼",
+    "token": "API token",
+    "token_keep": "API token（留空＝不變更）",
+    "password_keep": "密碼（留空＝不變更）",
+    "url_hint": "填 Zabbix 前端網址即可（會自動補 /api_jsonrpc.php）；API token 需 Zabbix 5.4 以上。",
+    "version": "版本",
+    "hosts_readable": "可讀取主機清單，共 {n} 台",
+    "hosts": "主機清單",
+    "monitored": "監控中",
+    "unmonitored": "未監控",
+    "available": "可用性",
+    "maintenance": "維護中",
+    "linked": "已對應 IP",
+    "groups": "主機群組",
+    "gap": "監控涵蓋缺口",
+    "gap_scoped": "在限定的子網路範圍內，有 {n} 個已知主機名稱的位址沒有被這台 Zabbix 監控。",
+    "gap_global": "全站有 {n} 個已知主機名稱的位址沒有被這台 Zabbix 監控（此實例未設限定子網路範圍）。"
   }
 }

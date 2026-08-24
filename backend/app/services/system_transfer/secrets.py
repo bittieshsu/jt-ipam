@@ -63,6 +63,12 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
         ("api_token", "api_token_enc", "api_token_nonce",
          _aad_id("fortigate_firewall:{id}:api_token")),
     ],
+    "zabbix_instances": [
+        ("api_token", "api_token_enc", "api_token_nonce",
+         _aad_id("zabbix_instance:{id}:api_token")),
+        ("api_password", "api_password_enc", "api_password_nonce",
+         _aad_id("zabbix_instance:{id}:api_password")),
+    ],
     "windows_dhcp_servers": [
         ("password", "password_enc", "password_nonce",
          _aad_id("windows_dhcp_server:{id}:password")),

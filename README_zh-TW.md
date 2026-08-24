@@ -1,4 +1,4 @@
-# jt-ipam v0.5.203
+# jt-ipam v0.5.204
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -11,7 +11,7 @@
 
 **🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/?lang=zh-TW)**
 
-> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Windows DHCP Server、Proxmox VE、VMware ESXi / vCenter、Wazuh 與本地 AI。
+> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Windows DHCP Server、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix 與本地 AI。
 >
 > 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：AGPL-3.0｜English: [README.md](README.md)
 
@@ -23,6 +23,7 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 
 - **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS（讀取正反解狀態，可選擇性推送記錄）
 - **LibreNMS**：裝置同步、ARP / FDB 抓取、上線狀態互補、自動加入監控
+- **Zabbix**：監控面的唯讀補充 —— 主機↔IP 對應、把存活狀態當作實際狀態的額外證據、維護狀態，以及**監控涵蓋缺口**（IPAM 有主機名稱、Zabbix 卻沒在看的位址）。ARP／FDB 仍以 LibreNMS 為主，那不在 Zabbix 的內建資料裡
 - **基礎設施**：Proxmox VE、**VMware ESXi / vCenter（Beta）** —— 同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP，與 Proxmox 寫進同一組虛擬化資料表；Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），以及 **FortiGate** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM）
 - **DHCP**：各家各自設定 —— OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
 - **Graylog**：提供 IP→主機名稱/FQDN 的 DSV 對照表端點，供 Graylog「DSV File from HTTP」資料配接器抓取
@@ -126,7 +127,9 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 - A03 — 參數化 SQLAlchemy、嚴格 Pydantic v2 驗證、CSP + 輸出跳脫
 - A05 — HSTS、CSP、X-Frame-Options、Referrer-Policy
 - A07 — TOTP MFA、帳號鎖定、HttpOnly+Secure+SameSite cookie、API token TTL
-- A08 — SHA-256 稽核鏈
+- A08 — SHA-256 稽核鏈，每輪同步驗證一次並錨定到資料庫外面
+  （`/var/lib/jt-ipam/audit-anchors.jsonl` 與 journald），因為只有鏈本身抓不到「尾端被切掉」。
+  `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` 可指定驗證起點，給既有站台那些再也驗不回來的舊記錄用
 - A09 — 結構化稽核記錄
 - A10 — 所有對外整合走 SSRF 白名單；封鎖 metadata / link-local
 

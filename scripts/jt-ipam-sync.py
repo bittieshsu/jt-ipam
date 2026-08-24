@@ -28,30 +28,31 @@ log = logging.getLogger("jt-ipam-sync")
 
 
 async def _run() -> int:
-    from sqlalchemy import select
-
     from app.core.db import SessionLocal
     from app.models.adguard import AdGuardInstance
-    from app.models.esxi import ESXiInstance
-    from app.models.fortigate import FortiGateFirewall
-    from app.models.windows_dhcp import WindowsDhcpServer
     from app.models.dns import DNSServer
+    from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
+    from app.models.fortigate import FortiGateFirewall
     from app.models.librenms import LibreNMSInstance
     from app.models.pfsense import PfSenseFirewall
     from app.models.virt import ProxmoxInstance, VirtCluster
     from app.models.wazuh import WazuhInstance
+    from app.models.zabbix import ZabbixInstance
+    from app.models.windows_dhcp import WindowsDhcpServer
     from app.services import adguard as adguard_svc
     from app.services import fortigate as fortigate_svc
-    from app.services import windows_dhcp as windows_dhcp_svc
     from app.services import librenms as librenms_svc
     from app.services import opnsense_firewall as fw_svc
     from app.services import pfsense as pfsense_svc
     from app.services import proxmox as proxmox_svc
     from app.services import wazuh as wazuh_svc
+    from app.services import zabbix as zabbix_svc
+    from app.services import windows_dhcp as windows_dhcp_svc
     from app.services.background_tasks import upsert_scheduled_task as _hb
     from app.services.dns.factory import get_adapter as _dns_adapter  # noqa: F401
     from app.services.dns_sync import pull_server
+    from sqlalchemy import select
 
     failed = 0
 
@@ -76,7 +77,7 @@ async def _run() -> int:
                 await _hb(session, kind="opnsense.sync", target_type="opnsense_firewall",
                           target_id=fw.id, target_label=name, ok=True,
                           summary={"mappings": len(results)})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 # 失敗的 transaction 先 rollback，否則接著的 commit 會二次爆 → 中斷整輪 sync
                 await session.rollback()
                 fw.last_error = str(exc)
@@ -104,7 +105,7 @@ async def _run() -> int:
                 await _hb(session, kind="pfsense.sync", target_type="pfsense_firewall",
                           target_id=fw.id, target_label=name, ok=True,
                           summary=counts if isinstance(counts, dict) else {"result": str(counts)})
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 await session.rollback()
                 fw.last_error = str(exc)
                 await session.commit()
@@ -113,7 +114,7 @@ async def _run() -> int:
                 await _hb(session, kind="pfsense.sync", target_type="pfsense_firewall",
                           target_id=fw.id, target_label=name, ok=False, error=str(exc))
 
-    
+
         # ── ESXi / vCenter ──
         for inst in (await session.execute(
             select(ESXiInstance).where(ESXiInstance.enabled.is_(True))
@@ -129,7 +130,7 @@ async def _run() -> int:
                 log.info("esxi %s: %s", name, summary)
                 await _hb(session, kind="esxi.sync", target_type="esxi_instance",
                           target_id=inst.id, target_label=name, ok=True, summary=summary)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 # 先 rollback 再寫 last_error：不 rollback 會二次爆、連鎖中斷整輪
                 await session.rollback()
                 inst.last_error = str(exc)[:2000]
@@ -156,20 +157,47 @@ async def _run() -> int:
                     n = await wazuh_svc.sync_sca(session, inst)
                     if n and isinstance(summary, dict):
                         summary["sca"] = n
-                except Exception as exc:   # noqa: BLE001
+                except Exception as exc:
                     log.warning("wazuh %s sca: %s", inst.name, exc)
                 await session.commit()
                 log.info("wazuh %s: %s", name, summary)
                 await _hb(session, kind="wazuh.sync", target_type="wazuh_instance",
                           target_id=inst.id, target_label=name, ok=True,
                           summary=summary if isinstance(summary, dict) else None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
                 log.error("wazuh %s sync failed: %s", name, exc)
                 failed += 1
                 await _hb(session, kind="wazuh.sync", target_type="wazuh_instance",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Zabbix ──
+        zbxs = (
+            await session.execute(
+                select(ZabbixInstance).where(ZabbixInstance.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in zbxs:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await zabbix_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("zabbix %s: %s", name, summary)
+                await _hb(session, kind="zabbix.sync", target_type="zabbix_instance",
+                          target_id=inst.id, target_label=name, ok=True,
+                          summary=summary if isinstance(summary, dict) else None)
+            except Exception as exc:
+                await session.rollback()
+                inst.last_error = str(exc)[:2000]
+                await session.commit()
+                log.error("zabbix %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="zabbix.sync", target_type="zabbix_instance",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
 
         # ── LibreNMS ──
@@ -190,7 +218,7 @@ async def _run() -> int:
                 await _hb(session, kind="librenms.sync", target_type="librenms_instance",
                           target_id=inst.id, target_label=name, ok=True,
                           summary=summary if isinstance(summary, dict) else None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
@@ -209,7 +237,7 @@ async def _run() -> int:
             await session.commit()
             if pruned:
                 log.info("arp prune: removed %d stale entries", pruned)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await session.rollback()
             log.error("arp prune failed: %s", exc)
 
@@ -231,7 +259,7 @@ async def _run() -> int:
                 await _hb(session, kind="adguard.sync", target_type="adguard_instance",
                           target_id=inst.id, target_label=name, ok=True,
                           summary=summary if isinstance(summary, dict) else None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
@@ -258,7 +286,7 @@ async def _run() -> int:
                 await _hb(session, kind="fortigate.sync", target_type="fortigate_firewall",
                           target_id=inst.id, target_label=name, ok=True,
                           summary=summary if isinstance(summary, dict) else None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
@@ -285,7 +313,7 @@ async def _run() -> int:
                 await _hb(session, kind="windows_dhcp.sync", target_type="windows_dhcp_server",
                           target_id=inst.id, target_label=name, ok=True,
                           summary=summary if isinstance(summary, dict) else None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 await session.rollback()
                 inst.last_error = str(exc)
                 await session.commit()
@@ -325,7 +353,7 @@ async def _run() -> int:
                 await _hb(session, kind="proxmox.sync", target_type="proxmox_cluster",
                           target_id=cluster_id, target_label=pv_label, ok=True,
                           summary=summary.to_dict())
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 # 失敗的 transaction 無法 commit，先 rollback 讓 session 恢復可用，
                 # 否則下一個 cluster 的查詢會 PendingRollbackError 連鎖中斷整輪
                 await session.rollback()
@@ -353,7 +381,7 @@ async def _run() -> int:
                 await _hb(session, kind="dns.sync", target_type="dns_server",
                           target_id=srv.id, target_label=name, ok=True,
                           summary=summary if isinstance(summary, dict) else None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 # rollback 讓 session 恢復可用，否則下一個 DNS server 的查詢會連鎖失敗
                 await session.rollback()
                 log.error("dns %s sync failed: %s", name, exc)
@@ -375,7 +403,7 @@ async def _run() -> int:
                 res = await fetch_certificate(session, c, actor_user_id=None)  # 自行 commit
                 if res.get("status") in ("updated", "error"):
                     log.info("cert fetch %s: %s", c.name, res)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await session.rollback()
             log.error("cert fetch sweep failed: %s", exc)
 
@@ -386,9 +414,28 @@ async def _run() -> int:
             await session.commit()
             if stats.get("expiry") or stats.get("drift"):
                 log.info("cert alerts: %s", stats)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await session.rollback()
             log.error("cert alert check failed: %s", exc)
+
+        # ── 稽核鏈驗證與外部錨定 ──
+        # 雜湊鏈抓得到中間竄改，**抓不到從尾端整段截斷**（被刪的是還沒人引用的最後幾筆）。
+        # 每輪把最新雜湊錨定到資料庫外面，之後那個位置消失或改變就是證據。
+        # 驗證是增量的（自上次錨定起），所以每輪的成本與新增筆數成正比，不是整條鏈。
+        try:
+            from app.services.audit_anchor import verify_and_anchor
+            res = await verify_and_anchor(session)
+            await session.commit()
+            if not res.get("ok"):
+                log.error("audit chain verification FAILED: %s", res.get("detail"))
+                # 斷鏈是資安事件，不能只寫 log：通知所有管理員（同一種失敗會去重）
+                from app.services.audit_anchor import notify_chain_failure
+                sent = await notify_chain_failure(session, res)
+                await session.commit()
+                log.error("audit chain alert sent to %d admin(s)", sent)
+        except Exception as exc:
+            await session.rollback()
+            log.error("audit anchor failed: %s", exc)
 
         # ── 依網卡 MAC 把 IP 掛回所屬裝置 ──
         # 預設關閉：升級之後突然多出一個每 5 分鐘自動改資料的作業，本身就是不該
@@ -404,7 +451,7 @@ async def _run() -> int:
                     session, scope_subnet_ids=cfg["scope_subnet_ids"])
                 if st.linked or st.skipped_ambiguous or st.skipped_customer:
                     log.info("ip-device autolink: %s", st.summary())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await session.rollback()
             log.error("ip-device autolink failed: %s", exc)
 
@@ -412,11 +459,10 @@ async def _run() -> int:
         # 沿用這個 timer 而不是另建一個：每輪只判斷「距上次是否已達設定的間隔」，
         # 沒到就直接跳過。預設關閉，要在 管理 → LLM / AI 明確打開才會跑。
         try:
-            from sqlalchemy import select as _s
-
             from app.models.user import User
             from app.services.ai_audit import due, run_audit
             from app.services.system_config import get_ai_audit_last_run, get_llm_config
+            from sqlalchemy import select as _s
 
             cfg = await get_llm_config(session)
             if cfg.enabled and cfg.ai_audit_enabled:
@@ -445,7 +491,7 @@ async def _run() -> int:
                             log.error("ai audit failed: %s", r.error)
                         else:
                             log.info("ai audit: %s finding(s)", r.findings)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await session.rollback()
             log.error("ai audit check failed: %s", exc)
 

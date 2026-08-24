@@ -275,6 +275,33 @@ probes on request inside a customer network. The feature is only as safe as its 
 - [ ] **Round trip on a real agent**: create → claim → execute → report → read result, and the
   UI states which agent produced the output
 
+## 7e. Audit chain anchoring — **whenever audit writes, anchoring or the sync schedule change**
+
+What this section tests is the thing the chain itself cannot catch. Verifying the chain is not enough.
+
+- [ ] **Tail truncation**: delete the last few rows after anchoring → must report
+  `anchored_row_missing`; `verify_chain` alone reports "intact" for the same case, which is
+  precisely why anchoring exists
+- [ ] **Content tampering**: change the anchored row's hash → `anchored_hash_changed`
+- [ ] **Shrinking count**: delete any middle row → `count_shrank` or `chain_broken`
+- [ ] **Incremental**: the second verification resumes from the last anchor rather than
+  rewalking the whole chain
+- [ ] **Anchor file**: appended line by line (never rewritten), mode 0600, one corrupt line does
+  not break reading; the same record also goes to journald (a copy survives file deletion)
+- [ ] **Alerting**: on failure every admin gets a severity=error notification naming which case it was
+
+## 7f. Zabbix integration — **whenever the Zabbix sync or coverage gap changes**
+
+- [ ] **Three URL forms**: `https://host`, `https://host/zabbix` and a full `api_jsonrpc.php` all connect
+- [ ] **Both auth modes**: API token and username/password each tested; the read response carries no secret
+- [ ] **Stamps existing addresses only**: a host in Zabbix that IPAM does not know must not create an IP
+- [ ] **Scope**: with `scope_subnet_ids` set, the same IP in an overlapping range is not stamped onto
+  another tenant's address; queries use `limit(1)` (`scalar_one_or_none` aborts the whole round)
+- [ ] **Hostname convergence**: two Zabbix hosts pointing at one IP must not overwrite each other every
+  round (the change log must not fill up)
+- [ ] **Coverage gap**: asking with a subnet scope answers only for those subnets; an empty scope
+  returns empty rather than falling back to global
+
 ## 8. Recent feature spot-checks
 
 - [ ] **Notification matrix** (Admin → 通知發送設定): toggle events × (in-app / email); save persists; events fire

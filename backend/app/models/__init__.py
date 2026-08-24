@@ -85,6 +85,7 @@ from app.models.vlan import VLAN, DeviceVLAN, VLANDomain
 from app.models.vrf import VRF
 from app.models.wazuh import WazuhAgent, WazuhInstance
 from app.models.windows_dhcp import WindowsDhcpServer
+from app.models.zabbix import ZabbixHost, ZabbixInstance
 
 __all__ = [
     "ASN",
@@ -167,4 +168,6 @@ __all__ = [
     "WebhookSubscription",
     "WirelessLink",
     "WirelessSSID",
+    "ZabbixHost",
+    "ZabbixInstance",
 ]
