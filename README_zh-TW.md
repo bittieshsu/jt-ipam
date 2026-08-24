@@ -85,7 +85,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 | **Proxmox VE** | 可自動建立 | 「信任虛擬化取得的 IP」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
 | **VMware / ESXi** | 可自動建立 | 「信任虛擬化取得的 IP」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
 | **OPNsense / pfSense** | 可自動建立（DHCP 租約） | 「自動建立 IPAM 沒有的位址」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
-| AdGuard / Wazuh / DNS / Windows DHCP / FortiGate | **只比對既有，不建** | — | — | — |
+| AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / FortiGate | **只比對既有，不建** | — | — | — |
 | CSV 匯入 / phpIPAM 遷移 | 由匯入內容建立（使用者明示的動作） | — | — | 依匯入資料 |
 
 **共通規則**：自動建立一律走同一套判斷（`services/ip_autocreate.py`）——
@@ -278,7 +278,7 @@ jt-ipam/
 
 - **Phase 1（完成）** — phpIPAM 對等功能 + 改良（區段/子網路/IP/VLAN/VRF/NAT/裝置/機櫃/地點/IP 申請、TOTP/API-Token/RBAC、phpIPAM 匯入、CSV/RIPE/TWNIC、視覺化子網路格、強制 TLS）
 - **Phase 2（完成）** — 多家 DNS + 深度 LibreNMS 整合（裝置/ARP/FDB/實際狀態）+ 異常偵測 + SHA-256 稽核鏈 + pgvector AI 語意搜尋
-- **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense / FortiGate 防火牆同步 + VMware ESXi / vCenter 盤點 + Wazuh agent 盤點
+- **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense / FortiGate 防火牆同步 + VMware ESXi / vCenter 盤點 + Wazuh agent 盤點 + Zabbix 監控涵蓋
 - **Phase 4（完成、已縮減範圍）** — MCP server + 本地 LLM 自然語言（LLM Server）+ 外掛機制
 
 ## 授權

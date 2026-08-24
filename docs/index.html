@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>jt-ipam — 為整合而生的 IPAM</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / pfSense / FortiGate / Windows DHCP Server / Wazuh / Proxmox VE / VMware ESXi / LLM Server，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
+<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / pfSense / FortiGate / Windows DHCP Server / Wazuh / Zabbix / Proxmox VE / VMware ESXi / LLM Server，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
 <style>
   :root{
     --green:#18a058; --green-h:#36ad6a; --green-d:#0c7a43;
@@ -467,6 +467,7 @@
       <span class="chip"><i></i>FortiGate</span>
       <span class="chip"><i></i>Windows DHCP</span>
       <span class="chip"><i></i>Wazuh</span>
+      <span class="chip"><i></i>Zabbix</span>
       <span class="chip"><i></i>Proxmox VE</span>
       <span class="chip"><i></i>VMware ESXi / vCenter</span>
       <span class="chip"><i></i>LLM Server</span>
@@ -519,7 +520,7 @@
               <td><span class="zh">可自動建立（DHCP 租約）</span><span class="en">May create (DHCP leases)</span></td>
               <td><span class="zh">「自動建立 IPAM 沒有的位址」</span><span class="en">Create addresses IPAM does not have</span></td>
               <td><span class="dflt off">✕ <span class="zh">預設關閉</span><span class="en">off by default</span></span></td></tr>
-          <tr><td>AdGuard / Wazuh / DNS / Windows DHCP / FortiGate</td>
+          <tr><td>AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / FortiGate</td>
               <td><span class="zh"><b>只比對既有，不建</b></span><span class="en"><b>Match only, never create</b></span></td>
               <td>—</td><td>—</td></tr>
           <tr><td><span class="zh">CSV 匯入 / phpIPAM 遷移</span><span class="en">CSV import / phpIPAM migration</span></td>
@@ -647,7 +648,7 @@
       <div class="screen-txt">
         <span class="num">12</span>
         <h3><span class="zh">主機名稱 / ARP 來源優先順序</span><span class="en">Source precedence</span></h3>
-        <p><span class="zh">同一個 IP 或裝置，可能同時被掃描代理、DNS、LibreNMS、OPNsense、Proxmox VE、Wazuh、AdGuard 回報不同的值，到底以誰為準？<b>主機名稱、ARP / MAC、裝置名稱、裝置型號與作業系統</b>各自都有一份來源優先順序，用拖拉排序自訂、可個別停用；系統據此自動解析出最可信的結果，不再每次同步互相蓋來蓋去。</span><span class="en">The same IP or device may be reported with different values by the scan agent, DNS, LibreNMS, OPNsense, Proxmox VE, Wazuh and AdGuard — which one wins? <b>Hostname, ARP / MAC, device name, device model and OS</b> each have their own source-precedence list you reorder by drag (and can disable individually); jt-ipam resolves the most trustworthy value accordingly, so syncs stop overwriting one another.</span></p>
+        <p><span class="zh">同一個 IP 或裝置，可能同時被掃描代理、DNS、LibreNMS、OPNsense、Proxmox VE、Wazuh、Zabbix、AdGuard 回報不同的值，到底以誰為準？<b>主機名稱、ARP / MAC、裝置名稱、裝置型號與作業系統</b>各自都有一份來源優先順序，用拖拉排序自訂、可個別停用；系統據此自動解析出最可信的結果，不再每次同步互相蓋來蓋去。</span><span class="en">The same IP or device may be reported with different values by the scan agent, DNS, LibreNMS, OPNsense, Proxmox VE, Wazuh, Zabbix and AdGuard — which one wins? <b>Hostname, ARP / MAC, device name, device model and OS</b> each have their own source-precedence list you reorder by drag (and can disable individually); jt-ipam resolves the most trustworthy value accordingly, so syncs stop overwriting one another.</span></p>
       </div>
     </div>
 
@@ -683,7 +684,7 @@
       <div class="card"><h3><span class="badge">C</span><span class="zh">稽核串鏈</span><span class="en">Audit chain</span></h3><p><span class="zh">所有變更逐筆雜湊串接，可驗證是否被竄改；明細含變更前後對照。</span><span class="en">Every change is hash-chained and verifiable against tampering; diffs show before/after.</span></p></div>
       <div class="card"><h3><span class="badge">D</span><span class="zh">資安遵循</span><span class="en">Security by design</span></h3><p><span class="zh">對齊 OWASP Top 10:2025，每個模組與 PR 都過逐項自我檢核；嚴格 CSP、安全標頭、伺服器端授權。</span><span class="en">Aligned with OWASP Top 10:2025 — every module and PR passes the checklist; strict CSP, security headers, server-side authz.</span></p></div>
       <div class="card"><h3><span class="badge">E</span><span class="zh">完全自架</span><span class="en">Fully self-hosted</span></h3><p><span class="zh">不用 Docker、不依賴雲端；systemd + apt 直接跑在虛擬機與容器。</span><span class="en">No Docker, no cloud; runs on VMs and containers via systemd + apt.</span></p></div>
-      <div class="card"><h3><span class="badge">F</span><span class="zh">排程拉取</span><span class="en">Scheduled pull</span></h3><p><span class="zh">phpIPAM 走 SSH tunnel 匯入；OPNsense / LibreNMS / Wazuh 定時排程拉取，單向、不改動來源。</span><span class="en">phpIPAM import over SSH tunnel; OPNsense / LibreNMS / Wazuh pulled on a schedule — one-way, non-invasive.</span></p></div>
+      <div class="card"><h3><span class="badge">F</span><span class="zh">排程拉取</span><span class="en">Scheduled pull</span></h3><p><span class="zh">phpIPAM 走 SSH tunnel 匯入；OPNsense / LibreNMS / Wazuh / Zabbix 定時排程拉取，單向、不改動來源。</span><span class="en">phpIPAM import over SSH tunnel; OPNsense / LibreNMS / Wazuh / Zabbix pulled on a schedule — one-way, non-invasive.</span></p></div>
     </div>
   </div>
 </section>

@@ -86,7 +86,7 @@ source — and it matters, because the "unauthorised IPs" anomaly check is defin
 | **Proxmox VE** | May create | "Trust addresses from virtualization" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
 | **VMware / ESXi** | May create | "Trust addresses from virtualization" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
 | **OPNsense / pfSense** | May create (DHCP leases) | "Create addresses IPAM does not have" | **off by default** | puts it in the smallest subnet containing it; creates nothing if that is unclear |
-| AdGuard / Wazuh / DNS / Windows DHCP / FortiGate | **Match only, never create** | — | — | — |
+| AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / FortiGate | **Match only, never create** | — | — | — |
 | CSV import / phpIPAM migration | Created from the imported data (an explicit user action) | — | — | as imported |
 
 **Shared rule**: every auto-creation path uses the same decision
@@ -285,7 +285,7 @@ jt-ipam/
 
 - **Phase 1 (done)** — phpIPAM-equivalent features + improvements (Section/Subnet/IP/VLAN/VRF/NAT/Devices/Racks/Locations/IP-Requests, TOTP/API-Token/RBAC, phpIPAM import, CSV/RIPE/TWNIC, visual subnet grid, forced TLS)
 - **Phase 2 (done)** — multi-vendor DNS + deep LibreNMS integration (device/ARP/FDB/effective-status) + anomaly detection + SHA-256 audit chain + pgvector AI semantic search
-- **Phase 3 (done)** — Tenancy/Contacts/Cabling/Power/VPN/Virtualization + Proxmox VE sync + Cytoscape topology + OIDC/SAML SSO + OPNsense / pfSense / FortiGate firewall sync + VMware ESXi / vCenter inventory + Wazuh agent inventory
+- **Phase 3 (done)** — Tenancy/Contacts/Cabling/Power/VPN/Virtualization + Proxmox VE sync + Cytoscape topology + OIDC/SAML SSO + OPNsense / pfSense / FortiGate firewall sync + VMware ESXi / vCenter inventory + Wazuh agent inventory + Zabbix monitoring coverage
 - **Phase 4 (done, scoped)** — MCP server + local-LLM natural language (LLM Server) + plugin mechanism
 
 ## License
