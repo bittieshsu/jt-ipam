@@ -12,6 +12,7 @@ import {
 } from "naive-ui";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { useTerminalLinks } from "@/composables/useTerminalLinks";
 import "@xterm/xterm/css/xterm.css";
 import {
   requestSshTicket, buildSshWsUrl,
@@ -83,6 +84,8 @@ const form = reactive({
 const termEl = ref<HTMLElement | null>(null);
 let term: Terminal | null = null;
 let fit: FitAddon | null = null;
+let detachLinks: (() => void) | null = null;
+const { hoveredUrl, attachTerminalLinks } = useTerminalLinks();
 let ws: WebSocket | null = null;
 let ro: ResizeObserver | null = null;
 // heartbeat：每 20s 送 ping；45s 內沒收到任何訊息（含 pong）→ 判定斷線
@@ -140,6 +143,7 @@ function startHeartbeat() {
 }
 
 function teardown() {
+  if (detachLinks) { detachLinks(); detachLinks = null; }
   stopHeartbeat();
   try { ws?.close(); } catch { /* noop */ }
   ws = null;
@@ -202,10 +206,12 @@ async function connect() {
   await nextTick();
   if (!termEl.value) { phase.value = "error"; errorMsg.value = t("ssh.err_ticket"); return; }
   term = new Terminal({ cursorBlink: true, fontSize: fontSize.value, scrollback: 5000,
+    allowProposedApi: true,   // Unicode 11 寬度表需要
     theme: { background: "#1e1e1e" } });
   fit = new FitAddon();
   term.loadAddon(fit);
   term.open(termEl.value);
+  detachLinks = attachTerminalLinks(term, termEl.value);
   doFit();
   ro = new ResizeObserver(() => doFit());
   ro.observe(termEl.value);
@@ -403,7 +409,10 @@ onBeforeUnmount(teardown);
         {{ errorMsg }}
       </n-alert>
       <div class="ssh-disp" :class="{ 'ssh-full': fullHeight }">
-        <div ref="termEl" class="ssh-term" :class="{ 'ssh-full': fullHeight, 'term-dim': phase === 'closed' }" />
+        <div class="term-host">
+          <div ref="termEl" class="ssh-term" :class="{ 'ssh-full': fullHeight, 'term-dim': phase === 'closed' }" />
+          <div v-if="hoveredUrl" class="term-linkbar" :title="hoveredUrl">{{ hoveredUrl }}</div>
+        </div>
         <ConsoleDisconnectedOverlay :show="phase === 'closed' || phase === 'error'" :error="phase === 'error'" />
       </div>
     </div>
@@ -468,4 +477,14 @@ onBeforeUnmount(teardown);
   border-radius: 4px; word-break: break-all; font-size: 13px; }
 /* 已斷線：整個畫面反灰並停用互動，讓使用者一眼看出已中斷 */
 .term-dim { filter: grayscale(1) brightness(.45); pointer-events: none; transition: filter .25s; }
+
+/* 懸停連結預覽：終端機文字是遠端主機控制的，點下去之前要看得到完整目標 */
+.term-host { position: relative; height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.term-linkbar {
+  position: absolute; left: 0; bottom: 0; max-width: 100%;
+  padding: 2px 10px; font-size: 12px; line-height: 1.6;
+  background: rgba(0, 0, 0, .82); color: #9ecbff;
+  border-top-right-radius: 6px; pointer-events: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 </style>

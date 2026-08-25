@@ -5,6 +5,7 @@
  * kind=ct → xterm.js + PVE term 協定。WS 走同站後端代理到 PVE。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { useTerminalLinks } from "@/composables/useTerminalLinks";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpin, NButton, NButtonGroup, NDropdown, NIcon, NSelect, NInput, NSwitch, NAlert, NTag,
@@ -58,6 +59,8 @@ let rfb: any = null;
 let ws: WebSocket | null = null;
 let term: any = null;
 let fitAddon: any = null;
+let detachLinks: (() => void) | null = null;
+const { attachTerminalLinks } = useTerminalLinks();
 let heartbeat: number | null = null;
 
 const credOptions = computed(() => savedCreds.value.map((c) => ({
@@ -82,6 +85,7 @@ function stopConnection() {
 // 完整拆除：連同 terminal 與畫面 DOM 一起清掉（回表單／離開頁面時用）
 function cleanup() {
   stopConnection();
+  if (detachLinks) { detachLinks(); detachLinks = null; }
   if (term) { try { term.dispose(); } catch { /* noop */ } term = null; fitAddon = null; }
   if (screenBox.value) screenBox.value.innerHTML = "";
 }
@@ -174,10 +178,16 @@ async function connectXterm(wsUrl: string, pveUser: string, vncticket: string) {
       import("@xterm/xterm"), import("@xterm/addon-fit"),
     ]);
     await import("@xterm/xterm/css/xterm.css");
-    term = new Terminal({ cursorBlink: true, fontSize: 13, theme: { background: "#000000" } });
+    term = new Terminal({ cursorBlink: true, fontSize: 13, allowProposedApi: true,
+      theme: { background: "#000000" } });
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    if (screenBox.value) { screenBox.value.innerHTML = ""; term.open(screenBox.value); fitAddon.fit(); }
+    if (screenBox.value) {
+      screenBox.value.innerHTML = "";
+      term.open(screenBox.value);
+      detachLinks = attachTerminalLinks(term, screenBox.value);
+      fitAddon.fit();
+    }
     ws = new WebSocket(wsUrl, "binary");
     ws.binaryType = "arraybuffer";
     const enc = new TextEncoder();

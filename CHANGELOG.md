@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.205] — 2026-08-25
+
+### Added
+- **URLs in the browser terminals are now clickable**, including the ones a TUI has broken across several lines. This is the case that matters: an app like Claude Code measures the width itself and writes the URL out one row at a time, so those rows are separate logical lines in the buffer — the standard link addon only follows the terminal's own wrapping and would leave such a URL unlinked, and selecting it by hand produces text with line breaks inside that pastes as a broken address. Both kinds of wrapping are now rejoined: the terminal's own (via the wrap flag) and the app's (a row filled to the last column followed by a row starting at column 0 with URL characters). The rejoin is a heuristic, so it is deliberately narrow — it stops at whitespace, refuses when what follows the run on the final row is more text rather than padding, and **hovering shows the full assembled target in a bar at the bottom of the terminal**, so what a click will open is visible before clicking. Only http and https are opened, in a new tab with no opener, since the text comes from the remote host. Applies to the SSH, BMC serial and Proxmox console screens.
+- Selecting such a broken URL and copying it now puts the rejoined address on the clipboard. This only happens when removing the line breaks yields exactly one URL with no other whitespace — in every other case what you copied is what you get, untouched.
+
+### Fixed
+- The terminals now use the Unicode 11 width tables. Getting the width of box-drawing characters and emoji wrong shifts a TUI's layout, and a shifted layout means what you see no longer lines up with the buffer underneath — which is what makes selections come out misaligned in the first place.
+
 ## [0.5.204] — 2026-08-24
 
 ### Added
