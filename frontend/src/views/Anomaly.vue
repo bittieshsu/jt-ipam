@@ -65,6 +65,7 @@ const CATEGORY_KEYS = [
   "ip_conflicts", "mac_drifts", "ghost_ips", "unauthorized_ips", "rogue_dhcp",
   "external_exposure", "dangling_dns", "duplicate_ip_records", "suspicious_changes",
   "fw_rule_rot",
+  "arp_only_liveness",
 ];
 const route = useRoute();
 const links = useEntityLinks(useRouter());
@@ -74,7 +75,8 @@ const activeTab = ref(
 
 type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes"
-  | "fw_rule_rot";
+  | "fw_rule_rot"
+  | "arp_only_liveness";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
@@ -86,6 +88,7 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "duplicate_ip_records", label: () => t("anomaly.dup_ip") },
   { key: "suspicious_changes", label: () => t("anomaly.changes") },
   { key: "fw_rule_rot", label: () => t("anomaly.fw_rot") },
+  { key: "arp_only_liveness", label: () => t("anomaly.arp_only") },
 ];
 
 const rogueTitle = computed(() =>
@@ -110,7 +113,8 @@ const anyFindings = computed(() => {
     + r.unauthorized_ips.length + (r.rogue_dhcp?.length ?? 0)
     + (r.external_exposure?.length ?? 0) + (r.dangling_dns?.length ?? 0)
     + (r.duplicate_ip_records?.length ?? 0) + (r.suspicious_changes?.length ?? 0)
-    + (r.fw_rule_rot?.length ?? 0)) > 0;
+    + (r.fw_rule_rot?.length ?? 0)
+    + (r.arp_only_liveness?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return (report.value?.[key] as Record<string, any>[]) ?? [];
@@ -121,6 +125,7 @@ const COLLBL: Record<string, string> = {
   mac: "MAC", macs: "MAC", ip: "IP", ips: "對應 IP / 主機名稱", hostname: "主機名稱",
   port: "埠", device_id: "裝置", last_seen_at: "最後出現", locations: "出現位置",
   last_seen_scanner: "最後出現（掃描）", last_seen_librenms: "最後出現（LibreNMS）",
+  last_seen_arp: "最後出現（ARP）",
   ip_address_id: "IP 物件 ID", reason: "原因", subnet: "子網路", state: "狀態",
   server_ip: "DHCP 伺服器 IP", subnet_cidr: "子網路", vendor: "廠商",
   offered_ip: "發出的 IP", router: "指定的閘道", first_seen_at: "首次發現",
@@ -146,6 +151,7 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   suspicious_changes: ["kind", "actor", "actor_ip", "object_type", "action",
                        "count", "first_at", "last_at"],
   fw_rule_rot: ["kind", "name", "source", "interface", "port", "descr", "detail"],
+  arp_only_liveness: ["ip", "hostname", "mac", "last_seen_arp", "ip_address_id"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   ghost_ips: ["ip_address_id"],

@@ -120,6 +120,7 @@ export interface IPAddress {
   in_dhcp_range?: boolean;      // 落在 DHCP pool 範圍內
   last_seen_scanner: string | null;
   last_seen_librenms: string | null;
+  last_seen_arp: string | null;
   last_seen_dns: string | null;
   effective_status: string | null;
   subnet_scan_enabled: boolean | null;

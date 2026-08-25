@@ -84,6 +84,9 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     is_dhcp_server: Mapped[bool] = mapped_column(default=False, nullable=False, server_default=text("false"))
     last_seen_scanner: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_librenms: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # ARP 證據獨立存：LibreNMS 的 ARP API 不回時間，只能靠「還在清單裡」推斷，
+    # 可信度遠低於裝置狀態（來源設備快取不老化就會永遠是「剛看到」）
+    last_seen_arp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_dns: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     effective_status: Mapped[str | None] = mapped_column(String(32))
 

@@ -1141,7 +1141,9 @@
     "virt_vm_tag": "虛擬機",
     "switch_name_ph": "交換器名稱",
     "switch_port_ph": "埠（如 eth1/0/6）",
-    "switch_port_hint": "此欄由 LibreNMS 同步維護；手動填的值會在下次同步時被覆寫。"
+    "switch_port_hint": "此欄由 LibreNMS 同步維護；手動填的值會在下次同步時被覆寫。",
+    "last_seen_arp": "最後出現 (ARP)",
+    "source_arp": "僅 ARP"
   },
   "subnets": {
     "title": "子網路",
@@ -1769,7 +1771,9 @@
     "triage_btn": "AI 判讀",
     "triage_title": "AI 鑑識：{ip}",
     "fw_rot": "防火牆規則劣化",
-    "explain_fw_rule_rot": "生效中的規則裡「已經不對勁」的部分：埠轉發指向 IPAM 沒有的位址（目標可能已回收）、any → any 放行（等於該介面沒有防火牆）、WAN 介面對任意來源開放管理埠（SSH／RDP／VNC／IPMI）。手動建立的 NAT 與停用中的規則不列入。"
+    "explain_fw_rule_rot": "生效中的規則裡「已經不對勁」的部分：埠轉發指向 IPAM 沒有的位址（目標可能已回收）、any → any 放行（等於該介面沒有防火牆）、WAN 介面對任意來源開放管理埠（SSH／RDP／VNC／IPMI）。手動建立的 NAT 與停用中的規則不列入。",
+    "arp_only": "僅 ARP 看得到",
+    "explain_arp_only_liveness": "這些 IP 看起來在線，但唯一的證據是 ARP 記錄 —— 而 ARP 沒有時間資訊，來源設備（AP／路由器）的快取不會過期。機器就算已經關機，這裡仍會顯示上線。要確認實際狀態，請用掃描代理探測，或改由 LibreNMS／Zabbix 納管。"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2348,7 +2352,9 @@
     "ago_hours": "{n} 小時前",
     "ago_days": "{n} 天前",
     "no_records": "沒有 scanner / LibreNMS / DNS 紀錄",
-    "online_threshold": "上線閾值：{n} 分鐘"
+    "online_threshold": "上線閾值：{n} 分鐘",
+    "arp_only_label": "上線（僅 ARP）",
+    "arp_only_hint": "只有 ARP 看到它。ARP 記錄沒有時間資訊，來源設備的快取不會過期，所以機器就算已經關機，這裡仍可能顯示上線。"
   },
   "llm_settings": {
     "title": "LLM / AI 全域設定",
@@ -3036,7 +3042,9 @@
     "sort_by": "排序",
     "sort_sla": "可用率",
     "sort_asc": "遞增",
-    "sort_desc": "遞減"
+    "sort_desc": "遞減",
+    "observed_from": "{d} 起為實際逐日觀測",
+    "observed_hint": "這天之前的日子沒有逐日記錄，只能依狀態轉換推估：沒有轉換不代表當時一直正常，也可能是沒有任何來源在看它。"
   },
   "certOs": {
     "linux": "Linux",

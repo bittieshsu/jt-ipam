@@ -44,6 +44,7 @@ from app.models.fortigate import (
 from app.models.fw_snapshot import FwRuleSnapshot
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_hostname import IPHostnameObservation
+from app.models.ip_liveness import IPLivenessDay
 from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
 from app.models.location import Location, Rack
@@ -123,6 +124,7 @@ __all__ = [
     "IPAddress",
     "IPChangeLog",
     "IPHostnameObservation",
+    "IPLivenessDay",
     "IPRequest",
     "IPRequestEvent",
     "IPRequestStageApproval",

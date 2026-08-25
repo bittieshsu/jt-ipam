@@ -210,7 +210,8 @@ function lnmsStatusLabel(s: unknown): string {
   return v;
 }
 function lastSeen(r: IPAddress): string {
-  const arr = [r.last_seen_scanner, r.last_seen_librenms, r.last_seen_dns].filter(Boolean) as string[];
+  const arr = [r.last_seen_scanner, r.last_seen_librenms, r.last_seen_dns,
+    (r as { last_seen_arp?: string | null }).last_seen_arp].filter(Boolean) as string[];
   if (!arr.length) return "—";
   return fmtDateTime(arr.sort().reverse()[0]);   // 轉本地時區（原本直接顯示 UTC）
 }

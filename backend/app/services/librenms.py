@@ -532,8 +532,10 @@ async def sync_arp(
             existing.last_seen_at = now
             updated += 1
 
-        # 只要 LibreNMS ARP 有看到這個 IP，就 stamp last_seen_librenms
-        # （effective_status 計算靠這個）。補 MAC 是額外副作用。
+        # ARP 看到這個 IP → 蓋 `last_seen_arp`（**不是** last_seen_librenms）。
+        # 兩者可信度差很多：LibreNMS 的 ARP API 不回任何時間欄位，我們只能因為
+        # 「這筆還在清單裡」就蓋上同步當下的時間 —— 來源設備（例如 AP）的 ARP 快取
+        # 不老化的話，機器早就關了也會一直看起來是「剛剛才看到」。補 MAC 是額外副作用。
         ipa = (
             await session.execute(
                 select(IPAddress).where(IPAddress.ip == ip).where(
@@ -542,7 +544,7 @@ async def sync_arp(
             )
         ).scalar_one_or_none()
         if ipa is not None:
-            ipa.last_seen_librenms = now
+            ipa.last_seen_arp = now
             from app.services.arp_precedence import consider_mac
             # 舊值要在覆寫前先取：寫死 None 的話，異動記錄的舊值永遠空白，
             # 看不出「從哪個 MAC 換成哪個」——真的換網卡時反而查不出來
@@ -877,12 +879,15 @@ async def recompute_effective_status(
     rows = list(
         (await session.execute(select(IPAddress))).scalars().all()
     )
+    today = now.date()
+    observations: list[dict[str, Any]] = []
     updated = 0
     for ip in rows:
         s_seen = ip.last_seen_scanner
         l_seen = ip.last_seen_librenms
-        # ARP 也算 librenms 證據
-        if not l_seen and ip.mac:
+        a_seen = ip.last_seen_arp
+        # 從沒對應過 ARP 記錄的舊資料：補一次起點（之後由 sync_arp 維護）
+        if not a_seen and ip.mac:
             arp = (
                 await session.execute(
                     select(ARPEntry.last_seen_at)
@@ -891,21 +896,39 @@ async def recompute_effective_status(
                 )
             ).scalar_one_or_none()
             if arp:
-                l_seen = arp
-                ip.last_seen_librenms = arp
+                a_seen = arp
+                ip.last_seen_arp = arp
+
+        s_fresh = bool(s_seen and s_seen >= cutoff)
+        l_fresh = bool(l_seen and l_seen >= cutoff)
+        a_fresh = bool(a_seen and a_seen >= cutoff)
 
         new_status: str
-        if (s_seen and s_seen >= cutoff) or (l_seen and l_seen >= cutoff):
-            if (s_seen and s_seen >= cutoff) and (l_seen and l_seen >= cutoff):
+        if s_fresh or l_fresh:
+            # 會老化的證據：掃描代理實際探測、LibreNMS 裝置狀態
+            if s_fresh and l_fresh:
                 new_status = "online"
-            elif s_seen and s_seen >= cutoff:
+            elif s_fresh:
                 new_status = "online (scanner)"
             else:
                 new_status = "online (librenms)"
-        elif s_seen or l_seen:
+        elif a_fresh:
+            # **只有 ARP 撐著**：算上線，但標成獨立等級。ARP 只證明某個 MAC↔IP 對應
+            # 曾被學到，不證明機器現在活著 —— 來源設備快取不老化就會一直是這個狀態。
+            new_status = "online (arp)"
+        elif s_seen or l_seen or a_seen:
             new_status = "offline"
         else:
             new_status = "unknown"
+
+        # 逐日觀測：長條圖要能區分「當天真的看到」與「只是沿用上一筆轉換」。
+        # arp_only 的日子不算可用 —— ARP 沒有時間概念（見 models/ip_liveness）。
+        observations.append({
+            "ip_id": ip.id, "day": today,
+            "up": bool(s_fresh or l_fresh),
+            "down": new_status == "offline",
+            "arp_only": new_status == "online (arp)",
+        })
 
         if ip.effective_status != new_status:
             prev = ip.effective_status
@@ -922,6 +945,22 @@ async def recompute_effective_status(
                         field="effective_status", old=prev, new=new_status,
                         source="librenms",
                     )
+    # 逐日觀測一次寫入：同一天同一個 IP 只有一列，旗標用 OR 累積
+    # （一天內先看到上線、後判定離線，兩者都要留下）
+    if observations:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        from app.models.ip_liveness import IPLivenessDay
+        stmt = pg_insert(IPLivenessDay).values(observations)
+        await session.execute(stmt.on_conflict_do_update(
+            index_elements=["ip_id", "day"],
+            set_={
+                "up": IPLivenessDay.up.op("OR")(stmt.excluded.up),
+                "down": IPLivenessDay.down.op("OR")(stmt.excluded.down),
+                "arp_only": IPLivenessDay.arp_only.op("OR")(stmt.excluded.arp_only),
+            },
+        ))
+
     return updated
 
 

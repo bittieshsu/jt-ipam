@@ -1141,7 +1141,9 @@
     "virt_vm_tag": "Virtual machine",
     "switch_name_ph": "Switch name",
     "switch_port_ph": "Port (e.g. eth1/0/6)",
-    "switch_port_hint": "Maintained by the LibreNMS sync; a value entered by hand is overwritten on the next sync."
+    "switch_port_hint": "Maintained by the LibreNMS sync; a value entered by hand is overwritten on the next sync.",
+    "last_seen_arp": "Last seen (ARP)",
+    "source_arp": "ARP only"
   },
   "subnets": {
     "title": "Subnets",
@@ -1769,7 +1771,9 @@
     "triage_btn": "AI triage",
     "triage_title": "AI triage: {ip}",
     "fw_rot": "Firewall rule rot",
-    "explain_fw_rule_rot": "Parts of the active ruleset that are already wrong: port forwards whose target is not in IPAM (likely reclaimed), any-to-any permits (that interface effectively has no firewall), and management ports (SSH/RDP/VNC/IPMI) open to any source on a WAN interface. Manual NAT entries and disabled rules are excluded."
+    "explain_fw_rule_rot": "Parts of the active ruleset that are already wrong: port forwards whose target is not in IPAM (likely reclaimed), any-to-any permits (that interface effectively has no firewall), and management ports (SSH/RDP/VNC/IPMI) open to any source on a WAN interface. Manual NAT entries and disabled rules are excluded.",
+    "arp_only": "ARP-only liveness",
+    "explain_arp_only_liveness": "These addresses look online, but the only evidence is an ARP record — and ARP carries no timestamp while the reporting device's cache never expires. A machine that was powered off weeks ago still reads as online here. To find out the real state, probe them with a scan agent or bring them under LibreNMS/Zabbix monitoring."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2348,7 +2352,9 @@
     "ago_hours": "{n} h ago",
     "ago_days": "{n} d ago",
     "no_records": "No scanner / LibreNMS / DNS records",
-    "online_threshold": "Online threshold: {n} min"
+    "online_threshold": "Online threshold: {n} min",
+    "arp_only_label": "Online (ARP only)",
+    "arp_only_hint": "Seen only in an ARP table. ARP records carry no timestamp and the reporting device's cache does not expire, so this can still read as online after the machine has been powered off."
   },
   "llm_settings": {
     "title": "LLM / AI global settings",
@@ -3036,7 +3042,9 @@
     "sort_by": "Sort by",
     "sort_sla": "Uptime",
     "sort_asc": "Ascending",
-    "sort_desc": "Descending"
+    "sort_desc": "Descending",
+    "observed_from": "observed daily since {d}",
+    "observed_hint": "Days before this have no daily record and are inferred from status transitions: the absence of a transition does not prove everything was fine — it can equally mean nothing was watching."
   },
   "certOs": {
     "linux": "Linux",

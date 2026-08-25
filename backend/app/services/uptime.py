@@ -1,4 +1,14 @@
-"""由 `effective_status` 的轉換記錄重建每日存活狀態（status page 式長條圖用）。
+"""每日存活狀態（status page 式長條圖用）。
+
+資料有兩層，優先序不同：
+1. **逐日觀測**（`ip_liveness_days`）—— 每輪同步實際記下當天看到什麼。有記錄的日子
+   一律以它為準，不做任何推估。
+2. **狀態轉換推估**（`ip_change_log`）—— 只用在開始逐日記錄之前的舊日子。推估必然
+   有極限：沒有轉換就代表「什麼都沒發生」，但那既可能是一直正常，也可能是沒人在看。
+
+回傳的 `observed_from` 是逐日記錄的起點，讓前端可以標出「這天之後是實際觀測」。
+
+以下為原本的重建規則（仍適用於第 2 層）：
 
 我們沒有逐時取樣，只有 `ip_change_log` 裡的**狀態轉換**。重建方式：某段期間的狀態
 ＝上一筆轉換的 `new_value`，一直持續到下一筆轉換；第一筆轉換之前＝未知。
@@ -11,6 +21,10 @@
 3. **判斷上線要用 `startswith("online")`** —— `effective_status` 是小寫且帶來源後綴
    （`online (scanner)` / `online (librenms)`）。拿固定字串比對正是 v0.4.196 修過的
    儀表板誤判（上線數從 153 被誤算成 63）。
+4. **`online (arp)` 不算「觀測到上線」。** ARP 證據沒有時間概念（LibreNMS 的 ARP API
+   不回時間欄位，我們只能因為「這筆還在清單裡」就蓋上同步當下的時間），來源設備的
+   ARP 快取不老化的話，機器關掉幾十天也會一直是這個狀態 —— 拿它畫綠色等於說謊。
+   這種日子畫成灰色（未知），也不進 `uptime_pct` 的分母。
 """
 
 from __future__ import annotations
@@ -24,13 +38,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.address import IPAddress
 from app.models.ip_change_log import IPChangeLog
+from app.models.ip_liveness import IPLivenessDay
+
+#: 只有 ARP 撐著的上線 —— 不足以宣稱「那天是通的」（見檔頭規則 4）
+ARP_ONLY_STATUS = "online (arp)"
 
 
 def status_is_up(value: str | None) -> bool | None:
-    """`online*` → True、`offline*` → False、其餘（unknown / 空）→ None。"""
+    """`online*` → True、`offline*` → False、其餘（unknown / 空 / 純 ARP）→ None。"""
     if not value:
         return None
     v = value.strip().lower()
+    if v.startswith(ARP_ONLY_STATUS):
+        return None          # 有證據說「這個 MAC 曾被學到」，但不等於那天機器活著
     if v.startswith("online"):
         return True
     if v.startswith("offline"):
@@ -77,7 +97,21 @@ async def uptime_for_ips(
                 IPAddress.created_at,
             ).where(IPAddress.id.in_(ip_ids))
         )).all():
+            # 「有存活來源」刻意不含 ARP：ARP 沒有時間概念，不能拿來回填整段綠色
             cur_rows[i] = (st, bool(seen_s or seen_l), created)
+
+    # 逐日觀測（有記錄的日子一律以它為準）
+    obs: dict[uuid.UUID, dict[date, dict[str, bool]]] = {}
+    observed_from: date | None = None
+    if ip_ids:
+        for oid, oday, oup, odown, oarp in (await session.execute(
+            select(IPLivenessDay.ip_id, IPLivenessDay.day, IPLivenessDay.up,
+                   IPLivenessDay.down, IPLivenessDay.arp_only)
+            .where(IPLivenessDay.ip_id.in_(ip_ids), IPLivenessDay.day >= start_day)
+        )).all():
+            obs.setdefault(oid, {})[oday] = {"up": oup, "down": odown, "arp_only": oarp}
+            if observed_from is None or oday < observed_from:
+                observed_from = oday
 
     # 每個 IP 各自跑一條時間線，最後再逐日合併
     per_ip_days: list[dict[date, dict[str, bool]]] = []
@@ -113,8 +147,20 @@ async def uptime_for_ips(
             if backfill_from is not None and d < backfill_from:
                 flags[d] = {"up": False, "down": False}
                 continue
-            up = cur is True
-            down = cur is False
+            # 沒有任何**會老化**的證據來源（掃描代理／LibreNMS 裝置狀態）時，不准把
+            # 上一筆轉換的狀態一路往後填 —— 那等於拿一筆幾十天前的舊記錄宣稱「這段期間
+            # 都是通的」。只有 ARP 撐著的 IP 正是這種情況（ARP 沒有時間概念）。
+            rec = obs.get(ip_id, {}).get(d)
+            if rec is not None:
+                # 有實際觀測 → 直接用，不推估（arp_only 不算可用）
+                flags[d] = {"up": rec["up"], "down": rec["down"]}
+                if rec["up"]:
+                    cur = True
+                elif rec["down"]:
+                    cur = False
+                continue
+            up = (cur is True) if has_live_source else False
+            down = (cur is False) if has_live_source else False
             for nv in by_day.get(d, []):
                 cur = status_is_up(nv)
                 if cur is True:
@@ -154,6 +200,8 @@ async def uptime_for_ips(
         "uptime_pct": (round((known - down_days) / known * 100, 3) if known else None),
         "known_days": known,
         "down_days": down_days,
+        # 這天（含）之後是實際逐日觀測；之前只能依狀態轉換推估
+        "observed_from": observed_from.isoformat() if observed_from else None,
         # 有轉換記錄、或目前就有存活來源（掃描代理／LibreNMS），都算「有在監測」
         "has_source": bool(rows) or monitored,
     }
@@ -228,8 +276,10 @@ async def uptime_batch(
             if backfill_from is not None and d < backfill_from:
                 items.append({"date": d.isoformat(), "status": "unknown"})
                 continue
-            up = cur is True
-            down = cur is False
+            # 與 uptime_for_ips 同一條規則：沒有會老化的證據來源就不准往後填
+            # （只有 ARP 撐著的 IP 會落在這裡 —— ARP 沒有時間概念）
+            up = (cur is True) if has_live_source else False
+            down = (cur is False) if has_live_source else False
             for nv in day_events.get(d, []):
                 cur = status_is_up(nv)
                 if cur is True:

@@ -60,7 +60,7 @@ export function classifyLiveness(newestMs: number | null): LivenessKind {
 /**
  * 已登記 IP 的存活判定 (給指示計 / 狀態燈用)。
  *
- * 有 scanner/LibreNMS/DNS last_seen 就照時間分級；完全沒有任何線上記錄時：
+ * 有 scanner/LibreNMS/DNS/ARP last_seen 就照時間分級；完全沒有任何線上記錄時：
  *   - exclude_from_ping(刻意不偵測)→ 未知 (灰)
  *   - 所屬 subnet 沒啟用掃描 (subnet_scan_enabled === false) → 未知 (灰)
  *       根本沒主動偵測，標離線紅燈會誤導
@@ -69,6 +69,7 @@ export function classifyLiveness(newestMs: number | null): LivenessKind {
 export function classifyAddressLiveness(addr: {
   last_seen_scanner?: string | null;
   last_seen_librenms?: string | null;
+  last_seen_arp?: string | null;
   last_seen_dns?: string | null;
   exclude_from_ping?: boolean | null;
   subnet_scan_enabled?: boolean | null;
@@ -76,7 +77,8 @@ export function classifyAddressLiveness(addr: {
   // 刻意不偵測（exclude_from_ping）或所屬 subnet 沒啟用掃描時：根本沒主動探測，
   // 不論有沒有舊的 last_seen，都不該顯示「離線(紅)」——過期最多降為未知(灰)。
   const noProbe = !!addr.exclude_from_ping || addr.subnet_scan_enabled === false;
-  const ts = [addr.last_seen_scanner, addr.last_seen_librenms, addr.last_seen_dns]
+  const ts = [addr.last_seen_scanner, addr.last_seen_librenms, addr.last_seen_dns,
+    addr.last_seen_arp]
     .filter(Boolean)
     .map((s) => new Date(s as string).getTime());
   if (ts.length) {
@@ -85,4 +87,22 @@ export function classifyAddressLiveness(addr: {
     return kind;
   }
   return noProbe ? "unknown" : "offline";
+}
+
+/**
+ * 這個 IP 的「上線」是不是**只**靠 ARP 撐著。
+ *
+ * ARP 證據沒有時間概念：LibreNMS 的 ARP API 不回任何時間欄位，我們只能因為
+ * 「這筆還在清單裡」就蓋上同步當下的時間。來源設備（例如 AP／路由器）的 ARP 快取
+ * 不老化的話，機器早就關了也會一直看起來「剛剛才看到」。所以要標示出來，
+ * 讓看的人知道這個綠燈的可信度和實際探測到的不一樣。
+ */
+export function isArpOnlyEvidence(addr: {
+  last_seen_scanner?: string | null;
+  last_seen_librenms?: string | null;
+  last_seen_dns?: string | null;
+  last_seen_arp?: string | null;
+}): boolean {
+  if (!addr.last_seen_arp) return false;
+  return !addr.last_seen_scanner && !addr.last_seen_librenms && !addr.last_seen_dns;
 }

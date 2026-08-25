@@ -166,6 +166,8 @@ class IPAddressRead(IPAddressBase):
     effective_probes: list[str] | None = None
     last_seen_scanner: datetime | None
     last_seen_librenms: datetime | None
+    # ARP 證據獨立回傳：它沒有時間概念，前端要能標成弱證據而不是混進 LibreNMS
+    last_seen_arp: datetime | None = None
     last_seen_dns: datetime | None
     effective_status: str | None
     # 所屬 subnet 是否啟用掃描；前端用來判定「沒掃描的網段不該標離線紅燈」

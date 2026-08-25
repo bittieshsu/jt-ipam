@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.206] — 2026-08-25
+
+### Fixed
+- **A machine that had been powered off for weeks could show 52 days of unbroken availability.** Two things combined to produce that. First, ARP was treated as timestamped evidence of life: LibreNMS's ARP API returns no timestamp at all, so an address appearing in the dump was stamped with the sync clock — meaning a lingering entry in some device's ARP cache (in the case that surfaced this, a wireless AP's) reads as "seen just now" forever, whether or not the host is running. On the affected system every such address carried a byte-identical timestamp, which is the sync run, not an observation. Second, the availability bar carries the last known state forward, so one transition recorded in July painted every day since green without a single observation behind it.
+- ARP evidence is now stored separately from LibreNMS device status and forms its own status tier, `online (arp)`. It still counts as online — a learned MAC-to-IP binding is real information — but it is labelled as such in the UI, with a note explaining why it can outlive the machine, and **the availability bar no longer paints days backed only by ARP**. Carrying a state forward now requires an evidence source that actually expires (scan agent probes, LibreNMS device status): without one, days with no observation of their own are grey rather than green.
+- The upgrade separates existing data by fingerprint: where `last_seen_librenms` exactly equals the address's ARP timestamp, the value came from the ARP path and is moved accordingly, so the distinction applies to history rather than only to new syncs.
+
+- **Availability is now recorded daily rather than inferred.** Even with ARP demoted, one stale transition could still paint weeks of green the moment any evidence source reappeared — because "does this address have a source that expires" is a per-address flag, not a per-day fact. The exact case that surfaced this: the VM was started, the scan agent saw it within minutes, and the inference would happily fill in the fifty days it had been off. Every sync round now writes down what was actually observed for each address that day, and days with a record use it instead of inference. Days whose only observation was ARP are grey. The bar states where the recorded era begins, so inference and observation are not silently mixed.
+
+### Added
+- New anomaly category, **ARP-only liveness**: addresses that look online where ARP is the only source saying so, and neither the scan agent nor LibreNMS device status has ever seen them. That is precisely the class of record that misleads, and it is worth reviewing rather than trusting.
+
 ## [0.5.205] — 2026-08-25
 
 ### Added

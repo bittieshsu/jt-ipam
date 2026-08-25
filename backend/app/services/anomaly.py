@@ -43,12 +43,14 @@ class AnomalyReport:
     duplicate_ip_records: list[dict[str, Any]] = field(default_factory=list)
     suspicious_changes: list[dict[str, Any]] = field(default_factory=list)
     fw_rule_rot: list[dict[str, Any]] = field(default_factory=list)
+    arp_only_liveness: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "ip_conflicts": self.ip_conflicts,
             "mac_drifts": self.mac_drifts,
             "ghost_ips": self.ghost_ips,
+            "arp_only_liveness": self.arp_only_liveness,
             "unauthorized_ips": self.unauthorized_ips,
             "rogue_dhcp": self.rogue_dhcp,
             "external_exposure": self.external_exposure,
@@ -60,7 +62,7 @@ class AnomalyReport:
                 len(self.ip_conflicts) + len(self.mac_drifts)
                 + len(self.ghost_ips) + len(self.unauthorized_ips)
                 + len(self.rogue_dhcp) + len(self.external_exposure)
-                + len(self.fw_rule_rot)
+                + len(self.fw_rule_rot) + len(self.arp_only_liveness)
                 + len(self.dangling_dns) + len(self.duplicate_ip_records)
                 + len(self.suspicious_changes)
             ),
@@ -234,6 +236,12 @@ async def detect_ghost_ips(
                 & (
                     (IPAddress.last_seen_librenms.is_(None))
                     | (IPAddress.last_seen_librenms < cutoff)
+                )
+                # ARP 還看得到就不算「失聯」——它是弱證據，但仍是證據。
+                # 「只有 ARP 看得到」另有專屬偵測項（arp_only_liveness）。
+                & (
+                    (IPAddress.last_seen_arp.is_(None))
+                    | (IPAddress.last_seen_arp < cutoff)
                 ),
             )
             .limit(500)
@@ -268,6 +276,48 @@ def _is_noise_address(ip: str) -> bool:
         addr.is_link_local or addr.is_multicast or addr.is_loopback
         or addr.is_unspecified or addr.is_reserved
     )
+
+
+async def detect_arp_only_liveness(
+    session: AsyncSession, *, days: int = 3,
+) -> list[dict[str, Any]]:
+    """看起來在線、但**只有 ARP 這一個來源**在說話的 IP。
+
+    為什麼這值得單獨列出來：ARP 記錄沒有時間概念（LibreNMS 的 ARP API 不回任何時間
+    欄位），我們只能因為「這筆還在清單裡」就當成剛看到。來源設備（AP／路由器）的
+    ARP 快取不老化的話，機器關掉幾十天，這個 IP 還是會一直顯示上線 —— 實機上就發生過
+    一台早就關掉的 VM 被畫成 52 天全綠。
+
+    判準刻意保守：ARP 在 `days` 天內看得到，而掃描代理與 LibreNMS 裝置狀態**從來沒有**
+    看過它。兩者只要有一個看過，就代表有會老化的證據可以驗證，不必列進來吵人。
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    subnet_ids = await _anomaly_subnet_ids(session)
+    if not subnet_ids:
+        return []
+    rows = (
+        await session.execute(
+            select(IPAddress)
+            .where(
+                IPAddress.subnet_id.in_(subnet_ids),
+                IPAddress.last_seen_arp.is_not(None),
+                IPAddress.last_seen_arp >= cutoff,
+                IPAddress.last_seen_scanner.is_(None),
+                IPAddress.last_seen_librenms.is_(None),
+            )
+            .limit(500)
+        )
+    ).scalars().all()
+    return [
+        {
+            "ip_address_id": str(r.id),
+            "ip": str(r.ip).split("/")[0],
+            "hostname": r.hostname,
+            "mac": str(r.mac) if r.mac else None,
+            "last_seen_arp": r.last_seen_arp.isoformat() if r.last_seen_arp else None,
+        }
+        for r in rows
+    ]
 
 
 async def _anomaly_networks(session: AsyncSession) -> list[Any]:
@@ -767,6 +817,7 @@ async def run_detection(
         duplicate_ip_records=await detect_duplicate_ip_records(session),
         suspicious_changes=await detect_suspicious_changes(session),
         fw_rule_rot=await detect_fw_rule_rot(session),
+        arp_only_liveness=await detect_arp_only_liveness(session),
     )
 
     if notify_admins:

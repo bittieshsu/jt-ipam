@@ -249,6 +249,7 @@ export interface AnomalyReport {
   duplicate_ip_records: any[];
   suspicious_changes: any[];
   fw_rule_rot: any[];
+  arp_only_liveness: any[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {

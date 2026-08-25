@@ -884,6 +884,13 @@ async function remove() {
           </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_scanner')">{{ fmtDateTime(props.address?.last_seen_scanner) }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_librenms')">{{ fmtDateTime(props.address?.last_seen_librenms) }}</n-descriptions-item>
+          <n-descriptions-item :label="t('addresses.last_seen_arp')">
+            {{ fmtDateTime(props.address?.last_seen_arp) }}
+            <n-tooltip v-if="props.address?.last_seen_arp" trigger="hover">
+              <template #trigger><span class="arp-caveat">?</span></template>
+              <div style="max-width: 300px">{{ t("live_dot.arp_only_hint") }}</div>
+            </n-tooltip>
+          </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_dns')">{{ fmtDateTime(props.address?.last_seen_dns) }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.created_at')">{{ fmtDateTime(props.address?.created_at) }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.updated_at')" :span="2">{{ fmtDateTime(props.address?.updated_at) }}</n-descriptions-item>
@@ -1194,4 +1201,11 @@ async function remove() {
 .conn-sol-badge { background: #909399; }
 /* 異動記錄超過 N 天（系統設定）的項目以淡色顯示 */
 .log-dim { opacity: .45; }
+
+/* ARP 時間旁的提醒標記：這個時間不代表機器當下活著 */
+.arp-caveat {
+  display: inline-block; margin-left: 6px; width: 14px; height: 14px; line-height: 14px;
+  text-align: center; border-radius: 50%; font-size: 10px; cursor: help;
+  background: rgba(251, 191, 36, .18); color: #b45309;
+}
 </style>
