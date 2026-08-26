@@ -6,7 +6,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NCheckbox, NCheckboxGroup,
+  NCard, NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NCheckbox, NCheckboxGroup,
   NButton, NTag, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
@@ -353,8 +353,8 @@ async function doPreviewAutolink() {
     </div>
     <div class="ss-wrap">
       <!-- 資安：連線管理 -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("system_settings.grp_security") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_security") }}</span></template>
         <div class="ss-grid">
           <div class="fld">
             <label>{{ t("settings.system.rdp_clip_paste") }}</label>
@@ -362,11 +362,11 @@ async function doPreviewAutolink() {
             <div class="hint">{{ t("settings.system.rdp_clip_paste_hint") }}</div>
           </div>
         </div>
-      </section>
+      </n-card>
 
       <!-- 顯示與地圖 -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("system_settings.grp_display") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_display") }}</span></template>
         <div class="ss-grid">
           <div class="fld">
             <label>{{ t("settings.system.map_provider") }}</label>
@@ -385,11 +385,11 @@ async function doPreviewAutolink() {
             <div class="hint">{{ t("settings.system.change_log_dim_days_hint") }}</div>
           </div>
         </div>
-      </section>
+      </n-card>
 
       <!-- 上線判定 -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("system_settings.grp_liveness") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_liveness") }}</span></template>
         <div class="fld" style="max-width: 320px">
           <label>{{ t("settings.prefs.online_grace_minutes") }}</label>
           <n-input-number :value="grace" :min="1" :max="43200" style="width: 100%" @update:value="changeGrace" />
@@ -406,11 +406,11 @@ async function doPreviewAutolink() {
           </n-checkbox-group>
           <div class="hint">{{ t("system_settings.liveness_sources_hint") }}</div>
         </div>
-      </section>
+      </n-card>
 
       <!-- GeoIP -->
-      <section v-if="geoip" class="ss-group">
-        <h3 class="ss-h">{{ t("settings.system.geoip") }}</h3>
+      <n-card v-if="geoip" class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("settings.system.geoip") }}</span></template>
         <div class="ss-grid">
           <div class="fld">
             <label>{{ t("settings.system.geoip_account") }}</label>
@@ -457,11 +457,11 @@ async function doPreviewAutolink() {
           {{ t("settings.system.geoip_hint") }}<br>
           {{ t("settings.system.geoip_freq_advice") }}
         </div>
-      </section>
+      </n-card>
 
       <!-- 外部認證 / LDAP（AD） -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("settings.system.ldap_title") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("settings.system.ldap_title") }}</span></template>
         <div class="fld">
           <n-space align="center">
             <n-switch v-model:value="ldap.enabled" />
@@ -551,11 +551,11 @@ async function doPreviewAutolink() {
           <div class="hint" style="margin-top:4px">{{ t("settings.system.ldap_authtest_hint") }}</div>
         </div>
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("settings.system.ldap_hint") }}</div>
-      </section>
+      </n-card>
 
       <!-- 單一登入 (OIDC) -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("settings.system.oidc_title") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("settings.system.oidc_title") }}</span></template>
         <div class="fld">
           <n-space align="center">
             <n-switch v-model:value="oidc.enabled" />
@@ -608,11 +608,11 @@ async function doPreviewAutolink() {
           </n-button>
         </n-space>
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("settings.system.oidc_hint") }}</div>
-      </section>
+      </n-card>
 
       <!-- 單一登入 (SAML 2.0) -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("settings.system.saml_title") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("settings.system.saml_title") }}</span></template>
         <div class="fld">
           <n-space align="center">
             <n-switch v-model:value="saml.enabled" />
@@ -672,11 +672,11 @@ async function doPreviewAutolink() {
              style="font-size:13px; align-self:center">{{ t("settings.system.saml_sp_metadata") }}</a>
         </n-space>
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("settings.system.saml_hint") }}</div>
-      </section>
+      </n-card>
 
       <!-- 稽核轉送到 Graylog -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("settings.system.af_title") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("settings.system.af_title") }}</span></template>
         <div class="fld">
           <n-space align="center">
             <n-switch v-model:value="af.enabled" />
@@ -712,11 +712,11 @@ async function doPreviewAutolink() {
           </n-button>
         </n-space>
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("settings.system.af_hint") }}</div>
-      </section>
+      </n-card>
       <!-- 依網卡 MAC 自動掛裝置。預設關閉：升級之後突然多出一個每 5 分鐘自動改
            資料的作業，本身就是不該發生的事。開啟前可以先預覽會動到什麼。 -->
-      <section class="ss-group">
-        <h3 class="ss-h">{{ t("autolink.title") }}</h3>
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("autolink.title") }}</span></template>
         <div class="ss-grid">
           <div class="fld">
             <label>{{ t("autolink.enable") }}</label>
@@ -754,7 +754,7 @@ async function doPreviewAutolink() {
           <div v-if="autolinkPreview.samples.length > 8">…</div>
         </div>
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("autolink.rules_hint") }}</div>
-      </section>
+      </n-card>
     </div>
   </div>
 </template>
@@ -765,13 +765,12 @@ async function doPreviewAutolink() {
 .ss-title { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600;
   padding: 2px 2px 0; }
 .ss-wrap { display: flex; flex-direction: column; gap: 16px; max-width: none; }
-.ss-group { border: 1px solid var(--n-border-color, rgba(127,127,127,.18)); border-radius: 14px;
-  padding: 20px 22px 22px; background: var(--n-card-color, rgba(127,127,127,0.028));
-  box-shadow: 0 1px 3px rgba(15,23,42,.05); }
-.ss-h { margin: 0; font-size: 16px; font-weight: 700; padding-left: 12px; line-height: 1.25;
-  border-left: 4px solid #18a058; }
+/* 卡片外觀（底色／邊框／深色模式）交給 n-card，不要自己刻 —— 自己刻就會與其他頁面不一致 */
+.ss-group { border-radius: 14px; }
+.ss-h { display: inline-block; font-size: 16px; font-weight: 700; padding-left: 12px;
+  line-height: 1.25; border-left: 4px solid #18a058; }
 /* 統一卡片內每個區塊的垂直間距，避免欄位標題緊貼上一個元素 */
-.ss-group > * + * { margin-top: 16px; }
+.ss-group :deep(.n-card__content) > * + * { margin-top: 16px; }
 .ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 /* 寬螢幕改三欄，把右邊的空間用掉 */
 @media (min-width: 1500px) { .ss-grid { grid-template-columns: repeat(3, 1fr); } }

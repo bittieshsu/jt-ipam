@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.208] — 2026-08-26
+
+### Fixed
+- **The system settings groups stopped looking like cards.** Splitting them out of the single large card left them as bordered panels with no card surface of their own, sitting directly on the page background — so the background read as wrong and the cards read as missing. Each group is a real card component again, which is also what keeps its surface identical to every other page in both light and dark themes; hand-rolled card styling was what drifted in the first place.
+
 ## [0.5.207] — 2026-08-26
 
 ### Added
