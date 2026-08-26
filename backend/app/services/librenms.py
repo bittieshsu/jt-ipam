@@ -873,8 +873,13 @@ async def recompute_effective_status(
     - 兩者都從沒見過 → unknown
     """
     from datetime import timedelta
+
+    from app.services.system_config import get_liveness_config
+    cfg = await get_liveness_config(session)
+    sources = set(cfg["sources"])
     now = datetime.now(UTC)
-    cutoff = now - timedelta(minutes=30)
+    # 閾值跟著系統設定走（原本寫死 30 分鐘，和設定頁講的不一致）
+    cutoff = now - timedelta(minutes=int(cfg["minutes"]))
 
     rows = list(
         (await session.execute(select(IPAddress))).scalars().all()
@@ -899,9 +904,13 @@ async def recompute_effective_status(
                 a_seen = arp
                 ip.last_seen_arp = arp
 
-        s_fresh = bool(s_seen and s_seen >= cutoff)
-        l_fresh = bool(l_seen and l_seen >= cutoff)
-        a_fresh = bool(a_seen and a_seen >= cutoff)
+        # 只有被勾選的來源算數（ARP 預設不勾，見 system_config.LIVENESS_SOURCES）
+        use_s = "scanner" in sources
+        use_l = "librenms" in sources
+        use_a = "arp" in sources
+        s_fresh = use_s and bool(s_seen and s_seen >= cutoff)
+        l_fresh = use_l and bool(l_seen and l_seen >= cutoff)
+        a_fresh = use_a and bool(a_seen and a_seen >= cutoff)
 
         new_status: str
         if s_fresh or l_fresh:
@@ -916,7 +925,8 @@ async def recompute_effective_status(
             # **只有 ARP 撐著**：算上線，但標成獨立等級。ARP 只證明某個 MAC↔IP 對應
             # 曾被學到，不證明機器現在活著 —— 來源設備快取不老化就會一直是這個狀態。
             new_status = "online (arp)"
-        elif s_seen or l_seen or a_seen:
+        elif (use_s and s_seen) or (use_l and l_seen) or (use_a and a_seen):
+            # 有被採信的來源看過它，但都過期 → 離線
             new_status = "offline"
         else:
             new_status = "unknown"

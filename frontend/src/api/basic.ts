@@ -219,14 +219,19 @@ export async function setMapProvider(provider: MapProvider): Promise<void> {
   await apiClient.put("/api/v1/system/map-provider", { provider });
 }
 
-export async function getOnlineGrace(): Promise<number> {
+export interface LivenessConfig { minutes: number; sources: string[] }
+
+export async function getOnlineGrace(): Promise<LivenessConfig> {
   try {
-    const { data } = await apiClient.get<{ minutes: number }>("/api/v1/system/online-grace");
-    return Number(data.minutes) || 30;
-  } catch { return 30; }
+    const { data } = await apiClient.get<LivenessConfig>("/api/v1/system/online-grace");
+    return {
+      minutes: Number(data.minutes) || 30,
+      sources: Array.isArray(data.sources) ? data.sources : ["scanner", "librenms"],
+    };
+  } catch { return { minutes: 30, sources: ["scanner", "librenms"] }; }
 }
-export async function setOnlineGrace(minutes: number): Promise<void> {
-  await apiClient.put("/api/v1/system/online-grace", { minutes });
+export async function setOnlineGrace(minutes: number, sources: string[]): Promise<void> {
+  await apiClient.put("/api/v1/system/online-grace", { minutes, sources });
 }
 
 export type RackNameAlign = "left" | "center" | "right";

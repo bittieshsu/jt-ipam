@@ -13,6 +13,16 @@ import { ref } from "vue";
 import { apiClient } from "@/api/client";
 
 const LS_KEY = "jt-ipam:online_grace_minutes";
+const LS_SRC = "jt-ipam:liveness_sources";
+
+/**
+ * 哪些證據算「上線」（全域系統設定）。**ARP 預設不勾**：它證明的是「某個 MAC↔IP
+ * 對應被學到過」，不是機器現在活著，而且 LibreNMS 的 ARP API 連時間都不回 ——
+ * 來源設備的快取不老化，關機的機器也會一直看起來剛剛才出現。
+ */
+export const livenessSources = ref<string[]>(
+  JSON.parse(localStorage.getItem(LS_SRC) || '["scanner","librenms"]'),
+);
 
 export const onlineGraceMinutes = ref<number>(
   Number(localStorage.getItem(LS_KEY) || "30") || 30,
@@ -24,10 +34,15 @@ async function loadOnce() {
   loaded = true;
   try {
     // 上線判定閾值改為「全域系統設定」（管理員設），不再是個人偏好
-    const { data } = await apiClient.get<{ minutes?: number }>("/api/v1/system/online-grace");
+    const { data } = await apiClient.get<{ minutes?: number; sources?: string[] }>(
+      "/api/v1/system/online-grace");
     if (data?.minutes && data.minutes > 0) {
       onlineGraceMinutes.value = data.minutes;
       localStorage.setItem(LS_KEY, String(data.minutes));
+    }
+    if (Array.isArray(data?.sources)) {
+      livenessSources.value = data.sources;
+      localStorage.setItem(LS_SRC, JSON.stringify(data.sources));
     }
   } catch {}
 }
@@ -38,7 +53,15 @@ export async function setOnlineGraceMinutes(n: number): Promise<void> {
   if (n < 1 || n > 43200) throw new Error("超出範圍 (1 ~ 43200 分鐘)");
   onlineGraceMinutes.value = n;
   localStorage.setItem(LS_KEY, String(n));
-  await apiClient.put("/api/v1/system/online-grace", { minutes: n });
+  await apiClient.put("/api/v1/system/online-grace",
+    { minutes: n, sources: livenessSources.value });
+}
+
+export async function setLivenessSources(list: string[]): Promise<void> {
+  livenessSources.value = list;
+  localStorage.setItem(LS_SRC, JSON.stringify(list));
+  await apiClient.put("/api/v1/system/online-grace",
+    { minutes: onlineGraceMinutes.value, sources: list });
 }
 
 /** 根據最新 last_seen 時戳 (ms) 算狀態。 */
@@ -77,8 +100,13 @@ export function classifyAddressLiveness(addr: {
   // 刻意不偵測（exclude_from_ping）或所屬 subnet 沒啟用掃描時：根本沒主動探測，
   // 不論有沒有舊的 last_seen，都不該顯示「離線(紅)」——過期最多降為未知(灰)。
   const noProbe = !!addr.exclude_from_ping || addr.subnet_scan_enabled === false;
-  const ts = [addr.last_seen_scanner, addr.last_seen_librenms, addr.last_seen_dns,
-    addr.last_seen_arp]
+  const use = livenessSources.value;
+  const ts = [
+    use.includes("scanner") ? addr.last_seen_scanner : null,
+    use.includes("librenms") ? addr.last_seen_librenms : null,
+    addr.last_seen_dns,
+    use.includes("arp") ? addr.last_seen_arp : null,
+  ]
     .filter(Boolean)
     .map((s) => new Date(s as string).getTime());
   if (ts.length) {

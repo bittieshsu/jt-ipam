@@ -890,7 +890,16 @@
     "foot_newline": "newline",
     "foot_local": "AI responses may be wrong — please verify",
     "assistant": "AI assistant",
-    "related": "Related"
+    "related": "Related",
+    "stop": "Stop",
+    "stopped": "(generation stopped)",
+    "phase_connecting": "Connecting…",
+    "phase_thinking": "Model is thinking…",
+    "phase_thinking_n": "Model is thinking… ({n}k chars)",
+    "phase_composing": "Working through the results…",
+    "phase_answering": "Writing the answer…",
+    "phase_round": "query round {n}",
+    "phase_elapsed": "{n}s elapsed"
   },
   "perm": {
     "title": "Permissions",
@@ -2648,7 +2657,12 @@
     "title": "System Settings (global)",
     "grp_display": "Display & map",
     "grp_liveness": "Liveness",
-    "grp_security": "Security"
+    "grp_security": "Security",
+    "liveness_sources": "Evidence that counts",
+    "src_scanner": "Scan agent probes",
+    "src_librenms": "LibreNMS device status",
+    "src_arp": "ARP records (not recommended)",
+    "liveness_sources_hint": "Only the selected sources decide whether an address is online. ARP is off by default: it proves a MAC-to-IP binding was learned, not that the machine is alive — and the LibreNMS ARP API returns no timestamp, so a reporting device's cache can keep a powered-off machine looking online indefinitely."
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",

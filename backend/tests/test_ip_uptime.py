@@ -62,6 +62,7 @@ async def test_state_persists_between_transitions(db_session, admin_user) -> Non
     """轉換式重建：狀態要延續到下一筆轉換，不是只有轉換當天才有狀態。"""
     ipa = await _mk_ip(db_session, admin_user)
     now = datetime.now(UTC)
+    ipa.last_seen_librenms = now - timedelta(days=1)   # 轉換宣稱 librenms → 該來源要存在
     db_session.add(_ev(ipa, now - timedelta(days=9), "online (scanner)"))
     db_session.add(_ev(ipa, now - timedelta(days=5), "offline"))
     db_session.add(_ev(ipa, now - timedelta(days=3), "online (librenms)"))
@@ -114,6 +115,7 @@ async def test_online_prefix_matching(db_session, admin_user) -> None:
     """effective_status 是小寫帶來源後綴；用固定字串比對正是 v0.4.196 的儀表板誤判。"""
     ipa = await _mk_ip(db_session, admin_user)
     now = datetime.now(UTC)
+    ipa.last_seen_librenms = now
     db_session.add(_ev(ipa, now - timedelta(days=1), "online (librenms)"))
     await db_session.commit()
 
@@ -385,3 +387,41 @@ async def test_recorded_down_day_is_not_overwritten_by_inference(
     out = await get_address_uptime(ipa.id, admin_user, db_session, days=30)
     by_date = {i["date"]: i["status"] for i in out["items"]}
     assert by_date[day.isoformat()] in ("down", "partial")
+
+
+@pytest.mark.anyio
+async def test_stale_transition_is_not_carried_when_its_source_is_gone(
+    db_session, admin_user,
+) -> None:
+    """舊轉換寫著「上線（LibreNMS）」，但這個 IP 現在沒有任何 LibreNMS 證據 → 不可延續。
+
+    實機案例：那台 VM 的 50 天綠色，當初是 ARP 撐著卻被記成 online (librenms)；
+    機器重開、掃描代理看到它之後，「有存活來源」又成立，推估就把整段歷史重新填綠。
+    要擋掉這種情形，判準必須是「這筆狀態值宣稱的來源現在還在不在」。
+    """
+    ipa = await _mk_ip(db_session, admin_user)
+    now = datetime.now(UTC)
+    ipa.last_seen_scanner = now          # 今天才被掃描代理看到（機器剛開）
+    ipa.last_seen_librenms = None        # 但 LibreNMS 從來沒有這台的證據
+    db_session.add(_ev(ipa, now - timedelta(days=50), "online (librenms)"))
+    await db_session.commit()
+
+    out = await get_address_uptime(ipa.id, admin_user, db_session, days=90)
+    event_day = (now - timedelta(days=50)).date().isoformat()
+    later = [i for i in out["items"] if i["status"] == "up" and i["date"] > event_day]
+    assert later == [], f"來源已不存在卻仍往後填了 {len(later)} 天綠色"
+
+
+@pytest.mark.anyio
+async def test_transition_is_carried_when_its_source_still_exists(
+    db_session, admin_user,
+) -> None:
+    """對照組：宣稱的來源仍在（掃描代理），延續行為要保持不變。"""
+    ipa = await _mk_ip(db_session, admin_user)
+    now = datetime.now(UTC)
+    ipa.last_seen_scanner = now
+    db_session.add(_ev(ipa, now - timedelta(days=10), "online (scanner)"))
+    await db_session.commit()
+
+    out = await get_address_uptime(ipa.id, admin_user, db_session, days=30)
+    assert len([i for i in out["items"] if i["status"] == "up"]) >= 10

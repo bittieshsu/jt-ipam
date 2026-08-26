@@ -467,6 +467,9 @@ async def put_rack_name_align(
 # ─────────────────── 上線判定閾值（全域，管理員設）───────────────────
 class OnlineGraceOut(StrictModel):
     minutes: Annotated[int, Field(ge=1, le=43200)]
+    #: 哪些證據算「上線」。ARP 預設不勾：它沒有時間概念，來源設備的快取不老化
+    #: 就會讓關機的機器一直顯示上線（見 services/system_config.LIVENESS_SOURCES）
+    sources: list[str] = ["scanner", "librenms"]
 
 
 @public_router.get("/online-grace", response_model=OnlineGraceOut)
@@ -474,14 +477,9 @@ async def get_online_grace(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> OnlineGraceOut:
-    from app.models.system_setting import SystemSetting
-    row = await session.get(SystemSetting, "online_grace_minutes")
-    m = (row.value.get("minutes") if row and isinstance(row.value, dict) else None) or 30
-    try:
-        m = int(m)
-    except (TypeError, ValueError):
-        m = 30
-    return OnlineGraceOut(minutes=min(43200, max(1, m)))
+    from app.services.system_config import get_liveness_config
+    cfg = await get_liveness_config(session)
+    return OnlineGraceOut(minutes=int(cfg["minutes"]), sources=list(cfg["sources"]))
 
 
 @router.put("/online-grace", response_model=OnlineGraceOut)
@@ -494,12 +492,14 @@ async def put_online_grace(
     from sqlalchemy.orm.attributes import flag_modified
 
     from app.models.system_setting import SystemSetting
+    from app.services.system_config import LIVENESS_SOURCES
     m = min(43200, max(1, int(payload.minutes)))
+    srcs = [s for s in payload.sources if s in LIVENESS_SOURCES]
     row = await session.get(SystemSetting, "online_grace_minutes")
     if row is None:
         row = SystemSetting(key="online_grace_minutes", value={}, updated_by=user.id)
         session.add(row)
-    row.value = {"minutes": m}
+    row.value = {"minutes": m, "sources": srcs}
     row.updated_by = user.id
     flag_modified(row, "value")
     await append_audit(
@@ -507,11 +507,11 @@ async def put_online_grace(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="system", object_id=None, action="update",
-        diff={"target": "online_grace_minutes", "minutes": m},
+        diff={"target": "online_grace_minutes", "minutes": m, "sources": ",".join(srcs)},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return OnlineGraceOut(minutes=m)
+    return OnlineGraceOut(minutes=m, sources=srcs)
 
 
 # ─────────────────── GeoIP（MaxMind 本地 mmdb + 排程更新）───────────────────

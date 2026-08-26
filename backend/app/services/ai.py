@@ -636,7 +636,11 @@ async def chat(
             elif _looks_like_tool_leak(msg.get("content") or ""):
                 return {"answer": _tool_leak_message(locale), "messages": convo, **_meta()}
             else:
-                return {"answer": msg.get("content") or "", "messages": convo, **_meta()}
+                content = msg.get("content") or ""
+                if not content.strip():
+                    content = (await _force_final_answer(cfg, convo)
+                               or _empty_answer_message(locale, None))
+                return {"answer": content, "messages": convo, **_meta()}
 
         # 異動類工具不直接執行 → 回傳待確認動作，等使用者按「確認」
         pending = _pending_mutations(tool_calls)
@@ -649,6 +653,24 @@ async def chat(
     # 用完 max_iterations 還在叫工具 → 最後不給工具再叫一次，逼它用現有資訊作答
     answer = await _force_final_answer(cfg, convo)
     return {"answer": answer, "messages": convo, **_meta()}
+
+
+def _empty_answer_message(locale: str, done_reason: str | None) -> str:
+    """模型什麼都沒產出時，說清楚可能的原因與下一步 —— 空白訊息無法行動。"""
+    why_zh = {
+        "length": "回答被輸出長度上限截斷",
+        "load": "模型正在載入",
+    }.get(done_reason or "", "模型沒有產生任何文字（可能只輸出了思考內容，或超出上下文長度）")
+    why_en = {
+        "length": "the answer hit the output length limit",
+        "load": "the model was still loading",
+    }.get(done_reason or "", "the model produced no text (it may have emitted only "
+                             "thinking, or exceeded the context length)")
+    if locale.startswith("en"):
+        return (f"No answer was produced — {why_en}. Try a narrower question, or raise "
+                "num_ctx / the output limit under Admin → LLM/AI.")
+    return (f"這次沒有得到回答 —— {why_zh}。可以把問題問得更小一點，"
+            "或到「管理 → LLM / AI」調高 num_ctx 與輸出上限。")
 
 
 async def _force_final_answer(cfg: Any, convo: list[dict[str, Any]]) -> str:
@@ -895,6 +917,11 @@ async def chat_stream(
         }
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
+        done_reason: str | None = None
+        # 思考內容不是答案，但**使用者需要知道它在動**：只吐 thinking 的那段時間，
+        # 畫面上原本什麼都沒有，看起來就像當機（實測 gemma4 可以想十幾秒）。
+        thinking_chars = 0
+        thinking_reported = -1
         try:
             async with safe_stream(
                 "POST", url,
@@ -913,6 +940,13 @@ async def chat_stream(
                     except json.JSONDecodeError:
                         continue
                     m = chunk.get("message") or {}
+                    think = m.get("thinking")
+                    if think:
+                        thinking_chars += len(think)
+                        # 節流：每累積約 200 字回報一次，不要用事件洪水灌前端
+                        if thinking_chars - thinking_reported >= 200:
+                            thinking_reported = thinking_chars
+                            yield {"type": "thinking", "chars": thinking_chars}
                     piece = m.get("content")
                     if piece:
                         content_parts.append(piece)
@@ -921,6 +955,7 @@ async def chat_stream(
                     if tcs:
                         tool_calls.extend(tcs)
                     if chunk.get("done"):
+                        done_reason = chunk.get("done_reason")
                         break
         except UnsafeOutboundURL as exc:
             yield {"type": "error", "detail": f"SSRF guard: {exc}"}
@@ -946,6 +981,17 @@ async def chat_stream(
             elif _looks_like_tool_leak(full_content):
                 yield {"type": "tool_round"}
                 yield {"type": "done", "answer": _tool_leak_message(locale),
+                       "trace_messages": convo, **_meta()}
+                return
+            elif not full_content.strip():
+                # 這輪沒有工具呼叫、content 也是空的。常見成因：模型只吐了 thinking
+                # （Ollama 會放在另一個欄位）、或撞到輸出／上下文長度上限。
+                # 直接把空字串當答案回去，前端只會顯示「(沒有回應)」，使用者無從判斷。
+                # → 再逼問一次；仍然空的話講清楚原因。
+                yield {"type": "tool_round"}
+                retry = await _force_final_answer(cfg, convo)
+                yield {"type": "done",
+                       "answer": retry or _empty_answer_message(locale, done_reason),
                        "trace_messages": convo, **_meta()}
                 return
             else:

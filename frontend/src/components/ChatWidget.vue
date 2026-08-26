@@ -25,6 +25,7 @@ import {
 } from "@/api/chat";
 import { fmtRelative, fmtDateTime } from "@/utils/datetime";
 import { BubbleStar } from "@iconoir/vue";
+import { humanToolName } from "@/utils/toolLabel";
 import { CancelIcon, SendIcon, ChatHistoryIcon, ToolsIcon, RefreshIcon, WarnIcon, ExpandIcon, ReduceIcon } from "@/icons";
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
@@ -97,6 +98,15 @@ const expanded = ref(false);
 const input = ref("");
 const messages = ref<UiMessage[]>([]);
 const loading = ref(false);
+/** 進行中的請求：按「停止」時中止它 —— 連線一斷，LLM 伺服器那端也會停止推論 */
+let inflight: AbortController | null = null;
+const stopping = ref(false);
+
+function stopGenerating() {
+  if (!inflight) return;
+  stopping.value = true;
+  inflight.abort();
+}
 // 最近一次回應用的 model（給 badge tooltip 顯示）
 const lastModel = computed<string | null>(() => {
   for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -127,6 +137,26 @@ const modelTip = computed(() => {
 });
 const partial = ref("");        // 串流中累積的最終答案
 const toolStatus = ref("");     // 正在執行的工具提示
+// 進度顯示：不要讓使用者對著轉圈圈空等，猜不出是還在跑還是當掉了
+type Phase = "connecting" | "thinking" | "tool" | "composing" | "answering";
+const phase = ref<Phase>("connecting");
+const thinkingChars = ref(0);
+const roundNo = ref(1);
+const elapsed = ref(0);
+let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+
+const phaseText = computed(() => {
+  switch (phase.value) {
+    case "thinking":
+      return thinkingChars.value
+        ? t("chat.phase_thinking_n", { n: Math.round(thinkingChars.value / 100) / 10 })
+        : t("chat.phase_thinking");
+    case "tool": return toolStatus.value;
+    case "composing": return t("chat.phase_composing");
+    case "answering": return t("chat.phase_answering");
+    default: return t("chat.phase_connecting");
+  }
+});
 const trace = ref<ChatMessage[]>([]);
 const showTrace = ref(false);
 const conversationId = ref<string | null>(null);   // 多輪同一段對話 → 後端 append
@@ -167,8 +197,15 @@ async function send() {
   messages.value.push(userMsg);
   input.value = "";
   loading.value = true;
+  stopping.value = false;
   partial.value = "";
   toolStatus.value = "";
+  inflight = new AbortController();
+  phase.value = "connecting";
+  thinkingChars.value = 0;
+  roundNo.value = 1;
+  elapsed.value = 0;
+  elapsedTimer = setInterval(() => { elapsed.value = Math.round((Date.now() - startTs) / 1000); }, 1000);
   const startTs = Date.now();
   await scroll();
   try {
@@ -180,11 +217,19 @@ async function send() {
       4,
       (ev) => {
         if (ev.type === "token") {
+          phase.value = "answering";
           partial.value += ev.text;
           void scroll();
+        } else if (ev.type === "thinking") {
+          phase.value = "thinking";
+          thinkingChars.value = ev.chars;
         } else if (ev.type === "tool") {
-          toolStatus.value = t("chat.tool_running", { name: ev.name });
+          phase.value = "tool";
+          toolStatus.value = t("chat.tool_running", { name: humanToolName(ev.name) });
         } else if (ev.type === "tool_round") {
+          phase.value = "composing";
+          roundNo.value += 1;
+          thinkingChars.value = 0;
           partial.value = "";   // 該輪非最終答案，清掉暫存
         } else if (ev.type === "pending_action") {
           // AI 想做異動 → 不自動執行，掛在訊息上等使用者確認
@@ -215,13 +260,25 @@ async function send() {
           msg.error(friendlyChatError(ev.detail));
         }
       },
-      undefined,
+      inflight.signal,
       pageContext.value,
       conversationId.value,
     );
   } catch (e: any) {
-    msg.error(friendlyChatError(e?.message));
+    // 使用者主動中止不是錯誤，不要跳紅色訊息
+    if (stopping.value || e?.name === "AbortError") {
+      messages.value.push({
+        role: "assistant",
+        content: t("chat.stopped"),
+        ts: new Date().toISOString(),
+      });
+    } else {
+      msg.error(friendlyChatError(e?.message));
+    }
   } finally {
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+    inflight = null;
+    stopping.value = false;
     loading.value = false;
     partial.value = "";
     toolStatus.value = "";
@@ -430,8 +487,12 @@ async function removeConversation(id: string) {
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="md" v-html="renderMarkdown(partial)"></div>
         </div>
-        <div v-if="loading && toolStatus" class="tool-status">{{ toolStatus }}</div>
-        <n-spin v-if="loading && !partial" size="small" style="margin: 8px 0" />
+        <div v-if="loading" class="chat-progress">
+          <n-spin size="small" />
+          <span class="cp-text">{{ phaseText }}</span>
+          <span v-if="roundNo > 1" class="cp-dim">{{ t("chat.phase_round", { n: roundNo }) }}</span>
+          <span class="cp-dim">{{ t("chat.phase_elapsed", { n: elapsed }) }}</span>
+        </div>
       </div>
 
       <details v-if="showTrace && trace.length" class="trace">
@@ -449,7 +510,12 @@ async function removeConversation(id: string) {
           @keydown.enter.exact.prevent="send"
           style="flex: 1 1 auto; min-width: 0"
         />
-        <n-button type="primary" :loading="loading" :disabled="!input.trim()"
+        <n-button v-if="loading" type="error" ghost class="chat-send-btn"
+                  :loading="stopping" @click="stopGenerating">
+          <template #icon><n-icon><CancelIcon /></n-icon></template>
+          {{ t("chat.stop") }}
+        </n-button>
+        <n-button v-else type="primary" :disabled="!input.trim()"
                   @click="send" class="chat-send-btn">
           <template #icon><n-icon><SendIcon /></n-icon></template>
           {{ t("chat.send") }}
@@ -726,4 +792,12 @@ async function removeConversation(id: string) {
   padding: 8px;
   border-radius: 4px;
 }
+
+/* 進度列：告訴使用者現在在做什麼、第幾輪、已經多久 —— 空轉的轉圈圈看起來像當機 */
+.chat-progress {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 8px 0; font-size: 12px; opacity: .85;
+}
+.cp-text { font-weight: 500; }
+.cp-dim { opacity: .6; }
 </style>

@@ -890,7 +890,16 @@
     "foot_newline": "換行",
     "foot_local": "AI 對話可能出錯，敬請留意",
     "assistant": "AI 助手",
-    "related": "相關"
+    "related": "相關",
+    "stop": "停止",
+    "stopped": "（已停止產生回答）",
+    "phase_connecting": "連線中…",
+    "phase_thinking": "模型思考中…",
+    "phase_thinking_n": "模型思考中…（已 {n}k 字）",
+    "phase_composing": "整理查到的資料…",
+    "phase_answering": "產生回答中…",
+    "phase_round": "第 {n} 輪查詢",
+    "phase_elapsed": "已 {n} 秒"
   },
   "perm": {
     "title": "權限指派",
@@ -2648,7 +2657,12 @@
     "title": "系統設定（全域）",
     "grp_display": "顯示與地圖",
     "grp_liveness": "上線判定",
-    "grp_security": "資安"
+    "grp_security": "資安",
+    "liveness_sources": "採信哪些證據",
+    "src_scanner": "掃描代理探測",
+    "src_librenms": "LibreNMS 裝置狀態",
+    "src_arp": "ARP 記錄（不建議）",
+    "liveness_sources_hint": "只有勾選的來源會被拿來判定上線。ARP 預設不勾：它證明的是某個 MAC↔IP 對應被學到過，不是機器現在活著；而且 LibreNMS 的 ARP API 不回時間，來源設備（AP／路由器）的快取不會過期，機器關機後仍可能一直顯示上線。"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",

@@ -44,6 +44,27 @@ from app.models.ip_liveness import IPLivenessDay
 ARP_ONLY_STATUS = "online (arp)"
 
 
+def carry_forward_ok(value: str | None, *, has_scanner: bool, has_librenms: bool) -> bool:
+    """這筆狀態值可不可以拿來往後延續到沒有觀測的日子。
+
+    規則：**它宣稱的來源現在必須還在**。舊轉換寫著「上線（LibreNMS）」，但這個 IP
+    現在連一筆 LibreNMS 證據都沒有，就代表那個來源早已不在看它 —— 拿它宣稱之後
+    幾十天都正常，是沒有根據的。實機上正是這樣把一台關著的 VM 畫成 52 天全綠：
+    當初撐著它的其實是 ARP（沒有時間概念），而 ARP 從來就不該延續。
+    """
+    if not value:
+        return False
+    v = value.strip().lower()
+    if v.startswith(ARP_ONLY_STATUS):
+        return False
+    if "scanner" in v:
+        return has_scanner
+    if "librenms" in v:
+        return has_librenms
+    # 沒有來源後綴的 online／offline：任一會老化的來源還在就可以延續
+    return has_scanner or has_librenms
+
+
 def status_is_up(value: str | None) -> bool | None:
     """`online*` → True、`offline*` → False、其餘（unknown / 空 / 純 ARP）→ None。"""
     if not value:
@@ -88,7 +109,7 @@ async def uptime_for_ips(
         )).all())
 
     # 目前狀態 / 存活來源 / 建立時間 —— 用來處理「一直沒斷過所以沒有轉換」的 IP
-    cur_rows: dict[uuid.UUID, tuple[str | None, bool, datetime]] = {}
+    cur_rows: dict[uuid.UUID, tuple[str | None, bool, datetime, bool, bool]] = {}
     if ip_ids:
         for i, st, seen_s, seen_l, created in (await session.execute(
             select(
@@ -98,7 +119,7 @@ async def uptime_for_ips(
             ).where(IPAddress.id.in_(ip_ids))
         )).all():
             # 「有存活來源」刻意不含 ARP：ARP 沒有時間概念，不能拿來回填整段綠色
-            cur_rows[i] = (st, bool(seen_s or seen_l), created)
+            cur_rows[i] = (st, bool(seen_s or seen_l), created, bool(seen_s), bool(seen_l))
 
     # 逐日觀測（有記錄的日子一律以它為準）
     obs: dict[uuid.UUID, dict[date, dict[str, bool]]] = {}
@@ -119,9 +140,11 @@ async def uptime_for_ips(
     for ip_id in ip_ids:
         evs = [(ts, nv) for (i, ts, nv) in rows if i == ip_id]
         state: bool | None = None
+        state_val: str | None = None
         for ts, nv in evs:
             if ts < start_dt:
                 state = status_is_up(nv)
+                state_val = nv
             else:
                 break
         by_day: dict[date, list[str | None]] = {}
@@ -129,7 +152,8 @@ async def uptime_for_ips(
             if ts >= start_dt:
                 by_day.setdefault(ts.date(), []).append(nv)
 
-        cur_status, has_live_source, created_at = cur_rows.get(ip_id, (None, False, start_dt))
+        cur_status, has_live_source, created_at, has_scanner, has_lnms = cur_rows.get(
+            ip_id, (None, False, start_dt, False, False))
         if has_live_source:
             monitored = True
         # 整段視窗都沒有轉換、但確實有存活來源 → 用目前狀態回填。
@@ -137,10 +161,12 @@ async def uptime_for_ips(
         backfill_from: date | None = None
         if not evs and has_live_source and status_is_up(cur_status) is not None:
             state = status_is_up(cur_status)
+            state_val = cur_status
             backfill_from = max(start_day, created_at.date())
 
         flags: dict[date, dict[str, bool]] = {}
         cur = state
+        cur_val = state_val
         for i in range(days):
             d = start_day + timedelta(days=i)
             # 回填情形下，加入 IPAM 之前仍然是未知
@@ -159,10 +185,12 @@ async def uptime_for_ips(
                 elif rec["down"]:
                     cur = False
                 continue
-            up = (cur is True) if has_live_source else False
-            down = (cur is False) if has_live_source else False
+            carry = carry_forward_ok(cur_val, has_scanner=has_scanner, has_librenms=has_lnms)
+            up = (cur is True) if carry else False
+            down = (cur is False) if carry else False
             for nv in by_day.get(d, []):
                 cur = status_is_up(nv)
+                cur_val = nv
                 if cur is True:
                     up = True
                 elif cur is False:
@@ -235,26 +263,45 @@ async def uptime_batch(
         if i is not None:
             by_ip.setdefault(i, []).append((ts, nv))
 
-    meta: dict[uuid.UUID, tuple[str, str | None, str | None, bool, datetime]] = {}
+    # 逐日觀測（與 uptime_for_ips 同一份資料，避免儀表板與詳細資料頁講不同的話）
+    obs: dict[uuid.UUID, dict[date, dict[str, bool]]] = {}
+    observed_from: date | None = None
+    if ip_ids:
+        for oid, oday, oup, odown, oarp in (await session.execute(
+            select(IPLivenessDay.ip_id, IPLivenessDay.day, IPLivenessDay.up,
+                   IPLivenessDay.down, IPLivenessDay.arp_only)
+            .where(IPLivenessDay.ip_id.in_(ip_ids), IPLivenessDay.day >= start_day)
+        )).all():
+            obs.setdefault(oid, {})[oday] = {"up": oup, "down": odown, "arp_only": oarp}
+            if observed_from is None or oday < observed_from:
+                observed_from = oday
+
+    meta: dict[
+        uuid.UUID, tuple[str, str | None, str | None, bool, datetime, bool, bool]
+    ] = {}
     for i, ipv, host, st, seen_s, seen_l, created in (await session.execute(
         select(
             IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.effective_status,
             IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.created_at,
         ).where(IPAddress.id.in_(ip_ids))
     )).all():
-        meta[i] = (str(ipv).split("/")[0], host, st, bool(seen_s or seen_l), created)
+        meta[i] = (str(ipv).split("/")[0], host, st, bool(seen_s or seen_l), created,
+                   bool(seen_s), bool(seen_l))
 
     out: list[dict[str, Any]] = []
     for ip_id in ip_ids:                      # 依使用者排的順序回，不用 DB 順序
         if ip_id not in meta:
             continue
-        ip_text, hostname, cur_status, has_live_source, created_at = meta[ip_id]
+        (ip_text, hostname, cur_status, has_live_source, created_at,
+         has_scanner, has_lnms) = meta[ip_id]
         evs = by_ip.get(ip_id, [])
 
         state: bool | None = None
+        state_val: str | None = None
         for ts, nv in evs:
             if ts < start_dt:
                 state = status_is_up(nv)
+                state_val = nv
             else:
                 break
         day_events: dict[date, list[str | None]] = {}
@@ -266,22 +313,42 @@ async def uptime_batch(
         backfill_from: date | None = None
         if not evs and has_live_source and status_is_up(cur_status) is not None:
             state = status_is_up(cur_status)
+            state_val = cur_status
             backfill_from = max(start_day, created_at.date())
 
         items: list[dict[str, str]] = []
         known = down_days = 0
         cur = state
+        cur_val = state_val
         for n in range(days):
             d = start_day + timedelta(days=n)
             if backfill_from is not None and d < backfill_from:
                 items.append({"date": d.isoformat(), "status": "unknown"})
                 continue
-            # 與 uptime_for_ips 同一條規則：沒有會老化的證據來源就不准往後填
-            # （只有 ARP 撐著的 IP 會落在這裡 —— ARP 沒有時間概念）
-            up = (cur is True) if has_live_source else False
-            down = (cur is False) if has_live_source else False
+            rec = obs.get(ip_id, {}).get(d)
+            if rec is not None:
+                # 有實際觀測 → 直接用，不推估
+                if rec["up"] and rec["down"]:
+                    st2, known, down_days = "partial", known + 1, down_days + 1
+                elif rec["down"]:
+                    st2, known, down_days = "down", known + 1, down_days + 1
+                elif rec["up"]:
+                    st2, known = "up", known + 1
+                else:
+                    st2 = "unknown"
+                if rec["up"]:
+                    cur = True
+                elif rec["down"]:
+                    cur = False
+                items.append({"date": d.isoformat(), "status": st2})
+                continue
+            # 與 uptime_for_ips 同一條規則：狀態值宣稱的來源現在還在，才可以往後延續
+            carry = carry_forward_ok(cur_val, has_scanner=has_scanner, has_librenms=has_lnms)
+            up = (cur is True) if carry else False
+            down = (cur is False) if carry else False
             for nv in day_events.get(d, []):
                 cur = status_is_up(nv)
+                cur_val = nv
                 if cur is True:
                     up = True
                 elif cur is False:
@@ -310,6 +377,7 @@ async def uptime_batch(
             "uptime_pct": (round((known - down_days) / known * 100, 3) if known else None),
             "known_days": known,
             "down_days": down_days,
+            "observed_from": observed_from.isoformat() if observed_from else None,
             "has_source": bool(evs) or has_live_source,
         })
     return out

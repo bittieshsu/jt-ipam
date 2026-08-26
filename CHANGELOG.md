@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.207] — 2026-08-26
+
+### Added
+- **Which evidence counts as "online" is now a setting**, under Admin → System settings → Liveness. Scan-agent probes and LibreNMS device status are on; **ARP is off by default**, because it proves a MAC-to-IP binding was learned rather than that the machine is alive, and the LibreNMS ARP API returns no timestamp at all — a reporting device's cache can keep a powered-off machine looking online indefinitely. The recompute also honours the configured threshold, which it previously ignored: the backend had 30 minutes hard-coded while the settings page invited you to change it.
+- **The AI chat can be stopped mid-answer.** Aborting the request closes the connection, which is also what makes the LLM server stop generating rather than finishing an answer nobody will read.
+
+- **The chat says what it is doing.** A spinner with nothing next to it is indistinguishable from a hang, and these answers can take tens of seconds. The status line now names the phase — connecting, the model thinking (with how much it has produced), which tool is running, working through the results, writing the answer — along with the query round and the elapsed seconds. Tool names are turned into readable text rather than shown as identifiers. The thinking phase is reported by the backend, which previously produced no events at all while the model was thinking, so the screen sat blank for the longest part of the wait.
+
+### Fixed
+- **A stale transition no longer paints green once any evidence source reappears.** Demoting ARP was not enough on its own: the moment the machine in question was powered on and the scan agent saw it, "this address has a source" became true again and the inference happily refilled the fifty days it had been off. Carrying a state forward now requires the source that state *claims* to still exist — a transition recorded as "online (librenms)" is not carried on an address that has no LibreNMS evidence at all.
+- **The AI chat could answer with a blank message.** When the model returned neither text nor a tool call — usually because it emitted only thinking, or hit the output limit — the empty string was passed straight through and the UI showed "(no answer)", which says nothing about what went wrong. It now asks the model once more for a direct answer, and if that also comes back empty, says which of the two it was and what to adjust.
+
+### Changed
+- The system settings page is no longer one long card inside another card: each group is its own card, the content uses the full width, and field grids go to three columns on wide screens.
+
 ## [0.5.206] — 2026-08-25
 
 ### Fixed

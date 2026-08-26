@@ -35,6 +35,7 @@ export interface PendingAction { tool: string; args: Record<string, unknown>; ti
 export type ChatStreamEvent =
   | { type: "token"; text: string }
   | { type: "tool"; name: string }
+  | { type: "thinking"; chars: number }
   | { type: "tool_round" }
   | { type: "pending_action"; actions: PendingAction[] }
   | { type: "done"; answer: string; trace_messages: ChatMessage[]; model?: string | null; elapsed_ms?: number | null; conversation_id?: string; pending_actions?: PendingAction[] }

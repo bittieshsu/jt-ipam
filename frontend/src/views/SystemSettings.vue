@@ -6,7 +6,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NCard, NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NCheckbox, NButton, NTag, useMessage,
+  NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NCheckbox, NCheckboxGroup,
+  NButton, NTag, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
 import { AdminIcon, SaveIcon, RefreshIcon } from "@/icons";
@@ -73,12 +74,21 @@ async function changeRackAlign(a: RackNameAlign) {
   try { await setRackNameAlign(a); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
-// 上線判定閾值（分鐘）
+// 上線判定：閾值（分鐘）＋採信哪些證據
 const grace = ref(30);
+// ARP 預設不勾 —— 它沒有時間概念，來源設備的快取不老化就會讓關機的機器一直顯示上線
+const livenessSrc = ref<string[]>(["scanner", "librenms"]);
+async function changeSources(v: (string | number)[]) {
+  const list = v.map(String);
+  livenessSrc.value = list;
+  try { await setOnlineGrace(grace.value, list); msg.success(t("common.ok")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
+}
 async function changeGrace(v: number | null) {
   const n = v ?? 30;
   grace.value = n;
-  try { await setOnlineGrace(n); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
+  try { await setOnlineGrace(n, livenessSrc.value); msg.success(t("common.ok")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 // GeoIP
@@ -294,7 +304,8 @@ onMounted(() => {
   getConsoleSecurity().then((c) => { rdpClipPaste.value = c.rdp_clipboard_paste; }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
-  getOnlineGrace().then((m) => { grace.value = m; }).catch(() => {});
+  getOnlineGrace().then((c) => { grace.value = c.minutes; livenessSrc.value = c.sources; })
+    .catch(() => {});
   void loadGeoip();
   void loadLdap();
   void loadLdapGroups();
@@ -335,13 +346,11 @@ async function doPreviewAutolink() {
 </script>
 
 <template>
-  <n-card>
-    <template #header>
-      <n-space align="center" :wrap-item="false">
-        <n-icon :size="22"><AdminIcon /></n-icon>
-        <span>{{ t("system_settings.title") }}</span>
-      </n-space>
-    </template>
+  <div class="ss-page">
+    <div class="ss-title">
+      <n-icon :size="22"><AdminIcon /></n-icon>
+      <span>{{ t("system_settings.title") }}</span>
+    </div>
     <div class="ss-wrap">
       <!-- 資安：連線管理 -->
       <section class="ss-group">
@@ -385,6 +394,17 @@ async function doPreviewAutolink() {
           <label>{{ t("settings.prefs.online_grace_minutes") }}</label>
           <n-input-number :value="grace" :min="1" :max="43200" style="width: 100%" @update:value="changeGrace" />
           <div class="hint">{{ t("settings.prefs.online_grace_minutes_hint") }}</div>
+        </div>
+        <div class="fld" style="max-width: 640px; margin-top: 12px">
+          <label>{{ t("system_settings.liveness_sources") }}</label>
+          <n-checkbox-group :value="livenessSrc" @update:value="changeSources">
+            <n-space :size="18">
+              <n-checkbox value="scanner">{{ t("system_settings.src_scanner") }}</n-checkbox>
+              <n-checkbox value="librenms">{{ t("system_settings.src_librenms") }}</n-checkbox>
+              <n-checkbox value="arp">{{ t("system_settings.src_arp") }}</n-checkbox>
+            </n-space>
+          </n-checkbox-group>
+          <div class="hint">{{ t("system_settings.liveness_sources_hint") }}</div>
         </div>
       </section>
 
@@ -736,18 +756,25 @@ async function doPreviewAutolink() {
         <div class="hint" style="line-height:1.6; margin-top:10px">{{ t("autolink.rules_hint") }}</div>
       </section>
     </div>
-  </n-card>
+  </div>
 </template>
 
 <style scoped>
-.ss-wrap { display: flex; flex-direction: column; gap: 24px; max-width: 780px; }
+/* 每個分類各自一張卡片，寬度撐滿內容區（原本全部擠在一張大卡片、右側留白） */
+.ss-page { display: flex; flex-direction: column; gap: 16px; }
+.ss-title { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600;
+  padding: 2px 2px 0; }
+.ss-wrap { display: flex; flex-direction: column; gap: 16px; max-width: none; }
 .ss-group { border: 1px solid var(--n-border-color, rgba(127,127,127,.18)); border-radius: 14px;
-  padding: 20px 22px 22px; background: rgba(127,127,127,0.028); box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+  padding: 20px 22px 22px; background: var(--n-card-color, rgba(127,127,127,0.028));
+  box-shadow: 0 1px 3px rgba(15,23,42,.05); }
 .ss-h { margin: 0; font-size: 16px; font-weight: 700; padding-left: 12px; line-height: 1.25;
   border-left: 4px solid #18a058; }
 /* 統一卡片內每個區塊的垂直間距，避免欄位標題緊貼上一個元素 */
 .ss-group > * + * { margin-top: 16px; }
 .ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* 寬螢幕改三欄，把右邊的空間用掉 */
+@media (min-width: 1500px) { .ss-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px) { .ss-grid { grid-template-columns: 1fr; } }
 .fld label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
 .hint { font-size: 11px; opacity: 0.65; margin-top: 4px; }

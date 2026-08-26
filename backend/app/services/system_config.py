@@ -1062,6 +1062,30 @@ async def set_notification_matrix(
 AUTOLINK_KEY = "ip_device_autolink"
 
 
+#: 哪些證據可以用來判定「上線」。ARP 預設不勾 —— 它證明的是「某個 MAC↔IP 對應被學到過」，
+#: 不是機器現在活著；而且 LibreNMS 的 ARP API 連時間都不回，來源設備的快取不老化就會
+#: 永遠看起來「剛剛才看到」（實機上讓一台關機的 VM 顯示 52 天全綠）。
+LIVENESS_SOURCES = ("scanner", "librenms", "arp")
+DEFAULT_LIVENESS_SOURCES = ("scanner", "librenms")
+ONLINE_GRACE_KEY = "online_grace_minutes"
+
+
+async def get_liveness_config(session: AsyncSession) -> dict[str, Any]:
+    """上線判定：閾值（分鐘）＋哪些來源算數。"""
+    row = await session.get(SystemSetting, ONLINE_GRACE_KEY)
+    v = row.value if row and isinstance(row.value, dict) else {}
+    try:
+        minutes = int(v.get("minutes") or 30)
+    except (TypeError, ValueError):
+        minutes = 30
+    raw = v.get("sources")
+    if isinstance(raw, list):
+        sources = [str(x) for x in raw if str(x) in LIVENESS_SOURCES]
+    else:
+        sources = list(DEFAULT_LIVENESS_SOURCES)
+    return {"minutes": min(43200, max(1, minutes)), "sources": sources}
+
+
 async def get_autolink_config(session: AsyncSession) -> dict[str, Any]:
     """是否讓每輪同步依網卡 MAC 把 IP 掛回所屬裝置，以及限定的子網路範圍。
 
