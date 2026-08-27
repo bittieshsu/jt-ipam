@@ -32,7 +32,7 @@ import { fmtDateTime } from "@/utils/datetime";
 import { useTablePagination } from "@/composables/useTablePagination";
 import {
   RefreshIcon, FilesIcon, CancelIcon, DeleteIcon, EditIcon,
-  DownloadIcon, UploadIcon, NewFolderIcon, FilterIcon, MoveIcon, UpLevelIcon,
+  DownloadIcon, UploadIcon, NewFolderIcon, FilterIcon, SortAscIcon, MoveIcon, UpLevelIcon,
 } from "@/icons";
 
 const props = defineProps<{
@@ -498,6 +498,14 @@ const sortModeOptions = computed(() => [
   { label: t("sftp.sort_mixed"), value: "mixed" },
 ]);
 
+/** 選中值前面掛排序 icon —— 工具列上其他控制項都是「icon + 文字」，少一個看得出來。 */
+function renderSortTag({ option }: { option: { label?: unknown } }) {
+  return h("span", { style: "display:flex;align-items:center;gap:6px;" }, [
+    h(NIcon, null, { default: () => h(SortAscIcon) }),
+    String(option?.label ?? ""),
+  ]);
+}
+
 function onSorterChange(s: { columnKey?: string | number; order?: SortOrder } | null) {
   if (!s || !s.order) { sortOrder.value = false; return; }
   sortKey.value = String(s.columnKey ?? "name") as SortKey;
@@ -835,8 +843,9 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         <!-- 排序方式：兩派都有道理（檔案總管 vs ls），所以讓使用者自己選；存進偏好跨裝置 -->
         <n-tooltip trigger="hover">
           <template #trigger>
-            <n-select :value="dirsFirst ? 'dirs' : 'mixed'" size="small" style="width: 168px"
-                      :options="sortModeOptions"
+            <!-- 尺寸與 icon 都比照旁邊的篩選框：工具列上少一個 icon、矮一截都看得出來 -->
+            <n-select :value="dirsFirst ? 'dirs' : 'mixed'" style="width: 190px"
+                      :options="sortModeOptions" :render-tag="renderSortTag"
                       @update:value="(v: string) => setDirsFirst(v === 'dirs')" />
           </template>
           {{ t("sftp.sort_mode_hint") }}

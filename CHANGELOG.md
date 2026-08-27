@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.211] — 2026-08-27
+
+### Fixed
+- **The SFTP sort-mode dropdown was shorter than the controls beside it and had no icon.** Leaving the size unset fell back to the component default, so one toolbar row had two heights; every other control there is "icon + label", and this one was bare text. It now matches the neighbouring filter box and carries a sort icon ahead of the selected value (the chevron stays — it is what says "this opens"). Verified by measuring all seven toolbar controls in a real browser: one height, one top edge.
+
 ## [0.5.210] — 2026-08-27
 
 ### Added
