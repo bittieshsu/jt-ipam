@@ -49,7 +49,7 @@ def test_get_field_never_touches_attributes() -> None:
     ("eq", "10.20.0.0/25", False),
     ("ne", "x", True),
     ("contains", "10.20.", True),
-    ("not_contains", "192.168.", True),
+    ("not_contains", "203.0.113.", True),
     ("startswith", "10.", True),
     ("endswith", "/24", True),
     ("in", ["10.20.0.0/24", "10.30.0.0/24"], True),
