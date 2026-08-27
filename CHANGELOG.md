@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.212] — 2026-08-27
+
+### Fixed
+- **The SFTP permission column now uses a monospace font.** Every position in `drwxr-xr-x` carries a fixed meaning, and in a proportional font the rows do not line up, so checking one bit means counting characters. This also fixes the root cause: the cell already carried `class="mono"`, but that rule only targeted `input`, and nodes produced by a render function live inside the table and never receive this component's scoped-style attribute — it looked set and did nothing. It is an inline style now.
+- **The "all subnets" dropdown on the devices page was shorter than the search box and buttons beside it.** It carried `size="small"` while its neighbours used the default size. A toolbar measurement sweep across 18 list pages in a real browser confirmed this was the only remaining row with mixed heights.
+
 ## [0.5.211] — 2026-08-27
 
 ### Fixed

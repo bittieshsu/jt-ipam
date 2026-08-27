@@ -508,7 +508,8 @@ onMounted(async () => {
       <n-input v-model:value="filterQ" :placeholder="t('devices.search_ph')" clearable
                style="width: 220px" @update:value="onFilterInput" />
 
-        <n-select v-model:value="subnetFilter" clearable filterable size="small"
+        <!-- 尺寸跟著同一列的搜尋框與按鈕走：漏寫 size 會退回元件預設，同一列就出現兩種高度 -->
+        <n-select v-model:value="subnetFilter" clearable filterable
                   style="width: 220px" :options="subnetOptions"
                   :placeholder="t('devices.filter_subnet_all')"
                   @update:value="() => refresh()" />

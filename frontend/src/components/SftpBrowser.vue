@@ -469,7 +469,12 @@ const cols = computed<DataTableColumns<SftpEntry>>(() => [
     render: (r) => (r.mtime ? fmtDateTime(new Date(r.mtime * 1000).toISOString()) : "—"),
     sorter: true, sortOrder: sortKey.value === "mtime" ? sortOrder.value : false },
   { title: t("sftp.col_mode"), key: "mode", width: 120,
-    render: (r) => h("span", { class: "mono" }, r.mode ?? "—") },
+    // 權限位元要等寬才對得齊（drwxr-xr-x 每個位置都有意義，錯位就得一個字一個字數）。
+    // 這裡走 inline style 而非 class：render function 產生的節點在表格內部，拿不到本元件的
+    // scoped 樣式作用域 —— 之前掛 class="mono" 完全沒生效就是這個原因。
+    render: (r) => h("span", {
+      style: "font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap;",
+    }, r.mode ?? "—") },
   {
     title: t("common.actions"), key: "actions", width: 230,
     render: (r) => h(NSpace, { size: 4, wrap: false }, () => [
