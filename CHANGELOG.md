@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.210] — 2026-08-27
+
+### Added
+- **The SFTP file list can sort folders first or mix them with files.** Both conventions are defensible — a file manager groups directories, `ls` does not — so it is a preference rather than a decision made for you, stored per user so it follows you to another device. Folders-first holds in **both** sort directions: putting the grouping inside the comparison would send directories to the bottom the moment you switch to descending, which is what nobody wants. That required taking sorting off the table component, since its sorter never sees the direction.
+
+### Changed
+- Sorting by size or modified time now also honours the chosen mode; previously only the name column grouped directories, so switching columns silently changed the grouping rule.
+
 ## [0.5.209] — 2026-08-27
 
 ### Added

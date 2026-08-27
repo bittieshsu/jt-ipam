@@ -19,6 +19,7 @@ class UserPreferenceRead(StrictModel):
     table_columns: dict[str, Any] | None = None
     pinned_subnet_ids: list[uuid.UUID] | None = None
     pinned: dict[str, list[str]] | None = None
+    sftp_sort_dirs_first: bool = True
 
 
 class UserPreferenceUpdate(StrictModel):
@@ -30,3 +31,4 @@ class UserPreferenceUpdate(StrictModel):
     table_columns: dict[str, Any] | None = None
     pinned_subnet_ids: list[uuid.UUID] | None = None
     pinned: dict[str, list[str]] | None = None
+    sftp_sort_dirs_first: bool | None = None

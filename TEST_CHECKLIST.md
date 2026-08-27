@@ -199,6 +199,10 @@ defect is in *what the model was able to ask*.
 - [ ] **Selection copy**: a URL split across rows copies as one usable address;
   **ordinary multi-line text must be left untouched**
 - [ ] **No false joins**: a full-width line followed by unrelated text is not glued into a URL
+- [ ] **SFTP sort mode**: with Folders first, directories lead in **both ascending and descending**
+  order (putting the grouping inside the comparator inverts it on descending — that is the regression
+  to watch); Mixed sorts purely by the column. Sorting by size or mtime honours the same mode.
+  The choice is saved to user preferences and survives a reconnect or a different device
 - [ ] Existing spec: `frontend/e2e/terminal-links.spec.ts` (needs `E2E_SSH_ADDRESS_ID/USER/PASS`,
   plus `can_ssh` on the user and `ssh_enabled` on the address; accept the host key on first use)
 

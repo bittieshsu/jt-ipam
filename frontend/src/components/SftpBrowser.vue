@@ -12,11 +12,14 @@
  * 100 MB，收在記憶體再落地最單純。真要搬大檔請用 scp/rsync —— 把工具用在它擅長的地方，
  * 比在瀏覽器裡硬做串流落地實在。
  */
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { sortEntries, type SortKey, type SortOrder } from "@/utils/sftpSort";
+import { getPreferences, updatePreferences } from "@/api/preferences";
 import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCard, NDataTable, NForm, NFormItem, NIcon, NInput,
   NInputNumber, NPopconfirm, NRadio, NRadioGroup, NSelect, NSpace, NSpin, NSwitch,
+  NTooltip,
   NTag, NModal, NInputGroup, useMessage,
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
@@ -456,15 +459,15 @@ const cols = computed<DataTableColumns<SftpEntry>>(() => [
         r.is_dir ? [h(NIcon, { size: 16 }, { default: () => h(FilesIcon) })] : []),
       h("span", null, `${r.name}${r.is_link ? " ↗" : ""}`),
     ]),
-    sorter: (a, b) => Number(!!b.is_dir) - Number(!!a.is_dir)
-      || a.name.localeCompare(b.name),
+    sorter: true,
+    sortOrder: sortKey.value === "name" ? sortOrder.value : false,
   },
   { title: t("sftp.col_size"), key: "size", width: 110,
     render: (r) => (r.is_dir ? "—" : fmtSize(r.size)),
-    sorter: (a, b) => (a.size ?? -1) - (b.size ?? -1) },
+    sorter: true, sortOrder: sortKey.value === "size" ? sortOrder.value : false },
   { title: t("sftp.col_mtime"), key: "mtime", width: 170,
     render: (r) => (r.mtime ? fmtDateTime(new Date(r.mtime * 1000).toISOString()) : "—"),
-    sorter: (a, b) => (a.mtime ?? 0) - (b.mtime ?? 0) },
+    sorter: true, sortOrder: sortKey.value === "mtime" ? sortOrder.value : false },
   { title: t("sftp.col_mode"), key: "mode", width: 120,
     render: (r) => h("span", { class: "mono" }, r.mode ?? "—") },
   {
@@ -483,12 +486,47 @@ const cols = computed<DataTableColumns<SftpEntry>>(() => [
   },
 ]);
 
+// ── 排序：自己做，不交給表格的 sorter
+// 因為「資料夾優先」必須在升冪／降冪**之外**成立 —— 寫進比較函式的話，切成降冪
+// 會連分組一起反轉，資料夾跑到最後面。表格的 sorter 拿不到方向，所以改成受控排序。
+const sortKey = ref<SortKey>("name");
+const sortOrder = ref<SortOrder>("ascend");
+const dirsFirst = ref(true);          // 預設與檔案總管一致
+
+const sortModeOptions = computed(() => [
+  { label: t("sftp.sort_dirs_first"), value: "dirs" },
+  { label: t("sftp.sort_mixed"), value: "mixed" },
+]);
+
+function onSorterChange(s: { columnKey?: string | number; order?: SortOrder } | null) {
+  if (!s || !s.order) { sortOrder.value = false; return; }
+  sortKey.value = String(s.columnKey ?? "name") as SortKey;
+  sortOrder.value = s.order;
+}
+
+async function setDirsFirst(v: boolean) {
+  dirsFirst.value = v;
+  // 存進使用者偏好（跨裝置），與每頁筆數同一個機制；失敗不影響當下操作
+  try { await updatePreferences({ sftp_sort_dirs_first: v }); } catch { /* 靜默 */ }
+}
+
+onMounted(async () => {
+  try {
+    const p = await getPreferences();
+    if (typeof p.sftp_sort_dirs_first === "boolean") dirsFirst.value = p.sftp_sort_dirs_first;
+  } catch { /* 讀不到就用預設 */ }
+});
+
 // ── 篩選：只篩目前這一頁的清單（遠端不重撈，因為列出來的就是全部了）
 const filterText = ref("");
 const shownEntries = computed(() => {
   const q = filterText.value.trim().toLowerCase();
-  if (!q) return entries.value;
-  return entries.value.filter((e) => e.name.toLowerCase().includes(q));
+  const base = q
+    ? entries.value.filter((e) => e.name.toLowerCase().includes(q))
+    : entries.value;
+  return sortEntries(base, {
+    key: sortKey.value, order: sortOrder.value, dirsFirst: dirsFirst.value,
+  });
 });
 
 // 目錄很大時分頁顯示 —— 原本只能截斷後說「只顯示一部分」，現在整份都拿得到、翻頁看
@@ -794,6 +832,15 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
                  :placeholder="t('sftp.filter_ph')">
           <template #prefix><n-icon><FilterIcon /></n-icon></template>
         </n-input>
+        <!-- 排序方式：兩派都有道理（檔案總管 vs ls），所以讓使用者自己選；存進偏好跨裝置 -->
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-select :value="dirsFirst ? 'dirs' : 'mixed'" size="small" style="width: 168px"
+                      :options="sortModeOptions"
+                      @update:value="(v: string) => setDirsFirst(v === 'dirs')" />
+          </template>
+          {{ t("sftp.sort_mode_hint") }}
+        </n-tooltip>
       </n-space>
 
       <!-- 勾選後才出現的批次列：沒選東西時不佔版面，也不會讓人誤按 -->
@@ -913,7 +960,8 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
                       :checked-row-keys="checkedKeys"
                       :pagination="pagination"
                       :bordered="false" flex-height style="height:100%" virtual-scroll
-                      @update:checked-row-keys="(k: any) => (checkedKeys = k as string[])" />
+                      @update:checked-row-keys="(k: any) => (checkedKeys = k as string[])"
+                      @update:sorter="onSorterChange" />
       </div>
       </div>
     </div>

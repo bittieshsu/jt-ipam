@@ -3343,7 +3343,10 @@
     "deleted_recursive": "Deleted {n} item(s).",
     "batch_dirs_not_empty": "These folders are not empty and were left alone: {names}. Delete them one at a time to choose whether to remove their contents.",
     "offline_title": "Disconnected",
-    "offline_hint": "This listing is what was on screen before the connection dropped and may no longer match the remote host. Reconnect to work with files again."
+    "offline_hint": "This listing is what was on screen before the connection dropped and may no longer match the remote host. Reconnect to work with files again.",
+    "sort_dirs_first": "Folders first",
+    "sort_mixed": "Mixed with files",
+    "sort_mode_hint": "With Folders first, directories always come before files in both ascending and descending order, like a file manager. Mixed sorts purely by the selected column, like ls. The choice is saved to your preferences and follows you to other devices."
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",
