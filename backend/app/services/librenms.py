@@ -904,7 +904,8 @@ async def recompute_effective_status(
                 a_seen = arp
                 ip.last_seen_arp = arp
 
-        # 只有被勾選的來源算數（ARP 預設不勾，見 system_config.LIVENESS_SOURCES）
+        # 只有被勾選的來源算數；每個來源會不會過期由 services/evidence.py 的契約決定
+        # （ARP 不會過期 → 不在預設之內）
         use_s = "scanner" in sources
         use_l = "librenms" in sources
         use_a = "arp" in sources

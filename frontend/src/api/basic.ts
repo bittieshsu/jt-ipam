@@ -234,6 +234,16 @@ export async function setOnlineGrace(minutes: number, sources: string[]): Promis
   await apiClient.put("/api/v1/system/online-grace", { minutes, sources });
 }
 
+export async function getIpCooldown(): Promise<number> {
+  try {
+    const { data } = await apiClient.get<{ days: number }>("/api/v1/system/ip-cooldown");
+    return Number(data.days) || 0;
+  } catch { return 30; }
+}
+export async function setIpCooldown(days: number): Promise<void> {
+  await apiClient.put("/api/v1/system/ip-cooldown", { days });
+}
+
 export type RackNameAlign = "left" | "center" | "right";
 export async function getRackNameAlign(): Promise<RackNameAlign> {
   try {

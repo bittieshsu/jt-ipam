@@ -298,7 +298,8 @@
     "esxi_admin": "VMware",
     "fw_rule_changes": "Firewall rule changes",
     "attack_surface": "Exposed services",
-    "zabbix": "Zabbix integration"
+    "zabbix": "Zabbix integration",
+    "event_rules": "Event rules"
   },
   "topbar": {
     "search": "Search…",
@@ -1152,7 +1153,9 @@
     "switch_port_ph": "Port (e.g. eth1/0/6)",
     "switch_port_hint": "Maintained by the LibreNMS sync; a value entered by hand is overwritten on the next sync.",
     "last_seen_arp": "Last seen (ARP)",
-    "source_arp": "ARP only"
+    "source_arp": "ARP only",
+    "state_deprecated": "Deprecated",
+    "state_quarantine": "Quarantined"
   },
   "subnets": {
     "title": "Subnets",
@@ -2662,7 +2665,10 @@
     "src_scanner": "Scan agent probes",
     "src_librenms": "LibreNMS device status",
     "src_arp": "ARP records (not recommended)",
-    "liveness_sources_hint": "Only the selected sources decide whether an address is online. ARP is off by default: it proves a MAC-to-IP binding was learned, not that the machine is alive — and the LibreNMS ARP API returns no timestamp, so a reporting device's cache can keep a powered-off machine looking online indefinitely."
+    "liveness_sources_hint": "Only the selected sources decide whether an address is online. ARP is off by default: it proves a MAC-to-IP binding was learned, not that the machine is alive — and the LibreNMS ARP API returns no timestamp, so a reporting device's cache can keep a powered-off machine looking online indefinitely.",
+    "grp_lifecycle": "IP lifecycle",
+    "cooldown_days": "Cooldown after release (days)",
+    "cooldown_days_hint": "After an address is released (deleted) it is not offered for reallocation during this window, and creating it by hand is refused. Things outside IPAM still point at it: DNS records and caches, firewall rules, ACLs, certificate SANs, monitoring. Handing it to another machine too early produces the hardest kind of fault to diagnose. Default 30 days; 0 disables it. An admin can clear an individual address early, which is recorded."
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",
@@ -3445,5 +3451,34 @@
     "gap": "Monitoring coverage gap",
     "gap_scoped": "Within the configured subnet scope, {n} address(es) with a known hostname are not monitored by this Zabbix.",
     "gap_global": "{n} address(es) with a known hostname are not monitored by this Zabbix (no subnet scope configured on this instance)."
+  },
+  "event_rules": {
+    "title": "Event rules",
+    "intro": "Event → conditions → actions. For example: notify only when a new subnet's description contains Production, or alert on an unauthorised IP only inside server ranges. Conditions are structured fields, not an executable expression, and regular expressions are deliberately not supported — rules are user input, and anything executable is a risk.",
+    "events": "Events",
+    "events_ph": "type your own; * matches every event",
+    "conditions": "Conditions (all must hold)",
+    "conditions_hint": "Fields use dot paths, e.g. data.subnet.cidr, data.count. No conditions means the event name alone decides.",
+    "no_conditions": "(no conditions)",
+    "actions_col": "Actions",
+    "act_notify": "Notify admins",
+    "act_webhook": "Send to webhook",
+    "add_condition": "Add condition",
+    "add_action": "Add action",
+    "field_ph": "data.subnet.cidr",
+    "value_ph": "value",
+    "notify_title_ph": "Notification title (defaults to the rule name)",
+    "webhook_id_ph": "Webhook subscription ID",
+    "matches": "Matches",
+    "test": "Dry run",
+    "run_test": "Run",
+    "test_event": "Event name",
+    "test_payload": "Event payload (JSON)",
+    "test_hint": "Only evaluates whether it would match — no notification or webhook is sent.",
+    "would_match": "This payload would match the rule",
+    "would_not_match": "This payload would not match",
+    "event_name": "Event name matches",
+    "actual": "actual",
+    "bad_json": "The payload is not valid JSON"
   }
 }

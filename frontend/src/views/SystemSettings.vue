@@ -26,6 +26,7 @@ import { apiErrMsg } from "@/api/client";
 import {
   getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign,
   getOnlineGrace, setOnlineGrace,
+  getIpCooldown, setIpCooldown,
   getGeoipConfig, setGeoipConfig, updateGeoipDbNow,
   type GeoIPConfig, type RackNameAlign,
 } from "@/api/basic";
@@ -78,6 +79,14 @@ async function changeRackAlign(a: RackNameAlign) {
 const grace = ref(30);
 // ARP 預設不勾 —— 它沒有時間概念，來源設備的快取不老化就會讓關機的機器一直顯示上線
 const livenessSrc = ref<string[]>(["scanner", "librenms"]);
+// IP 生命週期：釋放後的冷卻天數
+const cooldownDays = ref(30);
+async function changeCooldown(v: number | null) {
+  const n = v ?? 0;
+  cooldownDays.value = n;
+  try { await setIpCooldown(n); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
+}
+
 async function changeSources(v: (string | number)[]) {
   const list = v.map(String);
   livenessSrc.value = list;
@@ -306,6 +315,7 @@ onMounted(() => {
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
   getOnlineGrace().then((c) => { grace.value = c.minutes; livenessSrc.value = c.sources; })
     .catch(() => {});
+  getIpCooldown().then((d) => { cooldownDays.value = d; }).catch(() => {});
   void loadGeoip();
   void loadLdap();
   void loadLdapGroups();
@@ -405,6 +415,17 @@ async function doPreviewAutolink() {
             </n-space>
           </n-checkbox-group>
           <div class="hint">{{ t("system_settings.liveness_sources_hint") }}</div>
+        </div>
+      </n-card>
+
+      <!-- IP 生命週期 -->
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_lifecycle") }}</span></template>
+        <div class="fld" style="max-width: 320px">
+          <label>{{ t("system_settings.cooldown_days") }}</label>
+          <n-input-number :value="cooldownDays" :min="0" :max="3650" style="width: 100%"
+                          @update:value="changeCooldown" />
+          <div class="hint">{{ t("system_settings.cooldown_days_hint") }}</div>
         </div>
       </n-card>
 

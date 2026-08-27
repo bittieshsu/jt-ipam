@@ -241,6 +241,19 @@ async def _run() -> int:
             await session.rollback()
             log.error("arp prune failed: %s", exc)
 
+        # ── 冷卻紀錄回收 ──
+        # 只增不刪會無限累積；到期後仍多留一段時間，因為「這位址上一手是誰」
+        # 最常在冷卻剛結束那幾天被問到。
+        try:
+            from app.services.ip_lifecycle import purge_expired
+            removed = await purge_expired(session)
+            await session.commit()
+            if removed:
+                log.info("cooldown purge: removed %d expired rows", removed)
+        except Exception as exc:
+            await session.rollback()
+            log.error("cooldown purge failed: %s", exc)
+
         # ── AdGuard ──
         ags = (
             await session.execute(

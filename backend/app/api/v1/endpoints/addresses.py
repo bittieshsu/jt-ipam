@@ -36,6 +36,7 @@ from app.schemas.address import (
 )
 from app.schemas.base import Paginated, StrictModel
 from app.schemas.ip_change_log import IPChangeLogRead
+from app.services import ip_lifecycle
 from app.services.address import (
     IPAlreadyExists,
     IPNotInSubnet,
@@ -677,6 +678,19 @@ async def create_address(
 ) -> IPAddressRead:
     subnet = await _require_subnet_perm(session, user, payload.subnet_id, "write")
 
+    # 冷卻期守門：這個位址剛被釋放，外面的 DNS 快取／防火牆規則可能還指著它。
+    # 擋下來而不是安靜放行 —— 管理員判斷沒問題可以先解除冷卻再建立。
+    cd = await ip_lifecycle.cooldown_for(session, subnet_id=payload.subnet_id, ip=payload.ip)
+    if cd is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "ip_in_cooldown",
+            "ip": payload.ip,
+            "until": cd.until.isoformat() if cd.until else None,
+            "previous_hostname": cd.previous_hostname,
+            "message": ("此位址剛被釋放，仍在冷卻期內（外部的 DNS 快取、防火牆規則可能"
+                        "還指著它）。確定要現在使用，請先解除冷卻。"),
+        })
+
     try:
         obj = await create_ip(
             session,
@@ -906,8 +920,61 @@ async def delete_address(
     await log_change(session, ip=obj, event_type="deleted",
                      source="manual", actor_user_id=str(user.id),
                      old=str(obj.ip))
+    # 釋放 → 進冷卻期。外面還有 DNS 快取／防火牆規則／ACL 指著這個位址，
+    # 立刻配給別人會造成最難查的那種故障（見 services/ip_lifecycle）。
+    await ip_lifecycle.start_cooldown(session, ip=obj, actor_user_id=user.id,
+                                      reason="deleted")
     await session.delete(obj)
     await session.commit()
+
+
+class CooldownClearIn(StrictModel):
+    reason: Annotated[str | None, Field(max_length=500)] = None
+
+
+@router.get("/cooldowns/{subnet_id}")
+async def list_cooldowns(
+    subnet_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """這個子網路裡仍在冷卻期的位址（剛釋放、暫時不配發）。"""
+    await _require_subnet_perm(session, user, subnet_id, "read")
+    rows = await ip_lifecycle.active_cooldowns(session, subnet_id)
+    return {"items": [{
+        "ip": ip,
+        "released_at": r.released_at.isoformat() if r.released_at else None,
+        "until": r.until.isoformat() if r.until else None,
+        "previous_hostname": r.previous_hostname,
+        "previous_mac": r.previous_mac,
+        "reason": r.reason,
+    } for ip, r in sorted(rows.items())], "count": len(rows)}
+
+
+@router.post("/cooldowns/{subnet_id}/{ip}/clear")
+async def clear_cooldown(
+    subnet_id: uuid.UUID, ip: str, payload: CooldownClearIn,
+    user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """提前解除冷卻。**紀錄不刪**，留下誰／何時／為什麼。"""
+    await _require_subnet_perm(session, user, subnet_id, "admin")
+    row = await ip_lifecycle.clear_cooldown(
+        session, subnet_id=subnet_id, ip=ip,
+        actor_user_id=user.id, reason=payload.reason,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not in cooldown")
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip_address", object_id=None, action="cooldown_clear",
+        diff={"subnet_id": str(subnet_id), "ip": ip, "reason": payload.reason or ""},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"ok": True, "ip": ip}
 
 
 class BulkDeletePayload(StrictModel):

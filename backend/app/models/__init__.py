@@ -29,6 +29,7 @@ from app.models.dhcp import DHCPPoolRange
 from app.models.dhcp_sighting import DHCPSighting
 from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.encrypted_secret import EncryptedSecret
+from app.models.event_rule import EventRule
 from app.models.firewall import (
     OPNsenseAliasMapping,
     OPNsenseFirewall,
@@ -43,6 +44,7 @@ from app.models.fortigate import (
 )
 from app.models.fw_snapshot import FwRuleSnapshot
 from app.models.ip_change_log import IPChangeLog
+from app.models.ip_cooldown import IPCooldown
 from app.models.ip_hostname import IPHostnameObservation
 from app.models.ip_liveness import IPLivenessDay
 from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval
@@ -119,10 +121,12 @@ __all__ = [
     "DevicePowerPort",
     "DeviceVLAN",
     "EncryptedSecret",
+    "EventRule",
     "FDBEntry",
     "Group",
     "IPAddress",
     "IPChangeLog",
+    "IPCooldown",
     "IPHostnameObservation",
     "IPLivenessDay",
     "IPRequest",

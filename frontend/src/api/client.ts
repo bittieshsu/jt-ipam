@@ -38,9 +38,13 @@ function localizeDetail(error: AxiosError): void {
  */
 export function apiErrMsg(e: unknown): string {
   const detail = (e as any)?.response?.data?.detail;
-  return typeof detail === "string" && detail
-    ? detail
-    : (i18n.global as any).t("errors.network");
+  if (typeof detail === "string" && detail) return detail;
+  // 結構化的 detail（例如冷卻期擋下建立時會附上 until / previous_hostname）：
+  // 取 message 顯示。少了這段會變成「[object Object]」——那比沒有訊息還糟。
+  if (detail && typeof detail === "object" && typeof detail.message === "string") {
+    return detail.message;
+  }
+  return (i18n.global as any).t("errors.network");
 }
 
 /**

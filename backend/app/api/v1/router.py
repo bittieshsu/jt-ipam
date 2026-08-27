@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     dhcp,
     dns,
     esxi,
+    event_rules,
     firewall,
     fortigate,
     import_external,
@@ -136,6 +137,7 @@ api_v1_router.include_router(firewall.router)
 api_v1_router.include_router(dhcp.router)
 api_v1_router.include_router(pfsense.router)
 api_v1_router.include_router(pfsense.view_router)
+api_v1_router.include_router(event_rules.router)
 api_v1_router.include_router(fortigate.router)
 api_v1_router.include_router(fortigate.view_router)
 api_v1_router.include_router(wazuh.router)

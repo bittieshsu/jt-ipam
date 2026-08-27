@@ -189,19 +189,15 @@ async def auth_headers(admin_user):  # type: ignore[no-untyped-def]
 
 @pytest.fixture(autouse=True)
 def _reset_precedence_caches():
-    """清掉各 precedence 服務的 in-process 60s 快取，避免測試間互相污染：
-    DB 交易每測試 rollback，但模組級 `_cache` 不會，導致前一個測試設過的
-    順序/停用在 TTL 內被後面的測試讀到（CI 機器快、更容易踩到）。"""
-    import importlib
-    for _mod in (
-        "app.services.hostname",
-        "app.services.device_name_precedence",
-        "app.services.arp_precedence",
-        "app.services.model_precedence",
-    ):
-        try:
-            _m = importlib.import_module(_mod)
-            getattr(_m, "_cache", {}).clear()
-        except Exception:
-            pass
+    """清掉來源優先序的 in-process 60s 快取，避免測試間互相污染。
+
+    DB 交易每個測試都 rollback，但模組級快取不會 —— 前一個測試設過的順序／停用會在
+    TTL 內被後面的測試讀到（CI 機器跑得快，更容易踩到）。
+
+    ⚠️ 這裡刻意**直接 import**、不做 `getattr(..., "_cache", {})` 那種容錯：
+    快取搬家時（v0.5.209 收斂到 services/precedence）容錯寫法會安靜地什麼都不清，
+    測試就開始互相污染，而且看起來只是「某支測試偶爾失敗」。寧可 import 失敗炸掉。
+    """
+    from app.services.precedence import bust_all
+    bust_all()
     yield

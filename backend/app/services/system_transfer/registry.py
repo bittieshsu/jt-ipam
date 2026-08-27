@@ -131,6 +131,8 @@ CATEGORY: dict[str, str] = {
     "ip_change_log": "operational",
     # 逐日存活觀測：可重建的運維資料，不隨設定搬移
     "ip_liveness_days": "operational",
+    "ip_cooldowns": "operational",
+    "event_rules": "settings",
     "ip_requests": "operational",
     "ip_request_events": "operational",
     "ip_request_stage_approvals": "operational",

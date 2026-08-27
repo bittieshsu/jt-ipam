@@ -335,6 +335,8 @@ const stateOptions = computed(() => [
   { label: labelState("offline"), value: "offline" },
   { label: labelState("dhcp"), value: "dhcp" },
   { label: labelState("used"), value: "used" },
+  { label: labelState("deprecated"), value: "deprecated" },
+  { label: labelState("quarantine"), value: "quarantine" },
 ]);
 
 watch(

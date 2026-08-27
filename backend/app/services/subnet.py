@@ -293,6 +293,14 @@ async def find_free_addresses(
                 used.add(int(ipaddress.IPv4Address(u)))
             except (ValueError, ipaddress.AddressValueError):
                 pass
+        # 冷卻中的位址也算「不可用」：它剛被釋放，外面的 DNS 快取／防火牆規則還指著它。
+        # 這裡不是額外功能，是配發正確性的一部分 —— 少了它，冷卻期等於沒設。
+        from app.services.ip_lifecycle import active_cooldowns
+        for cip in (await active_cooldowns(session, subnet.id)):
+            try:
+                used.add(int(ipaddress.IPv4Address(cip)))
+            except (ValueError, ipaddress.AddressValueError):
+                pass
 
         if consecutive:
             run_start: int | None = None

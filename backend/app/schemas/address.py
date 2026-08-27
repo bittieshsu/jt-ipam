@@ -72,7 +72,12 @@ class IPAddressBase(StrictModel):
     @field_validator("state")
     @classmethod
     def _state_valid(cls, v: str) -> str:
-        allowed = {"active", "reserved", "offline", "dhcp", "used"}
+        # active/used/dhcp/offline 是既有字彙（混了觀測與意圖，維持相容不動）；
+        # deprecated/quarantine 是生命週期用的意圖標記：
+        #   deprecated — 準備退場，不要再拿來配新服務
+        #   quarantine — 有疑慮（資安事件／衝突），暫時不得使用
+        allowed = {"active", "reserved", "offline", "dhcp", "used",
+                   "deprecated", "quarantine"}
         if v not in allowed:
             raise ValueError(f"state must be one of {sorted(allowed)}")
         return v

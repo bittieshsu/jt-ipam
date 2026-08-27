@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.209] — 2026-08-27
+
+### Added
+- **Evidence sources now carry a contract.** Every source declares two things in one place: which tier it belongs to (asserted / probed / monitored / learned) and — the part that matters — whether its evidence expires. `learned` sources such as ARP, FDB, DNS and virtualization config never expire, because they answer "this mapping was learned at some point", not "the machine is alive now". A guard test refuses any source used by a precedence list that has not declared this, so adding an integration means answering the question rather than discovering the answer in production. This is the structural version of the fix that a powered-off VM showing 52 days of green forced: the knowledge used to live in string comparisons scattered across modules, where a new source silently fell into whichever branch matched first.
+- **Cooldown after an address is released.** DNS records and caches, firewall rules, ACLs, certificate SANs and monitoring configuration all keep pointing at an address after it is freed; handing it to another machine immediately produces the hardest kind of fault to diagnose. Releasing an address now starts a 30-day cooldown (configurable, 0 disables): the allocator will not offer it, creating it by hand is refused with the previous hostname and the end date, and an admin can clear an individual address early — which is recorded rather than erased. The record deliberately lives in its own table, because releasing an address in practice means deleting it, and a note attached to the deleted row would vanish with it.
+- **Event rules: event → conditions → actions.** Webhooks could only subscribe to event names; what people actually want is conditional ("notify when a new subnet's description contains Production", "alert on an unauthorised IP only inside server ranges"). Conditions are structured fields, evaluated by code that executes nothing — rules are user input, so an expression language would be an injection path carrying a database session. Regular expressions are deliberately absent for the same class of reason (a single rule could stall every dispatch). A malformed rule is flagged and skipped rather than silently doing nothing, and a dry-run reports what would match without sending anything.
+- IP lifecycle states `deprecated` and `quarantine`, alongside the existing vocabulary.
+
+### Changed
+- The five source-precedence modules (hostname, MAC, OS, device name, model — 661 lines) shared one shape: settings key, source list, default order, disabled list, 60-second cache, sanitising. That half is now one module; each of the five keeps only what is genuinely its own. Copies are how a new source ends up registered in four places and forgotten in the fifth.
+
+### Fixed
+- The test fixture that clears precedence caches between tests had been silently doing nothing since the caches moved, because it looked them up with a tolerant `getattr(..., "_cache", {})`. Tests then leaked settings into each other, which shows up as "one test occasionally fails". It now imports the shared cache directly, so a future move breaks loudly instead.
+- Structured API error details are rendered as their message instead of `[object Object]`.
+
 ## [0.5.208] — 2026-08-26
 
 ### Fixed

@@ -468,8 +468,40 @@ async def put_rack_name_align(
 class OnlineGraceOut(StrictModel):
     minutes: Annotated[int, Field(ge=1, le=43200)]
     #: 哪些證據算「上線」。ARP 預設不勾：它沒有時間概念，來源設備的快取不老化
-    #: 就會讓關機的機器一直顯示上線（見 services/system_config.LIVENESS_SOURCES）
+    #: 就會讓關機的機器一直顯示上線（來源契約見 services/evidence.py）
     sources: list[str] = ["scanner", "librenms"]
+
+
+class CooldownOut(StrictModel):
+    days: Annotated[int, Field(ge=0, le=3650)]
+
+
+@public_router.get("/ip-cooldown", response_model=CooldownOut)
+async def get_ip_cooldown(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CooldownOut:
+    from app.services.ip_lifecycle import get_cooldown_days
+    return CooldownOut(days=await get_cooldown_days(session))
+
+
+@router.put("/ip-cooldown", response_model=CooldownOut)
+async def put_ip_cooldown(
+    payload: CooldownOut, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CooldownOut:
+    from app.services.ip_lifecycle import set_cooldown_days
+    days = await set_cooldown_days(session, days=payload.days, updated_by_user_id=user.id)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "ip_cooldown", "days": days},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return CooldownOut(days=days)
 
 
 @public_router.get("/online-grace", response_model=OnlineGraceOut)
@@ -492,7 +524,7 @@ async def put_online_grace(
     from sqlalchemy.orm.attributes import flag_modified
 
     from app.models.system_setting import SystemSetting
-    from app.services.system_config import LIVENESS_SOURCES
+    from app.services.evidence import LIVENESS_SOURCES
     m = min(43200, max(1, int(payload.minutes)))
     srcs = [s for s in payload.sources if s in LIVENESS_SOURCES]
     row = await session.get(SystemSetting, "online_grace_minutes")

@@ -90,6 +90,7 @@ const routes: RouteRecordRaw[] = [
       { path: "pfsense-fw", name: "pfsense_fw", component: () => import("@/views/PfSenseFirewallView.vue") },
       { path: "fortigate-fw", name: "fortigate_fw", component: () => import("@/views/FortiGateFirewallView.vue") },
       { path: "wazuh", name: "wazuh", component: () => import("@/views/WazuhAdmin.vue"), meta: { admin: true } },
+      { path: "event-rules", name: "event_rules", component: () => import("@/views/EventRules.vue"), meta: { admin: true } },
       { path: "zabbix", name: "zabbix", component: () => import("@/views/ZabbixAdmin.vue"), meta: { admin: true } },
       { path: "plugins", name: "plugins", component: () => import("@/views/PluginsAdmin.vue"), meta: { admin: true } },
       // Phase 3

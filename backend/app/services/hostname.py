@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import time
 import uuid
 from typing import TYPE_CHECKING
 
@@ -19,8 +18,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ip_hostname import HOSTNAME_SOURCES, IPHostnameObservation
-from app.models.system_setting import SystemSetting
 from app.services.ip_history import log_change
+from app.services.precedence import Precedence
 
 if TYPE_CHECKING:
     from app.models.address import IPAddress
@@ -28,74 +27,35 @@ if TYPE_CHECKING:
 HOSTNAME_KEY = "hostname_precedence"
 # 預設：人工最優先，其次 DNS、LibreNMS、OPNsense、掃描、Proxmox
 DEFAULT_ORDER: list[str] = ["manual", "dns", "librenms", "opnsense", "pfsense", "fortigate", "windows_dhcp", "scanner", "netbios", "mdns", "proxmox", "zabbix", "wazuh", "adguard"]
-_TTL_SEC = 60.0
-_cache: dict[str, tuple[float, list[str]]] = {}
+
+# 排序／停用／快取的共通機制在 services/precedence.py；
+# 這裡只留 hostname 特有的部分：觀測表、pin、重算與異動記錄。
+_P = Precedence(key=HOSTNAME_KEY, sources=tuple(HOSTNAME_SOURCES),
+                default_order=tuple(DEFAULT_ORDER))
 
 
 def _bust() -> None:
-    _cache.pop(HOSTNAME_KEY, None)
-
-
-def _sanitize_order(raw: object) -> list[str]:
-    """把任意輸入清成合法、去重、補齊的來源順序。"""
-    out: list[str] = []
-    if isinstance(raw, list):
-        for s in raw:
-            if isinstance(s, str) and s in HOSTNAME_SOURCES and s not in out:
-                out.append(s)
-    # 補上沒列到的來源（維持 DEFAULT_ORDER 的相對次序）
-    for s in DEFAULT_ORDER:
-        if s not in out:
-            out.append(s)
-    # 保險：HOSTNAME_SOURCES 內若有未列到的（如新增的 wazuh/adguard）也補上
-    for s in HOSTNAME_SOURCES:
-        if s not in out:
-            out.append(s)
-    return out
+    _P.bust()
 
 
 async def _load(session: AsyncSession) -> tuple[list[str], list[str]]:
-    """讀 (order, disabled)，60s cache。"""
-    now = time.monotonic()
-    cached = _cache.get(HOSTNAME_KEY)
-    if cached and now - cached[0] < _TTL_SEC:
-        return cached[1], cached[2]  # type: ignore[misc]
-    row = await session.get(SystemSetting, HOSTNAME_KEY)
-    val = row.value if row and isinstance(row.value, dict) else {}
-    order = _sanitize_order(val.get("order"))
-    disabled = [s for s in (val.get("disabled") or []) if isinstance(s, str) and s in HOSTNAME_SOURCES]
-    _cache[HOSTNAME_KEY] = (now, order, disabled)  # type: ignore[assignment]
-    return order, disabled
+    return await _P.load(session)
 
 
 async def get_precedence(session: AsyncSession) -> list[str]:
-    order, _ = await _load(session)
-    return order
+    return await _P.get_order(session)
 
 
 async def get_disabled(session: AsyncSession) -> list[str]:
-    _, disabled = await _load(session)
-    return disabled
+    return await _P.get_disabled(session)
 
 
 async def set_precedence(
     session: AsyncSession, *, order: list[str],
     disabled: list[str] | None = None, updated_by_user_id: uuid.UUID | None = None,
 ) -> tuple[list[str], list[str]]:
-    clean = _sanitize_order(order)
-    # 不能把所有來源都停用（至少留 manual 可用），且 disabled 必須是合法來源
-    clean_disabled = [s for s in (disabled or []) if s in HOSTNAME_SOURCES and s != "manual"]
-    row = await session.get(SystemSetting, HOSTNAME_KEY)
-    if row is None:
-        row = SystemSetting(key=HOSTNAME_KEY, value={}, updated_by=updated_by_user_id)
-        session.add(row)
-    row.value = {"order": clean, "disabled": clean_disabled}
-    row.updated_by = updated_by_user_id
-    from sqlalchemy.orm.attributes import flag_modified
-    flag_modified(row, "value")
-    await session.commit()
-    _bust()
-    return clean, clean_disabled
+    return await _P.save(session, order=order, disabled=disabled,
+                         updated_by_user_id=updated_by_user_id)
 
 
 async def seed_observation(

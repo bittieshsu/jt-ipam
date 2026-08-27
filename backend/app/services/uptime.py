@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.address import IPAddress
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_liveness import IPLivenessDay
+from app.services import evidence
 
 #: 只有 ARP 撐著的上線 —— 不足以宣稱「那天是通的」（見檔頭規則 4）
 ARP_ONLY_STATUS = "online (arp)"
@@ -51,28 +52,33 @@ def carry_forward_ok(value: str | None, *, has_scanner: bool, has_librenms: bool
     現在連一筆 LibreNMS 證據都沒有，就代表那個來源早已不在看它 —— 拿它宣稱之後
     幾十天都正常，是沒有根據的。實機上正是這樣把一台關著的 VM 畫成 52 天全綠：
     當初撐著它的其實是 ARP（沒有時間概念），而 ARP 從來就不該延續。
+
+    「哪些來源會過期」不在這裡判斷 —— 問 `services/evidence` 的登記表。
+    先前這裡是字串比對（`"scanner" in v`），新增來源（例如 zabbix）時會安靜地
+    落到最後那個寬鬆分支，等於預設信任一個沒人檢查過的來源。
     """
     if not value:
         return False
     v = value.strip().lower()
-    if v.startswith(ARP_ONLY_STATUS):
-        return False
-    if "scanner" in v:
-        return has_scanner
-    if "librenms" in v:
-        return has_librenms
+    src = evidence.source_from_status(v)
+    if src is not None:
+        if not evidence.is_aging(src):
+            return False                      # 不會過期的證據不得往後延續
+        return {"scanner": has_scanner, "librenms": has_librenms}.get(src, False)
     # 沒有來源後綴的 online／offline：任一會老化的來源還在就可以延續
     return has_scanner or has_librenms
 
 
 def status_is_up(value: str | None) -> bool | None:
-    """`online*` → True、`offline*` → False、其餘（unknown / 空 / 純 ARP）→ None。"""
+    """`online*` → True、`offline*` → False、其餘（unknown / 空 / 不會過期的來源）→ None。"""
     if not value:
         return None
     v = value.strip().lower()
-    if v.startswith(ARP_ONLY_STATUS):
-        return None          # 有證據說「這個 MAC 曾被學到」，但不等於那天機器活著
     if v.startswith("online"):
+        src = evidence.source_from_status(v)
+        # 來源不會過期（ARP 這種）→ 它說「曾經學到這個對應」，不是「那天活著」
+        if src is not None and not evidence.is_aging(src):
+            return None
         return True
     if v.startswith("offline"):
         return False

@@ -298,7 +298,8 @@
     "esxi_admin": "整合 VMware",
     "fw_rule_changes": "防火牆規則異動",
     "attack_surface": "對外開放服務",
-    "zabbix": "整合 Zabbix"
+    "zabbix": "整合 Zabbix",
+    "event_rules": "事件規則"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1152,7 +1153,9 @@
     "switch_port_ph": "埠（如 eth1/0/6）",
     "switch_port_hint": "此欄由 LibreNMS 同步維護；手動填的值會在下次同步時被覆寫。",
     "last_seen_arp": "最後出現 (ARP)",
-    "source_arp": "僅 ARP"
+    "source_arp": "僅 ARP",
+    "state_deprecated": "準備退場",
+    "state_quarantine": "隔離中"
   },
   "subnets": {
     "title": "子網路",
@@ -2662,7 +2665,10 @@
     "src_scanner": "掃描代理探測",
     "src_librenms": "LibreNMS 裝置狀態",
     "src_arp": "ARP 記錄（不建議）",
-    "liveness_sources_hint": "只有勾選的來源會被拿來判定上線。ARP 預設不勾：它證明的是某個 MAC↔IP 對應被學到過，不是機器現在活著；而且 LibreNMS 的 ARP API 不回時間，來源設備（AP／路由器）的快取不會過期，機器關機後仍可能一直顯示上線。"
+    "liveness_sources_hint": "只有勾選的來源會被拿來判定上線。ARP 預設不勾：它證明的是某個 MAC↔IP 對應被學到過，不是機器現在活著；而且 LibreNMS 的 ARP API 不回時間，來源設備（AP／路由器）的快取不會過期，機器關機後仍可能一直顯示上線。",
+    "grp_lifecycle": "IP 生命週期",
+    "cooldown_days": "釋放後冷卻天數",
+    "cooldown_days_hint": "IP 被釋放（刪除）後，這段期間內不會被重新配發，也擋下手動建立。原因是外面還有東西指著它：DNS 記錄與快取、防火牆規則、ACL、憑證 SAN、監控設定。太早配給別台機器，症狀會是最難查的那種。預設 30 天；0 = 停用。管理員可對個別位址提前解除（會留下紀錄）。"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",
@@ -3445,5 +3451,34 @@
     "gap": "監控涵蓋缺口",
     "gap_scoped": "在限定的子網路範圍內，有 {n} 個已知主機名稱的位址沒有被這台 Zabbix 監控。",
     "gap_global": "全站有 {n} 個已知主機名稱的位址沒有被這台 Zabbix 監控（此實例未設限定子網路範圍）。"
+  },
+  "event_rules": {
+    "title": "事件規則",
+    "intro": "事件 → 條件 → 動作。例如「新增的網段描述含 Production 才通知」、「發現未授權 IP 且落在伺服器網段才告警」。條件是結構化欄位（不是可執行的運算式），也刻意不支援正規表示式 —— 規則由人輸入，能執行的東西就是風險。",
+    "events": "訂閱事件",
+    "events_ph": "可自行輸入；* = 所有事件",
+    "conditions": "條件（全部成立才算命中）",
+    "conditions_hint": "欄位用點號路徑，例如 data.subnet.cidr、data.count。沒有條件＝只看事件名稱。",
+    "no_conditions": "（無條件）",
+    "actions_col": "動作",
+    "act_notify": "通知管理員",
+    "act_webhook": "送到 Webhook",
+    "add_condition": "新增條件",
+    "add_action": "新增動作",
+    "field_ph": "data.subnet.cidr",
+    "value_ph": "比對值",
+    "notify_title_ph": "通知標題（留空用規則名稱）",
+    "webhook_id_ph": "Webhook 訂閱 ID",
+    "matches": "命中次數",
+    "test": "試跑",
+    "run_test": "執行試跑",
+    "test_event": "事件名稱",
+    "test_payload": "事件內容（JSON）",
+    "test_hint": "只計算會不會命中，不會真的送出通知或 Webhook。",
+    "would_match": "這份內容會命中這條規則",
+    "would_not_match": "這份內容不會命中",
+    "event_name": "事件名稱符合",
+    "actual": "實際值",
+    "bad_json": "事件內容不是合法的 JSON"
   }
 }
