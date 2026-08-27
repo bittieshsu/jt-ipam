@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.models.ip_hostname import HOSTNAME_SOURCES
 from app.schemas.base import StrictModel
 from app.services import os_precedence
@@ -1176,7 +1176,7 @@ async def check_latest_version() -> dict[str, Any]:
             if m:
                 latest = m.group(1)
     except (UnsafeOutboundURL, httpx.HTTPError) as exc:
-        error = f"transport: {exc.__class__.__name__}"
+        error = f"transport: {transport_detail(exc)}"
 
     # 退回：releases/latest →（無 release）tags。GitHub tags 順序非語意序 → 取數字序最大者。
     if latest is None and error is None:
@@ -1204,7 +1204,7 @@ async def check_latest_version() -> dict[str, Any]:
             else:
                 error = f"github http {resp.status_code}"
         except (UnsafeOutboundURL, httpx.HTTPError) as exc:
-            error = f"transport: {exc.__class__.__name__}"
+            error = f"transport: {transport_detail(exc)}"
 
     return {
         "current": __version__,

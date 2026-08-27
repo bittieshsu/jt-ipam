@@ -23,7 +23,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.encrypted_secret import EncryptedSecret
 from app.models.virt import (
@@ -114,7 +114,7 @@ async def _api_get(
     except UnsafeOutboundURL as exc:
         raise ProxmoxError(f"SSRF guard rejected URL: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise ProxmoxError(f"transport: {exc.__class__.__name__}") from exc
+        raise ProxmoxError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
         raise ProxmoxError(f"Proxmox {path}: {resp.status_code} {resp.text[:200]}")
     return resp.json()  # type: ignore[no-any-return]

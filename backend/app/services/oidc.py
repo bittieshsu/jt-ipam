@@ -28,7 +28,7 @@ from jwt import PyJWK
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.models.user import User
 
 
@@ -81,7 +81,7 @@ async def discover(cfg: Any) -> OIDCDiscovery:
     except UnsafeOutboundURL as exc:
         raise OIDCError(f"SSRF guard rejected URL: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise OIDCError(f"transport: {exc.__class__.__name__}") from exc
+        raise OIDCError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
         raise OIDCError(f"OIDC discovery {resp.status_code}: {resp.text[:200]}")
     info = OIDCDiscovery.from_dict(resp.json())

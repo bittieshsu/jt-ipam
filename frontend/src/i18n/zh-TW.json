@@ -1035,7 +1035,17 @@
     "fit": "全貌",
     "zoom_in": "放大",
     "zoom_out": "縮小",
-    "online_only": "只畫上線"
+    "online_only": "只畫上線",
+    "fdb": "存取層 (FDB)",
+    "kind_l2": "存取層（交換器埠）",
+    "kind_l2_uplink": "交換器骨幹",
+    "kind_l2_behind": "在此埠後面（非直連）",
+    "via_fdb": "交換器 MAC 表（FDB）",
+    "field_peer_port": "對端埠",
+    "field_direct": "直接連接",
+    "field_port_mac_count": "此埠上的 MAC 數",
+    "direct_yes": "是（此埠上只有這一台）",
+    "direct_no": "否（此埠後面還有其他機器）"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",

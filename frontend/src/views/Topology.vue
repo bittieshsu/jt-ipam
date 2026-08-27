@@ -38,6 +38,7 @@ const containerRef = ref<HTMLDivElement | null>(null);
 const includeWireless = ref(true);
 const includeVpn = ref(true);
 const includeL3 = ref(true);
+const includeFdb = ref(true);
 const onlineOnly = ref(false);   // 預設：不管上線與否都畫
 const loading = ref(false);
 const selected = ref<Record<string, any> | null>(null);
@@ -65,12 +66,18 @@ const FIELD_LABELS = computed<Record<string, string>>(() => ({
   status: t("topology.field_status"),
   description: t("topology.field_description"),
   via: t("topology.field_via"),
+  port: t("topology.port"),
+  peer_port: t("topology.field_peer_port"),
+  vlan: "VLAN",
+  direct: t("topology.field_direct"),
+  port_mac_count: t("topology.field_port_mac_count"),
 }));
 const VIA_LABELS = computed<Record<string, string>>(() => ({
   ip: t("topology.via_ip"),
   name: t("topology.via_name"),
   arp: t("topology.via_arp"),
   librenms: t("topology.via_librenms"),
+  fdb: t("topology.via_fdb"),
 }));
 const TYPE_LABELS = computed<Record<string, string>>(() => ({
   router: t("topology.type_router"),
@@ -89,6 +96,8 @@ const KIND_LABELS = computed<Record<string, string>>(() => ({
   wireless: t("topology.kind_wireless"),
   vpn: t("topology.kind_vpn"),
   l3: t("topology.kind_l3"),
+  l2: t("topology.kind_l2"),
+  l2_uplink: t("topology.kind_l2_uplink"),
 }));
 // 內部欄位不顯示給使用者看
 const HIDDEN_FIELDS = new Set([
@@ -104,6 +113,8 @@ function displayValue(key: string, val: any): string {
   if (key === "via") {
     return String(val).split(",").map((v) => VIA_LABELS.value[v] ?? v).join("、");
   }
+  // 直連與否是這條線最重要的一件事，不能只印 true/false
+  if (key === "direct") return val ? t("topology.direct_yes") : t("topology.direct_no");
   if (key === "status") {
     if (val === "up") return t("topology.status_up");
     if (val === "down") return t("topology.status_down");
@@ -173,7 +184,13 @@ const { pinned, ensureLoaded } = usePinnedSubnets();
 // 圖例可點：點暗某類別 → 圖上隱藏該類節點（及其連線）
 // 預設先把「伺服器 / 其他」這類點暗——它們數量最多、最會把網路骨幹（防火牆/路由器/
 // 交換器/AP/子網路/VPN）洗掉。使用者點圖例即可重新顯示。
+// 端點類節點預設不畫：一個實際環境有上百台，全畫進來就沒人看得懂了。
 const hiddenTypes = ref<Set<string>>(new Set(["server", "storage", "ipmi", "other"]));
+// ...但「查得出插在哪台交換器哪個埠」的端點是例外：它在網路裡有明確位置，不是雜訊。
+// 這是 FDB 存取層的重點，如果照樣被藏起來，那個功能等於沒有。
+// 使用者一旦自己動過「伺服器 / 其他」圖例，就以他的選擇為準，不再自動放行。
+const fdbPlaced = ref<Set<string>>(new Set());
+const endpointGroupTouched = ref(false);
 const LEGEND_GROUPS: Record<string, string[]> = {
   firewall: ["firewall"], router: ["router"], switch: ["switch"], ap: ["ap"],
   server: ["server", "storage", "ipmi", "other"], vpn_site: ["vpn_site"], subnet: ["subnet"],
@@ -182,6 +199,7 @@ function isGroupOff(group: string): boolean {
   return (LEGEND_GROUPS[group] || [group]).every((ty) => hiddenTypes.value.has(ty));
 }
 function toggleGroup(group: string) {
+  if (group === "server") endpointGroupTouched.value = true;
   const types = LEGEND_GROUPS[group] || [group];
   const off = isGroupOff(group);
   const next = new Set(hiddenTypes.value);
@@ -193,7 +211,9 @@ function applyVisibility() {
   if (!cy) return;
   cy.batch(() => {
     cy!.nodes().forEach((n) => {
-      n.style("display", hiddenTypes.value.has(n.data("type") as string) ? "none" : "element");
+      const hiddenByType = hiddenTypes.value.has(n.data("type") as string);
+      const placed = !endpointGroupTouched.value && fdbPlaced.value.has(n.id());
+      n.style("display", hiddenByType && !placed ? "none" : "element");
     });
     cy!.edges().forEach((e) => {
       const hide = e.source().style("display") === "none" || e.target().style("display") === "none";
@@ -297,6 +317,7 @@ async function refresh() {
       includeWireless: includeWireless.value,
       includeVpn: includeVpn.value,
       includeL3: includeL3.value,
+      includeFdb: includeFdb.value,
       onlineOnly: onlineOnly.value,
       subnetIds: subnetIds.value,
     });
@@ -385,6 +406,45 @@ function render(data: TopologyData) {
         },
       },
       {
+        // 存取層（FDB）：這台機器實際插在某台交換器的某個埠上 —— 比 L3 那種
+        // 「有介面在這個網段」的推導確定，所以用實線、不用虛線。
+        selector: 'edge[kind = "l2"]',
+        style: {
+          "line-color": "#14b8a6",
+          width: 1.6,
+          "line-style": "dashed",   // 預設是「在這個埠後面」，直連的在下一條規則轉實線
+          label: "data(port)",
+          "font-size": 9,
+          color: "#0f766e",
+          "text-background-color": "#ffffff",
+          "text-background-opacity": 0.85,
+          "text-background-padding": "2px",
+          "text-rotation": "autorotate" as any,
+        },
+      },
+      {
+        // 埠上只有這一個 MAC → 真的插在上面，畫實線。有好幾個 MAC 的維持虛線：
+        // 那些機器在這個埠「後面」，中間可能還隔著一台笨集線器或一台虛擬化主機。
+        selector: 'edge[kind = "l2"][?direct]',
+        style: { "line-style": "solid" },
+      },
+      {
+        // 交換器之間的骨幹：畫得比存取層重，兩端標各自的埠名
+        selector: 'edge[kind = "l2_uplink"]',
+        style: {
+          "line-color": "#0d9488",
+          width: 3.5,
+          label: "data(label)",
+          "font-size": 10,
+          "font-weight": "bold",
+          color: "#0f766e",
+          "text-background-color": "#ffffff",
+          "text-background-opacity": 0.9,
+          "text-background-padding": "3px",
+          "text-rotation": "autorotate" as any,
+        },
+      },
+      {
         selector: 'edge[kind = "l3"]',
         style: {
           "line-color": "#0ea5e9",
@@ -469,6 +529,12 @@ function render(data: TopologyData) {
       selected.value = null;
     }
   });
+  // 有 FDB 存取層邊的端點＝查得出位置的，預設放行（見 hiddenTypes 上方說明）
+  fdbPlaced.value = new Set(
+    (data.edges ?? [])
+      .filter((e) => e.data.kind === "l2" || e.data.kind === "l2_uplink")
+      .flatMap((e) => [e.data.source, e.data.target]),
+  );
   applyVisibility();   // 套用圖例的點暗（隱藏類別）狀態
   spreadSubnets();     // 多個子網路中心點水平分開，避免兩團擠在一起
 }
@@ -502,7 +568,7 @@ function spreadSubnets() {
 }
 
 watch(subnetIds, () => { void refresh(); });
-watch([includeWireless, includeVpn, includeL3, onlineOnly], () => {
+watch([includeWireless, includeVpn, includeL3, includeFdb, onlineOnly], () => {
   void refresh();
 });
 
@@ -556,6 +622,7 @@ onUnmounted(() => {
         <n-checkbox v-model:checked="includeWireless">{{ t("topology.wireless") }}</n-checkbox>
         <n-checkbox v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
         <n-checkbox v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
+        <n-checkbox v-model:checked="includeFdb">{{ t("topology.fdb") }}</n-checkbox>
         <n-checkbox v-model:checked="onlineOnly">{{ t("topology.online_only") }}</n-checkbox>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>
@@ -609,6 +676,9 @@ onUnmounted(() => {
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#3b82f6" stroke-width="2" stroke-dasharray="5,3"/></svg>{{ t("topology.kind_wireless") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#9333ea" stroke-width="4" stroke-dasharray="8,4"/></svg>{{ t("topology.kind_vpn") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#0ea5e9" stroke-width="1.5" stroke-dasharray="5,3"/></svg>{{ t("topology.kind_l3") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#14b8a6" stroke-width="1.6"/></svg>{{ t("topology.kind_l2") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#14b8a6" stroke-width="1.6" stroke-dasharray="5,3"/></svg>{{ t("topology.kind_l2_behind") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#0d9488" stroke-width="3.5"/></svg>{{ t("topology.kind_l2_uplink") }}</span>
       <span class="lg lg-sep"></span>
       <span class="lg lg-head">{{ t("topology.legend_nodes") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('firewall') }" @click="toggleGroup('firewall')"><i class="dot" style="background:#ef4444"></i>{{ t("topology.type_firewall") }}</span>

@@ -23,7 +23,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
 from app.models.fortigate import (
@@ -84,7 +84,7 @@ async def _api_get(
     except UnsafeOutboundURL as exc:
         raise FortiGateError(f"SSRF guard rejected URL: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise FortiGateError(f"transport: {exc.__class__.__name__}") from exc
+        raise FortiGateError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code == 401:
         raise FortiGateError(
             "401 未授權：請確認 API token 正確、該管理員有唯讀 API 權限，"

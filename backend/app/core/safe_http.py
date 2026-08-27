@@ -215,3 +215,26 @@ async def safe_stream(
     ) as client:
         async with client.stream(method, url, headers=headers, json=json) as resp:
             yield resp
+
+
+def transport_detail(exc: BaseException, *, limit: int = 200) -> str:
+    """把出站請求的例外整理成「看得出原因」的一行字。
+
+    只印類別名稱是不夠的：`ConnectError` 一個名字底下至少有四種完全不同的狀況 ——
+    名稱解析不到、連線被拒、路由不通、TLS 憑證驗不過（httpx 把握手期的 SSL 錯誤
+    也包成 ConnectError）。少了底層原文，畫面上的「transport: ConnectError」對
+    使用者與對我們都一樣沒有資訊，只能靠猜。
+
+    原因有時在例外本身、有時在 `__cause__`（socket.gaierror / ssl.SSLCertVerificationError），
+    兩邊都取。長度設界：這串會存進 `last_error` 並顯示在表格裡。
+    """
+    name = exc.__class__.__name__
+    msg = str(exc).strip()
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None:
+        # OSError 子類（socket.gaierror / ssl.SSLCertVerificationError）用 strerror 才
+        # 印得出人看得懂的字；直接 str() 有時會得到 tuple 的樣子。
+        cmsg = str(getattr(cause, "strerror", None) or cause).strip()
+        if cmsg and cmsg not in msg:
+            msg = f"{msg} ({cmsg})" if msg else cmsg
+    return f"{name}: {msg}"[:limit] if msg else name

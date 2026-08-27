@@ -72,7 +72,9 @@ class VirtualMachine(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Proxmox 用整數 VMID、VMware 用字串 MoRef，兩者不共用同一欄。
     external_id: Mapped[str | None] = mapped_column(String(64), index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    node: Mapped[str | None] = mapped_column(String(128))   # 所在 PVE 節點（host）
+    # 所在節點（PVE 是節點名、ESXi 是主機 FQDN）。不設長度上限：長度是對方平台決定的，
+    # 猜一個上限的代價是整批同步中斷（issue #25）。
+    node: Mapped[str | None] = mapped_column(Text)
     kind: Mapped[str | None] = mapped_column(String(8))      # "vm"（qemu）/ "ct"（lxc）
     status: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
     vcpus: Mapped[int | None] = mapped_column(Integer)
@@ -119,7 +121,9 @@ class VMInterface(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     mac: Mapped[str | None] = mapped_column(MACADDR)
     primary_ip: Mapped[str | None] = mapped_column(INET)
-    bridge: Mapped[str | None] = mapped_column(String(64))
+    # 橋接／連接的網段名稱。Proxmox 是 vmbr0 這種短名，但 NSX-T 會產生嵌著 UUID 的
+    # 長名稱（實測 78 字元）——外部名稱一律不設上限（issue #25）。
+    bridge: Mapped[str | None] = mapped_column(Text)
     vlan_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("vlans.id", ondelete="SET NULL"),

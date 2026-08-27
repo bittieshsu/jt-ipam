@@ -4,6 +4,20 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.213] — 2026-08-27
+
+### 新增
+- **拓樸圖畫得出存取層了：哪台機器掛在哪台交換器的哪個埠。** 資料一直都在（LibreNMS 抓回來的 FDB 表），但拓樸圖從來沒用過它 —— 檔案開頭的說明甚至寫著「以 device + cabling + FDB 拼出 graph」，實際上一行都沒讀。現在會依 FDB 推導兩種線：**存取層**（機器 ↔ 交換器埠）與**交換器骨幹**（交換器之間怎麼接）。LLDP/CDP 那張表沒有資料源，FDB 是目前唯一能自動畫出骨幹的來源。
+- **推導不能只看得像就畫**，所以有三道守門：①一個埠上 MAC 數超過門檻＝上行埠，上面的機器不會被畫成插在那個埠；②同一個 MAC 對到多台裝置（重疊網段）就不猜；③兩台交換器要**互相**在自己的埠上看到對方、**且兩個埠背後的機器不重疊**，才算直連 —— 少了第三個條件，A—B—C 串接會被畫成 A—C 也直連。
+- **「直連」與「在這個埠後面」畫成不同的線**：埠上只有一個 MAC 才是實線（真的插在上面）；埠上有好幾台就是虛線（可能底下接了笨集線器，或那是一台跑著多個虛擬機的主機）。實機上這個差別看得到 —— 同一批機器同時掛在兩台交換器的不同埠上，全畫成直連就是說謊。
+
+### 修正
+- **整合連不上時只顯示 `transport: ConnectError`，等於沒說。** 名稱解析不到、連線被拒、路由不通、TLS 憑證驗不過 —— 四種完全不同的問題在畫面上長得一模一樣，處理的人只能一個一個猜。原因其實就在例外底下（`socket.gaierror`／`ssl.SSLCertVerificationError`），只是被丟掉了。現在會顯示成 `transport: ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] ...` 這樣。全專案 **21 處**都是同一個寫法（LibreNMS／Zabbix／Wazuh／pfSense／FortiGate／Proxmox／DNS／SSO／AI），一次修齊。憑證問題特別容易被誤判成網路不通，因為 httpx 把握手期的 SSL 錯誤也包成 `ConnectError`、而且外層訊息可能是空的 —— 有一個測試專門釘住這個情況。
+- **vCenter 同步會因為網段名稱太長而整批中斷**（issue #25，感謝 eric700928 回報）。NSX-T 產生的 portgroup 名稱裡嵌著 UUID（實測 78 字元），撞上 `vm_interfaces.bridge` 的 64 字元上限，整輪同步以 `StringDataRightTruncationError` 收場。外部平台的名稱長度不是我們能決定的，給它一個自己猜的上限就是在賭 —— `bridge` 與 `node`（ESXi 主機是 FQDN，最長 253 字元）都改成不設限（migration 0129）。
+
+### 變更
+- **發版前的安全檢查涵蓋到掃描代理與維運腳本。** bandit 規則（ruff 的 `S` 規則集）原本只掃 `backend/app/`，但 `agent/` 與 `scripts/` 底下的程式是在客戶機器上以實權跑的，反而不在任何檢查範圍內。順手修掉其中唯一真正值得修的一項：代理啟動時會驗 `JT_IPAM_URL` 的協定，不再讓打錯的設定值把每次輪詢變成本機檔案讀取（還帶著代理金鑰）。
+
 ## [0.5.212] — 2026-08-27
 
 ### 修正

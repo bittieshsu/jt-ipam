@@ -257,6 +257,10 @@ defect is in *what the model was able to ask*.
 - [ ] **PVE regression (shared tables)**: Proxmox clusters/VMs/interfaces are untouched by an ESXi
   sync, `legacy_vmid` and `kind=ct` still correct, and 進階 → 虛擬化 (Proxmox VE) still lists only PVE
   while 虛擬化 (VMware) lists only VMware. Device / IP links from PVE VMs still resolve.
+- [ ] **Long external names (issue #25)**: a VM on an NSX-T portgroup whose name exceeds 64 chars
+  syncs without error, and the full name (not a truncated one) shows on the VM's interface. The
+  same goes for an ESXi host FQDN longer than 128 chars in `node`. A name coming from a third-party
+  platform has no length we get to assume.
 - [ ] Delete instance; periodic `jt-ipam-sync` picks up enabled instances every ~5 min without errors.
 
 ## 7c. Integration sync resilience — **applies to every integration, not just the one you changed**
@@ -372,6 +376,23 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   the remaining rules and the normal webhook dispatch continue (**never silently inert**)
 - [ ] **Dry run has no side effects**: it reports what would match without sending anything
 - [ ] **The webhook action uses the same path**: signing and the SSRF guard cannot be bypassed
+
+## 7j. Topology access layer (FDB) — **whenever FDB inference or the topology map changes**
+
+> FDB says "this MAC appeared on this switch port". Turning that into lines has two classic traps,
+> and both of them draw a map that is confidently wrong rather than visibly empty.
+
+- [ ] Access edges appear for hosts on ports carrying a single MAC, labelled with the port name.
+- [ ] A port carrying more MACs than the threshold (an uplink/trunk) produces **no** access edges —
+  the hosts beyond it are not drawn as plugged into that port.
+- [ ] A port with several known hosts draws **dashed** edges (behind this port), not solid ones.
+  Clicking such an edge shows "Directly attached: No" and the MAC count on the port.
+- [ ] Two switches are joined only when each sees the other and the MAC sets behind the two ports
+  are disjoint. In an A—B—C chain, **A—C must not appear**.
+- [ ] A MAC that maps to more than one device (overlapping subnets) produces no edge at all.
+- [ ] Unchecking 存取層 (FDB) removes every l2/l2_uplink edge; the rest of the map is unaffected.
+- [ ] A department account that cannot see one end of a link does not receive that edge (no edge may
+  reference a node that is not in the graph).
 
 ## 8. Recent feature spot-checks
 

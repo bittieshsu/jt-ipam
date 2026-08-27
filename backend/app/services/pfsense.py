@@ -18,7 +18,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
@@ -75,7 +75,7 @@ async def _api_get(fw: PfSenseFirewall, path: str, *, timeout: float = 15.0) -> 
     except UnsafeOutboundURL as exc:
         raise PfSenseError(f"SSRF guard rejected URL: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise PfSenseError(f"transport: {exc.__class__.__name__}") from exc
+        raise PfSenseError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
         raise PfSenseError(f"pfSense GET {path}: {resp.status_code} {resp.text[:200]}")
     body = resp.json()

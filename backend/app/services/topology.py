@@ -10,7 +10,12 @@
 1. 物理 Cable → 兩端 termination（同 cable 兩 termination → 一條邊）
 2. WirelessLink（A/B device 都存在時）
 3. VPNTunnel（A/B device）
-4. Phase 4：LLDP / FDB 推導邏輯邏輯接（目前簡化）
+4. L3 推導：device ↔ subnet（依 IP／名稱／ARP／LibreNMS 多訊號）
+5. L2 推導：FDB → 存取層（機器 ↔ 交換器埠）與交換器骨幹
+
+⚠️ 第 5 項在 v0.5.213 之前只存在於這段說明裡 —— 這個檔案宣稱用 FDB 拼圖，實際上一行
+都沒讀。改動這裡時請一併確認說明與程式仍然對得上：說明會被當成事實引用。
+LLDP/CDP（`librenms_links`）實機上是空的，沒有資料源，因此不列入。
 """
 
 from __future__ import annotations
@@ -25,10 +30,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.address import IPAddress
 from app.models.advanced import WirelessLink
 from app.models.device import Device
-from app.models.librenms import ARPEntry, LibreNMSDevice
+from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice
 from app.models.location import Location, Rack
 from app.models.physical import Cable, CableTermination, VPNTunnel
 from app.models.subnet import Subnet
+
+#: 一個埠上出現幾個 MAC 就視為上行／trunk（而不是「這些機器都插在這個埠」）。
+#: 存取埠通常是 1～2 個（機器本身 + 可能的一台 IP 話機）；上行埠動輒數十上百。
+#: 實機上量到的分布很極端：28 個埠裡 12 個只有 1 個 MAC，13 個超過 4 個、最多 143 個
+#: —— 中間幾乎沒有東西，所以這個門檻不敏感，訂在 4 很安全。
+UPLINK_MAC_THRESHOLD = 4
 
 
 async def build_topology(
@@ -40,6 +51,7 @@ async def build_topology(
     include_wireless: bool = True,
     include_vpn: bool = True,
     include_l3: bool = True,
+    include_fdb: bool = True,
     online_only: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     nodes: dict[str, dict[str, Any]] = {}
@@ -411,6 +423,139 @@ async def build_topology(
                     "via": ",".join(sorted(rec["via"])),
                 }
             })
+
+    # ── L2 存取層：FDB（哪個 MAC 出現在哪台交換器的哪個埠）──
+    #
+    # FDB 是目前唯一能自動畫出「東西掛在哪台交換器」與「交換器之間怎麼接」的來源
+    # （LLDP/CDP 那張表在實機上是空的，沒有資料源）。兩個古典陷阱寫在
+    # tests/test_topology_fdb.py：上行埠不是端點、同 MAC 對到多台裝置就不猜。
+    #
+    # FDB 屬證據契約的 learned 層：它說「曾經學到這個對應」，不說「現在活著」，
+    # 所以這裡只畫線、不碰任何上線判定。
+    if include_fdb:
+        from app.services.arp_precedence import normalize_mac
+
+        # ⚠️ `fdb_entries.device_id` 指的是 **LibreNMS 的裝置**，不是 jt-ipam 的 Device。
+        # 直接在 SQL 裡接起來：一來沒連結到 Device 的交換器根本沒有節點可連，
+        # 二來 FDB 是整個資料庫最會長的表之一（一台交換器就能有上萬列），
+        # 撈回來再用 Python 篩會白扛一大堆用不到的列。
+        fdb_rows = (await session.execute(
+            select(FDBEntry.port_name, FDBEntry.mac, FDBEntry.vlan_id_num,
+                   LibreNMSDevice.jt_ipam_device_id)
+            .join(LibreNMSDevice, LibreNMSDevice.id == FDBEntry.device_id)
+            .where(FDBEntry.port_name.is_not(None),
+                   LibreNMSDevice.jt_ipam_device_id.is_not(None))
+        )).all()
+
+        if fdb_rows:
+            # MAC → 裝置。對到多台就標成不明確（重疊網段下同一個 MAC 會有多筆 IP 記錄）。
+            mac_to_dev: dict[str, str | None] = {}
+            for dev_id, mac in (await session.execute(
+                select(IPAddress.device_id, IPAddress.mac).where(
+                    IPAddress.device_id.is_not(None), IPAddress.mac.is_not(None)
+                )
+            )).all():
+                key = normalize_mac(mac)
+                if not key:
+                    continue
+                d_str = str(dev_id)
+                if key in mac_to_dev and mac_to_dev[key] != d_str:
+                    mac_to_dev[key] = None       # 不明確 → 之後一律跳過
+                else:
+                    mac_to_dev.setdefault(key, d_str)
+
+            # (交換器, 埠) → MAC 集合
+            by_port: dict[tuple[str, str], set[str]] = {}
+            vlan_of: dict[tuple[str, str, str], int | None] = {}
+            for port_name, mac, vlan_num, sw_dev_id in fdb_rows:
+                key = normalize_mac(mac)
+                if not key:
+                    continue
+                pk = (str(sw_dev_id), str(port_name))
+                by_port.setdefault(pk, set()).add(key)
+                vlan_of.setdefault((*pk, key), vlan_num)
+
+            switch_ids = {sw for sw, _ in by_port}
+            # 每台交換器自己的 MAC（用來認出「對面那台就是它」）
+            own_macs: dict[str, set[str]] = {}
+            for mac, dev in mac_to_dev.items():
+                if dev is not None:
+                    own_macs.setdefault(dev, set()).add(mac)
+
+            # ① 存取層：MAC 數不超過門檻的埠
+            #
+            #    ⚠️ 只有「這個埠上就這麼一個 MAC」才證明直接插在上面（`direct=True`）。
+            #    埠上有兩三個 MAC 時，可能是底下接了一台笨集線器／小交換器，也可能是
+            #    一台跑著多個虛擬機的主機 —— 那些機器確實在這個埠後面，但不見得是直連。
+            #    實機上這個差別是看得到的：某台交換器的一個埠後面掛著三台不同的機器，
+            #    而同一批機器又出現在另一台交換器的另一個埠上。兩邊都畫成直連就是說謊，
+            #    所以邊上帶 `direct`，前端據此畫實線或虛線。
+            l2_seen: set[tuple[str, str]] = set()
+            adjacency: set[tuple[str, str]] = set()   # 已用單一 MAC 埠證實直連的交換器對
+            for (sw_id, port), macs in sorted(by_port.items()):
+                if sw_id not in visible_device_ids or len(macs) > UPLINK_MAC_THRESHOLD:
+                    continue
+                direct = len(macs) == 1
+                for mac in sorted(macs):
+                    peer = mac_to_dev.get(mac)
+                    if peer is None or peer == sw_id or peer not in visible_device_ids:
+                        continue                       # 不明確／自己／不在圖上
+                    if (peer, sw_id) in l2_seen:
+                        continue
+                    l2_seen.add((peer, sw_id))
+                    if peer in switch_ids and direct:
+                        adjacency.add((min(sw_id, peer), max(sw_id, peer)))
+                    edges.append({"data": {
+                        "id": f"l2:{peer}:{sw_id}:{port}",
+                        "source": peer, "target": sw_id,
+                        "label": port, "kind": "l2", "via": "fdb",
+                        "port": port, "direct": direct,
+                        "port_mac_count": len(macs),
+                        "vlan": vlan_of.get((sw_id, port, mac)),
+                    }})
+
+            # ② 骨幹：兩台交換器直連的判準（Breitbart 等人的 FDB 拓樸推導條件）
+            #
+            #    A 的某個埠 P 上看得到 B 自己的 MAC，且 B 的某個埠 Q 上看得到 A 自己的
+            #    MAC，**而且 P 與 Q 背後的 MAC 集合不相交**。
+            #
+            #    第三個條件才是關鍵：少了它，A—B—C 這種串接會被畫成 A—C 也直連
+            #    （C 的 MAC 當然會出現在 A 朝 B 的那個埠上）。相交檢查會擋掉，因為
+            #    A 朝 B 的埠與 C 朝 B 的埠都含有 B 與 B 底下那些機器。
+            #    單邊只看得到對方（對面那台沒在回報 FDB）時**不畫** —— 無從證實。
+            uplink_pairs: dict[tuple[str, str], tuple[str, str]] = {}
+            for a in sorted(switch_ids):
+                for b in sorted(switch_ids):
+                    if a >= b:
+                        continue
+                    pair = (a, b)
+                    if pair in adjacency or pair in uplink_pairs:
+                        continue
+                    if a not in visible_device_ids or b not in visible_device_ids:
+                        continue
+                    a_ports = [(p, m) for (s, p), m in by_port.items()
+                               if s == a and m & own_macs.get(b, set())]
+                    b_ports = [(p, m) for (s, p), m in by_port.items()
+                               if s == b and m & own_macs.get(a, set())]
+                    for pa, ma in a_ports:
+                        for pb, mb in b_ports:
+                            # 兩個埠背後的機器不可以重疊；對方交換器自己的 MAC 不算
+                            if (ma - own_macs.get(b, set())) & (mb - own_macs.get(a, set())):
+                                continue
+                            uplink_pairs[pair] = (pa, pb)
+                            break
+                        if pair in uplink_pairs:
+                            break
+
+            for (a, b), (pa, pb) in sorted(uplink_pairs.items()):
+                edges.append({"data": {
+                    "id": f"l2u:{a}:{b}",
+                    "source": a, "target": b,
+                    # port 對應 source 那端、peer_port 對應 target 那端（source/target
+                    # 由 id 排序決定，兩端誰先誰後沒有意義）
+                    "label": f"{pa} ↔ {pb}", "kind": "l2_uplink", "via": "fdb",
+                    "port": pa, "peer_port": pb,
+                }})
 
     # ── 節點細節加值：rack/location 名稱、管理 IP、LibreNMS 撈回的 os/hardware/版本/狀態 ──
     if device_objs:

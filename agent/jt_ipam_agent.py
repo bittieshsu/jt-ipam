@@ -145,7 +145,10 @@ def _req(method: str, path: str, body: dict | None = None,
          extra_headers: dict | None = None) -> dict:
     url = f"{SERVER}{path}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
+    # S310 is suppressed here and below: the scheme is validated once at startup
+    # (main() rejects anything that is not http/https), and SERVER comes from the
+    # agent's own config file, not from anything the network says.
+    req = urllib.request.Request(url, data=data, method=method)  # noqa: S310
     req.add_header("X-Agent-Key", KEY)
     req.add_header("X-Agent-Version", AGENT_VERSION)
     if extra_headers:
@@ -153,15 +156,15 @@ def _req(method: str, path: str, body: dict | None = None,
             req.add_header(k, v)
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30, context=_ctx()) as resp:
+    with urllib.request.urlopen(req, timeout=30, context=_ctx()) as resp:  # noqa: S310
         return json.loads(resp.read().decode() or "{}")
 
 
 def _get_bytes(path: str) -> bytes:
-    req = urllib.request.Request(f"{SERVER}{path}", method="GET")
+    req = urllib.request.Request(f"{SERVER}{path}", method="GET")  # noqa: S310
     req.add_header("X-Agent-Key", KEY)
     req.add_header("X-Agent-Version", AGENT_VERSION)
-    with urllib.request.urlopen(req, timeout=30, context=_ctx()) as resp:
+    with urllib.request.urlopen(req, timeout=30, context=_ctx()) as resp:  # noqa: S310
         return resp.read()
 
 
@@ -838,6 +841,13 @@ def _jobs_loop() -> None:
 def main() -> int:
     if not SERVER or not KEY:
         print("ERROR: JT_IPAM_URL and JT_IPAM_AGENT_KEY environment variables are required",
+              file=sys.stderr)
+        return 2
+    # Refuse anything that is not http(s). urllib happily opens file:, ftp: and
+    # friends, so a mistyped JT_IPAM_URL would otherwise turn every poll into a
+    # local file read -- with the agent key attached to it.
+    if not SERVER.startswith(("https://", "http://")):
+        print(f"ERROR: JT_IPAM_URL must start with https:// (or http://), got: {SERVER}",
               file=sys.stderr)
         return 2
     print(f"jt-ipam agent v{AGENT_VERSION} -> {SERVER}  fallback_interval={INTERVAL}s "

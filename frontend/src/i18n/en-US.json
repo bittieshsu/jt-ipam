@@ -1035,7 +1035,17 @@
     "fit": "Fit",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",
-    "online_only": "Online only"
+    "online_only": "Online only",
+    "fdb": "Access layer (FDB)",
+    "kind_l2": "Access port",
+    "kind_l2_uplink": "Switch backbone",
+    "kind_l2_behind": "Behind this port (not direct)",
+    "via_fdb": "Switch MAC table (FDB)",
+    "field_peer_port": "Peer port",
+    "field_direct": "Directly attached",
+    "field_port_mac_count": "MACs on this port",
+    "direct_yes": "Yes (sole MAC on this port)",
+    "direct_no": "No (other hosts behind this port)"
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",

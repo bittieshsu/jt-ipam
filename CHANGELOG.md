@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.213] — 2026-08-27
+
+### Added
+- **The topology map can finally draw the access layer: which host hangs off which switch port.** The data was always there (the FDB table LibreNMS collects), but the map never read it — the file header even claimed the graph was built from "device + cabling + FDB" while not a single line of it was used. Two kinds of link are now derived: **access** (host to switch port) and **switch backbone** (how the switches connect to each other). With no data source for LLDP/CDP, FDB is the only thing that can draw a backbone automatically.
+- **Inference must not draw what merely looks right**, so three guards apply: (1) a port carrying more MACs than the threshold is an uplink, and the hosts on it are not drawn as plugged into it; (2) a MAC that maps to more than one device (overlapping subnets) is not guessed; (3) two switches count as directly connected only when each sees the other on one of its ports **and** the MAC sets behind those two ports are disjoint — without that third condition an A—B—C chain gets drawn as A—C too.
+- **"Directly attached" and "behind this port" are drawn differently**: a solid line only when the port carries exactly one MAC, dashed when several hosts sit behind it (a dumb switch downstream, or a hypervisor carrying its guests' MACs). The difference is visible on real data — the same hosts appear on two switches at once, and drawing both as direct would be a lie.
+
+### Fixed
+- **An unreachable integration only ever said `transport: ConnectError`, which says nothing.** A name that does not resolve, a refused connection, an unroutable host and a certificate that fails verification all looked identical on screen, leaving whoever handles it to guess. The reason was right there underneath (`socket.gaierror` / `ssl.SSLCertVerificationError`) and was being thrown away. It now reads like `transport: ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] ...`. All **21** sites shared the same shape (LibreNMS, Zabbix, Wazuh, pfSense, FortiGate, Proxmox, DNS, SSO, AI) and were fixed together. Certificate problems are the ones most often mistaken for "the network is down", because httpx wraps handshake-time SSL errors in `ConnectError` too and the outer message can be empty — one test pins exactly that case.
+- **vCenter sync aborted on long network names** (issue #25, reported by eric700928). An NSX-T generated portgroup name embeds a UUID (78 chars in the report) and overflowed the 64-char limit on `vm_interfaces.bridge`, ending the whole run with `StringDataRightTruncationError`. The length of a name from a third-party platform is not ours to bound, so `bridge` and `node` (an ESXi host FQDN, up to 253 chars) are now unbounded (migration 0129).
+
+### Changed
+- **Pre-release security checks now cover the scan agent and the maintenance scripts.** The bandit rules (ruff's `S` set) only ever looked at `backend/app/`, while the code under `agent/` and `scripts/` — which runs with real privileges on customer machines — sat outside every check. The one finding worth fixing was fixed: the agent validates the scheme of `JT_IPAM_URL` at startup, so a mistyped value can no longer turn every poll into a local file read with the agent key attached.
+
 ## [0.5.212] — 2026-08-27
 
 ### Fixed

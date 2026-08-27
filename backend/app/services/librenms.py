@@ -23,7 +23,7 @@ from sqlalchemy import true as sa_true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
 from app.models.librenms import (
@@ -98,7 +98,7 @@ async def _api_get(instance: LibreNMSInstance, path: str, *, timeout: float = 30
     except UnsafeOutboundURL as exc:
         raise LibreNMSError(f"SSRF guard rejected URL: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise LibreNMSError(f"transport: {exc.__class__.__name__}") from exc
+        raise LibreNMSError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
         raise LibreNMSError(f"LibreNMS {path}: {resp.status_code} {resp.text[:200]}")
     return resp.json()  # type: ignore[no-any-return]

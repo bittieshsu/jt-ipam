@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.models.user import User
 
 
@@ -94,7 +94,7 @@ async def _fetch_idp_metadata(cfg: Any) -> _IdPInfo:
         except UnsafeOutboundURL as exc:
             raise SAMLError(f"SSRF guard rejected metadata URL: {exc}") from exc
         except httpx.HTTPError as exc:
-            raise SAMLError(f"transport: {exc.__class__.__name__}") from exc
+            raise SAMLError(f"transport: {transport_detail(exc)}") from exc
         if resp.status_code != 200:
             raise SAMLError(f"SAML metadata HTTP {resp.status_code}")
         xml = resp.text

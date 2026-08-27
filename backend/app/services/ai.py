@@ -25,7 +25,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.safe_http import UnsafeOutboundURL, safe_request, safe_stream
+from app.core.safe_http import UnsafeOutboundURL, safe_request, safe_stream, transport_detail
 
 
 class AINotConfigured(RuntimeError):
@@ -240,7 +240,7 @@ async def embed(session: AsyncSession, text_in: str) -> list[float]:
     except UnsafeOutboundURL as exc:
         raise AIError(f"SSRF guard: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise AIError(f"transport: {exc.__class__.__name__}") from exc
+        raise AIError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
         raise AIError(f"{provider_label(cfg.provider)} {resp.status_code}: {resp.text[:200]}")
     vec = extract_embedding(resp.json(), cfg.provider)
@@ -617,7 +617,7 @@ async def chat(
         except UnsafeOutboundURL as exc:
             raise AIError(f"SSRF guard: {exc}") from exc
         except httpx.HTTPError as exc:
-            raise AIError(f"transport: {exc.__class__.__name__}") from exc
+            raise AIError(f"transport: {transport_detail(exc)}") from exc
         if resp.status_code != 200:
             raise AIError(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
@@ -961,7 +961,7 @@ async def chat_stream(
             yield {"type": "error", "detail": f"SSRF guard: {exc}"}
             return
         except httpx.HTTPError as exc:
-            yield {"type": "error", "detail": f"transport: {exc.__class__.__name__}"}
+            yield {"type": "error", "detail": f"transport: {transport_detail(exc)}"}
             return
 
         full_content = "".join(content_parts)
@@ -1171,7 +1171,7 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
             f"LLM 伺服器在 {int(wait)} 秒內沒有回覆完（模型太慢或資料量太大）"
         ) from exc
     except httpx.HTTPError as exc:
-        raise AIError(f"transport: {exc.__class__.__name__}") from exc
+        raise AIError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
         raise AIError(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
     # 兩家結構不同：Ollama 是 message、OpenAI 是 choices[0].message

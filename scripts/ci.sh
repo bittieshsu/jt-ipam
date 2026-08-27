@@ -40,6 +40,19 @@ if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
     echo "ruff not installed in .venv — skipping"
   fi
 
+  # The scan agent and the sync/maintenance scripts run with real privileges on
+  # customer machines, yet used to sit outside every security check we run.
+  # Same bandit ("S") rules, narrower scope -- see per-file-ignores in pyproject.
+  step "scripts + agent security rules (bandit S)"
+  if [[ -x .venv/bin/ruff ]]; then
+    if .venv/bin/ruff check --select S "$ROOT/scripts" "$ROOT/agent" >/dev/null 2>&1; then
+      ok "scripts/agent S-rules"
+    else
+      .venv/bin/ruff check --select S "$ROOT/scripts" "$ROOT/agent" 2>&1 | tail -40
+      bad "scripts/agent S-rules"
+    fi
+  fi
+
   step "backend pytest collect"
   if .venv/bin/pytest -q --collect-only >/dev/null 2>&1; then ok "pytest collect"; else bad "pytest collect"; fi
 
