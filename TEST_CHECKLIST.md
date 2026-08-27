@@ -184,6 +184,24 @@ defect is in *what the model was able to ask*.
 - [ ] **Facts come from tools, not arithmetic**: usage / free / count answers are fetched, never
   computed by the model from a CIDR
 
+- [ ] **Cancellable**: while generating, Send becomes Stop; pressing it aborts the request
+  (closing the connection also stops the LLM server), and the transcript says it stopped
+- [ ] **Progress is visible**: connecting / thinking / which tool / composing / answering, each
+  with the round number and elapsed seconds — **a bare spinner is indistinguishable from a hang**
+- [ ] **An empty reply is never passed through**: the model is asked once more for a direct
+  answer, and if it is still empty the reason is stated (length limit vs no text at all)
+## 5f. Browser consoles (SSH / BMC / PVE) — **whenever the terminal changes**
+
+- [ ] **URLs are clickable**: when a TUI has broken a long URL across rows
+  (`printf '%s\n' "$URL" | fold -w $(tput cols)` reproduces it), hovering the **second row**
+  still recognises the whole URL, and the bar shows the full target
+- [ ] **Only http/https open**, in a new tab with no opener (the text comes from the remote host)
+- [ ] **Selection copy**: a URL split across rows copies as one usable address;
+  **ordinary multi-line text must be left untouched**
+- [ ] **No false joins**: a full-width line followed by unrelated text is not glued into a URL
+- [ ] Existing spec: `frontend/e2e/terminal-links.spec.ts` (needs `E2E_SSH_ADDRESS_ID/USER/PASS`,
+  plus `can_ssh` on the user and `ssh_enabled` on the address; accept the host key on first use)
+
 ## 6. Manual page review (browser, after deploy)
 
 - [ ] Login / logout / theme switch (light / dark / auto)
@@ -301,6 +319,55 @@ What this section tests is the thing the chain itself cannot catch. Verifying th
   round (the change log must not fill up)
 - [ ] **Coverage gap**: asking with a subnet scope answers only for those subnets; an empty scope
   returns empty rather than falling back to global
+
+## 7g. Evidence contract — **whenever a source is added or changed**
+
+What this section guards: **a new source must answer whether its evidence expires**.
+The cost of not having that gate has already been paid — ARP was treated as timestamped
+evidence, and a machine powered off for weeks showed 52 days of green.
+
+- [ ] **Registered**: the new source declares its tier and `aging` in `services/evidence.py`;
+  `pytest tests/test_evidence_contract.py` is green (the guard rejects unregistered sources)
+- [ ] **Tier is right**: passively learned mappings (ARP/FDB/DNS/DHCP/virtualisation config)
+  are `learned` with `aging=False`; only active probes and third-party monitoring may age
+- [ ] **No string matching for source semantics**: no `"scanner" in status` style checks
+  remain — ask `evidence.is_aging()`, so a new source cannot fall into the loosest branch
+- [ ] **Liveness settings**: the options and defaults are derived from the contract;
+  a non-expiring source is **not** selected by default
+- [ ] **Availability bar**: days backed only by ARP are grey, not green; carrying a state
+  forward requires the source that state claims to still exist
+- [ ] **Precedence**: all five attributes (hostname/MAC/OS/device name/model) take effect
+  immediately after a change and disabled sources really are excluded;
+  `pytest -k "precedence or hostname or arp"` green
+- [ ] ⚠️ **Cache**: precedence uses a module-level 60s cache cleared between tests by
+  `conftest`'s `bust_all()`. If the cache moves, **verify that fixture still clears it** —
+  it once failed silently and tests leaked settings into each other
+
+## 7h. IP lifecycle and cooldown — **whenever release, allocation or the cooldown setting change**
+
+- [ ] **Release starts a cooldown**: after deleting an address it appears under
+  `/addresses/cooldowns/{subnet_id}` with the previous hostname and MAC
+- [ ] **The record survives deletion** (releasing an address in practice means deleting it)
+- [ ] **Allocation skips it**: neither the free-address list nor automatic allocation offers it
+- [ ] **Manual creation is refused**: recreating the address returns 409 with a readable
+  message including the end date and previous hostname — **not** `[object Object]`
+- [ ] **Early clear**: after clearing, the address can be used again, but the record remains
+  with who cleared it, when and why (recorded, not erased)
+- [ ] **Disabled**: setting 0 days restores the previous behaviour and writes no record
+- [ ] **Purge**: the sync round removes long-expired records but **keeps recently expired ones**
+  (the days right after expiry are exactly when someone asks who had the address)
+
+## 7i. Event rules — **whenever rules, conditions or event dispatch change**
+
+- [ ] **Conditions are not expressions**: confirm nothing is evaluated; regular expressions
+  are **unsupported** (ReDoS)
+- [ ] **An unknown operator never passes** (passing is the dangerous default)
+- [ ] **Field paths walk data only**: `data.x.y` must not reach attributes
+- [ ] **AND semantics**: every condition must hold; no conditions means the event name decides
+- [ ] **A broken rule does not stop the others**: a malformed rule is flagged and skipped while
+  the remaining rules and the normal webhook dispatch continue (**never silently inert**)
+- [ ] **Dry run has no side effects**: it reports what would match without sending anything
+- [ ] **The webhook action uses the same path**: signing and the SSRF guard cannot be bypassed
 
 ## 8. Recent feature spot-checks
 

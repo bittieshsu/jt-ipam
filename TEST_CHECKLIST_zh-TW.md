@@ -75,6 +75,24 @@
 - [ ] `cd frontend && pnpm exec playwright test smoke`（免後端，自起 vite preview）全綠
 - [ ] 對已部署實例（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑 `pnpm test:e2e` 主路徑（登入/sections/audit）
 
+## 5d. 系統匯出／匯入（跨機搬移）—— **只要動到它，每次發版都要整段跑**
+
+- [ ] **單元（免 DB）**：`pytest tests/test_system_transfer.py -q` —— 加解密封裝（密語錯誤要回
+  可讀訊息，不是 500）、四種機密表示法（欄位／集中／信封／設定 blob）都能來回、
+  `registry.validate_registry()` 回空（每張表都分類過）、向下相容會丟掉不認得的欄位
+- [ ] **含 DB**（`JTIPAM_TEST_DATABASE_URL` 指向 head）：匯出→匯入來回保留 UUID 與外鍵、
+  機密在目標端的金鑰下解得開、`merge` 具冪等性（第二次全部 `updated`、不長出重複列）、
+  `replace` 會先清空、`dry_run` 什麼都不寫
+- [ ] **向下相容**：拿一份較舊／較少表的匯出檔匯入不會出錯；schema_version 不合只出警告不失敗
+- [ ] **CLI**：`python -m app.cli.system_transfer export --scope … --out f.json --passphrase-stdin`
+  → `import --file f.json --dry-run` → 實際 `import`；筆數正確，密語錯誤回非零
+- [ ] **UI（管理 → 系統匯出／匯入）**：選範圍＋密語 → 產生 → 下載；在另一台上傳 → 分析
+  （顯示來源版本、筆數、警告）→ 試跑預覽 → 套用（merge 與 replace 各一次）；非管理員 403／看不到選單
+- [ ] **端到端搬移**：從 A 機匯出預設範圍，匯入乾淨的 B 機，然後在 B 登入確認子網路／IP／裝置／
+  整合都在、某個整合真的連得上（機密已用新金鑰重新加密）、SSH 憑證可用、TOTP 仍可登入
+- [ ] **安全**：下載／分析／套用都要 admin 且驗證作業歸屬；暫存檔 0600、目錄 0700；
+  日誌與回應中不得出現明文機密或密語
+
 ## 5e. AI 對話 / MCP 工具 —— **每次動到工具、提示詞或它們讀的資料都要跑**
 
 錯誤的 AI 答案看起來不像錯的：裡面每個數字都是真的，只是算在錯的集合上。單元測試會過，
@@ -94,6 +112,22 @@
 - [ ] **提示詞注入**：攻擊者可控的文字（mDNS 主機名稱、防火牆規則描述）仍被定界與截長，
   對抗式測試仍然通過
 - [ ] **事實來自工具，不是心算**：使用率／剩餘／筆數一律呼叫工具取得，不可讓模型自己用 CIDR 推算
+- [ ] **可中止**：運算中「送出」變成「停止」，按下去會中止請求（連線一斷，LLM 伺服器也停止推論），
+  畫面顯示已停止且回到可送出狀態
+- [ ] **進度看得見**：連線中／模型思考中／執行哪個工具／整理資料／產生回答，各階段都有文字，
+  並附第幾輪與已經過幾秒 —— **空轉的轉圈圈和當機長得一模一樣**
+- [ ] **空回覆不可原樣送出**：模型沒產生文字時會再要求作答一次，仍為空則說明原因
+  （長度上限／只輸出思考），不可顯示成「(沒有回應)」
+
+## 5f. 瀏覽器主控台（SSH／BMC／PVE）—— **只要動到終端機就要跑**
+
+- [ ] **網址可點**：長網址被 TUI 切成多列時（`printf '%s\n' "$URL" | fold -w $(tput cols)` 可重現），
+  **滑鼠停在第二列**也認得整條網址；底部顯示的是完整目標
+- [ ] **只開 http/https**、新分頁、不帶 opener（終端機文字由遠端主機控制）
+- [ ] **選取複製**：跨列的網址複製出來是完整可用的；**一般多行文字必須原樣**（不可被改寫）
+- [ ] **不誤接**：滿版的一行後面接另一段文字，不會被黏成一條假網址
+- [ ] 現成 spec：`frontend/e2e/terminal-links.spec.ts`（需 `E2E_SSH_ADDRESS_ID/USER/PASS`；
+  另需該帳號 `can_ssh`、該 IP `ssh_enabled`，第一次連線要按「信任並連線」）
 
 ## 6. 主要頁面手動點檢（部署後瀏覽器）
 
@@ -117,6 +151,48 @@ POSTGRES_DB=jt_ipam_test .venv/bin/alembic upgrade head
 JTIPAM_TEST_DATABASE_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/jt_ipam_test" .venv/bin/pytest -q
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 ```
+
+## 7. pfSense 整合（管理 → 整合 pfSense）
+
+> pfSense（CE 2.8.x）端前置：安裝 **pfSense-pkg-RESTAPI**（pfrest.org），到 System → REST API →
+> Settings 把 **「API Key」** 加進認證方式（預設只有 BasicAuth），再到 Keys 產一把金鑰。
+
+- [ ] 新增實例：API URL ＋ X-API-Key，自簽憑證要**關掉驗證 TLS**；儲存（金鑰只進不出）
+- [ ] **測試連線** → 成功並顯示 pfSense 版本
+- [ ] **立即同步**（ARP＋別名＋規則開啟；若 LAN 的 DHCP 由別台負責則 **DHCP 關閉**）→ 回筆數；
+  範圍內的 ARP IP 會被標上 `last_seen`（來源 `pfsense`）與 MAC；別名／規則筆數與實機相符
+- [ ] **欄位名稱回歸**：ARP／DHCP 用的是 `ip_address`／`mac_address`（不是 `ip`／`mac`）；
+  `hostname == "?"` 要視為空白
+- [ ] **範圍安全**：設了 `scope_subnet_ids` 之後只會標到那些子網路裡的 IP（重疊網段用 `.limit(1)`）
+- [ ] **規則／NAT 檢視**（眼睛按鈕）能列出同步到的規則與 NAT 筆數
+- [ ] **Graylog DSV**（開啟 Expose DSV 並設好 token）：`GET /api/v1/lookup/pfsense/{id}/aliases?token=…`
+  與 `…/rules?token=…` 回 CSV/TSV；**token 錯 → 401**；`expose_dsv` 關閉 → 404
+- [ ] 刪除實例；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的實例且不出錯
+
+## 7b. VMware ESXi / vCenter 整合（管理 → 整合 VMware）—— **Beta**
+
+> SOAP 端點固定是 `<url>/sdk`。同一套實作**同時**涵蓋單機 ESXi 與 vCenter —— 它們是同一組 VIM API，
+> ContainerView 會吸收掉層級深度的差異。請用**唯讀**帳號：這個整合從不寫入。
+> 免費／未授權的 ESXi 本來就只開放唯讀 API，剛好夠用。
+
+- [ ] 新增實例：URL ＋ 帳號密碼，自簽憑證要**關掉驗證 TLS**；儲存（密碼只進不出）。
+  編輯時密碼留空＝不變更
+- [ ] **測試連線** → 逐步診斷：RetrieveServiceContent（產品與版本）、Login、
+  RetrievePropertiesEx（VM 數）。密碼錯必須停在 **Login** 並顯示 VMware 自己的訊息，
+  不可以是空泛的「伺服器錯誤」—— VMware 把認證失敗包成 HTTP 500 的 SOAP Fault
+- [ ] **立即同步** → 回 VM 數；叢集清單看得到這個實例、型別 `vmware`；
+  VM 帶名稱／電源狀態／vCPU／記憶體／所在主機
+- [ ] **實機第一次跑要核對欄位**：拿幾台 VM 跟 vSphere 用戶端比對。關機的 VM 沒有 `guest.*`、
+  沒裝 VMware Tools 的沒有 IP、範本沒有 `runtime.host` —— 這些都不可以讓同步中斷，應該只是回空
+- [ ] **分頁**：VM 超過 200 台的 vCenter，筆數要與 vSphere 用戶端一致
+  （continuation token 掉了會**安靜地**少掉後面全部）
+- [ ] **IP 對應**：VMware Tools 回報且在範圍內的 IP 會連到既有位址；IPAM 沒有的位址**不建立**。
+  重疊網段又沒設範圍時，有歧義的位址要跳過而不是用猜的
+- [ ] **VM 被刪**：在 vSphere 刪掉一台 → 下一輪同步從清單移除
+- [ ] **PVE 回歸（共用資料表）**：跑 ESXi 同步不可動到 Proxmox 的叢集／VM／介面，
+  `legacy_vmid` 與 `kind=ct` 仍正確，進階 → 虛擬化（Proxmox VE）只列 PVE、虛擬化（VMware）只列 VMware；
+  PVE VM 對到的裝置／IP 連結仍然有效
+- [ ] 刪除實例；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的實例且不出錯
 
 ## 7c. 整合同步的韌性 —— **每個整合都適用，不只這次動到的那個**
 
@@ -172,3 +248,105 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
   查詢要用 `limit(1)`（`scalar_one_or_none` 會炸掉整輪）
 - [ ] **主機名稱收斂**：兩台 Zabbix 主機指向同一 IP 時不得每輪互相覆寫（看異動記錄不該洗版）
 - [ ] **涵蓋缺口**：帶子網路範圍問就只回那些網段；空範圍回空而不是退化成全域
+
+## 7g. 證據契約 —— **只要新增／修改任何「來源」就要跑**
+
+這一節守的是：**新來源必須先回答「它的證據會不會過期」**。少了這道門的代價付過了 ——
+ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 天全綠。
+
+- [ ] **登記**：新來源在 `services/evidence.py` 宣告了 tier 與 aging；
+  `pytest tests/test_evidence_contract.py` 綠（沒登記會被守門測試擋下）
+- [ ] **分層正確**：被動學到的對應（ARP／FDB／DNS／DHCP／虛擬化設定）＝ `learned` 且
+  `aging=False`；只有主動探測與第三方監控才可以是 `aging=True`
+- [ ] **不可用字串比對判斷來源性質**：程式碼裡不該再出現 `"scanner" in status` 這類判斷，
+  一律問 `evidence.is_aging()`（新來源才不會安靜地落進最寬鬆的分支）
+- [ ] **上線判定**：管理 → 系統設定 → 上線判定，勾選項與預設值都由契約推導；
+  不會過期的來源預設**不勾**
+- [ ] **可用性長條圖**：只有 ARP 撐著的日子是灰色不是綠色；狀態往後延續時，
+  那筆轉換宣稱的來源現在必須還在
+- [ ] **優先序**：五個屬性（主機名稱／MAC／OS／裝置名稱／型號）改設定後即時生效、
+  停用來源真的不參與；跑 `pytest -k "precedence or hostname or arp"` 全綠
+- [ ] ⚠️ **快取**：優先序是模組級 60 秒快取。測試之間靠 `conftest` 的 `bust_all()` 清 ——
+  快取若搬家，**確認那個 fixture 真的還清得到**（曾經安靜失效造成測試互相污染）
+
+## 7h. IP 生命週期與冷卻期 —— **只要動到釋放、配發或冷卻設定就要跑**
+
+- [ ] **釋放即冷卻**：刪除一個 IP 之後，`/addresses/cooldowns/{subnet_id}` 看得到它，
+  且帶著前一手的主機名稱與 MAC
+- [ ] **紀錄撐過刪除**：IP 記錄已經不在了，冷卻紀錄仍在（實務上「釋放」就是刪除）
+- [ ] **配發跳過**：可用位址清單與自動配發都不會提供冷卻中的位址
+- [ ] **手動建立被擋**：重建同一個位址回 409，訊息看得懂（含到期日與前一手），
+  **不是** `[object Object]`
+- [ ] **提前解除**：解除後可以配發，但紀錄仍在且留有解除者／時間／原因（不是刪掉）
+- [ ] **停用**：天數設 0 → 行為與從前一致、不留紀錄
+- [ ] **回收**：`jt-ipam-sync` 每輪會清掉早就過期的紀錄，但**到期後仍多留一段時間**
+  （剛過期那幾天正是有人會問「上一手是誰」的時候）
+
+## 7i. 事件規則 —— **只要動到規則、條件或事件分派就要跑**
+
+- [ ] **條件不是運算式**：確認沒有任何形式的求值；正規表示式**不支援**（ReDoS）
+- [ ] **認不得的運算子＝不放行**（放行才是危險的預設）
+- [ ] **欄位路徑只走資料**：`data.x.y` 不可以變成屬性存取
+- [ ] **AND 語意**：多個條件全部成立才命中；沒有條件＝只看事件名稱
+- [ ] **壞規則不可拖垮其他規則**：形狀不對的規則被標記並跳過，其餘規則與原本的
+  webhook 分派照常（**不可以安靜地什麼都不做**）
+- [ ] **試跑沒有副作用**：試跑只回報命中與否與逐條結果，不送出通知也不打 webhook
+- [ ] **webhook 動作走同一條路**：簽章與 SSRF 檢查不可被規則繞過
+
+## 8. 近期功能點檢
+
+- [ ] **通知矩陣**（管理 → 通知發送設定）：事件 × （站內／Email）可切換；存檔後保留；
+  事件依矩陣實際送出（IP 申請、憑證到期／派送／飄移、異常）
+- [ ] **憑證派送 `files` profile**：只寫憑證檔案，不做 reload/restart
+- [ ] **異常偵測頁**：頁籤、各表欄位選擇、`ip_address_id` 預設隱藏、MAC 變動看得到 IP／主機名稱
+- [ ] **MCP 用戶端設定產生器**（LLM/AI）：按鈕產出 Claude Desktop／opencode／mcpo／通用片段
+- [ ] **LLM 供應商改成 OpenAI 相容**（管理 → LLM/AI）：切換後出現資料外送警告與 API 金鑰欄；
+  模型下拉從 `/v1/models` 重新載入（下拉是空的＝打錯路徑）；base URL 已結尾 `/v1` 不會被重複加；
+  對話與語意搜尋都可用。切回 Ollama 會恢復 `/api/tags` 清單。
+  `select value from system_settings where key='llm'` **不得出現明文金鑰**，只能有 `api_key_enc`；
+  設定頁永遠不回傳金鑰本身
+- [ ] **嵌入維度**（管理 → LLM/AI）：「檢查維度」會回報模型實際維度與欄位大小的比對。
+  換過嵌入模型之後重新索引必須回 `failed: 0`；若回 `0 indexed`，失敗筆數與原因要看得見，
+  不可以只給一個光禿禿的零。候選模型還必須對**不同的繁中描述產生不同向量**
+  （純英文模型會把它們壓成一樣，看起來正常但排序其實是亂的）
+- [ ] **在子網路裡新增位址**：建立表單有必填的 IP 欄位（issue #14）
+- [ ] **依網卡 MAC 自動掛裝置**（管理 → 系統設定）：既有安裝預設關閉；**預覽**會回報筆數與
+  逐項跳過原因且不改任何資料；啟用後下一輪同步會掛上，並對每個位址寫一筆 IP 異動記錄（含比對原因）。
+  手動清掉某個裝置關聯後，確認下一輪**不會**又把它裝回去（這條規則是為了讓背景作業不跟人對著幹）
+
+### 近期（v0.5.6x–0.5.7x）
+
+- [ ] **BMC 帶外主控台**（IPMI SOL，Beta）：逐 IP 啟用（`bmc_enabled`，migration 0092）→
+  IP 詳細資料與連線管理出現按鈕；連線時 cipher 自動退回（17→3）；憑證金庫「記住」會存
+  （`protocol='bmc'`）且下次自動帶入；RBAC 與 SSH 相同（逐物件＋can_ssh）；
+  session 開／關都寫稽核；**設定教學**視窗（表單／工具列／空白提示）打得開且有排錯說明
+- [ ] **掃描代理 OS 偵測**（agent ≥ 1.7.0）：設備與 BMC 不再被猜錯 —— Debian 設備（SSH banner）→ `Debian`、
+  走 SMB/Service-Info 的 Windows → `Windows`；只靠裝置型號猜出來的（NAS／OpenWrt／路由器）
+  一律降成未知，不顯示
+- [ ] **通知在地化**：切換介面語言（繁中 ⇄ English）→ 鈴鐺**與**通知頁都用當前語言呈現
+  （IP 申請、異常、憑證、失聯 IP）；舊通知退回顯示當初存下來的文字
+- [ ] **通知管道**（管理 → 通知發送設定）：Telegram／Slack／Teams／Nextcloud Talk／Zulip 各自
+  可儲存（token／webhook 加密，「已設定，留空＝保留」）、逐管道的**測試**按鈕送得出去，
+  且啟用的管道會跟 Email／站內一起收到矩陣觸發的事件（例如一筆 IP 申請）
+- [ ] 表格頁的**匯出按鈕**有邊框（與「欄位」「重新整理」一致）
+- [ ] **DHCP 伺服器／閘道 IP 標示**（migration 0090 `is_dhcp_server`）：OPNsense／pfSense 的
+  DHCP 伺服器 IP 與閘道會被標記；IP 詳細資料看得到 DHCP 伺服器／閘道／在 DHCP 範圍內的標籤
+- [ ] **LibreNMS 自動建立裝置 IP**（migration 0091 預設開啟）：只在 LibreNMS 有的裝置，
+  其主 IP 會被建到對應（限定範圍內）的子網路；重疊而有歧義時跳過，不亂放
+- [ ] **PVE 瀏覽器主控台**（VM 走 noVNC／CT 走 xterm，migration 0089）：PVE VM/CT 的 IP 逐筆開關；
+  用 PVE 帳號連線；IP 詳細資料與連線管理上有橘色按鈕與 PVE 標籤
+
+---
+
+### 附錄：拋棄式測試資料庫指令（在 prod 主機上跑，**絕不要動 prod 資料庫**）
+
+```bash
+set -a; source /etc/jt-ipam/backend.env; set +a
+sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
+sudo -u postgres psql -c "CREATE DATABASE jt_ipam_test OWNER ${POSTGRES_USER} ENCODING UTF8 TEMPLATE template0;"
+sudo -u postgres psql -d jt_ipam_test -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+cd /opt/jt-ipam/backend
+POSTGRES_DB=jt_ipam_test .venv/bin/alembic upgrade head
+JTIPAM_TEST_DATABASE_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/jt_ipam_test" .venv/bin/pytest -q
+sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
+```
