@@ -1056,7 +1056,8 @@
     "via_virtualization": "虛擬化平台",
     "field_host": "實體主機",
     "field_cluster": "叢集",
-    "field_memory": "記憶體 (MB)"
+    "field_memory": "記憶體 (MB)",
+    "unplaced_group": "同網段・查不出接在哪台交換器"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",

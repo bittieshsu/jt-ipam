@@ -420,14 +420,46 @@ function groupBySubnet(data: TopologyData): TopologyData {
     if (hostBoxes.size === 1 && mine.length > 0) parentOf.set(sw, [...hostBoxes][0]);
   }
 
+  // 有存取層位置的成員（插在某台交換器上、或跑在某台主機上）
+  const located = new Set<string>();
+  for (const e of data.edges) {
+    if (e.data.kind === "l2" || e.data.kind === "l2_uplink" || e.data.kind === "vm_host") {
+      located.add(e.data.source);
+      located.add(e.data.target);
+    }
+  }
+
+  // 其餘成員只知道「在這個網段」。單純放進框裡看起來就是一排斷線的裝置 ——
+  // 它們不是沒連線，是**我們查不出它接在哪台交換器的哪個埠**。用一個講明白的
+  // 次區塊把這件事說出來，比讓人自己猜好。
+  // 只有在該框裡確實有「查得出位置」的東西時才分區：整框都查不出來時分區沒有意義。
+  const unplacedBox = new Map<string, string>();      // subnet id → 次區塊 id
+  const boxHasLocated = new Set<string>();
+  for (const [dev, box] of parentOf) if (located.has(dev)) boxHasLocated.add(box);
+  const extraNodes: TopologyData["nodes"] = [];
+  for (const [dev, box] of [...parentOf]) {
+    if (located.has(dev) || !boxHasLocated.has(box)) continue;
+    let gid = unplacedBox.get(box);
+    if (!gid) {
+      gid = `unplaced:${box}`;
+      unplacedBox.set(box, gid);
+      extraNodes.push({ data: { id: gid, label: t("topology.unplaced_group"),
+                                type: "unplaced", isGroup: true, parent: box } } as never);
+    }
+    parentOf.set(dev, gid);
+  }
+
   return {
-    nodes: data.nodes.map((n) =>
-      subnetIdSet.has(n.data.id)
-        ? { data: { ...n.data, isGroup: true } }
-        : parentOf.has(n.data.id)
-          ? { data: { ...n.data, parent: parentOf.get(n.data.id) } }
-          : n,
-    ),
+    nodes: [
+      ...data.nodes.map((n) =>
+        subnetIdSet.has(n.data.id)
+          ? { data: { ...n.data, isGroup: true } }
+          : parentOf.has(n.data.id)
+            ? { data: { ...n.data, parent: parentOf.get(n.data.id) } }
+            : n,
+      ),
+      ...extraNodes,
+    ],
     // 已經用「在框裡」表達的 L3 邊就不要再畫一次；跨網段那幾條留著
     edges: data.edges.filter(
       (e) =>
@@ -608,6 +640,23 @@ function render(data: TopologyData) {
           color: "#0369a1",
           "text-outline-width": 0,
           padding: "26px" as any,
+        },
+      },
+      {
+        // 「同網段但查不出位置」的次區塊：比網段框更淡，標題說明白
+        selector: 'node[type = "unplaced"]',
+        style: {
+          "background-color": "#94a3b8",
+          "background-opacity": 0.07,
+          "border-color": "#94a3b8",
+          "border-style": "dashed",
+          "border-width": 1,
+          "border-opacity": 0.6,
+          "font-size": 11,
+          "font-weight": "normal",
+          color: "#64748b",
+          "text-margin-y": -4,
+          padding: "18px" as any,
         },
       },
       {
@@ -824,8 +873,10 @@ function arrangeSwitchCentric() {
       / swIds.length;
     // 虛擬機不排進這格網格：它們要貼著自己的實體主機（見下方），
     // 被掃進來的話會排到框底下，跟主機之間拉出一堆橫跨整張圖的長線。
-    const members = cy!.getElementById(boxId).children()
-      .filter((c: any) => !placed.has(c.id()) && visible(c) && c.data("type") !== "vm");
+    // 用 descendants：網段框底下現在可能還有一層「位置未知」的次區塊
+    const members = cy!.getElementById(boxId).descendants()
+      .filter((c: any) => !c.isParent() && !placed.has(c.id()) && visible(c)
+        && c.data("type") !== "vm");
     const mn = members.length;
     // 每列幾個跟著數量走：固定 6 個一列時，一個有上百台的網段會排成十幾列的長條，
     // 整張圖被拉得很高、縮放又掉下去。開根號讓它維持接近方形。
@@ -955,12 +1006,12 @@ onUnmounted(() => {
         :options="subnetOptions"
         multiple filterable clearable
         :placeholder="t('topology.filter_subnets')"
-        style="min-width: 240px; max-width: 460px"
+        style="width: 250px"
         :consistent-menu-width="false"
-        :max-tag-count="2"
+        max-tag-count="responsive"
       />
         <n-select v-model:value="viewMode" :options="viewModeOptions"
-                  style="width: 210px" :consistent-menu-width="false" />
+                  style="width: 190px" :consistent-menu-width="false" />
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeWireless">{{ t("topology.wireless") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>

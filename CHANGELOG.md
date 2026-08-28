@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.218] — 2026-08-28
+
+### Fixed
+- **A row of devices in the mixed view looked disconnected.** They are in fact "in this subnet, but we cannot tell which switch port they are on" — drawing them inside the box was not enough to say that, so they read as devices with no links at all. They now go into a clearly labelled sub-area, "same subnet · switch port unknown". A box with no access-layer information at all is not split, since there would be nothing to contrast against.
+- **The subnet picker grew taller with every subnet selected, pushing the layout around.** Tags now collapse onto a single line with a +N overflow, so the toolbar stays 34px tall no matter how many are selected.
+
 ## [0.5.217] — 2026-08-28
 
 ### Added
