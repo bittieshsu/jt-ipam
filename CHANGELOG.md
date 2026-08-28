@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.216] — 2026-08-28
+
+### Fixed
+- **Exporting to another machine and importing lost a large share of the devices** (reported by a customer). The import writes table by table in foreign-key dependency order, but six columns point *forward*: `devices.primary_ip_id` references `ip_addresses`, which is imported later, while `sections.parent_id`, `subnets.master_subnet_id`, `device_ports.peer_port_id`, `contact_groups.parent_id` and `tenant_groups.parent_id` reference another row of the same table. When such a row is written its target does not exist yet, the foreign key fails and **the whole row is dropped**. It looks like random data loss but is perfectly regular: every device with a primary IP fails and every device without one survives; nested sections and subnets lose whichever rows happen to be exported before their parent. Those columns are now left empty on the first pass and filled in once every table is written, so no link is lost.
+- **The import screen reported a green "import complete" even when whole rows had failed.** The failure count was only a column in a table, which is why the customer discovered the missing devices afterwards rather than at import time. A run with failures now shows a warning that says those rows are missing entirely, and lists the first few reasons — the part that can actually be reported back to us.
+- **Clicking another machine in a rack left "ports / cabling" showing the first one** (reported against 0.5.208). Clicking a device in the rack diagram navigates to `/devices/:id`; when only the route parameter changes Vue reuses the component and simply passes a new prop, while that panel only loaded its data on mount. The power-port panel and the uptime bar beside it already watched the prop; this one did not.
+
 ## [0.5.215] — 2026-08-28
 
 ### Changed

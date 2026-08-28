@@ -290,6 +290,10 @@ const cols = computed<DataTableColumns<DevicePort>>(() => [
   },
 ]);
 
+// 換一台裝置要重抓。機櫃圖點裝置會導到同一條路由 `/devices/:id`，只換參數時 Vue
+// 不會重建元件、只是換 prop —— 只寫 onMounted 的話畫面會一直停在第一次點的那台
+// （客戶回報 0.5.208）。隔壁的電源埠面板與可用性長條圖本來就有這個 watch。
+watch(() => props.deviceId, () => { void refresh(); });
 onMounted(() => { void refresh(); });
 </script>
 

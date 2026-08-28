@@ -2980,7 +2980,9 @@
     "import_done": "匯入完成。",
     "import_failed": "匯入失敗。",
     "col_table": "資料表",
-    "col_errored": "錯誤"
+    "col_errored": "錯誤",
+    "import_partial": "匯入完成，但有 {n} 列沒有寫入",
+    "import_partial_hint": "這些列是整筆沒有進去（不是少了某個欄位）。請看下方各表的「失敗」欄位確認是哪一張表，並把下列訊息回報給我們。"
   },
   "windows_dhcp": {
     "title": "Windows DHCP 伺服器",

@@ -102,6 +102,23 @@ const impMode = ref<"merge" | "replace">("merge");
 const impBusy = ref(false);
 const analyzed = ref<AnalyzeResult | null>(null);
 const report = ref<ImportReport | null>(null);
+
+/** 匯入時整列寫不進去的筆數。這個不能只當成表格裡的一欄 —— 客戶就是因為畫面
+ *  一律顯示綠色「匯入完成」，事後才發現裝置少了一半。 */
+const failedRows = computed(() => {
+  const r = report.value;
+  if (!r) return 0;
+  const t = Object.values(r.tables ?? {}).reduce((a, v) => a + (v.errored ?? 0), 0);
+  return t + (r.central_secrets?.errored ?? 0) + (r.deferred_refs?.errors?.length ?? 0);
+});
+const failureReasons = computed(() => {
+  const r = report.value;
+  if (!r) return [] as string[];
+  const out: string[] = [];
+  for (const v of Object.values(r.tables ?? {})) out.push(...(v.errors ?? []));
+  out.push(...(r.deferred_refs?.errors ?? []));
+  return out.slice(0, 5);
+});
 const impTaskId = ref<string | null>(null);
 const impTaskStatus = ref<string | null>(null);
 let impTimer: ReturnType<typeof setInterval> | null = null;
@@ -318,8 +335,18 @@ onUnmounted(() => { stopExpTimer(); stopImpTimer(); });
           </span>
         </n-space>
 
-        <n-alert v-if="report && !report.dry_run" type="success" :bordered="false" style="margin-top: 12px">
+        <n-alert v-if="report && !report.dry_run && !failedRows" type="success"
+                 :bordered="false" style="margin-top: 12px">
           {{ t("system_transfer.import_done") }}
+        </n-alert>
+        <!-- 有寫不進去的列就不可以說「完成」：那些列是整筆不見，不是少一個欄位 -->
+        <n-alert v-else-if="report && !report.dry_run" type="warning"
+                 :bordered="false" style="margin-top: 12px"
+                 :title="t('system_transfer.import_partial', { n: failedRows })">
+          <div>{{ t("system_transfer.import_partial_hint") }}</div>
+          <ul v-if="failureReasons.length" class="fail-list">
+            <li v-for="(e, i) in failureReasons" :key="i">{{ e }}</li>
+          </ul>
         </n-alert>
       </template>
     </n-card>
@@ -328,6 +355,8 @@ onUnmounted(() => { stopExpTimer(); stopImpTimer(); });
 </template>
 
 <style scoped>
+.fail-list { margin: 6px 0 0; padding-left: 18px; font-size: 12px; opacity: 0.85; word-break: break-all; }
+.fail-list li { margin-bottom: 2px; }
 .st-wrap { display: flex; flex-direction: column; gap: 16px; }
 /* 匯出 / 匯入 並排；寬螢幕兩欄用滿版面，窄螢幕自動堆疊 */
 .st-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 16px; align-items: start; }

@@ -2980,7 +2980,9 @@
     "import_done": "Import complete.",
     "import_failed": "Import failed.",
     "col_table": "Table",
-    "col_errored": "errors"
+    "col_errored": "errors",
+    "import_partial": "Import finished, but {n} rows were not written",
+    "import_partial_hint": "Those rows are missing entirely, not merely missing a field. Check the failed column per table below to see which one, and send us the messages listed here."
   },
   "windows_dhcp": {
     "title": "Windows DHCP Server",

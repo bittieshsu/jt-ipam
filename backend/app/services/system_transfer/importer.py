@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import Date, DateTime, LargeBinary, Time, delete, select
+from sqlalchemy import and_ as sa_and
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +77,50 @@ def _parse_temporal(val: Any) -> Any:
             return val
 
 
+def deferred_fk_columns(name: str) -> set[str]:
+    """這張表裡「指向還沒建立的那一列」的外鍵欄位。
+
+    匯入照外鍵相依序逐表寫入，但有些欄位是往後指的：`devices.primary_ip_id` 指向排在
+    後面的 `ip_addresses`，`sections.parent_id` / `subnets.master_subnet_id` /
+    `device_ports.peer_port_id` 則是指向同一張表的其他列（同表內誰先誰後由匯出順序決定）。
+    寫到那一列時目標還不存在 → 外鍵違反 → **整列進不去**。
+
+    客戶回報的「裝置少了一半」就是這個：設了主要 IP 的裝置全部失敗、沒設的照常匯入，
+    看起來像隨機掉資料。所以這些欄位先留空，等所有表都寫完再回頭補上（見 `_apply_deferred`）。
+
+    只延後**可為空**的欄位 —— 不可為空的往後指外鍵無法先留空，那種結構要靠調整相依序解決；
+    目前 metadata 裡沒有這種欄位。
+    """
+    table = registry.table_by_name(name)
+    order = registry.all_tablenames()
+    idx = {n: i for i, n in enumerate(order)}
+    here = idx.get(name, -1)
+    out: set[str] = set()
+    for fk in table.foreign_keys:
+        ref = fk.column.table.name
+        if idx.get(ref, -1) >= here and fk.parent.nullable:
+            out.add(fk.parent.name)
+    return out
+
+
+async def _apply_deferred(
+    session: AsyncSession, pending: list[tuple[str, dict[str, Any], dict[str, Any]]],
+) -> tuple[int, list[str]]:
+    """所有表寫完後，把先前留空的往後指外鍵補回去。"""
+    fixed, errors = 0, []
+    for name, pk, values in pending:
+        table = registry.table_by_name(name)
+        try:
+            async with session.begin_nested():
+                cond = sa_and(*[table.c[k] == v for k, v in pk.items()])
+                await session.execute(table.update().where(cond).values(**values))
+            fixed += 1
+        except Exception as exc:
+            if len(errors) < 20:
+                errors.append(f"{name} pk={pk}: {type(exc).__name__}: {exc}")
+    return fixed, errors
+
+
 def _pk_cols(table) -> list[str]:
     return [c.name for c in table.primary_key.columns]
 
@@ -98,11 +143,13 @@ def _pk_value(table, coerced: dict[str, Any]):
 
 async def _import_table(
     session: AsyncSession, name: str, rows: list[dict[str, Any]], *, mode: str,
+    pending: list[tuple[str, dict[str, Any], dict[str, Any]]] | None = None,
 ) -> TableResult:
     table = registry.table_by_name(name)
     res = TableResult()
     existing = set() if mode == "replace" else await _existing_pks(session, table)
     pk_cols = _pk_cols(table)
+    deferred = deferred_fk_columns(name) if pending is not None else set()
     for raw in rows:
         raw = dict(raw)
         sec = raw.pop("__secrets__", None)
@@ -112,6 +159,14 @@ async def _import_table(
                 coerced["value"] = secrets.transform_settings_in(coerced.get("key"), coerced.get("value"))
             secrets.apply_column_secrets(name, coerced, sec)
             secrets.apply_envelope_secrets(name, coerced, sec)
+            # 往後指的外鍵先留空，等全部寫完再補（否則整列會因為外鍵違反而消失）。
+            # 這裡是把欄位整個拿掉而不是填 None：merge 模式下 upsert 就不會把目標端
+            # 既有的值蓋成空的。
+            if deferred:
+                hold = {c: coerced.pop(c) for c in deferred if c in coerced}
+                hold = {c: v for c, v in hold.items() if v is not None}
+                if hold and pending is not None:
+                    pending.append((name, {c: coerced[c] for c in pk_cols}, hold))
             pkv = _pk_value(table, coerced)
             is_update = pkv in existing
             async with session.begin_nested():
@@ -170,9 +225,14 @@ async def apply_import(
     if mode == "replace":
         await _wipe(session, present, protect_user_id=actor_user_id)
 
+    pending: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     for name in present:
-        res = await _import_table(session, name, tables_in[name], mode=mode)
+        res = await _import_table(session, name, tables_in[name], mode=mode, pending=pending)
         report["tables"][name] = res.as_dict()
+
+    if pending:
+        fixed, errors = await _apply_deferred(session, pending)
+        report["deferred_refs"] = {"fixed": fixed, "total": len(pending), "errors": errors}
 
     # 中央機密（encrypted_secrets）：以目標金鑰重加密後 upsert
     if central_in:

@@ -39,6 +39,8 @@ export interface ImportReport {
   dry_run: boolean;
   tables: Record<string, TableCount>;
   central_secrets?: TableCount;
+  /** 匯入時先留空、事後補回的往後指外鍵（devices.primary_ip_id 這類） */
+  deferred_refs?: { fixed: number; total: number; errors?: string[] };
 }
 
 export async function getTransferSchema(): Promise<TransferSchema> {
