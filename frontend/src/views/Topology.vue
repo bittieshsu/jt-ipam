@@ -359,6 +359,67 @@ async function refresh() {
   }
 }
 
+/**
+ * 混合視角的資料轉換：子網路不再是「另一顆節點加一整組線」，而是**一個框**，
+ * 它的成員（含交換器）畫在框裡面。
+ *
+ * 不這樣做的話，每台主機會有兩條線 —— 一條到交換器、一條到網段 —— 同一件事講兩次，
+ * 線還互相打結。網段成員本來就是一種「屬於」關係，用包含畫比用連線畫誠實也乾淨。
+ *
+ * 跨多個網段的裝置（路由器 / 防火牆）**不塞進任何一個框**：塞進去等於宣稱它只屬於
+ * 其中一個。它們維持原本的 L3 連線，一眼就看得出來是跨網段的那幾台。
+ */
+function groupBySubnet(data: TopologyData): TopologyData {
+  const subnetIdSet = new Set(
+    data.nodes.filter((n) => n.data.type === "subnet").map((n) => n.data.id),
+  );
+  if (!subnetIdSet.size) return data;
+
+  const subsOfDevice = new Map<string, Set<string>>();
+  for (const e of data.edges) {
+    if (e.data.kind !== "l3") continue;
+    const sub = subnetIdSet.has(e.data.source) ? e.data.source : e.data.target;
+    const dev = sub === e.data.source ? e.data.target : e.data.source;
+    if (!subnetIdSet.has(sub) || subnetIdSet.has(dev)) continue;
+    (subsOfDevice.get(dev) ?? subsOfDevice.set(dev, new Set()).get(dev)!).add(sub);
+  }
+  const parentOf = new Map<string, string>();
+  for (const [dev, subs] of subsOfDevice) {
+    if (subs.size === 1) parentOf.set(dev, [...subs][0]);
+  }
+  if (!parentOf.size) return data;
+
+  // 有 FDB、但自己沒有 IP 記錄的交換器（沒有 L3 邊）會落在框外面，它的主機卻在框裡，
+  // 於是一堆線穿過框線 —— 看起來像壞掉。若它的主機**全都**屬於同一個框，就把它併進去：
+  // 「它服務的機器全在這個廣播域」是真的證據。主機跨多個框時維持在外面 ——
+  // 那是真的跨網段交換器，挑一個框就是編造。
+  const l2Edges = data.edges.filter((e) => e.data.kind === "l2");
+  for (const sw of new Set(l2Edges.map((e) => e.data.target))) {
+    if (parentOf.has(sw)) continue;
+    const mine = l2Edges.filter((x) => x.data.target === sw);
+    const hostBoxes = new Set(
+      mine.map((x) => parentOf.get(x.data.source)).filter(Boolean) as string[],
+    );
+    if (hostBoxes.size === 1 && mine.length > 0) parentOf.set(sw, [...hostBoxes][0]);
+  }
+
+  return {
+    nodes: data.nodes.map((n) =>
+      subnetIdSet.has(n.data.id)
+        ? { data: { ...n.data, isGroup: true } }
+        : parentOf.has(n.data.id)
+          ? { data: { ...n.data, parent: parentOf.get(n.data.id) } }
+          : n,
+    ),
+    // 已經用「在框裡」表達的 L3 邊就不要再畫一次；跨網段那幾條留著
+    edges: data.edges.filter(
+      (e) =>
+        e.data.kind !== "l3" ||
+        !(parentOf.has(e.data.source) || parentOf.has(e.data.target)),
+    ),
+  };
+}
+
 function render(data: TopologyData) {
   if (!containerRef.value) return;
   if (cy) {
@@ -367,7 +428,12 @@ function render(data: TopologyData) {
   }
   cy = cytoscape({
     container: containerRef.value,
-    elements: [...data.nodes, ...data.edges],
+    elements: (() => {
+      const m = viewMode.value;
+      const grouped = m === "l2" || m === "l3" ? data
+        : groupBySubnet(data);   // auto / switch：網段與交換器合成一組
+      return [...grouped.nodes, ...grouped.edges];
+    })(),
     style: [
       {
         selector: "node",
@@ -465,6 +531,7 @@ function render(data: TopologyData) {
           "line-color": "#0d9488",
           width: 3.5,
           label: "data(label)",
+          "text-margin-y": -12,
           "font-size": 10,
           "font-weight": "bold",
           color: "#0f766e",
@@ -491,6 +558,30 @@ function render(data: TopologyData) {
           height: 28,
           "font-size": 10,
           "font-weight": "bold",
+        },
+      },
+      {
+        // 網段框（混合視角）：標題放在框上緣，框本身淡到不搶戲
+        selector: "node[?isGroup]",
+        style: {
+          shape: "round-rectangle",
+          width: "label" as any,
+          height: "label" as any,
+          "background-color": "#0ea5e9",
+          "background-opacity": 0.06,
+          "border-width": 1.5,
+          "border-color": "#0ea5e9",
+          "border-style": "dashed",
+          "border-opacity": 0.7,
+          label: "data(label)",
+          "text-valign": "top",
+          "text-halign": "center",
+          "text-margin-y": -6,
+          "font-size": 13,
+          "font-weight": "bold",
+          color: "#0369a1",
+          "text-outline-width": 0,
+          padding: "26px" as any,
         },
       },
       {
@@ -612,21 +703,48 @@ function arrangeSwitchCentric() {
   });
   if (!centres.length) { spreadSubnets(); return; }
 
+  // 交換器的左右順序：有骨幹相連的排在一起。否則骨幹線會從第三台交換器身上穿過去，
+  // 線上的埠名也剛好蓋在那台的名字上 —— 圖沒有錯，但看起來像壞掉。
+  const adj = new Map<string, string[]>();
+  cy.edges('[kind = "l2_uplink"]').forEach((e) => {
+    const [a, b] = [e.source().id(), e.target().id()];
+    (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
+    (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
+  });
+  const ordered: string[] = [];
+  const queued = new Set<string>();
+  for (const start of centres) {
+    if (queued.has(start)) continue;
+    const stack = [start];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (queued.has(id) || !centres.includes(id)) continue;
+      queued.add(id);
+      ordered.push(id);
+      for (const nb of adj.get(id) ?? []) if (!queued.has(nb)) stack.push(nb);
+    }
+  }
+  centres.length = 0;
+  centres.push(...ordered);
+
+  const visible = (n: any) => n.style("display") !== "none";
   const hostsOf = new Map<string, any>();
-  let maxHosts = 0;
   for (const id of centres) {
-    const hs = cy.getElementById(id).connectedEdges('[kind = "l2"]').sources()
-      .filter((n) => n.id() !== id);
-    hostsOf.set(id, hs);
-    maxHosts = Math.max(maxHosts, hs.length);
+    hostsOf.set(id, cy.getElementById(id).connectedEdges('[kind = "l2"]').sources()
+      .filter((n: any) => n.id() !== id && visible(n)));
   }
 
   // 間距跟著實際節點數走。寫死大間距的話，節點少時整張圖會被 fit() 縮到看不清標籤 ——
   // 版面「結構對」跟「看得懂」是兩回事，量過才知道。
-  const COL = Math.max(430, (maxHosts + 1) * 105);
-  const HOST_R = 170 + Math.min(140, maxHosts * 16);
-  const SUBNET_DY = 215;
-  const LEAF_DY = 155;
+  // 主機排在交換器上方的網格（每列最多 3 台）。原本用半圓扇形，主機一多就把整張圖
+  // 拉得很寬 —— 實測 8 台主機 ×3 台交換器時整體寬 2274px、縮放掉到 0.53，字全糊了。
+  const HOST_PER_ROW = 3;
+  const HOST_DX = 145;
+  const HOST_DY = 105;
+  const HOST_TOP = 150;
+  const COL = Math.max(430, HOST_PER_ROW * HOST_DX + 110);
+  const MEMBER_DY = 165;   // 同網段但查不出埠的成員：排在交換器下面
+  const PER_ROW = 6;
 
   const placed = new Set<string>(centres);
   const x0 = -((centres.length - 1) * COL) / 2;
@@ -638,51 +756,61 @@ function arrangeSwitchCentric() {
     sw.position({ x: cx, y: 0 });
 
     // 插在這台交換器上的機器：上方扇形（多的話分兩層，免得擠成一條）
-    const hosts = hostsOf.get(swId).filter((n: any) => !placed.has(n.id()) || n.id() === swId);
+    const hosts = hostsOf.get(swId).filter((h: any) => !placed.has(h.id()));
     const n = hosts.length;
     hosts.forEach((h: any, i: number) => {
-      if (placed.has(h.id())) return;
       placed.add(h.id());
-      const ring = n > 7 && i % 2 === 1 ? 1 : 0;
-      const idx = n > 1 ? i / (n - 1) : 0.5;
-      const angle = Math.PI * (0.18 + 0.64 * idx);          // 上半圓，兩側留白
-      const r = HOST_R + ring * 120;
-      h.position({ x: cx + Math.cos(angle) * r * 1.1, y: -Math.sin(angle) * r });
+      const row = Math.floor(i / HOST_PER_ROW);
+      const inRow = Math.min(HOST_PER_ROW, n - row * HOST_PER_ROW);
+      const col = (i % HOST_PER_ROW) - (inRow - 1) / 2;
+      h.position({ x: cx + col * HOST_DX, y: -(HOST_TOP + row * HOST_DY) });
     });
 
-    // 這台交換器（或它底下機器）所屬的子網路：掛在正下方，跟交換器算同一組
-    const subs = sw.connectedEdges('[kind = "l3"]').connectedNodes('[type = "subnet"]')
-      .union(hosts.connectedEdges('[kind = "l3"]').connectedNodes('[type = "subnet"]'))
-      .filter((s2: any) => !placed.has(s2.id()));
-    const sn = subs.length;
-    subs.forEach((sub: any, i: number) => {
-      placed.add(sub.id());
-      const sx = cx + (sn > 1 ? (i - (sn - 1) / 2) * 230 : 0);
-      sub.position({ x: sx, y: SUBNET_DY });
-      lowestY = Math.max(lowestY, SUBNET_DY);
-      // 只掛在這個網段、沒有存取層資訊的節點 → 排在網段底下（跟著它一起）
-      const leaves = sub.connectedEdges('[kind = "l3"]').connectedNodes()
-        .filter((l: any) => !placed.has(l.id()));
-      const ln = leaves.length;
-      const perRow = 6;
-      leaves.forEach((leaf: any, j: number) => {
-        placed.add(leaf.id());
-        const row = Math.floor(j / perRow);
-        const inRow = Math.min(perRow, ln - row * perRow);
-        const col = (j % perRow) - (inRow - 1) / 2;
-        const y = SUBNET_DY + LEAF_DY + row * 120;
-        leaf.position({ x: sx + col * 150, y });
-        lowestY = Math.max(lowestY, y);
-      });
+  });
+
+  // 同一個網段裡「查不出插在哪個埠」的成員：置中排在**整個框**底下，而不是硬掛在
+  // 第一台交換器下面 —— 一個網段跨好幾台交換器（核心＋接取）是常態，沒有資訊說它們
+  // 屬於其中哪一台，挑一台就是編造。
+  const boxes = new Map<string, string[]>();
+  for (const id of centres) {
+    const box = cy.getElementById(id).parent();
+    if (box.nonempty()) {
+      const bid = box[0].id();
+      (boxes.get(bid) ?? boxes.set(bid, []).get(bid)!).push(id);
+    }
+  }
+  boxes.forEach((swIds, boxId) => {
+    const centreX = swIds.reduce((a, id) => a + cy!.getElementById(id).position("x"), 0)
+      / swIds.length;
+    const members = cy!.getElementById(boxId).children()
+      .filter((c: any) => !placed.has(c.id()) && visible(c));
+    const mn = members.length;
+    // 每列幾個跟著數量走：固定 6 個一列時，一個有上百台的網段會排成十幾列的長條，
+    // 整張圖被拉得很高、縮放又掉下去。開根號讓它維持接近方形。
+    const perRow = Math.max(PER_ROW, Math.ceil(Math.sqrt(mn * 1.8)));
+    members.forEach((m2: any, j: number) => {
+      placed.add(m2.id());
+      const row = Math.floor(j / perRow);
+      const inRow = Math.min(perRow, mn - row * perRow);
+      const col = (j % perRow) - (inRow - 1) / 2;
+      const y = MEMBER_DY + row * 105;
+      m2.position({ x: centreX + col * 145, y });
+      lowestY = Math.max(lowestY, y);
     });
   });
 
-  // 沒被歸類到的節點（VPN 對端、只看存取層時的孤兒等）：緊接在最下面一列，
-  // 不要丟到很遠的地方 —— 那會把整張圖的縮放拉小、其他東西全變小字。
-  const rest = cy.nodes().filter((n) => !placed.has(n.id()) && n.style("display") !== "none");
-  const restY = (rest.length ? lowestY : 0) + LEAF_DY;
+  // 框外的節點（跨網段的路由器 / 防火牆、VPN 對端…）：排在框下方一列，
+  // 不要散到很遠 —— 一顆放很遠的節點就足以把整張圖的縮放拉小、其他全變小字。
+  const rest = cy.nodes().filter(
+    (n) => !placed.has(n.id()) && !n.isParent() && visible(n),
+  );
+  const restY = lowestY + MEMBER_DY;
+  const rn = rest.length;
   rest.forEach((n, i) => {
-    n.position({ x: x0 + ((i % 8) - 3.5) * 150, y: restY + Math.floor(i / 8) * 120 });
+    const row = Math.floor(i / PER_ROW);
+    const inRow = Math.min(PER_ROW, rn - row * PER_ROW);
+    const col = (i % PER_ROW) - (inRow - 1) / 2;
+    n.position({ x: col * 175, y: restY + row * 105 });
   });
 
   cy.fit(undefined, 40);

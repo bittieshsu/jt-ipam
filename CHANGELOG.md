@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.215] — 2026-08-28
+
+### Changed
+- **The mixed view now really merges the subnet with its switches instead of drawing two sets of links.** The previous version placed the subnet below the switch, but every host still got two lines — one to the switch, one to the subnet — saying the same thing twice and tangling the picture. The subnet is now a **box**, its members (switches included) are drawn inside it, and "belongs to this network" is expressed by containment rather than by an edge.
+- **A subnet with several switches is not pinned to one of them**: a subnet is a broadcast domain and spans the core and access switches by nature, so the box holds them all with the backbone drawn inside it. Members whose port is unknown sit centred beneath the whole box rather than under the first switch — nothing says which switch they belong to, and picking one would be invention.
+- **A device that spans several subnets goes in no box at all** (routers, firewalls): putting it in one would claim it belongs only there. Those keep their L3 edges, which makes the cross-subnet devices easy to spot.
+- **A switch with FDB data but no IP record of its own** is folded into the box its hosts all belong to — otherwise the switch sits outside while its hosts sit inside and a bundle of edges crosses the boundary, which reads as broken. A switch whose hosts span several boxes stays outside, because that is a genuinely cross-subnet switch.
+
+### Fixed
+- **The map opened far too spread out, shrinking everything past legibility.** Three measured causes: arranging hosts in a semicircle widened the graph as the host count grew (8 hosts × 3 switches measured 2274px wide at 0.53 zoom), and a grid above each switch brought it to 1477px at 0.73; a fixed six-per-row member grid turned a large subnet into a tall strip, so it now scales by square root; and nodes outside the box were scattered far away, where a single distant node is enough to shrink the whole picture.
+- **The backbone line ran straight through a third switch, with its port label landing on that switch's name.** Switches are now ordered so that backbone-connected ones sit side by side, and the port label is lifted clear of the line.
+
 ## [0.5.214] — 2026-08-28
 
 ### Added
