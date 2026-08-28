@@ -1045,7 +1045,11 @@
     "field_direct": "Directly attached",
     "field_port_mac_count": "MACs on this port",
     "direct_yes": "Yes (sole MAC on this port)",
-    "direct_no": "No (other hosts behind this port)"
+    "direct_no": "No (other hosts behind this port)",
+    "view_auto": "Automatic (mixed)",
+    "view_switch": "Centred on switches",
+    "view_l2": "Access layer only (FDB)",
+    "view_l3": "Subnets only"
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",

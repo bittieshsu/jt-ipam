@@ -38,7 +38,27 @@ const containerRef = ref<HTMLDivElement | null>(null);
 const includeWireless = ref(true);
 const includeVpn = ref(true);
 const includeL3 = ref(true);
-const includeFdb = ref(true);
+// 預設不開：FDB 會把所有端點拉進來，圖一下子變密。要看存取層的人自己勾，
+// 或直接選「只看存取層」視圖。
+const includeFdb = ref(false);
+
+/**
+ * 視圖模式 —— 同一批資料有兩種完全不同的看法，硬要合成一張圖只會兩邊都難看：
+ *   l3     子網路視角：誰在哪個網段（沒有 FDB 時唯一畫得出來的東西）
+ *   l2     實體／存取層視角：誰插在哪台交換器的哪個埠、交換器之間怎麼接
+ *   switch 混合，但版面以交換器為中心，子網路掛在它下面
+ *   auto   混合，有存取層資料就用交換器為中心，沒有就退回子網路為中心
+ */
+type ViewMode = "auto" | "switch" | "l2" | "l3";
+const viewMode = ref<ViewMode>("auto");
+const viewModeOptions = computed(() => [
+  { label: t("topology.view_auto"), value: "auto" },
+  { label: t("topology.view_switch"), value: "switch" },
+  { label: t("topology.view_l2"), value: "l2" },
+  { label: t("topology.view_l3"), value: "l3" },
+]);
+// 「只看…」的模式自己決定要抓什麼，勾選框在那兩種模式下沒有意義（會互相矛盾）
+const modeDrivesSources = computed(() => viewMode.value === "l2" || viewMode.value === "l3");
 const onlineOnly = ref(false);   // 預設：不管上線與否都畫
 const loading = ref(false);
 const selected = ref<Record<string, any> | null>(null);
@@ -211,6 +231,14 @@ function applyVisibility() {
   if (!cy) return;
   cy.batch(() => {
     cy!.nodes().forEach((n) => {
+      // 「只看存取層」時，查不出插在哪裡的裝置在這個視角下沒有東西可說 —— 畫成一顆
+      // 飄在旁邊的點只是雜訊。實機上這差別很大：105 台裝置裡只有約 10 台有 FDB 資訊，
+      // 其餘 95 顆孤點會把整張圖的縮放拉爆、也讓人以為那是「未連線」。
+      if (viewMode.value === "l2") {
+        const linked = n.connectedEdges('[kind = "l2"], [kind = "l2_uplink"]').length > 0;
+        n.style("display", linked ? "element" : "none");
+        return;
+      }
       const hiddenByType = hiddenTypes.value.has(n.data("type") as string);
       const placed = !endpointGroupTouched.value && fdbPlaced.value.has(n.id());
       n.style("display", hiddenByType && !placed ? "none" : "element");
@@ -313,11 +341,13 @@ function onExport(key: string) {
 async function refresh() {
   loading.value = true;
   try {
+    const m = viewMode.value;
     const data = await getTopology({
-      includeWireless: includeWireless.value,
-      includeVpn: includeVpn.value,
-      includeL3: includeL3.value,
-      includeFdb: includeFdb.value,
+      includeWireless: m === "l3" ? false : includeWireless.value,
+      includeVpn: m === "l2" || m === "l3" ? false : includeVpn.value,
+      includeL3: m === "l2" ? false : m === "l3" ? true : includeL3.value,
+      // 「以交換器為中心」與「只看存取層」都得有 FDB 才畫得出中心，不看勾選框
+      includeFdb: m === "l3" ? false : m === "l2" || m === "switch" ? true : includeFdb.value,
       onlineOnly: onlineOnly.value,
       subnetIds: subnetIds.value,
     });
@@ -536,7 +566,126 @@ function render(data: TopologyData) {
       .flatMap((e) => [e.data.source, e.data.target]),
   );
   applyVisibility();   // 套用圖例的點暗（隱藏類別）狀態
-  spreadSubnets();     // 多個子網路中心點水平分開，避免兩團擠在一起
+  arrangeLayout();
+}
+
+/** 有沒有存取層資料，決定 auto 模式要走哪一種版面。 */
+function hasAccessLayer(): boolean {
+  return !!cy && cy.edges('[kind = "l2"], [kind = "l2_uplink"]').length > 0;
+}
+
+function arrangeLayout() {
+  if (!cy) return;
+  const m = viewMode.value;
+  const switchCentric =
+    m === "l2" || m === "switch" || (m === "auto" && hasAccessLayer());
+  // 選了交換器為中心卻沒有存取層資料時退回子網路版面：畫不出來的東西不要硬畫，
+  // 一個沒有中心的「以中心為版面」只會變成一團亂。
+  if (switchCentric && hasAccessLayer()) arrangeSwitchCentric();
+  else spreadSubnets();
+}
+
+/**
+ * 以交換器為中心的版面。
+ *
+ * 交換器排成一列在中間，插在它上面的機器呈扇形排在**上方**，該網段的子網路節點放在
+ * **下方**、和交換器算同一組（使用者的說法是「放在 switch 下面當做一起」），只連到
+ * 子網路、沒有存取層資訊的節點再排在子網路下面。
+ *
+ * 這裡是自己算座標而不是換一種力導向版面：力導向沒有「上下」的概念，
+ * 「交換器在中間、機器在上、網段在下」這種語意它表達不出來。
+ */
+function arrangeSwitchCentric() {
+  if (!cy) return;
+
+  // 交換器＝存取層邊的「交換器端」（l2 邊的 target 就是交換器）＋骨幹兩端
+  const centres: string[] = [];
+  const seen = new Set<string>();
+  cy.edges('[kind = "l2"]').forEach((e) => {
+    const id = e.target().id();
+    if (!seen.has(id)) { seen.add(id); centres.push(id); }
+  });
+  cy.edges('[kind = "l2_uplink"]').forEach((e) => {
+    for (const n of [e.source(), e.target()]) {
+      if (!seen.has(n.id())) { seen.add(n.id()); centres.push(n.id()); }
+    }
+  });
+  if (!centres.length) { spreadSubnets(); return; }
+
+  const hostsOf = new Map<string, any>();
+  let maxHosts = 0;
+  for (const id of centres) {
+    const hs = cy.getElementById(id).connectedEdges('[kind = "l2"]').sources()
+      .filter((n) => n.id() !== id);
+    hostsOf.set(id, hs);
+    maxHosts = Math.max(maxHosts, hs.length);
+  }
+
+  // 間距跟著實際節點數走。寫死大間距的話，節點少時整張圖會被 fit() 縮到看不清標籤 ——
+  // 版面「結構對」跟「看得懂」是兩回事，量過才知道。
+  const COL = Math.max(430, (maxHosts + 1) * 105);
+  const HOST_R = 170 + Math.min(140, maxHosts * 16);
+  const SUBNET_DY = 215;
+  const LEAF_DY = 155;
+
+  const placed = new Set<string>(centres);
+  const x0 = -((centres.length - 1) * COL) / 2;
+  let lowestY = 0;
+
+  centres.forEach((swId, ci) => {
+    const sw = cy!.getElementById(swId);
+    const cx = x0 + ci * COL;
+    sw.position({ x: cx, y: 0 });
+
+    // 插在這台交換器上的機器：上方扇形（多的話分兩層，免得擠成一條）
+    const hosts = hostsOf.get(swId).filter((n: any) => !placed.has(n.id()) || n.id() === swId);
+    const n = hosts.length;
+    hosts.forEach((h: any, i: number) => {
+      if (placed.has(h.id())) return;
+      placed.add(h.id());
+      const ring = n > 7 && i % 2 === 1 ? 1 : 0;
+      const idx = n > 1 ? i / (n - 1) : 0.5;
+      const angle = Math.PI * (0.18 + 0.64 * idx);          // 上半圓，兩側留白
+      const r = HOST_R + ring * 120;
+      h.position({ x: cx + Math.cos(angle) * r * 1.1, y: -Math.sin(angle) * r });
+    });
+
+    // 這台交換器（或它底下機器）所屬的子網路：掛在正下方，跟交換器算同一組
+    const subs = sw.connectedEdges('[kind = "l3"]').connectedNodes('[type = "subnet"]')
+      .union(hosts.connectedEdges('[kind = "l3"]').connectedNodes('[type = "subnet"]'))
+      .filter((s2: any) => !placed.has(s2.id()));
+    const sn = subs.length;
+    subs.forEach((sub: any, i: number) => {
+      placed.add(sub.id());
+      const sx = cx + (sn > 1 ? (i - (sn - 1) / 2) * 230 : 0);
+      sub.position({ x: sx, y: SUBNET_DY });
+      lowestY = Math.max(lowestY, SUBNET_DY);
+      // 只掛在這個網段、沒有存取層資訊的節點 → 排在網段底下（跟著它一起）
+      const leaves = sub.connectedEdges('[kind = "l3"]').connectedNodes()
+        .filter((l: any) => !placed.has(l.id()));
+      const ln = leaves.length;
+      const perRow = 6;
+      leaves.forEach((leaf: any, j: number) => {
+        placed.add(leaf.id());
+        const row = Math.floor(j / perRow);
+        const inRow = Math.min(perRow, ln - row * perRow);
+        const col = (j % perRow) - (inRow - 1) / 2;
+        const y = SUBNET_DY + LEAF_DY + row * 120;
+        leaf.position({ x: sx + col * 150, y });
+        lowestY = Math.max(lowestY, y);
+      });
+    });
+  });
+
+  // 沒被歸類到的節點（VPN 對端、只看存取層時的孤兒等）：緊接在最下面一列，
+  // 不要丟到很遠的地方 —— 那會把整張圖的縮放拉小、其他東西全變小字。
+  const rest = cy.nodes().filter((n) => !placed.has(n.id()) && n.style("display") !== "none");
+  const restY = (rest.length ? lowestY : 0) + LEAF_DY;
+  rest.forEach((n, i) => {
+    n.position({ x: x0 + ((i % 8) - 3.5) * 150, y: restY + Math.floor(i / 8) * 120 });
+  });
+
+  cy.fit(undefined, 40);
 }
 
 // 把多個 subnet 中心節點沿水平等距推開；只屬單一 subnet 的節點跟著平移，
@@ -568,7 +717,7 @@ function spreadSubnets() {
 }
 
 watch(subnetIds, () => { void refresh(); });
-watch([includeWireless, includeVpn, includeL3, includeFdb, onlineOnly], () => {
+watch([includeWireless, includeVpn, includeL3, includeFdb, onlineOnly, viewMode], () => {
   void refresh();
 });
 
@@ -619,10 +768,12 @@ onUnmounted(() => {
         :consistent-menu-width="false"
         :max-tag-count="2"
       />
-        <n-checkbox v-model:checked="includeWireless">{{ t("topology.wireless") }}</n-checkbox>
-        <n-checkbox v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
-        <n-checkbox v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
-        <n-checkbox v-model:checked="includeFdb">{{ t("topology.fdb") }}</n-checkbox>
+        <n-select v-model:value="viewMode" :options="viewModeOptions"
+                  style="width: 210px" :consistent-menu-width="false" />
+        <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeWireless">{{ t("topology.wireless") }}</n-checkbox>
+        <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
+        <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
+        <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeFdb">{{ t("topology.fdb") }}</n-checkbox>
         <n-checkbox v-model:checked="onlineOnly">{{ t("topology.online_only") }}</n-checkbox>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>

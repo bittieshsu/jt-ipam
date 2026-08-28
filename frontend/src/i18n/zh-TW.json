@@ -1045,7 +1045,11 @@
     "field_direct": "直接連接",
     "field_port_mac_count": "此埠上的 MAC 數",
     "direct_yes": "是（此埠上只有這一台）",
-    "direct_no": "否（此埠後面還有其他機器）"
+    "direct_no": "否（此埠後面還有其他機器）",
+    "view_auto": "自動（混合）",
+    "view_switch": "以交換器為中心",
+    "view_l2": "只看存取層（FDB）",
+    "view_l3": "只看子網路"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",

@@ -393,6 +393,16 @@ evidence, and a machine powered off for weeks showed 52 days of green.
 - [ ] Unchecking 存取層 (FDB) removes every l2/l2_uplink edge; the rest of the map is unaffected.
 - [ ] A department account that cannot see one end of a link does not receive that edge (no edge may
   reference a node that is not in the graph).
+- [ ] **View modes**: the toolbar offers automatic / centred on switches / access layer only / subnets
+  only. Automatic centres on switches when the range has FDB data and falls back to the subnet layout
+  when it does not; "centred on switches" falls back the same way rather than drawing a centre-less
+  layout.
+- [ ] **Access layer (FDB) starts unticked**, and the default view therefore matches the pre-0.5.213
+  subnet-centred picture.
+- [ ] In the switch-centred layout the switches sit in the middle, their hosts above them, and each
+  subnet node directly below its switch with subnet-only devices beneath it.
+- [ ] **"Access layer only" hides devices with no FDB data** rather than scattering them as orphan
+  dots (check on an estate where most devices have none).
 
 ## 8. Recent feature spot-checks
 

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.214] — 2026-08-28
+
+### Added
+- **The topology map now offers a choice of view.** The same data supports two quite different readings, and forcing them into one picture serves neither: the subnet view answers "who is on which network", the access-layer view answers "which switch port is this host plugged into". Pick one from the toolbar: **Automatic (mixed) / Centred on switches / Access layer only (FDB) / Subnets only**.
+- **The switch-centred layout computes its own coordinates rather than swapping in another force layout.** A force layout has no notion of up and down, so it cannot express "switches in the middle, hosts above, the subnet hanging underneath its switch". Spacing scales with the actual node count — fixed wide spacing makes a small graph shrink until the labels are unreadable, and a layout being structurally right is not the same as being legible.
+- **What "automatic" decides**: with access-layer data in range, centre on the switches and hang the subnet below; without it, fall back to the subnet-centred layout. Choosing "centred on switches" with no FDB data falls back the same way — there is no point forcing a layout around a centre that does not exist.
+
+### Changed
+- **The access layer (FDB) checkbox now starts unticked.** It pulls every endpoint into the picture, which gets dense immediately. Tick it when you want it, or pick the "access layer only" view, which turns it on by itself.
+- **"Access layer only" no longer draws devices whose position is unknown.** In that view a device with no FDB data has nothing to say, and drawing it as a dot floating off to one side is just noise — on real hardware only about 10 of 105 devices have FDB data, and the other 95 orphan dots wreck the zoom and read as "not connected".
+
 ## [0.5.213] — 2026-08-27
 
 ### Added
