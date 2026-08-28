@@ -41,6 +41,8 @@ const includeL3 = ref(true);
 // 預設不開：FDB 會把所有端點拉進來，圖一下子變密。要看存取層的人自己勾，
 // 或直接選「只看存取層」視圖。
 const includeFdb = ref(false);
+// 虛擬機同樣預設不開：實機一次會多出上百顆節點。
+const includeVms = ref(false);
 
 /**
  * 視圖模式 —— 同一批資料有兩種完全不同的看法，硬要合成一張圖只會兩邊都難看：
@@ -91,6 +93,10 @@ const FIELD_LABELS = computed<Record<string, string>>(() => ({
   vlan: "VLAN",
   direct: t("topology.field_direct"),
   port_mac_count: t("topology.field_port_mac_count"),
+  host: t("topology.field_host"),
+  cluster: t("topology.field_cluster"),
+  vcpus: "vCPU",
+  memory_mb: t("topology.field_memory"),
 }));
 const VIA_LABELS = computed<Record<string, string>>(() => ({
   ip: t("topology.via_ip"),
@@ -98,6 +104,7 @@ const VIA_LABELS = computed<Record<string, string>>(() => ({
   arp: t("topology.via_arp"),
   librenms: t("topology.via_librenms"),
   fdb: t("topology.via_fdb"),
+  virtualization: t("topology.via_virtualization"),
 }));
 const TYPE_LABELS = computed<Record<string, string>>(() => ({
   router: t("topology.type_router"),
@@ -118,6 +125,7 @@ const KIND_LABELS = computed<Record<string, string>>(() => ({
   l3: t("topology.kind_l3"),
   l2: t("topology.kind_l2"),
   l2_uplink: t("topology.kind_l2_uplink"),
+  vm_host: t("topology.kind_vm_host"),
 }));
 // 內部欄位不顯示給使用者看
 const HIDDEN_FIELDS = new Set([
@@ -214,6 +222,7 @@ const endpointGroupTouched = ref(false);
 const LEGEND_GROUPS: Record<string, string[]> = {
   firewall: ["firewall"], router: ["router"], switch: ["switch"], ap: ["ap"],
   server: ["server", "storage", "ipmi", "other"], vpn_site: ["vpn_site"], subnet: ["subnet"],
+  vm: ["vm"],
 };
 function isGroupOff(group: string): boolean {
   return (LEGEND_GROUPS[group] || [group]).every((ty) => hiddenTypes.value.has(ty));
@@ -348,6 +357,7 @@ async function refresh() {
       includeL3: m === "l2" ? false : m === "l3" ? true : includeL3.value,
       // 「以交換器為中心」與「只看存取層」都得有 FDB 才畫得出中心，不看勾選框
       includeFdb: m === "l3" ? false : m === "l2" || m === "switch" ? true : includeFdb.value,
+      includeVms: includeVms.value,
       onlineOnly: onlineOnly.value,
       subnetIds: subnetIds.value,
     });
@@ -388,6 +398,13 @@ function groupBySubnet(data: TopologyData): TopologyData {
     if (subs.size === 1) parentOf.set(dev, [...subs][0]);
   }
   if (!parentOf.size) return data;
+
+  // 虛擬機沒有自己的 L3 邊，會落在框外面、線卻連進框裡的主機 —— 跟著主機進同一個框。
+  for (const e of data.edges) {
+    if (e.data.kind !== "vm_host") continue;
+    const box = parentOf.get(e.data.target);
+    if (box && !parentOf.has(e.data.source)) parentOf.set(e.data.source, box);
+  }
 
   // 有 FDB、但自己沒有 IP 記錄的交換器（沒有 L3 邊）會落在框外面，它的主機卻在框裡，
   // 於是一堆線穿過框線 —— 看起來像壞掉。若它的主機**全都**屬於同一個框，就把它併進去：
@@ -542,6 +559,15 @@ function render(data: TopologyData) {
         },
       },
       {
+        // VM 跑在哪台實體主機上：細線、不搶戲（它是包含關係不是網路連線）
+        selector: 'edge[kind = "vm_host"]',
+        style: {
+          "line-color": "#a78bfa",
+          width: 1.2,
+          opacity: 0.75,
+        },
+      },
+      {
         selector: 'edge[kind = "l3"]',
         style: {
           "line-color": "#0ea5e9",
@@ -582,6 +608,17 @@ function render(data: TopologyData) {
           color: "#0369a1",
           "text-outline-width": 0,
           padding: "26px" as any,
+        },
+      },
+      {
+        // 虛擬機：畫得比實體小一點，一眼分得出這不是實體機
+        selector: 'node[type = "vm"]',
+        style: {
+          shape: "round-rectangle",
+          width: 46,
+          height: 26,
+          "background-color": "#8b5cf6",
+          "font-size": 9,
         },
       },
       {
@@ -738,10 +775,13 @@ function arrangeSwitchCentric() {
   // 版面「結構對」跟「看得懂」是兩回事，量過才知道。
   // 主機排在交換器上方的網格（每列最多 3 台）。原本用半圓扇形，主機一多就把整張圖
   // 拉得很寬 —— 實測 8 台主機 ×3 台交換器時整體寬 2274px、縮放掉到 0.53，字全糊了。
+  // 有畫虛擬機時，每台主機底下要放得下一小格 VM，主機之間就得留更多空間；
+  // 沒畫時維持原本較緊的排法，不要為了用不到的東西把圖撐大。
+  const hasVms = cy.edges('[kind = "vm_host"]').length > 0;
   const HOST_PER_ROW = 3;
-  const HOST_DX = 145;
-  const HOST_DY = 105;
-  const HOST_TOP = 150;
+  const HOST_DX = hasVms ? 215 : 145;
+  const HOST_DY = hasVms ? 155 : 105;
+  const HOST_TOP = hasVms ? 255 : 150;
   const COL = Math.max(430, HOST_PER_ROW * HOST_DX + 110);
   const MEMBER_DY = 165;   // 同網段但查不出埠的成員：排在交換器下面
   const PER_ROW = 6;
@@ -782,8 +822,10 @@ function arrangeSwitchCentric() {
   boxes.forEach((swIds, boxId) => {
     const centreX = swIds.reduce((a, id) => a + cy!.getElementById(id).position("x"), 0)
       / swIds.length;
+    // 虛擬機不排進這格網格：它們要貼著自己的實體主機（見下方），
+    // 被掃進來的話會排到框底下，跟主機之間拉出一堆橫跨整張圖的長線。
     const members = cy!.getElementById(boxId).children()
-      .filter((c: any) => !placed.has(c.id()) && visible(c));
+      .filter((c: any) => !placed.has(c.id()) && visible(c) && c.data("type") !== "vm");
     const mn = members.length;
     // 每列幾個跟著數量走：固定 6 個一列時，一個有上百台的網段會排成十幾列的長條，
     // 整張圖被拉得很高、縮放又掉下去。開根號讓它維持接近方形。
@@ -795,6 +837,27 @@ function arrangeSwitchCentric() {
       const col = (j % perRow) - (inRow - 1) / 2;
       const y = MEMBER_DY + row * 105;
       m2.position({ x: centreX + col * 145, y });
+      lowestY = Math.max(lowestY, y);
+    });
+  });
+
+  // 虛擬機排在它所在實體主機的正下方（小格子）—— 它是「跑在上面」，不是網路鄰居，
+  // 位置貼著主機才讀得出這層關係。
+  const VM_PER_ROW = 2;
+  cy.edges('[kind = "vm_host"]').forEach((e) => {
+    const host = e.target();
+    if (!placed.has(host.id())) return;
+    const vms = host.connectedEdges('[kind = "vm_host"]').sources()
+      .filter((n: any) => n.id() !== host.id() && visible(n));
+    const vn = vms.length;
+    vms.forEach((vm: any, i: number) => {
+      if (placed.has(vm.id())) return;
+      placed.add(vm.id());
+      const row = Math.floor(i / VM_PER_ROW);
+      const inRow = Math.min(VM_PER_ROW, vn - row * VM_PER_ROW);
+      const col = (i % VM_PER_ROW) - (inRow - 1) / 2;
+      const y = host.position("y") + 52 + row * 32;
+      vm.position({ x: host.position("x") + col * 68, y });
       lowestY = Math.max(lowestY, y);
     });
   });
@@ -845,7 +908,7 @@ function spreadSubnets() {
 }
 
 watch(subnetIds, () => { void refresh(); });
-watch([includeWireless, includeVpn, includeL3, includeFdb, onlineOnly, viewMode], () => {
+watch([includeWireless, includeVpn, includeL3, includeFdb, includeVms, onlineOnly, viewMode], () => {
   void refresh();
 });
 
@@ -902,6 +965,7 @@ onUnmounted(() => {
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeFdb">{{ t("topology.fdb") }}</n-checkbox>
+        <n-checkbox v-model:checked="includeVms">{{ t("topology.vms") }}</n-checkbox>
         <n-checkbox v-model:checked="onlineOnly">{{ t("topology.online_only") }}</n-checkbox>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>
@@ -958,6 +1022,7 @@ onUnmounted(() => {
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#14b8a6" stroke-width="1.6"/></svg>{{ t("topology.kind_l2") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#14b8a6" stroke-width="1.6" stroke-dasharray="5,3"/></svg>{{ t("topology.kind_l2_behind") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#0d9488" stroke-width="3.5"/></svg>{{ t("topology.kind_l2_uplink") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#a78bfa" stroke-width="1.2"/></svg>{{ t("topology.kind_vm_host") }}</span>
       <span class="lg lg-sep"></span>
       <span class="lg lg-head">{{ t("topology.legend_nodes") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('firewall') }" @click="toggleGroup('firewall')"><i class="dot" style="background:#ef4444"></i>{{ t("topology.type_firewall") }}</span>
@@ -966,6 +1031,7 @@ onUnmounted(() => {
       <span class="lg clickable" :class="{ off: isGroupOff('ap') }" @click="toggleGroup('ap')"><i class="dot" style="background:#3b82f6"></i>AP</span>
       <span class="lg clickable" :class="{ off: isGroupOff('server') }" @click="toggleGroup('server')"><i class="dot" style="background:#9ca3af"></i>{{ t("topology.server_other") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('vpn_site') }" @click="toggleGroup('vpn_site')"><svg width="14" height="14"><rect x="2" y="2" width="9" height="9" transform="rotate(45 7 7)" fill="#9333ea"/></svg>{{ t("topology.type_vpn_site") }}</span>
+      <span class="lg clickable" :class="{ off: isGroupOff('vm') }" @click="toggleGroup('vm')"><i class="dot dot-rect" style="background:#8b5cf6"></i>{{ t("topology.type_vm") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('subnet') }" @click="toggleGroup('subnet')"><i class="dot dot-rect" style="background:#0ea5e9"></i>{{ t("topology.type_subnet") }}</span>
       <span class="lg muted">{{ t("topology.toggle_hint") }}</span>
     </div>

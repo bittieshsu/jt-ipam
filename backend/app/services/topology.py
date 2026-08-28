@@ -52,6 +52,7 @@ async def build_topology(
     include_vpn: bool = True,
     include_l3: bool = True,
     include_fdb: bool = True,
+    include_vms: bool = False,
     online_only: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     nodes: dict[str, dict[str, Any]] = {}
@@ -555,6 +556,64 @@ async def build_topology(
                     # 由 id 排序決定，兩端誰先誰後沒有意義）
                     "label": f"{pa} ↔ {pb}", "kind": "l2_uplink", "via": "fdb",
                     "port": pa, "peer_port": pb,
+                }})
+
+    # ── 虛擬機 ↔ 它跑在哪台實體主機 ──
+    #
+    # ⚠️ `virtual_machines.device_id` 是 **VM 自己**對映到的裝置，不是它的實體主機。
+    # 主機在 `node`（PVE 節點名／ESXi 主機名），只能拿名稱去比對裝置 ——
+    # 實機上 5 個節點名全部對得上 `devices.name`。
+    #
+    # 預設不畫（`include_vms=False`）：實機上一次會多出 149 顆節點，圖直接淹掉。
+    if include_vms:
+        from app.models.virt import VirtCluster, VirtualMachine
+
+        vms = list((await session.execute(
+            select(VirtualMachine).where(VirtualMachine.node.is_not(None))
+        )).scalars().all())
+        if vms:
+            # 裝置名稱 → id；同名多台就標成不明確，不猜（同重疊網段同 MAC 的原則）
+            name_to_dev: dict[str, str | None] = {}
+            for did, dname in (await session.execute(select(Device.id, Device.name))).all():
+                key = (dname or "").strip().lower()
+                if not key:
+                    continue
+                if key in name_to_dev and name_to_dev[key] != str(did):
+                    name_to_dev[key] = None
+                else:
+                    name_to_dev.setdefault(key, str(did))
+
+            cl_names: dict[str, str] = {
+                str(cid): cname
+                for cid, cname in (await session.execute(
+                    select(VirtCluster.id, VirtCluster.name)
+                )).all()
+            }
+
+            for vm in vms:
+                host_id = name_to_dev.get((vm.node or "").strip().lower())
+                if host_id is None or host_id not in visible_device_ids:
+                    continue          # 找不到主機／不明確／主機不在圖上 → 不畫
+                # VM 已經對映成一台 Device 就用那顆既有節點，不要讓同一台機器出現兩次
+                own = str(vm.device_id) if vm.device_id else None
+                if own and own in visible_device_ids:
+                    src = own
+                else:
+                    src = f"vm:{vm.id}"
+                    nodes[src] = {"data": {
+                        "id": src, "label": vm.name, "type": "vm", "kind": "vm",
+                        "status": vm.status, "host": vm.node,
+                        "cluster": cl_names.get(str(vm.cluster_id)),
+                        "vcpus": vm.vcpus, "memory_mb": vm.memory_mb,
+                        "vm_uuid": str(vm.id),
+                    }}
+                if src == host_id:
+                    continue          # 自己跑在自己上面（資料異常）不畫成自環
+                edges.append({"data": {
+                    "id": f"vmhost:{vm.id}",
+                    "source": src, "target": host_id,
+                    "label": "", "kind": "vm_host", "via": "virtualization",
+                    "status": vm.status,
                 }})
 
     # ── 節點細節加值：rack/location 名稱、管理 IP、LibreNMS 撈回的 os/hardware/版本/狀態 ──

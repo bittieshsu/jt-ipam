@@ -1049,7 +1049,14 @@
     "view_auto": "自動（混合）",
     "view_switch": "以交換器為中心",
     "view_l2": "只看存取層（FDB）",
-    "view_l3": "只看子網路"
+    "view_l3": "只看子網路",
+    "vms": "虛擬機",
+    "kind_vm_host": "虛擬機所在主機",
+    "type_vm": "虛擬機",
+    "via_virtualization": "虛擬化平台",
+    "field_host": "實體主機",
+    "field_cluster": "叢集",
+    "field_memory": "記憶體 (MB)"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",

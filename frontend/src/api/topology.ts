@@ -19,7 +19,7 @@ export interface CytoscapeEdge {
     target: string;
     label?: string;
     // l2 = FDB 存取層（機器 ↔ 交換器埠）、l2_uplink = 交換器之間的骨幹
-    kind: "cable" | "wireless" | "vpn" | "l3" | "l2" | "l2_uplink";
+    kind: "cable" | "wireless" | "vpn" | "l3" | "l2" | "l2_uplink" | "vm_host";
     type?: string;
     color?: string | null;
     status?: string;
@@ -40,6 +40,7 @@ export async function getTopology(params: {
   includeVpn?: boolean;
   includeL3?: boolean;
   includeFdb?: boolean;
+  includeVms?: boolean;
   onlineOnly?: boolean;
 } = {}): Promise<TopologyData> {
   const { data } = await apiClient.get<TopologyData>("/api/v1/topology", {
@@ -50,6 +51,7 @@ export async function getTopology(params: {
       include_vpn: params.includeVpn ?? true,
       include_l3: params.includeL3 ?? true,
       include_fdb: params.includeFdb ?? true,
+      include_vms: params.includeVms ?? false,
       online_only: params.onlineOnly ?? false,
     },
     paramsSerializer: { indexes: null },  // subnet_id 重複 key

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.217] — 2026-08-28
+
+### Added
+- **The topology map can show which physical host each virtual machine runs on (off by default, tick to enable).** Real hardware has 149 VMs that all know their node, yet not one of them appeared on the map — in a virtualisation-heavy room that is most of the estate missing. With "virtual machines" ticked, each VM sits directly beneath its host and shares the host's subnet box. It stays **off by default** because it adds hundreds of nodes at once and drowns the picture.
+- Matching uses `virtual_machines.node` (the PVE node or ESXi host name) against device names, case-insensitively — all five node names match on real hardware. Note that `virtual_machines.device_id` is the device the **VM itself** maps to, not its physical host; the two are easy to confuse. A VM already mapped to a device reuses that node instead of drawing the same machine twice.
+- A VM whose host cannot be identified, or whose node name matches several devices, is **not drawn**: this feature answers "what does it run on", and a dot connected to nothing cannot answer that — it is only noise (same reasoning as the access-layer-only view).
+
 ## [0.5.216] — 2026-08-28
 
 ### Fixed

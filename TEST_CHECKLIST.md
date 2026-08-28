@@ -403,6 +403,10 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   subnet node directly below its switch with subnet-only devices beneath it.
 - [ ] **"Access layer only" hides devices with no FDB data** rather than scattering them as orphan
   dots (check on an estate where most devices have none).
+- [ ] **Virtual machines (unticked by default)**: ticking it places each VM directly beneath its
+  host inside the host's subnet box; unticking removes them entirely. A VM with no identifiable
+  host, or whose node name matches several devices, is not drawn. A VM already mapped to a device
+  does not appear twice.
 
 ## 8. Recent feature spot-checks
 

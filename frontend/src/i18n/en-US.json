@@ -1049,7 +1049,14 @@
     "view_auto": "Automatic (mixed)",
     "view_switch": "Centred on switches",
     "view_l2": "Access layer only (FDB)",
-    "view_l3": "Subnets only"
+    "view_l3": "Subnets only",
+    "vms": "Virtual machines",
+    "kind_vm_host": "VM to host",
+    "type_vm": "Virtual machine",
+    "via_virtualization": "Virtualisation platform",
+    "field_host": "Physical host",
+    "field_cluster": "Cluster",
+    "field_memory": "Memory (MB)"
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",
