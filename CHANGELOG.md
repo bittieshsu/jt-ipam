@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.219] — 2026-08-29
+
+### Fixed
+- **A group of network devices was wrongly reported as "switch port unknown".** The old rule treated any port carrying more than four MACs as an uplink, but the port of an access point, a hypervisor or a downstream dumb switch legitimately carries dozens of MACs — and that is exactly where the device is plugged in. Six network devices on real hardware landed in the unknown area because of it, including an AP whose port carries 35 MACs (its wireless clients). The rule now uses **containment**: the port nearest a device holds a MAC set that is a proper subset of the outer port's (verified on real data — that AP's 35 MACs are a subset of the uplink's 144). Where no single innermost port exists, or a device was seen just once on one busy port, it still refuses to guess — one router on real hardware appears on four ports at once, and that genuinely cannot be resolved. The inference also now reads **every** sighting rather than only the switches currently drawn: the inner/outer comparison depends on the uplink's "sees everything" list, and that uplink switch is often excluded by the subnet filter because its management IP lives elsewhere. Visibility is applied when drawing, not when reasoning. Together the two changes took one subnet from 6 access-layer links to 18, and from 7 located devices to 19.
+
+### Changed
+- **The topology map now opens on "subnets only"** — the view that makes sense without configuration; switch to a physical view when you want one.
+- The "virtual machines" legend entry moved next to "servers / other".
+
 ## [0.5.218] — 2026-08-28
 
 ### Fixed

@@ -233,6 +233,72 @@ async def test_port_with_several_devices_is_not_claimed_as_direct(db_session):
     assert all(e["port_mac_count"] == 3 for e in edges)
 
 
+async def test_device_behind_a_busy_port_is_placed_when_that_port_is_the_inner_one(db_session):
+    """AP／虛擬化主機／下游小交換器的埠上有幾十個 MAC，但那就是它插的地方。
+
+    只看「MAC 數超過門檻＝上行埠」會把這些全部判成查不出位置 —— 實機上六台網路設備
+    就是這樣全部落到「查不出接在哪台交換器」。真正分得出來的是**包含關係**：
+    離裝置最近的那個埠，它背後的 MAC 集合會是外層埠的子集。實機驗證成立
+    （某 AP 的埠 35 個 MAC，是上行埠 144 個 MAC 的子集）。
+    """
+    core = await _device(db_session, "sw-core")
+    edge = await _device(db_session, "sw-edge")
+    ap = await _device(db_session, "ap-1", "ap")
+    sn = await _subnet(db_session)
+    ap_mac = "aa:bb:cc:00:20:01"
+    await _ip(db_session, sn, "198.51.100.60", ap_mac, ap)
+
+    # sw-edge 的 eth1/0/7：AP 自己 + 它的無線用戶端（超過門檻，但這就是 AP 插的埠）
+    clients = [f"aa:bb:cc:00:21:{i:02x}" for i in range(UPLINK_MAC_THRESHOLD + 3)]
+    for m in [ap_mac, *clients]:
+        await _fdb(db_session, edge, "eth1/0/7", m)
+    # sw-core 的上行埠：看得到上面全部，再加上別的東西（外層）
+    for m in [ap_mac, *clients, "aa:bb:cc:00:22:01", "aa:bb:cc:00:22:02"]:
+        await _fdb(db_session, core, "Eth1/1/1", m)
+
+    g = await build_topology(db_session, include_l3=False, include_vpn=False,
+                             include_wireless=False)
+    mine = [e for e in _l2(g) if e["source"] == str(ap.id)]
+    assert len(mine) == 1, "應該挑出離它最近的那個埠，而不是兩個都畫或都不畫"
+    assert mine[0]["target"] == str(edge.id)
+    assert mine[0]["port"] == "eth1/0/7"
+    assert mine[0]["direct"] is False, "埠上還有別的機器 → 是「在此埠後面」不是直連"
+
+
+async def test_device_seen_only_on_one_busy_port_stays_unplaced(db_session):
+    """只在一個大埠上看到，沒有內外可比 —— 它可能在那個上行埠後面的任何地方，不猜。"""
+    core = await _device(db_session, "sw-core")
+    host = await _device(db_session, "srv-x", "server")
+    sn = await _subnet(db_session)
+    mac = "aa:bb:cc:00:23:01"
+    await _ip(db_session, sn, "198.51.100.61", mac, host)
+    for m in [mac] + [f"aa:bb:cc:00:24:{i:02x}" for i in range(UPLINK_MAC_THRESHOLD + 2)]:
+        await _fdb(db_session, core, "Te1/1/1", m)
+
+    g = await build_topology(db_session, include_l3=False, include_vpn=False,
+                             include_wireless=False)
+    assert [e for e in _l2(g) if e["source"] == str(host.id)] == []
+
+
+async def test_two_busy_ports_that_do_not_contain_each_other_are_not_guessed(db_session):
+    """在多個大埠上看到、彼此又不是包含關係（實機上路由器就是這樣）→ 不猜。"""
+    a = await _device(db_session, "sw-a")
+    b = await _device(db_session, "sw-b")
+    rtr = await _device(db_session, "rtr-1", "router")
+    sn = await _subnet(db_session)
+    mac = "aa:bb:cc:00:25:01"
+    await _ip(db_session, sn, "198.51.100.62", mac, rtr)
+    for i in range(UPLINK_MAC_THRESHOLD + 2):
+        await _fdb(db_session, a, "Gi1/0/10", f"aa:bb:cc:00:26:{i:02x}")
+        await _fdb(db_session, b, "Gi1/0/20", f"aa:bb:cc:00:27:{i:02x}")
+    await _fdb(db_session, a, "Gi1/0/10", mac)
+    await _fdb(db_session, b, "Gi1/0/20", mac)
+
+    g = await build_topology(db_session, include_l3=False, include_vpn=False,
+                             include_wireless=False)
+    assert [e for e in _l2(g) if e["source"] == str(rtr.id)] == []
+
+
 async def test_ambiguous_mac_is_not_guessed(db_session):
     """同一個 MAC 對到兩台不同裝置（重疊網段）→ 不畫，不猜。"""
     sw = await _device(db_session, "sw-core")

@@ -491,29 +491,67 @@ async def build_topology(
             #    實機上這個差別是看得到的：某台交換器的一個埠後面掛著三台不同的機器，
             #    而同一批機器又出現在另一台交換器的另一個埠上。兩邊都畫成直連就是說謊，
             #    所以邊上帶 `direct`，前端據此畫實線或虛線。
+            #
+            #    埠上 MAC 很多**不代表**那是上行埠：AP、虛擬化主機、下游笨交換器的埠
+            #    上也會有幾十個 MAC，而那就是它插的地方。實機上六台網路設備一度全部
+            #    落到「查不出位置」，就是被這個過度簡化的判準誤傷。
+            #    分得出來的是**包含關係**：離裝置最近的埠，背後的 MAC 集合會是外層埠的
+            #    子集（實機驗證：某 AP 的埠 35 個 MAC 正是上行埠 144 個 MAC 的子集）。
+            #    找不到唯一的最內層埠時就不猜。
             l2_seen: set[tuple[str, str]] = set()
             adjacency: set[tuple[str, str]] = set()   # 已用單一 MAC 埠證實直連的交換器對
-            for (sw_id, port), macs in sorted(by_port.items()):
-                if sw_id not in visible_device_ids or len(macs) > UPLINK_MAC_THRESHOLD:
+
+            # 側錄資料要看**全部**的埠，不能只看畫得出來的交換器：內外層的比較靠的是
+            # 上行埠那份「什麼都看得到」的清單，而上行的那台交換器常常不在目前的篩選
+            # 範圍內（管理 IP 在別的網段）。少了它就退化成「只看到一次」而放棄推導。
+            # 可見性只在**畫線的時候**才判斷。
+            sightings: dict[str, list[tuple[str, str]]] = {}
+            for (sw_id, port), macs in by_port.items():
+                for mac in macs:
+                    sightings.setdefault(mac, []).append((sw_id, port))
+
+            for mac in sorted(sightings):
+                peer = mac_to_dev.get(mac)
+                if peer is None or peer not in visible_device_ids:
+                    continue                                   # 不明確／不在圖上
+                spots = [(sw, pt) for sw, pt in sightings[mac] if sw != peer]
+                if not spots:
+                    continue                                   # 只看到自己身上
+                small = [(sw, pt) for sw, pt in spots
+                         if len(by_port[(sw, pt)]) <= UPLINK_MAC_THRESHOLD]
+                if small:
+                    # 有「乾淨」的埠就用它（同時看到多個時取 MAC 最少的那個）
+                    sw_id, port = min(small, key=lambda x: (len(by_port[x]), x[1]))
+                elif len(spots) < 2:
+                    # 只在一個熱鬧的埠上看到，沒有內外可比 —— 它可能在那個上行埠後面的
+                    # 任何地方。（注意：對空集合做 all() 是恆真的，少了這個判斷就會
+                    # 把「唯一一次側錄」誤當成「最內層」。）
                     continue
-                direct = len(macs) == 1
-                for mac in sorted(macs):
-                    peer = mac_to_dev.get(mac)
-                    if peer is None or peer == sw_id or peer not in visible_device_ids:
-                        continue                       # 不明確／自己／不在圖上
-                    if (peer, sw_id) in l2_seen:
-                        continue
-                    l2_seen.add((peer, sw_id))
-                    if peer in switch_ids and direct:
-                        adjacency.add((min(sw_id, peer), max(sw_id, peer)))
-                    edges.append({"data": {
-                        "id": f"l2:{peer}:{sw_id}:{port}",
-                        "source": peer, "target": sw_id,
-                        "label": port, "kind": "l2", "via": "fdb",
-                        "port": port, "direct": direct,
-                        "port_mac_count": len(macs),
-                        "vlan": vlan_of.get((sw_id, port, mac)),
-                    }})
+                else:
+                    # 全是熱鬧的埠 → 找唯一一個「背後 MAC 集合是其他所有埠的真子集」的
+                    inner = [
+                        (sw, pt) for sw, pt in spots
+                        if all(by_port[(sw, pt)] < by_port[(sw2, pt2)]
+                               for sw2, pt2 in spots if (sw2, pt2) != (sw, pt))
+                    ]
+                    if len(inner) != 1:
+                        continue                               # 分不出內外 → 不猜
+                    sw_id, port = inner[0]
+                if sw_id not in visible_device_ids or (peer, sw_id) in l2_seen:
+                    continue                                   # 交換器不在圖上就不畫線
+                macs_here = by_port[(sw_id, port)]
+                direct = len(macs_here) == 1
+                l2_seen.add((peer, sw_id))
+                if peer in switch_ids and direct:
+                    adjacency.add((min(sw_id, peer), max(sw_id, peer)))
+                edges.append({"data": {
+                    "id": f"l2:{peer}:{sw_id}:{port}",
+                    "source": peer, "target": sw_id,
+                    "label": port, "kind": "l2", "via": "fdb",
+                    "port": port, "direct": direct,
+                    "port_mac_count": len(macs_here),
+                    "vlan": vlan_of.get((sw_id, port, mac)),
+                }})
 
             # ② 骨幹：兩台交換器直連的判準（Breitbart 等人的 FDB 拓樸推導條件）
             #

@@ -52,7 +52,8 @@ const includeVms = ref(false);
  *   auto   混合，有存取層資料就用交換器為中心，沒有就退回子網路為中心
  */
 type ViewMode = "auto" | "switch" | "l2" | "l3";
-const viewMode = ref<ViewMode>("auto");
+// 預設「只看子網路」：那是進來就看得懂的一張圖；要看實體位置再自己切。
+const viewMode = ref<ViewMode>("l3");
 const viewModeOptions = computed(() => [
   { label: t("topology.view_auto"), value: "auto" },
   { label: t("topology.view_switch"), value: "switch" },
@@ -1081,8 +1082,8 @@ onUnmounted(() => {
       <span class="lg clickable" :class="{ off: isGroupOff('switch') }" @click="toggleGroup('switch')"><i class="dot" style="background:#22c55e"></i>{{ t("topology.type_switch") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('ap') }" @click="toggleGroup('ap')"><i class="dot" style="background:#3b82f6"></i>AP</span>
       <span class="lg clickable" :class="{ off: isGroupOff('server') }" @click="toggleGroup('server')"><i class="dot" style="background:#9ca3af"></i>{{ t("topology.server_other") }}</span>
-      <span class="lg clickable" :class="{ off: isGroupOff('vpn_site') }" @click="toggleGroup('vpn_site')"><svg width="14" height="14"><rect x="2" y="2" width="9" height="9" transform="rotate(45 7 7)" fill="#9333ea"/></svg>{{ t("topology.type_vpn_site") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('vm') }" @click="toggleGroup('vm')"><i class="dot dot-rect" style="background:#8b5cf6"></i>{{ t("topology.type_vm") }}</span>
+      <span class="lg clickable" :class="{ off: isGroupOff('vpn_site') }" @click="toggleGroup('vpn_site')"><svg width="14" height="14"><rect x="2" y="2" width="9" height="9" transform="rotate(45 7 7)" fill="#9333ea"/></svg>{{ t("topology.type_vpn_site") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('subnet') }" @click="toggleGroup('subnet')"><i class="dot dot-rect" style="background:#0ea5e9"></i>{{ t("topology.type_subnet") }}</span>
       <span class="lg muted">{{ t("topology.toggle_hint") }}</span>
     </div>
