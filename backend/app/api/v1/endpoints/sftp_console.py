@@ -230,6 +230,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
     conn = None
     sftp = None
     port = 22          # 先給預設值：錯誤處理會用到，設定還沒讀到就失敗時不能是未定義
+    #: 上傳途中收到的指令（客戶端放棄這次上傳、直接送下一個要求）—— 留著下一輪處理
+    carry_over: str | None = None
     try:
         # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
         try:
@@ -262,9 +264,13 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         await send({"type": "ready", "cwd": str(cwd)})
 
         while True:
-            msg = await _next_text(websocket)
-            if msg is None:
-                break                      # 對方關閉連線
+            if carry_over is not None:
+                # 上一次上傳被對方的指令打斷 —— 那個指令要照常執行，不能吞掉
+                msg, carry_over = carry_over, None
+            else:
+                msg = await _next_text(websocket)
+                if msg is None:
+                    break                  # 對方關閉連線
             try:
                 req = json.loads(msg)
             except ValueError:
@@ -319,19 +325,35 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     # 還沒上傳的檔案一起拖走。實機上就是這樣：第一個檔案因為遠端
                     # 回「找不到檔案或目錄」而失敗，第二個檔案顯示「連線已中斷」。
                     fh = await sftp.open(path, "wb")
+                    # 開檔成功了才通知對方可以送 —— 這一行在 0.5.225 改寫時被弄丟，
+                    # 造成客戶端永遠等不到「可以送了」，上傳完全失效。
+                    await send({"type": "put_ready", "path": path})
                     written = 0
                     stalled = False
                     async with fh:
                         while written < size:
                             try:
-                                # ⚠️ 一定要有逾時：客戶端在 put_ready 之後沒把資料送完
-                                # （大檔被瀏覽器的送出緩衝擋下、拖曳的檔案 handle 失效…）
-                                # 時，沒有逾時就會**無限期**停在這裡，佔住這條 WebSocket
-                                # 與 asyncssh 連線。實機症狀是：遠端出現 0 位元組的檔案、
-                                # 使用者看到「連線已中斷」、之後要再連線的請求全部逾時。
-                                chunk = await asyncio.wait_for(
-                                    websocket.receive_bytes(), timeout=UPLOAD_STALL_TIMEOUT)
+                                # ⚠️ 兩件事都要防：
+                                # (1) 逾時 —— 客戶端在 put_ready 之後沒把資料送完，
+                                #     沒有時限就會無限期佔住這條連線。
+                                # (2) **框的型別不如預期** —— 客戶端在資料還沒送完就
+                                #     改送下一個指令（放棄這次上傳卻沒告知）。這時候
+                                #     `receive_bytes()` 會丟 `KeyError: 'bytes'`，
+                                #     整個 handler 當掉、連線關閉。實機日誌抓到的就是
+                                #     這一行：使用者看到「連線已中斷」，而原因只是
+                                #     伺服器對一個文字框沒有防備。
+                                message = await asyncio.wait_for(
+                                    websocket.receive(), timeout=UPLOAD_STALL_TIMEOUT)
                             except TimeoutError:
+                                stalled = True
+                                break
+                            if message.get("type") == "websocket.disconnect":
+                                raise WebSocketDisconnect(message.get("code", 1005))
+                            chunk = message.get("bytes")
+                            if chunk is None:
+                                # 對方改送指令了 → 這次上傳視同放棄，把那個指令留著
+                                # 等一下照常處理，不要把它丟掉也不要因此斷線。
+                                carry_over = message.get("text")
                                 stalled = True
                                 break
                             # 用戶端多送的部分一律截斷 —— 宣告多少就寫多少，
@@ -347,8 +369,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             await sftp.remove(path)
                         await send({"type": "error", "op": "put", "path": path,
                                     "code": "put_stalled",
-                                    "message": f"上傳中斷：{UPLOAD_STALL_TIMEOUT} 秒內沒有收到資料"
-                                               f"（已寫入 {written}/{size} 位元組，檔案已移除）"})
+                                    "message": f"上傳中斷（已寫入 {written}/{size} 位元組，"
+                                               f"檔案已移除）"})
                         failed_path = None
                         continue
                     await send({"type": "ok", "op": "put", "path": path, "bytes": written})
@@ -404,6 +426,11 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             continue
                         await send({"type": "ok", "op": "delete", "path": path})
                         await audit("sftp_delete", {"path": path, "is_dir": True})
+
+                elif op == "put_abort":
+                    # 客戶端明講「這次上傳我放棄了」。真正的清理在上傳迴圈裡已經做完
+                    # （那邊會發現框型別不對而結束），這裡只要不把它當成未知指令即可。
+                    continue
 
                 elif op == "close":
                     break

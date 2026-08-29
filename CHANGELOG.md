@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.228] — 2026-08-30
+
+### Fixed
+- **Dropping a folder into SFTP broke the whole batch** — the actual root cause behind the reports. Folders were detected with `File.size > 0`, but **macOS reports a folder's `size` as 256**, not 0, so the folder passed the filter, was uploaded as a file, and only failed when its contents were read. That is the "0/256 bytes written" in the error. The screen said "1 folder skipped" while nothing was actually skipped.
+- Type is now decided per item by `webkitGetAsEntry().isFile` — **size must never be used to decide what something is**. The logic moved to `utils/dropFilter.ts` with unit tests, one of which is exactly the folder that reports 256 bytes.
+- **Readability is checked before anything is sent**: one byte is read first, and an unreadable item is reported as "this item cannot be read (compress a folder first)" and skipped without touching the connection. Previously the server opened the file and waited out a 30-second timeout before cleaning up — a full minute of apparently frozen UI for two items.
+
+### Verified
+- All three protocol scenarios pass (two files in sequence / a command sent mid-transfer / a declared-but-unsent upload)
+- **The customer's case reproduced in a real browser**: a folder reporting 256 bytes dropped alongside an 800 KB file — the folder is skipped, the file uploads with **byte-for-byte correct contents**, the connection stays up, and the backend raises no exception
+
+## [0.5.227] — 2026-08-29
+
+### Fixed
+- **0.5.225 broke SFTP uploads — a regression of our own making, and we are sorry for it.** Rewriting the upload block in that release dropped the line that tells the client it may begin sending (`put_ready`): the server opened the file and went straight into the receive loop while the client waited for a permission that never came, so not a byte was sent and it timed out after 30 seconds. **The symptom was identical to the bug being fixed** ("connection lost"), which makes it easy to read as "still not fixed" rather than "newly broken". Restored, with a test of its own — something that breaks everything when one line goes missing, while looking like the old problem, deserves to be pinned down.
+
+### Verified (actually exercised, not just read)
+A protocol-level harness drove the WebSocket directly to reproduce the timing from the crash log, alongside a real browser uploading two files at once:
+- Two files in sequence: both succeed at the right size, **md5 identical to the source**
+- A command sent mid-transfer (the logged crash): connection survives, the interrupted command still runs, the partial file is removed
+- A declared size with nothing sent: the session remains usable after the timeout
+- **Zero** ASGI exceptions on the backend throughout
+
+## [0.5.226] — 2026-08-29
+
+### Fixed
+- **SFTP uploads still dropped the whole connection — this time the server log gave the exact cause** (reported by a customer, following 0.5.224 and 0.5.225):
+
+  ```
+  File ".../sftp_console.py", line 332, in sftp_ws
+  File ".../starlette/websockets.py", line 128, in receive_bytes
+  KeyError: 'bytes'
+  ```
+
+  `receive_bytes()` raises `KeyError` when a **text** frame arrives, taking down the handler and closing the connection. A client sending its next command before finishing the data is entirely possible (it gives up on one file and moves to the next), and the server had no defence against it — the user sees "connection lost" when the real cause is simply **no guard against a frame of an unexpected type**. The timeouts added in the previous two releases could not help, because the next command arrives *immediately*, long before any timeout.
+- The upload loop now inspects the frame type itself: data gets written, a command ends the upload (removing the partial file) and **is kept and executed as usual** — an action the user asked for should not vanish silently.
+- When the client gives up mid-file it now sends an explicit `put_abort` rather than moving on as if nothing happened.
+- Two new tests pin the exact line from the log: the upload loop must not call `receive_bytes()` directly, and an interrupted command must not be swallowed.
+
 ## [0.5.225] — 2026-08-29
 
 ### Fixed

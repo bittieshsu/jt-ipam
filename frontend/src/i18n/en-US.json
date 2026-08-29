@@ -3394,7 +3394,8 @@
     "offline_hint": "This listing is what was on screen before the connection dropped and may no longer match the remote host. Reconnect to work with files again.",
     "sort_dirs_first": "Folders first",
     "sort_mixed": "Mixed with files",
-    "sort_mode_hint": "With Folders first, directories always come before files in both ascending and descending order, like a file manager. Mixed sorts purely by the selected column, like ls. The choice is saved to your preferences and follows you to other devices."
+    "sort_mode_hint": "With Folders first, directories always come before files in both ascending and descending order, like a file manager. Mixed sorts purely by the selected column, like ls. The choice is saved to your preferences and follows you to other devices.",
+    "unreadable_item": "This item cannot be read (compress a folder into a single file first)"
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",

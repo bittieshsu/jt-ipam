@@ -14,6 +14,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { sortEntries, type SortKey, type SortOrder } from "@/utils/sftpSort";
+import { pickDroppedFiles } from "@/utils/dropFilter";
 import { getPreferences, updatePreferences } from "@/api/preferences";
 import { useI18n } from "vue-i18n";
 import {
@@ -285,6 +286,14 @@ const uploadProgress = ref<{ done: number; total: number; name: string } | null>
 async function putOneFile(file: File) {
   if (!ws) throw new Error(t("sftp.disconnected"));
   const path = `${cwd.value.replace(/\/+$/, "")}/${file.name}`;
+  // 送出任何東西**之前**先確認這個項目真的讀得到。資料夾（或已被移走的檔案）在這裡
+  // 就會失敗，於是連線完全不會被驚動 —— 比起讓伺服器開好檔案、等滿逾時再清掉，
+  // 這樣使用者是立刻得到答案，而不是等半分鐘才看到錯誤。
+  try {
+    if (file.size > 0) await file.slice(0, 1).arrayBuffer();
+  } catch {
+    throw new Error(t("sftp.unreadable_item"));
+  }
   await request({ type: "put", path, size: file.size });
   // put_ready 之後才開始送二進位框，一次 256 KiB
   const CHUNK = 256 * 1024;
@@ -296,16 +305,23 @@ async function putOneFile(file: File) {
   // 對方已經回到「等下一個指令」的狀態，那些框就成了雜訊。
   uploadAborted = false;
   const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
+  let sentAll = true;
   for (let off = 0; off < file.size; off += CHUNK) {
     const buf = await file.slice(off, off + CHUNK).arrayBuffer();
     // 等緩衝消化到水位以下再繼續送；中途斷線就別再送了
     while (ws.bufferedAmount > HIGH_WATER) {
-      if (ws.readyState !== WebSocket.OPEN) throw new Error(t("sftp.disconnected"));
+      if (ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
       await new Promise((r) => setTimeout(r, 20));
     }
-    if (uploadAborted) throw new Error(t("sftp.disconnected"));
-    if (ws.readyState !== WebSocket.OPEN) throw new Error(t("sftp.disconnected"));
+    if (!sentAll || uploadAborted || ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
     ws.send(buf);
+  }
+  if (!sentAll) {
+    // 送到一半放棄時**一定要讓伺服器知道**：它還在等剩下的位元組，我們卻若無其事
+    // 送出下一個指令 —— 伺服器讀到的就是型別不對的框。實機上這個組合會讓整條連線
+    // 直接斷掉（後端已另外補上防護，但客戶端本來就不該這樣做）。
+    send({ type: "put_abort", path });
+    throw new Error(t("sftp.disconnected"));
   }
   await done;
 }
@@ -362,10 +378,12 @@ async function onDrop(ev: DragEvent) {
   if (phase.value !== "connected") return;
   const dt = ev.dataTransfer;
   if (!dt) return;
-  // 資料夾拖進來時 webkitGetAsEntry().isDirectory 為真 —— 目前只收檔案，要講出來
+  // 資料夾要逐項對照 entry 來排除，**不可以用大小判斷**：macOS 交出來的資料夾
+  // `File.size` 是 256，`size > 0` 會把它當成檔案送去上傳，然後在讀取內容時失敗 ——
+  // 實機症狀是「已寫入 0/256 位元組」，而且伺服器要等滿逾時才放棄。
   const items = Array.from(dt.items ?? []);
-  const dirs = items.filter((it) => (it as any).webkitGetAsEntry?.()?.isDirectory).length;
-  const files = Array.from(dt.files ?? []).filter((f) => f.size > 0 || !dirs);
+  const entries = items.map((it) => (it as any).webkitGetAsEntry?.() ?? null);
+  const { files, skippedDirs: dirs } = pickDroppedFiles(Array.from(dt.files ?? []), entries);
   if (dirs) msg.warning(t("sftp.drop_dirs_skipped", { n: dirs }));
   await uploadFiles(files);
 }
