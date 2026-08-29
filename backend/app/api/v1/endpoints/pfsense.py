@@ -233,11 +233,21 @@ async def test_firewall(
 
 @router.post("/{fw_id}/sync")
 async def sync_firewall(
-    fw_id: uuid.UUID, session: Annotated[AsyncSession, Depends(get_session)],
+    fw_id: uuid.UUID, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     fw = await _get_or_404(session, fw_id)
     try:
         counts = await svc.sync_instance(session, fw)
+        # 手動觸發的同步要留紀錄（其他整合本來就有記，這裡漏了）
+        await append_audit(
+            session, actor_user_id=str(user.id),
+            actor_ip=request.client.host if request.client else None,
+            actor_user_agent=request.headers.get("user-agent"),
+            object_type="pfsense_firewall", object_id=str(fw.id), action="sync",
+            diff=counts if isinstance(counts, dict) else {"result": str(counts)[:500]},
+            request_id=getattr(request.state, "request_id", None),
+        )
         await session.commit()
     except Exception as exc:  # 失敗寫 last_error 後回 502
         await session.rollback()

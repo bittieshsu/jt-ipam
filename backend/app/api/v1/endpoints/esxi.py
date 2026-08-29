@@ -139,7 +139,7 @@ async def check_connection(
 
 @router.post("/{instance_id}/sync")
 async def sync_now(
-    instance_id: uuid.UUID, _user: CurrentUser,
+    instance_id: uuid.UUID, _user: CurrentUser, request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     inst = await _get_or_404(session, instance_id)
@@ -151,5 +151,14 @@ async def sync_now(
         inst.last_error = str(exc)[:2000]
         await session.commit()
         raise HTTPException(502, detail=str(exc)) from exc
+    # 手動觸發的同步要留紀錄（其他整合本來就有記，這裡漏了）
+    await append_audit(
+        session, actor_user_id=str(_user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="esxi_instance", object_id=str(inst.id), action="sync",
+        diff=out if isinstance(out, dict) else {"result": str(out)[:500]},
+        request_id=getattr(request.state, "request_id", None),
+    )
     await session.commit()
     return out

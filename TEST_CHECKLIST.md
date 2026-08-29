@@ -407,6 +407,9 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   host inside the host's subnet box; unticking removes them entirely. A VM with no identifiable
   host, or whose node name matches several devices, is not drawn. A VM already mapped to a device
   does not appear twice.
+- [ ] **Audit coverage**: `pytest tests/test_audit_coverage.py` is green. A new data-changing
+  endpoint must either record an audit entry or be added to `EXEMPT` with a stated reason —
+  never silenced just to make the test pass.
 
 ## 8. Recent feature spot-checks
 

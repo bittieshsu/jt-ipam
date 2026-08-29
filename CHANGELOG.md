@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.220] — 2026-08-29
+
+### Added
+- **A guard test for audit coverage.** It walks the whole API and reports endpoints whose HTTP method changes data, whose body really does write, and which record no audit entry. An exemption has to be written down with a reason, so "not recorded" becomes a decision someone made rather than something forgotten. What remains exempt is deliberate: high-frequency agent reports, per-user notification read state and UI preferences.
+
+### Fixed
+- **Group membership changes were not audited at all**, and groups carry permissions — adding someone to a group is a privilege change. The two endpoints did not even take `request`, so not only was the change unrecorded, **there was no way to tell who made it**. They now record `group_member_add` / `group_member_remove` with the group and the affected user.
+- **Certificate agent key rotation and deletion were not audited** (`cert_agent_key_rotate` / `cert_agent_delete` / `cert_agent_update`) — those change who can obtain a private key. Deletion records **before** it deletes: afterwards the name is gone and an audit entry holding only a UUID says nothing.
+- **Certificate settings changes were not audited**, though uploads and deletions were (the entry contains no key material).
+- **Manual ESXi and pfSense syncs were not audited**, while every other integration already recorded `sync`.
+
+### Verified complete (this review)
+- Console sessions: SSH / RDP / VNC / noVNC / BMC all record `session_open` and `session_close` including duration, and SSH additionally records host-key pinning. SFTP records the session plus **every upload, download, delete, rename and mkdir**, with path and byte count.
+- Login success and failure, TOTP enable/disable, password change and OIDC/SAML logins are all recorded (in `services/auth.py`).
+
 ## [0.5.219] — 2026-08-29
 
 ### Fixed

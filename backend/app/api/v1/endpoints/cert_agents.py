@@ -373,10 +373,27 @@ async def create_agent(
     return CertAgentCreated(**_to_read(obj).model_dump(), enroll_key=raw_key)
 
 
+async def _agent_audit(
+    session: AsyncSession, user: Any, request: Request, *,
+    obj: CertAgent, action: str, diff: dict[str, Any] | None = None,
+) -> None:
+    """憑證代理的異動稽核。金鑰輪替與刪除尤其要留紀錄 —— 那等同於改變誰能取到私鑰。"""
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="cert_agent", object_id=str(obj.id), action=action,
+        diff={"name": obj.name, **(diff or {})},
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
 @router.patch("/{agent_id}", response_model=CertAgentRead, dependencies=[Depends(require_admin)])
 async def update_agent(
     agent_id: uuid.UUID,
     payload: CertAgentUpdate,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> CertAgentRead:
     obj = await session.get(CertAgent, agent_id)
@@ -387,6 +404,8 @@ async def update_agent(
         data["scope_cert_ids"] = [str(c) for c in data["scope_cert_ids"]]
     for k, v in data.items():
         setattr(obj, k, v)
+    await _agent_audit(session, user, request, obj=obj, action="cert_agent_update",
+                       diff={k: str(v) for k, v in data.items()})
     await session.commit()
     await session.refresh(obj)  # commit 後 updated_at(onupdate)過期 → refresh 免 model_validate 同步 lazy IO 500
     return _to_read(obj)
@@ -396,6 +415,8 @@ async def update_agent(
              dependencies=[Depends(require_admin)])
 async def rotate_key(
     agent_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> CertAgentCreated:
     obj = await session.get(CertAgent, agent_id)
@@ -404,6 +425,7 @@ async def rotate_key(
     raw_key = _new_key()
     obj.enroll_key_hash = _key_hash(raw_key)
     await _save_agent_key(session, obj.id, raw_key)
+    await _agent_audit(session, user, request, obj=obj, action="cert_agent_key_rotate")
     await session.commit()
     await session.refresh(obj)  # commit 後 updated_at(onupdate)過期 → refresh 免 model_validate 同步 lazy IO 500
     return CertAgentCreated(**_to_read(obj).model_dump(), enroll_key=raw_key)
@@ -428,6 +450,8 @@ async def get_agent_key(
 @router.delete("/{agent_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_agent(
     agent_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     obj = await session.get(CertAgent, agent_id)
@@ -435,6 +459,8 @@ async def delete_agent(
         raise HTTPException(404, detail="Not found")
     await session.execute(delete(EncryptedSecret).where(
         EncryptedSecret.object_type == "cert_agent", EncryptedSecret.object_id == agent_id))
+    # 先記再刪：刪掉之後 obj 上的名稱就取不到了，稽核只剩一個 UUID 沒有意義
+    await _agent_audit(session, user, request, obj=obj, action="cert_agent_delete")
     await session.delete(obj)
     await session.commit()
 

@@ -428,9 +428,25 @@ async def list_user_groups(
     return rows
 
 
+async def _member_audit(
+    session: AsyncSession, request: Request, *, group: Group, target: User, action: str,
+) -> None:
+    """群組成員異動的稽核。物件記成**群組**，內容帶被異動的使用者 —— 查「這個群組
+    什麼時候多了誰」與「這個人什麼時候被加進哪個群組」都找得到。"""
+    await append_audit(
+        session,
+        actor_user_id=str(getattr(request.state, "user_id", "")) or None,
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="group", object_id=str(group.id), action=action,
+        diff={"group": group.name, "user_id": str(target.id), "username": target.username},
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
 @router.post("/groups/{group_id}/members/{user_id}", status_code=204)
 async def add_member(
-    group_id: uuid.UUID, user_id: uuid.UUID,
+    group_id: uuid.UUID, user_id: uuid.UUID, request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     g = (await session.execute(select(Group).where(Group.id == group_id))).scalar_one_or_none()
@@ -447,12 +463,15 @@ async def add_member(
     ).scalar_one_or_none()
     if exists is None:
         session.add(UserGroupMember(user_id=user_id, group_id=group_id))
+        # 群組成員＝權限（群組上掛著 Permission），加人進群組就是提權，一定要留紀錄。
+        # 原本這裡連 request 都沒有 —— 不只沒記做了什麼，連是誰做的都不知道。
+        await _member_audit(session, request, group=g, target=u, action="group_member_add")
     await session.commit()
 
 
 @router.delete("/groups/{group_id}/members/{user_id}", status_code=204)
 async def remove_member(
-    group_id: uuid.UUID, user_id: uuid.UUID,
+    group_id: uuid.UUID, user_id: uuid.UUID, request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     row = (
@@ -464,5 +483,12 @@ async def remove_member(
         )
     ).scalar_one_or_none()
     if row is not None:
+        g = (await session.execute(
+            select(Group).where(Group.id == group_id))).scalar_one_or_none()
+        u = (await session.execute(
+            select(User).where(User.id == user_id))).scalar_one_or_none()
         await session.delete(row)
+        if g is not None and u is not None:
+            await _member_audit(session, request, group=g, target=u,
+                                action="group_member_remove")
         await session.commit()
