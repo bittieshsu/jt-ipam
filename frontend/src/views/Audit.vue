@@ -7,7 +7,6 @@ import {
   NDataTable,
   NSpace,
   NIcon,
-  NInput,
   NSelect,
   NButton,
   NTag,
@@ -15,7 +14,7 @@ import {
   useMessage,
   type DataTableColumns,
 } from "naive-ui";
-import { listAudit, verifyAuditChain, type AuditLog } from "@/api/admin";
+import { listAudit, listAuditActions, verifyAuditChain, type AuditLog } from "@/api/admin";
 import { AuditIcon, RefreshIcon, AdminIcon as VerifyIcon } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -104,7 +103,16 @@ const objTypeOptions = [
   "wazuh_instance", "scan_agent", "webhook",
   "phpipam_migration", "ip_request", "custom_field",
 ].map((v) => ({ label: v, value: v }));
-const filterAction = ref("");
+// 動作篩選：可複選、可從下拉挑、也可以直接打字（tag 模式）——
+// 稽核動作有數十種且會隨功能增加，純下拉選不到新的、純輸入又要背名字。
+const filterActions = ref<string[]>([]);
+const actionOptions = ref<{ label: string; value: string }[]>([]);
+async function loadActionOptions() {
+  try {
+    const rows = await listAuditActions();
+    actionOptions.value = rows.map((r) => ({ label: `${r.action}（${r.count}）`, value: r.action }));
+  } catch { actionOptions.value = []; }
+}
 const limit = ref(50);
 const offset = ref(0);
 
@@ -181,7 +189,7 @@ async function fetchAllForExport(): Promise<AuditLog[]> {
   for (;;) {
     const res = await listAudit({
       object_type: filterObjType.value || undefined,
-      action: filterAction.value || undefined,
+      action: filterActions.value.length ? filterActions.value : undefined,
       limit: big, offset: off,
     });
     all.push(...res.items);
@@ -196,7 +204,7 @@ async function refresh() {
   try {
     const res = await listAudit({
       object_type: filterObjType.value || undefined,
-      action: filterAction.value || undefined,
+      action: filterActions.value.length ? filterActions.value : undefined,
       limit: limit.value, offset: offset.value,
     });
     rows.value = res.items;
@@ -252,7 +260,8 @@ function diffSummary(diff: Record<string, unknown>): string {
   return Object.entries(obj).map(([k, v]) => `${k}: ${fmtVal(v)}`).join("；");
 }
 
-onMounted(() => { void refresh(); });
+onMounted(() => {
+  void loadActionOptions(); void refresh(); });
 </script>
 
 <template>
@@ -268,8 +277,11 @@ onMounted(() => { void refresh(); });
                 :placeholder="t('audit.filter_object_type')"
                 @update:value="refresh"
                 style="width: 240px" />
-      <n-input v-model:value="filterAction" :placeholder="t('audit.filter_action')"
-               style="width: 220px" clearable />
+      <n-select v-model:value="filterActions" :options="actionOptions"
+                multiple filterable tag clearable
+                :placeholder="t('audit.filter_action')"
+                max-tag-count="responsive"
+                style="width: 320px" @update:value="refresh" />
       <n-button @click="refresh" :loading="loading">
         <template #icon><n-icon><RefreshIcon /></n-icon></template>
         {{ t("common.refresh") }}

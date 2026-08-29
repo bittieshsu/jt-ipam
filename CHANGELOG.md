@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.222] — 2026-08-29
+
+### Added
+- **The audit action filter now accepts several values, from a dropdown or typed by hand.** There are dozens of actions and the set grows with each feature (the previous release alone added `group_member_add` and `cert_agent_key_rotate`), so a dropdown alone cannot offer new ones and free text alone means memorising names. The options come from **the actions actually present in the log**, with counts — a hard-coded list would go stale in a way nobody notices: it just looks like the action is missing from the filter.
+- **A settings screen for rack diagram embedding** (Admin → System settings): the master switch, viewing and copying the token, and regenerating it. Regeneration says plainly that every existing embed URL stops working immediately — otherwise someone's dashboard breaks with no obvious cause.
+
 ## [0.5.221] — 2026-08-29
 
 ### Added

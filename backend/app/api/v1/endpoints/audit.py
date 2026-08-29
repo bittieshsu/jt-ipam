@@ -180,13 +180,32 @@ class ChainVerifyResult(BaseModel):
     checked: int
 
 
+@router.get("/actions")
+async def list_audit_actions(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[dict[str, Any]]:
+    """稽核記錄裡**實際出現過**的動作與筆數。
+
+    不寫死清單：動作會隨功能增加（光是這一版就多了 `group_member_add`、
+    `cert_agent_key_rotate`…），寫死的清單一定會過期，而且過期的方式很難察覺 ——
+    使用者只會覺得「篩選裡沒有這個動作」而不知道是清單沒更新。
+    """
+    rows = (await session.execute(
+        select(AuditLog.action, func.count().label("n"))
+        .group_by(AuditLog.action)
+        .order_by(func.count().desc())
+    )).all()
+    return [{"action": a, "count": int(n)} for a, n in rows if a]
+
+
 @router.get("", response_model=Paginated[AuditLogRead])
 async def list_audit(
     session: Annotated[AsyncSession, Depends(get_session)],
     object_type: str | None = None,
     object_id: uuid.UUID | None = None,
     actor_user_id: uuid.UUID | None = None,
-    action: str | None = None,
+    # 可複選：`?action=create&action=delete`。單一值仍然照舊可用（FastAPI 會收成一元素清單）
+    action: Annotated[list[str] | None, Query()] = None,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
@@ -200,7 +219,9 @@ async def list_audit(
     if actor_user_id is not None:
         base = base.where(AuditLog.actor_user_id == actor_user_id)
     if action:
-        base = base.where(AuditLog.action == action)
+        picked = [a for a in action if a]
+        if picked:
+            base = base.where(AuditLog.action.in_(picked))
     if since is not None:
         base = base.where(AuditLog.ts >= since)
     if until is not None:

@@ -7,10 +7,11 @@ import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NCheckbox, NCheckboxGroup,
-  NButton, NTag, useMessage,
+  NButton, NPopconfirm, NTag, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
 import { AdminIcon, SaveIcon, RefreshIcon } from "@/icons";
+import { getRackEmbedConfig, setRackEmbedConfig, type RackEmbedConfig } from "@/api/racks";
 import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
@@ -101,6 +102,34 @@ async function changeGrace(v: number | null) {
 }
 
 // GeoIP
+// 機櫃圖對外嵌入：這裡只管系統層的總開關與權杖，要公開哪一櫃在機櫃頁逐櫃決定
+const rackEmbed = ref<RackEmbedConfig | null>(null);
+const showRackToken = ref(false);
+const rackEmbedToken = computed(() => rackEmbed.value?.token ?? "");
+async function loadRackEmbed() {
+  try { rackEmbed.value = await getRackEmbedConfig(); } catch { rackEmbed.value = null; }
+}
+async function changeRackEmbed(v: boolean) {
+  try {
+    rackEmbed.value = await setRackEmbedConfig(v);
+    msg.success(t("common.saved"));
+  } catch { msg.error(t("errors.server")); }
+}
+async function regenRackToken() {
+  try {
+    rackEmbed.value = await setRackEmbedConfig(rackEmbed.value?.enabled ?? true, true);
+    // 舊網址立刻失效，這件事一定要講出來，否則別人的儀表板會突然破圖而找不到原因
+    msg.success(t("system_settings.rack_embed_regenerated"));
+  } catch { msg.error(t("errors.server")); }
+}
+async function copyRackToken() {
+  if (!rackEmbedToken.value) return;
+  try {
+    await navigator.clipboard.writeText(rackEmbedToken.value);
+    msg.success(t("common.copied"));
+  } catch { msg.error(t("errors.server")); }
+}
+
 const geoip = ref<GeoIPConfig | null>(null);
 const geoipAccount = ref("");
 const geoipKey = ref("");
@@ -309,6 +338,7 @@ async function doTestAf() {
 }
 
 onMounted(() => {
+  void loadRackEmbed();
   getUiDisplay().then((d) => { changeLogDimDays.value = d.change_log_dim_days; }).catch(() => {});
   getConsoleSecurity().then((c) => { rdpClipPaste.value = c.rdp_clipboard_paste; }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
@@ -426,6 +456,38 @@ async function doPreviewAutolink() {
           <n-input-number :value="cooldownDays" :min="0" :max="3650" style="width: 100%"
                           @update:value="changeCooldown" />
           <div class="hint">{{ t("system_settings.cooldown_days_hint") }}</div>
+        </div>
+      </n-card>
+
+      <!-- 機櫃圖對外嵌入 -->
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_rack_embed") }}</span></template>
+        <div class="ss-grid">
+          <div class="fld">
+            <label>{{ t("system_settings.rack_embed_enabled") }}</label>
+            <n-switch :value="rackEmbed?.enabled ?? false" @update:value="changeRackEmbed" />
+            <div class="hint">{{ t("system_settings.rack_embed_hint") }}</div>
+          </div>
+          <div v-if="rackEmbed?.enabled" class="fld">
+            <label>{{ t("system_settings.rack_embed_token") }}</label>
+            <n-input :value="rackEmbedToken" readonly
+                     :type="showRackToken ? 'text' : 'password'" style="width: 100%" />
+            <n-space size="small" style="margin-top: 6px">
+              <n-button size="small" @click="showRackToken = !showRackToken">
+                {{ showRackToken ? t("common.hide") : t("common.show") }}
+              </n-button>
+              <n-button size="small" @click="copyRackToken">{{ t("common.copy") }}</n-button>
+              <n-popconfirm @positive-click="regenRackToken">
+                <template #trigger>
+                  <n-button size="small" type="warning" ghost>
+                    {{ t("system_settings.rack_embed_regen") }}
+                  </n-button>
+                </template>
+                {{ t("system_settings.rack_embed_regen_confirm") }}
+              </n-popconfirm>
+            </n-space>
+            <div class="hint">{{ t("system_settings.rack_embed_token_hint") }}</div>
+          </div>
         </div>
       </n-card>
 

@@ -393,7 +393,9 @@
     "disconnected_err": "Connection error",
     "disconnected_hint": "Click Reconnect (top right) to retry",
     "username": "Username",
-    "password": "Password"
+    "password": "Password",
+    "show": "Show",
+    "hide": "Hide"
   },
   "scan_agent": {
     "outdated": "update available",
@@ -2695,7 +2697,15 @@
     "liveness_sources_hint": "Only the selected sources decide whether an address is online. ARP is off by default: it proves a MAC-to-IP binding was learned, not that the machine is alive — and the LibreNMS ARP API returns no timestamp, so a reporting device's cache can keep a powered-off machine looking online indefinitely.",
     "grp_lifecycle": "IP lifecycle",
     "cooldown_days": "Cooldown after release (days)",
-    "cooldown_days_hint": "After an address is released (deleted) it is not offered for reallocation during this window, and creating it by hand is refused. Things outside IPAM still point at it: DNS records and caches, firewall rules, ACLs, certificate SANs, monitoring. Handing it to another machine too early produces the hardest kind of fault to diagnose. Default 30 days; 0 disables it. An admin can clear an individual address early, which is recorded."
+    "cooldown_days_hint": "After an address is released (deleted) it is not offered for reallocation during this window, and creating it by hand is refused. Things outside IPAM still point at it: DNS records and caches, firewall rules, ACLs, certificate SANs, monitoring. Handing it to another machine too early produces the hardest kind of fault to diagnose. Default 30 days; 0 disables it. An admin can clear an individual address early, which is recorded.",
+    "grp_rack_embed": "Rack diagram embedding",
+    "rack_embed_enabled": "Enable embedding",
+    "rack_embed_hint": "Once enabled, racks you have individually shared are available at a URL (carrying a token) that other systems can embed as an image, such as a LibreNMS dashboard. Each rack must also be turned on from the Racks page.",
+    "rack_embed_token": "Access token",
+    "rack_embed_token_hint": "This is a key: anyone holding it can see the diagrams of shared racks, including device names and positions. Do not post it publicly.",
+    "rack_embed_regen": "Regenerate token",
+    "rack_embed_regen_confirm": "Regenerating invalidates every existing embed URL immediately; each one has to be re-pasted. Continue?",
+    "rack_embed_regenerated": "Token regenerated — existing URLs stopped working"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",

@@ -393,7 +393,9 @@
     "disconnected_err": "連線發生錯誤",
     "disconnected_hint": "請點右上「重新連線」重試",
     "username": "帳號",
-    "password": "密碼"
+    "password": "密碼",
+    "show": "顯示",
+    "hide": "隱藏"
   },
   "scan_agent": {
     "outdated": "可更新",
@@ -2695,7 +2697,15 @@
     "liveness_sources_hint": "只有勾選的來源會被拿來判定上線。ARP 預設不勾：它證明的是某個 MAC↔IP 對應被學到過，不是機器現在活著；而且 LibreNMS 的 ARP API 不回時間，來源設備（AP／路由器）的快取不會過期，機器關機後仍可能一直顯示上線。",
     "grp_lifecycle": "IP 生命週期",
     "cooldown_days": "釋放後冷卻天數",
-    "cooldown_days_hint": "IP 被釋放（刪除）後，這段期間內不會被重新配發，也擋下手動建立。原因是外面還有東西指著它：DNS 記錄與快取、防火牆規則、ACL、憑證 SAN、監控設定。太早配給別台機器，症狀會是最難查的那種。預設 30 天；0 = 停用。管理員可對個別位址提前解除（會留下紀錄）。"
+    "cooldown_days_hint": "IP 被釋放（刪除）後，這段期間內不會被重新配發，也擋下手動建立。原因是外面還有東西指著它：DNS 記錄與快取、防火牆規則、ACL、憑證 SAN、監控設定。太早配給別台機器，症狀會是最難查的那種。預設 30 天；0 = 停用。管理員可對個別位址提前解除（會留下紀錄）。",
+    "grp_rack_embed": "機櫃圖對外嵌入",
+    "rack_embed_enabled": "啟用嵌入",
+    "rack_embed_hint": "啟用後，已個別開放的機櫃可用一個網址（含權杖）給別的系統以圖片嵌入，例如 LibreNMS 儀表板。還要在「機櫃」頁逐櫃開啟才會生效。",
+    "rack_embed_token": "存取權杖",
+    "rack_embed_token_hint": "這串等同一把鑰匙，任何拿到的人都能看到已開放機櫃的示意圖（含裝置名稱與位置）。請勿貼到公開場合。",
+    "rack_embed_regen": "重新產生權杖",
+    "rack_embed_regen_confirm": "重新產生後，所有既有的嵌入網址會立刻失效，需要重新貼一次。確定嗎？",
+    "rack_embed_regenerated": "已重新產生權杖，舊網址即刻失效"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",
