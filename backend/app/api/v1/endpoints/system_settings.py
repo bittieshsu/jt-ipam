@@ -1056,8 +1056,14 @@ def _gather_version_info() -> dict[str, Any]:
     # 前端框架版本（讀 frontend/node_modules/<pkg>/package.json 的實裝版本）
     frontend: dict[str, str | None] = {}
     fe_root = Path(__file__).resolve().parents[5] / "frontend" / "node_modules"
+    # 完整列出 package.json 的執行期相依（＋建置工具 vite/typescript）。
+    # 這份清單與後端那份一樣是手寫的，會靜靜過期 —— tests/test_dependency_page.py
+    # 會拿它跟實際宣告的相依比對，漏了就擋下來。
     for p in ["vue", "naive-ui", "vite", "typescript", "pinia", "vue-router",
-              "vue-i18n", "axios", "@xterm/xterm", "@novnc/novnc", "@iconoir/vue"]:
+              "vue-i18n", "axios", "@xterm/xterm", "@xterm/addon-fit",
+              "@xterm/addon-unicode11", "@xterm/addon-web-links",
+              "@novnc/novnc", "@iconoir/vue", "@vueuse/core",
+              "cytoscape", "cytoscape-cose-bilkent", "qrcode", "vfonts", "zod"]:
         ver: str | None = None
         try:
             ver = json.loads((fe_root / p / "package.json").read_text(encoding="utf-8")).get("version")

@@ -24,6 +24,8 @@ WS 帶不了 Authorization header → 沿用 SSH 那套：先以 JWT 換 60 秒�
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import secrets
 import uuid
@@ -38,6 +40,7 @@ from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
 from app.core.tickets import take_once
+from app.core.ws_timeouts import HANDSHAKE_TIMEOUT, WsTimeout, receive_text_within
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
@@ -171,6 +174,28 @@ async def _connect_kwargs(
     return username, port, kw
 
 
+async def _next_text(websocket: WebSocket) -> str | None:
+    """讀下一則**文字**訊息；把落單的二進位框丟掉。
+
+    上傳中止時，客戶端可能還有幾個資料框在路上。主迴圈若直接用 `receive_text()`
+    讀到它們就會壞掉，一次錯位就殺掉整條連線 —— 這裡改成跳過，讓協定自己回到同步。
+    回 None 代表對方已關閉。
+    """
+    while True:
+        message = await websocket.receive()
+        if message.get("type") == "websocket.disconnect":
+            return None
+        text = message.get("text")
+        if text is not None:
+            return text
+        # 二進位框：這時候不該有，安靜丟掉（上一次上傳的殘餘）
+
+
+#: 上傳時每一個資料框的等待上限（秒）。客戶端不送資料就不能無限期佔住這條連線。
+#: 訂在這個量級是因為它要容得下慢速線路上的一個 256 KiB 框，又不能長到形同沒有保護。
+UPLOAD_STALL_TIMEOUT = 30
+
+
 @router.websocket("/{address_id}/sftp/ws")
 async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     user_id = await _redeem(ticket, address_id)
@@ -206,7 +231,17 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
     sftp = None
     port = 22          # 先給預設值：錯誤處理會用到，設定還沒讀到就失敗時不能是未定義
     try:
-        cfg = json.loads(await websocket.receive_text())
+        # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
+        try:
+            cfg = json.loads(await receive_text_within(
+                websocket, HANDSHAKE_TIMEOUT, what="連線設定"))
+        except WsTimeout as exc:
+            with contextlib.suppress(Exception):
+                await websocket.send_text(json.dumps(
+                    {"type": "error", "code": "handshake_timeout", "message": str(exc)},
+                    ensure_ascii=False))
+            await websocket.close(code=4408)
+            return
         if cfg.get("type") != "config":
             await send({"type": "error", "message": "缺少連線設定"})
             return
@@ -227,7 +262,9 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         await send({"type": "ready", "cwd": str(cwd)})
 
         while True:
-            msg = await websocket.receive_text()
+            msg = await _next_text(websocket)
+            if msg is None:
+                break                      # 對方關閉連線
             try:
                 req = json.loads(msg)
             except ValueError:
@@ -275,16 +312,45 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 elif op == "put":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     size = check_size(req.get("size"), what="上傳")
-                    await send({"type": "put_ready", "path": path})
+                    # ⚠️ 先把檔案開起來，成功了才叫對方送資料。
+                    # 反過來（先說 put_ready 再開檔）在開檔失敗時會壞掉：客戶端已經
+                    # 開始送二進位框，而伺服器跳去回報錯誤、回到主迴圈讀「文字訊息」，
+                    # 讀到的卻是那些二進位框 → 協定錯位 → 整條連線死掉，連帶把後面
+                    # 還沒上傳的檔案一起拖走。實機上就是這樣：第一個檔案因為遠端
+                    # 回「找不到檔案或目錄」而失敗，第二個檔案顯示「連線已中斷」。
+                    fh = await sftp.open(path, "wb")
                     written = 0
-                    async with sftp.open(path, "wb") as fh:
+                    stalled = False
+                    async with fh:
                         while written < size:
-                            chunk = await websocket.receive_bytes()
+                            try:
+                                # ⚠️ 一定要有逾時：客戶端在 put_ready 之後沒把資料送完
+                                # （大檔被瀏覽器的送出緩衝擋下、拖曳的檔案 handle 失效…）
+                                # 時，沒有逾時就會**無限期**停在這裡，佔住這條 WebSocket
+                                # 與 asyncssh 連線。實機症狀是：遠端出現 0 位元組的檔案、
+                                # 使用者看到「連線已中斷」、之後要再連線的請求全部逾時。
+                                chunk = await asyncio.wait_for(
+                                    websocket.receive_bytes(), timeout=UPLOAD_STALL_TIMEOUT)
+                            except TimeoutError:
+                                stalled = True
+                                break
                             # 用戶端多送的部分一律截斷 —— 宣告多少就寫多少，
                             # 否則上限可以被「宣告小、實際送大」繞過
                             take = chunk[: size - written]
                             await fh.write(take)
                             written += len(take)
+                    if stalled:
+                        # 只讓這次上傳失敗，連線繼續可用 —— 一次上傳中斷不該逼人重連。
+                        # 檔案已經被建出來（可能是 0 位元組），把它清掉再回報，
+                        # 免得遠端留下一個看起來成功、其實是空的檔案。
+                        with contextlib.suppress(Exception):
+                            await sftp.remove(path)
+                        await send({"type": "error", "op": "put", "path": path,
+                                    "code": "put_stalled",
+                                    "message": f"上傳中斷：{UPLOAD_STALL_TIMEOUT} 秒內沒有收到資料"
+                                               f"（已寫入 {written}/{size} 位元組，檔案已移除）"})
+                        failed_path = None
+                        continue
                     await send({"type": "ok", "op": "put", "path": path, "bytes": written})
                     await audit("sftp_upload", {"path": path, "bytes": written})
 

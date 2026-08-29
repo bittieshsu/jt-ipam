@@ -414,6 +414,39 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   turn on one rack's toggle, copy the URL and open it in a **logged-out** browser — the image
   must render. A wrong or empty token returns 401; a rack that is not shared and one that does
   not exist return an **identical** 404; regenerating the token invalidates old URLs at once.
+- [ ] **Basis of each link**: clicking any link shows its "basis" (recorded by a person /
+  reported by monitoring / learned passively / guessed from the name). With "recorded only"
+  on, just the recorded links remain; IP-to-device links survive in the subnet view, while
+  the access-layer view may empty entirely — which is correct, and means nothing was recorded.
+## 7k. Logic between related fields — **whenever a field that determines another changes**
+
+> The rule: **if it can be derived from a relation we already hold, do not ask again**.
+> The only case worth blocking is "both were given and they contradict each other", because
+> then one of them is wrong and picking for the user would be a guess. A customer hit this
+> once: selecting a rack still demanded a location — while the rack dropdown already reads
+> "location / rack".
+
+- [ ] **Device rack → location**: saving with only a rack chosen works, and the stored location
+  is the rack's. Choosing both inconsistently is blocked with an explanation. A rack with no
+  location of its own neither blocks nor invents one. **Test both entry points** (device list
+  and the edit dialog on the device page) — when the same logic exists twice, usually only one
+  copy gets fixed.
+- [ ] **Subnet → section**: adding a subnet from within a section carries the section over.
+- [ ] **IP → subnet**: adding an address from a subnet page carries the subnet over and it
+  cannot be switched to a different one.
+- [ ] **VM → cluster / physical host**: a VM's node comes from the virtualisation platform,
+  not from a human picking one.
+- [ ] **Rack U position → rack height**: position plus size must fit the rack, and half-U
+  devices (left/right) must not overlap on the same U.
+- [ ] **Scan settings → scan agent**: enabling scanning without naming an agent is blocked —
+  that is genuinely missing information, not something derivable.
+- [ ] **Certificate agent → certificate scope**: an agent can only fetch certificates in scope.
+- [ ] Before adding any "if A is set then B is required" rule, ask: **can B be looked up from
+  A?** If it can, derive it; block only when it cannot.
+- [ ] **The dependency list matches what is declared**: `pytest tests/test_dependency_page.py`
+  is green. Adding any third-party package means updating the version page's list as well as
+  `pyproject.toml` / `package.json` — that page is what an upgrade or audit checks against, and
+  a missing entry raises no error, it just quietly is not there.
 
 ## 8. Recent feature spot-checks
 

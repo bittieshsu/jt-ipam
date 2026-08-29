@@ -1059,7 +1059,15 @@
     "field_host": "Physical host",
     "field_cluster": "Cluster",
     "field_memory": "Memory (MB)",
-    "unplaced_group": "Same subnet · switch port unknown"
+    "unplaced_group": "Same subnet · switch port unknown",
+    "asserted_only": "Recorded only",
+    "asserted_only_hint": "Keep only links someone recorded in IPAM (cabling, wireless links, IP-to-device links) and drop everything inferred — so you can see at a glance how much is actually known.",
+    "field_evidence": "Basis",
+    "ev_asserted": "Recorded by a person",
+    "ev_monitored": "Reported by monitoring",
+    "ev_learned": "Learned passively (FDB/ARP)",
+    "ev_inferred": "Guessed from the name",
+    "kind_inferred": "Guessed (neither recorded nor observed)"
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",
@@ -1376,7 +1384,8 @@
     "physical": "Physical",
     "filter_subnet": "Subnet",
     "filter_subnet_all": "All subnets",
-    "vm_tag": "VM"
+    "vm_tag": "VM",
+    "error_location_mismatch": "That rack is not in the location you picked — fix one of the two"
   },
   "locations": {
     "site": "Site",

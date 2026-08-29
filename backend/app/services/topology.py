@@ -41,6 +41,36 @@ from app.models.subnet import Subnet
 #: —— 中間幾乎沒有東西，所以這個門檻不敏感，訂在 4 很安全。
 UPLINK_MAC_THRESHOLD = 4
 
+#: 每條邊的「這是誰說的」。對應證據契約（`services/evidence.py`）的層級，另加一個
+#: `inferred`：契約講的是**來源**，而「名稱剛好長得像某個 IP」不是來源、是猜測，
+#: 必須跟其他三種分得出來。把宣告的與推導的畫成同一種線，等於宣稱我們對兩者
+#: 有一樣的把握。
+EV_ASSERTED = "asserted"     # 人為登記：實體佈線、無線連線、IP↔裝置的連結
+EV_MONITORED = "monitored"   # 第三方監控說的：LibreNMS、虛擬化平台
+EV_LEARNED = "learned"       # 被動學到：FDB、ARP
+EV_INFERRED = "inferred"     # 我們自己推的（名稱比對）
+
+#: L3 邊的 via → 證據層級。一條邊可能有多個 via，取最有把握的那個。
+_VIA_EVIDENCE = {
+    "ip": EV_ASSERTED,
+    "librenms": EV_MONITORED,
+    "arp": EV_LEARNED,
+    "name": EV_INFERRED,
+    "fdb": EV_LEARNED,
+    "virtualization": EV_MONITORED,
+}
+_EV_RANK = {EV_ASSERTED: 3, EV_MONITORED: 2, EV_LEARNED: 1, EV_INFERRED: 0}
+
+
+def evidence_of(via: str) -> str:
+    """由 via（可能是逗號分隔的多個來源）決定證據層級；取最有把握的那個。"""
+    best = EV_INFERRED
+    for part in str(via or "").split(","):
+        tier = _VIA_EVIDENCE.get(part.strip())
+        if tier and _EV_RANK[tier] > _EV_RANK[best]:
+            best = tier
+    return best
+
 
 async def build_topology(
     session: AsyncSession,
@@ -175,7 +205,7 @@ async def build_topology(
                 "id": f"cable:{cable.id}",
                 "source": sid, "target": tid,
                 "label": cable.label or cable.type or "cable",
-                "kind": "cable",
+                "kind": "cable", "evidence": EV_ASSERTED,
                 "type": cable.type,
                 "color": cable.color,
                 "status": cable.status,
@@ -198,7 +228,7 @@ async def build_topology(
                     "id": f"wireless:{w.id}",
                     "source": sid, "target": tid,
                     "label": w.ssid or w.name,
-                    "kind": "wireless",
+                    "kind": "wireless", "evidence": EV_ASSERTED,
                     "ssid": w.ssid,
                     "distance_m": w.distance_m,
                 }
@@ -251,6 +281,7 @@ async def build_topology(
                     "id": f"vpn:{t.id}", "source": a_id, "target": b_id,
                     "label": f"{t.type} · {wan}" if wan else t.type,
                     "kind": "vpn", "type": t.type, "status": t.status,
+                    "evidence": EV_ASSERTED if "/" not in (t.name or "") else EV_MONITORED,
                     "a_endpoint": t.a_endpoint, "b_endpoint": t.b_endpoint,
                 }})
                 continue
@@ -273,6 +304,7 @@ async def build_topology(
             edges.append({"data": {
                 "id": f"vpn:{t.id}", "source": local, "target": site_id,
                 "label": t.type, "kind": "vpn", "type": t.type, "status": t.status,
+                "evidence": EV_ASSERTED if "/" not in (t.name or "") else EV_MONITORED,
             }})
 
     # ── L3 子網路自動拓樸：多訊號推導 device↔subnet 鄰接（精確，不亂猜） ──
@@ -422,6 +454,7 @@ async def build_topology(
                     "label": rec["ip"] or "",
                     "kind": "l3",
                     "via": ",".join(sorted(rec["via"])),
+                    "evidence": evidence_of(",".join(sorted(rec["via"]))),
                 }
             })
 
@@ -547,7 +580,7 @@ async def build_topology(
                 edges.append({"data": {
                     "id": f"l2:{peer}:{sw_id}:{port}",
                     "source": peer, "target": sw_id,
-                    "label": port, "kind": "l2", "via": "fdb",
+                    "label": port, "kind": "l2", "via": "fdb", "evidence": EV_LEARNED,
                     "port": port, "direct": direct,
                     "port_mac_count": len(macs_here),
                     "vlan": vlan_of.get((sw_id, port, mac)),
@@ -593,6 +626,7 @@ async def build_topology(
                     # port 對應 source 那端、peer_port 對應 target 那端（source/target
                     # 由 id 排序決定，兩端誰先誰後沒有意義）
                     "label": f"{pa} ↔ {pb}", "kind": "l2_uplink", "via": "fdb",
+                    "evidence": EV_LEARNED,
                     "port": pa, "peer_port": pb,
                 }})
 
@@ -651,6 +685,7 @@ async def build_topology(
                     "id": f"vmhost:{vm.id}",
                     "source": src, "target": host_id,
                     "label": "", "kind": "vm_host", "via": "virtualization",
+                    "evidence": EV_MONITORED,
                     "status": vm.status,
                 }})
 

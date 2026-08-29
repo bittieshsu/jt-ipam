@@ -92,6 +92,8 @@ let incoming: { name: string; size: number; chunks: Uint8Array[]; got: number } 
 let pending: { resolve: (v: any) => void; reject: (e: Error) => void } | null = null;
 /** 這次的 list 只是「對話框在瀏覽目錄」，不要動主畫面的清單。 */
 let browsingOnly = false;
+/** 這次上傳是否已被伺服器中止（收到 error）—— 送出迴圈看到就停手。 */
+let uploadAborted = false;
 
 function send(obj: Record<string, unknown>) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -205,6 +207,7 @@ async function connect() {
           pending?.resolve(m); pending = null;
           break;
         case "error": {
+          uploadAborted = true;          // 正在上傳的話，讓送出迴圈停下來
           errorMsg.value = m.message ?? "";
           // 連線階段失敗要退回表單，否則使用者卡在一片空白、無從重試
           if (phase.value !== "connected") phase.value = "error";
@@ -285,9 +288,23 @@ async function putOneFile(file: File) {
   await request({ type: "put", path, size: file.size });
   // put_ready 之後才開始送二進位框，一次 256 KiB
   const CHUNK = 256 * 1024;
+  // 送出緩衝的上限。沒有這個限制時，大檔會被整個塞進瀏覽器的 WebSocket 送出緩衝
+  // （伺服器來不及消化），Chrome 會直接把連線切掉 —— 實機上拖兩個檔案就重現：
+  // 遠端留下 0 位元組的檔案、畫面顯示「連線已中斷」。
+  const HIGH_WATER = 4 * 1024 * 1024;
+  // 上傳被伺服器中止時要立刻停送。否則剩下的資料框會繼續往連線裡塞，
+  // 對方已經回到「等下一個指令」的狀態，那些框就成了雜訊。
+  uploadAborted = false;
   const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
   for (let off = 0; off < file.size; off += CHUNK) {
     const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+    // 等緩衝消化到水位以下再繼續送；中途斷線就別再送了
+    while (ws.bufferedAmount > HIGH_WATER) {
+      if (ws.readyState !== WebSocket.OPEN) throw new Error(t("sftp.disconnected"));
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    if (uploadAborted) throw new Error(t("sftp.disconnected"));
+    if (ws.readyState !== WebSocket.OPEN) throw new Error(t("sftp.disconnected"));
     ws.send(buf);
   }
   await done;

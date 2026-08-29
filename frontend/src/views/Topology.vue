@@ -20,6 +20,7 @@ import {
   NDropdown,
   NSelect,
   useMessage,
+  NTooltip,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
 import { TopologyIcon, RefreshIcon, FitIcon, ExportIcon } from "@/icons";
@@ -43,6 +44,9 @@ const includeL3 = ref(true);
 const includeFdb = ref(false);
 // 虛擬機同樣預設不開：實機一次會多出上百顆節點。
 const includeVms = ref(false);
+// 只留「有人登記過」的線。圖上同時有登記的與推導的，把兩者畫成一樣等於宣稱我們對
+// 它們有一樣的把握 —— 這個開關讓人一鍵看出「拿掉所有推測之後還剩什麼」。
+const assertedOnly = ref(false);
 
 /**
  * 視圖模式 —— 同一批資料有兩種完全不同的看法，硬要合成一張圖只會兩邊都難看：
@@ -89,6 +93,7 @@ const FIELD_LABELS = computed<Record<string, string>>(() => ({
   status: t("topology.field_status"),
   description: t("topology.field_description"),
   via: t("topology.field_via"),
+  evidence: t("topology.field_evidence"),
   port: t("topology.port"),
   peer_port: t("topology.field_peer_port"),
   vlan: "VLAN",
@@ -98,6 +103,12 @@ const FIELD_LABELS = computed<Record<string, string>>(() => ({
   cluster: t("topology.field_cluster"),
   vcpus: "vCPU",
   memory_mb: t("topology.field_memory"),
+}));
+const EVIDENCE_LABELS = computed<Record<string, string>>(() => ({
+  asserted: t("topology.ev_asserted"),
+  monitored: t("topology.ev_monitored"),
+  learned: t("topology.ev_learned"),
+  inferred: t("topology.ev_inferred"),
 }));
 const VIA_LABELS = computed<Record<string, string>>(() => ({
   ip: t("topology.via_ip"),
@@ -144,6 +155,7 @@ function displayValue(key: string, val: any): string {
   }
   // 直連與否是這條線最重要的一件事，不能只印 true/false
   if (key === "direct") return val ? t("topology.direct_yes") : t("topology.direct_no");
+  if (key === "evidence") return EVIDENCE_LABELS.value[String(val)] ?? String(val);
   if (key === "status") {
     if (val === "up") return t("topology.status_up");
     if (val === "down") return t("topology.status_down");
@@ -254,8 +266,10 @@ function applyVisibility() {
       n.style("display", hiddenByType && !placed ? "none" : "element");
     });
     cy!.edges().forEach((e) => {
-      const hide = e.source().style("display") === "none" || e.target().style("display") === "none";
-      e.style("display", hide ? "none" : "element");
+      const endHidden = e.source().style("display") === "none"
+        || e.target().style("display") === "none";
+      const notAsserted = assertedOnly.value && e.data("evidence") !== "asserted";
+      e.style("display", endHidden || notAsserted ? "none" : "element");
     });
   });
 }
@@ -590,6 +604,12 @@ function render(data: TopologyData) {
           "text-background-padding": "3px",
           "text-rotation": "autorotate" as any,
         },
+      },
+      {
+        // 推導出來的線畫淡一點。不動顏色與虛實 —— 那兩個維度已經各有意義（種類、
+        // 是否直連），再疊上去只會讓人讀不出來。
+        selector: 'edge[evidence = "inferred"]',
+        style: { opacity: 0.45, "line-style": "dotted" },
       },
       {
         // VM 跑在哪台實體主機上：細線、不搶戲（它是包含關係不是網路連線）
@@ -1018,6 +1038,14 @@ onUnmounted(() => {
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeFdb">{{ t("topology.fdb") }}</n-checkbox>
         <n-checkbox v-model:checked="includeVms">{{ t("topology.vms") }}</n-checkbox>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-checkbox v-model:checked="assertedOnly" @update:checked="applyVisibility">
+              {{ t("topology.asserted_only") }}
+            </n-checkbox>
+          </template>
+          {{ t("topology.asserted_only_hint") }}
+        </n-tooltip>
         <n-checkbox v-model:checked="onlineOnly">{{ t("topology.online_only") }}</n-checkbox>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>
@@ -1085,6 +1113,7 @@ onUnmounted(() => {
       <span class="lg clickable" :class="{ off: isGroupOff('vm') }" @click="toggleGroup('vm')"><i class="dot dot-rect" style="background:#8b5cf6"></i>{{ t("topology.type_vm") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('vpn_site') }" @click="toggleGroup('vpn_site')"><svg width="14" height="14"><rect x="2" y="2" width="9" height="9" transform="rotate(45 7 7)" fill="#9333ea"/></svg>{{ t("topology.type_vpn_site") }}</span>
       <span class="lg clickable" :class="{ off: isGroupOff('subnet') }" @click="toggleGroup('subnet')"><i class="dot dot-rect" style="background:#0ea5e9"></i>{{ t("topology.type_subnet") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="1,3"/></svg>{{ t("topology.kind_inferred") }}</span>
       <span class="lg muted">{{ t("topology.toggle_hint") }}</span>
     </div>
   </n-card>

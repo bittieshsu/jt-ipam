@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.225] — 2026-08-29
+
+### Fixed
+- **Dragging several files into SFTP let the first failure kill the whole connection** (reported by a customer, following 0.5.224). The ordering was wrong: the server announced "ready to receive" **before** opening the remote file. When the open failed (the remote answered "no such file or directory" on real hardware), the client had already begun sending binary frames, while the server reported the error and returned to reading a *text* message — and read those frames instead. The protocol desynchronised and the connection died, taking the remaining files with it as "connection lost". The file is now opened first and only then is the client invited to send; the main loop quietly discards stray frames so any leftover resynchronises by itself; and the client stops sending as soon as an error arrives.
+- **Selecting a rack still demanded a location** (reported by a customer). A rack already belongs to a location — the rack dropdown even reads "Server room / R1". What can be derived should not be asked: an empty location now takes the rack's, and only a genuine contradiction between the two is blocked, because then one of them is wrong and choosing for the user would be a guess. The logic existed separately in the device list and the device page's edit dialog; it is now one shared function with unit tests — when the same logic exists twice, usually only one copy gets fixed.
+
+### Added
+- **The version page's dependency lists were completed and are now guarded by a test.** Both lists (backend Python, frontend npm) are hand-written and go stale silently — and that page is exactly what an upgrade or audit checks "what is actually installed here" against, where a missing line raises no error and simply is not there. A test now compares them against what `pyproject.toml` / `package.json` actually declare: anything missing fails, and anything listed but undeclared needs a stated reason (only `pillow` today, a transitive dependency of the optional RDP package aardwolf). The frontend list went from 11 entries to 20.
+- **A "logic between related fields" section in the test plan**, listing the places where one field determines another (rack→location, subnet→section, IP→subnet, VM→host, U position→rack height…) along with the rule: **before adding any "if A is set then B is required" check, ask whether B can be looked up from A** — derive it if it can, block only if it cannot.
+
+## [0.5.224] — 2026-08-29
+
+### Fixed
+- **An interrupted SFTP upload wedged the whole connection and dragged the service down with it** (reported by a customer). The receive loop kept waiting until the declared byte count arrived, with **no time limit at all** — so if the client stopped sending after `put_ready`, the server waited indefinitely. The reported symptoms line up exactly: a **zero-byte** file on the remote (opened, never written), "connection lost" on screen, then reconnect requests timing out and the whole interface unresponsive for a long stretch. Each frame now has a 30-second limit; on timeout **only that upload fails**, the empty file is removed, and the session stays usable — one interrupted upload should not force a reconnect.
+- **The client sent files without backpressure**, pushing an entire file into the browser's WebSocket send buffer; when the server could not keep up, Chrome simply closed the connection (dragging two files reproduced it). It now waits whenever the buffer exceeds 4 MiB and checks the socket is still open before each send.
+- **The same class of defect was swept for across the project.** Console WebSockets have two kinds of wait and only one should be bounded: **waiting for the next command while idle** (nobody typing at a terminal) is normal for hours and must not be timed out, while **waiting mid-protocol** must be. Besides the upload, that meant the first config message on all five consoles (SSH/SFTP/RDP/VNC/BMC) and the SSH host-key confirmation — all now bounded (30s for config, 180s for the key prompt). Without it, opening N connections and staying silent holds N sets of resources, and from outside it just looks like "the system is slow".
+- A guard test now catches a new console that forgets a handshake limit — and the opposite mistake of adding one to an idle loop.
+
+## [0.5.223] — 2026-08-29
+
+### Added
+- **Every line on the topology map now says where it came from.** The map carries two different things: links someone recorded (cabling, wireless links, IP-to-device links) and links we derived (FDB saw a MAC on a port, ARP saw a subnet, a device name happens to be an IP). Drawing both the same way claims we are equally sure of them, which is not true. Each edge now carries `evidence` mapped to the evidence contract's tiers — **recorded by a person / reported by monitoring / learned passively / guessed from the name** — visible when you click a link.
+- **`inferred` is deliberately not part of the evidence contract**: the contract is about *sources*, and "the name looks like an IP" is not a source but a guess, so it has to be distinguishable from the other three. Those lines are drawn dotted and faded.
+- **A "recorded only" toggle** drops every derived link so you can see how much is actually known. The result is telling: in the access-layer view of this environment, **every** link is either learned or reported by monitoring — not one was recorded by a person.
+- Evidence is not expressed through colour or dash pattern: those two dimensions already carry meaning (link type, and whether attachment is direct), and stacking a third on top would make none of them readable.
+
 ## [0.5.222] — 2026-08-29
 
 ### Added

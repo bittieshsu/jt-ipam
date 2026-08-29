@@ -34,6 +34,7 @@ from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
 from app.core.tickets import take_once
+from app.core.ws_timeouts import HANDSHAKE_TIMEOUT, WsTimeout, receive_text_within
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
@@ -245,7 +246,17 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     counted = False
     started: datetime | None = None
     try:
-        cfg = json.loads(await websocket.receive_text())
+        # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
+        try:
+            cfg = json.loads(await receive_text_within(
+                websocket, HANDSHAKE_TIMEOUT, what="連線設定"))
+        except WsTimeout as exc:
+            with contextlib.suppress(Exception):
+                await websocket.send_text(json.dumps(
+                    {"type": "error", "code": "handshake_timeout", "message": str(exc)},
+                    ensure_ascii=False))
+            await websocket.close(code=4408)
+            return
         if cfg.get("type") != "config":
             await send({"type": "error", "code": "bad_config", "message": "缺少連線設定"})
             await websocket.close()

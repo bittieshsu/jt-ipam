@@ -20,6 +20,8 @@ export interface CytoscapeEdge {
     label?: string;
     // l2 = FDB 存取層（機器 ↔ 交換器埠）、l2_uplink = 交換器之間的骨幹
     kind: "cable" | "wireless" | "vpn" | "l3" | "l2" | "l2_uplink" | "vm_host";
+    /** 這條線是誰說的：人為登記 / 第三方監控 / 被動學到 / 我們自己推的 */
+    evidence?: "asserted" | "monitored" | "learned" | "inferred";
     type?: string;
     color?: string | null;
     status?: string;

@@ -13,6 +13,7 @@ import {
   createDevice, updateDevice, type Device, listLocations, listRacks, type Location, type Rack,
 } from "@/api/basic";
 import { getRackDiagram, type RackDiagram } from "@/api/racks";
+import { resolveRackLocation } from "@/utils/rackLocation";
 import { listAddresses } from "@/api/addresses";
 import { EditIcon, PlusIcon, SaveIcon, CancelIcon, RacksIcon } from "@/icons";
 import { useCustomers } from "@/composables/useCustomers";
@@ -162,7 +163,10 @@ function pickU(u: number) {
 
 async function submit() {
   if (!form.value.name.trim()) { msg.error(t("devices.error_name_required")); return; }
-  if (form.value.rack_id && !form.value.location_id) { msg.error(t("devices.error_location_for_rack")); return; }
+  // 機櫃本身就掛在地點上 —— 能推的就別叫使用者再講一次（見 utils/rackLocation）
+  const loc = resolveRackLocation(form.value.rack_id, form.value.location_id, racks.value);
+  if (!loc.ok) { msg.error(t("devices.error_location_mismatch")); return; }
+  form.value.location_id = loc.location_id;
   try {
     const payload = {
       name: form.value.name, fqdn: form.value.fqdn || null, type: form.value.type,

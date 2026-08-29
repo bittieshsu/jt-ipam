@@ -32,6 +32,12 @@ from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
 from app.core.tickets import take_once
+from app.core.ws_timeouts import (
+    HANDSHAKE_TIMEOUT,
+    PROMPT_TIMEOUT,
+    WsTimeout,
+    receive_text_within,
+)
 from app.models.address import IPAddress
 from app.models.device import Device
 from app.models.ssh_credential import SSHCredential
@@ -253,7 +259,17 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
     try:
         # 3) 收第一個設定訊息
-        cfg = json.loads(await websocket.receive_text())
+        # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
+        try:
+            cfg = json.loads(await receive_text_within(
+                websocket, HANDSHAKE_TIMEOUT, what="連線設定"))
+        except WsTimeout as exc:
+            with contextlib.suppress(Exception):
+                await websocket.send_text(json.dumps(
+                    {"type": "error", "code": "handshake_timeout", "message": str(exc)},
+                    ensure_ascii=False))
+            await websocket.close(code=4408)
+            return
         if cfg.get("type") != "config":
             await send({"type": "error", "code": "bad_config", "message": "缺少連線設定"})
             await websocket.close()
@@ -343,7 +359,16 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 await websocket.close()
                 return
             await send({"type": "hostkey", "fingerprint": hk["fingerprint"]})
-            ans = json.loads(await websocket.receive_text())
+            # 等人回答「要不要信任這把金鑰」也要有時限：要留時間讓人讀完再決定，
+            # 但不能無限 —— 那等於把連線資源的釋放時機交給對方決定。
+            try:
+                ans = json.loads(await receive_text_within(
+                    websocket, PROMPT_TIMEOUT, what="主機金鑰確認"))
+            except WsTimeout as exc:
+                await send({"type": "error", "code": "hostkey_timeout",
+                            "message": str(exc)})
+                await websocket.close(code=4408)
+                return
             if ans.get("type") != "hostkey_accept":
                 await send({"type": "error", "code": "hostkey_rejected", "message": "已取消（未信任主機金鑰）"})
                 await websocket.close()

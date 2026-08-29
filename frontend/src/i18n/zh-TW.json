@@ -1059,7 +1059,15 @@
     "field_host": "實體主機",
     "field_cluster": "叢集",
     "field_memory": "記憶體 (MB)",
-    "unplaced_group": "同網段・查不出接在哪台交換器"
+    "unplaced_group": "同網段・查不出接在哪台交換器",
+    "asserted_only": "只看已登記",
+    "asserted_only_hint": "只留下有人在 IPAM 裡登記過的連線（實體佈線、無線連線、IP 與裝置的連結），把所有推導出來的線都拿掉 —— 一眼看出「確定的部分」有多少。",
+    "field_evidence": "依據",
+    "ev_asserted": "有人登記",
+    "ev_monitored": "第三方監控回報",
+    "ev_learned": "被動學到（FDB／ARP）",
+    "ev_inferred": "名稱推測",
+    "kind_inferred": "推測（非登記或觀測）"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",
@@ -1376,7 +1384,8 @@
     "physical": "實體",
     "filter_subnet": "子網路",
     "filter_subnet_all": "全部子網路",
-    "vm_tag": "虛擬機"
+    "vm_tag": "虛擬機",
+    "error_location_mismatch": "這台機櫃不在你選的地點，兩者請擇一修正"
   },
   "locations": {
     "site": "場域",
