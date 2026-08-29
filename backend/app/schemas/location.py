@@ -58,6 +58,8 @@ class RackBase(StrictModel):
     seq: Annotated[int | None, Field(ge=0, le=9999)] = None   # 排序編號（小的排左邊）
     numbering: RackNumbering = "top-down"
     face: RackFace = "front"
+    #: 對外公開這個機櫃的示意圖（給別的系統嵌入）。預設關 —— 機櫃圖會揭露裝置名稱與位置
+    expose_svg: bool = False
 
 
 class RackCreate(RackBase):
@@ -74,6 +76,7 @@ class RackUpdate(StrictModel):
     seq: Annotated[int | None, Field(ge=0, le=9999)] = None
     numbering: RackNumbering | None = None
     face: RackFace | None = None
+    expose_svg: bool | None = None
     pos_x: Annotated[float | None, Field(ge=0, le=1)] = None
     pos_y: Annotated[float | None, Field(ge=0, le=1)] = None
 

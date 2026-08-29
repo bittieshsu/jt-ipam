@@ -1440,7 +1440,12 @@
     "dimensions": "寬度 × 深度",
     "page_title": "機房 / 機櫃",
     "rack_side_left": "左",
-    "rack_side_right": "右"
+    "rack_side_right": "右",
+    "embed_label": "對外嵌入",
+    "embed_hint": "開啟後，這個機櫃的示意圖可用一個網址（含權杖）給別的系統以圖片嵌入，例如 LibreNMS 儀表板。圖上會顯示裝置名稱與位置，預設關閉。",
+    "embed_copy": "複製嵌入網址",
+    "embed_copied": "已複製。這串網址等同一把鑰匙，請勿貼到公開場合。",
+    "embed_disabled_hint": "嵌入功能尚未在系統設定中啟用"
   },
   "requests": {
     "title": "IP 申請",

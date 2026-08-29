@@ -20,6 +20,8 @@ export interface RackDiagram {
   location_id: string | null;
   numbering?: "top-down" | "bottom-up";
   face?: "front" | "rear";
+  /** 對外公開這個機櫃的示意圖（給別的系統用 <img> 嵌入）。預設關 */
+  expose_svg?: boolean;
   devices: RackDeviceSlot[];
   conflicts: Record<string, unknown>[];
 }
@@ -43,6 +45,8 @@ export interface Rack {
   device_count?: number;
   numbering?: "top-down" | "bottom-up";
   face?: "front" | "rear";
+  /** 對外公開這個機櫃的示意圖（給別的系統用 <img> 嵌入）。預設關 */
+  expose_svg?: boolean;
   pos_x: number | null;
   pos_y: number | null;
   pos_rot: number;
@@ -85,4 +89,31 @@ export async function setRackPositions(
     `/api/v1/locations/${locationId}/rack-positions`, { positions },
   );
   return data;
+}
+
+
+// ─────────────────── 對外嵌入設定（admin）───────────────────
+export interface RackEmbedConfig {
+  enabled: boolean;
+  token: string;
+}
+
+export async function getRackEmbedConfig(): Promise<RackEmbedConfig> {
+  const { data } = await apiClient.get<RackEmbedConfig>("/api/v1/system/rack-embed");
+  return data;
+}
+
+export async function setRackEmbedConfig(
+  enabled: boolean, regenerate_token = false,
+): Promise<RackEmbedConfig> {
+  const { data } = await apiClient.put<RackEmbedConfig>(
+    "/api/v1/system/rack-embed", { enabled, regenerate_token },
+  );
+  return data;
+}
+
+/** 給外部系統嵌入的完整網址（含 token）。注意：這串等同一把鑰匙，別貼到公開的地方。 */
+export function rackEmbedUrl(rackId: string, token: string): string {
+  const base = window.location.origin;
+  return `${base}/api/v1/racks/${rackId}/embed.svg?token=${encodeURIComponent(token)}`;
 }

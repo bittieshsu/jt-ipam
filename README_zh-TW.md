@@ -1,4 +1,4 @@
-# jt-ipam v0.5.220
+# jt-ipam v0.5.221
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -280,6 +280,22 @@ jt-ipam/
 - **Phase 2（完成）** — 多家 DNS + 深度 LibreNMS 整合（裝置/ARP/FDB/實際狀態）+ 異常偵測 + SHA-256 稽核鏈 + pgvector AI 語意搜尋
 - **Phase 3（完成）** — 租戶/聯絡人/佈線/電力/VPN/虛擬化 + Proxmox VE 同步 + Cytoscape 拓樸 + OIDC/SAML SSO + OPNsense / pfSense / FortiGate 防火牆同步 + VMware ESXi / vCenter 盤點 + Wazuh agent 盤點 + Zabbix 監控涵蓋
 - **Phase 4（完成、已縮減範圍）** — MCP server + 本地 LLM 自然語言（LLM Server）+ 外掛機制
+
+### 機櫃圖嵌入其他系統
+
+機櫃示意圖可以用一個網址對外提供 SVG，讓別的儀表板（例如 LibreNMS 的 widget）用
+`<img>` 直接顯示：
+
+```html
+<img src="https://your-ipam.example.com/api/v1/racks/<rack-id>/embed.svg?token=<token>">
+```
+
+兩道開關都要成立才會給圖：**管理 → 系統設定**啟用嵌入並產生權杖，加上**該機櫃**自己的
+「對外嵌入」開關（逐櫃、預設關）。機櫃圖會顯示裝置名稱與位置，權杖等同鑰匙，請勿貼到
+公開場合；權杖可隨時重新產生，舊網址即刻失效。
+
+用圖片而不是 iframe 是刻意的：本服務送 `frame-ancestors 'none'`，iframe 嵌入本來就會被
+擋，而放行特定來源等於自己打開點擊劫持的面。
 
 ## 授權
 

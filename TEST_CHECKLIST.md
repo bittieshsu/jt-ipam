@@ -410,6 +410,10 @@ evidence, and a machine powered off for weeks showed 52 days of green.
 - [ ] **Audit coverage**: `pytest tests/test_audit_coverage.py` is green. A new data-changing
   endpoint must either record an audit entry or be added to `EXEMPT` with a stated reason —
   never silenced just to make the test pass.
+- [ ] **Rack diagram embedding**: after enabling it and generating a token in system settings,
+  turn on one rack's toggle, copy the URL and open it in a **logged-out** browser — the image
+  must render. A wrong or empty token returns 401; a rack that is not shared and one that does
+  not exist return an **identical** 404; regenerating the token invalidates old URLs at once.
 
 ## 8. Recent feature spot-checks
 

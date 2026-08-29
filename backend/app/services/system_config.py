@@ -454,6 +454,43 @@ async def set_change_log_dim_days(
 GRAYLOG_DSV_KEY = "graylog_dsv"
 
 
+RACK_EMBED_KEY = "rack_embed"
+
+
+async def get_rack_embed(session: AsyncSession) -> dict[str, Any]:
+    """機櫃示意圖對外嵌入設定：enabled / token。
+
+    與 Graylog DSV 同一個模式（單一 token + 逐物件 expose 開關），刻意不共用同一把
+    token：撤銷嵌入網址時不該把 Graylog 的查表一起打掉。
+    """
+    row = await session.get(SystemSetting, RACK_EMBED_KEY)
+    v = dict(row.value) if (row and isinstance(row.value, dict)) else {}
+    return {"enabled": bool(v.get("enabled", False)), "token": str(v.get("token") or "")}
+
+
+async def set_rack_embed(
+    session: AsyncSession, *, enabled: bool, regenerate_token: bool = False,
+    updated_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    import secrets as _secrets
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    row = await session.get(SystemSetting, RACK_EMBED_KEY)
+    if row is None:
+        row = SystemSetting(key=RACK_EMBED_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    cur = dict(row.value or {})
+    cur["enabled"] = bool(enabled)
+    if regenerate_token or not cur.get("token"):
+        cur["token"] = _secrets.token_urlsafe(32)
+    row.value = cur
+    row.updated_by = updated_by_user_id
+    flag_modified(row, "value")
+    await session.flush()
+    return dict(cur)
+
+
 async def get_graylog_dsv(session: AsyncSession) -> dict[str, Any]:
     """Graylog DSV 查表設定：enabled / token / fmt(csv|tsv) / path(URL slug)。"""
     row = await session.get(SystemSetting, GRAYLOG_DSV_KEY)

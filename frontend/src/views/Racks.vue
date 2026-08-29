@@ -22,6 +22,7 @@ import {
   useMessage,
   type DataTableColumns,
   type DataTableRowKey,
+  NSwitch,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
 import { RacksIcon, DeleteIcon, PlusIcon, EditIcon, SaveIcon, CancelIcon, LocationsIcon, PinIcon, ExportIcon } from "@/icons";
@@ -34,7 +35,10 @@ import { apiClient, apiErrMsg } from "@/api/client";
 import RackDiagram from "@/components/RackDiagram.vue";
 import { RACK_DEVICE_TYPES, rackTypeColor } from "@/utils/rackColors";
 import RackFloorPlan from "@/components/RackFloorPlan.vue";
-import { getRackDiagram, type RackDiagram as RD } from "@/api/racks";
+import {
+  getRackDiagram, getRackEmbedConfig, rackEmbedUrl,
+  type RackDiagram as RD, type RackEmbedConfig,
+} from "@/api/racks";
 import { bulkDeleteRacks, listLocations, listDevices, updateDevice, type Location, type Device } from "@/api/basic";
 import { useAuthStore } from "@/stores/auth";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -54,6 +58,7 @@ interface Rack {
   device_count?: number;
   numbering?: "top-down" | "bottom-up";
   face?: "front" | "rear";
+  expose_svg?: boolean;
   pos_x?: number | null;
   pos_y?: number | null;
 }
@@ -239,11 +244,13 @@ const form = ref({
   seq: null as number | null,
   width_mm: null as number | null, depth_mm: null as number | null,
   numbering: "top-down" as "top-down" | "bottom-up", face: "front" as "front" | "rear",
+  expose_svg: false,
 });
 function openCreate() {
   editing.value = null;
   form.value = { name: "", u_height: 42, location_id: roomId.value, description: "",
-    seq: null, width_mm: null, depth_mm: null, numbering: "top-down", face: "front" };
+    seq: null, width_mm: null, depth_mm: null, numbering: "top-down", face: "front",
+    expose_svg: false };
   showEdit.value = true;
 }
 function openEdit(r: Rack) {
@@ -253,9 +260,27 @@ function openEdit(r: Rack) {
     seq: r.seq ?? null,
     width_mm: r.width_mm ?? null, depth_mm: r.depth_mm ?? null,
     numbering: r.numbering ?? "top-down", face: r.face ?? "front",
+    expose_svg: r.expose_svg ?? false,
   };
   showEdit.value = true;
 }
+// 對外嵌入設定（系統層開關 + token）。機櫃逐櫃開放，但整個功能沒開就一律不給。
+const embedCfg = ref<RackEmbedConfig | null>(null);
+async function loadEmbedCfg() {
+  try { embedCfg.value = await getRackEmbedConfig(); } catch { embedCfg.value = null; }
+}
+async function copyEmbedUrl() {
+  if (!editing.value || !embedCfg.value?.token) return;
+  const url = rackEmbedUrl(editing.value.id, embedCfg.value.token);
+  try {
+    await navigator.clipboard.writeText(url);
+    // 提醒使用者這串等同鑰匙 —— 貼到公開的地方等於把所有已開放的機櫃一起公開
+    msg.success(t("racks.embed_copied"));
+  } catch {
+    msg.error(t("errors.server"));
+  }
+}
+
 const numberingOpts = [
   { label: t("racks.numbering_top_down"), value: "top-down" },
   { label: t("racks.numbering_bottom_up"), value: "bottom-up" },
@@ -276,6 +301,7 @@ async function submitRack() {
     depth_mm: form.value.depth_mm ?? null,
     numbering: form.value.numbering,
     face: form.value.face,
+    expose_svg: form.value.expose_svg,
   };
   try {
     if (editing.value) await apiClient.patch(`/api/v1/racks/${editing.value.id}`, payload);
@@ -335,6 +361,8 @@ watch(selected, (v) => {
 const mergedNameAlign = ref<RackNameAlign>("left");
 
 onMounted(async () => {
+  void loadEmbedCfg();
+
   void getRackNameAlign().then((a) => { mergedNameAlign.value = a as RackNameAlign; });
   // 先 refresh() 把所有機櫃載進 rows（loadRoom 依賴它過濾該機房的機櫃，
   // 否則「機櫃示意圖」會誤判此機房尚無機櫃）。refresh 可能先預設第一個機櫃。
@@ -678,6 +706,21 @@ function onMergedExport(key: string) {
         <n-form-item :label="t('common.description')">
           <n-input v-model:value="form.description" type="textarea" :rows="2" />
         </n-form-item>
+        <n-form-item :label="t('racks.embed_label')">
+          <n-space vertical size="small" style="width: 100%">
+            <n-switch v-model:value="form.expose_svg" />
+            <!-- 機櫃圖會揭露裝置名稱與位置，開之前要讓人知道自己在開什麼 -->
+            <span class="embed-hint">{{ t("racks.embed_hint") }}</span>
+            <n-space v-if="editing && form.expose_svg" size="small" align="center">
+              <n-button size="small" :disabled="!embedCfg?.enabled" @click="copyEmbedUrl">
+                {{ t("racks.embed_copy") }}
+              </n-button>
+              <span v-if="!embedCfg?.enabled" class="embed-hint">
+                {{ t("racks.embed_disabled_hint") }}
+              </span>
+            </n-space>
+          </n-space>
+        </n-form-item>
       </n-form>
       <n-space justify="end">
         <n-button @click="showEdit = false">
@@ -716,6 +759,7 @@ function onMergedExport(key: string) {
 </template>
 
 <style scoped>
+.embed-hint { font-size: 12px; opacity: 0.65; line-height: 1.5; }
 /* 機房內機櫃並排成一橫排（依平面圖相對位置排序）；超出寬度橫向捲動，不上下堆疊 */
 .rack-row {
   display: flex;

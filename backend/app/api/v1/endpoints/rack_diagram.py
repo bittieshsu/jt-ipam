@@ -5,11 +5,11 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_object_perm
+from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
 from app.core.db import get_session
 from app.models.address import IPAddress
 from app.models.device import Device
@@ -169,3 +169,114 @@ async def rack_diagram(
         devices=slots,
         conflicts=conflicts,
     )
+
+
+# ─────────────────── 對外嵌入用的 SVG（token 保護、不需登入）───────────────────
+#
+# 給別的系統（LibreNMS dashboard 的 widget 之類）用 `<img src="…">` 直接顯示。
+# 用圖片而不是 iframe：我們送 `frame-ancestors 'none'` 與 `X-Frame-Options: DENY`，
+# iframe 本來就會被擋，要開就得針對來源放行 —— 那是點擊劫持的攻擊面，不值得。
+#
+# 守門與 Graylog DSV 同一個模式：系統層一把 token + 逐機櫃 `expose_svg`，兩個都要成立。
+# **預設全關**：機櫃圖會揭露裝置名稱與位置。
+
+@router.get("/{rack_id}/embed.svg", include_in_schema=False)
+async def rack_embed_svg(
+    rack_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    token: str = "",
+) -> Response:
+    from app.services.rack_svg import build_rack_svg
+    from app.services.system_config import get_rack_embed
+
+    cfg = await get_rack_embed(session)
+    if not cfg["enabled"] or not _embed_token_ok(token, cfg["token"]):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    rack = await session.get(Rack, rack_id)
+    if rack is None or not rack.expose_svg:
+        # 不存在與「存在但沒開放」要回一樣的東西，否則拿著 token 就能列舉機櫃
+        raise HTTPException(status_code=404, detail="Not found")
+
+    rows = (await session.execute(
+        select(Device).where(Device.rack_id == rack_id)
+    )).scalars().all()
+    svg = build_rack_svg(
+        rack.name, rack.u_height,
+        [{"name": d.name, "type": d.type, "u_position": d.u_position,
+          "u_size": d.u_size, "rack_side": d.rack_side, "rack_face": d.rack_face}
+         for d in rows],
+    )
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={
+            # SVG 可以夾帶腳本。我們自己產生的不會，但這張圖會被貼到別人的頁面上，
+            # 所以把回應鎖死：不准載入任何外部資源、不准嗅探型別。
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _embed_token_ok(supplied: str, expected: str | None) -> bool:
+    """常數時間比對。這是**未登入**端點，token 是唯一守門，比對方式本身也不能洩漏資訊。"""
+    import hmac
+
+    if not expected:
+        return False
+    return hmac.compare_digest((supplied or "").encode(), expected.encode())
+
+
+# ─────────────────── 嵌入功能的管理設定（admin）───────────────────
+
+class RackEmbedOut(StrictModel):
+    enabled: bool
+    token: str
+
+
+class RackEmbedPatch(StrictModel):
+    enabled: bool = False
+    regenerate_token: bool = False
+
+
+admin_router = APIRouter(prefix="/system", tags=["system"],
+                         dependencies=[Depends(require_admin)])
+
+
+@admin_router.get("/rack-embed", response_model=RackEmbedOut)
+async def get_rack_embed_ep(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    from app.services.system_config import get_rack_embed
+
+    return await get_rack_embed(session)
+
+
+@admin_router.put("/rack-embed", response_model=RackEmbedOut)
+async def put_rack_embed_ep(
+    payload: RackEmbedPatch, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    from app.core.audit import append_audit
+    from app.services.system_config import set_rack_embed
+
+    out = await set_rack_embed(
+        session, enabled=payload.enabled,
+        regenerate_token=payload.regenerate_token,
+        updated_by_user_id=uuid.UUID(str(user.id)),
+    )
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system_setting", object_id=None, action="update",
+        # 不記 token 本身 —— 稽核記錄不該變成金鑰的另一份副本
+        diff={"setting": "rack_embed", "enabled": out["enabled"],
+              "token_rotated": payload.regenerate_token},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return out

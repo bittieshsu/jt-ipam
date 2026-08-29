@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.221] — 2026-08-29
+
+### Added
+- **Rack diagrams can be embedded in other systems.** One URL returns an SVG, so another dashboard (a LibreNMS widget, say) can show it with a plain `<img>` — that system will not run our frontend, so the drawing moved to the backend (same geometry and palette, see `services/rack_svg.py`).
+- **SVG rather than PNG**: a PNG would need a rendering library (cairo or similar), which is a poor trade for a picture made of rectangles and text; an SVG displays in an `<img>` just as well and stays sharp when scaled.
+- **An image rather than an iframe**, deliberately: this service sends `frame-ancestors 'none'` and `X-Frame-Options: DENY`, so iframes are blocked by design, and allowing specific origins in order to embed would open a clickjacking surface.
+
+### Security design
+- **Two switches must both be on**: embedding enabled with a token at system level, plus the **per-rack** toggle (off by default everywhere). A rack diagram reveals device names and positions, so one rack being worth sharing must not expose the rest.
+- **A rack that does not exist and a rack that is not shared return exactly the same response** — otherwise the token would double as a way to enumerate racks.
+- Token comparison is constant-time; the response carries `Content-Security-Policy: default-src 'none'` and `X-Content-Type-Options: nosniff` (SVG can carry scripts, and this image gets pasted onto someone else's page); device names are user input and are always escaped.
+- The audit entry records whether embedding is enabled and whether the token was rotated, **never the token itself** — an audit log must not become a second copy of a key.
+
 ## [0.5.220] — 2026-08-29
 
 ### Added

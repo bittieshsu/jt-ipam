@@ -1440,7 +1440,12 @@
     "dimensions": "Width × Depth",
     "page_title": "Rooms / Racks",
     "rack_side_left": "L",
-    "rack_side_right": "R"
+    "rack_side_right": "R",
+    "embed_label": "External embedding",
+    "embed_hint": "When enabled, this rack's diagram is available at a URL (carrying a token) that other systems can embed as an image, such as a LibreNMS dashboard. The image shows device names and positions. Off by default.",
+    "embed_copy": "Copy embed URL",
+    "embed_copied": "Copied. This URL is a key — do not post it publicly.",
+    "embed_disabled_hint": "Embedding is not enabled in system settings"
   },
   "requests": {
     "title": "IP Requests",

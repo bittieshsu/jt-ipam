@@ -1,4 +1,4 @@
-# jt-ipam v0.5.220
+# jt-ipam v0.5.221
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -287,6 +287,24 @@ jt-ipam/
 - **Phase 2 (done)** — multi-vendor DNS + deep LibreNMS integration (device/ARP/FDB/effective-status) + anomaly detection + SHA-256 audit chain + pgvector AI semantic search
 - **Phase 3 (done)** — Tenancy/Contacts/Cabling/Power/VPN/Virtualization + Proxmox VE sync + Cytoscape topology + OIDC/SAML SSO + OPNsense / pfSense / FortiGate firewall sync + VMware ESXi / vCenter inventory + Wazuh agent inventory + Zabbix monitoring coverage
 - **Phase 4 (done, scoped)** — MCP server + local-LLM natural language (LLM Server) + plugin mechanism
+
+### Embedding a rack diagram in another system
+
+A rack diagram can be served as an SVG at a single URL, so another dashboard (a LibreNMS
+widget, for example) can show it with a plain `<img>`:
+
+```html
+<img src="https://your-ipam.example.com/api/v1/racks/<rack-id>/embed.svg?token=<token>">
+```
+
+Two switches must both be on: enable embedding and generate a token under **Admin → System
+settings**, and turn on **that rack's** own "external embedding" toggle (per rack, off by
+default). A rack diagram shows device names and positions, and the token is a key — do not
+post it publicly. Regenerating the token invalidates every existing URL immediately.
+
+Serving an image rather than an iframe is deliberate: this service sends
+`frame-ancestors 'none'`, so iframe embedding is blocked by design, and allowing specific
+origins would open a clickjacking surface.
 
 ## License
 
