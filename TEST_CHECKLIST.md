@@ -447,12 +447,41 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   is green. Adding any third-party package means updating the version page's list as well as
   `pyproject.toml` / `package.json` — that page is what an upgrade or audit checks against, and
   a missing entry raises no error, it just quietly is not there.
+
+### 7.x Consoles and file transfer (WebSocket) — walk this whole class by hand
+
+This group comes from field reports across v0.5.222-229. What they share is that **the symptom
+is always the same ("connection lost") while the cause is different every time**, so testing the
+happy path of "an upload succeeded" is not enough.
+
+- [ ] **Drag a folder in** (a folder alone, and a folder mixed with files): the folder must be
+  **skipped with an explicit message**, the files must still upload, and the connection must
+  **not** drop. Do NOT decide "is this a file?" by `size > 0` — macOS reports a folder as
+  **256 bytes**, and that check is what corrupted the stream.
+- [ ] **Drag several files at once**: every one must arrive intact — compare **byte count and md5**
+  for each. Only one arriving, or one arriving at **0 bytes**, means the upload loop was
+  interrupted partway.
+- [ ] **Send a command mid-upload**: if the client declares a size and then sends the next command
+  before finishing, the server must **end that upload, still execute the command, and keep the
+  session usable**. The command must not be swallowed.
+- [ ] **Declare a size and send nothing**: after a timeout the server must report an error and
+  clean up the partial file — it must **never wait indefinitely**. A coroutine parked there holds
+  both the WebSocket and the SSH connection, and the user sees "the whole page is unresponsive".
+- [ ] **The session survives a failed upload**: one failure must not force a reconnect.
+- [ ] **Reconnecting right after a failure works**: the ticket request must not time out. A long
+  delay means the previous session is still stuck in the event loop.
 - [ ] **An idle console must not be cut off**: open SSH / SFTP / RDP / VNC / noVNC and **leave it
   untouched for three minutes**, then use it again. A console without a heartbeat gets dropped by
   an intervening reverse proxy after **60 seconds without traffic** (a common default), and the
   user just sees an inexplicable "connection lost".
-  ⚠️ The BMC console currently has **no** heartbeat (it is a pure relay, and injected data would
-  corrupt the SOL stream) — a known gap.
+  BMC currently has **no** heartbeat (pure relay; injected data would corrupt SOL) — a known gap.
+- [ ] **Guard tests green**: `pytest tests/test_sftp_upload_stall.py tests/test_ws_wait_timeouts.py`.
+  They hold the line on three things that break uploads outright: a receive loop with no timeout,
+  `receive_bytes()` raising KeyError on a text frame, and forgetting to send `put_ready` after open.
+- [ ] Whenever the upload block changes, **actually transfer a file**. The 0.5.225 rewrite dropped
+  the `put_ready` line entirely, uploads never started, and the symptom was **identical** to the
+  bug being fixed — easy to read as "still broken" rather than "newly broken". Neither type
+  checking nor unit tests can see this.
 
 ## 8. Recent feature spot-checks
 
