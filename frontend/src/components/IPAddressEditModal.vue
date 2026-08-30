@@ -17,7 +17,10 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { apiClient } from "@/api/client";
 import type { IPAddress } from "@/types";
-import { updateAddress, deleteAddress, createAddress, type IPAddressUpdate } from "@/api/addresses";
+import {
+  updateAddress, deleteAddress, createAddress, getDeviceSuggestion, applyDeviceSuggestion,
+  type IPAddressUpdate, type DeviceSuggestion,
+} from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
   type SwitchPortInfo } from "@/api/ip_history";
 import { getHostnameSources, type HostnameSources } from "@/api/hostname";
@@ -228,6 +231,7 @@ const rootEl = ref<any>(null);
 const consoleCompact = ref(false);
 let cro: ResizeObserver | null = null;
 onMounted(() => {
+  void loadSuggestion();
   const el = (rootEl.value?.$el ?? rootEl.value) as HTMLElement | undefined;
   if (el instanceof HTMLElement) {
     cro = new ResizeObserver(() => { consoleCompact.value = el.clientWidth < 900; });
@@ -299,6 +303,40 @@ const matchingDevice = computed<Device | null>(() => {
       || (!!ip && dname === ip);           // 舊行為：裝置名稱剛好是 IP 字串
   }) ?? null;
 });
+// ── 「還沒有裝置」時的建議：由後端判斷（它看得到 MAC、連接埠、同名 IP 有幾筆）。
+//    **只是建議** —— 不按就什麼都不會發生。
+const suggestion = ref<DeviceSuggestion | null>(null);
+const applyingSuggestion = ref(false);
+const linkSiblings = ref(true);
+
+async function loadSuggestion() {
+  suggestion.value = null;
+  if (isCreate.value || !props.address?.id || form.value.device_id) return;
+  try { suggestion.value = await getDeviceSuggestion(props.address.id); } catch { /* 建議缺了不影響編輯 */ }
+}
+
+/** 按下去才會建立／關聯。建完直接反映在表單上，不用再存一次。 */
+async function applySuggestion(create: boolean) {
+  const sug = suggestion.value;
+  if (!sug || !props.address?.id) return;
+  applyingSuggestion.value = true;
+  try {
+    const updated = await applyDeviceSuggestion(props.address.id, {
+      ...(create ? { create_name: sug.suggested_name ?? "" }
+                 : { device_id: sug.existing_device_id ?? "" }),
+      link_siblings: linkSiblings.value && sug.sibling_unlinked > 0,
+    });
+    form.value.device_id = updated.device_id ?? null;
+    suggestion.value = null;
+    await loadDevices();
+    emit("saved", updated);
+  } catch (e: any) {
+    msg.error(e?.response?.data?.detail ?? String(e));
+  } finally {
+    applyingSuggestion.value = false;
+  }
+}
+
 async function linkMatchingDevice() {
   if (!matchingDevice.value) return;
   form.value.device_id = matchingDevice.value.id;
@@ -477,6 +515,7 @@ watch([swName, swPort], ([a, b]) => {
 
 // 換 IP 時清掉舊快取
 watch(() => props.address?.id, () => {
+  void loadSuggestion();
   history.value = [];
   historyLoaded.value = false;
   historyTotal.value = 0;
@@ -1065,6 +1104,24 @@ async function remove() {
                 <template #icon><n-icon><LinkIcon /></n-icon></template>
                 {{ t("addresses.link_matching_device", { name: matchingDevice.name }) }}
               </n-button>
+              <template v-if="!form.device_id && suggestion">
+                <n-button v-if="suggestion.existing_device_id" size="tiny" dashed type="primary"
+                          :loading="applyingSuggestion" @click="applySuggestion(false)">
+                  <template #icon><n-icon><LinkIcon /></n-icon></template>
+                  {{ t("addresses.suggest_link", { name: suggestion.existing_device_name }) }}
+                </n-button>
+                <n-button v-else-if="suggestion.suggested_name && suggestion.can_create"
+                          size="tiny" dashed type="primary"
+                          :loading="applyingSuggestion" @click="applySuggestion(true)">
+                  <template #icon><n-icon><PlusIcon /></n-icon></template>
+                  {{ t("addresses.suggest_create", { name: suggestion.suggested_name }) }}
+                </n-button>
+                <n-checkbox v-if="suggestion.sibling_unlinked > 0
+                              && (suggestion.existing_device_id || suggestion.can_create)"
+                            v-model:checked="linkSiblings" size="small">
+                  {{ t("addresses.suggest_siblings", { n: suggestion.sibling_unlinked }) }}
+                </n-checkbox>
+              </template>
             </n-space>
           </n-form-item>
           <n-form-item :label="t('scan_probes.excluded')">

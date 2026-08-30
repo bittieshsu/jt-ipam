@@ -207,6 +207,12 @@ UPLOAD_STALL_TIMEOUT = 30
 #: 上傳每寫到這個量就記一行進度（位元組）。
 PUT_PROGRESS_EVERY = 4 * 1024 * 1024
 
+#: 每收到這麼多位元組就回一次確認。
+#: 客戶端用它做流量控制（在路上的資料不超過一個小窗），所以**必須頻繁**——
+#: 實機遇過一條路徑：連續送出的資料在大約 48 KB 之後就整個被吞掉，
+#: 只有「送一點、等確認、再送」才過得去。
+ACK_EVERY = 16 * 1024
+
 
 @router.websocket("/{address_id}/sftp/ws")
 async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
@@ -366,6 +372,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     log.info("sftp put ready", session=session_tag, size=size,
                              open_ms=round((time.monotonic() - t_open) * 1000))
                     written = 0
+                    next_ack = 0
                     first_frame = True
                     stalled = False
                     async with fh:
@@ -414,6 +421,13 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             take = chunk[: size - written]
                             await fh.write(take)
                             written += len(take)
+                            # 收到就回報。客戶端靠**第一個**確認判斷「資料真的走得過去」
+                            # ——實機遇過瀏覽器把整個檔案交出去、伺服器一個框都沒收到
+                            # 的情況（小的文字指令通得過、第一個大資料框就消失）。
+                            # 沒有這個回報，客戶端只能一直等到連線自己死掉。
+                            if written >= next_ack or written >= size:
+                                next_ack = written + ACK_EVERY
+                                await reply({"type": "put_ack", "bytes": written})
                             # 每 4 MB 記一次：長時間上傳時，「還在動」與「卡住不動」
                             # 在日誌上本來長得一模一樣（都是一片空白）
                             if written // PUT_PROGRESS_EVERY != (written - len(take)) // PUT_PROGRESS_EVERY:

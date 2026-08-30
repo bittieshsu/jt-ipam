@@ -1187,7 +1187,10 @@
     "last_seen_arp": "最後出現 (ARP)",
     "source_arp": "僅 ARP",
     "state_deprecated": "準備退場",
-    "state_quarantine": "隔離中"
+    "state_quarantine": "隔離中",
+    "suggest_link": "關聯到既有裝置「{name}」",
+    "suggest_create": "建立裝置「{name}」並關聯",
+    "suggest_siblings": "同時關聯另外 {n} 筆同名 IP（DHCP 的同一台機器）"
   },
   "subnets": {
     "title": "子網路",
@@ -3399,7 +3402,8 @@
     "offline_code": "關閉代碼 {code}　（1000＝正常結束；1006＝連線被中途切斷，通常是中間的反向代理閒置逾時）",
     "upload_bytes": "上傳中：{name}　{sent} / {total}（{pct}%）",
     "offline_upload": "中斷時正在上傳：{name}　已送出 {sent} / {total}",
-    "drop_too_many": "有 {n} 個項目沒有收進來（一次最多 {max} 個檔案）"
+    "drop_too_many": "有 {n} 個項目沒有收進來（一次最多 {max} 個檔案）",
+    "err_no_ack": "資料送不到伺服器：第一段資料送出後 15 秒仍未被確認收到。伺服器是好的（它已回覆可以上傳），問題出在這台電腦到伺服器之間 —— 常見於 VPN／代理伺服器把較大的封包丟掉，或瀏覽器擴充功能干擾。可先試無痕視窗（停用擴充功能）或換一條網路。"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",

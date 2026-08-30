@@ -121,6 +121,10 @@ function rejectAllPending(err: Error) {
 let browsingOnly = false;
 /** 這次上傳是否已被伺服器中止（收到 error）—— 送出迴圈看到就停手。 */
 let uploadAborted = false;
+/** 收到伺服器上傳確認時要通知誰（只有正在上傳時才有值）。 */
+let onPutAck: ((bytes: number) => void) | null = null;
+/** 這條路徑目前敢讓多少資料同時在路上（位元組）。順利就加倍、卡住就減半。 */
+let pathWindow = 32 * 1024;
 
 function send(obj: Record<string, unknown>) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -228,6 +232,11 @@ async function connect() {
           settle(m, "resolve", m);
           break;
         }
+        case "put_ack":
+          // 伺服器確認「這些位元組真的收到了」。不解掉等待中的請求 ——
+          // 它是過程回報，不是完成。
+          onPutAck?.(m.bytes ?? 0);
+          break;
         case "keepalive":
           // 伺服器的保活訊息：什麼都不做。**絕對不能**拿它去解決等待中的請求 ——
           // 那會讓下一個操作以為自己完成了。
@@ -341,7 +350,23 @@ async function putOneFile(file: File, rel?: string) {
   const putId = nextReqId;          // request() 會用掉這個編號
   await request({ type: "put", path, size: file.size });
   // put_ready 之後才開始送二進位框，一次 256 KiB
-  const CHUNK = 256 * 1024;
+  // 每個資料框 16 KiB，真正受控的是**同時在路上的資料量**（下面的窗）。
+  //
+  // 由來（2026-08-30 實機量測）：某條路徑上，256 KiB 的資料框一送出就讓連線斷掉；
+  // 改成 16 KiB 的框連續送，則是到 **49152 位元組**就整個停住、30 秒後逾時。
+  // 兩者其實是同一件事 —— 一個 256 KiB 的框等於一次把 256 KiB 丟上路。
+  // 所以要控的不是框的大小，是**在路上的量**。
+  //
+  // 而那個門檻是**那條路徑的數字，不是通則**：別的站台可能高得多，也可能根本沒有
+  // 這個問題。寫死一個小值等於讓所有人陪一條壞路徑吃虧 —— 跨網路、往返 100 毫秒時，
+  // 32 KiB 的窗只有約 320 KB/s。所以這裡讓它自己探：從小開始，順利就加倍，
+  // 卡住就減半重來。好的路徑幾個往返就爬到上限，壞的路徑會自己收斂到過得去的大小。
+  const CHUNK = 16 * 1024;
+  const FIRST_CHUNK = CHUNK;
+  const FIRST_ACK_TIMEOUT = 15_000;
+  const WINDOW_MIN = 16 * 1024;
+  const WINDOW_MAX = 4 * 1024 * 1024;
+  const ACK_TIMEOUT = 20_000;
   // 送出緩衝的上限。沒有這個限制時，大檔會被整個塞進瀏覽器的 WebSocket 送出緩衝
   // （伺服器來不及消化），Chrome 會直接把連線切掉 —— 實機上拖兩個檔案就重現：
   // 遠端留下 0 位元組的檔案、畫面顯示「連線已中斷」。
@@ -358,9 +383,38 @@ async function putOneFile(file: File, rel?: string) {
   // 少了這個 try，例外會直接跳出這個函式，`put_abort` 不會送出，伺服器就一直等
   // 那些永遠不會來的位元組 —— 使用者看到的是「上傳沒反應、然後整條連線斷掉」。
   let readError: unknown = null;
+  let ackedAny = false;
+  let firstAckResolve: (() => void) | null = null;
+  const firstAck = new Promise<void>((r) => { firstAckResolve = r; });
+  let acked = 0;
+  let ackWaiter: (() => void) | null = null;
+  // 這條連線目前敢讓多少資料在路上。整條連線共用（同一批檔案不必重新探一次）。
+  let win = pathWindow;
+  onPutAck = (bytes) => {
+    if (bytes > 0 && !ackedAny) { ackedAny = true; firstAckResolve?.(); }
+    if (bytes > acked) {
+      acked = bytes;
+      // 一路順利就把窗放大 —— 好的路徑幾個往返就爬到上限
+      if (win < WINDOW_MAX) { win = Math.min(win * 2, WINDOW_MAX); pathWindow = win; }
+      uploadBytes.value = { sent: acked, total: file.size, name: file.name };
+      ackWaiter?.();
+    }
+  };
+  /** 等到在路上的資料降到窗以下。回 false 代表等太久（對方沒再收到東西）。 */
+  const waitForWindow = (sentSoFar: number) => new Promise<boolean>((resolve) => {
+    if (sentSoFar - acked < win) { resolve(true); return; }
+    const timer = setTimeout(() => { ackWaiter = null; resolve(false); }, ACK_TIMEOUT);
+    ackWaiter = () => {
+      if (sentSoFar - acked < win) {
+        clearTimeout(timer); ackWaiter = null; resolve(true);
+      }
+    };
+  });
   try {
-    for (let off = 0; off < file.size; off += CHUNK) {
-      const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+    let off = 0;
+    while (off < file.size) {
+      const step = off === 0 ? Math.min(FIRST_CHUNK, file.size) : CHUNK;
+      const buf = await file.slice(off, off + step).arrayBuffer();
       // 等緩衝消化到水位以下再繼續送；中途斷線就別再送了
       while (ws.bufferedAmount > HIGH_WATER) {
         if (ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
@@ -368,7 +422,23 @@ async function putOneFile(file: File, rel?: string) {
       }
       if (!sentAll || uploadAborted || ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
       ws.send(buf);
-      uploadBytes.value = { sent: off + buf.byteLength, total: file.size, name: file.name };
+      off += buf.byteLength;
+      if (off < file.size && !(await waitForWindow(off))) {
+        // 這個窗這條路徑吃不下 —— 減半記在連線上，讓上層重試一次
+        pathWindow = Math.max(WINDOW_MIN, Math.floor(win / 2));
+        sentAll = false;
+        readError = new Error(pathWindow < win ? "retry" : "no_ack");
+        break;
+      }
+      if (off === buf.byteLength && off < file.size) {
+        // 第一塊送出去了 —— 等伺服器說「收到了」再繼續。等不到就不必再送剩下的：
+        // 資料根本沒離開這台電腦或沒穿過中間的網路，繼續送只是把連線拖到自己死掉。
+        const ok = await Promise.race([
+          firstAck.then(() => true),
+          new Promise<boolean>((r) => setTimeout(() => r(false), FIRST_ACK_TIMEOUT)),
+        ]);
+        if (!ok) { sentAll = false; readError = new Error("no_ack"); break; }
+      }
     }
   } catch (e) {
     sentAll = false;
@@ -381,10 +451,19 @@ async function putOneFile(file: File, rel?: string) {
     send({ type: "put_abort", path });
     // 讀不到檔案要說是讀不到，不要含糊地說「連線已中斷」—— 那會讓人去查網路，
     // 而真正的原因在自己這台機器上。
+    if (readError instanceof Error && readError.message === "retry") {
+      const e = new Error("retry") as Error & { retry?: boolean };
+      e.retry = true;
+      throw e;
+    }
+    if (readError instanceof Error && readError.message === "no_ack") {
+      throw new Error(t("sftp.err_no_ack"));
+    }
     if (readError !== null) throw new Error(t("sftp.unreadable_item"));
     throw new Error(t("sftp.disconnected"));
   }
   await done;
+  onPutAck = null;
   uploadBytes.value = null;
 }
 
@@ -408,8 +487,17 @@ async function uploadFiles(picked: PickedFile[]) {
       const file = item.file;
       uploadProgress.value = { done: i, total: picked.length, name: item.path };
       // 一個檔案失敗不該讓其餘的都不傳；最後一次講清楚是哪幾個
-      try { await putOneFile(file, item.path); } catch (e: any) {
-        failed.push(`${item.path}（${e?.message ?? String(e)}）`);
+      // 窗被調小時同一個檔案要再試一次 —— 那不是失敗，是還沒找到這條路徑的容量
+      let attempt = 0;
+      for (;;) {
+        try { await putOneFile(file, item.path); break; } catch (e: any) {
+          if (e?.retry && attempt < 4 && ws && ws.readyState === WebSocket.OPEN) {
+            attempt += 1;
+            continue;
+          }
+          failed.push(`${item.path}（${e?.message ?? String(e)}）`);
+          break;
+        }
       }
     }
     const ok = picked.length - failed.length;

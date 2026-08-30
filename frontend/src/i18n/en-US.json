@@ -1187,7 +1187,10 @@
     "last_seen_arp": "Last seen (ARP)",
     "source_arp": "ARP only",
     "state_deprecated": "Deprecated",
-    "state_quarantine": "Quarantined"
+    "state_quarantine": "Quarantined",
+    "suggest_link": "Link to the existing device “{name}”",
+    "suggest_create": "Create device “{name}” and link it",
+    "suggest_siblings": "Also link the other {n} IPs with the same hostname (one machine on DHCP)"
   },
   "subnets": {
     "title": "Subnets",
@@ -3399,7 +3402,8 @@
     "offline_code": "Close code {code} (1000 = closed normally; 1006 = the connection was cut mid-way, usually an idle timeout in an intervening reverse proxy)",
     "upload_bytes": "Uploading {name} — {sent} / {total} ({pct}%)",
     "offline_upload": "An upload was in flight when the connection dropped: {name} — {sent} of {total} sent",
-    "drop_too_many": "{n} items were left out (at most {max} files per drop)"
+    "drop_too_many": "{n} items were left out (at most {max} files per drop)",
+    "err_no_ack": "The data is not reaching the server: 15 seconds after the first block was sent, none of it had been acknowledged. The server is fine (it already replied that it is ready to receive) — something between this computer and the server is dropping the data, commonly a VPN or proxy discarding larger packets, or a browser extension interfering. Try an incognito window (extensions off) or a different network."
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",

@@ -364,6 +364,218 @@ async def get_address_firewall(
     return await rules_touching_ip(session, str(obj.ip))
 
 
+class DeviceSuggestion(StrictModel):
+    """「這個 IP 應該屬於哪一台裝置」的建議。**只是建議，不會自己動手。**"""
+
+    suggested_name: str | None = None
+    existing_device_id: uuid.UUID | None = None
+    existing_device_name: str | None = None
+    #: 為什麼認為是這一台：name / fqdn / ip / mac
+    match_reason: str | None = None
+    #: 還有幾筆 IP 用同一個主機名稱、而且還沒關聯裝置（DHCP 筆電最常見）
+    sibling_unlinked: int = 0
+    #: 這個使用者能不能建立裝置（建立裝置是管理員限定）
+    can_create: bool = False
+
+
+class DeviceSuggestionApply(StrictModel):
+    """套用建議。二擇一：關聯到既有裝置，或建立一台新的。"""
+
+    device_id: uuid.UUID | None = None
+    create_name: str | None = Field(default=None, max_length=200)
+    #: 同時把其他同主機名稱、尚未關聯的 IP 一起掛上（DHCP 一台機器散在多個 IP）
+    link_siblings: bool = False
+
+
+def _first_label(hostname: str | None) -> str | None:
+    """`laptop-07.local` → `laptop-07`。裝置名稱慣例用第一段。"""
+    h = (hostname or "").strip()
+    return h.split(".")[0] or None if h else None
+
+
+async def _sibling_ip_ids(
+    session: AsyncSession, *, user: User, hostname: str, exclude: uuid.UUID,
+) -> list[uuid.UUID]:
+    """同主機名稱、尚未關聯裝置、且**這個使用者看得到**的其他 IP。
+
+    可見性一定要推進 SQL：先取再過濾會讓「有幾筆」這個數字算在使用者看不到的資料上。
+    """
+    q = (
+        select(IPAddress.id)
+        .join(Subnet, IPAddress.subnet_id == Subnet.id)
+        .where(
+            func.lower(IPAddress.hostname) == hostname.strip().lower(),
+            IPAddress.device_id.is_(None),
+            IPAddress.id != exclude,
+            Subnet.archived_at.is_(None),
+        )
+    )
+    vis = await visible_ids(session, user=user, object_type="subnet", required="write")
+    if vis is not None:
+        if not vis:
+            return []
+        q = q.where(IPAddress.subnet_id.in_(vis))
+    return list((await session.execute(q)).scalars().all())
+
+
+@router.get("/{address_id}/device-suggestion", response_model=DeviceSuggestion)
+async def device_suggestion(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DeviceSuggestion:
+    """這個 IP 看起來屬於哪一台裝置 —— 或者該建立哪一台。
+
+    **只回建議，不會建立也不會關聯任何東西。** DHCP 的筆電會散在十幾個 IP 上，
+    每一筆都手動建裝置、手動關聯是純粹的苦工；但要不要建立仍然是人決定。
+    """
+    from app.models.device import Device
+    from app.models.physical import DevicePort
+
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "read")
+
+    out = DeviceSuggestion(can_create=bool(user.is_admin))
+    if obj.device_id is not None:
+        return out                      # 已經有裝置就沒什麼好建議的
+
+    hostname = (obj.hostname or "").strip()
+    ip_host = str(obj.ip).split("/")[0]
+    out.suggested_name = _first_label(hostname)
+
+    # ── 先找既有裝置：名稱 / FQDN / 主要 IP / 連接埠 MAC
+    dev: tuple[uuid.UUID, str] | None = None
+    reason: str | None = None
+    if hostname:
+        row = (await session.execute(
+            select(Device.id, Device.name).where(
+                or_(func.lower(Device.name) == hostname.lower(),
+                    func.lower(Device.name) == (out.suggested_name or "").lower(),
+                    func.lower(Device.fqdn) == hostname.lower())
+            ).limit(2)
+        )).all()
+        # 對到多台就不猜 —— 這與 ip_device_link 的規則一致
+        if len(row) == 1:
+            dev, reason = (row[0][0], row[0][1]), "name"
+    if dev is None and obj.mac:
+        row = (await session.execute(
+            select(DevicePort.device_id, Device.name)
+            .join(Device, Device.id == DevicePort.device_id)
+            .where(func.lower(DevicePort.mac_address) == str(obj.mac).lower())
+            .limit(2)
+        )).all()
+        if len(row) == 1:
+            dev, reason = (row[0][0], row[0][1]), "mac"
+    if dev is None:
+        # 精確比對位址本身。用字串前綴比對會把 10.0.0.1 命中成 10.0.0.10／10.0.0.100 ——
+        # 掛錯的裝置關聯比沒有關聯更難發現。
+        row = (await session.execute(
+            select(Device.id, Device.name)
+            .join(IPAddress, IPAddress.id == Device.primary_ip_id)
+            .where(func.host(IPAddress.ip) == ip_host).limit(2)
+        )).all()
+        if len(row) == 1:
+            dev, reason = (row[0][0], row[0][1]), "ip"
+
+    if dev is not None:
+        out.existing_device_id, out.existing_device_name = dev
+        out.match_reason = reason
+    if hostname:
+        out.sibling_unlinked = len(
+            await _sibling_ip_ids(session, user=user, hostname=hostname, exclude=obj.id)
+        )
+    return out
+
+
+@router.post("/{address_id}/device-suggestion/apply", response_model=IPAddressRead)
+async def apply_device_suggestion(
+    address_id: uuid.UUID,
+    payload: DeviceSuggestionApply,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> IPAddressRead:
+    """把建議套用下去：關聯到既有裝置，或建立一台再關聯。"""
+    from app.models.device import Device
+
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "write")
+
+    if bool(payload.device_id) == bool(payload.create_name):
+        raise HTTPException(status_code=400,
+                            detail="請二擇一：關聯到既有裝置，或建立一台新的")
+
+    if payload.create_name:
+        # 建立裝置是管理員限定（與 POST /devices 同一條線）
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="只有管理員能建立裝置")
+        name = payload.create_name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="裝置名稱不可為空")
+        hostname = (obj.hostname or "").strip()
+        device = Device(name=name, type="other",
+                        fqdn=hostname if "." in hostname else None)
+        session.add(device)
+        await session.flush()
+        await append_audit(
+            session,
+            actor_user_id=str(user.id),
+            actor_ip=request.client.host if request.client else None,
+            actor_user_agent=request.headers.get("user-agent"),
+            object_type="device", object_id=str(device.id), action="create",
+            diff={"name": name, "from_ip": str(obj.ip)},
+            request_id=getattr(request.state, "request_id", None),
+        )
+    else:
+        device = await session.get(Device, payload.device_id)
+        if device is None:
+            raise HTTPException(status_code=404, detail="Device not found")
+
+    linked = 0
+    if obj.device_id is None:
+        await log_change(
+            session, ip=obj, event_type="edited", field="device_id",
+            old=None, new=str(device.id), source="user", actor_user_id=user.id,
+            note="applied device suggestion",
+        )
+        obj.device_id = device.id
+        linked += 1
+
+    if payload.link_siblings and (obj.hostname or "").strip():
+        for sid in await _sibling_ip_ids(
+            session, user=user, hostname=obj.hostname or "", exclude=obj.id,
+        ):
+            sib = await session.get(IPAddress, sid)
+            if sib is None or sib.device_id is not None:
+                continue
+            await log_change(
+                session, ip=sib, event_type="edited", field="device_id",
+                old=None, new=str(device.id), source="user", actor_user_id=user.id,
+                note="applied device suggestion (same hostname)",
+            )
+            sib.device_id = device.id
+            linked += 1
+
+    await append_audit(
+        session,
+        actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip_address", object_id=str(obj.id), action="update",
+        diff={"device_id": str(device.id), "linked_ips": linked},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    await session.refresh(obj)
+    out = IPAddressRead.model_validate(obj)
+    out.mac_vendor = await vendor_for_mac(session, obj.mac)
+    return out
+
+
 @router.get("/{address_id}", response_model=IPAddressRead)
 async def get_address(
     address_id: uuid.UUID,

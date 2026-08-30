@@ -104,3 +104,28 @@ export async function notifyStaleAddresses(subnetId: string, ids: string[], days
     { subnet_id: subnetId, ids, days });
   return data;
 }
+
+export interface DeviceSuggestion {
+  suggested_name: string | null;
+  existing_device_id: string | null;
+  existing_device_name: string | null;
+  match_reason: string | null;
+  sibling_unlinked: number;
+  can_create: boolean;
+}
+
+/** 這個 IP 看起來屬於哪一台裝置 —— 或該建立哪一台。**只查詢，不會動到任何資料。** */
+export async function getDeviceSuggestion(id: string): Promise<DeviceSuggestion> {
+  const { data } = await apiClient.get(`/api/v1/addresses/${id}/device-suggestion`);
+  return data;
+}
+
+/** 套用建議：關聯到既有裝置，或建立一台再關聯（可一併接上同名的其他 IP）。 */
+export async function applyDeviceSuggestion(
+  id: string,
+  body: { device_id?: string; create_name?: string; link_siblings?: boolean },
+): Promise<IPAddress> {
+  const { data } = await apiClient.post(
+    `/api/v1/addresses/${id}/device-suggestion/apply`, body);
+  return data;
+}

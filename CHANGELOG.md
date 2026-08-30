@@ -4,6 +4,98 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.238] — 2026-08-30
+
+### Added
+- **Editing an IP now suggests creating or linking a device.** A laptop on DHCP shows up under a
+  dozen IPs with the same hostname, and creating and linking a device by hand for each one is pure
+  drudgery. The device field now offers "Create device X and link it" (or "Link to the existing
+  device X"), with a checkbox to **also link the other IPs that share the hostname and have no
+  device yet**. It is **only a suggestion — nothing happens until it is clicked** (a test guards
+  exactly that: looking at the suggestion must have no side effects). It follows the existing
+  refuse-to-guess rules: no suggestion when several devices match the name, an existing link is
+  never overwritten, the batch only touches empty ones, every change is written to the IP history
+  and the audit log, and creating a device stays admin-only. The "how many sibling IPs" count is
+  scoped in SQL — filtering after the fetch would count rows the user cannot see.
+
+### Fixed
+- Matching an existing device by address used a string **prefix**, so `10.0.0.1` matched
+  `10.0.0.10` and `10.0.0.100`. It is an exact match now — a wrong device link is harder to notice
+  than no link at all.
+
+### Note: the SFTP upload stall
+The upload failures chased over several days came down to **a faulty wired network adapter on the
+client machine** (switching to Wi-Fi worked): its TCP had accepted 85442 bytes to send, put only
+66820 on the wire, and then neither sent nor retransmitted the rest before resetting the connection
+some twenty seconds later. The server acknowledged everything it received with a steadily growing
+window, and another machine on the same LAN pushed 5 MB to it in 0.1 s.
+
+The changes from 0.5.229 to 0.5.237 were therefore **not** the fix for that, but they stay, because
+each stands on its own: console keepalive, a pong timeout that no longer cuts off slow links, upload
+flow control that discovers what a path can carry, and above all the **step-by-step diagnostics** —
+they are what turned "connection lost" into "nothing arrived after byte 49152", which is what made
+the network adapter findable at all.
+
+## [0.5.237] — 2026-08-30
+
+### Fixed
+- **A rack can be chosen without picking a location first** (both the device list and the device
+  detail editor). A rack already belongs to a location — that is a lookup, not a question for the
+  user — and choosing a rack now **fills the location in**. A guard test watches both entry points,
+  since editing the same object from two places is where a fix usually gets applied to only one.
+
+### Added
+- **The in-flight upload window discovers what the path can carry**: it starts at 32 KiB, doubles
+  while acknowledgements keep arriving (up to 4 MiB), and halves and retries the file when it
+  stalls. Hard-coding a small value would make everyone pay for one bad path — over a link with
+  100 ms of round trip, a 32 KiB window is only about 320 KB/s. A healthy path reaches the ceiling
+  within a few round trips.
+- Upload frames are a fixed 16 KiB. A 256 KiB frame was measured taking the connection down the
+  moment it was sent; what actually needs controlling is **how much is in flight** (a 256 KiB frame
+  puts 256 KiB on the wire at once), and frame size itself does not affect throughput.
+
+# Changelog
+
+All notable changes to this project are documented here. The format is loosely
+based on [Keep a Changelog](https://keepachangelog.com/); versions track
+`frontend/package.json` / `backend/app/version.py`.
+
+## [0.5.236] — 2026-08-30
+
+### Added
+- **Uploads are paced against acknowledgement**: the server confirms each block it takes and the
+  client keeps only a small amount in flight. A path was measured where continuously streamed data
+  was swallowed after roughly 48 KB; only this pattern gets through it.
+
+## [0.5.235] — 2026-08-30
+
+### Fixed
+- **Upload frames are now 16 KiB — large frames were killing the connection.** Measured in the
+  field: on one and the same connection a 16 KiB data frame reached the server in **7 ms**, and the
+  256 KiB frame sent immediately after **took the connection down** (the server had received
+  exactly those 16384 bytes; close code 1006), while text commands worked throughout. This is the
+  direct cause behind every earlier "the upload does nothing and then the connection drops" — it
+  stopped at the first large frame every time.
+- Smaller frames do not slow the transfer: data is streamed rather than acknowledged per frame, so
+  throughput is set by the link and by how fast the remote writes, not by frame size.
+
+## [0.5.234] — 2026-08-30
+
+### Added
+- **Uploads now start small and grow only after the server confirms receipt.** The server reports
+  how many bytes it has taken; the client sends **16 KiB** first and only widens to 256 KiB once
+  that is acknowledged. A path was seen in the field where text commands (small packets) worked
+  throughout while the first 256 KiB data frame **never reached the server at all**, and the
+  connection died on its own twenty-odd seconds later. If small blocks get through, the whole
+  upload gets through; if they do not, the user is told within 15 seconds instead of waiting.
+- **The "not getting through" message points somewhere.** The server having replied "ready to
+  receive" means the server is fine, so the trouble is between this computer and it — commonly a
+  VPN or proxy discarding larger packets, or a browser extension interfering; try an incognito
+  window or a different network. A bare "connection lost" sends people the wrong way.
+- On-screen upload progress now counts **bytes the server confirmed**, not bytes handed to the
+  local socket. The two agree when things work and diverge when they do not — which is exactly
+  when it matters.
+
 ## [0.5.233] — 2026-08-30
 
 ### Fixed

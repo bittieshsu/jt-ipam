@@ -109,7 +109,13 @@ function onLocationChange() {
   const ok = racks.value.find((r) => r.id === form.value.rack_id)?.location_id === form.value.location_id;
   if (!ok) { form.value.rack_id = null; uPickerDiagram.value = null; }
 }
-function onRackChange() { uPickerDiagram.value = null; }
+function onRackChange(rackId: string | null) {
+  uPickerDiagram.value = null;
+  // 選了機櫃就把地點帶出來 —— 機櫃本來就屬於某個地點，不該再要求使用者選一次。
+  // 反過來要求「先選地點」只是把一個查得到的答案丟回去問人。
+  const rack = racks.value.find((r) => r.id === rackId);
+  if (rack?.location_id) form.value.location_id = rack.location_id;
+}
 
 // ── 機櫃 U 位挑選器（半 U 感知）──
 const showUPicker = ref(false);
@@ -220,8 +226,8 @@ async function submit() {
         </n-form-item>
         <n-form-item :label="t('devices.rack')">
           <n-select v-model:value="form.rack_id" :options="filteredRackOpts" filterable clearable
-                    :placeholder="form.location_id ? t('devices.rack_placeholder') : t('devices.rack_pick_location_first')"
-                    :disabled="!form.location_id" style="width: 100%" @update:value="onRackChange" />
+                    :placeholder="t('devices.rack_placeholder')"
+                    style="width: 100%" @update:value="onRackChange" />
         </n-form-item>
       </div>
       <div class="dev-row">
