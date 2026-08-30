@@ -447,6 +447,12 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   is green. Adding any third-party package means updating the version page's list as well as
   `pyproject.toml` / `package.json` — that page is what an upgrade or audit checks against, and
   a missing entry raises no error, it just quietly is not there.
+- [ ] **An idle console must not be cut off**: open SSH / SFTP / RDP / VNC / noVNC and **leave it
+  untouched for three minutes**, then use it again. A console without a heartbeat gets dropped by
+  an intervening reverse proxy after **60 seconds without traffic** (a common default), and the
+  user just sees an inexplicable "connection lost".
+  ⚠️ The BMC console currently has **no** heartbeat (it is a pure relay, and injected data would
+  corrupt the SOL stream) — a known gap.
 
 ## 8. Recent feature spot-checks
 

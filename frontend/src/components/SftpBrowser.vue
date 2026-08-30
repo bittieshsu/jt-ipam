@@ -201,6 +201,10 @@ async function connect() {
           pending?.resolve(m); pending = null;
           break;
         }
+        case "keepalive":
+          // 伺服器的保活訊息：什麼都不做。**絕對不能**拿它去解決等待中的請求 ——
+          // 那會讓下一個操作以為自己完成了。
+          break;
         case "put_ready":
           pending?.resolve(m); pending = null;
           break;

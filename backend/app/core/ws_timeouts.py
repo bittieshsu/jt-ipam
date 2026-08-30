@@ -41,3 +41,29 @@ async def receive_text_within(websocket: Any, timeout: float, *, what: str) -> s
         return await asyncio.wait_for(websocket.receive_text(), timeout=timeout)
     except TimeoutError as exc:
         raise WsTimeout(f"等待{what}超過 {int(timeout)} 秒，連線已關閉") from exc
+
+
+#: 主控台連線的保活間隔（秒）。要明顯小於常見反向代理的閒置逾時（多半 60 秒）。
+KEEPALIVE_INTERVAL = 20
+
+
+async def keepalive_loop(websocket: Any, *, interval: float = KEEPALIVE_INTERVAL) -> None:
+    """定期送一則極小的訊息，讓連線不會被中間的代理當成閒置而切斷。
+
+    **為什麼不靠 WebSocket 的 ping/pong**：那是控制框，會被某些反向代理吞掉或不轉發；
+    而且我們無法要求每個部署現場的代理都照我們的方式設定（Mode C 明確支援使用者
+    自己的反向代理）。應用層的資料框則一定會被轉發 —— 代理要轉發資料才叫代理。
+
+    實機案例：主控台開著沒有操作時，連線固定在 **60 秒**被切斷（常見代理的預設閒置
+    逾時），使用者看到的是莫名其妙的「連線已中斷」。
+
+    客戶端必須忽略 `type == "keepalive"` 的訊息（不可以拿它去解決等待中的請求）。
+    """
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            await websocket.send_text('{"type":"keepalive"}')
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return          # 連線已關閉：保活本身不該製造錯誤

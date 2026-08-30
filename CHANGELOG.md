@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.229] — 2026-08-30
+
+### Fixed
+- **An idle SFTP console was being disconnected — this is the main cause behind "connection lost".** The log makes it plain: the session was established, went **60 seconds with no traffic at all**, and was cut, without a single upload in between. Sixty seconds is the most common idle timeout default in reverse proxies. Our own nginx sets 3600s, but **a user may have their own reverse proxy in front** (Mode C explicitly supports that deployment), and that one is not ours to configure.
+- **The cause was that SFTP lacked a heartbeat while every other console has one**: SSH, RDP and VNC exchange ping/pong and noVNC sends its own keepalive packet — only SFTP had none. The server now sends a tiny keepalive every 20 seconds. Server-side is more reliable than client-side (a backgrounded browser tab gets throttled), and it uses **application data rather than a WebSocket ping frame**: control frames get swallowed by some proxies, while data frames are always forwarded — forwarding data is what makes something a proxy.
+- ⚠️ The BMC console still has **no** heartbeat (it is a pure relay and injected data would corrupt the SOL stream); it is recorded as a known gap in the test checklist.
+
+### Verified
+After connecting and sitting **idle for 90 seconds** (past the common 60-second timeout): four keepalives received, and the directory still lists normally afterwards.
+
 ## [0.5.228] — 2026-08-30
 
 ### Fixed

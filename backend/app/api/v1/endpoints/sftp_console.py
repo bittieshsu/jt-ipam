@@ -40,7 +40,12 @@ from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
 from app.core.tickets import take_once
-from app.core.ws_timeouts import HANDSHAKE_TIMEOUT, WsTimeout, receive_text_within
+from app.core.ws_timeouts import (
+    HANDSHAKE_TIMEOUT,
+    WsTimeout,
+    keepalive_loop,
+    receive_text_within,
+)
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
@@ -217,6 +222,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         return
 
     await websocket.accept()
+    # 讓連線不要閒置：中間的反向代理多半在 60 秒無流量時就切斷（見 core/ws_timeouts）
+    ka = asyncio.create_task(keepalive_loop(websocket))
     actor_ip = websocket.client.host if websocket.client else None
     aid = str(address_id)
 
@@ -460,6 +467,9 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         except Exception:
             pass
     finally:
+        ka.cancel()
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await ka
         if sftp is not None:
             sftp.exit()
         if conn is not None:
