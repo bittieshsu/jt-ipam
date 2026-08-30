@@ -32,6 +32,7 @@ import uuid
 from typing import Annotated, Any
 
 import asyncssh
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +65,8 @@ from app.services.sftp import (
     walk_for_delete,
 )
 from app.services.ssh_tunnel import LEGACY_SSH_ALGS
+
+log = structlog.get_logger("sftp")
 
 router = APIRouter(prefix="/addresses", tags=["sftp"])
 
@@ -224,6 +227,10 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
     await websocket.accept()
     # 讓連線不要閒置：中間的反向代理多半在 60 秒無流量時就切斷（見 core/ws_timeouts）
     ka = asyncio.create_task(keepalive_loop(websocket))
+    # 這條連線的識別碼，只給日誌用（票證本身不可以進日誌）
+    session_tag = secrets.token_hex(4)
+    end_reason = "client_closed"
+    log.info("sftp session start", session=session_tag)
     actor_ip = websocket.client.host if websocket.client else None
     aid = str(address_id)
 
@@ -284,6 +291,11 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 await send({"type": "error", "message": "訊息格式錯誤"})
                 continue
             op = req.get("type")
+            # 每個指令都留一行。之前查「上傳到底卡在哪」查了三輪都只能用猜的，
+            # 因為日誌只看得到「連線建立」與「連線結束」中間一片空白 ——
+            # 一條連線內部發生什麼事，是這個功能最需要、卻唯一沒有的資訊。
+            # **不記路徑**（那是使用者的檔名），只記動作、大小與結果。
+            log.info("sftp op", op=op, size=req.get("size"), session=session_tag)
             # 失敗訊息要講得出「是哪條路徑」—— 打錯路徑時那是唯一有用的資訊
             failed_path: str | None = None
             try:
@@ -368,6 +380,9 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             take = chunk[: size - written]
                             await fh.write(take)
                             written += len(take)
+                    log.info("sftp put done", session=session_tag,
+                             written=written, size=size, stalled=stalled,
+                             carry_over=carry_over is not None)
                     if stalled:
                         # 只讓這次上傳失敗，連線繼續可用 —— 一次上傳中斷不該逼人重連。
                         # 檔案已經被建出來（可能是 0 位元組），把它清掉再回報，
@@ -444,16 +459,23 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 else:
                     await send({"type": "error", "message": f"不支援的操作：{op}"})
             except SftpError as exc:
+                log.info("sftp op failed", session=session_tag, op=op,
+                         err=f"{type(exc).__name__}: {exc}")
                 await send({"type": "error", "message": str(exc)})
             except (asyncssh.SFTPError, OSError) as exc:
+                # 回給使用者的是人話，但日誌要留原始型別與訊息 —— 「遠端拒絕」有十幾種
+                # 原因，少了這一行就只能猜（實際查一個上傳失敗查了三輪）
+                log.info("sftp op failed", session=session_tag, op=op,
+                         err=f"{type(exc).__name__}: {exc}")
                 # 遠端拒絕（權限不足、檔案不存在…）是正常情況，要把原因說成人話：
                 # 原本直接回 "SFTPNoSuchFile: No such file"，看不出是哪條路徑
                 await send({"type": "error",
                             "message": friendly_error(exc, path=failed_path)})
 
     except WebSocketDisconnect:
-        pass
+        end_reason = "ws_disconnect"
     except SftpError as exc:
+        end_reason = f"sftp_error: {exc}"
         with_suppress = getattr(websocket, "client_state", None)
         if with_suppress is not None:
             try:
@@ -461,12 +483,14 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             except Exception:
                 pass
     except (asyncssh.Error, OSError) as exc:
+        end_reason = f"{type(exc).__name__}: {exc}"
         try:
             await send({"type": "error",
                         "message": friendly_connect_error(exc, host=host, port=port)})
         except Exception:
             pass
     finally:
+        log.info("sftp session end", session=session_tag, reason=end_reason)
         ka.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await ka

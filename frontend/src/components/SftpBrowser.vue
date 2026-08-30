@@ -45,6 +45,10 @@ const msg = useMessage();
 
 /** 連線階段 —— 與 SSH／RDP／VNC 主控台同一組狀態名，狀態列也才能共用同一套樣式。 */
 const phase = ref<"form" | "connecting" | "connected" | "error" | "closed">("form");
+/** 斷線時的 WebSocket 關閉代碼。1000＝正常收線；1006＝連線被硬切（多半是中間的
+ *  反向代理逾時），兩者要查的方向完全不同 —— 沒有這個數字，使用者只能回報
+ *  「又斷了」，我們也只能猜。 */
+const closeCode = ref<number | null>(null);
 const connecting = computed(() => phase.value === "connecting");
 /** 是否已經在看檔案清單（連上了、或連上後才斷線）—— 其餘階段都停留在連線卡片上。 */
 const onFileList = computed(() => phase.value === "connected" || phase.value === "closed");
@@ -228,6 +232,7 @@ async function connect() {
 
     ws.onclose = (ev) => {
       const wasConnected = everConnected;
+      closeCode.value = ev.code || 0;
       phase.value = wasConnected ? "closed" : "error";
       // 還沒連上就被關掉，而且後端也沒送 error —— 這時什麼都不說，畫面看起來像
       // 「按了沒反應」。實際遇過的原因是反向代理沒轉發 WebSocket 升級標頭
@@ -310,21 +315,34 @@ async function putOneFile(file: File) {
   uploadAborted = false;
   const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
   let sentAll = true;
-  for (let off = 0; off < file.size; off += CHUNK) {
-    const buf = await file.slice(off, off + CHUNK).arrayBuffer();
-    // 等緩衝消化到水位以下再繼續送；中途斷線就別再送了
-    while (ws.bufferedAmount > HIGH_WATER) {
-      if (ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
-      await new Promise((r) => setTimeout(r, 20));
+  // ⚠️ 讀檔失敗也算「送到一半放棄」。`file.slice().arrayBuffer()` 是會**丟例外**的：
+  // 檔案在拖進來之後被移走、外接磁碟斷線、iCloud 上還沒下載回本機… 都會在中途失敗。
+  // 少了這個 try，例外會直接跳出這個函式，`put_abort` 不會送出，伺服器就一直等
+  // 那些永遠不會來的位元組 —— 使用者看到的是「上傳沒反應、然後整條連線斷掉」。
+  let readError: unknown = null;
+  try {
+    for (let off = 0; off < file.size; off += CHUNK) {
+      const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+      // 等緩衝消化到水位以下再繼續送；中途斷線就別再送了
+      while (ws.bufferedAmount > HIGH_WATER) {
+        if (ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      if (!sentAll || uploadAborted || ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
+      ws.send(buf);
     }
-    if (!sentAll || uploadAborted || ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
-    ws.send(buf);
+  } catch (e) {
+    sentAll = false;
+    readError = e;
   }
   if (!sentAll) {
     // 送到一半放棄時**一定要讓伺服器知道**：它還在等剩下的位元組，我們卻若無其事
     // 送出下一個指令 —— 伺服器讀到的就是型別不對的框。實機上這個組合會讓整條連線
     // 直接斷掉（後端已另外補上防護，但客戶端本來就不該這樣做）。
     send({ type: "put_abort", path });
+    // 讀不到檔案要說是讀不到，不要含糊地說「連線已中斷」—— 那會讓人去查網路，
+    // 而真正的原因在自己這台機器上。
+    if (readError !== null) throw new Error(t("sftp.unreadable_item"));
     throw new Error(t("sftp.disconnected"));
   }
   await done;
@@ -848,6 +866,9 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
             <n-icon :size="24"><CancelIcon /></n-icon>
             <span class="sftp-offline-title">{{ t("sftp.offline_title") }}</span>
             <span class="sftp-offline-hint">{{ t("sftp.offline_hint") }}</span>
+            <span v-if="closeCode !== null" class="sftp-offline-code">
+              {{ t("sftp.offline_code", { code: closeCode }) }}
+            </span>
             <n-button size="small" type="primary" @click="reconnect">
               {{ t("ssh.reconnect") }}
             </n-button>
@@ -1095,6 +1116,11 @@ html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(20
   max-width: 420px; text-align: center;
 }
 .sftp-offline-title { font-weight: 600; }
+.sftp-offline-code {
+  font-size: 12px;
+  opacity: 0.65;
+  font-family: var(--jt-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
 .sftp-offline-hint { font-size: 12.5px; opacity: .75; line-height: 1.5; }
 :deep(.n-card > .n-card-header) { display: flex; align-items: center; padding-top: 12px; padding-bottom: 12px; }
 .sftp-saved-row { display: flex; align-items: center; margin-bottom: 18px; }

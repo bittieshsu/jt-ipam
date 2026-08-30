@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.230] — 2026-08-30
+
+### Fixed
+- **A failed read during upload never told the server, and the whole session hung.** `file.slice(...).arrayBuffer()` in the send loop **can throw** — the file was moved after being dropped, an external disk went away, an iCloud file was not downloaded locally yet. Without a guard the exception escaped the upload function and the "giving up" notice was **never sent**: the server kept waiting for bytes that would never arrive, and the user saw "the upload does nothing, then the connection drops" while the actual cause was on their own machine. A failed read now notifies the server, and reports **"cannot read this item" rather than "connection lost"** — the latter sends people to investigate the network, which is entirely the wrong direction.
+
+### Added
+- **The disconnect card now shows the WebSocket close code.** `1000` is a normal close; `1006` means the connection was cut mid-way (usually an idle timeout in an intervening reverse proxy). Those two call for completely different investigations, and until now the screen said only "connection lost".
+- **Logging for what happens inside an SFTP session**: every command, how many bytes each upload wrote against how many it declared and whether it was interrupted, plus the reason a session ended and the original exception behind a failed operation. Three rounds of diagnosing one upload problem came down to guesswork because the log was blank between "session start" and "session end". **Paths are not logged** (those are the user's file names) — only the operation, size and outcome.
+
+### Verified
+New browser end-to-end test "folder and file dropped together" reproduces the field scenario exactly (macOS reports a folder as 256 bytes) and checks that the folder is skipped, the file arrives **byte for byte**, and the session stays usable. All 15 SFTP end-to-end tests pass.
+
 ## [0.5.229] — 2026-08-30
 
 ### Fixed
