@@ -93,8 +93,30 @@ let ws: WebSocket | null = null;
 let everConnected = false;
 /** 下載中的檔案：收到 file_begin 後開始累積二進位框，file_end 才落地。 */
 let incoming: { name: string; size: number; chunks: Uint8Array[]; got: number } | null = null;
-/** 等待中的請求：讓 send 之後可以 await 到結果。 */
-let pending: { resolve: (v: any) => void; reject: (e: Error) => void } | null = null;
+/** 等待中的請求，**以請求編號為鍵**。
+ *
+ *  先前這裡只有一個沒有標記的欄位：伺服器回任何一個 `ok`，都會解掉「當時正在等的那件事」。
+ *  只要協定有一次錯位（回覆遲到、訊息重複、順序顛倒），客戶端就會把別人的回覆當成
+ *  自己的成功 —— 實機上看到的就是「畫面說檔案傳完了，伺服器其實一個位元組都沒收到」。
+ *  帶上編號之後，這種錯配在結構上不可能發生：對不上的回覆會被忽略，該等的繼續等。 */
+const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+let nextReqId = 1;
+
+/** 把回覆交給對應的請求。沒有編號的回覆（舊版伺服器）退回「解掉最早那一個」。 */
+function settle(m: any, how: "resolve" | "reject", value: any) {
+  const id = typeof m?.id === "number" ? m.id : null;
+  const key = id !== null && pending.has(id) ? id : (id === null ? pending.keys().next().value : undefined);
+  if (key === undefined) return;
+  const p = pending.get(key)!;
+  pending.delete(key);
+  if (how === "resolve") p.resolve(value); else p.reject(value);
+}
+
+/** 連線斷掉時，所有還在等的請求都要收到拒絕，否則呼叫端會永遠停在那裡。 */
+function rejectAllPending(err: Error) {
+  for (const [, p] of pending) p.reject(err);
+  pending.clear();
+}
 /** 這次的 list 只是「對話框在瀏覽目錄」，不要動主畫面的清單。 */
 let browsingOnly = false;
 /** 這次上傳是否已被伺服器中止（收到 error）—— 送出迴圈看到就停手。 */
@@ -104,11 +126,12 @@ function send(obj: Record<string, unknown>) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-/** 送一個請求並等它的回覆（同一時間只會有一個 —— 這個介面是逐步操作的）。 */
+/** 送一個請求並等它的回覆（依編號配對）。 */
 function request(obj: Record<string, unknown>): Promise<any> {
+  const id = nextReqId++;
   return new Promise((resolve, reject) => {
-    pending = { resolve, reject };
-    send(obj);
+    pending.set(id, { resolve, reject });
+    send({ ...obj, id });
   });
 }
 
@@ -187,7 +210,7 @@ async function connect() {
             entries.value = m.entries ?? [];
             truncated.value = !!m.truncated;
           }
-          pending?.resolve(m); pending = null;
+          settle(m, "resolve", m);
           break;
         case "file_begin":
           incoming = { name: m.name, size: m.size, chunks: [], got: 0 };
@@ -202,7 +225,7 @@ async function connect() {
             setTimeout(() => URL.revokeObjectURL(a.href), 4000);
             incoming = null;
           }
-          pending?.resolve(m); pending = null;
+          settle(m, "resolve", m);
           break;
         }
         case "keepalive":
@@ -210,10 +233,10 @@ async function connect() {
           // 那會讓下一個操作以為自己完成了。
           break;
         case "put_ready":
-          pending?.resolve(m); pending = null;
+          settle(m, "resolve", m);
           break;
         case "ok":
-          pending?.resolve(m); pending = null;
+          settle(m, "resolve", m);
           break;
         case "error": {
           uploadAborted = true;          // 正在上傳的話，讓送出迴圈停下來
@@ -224,7 +247,7 @@ async function connect() {
           // 只丟字串的話呼叫端只能把它當成一般錯誤顯示
           const err = new Error(m.message) as Error & { code?: string };
           err.code = m.code;
-          pending?.reject(err); pending = null;
+          settle(m, "reject", err);
           break;
         }
       }
@@ -240,7 +263,7 @@ async function connect() {
       if (!wasConnected && !errorMsg.value) {
         errorMsg.value = t("sftp.err_ws_closed", { code: ev.code || 0 });
       }
-      pending?.reject(new Error(t("sftp.disconnected"))); pending = null;
+      rejectAllPending(new Error(t("sftp.disconnected")));
     };
   } catch (e: any) {
     errorMsg.value = e?.response?.data?.detail ?? String(e);
@@ -315,6 +338,7 @@ async function putOneFile(file: File, rel?: string) {
   } catch {
     throw new Error(t("sftp.unreadable_item"));
   }
+  const putId = nextReqId;          // request() 會用掉這個編號
   await request({ type: "put", path, size: file.size });
   // put_ready 之後才開始送二進位框，一次 256 KiB
   const CHUNK = 256 * 1024;
@@ -326,7 +350,8 @@ async function putOneFile(file: File, rel?: string) {
   // 對方已經回到「等下一個指令」的狀態，那些框就成了雜訊。
   uploadAborted = false;
   uploadBytes.value = { sent: 0, total: file.size, name: file.name };
-  const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
+  // 上傳完成的 `ok` 會帶著這次 `put` 的編號回來，所以先把編號留著再送資料
+  const done = new Promise((resolve, reject) => { pending.set(putId, { resolve, reject }); });
   let sentAll = true;
   // ⚠️ 讀檔失敗也算「送到一半放棄」。`file.slice().arrayBuffer()` 是會**丟例外**的：
   // 檔案在拖進來之後被移走、外接磁碟斷線、iCloud 上還沒下載回本機… 都會在中途失敗。

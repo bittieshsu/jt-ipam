@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.233] — 2026-08-30
+
+### Fixed
+- **Console replies now carry a request id — "the screen says it finished while the server received
+  nothing" is no longer possible.** The client had a **single unlabelled waiting slot**: any `ok`
+  from the server resolved whatever happened to be waiting. One protocol slip (a late reply, a
+  duplicate, a reordering) swapped success for failure — the field log showed `written=0` while the
+  screen reported "1.5 MB of 1.5 MB sent" and moved on to the next file. With ids, a reply that
+  matches nothing is ignored and the pending request keeps waiting, so "not received" shows up
+  honestly as "still waiting".
+- **WebSocket compression is off** (`--ws-per-message-deflate false`). The console carries file
+  bytes — usually already-compressed archives and executables — so deflate buys nothing on the wire
+  while adding a **stateful** layer between "the browser called send()" and "the server received
+  bytes" that fails without an error on either end, and burning CPU per frame.
+
+### Added
+- Console logging now records **how long the remote open took** and **when the first data frame
+  arrived and what kind it was**. Without those, "the remote is slow to open a file" and "no data
+  ever arrived" look identical in the log.
+
+### Testing
+- The end-to-end tests clean up the files they create. Accumulated files pushed the listing past one
+  page, so "is the row I just uploaded visible?" failed for entirely unrelated reasons — that
+  misled three separate investigations today.
+
 ## [0.5.232] — 2026-08-30
 
 ### Added

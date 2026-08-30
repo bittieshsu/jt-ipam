@@ -103,3 +103,4 @@ images/
 deploy/docker/certs/
 zap-reports/
 backend/test-results/
+test-results/

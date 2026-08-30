@@ -53,6 +53,13 @@ args=(
     # any timeout shorter than the longest possible upload will cut transfers.
     --ws-ping-interval 20
     --ws-ping-timeout 600
+    # No WebSocket compression. The console carries file bytes -- usually already
+    # compressed archives and executables -- so deflate buys nothing on the wire
+    # while adding a stateful layer between "the browser called send()" and "the
+    # server received bytes" that can swallow data with no error anywhere. It also
+    # burns CPU per frame on both ends. Turning it off removes a whole class of
+    # interop failures from the transport.
+    --ws-per-message-deflate false
 )
 
 case "$mode" in

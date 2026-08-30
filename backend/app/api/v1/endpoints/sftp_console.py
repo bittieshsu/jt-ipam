@@ -28,6 +28,7 @@ import asyncio
 import contextlib
 import json
 import secrets
+import time
 import uuid
 from typing import Annotated, Any
 
@@ -294,6 +295,15 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 await send({"type": "error", "message": "訊息格式錯誤"})
                 continue
             op = req.get("type")
+            # 這次指令的編號（客戶端給的）。**回覆一定要帶回去** —— 客戶端靠它把回覆
+            # 對到正確的請求；少了它，任何一個 `ok` 都會解掉「當時正在等的那件事」，
+            # 於是「伺服器其實沒收到檔案」會被顯示成「上傳成功」。
+            req_id = req.get("id")
+
+            async def reply(obj: dict[str, Any], _rid: Any = req_id) -> None:
+                if _rid is not None:
+                    obj = {**obj, "id": _rid}
+                await send(obj)
             # 每個指令都留一行。之前查「上傳到底卡在哪」查了三輪都只能用猜的，
             # 因為日誌只看得到「連線建立」與「連線結束」中間一片空白 ——
             # 一條連線內部發生什麼事，是這個功能最需要、卻唯一沒有的資訊。
@@ -315,7 +325,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             truncated = True
                             break
                         entries.append(to_entry(path, str(name), a.attrs if hasattr(a, "attrs") else a))
-                    await send({
+                    await reply({
                         "type": "list", "path": path, "truncated": truncated,
                         "entries": [e.__dict__ for e in sort_entries(entries)],
                     })
@@ -324,7 +334,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     st = await sftp.stat(path)
                     size = check_size(getattr(st, "size", None), what="下載")
-                    await send({"type": "file_begin", "path": path,
+                    await reply({"type": "file_begin", "path": path,
                                 "name": path.rsplit("/", 1)[-1], "size": size})
                     async with sftp.open(path, "rb") as fh:
                         sent = 0
@@ -334,7 +344,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                                 break
                             await websocket.send_bytes(data)
                             sent += len(data)
-                    await send({"type": "file_end", "path": path, "sent": sent})
+                    await reply({"type": "file_end", "path": path, "sent": sent})
                     await audit("sftp_download", {"path": path, "bytes": sent})
 
                 elif op == "put":
@@ -346,11 +356,17 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     # 讀到的卻是那些二進位框 → 協定錯位 → 整條連線死掉，連帶把後面
                     # 還沒上傳的檔案一起拖走。實機上就是這樣：第一個檔案因為遠端
                     # 回「找不到檔案或目錄」而失敗，第二個檔案顯示「連線已中斷」。
+                    t_open = time.monotonic()
                     fh = await sftp.open(path, "wb")
                     # 開檔成功了才通知對方可以送 —— 這一行在 0.5.225 改寫時被弄丟，
                     # 造成客戶端永遠等不到「可以送了」，上傳完全失效。
-                    await send({"type": "put_ready", "path": path})
+                    await reply({"type": "put_ready", "path": path})
+                    # 開檔耗時要留紀錄：客戶端在收到 put_ready 之前一個位元組都不會送，
+                    # 所以「遠端開檔很慢」和「資料沒送過來」在日誌上長得一模一樣。
+                    log.info("sftp put ready", session=session_tag, size=size,
+                             open_ms=round((time.monotonic() - t_open) * 1000))
                     written = 0
+                    first_frame = True
                     stalled = False
                     async with fh:
                         while written < size:
@@ -378,6 +394,14 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                                          session=session_tag, written=written, size=size,
                                          code=message.get("code", 1005))
                                 raise WebSocketDisconnect(message.get("code", 1005))
+                            if first_frame:
+                                # 第一個框到底是什麼、隔了多久 —— 「送出了但沒收到」
+                                # 與「根本沒送」只有這一行分得出來
+                                first_frame = False
+                                log.info("sftp put first frame", session=session_tag,
+                                         kind=("bytes" if message.get("bytes") is not None
+                                               else message.get("type", "text")),
+                                         after_ms=round((time.monotonic() - t_open) * 1000))
                             chunk = message.get("bytes")
                             if chunk is None:
                                 # 對方改送指令了 → 這次上傳視同放棄，把那個指令留著
@@ -404,13 +428,13 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                         # 免得遠端留下一個看起來成功、其實是空的檔案。
                         with contextlib.suppress(Exception):
                             await sftp.remove(path)
-                        await send({"type": "error", "op": "put", "path": path,
+                        await reply({"type": "error", "op": "put", "path": path,
                                     "code": "put_stalled",
                                     "message": f"上傳中斷（已寫入 {written}/{size} 位元組，"
                                                f"檔案已移除）"})
                         failed_path = None
                         continue
-                    await send({"type": "ok", "op": "put", "path": path, "bytes": written})
+                    await reply({"type": "ok", "op": "put", "path": path, "bytes": written})
                     await audit("sftp_upload", {"path": path, "bytes": written})
 
                 elif op == "mkdir":
@@ -422,21 +446,21 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                         await sftp.makedirs(path, exist_ok=True)
                     else:
                         await sftp.mkdir(path)
-                    await send({"type": "ok", "op": "mkdir", "path": path})
+                    await reply({"type": "ok", "op": "mkdir", "path": path})
                     await audit("sftp_mkdir", {"path": path})
 
                 elif op == "rename":
                     src = normalize_path(req.get("path"), cwd=str(cwd))
                     dst = normalize_path(req.get("to"), cwd=str(cwd))
                     await sftp.rename(src, dst)
-                    await send({"type": "ok", "op": "rename", "path": src, "to": dst})
+                    await reply({"type": "ok", "op": "rename", "path": src, "to": dst})
                     await audit("sftp_rename", {"from": src, "to": dst})
 
                 elif op == "delete":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     if not req.get("is_dir"):
                         await sftp.remove(path)
-                        await send({"type": "ok", "op": "delete", "path": path})
+                        await reply({"type": "ok", "op": "delete", "path": path})
                         await audit("sftp_delete", {"path": path, "is_dir": False})
                     elif req.get("recursive"):
                         # 連同內容刪除：由前端明示（它會先確認過項目數）。
@@ -447,7 +471,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                                 await sftp.rmdir(target)
                             else:
                                 await sftp.remove(target)
-                        await send({"type": "ok", "op": "delete", "path": path,
+                        await reply({"type": "ok", "op": "delete", "path": path,
                                     "removed": len(plan)})
                         await audit("sftp_delete", {"path": path, "is_dir": True,
                                                     "recursive": True,
@@ -461,13 +485,13 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             # 目錄，才講得出「還有幾個項目」以及下一步能做什麼。
                             message, was_empty = await describe_rmdir_failure(
                                 sftp, path, exc)
-                            await send({"type": "error", "op": "delete", "path": path,
+                            await reply({"type": "error", "op": "delete", "path": path,
                                         "code": "dir_empty_required" if was_empty
                                                 else "dir_not_empty",
                                         "message": message})
                             failed_path = None
                             continue
-                        await send({"type": "ok", "op": "delete", "path": path})
+                        await reply({"type": "ok", "op": "delete", "path": path})
                         await audit("sftp_delete", {"path": path, "is_dir": True})
 
                 elif op == "put_abort":
@@ -478,11 +502,11 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 elif op == "close":
                     break
                 else:
-                    await send({"type": "error", "message": f"不支援的操作：{op}"})
+                    await reply({"type": "error", "message": f"不支援的操作：{op}"})
             except SftpError as exc:
                 log.info("sftp op failed", session=session_tag, op=op,
                          err=f"{type(exc).__name__}: {exc}")
-                await send({"type": "error", "message": str(exc)})
+                await reply({"type": "error", "message": str(exc)})
             except (asyncssh.SFTPError, OSError) as exc:
                 # 回給使用者的是人話，但日誌要留原始型別與訊息 —— 「遠端拒絕」有十幾種
                 # 原因，少了這一行就只能猜（實際查一個上傳失敗查了三輪）
@@ -490,7 +514,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                          err=f"{type(exc).__name__}: {exc}")
                 # 遠端拒絕（權限不足、檔案不存在…）是正常情況，要把原因說成人話：
                 # 原本直接回 "SFTPNoSuchFile: No such file"，看不出是哪條路徑
-                await send({"type": "error",
+                await reply({"type": "error",
                             "message": friendly_error(exc, path=failed_path)})
 
     except WebSocketDisconnect:

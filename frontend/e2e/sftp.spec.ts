@@ -5,7 +5,7 @@
  * 或下載下來少了幾個 chunk，兩者在畫面上看起來都一樣正常。
  */
 import { test, expect } from "@playwright/test";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +21,17 @@ const SFTP_PORT = process.env.E2E_SFTP_PORT || "2222";
 test.skip(!ADMIN_PASS || !TARGET_IP_ID || !SFTP_ROOT,
   "需要 E2E_ADMIN_PASS、E2E_SFTP_IP_ID 與 E2E_SFTP_ROOT");
 test.setTimeout(180_000);
+
+// 測試自己產生的東西要自己收乾淨。累積下來的檔案會把清單撐到一頁裝不下，
+// 於是「剛上傳的那一列看得見嗎」這種斷言會為了完全無關的理由失敗 ——
+// 今天為此誤判了三次，每次都以為是產品壞了。
+test.afterAll(() => {
+  if (!SFTP_ROOT) return;
+  for (const name of readdirSync(SFTP_ROOT)) {
+    if (!/^(drop-[ab]|dropdir|mixed|uploaded|deldir|repro|hol|slow|big)-/.test(name)) continue;
+    rmSync(join(SFTP_ROOT, name), { recursive: true, force: true });
+  }
+});
 
 async function login(page: any) {
   await page.goto("/login");
