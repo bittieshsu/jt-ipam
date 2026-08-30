@@ -454,9 +454,9 @@ This group comes from field reports across v0.5.222-229. What they share is that
 is always the same ("connection lost") while the cause is different every time**, so testing the
 happy path of "an upload succeeded" is not enough.
 
-- [ ] **Drag a folder in** (a folder alone, and a folder mixed with files): the folder must be
-  **skipped with an explicit message**, the files must still upload, and the connection must
-  **not** drop. Do NOT decide "is this a file?" by `size > 0` — macOS reports a folder as
+- [ ] **Drag a folder in** (a folder alone, and a folder mixed with files): **the whole folder and
+  its nested contents** must arrive with the same structure, files dropped alongside must still
+  upload, and the connection must **not** drop. Do NOT decide "is this a file?" by `size > 0` — macOS reports a folder as
   **256 bytes**, and that check is what corrupted the stream.
 - [ ] **Drag several files at once**: every one must arrive intact — compare **byte count and md5**
   for each. Only one arriving, or one arriving at **0 bytes**, means the upload loop was

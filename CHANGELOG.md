@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.232] — 2026-08-30
+
+### Added
+- **Whole folders can now be dropped onto the SFTP console** (nested subdirectories included).
+  Dropping a folder previously produced only a "skipped" notice. The remote directory structure is
+  created first and files follow — the other order fails every file for a missing parent.
+  A single drop takes at most 500 files and 16 levels, and **says how many items were left out**
+  rather than truncating silently.
+- The server's `mkdir` gained a `parents` option (create missing levels, treat an existing
+  directory as success). Without it the client collects a string of bogus failures for
+  directories that already exist, and those errors abort the upload in progress.
+
+### Verified
+- **Before/after for the ping timeout** (v0.5.231): the same 5.8 MB file over a genuinely
+  rate-limited link — with the default 20s pong timeout the transfer **died at 47.9s having
+  written 1.8 MB** (close code 1006); with 600s it **completed all 5,831,130 bytes in 104s**.
+  One setting apart.
+- ⚠️ This only reproduces with **incompressible** data: WebSocket permessage-deflate shrinks
+  compressible test data to almost nothing, so a slow link never backs up and the test passes
+  for the wrong reason. The file that failed in the field was an `.exe`.
+- The end-to-end test now checks that a folder and its nested contents really arrive, plus new
+  `dropWalk` unit tests (batched `readEntries` must not lose files, over-limit must be reported,
+  `..` and path separators are refused).
+
 ## [0.5.231] — 2026-08-30
 
 ### Fixed

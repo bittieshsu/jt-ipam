@@ -415,7 +415,13 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
 
                 elif op == "mkdir":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
-                    await sftp.mkdir(path)
+                    if req.get("parents"):
+                        # 上傳資料夾時用的：缺的中間層一起建，已經存在就當成功。
+                        # 讓客戶端「先建目錄再放檔案」不必為了已存在的目錄收一串錯誤 ——
+                        # 那些錯誤會被當成真的失敗顯示出來，也會中止進行中的上傳。
+                        await sftp.makedirs(path, exist_ok=True)
+                    else:
+                        await sftp.mkdir(path)
                     await send({"type": "ok", "op": "mkdir", "path": path})
                     await audit("sftp_mkdir", {"path": path})
 

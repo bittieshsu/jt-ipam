@@ -3378,7 +3378,7 @@
     "upload_partial_fail": "已上傳 {ok} 個；這幾個沒有成功：{names}",
     "uploading_progress": "上傳中 {done}/{total}：{name}",
     "drop_here": "放開以上傳到 {dir}",
-    "drop_dirs_skipped": "略過 {n} 個資料夾 —— 目前只能拖曳檔案。",
+    "drop_dirs_skipped": "有 {n} 個資料夾無法展開，已略過（這個瀏覽器沒有提供資料夾內容）",
     "name_ph": "請輸入名稱",
     "move_title": "移動 {n} 項到…",
     "move_path_ph": "直接輸入目的地絕對路徑，或在下方點選",
@@ -3398,7 +3398,8 @@
     "unreadable_item": "讀不到這個項目（資料夾請先壓縮成單一檔案再上傳）",
     "offline_code": "關閉代碼 {code}　（1000＝正常結束；1006＝連線被中途切斷，通常是中間的反向代理閒置逾時）",
     "upload_bytes": "上傳中：{name}　{sent} / {total}（{pct}%）",
-    "offline_upload": "中斷時正在上傳：{name}　已送出 {sent} / {total}"
+    "offline_upload": "中斷時正在上傳：{name}　已送出 {sent} / {total}",
+    "drop_too_many": "有 {n} 個項目沒有收進來（一次最多 {max} 個檔案）"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",

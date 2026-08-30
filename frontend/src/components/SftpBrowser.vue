@@ -14,7 +14,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { sortEntries, type SortKey, type SortOrder } from "@/utils/sftpSort";
-import { pickDroppedFiles } from "@/utils/dropFilter";
+import { collectDroppedFiles, dirsToCreate, type PickedFile } from "@/utils/dropWalk";
 import { getPreferences, updatePreferences } from "@/api/preferences";
 import { useI18n } from "vue-i18n";
 import {
@@ -304,9 +304,9 @@ function fmtBytes(n: number): string {
 }
 
 /** 送一個檔案到目前目錄。失敗直接往外拋，由呼叫端決定要不要繼續其他檔案。 */
-async function putOneFile(file: File) {
+async function putOneFile(file: File, rel?: string) {
   if (!ws) throw new Error(t("sftp.disconnected"));
-  const path = `${cwd.value.replace(/\/+$/, "")}/${file.name}`;
+  const path = `${cwd.value.replace(/\/+$/, "")}/${rel || file.name}`;
   // 送出任何東西**之前**先確認這個項目真的讀得到。資料夾（或已被移走的檔案）在這裡
   // 就會失敗，於是連線完全不會被驚動 —— 比起讓伺服器開好檔案、等滿逾時再清掉，
   // 這樣使用者是立刻得到答案，而不是等半分鐘才看到錯誤。
@@ -363,23 +363,34 @@ async function putOneFile(file: File) {
   uploadBytes.value = null;
 }
 
-/** 上傳一批檔案：逐個送（同一條連線，並行只會互相排隊）。 */
-async function uploadFiles(files: File[]) {
-  if (!files.length || !ws) return;
+/** 上傳一批檔案：逐個送（同一條連線，並行只會互相排隊）。
+ *
+ *  拖資料夾進來時 `path` 會帶著子目錄，所以要**先把目錄建好再放檔案** ——
+ *  順序反過來的話每個檔案都會因為「父目錄不存在」而失敗。 */
+async function uploadFiles(picked: PickedFile[]) {
+  if (!picked.length || !ws) return;
   busy.value = true;
   const failed: string[] = [];
   try {
-    for (const [i, file] of files.entries()) {
-      uploadProgress.value = { done: i, total: files.length, name: file.name };
-      // 一個檔案失敗不該讓其餘的都不傳；最後一次講清楚是哪幾個
-      try { await putOneFile(file); } catch (e: any) {
-        failed.push(`${file.name}（${e?.message ?? String(e)}）`);
+    const base = cwd.value.replace(/\/+$/, "");
+    for (const d of dirsToCreate(picked)) {
+      // parents：缺的中間層一起建、已存在當成功，不然會收到一串假的失敗
+      try { await request({ type: "mkdir", path: `${base}/${d}`, parents: true }); } catch (e: any) {
+        failed.push(`${d}（${e?.message ?? String(e)}）`);
       }
     }
-    const ok = files.length - failed.length;
+    for (const [i, item] of picked.entries()) {
+      const file = item.file;
+      uploadProgress.value = { done: i, total: picked.length, name: item.path };
+      // 一個檔案失敗不該讓其餘的都不傳；最後一次講清楚是哪幾個
+      try { await putOneFile(file, item.path); } catch (e: any) {
+        failed.push(`${item.path}（${e?.message ?? String(e)}）`);
+      }
+    }
+    const ok = picked.length - failed.length;
     if (failed.length) msg.error(t("sftp.upload_partial_fail", { ok, names: failed.join("、") }));
-    else if (files.length === 1) msg.success(t("sftp.uploaded", { name: files[0].name }));
-    else msg.success(t("sftp.uploaded_many", { n: files.length }));
+    else if (picked.length === 1) msg.success(t("sftp.uploaded", { name: picked[0].path }));
+    else msg.success(t("sftp.uploaded_many", { n: picked.length }));
     await refresh();
   } finally {
     uploadProgress.value = null;
@@ -390,7 +401,7 @@ async function uploadFiles(files: File[]) {
 
 async function onUpload(ev: Event) {
   const list = (ev.target as HTMLInputElement).files;
-  await uploadFiles(list ? Array.from(list) : []);
+  await uploadFiles(list ? Array.from(list).map((f) => ({ file: f, path: f.name })) : []);
 }
 
 // ── 拖曳上傳
@@ -419,10 +430,15 @@ async function onDrop(ev: DragEvent) {
   // `File.size` 是 256，`size > 0` 會把它當成檔案送去上傳，然後在讀取內容時失敗 ——
   // 實機症狀是「已寫入 0/256 位元組」，而且伺服器要等滿逾時才放棄。
   const items = Array.from(dt.items ?? []);
+  // ⚠️ `webkitGetAsEntry()` 必須在 await 之前就取完：`dataTransfer` 在事件處理函式
+  // 結束後就失效了，晚一步拿到的會是 null，整批東西會安靜地變成零個檔案。
   const entries = items.map((it) => (it as any).webkitGetAsEntry?.() ?? null);
-  const { files, skippedDirs: dirs } = pickDroppedFiles(Array.from(dt.files ?? []), entries);
+  const files = Array.from(dt.files ?? []);
+  const { files: picked, skippedDirs: dirs, droppedOverLimit: over } =
+    await collectDroppedFiles(files, entries);
   if (dirs) msg.warning(t("sftp.drop_dirs_skipped", { n: dirs }));
-  await uploadFiles(files);
+  if (over) msg.warning(t("sftp.drop_too_many", { n: over, max: picked.length }));
+  await uploadFiles(picked);
 }
 
 // ── 名稱輸入對話框（新增資料夾 / 重新命名）

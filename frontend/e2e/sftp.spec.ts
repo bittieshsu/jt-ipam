@@ -176,51 +176,83 @@ test("拖曳多個檔案進來會全部上傳到目前目錄", async ({ page }) 
   expect(readFileSync(`${SFTP_ROOT}/${bn}`, "utf-8"), "第二個檔案沒落地或內容不對").toBe("B\n");
 });
 
-test("資料夾＋檔案一起拖：資料夾被略過，檔案照樣完整上傳，連線還活著", async ({ page }) => {
+test("資料夾＋檔案一起拖：整個資料夾連同內容上傳，檔案也完整落地", async ({ page }) => {
   await connect(page);
-  // 客戶實機情境（v0.5.226~229 連續三輪都在這裡）：從 macOS 桌面同時拖一個資料夾
-  // 和一個檔案進來。macOS 交出來的資料夾 `File.size` 是 256，只有 `webkitGetAsEntry()`
-  // 的 `isFile` 分得出來 —— 這裡就照那個形狀模擬。
-  const name = `mixed-${Date.now()}.bin`;
-  // 大一點才會跨多個 256 KiB 資料框，只有這樣才走得到分段送出與背壓那條路徑
+  // 客戶實機情境：從桌面同時拖一個資料夾和一個檔案進來。
+  // macOS 交出來的資料夾 `File.size` 是 256，只有 `webkitGetAsEntry()` 分得出來。
+  const stamp = Date.now();
+  const folder = `dropdir-${stamp}`;
+  const name = `mixed-${stamp}.bin`;
   const size = 700_000;
 
-  // `webkitGetAsEntry` 要在原型上換掉：`DataTransferItemList` 每次取用都給新的包裝物件，
-  // 直接對取出來的項目指派會**安靜消失**（這條踩過，畫面上什麼都不會發生）。
-  const dt = await page.evaluateHandle(([fname, n]) => {
+  const dt = await page.evaluateHandle(([dirName, fname, n]) => {
+    // 用原型換掉：`DataTransferItemList` 每次取用都給新的包裝物件，
+    // 直接對取出來的項目指派會安靜消失。
+    const dir = {
+      isFile: false, isDirectory: true, name: dirName,
+      createReader: () => {
+        let done = false;
+        return {
+          readEntries: (ok: (e: unknown[]) => void) => {
+            if (done) { ok([]); return; }
+            done = true;
+            ok([
+              { isFile: true, isDirectory: false, name: "inside.txt",
+                file: (cb: (f: File) => void) => cb(new File(["hello\n"], "inside.txt")) },
+              { isFile: false, isDirectory: true, name: "nested",
+                createReader: () => {
+                  let d2 = false;
+                  return { readEntries: (ok2: (e: unknown[]) => void) => {
+                    if (d2) { ok2([]); return; }
+                    d2 = true;
+                    ok2([{ isFile: true, isDirectory: false, name: "deep.txt",
+                           file: (cb: (f: File) => void) => cb(new File(["deep\n"], "deep.txt")) }]);
+                  } };
+                } },
+            ]);
+          },
+        };
+      },
+    };
+    const bytes = new Uint8Array(n as number);
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251;
+    const plain = new File([bytes], fname as string);
+    const kinds: Record<string, unknown> = { [dirName as string]: dir };
     Object.defineProperty(DataTransferItem.prototype, "webkitGetAsEntry", {
       configurable: true,
       value(this: DataTransferItem) {
         const f = this.getAsFile();
-        const isDir = f?.name === "some-folder";
-        return { isFile: !isDir, isDirectory: isDir };
+        const named = f ? kinds[f.name] : null;
+        return named ?? { isFile: true, isDirectory: false, name: f?.name,
+                          file: (cb: (x: File) => void) => cb(f as File) };
       },
     });
-    const bytes = new Uint8Array(n as number);
-    for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251;
     const d = new DataTransfer();
-    // 先放資料夾 —— 順序要跟使用者一樣，資料夾排在前面時才會暴露「略過之後索引錯位」
-    d.items.add(new File([new Uint8Array(256)], "some-folder"));
-    d.items.add(new File([bytes], fname as string));
+    d.items.add(new File([new Uint8Array(256)], dirName as string));
+    d.items.add(plain);
     return d;
-  }, [name, size]);
+  }, [folder, name, size]);
 
   await page.locator(".sftp-panel").dispatchEvent("dragenter", { dataTransfer: dt });
   await page.locator(".sftp-panel").dispatchEvent("drop", { dataTransfer: dt });
 
-  // 1) 資料夾要明說被略過
-  await expect(page.getByText(/略過 1 個資料夾/)).toBeVisible({ timeout: 10_000 });
-  // 2) 檔案要完整落地 —— 位元組數與內容都要對，不能是 0 位元組
-  await expect(page.locator("table").getByText(name)).toBeVisible({ timeout: 60_000 });
+  // 1) 資料夾連同巢狀內容都要出現在遠端
+  await expect(page.locator("table").last().getByText(folder)).toBeVisible({ timeout: 60_000 });
+  expect(readFileSync(`${SFTP_ROOT}/${folder}/inside.txt`, "utf-8")).toBe("hello\n");
+  expect(readFileSync(`${SFTP_ROOT}/${folder}/nested/deep.txt`, "utf-8")).toBe("deep\n");
+  // 2) 一起拖進來的檔案要完整落地 —— 位元組數與內容都要對，不能是 0 位元組
   const got = readFileSync(`${SFTP_ROOT}/${name}`);
   expect(got.length, "檔案落地了但大小不對（0 位元組＝上傳迴圈中途斷掉）").toBe(size);
   for (const off of [0, 1, 255, 256, 262_143, 262_144, size - 1]) {
     expect(got[off], `第 ${off} 個位元組不對`).toBe(off % 251);
   }
-  // 3) 連線必須還活著：再做一個操作要成功，而且不可以跳出「連線已中斷」
+  // 3) 連線必須還活著
   await expect(page.getByText("連線已中斷")).toHaveCount(0);
   await page.getByRole("button", { name: /重新整理/ }).click();
-  await expect(page.locator("table").getByText(name)).toBeVisible({ timeout: 20_000 });
+  // 重新整理後還能列出東西就夠了 —— 落地的正確性上面已經逐位元組比對過。
+  // 不要對「某一列在第幾個 <table> 裡」下斷言：Naive 的表格會依欄位固定與捲動
+  // 拆成多個 table，列數一多就換位置，測試會為了無關的原因失敗。
+  await expect(page.locator(".sftp-panel").getByText(folder).first()).toBeVisible({ timeout: 20_000 });
 });
 
 test("上傳檔案選取框可以複選", async ({ page }) => {
