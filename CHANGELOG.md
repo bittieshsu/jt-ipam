@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.231] — 2026-08-30
+
+### Fixed
+- **Large console uploads were being cut off by the server itself — this is the real cause behind "connection lost".** A 5.8 MB file dropped into SFTP died after 26 seconds; the server recorded "the peer closed the connection", the upload timeout was never reached, and there is no reverse proxy in the path. The culprit was a uvicorn default: **a WebSocket ping every 20s, and the connection is dropped if no pong arrives within 20s**. The browser answers the ping immediately, but that pong is queued **behind the megabytes of upload data already sitting in the same TCP stream** — on a slow uplink it simply cannot get back in time. The bigger the file and the slower the link, the more certain the failure.
+- The ping interval stays at 20s (a genuinely dead peer must still be reaped), but the **patience for the reply is now 600s**, which covers the 100 MB cap down to roughly 1.4 Mbps of uplink. A guard test (`tests/test_ws_ping_timeout.py`) keeps someone from quietly restoring the default later.
+
+### Added
+- **Byte-level upload progress**: "{sent} / {total} ({pct}%)" while uploading, and the disconnect card now states **where it stopped**. Zero bytes sent (the file could not be read on your own machine) and 95% sent (something went wrong in transit) looked identical on screen, and they call for opposite investigations.
+- Server-side logging of upload progress and the interruption point (a line every 4 MB; bytes written and the close code when the peer goes away).
+
+### Ruled out (recorded so nobody re-investigates)
+A slow uplink on its own, a TLS reverse proxy and its default timeouts, dropping a folder and a file together, the file size, and client-side send backpressure. Locally, the same file over a 2 Mbps-throttled link through an nginx reverse proxy always succeeded — **because browser-level throttling does not put the pong behind the upload; only a genuinely slow connection does**.
+
 ## [0.5.230] — 2026-08-30
 
 ### Fixed

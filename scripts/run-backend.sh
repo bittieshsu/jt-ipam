@@ -40,6 +40,19 @@ args=(
     --proxy-headers
     --forwarded-allow-ips "127.0.0.1"
     --no-server-header
+    # WebSocket keepalive. uvicorn defaults to pinging every 20s and dropping the
+    # connection when no pong arrives within 20s -- and that default breaks file
+    # uploads over the SFTP console on a slow uplink. The browser answers the ping
+    # at once, but the pong is queued behind the megabytes of upload data already
+    # sitting in the same TCP stream, so it arrives late and the server hangs up
+    # mid-transfer. The client sees "connection lost" with no explanation.
+    #
+    # The ping interval stays short so a genuinely dead peer is still reaped; only
+    # the patience for the reply grows. 600s covers the 100 MB upload cap down to
+    # roughly 1.4 Mbps of uplink. Do not lower this without re-reading the above:
+    # any timeout shorter than the longest possible upload will cut transfers.
+    --ws-ping-interval 20
+    --ws-ping-timeout 600
 )
 
 case "$mode" in

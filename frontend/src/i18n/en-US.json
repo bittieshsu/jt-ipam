@@ -3396,7 +3396,9 @@
     "sort_mixed": "Mixed with files",
     "sort_mode_hint": "With Folders first, directories always come before files in both ascending and descending order, like a file manager. Mixed sorts purely by the selected column, like ls. The choice is saved to your preferences and follows you to other devices.",
     "unreadable_item": "This item cannot be read (compress a folder into a single file first)",
-    "offline_code": "Close code {code} (1000 = closed normally; 1006 = the connection was cut mid-way, usually an idle timeout in an intervening reverse proxy)"
+    "offline_code": "Close code {code} (1000 = closed normally; 1006 = the connection was cut mid-way, usually an idle timeout in an intervening reverse proxy)",
+    "upload_bytes": "Uploading {name} — {sent} / {total} ({pct}%)",
+    "offline_upload": "An upload was in flight when the connection dropped: {name} — {sent} of {total} sent"
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",

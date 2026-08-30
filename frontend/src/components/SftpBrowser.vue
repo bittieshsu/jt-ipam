@@ -290,6 +290,18 @@ const dragging = ref(false);
 let dragDepth = 0;          // dragenter/leave 會在子元素間跳動，用計數才不會閃爍
 /** 多檔上傳的進度：第幾個 / 共幾個。 */
 const uploadProgress = ref<{ done: number; total: number; name: string } | null>(null);
+/** 目前這個檔案送出了多少位元組／共多少。
+ *
+ *  兩個用途，而且第二個更重要：上傳時讓人看得出「有在動」，**斷線時讓人看得出停在哪裡**。
+ *  只顯示「連線已中斷」的話，送出 0 位元組（問題在自己這台機器讀不到檔）和送出 95%
+ *  （問題在連線途中）長得一模一樣，而這兩件事要查的方向完全相反。 */
+const uploadBytes = ref<{ sent: number; total: number; name: string } | null>(null);
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
 
 /** 送一個檔案到目前目錄。失敗直接往外拋，由呼叫端決定要不要繼續其他檔案。 */
 async function putOneFile(file: File) {
@@ -313,6 +325,7 @@ async function putOneFile(file: File) {
   // 上傳被伺服器中止時要立刻停送。否則剩下的資料框會繼續往連線裡塞，
   // 對方已經回到「等下一個指令」的狀態，那些框就成了雜訊。
   uploadAborted = false;
+  uploadBytes.value = { sent: 0, total: file.size, name: file.name };
   const done = new Promise((resolve, reject) => { pending = { resolve, reject }; });
   let sentAll = true;
   // ⚠️ 讀檔失敗也算「送到一半放棄」。`file.slice().arrayBuffer()` 是會**丟例外**的：
@@ -330,6 +343,7 @@ async function putOneFile(file: File) {
       }
       if (!sentAll || uploadAborted || ws.readyState !== WebSocket.OPEN) { sentAll = false; break; }
       ws.send(buf);
+      uploadBytes.value = { sent: off + buf.byteLength, total: file.size, name: file.name };
     }
   } catch (e) {
     sentAll = false;
@@ -346,6 +360,7 @@ async function putOneFile(file: File) {
     throw new Error(t("sftp.disconnected"));
   }
   await done;
+  uploadBytes.value = null;
 }
 
 /** 上傳一批檔案：逐個送（同一條連線，並行只會互相排隊）。 */
@@ -866,6 +881,11 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
             <n-icon :size="24"><CancelIcon /></n-icon>
             <span class="sftp-offline-title">{{ t("sftp.offline_title") }}</span>
             <span class="sftp-offline-hint">{{ t("sftp.offline_hint") }}</span>
+            <span v-if="uploadBytes" class="sftp-offline-code">
+              {{ t("sftp.offline_upload", {
+                name: uploadBytes.name,
+                sent: fmtBytes(uploadBytes.sent), total: fmtBytes(uploadBytes.total) }) }}
+            </span>
             <span v-if="closeCode !== null" class="sftp-offline-code">
               {{ t("sftp.offline_code", { code: closeCode }) }}
             </span>
@@ -944,6 +964,12 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
       </n-space>
 
       <!-- 多檔上傳時講出進度：不然畫面只是卡著，不知道還有幾個 -->
+      <div v-if="uploadBytes && phase === 'connected'" class="sftp-upload-note">
+        {{ t("sftp.upload_bytes", {
+          name: uploadBytes.name,
+          sent: fmtBytes(uploadBytes.sent), total: fmtBytes(uploadBytes.total),
+          pct: Math.floor((uploadBytes.sent / Math.max(1, uploadBytes.total)) * 100) }) }}
+      </div>
       <div v-if="uploadProgress && uploadProgress.total > 1" class="sftp-filter-note">
         {{ t("sftp.uploading_progress", {
           done: uploadProgress.done + 1, total: uploadProgress.total, name: uploadProgress.name }) }}
@@ -1136,4 +1162,7 @@ html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(20
   background: rgba(32, 128, 240, .08); }
 .sftp-batch-count { font-size: 13px; font-weight: 500; }
 .sftp-filter-note { font-size: 12px; opacity: .7; margin-bottom: 6px; }
+/* 上傳進度自己一個 class：跟篩選提示共用時，「畫面上有幾個提示」這種
+   斷言會同時命中兩個，測試會以 strict mode 失敗（實際踩過）。 */
+.sftp-upload-note { font-size: 12px; opacity: .7; margin-bottom: 6px; }
 </style>

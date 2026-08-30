@@ -203,6 +203,9 @@ async def _next_text(websocket: WebSocket) -> str | None:
 #: 訂在這個量級是因為它要容得下慢速線路上的一個 256 KiB 框，又不能長到形同沒有保護。
 UPLOAD_STALL_TIMEOUT = 30
 
+#: 上傳每寫到這個量就記一行進度（位元組）。
+PUT_PROGRESS_EVERY = 4 * 1024 * 1024
+
 
 @router.websocket("/{address_id}/sftp/ws")
 async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
@@ -367,6 +370,13 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                                 stalled = True
                                 break
                             if message.get("type") == "websocket.disconnect":
+                                # 上傳途中對方斷線 —— 「斷掉的當下已經寫了多少」是這裡
+                                # 唯一有用的資訊：0 代表對方根本沒開始送（問題在客戶端
+                                # 讀檔或送出），接近 size 代表是快傳完才死（問題在連線
+                                # 途中的某一段）。少了這行只知道「斷了」，等於沒線索。
+                                log.info("sftp put aborted by client",
+                                         session=session_tag, written=written, size=size,
+                                         code=message.get("code", 1005))
                                 raise WebSocketDisconnect(message.get("code", 1005))
                             chunk = message.get("bytes")
                             if chunk is None:
@@ -380,6 +390,11 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                             take = chunk[: size - written]
                             await fh.write(take)
                             written += len(take)
+                            # 每 4 MB 記一次：長時間上傳時，「還在動」與「卡住不動」
+                            # 在日誌上本來長得一模一樣（都是一片空白）
+                            if written // PUT_PROGRESS_EVERY != (written - len(take)) // PUT_PROGRESS_EVERY:
+                                log.info("sftp put progress", session=session_tag,
+                                         written=written, size=size)
                     log.info("sftp put done", session=session_tag,
                              written=written, size=size, stalled=stalled,
                              carry_over=carry_over is not None)

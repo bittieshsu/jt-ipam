@@ -3396,7 +3396,9 @@
     "sort_mixed": "檔案資料夾一起排",
     "sort_mode_hint": "「資料夾優先」時，資料夾永遠排在檔案前面（升冪降冪都一樣），與檔案總管相同；「一起排」則只看目前排序的欄位，像 ls。這個選擇會存進你的偏好，換裝置也一樣。",
     "unreadable_item": "讀不到這個項目（資料夾請先壓縮成單一檔案再上傳）",
-    "offline_code": "關閉代碼 {code}　（1000＝正常結束；1006＝連線被中途切斷，通常是中間的反向代理閒置逾時）"
+    "offline_code": "關閉代碼 {code}　（1000＝正常結束；1006＝連線被中途切斷，通常是中間的反向代理閒置逾時）",
+    "upload_bytes": "上傳中：{name}　{sent} / {total}（{pct}%）",
+    "offline_upload": "中斷時正在上傳：{name}　已送出 {sent} / {total}"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",

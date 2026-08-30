@@ -475,6 +475,11 @@ happy path of "an upload succeeded" is not enough.
   an intervening reverse proxy after **60 seconds without traffic** (a common default), and the
   user just sees an inexplicable "connection lost".
   BMC currently has **no** heartbeat (pure relay; injected data would corrupt SOL) — a known gap.
+- [ ] **Send a file large enough to take a while** through the console (say 50 MB, or 5 MB over a
+  slow link): it must complete. **Do not test this on the LAN only** — uvicorn drops a connection
+  when no pong arrives within 20s, and the pong queues behind the upload data, so only a genuinely
+  slow uplink reproduces it (fixed in v0.5.231). Browser network throttling **will not** show it:
+  it does not put the pong behind the upload.
 - [ ] **Guard tests green**: `pytest tests/test_sftp_upload_stall.py tests/test_ws_wait_timeouts.py`.
   They hold the line on three things that break uploads outright: a receive loop with no timeout,
   `receive_bytes()` raising KeyError on a text frame, and forgetting to send `put_ready` after open.
