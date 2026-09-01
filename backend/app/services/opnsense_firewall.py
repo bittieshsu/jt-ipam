@@ -330,13 +330,16 @@ async def sync_mapping(
 
 async def _stamp_ip_seen(
     session: AsyncSession, ip: str,
-    *, mac: str | None = None, hostname: str | None = None,
+    *, evidence: str, mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    create_in: SubnetCandidates | None = None,
+    permanent: bool = False, create_in: SubnetCandidates | None = None,
 ) -> bool:
-    """找到 jt-ipam IPAddress 就 stamp last_seen_scanner，回傳是否找到（或已建立）。
+    """找到 jt-ipam IPAddress 就記下觀測時間，回傳是否找到（或已建立）。
 
-    OPNsense 給的資料相當於我們自己 scanner 的證據，所以塞 last_seen_scanner。
+    `evidence` 是證據契約裡的來源名稱（`arp:opnsense` / `lease:opnsense` /
+    `vpn:opnsense`）。**不再寫 `last_seen_scanner`** —— 那個欄位屬於掃描代理，
+    防火牆的資料塞進去會讓畫面顯示「上線 (scanner)」但站台根本沒有代理，
+    而且三種可信度差很多的證據混在一起就沒辦法分別採信（見 services/arp_seen.py）。
     DHCP/ARP 是當下事實 → 有 MAC / hostname 就覆寫舊值。
     dhcp=True（來自 DHCP lease）→ 自動標記 in_dhcp_lease。
     subnet_ids 給定時只在該防火牆關聯的子網路內找 IP（避免重疊網段同 IP 撈到別人，
@@ -359,7 +362,8 @@ async def _stamp_ip_seen(
         ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="opnsense")
         session.add(ipa)
         await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
-    ipa.last_seen_scanner = datetime.now(UTC)
+    from app.services import arp_seen as arp_seen_svc
+    arp_seen_svc.stamp(ipa, evidence, permanent=permanent)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -572,7 +576,8 @@ async def sync_dhcp_leases(
             seen += 1
             leased_ips.add(ip)
             existed = await _ip_exists(session, ip, scope_ids)
-            if await _stamp_ip_seen(session, ip, mac=mac, hostname=host,
+            if await _stamp_ip_seen(session, ip, evidence="lease:opnsense",
+                                    mac=mac, hostname=host,
                                     subnet_ids=scope_ids, dhcp=True, create_in=create_in):
                 matched += 1
                 if not existed:
@@ -625,7 +630,11 @@ async def sync_arp_table(
         if not ip:
             continue
         seen += 1
-        if await _stamp_ip_seen(session, ip, mac=mac, subnet_ids=scope_ids):
+        # 靜態／永久項目不會因為機器關機而消失 → 不能拿來宣稱上線
+        perm = str(r.get("permanent") or r.get("type") or "").strip().lower() in (
+            "1", "true", "yes", "permanent", "static")
+        if await _stamp_ip_seen(session, ip, evidence="arp:opnsense", mac=mac,
+                                subnet_ids=scope_ids, permanent=perm):
             matched += 1
     return {"seen": seen, "matched": matched}
 
@@ -1183,7 +1192,7 @@ async def sync_openvpn_sessions(
         if not ip:
             continue
         seen += 1
-        if await _stamp_ip_seen(session, ip):
+        if await _stamp_ip_seen(session, ip, evidence="vpn:opnsense"):
             matched += 1
     return {"seen": seen, "matched": matched}
 

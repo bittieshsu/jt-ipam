@@ -20,7 +20,7 @@ class FwRuleSnapshot(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    source_type: Mapped[str] = mapped_column(String(16), nullable=False)   # opnsense/pfsense/fortigate
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)   # opnsense/pfsense/fortigate/paloalto
     instance_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     instance_name: Mapped[str] = mapped_column(String(255), nullable=False)
     taken_at: Mapped[datetime] = mapped_column(

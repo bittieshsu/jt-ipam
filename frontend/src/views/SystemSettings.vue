@@ -30,7 +30,7 @@ import {
   getIpCooldown, setIpCooldown,
   getCertExpiryDays, setCertExpiryDays,
   getGeoipConfig, setGeoipConfig, updateGeoipDbNow,
-  type GeoIPConfig, type RackNameAlign,
+  type GeoIPConfig, type RackNameAlign, type LivenessSource,
 } from "@/api/basic";
 
 const { t } = useI18n();
@@ -79,8 +79,22 @@ async function changeRackAlign(a: RackNameAlign) {
 
 // 上線判定：閾值（分鐘）＋採信哪些證據
 const grace = ref(30);
-// ARP 預設不勾 —— 它沒有時間概念，來源設備的快取不老化就會讓關機的機器一直顯示上線
+// LibreNMS 的 ARP 預設不勾 —— 它沒有時間概念，來源設備的快取不老化就會讓關機的
+// 機器一直顯示上線。候選清單由後端給（只列這個站台真的有的整合）。
 const livenessSrc = ref<string[]>(["scanner", "librenms"]);
+const livenessAvail = ref<LivenessSource[]>([]);
+
+const VENDOR_LABEL: Record<string, string> = {
+  opnsense: "OPNsense", pfsense: "pfSense",
+  fortigate: "FortiGate", paloalto: "Palo Alto",
+};
+
+/** `arp:opnsense` → 「ARP 表（OPNsense）」；沒有廠牌後綴的用既有翻譯。 */
+function srcLabel(key: string): string {
+  if (!key.includes(":")) return t(`system_settings.src_${key}`);
+  const [kind, vendor] = key.split(":", 2);
+  return `${t(`system_settings.src_kind_${kind}`)}（${VENDOR_LABEL[vendor] ?? vendor}）`;
+}
 // IP 生命週期：釋放後的冷卻天數
 const cooldownDays = ref(30);
 // 憑證到期通知的全域預設。每張憑證可各自覆寫（憑證頁的鈴鐺按鈕）——
@@ -352,7 +366,9 @@ onMounted(() => {
   getConsoleSecurity().then((c) => { rdpClipPaste.value = c.rdp_clipboard_paste; }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
-  getOnlineGrace().then((c) => { grace.value = c.minutes; livenessSrc.value = c.sources; })
+  getOnlineGrace().then((c) => {
+    grace.value = c.minutes; livenessSrc.value = c.sources; livenessAvail.value = c.available;
+  })
     .catch(() => {});
   getIpCooldown().then((d) => { cooldownDays.value = d; }).catch(() => {});
   getCertExpiryDays().then((d) => { certExpiryDays.value = d; }).catch(() => {});
@@ -440,18 +456,23 @@ async function doPreviewAutolink() {
       <!-- 上線判定 -->
       <n-card class="ss-group" size="small">
         <template #header><span class="ss-h">{{ t("system_settings.grp_liveness") }}</span></template>
-        <div class="fld" style="max-width: 320px">
+        <div class="fld fld-narrow-input">
           <label>{{ t("settings.prefs.online_grace_minutes") }}</label>
           <n-input-number :value="grace" :min="1" :max="43200" style="width: 100%" @update:value="changeGrace" />
           <div class="hint">{{ t("settings.prefs.online_grace_minutes_hint") }}</div>
         </div>
-        <div class="fld" style="max-width: 640px; margin-top: 12px">
+        <div class="fld" style="margin-top: 12px">
           <label>{{ t("system_settings.liveness_sources") }}</label>
           <n-checkbox-group :value="livenessSrc" @update:value="changeSources">
-            <n-space :size="18">
-              <n-checkbox value="scanner">{{ t("system_settings.src_scanner") }}</n-checkbox>
-              <n-checkbox value="librenms">{{ t("system_settings.src_librenms") }}</n-checkbox>
-              <n-checkbox value="arp">{{ t("system_settings.src_arp") }}</n-checkbox>
+            <n-space :size="[18, 8]" style="max-width: 900px">
+              <n-checkbox v-for="s in livenessAvail" :key="s.key" :value="s.key">
+                {{ srcLabel(s.key) }}
+                <!-- 不會過期的證據勾了等於「看過一次就永遠上線」→ 講明白，不要只靠說明文字 -->
+                <n-tag v-if="!s.aging" size="tiny" :bordered="false" type="warning"
+                       style="margin-left: 4px">
+                  {{ t("system_settings.src_no_aging") }}
+                </n-tag>
+              </n-checkbox>
             </n-space>
           </n-checkbox-group>
           <div class="hint">{{ t("system_settings.liveness_sources_hint") }}</div>
@@ -461,7 +482,7 @@ async function doPreviewAutolink() {
       <!-- IP 生命週期 -->
       <n-card class="ss-group" size="small">
         <template #header><span class="ss-h">{{ t("system_settings.grp_lifecycle") }}</span></template>
-        <div class="fld" style="max-width: 320px">
+        <div class="fld fld-narrow-input">
           <label>{{ t("system_settings.cooldown_days") }}</label>
           <n-input-number :value="cooldownDays" :min="0" :max="3650" style="width: 100%"
                           @update:value="changeCooldown" />
@@ -472,7 +493,7 @@ async function doPreviewAutolink() {
       <!-- 憑證到期通知 -->
       <n-card class="ss-group" size="small">
         <template #header><span class="ss-h">{{ t("system_settings.grp_cert_alert") }}</span></template>
-        <div class="fld" style="max-width: 320px">
+        <div class="fld fld-narrow-input">
           <label>{{ t("system_settings.cert_expiry_days") }}</label>
           <n-input-number :value="certExpiryDays" :min="1" :max="365" style="width: 100%"
                           @update:value="changeCertExpiry" />
@@ -873,12 +894,28 @@ async function doPreviewAutolink() {
 .ss-group { border-radius: 14px; }
 .ss-h { display: inline-block; font-size: 16px; font-weight: 700; padding-left: 12px;
   line-height: 1.25; border-left: 4px solid #18a058; }
-/* 統一卡片內每個區塊的垂直間距，避免欄位標題緊貼上一個元素 */
+/* 統一卡片內的垂直節奏。
+   原本只對「卡片內容的直接子元素」下間距，但很多區塊是包在 grid / div 裡的，
+   於是開關與底下的欄位就貼在一起（使用者回報：轉送稽核記錄那格最明顯）。
+   這裡改成三條規則一起管：卡片第一層、相鄰的欄位、以及開關列與後面的東西。 */
 .ss-group :deep(.n-card__content) > * + * { margin-top: 16px; }
+/* 相鄰欄位之間（含被 grid / div 包住的） */
+.ss-group :deep(.fld + .fld) { margin-top: 14px; }
+.ss-group :deep(.fld + div),
+.ss-group :deep(div + .fld) { margin-top: 14px; }
+/* 開關列之後一定要留白：開關本身沒有下邊界，視覺上會黏住下一個欄位的標題 */
+.ss-group :deep(.n-switch) { margin-bottom: 2px; }
+.ss-group :deep(.fld > .n-space) { margin-bottom: 6px; }
+/* 按鈕列與底下的說明文字 */
+.ss-group :deep(.n-button + .hint),
+.ss-group :deep(.ss-row + .hint) { margin-top: 10px; }
 .ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 /* 寬螢幕改三欄，把右邊的空間用掉 */
 @media (min-width: 1500px) { .ss-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px) { .ss-grid { grid-template-columns: 1fr; } }
+/* 單一數字欄位：只把輸入框收窄，說明文字仍用滿卡片寬度。
+   先前是把整格限成 320px，說明被擠成窄長一條、右邊整片空白（使用者回報）。 */
+.fld-narrow-input :deep(.n-input-number) { max-width: 260px; }
 .fld label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
 .hint { font-size: 11px; opacity: 0.65; margin-top: 4px; }
 .ss-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }

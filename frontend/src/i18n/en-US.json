@@ -305,7 +305,9 @@
     "fw_rule_changes": "Firewall rule changes",
     "attack_surface": "Exposed services",
     "zabbix": "Zabbix integration",
-    "event_rules": "Event rules"
+    "event_rules": "Event rules",
+    "paloalto": "Palo Alto integration",
+    "paloalto_fw": "Firewall (Palo Alto)"
   },
   "topbar": {
     "search": "Search…",
@@ -1199,7 +1201,8 @@
     "suggest_link": "Link to the existing device “{name}”",
     "suggest_create": "Create device “{name}” and link it",
     "suggest_siblings_hint": "{n} other IPs carry the same hostname. Note that the same hostname does not mean the same machine — a reused DHCP address keeps its old hostname, so check the MAC before ticking:",
-    "suggest_same_mac": "same MAC"
+    "suggest_same_mac": "same MAC",
+    "last_seen_wazuh": "Wazuh agent keep-alive"
   },
   "subnets": {
     "title": "Subnets",
@@ -2726,8 +2729,8 @@
     "liveness_sources": "Evidence that counts",
     "src_scanner": "Scan agent probes",
     "src_librenms": "LibreNMS device status",
-    "src_arp": "ARP records (not recommended)",
-    "liveness_sources_hint": "Only the selected sources decide whether an address is online. ARP is off by default: it proves a MAC-to-IP binding was learned, not that the machine is alive — and the LibreNMS ARP API returns no timestamp, so a reporting device's cache can keep a powered-off machine looking online indefinitely.",
+    "src_arp": "ARP records (LibreNMS, not recommended)",
+    "liveness_sources_hint": "Only the selected sources decide whether an address is online. Sources marked \"never expires\" are not recommended: they prove a binding was learned once, not that the machine is alive — the LibreNMS ARP API returns no timestamp and a DHCP lease may be days old, so a powered-off machine keeps looking online. A firewall's own ARP table and VPN sessions do time out, so they are trusted by default.",
     "grp_lifecycle": "IP lifecycle",
     "cooldown_days": "Cooldown after release (days)",
     "cooldown_days_hint": "After an address is released (deleted) it is not offered for reallocation during this window, and creating it by hand is refused. Things outside IPAM still point at it: DNS records and caches, firewall rules, ACLs, certificate SANs, monitoring. Handing it to another machine too early produces the hardest kind of fault to diagnose. Default 30 days; 0 disables it. An admin can clear an individual address early, which is recorded.",
@@ -2741,7 +2744,12 @@
     "rack_embed_regenerated": "Token regenerated — existing URLs stopped working",
     "grp_cert_alert": "Certificate expiry notices",
     "cert_expiry_days": "Warn this many days ahead (default)",
-    "cert_expiry_days_hint": "The global default. Each certificate can override it on the certificates page — a commercial certificate bought by hand needs lead time, an auto-renewed one does not."
+    "cert_expiry_days_hint": "The global default. Each certificate can override it on the certificates page — a commercial certificate bought by hand needs lead time, an auto-renewed one does not.",
+    "src_wazuh": "Wazuh agent keep-alive",
+    "src_kind_arp": "ARP table",
+    "src_kind_vpn": "VPN sessions",
+    "src_kind_lease": "DHCP leases",
+    "src_no_aging": "never expires"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",
@@ -3564,5 +3572,27 @@
     "event_name": "Event name matches",
     "actual": "actual",
     "bad_json": "The payload is not valid JSON"
+  },
+  "paloalto": {
+    "title": "Palo Alto",
+    "view_title": "Firewall (Palo Alto)",
+    "intro": "Read-only sync from Palo Alto via the PAN-OS API (reads only — nothing on the firewall is changed). Needs an API key for a read-only role, and the backend must be able to reach the management interface.",
+    "key": "API key",
+    "key_keep": "API key (leave blank to keep)",
+    "key_hint": "Create a read-only administrator in PAN-OS, then obtain an API key via /api/?type=keygen. The key is sent in the X-PAN-KEY header.",
+    "api_version": "REST version",
+    "api_version_hint": "Leave blank to auto-detect (recommended). PAN-OS REST URLs carry a version segment (/restapi/v11.1/…); a wrong value makes every endpoint return 404.",
+    "vsys_ph": "Blank = discover every vsys (or list them: vsys1, vsys2)",
+    "vsys_auto": "Auto (all)",
+    "pull_what": "What to pull",
+    "policies": "Security policies",
+    "addresses": "Address objects",
+    "diagnose": "Test connection",
+    "diag_summary": "{ok} of {total} endpoints readable",
+    "diag_rows": "{n} rows",
+    "pick_firewall": "Select Palo Alto",
+    "all_vsys": "All vsys",
+    "none_configured": "No Palo Alto firewall configured — add one under Admin → Palo Alto integration.",
+    "col_application": "Application (App-ID)"
   }
 }

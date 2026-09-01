@@ -87,6 +87,17 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # ARP 證據獨立存：LibreNMS 的 ARP API 不回時間，只能靠「還在清單裡」推斷，
     # 可信度遠低於裝置狀態（來源設備快取不老化就會永遠是「剛看到」）
     last_seen_arp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 逐來源的 ARP 觀測時間：`{"opnsense": "…", "librenms": "…"}`。
+    #:
+    #: 為什麼要分來源：各家 ARP 表的「會不會過期」差很多。防火牆的 ARP 條目會自己
+    #: 老化、而且我們每輪重讀，所以「這輪還在」是有時間意義的；LibreNMS 的 ARP API
+    #: 不回任何時間，來源設備（AP／路由器）的快取不老化就會永遠看起來是剛看到。
+    #: 混成同一個欄位就沒辦法讓管理員只採信前者。
+    arp_seen: Mapped[dict] = mapped_column(   # type: ignore[type-arg]
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    #: Wazuh agent 最後一次 keep-alive（manager 端維護，會過期）
+    last_seen_wazuh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_dns: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     effective_status: Mapped[str | None] = mapped_column(String(32))
 

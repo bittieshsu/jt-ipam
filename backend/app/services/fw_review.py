@@ -92,6 +92,29 @@ def normalize_fortigate(rows: list[Any]) -> list[dict[str, str]]:
     return out
 
 
+def normalize_paloalto(rows: list[Any]) -> list[dict[str, str]]:
+    """PaloAltoPolicy ORM 列 → 正規化形狀。
+
+    PAN-OS 的規則**沒有數字 id，名稱就是識別**（vsys 內唯一），所以 key 用
+    `vsys:名稱`。順序（position）刻意**不**進 key 也不進比對內容 —— 規則被拖動位置
+    不算「變更」，這與其他廠牌一致（見 `rules_hash` 的說明）。
+    """
+    out = []
+    for r in rows:
+        out.append({
+            "key": f"{_norm_val(r.vsys)}:{_norm_val(r.name)}",
+            "action": _norm_val(r.action),
+            "interface": f"{_norm_val(r.from_zone)}->{_norm_val(r.to_zone)}",
+            "protocol": _norm_val(r.service),
+            "src": _norm_val(r.source), "src_port": "",
+            "dst": _norm_val(r.destination), "dst_port": "",
+            # 應用程式是 PAN-OS 規則的核心語意（App-ID），少了它「規則變了」會漏掉
+            "descr": _norm_val(f"{r.application or ''} {r.description or ''}").strip()[:200],
+            "disabled": "1" if r.disabled else "0",
+        })
+    return out
+
+
 def rules_hash(rules: list[dict[str, str]]) -> str:
     """順序無關的雜湊：規則在 UI 上被拖動位置不算「變更」，改內容才算。"""
     canon = sorted(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rules)
@@ -204,6 +227,12 @@ async def run_sentinel(session: AsyncSession, *, source_type: str,
             rules = normalize_opnsense(rows)
         elif source_type == "pfsense":
             rules = normalize_pfsense(getattr(instance, "rules", None))
+        elif source_type == "paloalto":
+            from app.models.paloalto import PaloAltoPolicy
+            rows = (await session.execute(
+                select(PaloAltoPolicy).where(PaloAltoPolicy.firewall_id == instance.id)
+            )).scalars().all()
+            rules = normalize_paloalto(rows)
         elif source_type == "fortigate":
             from app.models.fortigate import FortiGatePolicy
             rows = (await session.execute(

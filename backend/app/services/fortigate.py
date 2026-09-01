@@ -238,10 +238,15 @@ async def list_vdoms(fw: FortiGateFirewall) -> list[str]:
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
 async def _stamp_ip_seen(
-    session: AsyncSession, ip: str, *, mac: str | None = None, hostname: str | None = None,
+    session: AsyncSession, ip: str, *, evidence: str,
+    mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
 ) -> bool:
-    """只標記「既有」IP，絕不新建（與 OPNsense / pfSense 行為一致）。"""
+    """只標記「既有」IP，絕不新建（與 OPNsense / pfSense 行為一致）。
+
+    `evidence`＝證據契約裡的來源名稱（`arp:fortigate` / `lease:fortigate` /
+    `vpn:fortigate`），逐來源存在 `arp_seen`（見 services/arp_seen.py）。
+    """
     ipx = _valid_ip(ip)
     if ipx is None:
         return False
@@ -251,7 +256,8 @@ async def _stamp_ip_seen(
     ipa = (await session.execute(stmt.limit(1))).scalars().first()   # 重疊網段：取一筆
     if ipa is None:
         return False
-    ipa.last_seen_scanner = datetime.now(UTC)
+    from app.services import arp_seen as arp_seen_svc
+    arp_seen_svc.stamp(ipa, evidence)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -278,7 +284,8 @@ async def sync_dhcp_leases(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
                 continue
             leased.add(ip)
             if await _stamp_ip_seen(
-                session, ip, mac=_norm_mac(_first(d, "mac", "mac_address")),
+                session, ip, evidence="lease:fortigate",
+                mac=_norm_mac(_first(d, "mac", "mac_address")),
                 hostname=(_first(d, "hostname", "host") or None),
                 subnet_ids=scope_ids, dhcp=True,
             ):
@@ -368,7 +375,8 @@ async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
                 continue
             # 欄位為 ip / mac / interface / age（hwaddr、intf 是 CLI 用語，JSON 沒有）
             if await _stamp_ip_seen(
-                session, ip, mac=_norm_mac(d.get("mac")), subnet_ids=scope_ids,
+                session, ip, evidence="arp:fortigate",
+                mac=_norm_mac(d.get("mac")), subnet_ids=scope_ids,
             ):
                 matched += 1
     return matched
@@ -449,7 +457,8 @@ async def sync_vpn(
                 cands.append(desc[4:])
             for cand in cands:
                 ip = _valid_ip(cand)
-                if ip and await _stamp_ip_seen(session, ip, subnet_ids=scope_ids):
+                if ip and await _stamp_ip_seen(session, ip, evidence="vpn:fortigate",
+                                                subnet_ids=scope_ids):
                     sessions += 1
     out: dict[str, Any] = {"tunnels": tunnels, "ssl_sessions": sessions}
     if not ssl_ok:

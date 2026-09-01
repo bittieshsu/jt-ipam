@@ -104,6 +104,7 @@ CATEGORY: dict[str, str] = {
     "webhook_subscriptions": "integrations",
     "windows_dhcp_servers": "integrations",
     "fortigate_firewalls": "integrations",
+    "paloalto_firewalls": "integrations",
     "opnsense_alias_mappings": "integrations",
     "ssh_credentials": "integrations",
     # synced（可重新拉取的鏡像）
@@ -119,6 +120,8 @@ CATEGORY: dict[str, str] = {
     "pfsense_synced_aliases": "synced",
     "fortigate_policies": "synced",
     "fortigate_address_objects": "synced",
+    "paloalto_policies": "synced",
+    "paloalto_address_objects": "synced",
     "wazuh_agents": "synced",
     "ip_hostname_observations": "synced",
     "virtual_machines": "synced",

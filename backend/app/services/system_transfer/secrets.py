@@ -63,6 +63,10 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
         ("api_token", "api_token_enc", "api_token_nonce",
          _aad_id("fortigate_firewall:{id}:api_token")),
     ],
+    "paloalto_firewalls": [
+        ("api_key", "api_key_enc", "api_key_nonce",
+         _aad_id("paloalto_firewall:{id}:api_key")),
+    ],
     "zabbix_instances": [
         ("api_token", "api_token_enc", "api_token_nonce",
          _aad_id("zabbix_instance:{id}:api_token")),

@@ -92,12 +92,14 @@ async def test_connection(fw: PfSenseFirewall) -> dict[str, Any]:
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
 async def _stamp_ip_seen(
-    session: AsyncSession, ip: str, *, mac: str | None = None, hostname: str | None = None,
+    session: AsyncSession, ip: str, *, evidence: str,
+    mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    create_in: SubnetCandidates | None = None,
+    permanent: bool = False, create_in: SubnetCandidates | None = None,
 ) -> bool:
-    """找到 jt-ipam IPAddress 就 stamp last_seen_scanner（pfSense 證據等同 scanner）。
+    """找到 jt-ipam IPAddress 就記下觀測時間（逐來源，見 services/arp_seen.py）。
 
+    `evidence` 是證據契約裡的來源名稱（`arp:pfsense` / `lease:pfsense`）。
     `create_in` 有值＝防火牆開了自動建立，對不到時可在這些候選子網路內建一筆。
     """
     ip = _valid_ip(ip)
@@ -118,7 +120,8 @@ async def _stamp_ip_seen(
         ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="pfsense")
         session.add(ipa)
         await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
-    ipa.last_seen_scanner = datetime.now(UTC)
+    from app.services import arp_seen as arp_seen_svc
+    arp_seen_svc.stamp(ipa, evidence, permanent=permanent)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -190,7 +193,8 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PfSenseFirewall) -> int:
             continue
         ipstr = str(ip).split("/")[0]
         leased_ips.add(ipstr)
-        if await _stamp_ip_seen(session, ipstr, mac=_mac_of(d), hostname=_host_of(d),
+        if await _stamp_ip_seen(session, ipstr, evidence="lease:pfsense",
+                                mac=_mac_of(d), hostname=_host_of(d),
                                 subnet_ids=scope_ids, dhcp=True, create_in=create_in):
             seen += 1
     # 撤銷：scope 內原本標 in_dhcp_lease、但這次租約已消失的 IP（只在有設 scope 時做，
@@ -320,8 +324,12 @@ async def sync_arp_table(session: AsyncSession, fw: PfSenseFirewall) -> int:
         ip = _ip_of(d)
         if not ip:
             continue
-        if await _stamp_ip_seen(session, str(ip).split("/")[0], mac=_mac_of(d),
-                                hostname=_host_of(d), subnet_ids=scope_ids):
+        # 靜態項目不會隨機器關機消失 → 不能拿來宣稱上線
+        perm = str(d.get("permanent") or d.get("type") or "").strip().lower() in (
+            "1", "true", "yes", "permanent", "static")
+        if await _stamp_ip_seen(session, str(ip).split("/")[0], evidence="arp:pfsense",
+                                mac=_mac_of(d), hostname=_host_of(d),
+                                subnet_ids=scope_ids, permanent=perm):
             seen += 1
     return seen
 

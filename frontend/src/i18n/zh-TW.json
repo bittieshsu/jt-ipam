@@ -305,7 +305,9 @@
     "fw_rule_changes": "防火牆規則異動",
     "attack_surface": "對外開放服務",
     "zabbix": "整合 Zabbix",
-    "event_rules": "事件規則"
+    "event_rules": "事件規則",
+    "paloalto": "整合 Palo Alto",
+    "paloalto_fw": "防火牆 (Palo Alto)"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1199,7 +1201,8 @@
     "suggest_link": "關聯到既有裝置「{name}」",
     "suggest_create": "建立裝置「{name}」並關聯",
     "suggest_siblings_hint": "另有 {n} 筆 IP 用同一個主機名稱。⚠️ 同名不代表同一台 —— DHCP 位址回收後舊主機名稱會留著，請比對 MAC 再勾選：",
-    "suggest_same_mac": "MAC 相同"
+    "suggest_same_mac": "MAC 相同",
+    "last_seen_wazuh": "Wazuh 代理 keep-alive"
   },
   "subnets": {
     "title": "子網路",
@@ -2726,8 +2729,8 @@
     "liveness_sources": "採信哪些證據",
     "src_scanner": "掃描代理探測",
     "src_librenms": "LibreNMS 裝置狀態",
-    "src_arp": "ARP 記錄（不建議）",
-    "liveness_sources_hint": "只有勾選的來源會被拿來判定上線。ARP 預設不勾：它證明的是某個 MAC↔IP 對應被學到過，不是機器現在活著；而且 LibreNMS 的 ARP API 不回時間，來源設備（AP／路由器）的快取不會過期，機器關機後仍可能一直顯示上線。",
+    "src_arp": "ARP 記錄（LibreNMS，不建議）",
+    "liveness_sources_hint": "只有勾選的來源會被拿來判定上線。標「不會過期」的來源不建議勾：它們證明的是某個對應被學到過，不是機器現在活著 —— LibreNMS 的 ARP API 不回時間、DHCP 租約可能是好幾天前拿的，機器關機後仍會一直顯示上線。防火牆自己的 ARP 表與 VPN 連線會逾時淘汰，所以預設採信。",
     "grp_lifecycle": "IP 生命週期",
     "cooldown_days": "釋放後冷卻天數",
     "cooldown_days_hint": "IP 被釋放（刪除）後，這段期間內不會被重新配發，也擋下手動建立。原因是外面還有東西指著它：DNS 記錄與快取、防火牆規則、ACL、憑證 SAN、監控設定。太早配給別台機器，症狀會是最難查的那種。預設 30 天；0 = 停用。管理員可對個別位址提前解除（會留下紀錄）。",
@@ -2741,7 +2744,12 @@
     "rack_embed_regenerated": "已重新產生權杖，舊網址即刻失效",
     "grp_cert_alert": "憑證到期通知",
     "cert_expiry_days": "到期前幾天通知（預設）",
-    "cert_expiry_days_hint": "全域預設。每張憑證可以在「憑證派送」頁各自覆寫 —— 手動申請的商業憑證需要提前準備，自動續簽的不必太早提醒。"
+    "cert_expiry_days_hint": "全域預設。每張憑證可以在「憑證派送」頁各自覆寫 —— 手動申請的商業憑證需要提前準備，自動續簽的不必太早提醒。",
+    "src_wazuh": "Wazuh 代理 keep-alive",
+    "src_kind_arp": "ARP 表",
+    "src_kind_vpn": "VPN 連線",
+    "src_kind_lease": "DHCP 租約",
+    "src_no_aging": "不會過期"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",
@@ -3564,5 +3572,27 @@
     "event_name": "事件名稱符合",
     "actual": "實際值",
     "bad_json": "事件內容不是合法的 JSON"
+  },
+  "paloalto": {
+    "title": "Palo Alto",
+    "view_title": "防火牆 (Palo Alto)",
+    "intro": "透過 PAN-OS API 唯讀同步 Palo Alto（只讀取，不會更動防火牆上的任何設定）。需要一把唯讀角色的 API 金鑰，且後端要連得到該設備的管理介面。",
+    "key": "API 金鑰",
+    "key_keep": "API 金鑰（留空表示不更改）",
+    "key_hint": "請在 PAN-OS 建立唯讀管理員後，以 /api/?type=keygen 取得 API 金鑰。金鑰以 X-PAN-KEY 標頭傳送。",
+    "api_version": "REST 版本",
+    "api_version_hint": "留空＝自動偵測（建議）。PAN-OS 的 REST 網址帶版本段（/restapi/v11.1/…），填錯會讓所有端點回 404。",
+    "vsys_ph": "留空＝自動探索全部 vsys（或自行列出：vsys1, vsys2）",
+    "vsys_auto": "自動（全部）",
+    "pull_what": "要拉取的資料",
+    "policies": "安全政策",
+    "addresses": "位址物件",
+    "diagnose": "測試連線",
+    "diag_summary": "{total} 個端點中有 {ok} 個可讀取",
+    "diag_rows": "{n} 筆",
+    "pick_firewall": "選擇 Palo Alto",
+    "all_vsys": "全部 vsys",
+    "none_configured": "尚未設定 Palo Alto —— 請到「管理 → 整合 Palo Alto」新增。",
+    "col_application": "應用程式（App-ID）"
   }
 }

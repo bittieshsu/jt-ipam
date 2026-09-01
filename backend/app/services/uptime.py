@@ -45,7 +45,18 @@ from app.services import evidence
 ARP_ONLY_STATUS = "online (arp)"
 
 
-def carry_forward_ok(value: str | None, *, has_scanner: bool, has_librenms: bool) -> bool:
+def _aging_keys(arp_seen: dict | None) -> set[str]:
+    """`arp_seen` 裡**會過期**的來源有哪些（防火牆的 ARP 表／VPN 連線）。
+
+    只有這些能拿來說「這個來源現在還在看著它」；`lease:*` 不算（租約撐好幾天）。
+    """
+    return {k for k in (arp_seen or {}) if evidence.is_aging(k)}
+
+
+def carry_forward_ok(
+    value: str | None, *, has_scanner: bool, has_librenms: bool,
+    present: set[str] | frozenset[str] | None = None,
+) -> bool:
     """這筆狀態值可不可以拿來往後延續到沒有觀測的日子。
 
     規則：**它宣稱的來源現在必須還在**。舊轉換寫著「上線（LibreNMS）」，但這個 IP
@@ -61,12 +72,14 @@ def carry_forward_ok(value: str | None, *, has_scanner: bool, has_librenms: bool
         return False
     v = value.strip().lower()
     src = evidence.source_from_status(v)
+    have = {n for n, ok in (("scanner", has_scanner), ("librenms", has_librenms)) if ok}
+    have |= set(present or ())
     if src is not None:
         if not evidence.is_aging(src):
             return False                      # 不會過期的證據不得往後延續
-        return {"scanner": has_scanner, "librenms": has_librenms}.get(src, False)
+        return src in have
     # 沒有來源後綴的 online／offline：任一會老化的來源還在就可以延續
-    return has_scanner or has_librenms
+    return bool(have)
 
 
 def status_is_up(value: str | None) -> bool | None:
@@ -115,17 +128,22 @@ async def uptime_for_ips(
         )).all())
 
     # 目前狀態 / 存活來源 / 建立時間 —— 用來處理「一直沒斷過所以沒有轉換」的 IP
-    cur_rows: dict[uuid.UUID, tuple[str | None, bool, datetime, bool, bool]] = {}
+    cur_rows: dict[
+        uuid.UUID, tuple[str | None, bool, datetime, bool, bool, set[str]]
+    ] = {}
     if ip_ids:
-        for i, st, seen_s, seen_l, created in (await session.execute(
+        for i, st, seen_s, seen_l, created, aseen in (await session.execute(
             select(
                 IPAddress.id, IPAddress.effective_status,
                 IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
-                IPAddress.created_at,
+                IPAddress.created_at, IPAddress.arp_seen,
             ).where(IPAddress.id.in_(ip_ids))
         )).all():
-            # 「有存活來源」刻意不含 ARP：ARP 沒有時間概念，不能拿來回填整段綠色
-            cur_rows[i] = (st, bool(seen_s or seen_l), created, bool(seen_s), bool(seen_l))
+            # 「有存活來源」刻意不含 LibreNMS 的 ARP：它沒有時間概念，不能回填整段綠色。
+            # 防火牆自己的 ARP／VPN 表會逾時淘汰，算數。
+            extra = _aging_keys(aseen)
+            cur_rows[i] = (st, bool(seen_s or seen_l or extra), created,
+                           bool(seen_s), bool(seen_l), extra)
 
     # 逐日觀測（有記錄的日子一律以它為準）
     obs: dict[uuid.UUID, dict[date, dict[str, bool]]] = {}
@@ -158,8 +176,9 @@ async def uptime_for_ips(
             if ts >= start_dt:
                 by_day.setdefault(ts.date(), []).append(nv)
 
-        cur_status, has_live_source, created_at, has_scanner, has_lnms = cur_rows.get(
-            ip_id, (None, False, start_dt, False, False))
+        (cur_status, has_live_source, created_at,
+         has_scanner, has_lnms, has_extra) = cur_rows.get(
+            ip_id, (None, False, start_dt, False, False, set()))
         if has_live_source:
             monitored = True
         # 整段視窗都沒有轉換、但確實有存活來源 → 用目前狀態回填。
@@ -191,7 +210,8 @@ async def uptime_for_ips(
                 elif rec["down"]:
                     cur = False
                 continue
-            carry = carry_forward_ok(cur_val, has_scanner=has_scanner, has_librenms=has_lnms)
+            carry = carry_forward_ok(cur_val, has_scanner=has_scanner,
+                                     has_librenms=has_lnms, present=has_extra)
             up = (cur is True) if carry else False
             down = (cur is False) if carry else False
             for nv in by_day.get(d, []):
@@ -283,23 +303,26 @@ async def uptime_batch(
                 observed_from = oday
 
     meta: dict[
-        uuid.UUID, tuple[str, str | None, str | None, bool, datetime, bool, bool]
+        uuid.UUID,
+        tuple[str, str | None, str | None, bool, datetime, bool, bool, set[str]]
     ] = {}
-    for i, ipv, host, st, seen_s, seen_l, created in (await session.execute(
+    for i, ipv, host, st, seen_s, seen_l, created, aseen in (await session.execute(
         select(
             IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.effective_status,
-            IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.created_at,
+            IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
+            IPAddress.created_at, IPAddress.arp_seen,
         ).where(IPAddress.id.in_(ip_ids))
     )).all():
-        meta[i] = (str(ipv).split("/")[0], host, st, bool(seen_s or seen_l), created,
-                   bool(seen_s), bool(seen_l))
+        extra = _aging_keys(aseen)
+        meta[i] = (str(ipv).split("/")[0], host, st, bool(seen_s or seen_l or extra),
+                   created, bool(seen_s), bool(seen_l), extra)
 
     out: list[dict[str, Any]] = []
     for ip_id in ip_ids:                      # 依使用者排的順序回，不用 DB 順序
         if ip_id not in meta:
             continue
         (ip_text, hostname, cur_status, has_live_source, created_at,
-         has_scanner, has_lnms) = meta[ip_id]
+         has_scanner, has_lnms, has_extra) = meta[ip_id]
         evs = by_ip.get(ip_id, [])
 
         state: bool | None = None
@@ -349,7 +372,8 @@ async def uptime_batch(
                 items.append({"date": d.isoformat(), "status": st2})
                 continue
             # 與 uptime_for_ips 同一條規則：狀態值宣稱的來源現在還在，才可以往後延續
-            carry = carry_forward_ok(cur_val, has_scanner=has_scanner, has_librenms=has_lnms)
+            carry = carry_forward_ok(cur_val, has_scanner=has_scanner,
+                                     has_librenms=has_lnms, present=has_extra)
             up = (cur is True) if carry else False
             down = (cur is False) if carry else False
             for nv in day_events.get(d, []):

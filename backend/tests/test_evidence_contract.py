@@ -62,8 +62,45 @@ def test_unregistered_source_is_treated_as_non_aging() -> None:
 
 
 def test_aging_sources_are_the_ones_we_actually_probe() -> None:
-    """會過期的來源＝我們主動探測或第三方監控在輪詢的那些。"""
-    assert set(evidence.aging_sources()) == {"scanner", "librenms", "zabbix", "wazuh"}
+    """會過期的來源＝我們主動探測、或有第三方系統負責讓它過期的那些。
+
+    不寫死清單（新增廠牌就會壞），改成驗那條規則本身：**只有 probed／monitored
+    這兩層可以宣稱上線**。`learned` 一律不行，由 test_learned_sources_never_age 擋。
+    """
+    for name in evidence.aging_sources():
+        assert evidence.tier_of(name) in (evidence.TIER_PROBED, evidence.TIER_MONITORED), \
+            f"{name} 宣稱會過期，但它的層級不該有這個資格"
+    # 一定要在裡面的（回歸：使用者要求把 Wazuh agent 納入上線判定）
+    assert {"scanner", "librenms", "zabbix", "wazuh"} <= set(evidence.aging_sources())
+
+
+def test_librenms_arp_still_never_ages() -> None:
+    """實機事故的回歸測試（0.5.206「52 天全綠」）：**LibreNMS 的** ARP 不會過期。
+
+    它的 API 不回任何時間，我們只能因為「還在清單裡」就蓋上同步當下的時鐘；
+    來源設備的快取不老化，關機數週的機器也會一直看起來剛出現。
+    """
+    assert evidence.is_aging("arp") is False
+    assert evidence.is_aging("arp:librenms") is False
+    assert "arp" not in evidence.default_liveness_sources()
+    assert "arp:librenms" not in evidence.default_liveness_sources()
+
+
+def test_firewall_arp_ages_but_leases_do_not() -> None:
+    """防火牆自己的 ARP 表會逾時淘汰 → 可以宣稱上線；DHCP 租約撐好幾天 → 不行。
+
+    這兩者原本**都**被寫進 `last_seen_scanner`，所以既分不出來源、也沒辦法分別採信。
+    """
+    for vendor in ("opnsense", "pfsense", "fortigate", "paloalto"):
+        assert evidence.is_aging(f"arp:{vendor}") is True, f"arp:{vendor} 應可宣稱上線"
+        assert evidence.is_aging(f"lease:{vendor}") is False, f"lease:{vendor} 不該宣稱上線"
+        assert f"lease:{vendor}" not in evidence.default_liveness_sources()
+
+
+def test_every_liveness_source_is_registered() -> None:
+    """設定頁列得出來的來源，全部都要在契約裡登記過（否則 is_aging 會靜靜回 False）。"""
+    for name in evidence.LIVENESS_SOURCES:
+        assert evidence.get_source(name) is not None, f"{name} 沒有登記"
 
 
 @pytest.mark.parametrize(

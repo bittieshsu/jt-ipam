@@ -465,11 +465,23 @@ async def put_rack_name_align(
 
 
 # ─────────────────── 上線判定閾值（全域，管理員設）───────────────────
+class LivenessSourceOut(StrictModel):
+    """設定頁要顯示的一個候選來源。"""
+
+    key: str
+    #: 這個來源的證據會不會過期 —— 不會過期的勾了就等於「看過一次就永遠上線」
+    aging: bool
+    #: 這個站台真的有這個整合嗎（沒有的就別佔版面）
+    configured: bool
+
+
 class OnlineGraceOut(StrictModel):
     minutes: Annotated[int, Field(ge=1, le=43200)]
-    #: 哪些證據算「上線」。ARP 預設不勾：它沒有時間概念，來源設備的快取不老化
-    #: 就會讓關機的機器一直顯示上線（來源契約見 services/evidence.py）
+    #: 哪些證據算「上線」。LibreNMS 的 ARP 預設不勾：它沒有時間概念，來源設備的
+    #: 快取不老化就會讓關機的機器一直顯示上線（來源契約見 services/evidence.py）
     sources: list[str] = ["scanner", "librenms"]
+    #: 候選來源（GET 才有值；PUT 的回應沿用同一個模型，可為空）
+    available: list[LivenessSourceOut] = []
 
 
 class CooldownOut(StrictModel):
@@ -545,7 +557,52 @@ async def get_online_grace(
 ) -> OnlineGraceOut:
     from app.services.system_config import get_liveness_config
     cfg = await get_liveness_config(session)
-    return OnlineGraceOut(minutes=int(cfg["minutes"]), sources=list(cfg["sources"]))
+    chosen = list(cfg["sources"])
+    return OnlineGraceOut(
+        minutes=int(cfg["minutes"]), sources=chosen,
+        available=await _liveness_candidates(session, chosen),
+    )
+
+
+async def _liveness_candidates(
+    session: AsyncSession, chosen: list[str],
+) -> list[LivenessSourceOut]:
+    """候選來源清單：**只列這個站台真的有的整合**，加上已經被勾選的（不能讓設定
+    因為某個整合被停用就從畫面消失、卻仍在後端生效）。
+
+    掃描代理永遠列出來（它是內建能力，不是整合）。
+    """
+    from sqlalchemy import func, select
+
+    from app.models.firewall import OPNsenseFirewall
+    from app.models.fortigate import FortiGateFirewall
+    from app.models.librenms import LibreNMSInstance
+    from app.models.paloalto import PaloAltoFirewall
+    from app.models.pfsense import PfSenseFirewall
+    from app.models.wazuh import WazuhInstance
+    from app.services.evidence import LIVENESS_SOURCES, is_aging
+
+    async def _has(model: Any) -> bool:
+        return bool(await session.scalar(select(func.count()).select_from(model)))
+
+    present = {
+        "scanner": True,
+        "librenms": await _has(LibreNMSInstance),
+        "wazuh": await _has(WazuhInstance),
+        "opnsense": await _has(OPNsenseFirewall),
+        "pfsense": await _has(PfSenseFirewall),
+        "fortigate": await _has(FortiGateFirewall),
+        "paloalto": await _has(PaloAltoFirewall),
+    }
+    out: list[LivenessSourceOut] = []
+    for key in LIVENESS_SOURCES:
+        vendor = key.split(":", 1)[1] if ":" in key else key
+        # 舊的籠統 "arp" 等同 arp:librenms
+        configured = present.get("librenms" if key == "arp" else vendor, False)
+        if configured or key in chosen:
+            out.append(LivenessSourceOut(
+                key=key, aging=is_aging(key), configured=configured))
+    return out
 
 
 @router.put("/online-grace", response_model=OnlineGraceOut)
@@ -577,7 +634,8 @@ async def put_online_grace(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return OnlineGraceOut(minutes=m, sources=srcs)
+    return OnlineGraceOut(minutes=m, sources=srcs,
+                          available=await _liveness_candidates(session, srcs))
 
 
 # ─────────────────── GeoIP（MaxMind 本地 mmdb + 排程更新）───────────────────
@@ -1514,6 +1572,7 @@ async def integration_presence(
     from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
     from app.models.virt import ProxmoxInstance
 
@@ -1522,6 +1581,7 @@ async def integration_presence(
         ("opnsense", OPNsenseFirewall),
         ("pfsense", PfSenseFirewall),
         ("fortigate", FortiGateFirewall),
+        ("paloalto", PaloAltoFirewall),
         ("dns", DNSServer),
         ("cert_agents", CertAgent),
         ("proxmox", ProxmoxInstance),

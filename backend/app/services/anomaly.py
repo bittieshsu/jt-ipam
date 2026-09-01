@@ -249,6 +249,17 @@ async def detect_ghost_ips(
             .limit(500)
         )
     ).scalars().all()
+    # 防火牆自己的 ARP／VPN 表也是會過期的證據 —— 那邊看得到就不是「失聯」。
+    # （這些原本混在 last_seen_scanner 裡，拆開之後如果不補這一關，所有只被防火牆
+    #  看到的 IP 會一夜之間全被報成失聯。）在 Python 過濾而不是寫進 SQL：JSONB 裡的
+    # 時間是字串，硬轉型會被一筆壞資料炸掉整個偵測。
+    from app.services.arp_seen import newest_aging
+    from app.services.evidence import DETAILED_SOURCES
+    keep = []
+    for r in rows:
+        fw_seen, _ = newest_aging(r, set(DETAILED_SOURCES))
+        if fw_seen is None or fw_seen < cutoff:
+            keep.append(r)
     return [
         {
             "ip_address_id": str(r.id),
@@ -257,7 +268,7 @@ async def detect_ghost_ips(
             "last_seen_scanner": r.last_seen_scanner.isoformat() if r.last_seen_scanner else None,
             "last_seen_librenms": r.last_seen_librenms.isoformat() if r.last_seen_librenms else None,
         }
-        for r in rows
+        for r in keep
     ]
 
 
@@ -310,6 +321,10 @@ async def detect_arp_only_liveness(
             .limit(500)
         )
     ).scalars().all()
+    # 防火牆的 ARP／VPN 表會逾時淘汰 → 有它撐著就不是「只有 ARP 在說話」
+    from app.services.arp_seen import newest_aging
+    from app.services.evidence import DETAILED_SOURCES
+    rows = [r for r in rows if newest_aging(r, set(DETAILED_SOURCES))[0] is None]
     return [
         {
             "ip_address_id": str(r.id),

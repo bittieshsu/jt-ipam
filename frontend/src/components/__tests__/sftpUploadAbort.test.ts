@@ -29,8 +29,10 @@ function putOneFileBody(): string {
 describe("SFTP 上傳中途失敗", () => {
   it("送出迴圈被 try 包住，讀檔失敗不會直接跳出函式", () => {
     const body = putOneFileBody();
-    const loop = body.indexOf("for (let off = 0");
-    expect(loop).toBeGreaterThan(-1);
+    // 迴圈寫法改過一次（for → while），只認其中一種會讓這個守門安靜失效 ——
+    // 兩種都認，找不到就明講是這個測試該更新，不要假裝通過。
+    const loop = Math.max(body.indexOf("for (let off = 0"), body.indexOf("while (off < file.size)"));
+    expect(loop, "找不到送出迴圈：改寫法了嗎？請一起更新這個測試").toBeGreaterThan(-1);
     const before = body.slice(0, loop);
     expect(before.includes("try {"),
       "送出迴圈沒有被 try 包住：讀檔失敗會略過 put_abort，伺服器會一直等下去").toBe(true);

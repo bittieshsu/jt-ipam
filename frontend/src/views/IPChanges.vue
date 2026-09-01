@@ -18,6 +18,14 @@ import { useChangeLogDim } from "@/composables/useChangeLogDim";
 import ExportButton from "@/components/ExportButton.vue";
 
 const { t } = useI18n();
+
+/** 沒有對應翻譯的事件型別（舊資料、未來新增的）直接顯示原值，
+ *  不要把 `ipChanges.event.xxx` 這種鍵名露在畫面上。與 IPAddressEditModal 同一套作法。 */
+function eventLabel(e: string): string {
+  const key = `ipChanges.event.${e}`;
+  const out = t(key);
+  return out === key ? e : out;
+}
 const { isOld: isOldLog } = useChangeLogDim();
 
 const rows = ref<IPChangeLog[]>([]);
@@ -32,7 +40,7 @@ const source = ref<string | null>(null);
 
 const eventOptions = computed(() => [
   { label: t("ipChanges.all_events"), value: "" },
-  ...IP_CHANGE_EVENT_TYPES.map((e) => ({ label: t(`ipChanges.event.${e}`), value: e })),
+  ...IP_CHANGE_EVENT_TYPES.map((e) => ({ label: eventLabel(e), value: e })),
 ]);
 const sourceOptions = computed(() => [
   { label: t("ipChanges.all_sources"), value: "" },
@@ -82,7 +90,7 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
   {
     title: t("ipChanges.col_event"), key: "event_type", width: 130,
     render: (r) => h(NTag, { size: "small", type: EVENT_TYPE[r.event_type] ?? "default", bordered: false },
-      { default: () => t(`ipChanges.event.${r.event_type}`) }),
+      { default: () => eventLabel(r.event_type) }),
   },
   { title: t("ipChanges.col_field"), key: "field", width: 110, render: (r) => r.field ?? "—" },
   {

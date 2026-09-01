@@ -4,6 +4,54 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.244] — 2026-09-02
+
+### Added
+- **Palo Alto (PAN-OS) integration — Beta.** Its own settings page, independent of the other
+  firewalls, read-only over the PAN-OS API: ARP table, DHCP leases, security policies (with the
+  App-ID, which is where a PAN-OS rule's meaning actually lives), NAT and address objects, across
+  every vsys. Rule-change detection covers it like the others, so a changed policy raises the same
+  notification with the same diff. There is **no appliance to test against**, so the parsing is
+  deliberately tolerant and "Test connection" reports **per endpoint** whether it could be read —
+  including the REST version segment it detected, because PAN-OS binds `/restapi/v11.1/…` to the
+  firmware version and a wrong guess 404s everything.
+- **Wazuh agents now count towards liveness.** An agent's keep-alive is maintained by the manager
+  and expires, which is exactly what a liveness source has to be. The **agent's own keep-alive
+  time** is stored, not the time we synced — otherwise an agent that went silent three months ago
+  would mark its address online at every sync.
+
+### Changed (this one changes what "online" means — read it)
+- **Firewall evidence is now recorded per source.** Everything the OPNsense / pfSense / FortiGate /
+  Palo Alto sync learned — ARP tables, DHCP leases, VPN sessions — used to be written into
+  `last_seen_scanner`. Two consequences: sites with no scan agent at all were shown "online
+  (scanner)", and there was no way to trust one kind of evidence without trusting all of them.
+  Each now lands under its own name (`arp:opnsense`, `vpn:pfsense`, `lease:fortigate`…) and the
+  liveness settings list them individually, showing only the integrations that site actually has.
+  - A firewall's own ARP table **can** claim a host is up: entries age out in minutes and we
+    re-read them each round. It stays trusted by default, so a firewall-only site does not go
+    dark on upgrade. **Static/permanent entries are skipped** — they never age out.
+  - A **DHCP lease cannot**: a lease often outlives the machine's uptime by days. Off by default.
+  - LibreNMS's ARP still cannot, unchanged: its API returns no timestamp at all.
+- Ghost-IP and "ARP only" detection follow the same rule — an address a firewall can still see is
+  neither a ghost nor ARP-only.
+
+### Fixed
+- **The dashboard's virtualisation node had no right answer when both platforms were in use.**
+  The number is the sum of Proxmox and VMware, so either destination showed half of it and looked
+  like data had gone missing. With both configured the node no longer navigates (and no longer
+  looks clickable); with one, it goes where it always did.
+- **The IP change log printed a raw translation key** for any event type without a translation
+  (`ipChanges.event.update`). It now falls back to the raw value, matching what the IP edit dialog
+  already did.
+
+### Testing
+- **Every route is now opened by a test.** The sweep visited 22 of 78 routes; forty-odd pages had
+  never been opened by anything. The new spec parses the route list out of the router itself, so a
+  new page is covered the day it is added, and it fails on blank screens, JS exceptions, failed
+  API calls and untranslated keys. It immediately caught a 500 on **creating** a Palo Alto firewall
+  (the API key was encrypted into the wrong shape) — a defect every backend test had missed,
+  because none of them called that function.
+
 ## [0.5.243] — 2026-09-01
 
 ### Fixed (a sweep of accounts and permissions)

@@ -231,8 +231,14 @@ def agent_represents_ip(agent: Any, ip: Any, *, grace_hours: int = 24) -> bool:
     ka = getattr(agent, "last_keep_alive", None)
     if ka is None:
         return False   # 從未回報過，又不是 active → 沒有理由相信這個對映
+    from app.services.arp_seen import newest_aging
+    from app.services.evidence import DETAILED_SOURCES
+    # 防火牆的 ARP／VPN 表也算「這個位址現在有人在用」的證據（會逾時淘汰的那些），
+    # 只看 scanner/librenms 會漏掉沒裝掃描代理、也沒接 LibreNMS 的站台。
+    fw_seen, _ = newest_aging(ip, set(DETAILED_SOURCES))
     seen = [t for t in (getattr(ip, "last_seen_scanner", None),
-                        getattr(ip, "last_seen_librenms", None)) if t is not None]
+                        getattr(ip, "last_seen_librenms", None),
+                        fw_seen) if t is not None]
     if not seen:
         return True    # 沒有其他存活證據 → 可能只是關機，仍然採用
     return ka >= max(seen) - timedelta(hours=grace_hours)
@@ -295,8 +301,20 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
         ).scalar_one_or_none()
 
         addr_id = ip_map.get(ip) if ip else None
+        keep_alive = _parse_keep_alive(raw.get("lastKeepAlive"))
         if addr_id is not None:
             matched_ip += 1
+            # 上線判定：agent 的 keep-alive 是 manager 端維護、會過期的存活證據
+            # （使用者要求納入）。**記 keep-alive 本身的時間，不是同步當下的時間** ——
+            # 記成 now 的話，一台三個月前就失聯的 agent 每次同步都會讓那個 IP 變上線。
+            # 同一個 IP 可能有多個 agent 登記（DHCP 位址被回收），取最新的一個。
+            if keep_alive is not None:
+                ipa_live = await session.get(IPAddress, addr_id)
+                if ipa_live is not None and (
+                    ipa_live.last_seen_wazuh is None
+                    or ipa_live.last_seen_wazuh < keep_alive
+                ):
+                    ipa_live.last_seen_wazuh = keep_alive
             # 回填 IP 主機名稱（來源 "wazuh"，依名稱順序決定是否採用）
             agent_name = (raw.get("name") or "").strip()
             if agent_name:
@@ -321,7 +339,7 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
                 agent_version=raw.get("version"),
                 group=",".join(raw.get("group") or []) if isinstance(raw.get("group"), list) else raw.get("group"),
                 node_name=raw.get("node_name"),
-                last_keep_alive=_parse_keep_alive(raw.get("lastKeepAlive")),
+                last_keep_alive=keep_alive,
                 last_seen_at=now,
                 jt_ipam_address_id=addr_id,
             )
@@ -341,7 +359,7 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
                 else raw.get("group")
             )
             existing.node_name = raw.get("node_name")
-            existing.last_keep_alive = _parse_keep_alive(raw.get("lastKeepAlive"))
+            existing.last_keep_alive = keep_alive
             existing.last_seen_at = now
             existing.jt_ipam_address_id = addr_id
             upd_count += 1

@@ -135,6 +135,11 @@ the reverse proxy dropped the WebSocket upgrade.
 - [ ] **Measure geometry, don't eyeball it** — `boundingBox()` whenever the point is
   alignment, overlap or spacing; a screenshot hides a 16px error
 - [ ] New text checked in both locales (switch to English, confirm no key leaks)
+- [ ] **Every route opens**: `playwright test e2e/all-routes.spec.ts` green. It parses the
+  route list out of `src/router/index.ts`, so a new page is covered automatically — and it
+  fails on blank screens, JS exceptions, failed API calls and untranslated keys. This exists
+  because the sweep used to visit 22 of 78 routes: forty-odd pages had never been opened by
+  any test. A page that only a human ever opens is a page nothing is checking
 
 ## 5d. System export / import (cross-instance migration) — **run in full every release that touches it**
 
@@ -342,6 +347,18 @@ evidence, and a machine powered off for weeks showed 52 days of green.
   remain — ask `evidence.is_aging()`, so a new source cannot fall into the loosest branch
 - [ ] **Liveness settings**: the options and defaults are derived from the contract;
   a non-expiring source is **not** selected by default
+- [ ] **Per-vendor evidence is labelled honestly**: a firewall's ARP table, VPN sessions and
+  DHCP leases land in `ip_addresses.arp_seen` as `arp:<vendor>` / `vpn:<vendor>` /
+  `lease:<vendor>` — **never** in `last_seen_scanner`. A site with no scan agent must never
+  show "online (scanner)". `pytest tests/test_liveness_sources.py` green
+- [ ] **Upgrade keeps the previous verdict**: firewall ARP was counted before the split
+  (it was written as scanner evidence), so `arp:<vendor>` stays trusted by default —
+  otherwise a firewall-only site goes entirely offline on upgrade. Leases do **not**:
+  a lease can outlive the machine by days
+- [ ] **Static ARP entries are skipped**: a permanent/static entry never ages out, so
+  stamping it would mean "this host is alive forever"
+- [ ] **Ghost-IP and ARP-only detection follow**: an address only a firewall can see is
+  neither reported as a ghost nor as "ARP only"
 - [ ] **Availability bar**: days backed only by ARP are grey, not green; carrying a state
   forward requires the source that state claims to still exist
 - [ ] **Precedence**: all five attributes (hostname/MAC/OS/device name/model) take effect

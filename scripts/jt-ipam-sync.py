@@ -34,6 +34,7 @@ async def _run() -> int:
     from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.paloalto import PaloAltoFirewall
     from app.models.librenms import LibreNMSInstance
     from app.models.pfsense import PfSenseFirewall
     from app.models.virt import ProxmoxInstance, VirtCluster
@@ -42,6 +43,7 @@ async def _run() -> int:
     from app.models.windows_dhcp import WindowsDhcpServer
     from app.services import adguard as adguard_svc
     from app.services import fortigate as fortigate_svc
+    from app.services import paloalto as paloalto_svc
     from app.services import librenms as librenms_svc
     from app.services import opnsense_firewall as fw_svc
     from app.services import pfsense as pfsense_svc
@@ -306,6 +308,34 @@ async def _run() -> int:
                 log.error("fortigate %s sync failed: %s", name, exc)
                 failed += 1
                 await _hb(session, kind="fortigate.sync", target_type="fortigate_firewall",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Palo Alto（Beta；PAN-OS REST + XML 唯讀）──
+        pas = (
+            await session.execute(
+                select(PaloAltoFirewall).where(PaloAltoFirewall.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in pas:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await paloalto_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("paloalto %s: %s", name, summary)
+                await _hb(session, kind="paloalto.sync", target_type="paloalto_firewall",
+                          target_id=inst.id, target_label=name, ok=True,
+                          summary=summary if isinstance(summary, dict) else None)
+            except Exception as exc:
+                # 先 rollback 再寫 last_error —— 不 rollback 會二次爆並中斷整輪
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("paloalto %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="paloalto.sync", target_type="paloalto_firewall",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
 
         # ── Windows DHCP Server（Beta；WinRM 唯讀拉 scope/租約）──

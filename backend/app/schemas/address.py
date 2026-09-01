@@ -173,6 +173,12 @@ class IPAddressRead(IPAddressBase):
     last_seen_librenms: datetime | None
     # ARP 證據獨立回傳：它沒有時間概念，前端要能標成弱證據而不是混進 LibreNMS
     last_seen_arp: datetime | None = None
+    #: Wazuh agent 的 keep-alive（manager 端維護，會過期 → 可宣稱上線）
+    last_seen_wazuh: datetime | None = None
+    #: 防火牆給的逐來源觀測時間：`{"arp:opnsense": "…", "lease:pfsense": "…"}`。
+    #: 這些原本全都被寫進 last_seen_scanner，畫面上就變成沒有掃描代理卻顯示
+    #: 「上線 (scanner)」（見 services/arp_seen.py）。
+    arp_seen: dict[str, str] = {}
     last_seen_dns: datetime | None
     effective_status: str | None
     # 所屬 subnet 是否啟用掃描；前端用來判定「沒掃描的網段不該標離線紅燈」

@@ -230,7 +230,20 @@ export async function setMapProvider(provider: MapProvider): Promise<void> {
   await apiClient.put("/api/v1/system/map-provider", { provider });
 }
 
-export interface LivenessConfig { minutes: number; sources: string[] }
+/** 一個候選的上線判定證據來源。 */
+export interface LivenessSource {
+  key: string;
+  /** 證據會不會過期 —— 不會過期的勾了就等於「看過一次就永遠上線」 */
+  aging: boolean;
+  /** 這個站台真的有這個整合 */
+  configured: boolean;
+}
+export interface LivenessConfig {
+  minutes: number;
+  sources: string[];
+  /** 後端算好的候選清單（只含這個站台有的整合，加上已勾選的） */
+  available: LivenessSource[];
+}
 
 export async function getOnlineGrace(): Promise<LivenessConfig> {
   try {
@@ -238,8 +251,9 @@ export async function getOnlineGrace(): Promise<LivenessConfig> {
     return {
       minutes: Number(data.minutes) || 30,
       sources: Array.isArray(data.sources) ? data.sources : ["scanner", "librenms"],
+      available: Array.isArray(data.available) ? data.available : [],
     };
-  } catch { return { minutes: 30, sources: ["scanner", "librenms"] }; }
+  } catch { return { minutes: 30, sources: ["scanner", "librenms"], available: [] }; }
 }
 export async function setOnlineGrace(minutes: number, sources: string[]): Promise<void> {
   await apiClient.put("/api/v1/system/online-grace", { minutes, sources });

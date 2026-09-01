@@ -121,6 +121,10 @@ export interface IPAddress {
   last_seen_scanner: string | null;
   last_seen_librenms: string | null;
   last_seen_arp: string | null;
+  /** Wazuh 代理的 keep-alive（manager 端維護，會過期 → 算得上上線證據） */
+  last_seen_wazuh?: string | null;
+  /** 防火牆給的逐來源觀測時間：`{"arp:opnsense": "…", "lease:pfsense": "…"}` */
+  arp_seen?: Record<string, string> | null;
   last_seen_dns: string | null;
   effective_status: string | null;
   subnet_scan_enabled: boolean | null;

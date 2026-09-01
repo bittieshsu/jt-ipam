@@ -483,6 +483,25 @@ function onHistoryToggle(names: Array<string | number>) {
   if (names.includes("history") && !historyLoaded.value) void loadHistory();
 }
 
+/** 防火牆逐來源證據，時間新的排前面。 */
+const fwSeen = computed<[string, string][]>(() => {
+  const raw = (props.address as any)?.arp_seen as Record<string, string> | undefined;
+  if (!raw) return [];
+  return Object.entries(raw).sort((a, b) => (a[1] < b[1] ? 1 : -1));
+});
+
+const FW_VENDOR: Record<string, string> = {
+  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate",
+  paloalto: "Palo Alto", librenms: "LibreNMS",
+};
+
+/** `arp:opnsense` → 「ARP 表（OPNsense）」 */
+function fwSeenLabel(key: string): string {
+  const [kind, vendor] = key.split(":", 2);
+  if (!vendor) return key;
+  return `${t(`system_settings.src_kind_${kind}`)}（${FW_VENDOR[vendor] ?? vendor}）`;
+}
+
 function eventLabel(e: string): string {
   const key = `ipChanges.event.${e}`;
   const out = t(key);
@@ -956,6 +975,15 @@ async function remove() {
               <template #trigger><span class="arp-caveat">?</span></template>
               <div style="max-width: 300px">{{ t("live_dot.arp_only_hint") }}</div>
             </n-tooltip>
+          </n-descriptions-item>
+          <n-descriptions-item v-if="props.address?.last_seen_wazuh"
+                               :label="t('addresses.last_seen_wazuh')">
+            {{ fmtDateTime(props.address?.last_seen_wazuh) }}
+          </n-descriptions-item>
+          <!-- 防火牆給的證據逐來源列出。以前這些全被寫成「掃描代理」，於是沒有代理的站台
+               也看得到掃描代理的時間 —— 現在照實顯示是哪一台防火牆、哪一種表看到的。 -->
+          <n-descriptions-item v-for="[k, v] in fwSeen" :key="k" :label="fwSeenLabel(k)">
+            {{ fmtDateTime(v) }}
           </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.last_seen_dns')">{{ fmtDateTime(props.address?.last_seen_dns) }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.created_at')">{{ fmtDateTime(props.address?.created_at) }}</n-descriptions-item>

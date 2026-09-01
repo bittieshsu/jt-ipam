@@ -177,8 +177,15 @@ onMounted(async () => {
     intg.value = p;
   } catch { /* 讀不到就用預設路由，交給頁面上的提示引導 */ }
 });
-const virtRoute = computed(() =>
-  (intg.value.esxi && !intg.value.proxmox) ? "virt_vmware" : "virt");
+// 兩個平台都在用時**不跳頁**：這個數字是兩邊的合計，送去任何一頁都只顯示一半，
+// 看起來像資料少了。只有一邊時才有唯一正確的目的地。
+const virtRoute = computed<string | null>(() => {
+  const pve = !!intg.value.proxmox;
+  const vmw = !!intg.value.esxi;
+  if (pve && vmw) return null;
+  if (vmw) return "virt_vmware";
+  return "virt";
+});
 
 const hierLayers = computed(() => [
   { key: "locations", label: "nav.locations",     icon: LocationsIcon,      value: data.value?.locations ?? 0, route: "locations", color: "#0ea5e9" },
@@ -270,7 +277,8 @@ onMounted(() => { void load(); void loadPins(); });
         <div class="hier-chain">
           <template v-for="(layer, i) in hierLayers" :key="layer.key">
             <span v-if="i > 0" class="hier-arrow">→</span>
-            <div class="hier-node" :title="t(layer.label)" @click="go(layer.route)">
+            <div class="hier-node" :class="{ 'hier-node--static': !layer.route }"
+                 :title="t(layer.label)" @click="layer.route && go(layer.route)">
               <div class="hier-top">
                 <span class="hier-badge" :style="{ background: layer.color + '1f', color: layer.color }">
                   <n-icon :size="15"><component :is="layer.icon" /></n-icon>
@@ -663,6 +671,10 @@ onMounted(() => { void load(); void loadPins(); });
   transition: transform .12s, box-shadow .12s;
 }
 .hier-node:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
+/* 沒有唯一目的地的節點（例如同時用了兩套虛擬化）→ 不要看起來可以點。
+   規則要寫在 .hier-node 之後：同樣是單一 class 選擇器，後面的才蓋得過去。 */
+.hier-node--static { cursor: default; }
+.hier-node--static:hover { transform: none; box-shadow: none; }
 .hier-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .hier-badge {
   width: 26px; height: 26px; border-radius: 7px; flex: 0 0 auto;

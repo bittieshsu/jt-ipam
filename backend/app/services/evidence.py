@@ -24,7 +24,7 @@ ARP 快取一直留著那筆記錄（v0.5.206/0.5.207 修）。當時的問題�
 |---|---|---|
 | `asserted` | 人宣告的意圖，不是觀測 | manual |
 | `probed` | 我們主動去探、當場得到回應 | scanner |
-| `monitored` | 第三方監控系統回報的裝置狀態 | librenms、zabbix、wazuh |
+| `monitored` | 第三方系統維護、且**由對方負責過期**的狀態證據 | librenms、zabbix、wazuh、防火牆的 ARP 表／VPN 連線 |
 | `learned` | 被動學到的對應關係，**不代表現在還成立** | arp、fdb、dns、dhcp、虛擬化平台的設定 |
 
 `learned` 一律 `aging=False`：它們回答的是「這個對應曾經被學到」，不是「現在活著」。
@@ -89,6 +89,34 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("opnsense", TIER_LEARNED, aging=False),
     _s("pfsense", TIER_LEARNED, aging=False),
     _s("fortigate", TIER_LEARNED, aging=False),
+    _s("paloalto", TIER_LEARNED, aging=False),
+    # ── 防火牆給的逐來源證據 ────────────────────────────────────
+    # 為什麼要拆到這麼細：這些資料原本全都被寫進 `last_seen_scanner`，於是畫面上
+    # 出現「online (scanner)」卻根本沒有掃描代理。來源看不出來，就沒辦法只採信
+    # 其中一部分 —— 而它們的可信度差很多：
+    #
+    #   arp:<廠牌>   防火牆自己的 ARP 表。條目由防火牆按逾時淘汰（分鐘級），我們每輪
+    #                重讀 →「這一輪還在表裡」是有時間意義的 → aging=True。
+    #                （**靜態／永久項目不會淘汰**，所以 stamp 時會跳過，見 arp_seen.py）
+    #   vpn:<廠牌>   目前已建立的 VPN 連線／隧道。對方此刻連著才會出現 → aging=True。
+    #   lease:<廠牌> DHCP 租約。租期常常是好幾天，比機器的開機時間長得多 ——
+    #                「有租約」不等於「現在活著」→ aging=False，預設不採信。
+    #
+    # 對照組：`arp:librenms`（＝舊的籠統 "arp"）不會過期。LibreNMS 的 ARP API 不回
+    # 任何時間欄位，來源設備（AP／路由器）的快取不老化，關機數週的機器也會一直看起來
+    # 剛剛才出現 —— 那正是 0.5.206 那次「52 天全綠」事故的成因。
+    _s("arp:opnsense", TIER_MONITORED, aging=True),
+    _s("arp:pfsense", TIER_MONITORED, aging=True),
+    _s("arp:fortigate", TIER_MONITORED, aging=True),
+    _s("arp:paloalto", TIER_MONITORED, aging=True),
+    _s("arp:librenms", TIER_LEARNED, aging=False),
+    _s("vpn:opnsense", TIER_MONITORED, aging=True),
+    _s("vpn:pfsense", TIER_MONITORED, aging=True),
+    _s("vpn:fortigate", TIER_MONITORED, aging=True),
+    _s("lease:opnsense", TIER_LEARNED, aging=False),
+    _s("lease:pfsense", TIER_LEARNED, aging=False),
+    _s("lease:fortigate", TIER_LEARNED, aging=False),
+    _s("lease:paloalto", TIER_LEARNED, aging=False),
     _s("windows_dhcp", TIER_LEARNED, aging=False),
     _s("adguard", TIER_LEARNED, aging=False),
 
@@ -103,7 +131,22 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
 
 #: 實際會餵進上線判定的來源（在 ip_addresses 上有對應的 last_seen_* 欄位）。
 #: 這是「有登記」與「真的有資料進來」的交集 —— 不要把只登記、沒接線的來源列進設定頁。
-LIVENESS_SOURCES: tuple[str, ...] = ("scanner", "librenms", "arp")
+LIVENESS_SOURCES: tuple[str, ...] = (
+    "scanner", "librenms", "wazuh",
+    # 舊的籠統 "arp" 保留在清單裡：既有站台存下來的設定不會因為升級被丟掉。
+    # 它對應的是 LibreNMS 寫的 `last_seen_arp`，語意等同 `arp:librenms`。
+    "arp",
+    # `arp:librenms` 有登記（見上），但**不列進設定頁** —— 它就是上面那個 "arp"，
+    # 兩個都列只會讓人以為是兩種不同的證據。
+    "arp:opnsense", "arp:pfsense", "arp:fortigate", "arp:paloalto",
+    "vpn:opnsense", "vpn:pfsense", "vpn:fortigate",
+    "lease:opnsense", "lease:pfsense", "lease:fortigate", "lease:paloalto",
+)
+
+#: 存在 `ip_addresses.arp_seen` JSONB 裡的那些（其餘各有自己的 last_seen_* 欄位）。
+DETAILED_SOURCES: tuple[str, ...] = tuple(
+    s for s in LIVENESS_SOURCES if ":" in s and s != "arp:librenms"
+)
 
 
 def default_liveness_sources() -> list[str]:
