@@ -4,6 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.5.245] — 2026-09-02
+
+### 新增
+- **文件站新增 BMC / SOL 設定頁**（`docs/bmc-sol.html`，從功能地圖與 BMC 主控台的設定教學可以點進去）。
+  在這之前，關於 BIOS 我們只寫了一句「把 Console Redirection 指到同一個 COM 埠、115200 8N1」，
+  而真正決定看不看得到畫面的那幾格完全沒提。新頁把 AMI 的 `Console Redirection Settings`
+  畫面重現出來，逐欄給建議值與「設錯會怎樣」，其中最重要的是 **Redirection After BIOS POST**：
+  不是 `Always Enable` 的話，轉播會在 POST 結束時停掉 —— 症狀是「看得到 BIOS，開機之後就沒畫面」，
+  很容易被誤判成作業系統那邊沒設好。另附「症狀 → 先看哪一格」對照表（空白、亂碼、送幾行就凍住、
+  方框字、畫面被切掉），以及 HPE iLO／Dell iDRAC／Supermicro 上對應的設定名稱。
+
 ## [0.5.244] — 2026-09-02
 
 ### 新增

@@ -1,4 +1,4 @@
-# jt-ipam v0.5.244
+# jt-ipam v0.5.245
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -59,7 +59,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
    - 一般 Linux（GRUB）：在 `/etc/default/grub` 的 `GRUB_CMDLINE_LINUX` 加 `console=tty0 console=ttyS0,115200n8`，再 `update-grub`。
    - Proxmox VE（systemd-boot／ZFS）：把同一段加到 `/etc/kernel/cmdline`，再 `proxmox-boot-tool refresh`。
 3. **啟用序列登入**（立即生效、免重開機）：`systemctl enable --now serial-getty@ttyS0`。
-4. **（選用）BIOS Console Redirection** —— 指到同一個 COM 埠（115200 8N1），SOL 才看得到 POST／BIOS。
+4. **（選用）BIOS Console Redirection** —— 指到同一個 COM 埠（115200 8N1），SOL 才看得到 POST／BIOS。逐欄建議值（Terminal Type、Flow Control、**Redirection After BIOS POST** …）見[BMC / SOL 設定教學](https://jasoncheng7115.github.io/jt-ipam/bmc-sol.html?lang=zh-TW)。
 5. **重新開機**讓 `console=` 生效 —— 之後 SOL 就能看到完整開機與 kernel panic。實體螢幕不受影響。
 
 只想馬上能登入？做步驟 3 就夠了。同一份教學也內建在 App 裡，從 BMC 主控台的 **設定教學** 按鈕打開。

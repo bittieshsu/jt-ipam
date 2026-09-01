@@ -1,4 +1,4 @@
-# jt-ipam v0.5.244
+# jt-ipam v0.5.245
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -59,7 +59,7 @@ SOL only relays the host's **serial port**, so the host needs a serial console c
    - Generic Linux (GRUB): add `console=tty0 console=ttyS0,115200n8` to `GRUB_CMDLINE_LINUX` in `/etc/default/grub`, then `update-grub`.
    - Proxmox VE (systemd-boot / ZFS): append the same to `/etc/kernel/cmdline`, then `proxmox-boot-tool refresh`.
 3. **Enable serial login** (immediate, no reboot): `systemctl enable --now serial-getty@ttyS0`.
-4. **(Optional) BIOS Console Redirection** — point it at the same COM port (115200 8N1) to also see POST / BIOS over SOL.
+4. **(Optional) BIOS Console Redirection** — point it at the same COM port (115200 8N1) to also see POST / BIOS over SOL. Per-field values (Terminal Type, Flow Control, **Redirection After BIOS POST**, …) are in the [BMC / SOL setup guide](https://jasoncheng7115.github.io/jt-ipam/bmc-sol.html?lang=en).
 5. **Reboot** so `console=` takes effect — then SOL shows the whole boot and kernel panics. The physical monitor is unaffected.
 
 Just want a login now? Step 3 alone is enough. The same guide is built into the app, from the BMC console's **Setup guide** button.

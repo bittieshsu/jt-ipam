@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.245] — 2026-09-02
+
+### Added
+- **A BMC / SOL setup page on the documentation site** (`docs/bmc-sol.html`, linked from the feature
+  map and from the BMC console's own setup guide). Until now the only thing said about the BIOS was
+  one optional line — "point console redirection at the same COM port, 115200 8N1" — which leaves out
+  the fields that actually decide whether you see anything. The page reproduces the AMI
+  `Console Redirection Settings` screen with a recommended value for every field and what breaks when
+  it is wrong, most importantly **Redirection After BIOS POST**: anything other than `Always Enable`
+  stops the relay when POST ends, so you see the BIOS and then nothing after boot — which is easy to
+  misread as a missing setting on the operating-system side. It also maps each symptom (blank screen,
+  garbage, freezing after a few lines, replacement boxes, cut-off edges) to the one field to check
+  first, and names the equivalent setting on HPE iLO, Dell iDRAC and Supermicro.
+
 ## [0.5.244] — 2026-09-02
 
 ### Added

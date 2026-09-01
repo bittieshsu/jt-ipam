@@ -2968,7 +2968,8 @@
     "guide_ts_term": "Boxes / colors look broken (e.g. glances)",
     "guide_ts_term_d": "Set the serial login's TERM to xterm-256color (serial-getty often defaults to vt220).",
     "guide_ts_size": "Console area is tiny with black margins",
-    "guide_ts_size_d": "Serial can't auto-negotiate size — use the toolbar's Fit to window button (sends stty), or run stty rows N cols N yourself."
+    "guide_ts_size_d": "Serial can't auto-negotiate size — use the toolbar's Fit to window button (sends stty), or run stty rows N cols N yourself.",
+    "guide_s4_link": "Per-field values →"
   },
   "notif": {
     "ipreq_approved": "IP request approved",

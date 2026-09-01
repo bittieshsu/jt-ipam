@@ -297,7 +297,13 @@ proxmox-boot-tool refresh</pre>
           <span class="bmc-guide-num">4</span>
           <div class="bmc-guide-body">
             <h4>{{ t("bmc.guide_s4") }}</h4>
-            <p>{{ t("bmc.guide_s4_d") }}</p>
+            <p>
+              {{ t("bmc.guide_s4_d") }}
+              <!-- 逐欄的建議值（Redirection After BIOS POST 之類）放在文件站，
+                   這裡不重複貼一整張表把教學撐長 -->
+              <a class="bmc-guide-link" href="https://jasoncheng7115.github.io/jt-ipam/bmc-sol.html"
+                 target="_blank" rel="noopener">{{ t("bmc.guide_s4_link") }}</a>
+            </p>
           </div>
         </div>
 
@@ -373,6 +379,7 @@ html[data-theme="dark"] .bmc-guide-intro { color: #b6c2d4; }
 .bmc-guide-num { flex: none; width: 24px; height: 24px; border-radius: 50%; background: #18a058; color: #fff;
   font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
 .bmc-guide-body { flex: 1; min-width: 0; }
+.bmc-guide-link { color: #63e2b7; white-space: nowrap; }
 .bmc-guide-body h4 { margin: 2px 0 4px; font-size: 14px; }
 .bmc-guide-body p { margin: 0 0 8px; color: #666; font-size: 13px; }
 html[data-theme="dark"] .bmc-guide-body p { color: #a6b2c4; }

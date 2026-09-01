@@ -2968,7 +2968,8 @@
     "guide_ts_term": "方框字／顏色亂（例如 glances）",
     "guide_ts_term_d": "把序列登入的 TERM 設成 xterm-256color（serial-getty 預設常是 vt220）。",
     "guide_ts_size": "畫面範圍很小、四周留黑",
-    "guide_ts_size_d": "序列無法自動傳視窗大小，按工具列的「符合視窗」（送 stty 對齊），或自行 stty rows N cols N。"
+    "guide_ts_size_d": "序列無法自動傳視窗大小，按工具列的「符合視窗」（送 stty 對齊），或自行 stty rows N cols N。",
+    "guide_s4_link": "逐欄建議值 →"
   },
   "notif": {
     "ipreq_approved": "IP 申請已核准",
