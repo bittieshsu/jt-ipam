@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.243] — 2026-09-01
+
+### Fixed (a sweep of accounts and permissions)
+- **The login path could demote the last administrator.** With a group mapping configured, the last
+  remaining admin only had to fall out of that group — a renamed group, a typo, a directory change
+  — and the next login revoked their admin, leaving nobody able to reach the admin area short of
+  running the CLI on the server. `PATCH` and `DELETE` already guarded this; login did not. All
+  three external login paths (LDAP, OIDC, SAML) now agree: **the count of effective admins is
+  never allowed to reach zero**.
+- **Deleting a user or a group left orphaned grants.** `permissions.principal_id` can point at
+  either a user or a group, so it cannot have a foreign key — nothing cleans it up. The rows that
+  remain show on the permissions page but match nobody, leaving an audit with a grant it cannot
+  explain (**one already existed in production**; it has been removed). Deletion now clears them
+  and records how many in the audit entry — that is a permission change, not a side effect.
+- **Deleting a subnet, section, customer or device also clears grants pointing at it**
+  (`object_id` has no foreign key either).
+
+### Checked and found sound
+Every user and group endpoint is guarded by `require_admin` at the router level; a deactivated
+account is rejected on each request and on token refresh; changing one's own password requires the
+current one; permission grants and group membership changes are audited; the last-admin guard on
+`PATCH`/`DELETE` remains.
+
+## [0.5.242] — 2026-09-01
+
+### Fixed
+- **Admin granted to an LDAP/SSO account switched itself back off** (reported by a customer). All
+  three external login paths (LDAP, OIDC, SAML) unconditionally ran
+  `is_admin = user is in an admin group`, and the admin-group mapping is **empty by default** — an
+  empty list always evaluates to false, so every login revoked admin. No external account could
+  ever be an administrator, while the switch in the UI looked perfectly usable.
+  That was **inferring "not an admin" from "nothing configured"**: with no mapping, the system
+  knows nothing about who should be an administrator, and the right move is to leave the flag
+  alone and let local administration decide. **With a mapping configured the directory remains the
+  source of truth** — that is the point of configuring it — and the switch now states the rule,
+  because letting someone flip it and silently reverting on next login is the worst of both.
+
 ## [0.5.241] — 2026-08-31
 
 ### Added

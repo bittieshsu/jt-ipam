@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import EmailStr, field_validator
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from app.api.v1.dependencies import require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import hash_password
+from app.models.permission import Permission
 from app.models.user import Group, User, UserGroupMember
 from app.schemas.base import Paginated, StrictModel
 
@@ -251,6 +252,14 @@ async def delete_user(
         ).scalar_one()
         if admin_count <= 1:
             raise HTTPException(409, detail="cannot delete the last active admin")
+    # 權限的 principal_id 同時可能指向 user 或 group，所以建不了外鍵 ——
+    # 也就是說沒有人會幫我們清。不清就會留下孤兒授權：權限頁列得出來、卻對不到任何人，
+    # 稽核時看到一列「不知道是誰」的授權，只能靠猜。（prod 上已經有這種列）
+    removed_perms = (await session.execute(
+        delete(Permission).where(
+            Permission.principal_type == "user", Permission.principal_id == user.id,
+        ).returning(Permission.id)
+    )).scalars().all()
     await session.delete(user)
     await append_audit(
         session,
@@ -258,7 +267,9 @@ async def delete_user(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="user", object_id=str(user_id),
-        action="delete", diff={"username": user.username},
+        action="delete",
+        # 一併清掉幾筆授權要寫進稽核 —— 那是權限異動，不是刪帳號的附帶效果
+        diff={"username": user.username, "permissions_removed": len(removed_perms)},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
@@ -378,6 +389,12 @@ async def delete_group(
         raise HTTPException(404, detail="group not found")
     if g.is_builtin:
         raise HTTPException(409, detail="cannot delete builtin group")
+    # 同上：群組的授權沒有外鍵可以連帶刪除，這裡自己清
+    removed_perms = (await session.execute(
+        delete(Permission).where(
+            Permission.principal_type == "group", Permission.principal_id == g.id,
+        ).returning(Permission.id)
+    )).scalars().all()
     await session.delete(g)
     await append_audit(
         session,
@@ -385,7 +402,8 @@ async def delete_group(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="group", object_id=str(group_id),
-        action="delete", diff={"name": g.name},
+        action="delete",
+        diff={"name": g.name, "permissions_removed": len(removed_perms)},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()

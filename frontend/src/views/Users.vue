@@ -261,11 +261,21 @@ const allColumns = computed<DataTableColumns<User>>(() => autoSort([
   },
   {
     title: t("users.is_admin"), key: "is_admin", width: 90,
-    render: (r) => h(NSwitch, {
-      value: r.is_admin,
-      "onUpdate:value": () => toggleAdmin(r),
-      size: "small",
-    }),
+    // 外部帳號（LDAP / SSO）如果站台設了「管理員群組對應」，這個開關每次登入都會被
+    // 目錄的判定覆寫。讓人按下去、下次登入又變回去，卻不說為什麼，是最糟的一種行為 ——
+    // 所以這裡直接把規則寫在提示裡（沒設對應時就不會被覆寫，可以照常用）。
+    render: (r) => {
+      const sw = h(NSwitch, {
+        value: r.is_admin,
+        "onUpdate:value": () => toggleAdmin(r),
+        size: "small",
+      });
+      if ((r.auth_provider ?? "local") === "local") return sw;
+      return h(NTooltip, null, {
+        trigger: () => sw,
+        default: () => t("users.admin_external_hint"),
+      });
+    },
   },
   {
     title: t("users.can_ssh"), key: "can_ssh", width: 110,

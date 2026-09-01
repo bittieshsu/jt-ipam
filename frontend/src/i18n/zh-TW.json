@@ -806,7 +806,8 @@
     "unlock": "解鎖",
     "assign_perms": "權限指派",
     "deactivate": "停用",
-    "reactivate": "啟用"
+    "reactivate": "啟用",
+    "admin_external_hint": "這是外部帳號（LDAP / SSO）。若站台設定了「管理員群組對應」，這個開關會在每次登入時依目錄的群組重新判定；沒有設定對應時才由這裡決定。"
   },
   "ipChanges": {
     "title": "IP 異動記錄",

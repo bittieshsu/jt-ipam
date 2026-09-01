@@ -333,7 +333,14 @@ async def upsert_user_from_saml(
     else:
         user.email = email or user.email
         user.display_name = display_name or user.display_name
-        user.is_admin = is_admin
+        # 只有設定過管理員群組對應時才由 IdP 決定（見 services/auth.py 的說明）——
+        # 沒設定就寫 False 等於把「沒有設定」當成「不是管理員」，會把本機開的權限
+        # 在下次登入時安靜地關掉。
+        from app.services.auth import _would_orphan_admins
+        if cfg.admin_groups and not (
+            user.is_admin and not is_admin and await _would_orphan_admins(session, user)
+        ):
+            user.is_admin = is_admin
 
     user.last_login_at = datetime.now(UTC)
     user.last_login_ip = actor_ip

@@ -806,7 +806,8 @@
     "unlock": "Unlock",
     "assign_perms": "Assign permissions",
     "deactivate": "Deactivate",
-    "reactivate": "Reactivate"
+    "reactivate": "Reactivate",
+    "admin_external_hint": "This is an external account (LDAP / SSO). If the site configures an admin-group mapping, this switch is re-evaluated from the directory on every login; it is only decisive when no mapping is configured."
   },
   "ipChanges": {
     "title": "IP Change Log",

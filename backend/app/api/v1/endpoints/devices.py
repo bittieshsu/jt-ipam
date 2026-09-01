@@ -543,6 +543,10 @@ async def delete_device(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.delete(obj)
+    # 物件沒了，指向它的授權也不該留著（permissions.object_id 沒有外鍵，沒有人會自動清）
+    from app.services.permission import purge_permissions_for_object
+    await purge_permissions_for_object(session, object_type="device", object_id=device_id)
+
     await session.commit()
 
 

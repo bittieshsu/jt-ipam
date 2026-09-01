@@ -12,7 +12,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import append_audit
@@ -56,6 +56,28 @@ class AccountInactive(AuthError):
 
 class TokenInvalid(AuthError):
     public_message = "Invalid or expired token"
+
+
+async def _would_orphan_admins(session: AsyncSession, user: User) -> bool:
+    """把這個人降權之後，系統會不會一個有效的管理員都不剩。
+
+    PATCH 與 DELETE 早就有這道保護，**登入這條路徑沒有**。設了群組對應之後，
+    最後一位管理員只要哪天掉出那個群組（群組改名、打錯字、目錄異動），
+    下次登入就被降權 —— 從此沒有人進得了管理區，只能到伺服器上跑 CLI 救。
+
+    目錄是唯一真相沒錯，但「一個管理員都不剩」是不可逆的鎖死；這個專案在另外兩條
+    路徑上早就選了同一個答案，這裡跟著一致。
+    """
+    from app.models.user import User as _User
+
+    if not (user.is_admin and user.is_active):
+        return False
+    count = (await session.execute(
+        select(func.count()).select_from(_User).where(
+            _User.is_admin.is_(True), _User.is_active.is_(True),
+        )
+    )).scalar_one()
+    return count <= 1
 
 
 async def authenticate(
@@ -179,7 +201,19 @@ async def authenticate(
                     user_id=user.id, group_id=_uuid.UUID(str(ldap_cfg.default_group_id))))
             await _audit("ldap_auto_provision", success=True, reason=None, target_user=user)
         else:
-            user.is_admin = info.is_admin
+        # 只有在「管理員群組對應」真的設定過時，才由目錄決定管理員身分。
+        #
+        # 沒設定就把 is_admin 寫成 False 是**從「沒有設定」推出「不是管理員」**：
+        # 空清單的 `any(...)` 恆為 False，於是本機管理員在介面上開的權限，
+        # 下一次登入就被安靜地關掉 —— 使用者看到的是「開了又自己關掉」，
+        # 而且完全不知道為什麼（客戶回報）。
+        #
+        # 有設定 → 目錄是唯一真相（那正是設定它的用意），照舊覆寫。
+            if ldap_cfg.admin_groups and not (
+                user.is_admin and not info.is_admin
+                and await _would_orphan_admins(session, user)
+            ):
+                user.is_admin = info.is_admin
             if info.display_name:
                 user.display_name = info.display_name
             # email 是唯一鍵：LDAP 回的 email 常與同一人的本機帳號重複，

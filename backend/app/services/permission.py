@@ -437,3 +437,25 @@ async def seed_default_roles(session: AsyncSession) -> int:
                 ))
     await session.commit()
     return created
+
+
+async def purge_permissions_for_object(
+    session: AsyncSession, *, object_type: str, object_id: Any,
+) -> int:
+    """物件被刪掉時，一併清掉指向它的授權。回傳清掉幾筆。
+
+    `permissions.object_id` 沒有外鍵（它指向七種表其中之一），所以沒有人會自動清。
+    留著雖然不會讓誰多拿到權限（物件已經不存在，比對永遠不會命中），但那是**看不見的
+    垃圾**：權限頁列得出來卻點不進去，稽核時也解釋不了。與 principal 側同一套處理。
+    """
+    from sqlalchemy import delete as _delete
+
+    from app.models.permission import Permission
+
+    rows = (await session.execute(
+        _delete(Permission).where(
+            Permission.object_type == object_type,
+            Permission.object_id == object_id,
+        ).returning(Permission.id)
+    )).scalars().all()
+    return len(rows)

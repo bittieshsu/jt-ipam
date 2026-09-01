@@ -399,6 +399,10 @@ async def delete_subnet(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.delete(subnet)
+    # 物件沒了，指向它的授權也不該留著（permissions.object_id 沒有外鍵，沒有人會自動清）
+    from app.services.permission import purge_permissions_for_object
+    await purge_permissions_for_object(session, object_type="subnet", object_id=subnet_id)
+
     await session.commit()
     # 刪父網段後，子網段重新歸位到上一層
     await rebuild_subnet_hierarchy(session)
