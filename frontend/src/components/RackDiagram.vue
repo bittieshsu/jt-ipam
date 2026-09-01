@@ -229,6 +229,8 @@ interface DevPart {
   vendor: string | null;
   model: string | null;
   u_size: number;
+  /** 這台在畫面上占幾格（用來讓名稱跨整台置中） */
+  run: number;
   side: "full" | "left" | "right";
   is_top: boolean;     // device 最上格
   is_bottom: boolean;  // device 最下格
@@ -272,7 +274,7 @@ const cells = computed<Cell[]>(() => {
   for (let u = 1; u <= u_height; u++) map[u] = { u, full: null, left: null, right: null };
   const mk = (d: any, side: "full" | "left" | "right"): DevPart => ({
     id: d.device_id, name: d.name, type: d.type, vendor: d.vendor, model: d.model,
-    u_size: d.u_size, side, is_top: false, is_bottom: false, is_mid: false,
+    u_size: d.u_size, side, is_top: false, is_bottom: false, is_mid: false, run: 1,
     primary_ip: d.primary_ip,
   });
   for (const d of props.diagram.devices) {
@@ -303,7 +305,12 @@ const cells = computed<Cell[]>(() => {
       (runs[p.id] ??= []).push(i);
     });
     for (const idxs of Object.values(runs)) {
-      order[idxs[Math.floor((idxs.length - 1) / 2)]][key]!.is_mid = true;
+      // 名稱畫在**最上面**那一格，再用絕對定位跨滿整台的高度置中。
+      //
+      // 原本是挑「中間那一格」來畫（`Math.floor((len-1)/2)`），但偶數 U 沒有正中間的
+      // 一格：2U 會取到上面那格，名稱因此偏高半格。跨整台置中就與 U 數的奇偶無關。
+      order[idxs[0]][key]!.is_mid = true;
+      for (const i of idxs) order[i][key]!.run = idxs.length;
     }
   }
   return order;
@@ -365,7 +372,10 @@ const cells = computed<Cell[]>(() => {
                   @mouseleave="hoveredId = null"
                   @click="goDevice(cell.full.id)"
                 >
-                  <span v-if="cell.full.is_mid" class="d-name">{{ cell.full.name }}</span>
+                  <span v-if="cell.full.is_mid" class="d-name d-name-span"
+                        :style="{ height: `calc(${cell.full.run} * var(--rd-row-h))` }">
+                    {{ cell.full.name }}
+                  </span>
                 </div>
               </template>
               <div class="rack-tip">
@@ -391,7 +401,10 @@ const cells = computed<Cell[]>(() => {
                       @mouseleave="hoveredId = null"
                       @click="goDevice(cell[half]!.id)"
                     >
-                      <span v-if="cell[half]!.is_mid" class="d-name d-name-half">{{ cell[half]!.name }}</span>
+                      <span v-if="cell[half]!.is_mid" class="d-name d-name-half d-name-span"
+                            :style="{ height: `calc(${cell[half]!.run} * var(--rd-row-h))` }">
+                        {{ cell[half]!.name }}
+                      </span>
                     </div>
                   </template>
                   <div class="rack-tip">
@@ -459,6 +472,11 @@ const cells = computed<Cell[]>(() => {
   color: rgba(127, 127, 127, 0.75);
 }
 .rack-frame {
+  /* 一格 U 的高度。名稱要跨整台置中，得知道一格多高 —— 所以放成變數，
+     compact 模式只要改這一個值。 */
+  --rd-row-h: 28px;
+  /* 裝置外框的線寬（見 .u-occupied）。名稱置中要用它把邊框的厚度補回去。 */
+  --rd-border: 2px;
   border: 2px solid rgba(127, 127, 127, 0.5);
   border-radius: 4px;
   padding: 4px;
@@ -469,7 +487,7 @@ const cells = computed<Cell[]>(() => {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  height: 28px;
+  height: var(--rd-row-h, 28px);
   border-bottom: 1px dashed rgba(127, 127, 127, 0.2);
   padding: 0 8px;
   font-size: 12px;
@@ -530,6 +548,23 @@ const cells = computed<Cell[]>(() => {
 .u-half.u-pickable:hover { background: rgba(24, 160, 88, 0.14); color: var(--primary-color, #18a058); }
 .u-half.u-pickable:hover .u-plus { opacity: 1; }
 .d-name-half { max-width: 100%; padding: 0 3px; }
+/* 名稱跨整台裝置置中。
+   **一定要絕對定位並貼齊 top**：只給高度的話，它會以所在的那一格為中心上下溢出，
+   文字仍然停在第一格的中央 —— 也就是原本 2U 偏高半格的老問題，換個寫法而已。 */
+.d-name-span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* 絕對定位是相對「內距框」，但裝置的可見範圍是「邊框框」——
+     不補回上邊框的厚度，名稱會整個往下偏一個邊框的量（1U 實測差 2px）。 */
+  top: calc(-1 * var(--rd-border, 2px));
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: inherit;
+  pointer-events: none;
+}
+.d-name-half.d-name-span { padding: 0 3px; }
 .u-num {
   display: inline-block;
   width: 22px;
@@ -563,6 +598,7 @@ const cells = computed<Cell[]>(() => {
 .u-dim { opacity: 0.32; filter: grayscale(0.4); }
 .u-dim .d-name { opacity: 0.7; }
 /* compact：較小列高，給裝置詳細資料側欄用 */
+.rd-compact .rack-frame { --rd-row-h: 18px; }
 .rd-compact .u-row { height: 18px; font-size: 10px; }
 .rd-compact .u-num-out { height: 18px; font-size: 9px; }
 .rd-compact .d-name { font-size: 10px; max-width: 90px; }

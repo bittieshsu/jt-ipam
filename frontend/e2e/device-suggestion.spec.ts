@@ -38,7 +38,13 @@ test("沒有裝置時給建議，按下去才建立，並一併接上同名的 I
   await expect(createBtn).toContainText("laptop-07");
 
   // 2) 同名的其他 IP 有幾筆要講清楚（種了 5 筆，另外 4 筆）
-  await expect(page.getByText(/同時關聯另外 4 筆同名 IP/)).toBeVisible();
+  // 同名的其他 IP 是**候選**，要把證據攤開；而且預設不能全部勾起來
+  await expect(page.getByText(/另有 4 筆 IP 用同一個主機名稱/)).toBeVisible();
+  await expect(page.getByText(/同名不代表同一台/)).toBeVisible();
+  const boxes = page.locator(".sug-siblings .n-checkbox");
+  await expect(boxes).toHaveCount(4);
+  // 種的資料沒有 MAC，所以一個都不該預先勾選 —— 預設把猜測當事實正是要避免的
+  await expect(page.locator(".sug-siblings .n-checkbox--checked")).toHaveCount(0);
 
   // 3) 還沒按之前，不可以已經有裝置 —— 建議不能有副作用
   // ⚠️ page.request 不會帶我們的授權標頭（token 存在 localStorage、不是 cookie），
@@ -57,9 +63,14 @@ test("沒有裝置時給建議，按下去才建立，並一併接上同名的 I
   await expect(createBtn).toBeHidden({ timeout: 20_000 });
   await expect(page.getByText("laptop-07").first()).toBeVisible();
 
-  // 5) 同名的 IP 也接上了 —— 再問一次建議，已經沒有未關聯的同名 IP
-  const after = await page.request.get(
-    `/api/v1/addresses/${IP_ID}/device-suggestion`, { headers: await auth() });
-  const body = await after.json();
-  expect(body.sibling_unlinked, "同名的 IP 沒有一起接上").toBe(0);
+  // 5) 沒有勾選的同名 IP **一筆都不可以**被動到。
+  //    這裡要逐筆去看那幾筆 IP —— 不能再問一次建議：本 IP 已經有裝置了，
+  //    建議端點會直接短路回空，那個 0 是「不必建議」不是「沒有同名 IP」。
+  const siblings = (await before.json()).siblings as { id: string; ip: string }[];
+  expect(siblings.length).toBe(4);
+  for (const s of siblings) {
+    const r = await page.request.get(`/api/v1/addresses/${s.id}`, { headers: await auth() });
+    expect((await r.json()).device_id,
+      `沒勾的 ${s.ip} 也被掛上了 —— 同名不足以認定是同一台機器`).toBeNull();
+  }
 });

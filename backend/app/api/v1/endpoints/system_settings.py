@@ -476,6 +476,40 @@ class CooldownOut(StrictModel):
     days: Annotated[int, Field(ge=0, le=3650)]
 
 
+class CertExpiryOut(StrictModel):
+    """憑證到期通知的**全域預設**天數。每張憑證仍可各自覆寫。"""
+
+    days: Annotated[int, Field(ge=1, le=365)]
+
+
+@public_router.get("/cert-expiry-alert", response_model=CertExpiryOut)
+async def get_cert_expiry_alert(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CertExpiryOut:
+    from app.services.system_config import get_cert_expiry_days
+    return CertExpiryOut(days=await get_cert_expiry_days(session))
+
+
+@router.put("/cert-expiry-alert", response_model=CertExpiryOut)
+async def put_cert_expiry_alert(
+    payload: CertExpiryOut, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CertExpiryOut:
+    from app.services.system_config import set_cert_expiry_days
+    days = await set_cert_expiry_days(session, days=payload.days, updated_by_user_id=user.id)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "cert_expiry_alert", "days": days},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return CertExpiryOut(days=days)
+
+
 @public_router.get("/ip-cooldown", response_model=CooldownOut)
 async def get_ip_cooldown(
     _user: CurrentUser,

@@ -183,6 +183,9 @@ async def notify_rule_change(
         session, event="firewall.rules_changed", severity="warning",
         title=f"防火牆「{instance_name}」規則有異動",
         body="\n".join(lines),
+        # 通知一定要帶得到該看的那一頁。少了它，點下去只會留在原地 ——
+        # 使用者得自己想起「規則異動在哪個選單」，那本來就是通知該做的事。
+        link="/fw-rule-changes",
     )
 
 

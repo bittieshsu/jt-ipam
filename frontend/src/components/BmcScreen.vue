@@ -55,7 +55,9 @@ const credOptions = ref<{ label: string; value: string }[]>([]);
 async function loadCreds() {
   try {
     creds.value = await listBmcCredentials(props.addressId);
-    credOptions.value = creds.value.map((c) => ({ label: `${c.label} (${c.username})`, value: c.id }));
+    credOptions.value = [
+    { label: t('ssh.cred_manual'), value: null as unknown as string },
+    ...creds.value.map((c) => ({ label: `${c.label} (${c.username})`, value: c.id }))];
     if (creds.value.length && !selectedCredId.value) selectedCredId.value = creds.value[0].id;
   } catch { /* ignore */ }
 }

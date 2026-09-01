@@ -223,7 +223,13 @@
     "device_hint": "選擇此代理所在的裝置",
     "device_help": "對應後，清單與現況頁的代理名稱可點進該裝置詳細資料；來源 IP 若在 IPAM 有對應位址也可點進去。",
     "go_device": "前往裝置：{name}",
-    "cert_deleted": "憑證已刪除"
+    "cert_deleted": "憑證已刪除",
+    "warn_days_title": "到期通知：{name}",
+    "warn_days_label": "到期前幾天通知",
+    "warn_days_use_default": "沿用全域預設（{n} 天）",
+    "warn_days_default": "到期通知：沿用預設 {n} 天",
+    "warn_days_set": "到期通知：提前 {n} 天",
+    "warn_days_hint": "不同憑證的更新流程長短不同：手動申請的商業憑證需要提前準備，自動續簽的不必太早提醒。未設定則沿用系統設定裡的全域預設。"
   },
   "nav": {
     "dashboard": "儀表板",
@@ -676,7 +682,8 @@
     "err_username": "請輸入帳號",
     "err_ticket": "無法建立連線（權限或網路問題）",
     "err_ws": "WebSocket 連線失敗",
-    "err_generic": "連線發生錯誤"
+    "err_generic": "連線發生錯誤",
+    "cred_manual": "使用其他帳密（手動輸入）"
   },
   "rdp": {
     "connect": "RDP 連線",
@@ -1190,7 +1197,8 @@
     "state_quarantine": "隔離中",
     "suggest_link": "關聯到既有裝置「{name}」",
     "suggest_create": "建立裝置「{name}」並關聯",
-    "suggest_siblings": "同時關聯另外 {n} 筆同名 IP（DHCP 的同一台機器）"
+    "suggest_siblings_hint": "另有 {n} 筆 IP 用同一個主機名稱。⚠️ 同名不代表同一台 —— DHCP 位址回收後舊主機名稱會留著，請比對 MAC 再勾選：",
+    "suggest_same_mac": "MAC 相同"
   },
   "subnets": {
     "title": "子網路",
@@ -1826,7 +1834,9 @@
     "fw_rot": "防火牆規則劣化",
     "explain_fw_rule_rot": "生效中的規則裡「已經不對勁」的部分：埠轉發指向 IPAM 沒有的位址（目標可能已回收）、any → any 放行（等於該介面沒有防火牆）、WAN 介面對任意來源開放管理埠（SSH／RDP／VNC／IPMI）。手動建立的 NAT 與停用中的規則不列入。",
     "arp_only": "僅 ARP 看得到",
-    "explain_arp_only_liveness": "這些 IP 看起來在線，但唯一的證據是 ARP 記錄 —— 而 ARP 沒有時間資訊，來源設備（AP／路由器）的快取不會過期。機器就算已經關機，這裡仍會顯示上線。要確認實際狀態，請用掃描代理探測，或改由 LibreNMS／Zabbix 納管。"
+    "explain_arp_only_liveness": "這些 IP 看起來在線，但唯一的證據是 ARP 記錄 —— 而 ARP 沒有時間資訊，來源設備（AP／路由器）的快取不會過期。機器就算已經關機，這裡仍會顯示上線。要確認實際狀態，請用掃描代理探測，或改由 LibreNMS／Zabbix 納管。",
+    "stale_link": "裝置關聯可能過期",
+    "explain_stale_device_links": "這些 IP 掛著某台裝置，但**位址在關聯之後又換過 MAC** —— 多半是位址被回收給另一台機器（DHCP 常見），關聯已經指到錯的裝置。系統刻意不自動解除：要不要拆是人的判斷。請比對現在的 MAC 與那台裝置，再決定改掛或清空。"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -1968,7 +1978,12 @@
     "expand_ref": "展開",
     "rule_disabled": "已停用",
     "from": "來源",
-    "to": "目的"
+    "to": "目的",
+    "vm_status_running": "執行中",
+    "vm_status_stopped": "已停止",
+    "vm_status_paused": "已暫停",
+    "vm_status_suspended": "已休眠",
+    "vm_status_unknown": "未知"
   },
   "physical": {
     "cabling": "佈線",
@@ -2565,7 +2580,12 @@
     "wz_instance": "Wazuh 來源",
     "wz_sca": "資安組態評估",
     "wz_sca_counts": "通過 {pass} ／ 未通過 {fail}",
-    "wz_sca_worst": "此機共 {n} 個基準，顯示分數最低的一個"
+    "wz_sca_worst": "此機共 {n} 個基準，顯示分數最低的一個",
+    "vm_name": "虛擬機",
+    "vm_node": "所在主機",
+    "vm_cluster": "叢集",
+    "vm_vcpu": "虛擬處理器",
+    "vm_memory": "記憶體 (MB)"
   },
   "relations": {
     "title": "關係圖（上下層物件）",
@@ -2717,7 +2737,10 @@
     "rack_embed_token_hint": "這串等同一把鑰匙，任何拿到的人都能看到已開放機櫃的示意圖（含裝置名稱與位置）。請勿貼到公開場合。",
     "rack_embed_regen": "重新產生權杖",
     "rack_embed_regen_confirm": "重新產生後，所有既有的嵌入網址會立刻失效，需要重新貼一次。確定嗎？",
-    "rack_embed_regenerated": "已重新產生權杖，舊網址即刻失效"
+    "rack_embed_regenerated": "已重新產生權杖，舊網址即刻失效",
+    "grp_cert_alert": "憑證到期通知",
+    "cert_expiry_days": "到期前幾天通知（預設）",
+    "cert_expiry_days_hint": "全域預設。每張憑證可以在「憑證派送」頁各自覆寫 —— 手動申請的商業憑證需要提前準備，自動續簽的不必太早提醒。"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",

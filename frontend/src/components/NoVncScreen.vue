@@ -63,9 +63,13 @@ let detachLinks: (() => void) | null = null;
 const { attachTerminalLinks } = useTerminalLinks();
 let heartbeat: number | null = null;
 
-const credOptions = computed(() => savedCreds.value.map((c) => ({
-  label: `${c.label}（${c.username}）`, value: c.id,
-})));
+const credOptions = computed(() => [
+  // 「用別組帳密」必須在**下拉裡**看得到 —— 只靠 hover 才出現的 ✕ 不算可發現
+  { label: t("ssh.cred_manual"), value: null as unknown as string },
+  ...savedCreds.value.map((c) => ({
+    label: `${c.label}（${c.username}）`, value: c.id,
+  })),
+]);
 
 async function loadCreds() {
   try {

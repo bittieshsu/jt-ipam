@@ -47,6 +47,9 @@ interface Row {
   owner: string | null; wazuh: string | null;
   status: string | null; online: boolean | null; statusSrc: string;
   descr: string; key: string; fqdns: string[];
+  /** 這一列的穩定識別。**不可以用陣列索引** —— 過濾之後同一個索引會指到不同的列，
+   *  表格會拿舊的列來重用，於是被篩掉的列還留在畫面上（實機遇過：搜尋 A 卻看到 B）。 */
+  uid: string;
 }
 const items = ref<Entry[]>([]);
 const loading = ref(false);
@@ -61,7 +64,7 @@ async function load() {
 }
 onMounted(load);
 
-const rows = computed<Row[]>(() => items.value.map((i) => {
+const rows = computed<Row[]>(() => items.value.map((i, idx) => {
   const ident = i.identity ?? { registered: false };
   const raw = ident.status ?? null;
   const online = raw ? raw.toLowerCase().startsWith("online") : null;
@@ -82,6 +85,8 @@ const rows = computed<Row[]>(() => items.value.map((i) => {
     descr: i.descr || "",
     fqdns: ident.fqdns ?? [],
     key: `${ident.ip ?? "?"}:${i.port ?? ""}`,
+    // 在**未過濾**的來源清單裡的位置 —— 只有重新載入資料才會變
+    uid: `r${idx}`,
   };
 }));
 
@@ -324,7 +329,7 @@ const scrollX = computed(() =>
       <n-tab-pane name="ip" :tab="`${t('surface.tab_ip')} (${shown.length})`">
         <n-data-table :columns="cols" :data="shown" :loading="loading" size="small"
                       :scroll-x="scrollX"
-                      :row-key="(r: Row, i?: number) => `${r.key}-${r.via}-${i}`"
+                      :row-key="(r: Row) => r.uid"
                       :pagination="pg" :bordered="false" />
         <n-empty v-if="!loading && !shown.length" style="margin: 24px 0"
                  :description="t('surface.empty')" />

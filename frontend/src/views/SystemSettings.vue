@@ -28,6 +28,7 @@ import {
   getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign,
   getOnlineGrace, setOnlineGrace,
   getIpCooldown, setIpCooldown,
+  getCertExpiryDays, setCertExpiryDays,
   getGeoipConfig, setGeoipConfig, updateGeoipDbNow,
   type GeoIPConfig, type RackNameAlign,
 } from "@/api/basic";
@@ -82,6 +83,14 @@ const grace = ref(30);
 const livenessSrc = ref<string[]>(["scanner", "librenms"]);
 // IP 生命週期：釋放後的冷卻天數
 const cooldownDays = ref(30);
+// 憑證到期通知的全域預設。每張憑證可各自覆寫（憑證頁的鈴鐺按鈕）——
+// 這裡只是「沒特別設定時用哪個」。
+const certExpiryDays = ref(21);
+async function changeCertExpiry(n: number | null) {
+  if (n == null) return;
+  certExpiryDays.value = n;
+  try { await setCertExpiryDays(n); msg.success(t("common.ok")); } catch (e) { msg.error(apiErrMsg(e)); }
+}
 async function changeCooldown(v: number | null) {
   const n = v ?? 0;
   cooldownDays.value = n;
@@ -346,6 +355,7 @@ onMounted(() => {
   getOnlineGrace().then((c) => { grace.value = c.minutes; livenessSrc.value = c.sources; })
     .catch(() => {});
   getIpCooldown().then((d) => { cooldownDays.value = d; }).catch(() => {});
+  getCertExpiryDays().then((d) => { certExpiryDays.value = d; }).catch(() => {});
   void loadGeoip();
   void loadLdap();
   void loadLdapGroups();
@@ -456,6 +466,17 @@ async function doPreviewAutolink() {
           <n-input-number :value="cooldownDays" :min="0" :max="3650" style="width: 100%"
                           @update:value="changeCooldown" />
           <div class="hint">{{ t("system_settings.cooldown_days_hint") }}</div>
+        </div>
+      </n-card>
+
+      <!-- 憑證到期通知 -->
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_cert_alert") }}</span></template>
+        <div class="fld" style="max-width: 320px">
+          <label>{{ t("system_settings.cert_expiry_days") }}</label>
+          <n-input-number :value="certExpiryDays" :min="1" :max="365" style="width: 100%"
+                          @update:value="changeCertExpiry" />
+          <div class="hint">{{ t("system_settings.cert_expiry_days_hint") }}</div>
         </div>
       </n-card>
 

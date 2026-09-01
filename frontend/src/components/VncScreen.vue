@@ -38,7 +38,9 @@ const credOptions = ref<{ label: string; value: string }[]>([]);
 async function loadCreds() {
   try {
     savedCreds.value = await listVncCredentials(props.addressId);
-    credOptions.value = savedCreds.value.map((c) => ({ label: c.label, value: c.id }));
+    credOptions.value = [
+    { label: t('ssh.cred_manual'), value: null as unknown as string },
+    ...savedCreds.value.map((c) => ({ label: c.label, value: c.id }))];
     if (!selectedCredId.value && savedCreds.value.length) {
       selectedCredId.value = savedCreds.value[0].id;
     }

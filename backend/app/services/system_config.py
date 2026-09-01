@@ -1159,3 +1159,36 @@ async def set_autolink_config(
     flag_modified(row, "value")
     await session.commit()
     return await get_autolink_config(session)
+
+
+# ── 憑證到期通知的全域預設天數 ───────────────────────────────
+CERT_EXPIRY_KEY = "cert_expiry_alert"
+CERT_EXPIRY_DEFAULT_DAYS = 21
+
+
+async def get_cert_expiry_days(session: AsyncSession) -> int:
+    """到期前幾天開始通知的**全域預設**。逐張憑證可以各自覆寫。"""
+    from app.models.system_setting import SystemSetting
+
+    row = await session.get(SystemSetting, CERT_EXPIRY_KEY)
+    val = row.value if row and isinstance(row.value, dict) else {}
+    try:
+        days = int(val.get("days", CERT_EXPIRY_DEFAULT_DAYS))
+    except (TypeError, ValueError):
+        days = CERT_EXPIRY_DEFAULT_DAYS
+    return max(1, min(365, days))
+
+
+async def set_cert_expiry_days(
+    session: AsyncSession, *, days: int, updated_by_user_id: Any = None,
+) -> int:
+    from app.models.system_setting import SystemSetting
+
+    clean = max(1, min(365, int(days)))
+    row = await session.get(SystemSetting, CERT_EXPIRY_KEY)
+    if row is None:
+        row = SystemSetting(key=CERT_EXPIRY_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    row.value = {"days": clean}
+    row.updated_by = updated_by_user_id
+    return clean

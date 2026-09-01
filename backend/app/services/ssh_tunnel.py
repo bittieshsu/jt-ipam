@@ -88,7 +88,9 @@ def server_key_fingerprint_sha256(key_blob: bytes) -> str:
     return f"SHA256:{b64}"
 
 
-async def fetch_host_key(host: str, port: int = 22, timeout: float = 8.0) -> dict[str, str]:
+async def fetch_host_key(
+    host: str, port: int = 22, timeout: float = TunnelConfig.timeout,
+) -> dict[str, str]:
     """連到 host:port 取 server 的 public key，不做認證。
     給 TOFU 流程用 — 把 fingerprint 顯示給 user 確認。
 
@@ -110,7 +112,15 @@ async def fetch_host_key(host: str, port: int = 22, timeout: float = 8.0) -> dic
                 options=asyncssh.SSHClientConnectionOptions(**LEGACY_SSH_ALGS),
             )
     except TimeoutError as exc:
-        raise SSHTunnelError(f"SSH connect timeout to {host}:{port}") from exc
+        # 這一步是**整條路徑上第一個**連出去的動作，卻曾經是逾時最短的一個（8 秒，
+        # 比真正連線的 15 秒還短）—— 於是「連得上、只是第一次慢」會被報成連不上。
+        # 實機：同一台 OpenSSH 8.9 第一次要 8 秒以上、第二次 1.08 秒、第三次 0.05 秒。
+        # 第一次慢的常見原因是伺服器對來源做反解 DNS（`UseDNS`），或老裝置的
+        # 金鑰交換本來就慢；那都不是「連不上」。
+        raise SSHTunnelError(
+            f"{timeout:.0f} 秒內沒有完成金鑰交換：{host}:{port}"
+            "（對方可能在做反解 DNS，或裝置本身較慢；請再試一次）"
+        ) from exc
     except (asyncssh.Error, OSError) as exc:
         raise SSHTunnelError(f"無法取得 server key from {host}:{port}: {exc}") from exc
 

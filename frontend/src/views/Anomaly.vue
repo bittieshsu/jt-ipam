@@ -66,6 +66,7 @@ const CATEGORY_KEYS = [
   "external_exposure", "dangling_dns", "duplicate_ip_records", "suspicious_changes",
   "fw_rule_rot",
   "arp_only_liveness",
+  "stale_device_links",
 ];
 const route = useRoute();
 const links = useEntityLinks(useRouter());
@@ -76,7 +77,8 @@ const activeTab = ref(
 type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes"
   | "fw_rule_rot"
-  | "arp_only_liveness";
+  | "arp_only_liveness"
+  | "stale_device_links";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
@@ -89,6 +91,7 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "suspicious_changes", label: () => t("anomaly.changes") },
   { key: "fw_rule_rot", label: () => t("anomaly.fw_rot") },
   { key: "arp_only_liveness", label: () => t("anomaly.arp_only") },
+  { key: "stale_device_links", label: () => t("anomaly.stale_link") },
 ];
 
 const rogueTitle = computed(() =>
@@ -114,7 +117,8 @@ const anyFindings = computed(() => {
     + (r.external_exposure?.length ?? 0) + (r.dangling_dns?.length ?? 0)
     + (r.duplicate_ip_records?.length ?? 0) + (r.suspicious_changes?.length ?? 0)
     + (r.fw_rule_rot?.length ?? 0)
-    + (r.arp_only_liveness?.length ?? 0)) > 0;
+    + (r.arp_only_liveness?.length ?? 0)
+    + (r.stale_device_links?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return (report.value?.[key] as Record<string, any>[]) ?? [];
@@ -152,6 +156,7 @@ const CAT_KEYS: Record<CatKey, string[]> = {
                        "count", "first_at", "last_at"],
   fw_rule_rot: ["kind", "name", "source", "interface", "port", "descr", "detail"],
   arp_only_liveness: ["ip", "hostname", "mac", "last_seen_arp", "ip_address_id"],
+  stale_device_links: ["ip", "hostname", "mac", "device", "linked_at", "mac_changed_at", "ip_address_id"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   ghost_ips: ["ip_address_id"],

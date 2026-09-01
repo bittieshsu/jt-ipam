@@ -12,6 +12,7 @@ import {
   NForm, NFormItem, NInput, NSelect, NSwitch, NPopconfirm, NTag, NIcon, NPagination,
   NCollapse, NCollapseItem, NTimeline, NTimelineItem, NText, NEmpty, NSpin,
   NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider,
+  NInputGroup, NInputGroupLabel,
   useMessage,
 } from "naive-ui";
 import { useAuthStore } from "@/stores/auth";
@@ -33,7 +34,7 @@ import { fmtDateTime } from "@/utils/datetime";
 import { useCustomers } from "@/composables/useCustomers";
 import { useChangeLogDim } from "@/composables/useChangeLogDim";
 import { useRouter } from "vue-router";
-import { listDevices, type Device } from "@/api/basic";
+import { getDevice, listDevices, type Device } from "@/api/basic";
 import { getAddressRelations, type RelationNode } from "@/api/relations";
 import { listDhcpRanges } from "@/api/integrations";
 import RelationChain from "@/components/RelationChain.vue";
@@ -52,6 +53,18 @@ async function loadDevices() {
     const r = await listDevices();
     devices.value = r.items;
   } catch { /* silent */ }
+}
+
+/** 確保這一台在名稱查得到的清單裡。
+ *
+ *  `listDevices()` 只拿一頁（200 筆），所以剛建立、或排序落在後面的裝置不會在裡面，
+ *  名稱就會退回顯示一段 UUID。缺的那一台直接照 id 取回來即可 —— 不必也不該
+ *  為了顯示一個名稱去把整個裝置清單抓完。 */
+async function ensureDeviceLoaded(id: string | null | undefined) {
+  if (!id || devices.value.some((d) => d.id === id)) return;
+  try {
+    devices.value = [...devices.value, await getDevice(id)];
+  } catch { /* 沒權限或已刪除 —— 讓 deviceLabel 走它的退路 */ }
 }
 
 function deviceLabel(id: string | null | undefined): string {
@@ -232,6 +245,7 @@ const consoleCompact = ref(false);
 let cro: ResizeObserver | null = null;
 onMounted(() => {
   void loadSuggestion();
+  void ensureDeviceLoaded(props.address?.device_id);
   const el = (rootEl.value?.$el ?? rootEl.value) as HTMLElement | undefined;
   if (el instanceof HTMLElement) {
     cro = new ResizeObserver(() => { consoleCompact.value = el.clientWidth < 900; });
@@ -307,12 +321,21 @@ const matchingDevice = computed<Device | null>(() => {
 //    **只是建議** —— 不按就什麼都不會發生。
 const suggestion = ref<DeviceSuggestion | null>(null);
 const applyingSuggestion = ref(false);
-const linkSiblings = ref(true);
+/** 要一併關聯的其他 IP —— **預設只勾 MAC 相同的那些**。
+ *
+ *  同主機名稱不等於同一台機器：DHCP 把位址回收給別台之後，IP 記錄上的舊主機名稱
+ *  還留著。實機上一台筆電的名字散在九筆 IP 上，裡面有 Proxmox 的 VM 和一顆 ESP32 ——
+ *  「全部掛上」那種開關等於把猜測當成事實。 */
+const linkIds = ref<string[]>([]);
 
 async function loadSuggestion() {
   suggestion.value = null;
   if (isCreate.value || !props.address?.id || form.value.device_id) return;
-  try { suggestion.value = await getDeviceSuggestion(props.address.id); } catch { /* 建議缺了不影響編輯 */ }
+  try {
+    suggestion.value = await getDeviceSuggestion(props.address.id);
+    linkIds.value = (suggestion.value?.siblings ?? [])
+      .filter((s) => s.same_mac).map((s) => s.id);
+  } catch { /* 建議缺了不影響編輯 */ }
 }
 
 /** 按下去才會建立／關聯。建完直接反映在表單上，不用再存一次。 */
@@ -324,11 +347,12 @@ async function applySuggestion(create: boolean) {
     const updated = await applyDeviceSuggestion(props.address.id, {
       ...(create ? { create_name: sug.suggested_name ?? "" }
                  : { device_id: sug.existing_device_id ?? "" }),
-      link_siblings: linkSiblings.value && sug.sibling_unlinked > 0,
+      link_ip_ids: linkIds.value,
     });
     form.value.device_id = updated.device_id ?? null;
     suggestion.value = null;
-    await loadDevices();
+    // 剛建出來的那一台不會在既有清單裡 —— 直接補進去，否則畫面只顯示得出 UUID
+    await ensureDeviceLoaded(updated.device_id);
     emit("saved", updated);
   } catch (e: any) {
     msg.error(e?.response?.data?.detail ?? String(e));
@@ -516,6 +540,7 @@ watch([swName, swPort], ([a, b]) => {
 // 換 IP 時清掉舊快取
 watch(() => props.address?.id, () => {
   void loadSuggestion();
+  void ensureDeviceLoaded(props.address?.device_id);
   history.value = [];
   historyLoaded.value = false;
   historyTotal.value = 0;
@@ -1071,13 +1096,16 @@ async function remove() {
             <!-- 交換器位置：拆成兩格。單一輸入框會讓人照著唯讀畫面打成 sw@port，
                  但實際儲存格式是「交換器 / 埠」，打錯就顯示成一整團字串 -->
             <n-form-item :label="t('addresses.switch_port')" style="flex: 1 1 320px">
-              <n-space :size="6" :wrap-item="false" style="width: 100%">
+              <!-- 一行到底：交換器｜@｜埠。先前用 n-space 排，欄寬不夠時會把第二個
+                   輸入框擠到下一行，「@」孤零零留在右邊 —— 看起來像壞掉。
+                   input-group 會自己縮，不會換行。 -->
+              <n-input-group>
                 <n-input v-model:value="swName" :placeholder="t('addresses.switch_name_ph')"
-                         style="flex: 1 1 55%" />
-                <span style="align-self: center; color: #18a058; font-weight: 700">@</span>
+                         style="width: 58%" />
+                <n-input-group-label style="padding: 0 8px">@</n-input-group-label>
                 <n-input v-model:value="swPort" :placeholder="t('addresses.switch_port_ph')"
-                         style="flex: 1 1 45%" />
-              </n-space>
+                         style="width: 42%" />
+              </n-input-group>
               <template #feedback>
                 <span style="font-size: 11.5px; opacity: .7">
                   {{ t("addresses.switch_port_hint") }}
@@ -1116,11 +1144,25 @@ async function remove() {
                   <template #icon><n-icon><PlusIcon /></n-icon></template>
                   {{ t("addresses.suggest_create", { name: suggestion.suggested_name }) }}
                 </n-button>
-                <n-checkbox v-if="suggestion.sibling_unlinked > 0
-                              && (suggestion.existing_device_id || suggestion.can_create)"
-                            v-model:checked="linkSiblings" size="small">
-                  {{ t("addresses.suggest_siblings", { n: suggestion.sibling_unlinked }) }}
-                </n-checkbox>
+                <template v-if="suggestion.siblings.length
+                            && (suggestion.existing_device_id || suggestion.can_create)">
+                  <div class="sug-note">
+                    {{ t("addresses.suggest_siblings_hint", { n: suggestion.siblings.length }) }}
+                  </div>
+                  <n-checkbox-group v-model:value="linkIds" class="sug-siblings">
+                    <n-space vertical :size="2">
+                      <n-checkbox v-for="s in suggestion.siblings" :key="s.id" :value="s.id"
+                                  size="small">
+                        <span class="sug-ip">{{ s.ip }}</span>
+                        <span class="sug-mac">{{ s.mac || "—" }}</span>
+                        <span class="sug-vendor">{{ s.mac_vendor || "" }}</span>
+                        <n-tag v-if="s.same_mac" size="tiny" type="success" :bordered="false">
+                          {{ t("addresses.suggest_same_mac") }}
+                        </n-tag>
+                      </n-checkbox>
+                    </n-space>
+                  </n-checkbox-group>
+                </template>
               </template>
             </n-space>
           </n-form-item>

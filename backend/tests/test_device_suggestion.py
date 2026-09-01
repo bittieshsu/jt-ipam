@@ -37,11 +37,37 @@ def test_suggestion_refuses_to_guess_when_several_devices_match():
     assert "len(row) == 1" in src, "沒有『只有一台才採用』的判斷"
 
 
-def test_sibling_count_is_scoped_to_what_the_user_can_see():
-    src = _src("_sibling_ip_ids")
-    assert "visible_ids(" in src, "同名 IP 的計數沒有套可見性"
+def test_sibling_list_is_scoped_to_what_the_user_can_see():
+    src = _src("_sibling_rows")
+    assert "visible_ids(" in src, "同名 IP 的清單沒有套可見性"
     assert "IPAddress.subnet_id.in_(vis)" in src, "可見性沒有推進 SQL（先取再過濾會算錯）"
     assert "device_id.is_(None)" in src, "把已經有裝置的 IP 也算進去了"
+
+
+def test_siblings_are_candidates_with_evidence_not_a_blanket_switch():
+    """同主機名稱**不等於**同一台機器。
+
+    實機（2026-08-30）：一台筆電的名字散在九筆 IP 上，裡面有 Proxmox 的 VM
+    （`bc:24:11` 開頭）和一顆 ESP32（`48:3f:da`）。DHCP 把位址回收給別台之後，
+    IP 記錄上的舊主機名稱還留著 —— 所以「全部掛上」的開關是把猜測當成事實。
+    正確作法是把候選與**證據（MAC、廠商）**攤開，由人逐筆決定。
+    """
+    src = _src("device_suggestion")
+    assert "same_mac" in src, "候選沒有標示 MAC 是否相同 —— 那是唯一夠強的線索"
+    assert "mac_vendor" in src, "候選沒有附上廠商，使用者無從判斷"
+    apply_src = _src("apply_device_suggestion")
+    assert "link_siblings" not in apply_src, (
+        "還留著「全部同名 IP 一起掛」的開關 —— 同名不足以認定是同一台機器"
+    )
+    assert "link_ip_ids" in apply_src, "沒有改成逐筆指定要關聯哪些 IP"
+
+
+def test_apply_does_not_trust_the_ids_from_the_client():
+    """客戶端送來的 id 要以伺服器自己算出來的集合為準，不能直接照單全收。"""
+    src = _src("apply_device_suggestion")
+    assert "allowed" in src and "not in allowed" in src, (
+        "沒有把客戶端指定的 IP 與「這個使用者能寫、且確實同名未關聯」的集合取交集"
+    )
 
 
 def test_apply_requires_write_and_admin_for_creation():

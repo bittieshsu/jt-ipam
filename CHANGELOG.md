@@ -4,6 +4,88 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.241] — 2026-08-31
+
+### Added
+- **Expiry warning lead time is configurable per certificate** (migration 0131). Renewal takes
+  different amounts of time for different certificates: a commercial one bought by hand needs a
+  month of lead time, an auto-renewed one needs a week — one threshold for all of them is either
+  too noisy or too late. Each row on the certificates page gets an "expiry notice" button, and
+  system settings holds the global default. **Unset means "use the default", not "never warn"**,
+  and it can be set back to the default (a `null` in PATCH means "don't change", so there is an
+  explicit flag for it — otherwise setting it once would be irreversible).
+
+### Fixed
+- **Exposed-services list: searching one IP showed a different one.** The table's row-key used the
+  **array index** (`key-via-index`), so after filtering the same index referred to a different row
+  and the table reused the old one. Rows now get a stable identity when the data is built. Verified
+  by replaying the same filter over real production data: 7 matches, all of them the searched IP,
+  agreeing with the "7 rows" the page reported.
+- **The virtualization card on the device page was untranslated**: field labels and statuses like
+  `running`/`stopped` now have translations; an unrecognised status is shown as-is — translating
+  a word we do not know would just invent information.
+
+## [0.5.240] — 2026-08-31
+
+### Fixed
+- **A console could only use a stored credential, with no way to switch to another.** Clearing the
+  selection meant using the ✕ that **only appears on hover** — opening the dropdown showed just the
+  saved entry, so there appeared to be no other option. Being possible is not the same as being
+  discoverable. All six consoles (SSH / SFTP / RDP / VNC / noVNC / BMC) now offer "use different
+  credentials" in the dropdown itself, which returns to the manual fields. A test watches all six —
+  fixing one instance of a shared interaction leaves five inconsistent ones.
+- **"Reachable, just slow the first time" was reported as unreachable.** Fetching the host key is
+  the **first** outbound step of the whole path, yet it allowed only 8 seconds — less than the 15
+  the actual connection gets. Measured against one OpenSSH 8.9 host: over 8s the first time, 1.08s
+  the second, 0.05s the third (a common cause of the first being slow is the server doing a reverse
+  DNS lookup on the source). The timeout now matches the connection's, and the message names the
+  likely cause and suggests retrying.
+
+## [0.5.239] — 2026-08-30
+
+### Added
+- **A new anomaly category: "device link may be stale."** Asked directly: if the IP is later used
+  by a different host, does it stay linked to this device? It does. A link is never re-evaluated
+  once written, so when the address is handed to another machine (common with DHCP) the link
+  **quietly becomes wrong** — the screen looks fine, it just points at the wrong device. IPs whose
+  **MAC changed after the link was made** are now surfaced; that is a recorded fact, not an
+  inference. Nothing is unlinked automatically — that would be guessing too; both timestamps are
+  shown so the order can be checked.
+- The switch and port fields sit on one line via an input group. Previously the second field was
+  pushed onto its own line when space was tight, leaving the "@" stranded.
+
+### Fixed
+- **A notification has to take you where you need to look.** The "firewall rules changed" one
+  carried **no link at all**, so clicking it did nothing; a sweep then found two more pointing at
+  **routes that do not exist** (`/admin/audit`, `/admin/event-rules` — those pages live at
+  `/audit` and `/event-rules`). Both failures look identical on screen. A guard test now checks
+  every notification against the front-end route table: it must carry a link, and that link must
+  resolve.
+- **The device suggestion now lists candidates instead of offering a blanket switch.** It used to
+  have a "also link the other IPs with this hostname" checkbox — but **the same hostname does not
+  mean the same machine**: a reused DHCP address keeps its old hostname. In the field one laptop's
+  name was spread over nine IPs, among them a Proxmox VM and an ESP32. Candidates are now listed
+  individually with their **evidence (MAC, vendor)**; those sharing the MAC are marked and ticked
+  by default, the rest are not. On apply the server **does not trust the ids from the client** and
+  accepts only those in the set it computes itself.
+- **The device field on the IP detail page showed a fragment of a UUID.** The name was resolved
+  only against the one page `listDevices()` returns (200 rows), so a freshly created device was not
+  in it. It now **fetches that device by id**.
+- **Rack diagram: a 2U device's name sat half a row too high.** The name was drawn in "the middle
+  row", and an even number of Us has no middle row. It now spans the whole device and is centred
+  within it (compensating the outline width, without which everything shifts 2px down). A
+  geometric end-to-end test guards it — this kind of drift is invisible in a screenshot.
+- **AI review prose contained addresses with no source.** One run produced both `192.16CA.1.59`
+  (the model mangling `192.168.1.59`) and `196.168.1.39` (valid but nonexistent). Such errors look
+  precise and read as confident, and people go and look them up. Addresses in the prose that do not
+  match the cited evidence are now removed (CIDRs are kept — those describe a range) — better one
+  sentence short than one plausible-looking falsehood.
+
+### Changed
+- **Only the legend keeps the topology "virtual machines" toggle.** There were two controls for it
+  at different layers: the legend merely hid nodes, while VMs had not been fetched at all — so
+  clicking it did nothing. The legend entry now controls whether VMs are loaded, and reflects that.
+
 ## [0.5.238] — 2026-08-30
 
 ### Added

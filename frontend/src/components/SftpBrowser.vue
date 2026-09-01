@@ -67,11 +67,15 @@ const form = ref({
   username: "", port: 22, auth: "password" as "password" | "key",
   password: "", private_key: "", passphrase: "",
 });
-const credOptions = computed(() => creds.value.map((c) => ({
-  // 標籤格式與 SSH 主控台一致
-  label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）`,
-  value: c.id,
-})));
+const credOptions = computed(() => [
+  // 「用別組帳密」必須在**下拉裡**看得到 —— 只靠 hover 才出現的 ✕ 不算可發現
+  { label: t("ssh.cred_manual"), value: null as unknown as string },
+  ...creds.value.map((c) => ({
+    // 標籤格式與 SSH 主控台一致
+    label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）`,
+    value: c.id,
+  })),
+]);
 
 async function delSelectedCred() {
   const id = form.value.credential_id;

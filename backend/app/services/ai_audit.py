@@ -18,13 +18,16 @@ from __future__ import annotations
 import asyncio
 import calendar
 import hashlib
+import ipaddress
 import json
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import structlog
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,6 +81,9 @@ _RUNNING = asyncio.Lock()
 
 class AuditBusy(RuntimeError):
     """已經有一次巡檢在跑。"""
+
+
+log = structlog.get_logger("ai_audit")
 
 
 def is_audit_running() -> bool:
@@ -309,6 +315,52 @@ def zh_tw_fixup(text: str) -> str:
     return text
 
 
+#: 敘述裡「看起來像位址」的字樣（四段以點分隔）。刻意寫得寬鬆到連壞掉的也抓得到 ——
+#: 實機出現過 `192.16CA.1.59`（模型把 `192.168.1.59` 寫壞）。
+_IPISH = re.compile(r"(?<![\w.])(?:[0-9A-Za-z]{1,4}\.){3}[0-9A-Za-z]{1,4}(?:/\d{1,2})?(?![\w.])")
+
+
+def _valid_ipv4(tok: str) -> bool:
+    try:
+        ipaddress.ip_network(tok, strict=False)
+    except ValueError:
+        return False
+    return True
+
+
+def strip_unverifiable_addresses(text: str, allowed: set[str]) -> tuple[str, int]:
+    """把敘述裡「查不到出處的位址」拿掉，回傳處理後的文字與拿掉幾個。
+
+    模型會在敘述中重寫位址，而且會寫錯：實機同一次巡檢裡出現 `192.16CA.1.59`
+    （壞字）與 `196.168.1.39`（合法但不存在，真正的是 `192.168.1.39`）。
+    這種錯誤特別危險 —— 它看起來精確、語氣肯定，讀的人會直接照著去查那個位址。
+
+    真正的依據在 `evidence`（那是我們自己從資料庫撈的，不是模型寫的），畫面上也
+    一直有顯示。所以敘述裡對不上依據的位址一律拿掉，寧可少一句話，也不要留一個
+    **看起來像事實的錯誤**。CIDR（含 `/` 的網段）保留 —— 那通常是在講範圍，不是指某台機器。
+    """
+    removed = 0
+
+    def repl(m: re.Match[str]) -> str:
+        nonlocal removed
+        tok = m.group(0)
+        if "/" in tok and _valid_ipv4(tok):
+            return tok                       # 網段：講範圍用的，不是指認某一台
+        if tok in allowed:
+            return tok
+        removed += 1
+        return ""
+
+    out = _IPISH.sub(repl, text)
+    if removed:
+        # 收拾拿掉之後留下的空括號與連續空白／標點
+        out = re.sub(r"[（(]\s*[)）]", "", out)
+        out = re.sub(r"\s{2,}", " ", out)
+        out = re.sub(r"\s+([，。、）)])", r"\1", out)
+        out = re.sub(r"([（(])\s+", r"\1", out)
+    return out.strip(), removed
+
+
 def _clean(text: str | None, limit: int) -> str:
     return (text or "").strip()[:limit]
 
@@ -412,13 +464,31 @@ def _parse(raw: str) -> list[dict[str, Any]] | None:
         cat = str(it.get("category", "")).lower()
         ev = it.get("evidence")
         rec = _clean(it.get("recommendation"), 2000) or None
+        # 依據資料裡的位址才算數 —— 那是我們自己撈的，不是模型寫的
+        allowed = set()
+        if isinstance(ev, dict) and isinstance(ev.get("ips"), list):
+            allowed = {str(x).strip() for x in ev["ips"] if str(x).strip()}
+        dropped = 0
+
+        def _sane(text: str, _allowed: set[str] = allowed) -> str:
+            nonlocal dropped
+            cleaned, n = strip_unverifiable_addresses(text, _allowed)
+            dropped += n
+            return cleaned
+
+        title = _sane(zh_tw_fixup(title))
+        detail = _sane(zh_tw_fixup(_clean(it.get("detail"), 4000)))
+        rec_txt = _sane(zh_tw_fixup(rec)) if rec else None
+        if dropped:
+            log.info("ai_audit dropped unverifiable addresses",
+                     count=dropped, category=cat)
         out.append({
             "severity": sev if sev in SEVERITIES else "low",   # 自創等級一律降為 low
             "category": cat if cat in CATEGORIES else "other",
-            # 敘述套台灣用詞修正；evidence 不動（裡面是主機名稱與位址）
-            "title": zh_tw_fixup(title),
-            "detail": zh_tw_fixup(_clean(it.get("detail"), 4000)),
-            "recommendation": zh_tw_fixup(rec) if rec else None,
+            # 敘述套台灣用詞修正並清掉查不到出處的位址；evidence 不動（那是我們撈的）
+            "title": title,
+            "detail": detail,
+            "recommendation": rec_txt,
             "evidence": ev if isinstance(ev, dict) else ({"note": str(ev)[:2000]} if ev else None),
         })
     return out

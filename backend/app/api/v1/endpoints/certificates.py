@@ -199,6 +199,13 @@ async def update_certificate(
     if obj is None:
         raise HTTPException(404, detail="Not found")
     data = payload.model_dump(exclude_unset=True)
+    # PATCH 的 None 意思是「不修改」，所以「改回沿用全域預設」要有自己的旗標，
+    # 否則使用者一旦設過天數就再也回不去預設。
+    if data.pop("clear_expiry_warn_days", False):
+        obj.expiry_warn_days = None
+        data["expiry_warn_days"] = None
+    else:
+        data.pop("clear_expiry_warn_days", None)
     for k, v in data.items():
         setattr(obj, k, v)
     # 憑證的設定異動（名稱／範圍／來源…）同樣要留紀錄：上傳與刪除都有記，改設定卻沒有

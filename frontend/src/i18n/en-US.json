@@ -223,7 +223,13 @@
     "device_hint": "Pick the device this agent runs on",
     "device_help": "Once linked, the agent name in the list and status page links to that device's detail; the source IP also links to its address if it exists in IPAM.",
     "go_device": "Go to device: {name}",
-    "cert_deleted": "certificate deleted"
+    "cert_deleted": "certificate deleted",
+    "warn_days_title": "Expiry notice: {name}",
+    "warn_days_label": "Warn this many days ahead",
+    "warn_days_use_default": "Use the global default ({n} days)",
+    "warn_days_default": "Expiry notice: default, {n} days",
+    "warn_days_set": "Expiry notice: {n} days ahead",
+    "warn_days_hint": "Renewal takes different amounts of time for different certificates: a commercial one bought by hand needs lead time, an auto-renewed one does not. Left unset, the global default from system settings applies."
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -676,7 +682,8 @@
     "err_username": "Username is required",
     "err_ticket": "Cannot establish connection (permission or network issue)",
     "err_ws": "WebSocket connection failed",
-    "err_generic": "Connection error"
+    "err_generic": "Connection error",
+    "cred_manual": "Use different credentials (enter them below)"
   },
   "rdp": {
     "connect": "RDP",
@@ -1190,7 +1197,8 @@
     "state_quarantine": "Quarantined",
     "suggest_link": "Link to the existing device “{name}”",
     "suggest_create": "Create device “{name}” and link it",
-    "suggest_siblings": "Also link the other {n} IPs with the same hostname (one machine on DHCP)"
+    "suggest_siblings_hint": "{n} other IPs carry the same hostname. Note that the same hostname does not mean the same machine — a reused DHCP address keeps its old hostname, so check the MAC before ticking:",
+    "suggest_same_mac": "same MAC"
   },
   "subnets": {
     "title": "Subnets",
@@ -1826,7 +1834,9 @@
     "fw_rot": "Firewall rule rot",
     "explain_fw_rule_rot": "Parts of the active ruleset that are already wrong: port forwards whose target is not in IPAM (likely reclaimed), any-to-any permits (that interface effectively has no firewall), and management ports (SSH/RDP/VNC/IPMI) open to any source on a WAN interface. Manual NAT entries and disabled rules are excluded.",
     "arp_only": "ARP-only liveness",
-    "explain_arp_only_liveness": "These addresses look online, but the only evidence is an ARP record — and ARP carries no timestamp while the reporting device's cache never expires. A machine that was powered off weeks ago still reads as online here. To find out the real state, probe them with a scan agent or bring them under LibreNMS/Zabbix monitoring."
+    "explain_arp_only_liveness": "These addresses look online, but the only evidence is an ARP record — and ARP carries no timestamp while the reporting device's cache never expires. A machine that was powered off weeks ago still reads as online here. To find out the real state, probe them with a scan agent or bring them under LibreNMS/Zabbix monitoring.",
+    "stale_link": "Device link may be stale",
+    "explain_stale_device_links": "These IPs are linked to a device but the address has changed MAC since that link was made — usually the address was handed to a different machine (common with DHCP), so the link now points at the wrong device. Nothing is unlinked automatically: whether to detach is a judgement call. Compare the current MAC against that device before changing or clearing it."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -1968,7 +1978,12 @@
     "expand_ref": "Expand",
     "rule_disabled": "disabled",
     "from": "from",
-    "to": "to"
+    "to": "to",
+    "vm_status_running": "Running",
+    "vm_status_stopped": "Stopped",
+    "vm_status_paused": "Paused",
+    "vm_status_suspended": "Suspended",
+    "vm_status_unknown": "Unknown"
   },
   "physical": {
     "cabling": "Cabling",
@@ -2565,7 +2580,12 @@
     "wz_instance": "Wazuh instance",
     "wz_sca": "Config assessment",
     "wz_sca_counts": "{pass} passed / {fail} failed",
-    "wz_sca_worst": "{n} benchmarks on this host; showing the lowest-scoring one"
+    "wz_sca_worst": "{n} benchmarks on this host; showing the lowest-scoring one",
+    "vm_name": "VM",
+    "vm_node": "Host node",
+    "vm_cluster": "Cluster",
+    "vm_vcpu": "vCPU",
+    "vm_memory": "Memory (MB)"
   },
   "relations": {
     "title": "Relationships",
@@ -2717,7 +2737,10 @@
     "rack_embed_token_hint": "This is a key: anyone holding it can see the diagrams of shared racks, including device names and positions. Do not post it publicly.",
     "rack_embed_regen": "Regenerate token",
     "rack_embed_regen_confirm": "Regenerating invalidates every existing embed URL immediately; each one has to be re-pasted. Continue?",
-    "rack_embed_regenerated": "Token regenerated — existing URLs stopped working"
+    "rack_embed_regenerated": "Token regenerated — existing URLs stopped working",
+    "grp_cert_alert": "Certificate expiry notices",
+    "cert_expiry_days": "Warn this many days ahead (default)",
+    "cert_expiry_days_hint": "The global default. Each certificate can override it on the certificates page — a commercial certificate bought by hand needs lead time, an auto-renewed one does not."
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",

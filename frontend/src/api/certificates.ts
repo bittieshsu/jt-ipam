@@ -37,6 +37,8 @@ export interface Certificate {
   current_not_after: string | null;
   current_days_remaining: number | null;
   version_count: number;
+  /** 到期前幾天通知；null＝沿用全域預設 */
+  expiry_warn_days: number | null;
   current_is_self_signed: boolean;
   current_common_name: string | null;
   current_sans: string[] | null;
@@ -86,6 +88,19 @@ export async function createCertificate(payload: { name: string; description?: s
   const { data } = await apiClient.post("/api/v1/certificates", payload);
   return data;
 }
+/** 更新憑證設定（目前用於「到期前幾天通知」）。
+ *
+ *  `clear_expiry_warn_days` 是必要的：PATCH 裡的 `null` 意思是「這個欄位不修改」，
+ *  沒有它就沒辦法把一張憑證改回「沿用全域預設」。 */
+export async function updateCertificate(
+  id: string,
+  payload: { name?: string; description?: string | null;
+             expiry_warn_days?: number | null; clear_expiry_warn_days?: boolean },
+): Promise<Certificate> {
+  const { data } = await apiClient.patch(`/api/v1/certificates/${id}`, payload);
+  return data;
+}
+
 export async function deleteCertificate(id: string): Promise<void> {
   await apiClient.delete(`/api/v1/certificates/${id}`);
 }

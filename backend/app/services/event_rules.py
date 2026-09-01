@@ -143,6 +143,9 @@ async def _run_action(
             await push_notification(
                 session, user_id=admin.id, severity=severity,
                 title=title, body=body, object_type="event_rule", object_id=None,
+                # 帶去規則本身那一頁。事件是使用者自己定的，我們無從得知「該看哪一筆資料」，
+                # 但至少要能一鍵回到「是哪條規則發的」—— 通知點下去沒反應本身就是缺陷。
+                link="/event-rules",
             )
     elif kind == ACTION_WEBHOOK:
         # 指定送到某個既有的 webhook 訂閱（沿用它的簽章金鑰與 SSRF 檢查）

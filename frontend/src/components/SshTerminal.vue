@@ -47,10 +47,12 @@ const credOptions = ref<{ label: string; value: string }[]>([]);
 async function loadCreds() {
   try {
     savedCreds.value = await listSshCredentials(props.addressId);
-    credOptions.value = savedCreds.value.map((c) => ({
+    credOptions.value = [
+    { label: t('ssh.cred_manual'), value: null as unknown as string },
+    ...savedCreds.value.map((c) => ({
       label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）`,
       value: c.id,
-    }));
+    }))];
     // 有已存帳密就預設選最近一筆 → 不必再輸入，直接按連線（要改用其他帳密可清空下拉）
     if (!selectedCredId.value && savedCreds.value.length) {
       selectedCredId.value = savedCreds.value[0].id;

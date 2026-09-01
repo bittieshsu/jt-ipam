@@ -238,9 +238,21 @@ const LEGEND_GROUPS: Record<string, string[]> = {
   vm: ["vm"],
 };
 function isGroupOff(group: string): boolean {
+  // 虛擬機比較特別：它不是「畫了再隱藏」，而是**根本沒抓進來**（實機一次會多出上百顆）。
+  // 所以圖例上的狀態要看資料有沒有載入，否則使用者按了會覺得沒反應。
+  if (group === "vm") return !includeVms.value;
   return (LEGEND_GROUPS[group] || [group]).every((ty) => hiddenTypes.value.has(ty));
 }
 function toggleGroup(group: string) {
+  if (group === "vm") {
+    // 切換「要不要載入虛擬機」，watch 會重抓資料並重畫。
+    // 先前這裡只把節點藏起來，但虛擬機根本還沒被抓進來 —— 按了什麼都不會發生。
+    includeVms.value = !includeVms.value;
+    const next = new Set(hiddenTypes.value);
+    next.delete("vm");
+    hiddenTypes.value = next;
+    return;
+  }
   if (group === "server") endpointGroupTouched.value = true;
   const types = LEGEND_GROUPS[group] || [group];
   const off = isGroupOff(group);
@@ -1037,7 +1049,6 @@ onUnmounted(() => {
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeVpn">{{ t("topology.vpn") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeL3">{{ t("topology.l3") }}</n-checkbox>
         <n-checkbox v-if="!modeDrivesSources" v-model:checked="includeFdb">{{ t("topology.fdb") }}</n-checkbox>
-        <n-checkbox v-model:checked="includeVms">{{ t("topology.vms") }}</n-checkbox>
         <n-tooltip trigger="hover">
           <template #trigger>
             <n-checkbox v-model:checked="assertedOnly" @update:checked="applyVisibility">

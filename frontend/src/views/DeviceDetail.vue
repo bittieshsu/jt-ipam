@@ -34,11 +34,19 @@ import { useAuthStore } from "@/stores/auth";
 import { storeToRefs } from "pinia";
 import { useTablePagination } from "@/composables/useTablePagination";
 const pg = useTablePagination();
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 const { me } = storeToRefs(useAuthStore());
 const isAdmin = computed(() => !!me.value?.is_admin);
 // 卡片標題：icon + 文字（NCard title 支援 render function）
+/** 虛擬機狀態：平台回來的是 running / stopped 這種英文字，畫面上要說人話。
+ *  對不上的就原樣顯示 —— 硬翻不認得的字只會變成假資訊。 */
+function vmStatusLabel(v: string | null | undefined): string {
+  if (!v) return "—";
+  const key = `virt.vm_status_${String(v).toLowerCase()}`;
+  return te(key) ? t(key) : v;
+}
+
 function cardHead(icon: any, text: string) {
   return h("span", { style: "display:inline-flex;align-items:center;gap:8px" },
     [h(NIcon, { size: 18 }, () => h(icon)), text]);
@@ -489,12 +497,24 @@ onMounted(() => {
       <n-card v-if="integrations && integrations.vm" :title="() => cardHead(VirtualizationIcon, t('nav.virtualization'))" style="margin-top: 16px">
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
-          <n-descriptions-item label="VM">{{ integrations.vm.name ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="status">{{ integrations.vm.status ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="node">{{ integrations.vm.node ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="cluster">{{ integrations.vm.cluster ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="vCPU">{{ integrations.vm.vcpus ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item label="RAM (MB)">{{ integrations.vm.memory_mb ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.vm_name')">
+            {{ integrations.vm.name ?? "—" }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('cols.status')">
+            {{ vmStatusLabel(integrations.vm.status) }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.vm_node')">
+            {{ integrations.vm.node ?? "—" }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.vm_cluster')">
+            {{ integrations.vm.cluster ?? "—" }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.vm_vcpu')">
+            {{ integrations.vm.vcpus ?? "—" }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.vm_memory')">
+            {{ integrations.vm.memory_mb ?? "—" }}
+          </n-descriptions-item>
         </n-descriptions>
       </n-card>
 

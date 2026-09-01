@@ -15,7 +15,9 @@ import {
   PlusIcon, RefreshIcon, CopyIcon, LockIcon, InfoIcon, SaveIcon, SearchIcon,
   ImportIcon, TokenIcon, SettingsIcon, SyncIcon, DeleteIcon, TestIcon, EyeIcon, ToolsIcon, CancelIcon, EditIcon,
   ExportIcon, WarnIcon, UpgradeIcon, CheckIcon,
+  BellIcon,
 } from "@/icons";
+import { getCertExpiryDays } from "@/api/basic";
 import { autoSort } from "@/composables/useTableSort";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useTablePagination } from "@/composables/useTablePagination";
@@ -23,7 +25,7 @@ import { SUDO } from "@/utils/sudo";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import {
-  listCertificates, createCertificate, deleteCertificate, uploadVersion, generateSelfSigned,
+  listCertificates, createCertificate, updateCertificate, deleteCertificate, uploadVersion, generateSelfSigned,
   setCertSource, fetchCertNow, testCertSource, genCertSourceSshKey, listVersions, downloadVersionFile, rebuildChain,
   listCertAgents, createCertAgent, rotateCertAgentKey, deleteCertAgent, getCertAgentKey, updateCertAgent,
   getServerAgentVersion,
@@ -78,6 +80,10 @@ const agentsFiltered = computed(() => {
   });
 });
 
+async function loadGlobalWarnDays() {
+  globalWarnDays.value = await getCertExpiryDays();
+}
+
 async function loadCerts() {
   loading.value = true;
   try { certs.value = (await listCertificates()).items; }
@@ -97,7 +103,8 @@ async function loadServerVersion() {
     serverAgentVersionWin.value = sv.windows_version ?? null; }
   catch { /* 非致命 */ }
 }
-onMounted(() => { loadCerts(); loadAgents(); loadServerVersion(); loadDeviceOptions(); });
+onMounted(() => {
+  void loadGlobalWarnDays(); loadCerts(); loadAgents(); loadServerVersion(); loadDeviceOptions(); });
 
 // 代理有兩支（Linux 純 bash / Windows PowerShell）。這個選擇貫穿安裝說明、
 // 支援清單、profile 選項與設定檔產生器 —— 宣告放最前面，因為底下多個 computed 都靠它。
@@ -310,6 +317,34 @@ async function doRebuildChain(v: CertVersion) {
 // ── 新增憑證 ──
 const showNew = ref(false);
 const newForm = ref({ name: "", description: "" });
+
+// ── 到期通知天數（逐張）──────────────────────────────────
+// 不同憑證的更新流程長短差很多：手動申請的商業憑證要提前一個月準備，
+// 自動續簽的提前七天就夠。同一個門檻套在所有憑證上，不是太吵就是太晚。
+const showWarn = ref(false);
+const warnCert = ref<Certificate | null>(null);
+const warnUseDefault = ref(true);
+const warnDays = ref<number>(21);
+const globalWarnDays = ref<number>(21);
+
+function openWarn(c: Certificate) {
+  warnCert.value = c;
+  warnUseDefault.value = c.expiry_warn_days === null;
+  warnDays.value = c.expiry_warn_days ?? globalWarnDays.value;
+  showWarn.value = true;
+}
+
+async function saveWarn() {
+  const c = warnCert.value;
+  if (!c) return;
+  try {
+    await updateCertificate(c.id, warnUseDefault.value
+      ? { clear_expiry_warn_days: true }
+      : { expiry_warn_days: warnDays.value });
+    showWarn.value = false;
+    await loadCerts();
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
 async function doCreate() {
   if (!newForm.value.name.trim()) { msg.warning(t("certs.name_required")); return; }
   try {
@@ -685,6 +720,9 @@ const certColsAll = computed<DataTableColumns<Certificate>>(() => autoSort([
           ? actBtn(TokenIcon, t("certs.self_signed_blocked"), () => {}, { disabled: true })
           : actBtn(TokenIcon, t("certs.self_signed"), () => openSelf(c)),
       actBtn(SettingsIcon, t("certSource.source"), () => openSource(c)),
+      actBtn(BellIcon, c.expiry_warn_days === null
+        ? t("certs.warn_days_default", { n: globalWarnDays.value })
+        : t("certs.warn_days_set", { n: c.expiry_warn_days }), () => openWarn(c)),
       c.source_type !== "none"
         ? actBtn(SyncIcon, t("certSource.fetch_now"), () => doFetchNow(c), { type: "primary", ghost: true })
         : null,
@@ -1399,6 +1437,29 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
       <n-button size="small" secondary @click="copy(runCmd)"><template #icon><n-icon :component="CopyIcon" /></template>{{ t("certHelp.copy") }}</n-button>
     </n-space>
   </n-modal>
+
+    <!-- 到期通知天數（逐張） -->
+    <n-modal v-model:show="showWarn" preset="card" style="max-width: 460px"
+             :title="t('certs.warn_days_title', { name: warnCert?.name ?? '' })">
+      <n-space vertical :size="12">
+        <n-checkbox v-model:checked="warnUseDefault">
+          {{ t("certs.warn_days_use_default", { n: globalWarnDays }) }}
+        </n-checkbox>
+        <n-form-item :label="t('certs.warn_days_label')" label-placement="left">
+          <n-input-number v-model:value="warnDays" :min="1" :max="365"
+                          :disabled="warnUseDefault" style="width: 140px" />
+        </n-form-item>
+        <n-alert type="info" :bordered="false" :show-icon="false">
+          {{ t("certs.warn_days_hint") }}
+        </n-alert>
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button size="small" @click="showWarn = false">{{ t("common.cancel") }}</n-button>
+          <n-button size="small" type="primary" @click="saveWarn">{{ t("common.save") }}</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 </template>
 
 <style scoped>

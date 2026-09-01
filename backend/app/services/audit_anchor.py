@@ -127,7 +127,7 @@ async def notify_chain_failure(
         await push_notification(
             session, user_id=admin.id, severity="error",
             title=_NOTIFY_TITLE, body=detail,
-            link="/admin/audit", object_type="audit", object_id=None,
+            link="/audit", object_type="audit", object_id=None,
         )
     return len(admins)
 

@@ -364,6 +364,17 @@ async def get_address_firewall(
     return await rules_touching_ip(session, str(obj.ip))
 
 
+class SiblingIP(StrictModel):
+    """同主機名稱、尚未關聯裝置的另一筆 IP —— **候選，不是結論。**"""
+
+    id: uuid.UUID
+    ip: str
+    mac: str | None = None
+    mac_vendor: str | None = None
+    #: MAC 與本 IP 相同 → 幾乎可以確定是同一張網卡
+    same_mac: bool = False
+
+
 class DeviceSuggestion(StrictModel):
     """「這個 IP 應該屬於哪一台裝置」的建議。**只是建議，不會自己動手。**"""
 
@@ -372,8 +383,13 @@ class DeviceSuggestion(StrictModel):
     existing_device_name: str | None = None
     #: 為什麼認為是這一台：name / fqdn / ip / mac
     match_reason: str | None = None
-    #: 還有幾筆 IP 用同一個主機名稱、而且還沒關聯裝置（DHCP 筆電最常見）
-    sibling_unlinked: int = 0
+    #: 用同一個主機名稱、尚未關聯裝置的其他 IP。
+    #:
+    #: ⚠️ **同主機名稱不等於同一台機器。** DHCP 把位址回收給別台之後，IP 記錄上的舊
+    #: 主機名稱還留著 —— 實機上一台筆電的名字散在九筆 IP 上，其中有 Proxmox 的 VM
+    #: 和一顆 ESP32。所以這裡回的是**候選與它們的證據**（MAC、廠商），由人決定要掛哪些，
+    #: 而不是給一個「全部掛上」的開關。
+    siblings: list[SiblingIP] = Field(default_factory=list)
     #: 這個使用者能不能建立裝置（建立裝置是管理員限定）
     can_create: bool = False
 
@@ -383,8 +399,8 @@ class DeviceSuggestionApply(StrictModel):
 
     device_id: uuid.UUID | None = None
     create_name: str | None = Field(default=None, max_length=200)
-    #: 同時把其他同主機名稱、尚未關聯的 IP 一起掛上（DHCP 一台機器散在多個 IP）
-    link_siblings: bool = False
+    #: 要一併關聯的其他 IP —— **由使用者逐筆勾選**，不是一個「全部」開關
+    link_ip_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 def _first_label(hostname: str | None) -> str | None:
@@ -393,15 +409,15 @@ def _first_label(hostname: str | None) -> str | None:
     return h.split(".")[0] or None if h else None
 
 
-async def _sibling_ip_ids(
+async def _sibling_rows(
     session: AsyncSession, *, user: User, hostname: str, exclude: uuid.UUID,
-) -> list[uuid.UUID]:
-    """同主機名稱、尚未關聯裝置、且**這個使用者看得到**的其他 IP。
+) -> list[Any]:
+    """同主機名稱、尚未關聯裝置、且**這個使用者能寫**的其他 IP。
 
-    可見性一定要推進 SQL：先取再過濾會讓「有幾筆」這個數字算在使用者看不到的資料上。
+    可見性一定要推進 SQL：先取再過濾會讓數量算在使用者看不到的資料上。
     """
     q = (
-        select(IPAddress.id)
+        select(IPAddress.id, IPAddress.ip, IPAddress.mac)
         .join(Subnet, IPAddress.subnet_id == Subnet.id)
         .where(
             func.lower(IPAddress.hostname) == hostname.strip().lower(),
@@ -415,7 +431,7 @@ async def _sibling_ip_ids(
         if not vis:
             return []
         q = q.where(IPAddress.subnet_id.in_(vis))
-    return list((await session.execute(q)).scalars().all())
+    return list((await session.execute(q.limit(50))).all())
 
 
 @router.get("/{address_id}/device-suggestion", response_model=DeviceSuggestion)
@@ -483,9 +499,16 @@ async def device_suggestion(
         out.existing_device_id, out.existing_device_name = dev
         out.match_reason = reason
     if hostname:
-        out.sibling_unlinked = len(
-            await _sibling_ip_ids(session, user=user, hostname=hostname, exclude=obj.id)
-        )
+        my_mac = str(obj.mac).lower() if obj.mac else None
+        for sid, sip, smac in await _sibling_rows(
+            session, user=user, hostname=hostname, exclude=obj.id,
+        ):
+            mac = str(smac) if smac else None
+            out.siblings.append(SiblingIP(
+                id=sid, ip=str(sip).split("/")[0], mac=mac,
+                mac_vendor=await vendor_for_mac(session, smac),
+                same_mac=bool(my_mac and mac and mac.lower() == my_mac),
+            ))
     return out
 
 
@@ -545,10 +568,17 @@ async def apply_device_suggestion(
         obj.device_id = device.id
         linked += 1
 
-    if payload.link_siblings and (obj.hostname or "").strip():
-        for sid in await _sibling_ip_ids(
-            session, user=user, hostname=obj.hostname or "", exclude=obj.id,
-        ):
+    if payload.link_ip_ids and (obj.hostname or "").strip():
+        # 客戶端送來的 id 不能直接相信：只接受「這個使用者能寫、且確實同主機名稱、
+        # 且還沒關聯」的那一批 —— 以伺服器自己算出來的集合為準。
+        allowed = {
+            row[0] for row in await _sibling_rows(
+                session, user=user, hostname=obj.hostname or "", exclude=obj.id,
+            )
+        }
+        for sid in payload.link_ip_ids:
+            if sid not in allowed:
+                continue
             sib = await session.get(IPAddress, sid)
             if sib is None or sib.device_id is not None:
                 continue

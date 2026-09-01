@@ -105,12 +105,22 @@ export async function notifyStaleAddresses(subnetId: string, ids: string[], days
   return data;
 }
 
+export interface SiblingIP {
+  id: string;
+  ip: string;
+  mac: string | null;
+  mac_vendor: string | null;
+  /** MAC 與本 IP 相同 —— 幾乎可以確定是同一張網卡 */
+  same_mac: boolean;
+}
+
 export interface DeviceSuggestion {
   suggested_name: string | null;
   existing_device_id: string | null;
   existing_device_name: string | null;
   match_reason: string | null;
-  sibling_unlinked: number;
+  /** 同主機名稱、尚未關聯的其他 IP。**候選，不是結論** —— 見元件裡的說明 */
+  siblings: SiblingIP[];
   can_create: boolean;
 }
 
@@ -123,7 +133,7 @@ export async function getDeviceSuggestion(id: string): Promise<DeviceSuggestion>
 /** 套用建議：關聯到既有裝置，或建立一台再關聯（可一併接上同名的其他 IP）。 */
 export async function applyDeviceSuggestion(
   id: string,
-  body: { device_id?: string; create_name?: string; link_siblings?: boolean },
+  body: { device_id?: string; create_name?: string; link_ip_ids?: string[] },
 ): Promise<IPAddress> {
   const { data } = await apiClient.post(
     `/api/v1/addresses/${id}/device-suggestion/apply`, body);

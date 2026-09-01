@@ -44,6 +44,7 @@ class AnomalyReport:
     suspicious_changes: list[dict[str, Any]] = field(default_factory=list)
     fw_rule_rot: list[dict[str, Any]] = field(default_factory=list)
     arp_only_liveness: list[dict[str, Any]] = field(default_factory=list)
+    stale_device_links: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class AnomalyReport:
             "mac_drifts": self.mac_drifts,
             "ghost_ips": self.ghost_ips,
             "arp_only_liveness": self.arp_only_liveness,
+            "stale_device_links": self.stale_device_links,
             "unauthorized_ips": self.unauthorized_ips,
             "rogue_dhcp": self.rogue_dhcp,
             "external_exposure": self.external_exposure,
@@ -64,7 +66,7 @@ class AnomalyReport:
                 + len(self.rogue_dhcp) + len(self.external_exposure)
                 + len(self.fw_rule_rot) + len(self.arp_only_liveness)
                 + len(self.dangling_dns) + len(self.duplicate_ip_records)
-                + len(self.suspicious_changes)
+                + len(self.suspicious_changes) + len(self.stale_device_links)
             ),
         }
 
@@ -802,6 +804,60 @@ async def detect_suspicious_changes(session: AsyncSession) -> list[dict[str, Any
     return out
 
 
+async def detect_stale_device_links(session: AsyncSession) -> list[dict[str, Any]]:
+    """IP 掛著某台裝置，但那個位址後來換了 MAC —— 關聯多半已經過期。
+
+    這是「把 IP 掛到裝置」這件事本來就有的殘留風險：關聯一旦寫下去就不再重新評估，
+    位址日後被別台機器拿去用（DHCP 尤其常見），關聯會**安靜地變成錯的** ——
+    畫面上看起來一切正常，只是指到了另一台機器。
+
+    刻意做成事後偵測而不是在寫入端多加判斷：寫入端再怎麼聰明也只是猜，
+    而這裡有真正的證據 —— **異動記錄裡，MAC 的變更發生在關聯之後**。
+
+    只用記錄下來的事實，不推論：
+    - 只看有 `device_id` 的 IP
+    - 找出「設定 device_id」的最後一次時間
+    - 那之後若有 `mac` 欄位的變更 → 提出來讓人確認（不自動解除關聯：那同樣是猜）
+    """
+    from app.models.device import Device
+    from app.models.ip_change_log import IPChangeLog
+
+    link_q = (
+        select(IPChangeLog.ip_id.label("ip_id"),
+               func.max(IPChangeLog.created_at).label("linked_at"))
+        .where(IPChangeLog.field == "device_id", IPChangeLog.new_value.isnot(None))
+        .group_by(IPChangeLog.ip_id)
+    ).subquery()
+    rows = (await session.execute(
+        select(IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.mac,
+               Device.id, Device.name, link_q.c.linked_at,
+               func.max(IPChangeLog.created_at))
+        .join(link_q, link_q.c.ip_id == IPAddress.id)
+        .join(Device, Device.id == IPAddress.device_id)
+        .join(IPChangeLog, IPChangeLog.ip_id == IPAddress.id)
+        .where(IPChangeLog.field == "mac")
+        .group_by(IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.mac,
+                  Device.id, Device.name, link_q.c.linked_at)
+        .having(func.max(IPChangeLog.created_at) > link_q.c.linked_at)
+        .limit(200)
+    )).all()
+
+    out: list[dict[str, Any]] = []
+    for ip_id, ip, hostname, mac, dev_id, dev_name, linked_at, mac_changed_at in rows:
+        out.append({
+            "kind": "stale_device_link",
+            "ip_id": str(ip_id),
+            "ip": str(ip).split("/")[0],
+            "hostname": hostname,
+            "mac": str(mac) if mac else None,
+            "device_id": str(dev_id),
+            "device": dev_name,
+            "linked_at": linked_at.isoformat() if linked_at else None,
+            "mac_changed_at": mac_changed_at.isoformat() if mac_changed_at else None,
+        })
+    return out
+
+
 async def run_detection(
     session: AsyncSession, *, notify_admins: bool = True,
 ) -> AnomalyReport:
@@ -818,6 +874,7 @@ async def run_detection(
         suspicious_changes=await detect_suspicious_changes(session),
         fw_rule_rot=await detect_fw_rule_rot(session),
         arp_only_liveness=await detect_arp_only_liveness(session),
+        stale_device_links=await detect_stale_device_links(session),
     )
 
     if notify_admins:
