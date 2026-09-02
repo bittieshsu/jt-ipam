@@ -22,10 +22,43 @@ VPN 連線，**全部**都寫進 `ip_addresses.last_seen_scanner`。結果有兩
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.services.evidence import is_aging
+
+
+def seen_from_remaining(
+    remaining: object, max_age: float, *, now: datetime | None = None,
+) -> datetime | None:
+    """由「剩餘秒數」推回**實際被更新的時間**。
+
+    這是「防火牆的 ARP 表可不可以當上線證據」的關鍵：條目還在表裡，不代表剛剛才看到 ——
+    OPNsense 的 `expires` 從 1200 秒（FreeBSD 的 max_age，實機驗證過）往下數，一筆
+    `expires=343` 的條目其實是 **14 分鐘前**更新的。一律蓋上同步當下的時間，等於把
+    「快過期了」講成「剛剛才看到」，那正是我們批評 LibreNMS ARP 的那個毛病。
+
+    回 None＝這筆給不出時間（不合理的數值），由呼叫端決定要不要退回同步當下時間。
+    """
+    try:
+        rem = float(remaining)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if rem < 0 or max_age <= 0 or rem > max_age:
+        return None
+    now = now or datetime.now(UTC)
+    return now - timedelta(seconds=max_age - rem)
+
+
+def seen_from_age(age: object, *, now: datetime | None = None) -> datetime | None:
+    """由「已經過幾秒」推回實際被更新的時間（FortiOS 的 ARP 給的是這種）。"""
+    try:
+        secs = float(age)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if secs < 0 or secs > 86400:      # 超過一天的「年齡」不合理，寧可不用
+        return None
+    return (now or datetime.now(UTC)) - timedelta(seconds=secs)
 
 
 def stamp(

@@ -28,6 +28,7 @@ _RULES: list[tuple[str, list[str]]] = [
     ("storage", ["synology", "qnap", "truenas", "freenas", "netapp", "diskstation", "unraid"]),
     ("bsd", ["pfsense", "opnsense", "freebsd", "openbsd", "netbsd", "bsd"]),
     ("network", ["cisco", "mikrotik", "routeros", "junos", "juniper", "fortinet", "fortigate",
+                 "palo alto", "panos", "pan-os",
                  "ubiquiti", "edgeos", "aruba", "ios-xe", "ios xe", "switch", "router",
                  "huawei", "zyxel", "tp-link", "draytek", "h3c"]),
     ("printer", ["jetdirect", "printer", "laserjet", "officejet", "brother", "kyocera", "epson"]),

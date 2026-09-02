@@ -95,16 +95,20 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     # 出現「online (scanner)」卻根本沒有掃描代理。來源看不出來，就沒辦法只採信
     # 其中一部分 —— 而它們的可信度差很多：
     #
-    #   arp:<廠牌>   防火牆自己的 ARP 表。條目由防火牆按逾時淘汰（分鐘級），我們每輪
-    #                重讀 →「這一輪還在表裡」是有時間意義的 → aging=True。
-    #                （**靜態／永久項目不會淘汰**，所以 stamp 時會跳過，見 arp_seen.py）
+    #   arp:<廠牌>   防火牆自己的 ARP 表 → aging=True。**理由不是「還在表裡」**，
+    #                而是**條目自己帶時間**：OPNsense／pfSense 給 `expires`（剩餘秒數，
+    #                從 FreeBSD 的 max_age 1200 往下數，實機兩台皆是）、FortiOS 給 `age`、
+    #                PAN-OS 給 `ttl`。我們用它推回「真正被更新的時間」再記錄，
+    #                所以一筆快過期的條目不會被講成「剛剛才看到」。
+    #                （靜態／永久項目與已標記 expired 的條目一律跳過，見 arp_seen.py）
     #   vpn:<廠牌>   目前已建立的 VPN 連線／隧道。對方此刻連著才會出現 → aging=True。
     #   lease:<廠牌> DHCP 租約。租期常常是好幾天，比機器的開機時間長得多 ——
     #                「有租約」不等於「現在活著」→ aging=False，預設不採信。
     #
-    # 對照組：`arp:librenms`（＝舊的籠統 "arp"）不會過期。LibreNMS 的 ARP API 不回
-    # 任何時間欄位，來源設備（AP／路由器）的快取不老化，關機數週的機器也會一直看起來
-    # 剛剛才出現 —— 那正是 0.5.206 那次「52 天全綠」事故的成因。
+    # 對照組：`arp:librenms`（＝舊的籠統 "arp"）不會過期。**差別就在有沒有時間**：
+    # LibreNMS 的 ARP API 一個時間欄位都不回，我們只能蓋上同步當下的時鐘，而來源設備
+    # （AP／路由器）的快取不老化，關機數週的機器也會一直看起來剛剛才出現 ——
+    # 那正是 0.5.206 那次「52 天全綠」事故的成因。同樣叫 ARP，可信度完全不同。
     _s("arp:opnsense", TIER_MONITORED, aging=True),
     _s("arp:pfsense", TIER_MONITORED, aging=True),
     _s("arp:fortigate", TIER_MONITORED, aging=True),

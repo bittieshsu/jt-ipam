@@ -22,6 +22,7 @@ from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
+from app.services import arp_seen as arp_seen_svc
 from app.services.hostname import apply_observation
 from app.services.ip_autocreate import (
     SubnetCandidates,
@@ -91,11 +92,16 @@ async def test_connection(fw: PfSenseFirewall) -> dict[str, Any]:
 
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
+#: pfSense 也是 FreeBSD → ARP 的 max_age 預設同樣是 1200 秒
+_PF_ARP_MAX_AGE = 1200.0
+
+
 async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, evidence: str,
     mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    permanent: bool = False, create_in: SubnetCandidates | None = None,
+    permanent: bool = False, seen_at: datetime | None = None,
+    create_in: SubnetCandidates | None = None,
 ) -> bool:
     """找到 jt-ipam IPAddress 就記下觀測時間（逐來源，見 services/arp_seen.py）。
 
@@ -120,8 +126,7 @@ async def _stamp_ip_seen(
         ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="pfsense")
         session.add(ipa)
         await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
-    from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence, permanent=permanent)
+    arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -327,9 +332,16 @@ async def sync_arp_table(session: AsyncSession, fw: PfSenseFirewall) -> int:
         # 靜態項目不會隨機器關機消失 → 不能拿來宣稱上線
         perm = str(d.get("permanent") or d.get("type") or "").strip().lower() in (
             "1", "true", "yes", "permanent", "static")
+        if str(d.get("expired") or "").strip().lower() in ("1", "true", "yes"):
+            perm = True          # 已過期還列著＝「曾經看過」，不是「現在還在」
+        # 條目自己帶時間就用它（OPNsense 實機是 `expires` 剩餘秒數、FortiOS 是 `age`）。
+        # pfSense 的 REST 套件版本之間欄位不一定有 —— 兩種都試，都沒有就退回同步當下時間，
+        # 那時這筆的意思只剩「這一輪還在表裡」（ARP 逾時之內，仍然是有界的）。
+        when = (arp_seen_svc.seen_from_remaining(d.get("expires"), _PF_ARP_MAX_AGE)
+                or arp_seen_svc.seen_from_age(d.get("age")))
         if await _stamp_ip_seen(session, str(ip).split("/")[0], evidence="arp:pfsense",
                                 mac=_mac_of(d), hostname=_host_of(d),
-                                subnet_ids=scope_ids, permanent=perm):
+                                subnet_ids=scope_ids, permanent=perm, seen_at=when):
             seen += 1
     return seen
 

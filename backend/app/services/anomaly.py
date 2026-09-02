@@ -452,6 +452,11 @@ async def detect_rogue_dhcp(
         _fw_models.append(FortiGateFirewall)
     except Exception:
         pass
+    try:
+        from app.models.paloalto import PaloAltoFirewall
+        _fw_models.append(PaloAltoFirewall)
+    except Exception:
+        pass
     for model in _fw_models:
         for (url,) in (await session.execute(select(model.api_url))).all():
             host = (urlparse(str(url)).hostname or "").strip()

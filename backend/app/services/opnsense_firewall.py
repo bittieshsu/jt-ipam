@@ -36,6 +36,7 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
 from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall
 from app.models.subnet import Subnet
+from app.services import arp_seen as arp_seen_svc
 from app.services.hostname import apply_observation
 from app.services.ip_autocreate import (
     SubnetCandidates,
@@ -332,7 +333,8 @@ async def _stamp_ip_seen(
     session: AsyncSession, ip: str,
     *, evidence: str, mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    permanent: bool = False, create_in: SubnetCandidates | None = None,
+    permanent: bool = False, seen_at: datetime | None = None,
+    create_in: SubnetCandidates | None = None,
 ) -> bool:
     """找到 jt-ipam IPAddress 就記下觀測時間，回傳是否找到（或已建立）。
 
@@ -362,8 +364,7 @@ async def _stamp_ip_seen(
         ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="opnsense")
         session.add(ipa)
         await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
-    from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence, permanent=permanent)
+    arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -624,6 +625,15 @@ async def sync_arp_table(
         rows = data
     seen = matched = 0
     scope_ids = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
+    # 每一筆帶 `expires`＝剩餘秒數，從 max_age 往下數（FreeBSD 預設 1200 秒，
+    # 實機兩台都是 1200）。**用整批的最大值當 max_age**，站台調過 net.link.ether.inet.max_age
+    # 也還是對得上；抓不到就退回 1200。
+    max_age = 1200.0
+    for r in rows:
+        try:
+            max_age = max(max_age, float(r.get("expires")))
+        except (TypeError, ValueError):
+            continue
     for r in rows:
         ip = (r.get("ip") or "").strip()
         mac = (r.get("mac") or "").strip() or None
@@ -633,8 +643,13 @@ async def sync_arp_table(
         # 靜態／永久項目不會因為機器關機而消失 → 不能拿來宣稱上線
         perm = str(r.get("permanent") or r.get("type") or "").strip().lower() in (
             "1", "true", "yes", "permanent", "static")
+        # 已過期但還列在表上的條目：那是「曾經看過」，不是「現在還在」
+        if str(r.get("expired") or "").strip().lower() in ("1", "true", "yes"):
+            perm = True
+        # 條目自己說了它是什麼時候被更新的 —— 用那個時間，不要一律蓋「現在」
+        when = arp_seen_svc.seen_from_remaining(r.get("expires"), max_age)
         if await _stamp_ip_seen(session, ip, evidence="arp:opnsense", mac=mac,
-                                subnet_ids=scope_ids, permanent=perm):
+                                subnet_ids=scope_ids, permanent=perm, seen_at=when):
             matched += 1
     return {"seen": seen, "matched": matched}
 

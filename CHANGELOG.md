@@ -4,6 +4,54 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.247] — 2026-09-02
+
+### Fixed (everything a new integration has to reach)
+Adding Palo Alto covered the sync, the rule-change sentinel and the settings page — and then a
+sweep found a string of places still stopping at the previous vendor. None of them broke: they
+were simply one vendor short, which is exactly why nobody noticed.
+- **AI chat** could not see it: `list_firewalls` returned three vendors, so the model would answer
+  "which firewalls do we have" from an incomplete list, and there were no tools for Palo Alto
+  policies or address objects. Both added, scoped to global-read like the other firewall tools.
+- **An IP's detail page** did not show which Palo Alto rules touch that address. The App-ID is
+  shown next to the service, because that is what a PAN-OS rule actually matches on.
+- **Audit entries** showed a truncated UUID instead of the instance name, and clicking one went
+  nowhere.
+- **Unauthorised-DHCP detection** did not know the firewall's own management address, so a Palo
+  Alto could report itself as a rogue server.
+- **OS fingerprinting** did not classify PAN-OS as a network device.
+- **The rule-change page** still said it compares "three firewalls", and the change kind was
+  crammed into the diff column — it is now its own column, so rows line up.
+- **The precedence page** printed raw lowercase keys (`paloalto`, `zabbix`) for sources with no
+  display name, and its intro enumerated a stale subset of sources.
+- **The liveness evidence picker** wrapped into ragged rows; sources are now grouped by kind
+  (probes / ARP tables / VPN sessions / DHCP leases) in an aligned grid.
+- Docs: the feature map, the home page and the API endpoint table now list Palo Alto.
+
+### Fixed (what makes a firewall's ARP table usable evidence)
+- **A firewall's ARP entries were stamped with the sync time, not the time they were refreshed.**
+  Asked why a firewall's ARP table may claim a host is online when LibreNMS's may not, the honest
+  answer turned out to expose a flaw in our own code. Live data from two OPNsense boxes: every
+  entry carries `expires`, counting down from FreeBSD's 1200-second `max_age`; of 84 entries, 22
+  had last been refreshed more than five minutes earlier and six were 15–20 minutes old — all of
+  which we were recording as "just seen". That is the same defect we criticise LibreNMS ARP for.
+  The entry's own clock is now used: `expires` (OPNsense / pfSense), `age` (FortiOS), `ttl`
+  (PAN-OS) are converted back to when the entry was actually refreshed. Permanent entries and ones
+  already flagged expired are skipped, and `max_age` is taken from the batch so a site that tuned
+  it still lines up. Where a vendor gives no such field we fall back to the sync time, which
+  claims only "still within the ARP timeout" — a weaker statement, deliberately.
+  **The rule is now written down: a source may claim liveness if it can say *when*, not because
+  it happens to be called ARP.**
+
+### Testing
+- **A guard for "did the new integration reach everything?"** (`test_integration_coverage.py`).
+  It checks each vendor against every place that enumerates them — AI tools, rule-change
+  detection and its on-screen copy, the IP-detail lookup, NAT, audit naming, scheduled sync,
+  export/import, the evidence contract, and display names in both locales. It also records the
+  two features that are **deliberately** vendor-limited (exposed-services and rule-rot detection)
+  with the reason, so they are not "fixed" by accident: a FortiGate policy or a PAN-OS App-ID
+  rule is not the same claim as "this port is reachable from the internet".
+
 ## [0.5.246] — 2026-09-02
 
 ### Fixed

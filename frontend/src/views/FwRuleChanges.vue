@@ -40,32 +40,55 @@ async function load() {
 }
 onMounted(load);
 
+/** 廠牌顯示名稱：`source_type` 是內部鍵，直接印出來會是全小寫的 paloalto／pfsense。 */
+const VENDOR_LABEL: Record<string, string> = {
+  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
+};
+
 function ruleLine(r: any): string {
   const port = r.dst_port ? `:${r.dst_port}` : "";
   const descr = r.descr ? `（${r.descr}）` : "";
   return `${r.action || "?"} ${r.src || "any"} → ${r.dst || "any"}${port}${descr}`;
 }
 
-/** diff 攤成可讀清單；規則描述是不可信文字，一律以純文字 render（不進 v-html）。 */
+type DiffKind = "add" | "del" | "chg";
+const KIND_TAG: Record<DiffKind, "error" | "default" | "warning"> = {
+  add: "error", del: "default", chg: "warning",
+};
+
+/** 把一筆快照的 diff 攤成「一列一條規則」。類型與文字分開回傳，兩個欄位才對得齊。 */
+function diffLines(row: Change): { kind: DiffKind; text: string }[] {
+  const d = row.diff;
+  if (row.is_baseline || !d) return [];
+  const out: { kind: DiffKind; text: string }[] = [];
+  for (const r of (d.added ?? [])) out.push({ kind: "add", text: ruleLine(r) });
+  for (const r of (d.removed ?? [])) out.push({ kind: "del", text: ruleLine(r) });
+  for (const c of (d.changed ?? [])) {
+    out.push({ kind: "chg", text: `${c.descr || c.key}：${(c.fields ?? []).map(
+      (f: string) => `${f} ${c.old?.[f] ?? ""} → ${c.new?.[f] ?? ""}`).join("、")}` });
+  }
+  return out;
+}
+
+/** 每一列的高度要與「異動內容」那欄的同一列對齊 —— 兩欄用一樣的 line-height 與 gap。 */
+const LINE_STYLE = "font-size:12.5px;line-height:1.7;min-height:22px";
+
+/** 異動類型欄：只有標籤，靠上對齊，與右側規則文字一列一列對應。 */
+function renderKinds(row: Change) {
+  if (row.is_baseline) return h("span", { style: "opacity:.55;font-size:12.5px" }, "—");
+  return h("div", { style: "display:flex;flex-direction:column;gap:3px;padding:4px 0" },
+    diffLines(row).map((l) => h("div", { style: LINE_STYLE },
+      h(NTag, { size: "tiny", type: KIND_TAG[l.kind] },
+        { default: () => t(`fw_changes.d_${l.kind}`) }))));
+}
+
+/** 異動內容欄；規則描述是不可信文字，一律以純文字 render（不進 v-html）。 */
 function renderDiff(row: Change) {
   if (row.is_baseline) {
     return h("span", { style: "opacity:.65" }, t("fw_changes.baseline"));
   }
-  const d = row.diff!;
-  // 每一列＝一條規則：小型彩色標籤（新增/移除/修改）與規則文字**同一行**——
-  // 原本紅色「＋」自己佔一行、規則文字掉到下一行，看起來像排版壞掉（使用者截圖）。
-  const line = (tagText: string, tagType: "error" | "default" | "warning", text: string) =>
-    h("div", { style: "display:flex;align-items:baseline;gap:6px;font-size:12.5px;line-height:1.7" }, [
-      h(NTag, { size: "tiny", type: tagType, style: "flex:none" }, { default: () => tagText }),
-      h("span", null, text),
-    ]);
-  const rows: any[] = [];
-  for (const r of (d.added ?? [])) rows.push(line(t("fw_changes.d_add"), "error", ruleLine(r)));
-  for (const r of (d.removed ?? [])) rows.push(line(t("fw_changes.d_del"), "default", ruleLine(r)));
-  for (const c of (d.changed ?? [])) rows.push(line(t("fw_changes.d_chg"), "warning",
-    `${c.descr || c.key}：${(c.fields ?? []).map(
-      (f: string) => `${f} ${c.old?.[f] ?? ""} → ${c.new?.[f] ?? ""}`).join("、")}`));
-  return h("div", { style: "display:flex;flex-direction:column;gap:3px;padding:4px 0" }, rows);
+  return h("div", { style: "display:flex;flex-direction:column;gap:3px;padding:4px 0" },
+    diffLines(row).map((l) => h("div", { style: LINE_STYLE }, l.text)));
 }
 
 /** AI 解讀：偵測是確定性的，解讀層按需觸發 —— 帶上目標位址的全系統整合證據。
@@ -129,10 +152,14 @@ const cols: DataTableColumns<Change> = autoSort([
     render: (r) => fmtDateTime(r.taken_at) },
   { title: t("fw_changes.firewall"), key: "instance_name", width: 200,
     render: (r) => h("span", null, [
-      h(NTag, { size: "tiny", style: "margin-right:6px" }, { default: () => r.source_type }),
+      h(NTag, { size: "tiny", style: "margin-right:6px" },
+        { default: () => VENDOR_LABEL[r.source_type] ?? r.source_type }),
       r.instance_name,
     ]) },
   { title: t("fw_changes.rules"), key: "rule_count", width: 90 },
+  // 類型獨立一欄：混在異動內容裡時，標籤寬度不一會讓每一列的規則文字起點不同
+  //（使用者回報「很不整齊」）。
+  { title: t("fw_changes.kind"), key: "_kind", width: 84, render: (r) => renderKinds(r) },
   { title: t("fw_changes.diff"), key: "diff", render: (r) => renderDiff(r) },
   // 單一「操作」欄：欄位標題若與裡面的按鈕同名（認可／AI 解讀）會像重複貼了兩次
   //（使用者回饋）；認可後按鈕原位換成狀態文字。

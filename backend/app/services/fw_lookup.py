@@ -68,6 +68,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     from app.models.firewall_rule import OPNsenseRule
     from app.models.fortigate import FortiGateFirewall, FortiGatePolicy
     from app.models.nat import NATTranslation
+    from app.models.paloalto import PaloAltoFirewall, PaloAltoPolicy
     from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 
     aip = ipaddress.ip_address(ip)
@@ -141,6 +142,30 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
                 "match": ("目的：" + why_dst) if why_dst else ("來源：" + why_src),
             })
 
+    # ── Palo Alto 安全政策 ──
+    # 服務欄位（`service`）不是 PAN-OS 規則的重點，App-ID 才是 —— 顯示時兩個都給，
+    # 不然使用者看到的規則會少掉真正在管的那一半。
+    pa_names = {f.id: f.name for f in (await session.execute(
+        select(PaloAltoFirewall))).scalars().all()}
+    for r in (await session.execute(select(PaloAltoPolicy))).scalars().all():
+        if r.disabled:
+            continue
+        why_src = _field_matches(getattr(r, "source", None), aip, alias_names)
+        why_dst = _field_matches(getattr(r, "destination", None), aip, alias_names)
+        if why_src or why_dst:
+            app_id = str(getattr(r, "application", "") or "")
+            svc = str(getattr(r, "service", "") or "")
+            out["rules"].append({
+                "source_type": "paloalto", "firewall": pa_names.get(r.firewall_id, "?"),
+                "action": r.action,
+                "interface": f"{r.from_zone}->{getattr(r, 'to_zone', '')}",
+                "protocol": " / ".join(x for x in (app_id, svc) if x),
+                "src": str(getattr(r, "source", "") or ""),
+                "dst": str(getattr(r, "destination", "") or ""),
+                "dst_port": "", "descr": (r.name or "")[:120],
+                "match": ("目的：" + why_dst) if why_dst else ("來源：" + why_src),
+            })
+
     # ── NAT：指向（或來自）這個 IP 的對應 ──
     ipa = (await session.execute(
         select(IPAddress).where(IPAddress.ip == ip).limit(1))).scalars().first()
@@ -202,10 +227,11 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
             "wazuh": None if wa is None else (wa.status or "present"),
         }
 
-    # ── NAT port forwards（三家共用的正規化表）──
+    # ── NAT port forwards（各廠牌共用的正規化表）──
     from app.models.fortigate import FortiGateFirewall
+    from app.models.paloalto import PaloAltoFirewall as _PA
     inst_names: dict[str, str] = {}
-    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall):
+    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, _PA):
         for f in (await session.execute(select(model))).scalars().all():
             inst_names[str(f.id)] = f.name
     for n in (await session.execute(

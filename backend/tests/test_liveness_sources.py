@@ -208,3 +208,44 @@ async def test_stale_firewall_arp_becomes_offline(db_session):
     await _recompute(db_session, evidence.default_liveness_sources())
     await db_session.refresh(ipa)
     assert ipa.effective_status == "offline"
+
+
+# ─────────────────── ARP 條目自己帶的時間 ───────────────────
+
+def test_expiry_is_converted_back_to_when_it_was_refreshed() -> None:
+    """「還在 ARP 表裡」不等於「剛剛才看到」。
+
+    實機（兩台 OPNsense）每一筆都帶 `expires`：從 1200 秒往下數。
+    一筆 `expires=343` 代表這個對應是 **14 分鐘前**更新的 —— 蓋上同步當下的時間，
+    等於把快過期的條目講成剛看到，那正是我們批評 LibreNMS ARP 的那個毛病。
+    """
+    now = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+    fresh = arp_seen_svc.seen_from_remaining(1190, 1200, now=now)
+    stale = arp_seen_svc.seen_from_remaining(343, 1200, now=now)
+    assert fresh == now - timedelta(seconds=10)
+    assert stale == now - timedelta(seconds=857)
+    # 30 分鐘的門檻下，這兩筆都還算上線；但差了 14 分鐘 —— 到期時間會跟著差 14 分鐘
+    assert (fresh - stale) == timedelta(seconds=847)
+
+
+def test_permanent_entry_gives_no_time_and_is_skipped() -> None:
+    """實機上 `permanent=True` 的那筆 `expires` 是 -1（防火牆自己的介面）。"""
+    assert arp_seen_svc.seen_from_remaining(-1, 1200) is None
+    ip = _IP()
+    arp_seen_svc.stamp(ip, "arp:opnsense", permanent=True)
+    assert ip.arp_seen == {}
+
+
+def test_age_style_is_converted_too() -> None:
+    """FortiOS 的 ARP 給的是「已經過幾秒」，方向相反但意思一樣。"""
+    now = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+    assert arp_seen_svc.seen_from_age(120, now=now) == now - timedelta(minutes=2)
+    assert arp_seen_svc.seen_from_age("not-a-number") is None
+    assert arp_seen_svc.seen_from_age(999999) is None      # 一天以上的年齡不合理
+
+
+def test_unusable_values_fall_back_to_the_caller() -> None:
+    """給不出時間時回 None，由呼叫端決定退回同步當下 —— 不要自己編一個時間出來。"""
+    assert arp_seen_svc.seen_from_remaining(None, 1200) is None
+    assert arp_seen_svc.seen_from_remaining(5000, 1200) is None   # 比 max_age 還大
+    assert arp_seen_svc.seen_from_remaining(600, 0) is None

@@ -264,7 +264,7 @@ async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, evidence: str,
     mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    permanent: bool = False,
+    permanent: bool = False, seen_at: datetime | None = None,
 ) -> bool:
     """只標記**既有**的 IP，絕不新建（與其他防火牆整合一致）。
 
@@ -282,7 +282,7 @@ async def _stamp_ip_seen(
     if ipa is None:
         return False
     from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence, permanent=permanent)
+    arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -303,14 +303,25 @@ async def sync_arp(session: AsyncSession, fw: PaloAltoFirewall) -> int:
         return 0
     scope_ids = _scope(fw)
     seen = 0
-    for e in result.iter("entry"):
+    # `ttl`＝剩餘秒數（PAN-OS 預設 1800）。用整批的最大值當上限，站台調過也對得上。
+    from app.services.arp_seen import seen_from_remaining
+    entries = list(result.iter("entry"))
+    max_ttl = 1800.0
+    for e in entries:
+        try:
+            max_ttl = max(max_ttl, float((e.findtext("ttl") or "").strip()))
+        except (TypeError, ValueError):
+            continue
+    for e in entries:
         ip = (e.findtext("ip") or "").strip()
         mac = (e.findtext("mac") or "").strip()
         # PAN-OS 的 status：`c`＝complete、`s`＝static。靜態項目不會逾時淘汰，
         # 拿它宣稱上線就等於在說「這台永遠活著」。
         perm = (e.findtext("status") or "").strip().lower() in ("s", "static")
         if await _stamp_ip_seen(session, ip, evidence="arp:paloalto", mac=_norm_mac(mac),
-                                subnet_ids=scope_ids, permanent=perm):
+                                subnet_ids=scope_ids, permanent=perm,
+                                seen_at=seen_from_remaining(
+                                    (e.findtext("ttl") or "").strip(), max_ttl)):
             seen += 1
     return seen
 

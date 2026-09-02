@@ -430,7 +430,8 @@
     "source_label": "Source",
     "src_scanner": "Scan agent",
     "src_librenms": "LibreNMS",
-    "src_wazuh": "Wazuh"
+    "src_wazuh": "Wazuh",
+    "src_zabbix": "Zabbix"
   },
   "scan_probes": {
     "title": "Scan probes",
@@ -1086,14 +1087,14 @@
     "pin_label": "Pin hostname source",
     "pin_hint": "When pinned, this IP always uses that source's hostname; \"Auto\" resolves by the global priority order.",
     "page_title": "Hostname source order",
-    "page_subtitle": "When multiple sources (manual / DNS / LibreNMS / OPNsense / scanner / Proxmox VE / Wazuh / AdGuard) report a hostname for the same IP, the first one with a value (top-down) wins. Drag to reorder.",
+    "page_subtitle": "When several sources report a hostname for the same IP, the first one with a value wins, top to bottom (the list is every source actually in use). Drag to reorder.",
     "drag_hint": "Drag to reorder priority (top = highest); use the switch to disable a source — disabled sources are excluded from name matching.",
     "enabled": "On",
     "disabled": "Off",
     "arp_title": "ARP / MAC source priority",
-    "arp_subtitle": "When multiple sources (scan / OPNsense / LibreNMS / AdGuard / Proxmox VE) report a MAC for the same IP, higher-ranked sources override lower ones; the switch on the right disables a source. Drag to reorder.",
+    "arp_subtitle": "When several sources report a MAC for the same IP, the ones higher up override the ones below; the switch on the right disables a source. Drag to reorder.",
     "dev_title": "Device name source priority",
-    "dev_subtitle": "When multiple sources (LibreNMS / DNS / Proxmox VE name / OPNsense / LibreNMS sysName) provide a name for the same device, higher-ranked sources win; Manual is highest and cannot be disabled. Drag to reorder.",
+    "dev_subtitle": "When several sources supply a name for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder.",
     "save": "Save priority",
     "saved": "Priority updated",
     "src": {
@@ -1109,10 +1110,14 @@
       "adguard": "AdGuard",
       "snmp": "LibreNMS (sysName)",
       "windows_dhcp": "Windows DHCP",
-      "fortigate": "FortiGate"
+      "fortigate": "FortiGate",
+      "pfsense": "pfSense",
+      "paloalto": "Palo Alto",
+      "zabbix": "Zabbix",
+      "esxi": "VMware ESXi / vCenter"
     },
     "model_title": "Device model source order",
-    "model_subtitle": "When multiple sources (LibreNMS hardware / Proxmox VE / OPNsense) provide a device model, higher = preferred; manual is highest and can't be disabled. Drag to reorder."
+    "model_subtitle": "When several sources supply a model for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder."
   },
   "addresses": {
     "search_placeholder": "Search all fields (IP / hostname / MAC / description / owner / switch location / note)",
@@ -2749,7 +2754,8 @@
     "src_kind_arp": "ARP table",
     "src_kind_vpn": "VPN sessions",
     "src_kind_lease": "DHCP leases",
-    "src_no_aging": "never expires"
+    "src_no_aging": "never expires",
+    "src_kind_base": "Probes & monitoring"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",
@@ -3459,7 +3465,7 @@
     "rules": "Rules",
     "diff": "What changed",
     "baseline": "(first snapshot, used as the comparison baseline)",
-    "hint": "The rule sentinel compares OPNsense / pfSense / FortiGate rules on every sync and records an entry (and notifies admins) only when something really changed. A permit rule appearing overnight is the classic sign of a compromised firewall — this page is the full record for verifying it.",
+    "hint": "Every sync round compares each firewall's rules (OPNsense / pfSense / FortiGate / Palo Alto); only a real change is recorded and notified. A permit rule that appears overnight is a classic sign of a breach or a backdoor — this page is the record you check it against.",
     "empty": "No rule changes recorded yet.",
     "ai": "AI analysis",
     "ai_btn": "AI analysis",
@@ -3476,7 +3482,8 @@
     "ack_ph": "Note (e.g. opened 443 per ticket #123)",
     "d_add": "added",
     "d_del": "removed",
-    "d_chg": "changed"
+    "d_chg": "changed",
+    "kind": "Type"
   },
   "surface": {
     "title": "Exposed services list",

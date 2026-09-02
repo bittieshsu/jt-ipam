@@ -95,6 +95,35 @@ function srcLabel(key: string): string {
   const [kind, vendor] = key.split(":", 2);
   return `${t(`system_settings.src_kind_${kind}`)}（${VENDOR_LABEL[vendor] ?? vendor}）`;
 }
+
+/** 分組顯示時，種類已經在列首寫過了 → 每一格只寫廠牌名。 */
+function vendorLabel(key: string): string {
+  // 舊的籠統 "arp" 就是 LibreNMS 的 ARP（同一件事的舊鍵）→ 併進 ARP 那一列，
+  // 放在「探測／監控」會既不同類、又因為字長而把那一列撐出換行。
+  if (key === "arp") return "LibreNMS";
+  const vendor = key.split(":", 2)[1] ?? key;
+  return VENDOR_LABEL[vendor] ?? vendor;
+}
+
+/** 這個來源歸在哪一組。 */
+function srcKind(key: string): string {
+  if (key === "arp") return "arp";
+  return key.includes(":") ? key.split(":", 1)[0] : "base";
+}
+
+//: 分組的順序＝可信度由高到低（探測 → 防火牆的 ARP／VPN → 不會過期的租約與 ARP 記錄）
+const SRC_KINDS = ["base", "arp", "vpn", "lease"] as const;
+
+const livenessGroups = computed(() =>
+  SRC_KINDS.map((kind) => ({
+    kind,
+    title: kind === "base"
+      ? t("system_settings.src_kind_base")
+      : t(`system_settings.src_kind_${kind}`),
+    // 會過期的排前面：那些才是預設採信的，不建議的（不會過期）擺最後
+    items: livenessAvail.value.filter((s) => srcKind(s.key) === kind)
+      .slice().sort((a, b) => Number(b.aging) - Number(a.aging)),
+  })).filter((g) => g.items.length));
 // IP 生命週期：釋放後的冷卻天數
 const cooldownDays = ref(30);
 // 憑證到期通知的全域預設。每張憑證可各自覆寫（憑證頁的鈴鐺按鈕）——
@@ -463,17 +492,22 @@ async function doPreviewAutolink() {
         </div>
         <div class="fld" style="margin-top: 12px">
           <label>{{ t("system_settings.liveness_sources") }}</label>
+          <!-- 依「證據種類」分組：同一種類的來源長度相近，網格才對得齊；
+               混在一起自由換行會因為字數不一而每列參差（使用者回報）。 -->
           <n-checkbox-group :value="livenessSrc" @update:value="changeSources">
-            <n-space :size="[18, 8]" style="max-width: 900px">
-              <n-checkbox v-for="s in livenessAvail" :key="s.key" :value="s.key">
-                {{ srcLabel(s.key) }}
-                <!-- 不會過期的證據勾了等於「看過一次就永遠上線」→ 講明白，不要只靠說明文字 -->
-                <n-tag v-if="!s.aging" size="tiny" :bordered="false" type="warning"
-                       style="margin-left: 4px">
-                  {{ t("system_settings.src_no_aging") }}
-                </n-tag>
-              </n-checkbox>
-            </n-space>
+            <div v-for="g in livenessGroups" :key="g.kind" class="ss-src-row">
+              <span class="ss-src-kind">{{ g.title }}</span>
+              <div class="ss-src-grid">
+                <n-checkbox v-for="s in g.items" :key="s.key" :value="s.key" class="ss-src-item">
+                  <span class="ss-src-name">{{ g.kind === "base" ? srcLabel(s.key) : vendorLabel(s.key) }}</span>
+                  <!-- 不會過期的證據勾了等於「看過一次就永遠上線」→ 講明白，不要只靠說明文字 -->
+                  <n-tag v-if="!s.aging" size="tiny" :bordered="false" type="warning"
+                         class="ss-src-tag">
+                    {{ t("system_settings.src_no_aging") }}
+                  </n-tag>
+                </n-checkbox>
+              </div>
+            </div>
           </n-checkbox-group>
           <div class="hint">{{ t("system_settings.liveness_sources_hint") }}</div>
         </div>
@@ -915,6 +949,23 @@ async function doPreviewAutolink() {
 @media (max-width: 640px) { .ss-grid { grid-template-columns: 1fr; } }
 /* 單一數字欄位：只把輸入框收窄，說明文字仍用滿卡片寬度。
    先前是把整格限成 320px，說明被擠成窄長一條、右邊整片空白（使用者回報）。 */
+.ss-src-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.ss-src-kind {
+  flex: 0 0 96px; font-size: 12.5px; color: var(--n-text-color-3, #8a8a8a);
+  line-height: 22px; text-align: right;
+}
+/* 固定欄寬的網格：每一格一樣寬，列與列才對得齊 */
+.ss-src-grid {
+  flex: 1 1 auto; display: grid; gap: 4px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); max-width: 940px;
+}
+.ss-src-item { line-height: 22px; }
+.ss-src-name { vertical-align: middle; }
+.ss-src-tag { margin-left: 4px; vertical-align: middle; }
+@media (max-width: 900px) {
+  .ss-src-row { flex-direction: column; gap: 2px; }
+  .ss-src-kind { text-align: left; flex-basis: auto; }
+}
 .fld-narrow-input :deep(.n-input-number) { max-width: 260px; }
 .fld label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
 .hint { font-size: 11px; opacity: 0.65; margin-top: 4px; }

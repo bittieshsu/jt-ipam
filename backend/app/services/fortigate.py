@@ -241,6 +241,7 @@ async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, evidence: str,
     mac: str | None = None, hostname: str | None = None,
     subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
+    seen_at: datetime | None = None,
 ) -> bool:
     """只標記「既有」IP，絕不新建（與 OPNsense / pfSense 行為一致）。
 
@@ -257,7 +258,7 @@ async def _stamp_ip_seen(
     if ipa is None:
         return False
     from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence)
+    arp_seen_svc.stamp(ipa, evidence, seen_at)
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
@@ -373,10 +374,14 @@ async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             ip = _valid_ip(_first(d, "ip", "address"))
             if not ip:
                 continue
-            # 欄位為 ip / mac / interface / age（hwaddr、intf 是 CLI 用語，JSON 沒有）
+            # 欄位為 ip / mac / interface / age（hwaddr、intf 是 CLI 用語，JSON 沒有）。
+            # `age`＝這筆條目已經幾秒沒被更新 → 用它推回真正被看到的時間，
+            # 不要一律蓋同步當下（見 services/arp_seen.seen_from_age）。
+            from app.services.arp_seen import seen_from_age
             if await _stamp_ip_seen(
                 session, ip, evidence="arp:fortigate",
                 mac=_norm_mac(d.get("mac")), subnet_ids=scope_ids,
+                seen_at=seen_from_age(d.get("age")),
             ):
                 matched += 1
     return matched

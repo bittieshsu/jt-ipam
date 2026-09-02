@@ -53,6 +53,7 @@ function renderObjectLink(objectType: string | null, objectId: string | null, la
     case "ip_request":   return go("requests");
     // 整合實例 → 點進對應的設定頁（標籤已由後端解析成實例名稱）
     case "fortigate_firewall":  return go("fortigate");
+    case "paloalto_firewall":   return go("paloalto");
     case "pfsense_firewall":    return go("pfsense");
     case "opnsense_firewall":   return go("firewall_admin");
     case "librenms_instance":   return go("librenms");

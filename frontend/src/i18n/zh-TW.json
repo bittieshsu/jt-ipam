@@ -430,7 +430,8 @@
     "source_label": "來源",
     "src_scanner": "掃描代理",
     "src_librenms": "LibreNMS",
-    "src_wazuh": "Wazuh"
+    "src_wazuh": "Wazuh",
+    "src_zabbix": "Zabbix"
   },
   "scan_probes": {
     "title": "掃描項目",
@@ -1086,14 +1087,14 @@
     "pin_label": "固定主機名稱來源",
     "pin_hint": "選某來源後此 IP 永遠以它的主機名稱為準；「自動」則依全域順序解析。",
     "page_title": "主機名稱來源順序",
-    "page_subtitle": "多個來源 (手動 / DNS / LibreNMS / OPNsense / 掃描 / Proxmox VE / Wazuh / AdGuard) 回報同一個 IP 的主機名稱時，由上而下誰先有值就用誰。可拖拉調整順序。",
+    "page_subtitle": "多個來源回報同一個 IP 的主機名稱時，由上而下誰先有值就用誰（清單即目前實際採用的所有來源）。可拖拉調整順序。",
     "drag_hint": "拖拉調整順序 (最上面優先)；右側開關可停用某來源，停用後該來源不參與名稱比對。",
     "enabled": "啟用",
     "disabled": "停用",
     "arp_title": "ARP / MAC 來源順序",
-    "arp_subtitle": "多個來源 (掃描 / OPNsense / LibreNMS / AdGuard / Proxmox VE) 替同一 IP 回報 MAC 時，排越前面者可覆寫排後面者；右側開關可停用某來源。拖拉調整。",
+    "arp_subtitle": "多個來源替同一個 IP 回報 MAC 時，排越前面者可覆寫排後面者；右側開關可停用某來源。拖拉調整。",
     "dev_title": "裝置名稱來源順序",
-    "dev_subtitle": "多個來源 (LibreNMS / DNS / Proxmox VE 名稱 / OPNsense / LibreNMS sysName) 提供同一台裝置名稱時，排越前面者優先採用；手動最高且不可停用。拖拉調整。",
+    "dev_subtitle": "多個來源提供同一台裝置名稱時，排越前面者優先採用；手動最高且不可停用。拖拉調整。",
     "save": "儲存順序",
     "saved": "順序已更新",
     "src": {
@@ -1109,10 +1110,14 @@
       "adguard": "AdGuard",
       "snmp": "LibreNMS (sysName)",
       "windows_dhcp": "Windows DHCP",
-      "fortigate": "FortiGate"
+      "fortigate": "FortiGate",
+      "pfsense": "pfSense",
+      "paloalto": "Palo Alto",
+      "zabbix": "Zabbix",
+      "esxi": "VMware ESXi / vCenter"
     },
     "model_title": "裝置型號來源順序",
-    "model_subtitle": "多個來源（LibreNMS hardware / Proxmox VE / OPNsense）提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
+    "model_subtitle": "多個來源提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
   },
   "addresses": {
     "search_placeholder": "搜尋所有欄位 (IP / 主機名稱 / MAC / 描述 / 擁有者 / 交換器位置 / 備註)",
@@ -2749,7 +2754,8 @@
     "src_kind_arp": "ARP 表",
     "src_kind_vpn": "VPN 連線",
     "src_kind_lease": "DHCP 租約",
-    "src_no_aging": "不會過期"
+    "src_no_aging": "不會過期",
+    "src_kind_base": "探測／監控"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",
@@ -3459,7 +3465,7 @@
     "rules": "規則數",
     "diff": "異動內容",
     "baseline": "（初次快照，作為比對基準）",
-    "hint": "規則異動偵測會在每輪同步比對三家防火牆（OPNsense／pfSense／FortiGate）的規則，只有真的變更才記錄一筆並通知管理員。半夜多出一條放行規則是防火牆被入侵或留後門的經典徵兆——這一頁就是查證用的完整記錄。",
+    "hint": "規則異動偵測會在每輪同步比對各家防火牆（OPNsense／pfSense／FortiGate／Palo Alto）的規則，只有真的變更才記錄一筆並通知管理員。半夜多出一條放行規則是防火牆被入侵或留後門的經典徵兆——這一頁就是查證用的完整記錄。",
     "empty": "還沒有記錄到任何規則異動。",
     "ai": "AI 解讀",
     "ai_btn": "AI 解讀",
@@ -3476,7 +3482,8 @@
     "ack_ph": "說明（例：開放 443 對應工單 #123）",
     "d_add": "新增",
     "d_del": "移除",
-    "d_chg": "修改"
+    "d_chg": "修改",
+    "kind": "類型"
   },
   "surface": {
     "title": "對外開放服務清單",

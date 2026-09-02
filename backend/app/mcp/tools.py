@@ -1178,16 +1178,18 @@ async def list_subnet_ips(
 async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
     """所有防火牆清單（OPNsense / pfSense / FortiGate，不含密鑰）。每筆帶 `vendor` 標明廠牌。
 
-    三種廠牌一起回：只回其中一種的話，模型會拿一份不完整的清單當成全部去回答
-    「我們有哪些防火牆」—— 那比答不出來更糟。
+    **所有廠牌一起回**：只回其中一種的話，模型會拿一份不完整的清單當成全部去回答
+    「我們有哪些防火牆」—— 那比答不出來更糟。新增廠牌時這裡一定要跟著加
+    （`tests/test_integration_coverage.py` 會擋）。
     """
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
 
     out: list[dict[str, Any]] = []
     for vendor, model in (("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
-                          ("fortigate", FortiGateFirewall)):
+                          ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall)):
         rows = (await session.execute(select(model).limit(limit))).scalars().all()
         out.extend({
             "id": str(f.id), "vendor": vendor, "name": f.name,
@@ -1268,6 +1270,55 @@ async def list_fortigate_addresses(
     return {"addresses": [{
         "firewall": fw_name, "vdom": a.vdom, "name": a.name, "kind": a.kind,
         "obj_type": a.obj_type, "value": a.value, "members": a.members, "comment": a.comment,
+    } for a, fw_name in rows]}
+
+
+async def list_paloalto_policies(
+    session: AsyncSession, *, user: User,
+    firewall_name: str | None = None, vsys: str | None = None, limit: int = 200,
+) -> dict[str, Any]:
+    """Palo Alto（PAN-OS）安全政策（唯讀鏡像）。可依防火牆名稱與 vsys 篩選。
+
+    依 `position` 排序而不是名稱：PAN-OS 由上而下比對，順序本身就是語意。
+    `application` 是 App-ID —— PAN-OS 規則真正在管的東西，不可以省略。
+    """
+    from app.models.paloalto import PaloAltoFirewall, PaloAltoPolicy
+    stmt = select(PaloAltoPolicy, PaloAltoFirewall.name).join(
+        PaloAltoFirewall, PaloAltoFirewall.id == PaloAltoPolicy.firewall_id)
+    if firewall_name:
+        stmt = stmt.where(PaloAltoFirewall.name == firewall_name)
+    if vsys:
+        stmt = stmt.where(PaloAltoPolicy.vsys == vsys)
+    rows = (await session.execute(
+        stmt.order_by(PaloAltoPolicy.vsys, PaloAltoPolicy.position).limit(limit))).all()
+    return {"policies": [{
+        "firewall": fw_name, "vsys": p.vsys, "position": p.position, "name": p.name,
+        "action": p.action, "disabled": p.disabled,
+        "from_zone": p.from_zone, "to_zone": p.to_zone,
+        "source": p.source, "destination": p.destination,
+        "application": p.application, "service": p.service, "description": p.description,
+    } for p, fw_name in rows]}
+
+
+async def list_paloalto_addresses(
+    session: AsyncSession, *, user: User,
+    firewall_name: str | None = None, vsys: str | None = None, limit: int = 300,
+) -> dict[str, Any]:
+    """Palo Alto 位址物件與位址群組（唯讀鏡像）。群組的 `members` 是成員名稱清單。"""
+    from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall
+    stmt = select(PaloAltoAddressObject, PaloAltoFirewall.name).join(
+        PaloAltoFirewall, PaloAltoFirewall.id == PaloAltoAddressObject.firewall_id)
+    if firewall_name:
+        stmt = stmt.where(PaloAltoFirewall.name == firewall_name)
+    if vsys:
+        stmt = stmt.where(PaloAltoAddressObject.vsys == vsys)
+    rows = (await session.execute(
+        stmt.order_by(PaloAltoAddressObject.vsys, PaloAltoAddressObject.name)
+        .limit(limit))).all()
+    return {"addresses": [{
+        "firewall": fw_name, "vsys": a.vsys, "name": a.name, "kind": a.kind,
+        "obj_type": a.obj_type, "value": a.value, "members": a.members,
+        "description": a.description,
     } for a, fw_name in rows]}
 
 
@@ -2710,6 +2761,23 @@ TOOLS: dict[str, dict[str, Any]] = {
             "firewall_name": {"type": "string"}, "vdom": {"type": "string"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
+    "list_paloalto_policies": {
+        "fn": list_paloalto_policies,
+        "description": ("List Palo Alto (PAN-OS) security policies in evaluation order. "
+                        "Includes the App-ID, which is what a PAN-OS rule actually matches on. "
+                        "Filter by firewall_name and/or vsys."),
+        "parameters": {"type": "object", "properties": {
+            "firewall_name": {"type": "string"}, "vsys": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
+    "list_paloalto_addresses": {
+        "fn": list_paloalto_addresses,
+        "description": ("List Palo Alto address objects and address groups. "
+                        "Filter by firewall_name and/or vsys."),
+        "parameters": {"type": "object", "properties": {
+            "firewall_name": {"type": "string"}, "vsys": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "list_firewall_rules": {
         "fn": list_firewall_rules,
         "description": "List synced OPNsense filter rules. Filter by firewall_id or firewall_name.",
@@ -3105,6 +3173,7 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_attack_surface",
     "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
+    "list_paloalto_policies", "list_paloalto_addresses",
     # NAT 與防火牆規則是全域基礎設施資料 —— 與 list_nat / list_firewall_rules 同一層，
     # 不能因為它是「以 IP 為單位查」就鬆一級（改端點權限時要同步收 MCP，這裡踩過）。
     "check_ip_exposure",
