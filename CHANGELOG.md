@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.5.246] — 2026-09-02
+
+### Fixed
+- **A VNC server with no password could never be reached.** From RFB 3.7 onwards the client must
+  reply with one byte naming the security type it picked; the library we use only sends it on the
+  password path, leaving the no-password branch empty — so both sides waited for each other until
+  the timeout. All the operator saw was "連線逾時", which points at the network rather than at the
+  handshake. Patched alongside the mouse fix already applied to that library.
+- **Console errors no longer hide the reason.** "連線/認證失敗（密碼錯誤或 VNC 設定）" was sent for
+  every failure, including the most common one — the target closing the TCP connection before the
+  RFB handshake, where the password is never even sent. That message walks the operator into
+  checking a password that was never the problem. Failures are now classified (refused / timed out /
+  closed before the handshake / authentication) and carry the underlying reason, the same rule the
+  integrations already follow. Applied to the RDP console too.
+
+### Testing
+- **A minimal RFB server as a test target** (`frontend/e2e/fixtures/vnc-target.py`, standard library
+  only) plus a backend test that completes a real handshake against it and an e2e that renders the
+  framebuffer in the browser and measures the pixels. Nothing had ever completed a VNC handshake in
+  a test, so when a real target failed to connect we could not tell our half from theirs — which is
+  exactly how the no-password defect had stayed invisible.
+
 ## [0.5.245] — 2026-09-02
 
 ### Added

@@ -422,9 +422,14 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
             return
         if err is not None:
-            # NLA 認證失敗或連線錯誤 — 不回堆疊細節
-            await send({"type": "error", "code": "auth_failed",
-                        "message": "連線/認證失敗（帳號、密碼、網域或 NLA 設定）"})
+            # 不回堆疊，但**要帶底層原因**：只說「認證失敗」會把「對方在交握前就關掉連線」
+            # 這種情況指去查密碼（見 vnc_console._classify_connect_error 的由來）
+            from app.api.v1.endpoints.vnc_console import _classify_connect_error
+            code, message = _classify_connect_error(err)
+            if code == "auth_failed":
+                from app.core.safe_http import transport_detail
+                message = f"連線/認證失敗（帳號、密碼、網域或 NLA 設定）：{transport_detail(err, limit=160)}"
+            await send({"type": "error", "code": code, "message": message})
             await websocket.close()
             return
 

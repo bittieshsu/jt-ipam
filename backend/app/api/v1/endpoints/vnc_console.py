@@ -126,7 +126,24 @@ if VNC_AVAILABLE:
         keysym = cp if cp < 0x100 else (0x01000000 + cp)
         return await _vnc_send_keysym(self, keysym, is_pressed)
 
+    _orig_authenticate = VNCConnection._VNCConnection__authenticate  # type: ignore[attr-defined]
+
+    async def _vnc_authenticate(self):  # type: ignore[no-untyped-def]
+        """沒有密碼的 VNC（安全型別 1 = None）也要把「選了哪個型別」送回去。
+
+        RFB 3.7 以後，伺服器送出支援的安全型別清單之後，**客戶端必須回一個位元組**說明
+        自己選哪一個。aardwolf 只在型別 2（密碼）那條路徑送，型別 1 的分支是空的 ——
+        於是雙方互等：伺服器等那個位元組，我們等 SecurityResult，直到逾時。
+        畫面上看到的是「連線逾時」，完全指不出原因。
+
+        （實機 2026-09-02：用不設密碼的 VNC 靶重現，交握停在版本交換之後。）
+        """
+        if getattr(self, "_VNCConnection__selected_security_type", None) == 1:
+            await self._VNCConnection__writer.write(bytes([1]))
+        return await _orig_authenticate(self)
+
     if not getattr(VNCConnection, "_jt_patched", False):
+        VNCConnection._VNCConnection__authenticate = _vnc_authenticate  # type: ignore[attr-defined]
         VNCConnection.send_mouse = _vnc_send_mouse  # type: ignore[method-assign]
         VNCConnection.send_keysym = _vnc_send_keysym  # type: ignore[attr-defined]
         VNCConnection.send_key_char = _vnc_send_key_char  # type: ignore[method-assign]
@@ -203,6 +220,33 @@ async def _audit_vnc(
             object_type="ip", object_id=object_id, action=action, diff=diff, request_id=None,
         )
         await s.commit()
+
+
+def _classify_connect_error(err: BaseException) -> tuple[str, str]:
+    """把底層連線錯誤翻成「看得出下一步」的訊息。
+
+    原本一律回「連線/認證失敗（密碼錯誤或 VNC 設定）」—— 但這句在最常見的那個情況
+    下是**錯的指引**：目標根本沒送出 RFB 版本字串就把 TCP 關掉時，密碼連送都沒送出去，
+    使用者卻會被指去檢查密碼。實機遇過一次：某個位址同時被三台虛擬機宣稱（ARP 有三個
+    MAC 回應），連線落到沒有 VNC 的那台，於是接受連線後立刻關閉。
+
+    與整合頁同一個原則（core/safe_http.transport_detail）：**帶底層原文**，
+    否則畫面上的錯誤對使用者與對我們都一樣沒有資訊。
+    """
+    from app.core.safe_http import transport_detail
+
+    detail = transport_detail(err, limit=160)
+    text = str(err).lower()
+    if "stream ended" in text or "connection reset" in text or "closed" in text:
+        return "handshake_failed", (
+            "目標在 VNC 交握完成前就關閉連線 —— 對方不是 VNC 服務、被白名單／防火牆擋掉，"
+            f"或這個位址同時被多台主機使用（原始錯誤：{detail}）"
+        )
+    if "refused" in text:
+        return "connect_failed", f"目標拒絕連線（連接埠沒有服務在聽）：{detail}"
+    if "timed out" in text or "timeout" in text:
+        return "connect_failed", f"連線逾時（位址或連接埠不通）：{detail}"
+    return "auth_failed", f"連線/認證失敗（密碼錯誤或 VNC 設定）：{detail}"
 
 
 @router.websocket("/{address_id}/vnc/ws")
@@ -317,8 +361,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
             return
         if err is not None:
-            await send({"type": "error", "code": "auth_failed",
-                        "message": "連線/認證失敗（密碼錯誤或 VNC 設定）"})
+            code, message = _classify_connect_error(err)
+            await send({"type": "error", "code": code, "message": message})
             await websocket.close()
             return
 
