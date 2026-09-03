@@ -967,10 +967,17 @@ async function doPreviewAutolink() {
 }
 /* 固定欄寬的網格：每一格一樣寬，列與列才對得齊 */
 .ss-src-grid {
-  flex: 1 1 auto; display: grid; gap: 8px 14px;
-  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); max-width: 940px;
+  /* ⚠️ `min-width: 0` 不能省：flex 子項預設 min-width:auto，撐不小於內容的最小寬度，
+     視窗一窄格線就整片衝出卡片外（實測 820px 視窗下超出 195px）。 */
+  /* `width: 100%` 是關鍵：只給 flex 屬性時，格線的寬度仍會由內容決定（欄數 × 最小欄寬），
+     視窗一窄就整片衝出卡片外。明確綁定容器寬度之後，欄數才會跟著縮。 */
+  flex: 1 1 auto; min-width: 0; width: 100%; display: grid; gap: 8px 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); max-width: 940px;
 }
-.ss-src-item { line-height: 22px; }
+/* 選項本身也要能縮：長標籤（Wazuh 代理 keep-alive）在窄欄位裡要換行而不是撐開格線 */
+.ss-src-item { min-width: 0; }
+.ss-src-item :deep(.n-checkbox__label) { white-space: normal; }
+.ss-src-item { line-height: 22px; min-width: 0; }
 .ss-src-name { vertical-align: middle; }
 .ss-src-tag { margin-left: 4px; vertical-align: middle; }
 @media (max-width: 900px) {

@@ -74,6 +74,9 @@ function isNoise(text: string): boolean {
 }
 
 test("每一條路由都打得開，且沒有 JS 例外或失敗的 API 請求", async ({ page }) => {
+  // 刻意用**偏窄**的視窗跑：版面缺陷幾乎都是窄的時候才現形，寬螢幕上一切看起來都好
+  //（使用者回報「寬度不夠時，證據來源的選項跑出卡片外」時，既有測試全綠）。
+  await page.setViewportSize({ width: 900, height: 1000 });
   const paths = routePaths();
   // 解析失敗會讓這支測試「走 0 頁然後全綠」—— 那比沒測還糟，所以先擋住
   expect(paths.length, "從 router 解析不到路由（格式改了？）").toBeGreaterThan(50);
@@ -117,6 +120,12 @@ test("每一條路由都打得開，且沒有 JS 例外或失敗的 API 請求",
       await page.waitForTimeout(300);
     } while (Date.now() < deadline);
     if (body.length <= 20) blank.push(path);
+
+    // 橫向溢出：整頁不該可以左右捲。窄視窗才會現形的版面缺陷（例如選項衝出卡片外）
+    // 只有在窄的時候量才抓得到 —— 巡檢在這裡把每一頁都量一次。
+    const overflow = await page.evaluate(() =>
+      Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth));
+    if (overflow > 4) problems.push(`[版面] ${path}｜橫向溢出 ${overflow}px`);
     // 未翻譯的 i18n 鍵會直接以 `區塊.鍵` 的形式露在畫面上
     for (const m of body.matchAll(/\b([a-zA-Z_]+)\.([a-zA-Z_][a-zA-Z0-9_.]{2,})\b(?![a-zA-Z0-9./:@-])/g)) {
       if (!ns.has(m[1])) continue;

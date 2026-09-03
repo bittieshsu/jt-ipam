@@ -18,6 +18,12 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
   has nothing to offer, the same rule the port MAC already follows.
 
 ### Fixed (rack diagram and settings layout)
+- **Evidence-source options spilled outside their card on a narrow window.** The option grid is a
+  flex child, and a flex child cannot shrink below its content unless told to, so at 820px it ran
+  195px past the card. Fixed, and the gap in the tests it slipped through is fixed too: the
+  layout spec now walks five widths, and the route sweep runs at 900px asserting that no page
+  scrolls horizontally — a defect that only exists below some width proves nothing when every
+  test runs wide.
 - **The Proxmox VE integration page sometimes opened empty** and needed a click on its tab to
   appear: the active tab was chosen in `onMounted`, so the first render pointed at a tab that does
   not exist in admin mode. It is now decided during setup, and a watcher follows the route because

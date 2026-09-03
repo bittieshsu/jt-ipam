@@ -35,4 +35,19 @@ test("採信哪些證據：分組且欄位對齊", async ({ page }) => {
   // 內部鍵不可以露出來（使用者回報看到全小寫的 paloalto）
   const text = await page.locator(".ss-src-grid").first().innerText();
   expect(text).not.toMatch(/paloalto|pfsense|fortigate|opnsense/);
+
+  // ── 窄視窗：選項不可以衝出卡片 ──
+  // 使用者回報「寬度不夠時，證據來源的選項跑出卡片外了」。原本的版面測試只在
+  // 1500px 跑過，這種缺陷天生只在窄的時候才出現 —— 所以逐個寬度量。
+  for (const width of [1500, 1180, 900, 820, 700]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.waitForTimeout(350);
+    const worst = await page.locator(".ss-group").filter({ hasText: "上線判定" }).first()
+      .evaluate((card) => {
+        const right = card.getBoundingClientRect().right;
+        return Array.from(card.querySelectorAll(".ss-src-item"))
+          .reduce((acc, e) => Math.max(acc, e.getBoundingClientRect().right - right), -9999);
+      });
+    expect(worst, `視窗 ${width}px 時選項超出卡片 ${worst.toFixed(0)}px`).toBeLessThanOrEqual(0);
+  }
 });

@@ -134,6 +134,11 @@ the reverse proxy dropped the WebSocket upgrade.
   saving, compare the downloaded bytes. "已上傳" on screen is not evidence
 - [ ] **Measure geometry, don't eyeball it** — `boundingBox()` whenever the point is
   alignment, overlap or spacing; a screenshot hides a 16px error
+- [ ] **Check narrow widths too.** A layout defect usually only exists below some width, so a
+  test that runs at one wide viewport proves nothing: options spilled outside their card at
+  820px while every existing test was green (reported by the user, v0.6.2). Any spec that
+  asserts layout walks several widths (1500 / 1180 / 900 / 820 / 700), and the route sweep runs
+  at 900px asserting no page scrolls horizontally
 - [ ] New text checked in both locales (switch to English, confirm no key leaks)
 - [ ] **Every route opens**: `playwright test e2e/all-routes.spec.ts` green. It parses the
   route list out of `src/router/index.ts`, so a new page is covered automatically — and it
