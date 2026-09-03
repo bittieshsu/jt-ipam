@@ -2731,7 +2731,7 @@
     "grp_display": "顯示與地圖",
     "grp_liveness": "上線判定",
     "grp_security": "資安",
-    "liveness_sources": "採信哪些證據",
+    "liveness_sources": "採計的證據來源",
     "src_scanner": "掃描代理探測",
     "src_librenms": "LibreNMS 裝置狀態",
     "src_arp": "ARP 記錄（LibreNMS，不建議）",
@@ -2755,7 +2755,8 @@
     "src_kind_vpn": "VPN 連線",
     "src_kind_lease": "DHCP 租約",
     "src_no_aging": "不會過期",
-    "src_kind_base": "探測／監控"
+    "src_kind_base": "探測／監控",
+    "src_zabbix": "Zabbix 主機可用性"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",

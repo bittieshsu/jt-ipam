@@ -114,6 +114,20 @@ def test_precedence_sources_have_display_names() -> None:
         assert not missing, f"{locale} 的來源優先序少了顯示名稱：{missing}"
 
 
+def test_monitoring_integrations_actually_feed_liveness() -> None:
+    """**登記成「會過期」還不夠 —— 要真的有資料寫回 IP，才能列進上線判定。**
+
+    Zabbix 踩過：契約裡登記好好的，同步卻只寫自己的鏡像表，於是判定拿不到、
+    設定頁也列不出來，看起來像「不支援」（使用者發現的）。
+    """
+    from app.services.evidence import LIVENESS_SOURCES, aging_sources
+
+    monitoring = {"scanner", "librenms", "wazuh", "zabbix"}
+    missing = sorted(monitoring - set(LIVENESS_SOURCES))
+    assert not missing, f"這些來源會過期卻沒進上線判定清單：{missing}"
+    assert monitoring <= set(aging_sources())
+
+
 def test_evidence_contract_knows_every_vendor() -> None:
     """防火牆給的證據要逐來源登記，否則 `is_aging` 會安靜回 False。"""
     from app.services.evidence import SOURCES

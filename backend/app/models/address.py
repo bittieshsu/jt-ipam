@@ -98,6 +98,8 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     #: Wazuh agent 最後一次 keep-alive（manager 端維護，會過期）
     last_seen_wazuh: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Zabbix 最後一次回報這台主機可用（server 端輪詢維護，會過期）
+    last_seen_zabbix: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_dns: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     effective_status: Mapped[str | None] = mapped_column(String(32))
 

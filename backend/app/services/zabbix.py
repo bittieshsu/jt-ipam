@@ -246,6 +246,11 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
             if ipa is not None:
                 addr_id = ipa.id
                 linked += 1
+                # 上線判定：Zabbix server 自己在輪詢，說 up 就是此刻可達（與 LibreNMS
+                # 裝置狀態同一層）。**只有 up 才蓋時間** —— down 是「不活著」的證據、
+                # unknown 是沒有證據，兩者寫進去都會變成「看到過」。
+                if _availability(h) == "up":
+                    ipa.last_seen_zabbix = now
                 # 主機名稱觀測（來源 zabbix，依全域優先序決定是否採用）
                 from app.services.hostname import apply_observation
                 name = (h.get("name") or h.get("host") or "").strip()

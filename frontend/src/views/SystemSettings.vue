@@ -949,14 +949,16 @@ async function doPreviewAutolink() {
 @media (max-width: 640px) { .ss-grid { grid-template-columns: 1fr; } }
 /* 單一數字欄位：只把輸入框收窄，說明文字仍用滿卡片寬度。
    先前是把整格限成 320px，說明被擠成窄長一條、右邊整片空白（使用者回報）。 */
-.ss-src-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.ss-src-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; }
+/* 種類之間畫一條淡線：只靠左邊的標題分辨，兩組黏在一起時看起來像同一堆 */
+.ss-src-row + .ss-src-row { border-top: 1px solid var(--n-border-color, rgba(127, 127, 127, .18)); }
 .ss-src-kind {
   flex: 0 0 96px; font-size: 12.5px; color: var(--n-text-color-3, #8a8a8a);
-  line-height: 22px; text-align: right;
+  line-height: 22px; text-align: right; font-weight: 500;
 }
 /* 固定欄寬的網格：每一格一樣寬，列與列才對得齊 */
 .ss-src-grid {
-  flex: 1 1 auto; display: grid; gap: 4px 14px;
+  flex: 1 1 auto; display: grid; gap: 8px 14px;
   grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); max-width: 940px;
 }
 .ss-src-item { line-height: 22px; }

@@ -95,6 +95,7 @@ export function classifyAddressLiveness(addr: {
   last_seen_arp?: string | null;
   last_seen_dns?: string | null;
   last_seen_wazuh?: string | null;
+  last_seen_zabbix?: string | null;
   /** 防火牆給的逐來源觀測時間（`arp:opnsense` / `lease:pfsense` …） */
   arp_seen?: Record<string, string> | null;
   exclude_from_ping?: boolean | null;
@@ -108,6 +109,7 @@ export function classifyAddressLiveness(addr: {
     use.includes("scanner") ? addr.last_seen_scanner : null,
     use.includes("librenms") ? addr.last_seen_librenms : null,
     use.includes("wazuh") ? addr.last_seen_wazuh : null,
+    use.includes("zabbix") ? addr.last_seen_zabbix : null,
     addr.last_seen_dns,
     use.includes("arp") || use.includes("arp:librenms") ? addr.last_seen_arp : null,
     // 防火牆逐來源：只算被勾選的（`lease:*` 這種不會過期的預設沒被勾）
@@ -139,6 +141,7 @@ export function isArpOnlyEvidence(addr: {
   last_seen_dns?: string | null;
   last_seen_arp?: string | null;
   last_seen_wazuh?: string | null;
+  last_seen_zabbix?: string | null;
   arp_seen?: Record<string, string> | null;
 }): boolean {
   if (!addr.last_seen_arp) return false;
@@ -146,5 +149,5 @@ export function isArpOnlyEvidence(addr: {
   // 就不算「只靠 ARP」。DHCP 租約（lease:*）不算，租期比開機時間長得多。
   const fw = Object.keys(addr.arp_seen || {}).some((k) => !k.startsWith("lease:"));
   return !addr.last_seen_scanner && !addr.last_seen_librenms
-    && !addr.last_seen_dns && !addr.last_seen_wazuh && !fw;
+    && !addr.last_seen_dns && !addr.last_seen_wazuh && !addr.last_seen_zabbix && !fw;
 }

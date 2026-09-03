@@ -912,22 +912,25 @@ async def recompute_effective_status(
         use_l = "librenms" in sources
         use_a = "arp" in sources or "arp:librenms" in sources
         use_w = "wazuh" in sources
+        use_z = "zabbix" in sources
         s_fresh = use_s and bool(s_seen and s_seen >= cutoff)
         l_fresh = use_l and bool(l_seen and l_seen >= cutoff)
         a_fresh = use_a and bool(a_seen and a_seen >= cutoff)
         w_seen = ip.last_seen_wazuh
         w_fresh = use_w and bool(w_seen and w_seen >= cutoff)
+        z_seen = ip.last_seen_zabbix
+        z_fresh = use_z and bool(z_seen and z_seen >= cutoff)
         # 防火牆逐來源證據（arp:/vpn:/lease:）—— 會過期的才有資格宣稱上線
         d_seen, d_src = arp_seen_svc.newest_aging(ip, sources)
         d_fresh = bool(d_seen and d_seen >= cutoff)
 
         new_status: str
-        if s_fresh or l_fresh or w_fresh or d_fresh:
+        if s_fresh or l_fresh or w_fresh or z_fresh or d_fresh:
             # 會老化的證據：掃描代理實際探測、LibreNMS／Wazuh 的裝置狀態、
             # 防火牆表上此刻還在的項目
             fresh_srcs = [n for n, ok in (
                 ("scanner", s_fresh), ("librenms", l_fresh), ("wazuh", w_fresh),
-                (d_src or "", d_fresh),
+                ("zabbix", z_fresh), (d_src or "", d_fresh),
             ) if ok and n]
             new_status = "online" if len(fresh_srcs) > 1 else f"online ({fresh_srcs[0]})"
         elif a_fresh:
@@ -935,7 +938,7 @@ async def recompute_effective_status(
             # 曾被學到，不證明機器現在活著 —— 來源設備快取不老化就會一直是這個狀態。
             new_status = "online (arp)"
         elif ((use_s and s_seen) or (use_l and l_seen) or (use_a and a_seen)
-              or (use_w and w_seen) or d_seen):
+              or (use_w and w_seen) or (use_z and z_seen) or d_seen):
             # 有被採信的來源看過它，但都過期 → 離線
             new_status = "offline"
         else:
@@ -945,7 +948,7 @@ async def recompute_effective_status(
         # arp_only 的日子不算可用 —— ARP 沒有時間概念（見 models/ip_liveness）。
         observations.append({
             "ip_id": ip.id, "day": today,
-            "up": bool(s_fresh or l_fresh or w_fresh or d_fresh),
+            "up": bool(s_fresh or l_fresh or w_fresh or z_fresh or d_fresh),
             "down": new_status == "offline",
             "arp_only": new_status == "online (arp)",
         })

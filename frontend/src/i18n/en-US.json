@@ -2731,7 +2731,7 @@
     "grp_display": "Display & map",
     "grp_liveness": "Liveness",
     "grp_security": "Security",
-    "liveness_sources": "Evidence that counts",
+    "liveness_sources": "Evidence sources counted",
     "src_scanner": "Scan agent probes",
     "src_librenms": "LibreNMS device status",
     "src_arp": "ARP records (LibreNMS, not recommended)",
@@ -2755,7 +2755,8 @@
     "src_kind_vpn": "VPN sessions",
     "src_kind_lease": "DHCP leases",
     "src_no_aging": "never expires",
-    "src_kind_base": "Probes & monitoring"
+    "src_kind_base": "Probes & monitoring",
+    "src_zabbix": "Zabbix host availability"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",

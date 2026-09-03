@@ -19,7 +19,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from app.services import arp_seen as arp_seen_svc
 from app.services import evidence
 from app.services.uptime import carry_forward_ok
@@ -143,14 +142,14 @@ async def _mk_ip(session, ip_text: str, **kw):
     return ipa
 
 
-async def _recompute(session, sources: list[str]) -> None:
-    """跑一次重算，來源清單直接指定（不動系統設定表）。"""
+async def _recompute(session, sources: list[str], minutes: int = 30) -> None:
+    """跑一次重算，來源清單與門檻直接指定（不動系統設定表）。"""
     from unittest.mock import patch
 
     from app.services import librenms as lnms
 
     async def _cfg(_s):
-        return {"minutes": 30, "sources": sources}
+        return {"minutes": minutes, "sources": sources}
 
     with patch.object(lnms, "get_liveness_config", _cfg, create=True), \
          patch("app.services.system_config.get_liveness_config", _cfg):
@@ -249,3 +248,74 @@ def test_unusable_values_fall_back_to_the_caller() -> None:
     assert arp_seen_svc.seen_from_remaining(None, 1200) is None
     assert arp_seen_svc.seen_from_remaining(5000, 1200) is None   # 比 max_age 還大
     assert arp_seen_svc.seen_from_remaining(600, 0) is None
+
+
+def test_repeated_syncs_do_not_push_the_observation_forward() -> None:
+    """關機之後，ARP 條目還會留在防火牆表裡直到逾時 —— 那段期間**不可以**每輪都往前記。
+
+    這是「已關機的裝置會不會被標成上線」的關鍵：條目留著是事實，但它代表的時間是
+    **最後一次真的在線上講話的時刻**，不是我們讀到它的時刻。用 `expires` 換算之後，
+    連續幾輪同步都會得到同一個時間，於是「上線」只會再撐一個門檻的長度就結束；
+    舊作法每輪蓋上當下時間，等於把 ARP 的逾時（20 分鐘）整段加到門檻上面。
+    """
+    max_age = 1200.0
+    last_alive = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+    stamped = []
+    for elapsed_min in (1, 5, 10, 15, 19):
+        now = last_alive + timedelta(minutes=elapsed_min)
+        remaining = max_age - elapsed_min * 60
+        stamped.append(arp_seen_svc.seen_from_remaining(remaining, max_age, now=now))
+    assert stamped == [last_alive] * 5, f"觀測時間隨同步往前跑了：{stamped}"
+
+
+async def test_powered_off_host_goes_offline_one_grace_after_it_stopped(db_session):
+    """端到端：機器 25 分鐘前關機、ARP 條目還在表裡 → 門檻 30 分鐘時仍上線、20 分鐘時已離線。
+
+    會有一段「已關機卻仍顯示上線」的時間，這是所有會過期來源共同的性質（掃描代理也一樣），
+    長度就是設定的門檻；重點是它**從最後一次真的看到算起**，不會再加上 ARP 的逾時。
+    """
+    now = datetime.now(UTC)
+    ipa = await _mk_ip(db_session, "10.91.0.15")
+    arp_seen_svc.stamp(ipa, "arp:opnsense", now - timedelta(minutes=25))
+    await db_session.commit()
+
+    await _recompute(db_session, ["arp:opnsense"], minutes=30)
+    await db_session.refresh(ipa)
+    assert ipa.effective_status == "online (arp:opnsense)"
+
+    await _recompute(db_session, ["arp:opnsense"], minutes=20)
+    await db_session.refresh(ipa)
+    assert ipa.effective_status == "offline"
+
+
+def test_zabbix_is_a_liveness_source() -> None:
+    """回歸（使用者：「我們不是有支援 zabbix 嗎？探測／監控 不支援它?」）。
+
+    Zabbix 早就登記在證據契約裡、也標成會過期，但同步只把可用性寫進 `zabbix_hosts`
+    鏡像表、**沒有寫回 IP**，於是上線判定根本拿不到它，設定頁自然也列不出來。
+    現在 `sync_instance` 在 Zabbix 說 up 時會蓋 `last_seen_zabbix`。
+    """
+    assert "zabbix" in evidence.LIVENESS_SOURCES
+    assert evidence.is_aging("zabbix") is True
+    assert "zabbix" in evidence.default_liveness_sources()
+
+
+def test_zabbix_only_stamps_when_the_host_is_up() -> None:
+    """`down` 是「不活著」的證據、`unknown` 是沒有證據 —— 兩者都不可以寫成「看到過」。"""
+    import inspect
+
+    from app.services import zabbix
+
+    src = inspect.getsource(zabbix.sync_instance)
+    assert '_availability(h) == "up"' in src, "沒有限定 up 就蓋時間，離線的主機會被標成上線"
+    assert "last_seen_zabbix" in src
+
+
+async def test_zabbix_availability_makes_it_online(db_session):
+    ipa = await _mk_ip(db_session, "10.91.0.16",
+                       last_seen_zabbix=datetime.now(UTC) - timedelta(minutes=3))
+    await db_session.commit()
+
+    await _recompute(db_session, ["zabbix"])
+    await db_session.refresh(ipa)
+    assert ipa.effective_status == "online (zabbix)"

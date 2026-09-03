@@ -580,6 +580,7 @@ async def _liveness_candidates(
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
     from app.models.wazuh import WazuhInstance
+    from app.models.zabbix import ZabbixInstance
     from app.services.evidence import LIVENESS_SOURCES, is_aging
 
     async def _has(model: Any) -> bool:
@@ -589,6 +590,7 @@ async def _liveness_candidates(
         "scanner": True,
         "librenms": await _has(LibreNMSInstance),
         "wazuh": await _has(WazuhInstance),
+        "zabbix": await _has(ZabbixInstance),
         "opnsense": await _has(OPNsenseFirewall),
         "pfsense": await _has(PfSenseFirewall),
         "fortigate": await _has(FortiGateFirewall),

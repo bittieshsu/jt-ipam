@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.1] — 2026-09-03
+
+Version numbering moves to 0.6.x from here; 0.5.247 was the last 0.5 release.
+
+### Fixed
+- **A powered-off host could look online for longer than the configured threshold.** An ARP entry
+  survives in the firewall's table until it times out (20 minutes on FreeBSD), and every sync round
+  in that window was recording it as "just seen" — so the threshold was effectively stacked on top
+  of the ARP timeout. Each round now derives the same observation time from the entry's own
+  countdown, so a host that stopped answering at 12:00 is reported offline one threshold later,
+  not one threshold plus twenty minutes. This is now pinned by a test that walks the rounds after
+  a shutdown, and by an end-to-end check that a host last seen 25 minutes ago is online at a
+  30-minute threshold and offline at a 20-minute one.
+
+- **Zabbix was registered as a liveness source but never actually fed one.** Its sync linked hosts
+  to addresses and mirrored their availability into its own table, yet nothing was written back to
+  the IP — so the liveness rules could not see it and the settings page could not offer it, which
+  reads as "Zabbix isn't supported here". Availability is now recorded on the address
+  (`last_seen_zabbix`, migration 0134) **only when Zabbix reports the host up**: "down" is evidence
+  of the opposite and "unknown" is no evidence, and writing either would turn them into "seen".
+  A guard test now requires every source the contract marks as expiring to be wired through.
+
+### Changed
+- The liveness evidence picker separates its groups with a rule and more spacing, so probes, ARP
+  tables, VPN sessions and DHCP leases no longer read as one undifferentiated block; its label is
+  now "evidence sources counted".
+
 ## [0.5.247] — 2026-09-02
 
 ### Fixed (everything a new integration has to reach)

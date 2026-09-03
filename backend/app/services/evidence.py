@@ -136,7 +136,7 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
 #: 實際會餵進上線判定的來源（在 ip_addresses 上有對應的 last_seen_* 欄位）。
 #: 這是「有登記」與「真的有資料進來」的交集 —— 不要把只登記、沒接線的來源列進設定頁。
 LIVENESS_SOURCES: tuple[str, ...] = (
-    "scanner", "librenms", "wazuh",
+    "scanner", "librenms", "wazuh", "zabbix",
     # 舊的籠統 "arp" 保留在清單裡：既有站台存下來的設定不會因為升級被丟掉。
     # 它對應的是 LibreNMS 寫的 `last_seen_arp`，語意等同 `arp:librenms`。
     "arp",
