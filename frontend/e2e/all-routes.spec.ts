@@ -107,9 +107,15 @@ test("每一條路由都打得開，且沒有 JS 例外或失敗的 API 請求",
   for (const path of paths) {
     current = path;
     await page.goto(path, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(900);
-    const body = (await page.locator("body").innerText()).trim();
-    // 白畫面＝這個頁面在渲染時就掛了。收集起來一次報，不要第一頁就停。
+    // 白畫面＝這個頁面在渲染時就掛了。**用輪詢而不是固定等待**：機器忙的時候
+    // 固定 900ms 會抓到還沒畫完的畫面，變成假的「空白」（實際發生過，/sections）。
+    let body = "";
+    const deadline = Date.now() + 6000;
+    do {
+      body = (await page.locator("body").innerText()).trim();
+      if (body.length > 20) break;
+      await page.waitForTimeout(300);
+    } while (Date.now() < deadline);
     if (body.length <= 20) blank.push(path);
     // 未翻譯的 i18n 鍵會直接以 `區塊.鍵` 的形式露在畫面上
     for (const m of body.matchAll(/\b([a-zA-Z_]+)\.([a-zA-Z_][a-zA-Z0-9_.]{2,})\b(?![a-zA-Z0-9./:@-])/g)) {

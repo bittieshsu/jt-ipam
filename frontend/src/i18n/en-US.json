@@ -1992,7 +1992,8 @@
     "vm_status_stopped": "Stopped",
     "vm_status_paused": "Paused",
     "vm_status_suspended": "Suspended",
-    "vm_status_unknown": "Unknown"
+    "vm_status_unknown": "Unknown",
+    "cluster_col": "Cluster"
   },
   "physical": {
     "cabling": "Cabling",
@@ -2735,7 +2736,7 @@
     "src_scanner": "Scan agent probes",
     "src_librenms": "LibreNMS device status",
     "src_arp": "ARP records (LibreNMS, not recommended)",
-    "liveness_sources_hint": "Only the selected sources decide whether an address is online. Sources marked \"never expires\" are not recommended: they prove a binding was learned once, not that the machine is alive — the LibreNMS ARP API returns no timestamp and a DHCP lease may be days old, so a powered-off machine keeps looking online. A firewall's own ARP table and VPN sessions do time out, so they are trusted by default.",
+    "liveness_sources_hint": "Only the selected sources decide whether an address is online. The LibreNMS ARP API returns no timestamp and a DHCP lease may be days old, so a powered-off machine keeps looking online; a firewall's own ARP table and VPN sessions do time out, so they are trusted by default.",
     "grp_lifecycle": "IP lifecycle",
     "cooldown_days": "Cooldown after release (days)",
     "cooldown_days_hint": "After an address is released (deleted) it is not offered for reallocation during this window, and creating it by hand is refused. Things outside IPAM still point at it: DNS records and caches, firewall rules, ACLs, certificate SANs, monitoring. Handing it to another machine too early produces the hardest kind of fault to diagnose. Default 30 days; 0 disables it. An admin can clear an individual address early, which is recorded.",
@@ -2756,7 +2757,8 @@
     "src_kind_lease": "DHCP leases",
     "src_no_aging": "never expires",
     "src_kind_base": "Probes & monitoring",
-    "src_zabbix": "Zabbix host availability"
+    "src_zabbix": "Zabbix host availability",
+    "liveness_no_aging_warn": "Ticking a source marked \"never expires\" means one sighting keeps the address online forever. Do not tick it unless you know exactly why you want that."
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",

@@ -992,6 +992,12 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
 
     對 server / switch / OPNsense 等任何受監控裝置都有效；只新增缺少的埠，不刪既有
     （使用者手動建立或改名的埠保留）。回傳新增的埠數。
+
+    **`ifAlias` → `device_ports.description`**：交換器上設的 port description
+    （「人資-王小明-10.0.0.5」這種）是現場最有價值的一欄，本來沒有拉進來（使用者回報）。
+    ⚠️ 只有**真正是描述**的才寫：Linux 主機的 `ifAlias` 會等於 `ifName`／`ifDescr`
+    （實機上一整台都是 `eno1np0` 這種），照抄只會把說明欄塞滿介面名稱。
+    LibreNMS 沒有值時不動既有說明（與 MAC 同一條規則）。
     """
     ldevs = list((await session.execute(
         select(LibreNMSDevice).where(
@@ -1004,15 +1010,18 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
         try:
             pdata = await _api_get(
                 instance,
-                f"/api/v0/devices/{d.legacy_device_id}/ports?columns=ifName,ifType,ifPhysAddress",
+                f"/api/v0/devices/{d.legacy_device_id}/ports"
+                "?columns=ifName,ifAlias,ifDescr,ifType,ifPhysAddress",
                 timeout=20.0,
             )
         except LibreNMSError as exc:
             logging.getLogger(__name__).debug(
                 "librenms ports fetch failed for %s: %s", d.legacy_device_id, exc)
             continue
-        # ifName → 此埠自身的實體 MAC（ifPhysAddress），正規化成小寫冒號格式
+        # ifName → (此埠自身的實體 MAC, 交換器上設的描述)
         name_mac: dict[str, str | None] = {}
+        # 說明要**整台一起看**才分得出「人寫的」與「韌體樣板」（見 _port_descriptions）
+        name_descr = _port_descriptions(list(pdata.get("ports") or []))
         for p in (pdata.get("ports") or []):
             # device_ports.name 上限 255；Windows NDIS 過濾介面描述可能更長 → 先截斷，
             # 讓「既有名稱比對」與 upsert 用同一個值，也不再 StringDataRightTruncation。
@@ -1027,13 +1036,17 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
         )).scalars().all())
         for n in sorted(name_mac):
             mac = name_mac[n]
+            descr = name_descr.get(n)
             # 用 ON CONFLICT upsert：避免「多台 LibreNMS 裝置對映到同一台 jt-ipam 裝置」或同一輪
             # 重複處理時，INSERT 撞 device_port_unique_name (device_id, name) 而中斷整批同步（issue #12）。
             ins = pg_insert(DevicePort).values(
-                device_id=d.jt_ipam_device_id, name=n, type="network", mac_address=mac)
-            if mac:  # 有埠 MAC 才覆寫；沒有就不動既有欄位
+                device_id=d.jt_ipam_device_id, name=n, type="network",
+                mac_address=mac, description=descr)
+            # 有值才覆寫；LibreNMS 沒給就不動既有欄位（別把使用者填的東西清掉）
+            updates = {k: v for k, v in (("mac_address", mac), ("description", descr)) if v}
+            if updates:
                 stmt = ins.on_conflict_do_update(
-                    index_elements=["device_id", "name"], set_={"mac_address": mac})
+                    index_elements=["device_id", "name"], set_=updates)
             else:
                 stmt = ins.on_conflict_do_nothing(index_elements=["device_id", "name"])
             await session.execute(stmt)
@@ -1041,6 +1054,56 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
                 created += 1
                 existing_names.add(n)
     return created
+
+
+def _port_descriptions(ports: list[dict[str, Any]]) -> dict[str, str]:
+    """哪些 `ifAlias` 真的是「人寫給這個埠的說明」—— 逐台判斷，不是逐筆。
+
+    `ifAlias` 是 IF-MIB 裡唯一由管理員設定的欄位（交換器上的 `description`），
+    所以要拉的是它，不是 `ifDescr`（那是設備自己產生的、不可設定）。問題在於**沒設過的
+    埠不會是空白**：各家會塞不同的東西，實機上看到三種：
+
+    - Linux 主機：`ifAlias` ＝ `ifName`（`eno1np0`）
+    - Cisco Nexus：`ifAlias` ＝ `ifName` ＝ `ifDescr`（`Eth1/1/1`）
+    - D-Link DGS-1510：`ifAlias` ＝ `ifDescr` ＝ 韌體樣板
+      （`D-Link Corporation DGS-1510-28X … Port 24 on Unit 1`）
+
+    所以判準不能只比對某一個欄位，而是問：**這串字有沒有帶出「埠自己的名字」以外的資訊**。
+    兩個訊號：
+
+    1. 等於 `ifName` → 沒有資訊。
+    2. 把數字抽掉之後，同一台機器上有三個以上的埠共用同一串 → 那是機器產生的樣板
+       （`… Port 1 on Unit 1` / `… Port 2 on Unit 1` 抽掉數字後完全一樣），不是人寫的。
+
+    3. 等於 `ifDescr` → 那是設備自己產生的字（IF-MIB 定義 `ifDescr` 是廠牌／型號／版本，
+       不是管理員能設的欄位）。實機上 D-Link 的 `cpu0`、`L2VLAN 1` 這種**一次性**樣板
+       只有這個訊號抓得到 —— 它們每台只出現一次，訊號 2 的「重複三次」擋不住。
+
+    ⚠️ 訊號 3 的前提：沒有設備會把管理員設的說明同時反映進 `ifDescr`。三種實機樣態都成立，
+    IF-MIB 的定義也支持。若哪天遇到反例（`ifDescr` 跟著人寫的說明一起變），要改的是這一條，
+    而不是整套判斷。
+    """
+    import re
+
+    aliases: dict[str, str] = {}
+    for p in ports:
+        name = (p.get("ifName") or "").strip()[:255]
+        alias = (p.get("ifAlias") or "").strip()
+        descr = (p.get("ifDescr") or "").strip()
+        if name and alias and alias != name and alias != descr:
+            aliases[name] = alias
+
+    # 抽掉數字後相同 → 同一套樣板（`Port 1 on Unit 1` 與 `Port 2 on Unit 1` 視為同一串）
+    shape_count: dict[str, int] = {}
+    for alias in aliases.values():
+        shape = re.sub(r"\d+", "#", alias)
+        shape_count[shape] = shape_count.get(shape, 0) + 1
+
+    return {
+        name: alias[:500]
+        for name, alias in aliases.items()
+        if shape_count[re.sub(r"\d+", "#", alias)] < 3
+    }
 
 
 def _norm_mac(raw: object) -> str | None:

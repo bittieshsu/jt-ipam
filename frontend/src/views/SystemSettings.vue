@@ -10,7 +10,7 @@ import {
   NButton, NPopconfirm, NTag, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
-import { AdminIcon, SaveIcon, RefreshIcon } from "@/icons";
+import { AdminIcon, SaveIcon, RefreshIcon, WarnIcon } from "@/icons";
 import { getRackEmbedConfig, setRackEmbedConfig, type RackEmbedConfig } from "@/api/racks";
 import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
@@ -509,6 +509,10 @@ async function doPreviewAutolink() {
               </div>
             </div>
           </n-checkbox-group>
+          <div class="ss-warn">
+            <n-icon :size="15" :component="WarnIcon" />
+            <span>{{ t("system_settings.liveness_no_aging_warn") }}</span>
+          </div>
           <div class="hint">{{ t("system_settings.liveness_sources_hint") }}</div>
         </div>
       </n-card>
@@ -932,11 +936,14 @@ async function doPreviewAutolink() {
    原本只對「卡片內容的直接子元素」下間距，但很多區塊是包在 grid / div 裡的，
    於是開關與底下的欄位就貼在一起（使用者回報：轉送稽核記錄那格最明顯）。
    這裡改成三條規則一起管：卡片第一層、相鄰的欄位、以及開關列與後面的東西。 */
+/* 卡片內「直向堆疊」的區塊之間留白。
+   ⚠️ 間距只能加在**直向容器**上，不可以用「相鄰兄弟就補上邊距」——
+   欄位並排時（.ss-grid 的兩、三欄）那條規則會把右邊那欄整個往下推 14px，
+   看起來就是左右沒對齊（使用者在「顯示與地圖」與 GeoIP 兩處都抓到）。 */
 .ss-group :deep(.n-card__content) > * + * { margin-top: 16px; }
-/* 相鄰欄位之間（含被 grid / div 包住的） */
-.ss-group :deep(.fld + .fld) { margin-top: 14px; }
-.ss-group :deep(.fld + div),
-.ss-group :deep(div + .fld) { margin-top: 14px; }
+/* 直向排列的容器用 gap，橫向排列的（.ss-grid）由它自己的 gap 負責 */
+.ss-group :deep(.n-card__content) { display: flex; flex-direction: column; }
+.ss-group :deep(.n-card__content) > .fld + .fld { margin-top: 14px; }
 /* 開關列之後一定要留白：開關本身沒有下邊界，視覺上會黏住下一個欄位的標題 */
 .ss-group :deep(.n-switch) { margin-bottom: 2px; }
 .ss-group :deep(.fld > .n-space) { margin-bottom: 6px; }
@@ -944,6 +951,8 @@ async function doPreviewAutolink() {
 .ss-group :deep(.n-button + .hint),
 .ss-group :deep(.ss-row + .hint) { margin-top: 10px; }
 .ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* 只有一個欄位時就別佔半格：右半邊空著、說明卻提早換行（使用者回報）。 */
+.ss-grid > :only-child { grid-column: 1 / -1; }
 /* 寬螢幕改三欄，把右邊的空間用掉 */
 @media (min-width: 1500px) { .ss-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px) { .ss-grid { grid-template-columns: 1fr; } }
@@ -971,6 +980,13 @@ async function doPreviewAutolink() {
 .fld-narrow-input :deep(.n-input-number) { max-width: 260px; }
 .fld label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
 .hint { font-size: 11px; opacity: 0.65; margin-top: 4px; }
+/* 「不會過期」是會讓判定失真的選項 —— 從灰色說明裡拉出來，別讓它埋在一整段字裡 */
+.ss-warn {
+  display: flex; align-items: flex-start; gap: 6px; margin-top: 10px;
+  padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.6;
+  color: #a2680a; background: rgba(240, 160, 32, 0.12);
+  border: 1px solid rgba(240, 160, 32, 0.35);
+}
 .ss-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
 .ss-status { margin-top: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
 .db-row { display: flex; gap: 8px; align-items: center; }

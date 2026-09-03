@@ -605,6 +605,19 @@ async def pve_firewall(
         r_stmt.order_by(PVEFirewallRule.scope, PVEFirewallRule.pos).limit(limit)
     )).scalars().all())
 
+    # 叢集名稱：多叢集時 VMID 會重複，沒有這一欄就分不出「212 是哪一台的 212」。
+    # ⚠️ `proxmox_instances` 沒有 name 欄位 —— 名稱在 `virt_clusters`（同步時依 PVE
+    # 叢集名稱自動指派）。還沒對應到叢集的實例退回顯示 API 位址的主機名。
+    from urllib.parse import urlsplit
+
+    from app.models.virt import ProxmoxInstance, VirtCluster
+    inst_names: dict[uuid.UUID, str | None] = {}
+    for i_id, cname, api_url in (await session.execute(
+        select(ProxmoxInstance.id, VirtCluster.name, ProxmoxInstance.api_url)
+        .join(VirtCluster, VirtCluster.id == ProxmoxInstance.cluster_id, isouter=True)
+    )).all():
+        inst_names[i_id] = cname or (urlsplit(str(api_url)).hostname or None)
+
     groups = list((await session.execute(select(PVEFirewallGroup))).scalars().all())
     ipsets = list((await session.execute(select(PVEFirewallIPSet).limit(limit))).scalars().all())
 
@@ -617,6 +630,8 @@ async def pve_firewall(
     return {
         "posture_counts": counts,          # 全域分布（不隨篩選縮放，才看得出比例）
         "states": [{
+            "instance_id": str(s_.instance_id),
+            "cluster": inst_names.get(s_.instance_id),
             "vmid": s_.vmid, "guest_kind": s_.guest_kind, "node": s_.node_name,
             "effective": s_.effective, "posture": s_.posture,
             "cluster_enabled": s_.cluster_enabled, "guest_enabled": s_.guest_enabled,
@@ -627,6 +642,10 @@ async def pve_firewall(
             "guest_enabled_explicit": s_.guest_enabled_explicit,
         } for s_ in states],
         "rules": [{
+            # 規則要跟著叢集走：前端用 (instance_id, vmid) 配對，只比 vmid 會把
+            # 另一座叢集同號 guest 的規則混進來
+            "instance_id": str(r.instance_id),
+            "cluster": inst_names.get(r.instance_id),
             "scope": r.scope, "node": r.node_name, "vmid": r.vmid, "pos": r.pos,
             "direction": r.direction, "action": r.action, "enabled": r.enabled,
             "proto": r.proto, "dport": r.dport, "source": r.source, "dest": r.dest,

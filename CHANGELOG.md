@@ -4,6 +4,49 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.2] — 2026-09-03
+
+### Added
+- **Switch port descriptions now come across from LibreNMS.** A port's `ifAlias` — the description
+  configured on the switch, typically the most useful line on the whole page ("HR-J.Chen-10.0.0.5")
+  — was never fetched, so our port list showed an empty description column next to LibreNMS's
+  populated one. It is now synced into `device_ports.description`.
+  **Aliases that merely repeat the interface name are ignored**: on Linux hosts LibreNMS reports
+  `ifAlias` identical to `ifName`/`ifDescr`, and a dry run over the live instance found 88 such
+  ports and no real descriptions — copying them verbatim would have filled the column with
+  `eno1np0` and made it worse than empty. An existing description is never cleared when LibreNMS
+  has nothing to offer, the same rule the port MAC already follows.
+
+### Fixed (rack diagram and settings layout)
+- **The Proxmox VE integration page sometimes opened empty** and needed a click on its tab to
+  appear: the active tab was chosen in `onMounted`, so the first render pointed at a tab that does
+  not exist in admin mode. It is now decided during setup, and a watcher follows the route because
+  the two menu entries share one component and switching between them does not remount it.
+- **The PVE firewall tab had no cluster column** — and, worse, its rules were matched by VMID
+  alone. A VMID is unique only within a cluster, so with two clusters a guest picked up the other
+  cluster's rules: both the rule count and the expanded list were wrong. Rules are now matched by
+  (cluster, VMID) and the cluster is shown.
+- **Rack device names ignored the alignment setting.** With "centre" selected they still hugged the
+  left. The name box is absolutely positioned across the device's full height, and it carried the
+  `max-width: 110px` meant for the text: with `left` and `right` both pinned, the browser keeps
+  `left` and drops `right`, so a 126px box sat against the left edge and the text was centred
+  inside *that*. Measured, not eyeballed: box 126px against a 250px row.
+- **A name spanning several U was hidden by the units below it.** The label overflows its own cell
+  by design, but the cells beneath are painted afterwards — a 2U name was cut in half and a 4U name
+  vanished entirely. Both are now covered by a geometric test.
+- **Fields side by side were vertically offset.** A "space out adjacent fields" rule was pushing the
+  right-hand column down 14px wherever two fields shared a row (visible in Display & maps and in
+  GeoIP). Spacing now comes from the containers, not from sibling margins.
+- **Hovering a device made its name disappear.** The highlight used `filter: brightness()`, and a
+  filtered element becomes its own stacking context — so the name, which is positioned in the
+  device's top unit and stretches down over the others, could no longer paint above them. The
+  highlight (and the dim state, which used `opacity`) now overlay a translucent layer instead, and
+  the test asserts the highlighted units create no stacking context.
+- **A card holding a single field wasted half its width**, so its help text wrapped early with the
+  right half empty.
+- The "never expires" caution in the liveness picker is now its own highlighted line instead of a
+  sentence buried in grey help text.
+
 ## [0.6.1] — 2026-09-03
 
 Version numbering moves to 0.6.x from here; 0.5.247 was the last 0.5 release.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from "@/stores/auth";
 const _authBtn = useAuthStore();
-import { computed, h, onMounted, reactive, ref, type ComputedRef, type Ref } from "vue";
+import { computed, h, onMounted, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
@@ -42,7 +42,11 @@ function vmStatusLabel(s: string | null | undefined): string {
   return tr === key ? s : tr;
 }
 const msg = useMessage();
-const tab = ref<"clusters" | "vms" | "proxmox">("clusters");
+// ⚠️ 初始值要在 setup 就決定好，**不能等到 onMounted 才設**：管理模式只渲染 proxmox
+// 那個分頁，第一次渲染時 value 若還是 "clusters" 就對不到任何分頁，naive-ui 會畫出
+// 一個空的內容區，要再點一下分頁才會出現（使用者回報「有時點進來下面是空的」）。
+const tab = ref<"clusters" | "vms" | "pvefw" | "proxmox">(
+  route.name === "virt_admin" ? "proxmox" : "clusters");
 
 /** 這一頁顯示哪個平台。虛擬化拆成「PVE」與「VMware」兩個選單項，同一個元件、不同 props。
  *  不給就顯示全部（管理區的 virt-admin 走這條）。 */
@@ -80,6 +84,7 @@ function goOtherPlatform() {
 // （叢集 / guest / 每張網卡的 firewall=1），生效後再看預設政策 policy_in。
 // 這些判定後端已經收斂成 posture，前端只顯示、不重算。
 interface FwState {
+  instance_id: string; cluster: string | null;
   vmid: number; guest_kind: string | null; node: string | null;
   effective: boolean; posture: string;
   cluster_enabled: boolean; guest_enabled: boolean;
@@ -88,6 +93,7 @@ interface FwState {
   guest_policy_in_explicit: boolean; guest_enabled_explicit: boolean;
 }
 interface FwRule {
+  instance_id: string; cluster: string | null;
   scope: string; node: string | null; vmid: number | null; pos: number;
   direction: string | null; action: string | null; enabled: boolean;
   proto: string | null; dport: string | null; source: string | null;
@@ -125,9 +131,14 @@ async function loadFw() {
 
 // 「這台到底設了哪些規則」——只給判定結果不給規則，等於只講結論不給證據。
 // guest 自己的規則之外，叢集與節點層的規則也會作用在它身上，所以一併列出並標明來源層。
-function rulesForGuest(vmid: number): FwRule[] {
-  const own = fwRules.value.filter((r) => r.scope === "guest" && r.vmid === vmid);
-  const inherited = fwRules.value.filter((r) => r.scope !== "guest");
+/** 某台 guest 適用的規則＝它自己的 ＋ 同一座叢集的上層（節點／資料中心）規則。
+ *  ⚠️ 一定要連 `instance_id` 一起比：VMID 只在單一叢集內唯一，多叢集時
+ *  只比 vmid 會把另一座叢集同號 guest 的規則算進來（規則數與展開內容都會錯）。 */
+function rulesForGuest(vmid: number, instanceId?: string): FwRule[] {
+  const sameCluster = (r: FwRule) => !instanceId || r.instance_id === instanceId;
+  const own = fwRules.value.filter(
+    (r) => r.scope === "guest" && r.vmid === vmid && sameCluster(r));
+  const inherited = fwRules.value.filter((r) => r.scope !== "guest" && sameCluster(r));
   return [...own, ...inherited];
 }
 const SCOPE_LABEL: Record<string, string> = {
@@ -161,9 +172,9 @@ const fwCols = computed<DataTableColumns<FwState>>(() => autoSort([
   // key "_" 是 useVirtPrefs 保留鍵：不進欄位選擇清單，但一定保留（展開欄不該被藏掉）
   { type: "expand", key: "_", expandable: () => true,
     renderExpand: (r: FwState) => h("div", { class: "fw-rules" },
-      rulesForGuest(r.vmid).length === 0
+      rulesForGuest(r.vmid, r.instance_id).length === 0
         ? [h("span", { style: "opacity:.6;font-size:12.5px" }, t("virt.no_rules"))]
-        : rulesForGuest(r.vmid).map((x) => h("div", { class: "fw-rule" }, [
+        : rulesForGuest(r.vmid, r.instance_id).map((x) => h("div", { class: "fw-rule" }, [
             h(NTag, { size: "tiny", bordered: false,
                       type: x.scope === "guest" ? "success" : "default" },
               { default: () => SCOPE_LABEL[x.scope] ?? x.scope }),
@@ -186,9 +197,13 @@ const fwCols = computed<DataTableColumns<FwState>>(() => autoSort([
             x.enabled ? null : h(NTag, { size: "tiny", type: "warning", bordered: false },
                                  { default: () => t("virt.rule_disabled") }),
           ]))) } as any,
+  { title: () => t("virt.cluster_col"), key: "cluster", width: 150,
+    ellipsis: { tooltip: true },
+    render: (r: FwState) => r.cluster ?? "—" },
   { title: "VMID", key: "vmid", width: 90 },
   { title: () => t("virt.rule_count"), key: "rule_count", width: 100,
-    render: (r: FwState) => rulesForGuest(r.vmid).filter((x) => x.scope === "guest").length },
+    render: (r: FwState) => rulesForGuest(r.vmid, r.instance_id)
+      .filter((x) => x.scope === "guest").length },
   { title: t("virt.kind"), key: "guest_kind", width: 90,
     render: (r: FwState) => r.guest_kind ?? "—" },
   { title: t("virt.node"), key: "node", width: 140, render: (r: FwState) => r.node ?? "—" },
@@ -515,9 +530,12 @@ const proxmoxP = useVirtPrefs("proxmox", proxmoxCols, proxmox);
 // 防火牆分頁比照其他分頁：共用搜尋 / 欄位選擇 / 排序 / 匯出，不另做一套
 const fwP = useVirtPrefs("pvefw", fwCols as any, fwRows);
 
+// 兩個選單項共用這個元件 → 在它們之間切換時**不會重新掛載**，只有路由變。
+// 沒有這個 watch 的話，分頁值會停在上一個模式、同樣對不到任何分頁。
+watch(adminMode, (isAdmin) => { tab.value = isAdmin ? "proxmox" : "clusters"; });
+
 onMounted(() => {
   void loadFw();
-  tab.value = adminMode.value ? "proxmox" : "clusters";
   void refresh();
   void ensureCustomerOptsLoaded();
   void loadSubnetOptions();

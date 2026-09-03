@@ -372,9 +372,9 @@ const cells = computed<Cell[]>(() => {
                   @mouseleave="hoveredId = null"
                   @click="goDevice(cell.full.id)"
                 >
-                  <span v-if="cell.full.is_mid" class="d-name d-name-span"
+                  <span v-if="cell.full.is_mid" class="d-name-span"
                         :style="{ height: `calc(${cell.full.run} * var(--rd-row-h))` }">
-                    {{ cell.full.name }}
+                    <span class="d-name">{{ cell.full.name }}</span>
                   </span>
                 </div>
               </template>
@@ -401,9 +401,9 @@ const cells = computed<Cell[]>(() => {
                       @mouseleave="hoveredId = null"
                       @click="goDevice(cell[half]!.id)"
                     >
-                      <span v-if="cell[half]!.is_mid" class="d-name d-name-half d-name-span"
+                      <span v-if="cell[half]!.is_mid" class="d-name-span d-name-span-half"
                             :style="{ height: `calc(${cell[half]!.run} * var(--rd-row-h))` }">
-                        {{ cell[half]!.name }}
+                        <span class="d-name d-name-half">{{ cell[half]!.name }}</span>
                       </span>
                     </div>
                   </template>
@@ -515,11 +515,20 @@ const cells = computed<Cell[]>(() => {
 }
 .u-occupied.u-top { border-top: 2px solid rgba(0, 0, 0, 0.32); }
 .u-occupied.u-bottom { border-bottom: 2px solid rgba(0, 0, 0, 0.32); }
-/* hover 任一 U → 整台裝置點亮 + 框線（左右框；最上/最下格補上下框） */
+/* hover 任一 U → 整台裝置點亮 + 框線（左右框；最上/最下格補上下框）
+   ⚠️ **不要用 `filter` 或 `opacity` 來打亮**：那兩個都會讓每一格變成獨立的堆疊環境，
+   跨多 U 的名稱（絕對定位在最上面那一格、往下延伸）就跳不出去，會被下面幾格蓋掉 ——
+   實機症狀是「游標移過去，裝置名稱就不見了」。改用疊一層半透明白色，不建立堆疊環境。 */
 .u-row.u-hl {
-  filter: brightness(1.18) saturate(1.25);
   box-shadow: inset 2px 0 0 #fbbf24, inset -2px 0 0 #fbbf24;
-  z-index: 1;
+}
+.u-row.u-hl::after,
+.u-half.u-hl::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
 }
 .u-row.u-hl.u-top { box-shadow: inset 2px 0 0 #fbbf24, inset -2px 0 0 #fbbf24, inset 0 2px 0 #fbbf24; }
 .u-row.u-hl.u-bottom { box-shadow: inset 2px 0 0 #fbbf24, inset -2px 0 0 #fbbf24, inset 0 -2px 0 #fbbf24; }
@@ -543,7 +552,7 @@ const cells = computed<Cell[]>(() => {
 }
 .u-half.u-occupied.u-top { border-top: 2px solid rgba(0, 0, 0, 0.32); }
 .u-half.u-occupied.u-bottom { border-bottom: 2px solid rgba(0, 0, 0, 0.32); }
-.u-half.u-hl { filter: brightness(1.18) saturate(1.25); box-shadow: inset 2px 0 0 #fbbf24, inset -2px 0 0 #fbbf24; z-index: 1; }
+.u-half.u-hl { box-shadow: inset 2px 0 0 #fbbf24, inset -2px 0 0 #fbbf24; }
 .u-half.u-pickable { cursor: pointer; color: var(--n-text-color-3, #999); }
 .u-half.u-pickable:hover { background: rgba(24, 160, 88, 0.14); color: var(--primary-color, #18a058); }
 .u-half.u-pickable:hover .u-plus { opacity: 1; }
@@ -555,6 +564,9 @@ const cells = computed<Cell[]>(() => {
   position: absolute;
   left: 0;
   right: 0;
+  /* 跨多 U 時名稱會溢出「自己那一格」，而下面幾格是後面才畫的兄弟元素 ——
+     沒有這個 z-index，2U 的名稱會被下一格蓋掉一半、4U 的整個看不見（實測）。 */
+  z-index: 2;
   /* 絕對定位是相對「內距框」，但裝置的可見範圍是「邊框框」——
      不補回上邊框的厚度，名稱會整個往下偏一個邊框的量（1U 實測差 2px）。 */
   top: calc(-1 * var(--rd-border, 2px));
@@ -564,7 +576,7 @@ const cells = computed<Cell[]>(() => {
   justify-content: inherit;
   pointer-events: none;
 }
-.d-name-half.d-name-span { padding: 0 3px; }
+.d-name-span-half { padding: 0 3px; }
 .u-num {
   display: inline-block;
   width: 22px;
@@ -581,6 +593,9 @@ const cells = computed<Cell[]>(() => {
   white-space: nowrap;
   max-width: 110px;
 }
+/* ⚠️ `max-width` 只能放在**內層**：放在絕對定位的外層時，`left:0; right:0` 與
+   `max-width` 同時成立會讓瀏覽器保留 left、丟掉 right，整個名稱框被釘在左邊 ——
+   畫面上就是「對齊設定選了置中卻沒反應」（實測 span 寬 126、整列寬 250）。 */
 .d-ip {
   margin-left: auto;
   font-size: 11px;
@@ -595,8 +610,16 @@ const cells = computed<Cell[]>(() => {
 .rd-bare :deep(.n-card__content) { padding: 0; }
 .rd-bare :deep(.n-card-header) { display: none; }
 /* 聚焦模式：設了 highlightId 時，其他裝置淡化，只突顯本裝置 */
-.u-dim { opacity: 0.32; filter: grayscale(0.4); }
-.u-dim .d-name { opacity: 0.7; }
+/* 同上：`opacity` / `filter` 會建立堆疊環境 → 用疊一層背景色來壓暗 */
+.u-dim { color: rgba(255, 255, 255, 0.55); }
+.u-dim::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(250, 250, 250, 0.62);
+  pointer-events: none;
+}
+.u-dim .d-name { opacity: 0.75; }
 /* compact：較小列高，給裝置詳細資料側欄用 */
 .rd-compact .rack-frame { --rd-row-h: 18px; }
 .rd-compact .u-row { height: 18px; font-size: 10px; }
