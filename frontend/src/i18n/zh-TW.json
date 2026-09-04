@@ -280,7 +280,7 @@
     "vpn_tunnels": "站對站 VPN",
     "migration": "phpIPAM 匯入",
     "system_transfer": "系統匯出／匯入",
-    "import": "RIPE/TWNIC",
+    "import": "RIPE / TWNIC 匯入",
     "system_settings": "系統設定",
     "notification_channels": "通知發送設定",
     "ip_request_policy": "IP 申請審核設定",
@@ -839,7 +839,10 @@
       "offline": "失聯",
       "arp_changed": "ARP 變更",
       "edited": "編輯"
-    }
+    },
+    "all_sections": "全部區段",
+    "all_subnets": "全部子網路",
+    "all_customers": "全部單位"
   },
   "scanAgentHelp": {
     "button": "安裝說明",

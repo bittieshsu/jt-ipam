@@ -10,12 +10,14 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
 from app.core.db import get_session
 from app.models.ip_change_log import CHANGE_SOURCES, EVENT_TYPES, IPChangeLog
+from app.models.section import Section
+from app.models.subnet import Subnet
 from app.models.user import User
 from app.schemas.base import Paginated
 from app.schemas.ip_change_log import IPChangeLogRead
@@ -31,6 +33,9 @@ async def list_ip_changes(
     q: str | None = Query(None, max_length=128, description="模糊搜尋 IP / 欄位 / 新舊值"),
     ip_id: uuid.UUID | None = Query(None),
     subnet_id: uuid.UUID | None = Query(None),
+    section_id: uuid.UUID | None = Query(None, description="該區段底下所有子網路"),
+    customer_id: uuid.UUID | None = Query(None,
+        description="該單位的子網路（子網路沒設單位時沿用所屬區段的）"),
     event_type: str | None = Query(None),
     source: str | None = Query(None),
     since: datetime | None = Query(None, description="起始時間（含）"),
@@ -51,6 +56,17 @@ async def list_ip_changes(
             s = s.where(IPChangeLog.ip_id == ip_id)
         if subnet_id is not None:
             s = s.where(IPChangeLog.subnet_id == subnet_id)
+        if section_id is not None:
+            s = s.where(IPChangeLog.subnet_id.in_(
+                select(Subnet.id).where(Subnet.section_id == section_id)))
+        if customer_id is not None:
+            # 子網路自己有設單位就用它；沒設就沿用所屬區段的（側邊選單的「下層繼承單位」
+            # 是同一條規則）。只比對 subnet.customer_id 會漏掉一整批只在區段層設定的站台。
+            s = s.where(IPChangeLog.subnet_id.in_(
+                select(Subnet.id).join(Section, Section.id == Subnet.section_id).where(
+                    or_(Subnet.customer_id == customer_id,
+                        and_(Subnet.customer_id.is_(None),
+                             Section.customer_id == customer_id)))))
         if event_type in EVENT_TYPES:
             s = s.where(IPChangeLog.event_type == event_type)
         if source in CHANGE_SOURCES:

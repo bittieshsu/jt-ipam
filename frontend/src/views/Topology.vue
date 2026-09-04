@@ -1020,19 +1020,23 @@ onUnmounted(() => {
         <span>{{ t("nav.topology") }}</span>
       </n-space>
     </template>
-    <!-- 控制列：自標題列搬到內文最上方 -->
-    <n-space align="center" justify="end" style="margin-bottom: 10px">
-      <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
-        <n-button size="small">
-          <template #icon><n-icon><ExportIcon /></n-icon></template>
-          {{ t("common.export") }}
+    <!-- 匯出／重新整理是「這一頁的動作」，不是檢視條件 —— 放標題列右側，
+         跟底下那排篩選分開。原本它們自己佔一整列靠右對齊，畫面上多一條空帶，
+         視窗一窄又會跟篩選擠在一起（使用者回報）。 -->
+    <template #header-extra>
+      <n-space align="center" :size="8" :wrap-item="false">
+        <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
+          <n-button size="small">
+            <template #icon><n-icon><ExportIcon /></n-icon></template>
+            {{ t("common.export") }}
+          </n-button>
+        </n-dropdown>
+        <n-button @click="refresh" size="small">
+          <template #icon><n-icon><RefreshIcon /></n-icon></template>
+          {{ t("common.refresh") }}
         </n-button>
-      </n-dropdown>
-      <n-button @click="refresh" size="small">
-        <template #icon><n-icon><RefreshIcon /></n-icon></template>
-        {{ t("common.refresh") }}
-      </n-button>
-    </n-space>
+      </n-space>
+    </template>
     <n-space class="topo-toolbar" align="center" :wrap="true" style="margin-bottom: 12px; row-gap: 8px">
       <n-select
         v-model:value="subnetIds"
@@ -1131,6 +1135,16 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 卡片標題列：視窗窄時讓「標題」與「匯出／重新整理」換行，而不是把標題擠掉。
+   naive-ui 的 header 預設不換行 —— 不加這段，窄視窗下標題會被壓成省略號。 */
+:deep(.n-card-header) {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+:deep(.n-card-header__extra) {
+  margin-left: auto;
+}
+
 .topo-legend {
   display: flex;
   flex-wrap: wrap;

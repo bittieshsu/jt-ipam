@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.5] — 2026-09-04
+
+### Changed
+- **The IP change log can be narrowed to a section, a subnet or a unit.** The page holds every
+  address change on the site, but the question people actually arrive with is "what changed in
+  *this unit* this week" or "what changed in *this network*". The unit filter follows the same
+  inheritance rule as the rest of the app: a subnet with no unit of its own uses its section's.
+  Matching only `subnets.customer_id` would silently drop every site that sets the unit at the
+  section level — a few rows short, with nothing on screen to say so.
+- **RIPE / TWNIC import moved from Admin to Advanced.** It is a lookup-and-import tool, not a
+  system setting. The `/import` route still works so existing links do not break, and the two tabs
+  now live in one shared component so the page and the menu entry can never drift apart.
+- **Page actions no longer sit on a row of their own.** On the topology page Export and Refresh
+  occupied a dedicated right-aligned row, which wasted a band of space and collided with the filter
+  row on a narrow window; both now sit in the card header next to the title. The IP change log got
+  the same treatment — with three more filters added, its Export button would otherwise have been
+  pushed onto a second line by itself.
+
 ## [0.6.4] — 2026-09-04
 
 ### Fixed

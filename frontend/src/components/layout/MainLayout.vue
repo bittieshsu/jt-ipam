@@ -241,6 +241,10 @@ const menuOptions = computed<MenuOption[]>(() => {
         { label: () => t("nav.cabling"),        key: "cabling",     icon: renderIcon(PhysicalIcon) },
         { label: () => t("nav.power"),          key: "power",       icon: renderIcon(PowerIcon) },
         { label: () => t("nav.vpn_tunnels"),    key: "vpn-tunnels", icon: renderIcon(VpnIcon) },
+        // 匯入會寫入子網路、後端六支端點都是 admin → 非 admin 不顯示，
+        // 否則點進去只會拿到 403
+        ...(me.value?.is_admin
+          ? [{ label: () => t("nav.import"), key: "import", icon: renderIcon(ImportIcon) }] : []),
       ],
     },
     { label: () => t("nav.tools"),       key: "tools",      icon: renderIcon(ToolsIcon) },
@@ -290,7 +294,6 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.webhooks"),      key: "webhooks",       icon: renderIcon(WebhooksIcon) },
           { label: () => t("nav.migration"),     key: "migration",      icon: renderIcon(MigrationIcon) },
           { label: () => t("nav.system_transfer"), key: "system_transfer", icon: renderIcon(ExportIcon) },
-          { label: () => t("nav.import"),        key: "import",         icon: renderIcon(ImportIcon) },
           { label: () => t("nav.plugins"),       key: "plugins",        icon: renderIcon(PluginsIcon) },
           { label: () => "LLM / AI",             key: "llm_settings",   icon: renderIcon(SettingsIcon) },
           { label: () => t("nav.system_settings"), key: "system_settings", icon: renderIcon(SettingsIcon) },

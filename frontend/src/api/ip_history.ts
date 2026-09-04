@@ -27,6 +27,8 @@ export interface IPChangeFilter {
   q?: string;
   ip_id?: string;
   subnet_id?: string;
+  section_id?: string;
+  customer_id?: string;
   event_type?: string;
   source?: string;
   since?: string;

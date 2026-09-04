@@ -280,7 +280,7 @@
     "vpn_tunnels": "Site-to-Site VPN",
     "migration": "phpIPAM Migration",
     "system_transfer": "System Export / Import",
-    "import": "RIPE / TWNIC Import",
+    "import": "RIPE / TWNIC import",
     "system_settings": "System Settings",
     "notification_channels": "Notification Channels",
     "ip_request_policy": "IP Request Approval",
@@ -839,7 +839,10 @@
       "offline": "Offline",
       "arp_changed": "ARP changed",
       "edited": "Edited"
-    }
+    },
+    "all_sections": "All sections",
+    "all_subnets": "All subnets",
+    "all_customers": "All units"
   },
   "scanAgentHelp": {
     "button": "Install guide",
