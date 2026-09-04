@@ -63,7 +63,7 @@ def _patch_api(monkeypatch, mapping, fail: set[str] | None = None):
 
 
 @pytest.mark.anyio
-async def test_list_vdoms_prefers_config_then_discovery_then_root(db_session, monkeypatch) -> None:
+async def test_list_vdoms_prefers_config_then_discovery_then_unscoped(db_session, monkeypatch) -> None:
     fw = await _mk_fw(db_session, "fgt-vdom", vdoms=["v1", "v2"])
     _patch_api(monkeypatch, {})
     assert await fg.list_vdoms(fw) == ["v1", "v2"]          # 使用者指定優先
@@ -72,8 +72,10 @@ async def test_list_vdoms_prefers_config_then_discovery_then_root(db_session, mo
     _patch_api(monkeypatch, {fg.EP_VDOMS: [{"name": "root"}, {"name": "guest"}]})
     assert await fg.list_vdoms(fw2) == ["root", "guest"]    # 自動探索
 
+    # 問不到 VDOM 清單 → **不指定範圍**（不是猜 "root"）。
+    # 猜一個名字塞進每一支請求，壞掉時會壞在全部端點上（issue #26，v0.6.4 改）。
     _patch_api(monkeypatch, {}, fail={fg.EP_VDOMS})
-    assert await fg.list_vdoms(fw2) == ["root"]             # 非 VDOM 模式 → 退回 root
+    assert await fg.list_vdoms(fw2) == [fg.NO_VDOM]
 
 
 @pytest.mark.anyio

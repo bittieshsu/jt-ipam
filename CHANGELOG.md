@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.4] — 2026-09-04
+
+### Fixed
+- **FortiGate: stopped guessing a VDOM name when the device does not have VDOMs** (GitHub issue #26,
+  "does the tool only support a FortiGate with VDOMs split?"). Reading the code, VDOMs were never
+  required — but when the VDOM list could not be read (permissions, or a firmware without that
+  endpoint) the integration fell back to the literal name `root` and put it on **every** request.
+  On a device without VDOMs `root` is usually correct, but that is a coincidence, not a guarantee:
+  if a firmware objects to a `vdom` parameter while VDOMs are disabled, *every* endpoint fails at
+  once and all the operator sees is a wall of identical errors with no hint that the shared cause is
+  a parameter we added ourselves.
+
+  The integration now asks the device directly (`system/global` → `vdom-mode`) and, for `no-vdom` or
+  when the answer cannot be read, sends **no VDOM parameter at all** — FortiOS then uses the
+  management VDOM, which is what we want. Names written into data (VPN tunnel names, NAT external
+  ids, the VDOM column in the read-only view) still show `root` so nothing renders blank.
+
+- **The connection diagnostic can now tell "wrong VDOM scope" apart from "endpoint not available".**
+  When an endpoint fails with a VDOM set, it is retried once without one; if that succeeds the row
+  says so explicitly. The two cases produce identical error text from FortiOS, so previously there
+  was no way to tell them apart from the screen. The diagnostic also reports the device's
+  `vdom-mode` and whether the queries were VDOM-scoped at all.
+
+### Security
+- `postcss-selector-parser` pinned to >= 6.1.3 (Dependabot alert, low / CVSS 2.1: uncontrolled AST
+  recursion). It is a transitive **development** dependency of `eslint-plugin-vue` and
+  `@vue/eslint-config-typescript` — it never reaches the built frontend — so this hardens the build
+  environment rather than the shipped product.
+
 ## [0.6.3] — 2026-09-04
 
 ### Added

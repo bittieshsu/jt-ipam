@@ -4,6 +4,31 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.6.4] — 2026-09-04
+
+### 修正
+- **FortiGate：沒有分割 VDOM 的機器，不再自己猜一個 VDOM 名稱**（GitHub issue #26，
+  使用者問「工具是否只支援有分割 VDOM 的 FortiGate」）。看過程式後確認 VDOM 從來不是必要條件 ——
+  但當 VDOM 清單讀不到時（權限不足，或該韌體沒有那支端點），整合會退回字面上的 `root`，
+  並把它**帶進每一支請求**。沒開 VDOM 的機器上 `root` 通常是對的，但那是巧合不是保證：
+  一旦某個韌體版本對「VDOM 關閉時仍帶 vdom 參數」有意見，**所有端點會同時失敗**，
+  而現場看到的只是一整排一模一樣的錯誤，完全看不出共同原因是我們自己多送的那個參數。
+
+  現在改成直接問裝置（`system/global` 的 `vdom-mode`）：回 `no-vdom`、或問不到答案時，
+  **一支請求都不帶 vdom 參數** —— FortiOS 會自己用管理 VDOM，那正是我們要的。
+  會被寫進資料的位置（VPN 通道名稱、NAT external id、唯讀檢視的 VDOM 欄）仍顯示 `root`，
+  不會出現空白欄位。
+
+- **連線診斷現在分得出「VDOM 範圍設錯」與「這台沒有這支端點」。** 帶著 VDOM 失敗時會再試一次
+  不帶 VDOM；若不帶就成功，那一列會明講。FortiOS 對這兩種情況回的錯誤訊息長得一模一樣，
+  以前從畫面上根本分不出來。診斷另外會顯示裝置回報的 `vdom-mode`，以及這次查詢究竟有沒有指定
+  VDOM 範圍。
+
+### 安全性
+- `postcss-selector-parser` 鎖到 >= 6.1.3（Dependabot 警示，低風險／CVSS 2.1：AST 遞迴未設限）。
+  它是 `eslint-plugin-vue` 與 `@vue/eslint-config-typescript` 的**開發期**間接相依，
+  不會進到建置出來的前端 —— 所以這是加固建置環境，不是產品本身。
+
 ## [0.6.3] — 2026-09-04
 
 ### 新增

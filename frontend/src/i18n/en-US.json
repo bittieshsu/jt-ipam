@@ -3101,7 +3101,9 @@
     "col_dst": "Destination (intf / addr)",
     "col_service": "Service",
     "col_value": "Value / members",
-    "kind_group": "Address group"
+    "kind_group": "Address group",
+    "no_vdom": "not split (queries carry no VDOM scope)",
+    "diag_without_vdom": "⚠️ readable only without a VDOM — clear the VDOM field"
   },
   "api_tokens": {
     "title": "API tokens",

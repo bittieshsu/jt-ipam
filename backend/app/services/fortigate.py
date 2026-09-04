@@ -35,6 +35,7 @@ from app.services.hostname import apply_observation
 
 # FortiOS v2 API：monitor=即時狀態、cmdb=設定物件
 EP_VDOMS = "/api/v2/cmdb/system/vdom"
+EP_GLOBAL = "/api/v2/cmdb/system/global"
 EP_DHCP_LEASES = "/api/v2/monitor/system/dhcp"
 EP_DHCP_SERVERS = "/api/v2/cmdb/system.dhcp/server"
 EP_ARP = "/api/v2/monitor/network/arp"
@@ -224,16 +225,58 @@ def _to_port(v: object) -> int | None:
 
 
 # ─────────────────── VDOM ───────────────────
+#: 沒有 VDOM 分割時用的保留值：代表「**不要**帶 vdom 參數」。
+#: `_api_get` 對 falsy 的 vdom 會直接省略該參數，所以空字串就是「不指定範圍」。
+NO_VDOM = ""
+
+#: `vdom` 只是查詢範圍，不是資料 —— 但有幾個地方會把它寫進名稱／識別字裡
+#: （介面名退路、VPN 通道名、NAT external_id）。那些位置需要一個看得懂的字。
+VDOM_LABEL_WHEN_NONE = "root"
+
+
+def vdom_label(vdom: str) -> str:
+    """給「要寫進資料」的位置用的顯示字（不是拿去打 API 的）。"""
+    return vdom or VDOM_LABEL_WHEN_NONE
+
+
+async def detect_vdom_mode(fw: FortiGateFirewall) -> str | None:
+    """問裝置自己有沒有開 VDOM：`system/global` 的 `vdom-mode`。
+
+    回 `no-vdom` / `split-vdom` / `multi-vdom`；讀不到回 None（權限或韌體差異）。
+    """
+    try:
+        rows = _rows(await _api_get(fw, EP_GLOBAL, timeout=10.0))
+    except FortiGateError:
+        return None
+    for d in rows:
+        mode = _first(d, "vdom-mode", "vdom_mode", "vdom-admin")
+        if mode:
+            return str(mode).strip().lower()
+    return None
+
+
 async def list_vdoms(fw: FortiGateFirewall) -> list[str]:
-    """要同步的 VDOM 清單：使用者指定優先；否則自動探索；探索失敗退回 ['root']。"""
+    """要同步的 VDOM 清單。
+
+    順序：使用者指定 → 問裝置的 `vdom-mode` → 列 `system/vdom` → 都問不到就**不指定範圍**。
+
+    ⚠️ 最後那一步是 2026-09-04（issue #26）改的。原本問不到時退回 `["root"]`，
+    等於**猜一個 VDOM 名稱塞進每一支請求**。沒有分割 VDOM 的機器上 `root` 通常是對的，
+    但這是猜的：一旦某個韌體版本對「VDOM 關閉時仍帶 vdom 參數」有意見，
+    受影響的就是**每一支端點**，而畫面上只會看到一整排錯誤，看不出共同原因是我們多送了
+    一個參數。不知道就不要指定 —— FortiOS 自己會用管理 VDOM，那正是我們要的。
+    """
     if fw.vdoms:
         return [v for v in fw.vdoms if v]
+    mode = await detect_vdom_mode(fw)
+    if mode == "no-vdom":
+        return [NO_VDOM]           # 裝置明講沒開 VDOM → 一支都不要帶
     try:
         rows = _rows(await _api_get(fw, EP_VDOMS, timeout=10.0))
     except FortiGateError:
-        return ["root"]        # 非 VDOM 模式或無權限 → 單一預設 VDOM
+        return [NO_VDOM]           # 讀不到清單就不要猜名字
     names = [str(r.get("name")) for r in rows if r.get("name")]
-    return names or ["root"]
+    return names or [NO_VDOM]
 
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
@@ -315,7 +358,7 @@ async def sync_dhcp_ranges(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
         for d in rows:
             if str(d.get("status") or "enable").lower() == "disable":
                 continue
-            iface = d.get("interface") or vdom
+            iface = d.get("interface") or vdom_label(vdom)
             for rg in (d.get("ip-range") or d.get("ip_range") or []):
                 if not isinstance(rg, dict):
                     continue
@@ -413,7 +456,7 @@ async def sync_vpn(
             label = _first(d, "name", "p1name", "tunnel")
             if not label:
                 continue
-            name = f"{prefix}{vdom}/{label}"[:128]
+            name = f"{prefix}{vdom_label(vdom)}/{label}"[:128]
             seen_names.add(name)
             # 通道狀態在巢狀 proxyid[].status（頂層沒有 status 欄位）；
             # 撥入式（dialup）則以 connection_count 判斷。
@@ -494,7 +537,7 @@ async def sync_policies(session: AsyncSession, fw: FortiGateFirewall, vdoms: lis
                 continue
             seen.add(key)
             session.add(FortiGatePolicy(
-                firewall_id=fw.id, vdom=vdom[:64], policyid=str(pid)[:64],
+                firewall_id=fw.id, vdom=vdom_label(vdom)[:64], policyid=str(pid)[:64],
                 name=(str(d.get("name"))[:255] if d.get("name") else None),
                 status=(str(d.get("status"))[:16] if d.get("status") else None),
                 action=(str(d.get("action"))[:16] if d.get("action") else None),
@@ -554,7 +597,8 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
                 dst_port=_to_port(d.get("mappedport")),
                 src_port=_to_port(d.get("extport")),
                 description=(str(d.get("comment")) if d.get("comment") else None),
-                source_origin=origin, external_id=f"{vdom}:{name}"[:200],
+                source_origin=origin,
+                external_id=f"{vdom_label(vdom)}:{name}"[:200],
             ))
             n += 1
         # IP pool → many_to_one（SNAT）
@@ -573,7 +617,7 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             session.add(NATTranslation(
                 name=str(name)[:200], type="many_to_one", protocol="any",
                 description=desc or None,
-                source_origin=origin, external_id=f"{vdom}:pool:{name}"[:200],
+                source_origin=origin, external_id=f"{vdom_label(vdom)}:pool:{name}"[:200],
             ))
             n += 1
     return n
@@ -604,7 +648,7 @@ async def sync_addresses(session: AsyncSession, fw: FortiGateFirewall, vdoms: li
             else:
                 value = str(d.get("subnet") or "").replace(" ", "/") or None
             session.add(FortiGateAddressObject(
-                firewall_id=fw.id, vdom=vdom[:64], name=str(name)[:255],
+                firewall_id=fw.id, vdom=vdom_label(vdom)[:64], name=str(name)[:255],
                 obj_type=otype[:32], kind="address", value=value,
                 comment=(str(d.get("comment")) if d.get("comment") else None),
                 last_sync_at=now,
@@ -622,7 +666,7 @@ async def sync_addresses(session: AsyncSession, fw: FortiGateFirewall, vdoms: li
             members = [str(m.get("name")) for m in (d.get("member") or [])
                        if isinstance(m, dict) and m.get("name")]
             session.add(FortiGateAddressObject(
-                firewall_id=fw.id, vdom=vdom[:64], name=str(name)[:255],
+                firewall_id=fw.id, vdom=vdom_label(vdom)[:64], name=str(name)[:255],
                 obj_type="addrgrp", kind="group", value=None, members=members,
                 comment=(str(d.get("comment")) if d.get("comment") else None),
                 last_sync_at=now,
@@ -635,11 +679,15 @@ async def sync_addresses(session: AsyncSession, fw: FortiGateFirewall, vdoms: li
 async def diagnose(fw: FortiGateFirewall) -> dict[str, Any]:
     """測試連線：逐端點回報通不通與筆數（無實機開發，這是收斂欄位的主要依據）。"""
     out: dict[str, Any] = {"api_url": fw.api_url}
+    out["vdom_mode"] = await detect_vdom_mode(fw)
     try:
         vdoms = await list_vdoms(fw)
     except FortiGateError as exc:
         raise FortiGateError(f"無法取得 VDOM 清單：{exc}") from exc
-    out["vdoms"] = vdoms
+    # 空字串代表「不指定 VDOM 範圍」。前端要看得出這件事 —— 一個空白的 VDOM 清單
+    # 和「有一個叫 root 的 VDOM」在畫面上長得一樣，但意義完全不同（issue #26）。
+    out["vdoms"] = [v for v in vdoms if v]
+    out["vdom_scoped"] = bool(out["vdoms"])
     probes = (
         ("dhcp_leases", EP_DHCP_LEASES), ("dhcp_servers", EP_DHCP_SERVERS), ("arp", EP_ARP),
         ("vpn_ipsec", EP_VPN_IPSEC), ("vpn_ssl", EP_VPN_SSL), ("policy", EP_POLICY),
@@ -651,7 +699,19 @@ async def diagnose(fw: FortiGateFirewall) -> dict[str, Any]:
             rows = _rows(await _api_get(fw, path, vdom=vdoms[0], timeout=_DIAG_TIMEOUT))
             return {"endpoint": label, "ok": True, "rows": len(rows)}
         except FortiGateError as exc:
-            return {"endpoint": label, "ok": False, "error": str(exc)[:200]}
+            first = str(exc)[:200]
+            if not vdoms[0]:
+                return {"endpoint": label, "ok": False, "error": first}
+            # 帶著 VDOM 失敗時，再試一次「不指定 VDOM」。兩種結果的差別是可行動的資訊：
+            # 若不帶就成功，代表這台的 VDOM 範圍設錯了（或這個韌體不吃該參數），
+            # 而不是端點不存在或權限不足 —— 使用者回報「整合怪怪的」時，
+            # 光看一排相同的錯誤訊息是分不出來的（issue #26）。
+            try:
+                rows = _rows(await _api_get(fw, path, timeout=_DIAG_TIMEOUT))
+            except FortiGateError:
+                return {"endpoint": label, "ok": False, "error": first}
+            return {"endpoint": label, "ok": True, "rows": len(rows),
+                    "without_vdom": True, "vdom_error": first}
 
     # 並行探測：這 10 支是彼此獨立的 GET，循序跑的話對「不可達主機」會累加成
     # 10 × 逾時 ≈ 100 秒，前端診斷視窗看起來像凍住 —— 而 IP 填錯／防火牆丟包

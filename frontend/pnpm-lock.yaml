@@ -14,6 +14,7 @@ overrides:
   brace-expansion@2: '>=2.1.4 <3'
   brace-expansion@5: '>=5.0.9'
   nanoid@3: '>=3.3.17 <4'
+  postcss-selector-parser@6: '>=6.1.3 <7'
 
 importers:
 
@@ -1669,8 +1670,8 @@ packages:
     resolution: {integrity: sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==}
     engines: {node: '>=10.13.0'}
 
-  postcss-selector-parser@6.1.2:
-    resolution: {integrity: sha512-Q8qQfPiZ+THO/3ZrOrO0cJJKfpYCagtMUkXbnEfmgUjwXg6z/WBeOyS9APBBPCTSiDV+s4SwQGu8yFsiMRIudg==}
+  postcss-selector-parser@6.1.4:
+    resolution: {integrity: sha512-bIoJLOmjCO1S9XdY/DcnR5hJxvrDir1PbGChrzXG3vw0/FOliy/fA3dmdhQ441kah4gKv+TwckGzex6wNS5cnQ==}
     engines: {node: '>=4'}
 
   postcss@8.5.24:
@@ -3075,7 +3076,7 @@ snapshots:
       globals: 13.24.0
       natural-compare: 1.4.0
       nth-check: 2.1.1
-      postcss-selector-parser: 6.1.2
+      postcss-selector-parser: 6.1.4
       semver: 7.8.0
       vue-eslint-parser: 9.4.3(eslint@9.39.4)
       xml-name-validator: 4.0.0
@@ -3632,7 +3633,7 @@ snapshots:
 
   pngjs@5.0.0: {}
 
-  postcss-selector-parser@6.1.2:
+  postcss-selector-parser@6.1.4:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2

@@ -3101,7 +3101,9 @@
     "col_dst": "目的（介面／位址）",
     "col_service": "服務",
     "col_value": "值／成員",
-    "kind_group": "位址群組"
+    "kind_group": "位址群組",
+    "no_vdom": "未分割（不指定 VDOM 範圍）",
+    "diag_without_vdom": "⚠️ 帶 VDOM 讀不到、不帶才讀得到 → 請清空 VDOM 欄位"
   },
   "api_tokens": {
     "title": "API 權杖",

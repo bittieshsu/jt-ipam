@@ -305,7 +305,12 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
       <template v-if="diag">
         <n-space vertical :size="10">
           <div>
-            <strong>VDOM：</strong>{{ diag.vdoms.join(", ") || "—" }}
+            <strong>VDOM：</strong>
+            <template v-if="diag.vdom_scoped === false">
+              {{ t("fortigate.no_vdom") }}
+            </template>
+            <template v-else>{{ diag.vdoms.join(", ") || "—" }}</template>
+            <span v-if="diag.vdom_mode" class="diag-note"> · {{ diag.vdom_mode }}</span>
           </div>
           <n-alert :type="diag.ok_count === diag.checks.length ? 'success' : 'warning'" :bordered="false">
             {{ t("fortigate.diag_summary", { ok: diag.ok_count, total: diag.checks.length }) }}
@@ -315,7 +320,12 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
               {{ c.ok ? "OK" : "ERR" }}
             </n-tag>
             <code>{{ c.endpoint }}</code>
-            <span v-if="c.ok" class="diag-note">{{ t("fortigate.diag_rows", { n: c.rows ?? 0 }) }}</span>
+            <span v-if="c.ok" class="diag-note">
+              {{ t("fortigate.diag_rows", { n: c.rows ?? 0 }) }}
+              <!-- 帶 VDOM 讀不到、不帶就讀得到：這是「範圍設錯」而不是「端點不存在」，
+                   兩者的錯誤訊息長得一樣，不講出來現場分不出來（issue #26） -->
+              <template v-if="c.without_vdom"> · {{ t("fortigate.diag_without_vdom") }}</template>
+            </span>
             <span v-else class="diag-note">{{ c.error }}</span>
           </div>
         </n-space>
