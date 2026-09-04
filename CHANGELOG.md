@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.7] — 2026-09-04
+
+### Fixed
+- **Page actions are back in the toolbar, not the card header.** 0.6.5 moved Export / Refresh (and
+  the IP change log's description line) into the card header to stop them occupying a row of their
+  own; the header is the wrong home for them. They now flow at the end of the filter row, and the
+  two buttons are bound into a single flex item so they wrap together instead of leaving Refresh on
+  one line and Export stranded on the next. The description line sits on its own row above the
+  filters. Checked at 1440, 1100 and 900 px on both pages, with a horizontal-overflow assertion.
+
 ## [0.6.6] — 2026-09-04
 
 ### Fixed

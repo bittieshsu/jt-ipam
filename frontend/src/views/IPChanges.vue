@@ -161,20 +161,12 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
 
 <template>
   <n-card :title="t('ipChanges.title')" :bordered="false">
-    <!-- 重新整理／匯出是「這一頁的動作」，跟底下那排篩選條件分開放。
-         留在篩選列裡的話，多加幾個篩選就會把它們擠到第二列去單獨佔一行。 -->
-    <template #header-extra>
-      <n-space align="center" :size="8" :wrap-item="false" class="ipchg-actions">
-        <n-text depth="3" class="ipchg-subtitle">{{ t("ipChanges.subtitle") }}</n-text>
-        <n-button @click="load" :loading="loading" size="small">
-          {{ t("common.refresh") }}
-        </n-button>
-        <ExportButton :columns="columns" :rows="rows" filename="ip-changes"
-                      :title="t('nav.ip_changes')" />
-      </n-space>
-    </template>
+    <!-- 卡片標題列只放標題。說明文字與動作都屬於內容區：
+         說明自成一行，動作靠右與篩選同一列 —— 動作不會自己佔掉一整條空帶，
+         也不會因為多加幾個篩選就被擠到下一行單獨一個。 -->
+    <n-text depth="3" class="ipchg-subtitle">{{ t("ipChanges.subtitle") }}</n-text>
 
-    <n-space align="center" style="margin-bottom: 12px; flex-wrap: wrap">
+    <n-space align="center" class="ipchg-toolbar">
       <n-input
         v-model:value="q" clearable
         :placeholder="t('ipChanges.search_placeholder')"
@@ -206,6 +198,13 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
         clearable filterable style="width: 170px"
         :placeholder="t('ipChanges.all_customers')"
       />
+      <!-- 兩顆動作綁成同一個 flex 子項：換行時要一起換，
+           不然會出現「重新整理留在上一行、匯出自己掉到下一行」的破碎排法 -->
+      <n-space align="center" :size="8" :wrap-item="false">
+        <n-button @click="load" :loading="loading">{{ t("common.refresh") }}</n-button>
+        <ExportButton :columns="columns" :rows="rows" filename="ip-changes"
+                      :title="t('nav.ip_changes')" />
+      </n-space>
     </n-space>
 
     <n-data-table
@@ -232,15 +231,11 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
 </template>
 
 <style scoped>
-/* 標題列：窄視窗時讓標題與動作換行，而不是把標題壓成省略號 */
-:deep(.n-card-header) { flex-wrap: wrap; row-gap: 8px; }
-:deep(.n-card-header__extra) { margin-left: auto; }
-.ipchg-actions { flex-wrap: wrap; row-gap: 6px; }
-.ipchg-subtitle { font-size: 12px; }
-/* 說明文字在窄視窗沒有空間，先讓給按鈕（它是說明，不是功能） */
-@media (max-width: 900px) {
-  .ipchg-subtitle { display: none; }
-}
+.ipchg-subtitle { display: block; font-size: 12px; margin-bottom: 10px; }
+/* 篩選與動作在同一個會換行的群組裡，依序排下去。
+   刻意不做「動作靠右」：靠右在寬度不夠時會自己換到一整列去，
+   畫面上就多一條只有兩顆按鈕的空帶（拓樸圖原本就是這樣，使用者回報過）。 */
+.ipchg-toolbar { flex-wrap: wrap; row-gap: 8px; margin-bottom: 12px; }
 
 /* 異動記錄超過 N 天（系統設定）的列以淡色顯示 */
 :deep(tr.log-dim td) { opacity: .45; }
