@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.6] — 2026-09-04
+
+### Fixed
+- **The backend package version no longer goes stale.** `backend/pyproject.toml` had
+  `version = "0.3.0"` hard-coded and had stayed there while the product moved to 0.6.x — the release
+  routine touches `app/version.py`, `package.json` and the two READMEs, and a fifth place that has
+  to be remembered separately is a place that eventually stops being true. It is now derived from
+  `app/version.py` (`[tool.hatch.version]`), verified by building a wheel and by running the exact
+  `pip install -e .` the installer uses.
+- Two places still described the product as "新世代 IPAM"; that wording was retired long ago
+  everywhere else. The FastAPI app description (visible in the API docs) now matches the rest.
+
 ## [0.6.5] — 2026-09-04
 
 ### Changed

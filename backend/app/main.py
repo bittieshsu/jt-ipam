@@ -144,7 +144,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="jt-ipam",
         version=__version__,
-        description="jt-ipam — 新世代 IPAM 系統",
+        description="jt-ipam — 可自架、以整合為核心的 IPAM 系統",
         docs_url=docs_url,
         redoc_url=redoc_url,
         openapi_url="/openapi.json" if not settings.is_production else None,

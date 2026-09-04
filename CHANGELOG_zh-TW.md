@@ -4,6 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.6.6] — 2026-09-04
+
+### 修正
+- **後端套件的版本號不會再過期。** `backend/pyproject.toml` 寫死 `version = "0.3.0"`，
+  產品都走到 0.6.x 了還留在那裡 —— 發版流程會改 `app/version.py`、`package.json` 與兩份 README，
+  多出第五個要「另外記得」的地方，就是遲早會與事實不符的地方。現在改成從 `app/version.py`
+  取（`[tool.hatch.version]`），並用實際建出 wheel、以及跑安裝腳本用的那道
+  `pip install -e .` 驗過。
+- 還有兩處把產品描述成「新世代 IPAM」，這個講法其他地方早就換掉了。
+  FastAPI 的應用描述（會出現在 API 文件頁）已與全站一致。
+
 ## [0.6.5] — 2026-09-04
 
 ### 變更

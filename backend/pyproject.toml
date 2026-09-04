@@ -1,7 +1,10 @@
 [project]
 name = "jt-ipam-backend"
-version = "0.3.0"
-description = "jt-ipam — 新世代 IPAM 系統後端"
+# 版本由 app/version.py 提供（見 [tool.hatch.version]）—— 這裡曾經寫死 0.3.0
+# 並在版本推進到 0.6.x 之後仍然沒改：發版流程只會記得改 version.py、package.json
+# 與兩份 README，多一個要手動同步的地方就是遲早會過期的地方。
+dynamic = ["version"]
+description = "jt-ipam — 以整合為核心的 IPAM 系統後端"
 authors = [
     {name = "Jason Tools Co., Ltd.", email = "support@example.com"},
 ]
@@ -89,6 +92,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "app/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
