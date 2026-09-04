@@ -90,6 +90,7 @@ _LABEL_REGISTRY: dict[str, tuple[str, str, str]] = {
     # 是哪一台在同步（客戶實測 FortiGate 時發現）。
     "fortigate_firewall": ("app.models.fortigate", "FortiGateFirewall", "name"),
     "paloalto_firewall": ("app.models.paloalto", "PaloAltoFirewall", "name"),
+    "mikrotik_router": ("app.models.mikrotik", "MikroTikRouter", "name"),
     "pfsense_firewall": ("app.models.pfsense", "PfSenseFirewall", "name"),
     "opnsense_firewall": ("app.models.firewall", "OPNsenseFirewall", "name"),
     "librenms_instance": ("app.models.librenms", "LibreNMSInstance", "name"),

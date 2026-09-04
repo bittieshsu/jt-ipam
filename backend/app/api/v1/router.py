@@ -34,6 +34,7 @@ from app.api.v1.endpoints import (
     librenms,
     locations,
     migration,
+    mikrotik,
     nat,
     notifications,
     novnc_console,
@@ -142,8 +143,10 @@ api_v1_router.include_router(pfsense.view_router)
 api_v1_router.include_router(event_rules.router)
 api_v1_router.include_router(fortigate.router)
 api_v1_router.include_router(paloalto.router)
+api_v1_router.include_router(mikrotik.router)
 api_v1_router.include_router(fortigate.view_router)
 api_v1_router.include_router(paloalto.view_router)
+api_v1_router.include_router(mikrotik.view_router)
 api_v1_router.include_router(wazuh.router)
 api_v1_router.include_router(zabbix.router)
 api_v1_router.include_router(zabbix.view_router)

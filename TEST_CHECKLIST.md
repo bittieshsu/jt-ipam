@@ -273,6 +273,39 @@ defect is in *what the model was able to ask*.
   platform has no length we get to assume.
 - [ ] Delete instance; periodic `jt-ipam-sync` picks up enabled instances every ~5 min without errors.
 
+## 7b2. MikroTik RouterOS integration (Admin → 整合 MikroTik) — **Beta**
+
+> **The point of this integration is not to slow the router down.** At the site that asked for it,
+> the MikroTik boxes are the *main* routers, so the safeguards are the feature — test them, not
+> just the field parsing. RouterOS needs `www-ssl` enabled and an account with `api` + `read`.
+
+- [ ] Add router: URL + username/password, **Verify TLS off** for a self-signed cert; save
+  (password write-only, never returned). Editing with an empty password leaves it unchanged.
+- [ ] **Test connection** reports RouterOS version, board name, identity, CPU before/after, and
+  **rows + seconds for every endpoint**. Numbers are the whole point: "ARP 12,000 rows / 3.2s" is
+  how an administrator decides whether to enable that section.
+- [ ] A menu the device does not have (`/ip/dhcp-server` on a switch, `/interface/wireguard` on
+  RouterOS 7.0) shows as **absent, not an error** — a switch must not finish a sync covered in red.
+- [ ] **RouterOS 6.x is named**: pointing at a v6 device must say "this is RouterOS 6.x, which has
+  no REST API", not a vague connection failure.
+- [ ] **Sequential, never parallel**: watch the router's own connection/CPU graph during a sync —
+  only one request should be in flight at a time. (Packet capture, or RouterOS `/tool/profile`.)
+- [ ] **Back-off works**: lower the CPU threshold to something the router already exceeds (e.g. 1%)
+  and sync → the round stops early, the list shows the「提早停止」tag with a reason, and
+  `last_error` stays **empty** (stopping early is not a failure).
+- [ ] **Size cap**: set the response cap to 1 MiB on a router with a large address list → that
+  section aborts with a readable message naming the limit, and **the other sections still run**.
+- [ ] **ARP is reachable-only**: an entry the router shows as `stale` or `permanent` must not stamp
+  the IP as online. (Check `arp_seen` on the IP — only `reachable` entries may appear.)
+- [ ] **DHCP three-table join**: ranges only appear when pool ↔ dhcp-server ↔ network line up; a
+  pool used by PPP/hotspot (no DHCP server pointing at it) must **not** show up as a DHCP range.
+  A subnet that already has a gateway or DNS set is **not** overwritten.
+- [ ] **Rule order is preserved**: the read-only view lists rules in the router's own order
+  (RouterOS matches top-down). Moving a rule in Winbox must **not** raise a rule-change alert;
+  editing one must.
+- [ ] Delete the router → its `dhcp_pool_ranges` and `nat_translations` rows go with it, and
+  no other source's rows are touched.
+
 ## 7c. Integration sync resilience — **applies to every integration, not just the one you changed**
 
 Real devices are partially readable. A firewall answering "9 of 10 endpoints OK" is the

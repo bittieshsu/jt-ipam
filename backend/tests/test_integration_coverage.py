@@ -22,7 +22,7 @@ BACKEND = Path(__file__).resolve().parent.parent
 FRONTEND = BACKEND.parent / "frontend"
 
 #: 有「防火牆規則／位址物件」的廠牌 —— 每一家都要走完下面每一項。
-FIREWALL_VENDORS = ("opnsense", "pfsense", "fortigate", "paloalto")
+FIREWALL_VENDORS = ("opnsense", "pfsense", "fortigate", "paloalto", "mikrotik")
 
 
 def _read(path: Path) -> str:
@@ -39,7 +39,16 @@ def test_list_firewalls_covers_every_vendor() -> None:
         assert f'"{vendor}"' in body, f"list_firewalls 少了 {vendor}"
 
 
-@pytest.mark.parametrize("vendor", ["fortigate", "paloalto"])
+#: 有專屬資料表的廠牌 → 各自的唯讀工具名。後綴跟著該廠牌的用語走
+#: （PAN-OS/FortiOS 叫 policy、RouterOS 叫 rule；位址物件 vs address-list）。
+VENDOR_TOOL_SUFFIXES = {
+    "fortigate": ("policies", "addresses"),
+    "paloalto": ("policies", "addresses"),
+    "mikrotik": ("rules", "address_lists"),
+}
+
+
+@pytest.mark.parametrize("vendor", sorted(VENDOR_TOOL_SUFFIXES))
 def test_vendor_has_policy_and_address_tools(vendor: str) -> None:
     """專屬資料表的廠牌要有自己的唯讀工具，否則 AI 對話問不到它的規則。
 
@@ -47,7 +56,7 @@ def test_vendor_has_policy_and_address_tools(vendor: str) -> None:
     """
     from app.mcp.tools import GLOBAL_READ_TOOLS, TOOLS
 
-    for suffix in ("policies", "addresses"):
+    for suffix in VENDOR_TOOL_SUFFIXES[vendor]:
         name = f"list_{vendor}_{suffix}"
         assert name in TOOLS, f"AI 對話沒有 {name}"
         # 防火牆政策是全域基礎設施資料：只被指派特定物件的帳號不該問得到
@@ -65,7 +74,8 @@ def test_rule_change_detection_covers_every_vendor() -> None:
 def test_rule_change_page_text_lists_every_vendor() -> None:
     """說明文字漏掉一家，使用者會以為那家沒在被盯著（使用者實際回報過）。"""
     labels = {"opnsense": "OPNsense", "pfsense": "pfSense",
-              "fortigate": "FortiGate", "paloalto": "Palo Alto"}
+              "fortigate": "FortiGate", "paloalto": "Palo Alto",
+              "mikrotik": "MikroTik"}
     missing_label = [v for v in FIREWALL_VENDORS if v not in labels]
     assert not missing_label, f"新廠牌要在這裡補上顯示名稱：{missing_label}"
     for locale in ("zh-TW", "en-US"):
@@ -93,11 +103,22 @@ def test_place_knows_every_vendor(path: str, what: str) -> None:
         assert vendor in src, f"{what}（{path}）少了 {vendor}"
 
 
+#: 稽核的 object_type 不是機械式的 `<廠牌>_firewall`：MikroTik 的物件是「路由器」
+#: （同一套整合也涵蓋交換器），叫它 firewall 會與畫面上的用語對不起來。
+AUDIT_OBJECT_TYPE = {
+    "opnsense": "opnsense_firewall", "pfsense": "pfsense_firewall",
+    "fortigate": "fortigate_firewall", "paloalto": "paloalto_firewall",
+    "mikrotik": "mikrotik_router",
+}
+
+
 def test_audit_can_name_every_integration_instance() -> None:
     """沒有對照時稽核的「目標」只會顯示截斷 UUID，多台同型整合就分不出是哪一台。"""
     src = _read(BACKEND / "app" / "api" / "v1" / "endpoints" / "audit.py")
+    missing_key = [v for v in FIREWALL_VENDORS if v not in AUDIT_OBJECT_TYPE]
+    assert not missing_key, f"新廠牌要在這裡寫下稽核 object_type：{missing_key}"
     for vendor in FIREWALL_VENDORS:
-        key = "opnsense_firewall" if vendor == "opnsense" else f"{vendor}_firewall"
+        key = AUDIT_OBJECT_TYPE[vendor]
         assert f'"{key}"' in src, f"稽核目標名稱對照少了 {key}"
 
 

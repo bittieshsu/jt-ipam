@@ -51,6 +51,7 @@ from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageAppro
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
 from app.models.location import Location, Rack
 from app.models.migration_mapping import PhpIPAMMigrationMapping
+from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
 from app.models.nat import NATTranslation
 from app.models.notification import Notification, WebhookSubscription
 from app.models.oui import OUIVendor
@@ -140,6 +141,9 @@ __all__ = [
     "LibreNMSDevice",
     "LibreNMSInstance",
     "Location",
+    "MikroTikAddressList",
+    "MikroTikRouter",
+    "MikroTikRule",
     "NATTranslation",
     "Notification",
     "OPNsenseAliasMapping",

@@ -51,6 +51,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_ai_findings": {}, "list_anomalies": {}, "investigate_ip": {"ip": "10.0.0.1"}, "list_dhcp_ranges": {},
     "list_fortigate_policies": {}, "list_fortigate_addresses": {},
     "list_paloalto_policies": {}, "list_paloalto_addresses": {},
+    "list_mikrotik_rules": {}, "list_mikrotik_address_lists": {},
     "list_connection_targets": {},
     "wazuh_missing_agents": {}, "list_vms": {}, "list_wireless_links": {},
     "list_attack_surface": {},

@@ -4,6 +4,71 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.3] — 2026-09-04
+
+### Added
+- **MikroTik RouterOS integration (Beta, phase 1).** Read-only pull over the RouterOS v7 REST API
+  (`www-ssl` must be enabled; the account needs `api` + `read` only). It syncs DHCP leases,
+  DHCP ranges, firewall filter/mangle/NAT rules, address lists, VPN (PPP sessions and WireGuard
+  peers) and — off by default — the ARP table. New admin page **Integrations → MikroTik** and a
+  read-only **Router (MikroTik)** view; the rules, address lists, NAT source filter, IP-detail
+  firewall lookup, rule-change detection, AI chat tools, audit target names, system export/import
+  and scheduled sync all cover it, enforced by `tests/test_integration_coverage.py`.
+
+  **This integration is designed around not slowing the router down**, because at the site that
+  asked for it the MikroTik boxes (CCR2004 / CCR1072) are the *main* routers:
+  - one TLS connection is reused for a whole round instead of one handshake per endpoint;
+  - sections run strictly **sequentially** with a configurable pause between them — endpoints are
+    never fetched in parallel;
+  - CPU load is re-read after every section and **the rest of the round is skipped** once it passes
+    a threshold, with the reason recorded and shown in the list;
+  - every request carries `.proplist` and, where possible, a server-side filter, so the router
+    serialises as little as possible;
+  - responses have a size cap (RouterOS REST has **no pagination**), and `/ip/route` and
+    connection tracking are refused in code, not merely in a comment;
+  - the expensive sections default to **off**, and "Test connection" reports **rows and seconds per
+    endpoint** so the administrator decides with numbers in front of them.
+
+  Two limits are stated rather than hidden: **RouterOS 6.x has no REST API** and is named as such
+  instead of failing with a vague connection error, and **no claim of zero impact is made** — any
+  query costs the router some CPU; what is guaranteed is low frequency, little data, and getting
+  out of the way when it is busy.
+
+- **`arp:mikrotik` counts as liveness evidence, on a different basis from the other vendors.**
+  RouterOS's `/ip/arp` has no age, TTL or expiry field, so the trick used for OPNsense (`expires`),
+  FortiOS (`age`) and PAN-OS (`ttl`) — deriving when the entry was really refreshed — does not
+  apply. Instead only `status=reachable` entries are recorded: that state *means* "confirmed within
+  the reachability timeout", so stamping the sync time is defensible. `stale`, `delay`, `probe`,
+  `permanent` and the rest are not recorded at all. DHCP leases remain `lease:mikrotik`
+  (non-ageing, not trusted for liveness by default).
+
+- **Outbound HTTP gained a shared-connection helper and a response size cap** (`safe_client()`,
+  `max_bytes=`). Both were prerequisites for the above and are available to every integration.
+
+### Fixed
+- **Firewall rule-change detection was reading a stale view of the database and, for three vendors,
+  was not working at all.** Production sessions use `autoflush=False`, and most integrations sync
+  rules by deleting the instance's rows and inserting the new set. The DELETE reaches the database
+  immediately; the INSERTs sit in the session. `run_sentinel()` then queried the rules table and got
+  back **nothing**. For the mirror-replace vendors (FortiGate, Palo Alto, and the new MikroTik) that
+  meant an empty snapshot every round — rule-change detection silently did nothing, with no error
+  anywhere. OPNsense mostly updates existing rows so it appeared to work, but a rule added during a
+  round was only noticed a round later. `run_sentinel()` now flushes before it reads.
+
+  This is the same trap as the audit-chain break in 0.5.204, and it hid for the same reason: the
+  test fixtures use `autoflush=True`, so the whole scenario is green in tests. The new regression
+  test sets `autoflush = False` explicitly and fails without the fix.
+
+### Notes
+- Migration `0135` adds `mikrotik_routers` / `mikrotik_rules` / `mikrotik_address_lists`.
+- Install/upgrade unchanged: no new Python or apt package, no new systemd unit (the existing
+  `jt-ipam-sync.timer` runs it). The backend must be able to reach the RouterOS management
+  interface — usually a private address, so `OUTBOUND_ALLOW_PRIVATE` applies.
+- FDB (`/interface/bridge/host`) and neighbour discovery (`/ip/neighbor`) are **deliberately not in
+  this phase**: `fdb_entries` is keyed on a LibreNMS device and `librenms_links` requires a
+  LibreNMS instance, so a MikroTik source needs schema work first. Half-wiring them would have
+  produced switches that show up in the topology as nothing at all.
+
 ## [0.6.2] — 2026-09-03
 
 ### Added

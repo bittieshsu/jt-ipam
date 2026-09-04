@@ -67,6 +67,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     from app.models.firewall import OPNsenseFirewall, OPNsenseSyncedAlias
     from app.models.firewall_rule import OPNsenseRule
     from app.models.fortigate import FortiGateFirewall, FortiGatePolicy
+    from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
     from app.models.nat import NATTranslation
     from app.models.paloalto import PaloAltoFirewall, PaloAltoPolicy
     from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
@@ -166,6 +167,43 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
                 "match": ("目的：" + why_dst) if why_dst else ("來源：" + why_src),
             })
 
+    # ── MikroTik address-list ──
+    # RouterOS 的「別名」是逐筆位址的清單（不是一個物件裝很多成員），所以這裡
+    # 一列就是一個成員；同名清單只需回報一次。
+    mt_names = {f.id: f.name for f in (await session.execute(
+        select(MikroTikRouter))).scalars().all()}
+    mt_lists: set[str] = set()
+    for entry in (await session.execute(select(MikroTikAddressList))).scalars().all():
+        if entry.list_name in mt_lists or not _member_covers(entry.address, aip):
+            continue
+        mt_lists.add(entry.list_name)
+        alias_names.add(entry.list_name)
+        out["aliases"].append({"source_type": "mikrotik", "name": entry.list_name,
+                               "descr": (entry.comment or "")[:120]})
+
+    # ── MikroTik 防火牆規則 ──
+    # 規則裡寫的可能是位址、也可能是 `list:<清單名>`（同步時的標記），
+    # 後者靠上面收集到的 alias_names 命中。
+    for r in (await session.execute(select(MikroTikRule).where(
+            MikroTikRule.table_name != "mangle"))).scalars().all():
+        if r.disabled:
+            continue
+        why_src = _field_matches(
+            (r.src_address or "").removeprefix("list:"), aip, alias_names)
+        why_dst = _field_matches(
+            (r.dst_address or "").removeprefix("list:"), aip, alias_names)
+        if why_src or why_dst:
+            out["rules"].append({
+                "source_type": "mikrotik", "firewall": mt_names.get(r.router_id, "?"),
+                "action": r.action,
+                "interface": f"{r.in_interface or ''}->{r.out_interface or ''}",
+                "protocol": r.protocol or "",
+                "src": r.src_address or "", "dst": r.dst_address or "",
+                "dst_port": r.dst_port or "",
+                "descr": f"[{r.table_name}/{r.chain or ''}] {(r.comment or '')}"[:120],
+                "match": ("目的：" + why_dst) if why_dst else ("來源：" + why_src),
+            })
+
     # ── NAT：指向（或來自）這個 IP 的對應 ──
     ipa = (await session.execute(
         select(IPAddress).where(IPAddress.ip == ip).limit(1))).scalars().first()
@@ -229,9 +267,10 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
 
     # ── NAT port forwards（各廠牌共用的正規化表）──
     from app.models.fortigate import FortiGateFirewall
+    from app.models.mikrotik import MikroTikRouter as _MT
     from app.models.paloalto import PaloAltoFirewall as _PA
     inst_names: dict[str, str] = {}
-    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, _PA):
+    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, _PA, _MT):
         for f in (await session.execute(select(model))).scalars().all():
             inst_names[str(f.id)] = f.name
     for n in (await session.execute(

@@ -116,6 +116,7 @@ const sourceKindOpts = computed(() => [
   { label: "pfSense",  value: "pfsense" },
   { label: "FortiGate", value: "fortigate" },
   { label: "Palo Alto", value: "paloalto" },
+  { label: "MikroTik", value: "mikrotik" },
   { label: "phpIPAM",  value: "phpipam" },
   { label: t("cols.manual"),     value: "manual" },
 ]);
@@ -371,6 +372,7 @@ const allCols = computed<DataTableColumns<NAT>>(() => autoSort([
                  : r.source_kind === "pfsense"  ? "success"
                  : r.source_kind === "fortigate" ? "error"
                  : r.source_kind === "paloalto" ? "primary"
+                 : r.source_kind === "mikrotik" ? "info"
                  : r.source_kind === "phpipam"  ? "warning"
                  : "default";
       return h(NTag, { size: "small", type, bordered: false }, () => r.source_label);

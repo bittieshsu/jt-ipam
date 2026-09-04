@@ -22,7 +22,7 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 # 允許的來源整合（source_type）。新增 DHCP 來源整合時要一起加進來，
 # 否則這份清單會跟實際寫進 source_type 的值脫節（目前沒有 CHECK 約束在讀它，
 # 但它是這張表「有哪些來源」的唯一書面依據）。
-DHCP_SOURCE_TYPES = ("opnsense", "pfsense", "windows_dhcp", "fortigate")
+DHCP_SOURCE_TYPES = ("opnsense", "pfsense", "windows_dhcp", "fortigate", "mikrotik")
 
 
 class DHCPPoolRange(Base, UUIDPrimaryKeyMixin, TimestampMixin):

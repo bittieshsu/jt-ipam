@@ -67,6 +67,10 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
         ("api_key", "api_key_enc", "api_key_nonce",
          _aad_id("paloalto_firewall:{id}:api_key")),
     ],
+    "mikrotik_routers": [
+        ("api_password", "api_password_enc", "api_password_nonce",
+         _aad_id("mikrotik_router:{id}:api_password")),
+    ],
     "zabbix_instances": [
         ("api_token", "api_token_enc", "api_token_nonce",
          _aad_id("zabbix_instance:{id}:api_token")),

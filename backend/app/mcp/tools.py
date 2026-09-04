@@ -1176,7 +1176,8 @@ async def list_subnet_ips(
 
 
 async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """所有防火牆清單（OPNsense / pfSense / FortiGate，不含密鑰）。每筆帶 `vendor` 標明廠牌。
+    """所有防火牆清單（OPNsense / pfSense / FortiGate / Palo Alto / MikroTik，不含密鑰）。
+    每筆帶 `vendor` 標明廠牌。
 
     **所有廠牌一起回**：只回其中一種的話，模型會拿一份不完整的清單當成全部去回答
     「我們有哪些防火牆」—— 那比答不出來更糟。新增廠牌時這裡一定要跟著加
@@ -1184,12 +1185,14 @@ async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200)
     """
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.mikrotik import MikroTikRouter
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
 
     out: list[dict[str, Any]] = []
     for vendor, model in (("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
-                          ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall)):
+                          ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
+                          ("mikrotik", MikroTikRouter)):
         rows = (await session.execute(select(model).limit(limit))).scalars().all()
         out.extend({
             "id": str(f.id), "vendor": vendor, "name": f.name,
@@ -1198,6 +1201,60 @@ async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200)
             "description": getattr(f, "description", None),
         } for f in rows)
     return {"firewalls": out[:limit]}
+
+
+async def list_mikrotik_rules(
+    session: AsyncSession, *, user: User,
+    router_name: str | None = None, table: str | None = None, limit: int = 200,
+) -> dict[str, Any]:
+    """MikroTik RouterOS 防火牆規則（唯讀鏡像）。可依路由器名稱與表（filter/nat/mangle）篩選。
+
+    依 `position` 排序而不是名稱：RouterOS 由上而下比對，第一條命中就決定結果 ——
+    順序本身就是語意，打散了規則集就讀不出行為。
+    """
+    from app.models.mikrotik import MikroTikRouter, MikroTikRule
+    stmt = select(MikroTikRule, MikroTikRouter.name).join(
+        MikroTikRouter, MikroTikRouter.id == MikroTikRule.router_id)
+    if router_name:
+        stmt = stmt.where(MikroTikRouter.name == router_name)
+    if table in ("filter", "nat", "mangle"):
+        stmt = stmt.where(MikroTikRule.table_name == table)
+    rows = (await session.execute(stmt.order_by(
+        MikroTikRule.table_name, MikroTikRule.position).limit(limit))).all()
+    return {"rules": [{
+        "router": name, "table": r.table_name, "chain": r.chain, "position": r.position,
+        "action": r.action, "disabled": r.disabled, "protocol": r.protocol,
+        "src_address": r.src_address, "dst_address": r.dst_address,
+        "src_port": r.src_port, "dst_port": r.dst_port,
+        "in_interface": r.in_interface, "out_interface": r.out_interface,
+        "to_addresses": r.to_addresses, "to_ports": r.to_ports, "comment": r.comment,
+    } for r, name in rows]}
+
+
+async def list_mikrotik_address_lists(
+    session: AsyncSession, *, user: User,
+    router_name: str | None = None, list_name: str | None = None, limit: int = 300,
+) -> dict[str, Any]:
+    """MikroTik 的 address-list（等同其他廠牌的別名）。
+
+    與其他家的差別：RouterOS 的清單是**逐筆位址**，不是一個物件裝很多成員 ——
+    所以一列就是一個位址，回傳可能很長（動態封鎖清單常常上萬筆）。
+    """
+    from app.models.mikrotik import MikroTikAddressList, MikroTikRouter
+    stmt = select(MikroTikAddressList, MikroTikRouter.name).join(
+        MikroTikRouter, MikroTikRouter.id == MikroTikAddressList.router_id)
+    if router_name:
+        stmt = stmt.where(MikroTikRouter.name == router_name)
+    if list_name:
+        stmt = stmt.where(MikroTikAddressList.list_name == list_name)
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (await session.execute(stmt.order_by(
+        MikroTikAddressList.list_name, MikroTikAddressList.address).limit(limit))).all()
+    return {"total": total, "returned": len(rows), "entries": [{
+        "router": name, "list": e.list_name, "address": e.address,
+        "dynamic": e.dynamic, "timeout": e.timeout, "comment": e.comment,
+    } for e, name in rows]}
 
 
 async def list_dhcp_ranges(
@@ -2778,6 +2835,24 @@ TOOLS: dict[str, dict[str, Any]] = {
             "firewall_name": {"type": "string"}, "vsys": {"type": "string"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
+    "list_mikrotik_rules": {
+        "fn": list_mikrotik_rules,
+        "description": ("List MikroTik RouterOS firewall rules in evaluation order "
+                        "(RouterOS matches top-down; the order is the semantics). "
+                        "Filter by router_name and/or table (filter|nat|mangle)."),
+        "parameters": {"type": "object", "properties": {
+            "router_name": {"type": "string"},
+            "table": {"type": "string", "enum": ["filter", "nat", "mangle"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
+    "list_mikrotik_address_lists": {
+        "fn": list_mikrotik_address_lists,
+        "description": ("List MikroTik address-list entries (RouterOS's equivalent of "
+                        "aliases; one row per address). Filter by router_name and/or list_name."),
+        "parameters": {"type": "object", "properties": {
+            "router_name": {"type": "string"}, "list_name": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "list_firewall_rules": {
         "fn": list_firewall_rules,
         "description": "List synced OPNsense filter rules. Filter by firewall_id or firewall_name.",
@@ -3174,6 +3249,7 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
     "list_paloalto_policies", "list_paloalto_addresses",
+    "list_mikrotik_rules", "list_mikrotik_address_lists",
     # NAT 與防火牆規則是全域基礎設施資料 —— 與 list_nat / list_firewall_rules 同一層，
     # 不能因為它是「以 IP 為單位查」就鬆一級（改端點權限時要同步收 MCP，這裡踩過）。
     "check_ip_exposure",

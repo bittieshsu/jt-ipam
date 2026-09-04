@@ -577,6 +577,7 @@ async def _liveness_candidates(
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.librenms import LibreNMSInstance
+    from app.models.mikrotik import MikroTikRouter
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
     from app.models.wazuh import WazuhInstance
@@ -595,6 +596,7 @@ async def _liveness_candidates(
         "pfsense": await _has(PfSenseFirewall),
         "fortigate": await _has(FortiGateFirewall),
         "paloalto": await _has(PaloAltoFirewall),
+        "mikrotik": await _has(MikroTikRouter),
     }
     out: list[LivenessSourceOut] = []
     for key in LIVENESS_SOURCES:
@@ -1574,6 +1576,7 @@ async def integration_presence(
     from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.mikrotik import MikroTikRouter
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
     from app.models.virt import ProxmoxInstance
@@ -1584,6 +1587,7 @@ async def integration_presence(
         ("pfsense", PfSenseFirewall),
         ("fortigate", FortiGateFirewall),
         ("paloalto", PaloAltoFirewall),
+        ("mikrotik", MikroTikRouter),
         ("dns", DNSServer),
         ("cert_agents", CertAgent),
         ("proxmox", ProxmoxInstance),

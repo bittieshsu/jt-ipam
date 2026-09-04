@@ -105,6 +105,7 @@ CATEGORY: dict[str, str] = {
     "windows_dhcp_servers": "integrations",
     "fortigate_firewalls": "integrations",
     "paloalto_firewalls": "integrations",
+    "mikrotik_routers": "integrations",
     "opnsense_alias_mappings": "integrations",
     "ssh_credentials": "integrations",
     # synced（可重新拉取的鏡像）
@@ -122,6 +123,8 @@ CATEGORY: dict[str, str] = {
     "fortigate_address_objects": "synced",
     "paloalto_policies": "synced",
     "paloalto_address_objects": "synced",
+    "mikrotik_rules": "synced",
+    "mikrotik_address_lists": "synced",
     "wazuh_agents": "synced",
     "ip_hostname_observations": "synced",
     "virtual_machines": "synced",

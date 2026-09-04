@@ -178,7 +178,8 @@ watch([inSubnetContext, currentSubnetId, navSubnets], () => {
 // 「進階」裡的整合唯讀檢視頁，若該整合完全沒設定，頁面只會顯示「尚未設定 X」，
 // 等於空選項 → 依後端回報的設定狀態隱藏。初值全 true：載入完成前不要讓選單閃一下才消失。
 const intgPresence = ref<Record<string, boolean>>({
-  opnsense: true, pfsense: true, fortigate: true, paloalto: true, dns: true,
+  opnsense: true, pfsense: true, fortigate: true, paloalto: true, mikrotik: true,
+  dns: true,
   cert_agents: true, proxmox: true, esxi: true,
 });
 async function loadIntegrationPresence() {
@@ -234,6 +235,8 @@ const menuOptions = computed<MenuOption[]>(() => {
           ? [{ label: () => t("nav.fortigate_fw"), key: "fortigate_fw", icon: renderIcon(FirewallIcon) }] : []),
         ...(intgPresence.value.paloalto
           ? [{ label: () => t("nav.paloalto_fw"), key: "paloalto_fw", icon: renderIcon(FirewallIcon) }] : []),
+        ...(intgPresence.value.mikrotik
+          ? [{ label: () => t("nav.mikrotik_fw"), key: "mikrotik_fw", icon: renderIcon(FirewallIcon) }] : []),
         { label: () => t("nav.nat"),            key: "nat",         icon: renderIcon(NatIcon) },
         { label: () => t("nav.cabling"),        key: "cabling",     icon: renderIcon(PhysicalIcon) },
         { label: () => t("nav.power"),          key: "power",       icon: renderIcon(PowerIcon) },
@@ -274,6 +277,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.pfsense"),        key: "pfsense",        icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.fortigate"),      key: "fortigate",      icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.paloalto"),       key: "paloalto",       icon: renderIcon(FirewallIcon) },
+          { label: () => t("nav.mikrotik"),       key: "mikrotik",       icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.windows_dhcp"),  key: "windows_dhcp",   icon: renderIcon(WindowsDhcpIcon) },
           { label: () => t("nav.virt_admin"),    key: "virt_admin",     icon: renderIcon(VirtualizationIcon) },
           { label: () => t("nav.esxi_admin"),    key: "esxi_admin",     icon: renderIcon(VirtualizationIcon) },

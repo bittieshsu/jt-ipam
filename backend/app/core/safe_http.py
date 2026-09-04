@@ -145,6 +145,31 @@ def assert_url_safe(url: str) -> None:
             )
 
 
+class ResponseTooLarge(Exception):
+    """對方回的內容超過允許的大小 —— 讀完再判斷就來不及了，要在串流途中中止。"""
+
+
+@asynccontextmanager
+async def safe_client(
+    *, timeout: float = _DEFAULT_TIMEOUT, verify: bool = True,
+) -> AsyncIterator[httpx.AsyncClient]:
+    """一批請求共用的連線（keep-alive）。
+
+    為什麼需要：`safe_request()` 每呼叫一次就建一個 client，等於**每支端點各做一次
+    TLS 握手**。對一般 API 無所謂，但對 CPU 弱的網路設備差很多 —— MikroTik CCR1072
+    是 Tile 架構（核多但單核弱，握手跑在單核上），一輪同步十個區段就是十次握手。
+
+    用法：
+        async with safe_client(verify=fw.verify_tls) as client:
+            await safe_request("GET", url, client=client)
+    """
+    async with httpx.AsyncClient(
+        timeout=timeout, verify=verify, follow_redirects=False,
+        http2=True, trust_env=False,
+    ) as client:
+        yield client
+
+
 async def safe_request(
     method: str,
     url: str,
@@ -156,34 +181,73 @@ async def safe_request(
     timeout: float = _DEFAULT_TIMEOUT,
     verify: bool = True,
     max_redirects: int = _MAX_REDIRECTS,
+    client: httpx.AsyncClient | None = None,
+    max_bytes: int | None = None,
 ) -> httpx.Response:
     """經過 SSRF 檢查的 HTTP 請求。
 
     redirect 採手動處理：每次重導向後重新驗 URL，避免 302 → 169.254.169.254。
+
+    `client`：共用連線（見 `safe_client`）。給了就不再自己建 client，
+    省下每支端點一次 TLS 握手。
+
+    `max_bytes`：回應大小上限。**超過就在串流途中中止**，不會先把整份讀進記憶體 ——
+    像是帶著全表 BGP 的路由器，一支 `/ip/route` 可能是上百萬列，等讀完再判斷已經太遲。
     """
     current_url = url
     for _ in range(max_redirects + 1):
         assert_url_safe(current_url)
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            verify=verify,
-            follow_redirects=False,
-            http2=True,
-            trust_env=False,  # A05：不信任 HTTP_PROXY 等環境變數
-        ) as client:
-            resp = await client.request(
-                method,
-                current_url,
-                headers=headers,
-                params=params,
-                json=json,
-                content=content,
-            )
+        if client is not None:
+            resp = await _do_request(
+                client, method, current_url, headers=headers, params=params,
+                json=json, content=content, max_bytes=max_bytes)
+        else:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                verify=verify,
+                follow_redirects=False,
+                http2=True,
+                trust_env=False,  # A05：不信任 HTTP_PROXY 等環境變數
+            ) as owned:
+                resp = await _do_request(
+                    owned, method, current_url, headers=headers, params=params,
+                    json=json, content=content, max_bytes=max_bytes)
         if resp.is_redirect and resp.next_request is not None:
             current_url = str(resp.next_request.url)
             continue
         return resp
     raise UnsafeOutboundURL(f"Too many redirects following {url}")
+
+
+async def _do_request(
+    client: httpx.AsyncClient, method: str, url: str, *,
+    headers: dict[str, str] | None, params: dict[str, Any] | None,
+    json: Any, content: bytes | None, max_bytes: int | None,
+) -> httpx.Response:
+    if max_bytes is None:
+        return await client.request(
+            method, url, headers=headers, params=params, json=json, content=content)
+
+    # 有上限時走串流：邊收邊算，超過就中止，記憶體不會被一份大回應吃掉
+    req = client.build_request(
+        method, url, headers=headers, params=params, json=json, content=content)
+    resp = await client.send(req, stream=True)
+    try:
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in resp.aiter_bytes():
+            total += len(chunk)
+            if total > max_bytes:
+                raise ResponseTooLarge(
+                    f"回應超過 {max_bytes} bytes（已收 {total}）：{url}")
+            chunks.append(chunk)
+    finally:
+        await resp.aclose()
+    body = b"".join(chunks)
+    # 用同樣的狀態與標頭重建一個「已讀完」的回應，呼叫端照常用 .json() / .text
+    return httpx.Response(
+        status_code=resp.status_code, headers=resp.headers, content=body,
+        request=resp.request, extensions=resp.extensions)
 
 
 @asynccontextmanager

@@ -90,6 +90,7 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("pfsense", TIER_LEARNED, aging=False),
     _s("fortigate", TIER_LEARNED, aging=False),
     _s("paloalto", TIER_LEARNED, aging=False),
+    _s("mikrotik", TIER_LEARNED, aging=False),
     # ── 防火牆給的逐來源證據 ────────────────────────────────────
     # 為什麼要拆到這麼細：這些資料原本全都被寫進 `last_seen_scanner`，於是畫面上
     # 出現「online (scanner)」卻根本沒有掃描代理。來源看不出來，就沒辦法只採信
@@ -113,14 +114,23 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("arp:pfsense", TIER_MONITORED, aging=True),
     _s("arp:fortigate", TIER_MONITORED, aging=True),
     _s("arp:paloalto", TIER_MONITORED, aging=True),
+    # MikroTik 是唯一**不是靠時間欄位**取得資格的一家：RouterOS 的 `/ip/arp`
+    # 沒有 age／TTL／到期秒數（唯讀屬性只有 complete / dhcp / dynamic / invalid /
+    # status / VRF）。它給的是**鄰居狀態**，而 `reachable` 的定義就是「在可達性
+    # 逾時（約 30 秒）內被確認過」—— 我們只收這個狀態，其餘（stale / delay /
+    # probe / permanent…）一律不記，所以蓋上同步當下的時間仍然站得住。
+    # ⚠️ 若哪天改成收 `stale`，這一列就必須改回 aging=False。
+    _s("arp:mikrotik", TIER_MONITORED, aging=True),
     _s("arp:librenms", TIER_LEARNED, aging=False),
     _s("vpn:opnsense", TIER_MONITORED, aging=True),
     _s("vpn:pfsense", TIER_MONITORED, aging=True),
     _s("vpn:fortigate", TIER_MONITORED, aging=True),
+    _s("vpn:mikrotik", TIER_MONITORED, aging=True),
     _s("lease:opnsense", TIER_LEARNED, aging=False),
     _s("lease:pfsense", TIER_LEARNED, aging=False),
     _s("lease:fortigate", TIER_LEARNED, aging=False),
     _s("lease:paloalto", TIER_LEARNED, aging=False),
+    _s("lease:mikrotik", TIER_LEARNED, aging=False),
     _s("windows_dhcp", TIER_LEARNED, aging=False),
     _s("adguard", TIER_LEARNED, aging=False),
 
@@ -142,9 +152,10 @@ LIVENESS_SOURCES: tuple[str, ...] = (
     "arp",
     # `arp:librenms` 有登記（見上），但**不列進設定頁** —— 它就是上面那個 "arp"，
     # 兩個都列只會讓人以為是兩種不同的證據。
-    "arp:opnsense", "arp:pfsense", "arp:fortigate", "arp:paloalto",
-    "vpn:opnsense", "vpn:pfsense", "vpn:fortigate",
+    "arp:opnsense", "arp:pfsense", "arp:fortigate", "arp:paloalto", "arp:mikrotik",
+    "vpn:opnsense", "vpn:pfsense", "vpn:fortigate", "vpn:mikrotik",
     "lease:opnsense", "lease:pfsense", "lease:fortigate", "lease:paloalto",
+    "lease:mikrotik",
 )
 
 #: 存在 `ip_addresses.arp_seen` JSONB 裡的那些（其餘各有自己的 last_seen_* 欄位）。

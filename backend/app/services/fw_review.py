@@ -115,6 +115,36 @@ def normalize_paloalto(rows: list[Any]) -> list[dict[str, str]]:
     return out
 
 
+def normalize_mikrotik(rows: list[Any]) -> list[dict[str, str]]:
+    """MikroTikRule ORM 列 → 正規化形狀。
+
+    RouterOS 的規則**沒有名稱也沒有穩定 id**（`.id` 是 `*A` 這種會變動的內部代號），
+    所以 key 只能由「規則內容本身」組成：表＋鏈＋動作＋來源／目的地。
+    這代表**兩條內容完全相同的規則會併成一筆** —— 那是可接受的：對「規則被改了嗎」
+    這個問題來說，兩條一模一樣的規則本來就沒有差別。
+
+    ⚠️ `position` 同樣不進 key、也不進比對內容（與其他廠牌一致）。
+    這是刻意的取捨：RouterOS 由上而下比對，搬動順序**確實**會改變行為，但把順序納入
+    比對會讓「在中間插一條」變成「底下每一條都變了」的雪崩式差異，實務上不可讀。
+    順序仍完整存在 `mikrotik_rules.position`，唯讀檢視頁照原順序顯示。
+    """
+    out = []
+    for r in rows:
+        out.append({
+            "key": ":".join(_norm_val(x) for x in (
+                r.table_name, r.chain, r.action, r.src_address, r.dst_address,
+                r.protocol, r.dst_port)),
+            "action": _norm_val(r.action),
+            "interface": f"{_norm_val(r.in_interface)}->{_norm_val(r.out_interface)}",
+            "protocol": _norm_val(r.protocol),
+            "src": _norm_val(r.src_address), "src_port": _norm_val(r.src_port),
+            "dst": _norm_val(r.dst_address), "dst_port": _norm_val(r.dst_port),
+            "descr": _norm_val(r.comment)[:200],
+            "disabled": "1" if r.disabled else "0",
+        })
+    return out
+
+
 def rules_hash(rules: list[dict[str, str]]) -> str:
     """順序無關的雜湊：規則在 UI 上被拖動位置不算「變更」，改內容才算。"""
     canon = sorted(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rules)
@@ -217,7 +247,17 @@ async def run_sentinel(session: AsyncSession, *, source_type: str,
     """在該實例的規則 sync 完成後呼叫：載入規則→正規化→快照→（有變更才）通知。
 
     刻意 best-effort：異動偵測自己出錯不可以弄壞同步本體（規則資料比告警重要）。
+
+    ⚠️ **一定要先 flush**：正式環境的 session 是 `autoflush=False`，而多數整合的規則同步是
+    「整批刪掉再整批寫回」—— DELETE 走 `session.execute()` 會立刻進 DB，新的列卻還躺在
+    session 裡。不 flush 的話下面這個 `select()` 讀到的是**空的**，於是：
+      - 鏡像取代的廠牌（FortiGate／Palo Alto／MikroTik）每輪都存下一份空快照 →
+        規則異動偵測等於**完全沒有在運作**，而且畫面上什麼都不會壞；
+      - OPNsense 因為多數是更新既有列而「看起來正常」，但這一輪新增的規則會晚一輪才看見。
+    測試抓不到這件事：測試 fixture 的 session 是 `autoflush=True`（見 CLAUDE.md 地雷 12）。
+    flush 放在 try 外面 —— session 已經壞掉的話要讓它炸出來，不可以吞掉之後照樣 commit。
     """
+    await session.flush()
     try:
         if source_type == "opnsense":
             from app.models.firewall_rule import OPNsenseRule
@@ -233,6 +273,12 @@ async def run_sentinel(session: AsyncSession, *, source_type: str,
                 select(PaloAltoPolicy).where(PaloAltoPolicy.firewall_id == instance.id)
             )).scalars().all()
             rules = normalize_paloalto(rows)
+        elif source_type == "mikrotik":
+            from app.models.mikrotik import MikroTikRule
+            rows = (await session.execute(
+                select(MikroTikRule).where(MikroTikRule.router_id == instance.id)
+            )).scalars().all()
+            rules = normalize_mikrotik(rows)
         elif source_type == "fortigate":
             from app.models.fortigate import FortiGatePolicy
             rows = (await session.execute(

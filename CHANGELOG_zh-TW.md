@@ -4,6 +4,64 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.6.3] — 2026-09-04
+
+### 新增
+- **MikroTik RouterOS 整合（Beta，第一階段）。** 走 RouterOS v7 的 REST API 唯讀拉取
+  （裝置需啟用 `www-ssl`，帳號只要 `api` + `read`）。同步 DHCP 租約、DHCP 發放範圍、
+  防火牆 filter／mangle／NAT 規則、address-list、VPN（PPP 連線與 WireGuard peer），
+  以及**預設關閉**的 ARP 全表。新增管理頁「整合 MikroTik」與唯讀的「路由器 (MikroTik)」檢視；
+  規則、address-list、NAT 來源篩選、IP 詳細資料的防火牆反查、規則異動偵測、AI 對話工具、
+  稽核目標名稱、系統匯出／匯入、排程同步全部跟上（由 `tests/test_integration_coverage.py` 把關）。
+
+  **這個整合是圍繞著「不可以把路由器拖慢」設計的** —— 提出需求的站台，MikroTik
+  （CCR2004／CCR1072）就是他們的**主力路由器**：
+  - 一輪同步共用同一條 TLS 連線，不再每支端點各做一次握手；
+  - 區段**嚴格序列執行**，中間插入可調整的間隔，**絕不平行打多支端點**；
+  - 每個區段跑完重讀一次 CPU 負載，超過門檻就**停掉本輪剩下的區段**，並把原因記下來、
+    在清單上標示出來；
+  - 每一支請求都帶 `.proplist`，能在伺服器端過濾的就過濾，讓路由器少序列化東西；
+  - 回應有大小上限（RouterOS 的 REST **沒有分頁**），而 `/ip/route` 與連線追蹤是**在程式裡擋掉**，
+    不是只寫在註解裡；
+  - 重的區段**預設關閉**，而且「測試連線」會回報**每支端點的列數與耗時** ——
+    要不要開那一段，由看得到數字的人決定。
+
+  兩個限制寫明而不是藏起來：**RouterOS 6.x 沒有 REST API**，遇到時會直接指名版本，
+  而不是回一句含糊的連線失敗；以及**我們不宣稱零影響** —— 任何查詢都會用到路由器的 CPU，
+  能保證的只有「頻率低、資料少、忙就讓路」。
+
+- **`arp:mikrotik` 可以當上線證據，但成立的理由跟其他廠牌不同。**
+  RouterOS 的 `/ip/arp` 沒有 age／TTL／到期秒數，所以 OPNsense（`expires`）、FortiOS（`age`）、
+  PAN-OS（`ttl`）那套「推回真正被更新的時刻」在這裡用不上。改成**只收 `status=reachable`**：
+  那個狀態的定義就是「在可達性逾時之內被確認過」，因此蓋上同步當下的時間站得住。
+  `stale`／`delay`／`probe`／`permanent` 等一律不記。DHCP 租約仍歸 `lease:mikrotik`
+  （不會過期、預設不採信為上線）。
+
+- **出站 HTTP 多了共用連線與回應大小上限**（`safe_client()`、`max_bytes=`）。
+  這兩項是上面那些保護的前置條件，其他整合也可以用。
+
+### 修正
+- **防火牆規則異動偵測讀到的是過期的資料庫狀態，其中三家等於完全沒有在運作。**
+  正式環境的 session 是 `autoflush=False`，而多數整合的規則同步是「把這台的列整批刪掉、
+  再整批寫回」：DELETE 立刻進資料庫，新的列卻還躺在 session 裡。`run_sentinel()` 接著去查
+  規則表，讀回來的是**空的**。對鏡像取代的廠牌（FortiGate、Palo Alto，以及這版新增的
+  MikroTik）而言，就是每一輪都存下一份空快照 —— 規則異動偵測安靜地什麼也沒做，
+  而且任何地方都不會出現錯誤。OPNsense 因為多半是更新既有列而「看起來正常」，
+  但這一輪新增的規則要等下一輪才會被看見。現在 `run_sentinel()` 會先 flush 再讀。
+
+  這與 0.5.204 那次稽核鏈斷掉是同一個陷阱，也因為同一個理由躲過測試：測試 fixture 的
+  session 是 `autoflush=True`，整個情境在測試裡永遠是綠的。新加的回歸測試會自己把
+  `autoflush` 關掉，拿掉修正就會紅。
+
+### 說明
+- Migration `0135` 新增 `mikrotik_routers` / `mikrotik_rules` / `mikrotik_address_lists`。
+- 安裝／升級不需改：沒有新的 Python 或 apt 套件、沒有新的 systemd unit（沿用
+  `jt-ipam-sync.timer`）。後端要連得到 RouterOS 的管理介面 —— 多半在私網，
+  因此適用 `OUTBOUND_ALLOW_PRIVATE`。
+- FDB（`/interface/bridge/host`）與鄰居探索（`/ip/neighbor`）**刻意不在這一階段**：
+  `fdb_entries` 綁的是 LibreNMS 裝置、`librenms_links` 需要 LibreNMS 實例，
+  要讓 MikroTik 成為來源得先動結構。半套接上去的話，交換器在拓樸圖上會是「什麼都沒有」。
+
 ## [0.6.2] — 2026-09-03
 
 ### 新增
