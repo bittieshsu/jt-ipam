@@ -42,6 +42,55 @@ Release flow: run the checklist → all green → bump version → deploy
 - [ ] Core CRUD: sections / subnets / addresses / devices / customers / locations / racks
 - [ ] Audit chain: write operations are audited and chain integrity verifies
 
+## 3c. Failures that come from the data, not the code — **whenever a read schema, an integration writer, or a recurring producer changes**
+
+Three defects in one release (0.6.9) shared a shape the plan above does not catch: **the code is
+correct, the data is legitimate, and the page still breaks — with nothing on screen saying why.**
+None of them would have been found by "does the endpoint return 200 on a clean database".
+
+### Read schemas must not be stricter than the database
+
+A customer saw the dashboard count 55 devices while the device list returned Internal Server Error
+and showed nothing. `DeviceRead` inherited the write-side limits (`vendor`/`model` ≤ 64 chars,
+`u_position` 1–99) but those columns are `text` and an unconstrained `integer` — so an integration
+wrote a value the database accepts and the read path rejects, and **one row killed the whole page**.
+
+- [ ] For every read schema touched this release, compare each constrained field against the real
+  column (`\d <table>`): a `max_length` on a `text` column, or a `ge`/`le` on an unconstrained
+  `integer`, is a latent 500 waiting for an integration to write a longer value
+- [ ] Constraints that the **database** enforces (CHECK, enum, varchar(n)) may stay strict on read —
+  those values cannot exist
+- [ ] Admin → System check → **data health** must report zero rows. It validates every row with the
+  real read schemas, so "green here" means "the list pages can render this database"
+
+> **Diagnostic shortcut worth remembering:** a count that works while the list 500s means the failure
+> is *per-row serialization*, not the query — `count(*)` reads no columns, `select(Model)` reads all
+> of them. The same asymmetry appears when the schema is behind (a missing column).
+
+### An "ignore" must survive the next run of whatever produced the finding
+
+AI audit findings came back after every run and had to be dismissed again and again, because the
+identity was "category + the exact set of cited addresses" and the model cites a different subset
+each time.
+
+- [ ] For any dismiss / acknowledge / mute action: dismiss it, **run the producer again**, and
+  confirm it does not reappear — pressing the button once is not a test of the button
+- [ ] Confirm the opposite too: when genuinely **new** subjects appear, it *does* surface again.
+  An "ignore" that also swallows new information is worse than one that does not stick
+- [ ] Identity must not depend on model wording, ordering, or the exact subset cited
+
+### If the system can detect it, the system must say it
+
+An interrupted upgrade left the database behind the code. The backend could determine this at
+startup; instead every page that reads full records returned 500 and the operator was left guessing.
+
+- [ ] Any condition detectable at startup or during a request (schema drift, missing extension,
+  unbuilt frontend, unreachable dependency) is **logged as an error and surfaced in the UI**, not
+  left to be inferred from failures
+- [ ] The message names the fix, not just the symptom
+- [ ] Support questions are a test failure: if diagnosing an issue required asking the customer to
+  run SQL or read logs, that diagnosis belongs in Admin → System check instead
+
 ## 3b. Authentication realms & account identity
 
 Login spans local / LDAP / RADIUS / OIDC / SAML, and the same human legitimately owns
@@ -306,7 +355,7 @@ defect is in *what the model was able to ask*.
 - [ ] Delete the router → its `dhcp_pool_ranges` and `nat_translations` rows go with it, and
   no other source's rows are touched.
 
-## 7e. Console jump host (issue #24 phase 1) — **whenever a console or the routing changes**
+## 7l. Console jump host (issue #24 phase 1) — **whenever a console or the routing changes**
 
 > The failure mode here is not "cannot connect", it is **"connected to someone else"**. Sites that
 > need a jump host are usually the sites with overlapping private ranges, so a console that quietly

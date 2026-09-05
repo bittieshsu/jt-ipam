@@ -310,7 +310,8 @@
     "paloalto_fw": "防火牆 (Palo Alto)",
     "mikrotik": "整合 MikroTik",
     "mikrotik_fw": "路由器 (MikroTik)",
-    "jump_hosts": "跳板主機"
+    "jump_hosts": "跳板主機",
+    "doctor": "系統診斷"
   },
   "topbar": {
     "search": "搜尋…",
@@ -3691,5 +3692,20 @@
     "exit_inherit": "繼承子網路設定",
     "exit_hint": "主控台要怎麼連到這裡。留空＝直連（IP 上留空則沿用子網路的設定）。",
     "via": "經由跳板"
+  },
+  "doctor": {
+    "title": "系統診斷",
+    "run": "重新檢查",
+    "download": "下載記錄檔",
+    "generated_at": "檢查時間",
+    "not_run": "尚未執行",
+    "summary": "{bad} 項失敗、{warn} 項警告、{ok} 項正常",
+    "status_ok": "正常",
+    "status_warn": "警告",
+    "status_bad": "失敗",
+    "fix": "怎麼修：",
+    "cli_note": "系統層的檢查（systemd 服務、nginx、備份檔、掃描代理）後端看不到 —— 請在伺服器上執行：",
+    "schema_behind_title": "資料庫結構落後於程式",
+    "schema_behind_body": "升級時資料庫沒有跟著更新。讀取完整資料的頁面（如裝置、IP 清單）會出現 Internal Server Error，而只顯示數量的頁面看起來正常。請在伺服器執行 jt-ipam.sh upgrade。"
   }
 }

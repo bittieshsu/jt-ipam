@@ -686,6 +686,7 @@ async def reconcile_findings(
                 AIFinding.status == "dismissed", AIFinding.fingerprint.is_not(None))
         )).all()
     }
+    dismissed_by_cat = await dismissed_subjects(session)
     existing = {
         f.fingerprint: f for f in (await session.execute(
             select(AIFinding).where(AIFinding.status == "open"))
@@ -701,6 +702,11 @@ async def reconcile_findings(
         seen.add(fp)
         if fp in dismissed_fps:
             continue          # 使用者判斷過是誤報 → 不再開啟
+        subj = subjects(it)
+        if subj and subj <= dismissed_by_cat.get(it.get("category") or "", set()):
+            # 這條講的每一台，使用者都已經在同一個分類下忽略過了 → 不要再開一筆。
+            # **有新對象時仍然會出現**（那是新資訊，不是重複），這正是想要的行為。
+            continue
         cur = existing.get(fp)
         if cur is not None:
             # 同一件事還在：更新敘述（模型可能改寫過），但保留原本的發現時間
@@ -723,21 +729,63 @@ async def reconcile_findings(
     return kept
 
 
-def fingerprint(item: dict[str, Any]) -> str:
-    """「同一件事」的指紋：分類＋依據資料裡的 IP 清單。
+def subjects(item: dict[str, Any]) -> set[str]:
+    """這條發現「在講哪些對象」——依據資料裡的位址，正規化後的集合。
 
-    刻意**不用標題**：模型每次都會重新措辭（「重複的紀錄」／「重複的 IP 位址紀錄」），
-    用標題比對等於幾乎每次都比不中，忽略過的東西照樣跳回來。位址清單穩定得多。
-
-    沒有 IP 可以指的發現退回用標題 —— 總比完全沒有指紋好。
+    只留位址：依據資料裡也會混進主機名稱與網段，那些每次措辭都不同，
+    拿來當識別只會讓同一件事每次都長得不一樣。
     """
     ev = item.get("evidence") or {}
     ips = ev.get("ips") if isinstance(ev, dict) else None
-    if isinstance(ips, list) and ips:
-        key = f"{item.get('category', '')}|" + ",".join(sorted(str(x).strip() for x in ips))
+    out: set[str] = set()
+    for raw in (ips or []):
+        text = str(raw).strip()
+        if not text or "/" in text:          # 網段不算對象（它是範圍，不是那台機器）
+            continue
+        try:
+            out.add(str(ipaddress.ip_address(text)))
+        except ValueError:
+            continue                          # 主機名稱之類的跳過
+    return out
+
+
+def fingerprint(item: dict[str, Any]) -> str:
+    """「同一件事」的指紋：分類＋依據資料裡的位址集合。
+
+    刻意**不用標題**：模型每次都會重新措辭（「重複的紀錄」／「重複的 IP 位址紀錄」），
+    用標題比對等於幾乎每次都比不中，忽略過的東西照樣跳回來。
+
+    ⚠️ 但光靠這個指紋**不夠**（2026-09-05 使用者回報「忽略了又出現，只好一直按忽略」）：
+    模型每次引用的位址是**不同的子集** —— 實機上同一件「IPMI 在服務網段」被拆成五筆，
+    分別引用 `{1.60}`、`{1.46}`、`{1.60,1.46}`、`{1.74,1.60,1.54}`。集合不同 → 指紋不同 →
+    忽略當然帶不過去。所以真正讓忽略生效的是 `dismissed_subjects()` 的**逐對象**比對，
+    這個指紋只負責「完全一樣的那一筆」與沒有位址可指的發現。
+
+    沒有位址可以指的發現退回用標題 —— 總比完全沒有指紋好。
+    """
+    subj = subjects(item)
+    if subj:
+        key = f"{item.get('category', '')}|" + ",".join(sorted(subj))
     else:
         key = f"{item.get('category', '')}|title:{item.get('title', '').strip().casefold()}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:64]
+
+
+async def dismissed_subjects(session: AsyncSession) -> dict[str, set[str]]:
+    """每個分類底下，使用者已經表示「這個對象不用再提」的位址集合。
+
+    忽略記在**對象**而不是那一筆發現上：使用者按下忽略的意思是
+    「這幾台機器的這件事我知道了」，不是「這串措辭我看過了」。
+    """
+    out: dict[str, set[str]] = {}
+    rows = (await session.execute(
+        select(AIFinding.category, AIFinding.evidence)
+        .where(AIFinding.status == "dismissed"))).all()
+    for category, evidence in rows:
+        got = subjects({"evidence": evidence})
+        if got:
+            out.setdefault(category or "", set()).update(got)
+    return out
 
 
 def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

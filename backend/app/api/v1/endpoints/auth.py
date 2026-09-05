@@ -303,6 +303,7 @@ async def logout(_user: CurrentUser) -> None:
 @router.get("/me", response_model=UserMe)
 async def me(
     user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> UserMe:
     out = UserMe.model_validate(user)
@@ -318,6 +319,10 @@ async def me(
     # 全域 LLM/AI 是否啟用 → 前端據此決定要不要顯示 AI 對話小工具（未設定就別讓人輸入/送出）
     from app.services.system_config import get_llm_config
     out.ai_enabled = (await get_llm_config(session)).enabled
+    if user.is_admin:
+        # 啟動時算好的（見 main.lifespan）—— /me 是每次載入都會打的，不適合在這裡
+        # 讀 migration 目錄
+        out.schema_behind = bool(getattr(request.app.state, "schema_behind", False))
     # has_visibility：任一類型有可見範圍即 True（零權限→False）
     # has_global_read：管理員或任一類型有「萬用」授權（visible_ids 回 None）→ True
     if user.is_admin:

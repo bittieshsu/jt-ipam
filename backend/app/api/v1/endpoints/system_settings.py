@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1204,6 +1205,32 @@ def _gather_version_info() -> dict[str, Any]:
         "frontend": frontend,
         "host": host,
     }
+
+
+@router.get("/doctor")
+async def system_doctor(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """系統診斷（admin）：後端查得到的檢查一次跑完，每一項都附「該怎麼修」。
+
+    由來（2026-09-05 客戶回報）：儀表板數得出 55 台裝置、裝置清單卻是 500 加空白，
+    原因是資料庫結構落後於程式。系統其實查得出來，卻沒有任何地方講 ——
+    這一支就是把「後端知道但沒說」的事情攤開來。
+
+    系統層的檢查（systemd、nginx、備份檔、掃描代理）後端看不到，回應裡會註明，
+    要用伺服器上的 `jt-ipam.sh doctor`。
+    """
+    from app.services.self_check import run_checks
+    return (await run_checks(session)).as_dict()
+
+
+@router.get("/doctor/report", response_class=PlainTextResponse)
+async def system_doctor_report(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> str:
+    """同一份診斷的純文字版 —— 給「下載記錄檔」用，可直接貼進工單。"""
+    from app.services.self_check import run_checks
+    return (await run_checks(session)).as_text()
 
 
 @router.get("/version")

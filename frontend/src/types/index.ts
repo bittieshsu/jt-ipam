@@ -18,6 +18,8 @@ export interface UserMe {
   has_global_read?: boolean;
   can_edit?: boolean;
   ai_enabled?: boolean;
+  /** 資料庫結構落後於程式（只給 admin）—— 落後時畫面會到處 500 */
+  schema_behind?: boolean;
   can_ssh?: boolean;
   last_login_at: string | null;
   created_at: string;

@@ -310,7 +310,8 @@
     "paloalto_fw": "Firewall (Palo Alto)",
     "mikrotik": "MikroTik integration",
     "mikrotik_fw": "Router (MikroTik)",
-    "jump_hosts": "Jump hosts"
+    "jump_hosts": "Jump hosts",
+    "doctor": "System check"
   },
   "topbar": {
     "search": "Search…",
@@ -3691,5 +3692,20 @@
     "exit_inherit": "Inherit from subnet",
     "exit_hint": "How consoles reach this. Blank = direct (on an address, blank means it follows the subnet).",
     "via": "via jump host"
+  },
+  "doctor": {
+    "title": "System check",
+    "run": "Re-check",
+    "download": "Download report",
+    "generated_at": "Checked at",
+    "not_run": "Not run yet",
+    "summary": "{bad} failed, {warn} warnings, {ok} ok",
+    "status_ok": "OK",
+    "status_warn": "Warning",
+    "status_bad": "Failed",
+    "fix": "Fix:",
+    "cli_note": "System-level checks (systemd units, nginx, backups, scan agent) are not visible from the backend — run this on the server:",
+    "schema_behind_title": "Database schema is behind the code",
+    "schema_behind_body": "The database was not updated during the upgrade. Pages that read full records (devices, addresses) will fail with an Internal Server Error while pages that only show counts look fine. Run jt-ipam.sh upgrade on the server."
   }
 }

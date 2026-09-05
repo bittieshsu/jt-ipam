@@ -89,6 +89,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 log.info("ai_chat_history_purged", removed=removed, retention_days=days)
     except Exception as exc:
         log.warning("ai_chat_purge_failed", error=str(exc))
+    # 資料庫結構落後於程式時，畫面會到處 500（清單要讀完整欄位，count 卻照樣過）——
+    # 啟動時就查得出來，那就要講出來，不要讓使用者一頁一頁踩了再自己猜。
+    app.state.schema_behind = False
+    try:
+        from app.core.db import SessionLocal
+        from app.services.self_check import warn_if_schema_behind
+        async with SessionLocal() as s:
+            app.state.schema_behind = await warn_if_schema_behind(s)
+    except Exception as exc:
+        log.warning("schema_check_failed", error=str(exc))
+
     # 啟動時確保內建角色存在（冪等，且函式內以 advisory lock 擋多 worker 同時 seed 的競態）
     try:
         from app.core.db import SessionLocal

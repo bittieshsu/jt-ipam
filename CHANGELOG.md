@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.9] — 2026-09-05
+
+### Added
+- **System check page (Admin → System check).** Press a button, read the result on screen, download
+  a plain-text report to paste into a ticket. It reports the database schema version, PostgreSQL and
+  its extensions, whether the built frontend matches the backend, background work, integration
+  errors, disk space, ICMP capability, and a **data health check** — every check carries what to do
+  about it, not just that something is wrong.
+
+  This exists because of a customer report: the dashboard counted 55 devices while the device list
+  returned Internal Server Error and showed nothing. Every question we had to ask them ("run this on
+  the server", "paste this SQL") was work we should have been doing ourselves. System-level checks
+  (systemd, nginx, backups, scan agent) are still only visible to the CLI `jt-ipam.sh doctor`, and
+  the page says so rather than implying everything is fine.
+
+- **Schema drift is now detected at startup**, logged as an error, and shown to administrators as a
+  banner. A database left behind by an interrupted upgrade makes pages that read full records fail
+  with a 500 while pages that only show counts look normal — the system knew this at boot and said
+  nothing.
+
+### Fixed
+- **Dismissing an AI audit finding now sticks.** Findings recurred on every run and had to be
+  dismissed again and again. The fingerprint was "category + the set of cited addresses", but the
+  model cites a *different subset* each run — on live data one "IPMI on a service subnet" issue had
+  become five findings citing `{.60}`, `{.46}`, `{.60,.46}`, `{.74,.60,.54}` and one mistyped
+  address. Dismissal is now recorded against the **subjects**: a finding whose addresses have all
+  been dismissed in that category is not reopened, while a finding involving a **new** address still
+  surfaces — that is new information, not a repeat.
+
+- **A single row no longer takes down a whole list page.** `DeviceRead` inherited the write-side
+  limits (vendor/model ≤ 64 chars, u_position 1–99), but those columns are `text` and an unconstrained
+  `integer` in the database, and integrations legitimately write longer values. One such row made the
+  entire device list return 500 with no indication of which record was at fault. Read schemas now
+  accept what the database can hold; the write-side limits stay where they belong, on input.
+
 ## [0.6.8] — 2026-09-05
 
 ### Added

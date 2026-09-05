@@ -8,6 +8,8 @@ import {
   NLayout,
   NLayoutHeader,
   NLayoutSider,
+  NAlert,
+  NButton,
   NLayoutContent,
   NMenu,
   NSpace,
@@ -38,7 +40,7 @@ import {
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
   AiAuditIcon, ChatHistoryIcon,
   DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
-  MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon,
+  MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon,
   renderIcon,
@@ -301,6 +303,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.notification_channels"), key: "notification_channels", icon: renderIcon(SettingsIcon) },
           { label: () => t("nav.ip_request_policy"), key: "ip_request_policy", icon: renderIcon(RequestsIcon) },
           { label: () => t("nav.version"),       key: "version",        icon: renderIcon(AdminIcon) },
+          { label: () => t("nav.doctor"),        key: "doctor",         icon: renderIcon(TestIcon) },
           { label: () => t("nav.system_logs"),   key: "system_logs",    icon: renderIcon(AuditIcon) },
           { label: () => t("nav.chat_history"),  key: "chat_history",   icon: renderIcon(ChatHistoryIcon) },
         ],
@@ -591,6 +594,14 @@ function startDrag(e: MouseEvent) {
         </n-space>
       </n-layout-header>
       <n-layout-content content-style="padding: 16px;">
+        <!-- 資料庫結構落後於程式時，讀完整欄位的頁面會 500（清單空白、儀表板卻正常）。
+             系統啟動時就知道了，所以要在使用者踩到之前講，而不是讓人一頁一頁試。 -->
+        <n-alert v-if="me?.schema_behind" type="error" :bordered="false"
+                 style="margin-bottom: 12px" :title="t('doctor.schema_behind_title')">
+          {{ t("doctor.schema_behind_body") }}
+          <n-button size="tiny" type="error" ghost style="margin-left: 8px"
+                    @click="handleMenu('doctor')">{{ t("nav.doctor") }}</n-button>
+        </n-alert>
         <router-view />
       </n-layout-content>
     </n-layout>

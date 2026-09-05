@@ -72,6 +72,29 @@ class DeviceUpdate(StrictModel):
 
 
 class DeviceRead(DeviceBase):
+    """讀取用 —— **刻意放寬長度與範圍限制**。
+
+    由來（2026-09-05 客戶回報）：裝置清單整頁 Internal Server Error、一筆都不顯示，
+    儀表板卻數得出 55 台。原因是這個 schema 繼承了 `DeviceBase` 的寫入限制
+    （vendor/model ≤ 64 字、u_position 1–99），但資料庫裡這些欄位是 **text 與無約束的
+    integer** —— 整合（LibreNMS／Proxmox 等）同步進來的值本來就可能更長或超出範圍。
+    於是**一列不合規就讓整頁 500**，而且畫面上完全看不出是哪一筆。
+
+    寫入端的限制留著（表單該擋就擋）；讀取端則接受資料庫容得下的東西 ——
+    已經在資料庫裡的資料，讀不出來不是資料的錯，是我們的問題。
+    型別白名單維持嚴格：`type` 在資料庫有 CHECK 約束，不可能出現非法值。
+    """
+
+    # 這些欄位在資料庫是 text / 無約束 integer：讀取時不再套寫入用的上限
+    name: str
+    fqdn: str | None = None
+    vendor: str | None = None
+    model: str | None = None
+    serial: str | None = None
+    description: str | None = None
+    u_position: int | None = None
+    u_size: int | None = None
+
     id: uuid.UUID
     primary_ip_id: uuid.UUID | None
     ip: str | None = None   # 由 endpoint 解析 primary_ip_id 後填入（清單顯示用）
