@@ -213,6 +213,11 @@ async def novnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = ""
         await websocket.close(code=4429)
         return
 
+    # ⚠️ 跳板（issue #24）不適用於這個主控台：noVNC 連的是**虛擬化主機**
+    # （`data["base_url"]`，由 Proxmox 整合設定），不是這筆 IP 記錄的位址。
+    # 因此子網路上的「連線出口」對它沒有意義，也**不會**造成「連到別人」的風險 ——
+    # PVE 的位址是明確設定的，不是可能重疊的私網位址。
+    # 真的需要經跳板連 PVE 的話，要處理的是 Proxmox 整合那一端，不是這裡。
     pve_url = pvec.pve_vncwebsocket_url(
         pvec.PveTarget(kind=data["kind"], node=data["node"], vmid=int(data["vmid"]),
                        cluster_name=None, base_url=data["base_url"], verify_tls=bool(data["verify_tls"])),

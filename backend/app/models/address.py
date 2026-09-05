@@ -62,6 +62,11 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     ptr_ignore: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
 
+    # 主控台的連線出口（issue #24）：空＝沿用所屬子網路的設定；有值就覆寫它
+    jump_host_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jump_hosts.id", ondelete="SET NULL"), index=True,
+    )
+
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     customer_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -100,6 +100,8 @@ const DEAD_MS = 45_000;
 // host key TOFU 確認
 const hostKeyAsk = ref(false);
 const hostKeyFp = ref("");
+// 這條連線是否經由跳板（後端在連線前送 status/via_jump）
+const viaJump = ref("");
 
 function clearCreds() {
   form.password = "";
@@ -251,6 +253,9 @@ async function connect() {
       case "status":
         if (payload.state === "connected") phase.value = "connected";
         else if (payload.state === "disconnected") phase.value = "closed";
+        // 經跳板時要講出來：使用者看到的位址是目標，實際路徑卻多了一跳，
+        // 出問題時（例如跳板掛了）知道這件事才查得下去
+        else if (payload.state === "via_jump") viaJump.value = payload.via || "";
         break;
       case "hostkey":
         hostKeyFp.value = payload.fingerprint;
@@ -391,6 +396,10 @@ onBeforeUnmount(teardown);
           <span class="ssh-ip">{{ ip }}</span>
           <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
           <span class="conn-proto conn-proto--ssh">SSH</span>
+          <!-- 位址顯示的是目標，但實際路徑多了一跳 —— 不講出來，跳板掛掉時會查錯方向 -->
+          <n-tag v-if="viaJump" size="small" type="warning" :bordered="false" round>
+            {{ t("jump_hosts.via") }}：{{ viaJump }}
+          </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
         </span>
         <n-space :size="8" align="center">

@@ -46,6 +46,7 @@ from app.models.device import Device
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
 from app.schemas.address import IPAddressRead
+from app.services import console_route
 from app.services.permission import (
     can_use_rdp,
     get_object_permission,
@@ -67,6 +68,9 @@ router = APIRouter(prefix="/addresses", tags=["rdp"])
 
 _TICKET_TTL = 60              # 秒；ticket 單次用、短壽
 _CONNECT_TIMEOUT = 20.0       # RDP（NLA）連線逾時
+#: RDP 標準埠。原本沒有這個常數（靠 aardwolf 的預設），但走跳板時
+#: 必須明確知道要轉發到哪個埠，而且 URL 也要帶上（見下方註解）。
+_RDP_PORT = 3389
 _WHEEL_DELTA = 120            # 一格滾輪
 _WHEEL_NEGATIVE = 0x100       # PTRFLAGS.WHEEL_NEGATIVE 位（放進 steps 表向下）
 _MAX_DIM = 2560              # 解析度上限保護
@@ -311,6 +315,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             return
         allowed = await can_use_rdp(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
+        # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
+        route = await console_route.resolve_route(s, ip)
         from app.services.system_config import get_rdp_clipboard_paste
         clip_enabled = await get_rdp_clipboard_paste(s)
     if not allowed:
@@ -332,6 +338,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
     conn = None
     counted = False
+    tunnel: console_route.Tunnel | None = None
     started: datetime | None = None
     try:
         # 3) 收第一個設定訊息
@@ -407,13 +414,27 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         io.video_out_format = VIDEO_FORMAT.PNG
         io.clipboard_use_pyperclip = False
 
+        # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
+        try:
+            tunnel = await console_route.open_route(route, host, _RDP_PORT)
+        except console_route.JumpHostError as exc:
+            await send({"type": "error", "code": "jump_failed", "message": str(exc)})
+            await websocket.close()
+            return
+
+        if tunnel.via:
+            await send({"type": "status", "state": "via_jump", "via": tunnel.via})
         user_in_url = quote(f"{domain}\\{username}" if domain else username, safe="")
         b64pw = base64.b64encode(password.encode("utf-8")).decode("ascii")
-        url = f"rdp+ntlm-pwb64://{user_in_url}:{b64pw}@{host}/?timeout={int(_CONNECT_TIMEOUT)}"
+        # ⚠️ 連接埠一定要寫進 URL：`create_connection_newtarget()` 只換 ip/hostname，
+        # **不動連接埠**（它是 from_url 解析出來的）。少了這一段，走跳板時會連到
+        # 127.0.0.1:3389 —— 也就是後端主機自己，而不是通道的另一端。
+        url = (f"rdp+ntlm-pwb64://{user_in_url}:{b64pw}@{tunnel.host}:{tunnel.port}/"
+               f"?timeout={int(_CONNECT_TIMEOUT)}")
         del password, b64pw
 
         factory = RDPConnectionFactory.from_url(url, io)
-        conn = factory.create_connection_newtarget(host, io)
+        conn = factory.create_connection_newtarget(tunnel.host, io)
         try:
             async with asyncio.timeout(_CONNECT_TIMEOUT):
                 _result, err = await conn.connect()
@@ -440,6 +461,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="rdp.session_open",
             diff={"host": host, "username": username, "domain": domain or None,
+                  "via_jump_host": tunnel.via,
                   "size": f"{width}x{height}",
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
@@ -463,6 +485,9 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         if conn is not None:
             with contextlib.suppress(Exception):
                 await conn.terminate()
+        # 通道與 WS session 同生共死（連線收掉之後才還轉發）
+        if tunnel is not None:
+            await tunnel.aclose()
         if counted:
             _active_sessions -= 1
             if started is not None:

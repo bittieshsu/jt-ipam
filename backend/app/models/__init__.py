@@ -48,6 +48,7 @@ from app.models.ip_cooldown import IPCooldown
 from app.models.ip_hostname import IPHostnameObservation
 from app.models.ip_liveness import IPLivenessDay
 from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval
+from app.models.jump_host import JumpHost
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
 from app.models.location import Location, Rack
 from app.models.migration_mapping import PhpIPAMMigrationMapping
@@ -138,6 +139,7 @@ __all__ = [
     "IPRequest",
     "IPRequestEvent",
     "IPRequestStageApproval",
+    "JumpHost",
     "LibreNMSDevice",
     "LibreNMSInstance",
     "Location",

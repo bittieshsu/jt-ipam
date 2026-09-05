@@ -88,6 +88,7 @@ const routes: RouteRecordRaw[] = [
       { path: "windows-dhcp", name: "windows_dhcp", component: () => import("@/views/WindowsDhcpAdmin.vue"), meta: { admin: true } },
       { path: "fortigate", name: "fortigate", component: () => import("@/views/FortiGateAdmin.vue"), meta: { admin: true } },
       { path: "paloalto", name: "paloalto", component: () => import("@/views/PaloAltoAdmin.vue"), meta: { admin: true } },
+      { path: "jump-hosts", name: "jump_hosts", component: () => import("@/views/JumpHosts.vue"), meta: { admin: true } },
       { path: "mikrotik", name: "mikrotik", component: () => import("@/views/MikroTikAdmin.vue"), meta: { admin: true } },
       { path: "pfsense-fw", name: "pfsense_fw", component: () => import("@/views/PfSenseFirewallView.vue") },
       { path: "fortigate-fw", name: "fortigate_fw", component: () => import("@/views/FortiGateFirewallView.vue") },

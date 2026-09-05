@@ -92,6 +92,11 @@ class Subnet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         index=True,
     )
 
+    # 主控台的連線出口（issue #24）：空＝直連；IP 上的設定會覆寫這一欄
+    jump_host_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jump_hosts.id", ondelete="SET NULL"), index=True,
+    )
+
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     __table_args__ = (

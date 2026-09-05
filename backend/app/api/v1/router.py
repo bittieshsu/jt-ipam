@@ -31,6 +31,7 @@ from app.api.v1.endpoints import (
     investigate,
     ip_changes,
     ip_requests,
+    jump_hosts,
     librenms,
     locations,
     migration,
@@ -99,6 +100,7 @@ api_v1_router.include_router(addresses.router)
 api_v1_router.include_router(ssh_console.router)
 api_v1_router.include_router(sftp_console.router)
 api_v1_router.include_router(ssh_credentials.router)
+api_v1_router.include_router(jump_hosts.router)
 api_v1_router.include_router(rdp_console.router)
 api_v1_router.include_router(vnc_console.router)
 api_v1_router.include_router(novnc_console.router)

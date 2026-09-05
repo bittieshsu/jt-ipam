@@ -4,6 +4,50 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.8] — 2026-09-05
+
+### Added
+- **Consoles can route through a jump host (GitHub issue #24, phase 1, Beta).** For sites the
+  backend cannot reach directly, an SSH jump host can be put in front: backend → jump host → target.
+  The exit is configured on the subnet and can be overridden on an individual address, resolved in
+  the order **address > subnet > direct**.
+
+  The ambiguity this feature exists for is already solved by structure: a console always starts from
+  **one IP record**, and every IP record belongs to exactly one subnet. So several customers sharing
+  the same private range cannot be confused with each other — no extra disambiguation was needed.
+
+  **The failure mode being defended against is not "cannot connect", it is "connected to someone
+  else".** The sites that need a jump host are the sites with overlapping private ranges, so a
+  console that quietly falls back to a direct connection reaches a *different customer's* machine,
+  with nothing on screen to say so. Consequently:
+  - **The host key must be pinned before any connection is allowed.** Test connection fetches the
+    fingerprint *without sending credentials*; only after it is checked and trusted does the jump
+    host actually get used. A changed fingerprint aborts with a man-in-the-middle warning.
+  - **BMC refuses instead of falling back.** IPMI/SOL is UDP 623 and an SSH tunnel forwards TCP
+    only, so a BMC console on an address with a jump host returns an explicit error naming the
+    reason. noVNC is unaffected because it connects to the virtualization host configured in the
+    Proxmox integration, not to the address itself.
+  - Deleting a jump host reports how many subnets and addresses will fall back to direct.
+  - Every session records which jump host it went through, in the audit log and on screen.
+
+  Sessions to the same jump host **share one SSH connection**, with a configurable per-jump-host
+  session limit; the forward lives and dies with the WebSocket session.
+
+  SSH, SFTP, RDP and VNC are supported. Verified against a real SSH jump host, in a real browser:
+  an SSH shell and an SFTP directory listing both over the two-hop path, plus connection reuse,
+  the session limit, and reference release after a failed forward.
+
+  A detail worth recording: aardwolf's `create_connection_newtarget()` replaces the RDP/VNC target's
+  ip/hostname but **keeps the port from the parsed URL**. Without the port written into the URL, a
+  tunnelled RDP session would have connected to `127.0.0.1:3389` — the backend host itself.
+
+### Notes
+- Migration `0136` adds `jump_hosts` plus a nullable `jump_host_id` on `subnets` and `ip_addresses`.
+- Install/upgrade unchanged: no new Python or apt package, no new systemd unit, no new listening
+  port. The backend must be able to reach the jump host's SSH port.
+- Phase 2 (relay through the scan agent, for sites that can only dial outwards) is **not** included;
+  that is the scenario in the original issue and remains open.
+
 ## [0.6.7] — 2026-09-04
 
 ### Fixed

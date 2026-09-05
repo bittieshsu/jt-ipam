@@ -51,6 +51,7 @@ from app.core.ws_timeouts import (
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
+from app.services import console_route
 from app.services.permission import can_use_sftp
 from app.services.sftp import (
     CHUNK_BYTES,
@@ -230,6 +231,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             return
         allowed = await can_use_sftp(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
+        # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
+        route = await console_route.resolve_route(s, ip)
     if not allowed:
         await websocket.close(code=4403)
         return
@@ -253,6 +256,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
 
     conn = None
     sftp = None
+    tunnel: console_route.Tunnel | None = None
     port = 22          # 先給預設值：錯誤處理會用到，設定還沒讀到就失敗時不能是未定義
     #: 上傳途中收到的指令（客戶端放棄這次上傳、直接送下一個要求）—— 留著下一輪處理
     carry_over: str | None = None
@@ -273,8 +277,15 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             return
         username, port, kw = await _connect_kwargs(cfg, user_id=user_id,
                                                    address_id=address_id)
+        # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
+        try:
+            tunnel = await console_route.open_route(route, host, port)
+        except console_route.JumpHostError as exc:
+            await send({"type": "error", "code": "jump_failed", "message": str(exc)})
+            return
+        dial_host, dial_port = tunnel.host, tunnel.port
         conn = await asyncssh.connect(
-            host, port=port, username=username, known_hosts=None,
+            dial_host, port=dial_port, username=username, known_hosts=None,
             connect_timeout=_CONNECT_TIMEOUT,
             **LEGACY_SSH_ALGS, **kw,
         )
@@ -284,8 +295,10 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             cwd = await sftp.realpath(".")
         except Exception:
             cwd = "/"
-        await audit("sftp_open", {"host": host, "port": port, "username": username})
-        await send({"type": "ready", "cwd": str(cwd)})
+        await audit("sftp_open", {"host": host, "port": port, "username": username,
+                                  "via_jump_host": tunnel.via})
+        # 經跳板時要講出來：畫面上的位址是目標，實際路徑多了一跳
+        await send({"type": "ready", "cwd": str(cwd), "via_jump_host": tunnel.via})
 
         while True:
             if carry_over is not None:
@@ -557,6 +570,9 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             sftp.exit()
         if conn is not None:
             conn.close()
+        # 通道與 WS session 同生共死：連線關掉之後才還，否則轉發會在還有人用時被收掉
+        if tunnel is not None:
+            await tunnel.aclose()
         await _audit(actor_user_id=str(user_id), actor_ip=actor_ip, object_id=aid,
                      action="sftp_close", diff={"host": host})
         try:

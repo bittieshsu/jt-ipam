@@ -31,6 +31,7 @@ from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
 from app.services import bmc as bmc_svc
+from app.services import console_route
 from app.services.permission import can_use_bmc
 
 router = APIRouter(prefix="/addresses", tags=["bmc"])
@@ -114,6 +115,23 @@ async def bmc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close(code=4403)
             return
         bmc_ip = str(ip.ip).split("/")[0]
+        route = await console_route.resolve_route(s, ip)
+
+    # 這個 IP 被指派了跳板，但 BMC 走不了跳板 —— **必須擋下來，不能默默直連**。
+    # IPMI（SOL）是 UDP 623，而 SSH 的本機轉發只支援 TCP。默默改走直連的後果不是
+    # 「連不上」而是更糟的「連到別人」：會用跳板的站台多半正是私網網段重疊的站台，
+    # 後端直連同一個私網位址，很可能打到另一個客戶的 BMC。
+    if not isinstance(route, console_route.Direct):
+        await websocket.accept()
+        with contextlib.suppress(Exception):
+            await websocket.send_text(json.dumps({
+                "type": "error", "code": "jump_unsupported",
+                "message": (f"這個位址設定了跳板「{console_route.route_label(route)}」，"
+                            "但 BMC 主控台無法經由跳板：IPMI／SOL 走 UDP 623，"
+                            "SSH 通道只能轉發 TCP。請改由能直接連到該 BMC 的網路操作。"),
+            }, ensure_ascii=False))
+            await websocket.close()
+        return
 
     if not bmc_svc.bmc_available():
         await websocket.close(code=1011)

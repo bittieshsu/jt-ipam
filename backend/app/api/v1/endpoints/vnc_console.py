@@ -38,6 +38,7 @@ from app.core.ws_timeouts import HANDSHAKE_TIMEOUT, WsTimeout, receive_text_with
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
+from app.services import console_route
 from app.services.permission import can_use_vnc
 
 try:  # 與 RDP 同一個選用 aardwolf
@@ -270,6 +271,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             return
         allowed = await can_use_vnc(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
+        # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
+        route = await console_route.resolve_route(s, ip)
     if not allowed:
         await websocket.close(code=4403)
         return
@@ -288,6 +291,7 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
     conn = None
     counted = False
+    tunnel: console_route.Tunnel | None = None
     started: datetime | None = None
     try:
         # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
@@ -345,14 +349,27 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         io.video_out_format = VIDEO_FORMAT.PNG
         io.clipboard_use_pyperclip = False
 
+        # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
+        try:
+            tunnel = await console_route.open_route(route, host, port)
+        except console_route.JumpHostError as exc:
+            await send({"type": "error", "code": "jump_failed", "message": str(exc)})
+            await websocket.close()
+            return
+        if tunnel.via:
+            await send({"type": "status", "state": "via_jump", "via": tunnel.via})
+        dial_host, dial_port = tunnel.host, tunnel.port
+
+        # 連接埠寫在 URL 裡（`create_connection_newtarget()` 只換 ip/hostname，不動埠）
         if password:
-            url = f"vnc+plain-password://{quote(password, safe='')}@{host}:{port}/?timeout={int(_CONNECT_TIMEOUT)}"
+            url = (f"vnc+plain-password://{quote(password, safe='')}@{dial_host}:{dial_port}/"
+                   f"?timeout={int(_CONNECT_TIMEOUT)}")
         else:
-            url = f"vnc://{host}:{port}/?timeout={int(_CONNECT_TIMEOUT)}"
+            url = f"vnc://{dial_host}:{dial_port}/?timeout={int(_CONNECT_TIMEOUT)}"
         del password
 
         factory = RDPConnectionFactory.from_url(url, io)
-        conn = factory.create_connection_newtarget(host, io)
+        conn = factory.create_connection_newtarget(dial_host, io)
         try:
             async with asyncio.timeout(_CONNECT_TIMEOUT):
                 _result, err = await conn.connect()
@@ -376,6 +393,7 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="vnc.session_open",
             diff={"host": host, "port": port, "size": f"{width}x{height}",
+                  "via_jump_host": tunnel.via,
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
         await send({"type": "status", "state": "connected", "width": width, "height": height})
@@ -391,6 +409,9 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         if conn is not None:
             with contextlib.suppress(Exception):
                 await conn.terminate()
+        # 通道與 WS session 同生共死（連線收掉之後才還轉發）
+        if tunnel is not None:
+            await tunnel.aclose()
         if counted:
             _active_sessions -= 1
             if started is not None:

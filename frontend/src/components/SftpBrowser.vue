@@ -54,6 +54,8 @@ const connecting = computed(() => phase.value === "connecting");
 const onFileList = computed(() => phase.value === "connected" || phase.value === "closed");
 const errorMsg = ref("");
 const cwd = ref("/");
+// 這條連線是否經由跳板（issue #24）：畫面上的位址是目標，實際路徑多了一跳
+const viaJump = ref("");
 const entries = ref<SftpEntry[]>([]);
 const truncated = ref(false);
 const busy = ref(false);
@@ -207,6 +209,7 @@ async function connect() {
         case "ready":
           everConnected = true;
           phase.value = "connected";
+          viaJump.value = m.via_jump_host || "";
           cwd.value = m.cwd || "/";
           void refresh();
           break;
@@ -982,6 +985,9 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           <span class="sftp-ip">{{ host }}</span>
           <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
           <span class="conn-proto conn-proto--sftp">SFTP</span>
+          <n-tag v-if="viaJump" size="small" type="warning" :bordered="false" round>
+            {{ t("jump_hosts.via") }}：{{ viaJump }}
+          </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
         </span>
         <n-space :size="8" align="center">

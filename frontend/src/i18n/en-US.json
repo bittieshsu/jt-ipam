@@ -309,7 +309,8 @@
     "paloalto": "Palo Alto integration",
     "paloalto_fw": "Firewall (Palo Alto)",
     "mikrotik": "MikroTik integration",
-    "mikrotik_fw": "Router (MikroTik)"
+    "mikrotik_fw": "Router (MikroTik)",
+    "jump_hosts": "Jump hosts"
   },
   "topbar": {
     "search": "Search…",
@@ -3655,5 +3656,40 @@
     "col_timeout": "Timeout",
     "dynamic": "Dynamic",
     "static": "Static"
+  },
+  "jump_hosts": {
+    "title": "Jump hosts",
+    "endpoint": "Endpoint",
+    "host": "Host",
+    "port": "Port",
+    "auth": "Authentication",
+    "auth_key": "Key",
+    "auth_password": "Password",
+    "key": "Private key (PEM)",
+    "key_keep": "Private key (blank = keep current)",
+    "key_ph": "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "pw_keep": "Password (blank = keep current)",
+    "host_key": "Host key",
+    "pinned": "Pinned",
+    "not_pinned": "Not pinned",
+    "fingerprint": "Host key fingerprint",
+    "trust": "Trust and save",
+    "trusted": "Fingerprint pinned",
+    "fp_match": "Fingerprint matches the pinned one",
+    "auth_ok": "login succeeded",
+    "fp_mismatch": "Fingerprint does NOT match the pinned one. This may be a man-in-the-middle — do not trust it until you know why.",
+    "fp_unpinned": "No host key pinned yet. Check the fingerprint above with whoever runs the jump host, then press Trust and save.",
+    "test": "Test connection",
+    "max_sessions": "Max sessions",
+    "last_ok": "Last success",
+    "max_sessions_hint": "Console sessions share one SSH connection, but each forward still costs the jump host resources.",
+    "pin_required": "A jump host sits in the middle of the whole connection: after saving, press Test connection, check the host key fingerprint and pin it. Consoles will not route through it until then.",
+    "delete_in_use": "{subnets} subnet(s) and {ips} address(es) currently point at this jump host. Deleting it sends them back to a direct connection — with overlapping ranges that can mean reaching a different customer. Delete anyway?",
+    "intro": "Consoles (SSH / SFTP / RDP / VNC) can go backend → jump host → target, for sites the backend cannot reach directly. The exit is set on the subnet; an individual address can override it. BMC uses UDP and cannot traverse a jump host.",
+    "exit": "Console exit",
+    "exit_direct": "Direct",
+    "exit_inherit": "Inherit from subnet",
+    "exit_hint": "How consoles reach this. Blank = direct (on an address, blank means it follows the subnet).",
+    "via": "via jump host"
   }
 }

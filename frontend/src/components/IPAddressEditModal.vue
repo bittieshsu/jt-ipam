@@ -32,6 +32,7 @@ import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useCustomers } from "@/composables/useCustomers";
+import { listJumpHosts } from "@/api/jumpHosts";
 import { useChangeLogDim } from "@/composables/useChangeLogDim";
 import { useRouter } from "vue-router";
 import { getDevice, listDevices, type Device } from "@/api/basic";
@@ -44,6 +45,15 @@ import OsIcon from "@/components/OsIcon.vue";
 
 const router = useRouter();
 const { options: customerOptions, labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
+// 主控台的連線出口（issue #24）。跳板清單只有 admin 讀得到 —— 讀不到就不顯示這個欄位。
+const jumpOptions = ref<{ label: string; value: string }[]>([]);
+async function loadJumpOptions() {
+  try {
+    jumpOptions.value = (await listJumpHosts()).items
+      .filter((j) => j.enabled)
+      .map((j) => ({ label: `${j.name}（${j.username}@${j.host}:${j.port}）`, value: j.id }));
+  } catch { jumpOptions.value = []; }
+}
 const { isOld: isOldLog } = useChangeLogDim();
 const devices = ref<Device[]>([]);
 
@@ -266,6 +276,7 @@ interface FormState {
   ptr_ignore: boolean;
   note: string;
   customer_id: string | null;
+  jump_host_id: string | null;
   device_id: string | null;
   hostname_source_pin: string;  // "" = 自動 (跟全域優先序)
   ssh_enabled: boolean;
@@ -287,6 +298,7 @@ function emptyForm(): FormState {
     owner: "", switch_port: "",
     ptr_ignore: false, note: "",
     customer_id: null,
+    jump_host_id: null,
     device_id: null,
     hostname_source_pin: "",
     ssh_enabled: false,
@@ -379,6 +391,7 @@ function fromAddress(a: IPAddress): FormState {
     ptr_ignore: !!a.ptr_ignore,
     note: a.note ?? "",
     customer_id: a.customer_id ?? null,
+    jump_host_id: a.jump_host_id ?? null,
     device_id: (a as any).device_id ?? null,
     hostname_source_pin: a.hostname_source_pin ?? "",
     ssh_enabled: !!a.ssh_enabled,
@@ -418,6 +431,7 @@ watch(
     }
     if (props.show) {
       void ensureCustomersLoaded();
+      void loadJumpOptions();
       void loadDevices();
       void loadDhcpRanges();
       void loadRelations();
@@ -613,6 +627,7 @@ async function save() {
         switch_port: form.value.switch_port.trim() || null,
         note: form.value.note.trim() || null,
         customer_id: form.value.customer_id ?? null,
+        jump_host_id: form.value.jump_host_id ?? null,
         device_id: form.value.device_id ?? null,
       });
       msg.success(t("common.ok"));
@@ -1150,6 +1165,13 @@ async function remove() {
           <n-form-item :label="t('nav.customers')">
             <n-select v-model:value="form.customer_id" :options="customerOptions"
                       :placeholder="t('common.not_specified')" clearable filterable />
+          </n-form-item>
+          <n-form-item v-if="jumpOptions.length" :label="t('jump_hosts.exit')">
+            <n-space vertical :size="4" style="width: 100%">
+              <n-select v-model:value="form.jump_host_id" :options="jumpOptions"
+                        :placeholder="t('jump_hosts.exit_inherit')" clearable filterable />
+              <span style="font-size: 11px; opacity: .7">{{ t("jump_hosts.exit_hint") }}</span>
+            </n-space>
           </n-form-item>
           <n-form-item :label="t('nav.devices')">
             <n-space vertical :size="4" style="width: 100%">

@@ -34,6 +34,8 @@ class IPAddressBase(StrictModel):
     ptr_ignore: bool = False
     note: Annotated[str | None, Field(max_length=2048)] = None
     customer_id: uuid.UUID | None = None
+    #: 主控台的連線出口（issue #24）：空＝繼承上層或直連
+    jump_host_id: uuid.UUID | None = None
     custom_fields: dict[str, Any] | None = None
 
     @field_validator("ip", mode="before")
@@ -117,6 +119,8 @@ class IPAddressUpdate(StrictModel):
     ptr_ignore: bool | None = None
     note: Annotated[str | None, Field(max_length=2048)] = None
     customer_id: uuid.UUID | None = None
+    #: 主控台的連線出口（issue #24）：空＝繼承上層或直連
+    jump_host_id: uuid.UUID | None = None
     custom_fields: dict[str, Any] | None = None
     # feature A：固定以某來源 hostname 為準（"" / null = 跟全域優先序）
     hostname_source_pin: Annotated[str | None, Field(max_length=16)] = None

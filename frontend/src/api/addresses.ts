@@ -74,6 +74,8 @@ export interface IPAddressCreate {
   note?: string | null;
   customer_id?: string | null;
   device_id?: string | null;
+  /** 主控台的連線出口（issue #24）：空＝沿用所屬子網路 */
+  jump_host_id?: string | null;
 }
 
 export async function createAddress(payload: IPAddressCreate): Promise<IPAddress> {

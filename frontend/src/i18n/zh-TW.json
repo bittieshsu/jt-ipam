@@ -309,7 +309,8 @@
     "paloalto": "整合 Palo Alto",
     "paloalto_fw": "防火牆 (Palo Alto)",
     "mikrotik": "整合 MikroTik",
-    "mikrotik_fw": "路由器 (MikroTik)"
+    "mikrotik_fw": "路由器 (MikroTik)",
+    "jump_hosts": "跳板主機"
   },
   "topbar": {
     "search": "搜尋…",
@@ -3655,5 +3656,40 @@
     "col_timeout": "逾時",
     "dynamic": "動態",
     "static": "靜態"
+  },
+  "jump_hosts": {
+    "title": "跳板主機",
+    "endpoint": "連線位址",
+    "host": "主機",
+    "port": "連接埠",
+    "auth": "認證方式",
+    "auth_key": "金鑰",
+    "auth_password": "密碼",
+    "key": "私鑰（PEM）",
+    "key_keep": "私鑰（留空＝不修改）",
+    "key_ph": "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "pw_keep": "密碼（留空＝不修改）",
+    "host_key": "主機金鑰",
+    "pinned": "已釘選",
+    "not_pinned": "未釘選",
+    "fingerprint": "主機金鑰指紋",
+    "trust": "信任並儲存",
+    "trusted": "已釘選這個指紋",
+    "fp_match": "指紋與釘選的相符",
+    "auth_ok": "登入成功",
+    "fp_mismatch": "指紋與釘選的不符！可能遭中間人攔截 —— 確認原因之前不要信任。",
+    "fp_unpinned": "尚未釘選主機金鑰。請與跳板管理者核對上面的指紋，確認無誤再按「信任並儲存」。",
+    "test": "測試連線",
+    "max_sessions": "同時連線上限",
+    "last_ok": "最後成功",
+    "max_sessions_hint": "多個主控台 session 共用同一條 SSH 連線，但轉發本身仍會佔用跳板的資源。",
+    "pin_required": "跳板是整條連線路徑的中間人：儲存後請按「測試連線」核對主機金鑰指紋並釘選，未釘選前主控台不會經由它連線。",
+    "delete_in_use": "目前有 {subnets} 個子網路、{ips} 個 IP 指向這台跳板。刪除後它們會改回直連 —— 在網段重疊的站台，直連可能連到別的單位。確定要刪除嗎？",
+    "intro": "主控台（SSH／SFTP／RDP／VNC）可以改成「後端 → 跳板 → 目標」，用於後端無法直接連到的站台。出口設在子網路上，個別 IP 可以覆寫。BMC 走 UDP，無法經由跳板。",
+    "exit": "連線出口",
+    "exit_direct": "直連",
+    "exit_inherit": "繼承子網路設定",
+    "exit_hint": "主控台要怎麼連到這裡。留空＝直連（IP 上留空則沿用子網路的設定）。",
+    "via": "經由跳板"
   }
 }

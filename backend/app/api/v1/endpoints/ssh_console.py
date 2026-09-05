@@ -43,6 +43,7 @@ from app.models.device import Device
 from app.models.ssh_credential import SSHCredential
 from app.models.user import User
 from app.schemas.address import IPAddressRead
+from app.services import console_route
 from app.services.permission import (
     can_use_ssh,
     get_object_permission,
@@ -247,12 +248,15 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         allowed = await can_use_ssh(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
         pinned = ip.ssh_host_key
+        # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
+        route = await console_route.resolve_route(s, ip)
     if not allowed:
         await websocket.close(code=4403)
         return
 
     await websocket.accept()
     actor_ip = websocket.client.host if websocket.client else None
+    tunnel: console_route.Tunnel | None = None
 
     async def send(obj: dict[str, Any]) -> None:
         await websocket.send_text(json.dumps(obj))
@@ -349,6 +353,19 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 await websocket.close()
                 return
 
+        # 4b) 連線出口：經跳板時把目標換成本機轉發埠。
+        # 一定要在 host key 步驟**之前**——`fetch_host_key` 也得走同一條路，
+        # 否則會去釘到「後端直連看到的那台」的金鑰（可能根本是另一台機器）。
+        try:
+            tunnel = await console_route.open_route(route, host, port)
+        except console_route.JumpHostError as exc:
+            await send({"type": "error", "code": "jump_failed", "message": str(exc)})
+            await websocket.close()
+            return
+        host, port = tunnel.host, tunnel.port
+        if tunnel.via:
+            await send({"type": "status", "state": "via_jump", "via": tunnel.via})
+
         # 5) host key — TOFU：未釘選先取指紋給使用者確認再釘選
         known_host = pinned
         if not known_host:
@@ -414,6 +431,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="ssh.session_open",
             diff={"host": host, "port": port, "username": username, "auth": auth,
+                  "via_jump_host": tunnel.via,
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
         async with conn:
@@ -439,6 +457,11 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         with contextlib.suppress(Exception):
             await send({"type": "error", "code": "internal", "message": "連線發生未預期錯誤"})
             await websocket.close()
+    finally:
+        # 通道與 WS session 同生共死：不論怎麼離開（正常結束、斷線、例外）都要還回去，
+        # 否則跳板上會累積轉發，而同時連線數上限會慢慢把自己鎖死
+        if tunnel is not None:
+            await tunnel.aclose()
 
 
 async def _bridge(websocket: WebSocket, proc: Any, send: Any) -> None:

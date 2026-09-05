@@ -84,6 +84,8 @@ onMounted(loadCreds);
 
 type Phase = "form" | "connecting" | "connected" | "closed" | "error";
 const phase = ref<Phase>("form");
+// 這條連線是否經由跳板（issue #24）：畫面上的位址是目標，實際路徑多了一跳
+const viaJump = ref("");
 const errorMsg = ref("");
 
 const form = reactive({
@@ -278,6 +280,7 @@ async function startSession(w: number, h: number) {
       }
       case "status":
         if (payload.state === "connected") { phase.value = "connected"; nextTick(() => canvasEl.value?.focus()); }
+        else if (payload.state === "via_jump") viaJump.value = payload.via || "";
         else if (payload.state === "disconnected") phase.value = "closed";
         break;
       case "clip_ack":
@@ -408,6 +411,9 @@ onBeforeUnmount(teardown);
           <span class="rdp-ip">{{ ip }}</span>
           <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
           <span class="conn-proto conn-proto--rdp">RDP</span>
+          <n-tag v-if="viaJump" size="small" type="warning" :bordered="false" round>
+            {{ t("jump_hosts.via") }}：{{ viaJump }}
+          </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
           <n-tag size="small" type="warning" :bordered="false" round>{{ t("rdp.beta") }}</n-tag>
         </span>

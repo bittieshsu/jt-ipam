@@ -306,6 +306,56 @@ defect is in *what the model was able to ask*.
 - [ ] Delete the router → its `dhcp_pool_ranges` and `nat_translations` rows go with it, and
   no other source's rows are touched.
 
+## 7e. Console jump host (issue #24 phase 1) — **whenever a console or the routing changes**
+
+> The failure mode here is not "cannot connect", it is **"connected to someone else"**. Sites that
+> need a jump host are usually the sites with overlapping private ranges, so a console that quietly
+> falls back to a direct connection reaches a *different customer's* machine — with no error anywhere.
+> Test every console, not just SSH.
+
+**Standing up a real jump host takes two minutes** (do not skip this and test only the unit level):
+
+```bash
+D=/tmp/jump; mkdir -p $D && cd $D
+ssh-keygen -q -t ed25519 -f hostkey -N ''
+ssh-keygen -q -t ed25519 -f clientkey -N ''
+cp clientkey.pub authorized_keys
+printf 'Port 2242\nListenAddress 127.0.0.1\nHostKey %s/hostkey\nPidFile %s/sshd.pid\n' $D $D > sshd_config
+printf 'AuthorizedKeysFile %s/authorized_keys\nPermitRootLogin prohibit-password\n' $D >> sshd_config
+printf 'PasswordAuthentication no\nUsePAM no\nStrictModes no\nAllowTcpForwarding yes\n' >> sshd_config
+printf 'Subsystem sftp /usr/lib/openssh/sftp-server\n' >> sshd_config
+/usr/sbin/sshd -f $D/sshd_config -E $D/sshd.log
+```
+
+`StrictModes no` is needed because sshd rejects an `authorized_keys` under a world-writable `/tmp`.
+The same sshd can play both roles: register it as the jump host, and point the target IP record at
+`127.0.0.1` port 2242 so the forward lands back on it.
+
+- [ ] **Fingerprint first**: a jump host with no pinned host key must **refuse to connect** and say so.
+  Test connection returns the fingerprint *without* sending credentials; only after Trust and save
+  does it actually log in.
+- [ ] **Wrong fingerprint**: change the pinned value → connecting must fail with a man-in-the-middle
+  warning, not a generic error.
+- [ ] **Resolution order**: set a jump host on the subnet and a *different* one on the IP → the IP
+  wins. Disable the jump host → falls back to direct (disabling is an admin action, it must not
+  brick a batch of consoles).
+- [ ] **All four tunnelled consoles** (SSH / SFTP / RDP / VNC), each through the jump:
+  - SSH: the status bar shows「經由跳板：<name>」and a real shell responds
+  - SFTP: a directory listing appears (this proves both directions, not just server→browser)
+  - RDP / VNC: check the **port**, not just the host — aardwolf's `create_connection_newtarget()`
+    replaces the ip/hostname but keeps the port from the URL, so a missing port means connecting to
+    `127.0.0.1:3389` — the backend host itself
+- [ ] **BMC refuses**: an address with a jump host must return a readable "IPMI is UDP, an SSH
+  tunnel only forwards TCP" error — **never** a silent direct connection
+- [ ] **Connection reuse and limit**: open several sessions to the same jump host → one SSH
+  connection is shared (check with `ss -tnp` on the jump); exceeding `max_sessions` is refused with
+  a readable message; after the last session closes the connection goes away
+- [ ] **Failure returns the reference**: force a forward failure a few times (wrong target port),
+  then confirm normal sessions still work — a leaked reference count silently uses up the limit
+- [ ] **Session lifetime**: close the browser tab → the forward disappears from the jump host
+- [ ] **Deleting a jump host** warns how many subnets/addresses will fall back to direct
+- [ ] Audit records `via_jump_host` on every session open
+
 ## 7c. Integration sync resilience — **applies to every integration, not just the one you changed**
 
 Real devices are partially readable. A firewall answering "9 of 10 endpoints OK" is the
