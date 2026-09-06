@@ -87,6 +87,14 @@ onMounted(load);
           <div class="ver-tile__label">{{ t("version.current") }}</div>
           <div class="ver-tile__value">v{{ info?.current ?? "—" }}</div>
         </div>
+        <!-- 授權條款：這是 AGPL 專案，散佈與修改的義務跟著它走 ——
+             使用者不該為了知道自己在用什麼授權而跑去翻原始碼。 -->
+        <div class="ver-tile">
+          <div class="ver-tile__label">{{ t("version.license") }}</div>
+          <div class="ver-tile__value ver-tile__value--sm">{{ info?.license ?? "—" }}</div>
+          <a class="ver-link" href="https://github.com/jasoncheng7115/jt-ipam/blob/main/LICENSE"
+             target="_blank" rel="noopener">{{ t("version.license_link") }}</a>
+        </div>
         <div class="ver-tile">
           <div class="ver-tile__label">Python</div>
           <div class="ver-tile__value">{{ info?.python ?? "—" }}</div>
@@ -188,6 +196,9 @@ onMounted(load);
   padding: 16px 18px;
   background: rgba(128, 128, 128, 0.04);
 }
+/* 授權識別字比版本號長，而且中間有連字號 —— 不縮字級又不禁止斷行的話會被折成
+   「AGPL-3.0-or-」＋「later」兩行，看起來像壞掉。 */
+.ver-tile__value--sm { font-size: 17px; letter-spacing: 0; white-space: nowrap; }
 .ver-tile--accent {
   background: linear-gradient(135deg, rgba(24,160,88,.14), rgba(20,184,166,.10));
   border-color: rgba(24,160,88,.35);

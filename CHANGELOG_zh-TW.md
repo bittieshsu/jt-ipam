@@ -4,6 +4,33 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.6.10] — 2026-09-05
+
+### 新增
+- **版本資訊頁會講出授權條款。** 這是 AGPL 專案 —— 散佈與修改的義務跟著授權走，
+  使用者不該為了知道自己在用什麼授權而跑去翻原始碼。字串由後端提供（安裝後讀套件
+  metadata，那份由 `pyproject.toml` 產生），旁邊附上授權全文的連結。
+
+  授權**改過一次**（2026-08-15 從 Apache-2.0 改為 AGPL-3.0-or-later），而宣告散在四個
+  地方：`backend/pyproject.toml`、`frontend/package.json`、根目錄 `LICENSE` 全文，以及
+  現在畫面上這一行。少改一處，畫面就會理直氣壯地顯示錯的授權 —— 那比不顯示更糟。
+  所以四處由 `tests/test_license_declaration.py` 綁在一起，任一處沒跟上就會紅。
+
+### 修正
+- **LLM 設定頁一開就四個 500。** `GET /system/llm/models` 只處理了「連不上」
+  （`httpx.HTTPError`），沒處理「**被我們自己的連外防護擋下**」——
+  而預設的 Ollama 位址正是 `http://127.0.0.1:11434`，loopback 在 `safe_http` 是一律封鎖的
+  （要放行得自己設 `OUTBOUND_ALLOW_CIDRS`）。畫面上只有「伺服器發生錯誤」，
+  看不出被擋的是哪個位址、更看不出怎麼放行。
+
+  被自己的防護擋下**是預期內的結果，不是伺服器故障**：現在回 200 加一則講得出
+  下一步的訊息（哪個位址被擋、要在哪個設定加什麼）。同一類錯誤在 AI 對話那條路徑
+  早就有接，這是單點遺漏。
+
+### 說明
+- 沒有新的 migration；資料庫結構不變（仍是 `0136`）。安裝／升級不需改：沒有新的
+  Python 或 apt 套件、沒有新的 systemd unit、沒有新的對外監聽埠。
+
 ## [0.6.9] — 2026-09-05
 
 ### 新增

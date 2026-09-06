@@ -14,6 +14,8 @@ from app.models.section import Section
 from app.models.user import User
 from sqlalchemy import func, select
 
+from tests.route_walk import iter_routes
+
 
 async def _limited_user(db_session) -> User:
     """建一個「已登入但完全沒有任何授權」的帳號（零權限）。"""
@@ -312,8 +314,7 @@ async def test_firewall_view_guards_are_consistent() -> None:
         return acc
 
     found: dict[tuple[str, str], set[str]] = {}
-    for r in create_app().routes:
-        path = getattr(r, "path", "")
+    for path, r in iter_routes(create_app()):
         methods = getattr(r, "methods", None)
         dnt = getattr(r, "dependant", None)
         if not methods or dnt is None or "/lookup/" in path:

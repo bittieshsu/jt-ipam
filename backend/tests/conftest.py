@@ -36,6 +36,29 @@ os.environ.setdefault("OUTBOUND_ALLOW_PRIVATE", "true")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 
+# 這一套測試會在**每個測試前 TRUNCATE 所有資料表**。也就是說 JTIPAM_TEST_DATABASE_URL
+# 指到哪裡，哪裡就會被清空 —— 貼錯一次連線字串（prod、或本機那份 prod-like 的 jt_ipam）
+# 就是不可逆的資料損失，而且不會有任何確認步驟。
+#
+# 所以這裡擋在最前面：只接受名字看得出是拋棄式的資料庫。這條規則刻意用「名字」而不是
+# 主機位址 —— CI 與本機的測試庫都在 127.0.0.1，用主機分不出來；真正要防的是「同一台機器上
+# 的另一個資料庫」。
+_DISPOSABLE_SUFFIXES = ("_test", "_e2e")
+
+
+def _assert_disposable(url: str) -> None:
+    from urllib.parse import urlparse
+
+    name = urlparse(url.replace("postgresql+asyncpg://", "postgresql://")).path.lstrip("/")
+    if not name.endswith(_DISPOSABLE_SUFFIXES):
+        raise RuntimeError(
+            f"JTIPAM_TEST_DATABASE_URL 指向 {name!r}，這不是拋棄式測試庫。\n"
+            f"測試會在每個測試前清空整個資料庫，所以只接受名稱以 "
+            f"{' / '.join(_DISPOSABLE_SUFFIXES)} 結尾的資料庫（例如 jt_ipam_test）。\n"
+            f"要對其他資料庫跑，請先把它複製成一個 *_test 的拋棄式副本。"
+        )
+
+
 def _apply_test_db_env() -> None:
     """把 POSTGRES_* 改寫到 JTIPAM_TEST_DATABASE_URL 指向的測試庫。
 
@@ -50,6 +73,8 @@ def _apply_test_db_env() -> None:
     if not url:
         return
     from urllib.parse import urlparse
+
+    _assert_disposable(url)
     p = urlparse(url.replace("postgresql+asyncpg://", "postgresql://"))
     if p.hostname:
         os.environ["POSTGRES_HOST"] = p.hostname

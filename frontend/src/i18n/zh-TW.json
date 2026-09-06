@@ -2634,7 +2634,9 @@
     "section_optional_hint": "缺少不影響服務運作，但會讓對應功能無法使用",
     "optional_present": "已安裝",
     "optional_absent": "未安裝",
-    "optional_missing": "缺少 {pkgs}：對應功能會標示為不可用。安裝後即可使用（重新執行 jt-ipam.sh upgrade 也會自動補上）。"
+    "optional_missing": "缺少 {pkgs}：對應功能會標示為不可用。安裝後即可使用（重新執行 jt-ipam.sh upgrade 也會自動補上）。",
+    "license": "授權條款",
+    "license_link": "檢視授權全文"
   },
   "dns_records": {
     "title": "DNS 記錄",

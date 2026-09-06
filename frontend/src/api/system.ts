@@ -209,6 +209,8 @@ export async function listOllamaModels(): Promise<{ models: OllamaModel[]; error
 
 export interface VersionInfo {
   current: string;
+  /** SPDX 授權識別字（來自後端；與 pyproject / package.json / LICENSE 綁在一起） */
+  license?: string;
   python: string;
   packages: Record<string, string | null>;
   frontend?: Record<string, string | null>;

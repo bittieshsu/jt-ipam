@@ -16,6 +16,8 @@ import pytest
 from app.mcp.tools import ADMIN_TOOLS, TOOLS
 from app.services import ai_audit as aa
 
+from tests.route_walk import iter_routes
+
 
 def test_valid_output_is_parsed():
     out = aa.parse_findings(
@@ -153,8 +155,8 @@ def _route_deps(path: str, method: str) -> set[str]:
     annotations` 會讓型別註記變成字串，靠文字比對會誤判（這個專案的 RBAC 稽核踩過）。
     """
     from app.main import app
-    for r in app.routes:
-        if getattr(r, "path", None) == path and method in getattr(r, "methods", set()):
+    for full_path, r in iter_routes(app):
+        if full_path == path and method in (getattr(r, "methods", None) or set()):
             out: set[str] = set()
             stack = [r.dependant]
             while stack:

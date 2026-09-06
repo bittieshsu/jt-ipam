@@ -40,9 +40,19 @@ jobs:
       POSTGRES_USER: jt_ipam
       POSTGRES_PASSWORD: ci
       POSTGRES_DB: jt_ipam_test
-      # 測試用的假值：這些不是機密，只是讓設定驗證過關
-      JWT_SECRET: ci-not-a-real-secret-ci-not-a-real-secret
+      # 測試用的假值：不是機密，只是讓設定驗證過關。
+      # ⚠️ 名稱要與 app/core/config.py 的欄位一致（曾經寫成 JWT_SECRET，那個欄位不存在，
+      # 於是 Settings 驗證直接失敗），且長度必須 >= 32（_MIN_SECRET_BYTES）。
+      SECRET_KEY: ci-not-a-real-secret-ci-not-a-real-secret
       ENCRYPTION_KEY: ci-not-a-real-key-ci-not-a-real-key-0000
+      AUDIT_CHAIN_GENESIS: ci-not-a-real-genesis-ci-not-a-real-gen
+      # SSL 是硬性需求：_tls_guards 在**任何環境**都要求這兩個是 https://，
+      # 而預設值是 http://localhost。少了它們，Settings 驗證會失敗 ——
+      # 於是 alembic 與 pytest 都還沒碰到資料庫就先死，錯誤訊息只講 SSL，
+      # 完全不會提到是 CI 少設了環境變數。pytest 自己有 conftest 的 setdefault
+      # 撐著，migration 步驟沒有。
+      APP_PUBLIC_URL: https://localhost:5173
+      API_PUBLIC_URL: https://localhost:8443
       APP_ENV: development
     steps:
       - uses: actions/checkout@v4
@@ -58,9 +68,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # 與 scripts/ci.sh 同範圍：`ruff check .` 會連 tests/ 一起掃，而那裡從來沒有
+      # 被這組規則管過（現在是 259 個 PT018／I001／RUF059 之類的風格項）——
+      # 一上線就永遠是紅的，等於整條 CI 沒人看。要納入 tests/ 是另一件事，
+      # 得先把既有項目清乾淨，不能夾在「讓 CI 會動」這件事裡。
       - name: Lint (ruff)
         working-directory: backend
-        run: ruff check .
+        run: ruff check app/
+
+      # 掃描代理與維運腳本是在客戶機器上用真實權限跑的，同樣要過 bandit 的 S 規則
+      - name: Security rules on scripts + agent (bandit S)
+        run: |
+          cd backend && ruff check --select S ../scripts ../agent
 
       - name: Enable PostgreSQL extensions
         run: |

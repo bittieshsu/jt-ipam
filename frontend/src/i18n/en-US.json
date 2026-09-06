@@ -2634,7 +2634,9 @@
     "section_optional_hint": "Absence does not affect the service, only the feature that uses it",
     "optional_present": "installed",
     "optional_absent": "missing",
-    "optional_missing": "Missing {pkgs}: the matching tools show as unavailable. Installing them is enough (re-running jt-ipam.sh upgrade also pulls them in)."
+    "optional_missing": "Missing {pkgs}: the matching tools show as unavailable. Installing them is enough (re-running jt-ipam.sh upgrade also pulls them in).",
+    "license": "License",
+    "license_link": "Read the full licence"
   },
   "dns_records": {
     "title": "DNS Records",

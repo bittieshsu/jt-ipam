@@ -894,6 +894,16 @@ async def list_ollama_models(
     headers = ai_mod.auth_headers(provider, getattr(cfg, "api_key", None))
     try:
         resp = await safe_request("GET", url, timeout=10.0, headers=headers)
+    except UnsafeOutboundURL as exc:
+        # 被自己的 SSRF 防護擋下**是預期內的結果**，不是伺服器故障 —— 尤其
+        # 預設的 Ollama 位址就是 loopback（`http://127.0.0.1:11434`），而 loopback
+        # 在 safe_http 是一律封鎖的。原本這裡只接 httpx 的錯誤，於是設定頁一開就是
+        # 四個 500，畫面上只有「伺服器發生錯誤」，看不出被擋的是哪個位址、怎麼放行。
+        return {"models": [], "error": (
+            f"{exc} —— 這個位址被連外防護擋下了。若確定要連到這台機器上的服務，"
+            f"請在 backend.env 的 OUTBOUND_ALLOW_CIDRS 加入該網段（例如 127.0.0.0/8）"
+            f"後重啟後端。"
+        )}
     except httpx.HTTPError as exc:
         return {"models": [], "error": f"{type(exc).__name__}: {exc}"}
     if resp.status_code != 200:
@@ -1126,7 +1136,17 @@ def _gather_version_info() -> dict[str, Any]:
     from importlib.metadata import version as _pkgver
     from pathlib import Path
 
-    from app.version import __version__
+    from app.version import __license__, __version__
+
+    # 授權條款：優先讀安裝後的套件 metadata（那份是由 pyproject 產生的，不會與封裝
+    # 脫節）；沒有 metadata 時（直接從原始碼跑）退回程式碼裡的常數。
+    def _license() -> str:
+        try:
+            from importlib.metadata import metadata as _dist_meta
+            declared = _dist_meta("jt-ipam-backend").get("License")
+        except Exception:
+            declared = None
+        return declared or __license__
 
     # 後端 Python 套件（含連線管理用：asyncssh〔SSH〕、aardwolf〔RDP/VNC，選用〕、
     #                    websockets〔PVE noVNC/xterm 主控台代理〕、Pillow）
@@ -1200,6 +1220,7 @@ def _gather_version_info() -> dict[str, Any]:
     }
     return {
         "current": __version__,
+        "license": _license(),
         "python": sys.version.split()[0],
         "packages": versions,
         "frontend": frontend,

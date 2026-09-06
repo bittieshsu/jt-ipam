@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.10] - 2026-09-05
+
+### Added
+- **The version page now states the licence.** This is an AGPL project - the obligations
+  that come with distributing or modifying it follow the licence, and nobody should have
+  to read the source to find out which one applies. The string comes from the backend
+  (package metadata, generated from `pyproject.toml`), with a link to the full text.
+
+  The licence changed once already (Apache-2.0 to AGPL-3.0-or-later on 2026-08-15), and it
+  is declared in four places: `backend/pyproject.toml`, `frontend/package.json`, the root
+  `LICENSE`, and now this line on screen. Miss one and the page states the wrong licence
+  with complete confidence - worse than not stating it at all. `tests/test_license_declaration.py`
+  ties the four together.
+
+### Fixed
+- **The LLM settings page opened with four 500s.** `GET /system/llm/models` handled
+  "cannot connect" (`httpx.HTTPError`) but not "blocked by our own outbound guard" - and the
+  default Ollama address is `http://127.0.0.1:11434`, while loopback is unconditionally
+  blocked in `safe_http` (allowing it takes an explicit `OUTBOUND_ALLOW_CIDRS`). All the
+  page said was "server error": not which address was blocked, and certainly not how to
+  allow it.
+
+  Being stopped by our own guard is an expected outcome, not a server fault: it now returns
+  200 with a message that names the address and the setting to change. The same error is
+  already handled on the AI chat path; this was a single missed spot.
+
+### Notes
+- No new migration; the schema is unchanged (still `0136`). Install and upgrade need no
+  changes: no new Python or apt packages, no new systemd unit, no new listening port.
+
 ## [0.6.9] — 2026-09-05
 
 ### Added

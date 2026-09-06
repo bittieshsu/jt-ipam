@@ -104,3 +104,6 @@ deploy/docker/certs/
 zap-reports/
 backend/test-results/
 test-results/
+
+# 開發用容器產生的憑證（deploy/dev-services/dev-services.sh）
+.dev.env
