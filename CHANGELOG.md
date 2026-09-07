@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.11] - 2026-09-07
+
+### Fixed
+- **The sections list dropped half the sections** (GitHub issue #27). The reporter has 95
+  sections and saw 50; raising the page size to 500 changed nothing, and the footer said
+  "50 total" -- the count was wrong too.
+
+  The page asked the backend for the first page of 50 and then paginated and searched in the
+  browser. With the data incomplete, the frontend cannot tell "this is everything" from "this
+  is page one", and the footer counts loaded rows, so it states 50 with complete confidence.
+  It now pages through to the end before handing the rows to the table. **The subnets list had
+  the same shape** (a single page of 500) and is fixed with it: a site with more than 500
+  subnets was quietly losing everything past that.
+
+- **A device's primary IP could not be selected, and typing a keyword did not help** (same
+  issue). The dropdown loaded 500 addresses and then filtered *within those 500* in the
+  browser. Past 500 addresses the one you just created is simply not there, and the keyword
+  searches memory rather than the database.
+
+  Search now goes to the backend. The logic moved into a shared `useIpOptions` used by all
+  three places that pick an address -- the form on the device list, the edit dialog on the
+  device page, and the "link an IP" dialog -- which previously each had their own copy, so
+  fixing one left the other two broken. Editing an existing device also fetches the currently
+  selected address, which would otherwise show blank when it falls outside the first batch.
+
+### Notes
+- No database or API change; `/addresses` already accepted `q`, the frontend just never used it.
+- The test checklist gains two entries: seed the fixtures before running the browser suite, and
+  a list page is not proved by opening it -- reconcile the footer count against the server, on
+  more records than fit one page.
+
 ## [0.6.10] - 2026-09-05
 
 ### Added

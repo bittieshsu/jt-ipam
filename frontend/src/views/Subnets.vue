@@ -279,14 +279,29 @@ function applyView() {
   rows.value = treeMode.value ? buildTree(flatRows.value) : flatRows.value;
 }
 
+/** 分頁抓到完。只抓第一頁的話，超過 500 個子網路的站台會少掉後面全部 ——
+ *  而且分頁與搜尋都在前端，畫面連「共 N 筆」都會跟著錯。區段頁曾經就是這樣
+ *  （GitHub issue #27），子網路頁是同一個形狀。 */
+const MAX_ROWS = 5000;
+async function fetchAllSubnets() {
+  const all: Subnet[] = [];
+  const big = 500;   // 後端 page_size 上限
+  for (let p = 1; ; p += 1) {
+    const res = await listSubnets({ page: p, pageSize: big, archived: showArchived.value });
+    all.push(...res.items);
+    if (res.items.length === 0 || all.length >= res.total || all.length >= MAX_ROWS) break;
+  }
+  return all;
+}
+
 async function refresh() {
   loading.value = true;
   try {
-    const res = await listSubnets({ page: 1, pageSize: 500, archived: showArchived.value });
-    flatRows.value = res.items;
+    const items = await fetchAllSubnets();
+    flatRows.value = items;
     applyView();
     const usages = await Promise.all(
-      res.items.map(async (s) => {
+      items.map(async (s) => {
         try {
           return await getSubnetUsage(s.id);
         } catch {

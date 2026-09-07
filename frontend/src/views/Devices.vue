@@ -20,7 +20,7 @@ import {
   DevicesIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, EyeIcon, LinkIcon, RacksIcon,
 } from "@/icons";
 import { cmpNatural } from "@/utils/sort";
-import { listAddresses } from "@/api/addresses";
+import { useIpOptions } from "@/composables/useIpOptions";
 import { listSubnets } from "@/api/subnets";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
@@ -112,20 +112,14 @@ const rackSideOpts = computed(() => [
   { label: t("devices.rack_side_right"), value: "right" },
 ]);
 
-// 主要 IP 選擇：載入位址清單供 device 綁定（設了會雙向連結，IP 清單/拓樸接得起來）
-const ipAddrs = ref<{ id: string; ip: string; hostname: string | null }[]>([]);
+// 主要 IP 選擇：搜尋走後端（設了會雙向連結，IP 清單/拓樸接得起來）。
+// 原本一次載 500 筆再由前端過濾，超過 500 個位址的站台會「有這個 IP 卻選不到、
+// 打關鍵字也找不到」（GitHub issue #27）。
+const { options: ipOptions, loading: ipLoading, search: searchIps,
+        onSearch: onIpSearch, ensure: ensureIp } = useIpOptions();
 async function loadAddresses() {
-  if (ipAddrs.value.length) return;
-  try {
-    const r = await listAddresses({ pageSize: 500 });
-    ipAddrs.value = r.items.map((a: any) => ({ id: a.id, ip: a.ip, hostname: a.hostname }));
-  } catch { /* silent */ }
+  if (!ipOptions.value.length) await searchIps();
 }
-const ipOptions = computed(() =>
-  ipAddrs.value.map((a) => ({
-    label: a.hostname ? `${a.ip} — ${a.hostname}` : a.ip,
-    value: a.id,
-  })));
 
 const locationOpts = computed(() => locations.value.map((l) => ({ label: l.name, value: l.id })));
 
@@ -212,7 +206,9 @@ function openEdit(r: Device) {
     primary_ip_id: (r as any).primary_ip_id ?? null,
   };
   void ensureCustomersLoaded();
-  void loadAddresses();
+  // 先載第一批，再確保「目前這台的主要 IP」也在選項裡 —— 搜尋改走後端之後，
+  // 那筆若不在第一批結果內，下拉會顯示空白（看起來像資料掉了）。
+  void loadAddresses().then(() => ensureIp(form.value.primary_ip_id));
   show.value = true;
 }
 
@@ -597,6 +593,7 @@ onMounted(async () => {
         </n-form-item>
         <n-form-item :label="t('devices.primary_ip')">
           <n-select v-model:value="form.primary_ip_id" :options="ipOptions" filterable clearable
+                    remote :loading="ipLoading" @search="onIpSearch"
                     :placeholder="t('common.not_specified')" />
         </n-form-item>
 

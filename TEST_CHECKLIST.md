@@ -173,9 +173,19 @@ the reverse proxy dropped the WebSocket upgrade.
 
 - [ ] `cd frontend && pnpm exec playwright test smoke` (no backend; self-starts
   vite preview) all green
+- [ ] **Seed the fixtures first**: `POSTGRES_DB=jt_ipam_e2e python -m tests.seed_e2e`
+  (from `backend/`). Several specs assert on specific records, and some of them
+  *change* that data as they run -- dismissing an AI finding, for one -- so a second
+  run without re-seeding fails on state left by the first. The failure looks exactly
+  like a regression, which is how an hour gets spent on nothing
 - [ ] Against a deployed instance (`E2E_BASE_URL` + `E2E_ADMIN_PASS`) run the
   **whole** suite: `pnpm test:e2e`. Data-dependent specs need real data — run those
   against a deployed instance, not an empty test DB
+- [ ] **A list page is not proved by opening it.** Compare what the page claims
+  (the "共 N 筆" footer) against what the server reports, on a data set larger than
+  one page: a page that fetches only the first page and then paginates in the
+  browser looks perfectly healthy until someone has more records than that
+  (GitHub issue #27: 95 sections, 50 shown, footer saying 50)
 - [ ] **Every changed page opened in an actual browser**, console watched: no errors,
   no blank regions, no `undefined` / raw JSON / untranslated i18n keys on screen
 - [ ] **A new spec covering what this release changed.** Assert on the effect, not on

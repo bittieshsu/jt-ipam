@@ -180,11 +180,26 @@ const columns = computed<DataTableColumns<Section>>(() =>
   allColumns.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key)),
 );
 
+/** 分頁抓到完。只抓第一頁的話，第 51 筆之後的區段整批消失 —— 而且表格的
+ *  「共 N 筆」數的是載進來的列數，所以畫面會理直氣壯地說總共只有 50 筆
+ *  （GitHub issue #27：資料庫裡 95 個區段，畫面顯示 50 個並宣稱那就是全部）。
+ *  分頁是前端做的，資料就必須先在前端到齊。 */
+const MAX_ROWS = 5000;   // 與裝置頁同一個上限，不要兩套數字
+async function fetchAllSections() {
+  const all: typeof rows.value = [];
+  const big = 500;   // 後端 page_size 上限
+  for (let p = 1; ; p += 1) {
+    const res = await listSections(p, big);
+    all.push(...res.items);
+    if (res.items.length === 0 || all.length >= res.total || all.length >= MAX_ROWS) break;
+  }
+  return all;
+}
+
 async function refresh() {
   loading.value = true;
   try {
-    const res = await listSections(1, 50);
-    rows.value = res.items;
+    rows.value = await fetchAllSections();
   } catch {
     msg.error(t("errors.network"));
   } finally {

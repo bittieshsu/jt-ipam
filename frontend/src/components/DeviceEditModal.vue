@@ -14,7 +14,7 @@ import {
 } from "@/api/basic";
 import { getRackDiagram, type RackDiagram } from "@/api/racks";
 import { resolveRackLocation } from "@/utils/rackLocation";
-import { listAddresses } from "@/api/addresses";
+import { useIpOptions } from "@/composables/useIpOptions";
 import { EditIcon, PlusIcon, SaveIcon, CancelIcon, RacksIcon } from "@/icons";
 import { useCustomers } from "@/composables/useCustomers";
 import { apiErrMsg } from "@/api/client";
@@ -28,7 +28,6 @@ const { options: customerOptions, ensureLoaded: ensureCustomersLoaded } = useCus
 
 const locations = ref<Location[]>([]);
 const racks = ref<Rack[]>([]);
-const ipAddrs = ref<{ id: string; ip: string; hostname: string | null }[]>([]);
 
 const form = ref<{
   name: string; fqdn: string; type: string; vendor: string; model: string; serial: string;
@@ -54,9 +53,9 @@ const rackSideOpts = computed(() => [
   { label: t("devices.rack_side_left"), value: "left" },
   { label: t("devices.rack_side_right"), value: "right" },
 ]);
-const ipOptions = computed(() => ipAddrs.value.map((a) => ({
-  label: a.hostname ? `${a.ip} — ${a.hostname}` : a.ip, value: a.id,
-})));
+// 主要 IP：搜尋走後端，見 useIpOptions 的說明（GitHub issue #27）
+const { options: ipOptions, loading: ipLoading, search: searchIps,
+        onSearch: onIpSearch, ensure: ensureIp } = useIpOptions();
 const locationOpts = computed(() => locations.value.map((l) => ({ label: l.name, value: l.id })));
 const filteredRackOpts = computed(() => {
   const all = racks.value.map((r) => ({
@@ -74,12 +73,8 @@ async function loadLists() {
     const [l, rk] = await Promise.all([listLocations(), listRacks()]);
     locations.value = l.items; racks.value = rk.items;
   } catch { /* silent */ }
-  if (!ipAddrs.value.length) {
-    try {
-      const r = await listAddresses({ pageSize: 500 });
-      ipAddrs.value = r.items.map((a: any) => ({ id: a.id, ip: a.ip, hostname: a.hostname }));
-    } catch { /* silent */ }
-  }
+  if (!ipOptions.value.length) await searchIps();
+  await ensureIp(form.value.primary_ip_id);
   void ensureCustomersLoaded();
 }
 
@@ -215,6 +210,7 @@ async function submit() {
       <n-form-item :label="t('devices.serial')"><n-input v-model:value="form.serial" /></n-form-item>
       <n-form-item :label="t('devices.primary_ip')">
         <n-select v-model:value="form.primary_ip_id" :options="ipOptions" filterable clearable
+                  remote :loading="ipLoading" @search="onIpSearch"
                   :placeholder="t('common.not_specified')" />
       </n-form-item>
 

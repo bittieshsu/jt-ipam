@@ -89,16 +89,32 @@ const showLinkIp = ref(false);
 const linkIpId = ref<string | null>(null);
 const linkCandidates = ref<IPAddress[]>([]);
 const linking = ref(false);
+const linkLoading = ref(false);
 const linkOptions = computed(() => linkCandidates.value.map((a) => ({
   label: `${a.ip}${a.hostname ? " — " + a.hostname : ""}`, value: a.id,
 })));
+/** 候選位址向後端要，關鍵字也送過去。
+ *  原本一次載 2000 筆再由前端過濾，站台超過那個數量時，要連結的那筆就不在清單裡，
+ *  而且打關鍵字也找不到（同 GitHub issue #27 的裝置表單）。 */
+async function loadLinkCandidates(q?: string) {
+  if (!device.value) return;
+  linkLoading.value = true;
+  try {
+    const r = await listAddresses({ page: 1, pageSize: 200, q: q || undefined });
+    // 已經掛在這台裝置上的不必再連一次
+    linkCandidates.value = r.items.filter((a) => (a as any).device_id !== device.value!.id);
+  } catch { msg.error(t("errors.network")); }
+  finally { linkLoading.value = false; }
+}
+let linkSearchTimer: ReturnType<typeof setTimeout> | undefined;
+function onLinkSearch(q: string) {
+  clearTimeout(linkSearchTimer);
+  linkSearchTimer = setTimeout(() => void loadLinkCandidates(q), 250);
+}
 async function openLinkIp() {
   if (!device.value) return;
   linkIpId.value = null;
-  try {
-    const r = await listAddresses({ page: 1, pageSize: 2000 });
-    linkCandidates.value = r.items.filter((a) => (a as any).device_id !== device.value!.id);
-  } catch { msg.error(t("errors.network")); return; }
+  await loadLinkCandidates();
   showLinkIp.value = true;
 }
 async function doLinkIp() {
@@ -426,6 +442,7 @@ onMounted(() => {
         <n-space vertical :size="12">
           <span style="font-size: 13px; opacity: .75">{{ t("devices.link_ip_hint") }}</span>
           <n-select v-model:value="linkIpId" :options="linkOptions" filterable clearable
+                    remote :loading="linkLoading" @search="onLinkSearch"
                     :placeholder="t('devices.link_ip_ph')" />
           <n-space justify="end">
             <n-button @click="showLinkIp = false">{{ t("common.cancel") }}</n-button>
