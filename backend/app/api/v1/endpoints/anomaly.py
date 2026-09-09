@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
-from app.services.anomaly import run_detection
+from app.schemas.base import StrictModel
+from app.services.anomaly import ANOMALY_IGNORABLE, run_detection
 
 router = APIRouter(prefix="/anomalies", tags=["anomalies"])
 
@@ -203,3 +205,129 @@ async def get_attack_surface(
     # 冒出中文（使用者截圖）。
     return {"items": items}
 
+
+# ── 排程設定 ────────────────────────────────────────────────────────────────
+
+
+class AnomalyScheduleIn(StrictModel):
+    """排程設定。形狀刻意與巡檢排程一致 —— 使用者在兩個地方看到的是同一套語意。"""
+
+    schedule_enabled: bool | None = None
+    times: list[Annotated[str, Field(max_length=5)]] | None = None
+    frequency: Literal["daily", "weekly", "monthly", "interval"] | None = None
+    weekdays: list[Annotated[int, Field(ge=1, le=7)]] | None = None
+    month_day: Annotated[int, Field(ge=1, le=31)] | None = None
+    # 「每隔 N 分鐘」。上限一天：再長就該用每日排程，語意也比較清楚
+    interval_minutes: Annotated[int, Field(ge=1, le=1440)] | None = None
+
+
+@router.get("/schedule", dependencies=[Depends(require_admin)])
+async def get_schedule(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    from app.services.system_config import get_anomaly_config, get_anomaly_last_run
+
+    cfg = await get_anomaly_config(session)
+    last = await get_anomaly_last_run(session)
+    return {
+        "schedule_enabled": cfg.schedule_enabled,
+        "times": cfg.times,
+        "frequency": cfg.frequency,
+        "weekdays": cfg.weekdays,
+        "month_day": cfg.month_day,
+        "interval_minutes": cfg.interval_minutes,
+        "last_run_at": last.isoformat() if last else None,
+    }
+
+
+@router.put("/schedule", dependencies=[Depends(require_admin)])
+async def put_schedule(
+    payload: AnomalyScheduleIn,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    from app.services.system_config import get_anomaly_last_run, set_anomaly_config
+
+    cfg = await set_anomaly_config(
+        session,
+        schedule_enabled=payload.schedule_enabled,
+        times=payload.times,
+        frequency=payload.frequency,
+        weekdays=payload.weekdays,
+        month_day=payload.month_day,
+        interval_minutes=payload.interval_minutes,
+    )
+    await append_audit(
+        session,
+        actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="anomaly", object_id=None, action="update_schedule",
+        diff={"schedule_enabled": cfg.schedule_enabled, "times": cfg.times,
+              "frequency": cfg.frequency, "weekdays": cfg.weekdays,
+              "month_day": cfg.month_day, "interval_minutes": cfg.interval_minutes},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    last = await get_anomaly_last_run(session)
+    return {
+        "schedule_enabled": cfg.schedule_enabled,
+        "times": cfg.times,
+        "frequency": cfg.frequency,
+        "weekdays": cfg.weekdays,
+        "month_day": cfg.month_day,
+        "interval_minutes": cfg.interval_minutes,
+        "last_run_at": last.isoformat() if last else None,
+    }
+
+
+# ── 逐 IP 的忽略清單 ────────────────────────────────────────────────────────
+
+
+class AnomalyIgnoreIn(StrictModel):
+    """要忽略哪幾類異常。空清單＝全部恢復報告。"""
+
+    categories: list[Annotated[str, Field(max_length=32)]]
+
+
+@router.put("/ignore/{ip_id}", dependencies=[Depends(require_admin)])
+async def set_ignore(
+    ip_id: uuid.UUID,
+    payload: AnomalyIgnoreIn,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """把某個 IP 標記為「這幾類異常不用再報」。
+
+    這是給「本來就會這樣」的位址用的 —— 最典型的是開了隱私隨機化的裝置
+    （Windows 11 / macOS / iOS / Android）每次連線都換 MAC。沒有這個機制，
+    使用者只能把整條規則關掉，連真正的 IP 搶用也一起看不到。
+    """
+    from app.models.address import IPAddress
+
+    ipa = await session.get(IPAddress, ip_id)
+    if ipa is None:
+        raise HTTPException(status_code=404, detail="IP not found")
+    # 只接受清單裡的類別 —— 亂塞字串進 JSONB 之後沒有人查得出那是什麼
+    cats = sorted({c for c in payload.categories if c in set(ANOMALY_IGNORABLE)})
+    before = list(ipa.anomaly_ignore or [])
+    ipa.anomaly_ignore = cats
+    await append_audit(
+        session,
+        actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip", object_id=str(ipa.id), action="anomaly_ignore",
+        diff={"before": before, "after": cats},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"ip_id": str(ipa.id), "categories": cats}
+
+
+@router.get("/ignorable", dependencies=[Depends(require_admin)])
+async def list_ignorable() -> dict[str, Any]:
+    """可以逐 IP 忽略的類別 —— 前端用它產生選項，不要自己再寫一份清單。"""
+    return {"categories": list(ANOMALY_IGNORABLE)}

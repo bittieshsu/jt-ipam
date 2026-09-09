@@ -15,9 +15,11 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
 from app.models.system_setting import SystemSetting
+from app.services.schedule import MIN_INTERVAL_MINUTES
 
 LLM_KEY = "llm"
 _TTL_SEC = 60.0
@@ -352,6 +354,136 @@ async def set_ai_audit_last_run(session: AsyncSession, *, at: datetime) -> None:
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(row, "value")
     await session.commit()
+
+
+# ─────────────────── 異常偵測（排程）───────────────────
+ANOMALY_KEY = "anomaly"
+
+
+@dataclass
+class AnomalyConfig:
+    """異常偵測的排程設定。
+
+    **預設關閉**：排程會發通知給所有管理員，升級不該讓任何站台突然開始發信。
+    時刻／頻率的形狀刻意與巡檢排程一致（同一個 `services/schedule.due` 判斷），
+    使用者在兩個地方看到的是同一套語意。
+    """
+
+    schedule_enabled: bool = False
+    times: list[str] = field(default_factory=lambda: ["04:00"])
+    frequency: str = "daily"          # daily / weekly / monthly / interval
+    weekdays: list[int] = field(default_factory=lambda: [1])   # 1=週一 … 7=週日
+    month_day: int = 1
+    # 「每隔 N 分鐘」用。下限由 schedule.MIN_INTERVAL_MINUTES 決定（timer 週期）——
+    # 設得比 timer 還密不會更即時，只會讓人以為設定沒生效。
+    interval_minutes: int = 60
+
+
+async def get_anomaly_config(session: AsyncSession) -> AnomalyConfig:
+    cfg = AnomalyConfig()
+    row = await session.get(SystemSetting, ANOMALY_KEY)
+    v = row.value if row and isinstance(row.value, dict) else {}
+    if isinstance(v.get("schedule_enabled"), bool):
+        cfg.schedule_enabled = v["schedule_enabled"]
+    times = normalize_times(v.get("times"))
+    if times:
+        cfg.times = times
+    if str(v.get("frequency", "")) in ("daily", "weekly", "monthly", "interval"):
+        cfg.frequency = str(v["frequency"])
+    if v.get("interval_minutes") is not None:
+        try:
+            cfg.interval_minutes = max(int(v["interval_minutes"]), MIN_INTERVAL_MINUTES)
+        except (TypeError, ValueError):
+            pass
+    days = normalize_weekdays(v.get("weekdays"))
+    if days:
+        cfg.weekdays = days
+    if v.get("month_day") is not None:
+        try:
+            d = int(v["month_day"])
+            if 1 <= d <= 31:
+                cfg.month_day = d
+        except (TypeError, ValueError):
+            pass
+    return cfg
+
+
+async def set_anomaly_config(
+    session: AsyncSession, *,
+    schedule_enabled: bool | None = None,
+    times: list[str] | None = None,
+    frequency: str | None = None,
+    weekdays: list[int] | None = None,
+    month_day: int | None = None,
+    interval_minutes: int | None = None,
+) -> AnomalyConfig:
+    row = await session.get(SystemSetting, ANOMALY_KEY)
+    if row is None:
+        row = SystemSetting(key=ANOMALY_KEY, value={})
+        session.add(row)
+    v = dict(row.value or {})
+    if schedule_enabled is not None:
+        v["schedule_enabled"] = bool(schedule_enabled)
+    if times is not None:
+        t = normalize_times(times)
+        if t:
+            v["times"] = t
+    if frequency in ("daily", "weekly", "monthly", "interval"):
+        v["frequency"] = frequency
+    if interval_minutes is not None:
+        v["interval_minutes"] = max(int(interval_minutes), MIN_INTERVAL_MINUTES)
+    if weekdays is not None:
+        d = normalize_weekdays(weekdays)
+        if d:
+            v["weekdays"] = d
+    if month_day is not None and 1 <= int(month_day) <= 31:
+        v["month_day"] = int(month_day)
+    row.value = v
+    flag_modified(row, "value")
+    await session.flush()
+    return await get_anomaly_config(session)
+
+
+async def get_anomaly_last_run(session: AsyncSession) -> datetime | None:
+    """上次排程執行的時間。與巡檢同理：不能從「最後一筆發現」回推 ——
+    一次乾淨的偵測什麼都不會留下，那會被判成從沒跑過而每輪重跑。"""
+    row = await session.get(SystemSetting, ANOMALY_KEY)
+    if row and isinstance(row.value, dict):
+        v = row.value.get("last_run_at")
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v)
+            except ValueError:
+                return None
+    return None
+
+
+async def set_anomaly_last_run(session: AsyncSession, *, at: datetime) -> None:
+    row = await session.get(SystemSetting, ANOMALY_KEY)
+    if row is None:
+        row = SystemSetting(key=ANOMALY_KEY, value={})
+        session.add(row)
+    row.value = {**(row.value or {}), "last_run_at": at.isoformat()}
+    flag_modified(row, "value")
+    await session.flush()
+
+
+async def get_anomaly_seen(session: AsyncSession) -> dict[str, list[str]]:
+    """上次通知過的發現指紋，逐類別一份。用來只通知「新的」。"""
+    row = await session.get(SystemSetting, ANOMALY_KEY)
+    v = row.value if row and isinstance(row.value, dict) else {}
+    seen = v.get("seen")
+    return seen if isinstance(seen, dict) else {}
+
+
+async def set_anomaly_seen(session: AsyncSession, seen: dict[str, list[str]]) -> None:
+    row = await session.get(SystemSetting, ANOMALY_KEY)
+    if row is None:
+        row = SystemSetting(key=ANOMALY_KEY, value={})
+        session.add(row)
+    row.value = {**(row.value or {}), "seen": seen}
+    flag_modified(row, "value")
+    await session.flush()
 
 
 # ─────────────────── AI chat 歷程保留設定 ───────────────────
@@ -1043,6 +1175,29 @@ async def set_notification_channels(
 # ─────────────────── 通知矩陣（哪些事件、走哪些管道）───────────────────
 NOTIFY_MATRIX_KEY = "notification_matrix"
 # 可通知事件登錄（矩陣的列）：(key, 預設站內, 預設 email)。新增事件只要在這裡加一列。
+# 異常偵測逐類別的通知事件。
+#
+# 原本只有一列 `anomaly.detected`：十種發現要嘛全通知、要嘛全不通知。但這十種的份量
+# 差很多 ——「非法 DHCP 伺服器」要立刻處理，「失聯 IP」比較像每週整理一次的清單。
+# 混在一起的下場是使用者為了不被吵而整類關掉，真正要緊的那幾種也一起消失。
+#
+# 舊的 `anomaly.detected` 不再出現在設定頁（一列講不出作用的總開關只會讓人猜誰說了算），
+# 但**仍然是升級時的預設來源**：已經把異常通知的 Email 打開的站台，升級後十類都還開著。
+ANOMALY_EVENTS: tuple[str, ...] = (
+    "anomaly.ip_conflicts",
+    "anomaly.mac_drifts",
+    "anomaly.ghost_ips",
+    "anomaly.unauthorized_ips",
+    "anomaly.rogue_dhcp",
+    "anomaly.external_exposure",
+    "anomaly.dangling_dns",
+    "anomaly.duplicate_ip_records",
+    "anomaly.suspicious_changes",
+    "anomaly.fw_rule_rot",
+    "anomaly.mac_flapping",
+)
+LEGACY_ANOMALY_EVENT = "anomaly.detected"
+
 NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("ip_request.created", True, True),    # 審核者：有新 IP 申請待審
     ("ip_request.approved", True, True),   # 申請人：申請已核准（含配發 IP）
@@ -1050,8 +1205,21 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("cert.expiring", True, False),        # 憑證即將到期 / 已過期
     ("cert.deployed", True, False),        # 代理成功部署新憑證
     ("cert.drift", True, False),           # 憑證飄移（某代理未套到最新版）
-    ("anomaly.detected", True, False),     # 異常偵測有新發現
+    *((ev, True, False) for ev in ANOMALY_EVENTS),   # 異常偵測（逐類別）
     ("firewall.rules_changed", True, False),  # 防火牆規則有異動
+    # 「東西壞了卻沒人知道」三類。只在開始與恢復時發（見 services/state_alert）。
+    ("integration.sync_failed", True, False),  # 整合同步失敗／恢復
+    ("agent.offline", True, False),            # 掃描／憑證代理失聯／恢復
+    ("system.health", True, False),            # 系統檢查未通過／恢復
+    ("dhcp.pool_exhausted", True, False),      # DHCP 集區快用完／回到門檻以下
+    ("jump_host.key_changed", True, True),     # 跳板主機金鑰改變（資安事件，預設連 Email 都開）
+    ("cert.fetch_failed", True, False),        # 憑證來源抓取失敗／恢復
+    # 這兩個原本直接推通知、設定頁上沒有對應的列 —— 使用者收得到卻關不掉
+    ("audit.chain_broken", True, True),        # 稽核鏈驗證失敗（資安事件）
+    ("ip.stale", True, False),                 # 失聯 IP 提醒
+    # 權限變更是低頻高影響 → 預設連 Email 都開；暴力破解只在「多個帳號同時被鎖」時發
+    ("security.privilege_changed", True, True),
+    ("security.brute_force", True, False),
 )
 
 
@@ -1063,13 +1231,27 @@ async def get_notification_matrix(session: AsyncSession) -> dict[str, dict[str, 
     """回傳通知矩陣 {event: {in_app, email}}，未設定的事件用預設值補齊。"""
     out = _default_matrix()
     row = await session.get(SystemSetting, NOTIFY_MATRIX_KEY)
-    if row and isinstance(row.value, dict):
-        for k, v in row.value.items():
-            if k in out and isinstance(v, dict):
-                if isinstance(v.get("in_app"), bool):
-                    out[k]["in_app"] = v["in_app"]
-                if isinstance(v.get("email"), bool):
-                    out[k]["email"] = v["email"]
+    stored = row.value if row and isinstance(row.value, dict) else {}
+
+    # 升級路徑：舊資料只有一列 anomaly.detected。逐類別的設定還沒存在時，
+    # 沿用那一列的值 —— 否則已經打開 Email 的站台會在升級當下被靜靜關掉，
+    # 而畫面上看起來只是「預設值」。第一次儲存之後就以逐類別的設定為準。
+    legacy = stored.get(LEGACY_ANOMALY_EVENT)
+    if isinstance(legacy, dict):
+        for ev in ANOMALY_EVENTS:
+            if ev in stored:
+                continue
+            if isinstance(legacy.get("in_app"), bool):
+                out[ev]["in_app"] = legacy["in_app"]
+            if isinstance(legacy.get("email"), bool):
+                out[ev]["email"] = legacy["email"]
+
+    for k, v in stored.items():
+        if k in out and isinstance(v, dict):
+            if isinstance(v.get("in_app"), bool):
+                out[k]["in_app"] = v["in_app"]
+            if isinstance(v.get("email"), bool):
+                out[k]["email"] = v["email"]
     return out
 
 

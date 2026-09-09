@@ -212,6 +212,22 @@ async def seed() -> None:
                             created_at=now - timedelta(minutes=5 * i),
                             fingerprint=hashlib.sha256(title.encode()).hexdigest()[:32]))
 
+        # ── 一個「頻繁更換 MAC」的樣本（開了隱私隨機化的裝置）──────
+        # 位址是本地管理位址（第二個十六進位字元是 2/6/a/e），與真實裝置的 MAC 區分得開。
+        from app.models.librenms import ARPEntry
+        now_arp = datetime.now(UTC)
+        for i, mac in enumerate(["0a1b2c000001", "0a1b2c000002", "0e1b2c000003",
+                                 "021b2c000004", "0a1b2c000005", "0e1b2c000006"]):
+            if not (await s.execute(select(ARPEntry).where(
+                    ARPEntry.ip == "10.20.0.10", ARPEntry.mac == mac))).scalars().first():
+                s.add(ARPEntry(ip="10.20.0.10", mac=mac,
+                               first_seen_at=now_arp - timedelta(days=5),
+                               last_seen_at=now_arp - timedelta(hours=i * 6)))
+        # ⚠️ 忽略清單一定要重設：e2e 會按「忽略這個 IP」，不重設的話第二次跑就
+        # 什麼都看不到 —— 而失敗訊息長得像「功能壞了」。
+        web.anomaly_ignore = []
+        subnets["10.20.0.0/24"].anomaly_enabled = True
+
         # ── 防火牆規則異動（zz-fwchanges-ai 期待 router-e2e）─────────
         if not (await s.execute(select(FwRuleSnapshot).where(
                 FwRuleSnapshot.instance_name == "router-e2e"))).scalars().first():

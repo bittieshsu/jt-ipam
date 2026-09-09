@@ -251,6 +251,7 @@ export interface AnomalyReport {
   fw_rule_rot: any[];
   arp_only_liveness: any[];
   stale_device_links: any[];
+  mac_flapping?: Record<string, any>[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {
@@ -553,3 +554,41 @@ export const Physical = {
     await apiClient.delete(`/api/v1/cables/${id}`);
   },
 };
+
+/** 異常偵測的排程設定（管理員）。形狀與巡檢排程一致；`interval` 是每隔 N 分鐘。 */
+export interface AnomalySchedule {
+  schedule_enabled: boolean;
+  times: string[];
+  frequency: "daily" | "weekly" | "monthly" | "interval";
+  weekdays: number[];
+  month_day: number;
+  interval_minutes: number;
+  last_run_at: string | null;
+}
+
+export async function getAnomalySchedule(): Promise<AnomalySchedule> {
+  const { data } = await apiClient.get<AnomalySchedule>("/api/v1/anomalies/schedule");
+  return data;
+}
+
+export async function updateAnomalySchedule(
+  patch: Partial<Omit<AnomalySchedule, "last_run_at">>,
+): Promise<AnomalySchedule> {
+  const { data } = await apiClient.put<AnomalySchedule>("/api/v1/anomalies/schedule", patch);
+  return data;
+}
+
+/** 可以逐 IP 忽略的異常類別（由後端決定，前端不要自己再寫一份）。 */
+export async function listIgnorableCategories(): Promise<{ categories: string[] }> {
+  const { data } = await apiClient.get<{ categories: string[] }>("/api/v1/anomalies/ignorable");
+  return data;
+}
+
+/** 把某個 IP 的某一類異常標記為忽略（會合併既有的忽略項目）。 */
+export async function ignoreAnomalyForIp(
+  ipId: string, category: string, existing: string[] = [],
+): Promise<{ ip_id: string; categories: string[] }> {
+  const categories = Array.from(new Set([...existing, category]));
+  const { data } = await apiClient.put(`/api/v1/anomalies/ignore/${ipId}`, { categories });
+  return data;
+}

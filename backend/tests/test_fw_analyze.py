@@ -36,7 +36,7 @@ def test_extract_ips_caps_the_count() -> None:
 class _Snap:
     def __init__(self, diff):
         self.id = uuid.uuid4()
-        self.instance_name = "fw-002"
+        self.instance_name = "firewall-a"
         self.source_type = "pfsense"
         self.taken_at = datetime.now(UTC)
         self.diff = diff

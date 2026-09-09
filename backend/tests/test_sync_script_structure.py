@@ -31,6 +31,10 @@ BLOCK_MARKERS = [
     "ProxmoxInstance",
     "DNSServer",
     "get_ai_audit_last_run",     # AI 巡檢
+    "get_anomaly_last_run",      # 異常偵測排程
+    "prune_stale_fdb",           # FDB 過期清除
+    "check_integration_health",  # 健康告警（整合／代理／系統）
+    "check_jump_host_keys",      # 容量與資安告警（DHCP／跳板金鑰／憑證來源）
 ]
 
 

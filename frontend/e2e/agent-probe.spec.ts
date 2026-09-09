@@ -17,7 +17,13 @@ test.beforeEach(async ({ page }) => {
   await page.keyboard.press("Enter");
   await page.waitForURL(/dashboard|\/$/, { timeout: 15000 });
   await page.goto(BASE + "/tools");
+  // 代理清單是非同步載回來的 —— 不等它就點開下拉，選項裡只會有「伺服器」，
+  // 而失敗訊息看起來像「代理選項不見了」。整套跑的時候比單獨跑更容易踩到。
+  const agents = page.waitForResponse(
+    (r) => r.url().includes("/api/v1/scan-agents") && r.ok(), { timeout: 15000 },
+  ).catch(() => null);
   await page.locator(".n-tabs-tab").filter({ hasText: "連線診斷" }).first().click();
+  await agents;
 });
 
 test("可選擇從伺服器或從掃描代理執行", async ({ page }) => {

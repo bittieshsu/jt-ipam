@@ -340,6 +340,9 @@ cd jt-ipam/deploy/docker
 | `API_PUBLIC_URL` |  | OIDC/SAML callback 用 |
 | `CORS_ORIGINS` |  | 多個用逗號分隔 |
 | `OUTBOUND_ALLOW_CIDRS` | — | safe_http SSRF allowlist；空白 = 只允公網 |
+| `FDB_CURRENT_MAX_AGE_HOURS` | 24 | FDB 條目多久沒被看到就只算歷史（不再參與「目前接在哪個埠」的判斷）|
+| `FDB_RETENTION_DAYS` | 365 | FDB 歷史保留天數；0＝永久。這張表的價值是「以前接在哪個埠」，所以預設比 ARP 長很多 |
+| `ARP_RETENTION_DAYS` | 30 | ARP 條目保留天數；0＝停用回收 |
 | `OIDC_*` | — | 啟用 OIDC SSO |
 | `SAML_*` | — | 啟用 SAML SSO |
 | `LDAP_*` | — | LDAP/AD 認證 |

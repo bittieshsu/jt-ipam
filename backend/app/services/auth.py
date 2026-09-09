@@ -133,10 +133,14 @@ async def authenticate(
         await session.commit()
         raise InvalidCredentials
 
-    def _bump_lock(u: User) -> None:
+    async def _bump_lock(u: User) -> None:
         u.failed_login_count = (u.failed_login_count or 0) + 1
         if u.failed_login_count >= _MAX_FAILED_ATTEMPTS:
             u.locked_until = now + _LOCK_DURATION
+            # 鎖定原本只改欄位就 commit —— 「這個帳號什麼時候被鎖過、從哪個位址打的」
+            # 事後完全查不到。鎖定是資安事件，一定要留下記錄。
+            from app.services.security_alert import audit_lockout
+            await audit_lockout(session, user=u, actor_ip=actor_ip, until=u.locked_until)
 
     # ───────────── LDAP / AD realm ─────────────
     if realm == "ldap":
@@ -160,7 +164,7 @@ async def authenticate(
             info = await ldap_auth.authenticate(ldap_cfg, account, password)
         except ldap_auth.LDAPInvalidCredentials as exc:
             if user is not None:
-                _bump_lock(user)
+                await _bump_lock(user)
             await _audit("login_failed", success=False, reason="ldap_invalid", target_user=user)
             await session.commit()
             raise InvalidCredentials from exc
@@ -254,7 +258,7 @@ async def authenticate(
         try:
             await radius_auth.authenticate(username, password)
         except (radius_auth.RadiusInvalidCredentials, radius_auth.RadiusAuthError) as exc:
-            _bump_lock(user)
+            await _bump_lock(user)
             await _audit("login_failed", success=False, reason="radius_reject", target_user=user)
             await session.commit()
             raise InvalidCredentials from exc
@@ -272,7 +276,7 @@ async def authenticate(
 
     target_hash = user.password_hash or _DUMMY
     if not verify_password(password, target_hash):
-        _bump_lock(user)
+        await _bump_lock(user)
         await _audit("login_failed", success=False, reason="invalid_password", target_user=user)
         await session.commit()
         raise InvalidCredentials

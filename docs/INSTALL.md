@@ -354,6 +354,9 @@ Main config file: `/etc/jt-ipam/backend.env` (root:jtipam 0640)
 | `API_PUBLIC_URL` | ✓ | used for OIDC/SAML callbacks |
 | `CORS_ORIGINS` | ✓ | comma-separated |
 | `OUTBOUND_ALLOW_CIDRS` | — | safe_http SSRF allowlist; blank = public internet only |
+| `FDB_CURRENT_MAX_AGE_HOURS` | 24 | How long an FDB entry counts as current; older ones stay as history but no longer decide the switch port |
+| `FDB_RETENTION_DAYS` | 365 | FDB history retention in days; 0 = keep forever. Much longer than ARP on purpose -- the value of this table is knowing which port a machine used to be on |
+| `ARP_RETENTION_DAYS` | 30 | ARP entry retention in days; 0 = no pruning |
 | `OIDC_*` | — | enable OIDC SSO |
 | `SAML_*` | — | enable SAML SSO |
 | `LDAP_*` | — | LDAP/AD auth |

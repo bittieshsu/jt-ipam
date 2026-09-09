@@ -4,6 +4,115 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.12] - 2026-09-08
+
+### Added
+- **Anomaly detection can run on a schedule** (Admin -> Anomaly detection -> Schedule). The
+  detection has always been there, but it only ever ran when somebody pressed the button --
+  and IP conflicts, rogue DHCP servers and externally exposed services do not wait for office
+  hours.
+
+  Four frequencies: **every N minutes** (minimum 5), daily, on chosen weekdays, or on a chosen
+  day of the month. Minute-level intervals matter for operational checks like these, which is
+  why the interval mode exists here and not for the AI audit -- that one costs an LLM call and
+  keeps fixed wall-clock times, because interval scheduling drifts with each run. The 5-minute
+  floor is not arbitrary: the scheduler is driven by `jt-ipam-sync.timer`, which wakes about
+  every 5 minutes, so anything shorter is not more responsive -- it just looks like the setting
+  did not take.
+
+- **A scheduled run only notifies about findings that are new since the last run.** This is what
+  makes the schedule usable at all: detection reports the *current state*, not a stream of
+  events, so an unresolved IP conflict reappears every single run. Notifying every time would
+  mute the whole category within days -- and genuinely new events with it. The comparison uses a
+  fingerprint built from stable fields (IP, MAC, CIDR, device name...), not a hash of the whole
+  record: include something like "last seen" and every run looks new, which is the same as not
+  deduplicating. Pressing the button by hand behaves as before.
+
+### Changed
+- The schedule arithmetic (daily / chosen weekdays / day of month, including clamping the 31st
+  to the last day of a shorter month) moved out of `services/ai_audit.py` into a shared
+  `services/schedule.py`. Two copies of this logic would mean only one of them gets fixed, and
+  the difference is invisible on screen.
+
+### Added (continued)
+- **Anomaly notifications are now per category** (Admin -> Notification settings). There used to be
+  a single `anomaly.detected` row: all ten kinds of finding, or none. They differ enormously in
+  weight -- a rogue DHCP server needs attention now, unreachable IPs are more of a weekly tidy-up --
+  and lumping them together means people mute the lot to stop the noise, losing the urgent ones too.
+  Upgrading changes nothing: a site that had turned email on for anomalies keeps it on for all
+  eleven (the old row remains the default source until the settings are saved once).
+
+- **New rule: an IP that keeps changing MAC.** The existing "MAC drift" asks whether one MAC appears
+  on two switch ports (miswiring, spoofing); this asks the opposite -- one IP cycling through MACs,
+  which means a recycled DHCP pool, somebody taking a static address by hand, or a device using MAC
+  randomisation. Each MAC is listed with its times, and the locally administered ones (the signature
+  of privacy randomisation) are marked.
+
+- **Per-IP anomaly exemptions** (migration `0137`). Windows 11 / macOS / iOS / Android pick a new MAC
+  on every connection with privacy features on -- without an exemption the only option is turning the
+  whole rule off, which also hides genuine address takeovers. Exemptions are per category, and not
+  every category can be exempted: a rogue DHCP server or an IP conflict should never be silenced with
+  "that one is always like that". Randomised addresses are deliberately not skipped automatically --
+  that can also be someone spoofing a MAC, so the finding states the facts and leaves the judgement.
+
+- **MAC changes now appear in an IP's change log.** Hostname changes have always been recorded; MAC
+  changes were not, so the timeline on the IP page showed "hostname changed" but never "this machine
+  changed NIC", even though the ARP table knew.
+
+### Fixed (continued)
+- **FDB history and "currently valid" were being used interchangeably** (raised in an external
+  review; confirmed). Deriving an IP's switch port read the *entire* FDB history, filtered only on
+  "has a port name" -- a port seen once six months ago carried the same weight as today's, so
+  `switch_port` could point at a location the machine had long since left, with nothing on screen to
+  suggest it. Only entries seen recently now take part (`FDB_CURRENT_MAX_AGE_HOURS`, default 24);
+  the history is still kept.
+- **LibreNMS's own timestamps are no longer discarded.** The sync stamped `first_seen_at` and
+  `last_seen_at` with jt-ipam's sync time, while LibreNMS records `created_at` / `updated_at` itself
+  (one row on a real installation was first seen in 2021 and updated that morning). Overwriting them
+  turns "this MAC has been on this port for years" into "first seen today".
+- **FDB entries are now pruned** (`FDB_RETENTION_DAYS`, default 365, 0 = keep forever). ARP has had
+  pruning for a while; FDB only ever grew. The long default is deliberate: the value of this table is
+  knowing which port a machine used to be on.
+
+### Added (notifications)
+- **Eight new alert sources**, each switchable in Admin -> Notification settings:
+  `integration.sync_failed` (an expired token stops a sync for days while the UI looks fine),
+  `agent.offline` (scan and certificate agents), `system.health` (the **bad** items from the
+  system check), `dhcp.pool_exhausted` (a full pool means new machines silently get no address,
+  and the symptom on site is "the network is broken"), `jump_host.key_changed` (a changed
+  fingerprint is what interception looks like, and previously only a live console attempt would
+  catch it), `cert.fetch_failed` (failing to fetch a renewed certificate has no symptom until
+  expiry day), plus `audit.chain_broken` and `ip.stale`, which were already being sent but had no
+  row in the settings page -- received but impossible to turn off.
+
+  **State-based alerts fire only on the transition into and out of trouble**
+  (`services/state_alert`). That is what keeps them from becoming noise: integrations sync every
+  five minutes, so an expired token fails every round -- notifying each time is 288 messages a
+  day, the category gets muted by day two, and the genuinely new problems go with it.
+  Integrations additionally need two consecutive failures before counting as broken.
+
+  Agent staleness thresholds differ **per kind**: a scan agent long-polls (300 s by default), so
+  half an hour of silence is already wrong; a certificate agent runs from a systemd timer whose
+  installer default is **daily**, so it gets two days -- one missed run can be a reboot, two in a
+  row cannot. The numbers came from a real installation: with a single 30-minute threshold, all
+  seventeen certificate agents were reported offline in one round.
+
+  Deliberate judgements: an agent that has **never** reported is not offline (it was just
+  created); a jump host that is **unreachable** is not a changed key (crying interception at a
+  reboot teaches people to ignore the alert); system-check **warnings** are not notified (half
+  the page is legitimately warnings); and a check that **disappears** is never announced as
+  recovered -- we simply stopped knowing.
+
+  Subnet utilisation is deliberately **not** a notification: it is a planning number that creeps
+  towards its threshold by design, and would produce a daily "still fairly full".
+
+### Notes
+- Off by default: the schedule notifies every administrator, and an upgrade should not start
+  sending mail on its own.
+- No new migration; the settings live in the existing `system_settings`.
+- Upgrading must also refresh `scripts/jt-ipam-sync.py`, which is where the schedule is
+  triggered. Sites using `jt-ipam.sh upgrade` get this automatically.
+
 ## [0.6.11] - 2026-09-07
 
 ### Fixed

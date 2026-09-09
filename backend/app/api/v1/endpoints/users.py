@@ -200,6 +200,9 @@ async def update_user(
         if user.auth_provider != "local":
             raise HTTPException(400, detail="cannot rename external account")
         user.username = new_username.strip()
+    # 權限變更要在覆寫之前記下舊值 —— 這是整個系統最重要的事實變化之一，
+    # 事後才從稽核翻出來太慢（`security.privilege_changed`）
+    was_admin = bool(user.is_admin)
     for k, v in data.items():
         setattr(user, k, v)
     if new_pwd is not None:
@@ -221,6 +224,21 @@ async def update_user(
         diff={**data, "username": new_username, "password_changed": new_pwd is not None, "unlocked": unlock},
         request_id=getattr(request.state, "request_id", None),
     )
+    if bool(user.is_admin) != was_admin:
+        from app.services.security_alert import notify_privilege_change
+        # 操作者要查得出來：`request.state` 只有 user_id，沒有 username ——
+        # 直接寫死「admin」會讓通知在不是 admin 操作時說謊。
+        actor_id = str(getattr(request.state, "user_id", "") or "")
+        actor_name = actor_id or "未知"
+        if actor_id:
+            actor = (await session.execute(
+                select(User).where(User.id == uuid.UUID(actor_id)))).scalar_one_or_none()
+            if actor is not None:
+                actor_name = actor.username
+        await notify_privilege_change(
+            session, actor=actor_name, target=user.username,
+            change="被授予管理權限" if user.is_admin else "被收回管理權限",
+        )
     try:
         await session.commit()
     except IntegrityError as exc:

@@ -119,16 +119,29 @@ async def notify_chain_failure(
     if recent is not None:
         return 0
 
+    # 通知發送設定裡可以關掉（`audit.chain_broken`）。原本是直接推 ——
+    # 使用者收得到卻沒有任何地方管得到它。預設仍是站內＋Email 都開：這是資安事件。
+    from app.services.system_config import get_notification_matrix
+    ch = (await get_notification_matrix(session)).get(
+        "audit.chain_broken", {"in_app": True, "email": True})
+    if not (ch.get("in_app") or ch.get("email")):
+        return 0
+
     admins = (await session.execute(
         select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
     )).scalars().all()
     detail = str(result.get("detail") or result.get("reason") or "unknown")
-    for admin in admins:
-        await push_notification(
-            session, user_id=admin.id, severity="error",
-            title=_NOTIFY_TITLE, body=detail,
-            link="/audit", object_type="audit", object_id=None,
-        )
+    if ch.get("in_app"):
+        for admin in admins:
+            await push_notification(
+                session, user_id=admin.id, severity="error",
+                title=_NOTIFY_TITLE, body=detail,
+                link="/audit", object_type="audit", object_id=None,
+            )
+    if ch.get("email"):
+        from app.services.notification import email_users
+        await email_users(session, [a.email for a in admins],
+                          f"[jt-ipam] {_NOTIFY_TITLE}", detail)
     return len(admins)
 
 

@@ -23,6 +23,7 @@ from sqlalchemy import true as sa_true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.address import IPAddress
@@ -656,18 +657,76 @@ async def sync_fdb(
                     )
                 )
             ).scalar_one_or_none()
+            first_at, last_at = _fdb_times(entry, now)
             if existing is None:
                 session.add(FDBEntry(
                     mac=mac, vlan_id_num=vlan_int,
                     instance_id=instance.id, device_id=d.id,
                     port_name=port_name, source="librenms",
-                    first_seen_at=now, last_seen_at=now,
+                    first_seen_at=first_at, last_seen_at=last_at,
                 ))
                 inserted += 1
             else:
-                existing.last_seen_at = now
+                # 只往前走：上游若回了較舊的時間（分頁、重送），不要把末見時間往回改
+                if existing.last_seen_at is None or last_at > existing.last_seen_at.replace(
+                        tzinfo=existing.last_seen_at.tzinfo or UTC):
+                    existing.last_seen_at = last_at
                 updated += 1
     return seen, inserted, updated
+
+
+def _fdb_times(row: dict[str, Any], now: datetime) -> tuple[datetime, datetime]:
+    """一筆 FDB 的首見／末見時間。
+
+    LibreNMS 自己就記了 `created_at` / `updated_at`（實機驗過：某筆是 2021 年首見、
+    當天才更新）。把它們蓋成 jt-ipam 的同步時間，等於把「這個 MAC 在這個埠待了幾年」
+    變成「今天才第一次看到」—— 而那正是查案時最想知道的事。
+
+    上游給的東西不能直接信：解不出來就退回同步時間，不讓一筆壞資料炸掉整批同步。
+    """
+    def _parse(v: object) -> datetime | None:
+        if not isinstance(v, str) or not v:
+            return None
+        try:
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+    first = _parse(row.get("created_at")) or now
+    last = _parse(row.get("updated_at")) or now
+    # 上游偶爾會給出 updated < created（時鐘、資料修補）；末見不該早於首見
+    return (first, max(first, last))
+
+
+def current_fdb_cutoff(*, now: datetime | None = None, max_age_hours: int = 24) -> datetime:
+    """「目前仍有效」的界線。超過這個時間沒再被看到的條目只算歷史。"""
+    return (now or datetime.now(UTC)) - timedelta(hours=max_age_hours)
+
+
+def is_current(entry: Any, cutoff: datetime) -> bool:
+    last = getattr(entry, "last_seen_at", None)
+    if last is None:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    return last >= cutoff
+
+
+async def prune_stale_fdb(session: AsyncSession, *, max_age_days: int = 365) -> int:
+    """刪掉超過保留期限的 FDB 條目；回傳刪除筆數。0 = 永久保留。
+
+    ARP 早就有回收（`prune_stale_arp`），FDB 沒有 —— 只會無限累積。但保留期限預設
+    給得長（一年）：這張表的價值就是「那台機器以前接在哪個埠」，砍太快等於把查案的
+    依據丟掉。
+    """
+    if max_age_days <= 0:
+        return 0
+    cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+    res = await session.execute(
+        delete(FDBEntry).where(FDBEntry.last_seen_at < cutoff)
+    )
+    return int(res.rowcount or 0)
 
 
 async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance) -> int:
@@ -681,9 +740,13 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
     from app.services.ip_history import log_change
 
     # FDB（有 port_name 的）：mac → list[(device_id, port)]；同時算每個 (device,port) 的 MAC 數
+    # **只採用近期仍被看到的條目**。這張表刻意保留歷史（MAC 搬過的每個埠都留著），
+    # 但「目前接在哪」不能讓半年前的舊埠參與投票 —— 那會讓 switch_port 指向一個早就
+    # 搬走的位置，而畫面上完全看不出哪裡不對。
+    cutoff = current_fdb_cutoff(max_age_hours=get_settings().fdb_current_max_age_hours)
     rows = (await session.execute(
         select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name)
-        .where(FDBEntry.port_name.is_not(None))
+        .where(FDBEntry.port_name.is_not(None), FDBEntry.last_seen_at >= cutoff)
     )).all()
     if not rows:
         return 0

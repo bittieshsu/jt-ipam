@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
+import json
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -45,6 +47,11 @@ class AnomalyReport:
     fw_rule_rot: list[dict[str, Any]] = field(default_factory=list)
     arp_only_liveness: list[dict[str, Any]] = field(default_factory=list)
     stale_device_links: list[dict[str, Any]] = field(default_factory=list)
+    mac_flapping: list[dict[str, Any]] = field(default_factory=list)
+
+    def total(self) -> int:
+        """所有類別的發現筆數合計（排程的日誌用）。"""
+        return sum(len(v) for v in self.to_dict().values() if isinstance(v, list))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +60,7 @@ class AnomalyReport:
             "ghost_ips": self.ghost_ips,
             "arp_only_liveness": self.arp_only_liveness,
             "stale_device_links": self.stale_device_links,
+            "mac_flapping": self.mac_flapping,
             "unauthorized_ips": self.unauthorized_ips,
             "rogue_dhcp": self.rogue_dhcp,
             "external_exposure": self.external_exposure,
@@ -335,6 +343,94 @@ async def detect_arp_only_liveness(
         }
         for r in rows
     ]
+
+
+# ── 一個 IP 頻繁更換 MAC ────────────────────────────────────────────────────
+# 既有的 detect_mac_drifts 問的是「同一個 MAC 出現在兩個交換器埠」（接錯線／偽裝）。
+# 這一條是反過來：**同一個 IP 一直換 MAC** —— DHCP 池被反覆重用、有人手動搶用固定 IP，
+# 或某台機器在做位址隨機化。
+#
+# ⚠️ 隨機化是常態不是異常：Windows 11 / macOS / iOS / Android 開了隱私功能之後，每次
+# 連線都會換一個本地管理位址。所以這條規則**逐 IP 可以忽略**（`ip_addresses.anomaly_ignore`）。
+# 但**不自動**跳過隨機化位址：那也可能是有人在做 MAC 偽裝，該由人看過再決定 ——
+# 程式只負責把「這些看起來是隨機化位址」講出來。
+
+# 可以逐 IP 忽略的類別。**刻意不是全部** —— 例如「非法 DHCP 伺服器」不該讓人用
+# 「這台就是這樣」關掉，那正是要立刻處理的事。
+ANOMALY_IGNORABLE: tuple[str, ...] = (
+    "mac_flapping",
+    "ghost_ips",
+    "external_exposure",
+    "arp_only_liveness",
+    "suspicious_changes",
+)
+
+
+def is_ignored(ip: Any, category: str) -> bool:
+    """這個 IP 是否被管理員標記為忽略某一類異常。"""
+    raw = getattr(ip, "anomaly_ignore", None) or []
+    return category in {str(x) for x in raw}
+
+
+async def detect_mac_flapping(
+    session: AsyncSession, *, days: int = 7, min_macs: int = 4,
+) -> list[dict[str, Any]]:
+    """N 天內出現 ≥ min_macs 種不同 MAC 的 IP。"""
+    from app.models.librenms import ARPEntry
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    rows = (await session.execute(
+        select(ARPEntry.ip, ARPEntry.mac, func.max(ARPEntry.last_seen_at),
+               func.min(ARPEntry.first_seen_at))
+        .where(ARPEntry.last_seen_at >= cutoff)
+        .group_by(ARPEntry.ip, ARPEntry.mac)
+    )).all()
+
+    by_ip: dict[str, list[tuple[str, Any, Any]]] = defaultdict(list)
+    for ip_val, mac, last, first in rows:
+        by_ip[str(ip_val).split("/")[0]].append((str(mac), last, first))
+
+    candidates = {ip: macs for ip, macs in by_ip.items() if len(macs) >= min_macs}
+    if not candidates:
+        return []
+
+    # 只報「有開異常偵測的子網路」裡的位址，並套用逐 IP 的忽略清單
+    subnet_ids = await _anomaly_subnet_ids(session)
+    if not subnet_ids:
+        return []
+    ip_rows = (await session.execute(
+        select(IPAddress).where(IPAddress.subnet_id.in_(subnet_ids))
+    )).scalars().all()
+    known = {str(r.ip): r for r in ip_rows}
+
+    out: list[dict[str, Any]] = []
+    for ip_text, macs in candidates.items():
+        row = known.get(ip_text)
+        if row is None or is_ignored(row, "mac_flapping"):
+            continue
+        macs_sorted = sorted(macs, key=lambda x: x[1] or datetime.min.replace(tzinfo=UTC),
+                             reverse=True)
+        local = [m for m, _, _ in macs_sorted if _is_locally_administered(m)]
+        out.append({
+            "ip": ip_text,
+            "ip_id": str(row.id),
+            "hostname": row.hostname,
+            "subnet_id": str(row.subnet_id),
+            "mac_count": len(macs_sorted),
+            "days": days,
+            # 多數是本地管理位址 → 幾乎可以確定是隱私隨機化。講出來，讓人一眼決定
+            # 要不要把這個 IP 加進忽略清單，而不是替他決定。
+            "randomized": len(local) * 2 >= len(macs_sorted),
+            "randomized_count": len(local),
+            "macs": [
+                {"mac": m, "last_seen_at": (last.isoformat() if last else None),
+                 "first_seen_at": (first.isoformat() if first else None),
+                 "randomized": _is_locally_administered(m)}
+                for m, last, first in macs_sorted
+            ],
+        })
+    out.sort(key=lambda r: r["mac_count"], reverse=True)
+    return out
 
 
 async def _anomaly_networks(session: AsyncSession) -> list[Any]:
@@ -669,6 +765,53 @@ async def detect_external_exposure(session: AsyncSession) -> list[dict[str, Any]
 
 
 
+async def detect_new_exposure(
+    session: AsyncSession, *, surface: Any = None,
+) -> list[dict[str, Any]]:
+    """**新出現**的對外開放服務。
+
+    與 `detect_external_exposure` 的差別：那一條判斷「開著而且狀態不對」，這一條
+    只問「這個對外開口以前沒有」。合併回同一類（`external_exposure`）而不是另開事件 ——
+    同一個新開的埠若同時觸發兩類，使用者要管兩個開關，而且會開始懷疑哪一個才是真的。
+
+    ⚠️ **第一次執行只建立基準、不報任何東西**：沒有基準時站上每一個既有的對外服務
+    都會是「新增」，那會在啟用的當下送出幾十則通知，然後這個功能就被關掉了。
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.models.system_setting import SystemSetting
+
+    if surface is None:
+        from app.services.fw_lookup import attack_surface as surface  # type: ignore[assignment]
+
+    items = await surface(session)
+    seen_now = {
+        f"{it.get('ip')}|{it.get('port')}|{it.get('proto') or it.get('protocol') or ''}": it
+        for it in items if it.get("ip")
+    }
+
+    row = await session.get(SystemSetting, "attack_surface_baseline")
+    first_run = row is None or not isinstance(row.value, dict) or not row.value.get("keys")
+    known = set((row.value or {}).get("keys") or []) if row is not None else set()
+
+    if row is None:
+        row = SystemSetting(key="attack_surface_baseline", value={})
+        session.add(row)
+    row.value = {"keys": sorted(seen_now)}
+    flag_modified(row, "value")
+    await session.flush()
+
+    if first_run:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for key, it in seen_now.items():
+        if key in known:
+            continue
+        out.append({**it, "kind": "exposed_new"})
+    return out
+
+
 async def detect_dangling_dns(session: AsyncSession) -> list[dict[str, Any]]:
     """DNS 還解析得到，但指向的位址在 IPAM 裡根本不存在。
 
@@ -888,63 +1031,141 @@ async def run_detection(
         ghost_ips=await detect_ghost_ips(session),
         unauthorized_ips=await detect_unauthorized_ips(session),
         rogue_dhcp=await detect_rogue_dhcp(session),
-        external_exposure=await detect_external_exposure(session),
+        external_exposure=[*await detect_external_exposure(session),
+                           *await detect_new_exposure(session)],
         dangling_dns=await detect_dangling_dns(session),
         duplicate_ip_records=await detect_duplicate_ip_records(session),
         suspicious_changes=await detect_suspicious_changes(session),
         fw_rule_rot=await detect_fw_rule_rot(session),
         arp_only_liveness=await detect_arp_only_liveness(session),
         stale_device_links=await detect_stale_device_links(session),
+        mac_flapping=await detect_mac_flapping(session),
     )
 
     if notify_admins:
-        from app.services.notification import email_users
-        from app.services.system_config import get_notification_matrix
-        ch = (await get_notification_matrix(session)).get(
-            "anomaly.detected", {"in_app": True, "email": False})
-        admins = (
-            await session.execute(
-                select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
-            )
-        ).scalars().all()
-
-        if ch.get("in_app") or ch.get("email"):
-            # tab：通知要能點進「那一類」的頁籤，不是只丟到頁面頂端讓人自己找
-            for category, tkey, tab, items in (
-                ("IP 衝突", "notif.anom_ip_conflict", "ip_conflicts", report.ip_conflicts),
-                ("MAC 變動", "notif.anom_mac_drift", "mac_drifts", report.mac_drifts),
-                ("失聯 IP", "notif.anom_ghost", "ghost_ips", report.ghost_ips),
-                ("未授權 IP", "notif.anom_unauthorized", "unauthorized_ips",
-                 report.unauthorized_ips),
-                ("非法 DHCP 伺服器", "notif.anom_rogue_dhcp", "rogue_dhcp", report.rogue_dhcp),
-                ("對外曝險", "notif.anom_exposure", "external_exposure",
-                 report.external_exposure),
-                ("懸空 DNS", "notif.anom_dangling_dns", "dangling_dns", report.dangling_dns),
-                ("重複的 IP 紀錄", "notif.anom_dup_ip", "duplicate_ip_records",
-                 report.duplicate_ip_records),
-                ("可疑的變更", "notif.anom_changes", "suspicious_changes",
-                 report.suspicious_changes),
-                ("防火牆規則劣化", "notif.anom_fw_rot", "fw_rule_rot", report.fw_rule_rot),
-            ):
-                if not items:
-                    continue
-                title = f"{category}：新增 {len(items)} 筆"
-                if ch.get("in_app"):
-                    for admin in admins:
-                        await push_notification(
-                            session, user_id=admin.id, severity="warning", title=title,
-                            body="詳見「異常偵測」頁面。",
-                            # 路由是 /anomaly（單數）—— 舊值 /anomalies 是錯的，點了會 404
-                            link=f"/anomaly?tab={tab}", object_type="anomaly",
-                            title_key=tkey, body_key="notif.anom_body", params={"count": len(items)},
-                        )
-                if ch.get("email"):
-                    await email_users(session, [a.email for a in admins],
-                                      f"[jt-ipam] {title}", "詳見「異常偵測」頁面。")
-                from app.services.notify_channels import broadcast_channels
-                await broadcast_channels(session, subject=title, text="詳見「異常偵測」頁面。")
+        # 手動按「執行偵測」：把當下所有發現都通知（結果就在眼前，這裡不去重）。
+        # 與排程共用同一份送出邏輯 —— 兩份實作的話，逐類別的通知設定只會對其中一條路徑生效。
+        await _notify_categories(session, report.to_dict(), only_new=False)
         await deliver_event(session, event="anomaly.detected", payload=report.to_dict())
 
+    await session.commit()
+    return report
+
+
+
+# ── 排程執行 ────────────────────────────────────────────────────────────────
+# 偵測結果是「**目前的狀態**」，不是事件流：同一個沒處理的 IP 衝突，每次跑都會再出現一次。
+# 人按「執行掃描」時這無所謂（結果就在眼前），但排程每天跑就會每天通知一次、永遠不停 ——
+# 最後的下場是整類通知被使用者當成雜訊忽略，真正的新事件也一起被忽略。
+# 所以排程只通知「與上次相比是新的」。異常消失不通知：那不是需要有人立刻處理的事。
+
+_NOTIFY_CATEGORIES: tuple[tuple[str, str, str, str], ...] = (
+    ("ip_conflicts", "IP 衝突", "notif.anom_ip_conflict", "ip_conflicts"),
+    ("mac_drifts", "MAC 變動", "notif.anom_mac_drift", "mac_drifts"),
+    ("ghost_ips", "失聯 IP", "notif.anom_ghost", "ghost_ips"),
+    ("unauthorized_ips", "未授權 IP", "notif.anom_unauthorized", "unauthorized_ips"),
+    ("rogue_dhcp", "非法 DHCP 伺服器", "notif.anom_rogue_dhcp", "rogue_dhcp"),
+    ("external_exposure", "對外曝險", "notif.anom_exposure", "external_exposure"),
+    ("dangling_dns", "懸空 DNS", "notif.anom_dangling_dns", "dangling_dns"),
+    ("duplicate_ip_records", "重複的 IP 紀錄", "notif.anom_dup_ip", "duplicate_ip_records"),
+    ("suspicious_changes", "可疑的變更", "notif.anom_changes", "suspicious_changes"),
+    ("fw_rule_rot", "防火牆規則劣化", "notif.anom_fw_rot", "fw_rule_rot"),
+    ("mac_flapping", "IP 頻繁更換 MAC", "notif.anom_mac_flapping", "mac_flapping"),
+)
+
+
+def _item_fingerprint(item: dict[str, Any]) -> str:
+    """一筆發現的識別碼。
+
+    用穩定的欄位組合而不是整包 JSON 雜湊：像「最後出現時間」「天數」這種欄位每次跑都會變，
+    拿整包去比的話每一輪都會是「新的」，去重等於沒做。
+    """
+    keys = ("ip", "mac", "cidr", "subnet_cidr", "hostname", "device", "device_name",
+            "name", "rule", "rule_id", "server_ip", "fqdn", "port", "id")
+    parts = [f"{k}={item[k]}" for k in keys if item.get(k) not in (None, "")]
+    if not parts:                      # 沒有任何可辨識欄位就退回整包（保守：寧可多通知一次）
+        parts = [json.dumps(item, sort_keys=True, default=str)]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+
+async def _notify_categories(
+    session: AsyncSession, data: dict[str, Any], *, only_new: bool,
+) -> int:
+    """把發現依類別發出去，回傳實際發出的類別數。
+
+    `only_new=True`（排程）：只發「與上次相比是新的」，比對狀態存在
+    `system_settings.anomaly.seen`。`only_new=False`（手動）：當下有什麼就發什麼。
+    """
+    from app.services.notification import email_users
+    from app.services.notify_channels import broadcast_channels
+    from app.services.system_config import (
+        get_anomaly_seen,
+        get_notification_matrix,
+        set_anomaly_seen,
+    )
+
+    matrix = await get_notification_matrix(session)
+    seen = await get_anomaly_seen(session) if only_new else {}
+    new_seen: dict[str, list[str]] = dict(seen)
+    sent = 0
+
+    admins = (await session.execute(
+        select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
+    )).scalars().all()
+
+    for key, label, tkey, tab in _NOTIFY_CATEGORIES:
+        items = [i for i in (data.get(key) or []) if isinstance(i, dict)]
+        fps = [_item_fingerprint(i) for i in items]
+        if only_new:
+            before = set(seen.get(key) or [])
+            fresh = [f for f in fps if f not in before]
+            new_seen[key] = fps        # 消失的要跟著移除，否則它再出現時不會通知
+            count, total = len(fresh), len(fps)
+        else:
+            count, total = len(items), len(items)
+
+        # 逐類別的通知設定（管理 → 通知發送設定）。十種發現的份量差很多，
+        # 全有全無會讓人為了不被吵而整類關掉，連要緊的那幾種一起消失。
+        ch = matrix.get(f"anomaly.{key}", {"in_app": True, "email": False})
+        if not count or not (ch.get("in_app") or ch.get("email")):
+            continue
+        sent += 1
+        title = (f"{label}：新增 {count} 筆（共 {total} 筆）" if only_new
+                 else f"{label}：{count} 筆")
+        body = "詳見「異常偵測」頁面。"
+        if ch.get("in_app"):
+            for admin in admins:
+                await push_notification(
+                    session, user_id=admin.id, severity="warning", title=title, body=body,
+                    # 路由是 /anomaly（單數）—— 舊值 /anomalies 是錯的，點了會 404
+                    link=f"/anomaly?tab={tab}", object_type="anomaly",
+                    title_key=tkey, body_key="notif.anom_body", params={"count": count},
+                )
+        if ch.get("email"):
+            await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body)
+        await broadcast_channels(session, subject=title, text=body)
+
+    if only_new:
+        await set_anomaly_seen(session, new_seen)
+    return sent
+
+
+async def notify_new_findings(
+    session: AsyncSession, report: dict[str, Any] | AnomalyReport,
+) -> int:
+    """只通知「上次沒看過」的發現，回傳實際發出的類別數。"""
+    data = report.to_dict() if isinstance(report, AnomalyReport) else dict(report)
+    return await _notify_categories(session, data, only_new=True)
+
+
+async def run_scheduled(session: AsyncSession) -> AnomalyReport:
+    """排程觸發的偵測：跑完只通知新的，並記錄執行時間。"""
+    from app.services.system_config import set_anomaly_last_run
+
+    report = await run_detection(session, notify_admins=False)
+    await notify_new_findings(session, report)
+    await deliver_event(session, event="anomaly.detected", payload=report.to_dict())
+    await set_anomaly_last_run(session, at=datetime.now(UTC))
     await session.commit()
     return report
 

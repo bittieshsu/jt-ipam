@@ -60,6 +60,11 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # 各 probe 上次被執行的時間（由 report 回填），給「下次到期」顯示用。{"icmp": "...", "os": "..."}
     probe_last_run: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     ptr_ignore: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 這個 IP 要忽略哪幾類異常（0137）。逐類別而不是一個總開關：標了「這台會自己
+    # 換 MAC」（隱私隨機化）不代表它失聯也不用報。
+    anomaly_ignore: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"),
+    )
     note: Mapped[str | None] = mapped_column(Text)
 
     # 主控台的連線出口（issue #24）：空＝沿用所屬子網路的設定；有值就覆寫它

@@ -1346,6 +1346,7 @@ async def notify_stale(
 ) -> dict[str, Any]:
     """對選定的失聯 IP 發提醒：在通知中心推一則摘要給所有管理者。"""
     from app.services.notification import push_notification
+    from app.services.system_config import get_notification_matrix
 
     await _require_subnet_perm(session, user, payload.subnet_id, "read")
     n = len(payload.ids)
@@ -1361,6 +1362,12 @@ async def notify_stale(
     title = f"失聯 IP 提醒：{cidr}"
     body = f"子網路 {cidr} 有 {n} 個 IP 失聯超過 {payload.days} 天（由 {user.username} 提出）。"
     _gp = {"cidr": cidr, "n": n, "days": payload.days, "user": user.username}
+    # 通知發送設定裡可以關掉（`ip.stale`）。原本是直接推 —— 收得到卻關不掉。
+    ch = (await get_notification_matrix(session)).get(
+        "ip.stale", {"in_app": True, "email": False})
+    if not ch.get("in_app"):
+        return 0
+
     for admin in admins:
         await push_notification(
             session,

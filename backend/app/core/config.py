@@ -119,6 +119,13 @@ class Settings(BaseSettings):
     # arp_entries 只新增/更新、不會自動回收；定時 sync 會刪掉 last_seen_at 超過此天數的
     # 舊 ARP（含來源 device 被刪的孤兒 row）。設 0 或負數＝停用清除（永久保留）。
     arp_retention_days: int = 30
+    # FDB「目前仍有效」的時間窗：超過這麼久沒再被看到的條目只算歷史，不參與
+    # 「這個 MAC 現在接在哪個埠」的判斷。LibreNMS 對交換器的輪詢通常以小時計，
+    # 給一天的餘裕；設太短會讓輪詢慢的環境整批失去目前位置。
+    fdb_current_max_age_hours: int = 24
+    # FDB 歷史保留天數（0＝永久）。這張表的價值是「那台機器以前接在哪個埠」，
+    # 所以預設給一年而不是像 ARP 那樣 30 天。
+    fdb_retention_days: int = 365
 
     # ── Graylog ──
     graylog_host: str | None = None

@@ -80,8 +80,7 @@ async def consider_mac(
     if source in disabled:
         return False   # 該來源已停用 → 不參與 MAC 覆寫
     if ip.mac is None:
-        ip.mac = mac
-        ip.mac_source = source
+        await _apply(session, ip=ip, mac=mac, source=source)
         return True
     if ip.mac_source is None:
         return False
@@ -89,7 +88,29 @@ async def consider_mac(
     new_rank = _P.rank(order, source)
     cur_rank = _P.rank(order, ip.mac_source)
     if new_rank < cur_rank or (new_rank == cur_rank and not _same_mac(ip.mac, mac)):
-        ip.mac = mac
-        ip.mac_source = source
+        await _apply(session, ip=ip, mac=mac, source=source)
         return True
     return False
+
+
+async def _apply(
+    session: AsyncSession, *, ip: IPAddress, mac: str, source: str,
+) -> None:
+    """覆寫 ip.mac，**並留下異動記錄**。
+
+    主機名稱每次改變都會寫一筆，MAC 卻不會 —— 於是 IP 詳細資料頁的時間軸上
+    看得到「主機名稱變更」，卻永遠看不到「這台什麼時候換了網卡」，即使 ARP 表裡
+    看得出來。同一個值再看到一次不寫（每輪同步都會看到，寫了會把時間軸洗掉）。
+    """
+    from app.services.ip_history import log_change
+
+    old_mac = ip.mac
+    if _same_mac(old_mac, mac):
+        return
+    ip.mac = mac
+    ip.mac_source = source
+    await log_change(
+        session, ip=ip, event_type="mac_changed", field="mac",
+        old=str(old_mac) if old_mac is not None else None, new=str(mac),
+        source=source,
+    )

@@ -245,6 +245,112 @@ async def _run() -> int:
             await session.rollback()
             log.error("arp prune failed: %s", exc)
 
+        # ── 健康告警：整合同步失敗／代理失聯／系統檢查（每輪一次）──
+        # 這三類資料早就在資料庫裡（last_error / last_seen_at / 系統診斷），只是要有人
+        # 主動去點才看得到 —— 實務上沒有人每天點。只在「開始」與「恢復」時發，
+        # 中間持續壞著不再吵（見 services/state_alert）。
+        try:
+            from app.models.certificate import CertAgent
+            from app.models.scan_agent import ScanAgent
+            from app.services.health_alert import (
+                check_agent_health,
+                check_integration_health,
+                check_system_health,
+            )
+            from app.services.self_check import run_checks
+
+            insts: list = []
+            # 這份清單要**與上面實際會同步的整合一致** —— 少列一個，那個整合壞掉時
+            # 就永遠不會有人知道，而且畫面上完全看不出少了誰。
+            for kind, model in (
+                ("librenms", LibreNMSInstance), ("wazuh", WazuhInstance),
+                ("zabbix", ZabbixInstance), ("adguard", AdGuardInstance),
+                ("proxmox", ProxmoxInstance), ("esxi", ESXiInstance),
+                ("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
+                ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
+                ("mikrotik", MikroTikRouter), ("windows_dhcp", WindowsDhcpServer),
+                ("dns", DNSServer),
+            ):
+                rows = (await session.execute(
+                    select(model).where(model.enabled.is_(True)))).scalars().all()
+                insts.extend((kind, r) for r in rows)
+            await check_integration_health(session, insts)
+
+            agents: list = []
+            for kind, model in (("scan", ScanAgent), ("cert", CertAgent)):
+                rows = (await session.execute(select(model))).scalars().all()
+                agents.extend((kind, r) for r in rows)
+            await check_agent_health(session, agents)
+
+            await check_system_health(session, (await run_checks(session)).checks)
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("health alerts failed: %s", exc)
+
+        # ── 容量與資安告警：DHCP 集區／跳板金鑰／憑證來源（每輪一次）──
+        # 跳板金鑰是這三個裡面最重要的：指紋改變是中間人攻擊的訊號，而原本只有
+        # 「有人開主控台」時才會被擋下來 —— 沒人連的時候完全沒人知道。
+        try:
+            from app.models.certificate import Certificate
+            from app.models.dhcp import DHCPPoolRange
+            from app.models.jump_host import JumpHost
+            from app.services.capacity_alert import (
+                check_cert_sources,
+                check_dhcp_pools,
+                check_jump_host_keys,
+            )
+            from app.services.dhcp_usage import pool_usage
+
+            pools = await pool_usage(session)
+            await check_dhcp_pools(session, pools)
+
+            jhs = (await session.execute(
+                select(JumpHost).where(JumpHost.enabled.is_(True)))).scalars().all()
+            await check_jump_host_keys(session, list(jhs))
+
+            # `source_type` 是 NOT NULL、沒設來源時是字串 'none' —— 用 is_not(None)
+            # 會把每一張憑證都撈進來，包含根本沒有自動抓取的那些。
+            certs = (await session.execute(
+                select(Certificate).where(Certificate.source_type != "none")
+            )).scalars().all()
+            await check_cert_sources(session, list(certs))
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("capacity/security alerts failed: %s", exc)
+
+        # ── 疑似暴力破解（每輪一次）──
+        # 單一使用者忘記密碼被鎖不是資安事件；**多個帳號同時處於鎖定中**才是形狀。
+        try:
+            from app.models.user import User
+            from app.services.security_alert import check_lockouts
+
+            locked = (await session.execute(
+                select(User).where(User.locked_until.is_not(None)))).scalars().all()
+            await check_lockouts(session, list(locked))
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("brute force check failed: %s", exc)
+
+        # ── FDB 過期清除（每輪一次）──
+        # 與 ARP 同樣是只新增不回收的表，但保留期限長得多（預設一年）：
+        # 這張表的價值就是「那台機器以前接在哪個埠」，砍太快等於把查案依據丟掉。
+        # 注意：**保留 ≠ 採信** —— 推導「目前接在哪個埠」時只會用近期仍在的條目
+        # （見 librenms.current_fdb_cutoff），舊的只留著給人查。
+        try:
+            from app.core.config import get_settings as _gs
+            pruned_fdb = await librenms_svc.prune_stale_fdb(
+                session, max_age_days=_gs().fdb_retention_days,
+            )
+            await session.commit()
+            if pruned_fdb:
+                log.info("fdb prune: removed %d stale entries", pruned_fdb)
+        except Exception as exc:
+            await session.rollback()
+            log.error("fdb prune failed: %s", exc)
+
         # ── 冷卻紀錄回收 ──
         # 只增不刪會無限累積；到期後仍多留一段時間，因為「這位址上一手是誰」
         # 最常在冷卻剛結束那幾天被問到。
@@ -529,6 +635,31 @@ async def _run() -> int:
         except Exception as exc:
             await session.rollback()
             log.error("ip-device autolink failed: %s", exc)
+
+        # ── 異常偵測（排程）──
+        # 與 AI 巡檢同樣沿用這個 timer：每輪只判斷「是否已越過設定的時刻」，沒到就跳過。
+        # 預設關閉。跑的是同一支 run_detection，差別在通知只發「與上次相比是新的」——
+        # 偵測結果是目前的狀態不是事件流，每天把同一個未處理的衝突再吼一次，
+        # 只會讓人把整類通知關掉。
+        try:
+            from app.services.anomaly import run_scheduled
+            from app.services.schedule import due as _due
+            from app.services.system_config import (
+                get_anomaly_config,
+                get_anomaly_last_run,
+            )
+
+            acfg = await get_anomaly_config(session)
+            if acfg.schedule_enabled:
+                alast = await get_anomaly_last_run(session)
+                if _due(alast, acfg.times, frequency=acfg.frequency,
+                        weekdays=acfg.weekdays, month_day=acfg.month_day,
+                        interval_minutes=acfg.interval_minutes):
+                    rep = await run_scheduled(session)
+                    log.info("anomaly scan: %s finding(s)", rep.total())
+        except Exception as exc:
+            await session.rollback()
+            log.error("anomaly scheduled scan failed: %s", exc)
 
         # ── AI 巡檢 ──
         # 沿用這個 timer 而不是另建一個：每輪只判斷「距上次是否已達設定的間隔」，

@@ -11,7 +11,7 @@
  * 欄位 key 對不到資料列的話，autoSort 的 sorter 取到的全是 undefined，
  * 點欄位標題永遠沒反應（使用者回饋）。排序／篩選／搜尋一律吃攤平後的欄位。
  */
-import { computed, onMounted, ref, h } from "vue";
+import { computed, onMounted, ref, watch, h } from "vue";
 import {
   NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NSelect, NInput,
   NPopover, NTabs, NTabPane, useMessage, type DataTableColumns,
@@ -93,17 +93,34 @@ const rows = computed<Row[]>(() => items.value.map((i, idx) => {
 // 篩選：選項一律由資料動態產生（新增廠牌／協定／單位都不必改程式）。
 // 各下拉與搜尋框是「且」的關係，疊加過濾。
 const sourceFilter = ref<string | null>(null);
+// 防火牆「實例」的篩選。原本只能選類型（opnsense / pfsense…），但同一種類型底下
+// 常常有好幾台，而使用者要問的是「**這一台**開了哪些對外服務」。
+const firewallFilter = ref<string | null>(null);
 const viaFilter = ref<string | null>(null);
 const protoFilter = ref<string | null>(null);
 const statusFilter = ref<string | null>(null);
 const ownerFilter = ref<string | null>(null);
 const searchText = ref("");
 
+// 換了類型而原本選的那一台不屬於它時，把實例選擇清掉 —— 留著會得到一張空表格，
+// 而畫面上沒有任何地方說明為什麼。
+watch(sourceFilter, () => {
+  if (!firewallFilter.value || firewallFilter.value === "__all__") return;
+  const stillThere = rows.value.some(
+    (r) => pick(sourceFilter.value, r.source) && r.firewall === firewallFilter.value);
+  if (!stillThere) firewallFilter.value = null;
+});
+
 function opts(values: (string | null | undefined)[], allLabel: string) {
   const seen = [...new Set(values.filter((v): v is string => !!v))].sort();
   return [{ label: allLabel, value: "__all__" }, ...seen.map((v) => ({ label: v, value: v }))];
 }
 const sourceOptions = computed(() => opts(rows.value.map((r) => r.source), t("surface.all_sources")));
+// 選了類型之後，實例清單只列那個類型底下的 —— 選項裡出現「不可能有結果」的組合，
+// 使用者選下去只會看到空白表格而沒有任何解釋。
+const firewallOptions = computed(() => opts(
+  rows.value.filter((r) => pick(sourceFilter.value, r.source)).map((r) => r.firewall),
+  t("surface.all_firewalls")));
 const viaOptions = computed(() => [
   { label: t("surface.all_via"), value: "__all__" },
   { label: "NAT", value: "nat" }, { label: t("surface.rule"), value: "rule" },
@@ -141,6 +158,7 @@ const pick = (f: string | null, v: string | null | undefined) =>
 const shown = computed(() => {
   let out = rows.value.filter((r) =>
     pick(sourceFilter.value, r.source)
+    && pick(firewallFilter.value, r.firewall)
     && pick(viaFilter.value, r.via)
     && pick(protoFilter.value, r.protocol)
     && pick(statusFilter.value, r.status)
@@ -310,6 +328,8 @@ const scrollX = computed(() =>
       <n-select v-model:value="sourceFilter" :options="sourceOptions"
                 style="width: 150px"
                 :placeholder="t('surface.all_sources')" clearable />
+      <n-select v-model:value="firewallFilter" :options="firewallOptions" style="width: 170px"
+                :placeholder="t('surface.all_firewalls')" filterable clearable />
       <n-select v-model:value="viaFilter" :options="viaOptions" style="width: 120px"
                 :placeholder="t('surface.all_via')" clearable />
       <n-select v-model:value="protoFilter" :options="protoOptions" style="width: 120px"

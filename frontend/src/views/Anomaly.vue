@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { computed, ref, h } from "vue";
+import { computed, onMounted, ref, h } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
   NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty,
-  NTabs, NTabPane, NModal, NSelect, useMessage, type DataTableColumns,
+  NTabs, NTabPane, NModal, NSelect, NSwitch, NInputNumber, NTimePicker,
+  useMessage, type DataTableColumns,
 } from "naive-ui";
-import { runAnomalyScan, type AnomalyReport } from "@/api/phase3";
-import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, InfoIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
+import {
+  getAnomalySchedule, ignoreAnomalyForIp, listIgnorableCategories,
+  runAnomalyScan, updateAnomalySchedule,
+  type AnomalyReport, type AnomalySchedule,
+} from "@/api/phase3";
+import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, InfoIcon, PendingIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
 import { renderMarkdown } from "@/utils/markdown";
 import { downloadTextFile } from "@/utils/investigateReport";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
@@ -52,6 +57,63 @@ function openScope() {
   void loadSubnets();
 }
 
+// ── 排程 ─────────────────────────────────────────────────────────────────
+// 偵測邏輯早就寫好了，但只能靠人按「執行掃描」—— IP 衝突、非法 DHCP 不會挑上班時間發生。
+// 形狀刻意與 AI 巡檢排程一致（同一份 due() 判斷），另外多一個「每隔 N 分鐘」：
+// 那些是營運監控，等到隔天太慢。
+const schedShow = ref(false);
+const schedSaving = ref(false);
+const sched = ref<AnomalySchedule | null>(null);
+
+const freqOptions = computed(() => [
+  { label: t("anomaly.sched_freq_interval"), value: "interval" },
+  { label: t("anomaly.sched_freq_daily"), value: "daily" },
+  { label: t("anomaly.sched_freq_weekly"), value: "weekly" },
+  { label: t("anomaly.sched_freq_monthly"), value: "monthly" },
+]);
+// 星期的文案沿用巡檢排程那一份（`llm_settings.weekday_N`）—— 另造一套鍵值
+// 只會多出一份要維護的翻譯，而且漏翻時畫面上會直接露出鍵名。
+const weekdayOptions = computed(() => [1, 2, 3, 4, 5, 6, 7].map((d) => ({
+  label: t(`llm_settings.weekday_${d}`), value: d,
+})));
+
+function hhmmToMs(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map((x) => Number(x) || 0);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+
+async function openSched() {
+  try {
+    sched.value = await getAnomalySchedule();
+    schedShow.value = true;
+  } catch (e) { msg.error(apiErrMsg(e)); }
+}
+
+async function patchSched(patch: Partial<AnomalySchedule>) {
+  if (!sched.value) return;
+  schedSaving.value = true;
+  try {
+    sched.value = await updateAnomalySchedule(patch);
+  } catch (e) { msg.error(apiErrMsg(e)); }
+  finally { schedSaving.value = false; }
+}
+
+function setSchedTime(index: number, formatted: string | null) {
+  if (!formatted || !sched.value) return;
+  const next = [...sched.value.times];
+  next[index] = formatted;
+  void patchSched({ times: next });
+}
+
+function removeSchedTime(index: number) {
+  if (!sched.value) return;
+  const next = sched.value.times.filter((_, i) => i !== index);
+  // 一個都不留＝排程開著卻永遠不觸發。後端也會擋，這裡先不讓它發生
+  if (next.length) void patchSched({ times: next });
+}
+
 async function saveScope() {
   scopeSaving.value = true;
   try {
@@ -61,12 +123,34 @@ async function saveScope() {
   } catch (e) { msg.error(apiErrMsg(e)); await loadSubnets(); }
   finally { scopeSaving.value = false; }
 }
+// 可以逐 IP 忽略的類別。清單由後端決定（`/anomalies/ignorable`），這裡的預設值只是
+// 在還沒載回來之前不要讓按鈕閃現；**不要**在前端另外寫死一份 —— 兩份清單遲早會不一致。
+const IGNORABLE = ref<string[]>([]);
+const ignoreBusy = ref<Set<string>>(new Set());
+
+async function loadIgnorable() {
+  try { IGNORABLE.value = (await listIgnorableCategories()).categories; } catch { /* 靜默 */ }
+}
+
+async function doIgnore(ipId: string, category: string) {
+  ignoreBusy.value = new Set([...ignoreBusy.value, ipId]);
+  try {
+    await ignoreAnomalyForIp(ipId, category);
+    msg.success(t("anomaly.ignore_done"));
+    await run();                      // 重跑一次，被忽略的那列就會消失
+  } catch (e) { msg.error(apiErrMsg(e)); }
+  finally {
+    const next = new Set(ignoreBusy.value); next.delete(ipId); ignoreBusy.value = next;
+  }
+}
+
 const CATEGORY_KEYS = [
   "ip_conflicts", "mac_drifts", "ghost_ips", "unauthorized_ips", "rogue_dhcp",
   "external_exposure", "dangling_dns", "duplicate_ip_records", "suspicious_changes",
   "fw_rule_rot",
   "arp_only_liveness",
   "stale_device_links",
+  "mac_flapping",
 ];
 const route = useRoute();
 const links = useEntityLinks(useRouter());
@@ -78,7 +162,8 @@ type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes"
   | "fw_rule_rot"
   | "arp_only_liveness"
-  | "stale_device_links";
+  | "stale_device_links"
+  | "mac_flapping";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
@@ -92,6 +177,7 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "fw_rule_rot", label: () => t("anomaly.fw_rot") },
   { key: "arp_only_liveness", label: () => t("anomaly.arp_only") },
   { key: "stale_device_links", label: () => t("anomaly.stale_link") },
+  { key: "mac_flapping", label: () => t("anomaly.mac_flapping") },
 ];
 
 const rogueTitle = computed(() =>
@@ -118,7 +204,8 @@ const anyFindings = computed(() => {
     + (r.duplicate_ip_records?.length ?? 0) + (r.suspicious_changes?.length ?? 0)
     + (r.fw_rule_rot?.length ?? 0)
     + (r.arp_only_liveness?.length ?? 0)
-    + (r.stale_device_links?.length ?? 0)) > 0;
+    + (r.stale_device_links?.length ?? 0)
+    + (r.mac_flapping?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return (report.value?.[key] as Record<string, any>[]) ?? [];
@@ -139,6 +226,10 @@ const COLLBL: Record<string, string> = {
   action: "動作", count: "次數", first_at: "最早", object_type: "物件類型",
   effective_status: "存活狀態", names: "DNS 名稱", owner: "負責人", rules: "來源規則",
   source: "來源", interface: "介面", descr: "規則描述", detail: "說明",
+  ip_id: "IP 內部編號",
+  days: "統計天數",
+  randomized: "隨機化位址",
+  mac_count: "MAC 數",
 };
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
@@ -156,9 +247,14 @@ const CAT_KEYS: Record<CatKey, string[]> = {
                        "count", "first_at", "last_at"],
   fw_rule_rot: ["kind", "name", "source", "interface", "port", "descr", "detail"],
   arp_only_liveness: ["ip", "hostname", "mac", "last_seen_arp", "ip_address_id"],
+  // 頻繁換 MAC：先看是哪個 IP、換過幾個、時間跨度，再看 MAC 清單。
+  // randomized 要露出來 —— 那一欄是「這些看起來是隱私隨機化位址」，
+  // 使用者據此判斷要不要把這個 IP 加進忽略清單。
+  mac_flapping: ["ip", "hostname", "mac_count", "randomized", "days", "macs", "ip_id"],
   stale_device_links: ["ip", "hostname", "mac", "device", "linked_at", "mac_changed_at", "ip_address_id"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
+  mac_flapping: ["ip_id", "days"],
   ghost_ips: ["ip_address_id"],
   // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
   // 預設不顯示，需要的人可在「欄位」自行勾選
@@ -187,7 +283,7 @@ function pretty(k: string, val: any): string {
     }
     return String(val);
   }
-  if (k === "monitored") return val ? t("common.yes") : t("common.no");
+  if (k === "monitored" || k === "randomized") return val ? t("common.yes") : t("common.no");
   if (Array.isArray(val)) {
     return val.map((x) => (typeof x === "object" && x !== null ? objLine(x) : String(x)))
       .join("、");
@@ -243,6 +339,17 @@ function renderVal(k: string, v: any, row?: any) {
   if ((k === "ip" || k === "server_ip" || k === "offered_ip") && typeof v === "string") {
     return renderIp(row, v);
   }
+  // MAC 歷程：一個 MAC 一行、**不折行**。MAC 字串被折成「0a:1b:2 / c:00:00 / :01」
+  // 三行的話，這一欄就完全讀不出先後順序 —— 而先後順序正是這一類要看的東西。
+  if (k === "macs" && Array.isArray(v) && v.length && typeof v[0] === "object") {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
+      v.map((it: any) => h("div", { style: "white-space:nowrap" }, [
+        h("span", { style: "font-family:var(--mono,monospace)" }, String(it.mac ?? "")),
+        it.last_seen_at
+          ? h("span", { style: "opacity:.65;margin-left:8px" }, fmtDateTime(String(it.last_seen_at)))
+          : null,
+      ])));
+  }
   if (k === "ips" && Array.isArray(v)) {
     if (!v.length) return h("span", { style: "opacity:.5" }, "—");
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
@@ -269,15 +376,34 @@ function catCols(key: CatKey): DataTableColumns<any> {
   // autoSort：與全站表格一致，替沒有自訂 sorter 的欄位補上預設排序。
   // 這幾張表原本整排標頭都不能排 —— 十幾筆 MAC 變動想按時間或按網段看都做不到。
   const cols = autoSort(CAT_KEYS[key].filter((k) => visible.includes(k)).map((k) => {
+    // MAC 清單一列要放好幾個「MAC＋時間」，窄欄會擠成一團看不出先後
     const wide = k === "locations" || k === "macs";
     return {
       title: COLLBL[k] ?? k,
       key: k,
       minWidth: wide ? 420 : (k === "ips" ? 220 : 140),
+      // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上
+      ...(k === "macs" ? { width: 340 } : {}),
       ellipsis: wide || k === "ips" ? false : { tooltip: true },
       render: (r: any) => renderVal(k, r[k], r),
     };
   }));
+  // 可以逐 IP 忽略的類別：給一顆「忽略這個 IP」。
+  // 沒有這個機制的話，開了隱私隨機化的裝置（Windows 11／macOS／iOS／Android，每次
+  // 連線都換 MAC）會把整頁洗掉，使用者只能把整條規則關掉 —— 連真正的 IP 搶用也一起看不到。
+  if (IGNORABLE.value.includes(key)) {
+    cols.push({
+      title: t("common.actions"), key: "_ignore", width: 150, className: "col-actions",
+      render: (r: any) => (r.ip_id
+        ? h(NButton, {
+            size: "tiny", secondary: true, loading: ignoreBusy.value.has(r.ip_id),
+            disabled: ignoreBusy.value.has(r.ip_id),
+            onClick: () => doIgnore(r.ip_id, key),
+          }, { default: () => t("anomaly.ignore_btn") })
+        : null),
+    } as any);
+  }
+
   // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」。
   // 欄位標題用「操作」——與按鈕同名看起來像重複貼兩次（使用者回饋，與規則異動頁同一批）。
   if (key === "unauthorized_ips") {
@@ -349,6 +475,7 @@ async function run() {
     loading.value = false;
   }
 }
+onMounted(() => { void loadIgnorable(); });
 </script>
 
 <template>
@@ -371,6 +498,10 @@ async function run() {
         <template #icon><n-icon><SettingsIcon /></n-icon></template>
         {{ t("anomaly.scope_btn") }}
       </n-button>
+      <n-button size="small" quaternary @click="openSched">
+        <template #icon><n-icon><PendingIcon /></n-icon></template>
+        {{ t("anomaly.sched_btn") }}
+      </n-button>
     </n-space>
 
     <!-- 偵測範圍：訪客／實驗網段本來就會一堆異常，留著只會把真正該處理的埋掉 -->
@@ -388,6 +519,76 @@ async function run() {
           <n-button type="primary" :loading="scopeSaving" @click="saveScope">
             {{ t("common.save") }}
           </n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <!-- 排程：跑的是同一支偵測，差別在通知只發「與上次相比是新的」 -->
+    <n-modal v-model:show="schedShow" preset="card" style="max-width: 640px"
+             :title="t('anomaly.sched_title')">
+      <n-alert type="info" :bordered="false" style="margin-bottom:12px">
+        {{ t("anomaly.sched_hint") }}
+      </n-alert>
+      <n-space v-if="sched" vertical :size="14">
+        <div>
+          <n-switch :value="sched.schedule_enabled" :loading="schedSaving"
+                    @update:value="(v: boolean) => patchSched({ schedule_enabled: v })" />
+          <span style="margin-left:10px">{{ t("anomaly.sched_enabled") }}</span>
+          <p class="sched-hint">{{ t("anomaly.sched_enabled_hint") }}</p>
+        </div>
+        <div>
+          <label>{{ t("anomaly.sched_freq") }}</label>
+          <n-space align="center" :size="12" :wrap="true">
+            <n-select :value="sched.frequency" :options="freqOptions" style="width: 170px"
+                      :disabled="!sched.schedule_enabled"
+                      @update:value="(v: AnomalySchedule['frequency']) => patchSched({ frequency: v })" />
+            <n-input-number v-if="sched.frequency === 'interval'" :value="sched.interval_minutes"
+                            :min="5" :max="1440" :step="5" style="width: 150px"
+                            :disabled="!sched.schedule_enabled"
+                            @update:value="(v: number | null) => v && patchSched({ interval_minutes: v })" />
+            <n-select v-if="sched.frequency === 'weekly'" :value="sched.weekdays" multiple
+                      :options="weekdayOptions" style="min-width: 260px"
+                      :disabled="!sched.schedule_enabled"
+                      :placeholder="t('anomaly.sched_weekdays_ph')"
+                      @update:value="(v: number[]) => v.length && patchSched({ weekdays: v })" />
+            <n-input-number v-if="sched.frequency === 'monthly'" :value="sched.month_day"
+                            :min="1" :max="31" style="width: 130px"
+                            :disabled="!sched.schedule_enabled"
+                            @update:value="(v: number | null) => v && patchSched({ month_day: v })" />
+          </n-space>
+          <p v-if="sched.frequency === 'interval'" class="sched-hint">
+            {{ t("anomaly.sched_interval_hint") }}
+          </p>
+          <p v-if="sched.frequency === 'monthly'" class="sched-hint">
+            {{ t("anomaly.sched_month_day_hint") }}
+          </p>
+        </div>
+        <div v-if="sched.frequency !== 'interval'">
+          <label>{{ t("anomaly.sched_times") }}</label>
+          <div class="sched-times">
+            <div v-for="(tm, i) in sched.times" :key="i" class="sched-time-row">
+              <n-time-picker :value="hhmmToMs(tm)" format="HH:mm" style="width: 130px"
+                             :disabled="!sched.schedule_enabled"
+                             @update:formatted-value="(v: string | null) => setSchedTime(i, v)" />
+              <n-button quaternary size="small"
+                        :disabled="!sched.schedule_enabled || sched.times.length <= 1"
+                        @click="removeSchedTime(i)">✕</n-button>
+            </div>
+            <n-button size="small" quaternary :disabled="!sched.schedule_enabled"
+                      @click="patchSched({ times: [...sched.times, '12:00'] })">
+              + {{ t("anomaly.sched_add_time") }}
+            </n-button>
+          </div>
+          <p class="sched-hint">{{ t("anomaly.sched_times_hint") }}</p>
+        </div>
+        <div style="opacity:.75; font-size:13px">
+          {{ t("anomaly.sched_last_run") }}:
+          {{ sched.last_run_at ? fmtDateTime(sched.last_run_at) : t("anomaly.sched_never") }}
+        </div>
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="schedShow = false">{{ t("common.close") }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -475,6 +676,11 @@ async function run() {
 </template>
 
 <style scoped>
+/* 排程視窗：提示文字要小一號、灰一點，否則整個視窗看起來都是同等重要的字 */
+.sched-hint { margin: 6px 0 0; font-size: 12px; opacity: .7; line-height: 1.5; }
+.sched-times { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sched-time-row { display: flex; align-items: center; gap: 2px; }
+
 /* 統計卡：外框 + 底色，數字有值時轉為警示色（原本是裸數字，看起來像沒對齊的散字） */
 .anom-stat {
   border: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.28));
