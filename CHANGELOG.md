@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.13] - 2026-09-13
+
+### Fixed
+- **An upgrade that can no longer fast-forward now recovers by itself.** The upgrade pulls with
+  `--ff-only` and the script runs under `set -e`, so a failed pull stopped everything right
+  there: no backup, no migration, no build, no restart -- and all the operator saw was git's own
+  message. It was not a one-off either; every later upgrade failed the same way, because nothing
+  about the repository had changed. The fix is `git reset --hard origin/<branch>`, which nobody
+  would guess.
+
+  The ways to get here are mundane: somebody committed an edit on the box, a shallow or partial
+  clone, or rewritten upstream history. In all of them the checked-out source is meant to be a
+  copy of upstream -- customer configuration lives in `/etc/jt-ipam`, not in the repository -- so
+  resetting to the remote is the correct move. Nothing is discarded silently: commits that exist
+  only on that machine are kept on a timestamped branch and the message says where they went.
+
+### Changed
+- **The installer's own tests now run in CI.** The guards under `scripts/tests/` were not run by
+  any CI -- a guard nobody runs is not a guard. Both `scripts/ci.sh` and GitHub Actions run them
+  now, and a new one covers the recovery above by simulating rewritten upstream history with two
+  throwaway repositories.
+
+### Notes
+- No database changes; this release touches only the installer/upgrade script and tests.
+
 ## [0.6.12] - 2026-09-08
 
 ### Added

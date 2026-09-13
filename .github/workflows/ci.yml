@@ -77,6 +77,10 @@ jobs:
         run: ruff check app/
 
       # 掃描代理與維運腳本是在客戶機器上用真實權限跑的，同樣要過 bandit 的 S 規則
+      # 安裝／升級腳本自己的守門（CLI 分派、歷史分歧時的自動復原）
+      - name: Installer / upgrade shell tests
+        run: for t in scripts/tests/*.sh; do bash "$t" || exit 1; done
+
       - name: Security rules on scripts + agent (bandit S)
         run: |
           cd backend && ruff check --select S ../scripts ../agent

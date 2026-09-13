@@ -1333,6 +1333,50 @@ cmd_doctor() {
 # =============================================================================
 # cmd_upgrade — upgrade existing install (original scripts/jt-ipam-upgrade.sh logic, preserved verbatim)
 # =============================================================================
+# Recover a repository whose history no longer fast-forwards onto the remote.
+#
+# Why this exists: the upgrade pulls with --ff-only, and the script runs under
+# `set -e`. When the pull fails the whole upgrade stops right there -- no backup,
+# no migration, no build, no restart -- and all the operator sees is git's own
+# message. Worse, it is not a one-off: every subsequent upgrade fails the same
+# way, because nothing about the repository has changed. The fix is
+# `git reset --hard origin/<branch>`, which nobody would guess.
+#
+# Causes seen in practice: someone committed a local edit on the box, a partial
+# clone, or upstream history that was rewritten. In all of them the checked-out
+# source is meant to be a copy of upstream -- customer configuration lives in
+# /etc/jt-ipam, not in the repo -- so resetting to the remote is the right move.
+#
+# Nothing is thrown away silently: any commits that exist only here are kept on a
+# timestamped branch, and the message says where they went.
+recover_diverged_repo() {
+    local root="$1" branch upstream local_only backup
+    branch="$(as_user git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+    upstream="origin/${branch}"
+
+    as_user git -C "$root" fetch origin --prune >/dev/null 2>&1 || true
+    if ! as_user git -C "$root" rev-parse --verify --quiet "$upstream" >/dev/null; then
+        die "Cannot reach ${upstream}. Check network access to the git remote, then re-run upgrade."
+    fi
+
+    # A dirty tree was already handled (discarded or aborted) before the pull, so
+    # anything left here is committed history -- safe to move aside, not to lose.
+    local_only="$(as_user git -C "$root" log --oneline "${upstream}..HEAD" 2>/dev/null || true)"
+
+    warn "The local repository no longer fast-forwards onto ${upstream}."
+    if [[ -n "$local_only" ]]; then
+        warn "These commits exist only in ${root}:"
+        printf '%s\n' "$local_only" | sed 's/^/      /' >&2
+        backup="upgrade-recovery/$(date +%Y%m%d-%H%M%S)"
+        as_user git -C "$root" branch "$backup" HEAD >/dev/null 2>&1 || true
+        warn "Kept on branch '${backup}' -- nothing is lost."
+    fi
+
+    log "Resetting the source tree to ${upstream} so the upgrade can continue…"
+    as_user git -C "$root" reset --hard "$upstream"
+    log "Recovered: $(as_user git -C "$root" rev-parse --short HEAD)"
+}
+
 cmd_upgrade() {
     local UPGRADE_ARGS=("$@")
     local ROOT="$REPO_ROOT"
@@ -1414,7 +1458,9 @@ cmd_upgrade() {
         fi
       fi
       log "git pull --ff-only"
-      as_user git -C "$ROOT" pull --ff-only
+      if ! as_user git -C "$ROOT" pull --ff-only; then
+          recover_diverged_repo "$ROOT"
+      fi
     else
       log "Skipping git pull (--no-pull)"
     fi
@@ -1685,4 +1731,8 @@ main() {
     esac
 }
 
-main "$@"
+# Only run when executed, not when sourced. The recovery logic below is worth a
+# test, and a test cannot reach it if sourcing the file starts an upgrade.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

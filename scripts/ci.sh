@@ -53,6 +53,13 @@ if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
     fi
   fi
 
+  # 這兩支守的是安裝／升級腳本本身（CLI 分派、歷史分歧時的自動復原）。
+  # 原本沒有被任何 CI 跑到 —— 沒有人跑的守門等於沒有。
+  step "installer/upgrade shell tests"
+  for t in "$ROOT"/scripts/tests/*.sh; do
+    if bash "$t" >/dev/null 2>&1; then ok "$(basename "$t")"; else bash "$t" 2>&1 | tail -20; bad "$(basename "$t")"; fi
+  done
+
   step "backend pytest collect"
   if .venv/bin/pytest -q --collect-only >/dev/null 2>&1; then ok "pytest collect"; else bad "pytest collect"; fi
 
