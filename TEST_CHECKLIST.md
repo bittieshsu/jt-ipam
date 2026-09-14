@@ -143,8 +143,13 @@ to see what a customer sees.**
   deleted, and `doctor` agrees with reality
 - [ ] Run it for **the oldest supported distro and the newest** (`debian:12`,
   `ubuntu:24.04`); PG-major and Node-version differences live there
-- [ ] **Upgrade**: against a previous-version environment run
-  `scripts/jt-ipam.sh upgrade`; it upgrades cleanly and can roll back if needed
+- [ ] **Upgrade — required, and separate from the above**: `scripts/test-upgrade.sh` exits 0.
+  Fresh install and upgrade share almost no code, so passing the fresh-install gate says
+  nothing about existing sites. Point it at the tree you are about to publish
+  (`JT_IPAM_REPO=/path/to/candidate`), not at the last release — otherwise you are testing
+  the version you already shipped. It writes a row *before* upgrading and checks it survived:
+  losing data is the worst upgrade failure and it does not make any command exit non-zero
+- [ ] Against a previous-version environment `scripts/jt-ipam.sh upgrade` also rolls back if needed
 - [ ] If this release added a directory / package / service / DB extension / env,
   confirm **`install` and `upgrade` are both in sync** — and that `doctor` checks it
 - [ ] **`scripts/jt-ipam.sh doctor` on prod after deploying**: every line green, or

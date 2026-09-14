@@ -34,6 +34,23 @@ die()  { echo -e "\033[1;31mFATAL:\033[0m $*" >&2; exit 1; }
 # here, from the OS locale, rather than left to the reader: someone whose terminal
 # is already Japanese should not land on an English page and then have to find the
 # switch. Anything else gets English, which is the page default.
+# 「服務起來了」不等於「在服務」。systemd 的 is-active 在行程 exec 的那一刻就是 active，
+# 而 uvicorn 還要載入整個應用程式才開始接受連線；固定 `sleep N` 在忙碌的機器上不夠 ——
+# 升級剛跑完前端建置，那正是機器最忙的時候。實測：升級回報成功、站台仍回 502。
+#
+# 所以用「連得到」當判準，而且要連**必須經過後端**的路徑。連不到就等，等不到就明講。
+wait_until_serving() {
+    local url="$1" timeout="${2:-90}" waited=0 code
+    while (( waited < timeout )); do
+        code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 "$url" 2>/dev/null || echo 000)"
+        # 1xx–4xx 都代表後端答了話（401 未登入是完全正常的答覆）；000 是連不上，5xx 多半是代理拿不到後端
+        [[ "$code" =~ ^[1-4] ]] && return 0
+        sleep 2
+        waited=$((waited + 2))
+    done
+    return 1
+}
+
 DOCS_BASE="${JT_IPAM_DOCS_BASE:-https://jasoncheng7115.github.io/jt-ipam}"
 troubleshooting_url() {
     case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
@@ -1049,10 +1066,13 @@ EOF
         || { warn "NOT RUNNING: jt-ipam-backend.service — journalctl -u jt-ipam-backend -n 50"; _fail=1; }
     local _expect_port
     if [[ "$TLS_MODE" == "nginx" ]]; then _expect_port=8000; else _expect_port="$BIND_PORT_DIRECT"; fi
-    if command -v ss >/dev/null 2>&1; then
-        ss -ltn 2>/dev/null | grep -q ":${_expect_port}\b" \
-            || { warn "NOTHING LISTENING on port ${_expect_port} (expected for --tls-mode ${TLS_MODE})"; _fail=1; }
-    fi
+    # 用連的，不要只看有沒有人 bind：精簡映像常常沒有 iproute2，`ss` 不在的時候
+    # 這段以前是整個跳過 —— 等於在最需要驗證的那種機器上什麼都沒驗。
+    local _probe_url
+    if [[ "$TLS_MODE" == "nginx" ]]; then _probe_url="http://127.0.0.1:${_expect_port}/healthz"
+    else _probe_url="https://127.0.0.1:${_expect_port}/healthz"; fi
+    wait_until_serving "$_probe_url" 60 \
+        || { warn "NOT ANSWERING on port ${_expect_port} (expected for --tls-mode ${TLS_MODE}) — journalctl -u jt-ipam-backend -n 50"; _fail=1; }
     if [[ "$TLS_MODE" == "nginx" ]]; then
         systemctl is-active --quiet nginx \
             || { warn "NOT RUNNING: nginx (needed in --tls-mode nginx to serve the UI on 443)"; _fail=1; }
@@ -1570,8 +1590,22 @@ cmd_upgrade() {
     # -- 7. restart backend --
     log "Restarting $SVC…"
     systemctl restart "$SVC"
-    sleep 4
     systemctl is-active --quiet "$SVC" || die "$SVC did not come up after restart; check journalctl -u $SVC"
+    local _rdy_tls _rdy_port _rdy_url
+    _rdy_tls="$(grep -oP 'BACKEND_TLS_MODE=\K\S+' "$ENV_FILE" 2>/dev/null || echo nginx)"
+    if [[ "$_rdy_tls" == "nginx" ]]; then
+        # 走使用者實際走的路徑（443 → nginx → 後端）。**刻意不用 /healthz**：
+        # nginx 自己就靜態回它 200，後端停著也一樣綠。
+        _rdy_url="https://127.0.0.1/api/v1/system/version"
+    else
+        _rdy_port="$(grep -oP 'BACKEND_BIND_PORT=\K\S+' "$ENV_FILE" 2>/dev/null || echo 8443)"
+        _rdy_url="https://127.0.0.1:${_rdy_port}/api/v1/system/version"
+    fi
+    if wait_until_serving "$_rdy_url" 90; then
+        log "Backend is answering on ${_rdy_url}"
+    else
+        die "$SVC restarted but nothing answers on ${_rdy_url} after 90s; check: journalctl -u $SVC -n 50"
+    fi
     # Existing installs upgraded from a version without the capability drop-in get it here,
     # and either way we read back what the running service actually holds.
     verify_icmp_ready

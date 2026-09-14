@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.17] - 2026-09-14
+
+### Fixed
+- **`upgrade` said "complete" while the site was still returning 502.** After restarting the
+  backend the script slept four seconds and asked systemd whether the unit was active — and
+  systemd calls a unit active the moment the process is exec'd, which is well before uvicorn
+  has imported the application and started listening. Four seconds is enough on an idle box
+  and not enough right after a frontend build, which is exactly when `upgrade` runs it. The
+  admin saw "Upgrade complete" and a broken site.
+
+  It now polls a route that **has to be proxied to the backend** until it answers (up to 90s)
+  and fails loudly with the journal command if it never does. `/healthz` is deliberately not
+  used: nginx answers that one itself with a static 200, so it stays green with the backend
+  stopped.
+
+- **`install`'s own self-check silently skipped the listening-port test on minimal systems.**
+  It used `ss`, guarded by `command -v ss` — and container and minimal-cloud images routinely
+  ship without iproute2, so the check vanished precisely on the machines where install
+  problems actually happen. It now connects instead of looking for a bound port.
+
+### Added
+- **`scripts/test-upgrade.sh` — the upgrade path is now a release gate of its own.** Fresh
+  install and upgrade share almost no code: `install` starts from nothing, while `upgrade`
+  starts from a machine already running an older version and has to pull, run migrations
+  against real data, rebuild and restart without losing the instance. A release could pass
+  the fresh-install gate and still break every existing site — and this release did: the 502
+  above was found by the first run of this script.
+
+  It installs the previous tag in a throwaway systemd container, **writes a row before
+  upgrading**, upgrades, then checks that the version moved in both the frontend and
+  `version.py`, that the service answers over HTTPS, that the row survived, and that `doctor`
+  is happy. It can be pointed at a local repository so it tests the release you are about to
+  publish rather than the one already published.
+
+### Notes
+- No database changes.
+- TEST_CHECKLIST 5b now lists the upgrade gate.
+
 ## [0.6.16] - 2026-09-14
 
 ### Fixed

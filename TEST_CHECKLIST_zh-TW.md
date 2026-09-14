@@ -63,7 +63,12 @@
 ## 5b. 部署腳本流程（拋棄式環境，**勿在 dev/prod 跑 install**）
 
 - [ ] **全新安裝**：乾淨 LXC/VM 跑 `scripts/install-debian.sh`，裝完服務起得來、能登入
-- [ ] **舊版升級**：對上一版的環境跑 `scripts/jt-ipam-upgrade.sh`，升完正常、必要時可回滾
+- [ ] **舊版升級 —— 必跑，而且與上面那項是兩回事**：`scripts/test-upgrade.sh` 退出 0。
+  全新安裝與升級幾乎不共用程式碼，通過全新安裝那道關卡對既有站台什麼都沒證明。要把它指向
+  **即將發出去的那份**（`JT_IPAM_REPO=/path/to/candidate`），不要指向上一個已發布版本 ——
+  否則測到的是你已經發出去的東西。它會在升級**前**寫一列資料並檢查它還在：升級把資料弄丟是
+  最糟的失敗，而且不會讓任何指令回非零
+- [ ] 對上一版的環境跑 `scripts/jt-ipam.sh upgrade`，必要時可回滾
 - [ ] 這次若新增了目錄 / 套件 / 服務 / DB extension / env，確認**兩支腳本都已同步**
 - [ ] **(A) 預設管理員帳密**：全新安裝結尾有印出 `admin` 帳號＋隨機密碼，且密碼存到 `/etc/jt-ipam/.admin-initial-password`（root 0600）；用該密碼能登入
 - [ ] **(A) 重置密碼 CLI**：`python -m app.cli.bootstrap create-admin --username admin --password-stdin --force-update` 能重置既有 admin；README 中英都有此段
