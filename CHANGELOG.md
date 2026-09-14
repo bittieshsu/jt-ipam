@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.15] - 2026-09-14
+
+### Fixed
+- **The AI now answers in the language the person is actually using.** Only two of the five
+  places that send text to a language model were following the UI language. The investigation
+  window decided with `lang.startswith("zh")`, so a Japanese user got English; the AI triage
+  card for unauthorised IPs and the firewall rule-change reading had the instruction written
+  into a Chinese prompt, so **English users got Chinese too** — that one predates Japanese
+  entirely and nobody noticed, because nothing errors: the answer simply comes back in the
+  wrong language.
+
+  There is now a single `answer_language()` that every entry point uses, so a new feature
+  cannot quietly pick its own rule and a new language only has to be added once. A test
+  asserts all five call it, because the failure mode is silent.
+
+### Changed
+- **The documentation site switches language with a dropdown instead of three buttons in a
+  row.** Side-by-side buttons crowd the header on a narrow window, and every additional
+  language makes it worse; a dropdown keeps the same width no matter how many there are.
+
+### Added
+- Japanese for the data model and the phpIPAM API mapping references.
+
+### Notes
+- No database changes.
+- Two facts in `DATA_MODEL` were out of date after 0.6.14 and are corrected: `user_preferences.locale`
+  now lists `ja-JP` (with the reminder that adding a language means widening a CHECK constraint
+  in a migration, or saving fails with nothing on screen but "save failed"), and the two Wazuh
+  CVE count columns are recorded as removed.
+
 ## [0.6.14] - 2026-09-14
 
 ### Added

@@ -103,9 +103,11 @@ async def investigate(
 
     # 模型不可用不該讓整個功能失效 —— 事實已經在手上了，敘述是加分項
     try:
-        from app.services.ai import raw_chat
+        from app.services.ai import answer_language, raw_chat
+        # `lang` 之前只做 zh / 非 zh 的二分，日文使用者會拿到英文。語言指示改由
+        # answer_language 產生（與 AI 對話、鑑識卡、規則異動解讀同一個來源）。
         out["narrative"] = (await raw_chat(
-            session, _prompt(dossier, lang),
+            session, _prompt(dossier, lang) + await answer_language(session, user),
             timeout=NARRATIVE_TIMEOUT, max_output_tokens=NARRATIVE_MAX_TOKENS,
             no_thinking=True,
         )).strip() or None
@@ -163,7 +165,9 @@ async def narrative_stream(
     )
     await session.commit()
 
-    prompt = _prompt(dossier, lang)
+    from app.services.ai import answer_language
+
+    prompt = _prompt(dossier, lang) + await answer_language(session, user)
 
     async def gen() -> Any:
         started = time.monotonic()

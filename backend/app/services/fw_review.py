@@ -343,7 +343,7 @@ async def analyze_change(session: AsyncSession, user: Any, snap: Any) -> dict[st
 
     規則描述與主機名稱都是不可信文字，一律 fence() 定界後才進提示詞。
     """
-    from app.services.ai import raw_chat
+    from app.services.ai import answer_language, raw_chat
     from app.services.ip_triage import fence
 
     diff = snap.diff
@@ -386,6 +386,7 @@ async def analyze_change(session: AsyncSession, user: Any, snap: Any) -> dict[st
 2. 風險評估（高／中／低＋理由；特別留意：對外開放、目標位址未登錄或剛出現、管理埠）
 3. 下一步建議（具體：問誰、查哪裡、要不要先停用）"""
 
+    prompt += await answer_language(session, user)   # 與鑑識卡、AI 對話同一個來源
     card = await raw_chat(session, prompt, timeout=120.0,
                           max_output_tokens=900, no_thinking=True)
     # 解讀出自哪個模型是判讀品質的一部分（不同模型可信度不同），跟著結果一起回

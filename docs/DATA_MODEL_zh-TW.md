@@ -1,6 +1,6 @@
 # jt-ipam 核心資料模型
 
-> English: [DATA_MODEL.md](DATA_MODEL.md)
+> English: [DATA_MODEL.md](DATA_MODEL.md) · 日本語：[DATA_MODEL_ja.md](DATA_MODEL_ja.md)
 
 > 後端：SQLAlchemy 2.0（async）+ PostgreSQL 16 + Alembic，使用原生 `inet` / `cidr` / `macaddr` / `citext` / `jsonb` 型別。主鍵一律用 UUID（少數高頻 / 鏈式 log 表用 `bigint`）。
 >
@@ -170,7 +170,7 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 
 ### 6.2 Wazuh — `wazuh.py`
 - **WazuhInstance**：`api_url`、`api_user` + 加密密碼、`verify_tls`。
-- **WazuhAgent**：每次 sync 的代理（`agent_id`、`ip`、`status`、OS/版本、`group`、keep-alive），透過 `jt_ipam_address_id` 對應到 IP，加上漏洞摘要計數（`cve_critical_count`/`cve_high_count`/`cve_summary_at`）。
+- **WazuhAgent**：每次 sync 的代理（`agent_id`、`ip`、`status`、OS/版本、`group`、keep-alive），透過 `jt_ipam_address_id` 對應到 IP。`cve_summary_at` 仍在；兩個 CVE 計數欄位已於 `0138` 移除 —— 它們從來沒有任何程式在寫。Wazuh 4.8 起 manager API 沒有漏洞端點，而一個永遠是 null 的欄位讀起來像「查過了，沒有漏洞」，不是「從來沒查過」。
 
 ### 6.3 OPNsense 防火牆 — `firewall.py`、`firewall_rule.py`、`nat.py`、`dhcp.py`
 - **OPNsenseFirewall**：加密 `api_key` + `api_secret`、`verify_tls`、同步開關（`sync_dhcp`/`sync_arp`/`sync_openvpn`/`sync_rules`/`sync_nat`/`sync_aliases`），以及 `expose_dsv`（opt-in：把該防火牆的 規則 label→alias 與 alias→members 對外提供成 Graylog DSV）。
@@ -244,7 +244,7 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 admin 為 `object_type` ∈ `subnet / ip / device` 定義欄位。`field_type` ∈ text/int/float/bool/date/select/multi_select/regex，含 `options`/`validation_regex`/`required`/`display_order`。值經驗證後存進各實體的 `custom_fields` jsonb。`(object_type, name)` 唯一。
 
 ### 8.7 `user_preferences`
-每使用者（PK = user_id）：`locale`（zh-TW/en-US）、`theme`、`timezone`、`calendar`（gregorian/minguo）、`page_size`、`table_columns`（jsonb — 各表顯示欄位）、`pinned_subnet_ids`（jsonb — 儀表板「常用子網路」）、`pinned`（jsonb `{namespace: [id…]}` — 機房/地點/機櫃等通用釘選，存後端而非 localStorage）。註：上線判定閾值已改為全域設定（`system_settings.online_grace_minutes`），不再是個人偏好。
+每使用者（PK = user_id）：`locale`（zh-TW/en-US/ja-JP —— 加語言時 CHECK 約束要靠 migration 一起放寬，否則選了新語言會存檔失敗，畫面上只寫「儲存失敗」）、`theme`、`timezone`、`calendar`（gregorian/minguo）、`page_size`、`table_columns`（jsonb — 各表顯示欄位）、`pinned_subnet_ids`（jsonb — 儀表板「常用子網路」）、`pinned`（jsonb `{namespace: [id…]}` — 機房/地點/機櫃等通用釘選，存後端而非 localStorage）。註：上線判定閾值已改為全域設定（`system_settings.online_grace_minutes`），不再是個人偏好。
 
 ### 8.8 `system_settings`
 admin key/value 設定（`key` PK、`value` jsonb、`updated_by`），覆寫 env。內含 hostname / ARP-MAC / 裝置名稱 / 裝置型號 / OS 解析的**來源優先序**、`online_grace_minutes`、LLM 設定、AI chat 保留天數等。

@@ -451,6 +451,37 @@ def _lang_instruction(locale: str | None) -> str:
     return f"Always respond to the user in {name}, regardless of the language of tool outputs."
 
 
+async def user_locale(session: AsyncSession, user: Any) -> str | None:
+    """那個人的介面語言 —— 所有會把文字丟給 LLM 的功能都該用這一支。
+
+    為什麼集中在這裡：語言判斷曾經散在各個進入點，做法還各自不同 —— 調查視窗是
+    `lang.startswith("zh")` 的二分法（日文使用者會拿到英文），鑑識卡與規則異動解讀
+    則是提示詞寫死中文（**英文使用者也拿到中文**）。加日文時這三處全都沒有跟上，
+    而且不會報錯，只是答案語言不對。一個來源就不會各走各的。
+    """
+    from app.models.user import UserPreference
+
+    uid = getattr(user, "id", None)
+    if uid is None:
+        return None
+    return (await session.execute(
+        select(UserPreference.locale).where(UserPreference.user_id == uid)
+    )).scalar_one_or_none()
+
+
+async def answer_language(session: AsyncSession, user: Any) -> str:
+    """給 raw_chat 用的提示詞片段：要模型用這個人的介面語言回答。
+
+    提示詞本體維持中文（那是我們寫給模型看的指示），**回答的語言**由這一行決定。
+    模型對「用 X 語言回答」的遵從度比把整段提示詞翻成 X 高得多，也不必維護五份提示詞。
+    """
+    name = _LANG_MAP.get(await user_locale(session, user) or "", None) or _LANG_MAP["zh-TW"]
+    return (
+        f"\n\n**回答一律使用 {name}**，不論上面的證據與欄位是什麼語言；"
+        "專有名詞（主機名稱、欄位名、指令）保持原文。\n"
+    )
+
+
 # 模型偶爾會把工具呼叫當成「文字」吐出來（而非結構化 tool_calls）——即使是支援工具呼叫的
 # 模型也會偶發如此。常見痕跡：<tool_call>…</tool_call> 標記 / call:name(args) / JSON {"name":…,"arguments":…}
 _TOOL_LEAK_RE = re.compile(

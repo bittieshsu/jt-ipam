@@ -1,6 +1,6 @@
 # jt-ipam Core Data Model
 
-> 繁體中文版：[DATA_MODEL_zh-TW.md](DATA_MODEL_zh-TW.md)
+> 繁體中文版：[DATA_MODEL_zh-TW.md](DATA_MODEL_zh-TW.md) · 日本語：[DATA_MODEL_ja.md](DATA_MODEL_ja.md)
 
 > Backend: SQLAlchemy 2.0 (async) + PostgreSQL 16 + Alembic, using native `inet` / `cidr` / `macaddr` / `citext` / `jsonb` types. UUID primary keys throughout (except a few high-volume / chained log tables that use `bigint`).
 >
@@ -170,7 +170,7 @@ Each integration has an **instance** table (connection metadata; API keys/passwo
 
 ### 6.2 Wazuh — `wazuh.py`
 - **WazuhInstance**: `api_url`, `api_user` + encrypted password, `verify_tls`.
-- **WazuhAgent**: per-sync agent (`agent_id`, `ip`, `status`, OS/version, `group`, keep-alive), linked to an IP via `jt_ipam_address_id`, plus vulnerability summary counts (`cve_critical_count`/`cve_high_count`/`cve_summary_at`).
+- **WazuhAgent**: per-sync agent (`agent_id`, `ip`, `status`, OS/version, `group`, keep-alive), linked to an IP via `jt_ipam_address_id`. `cve_summary_at` remains; the two CVE count columns were dropped in `0138` because nothing ever wrote them — since Wazuh 4.8 the manager API has no vulnerability endpoint, so a column that is always null reads as "checked, nothing found" rather than "never checked".
 
 ### 6.3 OPNsense firewall — `firewall.py`, `firewall_rule.py`, `nat.py`, `dhcp.py`
 - **OPNsenseFirewall**: encrypted `api_key` + `api_secret`, `verify_tls`, sync toggles (`sync_dhcp`/`sync_arp`/`sync_openvpn`/`sync_rules`/`sync_nat`/`sync_aliases`), and `expose_dsv` (opt-in: expose this firewall's rule-label→alias and alias→members lookups as Graylog DSV).
@@ -244,7 +244,7 @@ AES-256-GCM vault for any sensitive field. `(object_type, object_id, field, key_
 Admin-defined fields for `object_type` ∈ `subnet / ip / device`. `field_type` ∈ text/int/float/bool/date/select/multi_select/regex, with `options`/`validation_regex`/`required`/`display_order`. Values are validated and stored in each entity's `custom_fields` jsonb. Unique `(object_type, name)`.
 
 ### 8.7 `user_preferences`
-Per-user (PK = user_id): `locale` (zh-TW/en-US), `theme`, `timezone`, `calendar` (gregorian/minguo), `page_size`, `table_columns` (jsonb — per-table visible columns), `pinned_subnet_ids` (jsonb — dashboard "favourite subnets"), `pinned` (jsonb `{namespace: [id…]}` — generic pins for rooms/locations/racks, stored server-side rather than in localStorage). Note: the online-grace threshold moved to a global setting (`system_settings.online_grace_minutes`), it is no longer a preference.
+Per-user (PK = user_id): `locale` (zh-TW/en-US/ja-JP — the CHECK constraint has to be widened by a migration when a language is added, or saving the new one fails with nothing on screen but "save failed"), `theme`, `timezone`, `calendar` (gregorian/minguo), `page_size`, `table_columns` (jsonb — per-table visible columns), `pinned_subnet_ids` (jsonb — dashboard "favourite subnets"), `pinned` (jsonb `{namespace: [id…]}` — generic pins for rooms/locations/racks, stored server-side rather than in localStorage). Note: the online-grace threshold moved to a global setting (`system_settings.online_grace_minutes`), it is no longer a preference.
 
 ### 8.8 `system_settings`
 Admin key/value store (`key` PK, `value` jsonb, `updated_by`) overriding env. Holds, among others: **source precedence ordering** for hostname / ARP-MAC / device-name / device-model / OS resolution, `online_grace_minutes`, LLM config, AI chat retention.
