@@ -14,6 +14,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_global_r
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import encrypt_secret
+from app.core.ui_error import detail_of
 from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.encrypted_secret import EncryptedSecret
 from app.schemas.base import Paginated
@@ -228,11 +229,11 @@ async def test_server(
     try:
         adapter = await get_adapter(session, obj)
     except DNSAdapterError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=detail_of(exc, "dns_adapter_error")) from exc
     try:
         info = await adapter.healthcheck()
     except DNSAdapterError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "dns_adapter_error")) from exc
     except Exception as exc:
         # 安全網：任何 adapter 漏接的連線例外（winrm/dnspython/json…）都轉成可懂的 502，
         # 不讓連線測試變成無訊息的 500。

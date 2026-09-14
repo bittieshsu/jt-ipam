@@ -16,6 +16,7 @@ from app.api.phpipam.helpers import (
     phpipam_response,
 )
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.address import IPAddress
 from app.models.subnet import Subnet
 from app.models.user import User
@@ -208,11 +209,11 @@ async def create_address(
                 state=str(payload.get("tag") or "active"),
             )
     except IPNotInSubnet as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=detail_of(exc, "ip_not_in_subnet")) from exc
     except IPAlreadyExists as exc:
-        raise HTTPException(409, detail=str(exc)) from exc
+        raise HTTPException(409, detail=detail_of(exc, "ip_already_exists")) from exc
     except SubnetFull as exc:
-        raise HTTPException(409, detail=str(exc)) from exc
+        raise HTTPException(409, detail=detail_of(exc, "subnet_full")) from exc
 
     if "owner" in payload:
         obj.owner = payload["owner"]  # type: ignore[assignment]

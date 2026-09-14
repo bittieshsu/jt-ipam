@@ -148,6 +148,21 @@ async function loadRelatedNat() {
 // 此 IP 被哪些防火牆規則／別名管到（反向查詢）。
 // 防火牆規則屬全域基礎設施資料：無 has_global_read 的帳號不打這支、也不顯示區塊。
 const fwInfo = ref<{ rules: any[]; nat: any[]; aliases: any[] } | null>(null);
+
+/** 防火牆規則的「命中原因」：後端給結構，句子在這裡組。
+ *
+ * 後端原本直接回中文句子（「來源：網段 X 涵蓋」），結果**英文與日文介面也照樣出中文**
+ * —— 伺服器產生的顯示文字沒有辦法跟著使用者的語言走。所以後端改回
+ * `{side, code, value}`，翻譯留在這裡。新增命中種類時，三個語系的 `fw_why_*` 都要補。
+ */
+function fwMatchText(m: unknown): string {
+  if (!m) return "";
+  if (typeof m === "string") return m;            // 舊版後端（升級中的短暫並存）
+  const { side, code, value } = m as { side?: string; code?: string; value?: string };
+  if (!code) return "";
+  const why = t(`addresses.fw_why_${code}`, { value: value ?? "" });
+  return t(side === "dst" ? "addresses.fw_match_dst" : "addresses.fw_match_src", { why });
+}
 const auth = useAuthStore();
 async function loadFirewall() {
   fwInfo.value = null;
@@ -1021,7 +1036,7 @@ async function remove() {
                style="font-size: 12.5px; line-height: 1.8">
             <n-tag size="tiny" style="margin-right: 6px">{{ r.source_type }}</n-tag>
             {{ r.firewall }}｜{{ r.action }} {{ r.src }} → {{ r.dst }}{{ r.dst_port ? ":" + r.dst_port : "" }}
-            <span style="opacity:.6">（{{ r.match }}{{ r.descr ? "；" + r.descr : "" }}）</span>
+            <span style="opacity:.6">（{{ fwMatchText(r.match) }}{{ r.descr ? "；" + r.descr : "" }}）</span>
           </div>
           <div v-if="fwInfo.aliases.length" style="font-size: 12.5px; margin-top: 4px">
             {{ t("addresses.fw_aliases") }}：

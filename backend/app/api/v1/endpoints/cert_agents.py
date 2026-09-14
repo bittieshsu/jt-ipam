@@ -26,6 +26,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_global_r
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import ui_detail
 from app.models.address import IPAddress
 from app.models.certificate import CertAgent, Certificate, CertVersion
 from app.models.device import Device
@@ -443,7 +444,8 @@ async def get_agent_key(
         raise HTTPException(404, detail="Not found")
     key = await _load_agent_key(session, agent_id)
     if key is None:
-        raise HTTPException(404, detail="此代理未保存金鑰（可能建立於舊版），請輪替金鑰取得新的")
+        raise HTTPException(404, detail=ui_detail("cert_agent_no_stored_key",
+                            "此代理未保存金鑰（可能建立於舊版），請輪替金鑰取得新的"))
     return {"enroll_key": key}
 
 

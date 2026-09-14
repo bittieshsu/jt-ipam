@@ -15,11 +15,12 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ui_error import UiError
 from app.models.device import Device
 from app.models.location import Rack
 
 
-class RackPlacementError(ValueError):
+class RackPlacementError(UiError, ValueError):
     """U 位放置不合法（越界 / 重疊 / 縮櫃衝突）。"""
 
 
@@ -51,16 +52,18 @@ async def assert_placement_ok(
 ) -> None:
     """驗證某裝置放在 rack_id 的 [u_position, u_position+u_size-1] 是否合法。"""
     if u_size < 1:
-        raise RackPlacementError("u_size 必須 ≥ 1")
+        raise RackPlacementError("u_size 必須 ≥ 1", code="rack_u_size_min")
     rack = await session.get(Rack, rack_id)
     if rack is None:
-        raise RackPlacementError("機櫃不存在")
+        raise RackPlacementError("機櫃不存在", code="rack_not_found")
 
     top = u_position + u_size - 1
     if u_position < 1 or top > rack.u_height:
         raise RackPlacementError(
             f"U 位超出機櫃範圍：裝置占 U{u_position}–U{top}，"
-            f"但「{rack.name}」只有 {rack.u_height}U"
+            f"但「{rack.name}」只有 {rack.u_height}U",
+            code="rack_out_of_range", bottom=u_position, top=top,
+            name=rack.name, height=rack.u_height,
         )
 
     face = _face(rack_face)
@@ -86,7 +89,8 @@ async def assert_placement_ok(
         if clash:
             us = ", ".join(f"U{u}" for u in clash)
             raise RackPlacementError(
-                f"與「{d.name}」的 U 位重疊（{us}）；請改放空的 U 位或調整 U 數"
+                f"與「{d.name}」的 U 位重疊（{us}）；請改放空的 U 位或調整 U 數",
+                code="rack_overlap", name=d.name, positions=us,
             )
 
 
@@ -111,5 +115,6 @@ async def assert_rack_height_ok(
         )
         raise RackPlacementError(
             f"無法縮小到 {new_height}U：以下裝置會超出範圍 → {names}。"
-            "請先移走或下移這些裝置。"
+            "請先移走或下移這些裝置。",
+            code="rack_shrink_blocked", height=new_height, devices=names,
         )

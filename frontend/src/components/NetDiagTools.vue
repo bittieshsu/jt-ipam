@@ -293,7 +293,8 @@ interface PingRow {
   loss_pct: number | null; rtt_avg_ms: number | null; error: string | null;
   error_code?: string | null;
 }
-interface Hop { hop: number; host: string | null; fqdn?: string | null; rtt_ms: number | null; note: string | null }
+interface Hop { hop: number; host: string | null; fqdn?: string | null; rtt_ms: number | null;
+                note: string | null; note_code?: string | null }
 interface TraceRes { target: string; tool: string; path_mtu: number | null; truncated: boolean; reached?: boolean; hops: Hop[] }
 interface TcpRow { target: string; port: number; open: boolean; latency_ms: number | null; error: string | null }
 interface TlsRow {
@@ -376,7 +377,10 @@ const hopCols = computed(() => [
       : h("span", { style: "opacity:.5" }, t("netdiag.no_reply")) },
   { title: t("netdiag.rtt"), key: "rtt_ms", width: 120,
     render: (h2: Hop) => (h2.rtt_ms === null ? "—" : `${h2.rtt_ms} ms`) },
-  { title: t("netdiag.note"), key: "note", render: (h2: Hop) => h2.note || "" },
+  // note 可能是路由器回的旗標原文（`!H`…），也可能是我們自己造的句子；後者帶代碼，
+  // 要翻譯後再顯示，否則英文與日文介面上會冒出一句中文
+  { title: t("netdiag.note"), key: "note",
+    render: (h2: Hop) => (h2.note_code ? t(`errors.${h2.note_code}`) : h2.note) || "" },
 ]);
 
 const tcpCols = computed(() => [
@@ -595,7 +599,7 @@ async function runTrace() {
       if (ev.type === "hop") {
         trace.res!.hops.push({
           hop: ev.hop!, host: ev.host ?? null, fqdn: ev.fqdn ?? null,
-          rtt_ms: ev.rtt_ms ?? null, note: ev.note ?? null,
+          rtt_ms: ev.rtt_ms ?? null, note: ev.note ?? null, note_code: ev.note_code ?? null,
         });
       } else if (ev.type === "done") {
         trace.res!.tool = ev.tool ?? "";

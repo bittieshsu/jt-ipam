@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wsErrorText } from "@/utils/wsError";
 /**
  * BMC 主控台（IPMI SOL）— 瀏覽器內序列主控台，版面比照 SshTerminal。
  * 與後端 `/addresses/{id}/bmc/ws` 連線：先送 JSON config，之後資料雙向走 binary（鍵盤 ↔ SOL）。
@@ -118,7 +119,7 @@ async function connect() {
           phase.value = "connected";
           connInfo.value = `cipher ${m.cipher}${m.vendor ? " · " + m.vendor : ""}`;
           nextTick(() => { fit?.fit(); term?.focus(); });
-        } else if (m.type === "error") { phase.value = "error"; errorMsg.value = m.message || m.code; cleanupWs(); }
+        } else if (m.type === "error") { phase.value = "error"; errorMsg.value = wsErrorText(m, m.code ?? ""); cleanupWs(); }
       } catch { /* ignore */ }
     } else { term?.write(new Uint8Array(ev.data as ArrayBuffer)); }
   };

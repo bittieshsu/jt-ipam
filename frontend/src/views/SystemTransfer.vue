@@ -6,6 +6,7 @@ import {
   NIcon, NInput, NPopconfirm, NRadio, NRadioGroup, NSpace, NSpin, NTag, useMessage,
 } from "naive-ui";
 import { AdminIcon, ExportIcon, ImportIcon } from "@/icons";
+import { srvText } from "@/utils/wsError";
 import { getTask } from "@/api/tasks";
 import {
   analyzeImport, applyImport, downloadExport, getTransferSchema, startExport,
@@ -293,7 +294,7 @@ onUnmounted(() => { stopExpTimer(); stopImpTimer(); });
       <template v-if="analyzed">
         <n-divider style="margin: 8px 0" />
         <n-alert v-for="(w, i) in analyzed.warnings" :key="i" type="warning"
-                 :bordered="false" style="margin-bottom: 8px">{{ w }}</n-alert>
+                 :bordered="false" style="margin-bottom: 8px">{{ srvText(w) }}</n-alert>
 
         <div class="st-meta">
           <span>{{ t("system_transfer.source_version") }}:

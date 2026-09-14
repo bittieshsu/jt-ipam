@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import UiError
 from app.models.esxi import ESXiInstance
 
 VIM = "urn:vim25"
@@ -51,7 +52,7 @@ VM_PROPS = (
 )
 
 
-class ESXiError(Exception):
+class ESXiError(UiError):
     """對外可讀的錯誤（連線、認證、SOAP Fault）。"""
 
 
@@ -206,7 +207,7 @@ def parse_service_content(xml: str) -> dict[str, Any]:
     root = _safe_xml(xml)
     rv = _find(root, "returnval")
     if rv is None:
-        raise ESXiError("RetrieveServiceContent 沒有回傳內容")
+        raise ESXiError("RetrieveServiceContent 沒有回傳內容", code="esxi_no_service_content")
     out: dict[str, Any] = {"about": {}}
     for child in rv:
         name = _tag(child)
@@ -338,7 +339,7 @@ async def _call(
             content=body.encode("utf-8"), timeout=TIMEOUT, verify=inst.verify_tls,
         )
     except (UnsafeOutboundURL, httpx.HTTPError) as exc:
-        raise ESXiError(f"連線失敗：{exc}") from exc
+        raise ESXiError(f"連線失敗：{exc}", code="esxi_connect", reason=str(exc)[:200]) from exc
 
 
 async def resolve_base(inst: ESXiInstance) -> tuple[str, dict[str, Any]]:
@@ -356,9 +357,11 @@ async def resolve_base(inst: ESXiInstance) -> tuple[str, dict[str, Any]]:
         except ESXiError as exc:
             last = exc
             continue
-    raise ESXiError(
-        f"所有位址都連不上（試了 {len(urls)} 個）：{last}" if len(urls) > 1 else str(last)
-    )
+    if len(urls) > 1:
+        raise ESXiError(f"所有位址都連不上（試了 {len(urls)} 個）：{last}",
+                        code="esxi_all_urls_failed", n=len(urls), reason=str(last)[:200])
+    raise ESXiError(str(last), code=getattr(last, "code", None) or "esxi_connect",
+                    **(getattr(last, "params", {}) or {}))
 
 
 class Session:
@@ -383,7 +386,7 @@ class Session:
         raw_cookie = login.headers.get("set-cookie") or ""
         self.cookie = raw_cookie.split(";", 1)[0] or None
         if not self.cookie:
-            raise ESXiError("登入沒有取得 session cookie")
+            raise ESXiError("登入沒有取得 session cookie", code="esxi_no_cookie")
         return self
 
     async def __aexit__(self, *exc_info: Any) -> None:
@@ -408,7 +411,7 @@ class Session:
             "returnval",
         )
         if not view:
-            raise ESXiError("建立 ContainerView 失敗")
+            raise ESXiError("建立 ContainerView 失敗", code="esxi_container_view")
         collector = self.content["propertyCollector"]
         try:
             vms, token = parse_vms(await self.call(build_retrieve(collector, view)))
@@ -474,7 +477,7 @@ async def diagnose(inst: ESXiInstance) -> list[dict[str, Any]]:
         raise_for_fault(r.text)
         sess.cookie = (r.headers.get("set-cookie") or "").split(";", 1)[0] or None
         if not sess.cookie:
-            raise ESXiError("沒有取得 session cookie")
+            raise ESXiError("沒有取得 session cookie", code="esxi_no_cookie")
         return "ok"
 
     if await step("Login", _login) is None:

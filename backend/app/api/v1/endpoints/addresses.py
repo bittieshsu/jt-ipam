@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of, ui_detail
 from app.models.address import IPAddress
 from app.models.ip_change_log import IPChangeLog
 from app.models.subnet import Subnet
@@ -530,15 +531,16 @@ async def apply_device_suggestion(
 
     if bool(payload.device_id) == bool(payload.create_name):
         raise HTTPException(status_code=400,
-                            detail="請二擇一：關聯到既有裝置，或建立一台新的")
+                            detail=ui_detail("addr_device_pick_one",
+                                            "請二擇一：關聯到既有裝置，或建立一台新的"))
 
     if payload.create_name:
         # 建立裝置是管理員限定（與 POST /devices 同一條線）
         if not user.is_admin:
-            raise HTTPException(status_code=403, detail="只有管理員能建立裝置")
+            raise HTTPException(status_code=403, detail=ui_detail("addr_device_create_admin_only", "只有管理員能建立裝置"))
         name = payload.create_name.strip()
         if not name:
-            raise HTTPException(status_code=400, detail="裝置名稱不可為空")
+            raise HTTPException(status_code=400, detail=ui_detail("addr_device_name_empty", "裝置名稱不可為空"))
         hostname = (obj.hostname or "").strip()
         device = Device(name=name, type="other",
                         fqdn=hostname if "." in hostname else None)
@@ -924,14 +926,14 @@ async def create_address(
     # 擋下來而不是安靜放行 —— 管理員判斷沒問題可以先解除冷卻再建立。
     cd = await ip_lifecycle.cooldown_for(session, subnet_id=payload.subnet_id, ip=payload.ip)
     if cd is not None:
-        raise HTTPException(status_code=409, detail={
-            "code": "ip_in_cooldown",
-            "ip": payload.ip,
-            "until": cd.until.isoformat() if cd.until else None,
-            "previous_hostname": cd.previous_hostname,
-            "message": ("此位址剛被釋放，仍在冷卻期內（外部的 DNS 快取、防火牆規則可能"
-                        "還指著它）。確定要現在使用，請先解除冷卻。"),
-        })
+        raise HTTPException(status_code=409, detail=ui_detail(
+            "ip_in_cooldown",
+            "此位址剛被釋放，仍在冷卻期內（外部的 DNS 快取、防火牆規則可能"
+            "還指著它）。確定要現在使用，請先解除冷卻。",
+            ip=payload.ip,
+            until=cd.until.isoformat() if cd.until else "",
+            previous_hostname=cd.previous_hostname or "",
+        ))
 
     try:
         obj = await create_ip(
@@ -944,9 +946,9 @@ async def create_address(
             state=payload.state,
         )
     except IPNotInSubnet as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "ip_not_in_subnet")) from exc
     except IPAlreadyExists as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=detail_of(exc, "ip_already_exists")) from exc
 
     # 應用後續欄位
     try:
@@ -954,7 +956,7 @@ async def create_address(
             session, object_type="ip", payload=payload.custom_fields
         )
     except CustomFieldError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
     obj.owner = payload.owner
     obj.device_id = payload.device_id
     obj.switch_port = payload.switch_port
@@ -1002,7 +1004,7 @@ async def allocate_first_free_address(
             state=payload.state,
         )
     except SubnetFull as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=detail_of(exc, "subnet_full")) from exc
 
     await append_audit(
         session,
@@ -1055,7 +1057,7 @@ async def update_address(
                 session, object_type="ip", payload=changes["custom_fields"]
             ) or None
         except CustomFieldError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
 
     # feature A：hostname 不直接設，改走 observation + 優先序解析
     _UNSET = object()

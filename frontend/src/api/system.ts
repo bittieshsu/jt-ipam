@@ -1,3 +1,4 @@
+import type { ServerMessage } from "@/utils/wsError";
 import { apiClient } from "@/api/client";
 
 export interface GraylogDsv { enabled: boolean; fmt: string; path: string; token: string; }
@@ -200,8 +201,15 @@ export interface OllamaModel {
   parameter_size: string | null;
 }
 
-export async function listOllamaModels(): Promise<{ models: OllamaModel[]; error?: string }> {
-  const { data } = await apiClient.get<{ models: OllamaModel[]; error?: string }>(
+/** `error_detail` 是結構化訊息（代碼＋參數），句子由前端組；`error` 是舊欄位的退路。 */
+export interface OllamaModelsResult {
+  models: OllamaModel[];
+  error?: string;
+  error_detail?: ServerMessage;
+}
+
+export async function listOllamaModels(): Promise<OllamaModelsResult> {
+  const { data } = await apiClient.get<OllamaModelsResult>(
     "/api/v1/system/llm/models",
   );
   return data;

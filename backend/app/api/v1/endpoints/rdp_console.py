@@ -40,6 +40,7 @@ from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
 from app.core.tickets import take_once
+from app.core.ui_error import detail_of, ui_detail
 from app.core.ws_timeouts import HANDSHAKE_TIMEOUT, WsTimeout, receive_text_within
 from app.models.address import IPAddress
 from app.models.device import Device
@@ -229,7 +230,7 @@ async def issue_rdp_ticket(
 ) -> dict[str, Any]:
     """換發短期一次性 ticket；之後用它開 WebSocket。"""
     if not RDP_AVAILABLE:
-        raise HTTPException(status_code=503, detail="RDP 功能未安裝（缺 aardwolf 選用相依）")
+        raise HTTPException(status_code=503, detail=ui_detail("console_rdp_not_installed", "RDP 功能未安裝（缺 aardwolf 選用相依）"))
     from app.core.rate_limit import limit_per_ip
 
     await limit_per_ip(request, name="rdp")
@@ -238,7 +239,7 @@ async def issue_rdp_ticket(
     if ip is None:
         raise HTTPException(status_code=404, detail="Address not found")
     if not await can_use_rdp(session, user=user, ip=ip):
-        raise HTTPException(status_code=403, detail="無 RDP 連線權限")
+        raise HTTPException(status_code=403, detail=ui_detail("console_rdp_forbidden", "無 RDP 連線權限"))
 
     saved = (await session.execute(
         select(SSHCredential.id).where(
@@ -332,7 +333,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     # 並發上限（避免單核被多 session 拖垮）
     cap = get_settings().rdp_max_sessions
     if cap and _active_sessions >= cap:
-        await send({"type": "error", "code": "too_many", "message": f"RDP 同時連線已達上限（{cap}）"})
+        await send({"type": "error", **ui_detail("console_rdp_too_many",
+                                      f"RDP 同時連線已達上限（{cap}）", max=cap)})
         await websocket.close()
         return
 
@@ -345,16 +347,16 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
         try:
             cfg = json.loads(await receive_text_within(
-                websocket, HANDSHAKE_TIMEOUT, what="連線設定"))
+                websocket, HANDSHAKE_TIMEOUT, what="config"))
         except WsTimeout as exc:
             with contextlib.suppress(Exception):
                 await websocket.send_text(json.dumps(
-                    {"type": "error", "code": "handshake_timeout", "message": str(exc)},
+                    {"type": "error", **detail_of(exc, "console_handshake_timeout")},
                     ensure_ascii=False))
             await websocket.close(code=4408)
             return
         if cfg.get("type") != "config":
-            await send({"type": "error", "code": "bad_config", "message": "缺少連線設定"})
+            await send({"type": "error", **ui_detail("console_no_config", "缺少連線設定")})
             await websocket.close()
             return
         width = max(640, min(_MAX_DIM, int(cfg.get("width") or 1280)))
@@ -375,7 +377,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     cred = None
                 if (cred is None or cred.owner_user_id != user_id or cred.protocol != "rdp"
                         or (cred.target_ip_id is not None and str(cred.target_ip_id) != str(address_id))):
-                    await send({"type": "error", "code": "cred_not_found", "message": "找不到可用的已存帳密"})
+                    await send({"type": "error",
+                                **ui_detail("console_no_saved_credential", "找不到可用的已存帳密")})
                     await websocket.close()
                     return
                 used_cred_id = cred.id
@@ -385,7 +388,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             try:
                 password = envelope_decrypt(secrets_enc["password"], aad=cred_aad(user_id, "password"))
             except Exception:
-                await send({"type": "error", "code": "bad_key", "message": "已存帳密解密失敗"})
+                await send({"type": "error",
+                            **ui_detail("console_saved_credential_decrypt", "已存帳密解密失敗")})
                 await websocket.close()
                 return
             async with SessionLocal() as s:
@@ -394,7 +398,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     c2.last_used_at = datetime.now(UTC)
                     await s.commit()
         if not username:
-            await send({"type": "error", "code": "bad_config", "message": "帳號必填"})
+            await send({"type": "error", **ui_detail("console_no_username", "帳號必填")})
             await websocket.close()
             return
 
@@ -418,7 +422,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         try:
             tunnel = await console_route.open_route(route, host, _RDP_PORT)
         except console_route.JumpHostError as exc:
-            await send({"type": "error", "code": "jump_failed", "message": str(exc)})
+            await send({"type": "error", **detail_of(exc, "jump_failed")})
             await websocket.close()
             return
 
@@ -439,7 +443,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             async with asyncio.timeout(_CONNECT_TIMEOUT):
                 _result, err = await conn.connect()
         except TimeoutError:
-            await send({"type": "error", "code": "connect_failed", "message": "連線逾時"})
+            await send({"type": "error", **ui_detail("console_connect_timeout", "連線逾時")})
             await websocket.close()
             return
         if err is not None:
@@ -480,7 +484,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         pass
     except Exception:  # 不洩漏堆疊
         with contextlib.suppress(Exception):
-            await send({"type": "error", "code": "internal", "message": "連線發生未預期錯誤"})
+            await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
     finally:
         if conn is not None:
             with contextlib.suppress(Exception):

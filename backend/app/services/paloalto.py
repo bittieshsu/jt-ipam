@@ -46,12 +46,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall, PaloAltoPolicy
 from app.services.hostname import apply_observation
 
 
-class PaloAltoError(RuntimeError):
+class PaloAltoError(UiError, RuntimeError):
     """與這台 PAN-OS 溝通時的錯誤（訊息會直接顯示給管理員，要講得出下一步）。"""
 
 
@@ -96,14 +97,17 @@ async def _request(
             "GET", url, headers=headers, params=params, timeout=timeout, verify=fw.verify_tls,
         )
     except UnsafeOutboundURL as exc:
-        raise PaloAltoError(f"SSRF guard rejected URL: {exc}") from exc
+        raise PaloAltoError(f"SSRF guard rejected URL: {exc}",
+                            code="pan_ssrf", reason=str(exc)[:200]) from exc
     except httpx.HTTPError as exc:
         # 連線類錯誤一定要帶底層原文：ConnectError 分不出 DNS／拒絕／路由／憑證
-        raise PaloAltoError(f"transport: {transport_detail(exc)}") from exc
+        raise PaloAltoError(f"transport: {transport_detail(exc)}",
+                            code="pan_transport", reason=transport_detail(exc)) from exc
     if resp.status_code in (401, 403):
         raise PaloAltoError(
             f"{resp.status_code} 未授權：請確認 API 金鑰正確、該管理員角色可讀取此資源，"
             "且來源 IP 在「Permitted IP Addresses」允許範圍內",
+            code="pan_unauthorized", status=resp.status_code,
         )
     return resp
 
@@ -128,6 +132,7 @@ async def _rest_get(
         raise PaloAltoError(
             f"{resource} 回 404：REST 版本段 {ver} 與這台 PAN-OS 不符，"
             "請在設定頁指定正確的 API 版本（或留空讓系統自行偵測）",
+            code="pan_rest_version", resource=resource, version=ver,
         )
     if resp.status_code != 200:
         raise PaloAltoError(f"GET {resource}: {resp.status_code} {resp.text[:200]}")
@@ -138,9 +143,13 @@ async def _rest_get(
         snippet = " ".join(resp.text[:120].split())
         raise PaloAltoError(
             f"回應不是 JSON（{resource}）：{exc} content-type={ctype} 內容開頭={snippet!r}",
+            code="pan_not_json", resource=resource, reason=str(exc),
+            ctype=ctype, snippet=snippet,
         ) from exc
     if str(body.get("@status", "success")).lower() != "success":
-        raise PaloAltoError(f"{resource}: {body.get('message') or body}")
+        raise PaloAltoError(f"{resource}: {body.get('message') or body}",
+                            code="pan_api_failed", resource=resource,
+                            reason=str(body.get('message') or body)[:200])
     result = body.get("result") or {}
     entry = result.get("entry")
     if entry is None:
@@ -158,15 +167,20 @@ async def _xml_get(
     """
     resp = await _request(fw, path="/api/", params=params, timeout=timeout)
     if resp.status_code != 200:
-        raise PaloAltoError(f"XML API: {resp.status_code} {resp.text[:200]}")
+        raise PaloAltoError(f"XML API: {resp.status_code} {resp.text[:200]}",
+                            code="pan_xml_http", status=resp.status_code,
+                            body=resp.text[:200])
     try:
         root = DefusedET.fromstring(resp.text)
     except Exception as exc:      # defusedxml 會丟多種例外，一律當成「不是 XML」
         snippet = " ".join(resp.text[:120].split())
-        raise PaloAltoError(f"回應不是 XML：{exc} 內容開頭={snippet!r}") from exc
+        raise PaloAltoError(f"回應不是 XML：{exc} 內容開頭={snippet!r}",
+                            code="pan_not_xml", reason=str(exc), snippet=snippet) from exc
     if root.get("status") != "success":
         msg = "".join(root.itertext()).strip()[:200]
-        raise PaloAltoError(f"PAN-OS 回報失敗：{msg or root.get('status')}")
+        raise PaloAltoError(f"PAN-OS 回報失敗：{msg or root.get('status')}",
+                            code="pan_reported_failure",
+                            reason=str(msg or root.get('status'))[:200])
     return root.find("result")
 
 

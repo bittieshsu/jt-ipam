@@ -26,11 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.zabbix import ZabbixHost, ZabbixInstance
 
 
-class ZabbixError(RuntimeError):
+class ZabbixError(UiError, RuntimeError):
     pass
 
 
@@ -79,7 +80,9 @@ async def _rpc(
     except httpx.HTTPError as exc:
         raise ZabbixError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
-        raise ZabbixError(f"Zabbix {method}: HTTP {resp.status_code} {resp.text[:200]}")
+        raise ZabbixError(f"Zabbix {method}: HTTP {resp.status_code} {resp.text[:200]}",
+                          code="zbx_http", method=method, status=resp.status_code,
+                          body=resp.text[:200])
     try:
         body = resp.json()
     except ValueError as exc:
@@ -89,6 +92,8 @@ async def _rpc(
             f"Zabbix {method}: 回應不是 JSON（content-type="
             f"{resp.headers.get('content-type', '?')} 內容開頭={snippet!r}）"
             "——請確認網址是否指向 Zabbix 前端（會自動補 /api_jsonrpc.php）",
+            code="zbx_not_json", method=method,
+            ctype=resp.headers.get("content-type", "?"), snippet=snippet,
         ) from exc
     if isinstance(body, dict) and body.get("error"):
         err = body["error"]
@@ -117,7 +122,7 @@ async def _auth_token(inst: ZabbixInstance, *, major: int | None = None) -> str:
         return token
     pwd = _decrypt(inst, "api_password")
     if not inst.api_user or not pwd:
-        raise ZabbixError("未設定 API token，也沒有帳號密碼")
+        raise ZabbixError("未設定 API token，也沒有帳號密碼", code="zbx_no_credentials")
     attempts = ["username"] if (major or 0) >= 6 else ["username", "user"]
     last: ZabbixError | None = None
     for key in attempts:
@@ -128,9 +133,9 @@ async def _auth_token(inst: ZabbixInstance, *, major: int | None = None) -> str:
             last = exc
             continue
         if not isinstance(result, str):
-            raise ZabbixError("user.login 沒有回傳 token")
+            raise ZabbixError("user.login 沒有回傳 token", code="zbx_login_no_token")
         return result
-    raise last or ZabbixError("user.login 失敗")
+    raise last or ZabbixError("user.login 失敗", code="zbx_login_failed")
 
 
 async def healthcheck(inst: ZabbixInstance) -> dict[str, Any]:
@@ -222,7 +227,7 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
 
     hosts = await _rpc(inst, "host.get", params, auth=token, timeout=60.0)
     if not isinstance(hosts, list):
-        raise ZabbixError("host.get 回傳格式非預期")
+        raise ZabbixError("host.get 回傳格式非預期", code="zbx_host_get_shape")
 
     scope = _scope_ids(inst)
     now = datetime.now(UTC)

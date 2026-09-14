@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wsErrorText } from "@/utils/wsError";
 /**
  * SFTP 檔案瀏覽器：先換 ticket → 開 WebSocket → 後端橋接 asyncssh 的 SFTP。
  *
@@ -256,13 +257,15 @@ async function connect() {
           break;
         case "error": {
           uploadAborted = true;          // 正在上傳的話，讓送出迴圈停下來
-          errorMsg.value = m.message ?? "";
+          errorMsg.value = wsErrorText(m, m.message ?? "");
           // 連線階段失敗要退回表單，否則使用者卡在一片空白、無從重試
           if (phase.value !== "connected") phase.value = "error";
-          // 帶上 code：有些失敗是可以補救的（例如資料夾不是空的 → 問要不要連內容一起刪），
-          // 只丟字串的話呼叫端只能把它當成一般錯誤顯示
-          const err = new Error(m.message) as Error & { code?: string };
-          err.code = m.code;
+          // 帶上整個錯誤框：code／params 是給 wsErrorText 翻譯用的，was_empty 這種
+          // 旗標則讓呼叫端分辨可補救的失敗（資料夾不是空的 → 問要不要連內容一起刪）。
+          // 只丟字串的話兩件事都做不到。
+          const err = Object.assign(new Error(m.message ?? ""), {
+            code: m.code, params: m.params, was_empty: m.was_empty,
+          });
           settle(m, "reject", err);
           break;
         }
@@ -303,7 +306,7 @@ async function refresh(path?: string) {
   busy.value = true;
   checkedKeys.value = [];      // 換目錄還留著上一層的勾選 → 會刪錯東西
   try { await request({ type: "list", path: path ?? cwd.value }); }
-  catch (e: any) { msg.error(e?.message ?? String(e)); }
+  catch (e: any) { msg.error(wsErrorText(e, String(e))); }
   finally { busy.value = false; }
 }
 
@@ -319,7 +322,7 @@ function goUp() {
 async function download(row: SftpEntry) {
   busy.value = true;
   try { await request({ type: "get", path: row.path }); }
-  catch (e: any) { msg.error(e?.message ?? String(e)); }
+  catch (e: any) { msg.error(wsErrorText(e, String(e))); }
   finally { busy.value = false; }
 }
 
@@ -487,7 +490,7 @@ async function uploadFiles(picked: PickedFile[]) {
     for (const d of dirsToCreate(picked)) {
       // parents：缺的中間層一起建、已存在當成功，不然會收到一串假的失敗
       try { await request({ type: "mkdir", path: `${base}/${d}`, parents: true }); } catch (e: any) {
-        failed.push(`${d}（${e?.message ?? String(e)}）`);
+        failed.push(`${d}（${wsErrorText(e, String(e))}）`);
       }
     }
     for (const [i, item] of picked.entries()) {
@@ -502,7 +505,7 @@ async function uploadFiles(picked: PickedFile[]) {
             attempt += 1;
             continue;
           }
-          failed.push(`${item.path}（${e?.message ?? String(e)}）`);
+          failed.push(`${item.path}（${wsErrorText(e, String(e))}）`);
           break;
         }
       }
@@ -595,7 +598,7 @@ async function submitNameDlg() {
     else await request({ type: "rename", path: d.row!.path, to: `${dir}/${name}` });
     nameDlg.value = null;
     await refresh();
-  } catch (e: any) { msg.error(e?.message ?? String(e)); }
+  } catch (e: any) { msg.error(wsErrorText(e, String(e))); }
   finally { busy.value = false; }
 }
 
@@ -607,11 +610,12 @@ async function doDelete(row: SftpEntry) {
   } catch (e: any) {
     // 資料夾有內容：SFTP 不會刪有東西的資料夾。與其只說失敗，不如把後端查到的
     // 項目數講出來，並讓使用者明確決定要不要連內容一起刪（這是破壞性的，要問過）
-    if (e?.code === "dir_not_empty") {
+    // was_empty 由後端給（它實際列過那個目錄）；代碼本身已經是翻譯鍵，不再拿來判斷流程
+    if (e?.was_empty === false) {
       errorMsg.value = "";
-      confirmRecursive.value = { path: row.path, detail: e.message ?? "" };
+      confirmRecursive.value = { path: row.path, detail: wsErrorText(e, "") };
     } else {
-      msg.error(e?.message ?? String(e));
+      msg.error(wsErrorText(e, String(e)));
     }
   } finally { busy.value = false; }
 }
@@ -629,7 +633,7 @@ async function doDeleteRecursive() {
                               recursive: true });
     msg.success(t("sftp.deleted_recursive", { n: r?.removed ?? 0 }));
     await refresh();
-  } catch (e: any) { msg.error(e?.message ?? String(e)); }
+  } catch (e: any) { msg.error(wsErrorText(e, String(e))); }
   finally { busy.value = false; }
 }
 
@@ -773,7 +777,7 @@ async function batchDownload() {
     msg.success(dirs
       ? t("sftp.batch_downloaded_skipped_dirs", { n: files.length, dirs })
       : t("sftp.batch_downloaded", { n: files.length }));
-  } catch (e: any) { msg.error(e?.message ?? String(e)); }
+  } catch (e: any) { msg.error(wsErrorText(e, String(e))); }
   finally { busy.value = false; }
 }
 
@@ -789,7 +793,7 @@ async function batchDelete() {
       catch (e: any) {
         // 有內容的資料夾另外列：那不是「刪不掉」，而是要先決定要不要連內容刪，
         // 混在一般失敗裡會讓人以為壞了
-        if (e?.code === "dir_not_empty") nonEmpty.push(r.name);
+        if (e?.was_empty === false) nonEmpty.push(r.name);
         else failed.push(r.name);           // 一個失敗不該讓其他的也不做
       }
     }
@@ -833,7 +837,7 @@ async function browseMove(path: string) {
     moveDest.value = m.path;
     moveDirs.value = (m.entries ?? []).filter((e: SftpEntry) => e.is_dir);
   } catch (e: any) {
-    msg.error(e?.message ?? String(e));
+    msg.error(wsErrorText(e, String(e)));
   } finally {
     browsingOnly = false;
     moveLoading.value = false;

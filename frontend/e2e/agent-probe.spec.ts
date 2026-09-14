@@ -31,10 +31,14 @@ test("可選擇從伺服器或從掃描代理執行", async ({ page }) => {
   await expect(sel).toBeVisible();
 
   await sel.click();
-  const opts = await page.locator(".n-base-select-option").allInnerTexts();
+  // 用會自動重試的 expect，不要用 allInnerTexts() 一次讀完 —— 下拉面板是非同步掛上去的，
+  // 讀太早就只拿到空陣列或只有第一個選項，而失敗訊息會說「沒有掃描代理這個選項」，
+  // 看起來像功能壞了。代理一多（e2e 跑久了會累積）就更容易踩到。
+  const opt = (text: string) =>
+    page.locator(".n-base-select-option").filter({ hasText: text }).first();
   // 預設一定要有「伺服器」這個選項，且是預設值（維持既有行為）
-  expect(opts.some((o) => o.includes("伺服器"))).toBe(true);
-  expect(opts.some((o) => o.includes("掃描代理"))).toBe(true);
+  await expect(opt("伺服器")).toBeVisible();
+  await expect(opt("掃描代理")).toBeVisible();
 
   // 選了代理要明講封包從哪裡送出 —— 使用者若不知道，會誤判測試結果
   await page.locator(".n-base-select-option").filter({ hasText: "掃描代理" }).first().click();

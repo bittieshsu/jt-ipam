@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wsErrorText } from "@/utils/wsError";
 /**
  * SSH 終端機（xterm.js）。先換 ticket → 開 WebSocket → 橋接後端 asyncssh。
  * 憑證（密碼/私鑰）只在連線時送出，前端不保存。Host key 採 TOFU：首次顯示指紋確認後由後端釘選。
@@ -263,7 +264,7 @@ async function connect() {
         break;
       case "error":
         phase.value = "error";
-        errorMsg.value = payload.message || payload.code || t("ssh.err_generic");
+        errorMsg.value = wsErrorText(payload, t("ssh.err_generic"));
         break;
     }
   };

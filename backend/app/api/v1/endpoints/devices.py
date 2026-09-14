@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.device import Device
 from app.models.librenms import LibreNMSDevice
 from app.models.vlan import VLAN, DeviceVLAN
@@ -438,7 +439,7 @@ async def create_device(
             session, object_type="device", payload=payload.custom_fields
         )
     except CustomFieldError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
     data = payload.model_dump()
     data["custom_fields"] = cf or None
     obj = Device(**data)
@@ -451,7 +452,7 @@ async def create_device(
                 u_size=obj.u_size, rack_face=obj.rack_face, rack_side=obj.rack_side,
             )
         except RackPlacementError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise HTTPException(status_code=409, detail=detail_of(exc, "rack_placement_error")) from exc
     session.add(obj)
     await session.flush()
     await append_audit(
@@ -488,7 +489,7 @@ async def update_device(
                 session, object_type="device", payload=changes["custom_fields"]
             ) or None
         except CustomFieldError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
     for k, v in changes.items():
         setattr(obj, k, v)
     # 放進機櫃時先防呆：U 位不可越界或與其他裝置（同安裝方向）重疊
@@ -501,7 +502,7 @@ async def update_device(
                 exclude_device_id=obj.id,
             )
         except RackPlacementError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise HTTPException(status_code=409, detail=detail_of(exc, "rack_placement_error")) from exc
     # 設了主要 IP → 同時把該 IP 的 device_id 指回本裝置（雙向連結，IP 清單/拓樸才接得起來）
     if changes.get("primary_ip_id"):
         from app.models.address import IPAddress

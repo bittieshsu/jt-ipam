@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.fortigate import (
     FortiGateAddressObject,
@@ -51,7 +52,7 @@ EP_ADDRGRP = "/api/v2/cmdb/firewall/addrgrp"
 _DIAG_TIMEOUT = 10.0
 
 
-class FortiGateError(Exception):
+class FortiGateError(UiError):
     pass
 
 
@@ -83,18 +84,23 @@ async def _api_get(
             "GET", url, headers=headers, params=params, timeout=timeout, verify=fw.verify_tls,
         )
     except UnsafeOutboundURL as exc:
-        raise FortiGateError(f"SSRF guard rejected URL: {exc}") from exc
+        raise FortiGateError(f"SSRF guard rejected URL: {exc}",
+                             code="fgt_ssrf", reason=str(exc)[:200]) from exc
     except httpx.HTTPError as exc:
-        raise FortiGateError(f"transport: {transport_detail(exc)}") from exc
+        raise FortiGateError(f"transport: {transport_detail(exc)}",
+                             code="fgt_transport", reason=transport_detail(exc)) from exc
     if resp.status_code == 401:
         raise FortiGateError(
             "401 未授權：請確認 API token 正確、該管理員有唯讀 API 權限，"
             "且來源 IP 在 trusthost 允許範圍內（註：FIPS-CC 模式不支援 API token）",
+            code="fgt_401",
         )
     if resp.status_code == 403:
-        raise FortiGateError("403 拒絕存取：API 管理員權限或 trusthost 設定不足")
+        raise FortiGateError("403 拒絕存取：API 管理員權限或 trusthost 設定不足", code="fgt_403")
     if resp.status_code != 200:
-        raise FortiGateError(f"FortiGate GET {path}: {resp.status_code} {resp.text[:200]}")
+        raise FortiGateError(f"FortiGate GET {path}: {resp.status_code} {resp.text[:200]}",
+                             code="fgt_http", path=path, status=resp.status_code,
+                             body=resp.text[:200])
     try:
         body = _loads_tolerant(resp.text)
     except ValueError as exc:
@@ -110,6 +116,8 @@ async def _api_get(
         # 否則看到開頭是合法 JSON 會誤判成端點不存在
         raise FortiGateError(
             f"回應不是 JSON（{path}）：{exc} content-type={ctype} 內容開頭={snippet!r}{hint}",
+            code="fgt_not_json", path=path, reason=str(exc), ctype=ctype,
+            snippet=snippet, hint=hint,
         ) from exc
     return _unwrap(body)
 
@@ -683,7 +691,8 @@ async def diagnose(fw: FortiGateFirewall) -> dict[str, Any]:
     try:
         vdoms = await list_vdoms(fw)
     except FortiGateError as exc:
-        raise FortiGateError(f"無法取得 VDOM 清單：{exc}") from exc
+        raise FortiGateError(f"無法取得 VDOM 清單：{exc}",
+                             code="fgt_vdom_list", reason=str(exc)[:200]) from exc
     # 空字串代表「不指定 VDOM 範圍」。前端要看得出這件事 —— 一個空白的 VDOM 清單
     # 和「有一個叫 root 的 VDOM」在畫面上長得一樣，但意義完全不同（issue #26）。
     out["vdoms"] = [v for v in vdoms if v]

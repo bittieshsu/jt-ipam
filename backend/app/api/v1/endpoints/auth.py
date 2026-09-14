@@ -12,6 +12,7 @@ from app.api.v1.dependencies import CurrentUser
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.core.rate_limit import limit_per_ip
+from app.core.ui_error import detail_of
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -360,7 +361,7 @@ async def ldap_test(
     try:
         return await ldap_auth.test_connection(cfg)
     except ldap_auth.LDAPNotConfigured as exc:
-        raise HTTPException(503, detail=str(exc)) from exc
+        raise HTTPException(503, detail=detail_of(exc, "ldap_not_configured")) from exc
     except ldap_auth.LDAPAuthError as exc:
         raise HTTPException(502, detail=f"LDAP error: {exc}") from exc
 

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.section import Section
 from app.models.subnet import Subnet
 from app.schemas.base import StrictModel
@@ -128,9 +129,9 @@ async def _lookup(payload: _RdapQuery) -> tuple[object, list[ImportPlan]]:
     try:
         net = await lookup_ip(payload.source, payload.query)
     except RdapInputError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=detail_of(exc, "rdap_bad_query")) from exc
     except RdapError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "rdap_error")) from exc
     return net, _plans_from_rdap(net)
 
 

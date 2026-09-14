@@ -22,6 +22,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.config import get_settings
 from app.core.db import get_session
+from app.core.ui_error import detail_of, ui_detail
 from app.models.background_task import BackgroundTask
 from app.schemas.system_transfer import ExportRequest, ImportApplyRequest
 from app.services.system_transfer import crypto, exporter, importer, registry
@@ -104,7 +105,7 @@ async def start_export(
 ) -> dict[str, Any]:
     scope = [s for s in payload.scope if s in registry.SCOPES]
     if not scope:
-        raise HTTPException(status_code=422, detail="scope 需至少含一個有效分類")
+        raise HTTPException(status_code=422, detail=ui_detail("xfer_scope_empty", "scope 需至少含一個有效分類"))
     _cleanup_old()
     schema_version = await _schema_version(session)
     passphrase = payload.passphrase
@@ -173,28 +174,36 @@ async def analyze_import(
     """驗證上傳的匯出檔＋密碼，回來源版本／各表列數／相容性警告（不寫任何資料）。"""
     raw = await file.read()
     if len(raw) > _MAX_UPLOAD:
-        raise HTTPException(status_code=413, detail="檔案過大")
+        raise HTTPException(status_code=413, detail=ui_detail("xfer_file_too_large", "檔案過大"))
     try:
         env = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
-        raise HTTPException(status_code=400, detail="不是有效的 JSON 匯出檔") from exc
+        raise HTTPException(status_code=400, detail=ui_detail("xfer_not_json", "不是有效的 JSON 匯出檔")) from exc
     try:
         meta = crypto.read_metadata(env)
         inner = crypto.open_envelope(env, passphrase)
     except crypto.TransferCryptoError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "xfer_bad_file")) from exc
 
     target_schema = await _schema_version(session)
-    warnings: list[str] = []
+    # 結構化（code/params/message）而不是現成句子：這些警告會顯示在畫面上，
+    # 伺服器組好的中文在英文與日文介面上翻不動。message 是沒有翻譯時的退路。
+    warnings: list[dict[str, Any]] = []
     if meta.get("schema_version") and target_schema and meta["schema_version"] != target_schema:
-        warnings.append(
+        warnings.append(ui_detail(
+            "xfer_warn_schema_mismatch",
             f"匯出檔 schema 版本（{meta['schema_version']}）與本機（{target_schema}）不同；"
-            "多數情況仍可匯入，缺漏欄位會吃預設。"
-        )
+            "多數情況仍可匯入，缺漏欄位會吃預設。",
+            source=meta["schema_version"], target=target_schema,
+        ))
     known = set(registry.all_tablenames())
     unknown = [t for t in (inner.get("tables") or {}) if t not in known]
     if unknown:
-        warnings.append(f"匯出檔含本機未知的資料表（將略過）：{', '.join(sorted(unknown))}")
+        warnings.append(ui_detail(
+            "xfer_warn_unknown_tables",
+            f"匯出檔含本機未知的資料表（將略過）：{', '.join(sorted(unknown))}",
+            tables=", ".join(sorted(unknown)),
+        ))
 
     counts = {t: len(rows) for t, rows in (inner.get("tables") or {}).items()}
     counts_central = len(inner.get("central_secrets") or [])
@@ -224,12 +233,12 @@ async def apply_import_ep(
     """套用先前 analyze 暫存的匯入檔。dry_run 同步回預覽；正式匯入走背景作業。"""
     path = _safe_path(payload.token)
     if not path.exists():
-        raise HTTPException(status_code=410, detail="匯入暫存檔已過期，請重新上傳分析")
+        raise HTTPException(status_code=410, detail=ui_detail("xfer_staging_expired", "匯入暫存檔已過期，請重新上傳分析"))
     try:
         env = json.loads(path.read_bytes().decode("utf-8"))
         inner = crypto.open_envelope(env, payload.passphrase)
     except (ValueError, UnicodeDecodeError, crypto.TransferCryptoError) as exc:
-        raise HTTPException(status_code=400, detail="密碼錯誤或檔案損毀") from exc
+        raise HTTPException(status_code=400, detail=ui_detail("xfer_bad_passphrase", "密碼錯誤或檔案損毀")) from exc
 
     mode = payload.mode
     actor_id = user.id

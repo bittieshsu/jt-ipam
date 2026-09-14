@@ -27,6 +27,11 @@ async def test_blocked_url_returns_readable_error(client, db_session, auth_heade
     assert resp.status_code == 200, f"被擋下不是伺服器錯誤，不該回 {resp.status_code}"
     body = resp.json()
     assert body["models"] == []
-    assert body.get("error"), "沒有 error 欄位＝畫面上是一個空下拉，看不出為什麼"
+    detail = body.get("error_detail")
+    assert detail, "沒有 error_detail＝畫面上是一個空下拉，看不出為什麼"
+    # 代碼要能翻成使用者的語言；`message` 是沒有翻譯時的退路
+    assert detail["code"] == "llm_models_ssrf_blocked"
     # 訊息要能讓人採取行動：講出是被擋下的，以及放行的設定鍵
-    assert "OUTBOUND_ALLOW_CIDRS" in body["error"]
+    assert "OUTBOUND_ALLOW_CIDRS" in detail["message"]
+    # 底層原文要留著 —— 少了它就看不出被擋的是哪個位址
+    assert "127.0.0.1" in detail["params"]["reason"]

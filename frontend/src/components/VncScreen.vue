@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wsErrorText } from "@/utils/wsError";
 /**
  * VNC 畫面（原生 canvas）。先換 ticket → 開 WebSocket → 橋接後端 aardwolf VNCConnection。
  * 密碼只在連線時送出，前端不保存（或選已存密碼以 reference 連線）。
@@ -250,7 +251,7 @@ async function connect() {
         break;
       case "error":
         phase.value = "error";
-        errorMsg.value = payload.message || payload.code || t("vnc.err_generic");
+        errorMsg.value = wsErrorText(payload, t("vnc.err_generic"));
         break;
     }
   };

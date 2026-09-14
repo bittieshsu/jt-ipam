@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import ui_detail
 from app.models.address import IPAddress
 from app.models.jump_host import JumpHost
 from app.models.subnet import Subnet
@@ -182,7 +183,9 @@ async def test_jump_host(
     except console_route.JumpHostError as exc:
         obj.last_error = str(exc)[:500]
         await session.commit()
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=ui_detail(
+            getattr(exc, "code", None) or "jump_host_unreachable", str(exc),
+            **(getattr(exc, "params", {}) or {}))) from exc
     if out.get("authenticated"):
         obj.last_ok_at = func.now()
         obj.last_error = None

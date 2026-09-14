@@ -23,13 +23,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request
+from app.core.ui_error import UiError
 from app.models.virt import ProxmoxInstance, VirtCluster, VirtualMachine, VMInterface
 
 
-class PveConsoleError(Exception):
-    def __init__(self, message: str, *, code: str = "pve_error", status: int = 502) -> None:
-        super().__init__(message)
-        self.code = code
+class PveConsoleError(UiError):
+    """PVE 登入／proxy 失敗。`code` 同時是前端的 `errors.<code>` 翻譯鍵與流程判斷依據
+    （`pve_tfa_required` 要跳出驗證碼欄位），所以改名時兩邊要一起改。"""
+
+    def __init__(self, message: str, *, code: str = "pve_error",
+                 status: int = 502, **params: object) -> None:
+        super().__init__(message, code=code, **params)
         self.http_status = status
 
 
@@ -103,13 +107,16 @@ async def _ticket_request(
     try:
         resp = await safe_request("POST", url, json=body, timeout=15.0, verify=verify_tls)
     except UnsafeOutboundURL as e:
-        raise PveConsoleError(f"SSRF guard: {e}", code="ssrf", status=400) from e
+        raise PveConsoleError(f"SSRF guard: {e}", code="pve_ssrf", status=400,
+                              reason=str(e)) from e
     except httpx.HTTPError as e:
-        raise PveConsoleError(f"PVE 連線失敗：{e.__class__.__name__}", code="pve_unreachable") from e
+        raise PveConsoleError(f"PVE 連線失敗：{e.__class__.__name__}", code="pve_unreachable",
+                              reason=e.__class__.__name__) from e
     if resp.status_code in (401, 403):
-        raise PveConsoleError("PVE 認證失敗（帳號或密碼錯誤）", code="auth_failed", status=401)
+        raise PveConsoleError("PVE 認證失敗（帳號或密碼錯誤）", code="pve_auth_failed", status=401)
     if resp.status_code != 200:
-        raise PveConsoleError(f"PVE /access/ticket：{resp.status_code}", code="pve_error")
+        raise PveConsoleError(f"PVE /access/ticket：{resp.status_code}", code="pve_ticket_http",
+                              status_code=resp.status_code)
     return (resp.json() or {}).get("data") or {}
 
 
@@ -134,7 +141,7 @@ async def pve_login(
     )
     ticket = data.get("ticket")
     if not ticket:
-        raise PveConsoleError("PVE 未回傳登入 ticket", code="auth_failed", status=401)
+        raise PveConsoleError("PVE 未回傳登入 ticket", code="pve_no_ticket", status=401)
 
     # NeedTFA=1，或 ticket 長成挑戰票證的樣子（PVE:!tfa!…）
     needs_tfa = bool(data.get("NeedTFA")) or str(ticket).startswith("PVE:!tfa!")
@@ -142,7 +149,7 @@ async def pve_login(
         if not tfa_code:
             raise PveConsoleError(
                 "此 PVE 帳號啟用了兩階段驗證，請輸入驗證器上的 6 位數驗證碼",
-                code="tfa_required", status=401,
+                code="pve_tfa_required", status=401,
             )
         data = await _ticket_request(base_url, {
             "username": username,
@@ -154,7 +161,7 @@ async def pve_login(
         if not ticket or str(ticket).startswith("PVE:!tfa!"):
             raise PveConsoleError(
                 "兩階段驗證碼不正確或已逾時，請重新輸入",
-                code="tfa_failed", status=401,
+                code="pve_tfa_failed", status=401,
             )
 
     return ticket, data.get("CSRFPreventionToken") or ""
@@ -175,16 +182,19 @@ async def pve_console_proxy(target: PveTarget, ticket: str, csrf: str) -> tuple[
             "POST", url, headers=headers, json=body, timeout=15.0, verify=target.verify_tls,
         )
     except (UnsafeOutboundURL, httpx.HTTPError) as e:
-        raise PveConsoleError(f"PVE proxy 失敗：{e.__class__.__name__}", code="pve_error") from e
+        raise PveConsoleError(f"PVE proxy 失敗：{e.__class__.__name__}", code="pve_proxy_failed",
+                              reason=e.__class__.__name__) from e
     if resp.status_code in (401, 403):
         raise PveConsoleError("PVE 權限不足（此帳號需有該 VM/CT 的 Console 權限）",
-                              code="forbidden", status=403)
+                              code="pve_forbidden", status=403)
     if resp.status_code != 200:
-        raise PveConsoleError(f"PVE {endpoint}：{resp.status_code} {resp.text[:160]}", code="pve_error")
+        raise PveConsoleError(f"PVE {endpoint}：{resp.status_code} {resp.text[:160]}",
+                              code="pve_proxy_http", status_code=resp.status_code,
+                              body=resp.text[:160])
     data = (resp.json() or {}).get("data") or {}
     vt, port = data.get("ticket"), data.get("port")
     if not vt or not port:
-        raise PveConsoleError("PVE 未回傳主控台 ticket/port", code="pve_error")
+        raise PveConsoleError("PVE 未回傳主控台 ticket/port", code="pve_no_console_ticket")
     return str(vt), int(port)
 
 

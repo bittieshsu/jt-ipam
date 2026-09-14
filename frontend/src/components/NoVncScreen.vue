@@ -39,7 +39,7 @@ const phase = ref<Phase>("form");
 const errorMsg = ref("");
 
 const form = ref({ username: "", password: "", realm: "pam", tfa_code: "" });
-// PVE 帳號啟用兩階段驗證時，後端回 tfa_required → 顯示驗證碼欄位讓使用者補（issue #23）
+// PVE 帳號啟用兩階段驗證時，後端回 pve_tfa_required → 顯示驗證碼欄位讓使用者補（issue #23）
 const needTfa = ref(false);
 const realmOpts = [
   { label: "pam (Linux PAM)", value: "pam" }, { label: "pve (Proxmox VE)", value: "pve" },
@@ -127,10 +127,12 @@ async function connect() {
       : { username: form.value.username, password: form.value.password,
           realm: form.value.realm, tfa_code: tfa });
   } catch (e: any) {
-    const d = e?.response?.data?.detail;
-    const code = typeof d === "object" ? d?.code : undefined;
+    const data = e?.response?.data;
+    const d = data?.detail;
+    // detail 已被 client.ts 的 localizeDetail 翻成字串，代碼另外掛在 detail_code
+    const code = data?.detail_code ?? (typeof d === "object" ? d?.code : undefined);
     const msg = typeof d === "object" ? d?.message : d;
-    if (code === "tfa_required" || code === "tfa_failed") {
+    if (code === "pve_tfa_required" || code === "pve_tfa_failed") {
       // 回到帳密表單並要求驗證碼，而不是停在一個看不出原因的錯誤畫面
       needTfa.value = true;
       form.value.tfa_code = "";

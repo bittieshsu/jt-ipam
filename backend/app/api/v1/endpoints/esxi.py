@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.esxi import ESXiInstance
 from app.schemas.esxi import ESXiCreate, ESXiRead, ESXiUpdate
 from app.services import esxi as svc
@@ -150,7 +151,7 @@ async def sync_now(
         inst = await _get_or_404(session, instance_id)
         inst.last_error = str(exc)[:2000]
         await session.commit()
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "esxi_error")) from exc
     # 手動觸發的同步要留紀錄（其他整合本來就有記，這裡漏了）
     await append_audit(
         session, actor_user_id=str(_user.id),

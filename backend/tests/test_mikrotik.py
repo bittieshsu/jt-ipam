@@ -435,7 +435,10 @@ async def test_a_busy_router_stops_the_round(db_session: Any, monkeypatch: Any) 
     await svc.sync_instance(db_session, router)
 
     assert router.last_cost["stopped"]["after"] == "firewall"
-    assert "95" in router.last_cost["stopped"]["reason"]
+    # 句子由前端組（代碼＋參數），所以這裡看的是參數而不是成品字串
+    assert router.last_cost["stopped"]["code"] == "ros_stopped_cpu"
+    assert router.last_cost["stopped"]["params"]["load"] == "95"
+    assert "95" in router.last_cost["stopped"]["message"]
     assert router.last_error is None, "提早停止不是錯誤"
     # 停了就真的不要再打它
     assert "/ip/firewall/address-list" not in transport.paths

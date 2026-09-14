@@ -45,18 +45,28 @@
   .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink)}
   .btn-ghost:hover{border-color:var(--green);text-decoration:none}
   .btn-sm{padding:6px 12px;font-size:13px}
-  /* ── 語言切換（下拉） ── */
-  /* 用下拉而不是三顆並排：並排在窄視窗會把頂列擠開，而且每加一種語言就更擠；
-     下拉的寬度固定，加語言也不會改變版面。 */
+  /* ── 語言切換（自訂下拉） ── */
+  /* 不用原生 <select>：桌面瀏覽器會叫出作業系統自己的彈出視窗，長相與站上其他元件
+     完全不同，也套不上我們的配色與圓角。面板自己畫，行為才一致。
+     也不用三顆並排 —— 那在窄視窗會把頂列擠開，每加一種語言就更擠。 */
   .langsw{position:relative;display:inline-flex;align-items:center}
-  .langsw select{appearance:none;-webkit-appearance:none;border:1px solid var(--line);border-radius:10px;
-    background:#fff;color:var(--ink);font-family:inherit;font-size:13px;font-weight:600;
-    padding:6px 28px 6px 11px;cursor:pointer;line-height:1.3}
-  .langsw select:hover{border-color:var(--green)}
-  .langsw select:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(24,160,88,.12)}
-  .langsw::after{content:"";position:absolute;right:11px;top:50%;width:7px;height:7px;pointer-events:none;
-    border-right:1.6px solid var(--muted);border-bottom:1.6px solid var(--muted);
-    transform:translateY(-65%) rotate(45deg)}
+  .langsw > button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+    border-radius:10px;background:#fff;color:var(--ink);font-family:inherit;font-size:13px;
+    font-weight:600;padding:6px 11px;cursor:pointer;line-height:1.3;white-space:nowrap}
+  .langsw > button:hover{border-color:var(--green)}
+  .langsw > button:focus-visible{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(24,160,88,.12)}
+  .langsw .chev{width:7px;height:7px;flex:none;border-right:1.6px solid var(--muted);
+    border-bottom:1.6px solid var(--muted);transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+  .langsw > button[aria-expanded="true"] .chev{transform:translateY(1px) rotate(-135deg)}
+  .langsw ul{position:absolute;top:calc(100% + 6px);right:0;z-index:60;margin:0;padding:5px;
+    list-style:none;min-width:140px;background:#fff;border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 10px 28px rgba(15,23,42,.13)}
+  .langsw li{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+    font-size:13.5px;color:var(--body);cursor:pointer;white-space:nowrap}
+  .langsw li:hover{background:#f1f5f2;color:var(--ink)}
+  .langsw li[aria-selected="true"]{color:var(--green);font-weight:700}
+  .langsw li .tick{width:14px;flex:none;text-align:center;opacity:0}
+  .langsw li[aria-selected="true"] .tick{opacity:1}
   /* 手機：頂列讓它自己長高換行，不要硬壓在 60px 裡把品牌名擠成兩行。 */
   @media(max-width:560px){
     .nav-in{height:auto;padding:10px 0;flex-wrap:wrap;gap:10px}
@@ -304,11 +314,14 @@
       <a href="api.html">API</a>
       <a class="btn btn-ghost btn-sm" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
       <span class="langsw">
-        <select id="langSel" aria-label="Language">
-          <option value="zh">中文</option>
-          <option value="en">English</option>
-          <option value="ja">日本語</option>
-        </select>
+        <button type="button" id="langBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+          <span id="langCur">繁體中文</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <ul id="langMenu" role="listbox" hidden>
+          <li role="option" data-lang="zh"><span class="tick">✓</span>繁體中文</li>
+          <li role="option" data-lang="en"><span class="tick">✓</span>English</li>
+          <li role="option" data-lang="ja"><span class="tick">✓</span>日本語</li>
+        </ul>
       </span>
     </div>
   </div>
@@ -338,7 +351,7 @@
     </div>
     <!-- hero 大圖(建議放「儀表板」整頁截圖)-->
     <div class="hero-shot">
-      <img class="shot shot-hero" src="shots/dashboard.png" loading="lazy"
+      <img class="shot shot-hero" data-shot="dashboard" src="shots/zh/dashboard.png" loading="lazy"
            alt="jt-ipam 儀表板 / Dashboard" />
     </div>
     <div class="pills">
@@ -574,7 +587,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/subnet.png" loading="lazy" alt="子網路 / IP 管理" />
+      <img class="shot" data-shot="subnet" src="shots/zh/subnet.png" loading="lazy" alt="子網路 / IP 管理" />
       <div class="screen-txt">
         <span class="num">01</span>
         <h3><span class="zh">子網路 / IP 管理</span><span class="en">Subnets / IP management</span><span class="ja">サブネット／IP 管理</span></h3>
@@ -583,7 +596,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/ip-detail.png" loading="lazy" alt="IP 明細" />
+      <img class="shot" data-shot="ip-detail" src="shots/zh/ip-detail.png" loading="lazy" alt="IP 明細" />
       <div class="screen-txt">
         <span class="num">02</span>
         <h3><span class="zh">IP 明細</span><span class="en">IP detail</span><span class="ja">IP の詳細</span></h3>
@@ -592,7 +605,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/topology.png" loading="lazy" alt="IP 拓樸圖" />
+      <img class="shot" data-shot="topology" src="shots/zh/topology.png" loading="lazy" alt="IP 拓樸圖" />
       <div class="screen-txt">
         <span class="num">03</span>
         <h3><span class="zh">IP 拓樸圖</span><span class="en">IP topology</span><span class="ja">IP トポロジー</span></h3>
@@ -601,7 +614,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/rack.png" loading="lazy" alt="機櫃 U 位圖" />
+      <img class="shot" data-shot="rack" src="shots/zh/rack.png" loading="lazy" alt="機櫃 U 位圖" />
       <div class="screen-txt">
         <span class="num">04</span>
         <h3><span class="zh">機房平面圖 / 機櫃</span><span class="en">Floor plan & racks</span><span class="ja">フロアプランとラック</span></h3>
@@ -610,7 +623,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/floorplan.png" loading="lazy" alt="機房 / 地點 與世界地圖" />
+      <img class="shot" data-shot="floorplan" src="shots/zh/floorplan.png" loading="lazy" alt="機房 / 地點 與世界地圖" />
       <div class="screen-txt">
         <span class="num">05</span>
         <h3><span class="zh">機房 / 地點 與地圖</span><span class="en">Sites &amp; map</span><span class="ja">サーバルーム／拠点と地図</span></h3>
@@ -619,7 +632,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/device-ports.png" loading="lazy" alt="裝置明細 / 連接埠" />
+      <img class="shot" data-shot="device-ports" src="shots/zh/device-ports.png" loading="lazy" alt="裝置明細 / 連接埠" />
       <div class="screen-txt">
         <span class="num">06</span>
         <h3><span class="zh">裝置 / 連接埠</span><span class="en">Devices / Ports</span><span class="ja">機器／ポート</span></h3>
@@ -628,7 +641,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/cable-trace.png" loading="lazy" alt="纜線多跳追蹤" />
+      <img class="shot" data-shot="cable-trace" src="shots/zh/cable-trace.png" loading="lazy" alt="纜線多跳追蹤" />
       <div class="screen-txt">
         <span class="num">07</span>
         <h3><span class="zh">連線路徑追蹤</span><span class="en">Connection path trace</span><span class="ja">接続経路の追跡</span></h3>
@@ -664,7 +677,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/tools-cidr.png" loading="lazy" alt="工具 — 子網路 / CIDR 規劃" />
+      <img class="shot" data-shot="tools-cidr" src="shots/zh/tools-cidr.png" loading="lazy" alt="工具 — 子網路 / CIDR 規劃" />
       <div class="screen-txt">
         <span class="num">11</span>
         <h3><span class="zh">實用工具</span><span class="en">Tools</span><span class="ja">ツール</span></h3>
@@ -673,7 +686,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/hostname-arp-sort.png" loading="lazy" alt="主機名稱 / ARP 來源優先順序" />
+      <img class="shot" data-shot="hostname-arp-sort" src="shots/zh/hostname-arp-sort.png" loading="lazy" alt="主機名稱 / ARP 來源優先順序" />
       <div class="screen-txt">
         <span class="num">12</span>
         <h3><span class="zh">主機名稱 / ARP 來源優先順序</span><span class="en">Source precedence</span><span class="ja">ホスト名／ARP のソース優先順位</span></h3>
@@ -682,7 +695,7 @@
     </div>
 
     <div class="screen-row">
-      <img class="shot" src="shots/cert-list.png" loading="lazy" alt="憑證集中保管與自動派送" />
+      <img class="shot" data-shot="cert-list" src="shots/zh/cert-list.png" loading="lazy" alt="憑證集中保管與自動派送" />
       <div class="screen-txt">
         <span class="num">13</span>
         <h3><span class="zh">憑證集中保管與自動派送</span><span class="en">Centralized cert vault &amp; auto-distribution</span><span class="ja">証明書の集中保管と自動配布</span></h3>
@@ -838,10 +851,23 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
   (function(){
     // 初始語言已由 <body> 開頭的 inline script 決定（避免閃爍）；這裡只負責切換按鈕。
     var KEY = 'jtipam-doc-lang';
-    var sel = document.getElementById('langSel');
+    var btn = document.getElementById('langBtn');
+    var menu = document.getElementById('langMenu');
+    var label = document.getElementById('langCur');
+    var items = menu ? Array.prototype.slice.call(menu.querySelectorAll('li')) : [];
     function cur(){ return document.body.classList.contains('lang-ja') ? 'ja'
                          : document.body.classList.contains('lang-en') ? 'en' : 'zh'; }
-    function mark(){ if (sel) sel.value = cur(); }
+    function mark(){
+      var c = cur();
+      items.forEach(function(li){ li.setAttribute('aria-selected', String(li.dataset.lang === c)); });
+      var on = items.filter(function(li){ return li.dataset.lang === c; })[0];
+      if (label && on) label.textContent = on.textContent.replace('✓', '').trim();
+    }
+    function open(v){
+      if (!menu || !btn) return;
+      menu.hidden = !v;
+      btn.setAttribute('aria-expanded', String(v));
+    }
     function set(l){
       document.body.classList.remove('lang-zh','lang-en','lang-ja');
       document.body.classList.add('lang-' + l);
@@ -852,13 +878,36 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
         u.searchParams.set('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-TW');
         history.replaceState(null, '', u);
       } catch (e) {}
-      mark();
+      mark(); open(false);
       // 頁面上其他要跟著語言改字的東西（例如 api.html 的上一節／下一節標題）掛這個事件。
       document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
     }
-    if (sel) sel.addEventListener('change', function(){ set(sel.value); });
+    if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
+    items.forEach(function(li){ li.addEventListener('click', function(){ set(li.dataset.lang); }); });
+    // 點面板外面、按 Esc 都要關 —— 自己畫的面板不會自動有這些行為。
+    document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
     mark();
   })();
+  // 畫面導覽：截圖也要跟著語言換
+  //
+  // 英文與日文頁面本來配的是中文截圖 —— 切了語言、圖裡的字還是中文，那看起來
+  // 像「這套系統其實只有中文」。有三語版本的圖標了 data-shot，換語言時換路徑。
+  (function(){
+    function cur(){
+      var c = document.body.className;
+      return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
+    }
+    function apply(lang){
+      document.querySelectorAll('img[data-shot]').forEach(function(img){
+        var next = 'shots/' + lang + '/' + img.getAttribute('data-shot') + '.png';
+        if (img.getAttribute('src') !== next) img.setAttribute('src', next);
+      });
+    }
+    document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
+    apply(cur());
+  })();
+
   // 畫面導覽：點擊擷圖放大
   (function(){
     var lb = document.getElementById('lightbox');

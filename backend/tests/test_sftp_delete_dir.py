@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.sftp import describe_rmdir_failure, walk_for_delete
+from app.services.sftp import SftpError, describe_rmdir_failure, walk_for_delete
 
 
 class _Entry:
@@ -54,8 +54,10 @@ class _FakeSFTP:
 async def test_non_empty_directory_is_explained_with_a_count() -> None:
     """非空 → 說出「還有幾個項目」，不要把 'Failure' 原樣丟出去。"""
     sftp = _FakeSFTP({"/data": [_Entry("a.txt"), _Entry("b.txt"), _Entry("sub", kind="dir")]})
-    msg, empty = await describe_rmdir_failure(sftp, "/data", Exception("Failure"))
+    detail, empty = await describe_rmdir_failure(sftp, "/data", Exception("Failure"))
     assert empty is False
+    assert detail["params"]["n"] == 3, f"沒把項目數帶給翻譯：{detail}"
+    msg = str(detail["message"])
     assert "3" in msg, f"沒說出項目數：{msg}"
     assert "Failure" not in msg, "把伺服器那句沒有意義的話原樣丟給使用者了"
 
@@ -64,8 +66,9 @@ async def test_non_empty_directory_is_explained_with_a_count() -> None:
 async def test_an_empty_directory_keeps_the_original_reason() -> None:
     """目錄其實是空的 → 失敗另有原因（多半是權限），不能謊稱「不是空的」。"""
     sftp = _FakeSFTP({"/data": []})
-    msg, empty = await describe_rmdir_failure(sftp, "/data", Exception("Permission denied"))
+    detail, empty = await describe_rmdir_failure(sftp, "/data", Exception("Permission denied"))
     assert empty is True
+    msg = str(detail["message"])
     assert "Permission denied" in msg or "權限" in msg
 
 
@@ -105,5 +108,5 @@ async def test_symlinked_directories_are_removed_not_followed() -> None:
 async def test_walk_refuses_beyond_a_sane_limit() -> None:
     """超過上限就停手回報，不要在一條 WebSocket 上跑一個沒有盡頭的刪除。"""
     big = {"/d": [_Entry(f"f{i}") for i in range(20_001)]}
-    with pytest.raises(ValueError, match="項目太多"):
+    with pytest.raises(SftpError, match="項目太多"):
         await walk_for_delete(_FakeSFTP(big), "/d")

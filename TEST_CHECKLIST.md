@@ -205,6 +205,26 @@ the reverse proxy dropped the WebSocket upgrade.
   because the sweep used to visit 22 of 78 routes: forty-odd pages had never been opened by
   any test. A page that only a human ever opens is a page nothing is checking
 
+## 5g. Messages the server writes on the screen — **whenever an error message is added or changed**
+
+The backend must not send finished sentences. Anything a person reads goes out as
+`{code, params, message}` (`app/core/ui_error.py`) and the sentence is assembled from
+`errors.<code>` in the browser. A Chinese sentence written into the backend shows up
+*as Chinese* in the English and Japanese interfaces, and nothing errors — this shipped
+undetected for the entire life of the English translation.
+
+- [ ] `pytest tests/test_ui_error_codes.py` — every code in the source has a translation
+  in all three locales (the test walks the source; a missing key is otherwise silent)
+- [ ] New codes: read the fallback sentence in each locale and check the parameters are
+  actually interpolated. A translation that drops `{reason}` **removes the diagnosis** —
+  "pfSense returned an error" without saying whether it was DNS, a refusal or a certificate
+- [ ] Switch the UI to English and Japanese and trigger at least one of the new errors for
+  real. Codes used for *flow* (not just display) need extra care: the response interceptor
+  flattens `detail` to a string, so read the code from `detail_code` — the Proxmox two-factor
+  prompt was broken this exact way and nobody noticed
+- [ ] No Chinese words passed as parameters (`what="下載"`): put the distinction in the code
+  (`sftp_download_too_large`), or the English sentence ends up with a Chinese word in it
+
 ## 5d. System export / import (cross-instance migration) — **run in full every release that touches it**
 
 - [ ] **Unit (no DB)**: `pytest tests/test_system_transfer.py -q` — crypto seal/open

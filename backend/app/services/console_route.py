@@ -60,7 +60,17 @@ CONNECT_TIMEOUT = 15.0
 
 
 class JumpHostError(RuntimeError):
-    """跳板連線失敗。訊息會直接顯示給使用者，要說得出原因。"""
+    """跳板連線失敗。訊息會直接顯示給使用者，要說得出原因。
+
+    除了人話訊息，另外帶 `code` 與參數：那段文字會出現在畫面上，只給中文句子等於
+    英文與日文的使用者也看到中文。翻譯由前端用 `errors.<code>` 做，這裡只負責
+    「是哪一種錯、參數是什麼」。`str(exc)` 仍是中文，作為沒有翻譯時的退路。
+    """
+
+    def __init__(self, message: str, *, code: str | None = None, **params: object) -> None:
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 @dataclass(frozen=True)
@@ -100,7 +110,11 @@ def _decrypt(jump: JumpHost) -> str:
     enc = jump.private_key_enc if field == "private_key" else jump.password_enc
     nonce = jump.private_key_nonce if field == "private_key" else jump.password_nonce
     if not enc or not nonce:
-        raise JumpHostError(f"跳板「{jump.name}」還沒有設定{'金鑰' if field == 'private_key' else '密碼'}")
+        raise JumpHostError(
+            f"跳板「{jump.name}」還沒有設定{'金鑰' if field == 'private_key' else '密碼'}",
+            code=("jump_host_no_key" if field == "private_key" else "jump_host_no_password"),
+            name=jump.name,
+        )
     return decrypt_secret(enc, nonce, aad=_aad(jump.id, field)).decode("utf-8")
 
 
@@ -167,6 +181,7 @@ async def _connect(jump: ViaJumpHost) -> asyncssh.SSHClientConnection:
         # 指紋要在管理頁按「測試連線」時取回並確認。
         raise JumpHostError(
             f"跳板「{jump.name}」尚未信任主機金鑰：請先到管理頁按「測試連線」核對指紋",
+            code="jump_host_key_unpinned", name=jump.name,
         )
     opts: dict[str, Any] = {
         "username": jump.username,
@@ -179,7 +194,10 @@ async def _connect(jump: ViaJumpHost) -> asyncssh.SSHClientConnection:
         try:
             opts["client_keys"] = [asyncssh.import_private_key(jump.secret)]
         except Exception as exc:
-            raise JumpHostError(f"跳板「{jump.name}」的私鑰無法解析：{exc}") from exc
+            raise JumpHostError(
+                f"跳板「{jump.name}」的私鑰無法解析：{exc}",
+                code="jump_host_bad_key", name=jump.name, reason=str(exc)[:200],
+            ) from exc
         opts["preferred_auth"] = ("publickey",)
     else:
         opts["password"] = jump.secret
@@ -192,19 +210,27 @@ async def _connect(jump: ViaJumpHost) -> asyncssh.SSHClientConnection:
     except SSHHostKeyMismatch as exc:
         raise JumpHostError(
             f"跳板「{jump.name}」的主機金鑰與釘選的不符（可能遭中間人攔截）：{exc}",
+            code="jump_host_key_changed", name=jump.name, reason=str(exc)[:200],
         ) from exc
     except TimeoutError as exc:
         raise JumpHostError(
             f"連跳板「{jump.name}」（{jump.host}:{jump.port}）逾時 {CONNECT_TIMEOUT:.0f} 秒",
+            code="jump_host_timeout", name=jump.name, host=jump.host, port=jump.port,
+            seconds=f"{CONNECT_TIMEOUT:.0f}",
         ) from exc
     except asyncssh.PermissionDenied as exc:
-        raise JumpHostError(f"跳板「{jump.name}」認證失敗：{exc}") from exc
+        raise JumpHostError(
+            f"跳板「{jump.name}」認證失敗：{exc}",
+            code="jump_host_auth_failed", name=jump.name, reason=str(exc)[:200],
+        ) from exc
     except (asyncssh.Error, OSError) as exc:
         # 帶上底層原文：ConnectError 一個名字底下有 DNS／拒絕／路由不通好幾種，
         # 少了原因就只能猜（與 core/safe_http.transport_detail 同一條原則）
         raise JumpHostError(
             f"連不上跳板「{jump.name}」（{jump.host}:{jump.port}）："
             f"{exc.__class__.__name__}: {exc}",
+            code="jump_host_connect_failed", name=jump.name, host=jump.host, port=jump.port,
+            reason=f"{exc.__class__.__name__}: {exc}"[:200],
         ) from exc
 
 
@@ -256,6 +282,7 @@ async def open_route(route: Route, host: str, port: int) -> Tunnel:
         elif pooled.refs >= route.max_sessions:
             raise JumpHostError(
                 f"跳板「{route.name}」同時連線數已達上限 {route.max_sessions}，請稍後再試",
+                code="jump_host_at_capacity", name=route.name, max=route.max_sessions,
             )
         pooled.refs += 1
 
@@ -267,6 +294,8 @@ async def open_route(route: Route, host: str, port: int) -> Tunnel:
         raise JumpHostError(
             f"跳板「{route.name}」無法轉發到 {host}:{port}："
             f"{exc.__class__.__name__}: {exc}",
+            code="jump_host_forward_failed", name=route.name, host=host, port=port,
+            reason=f"{exc.__class__.__name__}: {exc}"[:200],
         ) from exc
     tunnel.host, tunnel.port, tunnel._listener = "127.0.0.1", listener.get_port(), listener
     return tunnel
@@ -293,7 +322,9 @@ async def probe(jump: JumpHost) -> dict[str, Any]:
     try:
         hk = await fetch_host_key(jump.host, port=jump.port, timeout=CONNECT_TIMEOUT)
     except SSHTunnelError as exc:
-        raise JumpHostError(f"連不上跳板：{exc}") from exc
+        raise JumpHostError(
+            f"連不上跳板：{exc}", code="jump_host_unreachable", reason=str(exc)[:200],
+        ) from exc
     out["fingerprint"] = hk["fingerprint"]
     out["pinned"] = jump.host_key_fingerprint
     out["matches"] = (jump.host_key_fingerprint == hk["fingerprint"]
@@ -307,6 +338,8 @@ async def probe(jump: JumpHost) -> dict[str, Any]:
         raise JumpHostError(
             f"主機金鑰與釘選的不符（可能遭中間人攔截）：釘選 {jump.host_key_fingerprint}，"
             f"實際 {hk['fingerprint']}",
+            code="jump_host_fingerprint_changed",
+            pinned=jump.host_key_fingerprint, actual=hk["fingerprint"],
         )
 
     route = ViaJumpHost(

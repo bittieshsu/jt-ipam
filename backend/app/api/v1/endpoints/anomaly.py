@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import ui_detail
 from app.schemas.base import StrictModel
 from app.services.anomaly import ANOMALY_IGNORABLE, run_detection
 
@@ -73,12 +74,12 @@ async def triage(
     try:
         _ipaddr.ip_address(ip)
     except ValueError:
-        raise HTTPException(422, detail="請提供合法的 IP") from None
+        raise HTTPException(422, detail=ui_detail("anom_bad_ip", "請提供合法的 IP")) from None
     try:
         result = await triage_ip(session, user, ip)
     except Exception as exc:
         # LLM 沒開／連不上要回可讀訊息，不是 500（跟 AI chat 同一課）
-        raise HTTPException(502, detail=f"AI 判讀失敗：{exc}") from exc
+        raise HTTPException(502, detail=ui_detail("anom_triage_failed", f"AI 判讀失敗：{exc}", reason=str(exc)[:300])) from exc
     await append_audit(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
@@ -135,13 +136,13 @@ async def fw_rule_change_analyze(
 
     snap = await session.get(FwRuleSnapshot, snapshot_id)
     if snap is None:
-        raise HTTPException(404, detail="找不到這筆快照")
+        raise HTTPException(404, detail=ui_detail("anom_snapshot_not_found", "找不到這筆快照"))
     if not snap.diff:
-        raise HTTPException(422, detail="初次快照是比對基準，沒有異動可以解讀")
+        raise HTTPException(422, detail=ui_detail("anom_first_snapshot_no_diff", "初次快照是比對基準，沒有異動可以解讀"))
     try:
         result = await analyze_change(session, user, snap)
     except Exception as exc:
-        raise HTTPException(502, detail=f"AI 解讀失敗：{exc}") from exc
+        raise HTTPException(502, detail=ui_detail("anom_fw_analyze_failed", f"AI 解讀失敗：{exc}", reason=str(exc)[:300])) from exc
     await append_audit(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
@@ -171,9 +172,9 @@ async def fw_rule_change_ack(
 
     snap = await session.get(FwRuleSnapshot, snapshot_id)
     if snap is None:
-        raise HTTPException(404, detail="找不到這筆快照")
+        raise HTTPException(404, detail=ui_detail("anom_snapshot_not_found", "找不到這筆快照"))
     if snap.diff is None:
-        raise HTTPException(422, detail="初次快照是比對基準，不需要認可")
+        raise HTTPException(422, detail=ui_detail("anom_first_snapshot_no_ack", "初次快照是比對基準，不需要認可"))
     snap.ack_by = user.id
     snap.ack_at = datetime.now(UTC)
     snap.ack_note = str(payload.get("note") or "")[:500]

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.fortigate import (
     FortiGateAddressObject,
     FortiGateFirewall,
@@ -160,7 +161,7 @@ async def test_firewall(
     try:
         return await svc.diagnose(fw)
     except svc.FortiGateError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "fortigate_error")) from exc
 
 
 @router.post("/{fw_id}/sync")

@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of, ui_detail
 from app.models.zabbix import ZabbixHost, ZabbixInstance
 from app.schemas.base import Paginated
 from app.schemas.zabbix import ZabbixCreate, ZabbixRead, ZabbixUpdate
@@ -73,7 +74,7 @@ async def create_instance(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ZabbixRead:
     if not payload.api_token and not (payload.api_user and payload.api_password):
-        raise HTTPException(422, detail="需要 API token，或帳號與密碼")
+        raise HTTPException(422, detail=ui_detail("zbx_need_token_or_login", "需要 API token，或帳號與密碼"))
     data = payload.model_dump(exclude={"api_token", "api_password"})
     data["api_url"] = str(data["api_url"]).rstrip("/")
     data["scope_subnet_ids"] = [str(s) for s in (data.get("scope_subnet_ids") or [])] or None
@@ -156,7 +157,7 @@ async def test_instance(
     try:
         return await svc.healthcheck(inst)
     except svc.ZabbixError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "zabbix_error")) from exc
 
 
 @router.post("/{inst_id}/sync")

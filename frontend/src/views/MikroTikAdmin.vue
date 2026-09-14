@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { srvText, type ServerMessage } from "@/utils/wsError";
 /**
  * MikroTik RouterOS 整合 —— 與其他防火牆整合各自獨立設定，唯讀拉取（不會更動裝置設定）。
  *
@@ -180,8 +181,10 @@ const SYNC_TAGS: [keyof MikroTikRouter, string][] = [
 
 /** 上一輪是否因為路由器忙碌而提早停止（`last_cost.stopped`）。 */
 function stoppedReason(r: MikroTikRouter): string | null {
-  const stopped = (r.last_cost as { stopped?: { reason?: string } } | null)?.stopped;
-  return stopped?.reason ?? null;
+  const stopped = (r.last_cost as { stopped?: ServerMessage } | null)?.stopped;
+  if (!stopped) return null;
+  // 後端給代碼與參數，句子在這裡組（`reason` 是舊欄位，留著當退路）
+  return srvText(stopped, (stopped as { reason?: string }).reason ?? "") || null;
 }
 
 const allCols = computed<DataTableColumns<MikroTikRouter>>(() => autoSort([

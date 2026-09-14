@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { srvText } from "@/utils/wsError";
 /**
  * LLM / AI 全域設定 (管理員)。
  *
@@ -137,7 +138,11 @@ async function loadModels() {
   try {
     const res = await listOllamaModels();
     models.value = res.models;
-    if (res.error) modelsError.value = res.error;
+    // 後端只給代碼與參數（error_detail），句子在這裡組 —— 伺服器產生的文字沒有辦法
+    // 跟著使用者的語言走。舊欄位 error 留著當退路。
+    if (res.error_detail || res.error) {
+      modelsError.value = srvText(res.error_detail, res.error ?? "");
+    }
   } catch (e: any) {
     modelsError.value = e?.response?.data?.detail ?? String(e);
   } finally {

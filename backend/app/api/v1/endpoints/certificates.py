@@ -29,6 +29,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import detail_of, ui_detail
 from app.models.certificate import CertAgent, Certificate, CertVersion
 from app.schemas.base import Paginated
 from app.schemas.certificate import (
@@ -76,7 +77,7 @@ async def _store_version(
             CertVersion.fingerprint_sha256 == info.fingerprint_sha256,
         ).limit(1)
     )).scalar_one_or_none() is not None:
-        raise HTTPException(409, detail="這張憑證(相同 fingerprint)已經上傳過")
+        raise HTTPException(409, detail=ui_detail("cert_duplicate_fingerprint", "這張憑證（相同指紋）已經上傳過"))
 
     key_enc, key_nonce = encrypt_secret(key_pem, aad=_key_aad(cert.id, info.fingerprint_sha256))
     await session.execute(
@@ -240,8 +241,12 @@ async def delete_certificate(
     if used_by:
         raise HTTPException(
             409,
-            detail=f"此憑證仍被派送代理使用（{'、'.join(used_by)}），"
-                   f"請先到這些代理的「可取憑證」移除它，再刪除憑證。",
+            detail=ui_detail(
+                "cert_in_use_by_agents",
+                f"此憑證仍被派送代理使用（{'、'.join(used_by)}），"
+                f"請先到這些代理的「可取憑證」移除它，再刪除憑證。",
+                agents="、".join(used_by),
+            ),
         )
     await append_audit(
         session, actor_user_id=str(user.id),
@@ -297,7 +302,8 @@ async def rebuild_chain(
         raise HTTPException(404, detail="Version not found")
     a = analyze_chain(ver.cert_pem, ver.chain_pem)
     if not a["can_rebuild"]:
-        raise HTTPException(409, detail="此版本無法自動組合完整鏈（可用憑證中沒有根 CA，或已是完整鏈）。")
+        raise HTTPException(409, detail=ui_detail("cert_chain_not_buildable",
+                            "此版本無法自動組合完整鏈（可用憑證中沒有根 CA，或已是完整鏈）。"))
     leaf_pem = _split_pem_certs(ver.cert_pem)[0]
     ver.cert_pem = leaf_pem if leaf_pem.endswith("\n") else leaf_pem + "\n"
     ver.chain_pem = a["built_chain_pem"]
@@ -340,7 +346,7 @@ async def download_version_file(
         data, media_type, filename = export_cert_file(
             ver.cert_pem, key_pem, ver.chain_pem, fmt, name=cert.name, pfx_password=password)
     except CertError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=detail_of(exc, "cert_invalid")) from exc
     if fmt in ("key", "combined", "pfx"):
         await append_audit(
             session, actor_user_id=str(user.id),
@@ -378,9 +384,11 @@ async def upload_version(
     try:
         info = validate_bundle(cert_pem, key_pem, chain_pem)
     except CertError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=detail_of(exc, "cert_invalid")) from exc
     if info.is_expired and not allow_expired:
-        raise HTTPException(400, detail=f"憑證已於 {info.not_after.date()} 過期;如確定要上傳請勾選 allow_expired")
+        raise HTTPException(400, detail=ui_detail("cert_expired_upload",
+                            f"憑證已於 {info.not_after.date()} 過期；如確定要上傳請勾選 allow_expired",
+                            date=str(info.not_after.date())))
 
     v = await _store_version(
         session, cert=cert, cert_pem=cert_pem, key_pem=key_pem, chain_pem=chain_pem,
@@ -434,7 +442,7 @@ async def fetch_now(
     if cert is None:
         raise HTTPException(404, detail="Not found")
     if cert.source_type == "none":
-        raise HTTPException(400, detail="此憑證未設定自動來源")
+        raise HTTPException(400, detail=ui_detail("cert_no_auto_source", "此憑證未設定自動來源"))
     return await fetch_certificate(session, cert, actor_user_id=user.id)
 
 
@@ -456,7 +464,9 @@ async def test_source(
             payload.source_config, source_type=payload.source_type,
             password=password, private_key=private_key)
     except FetchError as exc:
-        return {"ok": False, "message": str(exc)}
+        # 以 200 回應但帶代碼：前端用 srvText 翻譯，句子不再由後端寫死中文
+        return {"ok": False, "message": str(exc),
+                "code": exc.code, "params": exc.params}
     return {"ok": True, "message": message}
 
 
@@ -488,6 +498,7 @@ async def gen_source_ssh_keypair(
     await session.commit()
     # 有密碼就直接幫忙安裝公鑰到主機（免手動貼）。失敗不影響金鑰已產生,回 installed=false + 原因。
     installed, message = False, ""
+    err_code, err_params = None, {}
     if payload.source_type == "sftp":
         password = payload.source_password or await load_cert_secret(
             session, cert_id, "source_password")
@@ -496,8 +507,9 @@ async def gen_source_ssh_keypair(
                 payload.source_config, password=password or "", public_key=pub)
             installed = True
         except FetchError as exc:
-            message = str(exc)
-    return {"public_key": pub, "installed": installed, "message": message}
+            message, err_code, err_params = str(exc), exc.code, exc.params
+    return {"public_key": pub, "installed": installed, "message": message,
+            "code": err_code, "params": err_params}
 
 
 @router.post("/{cert_id}/self-signed", response_model=CertVersionRead, status_code=201)
@@ -516,7 +528,7 @@ async def create_self_signed(
         cert_pem, key_pem = generate_self_signed(payload.common_name, payload.sans, payload.days)
         info = validate_bundle(cert_pem, key_pem)
     except CertError as exc:
-        raise HTTPException(400, detail=str(exc)) from exc
+        raise HTTPException(400, detail=detail_of(exc, "cert_invalid")) from exc
     v = await _store_version(
         session, cert=cert, cert_pem=cert_pem, key_pem=key_pem, chain_pem=None,
         info=info, user=user, request=request, action="cert_self_signed",

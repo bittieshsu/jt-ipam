@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
 from app.schemas.base import Paginated
 from app.schemas.mikrotik import (
@@ -163,7 +164,7 @@ async def test_router(
     try:
         return await svc.diagnose(obj)
     except svc.RouterOSError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "ros_error")) from exc
 
 
 @router.post("/{router_id}/sync")

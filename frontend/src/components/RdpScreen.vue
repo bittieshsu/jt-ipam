@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { wsErrorText } from "@/utils/wsError";
 /**
  * RDP 畫面（原生 canvas）。先換 ticket → 開 WebSocket → 橋接後端 aardwolf。
  * 後端把畫面以 PNG tile 串流過來畫到 canvas；鍵鼠/滾輪事件回送。
@@ -289,7 +290,7 @@ async function startSession(w: number, h: number) {
         break;
       case "error":
         phase.value = "error";
-        errorMsg.value = payload.message || payload.code || t("rdp.err_generic");
+        errorMsg.value = wsErrorText(payload, t("rdp.err_generic"));
         break;
     }
   };

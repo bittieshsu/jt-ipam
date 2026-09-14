@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.librenms import (
     ARPEntry,
     FDBEntry,
@@ -288,7 +289,7 @@ async def test_instance(
     try:
         info = await svc.healthcheck(obj)
     except svc.LibreNMSError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "librenms_error")) from exc
     return {"ok": True, "system": info}
 
 

@@ -75,6 +75,23 @@
 - [ ] `cd frontend && pnpm exec playwright test smoke`（免後端，自起 vite preview）全綠
 - [ ] 對已部署實例（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑 `pnpm test:e2e` 主路徑（登入/sections/audit）
 
+## 5g. 伺服器寫在畫面上的訊息 —— **只要新增或改動錯誤訊息就要跑**
+
+後端不可以送現成的句子。給人看的東西一律是 `{code, params, message}`
+（`app/core/ui_error.py`），句子由前端用 `errors.<code>` 組。寫死在後端的中文句子，
+在英文與日文介面上**照樣是中文**，而且什麼錯都不會報 —— 英文版上線以來一直是這樣，
+沒有人發現。
+
+- [ ] `pytest tests/test_ui_error_codes.py` —— 原始碼裡每個代碼在三個語系都有翻譯
+  （測試掃原始碼；漏補是安靜的）
+- [ ] 新代碼：逐一讀三個語系的句子，確認參數真的有插進去。翻譯漏了 `{reason}`
+  等於**把診斷資訊拿掉** ——「pfSense 回報錯誤」而看不出是 DNS、被拒還是憑證
+- [ ] 把介面切成英文與日文，實際觸發一次新的錯誤。用來**決定流程**（不只是顯示）的代碼
+  要特別小心：攔截器會把 `detail` 攤平成字串，要從 `detail_code` 讀 —— Proxmox 的
+  兩階段驗證就是這樣壞掉而沒有人發現
+- [ ] 不要把中文詞當參數傳（`what="下載"`）：差異寫進代碼裡
+  （`sftp_download_too_large`），否則英文句子中間會夾一個中文詞
+
 ## 5d. 系統匯出／匯入（跨機搬移）—— **只要動到它，每次發版都要整段跑**
 
 - [ ] **單元（免 DB）**：`pytest tests/test_system_transfer.py -q` —— 加解密封裝（密語錯誤要回

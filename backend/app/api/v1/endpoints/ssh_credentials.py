@@ -19,6 +19,7 @@ from app.api.v1.dependencies import CurrentUser
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import envelope_encrypt
+from app.core.ui_error import ui_detail
 from app.models.address import IPAddress
 from app.models.ssh_credential import SSHCredential
 from app.schemas.base import StrictModel
@@ -141,7 +142,7 @@ async def create_ssh_credential(
             else:
                 ok = await can_use_ssh(session, user=user, ip=ip)
         if not ok:
-            raise HTTPException(403, detail="無此目標的連線權限")
+            raise HTTPException(403, detail=ui_detail("console_target_forbidden", "無此目標的連線權限"))
 
     cred = SSHCredential(
         owner_user_id=user.id, label=payload.label.strip(), username=payload.username.strip(),

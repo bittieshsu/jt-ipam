@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import ui_detail
 from app.models.event_rule import EventRule
 from app.schemas.base import Paginated, StrictModel
 from app.services import event_rules as svc
@@ -68,15 +69,19 @@ def _validate(conditions: list[dict[str, Any]], actions: list[dict[str, Any]]) -
     for c in conditions:
         op = str(c.get("op") or "")
         if op not in svc.OPS:
-            raise HTTPException(422, detail=f"不支援的運算子：{op}（可用：{', '.join(svc.OPS)}）")
+            raise HTTPException(422, detail=ui_detail("evr_bad_operator",
+                                f"不支援的運算子：{op}（可用：{', '.join(svc.OPS)}）",
+                                value=op, allowed=", ".join(svc.OPS)))
         if not str(c.get("field") or "").strip():
-            raise HTTPException(422, detail="條件必須指定欄位")
+            raise HTTPException(422, detail=ui_detail("evr_condition_needs_field", "條件必須指定欄位"))
     for a in actions:
         kind = str(a.get("type") or "")
         if kind not in svc.ACTIONS:
-            raise HTTPException(422, detail=f"不支援的動作：{kind}（可用：{', '.join(svc.ACTIONS)}）")
+            raise HTTPException(422, detail=ui_detail("evr_bad_action",
+                                f"不支援的動作：{kind}（可用：{', '.join(svc.ACTIONS)}）",
+                                value=kind, allowed=", ".join(svc.ACTIONS)))
         if kind == svc.ACTION_WEBHOOK and not a.get("subscription_id"):
-            raise HTTPException(422, detail="webhook 動作必須指定目標訂閱")
+            raise HTTPException(422, detail=ui_detail("evr_webhook_needs_subscription", "webhook 動作必須指定目標訂閱"))
 
 
 @router.get("", response_model=Paginated[EventRuleRead])

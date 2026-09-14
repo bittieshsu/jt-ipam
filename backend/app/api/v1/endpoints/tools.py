@@ -22,6 +22,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import check_rate_limit
+from app.core.ui_error import detail_of
 from app.schemas.base import StrictModel
 from app.services import netdiag, nettools
 from app.services.nettools import NetToolError
@@ -74,7 +75,7 @@ class EUI64Result(StrictModel):
 
 
 def _bad(exc: NetToolError) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=400, detail=detail_of(exc, "nt_error"))
 
 
 # ─────────────────── Endpoints ───────────────────
@@ -234,7 +235,7 @@ async def dns_lookup(
     except NetToolError as exc:
         # 逾時翻 504、其餘 400
         if "逾時" in str(exc):
-            raise HTTPException(status_code=504, detail=str(exc)) from exc
+            raise HTTPException(status_code=504, detail=detail_of(exc, "nt_error")) from exc
         raise _bad(exc) from exc
 
 
@@ -264,7 +265,7 @@ async def dns_mail(
         return await nettools.dns_mail(domain, dkim_selector)
     except NetToolError as exc:
         if "逾時" in str(exc):
-            raise HTTPException(status_code=504, detail=str(exc)) from exc
+            raise HTTPException(status_code=504, detail=detail_of(exc, "nt_error")) from exc
         raise _bad(exc) from exc
 
 
@@ -327,7 +328,7 @@ async def net_ping(
             targets, count=payload.count, timeout=payload.timeout,
             concurrency=payload.concurrency)
     except netdiag.NetDiagUnavailable as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        raise HTTPException(status_code=501, detail=detail_of(exc, "nd_unavailable")) from exc
     return {"count": len(results), "results": [asdict(r) for r in results]}
 
 
@@ -350,9 +351,9 @@ async def net_traceroute(
     try:
         res = await netdiag.traceroute(target, max_hops=payload.max_hops)
     except netdiag.NetDiagUnavailable as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        raise HTTPException(status_code=501, detail=detail_of(exc, "nd_unavailable")) from exc
     except netdiag.NetDiagError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=detail_of(exc, "nd_error")) from exc
     return {"target": res.target, "tool": res.tool, "path_mtu": res.path_mtu,
             "truncated": res.truncated, "hops": [asdict(h) for h in res.hops]}
 
@@ -555,7 +556,7 @@ async def agent_probe(
             requested_by=user.id,
         )
     except ProbeJobError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "probe_job_error")) from exc
     await session.commit()
     return {"job_id": str(job.id), "status": job.status}
 

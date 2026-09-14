@@ -19,14 +19,27 @@ test("頻繁換 MAC 的 IP 會被列出，而且可以忽略", async ({ page }) 
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 
+  // 先問後端有沒有樣本，再決定要不要跑。原本是「等表格出現列」再檢查樣本在不在 ——
+  // 環境裡沒有這種資料時，那一等就是 60 秒逾時，訊息寫「等不到表格列」，看起來像
+  // 功能壞了。沒有樣本應該是 skip，不是 fail。
+  // （樣本本身由 `tests.seed_e2e` 建立，而且每次 seed 都會重新錨定時間 ——
+  //   偵測看的是「最近 7 天」，只建立不更新的 fixture 過一週就自己掉出窗外。）
+  const sample = await page.evaluate(async () => {
+    const r = await fetch("/api/v1/anomalies/scan", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    });
+    if (!r.ok) return null;
+    const body = await r.json();
+    return JSON.stringify(body?.mac_flapping ?? []);
+  });
+  test.skip(!sample || !sample.includes("10.20.0.10"), "這個環境沒有頻繁換 MAC 的樣本");
+
   // 直接用 ?tab= 進到那一類（通知點進來也是走這條路）
   await page.goto("/anomaly?tab=mac_flapping");
   await page.getByRole("button", { name: /執行偵測/ }).click();
   await expect(page.locator(".n-data-table-tbody .n-data-table-tr").first())
     .toBeVisible({ timeout: 60_000 });
-
-  const body = await page.locator("body").innerText();
-  test.skip(!body.includes("10.20.0.10"), "這個環境沒有頻繁換 MAC 的樣本");
 
   // 要看得出「這些是隨機化位址」—— 沒有這個資訊，人無從判斷該不該忽略。
   // 而且布林值要印成「是／否」，不是裸的 true（第一版就是這樣露出來的）

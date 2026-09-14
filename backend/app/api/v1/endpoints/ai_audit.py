@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import ui_detail
 from app.models.ai_finding import AIFinding
 from app.schemas.base import StrictModel
 from app.services.ai_audit import CATEGORIES, SEVERITIES, latest_summary, run_audit
@@ -101,7 +102,7 @@ async def run_now(
     # 連按兩次時第一個還沒拿到鎖，用鎖判斷會漏掉，於是多出一筆立刻失敗的作業，
     # 而狀態查詢會看到那筆失敗的、把真正在跑的那個蓋掉。
     if await _active_run(session) is not None:
-        raise HTTPException(status_code=409, detail="已經有一次巡檢正在執行")
+        raise HTTPException(status_code=409, detail=ui_detail("audit_already_running", "已經有一次巡檢正在執行"))
 
     user_id = user.id
 

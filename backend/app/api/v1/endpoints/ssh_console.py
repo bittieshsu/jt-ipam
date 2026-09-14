@@ -32,6 +32,7 @@ from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
 from app.core.tickets import take_once
+from app.core.ui_error import detail_of, ui_detail
 from app.core.ws_timeouts import (
     HANDSHAKE_TIMEOUT,
     PROMPT_TIMEOUT,
@@ -145,7 +146,7 @@ async def issue_ssh_ticket(
         raise HTTPException(status_code=404, detail="Address not found")
     if not await can_use_ssh(session, user=user, ip=ip):
         # A01：不洩漏存在性差異 — 一律 403
-        raise HTTPException(status_code=403, detail="無 SSH 連線權限")
+        raise HTTPException(status_code=403, detail=ui_detail("console_ssh_forbidden", "無 SSH 連線權限"))
 
     ticket = secrets.token_urlsafe(32)
     payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
@@ -266,16 +267,16 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
         try:
             cfg = json.loads(await receive_text_within(
-                websocket, HANDSHAKE_TIMEOUT, what="連線設定"))
+                websocket, HANDSHAKE_TIMEOUT, what="config"))
         except WsTimeout as exc:
             with contextlib.suppress(Exception):
                 await websocket.send_text(json.dumps(
-                    {"type": "error", "code": "handshake_timeout", "message": str(exc)},
+                    {"type": "error", **detail_of(exc, "console_handshake_timeout")},
                     ensure_ascii=False))
             await websocket.close(code=4408)
             return
         if cfg.get("type") != "config":
-            await send({"type": "error", "code": "bad_config", "message": "缺少連線設定"})
+            await send({"type": "error", **ui_detail("console_no_config", "缺少連線設定")})
             await websocket.close()
             return
         username = (cfg.get("username") or "").strip()
@@ -285,7 +286,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         rows = int(cfg.get("rows") or 24)
         credential_id = cfg.get("credential_id")
         if not (1 <= port <= 65535):
-            await send({"type": "error", "code": "bad_config", "message": "連接埠須為 1–65535"})
+            await send({"type": "error", **ui_detail("console_bad_port", "連接埠須為 1–65535")})
             await websocket.close()
             return
 
@@ -302,7 +303,8 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     cred = None
                 if (cred is None or cred.owner_user_id != user_id
                         or (cred.target_ip_id is not None and str(cred.target_ip_id) != str(address_id))):
-                    await send({"type": "error", "code": "cred_not_found", "message": "找不到可用的已存帳密"})
+                    await send({"type": "error",
+                                **ui_detail("console_no_saved_credential", "找不到可用的已存帳密")})
                     await websocket.close()
                     return
                 used_cred_id = cred.id
@@ -320,7 +322,8 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     connect_kw["preferred_auth"] = ("publickey",)
                     del pk, pp
             except Exception:
-                await send({"type": "error", "code": "bad_key", "message": "已存帳密解密 / 解析失敗"})
+                await send({"type": "error",
+                            **ui_detail("console_saved_credential_bad", "已存帳密解密／解析失敗")})
                 await websocket.close()
                 return
             # 標記最近使用
@@ -331,7 +334,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     await s.commit()
         else:
             if not username:
-                await send({"type": "error", "code": "bad_config", "message": "帳號必填"})
+                await send({"type": "error", **ui_detail("console_no_username", "帳號必填")})
                 await websocket.close()
                 return
             if auth == "password":
@@ -344,12 +347,14 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                         )
                     ]
                 except Exception:  # 私鑰格式 / passphrase 錯
-                    await send({"type": "error", "code": "bad_key", "message": "私鑰無法解析（格式或 passphrase 錯誤）"})
+                    await send({"type": "error",
+                                **ui_detail("console_private_key_bad",
+                                            "私鑰無法解析（格式或密碼短語錯誤）")})
                     await websocket.close()
                     return
                 connect_kw["preferred_auth"] = ("publickey",)
             else:
-                await send({"type": "error", "code": "bad_config", "message": "不支援的認證方式"})
+                await send({"type": "error", **ui_detail("console_auth_unsupported", "不支援的認證方式")})
                 await websocket.close()
                 return
 
@@ -359,7 +364,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         try:
             tunnel = await console_route.open_route(route, host, port)
         except console_route.JumpHostError as exc:
-            await send({"type": "error", "code": "jump_failed", "message": str(exc)})
+            await send({"type": "error", **detail_of(exc, "jump_failed")})
             await websocket.close()
             return
         host, port = tunnel.host, tunnel.port
@@ -372,7 +377,9 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             try:
                 hk = await fetch_host_key(host, port=port)
             except Exception as exc:
-                await send({"type": "error", "code": "connect_failed", "message": f"無法連線取得主機金鑰：{exc}"})
+                await send({"type": "error", **ui_detail("console_host_key_fetch_failed",
+                                              f"無法連線取得主機金鑰：{exc}",
+                                              reason=str(exc)[:200])})
                 await websocket.close()
                 return
             await send({"type": "hostkey", "fingerprint": hk["fingerprint"]})
@@ -380,14 +387,13 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             # 但不能無限 —— 那等於把連線資源的釋放時機交給對方決定。
             try:
                 ans = json.loads(await receive_text_within(
-                    websocket, PROMPT_TIMEOUT, what="主機金鑰確認"))
+                    websocket, PROMPT_TIMEOUT, what="host_key"))
             except WsTimeout as exc:
-                await send({"type": "error", "code": "hostkey_timeout",
-                            "message": str(exc)})
+                await send({"type": "error", **detail_of(exc, "console_host_key_timeout")})
                 await websocket.close(code=4408)
                 return
             if ans.get("type") != "hostkey_accept":
-                await send({"type": "error", "code": "hostkey_rejected", "message": "已取消（未信任主機金鑰）"})
+                await send({"type": "error", **ui_detail("console_host_key_rejected", "已取消（未信任主機金鑰）")})
                 await websocket.close()
                 return
             known_host = hk["known_host"]
@@ -412,16 +418,19 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     **connect_kw,
                 )
         except SSHHostKeyMismatch:
-            await send({"type": "error", "code": "hostkey_mismatch",
-                        "message": "主機金鑰與先前釘選不符，可能遭中間人攻擊（連線中止）"})
+            await send({"type": "error",
+                        **ui_detail("console_host_key_mismatch",
+                                    "主機金鑰與先前釘選不符，可能遭中間人攻擊（連線中止）")})
             await websocket.close()
             return
         except asyncssh.PermissionDenied:
-            await send({"type": "error", "code": "auth_failed", "message": "認證失敗（帳號 / 密碼 / 金鑰錯誤）"})
+            await send({"type": "error",
+                        **ui_detail("console_auth_failed", "認證失敗（帳號／密碼／金鑰錯誤）")})
             await websocket.close()
             return
         except (TimeoutError, asyncssh.Error, OSError) as exc:
-            await send({"type": "error", "code": "connect_failed", "message": f"連線失敗：{exc}"})
+            await send({"type": "error", **ui_detail("console_connect_failed", f"連線失敗：{exc}",
+                                          reason=str(exc)[:200])})
             await websocket.close()
             return
 
@@ -455,7 +464,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         return
     except Exception:  # 任何未預期錯誤都不可洩漏堆疊給前端
         with contextlib.suppress(Exception):
-            await send({"type": "error", "code": "internal", "message": "連線發生未預期錯誤"})
+            await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
             await websocket.close()
     finally:
         # 通道與 WS session 同生共死：不論怎麼離開（正常結束、斷線、例外）都要還回去，

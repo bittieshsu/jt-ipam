@@ -218,11 +218,17 @@ async def seed() -> None:
         now_arp = datetime.now(UTC)
         for i, mac in enumerate(["0a1b2c000001", "0a1b2c000002", "0e1b2c000003",
                                  "021b2c000004", "0a1b2c000005", "0e1b2c000006"]):
-            if not (await s.execute(select(ARPEntry).where(
-                    ARPEntry.ip == "10.20.0.10", ARPEntry.mac == mac))).scalars().first():
-                s.add(ARPEntry(ip="10.20.0.10", mac=mac,
-                               first_seen_at=now_arp - timedelta(days=5),
-                               last_seen_at=now_arp - timedelta(hours=i * 6)))
+            row = (await s.execute(select(ARPEntry).where(
+                ARPEntry.ip == "10.20.0.10", ARPEntry.mac == mac))).scalars().first()
+            if row is None:
+                row = ARPEntry(ip="10.20.0.10", mac=mac)
+                s.add(row)
+            # **時間一定要重新錨定，不能「已經有就跳過」**：偵測規則看的是「最近 7 天」，
+            # 而這些列的時間是相對 now 算出來的 —— 只建立不更新的話，同一份 fixture
+            # 過一個星期就落到窗外，測試開始失敗，訊息卻是「等不到表格列」，
+            # 看起來像功能壞了。實際上是 fixture 過期了。
+            row.first_seen_at = now_arp - timedelta(days=5)
+            row.last_seen_at = now_arp - timedelta(hours=i * 6)
         # ⚠️ 忽略清單一定要重設：e2e 會按「忽略這個 IP」，不重設的話第二次跑就
         # 什麼都看不到 —— 而失敗訊息長得像「功能壞了」。
         web.anomaly_ignore = []

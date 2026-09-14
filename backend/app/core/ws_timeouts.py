@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from app.core.ui_error import UiError
+
 #: 連上來之後，等第一個連線設定訊息的時限（秒）。正常客戶端是立刻送出。
 HANDSHAKE_TIMEOUT = 30
 
@@ -27,20 +29,30 @@ HANDSHAKE_TIMEOUT = 30
 PROMPT_TIMEOUT = 180
 
 
-class WsTimeout(TimeoutError):
+class WsTimeout(UiError, TimeoutError):
     """協定中途等待逾時；帶著人看得懂的說明，好讓前端直接顯示。"""
+
+
+#: 在等什麼 → (翻譯代碼, 中文退路用的詞)。`what` 本身不是可以直接顯示的字：
+#: 把「連線設定」當參數傳出去，等於在英文與日文的句子裡夾一個中文詞。
+_WAITING_FOR = {
+    "config": ("ws_timeout_config", "連線設定"),
+    "host_key": ("ws_timeout_host_key", "主機金鑰確認"),
+}
 
 
 async def receive_text_within(websocket: Any, timeout: float, *, what: str) -> str:
     """在時限內收一則文字訊息，逾時丟 `WsTimeout`。
 
-    `what` 是要顯示給人看的描述（「連線設定」「主機金鑰確認」），
-    因為使用者看到的錯誤如果只寫 timeout，等於沒說。
+    `what` 說明在等的是哪一步（`config`／`host_key`），因為使用者看到的錯誤
+    如果只寫 timeout，等於沒說。
     """
     try:
         return await asyncio.wait_for(websocket.receive_text(), timeout=timeout)
     except TimeoutError as exc:
-        raise WsTimeout(f"等待{what}超過 {int(timeout)} 秒，連線已關閉") from exc
+        code, zh = _WAITING_FOR.get(what, ("ws_timeout", what))
+        raise WsTimeout(f"等待{zh}超過 {int(timeout)} 秒，連線已關閉",
+                        code=code, seconds=int(timeout), what=zh) from exc
 
 
 #: 主控台連線的保活間隔（秒）。要明顯小於常見反向代理的閒置逾時（多半 60 秒）。

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.adguard import AdGuardInstance
 from app.schemas.adguard import AdGuardCreate, AdGuardRead, AdGuardUpdate
 from app.schemas.base import Paginated
@@ -148,7 +149,7 @@ async def test_instance(
     try:
         info = await svc.healthcheck(inst)
     except svc.AdGuardError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "adguard_error")) from exc
     return info
 
 

@@ -28,10 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
+from app.core.ui_error import UiError
 from app.models.user import User
 
 
-class SAMLNotConfigured(RuntimeError):
+class SAMLNotConfigured(UiError, RuntimeError):
     pass
 
 
@@ -86,7 +87,8 @@ async def _fetch_idp_metadata(cfg: Any) -> _IdPInfo:
             return info
 
     if not url and not inline_xml:
-        raise SAMLNotConfigured("SAML_IDP_METADATA_URL 或 SAML_IDP_METADATA_XML 必填")
+        raise SAMLNotConfigured("SAML_IDP_METADATA_URL 或 SAML_IDP_METADATA_XML 必填",
+                                code="saml_metadata_required")
 
     if url:
         try:

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall
 from app.schemas.base import Paginated, StrictModel
 from app.schemas.firewall import (
@@ -196,7 +197,7 @@ async def test_firewall(
     try:
         info = await fw_service.healthcheck(fw)
     except fw_service.OPNsenseError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "opnsense_error")) from exc
     return {"ok": True, "alias_count": len(info.get("alias", {}).get("aliases", {}).get("alias", {}) or {})}
 
 
@@ -432,7 +433,7 @@ async def sync_one_mapping(
         summary = await fw_service.sync_mapping(session, obj)
     except fw_service.OPNsenseError as exc:
         await session.commit()  # 紀錄 last_error
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "opnsense_error")) from exc
     await append_audit(
         session,
         actor_user_id=str(getattr(request.state, "user_id", "")) or None,

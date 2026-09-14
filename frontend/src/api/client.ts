@@ -17,6 +17,20 @@ function localizeDetail(error: AxiosError): void {
   const data: any = error.response?.data;
   const detail = data?.detail;
   const t = (i18n.global as any).t;
+  // 結構化訊息 `{code, params, message}`（後端的 core/ui_error.ui_detail）：
+  // 句子在這裡組，後端只講「是哪一種錯、參數是什麼」。這樣英文與日文介面才不會
+  // 拿到中文 —— 伺服器產生的文字沒辦法跟著使用者的語言走，實際被回報過。
+  // 沒有對應翻譯時退回 message，不會變成空白或 [object Object]。
+  if (detail && typeof detail === "object" && typeof detail.code === "string") {
+    const key = `errors.${detail.code}`;
+    const out = t(key, detail.params ?? {});
+    data.detail = out === key ? (detail.message ?? out) : out;
+    // 攤平成字串是為了讓既有 202 處 `data.detail` 讀取者不必改；但有少數呼叫端是靠
+    // 代碼決定流程（例如 PVE 回 tfa_required 要跳出驗證碼欄位），代碼攤掉就等於那個
+    // 分支永遠不會成立 —— 所以另外掛一份在 detail_code 上。
+    data.detail_code = detail.code;
+    return;
+  }
   if (typeof detail === "string") {
     const key = DETAIL_I18N[detail];
     if (key) {

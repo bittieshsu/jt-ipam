@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 from app.schemas.base import StrictModel
 from app.services import pfsense as svc
@@ -227,7 +228,7 @@ async def test_firewall(
     try:
         info = await svc.test_connection(fw)
     except svc.PfSenseError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "pfsense_error")) from exc
     return {"ok": True, "version": info}
 
 
@@ -254,7 +255,7 @@ async def sync_firewall(
         fw = await _get_or_404(session, fw_id)
         fw.last_error = str(exc)[:500]
         await session.commit()
-        raise HTTPException(502, detail=str(exc)[:300]) from exc
+        raise HTTPException(502, detail=detail_of(exc, "pfsense_error")) from exc
     return {"ok": True, "counts": counts}
 
 
@@ -276,7 +277,7 @@ async def get_nat(
     try:
         return await svc.fetch_nat(fw)
     except svc.PfSenseError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "pfsense_error")) from exc
 
 
 @view_router.get("/{fw_id}/aliases")

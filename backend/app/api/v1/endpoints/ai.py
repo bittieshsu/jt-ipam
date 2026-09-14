@@ -20,6 +20,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import limit_per_ip
+from app.core.ui_error import detail_of
 from app.schemas.base import StrictModel
 from app.services import ai as ai_service
 from app.services import ai_chat_store, system_config
@@ -38,9 +39,9 @@ async def semantic_search(
     try:
         return await ai_service.semantic_search(session, query=q, limit=limit)
     except ai_service.AINotConfigured as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=detail_of(exc, "ai_not_configured")) from exc
     except ai_service.AIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=detail_of(exc, "ai_error")) from exc
 
 
 class ChatMessage(StrictModel):
@@ -105,9 +106,9 @@ async def chat(
             page_context=payload.context.model_dump() if payload.context else None,
         )
     except ai_service.AINotConfigured as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=detail_of(exc, "ai_not_configured")) from exc
     except ai_service.AIError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=detail_of(exc, "ai_error")) from exc
     await append_audit(
         session,
         actor_user_id=str(user.id),
@@ -163,7 +164,7 @@ async def chat_confirm(
         result = await TOOLS[payload.tool]["fn"](session, user=user, **payload.args)
     except IPAMToolError as exc:
         await session.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "ai_tool_error")) from exc
     except TypeError as exc:
         await session.rollback()
         raise HTTPException(status_code=400, detail=f"bad arguments: {exc}") from exc
@@ -275,7 +276,7 @@ async def reindex(
     try:
         stats = await ai_service.reindex_all(session)
     except ai_service.AINotConfigured as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=detail_of(exc, "ai_not_configured")) from exc
     await append_audit(
         session,
         actor_user_id=str(user.id),

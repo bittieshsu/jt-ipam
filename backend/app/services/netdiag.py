@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.ui_error import UiError
+
 MAX_TARGETS = 64
 MAX_CONCURRENCY = 32
 MAX_COUNT = 10
@@ -43,7 +45,7 @@ _HOSTNAME_RE = re.compile(
 )
 
 
-class NetDiagError(ValueError):
+class NetDiagError(UiError, ValueError):
     """輸入不合法或環境缺工具。"""
 
 
@@ -55,16 +57,16 @@ def normalize_target(raw: str) -> str:
     """接受 IP 或主機名稱，其餘拒絕。回傳去空白後的字串。"""
     t = (raw or "").strip()
     if not t:
-        raise NetDiagError("目標不可為空")
+        raise NetDiagError("目標不可為空", code="nd_target_empty")
     if len(t) > 253:
-        raise NetDiagError("目標過長")
+        raise NetDiagError("目標過長", code="nd_target_too_long")
     try:
         return str(ipaddress.ip_address(t))
     except ValueError:
         pass
     if _HOSTNAME_RE.match(t):
         return t
-    raise NetDiagError(f"不是有效的 IP 或主機名稱：{raw}")
+    raise NetDiagError(f"不是有效的 IP 或主機名稱：{raw}", code="nd_bad_target", value=raw)
 
 
 def expand_targets(raw: str | list[str]) -> list[str]:
@@ -85,11 +87,12 @@ def expand_targets(raw: str | list[str]) -> list[str]:
             try:
                 net = ipaddress.ip_network(p, strict=False)
             except ValueError as exc:
-                raise NetDiagError(f"不是有效的網段：{p}") from exc
+                raise NetDiagError(f"不是有效的網段：{p}", code="nd_bad_cidr", value=p) from exc
             hosts = list(net.hosts()) or [net.network_address]
             if len(out) + len(hosts) > MAX_TARGETS:
                 raise NetDiagError(
-                    f"{p} 展開後超過上限（最多 {MAX_TARGETS} 個目標）"
+                    f"{p} 展開後超過上限（最多 {MAX_TARGETS} 個目標）",
+                    code="nd_cidr_too_big", value=p, max=MAX_TARGETS,
                 )
             for h in hosts:
                 s = str(h)
@@ -102,9 +105,10 @@ def expand_targets(raw: str | list[str]) -> list[str]:
             seen.add(t)
             out.append(t)
     if not out:
-        raise NetDiagError("沒有可用的目標")
+        raise NetDiagError("沒有可用的目標", code="nd_no_targets")
     if len(out) > MAX_TARGETS:
-        raise NetDiagError(f"目標過多（{len(out)}），最多 {MAX_TARGETS} 個")
+        raise NetDiagError(f"目標過多（{len(out)}），最多 {MAX_TARGETS} 個",
+                           code="nd_too_many_targets", n=len(out), max=MAX_TARGETS)
     return out
 
 
@@ -415,7 +419,7 @@ async def ping_many(
     """對多個目標並行 ping。回傳順序與輸入一致（方便逐列對照）。"""
     native = icmp_socket_available()
     if not native and shutil.which("ping") is None and shutil.which("ping6") is None:
-        raise NetDiagUnavailable("伺服器上找不到 ping（請安裝 iputils-ping）")
+        raise NetDiagUnavailable("伺服器上找不到 ping（請安裝 iputils-ping）", code="nd_no_ping")
     count = max(1, min(count, MAX_COUNT))
     concurrency = max(1, min(concurrency, MAX_CONCURRENCY))
     timeout = max(0.5, min(timeout, 10.0))
@@ -544,12 +548,13 @@ async def traceroute(target: str, *, max_hops: int = 20, timeout: float = 0.0) -
         parse = parse_tracepath
     else:
         raise NetDiagUnavailable(
-            "伺服器上找不到 traceroute 或 tracepath（請安裝 traceroute）"
+            "伺服器上找不到 traceroute 或 tracepath（請安裝 traceroute）",
+            code="nd_no_traceroute",
         )
     try:
         out, truncated = await _run_partial(argv, timeout)
     except OSError as exc:
-        raise NetDiagError(f"無法執行：{exc}") from exc
+        raise NetDiagError(f"無法執行：{exc}", code="nd_exec_failed", reason=str(exc)[:200]) from exc
     res = parse(target, out)
     res.truncated = truncated
     return res
@@ -585,7 +590,10 @@ class TracepathIncremental:
             "type": "hop", "hop": hop,
             "host": None if no_reply else host,
             "rtt_ms": float(m2.group(3)) if m2.group(3) else None,
+            # note 可能是路由器回的旗標（`!H`…）原文，所以留著；「無回應」是我們自己
+            # 造的句子，另外給代碼讓前端翻得動。
             "note": "無回應" if no_reply else ((m2.group(4) or "").strip() or None),
+            "note_code": "nd_no_reply" if no_reply else None,
         }
 
 
@@ -607,6 +615,7 @@ class TracerouteIncremental:
             "type": "hop", "hop": int(m.group(1)), "host": host,
             "rtt_ms": float(rtt.group(1)) if rtt else None,
             "note": None if host else "無回應",
+            "note_code": None if host else "nd_no_reply",
         }
 
 
@@ -656,7 +665,8 @@ def trace_argv(target: str, *, max_hops: int) -> list[str]:
         argv = ["tracepath", "-n", "-m", str(max_hops), target]
     else:
         raise NetDiagUnavailable(
-            "伺服器上找不到 traceroute 或 tracepath（請安裝 traceroute）"
+            "伺服器上找不到 traceroute 或 tracepath（請安裝 traceroute）",
+            code="nd_no_traceroute",
         )
     return (["stdbuf", "-oL", *argv] if shutil.which("stdbuf") else argv)
 
@@ -682,7 +692,7 @@ async def traceroute_stream(
             *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
     except OSError as exc:
-        raise NetDiagError(f"無法執行：{exc}") from exc
+        raise NetDiagError(f"無法執行：{exc}", code="nd_exec_failed", reason=str(exc)[:200]) from exc
 
     truncated = False
     last_host: str | None = None
@@ -742,9 +752,9 @@ async def tcp_check(
     timeout = max(0.2, min(timeout, 10.0))
     for p in ports:
         if not 1 <= p <= 65535:
-            raise NetDiagError(f"埠號超出範圍：{p}")
+            raise NetDiagError(f"埠號超出範圍：{p}", code="nd_port_range", value=str(p))
     if len(targets) * len(ports) > MAX_TARGETS * 4:
-        raise NetDiagError("目標與埠的組合過多")
+        raise NetDiagError("目標與埠的組合過多", code="nd_too_many_pairs")
 
     sem = asyncio.Semaphore(concurrency)
     started = time.monotonic()
@@ -854,9 +864,9 @@ async def udp_check(
     timeout = max(0.2, min(timeout, 10.0))
     for p in ports:
         if not 1 <= p <= 65535:
-            raise NetDiagError(f"埠號超出範圍：{p}")
+            raise NetDiagError(f"埠號超出範圍：{p}", code="nd_port_range", value=str(p))
     if len(targets) * len(ports) > MAX_TARGETS * 4:
-        raise NetDiagError("目標與埠的組合過多")
+        raise NetDiagError("目標與埠的組合過多", code="nd_too_many_pairs")
 
     sem = asyncio.Semaphore(concurrency)
     started = time.monotonic()

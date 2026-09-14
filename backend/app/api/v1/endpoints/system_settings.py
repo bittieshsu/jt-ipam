@@ -18,6 +18,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_global_r
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
+from app.core.ui_error import ui_detail
 from app.models.ip_hostname import HOSTNAME_SOURCES
 from app.schemas.base import StrictModel
 from app.services import os_precedence
@@ -899,15 +900,21 @@ async def list_ollama_models(
         # 預設的 Ollama 位址就是 loopback（`http://127.0.0.1:11434`），而 loopback
         # 在 safe_http 是一律封鎖的。原本這裡只接 httpx 的錯誤，於是設定頁一開就是
         # 四個 500，畫面上只有「伺服器發生錯誤」，看不出被擋的是哪個位址、怎麼放行。
-        return {"models": [], "error": (
+        return {"models": [], "error_detail": ui_detail(
+            "llm_models_ssrf_blocked",
             f"{exc} —— 這個位址被連外防護擋下了。若確定要連到這台機器上的服務，"
             f"請在 backend.env 的 OUTBOUND_ALLOW_CIDRS 加入該網段（例如 127.0.0.0/8）"
-            f"後重啟後端。"
+            f"後重啟後端。",
+            reason=str(exc)[:200],
         )}
     except httpx.HTTPError as exc:
-        return {"models": [], "error": f"{type(exc).__name__}: {exc}"}
+        return {"models": [], "error_detail": ui_detail(
+            "llm_models_unreachable", f"{type(exc).__name__}: {exc}",
+            reason=f"{type(exc).__name__}: {exc}"[:200])}
     if resp.status_code != 200:
-        return {"models": [], "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+        return {"models": [], "error_detail": ui_detail(
+            "llm_models_http", f"HTTP {resp.status_code}: {resp.text[:200]}",
+            status=resp.status_code, body=resp.text[:200])}
     return {"models": ai_mod.parse_models(resp.json() or {}, provider)}
 
 

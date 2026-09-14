@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import get_settings
+from app.core.ui_error import UiError
 
 # =============================================================================
 # Hardcoded denylist（無論設定如何，都不允許）
@@ -145,7 +146,7 @@ def assert_url_safe(url: str) -> None:
             )
 
 
-class ResponseTooLarge(Exception):
+class ResponseTooLarge(UiError):
     """對方回的內容超過允許的大小 —— 讀完再判斷就來不及了，要在串流途中中止。"""
 
 
@@ -239,7 +240,8 @@ async def _do_request(
             total += len(chunk)
             if total > max_bytes:
                 raise ResponseTooLarge(
-                    f"回應超過 {max_bytes} bytes（已收 {total}）：{url}")
+                    f"回應超過 {max_bytes} bytes（已收 {total}）：{url}",
+                    code="response_too_large", max=max_bytes, received=total, url=url)
             chunks.append(chunk)
     finally:
         await resp.aclose()

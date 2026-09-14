@@ -47,6 +47,7 @@ from app.core.safe_http import (
     transport_detail,
 )
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import UiError, ui_detail
 from app.models.address import IPAddress
 from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
 from app.services.hostname import apply_observation
@@ -74,7 +75,7 @@ NEVER_FETCH = ("/ip/route", "/ip/firewall/connection")
 _DIAG_TIMEOUT = 10.0
 
 
-class RouterOSError(Exception):
+class RouterOSError(UiError):
     """RouterOS 回了錯，或連不上。"""
 
 
@@ -123,7 +124,8 @@ async def _get(
     兩者都是為了讓路由器少序列化東西，不是為了我們少解析。
     """
     if path in NEVER_FETCH:      # 防呆：這條規則太重要，不能只寫在註解裡
-        raise RouterOSError(f"{path} 屬於不可抓取的選單（列數可能是數十萬以上）")
+        raise RouterOSError(f"{path} 屬於不可抓取的選單（列數可能是數十萬以上）",
+                            code="ros_menu_blocked", path=path)
     url = f"{router.api_url.rstrip('/')}/rest{path}"
     params: dict[str, Any] = dict(filters or {})
     if proplist:
@@ -136,25 +138,32 @@ async def _get(
             verify=router.verify_tls, client=client, max_bytes=max_bytes,
         )
     except UnsafeOutboundURL as exc:
-        raise RouterOSError(f"SSRF guard rejected URL: {exc}") from exc
+        raise RouterOSError(f"SSRF guard rejected URL: {exc}",
+                            code="ros_ssrf", reason=str(exc)) from exc
     except ResponseTooLarge as exc:
         raise RouterOSError(
             f"{path} 回應超過 {router.max_response_mb} MiB 已中止（{exc}）。"
             "RouterOS 的 REST 沒有分頁 —— 請關掉這個區段，或調高上限",
+            code="ros_too_large", path=path, max=router.max_response_mb, reason=str(exc),
         ) from exc
     except httpx.HTTPError as exc:
-        raise RouterOSError(f"transport: {transport_detail(exc)}") from exc
+        raise RouterOSError(f"transport: {transport_detail(exc)}",
+                            code="ros_transport", reason=transport_detail(exc)) from exc
 
     if resp.status_code == 401:
         raise RouterOSError(
             "401 未授權：請確認帳號密碼正確，且該帳號所屬群組有 api + read 權限",
+            code="ros_401",
         )
     if resp.status_code == 403:
-        raise RouterOSError("403 拒絕存取：帳號群組權限或 address 限制不足")
+        raise RouterOSError("403 拒絕存取：帳號群組權限或 address 限制不足", code="ros_403")
     if resp.status_code == 404:
-        raise RouterOSNotPresent(f"這台裝置沒有 {path}（RouterOS 回 404）")
+        raise RouterOSNotPresent(f"這台裝置沒有 {path}（RouterOS 回 404）",
+                                 code="ros_not_present", path=path)
     if resp.status_code != 200:
-        raise RouterOSError(f"GET {path}: {resp.status_code} {resp.text[:200]}")
+        raise RouterOSError(f"GET {path}: {resp.status_code} {resp.text[:200]}",
+                            code="ros_http", path=path, status=resp.status_code,
+                            body=resp.text[:200])
     try:
         return resp.json()
     except ValueError as exc:
@@ -165,6 +174,8 @@ async def _get(
             hint = "（回的是網頁而非 API：這台可能是 RouterOS 6.x，REST 自 7.1 才有）"
         raise RouterOSError(
             f"回應不是 JSON（{path}）：{exc} content-type={ctype} 內容開頭={snippet!r}{hint}",
+            code="ros_not_json", path=path, reason=str(exc), ctype=ctype,
+            snippet=snippet, hint=hint,
         ) from exc
 
 
@@ -764,13 +775,15 @@ async def diagnose(router: MikroTikRouter) -> dict[str, Any]:
         try:
             info = await read_resource(router, client=client)
         except RouterOSError as exc:
-            raise RouterOSError(f"無法讀取 /system/resource：{exc}") from exc
+            raise RouterOSError(f"無法讀取 /system/resource：{exc}",
+                                code="ros_resource", reason=str(exc)) from exc
         out.update(info)
         if version_is_v6(info.get("version")):
             # 明講版本，不要讓現場對著「連線失敗」猜
             raise RouterOSError(
                 f"這台是 RouterOS {info['version']}：6.x 沒有 REST API"
                 "（REST 自 7.1beta4 起才有），本整合第一版只支援 v7",
+                code="ros_v6", version=info["version"],
             )
         try:
             ident = _rows(await _get(router, EP_IDENTITY, client=client, timeout=_DIAG_TIMEOUT))
@@ -838,6 +851,7 @@ async def sync_instance(session: AsyncSession, router: MikroTikRouter) -> dict[s
         if version_is_v6(info.get("version")):
             raise RouterOSError(
                 f"這台是 RouterOS {info['version']}：6.x 沒有 REST API，無法同步",
+                code="ros_v6_sync", version=info["version"],
             )
         router.routeros_version = info.get("version")
         router.board_name = info.get("board_name")
@@ -880,7 +894,10 @@ async def sync_instance(session: AsyncSession, router: MikroTikRouter) -> dict[s
                     # 停止而不是繼續放慢：主 router 忙的時候，最好的幫忙是走開。
                     cost["stopped"] = {
                         "after": name, "cpu_load": now_load, "limit": limit,
-                        "reason": f"CPU {now_load:.0f}% 超過門檻 {limit}%，本輪剩下的區段略過",
+                        # reason 是畫面上的句子 —— 改成代碼＋參數，英文與日文介面才翻得動。
+                        **ui_detail("ros_stopped_cpu",
+                                    f"CPU {now_load:.0f}% 超過門檻 {limit}%，本輪剩下的區段略過",
+                                    load=f"{now_load:.0f}", limit=limit),
                     }
                     counts["stopped_early"] = name
                     break

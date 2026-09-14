@@ -4,6 +4,72 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.16] - 2026-09-14
+
+### Fixed
+- **Server-generated messages now follow the reader's language.** Error text produced by the
+  backend — "跳板「X」尚未信任主機金鑰", "403 拒絕存取：帳號群組權限或 address 限制不足",
+  the SFTP "找不到「/etc/nope」" line, the firewall match reason on an IP — was written as
+  finished Chinese sentences, so the English and Japanese interfaces showed Chinese. This is
+  not a Japanese problem: **English users have been seeing Chinese error messages since the
+  English translation shipped**, and nothing errors, so nobody reported it as a bug.
+
+  The backend now sends `{code, params, message}` and the sentence is assembled in the browser
+  from `errors.<code>`. 287 codes across ~60 files: every service exception that reaches a
+  screen (`RouterOSError`, `CertError`, `ESXiError`, `SftpError`, `SSHTunnelError`,
+  `RackPlacementError`, `PveConsoleError`, `TransferCryptoError`, the DNS adapters, FortiGate,
+  Palo Alto, Zabbix…), the console WebSocket error frames for SSH / SFTP / RDP / VNC / BMC / PVE,
+  and the HTTP `detail` of every endpoint that forwards one. `message` stays as the fallback,
+  so an untranslated code degrades to exactly what it printed before.
+
+  Two things this sweep uncovered on the way:
+
+  - **The Proxmox two-factor prompt was already broken.** The browser decided whether to show
+    the 6-digit code field by reading `detail.code`, but the response interceptor flattens
+    `detail` to a string before any caller sees it — so that branch could never be true and
+    the code field never appeared. The code now travels alongside, in `detail_code`.
+  - **A translated frame must not swallow the evidence.** `detail_of()` always attaches the
+    original text as `reason`, and every fallback sentence interpolates it ("pfSense returned
+    an error: {reason}"). Without that, translating would have *removed* the one part that
+    says whether it was DNS, a refused connection, or a bad certificate.
+
+  A test walks the source for every `code=` / `ui_detail()` / `detail_of()` and fails if any of
+  the three locales is missing that key — the failure mode is silent, so it needs a gate.
+
+### Changed
+- **Documentation screenshots are per-language, and taken from a fictional dataset.** The
+  English and Japanese pages of the site showed Chinese screenshots, which reads as "this
+  product is really only Chinese". There are now `docs/shots/{zh,en,ja}/` and the page swaps
+  them when the language changes.
+
+  The shots come from `scripts/demo_dataset.py` + `scripts/docs-shots.mjs`, so they can be
+  retaken: the data is invented (4 sites, 6 racks, 5 subnets, 39 addresses, 23 devices, a
+  patch-panel cable path), addresses are all in the RFC 5737 / RFC 3849 documentation ranges,
+  and nothing in the picture belongs to a real network. The previous screenshots were taken
+  against a live system.
+
+### Fixed (tests)
+- **A browser test that had quietly rotted.** The "an IP that keeps changing MAC" spec seeds
+  six ARP rows and the rule looks at *the last 7 days*, but the seeder only created rows that
+  did not already exist — so once seeded, the timestamps never moved and the fixture fell out
+  of the window a week later. The failure read "no table row appeared", which looks exactly
+  like the feature being broken. The seeder now re-anchors the timestamps every run, and the
+  spec asks the backend whether the sample exists *before* waiting, so an environment without
+  it skips instead of spending 60 seconds timing out.
+- The scan-agent probe spec read the dropdown with a single `allInnerTexts()` call, which races
+  the panel mounting; with enough accumulated agents it started losing. It now uses retrying
+  expectations.
+
+### Notes
+- No database changes.
+- TEST_CHECKLIST gained section 5g (messages the server writes on the screen).
+- The AI-chat screenshots and the browser-console screenshot are still the old Chinese ones:
+  the first four need a reachable language model and the last needs a live SSH/RDP target.
+- Not converted, deliberately: the startup secret check in `config.py` (it only ever reaches
+  the system journal), and `BackgroundTask.error` (a diagnostic field carrying arbitrary
+  exception text, never translated). The system-check page and the anomaly finding descriptions
+  are a separate Chinese surface, not error messages — they remain as they were.
+
 ## [0.6.15] - 2026-09-14
 
 ### Fixed

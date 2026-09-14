@@ -5,6 +5,8 @@ export interface TraceHopEvent {
   fqdn?: string | null;
   rtt_ms?: number | null;
   note?: string | null;
+  /** 我們自己造的 note（例如「無回應」）帶代碼，讓前端翻得動；路由器回的旗標原文不帶。 */
+  note_code?: string | null;
   tool?: string;
   path_mtu?: number | null;
   truncated?: boolean;

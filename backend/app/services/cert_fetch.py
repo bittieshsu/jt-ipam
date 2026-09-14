@@ -30,6 +30,7 @@ from app.core.safe_http import (
     safe_request,
 )
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import UiError
 from app.models.certificate import Certificate, CertVersion
 from app.models.encrypted_secret import EncryptedSecret
 from app.services.cert_service import (
@@ -40,8 +41,8 @@ from app.services.cert_service import (
 )
 
 
-class FetchError(RuntimeError):
-    """憑證來源抓取失敗。"""
+class FetchError(UiError):
+    """憑證來源抓取失敗。訊息會顯示給使用者，所以帶代碼讓前端翻譯（見 core/ui_error）。"""
 
 
 def _aad(cert_id: Any, field: str) -> bytes:
@@ -86,31 +87,31 @@ def _check_host_safe(host: str) -> None:
         try:
             infos = socket.getaddrinfo(host, None)
         except socket.gaierror as exc:
-            raise FetchError(f"無法解析主機 {host}") from exc
+            raise FetchError(f"無法解析主機 {host}", code="cert_src_dns", host=host) from exc
         addrs = [ipaddress.ip_address(i[4][0]) for i in infos]
     for ip in addrs:
         if _ip_in(ip, _BLOCKED_CIDRS):
-            raise FetchError(f"封鎖的 IP(SSRF):{ip}")
+            raise FetchError(f"封鎖的 IP(SSRF):{ip}", code="cert_src_blocked_ip", ip=str(ip))
         if _ip_in(ip, _PRIVATE_CIDRS) and not settings.outbound_allow_private:
-            raise FetchError(f"私網 IP {ip} 未允許(需 OUTBOUND_ALLOW_PRIVATE)")
+            raise FetchError(f"私網 IP {ip} 未允許(需 OUTBOUND_ALLOW_PRIVATE)", code="cert_src_private_ip", ip=str(ip))
 
 
 async def _get_url(url: str) -> str:
     try:
         resp = await safe_request("GET", url, timeout=20.0)
     except UnsafeOutboundURL as exc:
-        raise FetchError(f"SSRF 守門擋下:{exc}") from exc
+        raise FetchError(f"SSRF 守門擋下:{exc}", code="cert_src_ssrf", reason=str(exc)[:200]) from exc
     except httpx.HTTPError as exc:
-        raise FetchError(f"連線失敗:{exc.__class__.__name__}") from exc
+        raise FetchError(f"連線失敗:{exc.__class__.__name__}", code="cert_src_connect", reason=exc.__class__.__name__) from exc
     if resp.status_code != 200:
-        raise FetchError(f"{url} 回 HTTP {resp.status_code}")
+        raise FetchError(f"{url} 回 HTTP {resp.status_code}", code="cert_src_http", url=url, status=resp.status_code)
     return resp.text
 
 
 async def _fetch_url(cfg: dict[str, Any]) -> tuple[str, str | None, str | None]:
     cert_url = cfg.get("cert_url")
     if not cert_url:
-        raise FetchError("URL 來源需要 cert_url")
+        raise FetchError("URL 來源需要 cert_url", code="cert_src_need_url")
     cert_pem = await _get_url(cert_url)
     key_pem = await _get_url(cfg["key_url"]) if cfg.get("key_url") else None
     chain_pem = await _get_url(cfg["chain_url"]) if cfg.get("chain_url") else None
@@ -123,7 +124,7 @@ async def _fetch_sftp(session: AsyncSession, cert: Certificate,
     username = cfg.get("username")
     cert_path = cfg.get("cert_path")
     if not host or not username or not cert_path:
-        raise FetchError("SFTP 來源需要 host + username + cert_path")
+        raise FetchError("SFTP 來源需要 host + username + cert_path", code="cert_src_need_sftp_all")
     _check_host_safe(host)
     password = await load_cert_secret(session, cert.id, "source_password")
     private_key = await load_cert_secret(session, cert.id, "source_private_key")
@@ -134,7 +135,7 @@ async def _fetch_sftp(session: AsyncSession, cert: Certificate,
     elif password:
         kw["password"] = password
     else:
-        raise FetchError("SFTP 來源需要密碼或私鑰")
+        raise FetchError("SFTP 來源需要密碼或私鑰", code="cert_src_need_sftp_auth")
 
     async def _read() -> tuple[str, str | None, str | None]:
         async with asyncssh.connect(**kw) as conn, conn.start_sftp_client() as sftp:
@@ -151,7 +152,8 @@ async def _fetch_sftp(session: AsyncSession, cert: Certificate,
     except FetchError:
         raise
     except Exception as exc:
-        raise FetchError(f"SFTP 失敗:{exc.__class__.__name__}: {exc}") from exc
+        raise FetchError(f"SFTP 失敗:{exc.__class__.__name__}: {exc}", code="cert_src_sftp_failed",
+                         reason=f"{exc.__class__.__name__}: {exc}"[:200]) from exc
 
 
 def generate_source_ssh_keypair(comment: str = "jt-ipam-cert-source") -> tuple[str, str]:
@@ -174,9 +176,9 @@ async def install_public_key_sftp(cfg: dict[str, Any], *, password: str, public_
     host = cfg.get("host")
     username = cfg.get("username")
     if not host or not username:
-        raise FetchError("安裝公鑰需要 host + username")
+        raise FetchError("安裝公鑰需要 host + username", code="cert_src_need_host_user")
     if not password:
-        raise FetchError("自動安裝公鑰需要登入密碼(請填密碼,或自行把公鑰貼到主機)")
+        raise FetchError("自動安裝公鑰需要登入密碼(請填密碼,或自行把公鑰貼到主機)", code="cert_src_need_password")
     _check_host_safe(host)
     pub = public_key.strip()
 
@@ -211,7 +213,8 @@ async def install_public_key_sftp(cfg: dict[str, Any], *, password: str, public_
     except FetchError:
         raise
     except Exception as exc:
-        raise FetchError(f"安裝公鑰失敗:{exc.__class__.__name__}: {exc}") from exc
+        raise FetchError(f"安裝公鑰失敗:{exc.__class__.__name__}: {exc}", code="cert_src_install_key_failed",
+                         reason=f"{exc.__class__.__name__}: {exc}"[:200]) from exc
 
 
 async def probe_source_connection(
@@ -225,10 +228,10 @@ async def probe_source_connection(
     if source_type == "url":
         cert_url = cfg.get("cert_url")
         if not cert_url:
-            raise FetchError("URL 來源需要 cert_url")
+            raise FetchError("URL 來源需要 cert_url", code="cert_src_need_url")
         text = await _get_url(cert_url)
         if "BEGIN CERTIFICATE" not in text:
-            raise FetchError("cert_url 取得的內容不是 PEM 憑證")
+            raise FetchError("cert_url 取得的內容不是 PEM 憑證", code="cert_src_not_pem")
         if cfg.get("chain_url"):
             await _get_url(cfg["chain_url"])
         if cfg.get("key_url"):
@@ -238,7 +241,7 @@ async def probe_source_connection(
         host = cfg.get("host")
         username = cfg.get("username")
         if not host or not username:
-            raise FetchError("SFTP 來源需要 host + username")
+            raise FetchError("SFTP 來源需要 host + username", code="cert_src_need_host_user")
         _check_host_safe(host)
         kw: dict[str, Any] = {"host": host, "port": int(cfg.get("port", 22)),
                               "username": username, "known_hosts": None}
@@ -248,25 +251,28 @@ async def probe_source_connection(
             elif password:
                 kw["password"] = password
             else:
-                raise FetchError("SFTP 來源需要密碼或私鑰")
+                raise FetchError("SFTP 來源需要密碼或私鑰", code="cert_src_need_sftp_auth")
         except FetchError:
             raise
         except Exception as exc:
-            raise FetchError(f"私鑰格式無法解析:{exc.__class__.__name__}") from exc
+            raise FetchError(f"私鑰格式無法解析:{exc.__class__.__name__}", code="cert_src_bad_key",
+                             reason=exc.__class__.__name__) from exc
         cert_path = cfg.get("cert_path")
 
         async def _probe() -> str:
             async with asyncssh.connect(**kw) as conn, conn.start_sftp_client() as sftp:
                 if cert_path and not await sftp.exists(cert_path):
-                    raise FetchError(f"登入成功,但找不到 cert_path:{cert_path}")
+                    raise FetchError(f"登入成功,但找不到 cert_path:{cert_path}", code="cert_src_path_missing",
+                                     path=str(cert_path))
             return "SFTP 登入成功" + (f",cert_path 存在:{cert_path}" if cert_path else "")
         try:
             return await asyncio.wait_for(_probe(), timeout=30)
         except FetchError:
             raise
         except Exception as exc:
-            raise FetchError(f"SFTP 連線失敗:{exc.__class__.__name__}: {exc}") from exc
-    raise FetchError("此來源類型不需測試連線")
+            raise FetchError(f"SFTP 連線失敗:{exc.__class__.__name__}: {exc}", code="cert_src_sftp_connect",
+                             reason=f"{exc.__class__.__name__}: {exc}"[:200]) from exc
+    raise FetchError("此來源類型不需測試連線", code="cert_src_no_test")
 
 
 async def _current_version(session: AsyncSession, cert_id: Any) -> CertVersion | None:
@@ -284,7 +290,7 @@ async def store_cert_version(
         CertVersion.certificate_id == cert.id,
         CertVersion.fingerprint_sha256 == info.fingerprint_sha256,
     ).limit(1))).scalar_one_or_none() is not None:
-        raise FetchError("這張憑證(相同 fingerprint)已存在")
+        raise FetchError("這張憑證(相同 fingerprint)已存在", code="cert_src_duplicate")
     enc, nonce = encrypt_secret(key_pem, aad=_key_aad(cert.id, info.fingerprint_sha256))
     await session.execute(update(CertVersion).where(
         CertVersion.certificate_id == cert.id).values(is_current=False))
@@ -324,7 +330,7 @@ async def fetch_certificate(session: AsyncSession, cert: Certificate, *,
         cur = await _current_version(session, cert.id)
         if not key_pem:  # 來源沒給 key → 沿用目前版本(續約不換 key 的常見情況)
             if cur is None:
-                raise FetchError("來源未提供私鑰,且此憑證尚無既有版本可沿用 key")
+                raise FetchError("來源未提供私鑰,且此憑證尚無既有版本可沿用 key", code="cert_src_no_key")
             key_pem = decrypt_secret(cur.key_enc, cur.key_nonce,
                                      aad=_key_aad(cert.id, cur.fingerprint_sha256)).decode("utf-8")
         info = validate_bundle(cert_pem, key_pem, chain_pem)

@@ -16,6 +16,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_object_p
 from app.core.audit import append_audit
 from app.core.config import get_settings
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.location import Location, Rack
 from app.schemas.base import Paginated, StrictModel
 from app.schemas.location import (
@@ -443,7 +444,7 @@ async def update_rack(
         try:
             await assert_rack_height_ok(session, rack_id=obj.id, new_height=changes["u_height"])
         except RackPlacementError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise HTTPException(status_code=409, detail=detail_of(exc, "rack_placement_error")) from exc
     for k, v in changes.items():
         setattr(obj, k, v)
     await append_audit(

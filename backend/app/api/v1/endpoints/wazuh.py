@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of
 from app.models.wazuh import WazuhAgent, WazuhInstance
 from app.schemas.base import Paginated
 from app.schemas.wazuh import (
@@ -172,7 +173,7 @@ async def test_instance(
     try:
         info = await wazuh_service.healthcheck(inst)
     except wazuh_service.WazuhError as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=detail_of(exc, "wazuh_error")) from exc
     return {"ok": True, "info": info}
 
 

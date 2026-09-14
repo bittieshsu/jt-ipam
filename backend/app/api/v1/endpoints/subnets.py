@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import detail_of, ui_detail
 from app.models.section import Section
 from app.models.subnet import Subnet
 from app.schemas.base import Paginated, StrictModel
@@ -183,14 +184,14 @@ async def create_subnet(
             allow_overlap=payload.allow_overlap,
         )
     except SubnetOverlap as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=detail_of(exc, "subnet_overlap")) from exc
 
     try:
         validated_cf = await validate_custom_fields(
             session, object_type="subnet", payload=payload.custom_fields
         )
     except CustomFieldError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
 
     master_id = await compute_master_subnet(
         session, cidr=payload.cidr, vrf_id=payload.vrf_id
@@ -277,7 +278,7 @@ async def update_subnet(
                 session, object_type="subnet", payload=changes["custom_fields"]
             ) or None
         except CustomFieldError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
     for key, value in changes.items():
         setattr(subnet, key, value)
 
@@ -354,7 +355,9 @@ async def unarchive_subnet(
     except SubnetOverlap as exc:
         raise HTTPException(
             status_code=409,
-            detail=f"無法還原：已有相同/重疊的使用中子網路（{exc}）",
+            detail=ui_detail("subnet_restore_conflict",
+                             f"無法還原：已有相同／重疊的使用中子網路（{exc}）",
+                             reason=str(exc)[:200]),
         ) from exc
     subnet.archived_at = None
     await append_audit(
