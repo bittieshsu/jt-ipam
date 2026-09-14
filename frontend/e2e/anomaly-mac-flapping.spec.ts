@@ -47,4 +47,21 @@ test("頻繁換 MAC 的 IP 會被列出，而且可以忽略", async ({ page }) 
   await row.getByRole("button", { name: "忽略這個 IP" }).click();
   await expect(page.locator(".n-data-table-tr", { hasText: "10.20.0.10" }))
     .toHaveCount(0, { timeout: 60_000 });
+
+  // 把忽略清單還原 —— 這條測試會改資料，不還原的話**第二次跑就會失敗**：
+  // 樣本被自己加進忽略清單，偵測再也列不出它，訊息只會說「等不到表格列」，
+  // 看起來像功能壞了。實際踩過一次，追了十分鐘才發現是上一輪留下的狀態。
+  const restored = await page.evaluate(async () => {
+    const auth = { Authorization: `Bearer ${localStorage.getItem("access_token")}` };
+    const r = await fetch("/api/v1/addresses?q=10.20.0.10&page_size=5", { headers: auth });
+    const id = (await r.json()).items?.[0]?.id;
+    if (!id) return "找不到樣本 IP";
+    const put = await fetch(`/api/v1/anomalies/ignore/${id}`, {
+      method: "PUT",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ categories: [] }),
+    });
+    return put.ok ? "ok" : `還原失敗 HTTP ${put.status}`;
+  });
+  expect(restored, "忽略清單沒有還原，下一次跑這支會失敗").toBe("ok");
 });

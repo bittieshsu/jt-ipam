@@ -151,7 +151,7 @@ class UserPreference(Base):
         Boolean, default=True, server_default=text("true"), nullable=False)
 
     __table_args__ = (
-        CheckConstraint("locale IN ('zh-TW','en-US')", name="locale_valid"),
+        CheckConstraint("locale IN ('zh-TW','en-US','ja-JP')", name="locale_valid"),
         CheckConstraint("theme IN ('light','dark','auto')", name="theme_valid"),
         CheckConstraint("calendar IN ('gregorian','minguo')", name="calendar_valid"),
         UniqueConstraint("user_id", name="user_preferences_user_uq"),

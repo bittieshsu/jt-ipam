@@ -33,12 +33,13 @@ const { locale } = storeToRefs(ui);
 const localeMenuOptions = [
   { label: "繁體中文", key: "zh-TW" },
   { label: "English", key: "en-US" },
+  { label: "日本語", key: "ja-JP" },
 ];
 const currentLocaleLabel = computed(
   () => localeMenuOptions.find((o) => o.key === locale.value)?.label ?? "",
 );
 function pickLocale(k: string | number) {
-  ui.setLocale(String(k) as "zh-TW" | "en-US", false);
+  ui.setLocale(String(k) as "zh-TW" | "en-US" | "ja-JP", false);
 }
 
 const username = ref("");

@@ -1,6 +1,6 @@
 # jt-ipam Plugin Development Guide
 
-> 繁體中文版：[PLUGINS_zh-TW.md](PLUGINS_zh-TW.md)
+> 繁體中文版：[PLUGINS_zh-TW.md](PLUGINS_zh-TW.md) · 日本語：[PLUGINS_ja.md](PLUGINS_ja.md)
 
 Third-party packages can extend jt-ipam via `entry_points`, without forking the main repo.
 

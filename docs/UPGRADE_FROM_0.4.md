@@ -1,6 +1,6 @@
 # Upgrading jt-ipam from 0.4 to the latest version
 
-> 繁體中文版：[UPGRADE_FROM_0.4_zh-TW.md](UPGRADE_FROM_0.4_zh-TW.md)
+> 繁體中文版：[UPGRADE_FROM_0.4_zh-TW.md](UPGRADE_FROM_0.4_zh-TW.md) · 日本語：[UPGRADE_FROM_0.4_ja.md](UPGRADE_FROM_0.4_ja.md)
 
 This is a runbook for moving an old **0.4.x** install up to the current release. You can upgrade
 **directly across many versions** — Alembic runs every intermediate migration in order, so there is no

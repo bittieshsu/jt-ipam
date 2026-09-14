@@ -10,8 +10,10 @@ import {
   darkTheme,
   zhTW,
   enUS,
+  jaJP,
   dateZhTW,
   dateEnUS,
+  dateJaJP,
 } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { useUiStore } from "@/stores/ui";
@@ -23,8 +25,14 @@ const { effectiveTheme, locale } = storeToRefs(ui);
 onMounted(() => { void ui.hydrateFromServer(); });
 
 const naiveTheme = computed(() => (effectiveTheme.value === "dark" ? darkTheme : null));
-const naiveLocale = computed(() => (locale.value === "zh-TW" ? zhTW : enUS));
-const naiveDateLocale = computed(() => (locale.value === "zh-TW" ? dateZhTW : dateEnUS));
+// naive-ui 自己的語系包（日期挑選器、分頁、上傳等內建字串）。少一種語言時，
+// 元件內建的字會退回英文，而外圍是日文 —— 畫面上會一半一半。
+const naiveLocale = computed(() =>
+  locale.value === "zh-TW" ? zhTW : locale.value === "ja-JP" ? jaJP : enUS,
+);
+const naiveDateLocale = computed(() =>
+  locale.value === "zh-TW" ? dateZhTW : locale.value === "ja-JP" ? dateJaJP : dateEnUS,
+);
 
 // 共用：品牌綠 + 較大圓角，給整站一致的調性
 const PRIMARY = "#18a058";

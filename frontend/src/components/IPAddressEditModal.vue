@@ -1110,7 +1110,7 @@ async function remove() {
         <!-- edit mode -->
         <n-form v-else label-placement="top">
           <n-form-item v-if="isCreate" :label="t('addresses.ip')" required style="margin-bottom: 12px">
-            <n-input v-model:value="createIp" placeholder="192.168.1.10" />
+            <n-input v-model:value="createIp" placeholder="198.51.100.10" />
           </n-form-item>
           <n-space :size="12" :wrap-item="false" style="flex-wrap: wrap">
             <n-form-item :label="t('addresses.hostname')" style="flex: 1 1 300px">

@@ -437,6 +437,7 @@ _LANG_MAP = {
     "zh-CN": "Simplified Chinese (简体中文)",
     "en-US": "English",
     "en": "English",
+    "ja-JP": "Japanese（日本語。です・ます調）",
     "ja": "Japanese (日本語)",
 }
 

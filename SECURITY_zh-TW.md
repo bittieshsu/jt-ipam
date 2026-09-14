@@ -3,7 +3,7 @@
 安全是 jt-ipam 的 day-one 需求：每個模組與每個 pull request 都會依 **OWASP Top 10:2025**
 逐項檢核，而且每一版發布前都必須通過 OWASP ZAP 基準掃描且零新增發現。
 
-> 英文版見 [SECURITY.md](SECURITY.md)。
+> 英文版見 [SECURITY.md](SECURITY.md)；日文版見 [SECURITY_ja.md](SECURITY_ja.md)。
 
 ## 支援版本
 

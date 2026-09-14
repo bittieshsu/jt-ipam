@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.14] - 2026-09-14
+
+### Added
+- **Japanese, as a first-class third language.** The app UI (all 3,491 strings), the whole
+  documentation site, and the main Markdown guides (README, INSTALL, SECURITY, PLUGINS,
+  UPGRADE_FROM_0.4) are now available in Japanese alongside Traditional Chinese and English.
+  Picking it is a normal preference, saved per account and carried across devices; naive-ui's
+  own strings (date picker, pagination, upload) switch with it, so the page is not half-and-half.
+
+  Adding a language is more than a file of strings, and each of the pieces below fails
+  *silently* if forgotten: a key missing from one locale makes vue-i18n fall back to English,
+  so the screen renders half-translated with no error; and `user_preferences.locale` carries a
+  CHECK constraint, so without migration `0139` choosing Japanese would fail on save with
+  nothing on screen but "save failed". Both are now held down by tests — `check-i18n` requires
+  the three locales to have exactly the same key set, a vitest asserts the Japanese file
+  contains no untranslated Chinese and keeps every interpolation placeholder, and an e2e spec
+  switches the language in a browser and walks the main pages looking for raw i18n keys.
+
+- **An install / upgrade troubleshooting page** at
+  [troubleshooting.html](https://jasoncheng7115.github.io/jt-ipam/troubleshooting.html) —
+  searchable Q&A with a clickable table of contents, in all three languages. When `install.sh`
+  or `jt-ipam.sh` fails it now prints that URL, **in the language of the operator's terminal**
+  (`LANG=ja_JP` gets the Japanese page, `zh_*` the Chinese one, anything else English). A
+  failed install previously ended at a `FATAL:` line with nowhere to go next.
+
+### Security
+- **vitest and @vitest/coverage-v8 upgraded to 4.1.11** (GHSA-82fw-gwwq-j7x9, path traversal,
+  moderate). Dependabot found these, not us: our own audit gate was set to `high`, so the CI was
+  green the whole time. The gate is now `moderate` — a threshold set above the problems you
+  actually have is the same as not scanning.
+- Sample addresses in the Tools page now use RFC 5737 documentation ranges instead of RFC 1918
+  private ones, so a ZAP scan no longer reports private-IP disclosure on them. A report
+  with unavoidable findings in it is a report where the real one gets missed.
+
+### Removed
+- **The two Wazuh CVE count columns**, which nothing has ever written (migration `0138`). Since
+  Wazuh 4.8 the manager API has no vulnerability endpoint; the only source is the Wazuh Indexer,
+  which needs a credential that can read the whole SIEM. So the API and the MCP tool were
+  returning a `cve_critical` that is always null — which reads as "checked, nothing found"
+  rather than "never checked". That is worse than not answering at all. Old export files still
+  import: unknown columns are ignored.
+
+### Fixed
+- A rack diagram and a long API path no longer push the documentation pages sideways on a phone
+  (a grid column defaults to a minimum width of `auto`, so one long line stretches the page).
+
+### Notes
+- Migrations `0138` and `0139`. `0139` drops and recreates a CHECK constraint by looking its name
+  up in the catalogue rather than hard-coding it — the name differs between installs, so a literal
+  would break one of them.
+
 ## [0.6.13] - 2026-09-13
 
 ### Fixed

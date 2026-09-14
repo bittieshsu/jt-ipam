@@ -78,7 +78,7 @@ def test_rule_change_page_text_lists_every_vendor() -> None:
               "mikrotik": "MikroTik"}
     missing_label = [v for v in FIREWALL_VENDORS if v not in labels]
     assert not missing_label, f"新廠牌要在這裡補上顯示名稱：{missing_label}"
-    for locale in ("zh-TW", "en-US"):
+    for locale in ("zh-TW", "en-US", "ja-JP"):
         hint = json.loads(_read(FRONTEND / "src" / "i18n" / f"{locale}.json"))["fw_changes"]["hint"]
         for vendor in FIREWALL_VENDORS:
             assert labels[vendor] in hint, f"{locale} 的規則異動說明少了 {labels[vendor]}"
@@ -128,7 +128,7 @@ def test_precedence_sources_have_display_names() -> None:
     from app.services.hostname import DEFAULT_ORDER
 
     needed = set(DEFAULT_ORDER) | set(ARP_SOURCES)
-    for locale in ("zh-TW", "en-US"):
+    for locale in ("zh-TW", "en-US", "ja-JP"):
         names = json.loads(
             _read(FRONTEND / "src" / "i18n" / f"{locale}.json"))["hostnameSrc"]["src"]
         missing = sorted(s for s in needed if s not in names)

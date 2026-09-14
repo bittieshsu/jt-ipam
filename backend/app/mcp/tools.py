@@ -2023,7 +2023,6 @@ async def list_wazuh_agents(
         "id": str(a.id), "agent_id": a.agent_id, "name": a.name, "ip": a.ip,
         "status": a.status, "os_platform": a.os_platform, "os_version": a.os_version,
         "agent_version": a.agent_version, "group": a.group,
-        "cve_critical": a.cve_critical_count, "cve_high": a.cve_high_count,
         "last_keep_alive": a.last_keep_alive,
     } for a in rows]}
 

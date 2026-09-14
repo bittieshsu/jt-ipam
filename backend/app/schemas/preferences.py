@@ -11,7 +11,7 @@ from app.schemas.base import StrictModel
 
 
 class UserPreferenceRead(StrictModel):
-    locale: Literal["zh-TW", "en-US"]
+    locale: Literal["zh-TW", "en-US", "ja-JP"]
     theme: Literal["light", "dark", "auto"]
     timezone: str
     calendar: Literal["gregorian", "minguo"]
@@ -23,7 +23,7 @@ class UserPreferenceRead(StrictModel):
 
 
 class UserPreferenceUpdate(StrictModel):
-    locale: Literal["zh-TW", "en-US"] | None = None
+    locale: Literal["zh-TW", "en-US", "ja-JP"] | None = None
     theme: Literal["light", "dark", "auto"] | None = None
     timezone: Annotated[str | None, Field(max_length=64)] = None
     calendar: Literal["gregorian", "minguo"] | None = None

@@ -4,6 +4,8 @@ Security is a day-one requirement for jt-ipam: every module and every pull reque
 is reviewed against the **OWASP Top 10:2025** checklist, and every release must pass
 an OWASP ZAP baseline scan with zero new findings before it is published.
 
+繁體中文: [SECURITY_zh-TW.md](SECURITY_zh-TW.md) · 日本語: [SECURITY_ja.md](SECURITY_ja.md)
+
 ## Supported versions
 
 | Version | Support |

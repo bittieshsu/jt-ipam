@@ -62,8 +62,6 @@ class WazuhAgentRead(StrictModel):
     last_keep_alive: datetime | None
     last_seen_at: datetime | None
     jt_ipam_address_id: uuid.UUID | None
-    cve_critical_count: int | None
-    cve_high_count: int | None
     cve_summary_at: datetime | None
     created_at: datetime
     updated_at: datetime

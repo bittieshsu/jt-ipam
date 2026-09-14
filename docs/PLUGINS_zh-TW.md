@@ -1,6 +1,6 @@
 # jt-ipam Plugin 開發指南
 
-> English: [PLUGINS.md](PLUGINS.md)
+> English: [PLUGINS.md](PLUGINS.md) · 日本語：[PLUGINS_ja.md](PLUGINS_ja.md)
 
 第三方套件可透過 `entry_points` 擴充 jt-ipam，無需 fork 主 repo。
 

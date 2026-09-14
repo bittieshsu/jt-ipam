@@ -1,6 +1,6 @@
 # jt-ipam 從 0.4 升級到最新版
 
-> English: [UPGRADE_FROM_0.4.md](UPGRADE_FROM_0.4.md)
+> English: [UPGRADE_FROM_0.4.md](UPGRADE_FROM_0.4.md) · 日本語：[UPGRADE_FROM_0.4_ja.md](UPGRADE_FROM_0.4_ja.md)
 
 這是把舊的 **0.4.x** 安裝升到最新版的操作手冊。**可以跨很多版直升** —— Alembic 會把中間所有 migration
 依序跑完，不需要先逐版升到中間版本。

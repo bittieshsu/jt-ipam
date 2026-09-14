@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import zh from "../zh-TW.json";
 import en from "../en-US.json";
+import ja from "../ja-JP.json";
 
 /**
  * 每一類異常都要有標籤與說明文字（兩種語言）。
@@ -18,11 +19,13 @@ const CATEGORIES = [
 
 describe("異常偵測的文案", () => {
   for (const key of CATEGORIES) {
-    it(`${key} 有中英說明`, () => {
+    it(`${key} 三種語言都有說明`, () => {
       const z = (zh as any).anomaly?.[`explain_${key}`];
       const e = (en as any).anomaly?.[`explain_${key}`];
+      const j = (ja as any).anomaly?.[`explain_${key}`];
       expect(z, `zh-TW 少了 anomaly.explain_${key}`).toBeTruthy();
       expect(e, `en-US 少了 anomaly.explain_${key}`).toBeTruthy();
+      expect(j, `ja-JP 少了 anomaly.explain_${key}`).toBeTruthy();
     });
   }
 });

@@ -328,6 +328,7 @@ const menuOptions = computed<MenuOption[]>(() => {
 const localeOptions = [
   { label: "繁體中文", value: "zh-TW" },
   { label: "English",  value: "en-US" },
+  { label: "日本語",   value: "ja-JP" },
 ];
 
 // 進入（或從別處點進）某頁時，自動展開其所屬的左側群組（管理 / 進階 / 子網路群組），
@@ -365,7 +366,7 @@ const currentLocaleLabel = computed(() => localeOptions.find((o) => o.value === 
 const currentThemeLabel = computed(() => themeOptions.value.find((o) => o.value === theme.value)?.label ?? "");
 const currentThemeIcon = computed(() => (theme.value === "light" ? ThemeLightIcon : ThemeDarkIcon));
 // n-dropdown @select 會帶 (key, option)，需包一層只取 key（避免把 option 當成 setLocale 的第二參數）
-function pickLocale(k: string | number) { ui.setLocale(String(k) as "zh-TW" | "en-US"); }
+function pickLocale(k: string | number) { ui.setLocale(String(k) as "zh-TW" | "en-US" | "ja-JP"); }
 function pickTheme(k: string | number) { ui.setTheme(String(k) as "light" | "dark" | "auto"); }
 
 const userMenuOptions = computed(() => [

@@ -100,7 +100,6 @@ async def get_device_integrations(
             "ip": str(wa.ip) if wa.ip else None, "status": wa.status,
             "os_platform": wa.os_platform, "os_version": wa.os_version,
             "agent_version": wa.agent_version, "group": wa.group,
-            "cve_critical": wa.cve_critical_count, "cve_high": wa.cve_high_count,
             # 資安組態評估（SCA）—— 目前唯一拿得到的資安體質指標
             "sca_policy": wa.sca_policy, "sca_score": wa.sca_score,
             "sca_pass": wa.sca_pass, "sca_fail": wa.sca_fail,

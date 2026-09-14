@@ -135,7 +135,10 @@ jobs:
         run: pnpm run build
 
   audit:
-    # 相依套件的漏洞掃描。**High / Critical 會擋下 CI**——掃了卻不擋等於沒掃。
+    # 相依套件的漏洞掃描。**Moderate 以上會擋下 CI**——掃了卻不擋等於沒掃。
+    # 門檻原本是 high，結果 vitest 那兩個路徑穿越（GHSA-82fw-gwwq-j7x9，moderate）
+    # 是 Dependabot 通知我們的，我們自己的 CI 全程綠燈：門檻設在看不到問題的高度，
+    # 等於把把關外包給別人。
     # 真的暫時修不了時，用 `.github/audit-allowlist.txt` 記下理由與到期日，
     # 而不是把整個步驟改成忽略錯誤。
     runs-on: ubuntu-latest
@@ -170,4 +173,4 @@ jobs:
 
       - name: Node dependencies (pnpm audit)
         working-directory: frontend
-        run: pnpm audit --audit-level high
+        run: pnpm audit --audit-level moderate

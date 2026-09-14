@@ -24,6 +24,41 @@ log()  { echo -e "\033[1;32m[jt-ipam]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[warn]\033[0m $*" >&2; }
 die()  { echo -e "\033[1;31mFATAL:\033[0m $*" >&2; exit 1; }
 
+# -- where to send an operator when something fails --
+#
+# Every failure path ends in exit != 0, so the hint is printed from a single EXIT
+# trap instead of being repeated at 20 call sites (and forgotten at the 21st --
+# including the failures nobody wrote a message for, where `set -e` just stops).
+#
+# The page is trilingual (Chinese / English / Japanese) and the language is chosen
+# here, from the OS locale, rather than left to the reader: someone whose terminal
+# is already Japanese should not land on an English page and then have to find the
+# switch. Anything else gets English, which is the page default.
+DOCS_BASE="${JT_IPAM_DOCS_BASE:-https://jasoncheng7115.github.io/jt-ipam}"
+troubleshooting_url() {
+    case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+        zh_*|zh|zh-*|zh.*) echo "${DOCS_BASE}/troubleshooting.html?lang=zh-TW" ;;
+        ja_*|ja|ja-*|ja.*) echo "${DOCS_BASE}/troubleshooting.html?lang=ja" ;;
+        *)                 echo "${DOCS_BASE}/troubleshooting.html?lang=en" ;;
+    esac
+}
+HELP_HINT=1          # set to 0 around an exit that is a user choice, not a failure
+_HINT_SHOWN=0
+print_help_hint() {
+    [[ "${HELP_HINT}" == "1" ]] || return 0
+    [[ "${_HINT_SHOWN}" == "1" ]] && return 0
+    _HINT_SHOWN=1
+    echo >&2
+    echo -e "\033[1;36mInstall / upgrade troubleshooting:\033[0m $(troubleshooting_url)" >&2
+    echo    "  Health check on this host:  sudo bash $0 doctor" >&2
+}
+on_exit_hint() {
+    local rc=$?
+    # 2 = usage / unknown command; it has already printed the usage text.
+    [[ $rc -eq 0 || $rc -eq 2 ]] || print_help_hint
+}
+trap on_exit_hint EXIT
+
 # Best-effort install of the optional RDP dependency (aardwolf, pinned to a wheel-having
 # version). --only-binary=:all: means: if there is no prebuilt wheel for this platform/Python,
 # fail FAST instead of pulling an sdist and triggering a Rust toolchain build. Failure is
@@ -1662,7 +1697,7 @@ cmd_uninstall() {
         local ans=""
         read -r -p "Are you sure you want to permanently delete the above? Type yes to confirm: " ans
         if [[ "$ans" != "yes" ]]; then
-            die "Did not type yes, purge aborted (nothing was deleted)."
+            HELP_HINT=0; die "Did not type yes, purge aborted (nothing was deleted)."
         fi
     else
         warn "--yes given, skipping interactive confirmation, purging directly."

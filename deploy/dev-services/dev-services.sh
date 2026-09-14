@@ -27,6 +27,14 @@ PG_IMAGE=pgvector/pgvector:pg16          # pgvector 官方映像；語意搜尋�
 REDIS_IMAGE=redis:7-alpine
 PG_PORT=${JTIPAM_DEV_PG_PORT:-55432}
 REDIS_PORT=${JTIPAM_DEV_REDIS_PORT:-56379}
+
+# Durability off, on purpose. conftest TRUNCATEs 102 tables before every test and
+# each TRUNCATE fsyncs, which is what the backend suite actually spends its time
+# on: measured on this box it ran at 6.7 tests/min with fsync on and 105/min with
+# it off -- 3 hours versus 15 minutes for the same 1,549 tests. These databases
+# are disposable (recreated by alembic + fixtures), so a crash costs nothing that
+# is not already reproducible. Never do this to a database anyone cares about.
+PG_DURABILITY_OFF=(-c fsync=off -c synchronous_commit=off -c full_page_writes=off)
 PG_USER=jt_ipam
 PG_MAIN_DB=jt_ipam
 ENV_FILE=${JTIPAM_DEV_ENV:-/opt/jt-ipam/.dev.env}
@@ -91,7 +99,7 @@ EOF
             -e POSTGRES_DB="$PG_MAIN_DB" \
             -p "127.0.0.1:$PG_PORT:5432" \
             -v "$PG_VOLUME:/var/lib/postgresql/data" \
-            "$PG_IMAGE" >/dev/null
+            "$PG_IMAGE" "${PG_DURABILITY_OFF[@]}" >/dev/null
         echo "started $PG_CONTAINER on 127.0.0.1:$PG_PORT"
     else
         docker start "$PG_CONTAINER" >/dev/null && echo "$PG_CONTAINER running"

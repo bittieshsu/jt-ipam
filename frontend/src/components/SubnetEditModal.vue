@@ -331,7 +331,7 @@ async function submit() {
     </template>
     <n-form label-placement="left" label-width="120">
       <n-form-item label="CIDR" required>
-        <n-input v-model:value="form.cidr" placeholder="192.168.1.0/24"
+        <n-input v-model:value="form.cidr" placeholder="198.51.100.0/24"
                  :disabled="!!editing" />
       </n-form-item>
       <n-form-item v-if="!editing" :label="t('subnets.allow_overlap')">

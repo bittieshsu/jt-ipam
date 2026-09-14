@@ -1,7 +1,7 @@
 import { apiClient } from "@/api/client";
 
 export interface UserPreferences {
-  locale: "zh-TW" | "en-US";
+  locale: "zh-TW" | "en-US" | "ja-JP";
   theme: "light" | "dark" | "auto";
   timezone: string;
   calendar: "gregorian" | "minguo";

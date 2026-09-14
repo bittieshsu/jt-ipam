@@ -58,7 +58,7 @@ async function runIpInfo() {
 }
 
 // ── CIDR Info ──
-const cidrInput = ref("192.168.0.0/24");
+const cidrInput = ref("203.0.113.0/24");
 const cidrResult = ref<Record<string, unknown> | null>(null);
 async function runCidrInfo() {
   try {
@@ -70,7 +70,7 @@ async function runCidrInfo() {
 }
 
 // ── CIDR Split ──
-const splitCidr = ref("192.168.0.0/24");
+const splitCidr = ref("203.0.113.0/24");
 const splitNew = ref(28);
 const splitResult = ref<{ subnets: string[]; count: number } | null>(null);
 async function runSplit() {
@@ -148,12 +148,15 @@ async function callTool(path: string, params: Record<string, unknown>) {
     return null;
   }
 }
+// 範例值一律用 RFC 5737 的文件用位址（198.51.100.0/24、203.0.113.0/24）。
+// 用 RFC 1918 的私網位址會被 ZAP 的 Private IP Disclosure 規則當成資訊洩漏 —— 掃描報告
+// 裡混著這種必然出現的告警，真正該看的那一筆就會被淹掉。
 const nu = ref<Record<string, any>>({
-  inCidrIp: "192.168.1.50", inCidrCidr: "192.168.1.0/24", inCidrRes: null,
-  relA: "10.0.0.0/8", relB: "10.1.0.0/16", relRes: null,
-  rStart: "192.168.1.10", rEnd: "192.168.1.200", rRes: null,
-  c2rCidr: "192.168.1.0/24", c2rRes: null,
-  aggIn: "192.168.0.0/24, 192.168.1.0/24", aggRes: null,
+  inCidrIp: "198.51.100.50", inCidrCidr: "198.51.100.0/24", inCidrRes: null,
+  relA: "198.51.100.0/24", relB: "198.51.100.128/25", relRes: null,
+  rStart: "198.51.100.10", rEnd: "198.51.100.200", rRes: null,
+  c2rCidr: "198.51.100.0/24", c2rRes: null,
+  aggIn: "203.0.113.0/25, 203.0.113.128/25", aggRes: null,
   nmVal: "255.255.255.0", nmRes: null,
   macVal: "00:11:22:33:44:55", macRes: null,
   fqdnVal: "sw1.dc.example.com", fqdnRes: null,
@@ -237,8 +240,8 @@ async function runEui64() {
           <!-- IP ∈ CIDR -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><AddressesIcon /></n-icon>{{ t('tools_page.t_in_cidr') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="nu.inCidrIp" placeholder="192.168.1.50" @keyup.enter="nuInCidr" />
-              <n-input v-model:value="nu.inCidrCidr" placeholder="192.168.1.0/24" @keyup.enter="nuInCidr" />
+              <n-input v-model:value="nu.inCidrIp" placeholder="198.51.100.50" @keyup.enter="nuInCidr" />
+              <n-input v-model:value="nu.inCidrCidr" placeholder="198.51.100.0/24" @keyup.enter="nuInCidr" />
               <n-button type="primary" class="nu-go" @click="nuInCidr"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <n-tag v-if="nu.inCidrRes" :type="nu.inCidrRes.contains ? 'success' : 'warning'" style="margin-top:10px">
@@ -307,7 +310,7 @@ async function runEui64() {
           <!-- CIDR 資訊 -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><SubnetsIcon /></n-icon>{{ t('tools_page.cidr_info') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="cidrInput" placeholder="192.168.0.0/24" @keyup.enter="runCidrInfo" />
+              <n-input v-model:value="cidrInput" placeholder="203.0.113.0/24" @keyup.enter="runCidrInfo" />
               <n-button type="primary" class="nu-go" @click="runCidrInfo"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <n-descriptions v-if="cidrResult" bordered :column="1" size="small" style="margin-top:10px" label-placement="left"
@@ -321,7 +324,7 @@ async function runEui64() {
           <!-- CIDR 切割 -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.cidr_split') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="splitCidr" placeholder="192.168.0.0/24" />
+              <n-input v-model:value="splitCidr" placeholder="203.0.113.0/24" />
               <n-input-number v-model:value="splitNew" :min="0" :max="128" placeholder="new prefix" style="width: 140px; flex:0 0 auto" />
               <n-button type="primary" class="nu-go" @click="runSplit"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.split_btn") }}</n-button>
             </div>
@@ -331,8 +334,8 @@ async function runEui64() {
           <!-- CIDR 關係 -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.t_relation') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="nu.relA" placeholder="10.0.0.0/8" @keyup.enter="nuRel" />
-              <n-input v-model:value="nu.relB" placeholder="10.1.0.0/16" @keyup.enter="nuRel" />
+              <n-input v-model:value="nu.relA" placeholder="198.51.100.0/24" @keyup.enter="nuRel" />
+              <n-input v-model:value="nu.relB" placeholder="198.51.100.128/25" @keyup.enter="nuRel" />
               <n-button type="primary" class="nu-go" @click="nuRel"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <n-tag v-if="nu.relRes" type="info" style="margin-top:10px">{{ nu.relRes.relation }}</n-tag>
@@ -341,8 +344,8 @@ async function runEui64() {
           <!-- Range → CIDR -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><SubnetsIcon /></n-icon>{{ t('tools_page.t_range2cidr') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="nu.rStart" placeholder="192.168.1.10" @keyup.enter="nuRange" />
-              <n-input v-model:value="nu.rEnd" placeholder="192.168.1.200" @keyup.enter="nuRange" />
+              <n-input v-model:value="nu.rStart" placeholder="198.51.100.10" @keyup.enter="nuRange" />
+              <n-input v-model:value="nu.rEnd" placeholder="198.51.100.200" @keyup.enter="nuRange" />
               <n-button type="primary" class="nu-go" @click="nuRange"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <n-code v-if="nu.rRes" :code="nu.rRes.cidrs.join('\n')" language="plain" style="margin-top:10px; display:block" />
@@ -351,7 +354,7 @@ async function runEui64() {
           <!-- CIDR → Range -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><ListIcon /></n-icon>{{ t('tools_page.t_cidr2range') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="nu.c2rCidr" placeholder="192.168.1.0/24" @keyup.enter="nuC2r" />
+              <n-input v-model:value="nu.c2rCidr" placeholder="198.51.100.0/24" @keyup.enter="nuC2r" />
               <n-button type="primary" class="nu-go" @click="nuC2r"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <div v-if="nu.c2rRes" style="margin-top:10px">
@@ -362,7 +365,7 @@ async function runEui64() {
           <!-- Aggregate -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><GridIcon /></n-icon>{{ t('tools_page.t_aggregate') }}</span></template>
             <div class="nu-row">
-              <n-input v-model:value="nu.aggIn" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" placeholder="192.168.0.0/24, 192.168.1.0/24" />
+              <n-input v-model:value="nu.aggIn" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" placeholder="203.0.113.0/25, 203.0.113.128/25" />
               <n-button type="primary" class="nu-go" @click="nuAgg"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
             </div>
             <n-code v-if="nu.aggRes" :code="nu.aggRes.aggregated.join('\n')" language="plain" style="margin-top:10px; display:block" />

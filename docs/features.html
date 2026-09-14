@@ -12,12 +12,15 @@
     --bg:#eef3ee; --card:#ffffff; --line:#e2e8e4;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
     color:var(--body);background:var(--bg);line-height:1.7}
   a{color:inherit;text-decoration:none}
-  .en{display:none}
-  body.lang-en .zh{display:none}
+  /* 三語切換：只顯示目前語言的節點。搜尋與各種 innerText 讀不到 display:none 的內容，
+     所以同一段程式對三種語言都成立。 */
+  .zh,.en,.ja{display:none}
+  body.lang-zh .zh{display:initial}
   body.lang-en .en{display:initial}
+  body.lang-ja .ja{display:initial}
   .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
   /* ── 與首頁一致的頂列 ── */
   nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(8px);
@@ -32,6 +35,19 @@
   .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink)}
   .btn-ghost:hover{border-color:var(--green)}
   .btn-sm{padding:6px 12px;font-size:13px}
+  /* ── 三語切換（分段式按鈕） ── */
+  .langsw{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  .langsw button{border:0;background:transparent;color:var(--body);font-family:inherit;font-size:13px;
+    font-weight:600;padding:6px 11px;cursor:pointer;line-height:1.3;white-space:nowrap}
+  .langsw button + button{border-left:1px solid var(--line)}
+  .langsw button:hover{color:var(--ink);background:#f1f5f2}
+  .langsw button.on{background:var(--green);color:#fff}
+  /* 手機：頂列讓它自己長高換行，不要硬壓在 60px 裡把品牌名擠成兩行。 */
+  @media(max-width:560px){
+    .nav-in{height:auto;padding:10px 0;flex-wrap:wrap;gap:10px}
+    .brand{font-size:16px;white-space:nowrap}
+    .nav-links{gap:8px;width:100%;justify-content:flex-end}
+  }
   @media(max-width:820px){.nav-links a:not(.btn){display:none}}
   /* ── 內容 ── */
   h1{font-size:clamp(26px,4vw,36px);color:var(--ink);margin:30px 0 6px}
@@ -53,6 +69,7 @@
   footer{margin:30px 0 80px;font-size:12.5px;color:var(--muted);text-align:center}
   footer a{color:var(--green)}
 </style>
+<noscript><style>.en{display:initial}</style></noscript>
 </head>
 <body>
 <script>
@@ -61,15 +78,17 @@
     try{
       function norm(v){ v = (v || '').toLowerCase();
         if (v === 'en' || v === 'en-us') return 'en';
+        if (v === 'ja' || v === 'ja-jp') return 'ja';
         if (v === 'zh' || v === 'zh-tw' || v === 'zh-hant') return 'zh';
         return null; }
       var u = null; try { u = norm(new URLSearchParams(location.search).get('lang')); } catch (e) {}
       var lang = u || norm(localStorage.getItem('jtipam-doc-lang')) || 'en';
-      if (lang === 'en') document.body.classList.add('lang-en');
-      document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'zh-Hant');
+      document.body.classList.add('lang-' + lang);
+      document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : lang === 'ja' ? 'ja' : 'zh-Hant');
       if (u){ try {
         localStorage.setItem('jtipam-doc-lang', u);
-        var url = new URL(location.href); url.searchParams.set('lang', u === 'en' ? 'en' : 'zh-TW');
+        var url = new URL(location.href);
+        url.searchParams.set('lang', u === 'en' ? 'en' : u === 'ja' ? 'ja' : 'zh-TW');
         history.replaceState(null, '', url);
       } catch (e) {} }
     } catch (e) {}
@@ -91,138 +110,150 @@
       jt-ipam
     </span>
     <div class="nav-links">
-      <a href="index.html#features"><span class="zh">特色</span><span class="en">Features</span></a>
-      <a href="index.html#integrations"><span class="zh">整合</span><span class="en">Integrations</span></a>
-      <a href="index.html#screens"><span class="zh">畫面</span><span class="en">Screenshots</span></a>
+      <a href="index.html#features"><span class="zh">特色</span><span class="en">Features</span><span class="ja">機能</span></a>
+      <a href="index.html#integrations"><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></a>
+      <a href="index.html#screens"><span class="zh">畫面</span><span class="en">Screenshots</span><span class="ja">画面</span></a>
       <a href="index.html#ai">AI</a>
-      <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span></a>
+      <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
       <a href="api.html">API</a>
-      <a class="btn btn-ghost btn-sm" href="index.html"><span class="zh">回首頁</span><span class="en">Home</span></a>
+      <a class="btn btn-ghost btn-sm" href="index.html"><span class="zh">回首頁</span><span class="en">Home</span><span class="ja">ホーム</span></a>
       <a class="btn btn-ghost btn-sm" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
-      <button class="btn btn-ghost btn-sm" id="langBtn" type="button">English</button>
+      <span class="langsw" role="group" aria-label="Language">
+        <button type="button" data-lang="zh">中文</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ja">日本語</button>
+      </span>
     </div>
   </div>
 </nav>
 
 <div class="wrap">
-  <h1><span class="zh">功能地圖</span><span class="en">Feature map</span></h1>
-  <p class="sub"><span class="zh">jt-ipam 全功能樹狀總覽（每次改版同步更新）。</span><span class="en">A tree overview of everything jt-ipam does (kept in sync each release).</span></p>
+  <h1><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></h1>
+  <p class="sub"><span class="zh">jt-ipam 全功能樹狀總覽（每次改版同步更新）。</span><span class="en">A tree overview of everything jt-ipam does (kept in sync each release).</span><span class="ja">jt-ipam の全機能をツリーで俯瞰します（リリースごとに更新）。</span></p>
 
   <div class="tree">
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg><span class="zh">IPAM 核心</span><span class="en">Core IPAM</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg><span class="zh">IPAM 核心</span><span class="en">Core IPAM</span><span class="ja">IPAM のコア</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">區段 → 子網路 → IP 位址（階層管理、上下層繼承）</span><span class="en">Section → Subnet → IP (hierarchy &amp; inheritance)</span></span></li>
-      <li><span class="leaf"><span class="zh">使用率與 IP 指示計（上線/離線/未知 即時方格）</span><span class="en">Utilization &amp; live IP indicator grid</span></span></li>
-      <li><span class="leaf"><span class="zh">掃描代理：主動探測存活與作業系統（ICMP / ARP / 反查 / NetBIOS / mDNS / OS 偵測），代理 / 子網路 / IP 三層可設定、可立即執行、自動更新</span><span class="en">Scan agent: active liveness &amp; OS probing (ICMP / ARP / rDNS / NetBIOS / mDNS / OS), per-agent/subnet/IP control, run-now &amp; self-update</span></span></li>
-      <li><span class="leaf"><span class="zh">DHCP 範圍標示、重疊網段偵測</span><span class="en">DHCP-range marking, overlap detection</span></span></li>
-      <li><span class="leaf"><span class="zh">失聯 IP 篩選與批次回收、子網路歸檔（連帶隱藏 IP）</span><span class="en">Stale-IP filter &amp; bulk reclaim, subnet archive (hides its IPs)</span></span></li>
-      <li><span class="leaf"><span class="zh">IP 異動記錄、主機名稱與作業系統多源優先序（掃描代理 / LibreNMS / Wazuh / Zabbix）</span><span class="en">IP change log, multi-source hostname &amp; OS precedence (scan agent / LibreNMS / Wazuh / Zabbix)</span></span></li>
-      <li><span class="leaf"><span class="zh">IP 申請審核流程（可設多關卡會簽 / 依序關卡，站內 + Email 通知）</span><span class="en">IP request approval workflow (multi-stage / parallel sign-off, in-app + email notifications)</span></span></li>
-      <li><span class="leaf"><span class="zh">VLAN / VLAN Domain、VRF</span><span class="en">VLAN / VLAN Domain, VRF</span></span></li>
-      <li><span class="leaf"><span class="zh">CSV 匯入；匯出 CSV / Markdown / PDF / Excel / ODS、欄位選擇</span><span class="en">CSV import; export CSV / Markdown / PDF / Excel / ODS, column picker</span></span></li>
+      <li><span class="leaf"><span class="zh">區段 → 子網路 → IP 位址（階層管理、上下層繼承）</span><span class="en">Section → Subnet → IP (hierarchy &amp; inheritance)</span><span class="ja">セクション → サブネット → IP アドレス（階層管理と継承）</span></span></li>
+      <li><span class="leaf"><span class="zh">使用率與 IP 指示計（上線/離線/未知 即時方格）</span><span class="en">Utilization &amp; live IP indicator grid</span><span class="ja">使用率と IP インジケータ（オンライン／オフライン／不明をリアルタイム表示）</span></span></li>
+      <li><span class="leaf"><span class="zh">掃描代理：主動探測存活與作業系統（ICMP / ARP / 反查 / NetBIOS / mDNS / OS 偵測），代理 / 子網路 / IP 三層可設定、可立即執行、自動更新</span><span class="en">Scan agent: active liveness &amp; OS probing (ICMP / ARP / rDNS / NetBIOS / mDNS / OS), per-agent/subnet/IP control, run-now &amp; self-update</span><span class="ja">スキャンエージェント：死活と OS の能動探査（ICMP / ARP / 逆引き / NetBIOS / mDNS / OS 判定）。エージェント・サブネット・IP の三階層で設定でき、即時実行と自動更新に対応</span></span></li>
+      <li><span class="leaf"><span class="zh">DHCP 範圍標示、重疊網段偵測</span><span class="en">DHCP-range marking, overlap detection</span><span class="ja">DHCP 範囲の表示、サブネット重複の検出</span></span></li>
+      <li><span class="leaf"><span class="zh">失聯 IP 篩選與批次回收、子網路歸檔（連帶隱藏 IP）</span><span class="en">Stale-IP filter &amp; bulk reclaim, subnet archive (hides its IPs)</span><span class="ja">未使用 IP の絞り込みと一括回収、サブネットのアーカイブ（配下の IP もまとめて非表示）</span></span></li>
+      <li><span class="leaf"><span class="zh">IP 異動記錄、主機名稱與作業系統多源優先序（掃描代理 / LibreNMS / Wazuh / Zabbix）</span><span class="en">IP change log, multi-source hostname &amp; OS precedence (scan agent / LibreNMS / Wazuh / Zabbix)</span><span class="ja">IP の変更履歴、ホスト名と OS の複数ソース優先順位（スキャンエージェント / LibreNMS / Wazuh / Zabbix）</span></span></li>
+      <li><span class="leaf"><span class="zh">IP 申請審核流程（可設多關卡會簽 / 依序關卡，站內 + Email 通知）</span><span class="en">IP request approval workflow (multi-stage / parallel sign-off, in-app + email notifications)</span><span class="ja">IP 申請の承認フロー（多段階／並行承認を設定可能、アプリ内通知とメール通知）</span></span></li>
+      <li><span class="leaf"><span class="zh">VLAN / VLAN Domain、VRF</span><span class="en">VLAN / VLAN Domain, VRF</span><span class="ja">VLAN / VLAN ドメイン、VRF</span></span></li>
+      <li><span class="leaf"><span class="zh">CSV 匯入；匯出 CSV / Markdown / PDF / Excel / ODS、欄位選擇</span><span class="en">CSV import; export CSV / Markdown / PDF / Excel / ODS, column picker</span><span class="ja">CSV インポート、CSV / Markdown / PDF / Excel / ODS へのエクスポートと列の選択</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16M4 13h16"/></svg><span class="zh">實體資產</span><span class="en">Physical assets</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16M4 13h16"/></svg><span class="zh">實體資產</span><span class="en">Physical assets</span><span class="ja">物理資産</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">機房 / 地點：平面圖（拖拉定位/旋轉）、世界地圖、機櫃與裝置數</span><span class="en">Rooms / sites: floor plan (drag/rotate), world map, rack &amp; device counts</span></span></li>
-      <li><span class="leaf"><span class="zh">機櫃：U 位圖、半 U、正面/背面切換、多格式匯出（SVG/PNG/drawio）</span><span class="en">Racks: U map, half-U, front/rear toggle, export (SVG/PNG/drawio)</span></span></li>
-      <li><span class="leaf"><span class="zh">裝置：連接埠、纜線多跳追蹤（Cable Trace）、佈線管理</span><span class="en">Devices: ports, multi-hop cable trace, cabling</span></span></li>
-      <li><span class="leaf"><span class="zh">電力：配電盤 → 饋線 → 插座、電力試算</span><span class="en">Power: panel → feed → outlet, power calculator</span></span></li>
+      <li><span class="leaf"><span class="zh">機房 / 地點：平面圖（拖拉定位/旋轉）、世界地圖、機櫃與裝置數</span><span class="en">Rooms / sites: floor plan (drag/rotate), world map, rack &amp; device counts</span><span class="ja">サーバルーム／拠点：フロアプラン（ドラッグ配置・回転）、世界地図、ラックと機器の台数</span></span></li>
+      <li><span class="leaf"><span class="zh">機櫃：U 位圖、半 U、正面/背面切換、多格式匯出（SVG/PNG/drawio）</span><span class="en">Racks: U map, half-U, front/rear toggle, export (SVG/PNG/drawio)</span><span class="ja">ラック：U 位置図、ハーフ U、前面／背面の切り替え、複数形式でのエクスポート（SVG / PNG / drawio）</span></span></li>
+      <li><span class="leaf"><span class="zh">裝置：連接埠、纜線多跳追蹤（Cable Trace）、佈線管理</span><span class="en">Devices: ports, multi-hop cable trace, cabling</span><span class="ja">機器：ポート、ケーブルのマルチホップ追跡（Cable Trace）、配線管理</span></span></li>
+      <li><span class="leaf"><span class="zh">電力：配電盤 → 饋線 → 插座、電力試算</span><span class="en">Power: panel → feed → outlet, power calculator</span><span class="ja">電源：分電盤 → フィード → コンセント、消費電力の試算</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg><span class="zh">虛擬化</span><span class="en">Virtualization</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg><span class="zh">虛擬化</span><span class="en">Virtualization</span><span class="ja">仮想化</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">Proxmox VE：叢集 / 節點 / VM、網路介面（bridge/bond/NIC）對應與追蹤</span><span class="en">Proxmox VE: clusters / nodes / VMs, NIC (bridge/bond) mapping &amp; trace</span></span></li>
-      <li><span class="leaf"><span class="zh">VMware ESXi / vCenter（Beta）：同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP；與 Proxmox VE 寫進同一組虛擬化資料表，拓樸與 AI 直接可用</span><span class="en">VMware ESXi / vCenter (Beta): one setup covers both a standalone host and vCenter, read-only over the vSphere API for VMs, NICs and addresses; lands in the same virtualisation tables as Proxmox VE, so topology and AI work with it unchanged</span></span></li>
+      <li><span class="leaf"><span class="zh">Proxmox VE：叢集 / 節點 / VM、網路介面（bridge/bond/NIC）對應與追蹤</span><span class="en">Proxmox VE: clusters / nodes / VMs, NIC (bridge/bond) mapping &amp; trace</span><span class="ja">Proxmox VE：クラスタ／ノード／VM、ネットワークインタフェース（bridge / bond / NIC）の対応付けと追跡</span></span></li>
+      <li><span class="leaf"><span class="zh">VMware ESXi / vCenter（Beta）：同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP；與 Proxmox VE 寫進同一組虛擬化資料表，拓樸與 AI 直接可用</span><span class="en">VMware ESXi / vCenter (Beta): one setup covers both a standalone host and vCenter, read-only over the vSphere API for VMs, NICs and addresses; lands in the same virtualisation tables as Proxmox VE, so topology and AI work with it unchanged</span><span class="ja">VMware ESXi / vCenter（Beta）：単体 ESXi と vCenter を同じ設定で扱い、vSphere API 経由の読み取り専用で VM・NIC・IP を棚卸しします。Proxmox VE と同じ仮想化テーブルに格納されるため、トポロジーや AI からもそのまま利用できます</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span class="zh">整合（單向拉取）</span><span class="en">Integrations (pull-only)</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span class="zh">整合（單向拉取）</span><span class="en">Integrations (pull-only)</span><span class="ja">連携（取得のみ）</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">DNS、AdGuard、LibreNMS、Wazuh</span><span class="en">DNS, AdGuard, LibreNMS, Wazuh</span></span></li>
-      <li><span class="leaf"><span class="zh">OPNsense：防火牆規則 / 別名 / NAT、DHCP / ARP / OpenVPN</span><span class="en">OPNsense: firewall rules / aliases / NAT, DHCP / ARP / OpenVPN</span></span></li>
-      <li><span class="leaf"><span class="zh">pfSense：防火牆規則 / 別名 / NAT、DHCP / ARP（pfSense-pkg-RESTAPI，獨立設定頁）</span><span class="en">pfSense: firewall rules / aliases / NAT, DHCP / ARP (pfSense-pkg-RESTAPI, its own settings page)</span></span></li>
-      <li><span class="leaf"><span class="zh">FortiGate：防火牆政策 / 位址物件 / NAT、DHCP 租約與發放範圍 / ARP、IPsec 通道 / SSL-VPN 連線（FortiOS REST API 唯讀，支援多 VDOM）</span><span class="en">FortiGate: firewall policies / address objects / NAT, DHCP leases and ranges / ARP, IPsec tunnels / SSL-VPN sessions (read-only over the FortiOS REST API, multi-VDOM)</span></span></li>
-      <li><span class="leaf"><span class="zh">Palo Alto（PAN-OS，Beta）：安全政策（含 App-ID）／位址物件／NAT、ARP、DHCP 租約（REST + XML op API 唯讀，支援多 vsys）</span><span class="en">Palo Alto (PAN-OS, Beta): security policies (with App-ID) / address objects / NAT, ARP, DHCP leases (read-only over the REST and XML op APIs, multi-vsys)</span></span></li>
-      <li><span class="leaf"><span class="zh">MikroTik RouterOS（Beta）：防火牆規則（filter／mangle／NAT）／address-list、DHCP 租約與發放範圍、VPN（PPP／WireGuard）、ARP（僅 reachable，預設關閉）。RouterOS v7 REST 唯讀；因為它常是站台的主力路由器，同步序列執行、區段之間停頓，CPU 超過門檻就停掉本輪剩下的區段，並有回應大小上限（RouterOS 的 REST 沒有分頁）</span><span class="en">MikroTik RouterOS (Beta): firewall rules (filter / mangle / NAT) / address lists, DHCP leases and ranges, VPN (PPP / WireGuard), ARP (reachable only, off by default). Read-only over the RouterOS v7 REST API; because it is usually the site’s main router, sections run sequentially with pauses between them, the round stops once CPU load passes a threshold, and responses are size-capped (the RouterOS REST API has no pagination)</span></span></li>
-      <li><span class="leaf"><span class="zh">Zabbix：主機↔IP 對應、存活狀態、維護狀態，以及監控涵蓋缺口（IPAM 有主機名稱、Zabbix 卻沒在看的位址）；JSON-RPC 唯讀，支援 API token 或帳號密碼。ARP／FDB 不在 Zabbix 內建資料裡，那一層仍以 LibreNMS 為主</span><span class="en">Zabbix: host-to-IP mapping, availability, maintenance state, and a monitoring coverage gap (addresses IPAM has a hostname for that Zabbix is not watching); read-only JSON-RPC with an API token or username/password. ARP/FDB are not part of Zabbix’s built-in data — LibreNMS stays the source for those</span></span></li>
-      <li><span class="leaf"><span class="zh">Windows DHCP Server（Beta）：DHCP 租約與發放範圍（WinRM + PowerShell 唯讀）</span><span class="en">Windows DHCP Server (Beta): DHCP leases and address ranges (read-only over WinRM + PowerShell)</span></span></li>
-      <li><span class="leaf"><span class="zh">Graylog：DSV 查詢表（IP→主機名稱、防火牆規則→別名、別名→成員、Proxmox VM）、記錄補主機名稱（Lookup Table）、稽核事件轉送（syslog/CEF/GELF）</span><span class="en">Graylog: DSV lookup tables (IP→hostname, firewall rule→alias, alias→members, Proxmox VM), log enrichment (Lookup Table), audit forwarding (syslog/CEF/GELF)</span></span></li>
-      <li><span class="leaf"><span class="zh">phpIPAM 遷移（SSH tunnel 匯入）</span><span class="en">phpIPAM migration (import over SSH tunnel)</span></span></li>
+      <li><span class="leaf"><span class="zh">DNS、AdGuard、LibreNMS、Wazuh</span><span class="en">DNS, AdGuard, LibreNMS, Wazuh</span><span class="ja">DNS、AdGuard、LibreNMS、Wazuh</span></span></li>
+      <li><span class="leaf"><span class="zh">OPNsense：防火牆規則 / 別名 / NAT、DHCP / ARP / OpenVPN</span><span class="en">OPNsense: firewall rules / aliases / NAT, DHCP / ARP / OpenVPN</span><span class="ja">OPNsense：ファイアウォールのルール／エイリアス／NAT、DHCP / ARP / OpenVPN</span></span></li>
+      <li><span class="leaf"><span class="zh">pfSense：防火牆規則 / 別名 / NAT、DHCP / ARP（pfSense-pkg-RESTAPI，獨立設定頁）</span><span class="en">pfSense: firewall rules / aliases / NAT, DHCP / ARP (pfSense-pkg-RESTAPI, its own settings page)</span><span class="ja">pfSense：ファイアウォールのルール／エイリアス／NAT、DHCP / ARP（pfSense-pkg-RESTAPI、専用の設定ページ）</span></span></li>
+      <li><span class="leaf"><span class="zh">FortiGate：防火牆政策 / 位址物件 / NAT、DHCP 租約與發放範圍 / ARP、IPsec 通道 / SSL-VPN 連線（FortiOS REST API 唯讀，支援多 VDOM）</span><span class="en">FortiGate: firewall policies / address objects / NAT, DHCP leases and ranges / ARP, IPsec tunnels / SSL-VPN sessions (read-only over the FortiOS REST API, multi-VDOM)</span><span class="ja">FortiGate：ファイアウォールポリシー／アドレスオブジェクト／NAT、DHCP のリースと範囲／ARP、IPsec トンネル／SSL-VPN セッション（FortiOS REST API の読み取り専用、マルチ VDOM 対応）</span></span></li>
+      <li><span class="leaf"><span class="zh">Palo Alto（PAN-OS，Beta）：安全政策（含 App-ID）／位址物件／NAT、ARP、DHCP 租約（REST + XML op API 唯讀，支援多 vsys）</span><span class="en">Palo Alto (PAN-OS, Beta): security policies (with App-ID) / address objects / NAT, ARP, DHCP leases (read-only over the REST and XML op APIs, multi-vsys)</span><span class="ja">Palo Alto（PAN-OS、Beta）：セキュリティポリシー（App-ID を含む）／アドレスオブジェクト／NAT、ARP、DHCP リース（REST および XML op API の読み取り専用、マルチ vsys 対応）</span></span></li>
+      <li><span class="leaf"><span class="zh">MikroTik RouterOS（Beta）：防火牆規則（filter／mangle／NAT）／address-list、DHCP 租約與發放範圍、VPN（PPP／WireGuard）、ARP（僅 reachable，預設關閉）。RouterOS v7 REST 唯讀；因為它常是站台的主力路由器，同步序列執行、區段之間停頓，CPU 超過門檻就停掉本輪剩下的區段，並有回應大小上限（RouterOS 的 REST 沒有分頁）</span><span class="en">MikroTik RouterOS (Beta): firewall rules (filter / mangle / NAT) / address lists, DHCP leases and ranges, VPN (PPP / WireGuard), ARP (reachable only, off by default). Read-only over the RouterOS v7 REST API; because it is usually the site’s main router, sections run sequentially with pauses between them, the round stops once CPU load passes a threshold, and responses are size-capped (the RouterOS REST API has no pagination)</span><span class="ja">MikroTik RouterOS（Beta）：ファイアウォールルール（filter／mangle／NAT）／アドレスリスト、DHCP のリースと範囲、VPN（PPP／WireGuard）、ARP（reachable のみ・既定は無効）。RouterOS v7 REST の読み取り専用です。拠点の主力ルータであることが多いため、セクションを直列に実行して間に休止を入れ、CPU 負荷が閾値を超えたらその回の残りを中止し、応答サイズにも上限を設けています（RouterOS の REST にはページングがありません）</span></span></li>
+      <li><span class="leaf"><span class="zh">Zabbix：主機↔IP 對應、存活狀態、維護狀態，以及監控涵蓋缺口（IPAM 有主機名稱、Zabbix 卻沒在看的位址）；JSON-RPC 唯讀，支援 API token 或帳號密碼。ARP／FDB 不在 Zabbix 內建資料裡，那一層仍以 LibreNMS 為主</span><span class="en">Zabbix: host-to-IP mapping, availability, maintenance state, and a monitoring coverage gap (addresses IPAM has a hostname for that Zabbix is not watching); read-only JSON-RPC with an API token or username/password. ARP/FDB are not part of Zabbix’s built-in data — LibreNMS stays the source for those</span><span class="ja">Zabbix：ホストと IP の対応、死活、メンテナンス状態、そして監視の抜け（IPAM がホスト名を持っているのに Zabbix が見ていないアドレス）。API トークンまたはユーザー名／パスワードによる読み取り専用の JSON-RPC です。ARP と FDB は Zabbix の標準データに含まれないため、その層は引き続き LibreNMS が担当します</span></span></li>
+      <li><span class="leaf"><span class="zh">Windows DHCP Server（Beta）：DHCP 租約與發放範圍（WinRM + PowerShell 唯讀）</span><span class="en">Windows DHCP Server (Beta): DHCP leases and address ranges (read-only over WinRM + PowerShell)</span><span class="ja">Windows DHCP Server（Beta）：DHCP のリースとアドレス範囲（WinRM + PowerShell の読み取り専用）</span></span></li>
+      <li><span class="leaf"><span class="zh">Graylog：DSV 查詢表（IP→主機名稱、防火牆規則→別名、別名→成員、Proxmox VM）、記錄補主機名稱（Lookup Table）、稽核事件轉送（syslog/CEF/GELF）</span><span class="en">Graylog: DSV lookup tables (IP→hostname, firewall rule→alias, alias→members, Proxmox VM), log enrichment (Lookup Table), audit forwarding (syslog/CEF/GELF)</span><span class="ja">Graylog：DSV ルックアップテーブル（IP→ホスト名、ファイアウォールルール→エイリアス、エイリアス→メンバー、Proxmox VM）、ログのホスト名補完（Lookup Table）、監査イベントの転送（syslog / CEF / GELF）</span></span></li>
+      <li><span class="leaf"><span class="zh">phpIPAM 遷移（SSH tunnel 匯入）</span><span class="en">phpIPAM migration (import over SSH tunnel)</span><span class="ja">phpIPAM からの移行（SSH トンネル経由のインポート）</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 6h6a3 3 0 0 1 3 3M9 18h6a3 3 0 0 0 3-3"/></svg><span class="zh">拓樸與工具</span><span class="en">Topology &amp; tools</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 6h6a3 3 0 0 1 3 3M9 18h6a3 3 0 0 0 3-3"/></svg><span class="zh">拓樸與工具</span><span class="en">Topology &amp; tools</span><span class="ja">トポロジーとツール</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">網路拓樸圖（L3 推導、VPN 端點、篩選）</span><span class="en">Network topology (L3 inference, VPN endpoints, filters)</span></span></li>
-      <li><span class="leaf"><span class="zh">網路工具：CIDR 計算/切割/聚合、遮罩、EUI-64、MAC 格式、DNS 解析、郵件 DNS、GeoIP</span><span class="en">Net tools: CIDR calc/split/aggregate, netmask, EUI-64, MAC format, DNS lookup, mail DNS, GeoIP</span></span></li>
-      <li><span class="leaf"><span class="zh">站對站 VPN（WireGuard 公鑰配對 / IPsec 端點比對）</span><span class="en">Site-to-site VPN (WireGuard key pairing / IPsec match)</span></span></li>
-      <li><span class="leaf"><span class="zh">OUI 廠商查詢（每月更新）</span><span class="en">OUI vendor lookup (monthly refresh)</span></span></li>
+      <li><span class="leaf"><span class="zh">網路拓樸圖（L3 推導、VPN 端點、篩選）</span><span class="en">Network topology (L3 inference, VPN endpoints, filters)</span><span class="ja">ネットワークトポロジー図（L3 推定、VPN エンドポイント、絞り込み）</span></span></li>
+      <li><span class="leaf"><span class="zh">網路工具：CIDR 計算/切割/聚合、遮罩、EUI-64、MAC 格式、DNS 解析、郵件 DNS、GeoIP</span><span class="en">Net tools: CIDR calc/split/aggregate, netmask, EUI-64, MAC format, DNS lookup, mail DNS, GeoIP</span><span class="ja">ネットワークツール：CIDR の計算／分割／集約、サブネットマスク、EUI-64、MAC 形式変換、DNS 解決、メール関連 DNS、GeoIP</span></span></li>
+      <li><span class="leaf"><span class="zh">站對站 VPN（WireGuard 公鑰配對 / IPsec 端點比對）</span><span class="en">Site-to-site VPN (WireGuard key pairing / IPsec match)</span><span class="ja">拠点間 VPN（WireGuard の公開鍵による対応付け、IPsec エンドポイントの突き合わせ）</span></span></li>
+      <li><span class="leaf"><span class="zh">OUI 廠商查詢（每月更新）</span><span class="en">OUI vendor lookup (monthly refresh)</span><span class="ja">OUI ベンダー検索（毎月更新）</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg><span class="zh">瀏覽器連線管理</span><span class="en">In-browser remote console</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg><span class="zh">瀏覽器連線管理</span><span class="en">In-browser remote console</span><span class="ja">ブラウザ内リモートコンソール</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">直接從 IP / 裝置開 SSH 終端機、SFTP 檔案瀏覽器（上下傳檔案）、RDP / VNC 桌面、Proxmox VE 主控台（VM noVNC / CT xterm）與 BMC 序列主控台（IPMI SOL）（RDP / VNC / PVE / BMC 為 Beta），全程在瀏覽器內、免裝用戶端　<a class="more" href="bmc-sol.html">BMC / SOL 設定教學 →</a></span><span class="en">Open an SSH terminal, an SFTP file browser (upload/download), RDP / VNC desktops, a Proxmox VE console (noVNC / xterm) and a BMC serial console (IPMI SOL) (RDP / VNC / PVE / BMC Beta) straight from an IP / device — all in-browser, no client to install　<a class="more" href="bmc-sol.html">BMC / SOL setup guide →</a></span></span></li>
-      <li><span class="leaf"><span class="zh">跳板主機（Beta）：後端連不到的站台，主控台可改走「後端 → 跳板 → 目標」。出口設在子網路、個別 IP 可覆寫，所以多個客戶用相同私網網段也不會弄錯（主控台是從一筆 IP 記錄啟動的）。跳板的主機金鑰必須先核對指紋並釘選才允許連線；SSH／SFTP／RDP／VNC 支援，BMC 因為走 UDP 無法經由跳板（會明確擋下而不是默默直連）</span><span class="en">Jump hosts (Beta): for sites the backend cannot reach directly, consoles can go backend → jump host → target. The exit is set per subnet and can be overridden per address, so several customers sharing the same private range never get confused (a console always starts from one IP record). The jump host's key must be checked and pinned before any connection is allowed. SSH / SFTP / RDP / VNC are supported; BMC cannot traverse a jump host because IPMI is UDP — it refuses explicitly rather than quietly connecting direct</span></span></li>
-      <li><span class="leaf"><span class="zh">連線帳密預設不儲存（僅連線當下傳送）；也可選擇存進個人加密金庫（by-user、AES-GCM 加密，私鑰 / 密碼逐欄加密）</span><span class="en">Credentials are not stored by default (sent only at connect time); optionally save to a per-user encrypted vault (by-user, AES-GCM, per-field encryption)</span></span></li>
-      <li><span class="leaf"><span class="zh">逐物件權限控管誰能連、單次 ticket→WebSocket 連線、每次開閉皆稽核；目標主機鎖死防 SSRF</span><span class="en">Per-object permissions on who may connect, single-use ticket→WebSocket sessions, every open/close audited; target host locked to prevent SSRF</span></span></li>
-      <li><span class="leaf"><span class="zh">RDP / VNC 可送特殊組合鍵（Ctrl + Alt + Del、F1～F12、⊞ Win / ⌘…）、自動縮放符合視窗、以目前視窗大小重連取得原生畫面</span><span class="en">RDP / VNC can send special key combos (Ctrl + Alt + Del, F1–F12, ⊞ Win / ⌘…), auto-fit to window, and reconnect at the current window size for a native picture</span></span></li>
+      <li><span class="leaf"><span class="zh">直接從 IP / 裝置開 SSH 終端機、SFTP 檔案瀏覽器（上下傳檔案）、RDP / VNC 桌面、Proxmox VE 主控台（VM noVNC / CT xterm）與 BMC 序列主控台（IPMI SOL）（RDP / VNC / PVE / BMC 為 Beta），全程在瀏覽器內、免裝用戶端　<a class="more" href="bmc-sol.html">BMC / SOL 設定教學 →</a></span><span class="en">Open an SSH terminal, an SFTP file browser (upload/download), RDP / VNC desktops, a Proxmox VE console (noVNC / xterm) and a BMC serial console (IPMI SOL) (RDP / VNC / PVE / BMC Beta) straight from an IP / device — all in-browser, no client to install　<a class="more" href="bmc-sol.html">BMC / SOL setup guide →</a></span><span class="ja">IP や機器から直接、SSH 端末・SFTP ファイルブラウザ（アップロード／ダウンロード）・RDP / VNC デスクトップ・Proxmox VE コンソール（VM は noVNC、CT は xterm）・BMC シリアルコンソール（IPMI SOL）を開けます（RDP / VNC / PVE / BMC は Beta）。すべてブラウザ内で完結し、クライアントのインストールは不要です　<a class="more" href="bmc-sol.html">BMC / SOL 設定ガイド →</a></span></span></li>
+      <li><span class="leaf"><span class="zh">跳板主機（Beta）：後端連不到的站台，主控台可改走「後端 → 跳板 → 目標」。出口設在子網路、個別 IP 可覆寫，所以多個客戶用相同私網網段也不會弄錯（主控台是從一筆 IP 記錄啟動的）。跳板的主機金鑰必須先核對指紋並釘選才允許連線；SSH／SFTP／RDP／VNC 支援，BMC 因為走 UDP 無法經由跳板（會明確擋下而不是默默直連）</span><span class="en">Jump hosts (Beta): for sites the backend cannot reach directly, consoles can go backend → jump host → target. The exit is set per subnet and can be overridden per address, so several customers sharing the same private range never get confused (a console always starts from one IP record). The jump host's key must be checked and pinned before any connection is allowed. SSH / SFTP / RDP / VNC are supported; BMC cannot traverse a jump host because IPMI is UDP — it refuses explicitly rather than quietly connecting direct</span><span class="ja">踏み台ホスト（Beta）：バックエンドから直接届かない拠点では、コンソールを「バックエンド → 踏み台 → 対象」の経路にできます。出口はサブネット単位で設定し、IP 単位で上書きできるため、複数の顧客が同じプライベート範囲を使っていても取り違えません（コンソールは必ず一件の IP レコードから開始します）。踏み台のホスト鍵はフィンガープリントを確認してピン留めするまで接続を許可しません。SSH / SFTP / RDP / VNC に対応し、BMC は IPMI が UDP のため踏み台を経由できません（黙って直結せず、明示的に拒否します）</span></span></li>
+      <li><span class="leaf"><span class="zh">連線帳密預設不儲存（僅連線當下傳送）；也可選擇存進個人加密金庫（by-user、AES-GCM 加密，私鑰 / 密碼逐欄加密）</span><span class="en">Credentials are not stored by default (sent only at connect time); optionally save to a per-user encrypted vault (by-user, AES-GCM, per-field encryption)</span><span class="ja">接続時の資格情報は既定では保存しません（接続時に送るだけです）。必要なら利用者ごとの暗号化された保管庫に保存できます（ユーザー単位・AES-GCM・項目ごとの暗号化）</span></span></li>
+      <li><span class="leaf"><span class="zh">逐物件權限控管誰能連、單次 ticket→WebSocket 連線、每次開閉皆稽核；目標主機鎖死防 SSRF</span><span class="en">Per-object permissions on who may connect, single-use ticket→WebSocket sessions, every open/close audited; target host locked to prevent SSRF</span><span class="ja">誰が接続してよいかをオブジェクト単位で制御し、使い捨てチケットから WebSocket セッションを確立、開始と終了はすべて監査に残ります。接続先ホストは固定され SSRF を防ぎます</span></span></li>
+      <li><span class="leaf"><span class="zh">RDP / VNC 可送特殊組合鍵（Ctrl + Alt + Del、F1～F12、⊞ Win / ⌘…）、自動縮放符合視窗、以目前視窗大小重連取得原生畫面</span><span class="en">RDP / VNC can send special key combos (Ctrl + Alt + Del, F1–F12, ⊞ Win / ⌘…), auto-fit to window, and reconnect at the current window size for a native picture</span><span class="ja">RDP / VNC では特殊なキーの組み合わせ（Ctrl + Alt + Del、F1～F12、⊞ Win / ⌘ など）を送信でき、ウィンドウへの自動フィットや、現在のウィンドウサイズでの再接続による等倍表示にも対応します</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg><span class="zh">AI 助理</span><span class="en">AI assistant</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg><span class="zh">AI 助理</span><span class="en">AI assistant</span><span class="ja">AI アシスタント</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">本地 LLM Server 自然語言查詢（預設資料不外送；可選 OpenAI 相容端點）、MCP server 供外部 LLM</span><span class="en">Local LLM Server NL queries (no data leaves by default; OpenAI-compatible optional), MCP server for external LLMs</span></span></li>
-      <li><span class="leaf"><span class="zh">語意搜尋（embedding + pgvector）、異常偵測、AI 異動前確認</span><span class="en">Semantic search (embedding + pgvector), anomaly detection, confirm-before-mutate</span></span></li>
-      <li><span class="leaf"><span class="zh">嵌入模型維度檢查（維度與資料庫欄位不合時只會表現為「搜尋沒有結果」，所以可當場問一次）</span><span class="en">Embedding dimension check (a mismatch only ever shows up as "search returns nothing", so it can be verified on the spot)</span></span></li>
-      <li><span class="leaf"><span class="zh">AI 巡檢：排程或立即讓模型檢視 IPAM 資料，找出可疑與資安疑慮；每筆發現附依據資料，可依嚴重度與分類篩選，誤報忽略後不再出現</span><span class="en">AI review: on a schedule or on demand, the model looks for suspicious records and security concerns; every finding cites its evidence, can be filtered by severity and category, and stays dismissed once marked a false positive</span></span></li>
-      <li><span class="leaf"><span class="zh">防火牆規則異動偵測：各家防火牆（OPNsense／pfSense／FortiGate／Palo Alto／MikroTik）的規則每輪同步做快照 diff，只有真的變更才記錄並通知——半夜多出一條放行規則會被看見；另有規則劣化偵測（懸空埠轉發、any-any 放行、WAN 開管理埠）</span><span class="en">Firewall rule-change sentinel: rules from every firewall family (OPNsense / pfSense / FortiGate / Palo Alto / MikroTik) are snapshot-diffed each sync, recorded and notified only on real change — a permit rule appearing overnight gets seen; plus rule-rot detection (dangling port forwards, any-to-any permits, management ports open on WAN)</span></span></li>
-      <li><span class="leaf"><span class="zh">IP 鑑識問答：在 AI 對話問「這個 IP 上週是誰」，回欄位級異動、ARP／MAC 對應、各來源主機名稱的證據時間軸（全確定性檢索，依權限過濾）</span><span class="en">IP forensics in chat: ask "who was this IP last week" and get an evidence timeline — field-level changes, ARP/MAC bindings, per-source hostnames (deterministic retrieval, permission-filtered)</span></span></li>
-      <li><span class="leaf"><span class="zh">未授權 IP 的 AI 鑑識卡：把 OUI 廠商、主機名稱、交換器埠彙整成「這最可能是什麼設備＋下一步查哪」的判讀；證據定界防 prompt-injection，並附原文可對照</span><span class="en">AI triage cards for unauthorised IPs: OUI vendor, hostnames and switch port assembled into "what this likely is and where to look next"; evidence is fenced against prompt injection and returned alongside for verification</span></span></li>
+      <li><span class="leaf"><span class="zh">本地 LLM Server 自然語言查詢（預設資料不外送；可選 OpenAI 相容端點）、MCP server 供外部 LLM</span><span class="en">Local LLM Server NL queries (no data leaves by default; OpenAI-compatible optional), MCP server for external LLMs</span><span class="ja">ローカル LLM サーバーによる自然言語での問い合わせ（既定ではデータは外部に出ません。OpenAI 互換エンドポイントも選択可）、外部 LLM 向けの MCP サーバー</span></span></li>
+      <li><span class="leaf"><span class="zh">語意搜尋（embedding + pgvector）、異常偵測、AI 異動前確認</span><span class="en">Semantic search (embedding + pgvector), anomaly detection, confirm-before-mutate</span><span class="ja">セマンティック検索（embedding + pgvector）、異常検知、変更前の AI 確認</span></span></li>
+      <li><span class="leaf"><span class="zh">嵌入模型維度檢查（維度與資料庫欄位不合時只會表現為「搜尋沒有結果」，所以可當場問一次）</span><span class="en">Embedding dimension check (a mismatch only ever shows up as "search returns nothing", so it can be verified on the spot)</span><span class="ja">埋め込みモデルの次元チェック（次元の不一致は「検索結果が出ない」という形でしか現れないため、その場で確認できるようにしています）</span></span></li>
+      <li><span class="leaf"><span class="zh">AI 巡檢：排程或立即讓模型檢視 IPAM 資料，找出可疑與資安疑慮；每筆發現附依據資料，可依嚴重度與分類篩選，誤報忽略後不再出現</span><span class="en">AI review: on a schedule or on demand, the model looks for suspicious records and security concerns; every finding cites its evidence, can be filtered by severity and category, and stays dismissed once marked a false positive</span><span class="ja">AI 点検：スケジュールまたは任意のタイミングで、モデルが IPAM のデータを見て不審な点やセキュリティ上の懸念を洗い出します。各指摘には根拠データが付き、深刻度と分類で絞り込め、誤検知として却下した項目は再び出てきません</span></span></li>
+      <li><span class="leaf"><span class="zh">防火牆規則異動偵測：各家防火牆（OPNsense／pfSense／FortiGate／Palo Alto／MikroTik）的規則每輪同步做快照 diff，只有真的變更才記錄並通知——半夜多出一條放行規則會被看見；另有規則劣化偵測（懸空埠轉發、any-any 放行、WAN 開管理埠）</span><span class="en">Firewall rule-change sentinel: rules from every firewall family (OPNsense / pfSense / FortiGate / Palo Alto / MikroTik) are snapshot-diffed each sync, recorded and notified only on real change — a permit rule appearing overnight gets seen; plus rule-rot detection (dangling port forwards, any-to-any permits, management ports open on WAN)</span><span class="ja">ファイアウォールルールの変更検知：各社のファイアウォール（OPNsense／pfSense／FortiGate／Palo Alto／MikroTik）のルールを同期のたびにスナップショット比較し、実際に変わったときだけ記録して通知します。夜中に許可ルールが一本増えれば必ず目に入ります。あわせてルールの劣化検知（宛先のないポート転送、any-any の許可、WAN 側に開いた管理ポート）も行います</span></span></li>
+      <li><span class="leaf"><span class="zh">IP 鑑識問答：在 AI 對話問「這個 IP 上週是誰」，回欄位級異動、ARP／MAC 對應、各來源主機名稱的證據時間軸（全確定性檢索，依權限過濾）</span><span class="en">IP forensics in chat: ask "who was this IP last week" and get an evidence timeline — field-level changes, ARP/MAC bindings, per-source hostnames (deterministic retrieval, permission-filtered)</span><span class="ja">チャットでの IP フォレンジック：「この IP は先週誰のものだったか」と尋ねると、項目単位の変更・ARP／MAC の対応・ソース別のホスト名を根拠つきの時系列で返します（すべて確定的な検索で、権限で絞り込まれます）</span></span></li>
+      <li><span class="leaf"><span class="zh">未授權 IP 的 AI 鑑識卡：把 OUI 廠商、主機名稱、交換器埠彙整成「這最可能是什麼設備＋下一步查哪」的判讀；證據定界防 prompt-injection，並附原文可對照</span><span class="en">AI triage cards for unauthorised IPs: OUI vendor, hostnames and switch port assembled into "what this likely is and where to look next"; evidence is fenced against prompt injection and returned alongside for verification</span><span class="ja">許可されていない IP の AI 判読カード：OUI ベンダー・ホスト名・スイッチポートをまとめ、「これはおそらく何の機器で、次にどこを見るべきか」という読み解きを提示します。根拠はプロンプトインジェクション対策として区切られ、原文も併せて返すので照合できます</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.4 7.5 8 9 4.6-1.5 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg><span class="zh">安全與管理</span><span class="en">Security &amp; admin</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.4 7.5 8 9 4.6-1.5 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg><span class="zh">安全與管理</span><span class="en">Security &amp; admin</span><span class="ja">セキュリティと管理</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">物件級 RBAC（7 類物件、階層繼承、內建角色、多單位/客戶隔離）</span><span class="en">Object-level RBAC (7 types, inheritance, built-in roles, multi-tenant isolation)</span></span></li>
-      <li><span class="leaf"><span class="zh">認證：argon2id + TOTP + JWT、API Token、LDAP/AD、SSO（OIDC/SAML）</span><span class="en">Auth: argon2id + TOTP + JWT, API tokens, LDAP/AD, SSO (OIDC/SAML)</span></span></li>
-      <li><span class="leaf"><span class="zh">稽核記錄（SHA-256 鏈）、系統記錄（systemd journal）、通知中心</span><span class="en">Audit log (SHA-256 chain), system logs (systemd journal), notifications</span></span></li>
-      <li><span class="leaf"><span class="zh">語系/時間偏好、表格欄位與釘選（跟著帳號存）</span><span class="en">Locale/time prefs, per-account table columns &amp; pins</span></span></li>
+      <li><span class="leaf"><span class="zh">物件級 RBAC（7 類物件、階層繼承、內建角色、多單位/客戶隔離）</span><span class="en">Object-level RBAC (7 types, inheritance, built-in roles, multi-tenant isolation)</span><span class="ja">オブジェクト単位の RBAC（7 種類のオブジェクト、階層継承、組み込みロール、複数組織／顧客の分離）</span></span></li>
+      <li><span class="leaf"><span class="zh">認證：argon2id + TOTP + JWT、API Token、LDAP/AD、SSO（OIDC/SAML）</span><span class="en">Auth: argon2id + TOTP + JWT, API tokens, LDAP/AD, SSO (OIDC/SAML)</span><span class="ja">認証：argon2id + TOTP + JWT、API トークン、LDAP / AD、SSO（OIDC / SAML）</span></span></li>
+      <li><span class="leaf"><span class="zh">稽核記錄（SHA-256 鏈）、系統記錄（systemd journal）、通知中心</span><span class="en">Audit log (SHA-256 chain), system logs (systemd journal), notifications</span><span class="ja">監査ログ（SHA-256 チェーン）、システムログ（systemd journal）、通知センター</span></span></li>
+      <li><span class="leaf"><span class="zh">語系/時間偏好、表格欄位與釘選（跟著帳號存）</span><span class="en">Locale/time prefs, per-account table columns &amp; pins</span><span class="ja">言語・時刻の設定、テーブルの列やピン留め（アカウントに紐づいて保存）</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 14.5 8 22l4-2 4 2-1-7.5"/></svg><span class="zh">憑證集中保管與派送</span><span class="en">Certificate vault &amp; distribution</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 14.5 8 22l4-2 4 2-1-7.5"/></svg><span class="zh">憑證集中保管與派送</span><span class="en">Certificate vault &amp; distribution</span><span class="ja">証明書の集中管理と配布</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">集中保管憑證（私鑰 AES-GCM 加密）、自簽產生、上傳或貼上 PEM、到期/飄移告警</span><span class="en">Central cert vault (AES-GCM private keys), self-signed gen, upload or paste PEM, expiry/drift alerts</span></span></li>
-      <li><span class="leaf"><span class="zh">Linux 輕量代理（純 bash，只相依 curl）拉取派送：nginx / Apache / Caddy / Traefik / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / PDM / Zimbra 等</span><span class="en">Linux: a lightweight agent (pure bash, curl-only) pulls &amp; deploys: nginx / Apache / Caddy / Traefik / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / PDM / Zimbra and more</span></span></li>
-      <li><span class="leaf"><span class="zh">Windows / IIS 走 PowerShell 代理（Server 2019 以上內建，不裝額外模組）：匯入 Windows 憑證存放區、換上 HTTPS 繫結（含多站台 SNI），再實際連線確認送出的是新憑證，不對就自動還原</span><span class="en">Windows / IIS uses a PowerShell agent (built into Server 2019+, no extra modules): imports into the Windows certificate store, repoints the HTTPS binding (including per-site SNI bindings), then opens a real TLS connection to confirm the new certificate is being served — and rolls back if it is not</span></span></li>
-      <li><span class="leaf"><span class="zh">套用前設定測試、失敗自動還原、部署後重載服務</span><span class="en">Config-test before apply, auto-rollback on failure, service reload after deploy</span></span></li>
-      <li><span class="leaf"><span class="zh">URL / SFTP 來源定期自動同步、缺中繼/根憑證以系統信任庫自動補齊完整鏈</span><span class="en">Periodic URL / SFTP source sync, auto-complete missing intermediate/root chain from system trust store</span></span></li>
+      <li><span class="leaf"><span class="zh">集中保管憑證（私鑰 AES-GCM 加密）、自簽產生、上傳或貼上 PEM、到期/飄移告警</span><span class="en">Central cert vault (AES-GCM private keys), self-signed gen, upload or paste PEM, expiry/drift alerts</span><span class="ja">証明書の集中保管（秘密鍵は AES-GCM で暗号化）、自己署名の生成、PEM のアップロードまたは貼り付け、有効期限とドリフトの警告</span></span></li>
+      <li><span class="leaf"><span class="zh">Linux 輕量代理（純 bash，只相依 curl）拉取派送：nginx / Apache / Caddy / Traefik / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / PDM / Zimbra 等</span><span class="en">Linux: a lightweight agent (pure bash, curl-only) pulls &amp; deploys: nginx / Apache / Caddy / Traefik / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / PDM / Zimbra and more</span><span class="ja">Linux：軽量エージェント（純粋な bash、依存は curl だけ）が取得して配布します。対象は nginx / Apache / Caddy / Traefik / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / PDM / Zimbra など</span></span></li>
+      <li><span class="leaf"><span class="zh">Windows / IIS 走 PowerShell 代理（Server 2019 以上內建，不裝額外模組）：匯入 Windows 憑證存放區、換上 HTTPS 繫結（含多站台 SNI），再實際連線確認送出的是新憑證，不對就自動還原</span><span class="en">Windows / IIS uses a PowerShell agent (built into Server 2019+, no extra modules): imports into the Windows certificate store, repoints the HTTPS binding (including per-site SNI bindings), then opens a real TLS connection to confirm the new certificate is being served — and rolls back if it is not</span><span class="ja">Windows / IIS は PowerShell エージェントを使います（Server 2019 以降に標準搭載、追加モジュール不要）。Windows 証明書ストアへ取り込み、HTTPS バインディングを張り替え（サイトごとの SNI バインディングも含む）、実際に TLS 接続して新しい証明書が提供されていることを確認し、そうでなければ自動的に元へ戻します</span></span></li>
+      <li><span class="leaf"><span class="zh">套用前設定測試、失敗自動還原、部署後重載服務</span><span class="en">Config-test before apply, auto-rollback on failure, service reload after deploy</span><span class="ja">適用前の設定テスト、失敗時の自動復旧、配備後のサービス再読み込み</span></span></li>
+      <li><span class="leaf"><span class="zh">URL / SFTP 來源定期自動同步、缺中繼/根憑證以系統信任庫自動補齊完整鏈</span><span class="en">Periodic URL / SFTP source sync, auto-complete missing intermediate/root chain from system trust store</span><span class="ja">URL / SFTP ソースの定期同期、不足している中間・ルート証明書をシステムの信頼ストアから補って完全なチェーンにする機能</span></span></li>
     </ul>
 
-    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12H2M5.5 7 2 12l3.5 5M18.5 7 22 12l-3.5 5"/></svg><span class="zh">部署</span><span class="en">Deployment</span></div>
+    <div class="grp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12H2M5.5 7 2 12l3.5 5M18.5 7 22 12l-3.5 5"/></svg><span class="zh">部署</span><span class="en">Deployment</span><span class="ja">デプロイ</span></div>
     <ul class="branch">
-      <li><span class="leaf"><span class="zh">systemd + apt（可安裝於虛擬機 / 容器，實體機亦可）、預設強制 HTTPS、一行安裝/升級/移除腳本</span><span class="en">systemd + apt (installs on VMs / containers, or bare metal), HTTPS enforced, one-line install/upgrade/uninstall</span></span></li>
+      <li><span class="leaf"><span class="zh">systemd + apt（可安裝於虛擬機 / 容器，實體機亦可）、預設強制 HTTPS、一行安裝/升級/移除腳本</span><span class="en">systemd + apt (installs on VMs / containers, or bare metal), HTTPS enforced, one-line install/upgrade/uninstall</span><span class="ja">systemd + apt（仮想マシンやコンテナ、ベアメタルにも導入可）、既定で HTTPS を強制、インストール／アップグレード／アンインストールは一行で実行</span></span></li>
     </ul>
   </div>
 
   <footer>
-    <span class="zh">完整原始碼與文件見 </span><span class="en">Full source &amp; docs at </span>
+    <span class="zh">完整原始碼與文件見 </span><span class="en">Full source &amp; docs at </span><span class="ja">ソースとドキュメントは </span>
     <a href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
   </footer>
 </div>
 
 <script>
-  // 初始語言已由 <body> 開頭的 inline script 決定（避免閃爍）；這裡只負責按鈕切換。
   (function(){
-    var btn=document.getElementById('langBtn');
-    var KEY='jtipam-doc-lang';
-    function isEn(){ return document.body.classList.contains('lang-en'); }
-    function setBtn(){ btn.textContent = isEn() ? '繁體中文' : 'English'; }
-    setBtn();
-    btn.addEventListener('click',function(){
-      var en = !isEn();
-      document.body.classList.toggle('lang-en', en);
-      document.documentElement.setAttribute('lang', en ? 'en' : 'zh-Hant');
-      localStorage.setItem(KEY, en ? 'en' : 'zh');
-      try { var u = new URL(location.href); u.searchParams.set('lang', en ? 'en' : 'zh-TW'); history.replaceState(null, '', u); } catch (e) {}
-      setBtn();
-    });
+    // 初始語言已由 <body> 開頭的 inline script 決定（避免閃爍）；這裡只負責切換按鈕。
+    var KEY = 'jtipam-doc-lang';
+    var btns = Array.prototype.slice.call(document.querySelectorAll('.langsw button'));
+    function cur(){ return document.body.classList.contains('lang-ja') ? 'ja'
+                         : document.body.classList.contains('lang-en') ? 'en' : 'zh'; }
+    function mark(){ var c = cur(); btns.forEach(function(b){ b.classList.toggle('on', b.dataset.lang === c); }); }
+    function set(l){
+      document.body.classList.remove('lang-zh','lang-en','lang-ja');
+      document.body.classList.add('lang-' + l);
+      document.documentElement.setAttribute('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-Hant');
+      try {
+        localStorage.setItem(KEY, l);
+        var u = new URL(location.href);
+        u.searchParams.set('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-TW');
+        history.replaceState(null, '', u);
+      } catch (e) {}
+      mark();
+      // 頁面上其他要跟著語言改字的東西（例如 api.html 的上一節／下一節標題）掛這個事件。
+      document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
+    }
+    btns.forEach(function(b){ b.addEventListener('click', function(){ set(b.dataset.lang); }); });
+    mark();
   })();
 </script>
 </body>

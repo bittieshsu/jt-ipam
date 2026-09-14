@@ -1,6 +1,6 @@
 # jt-ipam Install & Operations SOP
 
-> 繁體中文版：[INSTALL_zh-TW.md](INSTALL_zh-TW.md)
+> 繁體中文版：[INSTALL_zh-TW.md](INSTALL_zh-TW.md) · 日本語：[INSTALL_ja.md](INSTALL_ja.md)
 
 For **Proxmox LXC, bare metal, and VMs** (Ubuntu 22.04+/Debian 12+). The **primary, recommended** install
 uses **systemd + apt** directly (no Docker). A Docker Compose path exists but is **optional / secondary, not

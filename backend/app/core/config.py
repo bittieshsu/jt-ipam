@@ -24,7 +24,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "staging", "production"]
 Theme = Literal["light", "dark", "auto"]
-Locale = Literal["zh-TW", "en-US"]
+Locale = Literal["zh-TW", "en-US", "ja-JP"]
 SameSite = Literal["lax", "strict", "none"]
 TlsMode = Literal["nginx", "direct"]
 

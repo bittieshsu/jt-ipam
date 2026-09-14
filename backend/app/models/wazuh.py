@@ -79,9 +79,10 @@ class WazuhAgent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("ip_addresses.id", ondelete="SET NULL"),
     )
 
-    # 漏洞掃描：上次 vulnerability summary 抓回來的 critical 數
-    cve_critical_count: Mapped[int | None] = mapped_column(Integer)
-    cve_high_count: Mapped[int | None] = mapped_column(Integer)
+    # 漏洞數量欄位已於 0138 移除：Wazuh 4.8 起 manager API 沒有漏洞端點，唯一來源是
+    # Wazuh Indexer，所以那兩個欄位從加進來的那天起就沒有任何程式在寫，實機上全是 NULL。
+    # 空欄位比沒有欄位更糟——API 回一個永遠是 null 的 cve_critical，讀起來像「查過了，
+    # 沒有漏洞」。真的接上 Indexer 時再加回來，那時它們才會有值。
     cve_summary_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # SCA（資安組態評估）：拿現有的 manager API 帳號就讀得到，不需要額外憑證。
