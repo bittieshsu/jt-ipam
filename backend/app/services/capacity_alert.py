@@ -43,19 +43,27 @@ async def check_dhcp_pools(
         if change is None:
             continue
         sent += 1
-        where = f"{pool.source_name}（{pool.subnet_cidr or ''}{pool.start_ip}–{pool.end_ip}）"
+        # 網段與範圍之間要有分隔 —— 少了它會黏成「192.0.2.0/24192.0.2.150」，
+        # 讀的人得自己找界線在哪
+        scope = f"{pool.subnet_cidr} " if pool.subnet_cidr else ""
+        where = f"{pool.source_name}（{scope}{pool.start_ip}–{pool.end_ip}）"
+        _p = {"where": where, "used": used, "size": size, "pct": pct}
         if change == "down":
             await _notify(
                 session, event=EVENT_DHCP,
                 title=f"DHCP 集區快用完：{where}",
                 body=(f"已用 {used}/{size}（{pct}%）。集區用完之後新接上來的機器會直接"
                       f"拿不到位址，而現場看到的症狀是「網路壞了」。"),
-                link="/subnets", severity="error")
+                link="/subnets", severity="error",
+                title_key="notif.dhcp_pool_full", body_key="notif.dhcp_pool_full_body",
+                params=_p)
         else:
             await _notify(
                 session, event=EVENT_DHCP,
                 title=f"DHCP 集區已回到門檻以下：{where}",
-                body=f"目前 {used}/{size}（{pct}%）。", link="/subnets", severity="info")
+                body=f"目前 {used}/{size}（{pct}%）。", link="/subnets", severity="info",
+                title_key="notif.dhcp_pool_ok", body_key="notif.dhcp_pool_ok_body",
+                params=_p)
     await prune_missing(session, prefix="dhcp:", alive=alive)
     return sent
 
@@ -105,12 +113,16 @@ async def check_jump_host_keys(
                 body=(f"釘選的是 {jh.host_key_fingerprint}，現在拿到的是 {actual}。"
                       f"可能是重灌或換機，也可能是連線遭到攔截 —— 確認之前，"
                       f"經由這台跳板的主控台都會被擋下來。"),
-                link="/jump-hosts", severity="error")
+                link="/jump-hosts", severity="error",
+                title_key="notif.jump_key_changed", body_key="notif.jump_key_changed_body",
+                params={"name": jh.name, "pinned": jh.host_key_fingerprint, "actual": actual})
         else:
             await _notify(
                 session, event=EVENT_JUMP_KEY,
                 title=f"跳板主機的金鑰恢復為釘選值：{jh.name}",
-                body="指紋又與釘選的一致了。", link="/jump-hosts", severity="info")
+                body="指紋又與釘選的一致了。", link="/jump-hosts", severity="info",
+                title_key="notif.jump_key_restored", body_key="notif.jump_key_restored_body",
+                params={"name": jh.name})
     await prune_missing(session, prefix="jumpkey:", alive=alive)
     return sent
 
@@ -139,11 +151,15 @@ async def check_cert_sources(
                 title=f"憑證來源抓取失敗：{cert.name}",
                 body=(f"{str(cert.last_fetch_error)[:300]}\n"
                       f"抓不到新版本不會有任何症狀，直到憑證到期那天。"),
-                link="/certificates", severity="error")
+                link="/certificates", severity="error",
+                title_key="notif.cert_fetch_failed", body_key="notif.cert_fetch_failed_body",
+                params={"name": cert.name, "reason": str(cert.last_fetch_error)[:300]})
         else:
             await _notify(
                 session, event=EVENT_CERT_FETCH,
                 title=f"憑證來源已恢復：{cert.name}",
-                body="又抓得到了。", link="/certificates", severity="info")
+                body="又抓得到了。", link="/certificates", severity="info",
+                title_key="notif.cert_fetch_ok", body_key="notif.cert_fetch_ok_body",
+                params={"name": cert.name})
     await prune_missing(session, prefix="certsrc:", alive=alive)
     return sent

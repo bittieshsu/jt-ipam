@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jt-ipam — 功能地圖 / Feature map</title>
-<meta name="description" content="jt-ipam 全功能地圖（樹狀）。Full feature map of jt-ipam." />
+<title>jt-ipam — Feature map</title>
+<meta name="description" content="The full feature map of jt-ipam, as a tree." />
 <style>
   :root{
     --green:#18a058; --green-h:#36ad6a; --cyan:#22d3ee;
@@ -291,6 +291,29 @@
     document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
     mark();
+  })();
+</script>
+<script>
+  /* <title> / description / <html lang> 也要跟著語言走。
+     原本只有內文與截圖會切，文件本身的中繼資料留在原地 —— 於是三種語言的
+     分頁標題、搜尋結果與分享預覽全都是中文。靜態值放預設語言（英文），
+     這樣沒有 JavaScript 的讀者與爬蟲拿到的也是對的那一份。 */
+  (function(){
+    var META = {"zh": ["jt-ipam — 功能地圖", "jt-ipam 全功能地圖（樹狀）。"], "en": ["jt-ipam — Feature map", "The full feature map of jt-ipam, as a tree."], "ja": ["jt-ipam — 機能マップ", "jt-ipam の全機能マップ（ツリー表示）。"]};
+    function cur(){
+      var c = document.body.className;
+      return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
+    }
+    function apply(l){
+      var m = META[l] || META.en;
+      if (!m) return;
+      document.title = m[0];
+      var d = document.querySelector('meta[name="description"]');
+      if (d) d.setAttribute('content', m[1]);
+      document.documentElement.setAttribute('lang', {"zh": "zh-Hant", "en": "en", "ja": "ja"}[l] || 'en');
+    }
+    document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
+    apply(cur());
   })();
 </script>
 </body>

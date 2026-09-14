@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jt-ipam — BMC 序列主控台（IPMI SOL）設定 / BMC serial console setup</title>
-<meta name="description" content="讓 BMC IPMI SOL 看得到畫面：BIOS Console Redirection 逐欄建議值與作業系統序列主控台設定。BIOS console redirection settings and host serial console setup for the jt-ipam BMC console." />
+<title>jt-ipam — BMC serial console (IPMI SOL) setup</title>
+<meta name="description" content="Getting a picture out of BMC IPMI SOL: recommended BIOS console-redirection settings field by field, and the host's own serial console setup." />
 <style>
   :root{
     --green:#18a058; --green-h:#36ad6a; --cyan:#22d3ee;
@@ -382,6 +382,29 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
     document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
     mark();
+  })();
+</script>
+<script>
+  /* <title> / description / <html lang> 也要跟著語言走。
+     原本只有內文與截圖會切，文件本身的中繼資料留在原地 —— 於是三種語言的
+     分頁標題、搜尋結果與分享預覽全都是中文。靜態值放預設語言（英文），
+     這樣沒有 JavaScript 的讀者與爬蟲拿到的也是對的那一份。 */
+  (function(){
+    var META = {"zh": ["jt-ipam — BMC 序列主控台（IPMI SOL）設定", "讓 BMC IPMI SOL 看得到畫面：BIOS Console Redirection 逐欄建議值與作業系統序列主控台設定。"], "en": ["jt-ipam — BMC serial console (IPMI SOL) setup", "Getting a picture out of BMC IPMI SOL: recommended BIOS console-redirection settings field by field, and the host's own serial console setup."], "ja": ["jt-ipam — BMC シリアルコンソール（IPMI SOL）の設定", "BMC の IPMI SOL に画面を出すために：BIOS のコンソールリダイレクト設定を項目ごとに、そして OS 側のシリアルコンソール設定。"]};
+    function cur(){
+      var c = document.body.className;
+      return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
+    }
+    function apply(l){
+      var m = META[l] || META.en;
+      if (!m) return;
+      document.title = m[0];
+      var d = document.querySelector('meta[name="description"]');
+      if (d) d.setAttribute('content', m[1]);
+      document.documentElement.setAttribute('lang', {"zh": "zh-Hant", "en": "en", "ja": "ja"}[l] || 'en');
+    }
+    document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
+    apply(cur());
   })();
 </script>
 </body>

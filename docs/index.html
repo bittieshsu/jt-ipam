@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>jt-ipam — 為整合而生的 IPAM</title>
+<title>jt-ipam — an IPAM built for integration</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<meta name="description" content="jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / pfSense / FortiGate / Palo Alto / MikroTik / Windows DHCP Server / Wazuh / Zabbix / Proxmox VE / VMware ESXi / LLM Server，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。" />
+<meta name="description" content="jt-ipam: a self-hosted, integration-first IP address management system. Works with DNS / LibreNMS / OPNsense / pfSense / FortiGate / Palo Alto / MikroTik / Windows DHCP Server / Wazuh / Zabbix / Proxmox VE / VMware ESXi / LLM servers, and imports from phpIPAM for a painless migration. systemd deployment, HTTPS enforced, OWASP Top 10:2025." />
 <style>
   :root{
     --green:#18a058; --green-h:#36ad6a; --green-d:#0c7a43;
@@ -423,7 +423,7 @@
           <path d="M1012 59 L1024 66 L1012 73 Z"/>
         </g>
         <g font-size="18.5" font-weight="700" text-anchor="middle">
-          <g transform="translate(20,24)"><rect width="146" height="84" rx="16" fill="#eef6fc" stroke="#0369a1" stroke-opacity="0.35" filter="url(#nsh)"/><g transform="translate(61,14) scale(1.35)" stroke="#0369a1" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 16s5-4.5 5-9a5 5 0 10-10 0c0 4.5 5 9 5 9z"/><circle cx="9" cy="7" r="1.8"/></g><text x="73" y="63" fill="#0369a1" class="zh">機房 / 地點</text><text x="73" y="63" fill="#0369a1" class="en">Room / Site</text><text x="73" y="63" fill="#0369a1" class="ja">サーバルーム／拠点</text></g>
+          <g transform="translate(20,24)"><rect width="146" height="84" rx="16" fill="#eef6fc" stroke="#0369a1" stroke-opacity="0.35" filter="url(#nsh)"/><g transform="translate(61,14) scale(1.35)" stroke="#0369a1" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 16s5-4.5 5-9a5 5 0 10-10 0c0 4.5 5 9 5 9z"/><circle cx="9" cy="7" r="1.8"/></g><text x="73" y="63" fill="#0369a1" class="zh">機房 / 地點</text><text x="73" y="63" fill="#0369a1" class="en">Room / Site</text><text x="73" y="63" fill="#0369a1" class="ja">部屋／拠点</text></g>
           <g transform="translate(188,24)"><rect width="146" height="84" rx="16" fill="#f2eefd" stroke="#6d28d9" stroke-opacity="0.35" filter="url(#nsh)"/><g transform="translate(61,14) scale(1.35)" stroke="#6d28d9" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2.5" width="12" height="13" rx="1.2"/><path d="M3 6.5h12M3 10.5h12"/></g><text x="73" y="63" fill="#6d28d9" class="zh">機櫃</text><text x="73" y="63" fill="#6d28d9" class="en">Rack</text><text x="73" y="63" fill="#6d28d9" class="ja">ラック</text></g>
           <g transform="translate(356,24)"><rect width="146" height="84" rx="16" fill="#eef0fe" stroke="#4338ca" stroke-opacity="0.35" filter="url(#nsh)"/><g transform="translate(61,14) scale(1.35)" stroke="#4338ca" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="13" height="8" rx="1.2"/><path d="M5 9h5"/></g><text x="73" y="63" fill="#4338ca" class="zh">裝置</text><text x="73" y="63" fill="#4338ca" class="en">Device</text><text x="73" y="63" fill="#4338ca" class="ja">機器</text></g>
           <g transform="translate(524,24)"><rect width="146" height="84" rx="16" fill="#fdeef5" stroke="#be185d" stroke-opacity="0.35" filter="url(#nsh)"/><g transform="translate(61,14) scale(1.35)" stroke="#be185d" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5l6.5 3.5L9 9.5 2.5 6 9 2.5z"/><path d="M2.5 9.5L9 13l6.5-3.5"/></g><text x="73" y="63" fill="#be185d" class="zh">虛擬化 (VM)</text><text x="73" y="63" fill="#be185d" class="en">Virtualization</text><text x="73" y="63" fill="#be185d" class="ja">仮想化</text></g>
@@ -889,6 +889,39 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
     mark();
   })();
+  // 物件層級那張 SVG：文字要縮到框裡
+  //
+  // SVG 的 <text> 沒有 overflow 也不會截斷 —— 放不下就直接畫到框外。方框固定 146 寬，
+  // 中文「機房 / 地點」放得下，日文「サーバルーム／拠点」放不下（約 166），英文
+  // "Virtualization" 也擦邊。逐字調字級會在下次加語言或改字時再壞一次，所以改成量完
+  // 自己縮：只量「目前顯示中的那一個」（其他語言是 display:none，長度回 0）。
+  (function(){
+    var svg = document.querySelector('.model-svg');
+    if (!svg || !svg.getBBox) return;
+    var MAX = 128;          // 146 的方框，左右各留 9
+    var BASE = 18.5;        // 與 <g font-size> 一致
+    function fit(){
+      svg.querySelectorAll('text').forEach(function(t){
+        t.style.fontSize = '';
+        var w = 0;
+        try { w = t.getComputedTextLength(); } catch (e) { return; }
+        if (!w) return;                       // 這個語言目前沒顯示
+        if (w <= MAX) return;
+        // 一次算不準（字寬不隨字級線性變化），量到放得下為止；有下限，不會縮成看不見
+        var size = BASE;
+        for (var i = 0; i < 6 && w > MAX && size > 12; i++) {
+          size = Math.max(12, size * MAX / w * 0.99);
+          t.style.fontSize = size.toFixed(2) + 'px';
+          w = t.getComputedTextLength();
+        }
+      });
+    }
+    document.addEventListener('jtipam:langchange', function(){ setTimeout(fit, 0); });
+    // 字型載入完成前量到的是退路字型的寬度，會縮過頭或縮不夠
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    fit();
+  })();
+
   // 畫面導覽：截圖也要跟著語言換
   //
   // 英文與日文頁面本來配的是中文截圖 —— 切了語言、圖裡的字還是中文，那看起來
@@ -943,6 +976,29 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
       });
       pre.appendChild(btn);
     });
+  })();
+</script>
+<script>
+  /* <title> / description / <html lang> 也要跟著語言走。
+     原本只有內文與截圖會切，文件本身的中繼資料留在原地 —— 於是三種語言的
+     分頁標題、搜尋結果與分享預覽全都是中文。靜態值放預設語言（英文），
+     這樣沒有 JavaScript 的讀者與爬蟲拿到的也是對的那一份。 */
+  (function(){
+    var META = {"zh": ["jt-ipam — 為整合而生的 IPAM", "jt-ipam：可自架、以整合為核心的 IP 位址管理系統，整合 DNS / LibreNMS / OPNsense / pfSense / FortiGate / Palo Alto / MikroTik / Windows DHCP Server / Wazuh / Zabbix / Proxmox VE / VMware ESXi / LLM Server，並可從 phpIPAM 匯入資料、無痛遷移。systemd 部署、強制 HTTPS、OWASP Top 10:2025。"], "en": ["jt-ipam — an IPAM built for integration", "jt-ipam: a self-hosted, integration-first IP address management system. Works with DNS / LibreNMS / OPNsense / pfSense / FortiGate / Palo Alto / MikroTik / Windows DHCP Server / Wazuh / Zabbix / Proxmox VE / VMware ESXi / LLM servers, and imports from phpIPAM for a painless migration. systemd deployment, HTTPS enforced, OWASP Top 10:2025."], "ja": ["jt-ipam — 連携のために作られた IPAM", "jt-ipam：自分で運用できる、連携を中心に据えた IP アドレス管理システム。DNS / LibreNMS / OPNsense / pfSense / FortiGate / Palo Alto / MikroTik / Windows DHCP Server / Wazuh / Zabbix / Proxmox VE / VMware ESXi / LLM サーバーと連携し、phpIPAM からの取り込みで無理なく移行できます。systemd で導入、HTTPS 必須、OWASP Top 10:2025。"]};
+    function cur(){
+      var c = document.body.className;
+      return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
+    }
+    function apply(l){
+      var m = META[l] || META.en;
+      if (!m) return;
+      document.title = m[0];
+      var d = document.querySelector('meta[name="description"]');
+      if (d) d.setAttribute('content', m[1]);
+      document.documentElement.setAttribute('lang', {"zh": "zh-Hant", "en": "en", "ja": "ja"}[l] || 'en');
+    }
+    document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
+    apply(cur());
   })();
 </script>
 </body>

@@ -1,3 +1,5 @@
+import { i18n } from "@/i18n";
+
 /**
  * 全站時間 / 日期格式化 helper。
  *
@@ -34,7 +36,11 @@ export function fmtDate(
   return `${d.getFullYear()}-${PAD(d.getMonth() + 1)}-${PAD(d.getDate())}`;
 }
 
-/** "5 分鐘前" / "2 小時前" / "3 天前"；超過 30 天回 fmtDate */
+/** "5 分鐘前" / "5 minutes ago" / "5 分前"；超過 30 天回 fmtDate。
+ *
+ * 用 Intl.RelativeTimeFormat 而不是自己串字：單複數（1 minute／2 minutes）與詞序
+ * 是各語言自己的規則，寫死在這裡等於只有中文是對的 —— 日文介面的通知曾經顯示
+ * 「3 分鐘前」。語系跟著 i18n 走，換語言時整個畫面本來就會重畫。 */
 export function fmtRelative(
   s: string | number | Date | null | undefined,
   fallback = "—",
@@ -43,14 +49,18 @@ export function fmtRelative(
   if (!d) return fallback;
   const diff = Date.now() - d.getTime();
   if (diff < 0) return fmtDateTime(d);                            // 未來時間
+  // i18n.global.locale 在 legacy 模式是字串、composition 模式是 ref —— 兩種都收
+  const loc = (i18n.global as unknown as { locale: string | { value: string } }).locale;
+  const tag = (typeof loc === "string" ? loc : loc?.value) || "zh-TW";
+  const rtf = new Intl.RelativeTimeFormat(tag, { numeric: "auto" });
   const sec = Math.floor(diff / 1000);
-  if (sec < 60)     return `${sec} 秒前`;
+  if (sec < 60)     return rtf.format(-sec, "second");
   const min = Math.floor(sec / 60);
-  if (min < 60)     return `${min} 分鐘前`;
+  if (min < 60)     return rtf.format(-min, "minute");
   const hr  = Math.floor(min / 60);
-  if (hr < 24)      return `${hr} 小時前`;
+  if (hr < 24)      return rtf.format(-hr, "hour");
   const day = Math.floor(hr / 24);
-  if (day < 30)     return `${day} 天前`;
+  if (day < 30)     return rtf.format(-day, "day");
   return fmtDate(d);
 }
 

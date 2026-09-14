@@ -46,7 +46,14 @@ async def _admins(session: AsyncSession) -> list[User]:
 async def _notify(
     session: AsyncSession, *, event: str, title: str, body: str, link: str,
     severity: str = "warning",
+    title_key: str | None = None, body_key: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> None:
+    """站內通知 + 郵件 + 外部管道。
+
+    `title`／`body` 是**退路**，不是顯示內容：站內通知由前端用 `title_key`／`body_key`
+    加 `params` 依當前語言渲染。少給 key 的話，日文與英文的使用者會在通知中心看到中文
+    （實際被回報過）。郵件與外部管道沒有「當前語言」可言，仍用寫好的字串。"""
     ch = (await get_notification_matrix(session)).get(
         event, {"in_app": True, "email": False})
     if not (ch.get("in_app") or ch.get("email")):
@@ -56,7 +63,8 @@ async def _notify(
         for a in admins:
             await push_notification(session, user_id=a.id, severity=severity,
                                     title=title, body=body, link=link,
-                                    object_type="system")
+                                    object_type="system",
+                                    title_key=title_key, body_key=body_key, params=params)
     if ch.get("email"):
         from app.services.notification import email_users
         await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body)
@@ -85,6 +93,9 @@ async def check_integration_health(
             await _notify(
                 session, event=EVENT_INTEGRATION,
                 title=f"整合同步失敗：{inst.name}（{kind}）",
+                title_key="notif.sync_failed", body_key="notif.sync_failed_body",
+                params={"name": inst.name, "kind": kind,
+                        "reason": str(inst.last_error)[:300]},
                 # 錯誤原文要帶上 —— 「同步失敗」四個字沒有人知道要修什麼
                 body=f"{str(inst.last_error)[:300]}",
                 link=_INTEGRATION_ROUTE.get(kind, "/dashboard"), severity="error")
@@ -92,6 +103,8 @@ async def check_integration_health(
             await _notify(
                 session, event=EVENT_INTEGRATION,
                 title=f"整合同步已恢復：{inst.name}（{kind}）",
+                title_key="notif.sync_ok", body_key="notif.sync_ok_body",
+                params={"name": inst.name, "kind": kind},
                 body="這個整合又同步成功了。",
                 link=_INTEGRATION_ROUTE.get(kind, "/dashboard"), severity="info")
     await prune_missing(session, prefix="integration:", alive=alive)
@@ -145,6 +158,8 @@ async def check_agent_health(
             await _notify(
                 session, event=EVENT_AGENT,
                 title=f"代理失聯：{ag.name}（{kind}）",
+                title_key="notif.agent_lost", body_key="notif.agent_lost_body",
+                params={"name": ag.name, "kind": kind, "minutes": int(age_min)},
                 body=(f"最後一次回報是 {int(age_min)} 分鐘前"
                       f"（這類代理的容忍上限是 {limit} 分鐘）。"),
                 link="/scan-agents" if kind == "scan" else "/certificates",
@@ -153,6 +168,8 @@ async def check_agent_health(
             await _notify(
                 session, event=EVENT_AGENT,
                 title=f"代理已恢復回報：{ag.name}（{kind}）",
+                title_key="notif.agent_back", body_key="notif.agent_back_body",
+                params={"name": ag.name, "kind": kind},
                 body="這個代理又開始回報了。",
                 link="/scan-agents" if kind == "scan" else "/certificates",
                 severity="info")
@@ -185,6 +202,9 @@ async def check_system_health(
             await _notify(
                 session, event=EVENT_SYSTEM,
                 title=f"系統檢查未通過：{getattr(c, 'title', c.key)}",
+                title_key="notif.selfcheck_failed", body_key="notif.selfcheck_failed_body",
+                params={"check": str(getattr(c, "title", c.key)), "detail": body,
+                        "fix": fix or ""},
                 # 「該怎麼修」要一起帶 —— 只說壞了等於沒說（系統診斷頁的原則）
                 body=(f"{body}\n處理方式：{fix}" if fix else body),
                 link="/doctor", severity="error")
@@ -192,6 +212,8 @@ async def check_system_health(
             await _notify(
                 session, event=EVENT_SYSTEM,
                 title=f"系統檢查已恢復：{getattr(c, 'title', c.key)}",
+                title_key="notif.selfcheck_ok", body_key="notif.selfcheck_ok_body",
+                params={"check": str(getattr(c, "title", c.key))},
                 body="這一項又通過了。", link="/doctor", severity="info")
     await prune_missing(session, prefix="system:", alive=alive)
     return sent

@@ -4,6 +4,65 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.19] - 2026-09-14
+
+### Fixed
+- **Japanese labels painted outside their boxes in the object-hierarchy diagram** on the site's
+  front page. That diagram is hand-written inline SVG with fixed 146px boxes, and an SVG
+  `<text>` neither wraps nor clips — a label that does not fit simply paints over the border.
+  The Japanese for "Room / Site" needed about 166px; "Virtualization" was grazing the edge too.
+  The Chinese label fits, which is why this survived until someone looked at the Japanese page.
+
+  The label now uses the same short form the other two languages already use in that diagram,
+  matching the app's own Japanese for rooms, so every label fits at full size. A measuring pass
+  also runs on load and on every language change and shrinks anything that still does not fit:
+  hand-tuning one font size would break again the next time a string is edited or a language
+  is added.
+
+- **Notifications were written in Chinese for everyone.** The notification model has carried
+  `title_key` / `body_key` / `params` for a while — the browser renders those in the reader's
+  language and falls back to the stored text when they are absent. Certificate and IP-request
+  notifications used it; the twelve in the capacity and health checks (DHCP pool, jump-host key,
+  certificate source, integration sync, agent silence, system check) never did. The root cause
+  was one level down: the shared `_notify()` helper did not forward the keys at all, so a
+  producer could not have supplied them even if it tried. Reported from a Japanese session
+  showing a Chinese notification panel.
+
+  Existing rows keep the Chinese they were written with — a notification is a record of
+  something that happened, not a template to rewrite after the fact.
+
+- **"3 分鐘前" in every language.** `fmtRelative` built the string by hand, so the relative
+  timestamps in the notification panel, API tokens, chat history and backup list were Chinese
+  regardless of the interface language. It uses `Intl.RelativeTimeFormat` now: plurals
+  (1 minute / 2 minutes) and word order are each language's own rules, and hand-built strings
+  can only ever be right for one of them.
+
+- **A DHCP pool notification ran the subnet and the range together**
+  (`192.0.2.0/24192.0.2.150–192.0.2.200`) — the two values were concatenated with no separator,
+  leaving the reader to find the boundary.
+
+### Notes
+- No database changes.
+
+## [0.6.18] - 2026-09-14
+
+### Fixed
+- **The documentation site's page title stayed Chinese in every language.** 0.6.16 made the
+  body text and the screenshots follow the reader's language and left the document's own
+  metadata behind: no script touched `<title>`, `<meta name="description">` or `<html lang>`,
+  so the browser tab, the search result and the link preview were Chinese whichever language
+  you picked — and the served HTML said `lang="zh-Hant"` even though the site's default is
+  English. Reported from `view-source:` on `?lang=ja`.
+
+  All six multilingual pages now carry the title and description in three languages and update
+  them together with everything else. The static values are the **default** language (English),
+  so a crawler or a reader without JavaScript gets a consistent page rather than a Chinese
+  title above English content. `troubleshooting.html` had its own switcher and did not emit the
+  shared `jtipam:langchange` event; it does now, so one contract covers the whole site.
+
+### Notes
+- No database changes.
+
 ## [0.6.17] - 2026-09-14
 
 ### Fixed
