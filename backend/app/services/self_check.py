@@ -43,6 +43,13 @@ class Check:
     detail: str = ""
     #: 該怎麼修（指令或動作）。**每個非 ok 的項目都要有** —— 只說「壞了」等於沒說。
     fix: str = ""
+    #: i18n：有 key 就由前端用 `t(key, params)` 依當前語言渲染，沒有才退回上面的字串。
+    #: 這一頁的讀者是登入中的使用者，語言是他自己的偏好 —— 後端沒有「當前語言」可言，
+    #: 所以句子不能在這裡組好。與通知、錯誤訊息同一套作法。
+    title_key: str = ""
+    detail_key: str = ""
+    fix_key: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -146,18 +153,23 @@ def _frontend_check() -> Check:
         dist = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
         if not (dist / "index.html").exists():
             return Check("frontend", "前端建置", "bad", "找不到 dist/index.html",
-                         "sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade")
+                         "sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade",
+        title_key="doctor.c_frontend", detail_key="doctor.c_frontend_missing", fix_key="doctor.f_run_upgrade")
         vfile = dist / "version.json"
         if not vfile.exists():
-            return Check("frontend", "前端建置", "warn", "沒有 dist/version.json", "重新建置前端")
+            return Check("frontend", "前端建置", "warn", "沒有 dist/version.json", "重新建置前端",
+        title_key="doctor.c_frontend", detail_key="doctor.c_frontend_no_version", fix_key="doctor.f_rebuild_frontend")
         fev = json.loads(vfile.read_text(encoding="utf-8")).get("version")
         if fev != backend_ver:
             return Check("frontend", "前端與後端版本不一致", "warn",
                          f"前端 {fev}、後端 {backend_ver}",
-                         "cd /opt/jt-ipam/frontend && npm run build（或重跑 upgrade）")
-        return Check("frontend", "前端建置", "ok", f"與後端相同（{fev}）")
+                         "cd /opt/jt-ipam/frontend && npm run build（或重跑 upgrade）",
+        title_key="doctor.c_frontend_mismatch", detail_key="doctor.c_frontend_mismatch_d", fix_key="doctor.f_rebuild_or_upgrade", params={"frontend": fev, "backend": backend_ver})
+        return Check("frontend", "前端建置", "ok", f"與後端相同（{fev}）",
+        title_key="doctor.c_frontend", detail_key="doctor.c_frontend_ok", params={"version": fev})
     except Exception as exc:
-        return Check("frontend", "前端建置", "warn", str(exc)[:200])
+        return Check("frontend", "前端建置", "warn", str(exc)[:200],
+        title_key="doctor.c_frontend", detail_key="doctor.d_raw", params={"detail": str(exc)[:200]})
 
 
 # ─────────────────── 各項檢查 ───────────────────
@@ -170,16 +182,19 @@ async def run_checks(session: AsyncSession) -> Report:
     if state["error"]:
         rep.checks.append(Check(
             "schema", "資料庫結構版本", "warn", state["error"],
-            "確認後端能連到資料庫，且 alembic 目錄完整"))
+            "確認後端能連到資料庫，且 alembic 目錄完整",
+        title_key="doctor.c_schema_ver", detail_key="doctor.d_raw", fix_key="doctor.f_schema_probe", params={"detail": str(state["error"])}))
     elif state["behind"]:
         rep.checks.append(Check(
             "schema", "資料庫結構落後於程式", "bad",
             f"資料庫在 {state['current']}，程式需要 {state['head']}",
             "sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade"
-            "（或 alembic upgrade head 後重啟後端）"))
+            "（或 alembic upgrade head 後重啟後端）",
+        title_key="doctor.c_schema_behind", detail_key="doctor.c_schema_behind_d", fix_key="doctor.f_upgrade_or_alembic", params={"current": str(state["current"]), "head": str(state["head"])}))
     else:
         rep.checks.append(Check(
-            "schema", "資料庫結構", "ok", f"已在最新版本（{state['current']}）"))
+            "schema", "資料庫結構", "ok", f"已在最新版本（{state['current']}）",
+        title_key="doctor.c_schema", detail_key="doctor.c_schema_ok", params={"current": str(state["current"])}))
 
     # 2) 資料庫連線與擴充
     try:
@@ -192,13 +207,16 @@ async def run_checks(session: AsyncSession) -> Report:
                 "db_ext", "PostgreSQL 擴充", "bad",
                 f"缺少：{', '.join(sorted(missing))}（PostgreSQL {ver}）",
                 "psql -d <db> -c 'CREATE EXTENSION IF NOT EXISTS vector; "
-                "CREATE EXTENSION IF NOT EXISTS pg_trgm;'"))
+                "CREATE EXTENSION IF NOT EXISTS pg_trgm;'",
+        title_key="doctor.c_pg_ext", detail_key="doctor.c_pg_ext_missing", fix_key="doctor.f_create_extension", params={"missing": ", ".join(sorted(missing)), "version": str(ver)}))
         else:
             rep.checks.append(Check("db_ext", "PostgreSQL", "ok",
-                                    f"{ver}，vector / pg_trgm 都在"))
+                                    f"{ver}，vector / pg_trgm 都在",
+        title_key="doctor.c_pg", detail_key="doctor.c_pg_ok", params={"version": str(ver)}))
     except Exception as exc:
         rep.checks.append(Check("db_ext", "PostgreSQL", "bad", str(exc)[:200],
-                                "systemctl status postgresql"))
+                                "systemctl status postgresql",
+        title_key="doctor.c_pg", detail_key="doctor.d_raw", fix_key="doctor.f_pg_status", params={"detail": str(exc)[:200]}))
 
     # 3) 前端建置版本要與後端一致 —— 不一致＝使用者在跑舊的 JS bundle，
     #    這是「存檔沒生效／功能怪怪的」最常見的假故障來源
@@ -213,25 +231,30 @@ async def run_checks(session: AsyncSession) -> Report:
             select(func.max(BackgroundTask.queued_at)))).scalar_one_or_none()
         if last is None:
             rep.checks.append(Check("sync", "背景作業", "warn", "從來沒有背景作業記錄",
-                                    "systemctl status jt-ipam-sync.timer"))
+                                    "systemctl status jt-ipam-sync.timer",
+        title_key="doctor.c_jobs", detail_key="doctor.c_jobs_never", fix_key="doctor.f_sync_timer"))
         else:
             age_h = (datetime.now(UTC) - last).total_seconds() / 3600
             if age_h > 24:
                 rep.checks.append(Check(
                     "sync", "背景作業停擺", "warn",
                     f"最後一筆是 {age_h:.0f} 小時前（{last:%Y-%m-%d %H:%M}）",
-                    "systemctl status jt-ipam-sync.timer；journalctl -u jt-ipam-sync -n 60"))
+                    "systemctl status jt-ipam-sync.timer；journalctl -u jt-ipam-sync -n 60",
+        title_key="doctor.c_jobs_stalled", detail_key="doctor.c_jobs_stalled_d", fix_key="doctor.f_sync_timer_logs", params={"hours": f"{age_h:.0f}", "last": f"{last:%Y-%m-%d %H:%M}"}))
             else:
                 rep.checks.append(Check("sync", "背景作業", "ok",
-                                        f"最後一筆 {last:%Y-%m-%d %H:%M}"))
+                                        f"最後一筆 {last:%Y-%m-%d %H:%M}",
+        title_key="doctor.c_jobs", detail_key="doctor.c_jobs_ok", params={"last": f"{last:%Y-%m-%d %H:%M}"}))
     except Exception as exc:
-        rep.checks.append(Check("sync", "背景作業", "warn", str(exc)[:200]))
+        rep.checks.append(Check("sync", "背景作業", "warn", str(exc)[:200],
+        title_key="doctor.c_jobs", detail_key="doctor.d_raw", params={"detail": str(exc)[:200]}))
 
     # 5) 整合的最後錯誤 —— 一次看完，不用逐頁點
     try:
         rep.checks.append(await _integration_errors(session))
     except Exception as exc:
-        rep.checks.append(Check("integrations", "整合狀態", "warn", str(exc)[:200]))
+        rep.checks.append(Check("integrations", "整合狀態", "warn", str(exc)[:200],
+        title_key="doctor.c_integrations", detail_key="doctor.d_raw", params={"detail": str(exc)[:200]}))
 
     # 6) 磁碟空間（資料庫與備份都吃這裡）
     try:
@@ -239,27 +262,34 @@ async def run_checks(session: AsyncSession) -> Report:
         free_pct = usage.free / usage.total * 100
         detail = f"根目錄剩餘 {usage.free / 2**30:.1f} GiB（{free_pct:.0f}%）"
         if free_pct < 5:
-            rep.checks.append(Check("disk", "磁碟空間不足", "bad", detail, "清理或擴充磁碟"))
+            rep.checks.append(Check("disk", "磁碟空間不足", "bad", detail, "清理或擴充磁碟",
+        title_key="doctor.c_disk_full", detail_key="doctor.d_raw", fix_key="doctor.f_free_disk", params={"detail": detail}))
         elif free_pct < 15:
-            rep.checks.append(Check("disk", "磁碟空間偏低", "warn", detail, "留意成長趨勢"))
+            rep.checks.append(Check("disk", "磁碟空間偏低", "warn", detail, "留意成長趨勢",
+        title_key="doctor.c_disk_low", detail_key="doctor.d_raw", fix_key="doctor.f_watch_growth", params={"detail": detail}))
         else:
-            rep.checks.append(Check("disk", "磁碟空間", "ok", detail))
+            rep.checks.append(Check("disk", "磁碟空間", "ok", detail,
+        title_key="doctor.c_disk", detail_key="doctor.d_raw", params={"detail": detail}))
     except Exception as exc:
-        rep.checks.append(Check("disk", "磁碟空間", "warn", str(exc)[:200]))
+        rep.checks.append(Check("disk", "磁碟空間", "warn", str(exc)[:200],
+        title_key="doctor.c_disk", detail_key="doctor.d_raw", params={"detail": str(exc)[:200]}))
 
     # 7) ICMP 能力（LXC 常見）：掃描代理要用得到
     try:
         from app.services.netdiag import icmp_socket_available
         if icmp_socket_available():
-            rep.checks.append(Check("icmp", "ICMP 探測", "ok", "非特權 ICMP socket 可用"))
+            rep.checks.append(Check("icmp", "ICMP 探測", "ok", "非特權 ICMP socket 可用",
+        title_key="doctor.c_icmp", detail_key="doctor.c_icmp_ok"))
         else:
             rep.checks.append(Check(
                 "icmp", "ICMP 探測", "warn",
                 "非特權 ICMP socket 不可用（容器內常見；外部 ping 執行檔仍可能可用）",
-                "LXC 請以 systemd drop-in 加 AmbientCapabilities=CAP_NET_RAW"))
+                "LXC 請以 systemd drop-in 加 AmbientCapabilities=CAP_NET_RAW",
+        title_key="doctor.c_icmp", detail_key="doctor.c_icmp_unavailable", fix_key="doctor.f_cap_net_raw"))
     except Exception as exc:
         # 不可以靜默跳過：檢查「不見了」跟「通過了」在畫面上長得一樣
-        rep.checks.append(Check("icmp", "ICMP 探測", "warn", f"檢查本身失敗：{exc}"[:200]))
+        rep.checks.append(Check("icmp", "ICMP 探測", "warn", f"檢查本身失敗：{exc}"[:200],
+        title_key="doctor.c_icmp", detail_key="doctor.d_check_failed", params={"detail": str(exc)[:200]}))
 
     # 8) 資料健檢：哪些列會讓清單頁讀不出來（客戶回報的那一類）
     try:
@@ -273,17 +303,21 @@ async def run_checks(session: AsyncSession) -> Report:
             rep.checks.append(Check(
                 "data", "有資料無法在清單頁顯示", "bad", detail[:600],
                 "這是程式的欄位限制比資料庫嚴造成的。請把這段訊息回報給我們；"
-                "先自行處理的話，把上面那幾筆的該欄位改成合規值即可"))
+                "先自行處理的話，把上面那幾筆的該欄位改成合規值即可",
+        title_key="doctor.c_data_unreadable", detail_key="doctor.d_raw", fix_key="doctor.f_data_unreadable", params={"detail": detail[:600]}))
         elif errored:
-            rep.checks.append(Check("data", "資料健檢", "warn",
-                                    "；".join(f"{r['table']}：{r['error']}" for r in errored)[:300]))
+            _errored_text = "；".join(f"{r['table']}：{r['error']}" for r in errored)[:300]
+            rep.checks.append(Check("data", "資料健檢", "warn", _errored_text,
+        title_key="doctor.c_data", detail_key="doctor.d_raw", params={"detail": _errored_text}))
         else:
             truncated = [r["table"] for r in rows if r.get("truncated")]
             note = f"（只檢查了前 {DATA_SCAN_LIMIT} 筆：{'、'.join(truncated)}）" if truncated else ""
             rep.checks.append(Check("data", "資料健檢", "ok",
-                                    f"清單頁的資料都讀得出來{note}"))
+                                    f"清單頁的資料都讀得出來{note}",
+        title_key="doctor.c_data", detail_key="doctor.c_data_ok", params={"note": note}))
     except Exception as exc:
-        rep.checks.append(Check("data", "資料健檢", "warn", f"檢查本身失敗：{exc}"[:200]))
+        rep.checks.append(Check("data", "資料健檢", "warn", f"檢查本身失敗：{exc}"[:200],
+        title_key="doctor.c_data", detail_key="doctor.d_check_failed", params={"detail": str(exc)[:200]}))
 
     # 9) 環境提示：正式環境卻開著 debug
     try:
@@ -291,11 +325,14 @@ async def run_checks(session: AsyncSession) -> Report:
         st = get_settings()
         if st.app_debug:
             rep.checks.append(Check("debug", "偵錯模式開啟中", "warn",
-                                    f"APP_ENV={st.app_env}", "正式環境請關閉 APP_DEBUG"))
+                                    f"APP_ENV={st.app_env}", "正式環境請關閉 APP_DEBUG",
+        title_key="doctor.c_debug_on", detail_key="doctor.c_env_d", fix_key="doctor.f_disable_debug", params={"env": str(st.app_env)}))
         else:
-            rep.checks.append(Check("debug", "執行模式", "ok", f"APP_ENV={st.app_env}"))
+            rep.checks.append(Check("debug", "執行模式", "ok", f"APP_ENV={st.app_env}",
+        title_key="doctor.c_env", detail_key="doctor.c_env_d", params={"env": str(st.app_env)}))
     except Exception as exc:
-        rep.checks.append(Check("debug", "執行模式", "warn", f"檢查本身失敗：{exc}"[:200]))
+        rep.checks.append(Check("debug", "執行模式", "warn", f"檢查本身失敗：{exc}"[:200],
+        title_key="doctor.c_env", detail_key="doctor.d_check_failed", params={"detail": str(exc)[:200]}))
 
     return rep
 
@@ -329,12 +366,15 @@ async def _integration_errors(session: AsyncSession) -> Check:
             if getattr(obj, "last_error", None):
                 failing.append(f"{label}／{getattr(obj, 'name', '?')}")
     if not total:
-        return Check("integrations", "整合狀態", "ok", "尚未設定任何整合")
+        return Check("integrations", "整合狀態", "ok", "尚未設定任何整合",
+        title_key="doctor.c_integrations", detail_key="doctor.c_integrations_none")
     if failing:
         return Check("integrations", "整合有錯誤", "warn",
                      f"{len(failing)} / {total} 個實例有最後錯誤：{'、'.join(failing[:8])}",
-                     "到各整合設定頁看「最後錯誤」與「測試連線」")
-    return Check("integrations", "整合狀態", "ok", f"{total} 個實例都沒有最後錯誤")
+                     "到各整合設定頁看「最後錯誤」與「測試連線」",
+        title_key="doctor.c_integrations_bad", detail_key="doctor.c_integrations_bad_d", fix_key="doctor.f_integration_pages", params={"failing": len(failing), "total": total, "names": "、".join(failing[:8])})
+    return Check("integrations", "整合狀態", "ok", f"{total} 個實例都沒有最後錯誤",
+        title_key="doctor.c_integrations", detail_key="doctor.c_integrations_ok", params={"total": total})
 
 
 # ─────────────────── 資料健檢 ───────────────────

@@ -25,6 +25,15 @@ const msg = useMessage();
 interface Check {
   key: string; title: string; status: "ok" | "warn" | "bad";
   detail?: string; fix?: string;
+  // 後端只給代碼與參數；句子在這裡組。沒有代碼（舊後端）才退回上面那三個字串。
+  title_key?: string; detail_key?: string; fix_key?: string;
+  params?: Record<string, unknown>;
+}
+
+/** 有代碼就翻譯，沒有就用後端寫好的字 —— 後端沒有「當前語言」可言。 */
+function field(c: Check, which: "title" | "detail" | "fix"): string {
+  const key = c[`${which}_key` as const];
+  return key ? t(key, (c.params || {}) as Record<string, unknown>) : (c[which] ?? "");
 }
 interface Report {
   generated_at: string; ok: number; warn: number; bad: number; checks: Check[];
@@ -42,11 +51,28 @@ async function run() {
   finally { loading.value = false; }
 }
 
-/** 下載純文字報告 —— 直接貼進工單用（不是給機器讀的 JSON）。 */
-async function download() {
+/** 下載純文字報告 —— 直接貼進工單用（不是給機器讀的 JSON）。
+ *
+ * 從畫面上已經翻好的內容組，不打後端的 /doctor/report：那一支是在伺服器上組字串的，
+ * 沒有「當前語言」可言，下載下來會是中文。工單要貼給誰看，就該是那個人的語言。
+ * （伺服器端那支仍保留：curl 與 CLI 會用到。） */
+function download() {
   try {
-    const { data } = await apiClient.get<string>("/api/v1/system/doctor/report",
-                                                 { responseType: "text" });
+    const r = report.value;
+    if (!r) return;
+    const icon = { ok: "[ OK ]", warn: "[WARN]", bad: "[FAIL]" } as const;
+    const lines = [`jt-ipam self-check — ${r.generated_at}`, ""];
+    for (const c of r.checks) {
+      lines.push(`${icon[c.status]} ${field(c, "title")}`);
+      const d = field(c, "detail");
+      if (d) lines.push(`        ${d}`);
+      const fx = field(c, "fix");
+      if (fx && c.status !== "ok") lines.push(`        → ${fx}`);
+    }
+    lines.push("", t("doctor.report_counts", { bad: r.bad, warn: r.warn, ok: r.ok }), "");
+    lines.push(t("doctor.cli_note"));
+    lines.push("  sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor");
+    const data = lines.join("\n");
     const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
     const url = URL.createObjectURL(new Blob([data], { type: "text/plain;charset=utf-8" }));
     const a = document.createElement("a");
@@ -102,12 +128,12 @@ onMounted(() => { void run(); });
           {{ t(`doctor.status_${c.status}`) }}
         </n-tag>
         <div class="doc-body">
-          <div class="doc-title">{{ c.title }}</div>
-          <div v-if="c.detail" class="doc-detail">{{ c.detail }}</div>
+          <div class="doc-title">{{ field(c, "title") }}</div>
+          <div v-if="field(c, 'detail')" class="doc-detail">{{ field(c, "detail") }}</div>
           <!-- 每個非 ok 的項目都要講「怎麼修」——只說壞了等於沒說 -->
-          <div v-if="c.fix && c.status !== 'ok'" class="doc-fix">
+          <div v-if="field(c, 'fix') && c.status !== 'ok'" class="doc-fix">
             <span class="doc-fix-label">{{ t("doctor.fix") }}</span>
-            <code>{{ c.fix }}</code>
+            <code>{{ field(c, "fix") }}</code>
           </div>
         </div>
       </div>

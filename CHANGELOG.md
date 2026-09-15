@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.21] - 2026-09-16
+
+### Changed
+- **The system-check page speaks the reader's language.** It was the largest screen still
+  written entirely in Chinese: 33 checks, each with a title, a finding and a "how to fix",
+  all assembled on the server where there is no such thing as a current language. Every check
+  now carries a code and its parameters, and the sentence is built in the browser — the same
+  contract the error messages and notifications already use. The stored Chinese remains as the
+  fallback, so a check without a code degrades to what it printed before.
+
+- **The downloadable report is built in the browser too.** It used to come from
+  `/doctor/report`, which assembles the text server-side and therefore always in Chinese — a
+  report you paste into a ticket should be in the language of whoever reads the ticket. The
+  server endpoint stays for `curl` and scripts.
+
+### Notes
+- No database changes.
+- `scripts/jt-ipam.sh doctor` is unaffected: it is the other half of this diagnosis, it runs on
+  the server for an operator, and it has always been in English.
+- Verified in a real browser in all three languages. Two things only the browser showed: the
+  backend process still running the previous build (the page said so itself, in its own
+  frontend/backend version check), and a leak detector of mine that flagged correct Japanese
+  because it listed kanji Japanese shares with Chinese.
+
 ## [0.6.20] - 2026-09-16
 
 ### Fixed
