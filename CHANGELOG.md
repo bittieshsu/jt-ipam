@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.20] - 2026-09-16
+
+### Fixed
+- **The last two notifications that were Chinese for everyone.** The audit-chain failure and
+  the fallback text of a user-defined event rule were the only `push_notification()` calls
+  still without translation keys; all ten call sites now carry them. The event rule keeps the
+  admin's own wording when they wrote one — only *our* fallback sentence follows the reader's
+  language.
+
+- **The audit-chain alert de-duplicated on its own display text.** It suppressed repeats by
+  matching `Notification.title == "稽核鏈驗證失敗"`, so rewording that sentence — a translation,
+  a copy edit — would have silently stopped the suppression and started alerting on every run.
+  It matches the stable key now, and accepts the old title too so upgrading does not produce a
+  duplicate.
+
+- **The dashboard's object-hierarchy row broke when it wrapped.** The arrow and the box after
+  it were siblings, so on wrap the arrow stayed at the end of the previous row pointing at
+  nothing, and `flex: 1 1 0` stretched the leftover box across the whole row (974px at 1280px
+  wide). Each arrow now belongs to its box and wraps with it, and a box cannot grow past 260px.
+  Measured in three languages at five widths.
+
+### Fixed (tests)
+- **`seed_e2e` now resets each account's stored language.** Nearly every spec finds elements by
+  their Chinese text, and the language is a preference stored on the account — so any tool that
+  looked at the Japanese or English UI without restoring it (a spec, a one-off measuring script)
+  left the next full run with a batch of "element not found". That reads as a product
+  regression; it is last run's leftover state. Same reasoning as the ignore-list reset that was
+  already there.
+
+### Notes
+- No database changes.
+
 ## [0.6.19] - 2026-09-14
 
 ### Fixed

@@ -3412,7 +3412,11 @@
     "selfcheck_failed": "システムチェックに失敗：{check}",
     "selfcheck_failed_body": "{detail}",
     "selfcheck_ok": "システムチェックが復旧：{check}",
-    "selfcheck_ok_body": "この項目は再び通過しています。"
+    "selfcheck_ok_body": "この項目は再び通過しています。",
+    "audit_chain_broken": "監査チェーンの検証に失敗しました",
+    "audit_chain_broken_body": "{detail}",
+    "event_rule": "イベントルール：{rule}",
+    "event_rule_body": "{event}"
   },
   "system_transfer": {
     "title": "システムのエクスポート／インポート",

@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import verify_chain
@@ -95,6 +95,7 @@ def append_anchor(rec: dict[str, Any], path: Path | None = None) -> None:
 # 洗版的告警和沒有告警一樣沒用。比照憑證告警的作法，同一種失敗一段時間內只發一次。
 NOTIFY_DEDUP_HOURS = 12
 _NOTIFY_TITLE = "稽核鏈驗證失敗"
+_NOTIFY_KEY = "notif.audit_chain_broken"
 
 
 async def notify_chain_failure(
@@ -113,7 +114,11 @@ async def notify_chain_failure(
     recent = (await session.execute(
         select(Notification.id).where(
             Notification.object_type == "audit",
-            Notification.title == _NOTIFY_TITLE,
+            # 去重要看穩定的識別碼，不要看顯示文字：標題一旦改寫（例如翻譯或潤稿），
+            # 舊列就比對不到，症狀是「同一件事開始每次都通知」——不會有任何錯誤。
+            # 舊列沒有 title_key，所以兩個都收，升級當下不會冒出一則重複通知。
+            or_(Notification.title_key == _NOTIFY_KEY,
+                Notification.title == _NOTIFY_TITLE),
             Notification.created_at >= since,
         ).limit(1))).scalars().first()
     if recent is not None:
@@ -137,6 +142,8 @@ async def notify_chain_failure(
                 session, user_id=admin.id, severity="error",
                 title=_NOTIFY_TITLE, body=detail,
                 link="/audit", object_type="audit", object_id=None,
+                title_key=_NOTIFY_KEY, body_key="notif.audit_chain_broken_body",
+                params={"detail": detail},
             )
     if ch.get("email"):
         from app.services.notification import email_users

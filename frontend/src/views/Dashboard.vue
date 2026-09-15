@@ -275,7 +275,7 @@ onMounted(() => { void load(); void loadPins(); });
           <CardTitle :icon="TopologyIcon" :text="t('dashboard.hierarchy_title')" />
         </template>
         <div class="hier-chain">
-          <template v-for="(layer, i) in hierLayers" :key="layer.key">
+          <div v-for="(layer, i) in hierLayers" :key="layer.key" class="hier-seg">
             <span v-if="i > 0" class="hier-arrow">→</span>
             <div class="hier-node" :class="{ 'hier-node--static': !layer.route }"
                  :title="t(layer.label)" @click="layer.route && go(layer.route)">
@@ -287,7 +287,7 @@ onMounted(() => { void load(); void loadPins(); });
               </div>
               <div class="hier-count">{{ layer.value.toLocaleString() }}</div>
             </div>
-          </template>
+          </div>
         </div>
       </n-card>
 
@@ -656,8 +656,18 @@ onMounted(() => { void load(); void loadPins(); });
   gap: 6px;
   row-gap: 10px;
 }
+/* 箭頭與它後面那一格是一個整體。原本兩者是兄弟節點，換行時箭頭會留在上一列尾端
+   指著空白處；而且落單的那一格會被 `flex: 1 1 0` 拉成整列寬（實測 974px）。 */
+.hier-seg {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 260px;     /* 換行後落單的一格不會被拉到整列寬 */
+}
 .hier-node {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 88px;
   display: flex;
   flex-direction: column;

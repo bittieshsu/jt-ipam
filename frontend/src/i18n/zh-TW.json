@@ -3412,7 +3412,11 @@
     "selfcheck_failed": "系統檢查未通過：{check}",
     "selfcheck_failed_body": "{detail}",
     "selfcheck_ok": "系統檢查已恢復：{check}",
-    "selfcheck_ok_body": "這一項又通過了。"
+    "selfcheck_ok_body": "這一項又通過了。",
+    "audit_chain_broken": "稽核鏈驗證失敗",
+    "audit_chain_broken_body": "{detail}",
+    "event_rule": "事件規則：{rule}",
+    "event_rule_body": "{event}"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",

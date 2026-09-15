@@ -232,6 +232,14 @@ async def seed() -> None:
         # ⚠️ 忽略清單一定要重設：e2e 會按「忽略這個 IP」，不重設的話第二次跑就
         # 什麼都看不到 —— 而失敗訊息長得像「功能壞了」。
         web.anomaly_ignore = []
+
+        # ⚠️ 語言也要重設。幾乎每一支 spec 都用中文字串找元素，而語言是**存在帳號上**
+        # 的偏好 —— 任何跑過日文或英文畫面的工具（locale-ja.spec、量版面的臨時腳本）
+        # 只要沒還原，下一次整套跑就會有一大批「找不到元素」。那看起來像功能壞了，
+        # 實際上只是上一輪留下的狀態。
+        from app.models.user import UserPreference
+        for pref in (await s.execute(select(UserPreference))).scalars().all():
+            pref.locale = "zh-TW"
         subnets["10.20.0.0/24"].anomaly_enabled = True
 
         # ── 防火牆規則異動（zz-fwchanges-ai 期待 router-e2e）─────────

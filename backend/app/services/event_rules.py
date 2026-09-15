@@ -134,8 +134,16 @@ async def _run_action(
         admins = (await session.execute(
             select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
         )).scalars().all()
-        title = _as_text(action.get("title") or f"事件規則：{rule.name}")[:200]
-        body = _as_text(action.get("body") or f"{event}")[:2000]
+        # 標題與內文由規則作者自己寫；只有**沒寫**的時候才用我們的退路句 ——
+        # 那一句要跟著讀的人的語言，作者寫的當然照原樣顯示。
+        custom_title = _as_text(action.get("title") or "")[:200]
+        custom_body = _as_text(action.get("body") or "")[:2000]
+        title = custom_title or f"事件規則：{rule.name}"
+        body = custom_body or f"{event}"
+        title_key = None if custom_title else "notif.event_rule"
+        body_key = None if custom_body else "notif.event_rule_body"
+        notif_params = None if (custom_title and custom_body) else {
+            "rule": rule.name, "event": event}
         severity = str(action.get("severity") or "info")
         if severity not in ("info", "warning", "error"):
             severity = "info"
@@ -143,6 +151,7 @@ async def _run_action(
             await push_notification(
                 session, user_id=admin.id, severity=severity,
                 title=title, body=body, object_type="event_rule", object_id=None,
+                title_key=title_key, body_key=body_key, params=notif_params,
                 # 帶去規則本身那一頁。事件是使用者自己定的，我們無從得知「該看哪一筆資料」，
                 # 但至少要能一鍵回到「是哪條規則發的」—— 通知點下去沒反應本身就是缺陷。
                 link="/event-rules",
