@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.25] - 2026-09-17
+
+### Added
+- **The RDP console can use FreeRDP instead of the built-in client**, selected under
+  Admin -> System settings. The default stays aardwolf.
+
+  A customer could not reach an Ubuntu 24 host running GNOME Remote Login. The decisive test:
+  same host, same credentials, same moment -- FreeRDP authenticates, our client is rejected with
+  STATUS_LOGON_FAILURE. The cause is in the NTLM library we depend on, which does not send the
+  message integrity code; MS-NLMP requires one when the server's challenge carries a timestamp,
+  and FreeRDP's server side enforces it. GNOME Remote Login and xrdp both use that server side.
+  Windows targets were never affected, which is why the default does not move.
+
+### Notes
+- FreeRDP needs `freerdp2-x11 xvfb xclip ffmpeg`, about 150 MB of X libraries. They are **not**
+  installed by default: `install --with-freerdp` adds them, an upgrade adds them automatically if
+  the site has already selected that engine, `doctor` reports whether they are present, and the
+  settings page names what is missing and the command to install it.
+- ffmpeg is there for screen capture, not video. Reading the framebuffer through the X protocol
+  in Python costs 334 ms per 1280x800 frame, capping the console at 2.8 fps; ffmpeg's x11grab
+  uses shared memory and measured 47 fps. The console now streams at its 15 fps ceiling, sends
+  nothing at all while the screen is idle, and uses about 17 KB/s when the cursor is moving.
+  It also draws the remote cursor, which the previous capture path could not see.
+- Clipboard redirection is **off** unless the administrator enabled paste. FreeRDP enables it by
+  default, so switching engines would otherwise quietly reopen a channel that had been closed.
+- The password reaches FreeRDP on stdin, never as a command-line argument, where any local user
+  could read it out of the process list. A test pins this.
+- Input errors are no longer swallowed. The console used to suppress every exception in its input
+  loop, so a failure left the picture running while the mouse and keyboard did nothing, with no
+  server-side trace. The same session now logs each step it waits on.
+
 ## [0.6.24] - 2026-09-16
 
 ### Changed

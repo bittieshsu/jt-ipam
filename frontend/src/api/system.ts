@@ -251,13 +251,23 @@ export async function checkLatestVersion(): Promise<LatestVersion> {
   return data;
 }
 
-// 連線管理資安設定（目前：RDP 控制端貼上文字到被控端）
-export interface ConsoleSecurity { rdp_clipboard_paste: boolean }
+// 連線管理資安設定（RDP 控制端貼上文字到被控端、RDP 連線引擎）
+export type RdpEngine = "aardwolf" | "freerdp";
+export interface ConsoleSecurity {
+  rdp_clipboard_paste: boolean;
+  rdp_engine: RdpEngine;
+  // 唯讀：這台機器實際上能不能用 FreeRDP 引擎，缺什麼、怎麼裝（由後端算）
+  freerdp_available?: boolean;
+  freerdp_missing?: string[];
+  freerdp_install_cmd?: string;
+}
+/** PUT 只送得改的那兩個欄位；可用性是伺服器算出來的事實，送回去會被擋（422）。 */
+export type ConsoleSecurityPatch = Pick<ConsoleSecurity, "rdp_clipboard_paste" | "rdp_engine">;
 export async function getConsoleSecurity(): Promise<ConsoleSecurity> {
   const { data } = await apiClient.get<ConsoleSecurity>("/api/v1/system/console-security");
   return data;
 }
-export async function setConsoleSecurity(p: ConsoleSecurity): Promise<ConsoleSecurity> {
+export async function setConsoleSecurity(p: ConsoleSecurityPatch): Promise<ConsoleSecurity> {
   const { data } = await apiClient.put<ConsoleSecurity>("/api/v1/system/console-security", p);
   return data;
 }

@@ -76,6 +76,14 @@ dependencies = [
 rdp = [
     "aardwolf==0.2.13",
 ]
+# FreeRDP 引擎（選用）：相容性比 aardwolf 好 —— Linux 上的 xrdp 與 GNOME 遠端登入會
+# 拒絕 aardwolf 的 NTLM 認證（asyauth 0.0.23 不送 MIC）。這一組只是「抓畫面／打鍵盤滑鼠」
+# 用的純 Python 套件，都很小；真正重的是 apt 的 freerdp2-x11 與 xvfb，那兩個由
+# `scripts/jt-ipam.sh install --with-freerdp` 或 upgrade 時依設定自動補上。
+rdp-freerdp = [
+    "python-xlib>=0.33",
+    "pillow>=10.0",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

@@ -7,7 +7,7 @@ import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpace, NIcon, NSelect, NInput, NInputNumber, NSwitch, NCheckbox, NCheckboxGroup,
-  NButton, NPopconfirm, NTag, useMessage,
+  NButton, NPopconfirm, NTag, NAlert, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
 import { AdminIcon, SaveIcon, RefreshIcon, WarnIcon } from "@/icons";
@@ -16,7 +16,7 @@ import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
   getSamlConfig, putSamlConfig, testSaml, type SamlConfig,
-  getConsoleSecurity, setConsoleSecurity,
+  getConsoleSecurity, setConsoleSecurity, type RdpEngine,
   getUiDisplay, setUiDisplay } from "@/api/system";
 import { listGroups } from "@/api/admin";
 import { getAutolink, putAutolink, previewAutolink,
@@ -37,12 +37,37 @@ const { t } = useI18n();
 const msg = useMessage();
 
 // 地圖供應商
-// 連線管理資安：RDP 控制端貼上文字到被控端（預設關閉）
+// 連線管理資安：RDP 控制端貼上文字到被控端（預設關閉）＋ RDP 連線引擎
+// 兩個欄位共用同一個端點，所以每次都要把另一個一起送回去，否則會把它蓋成預設值
 const rdpClipPaste = ref(false);
+const rdpEngine = ref<RdpEngine>("aardwolf");
+// 這台機器能不能用 FreeRDP（後端算好的事實）。缺套件時要把安裝指令原樣顯示出來，
+// 讓管理者可以直接複製 —— 不要只說「不可用」。
+const freerdpOk = ref(true);
+const freerdpMissing = ref<string[]>([]);
+const freerdpCmd = ref("");
+const rdpEngineOpts = computed(() => [
+  { label: t("settings.system.rdp_engine_aardwolf"), value: "aardwolf" },
+  { label: t("settings.system.rdp_engine_freerdp"), value: "freerdp" },
+]);
 async function changeRdpClipPaste(v: boolean) {
+  const prev = rdpClipPaste.value;
   rdpClipPaste.value = v;
-  try { await setConsoleSecurity({ rdp_clipboard_paste: v }); msg.success(t("common.ok")); }
-  catch { rdpClipPaste.value = !v; msg.error(t("errors.network")); }
+  try {
+    await setConsoleSecurity({ rdp_clipboard_paste: v, rdp_engine: rdpEngine.value });
+    msg.success(t("common.ok"));
+  } catch { rdpClipPaste.value = prev; msg.error(t("errors.network")); }
+}
+async function changeRdpEngine(v: RdpEngine) {
+  const prev = rdpEngine.value;
+  rdpEngine.value = v;
+  try {
+    const c = await setConsoleSecurity({ rdp_clipboard_paste: rdpClipPaste.value, rdp_engine: v });
+    freerdpOk.value = c.freerdp_available ?? true;
+    freerdpMissing.value = c.freerdp_missing ?? [];
+    freerdpCmd.value = c.freerdp_install_cmd ?? "";
+    msg.success(t("common.ok"));
+  } catch { rdpEngine.value = prev; msg.error(t("errors.network")); }
 }
 
 // 異動記錄淡化天數（超過 N 天的項目以淡色顯示；0 = 不淡化）
@@ -392,7 +417,13 @@ async function doTestAf() {
 onMounted(() => {
   void loadRackEmbed();
   getUiDisplay().then((d) => { changeLogDimDays.value = d.change_log_dim_days; }).catch(() => {});
-  getConsoleSecurity().then((c) => { rdpClipPaste.value = c.rdp_clipboard_paste; }).catch(() => {});
+  getConsoleSecurity().then((c) => {
+    rdpClipPaste.value = c.rdp_clipboard_paste;
+    rdpEngine.value = c.rdp_engine;
+    freerdpOk.value = c.freerdp_available ?? true;
+    freerdpMissing.value = c.freerdp_missing ?? [];
+    freerdpCmd.value = c.freerdp_install_cmd ?? "";
+  }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
   getOnlineGrace().then((c) => {
@@ -455,6 +486,17 @@ async function doPreviewAutolink() {
             <label>{{ t("settings.system.rdp_clip_paste") }}</label>
             <n-switch :value="rdpClipPaste" @update:value="changeRdpClipPaste" />
             <div class="hint">{{ t("settings.system.rdp_clip_paste_hint") }}</div>
+          </div>
+          <div class="fld">
+            <label>{{ t("settings.system.rdp_engine") }}</label>
+            <n-select :value="rdpEngine" :options="rdpEngineOpts" @update:value="changeRdpEngine" />
+            <div class="hint">{{ t("settings.system.rdp_engine_hint") }}</div>
+            <!-- 缺套件就講清楚缺哪些、怎麼裝；選了 FreeRDP 卻沒裝是會連不上的，要用警示色 -->
+            <n-alert v-if="!freerdpOk" :type="rdpEngine === 'freerdp' ? 'error' : 'warning'"
+                     :bordered="false" style="margin-top:8px">
+              <div>{{ t("settings.system.rdp_engine_missing", { pkgs: freerdpMissing.join("、") }) }}</div>
+              <code class="rdp-install-cmd">{{ freerdpCmd }}</code>
+            </n-alert>
           </div>
         </div>
       </n-card>
@@ -997,4 +1039,9 @@ async function doPreviewAutolink() {
 .ss-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
 .ss-status { margin-top: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
 .db-row { display: flex; gap: 8px; align-items: center; }
+.rdp-install-cmd {
+  display: block; margin-top: 6px; padding: 5px 8px; border-radius: 4px;
+  background: rgba(0, 0, 0, .06); font-size: 12px;
+  white-space: pre-wrap; word-break: break-all; user-select: all;
+}
 </style>

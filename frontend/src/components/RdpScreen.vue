@@ -303,7 +303,8 @@ async function startSession(w: number, h: number) {
   };
 }
 
-// 「重新調整大小」：以目前視窗大小重新連線（aardwolf 無法連線中熱改解析度 → 重建 session 取得原生清晰畫面）
+// 「重新調整大小」：以目前視窗大小重新連線。RDP 本身沒有連線中改解析度的路（那要 display-control
+// 通道），兩個引擎都一樣 → 重建 session 取得原生清晰畫面。
 async function reconnectFit() {
   if (!sessionCfg) return;
   phase.value = "connecting";

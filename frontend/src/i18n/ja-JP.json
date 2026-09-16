@@ -2496,7 +2496,12 @@
       "rdp_clip_paste": "RDP で操作元から接続先への貼り付けを許可",
       "rdp_clip_paste_hint": "有効にすると、RDP のツールバーに「貼り付け」ボタンが表示され、手元のクリップボードの文字列を接続先のクリップボードへ送れます（一方向・テキストのみ。その後、接続先で Ctrl+V を押します）。既定は無効で、接続先のクリップボードが送り返されることはありません。",
       "change_log_dim_days": "変更履歴を淡く表示するまでの日数",
-      "change_log_dim_days_hint": "この日数より古い変更履歴を淡く表示し、最近の変更を目立たせます。0 にすると淡くしません。既定は 30 です。"
+      "change_log_dim_days_hint": "この日数より古い変更履歴を淡く表示し、最近の変更を目立たせます。0 にすると淡くしません。既定は 30 です。",
+      "rdp_engine": "RDP 接続エンジン",
+      "rdp_engine_aardwolf": "aardwolf（既定）",
+      "rdp_engine_freerdp": "FreeRDP",
+      "rdp_engine_hint": "aardwolf は組み込みの純 Python 実装です。追加のプロセスが不要で、Windows が相手なら問題なく動きます。FreeRDP は互換性がより広く、とくに Linux の xrdp や GNOME のリモートログイン（aardwolf の NTLM 認証を拒否します）に有効ですが、このホストに FreeRDP と仮想ディスプレイが必要です。変更は新しい接続から反映されます。",
+      "rdp_engine_missing": "このサーバーには FreeRDP エンジンに必要なものがまだありません（不足：{pkgs}）。インストールしてからこのページを再読み込みしてください。それまでは FreeRDP を選んでも接続できません。"
     }
   },
   "errors": {
@@ -2822,7 +2827,8 @@
     "migration_ssh_user_required": "SSH ホストを指定した場合は SSH ユーザー名も必要です",
     "migration_socket_needs_ssh": "MySQL の socket 接続には SSH トンネルが必要です（socket はリモートホスト上にしか存在しません）",
     "migration_known_host_required": "SSH ホスト鍵が必要です。先に「フィンガープリント取得」を実行し、確認してから送信してください",
-    "migration_refetch_fingerprint": "フィンガープリントを取得し直し、確認してから再送信してください"
+    "migration_refetch_fingerprint": "フィンガープリントを取得し直し、確認してから再送信してください",
+    "console_remote_closed": "接続先がこのセッションを終了しました：{reason}"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",

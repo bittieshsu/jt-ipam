@@ -45,7 +45,7 @@ def test_console_resolves_and_uses_the_route(name: str) -> None:
 DIAL_SITE = {
     "ssh_console": "host, port = tunnel.host, tunnel.port",
     "sftp_console": "conn = await asyncssh.connect(\n            dial_host, port=dial_port,",
-    "rdp_console": "conn = factory.create_connection_newtarget(tunnel.host, io)",
+    "rdp_console": "return factory.create_connection_newtarget(tunnel.host, io)",
     "vnc_console": "conn = factory.create_connection_newtarget(dial_host, io)",
 }
 
@@ -54,6 +54,20 @@ DIAL_SITE = {
 def test_console_dials_the_tunnel_not_the_original_target(name: str) -> None:
     src = _src(name)
     assert DIAL_SITE[name] in src, f"{name} 沒有把連線目標換成通道的位址"
+
+
+#: RDP 有兩個引擎（aardwolf / FreeRDP）。跳板這件事**每個引擎各做一次** ——
+#: 只驗其中一個，另一個可以整條繞過通道直連目標，而畫面上一切正常。
+RDP_ENGINE_DIAL_SITES = (
+    "return factory.create_connection_newtarget(tunnel.host, io)",   # aardwolf
+    "host=tunnel.host, port=tunnel.port, username=username",         # FreeRDP
+)
+
+
+def test_every_rdp_engine_dials_the_tunnel() -> None:
+    src = _src("rdp_console")
+    for site in RDP_ENGINE_DIAL_SITES:
+        assert site in src, f"有一個 RDP 引擎沒有把連線目標換成通道的位址：{site!r}"
 
 
 def test_rdp_and_vnc_put_the_port_in_the_url() -> None:

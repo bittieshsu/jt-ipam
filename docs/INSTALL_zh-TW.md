@@ -711,3 +711,26 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs
 ```
 然後在 `/opt/jt-ipam/frontend` 重 `pnpm install && pnpm build`。
+
+## RDP 主控台的連線引擎
+
+瀏覽器 RDP 主控台可以在「管理 → 系統設定」選用兩個引擎之一：
+
+- **aardwolf**（預設）—— 純 Python 用戶端。不需要額外行程，對 Windows 目標運作正常。
+- **FreeRDP** —— 相容性較好。Linux 上的 RDP 伺服器（xrdp，以及 Ubuntu 24 內建的
+  GNOME「遠端登入」）會拒絕 aardwolf 的 NTLM 認證，因為那個函式庫沒有送出這些伺服器
+  要求的訊息完整性碼；FreeRDP 則通得過。
+
+FreeRDP 需要的套件**預設不安裝** —— 多數站台不會切換：
+
+```
+sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg
+```
+
+或在安裝時加上 `jt-ipam.sh install --with-freerdp`。站台若已經選用 FreeRDP 引擎，
+升級時會自動補上這些套件。`jt-ipam.sh doctor` 會報出目前用的是哪個引擎、套件在不在，
+設定頁也會顯示同樣的資訊與該執行的指令。
+
+ffmpeg 是用來抓畫面的，不是拿來做影片：我們量過其他抓法每張要 334 毫秒，
+會把主控台壓在每秒 3 張以下。
+

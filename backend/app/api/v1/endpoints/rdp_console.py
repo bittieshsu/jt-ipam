@@ -59,13 +59,18 @@ try:  # aardwolf 為選用相依（pin 0.2.13）；未裝則 RDP 功能停用
     from aardwolf.commons.factory import RDPConnectionFactory
     from aardwolf.commons.iosettings import RDPIOSettings
     from aardwolf.commons.queuedata import RDPDATATYPE
-    from aardwolf.commons.queuedata.constants import MOUSEBUTTON, VIDEO_FORMAT
+    from aardwolf.commons.queuedata.constants import VIDEO_FORMAT
 
     RDP_AVAILABLE = True
 except Exception:  # 任何 import 問題都視為未安裝
     RDP_AVAILABLE = False
 
 router = APIRouter(prefix="/addresses", tags=["rdp"])
+
+# 這條路原本幾乎沒有日誌：WS 一旦卡住，伺服器端只看得到 "connection open"，
+# 接下來發生什麼完全看不見（2026-09-17 查 FreeRDP 引擎時整整卡在這裡）。
+# 每一個會停下來等的步驟都要留一行，否則下次還是只能猜。
+_log = logging.getLogger("jt-ipam.rdp")
 
 _TICKET_TTL = 60              # 秒；ticket 單次用、短壽
 _CONNECT_TIMEOUT = 20.0       # RDP（NLA）連線逾時
@@ -113,9 +118,29 @@ def _ticket_key(ticket: str) -> str:
     return f"rdp:tk:{ticket}"
 
 
+class _Button:
+    """按鍵的中性表示。
+
+    兩個引擎都只看 `.name`：aardwolf 的 MOUSEBUTTON 有這個屬性，FreeRDP 那邊也照這個
+    名字查 X 的按鈕編號。以前這裡直接回 aardwolf 的列舉 —— 那讓「用 FreeRDP 引擎」
+    仍然得先裝 aardwolf，等於兩個引擎沒有真的分開。
+    """
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+_BTN_LEFT = _Button("MOUSEBUTTON_LEFT")
+_BTN_RIGHT = _Button("MOUSEBUTTON_RIGHT")
+_BTN_MIDDLE = _Button("MOUSEBUTTON_MIDDLE")
+_BTN_HOVER = _Button("MOUSEBUTTON_HOVER")
+_BTN_WHEEL = _Button("MOUSEBUTTON_WHEEL_UP")
+
+
 def _mouse_button(b: int) -> Any:
-    return {0: MOUSEBUTTON.MOUSEBUTTON_LEFT, 1: MOUSEBUTTON.MOUSEBUTTON_RIGHT,
-            2: MOUSEBUTTON.MOUSEBUTTON_MIDDLE}.get(int(b), MOUSEBUTTON.MOUSEBUTTON_LEFT)
+    return {0: _BTN_LEFT, 1: _BTN_RIGHT, 2: _BTN_MIDDLE}.get(int(b), _BTN_LEFT)
 
 
 @router.get("/connections/targets", response_model=list[IPAddressRead])
@@ -221,6 +246,23 @@ async def list_connection_targets(
     return out
 
 
+def engine_available(engine: str) -> tuple[bool, str]:
+    """這個引擎在這台機器上能不能用，不能的話缺什麼。
+
+    兩個引擎的相依完全不同：aardwolf 是一個 Python 套件，FreeRDP 是外部程式加虛擬顯示。
+    所以「RDP 能不能用」不是一個全域旗標，而是逐引擎的問題 —— 以前只看 aardwolf，
+    會在只裝了 FreeRDP 的機器上把整個功能關掉。
+    """
+    if engine == "freerdp":
+        from app.services.rdp_freerdp import availability
+        av = availability()
+        if av["ok"]:
+            return True, ""
+        missing = av["missing_packages"] + av["missing_modules"]
+        return False, "、".join(missing)
+    return (RDP_AVAILABLE, "" if RDP_AVAILABLE else "aardwolf")
+
+
 @router.post("/{address_id}/rdp/ticket")
 async def issue_rdp_ticket(
     address_id: uuid.UUID,
@@ -229,8 +271,6 @@ async def issue_rdp_ticket(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     """換發短期一次性 ticket；之後用它開 WebSocket。"""
-    if not RDP_AVAILABLE:
-        raise HTTPException(status_code=503, detail=ui_detail("console_rdp_not_installed", "RDP 功能未安裝（缺 aardwolf 選用相依）"))
     from app.core.rate_limit import limit_per_ip
 
     await limit_per_ip(request, name="rdp")
@@ -249,8 +289,15 @@ async def issue_rdp_ticket(
         ).limit(1)
     )).first()
 
-    from app.services.system_config import get_rdp_clipboard_paste
+    from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
     clip_enabled = await get_rdp_clipboard_paste(session)
+    engine = await get_rdp_engine(session)
+    ok, missing = engine_available(engine)
+    if not ok:
+        raise HTTPException(status_code=503, detail=ui_detail(
+            "console_rdp_not_installed",
+            f"RDP 功能未安裝（{engine} 引擎缺少 {missing}）",
+            engine=engine, missing=missing))
 
     ticket = secrets.token_urlsafe(32)
     payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
@@ -262,6 +309,7 @@ async def issue_rdp_ticket(
         "default_size": {"width": 1280, "height": 800},
         "has_saved_creds": saved is not None,
         "clipboard_paste": clip_enabled,
+        "engine": engine,
         "ttl": _TICKET_TTL,
     }
 
@@ -293,14 +341,53 @@ async def _audit_rdp(
         await s.commit()
 
 
+def _build_aardwolf_conn(*, tunnel: Any, username: str, password: str, domain: str | None,
+                         width: int, height: int, clip_enabled: bool) -> Any:
+    """aardwolf（預設引擎）：純 Python、零外部行程。"""
+    io = RDPIOSettings()
+    # 預設不啟用任何虛擬通道；僅在管理者開啟「控制端貼上」時才掛剪貼簿通道（cliprdr）
+    if clip_enabled:
+        from aardwolf.extensions.RDPECLIP.channel import RDPECLIPChannel
+        io.channels = [RDPECLIPChannel]
+    else:
+        io.channels = []
+    io.video_width = width
+    io.video_height = height
+    io.video_bpp_min = 24
+    io.video_bpp_max = 32
+    io.video_out_format = VIDEO_FORMAT.PNG
+    io.clipboard_use_pyperclip = False
+
+    user_in_url = quote(f"{domain}\\{username}" if domain else username, safe="")
+    b64pw = base64.b64encode(password.encode("utf-8")).decode("ascii")
+    # ⚠️ 連接埠一定要寫進 URL：`create_connection_newtarget()` 只換 ip/hostname，
+    # **不動連接埠**（它是 from_url 解析出來的）。少了這一段，走跳板時會連到
+    # 127.0.0.1:3389 —— 也就是後端主機自己，而不是通道的另一端。
+    url = (f"rdp+ntlm-pwb64://{user_in_url}:{b64pw}@{tunnel.host}:{tunnel.port}/"
+           f"?timeout={int(_CONNECT_TIMEOUT)}")
+    factory = RDPConnectionFactory.from_url(url, io)
+    return factory.create_connection_newtarget(tunnel.host, io)
+
+
+def _build_freerdp_conn(*, tunnel: Any, username: str, password: str, domain: str | None,
+                        width: int, height: int, clip_enabled: bool) -> Any:
+    """FreeRDP：相容性較好（xrdp／GNOME 遠端登入），代價是外部行程與虛擬顯示。
+
+    回傳的物件與 aardwolf 的連線同介面，所以 `_bridge()` 不必分辨用的是哪一個。
+    """
+    from app.services.rdp_freerdp import FreeRdpConnection
+    return FreeRdpConnection(
+        host=tunnel.host, port=tunnel.port, username=username,
+        password=password, domain=domain, width=width, height=height,
+        clip_enabled=clip_enabled)
+
+
+
 @router.websocket("/{address_id}/rdp/ws")
 async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     global _active_sessions
 
-    if not RDP_AVAILABLE:
-        await websocket.close(code=4503)
-        return
-
+    # 引擎在建立連線時才決定；這裡先不擋 —— aardwolf 沒裝不代表 FreeRDP 不能用
     # 1) 驗 ticket（單次取出）
     user_id = await _redeem_ticket(ticket, address_id)
     if user_id is None:
@@ -318,8 +405,9 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         host = str(ip.ip).split("/")[0]
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
-        from app.services.system_config import get_rdp_clipboard_paste
+        from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
         clip_enabled = await get_rdp_clipboard_paste(s)
+        engine = await get_rdp_engine(s)
     if not allowed:
         await websocket.close(code=4403)
         return
@@ -342,6 +430,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     counted = False
     tunnel: console_route.Tunnel | None = None
     started: datetime | None = None
+    _log.info("rdp: ws 已接受 host=%s engine=%s user=%s", host, engine, user_id)
     try:
         # 3) 收第一個設定訊息
         # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
@@ -359,6 +448,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await send({"type": "error", **ui_detail("console_no_config", "缺少連線設定")})
             await websocket.close()
             return
+        _log.info("rdp: 收到設定 host=%s %sx%s", host, cfg.get("width"), cfg.get("height"))
         width = max(640, min(_MAX_DIM, int(cfg.get("width") or 1280)))
         height = max(480, min(_MAX_DIM, int(cfg.get("height") or 800)))
         username = (cfg.get("username") or "").strip()
@@ -402,21 +492,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
             return
 
-        # 5) 建立 RDP 連線（NLA / CredSSP+NTLM）
+        # 5) 建立 RDP 連線
         await send({"type": "status", "state": "connecting"})
-        io = RDPIOSettings()
-        # 預設不啟用任何虛擬通道；僅在管理者開啟「控制端貼上」時才掛剪貼簿通道（cliprdr）
-        if clip_enabled:
-            from aardwolf.extensions.RDPECLIP.channel import RDPECLIPChannel
-            io.channels = [RDPECLIPChannel]
-        else:
-            io.channels = []
-        io.video_width = width
-        io.video_height = height
-        io.video_bpp_min = 24
-        io.video_bpp_max = 32
-        io.video_out_format = VIDEO_FORMAT.PNG
-        io.clipboard_use_pyperclip = False
 
         # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
         try:
@@ -428,17 +505,17 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
         if tunnel.via:
             await send({"type": "status", "state": "via_jump", "via": tunnel.via})
-        user_in_url = quote(f"{domain}\\{username}" if domain else username, safe="")
-        b64pw = base64.b64encode(password.encode("utf-8")).decode("ascii")
-        # ⚠️ 連接埠一定要寫進 URL：`create_connection_newtarget()` 只換 ip/hostname，
-        # **不動連接埠**（它是 from_url 解析出來的）。少了這一段，走跳板時會連到
-        # 127.0.0.1:3389 —— 也就是後端主機自己，而不是通道的另一端。
-        url = (f"rdp+ntlm-pwb64://{user_in_url}:{b64pw}@{tunnel.host}:{tunnel.port}/"
-               f"?timeout={int(_CONNECT_TIMEOUT)}")
-        del password, b64pw
 
-        factory = RDPConnectionFactory.from_url(url, io)
-        conn = factory.create_connection_newtarget(tunnel.host, io)
+        _log.info("rdp: 開始連線 host=%s engine=%s via_jump=%s", host, engine, tunnel.via)
+        if engine == "freerdp":
+            conn = _build_freerdp_conn(
+                tunnel=tunnel, username=username, password=password,
+                domain=domain, width=width, height=height, clip_enabled=clip_enabled)
+        else:
+            conn = _build_aardwolf_conn(
+                tunnel=tunnel, username=username, password=password,
+                domain=domain, width=width, height=height, clip_enabled=clip_enabled)
+        del password
         try:
             async with asyncio.timeout(_CONNECT_TIMEOUT):
                 _result, err = await conn.connect()
@@ -447,6 +524,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
             return
         if err is not None:
+            _log.info("rdp: 連線失敗 host=%s engine=%s err=%r", host, engine, err)
             # 不回堆疊，但**要帶底層原因**：只說「認證失敗」會把「對方在交握前就關掉連線」
             # 這種情況指去查密碼（見 vnc_console._classify_connect_error 的由來）
             from app.api.v1.endpoints.vnc_console import _classify_connect_error
@@ -469,6 +547,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                   "size": f"{width}x{height}",
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
+        _log.info("rdp: 已連上 host=%s engine=%s", host, engine)
         await send({"type": "status", "state": "connected", "width": width, "height": height})
 
         if clip_enabled:
@@ -481,8 +560,9 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         await _bridge(websocket, conn, send, clip_enabled=clip_enabled)
 
     except WebSocketDisconnect:
-        pass
-    except Exception:  # 不洩漏堆疊
+        _log.info("rdp: 控制端離線 host=%s", host)
+    except Exception:  # 對外不洩漏堆疊，但伺服器端一定要留下來
+        _log.exception("rdp: 未預期錯誤 host=%s engine=%s", host, engine)
         with contextlib.suppress(Exception):
             await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
     finally:
@@ -506,6 +586,22 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
 
 
+def _is_video(data: Any) -> bool:
+    """這一筆是不是畫面更新。
+
+    兩個引擎送的物件不同：aardwolf 的帶 `.type`（RDPDATATYPE.VIDEO），FreeRDP 那邊是
+    我們自己的 `VideoTile`。不能只認 aardwolf 的列舉 —— 那會讓 FreeRDP 的畫面
+    一張都送不出去，而且不會有任何錯誤，只是畫面永遠空白。
+    """
+    if not getattr(data, "data", None):
+        return False
+    t = getattr(data, "type", None)
+    if t is None:                                  # VideoTile：沒有 type 欄位
+        return True
+    return RDP_AVAILABLE and t == RDPDATATYPE.VIDEO
+
+
+
 async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: bool = False) -> None:
     """雙向 pump：RDP 視訊→ws（PNG tile）、ws→直接呼叫 send_mouse/send_key。
 
@@ -519,7 +615,7 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                 data = await conn.ext_out_queue.get()
                 if data is None:
                     break
-                if getattr(data, "type", None) == RDPDATATYPE.VIDEO and data.data:
+                if _is_video(data):
                     await send({
                         "type": "img", "x": data.x, "y": data.y,
                         "w": data.width, "h": data.height,
@@ -528,7 +624,10 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
 
     async def pump_in() -> None:
         mods_down: set[str] = set()   # 目前按住的 Ctrl/Alt/Meta（決定字母鍵走 scancode 還是 unicode）
-        with contextlib.suppress(WebSocketDisconnect, Exception):
+        # ⚠️ 不要用 suppress(Exception) 把整個迴圈包起來。輸入處理丟出例外時，畫面還在跑、
+        # 滑鼠鍵盤卻全無反應，而伺服器端一行紀錄都沒有 —— 這種「看起來活著」的失效
+        # 最難查（2026-09-17 為此查了一輪）。斷線是正常結束，其餘一律留下來。
+        try:
             while True:
                 # 不做應用層 idle-timeout（背景分頁 heartbeat 會被節流誤判斷線）；保活靠 WS
                 # 傳輸層 uvicorn ws-ping/pong，真正斷線走 WebSocketDisconnect。
@@ -539,9 +638,9 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                     x, y = int(msg.get("x", 0)), int(msg.get("y", 0))
                     if msg.get("wheel"):
                         steps = _WHEEL_DELTA + (_WHEEL_NEGATIVE if int(msg.get("dir", -1)) < 0 else 0)
-                        await conn.send_mouse(MOUSEBUTTON.MOUSEBUTTON_WHEEL_UP, x, y, False, steps)
+                        await conn.send_mouse(_BTN_WHEEL, x, y, False, steps)
                     elif msg.get("move"):
-                        await conn.send_mouse(MOUSEBUTTON.MOUSEBUTTON_HOVER, x, y, False)
+                        await conn.send_mouse(_BTN_HOVER, x, y, False)
                     else:
                         await conn.send_mouse(_mouse_button(msg.get("b", 0)), x, y, bool(msg.get("p")))
                 elif t == "k":
@@ -578,6 +677,10 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                     await send({"type": "pong"})
                 elif t == "close":
                     break
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            _log.exception("rdp: 輸入處理中止（畫面會還在，但滑鼠鍵盤不再有反應）")
 
     out_task = asyncio.create_task(pump_out())
     in_task = asyncio.create_task(pump_in())
@@ -585,3 +688,10 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
     for p in pending:
         p.cancel()
     await asyncio.gather(*pending, return_exceptions=True)
+    # 被控端主動結束時要說得出原因。少了這一段，畫面就只是停住不動，
+    # 使用者會以為是網路慢而一直等下去。
+    reason = getattr(conn, "exit_reason", None)
+    if reason:
+        _log.info("rdp: 被控端結束了工作階段：%s", reason)
+        with contextlib.suppress(Exception):
+            await send({"type": "error", "code": "console_remote_closed", "message": reason})

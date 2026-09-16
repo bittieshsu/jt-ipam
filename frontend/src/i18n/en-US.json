@@ -2496,7 +2496,12 @@
       "rdp_clip_paste": "Allow RDP paste from controller to remote",
       "rdp_clip_paste_hint": "When enabled, the RDP toolbar shows a Paste button that pushes your local clipboard text into the remote clipboard (one-way, text only — then press Ctrl+V on the remote). Off by default; the remote clipboard is never sent back.",
       "change_log_dim_days": "Dim change-log entries after (days)",
-      "change_log_dim_days_hint": "Change-log entries older than this many days are shown dimmed so recent changes stand out. 0 = never dim. Default 30."
+      "change_log_dim_days_hint": "Change-log entries older than this many days are shown dimmed so recent changes stand out. 0 = never dim. Default 30.",
+      "rdp_engine": "RDP connection engine",
+      "rdp_engine_aardwolf": "aardwolf (default)",
+      "rdp_engine_freerdp": "FreeRDP",
+      "rdp_engine_hint": "aardwolf is the built-in pure-Python implementation. It needs no extra process and works against Windows targets. FreeRDP has broader compatibility — notably with xrdp and GNOME Remote Login on Linux, which reject aardwolf's NTLM authentication — but it requires FreeRDP and a virtual display on this host. The change applies to new connections.",
+      "rdp_engine_missing": "This server does not yet have what the FreeRDP engine needs (missing {pkgs}). Install them and reload this page; until then, selecting FreeRDP will not connect."
     }
   },
   "errors": {
@@ -2822,7 +2827,8 @@
     "migration_ssh_user_required": "If you give an SSH host, you must give an SSH username",
     "migration_socket_needs_ssh": "Using a MySQL socket requires an SSH tunnel (the socket only exists on the remote host)",
     "migration_known_host_required": "The SSH host key is required: run \"Get fingerprint\", confirm it, then submit again",
-    "migration_refetch_fingerprint": "Fetch the fingerprint again, confirm it, and resubmit"
+    "migration_refetch_fingerprint": "Fetch the fingerprint again, confirm it, and resubmit",
+    "console_remote_closed": "The remote host ended this session: {reason}"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",

@@ -548,6 +548,52 @@ async def set_rdp_clipboard_paste(
     return bool(enabled)
 
 
+# RDP 主控台的連線引擎。
+#
+# `aardwolf` 是純 Python、零外部行程，一路以來的預設。它的限制在 asyauth 0.0.23：
+# NTLM 的 MIC 沒有實作（原始碼裡是一行 TODO）。伺服器的 CHALLENGE 只要帶
+# `MsvAvTimestamp`，MS-NLMP 就要求用戶端回 MIC，而 FreeRDP 的伺服器端會強制檢查 ——
+# gnome-remote-desktop 用的正是它。實測（2026-09-17，Ubuntu 24 + GNOME 遠端登入）：
+# 同一台、同一組帳密，FreeRDP 認證成功，aardwolf 回 STATUS_LOGON_FAILURE。
+#
+# `freerdp` 則相容性站在業界標準那邊，代價是要外部行程與虛擬顯示。
+#
+# ⚠️ 預設**留在 aardwolf**，直到 FreeRDP 後端完整做完並驗證過。Windows 目標本來就
+# 連得上，貿然換掉會讓能用的東西變不能用。有測試釘住這個預設值。
+RDP_ENGINES: tuple[str, ...] = ("aardwolf", "freerdp")
+_RDP_ENGINE_DEFAULT = "aardwolf"
+
+
+async def get_rdp_engine(session: AsyncSession) -> str:
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row and isinstance(row.value, dict):
+        engine = row.value.get("rdp_engine")
+        # 認不得的值當成預設，不要讓一筆壞設定把整個主控台變成連不上
+        if engine in RDP_ENGINES:
+            return str(engine)
+    return _RDP_ENGINE_DEFAULT
+
+
+async def set_rdp_engine(
+    session: AsyncSession, *, engine: str, updated_by_user_id: uuid.UUID | None = None,
+) -> str:
+    if engine not in RDP_ENGINES:
+        raise ValueError(f"unknown rdp engine: {engine!r}")
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row is None:
+        row = SystemSetting(key=CONSOLE_SECURITY_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    # 這把 key 底下還有剪貼簿設定 —— 要合併，不能整包換掉
+    current = dict(row.value or {})
+    current["rdp_engine"] = engine
+    row.value = current
+    row.updated_by = updated_by_user_id
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
+    return engine
+
+
 # ─────────────────── 介面顯示設定（UI display）───────────────────
 UI_DISPLAY_KEY = "ui_display"
 _DEFAULT_CHANGE_LOG_DIM_DAYS = 30

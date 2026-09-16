@@ -2496,7 +2496,12 @@
       "rdp_clip_paste": "允許 RDP 控制端貼上文字到被控端",
       "rdp_clip_paste_hint": "開啟後，RDP 連線工具列會出現「貼上」鈕，可把本機剪貼簿的文字送進被控端剪貼簿（單向、純文字，再於遠端按 Ctrl+V）。預設關閉；被控端的剪貼簿不會回傳。",
       "change_log_dim_days": "異動記錄淡化天數",
-      "change_log_dim_days_hint": "異動記錄中超過這個天數的項目會以淡色顯示，讓近期變更更明顯。0 = 不淡化。預設 30 天。"
+      "change_log_dim_days_hint": "異動記錄中超過這個天數的項目會以淡色顯示，讓近期變更更明顯。0 = 不淡化。預設 30 天。",
+      "rdp_engine": "RDP 連線引擎",
+      "rdp_engine_aardwolf": "aardwolf（預設）",
+      "rdp_engine_freerdp": "FreeRDP",
+      "rdp_engine_hint": "aardwolf 是內建的純 Python 實作，不需額外行程，對 Windows 目標運作正常。FreeRDP 相容性較好 —— 特別是 Linux 上的 xrdp 與 GNOME 遠端登入，aardwolf 的 NTLM 認證會被它們拒絕 —— 但需要在本機安裝 FreeRDP 與虛擬顯示。改了之後開新的連線才會生效。",
+      "rdp_engine_missing": "這台伺服器還沒有 FreeRDP 引擎需要的套件（缺 {pkgs}）。裝好之後重新整理這一頁；在那之前選了 FreeRDP 也連不上。"
     }
   },
   "errors": {
@@ -2822,7 +2827,8 @@
     "migration_ssh_user_required": "填了 SSH 主機就要填 SSH 帳號",
     "migration_socket_needs_ssh": "MySQL 走 socket 必須搭配 SSH 通道（socket 只存在於遠端主機上）",
     "migration_known_host_required": "需要 SSH 主機金鑰：請先執行「取得指紋」並確認後再送出",
-    "migration_refetch_fingerprint": "請重新取得指紋、確認無誤後再送出一次"
+    "migration_refetch_fingerprint": "請重新取得指紋、確認無誤後再送出一次",
+    "console_remote_closed": "被控端結束了這個工作階段：{reason}"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",

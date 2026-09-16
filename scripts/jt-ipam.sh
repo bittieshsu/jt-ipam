@@ -90,6 +90,56 @@ install_rdp_optional() {
     else
         warn "Optional RDP dependency not installed (no prebuilt wheel for this platform/Python, or offline). RDP features disabled; core install unaffected."
     fi
+    # Python side of the FreeRDP engine (screen capture + input injection). These are small,
+    # pure-Python packages, so they go on every host -- the heavy part is the apt side
+    # (freerdp2-x11, xvfb), which is opt-in. Without these the FreeRDP engine reports
+    # itself unavailable in Admin -> System settings rather than failing at connect time.
+    if ( cd "$bd" && sudo -u "$u" "$bd/.venv/bin/pip" install --quiet -e ".[rdp-freerdp]" ); then
+        log "FreeRDP engine (Python side) installed."
+    else
+        warn "FreeRDP engine Python dependencies not installed; that engine stays unavailable."
+    fi
+}
+
+# apt packages the FreeRDP engine needs. ffmpeg is in the list for screen capture, not for video:
+# reading the framebuffer through python-xlib costs 334 ms per 1280x800 frame (it parses 4 MB of
+# pixels in pure Python), which caps the console at 2.8 fps. ffmpeg's x11grab uses MIT-SHM and
+# measured 47 fps on the same host. ~150 MB of X libraries in total, so this is NOT installed by
+# default: the default engine is aardwolf and most sites never switch. Two ways in:
+#   - install --with-freerdp
+#   - upgrade, when the site has already selected the FreeRDP engine (see ensure_freerdp_if_selected)
+FREERDP_APT_PACKAGES=(freerdp2-x11 xvfb xclip ffmpeg)
+
+install_freerdp_apt() {
+    log "Installing FreeRDP engine packages (${FREERDP_APT_PACKAGES[*]})…"
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${FREERDP_APT_PACKAGES[@]}"; then
+        log "FreeRDP engine packages installed."
+        return 0
+    fi
+    warn "Could not install FreeRDP engine packages; that engine stays unavailable."
+    return 1
+}
+
+# Does this host already have every FreeRDP package?
+freerdp_apt_present() {
+    command -v xfreerdp >/dev/null 2>&1 && command -v Xvfb >/dev/null 2>&1 \
+        && command -v ffmpeg >/dev/null 2>&1
+}
+
+# An upgrade must not silently take away an engine the site is actually using. If the admin has
+# selected the FreeRDP engine in Admin -> System settings, make sure its apt packages are present
+# -- otherwise the first RDP connection after the upgrade fails with "engine not installed", and
+# nothing in the upgrade output said why.
+ensure_freerdp_if_selected() {
+    command -v apt-get >/dev/null 2>&1 || return 0
+    freerdp_apt_present && return 0
+    local selected
+    selected="$(sudo -u postgres psql -tAd jt_ipam -c \
+        "SELECT value->>'rdp_engine' FROM system_settings WHERE key='console_security'" \
+        2>/dev/null | tr -d '[:space:]')"
+    [[ "$selected" == "freerdp" ]] || return 0
+    log "This site uses the FreeRDP console engine but its packages are missing — installing…"
+    install_freerdp_apt || warn "RDP consoles will fail until these are installed."
 }
 
 # Ensure a modern Node.js (>=18) is available to root. Three cases this handles:
@@ -355,6 +405,10 @@ Commands:
                  --tls-mode {nginx|direct|self-signed}   (default nginx)
                  --public-fqdn <fqdn>                     (default ipam.example.com)
                  --bind-port <port>                       (for direct/self-signed, default 8443)
+                 --with-freerdp                           also install the FreeRDP console engine
+                                                          (freerdp2-x11 xvfb xclip, ~150 MB of X libraries).
+                                                          Needed only for RDP targets that reject the default
+                                                          engine -- xrdp and GNOME Remote Login do.
   doctor       check a running install and print an exact fix for anything wrong
   upgrade      upgrade existing install (git pull -> backup -> pip -> alembic -> build -> restart)
                  --no-pull                                skip git pull
@@ -545,10 +599,12 @@ cmd_install() {
     local TLS_MODE="nginx"
     local PUBLIC_FQDN="ipam.example.com"
     local BIND_PORT_DIRECT=8443
+    local WITH_FREERDP=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --tls-mode) TLS_MODE="$2"; shift 2 ;;
+            --with-freerdp) WITH_FREERDP=1; shift ;;
             --public-fqdn) PUBLIC_FQDN="$2"; shift 2 ;;
             --bind-port) BIND_PORT_DIRECT="$2"; shift 2 ;;
             -h|--help) usage; exit 0 ;;
@@ -847,6 +903,12 @@ SQL
     # prod installs runtime deps only (matching upgrade); for dev/test tools run pip install -e ".[dev]" separately
     sudo -u "$JTIPAM_USER" .venv/bin/pip install -e .
     install_rdp_optional
+    if [[ "$WITH_FREERDP" == "1" ]]; then
+        install_freerdp_apt || true
+    else
+        log "FreeRDP console engine not installed (use --with-freerdp, or install later:"
+        log "  sudo apt-get install -y ${FREERDP_APT_PACKAGES[*]} )"
+    fi
 
     # -- 6. backend.env --
     log "Generating /etc/jt-ipam/backend.env…"
@@ -1372,6 +1434,28 @@ cmd_doctor() {
               "sudo $0 upgrade   (installs one), or add an agent under Admin → Scan agents"
     fi
 
+    # ── remote console ──
+    # Only report the engine the site actually selected. Saying "FreeRDP not installed" on a
+    # site that uses the default engine is noise, and noise is what makes people stop reading
+    # the output.
+    local rdp_engine
+    rdp_engine="$(sudo -u postgres psql -tAd jt_ipam -c \
+        "SELECT COALESCE(value->>'rdp_engine','aardwolf') FROM system_settings WHERE key='console_security'" \
+        2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$rdp_engine" ]] || rdp_engine="aardwolf"
+    echo
+    echo "Remote console"
+    if [[ "$rdp_engine" == "freerdp" ]]; then
+        if freerdp_apt_present; then
+            _ok "RDP engine: FreeRDP (packages present)"
+        else
+            _bad "RDP engine is set to FreeRDP but its packages are missing — RDP consoles will not connect" \
+                 "sudo apt-get install -y ${FREERDP_APT_PACKAGES[*]}"
+        fi
+    else
+        _ok "RDP engine: aardwolf (built in)"
+    fi
+
     echo
     if (( problems )); then
         echo -e "\033[1;31m$problems problem(s), $warns warning(s) — follow the → lines above\033[0m"
@@ -1561,6 +1645,7 @@ cmd_upgrade() {
     log "Updating backend dependencies (pip install -e .)…"
     ( cd "$ROOT/backend"; as_user .venv/bin/pip install --quiet -e . )
     install_rdp_optional
+    ensure_freerdp_if_selected
     # IPMI tools for the BMC console (install on upgrade of existing setups; best-effort)
     if command -v apt-get >/dev/null 2>&1 && ! command -v ipmitool >/dev/null 2>&1; then
         log "Installing IPMI tools (ipmitool freeipmi-tools) for the BMC console…"

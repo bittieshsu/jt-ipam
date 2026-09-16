@@ -344,9 +344,25 @@ async def put_ui_display(
     return UiDisplayOut(change_log_dim_days=days)
 
 
-class ConsoleSecurityOut(StrictModel):
+class ConsoleSecurityIn(StrictModel):
+    """可以改的部分。"""
+
     # 允許 RDP 控制端把文字貼到被控端（剪貼簿單向重導；預設關閉）
     rdp_clipboard_paste: bool = False
+    # RDP 連線引擎：aardwolf（預設，純 Python）或 freerdp（相容性較好，需外部行程）
+    rdp_engine: Literal["aardwolf", "freerdp"] = "aardwolf"
+
+
+class ConsoleSecurityOut(ConsoleSecurityIn):
+    """再加上「這台機器實際上能不能用」。
+
+    設定頁要看得到這一段：選項擺在那裡、按下去才發現缺套件，比沒有這個選項更糟。
+    缺什麼與怎麼裝都由後端算好 —— 前端不該自己維護一份套件清單（兩份遲早不一致）。
+    """
+
+    freerdp_available: bool = False
+    freerdp_missing: list[str] = []
+    freerdp_install_cmd: str = ""
 
 
 @public_router.get("/console-security", response_model=ConsoleSecurityOut)
@@ -354,29 +370,51 @@ async def get_console_security(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
-    from app.services.system_config import get_rdp_clipboard_paste
-    return ConsoleSecurityOut(rdp_clipboard_paste=await get_rdp_clipboard_paste(session))
+    from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
+    return _console_security_out(
+        rdp_clipboard_paste=await get_rdp_clipboard_paste(session),
+        rdp_engine=await get_rdp_engine(session),
+    )
 
 
 @router.put("/console-security", response_model=ConsoleSecurityOut)
 async def put_console_security(
-    payload: ConsoleSecurityOut,
+    payload: ConsoleSecurityIn,
     user: CurrentUser,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
-    from app.services.system_config import set_rdp_clipboard_paste
+    from app.services.system_config import set_rdp_clipboard_paste, set_rdp_engine
     await append_audit(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="system", object_id=None, action="update",
-        diff={"target": "console_security", "rdp_clipboard_paste": payload.rdp_clipboard_paste},
+        # 換引擎會改變「連得上／連不上」，稽核要看得出是誰換的
+        diff={"target": "console_security",
+              "rdp_clipboard_paste": payload.rdp_clipboard_paste,
+              "rdp_engine": payload.rdp_engine},
         request_id=getattr(request.state, "request_id", None),
     )
     enabled = await set_rdp_clipboard_paste(
         session, enabled=payload.rdp_clipboard_paste, updated_by_user_id=user.id)
-    return ConsoleSecurityOut(rdp_clipboard_paste=enabled)
+    engine = await set_rdp_engine(
+        session, engine=payload.rdp_engine, updated_by_user_id=user.id)
+    return _console_security_out(rdp_clipboard_paste=enabled, rdp_engine=engine)
+
+
+def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str) -> ConsoleSecurityOut:
+    from app.services.rdp_freerdp import FREERDP_APT_HINT, availability
+
+    av = availability()
+    missing = list(av["missing_packages"]) + list(av["missing_modules"])
+    return ConsoleSecurityOut(
+        rdp_clipboard_paste=rdp_clipboard_paste,
+        rdp_engine=rdp_engine,  # type: ignore[arg-type]
+        freerdp_available=bool(av["ok"]),
+        freerdp_missing=missing,
+        freerdp_install_cmd="" if av["ok"] else FREERDP_APT_HINT,
+    )
 
 
 # 本機地圖圖磚代理（OSM）：讓「OpenStreetMap」供應商在維持嚴格 CSP（img-src 'self'）+ COEP require-corp
