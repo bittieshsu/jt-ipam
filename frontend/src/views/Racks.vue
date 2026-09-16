@@ -437,7 +437,7 @@ async function confirmPickDevice() {
 }
 
 // 合併卡匯出：圖形（SVG/PNG/draw.io，整個機房多機櫃並排）+ 純資料格式
-const mergedExportOptions = [
+const mergedExportOptions = computed(() => [
   { label: "SVG", key: "svg" },
   { label: "PNG", key: "png" },
   { label: "draw.io", key: "drawio" },
@@ -446,8 +446,8 @@ const mergedExportOptions = [
   { label: "Excel (.xlsx)", key: "xlsx" },
   { label: "OpenDocument (.ods)", key: "ods" },
   { label: "Markdown (.md)", key: "md" },
-  { label: "純文字 (.txt)", key: "txt" },
-];
+  { label: t("export.fmt_txt"), key: "txt" },
+]);
 function onMergedExport(key: string) {
   if (["svg", "png", "drawio"].includes(key)) {
     const diags = roomDiagrams.value as any[];

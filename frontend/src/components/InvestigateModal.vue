@@ -290,6 +290,15 @@ function doExport(fmt: ReportFormat) {
     // HTML 版把判讀的 markdown 真的渲染出來（**粗體**、`code`、清單），
     // 不要把原始標記直接印在報告上
     narrativeHtml: narrative.value ? renderMarkdown(narrative.value) : undefined,
+    labels: {
+      title: t("investigate.report_title", { ip: props.ip }),
+      generatedAt: t("investigate.report_generated_at"),
+      conflicts: t("investigate.report_conflicts"),
+      narrative: t("investigate.report_narrative"),
+      csvSection: t("investigate.report_col_section"),
+      csvContent: t("investigate.report_col_content"),
+      htmlLang: t("common.html_lang"),
+    },
   }, fmt);
 }
 

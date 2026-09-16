@@ -151,7 +151,7 @@ function refDetail(r: FwRule): string | null {
     if (!g) return null;
     return (g.rules ?? []).map((x) =>
       `${x.direction ?? "?"} ${x.action ?? "?"} ${x.proto ?? ""}${x.dport ? "/" + x.dport : ""}`
-        .trim()).join("\n") || "（空群組）";
+        .trim()).join("\n") || t("virt.empty_group");
   }
   const name = r.source || r.dest;
   if (!name) return null;
@@ -159,7 +159,7 @@ function refDetail(r: FwRule): string | null {
   const set = fwIpsets.value.find((x) => x.name === name && x.scope === "guest"
                                          && x.vmid === r.vmid)
     ?? fwIpsets.value.find((x) => x.name === name && x.scope === "datacenter");
-  return set ? (set.members ?? []).join("\n") || "（空集合）" : null;
+  return set ? (set.members ?? []).join("\n") || t("virt.empty_set") : null;
 }
 
 const postureOptions = computed(() => POSTURE_ORDER.map((k) => ({

@@ -170,19 +170,19 @@ function profileFiles(profile: string, cert: string): { kind: string; path: stri
   if (isWin.value) {
     switch (profile) {
       case "iis": return [
-        { kind: "匯入憑證存放區", path: "LocalMachine\\My" },
-        { kind: "換上 HTTPS 繫結的憑證", path: genWinBinding.value },
+        { kind: t("certs.win_import_store"), path: "LocalMachine\\My" },
+        { kind: t("certs.win_bind_https"), path: genWinBinding.value },
       ];
       case "winrm": return [
-        { kind: "匯入憑證存放區", path: "LocalMachine\\My" },
-        { kind: "換上 WinRM HTTPS 接聽器憑證", path: "連接埠 5986" },
+        { kind: t("certs.win_import_store"), path: "LocalMachine\\My" },
+        { kind: t("certs.win_bind_winrm"), path: t("certs.win_port", { port: 5986 }) },
       ];
       case "rdp": return [
-        { kind: "匯入憑證存放區", path: "LocalMachine\\My" },
-        { kind: "換上遠端桌面憑證", path: "連接埠 3389" },
+        { kind: t("certs.win_import_store"), path: "LocalMachine\\My" },
+        { kind: t("certs.win_bind_rdp"), path: t("certs.win_port", { port: 3389 }) },
       ];
-      case "store": return [{ kind: "只匯入憑證存放區（可指定，LDAPS 用 NTDS\\My）", path: "LocalMachine\\My" }];
-      case "files": return [{ kind: "寫檔（路徑在下方「進階」自訂）", path: "C:\\...\\site.pem / site.key" }];
+      case "store": return [{ kind: t("certs.win_store_only"), path: "LocalMachine\\My" }];
+      case "files": return [{ kind: t("certs.win_files_only"), path: "C:\\...\\site.pem / site.key" }];
       default: return [];
     }
   }
@@ -203,7 +203,11 @@ function profileFiles(profile: string, cert: string): { kind: string; path: stri
     case "jitsi": return [{ kind: "cert+chain (docker restart jitsi web)", path: "/root/.jitsi-meet-cfg/web/keys/cert.crt" }, { kind: "key", path: "/root/.jitsi-meet-cfg/web/keys/cert.key" }];
     case "coturn": return [{ kind: "cert+chain (root:65534 644)", path: "/etc/coturn/certs/turn.crt" }, { kind: "key (root:65534 640)", path: "/etc/coturn/certs/turn.key" }];
     case "zimbra": return [{ kind: "zmcertmgr deploycrt comm + zmcontrol restart", path: "/opt/zimbra/ssl/zimbra/commercial/commercial.{key,crt}" }];
-    case "files": return [{ kind: "cert+chain（僅換檔，不 reload）", path: `${b}/${cert}.fullchain.pem` }, { kind: "key（僅換檔，不 reload）", path: `${b}/${cert}.key` }];
+    case "files": {
+      const only = t("certs.files_no_reload");
+      return [{ kind: `cert+chain（${only}）`, path: `${b}/${cert}.fullchain.pem` },
+              { kind: `key（${only}）`, path: `${b}/${cert}.key` }];
+    }
     default: return [];
   }
 }
@@ -213,7 +217,7 @@ function serviceSnippet(profile: string, cert: string): string {
   if (isWin.value) {
     // Windows 這邊不需要改設定檔（IIS 綁的是存放區裡的憑證），給的是驗證指令
     if (profile === "iis") {
-      return `# 確認繫結目前用的是哪張憑證：\nnetsh http show sslcert | findstr /i "${genWinBinding.value}"`;
+      return `# ${t("certs.win_check_binding")}：\nnetsh http show sslcert | findstr /i "${genWinBinding.value}"`;
     }
     return "";
   }
@@ -592,7 +596,7 @@ const showConfigHelp = ref(false);
 const serverOrigin = window.location.origin;
 // sudo 只在非 root 時加（見 utils/sudo）；帶環境變數一定要透過 env，否則 root 時 VAR=val 會被當成指令。
 const installerOneLiner = computed(() => {
-  const key = newKey.value || "<建立代理時的-KEY>";
+  const key = newKey.value || `<${t("certs.key_placeholder")}>`;
   if (isWin.value) {
     // iex 收不到 -switch，所以旗標一律走環境變數；自簽憑證要先關掉驗證才抓得到 installer
     return `[Net.ServicePointManager]::ServerCertificateValidationCallback={$true}\n`
@@ -1044,7 +1048,7 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
       </n-form-item>
       <n-form-item :label="t('certs.chain_file')">
         <n-input v-model:value="pasteChain" type="textarea" :rows="3"
-                 placeholder="-----BEGIN CERTIFICATE-----（選填）" />
+                 :placeholder="t('certs.chain_ph')" />
       </n-form-item>
     </n-form>
     <n-checkbox v-model:checked="upAllowExpired">{{ t("certs.allow_expired") }}</n-checkbox>
@@ -1381,7 +1385,7 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
         </n-space>
         <n-space :size="10">
           <n-input v-model:value="genManual.combined" placeholder="COMBINED" />
-          <n-input v-model:value="genManual.test" placeholder="TEST（config-test 指令）" />
+          <n-input v-model:value="genManual.test" :placeholder="t('certGen.test_ph')" />
         </n-space>
       </n-collapse-item>
     </n-collapse>

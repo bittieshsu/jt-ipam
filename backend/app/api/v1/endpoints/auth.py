@@ -53,7 +53,10 @@ async def list_realms(
         get_oidc_config,
         get_saml_config,
     )
-    realms: list[dict[str, str]] = [{"value": "local", "label": "本機"}]
+    # `label_key` 才是畫面上顯示的那一份：登入頁有語言切換，而且使用者還沒登入，
+    # 後端無從得知要用哪個語言。`label` 留著給沒有 i18n 的用戶端（以及舊快取）。
+    realms: list[dict[str, str]] = [
+        {"value": "local", "label": "本機", "label_key": "login.realm_local"}]
     try:
         cfg = await get_ldap_config(session)
         if cfg.enabled:

@@ -364,7 +364,7 @@ async function doTestLdapAuth() {
   ldapAuthTesting.value = true;
   try {
     const r = await testLdapAuth(ldapTestUser.value, ldapTestPw.value);
-    msg.success(`✓ ${r.dn}${r.is_admin ? " · 管理員" : ""}${r.display_name ? " · " + r.display_name : ""}`, { duration: 8000 });
+    msg.success(`✓ ${r.dn}${r.is_admin ? ` · ${t("users.is_admin")}` : ""}${r.display_name ? " · " + r.display_name : ""}`, { duration: 8000 });
     ldapTestPw.value = "";
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("settings.system.ldap_test_fail")); }
   finally { ldapAuthTesting.value = false; }

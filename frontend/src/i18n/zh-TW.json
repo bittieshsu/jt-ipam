@@ -20,7 +20,8 @@
     "unreachable": "連不上伺服器。請確認網路，或伺服器上的 jt-ipam 服務是否正在執行 —— 這不是帳號密碼的問題。",
     "server_down": "伺服器目前無法處理登入（HTTP {code}）。後端服務可能未啟動或啟動失敗；請檢查 systemctl status jt-ipam-backend —— 這不是帳號密碼的問題。",
     "too_many": "嘗試次數過多，請稍候再試。",
-    "locked": "此帳號已被鎖定，請聯繫管理員。"
+    "locked": "此帳號已被鎖定，請聯繫管理員。",
+    "realm_local": "本機"
   },
   "certStatus": {
     "col_agent": "派送代理",
@@ -127,7 +128,8 @@
     "run_real": "確認沒問題後正式跑一次：",
     "scope_hint": "這裡只列出此代理範圍內的憑證；要派送其它憑證，請先在憑證頁把它加入此代理的範圍。",
     "binding": "IIS 繫結",
-    "binding_hint": "格式為「位址:埠」。填 IP（如 0.0.0.0:443）為非 SNI 繫結；填主機名稱（如 www.example.com:443）為 SNI 繫結。此繫結要先在 IIS 建好。"
+    "binding_hint": "格式為「位址:埠」。填 IP（如 0.0.0.0:443）為非 SNI 繫結；填主機名稱（如 www.example.com:443）為 SNI 繫結。此繫結要先在 IIS 建好。",
+    "test_ph": "TEST（config-test 指令）"
   },
   "certFiles": {
     "title": "憑證資訊 / 檔案",
@@ -229,7 +231,18 @@
     "warn_days_use_default": "沿用全域預設（{n} 天）",
     "warn_days_default": "到期通知：沿用預設 {n} 天",
     "warn_days_set": "到期通知：提前 {n} 天",
-    "warn_days_hint": "不同憑證的更新流程長短不同：手動申請的商業憑證需要提前準備，自動續簽的不必太早提醒。未設定則沿用系統設定裡的全域預設。"
+    "warn_days_hint": "不同憑證的更新流程長短不同：手動申請的商業憑證需要提前準備，自動續簽的不必太早提醒。未設定則沿用系統設定裡的全域預設。",
+    "win_import_store": "匯入憑證存放區",
+    "win_bind_https": "換上 HTTPS 繫結的憑證",
+    "win_bind_winrm": "換上 WinRM HTTPS 接聽器憑證",
+    "win_bind_rdp": "換上遠端桌面憑證",
+    "win_store_only": "只匯入憑證存放區（可指定，LDAPS 用 NTDS\\My）",
+    "win_files_only": "寫檔（路徑在下方「進階」自訂）",
+    "win_port": "連接埠 {port}",
+    "files_no_reload": "僅換檔，不 reload",
+    "win_check_binding": "確認繫結目前用的是哪張憑證",
+    "key_placeholder": "建立代理時的-KEY",
+    "chain_ph": "-----BEGIN CERTIFICATE-----（選填）"
   },
   "nav": {
     "dashboard": "儀表板",
@@ -407,7 +420,8 @@
     "username": "帳號",
     "password": "密碼",
     "show": "顯示",
-    "hide": "隱藏"
+    "hide": "隱藏",
+    "html_lang": "zh-Hant"
   },
   "scan_agent": {
     "outdated": "可更新",
@@ -464,7 +478,10 @@
     "agent_off": "代理未啟用",
     "agent_off_hint": "這個掃描代理做得到這項探測，但管理員沒有在代理上開啟它 —— 在這裡勾了也不會跑。請到「掃描代理」頁編輯該代理，把這項探測加進允許清單。",
     "cadence": "掃描頻率",
-    "cadence_hint": "目前每 {n} 掃一輪。輕型探測每輪都跑，所以掃描頻率就是其中最短的間隔；重型探測只在自己的間隔到了才跑。"
+    "cadence_hint": "目前每 {n} 掃一輪。輕型探測每輪都跑，所以掃描頻率就是其中最短的間隔；重型探測只在自己的間隔到了才跑。",
+    "provides_nmblookup": "提供 nmblookup",
+    "provides_avahi": "提供 avahi-resolve（會一併啟動 avahi-daemon，監聽 UDP 5353）",
+    "install_generic": "請確認掃描代理主機具備該探測所需的系統工具與權限（例如 root / cap_net_raw、可連到 DNS 等）。"
   },
   "cols": {
     "name": "名稱",
@@ -1519,7 +1536,9 @@
     "empty": "目前沒有資料可匯出",
     "pdf_hint": "已開啟列印視窗，選「另存為 PDF」即可",
     "popup_blocked": "瀏覽器擋下彈出視窗，請允許後再試",
-    "failed": "匯出失敗"
+    "failed": "匯出失敗",
+    "fmt_txt": "純文字 (.txt)",
+    "fmt_ods_sheet": "OpenDocument 試算表 (.ods)"
   },
   "tools_page": {
     "title": "實用工具",
@@ -1885,7 +1904,65 @@
     "ignore_done": "已加入忽略清單，之後這一類不會再報這個 IP",
     "ignore_hint": "適用於「本來就會這樣」的位址 —— 例如開了隱私隨機化的裝置（Windows 11／macOS／iOS／Android）每次連線都會換 MAC。",
     "explain_mac_flapping": "同一個 IP 在統計期間內出現過多個不同的 MAC。常見原因：DHCP 池被反覆重用、有人手動搶用固定 IP，或這台裝置開了位址隨機化（Windows 11／macOS／iOS／Android 的隱私功能，每次連線都換一個「本地管理位址」）。「隨機化位址」欄為「是」時多半屬於後者 —— 但那也可能是有人在做 MAC 偽裝，所以這裡只把事實列出來，由你判斷；確認沒問題可以按「忽略這個 IP」，之後不再報它。",
-    "exp_exposed_new": "新出現的對外開放服務"
+    "exp_exposed_new": "新出現的對外開放服務",
+    "col": {
+      "ips": "對應 IP / 主機名稱",
+      "hostname": "主機名稱",
+      "port": "埠",
+      "device_id": "裝置",
+      "device": "裝置",
+      "last_seen_at": "最後出現",
+      "locations": "出現位置",
+      "last_seen_scanner": "最後出現（掃描）",
+      "last_seen_librenms": "最後出現（LibreNMS）",
+      "last_seen_arp": "最後出現（ARP）",
+      "ip_address_id": "IP 物件 ID",
+      "reason": "原因",
+      "subnet": "子網路",
+      "state": "狀態",
+      "server_ip": "DHCP 伺服器 IP",
+      "subnet_cidr": "子網路",
+      "vendor": "廠商",
+      "offered_ip": "發出的 IP",
+      "router": "指定的閘道",
+      "first_seen_at": "首次發現",
+      "kind": "狀況",
+      "ports": "對外開放的埠",
+      "monitored": "監控涵蓋",
+      "name": "名稱",
+      "value": "指向",
+      "type": "型別",
+      "zone": "區域",
+      "server": "DNS 伺服器",
+      "records": "重複的紀錄",
+      "actor": "操作者",
+      "actor_ip": "來源 IP",
+      "action": "動作",
+      "count": "次數",
+      "first_at": "最早",
+      "last_at": "最近",
+      "object_type": "物件類型",
+      "effective_status": "存活狀態",
+      "names": "DNS 名稱",
+      "owner": "負責人",
+      "rules": "來源規則",
+      "source": "來源",
+      "interface": "介面",
+      "descr": "規則描述",
+      "detail": "說明",
+      "ip_id": "IP 內部編號",
+      "days": "統計天數",
+      "randomized": "隨機化位址",
+      "mac_count": "MAC 數",
+      "linked_at": "建立關聯",
+      "mac_changed_at": "MAC 變動時間"
+    },
+    "rot": {
+      "dangling_nat": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記",
+      "any_any": "any → any 放行 —— 等於這個介面沒有防火牆",
+      "mgmt_exposed": "WAN 介面對任意來源開放管理埠",
+      "alias_rot": "別名成員 {members} 在管理網段內但 IPAM 沒有紀錄"
+    }
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2033,7 +2110,9 @@
     "vm_status_paused": "已暫停",
     "vm_status_suspended": "已休眠",
     "vm_status_unknown": "未知",
-    "cluster_col": "叢集"
+    "cluster_col": "叢集",
+    "empty_group": "（空群組）",
+    "empty_set": "（空集合）"
   },
   "physical": {
     "cabling": "佈線",
@@ -2774,7 +2853,7 @@
     "searching": "搜尋中…",
     "no_results": "無結果",
     "no_match": "找不到符合的資料",
-    "placeholder": "搜尋：hostname / IP / CIDR / MAC",
+    "placeholder": "搜尋：hostname / IP / CIDR / MAC / 說明 / 擁有者 / 備註",
     "t_section": "區段",
     "t_subnet": "子網路",
     "t_ip": "IP 位址",
@@ -3416,7 +3495,10 @@
     "audit_chain_broken": "稽核鏈驗證失敗",
     "audit_chain_broken_body": "{detail}",
     "event_rule": "事件規則：{rule}",
-    "event_rule_body": "{event}"
+    "event_rule_body": "{event}",
+    "anom_new": "{label}：新增 {count} 筆（共 {total} 筆）",
+    "anom_now": "{label}：{count} 筆",
+    "anom_mac_flapping": "IP 頻繁更換 MAC：新增 {count} 筆"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",
@@ -3749,7 +3831,13 @@
     "sec_fw": "防火牆",
     "sec_changes": "IP 異動記錄",
     "ai_progress": "{s} 秒 · 已產出 {n} 字（思考 {think} 字）",
-    "sec_other": "同位址的其他紀錄"
+    "sec_other": "同位址的其他紀錄",
+    "report_title": "{ip} 調查報告",
+    "report_generated_at": "產生時間",
+    "report_conflicts": "矛盾",
+    "report_narrative": "AI 判讀",
+    "report_col_section": "區塊",
+    "report_col_content": "內容"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -3990,7 +4078,8 @@
     "would_not_match": "這份內容不會命中",
     "event_name": "事件名稱符合",
     "actual": "實際值",
-    "bad_json": "事件內容不是合法的 JSON"
+    "bad_json": "事件內容不是合法的 JSON",
+    "and_join": " 且 "
   },
   "paloalto": {
     "title": "Palo Alto",
@@ -4160,5 +4249,80 @@
     "f_disable_debug": "正式環境請關閉 APP_DEBUG",
     "f_integration_pages": "到各整合設定頁看「最後錯誤」與「測試連線」",
     "report_counts": "{bad} 項失敗、{warn} 項警告、{ok} 項通過"
+  },
+  "tool_verbs": {
+    "get": "查詢",
+    "list": "列出",
+    "search": "搜尋",
+    "find": "尋找",
+    "check": "檢查",
+    "count": "統計",
+    "suggest": "建議",
+    "next": "尋找可用",
+    "resolve": "解析",
+    "trace": "追蹤",
+    "create": "建立",
+    "update": "更新",
+    "delete": "刪除",
+    "assign": "配發",
+    "reserve": "保留"
+  },
+  "tool_nouns": {
+    "ip": "IP",
+    "ips": "IP",
+    "subnet": "子網路",
+    "subnets": "子網路",
+    "section": "區段",
+    "device": "裝置",
+    "devices": "裝置",
+    "vlan": "VLAN",
+    "vrf": "VRF",
+    "dns": "DNS",
+    "arp": "ARP",
+    "fdb": "MAC 位址表",
+    "mac": "MAC",
+    "vm": "虛擬機",
+    "vms": "虛擬機",
+    "rack": "機櫃",
+    "racks": "機櫃",
+    "location": "機房",
+    "locations": "機房",
+    "customer": "單位",
+    "customers": "單位",
+    "nat": "NAT",
+    "firewall": "防火牆",
+    "anomalies": "異常",
+    "anomaly": "異常",
+    "topology": "拓樸",
+    "detail": "詳細資料",
+    "history": "歷程",
+    "usage": "使用率",
+    "free": "可用位址",
+    "available": "可用位址",
+    "cert": "憑證",
+    "certificates": "憑證",
+    "power": "電力",
+    "cable": "佈線",
+    "wazuh": "Wazuh",
+    "zabbix": "Zabbix",
+    "librenms": "LibreNMS",
+    "proxmox": "Proxmox",
+    "dhcp": "DHCP",
+    "lease": "租約",
+    "leases": "租約",
+    "port": "連接埠",
+    "ports": "連接埠",
+    "surface": "對外曝險",
+    "attack": "對外曝險",
+    "agents": "代理",
+    "requests": "申請",
+    "changes": "異動",
+    "audit": "稽核",
+    "stats": "統計",
+    "summary": "摘要"
+  },
+  "tool_label": {
+    "frame": "{verb}{nouns}",
+    "noun_join": ""
   }
 }

@@ -208,29 +208,31 @@ const anyFindings = computed(() => {
     + (r.mac_flapping?.length ?? 0)) > 0;
 });
 function catRows(key: CatKey): Record<string, any>[] {
-  return (report.value?.[key] as Record<string, any>[]) ?? [];
+  return ((report.value?.[key] as Record<string, any>[]) ?? []).map(localizeRow);
 }
 
-// 欄位標題（技術欄名在地化；其餘原樣）
-const COLLBL: Record<string, string> = {
-  mac: "MAC", macs: "MAC", ip: "IP", ips: "對應 IP / 主機名稱", hostname: "主機名稱",
-  port: "埠", device_id: "裝置", last_seen_at: "最後出現", locations: "出現位置",
-  last_seen_scanner: "最後出現（掃描）", last_seen_librenms: "最後出現（LibreNMS）",
-  last_seen_arp: "最後出現（ARP）",
-  ip_address_id: "IP 物件 ID", reason: "原因", subnet: "子網路", state: "狀態",
-  server_ip: "DHCP 伺服器 IP", subnet_cidr: "子網路", vendor: "廠商",
-  offered_ip: "發出的 IP", router: "指定的閘道", first_seen_at: "首次發現",
-  kind: "狀況", ports: "對外開放的埠", monitored: "監控涵蓋",
-  name: "名稱", value: "指向", type: "型別", zone: "區域", server: "DNS 伺服器",
-  records: "重複的紀錄", actor: "操作者", actor_ip: "來源 IP",
-  action: "動作", count: "次數", first_at: "最早", object_type: "物件類型",
-  effective_status: "存活狀態", names: "DNS 名稱", owner: "負責人", rules: "來源規則",
-  source: "來源", interface: "介面", descr: "規則描述", detail: "說明",
-  ip_id: "IP 內部編號",
-  days: "統計天數",
-  randomized: "隨機化位址",
-  mac_count: "MAC 數",
-};
+// 後端送來的說明文字：`detail` 是中文原字串（匯出與 AI 判讀走那一份，那兩條路沒有
+// 瀏覽器的語言可問），`detail_key`（＋選用的 `detail_params`）才是畫面上顯示的。
+// 一律以欄位名為準，所以後端之後對別的欄位比照辦理時，這裡不用改。
+function localizeRow(row: Record<string, any>): Record<string, any> {
+  let out = row;
+  for (const [k, v] of Object.entries(row)) {
+    if (!k.endsWith("_key") || typeof v !== "string" || !te(v)) continue;
+    const field = k.slice(0, -4);
+    if (out === row) out = { ...row };
+    out[field] = t(v, (row[`${field}_params`] || {}) as Record<string, unknown>);
+  }
+  return out;
+}
+
+// 欄位標題。技術縮寫（MAC／IP）三種語言都一樣，所以不進語言檔；其餘查
+// `anomaly.col.*`，查不到就退回欄位原名（後端新增欄位時不會變成空白）。
+const RAW_COL: Record<string, string> = { mac: "MAC", macs: "MAC", ip: "IP" };
+function colLabel(k: string): string {
+  if (RAW_COL[k]) return RAW_COL[k];
+  const key = `anomaly.col.${k}`;
+  return te(key) ? t(key) : k;
+}
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
   ip_conflicts: ["ip", "macs"],
@@ -269,7 +271,7 @@ for (const c of CATEGORIES) {
   prefs[c.key] = useColumnPrefs(`anomaly_${c.key}`, keys, keys.filter((k) => !hidden.includes(k)));
 }
 function pickerItems(key: CatKey) {
-  return CAT_KEYS[key].map((k) => ({ key: k, label: COLLBL[k] ?? k }));
+  return CAT_KEYS[key].map((k) => ({ key: k, label: colLabel(k) }));
 }
 
 function pretty(k: string, val: any): string {
@@ -295,7 +297,7 @@ function pretty(k: string, val: any): string {
 function objLine(o: Record<string, any>): string {
   return Object.entries(o)
     .filter(([, v]) => v != null && v !== "")
-    .map(([k, v]) => `${COLLBL[k] ?? k}：${pretty(k, v)}`)
+    .map(([k, v]) => `${colLabel(k)}：${pretty(k, v)}`)
     .join("　·　");
 }
 function cell(label: string, val: string) {
@@ -309,9 +311,9 @@ function renderLocation(o: Record<string, any>) {
   return h("div", {
     style: "display:grid;grid-template-columns:minmax(0,1fr) 110px 132px;gap:14px;font-size:12.5px;align-items:baseline",
   }, [
-    cell(COLLBL.device_id, dev),
-    cell(COLLBL.port, o.port ?? "—"),
-    cell(COLLBL.last_seen_at, pretty("last_seen_at", o.last_seen_at)),
+    cell(colLabel("device_id"), dev),
+    cell(colLabel("port"), o.port ?? "—"),
+    cell(colLabel("last_seen_at"), pretty("last_seen_at", o.last_seen_at)),
   ]);
 }
 function renderMac(o: Record<string, any>) {
@@ -379,7 +381,7 @@ function catCols(key: CatKey): DataTableColumns<any> {
     // MAC 清單一列要放好幾個「MAC＋時間」，窄欄會擠成一團看不出先後
     const wide = k === "locations" || k === "macs";
     return {
-      title: COLLBL[k] ?? k,
+      title: colLabel(k),
       key: k,
       minWidth: wide ? 420 : (k === "ips" ? 220 : 140),
       // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上

@@ -30,7 +30,7 @@ import { listScanAgents } from "@/api/phase3";
 import { listVLANs, listVRFs, listLocations, type VLAN, type VRF } from "@/api/basic";
 import type { Subnet, Section } from "@/types";
 import { EditIcon, PlusIcon, SaveIcon, CancelIcon } from "@/icons";
-import { SUDO } from "@/utils/sudo";
+import { probeInstall } from "@/utils/probeInstall";
 import { useCustomers } from "@/composables/useCustomers";
 import { listJumpHosts } from "@/api/jumpHosts";
 import { useSubnetTree } from "@/composables/useSubnetTree";
@@ -107,18 +107,6 @@ function probeNotEnabledOnAgent(key: string): boolean {
   return !!en && !en.has(key);
 }
 // 探測所需的工具 / 安裝指令（與掃描代理頁一致）
-const PROBE_INSTALL: Record<string, string> = {
-  os: `${SUDO} apt install nmap`,
-  ports: `${SUDO} apt install nmap`,
-  netbios: `${SUDO} apt install samba-common-bin   # 提供 nmblookup`,
-  mdns: `${SUDO} apt install avahi-utils   # 提供 avahi-resolve`,
-};
-function probeInstall(key: string): string {
-  return (
-    PROBE_INSTALL[key] ??
-    "請確認掃描代理主機具備該探測所需的系統工具與權限（例如 root / cap_net_raw、可連到 DNS 等）。"
-  );
-}
 const locationOpts = ref<{ label: string; value: string }[]>([]);
 
 const sectionOpts = computed(() => sections.value.map((s) => ({ label: s.name, value: s.id })));
@@ -438,7 +426,7 @@ async function submit() {
                       </div>
                       <code style="display:block; padding:6px 8px; border-radius:4px;
                                    background:rgba(0,0,0,.05); font-size:12px;
-                                   white-space:pre-wrap; word-break:break-all">{{ probeInstall(p.key) }}</code>
+                                   white-space:pre-wrap; word-break:break-all">{{ probeInstall(p.key, t) }}</code>
                     </div>
                   </n-popover>
                 </n-checkbox>

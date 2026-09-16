@@ -167,7 +167,7 @@ const exportOptions = computed(() => [
   { label: "Excel (.xlsx)", key: "xlsx" },
   { label: "OpenDocument (.ods)", key: "ods" },
   { label: "Markdown (.md)", key: "md" },
-  { label: "純文字 (.txt)", key: "txt" },
+  { label: t("export.fmt_txt"), key: "txt" },
 ]);
 // 機櫃裝置清單的資料匯出（csv/xlsx/ods/md/txt）
 function exportData(fmt: "csv" | "xlsx" | "ods" | "md" | "txt") {

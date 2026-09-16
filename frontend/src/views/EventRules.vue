@@ -152,7 +152,7 @@ const cols = computed<DataTableColumns<EventRule>>(() => autoSort([
     title: t("event_rules.conditions"), key: "conditions", minWidth: 220,
     ellipsis: { tooltip: true },
     render: (r) => (r.conditions ?? []).map((c) => `${c.field} ${c.op} ${c.value ?? ""}`.trim())
-      .join(" 且 ") || t("event_rules.no_conditions"),
+      .join(t("event_rules.and_join")) || t("event_rules.no_conditions"),
   },
   {
     title: t("event_rules.actions_col"), key: "actions", minWidth: 140,

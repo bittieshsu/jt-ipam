@@ -22,6 +22,7 @@ import { listSubnets } from "@/api/subnets";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import { autoSort } from "@/composables/useTableSort";
 import { SUDO } from "@/utils/sudo";
+import { probeInstall } from "@/utils/probeInstall";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
@@ -70,18 +71,6 @@ function probeAvailable(key: string): boolean {
   return availProbes.value === null || availProbes.value.includes(key);
 }
 // 探測所需的工具 / 安裝指令（代理主機上安裝後，下次回報即解鎖該探測）
-const PROBE_INSTALL: Record<string, string> = {
-  os: `${SUDO} apt install nmap`,
-  ports: `${SUDO} apt install nmap`,
-  netbios: `${SUDO} apt install samba-common-bin   # 提供 nmblookup`,
-  mdns: `${SUDO} apt install avahi-utils   # 提供 avahi-resolve（會一併啟動 avahi-daemon，監聽 UDP 5353）`,
-};
-function probeInstall(key: string): string {
-  return (
-    PROBE_INSTALL[key] ??
-    "請確認掃描代理主機具備該探測所需的系統工具與權限（例如 root / cap_net_raw、可連到 DNS 等）。"
-  );
-}
 // 已勾選的探測（每一種都可以設自己的間隔）。
 // 原本只讓重型探測設間隔，但後端本來就吃全部七種 —— 輕型只是沒有畫面可設，
 // 使用者只能用預設值，也看不出「多久掃一次」是怎麼決定的。
@@ -471,7 +460,7 @@ onMounted(() => { void refresh(); });
                     </template>
                     <div class="probe-help-pop">
                       <div class="probe-help-intro">{{ t("scan_probes.install_help_intro") }}</div>
-                      <code class="probe-help-cmd">{{ probeInstall(p.key) }}</code>
+                      <code class="probe-help-cmd">{{ probeInstall(p.key, t) }}</code>
                     </div>
                   </n-popover>
                   <n-tooltip v-if="p.intrusive" trigger="hover">

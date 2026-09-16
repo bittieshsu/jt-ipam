@@ -22,7 +22,7 @@ import { apiClient } from "@/api/client";
 import { LoginIcon } from "@/icons";
 import { ShieldCheck, Globe } from "@iconoir/vue";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
 const { mfaToken } = storeToRefs(auth);
@@ -50,7 +50,11 @@ const errorMsg = ref<string | null>(null);
 
 // 領域（PVE 風）：本機 / LDAP，預設本機
 const realm = ref("local");
-const realms = ref<{ label: string; value: string }[]>([{ label: "本機", value: "local" }]);
+const realms = ref<{ label: string; value: string; label_key?: string }[]>(
+  [{ label: "本機", value: "local", label_key: "login.realm_local" }]);
+// 登入頁可以切語言，所以顯示用的標籤要是 computed。後端給的 `label` 只是沒有翻譯鍵時的退路
+const realmOptions = computed(() => realms.value.map(
+  (r) => ({ value: r.value, label: r.label_key && te(r.label_key) ? t(r.label_key) : r.label })));
 // 只在後端回報該 SSO 供應商已啟用時才顯示對應按鈕，避免點了未設定的 SSO 跳出原始錯誤
 const ssoAvail = ref<{ oidc: boolean; saml: boolean }>({ oidc: false, saml: false });
 // 先用上次快取的 realms / sso 立刻渲染（避免冷啟動時一閃才出現／沒出現），再向後端刷新
@@ -80,7 +84,7 @@ onMounted(async () => {
   }
   try {
     const { data } = await apiClient.get<{
-      realms: { label: string; value: string }[];
+      realms: { label: string; value: string; label_key?: string }[];
       sso?: { oidc: boolean; saml: boolean };
     }>("/api/v1/auth/realms");
     if (data.realms?.length) {
@@ -203,7 +207,7 @@ function ssoSaml() {
           />
         </n-form-item>
         <n-form-item v-if="realms.length > 1" :label="t('login.realm')">
-          <n-select v-model:value="realm" :options="realms" :disabled="loading" />
+          <n-select v-model:value="realm" :options="realmOptions" :disabled="loading" />
         </n-form-item>
         <n-space justify="end">
           <n-button type="primary" :loading="loading" @click="submitLogin">

@@ -20,7 +20,8 @@
     "unreachable": "Cannot reach the server. Check your network, or whether the jt-ipam service is running — this is not a credentials problem.",
     "server_down": "The server cannot handle logins right now (HTTP {code}). The backend may be down or failing to start; check systemctl status jt-ipam-backend — this is not a credentials problem.",
     "too_many": "Too many attempts. Please wait and try again.",
-    "locked": "This account is locked. Please contact an administrator."
+    "locked": "This account is locked. Please contact an administrator.",
+    "realm_local": "Local"
   },
   "certStatus": {
     "col_agent": "Agent",
@@ -127,7 +128,8 @@
     "run_real": "Then run it for real:",
     "scope_hint": "Only certificates within this agent's scope are listed; to deploy others, add them to the agent on the Certificates page.",
     "binding": "IIS binding",
-    "binding_hint": "Written as address:port. An IP (0.0.0.0:443) is a non-SNI binding; a hostname (www.example.com:443) is an SNI binding. The binding must already exist in IIS."
+    "binding_hint": "Written as address:port. An IP (0.0.0.0:443) is a non-SNI binding; a hostname (www.example.com:443) is an SNI binding. The binding must already exist in IIS.",
+    "test_ph": "TEST (config-test command)"
   },
   "certFiles": {
     "title": "Certificate info / files",
@@ -229,7 +231,18 @@
     "warn_days_use_default": "Use the global default ({n} days)",
     "warn_days_default": "Expiry notice: default, {n} days",
     "warn_days_set": "Expiry notice: {n} days ahead",
-    "warn_days_hint": "Renewal takes different amounts of time for different certificates: a commercial one bought by hand needs lead time, an auto-renewed one does not. Left unset, the global default from system settings applies."
+    "warn_days_hint": "Renewal takes different amounts of time for different certificates: a commercial one bought by hand needs lead time, an auto-renewed one does not. Left unset, the global default from system settings applies.",
+    "win_import_store": "Import into certificate store",
+    "win_bind_https": "Swap the HTTPS binding certificate",
+    "win_bind_winrm": "Swap the WinRM HTTPS listener certificate",
+    "win_bind_rdp": "Swap the Remote Desktop certificate",
+    "win_store_only": "Import into the certificate store only (choose the store; LDAPS uses NTDS\\My)",
+    "win_files_only": "Write files (paths are set under Advanced below)",
+    "win_port": "Port {port}",
+    "files_no_reload": "files only, no reload",
+    "win_check_binding": "Check which certificate the binding is currently using",
+    "key_placeholder": "THE-KEY-FROM-WHEN-YOU-CREATED-THE-AGENT",
+    "chain_ph": "-----BEGIN CERTIFICATE----- (optional)"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -407,7 +420,8 @@
     "username": "Username",
     "password": "Password",
     "show": "Show",
-    "hide": "Hide"
+    "hide": "Hide",
+    "html_lang": "en"
   },
   "scan_agent": {
     "outdated": "update available",
@@ -464,7 +478,10 @@
     "agent_off": "off on agent",
     "agent_off_hint": "This agent can perform the probe, but it is not enabled on the agent itself — ticking it here will not make it run. Edit the agent on the Scan agents page and add this probe to its allowed list.",
     "cadence": "Scan cadence",
-    "cadence_hint": "Currently one round every {n}. Light probes run every round, so this is the shortest of their intervals; heavy probes run only when their own interval is due."
+    "cadence_hint": "Currently one round every {n}. Light probes run every round, so this is the shortest of their intervals; heavy probes run only when their own interval is due.",
+    "provides_nmblookup": "provides nmblookup",
+    "provides_avahi": "provides avahi-resolve (also starts avahi-daemon, listening on UDP 5353)",
+    "install_generic": "Make sure the scan agent host has the tools and privileges this probe needs (for example root / cap_net_raw, or reachable DNS)."
   },
   "cols": {
     "name": "Name",
@@ -1519,7 +1536,9 @@
     "empty": "No data to export",
     "pdf_hint": "Print window opened — choose \"Save as PDF\"",
     "popup_blocked": "Popup was blocked; allow popups and retry",
-    "failed": "Export failed"
+    "failed": "Export failed",
+    "fmt_txt": "Plain text (.txt)",
+    "fmt_ods_sheet": "OpenDocument spreadsheet (.ods)"
   },
   "tools_page": {
     "title": "Utilities",
@@ -1885,7 +1904,65 @@
     "ignore_done": "Added to the ignore list; this category will no longer report this IP",
     "ignore_hint": "For addresses that legitimately behave this way — a device with MAC randomisation on (Windows 11 / macOS / iOS / Android) changes its MAC on every connection.",
     "explain_mac_flapping": "The same IP has been seen with several different MACs during the window. Usual causes: a DHCP pool being recycled, somebody manually taking a static address, or the device using MAC randomisation (the privacy feature in Windows 11 / macOS / iOS / Android, which picks a new locally administered address on every connection). A \"yes\" in the randomised column usually means the latter -- but it can also be someone spoofing a MAC, so this only states the facts and leaves the judgement to you. If it is expected, \"Ignore this IP\" stops it being reported.",
-    "exp_exposed_new": "Newly exposed service"
+    "exp_exposed_new": "Newly exposed service",
+    "col": {
+      "ips": "IPs / hostnames",
+      "hostname": "Hostname",
+      "port": "Port",
+      "device_id": "Device",
+      "device": "Device",
+      "last_seen_at": "Last seen",
+      "locations": "Seen at",
+      "last_seen_scanner": "Last seen (scan)",
+      "last_seen_librenms": "Last seen (LibreNMS)",
+      "last_seen_arp": "Last seen (ARP)",
+      "ip_address_id": "IP object ID",
+      "reason": "Reason",
+      "subnet": "Subnet",
+      "state": "State",
+      "server_ip": "DHCP server IP",
+      "subnet_cidr": "Subnet",
+      "vendor": "Vendor",
+      "offered_ip": "Offered IP",
+      "router": "Gateway offered",
+      "first_seen_at": "First seen",
+      "kind": "Kind",
+      "ports": "Exposed ports",
+      "monitored": "Monitored",
+      "name": "Name",
+      "value": "Points to",
+      "type": "Type",
+      "zone": "Zone",
+      "server": "DNS server",
+      "records": "Duplicate records",
+      "actor": "Actor",
+      "actor_ip": "Source IP",
+      "action": "Action",
+      "count": "Count",
+      "first_at": "Earliest",
+      "last_at": "Latest",
+      "object_type": "Object type",
+      "effective_status": "Liveness",
+      "names": "DNS names",
+      "owner": "Owner",
+      "rules": "Source rules",
+      "source": "Source",
+      "interface": "Interface",
+      "descr": "Rule description",
+      "detail": "Detail",
+      "ip_id": "IP internal ID",
+      "days": "Days counted",
+      "randomized": "Randomized address",
+      "mac_count": "MAC count",
+      "linked_at": "Linked at",
+      "mac_changed_at": "MAC changed at"
+    },
+    "rot": {
+      "dangling_nat": "The port forward's destination is not in IPAM — it may have been reclaimed, or never recorded",
+      "any_any": "any → any allow — this interface effectively has no firewall",
+      "mgmt_exposed": "A management port is open to any source on the WAN interface",
+      "alias_rot": "Alias members {members} fall inside a managed subnet but have no IPAM record"
+    }
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2033,7 +2110,9 @@
     "vm_status_paused": "Paused",
     "vm_status_suspended": "Suspended",
     "vm_status_unknown": "Unknown",
-    "cluster_col": "Cluster"
+    "cluster_col": "Cluster",
+    "empty_group": "(empty group)",
+    "empty_set": "(empty set)"
   },
   "physical": {
     "cabling": "Cabling",
@@ -2774,7 +2853,7 @@
     "searching": "Searching…",
     "no_results": "No results",
     "no_match": "No matching data",
-    "placeholder": "Search: hostname / IP / CIDR / MAC",
+    "placeholder": "Search: hostname / IP / CIDR / MAC / description / owner / note",
     "t_section": "Section",
     "t_subnet": "Subnet",
     "t_ip": "IP address",
@@ -3416,7 +3495,10 @@
     "audit_chain_broken": "Audit chain verification failed",
     "audit_chain_broken_body": "{detail}",
     "event_rule": "Event rule: {rule}",
-    "event_rule_body": "{event}"
+    "event_rule_body": "{event}",
+    "anom_new": "{label}: {count} new (of {total})",
+    "anom_now": "{label}: {count}",
+    "anom_mac_flapping": "IPs changing MAC frequently: {count} new"
   },
   "system_transfer": {
     "title": "System Export / Import",
@@ -3749,7 +3831,13 @@
     "sec_fw": "Firewall",
     "sec_changes": "IP change log",
     "ai_progress": "{s}s · {n} chars ({think} thinking)",
-    "sec_other": "Other records for this address"
+    "sec_other": "Other records for this address",
+    "report_title": "{ip} investigation report",
+    "report_generated_at": "Generated at",
+    "report_conflicts": "Conflicts",
+    "report_narrative": "AI interpretation",
+    "report_col_section": "Section",
+    "report_col_content": "Content"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -3990,7 +4078,8 @@
     "would_not_match": "This payload would not match",
     "event_name": "Event name matches",
     "actual": "actual",
-    "bad_json": "The payload is not valid JSON"
+    "bad_json": "The payload is not valid JSON",
+    "and_join": " and "
   },
   "paloalto": {
     "title": "Palo Alto",
@@ -4160,5 +4249,80 @@
     "f_disable_debug": "Turn APP_DEBUG off in production",
     "f_integration_pages": "Open each integration's settings page and check \"last error\" and \"test connection\"",
     "report_counts": "{bad} failed, {warn} warnings, {ok} ok"
+  },
+  "tool_verbs": {
+    "get": "Look up",
+    "list": "List",
+    "search": "Search",
+    "find": "Find",
+    "check": "Check",
+    "count": "Count",
+    "suggest": "Suggest",
+    "next": "Find free",
+    "resolve": "Resolve",
+    "trace": "Trace",
+    "create": "Create",
+    "update": "Update",
+    "delete": "Delete",
+    "assign": "Assign",
+    "reserve": "Reserve"
+  },
+  "tool_nouns": {
+    "ip": "IP",
+    "ips": "IPs",
+    "subnet": "subnet",
+    "subnets": "subnets",
+    "section": "section",
+    "device": "device",
+    "devices": "devices",
+    "vlan": "VLAN",
+    "vrf": "VRF",
+    "dns": "DNS",
+    "arp": "ARP",
+    "fdb": "MAC address table",
+    "mac": "MAC",
+    "vm": "VM",
+    "vms": "VMs",
+    "rack": "rack",
+    "racks": "racks",
+    "location": "site",
+    "locations": "sites",
+    "customer": "customer",
+    "customers": "customers",
+    "nat": "NAT",
+    "firewall": "firewall",
+    "anomalies": "anomalies",
+    "anomaly": "anomaly",
+    "topology": "topology",
+    "detail": "details",
+    "history": "history",
+    "usage": "usage",
+    "free": "free addresses",
+    "available": "available addresses",
+    "cert": "certificate",
+    "certificates": "certificates",
+    "power": "power",
+    "cable": "cabling",
+    "wazuh": "Wazuh",
+    "zabbix": "Zabbix",
+    "librenms": "LibreNMS",
+    "proxmox": "Proxmox",
+    "dhcp": "DHCP",
+    "lease": "lease",
+    "leases": "leases",
+    "port": "port",
+    "ports": "ports",
+    "surface": "external exposure",
+    "attack": "external exposure",
+    "agents": "agents",
+    "requests": "requests",
+    "changes": "changes",
+    "audit": "audit",
+    "stats": "statistics",
+    "summary": "summary"
+  },
+  "tool_label": {
+    "frame": "{verb} {nouns}",
+    "noun_join": " "
   }
 }

@@ -30,7 +30,7 @@ import { CancelIcon, SendIcon, ChatHistoryIcon, ToolsIcon, RefreshIcon, WarnIcon
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
@@ -225,7 +225,7 @@ async function send() {
           thinkingChars.value = ev.chars;
         } else if (ev.type === "tool") {
           phase.value = "tool";
-          toolStatus.value = t("chat.tool_running", { name: humanToolName(ev.name) });
+          toolStatus.value = t("chat.tool_running", { name: humanToolName(ev.name, t, te) });
         } else if (ev.type === "tool_round") {
           phase.value = "composing";
           roundNo.value += 1;

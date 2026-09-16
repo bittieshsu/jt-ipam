@@ -1059,19 +1059,28 @@ async def run_detection(
 # 最後的下場是整類通知被使用者當成雜訊忽略，真正的新事件也一起被忽略。
 # 所以排程只通知「與上次相比是新的」。異常消失不通知：那不是需要有人立刻處理的事。
 
+#   (資料鍵, 中文名稱（郵件與舊介面的退路）, 類別名稱的 i18n 鍵, 頁籤)
+# 第三欄只是「類別名稱」而不是整句標題：句型由 _TITLE_NEW / _TITLE_NOW 決定。
+# 早期這裡放的是每類一句完整的 notif.anom_*，那些鍵仍留在語言檔裡 —— 發出去的通知
+# 存在資料庫，舊資料列還指著它們，刪掉會讓歷史通知顯示成鍵的原文。
 _NOTIFY_CATEGORIES: tuple[tuple[str, str, str, str], ...] = (
-    ("ip_conflicts", "IP 衝突", "notif.anom_ip_conflict", "ip_conflicts"),
-    ("mac_drifts", "MAC 變動", "notif.anom_mac_drift", "mac_drifts"),
-    ("ghost_ips", "失聯 IP", "notif.anom_ghost", "ghost_ips"),
-    ("unauthorized_ips", "未授權 IP", "notif.anom_unauthorized", "unauthorized_ips"),
-    ("rogue_dhcp", "非法 DHCP 伺服器", "notif.anom_rogue_dhcp", "rogue_dhcp"),
-    ("external_exposure", "對外曝險", "notif.anom_exposure", "external_exposure"),
-    ("dangling_dns", "懸空 DNS", "notif.anom_dangling_dns", "dangling_dns"),
-    ("duplicate_ip_records", "重複的 IP 紀錄", "notif.anom_dup_ip", "duplicate_ip_records"),
-    ("suspicious_changes", "可疑的變更", "notif.anom_changes", "suspicious_changes"),
-    ("fw_rule_rot", "防火牆規則劣化", "notif.anom_fw_rot", "fw_rule_rot"),
-    ("mac_flapping", "IP 頻繁更換 MAC", "notif.anom_mac_flapping", "mac_flapping"),
+    ("ip_conflicts", "IP 衝突", "anomaly.ip_conflicts", "ip_conflicts"),
+    ("mac_drifts", "MAC 變動", "anomaly.mac_drifts", "mac_drifts"),
+    ("ghost_ips", "失聯 IP", "anomaly.ghost_ips", "ghost_ips"),
+    ("unauthorized_ips", "未授權 IP", "anomaly.unauthorized", "unauthorized_ips"),
+    ("rogue_dhcp", "非法 DHCP 伺服器", "anomaly.rogue_dhcp", "rogue_dhcp"),
+    ("external_exposure", "對外曝險", "anomaly.exposure", "external_exposure"),
+    ("dangling_dns", "懸空 DNS", "anomaly.dangling_dns", "dangling_dns"),
+    ("duplicate_ip_records", "重複的 IP 紀錄", "anomaly.dup_ip", "duplicate_ip_records"),
+    ("suspicious_changes", "可疑的變更", "anomaly.changes", "suspicious_changes"),
+    ("fw_rule_rot", "防火牆規則劣化", "anomaly.fw_rot", "fw_rule_rot"),
+    ("mac_flapping", "IP 頻繁更換 MAC", "anomaly.mac_flapping", "mac_flapping"),
 )
+
+# 排程（只報新的）與手動（報當下全部）是兩句不同的話。共用一句的話，人按了「執行掃描」
+# 會收到「新增 N 筆」—— 那批其實是早就在那裡的舊帳。
+_TITLE_NEW = "notif.anom_new"
+_TITLE_NOW = "notif.anom_now"
 
 
 def _item_fingerprint(item: dict[str, Any]) -> str:
@@ -1113,7 +1122,7 @@ async def _notify_categories(
         select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
     )).scalars().all()
 
-    for key, label, tkey, tab in _NOTIFY_CATEGORIES:
+    for key, label, lkey, tab in _NOTIFY_CATEGORIES:
         items = [i for i in (data.get(key) or []) if isinstance(i, dict)]
         fps = [_item_fingerprint(i) for i in items]
         if only_new:
@@ -1139,7 +1148,11 @@ async def _notify_categories(
                     session, user_id=admin.id, severity="warning", title=title, body=body,
                     # 路由是 /anomaly（單數）—— 舊值 /anomalies 是錯的，點了會 404
                     link=f"/anomaly?tab={tab}", object_type="anomaly",
-                    title_key=tkey, body_key="notif.anom_body", params={"count": count},
+                    title_key=_TITLE_NEW if only_new else _TITLE_NOW,
+                    body_key="notif.anom_body",
+                    # `label_key` 的 `_key` 後綴是給前端看的：它會先把值當翻譯鍵翻好，
+                    # 再代入句子。後端不知道收件者的語言，只能組到「鍵」為止。
+                    params={"label_key": lkey, "count": count, "total": total},
                 )
         if ch.get("email"):
             await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body)
@@ -1209,7 +1222,8 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
                       "source": (n.source_origin or "").split(":")[0],
                       "port": n.dst_port,
                       "descr": (n.description or "")[:120],
-                      "detail": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記"})
+                      "detail": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記",
+                      "detail_key": "anomaly.rot.dangling_nat"})
 
     # (2)(3) any-any 放行與 WAN 管理埠：pfSense 精簡規則（JSONB）。
     #     OPNsense / FortiGate 的規則表欄位語意各異，先做 pfSense（資料形狀最穩定），
@@ -1227,13 +1241,15 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
             if _is_any(r.get("source")) and _is_any(r.get("destination")):
                 items.append({"kind": "any_any", "name": fw.name, "source": "pfsense",
                               "interface": iface, "descr": (r.get("descr") or "")[:120],
-                              "detail": "any → any 放行 —— 等於這個介面沒有防火牆"})
+                              "detail": "any → any 放行 —— 等於這個介面沒有防火牆",
+                              "detail_key": "anomaly.rot.any_any"})
             if "wan" in iface and _is_any(r.get("source")) and (
                     dport in _MGMT_PORTS or dport in _MGMT_SERVICES):
                 items.append({"kind": "mgmt_exposed", "name": fw.name, "source": "pfsense",
                               "interface": iface, "port": dport,
                               "descr": (r.get("descr") or "")[:120],
-                              "detail": "WAN 介面對任意來源開放管理埠"})
+                              "detail": "WAN 介面對任意來源開放管理埠",
+                              "detail_key": "anomaly.rot.mgmt_exposed"})
     # (4) 別名劣化：別名成員落在「本 IPAM 管理且有開異常偵測」的網段內、卻沒有
     #     IP 紀錄 —— 規則看起來沒變，但別名內容已經指向不明位址。
     #     只看管理範圍內的成員：別名裡放外部位址（放行遠端端點、封鎖清單）是常態，
@@ -1269,12 +1285,16 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
             if stale:
                 items.append({"kind": "alias_rot", "name": alias.name, "source": "opnsense",
                               "descr": (alias.description or "")[:120],
-                              "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄"})
+                              "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄",
+                              "detail_key": "anomaly.rot.alias_rot",
+                              "detail_params": {"members": ", ".join(stale)}})
         for alias in (await session.execute(select(PfSenseSyncedAlias))).scalars().all():
             stale = _stale_members(alias.members)
             if stale:
                 items.append({"kind": "alias_rot", "name": alias.name, "source": "pfsense",
                               "descr": (alias.descr or "")[:120],
-                              "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄"})
+                              "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄",
+                              "detail_key": "anomaly.rot.alias_rot",
+                              "detail_params": {"members": ", ".join(stale)}})
 
     return items[:200]

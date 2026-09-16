@@ -20,7 +20,8 @@
     "unreachable": "サーバーに到達できません。ネットワーク、または jt-ipam のサービスが動作しているかを確認してください。資格情報の問題ではありません。",
     "server_down": "サーバーが現在ログインを処理できません（HTTP {code}）。バックエンドが停止しているか、起動に失敗している可能性があります。systemctl status jt-ipam-backend を確認してください。資格情報の問題ではありません。",
     "too_many": "試行回数が多すぎます。しばらく待ってからやり直してください。",
-    "locked": "このアカウントはロックされています。管理者にご連絡ください。"
+    "locked": "このアカウントはロックされています。管理者にご連絡ください。",
+    "realm_local": "ローカル"
   },
   "certStatus": {
     "col_agent": "エージェント",
@@ -127,7 +128,8 @@
     "run_real": "続いて実際に実行します：",
     "scope_hint": "このエージェントの対象になっている証明書だけを表示しています。他の証明書を配備するには、証明書ページでエージェントに追加してください。",
     "binding": "IIS のバインディング",
-    "binding_hint": "アドレス:ポート の形式で指定します。IP（0.0.0.0:443）なら非 SNI のバインディング、ホスト名（www.example.com:443）なら SNI のバインディングです。そのバインディングは IIS 側に既に存在している必要があります。"
+    "binding_hint": "アドレス:ポート の形式で指定します。IP（0.0.0.0:443）なら非 SNI のバインディング、ホスト名（www.example.com:443）なら SNI のバインディングです。そのバインディングは IIS 側に既に存在している必要があります。",
+    "test_ph": "TEST（config-test コマンド）"
   },
   "certFiles": {
     "title": "証明書の情報とファイル",
@@ -229,7 +231,18 @@
     "warn_days_use_default": "全体の既定値を使う（{n} 日）",
     "warn_days_default": "期限の通知：既定の {n} 日前",
     "warn_days_set": "期限の通知：{n} 日前",
-    "warn_days_hint": "更新にかかる時間は証明書によって異なります。手作業で購入する商用証明書には準備期間が要りますが、自動更新のものには要りません。設定しない場合は、システム設定の全体の既定値が使われます。"
+    "warn_days_hint": "更新にかかる時間は証明書によって異なります。手作業で購入する商用証明書には準備期間が要りますが、自動更新のものには要りません。設定しない場合は、システム設定の全体の既定値が使われます。",
+    "win_import_store": "証明書ストアにインポート",
+    "win_bind_https": "HTTPS バインドの証明書を差し替え",
+    "win_bind_winrm": "WinRM HTTPS リスナーの証明書を差し替え",
+    "win_bind_rdp": "リモートデスクトップの証明書を差し替え",
+    "win_store_only": "証明書ストアへのインポートのみ（ストアは指定可、LDAPS は NTDS\\My）",
+    "win_files_only": "ファイルに書き出し（パスは下の「詳細」で指定）",
+    "win_port": "ポート {port}",
+    "files_no_reload": "ファイルのみ、reload なし",
+    "win_check_binding": "バインドが現在どの証明書を使っているか確認",
+    "key_placeholder": "エージェント作成時の-KEY",
+    "chain_ph": "-----BEGIN CERTIFICATE-----（任意）"
   },
   "nav": {
     "dashboard": "ダッシュボード",
@@ -407,7 +420,8 @@
     "username": "ユーザー名",
     "password": "パスワード",
     "show": "表示",
-    "hide": "非表示"
+    "hide": "非表示",
+    "html_lang": "ja"
   },
   "scan_agent": {
     "outdated": "更新があります",
@@ -464,7 +478,10 @@
     "agent_off": "エージェント側で無効",
     "agent_off_hint": "このエージェントはこの探査を実行できますが、エージェント自体で有効になっていません。ここでチェックしても実行されません。スキャンエージェントのページでこのエージェントを編集し、許可する探査に追加してください。",
     "cadence": "スキャンの周期",
-    "cadence_hint": "現在は {n} ごとに 1 巡します。軽い探査は毎回実行されるため、これはそれらの間隔のうち最短のものです。重い探査は、それぞれの間隔が来たときだけ実行されます。"
+    "cadence_hint": "現在は {n} ごとに 1 巡します。軽い探査は毎回実行されるため、これはそれらの間隔のうち最短のものです。重い探査は、それぞれの間隔が来たときだけ実行されます。",
+    "provides_nmblookup": "nmblookup が入ります",
+    "provides_avahi": "avahi-resolve が入ります（avahi-daemon も起動し、UDP 5353 を待ち受けます）",
+    "install_generic": "スキャンエージェントのホストに、この探査に必要なツールと権限（root／cap_net_raw、DNS への到達性など）があることを確認してください。"
   },
   "cols": {
     "name": "名称",
@@ -1519,7 +1536,9 @@
     "empty": "書き出すデータがありません",
     "pdf_hint": "印刷ダイアログを開きました。「PDF として保存」を選んでください",
     "popup_blocked": "ポップアップがブロックされました。ポップアップを許可してやり直してください",
-    "failed": "エクスポートに失敗しました"
+    "failed": "エクスポートに失敗しました",
+    "fmt_txt": "テキスト (.txt)",
+    "fmt_ods_sheet": "OpenDocument 表計算 (.ods)"
   },
   "tools_page": {
     "title": "ユーティリティ",
@@ -1885,7 +1904,65 @@
     "ignore_done": "無視リストに追加しました。この分類ではこの IP を報告しなくなります",
     "ignore_hint": "そのように振る舞うのが正常なアドレス向けです。MAC ランダム化が有効な機器（Windows 11 / macOS / iOS / Android）は、接続のたびに MAC を変えます。",
     "explain_mac_flapping": "同じ IP が、対象期間内に複数の異なる MAC で観測されました。よくある原因は、DHCP プールの使い回し、誰かが静的にそのアドレスを使った、あるいは機器が MAC ランダム化（Windows 11 / macOS / iOS / Android のプライバシー機能で、接続のたびに新しいローカル管理アドレスを選びます）を使っている、のいずれかです。ランダム化の列が「はい」なら後者であることが多いのですが、MAC の詐称という可能性もあるため、ここでは事実だけを示し、判断はお任せします。想定どおりであれば「この IP を無視する」で報告されなくなります。",
-    "exp_exposed_new": "新たに公開されたサービス"
+    "exp_exposed_new": "新たに公開されたサービス",
+    "col": {
+      "ips": "対応する IP／ホスト名",
+      "hostname": "ホスト名",
+      "port": "ポート",
+      "device_id": "機器",
+      "device": "機器",
+      "last_seen_at": "最終確認",
+      "locations": "確認された場所",
+      "last_seen_scanner": "最終確認（スキャン）",
+      "last_seen_librenms": "最終確認（LibreNMS）",
+      "last_seen_arp": "最終確認（ARP）",
+      "ip_address_id": "IP オブジェクト ID",
+      "reason": "理由",
+      "subnet": "サブネット",
+      "state": "状態",
+      "server_ip": "DHCP サーバーの IP",
+      "subnet_cidr": "サブネット",
+      "vendor": "ベンダー",
+      "offered_ip": "提示された IP",
+      "router": "指定されたゲートウェイ",
+      "first_seen_at": "初回確認",
+      "kind": "種別",
+      "ports": "公開されているポート",
+      "monitored": "監視対象",
+      "name": "名前",
+      "value": "参照先",
+      "type": "種類",
+      "zone": "ゾーン",
+      "server": "DNS サーバー",
+      "records": "重複したレコード",
+      "actor": "操作者",
+      "actor_ip": "送信元 IP",
+      "action": "操作",
+      "count": "回数",
+      "first_at": "最初",
+      "last_at": "最後",
+      "object_type": "オブジェクトの種類",
+      "effective_status": "稼働状態",
+      "names": "DNS 名",
+      "owner": "担当者",
+      "rules": "元のルール",
+      "source": "取得元",
+      "interface": "インターフェース",
+      "descr": "ルールの説明",
+      "detail": "説明",
+      "ip_id": "IP の内部 ID",
+      "days": "集計日数",
+      "randomized": "ランダム化アドレス",
+      "mac_count": "MAC の数",
+      "linked_at": "関連付け日時",
+      "mac_changed_at": "MAC が変わった日時"
+    },
+    "rot": {
+      "dangling_nat": "ポート転送の宛先が IPAM にありません —— 回収済みか、そもそも登録されていない可能性があります",
+      "any_any": "any → any の許可 —— このインターフェースには実質ファイアウォールがありません",
+      "mgmt_exposed": "WAN インターフェースで管理ポートが任意の送信元に開いています",
+      "alias_rot": "エイリアスのメンバー {members} は管理対象のサブネット内ですが IPAM に記録がありません"
+    }
   },
   "webhooks": {
     "events_label": "イベント（* はすべて）",
@@ -2033,7 +2110,9 @@
     "vm_status_paused": "一時停止",
     "vm_status_suspended": "サスペンド",
     "vm_status_unknown": "不明",
-    "cluster_col": "クラスタ"
+    "cluster_col": "クラスタ",
+    "empty_group": "（空のグループ）",
+    "empty_set": "（空のセット）"
   },
   "physical": {
     "cabling": "配線",
@@ -2774,7 +2853,7 @@
     "searching": "検索しています…",
     "no_results": "結果がありません",
     "no_match": "該当するデータがありません",
-    "placeholder": "検索：ホスト名／IP／CIDR／MAC",
+    "placeholder": "検索：ホスト名／IP／CIDR／MAC／説明／所有者／備考",
     "t_section": "セクション",
     "t_subnet": "サブネット",
     "t_ip": "IP アドレス",
@@ -3416,7 +3495,10 @@
     "audit_chain_broken": "監査チェーンの検証に失敗しました",
     "audit_chain_broken_body": "{detail}",
     "event_rule": "イベントルール：{rule}",
-    "event_rule_body": "{event}"
+    "event_rule_body": "{event}",
+    "anom_new": "{label}：新たに {count} 件（全 {total} 件）",
+    "anom_now": "{label}：{count} 件",
+    "anom_mac_flapping": "IP の MAC が頻繁に変わる：新たに {count} 件"
   },
   "system_transfer": {
     "title": "システムのエクスポート／インポート",
@@ -3749,7 +3831,13 @@
     "sec_fw": "ファイアウォール",
     "sec_changes": "IP の変更履歴",
     "ai_progress": "{s} 秒 · {n} 文字（うち思考 {think}）",
-    "sec_other": "このアドレスの他のレコード"
+    "sec_other": "このアドレスの他のレコード",
+    "report_title": "{ip} の調査レポート",
+    "report_generated_at": "作成日時",
+    "report_conflicts": "矛盾",
+    "report_narrative": "AI の解釈",
+    "report_col_section": "セクション",
+    "report_col_content": "内容"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -3990,7 +4078,8 @@
     "would_not_match": "このペイロードは一致しません",
     "event_name": "イベント名が一致",
     "actual": "実際の値",
-    "bad_json": "ペイロードが正しい JSON ではありません"
+    "bad_json": "ペイロードが正しい JSON ではありません",
+    "and_join": " かつ "
   },
   "paloalto": {
     "title": "Palo Alto",
@@ -4160,5 +4249,80 @@
     "f_disable_debug": "本番環境では APP_DEBUG を無効にしてください",
     "f_integration_pages": "各連携の設定ページで「最後のエラー」と「接続テスト」を確認してください",
     "report_counts": "失敗 {bad} 件、警告 {warn} 件、正常 {ok} 件"
+  },
+  "tool_verbs": {
+    "get": "照会",
+    "list": "一覧表示",
+    "search": "検索",
+    "find": "検索",
+    "check": "確認",
+    "count": "集計",
+    "suggest": "提案",
+    "next": "空きを検索",
+    "resolve": "名前解決",
+    "trace": "追跡",
+    "create": "作成",
+    "update": "更新",
+    "delete": "削除",
+    "assign": "割り当て",
+    "reserve": "予約"
+  },
+  "tool_nouns": {
+    "ip": "IP",
+    "ips": "IP",
+    "subnet": "サブネット",
+    "subnets": "サブネット",
+    "section": "セクション",
+    "device": "機器",
+    "devices": "機器",
+    "vlan": "VLAN",
+    "vrf": "VRF",
+    "dns": "DNS",
+    "arp": "ARP",
+    "fdb": "MAC アドレステーブル",
+    "mac": "MAC",
+    "vm": "仮想マシン",
+    "vms": "仮想マシン",
+    "rack": "ラック",
+    "racks": "ラック",
+    "location": "拠点",
+    "locations": "拠点",
+    "customer": "顧客",
+    "customers": "顧客",
+    "nat": "NAT",
+    "firewall": "ファイアウォール",
+    "anomalies": "異常",
+    "anomaly": "異常",
+    "topology": "トポロジー",
+    "detail": "詳細",
+    "history": "履歴",
+    "usage": "使用率",
+    "free": "空きアドレス",
+    "available": "空きアドレス",
+    "cert": "証明書",
+    "certificates": "証明書",
+    "power": "電力",
+    "cable": "配線",
+    "wazuh": "Wazuh",
+    "zabbix": "Zabbix",
+    "librenms": "LibreNMS",
+    "proxmox": "Proxmox",
+    "dhcp": "DHCP",
+    "lease": "リース",
+    "leases": "リース",
+    "port": "ポート",
+    "ports": "ポート",
+    "surface": "外部への露出",
+    "attack": "外部への露出",
+    "agents": "エージェント",
+    "requests": "申請",
+    "changes": "変更",
+    "audit": "監査",
+    "stats": "統計",
+    "summary": "概要"
+  },
+  "tool_label": {
+    "frame": "{nouns}を{verb}",
+    "noun_join": "の"
   }
 }

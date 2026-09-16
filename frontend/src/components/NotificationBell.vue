@@ -15,18 +15,14 @@ import { listNotifications, markAllRead, markRead, type Notification } from "@/a
 import { BellIcon, CheckIcon } from "@/icons";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
+import { notifTitle, notifBody } from "@/utils/notifText";
 import { useRouter } from "vue-router";
 
 const { t } = useI18n();
 const router = useRouter();
 
-// 有 i18n key 就依當前語言渲染（帶參數）；沒有則退回存起來的原字串（向下相容舊通知）
-function dispTitle(n: Notification): string {
-  return n.title_key ? t(n.title_key, (n.params || {}) as Record<string, unknown>) : n.title;
-}
-function dispBody(n: Notification): string {
-  return n.body_key ? t(n.body_key, (n.params || {}) as Record<string, unknown>) : (n.body || "");
-}
+const dispTitle = (n: Notification) => notifTitle(n, t);
+const dispBody = (n: Notification) => notifBody(n, t);
 
 const items = ref<Notification[]>([]);
 const unread = ref(0);

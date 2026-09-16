@@ -4,6 +4,81 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.24] - 2026-09-16
+
+### Changed
+- **A hostname that contains what you typed now ranks above a match found only in the
+  description or owner.** The hostname is the object's identity: someone typing a name wants
+  the machine with that name. Trigram similarity alone reversed that, because a short owner
+  string ("kappa5 team") scores higher than a longer hostname ("kappa5-web") — so "the machine
+  that team owns" came out above the machine itself. The hostname hit is given a floor rather
+  than a ceiling, so a better match (an exact IP, a MAC) still wins.
+
+### Notes
+- No database changes; installation and upgrade are unaffected.
+
+## [0.6.23] - 2026-09-16
+
+### Added
+- **Global search covers the description, owner and note fields.** Searching for a machine by
+  what someone wrote about it — a ticket number, a rack position, the team that owns it — found
+  nothing, so those fields could only be read, never looked up.
+
+### Fixed
+- **A description-only match was silently discarded.** `description` was already in the query,
+  so the field looked searchable; but the matching text never reached the result's label or
+  sublabel, and the "substring hits win" filter downstream drops every row whose visible text
+  does not contain the query. As soon as anything else matched, the description hit vanished.
+  A row found by description, owner or note now shows the matching text, which both explains
+  why it is in the list and lets it survive that filter.
+
+### Notes
+- Notes rank last, deliberately: it is free text, and "spare for 203.0.113.9" written on one
+  machine does not mean the user is looking for that machine. Note matches are substring-only
+  (no fuzzy matching, which would push noise to the top) and scored in a band below everything
+  else. Hostname, description and owner keep competing on similarity as before.
+- The row ordering also puts stronger matches first inside the SQL, so note matches can never
+  push a hostname match out of the result limit.
+- The per-address list search already covered all of these; only the global box was missing them.
+- No database changes; installation and upgrade are unaffected.
+
+## [0.6.22] - 2026-09-16
+
+### Fixed
+- **A manual anomaly scan no longer reports old findings as new.** The scheduled run and the
+  "Run scan" button shared one sentence — `IP conflicts: {count} new` — so pressing the button
+  announced findings that had been sitting there for months as if they had just appeared. The
+  recipient decides whether to act tonight on that word. The two are now separate sentences,
+  and the total, which was never passed, no longer leaves "(of N)" blank.
+- **One anomaly notification printed its own translation key.** `notif.anom_mac_flapping` was
+  referenced by the code but existed in none of the three language files, so "IPs changing MAC
+  frequently" arrived in the bell as the literal text `notif.anom_mac_flapping`. Nothing errors
+  when a key is missing; it is simply ugly in front of the user.
+
+### Changed
+- **The anomaly tables are translated.** Forty-six column headings lived in a dictionary in the
+  page and never went through i18n. The tables are only drawn after a scan has run, so switching
+  the interface to Japanese left the headings in Chinese and no existing check ever looked.
+- **The firewall rule-rot findings are translated**, including the one that names the alias
+  members it found. The Chinese original is still sent alongside: exports and the AI reading
+  have no browser to ask for a language.
+- **Server-produced display text now translates nested keys.** A notification can name another
+  key as a parameter (`label_key`), letting eleven categories share two sentences instead of
+  carrying eleven near-identical ones.
+- **Seventy-seven hardcoded strings across thirteen screens** now go through i18n: certificate
+  deployment previews, export formats, the login realm, event-rule conditions, and the AI tool
+  names. Translating the tool names is not word substitution — Chinese joins with nothing,
+  English needs spaces, Japanese puts the verb last — so the assembly itself is now translated.
+
+### Notes
+- No database changes; installation and upgrade are unaffected.
+- The scan-agent install hint existed in two copies that had already drifted apart: only one
+  of them mentioned that installing avahi-utils also starts a daemon listening on UDP 5353.
+  They are now one shared module.
+- The legacy `notif.anom_*` keys are kept and pinned by a test. Notifications already sent live
+  in the database and still point at them; deleting them would turn old entries into raw keys.
+- Verified in a real browser in all three languages, with a new end-to-end test for the table.
+
 ## [0.6.21] - 2026-09-16
 
 ### Changed

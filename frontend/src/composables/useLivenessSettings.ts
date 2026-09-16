@@ -50,7 +50,8 @@ void loadOnce();
 
 // 由管理員在「系統設定」調整（全域）。
 export async function setOnlineGraceMinutes(n: number): Promise<void> {
-  if (n < 1 || n > 43200) throw new Error("超出範圍 (1 ~ 43200 分鐘)");
+  // 參數防呆，不是給使用者看的文案（目前沒有呼叫端；真要上畫面時，訊息要由呼叫端翻譯）
+  if (n < 1 || n > 43200) throw new Error("onlineGraceMinutes out of range (1-43200)");
   onlineGraceMinutes.value = n;
   localStorage.setItem(LS_KEY, String(n));
   await apiClient.put("/api/v1/system/online-grace",
