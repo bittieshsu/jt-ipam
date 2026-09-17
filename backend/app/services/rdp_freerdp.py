@@ -33,6 +33,7 @@ import logging
 import os
 import shutil
 import signal
+import tempfile
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -46,7 +47,7 @@ REQUIRED_BINARIES: dict[str, str] = {
     "Xvfb": "xvfb",
     # 抓畫面。不是「順便用用看」——`XGetImage` 經 python-xlib 要 334 ms/張（1280x800，
     # 純 Python 解析 4 MB 像素），上限 2.8 fps，互動主控台不能用。ffmpeg 的 x11grab
-    # 內部走 MIT-SHM，同一台機器量到 47 fps，而且 `-draw_mouse` 會把遠端游標畫進來。
+    # 內部走 MIT-SHM，同一台機器量到 47 fps。（游標不畫進來 —— 見 `_start_capture`。）
     "ffmpeg": "ffmpeg",
 }
 # 純 Python 相依（抓畫面與打鍵盤滑鼠）
@@ -55,29 +56,61 @@ REQUIRED_MODULES: dict[str, str] = {
     "PIL": "pillow",
 }
 
+#: 被 systemd 的系統呼叫過濾器擋下來時要說的話。Xvfb 需要幾個後端本身用不到的呼叫，
+#: 而 `SystemCallFilter` 的預設動作是**殺掉**行程（不是回錯誤），所以它會瞬間消失、
+#: 一個字都不留 —— 沒有這段說明的話，畫面上只會是一句查不下去的「起不來」。
+_SECCOMP_HINT = (
+    "虛擬顯示被系統呼叫過濾器擋下（SIGSYS）。FreeRDP 引擎需要放寬四個呼叫，"
+    "請安裝對應的 systemd 設定：\n"
+    "  sudo install -d /etc/systemd/system/jt-ipam-backend.service.d\n"
+    "  printf '[Service]\\nSystemCallFilter=mincore setresuid setuid fchown\\n' | "
+    "sudo tee /etc/systemd/system/jt-ipam-backend.service.d/freerdp.conf\n"
+    "  sudo systemctl daemon-reload && sudo systemctl restart jt-ipam-backend"
+)
+
 # 缺套件時印給人照著貼的指令。這串由後端算，前端不要自己維護一份 —— 兩份會不一致。
 FREERDP_APT_HINT = "sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg"
 
 _CONNECT_TIMEOUT = 25.0        # 秒；與 aardwolf 那條路一致
 _CAPTURE_FPS = 15              # 交給 ffmpeg 的取樣率；畫面沒變時我們仍然不送
 _XVFB_READY_TIMEOUT = 10.0
+#: 顯示編號的搜尋範圍。避開低位號碼（那些可能是真的桌面工作階段）。
+_DISPLAY_MIN, _DISPLAY_MAX = 100, 400
+#: X 的顯示鎖檔前綴。路徑由 X 協定決定，不是我們挑的暫存位置。
+_X11_LOCK_PREFIX = "/tmp/.X"  # noqa: S108
+#: X 伺服器 unix socket 的目錄。這個路徑是 X 協定寫死的，不是我們選的暫存檔位置，
+#: 也不接受覆寫 —— 所以 S108（暫存目錄用法可疑）在這裡不適用。
+_X11_SOCKET_DIR = "/tmp/.X11-unix"  # noqa: S108
 
 
-def _die_with_parent() -> None:
-    """讓子行程跟著後端一起死。
+def _ensure_x11_socket_dir() -> None:
+    """確保 `/tmp/.X11-unix` 存在。
 
-    Xvfb／xfreerdp／ffmpeg 都是後端的子行程，正常收線走 `terminate()`。但後端若是被
-    SIGKILL 帶走（OOM、`systemctl kill`、部署腳本出手），`terminate()` 沒有機會跑，
-    這三個行程會變成孤兒繼續佔著記憶體 —— 而且因為它們不吵不鬧，沒有人會發現，
-    直到那台機器的記憶體被一堆看不出來歷的 Xvfb 吃光。
+    X 伺服器的 unix socket 路徑是寫死的 `/tmp/.X11-unix`，而 **Xvfb 以非 root 身分
+    不會自己建這個目錄**（它會說 `_XSERVTransmkdir: ERROR: euid != 0`），接著就
+    安靜地失敗、連顯示編號都不回報。
 
-    `PR_SET_PDEATHSIG` 讓核心在父行程消失時直接送 SIGKILL 給它們。只有 Linux 有；
-    其他平台就維持原本的行為（本專案只部署在 Linux）。
+    平常的機器上這個目錄早就在了，所以開發時看不到這個問題。但正式環境的 systemd
+    單元有 `PrivateTmp=yes` —— 服務拿到的是一個全新的、空的 `/tmp`。
+    每次連線都檢查一次（成本是一個 syscall），因為那個私有 /tmp 會隨服務重啟而重建。
     """
+    # 只在「不存在」時建立，**不去改既有目錄的權限**：在沒有 PrivateTmp 的機器上
+    # 那是一個共用目錄，可能是別人（或系統）建的，放寬它的權限不是我們的事。
     with contextlib.suppress(Exception):
-        import ctypes
-        libc = ctypes.CDLL("libc.so.6", use_errno=True)
-        libc.prctl(1, signal.SIGKILL)      # PR_SET_PDEATHSIG = 1
+        os.makedirs(_X11_SOCKET_DIR, mode=0o1777, exist_ok=True)
+
+
+# 子行程的清理靠兩層，**刻意不用 `preexec_fn`**：
+#
+#   1. 正常收線 → `terminate()` 逐一收掉。
+#   2. 後端被強制帶走（OOM、`systemctl kill`、部署腳本）→ systemd 的
+#      `KillMode=mixed` 會對 cgroup 內所有剩餘行程送 SIGKILL，它們跟著一起走。
+#
+# 原本這裡用 `preexec_fn` 設 `PR_SET_PDEATHSIG`。那在單執行緒的腳本上沒問題，但
+# **在多執行緒行程裡 fork 會慢得離譜**：實測同一台機器上，單執行緒建立連線 2.85 秒，
+# 有 8 個工作執行緒時變成 14.76 秒 —— 而 uvicorn 的 worker 本來就有執行緒，再加上
+# 四個 worker 的真實負載就衝破連線逾時，畫面上只看到「連線逾時」
+# （2026-09-17 正式環境）。systemd 已經處理了同一件事，不需要為它付這個代價。
 
 
 @dataclass(slots=True)
@@ -311,12 +344,20 @@ class FreeRdpConnection(_InputMixin):
         self._clip_enabled = clip_enabled
         self._username, self._password = username, password
         self._domain = domain or None
-        self._width, self._height = width, height
+        # ⚠️ RDP 的桌面寬度必須是偶數。奇數寬度會讓連線在 post_connect 階段失敗，
+        # 而 FreeRDP 回的是 `ERRCONNECT_CONNECT_TRANSPORT_FAILED` —— 看起來像「連不到」，
+        # 其實已經連上了。瀏覽器視窗寬度是奇數的人會每次都中（2026-09-17：1525 寬）。
+        # 高度沒有這個限制，但一起對齊比較不會讓人以為只有寬度特別。
+        self._width = width - (width % 2)
+        self._height = height - (height % 2)
+        # 捨過的尺寸要回報給前端（見 `framebuffer_size`），否則 canvas 會比畫面大一格。
 
         self.ext_out_queue: asyncio.Queue[VideoTile | None] = asyncio.Queue(maxsize=8)
         self._xvfb: asyncio.subprocess.Process | None = None
         self._rdp: asyncio.subprocess.Process | None = None
         self._grab: asyncio.subprocess.Process | None = None
+        self._home: str | None = None      # 給 xfreerdp 的臨時家目錄（見 _start_xfreerdp）
+        self._xvfb_err: Any = None         # Xvfb 的 stderr 檔（失敗時要讀得到）
         self._display: str | None = None
         self._disp: Any = None              # Xlib display
         self._root: Any = None
@@ -350,36 +391,86 @@ class FreeRdpConnection(_InputMixin):
     async def _start_xvfb(self) -> None:
         """開一個只給這條連線用的虛擬顯示。
 
-        用 `-displayfd` 讓 Xvfb 自己挑一個沒被佔用的編號再告訴我們 —— 自己掃
-        `/tmp/.X11-unix` 再挑，兩條連線同時開就會搶到同一個號碼。
-        """
-        r_fd, w_fd = os.pipe()
-        try:
-            self._xvfb = await asyncio.create_subprocess_exec(
-                "Xvfb", "-displayfd", str(w_fd),
-                "-screen", "0", f"{self._width}x{self._height}x24",
-                "-nolisten", "tcp", "-noreset",
-                pass_fds=(w_fd,), preexec_fn=_die_with_parent,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-            )
-        finally:
-            os.close(w_fd)
+        **不要用 `-displayfd`。** 那需要從管線非同步讀回編號，而 uvicorn 預設跑在
+        uvloop 上 —— 在那裡 `connect_read_pipe` 讀到的是立即 EOF，於是我們拿到空字串、
+        Xvfb 卻還活著，錯誤訊息只剩「啟動失敗（結束碼 None）」。用標準 asyncio
+        跑獨立腳本測不出來（2026-09-17 為此查了很久）。
 
-        loop = asyncio.get_running_loop()
-        reader = asyncio.StreamReader()
-        await loop.connect_read_pipe(
-            lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(r_fd, "rb"))
-        try:
-            async with asyncio.timeout(_XVFB_READY_TIMEOUT):
-                line = await reader.readline()
-        except TimeoutError as exc:
-            raise FreeRdpError("Xvfb 沒有在時限內就緒") from exc
-        num = line.decode().strip()
-        if not num.isdigit():
-            raise FreeRdpError(f"Xvfb 回報的顯示編號看不懂：{num!r}")
-        self._display = f":{num}"
-        logger.info("freerdp: Xvfb 就緒 display=%s size=%dx%d",
-                    self._display, self._width, self._height)
+        改用 X 自己的仲裁方式：每個顯示編號對應一個鎖檔 `/tmp/.X<N>-lock`，Xvfb 啟動時
+        會去搶；搶不到就立刻結束。所以我們只要逐一試、看 socket 有沒有出現就好 ——
+        純粹的檔案存在檢查，跟事件迴圈無關。
+        """
+        _ensure_x11_socket_dir()
+        last_err = ""
+        for num in range(_DISPLAY_MIN, _DISPLAY_MAX):
+            # 已經有人佔著就不必浪費一次 fork。鎖檔路徑是 X 協定寫死的。
+            if await asyncio.to_thread(os.path.exists, f"{_X11_LOCK_PREFIX}{num}-lock"):
+                continue
+            if await self._try_display(num):
+                self._display = f":{num}"
+                logger.info("freerdp: Xvfb 就緒 display=%s size=%dx%d",
+                            self._display, self._width, self._height)
+                return
+            last_err = self._xvfb_stderr_tail()
+            await self._kill_xvfb()
+        raise FreeRdpError(
+            f"找不到可用的虛擬顯示{'：' + last_err if last_err else ''}")
+
+    async def _try_display(self, num: int) -> bool:
+        """在 `:num` 上起 Xvfb；socket 出現就算成功。"""
+        self._xvfb_err = tempfile.NamedTemporaryFile(
+            prefix="jtipam-xvfb-", suffix=".log", delete=False)
+        self._xvfb = await asyncio.create_subprocess_exec(
+            "Xvfb", f":{num}",
+            "-screen", "0", f"{self._width}x{self._height}x24",
+            "-nolisten", "tcp", "-noreset",
+            stdout=asyncio.subprocess.DEVNULL, stderr=self._xvfb_err,
+        )
+        sock = os.path.join(_X11_SOCKET_DIR, f"X{num}")
+        deadline = time.monotonic() + _XVFB_READY_TIMEOUT
+        while time.monotonic() < deadline:
+            if await asyncio.to_thread(os.path.exists, sock):
+                return True
+            if self._xvfb.returncode is not None:
+                # 被 seccomp 殺掉（SIGSYS）是很特殊的死法：瞬間結束、什麼都不寫。
+                # 這時候一個一個換顯示編號試三百次是白費力氣，而且使用者會看到
+                # 一句毫無線索的「找不到可用的虛擬顯示」。直接講出真正的原因。
+                if self._xvfb.returncode == -signal.SIGSYS:
+                    raise FreeRdpError(_SECCOMP_HINT)
+                return False        # 其餘多半是鎖被別人搶走了 → 換下一個編號
+            await asyncio.sleep(0.05)
+        return False
+
+    async def _kill_xvfb(self) -> None:
+        """收掉這一輪失敗的 Xvfb 與它的 stderr 檔。"""
+        proc, self._xvfb = self._xvfb, None
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.terminate()
+            with contextlib.suppress(Exception), contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(3):
+                    await proc.wait()
+        if self._xvfb_err is not None:
+            with contextlib.suppress(Exception):
+                name = self._xvfb_err.name
+                self._xvfb_err.close()
+                os.unlink(name)
+            self._xvfb_err = None
+
+    def _xvfb_stderr_tail(self, limit: int = 300) -> str:
+        """Xvfb 到目前為止抱怨了什麼。失敗時一定要講得出來。"""
+        if self._xvfb_err is None:
+            return ""
+        with contextlib.suppress(Exception):
+            self._xvfb_err.flush()
+            with open(self._xvfb_err.name, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            # xkbcomp 的一長串 keysym 警告是噪音，濾掉才看得到真正的那一行
+            lines = [ln for ln in text.splitlines()
+                     if ln.strip() and "Could not resolve keysym" not in ln
+                     and "XKEYBOARD keymap compiler" not in ln]
+            return " ".join(" ".join(lines).split())[-limit:]
+        return ""
 
     async def _start_xfreerdp(self) -> None:
         """起 xfreerdp。密碼走 stdin，不進 argv。"""
@@ -404,9 +495,15 @@ class FreeRdpConnection(_InputMixin):
         if self._domain:
             args.insert(3, f"/d:{self._domain}")
 
-        env = dict(os.environ, DISPLAY=self._display or "")
+        # FreeRDP 會在 `$HOME/.config/freerdp` 底下寫設定與 known_hosts。家目錄不可寫時
+        # 它不會直說，而是在後面回一句 `ERRCONNECT_SECURITY_NEGO_CONNECT_FAILED`
+        # ——「安全層協商失敗」，指向完全無關的方向（2026-09-17 查了一輪才發現）。
+        # 給它一個這條連線專用的臨時家目錄，就不必管服務的 HOME 是什麼、可不可寫；
+        # 順便讓 known_hosts 隨 session 消滅（我們本來就用 /cert:ignore，不靠它釘憑證）。
+        self._home = tempfile.mkdtemp(prefix="jtipam-rdp-")
+        env = dict(os.environ, DISPLAY=self._display or "", HOME=self._home)
         self._rdp = await asyncio.create_subprocess_exec(
-            *args, env=env, preexec_fn=_die_with_parent,
+            *args, env=env,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
@@ -483,22 +580,34 @@ class FreeRdpConnection(_InputMixin):
         if self._spare_keycode is None:
             logger.warning("freerdp: 找不到備用 keycode，非 ASCII 字元可能打不出來")
 
+    @property
+    def framebuffer_size(self) -> tuple[int, int]:
+        """實際拿到的畫面尺寸 —— 不一定等於呼叫端要求的（寬度會被捨成偶數）。
+
+        前端要照這個開 canvas：照「要求的」開會多出永遠黑著的一欄，而且座標換算的
+        比例也差了那一格，愈往右偏得愈多。
+        """
+        return self._width, self._height
+
     async def _start_capture(self) -> None:
         """把畫面交給 ffmpeg 抓，我們只負責從管線讀原始像素。
 
-        `-draw_mouse 1`：遠端游標是 X 端畫的，`XGetImage` 抓不到它 —— 少了這個參數，
-        使用者在畫面上看不到自己的游標在哪裡。
+        `-draw_mouse 0`：**不要**把游標烘進畫面。瀏覽器自己會在 canvas 上畫一個游標，
+        再疊一個進來就是兩個，使用者看到的就是「游標有偏移」（2026-09-17 回報）。
+        而且 ffmpeg 畫的是 **X 這端**的游標 —— 被控端沒送過 pointer update 時它是
+        X11 的預設叉叉，形狀根本不是遠端那一個，留著也換不到正確的形狀提示。
+        aardwolf 引擎從來就只有瀏覽器那一個游標，關掉才是兩個引擎一致的行為。
+        順帶：指標在空白處移動不再產生任何畫面更新，閒置流量歸零。
         """
         size = self._width * self._height * 3
         self._grab = await asyncio.create_subprocess_exec(
             "ffmpeg", "-loglevel", "error",
-            "-f", "x11grab", "-draw_mouse", "1",
+            "-f", "x11grab", "-draw_mouse", "0",
             "-video_size", f"{self._width}x{self._height}",
             "-framerate", str(_CAPTURE_FPS),
             "-i", self._display or "",
             "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            preexec_fn=_die_with_parent,
             # 預設的資料流上限是 64 KB，一張 1280x800 是 3 MB —— 不放大會一直卡住
             limit=size + (1 << 20),
         )
@@ -562,6 +671,16 @@ class FreeRdpConnection(_InputMixin):
                 with contextlib.suppress(Exception):
                     await proc.wait()
         self._grab = self._rdp = self._xvfb = None
+        if self._home:
+            with contextlib.suppress(Exception):
+                shutil.rmtree(self._home, ignore_errors=True)
+            self._home = None
+        if self._xvfb_err is not None:
+            with contextlib.suppress(Exception):
+                name = self._xvfb_err.name
+                self._xvfb_err.close()
+                os.unlink(name)
+            self._xvfb_err = None
 
     # ── 畫面 ────────────────────────────────────────────────────────────────
 
@@ -619,6 +738,11 @@ class FreeRdpConnection(_InputMixin):
 def _explain(stderr_text: str) -> str:
     """把 FreeRDP 的錯誤講成使用者看得懂的話，但**保留底層原文**。"""
     low = stderr_text.lower()
+    if "errconnect_connect_transport_failed" in low and "post_connect" in low:
+        # 已經連上了，是在建立圖形階段失敗。實測過的成因是桌面寬度為奇數
+        # （我們現在會先對齊成偶數，所以走到這裡多半是別的畫面參數）。
+        return ("被控端拒絕了這組畫面參數（解析度或色彩深度）："
+                + " ".join(stderr_text.split())[-200:])
     if "logon_failure" in low or "errconnect_logon_failure" in low:
         hint = "帳號或密碼不正確"
     elif "errconnect_connect_transport_failed" in low or "connection reset" in low:

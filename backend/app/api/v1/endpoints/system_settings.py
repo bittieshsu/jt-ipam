@@ -1333,6 +1333,27 @@ async def get_version_info() -> dict[str, Any]:
         "tracepath": {"present": caps["tracepath"], "package": "iputils-tracepath",
                       "used_by": "traceroute fallback"},
     }
+    # FreeRDP 引擎要的那幾個。列在這裡是因為這一頁正是管理員用來確認「這台裝了什麼」
+    # 的地方 —— 選了 FreeRDP 卻連不上時，第一個該看的就是這裡，而不是去翻日誌。
+    import shutil as _shutil
+
+    from app.services.rdp_freerdp import REQUIRED_BINARIES
+    _rdp_used_by = {
+        "xfreerdp": "RDP console (FreeRDP engine)",
+        "Xvfb": "RDP console (FreeRDP engine) — virtual display",
+        "ffmpeg": "RDP console (FreeRDP engine) — screen capture",
+    }
+    for exe, pkg in REQUIRED_BINARIES.items():
+        info["host"]["optional_tools"][exe] = {
+            "present": _shutil.which(exe) is not None,
+            "package": pkg,
+            "used_by": _rdp_used_by.get(exe, "RDP console (FreeRDP engine)"),
+        }
+    info["host"]["optional_tools"]["xclip"] = {
+        "present": _shutil.which("xclip") is not None,
+        "package": "xclip",
+        "used_by": "RDP console (FreeRDP engine) — clipboard paste",
+    }
     return info
 
 

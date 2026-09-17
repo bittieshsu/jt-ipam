@@ -73,7 +73,11 @@ router = APIRouter(prefix="/addresses", tags=["rdp"])
 _log = logging.getLogger("jt-ipam.rdp")
 
 _TICKET_TTL = 60              # 秒；ticket 單次用、短壽
-_CONNECT_TIMEOUT = 20.0       # RDP（NLA）連線逾時
+_CONNECT_TIMEOUT = 20.0       # RDP（NLA）連線逾時（aardwolf：單純的 socket 連線）
+#: FreeRDP 這條路要起虛擬顯示、起 xfreerdp、等視窗畫出來、再起畫面擷取 ——
+#: 本來就比「開一條 socket」久。共用 20 秒會在機器有負載時把成功的連線判成逾時
+#: （2026-09-17 正式環境上就是這樣）。
+_CONNECT_TIMEOUT_FREERDP = 45.0
 #: RDP 標準埠。原本沒有這個常數（靠 aardwolf 的預設），但走跳板時
 #: 必須明確知道要轉發到哪個埠，而且 URL 也要帶上（見下方註解）。
 _RDP_PORT = 3389
@@ -516,8 +520,9 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 tunnel=tunnel, username=username, password=password,
                 domain=domain, width=width, height=height, clip_enabled=clip_enabled)
         del password
+        budget = _CONNECT_TIMEOUT_FREERDP if engine == "freerdp" else _CONNECT_TIMEOUT
         try:
-            async with asyncio.timeout(_CONNECT_TIMEOUT):
+            async with asyncio.timeout(budget):
                 _result, err = await conn.connect()
         except TimeoutError:
             await send({"type": "error", **ui_detail("console_connect_timeout", "連線逾時")})
@@ -525,13 +530,27 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             return
         if err is not None:
             _log.info("rdp: 連線失敗 host=%s engine=%s err=%r", host, engine, err)
+            from app.services.rdp_freerdp import FreeRdpError
+            if isinstance(err, FreeRdpError):
+                # FreeRDP 引擎已經把原因講清楚了（它看得到 xfreerdp／Xvfb 說了什麼）。
+                # ⚠️ 不要再丟給下面那個分類器：那是照 aardwolf 的失敗樣態寫的，會把
+                # 「虛擬顯示起不來」說成「帳號、密碼、網域或 NLA 設定」——
+                # 指著完全無關的方向（2026-09-17 正式環境實際發生過）。
+                # ⚠️ 一定要走 detail_of：它保證帶上 `reason` 參數。翻譯是
+                # 「RDP 引擎無法建立連線：{reason}」—— 只送 message 不送參數的話，
+                # 前端會優先用翻譯，`{reason}` 變成空字串，整句診斷就這樣不見了
+                # （2026-09-17 正式環境上真的發生，畫面只剩一個冒號）。
+                await send({"type": "error", **detail_of(err, "console_engine_failed")})
+                await websocket.close()
+                return
             # 不回堆疊，但**要帶底層原因**：只說「認證失敗」會把「對方在交握前就關掉連線」
             # 這種情況指去查密碼（見 vnc_console._classify_connect_error 的由來）
             from app.api.v1.endpoints.vnc_console import _classify_connect_error
             code, message = _classify_connect_error(err)
             if code == "auth_failed":
                 from app.core.safe_http import transport_detail
-                message = f"連線/認證失敗（帳號、密碼、網域或 NLA 設定）：{transport_detail(err, limit=160)}"
+                message = (f"連線/認證失敗（帳號、密碼、網域或 NLA 設定）："
+                           f"{transport_detail(err, limit=160)}")
             await send({"type": "error", "code": code, "message": message})
             await websocket.close()
             return
@@ -548,7 +567,10 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
         _log.info("rdp: 已連上 host=%s engine=%s", host, engine)
-        await send({"type": "status", "state": "connected", "width": width, "height": height})
+        # 回報**實際**拿到的尺寸：FreeRDP 會把寬度捨成偶數，前端照要求的開 canvas
+        # 會多出一欄永遠黑著的像素，座標換算也跟著差那一格。
+        fb_w, fb_h = getattr(conn, "framebuffer_size", (width, height))
+        await send({"type": "status", "state": "connected", "width": fb_w, "height": fb_h})
 
         if clip_enabled:
             # 預先放一個空字串到剪貼簿，讓 clipboard.data 不為 None。
@@ -694,4 +716,7 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
     if reason:
         _log.info("rdp: 被控端結束了工作階段：%s", reason)
         with contextlib.suppress(Exception):
-            await send({"type": "error", "code": "console_remote_closed", "message": reason})
+            # 翻譯是「被控端結束了這個工作階段：{reason}」——「reason」要走參數，
+            # 不能只放在 message，否則前端用翻譯時那一段會是空的
+            await send({"type": "error",
+                        **ui_detail("console_remote_closed", reason, reason=reason)})

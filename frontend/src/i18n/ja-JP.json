@@ -2828,7 +2828,8 @@
     "migration_socket_needs_ssh": "MySQL の socket 接続には SSH トンネルが必要です（socket はリモートホスト上にしか存在しません）",
     "migration_known_host_required": "SSH ホスト鍵が必要です。先に「フィンガープリント取得」を実行し、確認してから送信してください",
     "migration_refetch_fingerprint": "フィンガープリントを取得し直し、確認してから再送信してください",
-    "console_remote_closed": "接続先がこのセッションを終了しました：{reason}"
+    "console_remote_closed": "接続先がこのセッションを終了しました：{reason}",
+    "console_engine_failed": "RDP エンジンが接続できませんでした：{reason}"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",

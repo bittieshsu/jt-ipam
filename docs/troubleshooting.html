@@ -216,6 +216,7 @@
     <a href="#service" data-sec="service"><span class="zh">裝完了但連不上</span><span class="en">Installed but unreachable</span><span class="ja">入れたのに繋がらない</span></a>
     <a href="#login" data-sec="login"><span class="zh">登入與管理員密碼</span><span class="en">Login &amp; admin password</span><span class="ja">ログインと管理者パスワード</span></a>
     <a href="#after" data-sec="after"><span class="zh">升級後畫面或功能不對</span><span class="en">After upgrade: odd behaviour</span><span class="ja">アップグレード後の挙動がおかしい</span></a>
+    <a href="#console" data-sec="console"><span class="zh">遠端主控台</span><span class="en">Remote console</span><span class="ja">リモートコンソール</span></a>
     <a href="#stuck" data-sec="stuck"><span class="zh">還是不行</span><span class="en">Still stuck</span><span class="ja">それでも解決しない</span></a>
   </aside>
 
@@ -752,6 +753,55 @@ echo "$ADMIN_PW"</code></pre>
       </article>
     </section>
 
+    <!-- ══════════════ 遠端主控台 ══════════════ -->
+    <section class="sec" id="console">
+      <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span class="zh">遠端主控台</span><span class="en">Remote console</span><span class="ja">リモートコンソール</span></h2>
+
+      <article class="qa" id="qa-rdp-engine">
+        <h3>
+          <span class="zh">RDP 連 Linux（xrdp／GNOME 遠端登入）時帳密明明是對的卻說認證失敗</span>
+          <span class="en">RDP to Linux (xrdp / GNOME Remote Login) reports a logon failure with correct credentials</span>
+          <span class="ja">Linux への RDP（xrdp／GNOME リモートログイン）で、正しい資格情報なのに認証失敗になる</span>
+        </h3>
+        <p>
+          <span class="zh">請到 管理 → 系統設定 → 主控台，把 RDP 連線引擎改成 <strong>FreeRDP</strong>。預設的 aardwolf 引擎在 NTLM 認證時不送 MIC（訊息完整性碼），而 FreeRDP 的<strong>伺服器端</strong>會強制檢查它 —— xrdp 與 gnome-remote-desktop 用的正是 FreeRDP 伺服器，於是一律回「帳號或密碼錯誤」。連 Windows 目標時兩個引擎都可以。</span>
+          <span class="en">Go to Admin → System settings → Console and switch the RDP engine to <strong>FreeRDP</strong>. The default aardwolf engine does not send the NTLM message integrity code (MIC), and the FreeRDP <strong>server</strong> enforces it — xrdp and gnome-remote-desktop are both built on that server, so they answer with a logon failure regardless of the password. Either engine works against Windows targets.</span>
+          <span class="ja">管理 → システム設定 → コンソール で RDP 接続エンジンを <strong>FreeRDP</strong> に切り替えてください。既定の aardwolf エンジンは NTLM の MIC（メッセージ整合性コード）を送らず、FreeRDP の<strong>サーバー側</strong>はそれを必須としています。xrdp と gnome-remote-desktop はどちらもそのサーバーを使っているため、パスワードが正しくてもログオン失敗になります。Windows が相手ならどちらのエンジンでも接続できます。</span>
+        </p>
+        <p class="note">
+          <span class="zh">FreeRDP 引擎需要額外的系統套件（約 150 MB），設定頁會列出缺哪些與安裝指令。也可以在安裝時加 <code>--with-freerdp</code>；升級時若已選用 FreeRDP 會自動補上。</span>
+          <span class="en">The FreeRDP engine needs extra system packages (~150 MB); the settings page lists what is missing and the command to install it. You can also pass <code>--with-freerdp</code> at install time — an upgrade installs them automatically when FreeRDP is already selected.</span>
+          <span class="ja">FreeRDP エンジンには追加のシステムパッケージ（約 150 MB）が必要です。不足分とインストールコマンドは設定ページに表示されます。インストール時に <code>--with-freerdp</code> を付けることもでき、FreeRDP を選択済みならアップグレード時に自動で導入されます。</span>
+        </p>
+        <pre><code>sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg</code></pre>
+      </article>
+
+      <article class="qa" id="qa-rdp-session-running">
+        <h3>
+          <span class="zh">連 GNOME 遠端登入時出現「Session Already Running」，按 Force Stop 沒有反應</span>
+          <span class="en">GNOME Remote Login shows &ldquo;Session Already Running&rdquo; and Force Stop does nothing</span>
+          <span class="ja">GNOME リモートログインで「Session Already Running」が出て、Force Stop を押しても何も起きない</span>
+        </h3>
+        <p>
+          <span class="zh">這是被控端的行為，不是主控台沒把點擊送出去：滑鼠事件確實有送達（按鈕會變成按下的樣子），但 GDM 在該使用者已有本機工作階段時停不掉它。GNOME 的<strong>遠端登入</strong>是開一個全新的無頭工作階段，本來就不能與本機工作階段並存。</span>
+          <span class="en">This is the target's own behaviour, not a lost click: the mouse events do arrive (the button visibly takes its pressed state), but GDM cannot stop a session that the user already has on the local console. GNOME <strong>Remote Login</strong> starts a brand-new headless session, which by design cannot coexist with the local one.</span>
+          <span class="ja">これは接続先側の挙動で、クリックが届いていないわけではありません（ボタンは押された表示になります）。GDM は、そのユーザーがローカルコンソールで既に持っているセッションを停止できません。GNOME の<strong>リモートログイン</strong>は新しいヘッドレスセッションを開始する仕組みで、ローカルセッションとは共存できません。</span>
+        </p>
+        <p>
+          <span class="zh">想接進<strong>已經登入的那個桌面</strong>（一般的遠端協助情境），請在被控端改用「設定 → 系統 → 遠端桌面 → <strong>桌面共享</strong>」，不要用「遠端登入」。兩者都走 RDP 3389，但桌面共享是接上現有工作階段，不會有這個對話框。</span>
+          <span class="en">To reach the <strong>desktop that is already logged in</strong> (the usual remote-assistance case), enable Settings → System → Remote Desktop → <strong>Desktop Sharing</strong> on the target instead of Remote Login. Both speak RDP on 3389, but Desktop Sharing attaches to the existing session and never shows this dialog.</span>
+          <span class="ja">すでにログイン中のデスクトップに入りたい場合（通常のリモート支援）は、接続先で 設定 → システム → リモートデスクトップ → <strong>デスクトップ共有</strong> を有効にしてください。どちらも 3389 の RDP ですが、デスクトップ共有は既存セッションに接続するため、このダイアログは出ません。</span>
+        </p>
+        <p class="note">
+          <span class="zh">若確定要用遠端登入，先把本機那個工作階段結束掉：</span>
+          <span class="en">If you really want Remote Login, end the local session first:</span>
+          <span class="ja">どうしてもリモートログインを使う場合は、先にローカルセッションを終了してください：</span>
+        </p>
+        <pre><code>loginctl list-sessions
+sudo loginctl terminate-user &lt;username&gt;</code></pre>
+      </article>
+    </section>
+
     <!-- ══════════════ 還是不行 ══════════════ -->
     <section class="sec" id="stuck">
       <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17h.01"/><path d="M9.1 9a3 3 0 1 1 4.5 3.3c-.9.5-1.6 1.2-1.6 2.2"/><circle cx="12" cy="12" r="10"/></svg><span class="zh">還是不行</span><span class="en">Still stuck</span><span class="ja">それでも解決しない</span></h2>
@@ -762,13 +812,13 @@ echo "$ADMIN_PW"</code></pre>
           <span class="en">Open an issue — these four outputs are usually enough</span>
           <span class="ja">issue を立ててください — この四つがあれば判断できます</span>
         </h3>
-        <pre><code># 1) バージョンと OS
+        <pre><code># 1) <span class="zh">版本與作業系統</span><span class="en">Version and OS</span><span class="ja">バージョンと OS</span>
 cat /opt/jt-ipam/backend/app/version.py; lsb_release -ds; uname -r
-# 2) 健全性チェック
+# 2) <span class="zh">健康檢查</span><span class="en">Health check</span><span class="ja">健全性チェック</span>
 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor
-# 3) バックエンドのログ
+# 3) <span class="zh">後端日誌</span><span class="en">Backend log</span><span class="ja">バックエンドのログ</span>
 sudo journalctl -u jt-ipam-backend -n 100 --no-pager
-# 4) 失敗した時の出力全文（最後の一行だけは不可）</code></pre>
+# 4) <span class="zh">失敗當下的完整輸出（只貼最後一行不夠）</span><span class="en">The full output of the failure (the last line alone is not enough)</span><span class="ja">失敗した時の出力全文（最後の一行だけは不可）</span></code></pre>
         <p>
           <span class="zh">貼之前請把主機名稱、對外網域、IP 與任何密碼／金鑰換掉。</span>
           <span class="en">Please redact hostnames, public domains, IP addresses and any password or key before pasting.</span>

@@ -110,14 +110,41 @@ install_rdp_optional() {
 #   - upgrade, when the site has already selected the FreeRDP engine (see ensure_freerdp_if_selected)
 FREERDP_APT_PACKAGES=(freerdp2-x11 xvfb xclip ffmpeg)
 
+# The backend's systemd unit carries a SystemCallFilter allowlist. Xvfb needs four calls the
+# backend itself never makes, and the filter's default action is to KILL -- so Xvfb dies with
+# SIGSYS, instantly and silently, and the console reports only "could not start a display".
+#
+# The relaxation is small in practice: the service runs as an unprivileged user with
+# NoNewPrivileges=yes, so setresuid/setuid can only move between identities it already has
+# (its own), and a non-root fchown cannot give a file away. It is still opt-in, installed only
+# with the engine that needs it, so sites on the default engine keep the tighter filter.
+FREERDP_DROPIN=/etc/systemd/system/jt-ipam-backend.service.d/freerdp.conf
+
+install_freerdp_dropin() {
+    mkdir -p "$(dirname "$FREERDP_DROPIN")"
+    cat > "$FREERDP_DROPIN" <<'DROPIN'
+# Installed by jt-ipam.sh for the FreeRDP console engine. Safe to delete if you switch back to
+# the built-in engine (Admin -> System settings -> RDP connection engine), then:
+#   sudo systemctl daemon-reload && sudo systemctl restart jt-ipam-backend
+#
+# Xvfb needs these four; the backend does not. SystemCallFilter= entries are merged across
+# drop-ins, so this adds to the unit's allowlist rather than replacing it.
+[Service]
+SystemCallFilter=mincore setresuid setuid fchown
+DROPIN
+    systemctl daemon-reload 2>/dev/null || true
+    log "Installed systemd drop-in for the FreeRDP engine ($FREERDP_DROPIN)."
+}
+
 install_freerdp_apt() {
     log "Installing FreeRDP engine packages (${FREERDP_APT_PACKAGES[*]})…"
-    if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${FREERDP_APT_PACKAGES[@]}"; then
-        log "FreeRDP engine packages installed."
-        return 0
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${FREERDP_APT_PACKAGES[@]}"; then
+        warn "Could not install FreeRDP engine packages; that engine stays unavailable."
+        return 1
     fi
-    warn "Could not install FreeRDP engine packages; that engine stays unavailable."
-    return 1
+    install_freerdp_dropin
+    log "FreeRDP engine packages installed."
+    return 0
 }
 
 # Does this host already have every FreeRDP package?
@@ -126,18 +153,29 @@ freerdp_apt_present() {
         && command -v ffmpeg >/dev/null 2>&1
 }
 
+# Packages alone are not enough: without the drop-in, Xvfb is killed by the syscall filter.
+freerdp_ready() {
+    freerdp_apt_present && [ -f "$FREERDP_DROPIN" ]
+}
+
 # An upgrade must not silently take away an engine the site is actually using. If the admin has
 # selected the FreeRDP engine in Admin -> System settings, make sure its apt packages are present
 # -- otherwise the first RDP connection after the upgrade fails with "engine not installed", and
 # nothing in the upgrade output said why.
 ensure_freerdp_if_selected() {
     command -v apt-get >/dev/null 2>&1 || return 0
-    freerdp_apt_present && return 0
+    freerdp_ready && return 0
     local selected
     selected="$(sudo -u postgres psql -tAd jt_ipam -c \
         "SELECT value->>'rdp_engine' FROM system_settings WHERE key='console_security'" \
         2>/dev/null | tr -d '[:space:]')"
     [[ "$selected" == "freerdp" ]] || return 0
+    if freerdp_apt_present; then
+        # 套件都在，只缺 systemd 的放寬設定（升級到有這段程式碼的版本時會走這裡）
+        log "This site uses the FreeRDP console engine; installing its systemd drop-in…"
+        install_freerdp_dropin
+        return 0
+    fi
     log "This site uses the FreeRDP console engine but its packages are missing — installing…"
     install_freerdp_apt || warn "RDP consoles will fail until these are installed."
 }
@@ -1446,11 +1484,14 @@ cmd_doctor() {
     echo
     echo "Remote console"
     if [[ "$rdp_engine" == "freerdp" ]]; then
-        if freerdp_apt_present; then
-            _ok "RDP engine: FreeRDP (packages present)"
-        else
+        if freerdp_ready; then
+            _ok "RDP engine: FreeRDP (packages and syscall drop-in present)"
+        elif ! freerdp_apt_present; then
             _bad "RDP engine is set to FreeRDP but its packages are missing — RDP consoles will not connect" \
                  "sudo apt-get install -y ${FREERDP_APT_PACKAGES[*]}"
+        else
+            _bad "RDP engine is set to FreeRDP but the syscall drop-in is missing — the virtual display is killed on start (SIGSYS)" \
+                 "sudo $0 upgrade   (installs it), or see docs/INSTALL.md"
         fi
     else
         _ok "RDP engine: aardwolf (built in)"

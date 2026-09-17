@@ -2828,7 +2828,8 @@
     "migration_socket_needs_ssh": "MySQL 走 socket 必須搭配 SSH 通道（socket 只存在於遠端主機上）",
     "migration_known_host_required": "需要 SSH 主機金鑰：請先執行「取得指紋」並確認後再送出",
     "migration_refetch_fingerprint": "請重新取得指紋、確認無誤後再送出一次",
-    "console_remote_closed": "被控端結束了這個工作階段：{reason}"
+    "console_remote_closed": "被控端結束了這個工作階段：{reason}",
+    "console_engine_failed": "RDP 引擎無法建立連線：{reason}"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",

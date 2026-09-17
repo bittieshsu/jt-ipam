@@ -2828,7 +2828,8 @@
     "migration_socket_needs_ssh": "Using a MySQL socket requires an SSH tunnel (the socket only exists on the remote host)",
     "migration_known_host_required": "The SSH host key is required: run \"Get fingerprint\", confirm it, then submit again",
     "migration_refetch_fingerprint": "Fetch the fingerprint again, confirm it, and resubmit",
-    "console_remote_closed": "The remote host ended this session: {reason}"
+    "console_remote_closed": "The remote host ended this session: {reason}",
+    "console_engine_failed": "The RDP engine could not connect: {reason}"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",

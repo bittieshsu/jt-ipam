@@ -280,7 +280,18 @@ async function startSession(w: number, h: number) {
         break;
       }
       case "status":
-        if (payload.state === "connected") { phase.value = "connected"; nextTick(() => canvasEl.value?.focus()); }
+        if (payload.state === "connected") {
+          // 後端回報的才是實際尺寸（FreeRDP 會把寬度捨成偶數）。照要求的尺寸開 canvas
+          // 會多出一欄永遠黑著的像素，mapXY 的比例也跟著差那一格 —— 愈靠右偏得愈多。
+          const aw = Number(payload.width) || 0, ah = Number(payload.height) || 0;
+          if (aw > 0 && ah > 0 && canvasEl.value
+              && (canvasEl.value.width !== aw || canvasEl.value.height !== ah)) {
+            canvasEl.value.width = aw; canvasEl.value.height = ah;
+            srvW = aw; srvH = ah;
+            applyScale();
+          }
+          phase.value = "connected"; nextTick(() => canvasEl.value?.focus());
+        }
         else if (payload.state === "via_jump") viaJump.value = payload.via || "";
         else if (payload.state === "disconnected") phase.value = "closed";
         break;

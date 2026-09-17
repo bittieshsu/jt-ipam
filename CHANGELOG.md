@@ -4,6 +4,71 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.27] - 2026-09-17
+
+### Fixed
+- **Two cursors on the RDP console.** The FreeRDP engine baked a cursor into every captured
+  frame while the browser drew its own on top of the canvas — two cursors at the same point,
+  which reads as one cursor being offset. The baked one was not even the remote's pointer: it
+  was whatever cursor the *local* X server had, which on a target that never sends a pointer
+  update is X11's default shape and has nothing to do with the remote. It is no longer drawn:
+  the two engines now behave the same, and moving the pointer over empty space no longer
+  produces any frame updates at all.
+- **The rightmost column was always black, and aiming drifted towards the right edge.** An RDP
+  desktop must have an even width, so an odd request is rounded down — but the canvas was still
+  sized to what was asked for, leaving a column that never gets painted and a scale factor off
+  by that column. The engine now reports the size it actually got, and the canvas follows it.
+- **The FreeRDP engine was killed outright by the syscall filter in production.** Xvfb needs
+  four calls the backend itself never makes, and the filter's default action is to *kill* rather
+  than return an error, so it vanished without a word and the console said only that no virtual
+  display could be started. The install and upgrade scripts now add the matching systemd
+  drop-in whenever the FreeRDP engine is selected; sites on the default engine keep the tighter
+  filter.
+
+### Changed
+- **A "Remote console" section in the troubleshooting page** (all three languages): which engine
+  to choose for xrdp or GNOME Remote Login, and what GNOME's "Session Already Running" dialog
+  means — Force Stop doing nothing is not a lost click, it is GDM being unable to end a session
+  the user already holds on the local console. To reach a desktop that is already logged in,
+  use Desktop Sharing rather than Remote Login.
+- **Four documentation screenshots re-shot from the demo dataset.** The originals came from a
+  real network and showed internal ranges, real hostnames and MACs, and a customer's name.
+  Secret scanning cannot read image content and sanitisation cannot change pixels.
+  ⚠️ The old images remain in the published git history.
+
+### Notes
+- No database changes. **Install and upgrade**: sites using the FreeRDP engine gain one systemd
+  drop-in (`/etc/systemd/system/jt-ipam-backend.service.d/freerdp.conf`), installed by the
+  scripts; sites on the default engine are unaffected.
+
+## [0.6.26] - 2026-09-17
+
+### Fixed
+- **The FreeRDP engine could not start its virtual display on a real install.** The systemd unit
+  runs with `PrivateTmp=yes`, so the service gets a fresh, empty `/tmp` — and Xvfb, running as a
+  non-root user, will not create `/tmp/.X11-unix` itself. It says so and then fails. The engine
+  now creates that directory before starting Xvfb. This could not reproduce in development,
+  where the directory already exists and nothing is sandboxed.
+- **That failure was reported as a credentials problem.** The message read "connection or
+  authentication failed (username, password, domain or NLA)", because FreeRDP's error was being
+  run through a classifier written for the other engine's failure modes. It sent the reader to
+  check a password that was never wrong. FreeRDP errors now keep their own explanation, and
+  Xvfb's own words are included instead of being discarded.
+- **FreeRDP needs a writable home directory** and, when it does not have one, reports a security
+  negotiation failure — again pointing somewhere unrelated. Each connection now gets its own
+  temporary home, so the engine no longer depends on how the service's HOME is configured.
+  Verified against a sandbox with no writable paths at all.
+
+### Changed
+- **The version page lists what the FreeRDP engine needs** (`xfreerdp`, `Xvfb`, `ffmpeg`,
+  `xclip`) alongside the existing optional tools, each with its package name and what it is for.
+  That page is where an administrator checks what a host has; an engine that cannot connect for
+  want of a package should be visible there rather than in the logs. A test keeps that list and
+  the engine's own requirements from drifting apart.
+
+### Notes
+- No database changes; installation and upgrade are unaffected.
+
 ## [0.6.25] - 2026-09-17
 
 ### Added
