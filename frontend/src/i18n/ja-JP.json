@@ -324,7 +324,8 @@
     "mikrotik": "MikroTik 連携",
     "mikrotik_fw": "ルーター（MikroTik）",
     "jump_hosts": "踏み台ホスト",
-    "doctor": "システムチェック"
+    "doctor": "システムチェック",
+    "ocs": "OCS インベントリ"
   },
   "topbar": {
     "search": "検索…",
@@ -1139,7 +1140,8 @@
       "paloalto": "Palo Alto",
       "mikrotik": "MikroTik",
       "zabbix": "Zabbix",
-      "esxi": "VMware ESXi / vCenter"
+      "esxi": "VMware ESXi / vCenter",
+      "ocs": "OCS インベントリ"
     },
     "model_title": "機器の型番のソース順",
     "model_subtitle": "同じ機器について複数のソースが型番を提供した場合、上にあるものが優先されます。手動が最上位で、無効にはできません。ドラッグで並べ替えられます。"
@@ -1237,7 +1239,8 @@
     "fw_match_dst": "宛先：{why}",
     "fw_why_alias_member": "エイリアス {value} のメンバー",
     "fw_why_net_covers": "{value} に含まれる",
-    "fw_why_exact": "アドレスが完全に一致"
+    "fw_why_exact": "アドレスが完全に一致",
+    "last_seen_ocs": "最終確認（OCS インベントリ）"
   },
   "subnets": {
     "title": "サブネット",
@@ -2830,7 +2833,13 @@
     "migration_refetch_fingerprint": "フィンガープリントを取得し直し、確認してから再送信してください",
     "console_remote_closed": "接続先がこのセッションを終了しました：{reason}",
     "console_engine_failed": "RDP エンジンが接続できませんでした：{reason}",
-    "console_char_not_typable": "「{char}」は現在の RDP 接続エンジンでは直接入力できません（FreeRDP に Unicode キーボードチャネルがないため）。ツールバーの「貼り付け」をご利用ください。"
+    "console_char_not_typable": "「{char}」は現在の RDP 接続エンジンでは直接入力できません（FreeRDP に Unicode キーボードチャネルがないため）。ツールバーの「貼り付け」をご利用ください。",
+    "ocs_error": "OCS 連携でエラーが発生しました",
+    "ocs_no_url": "この OCS サーバーに URL が設定されていません",
+    "ocs_unreachable": "この OCS サーバーに接続できません",
+    "ocs_rest_unavailable": "URL には到達できますが、OCS REST API が正しく応答しません（無効の可能性）",
+    "ocs_auth_required": "OCS は認証が必要ですが、資格情報が誤っているか未設定です",
+    "ocs_db_not_impl": "現在は REST ソースのみ対応です（データベース直接接続は後続フェーズ）"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -4332,5 +4341,39 @@
   "tool_label": {
     "frame": "{nouns}を{verb}",
     "noun_join": "の"
+  },
+  "ocs": {
+    "title": "OCS Inventory 連携",
+    "add": "OCS を追加",
+    "edit_title": "OCS を編集",
+    "intro": "OCS Inventory からエンドポイントとサーバーの資産情報（ホスト名・OS・NIC・シリアル／型番）を取得します。読み取り専用で OCS は変更しません。既存 IP の MAC のみで照合し、IP を自動作成することはありません。",
+    "version": "バージョン",
+    "test": "接続テスト",
+    "sync_now": "今すぐ同期",
+    "sync_started": "同期をバックグラウンドで開始しました",
+    "confirm_delete": "「{name}」を削除しますか？",
+    "name_ph": "例：本社 OCS",
+    "name_url_required": "名前と URL は必須です",
+    "username": "ユーザー名",
+    "password": "パスワード",
+    "auth_optional": "任意（OCS REST は既定で認証なし）",
+    "password_kept": "空欄のままで保存済みパスワードを維持",
+    "verify_tls": "TLS 証明書を検証",
+    "sync_networks": "NIC を同期",
+    "sync_bios": "シリアル／型番／メーカーを同期",
+    "sync_software": "ソフトウェア一覧を同期",
+    "sync_software_hint": "既定でオフ：1 台あたり約 2 KB → 約 80 KB に増加します（本バージョンでは未保存）。",
+    "interval": "同期間隔（秒）",
+    "stale_days": "インベントリの失効日数",
+    "diag_title": "接続診断",
+    "diag_reachable": "到達可能",
+    "diag_count": "コンピュータ数",
+    "diag_incremental": "増分同期",
+    "incremental_yes": "対応（2.11+）",
+    "incremental_no": "非対応（2.10、全件のみ）",
+    "diag_auth": "認証が必要",
+    "auth_on": "はい",
+    "auth_off": "いいえ",
+    "warn_unauthenticated": "⚠️ この OCS は認証情報なしでデータを返します — 到達できる誰もが全資産一覧を読み取れます。OCS 側（Apache）で /ocsapi に認証を追加するか、リバースプロキシでアクセスを制限してください。"
   }
 }

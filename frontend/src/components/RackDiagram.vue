@@ -591,7 +591,9 @@ const cells = computed<Cell[]>(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 110px;
+  /* #32：用實際裝置寬度（外層 .d-name-span 已 left:0/right:0 撐滿該格），
+     不要再套半 U 的固定上限，否則全寬裝置的名稱會在半 U 處就被截斷。 */
+  max-width: 100%;
 }
 /* ⚠️ `max-width` 只能放在**內層**：放在絕對定位的外層時，`left:0; right:0` 與
    `max-width` 同時成立會讓瀏覽器保留 left、丟掉 right，整個名稱框被釘在左邊 ——
@@ -624,7 +626,7 @@ const cells = computed<Cell[]>(() => {
 .rd-compact .rack-frame { --rd-row-h: 18px; }
 .rd-compact .u-row { height: 18px; font-size: 10px; }
 .rd-compact .u-num-out { height: 18px; font-size: 9px; }
-.rd-compact .d-name { font-size: 10px; max-width: 90px; }
+.rd-compact .d-name { font-size: 10px; max-width: 100%; }
 .rd-compact .d-name-half { font-size: 9px; }
 .rd-compact :deep(.n-card-header) { padding: 10px 14px; }
 .rd-compact :deep(.n-card-header__main) { font-size: 13px; }

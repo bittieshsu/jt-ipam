@@ -324,7 +324,8 @@
     "mikrotik": "MikroTik integration",
     "mikrotik_fw": "Router (MikroTik)",
     "jump_hosts": "Jump hosts",
-    "doctor": "System check"
+    "doctor": "System check",
+    "ocs": "OCS Inventory"
   },
   "topbar": {
     "search": "Search…",
@@ -1139,7 +1140,8 @@
       "paloalto": "Palo Alto",
       "mikrotik": "MikroTik",
       "zabbix": "Zabbix",
-      "esxi": "VMware ESXi / vCenter"
+      "esxi": "VMware ESXi / vCenter",
+      "ocs": "OCS inventory"
     },
     "model_title": "Device model source order",
     "model_subtitle": "When several sources supply a model for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder."
@@ -1237,7 +1239,8 @@
     "fw_match_dst": "destination: {why}",
     "fw_why_alias_member": "member of alias {value}",
     "fw_why_net_covers": "covered by {value}",
-    "fw_why_exact": "exact address match"
+    "fw_why_exact": "exact address match",
+    "last_seen_ocs": "Last seen (OCS inventory)"
   },
   "subnets": {
     "title": "Subnets",
@@ -2830,7 +2833,13 @@
     "migration_refetch_fingerprint": "Fetch the fingerprint again, confirm it, and resubmit",
     "console_remote_closed": "The remote host ended this session: {reason}",
     "console_engine_failed": "The RDP engine could not connect: {reason}",
-    "console_char_not_typable": "The character “{char}” cannot be typed directly with the current RDP engine (FreeRDP has no Unicode keyboard channel). Use Paste in the toolbar instead — it handles any text."
+    "console_char_not_typable": "The character “{char}” cannot be typed directly with the current RDP engine (FreeRDP has no Unicode keyboard channel). Use Paste in the toolbar instead — it handles any text.",
+    "ocs_error": "OCS integration error",
+    "ocs_no_url": "This OCS server has no URL configured",
+    "ocs_unreachable": "Cannot reach this OCS server",
+    "ocs_rest_unavailable": "The URL is reachable but the OCS REST API did not respond correctly (it may be disabled)",
+    "ocs_auth_required": "OCS requires authentication, but the credentials are wrong or missing",
+    "ocs_db_not_impl": "Only the REST source is supported for now (direct database access is a later phase)"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -4332,5 +4341,39 @@
   "tool_label": {
     "frame": "{verb} {nouns}",
     "noun_join": " "
+  },
+  "ocs": {
+    "title": "OCS Inventory integration",
+    "add": "Add OCS",
+    "edit_title": "Edit OCS",
+    "intro": "Pull endpoint and server asset inventory (hostname, OS, NICs, serial/model) from OCS Inventory. Read-only; never changes OCS. Matches existing IPs by MAC only — it never creates IPs on its own.",
+    "version": "Version",
+    "test": "Test connection",
+    "sync_now": "Sync now",
+    "sync_started": "Sync queued in the background",
+    "confirm_delete": "Delete “{name}”?",
+    "name_ph": "e.g. HQ OCS",
+    "name_url_required": "Name and URL are required",
+    "username": "Username",
+    "password": "Password",
+    "auth_optional": "Optional (OCS REST has no auth by default)",
+    "password_kept": "Leave blank to keep the stored password",
+    "verify_tls": "Verify TLS certificate",
+    "sync_networks": "Sync NICs",
+    "sync_bios": "Sync serial/model/vendor",
+    "sync_software": "Sync software list",
+    "sync_software_hint": "Off by default: inflates each host from ~2 KB to ~80 KB (software is not yet stored in this version).",
+    "interval": "Sync interval (s)",
+    "stale_days": "Inventory stale after (days)",
+    "diag_title": "Connection diagnostics",
+    "diag_reachable": "Reachable",
+    "diag_count": "Computers",
+    "diag_incremental": "Incremental sync",
+    "incremental_yes": "Supported (2.11+)",
+    "incremental_no": "Not supported (2.10, full only)",
+    "diag_auth": "Authentication required",
+    "auth_on": "Yes",
+    "auth_off": "No",
+    "warn_unauthenticated": "⚠️ This OCS returns data with no credentials — anyone who can reach it can read the whole asset inventory. Add authentication for /ocsapi on the OCS side (Apache), or restrict access with a reverse proxy."
   }
 }

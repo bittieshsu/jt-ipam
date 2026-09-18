@@ -91,6 +91,7 @@ const routes: RouteRecordRaw[] = [
       { path: "doctor", name: "doctor", component: () => import("@/views/SystemDoctor.vue"), meta: { admin: true } },
       { path: "jump-hosts", name: "jump_hosts", component: () => import("@/views/JumpHosts.vue"), meta: { admin: true } },
       { path: "mikrotik", name: "mikrotik", component: () => import("@/views/MikroTikAdmin.vue"), meta: { admin: true } },
+      { path: "ocs", name: "ocs", component: () => import("@/views/OcsAdmin.vue"), meta: { admin: true } },
       { path: "pfsense-fw", name: "pfsense_fw", component: () => import("@/views/PfSenseFirewallView.vue") },
       { path: "fortigate-fw", name: "fortigate_fw", component: () => import("@/views/FortiGateFirewallView.vue") },
       { path: "paloalto-fw", name: "paloalto_fw", component: () => import("@/views/PaloAltoFirewallView.vue") },

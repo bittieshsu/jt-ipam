@@ -35,6 +35,7 @@ async def _run() -> int:
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.mikrotik import MikroTikRouter
+    from app.models.ocs import OcsServer
     from app.models.paloalto import PaloAltoFirewall
     from app.models.librenms import LibreNMSInstance
     from app.models.pfsense import PfSenseFirewall
@@ -45,6 +46,7 @@ async def _run() -> int:
     from app.services import adguard as adguard_svc
     from app.services import fortigate as fortigate_svc
     from app.services import mikrotik as mikrotik_svc
+    from app.services import ocs as ocs_svc
     from app.services import paloalto as paloalto_svc
     from app.services import librenms as librenms_svc
     from app.services import opnsense_firewall as fw_svc
@@ -269,6 +271,7 @@ async def _run() -> int:
                 ("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
                 ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
                 ("mikrotik", MikroTikRouter), ("windows_dhcp", WindowsDhcpServer),
+                ("ocs", OcsServer),
                 ("dns", DNSServer),
             ):
                 rows = (await session.execute(
@@ -474,6 +477,33 @@ async def _run() -> int:
                 log.error("mikrotik %s sync failed: %s", name, exc)
                 failed += 1
                 await _hb(session, kind="mikrotik.sync", target_type="mikrotik_router",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── OCS Inventory NG（端點資產盤點；唯讀 REST，只比不建）──
+        ocs_servers = (
+            await session.execute(
+                select(OcsServer).where(OcsServer.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in ocs_servers:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await ocs_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("ocs %s: %s", name, summary)
+                await _hb(session, kind="ocs.sync", target_type="ocs_server",
+                          target_id=inst.id, target_label=name, ok=True,
+                          summary=summary if isinstance(summary, dict) else None)
+            except Exception as exc:
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("ocs %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="ocs.sync", target_type="ocs_server",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
 
         # ── Windows DHCP Server（Beta；WinRM 唯讀拉 scope/租約）──

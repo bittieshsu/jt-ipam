@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.29] - 2026-09-18
+
+### Added
+- **OCS Inventory NG integration (phase 1: asset identity).** Pulls endpoint and server
+  inventory from OCS — hostname, OS, NIC MACs, serial/model/vendor, last-inventory time —
+  filling the one gap this project had no automatic source for (PC and physical-server assets).
+  **Read-only; never changes OCS. Matches existing IPs by MAC only, never creates IPs, and
+  treats a MAC seen on several machines as ambiguous rather than guessing.** Admin → OCS
+  inventory manages several servers (per customer/site), tests the connection, and syncs
+  on demand or on a schedule.
+  - Credentials are **optional** (OCS REST has no auth by default); the connection test
+    actively checks whether it answers with no credentials and warns when it does.
+  - Incremental vs full is chosen by version capability: 2.11 uses `lastupdate`, 2.10 pages
+    the full set.
+  - The software-list toggle is **off by default** (it inflates each host from ~2 KB to ~80 KB).
+  - OCS inventory time is display-only and never feeds the online/offline decision; stale
+    inventory never overwrites a fresher source or a device serial.
+
+### Fixed
+- **Rack diagram: a device spanning the full width had its label ellipsized at the half-U
+  point** (GitHub #32). The label now uses the device's actual width instead of a fixed
+  half-U cap.
+
+### Notes
+- Database changes: new `ocs_servers` table and `ip_addresses.last_seen_ocs` column (applied
+  automatically on upgrade). **No other install/upgrade changes** — no new packages, services
+  or outbound settings (OCS calls use the existing safe-outbound mechanism).
+
 ## [0.6.28] - 2026-09-18
 
 ### Fixed

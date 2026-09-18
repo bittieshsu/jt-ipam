@@ -324,7 +324,8 @@
     "mikrotik": "整合 MikroTik",
     "mikrotik_fw": "路由器 (MikroTik)",
     "jump_hosts": "跳板主機",
-    "doctor": "系統診斷"
+    "doctor": "系統診斷",
+    "ocs": "OCS 資產盤點"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1139,7 +1140,8 @@
       "paloalto": "Palo Alto",
       "mikrotik": "MikroTik",
       "zabbix": "Zabbix",
-      "esxi": "VMware ESXi / vCenter"
+      "esxi": "VMware ESXi / vCenter",
+      "ocs": "OCS 資產盤點"
     },
     "model_title": "裝置型號來源順序",
     "model_subtitle": "多個來源提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
@@ -1237,7 +1239,8 @@
     "fw_match_dst": "目的：{why}",
     "fw_why_alias_member": "別名 {value} 的成員",
     "fw_why_net_covers": "網段 {value} 涵蓋",
-    "fw_why_exact": "位址完全相符"
+    "fw_why_exact": "位址完全相符",
+    "last_seen_ocs": "最後出現（OCS 盤點）"
   },
   "subnets": {
     "title": "子網路",
@@ -2830,7 +2833,13 @@
     "migration_refetch_fingerprint": "請重新取得指紋、確認無誤後再送出一次",
     "console_remote_closed": "被控端結束了這個工作階段：{reason}",
     "console_engine_failed": "RDP 引擎無法建立連線：{reason}",
-    "console_char_not_typable": "「{char}」這個字元無法用目前的 RDP 連線引擎直接輸入（FreeRDP 沒有 Unicode 鍵盤通道）。請改用工具列的「貼上」，中文可以正常貼進去。"
+    "console_char_not_typable": "「{char}」這個字元無法用目前的 RDP 連線引擎直接輸入（FreeRDP 沒有 Unicode 鍵盤通道）。請改用工具列的「貼上」，中文可以正常貼進去。",
+    "ocs_error": "OCS 整合發生錯誤",
+    "ocs_no_url": "這套 OCS 沒有設定網址",
+    "ocs_unreachable": "連不到這套 OCS",
+    "ocs_rest_unavailable": "連得上網址，但 OCS REST API 沒有正確回應（可能沒開啟）",
+    "ocs_auth_required": "OCS 需要驗證，但帳密不正確或未提供",
+    "ocs_db_not_impl": "目前只支援 REST 來源（直接連 OCS 資料庫是後續階段）"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -4332,5 +4341,39 @@
   "tool_label": {
     "frame": "{verb}{nouns}",
     "noun_join": ""
+  },
+  "ocs": {
+    "title": "OCS Inventory 整合",
+    "add": "新增 OCS",
+    "edit_title": "編輯 OCS",
+    "intro": "從 OCS Inventory 拉端點與伺服器的資產盤點（主機名稱、作業系統、網卡、序號／型號）。唯讀，不會更動 OCS；只比對既有 IP 的 MAC，不會自己新建 IP。",
+    "version": "版本",
+    "test": "測試連線",
+    "sync_now": "立即同步",
+    "sync_started": "同步已排入背景執行",
+    "confirm_delete": "確定刪除「{name}」？",
+    "name_ph": "例：台北總部 OCS",
+    "name_url_required": "名稱與網址為必填",
+    "username": "帳號",
+    "password": "密碼",
+    "auth_optional": "選用（OCS REST 預設無驗證）",
+    "password_kept": "留空＝沿用已存的密碼",
+    "verify_tls": "驗證 TLS 憑證",
+    "sync_networks": "同步網卡",
+    "sync_bios": "同步序號／型號／廠牌",
+    "sync_software": "同步軟體清單",
+    "sync_software_hint": "預設關：每台會從約 2 KB 膨脹到約 80 KB（第一版尚未落地儲存軟體）。",
+    "interval": "同步間隔（秒）",
+    "stale_days": "盤點過期天數",
+    "diag_title": "連線診斷",
+    "diag_reachable": "可連線",
+    "diag_count": "電腦數",
+    "diag_incremental": "增量同步",
+    "incremental_yes": "支援（2.11+）",
+    "incremental_no": "不支援（2.10，只能全量）",
+    "diag_auth": "需要驗證",
+    "auth_on": "是",
+    "auth_off": "否",
+    "warn_unauthenticated": "⚠️ 這套 OCS 沒有帶帳密也讀得到資料 —— 代表任何能連到它的人都能讀取全部資產清單。建議在 OCS 端（Apache）為 /ocsapi 加上驗證，或以反向代理限制存取。"
   }
 }

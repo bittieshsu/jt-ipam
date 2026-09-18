@@ -106,6 +106,7 @@ CATEGORY: dict[str, str] = {
     "fortigate_firewalls": "integrations",
     "paloalto_firewalls": "integrations",
     "mikrotik_routers": "integrations",
+    "ocs_servers": "integrations",
     "opnsense_alias_mappings": "integrations",
     "ssh_credentials": "integrations",
     # 跳板主機（issue #24）：算基礎設施設定，跟著整合一起搬

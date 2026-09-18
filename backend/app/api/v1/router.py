@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     nat,
     notifications,
     novnc_console,
+    ocs,
     oui,
     paloalto,
     pfsense,
@@ -149,6 +150,8 @@ api_v1_router.include_router(mikrotik.router)
 api_v1_router.include_router(fortigate.view_router)
 api_v1_router.include_router(paloalto.view_router)
 api_v1_router.include_router(mikrotik.view_router)
+api_v1_router.include_router(ocs.router)
+api_v1_router.include_router(ocs.view_router)
 api_v1_router.include_router(wazuh.router)
 api_v1_router.include_router(zabbix.router)
 api_v1_router.include_router(zabbix.view_router)

@@ -1010,6 +1010,10 @@ async function remove() {
                                :label="t('addresses.last_seen_wazuh')">
             {{ fmtDateTime(props.address?.last_seen_wazuh) }}
           </n-descriptions-item>
+          <n-descriptions-item v-if="props.address?.last_seen_ocs"
+                               :label="t('addresses.last_seen_ocs')">
+            {{ fmtDateTime(props.address?.last_seen_ocs) }}
+          </n-descriptions-item>
           <!-- 防火牆給的證據逐來源列出。以前這些全被寫成「掃描代理」，於是沒有代理的站台
                也看得到掃描代理的時間 —— 現在照實顯示是哪一台防火牆、哪一種表看到的。 -->
           <n-descriptions-item v-for="[k, v] in fwSeen" :key="k" :label="fwSeenLabel(k)">

@@ -91,6 +91,8 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("fortigate", TIER_LEARNED, aging=False),
     _s("paloalto", TIER_LEARNED, aging=False),
     _s("mikrotik", TIER_LEARNED, aging=False),
+    # OCS Inventory：agent 自報的資產盤點（hostname／OS 觀測）。學到的事實，不過期。
+    _s("ocs", TIER_LEARNED, aging=False),
     # ── 防火牆給的逐來源證據 ────────────────────────────────────
     # 為什麼要拆到這麼細：這些資料原本全都被寫進 `last_seen_scanner`，於是畫面上
     # 出現「online (scanner)」卻根本沒有掃描代理。來源看不出來，就沒辦法只採信

@@ -186,6 +186,8 @@ class IPAddressRead(IPAddressBase):
     #: 「上線 (scanner)」（見 services/arp_seen.py）。
     arp_seen: dict[str, str] = {}
     last_seen_dns: datetime | None
+    #: OCS Inventory 最後一次盤點到這個 IP（顯示用、非活性訊號）
+    last_seen_ocs: datetime | None = None
     effective_status: str | None
     # 所屬 subnet 是否啟用掃描；前端用來判定「沒掃描的網段不該標離線紅燈」
     subnet_scan_enabled: bool | None = None
