@@ -450,7 +450,8 @@
     "src_scanner": "掃描代理",
     "src_librenms": "LibreNMS",
     "src_wazuh": "Wazuh",
-    "src_zabbix": "Zabbix"
+    "src_zabbix": "Zabbix",
+    "src_ocs": "OCS 資產盤點"
   },
   "scan_probes": {
     "title": "掃描項目",

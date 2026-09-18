@@ -163,8 +163,8 @@ async def test_apply_matches_existing_ip_by_mac_and_fills_identity(db_session) -
 
     assert res["matched"] == 1
     await db_session.refresh(ip)
-    assert ip.os_guess == "Windows 10 Pro"
-    assert ip.os_family == "windows"
+    assert ip.os_ocs == "Windows 10 Pro", "OCS 的 OS 要寫進 os_ocs"
+    assert ip.os_guess is None, "不可污染掃描代理的 os_guess 欄位"
     assert ip.last_seen_ocs == datetime(2026, 9, 18, 8, 0, tzinfo=UTC)
 
 
@@ -420,5 +420,29 @@ async def test_full_sync_pages_and_applies(monkeypatch, db_session) -> None:
     assert summary["computers"] == 1 and summary["matched_ips"] == 1
     assert summary["mode"] == "full"
     await db_session.refresh(ip)
-    assert ip.os_guess == "Ubuntu 24.04 LTS"
+    assert ip.os_ocs == "Ubuntu 24.04 LTS"
     assert ip.last_seen_ocs is not None
+
+
+@pytest.mark.anyio
+async def test_ocs_os_outranks_scanner_guess(db_session) -> None:
+    """agent 回報的 OS 要蓋過 nmap 的指紋猜測（Win11 被掃成 XP 的實際情況）。"""
+    from app.services import os_precedence
+    ip = await _mk_ip(db_session, "198.51.100.54", "aa:bb:cc:00:00:54")
+    ip.os_guess = "Microsoft Windows XP SP3 (90%)"   # 掃描代理誤判
+    ip.os_ocs = "Microsoft Windows 11"               # OCS agent 回報
+    await db_session.flush()
+    eff = await os_precedence.effective_os(db_session, ip)
+    assert eff["os_source"] == "ocs"
+    assert eff["os_guess"] == "Microsoft Windows 11"
+    assert eff["os_family"] == "windows"
+
+
+@pytest.mark.anyio
+async def test_scanner_still_wins_when_ocs_has_nothing(db_session) -> None:
+    ip = await _mk_ip(db_session, "198.51.100.55", "aa:bb:cc:00:00:55")
+    from app.services import os_precedence
+    ip.os_guess = "Ubuntu 24.04"
+    await db_session.flush()
+    eff = await os_precedence.effective_os(db_session, ip)
+    assert eff["os_source"] == "scanner" and eff["os_guess"] == "Ubuntu 24.04"

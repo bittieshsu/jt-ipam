@@ -450,7 +450,8 @@
     "src_scanner": "スキャンエージェント",
     "src_librenms": "LibreNMS",
     "src_wazuh": "Wazuh",
-    "src_zabbix": "Zabbix"
+    "src_zabbix": "Zabbix",
+    "src_ocs": "OCS インベントリ"
   },
   "scan_probes": {
     "title": "スキャンの探査",

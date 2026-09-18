@@ -4,6 +4,14 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.6.30] — 2026-09-18
+
+### 修正
+- **OCS 代理回報的作業系統現在會蓋過掃描代理的 nmap 指紋猜測。** 第一版把 OCS 的 OS 寫進
+  掃描代理的 `os_guess` 欄位、且只在空值時寫 —— 於是被 nmap 誤判成「Windows XP」的 Win11
+  機器,OCS 的正確「Windows 11」反而蓋不過去。改成獨立的 `os_ocs` 欄位,經 OS 來源優先序
+  排在掃描代理之上(agent 實際讀取的 OS 遠比指紋猜測可靠),不再污染掃描代理欄位。
+
 ## [0.6.29] — 2026-09-18
 
 ### 新增

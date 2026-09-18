@@ -450,7 +450,8 @@
     "src_scanner": "Scan agent",
     "src_librenms": "LibreNMS",
     "src_wazuh": "Wazuh",
-    "src_zabbix": "Zabbix"
+    "src_zabbix": "Zabbix",
+    "src_ocs": "OCS inventory"
   },
   "scan_probes": {
     "title": "Scan probes",

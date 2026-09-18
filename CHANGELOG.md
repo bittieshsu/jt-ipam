@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.30] - 2026-09-18
+
+### Fixed
+- **OS reported by the OCS agent now outranks the scanner's nmap fingerprint guess.** The first
+  release wrote OCS's OS into the scanner's `os_guess` field and only when empty — so a Win11
+  machine that nmap had mis-fingerprinted as "Windows XP" kept the wrong value. OCS's OS now
+  lives in its own `os_ocs` field and is placed above the scanner in the OS-source precedence
+  (an agent's read of the real OS is far more reliable than a fingerprint guess), no longer
+  polluting the scanner field.
+
 ## [0.6.29] - 2026-09-18
 
 ### Added

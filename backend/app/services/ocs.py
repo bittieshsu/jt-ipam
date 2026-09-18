@@ -300,7 +300,7 @@ async def _apply_computer(
     """把一台 OCS 電腦的資料落到對到的既有 IP（只比不建）。回傳這台命中的計數。"""
     hw = computer.get("hardware") or {}
     hn = hostname_of(hw)
-    os_guess, os_family = parse_os(hw)
+    os_guess = parse_os(hw)[0]
     last = lastdate_of(hw)
     stale = is_stale(last, stale_after_days=server.stale_after_days, now=now)
     asset = bios_asset(computer.get("bios")) if server.sync_bios else {}
@@ -320,10 +320,10 @@ async def _apply_computer(
         if hn:
             await hostname_svc.apply_observation(
                 session, ip=ip, source="ocs", hostname=hn, tiebreak_min=True)
-        # OS：只有這台的 os 欄位是空的、或本來就沒被別的來源填過才寫（OCS 非權威）
-        if os_guess and not ip.os_guess:
-            ip.os_guess = os_guess[:160]
-            ip.os_family = os_family
+        # OS：寫進 OCS 專屬欄位（不污染掃描代理的 os_guess）；有效值由 os_precedence
+        # 決定（ocs 排在 scanner 之上，agent 回報的 OS 蓋過 nmap 指紋猜測）。過期不寫。
+        if os_guess and not stale:
+            ip.os_ocs = os_guess[:160]
         # MAC 不用寫：我們是**用這張網卡的 MAC 比對到這個 IP 的**，兩邊已定義相等。
         # 盤點時間：只有不算過期時才 stamp 成這次盤點的時間
         if last and not stale:

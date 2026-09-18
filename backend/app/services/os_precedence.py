@@ -23,8 +23,8 @@ from app.core.os_fingerprint import normalize_os
 from app.services.precedence import Precedence
 
 OS_KEY = "os_precedence"
-OS_SOURCES: list[str] = ["scanner", "librenms", "wazuh"]
-DEFAULT_ORDER: list[str] = ["librenms", "wazuh", "scanner"]
+OS_SOURCES: list[str] = ["scanner", "librenms", "wazuh", "ocs"]
+DEFAULT_ORDER: list[str] = ["librenms", "wazuh", "ocs", "scanner"]
 
 # OS 沒有「停用個別來源」的需求，protected 留空即可（沒有 manual 這個來源）
 _P = Precedence(key=OS_KEY, sources=tuple(OS_SOURCES),
@@ -51,6 +51,9 @@ async def _candidates(session: AsyncSession, ip: Any) -> dict[str, str]:
     out: dict[str, str] = {}
     if ip.os_guess:
         out["scanner"] = ip.os_guess
+    # OCS 代理回報的 OS（獨立欄位，排在 scanner 之上 → 蓋過 nmap 指紋猜測）
+    if getattr(ip, "os_ocs", None):
+        out["ocs"] = ip.os_ocs
     if ip.device_id:
         from app.models.device import Device
         dev = await session.get(Device, ip.device_id)
