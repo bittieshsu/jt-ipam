@@ -295,6 +295,10 @@ async function startSession(w: number, h: number) {
         else if (payload.state === "via_jump") viaJump.value = payload.via || "";
         else if (payload.state === "disconnected") phase.value = "closed";
         break;
+      case "notice":
+        // 非致命提醒（例如「這個字元打不出來」）。後端已經自己節流成一次一連線。
+        msg.warning(wsErrorText(payload));
+        break;
       case "clip_ack":
         if (payload.ok && payload.n > 0) msg.success(t("rdp.paste_sent", { n: payload.n }));
         else msg.warning(t("rdp.paste_empty"));

@@ -29,8 +29,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import logging
 import os
+import re
+import secrets
 import shutil
 import signal
 import tempfile
@@ -113,6 +116,91 @@ def _ensure_x11_socket_dir() -> None:
 # （2026-09-17 正式環境）。systemd 已經處理了同一件事，不需要為它付這個代價。
 
 
+#: 交握要排隊的路徑。**跨行程**：uvicorn 預設跑多個 worker，`asyncio.Lock` 只擋得住
+#: 同一個行程裡的。檔案鎖是整台機器一份。
+_HANDSHAKE_LOCK_PATH = "/tmp/jt-ipam-rdp-handshake.lock"  # noqa: S108
+#: 最多等多久。等不到就照樣去試 —— 排隊是為了避開一個偶發的碰撞，
+#: 不是為了把它變成單一失效點。
+_HANDSHAKE_LOCK_WAIT = 30.0
+
+
+@contextlib.asynccontextmanager
+async def _handshake_slot() -> Any:
+    """一次只讓一條連線在交握。
+
+    2026-09-18 實測（gnome-remote-desktop）：三條**依序**開、都保持連著，全部成功；
+    兩條**同一瞬間**開始交握就固定壞一條，而且回的話不一定一樣 —— 有時是安全層協商
+    失敗，有時直接是 `STATUS_LOGON_FAILURE`，也就是**密碼是對的，使用者卻被告知
+    帳號或密碼不正確**。
+
+    為什麼不是「失敗就重試」：重試等於把憑證再送一次，實測那一次重試拿到的正是
+    `LOGON_FAILURE` —— 在有鎖定政策的目標上，那是拿使用者的帳號去換一次失敗登入。
+    排隊完全不碰憑證，成本只是多等一輪交握（實測約 2.5 秒）。
+    """
+    fd = None
+    try:
+        fd = await asyncio.to_thread(os.open, _HANDSHAKE_LOCK_PATH,
+                                     os.O_CREAT | os.O_RDWR, 0o600)
+
+        def _acquire() -> bool:
+            deadline = time.monotonic() + _HANDSHAKE_LOCK_WAIT
+            while time.monotonic() < deadline:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    time.sleep(0.15)
+                else:
+                    return True
+            return False
+
+        if not await asyncio.to_thread(_acquire):
+            logger.warning("freerdp: 等不到交握排隊（%.0fs），照樣試", _HANDSHAKE_LOCK_WAIT)
+            yield
+            return
+        try:
+            yield
+        finally:
+            with contextlib.suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError as exc:      # 鎖檔開不起來不該讓主控台整個不能用
+        logger.warning("freerdp: 交握排隊不可用（%s），照樣試", exc)
+        yield
+    finally:
+        if fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+
+def _display_owner(lock_path: str) -> int | None:
+    """讀 X 的鎖檔，回傳持有那個顯示編號的行程 PID；讀不到或格式不對回 None。
+
+    X 伺服器啟動時會把自己的 PID 以 `%10d\n` 寫進 `/tmp/.X<N>-lock`。這是**唯一**
+    能證明「這個顯示是誰的」的東西 —— socket 檔案存在只代表有人建了它，不代表是我們。
+    """
+    try:
+        with open(lock_path, encoding="ascii") as fh:
+            return int(fh.read(32).strip())
+    except (OSError, ValueError):
+        return None
+
+
+class UnsupportedCharacter(Exception):
+    """這個字元沒辦法用 FreeRDP 引擎打出來。
+
+    xfreerdp 用**固定的 keycode→掃描碼對照表**把 X 的按鍵翻成 RDP 事件，而不是看 keysym。
+    所以「把字元暫時綁到一顆沒人用的 keycode 再敲」送出去的是一顆沒有掃描碼的鍵 ——
+    被控端什麼也不會發生（2026-09-18 在真機上試過 5 顆分佈不同的空 keycode，全部沒反應；
+    FreeRDP 2.11 也沒有任何 Unicode 輸入選項）。
+
+    這條路走不通，但**不可以安靜地丟掉** —— 使用者只會以為鍵盤壞了。呼叫端要把它
+    轉成畫面上看得到的提示，並指向剪貼簿：貼上那條路連中文都進得去。
+    """
+
+    def __init__(self, char: str) -> None:
+        super().__init__(char)
+        self.char = char
+
+
 @dataclass(slots=True)
 class VideoTile:
     """一塊畫面更新。欄位名與 aardwolf 的 video data 相同，`_bridge` 才不用分辨來源。"""
@@ -187,8 +275,7 @@ class _InputMixin:
     _disp: Any
     _root: Any
     _display: str | None
-    _spare_keycode: int | None
-    _char_down: dict[str, tuple[int, bool, bool]]
+    _char_down: dict[str, tuple[int, bool]]
     _width: int
     _height: int
 
@@ -246,12 +333,10 @@ class _InputMixin:
         await self._x(_do)
 
     async def send_key_char(self, ch: str, pressed: bool) -> None:
-        """打出一個字元。
+        """打出一個字元，用目前鍵盤配置上的那顆鍵（必要時補 Shift）。
 
-        優先用**目前鍵盤配置上已經有的那顆鍵**（必要時補 Shift）。原本的做法是把字元
-        暫時重綁到一個沒人用的 keycode 再敲 —— 那在這裡行不通：X 要先把 MappingNotify
-        送到客戶端、客戶端處理完，新的對應才算數，而我們在幾微秒後就敲下去了，
-        結果是「一聲不響、什麼都沒打出來」。重綁只留給配置上真的沒有的字元。
+        配置上沒有的字元（中文、日文、emoji…）丟 `UnsupportedCharacter` ——
+        **不可以安靜地丟掉**。詳見那個例外的說明與替代做法（貼上）。
         """
         if len(ch) != 1:
             return
@@ -261,13 +346,14 @@ class _InputMixin:
         if pressed:
             plan = await asyncio.to_thread(self._plan_char, keysym)
             if plan is None:
-                return
+                raise UnsupportedCharacter(ch)
             self._char_down[ch] = plan
         else:
             plan = self._char_down.pop(ch, None)
             if plan is None:
+                # 按下時就已經回報過了，放開不必再講一次
                 return
-        keycode, needs_shift, remapped = plan
+        keycode, needs_shift = plan
 
         def _do() -> None:
             from Xlib import XK, X
@@ -281,29 +367,24 @@ class _InputMixin:
                 xtest.fake_input(self._disp, X.KeyRelease, keycode)
                 if needs_shift and shift_kc:
                     xtest.fake_input(self._disp, X.KeyRelease, shift_kc)
-                if remapped:
-                    # 用完把借來的那顆還原，免得累積一堆奇怪的對應
-                    self._disp.change_keyboard_mapping(keycode, [[X.NoSymbol, X.NoSymbol]])
             self._disp.sync()
 
         await self._x(_do)
 
-    def _plan_char(self, keysym: int) -> tuple[int, bool, bool] | None:
-        """決定這個字元要敲哪一顆鍵、要不要按 Shift、是不是借來的。
+    def _plan_char(self, keysym: int) -> tuple[int, bool] | None:
+        """決定這個字元要敲哪一顆鍵、要不要按 Shift。回傳 `(keycode, needs_shift)`。
 
-        回傳 `(keycode, needs_shift, remapped)`；找不到就回 None。
+        只接受配置上的第 0／1 階（原鍵與 Shift）。**第 2／3 階（AltGr）要回 None**：
+        `bool(index)` 對 index=2 也是 True，會按著 Shift 敲出一個*別的*字元 ——
+        那比打不出來更糟，畫面上會出現使用者沒有輸入的東西。
+
+        配置上沒有的字元一律回 None，由呼叫端丟 `UnsupportedCharacter`。
+        以前這裡會借一顆 keycode 重綁；那對 xfreerdp 無效，見那個例外的說明。
         """
-        pairs = self._disp.keysym_to_keycodes(keysym)
-        for keycode, index in pairs:
-            if keycode:
-                return keycode, bool(index), False
-        # 配置上沒有這個字元 → 借一顆沒人用的 keycode，並給客戶端時間處理 MappingNotify
-        if self._spare_keycode is None:
-            return None
-        self._disp.change_keyboard_mapping(self._spare_keycode, [[keysym, keysym]])
-        self._disp.sync()
-        time.sleep(0.03)
-        return self._spare_keycode, False, True
+        for keycode, index in self._disp.keysym_to_keycodes(keysym):
+            if keycode and index in (0, 1):
+                return keycode, bool(index)
+        return None
 
     async def set_current_clipboard_text(self, text: str) -> None:
         """控制端貼上。
@@ -365,10 +446,8 @@ class FreeRdpConnection(_InputMixin):
         self._watch_task: asyncio.Task[None] | None = None
         # xfreerdp 為什麼結束的（有值代表是它先走的，不是我們收掉它）
         self.exit_reason: str | None = None
-        self._spare_keycode: int | None = None
-        # 目前按住的字元 → (keycode, 要不要 Shift, 是不是借來的)。放開時要還原同一顆，
-        # 中間若重綁會變成放開別的鍵。
-        self._char_down: dict[str, tuple[int, bool, bool]] = {}
+        # 目前按住的字元 → (keycode, 要不要 Shift)。放開時要用按下時的同一顆。
+        self._char_down: dict[str, tuple[int, bool]] = {}
         self._closed = False
         self._frames = 0          # 已送出的畫面張數（給效能量測與日誌用）
 
@@ -378,7 +457,10 @@ class FreeRdpConnection(_InputMixin):
         """回傳 `(result, error)` —— 與 aardwolf 的 `connect()` 同形狀。"""
         try:
             await self._start_xvfb()
-            await self._start_xfreerdp()
+            # 交握排隊：見 `_handshake_slot`。只圈住真正會撞在一起的那一段，
+            # 起 Xvfb 與之後的畫面擷取都不必排。
+            async with _handshake_slot():
+                await self._start_xfreerdp()
             await self._open_x_display()
             await self._start_capture()
             self._grab_task = asyncio.create_task(self._grab_loop())
@@ -402,7 +484,12 @@ class FreeRdpConnection(_InputMixin):
         """
         _ensure_x11_socket_dir()
         last_err = ""
-        for num in range(_DISPLAY_MIN, _DISPLAY_MAX):
+        # 起點打散：不然每條連線都先去撞 _DISPLAY_MIN，同時開三條就三個一起搶同一號。
+        # 正確性靠下面的擁有者檢查，這裡只是別讓大家排隊撞同一扇門。
+        span = _DISPLAY_MAX - _DISPLAY_MIN
+        start = secrets.randbelow(span)
+        for step in range(span):
+            num = _DISPLAY_MIN + (start + step) % span
             # 已經有人佔著就不必浪費一次 fork。鎖檔路徑是 X 協定寫死的。
             if await asyncio.to_thread(os.path.exists, f"{_X11_LOCK_PREFIX}{num}-lock"):
                 continue
@@ -417,7 +504,15 @@ class FreeRdpConnection(_InputMixin):
             f"找不到可用的虛擬顯示{'：' + last_err if last_err else ''}")
 
     async def _try_display(self, num: int) -> bool:
-        """在 `:num` 上起 Xvfb；socket 出現就算成功。"""
+        """在 `:num` 上起 Xvfb，而且要**證明那個顯示是我們的**才算成功。
+
+        ⚠️ 只看「socket 檔案出現了嗎」是不夠的。三條連線同時進來時，三個都會看到鎖檔
+        還不存在、三個都去起 Xvfb，只有一個搶得到鎖 —— 但輸家看到的是贏家建的 socket，
+        於是拿著別人的顯示繼續跑：**兩個使用者共用一個虛擬螢幕，看得到彼此的畫面**
+        （2026-09-18 實測，三條全部拿到 `:100`）。
+
+        X 的鎖檔裡寫的就是持有者的 PID，拿它跟我們自己起的那個 Xvfb 比對才是證明。
+        """
         self._xvfb_err = tempfile.NamedTemporaryFile(
             prefix="jtipam-xvfb-", suffix=".log", delete=False)
         self._xvfb = await asyncio.create_subprocess_exec(
@@ -427,10 +522,17 @@ class FreeRdpConnection(_InputMixin):
             stdout=asyncio.subprocess.DEVNULL, stderr=self._xvfb_err,
         )
         sock = os.path.join(_X11_SOCKET_DIR, f"X{num}")
+        lock = f"{_X11_LOCK_PREFIX}{num}-lock"
         deadline = time.monotonic() + _XVFB_READY_TIMEOUT
         while time.monotonic() < deadline:
             if await asyncio.to_thread(os.path.exists, sock):
-                return True
+                owner = await asyncio.to_thread(_display_owner, lock)
+                if owner == self._xvfb.pid:
+                    return True
+                if owner is not None:
+                    # 鎖是別人的 → 我們輸了這一號，換下一個。不可以就這樣用下去。
+                    logger.debug("freerdp: :%d 已被 pid=%s 佔住，換下一個", num, owner)
+                    return False
             if self._xvfb.returncode is not None:
                 # 被 seccomp 殺掉（SIGSYS）是很特殊的死法：瞬間結束、什麼都不寫。
                 # 這時候一個一個換顯示編號試三百次是白費力氣，而且使用者會看到
@@ -561,24 +663,12 @@ class FreeRdpConnection(_InputMixin):
         return await asyncio.to_thread(_check)
 
     async def _open_x_display(self) -> None:
-        def _open() -> tuple[Any, Any, int | None]:
+        def _open() -> tuple[Any, Any]:
             from Xlib import display as xdisplay
             d = xdisplay.Display(self._display)
             root = d.screen().root
-            # 留一個沒被使用的 keycode 給「打出任意 unicode 字元」用（見 send_key_char）
-            spare = None
-            mn, mx = d.display.info.min_keycode, d.display.info.max_keycode
-            mapping = d.get_keyboard_mapping(mn, mx - mn + 1)
-            for i, syms in enumerate(mapping):
-                kc = mn + i
-                # 跳過最小值那一顆：它在多數實作上被當成保留，借來用不一定生效
-                if kc > mn and not any(syms):
-                    spare = kc
-                    break
-            return d, root, spare
-        self._disp, self._root, self._spare_keycode = await asyncio.to_thread(_open)
-        if self._spare_keycode is None:
-            logger.warning("freerdp: 找不到備用 keycode，非 ASCII 字元可能打不出來")
+            return d, root
+        self._disp, self._root = await asyncio.to_thread(_open)
 
     @property
     def framebuffer_size(self) -> tuple[int, int]:
@@ -735,29 +825,70 @@ class FreeRdpConnection(_InputMixin):
                 self.ext_out_queue.put_nowait(item)
 
 
+#: FreeRDP 的每一行長這樣：`[時間] [pid:tid] [LEVEL][元件] - 訊息`。
+#: 時間戳與元件名對使用者沒有意義，留著只會把真正的訊息擠出可見範圍。
+_FREERDP_LINE = re.compile(
+    r"^\s*(?:\[[^\]]*\]\s*)*\[(?:ERROR|WARN|FATAL)\]\[[^\]]*\]\s*-\s*(?P<msg>.*\S)\s*$")
+
+
+def _freerdp_words(stderr_text: str, keep: int = 3) -> str:
+    """從 FreeRDP 的輸出裡撈出真正的錯誤句子。
+
+    不可以用「壓成一行再取最後 N 個字元」—— 那會從半個時間戳中間切開，
+    使用者看到的是 `5:598]` 這種東西（2026-09-18 實測）。
+    """
+    msgs: list[str] = []
+    for line in stderr_text.splitlines():
+        m = _FREERDP_LINE.match(line)
+        if not m:
+            continue
+        msg = m.group("msg")
+        if msgs and msgs[-1] == msg:        # FreeRDP 常常同一句連印兩次
+            continue
+        msgs.append(msg)
+    if not msgs:
+        # 認不得格式時退回原文，但至少從詞的邊界切
+        flat = " ".join(stderr_text.split())
+        return flat[-240:].lstrip("]:， ") if flat else ""
+    return "；".join(msgs[-keep:])[:400]
+
+
 def _explain(stderr_text: str) -> str:
-    """把 FreeRDP 的錯誤講成使用者看得懂的話，但**保留底層原文**。"""
+    """把 FreeRDP 的錯誤講成使用者看得懂的話，但**保留底層原文**。
+
+    ⚠️ 判準要選**只有那一種失敗才會出現**的字串。`freerdp_post_connect failed`
+    不是那種字串 —— 它任何失敗都會印，先前拿它當「圖形階段失敗」的訊號，
+    害三種網路失敗全被講成「被控端拒絕了這組畫面參數」，使用者照著去查解析度
+    永遠查不到（2026-09-18 實測抓到）。
+
+    順序由窄到寬；每一條的證據都是 2026-09-18 從真機抓下來的（見測試裡的樣本）。
+    """
     low = stderr_text.lower()
-    if "errconnect_connect_transport_failed" in low and "post_connect" in low:
-        # 已經連上了，是在建立圖形階段失敗。實測過的成因是桌面寬度為奇數
-        # （我們現在會先對齊成偶數，所以走到這裡多半是別的畫面參數）。
-        return ("被控端拒絕了這組畫面參數（解析度或色彩深度）："
-                + " ".join(stderr_text.split())[-200:])
-    if "logon_failure" in low or "errconnect_logon_failure" in low:
+    if "logon_failure" in low:
         hint = "帳號或密碼不正確"
-    elif "errconnect_connect_transport_failed" in low or "connection reset" in low:
-        hint = "連不到目標的 3389"
     elif "errconnect_password_expired" in low:
         hint = "密碼已過期"
     elif "account_disabled" in low:
         hint = "帳號已停用"
+    elif "errconnect_account_locked_out" in low:
+        hint = "帳號已被鎖定"
+    elif "errconnect_connect_failed" in low or "failed to connect to" in low:
+        # TCP 根本沒接起來：位址不存在、被防火牆丟掉、或路由不通
+        hint = "連不到被控端（位址不通或被擋下）"
+    elif "connection reset by peer" in low:
+        # 接起來了但對方在交握途中重置 —— 幾乎都是「那個埠上的服務不是 RDP」
+        hint = "連線在交握途中被對方重置（那個連接埠可能不是 RDP 服務）"
+    elif "broken pipe" in low:
+        hint = "連線在交握途中被切斷（被控端的 RDP 服務可能沒有在跑）"
     elif "errconnect_security_nego_connect_failed" in low:
         hint = "安全層協商失敗（對方要求的模式與我們送出的不一致）"
     elif "demand_active" in low:
         # 伺服器在能力交換階段就回 DEACTIVATE_ALL。實測過的成因是用戶端指定了色深
         # （/bpp），gnome-remote-desktop 不接受。
-        hint = "伺服器在能力交換階段中斷連線（對方不接受我們要求的畫面參數）"
+        hint = "被控端在能力交換階段中斷連線（不接受我們要求的畫面參數）"
+    elif "errconnect_connect_transport_failed" in low:
+        hint = "連線傳輸失敗"
     else:
         hint = "FreeRDP 連線失敗"
-    tail = " ".join(stderr_text.split())[-240:]
+    tail = _freerdp_words(stderr_text)
     return f"{hint}：{tail}" if tail else hint

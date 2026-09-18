@@ -776,6 +776,44 @@ echo "$ADMIN_PW"</code></pre>
         <pre><code>sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg</code></pre>
       </article>
 
+      <article class="qa" id="qa-rdp-greeter-leak">
+        <h3>
+          <span class="zh">連過幾十次之後，GNOME 遠端登入只剩一片黑畫面</span>
+          <span class="en">After dozens of connections, GNOME Remote Login shows only a black screen</span>
+          <span class="ja">何十回か接続した後、GNOME リモートログインが真っ黒な画面しか出さない</span>
+        </h3>
+        <p>
+          <span class="zh">被控端累積了收不掉的登入畫面工作階段。GNOME 的<strong>遠端登入</strong>每接一次就開一個新的無頭工作階段，而用戶端離線時它不一定會把那個工作階段收掉 —— 累積到一定數量，新的連線就什麼都畫不出來。在被控端上看：</span>
+          <span class="en">The target has accumulated login-screen sessions that were never reaped. GNOME <strong>Remote Login</strong> starts a new headless session for every connection, and does not reliably end it when the client disconnects — past a certain number, new connections render nothing. Check on the target:</span>
+          <span class="ja">接続先にログイン画面のセッションが回収されずに溜まっています。GNOME の<strong>リモートログイン</strong>は接続のたびに新しいヘッドレスセッションを開始しますが、クライアント切断時にそれを確実に終了しません。ある程度溜まると新規接続は何も表示されなくなります。接続先で確認してください：</span>
+        </p>
+        <pre><code>loginctl list-sessions | grep gdm | wc -l
+sudo loginctl terminate-user gdm     # <span class="zh">收掉全部登入畫面（會重新產生）</span><span class="en">end all login-screen sessions (they respawn)</span><span class="ja">ログイン画面のセッションを全て終了（再生成されます）</span></code></pre>
+        <p class="note">
+          <span class="zh">這是被控端的行為，主控台這邊已經是先送 SIGTERM、等它好好關閉連線才收掉。要避免累積，請改用「桌面共享」—— 它接的是既有的工作階段，不會每次都開新的。</span>
+          <span class="en">This is the target's behaviour; the console already sends SIGTERM and waits for a clean disconnect before reaping its own processes. To avoid the build-up, use Desktop Sharing — it attaches to the existing session instead of starting a new one each time.</span>
+          <span class="ja">これは接続先側の挙動です。コンソール側は既に SIGTERM を送り、正常な切断を待ってから自プロセスを終了しています。蓄積を避けるにはデスクトップ共有をご利用ください。毎回新規に開始せず、既存のセッションに接続します。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-rdp-cjk">
+        <h3>
+          <span class="zh">用 FreeRDP 引擎時打不出中文／日文</span>
+          <span class="en">Chinese or Japanese cannot be typed with the FreeRDP engine</span>
+          <span class="ja">FreeRDP エンジンでは中国語・日本語が入力できない</span>
+        </h3>
+        <p>
+          <span class="zh">請改用主控台工具列的「貼上」—— 剪貼簿這條路不受限制，中文、日文都貼得進去。直接打字時，非 ASCII 字元畫面上會出現提示，不會默默消失。</span>
+          <span class="en">Use <strong>Paste</strong> in the console toolbar instead — the clipboard path has no such limit and handles any text. When you type one directly, the console tells you; the character is never dropped in silence.</span>
+          <span class="ja">コンソールのツールバーの「<strong>貼り付け</strong>」をご利用ください。クリップボード経路にこの制限はなく、どの文字でも入力できます。直接入力した場合は画面に案内が出るため、黙って消えることはありません。</span>
+        </p>
+        <p class="note">
+          <span class="zh">原因在被控端之外：FreeRDP 的用戶端是用一張<strong>固定的按鍵對照表</strong>把鍵盤事件翻成 RDP 事件，沒有 Unicode 鍵盤通道，因此配置上沒有的字元送不出去。預設的 aardwolf 引擎沒有這個限制 —— 如果目標是 Windows，用預設引擎即可。</span>
+          <span class="en">The cause is in the client, not the target: FreeRDP translates key events through a <strong>fixed key table</strong> and has no Unicode keyboard channel, so characters absent from the layout cannot be sent. The default aardwolf engine does not have this limit — for Windows targets, the default engine is the better choice.</span>
+          <span class="ja">原因は接続先ではなくクライアント側にあります。FreeRDP はキーイベントを<strong>固定のキー対応表</strong>で RDP イベントに変換しており、Unicode キーボードチャネルを持たないため、配列にない文字は送信できません。既定の aardwolf エンジンにこの制限はなく、Windows が相手なら既定のままで十分です。</span>
+        </p>
+      </article>
+
       <article class="qa" id="qa-rdp-session-running">
         <h3>
           <span class="zh">連 GNOME 遠端登入時出現「Session Already Running」，按 Force Stop 沒有反應</span>

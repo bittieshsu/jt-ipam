@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import pathlib
 from types import SimpleNamespace
 
@@ -176,7 +177,7 @@ def test_a_taken_display_number_moves_on_to_the_next():
 
     src = (pathlib.Path(__file__).resolve().parents[1]
            / "app" / "services" / "rdp_freerdp.py").read_text()
-    assert "for num in range(_DISPLAY_MIN, _DISPLAY_MAX)" in src
+    assert "for step in range(span)" in src and "_DISPLAY_MIN + (start + step) % span" in src
     assert "await self._kill_xvfb()" in src, "試失敗的那個 Xvfb 沒有收掉 → 會留下孤兒"
 
 
@@ -354,19 +355,27 @@ def test_odd_widths_are_rounded_down():
     assert (same._width, same._height) == (1280, 800)
 
 
-def test_post_connect_failures_are_not_called_a_network_problem():
-    """`post_connect` 階段的失敗不可以說成「連不到目標的 3389」。
+def test_post_connect_is_not_treated_as_the_graphics_stage():
+    """`freerdp_post_connect failed` **不是**畫面參數階段的訊號。
 
-    那個階段代表 TCP 與認證都過了，卡在畫面參數協商。說成網路問題會讓人去 ping、
-    查防火牆 —— 全都是對的，全都沒用。
+    這個測試原本斷言相反的事。當時只看過一種失敗（桌面寬度是奇數），就把
+    `post_connect` 當成「TCP 與認證都過了、卡在畫面參數協商」的判準。
+    2026-09-18 把四種失敗的原始輸出抓下來才發現：**連接埠沒人聽、那個埠不是 RDP、
+    位址不存在，全都會印這一行**，於是三種網路失敗都被講成
+    「被控端拒絕了這組畫面參數（解析度或色彩深度）」，使用者照著去查解析度永遠查不到。
+
+    教訓：判準要選**只有那一種失敗才會出現**的字串，不能選「那種失敗也會出現」的。
+    真正屬於畫面參數階段的訊號是 `DEACTIVATE_ALL` / `demand_active`（實測成因是
+    指定了 `/bpp`），那個仍然要講成畫面參數。
     """
     from app.services.rdp_freerdp import _explain
 
-    msg = _explain("ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D] freerdp_post_connect failed")
-    assert "畫面參數" in msg
-    assert "連不到" not in msg
-    # 純粹的傳輸失敗（沒到 post_connect）仍然要說連不到
-    assert "連不到" in _explain("ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]")
+    generic = _explain("ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D] freerdp_post_connect failed")
+    assert "畫面參數" not in generic
+    assert "傳輸" in generic
+
+    graphics = _explain("expected PDU_TYPE_DEMAND_ACTIVE 0001, got 0006 (DEACTIVATE_ALL)")
+    assert "畫面參數" in graphics
 
 
 def test_the_captured_frame_carries_no_cursor():
@@ -452,3 +461,226 @@ def test_the_engine_reports_the_size_it_actually_got():
     even = FreeRdpConnection(host="h", port=3389, username="u", password="p",
                              domain=None, width=1366, height=830)
     assert even.framebuffer_size == (1366, 830)
+
+
+def test_a_character_the_layout_cannot_produce_is_reported_not_swallowed():
+    """打不出來的字元要出聲。
+
+    FreeRDP 引擎把 X 的按鍵交給 xfreerdp，而 xfreerdp 是用**固定的 keycode→掃描碼
+    對照表**翻譯的 —— 借一顆沒人用的 keycode 綁上中文 keysym，送出去的是一顆沒有掃描碼
+    的鍵，被控端什麼也不會發生。2026-09-18 在真機上把 5 顆分佈不同的空 keycode 都試過
+    （8／178／248／250／254），一顆都沒有反應；FreeRDP 2.11 也沒有任何 Unicode 輸入選項。
+
+    所以這條路是**走不通**的，不是沒調好。真正不能接受的是原本的行為：安靜地丟掉，
+    使用者只會覺得鍵盤壞了。現在改成回報 `console_char_not_typable`，畫面會說
+    「請改用貼上」—— 剪貼簿那條路實測連中文都貼得進去。
+    """
+    from app.services.rdp_freerdp import UnsupportedCharacter
+
+    conn = FreeRdpConnection(host="h", port=3389, username="u", password="p",
+                             domain=None, width=800, height=600)
+
+    class _Disp:
+        def keysym_to_keycodes(self, _sym):
+            return []
+
+        def sync(self):
+            pass
+
+    conn._disp = _Disp()
+    with pytest.raises(UnsupportedCharacter) as got:
+        asyncio.run(conn.send_key_char("測", True))
+    assert got.value.char == "測"
+
+
+def test_the_engine_no_longer_remaps_keycodes():
+    """不可以再把 keycode 借來重綁。
+
+    那是為了打非 ASCII 字元加的，實測完全無效（見上一個測試），而且它會**改動那個 X
+    顯示的鍵盤配置**——有副作用、沒有效果。
+    """
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app" / "services" / "rdp_freerdp.py").read_text()
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "change_keyboard_mapping" not in code
+    assert "_spare_keycode" not in code
+
+
+def test_ascii_still_takes_the_normal_path():
+    """ASCII 不受影響：查得到就照原本的 keycode 打，需要時補 Shift。"""
+    conn = FreeRdpConnection(host="h", port=3389, username="u", password="p",
+                             domain=None, width=800, height=600)
+
+    class _Disp:
+        def keysym_to_keycodes(self, _sym):
+            return [(38, 1)]        # 第 1 階 → 要按 Shift
+
+        def sync(self):
+            pass
+
+    conn._disp = _Disp()
+    assert conn._plan_char(ord("A")) == (38, True)
+
+
+def test_altgr_levels_are_not_typed_as_shift():
+    """第 2／3 階（AltGr）不可以當成 Shift 送出去。
+
+    `bool(index)` 對 index=2 也是 True，會按著 Shift 敲出一個**別的字元** ——
+    比打不出來更糟：畫面上會出現使用者沒有輸入的東西。
+    """
+    conn = FreeRdpConnection(host="h", port=3389, username="u", password="p",
+                             domain=None, width=800, height=600)
+
+    class _Disp:
+        def keysym_to_keycodes(self, _sym):
+            return [(26, 2)]        # 只在 AltGr 階上
+
+        def sync(self):
+            pass
+
+    conn._disp = _Disp()
+    assert conn._plan_char(0x20AC) is None
+
+
+#: 2026-09-18 從真機抓下來的四種失敗，逐字保留（只截掉時間戳與 pid）。
+#: 分類要照這些證據寫，不要照猜的。
+_REAL_STDERR = {
+    "refused": """[ERROR][com.freerdp.core.transport] - BIO_should_retry returned a system error 32: Broken pipe
+[ERROR][com.freerdp.core] - transport_write:freerdp_set_last_error_ex ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]
+[ERROR][com.freerdp.client.x11] - freerdp_post_connect failed""",
+    "not_rdp": """[ERROR][com.freerdp.core.transport] - BIO_read returned a system error 104: Connection reset by peer
+[ERROR][com.freerdp.core] - transport_read_layer:freerdp_set_last_error_ex ERRCONNECT_CONNECT_TRANSPORT_FAILED [0x0002000D]
+[ERROR][com.freerdp.client.x11] - freerdp_post_connect failed""",
+    "unreachable": """[ERROR][com.freerdp.core] - freerdp_tcp_connect:freerdp_set_last_error_ex ERRCONNECT_CONNECT_FAILED [0x00020006]
+[ERROR][com.freerdp.client.common] - failed to connect to 192.0.2.77""",
+    "bad_password": """[ERROR][com.freerdp.core.nla] - SPNEGO received NTSTATUS: STATUS_LOGON_FAILURE [0xC000006D] from server
+[ERROR][com.freerdp.core] - nla_recv_pdu:freerdp_set_last_error_ex ERRCONNECT_LOGON_FAILURE [0x00020014]
+[ERROR][com.freerdp.core.rdp] - rdp_recv_callback: CONNECTION_STATE_NLA - nla_recv_pdu() fail""",
+}
+
+
+def test_four_different_failures_do_not_get_the_same_sentence():
+    """四種失敗要講四種話。
+
+    2026-09-18 實測抓到：連接埠沒人聽、那個埠不是 RDP、位址不存在 —— 三種都被講成
+    「被控端拒絕了這組畫面參數（解析度或色彩深度）」。原因是分類器拿 `post_connect`
+    當判準，而 **`freerdp_post_connect failed` 是任何失敗都會印的一行**，不是圖形階段
+    的訊號。使用者照著那句話去查解析度，永遠查不到。
+    """
+    from app.services.rdp_freerdp import _explain
+
+    said = {k: _explain(v) for k, v in _REAL_STDERR.items()}
+    heads = {k: v.split("：")[0] for k, v in said.items()}
+    assert len(set(heads.values())) == 4, f"有失敗共用同一句話：{heads}"
+    assert "畫面參數" not in " ".join(heads.values()), "網路層的失敗不可以講成畫面參數"
+    assert "密碼" in heads["bad_password"]
+    for key in ("refused", "not_rdp", "unreachable"):
+        assert "連" in heads[key], f"{key} 應該講成連線問題：{heads[key]!r}"
+
+
+def test_the_underlying_words_are_kept():
+    """分類之後底層原文還要在 —— 分錯的時候，原文是唯一能救回來的東西。
+
+    但**不可以從半個字中間切開**：原本是把整段壓成一行再取最後 240 字元，
+    結果開頭會是 `5:598]` 這種切一半的時間戳。
+    """
+    from app.services.rdp_freerdp import _explain
+
+    out = _explain(_REAL_STDERR["unreachable"])
+    assert "ERRCONNECT_CONNECT_FAILED" in out or "failed to connect" in out
+    detail = out.split("：", 1)[1]
+    assert not detail.startswith(("]", ":")), f"原文從半個字切開了：{detail[:20]!r}"
+    # 時間戳與 pid 是雜訊，留著只會把真正的訊息擠掉
+    assert "[ERROR]" not in detail and "com.freerdp" not in detail
+
+
+def test_an_empty_stderr_still_says_something():
+    from app.services.rdp_freerdp import _explain
+
+    assert _explain("").strip()
+
+
+def test_a_display_is_only_ours_if_the_lock_file_says_so(tmp_path):
+    """socket 存在**不代表**那個顯示是我們的。
+
+    2026-09-18 實測：三條連線同時開，全部拿到 `:100` —— 它們共用同一個虛擬螢幕，
+    等於**同時連線的使用者會看到彼此的畫面**，鍵盤滑鼠也會互相干擾。
+
+    競態是這樣來的：三個都先檢查 `/tmp/.X100-lock` 不存在 → 三個都去起 Xvfb →
+    只有一個搶得到鎖，另外兩個立刻結束；但我們的判斷只是「socket 檔案出現了嗎」，
+    而那個 socket 是贏家建的。輸家於是拿著別人的顯示繼續跑。
+
+    X 的鎖檔裡寫的就是持有者的 PID —— 拿它跟我們自己起的那個 Xvfb 比對，
+    才是真的證明。
+    """
+    from app.services.rdp_freerdp import _display_owner
+
+    lock = tmp_path / ".X100-lock"
+    lock.write_text("%10d\n" % 4242)
+    assert _display_owner(str(lock)) == 4242
+
+    lock.write_text("not a pid\n")
+    assert _display_owner(str(lock)) is None
+    assert _display_owner(str(tmp_path / "does-not-exist")) is None
+
+
+def test_the_socket_check_is_paired_with_an_ownership_check():
+    """靜態守門：不可以再只憑 socket 存在就宣告成功。"""
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app" / "services" / "rdp_freerdp.py").read_text()
+    body = src[src.index("async def _try_display"):src.index("async def _kill_xvfb")]
+    assert "_display_owner" in body, "拿到顯示之後沒有驗證擁有者"
+    assert "self._xvfb.pid" in body, "沒有跟自己起的 Xvfb 比對 PID"
+
+
+def test_display_scan_does_not_always_start_at_the_same_number():
+    """每條連線從不同的號碼開始掃，減少互搶。
+
+    擁有者檢查已經保證正確性；起點打散只是不要讓每一條都先去撞 100。
+    """
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app" / "services" / "rdp_freerdp.py").read_text()
+    body = src[src.index("async def _start_xvfb"):src.index("async def _try_display")]
+    assert "randbelow" in body or "randrange" in body
+
+
+def test_the_handshake_is_serialised_across_workers():
+    """交握要排隊，而且是**跨行程**排隊。
+
+    2026-09-18 實測（gnome-remote-desktop）：三條**依序**開、都保持連著，全部成功；
+    兩條**同一瞬間**開始交握就固定壞一條。壞的那一條回的還不一定一樣 ——
+    有時是安全層協商失敗，有時直接是 `STATUS_LOGON_FAILURE`，
+    也就是**密碼明明是對的，使用者卻被告知帳號或密碼不正確**。
+
+    為什麼不是「失敗就重試一次」：重試等於把憑證再送一次。實測那一次重試拿到的正是
+    `LOGON_FAILURE` —— 在有鎖定政策的目標上，那是拿使用者的帳號去換一次失敗登入。
+    排隊不碰憑證，成本只是多等一輪交握（實測約 2.5 秒）。
+
+    uvicorn 預設跑多個 worker，所以 `asyncio.Lock` 不夠 —— 那只擋得住同一個行程裡的。
+    用檔案鎖（`flock`）才是整台機器一份。
+    """
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app" / "services" / "rdp_freerdp.py").read_text()
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "flock" in code, "沒有跨行程的鎖 —— 多個 uvicorn worker 還是會撞在一起"
+    assert "_HANDSHAKE_LOCK_PATH" in code
+
+
+def test_the_handshake_lock_cannot_wedge_everyone():
+    """拿不到鎖也要繼續試，不可以因為別人卡住就整個連不上。
+
+    排隊是為了避開一個**偶發**的碰撞，不是為了把它變成單一失效點。
+    """
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app" / "services" / "rdp_freerdp.py").read_text()
+    assert "_HANDSHAKE_LOCK_WAIT" in src
+
+
+def test_credentials_are_never_sent_twice_for_one_attempt():
+    """一次連線只送一次憑證 —— 不可以再把「失敗就重試」加回來。"""
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "app" / "services" / "rdp_freerdp.py").read_text()
+    body = src[src.index("async def connect("):src.index("async def _start_xvfb")]
+    code = "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith("#"))
+    assert "_CONNECT_RETRIES" not in code and "_worth_retrying" not in code
+    assert code.count("await self._start_xfreerdp()") == 1

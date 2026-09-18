@@ -54,6 +54,7 @@ from app.services.permission import (
     has_permission,
     visible_ids,
 )
+from app.services.rdp_freerdp import UnsupportedCharacter  # 模組層沒有硬相依，沒裝也載得起來
 
 try:  # aardwolf 為選用相依（pin 0.2.13）；未裝則 RDP 功能停用
     from aardwolf.commons.factory import RDPConnectionFactory
@@ -646,6 +647,7 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
 
     async def pump_in() -> None:
         mods_down: set[str] = set()   # 目前按住的 Ctrl/Alt/Meta（決定字母鍵走 scancode 還是 unicode）
+        char_warned = False           # 打不出來的字元只提醒一次（整句中文會逐字進來）
         # ⚠️ 不要用 suppress(Exception) 把整個迴圈包起來。輸入處理丟出例外時，畫面還在跑、
         # 滑鼠鍵盤卻全無反應，而伺服器端一行紀錄都沒有 —— 這種「看起來活著」的失效
         # 最難查（2026-09-17 為此查了一輪）。斷線是正常結束，其餘一律留下來。
@@ -680,7 +682,18 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
                     else:
                         ch = msg.get("ch", "")
                         if len(ch) == 1:
-                            await conn.send_key_char(ch, pressed)
+                            try:
+                                await conn.send_key_char(ch, pressed)
+                            except UnsupportedCharacter as bad:
+                                # FreeRDP 引擎打不出非 ASCII 字元（xfreerdp 沒有 Unicode
+                                # 輸入通道）。**不可以安靜吞掉** —— 使用者會以為鍵盤壞了。
+                                # 整句中文會逐字丟過來，所以一條連線只講一次。
+                                if not char_warned:
+                                    char_warned = True
+                                    await send({"type": "notice", **ui_detail(
+                                        "console_char_not_typable",
+                                        "這個字元無法直接輸入，請改用貼上",
+                                        char=bad.char)})
                 elif t == "clip":
                     # 控制端貼上：把文字寫進被控端剪貼簿（單向、純文字、長度上限 100k）
                     if clip_enabled:

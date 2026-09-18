@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.28] - 2026-09-18
+
+### Fixed
+- **Two people connecting at the same moment could see each other's console.** The FreeRDP engine
+  gives every connection its own virtual screen, but decided "is this screen mine?" by checking
+  whether a socket file existed. When three connections start at the same instant, all three see
+  no lock file, all three try the same number, and only one wins — the other two saw the winner's
+  socket and carried on using **someone else's screen**. Ownership is now proved against the PID
+  in X's own lock file, and the scan starts at a different number per connection.
+- **A correct password could be reported as "username or password incorrect".** When two
+  handshakes begin at the same instant the target fails one of them, sometimes as a security
+  negotiation failure and sometimes as a logon failure. Handshakes are now queued (across
+  processes, so multiple workers are covered too). Retrying was deliberately **not** used:
+  a retry re-sends the credentials, which on a target with a lockout policy spends one of the
+  account's attempts.
+- **Three entirely different connection failures gave the same wrong explanation.** Nothing
+  listening on the port, a port that is not RDP, and an unreachable address were all reported as
+  "the target rejected these display settings (resolution or colour depth)", sending the reader
+  to check a resolution that was never the problem. The test used a line that *every* failure
+  prints. The four failures now each say their own thing, and the underlying text is no longer
+  cut from the middle of a timestamp.
+- **Non-ASCII characters vanished silently on the FreeRDP engine.** FreeRDP translates key events
+  through a fixed key table and has no Unicode keyboard channel, so Chinese and Japanese could
+  not be sent — without a word, so it reads as a broken keyboard. The console now says so and
+  points at Paste, which handles any text. This also fixes a worse case: characters on the AltGr
+  level were typed as Shift, producing a character the user never asked for.
+
+### Changed
+- Two more entries in the troubleshooting page's Remote console section: what to do when the
+  FreeRDP engine cannot type your language, and why GNOME Remote Login degrades to a black screen
+  after dozens of connections (the target accumulates login-screen sessions it never reaps),
+  with the commands to check and clear it.
+
+- **The "last seen" labels on the IP detail page now read alike.** The Wazuh row said
+  "Wazuh agent keep-alive" next to "Last seen (scanner)" and "Last seen (LibreNMS)", which
+  made one row of the same group look like a different kind of value. All three languages
+  adjusted, with a test to keep them in step.
+
+### Notes
+- No database changes. **Install and upgrade need no adjustment** — no new packages, units or settings.
+
 ## [0.6.27] - 2026-09-17
 
 ### Fixed

@@ -1232,7 +1232,7 @@
     "suggest_create": "機器「{name}」を作成して紐づける",
     "suggest_siblings_hint": "同じホスト名を持つ IP が他に {n} 件あります。ホスト名が同じでも同じ機器とは限りません（使い回された DHCP アドレスは古いホスト名を保持します）。チェックする前に MAC を確認してください。",
     "suggest_same_mac": "MAC が同じ",
-    "last_seen_wazuh": "Wazuh エージェントの keep-alive",
+    "last_seen_wazuh": "最終確認（Wazuh エージェント）",
     "fw_match_src": "送信元：{why}",
     "fw_match_dst": "宛先：{why}",
     "fw_why_alias_member": "エイリアス {value} のメンバー",
@@ -2829,7 +2829,8 @@
     "migration_known_host_required": "SSH ホスト鍵が必要です。先に「フィンガープリント取得」を実行し、確認してから送信してください",
     "migration_refetch_fingerprint": "フィンガープリントを取得し直し、確認してから再送信してください",
     "console_remote_closed": "接続先がこのセッションを終了しました：{reason}",
-    "console_engine_failed": "RDP エンジンが接続できませんでした：{reason}"
+    "console_engine_failed": "RDP エンジンが接続できませんでした：{reason}",
+    "console_char_not_typable": "「{char}」は現在の RDP 接続エンジンでは直接入力できません（FreeRDP に Unicode キーボードチャネルがないため）。ツールバーの「貼り付け」をご利用ください。"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",

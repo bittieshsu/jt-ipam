@@ -1232,7 +1232,7 @@
     "suggest_create": "Create device “{name}” and link it",
     "suggest_siblings_hint": "{n} other IPs carry the same hostname. Note that the same hostname does not mean the same machine — a reused DHCP address keeps its old hostname, so check the MAC before ticking:",
     "suggest_same_mac": "same MAC",
-    "last_seen_wazuh": "Wazuh agent keep-alive",
+    "last_seen_wazuh": "Last seen (Wazuh agent)",
     "fw_match_src": "source: {why}",
     "fw_match_dst": "destination: {why}",
     "fw_why_alias_member": "member of alias {value}",
@@ -2829,7 +2829,8 @@
     "migration_known_host_required": "The SSH host key is required: run \"Get fingerprint\", confirm it, then submit again",
     "migration_refetch_fingerprint": "Fetch the fingerprint again, confirm it, and resubmit",
     "console_remote_closed": "The remote host ended this session: {reason}",
-    "console_engine_failed": "The RDP engine could not connect: {reason}"
+    "console_engine_failed": "The RDP engine could not connect: {reason}",
+    "console_char_not_typable": "The character “{char}” cannot be typed directly with the current RDP engine (FreeRDP has no Unicode keyboard channel). Use Paste in the toolbar instead — it handles any text."
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
