@@ -8,6 +8,7 @@ DB 有設就用 DB，否則用 env。
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -630,6 +631,70 @@ async def set_change_log_dim_days(
 # ─────────────────── Graylog DSV 查表（lookup table adapter）───────────────────
 
 GRAYLOG_DSV_KEY = "graylog_dsv"
+
+
+DEVICE_PORTS_KEY = "device_ports"
+
+# 從整合來源匯入裝置連接埠時，符合這些樣式的視為「偽介面」而略過／清除：Windows 端點的
+# NDIS 過濾器、WAN Miniport、通道等（LibreNMS 從 ifIndex 產生 ethernet_N / wireless_N /
+# ppp_N…）。實體交換器與 Linux 埠名不會長這樣。管理者可在系統設定調整這份清單。
+DEFAULT_PORT_IGNORE_PATTERNS = [
+    r"^ethernet_\d+$",
+    r"^wireless_\d+$",
+    r"^ppp_\d+$",
+    r"^tunnel_\d+$",
+    r"^loopback_\d+$",
+    r"^isatap_\d+$",
+    r"^teredo_\d+$",
+]
+
+
+def _clean_port_patterns(raw: Any) -> list[str]:
+    """整理埠過濾樣式：去空白、丟掉無法編譯的正則（比照 normalize_times，一個壞值不該讓整組失效）。"""
+    out: list[str] = []
+    for item in raw if isinstance(raw, list) else []:
+        p = str(item).strip()
+        if not p:
+            continue
+        try:
+            re.compile(p)
+        except re.error:
+            continue
+        if p not in out:
+            out.append(p)
+    return out
+
+
+async def get_device_port_filter(session: AsyncSession) -> dict[str, Any]:
+    """裝置連接埠匯入的偽介面過濾設定：filter_pseudo（總開關）＋ ignore_patterns（樣式清單）。"""
+    row = await session.get(SystemSetting, DEVICE_PORTS_KEY)
+    v = dict(row.value) if (row and isinstance(row.value, dict)) else {}
+    pats = _clean_port_patterns(v.get("ignore_patterns"))
+    return {
+        "filter_pseudo": bool(v.get("filter_pseudo", True)),
+        "ignore_patterns": pats or list(DEFAULT_PORT_IGNORE_PATTERNS),
+    }
+
+
+async def set_device_port_filter(
+    session: AsyncSession, *, filter_pseudo: bool, ignore_patterns: Any,
+    updated_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    pats = _clean_port_patterns(ignore_patterns) or list(DEFAULT_PORT_IGNORE_PATTERNS)
+    row = await session.get(SystemSetting, DEVICE_PORTS_KEY)
+    if row is None:
+        row = SystemSetting(key=DEVICE_PORTS_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    cur = dict(row.value or {})
+    cur["filter_pseudo"] = bool(filter_pseudo)
+    cur["ignore_patterns"] = pats
+    row.value = cur
+    row.updated_by = updated_by_user_id
+    flag_modified(row, "value")
+    await session.commit()
+    return {"filter_pseudo": bool(filter_pseudo), "ignore_patterns": pats}
 
 
 RACK_EMBED_KEY = "rack_embed"

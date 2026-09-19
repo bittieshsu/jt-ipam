@@ -325,7 +325,7 @@
     "mikrotik_fw": "ルーター（MikroTik）",
     "jump_hosts": "踏み台ホスト",
     "doctor": "システムチェック",
-    "ocs": "OCS インベントリ"
+    "ocs": "OCS 連携"
   },
   "topbar": {
     "search": "検索…",
@@ -1241,7 +1241,8 @@
     "fw_why_alias_member": "エイリアス {value} のメンバー",
     "fw_why_net_covers": "{value} に含まれる",
     "fw_why_exact": "アドレスが完全に一致",
-    "last_seen_ocs": "最終確認（OCS インベントリ）"
+    "last_seen_ocs": "最終確認（OCS インベントリ）",
+    "last_seen_ocs_jump": "この機器の OCS インベントリを表示"
   },
   "subnets": {
     "title": "サブネット",
@@ -2505,7 +2506,11 @@
       "rdp_engine_aardwolf": "aardwolf（既定）",
       "rdp_engine_freerdp": "FreeRDP",
       "rdp_engine_hint": "aardwolf は組み込みの純 Python 実装です。追加のプロセスが不要で、Windows が相手なら問題なく動きます。FreeRDP は互換性がより広く、とくに Linux の xrdp や GNOME のリモートログイン（aardwolf の NTLM 認証を拒否します）に有効ですが、このホストに FreeRDP と仮想ディスプレイが必要です。変更は新しい接続から反映されます。",
-      "rdp_engine_missing": "このサーバーには FreeRDP エンジンに必要なものがまだありません（不足：{pkgs}）。インストールしてからこのページを再読み込みしてください。それまでは FreeRDP を選んでも接続できません。"
+      "rdp_engine_missing": "このサーバーには FreeRDP エンジンに必要なものがまだありません（不足：{pkgs}）。インストールしてからこのページを再読み込みしてください。それまでは FreeRDP を選んでも接続できません。",
+      "port_filter_pseudo": "疑似インターフェースを除外",
+      "port_filter_pseudo_hint": "連携元からポートを取り込む際、以下の名前パターンに一致する疑似インターフェース（Windows NDIS フィルタ、WAN Miniport、トンネル等）を除外・削除します。オフの場合は除外も削除も行いません。",
+      "port_ignore_patterns": "除外する名前パターン",
+      "port_ignore_patterns_hint": "1 行に 1 つの正規表現（インターフェース名に対して大文字小文字を区別せず照合）。空欄の場合は組み込みの既定値を使用します。物理スイッチや Linux のポート名は一致しないため影響を受けません。"
     }
   },
   "errors": {
@@ -2840,7 +2845,8 @@
     "ocs_unreachable": "この OCS サーバーに接続できません",
     "ocs_rest_unavailable": "URL には到達できますが、OCS REST API が正しく応答しません（無効の可能性）",
     "ocs_auth_required": "OCS は認証が必要ですが、資格情報が誤っているか未設定です",
-    "ocs_db_not_impl": "現在は REST ソースのみ対応です（データベース直接接続は後続フェーズ）"
+    "ocs_db_not_impl": "現在は REST ソースのみ対応です（データベース直接接続は後続フェーズ）",
+    "ocs_bad_json": "OCS の応答が有効な JSON ではありません"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -3046,7 +3052,16 @@
     "vm_node": "ホストノード",
     "vm_cluster": "クラスタ",
     "vm_vcpu": "vCPU",
-    "vm_memory": "メモリ（MB）"
+    "vm_memory": "メモリ（MB）",
+    "ocs_last_inventory": "最終棚卸",
+    "ocs_serial": "シリアル",
+    "ocs_model": "モデル",
+    "ocs_vendor": "ベンダー",
+    "open_in": "{sys} で表示",
+    "ocs_match_hint": "OCS はネットワークカードの MAC で既存の IP に照合し（照合のみ、IP は新規作成しません）、OS・資産タグ・シリアル／モデル／ベンダー・備考を補完します。",
+    "ocs_tag": "資産タグ",
+    "ocs_agent": "エージェント版",
+    "ocs_notes": "備考"
   },
   "relations": {
     "title": "関連",
@@ -3232,7 +3247,8 @@
     "src_no_aging": "期限切れになりません",
     "src_kind_base": "探査と監視",
     "src_zabbix": "Zabbix のホスト死活",
-    "liveness_no_aging_warn": "「期限切れになりません」と付いたソースを選ぶと、一度観測されただけでそのアドレスは永遠にオンラインのままになります。その動作を本当に望む理由が明確でない限り、選ばないでください。"
+    "liveness_no_aging_warn": "「期限切れになりません」と付いたソースを選ぶと、一度観測されただけでそのアドレスは永遠にオンラインのままになります。その動作を本当に望む理由が明確でない限り、選ばないでください。",
+    "grp_device_ports": "デバイスポート"
   },
   "oui_admin": {
     "title": "MAC ベンダーデータベース（OUI）",
@@ -4361,7 +4377,7 @@
     "password_kept": "空欄のままで保存済みパスワードを維持",
     "verify_tls": "TLS 証明書を検証",
     "sync_networks": "NIC を同期",
-    "sync_bios": "シリアル／型番／メーカーを同期",
+    "sync_bios": "シリアル／型番／メーカー同期",
     "sync_software": "ソフトウェア一覧を同期",
     "sync_software_hint": "既定でオフ：1 台あたり約 2 KB → 約 80 KB に増加します（本バージョンでは未保存）。",
     "interval": "同期間隔（秒）",

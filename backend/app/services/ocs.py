@@ -22,6 +22,7 @@ Phase 1 只做**資產身分**：主機名稱、OS、網卡 MAC、序號／型�
 from __future__ import annotations
 
 import base64
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -85,10 +86,65 @@ def usable_nics(networks: Any) -> list[dict[str, Any]]:
     return out
 
 
+# 修復亂碼。OCS 代理不論機器是哪國語系，回報給伺服器的都是 **UTF-8**；亂碼的成因是 OCS 的
+# 資料庫不是 UTF-8（latin1／cp1252／SQL_ASCII 很常見）：UTF-8 位元組被當 8-bit 讀進去、再以
+# UTF-8 端出來（雙重編碼）。所以還原是單一且無歧義的：把「解錯的字串」編回資料庫實際存的
+# 位元組（latin-1 或 cp1252），再以 UTF-8 解讀 —— 繁中／簡中／日文／韓文一律適用（因為源頭
+# 都是 UTF-8）。刻意不猜 Big5／GBK／Shift-JIS 這類 8-bit 母語編碼：同一串位元組在它們之間
+# 合法但解出不同字，短字串連統計偵測都不可靠，硬猜只會製造另一種亂碼。
+_RECODE_FROM = ("latin-1", "cp1252")
+_RECODE_TO = ("utf-8",)
+
+
+def _score_text(s: str) -> int:
+    """越多可列印／CJK、越少替換字元與控制碼 → 分數越高。用來在候選解碼間挑最合理的。"""
+    score = 0
+    for ch in s:
+        o = ord(ch)
+        if ch == "�":                    # 替換字元＝解錯了
+            score -= 5
+        elif o < 0x20 and ch not in "\t\n\r":  # 控制碼
+            score -= 3
+        elif 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF or 0xF900 <= o <= 0xFAFF:
+            score += 2                         # CJK 統一漢字（含相容區）
+        elif 0x3000 <= o <= 0x30FF or 0xAC00 <= o <= 0xD7A3:
+            score += 2                         # 日文假名／韓文
+        elif o < 0x80:
+            score += 1                         # ASCII
+        elif 0x80 <= o <= 0xFF:
+            score -= 1                         # latin-1 補充區：多半是 mojibake 的殘渣
+    return score
+
+
+def _repair_text(s: str | None) -> str | None:
+    """盡力把任何編碼造成的亂碼還原成正常文字（見上方 _RECODE_* 說明）。
+
+    正確存的中文（字元 > U+00FF）在 encode(latin-1) 會直接丟例外而原封不動；純 ASCII 重解
+    後與原字串相同、分數不會更高，也不會被改。只有「重解後明顯更像正常文字」才採用。
+    """
+    if not s:
+        return s
+    best, best_score = s, _score_text(s)
+    for enc_from in _RECODE_FROM:
+        try:
+            raw = s.encode(enc_from)
+        except UnicodeEncodeError:
+            continue
+        for enc_to in _RECODE_TO:
+            try:
+                cand = raw.decode(enc_to)
+            except (UnicodeDecodeError, LookupError):
+                continue
+            sc = _score_text(cand)
+            if cand != s and sc > best_score:
+                best, best_score = cand, sc
+    return best
+
+
 def hostname_of(hardware: dict[str, Any]) -> str | None:
     """OCS 的電腦名稱。空字串視為沒有。"""
     name = (hardware.get("NAME") or "").strip()
-    return name or None
+    return _repair_text(name) or None
 
 
 def parse_os(hardware: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -100,7 +156,7 @@ def parse_os(hardware: dict[str, Any]) -> tuple[str | None, str | None]:
     comments = (hardware.get("OSCOMMENTS") or "").strip()
     osname = (hardware.get("OSNAME") or "").strip()
     osver = (hardware.get("OSVERSION") or "").strip()
-    guess = comments or (f"{osname} {osver}".strip() if osname else None) or None
+    guess = _repair_text(comments or (f"{osname} {osver}".strip() if osname else None) or None)
     family = None
     low = osname.lower()
     if "windows" in low:
@@ -114,27 +170,83 @@ def parse_os(hardware: dict[str, Any]) -> tuple[str | None, str | None]:
     return guess, family
 
 
+# 主機板沒燒 DMI 時的佔位字串（拿來當序號會製造假資產）。有時真值前面還黏著佔位前綴
+# （實機："To Be Filled By O.E.M. X570D4I-2T"）→ 去前綴、剩真值才留；整串就是佔位則視為沒有。
+_DMI_JUNK = frozenset({
+    "system manufacturer", "system product name", "to be filled by o.e.m.",
+    "default string", "not specified", "not available", "none", "o.e.m.",
+    "system serial number", "0", "n/a",
+})
+_DMI_JUNK_PREFIXES = ("to be filled by o.e.m.", "default string", "system manufacturer",
+                      "system product name")
+
+
+def _strip_dmi_placeholder(s: str | None) -> str | None:
+    """去掉 DMI 佔位字串／前綴，回真值或 None。"""
+    s = (s or "").strip()
+    low = s.lower()
+    for pre in _DMI_JUNK_PREFIXES:
+        if low.startswith(pre):
+            s = s[len(pre):].strip(" .-")
+            low = s.lower()
+    return None if (not s or low in _DMI_JUNK) else s
+
+
+def _is_dmi_placeholder(s: str | None) -> bool:
+    """既有 Device 欄位是不是佔位垃圾（給同步時判斷該不該覆寫）。"""
+    return bool(s) and _strip_dmi_placeholder(s) != (s or "").strip()
+
+
 def bios_asset(bios: Any) -> dict[str, str | None]:
-    """從 bios 區段抽出 vendor / model / serial。
+    """從 bios 區段抽出 vendor / model / serial（去佔位字串、修亂碼）。
 
     bios 在清單回應裡是 list（0 或 1 筆），在 /computer/:id 也是 list。空的回全 None。
-    通用預設值（"System manufacturer"、"To be filled by O.E.M."、"Default string"）當作沒有 ——
-    這些是主機板沒燒 DMI 時的佔位字串，拿來當序號會製造假的資產。
     """
     row = bios[0] if isinstance(bios, list) and bios else (bios if isinstance(bios, dict) else {})
     def clean(v: Any) -> str | None:
-        s = (str(v or "")).strip()
-        if not s:
-            return None
-        junk = {"system manufacturer", "system product name", "to be filled by o.e.m.",
-                "default string", "not specified", "not available", "none", "o.e.m.",
-                "system serial number", "0", "n/a"}
-        return None if s.lower() in junk else s
+        return _strip_dmi_placeholder(_repair_text((str(v or "")).strip()))
     return {
         "vendor": clean(row.get("SMANUFACTURER")),
         "model": clean(row.get("SMODEL")),
         "serial": clean(row.get("SSN")),
     }
+
+
+def ocs_tag_of(computer: dict[str, Any]) -> str | None:
+    """資產標籤：OCS 放在 accountinfo（[{HARDWARE_ID, TAG}]）。空／預設值視為沒有。"""
+    ai = computer.get("accountinfo")
+    row = ai[0] if isinstance(ai, list) and ai else (ai if isinstance(ai, dict) else {})
+    tag = _repair_text(str(row.get("TAG") or "").strip())
+    if not tag or tag.lower() in {"na", "n/a", "none", "0"}:
+        return None
+    return tag[:128]
+
+
+def ocs_agent_of(hardware: dict[str, Any]) -> str | None:
+    """OCS 代理版本（hardware.USERAGENT，如 OCS-NG_unified_unix_agent_v2.10.0）。"""
+    ua = str(hardware.get("USERAGENT") or "").strip()
+    return ua[:128] or None
+
+
+def ocs_notes_of(computer: dict[str, Any], limit: int = 5) -> list[dict[str, Any]]:
+    """最新幾筆備註（itmgmt_comments）。依 ID 由大到小取前 limit 筆；內容修復亂碼。"""
+    rows = computer.get("itmgmt_comments")
+    if not isinstance(rows, list):
+        return []
+    def key(r: Any) -> int:
+        try:
+            return int(r.get("ID") or 0)
+        except (ValueError, TypeError):
+            return 0
+    out: list[dict[str, Any]] = []
+    for r in sorted((r for r in rows if isinstance(r, dict)), key=key, reverse=True)[:limit]:
+        out.append({
+            "date": str(r.get("DATE_INSERT") or "").strip() or None,
+            "user": str(r.get("USER_INSERT") or "").strip() or None,
+            "comment": _repair_text(str(r.get("COMMENTS") or "").strip()) or None,
+            "action": str(r.get("ACTION") or "").strip() or None,
+        })
+    return out
 
 
 def lastdate_of(hardware: dict[str, Any]) -> datetime | None:
@@ -211,7 +323,26 @@ async def _get_json(client: httpx.AsyncClient, url: str,
     resp = await safe_request("GET", url, client=client, headers={**headers, "Accept": "application/json"},
                               verify=verify)
     resp.raise_for_status()
-    return resp.json()
+    return _decode_json(resp.content)
+
+
+def _decode_json(raw: bytes) -> Any:
+    """把回應位元組解成 JSON，不倚賴 content-type 的 charset 宣告。
+
+    OCS 站常把非 UTF-8 的中文標成 charset=UTF-8；若真的不是合法 UTF-8，直接 .json() 會炸或
+    塞替換字元而掉資料。JSON 骨架本身一定是 ASCII，所以先試合法 UTF-8/16/32（json.loads 會
+    自動偵測），失敗就退回 latin-1 保留原始位元組（骨架照樣可解），字串值裡的亂碼交給
+    _repair_text 還原。真的不是 JSON 才拋，並帶上底層例外原文（見 FortiGate 那次教訓）。
+    """
+    try:
+        return json.loads(raw)
+    except UnicodeDecodeError:
+        try:
+            return json.loads(raw.decode("latin-1"))
+        except json.JSONDecodeError as exc:
+            raise OcsError(f"OCS 回應不是有效的 JSON：{exc}", code="ocs_bad_json") from exc
+    except json.JSONDecodeError as exc:
+        raise OcsError(f"OCS 回應不是有效的 JSON：{exc}", code="ocs_bad_json") from exc
 
 
 # ─────────────────── 連線診斷 ───────────────────
@@ -296,6 +427,7 @@ async def _iter_full(client, base, hdr, verify):
 async def _apply_computer(
     session: AsyncSession, server: OcsServer, computer: dict[str, Any],
     ip_ids_by_mac: dict[str, list[uuid.UUID]], now: datetime,
+    ocs_id: int | None = None,
 ) -> dict[str, int]:
     """把一台 OCS 電腦的資料落到對到的既有 IP（只比不建）。回傳這台命中的計數。"""
     hw = computer.get("hardware") or {}
@@ -304,6 +436,9 @@ async def _apply_computer(
     last = lastdate_of(hw)
     stale = is_stale(last, stale_after_days=server.stale_after_days, now=now)
     asset = bios_asset(computer.get("bios")) if server.sync_bios else {}
+    tag = ocs_tag_of(computer)
+    agent = ocs_agent_of(hw)
+    notes = ocs_notes_of(computer)
     counts = {"matched": 0}
 
     for nic in usable_nics(computer.get("networks")):
@@ -315,6 +450,14 @@ async def _apply_computer(
         if ip is None:
             continue
         counts["matched"] += 1
+
+        # 記下 OCS 的 systemid／標籤／代理版本／備註，供裝置明細卡片顯示與深連結。
+        # 這些是「目前狀態」的識別/描述資訊，非優先序來源，過期與否都更新。
+        if isinstance(ocs_id, int):
+            ip.ocs_id = ocs_id
+        ip.ocs_tag = tag
+        ip.ocs_agent = agent
+        ip.ocs_notes = notes or None
 
         # 主機名稱：過期的也記（多源保存），但由優先序決定要不要當有效值。
         if hn:
@@ -333,12 +476,14 @@ async def _apply_computer(
         if asset and ip.device_id and not stale:
             dev = await session.get(Device, ip.device_id)
             if dev is not None:
-                if asset.get("serial") and not dev.serial:
-                    dev.serial = asset["serial"]
-                if asset.get("model") and not dev.model:
-                    dev.model = asset["model"]
-                if asset.get("vendor") and not dev.vendor:
-                    dev.vendor = asset["vendor"]
+                # 空值或先前存進去的 DMI 佔位垃圾（舊版同步留下的 "To Be Filled By O.E.M. …"）
+                # → 換成 OCS 的乾淨值；OCS 也沒有乾淨值時就清掉垃圾（設 None）。使用者手填的
+                # 真值一律不動。
+                def _pick(cur: str | None, new: str | None) -> str | None:
+                    return new if (not cur or _is_dmi_placeholder(cur)) else cur
+                dev.serial = _pick(dev.serial, asset.get("serial"))
+                dev.model = _pick(dev.model, asset.get("model"))
+                dev.vendor = _pick(dev.vendor, asset.get("vendor"))
     return counts
 
 
@@ -384,12 +529,14 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
                     continue
                 seen += 1
                 matched += (await _apply_computer(
-                    session, server, comp, ip_ids_by_mac, now))["matched"]
+                    session, server, comp, ip_ids_by_mac, now,
+                    ocs_id=cid if isinstance(cid, int) else None))["matched"]
         else:
             async for _cid, comp in _iter_full(client, base, hdr, server.verify_tls):
                 seen += 1
                 matched += (await _apply_computer(
-                    session, server, comp, ip_ids_by_mac, now))["matched"]
+                    session, server, comp, ip_ids_by_mac, now,
+                    ocs_id=_cid if isinstance(_cid, int) else None))["matched"]
 
     # 增量游標推進到這次同步的當下（epoch）。因為 lastupdate 是嚴格大於、下次會退重疊窗。
     if incremental:

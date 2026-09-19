@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Annotated, Any
 
@@ -28,6 +29,7 @@ from app.models.physical import (
     VPNTunnel,
 )
 from app.schemas.base import Paginated, StrictModel
+from app.services.system_config import DEFAULT_PORT_IGNORE_PATTERNS, get_device_port_filter
 
 router = APIRouter(tags=["physical"], dependencies=[Depends(require_global_read)])
 
@@ -366,6 +368,27 @@ async def create_device_port(
     return DevicePortRead.model_validate(obj)
 
 
+# Windows 端點的偽介面：LibreNMS 從 ifIndex 產生的 ethernet_N / wireless_N / ppp_N（NDIS
+# 輕量過濾器、WAN Miniport、通道等），MAC 多半複製自實體卡或全零，對 IPAM 佈線毫無意義。實體
+# 交換器與 Linux 的埠名不會長這樣（GigabitEthernet0/1、eth0、ens18、bond0），故不受影響。
+# 名稱樣式清單可在系統設定調整（見 system_config.DEFAULT_PORT_IGNORE_PATTERNS）；ifType 這幾
+# 種本質非實體埠的型別則一律排除。
+_PSEUDO_IFTYPES = {"ppp", "tunnel", "softwareloopback"}
+_DEFAULT_PSEUDO_RES = [re.compile(p, re.IGNORECASE) for p in DEFAULT_PORT_IGNORE_PATTERNS]
+
+
+def _is_pseudo_iface(name: str, iftype: str | None = None,
+                     patterns: list[re.Pattern[str]] | None = None) -> bool:
+    """判斷是否為應略過的偽/虛擬介面。patterns 省略時用內建預設（供純函式測試）。"""
+    n = (name or "").strip()
+    for rx in (patterns if patterns is not None else _DEFAULT_PSEUDO_RES):
+        if rx.match(n):
+            return True
+    if iftype and iftype.strip().lower() in _PSEUDO_IFTYPES:
+        return True
+    return False
+
+
 @router.post("/device-ports/import", dependencies=[Depends(require_admin)])
 async def import_device_ports(
     user: CurrentUser,
@@ -376,6 +399,11 @@ async def import_device_ports(
     """從整合來源把連接埠撈進來：優先 LibreNMS 介面清單(ifName，含 server/PVE 主機)，
     退回 FDB 學到的 port_name（交換器）。"""
     from app.models.librenms import LibreNMSInstance
+
+    # 偽介面過濾設定（管理者可調）。關閉時完全不過濾也不清除。
+    cfg = await get_device_port_filter(session)
+    filter_on = bool(cfg["filter_pseudo"])
+    pseudo_res = [re.compile(p, re.IGNORECASE) for p in cfg["ignore_patterns"]] if filter_on else []
 
     lns_devs = list((await session.execute(
         select(LibreNMSDevice).where(LibreNMSDevice.jt_ipam_device_id == device_id)
@@ -398,7 +426,8 @@ async def import_device_ports(
             )
             for p in pdata.get("ports") or []:
                 nm = (p.get("ifName") or "").strip()
-                if nm and nm.lower() not in ("null", "unrouted vlan 1"):
+                if nm and nm.lower() not in ("null", "unrouted vlan 1") \
+                        and not (filter_on and _is_pseudo_iface(nm, p.get("ifType"), pseudo_res)):
                     names.add(nm)
                     name_mac[nm] = _norm_mac(p.get("ifPhysAddress"))
                     sources.add("librenms")
@@ -419,9 +448,10 @@ async def import_device_ports(
                 names.add(r[0].strip())
                 sources.add("librenms-fdb")
 
-    existing = {p.name for p in (await session.execute(
+    existing_ports = list((await session.execute(
         select(DevicePort).where(DevicePort.device_id == device_id)
-    )).scalars().all()}
+    )).scalars().all())
+    existing = {p.name for p in existing_ports}
 
     created = 0
     for n in sorted(names):
@@ -430,12 +460,32 @@ async def import_device_ports(
         session.add(DevicePort(device_id=device_id, name=n, type="network"))
         created += 1
 
-    if created:
+    # 自我修復：清掉先前輪詢時被拉進來的偽介面（ethernet_N / ppp_N 等）。只刪未接線、
+    # 未做穿透對應的，避免動到手動建立或已納入佈線的埠。
+    pruned = 0
+    prunable = [p for p in existing_ports
+                if filter_on and _is_pseudo_iface(p.name, None, pseudo_res)
+                and p.peer_port_id is None]
+    if prunable:
+        pids = [p.id for p in prunable]
+        peered = set((await session.execute(
+            select(DevicePort.peer_port_id).where(DevicePort.peer_port_id.in_(pids))
+        )).scalars().all())
+        cabled = set((await session.execute(
+            select(CableTermination.object_id).where(CableTermination.object_id.in_(pids))
+        )).scalars().all())
+        for p in prunable:
+            if p.id in peered or p.id in cabled:
+                continue
+            await session.delete(p)
+            pruned += 1
+
+    if created or pruned:
         await _audit(session, user=user, request=request, object_type="device_port",
                      object_id=str(device_id), action="import",
-                     diff={"imported": created, "sources": sorted(sources)})
+                     diff={"imported": created, "pruned": pruned, "sources": sorted(sources)})
         await session.commit()
-    return {"imported": created, "found": len(names),
+    return {"imported": created, "pruned": pruned, "found": len(names),
             "linked_librenms": len(lns_devs), "sources": sorted(sources)}
 
 

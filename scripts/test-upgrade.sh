@@ -78,7 +78,11 @@ pass "systemd is up ($state)"
 say "Cloning the repository at $FROM_REF (what an existing site has)"
 # 刻意建成一般分支而不是 detached HEAD：升級走 `git pull --ff-only`，
 # detached HEAD 下那個指令根本不成立，測起來就不是客戶的情境。
+# 掛進來的來源是唯讀、且擁有者與容器內的 root 對不上 → git 會擋「dubious ownership」。
+# 非 bare 的 repo git 檢查的是 `<path>/.git`，光加 `<path>` 不夠（加了還是會被擋，
+# 而且錯誤訊息只出現在 clone 那一步，看起來像連不到 remote）。兩個都加。
 dex git config --global --add safe.directory /srv/jt-ipam-origin 2>/dev/null || true
+dex git config --global --add safe.directory /srv/jt-ipam-origin/.git 2>/dev/null || true
 dex git clone -q "$CLONE_URL" /opt/jt-ipam
 dex git -C /opt/jt-ipam checkout -q -B main "$FROM_REF"
 dex git -C /opt/jt-ipam branch -q --set-upstream-to=origin/main main

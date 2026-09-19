@@ -1088,6 +1088,11 @@ async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[s
         "last_seen_scanner": obj.last_seen_scanner,
         "last_seen_librenms": obj.last_seen_librenms,
         "last_seen_dns": obj.last_seen_dns,
+        # OCS Inventory（透過網卡 MAC 比對到這個 IP 的資產盤點）
+        "last_seen_ocs": obj.last_seen_ocs,
+        "ocs_tag": obj.ocs_tag,
+        "ocs_agent": obj.ocs_agent,
+        "ocs_notes": obj.ocs_notes or [],
         # OS 偵測（依來源優先序 scanner/librenms/wazuh 解析）+ 探測項目
         **_os,
         "effective_probes": await _effective_probes(session, sub, obj),
@@ -2024,6 +2029,45 @@ async def list_wazuh_agents(
         "status": a.status, "os_platform": a.os_platform, "os_version": a.os_version,
         "agent_version": a.agent_version, "group": a.group,
         "last_keep_alive": a.last_keep_alive,
+    } for a in rows]}
+
+
+async def list_ocs_computers(
+    session: AsyncSession, *, user: User, limit: int = 200,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
+    stale_days: int | None = None,
+) -> dict[str, Any]:
+    """OCS Inventory 盤點到的電腦（OS／資產標籤／代理版本／盤點時間／備註）。
+
+    OCS 沒有自己的每台記錄表 —— 它是**透過網卡 MAC** 比對到既有 IP，再把資料補上去，
+    所以這裡列的就是「有被 OCS 盤點過」的 IP。問某網段時要帶 subnet_cidr。
+    stale_days=N 只列「超過 N 天沒被盤點」的（找資產盤點缺口用）。
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import or_
+
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    stmt = select(IPAddress).where(
+        or_(IPAddress.ocs_id.isnot(None), IPAddress.last_seen_ocs.isnot(None)))
+    if scope_ids is not None:
+        stmt = stmt.where(IPAddress.subnet_id.in_(scope_ids))
+    if stale_days is not None:
+        cutoff = datetime.now(UTC) - timedelta(days=max(0, int(stale_days)))
+        stmt = stmt.where(or_(IPAddress.last_seen_ocs.is_(None),
+                              IPAddress.last_seen_ocs < cutoff))
+    total = int(await session.scalar(
+        select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (await session.execute(
+        stmt.order_by(IPAddress.last_seen_ocs.desc().nullslast()).limit(min(int(limit), 500))
+    )).scalars().all()
+    return {"scope": scope, "count": total, "returned": len(rows), "computers": [{
+        "ip": str(a.ip).split("/")[0], "hostname": a.hostname,
+        "mac": str(a.mac) if a.mac else None,
+        "os": a.os_ocs, "tag": a.ocs_tag, "agent_version": a.ocs_agent,
+        "last_inventory": a.last_seen_ocs, "ocs_id": a.ocs_id,
+        "notes": a.ocs_notes or [],
     } for a in rows]}
 
 
@@ -3206,6 +3250,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "List power feeds (voltage/amperage/phase) and outlets (which device each outlet powers).",
         "parameters": {"type": "object", "properties": {"rack_id": {"type": "string", "description": "Restrict to one rack"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
+    "list_ocs_computers": {
+        "fn": list_ocs_computers,
+        "description": "List computers inventoried by OCS Inventory (OS, asset tag, agent version, last inventory time, notes). OCS matches machines to existing IPs by network-card MAC. If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. Use stale_days=N to find assets not inventoried for N days. The reply carries 'scope' and 'count'; state them.",
+        "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"}, "stale_days": {"type": "integer", "minimum": 0, "description": "Only computers not inventoried for this many days"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "list_wazuh_agents": {
         "fn": list_wazuh_agents,
         "description": "List Wazuh agents (status, OS, version, CVE critical/high counts). For the coverage GAP use wazuh_missing_agents instead. If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. The reply carries 'scope' and 'count'; state them.",
@@ -3243,7 +3292,7 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_vms", "list_wireless_links", "list_vpn_tunnels", "list_scan_agents",
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
-    "list_power", "list_wazuh_agents", "wazuh_missing_agents", "get_topology",
+    "list_power", "list_wazuh_agents", "wazuh_missing_agents", "list_ocs_computers", "get_topology",
     "list_attack_surface",
     "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",

@@ -17,7 +17,8 @@ import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
   getSamlConfig, putSamlConfig, testSaml, type SamlConfig,
   getConsoleSecurity, setConsoleSecurity, type RdpEngine,
-  getUiDisplay, setUiDisplay } from "@/api/system";
+  getUiDisplay, setUiDisplay,
+  getDevicePortFilter, setDevicePortFilter } from "@/api/system";
 import { listGroups } from "@/api/admin";
 import { getAutolink, putAutolink, previewAutolink,
   type AutolinkConfig, type AutolinkPreview } from "@/api/system";
@@ -77,6 +78,19 @@ async function changeDimDays(v: number | null) {
   changeLogDimDays.value = days;
   try { await setUiDisplay({ change_log_dim_days: days }); msg.success(t("common.ok")); }
   catch (e) { msg.error(apiErrMsg(e)); }
+}
+
+// 裝置連接埠匯入：偽介面過濾（總開關 + 名稱樣式清單，一行一個正則）
+const portFilterOn = ref(true);
+const portFilterText = ref("");
+async function savePortFilter() {
+  const patterns = portFilterText.value.split("\n").map((s) => s.trim()).filter(Boolean);
+  try {
+    const saved = await setDevicePortFilter({ filter_pseudo: portFilterOn.value, ignore_patterns: patterns });
+    portFilterOn.value = saved.filter_pseudo;
+    portFilterText.value = saved.ignore_patterns.join("\n");
+    msg.success(t("common.ok"));
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 const mapProvider = ref<"builtin" | "osm" | "google">("builtin");
@@ -417,6 +431,10 @@ async function doTestAf() {
 onMounted(() => {
   void loadRackEmbed();
   getUiDisplay().then((d) => { changeLogDimDays.value = d.change_log_dim_days; }).catch(() => {});
+  getDevicePortFilter().then((d) => {
+    portFilterOn.value = d.filter_pseudo;
+    portFilterText.value = d.ignore_patterns.join("\n");
+  }).catch(() => {});
   getConsoleSecurity().then((c) => {
     rdpClipPaste.value = c.rdp_clipboard_paste;
     rdpEngine.value = c.rdp_engine;
@@ -520,6 +538,30 @@ async function doPreviewAutolink() {
             <n-input-number :value="changeLogDimDays" :min="0" :max="3650" :step="1"
                             @update:value="changeDimDays" style="width: 160px" />
             <div class="hint">{{ t("settings.system.change_log_dim_days_hint") }}</div>
+          </div>
+        </div>
+      </n-card>
+
+      <!-- 裝置連接埠匯入：偽介面過濾 -->
+      <n-card class="ss-group" size="small">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_device_ports") }}</span></template>
+        <div class="ss-grid">
+          <div class="fld">
+            <label>{{ t("settings.system.port_filter_pseudo") }}</label>
+            <n-switch v-model:value="portFilterOn" />
+            <div class="hint">{{ t("settings.system.port_filter_pseudo_hint") }}</div>
+          </div>
+          <div class="fld" style="grid-column: 1 / -1">
+            <label>{{ t("settings.system.port_ignore_patterns") }}</label>
+            <n-input v-model:value="portFilterText" type="textarea" :disabled="!portFilterOn"
+                     :autosize="{ minRows: 4, maxRows: 12 }"
+                     placeholder="^ethernet_\d+$" style="font-family: monospace" />
+            <div class="hint">{{ t("settings.system.port_ignore_patterns_hint") }}</div>
+          </div>
+          <div class="fld">
+            <n-button type="primary" size="small" @click="savePortFilter">
+              <template #icon><n-icon><SaveIcon /></n-icon></template>{{ t("common.save") }}
+            </n-button>
           </div>
         </div>
       </n-card>

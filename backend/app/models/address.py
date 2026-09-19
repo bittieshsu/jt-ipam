@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -60,6 +61,14 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: OCS Inventory 代理回報的 OS 原始字串。獨立欄位（不污染掃描代理的 os_guess）——
     #: 經 os_precedence 排在 scanner 之上，讓 agent 回報的 OS 蓋過 nmap 的指紋猜測。
     os_ocs: Mapped[str | None] = mapped_column(String(160))
+    #: 對到的 OCS Inventory 電腦 systemid，供裝置明細「在 OCS 檢視」深連結。
+    ocs_id: Mapped[int | None] = mapped_column(BigInteger)
+    #: OCS 資產標籤（accountinfo.TAG）。
+    ocs_tag: Mapped[str | None] = mapped_column(String(128))
+    #: OCS 代理版本（hardware.USERAGENT）。
+    ocs_agent: Mapped[str | None] = mapped_column(String(128))
+    #: OCS 最新幾筆備註（itmgmt_comments）：[{date,user,comment,action}]。
+    ocs_notes: Mapped[list[Any] | None] = mapped_column(JSONB)
     # 各 probe 上次被執行的時間（由 report 回填），給「下次到期」顯示用。{"icmp": "...", "os": "..."}
     probe_last_run: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     ptr_ignore: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

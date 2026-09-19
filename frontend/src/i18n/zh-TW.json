@@ -325,7 +325,7 @@
     "mikrotik_fw": "路由器 (MikroTik)",
     "jump_hosts": "跳板主機",
     "doctor": "系統診斷",
-    "ocs": "OCS 資產盤點"
+    "ocs": "整合 OCS"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1241,7 +1241,8 @@
     "fw_why_alias_member": "別名 {value} 的成員",
     "fw_why_net_covers": "網段 {value} 涵蓋",
     "fw_why_exact": "位址完全相符",
-    "last_seen_ocs": "最後出現（OCS 盤點）"
+    "last_seen_ocs": "最後出現（OCS 盤點）",
+    "last_seen_ocs_jump": "檢視此裝置的 OCS 盤點資料"
   },
   "subnets": {
     "title": "子網路",
@@ -2505,7 +2506,11 @@
       "rdp_engine_aardwolf": "aardwolf（預設）",
       "rdp_engine_freerdp": "FreeRDP",
       "rdp_engine_hint": "aardwolf 是內建的純 Python 實作，不需額外行程，對 Windows 目標運作正常。FreeRDP 相容性較好 —— 特別是 Linux 上的 xrdp 與 GNOME 遠端登入，aardwolf 的 NTLM 認證會被它們拒絕 —— 但需要在本機安裝 FreeRDP 與虛擬顯示。改了之後開新的連線才會生效。",
-      "rdp_engine_missing": "這台伺服器還沒有 FreeRDP 引擎需要的套件（缺 {pkgs}）。裝好之後重新整理這一頁；在那之前選了 FreeRDP 也連不上。"
+      "rdp_engine_missing": "這台伺服器還沒有 FreeRDP 引擎需要的套件（缺 {pkgs}）。裝好之後重新整理這一頁；在那之前選了 FreeRDP 也連不上。",
+      "port_filter_pseudo": "過濾偽介面",
+      "port_filter_pseudo_hint": "從整合來源匯入連接埠時，略過並清除符合下列名稱樣式的偽介面（Windows NDIS 過濾器、WAN Miniport、通道等）。關閉時完全不過濾也不清除。",
+      "port_ignore_patterns": "略過的名稱樣式",
+      "port_ignore_patterns_hint": "一行一個正規表示式（比對介面名稱，不分大小寫）。留空則使用內建預設。實體交換器與 Linux 埠名不會符合這些樣式，不受影響。"
     }
   },
   "errors": {
@@ -2840,7 +2845,8 @@
     "ocs_unreachable": "連不到這套 OCS",
     "ocs_rest_unavailable": "連得上網址，但 OCS REST API 沒有正確回應（可能沒開啟）",
     "ocs_auth_required": "OCS 需要驗證，但帳密不正確或未提供",
-    "ocs_db_not_impl": "目前只支援 REST 來源（直接連 OCS 資料庫是後續階段）"
+    "ocs_db_not_impl": "目前只支援 REST 來源（直接連 OCS 資料庫是後續階段）",
+    "ocs_bad_json": "OCS 回應不是有效的 JSON"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -3046,7 +3052,16 @@
     "vm_node": "所在主機",
     "vm_cluster": "叢集",
     "vm_vcpu": "虛擬處理器",
-    "vm_memory": "記憶體 (MB)"
+    "vm_memory": "記憶體 (MB)",
+    "ocs_last_inventory": "最後盤點",
+    "ocs_serial": "序號",
+    "ocs_model": "型號",
+    "ocs_vendor": "製造商",
+    "open_in": "在 {sys} 檢視",
+    "ocs_match_hint": "OCS 透過網卡 MAC 比對到此裝置的 IP（只比對、不新建 IP），再補上作業系統、資產標籤、序號／型號／廠牌與備註。",
+    "ocs_tag": "資產標籤",
+    "ocs_agent": "代理版本",
+    "ocs_notes": "備註"
   },
   "relations": {
     "title": "關係圖（上下層物件）",
@@ -3232,7 +3247,8 @@
     "src_no_aging": "不會過期",
     "src_kind_base": "探測／監控",
     "src_zabbix": "Zabbix 主機可用性",
-    "liveness_no_aging_warn": "勾了標「不會過期」的來源＝看過一次就永遠算上線。除非你清楚知道為什麼要這樣，否則不要勾。"
+    "liveness_no_aging_warn": "勾了標「不會過期」的來源＝看過一次就永遠算上線。除非你清楚知道為什麼要這樣，否則不要勾。",
+    "grp_device_ports": "裝置連接埠"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",

@@ -57,7 +57,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_attack_surface": {},
     "list_circuits": {}, "list_providers": {}, "list_asns": {}, "list_tenants": {},
     "list_contacts": {}, "list_ssids": {}, "list_cables": {}, "list_power": {},
-    "list_wazuh_agents": {}, "cable_trace": {"cable_id": _U},
+    "list_wazuh_agents": {}, "list_ocs_computers": {}, "cable_trace": {"cable_id": _U},
     "recent_ip_changes": {}, "list_subnet_ips": {"subnet_cidr": "10.0.0.0/24"},
     "get_subnet_detail": {"subnet_cidr": "10.0.0.0/24"},
     "get_customer_summary": {"name": "nope"},

@@ -4,6 +4,70 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.35] - 2026-09-19
+
+### Added
+- **OCS inventory data is now available to AI chat and MCP.** A new `list_ocs_computers` tool
+  returns OS, asset tag, agent version, last-inventory time and the latest notes, and
+  `get_ip_detail` now carries the OCS fields too. Pass `subnet_cidr` to scope a question to one
+  subnet (the reply states the scope and total), or `stale_days=N` to find assets that have not
+  been inventoried for N days. Read-only, and subject to the same visibility rules as the other
+  infrastructure tools. Previously every other integration was queryable this way except OCS.
+
+### Changed
+- **The OCS inventory timestamp on an IP is now a link** that opens the device page and scrolls
+  straight to its OCS card, briefly highlighting it.
+
+## [0.6.34] - 2026-09-19
+
+### Added
+- **Every external-integration card on the device page has a "View in ..." button** that opens
+  that device's own page in the source system (LibreNMS, Wazuh, Proxmox VE, OCS). The links are
+  built on the server from each integration's configured URL and the device's id there.
+- **The OCS card now shows the asset tag, the agent version and the most recent notes**, plus a
+  line explaining that OCS matches machines to existing IPs by network-card MAC.
+
+### Fixed
+- **Placeholder DMI strings no longer masquerade as hardware data.** Boards that ship without
+  DMI values report things like "To Be Filled By O.E.M." — sometimes glued to the real value
+  ("To Be Filled By O.E.M. X570D4I-2T"). The prefix is now stripped, and a placeholder already
+  stored on a device is replaced with the real value, or cleared when the source has none.
+  Values entered by hand are never touched.
+
+## [0.6.33] - 2026-09-19
+
+### Added
+- **The device-port import filter is now configurable** (System settings → Device ports): a
+  master switch plus an editable list of name patterns, pre-filled with the defaults.
+
+### Fixed
+- **Text from OCS is now recovered whatever language it is in.** Agents always report UTF-8, so
+  when an OCS database is not UTF-8 the text arrives double-encoded and unreadable. That is a
+  single, unambiguous corruption, and it is now reversed for Traditional and Simplified Chinese,
+  Japanese and Korean alike. The JSON decoder also no longer trusts the declared charset, so a
+  response that is not valid UTF-8 is preserved instead of losing characters.
+
+## [0.6.32] - 2026-09-19
+
+### Added
+- **The device page shows an OCS Inventory card** (OS, last inventory, serial/model/vendor).
+
+### Fixed
+- **Windows pseudo network interfaces no longer clutter the device port list.** Importing ports
+  from the monitoring integration pulled in the NDIS filter, WAN Miniport and tunnel interfaces
+  that Windows exposes over SNMP (`ethernet_3`, `wireless_0`, `ppp_32769` ...), most of them
+  copying the real adapter's MAC. They are now skipped, and ones imported by an earlier poll are
+  removed — but only if they are not cabled and carry no pass-through mapping, so manually
+  created ports are never touched. Physical switch and Linux port names do not match these
+  patterns and are unaffected.
+
+## [0.6.31] - 2026-09-18
+
+### Changed
+- **The OCS integration page now matches the other integration pages**: the sidebar entry reads
+  "OCS integration" (like the DNS/Wazuh/... entries), and the list action column uses icon
+  buttons with tooltips, consistent with the Proxmox VE and firewall pages.
+
 ## [0.6.30] - 2026-09-18
 
 ### Fixed

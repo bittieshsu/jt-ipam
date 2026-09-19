@@ -325,7 +325,7 @@
     "mikrotik_fw": "Router (MikroTik)",
     "jump_hosts": "Jump hosts",
     "doctor": "System check",
-    "ocs": "OCS Inventory"
+    "ocs": "OCS integration"
   },
   "topbar": {
     "search": "Search…",
@@ -1241,7 +1241,8 @@
     "fw_why_alias_member": "member of alias {value}",
     "fw_why_net_covers": "covered by {value}",
     "fw_why_exact": "exact address match",
-    "last_seen_ocs": "Last seen (OCS inventory)"
+    "last_seen_ocs": "Last seen (OCS inventory)",
+    "last_seen_ocs_jump": "View this device's OCS inventory"
   },
   "subnets": {
     "title": "Subnets",
@@ -2505,7 +2506,11 @@
       "rdp_engine_aardwolf": "aardwolf (default)",
       "rdp_engine_freerdp": "FreeRDP",
       "rdp_engine_hint": "aardwolf is the built-in pure-Python implementation. It needs no extra process and works against Windows targets. FreeRDP has broader compatibility — notably with xrdp and GNOME Remote Login on Linux, which reject aardwolf's NTLM authentication — but it requires FreeRDP and a virtual display on this host. The change applies to new connections.",
-      "rdp_engine_missing": "This server does not yet have what the FreeRDP engine needs (missing {pkgs}). Install them and reload this page; until then, selecting FreeRDP will not connect."
+      "rdp_engine_missing": "This server does not yet have what the FreeRDP engine needs (missing {pkgs}). Install them and reload this page; until then, selecting FreeRDP will not connect.",
+      "port_filter_pseudo": "Filter pseudo interfaces",
+      "port_filter_pseudo_hint": "When importing ports from integrations, skip and prune pseudo interfaces matching the name patterns below (Windows NDIS filters, WAN Miniport, tunnels, etc.). When off, nothing is filtered or pruned.",
+      "port_ignore_patterns": "Ignored name patterns",
+      "port_ignore_patterns_hint": "One regular expression per line (matched against the interface name, case-insensitive). Leave empty to use the built-in defaults. Physical switch and Linux port names do not match these patterns and are unaffected."
     }
   },
   "errors": {
@@ -2840,7 +2845,8 @@
     "ocs_unreachable": "Cannot reach this OCS server",
     "ocs_rest_unavailable": "The URL is reachable but the OCS REST API did not respond correctly (it may be disabled)",
     "ocs_auth_required": "OCS requires authentication, but the credentials are wrong or missing",
-    "ocs_db_not_impl": "Only the REST source is supported for now (direct database access is a later phase)"
+    "ocs_db_not_impl": "Only the REST source is supported for now (direct database access is a later phase)",
+    "ocs_bad_json": "OCS returned a response that is not valid JSON"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -3046,7 +3052,16 @@
     "vm_node": "Host node",
     "vm_cluster": "Cluster",
     "vm_vcpu": "vCPU",
-    "vm_memory": "Memory (MB)"
+    "vm_memory": "Memory (MB)",
+    "ocs_last_inventory": "Last inventory",
+    "ocs_serial": "Serial",
+    "ocs_model": "Model",
+    "ocs_vendor": "Vendor",
+    "open_in": "View in {sys}",
+    "ocs_match_hint": "OCS matches this device by network-card MAC to an existing IP (match only, never creates IPs), then fills in OS, asset tag, serial/model/vendor and notes.",
+    "ocs_tag": "Asset tag",
+    "ocs_agent": "Agent version",
+    "ocs_notes": "Notes"
   },
   "relations": {
     "title": "Relationships",
@@ -3232,7 +3247,8 @@
     "src_no_aging": "never expires",
     "src_kind_base": "Probes & monitoring",
     "src_zabbix": "Zabbix host availability",
-    "liveness_no_aging_warn": "Ticking a source marked \"never expires\" means one sighting keeps the address online forever. Do not tick it unless you know exactly why you want that."
+    "liveness_no_aging_warn": "Ticking a source marked \"never expires\" means one sighting keeps the address online forever. Do not tick it unless you know exactly why you want that.",
+    "grp_device_ports": "Device ports"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",

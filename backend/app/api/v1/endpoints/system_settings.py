@@ -344,6 +344,46 @@ async def put_ui_display(
     return UiDisplayOut(change_log_dim_days=days)
 
 
+class DevicePortFilterOut(StrictModel):
+    # 匯入裝置連接埠時，過濾掉符合這些名稱樣式（正則）的偽介面（Windows NDIS / WAN Miniport
+    # 等）。filter_pseudo 是總開關；關閉時匯入不過濾也不清除。
+    filter_pseudo: bool = True
+    ignore_patterns: list[str] = Field(default_factory=list)
+
+
+@router.get("/device-port-filter", response_model=DevicePortFilterOut)
+async def get_device_port_filter_endpoint(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DevicePortFilterOut:
+    from app.services.system_config import get_device_port_filter
+    cfg = await get_device_port_filter(session)
+    return DevicePortFilterOut(**cfg)
+
+
+@router.put("/device-port-filter", response_model=DevicePortFilterOut)
+async def put_device_port_filter(
+    payload: DevicePortFilterOut,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DevicePortFilterOut:
+    from app.services.system_config import set_device_port_filter
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "device_ports", "filter_pseudo": payload.filter_pseudo,
+              "ignore_patterns": payload.ignore_patterns},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    cfg = await set_device_port_filter(
+        session, filter_pseudo=payload.filter_pseudo,
+        ignore_patterns=payload.ignore_patterns, updated_by_user_id=user.id)
+    return DevicePortFilterOut(**cfg)
+
+
 class ConsoleSecurityIn(StrictModel):
     """可以改的部分。"""
 

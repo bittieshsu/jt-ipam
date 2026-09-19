@@ -11,7 +11,7 @@ import { computed, h, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NAlert, NModal, NForm,
-  NFormItem, NInput, NInputNumber, NSwitch, NPopconfirm,
+  NFormItem, NInput, NInputNumber, NSwitch, NPopconfirm, NTooltip,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
@@ -168,27 +168,28 @@ const columns = computed<DataTableColumns<OcsServer>>(() => [
       : "—"),
   },
   {
-    title: t("cols.actions"), key: "actions",
-    render: (r) => h(NSpace, { size: 4 }, {
-      default: () => [
-        h(NButton, { size: "tiny", loading: busy.value === r.id, onClick: () => test(r) },
-          { icon: () => h(NIcon, null, { default: () => h(TestIcon) }),
-            default: () => t("ocs.test") }),
-        h(NButton, { size: "tiny", loading: busy.value === r.id, onClick: () => sync(r) },
-          { icon: () => h(NIcon, null, { default: () => h(SyncIcon) }),
-            default: () => t("ocs.sync_now") }),
-        h(NButton, { size: "tiny", onClick: () => openEdit(r) },
-          { icon: () => h(NIcon, null, { default: () => h(EditIcon) }),
-            default: () => t("common.edit") }),
-        h(NPopconfirm, { onPositiveClick: () => remove(r) }, {
-          trigger: () => h(NButton, { size: "tiny", type: "error" },
-            { icon: () => h(NIcon, null, { default: () => h(DeleteIcon) }) }),
-          default: () => t("ocs.confirm_delete", { name: r.name }),
-        }),
-      ],
-    }),
+    title: t("cols.actions"), key: "actions", className: "col-actions", width: 176,
+    render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
+      iconAction(EditIcon, t("common.edit"), () => openEdit(r)),
+      iconAction(TestIcon, t("ocs.test"), () => test(r)),
+      iconAction(SyncIcon, t("ocs.sync_now"), () => sync(r), "primary"),
+      h(NPopconfirm, { onPositiveClick: () => remove(r) }, {
+        trigger: () => iconAction(DeleteIcon, t("common.delete"), () => {}, "error"),
+        default: () => t("ocs.confirm_delete", { name: r.name }),
+      }),
+    ]),
   },
 ]);
+
+// 操作欄用 icon 按鈕（tooltip 帶文字），與其他整合頁一致
+function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
+  return h(NTooltip, null, {
+    trigger: () => h(NButton, { size: "small", quaternary: true, type,
+      onClick: (e: MouseEvent) => { e.stopPropagation(); onClick(); } },
+      { icon: () => h(NIcon, null, () => h(icon)) }),
+    default: () => label,
+  });
+}
 
 </script>
 
@@ -218,7 +219,7 @@ const columns = computed<DataTableColumns<OcsServer>>(() => [
   <!-- 新增／編輯 -->
   <NModal v-model:show="show" preset="card" style="max-width: 620px"
           :title="editing ? t('ocs.edit_title') : t('ocs.add')">
-    <NForm label-placement="left" :label-width="140" size="small">
+    <NForm label-placement="left" :label-width="160" size="small">
       <NFormItem :label="t('cols.name')">
         <NInput v-model:value="form.name" :placeholder="t('ocs.name_ph')" />
       </NFormItem>

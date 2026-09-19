@@ -273,6 +273,16 @@ export async function setConsoleSecurity(p: ConsoleSecurityPatch): Promise<Conso
 }
 
 // 介面顯示設定（系統層；目前：異動記錄淡化天數）
+export interface DevicePortFilter { filter_pseudo: boolean; ignore_patterns: string[] }
+export async function getDevicePortFilter(): Promise<DevicePortFilter> {
+  const { data } = await apiClient.get<DevicePortFilter>("/api/v1/system/device-port-filter");
+  return data;
+}
+export async function setDevicePortFilter(p: DevicePortFilter): Promise<DevicePortFilter> {
+  const { data } = await apiClient.put<DevicePortFilter>("/api/v1/system/device-port-filter", p);
+  return data;
+}
+
 export interface UiDisplay { change_log_dim_days: number }
 export async function getUiDisplay(): Promise<UiDisplay> {
   const { data } = await apiClient.get<UiDisplay>("/api/v1/system/ui-display");

@@ -179,9 +179,12 @@ function goNat() {
   void router.push({ name: "nat" });
 }
 
-function goDevice(id: string | null | undefined) {
+function goDevice(id: string | null | undefined, card?: string) {
   if (!id) return;
-  void router.push({ name: "device-detail", params: { id } });
+  void router.push({
+    name: "device-detail", params: { id },
+    ...(card ? { query: { card } } : {}),
+  });
 }
 
 // 後端原始值 → i18n 顯示；找不到 key 就回原值
@@ -1010,9 +1013,15 @@ async function remove() {
                                :label="t('addresses.last_seen_wazuh')">
             {{ fmtDateTime(props.address?.last_seen_wazuh) }}
           </n-descriptions-item>
+          <!-- 盤點時間可點 → 帶到裝置頁並捲到 OCS 卡片（沒連到裝置時就只是純文字） -->
           <n-descriptions-item v-if="props.address?.last_seen_ocs"
                                :label="t('addresses.last_seen_ocs')">
-            {{ fmtDateTime(props.address?.last_seen_ocs) }}
+            <a v-if="props.address?.device_id" class="ocs-jump"
+               :title="t('addresses.last_seen_ocs_jump')"
+               @click="goDevice(props.address?.device_id, 'ocs')">
+              {{ fmtDateTime(props.address?.last_seen_ocs) }}
+            </a>
+            <template v-else>{{ fmtDateTime(props.address?.last_seen_ocs) }}</template>
           </n-descriptions-item>
           <!-- 防火牆給的證據逐來源列出。以前這些全被寫成「掃描代理」，於是沒有代理的站台
                也看得到掃描代理的時間 —— 現在照實顯示是哪一台防火牆、哪一種表看到的。 -->
@@ -1351,6 +1360,12 @@ async function remove() {
 </template>
 
 <style scoped>
+.ocs-jump {
+  cursor: pointer;
+  color: var(--n-primary-color, #18a058);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
 .nat-ref {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px; border-radius: 6px;

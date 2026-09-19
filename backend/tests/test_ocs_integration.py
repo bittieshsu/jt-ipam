@@ -56,6 +56,48 @@ def test_parse_os_prefers_comments_and_maps_family() -> None:
     assert svc.parse_os({}) == (None, None)
 
 
+def test_repair_text_recovers_any_language() -> None:
+    # OCS 代理一律送 UTF-8；亂碼是 OCS 資料庫非 UTF-8（latin-1／cp1252）造成的雙重編碼。
+    # 還原對任何語系都適用，因為源頭都是 UTF-8。
+    texts = [
+        "Microsoft Windows 11 專業版",   # 繁中
+        "简体中文 系统 网络管理",          # 简中
+        "日本語 版 コンピュータ",          # 日文
+        "한국어 버전",                     # 韓文
+    ]
+    for db_enc in ("latin-1", "cp1252"):
+        for text in texts:
+            try:
+                broken = text.encode("utf-8").decode(db_enc)
+            except UnicodeDecodeError:
+                continue   # cp1252 有少數未定義位元組；latin-1 一定成立
+            assert svc._repair_text(broken) == text, (db_enc, text)
+    # 走 parse_os 同一條修復
+    g, _ = svc.parse_os({"OSNAME": "Windows",
+                         "OSCOMMENTS": "Microsoft Windows 11 專業版".encode("utf-8").decode("latin-1")})
+    assert g == "Microsoft Windows 11 專業版"
+
+
+def test_repair_text_leaves_good_text_untouched() -> None:
+    for good in ("Windows 10 Pro", "Ubuntu 24.04.1 LTS", "專業版", "cafe",
+                 "日本語", "简体中文", "", None):
+        assert svc._repair_text(good) == good
+
+
+def test_decode_json_handles_non_utf8_body() -> None:
+    # 合法 UTF-8：正常解。
+    good = '{"OSCOMMENTS": "專業版"}'.encode("utf-8")
+    assert svc._decode_json(good)["OSCOMMENTS"] == "專業版"
+    # 位元組其實是 latin-1 卻被標成 UTF-8：不可炸、要保留位元組讓 _repair_text 事後還原。
+    raw = '{"OSCOMMENTS": "café"}'.encode("latin-1")  # 0xe9 單獨出現＝非法 UTF-8
+    obj = svc._decode_json(raw)
+    assert "OSCOMMENTS" in obj
+    # 真的不是 JSON → 拋 OcsError（帶底層原文）
+    import pytest as _pytest
+    with _pytest.raises(svc.OcsError):
+        svc._decode_json(b"<html>not json</html>")
+
+
 def test_bios_asset_rejects_placeholder_junk() -> None:
     """主機板沒燒 DMI 時的佔位字串不可以當成序號 —— 那會製造一堆假資產。"""
     real = svc.bios_asset([{"SMANUFACTURER": "Dell Inc.", "SMODEL": "OptiPlex 7090",
@@ -65,6 +107,33 @@ def test_bios_asset_rejects_placeholder_junk() -> None:
                             "SMODEL": "To be filled by O.E.M.", "SSN": "Default string"}])
     assert junk == {"vendor": None, "model": None, "serial": None}
     assert svc.bios_asset([]) == {"vendor": None, "model": None, "serial": None}
+    # 佔位前綴黏著真值時，去掉前綴留真值（實機 "To Be Filled By O.E.M. X570D4I-2T"）
+    pre = svc.bios_asset([{"SMODEL": "To Be Filled By O.E.M. X570D4I-2T"}])
+    assert pre["model"] == "X570D4I-2T"
+
+
+def test_ocs_tag_agent_notes_extraction() -> None:
+    comp = {
+        "hardware": {"USERAGENT": "OCS-NG_unified_unix_agent_v2.10.0"},
+        "accountinfo": [{"HARDWARE_ID": 2, "TAG": "ABCD1234"}],
+        "itmgmt_comments": [
+            {"ID": 1, "ACTION": "ADD_NOTE_BY_USER", "USER_INSERT": "admin",
+             "DATE_INSERT": "2026-09-18", "COMMENTS": "第一筆"},
+            {"ID": 2, "ACTION": "ADD_NOTE_BY_USER", "USER_INSERT": "admin",
+             "DATE_INSERT": "2026-09-19",
+             # 亂碼（latin1-over-utf8 的「加入資產編碼」）要被修回來
+             "COMMENTS": "加入資產編碼".encode("utf-8").decode("latin-1")},
+        ],
+    }
+    assert svc.ocs_tag_of(comp) == "ABCD1234"
+    assert svc.ocs_agent_of(comp["hardware"]) == "OCS-NG_unified_unix_agent_v2.10.0"
+    notes = svc.ocs_notes_of(comp)
+    assert [n["comment"] for n in notes] == ["加入資產編碼", "第一筆"]   # ID 由大到小
+    assert notes[0]["user"] == "admin" and notes[0]["action"] == "ADD_NOTE_BY_USER"
+    # 預設 TAG "NA" 視為沒有
+    assert svc.ocs_tag_of({"accountinfo": [{"TAG": "NA"}]}) is None
+    assert svc.ocs_tag_of({}) is None
+    assert svc.ocs_notes_of({}) == []
 
 
 def test_lastdate_and_staleness() -> None:
@@ -236,7 +305,48 @@ async def test_serial_fills_only_empty_device_fields(db_session) -> None:
     await db_session.flush()
     await db_session.refresh(dev)
     assert dev.serial == "SN-PC001" and dev.model == "OptiPlex 7090"
+
+
+@pytest.mark.anyio
+async def test_serial_replaces_stored_dmi_placeholder(db_session) -> None:
+    """舊版同步可能把 DMI 佔位垃圾（"To Be Filled By O.E.M. …"）存進 Device；新鮮盤點要能覆寫掉它，
+    但使用者手填的真值不動。"""
+    from app.models.device import Device
+    from app.services.arp_precedence import normalize_mac
+    dev = Device(name="host-107", model="To Be Filled By O.E.M. X570D4I-2T",
+                 serial="REAL-SN", vendor="Acme")
+    db_session.add(dev)
+    await db_session.flush()
+    ip = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41", device_id=dev.id)
+    idx = {normalize_mac("aa:bb:cc:00:00:41"): [ip.id]}
+    comp = _computer("host-107", "aa:bb:cc:00:00:41", serial="SN-PC001")
+    comp["bios"] = [{"SMANUFACTURER": "ASRock", "SMODEL": "X570D4I-2T", "SSN": "SN-PC001"}]
+    await svc._apply_computer(db_session, _server(), comp, idx,
+                             datetime(2026, 9, 18, 12, 0, tzinfo=UTC))
+    await db_session.flush()
+    await db_session.refresh(dev)
+    assert dev.model == "X570D4I-2T"     # 佔位垃圾被覆寫
+    assert dev.serial == "REAL-SN"       # 使用者手填的真值保留
     assert dev.vendor == "Acme", "已填的 vendor 不可被覆寫"
+
+
+@pytest.mark.anyio
+async def test_placeholder_cleared_when_ocs_has_no_real_value(db_session) -> None:
+    """存的是佔位垃圾、OCS 也給不出真值時（bios 序號也是佔位）→ 清成空，別繼續顯示垃圾。"""
+    from app.models.device import Device
+    from app.services.arp_precedence import normalize_mac
+    dev = Device(name="host-114", serial="To Be Filled By O.E.M.")
+    db_session.add(dev)
+    await db_session.flush()
+    ip = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41", device_id=dev.id)
+    idx = {normalize_mac("aa:bb:cc:00:00:41"): [ip.id]}
+    comp = _computer("host-114", "aa:bb:cc:00:00:41")
+    comp["bios"] = [{"SSN": "To Be Filled By O.E.M."}]   # OCS 的序號也是佔位
+    await svc._apply_computer(db_session, _server(), comp, idx,
+                             datetime(2026, 9, 18, 12, 0, tzinfo=UTC))
+    await db_session.flush()
+    await db_session.refresh(dev)
+    assert dev.serial is None
 
 
 @pytest.mark.anyio
@@ -323,6 +433,11 @@ class _FakeResp:
 
     def json(self):
         return self._payload
+
+    @property
+    def content(self) -> bytes:
+        import json as _json
+        return _json.dumps(self._payload).encode("utf-8")
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -446,3 +561,118 @@ async def test_scanner_still_wins_when_ocs_has_nothing(db_session) -> None:
     await db_session.flush()
     eff = await os_precedence.effective_os(db_session, ip)
     assert eff["os_source"] == "scanner" and eff["os_guess"] == "Ubuntu 24.04"
+
+
+@pytest.mark.anyio
+async def test_device_integrations_exposes_ocs_block(client, auth_headers, db_session) -> None:
+    """裝置明細的 /integrations 要回一個 ocs 區塊：作業系統／盤點時間＋序號型號廠牌。
+
+    OCS 沒有自己的每台記錄表，是把資料補進 IP（os_ocs / last_seen_ocs）與裝置
+    （serial / model / vendor）。有 IP 被盤點過就算此裝置在 OCS 有資料。
+    """
+    from datetime import UTC, datetime
+
+    from app.models.device import Device
+    dev = Device(name="pc-ocs", serial="SN-OCS-1", model="OptiPlex", vendor="Dell Inc.")
+    db_session.add(dev)
+    await db_session.flush()
+    from app.models.ocs import OcsServer
+    db_session.add(OcsServer(name="ocs-t", source_type="rest",
+                             base_url="https://ocs.example.com", enabled=True))
+    ip = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41", device_id=dev.id)
+    ip.os_ocs = "Windows 11 Pro"
+    ip.last_seen_ocs = datetime(2026, 9, 18, 8, 0, tzinfo=UTC)
+    ip.ocs_id = 42
+    ip.ocs_tag = "ASSET-000042"
+    ip.ocs_agent = "OCS-NG_unified_unix_agent_v2.10.0"
+    ip.ocs_notes = [{"date": "2026-09-19", "user": "admin", "comment": "加入資產編碼",
+                     "action": "ADD_NOTE_BY_USER"}]
+    await db_session.commit()
+
+    r = await client.get(f"/api/v1/devices/{dev.id}/integrations", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    ocs = r.json()["ocs"]
+    assert ocs is not None
+    assert ocs["os"] == "Windows 11 Pro"
+    assert ocs["last_inventory"] is not None
+    assert ocs["serial"] == "SN-OCS-1"
+    assert ocs["model"] == "OptiPlex"
+    assert ocs["vendor"] == "Dell Inc."
+    assert ocs["tag"] == "ASSET-000042"
+    assert ocs["agent"] == "OCS-NG_unified_unix_agent_v2.10.0"
+    assert ocs["notes"][0]["comment"] == "加入資產編碼"
+    assert ocs["url"] == "https://ocs.example.com/ocsreports/index.php?function=computer&systemid=42"
+
+
+@pytest.mark.anyio
+async def test_device_integrations_ocs_absent_without_inventory(client, auth_headers, db_session) -> None:
+    """沒被 OCS 盤點過的裝置，ocs 區塊為 None（不憑空冒出來）。"""
+    from app.models.device import Device
+    dev = Device(name="pc-plain")
+    db_session.add(dev)
+    await db_session.flush()
+    await _mk_ip(db_session, "198.51.100.42", "aa:bb:cc:00:00:42", device_id=dev.id)
+    await db_session.commit()
+
+    r = await client.get(f"/api/v1/devices/{dev.id}/integrations", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["ocs"] is None
+
+
+# ─────────────────── AI / MCP 工具 ───────────────────
+
+@pytest.mark.anyio
+async def test_mcp_list_ocs_computers(db_session, admin_user) -> None:
+    """OCS 盤點資料要問得到，且只列「被 OCS 盤點過」的 IP，並回 scope/count。"""
+    from datetime import UTC, datetime, timedelta
+
+    from app.mcp.tools import list_ocs_computers
+    ip = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41")
+    ip.ocs_id = 7
+    ip.ocs_tag = "ASSET-000114"
+    ip.ocs_agent = "OCS-NG_unified_unix_agent_v2.10.0"
+    ip.last_seen_ocs = datetime.now(UTC)
+    ip.ocs_notes = [{"date": "2026-09-19", "user": "admin", "comment": "編列資產標籤"}]
+    await _mk_ip(db_session, "198.51.100.99", "aa:bb:cc:00:00:99")   # 沒被 OCS 盤點過
+    await db_session.flush()
+
+    r = await list_ocs_computers(db_session, user=admin_user)
+    assert r["scope"] == "all" and r["count"] == 1, r
+    got = r["computers"][0]
+    assert got["tag"] == "ASSET-000114"
+    assert got["agent_version"].startswith("OCS-NG")
+    assert got["notes"][0]["comment"] == "編列資產標籤"
+
+    # stale_days：盤點時間很新 → 問「超過 30 天沒盤點」不該列出來
+    assert (await list_ocs_computers(db_session, user=admin_user, stale_days=30))["count"] == 0
+    ip.last_seen_ocs = datetime.now(UTC) - timedelta(days=60)
+    await db_session.flush()
+    assert (await list_ocs_computers(db_session, user=admin_user, stale_days=30))["count"] == 1
+
+
+def test_ocs_tool_is_registered_with_the_right_permission_tier() -> None:
+    """整合開了 REST/UI 就要同步開 MCP 工具，且權限分層要跟同類工具一致（唯讀、全域讀取）。"""
+    from app.mcp.tools import ADMIN_TOOLS, GLOBAL_READ_TOOLS, MUTATING_TOOLS, TOOLS
+    assert "list_ocs_computers" in TOOLS
+    assert "list_ocs_computers" in GLOBAL_READ_TOOLS   # 與 list_wazuh_agents 同級
+    assert "list_ocs_computers" not in MUTATING_TOOLS  # 唯讀
+    assert "list_ocs_computers" not in ADMIN_TOOLS
+
+
+@pytest.mark.anyio
+async def test_get_ip_detail_exposes_ocs_fields(db_session, admin_user) -> None:
+    """AI 問某個 IP 時也要看得到 OCS 欄位（標籤／代理版本／盤點時間／備註）。"""
+    from datetime import UTC, datetime
+
+    from app.mcp.tools import get_ip_detail
+    ip = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41")
+    ip.ocs_id = 7
+    ip.ocs_tag = "ASSET-000114"
+    ip.ocs_agent = "agent-2.10"
+    ip.last_seen_ocs = datetime.now(UTC)
+    await db_session.commit()
+
+    d = await get_ip_detail(db_session, user=admin_user, ip="198.51.100.41")
+    assert d["ocs_tag"] == "ASSET-000114"
+    assert d["ocs_agent"] == "agent-2.10"
+    assert d["last_seen_ocs"] is not None

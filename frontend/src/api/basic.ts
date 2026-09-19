@@ -175,7 +175,7 @@ export interface DeviceLibreNMS {
   hostname: string | null; sysname: string | null; primary_ip: string | null;
   hardware: string | null; os: string | null; version: string | null;
   serial: string | null; uptime: number | null; status: string | null;
-  last_seen_at: string | null;
+  last_seen_at: string | null; url: string | null;
 }
 export async function getDeviceLibrenms(deviceId: string): Promise<DeviceLibreNMS | null> {
   const { data } = await apiClient.get<DeviceLibreNMS | null>(`/api/v1/devices/${deviceId}/librenms`);

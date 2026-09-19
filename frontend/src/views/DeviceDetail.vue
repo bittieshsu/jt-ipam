@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref, watch } from "vue";
+import { computed, h, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -8,7 +8,7 @@ import {
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
-import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon } from "@/icons";
+import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon, OpenNewWindowIcon } from "@/icons";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { listAddresses, updateAddress } from "@/api/addresses";
 import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, deleteDevice, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
@@ -50,6 +50,25 @@ function vmStatusLabel(v: string | null | undefined): string {
 function cardHead(icon: any, text: string) {
   return h("span", { style: "display:inline-flex;align-items:center;gap:8px" },
     [h(NIcon, { size: 18 }, () => h(icon)), text]);
+}
+
+// 外部整合卡片右上角的「在該系統檢視」按鈕會呼叫這個，另開分頁連到該裝置在來源系統的頁面
+function openExternal(url: string | null | undefined) {
+  if (url) window.open(url, "_blank", "noopener");
+}
+
+// 從別頁帶 ?card=<id> 進來時，捲到該卡片並短暫highlight，讓使用者知道落在哪
+const focusedCard = ref<string>("");
+function focusRequestedCard() {
+  const card = String(route.query.card || "");
+  if (!card) return;
+  void nextTick(() => {
+    const el = document.getElementById(`card-${card}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    focusedCard.value = card;
+    setTimeout(() => { focusedCard.value = ""; }, 2400);
+  });
 }
 const { labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
 const { visibleKeys: ipVisibleKeys, setVisible: setIpVisible, reset: resetIpVisible } = useColumnPrefs(
@@ -130,7 +149,7 @@ async function doLinkIp() {
 }
 const vlans = ref<DeviceVLAN[]>([]);
 const lnms = ref<DeviceLibreNMS | null>(null);
-const integrations = ref<{ wazuh: any; vm: any } | null>(null);
+const integrations = ref<{ wazuh: any; vm: any; ocs: any } | null>(null);
 /** SCA 分數的顏色：低分＝很多項目不符基準。門檻取整數十位，避免給人「剛好及格」的錯覺。 */
 function scaType(score: number): "error" | "warning" | "success" {
   if (score < 50) return "error";
@@ -170,7 +189,10 @@ async function load(id: string) {
     getDeviceRelations(id).then((c) => { relations.value = c; }).catch(() => { relations.value = []; });
     getDeviceVlans(id).then((v) => { vlans.value = v; }).catch(() => { vlans.value = []; });
     getDeviceLibrenms(id).then((l) => { lnms.value = l; }).catch(() => { lnms.value = null; });
-    apiClient.get(`/api/v1/devices/${id}/integrations`).then((r) => { integrations.value = r.data; }).catch(() => { integrations.value = null; });
+    apiClient.get(`/api/v1/devices/${id}/integrations`).then((r) => {
+      integrations.value = r.data;
+      focusRequestedCard();   // 從 IP 頁「最後出現（OCS 盤點）」點進來時捲到該卡片
+    }).catch(() => { integrations.value = null; });
 
     const tasks: Promise<unknown>[] = [];
     if (dev.location_id) {
@@ -454,6 +476,12 @@ onMounted(() => {
       </n-modal>
 
       <n-card v-if="device && lnms" :title="() => cardHead(LibreNMSIcon, 'LibreNMS')">
+        <template v-if="lnms.url" #header-extra>
+          <n-button size="small" quaternary type="primary" @click="openExternal(lnms.url)">
+            <template #icon><n-icon><OpenNewWindowIcon /></n-icon></template>
+            {{ t("device_detail.open_in", { sys: "LibreNMS" }) }}
+          </n-button>
+        </template>
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
           <n-descriptions-item :label="t('cols.hostname')">{{ lnms.hostname ?? "—" }}</n-descriptions-item>
@@ -469,6 +497,12 @@ onMounted(() => {
 
       <!-- Wazuh agent（依裝置 IP 比對）-->
       <n-card v-if="integrations && integrations.wazuh" :title="() => cardHead(WazuhIcon, 'Wazuh')" style="margin-top: 16px">
+        <template v-if="integrations.wazuh.url" #header-extra>
+          <n-button size="small" quaternary type="primary" @click="openExternal(integrations.wazuh.url)">
+            <template #icon><n-icon><OpenNewWindowIcon /></n-icon></template>
+            {{ t("device_detail.open_in", { sys: "Wazuh" }) }}
+          </n-button>
+        </template>
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
           <n-descriptions-item :label="t('device_detail.wz_agent')">{{ integrations.wazuh.name ?? "—" }} ({{ integrations.wazuh.agent_id }})</n-descriptions-item>
@@ -512,6 +546,12 @@ onMounted(() => {
 
       <!-- Proxmox VM（依裝置 IP 比對）-->
       <n-card v-if="integrations && integrations.vm" :title="() => cardHead(VirtualizationIcon, t('nav.virtualization'))" style="margin-top: 16px">
+        <template v-if="integrations.vm.url" #header-extra>
+          <n-button size="small" quaternary type="primary" @click="openExternal(integrations.vm.url)">
+            <template #icon><n-icon><OpenNewWindowIcon /></n-icon></template>
+            {{ t("device_detail.open_in", { sys: "Proxmox" }) }}
+          </n-button>
+        </template>
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
           <n-descriptions-item :label="t('device_detail.vm_name')">
@@ -533,6 +573,37 @@ onMounted(() => {
             {{ integrations.vm.memory_mb ?? "—" }}
           </n-descriptions-item>
         </n-descriptions>
+      </n-card>
+
+      <!-- OCS Inventory（透過網卡 MAC 比對到既有 IP；OCS 補作業系統／序號／型號／廠牌／標籤／備註）-->
+      <n-card v-if="integrations && integrations.ocs" id="card-ocs"
+              :class="{ 'card-focus': focusedCard === 'ocs' }"
+              :title="() => cardHead(DevicesIcon, 'OCS Inventory')" style="margin-top: 16px">
+        <template v-if="integrations.ocs.url" #header-extra>
+          <n-button size="small" quaternary type="primary" @click="openExternal(integrations.ocs.url)">
+            <template #icon><n-icon><OpenNewWindowIcon /></n-icon></template>
+            {{ t("device_detail.open_in", { sys: "OCS" }) }}
+          </n-button>
+        </template>
+        <div class="int-hint">{{ t("device_detail.ocs_match_hint") }}</div>
+        <n-descriptions bordered :column="2" size="small" label-placement="left"
+                        :label-style="{ whiteSpace: 'nowrap' }">
+          <n-descriptions-item label="OS">{{ integrations.ocs.os ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_last_inventory')">{{ fmtDateTime(integrations.ocs.last_inventory) }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_tag')">{{ integrations.ocs.tag ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_agent')">{{ integrations.ocs.agent ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_vendor')">{{ integrations.ocs.vendor ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_model')">{{ integrations.ocs.model ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_serial')">{{ integrations.ocs.serial ?? "—" }}</n-descriptions-item>
+        </n-descriptions>
+        <div v-if="integrations.ocs.notes && integrations.ocs.notes.length" class="ocs-notes">
+          <div class="ocs-notes-h">{{ t("device_detail.ocs_notes") }}</div>
+          <div v-for="(n, i) in integrations.ocs.notes" :key="i" class="ocs-note">
+            <span class="ocs-note-date">{{ n.date }}</span>
+            <span class="ocs-note-user">{{ n.user }}</span>
+            <span class="ocs-note-text">{{ n.comment }}</span>
+          </div>
+        </div>
       </n-card>
 
       <n-card v-if="device && vlans.length" :title="() => cardHead(SubnetsIcon, `VLAN (${vlans.length})`)">
@@ -557,6 +628,34 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 從別頁帶 ?card= 進來時短暫highlight，讓使用者知道落點在哪 */
+.card-focus {
+  box-shadow: 0 0 0 2px var(--n-primary-color, #18a058);
+  transition: box-shadow .35s ease;
+}
+.int-hint {
+  font-size: 12px;
+  opacity: .7;
+  margin-bottom: 10px;
+}
+.ocs-notes {
+  margin-top: 12px;
+}
+.ocs-notes-h {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.ocs-note {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  padding: 3px 0;
+  border-top: 1px solid var(--n-border-color, rgba(128, 128, 128, .15));
+}
+.ocs-note-date { opacity: .6; white-space: nowrap; }
+.ocs-note-user { opacity: .8; white-space: nowrap; font-weight: 500; }
+.ocs-note-text { flex: 1; }
 .entity-link {
   color: var(--primary-color, #18a058);
   text-decoration: none;
