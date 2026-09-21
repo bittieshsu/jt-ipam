@@ -99,6 +99,8 @@ class RackUsage(StrictModel):
     used_u: int
     total_u: int
     pct: float
+    # 層架的列是「層」不是 U，前端照這個決定單位要寫 U 還是層（issue #30）
+    kind: str = "rack"
 
 
 class DashboardOverview(StrictModel):
@@ -416,7 +418,7 @@ async def overview(
         activity_trend.append(TrendPoint(day=d, audit=audit_by_day.get(d, 0), ip_changes=ipc_by_day.get(d, 0)))
 
     # ── 機櫃 U 使用率（依可見機櫃範圍）──
-    rack_stmt = select(Rack.id, Rack.name, Rack.u_height)
+    rack_stmt = select(Rack.id, Rack.name, Rack.u_height, Rack.kind)
     if rack_vis is not None:
         rack_stmt = rack_stmt.where(Rack.id.in_(rack_vis)) if rack_vis else rack_stmt.where(False)
     rack_rows = (await session.execute(rack_stmt)).all()
@@ -433,11 +435,11 @@ async def overview(
     used_u_by_rack = {k: len(v) for k, v in occ_by_rack.items()}
     rack_usage = sorted(
         [RackUsage(
-            rack_id=str(rid), name=name,
+            rack_id=str(rid), name=name, kind=kind or "rack",
             used_u=min(used_u_by_rack.get(str(rid), 0), uh or 0),
             total_u=uh or 0,
             pct=round(min(100.0, used_u_by_rack.get(str(rid), 0) / uh * 100), 1) if uh else 0.0,
-        ) for rid, name, uh in rack_rows],
+        ) for rid, name, uh, kind in rack_rows],
         key=lambda x: x.pct, reverse=True,
     )[:8]
 

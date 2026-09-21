@@ -523,7 +523,9 @@ async def create_device(
         try:
             await assert_placement_ok(
                 session, rack_id=obj.rack_id, u_position=obj.u_position,
-                u_size=obj.u_size, rack_face=obj.rack_face, rack_side=obj.rack_side,
+                u_size=obj.u_size, rack_face=obj.rack_face, rack_slot=obj.rack_slot,
+                rack_slot_span=obj.rack_slot_span,
+                rack_vslot=obj.rack_vslot, rack_vslot_span=obj.rack_vslot_span,
             )
         except RackPlacementError as exc:
             raise HTTPException(status_code=409, detail=detail_of(exc, "rack_placement_error")) from exc
@@ -572,7 +574,9 @@ async def update_device(
         try:
             await assert_placement_ok(
                 session, rack_id=obj.rack_id, u_position=obj.u_position,
-                u_size=obj.u_size, rack_face=obj.rack_face, rack_side=obj.rack_side,
+                u_size=obj.u_size, rack_face=obj.rack_face, rack_slot=obj.rack_slot,
+                rack_slot_span=obj.rack_slot_span,
+                rack_vslot=obj.rack_vslot, rack_vslot_span=obj.rack_vslot_span,
                 exclude_device_id=obj.id,
             )
         except RackPlacementError as exc:

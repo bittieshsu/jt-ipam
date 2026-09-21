@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from "vue";
+import { WIDTH_PARTS, spanFor, slotFor, posFor, rackDefaults, usesLevels, boardDefault } from "@/utils/rackSlots";
 import { useI18n } from "vue-i18n";
 import {
   NCard,
@@ -30,7 +31,7 @@ import { exportTable, type ExportColumn } from "@/utils/tableExport";
 import { exportRacksSvg, exportRacksPng, exportRacksDrawio, type RackNameAlign } from "@/utils/rackGraphicsExport";
 import { getRackNameAlign } from "@/api/basic";
 import { usePinned } from "@/composables/usePinned";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { apiClient, apiErrMsg } from "@/api/client";
 import RackDiagram from "@/components/RackDiagram.vue";
 import { RACK_DEVICE_TYPES, rackTypeColor } from "@/utils/rackColors";
@@ -49,7 +50,9 @@ interface Rack {
   id: string;
   name: string;
   u_height: number;
+  kind?: 'rack' | 'shelf';
   width_mm?: number | null;
+  row_height_mm?: number | null;
   depth_mm?: number | null;
   location_id: string | null;
   location_name?: string | null;
@@ -67,6 +70,7 @@ const { t } = useI18n();
 const msg = useMessage();
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 function goRooms() { router.push({ name: "locations" }); }
 // 釘選機房（存 localStorage，每瀏覽器）：進機櫃頁時預設先看釘選的機房
 const PINNED_ROOM_KEY = "jt_pinned_room";
@@ -207,9 +211,16 @@ const allColumns = computed<DataTableColumns<Rack>>(() => [
     render: (r) => (r as any).location_name ?? "—",
     sorter: (a, b) => ((a as any).location_name ?? "").localeCompare((b as any).location_name ?? "") },
   { title: t("common.name"), key: "name", sorter: (a, b) => a.name.localeCompare(b.name) },
-  { title: t("racks.u_height"), key: "u_height", width: 100, sorter: (a, b) => a.u_height - b.u_height },
+  // 表格裡機櫃與層架混在一起，欄名用中性的「高度」，單位跟著每一列的型態走
+  { title: t("racks.height_col"), key: "u_height", width: 100,
+    render: (r) => rowsText(r.u_height, (r as any).kind),
+    sorter: (a, b) => a.u_height - b.u_height },
+  // 只填了其中一個也要顯示：原本要「兩個都有」才顯示，結果填了寬度的層架整格變成「—」，
+  // 看起來像沒填過。缺的那一邊才是「—」。
   { title: t("racks.dimensions"), key: "dimensions", width: 140,
-    render: (r) => (r.width_mm && r.depth_mm) ? `${r.width_mm} × ${r.depth_mm} mm` : "—" },
+    render: (r) => (r.width_mm || r.depth_mm)
+      ? `${r.width_mm ?? "—"} × ${r.depth_mm ?? "—"} mm`
+      : "—" },
   { title: t("racks.device_count"), key: "device_count", width: 100,
     render: (r) => (r as any).device_count ?? 0,
     sorter: (a, b) => ((a as any).device_count ?? 0) - ((b as any).device_count ?? 0) },
@@ -242,21 +253,29 @@ const editing = ref<Rack | null>(null);
 const form = ref({
   name: "", u_height: 42, location_id: null as string | null, description: "",
   seq: null as number | null,
-  width_mm: null as number | null, depth_mm: null as number | null,
+  kind: "rack" as "rack" | "industrial" | "shelf" | "wire_shelf" | "wood_shelf",
+  width_mm: null as number | null, row_height_mm: null as number | null,
+  level_heights: null as number[] | null,
+  board_mm: null as number | null, floor_mm: null as number | null,
+  depth_mm: null as number | null,
   numbering: "top-down" as "top-down" | "bottom-up", face: "front" as "front" | "rear",
   expose_svg: false,
 });
 function openCreate() {
   editing.value = null;
   form.value = { name: "", u_height: 42, location_id: roomId.value, description: "",
-    seq: null, width_mm: null, depth_mm: null, numbering: "top-down", face: "front",
-    expose_svg: false };
+    seq: null, kind: "rack", width_mm: null, row_height_mm: null, level_heights: null,
+    board_mm: null, floor_mm: null,
+    depth_mm: null, numbering: "top-down", face: "front", expose_svg: false };
   showEdit.value = true;
 }
 function openEdit(r: Rack) {
   editing.value = r;
   form.value = {
     name: r.name, u_height: r.u_height, location_id: r.location_id, description: r.description ?? "",
+    kind: (r as any).kind ?? "rack", row_height_mm: (r as any).row_height_mm ?? null,
+    level_heights: ((r as any).level_heights ?? null) as number[] | null,
+    board_mm: (r as any).board_mm ?? null, floor_mm: (r as any).floor_mm ?? null,
     seq: r.seq ?? null,
     width_mm: r.width_mm ?? null, depth_mm: r.depth_mm ?? null,
     numbering: r.numbering ?? "top-down", face: r.face ?? "front",
@@ -281,13 +300,99 @@ async function copyEmbedUrl() {
   }
 }
 
-const numberingOpts = [
-  { label: t("racks.numbering_top_down"), value: "top-down" },
-  { label: t("racks.numbering_bottom_up"), value: "bottom-up" },
-];
+// 層架沒有 U：列的單位、編號方向的字都要跟著型態換，不然畫面會自相矛盾
+const numberingOpts = computed(() => kindUsesLevels.value
+  ? [
+      { label: t("racks.numbering_top_down_level"), value: "top-down" },
+      { label: t("racks.numbering_bottom_up_level"), value: "bottom-up" },
+    ]
+  : [
+      { label: t("racks.numbering_top_down"), value: "top-down" },
+      { label: t("racks.numbering_bottom_up"), value: "bottom-up" },
+    ]);
 // 常見機櫃外寬 / 外深（mm）快捷
-const WIDTH_PRESETS = [600, 800];
-const DEPTH_PRESETS = [600, 800, 1000, 1100, 1200];
+const kindOpts = computed(() => [
+  { label: t("racks.kind_rack"), value: "rack" },
+  { label: t("racks.kind_industrial"), value: "industrial" },
+  { label: t("racks.kind_shelf"), value: "shelf" },
+  { label: t("racks.kind_wire_shelf"), value: "wire_shelf" },
+  { label: t("racks.kind_wood_shelf"), value: "wood_shelf" },
+]);
+/** 層架類才需要設「每層高度」；機櫃類是固定 1U。 */
+const kindUsesLevels = computed(() => usesLevels(form.value.kind));
+/** 留白時後端會用的預設值 —— 當成輸入框的提示，使用者才知道不填會變成多少。 */
+const kindDefaults = computed(() => rackDefaults(form.value.kind));
+
+/** 各層高度不同（層架的層板本來就一層一層可調）。關掉＝整台用同一個 row_height_mm。 */
+/**
+ * 常見層架的成品組合。IVAR 179 公分側架官方要求至少 4 層，實務上 6 層最常見；
+ * 層高是把「側架總高 − 層板厚度 × 片數 − 離地」平均分給每一層算出來的。
+ */
+const RACK_PRESETS: Record<string, { levels: number; frame: number; board: number;
+                                     floor: number; width: number; depth: number }[]> = {
+  wood_shelf: [{ levels: 6, frame: 1790, board: 18, floor: 10, width: 420, depth: 300 }],
+};
+function applyPreset(kind: string) {
+  const pre = RACK_PRESETS[kind]?.[0];
+  if (!pre) return;
+  form.value.u_height = pre.levels;
+  form.value.board_mm = pre.board;
+  form.value.floor_mm = pre.floor;
+  form.value.width_mm = pre.width;
+  form.value.depth_mm = pre.depth;
+  // 層板本身與離地都不算在淨空高裡（層高填的是淨空高）
+  const usable = pre.frame - pre.board * (pre.levels + 1) - pre.floor;
+  form.value.row_height_mm = Math.max(10, Math.round(usable / pre.levels));
+  perLevel.value = false;
+}
+const hasPreset = computed(() => Boolean(RACK_PRESETS[form.value.kind]));
+/** 這個型態的層板厚度預設（輸入框的提示字）。 */
+const kindBoard = computed(() => boardDefault(form.value.kind));
+
+const perLevel = ref(false);
+/** 逐層高度的編輯暫存，由第 1 層起算；長度一律跟著層數走。 */
+const levelRows = ref<number[]>([]);
+/** 目前該填幾層 —— 層數改了就補齊或截掉，不要留下對不上的長度。 */
+watch([() => form.value.u_height, () => form.value.kind, perLevel], () => {
+  const n = form.value.u_height || 0;
+  const fill = form.value.row_height_mm || kindDefaults.value.row;
+  const cur = levelRows.value.slice(0, n);
+  while (cur.length < n) cur.push(fill);
+  levelRows.value = cur;
+});
+watch(() => form.value.level_heights, (v) => {
+  // 開啟編輯時把既有資料帶進來；沒有逐層資料就等於「整台同高」
+  perLevel.value = Array.isArray(v) && v.length > 0;
+  levelRows.value = Array.isArray(v) ? [...v] : [];
+}, { immediate: true });
+/** 「16U」或「4 層」——與 RackDiagram 的標題同一套字。 */
+function rowsText(n: number, kind?: string | null): string {
+  return usesLevels(kind) ? t("racks.rows_levels", { n }) : `${n}U`;
+}
+// 快捷尺寸也要跟著型態：機櫃是 60/80 公分寬，層架市面上是 90/120/150 公分。
+// 木質層架給 IKEA IVAR 的實際尺寸：層板有 42×30 / 42×50 / 83×30 / 83×50 四種組合。
+const WIDTH_PRESETS = computed(() => {
+  if (form.value.kind === "wood_shelf") return [420, 830];
+  return kindUsesLevels.value ? [900, 1200, 1500] : [600, 800];
+});
+const DEPTH_PRESETS = computed(() => {
+  if (form.value.kind === "wood_shelf") return [300, 500];
+  return kindUsesLevels.value ? [450, 600, 750] : [600, 800, 1000, 1100, 1200];
+});
+
+/**
+ * 換型態時把「還沒動過的」列數換成該型態的常見值：層架不會有 42 層，
+ * 機櫃也不會只有 4 U。只在值還是另一種型態的預設時才換 —— 使用者自己填過的不動。
+ */
+const DEFAULT_ROWS = { rack: 42, shelf: 4 } as const;
+watch(() => form.value.kind, (now, was) => {
+  if (!was || now === was) return;
+  const wasLevels = was === "shelf" || was === "wire_shelf";
+  const nowLevels = now === "shelf" || now === "wire_shelf";
+  if (wasLevels === nowLevels) return;
+  const untouched = form.value.u_height === (wasLevels ? DEFAULT_ROWS.shelf : DEFAULT_ROWS.rack);
+  if (untouched) form.value.u_height = nowLevels ? DEFAULT_ROWS.shelf : DEFAULT_ROWS.rack;
+});
 
 async function submitRack() {
   if (!form.value.name.trim()) { msg.error(t("common.name_required")); return; }
@@ -297,6 +402,11 @@ async function submitRack() {
     location_id: form.value.location_id ?? null,
     description: form.value.description.trim() || null,
     seq: form.value.seq ?? null,
+    kind: form.value.kind ?? 'rack',
+    row_height_mm: form.value.row_height_mm ?? null,
+    level_heights: perLevel.value ? levelRows.value.slice(0, form.value.u_height) : null,
+    board_mm: form.value.board_mm ?? null,
+    floor_mm: form.value.floor_mm ?? null,
     width_mm: form.value.width_mm ?? null,
     depth_mm: form.value.depth_mm ?? null,
     numbering: form.value.numbering,
@@ -362,16 +472,24 @@ const mergedNameAlign = ref<RackNameAlign>("left");
 
 onMounted(async () => {
   void loadEmbedCfg();
+  // 從別的頁帶機櫃 id 過來（例如儀表板的使用率）：直接選到那一台，
+  // 不要再套用「預設機房」的整排檢視，否則等於沒帶到。
+  const wanted = String(route.query.rack ?? "");
 
   void getRackNameAlign().then((a) => { mergedNameAlign.value = a as RackNameAlign; });
   // 先 refresh() 把所有機櫃載進 rows（loadRoom 依賴它過濾該機房的機櫃，
   // 否則「機櫃示意圖」會誤判此機房尚無機櫃）。refresh 可能先預設第一個機櫃。
   await refresh();
+  if (wanted && rows.value.some((x) => x.id === wanted)) {
+    roomId.value = null;
+    selected.value = wanted;
+  }
   try {
     const r = await listLocations();
     locations.value = r.items;
     // 決定預設機房（優先 pinnedRoom，其次機房頁釘選的第一個）；設定後 watch(roomId)
     // 會清掉單櫃選取並用「整排機櫃」檢視覆蓋 refresh 的單櫃預設。
+    if (wanted) return;            // 指名了機櫃就不要被預設機房蓋掉
     let def: string | null =
       (pinnedRoom.value && r.items.some((l) => l.id === pinnedRoom.value)) ? pinnedRoom.value : null;
     if (!def) def = locPin.ids.value.find((id) => r.items.some((l) => l.id === id)) ?? null;
@@ -385,23 +503,35 @@ const pickEmptyU = ref<number | null>(null);
 const pickRackId = ref<string | null>(null);
 const pickDeviceId = ref<string | null>(null);
 const pickDeviceSize = ref(1);
-const pickSide = ref<"full" | "left" | "right">("full");
-const pickSideOpts = computed(() => [
-  { label: t("devices.rack_side_full"), value: "full" },
-  { label: t("devices.rack_side_left"), value: "left" },
-  { label: t("devices.rack_side_right"), value: "right" },
-]);
+// 橫向位置：介面上選「寬度 + 第幾格」，送出時換算成 rack_slot / rack_slot_span（issue #31）
+const pickParts = ref<number>(1);
+const pickPos = ref<number>(1);
+const pickPartsOpts = computed(() => WIDTH_PARTS.map((n) => ({
+  label: n === 1 ? t("devices.rack_width_full") : t("devices.rack_width_nth", { n }),
+  value: n,
+})));
+const pickPosOpts = computed(() => Array.from({ length: pickParts.value }, (_, i) => ({
+  label: t("devices.rack_pos_nth", { n: i + 1 }), value: i + 1,
+})));
 const pickableDevices = ref<Device[]>([]);
 const pickBusy = ref(false);
 const pickDeviceOpts = computed(() => pickableDevices.value.map((d) => ({
   label: d.ip ? `${d.name} — ${d.ip}` : d.name, value: d.id,
 })));
-async function onPickEmpty(u: number, rackId: string, side?: "left" | "right") {
+async function onPickEmpty(u: number, rackId: string, slot?: number) {
   pickEmptyU.value = u;
   pickRackId.value = rackId;
   pickDeviceId.value = null;
   pickDeviceSize.value = 1;
-  pickSide.value = side ?? "full";
+  // 點空隙進來時：挑一個「格線剛好對齊被點格子」的寬度當預設，位置設成那一格。
+  // 點整列空位（slot=0）就維持整 U。
+  pickParts.value = 1;
+  pickPos.value = 1;
+  if (slot && slot > 0) {
+    const fit = WIDTH_PARTS.find((n) => slot % spanFor(n) === 0) ?? 1;
+    pickParts.value = fit;
+    pickPos.value = posFor(slot, fit);
+  }
   showDevicePick.value = true;
   try {
     const r = await listDevices();
@@ -427,7 +557,8 @@ async function confirmPickDevice() {
     await updateDevice(pickDeviceId.value, {
       rack_id: pickRackId.value, u_position: pickEmptyU.value,
       u_size: Math.max(1, pickDeviceSize.value || 1),
-      rack_side: pickSide.value,
+      rack_slot: slotFor(pickParts.value, pickPos.value),
+      rack_slot_span: spanFor(pickParts.value),
     } as any);
     showDevicePick.value = false;
     msg.success(t("common.ok"));
@@ -510,7 +641,7 @@ function onMergedExport(key: string) {
         <span style="opacity: .4">{{ t("racks.or") }}</span>
         <n-select
           v-model:value="selected"
-          :options="rows.map((r) => ({ label: `${r.name} (${r.u_height}U)`, value: r.id }))"
+          :options="rows.map((r) => ({ label: `${r.name} (${rowsText(r.u_height, (r as any).kind)})`, value: r.id }))"
           :placeholder="t('racks.select_placeholder')"
           style="width: 280px"
           clearable
@@ -661,17 +792,70 @@ function onMergedExport(key: string) {
         <n-form-item :label="t('common.name')" required>
           <n-input v-model:value="form.name" />
         </n-form-item>
-        <n-form-item :label="t('racks.u_height')">
+        <n-form-item :label="kindUsesLevels ? t('racks.levels') : t('racks.u_height')">
           <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="width: 100%" />
         </n-form-item>
         <n-form-item :label="t('racks.seq')">
           <n-input-number v-model:value="form.seq" :min="0" :max="9999" clearable
                           :placeholder="t('racks.seq_ph')" style="width: 100%" />
         </n-form-item>
+        <n-form-item :label="t('racks.kind')">
+          <n-select v-model:value="form.kind" :options="kindOpts" style="width: 100%" />
+          <template #feedback>
+            <span class="field-hint">{{ t("racks.kind_hint") }}</span>
+          </template>
+        </n-form-item>
+        <n-form-item v-if="hasPreset" :label="t('racks.preset')">
+          <div style="width: 100%">
+            <n-button size="small" @click="applyPreset(form.kind)">
+              {{ t("racks.preset_ivar_179") }}
+            </n-button>
+            <span class="field-hint">{{ t("racks.preset_hint") }}</span>
+          </div>
+        </n-form-item>
+        <n-form-item v-if="kindUsesLevels" :label="t('racks.board_mm')">
+          <n-input-number v-model:value="form.board_mm" :min="0" :max="200" :step="1"
+                          clearable :placeholder="String(Math.round(kindBoard))" style="width: 100%">
+            <template #suffix>mm</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item v-if="kindUsesLevels" :label="t('racks.floor_mm')">
+          <n-input-number v-model:value="form.floor_mm" :min="0" :max="1000" :step="5"
+                          clearable placeholder="0" style="width: 100%">
+            <template #suffix>mm</template>
+          </n-input-number>
+        </n-form-item>
+        <n-form-item v-if="kindUsesLevels" :label="t('racks.row_height_mm')">
+          <div style="width: 100%">
+            <!-- 開關放在輸入欄「上面」：先決定要不要逐層，再填值。
+                 用 n-switch 與同一張表單的「對外嵌入」一致（n-checkbox 沒 import，
+                 寫了只會渲染成一行純文字 —— 看起來像少了元件）。 -->
+            <div class="per-level-toggle">
+              <n-switch v-model:value="perLevel" size="small" />
+              <span>{{ t("racks.per_level_heights") }}</span>
+            </div>
+            <n-input-number v-if="!perLevel" v-model:value="form.row_height_mm"
+                            :min="10" :max="1000" :step="10" clearable
+                            :placeholder="String(kindDefaults.row)" style="width: 100%">
+              <template #suffix>mm</template>
+            </n-input-number>
+            <!-- 逐層高度：層架的層板一層一層可調，常見裝法是下面留高、上面壓矮 -->
+            <div v-else class="level-rows">
+              <div v-for="(_, i) in levelRows" :key="'lv' + i" class="level-row">
+                <span class="level-row__label">{{ t("racks.level_n", { n: i + 1 }) }}</span>
+                <n-input-number v-model:value="levelRows[i]" :min="10" :max="1000" :step="10"
+                                size="small" style="flex: 1 1 0; min-width: 0">
+                  <template #suffix>mm</template>
+                </n-input-number>
+              </div>
+            </div>
+            <span class="field-hint">{{ t("racks.per_level_hint") }}</span>
+          </div>
+        </n-form-item>
         <n-form-item :label="t('racks.width_mm')">
           <div class="dim-field">
             <n-input-number v-model:value="form.width_mm" :min="100" :max="2000" :step="50"
-                            clearable placeholder="600" style="width: 100%">
+                            clearable :placeholder="String(kindDefaults.width)" style="width: 100%">
               <template #suffix>mm</template>
             </n-input-number>
             <div class="preset-chips">
@@ -696,7 +880,7 @@ function onMergedExport(key: string) {
             </div>
           </div>
         </n-form-item>
-        <n-form-item :label="t('racks.numbering')">
+        <n-form-item :label="kindUsesLevels ? t('racks.level_numbering') : t('racks.numbering')">
           <n-select v-model:value="form.numbering" :options="numberingOpts" />
         </n-form-item>
         <n-form-item :label="t('nav.locations')">
@@ -744,8 +928,13 @@ function onMergedExport(key: string) {
       <n-form-item :label="t('racks.u_size')">
         <n-input-number v-model:value="pickDeviceSize" :min="1" :max="20" style="width: 140px" />
       </n-form-item>
-      <n-form-item :label="t('devices.rack_side')">
-        <n-select v-model:value="pickSide" :options="pickSideOpts" style="width: 200px" />
+      <n-form-item :label="t('devices.rack_width')">
+        <n-space :size="8">
+          <n-select v-model:value="pickParts" :options="pickPartsOpts" style="width: 130px"
+                    @update:value="pickPos = 1" />
+          <n-select v-if="pickParts > 1" v-model:value="pickPos" :options="pickPosOpts"
+                    style="width: 130px" />
+        </n-space>
       </n-form-item>
       <p style="font-size:12px; opacity:.6; margin:0 0 8px">{{ t("racks.place_device_hint") }}</p>
       <n-space justify="end">
@@ -759,6 +948,22 @@ function onMergedExport(key: string) {
 </template>
 
 <style scoped>
+.per-level-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+
+/* 逐層高度：層數多時要能捲，不然表單會被撐爆 */
+.level-rows { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.level-row { display: flex; align-items: center; gap: 8px; }
+.level-row__label { flex: 0 0 62px; font-size: 12px; opacity: 0.7; }
+
+/* 說明文字與下一個欄位之間要留白，不然會黏在一起 */
+.field-hint {
+  display: block;
+  font-size: 12px;
+  opacity: 0.6;
+  line-height: 1.5;
+  padding: 2px 0 8px;
+}
+
 .embed-hint { font-size: 12px; opacity: 0.65; line-height: 1.5; }
 /* 機房內機櫃並排成一橫排（依平面圖相對位置排序）；超出寬度橫向捲動，不上下堆疊 */
 .rack-row {

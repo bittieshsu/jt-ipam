@@ -2,6 +2,7 @@
 import { computed, h, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import { usesLevels } from "@/utils/rackSlots";
 import {
   NCard, NSpace, NIcon, NButton, NDescriptions, NDescriptionsItem,
   NTag, NDataTable, NSpin, NTooltip, NModal, NSelect, NPopconfirm,
@@ -97,6 +98,8 @@ const editShow = ref(false);
 const relations = ref<RelationNode[]>([]);
 const location = ref<Location | null>(null);
 const rack = ref<Rack | null>(null);
+/** 機櫃還是層架 —— 標籤與括號裡的單位都跟著換。 */
+const rackUsesLevels = computed(() => usesLevels((rack.value as any)?.kind));
 const rackDiagram = ref<RackDiagramData | null>(null);
 const addresses = ref<IPAddress[]>([]);
 // 手動標記（is_dhcp_server）與整合推導（dhcp_server_auto）都算 —— 與 IpRoleTags 判斷一致
@@ -386,11 +389,12 @@ onMounted(() => {
           </n-descriptions-item>
           <n-descriptions-item :label="t('nav.racks')">
             <a v-if="rack" href="#" class="entity-link"
-               @click.prevent="router.push({ name: 'racks' })">{{ rack.name }} ({{ rack.u_height }}U)</a>
+               @click.prevent="router.push({ name: 'racks' })">{{ rack.name }} ({{ rackUsesLevels
+                 ? t("racks.rows_levels", { n: rack.u_height }) : rack.u_height + "U" }})</a>
             <span v-else>—</span>
           </n-descriptions-item>
-          <n-descriptions-item :label="t('devices.u_position')">{{ device.u_position ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item :label="t('devices.u_size')">{{ device.u_size ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="rackUsesLevels ? t('devices.level_position') : t('devices.u_position')">{{ device.u_position ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="rackUsesLevels ? t('devices.level_size') : t('devices.u_size')">{{ device.u_size ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('devices.rack_face')">
             {{ (device as any).rack_face === "rear" ? t("devices.rack_face_rear")
                : (device as any).rack_face === "front" ? t("devices.rack_face_front") : "—" }}

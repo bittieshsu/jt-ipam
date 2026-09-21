@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAuthStore } from "@/stores/auth";
+import { RACK_SLOTS, WIDTH_PARTS, spanFor, slotFor, partsFor, posFor, usesLevels } from "@/utils/rackSlots";
 const _authBtn = useAuthStore();
 import { computed, h, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -86,7 +87,7 @@ const form = ref<{
   u_position: number | null;
   u_size: number | null;
   rack_face: "front" | "rear" | null;
-  rack_side: "full" | "left" | "right";
+  rack_slot: number; rack_slot_span: number;
   customer_id: string | null;
   primary_ip_id: string | null;
 }>({
@@ -94,7 +95,7 @@ const form = ref<{
   vendor: "", model: "", serial: "",
   description: "",
   location_id: null, rack_id: null,
-  u_position: null, u_size: null, rack_face: null, rack_side: "full",
+  u_position: null, u_size: null, rack_face: null, rack_slot: 0, rack_slot_span: RACK_SLOTS,
   customer_id: null,
   primary_ip_id: null,
 });
@@ -106,11 +107,32 @@ const rackFaceOpts = computed(() => [
   { label: t("devices.rack_face_front"), value: "front" },
   { label: t("devices.rack_face_rear"), value: "rear" },
 ]);
+/** 所選機櫃是不是以「層」計 —— 表單標籤要跟著換，不然層架上會寫「U 位」。 */
+const rackUsesLevels = computed(() =>
+  usesLevels((racks.value.find((r) => r.id === form.value.rack_id) as any)?.kind));
 const rackSideOpts = computed(() => [
-  { label: t("devices.rack_side_full"), value: "full" },
-  { label: t("devices.rack_side_left"), value: "left" },
-  { label: t("devices.rack_side_right"), value: "right" },
+  // 層架上「整 U」要寫成「整層」—— 同一組選項在兩種機架上用字不同
+  { label: rackUsesLevels.value ? t("devices.rack_height_full") : t("devices.rack_width_full"),
+    value: 1 },
+  ...WIDTH_PARTS.filter((n) => n > 1).map((n) => ({ label: t("devices.rack_width_nth", { n }), value: n })),
 ]);
+// 介面上的「寬度 + 第幾格」，送出時換算成 rack_slot / rack_slot_span（issue #31）
+const widthParts = ref<number>(1);
+const widthPos = ref<number>(1);
+const widthPosOpts = computed(() => Array.from({ length: widthParts.value }, (_, i) => ({
+  label: t("devices.rack_pos_nth", { n: i + 1 }), value: i + 1,
+})));
+// 層內的「佔高 + 第幾格」—— 與佔寬同一套換算（只是軸換成垂直）。層架一層放得下疊起來
+// 的兩三台，而且不一定放滿；機櫃沒有這個概念，所以只在層架類顯示。
+const heightParts = ref<number>(1);
+const heightPos = ref<number>(1);
+const rackHeightOpts = computed(() => [
+  { label: t("devices.rack_height_full"), value: 1 },
+  ...WIDTH_PARTS.filter((n) => n > 1).map((n) => ({ label: t("devices.rack_width_nth", { n }), value: n })),
+]);
+const heightPosOpts = computed(() => Array.from({ length: heightParts.value }, (_, i) => ({
+  label: t("devices.rack_vpos_nth", { n: i + 1 }), value: i + 1,
+})));
 
 // 主要 IP 選擇：搜尋走後端（設了會雙向連結，IP 清單/拓樸接得起來）。
 // 原本一次載 500 筆再由前端過濾，超過 500 個位址的站台會「有這個 IP 卻選不到、
@@ -185,7 +207,7 @@ function openCreate() {
   form.value = {
     name: "", fqdn: "", type: "server", vendor: "", model: "", serial: "",
     description: "", location_id: null, rack_id: null,
-    u_position: null, u_size: null, rack_face: null, rack_side: "full", customer_id: null, primary_ip_id: null,
+    u_position: null, u_size: null, rack_face: null, rack_slot: 0, rack_slot_span: RACK_SLOTS, customer_id: null, primary_ip_id: null,
   };
   void ensureCustomersLoaded();
   void loadAddresses();
@@ -201,10 +223,16 @@ function openEdit(r: Device) {
     location_id: r.location_id, rack_id: r.rack_id,
     u_position: r.u_position, u_size: r.u_size,
     rack_face: (r as any).rack_face ?? null,
-    rack_side: (r as any).rack_side ?? "full",
+    rack_slot: (r as any).rack_slot ?? 0,
+    rack_slot_span: (r as any).rack_slot_span ?? RACK_SLOTS,
     customer_id: r.customer_id ?? null,
     primary_ip_id: (r as any).primary_ip_id ?? null,
   };
+  // 既有資料還原成介面上的「寬度 + 第幾格」
+  widthParts.value = partsFor((r as any).rack_slot_span);
+  widthPos.value = posFor((r as any).rack_slot, widthParts.value);
+  heightParts.value = partsFor((r as any).rack_vslot_span);
+  heightPos.value = posFor((r as any).rack_vslot, heightParts.value);
   void ensureCustomersLoaded();
   // 先載第一批，再確保「目前這台的主要 IP」也在選項裡 —— 搜尋改走後端之後，
   // 那筆若不在第一批結果內，下拉會顯示空白（看起來像資料掉了）。
@@ -229,16 +257,16 @@ const showUPicker = ref(false);
 const uPickerDiagram = ref<RackDiagram | null>(null);
 const uPickerLoading = ref(false);
 // 每個 U 的左/右半占用（full 裝置占兩半）。半 U 裝置只占一半，另一半仍可放。
-const uHalf = computed<Record<number, { left: string | null; right: string | null }>>(() => {
-  const m: Record<number, { left: string | null; right: string | null }> = {};
+/** 每個 U 的逐格占用：slots[i] = 佔住第 i 格的裝置名稱（null = 空）。 */
+const uHalf = computed<Record<number, (string | null)[]>>(() => {
+  const m: Record<number, (string | null)[]> = {};
   for (const d of uPickerDiagram.value?.devices ?? []) {
     if (editing.value && d.device_id === editing.value.id) continue;  // 編輯中的自己不算占用
-    const side = d.rack_side ?? "full";
+    const slot = Number((d as any).rack_slot ?? 0);
+    const span = Number((d as any).rack_slot_span ?? RACK_SLOTS);
     for (let u = d.u_position; u < d.u_position + d.u_size; u++) {
-      const cell = (m[u] ??= { left: null, right: null });
-      if (side === "left") cell.left = d.name;
-      else if (side === "right") cell.right = d.name;
-      else { cell.left = d.name; cell.right = d.name; }
+      const cell = (m[u] ??= new Array(RACK_SLOTS).fill(null));
+      for (let i = slot; i < Math.min(slot + span, RACK_SLOTS); i++) cell[i] = d.name;
     }
   }
   return m;
@@ -247,17 +275,19 @@ const uHalf = computed<Record<number, { left: string | null; right: string | nul
 function uPickable(u: number): boolean {
   const cell = uHalf.value[u];
   if (!cell) return true;
-  const side = form.value.rack_side;
-  if (side === "left") return !cell.left;
-  if (side === "right") return !cell.right;
-  return !cell.left && !cell.right;
+  const from = slotFor(widthParts.value, widthPos.value);
+  const to = from + spanFor(widthParts.value);
+  for (let i = from; i < Math.min(to, RACK_SLOTS); i++) if (cell[i]) return false;
+  return true;
 }
-// 此 U 的占用顯示文字（半 U 分左右顯示）
+// 此 U 的占用顯示文字（多台並排就列出名稱）
 function uCellText(u: number): string {
   const cell = uHalf.value[u];
-  if (!cell || (!cell.left && !cell.right)) return t("devices.u_free");
-  if (cell.left && cell.left === cell.right) return cell.left;            // full
-  return `L：${cell.left || t("devices.u_free")}　R：${cell.right || t("devices.u_free")}`;
+  if (!cell) return t("devices.u_free");
+  const names = Array.from(new Set(cell.filter((x): x is string => !!x)));
+  if (names.length === 0) return t("devices.u_free");
+  if (names.length === 1 && cell.every((x) => x)) return names[0];        // 整 U 一台
+  return names.join("、");
 }
 const uRows = computed(() => {
   const n = uPickerDiagram.value?.u_height ?? 0;
@@ -300,7 +330,13 @@ async function submit() {
       u_position: form.value.u_position,
       u_size: form.value.u_size,
       rack_face: form.value.rack_id ? form.value.rack_face : null,
-      rack_side: form.value.rack_id ? form.value.rack_side : "full",
+      rack_slot: form.value.rack_id ? slotFor(widthParts.value, widthPos.value) : 0,
+      rack_slot_span: form.value.rack_id ? spanFor(widthParts.value) : RACK_SLOTS,
+      // 層架才有層內位置；機櫃一律整層佔滿，與改版前行為相同
+      rack_vslot: (form.value.rack_id && rackUsesLevels.value)
+        ? slotFor(heightParts.value, heightPos.value) : 0,
+      rack_vslot_span: (form.value.rack_id && rackUsesLevels.value)
+        ? spanFor(heightParts.value) : RACK_SLOTS,
       customer_id: form.value.customer_id,
       primary_ip_id: form.value.primary_ip_id,
     };
@@ -612,7 +648,7 @@ onMounted(async () => {
           </n-form-item>
         </div>
         <div class="dev-row">
-          <n-form-item :label="t('devices.u_position')">
+          <n-form-item :label="rackUsesLevels ? t('devices.level_position') : t('devices.u_position')">
             <n-input-group>
               <n-input-number v-model:value="form.u_position" :min="1" :max="99" clearable
                               :disabled="!form.rack_id" style="flex: 1" />
@@ -621,7 +657,7 @@ onMounted(async () => {
               </n-button>
             </n-input-group>
           </n-form-item>
-          <n-form-item :label="t('devices.u_size')">
+          <n-form-item :label="rackUsesLevels ? t('devices.level_size') : t('devices.u_size')">
             <n-input-number v-model:value="form.u_size" :min="1" :max="99" clearable
                             :disabled="!form.rack_id" style="width: 100%" />
           </n-form-item>
@@ -632,9 +668,23 @@ onMounted(async () => {
                       :disabled="!form.rack_id" :placeholder="t('devices.rack_face_front')"
                       style="width: 100%" />
           </n-form-item>
-          <n-form-item :label="t('devices.rack_side')">
-            <n-select v-model:value="form.rack_side" :options="rackSideOpts"
-                      :disabled="!form.rack_id" style="width: 100%" />
+          <n-form-item :label="t('devices.rack_width')">
+            <!-- 兩個下拉併在同一列（順序與編輯視窗一致：先選幾分之一，再選第幾格） -->
+            <div class="slot-pair">
+              <n-select v-model:value="widthParts" :options="rackSideOpts" @update:value="widthPos = 1"
+                        :disabled="!form.rack_id" />
+              <n-select v-if="widthParts > 1" v-model:value="widthPos" :options="widthPosOpts"
+                        :disabled="!form.rack_id" />
+            </div>
+          </n-form-item>
+          <!-- 層內的上下位置：層架一層放得下疊起來的兩三台，也可以不放滿。 -->
+          <n-form-item v-if="rackUsesLevels" :label="t('devices.rack_height')">
+            <div class="slot-pair">
+              <n-select v-model:value="heightParts" :options="rackHeightOpts" @update:value="heightPos = 1"
+                        :disabled="!form.rack_id" />
+              <n-select v-if="heightParts > 1" v-model:value="heightPos" :options="heightPosOpts"
+                        :disabled="!form.rack_id" />
+            </div>
           </n-form-item>
         </div>
 
@@ -677,6 +727,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 佔寬的「幾分之一 + 第幾格」要併在同一列 */
+.slot-pair { display: flex; gap: 6px; width: 100%; }
+.slot-pair > * { flex: 1 1 0; min-width: 0; }
+
 /* 地點/機櫃、U位/佔用U數：兩欄等寬 */
 .dev-row { display: flex; gap: 12px; }
 .dev-row > * { flex: 1 1 0; min-width: 0; }

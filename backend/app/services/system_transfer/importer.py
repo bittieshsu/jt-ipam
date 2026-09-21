@@ -44,6 +44,12 @@ class TableResult:
 
 def _coerce(table, row: dict[str, Any]) -> dict[str, Any]:
     """依目標表欄位型別轉換值；只保留目標表存在的欄位（向下相容關鍵）。"""
+    # 舊版匯出檔的機櫃占寬是 `rack_side`（full/left/right），新版是 rack_slot/rack_slot_span
+    # （issue #31）。不轉的話半 U 裝置會被當成整 U 還原，匯入後就會彼此重疊。
+    if table.name == "devices" and "rack_side" in row and "rack_slot" not in row:
+        from app.services.rack import legacy_side_to_slots
+        slot, span = legacy_side_to_slots(row.get("rack_side"))
+        row = {**row, "rack_slot": slot, "rack_slot_span": span}
     cols = table.columns
     out: dict[str, Any] = {}
     for name, val in row.items():

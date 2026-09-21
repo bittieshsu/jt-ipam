@@ -4,6 +4,90 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.41] - 2026-09-21
+
+### Added
+- **Shelving now behaves like real shelving, not a rack with the labels changed.**
+  - **Anything can sit on top of the topmost board.** A shelf unit has no lid, so the top
+    surface is a real place to put a device; it shows as a "Top" row above the numbered levels.
+  - **Devices can be stacked inside one level, and a level need not be full.** A device now
+    records how much of a level's height it uses and where it sits in it — the same
+    start-plus-span model already used across the width — so two boxes can share a level and
+    still leave headroom above them.
+  - **Board thickness and floor clearance are settable.** Level height is the clear space
+    between boards, so the boards themselves and the gap under the bottom board are counted
+    separately when the elevation is drawn.
+  - **An IKEA IVAR preset** fills in the 179 cm side frame, 18 mm boards and level heights in
+    one click, and the pine side frames are drawn with their real 32 mm hole pitch and 7 mm
+    holes.
+
+### Fixed
+- **Side frames no longer continue above the top board.** The top of a shelf unit is open —
+  that is the whole point of being able to put something on it.
+- A device placed on the top surface was reported as "out of the rack's range" and **was not
+  drawn at all**.
+- Two devices stacked in one level were reported as overlapping. Overlap now requires the
+  vertical ranges to intersect as well.
+- **With bottom-up numbering, the open top row was drawn at the very bottom** — that is the
+  floor, not the top.
+- The "different height per level" toggle rendered as a line of plain text: the component it
+  used was never imported, which Vue does not treat as an error. A check now scans every
+  template for this.
+
+## [0.6.40] - 2026-09-21
+
+### Added
+- **Shelf levels can each have their own height.** Shelf boards are adjustable one level at a
+  time on real shelving (IKEA IVAR, chrome wire shelving), and the usual build puts the tall
+  bay at the bottom. A rack can now carry a height per level; leave it off and the whole unit
+  keeps one height, exactly as before. The drawing, the device blocks that span several
+  levels, and the cross-brace span are all computed from the actual heights.
+
+### Fixed
+- **Clicking a rack in the dashboard's usage chart now opens that rack**, instead of just
+  landing on the rack page showing whichever rack was the default.
+- **The face switch and the export button in the rack toolbar are aligned.** They sat about
+  2px apart because the two controls had different line heights and were positioned on the
+  text baseline.
+- The rack elevation's **top board** is drawn on the web diagram too, not only in the SVG
+  export — without it a shelf unit looked like it was missing its top level.
+
+## [0.6.39] - 2026-09-20
+
+### Added
+- **Wooden shelving is now a rack type** (pine side frames, e.g. IKEA IVAR). The drawing shows
+  what makes one recognisable: solid pine side frames with their full column of adjustment
+  holes, pine shelf boards, and the steel cross-brace at the back — braced every other bay from
+  the bottom, the way the instructions call for, and drawn behind the shelves so you see it
+  through the empty ones. Width and depth shortcuts offer the real IVAR board sizes
+  (42/83 cm wide, 30/50 cm deep).
+
+## [0.6.38] - 2026-09-20
+
+### Added
+- **Racks now have a type** (Racks → Add/Edit → Type): standard server rack, industrial
+  enclosure, plain shelving, or chrome wire shelving. The type sets sensible defaults for width
+  and level height, decides whether rows are counted in U or in levels, and changes how the
+  diagram is drawn — the wire-shelf drawing has round chrome posts with collars at each shelf,
+  which is how you recognise one at a glance.
+
+## [0.6.37] - 2026-09-20
+
+### Added
+- **Non-standard racks and shelving are supported** ([#30](https://github.com/jasoncheng7115/jt-ipam/issues/30)).
+  A rack can carry its real width and its real level height in millimetres; the elevation is
+  drawn to those proportions instead of assuming 19" and 1U. Empty values keep the standard
+  numbers, so existing racks are unchanged.
+
+## [0.6.36] - 2026-09-20
+
+### Added
+- **A row can hold up to six devices side by side**
+  ([#31](https://github.com/jasoncheng7115/jt-ipam/issues/31)). Width was previously full /
+  left / right only; a device now records a starting cell and how many cells it spans, so
+  halves, thirds, quarters, fifths and sixths are all expressible. Existing left/right
+  placements are converted automatically and keep their position.
+
 ## [0.6.35] - 2026-09-19
 
 ### Added

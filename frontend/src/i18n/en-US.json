@@ -631,7 +631,7 @@
     "chart_customer_res": "Per-tenant resources",
     "chart_activity_trend": "Audit / IP changes (14d)",
     "chart_audit_events": "Audit events",
-    "chart_rack_usage": "Rack U utilization",
+    "chart_rack_usage": "Rack & shelf usage",
     "indicator_source_none": "No live-status source configured yet (scan agent / LibreNMS / firewall ARP)",
     "src_scanner": "scan agent",
     "src_opnsense": "OPNsense ARP",
@@ -1409,6 +1409,8 @@
     "rack": "Rack",
     "u_position": "U position (start)",
     "u_size": "U occupied",
+    "level_position": "Level (start)",
+    "level_size": "Levels used",
     "link_ip": "Link an IP",
     "link_ip_hint": "Pick an existing IP address to assign it to this device (a device can have multiple IPs).",
     "link_ip_ph": "Search IP / hostname",
@@ -1440,7 +1442,14 @@
     "filter_subnet": "Subnet",
     "filter_subnet_all": "All subnets",
     "vm_tag": "VM",
-    "error_location_mismatch": "That rack is not in the location you picked — fix one of the two"
+    "error_location_mismatch": "That rack is not in the location you picked — fix one of the two",
+    "rack_width": "Width",
+    "rack_width_full": "Full U",
+    "rack_width_nth": "1/{n}",
+    "rack_pos_nth": "Position {n}",
+    "rack_height": "Height used",
+    "rack_height_full": "Whole level",
+    "rack_vpos_nth": "Cell {n} (from the bottom)"
   },
   "locations": {
     "site": "Site",
@@ -1454,6 +1463,7 @@
   },
   "racks": {
     "u_height": "U",
+    "height_col": "Height",
     "width_mm": "Width (mm)",
     "depth_mm": "Depth (mm)",
     "add": "Add rack",
@@ -1486,6 +1496,11 @@
     "numbering": "U numbering",
     "numbering_top_down": "Top-down (highest U on top)",
     "numbering_bottom_up": "Bottom-up (U1 on top)",
+    "levels": "Levels",
+    "rows_levels": "{n} levels",
+    "level_numbering": "Level numbering",
+    "numbering_top_down_level": "Top-down (highest level at the top)",
+    "numbering_bottom_up_level": "Bottom-up (level 1 at the top)",
     "face": "Face",
     "face_front": "Front",
     "face_rear": "Rear",
@@ -1511,7 +1526,24 @@
     "embed_hint": "When enabled, this rack's diagram is available at a URL (carrying a token) that other systems can embed as an image, such as a LibreNMS dashboard. The image shows device names and positions. Off by default.",
     "embed_copy": "Copy embed URL",
     "embed_copied": "Copied. This URL is a key — do not post it publicly.",
-    "embed_disabled_hint": "Embedding is not enabled in system settings"
+    "embed_disabled_hint": "Embedding is not enabled in system settings",
+    "kind": "Type",
+    "kind_rack": "Standard server rack (19-inch, in U)",
+    "kind_shelf": "Plain shelving (in levels)",
+    "kind_hint": "Shelving has no U; both the number of levels and the level height are yours to set. The drawing follows the type — plain boards, chrome round posts, or pine side frames.",
+    "row_height_mm": "Level height",
+    "per_level_heights": "Different height per level",
+    "per_level_hint": "Shelf boards are adjustable one level at a time. Off = one height for the whole unit.",
+    "level_n": "Level {n}",
+    "level_top": "Top",
+    "board_mm": "Board thickness",
+    "floor_mm": "Bottom board off the floor",
+    "preset": "Apply preset",
+    "preset_ivar_179": "IKEA IVAR, 179 cm side frame",
+    "preset_hint": "Levels and their heights are spread evenly over the frame height; you can still fine-tune each one.",
+    "kind_industrial": "Industrial cabinet (in U)",
+    "kind_wire_shelf": "Chrome wire shelving (round posts, in levels)",
+    "kind_wood_shelf": "Wooden shelving (pine side frames, e.g. IKEA IVAR)"
   },
   "requests": {
     "title": "IP Requests",
@@ -2846,7 +2878,11 @@
     "ocs_rest_unavailable": "The URL is reachable but the OCS REST API did not respond correctly (it may be disabled)",
     "ocs_auth_required": "OCS requires authentication, but the credentials are wrong or missing",
     "ocs_db_not_impl": "Only the REST source is supported for now (direct database access is a later phase)",
-    "ocs_bad_json": "OCS returned a response that is not valid JSON"
+    "ocs_bad_json": "OCS returned a response that is not valid JSON",
+    "rack_slot_out_of_range": "Horizontal position is out of range: a rack unit has only {slots} slots",
+    "rack_slot_span_min": "Horizontal width must be at least 1 slot",
+    "rack_vslot_out_of_range": "Stacking position is out of range: a level has only {slots} cells",
+    "rack_vslot_span_min": "Stacking height must be at least 1 cell"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -2990,7 +3026,8 @@
     "conflict_title": "{n} conflict(s)",
     "conflict_overlap": "U{u} overlap: {names}",
     "conflict_oob": "{name} out of bounds (U{u} + {size}U > {h}U rack)",
-    "conflict_unpos": "{name} has no U position set"
+    "conflict_unpos": "{name} has no U position set",
+    "width": "Width"
   },
   "request_detail": {
     "approved_ok": "Approved and IP allocated",

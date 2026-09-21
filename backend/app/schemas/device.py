@@ -26,7 +26,12 @@ class DeviceBase(StrictModel):
     u_position: Annotated[int | None, Field(ge=1, le=99)] = None
     u_size: Annotated[int | None, Field(ge=1, le=99)] = None
     rack_face: Literal["front", "rear"] | None = None
-    rack_side: Literal["full", "left", "right"] = "full"
+    # 橫向格位（issue #31）：起始格 + 跨幾格，網格 12 格。預設 (0,12) 即整 U 全寬。
+    rack_slot: int = Field(0, ge=0, le=59)
+    rack_slot_span: int = Field(60, ge=1, le=60)
+    # 一層之內的垂直位置（層架才用得到）：0 貼著層板，往上長。整層佔滿＝(0, 60)
+    rack_vslot: int = Field(0, ge=0, le=59)
+    rack_vslot_span: int = Field(60, ge=1, le=60)
     description: Annotated[str | None, Field(max_length=1024)] = None
     customer_id: uuid.UUID | None = None
     custom_fields: dict[str, Any] | None = None
@@ -55,7 +60,10 @@ class DeviceUpdate(StrictModel):
     u_position: Annotated[int | None, Field(ge=1, le=99)] = None
     u_size: Annotated[int | None, Field(ge=1, le=99)] = None
     rack_face: Literal["front", "rear"] | None = None
-    rack_side: Literal["full", "left", "right"] | None = None
+    rack_slot: int | None = Field(None, ge=0, le=59)
+    rack_slot_span: int | None = Field(None, ge=1, le=60)
+    rack_vslot: int | None = Field(None, ge=0, le=59)
+    rack_vslot_span: int | None = Field(None, ge=1, le=60)
     description: Annotated[str | None, Field(max_length=1024)] = None
     primary_ip_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None

@@ -15,6 +15,32 @@ from app.models.address import IPAddress
 from app.models.device import Device
 from app.models.location import Rack
 from app.schemas.base import StrictModel
+from app.services.rack import (
+    RACK_REF_ROW_MM,
+    RACK_REF_ROW_PX,
+    RACK_SLOTS,
+    board_default_mm,
+    brace_levels,
+    has_open_top,
+    level_render_px,
+    placeable_levels,
+)
+
+
+def _board_px(rack) -> float:  # type: ignore[no-untyped-def]
+    """層板畫出來多厚（px）。層高填的是淨空高，板厚要另外占掉高度。"""
+    mm = getattr(rack, "board_mm", None)
+    mm = board_default_mm(getattr(rack, "kind", None)) if mm is None else float(mm)
+    return max(RACK_REF_ROW_PX * (mm / RACK_REF_ROW_MM), 2.0) if mm > 0 else 0.0
+
+
+def _size(rack) -> tuple[float, list[float]]:  # type: ignore[no-untyped-def]
+    """(寬 px, 每一層的高 px)。層架的層高可以一層一層不同，所以列高是一個陣列。"""
+    return level_render_px(getattr(rack, "kind", None),
+                           getattr(rack, "width_mm", None),
+                           getattr(rack, "row_height_mm", None),
+                           getattr(rack, "level_heights", None),
+                           getattr(rack, "u_height", None))
 
 router = APIRouter(prefix="/racks", tags=["racks"])
 
@@ -29,13 +55,32 @@ class RackDeviceSlot(StrictModel):
     u_size: int
     primary_ip: str | None
     rack_face: str | None = None   # front / rear（安裝方向）
-    rack_side: str = "full"        # full / left / right（半 U 占寬）
+    # 橫向格位（issue #31）：起始格 + 跨幾格，網格 RACK_SLOTS(60) 格
+    rack_slot: int = 0
+    rack_slot_span: int = RACK_SLOTS
+    # 層內的垂直格位：層架一層可以疊放、也可以不放滿。0 貼著層板，往上長
+    rack_vslot: int = 0
+    rack_vslot_span: int = RACK_SLOTS
 
 
 class RackDiagram(StrictModel):
     rack_id: uuid.UUID
     name: str
     u_height: int
+    # issue #30：層架的列是「層」不是 U，寬度與列高也不是標準值 —— 前端照這些畫
+    kind: str = "rack"
+    render_width_px: float = 250.0
+    # 均一層高時的列高（舊欄位，留著給還沒更新的用戶端）。層高逐層不同時這裡是第 1 層的值。
+    render_row_px: float = 28.0
+    # 每一層的高度 px，由**第 1 層**起算（不是畫面由上往下）。層架的層板一層一層可調。
+    render_row_px_list: list[float] = []
+    # 木質層架背面的支撐桿跨幾層（0＝不畫）。它是固定 100 公分的鋼條，跨距由寬度決定，
+    # 算在後端才不會前後端各算各的。
+    brace_levels: int = 0
+    # 層架的最上面那片板**上面**也放得了東西（＝第 u_height + 1 層）。機櫃沒有這個位置。
+    open_top: bool = False
+    # 層板畫出來多厚 px（層高填的是淨空高，板厚另計）
+    render_board_px: float = 0.0
     location_id: uuid.UUID | None
     numbering: str = "top-down"
     face: str = "front"
@@ -97,8 +142,10 @@ async def rack_diagram(
     slots: list[RackDeviceSlot] = []
     # 占位以 (安裝方向, U) 為 key：前/後同 U 不算衝突（落地機櫃可前後各掛一台）
     # key=(安裝方向, U, 半格 L/R)：full 同時占 L+R；half 只占一邊 → 一左一右同 U 不衝突
-    occupied: dict[tuple[str, int, str], list[uuid.UUID]] = {}
+    occupied: dict[tuple[str, int, str], list[tuple[uuid.UUID, int, int]]] = {}
     conflicts: list[dict[str, Any]] = []
+    # 可放的位置數：層架比 u_height 多一個（最上面那片板的上面）
+    _limit = placeable_levels(getattr(rack, "kind", None), rack.u_height)
 
     for d in devices:
         if d.u_position is None or d.u_size is None:
@@ -110,8 +157,9 @@ async def rack_diagram(
             })
             continue
 
-        # 越界
-        if d.u_position < 1 or (d.u_position + d.u_size - 1) > rack.u_height:
+        # 越界。層架多一個合法位置：最上面那片板的**上面**（第 u_height + 1 層），
+        # 這裡漏掉的話放在頂板上的裝置會被當成越界、連畫都不畫。
+        if d.u_position < 1 or (d.u_position + d.u_size - 1) > _limit:
             conflicts.append({
                 "type": "out_of_bounds",
                 "device_id": str(d.id),
@@ -122,13 +170,17 @@ async def rack_diagram(
             })
             continue
 
-        # 占位衝突（同安裝方向才算）；半 U 只占一邊，full 占左右兩邊
+        # 占位衝突（同安裝方向才算）：逐格標記這台佔掉的橫向格子
         face = d.rack_face or "front"
-        side = d.rack_side or "full"
-        halves = ("L", "R") if side == "full" else ("L" if side == "left" else "R",)
+        slot = d.rack_slot or 0
+        span = d.rack_slot_span or RACK_SLOTS
+        # 連同層內的垂直區間一起記：層架可以疊放，同一格橫向位置上下錯開就不是衝突
+        vslot = int(getattr(d, "rack_vslot", 0) or 0)
+        vspan = int(getattr(d, "rack_vslot_span", RACK_SLOTS) or RACK_SLOTS)
+        halves = tuple(str(i) for i in range(slot, slot + span))
         for u in range(d.u_position, d.u_position + d.u_size):
             for hh in halves:
-                occupied.setdefault((face, u, hh), []).append(d.id)
+                occupied.setdefault((face, u, hh), []).append((d.id, vslot, vslot + vspan))
 
         slots.append(
             RackDeviceSlot(
@@ -141,28 +193,52 @@ async def rack_diagram(
                 u_size=d.u_size,
                 primary_ip=ip_map.get(d.primary_ip_id) if d.primary_ip_id else fallback_ip.get(d.id),
                 rack_face=d.rack_face,
-                rack_side=side,
+                rack_slot=slot,
+                rack_slot_span=span,
+                rack_vslot=int(getattr(d, "rack_vslot", 0) or 0),
+                rack_vslot_span=int(getattr(d, "rack_vslot_span", RACK_SLOTS) or RACK_SLOTS),
             )
         )
 
     seen_overlap: set[tuple[str, int, frozenset[str]]] = set()
-    for (face, u, _hh), dids in occupied.items():
-        if len(dids) > 1:
-            key = (face, u, frozenset(str(x) for x in dids))
-            if key in seen_overlap:
-                continue
-            seen_overlap.add(key)
-            conflicts.append({
-                "type": "overlap",
-                "u": u,
-                "face": face,
-                "device_ids": [str(x) for x in dids],
-            })
+    for (face, u, _hh), entries in occupied.items():
+        if len(entries) < 2:
+            continue
+        # 同一個橫向格子上有好幾台時，只有**垂直區間也相交**的才算衝突（疊放是合法的）
+        clashing: set[uuid.UUID] = set()
+        for i, (id_a, a0, a1) in enumerate(entries):
+            for id_b, b0, b1 in entries[i + 1:]:
+                if a0 < b1 and b0 < a1:
+                    clashing.update((id_a, id_b))
+        if len(clashing) < 2:
+            continue
+        key = (face, u, frozenset(str(x) for x in clashing))
+        if key in seen_overlap:
+            continue
+        seen_overlap.add(key)
+        conflicts.append({
+            "type": "overlap",
+            "u": u,
+            "face": face,
+            "device_ids": sorted(str(x) for x in clashing),
+        })
 
+    _w, _rows = _size(rack)
     return RackDiagram(
         rack_id=rack.id,
         name=rack.name,
         u_height=rack.u_height,
+        kind=getattr(rack, "kind", "rack") or "rack",
+        render_width_px=_w,
+        render_row_px=(_rows[0] if _rows else 28.0),
+        render_row_px_list=_rows,
+        open_top=has_open_top(getattr(rack, "kind", None)),
+        render_board_px=_board_px(rack),
+        brace_levels=brace_levels(getattr(rack, "kind", None),
+                                  getattr(rack, "width_mm", None),
+                                  getattr(rack, "row_height_mm", None),
+                                  rack.u_height,
+                                  getattr(rack, "level_heights", None)),
         location_id=rack.location_id,
         numbering=rack.numbering,
         face=rack.face,
@@ -204,8 +280,15 @@ async def rack_embed_svg(
     svg = build_rack_svg(
         rack.name, rack.u_height,
         [{"name": d.name, "type": d.type, "u_position": d.u_position,
-          "u_size": d.u_size, "rack_side": d.rack_side, "rack_face": d.rack_face}
+          "u_size": d.u_size, "rack_slot": d.rack_slot,
+          "rack_slot_span": d.rack_slot_span, "rack_face": d.rack_face,
+          "rack_vslot": d.rack_vslot, "rack_vslot_span": d.rack_vslot_span}
          for d in rows],
+        kind=getattr(rack, "kind", None),
+        width_mm=getattr(rack, "width_mm", None),
+        row_height_mm=getattr(rack, "row_height_mm", None),
+        level_heights=getattr(rack, "level_heights", None),
+        board_mm=getattr(rack, "board_mm", None),
     )
     return Response(
         content=svg,

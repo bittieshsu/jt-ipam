@@ -12,6 +12,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { usesLevels } from "@/utils/rackSlots";
 import { apiClient } from "@/api/client";
 import DashboardUptime from "@/components/DashboardUptime.vue";
 import DashboardAIAudit from "@/components/DashboardAIAudit.vue";
@@ -206,6 +207,10 @@ const statusTotal = computed(() => {
 function go(name: string, params?: Record<string, string>) {
   router.push({ name, params }).catch(() => {});
 }
+/** 帶著機櫃 id 跳去機櫃頁並直接選到它 —— 只跳頁面會停在預設機櫃，等於沒帶到。 */
+function goRack(id: string) {
+  router.push({ name: "racks", query: { rack: id } }).catch(() => {});
+}
 
 // 區段熱度：使用率 → 顏色（與 n-progress status 對齊）
 function heatColor(p: number): string {
@@ -389,12 +394,14 @@ onMounted(() => { void load(); void loadPins(); });
           </template>
           <div v-if="!rackUsage.length" class="chart-empty">{{ t("common.no_data") }}</div>
           <div v-else class="hbars">
-            <div v-for="r in rackUsage" :key="r.rack_id" class="hbar-row" @click="go('racks')">
+            <div v-for="r in rackUsage" :key="r.rack_id" class="hbar-row" @click="goRack(r.rack_id)">
               <span class="hbar-label">{{ r.name }}</span>
               <div class="hbar-track">
                 <div class="hbar-fill" :style="{ width: r.pct + '%', background: usePctColor(r.pct) }"></div>
               </div>
-              <span class="hbar-val">{{ r.used_u }}/{{ r.total_u }}U</span>
+              <!-- 層架的列是「層」不是 U：單位跟著每一列的型態走 -->
+              <span class="hbar-val">{{ r.used_u }}/{{ usesLevels(r.kind)
+                ? t("racks.rows_levels", { n: r.total_u }) : r.total_u + "U" }}</span>
             </div>
           </div>
         </n-card>
@@ -512,7 +519,7 @@ onMounted(() => { void load(); void loadPins(); });
           <CardTitle :icon="PinIcon" :text="t('dashboard.pinned_racks')" />
         </template>
         <n-space vertical :size="6">
-          <div v-for="r in pinnedRacks" :key="r.id" class="row-line" @click="go('racks')">
+          <div v-for="r in pinnedRacks" :key="r.id" class="row-line" @click="goRack(r.id)">
             <n-icon :size="16" style="opacity:.6"><RacksIcon /></n-icon>
             <span style="margin-left:8px">{{ r.name }}</span>
             <span style="margin-left:auto; opacity:.55; font-size:12px">{{ locName(r.location_id) }}</span>

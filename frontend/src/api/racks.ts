@@ -1,6 +1,8 @@
 import { apiClient } from "@/api/client";
 
 export interface RackDeviceSlot {
+  rack_slot?: number;
+  rack_slot_span?: number;
   device_id: string;
   name: string;
   type: string;
@@ -22,6 +24,13 @@ export interface RackDiagram {
   face?: "front" | "rear";
   /** 對外公開這個機櫃的示意圖（給別的系統用 <img> 嵌入）。預設關 */
   expose_svg?: boolean;
+  /** issue #30：rack＝標準機櫃（列＝U）、shelf＝層架（列＝層） */
+  kind?: "rack" | "industrial" | "shelf" | "wire_shelf" | "wood_shelf";
+  /** 後端依機櫃實體尺寸算好的繪製大小（層架非標準寬/層高才畫得對） */
+  render_width_px?: number;
+  render_row_px?: number;
+  /** 每一層的高度 px，由第 1 層起算 */
+  render_row_px_list?: number[];
   devices: RackDeviceSlot[];
   conflicts: Record<string, unknown>[];
 }
@@ -36,7 +45,11 @@ export interface Rack {
   id: string;
   name: string;
   u_height: number;
+  kind?: "rack" | "industrial" | "shelf" | "wire_shelf" | "wood_shelf";
   width_mm: number | null;
+  row_height_mm?: number | null;
+  /** 逐層高度（mm），由第 1 層起算；null＝整台用 row_height_mm */
+  level_heights?: number[] | null;
   depth_mm: number | null;
   location_id: string | null;
   location_name?: string | null;

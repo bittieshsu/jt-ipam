@@ -631,7 +631,7 @@
     "chart_customer_res": "組織ごとのリソース",
     "chart_activity_trend": "監査／IP の変更（14 日）",
     "chart_audit_events": "監査イベント",
-    "chart_rack_usage": "ラックの U 使用率",
+    "chart_rack_usage": "ラック／シェルフ使用率",
     "indicator_source_none": "死活のソースがまだ設定されていません（スキャンエージェント／LibreNMS／ファイアウォールの ARP）",
     "src_scanner": "スキャンエージェント",
     "src_opnsense": "OPNsense の ARP",
@@ -1409,6 +1409,8 @@
     "rack": "ラック",
     "u_position": "U 位置（開始）",
     "u_size": "占有 U 数",
+    "level_position": "段位置（開始）",
+    "level_size": "使用段数",
     "link_ip": "IP を紐づける",
     "link_ip_hint": "既存の IP アドレスを選んでこの機器に割り当てます（1 台に複数の IP を持たせられます）。",
     "link_ip_ph": "IP／ホスト名を検索",
@@ -1440,7 +1442,14 @@
     "filter_subnet": "サブネット",
     "filter_subnet_all": "すべてのサブネット",
     "vm_tag": "VM",
-    "error_location_mismatch": "そのラックは選択した設置場所にありません。どちらかを直してください"
+    "error_location_mismatch": "そのラックは選択した設置場所にありません。どちらかを直してください",
+    "rack_width": "幅",
+    "rack_width_full": "フル U",
+    "rack_width_nth": "1/{n}",
+    "rack_pos_nth": "{n} 番目",
+    "rack_height": "使用する高さ",
+    "rack_height_full": "段全体",
+    "rack_vpos_nth": "{n} マス目（下から）"
   },
   "locations": {
     "site": "拠点",
@@ -1454,6 +1463,7 @@
   },
   "racks": {
     "u_height": "U",
+    "height_col": "高さ",
     "width_mm": "幅（mm）",
     "depth_mm": "奥行（mm）",
     "add": "ラックを追加",
@@ -1486,6 +1496,11 @@
     "numbering": "U 番号の振り方",
     "numbering_top_down": "上から（最大の U が上）",
     "numbering_bottom_up": "下から（U1 が上）",
+    "levels": "段数",
+    "rows_levels": "{n} 段",
+    "level_numbering": "段番号の方向",
+    "numbering_top_down_level": "上から下（最上段が一番上）",
+    "numbering_bottom_up_level": "下から上（1 段目が一番上）",
     "face": "面",
     "face_front": "前面",
     "face_rear": "背面",
@@ -1511,7 +1526,24 @@
     "embed_hint": "有効にすると、このラック図をトークン付きの URL で公開し、LibreNMS のダッシュボードなど他のシステムに画像として埋め込めます。画像には機器名と位置が表示されます。既定は無効です。",
     "embed_copy": "埋め込み URL をコピー",
     "embed_copied": "コピーしました。この URL は鍵と同じです。公開の場に貼らないでください。",
-    "embed_disabled_hint": "システム設定で埋め込みが有効になっていません"
+    "embed_disabled_hint": "システム設定で埋め込みが有効になっていません",
+    "kind": "種類",
+    "kind_rack": "標準サーバーラック（19 インチ、U 単位）",
+    "kind_shelf": "一般棚（段単位）",
+    "kind_hint": "シェルフに U の概念はなく、段数も段の高さも自由に設定できます。図は種類に合わせて棚板・クロムの丸パイプ支柱・パイン材サイドフレームを描き分けます。",
+    "row_height_mm": "1 段の高さ",
+    "per_level_heights": "段ごとに高さを変える",
+    "per_level_hint": "棚板は 1 段ずつ調整できます。オフ＝全段で同じ高さ。",
+    "level_n": "{n} 段目",
+    "level_top": "天",
+    "board_mm": "棚板の厚さ",
+    "floor_mm": "最下段の棚板の床からの高さ",
+    "preset": "プリセットを適用",
+    "preset_ivar_179": "IKEA IVAR 179 cm サイドフレーム",
+    "preset_hint": "段数と各段の高さはフレーム高さから均等に割り付けます。後から 1 段ずつ調整できます。",
+    "kind_industrial": "産業用キャビネット（U 単位）",
+    "kind_wire_shelf": "クロムワイヤー棚（丸パイプ支柱、段単位）",
+    "kind_wood_shelf": "木製シェルフ（パイン材サイドフレーム、IKEA IVAR など）"
   },
   "requests": {
     "title": "IP 申請",
@@ -2846,7 +2878,11 @@
     "ocs_rest_unavailable": "URL には到達できますが、OCS REST API が正しく応答しません（無効の可能性）",
     "ocs_auth_required": "OCS は認証が必要ですが、資格情報が誤っているか未設定です",
     "ocs_db_not_impl": "現在は REST ソースのみ対応です（データベース直接接続は後続フェーズ）",
-    "ocs_bad_json": "OCS の応答が有効な JSON ではありません"
+    "ocs_bad_json": "OCS の応答が有効な JSON ではありません",
+    "rack_slot_out_of_range": "横方向の位置が範囲外です：1U は {slots} スロットしかありません",
+    "rack_slot_span_min": "横方向の幅は最低 1 スロット必要です",
+    "rack_vslot_out_of_range": "段内の縦位置が範囲外です：1 段は {slots} マスまでです",
+    "rack_vslot_span_min": "段内の縦の高さは 1 マス以上にしてください"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -2990,7 +3026,8 @@
     "conflict_title": "{n} 件の競合",
     "conflict_overlap": "U{u} が重複：{names}",
     "conflict_oob": "{name} が範囲外（U{u} + {size}U > {h}U のラック）",
-    "conflict_unpos": "{name} に U 位置が設定されていません"
+    "conflict_unpos": "{name} に U 位置が設定されていません",
+    "width": "幅"
   },
   "request_detail": {
     "approved_ok": "承認し、IP を割り当てました",
