@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from "@/stores/auth";
-import { RACK_SLOTS, WIDTH_PARTS, spanFor, slotFor, partsFor, posFor, usesLevels } from "@/utils/rackSlots";
+import { RACK_SLOTS, WIDTH_PARTS, spanFor, slotFor, partsFor, posFor, usesLevels,
+  rackPickRows, rackRowIsTop, slotBoxPct, slotWhere } from "@/utils/rackSlots";
 const _authBtn = useAuthStore();
 import { computed, h, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -258,41 +259,71 @@ const uPickerDiagram = ref<RackDiagram | null>(null);
 const uPickerLoading = ref(false);
 // 每個 U 的左/右半占用（full 裝置占兩半）。半 U 裝置只占一半，另一半仍可放。
 /** 每個 U 的逐格占用：slots[i] = 佔住第 i 格的裝置名稱（null = 空）。 */
-const uHalf = computed<Record<number, (string | null)[]>>(() => {
-  const m: Record<number, (string | null)[]> = {};
+/**
+ * 每一列上已經有誰，連**佔哪一塊**一起記（橫向 h、層內垂直 v 兩個區間）。
+ *
+ * 以前只記橫向、而且是逐格塗名字：層架上「只佔下半層」的裝置會被當成整層都滿，
+ * 同一層想再放一台就選不到那一列。判斷改成二維區間相交，與後端的重疊規則一致。
+ */
+interface Occupant { name: string; h0: number; h1: number; v0: number; v1: number }
+const uHalf = computed<Record<number, Occupant[]>>(() => {
+  const m: Record<number, Occupant[]> = {};
   for (const d of uPickerDiagram.value?.devices ?? []) {
     if (editing.value && d.device_id === editing.value.id) continue;  // 編輯中的自己不算占用
-    const slot = Number((d as any).rack_slot ?? 0);
-    const span = Number((d as any).rack_slot_span ?? RACK_SLOTS);
-    for (let u = d.u_position; u < d.u_position + d.u_size; u++) {
-      const cell = (m[u] ??= new Array(RACK_SLOTS).fill(null));
-      for (let i = slot; i < Math.min(slot + span, RACK_SLOTS); i++) cell[i] = d.name;
-    }
+    const h0 = Number((d as any).rack_slot ?? 0);
+    const h1 = h0 + Number((d as any).rack_slot_span ?? RACK_SLOTS);
+    const v0 = Number((d as any).rack_vslot ?? 0);
+    const v1 = v0 + Number((d as any).rack_vslot_span ?? RACK_SLOTS);
+    for (let u = d.u_position; u < d.u_position + d.u_size; u++)
+      (m[u] ??= []).push({ name: d.name, h0, h1, v0, v1 });
   }
   return m;
 });
-// 此 U 對「目前要放的占寬」是否可選（需要的半邊要空）
+/** 這台「將要佔的那一塊」——橫向依佔寬、垂直依佔高（機櫃沒有佔高＝整格）。 */
+function wantBox() {
+  const h0 = slotFor(widthParts.value, widthPos.value);
+  const v0 = rackUsesLevels.value ? slotFor(heightParts.value, heightPos.value) : 0;
+  return {
+    h0, h1: h0 + spanFor(widthParts.value),
+    v0, v1: v0 + (rackUsesLevels.value ? spanFor(heightParts.value) : RACK_SLOTS),
+  };
+}
+// 此列對「目前要放的占寬 + 佔高」是否可選：兩個方向都相交才算撞到
 function uPickable(u: number): boolean {
-  const cell = uHalf.value[u];
-  if (!cell) return true;
-  const from = slotFor(widthParts.value, widthPos.value);
-  const to = from + spanFor(widthParts.value);
-  for (let i = from; i < Math.min(to, RACK_SLOTS); i++) if (cell[i]) return false;
-  return true;
+  const occ = uHalf.value[u];
+  if (!occ || !occ.length) return true;
+  const w = wantBox();
+  return !occ.some((o) => w.h0 < o.h1 && o.h0 < w.h1 && w.v0 < o.v1 && o.v0 < w.v1);
 }
-// 此 U 的占用顯示文字（多台並排就列出名稱）
+/** 小地圖上的一塊；百分比換算與「垂直由下往上」都交給 slotBoxPct，兩支表單共用同一份。 */
+function blkStyle(o: { h0: number; h1: number; v0: number; v1: number }): Record<string, string> {
+  const b = slotBoxPct(o);
+  return { left: `${b.left}%`, width: `${b.width}%`, bottom: `${b.bottom}%`, height: `${b.height}%` };
+}
+/** 「nas2（右半）」—— 只列名字的話，同一層放兩台就分不出誰在左誰在右。 */
+function occupantText(o: Occupant): string {
+  const where = slotWhere(o).map((d) => {
+    if (d.parts === 2) {
+      return d.axis === "h" ? t(d.pos === 1 ? "devices.pos_left" : "devices.pos_right")
+                            : t(d.pos === 1 ? "devices.pos_lower" : "devices.pos_upper");
+    }
+    return t(d.axis === "h" ? "devices.pos_of_h" : "devices.pos_of_v",
+             { n: d.parts, k: d.pos });
+  });
+  return where.length ? t("devices.occupant_at", { name: o.name, where: where.join("·") }) : o.name;
+}
 function uCellText(u: number): string {
-  const cell = uHalf.value[u];
-  if (!cell) return t("devices.u_free");
-  const names = Array.from(new Set(cell.filter((x): x is string => !!x)));
-  if (names.length === 0) return t("devices.u_free");
-  if (names.length === 1 && cell.every((x) => x)) return names[0];        // 整 U 一台
-  return names.join("、");
+  const occ = uHalf.value[u];
+  if (!occ || !occ.length) return t("devices.u_free");
+  // 由左而右、同一格由上而下 —— 照畫面上的順序唸，才對得起來
+  const ordered = occ.slice().sort((a, b) => a.h0 - b.h0 || b.v0 - a.v0);
+  return Array.from(new Set(ordered.map(occupantText))).join("、");
 }
-const uRows = computed(() => {
-  const n = uPickerDiagram.value?.u_height ?? 0;
-  return Array.from({ length: n }, (_, i) => n - i);   // 由上而下 = 大U在上
-});
+const uRows = computed(() => rackPickRows(uPickerDiagram.value as any));
+/** 列首的字：開放頂多出來的那一列標「頂」，其餘標層號／U 號。 */
+function uRowLabel(u: number): string {
+  return rackRowIsTop(uPickerDiagram.value as any, u) ? t("racks.level_top") : String(u);
+}
 async function openUPicker() {
   if (!form.value.rack_id) return;
   uPickerLoading.value = true;
@@ -652,7 +683,8 @@ onMounted(async () => {
             <n-input-group>
               <n-input-number v-model:value="form.u_position" :min="1" :max="99" clearable
                               :disabled="!form.rack_id" style="flex: 1" />
-              <n-button :disabled="!form.rack_id" @click="openUPicker" :title="t('devices.pick_u')">
+              <n-button :disabled="!form.rack_id" @click="openUPicker"
+                      :title="rackUsesLevels ? t('devices.pick_level') : t('devices.pick_u')">
                 <template #icon><n-icon><RacksIcon /></n-icon></template>
               </n-button>
             </n-input-group>
@@ -668,22 +700,22 @@ onMounted(async () => {
                       :disabled="!form.rack_id" :placeholder="t('devices.rack_face_front')"
                       style="width: 100%" />
           </n-form-item>
-          <n-form-item :label="t('devices.rack_width')">
+          <n-form-item class="slot-col" :label="t('devices.rack_width')">
             <!-- 兩個下拉併在同一列（順序與編輯視窗一致：先選幾分之一，再選第幾格） -->
             <div class="slot-pair">
               <n-select v-model:value="widthParts" :options="rackSideOpts" @update:value="widthPos = 1"
-                        :disabled="!form.rack_id" />
+                        :disabled="!form.rack_id" :consistent-menu-width="false" />
               <n-select v-if="widthParts > 1" v-model:value="widthPos" :options="widthPosOpts"
-                        :disabled="!form.rack_id" />
+                        :disabled="!form.rack_id" :consistent-menu-width="false" />
             </div>
           </n-form-item>
           <!-- 層內的上下位置：層架一層放得下疊起來的兩三台，也可以不放滿。 -->
-          <n-form-item v-if="rackUsesLevels" :label="t('devices.rack_height')">
+          <n-form-item v-if="rackUsesLevels" class="slot-col" :label="t('devices.rack_height')">
             <div class="slot-pair">
               <n-select v-model:value="heightParts" :options="rackHeightOpts" @update:value="heightPos = 1"
-                        :disabled="!form.rack_id" />
+                        :disabled="!form.rack_id" :consistent-menu-width="false" />
               <n-select v-if="heightParts > 1" v-model:value="heightPos" :options="heightPosOpts"
-                        :disabled="!form.rack_id" />
+                        :disabled="!form.rack_id" :consistent-menu-width="false" />
             </div>
           </n-form-item>
         </div>
@@ -710,14 +742,20 @@ onMounted(async () => {
     </n-modal>
 
     <!-- 迷你機櫃：挑 U 位 -->
-    <n-modal v-model:show="showUPicker" preset="card" style="width: 340px" :title="t('devices.pick_u')">
+    <n-modal v-model:show="showUPicker" preset="card" style="width: 400px"
+             :title="rackUsesLevels ? t('devices.pick_level') : t('devices.pick_u')">
       <n-spin :show="uPickerLoading">
-        <p style="font-size:12px; opacity:.65; margin:0 0 8px">{{ t("devices.pick_u_hint") }}</p>
+        <p style="font-size:12px; opacity:.65; margin:0 0 8px">{{ rackUsesLevels ? t("devices.pick_level_hint") : t("devices.pick_u_hint") }}</p>
         <div class="upick-rack">
           <div v-for="u in uRows" :key="u" class="upick-row"
                :class="{ occupied: !uPickable(u), cur: form.u_position === u }"
                @click="uPickable(u) && pickU(u)">
-            <span class="upick-u">{{ u }}</span>
+            <span class="upick-u">{{ uRowLabel(u) }}</span>
+            <span class="upick-map" :title="uCellText(u)">
+              <!-- 照實際的佔寬／層內位置畫，才看得出「這一層只被占了一半、旁邊還放得下」 -->
+              <span v-for="(o, i) in uHalf[u] ?? []" :key="i" class="upick-blk" :style="blkStyle(o)" />
+              <span v-if="uPickable(u)" class="upick-want" :style="blkStyle(wantBox())" />
+            </span>
             <span class="upick-body">{{ uCellText(u) }}</span>
           </div>
         </div>
@@ -729,17 +767,31 @@ onMounted(async () => {
 <style scoped>
 /* 佔寬的「幾分之一 + 第幾格」要併在同一列 */
 .slot-pair { display: flex; gap: 6px; width: 100%; }
-.slot-pair > * { flex: 1 1 0; min-width: 0; }
+/* 左邊只放「1/2」這種短字串，右邊要放「第 3 格（由下往上）」——
+   對半分會把右邊擠成「第 …」，所以左邊給固定窄寬、剩下都給右邊。 */
+.slot-pair > *:first-child { flex: 0 0 76px; min-width: 0; }
+.slot-pair > *:last-child { flex: 1 1 auto; min-width: 0; }
 
 /* 地點/機櫃、U位/佔用U數：兩欄等寬 */
 .dev-row { display: flex; gap: 12px; }
 .dev-row > * { flex: 1 1 0; min-width: 0; }
+/* 「佔寬／佔高」欄位裡是兩個下拉併排，需要的寬度比單一下拉多；平均分會把右邊那個
+   擠成「第 …」。連同下拉選單的 consistent-menu-width=false，兩邊都看得到全文。 */
+.dev-row > .slot-col { flex: 1.6 1 0; }
 /* 迷你機櫃 U 位挑選 */
 .upick-rack { border: 1px solid var(--n-border-color, rgba(127,127,127,.25)); border-radius: 8px; overflow: hidden; max-height: 60vh; overflow-y: auto; }
 .upick-row { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; font-size: 12px; border-bottom: 1px dashed rgba(127,127,127,.18); cursor: pointer; }
 .upick-row:last-child { border-bottom: none; }
 .upick-u { width: 28px; text-align: right; opacity: .55; font-variant-numeric: tabular-nums; }
-.upick-body { flex: 1; color: var(--n-text-color-3, #888); }
+.upick-body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+              color: var(--n-text-color-3, #888); }
+/* 這一層的小地圖：整條＝一整層，塊＝已經占住的那一塊，虛線＝目前這台會放進去的位置。
+   只列名字看不出「一層只被占了一半」，而那正是層架跟機櫃最大的差別。 */
+.upick-map { position: relative; flex: 0 0 84px; height: 18px; border-radius: 4px;
+             background: rgba(127,127,127,.10); overflow: hidden; }
+.upick-blk { position: absolute; border-radius: 2px; background: rgba(127,127,127,.45); }
+.upick-want { position: absolute; border: 1px dashed rgba(24,160,88,.95);
+              background: rgba(24,160,88,.18); border-radius: 2px; }
 .upick-row:not(.occupied):hover { background: rgba(24,160,88,.12); }
 .upick-row:not(.occupied):hover .upick-body { color: var(--primary-color, #18a058); font-weight: 600; }
 .upick-row.occupied { cursor: not-allowed; background: rgba(127,127,127,.12); }

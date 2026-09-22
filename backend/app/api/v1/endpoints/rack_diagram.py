@@ -34,6 +34,13 @@ def _board_px(rack) -> float:  # type: ignore[no-untyped-def]
     return max(RACK_REF_ROW_PX * (mm / RACK_REF_ROW_MM), 2.0) if mm > 0 else 0.0
 
 
+def _floor_px(rack) -> float:  # type: ignore[no-untyped-def]
+    """離地高度（px）。機櫃與層架都要有腳 —— 沒有的話底部看起來像被齊平切掉。"""
+    mm = getattr(rack, "floor_mm", None)
+    px = RACK_REF_ROW_PX * (float(mm) / RACK_REF_ROW_MM) if mm else 0.0
+    return max(px, 7.0)
+
+
 def _size(rack) -> tuple[float, list[float]]:  # type: ignore[no-untyped-def]
     """(寬 px, 每一層的高 px)。層架的層高可以一層一層不同，所以列高是一個陣列。"""
     return level_render_px(getattr(rack, "kind", None),
@@ -81,6 +88,8 @@ class RackDiagram(StrictModel):
     open_top: bool = False
     # 層板畫出來多厚 px（層高填的是淨空高，板厚另計）
     render_board_px: float = 0.0
+    # 最下面那片層板離地多高 px —— 層架是站在腳上的，不畫就會像直接貼在地上被切斷
+    render_floor_px: float = 0.0
     location_id: uuid.UUID | None
     numbering: str = "top-down"
     face: str = "front"
@@ -234,6 +243,7 @@ async def rack_diagram(
         render_row_px_list=_rows,
         open_top=has_open_top(getattr(rack, "kind", None)),
         render_board_px=_board_px(rack),
+        render_floor_px=_floor_px(rack),
         brace_levels=brace_levels(getattr(rack, "kind", None),
                                   getattr(rack, "width_mm", None),
                                   getattr(rack, "row_height_mm", None),

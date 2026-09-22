@@ -78,6 +78,10 @@ class LLMConfig:
     # LM Studio / OpenRouter…）。**預設 ollama** —— 接雲端等於把網段、主機名稱、拓樸
     # 送到外部服務，那是使用者要明確選擇的事，不是升版就自動改變的行為。
     provider: str = "ollama"
+    # 嵌入模型的位址。留空＝沿用 url（對話模型那一台）—— 兩種模型常常是分開部署的，
+    # 位址自然不同（GitHub issue #33）。供應商、金鑰與逾時仍共用；需要連到**不同供應商**
+    # 的嵌入服務是另一件事，目前不支援。
+    embedding_base_url: str | None = None
     api_key: str | None = None      # 明文（已解密）；僅供 openai 相容端點的 Bearer
     # 對外提供 MCP（讓其它系統以 HTTP 呼叫 /api/mcp）：預設關閉，打開才接受外部 MCP 呼叫。
     mcp_external_enabled: bool = False
@@ -169,6 +173,8 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
             cfg.url = str(v["url"])
         if v.get("embedding_model"):
             cfg.embedding_model = str(v["embedding_model"])
+        if v.get("embedding_base_url"):
+            cfg.embedding_base_url = str(v["embedding_base_url"])
         if v.get("chat_model"):
             cfg.chat_model = str(v["chat_model"])
         if v.get("provider") in ("ollama", "openai"):
@@ -233,6 +239,7 @@ async def set_llm_config(
     enabled: bool | None = None,
     url: str | None = None,
     embedding_model: str | None = None,
+    embedding_base_url: str | None = None,
     chat_model: str | None = None,
     timeout: float | None = None,
     num_ctx: int | None = None,
@@ -256,6 +263,9 @@ async def set_llm_config(
     if enabled is not None: current["enabled"] = bool(enabled)
     if url is not None: current["url"] = str(url).strip().rstrip("/")
     if embedding_model is not None: current["embedding_model"] = embedding_model.strip()
+    # 空字串＝清掉，回到「沿用對話模型的位址」
+    if embedding_base_url is not None:
+        current["embedding_base_url"] = str(embedding_base_url).strip().rstrip("/")
     if chat_model is not None: current["chat_model"] = chat_model.strip()
     if ai_audit_enabled is not None: current["ai_audit_enabled"] = bool(ai_audit_enabled)
     # 空字串＝清掉，回去沿用對話模型（不是「存一個空模型名」）

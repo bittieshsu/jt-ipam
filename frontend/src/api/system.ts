@@ -138,6 +138,7 @@ export interface LLMConfig {
   /** 金鑰只回「有沒有設」，本身不回傳到瀏覽器。 */
   api_key_set?: boolean;
   embedding_model: string;
+  embedding_base_url: string;
   chat_model: string;
   timeout: number;
   num_ctx?: number | null;
@@ -159,6 +160,7 @@ export interface LLMConfigPatch {
   url?: string;
   api_key?: string;
   embedding_model?: string;
+  embedding_base_url?: string;
   chat_model?: string;
   timeout?: number;
   num_ctx?: number | null;

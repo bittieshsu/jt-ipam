@@ -130,3 +130,27 @@ export function rackEmbedUrl(rackId: string, token: string): string {
   const base = window.location.origin;
   return `${base}/api/v1/racks/${rackId}/embed.svg?token=${encodeURIComponent(token)}`;
 }
+
+// ─────────────────── 層數調整（插入／刪除一層，裝置整批移位） ───────────────────
+export interface RackLevelMove { device_id: string; name: string; u_size: number; from: number; to: number }
+export interface RackLevelBlocker { device_id: string; name: string; u_position: number; u_size: number; reason: string }
+export interface RackLevelPlan {
+  op: "insert" | "remove";
+  at: number;
+  rack_id: string;
+  old_height: number;
+  new_height: number;
+  moves: RackLevelMove[];
+  blockers: RackLevelBlocker[];
+  /** 照著送回來就能還原（插入與刪除互為反操作） */
+  undo: { op: "insert" | "remove"; at: number; height_mm: number | null } | null;
+}
+
+/** `dryRun` 只算不做：預覽與實際執行走後端同一段程式，所以預覽看到什麼就會發生什麼。 */
+export async function rackLevelOp(
+  rackId: string,
+  body: { op: "insert" | "remove"; at: number; height_mm?: number | null; dry_run?: boolean },
+): Promise<RackLevelPlan> {
+  const { data } = await apiClient.post<RackLevelPlan>(`/api/v1/racks/${rackId}/levels`, body);
+  return data;
+}

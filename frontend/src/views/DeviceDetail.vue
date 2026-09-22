@@ -100,7 +100,27 @@ const location = ref<Location | null>(null);
 const rack = ref<Rack | null>(null);
 /** 機櫃還是層架 —— 標籤與括號裡的單位都跟著換。 */
 const rackUsesLevels = computed(() => usesLevels((rack.value as any)?.kind));
+
+/**
+ * 哪裡來、哪裡回。從機櫃圖點進來的會帶 `?from=rack&rack=<id>`；
+ * 那台機櫃已經不存在（或根本不是從機櫃來的）就退回裝置清單。
+ */
+function goBack() {
+  const from = String(route.query.from ?? "");
+  const rackId = String(route.query.rack ?? "");
+  if (from === "rack" && rackId && rack.value?.id === rackId) {
+    void router.push({ name: "racks", query: { rack: rackId } });
+    return;
+  }
+  void router.push({ name: "devices" });
+}
 const rackDiagram = ref<RackDiagramData | null>(null);
+/** 帶著機櫃 id 去機櫃頁 —— 少了 query 只會停在「上次看的那一櫃」，看起來像點錯了。 */
+function openRackPage() {
+  const id = device.value?.rack_id;
+  if (!id) return;
+  void router.push({ name: "racks", query: { rack: id } });
+}
 const addresses = ref<IPAddress[]>([]);
 // 手動標記（is_dhcp_server）與整合推導（dhcp_server_auto）都算 —— 與 IpRoleTags 判斷一致
 const dhcpServerIps = computed(() =>
@@ -167,8 +187,8 @@ async function removeDevice() {
   try {
     await deleteDevice(device.value.id);
     msg.success(t("common.deleted"));
-    // 刪掉之後留在這一頁只會看到一個已經不存在的物件 → 回清單
-    router.push({ name: "devices" });
+    // 刪掉之後留在這一頁只會看到一個已經不存在的物件 → 回「點進來的地方」
+    goBack();
   } catch (e) {
     // 裝置被別的東西參照時後端會擋（例如還有 IP 掛在上面）→ 把原因照實顯示
     msg.error(apiErrMsg(e));
@@ -369,7 +389,7 @@ onMounted(() => {
             </template>
             {{ t("common.confirm_delete") }}
           </n-popconfirm>
-          <n-button @click="router.push({ name: 'devices' })" size="small">
+          <n-button @click="goBack()" size="small">
             <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>
             {{ t("common.back") }}
           </n-button>
@@ -389,7 +409,7 @@ onMounted(() => {
           </n-descriptions-item>
           <n-descriptions-item :label="t('nav.racks')">
             <a v-if="rack" href="#" class="entity-link"
-               @click.prevent="router.push({ name: 'racks' })">{{ rack.name }} ({{ rackUsesLevels
+               @click.prevent="openRackPage()">{{ rack.name }} ({{ rackUsesLevels
                  ? t("racks.rows_levels", { n: rack.u_height }) : rack.u_height + "U" }})</a>
             <span v-else>—</span>
           </n-descriptions-item>
@@ -413,8 +433,11 @@ onMounted(() => {
           <n-descriptions-item :label="t('common.updated_at')" :span="2">{{ fmtDateTime(device.updated_at) }}</n-descriptions-item>
         </n-descriptions>
           </div>
-          <div v-if="rackDiagram" class="dev-head-rack">
-            <RackDiagram :diagram="rackDiagram" :show-legend="false" :highlight-id="device.id" :compact="true" :bare="true" />
+          <!-- 縮圖就只是縮圖：正面／背面、縮放、匯出都留在機櫃頁。點它就過去看完整的。 -->
+          <div v-if="rackDiagram" class="dev-head-rack" :title="t('racks.open_in_racks')"
+               @click="openRackPage">
+            <RackDiagram :diagram="rackDiagram" :show-legend="false" :highlight-id="device.id"
+                         :compact="true" :bare="true" :controls="false" />
           </div>
         </div>
       </n-card>
@@ -672,6 +695,6 @@ onMounted(() => {
 :deep(.n-card) { min-width: 0; }
 :deep(.n-data-table) { max-width: 100%; }
 .dev-head-info { flex: 1 1 420px; min-width: 0; }
-.dev-head-rack { flex: 0 0 auto; max-width: 320px; }
+.dev-head-rack { flex: 0 0 auto; max-width: 320px; cursor: pointer; }
 @media (max-width: 900px) { .dev-head-rack { max-width: 100%; flex: 1 1 100%; } }
 </style>

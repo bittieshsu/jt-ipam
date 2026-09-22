@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from "vue";
-import { WIDTH_PARTS, spanFor, slotFor, posFor, rackDefaults, usesLevels, boardDefault } from "@/utils/rackSlots";
+import { WIDTH_PARTS, spanFor, slotFor, posFor, rackDefaults, usesLevels, boardDefault, rackPixelHeight, levelEditOrder, slotNotation } from "@/utils/rackSlots";
 import { useI18n } from "vue-i18n";
 import {
   NCard,
@@ -39,6 +39,7 @@ import RackFloorPlan from "@/components/RackFloorPlan.vue";
 import {
   getRackDiagram, getRackEmbedConfig, rackEmbedUrl,
   type RackDiagram as RD, type RackEmbedConfig,
+  rackLevelOp, type RackLevelPlan,
 } from "@/api/racks";
 import { bulkDeleteRacks, listLocations, listDevices, updateDevice, type Location, type Device } from "@/api/basic";
 import { useAuthStore } from "@/stores/auth";
@@ -126,7 +127,19 @@ const displayRows = computed(() => {
 });
 const roomDiagrams = ref<RD[]>([]);
 // 同排機櫃最高 U 數 → 傳給每個機櫃圖做「落地靠下對齊」
-const maxRoomU = computed(() => roomDiagrams.value.reduce((m, d) => Math.max(m, d.u_height || 0), 0));
+// 並排時的底部對齊基準：該排最高的那台**畫出來多少 px**（不是 U 數 —— 機櫃與層架的
+// 列高差好幾倍，用數量算會把層架推到畫面外）。
+/** 各機櫃回報的實測自然高度（px）。由資料推算的高度不含外框的 border/padding，而那是
+ *  逐型態不同的（標準機櫃 12px、鍍鉻層架 8px…）—— 只用推算值的話，最高的那一台會因為
+ *  補白被夾到 0 而比其它台低個幾 px，看起來就是「地板高度不一樣」。 */
+const measuredRackPx = ref<Record<string, number>>({});
+function onRackMeasured(rackId: string, px: number) {
+  if (measuredRackPx.value[rackId] === px) return;
+  measuredRackPx.value = { ...measuredRackPx.value, [rackId]: px };
+}
+const maxRoomU = computed(() =>
+  roomDiagrams.value.reduce((m, d) => Math.max(
+    m, rackPixelHeight(d as any), measuredRackPx.value[d.rack_id] ?? 0), 0));
 const roomLoading = ref(false);
 const locationOptions = computed(() =>
   locations.value.map((l) => ({ label: l.name, value: l.id })));
@@ -365,6 +378,9 @@ watch(() => form.value.level_heights, (v) => {
   perLevel.value = Array.isArray(v) && v.length > 0;
   levelRows.value = Array.isArray(v) ? [...v] : [];
 }, { immediate: true });
+/** 編輯列由上而下的順序，跟機櫃圖看到的一致（top-down＝最高層在最上面）。
+ *  只動顯示順序，levelRows 仍是第 1 層在索引 0。 */
+const levelRowOrder = computed(() => levelEditOrder(levelRows.value.length, form.value.numbering));
 /** 「16U」或「4 層」——與 RackDiagram 的標題同一套字。 */
 function rowsText(n: number, kind?: string | null): string {
   return usesLevels(kind) ? t("racks.rows_levels", { n }) : `${n}U`;
@@ -450,15 +466,26 @@ async function refresh() {
   }
 }
 
+/**
+ * 只有「最後一次請求」的結果可以套用。
+ *
+ * 之前沒有這個守門：帶 `?rack=` 進來時會先被預設選取觸發一次載入、再被指名的那台觸發
+ * 一次，兩個請求同時在飛，**慢的那個後到就贏了** —— 下拉寫著 R5、下面卻畫 HQ-A01。
+ */
+let diagramSeq = 0;
 async function loadDiagram(id: string) {
+  const mine = ++diagramSeq;
   diagramLoading.value = true;
   try {
-    diagram.value = await getRackDiagram(id);
+    const d = await getRackDiagram(id);
+    if (mine !== diagramSeq) return;          // 已經有更新的請求了，這份丟掉
+    diagram.value = d;
   } catch {
+    if (mine !== diagramSeq) return;
     msg.error(t("errors.network"));
     diagram.value = null;
   } finally {
-    diagramLoading.value = false;
+    if (mine === diagramSeq) diagramLoading.value = false;
   }
 }
 
@@ -498,9 +525,75 @@ onMounted(async () => {
 });
 
 // ── 點空 U 位 → 挑裝置放入（任一機櫃圖都可點，event 會帶 rack_id）──
+// ── 層數調整（插入／刪除一層，上面的裝置整批移位）──
+const showLevelOps = ref(false);
+const levelOp = ref<"insert" | "remove">("remove");
+const levelAt = ref(1);
+const levelPlan = ref<RackLevelPlan | null>(null);
+const levelBusy = ref(false);
+/** 做完留著，按「復原」就照它送回去（插入與刪除互為反操作，伺服器不必存狀態）。 */
+const levelUndo = ref<RackLevelPlan["undo"]>(null);
+
+const levelUnit = (n: number) =>
+  usesLevels((diagram.value as any)?.kind) ? t("racks.level_at", { n }) : t("racks.level_at_u", { n });
+
+function openLevelOps() {
+  levelPlan.value = null;
+  levelAt.value = 1;
+  levelOp.value = "remove";
+  showLevelOps.value = true;
+  void previewLevel();
+}
+async function previewLevel() {
+  if (!selected.value) return;
+  levelBusy.value = true;
+  try {
+    levelPlan.value = await rackLevelOp(selected.value, {
+      op: levelOp.value, at: levelAt.value, dry_run: true,
+    });
+  } catch (e) {
+    levelPlan.value = null;
+    msg.error(apiErrMsg(e));
+  } finally { levelBusy.value = false; }
+}
+async function applyLevel() {
+  if (!selected.value) return;
+  levelBusy.value = true;
+  try {
+    const r = await rackLevelOp(selected.value, { op: levelOp.value, at: levelAt.value });
+    levelUndo.value = r.undo;
+    showLevelOps.value = false;
+    msg.success(t("racks.level_done", { h: `${r.old_height} → ${r.new_height}`, n: r.moves.length }));
+    await refresh();
+    await loadDiagram(selected.value);
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { levelBusy.value = false; }
+}
+async function undoLevel() {
+  const u = levelUndo.value;
+  if (!u || !selected.value) return;
+  levelBusy.value = true;
+  try {
+    await rackLevelOp(selected.value, { op: u.op, at: u.at, height_mm: u.height_mm });
+    levelUndo.value = null;
+    msg.success(t("racks.level_undone"));
+    await refresh();
+    await loadDiagram(selected.value);
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { levelBusy.value = false; }
+}
+
 const showDevicePick = ref(false);
 const pickEmptyU = ref<number | null>(null);
 const pickRackId = ref<string | null>(null);
+/** 被點的那台是「層」還是「U」—— 合併卡片時畫面上不只一台，不能只看目前選取的那台。 */
+const pickUsesLevels = computed(() => {
+  const id = pickRackId.value;
+  const d = [diagram.value, roomFocus.value, ...roomDiagrams.value]
+    .find((x) => x && (x as any).rack_id === id);
+  return usesLevels((d as any)?.kind);
+});
+const pickPosLabel = computed(() => pickEmptyU.value == null ? "" :
+  (pickUsesLevels.value ? t("racks.level_at", { n: pickEmptyU.value })
+                        : t("racks.level_at_u", { n: pickEmptyU.value })));
 const pickDeviceId = ref<string | null>(null);
 const pickDeviceSize = ref(1);
 // 橫向位置：介面上選「寬度 + 第幾格」，送出時換算成 rack_slot / rack_slot_span（issue #31）
@@ -581,9 +674,13 @@ const mergedExportOptions = computed(() => [
 ]);
 function onMergedExport(key: string) {
   if (["svg", "png", "drawio"].includes(key)) {
-    const diags = roomDiagrams.value as any[];
-    if (!diags.length) return;
+    if (!roomDiagrams.value.length) return;
+    // 文案（「9 層」「頂」）在這裡翻好再交給匯出器 —— utils 不碰 i18n
+    const diags = roomDiagrams.value.map((d: any) => ({
+      ...d, rowsLabel: rowsText(d.u_height, d.kind), topLabel: t("racks.level_top"),
+    }));
     const fname = "room-racks";
+    // 對齊基準是**像素**（層架的列高是機櫃的好幾倍），匯出器也照像素算
     const al = maxRoomU.value;
     if (key === "svg") exportRacksSvg(diags, al, mergedNameAlign.value, fname);
     else if (key === "png") exportRacksPng(diags, al, mergedNameAlign.value, fname);
@@ -596,8 +693,10 @@ function onMergedExport(key: string) {
     { key: "rack", label: t("nav.racks") },
     { key: "name", label: t("cols.name") },
     { key: "type", label: t("cols.type") },
-    { key: "u_position", label: "U" },
-    { key: "u_size", label: "U Size" },
+    // 同一排可能混著機櫃與層架，標題用中性的「層／U」，實際單位看 rack 欄
+    { key: "u_position", label: `${t("racks.levels")} / U` },
+    { key: "u_size", label: "Size" },
+    { key: "slot", label: t("devices.rack_width") },
     { key: "rack_face", label: t("racks.face") },
     { key: "primary_ip", label: "IP" },
   ];
@@ -608,6 +707,7 @@ function onMergedExport(key: string) {
       type: dev.type,
       u_position: dev.u_position,
       u_size: dev.u_size,
+      slot: slotNotation(dev),
       rack_face: dev.rack_face ?? "front",
       primary_ip: dev.primary_ip ?? "",
     })));
@@ -650,6 +750,15 @@ function onMergedExport(key: string) {
           <template #icon><n-icon><LocationsIcon /></n-icon></template>
           {{ t("racks.manage_rooms") }}
         </n-button>
+        <!-- 層數調整：只在選了單一機櫃時出現（整排檢視沒有「這一層」的概念） -->
+        <n-button v-if="isAdmin && selected" quaternary size="small" @click="openLevelOps">
+          {{ t("racks.level_ops") }}
+        </n-button>
+        <!-- 剛做完才出現的復原：照著回應帶的 undo 送回去即可 -->
+        <n-button v-if="levelUndo" size="small" type="warning" ghost
+                  :loading="levelBusy" @click="undoLevel">
+          {{ t("racks.level_undo") }}
+        </n-button>
         <n-space v-if="roomId" align="center" :size="6" :wrap-item="false" style="margin-left:8px">
           <span style="font-size:13px; opacity:.75">{{ t("racks.view_mode") }}</span>
           <n-radio-group v-model:value="rackViewMode" size="small">
@@ -682,7 +791,10 @@ function onMergedExport(key: string) {
           <!-- 合併單卡：所有機櫃排進同一張卡（去各櫃外框，加小標題） -->
           <n-card v-if="mergedView" :title="t('racks.merged_title')">
             <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
-            <n-space align="center" justify="end" style="margin-bottom: 10px">
+            <!-- 用 flex 而不是 n-space：n-space 的項目靠 baseline 對齊，而按鈕群組與單顆
+                 按鈕的 line-height 不一樣，就會差個一兩 px 對不齊（與 RackDiagram 的
+                 .rd-toolbar 同一個理由、同一套寫法）。 -->
+            <div class="merged-toolbar">
               <n-button-group size="tiny">
                 <n-button :type="mergedFace === 'front' ? 'primary' : 'default'" @click="mergedFace = 'front'">
                   {{ t("racks.face_front") }}
@@ -697,14 +809,15 @@ function onMergedExport(key: string) {
                   {{ t("common.export") }}
                 </n-button>
               </n-dropdown>
-            </n-space>
+            </div>
             <div class="rack-row">
               <div v-for="d in roomDiagrams" :key="d.rack_id" class="merged-rack">
                 <div class="merged-rack__name">
-                  {{ d.name }}<span class="merged-rack__u">{{ d.u_height }}U</span>
+                  {{ d.name }}<span class="merged-rack__u">{{ rowsText(d.u_height, (d as any).kind) }}</span>
                 </div>
                 <rack-diagram :diagram="d" :show-legend="false" :editable="isAdmin"
                               :floor-align-to="maxRoomU" :face="mergedFace" :controls="false"
+                              @measured="onRackMeasured"
                               bare @pick-empty="onPickEmpty" />
               </div>
             </div>
@@ -718,7 +831,7 @@ function onMergedExport(key: string) {
             <div class="rack-row">
               <rack-diagram v-for="d in roomDiagrams" :key="d.rack_id" :diagram="d"
                             :show-legend="false" :editable="isAdmin" :floor-align-to="maxRoomU"
-                            @pick-empty="onPickEmpty" />
+                            @measured="onRackMeasured" @pick-empty="onPickEmpty" />
             </div>
             <!-- 整排機櫃共用一個圖例（不用每櫃都重複） -->
             <div class="rack-legend-shared">
@@ -792,6 +905,12 @@ function onMergedExport(key: string) {
         <n-form-item :label="t('common.name')" required>
           <n-input v-model:value="form.name" />
         </n-form-item>
+        <n-form-item :label="kindUsesLevels ? t('racks.level_numbering') : t('racks.numbering')">
+          <div style="width: 100%">
+            <n-select v-model:value="form.numbering" :options="numberingOpts" />
+            <span class="field-hint">{{ t("racks.numbering_hint") }}</span>
+          </div>
+        </n-form-item>
         <n-form-item :label="kindUsesLevels ? t('racks.levels') : t('racks.u_height')">
           <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="width: 100%" />
         </n-form-item>
@@ -841,7 +960,7 @@ function onMergedExport(key: string) {
             </n-input-number>
             <!-- 逐層高度：層架的層板一層一層可調，常見裝法是下面留高、上面壓矮 -->
             <div v-else class="level-rows">
-              <div v-for="(_, i) in levelRows" :key="'lv' + i" class="level-row">
+              <div v-for="i in levelRowOrder" :key="'lv' + i" class="level-row">
                 <span class="level-row__label">{{ t("racks.level_n", { n: i + 1 }) }}</span>
                 <n-input-number v-model:value="levelRows[i]" :min="10" :max="1000" :step="10"
                                 size="small" style="flex: 1 1 0; min-width: 0">
@@ -880,9 +999,6 @@ function onMergedExport(key: string) {
             </div>
           </div>
         </n-form-item>
-        <n-form-item :label="kindUsesLevels ? t('racks.level_numbering') : t('racks.numbering')">
-          <n-select v-model:value="form.numbering" :options="numberingOpts" />
-        </n-form-item>
         <n-form-item :label="t('nav.locations')">
           <n-select v-model:value="form.location_id" :options="locationOptions"
                     clearable :placeholder="t('racks.room_placeholder')" />
@@ -896,9 +1012,15 @@ function onMergedExport(key: string) {
             <!-- 機櫃圖會揭露裝置名稱與位置，開之前要讓人知道自己在開什麼 -->
             <span class="embed-hint">{{ t("racks.embed_hint") }}</span>
             <n-space v-if="editing && form.expose_svg" size="small" align="center">
-              <n-button size="small" :disabled="!embedCfg?.enabled" @click="copyEmbedUrl">
+              <!-- 剛把開關打開、還沒按儲存時，那串網址一定回 404 —— 先給得出來只會
+                   讓人以為功能壞了。要等**存進去的**值也是開啟才放行。 -->
+              <n-button size="small" :disabled="!embedCfg?.enabled || !editing.expose_svg"
+                        @click="copyEmbedUrl">
                 {{ t("racks.embed_copy") }}
               </n-button>
+              <span v-if="embedCfg?.enabled && !editing.expose_svg" class="embed-hint">
+                {{ t("racks.embed_save_first") }}
+              </span>
               <span v-if="!embedCfg?.enabled" class="embed-hint">
                 {{ t("racks.embed_disabled_hint") }}
               </span>
@@ -919,13 +1041,62 @@ function onMergedExport(key: string) {
     </n-modal>
 
     <!-- 點空 U 位 → 挑裝置放入 -->
+    <!-- 層數調整：刪除／插入一層，上面的裝置整批移位。先預覽、做完可復原。 -->
+    <n-modal v-model:show="showLevelOps" preset="card" style="width: 520px"
+             :title="t('racks.level_ops')">
+      <n-space vertical :size="14">
+        <span class="field-hint">{{ t("racks.level_hint") }}</span>
+        <n-space align="center" :size="10">
+          <n-radio-group v-model:value="levelOp" size="small" @update:value="previewLevel">
+            <n-radio-button value="remove">{{ t("racks.level_remove") }}</n-radio-button>
+            <n-radio-button value="insert">{{ t("racks.level_insert") }}</n-radio-button>
+          </n-radio-group>
+          <n-input-number v-model:value="levelAt" :min="1"
+                          :max="levelOp === 'insert' ? (diagram?.u_height ?? 1) + 1 : (diagram?.u_height ?? 1)"
+                          size="small" style="width: 120px" @update:value="previewLevel" />
+          <span style="font-size: 13px; opacity: .7">{{ levelUnit(levelAt) }}</span>
+        </n-space>
+
+        <n-spin :show="levelBusy">
+          <div v-if="levelPlan" class="level-plan">
+            <div v-if="levelPlan.blockers.length" class="level-plan__blocked">
+              <b>{{ t("racks.level_blocked") }}</b>
+              <div v-for="b in levelPlan.blockers" :key="b.device_id">
+                • {{ b.name }}（{{ levelUnit(b.u_position) }}）
+                <span v-if="b.reason === 'spans'">{{ t("racks.level_blocked_spans") }}</span>
+              </div>
+            </div>
+            <template v-else>
+              <div>{{ levelPlan.old_height }} → {{ levelPlan.new_height }}</div>
+              <div v-if="!levelPlan.moves.length">{{ t("racks.level_no_moves") }}</div>
+              <template v-else>
+                <div><b>{{ t("racks.level_moves", { n: levelPlan.moves.length }) }}</b></div>
+                <div v-for="m in levelPlan.moves" :key="m.device_id" class="level-plan__move">
+                  {{ m.name }}：{{ levelUnit(m.from) }} → {{ levelUnit(m.to) }}
+                </div>
+              </template>
+            </template>
+          </div>
+        </n-spin>
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button size="small" @click="showLevelOps = false">{{ t("common.cancel") }}</n-button>
+          <n-button size="small" type="primary" :disabled="!levelPlan || !!levelPlan.blockers.length"
+                    :loading="levelBusy" @click="applyLevel">
+            {{ t("racks.level_apply") }}
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
     <n-modal v-model:show="showDevicePick" preset="card" style="width: 420px"
-             :title="t('racks.place_device') + (pickEmptyU != null ? ' · U' + pickEmptyU : '')">
+             :title="t('racks.place_device') + (pickPosLabel ? ' · ' + pickPosLabel : '')">
       <n-form-item :label="t('nav.devices')">
         <n-select v-model:value="pickDeviceId" :options="pickDeviceOpts" filterable
                   :placeholder="t('racks.pick_device_ph')" />
       </n-form-item>
-      <n-form-item :label="t('racks.u_size')">
+      <n-form-item :label="pickUsesLevels ? t('devices.level_size') : t('racks.u_size')">
         <n-input-number v-model:value="pickDeviceSize" :min="1" :max="20" style="width: 140px" />
       </n-form-item>
       <n-form-item :label="t('devices.rack_width')">
@@ -936,7 +1107,7 @@ function onMergedExport(key: string) {
                     style="width: 130px" />
         </n-space>
       </n-form-item>
-      <p style="font-size:12px; opacity:.6; margin:0 0 8px">{{ t("racks.place_device_hint") }}</p>
+      <p style="font-size:12px; opacity:.6; margin:0 0 8px">{{ pickUsesLevels ? t("racks.place_device_hint_level") : t("racks.place_device_hint") }}</p>
       <n-space justify="end">
         <n-button @click="showDevicePick = false">{{ t("common.cancel") }}</n-button>
         <n-button type="primary" :disabled="!pickDeviceId" :loading="pickBusy" @click="confirmPickDevice">
@@ -948,6 +1119,10 @@ function onMergedExport(key: string) {
 </template>
 
 <style scoped>
+.level-plan { font-size: 13px; line-height: 1.8; max-height: 300px; overflow-y: auto; }
+.level-plan__move { opacity: 0.8; }
+.level-plan__blocked { color: var(--error-color, #d03050); }
+
 .per-level-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
 
 /* 逐層高度：層數多時要能捲，不然表單會被撐爆 */
@@ -966,6 +1141,10 @@ function onMergedExport(key: string) {
 
 .embed-hint { font-size: 12px; opacity: 0.65; line-height: 1.5; }
 /* 機房內機櫃並排成一橫排（依平面圖相對位置排序）；超出寬度橫向捲動，不上下堆疊 */
+.merged-toolbar {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; margin-bottom: 10px;
+}
 .rack-row {
   display: flex;
   flex-wrap: nowrap;

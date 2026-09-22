@@ -728,6 +728,18 @@ function startDrag(e: MouseEvent) {
   margin-left: 16px;
 }
 .app-sider :deep(.n-submenu-children > .n-menu-item),
+/* 收起時把側邊欄的捲軸藏起來。
+   macOS 若設成「總是顯示捲軸」，那種捲軸會**佔掉版面寬度**，64px 的窄欄被吃掉十幾 px，
+   icon 就會看起來偏左（覆蓋式捲軸的機器上看不出來，所以很容易漏掉）。
+   收起時只剩一排 icon，沒有捲軸也能用滾輪捲動。 */
+.app-sider.n-layout-sider--collapsed :deep(.n-layout-sider-scroll-container) {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.app-sider.n-layout-sider--collapsed :deep(.n-layout-sider-scroll-container)::-webkit-scrollbar {
+  display: none;
+}
+
 .app-sider :deep(.n-submenu-children > .n-submenu),
 .app-sider :deep(.n-submenu-children > .n-submenu > .n-menu-item) { position: relative; }
 /* 垂直主幹：

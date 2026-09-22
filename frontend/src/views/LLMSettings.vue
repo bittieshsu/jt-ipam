@@ -367,6 +367,17 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           filterable
           @update:value="(v: string) => patch({ embedding_model: v })"
         />
+        <!-- 嵌入與對話模型常常是分開部署的（GitHub issue #33），位址自然不同。
+             留空＝沿用上面那個位址，既有安裝升上來行為不變。 -->
+        <div style="margin-top: 8px">
+          <label>{{ t("llm_settings.embedding_url") }}</label>
+          <n-input
+            :value="llm.embedding_base_url ?? ''"
+            :placeholder="llm.url"
+            @update:value="(v: string) => patch({ embedding_base_url: v })"
+          />
+          <p class="hint">{{ t("llm_settings.embedding_url_hint") }}</p>
+        </div>
         <!-- 選錯嵌入模型時唯一的症狀是「語意搜尋永遠沒有結果」，畫面上沒有任何線索
              指向維度不合 —— 所以要能當場問一次、把實際維度講出來。 -->
         <p v-if="embedResult" class="hint" :style="embedResult.ok ? 'color:#18a058' : 'color:#e88080'">

@@ -415,7 +415,15 @@ async def stats_overview(session: AsyncSession, *, user: User) -> dict[str, Any]
 async def list_racks(
     session: AsyncSession, *, user: User, limit: int = 200, location_id: str | None = None,
 ) -> dict[str, Any]:
-    """列出機櫃（含所在地點與已掛裝置數）。問某機房要帶 location_id。"""
+    """列出機櫃／層架（含所在地點、已掛裝置、每一列還剩多少空間）。問某機房要帶 location_id。
+
+    **不是每一種機架都以 U 計**：層架（一般／鍍鉻／木質，如 IKEA IVAR）以「層」為單位，
+    層高可以逐層不同，而且最上面那片板的**上面**還能再放一排。
+
+    而且同一列可以左右並排、也可以上下疊放好幾台。只看「這一列有沒有東西」會把半滿的
+    那一層算成滿的，「還能放幾台」就答錯了 —— 所以這裡額外回 `rows_with_space`（哪幾列
+    還有空、還剩多少比例）與每台裝置的橫向／層內位置。
+    """
     limit = min(int(limit), 500)
     stmt = (select(Rack, Location.name)
             .outerjoin(Location, Location.id == Rack.location_id))
@@ -430,34 +438,69 @@ async def list_racks(
     total = int(await session.scalar(
         select(func.count()).select_from(stmt.subquery())) or 0)
     rows = (await session.execute(stmt.order_by(Rack.name).limit(limit))).all()
+    from app.services.rack import (
+        RACK_SLOTS, has_open_top, level_heights_mm, placeable_levels, uses_rack_units,
+    )
     out = []
     for rack, loc_name in rows:
         devs = list((await session.execute(
-            select(Device.name, Device.type, Device.u_position, Device.u_size, Device.rack_face)
+            select(Device.name, Device.type, Device.u_position, Device.u_size,
+                   Device.rack_face, Device.rack_slot, Device.rack_slot_span,
+                   Device.rack_vslot, Device.rack_vslot_span)
             .where(Device.rack_id == rack.id).order_by(Device.u_position)
         )).all())
-        # 以「實際被佔用的 U 列」計算，半 U（左/右兩台同列）只算一次，避免重複累加把空間算光
-        occupied_rows: set[int] = set()
-        for (_n, _t, pos, sz, _f) in devs:
+        kind = getattr(rack, "kind", None)
+        levels = not uses_rack_units(kind)
+        # 層架最上面那片板的上面也放得下 → 可放的位置比層數多一列
+        placeable = placeable_levels(kind, int(rack.u_height or 0))
+        # 每一列被佔掉多少「面積」：橫向比例 × 層內上下比例。只數「有沒有東西」會把
+        # 一層放了一台半寬裝置的情況當成整層滿了。
+        area: dict[int, float] = {}
+        for (_n, _t, pos, sz, _f, _hs, hsp, _vs, vsp) in devs:
             if pos is None:
                 continue
+            frac = ((float(hsp or RACK_SLOTS) / RACK_SLOTS)
+                    * (float(vsp or RACK_SLOTS) / RACK_SLOTS))
             for u in range(int(pos), int(pos) + int(sz or 1)):
-                occupied_rows.add(u)
+                area[u] = min(1.0, area.get(u, 0.0) + frac)
+        occupied_rows = set(area)
         used_u = len(occupied_rows)
-        free_u = max(rack.u_height - used_u, 0)
-        # 連續空檔（給「還能放多大的裝置」參考）
-        free_rows = sorted(set(range(1, rack.u_height + 1)) - occupied_rows)
+        free_u = max(placeable - used_u, 0)
+        # 完全空的列（給「還能放多大的裝置」參考）
+        free_rows = sorted(set(range(1, placeable + 1)) - occupied_rows)
         out.append({
             "id": str(rack.id), "name": rack.name, "u_height": rack.u_height,
+            # 型態決定單位與畫法：標準／工業機櫃以 U 計，三種層架以「層」計
+            "kind": kind, "uses_levels": levels,
+            "rows_label": "level" if levels else "U",
+            "open_top": has_open_top(kind),
+            "placeable_rows": placeable,
+            "level_heights_mm": (
+                [int(x) for x in level_heights_mm(kind, rack.row_height_mm,
+                                                  rack.level_heights, int(rack.u_height or 0))]
+                if levels else None),
             "location": loc_name, "device_count": len(devs),
             "used_u": used_u, "free_u": free_u, "free_u_rows": free_rows,
+            # 還有空位、但不是全空的那幾列（一層並排／疊放多台時最需要知道的就是這個）
+            "rows_with_space": [
+                {"row": u, "free_fraction": round(1.0 - a, 3)}
+                for u, a in sorted(area.items()) if a < 0.999
+            ],
             "devices": [
-                {"name": n, "type": t, "u_position": pos, "u_size": sz, "rack_face": f}
-                for (n, t, pos, sz, f) in devs
+                {"name": n, "type": t, "u_position": pos, "u_size": sz, "rack_face": f,
+                 # 橫向：起始格與跨幾格（整列＝0/60）；層內上下：同一套 60 格
+                 "rack_slot": hs, "rack_slot_span": hsp,
+                 "rack_vslot": vs, "rack_vslot_span": vsp}
+                for (n, t, pos, sz, f, hs, hsp, vs, vsp) in devs
             ],
             "description": rack.description,
         })
-    return {"scope": scope, "count": total, "returned": len(out), "racks": out}
+    return {"scope": scope, "count": total, "returned": len(out), "racks": out,
+            "slots_per_row": RACK_SLOTS,
+            "note": ("A row can hold several devices side by side (rack_slot/rack_slot_span) "
+                     "and stacked within the row (rack_vslot/rack_vslot_span), both on a "
+                     f"{RACK_SLOTS}-cell grid. Shelf kinds are counted in levels, not U — "
+                     "use rows_label. Check rows_with_space before saying a row is full.")}
 
 
 async def list_locations(
@@ -535,6 +578,10 @@ async def list_devices(
             "vendor": d.vendor, "model": d.model, "ip_count": ip_count,
             "customer": cust_name,
             "u_position": d.u_position, "u_size": d.u_size, "rack_face": d.rack_face,
+            # 同一列可以左右並排、也可以上下疊放：少了這四個欄位，同一層的兩台在
+            # AI 眼裡是同一個位置（60 格網格，整列＝0/60）
+            "rack_slot": d.rack_slot, "rack_slot_span": d.rack_slot_span,
+            "rack_vslot": d.rack_vslot, "rack_vslot_span": d.rack_vslot_span,
             "rack_id": str(d.rack_id) if d.rack_id else None,
         })
     return {"scope": scope, "count": total, "returned": len(out), "devices": out}
@@ -573,7 +620,15 @@ async def get_device(
     if dev.rack_id:
         rk = await session.get(Rack, dev.rack_id)
         if rk is not None:
-            rack_info = {"id": str(rk.id), "name": rk.name, "u_height": rk.u_height}
+            from app.services.rack import placeable_levels, uses_rack_units
+            rack_info = {
+                "id": str(rk.id), "name": rk.name, "u_height": rk.u_height,
+                # 型態決定單位：層架以「層」計，說成 U 就錯了
+                "kind": getattr(rk, "kind", None),
+                "uses_levels": not uses_rack_units(getattr(rk, "kind", None)),
+                "placeable_rows": placeable_levels(getattr(rk, "kind", None),
+                                                   int(rk.u_height or 0)),
+            }
     cust = await session.get(Customer, dev.customer_id) if dev.customer_id else None
     loc = await session.get(Location, dev.location_id) if dev.location_id else None
     # 電源埠 ↔ 插座（NetBox 風）
@@ -596,6 +651,9 @@ async def get_device(
         "location": loc.name if loc else None,
         # 機櫃 U 位資訊（讓 AI 能判斷占位 / 剩餘空間）
         "u_position": dev.u_position, "u_size": dev.u_size, "rack_face": dev.rack_face,
+        # 列內的橫向與上下位置（60 格網格，整列＝0/60）
+        "rack_slot": dev.rack_slot, "rack_slot_span": dev.rack_slot_span,
+        "rack_vslot": dev.rack_vslot, "rack_vslot_span": dev.rack_vslot_span,
         "rack": rack_info,
         "ips": [{"ip": str(ip), "hostname": hn, "mac": str(m) if m else None}
                 for ip, hn, m in ips],
@@ -2465,9 +2523,22 @@ async def list_anomalies(
             return {"error": f"unknown kind: {kind}", "available": sorted(detectors)}
         detectors = {key: detectors[key]}
     buckets = {k: list(await fn(session)) for k, fn in detectors.items()}
+    total = sum(len(v) for v in buckets.values())
+    # 一疊 0 對小模型來說不夠清楚 —— GitHub issue #34：查無結果時模型自己編了兩個
+    # 根本不在這套 IPAM 裡的位址（連 MAC 都是示範用的 VMware 前綴）。事實由查詢決定、
+    # 模型只負責敘述，所以把「沒有就是沒有」寫進**工具輸出**，不要指望提示詞。
+    note = (
+        "No anomalies were detected. Say exactly that. There is nothing to list — "
+        "do NOT invent example IPs, MACs, hostnames or subnets to illustrate."
+        if total == 0 else
+        "Report only the items listed here, copied verbatim. Every IP, MAC and hostname "
+        "in your answer must appear in this result."
+    )
     return {
+        "total": total,
         "counts": {k: len(v) for k, v in buckets.items()},
         "items": {k: v[:n] for k, v in buckets.items()},
+        "note": note,
     }
 
 
@@ -2615,9 +2686,14 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_racks": {
         "fn": list_racks,
         "description": (
-            "List racks (機櫃) with location, device count, total/used/free U, and each "
-            "mounted device's U position & size (u_position/u_size/rack_face). Use this to "
-            "answer how many more devices/U fit in a rack — free_u is the free U count."
+            "List racks and shelving units (機櫃／層架) with location, device count, "
+            "total/used/free rows, and each mounted device's position: u_position/u_size "
+            "plus rack_slot/rack_slot_span (side by side) and rack_vslot/rack_vslot_span "
+            "(stacked within one row), on a 60-cell grid. kind tells you the type "
+            "(rack / industrial / shelf / wire_shelf / wood_shelf); shelf kinds are counted "
+            "in LEVELS not U — use rows_label, and placeable_rows (shelves can also take "
+            "devices on top of the highest board). A row may hold several devices, so check "
+            "rows_with_space before saying a row is full."
         ),
         "parameters": {
             "type": "object",
@@ -2640,7 +2716,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": (
             "List or search devices (裝置). Optional name substring or type filter "
             "(server/switch/router/firewall/ap/storage/ipmi/other). Includes each device's "
-            "rack U position/size (u_position, u_size, rack_face) and rack_id."
+            "rack row position/size (u_position, u_size, rack_face), its position WITHIN "
+            "that row (rack_slot/rack_slot_span side by side, rack_vslot/rack_vslot_span "
+            "stacked, on a 60-cell grid; 0/60 means the whole row) and rack_id. On shelving "
+            "units a row is a LEVEL, not a U — call list_racks for the rack's kind."
         ),
         "parameters": {
             "type": "object",
@@ -2656,8 +2735,11 @@ TOOLS: dict[str, dict[str, Any]] = {
     "get_device": {
         "fn": get_device,
         "description": (
-            "Device details by id or name: IPs, VLANs (via LibreNMS), and its rack U "
-            "position/size (u_position, u_size, rack_face) + the rack it's mounted in."
+            "Device details by id or name: IPs, VLANs (via LibreNMS), its rack row "
+            "position/size (u_position, u_size, rack_face), its position within that row "
+            "(rack_slot/rack_slot_span, rack_vslot/rack_vslot_span on a 60-cell grid) and "
+            "the rack it is mounted in (rack.kind / rack.uses_levels say whether rows are "
+            "levels or U)."
         ),
         "parameters": {
             "type": "object",

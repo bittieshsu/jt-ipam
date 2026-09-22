@@ -245,7 +245,10 @@ function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
       <NFormItem :label="t('ocs.sync_bios')">
         <NSwitch v-model:value="form.sync_bios" />
       </NFormItem>
-      <NFormItem :label="t('ocs.sync_software')">
+      <!-- 「同步軟體清單」先不露出：開關與欄位都在（送出時照舊帶值，既有設定不會被清掉），
+           但抓軟體清單本身還沒實作，開了也不會發生事情 —— 擺在畫面上只會誤導。
+           實作完把 v-if 拿掉即可。 -->
+      <NFormItem v-if="false" :label="t('ocs.sync_software')">
         <NSpace vertical :size="2">
           <NSwitch v-model:value="form.sync_software" />
           <span style="font-size: 12px; opacity: .7">{{ t("ocs.sync_software_hint") }}</span>

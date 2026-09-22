@@ -4,6 +4,61 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.42] - 2026-09-22
+
+### Added
+- **Insert or delete a level, and everything above it moves with it.** Getting a shelf's
+  level count wrong used to mean moving every device by hand, one at a time. The operation
+  now previews exactly what it will do, refuses to run if anything sits on (or spans) the
+  level being removed, and hands back an undo you can send straight back.
+- **The level picker shows what is already on each level and where.** A small map per row
+  draws the occupied part in its real place, with a dashed outline for where the device you
+  are placing would land. A list of names cannot show that half a level is still free — which
+  is the whole difference between a shelf and a rack.
+- **An optional separate base URL for the embedding model** (GitHub issue #33). Chat and
+  embedding models are often deployed separately; leave it empty and it falls back to the
+  main URL.
+
+### Fixed
+- **Exports were still drawing the old rack model.** The picture came out tens of thousands
+  of pixels tall and almost entirely blank, because the bottom-alignment baseline had moved
+  from "number of U" to pixels and the exporter was still multiplying it by a fixed row
+  height. The exporter also carried its own copy of the geometry, so nothing from the shelving
+  work had reached it: no boards, every level the same height, side-by-side devices drawn on
+  top of each other (it still read a field replaced months ago), stacking ignored, and a
+  device standing on the top board missing entirely. There is now one geometry, shared by the
+  single-rack and whole-room exports, and it reads the same pixel values the screen does.
+  Side frames stop at the topmost board, as they do on screen and in real life.
+- **The rack thumbnail on a device page had the wrong proportions.** Compact mode squeezed
+  only the row heights and left the width, board thickness and hole pitch at full size. It is
+  now scaled as a whole: measured aspect ratio went from 1.45 to 3.94, the same as the full
+  view.
+- **The AI could answer with addresses that were never in the data** (GitHub issue #34). When
+  a tool had nothing to return, a small model filled the gap with plausible-looking examples;
+  when it did return data, a model could mistype an address while repeating it. Three
+  deterministic guards: `list_anomalies` now says "nothing found" explicitly instead of a wall
+  of zeros, tool errors carry the underlying message (a detector that throws used to look
+  identical to "no data"), and every address in an answer is checked against that turn's tool
+  results — anything that appears in neither is flagged in a line appended to the answer.
+- **AI and MCP now see the shelving model.** `list_racks` reports the rack kind, whether rows
+  are levels or U, per-level heights, the extra place on top, and which rows still have space
+  — it used to call a half-occupied level full. `list_devices` and `get_device` expose where a
+  device sits within its row, so two devices sharing a level are no longer the same position.
+- The per-level height editor listed levels bottom-first while the diagram drew them
+  top-first, so changing "the top one" meant looking at the bottom of the list. The numbering
+  direction now sits above the level settings, and its two options say where level 1 is
+  instead of describing a reading direction.
+- Shelving no longer talks about "U positions": the empty-slot tooltip, the position picker
+  and the place-device dialog all say levels, and the picker no longer omits the place on top
+  of the highest board — it was visible in the diagram but impossible to select.
+- Racks standing side by side now share one floor line. The baseline was computed from the
+  data rather than measured, and the difference is exactly the frame's border and padding,
+  which varies by kind.
+- The cross brace on a wooden shelf was hidden behind the right side frame but drawn over the
+  left one.
+- The embed URL could be copied before the setting was saved, so it returned 404 and looked
+  broken.
+
 ## [0.6.41] - 2026-09-21
 
 ### Added

@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from typing import Any
 
 import httpx
@@ -229,7 +229,8 @@ async def embed(session: AsyncSession, text_in: str) -> list[float]:
     cfg = await get_llm_config(session)
     if not cfg.enabled:
         raise AINotConfigured("LLM is disabled")
-    url = embedding_url(cfg.url, cfg.provider)
+    # 嵌入模型可以在另一台（issue #33）；留空就沿用對話模型那個位址
+    url = embedding_url(getattr(cfg, "embedding_base_url", None) or cfg.url, cfg.provider)
     body = embedding_body(cfg, cfg.provider, text_in)
     try:
         resp = await safe_request(
@@ -672,7 +673,8 @@ async def chat(
                 if not content.strip():
                     content = (await _force_final_answer(cfg, convo)
                                or _empty_answer_message(locale, None))
-                return {"answer": content, "messages": convo, **_meta()}
+                return {"answer": _annotate_unverified(content, convo, locale),
+                        "messages": convo, **_meta()}
 
         # 異動類工具不直接執行 → 回傳待確認動作，等使用者按「確認」
         pending = _pending_mutations(tool_calls)
@@ -684,7 +686,68 @@ async def chat(
 
     # 用完 max_iterations 還在叫工具 → 最後不給工具再叫一次，逼它用現有資訊作答
     answer = await _force_final_answer(cfg, convo)
-    return {"answer": answer, "messages": convo, **_meta()}
+    return {"answer": _annotate_unverified(answer, convo, locale),
+            "messages": convo, **_meta()}
+
+
+# 看起來像位址的點分四段（含抄錯的 999）。抄錯的那種不是合法 IPv4，但照樣會被當事實讀。
+_DOTTED_QUAD = re.compile(r"\b\d{1,4}(?:\.\d{1,4}){3}\b")
+
+
+def _is_netmask(text: str) -> bool:
+    """255.255.255.0 這種是常識不是查來的資料；0.0.0.0 同理。標它們只會製造雜訊。"""
+    try:
+        parts = [int(x) for x in text.split(".")]
+    except ValueError:
+        return False
+    if any(p > 255 for p in parts):
+        return False
+    bits = "".join(f"{p:08b}" for p in parts)
+    # 連續的 1 之後全是 0（含全 0 與全 1）
+    return bits == "0" * 32 or bits.rstrip("0").count("0") == 0
+
+
+def unverified_ips(answer: str, sources: Iterable[str]) -> list[str]:
+    """答案裡出現、但任何來源（工具結果／使用者的話）都沒有的位址。
+
+    模型只負責敘述，事實必須來自查詢。提示詞已經寫了「逐字照抄」，量化過的小模型還是會
+    把位址抄錯、甚至整個編出來（GitHub issue #34），而那種答案看起來跟正確答案一模一樣。
+    """
+    seen: set[str] = set()
+    for src in sources:
+        seen.update(_DOTTED_QUAD.findall(src or ""))
+    out: list[str] = []
+    for token in _DOTTED_QUAD.findall(answer or ""):
+        if token in seen or token in out or _is_netmask(token):
+            continue
+        out.append(token)
+    return out
+
+
+_UNVERIFIED_WARN = {
+    "zh": "⚠️ 下列位址不在這次的查詢結果裡，可能是模型自行產生或抄錯的，請不要直接採信：{ips}",
+    "ja": "⚠️ 次のアドレスは今回の照会結果に含まれていません。モデルが生成または書き間違えた可能性があります：{ips}",
+    "en": ("⚠️ These addresses do not appear in any tool result from this turn and may have "
+           "been invented or mistyped by the model — do not rely on them: {ips}"),
+}
+
+
+def _annotate_unverified(answer: str, convo: list[dict[str, Any]], locale: str | None) -> str:
+    """在答案後面加一行警告，**不改寫模型的字**。
+
+    改寫會讓人以為模型答對了；標出來才看得出哪幾個不能用。
+    """
+    if not answer:
+        return answer
+    sources = [str(m.get("content") or "") for m in convo
+               if m.get("role") in ("tool", "user")]
+    bad = unverified_ips(answer, sources)
+    if not bad:
+        return answer
+    loc = (locale or "zh-TW").lower()
+    key = "en" if loc.startswith("en") else ("ja" if loc.startswith("ja") else "zh")
+    return answer + "\n\n" + _UNVERIFIED_WARN[key].format(ips="、".join(bad)
+                                                           if key != "en" else ", ".join(bad))
 
 
 def _empty_answer_message(locale: str, done_reason: str | None) -> str:
@@ -823,8 +886,11 @@ def _build_chat_context(
                 "For unrelated questions (general coding, world knowledge, chit-chat), "
                 "politely decline and suggest a dedicated general-purpose LLM platform "
                 "such as Open WebUI or opencode instead. "
-                "NEVER invent, guess, or extend IP data — only report exactly what "
-                "tools return. When the user wants several or consecutive free IPs, "
+                "NEVER invent, guess, or extend data — only report exactly what "
+                "tools return. If a tool returns no results (empty lists, zero counts, "
+                "found=false), say plainly that none were found; NEVER fabricate example "
+                "IPs, MACs, hostnames or subnets to illustrate an answer. "
+                "When the user wants several or consecutive free IPs, "
                 "call find_free_ips with the right count/consecutive ONCE; report only "
                 "the IPs it returns, and if it returns fewer than requested, say so "
                 "instead of making up more. "
@@ -894,7 +960,12 @@ async def _run_tool_calls(session: AsyncSession, user: Any, tool_calls: list[dic
             except IPAMToolError as exc:
                 tool_result = {"error": str(exc)}
             except Exception as exc:
-                tool_result = {"error": f"tool failed: {exc.__class__.__name__}"}
+                # 只給類別名稱＝把「為什麼壞了」丟掉：模型看不出是查詢炸了還是真的沒資料，
+                # 使用者也只看到 "tool failed"。原文截短後一起帶上（不會是機密，工具參數
+                # 才是，而那不在這裡）。
+                detail = str(exc).strip().replace("\n", " ")[:300]
+                tool_result = {"error": f"tool failed: {exc.__class__.__name__}"
+                                        + (f": {detail}" if detail else "")}
         blob = json.dumps(tool_result, ensure_ascii=False, default=str)
         # 防止單一工具回傳過大撐爆上下文 → 模型變慢甚至 ReadTimeout
         if len(blob) > _TOOL_RESULT_CAP:
@@ -1027,7 +1098,8 @@ async def chat_stream(
                        "trace_messages": convo, **_meta()}
                 return
             else:
-                yield {"type": "done", "answer": full_content, "trace_messages": convo, **_meta()}
+                yield {"type": "done", "answer": _annotate_unverified(full_content, convo, locale),
+                       "trace_messages": convo, **_meta()}
                 return
 
         # 異動類工具：不直接執行，回傳待確認動作給前端，等使用者按「確認」
@@ -1070,7 +1142,8 @@ async def chat_stream(
     answer = "".join(final_parts) or "（查詢步驟過多仍未完成，請把問題拆小一點再試一次）"
     if final_parts:
         convo.append({"role": "assistant", "content": answer})
-    yield {"type": "done", "answer": answer, "trace_messages": convo, **_meta()}
+    yield {"type": "done", "answer": _annotate_unverified(answer, convo, locale),
+           "trace_messages": convo, **_meta()}
 
 
 # ─────────────────── 全表 reindex（admin 一次性） ───────────────────

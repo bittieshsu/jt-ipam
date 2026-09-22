@@ -67,7 +67,11 @@ docker run -d --name "$NAME" --privileged --cgroupns=host \
     sh -c 'apt-get update -qq && apt-get install -y -qq systemd systemd-sysv \
            ca-certificates curl git >/dev/null && exec /sbin/init' >/dev/null
 state=""
-for _ in $(seq 90); do
+# PID 1 先裝 systemd 再變成 systemd，所以這裡等的其實是**容器裡的 apt**。
+# 原本給 90 次（180 秒）—— 在網路慢的建置機上 apt 光下載就要好幾分鐘，關卡會回
+# 「systemd never came up」，看起來像 systemd 壞了，其實只是還沒裝完。
+# 可用 SYSTEMD_WAIT_TRIES 覆寫。
+for _ in $(seq "${SYSTEMD_WAIT_TRIES:-450}"); do
     state=$(dex systemctl is-system-running 2>/dev/null || true)
     [[ "$state" == running || "$state" == degraded ]] && break
     sleep 2

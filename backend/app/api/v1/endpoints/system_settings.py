@@ -804,6 +804,8 @@ class LLMConfigOut(StrictModel):
     api_key_set: bool = False
     url: str
     embedding_model: str
+    # 嵌入模型的位址；空＝沿用 url（GitHub issue #33：兩種模型常分開部署）
+    embedding_base_url: str = ""
     chat_model: str
     timeout: float
     num_ctx: int | None = None
@@ -827,6 +829,8 @@ class LLMConfigPatch(StrictModel):
     api_key: Annotated[str | None, Field(min_length=0, max_length=512)] = None
     url: Annotated[str | None, Field(min_length=4, max_length=512)] = None
     embedding_model: Annotated[str | None, Field(min_length=1, max_length=128)] = None
+    # 空字串＝清掉，回到「沿用對話模型的位址」，所以 min_length 是 0
+    embedding_base_url: Annotated[str | None, Field(min_length=0, max_length=512)] = None
     chat_model: Annotated[str | None, Field(min_length=1, max_length=128)] = None
     timeout: Annotated[float | None, Field(ge=1.0, le=600.0)] = None
     # 0 / 空＝沿用模型/Ollama 預設；上限取寬鬆合理值（128k）
@@ -856,6 +860,7 @@ def _llm_out(cfg: Any) -> LLMConfigOut:
     return LLMConfigOut(
         enabled=cfg.enabled, url=cfg.url,
         embedding_model=cfg.embedding_model,
+        embedding_base_url=getattr(cfg, "embedding_base_url", None) or "",
         chat_model=cfg.chat_model, timeout=cfg.timeout,
         provider=cfg.provider, api_key_set=bool(cfg.api_key),
         num_ctx=cfg.num_ctx,
@@ -895,6 +900,7 @@ async def patch_llm(
         api_key=changes.get("api_key"),
         url=changes.get("url"),
         embedding_model=changes.get("embedding_model"),
+        embedding_base_url=changes.get("embedding_base_url"),
         chat_model=changes.get("chat_model"),
         timeout=changes.get("timeout"),
         num_ctx=changes.get("num_ctx"),

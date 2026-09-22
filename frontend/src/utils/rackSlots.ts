@@ -78,3 +78,125 @@ export function rackDefaults(kind: string | null | undefined) {
 export function usesLevels(kind: string | null | undefined): boolean {
   return LEVEL_KINDS.has(kind || "");
 }
+
+/**
+ * 逐層高度的編輯順序 —— 回傳 `level_heights` 的索引，由上而下。
+ *
+ * 機櫃圖 top-down 時最高層畫在最上面；編輯清單若照陣列順序從第 1 層列起，兩邊就是
+ * 顛倒的，使用者要改「畫面最上面那一層」得往清單最下面找。這裡只決定**顯示順序**，
+ * 陣列本身永遠是「第 1 層＝索引 0（最底層）」，存檔格式不變 —— 顯示順序若連帶動到
+ * 資料順序，改的會是另一層。
+ */
+export function levelEditOrder(count: number, numbering: string | null | undefined): number[] {
+  const idx = Array.from({ length: Math.max(0, count) }, (_, i) => i);
+  return numbering === "bottom-up" ? idx : idx.reverse();
+}
+
+/** 挑選器／層位下拉要列出的層位，由上而下。 */
+type PickShape = { u_height?: number; open_top?: boolean; numbering?: string | null };
+
+/**
+ * 兩個很容易漏掉的地方：
+ * 1. 層架最上面那片板的**上面**也放得下（開放頂）→ 可放層位比層數多一層。漏了的話
+ *    畫面上明明有空位，挑選器裡卻選不到（客戶實際回報過）。
+ * 2. 編號方向 bottom-up 時第 1 層畫在最上面，清單要跟著倒過來；而「頂板上方」在實體上
+ *    永遠是最上面那一列，與編號方向無關，所以要另外提到最前面。
+ */
+export function rackPickRows(d: PickShape | null | undefined): number[] {
+  const real = d?.u_height ?? 0;
+  if (real <= 0) return [];
+  const n = real + (d?.open_top ? 1 : 0);
+  const asc = Array.from({ length: n }, (_, i) => i + 1);
+  const order = d?.numbering === "bottom-up" ? asc : asc.reverse();
+  if (d?.open_top && d?.numbering === "bottom-up") {
+    const i = order.indexOf(n);
+    if (i > 0) order.unshift(...order.splice(i, 1));
+  }
+  return order;
+}
+
+/** 這一列是不是「最上面那片板的上面」（標「頂」而不是層號）。 */
+export function rackRowIsTop(d: PickShape | null | undefined, u: number): boolean {
+  return Boolean(d?.open_top) && u > (d?.u_height ?? 0);
+}
+
+/** 一塊佔了某一軸的第幾格（parts＝分成幾份、pos＝第幾份，皆 1 起算）。 */
+export interface SpanDesc { axis: "h" | "v"; parts: number; pos: number }
+
+/**
+ * 這一塊在一層裡佔哪個位置 —— 橫向先、層內上下在後；佔滿整條的那一軸不回傳。
+ *
+ * 只列名字的話，同一層放兩台就分不出誰在左誰在右（客戶回報「看不出它是該層第幾個位置」）。
+ * 回傳結構而不是字串：文案留給畫面去翻譯，utils 不碰 i18n。
+ */
+export function slotWhere(o: { h0: number; h1: number; v0: number; v1: number }): SpanDesc[] {
+  const out: SpanDesc[] = [];
+  for (const [axis, a, b] of [["h", o.h0, o.h1], ["v", o.v0, o.v1]] as const) {
+    const span = b - a;
+    if (span <= 0 || span >= RACK_SLOTS) continue;
+    const parts = RACK_SLOTS / span;
+    // 手動塞進來的資料可能不是整齊分割；講不清楚就不要硬掰一個格號出來
+    if (!Number.isInteger(parts) || !Number.isInteger(a / span)) continue;
+    out.push({ axis, parts, pos: a / span + 1 });
+  }
+  return out;
+}
+
+/**
+ * 匯出檔用的位置寫法：「1/2 #2」＝橫向半寬的第 2 格，再接「↕1/3 #1」＝層內下 1/3。
+ *
+ * 匯出出去的是資料，用固定寫法比翻譯過的句子好對照；整層整格就回空字串。
+ */
+export function slotNotation(dev: {
+  rack_slot?: number | null; rack_slot_span?: number | null;
+  rack_vslot?: number | null; rack_vslot_span?: number | null;
+} | null | undefined): string {
+  const box = {
+    h0: Number(dev?.rack_slot ?? 0), h1: Number(dev?.rack_slot ?? 0) + Number(dev?.rack_slot_span ?? RACK_SLOTS),
+    v0: Number(dev?.rack_vslot ?? 0), v1: Number(dev?.rack_vslot ?? 0) + Number(dev?.rack_vslot_span ?? RACK_SLOTS),
+  };
+  return slotWhere(box)
+    .map((d) => `${d.axis === "v" ? "↕" : ""}1/${d.parts} #${d.pos}`)
+    .join(" ");
+}
+
+/**
+ * 把「橫向區間 + 層內垂直區間」換成 CSS 百分比框。
+ *
+ * 垂直是**由下往上**長的（裝置站在層板上），所以回傳 `bottom` 而不是 `top` ——
+ * 拿去當 top 用會讓疊在上面的那台畫到下面，而且看起來「只是有點怪」而不像壞掉。
+ */
+export function slotBoxPct(o: { h0: number; h1: number; v0: number; v1: number }): {
+  left: number; width: number; bottom: number; height: number;
+} {
+  return {
+    left: (o.h0 / RACK_SLOTS) * 100,
+    width: ((o.h1 - o.h0) / RACK_SLOTS) * 100,
+    bottom: (o.v0 / RACK_SLOTS) * 100,
+    height: ((o.v1 - o.v0) / RACK_SLOTS) * 100,
+  };
+}
+
+/**
+ * 一台機櫃／層架畫出來總共多高 px。
+ *
+ * 多台並排要「底部對齊」時**必須**用這個，不能用 U 數 —— 20U 機櫃的列高 28px、
+ * 10 層的層架列高可能近 100px，用數量算出來的補白會把層架推到畫面外。
+ */
+export function rackPixelHeight(d: {
+  u_height?: number;
+  render_row_px?: number;
+  render_row_px_list?: number[];
+  render_board_px?: number;
+  open_top?: boolean;
+} | null | undefined): number {
+  if (!d) return 0;
+  const n = d.u_height ?? 0;
+  if (!n) return 0;
+  const base = d.render_row_px ?? 28;
+  const list = (d.render_row_px_list ?? []).slice(0, n);
+  while (list.length < n) list.push(base);
+  const rows = d.open_top ? [...list, list[list.length - 1] ?? base] : list;
+  const board = d.render_board_px ?? 0;
+  return rows.reduce((a, v) => a + v + board, 0);
+}

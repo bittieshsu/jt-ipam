@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -459,6 +460,55 @@ async def update_rack(
     await session.commit()
     await session.refresh(obj)
     return RackRead.model_validate(obj)
+
+
+class RackLevelOp(StrictModel):
+    """插入／刪除一層。`dry_run` 只算不做 —— 預覽與實際執行走同一段程式。"""
+
+    op: Literal["insert", "remove"]
+    at: Annotated[int, Field(ge=1, le=100)]
+    #: 插入時新層的高度（mm）；不給就沿用相鄰那層。復原時由 undo 帶回來。
+    height_mm: Annotated[int | None, Field(ge=10, le=1000)] = None
+    dry_run: bool = False
+
+
+@router.post("/racks/{rack_id}/levels", dependencies=[Depends(require_admin)])
+async def rack_level_op(
+    rack_id: uuid.UUID,
+    payload: RackLevelOp,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """在機櫃中插入或刪除一層，上面的裝置整批跟著移位。
+
+    `dry_run=true` 回同一份計畫但不寫入 —— 預覽用的就是實際要做的那段程式，
+    所以預覽看到什麼就會發生什麼。回應帶 `undo`，照著送回來即可還原。
+    """
+    from app.services.rack_levels import LevelOpError, apply_level_op, plan_level_op
+    try:
+        if payload.dry_run:
+            plan = await plan_level_op(session, rack_id=rack_id, op=payload.op,
+                                       at=payload.at, height_mm=payload.height_mm)
+            return plan.as_dict()
+        plan = await apply_level_op(session, rack_id=rack_id, op=payload.op,
+                                    at=payload.at, height_mm=payload.height_mm)
+    except LevelOpError as exc:
+        raise HTTPException(status_code=409,
+                            detail=detail_of(exc, "rack_level_error")) from exc
+    await append_audit(
+        session,
+        actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="rack", object_id=str(rack_id), action="update",
+        diff={"changes": {"level_op": payload.op, "at": payload.at,
+                          "u_height": [plan.old_height, plan.new_height],
+                          "moved_devices": len(plan.moves)}},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return plan.as_dict()
 
 
 @router.delete("/racks/{rack_id}", status_code=204,
