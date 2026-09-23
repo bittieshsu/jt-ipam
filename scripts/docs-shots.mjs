@@ -186,7 +186,7 @@ const SHOTS = [
   },
   {
     // 層架的編輯視窗：型態、IKEA IVAR 預設、層板厚度、逐層高度。
-    // 視窗很長，只截「層數」到「每層高度」那一段 —— 用欄位的位置而不是標籤文字定位，
+    // 視窗很長，只截「種類」到「每層高度」那一段 —— 用欄位的位置而不是標籤文字定位，
     // 三種語言才拍得出同一塊。
     name: "rack-shelf-form",
     viewport: { width: 1600, height: 1900 },
@@ -201,8 +201,9 @@ const SHOTS = [
       await page.waitForTimeout(800);
       if (!(await modal.innerText()).includes("IVAR")) throw new Error("開的不是 IVAR 層架的編輯視窗");
       const items = modal.locator(".n-form-item");
-      const top = (await items.nth(2).boundingBox());       // 層數
-      const bottom = (await items.nth(8).boundingBox());    // 每層高度（逐層清單）
+      // 欄位順序（#35 起種類排第一）：名稱、種類、套用預設、編號方向、層數、層板厚度、離地、每層高度…
+      const top = (await items.nth(1).boundingBox());       // 種類
+      const bottom = (await items.nth(7).boundingBox());    // 每層高度（逐層清單）
       const box = await modal.boundingBox();
       return { clip: { x: box.x, y: top.y - 12, width: box.width, height: bottom.y + bottom.height - top.y + 4 } };
     },

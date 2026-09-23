@@ -37,18 +37,18 @@ TOP_LEVEL_PENDING = {
 }
 
 
-#: 擁有者核准的正式系統截圖（逐語言目錄內）。2026-09-23 層架專區：
+#: 擁有者核准的正式系統截圖（逐語言目錄內）。2026-09-23 層架專區（設定視窗同日依 #35 的新欄位順序重拍）：
 #: 兩座層架的機房檢視卡片（合成）與層架設定視窗的局部。審過的內容：無 IP、無機房名稱、
 #: 無網域；有裝置名稱（host-10x、nas-0x、gpuserver-2 等），其中有一個是實機的主機名稱，
 #: 擁有者知情並同意公開（名稱刻意不寫在這裡 —— 文字會被搜尋引擎收錄，圖片裡的不會那麼容易）。`scripts/docs-shots.mjs` 重拍同名圖時會換成
 #: demo_dataset 的虛構版本 —— 那是更安全的方向，換了就把這裡對應的項目刪掉。
 OWNER_APPROVED_REAL_SHOTS = {
     "zh/rack-shelves.png": "22eb425347042cb55bd2964e309299a556905b0e05d8a841b5979a0ba8735641",
-    "zh/rack-shelf-form.png": "d26cb14f5b49b77a799e5e3c3b993ae065d2818c5776e3e1beb90a686d8e13e0",
+    "zh/rack-shelf-form.png": "5dcdbf471c2363269f2fed1b7ee1174740f05aea25eaa3afb49cc488e5ef12c7",
     "en/rack-shelves.png": "c6406b05cbe6b6a15bba9b67920192c4dc874c26bd0e487244f4998aa1956cac",
-    "en/rack-shelf-form.png": "c5ed1eced945ac60270ce9cdf37174ddec2cef9057a4e539fd170fba3bd705f5",
+    "en/rack-shelf-form.png": "1ddcb5690c19f0b6106268e02d01d5937970efaaec687905fb9b6b2dccd54e11",
     "ja/rack-shelves.png": "2ce5b849a9a0a54edaefae10cd53b6b74531d9f7ed283bf28624a2651ca9b7a6",
-    "ja/rack-shelf-form.png": "729b135566c6e0d6cc0e4d5ec3b6f2f4ff667d65bafcdfb9d7249eb7ec1a8c30",
+    "ja/rack-shelf-form.png": "d5cc6ccce8d86440b22414d74fb1c938b26f7a42e308a99e2cea476f82d199e6",
 }
 
 

@@ -39,6 +39,7 @@ async def seed() -> None:
     from app.models.fw_snapshot import FwRuleSnapshot
     from app.models.location import Location, Rack
     from app.models.nat import NATTranslation
+    from app.models.oui import OUIVendor
     from app.models.physical import DevicePort
     from app.models.section import Section
     from app.models.subnet import Subnet
@@ -97,7 +98,12 @@ async def seed() -> None:
         web = await ip(subnets["10.20.0.0/24"], "10.20.0.10", "web-01",
                        description="e2e：IP 詳細資料的主要樣本")
         await ip(subnets["10.20.0.0/24"], "10.20.0.11", "app-01")
-        await ip(subnets["10.20.0.0/24"], "10.20.0.12", "db-01")
+        db01 = await ip(subnets["10.20.0.0/24"], "10.20.0.12", "db-01")
+        # 清單 MAC 欄的 OUI 廠商（#38）：用 RFC 7042 保留給文件的 00:00:5E:00:53:xx，
+        # 它的 OUI 正式登記給 IANA —— 不會對到任何真實設備。
+        db01.mac = "00:00:5e:00:53:12"
+        await s.merge(OUIVendor(prefix="00005E", short_name="IANA", name="ICANN, IANA Department",
+                                source="e2e"))
         pub = await ip(subnets["198.51.100.0/24"], "198.51.100.7", "web.example.net",
                        description="e2e：對外開放服務的樣本")
         await ip(subnets["203.0.113.0/24"], "203.0.113.5", "ipmi-host-a",

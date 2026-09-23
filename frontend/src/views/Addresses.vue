@@ -37,6 +37,7 @@ import OsIcon from "@/components/OsIcon.vue";
 import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { computed } from "vue";
+import { renderMacWithVendor } from "@/utils/macVendor";
 
 const { t, locale } = useI18n();
 const { catalog } = useScanProbes();
@@ -225,7 +226,7 @@ const allColumns: DataTableColumns<IPAddress> = [
   },
   {
     title: () => t("addresses.mac"), key: "mac", width: 150,
-    render: (r) => r.mac ?? "—",
+    render: (r) => renderMacWithVendor(r.mac, r.mac_vendor),
     sorter: true,
   },
   {

@@ -901,6 +901,7 @@
   },
   "chat": {
     "local_badge": "本地 Ollama",
+    "openai_badge": "OpenAI 相容",
     "model_tip": "模型：{model}\n本地推論，內容不外送",
     "model_tip_none": "本地推論，內容不外送",
     "history": "歷程",

@@ -901,6 +901,7 @@
   },
   "chat": {
     "local_badge": "Local Ollama",
+    "openai_badge": "OpenAI-compatible",
     "model_tip": "Model: {model}\nLocal inference, nothing leaves the host",
     "model_tip_none": "Local inference, nothing leaves the host",
     "history": "History",

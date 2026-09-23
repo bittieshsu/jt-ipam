@@ -205,6 +205,11 @@ td.col-actions .n-space { flex-wrap: nowrap !important; }
 
 /* 文字選取色：用半透明品牌綠 tint，淺色/深色主題下文字都看得到
    （原本淺色主題選取色太深會把字蓋掉） */
+/* 清單 MAC 欄的 OUI 廠商（#38）：utils/macVendor.ts 產生，render 函式的元素吃不到 scoped style */
+.mac-cell { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.mac-cell__vendor {
+  font-size: 11px; opacity: 0.72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
 ::selection { background: rgba(24, 160, 88, 0.30); }
 ::-moz-selection { background: rgba(24, 160, 88, 0.30); }
 ::-webkit-scrollbar { width: 11px; height: 11px; }

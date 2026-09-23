@@ -18,6 +18,7 @@ import json
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -154,6 +155,119 @@ def provider_label(provider: str) -> str:
     回「Ollama chat 401」但實際打的是 OpenAI 端點，只會把人送去查錯的地方。
     """
     return "OpenAI-compatible" if provider == "openai" else "Ollama"
+
+
+# ─────────────────── 串流：兩種格式 ───────────────────
+#
+# Ollama 串流是逐行 JSON；OpenAI 相容是 SSE —— 每一行是 `data: {...}`，最後一行
+# `data: [DONE]`，中間可能夾 `: keep-alive` 註解或 `event:` 行。以前三處串流都直接把
+# 整行丟給 json.loads，SSE 那種每行都失敗、被靜靜跳過：巡檢拿到「空回應」（issue #36），
+# 對話則解析不到工具呼叫，一路走到「強制作答」的後援 —— 有回答，但沒有查任何資料。
+
+def _stream_payload(line: str) -> dict[str, Any] | None:
+    """把串流的一行解成 dict；不是資料的行（空行、註解、SSE 欄位、[DONE]）回 None／哨兵。"""
+    s = line.strip()
+    if not s or s.startswith(":"):
+        return None
+    if s.startswith("data:"):
+        s = s[5:].strip()
+        if s == "[DONE]":
+            return {"done": True}
+    elif s.split(":", 1)[0] in ("event", "id", "retry"):
+        return None
+    try:
+        data = json.loads(s)
+    except ValueError:
+        return None           # Ollama 偶爾夾非 JSON 行；跳過即可
+    return data if isinstance(data, dict) else None
+
+
+@dataclass
+class _StreamDelta:
+    content: str = ""
+    thinking: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    done: bool = False
+    done_reason: str | None = None
+    error: str = ""
+
+
+def _stream_delta(chunk: dict[str, Any]) -> _StreamDelta:
+    """把一個串流片段正規化（Ollama: message；OpenAI: choices[0].delta）。"""
+    err = chunk.get("error")
+    error = ""
+    if err:
+        error = str(err.get("message") or err) if isinstance(err, dict) else str(err)
+    choices = chunk.get("choices")
+    if isinstance(choices, list):
+        ch = choices[0] if choices and isinstance(choices[0], dict) else {}
+        d = ch.get("delta") or ch.get("message") or {}
+        finish = ch.get("finish_reason")
+        return _StreamDelta(
+            content=str(d.get("content") or ""),
+            # 推論模型的思考內容：vLLM／DeepSeek 用 reasoning_content，部分服務用 reasoning
+            thinking=str(d.get("reasoning_content") or d.get("reasoning") or d.get("thinking") or ""),
+            tool_calls=list(d.get("tool_calls") or []),
+            done=finish is not None, done_reason=finish, error=error)
+    m = chunk.get("message") or {}
+    return _StreamDelta(
+        content=str(m.get("content") or ""), thinking=str(m.get("thinking") or ""),
+        tool_calls=list(m.get("tool_calls") or []),
+        done=bool(chunk.get("done")), done_reason=chunk.get("done_reason"), error=error)
+
+
+def _with_call_ids(calls: list[dict[str, Any]], provider: str) -> list[dict[str, Any]]:
+    """從文字還原的工具呼叫沒有 id。OpenAI 相容要 id（工具結果靠它對回去）與字串 arguments；
+    Ollama 維持原樣（它要的 arguments 是物件）。"""
+    if provider != "openai":
+        return calls
+    out = []
+    for i, c in enumerate(calls):
+        fn = dict(c.get("function") or {})
+        args = fn.get("arguments")
+        if not isinstance(args, str):
+            fn["arguments"] = json.dumps(args or {}, ensure_ascii=False)
+        out.append({"id": c.get("id") or f"call_inline_{i}", "type": "function", "function": fn})
+    return out
+
+
+class _ToolCallBuffer:
+    """收集串流裡的工具呼叫。
+
+    Ollama 一次給完整的呼叫；OpenAI 把一個呼叫拆成好幾段送，靠 `index` 對回同一個，
+    arguments 是要接起來的字串片段。接好之後維持 OpenAI 的形狀（id／type／字串
+    arguments）送回對話 —— 工具結果要用那個 id 對回去，不然嚴格的服務會拒絕。
+    """
+
+    def __init__(self) -> None:
+        self._whole: list[dict[str, Any]] = []
+        self._by_index: dict[int, dict[str, Any]] = {}
+
+    def add(self, calls: list[dict[str, Any]]) -> None:
+        for c in calls or []:
+            if not isinstance(c, dict):
+                continue
+            idx = c.get("index")
+            if idx is None:
+                self._whole.append(c)
+                continue
+            cur = self._by_index.setdefault(int(idx), {"type": "function",
+                                                       "function": {"name": "", "arguments": ""}})
+            if c.get("id"):
+                cur["id"] = c["id"]
+            if c.get("type"):
+                cur["type"] = c["type"]
+            fn = c.get("function") or {}
+            if fn.get("name"):
+                cur["function"]["name"] = fn["name"]
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                cur["function"]["arguments"] += args
+            elif isinstance(args, dict):
+                cur["function"]["arguments"] = json.dumps(args, ensure_ascii=False)
+
+    def calls(self) -> list[dict[str, Any]]:
+        return self._whole + [self._by_index[i] for i in sorted(self._by_index)]
 
 
 def json_chat_body(
@@ -661,7 +775,7 @@ async def chat(
         tool_calls = msg.get("tool_calls") or []
         if not tool_calls:
             # 後援：模型偶發把工具呼叫寫成文字（而非結構化 tool_calls）→ 還原執行
-            inline = _inline_tool_calls(msg.get("content") or "", _allowed)
+            inline = _with_call_ids(_inline_tool_calls(msg.get("content") or "", _allowed), cfg.provider)
             if inline:
                 msg["tool_calls"] = inline
                 msg["content"] = ""
@@ -970,7 +1084,12 @@ async def _run_tool_calls(session: AsyncSession, user: Any, tool_calls: list[dic
         # 防止單一工具回傳過大撐爆上下文 → 模型變慢甚至 ReadTimeout
         if len(blob) > _TOOL_RESULT_CAP:
             blob = blob[:_TOOL_RESULT_CAP] + " …[truncated; 結果過多，請縮小範圍或加篩選條件]"
-        out.append({"role": "tool", "name": name, "content": blob})
+        msg: dict[str, Any] = {"role": "tool", "name": name, "content": blob}
+        # OpenAI 相容：工具結果要用 tool_call_id 對回那一個呼叫，缺了嚴格的服務會拒絕整個請求。
+        # Ollama 的呼叫沒有 id，就不要憑空生一個。
+        if call.get("id"):
+            msg["tool_call_id"] = call["id"]
+        out.append(msg)
     return out
 
 
@@ -1011,15 +1130,11 @@ async def chat_stream(
         return {"model": cfg.chat_model, "elapsed_ms": int((time.monotonic() - started) * 1000)}
 
     for _ in range(max_iterations):
-        body = {
-            "model": cfg.chat_model,
-            "messages": convo,
-            "tools": ollama_tools,
-            "stream": True,
-            "options": _chat_options(cfg),
-        }
+        # chat_body 依服務類型組主體（options 是 Ollama 專屬，送給 OpenAI 端點會被拒絕）
+        body = {**chat_body(cfg, cfg.provider, messages=convo, tools=ollama_tools), "stream": True}
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
+        tool_buf = _ToolCallBuffer()
         done_reason: str | None = None
         # 思考內容不是答案，但**使用者需要知道它在動**：只吐 thinking 的那段時間，
         # 畫面上原本什麼都沒有，看起來就像當機（實測 gemma4 可以想十幾秒）。
@@ -1036,30 +1151,27 @@ async def chat_stream(
                     yield {"type": "error", "detail": f"{provider_label(cfg.provider)} chat {resp.status_code}: {detail}"}
                     return
                 async for line in resp.aiter_lines():
-                    if not line.strip():
+                    chunk = _stream_payload(line)
+                    if chunk is None:
                         continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    m = chunk.get("message") or {}
-                    think = m.get("thinking")
-                    if think:
-                        thinking_chars += len(think)
+                    d = _stream_delta(chunk)
+                    if d.error:
+                        yield {"type": "error", "detail": f"LLM: {d.error[:200]}"}
+                        return
+                    if d.thinking:
+                        thinking_chars += len(d.thinking)
                         # 節流：每累積約 200 字回報一次，不要用事件洪水灌前端
                         if thinking_chars - thinking_reported >= 200:
                             thinking_reported = thinking_chars
                             yield {"type": "thinking", "chars": thinking_chars}
-                    piece = m.get("content")
-                    if piece:
-                        content_parts.append(piece)
-                        yield {"type": "token", "text": piece}
-                    tcs = m.get("tool_calls")
-                    if tcs:
-                        tool_calls.extend(tcs)
-                    if chunk.get("done"):
-                        done_reason = chunk.get("done_reason")
+                    if d.content:
+                        content_parts.append(d.content)
+                        yield {"type": "token", "text": d.content}
+                    tool_buf.add(d.tool_calls)
+                    if d.done:
+                        done_reason = d.done_reason
                         break
+            tool_calls = tool_buf.calls()
         except UnsafeOutboundURL as exc:
             yield {"type": "error", "detail": f"SSRF guard: {exc}"}
             return
@@ -1076,7 +1188,7 @@ async def chat_stream(
         if not tool_calls:
             # 後援：模型偶發把工具呼叫寫成文字（而非結構化 tool_calls）→ 還原；
             # 後面的 tool_round 事件會叫前端清掉剛串流出去的呼叫文字。
-            inline = _inline_tool_calls(full_content, _allowed)
+            inline = _with_call_ids(_inline_tool_calls(full_content, _allowed), cfg.provider)
             if inline:
                 assistant_msg["tool_calls"] = inline
                 assistant_msg["content"] = ""
@@ -1117,7 +1229,7 @@ async def chat_stream(
     # max_iterations 用完 → 不給工具，串流最後一次強制作答
     yield {"type": "tool_round"}
     final_parts: list[str] = []
-    body = {"model": cfg.chat_model, "messages": convo, "stream": True, "options": _chat_options(cfg)}
+    body = {**chat_body(cfg, cfg.provider, messages=convo, tools=[]), "stream": True}
     try:
         async with safe_stream(
             "POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
@@ -1125,17 +1237,14 @@ async def chat_stream(
         ) as resp:
             if resp.status_code == 200:
                 async for line in resp.aiter_lines():
-                    if not line.strip():
+                    chunk = _stream_payload(line)
+                    if chunk is None:
                         continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    piece = (chunk.get("message") or {}).get("content")
-                    if piece:
-                        final_parts.append(piece)
-                        yield {"type": "token", "text": piece}
-                    if chunk.get("done"):
+                    d = _stream_delta(chunk)
+                    if d.content:
+                        final_parts.append(d.content)
+                        yield {"type": "token", "text": d.content}
+                    if d.done:
                         break
     except (UnsafeOutboundURL, httpx.HTTPError):
         pass
@@ -1325,27 +1434,21 @@ async def _stream_once(
             detail = (await resp.aread()).decode("utf-8", "replace")[:200]
             raise AIError(f"{provider_label(provider)} chat {resp.status_code}: {detail}")
         async for line in resp.aiter_lines():
-            if not line.strip():
+            data = _stream_payload(line)
+            if data is None:
                 continue
-            try:
-                data = json.loads(line)
-            except ValueError:
-                continue          # Ollama 偶爾夾非 JSON 行；跳過即可
-            # 串流每一行的結構兩家不同（Ollama: message；OpenAI: choices[0].delta）。
-            # 這支輔助函式拿不到 cfg，也不需要 —— 兩種都試，取到就用。
-            msg = data.get("message") or {}
-            if not msg:
-                ch = (data.get("choices") or [{}])[0]
-                msg = ch.get("delta") or ch.get("message") or {}
+            # 兩種格式（Ollama 逐行 JSON／OpenAI SSE）都由 _stream_payload／_stream_delta 處理，
+            # 這支輔助函式拿不到 cfg，也不需要。
+            d = _stream_delta(data)
+            if d.error:
+                raise AIError(f"LLM: {d.error[:200]}")
             # 會思考的模型（gemma4 等）先吐一大段 thinking，content 要等到最後才出現。
             # 只看 content 的話，畫面會停住好幾分鐘完全沒有動靜 —— 實際上模型正在想。
-            thinking = str(msg.get("thinking") or "")
-            if thinking:
-                await on_chunk(thinking, "thinking")
-            piece = str(msg.get("content") or "")
-            if piece:
-                parts.append(piece)
-                await on_chunk(piece, "content")
-            if data.get("error"):
-                raise AIError(f"LLM: {str(data['error'])[:200]}")
+            if d.thinking:
+                await on_chunk(d.thinking, "thinking")
+            if d.content:
+                parts.append(d.content)
+                await on_chunk(d.content, "content")
+            if d.done:
+                break
     return "".join(parts)

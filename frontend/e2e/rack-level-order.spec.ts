@@ -96,3 +96,18 @@ test("層編號方向排在每層高度上面 —— 先選方向，再照那個
     `層編號方向（底 ${a.y + a.height}）要整個在每層高度清單（頂 ${b.y}）上面`)
     .toBeLessThanOrEqual(b.y);
 });
+
+test("種類排在所有取決於它的欄位上面（#35）", async ({ page }) => {
+  // 層數／編號方向／層板厚度／每層高度的意義都取決於種類：先選種類，後面的欄位才對得上
+  await login(page);
+  await openEdit(page, "SHELF-TD");
+  // 只比對欄位標籤：說明文字裡也有「層數」這些字，hasText 會抓到別的欄位
+  const item = (label: string) => page.locator(".n-form-item").filter({
+    has: page.locator(".n-form-item-label", { hasText: new RegExp(`^\\s*${label}\\s*$`) }) }).first();
+  const kind = (await item("種類").boundingBox())!;
+  for (const label of ["層編號方向", "層數", "層板厚度"]) {
+    const b = (await item(label).boundingBox())!;
+    expect(kind.y + kind.height, `種類（底 ${kind.y + kind.height}）要在「${label}」（頂 ${b.y}）上面`)
+      .toBeLessThanOrEqual(b.y);
+  }
+});

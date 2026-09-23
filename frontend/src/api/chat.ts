@@ -173,6 +173,8 @@ export async function listMcpTools(): Promise<{ tools: McpTool[]; total: number;
 // 模型參數摘要（chat badge tooltip 用）
 export interface ModelInfo {
   model: string;
+  /** "ollama" | "openai"（OpenAI 相容）—— 對話泡泡的服務標籤看這個 */
+  provider?: string | null;
   family?: string | null;
   parameter_size?: string | null;
   quantization?: string | null;

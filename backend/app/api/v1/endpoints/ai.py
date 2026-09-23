@@ -440,27 +440,36 @@ async def model_info(
     session: Annotated[AsyncSession, Depends(get_session)],
     model: str | None = None,
 ) -> dict[str, Any]:
-    """回傳 Ollama 模型的參數摘要（給 chat badge tooltip 顯示「名稱與參數」）。"""
+    """回傳模型摘要與服務類型（給對話泡泡的標籤與 tooltip）。
+
+    `provider` 一定要回：泡泡以前寫死「本地 Ollama」，接 OpenAI 相容服務也一樣
+    （GitHub issue #37）。參數量／量化／上下文長度只有 Ollama 的 `/api/show` 給得出來，
+    OpenAI 相容服務沒有這支端點 —— 別去打它，只回名稱與服務類型。
+    """
     import httpx as _httpx
 
-    from app.core.safe_http import UnsafeOutboundURL, safe_request
-    from app.services.system_config import get_llm_config
-    cfg = await get_llm_config(session)
+    from app.core import safe_http
+    from app.services import system_config
+    cfg = await system_config.get_llm_config(session)
     name = model or cfg.chat_model
+    provider = getattr(cfg, "provider", "ollama") or "ollama"
+    if provider != "ollama":
+        return {"model": name, "provider": provider}
     url = f"{cfg.url.rstrip('/')}/api/show"
     try:
-        resp = await safe_request("POST", url, headers={"Content-Type": "application/json"},
-                                  json={"name": name}, timeout=10.0)
-    except (UnsafeOutboundURL, _httpx.HTTPError) as exc:
-        return {"model": name, "error": exc.__class__.__name__}
+        resp = await safe_http.safe_request("POST", url, headers={"Content-Type": "application/json"},
+                                            json={"name": name}, timeout=10.0)
+    except (safe_http.UnsafeOutboundURL, _httpx.HTTPError) as exc:
+        return {"model": name, "provider": provider, "error": exc.__class__.__name__}
     if resp.status_code != 200:
-        return {"model": name, "error": f"HTTP {resp.status_code}"}
+        return {"model": name, "provider": provider, "error": f"HTTP {resp.status_code}"}
     data = resp.json() or {}
     det = data.get("details") or {}
     mi = data.get("model_info") or {}
     ctx = next((v for k, v in mi.items() if isinstance(k, str) and k.endswith(".context_length")), None)
     return {
         "model": name,
+        "provider": provider,
         "family": det.get("family"),
         "parameter_size": det.get("parameter_size"),
         "quantization": det.get("quantization_level"),

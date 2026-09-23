@@ -96,6 +96,7 @@ import SubnetGrid from "@/components/SubnetGrid.vue";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import type { IPAddress, Section, Subnet, SubnetUsage } from "@/types";
+import { renderMacWithVendor } from "@/utils/macVendor";
 
 const route = useRoute();
 const router = useRouter();
@@ -387,7 +388,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
         ]),
       });
     } },
-  { title: t("addresses.mac"), key: "mac", width: 150, render: (r) => r.mac ?? "" },
+  { title: t("addresses.mac"), key: "mac", width: 150, render: (r) => renderMacWithVendor(r.mac, r.mac_vendor, "") },
   { title: t("cols.vendor"), key: "mac_vendor", width: 140,
     ellipsis: { tooltip: true }, render: (r) => r.mac_vendor ?? "—" },
   { title: t("cols.os"), key: "os", width: 150,

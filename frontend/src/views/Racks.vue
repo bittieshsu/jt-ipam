@@ -905,19 +905,8 @@ function onMergedExport(key: string) {
         <n-form-item :label="t('common.name')" required>
           <n-input v-model:value="form.name" />
         </n-form-item>
-        <n-form-item :label="kindUsesLevels ? t('racks.level_numbering') : t('racks.numbering')">
-          <div style="width: 100%">
-            <n-select v-model:value="form.numbering" :options="numberingOpts" />
-            <span class="field-hint">{{ t("racks.numbering_hint") }}</span>
-          </div>
-        </n-form-item>
-        <n-form-item :label="kindUsesLevels ? t('racks.levels') : t('racks.u_height')">
-          <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="width: 100%" />
-        </n-form-item>
-        <n-form-item :label="t('racks.seq')">
-          <n-input-number v-model:value="form.seq" :min="0" :max="9999" clearable
-                          :placeholder="t('racks.seq_ph')" style="width: 100%" />
-        </n-form-item>
+        <!-- 種類排在最前面：層數／編號方向／層板厚度這些欄位的意義都取決於它（GitHub issue #35）。
+             「編號」是機房裡的左右排序，跟種類無關，放在機房旁邊。 -->
         <n-form-item :label="t('racks.kind')">
           <n-select v-model:value="form.kind" :options="kindOpts" style="width: 100%" />
           <template #feedback>
@@ -931,6 +920,15 @@ function onMergedExport(key: string) {
             </n-button>
             <span class="field-hint">{{ t("racks.preset_hint") }}</span>
           </div>
+        </n-form-item>
+        <n-form-item :label="kindUsesLevels ? t('racks.level_numbering') : t('racks.numbering')">
+          <div style="width: 100%">
+            <n-select v-model:value="form.numbering" :options="numberingOpts" />
+            <span class="field-hint">{{ t("racks.numbering_hint") }}</span>
+          </div>
+        </n-form-item>
+        <n-form-item :label="kindUsesLevels ? t('racks.levels') : t('racks.u_height')">
+          <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="width: 100%" />
         </n-form-item>
         <n-form-item v-if="kindUsesLevels" :label="t('racks.board_mm')">
           <n-input-number v-model:value="form.board_mm" :min="0" :max="200" :step="1"
@@ -998,6 +996,10 @@ function onMergedExport(key: string) {
                       @click="form.depth_mm = d">{{ d }}</button>
             </div>
           </div>
+        </n-form-item>
+        <n-form-item :label="t('racks.seq')">
+          <n-input-number v-model:value="form.seq" :min="0" :max="9999" clearable
+                          :placeholder="t('racks.seq_ph')" style="width: 100%" />
         </n-form-item>
         <n-form-item :label="t('nav.locations')">
           <n-select v-model:value="form.location_id" :options="locationOptions"

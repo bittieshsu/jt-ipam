@@ -125,6 +125,15 @@ watch(lastModel, async (m) => {
   if (modelInfo.value?.model === m) return;
   try { modelInfo.value = await getModelInfo(m); } catch { modelInfo.value = null; }
 }, { immediate: true });
+// 泡泡上的服務標籤：以前寫死「本地 Ollama」，接 OpenAI 相容服務也一樣（GitHub issue #37）。
+// 打開對話時問一次實際的服務類型；問到之前不顯示，免得先閃一下錯的標籤。
+const provider = ref<string | null>(null);
+watch(open, async (v) => {
+  if (!v || provider.value) return;
+  try { provider.value = (await getModelInfo()).provider || "ollama"; } catch { /* 標籤不顯示即可 */ }
+});
+const providerBadge = computed(() =>
+  provider.value == null ? "" : provider.value === "openai" ? t("chat.openai_badge") : t("chat.local_badge"));
 const modelTip = computed(() => {
   if (!lastModel.value) return t("chat.model_tip_none");
   const mi = modelInfo.value;
@@ -388,7 +397,7 @@ async function removeConversation(id: string) {
           <span class="chat-title">jt-ipam AI</span>
           <n-tooltip :z-index="10001">
             <template #trigger>
-              <n-tag size="tiny" type="info" :bordered="false" class="chat-badge">{{ t("chat.local_badge") }}</n-tag>
+              <n-tag v-if="providerBadge" size="tiny" type="info" :bordered="false" class="chat-badge">{{ providerBadge }}</n-tag>
             </template>
             <div style="white-space:pre-line">{{ modelTip }}</div>
           </n-tooltip>

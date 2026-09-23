@@ -180,12 +180,12 @@
   #screens .num{background:rgba(110,231,168,0.18);color:#aaf0c8}
   #screens .shot{box-shadow:0 16px 44px rgba(0,0,0,0.42);cursor:zoom-in;border-color:rgba(255,255,255,0.10)}
   /* 層架專區：上面六點條列（兩欄），下面兩張直式截圖並排。
-     兩張圖的長寬比不同（層架 1400×1803、設定畫面 920×1564），寬度按比例分配才會一樣高。 */
+     兩張圖的長寬比不同（層架約 1:1.28、設定畫面約 1:1.76），寬度按比例分配才會一樣高 —— 換圖要重算。 */
   .shelf-list{margin:0 auto 34px;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:16px 34px;max-width:1040px}
   .shelf-list li{position:relative;padding-left:26px;color:var(--body);line-height:1.65;font-size:15px}
   .shelf-list li::before{content:"";position:absolute;left:4px;top:.62em;width:9px;height:9px;border-radius:3px;
     background:linear-gradient(135deg,var(--green),var(--teal))}
-  .shelf-shots{display:grid;grid-template-columns:57fr 43fr;gap:26px;align-items:start;max-width:1040px;margin:0 auto}
+  .shelf-shots{display:grid;grid-template-columns:58fr 42fr;gap:26px;align-items:start;max-width:1040px;margin:0 auto}
   #shelves figure{margin:0}
   #shelves figcaption{margin-top:10px;font-size:13px;color:var(--muted);text-align:center;line-height:1.55}
   #shelves .shot{cursor:zoom-in}

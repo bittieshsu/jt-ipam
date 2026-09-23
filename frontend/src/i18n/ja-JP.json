@@ -901,6 +901,7 @@
   },
   "chat": {
     "local_badge": "ローカルの Ollama",
+    "openai_badge": "OpenAI 互換",
     "model_tip": "モデル：{model}\nローカルで推論しており、内容は外部に出ません",
     "model_tip_none": "ローカルで推論しており、内容は外部に出ません",
     "history": "履歴",

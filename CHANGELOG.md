@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.44] - 2026-09-23
+
+### Fixed
+- **AI audit run by hand failed on OpenAI-compatible services** (GitHub issue #36): "6/6
+  batches failed: (empty reply)", while scheduled runs worked. A manual run streams, and the
+  stream parser handed every line to the JSON decoder. Server-sent events arrive as
+  `data: {...}`, so every line failed to parse and was silently skipped — the model had
+  answered; we threw it away. Thanks to the reporter for the precise analysis.
+- **The AI chat never used its tools on OpenAI-compatible services.** Same parser: no
+  content and no tool calls came through, so the chat fell back to "answer without tools" —
+  it replied, but without looking anything up. Tool calls split across stream chunks are now
+  joined, tool results carry the `tool_call_id` strict services require, and the
+  Ollama-only `options` field is no longer sent to OpenAI endpoints.
+- **The chat bubble always said "Local Ollama"** (GitHub issue #37). It now shows the
+  configured service, and the model-info lookup no longer calls Ollama's `/api/show` on an
+  OpenAI-compatible service.
+
+### Changed
+- **The rack type comes first in the rack dialog** (GitHub issue #35): level count, numbering
+  direction, board thickness and per-level heights all depend on it.
+- **The IP lists show the MAC vendor** (GitHub issue #38) under the MAC address, as the IP
+  detail page already did.
+
 ## [0.6.43] - 2026-09-23
 
 ### Security
