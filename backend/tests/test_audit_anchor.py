@@ -9,11 +9,21 @@ import json
 import uuid
 
 import pytest
-from sqlalchemy import delete, func, select
-
 from app.core.audit import append_audit, verify_chain
 from app.models.audit import AuditLog
 from app.services.audit_anchor import append_anchor, read_last_anchor, verify_and_anchor
+from sqlalchemy import delete, func, select
+
+
+async def _as_table_owner(session, on: bool) -> None:
+    """模擬「有資料表擁有者權限的人」：停用／恢復只能新增的觸發器（migration 0149）。
+
+    應用程式層任何路徑都改不動稽核記錄；這組測試要證明的是**更高權限的人**動了手腳時，
+    雜湊鏈與外部錨定仍然抓得到。同一個交易內停用、竄改、恢復，不會漏到別的測試。
+    """
+    from sqlalchemy import text
+    verb = "DISABLE" if on else "ENABLE"
+    await session.execute(text(f"ALTER TABLE audit_logs {verb} TRIGGER audit_logs_append_only"))
 
 
 async def _write_audits(session, n: int) -> None:
@@ -38,8 +48,10 @@ async def test_tail_truncation_is_invisible_to_the_chain_alone(db_session, tmp_p
 
     last_two = list((await db_session.execute(
         select(AuditLog.id).order_by(AuditLog.id.desc()).limit(2))).scalars().all())
+    await _as_table_owner(db_session, True)
     await db_session.execute(delete(AuditLog).where(AuditLog.id.in_(last_two)))
     await db_session.flush()
+    await _as_table_owner(db_session, False)
 
     ok_after, bad = await verify_chain(db_session)
     assert ok_after is True, "尾端截斷竟被鏈抓到了？那這個模組的前提要重寫"
@@ -56,8 +68,10 @@ async def test_anchor_detects_tail_truncation(db_session, tmp_path) -> None:
     assert first["ok"] is True
     anchored_id = first["anchored_to"]
 
+    await _as_table_owner(db_session, True)
     await db_session.execute(delete(AuditLog).where(AuditLog.id >= anchored_id))
     await db_session.flush()
+    await _as_table_owner(db_session, False)
 
     second = await verify_and_anchor(db_session, path=path)
     assert second["ok"] is False
@@ -73,8 +87,10 @@ async def test_anchor_detects_content_tampering(db_session, tmp_path) -> None:
     res = await verify_and_anchor(db_session, path=path)
     row = (await db_session.execute(
         select(AuditLog).where(AuditLog.id == res["anchored_to"]))).scalars().one()
+    await _as_table_owner(db_session, True)
     row.this_hash = bytes(32)
     await db_session.flush()
+    await _as_table_owner(db_session, False)
 
     after = await verify_and_anchor(db_session, path=path)
     assert after["ok"] is False
@@ -91,8 +107,10 @@ async def test_mid_chain_tamper_still_detected(db_session, tmp_path) -> None:
     await _write_audits(db_session, 3)                 # 再寫 3 筆
     mid = list((await db_session.execute(
         select(AuditLog).order_by(AuditLog.id.asc()))).scalars().all())[4]
+    await _as_table_owner(db_session, True)
     mid.action = "tampered"                            # 改內容但不改雜湊
     await db_session.flush()
+    await _as_table_owner(db_session, False)
 
     res = await verify_and_anchor(db_session, path=path)
     assert res["ok"] is False
@@ -160,8 +178,10 @@ async def test_deleted_rows_shrink_count_is_flagged(db_session, tmp_path) -> Non
     # 刪掉中間一筆但保留被錨定的那筆 → 走 count 這條檢查
     mid = list((await db_session.execute(
         select(AuditLog.id).order_by(AuditLog.id.asc()))).scalars().all())[1]
+    await _as_table_owner(db_session, True)
     await db_session.execute(delete(AuditLog).where(AuditLog.id == mid))
     await db_session.flush()
+    await _as_table_owner(db_session, False)
     assert int(await db_session.scalar(
         select(func.count()).select_from(AuditLog)) or 0) < res["count"]
 
@@ -208,8 +228,10 @@ async def test_baseline_starts_verification_after_a_known_legacy_break(
     # 人工製造一個舊斷點：第 2 筆的 prev_hash 指向錯的地方
     broken = (await db_session.execute(
         select(AuditLog).where(AuditLog.id == ids[1]))).scalars().one()
+    await _as_table_owner(db_session, True)
     broken.prev_hash = bytes(32)
     await db_session.flush()
+    await _as_table_owner(db_session, False)
 
     path = tmp_path / "anchors.jsonl"
     assert (await verify_and_anchor(db_session, path=path))["ok"] is False

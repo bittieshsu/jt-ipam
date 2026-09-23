@@ -22,6 +22,7 @@ import OsCell from "@/components/OsCell.vue";
 import { renderIcon } from "@/icons";
 import type { IPAddress } from "@/types";
 import { apiErrMsg } from "@/api/client";
+import { openInNewTab } from "@/utils/openInNewTab";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -71,7 +72,7 @@ let ro: ResizeObserver | null = null;
 function sshHref(row: IPAddress) {
   return router.resolve({ name: "ssh-console", params: { id: row.id } }).href;
 }
-function openTab(row: IPAddress) { window.open(sshHref(row), "_blank"); }
+function openTab(row: IPAddress) { openInNewTab(sshHref(row)); }
 function openWin(row: IPAddress) { window.open(sshHref(row), `ssh-${row.id}`, "width=960,height=640"); }
 const sshRowMenu = [{ label: t("ssh.open_popout"), key: "popout", icon: renderIcon(OpenNewWindowIcon) }];
 function onRowMenu(key: string, row: IPAddress) { if (key === "popout") openWin(row); }
@@ -79,7 +80,7 @@ function onRowMenu(key: string, row: IPAddress) { if (key === "popout") openWin(
 function rdpHref(row: IPAddress) {
   return router.resolve({ name: "rdp-console", params: { id: row.id } }).href;
 }
-function openRdpTab(row: IPAddress) { window.open(rdpHref(row), "_blank"); }
+function openRdpTab(row: IPAddress) { openInNewTab(rdpHref(row)); }
 function openRdpWin(row: IPAddress) { window.open(rdpHref(row), `rdp-${row.id}`, "width=1320,height=900"); }
 const rdpRowMenu = [{ label: t("rdp.open_popout"), key: "popout", icon: renderIcon(OpenNewWindowIcon) }];
 function onRdpRowMenu(key: string, row: IPAddress) { if (key === "popout") openRdpWin(row); }
@@ -87,7 +88,7 @@ function onRdpRowMenu(key: string, row: IPAddress) { if (key === "popout") openR
 function vncHref(row: IPAddress) {
   return router.resolve({ name: "vnc-console", params: { id: row.id } }).href;
 }
-function openVncTab(row: IPAddress) { window.open(vncHref(row), "_blank"); }
+function openVncTab(row: IPAddress) { openInNewTab(vncHref(row)); }
 function openVncWin(row: IPAddress) { window.open(vncHref(row), `vnc-${row.id}`, "width=1320,height=900"); }
 const vncRowMenu = [{ label: t("vnc.open_popout"), key: "popout", icon: renderIcon(OpenNewWindowIcon) }];
 function onVncRowMenu(key: string, row: IPAddress) { if (key === "popout") openVncWin(row); }
@@ -95,7 +96,7 @@ function onVncRowMenu(key: string, row: IPAddress) { if (key === "popout") openV
 function novncHref(row: IPAddress) {
   return router.resolve({ name: "novnc-console", params: { id: row.id } }).href;
 }
-function openNovncTab(row: IPAddress) { window.open(novncHref(row), "_blank"); }
+function openNovncTab(row: IPAddress) { openInNewTab(novncHref(row)); }
 function openNovncWin(row: IPAddress) { window.open(novncHref(row), `novnc-${row.id}`, "width=1320,height=900"); }
 const novncRowMenu = [{ label: t("vnc.open_popout"), key: "popout", icon: renderIcon(OpenNewWindowIcon) }];
 function onNovncRowMenu(key: string, row: IPAddress) { if (key === "popout") openNovncWin(row); }
@@ -103,7 +104,7 @@ function onNovncRowMenu(key: string, row: IPAddress) { if (key === "popout") ope
 function bmcHref(row: IPAddress) {
   return router.resolve({ name: "bmc-console", params: { id: row.id } }).href;
 }
-function openBmcTab(row: IPAddress) { window.open(bmcHref(row), "_blank"); }
+function openBmcTab(row: IPAddress) { openInNewTab(bmcHref(row)); }
 function openBmcWin(row: IPAddress) { window.open(bmcHref(row), `bmc-${row.id}`, "width=1040,height=680"); }
 const bmcRowMenu = [{ label: t("vnc.open_popout"), key: "popout", icon: renderIcon(OpenNewWindowIcon) }];
 function onBmcRowMenu(key: string, row: IPAddress) { if (key === "popout") openBmcWin(row); }

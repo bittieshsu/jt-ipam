@@ -439,7 +439,11 @@ async def list_racks(
         select(func.count()).select_from(stmt.subquery())) or 0)
     rows = (await session.execute(stmt.order_by(Rack.name).limit(limit))).all()
     from app.services.rack import (
-        RACK_SLOTS, has_open_top, level_heights_mm, placeable_levels, uses_rack_units,
+        RACK_SLOTS,
+        has_open_top,
+        level_heights_mm,
+        placeable_levels,
+        uses_rack_units,
     )
     out = []
     for rack, loc_name in rows:
@@ -2738,8 +2742,8 @@ TOOLS: dict[str, dict[str, Any]] = {
             "Device details by id or name: IPs, VLANs (via LibreNMS), its rack row "
             "position/size (u_position, u_size, rack_face), its position within that row "
             "(rack_slot/rack_slot_span, rack_vslot/rack_vslot_span on a 60-cell grid) and "
-            "the rack it is mounted in (rack.kind / rack.uses_levels say whether rows are "
-            "levels or U)."
+            "the rack it is mounted in (the rack's kind and uses_levels fields say whether "
+            "rows are levels or U)."
         ),
         "parameters": {
             "type": "object",

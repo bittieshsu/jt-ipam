@@ -59,7 +59,9 @@ test("機櫃圖：名稱依設定置中，且跨多 U 也看得見", async ({ pa
   const box = (await tall.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
   await page.waitForTimeout(500);
-  const hl = await page.locator(".u-row.u-hl, .u-half.u-hl").evaluateAll((els) =>
+  // 層架與並排的裝置畫成 .u-part（寬度不一定滿格），同一條規則一樣適用 ——
+  // 只看 .u-row 的話，預設打開的是層架時這裡會一格都找不到
+  const hl = await page.locator(".u-row.u-hl, .u-half.u-hl, .u-part.u-hl").evaluateAll((els) =>
     els.map((e) => {
       const cs = getComputedStyle(e);
       return { filter: cs.filter, opacity: cs.opacity };

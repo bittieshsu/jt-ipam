@@ -8,6 +8,7 @@ import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import UptimeBar from "@/components/UptimeBar.vue";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import type { IPAddress } from "@/types";
+import { openInNewTab } from "@/utils/openInNewTab";
 
 const route = useRoute();
 const router = useRouter();
@@ -23,13 +24,13 @@ function sshHref(): string {
 }
 function openSftp() {
   if (!addr.value) return;
-  window.open(router.resolve({ name: "sftp-console",
-                              params: { id: addr.value.id } }).href, "_blank");
+  openInNewTab(router.resolve({ name: "sftp-console",
+                              params: { id: addr.value.id } }).href);
 }
 // 主按鈕 → 新分頁；下拉 → 新視窗（彈出）
 function openSsh() {
   if (!addr.value) return;
-  window.open(sshHref(), "_blank");
+  openInNewTab(sshHref());
 }
 function openSshPopout() {
   if (!addr.value) return;
@@ -41,7 +42,7 @@ function rdpHref(): string {
 }
 function openRdp() {
   if (!addr.value) return;
-  window.open(rdpHref(), "_blank");
+  openInNewTab(rdpHref());
 }
 function openRdpPopout() {
   if (!addr.value) return;
@@ -53,7 +54,7 @@ function vncHref(): string {
 }
 function openVnc() {
   if (!addr.value) return;
-  window.open(vncHref(), "_blank");
+  openInNewTab(vncHref());
 }
 function openVncPopout() {
   if (!addr.value) return;
@@ -64,7 +65,7 @@ function novncHref(): string {
 }
 function openNovnc() {
   if (!addr.value) return;
-  window.open(novncHref(), "_blank");
+  openInNewTab(novncHref());
 }
 function openNovncPopout() {
   if (!addr.value) return;
@@ -75,7 +76,7 @@ function bmcHref(): string {
 }
 function openBmc() {
   if (!addr.value) return;
-  window.open(bmcHref(), "_blank");
+  openInNewTab(bmcHref());
 }
 function openBmcPopout() {
   if (!addr.value) return;

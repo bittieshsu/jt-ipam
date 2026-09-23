@@ -43,6 +43,8 @@ LOCATIONS = [
     ("Osaka Site", "Kita, Osaka", 34.7055, 135.4983),
     ("Taipei HQ", "Xinyi, Taipei", 25.0330, 121.5654),
     ("Singapore Edge", "Downtown Core, Singapore", 1.2897, 103.8501),
+    # 只放層架的實驗室：拍層架那張圖時，旁邊不要有一座幾乎全空的 24U 機櫃佔掉一半寬度
+    ("Taipei Lab", "Neihu, Taipei", 25.0797, 121.5745),
 ]
 
 #: 機櫃：(名稱, 機房, U 數, 寬 mm, 深 mm, 平面圖 x, 平面圖 y)
@@ -70,6 +72,42 @@ SUBNETS = [
     ("Staging", "192.0.2.0/25", "Test segment", 200),
     # RFC 5737 只有三段可用，管理網段就從測試網段後半切一個 /25（不能與既有網段重疊）
     ("Management", "192.0.2.128/25", "BMC / management", 900),
+]
+
+#: 層架：台灣中小企業與實驗室最常見的兩種「機櫃」。規格照正式環境實際在用的兩座抄過來
+#: （IKEA IVAR 179 公分側架＋18mm 層板、90×60×150 公分五層電鍍波浪鐵架），
+#: 所以截圖裡的層高、層板與調整孔都是真實比例，不是示意。
+#: (名稱, 機房, 型態, 層數, 寬, 深, 編號方向, 單一層高, 逐層高度, 層板厚, 最下層板離地, 平面圖 x, y)
+SHELVES = [
+    ("LAB-S01", "Taipei Lab", "wood_shelf", 9, 420, 300, "top-down", 298,
+     [210, 210, 110, 140, 140, 140, 140, 45, 90], 18, 10, 0.35, 0.45),
+    ("LAB-S02", "Taipei Lab", "wire_shelf", 5, 900, 600, "bottom-up", 300,
+     None, None, None, 0.60, 0.45),
+]
+
+#: 層架上的裝置：(名稱, 型別, 層架, 層, 橫向起點, 橫向格數, 層內起點, 層內格數)
+#: 一層橫向與垂直各 60 格；「層數＋1」＝頂板上方（層架沒有天花板，上面也放得了東西）。
+SHELF_DEVICES = [
+    ("ai-box-01",  "server",  "LAB-S01", 10, 0, 30, 0, 30),
+    ("mini-pc-01", "server",  "LAB-S01", 10, 30, 30, 0, 30),
+    ("sw-10g-01",  "switch",  "LAB-S01", 9, 0, 60, 0, 30),
+    ("sw-ib-01",   "switch",  "LAB-S01", 8, 0, 60, 0, 60),
+    ("pve-01",     "server",  "LAB-S01", 7, 0, 60, 0, 60),
+    ("pve-02",     "server",  "LAB-S01", 6, 0, 60, 0, 60),
+    ("pve-03",     "server",  "LAB-S01", 5, 0, 60, 0, 60),
+    ("pve-04",     "server",  "LAB-S01", 4, 0, 60, 0, 60),
+    ("pve-05",     "server",  "LAB-S01", 3, 0, 60, 0, 60),
+    ("das-01",     "storage", "LAB-S01", 2, 0, 30, 0, 60),
+    ("nas-01",     "storage", "LAB-S01", 2, 30, 30, 0, 60),
+    ("ws-01",      "other",   "LAB-S01", 1, 0, 60, 0, 60),
+    ("gpu-srv-01", "server",  "LAB-S02", 1, 0, 30, 0, 60),
+    ("nas-11",     "storage", "LAB-S02", 2, 0, 20, 0, 60),
+    ("nas-12",     "storage", "LAB-S02", 2, 20, 20, 0, 60),
+    ("nas-13",     "storage", "LAB-S02", 2, 40, 20, 0, 60),
+    ("nas-14",     "storage", "LAB-S02", 3, 0, 20, 0, 60),
+    ("nas-15",     "storage", "LAB-S02", 3, 20, 20, 0, 60),
+    ("backup-01",  "server",  "LAB-S02", 4, 0, 60, 0, 60),
+    ("ups-01",     "ups",     "LAB-S02", 5, 0, 30, 0, 60),
 ]
 
 #: 裝置：(名稱, 型別, 廠牌, 型號, 機櫃, U 位, U 數, 主要 IP)
@@ -259,6 +297,29 @@ def main() -> int:
         st, body = api.call("PATCH", f"/racks/{rack_ids[name]}", {"pos_x": x, "pos_y": y})
         if st >= 400:
             print(f"  ! rack {name} 平面圖座標: {st} {body}")
+    # 層架：型態與層板規格只有 PATCH 收得齊，所以跟平面圖座標一樣分兩步
+    for (name, loc, kind, levels, w, d, numbering, row_h, heights, board, floor,
+         x, y) in SHELVES:
+        if name in rack_ids or loc not in loc_ids:
+            continue
+        st, body = api.call("POST", "/racks", {
+            "name": name, "location_id": loc_ids[loc], "u_height": levels,
+            "width_mm": w, "depth_mm": d})
+        if st >= 400:
+            print(f"  ! shelf {name}: {st} {body}")
+            continue
+        rack_ids[name] = body["id"]
+        patch = {"kind": kind, "numbering": numbering, "row_height_mm": row_h,
+                 "pos_x": x, "pos_y": y}
+        if heights:
+            patch["level_heights"] = heights
+        if board is not None:
+            patch["board_mm"] = board
+        if floor is not None:
+            patch["floor_mm"] = floor
+        st, body = api.call("PATCH", f"/racks/{rack_ids[name]}", patch)
+        if st >= 400:
+            print(f"  ! shelf {name} 規格: {st} {body}")
     print(f"機櫃 {len(rack_ids)}")
 
     # ── 區段與子網路 ──
@@ -340,6 +401,19 @@ def main() -> int:
         if ip and ip in ip_ids:
             payload["primary_ip_id"] = ip_ids[ip]
         st, body = api.call("POST", "/devices", payload)
+        if st >= 400:
+            print(f"  ! device {name}: {st} {body}")
+        else:
+            dev_ids[name] = body["id"]
+    for name, dtype, shelf, level, slot, span, vslot, vspan in SHELF_DEVICES:
+        if name in dev_ids or shelf not in rack_ids:
+            continue
+        room = next(loc for sn, loc, *_ in SHELVES if sn == shelf)
+        st, body = api.call("POST", "/devices", {
+            "name": name, "type": dtype, "rack_id": rack_ids[shelf],
+            "location_id": loc_ids.get(room), "u_position": level, "u_size": 1,
+            "rack_face": "front", "rack_slot": slot, "rack_slot_span": span,
+            "rack_vslot": vslot, "rack_vslot_span": vspan})
         if st >= 400:
             print(f"  ! device {name}: {st} {body}")
         else:

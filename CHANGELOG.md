@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.43] - 2026-09-23
+
+### Security
+- **Deleting a user broke the audit hash chain.** `audit_logs.actor_user_id` had a foreign
+  key to `users` with `ON DELETE SET NULL`, so deleting an account made the database rewrite
+  that person's audit records (actor set to NULL); the stored hashes no longer recomputed and
+  verification reported a break — a routine admin action looked exactly like tampering. The
+  foreign key is gone, and a database trigger now rejects any UPDATE or DELETE on
+  `audit_logs`, so no application path, cascade or mistake can change an audit record. The
+  system import never imports audit logs either (the export file keeps the source copy):
+  merge used to overwrite rows with the same id and replace used to wipe them.
+  The 1,955 long-unverifiable records behind the verification baseline turned out to be the
+  same thing — every one has a NULL actor, left behind by test accounts deleted without an
+  audit trail — so they are not tampering, but the original ids cannot be recovered.
+
+### Added
+- **The docs site has a section for shelving.** Chrome wire shelving and IKEA IVAR-style
+  wooden shelving are how a lot of small offices, labs and branch sites actually hold their
+  gear, so they get their own section: what the shelf types do, screenshots of two real
+  shelves and the shelf settings dialog, in all three languages. The feature card, the rack
+  screen and the feature map mention shelving too.
+- The demo dataset gains a lab with the same two shelves (fictional names), and the docs
+  screenshot script can crop to an element and set a viewport per shot — and refuses a row
+  wider than the screen instead of silently cutting its right side off.
+
+### Fixed
+- **Switching back to the IP page after opening a console in a new tab left the page black**
+  (reported on macOS Chrome). Console tabs kept `window.opener`, so Chrome ran both tabs in
+  one renderer process. Every console tab (SSH, SFTP, RDP, VNC, noVNC, BMC) now opens with
+  `noopener`, and a check fails on any new-tab `window.open` without it. Pop-out windows keep
+  the opener so a named window can still be reused.
+- **Racks not yet placed on the floor plan were easy to miss.** The tray of unplaced racks
+  sat under the plan as grey dashed buttons, out of view once the plan was tall. It now sits
+  above the plan in amber with a count, with a darker label in the light theme so the text
+  stays readable.
+- A shelf's card title said "Rack:" and used ASCII punctuation in every language. Shelves
+  now say "Shelf", and punctuation follows the language.
+
 ## [0.6.42] - 2026-09-22
 
 ### Added

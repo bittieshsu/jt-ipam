@@ -179,6 +179,18 @@
   #screens .screen-txt p{color:rgba(255,255,255,0.82)}
   #screens .num{background:rgba(110,231,168,0.18);color:#aaf0c8}
   #screens .shot{box-shadow:0 16px 44px rgba(0,0,0,0.42);cursor:zoom-in;border-color:rgba(255,255,255,0.10)}
+  /* 層架專區：上面六點條列（兩欄），下面兩張直式截圖並排。
+     兩張圖的長寬比不同（層架 1400×1803、設定畫面 920×1564），寬度按比例分配才會一樣高。 */
+  .shelf-list{margin:0 auto 34px;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:16px 34px;max-width:1040px}
+  .shelf-list li{position:relative;padding-left:26px;color:var(--body);line-height:1.65;font-size:15px}
+  .shelf-list li::before{content:"";position:absolute;left:4px;top:.62em;width:9px;height:9px;border-radius:3px;
+    background:linear-gradient(135deg,var(--green),var(--teal))}
+  .shelf-shots{display:grid;grid-template-columns:57fr 43fr;gap:26px;align-items:start;max-width:1040px;margin:0 auto}
+  #shelves figure{margin:0}
+  #shelves figcaption{margin-top:10px;font-size:13px;color:var(--muted);text-align:center;line-height:1.55}
+  #shelves .shot{cursor:zoom-in}
+  .tm-note{margin:26px auto 0;max-width:820px;text-align:center;font-size:12px;color:var(--muted)}
+  @media(max-width:820px){.shelf-list,.shelf-shots{grid-template-columns:1fr}}
   /* 點圖放大(lightbox) */
   #lightbox{position:fixed;inset:0;z-index:2000;display:none;align-items:center;justify-content:center;
     padding:24px;background:rgba(8,14,10,0.88);cursor:zoom-out;backdrop-filter:blur(2px)}
@@ -387,7 +399,7 @@
     <div class="grid g3">
       <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span class="zh">區段 / 子網路 / IP</span><span class="en">Sections / Subnets / IPs</span><span class="ja">セクション／サブネット／IP</span></h3><p><span class="zh">階層式管理、使用率視覺化、重疊網段偵測、CSV 匯入與通用表格匯出。</span><span class="en">Hierarchical management, usage visualization, overlap detection, CSV import & universal table export.</span><span class="ja">階層的な管理、使用率の可視化、サブネット重複の検出、CSV の取り込みと汎用的な表のエクスポート。</span></p></div>
       <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7.6 8.4 11 16M16.4 8.4 13 16M8 7h8"/></svg></span><span class="zh">IP 拓樸圖</span><span class="en">IP topology</span><span class="ja">IP トポロジー</span></h3><p><span class="zh">整合多種系統資料自動推測 裝置↔子網路 鄰接，畫出實體 / 無線 / VPN / L3 連線。</span><span class="en">Multi-signal device↔subnet adjacency, drawing physical / wireless / VPN / L3 links.</span><span class="ja">複数システムのデータから機器とサブネットの隣接関係を推定し、物理／無線／VPN／L3 の接続を描きます。</span></p></div>
-      <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></span><span class="zh">裝置 / 機櫃 / 機房</span><span class="en">Devices / Racks / Rooms</span><span class="ja">機器／ラック／サーバルーム</span></h3><p><span class="zh">機櫃 U 位示意圖 (含半 U、前後雙面)、機房平面圖拖拉定位、世界地圖標記、SVG/PNG/draw.io 匯出；裝置明細直接標出本機在機櫃的位置。</span><span class="en">Rack U-diagrams (half-U &amp; front/rear), floor-plan drag placement, world map, SVG/PNG/draw.io export; device page highlights its own rack position.</span><span class="ja">ラックの U 位置図（ハーフ U と前面／背面に対応）、フロアプランでのドラッグ配置、世界地図へのピン留め、SVG / PNG / draw.io へのエクスポート。機器の詳細ページには、その機器自身のラック内位置が示されます。</span></p></div>
+      <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></span><span class="zh">裝置 / 機櫃 / 機房</span><span class="en">Devices / Racks / Rooms</span><span class="ja">機器／ラック／サーバルーム</span></h3><p><span class="zh">機櫃 U 位示意圖 (含半 U、前後雙面)，也支援鍍鉻層架與 IKEA IVAR 等層架、機房平面圖拖拉定位、世界地圖標記、SVG/PNG/draw.io 匯出；裝置明細直接標出本機在機櫃的位置。</span><span class="en">Rack U-diagrams (half-U &amp; front/rear), plus chrome wire and IKEA IVAR-style shelving, floor-plan drag placement, world map, SVG/PNG/draw.io export; device page highlights its own rack position.</span><span class="ja">ラックの U 位置図（ハーフ U と前面／背面に対応）、スチールラックや IKEA IVAR などのシェルフ、フロアプランでのドラッグ配置、世界地図へのピン留め、SVG / PNG / draw.io へのエクスポート。機器の詳細ページには、その機器自身のラック内位置が示されます。</span></p></div>
       <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span><span class="zh">全域搜尋</span><span class="en">Global search</span><span class="ja">横断検索</span></h3><p><span class="zh">主機名稱 / IP / CIDR / MAC 一處搜尋，OUI 廠商比對每月自動更新。</span><span class="en">Search hostname / IP / CIDR / MAC in one place; monthly OUI vendor refresh.</span><span class="ja">ホスト名／IP／CIDR／MAC をひとつの場所で検索できます。OUI ベンダー情報は毎月自動更新されます。</span></p></div>
       <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8M8 6h6a2 2 0 0 1 2 2v2M8 18h6a2 2 0 0 0 2-2v-2"/></svg></span><span class="zh">NAT / VLAN / VRF</span><span class="en">NAT / VLAN / VRF</span><span class="ja">NAT / VLAN / VRF</span></h3><p><span class="zh">對齊 OPNsense / pfSense / FortiGate / Palo Alto / MikroTik 的 NAT 規則、電路頻寬、VLAN/VRF 與客戶/單位歸屬。</span><span class="en">OPNsense/pfSense/FortiGate/Palo Alto/MikroTik-aligned NAT, circuit bandwidth, VLAN/VRF and customer/tenant ownership.</span><span class="ja">OPNsense / pfSense / FortiGate / Palo Alto / MikroTik に対応した NAT ルール、回線帯域、VLAN / VRF、顧客・組織の所属。</span></p></div>
       <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="zh">IP 異動記錄</span><span class="en">IP change log</span><span class="ja">IP の変更履歴</span></h3><p><span class="zh">主機名稱多來源優先序、逐欄人為編輯記錄、上線/離線判定、失聯 IP 篩選與批次回收。</span><span class="en">Multi-source hostname precedence, per-field edit log, liveness classification, stale-IP filtering &amp; bulk reclaim.</span><span class="ja">ホスト名の複数ソース優先順位、項目単位の手動編集の記録、オンライン／オフラインの判定、未使用 IP の絞り込みと一括回収。</span></p></div>
@@ -439,6 +451,37 @@
         <div class="card"><h3><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8M8 6h6a2 2 0 0 1 2 2v2M8 18h6a2 2 0 0 0 2-2v-2"/></svg></span><span class="zh">關聯與歸屬</span><span class="en">Links &amp; ownership</span><span class="ja">関連と所属</span></h3><p><span class="zh">一個 IP 指派給一台裝置、虛擬化的 VM 對應裝置並佔用 IP；點任一節點即可深入，全部還能再歸屬到單位 / 客戶做隔離與授權。</span><span class="en">An IP maps to a device, VMs map to devices and consume IPs; click any node to drill in, and everything can be owned by a tenant / client for isolation and access control.</span><span class="ja">IP は機器に割り当てられ、仮想化の VM は機器に対応して IP を消費します。どのノードからも掘り下げられ、そのすべてを組織や顧客に所属させて分離と権限付与が行えます。</span></p></div>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="shelves">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow"><span class="zh">台灣機房實況</span><span class="en">Real-world server rooms</span><span class="ja">現場のサーバルーム</span></span>
+      <h2><span class="zh">不是每間機房都有 42U 機櫃</span><span class="en">Not every server room has a 42U rack</span><span class="ja">すべてのサーバルームに 42U ラックがあるわけではありません</span></h2>
+      <p><span class="zh">中小企業、實驗室、工作室與分公司的設備，很多其實放在鍍鉻層架或 IKEA IVAR 上。jt-ipam 把層架當成正式的機架型態：畫得出來、算得清楚，每台設備在第幾層、哪個位置都查得到 —— 不必硬把層架假裝成 42U 機櫃。</span><span class="en">In small businesses, labs, studios and branch offices, a lot of gear actually lives on chrome wire shelving or an IKEA IVAR. jt-ipam treats shelving as a first-class rack type: drawn the way it really looks, measured properly, and every device findable by level and position — no pretending your shelf is a 42U rack.</span><span class="ja">中小企業・研究室・スタジオ・支社では、機器の多くが実はスチールラックや IKEA IVAR の上に置かれています。jt-ipam はシェルフを正式なラックの種類として扱います。実物どおりに描かれ、寸法も正しく計算され、どの機器が何段目のどこにあるかも調べられます。シェルフを 42U ラックに見立てる必要はありません。</span></p>
+    </div>
+
+    <ul class="shelf-list">
+      <li><span class="zh"><b>三種型態，照實物畫：</b>標準機櫃（以 U 計）、鍍鉻層架（圓管立柱）、木質層架（松木側架）。示意圖依型態畫出層板、電鍍立柱或帶調整孔的松木側架。</span><span class="en"><b>Three types, drawn like the real thing:</b> standard racks (in U), chrome wire shelving (round posts) and wooden shelving (pine side frames) — each drawn with its own boards, chrome posts or drilled pine sides.</span><span class="ja"><b>3 つの種類を実物どおりに：</b>標準ラック（U 単位）、スチールラック（丸パイプ支柱）、木製シェルフ（パイン材サイドフレーム）。種類に応じて棚板・メッキ支柱・調整穴付きのサイドフレームを描き分けます。</span></li>
+      <li><span class="zh"><b>以「層」計，每層高度各自設定：</b>層板本來就能一層一層調，最下面留高一點放 UPS 也畫得出來；層板厚度與最下層板離地高度都會算進去。</span><span class="en"><b>Counted in levels, each with its own height:</b> shelf boards are adjustable one by one, so a tall bottom level for the UPS draws correctly; board thickness and floor clearance are part of the geometry.</span><span class="ja"><b>「段」単位で、段ごとに高さを設定：</b>棚板はもともと 1 段ずつ調整できるので、UPS 用に最下段を高くした構成もそのまま描けます。棚板の厚さと最下段の床からの高さも計算に含まれます。</span></li>
+      <li><span class="zh"><b>一層放好幾台：</b>左右並排、上下疊放、不必放滿，空著的位置一眼就看得到；層架沒有天花板，頂板上面也能放設備。</span><span class="en"><b>Several devices per level:</b> side by side, stacked, or leaving space free — empty spots are obvious at a glance. Shelving has no ceiling, so the top board holds gear too.</span><span class="ja"><b>1 段に複数台：</b>左右に並べても、上下に重ねても、空きを残してもかまいません。空いている場所はひと目で分かります。シェルフには天井がないので、天板の上にも機器を置けます。</span></li>
+      <li><span class="zh"><b>IKEA IVAR 一鍵套用：</b>179 公分側架、18mm 層板，連 32mm 孔距的調整孔都照實物規格畫。</span><span class="en"><b>One-click IKEA IVAR preset:</b> 179 cm side frames and 18 mm boards, down to the 32 mm-pitch adjustment holes.</span><span class="ja"><b>IKEA IVAR をワンクリックで：</b>179 cm のサイドフレームと 18 mm の棚板を、32 mm ピッチの調整穴まで実物の寸法どおりに描きます。</span></li>
+      <li><span class="zh"><b>層數建錯不用一台台搬：</b>插入或刪除一層，上面的裝置整批跟著移；做之前先完整預覽，做完可以復原。</span><span class="en"><b>Got the level count wrong? No moving devices one by one:</b> insert or remove a level and everything above shifts with it — previewed first, undoable after.</span><span class="ja"><b>段数を間違えても 1 台ずつ移す必要はありません：</b>段を挿入・削除すると、その上の機器がまとめて移動します。実行前に内容をすべてプレビューでき、実行後は元に戻せます。</span></li>
+      <li><span class="zh"><b>匯出與 AI 也看得懂層架：</b>SVG／PNG／draw.io 匯出同樣是層架外觀；問 AI 助理「哪一層還有空位」，它會照實際的層與位置回答。</span><span class="en"><b>Exports and the AI understand shelving too:</b> SVG / PNG / draw.io exports keep the shelf look, and asking the assistant “which level still has room” gets an answer based on real levels and positions.</span><span class="ja"><b>エクスポートと AI もシェルフを理解：</b>SVG / PNG / draw.io へのエクスポートもシェルフの見た目のまま。AI アシスタントに「どの段に空きがあるか」と聞けば、実際の段と位置に基づいて答えます。</span></li>
+    </ul>
+
+    <div class="shelf-shots">
+      <figure>
+        <img class="shot" data-shot="rack-shelves" src="shots/zh/rack-shelves.png" loading="lazy" alt="IKEA IVAR 木質層架與鍍鉻層架的示意圖" />
+        <figcaption><span class="zh">左：IKEA IVAR 木質層架（9 層、每層高度不同，頂板上方也放了設備）；右：90 × 60 × 150 公分五層鍍鉻層架，一層並排三台 NAS。兩張都是我們自己機房正在使用的層架，直接截自正式系統。</span><span class="en">Left: an IKEA IVAR wooden shelf (9 levels of different heights, with gear sitting on the top board). Right: a 90 × 60 × 150 cm five-level chrome wire shelf with three NAS units side by side. Both are real shelves in our own server room, captured from our production system.</span><span class="ja">左：IKEA IVAR の木製シェルフ（9 段、段ごとに高さが異なり、天板の上にも機器を置いています）。右：90 × 60 × 150 cm の 5 段スチールラックで、1 段に NAS を 3 台並べています。どちらも私たちのサーバルームで実際に使っているシェルフで、本番システムからそのまま撮影しました。</span></figcaption>
+      </figure>
+      <figure>
+        <img class="shot" data-shot="rack-shelf-form" src="shots/zh/rack-shelf-form.png" loading="lazy" alt="層架設定：型態、IKEA IVAR 預設、層板厚度與逐層高度" />
+        <figcaption><span class="zh">層架設定：型態、IKEA IVAR 預設、層板厚度與逐層高度。</span><span class="en">Shelf settings: type, the IKEA IVAR preset, board thickness and per-level heights.</span><span class="ja">シェルフの設定：種類、IKEA IVAR プリセット、棚板の厚さと段ごとの高さ。</span></figcaption>
+      </figure>
+    </div>
+    <p class="tm-note"><span class="zh">IKEA 與 IVAR 是 Inter IKEA Systems B.V. 的商標；jt-ipam 與其沒有任何關係，這裡只是說明相容的層架規格。</span><span class="en">IKEA and IVAR are trademarks of Inter IKEA Systems B.V. jt-ipam is not affiliated with them; the names are used only to describe compatible shelf dimensions.</span><span class="ja">IKEA および IVAR は Inter IKEA Systems B.V. の商標です。jt-ipam はこれらと一切関係がなく、対応するシェルフの寸法を説明するためにのみ名称を使用しています。</span></p>
   </div>
 </section>
 
@@ -618,7 +661,7 @@
       <div class="screen-txt">
         <span class="num">04</span>
         <h3><span class="zh">機房平面圖 / 機櫃</span><span class="en">Floor plan & racks</span><span class="ja">フロアプランとラック</span></h3>
-        <p><span class="zh">上傳機房平面底圖後，直接拖拉定位每一座機櫃（可旋轉、依實際 U 數標示、自動貼齊），對應真實機房配置；下方則是每座機櫃的 U 位示意圖，支援半 U、前後雙面，裝置依類型自動上色，一眼看出哪幾格還空著。機櫃圖可匯出 draw.io / PNG / SVG，裝置清單另可匯出 CSV / Excel / ODS。</span><span class="en">Upload a floor-plan background and drag-place each rack (rotatable, U-aware, snap-to-grid) to mirror the real room; below it, each rack's U-diagram with half-U, front/rear and type-based colors makes empty slots obvious. Export diagrams as draw.io / PNG / SVG and the device list as CSV / Excel / ODS.</span><span class="ja">サーバルームの下図をアップロードすれば、各ラックをドラッグで配置できます（回転、実際の U 数の反映、自動スナップに対応）。実際の部屋の配置をそのまま再現できます。その下には各ラックの U 位置図があり、ハーフ U と前面／背面に対応し、機器は種類ごとに自動で色分けされるので、どこが空いているかがひと目で分かります。ラック図は draw.io / PNG / SVG へ、機器一覧は CSV / Excel / ODS へ書き出せます。</span></p>
+        <p><span class="zh">上傳機房平面底圖後，直接拖拉定位每一座機櫃（可旋轉、依實際 U 數標示、自動貼齊），對應真實機房配置；下方則是每座機櫃的 U 位示意圖，支援半 U、前後雙面，裝置依類型自動上色，一眼看出哪幾格還空著；鍍鉻層架與 IKEA IVAR 這類層架也畫得出來（見上方「不是每間機房都有 42U 機櫃」）。機櫃圖可匯出 draw.io / PNG / SVG，裝置清單另可匯出 CSV / Excel / ODS。</span><span class="en">Upload a floor-plan background and drag-place each rack (rotatable, U-aware, snap-to-grid) to mirror the real room; below it, each rack's U-diagram with half-U, front/rear and type-based colors makes empty slots obvious; chrome wire and IKEA IVAR-style shelving draws too (see “Not every server room has a 42U rack” above). Export diagrams as draw.io / PNG / SVG and the device list as CSV / Excel / ODS.</span><span class="ja">サーバルームの下図をアップロードすれば、各ラックをドラッグで配置できます（回転、実際の U 数の反映、自動スナップに対応）。実際の部屋の配置をそのまま再現できます。その下には各ラックの U 位置図があり、ハーフ U と前面／背面に対応し、機器は種類ごとに自動で色分けされるので、どこが空いているかがひと目で分かります。スチールラックや IKEA IVAR のようなシェルフも描けます（上の「すべてのサーバルームに 42U ラックがあるわけではありません」を参照）。ラック図は draw.io / PNG / SVG へ、機器一覧は CSV / Excel / ODS へ書き出せます。</span></p>
       </div>
     </div>
 
@@ -946,7 +989,7 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
     var lb = document.getElementById('lightbox');
     var lbImg = document.getElementById('lightbox-img');
     if (!lb) return;
-    document.querySelectorAll('#screens .shot, .hero-shot .shot').forEach(function(img){
+    document.querySelectorAll('#screens .shot, #shelves .shot, .hero-shot .shot').forEach(function(img){
       img.addEventListener('click', function(){
         lbImg.src = img.getAttribute('src');
         lbImg.alt = img.getAttribute('alt') || '';

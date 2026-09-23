@@ -54,7 +54,8 @@ const VIEWPORT = { width: 1600, height: 900 };
 /**
  * 每張圖：名稱（＝既有檔名）、要去哪裡、拍之前還要做什麼。
  *
- * `prepare` 收到 page，回傳要拍的區域（null＝整個視窗）。刻意不用 fullPage：
+ * `go` 收到 page，可回傳要拍的區域（元素或 `{ clip }`；不回傳＝整個視窗）；
+ * `viewport` 可覆寫這一張的視窗大小（層架這種很高的圖）。刻意不用 fullPage：
  * 文件站的圖是放在版面裡的，過長的圖縮起來誰也看不清楚。
  */
 const SHOTS = [
@@ -99,9 +100,9 @@ const SHOTS = [
       const heading = await page.locator("body").innerText();
       if (!heading.includes("TYO-R01")) throw new Error("機房沒有切換成功");
       // 機房平面圖在最上面，機櫃 U 位圖在它下面 —— 不捲的話這張會變成 floorplan.png。
-      // 捲到機櫃卡片的標題（「TYO-R01 (42U)」），不要捲到平面圖裡那個同名的小標籤：
+      // 捲到機櫃卡片的標題（「TYO-R01（42U）」，標點隨語系），不要捲到平面圖裡那個同名的小標籤：
       // 那個本來就在畫面上，scrollIntoViewIfNeeded 會什麼都不做。
-      await page.getByText("TYO-R01 (42U)").first().scrollIntoViewIfNeeded();
+      await page.locator(".n-card-header", { hasText: "TYO-R01" }).first().scrollIntoViewIfNeeded();
       await page.waitForTimeout(900);
     },
   },
@@ -146,6 +147,65 @@ const SHOTS = [
   {
     name: "cert-list",
     async go(page) { await page.goto(`${BASE}/certificates`); await settle(page, 1500); },
+  },
+  {
+    // ⚠️ docs/shots 裡這兩張目前是擁有者核准的**正式系統**截圖（見
+    // backend/tests/test_docs_screenshots_provenance.py 的 OWNER_APPROVED_REAL_SHOTS）。
+    // 用這裡重拍會換成虛構資料版 —— 那是更安全的方向，換了要順手刪掉那份核准清單的項目。
+    // 層架：台灣市場主打。IVAR 與鍍鉻層架並排（示範資料的 Taipei Lab 只放這兩座 ——
+    // 旁邊若有一座幾乎全空的 24U 機櫃，會佔掉一半寬度還把第三座擠出畫面）。
+    // 層架很高，視窗要拉長，只截那一排卡片。
+    name: "rack-shelves",
+    viewport: { width: 1600, height: 1900 },
+    async go(page) {
+      await page.goto(`${BASE}/racks`);
+      await settle(page, 1500);
+      await page.locator(".n-base-selection").first().click();
+      await page.locator(".n-base-select-option", { hasText: "Taipei Lab" }).first().click();
+      await settle(page, 2500);
+      const row = page.locator(".rack-row").first();
+      const text = await row.innerText();
+      for (const n of ["LAB-S01", "LAB-S02"]) {
+        if (!text.includes(n)) throw new Error(`機房沒有切換成功（缺 ${n}）`);
+      }
+      await row.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(900);
+      // 整排比內容區寬時，元素截圖會靜靜地把右邊切掉 —— 拍之前先量
+      const over = await row.evaluate((e) => Math.max(e.scrollWidth - e.clientWidth,
+        e.getBoundingClientRect().right - window.innerWidth));
+      if (over > 2) throw new Error(`層架那一排比畫面寬 ${Math.round(over)}px，會被截掉`);
+      // 那一排容器是整個內容區寬，卡片只佔左邊 —— 截卡片的聯集，右邊才不會留一大片空白
+      const clip = await row.evaluate((e) => {
+        const rs = [...e.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0);
+        const x = Math.min(...rs.map((r) => r.left)), y = Math.min(...rs.map((r) => r.top));
+        return { x, y, width: Math.max(...rs.map((r) => r.right)) - x,
+                 height: Math.max(...rs.map((r) => r.bottom)) - y };
+      });
+      return { clip };
+    },
+  },
+  {
+    // 層架的編輯視窗：型態、IKEA IVAR 預設、層板厚度、逐層高度。
+    // 視窗很長，只截「層數」到「每層高度」那一段 —— 用欄位的位置而不是標籤文字定位，
+    // 三種語言才拍得出同一塊。
+    name: "rack-shelf-form",
+    viewport: { width: 1600, height: 1900 },
+    async go(page) {
+      await page.goto(`${BASE}/racks`);
+      await settle(page, 1500);
+      const row = page.locator(".n-data-table-tr", { hasText: "LAB-S01" }).first();
+      await row.scrollIntoViewIfNeeded();
+      await row.locator("button").nth(1).click();          // 釘選／編輯／刪除
+      const modal = page.locator(".n-card.n-modal").first();
+      await modal.waitFor();
+      await page.waitForTimeout(800);
+      if (!(await modal.innerText()).includes("IVAR")) throw new Error("開的不是 IVAR 層架的編輯視窗");
+      const items = modal.locator(".n-form-item");
+      const top = (await items.nth(2).boundingBox());       // 層數
+      const bottom = (await items.nth(8).boundingBox());    // 每層高度（逐層清單）
+      const box = await modal.boundingBox();
+      return { clip: { x: box.x, y: top.y - 12, width: box.width, height: bottom.y + bottom.height - top.y + 4 } };
+    },
   },
 ];
 
@@ -214,12 +274,17 @@ try {
     for (const shot of SHOTS) {
       if (ONLY && !ONLY.has(shot.name)) continue;
       try {
-        await shot.go(page);
+        if (shot.viewport) await page.setViewportSize(shot.viewport);
+        // go() 可回傳要拍的區域：元素（Locator）或 { clip }；沒回傳＝整個視窗
+        const area = await shot.go(page);
         // 把滑鼠移開再拍：停在圖表上會留下一個 tooltip，看起來像截圖時手滑
         await page.mouse.move(4, 4);
         await page.waitForTimeout(400);
         const file = path.join(dir, `${shot.name}.png`);
-        await page.screenshot({ path: file });
+        if (area?.screenshot) await area.screenshot({ path: file });
+        else if (area?.clip) await page.screenshot({ path: file, clip: area.clip });
+        else await page.screenshot({ path: file });
+        if (shot.viewport) await page.setViewportSize(VIEWPORT);
         console.log(`${short}/${shot.name}.png`);
       } catch (e) {
         // 一張拍不到不該讓其他的也不拍 —— 但一定要說出是哪一張

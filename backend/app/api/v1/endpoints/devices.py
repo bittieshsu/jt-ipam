@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from urllib.parse import urlsplit, urlunsplit
 from typing import Annotated, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select

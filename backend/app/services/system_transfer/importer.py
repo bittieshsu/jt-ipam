@@ -194,6 +194,15 @@ async def _import_table(
     return res
 
 
+#: 匯出包裡就算有、也永遠不匯入的表（值是寫進報告的理由）。
+#: 稽核記錄是**這台機器**的雜湊鏈：別台的歷史接不進來，同 id 的 upsert 會覆寫本機記錄，
+#: 取代模式的清空會整段刪掉 —— 三種都會讓鏈斷掉（資料庫層也另有觸發器拒絕改寫）。
+#: 匯出包裡的那份稽核記錄仍然是來源機器的完整備份，要查就看匯出檔本身。
+NEVER_IMPORT: dict[str, str] = {
+    "audit_logs": "append-only hash chain of this machine; never imported (the export file keeps the source copy)",
+}
+
+
 async def _wipe(session: AsyncSession, names: list[str], *, protect_user_id: uuid.UUID | None) -> None:
     """反相依序清空 in-scope 表；users 表保留目前登入 admin 那列。每表獨立 SAVEPOINT。"""
     for name in reversed(names):
@@ -224,9 +233,12 @@ async def apply_import(
     central_in = inner.get("central_secrets") or []
     # 決定要處理哪些表：交集（匯出包有的 ∩ 相依序）；scope 未給則用匯出包內全部表
     ordered = registry.all_tablenames()
-    present = [n for n in ordered if n in tables_in]
+    present = [n for n in ordered if n in tables_in and n not in NEVER_IMPORT]
 
     report: dict[str, Any] = {"mode": mode, "dry_run": dry_run, "tables": {}}
+    skipped = {n: NEVER_IMPORT[n] for n in NEVER_IMPORT if n in tables_in}
+    if skipped:
+        report["skipped"] = skipped
 
     if mode == "replace":
         await _wipe(session, present, protect_user_id=actor_user_id)

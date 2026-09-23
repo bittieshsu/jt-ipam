@@ -72,6 +72,11 @@ function rowsText(n: number, kind?: string | null): string {
   return usesLevels(kind) ? t("racks.rows_levels", { n }) : `${n}U`;
 }
 const rowsLabel = computed(() => rowsText(props.diagram?.u_height ?? 0, rackKind.value));
+// 層架不是機櫃 —— 標題寫「機櫃：」會讓人以為型態沒存到。標點交給各語系（中日文全形）。
+const cardTitle = computed(() => t("racks.card_title", {
+  kind: usesLevels(rackKind.value) ? t("racks.card_shelf") : t("nav.racks"),
+  name: props.diagram?.name ?? "", rows: rowsLabel.value,
+}));
 
 /**
  * 顯示大小。高機櫃／多層層架在一個螢幕塞不下時用這個縮小。
@@ -442,7 +447,7 @@ const cells = computed<Cell[]>(() => {
 
 <template>
   <n-card v-if="diagram" class="rack-diagram-card" :class="{ 'rd-compact': compact, 'rd-bare': bare }"
-          :bordered="!bare" :title="bare ? undefined : `${t('nav.racks')}: ${diagram.name} (${rowsLabel})`">
+          :bordered="!bare" :title="bare ? undefined : cardTitle">
     <n-space vertical :size="12">
       <!-- 控制列：自標題列搬到內文最上方。
            用 flex 而不是 n-space：n-space 的每個項目是 block 包 inline-flex，靠 baseline

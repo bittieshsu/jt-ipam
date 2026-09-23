@@ -12,6 +12,9 @@ git 歷史裡，事後拿不掉。
 守法：`docs/shots/` 底下只允許逐語言的子目錄（`zh` / `en` / `ja`），那三個目錄的內容
 由 `scripts/docs-shots.mjs` 對 `scripts/demo_dataset.py` 灌出來的虛構資料拍攝。
 放在最上層的散圖一律要有理由 —— 而唯一正當的理由是「還沒重拍」。
+
+唯一的例外是 `OWNER_APPROVED_REAL_SHOTS`：專案擁有者明確要求用正式系統畫面、並逐張
+看過內容的圖。它們用內容雜湊釘住 —— 換掉任何一張都會讓測試亮，逼人重新審一次。
 """
 
 from __future__ import annotations
@@ -32,6 +35,39 @@ TOP_LEVEL_PENDING = {
     "aichat-multiget.png",  # AI 對話：一次查多筆 IP
     "ssh-rdp.png",          # 連線管理清單
 }
+
+
+#: 擁有者核准的正式系統截圖（逐語言目錄內）。2026-09-23 層架專區：
+#: 兩座層架的機房檢視卡片（合成）與層架設定視窗的局部。審過的內容：無 IP、無機房名稱、
+#: 無網域；有裝置名稱（host-10x、nas-0x、gpuserver-2 等），其中有一個是實機的主機名稱，
+#: 擁有者知情並同意公開（名稱刻意不寫在這裡 —— 文字會被搜尋引擎收錄，圖片裡的不會那麼容易）。`scripts/docs-shots.mjs` 重拍同名圖時會換成
+#: demo_dataset 的虛構版本 —— 那是更安全的方向，換了就把這裡對應的項目刪掉。
+OWNER_APPROVED_REAL_SHOTS = {
+    "zh/rack-shelves.png": "22eb425347042cb55bd2964e309299a556905b0e05d8a841b5979a0ba8735641",
+    "zh/rack-shelf-form.png": "d26cb14f5b49b77a799e5e3c3b993ae065d2818c5776e3e1beb90a686d8e13e0",
+    "en/rack-shelves.png": "c6406b05cbe6b6a15bba9b67920192c4dc874c26bd0e487244f4998aa1956cac",
+    "en/rack-shelf-form.png": "c5ed1eced945ac60270ce9cdf37174ddec2cef9057a4e539fd170fba3bd705f5",
+    "ja/rack-shelves.png": "2ce5b849a9a0a54edaefae10cd53b6b74531d9f7ed283bf28624a2651ca9b7a6",
+    "ja/rack-shelf-form.png": "729b135566c6e0d6cc0e4d5ec3b6f2f4ff667d65bafcdfb9d7249eb7ec1a8c30",
+}
+
+
+def test_owner_approved_real_shots_are_unchanged():
+    """核准的是「那幾張圖的那個內容」，不是那個檔名。
+
+    同名檔案被換成另一次正式系統的截圖，內容就沒有人審過了；換成 demo 版則應該順手
+    把核准項目刪掉。兩種情況都要有人看一眼，所以用雜湊比對。
+    """
+    import hashlib
+
+    for rel, digest in OWNER_APPROVED_REAL_SHOTS.items():
+        path = SHOTS / rel
+        if not path.exists():
+            raise AssertionError(f"{rel} 不在了，請把它從 OWNER_APPROVED_REAL_SHOTS 刪掉")
+        got = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert got == digest, (
+            f"{rel} 的內容換過了。若換成 demo_dataset 的版本，把它從 OWNER_APPROVED_REAL_SHOTS "
+            "刪掉；若又是正式系統截圖，先逐張確認沒有 IP／網域／機房或客戶名稱，再更新雜湊。")
 
 
 def test_no_new_top_level_screenshots():
