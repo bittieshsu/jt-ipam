@@ -299,6 +299,10 @@ def json_chat_body(
             body["response_format"] = {"type": "json_object"}
         if max_output_tokens:
             body["max_tokens"] = int(max_output_tokens)
+        if no_thinking and not _is_official_openai(getattr(cfg, "url", "")):
+            # 以前這條路完全忽略 no_thinking（issue #36）：推論模型把整個產出額度寫成思考，
+            # 答案 0 字。官方 OpenAI 不送 —— 它對不認得的欄位直接回 400。
+            body.update(_openai_reasoning_off())
         return body
     options = _chat_options(cfg)
     if max_output_tokens:
@@ -313,6 +317,74 @@ def json_chat_body(
     return body
 
 
+
+
+#: 自架 OpenAI 相容服務的「不要思考」。llama.cpp（b9882 原始碼確認）每個請求都認這兩個：
+#: `chat_template_kwargs.enable_thinking` 交給聊天樣板（樣板有沒有理它看模型），
+#: `thinking_budget_tokens` 是取樣層強制結束思考 —— 任何有思考標記的模型都有效。
+#: vLLM 也認 chat_template_kwargs。被拒絕時會拿掉重送一次（見 _strip_rejected_controls）。
+#: `reasoning_effort: "none"` 是 OpenAI 標準欄位，llama.cpp 自 b10434 起才真的照做（修正前會忽略，
+#: 見 ggml-org/llama.cpp#27023）—— 回報者升級後單送它就解決了。三個一起送：新舊版本都蓋到。
+_REASONING_OFF_KEYS = ("chat_template_kwargs", "thinking_budget_tokens", "reasoning_effort")
+
+
+def _openai_reasoning_off() -> dict[str, Any]:
+    return {"chat_template_kwargs": {"enable_thinking": False}, "thinking_budget_tokens": 0,
+            "reasoning_effort": "none"}
+
+
+def _is_official_openai(url: str) -> bool:
+    """官方 OpenAI／Azure OpenAI：對不認得的請求欄位回 400，不能送自架服務用的欄位。"""
+    from urllib.parse import urlparse
+    host = (urlparse(url or "").hostname or "").lower()
+    return host == "api.openai.com" or host.endswith(".openai.com") or host.endswith(
+        ".openai.azure.com")
+
+
+def _strip_rejected_controls(body: dict[str, Any], status: int, text: str) -> bool:
+    """伺服器因為不認得「不要思考」的欄位而拒絕時，把它們拿掉（回 True＝該重送一次）。
+
+    只認 400／422 而且錯誤訊息點名了這些欄位 —— 其他 400（例如超出上下文）照常報錯，
+    重送也不會好。
+    """
+    if status not in (400, 422):
+        return False
+    low = (text or "").lower()
+    present = [k for k in _REASONING_OFF_KEYS if k in body]
+    if not present or not any(k in low for k in (*_REASONING_OFF_KEYS, "enable_thinking")):
+        return False
+    for k in present:
+        body.pop(k, None)
+    return True
+
+
+def _cut_off_while_thinking(thinking_chars: int, max_tokens: Any) -> AIError:
+    """模型把產出額度全用在思考上（finish_reason=length、答案 0 字）—— 講清楚是怎麼回事。
+
+    以前報成「（空回應）」，看起來像模型壞了或我們沒收到東西；其實是額度被思考吃光。
+    """
+    limit = f"（{int(max_tokens)} tokens）" if max_tokens else ""
+    return AIError(
+        f"模型把產出額度{limit}全用在思考上：思考 {thinking_chars} 字、答案 0 字"
+        "（finish_reason=length）。請在推論伺服器關閉思考模式（例如 llama.cpp 啟動時加 "
+        "--reasoning-budget 0），或改用不帶思考的模型。"
+    )
+
+
+def _answer_or_explain(data: dict[str, Any], *, max_tokens: Any) -> str:
+    """非串流回覆取出答案；答案是空的而且是被額度切在思考裡，就丟出說明清楚的錯誤。"""
+    msg = data.get("message") or {}
+    finish = data.get("done_reason")
+    if not msg:
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        finish = choice.get("finish_reason")
+    content = str(msg.get("content") or "")
+    if not content.strip() and finish == "length":
+        thinking = str(msg.get("reasoning_content") or msg.get("reasoning")
+                       or msg.get("thinking") or "")
+        raise _cut_off_while_thinking(len(thinking), max_tokens)
+    return content
 
 
 def embedding_body(cfg: Any, provider: str, text_in: str) -> dict[str, Any]:
@@ -1374,7 +1446,9 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
                                             cfg.provider)
         resp = await safe_request("POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
                                   json=body, timeout=wait)
-        if _rejected_think(resp):
+        if resp.status_code != 200 and (
+                _rejected_think(resp)
+                or _strip_rejected_controls(body, resp.status_code, getattr(resp, "text", ""))):
             body.pop("think", None)
             resp = await safe_request("POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
                                       json=body, timeout=wait)
@@ -1389,11 +1463,8 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
     if resp.status_code != 200:
         raise AIError(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
     # 兩家結構不同：Ollama 是 message、OpenAI 是 choices[0].message
-    data = resp.json()
-    msg = data.get("message") or {}
-    if not msg:
-        msg = ((data.get("choices") or [{}])[0]).get("message") or {}
-    return str(msg.get("content") or "")
+    return _answer_or_explain(resp.json(), max_tokens=body.get("max_tokens")
+                              or (body.get("options") or {}).get("num_predict"))
 
 
 def _rejected_think(resp: Any) -> bool:
@@ -1412,12 +1483,26 @@ async def _raw_chat_streamed(
     """串流版：邊收邊回報，最後把整段內容拼回來給呼叫端解析。"""
     try:
         return await _stream_once(url, body, wait, on_chunk, headers, provider)
+    except _Rejected as exc:
+        # 自架的 OpenAI 相容服務不認「不要思考」的欄位：拿掉重來一次，而不是整批失敗
+        if not _strip_rejected_controls(body, exc.status, exc.text):
+            raise
+        return await _stream_once(url, body, wait, on_chunk, headers, provider)
     except AIError as exc:
         # 舊版 Ollama 不認 `think`：拿掉重來一次，而不是整批失敗
         if "think" not in str(exc).lower() or "think" not in body:
             raise
         body.pop("think", None)
         return await _stream_once(url, body, wait, on_chunk, headers, provider)
+
+
+class _Rejected(AIError):
+    """串流請求被伺服器以非 200 拒絕（保留狀態碼與原文，好判斷要不要換個請求再送）。"""
+
+    def __init__(self, message: str, status: int, text: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.text = text
 
 
 async def _stream_once(
@@ -1431,8 +1516,11 @@ async def _stream_once(
                            headers=headers or {"Content-Type": "application/json"},
                            json=body, timeout=wait) as resp:
         if resp.status_code != 200:
-            detail = (await resp.aread()).decode("utf-8", "replace")[:200]
-            raise AIError(f"{provider_label(provider)} chat {resp.status_code}: {detail}")
+            full = (await resp.aread()).decode("utf-8", "replace")
+            raise _Rejected(f"{provider_label(provider)} chat {resp.status_code}: {full[:200]}",
+                            resp.status_code, full)
+        thinking_chars = 0
+        done_reason: str | None = None
         async for line in resp.aiter_lines():
             data = _stream_payload(line)
             if data is None:
@@ -1445,10 +1533,16 @@ async def _stream_once(
             # 會思考的模型（gemma4 等）先吐一大段 thinking，content 要等到最後才出現。
             # 只看 content 的話，畫面會停住好幾分鐘完全沒有動靜 —— 實際上模型正在想。
             if d.thinking:
+                thinking_chars += len(d.thinking)
                 await on_chunk(d.thinking, "thinking")
             if d.content:
                 parts.append(d.content)
                 await on_chunk(d.content, "content")
             if d.done:
+                done_reason = d.done_reason
                 break
-    return "".join(parts)
+    out = "".join(parts)
+    if not out.strip() and done_reason == "length":
+        raise _cut_off_while_thinking(
+            thinking_chars, body.get("max_tokens") or (body.get("options") or {}).get("num_predict"))
+    return out

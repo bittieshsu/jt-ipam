@@ -1,7 +1,7 @@
 """DHCP 集區的使用率。
 
 「已用」＝**範圍內已經存在的 IP 記錄**，而不是只算有租約的。使用者關心的是
-「還有多少位址可以發出去」：有人把固定 IP 設在池的範圍裡（常見的設定失誤）
+「還有多少位址可以發出去」：有人把固定 IP 設在集區的範圍裡（常見的設定失誤）
 一樣吃掉可用量，而且那正是應該被看見的事。
 """
 from __future__ import annotations
@@ -33,7 +33,10 @@ def _range_size(start: str, end: str) -> int:
 
 async def pool_usage(session: AsyncSession) -> list[tuple[Any, int, int]]:
     """回傳每個集區的 (集區, 已用, 總數)。"""
-    pools = (await session.execute(select(DHCPPoolRange))).scalars().all()
+    from app.services.ip_ranges import manual_dhcp_pools
+    # 手動定義的 DHCP 集區（子網路內的位址範圍，issue #40）欄位與 DHCPPoolRange 同名，一起算
+    pools: list[Any] = [*(await session.execute(select(DHCPPoolRange))).scalars().all(),
+                        *await manual_dhcp_pools(session)]
     if not pools:
         return []
     rows = (await session.execute(select(IPAddress.ip))).all()

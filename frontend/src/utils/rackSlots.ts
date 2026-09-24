@@ -44,13 +44,19 @@ export function posFor(slot: number | null | undefined, parts: number): number {
  * （backend/tests/test_rack_slots.py 有守門測試會比對這個檔）。
  */
 export const RACK_DEFAULTS: Record<string, { width: number; row: number }> = {
-  rack: { width: 483, row: 44 },
+  rack: { width: 600, row: 44 },
   industrial: { width: 600, row: 44 },
   shelf: { width: 900, row: 350 },
   wire_shelf: { width: 1200, row: 400 },
   // IKEA IVAR 最小的那組：層板 42×30 公分、側架高 179 公分（官方要求至少 4 層，
   // 實務上多半放 6 層 → 每層約 300mm）。
   wood_shelf: { width: 420, row: 300 },
+  // 角鋼層架：台灣最常見 90×45×180 公分、4 層（淨空約 52 公分）
+  angle_shelf: { width: 900, row: 520 },
+  // KALLAX 2×4：外寬＝65＋350×格數，格子 335mm
+  kallax: { width: 765, row: 335 },
+  // LackRack：LACK 邊桌 55 公分寬，裝的是 19 吋設備（列＝U）
+  lackrack: { width: 550, row: 44 },
 };
 
 /**
@@ -60,13 +66,19 @@ export const RACK_DEFAULTS: Record<string, { width: number; row: number }> = {
  */
 export const RACK_BOARD_MM: Record<string, number> = {
   rack: 0, industrial: 0, shelf: 20, wire_shelf: 35, wood_shelf: 18,
+  // 角鋼層架＝50mm 鋼橫桿＋9mm 夾板；KALLAX 是內隔板（外框 40mm 另計）
+  angle_shelf: 59, kallax: 15, lackrack: 0,
 };
 export function boardDefault(kind: string | null | undefined): number {
   return RACK_BOARD_MM[kind || "rack"] ?? 0;
 }
 
 /** 以「層」計的型態。多一種層架時只改這裡，標籤、表單、圖都會跟著對。 */
-const LEVEL_KINDS = new Set(["shelf", "wire_shelf", "wood_shelf"]);
+const LEVEL_KINDS = new Set(["shelf", "wire_shelf", "wood_shelf", "angle_shelf", "kallax"]);
+
+/** 離地高度的預設（mm）。沒列的型態沒填就是 0。必須與後端 _DEFAULT_FLOOR_MM 一致。
+ *  KALLAX 沒有腳直接落地；LackRack 桌面下裝滿 8U 之後底下還有約 44mm。 */
+export const RACK_FLOOR_MM: Record<string, number> = { angle_shelf: 10, kallax: 0, lackrack: 44 };
 
 /** 型態的預設值（未知型態一律當標準機櫃）。 */
 export function rackDefaults(kind: string | null | undefined) {
@@ -188,6 +200,8 @@ export function rackPixelHeight(d: {
   render_row_px?: number;
   render_row_px_list?: number[];
   render_board_px?: number;
+  render_board_px_list?: number[];
+  render_top_px?: number;
   open_top?: boolean;
 } | null | undefined): number {
   if (!d) return 0;
@@ -197,6 +211,18 @@ export function rackPixelHeight(d: {
   const list = (d.render_row_px_list ?? []).slice(0, n);
   while (list.length < n) list.push(base);
   const rows = d.open_top ? [...list, list[list.length - 1] ?? base] : list;
-  const board = d.render_board_px ?? 0;
-  return rows.reduce((a, v) => a + v + board, 0);
+  const boards = boardList(d, rows.length);
+  return rows.reduce((a, v, i) => a + v + boards[i], 0) + (Number(d.render_top_px) || 0);
+}
+
+/**
+ * 每一列**底下**那片板的厚度 px，由上往下（畫面順序），長度＝畫出來的列數。
+ * 後端有給逐片清單就用它（KALLAX 外框比內隔板厚、LackRack 每張桌子一片桌面），
+ * 沒給（舊版後端）就是每片一樣厚 —— 畫出來與以前相同。畫面、匯出都叫這支。
+ */
+export function boardList(d: { render_board_px?: number; render_board_px_list?: number[] },
+                          rows: number): number[] {
+  const one = Number(d.render_board_px ?? 0) || 0;
+  const raw = (d.render_board_px_list ?? []).map((v) => Number(v) || 0);
+  return Array.from({ length: rows }, (_, i) => raw[i] ?? one);
 }

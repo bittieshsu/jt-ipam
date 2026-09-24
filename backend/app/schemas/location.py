@@ -45,6 +45,10 @@ class LocationRead(LocationBase):
 
 RackNumbering = Literal["top-down", "bottom-up"]
 RackFace = Literal["front", "rear"]
+RackKind = Literal["rack", "industrial", "shelf", "wire_shelf", "wood_shelf",
+                   "angle_shelf", "kallax", "lackrack"]
+#: 表面顏色（各型態可用的見 services/rack.py 的 FINISHES；不適用的值畫圖時用該型態預設色）
+RackFinish = Literal["black", "white", "galvanized", "black_brown", "oak", "brown"]
 
 
 class RackBase(StrictModel):
@@ -53,7 +57,8 @@ class RackBase(StrictModel):
     u_height: Annotated[int, Field(ge=1, le=99)] = 42
     # 實體尺寸（mm）；機房平面圖用真實腳印按比例畫機櫃方框
     # issue #30：rack＝標準 19" 機櫃（以 U 計）、shelf＝層架（以「層」計）
-    kind: Literal["rack", "industrial", "shelf", "wire_shelf", "wood_shelf"] = "rack"
+    kind: RackKind = "rack"
+    finish: RackFinish | None = None
     width_mm: Annotated[int | None, Field(ge=100, le=2000)] = None
     row_height_mm: Annotated[int | None, Field(ge=10, le=1000)] = None
     # 逐層高度（mm），由第 1 層起算。層架的層板一層一層各自可調；
@@ -82,7 +87,8 @@ class RackUpdate(StrictModel):
     name: Annotated[str | None, Field(min_length=1, max_length=64)] = None
     location_id: uuid.UUID | None = None
     u_height: Annotated[int | None, Field(ge=1, le=99)] = None
-    kind: Literal["rack", "industrial", "shelf", "wire_shelf", "wood_shelf"] | None = None
+    kind: RackKind | None = None
+    finish: RackFinish | None = None
     width_mm: Annotated[int | None, Field(ge=100, le=2000)] = None
     row_height_mm: Annotated[int | None, Field(ge=10, le=1000)] = None
     # 逐層高度（mm），由第 1 層起算。層架的層板一層一層各自可調；

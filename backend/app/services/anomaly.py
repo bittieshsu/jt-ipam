@@ -94,48 +94,126 @@ def _is_locally_administered(mac: str) -> bool:
     return bool(first & 0b10)
 
 
+#: MAC 來回切換：這段時間內，在同樣兩個 MAC 之間切換至少這麼多次才算（見 detect_ip_conflicts）
+FLIP_WINDOW = timedelta(hours=24)
+FLIP_MIN_CHANGES = 3
+
+
 async def detect_ip_conflicts(
     session: AsyncSession, *, window: timedelta = timedelta(hours=1),
+    flip_window: timedelta = FLIP_WINDOW,
 ) -> list[dict[str, Any]]:
-    """ARP 中同一 IP 在短時間內看到 ≥2 個 MAC。"""
-    cutoff = datetime.now(UTC) - window
+    """同一個網路裡的同一個 IP 被兩台以上的機器使用。兩種依據（GitHub issue #41）：
+
+    - `arp`：最近 1 小時內，ARP 觀測看到 ≥2 個 MAC。觀測來自 LibreNMS、掃描代理、防火牆
+      ARP 表（以前只有 LibreNMS 會寫，沒接 LibreNMS 的站台這條永遠是空的）。
+    - `mac_flip`：最近 24 小時內，IP 記錄上的 MAC 在同樣兩個位址之間切換 ≥3 次。掃描代理
+      每輪只看得到一個 MAC，掃描間隔比 1 小時長時 `arp` 那條湊不到兩個；切換一次（換網卡）、
+      來回一次（DHCP 租約發回原主）都不算。
+
+    範圍以子網路界定 —— 重疊網段（兩個單位各有一個 10.9.0.5）不能互相判成衝突。LibreNMS 的
+    觀測沒有子網路：IP 只落在一個子網路時歸到那裡，否則只跟同樣沒有子網路的觀測比。
+    """
+    from app.models.ip_change_log import IPChangeLog
+    from app.services.arp_evidence import normalize
+
+    now = datetime.now(UTC)
     rows = (
         await session.execute(
-            select(ARPEntry.ip, ARPEntry.mac, func.count(), func.max(ARPEntry.last_seen_at))
-            .where(ARPEntry.last_seen_at >= cutoff)
-            .group_by(ARPEntry.ip, ARPEntry.mac)
+            select(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, ARPEntry.source,
+                   func.max(ARPEntry.last_seen_at))
+            .where(ARPEntry.last_seen_at >= now - window)
+            .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, ARPEntry.source)
         )
     ).all()
-    # asyncpg 把 INET/MACADDR 回成物件不是字串（已知地雷 #10）——
-    # 在這裡就轉成字串，否則呼叫端拿去比對或塞進別的查詢會失敗。
-    by_ip: dict[str, list[tuple[str, datetime]]] = defaultdict(list)
-    for ip, mac, _cnt, last in rows:
-        by_ip[str(ip)].append((str(mac), last))
+    # asyncpg 把 INET/MACADDR 回成物件不是字串（已知地雷 #10）—— 一進來就轉成字串
+    unscoped = {str(ip).split("/")[0] for ip, _m, sid, _s, _t in rows if sid is None}
+    owner: dict[str, str] = {}
+    if unscoped:
+        seen_in: dict[str, set[str]] = defaultdict(set)
+        for ip, sid in (await session.execute(
+                select(IPAddress.ip, IPAddress.subnet_id).where(IPAddress.ip.in_(unscoped)))).all():
+            seen_in[str(ip).split("/")[0]].add(str(sid))
+        owner = {ip: next(iter(sids)) for ip, sids in seen_in.items() if len(sids) == 1}
 
-    conflicts = {ip: pairs for ip, pairs in by_ip.items() if len({m for m, _ in pairs}) >= 2}
+    # (子網路, IP) → MAC → {最後看到, 誰看到的}
+    found: dict[tuple[str | None, str], dict[str, dict[str, Any]]] = defaultdict(dict)
+    evidence: dict[tuple[str | None, str], set[str]] = defaultdict(set)
+    changes: dict[tuple[str | None, str], int] = {}
 
+    def _see(key: tuple[str | None, str], mac: str, at: datetime, source: str) -> None:
+        cur = found[key].setdefault(mac, {"last": at, "sources": set()})
+        cur["last"] = max(cur["last"], at)
+        cur["sources"].add(source)
+
+    for ip, mac, sid, source, last in rows:
+        ip_s = str(ip).split("/")[0]
+        m = normalize(mac)
+        if m is None:
+            continue
+        _see((str(sid) if sid else owner.get(ip_s), ip_s), m, last, str(source))
+    for key in [k for k, macs in found.items() if len(macs) >= 2]:
+        evidence[key].add("arp")
+
+    # MAC 來回切換（異動記錄）
+    flips = (await session.execute(
+        select(IPChangeLog.subnet_id, IPChangeLog.ip_text, IPChangeLog.old_value,
+               IPChangeLog.new_value, IPChangeLog.source, IPChangeLog.created_at)
+        .where(IPChangeLog.event_type == "mac_changed",
+               IPChangeLog.created_at >= now - flip_window)
+        .order_by(IPChangeLog.created_at)
+    )).all()
+    pairs: dict[tuple[tuple[str | None, str], frozenset[str]], list[tuple[str, datetime, str]]] = (
+        defaultdict(list))
+    for sid, ip_text, old, new, source, at in flips:
+        a, b = normalize(old), normalize(new)
+        if a is None or b is None or a == b:
+            continue
+        pairs[((str(sid) if sid else None, str(ip_text)), frozenset((a, b)))].append(
+            (b, at, str(source)))
+    for (key, _pair), seq in pairs.items():
+        if len(seq) < FLIP_MIN_CHANGES:
+            continue
+        for mac, at, source in seq:
+            _see(key, mac, at, source)
+        evidence[key].add("mac_flip")
+        changes[key] = max(changes.get(key, 0), len(seq))
+
+    conflicts = {k: found[k] for k in evidence}
     # 帶上 OUI 廠商：兩個裸 MAC 位址擺在一起看不出是誰在打架，
     # 「Dell vs Apple」才讓人知道該去找哪一台。一次批次查完，不要逐筆查。
-    vendors = await vendor_map(
-        session, [m for pairs in conflicts.values() for m, _ in pairs],
-    )
+    vendors = await vendor_map(session, [m for macs in conflicts.values() for m in macs])
 
     out: list[dict[str, Any]] = []
-    for ip, pairs in conflicts.items():
+    for (sid, ip), macs in sorted(conflicts.items(), key=lambda kv: (kv[0][1], kv[0][0] or "")):
         out.append({
             "ip": ip,
+            "subnet_id": sid,
+            "evidence": sorted(evidence[(sid, ip)]),
+            "changes": changes.get((sid, ip)),
             "macs": [
                 {
                     "mac": m,
                     # vendor_map 的 key 是正規化後的 6 碼前綴，不是完整 MAC
                     "vendor": vendors.get(mac_prefix(m) or ""),
                     "local": _is_locally_administered(m),
-                    "last_seen_at": dt.isoformat(),
+                    "last_seen_at": info["last"].isoformat(),
+                    "sources": sorted(info["sources"]),
                 }
-                for m, dt in sorted(pairs, key=lambda x: x[1], reverse=True)
+                for m, info in sorted(macs.items(), key=lambda kv: kv[1]["last"], reverse=True)
             ],
         })
     return out
+
+
+async def ip_conflict_coverage(
+    session: AsyncSession, *, window: timedelta = timedelta(hours=1),
+) -> dict[str, Any]:
+    """IP 衝突偵測這次有沒有資料可看（給 AI 工具講清楚「沒有依據」與「沒有衝突」的差別）。"""
+    from app.services.arp_evidence import coverage
+    cov = await coverage(session, window=window)
+    cov["flip_window_hours"] = int(FLIP_WINDOW.total_seconds() // 3600)
+    return cov
 
 
 async def detect_mac_drifts(
@@ -347,7 +425,7 @@ async def detect_arp_only_liveness(
 
 # ── 一個 IP 頻繁更換 MAC ────────────────────────────────────────────────────
 # 既有的 detect_mac_drifts 問的是「同一個 MAC 出現在兩個交換器埠」（接錯線／偽裝）。
-# 這一條是反過來：**同一個 IP 一直換 MAC** —— DHCP 池被反覆重用、有人手動搶用固定 IP，
+# 這一條是反過來：**同一個 IP 一直換 MAC** —— DHCP 集區被反覆重用、有人手動搶用固定 IP，
 # 或某台機器在做位址隨機化。
 #
 # ⚠️ 隨機化是常態不是異常：Windows 11 / macOS / iOS / Android 開了隱私功能之後，每次
@@ -1179,6 +1257,9 @@ async def run_scheduled(session: AsyncSession) -> AnomalyReport:
     await notify_new_findings(session, report)
     await deliver_event(session, event="anomaly.detected", payload=report.to_dict())
     await set_anomaly_last_run(session, at=datetime.now(UTC))
+    # 掃描代理／防火牆的 ARP 觀測會隨隨機化 MAC 一直增加，太舊的清掉（偵測只看 1 小時～7 天）
+    from app.services.arp_evidence import prune
+    await prune(session)
     await session.commit()
     return report
 

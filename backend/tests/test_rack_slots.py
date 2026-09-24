@@ -193,12 +193,52 @@ def test_shelf_is_wider_and_taller_than_a_rack() -> None:
 
 def test_custom_size_scales_proportionally_but_is_clamped() -> None:
     from app.services.rack import RACK_REF_WIDTH_MM, rack_render_size
-    # 兩倍寬 → 兩倍 px（未觸頂）
-    w, _ = rack_render_size("rack", int(RACK_REF_WIDTH_MM * 2), None)
+    # 層架：兩倍寬 → 兩倍 px（未觸頂）。機櫃不在此列 —— 見下面的走線空間
+    w, _ = rack_render_size("wood_shelf", int(RACK_REF_WIDTH_MM * 2), None)
     assert abs(w - 500.0) < 1.0
     # 誇張的值要被夾住，不能把版面撐爆
     w2, r2 = rack_render_size("shelf", 5000, 5000)
     assert w2 <= 620.0 and r2 <= 76.0
+
+
+# ─────────────────── 機櫃的走線空間 ───────────────────
+
+def test_rack_device_area_is_always_19_inches() -> None:
+    """機櫃再寬，裝進去的設備都是 19 吋 —— 設備區不可以跟著外寬放大。
+
+    以前 600mm 的機櫃把設備區畫成 19 吋的 1.24 倍寬、800mm 畫成 1.66 倍：
+    多出來的寬度其實在兩側，是走線用的空間。"""
+    from app.services.rack import rack_render_size
+    for kind in ("rack", "industrial"):
+        for width in (None, 600, 800, 1000):
+            assert rack_render_size(kind, width, None)[0] == 250.0, (kind, width)
+
+
+def test_rack_side_channels_follow_the_outer_width() -> None:
+    """兩側走線空間各 (外寬 − 465.1) ÷ 2 mm：從立柱的孔位中心線量到外緣。
+
+    465.1mm 是 EIA-310 的左右孔距（孔中心到孔中心）—— 立柱就在那裡，它外面才是理線的空間。
+    用 482.6（面板含耳朵的寬）去算會少掉兩邊各 8.75mm，600mm 的櫃子看起來只剩一條細縫。
+    換成 px 用跟設備區同一個比例（482.6mm＝250px）。
+    """
+    from app.services.rack import RACK_HOLE_SPACING_MM, rack_side_px
+    assert RACK_HOLE_SPACING_MM == 465.1
+    px_per_mm = 250.0 / 482.6
+    assert abs(rack_side_px("rack", 600) - (600 - 465.1) / 2 * px_per_mm) < 0.01   # ≈ 34.9
+    assert abs(rack_side_px("rack", 800) - (800 - 465.1) / 2 * px_per_mm) < 0.01   # ≈ 86.7
+    assert rack_side_px("rack", 800) > rack_side_px("rack", 600) > 0
+    assert rack_side_px("rack", None) == rack_side_px("rack", 600), "沒填寬度當作 600mm（最常見的機櫃）"
+    assert rack_side_px("industrial", 600) == rack_side_px("rack", 600)
+    assert rack_side_px("rack", 450) == 0.0, "比孔距還窄就沒有走線空間，不可以是負的"
+    for shelf in ("shelf", "wire_shelf", "wood_shelf"):
+        assert rack_side_px(shelf, 900) == 0.0, "層架的寬度就是層板本身，沒有走線區"
+
+
+def test_rack_default_width_is_the_outer_width() -> None:
+    """機櫃的「寬度」是外尺寸：沒填時表單提示的值要跟畫圖時當作的值一樣（600），
+    不能提示 483（那是 19 吋面板寬）卻拿 600 去畫。"""
+    from app.services.rack import rack_defaults
+    assert rack_defaults("rack")[0] == 600.0
 
 
 # ─────────────────── 機架型態（標準／工業／層架／鍍鉻層架） ───────────────────
@@ -206,13 +246,14 @@ def test_custom_size_scales_proportionally_but_is_clamped() -> None:
 def test_all_rack_kinds_have_sensible_defaults() -> None:
     """四種型態各有合理的預設尺寸；U 制的兩種列高相同，層架類的明顯較高。"""
     from app.services.rack import RACK_KINDS, rack_defaults
-    assert set(RACK_KINDS) == {"rack", "industrial", "shelf", "wire_shelf", "wood_shelf"}
+    assert set(RACK_KINDS) == {"rack", "industrial", "shelf", "wire_shelf", "wood_shelf",
+                               "angle_shelf", "kallax", "lackrack"}
     rack_w, rack_r = rack_defaults("rack")
     ind_w, ind_r = rack_defaults("industrial")
     sh_w, sh_r = rack_defaults("shelf")
     wire_w, wire_r = rack_defaults("wire_shelf")
     assert ind_r == rack_r            # 工業機櫃仍是 U 制，列高同標準
-    assert ind_w > rack_w             # 但箱體通常比 19" 寬
+    assert ind_w >= rack_w            # 兩者都是外寬（不是 19" 面板寬）
     assert sh_r > rack_r and wire_r > rack_r     # 層架一層遠高於 1U
     assert wire_w >= sh_w             # 鍍鉻層架常見 120cm，比一般層架寬
 
@@ -494,3 +535,38 @@ def test_posts_stop_at_the_top_board() -> None:
     assert ys and boards
     # 立柱的上緣要低於畫面最上緣（那裡是開放的頂端），且不高於最上面那片板太多
     assert min(ys) > min(boards) - 12, f"立柱 {min(ys)} 畫到最上面那片板 {min(boards)} 之上了"
+
+
+def test_embed_svg_draws_the_side_channels_like_the_screen() -> None:
+    """對外嵌入的 SVG（rack_svg.py）是同一張機櫃圖的第三份實作 —— 畫面與前端匯出都畫了
+    兩側走線空間，它不畫的話，嵌到 LibreNMS 的圖就跟畫面長得不一樣（而且沒有人會發現）。
+
+    量的是產物本身：800mm 比 600mm 的圖寬出兩側各多的那一截，設備還是一樣寬。
+    """
+    import re
+
+    from app.services.rack import rack_side_px
+    from app.services.rack_svg import build_rack_svg
+
+    dev = [{"name": "srv-a", "type": "server", "u_position": 1, "u_size": 1,
+            "rack_slot": 0, "rack_slot_span": 60}]
+
+    def svg_of(kind: str, width: int | None) -> str:
+        return build_rack_svg("R", 4, dev, kind=kind, width_mm=width)
+
+    def width_of(svg: str) -> float:
+        return float(re.search(r'<svg [^>]*width="([\d.]+)"', svg).group(1))
+
+    def device_w(svg: str) -> float:
+        return float(re.search(r'<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)" '
+                               r'height="[\d.]+" fill="rgba\(107, 114, 128', svg).group(1))
+
+    s600, s800 = svg_of("rack", 600), svg_of("rack", 800)
+    grow = width_of(s800) - width_of(s600)
+    want = 2 * (rack_side_px("rack", 800) - rack_side_px("rack", 600))
+    assert abs(grow - want) < 0.5, f"800mm 的圖應寬 {want:.1f}px，實際 {grow:.1f}px"
+    assert device_w(s600) == device_w(s800), "設備區固定 19 吋，不跟著外寬放大"
+    for svg in (s600, s800, svg_of("industrial", 800)):
+        assert svg.count('class="rack-channel"') == 2, "左右各一條走線空間"
+    for shelf in ("shelf", "wire_shelf", "wood_shelf"):
+        assert 'class="rack-channel"' not in svg_of(shelf, 900), "層架沒有走線空間"

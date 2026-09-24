@@ -11,6 +11,11 @@
 # This is a release gate, not an optional extra. See TEST_CHECKLIST.md section 5b.
 #
 # Usage:  scripts/test-fresh-install.sh [debian:12|ubuntu:24.04|...]
+# Mirror: APT_MIRROR=ftp.tw.debian.org 讓容器裡的 apt 改走指定的 Debian 鏡像站。deb.debian.org
+#         慢的時候（2026-09-24 實測 59 KB/s），PID 1 裝 systemd 就會超過等待時間而回報
+#         「systemd never came up」—— 看起來像 systemd 壞了，其實是 apt 還在下載。
+#         PIP_MIRROR=https://<index>/simple 同理換 PyPI（files.pythonhosted.org 同一天也只有 50 KB/s）。
+#         兩者只影響這個拋棄式容器，不影響發佈內容與客戶安裝。
 # Needs:  docker, and a source tree at the repo root. Nothing else.
 #
 # The container runs systemd (privileged + host cgroups) because the whole point
@@ -35,8 +40,17 @@ docker rm -f "$NAME" >/dev/null 2>&1 || true
 # The base images ship no init, so PID 1 installs systemd and then becomes it.
 docker run -d --name "$NAME" --privileged --cgroupns=host \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock \
-    -e DEBIAN_FRONTEND=noninteractive "$IMAGE" \
-    sh -c 'apt-get update -qq && apt-get install -y -qq systemd systemd-sysv \
+    -e DEBIAN_FRONTEND=noninteractive -e APT_MIRROR="${APT_MIRROR:-}" \
+    -e PIP_MIRROR="${PIP_MIRROR:-}" "$IMAGE" \
+    sh -c 'if [ -n "$PIP_MIRROR" ]; then
+             # 寫全域設定：安裝腳本用 sudo -u jtipam 跑 pip，環境變數會被 sudo 清掉
+             printf "[global]\nindex-url = %s\n" "$PIP_MIRROR" > /etc/pip.conf; fi
+           if [ -n "$APT_MIRROR" ]; then
+             # 只換主套件庫；debian-security 多數鏡像站沒有，維持官方來源
+             sed -i -e "s#//deb.debian.org/debian\$#//$APT_MIRROR/debian#" \
+               -e "s#//deb.debian.org/debian #//$APT_MIRROR/debian #" \
+               /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null; fi
+           apt-get update -qq && apt-get install -y -qq systemd systemd-sysv \
            ca-certificates curl >/dev/null && exec /sbin/init' >/dev/null
 # PID 1 先裝 systemd 再變成 systemd，所以這裡等的其實是**容器裡的 apt**。
 # 原本給 90 次（180 秒）—— 在網路慢的建置機上 apt 光下載就要好幾分鐘，關卡會回

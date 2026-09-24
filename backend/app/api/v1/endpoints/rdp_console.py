@@ -268,6 +268,31 @@ def engine_available(engine: str) -> tuple[bool, str]:
     return (RDP_AVAILABLE, "" if RDP_AVAILABLE else "aardwolf")
 
 
+def python_version() -> str:
+    import sys
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
+def rdp_unavailable_detail(engine: str, missing: str) -> dict[str, Any]:
+    """RDP 用不了時給使用者看的說明：原因加出路（GitHub issue #39）。
+
+    以前只說「缺 aardwolf」。實際最常見的原因是這台的 Python 太新（aardwolf 0.2.13 只有
+    CPython 3.9–3.13 的預編譯 wheel，安裝時刻意不現場編 Rust）—— 而 RDP 其實可以改用
+    FreeRDP 引擎，只是使用者不會知道。
+    """
+    if engine == "freerdp":
+        return ui_detail(
+            "console_rdp_freerdp_missing",
+            f"FreeRDP 引擎缺少 {missing}：請在伺服器上執行 jt-ipam.sh upgrade 安裝。",
+            engine=engine, missing=missing)
+    py = python_version()
+    return ui_detail(
+        "console_rdp_no_aardwolf",
+        f"這台伺服器沒有 aardwolf（Python {py} 沒有它的預編譯套件）。"
+        "請管理員到「系統設定 → RDP 連線引擎」改用 FreeRDP。",
+        engine=engine, missing=missing, python=py)
+
+
 @router.post("/{address_id}/rdp/ticket")
 async def issue_rdp_ticket(
     address_id: uuid.UUID,
@@ -299,10 +324,7 @@ async def issue_rdp_ticket(
     engine = await get_rdp_engine(session)
     ok, missing = engine_available(engine)
     if not ok:
-        raise HTTPException(status_code=503, detail=ui_detail(
-            "console_rdp_not_installed",
-            f"RDP 功能未安裝（{engine} 引擎缺少 {missing}）",
-            engine=engine, missing=missing))
+        raise HTTPException(status_code=503, detail=rdp_unavailable_detail(engine, missing))
 
     ticket = secrets.token_urlsafe(32)
     payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
@@ -632,13 +654,17 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
     伺服器→控制端的剪貼簿一律不回傳（pump_out 只送視訊），維持單向、不外洩被控端剪貼簿。
     """
 
+    frames = 0      # 送出過幾張畫面：一張都沒有就被結束＝伺服器在工作階段一開始就拒絕了
+
     async def pump_out() -> None:
+        nonlocal frames
         with contextlib.suppress(Exception):
             while True:
                 data = await conn.ext_out_queue.get()
                 if data is None:
                     break
                 if _is_video(data):
+                    frames += 1
                     await send({
                         "type": "img", "x": data.x, "y": data.y,
                         "w": data.width, "h": data.height,
@@ -719,7 +745,9 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
 
     out_task = asyncio.create_task(pump_out())
     in_task = asyncio.create_task(pump_in())
-    _done, pending = await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+    # 畫面那一端先結束、瀏覽器還開著＝被控端結束了工作階段（不是使用者關掉分頁）
+    remote_ended = out_task in done and in_task not in done
     for p in pending:
         p.cancel()
     await asyncio.gather(*pending, return_exceptions=True)
@@ -733,3 +761,16 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
             # 不能只放在 message，否則前端用翻譯時那一段會是空的
             await send({"type": "error",
                         **ui_detail("console_remote_closed", reason, reason=reason)})
+    elif remote_ended:
+        # aardwolf 不給中斷原因（GitHub issue #42：它的讀取迴圈拿到 None 就丟 TypeError，
+        # 真正的原因被蓋掉）。至少分得出「還沒出畫面就被拒」與「用到一半被結束」。
+        _log.info("rdp: 被控端結束了工作階段（沒有原因；已送出 %s 張畫面）", frames)
+        detail = (ui_detail(
+            "console_remote_ended_early",
+            "遠端主機在工作階段一開始就結束了連線，還沒送出任何畫面。常見原因：這個帳號沒有"
+            "遠端登入權限、遠端桌面授權或連線代理拒絕、工作階段數已滿。可改用 FreeRDP 引擎"
+            "（系統設定 → RDP 引擎），它會顯示伺服器給的原因。")
+            if frames == 0 else
+            ui_detail("console_remote_ended", "遠端主機結束了這個工作階段（沒有提供原因）"))
+        with contextlib.suppress(Exception):
+            await send({"type": "error", **detail})

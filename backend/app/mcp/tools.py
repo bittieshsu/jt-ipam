@@ -1328,10 +1328,11 @@ async def list_dhcp_ranges(
     session: AsyncSession, *, user: User, limit: int = 300,
     subnet_cidr: str | None = None, subnet_id: str | None = None,
 ) -> dict[str, Any]:
-    """各整合同步回來的 DHCP 發放範圍（OPNsense / pfSense / FortiGate / Windows DHCP）。
+    """各整合同步回來的 DHCP 發放範圍（OPNsense / pfSense / FortiGate / Windows DHCP），
+    加上子網路裡手動定義的 DHCP 集區（source_type=manual）。
 
     每筆帶來源整合（`source_type` / `source_name`）與 DHCP 引擎（`source`：kea / isc /
-    windows）。「這個 IP 是不是落在 DHCP 池裡」這種問題要靠它，不能拿子網路去猜。
+    windows）。「這個 IP 是不是落在 DHCP 集區裡」這種問題要靠它，不能拿子網路去猜。
     """
     from app.models.dhcp import DHCPPoolRange
     scope_ids, scope = await _scope_subnet(
@@ -1341,11 +1342,14 @@ async def list_dhcp_ranges(
         # 範圍表存的是 CIDR 字串，直接以該子網路的 cidr 比對
         stmt = stmt.where(DHCPPoolRange.subnet_cidr.in_(
             select(Subnet.cidr).where(Subnet.id.in_(scope_ids))))
+    from app.services.ip_ranges import manual_dhcp_pools
+    # 子網路裡手動定義的 DHCP 集區（issue #40），跟整合同步回來的一起列
+    manual = await manual_dhcp_pools(session, list(scope_ids) if scope_ids is not None else None)
     total = int(await session.scalar(
-        select(func.count()).select_from(stmt.subquery())) or 0)
-    rows = (await session.execute(
+        select(func.count()).select_from(stmt.subquery())) or 0) + len(manual)
+    rows: list[Any] = [*(await session.execute(
         stmt.order_by(DHCPPoolRange.source_type, DHCPPoolRange.start_ip).limit(limit)
-    )).scalars().all()
+    )).scalars().all(), *manual][:limit]
     return {"scope": scope, "count": total, "returned": len(rows), "ranges": [{
         "source_type": r.source_type, "source_name": r.source_name,
         "subnet_cidr": str(r.subnet_cidr) if r.subnet_cidr else None,
@@ -2538,12 +2542,35 @@ async def list_anomalies(
         "Report only the items listed here, copied verbatim. Every IP, MAC and hostname "
         "in your answer must appear in this result."
     )
-    return {
+    out: dict[str, Any] = {
         "total": total,
         "counts": {k: len(v) for k, v in buckets.items()},
         "items": {k: v[:n] for k, v in buckets.items()},
-        "note": note,
     }
+    if "ip_conflicts" in buckets:
+        # GitHub issue #41：偵測器沒有資料時，模型把空結果講成「系統中沒有任何已記錄的 IP 衝突」。
+        # 「沒有依據」與「看過了、沒有衝突」要分得開，而且結果是**此刻**的狀態、不是歷史。
+        cov = await _an.ip_conflict_coverage(session)
+        out["coverage"] = {"ip_conflicts": cov}
+        scope = (f"IP conflicts are current state only: ARP observations from the last "
+                 f"{cov['window_minutes']} minutes and MAC changes from the last "
+                 f"{cov['flip_window_hours']} hours. They are not a history of past conflicts.")
+        if cov["observations"] == 0 and not buckets["ip_conflicts"]:
+            blind = ("There was no ARP evidence at all in that window (no LibreNMS, scan agent "
+                     "or firewall ARP observations), so whether any IP conflict exists cannot be "
+                     "determined. Say exactly that — do NOT say there are no IP conflicts.")
+            if total == 0:
+                # 「沒有偵測到異常，照這樣講」與「不可以說沒有衝突」不能同時出現
+                others = [k for k in buckets if k != "ip_conflicts"]
+                note = ((f"No anomalies were detected in: {', '.join(others)}. " if others else "")
+                        + "Do NOT invent example IPs, MACs, hostnames or subnets. "
+                        + blind + " " + scope)
+            else:
+                note = f"{note} {blind} {scope}"
+        else:
+            note = f"{note} {scope}"
+    out["note"] = note
+    return out
 
 
 async def investigate_ip(
@@ -2694,7 +2721,9 @@ TOOLS: dict[str, dict[str, Any]] = {
             "total/used/free rows, and each mounted device's position: u_position/u_size "
             "plus rack_slot/rack_slot_span (side by side) and rack_vslot/rack_vslot_span "
             "(stacked within one row), on a 60-cell grid. kind tells you the type "
-            "(rack / industrial / shelf / wire_shelf / wood_shelf); shelf kinds are counted "
+            "(rack / industrial / lackrack = U-based; shelf / wire_shelf / wood_shelf / "
+            "angle_shelf = slotted angle steel shelving / kallax = IKEA KALLAX cube unit are "
+            "shelf kinds). Shelf kinds are counted "
             "in LEVELS not U — use rows_label, and placeable_rows (shelves can also take "
             "devices on top of the highest board). A row may hold several devices, so check "
             "rows_with_space before saying a row is full."

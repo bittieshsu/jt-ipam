@@ -106,7 +106,11 @@ async def _enrich_special_flags(
         select(Subnet.id, Subnet.gateway).where(Subnet.id.in_(subnet_ids))
     )).all())
     ranges: list[tuple[int, int]] = []
-    for s, e in (await session.execute(select(DHCPPoolRange.start_ip, DHCPPoolRange.end_ip))).all():
+    # 手動定義的 DHCP 集區（子網路內的位址範圍，issue #40）跟整合同步回來的一起算
+    from app.services.ip_ranges import manual_dhcp_pools
+    manual = [(p.start_ip, p.end_ip) for p in await manual_dhcp_pools(session, subnet_ids)]
+    for s, e in [*(await session.execute(select(DHCPPoolRange.start_ip, DHCPPoolRange.end_ip))).all(),
+                 *manual]:
         try:
             ranges.append((int(_ip.ip_address(str(s))), int(_ip.ip_address(str(e)))))
         except ValueError:
@@ -646,8 +650,11 @@ async def get_address_relations(
     user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """IP 的上下關係鏈：區段 → 子網路 → 位址 → 裝置 → 機櫃 → 機房。
-    每個節點 {type,id,label,sub}；缺的環節省略。前端橫向串成關係圖。"""
+    """IP 的上下關係鏈：機房 → 機櫃 →（主機 → 虛擬機 →）裝置 → 位址 → 子網路 → 區段。
+    每個節點 {type,id,label,sub}；缺的環節省略。前端橫向串成關係圖。
+
+    方向跟裝置頁、儀表板一致：實體在左、邏輯在右。下面由 IP 往外接比較好寫，
+    所以最後整條反轉 —— 以前沒有反轉，IP 頁跟另外兩處左右顛倒（使用者回報）。"""
     from app.models.device import Device
     from app.models.location import Location, Rack
     from app.models.section import Section
@@ -755,7 +762,7 @@ async def get_address_relations(
         chain.append({"type": "vm", "id": str(vm.id), "label": vm.name, "sub": None,
                       "platform": None})
         await _append_pve_node(vm, skip_id=obj.device_id)
-    return {"chain": chain}
+    return {"chain": chain[::-1]}
 
 
 @router.get("/{address_id}/history")

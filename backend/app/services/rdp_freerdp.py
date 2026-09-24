@@ -30,12 +30,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fcntl
+import functools
 import logging
 import os
 import re
 import secrets
 import shutil
 import signal
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
@@ -43,10 +45,61 @@ from typing import Any
 
 logger = logging.getLogger("jt-ipam.rdp.freerdp")
 
-# 需要的外部程式。少任何一個就不能用這個引擎 —— 由 `availability()` 回報，
-# 讓設定頁講得出「缺什麼、怎麼裝」，而不是讓使用者連到一半才看到錯誤。
+# RDP 用戶端：FreeRDP 2 叫 xfreerdp、FreeRDP 3 叫 xfreerdp3。Ubuntu 25.10／26.04 起只剩
+# freerdp3-x11（GitHub issue #39）—— 以前只認 xfreerdp，那些版本上這個引擎根本裝不起來，
+# 而那正是 aardwolf 也裝不起來（Python 3.14 沒有 wheel）的主機。兩個都有時用驗證較久的 2；
+# `JT_IPAM_FREERDP_BIN` 可以指定（測試 FreeRDP 3 也靠它）。命令列選項兩版相同（已實測）。
+FREERDP_BINARIES = ("xfreerdp", "xfreerdp3")
+
+
+def freerdp_binary() -> str | None:
+    """實際要執行的 RDP 用戶端路徑；都沒有就 None。"""
+    forced = os.environ.get("JT_IPAM_FREERDP_BIN", "").strip()
+    if forced:
+        return shutil.which(forced)
+    for name in FREERDP_BINARIES:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def _apt_has_candidate(pkg: str) -> bool:
+    """這台的 apt 有沒有這個套件可以裝（`apt-cache policy` 的 Candidate 不是 (none)）。"""
+    apt_cache = shutil.which("apt-cache")
+    if apt_cache is None:                 # 不是 Debian／Ubuntu：沒有 apt 可問
+        return False
+    try:
+        # pkg 只會是這個模組裡寫死的套件名（freerdp2-x11），不是外部輸入
+        out = subprocess.run([apt_cache, "policy", pkg], capture_output=True,  # noqa: S603
+                             text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    for line in out.splitlines():
+        if line.strip().startswith("Candidate:"):
+            return "(none)" not in line
+    return False
+
+
+@functools.lru_cache(maxsize=1)
+def freerdp_package() -> str:
+    """要裝哪個 FreeRDP 套件：這台還有 freerdp2-x11 就用它，沒有（Ubuntu 25.10 起）就 freerdp3-x11。"""
+    return "freerdp2-x11" if _apt_has_candidate("freerdp2-x11") else "freerdp3-x11"
+
+
+def required_binaries() -> dict[str, str]:
+    """需要的外部程式 → 要裝的套件。少任何一個就不能用這個引擎 —— 由 `availability()` 回報，
+    讓設定頁講得出「缺什麼、怎麼裝」，而不是讓使用者連到一半才看到錯誤。
+    `xfreerdp` 代表「RDP 用戶端」，FreeRDP 2 或 3 任一個都算（見 `freerdp_binary`）。"""
+    return {"xfreerdp": freerdp_package(), **REQUIRED_BINARIES}
+
+
+def binary_present(exe: str) -> bool:
+    return freerdp_binary() is not None if exe == "xfreerdp" else shutil.which(exe) is not None
+
+
+# 除了 RDP 用戶端之外需要的外部程式
 REQUIRED_BINARIES: dict[str, str] = {
-    "xfreerdp": "freerdp2-x11",
     "Xvfb": "xvfb",
     # 抓畫面。不是「順便用用看」——`XGetImage` 經 python-xlib 要 334 ms/張（1280x800，
     # 純 Python 解析 4 MB 像素），上限 2.8 fps，互動主控台不能用。ffmpeg 的 x11grab
@@ -71,8 +124,9 @@ _SECCOMP_HINT = (
     "  sudo systemctl daemon-reload && sudo systemctl restart jt-ipam-backend"
 )
 
-# 缺套件時印給人照著貼的指令。這串由後端算，前端不要自己維護一份 —— 兩份會不一致。
-FREERDP_APT_HINT = "sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg"
+def freerdp_apt_hint() -> str:
+    """缺套件時印給人照著貼的指令。這串由後端算，前端不要自己維護一份 —— 兩份會不一致。"""
+    return f"sudo apt-get install -y {freerdp_package()} xvfb xclip ffmpeg"
 
 _CONNECT_TIMEOUT = 25.0        # 秒；與 aardwolf 那條路一致
 _CAPTURE_FPS = 15              # 交給 ffmpeg 的取樣率；畫面沒變時我們仍然不送
@@ -218,8 +272,8 @@ def availability() -> dict[str, Any]:
     回傳 `{ok, missing_packages, missing_modules, install_hint}`。設定頁直接顯示這個 ——
     「選項在那裡但按了才發現不能用」比沒有這個選項更糟。
     """
-    missing_pkgs = sorted({pkg for exe, pkg in REQUIRED_BINARIES.items()
-                           if shutil.which(exe) is None})
+    missing_pkgs = sorted({pkg for exe, pkg in required_binaries().items()
+                           if not binary_present(exe)})
     missing_mods: list[str] = []
     for mod, pkg in REQUIRED_MODULES.items():
         try:
@@ -231,6 +285,46 @@ def availability() -> dict[str, Any]:
         "missing_packages": missing_pkgs,
         "missing_modules": sorted(missing_mods),
     }
+
+
+def _close_pipes(proc: Any) -> None:
+    """關掉我們這一端的 stdin／stdout／stderr 管線。"""
+    transport = getattr(proc, "_transport", None)
+    if transport is None:
+        return
+    for fd in (0, 1, 2):
+        with contextlib.suppress(Exception):
+            pipe = transport.get_pipe_transport(fd)
+            if pipe is not None:
+                pipe.close()
+
+
+async def _stop_process(proc: Any, grace: float = 5.0) -> None:
+    """收掉一個子行程，**一定會回來**。
+
+    兩個會讓它永遠卡住的地方（對 FreeRDP 3 做整合測試時抓到，FreeRDP 2 一樣會中）：
+    - 抓畫面的 ffmpeg 一直往管線寫；串流收掉之後沒人讀，管線滿了它就卡在 write 上，
+      而它自己處理 SIGTERM —— 卡在 write 上時不會結束。
+    - asyncio（Python 3.12）的 `proc.wait()` 要等**所有管線都斷開**才回來；讀取端因為緩衝滿了
+      而暫停著，永遠等不到 EOF —— 就算 SIGKILL 已經把它殺了也一樣。
+    所以先關掉我們這一端的管線（ffmpeg 會拿到 EPIPE 立刻結束，asyncio 也不用再等管線），
+    而且每一次等待都有時限。卡住的後果是後面的 xfreerdp 與 Xvfb 都收不掉，每斷一次線留下一組。
+    """
+    if proc is None:
+        return
+    _close_pipes(proc)
+    if proc.returncode is not None:
+        return
+    for send in (proc.terminate, proc.kill):
+        with contextlib.suppress(ProcessLookupError):
+            send()
+        try:
+            async with asyncio.timeout(grace):
+                await proc.wait()
+            return
+        except TimeoutError:
+            continue
+    logger.warning("freerdp: 子行程 pid=%s 收不掉（SIGKILL 之後仍未結束）", proc.pid)
 
 
 class FreeRdpError(Exception):
@@ -577,7 +671,7 @@ class FreeRdpConnection(_InputMixin):
     async def _start_xfreerdp(self) -> None:
         """起 xfreerdp。密碼走 stdin，不進 argv。"""
         args = [
-            "xfreerdp",
+            freerdp_binary() or "xfreerdp",
             f"/v:{self._host}:{self._port}",
             f"/u:{self._username}",
             f"/size:{self._width}x{self._height}",
@@ -740,26 +834,21 @@ class FreeRdpConnection(_InputMixin):
             self._grab_task.cancel()
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await self._grab_task
-        with contextlib.suppress(Exception):
-            await self.ext_out_queue.put(None)
+        # 結束訊號不能用 `await put()`：控制端斷線時沒有人在讀，佇列滿了（最多 8 張）就會永遠卡在這，
+        # 後面收掉 xfreerdp 與 Xvfb 的步驟都不會執行 —— 每斷一次線留下一組行程（對 FreeRDP 3 做
+        # 整合測試時抓到，FreeRDP 2 一樣會中）。滿了就先丟掉一張畫面，再不等待地放進去。
+        with contextlib.suppress(asyncio.QueueEmpty):
+            if self.ext_out_queue.full():
+                self.ext_out_queue.get_nowait()
+        with contextlib.suppress(asyncio.QueueFull):
+            self.ext_out_queue.put_nowait(None)
         if self._disp is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(self._disp.close)
             self._disp = None
         # 先收 RDP 再收 Xvfb（反過來會讓 xfreerdp 對著不存在的顯示噴一堆錯）
         for proc in (self._grab, self._rdp, self._xvfb):
-            if proc is None or proc.returncode is not None:
-                continue
-            with contextlib.suppress(ProcessLookupError):
-                proc.terminate()
-            try:
-                async with asyncio.timeout(5):
-                    await proc.wait()
-            except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
+            await _stop_process(proc)
         self._grab = self._rdp = self._xvfb = None
         if self._home:
             with contextlib.suppress(Exception):

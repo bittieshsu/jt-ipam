@@ -402,6 +402,10 @@ class ConsoleSecurityOut(ConsoleSecurityIn):
 
     freerdp_available: bool = False
     freerdp_missing: list[str] = []
+    #: aardwolf（預設引擎與 VNC 主控台都靠它）有沒有裝起來，以及這台的 Python 版本 ——
+    #: 裝不起來最常見的原因是 Python 太新、沒有預編譯套件（issue #39）
+    aardwolf_available: bool = False
+    python_version: str = ""
     freerdp_install_cmd: str = ""
 
 
@@ -444,16 +448,19 @@ async def put_console_security(
 
 
 def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str) -> ConsoleSecurityOut:
-    from app.services.rdp_freerdp import FREERDP_APT_HINT, availability
+    from app.services.rdp_freerdp import availability, freerdp_apt_hint
 
     av = availability()
     missing = list(av["missing_packages"]) + list(av["missing_modules"])
+    from app.api.v1.endpoints.rdp_console import RDP_AVAILABLE, python_version
     return ConsoleSecurityOut(
         rdp_clipboard_paste=rdp_clipboard_paste,
         rdp_engine=rdp_engine,  # type: ignore[arg-type]
         freerdp_available=bool(av["ok"]),
         freerdp_missing=missing,
-        freerdp_install_cmd="" if av["ok"] else FREERDP_APT_HINT,
+        freerdp_install_cmd="" if av["ok"] else freerdp_apt_hint(),
+        aardwolf_available=RDP_AVAILABLE,
+        python_version=python_version(),
     )
 
 
@@ -1383,15 +1390,16 @@ async def get_version_info() -> dict[str, Any]:
     # 的地方 —— 選了 FreeRDP 卻連不上時，第一個該看的就是這裡，而不是去翻日誌。
     import shutil as _shutil
 
-    from app.services.rdp_freerdp import REQUIRED_BINARIES
+    from app.services.rdp_freerdp import binary_present, required_binaries
     _rdp_used_by = {
         "xfreerdp": "RDP console (FreeRDP engine)",
         "Xvfb": "RDP console (FreeRDP engine) — virtual display",
         "ffmpeg": "RDP console (FreeRDP engine) — screen capture",
     }
-    for exe, pkg in REQUIRED_BINARIES.items():
+    for exe, pkg in required_binaries().items():
         info["host"]["optional_tools"][exe] = {
-            "present": _shutil.which(exe) is not None,
+            # xfreerdp＝RDP 用戶端，FreeRDP 2（xfreerdp）或 3（xfreerdp3）任一個都算
+            "present": binary_present(exe),
             "package": pkg,
             "used_by": _rdp_used_by.get(exe, "RDP console (FreeRDP engine)"),
         }

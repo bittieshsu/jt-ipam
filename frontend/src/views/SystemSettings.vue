@@ -46,6 +46,9 @@ const rdpEngine = ref<RdpEngine>("aardwolf");
 // 讓管理者可以直接複製 —— 不要只說「不可用」。
 const freerdpOk = ref(true);
 const freerdpMissing = ref<string[]>([]);
+/** aardwolf（預設引擎與 VNC 主控台都靠它）有沒有裝起來；裝不起來多半是 Python 太新（issue #39） */
+const aardwolfOk = ref(true);
+const pythonVer = ref("");
 const freerdpCmd = ref("");
 const rdpEngineOpts = computed(() => [
   { label: t("settings.system.rdp_engine_aardwolf"), value: "aardwolf" },
@@ -66,6 +69,8 @@ async function changeRdpEngine(v: RdpEngine) {
     const c = await setConsoleSecurity({ rdp_clipboard_paste: rdpClipPaste.value, rdp_engine: v });
     freerdpOk.value = c.freerdp_available ?? true;
     freerdpMissing.value = c.freerdp_missing ?? [];
+    aardwolfOk.value = c.aardwolf_available ?? true;
+    pythonVer.value = c.python_version ?? "";
     freerdpCmd.value = c.freerdp_install_cmd ?? "";
     msg.success(t("common.ok"));
   } catch { rdpEngine.value = prev; msg.error(t("errors.network")); }
@@ -440,6 +445,8 @@ onMounted(() => {
     rdpEngine.value = c.rdp_engine;
     freerdpOk.value = c.freerdp_available ?? true;
     freerdpMissing.value = c.freerdp_missing ?? [];
+    aardwolfOk.value = c.aardwolf_available ?? true;
+    pythonVer.value = c.python_version ?? "";
     freerdpCmd.value = c.freerdp_install_cmd ?? "";
   }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
@@ -510,6 +517,11 @@ async function doPreviewAutolink() {
             <n-select :value="rdpEngine" :options="rdpEngineOpts" @update:value="changeRdpEngine" />
             <div class="hint">{{ t("settings.system.rdp_engine_hint") }}</div>
             <!-- 缺套件就講清楚缺哪些、怎麼裝；選了 FreeRDP 卻沒裝是會連不上的，要用警示色 -->
+            <!-- aardwolf 裝不起來（Python 太新沒有預編譯套件）：預設引擎用不了，要叫人改用 FreeRDP -->
+            <n-alert v-if="!aardwolfOk" :type="rdpEngine === 'aardwolf' ? 'error' : 'info'"
+                     :bordered="false" style="margin-top:8px">
+              {{ t("settings.system.rdp_engine_no_aardwolf", { python: pythonVer }) }}
+            </n-alert>
             <n-alert v-if="!freerdpOk" :type="rdpEngine === 'freerdp' ? 'error' : 'warning'"
                      :bordered="false" style="margin-top:8px">
               <div>{{ t("settings.system.rdp_engine_missing", { pkgs: freerdpMissing.join("、") }) }}</div>

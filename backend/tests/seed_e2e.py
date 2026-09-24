@@ -67,6 +67,10 @@ async def seed() -> None:
         # ── 地點 / 機櫃 ──────────────────────────────────────────────
         loc = await one(Location, name="測試機房 A", description="e2e fixture")
         rack = await one(Rack, name="RACK-01", location_id=loc.id, u_height=42)
+        # 800mm 的網路機櫃：兩側走線空間比 600mm（RACK-01 沒填寬度＝當作 600）寬，
+        # 設備區一樣是 19 吋 —— 機櫃圖要畫得出這個差別
+        rack800 = await one(Rack, name="RACK-800", location_id=loc.id, u_height=42,
+                            width_mm=800, depth_mm=1000)
 
         # ── 區段 / 子網路 ────────────────────────────────────────────
         sec = await one(Section, name="e2e 樣本區段", description="seed_e2e 建立")
@@ -125,6 +129,33 @@ async def seed() -> None:
         sw = await one(Device, name="sw-e2e-01", type="switch", vendor="generic",
                        model="SW-48G", location_id=loc.id, rack_id=rack.id,
                        u_position=38, u_size=1, rack_face="front")
+        # 三種新型態（rack-more-kinds.spec）：角鋼層架 90×45×180 四層、KALLAX 2×4、兩張疊起來的 LackRack
+        angle = await one(Rack, name="ANGLE-90", location_id=loc.id, kind="angle_shelf", u_height=3,
+                          width_mm=900, depth_mm=450, finish="black")
+        kallax = await one(Rack, name="KALLAX-24", location_id=loc.id, kind="kallax", u_height=4,
+                           width_mm=765, depth_mm=390, finish="white")
+        lack = await one(Rack, name="LACK-16", location_id=loc.id, kind="lackrack", u_height=16,
+                         width_mm=550, depth_mm=550, finish="white")
+        # 尺寸照實物（一層橫向與層內上下各 60 格）：90 公分的角鋼一格 15mm、KALLAX 一格 11.4mm。
+        # 19 吋交換器 440 寬就是 29 格，不是整層 —— 範例畫成整層寬會被使用者一眼看穿。
+        for name, rk, pos, size, slot, span, vspan in (
+            ("nas-angle", angle, 1, 1, 0, 14, 27), ("sw-angle", angle, 2, 1, 0, 29, 5),
+            ("nas-kallax", kallax, 2, 1, 0, 18, 41), ("ups-kallax", kallax, 1, 1, 30, 13, 43),
+            ("sw-lack", lack, 15, 1, 0, 60, 60), ("srv-lack", lack, 6, 2, 0, 60, 60),
+            ("ap-lack", lack, 17, 1, 0, 20, 60),             # 放在桌面上（第 17 個位置）
+        ):
+            await one(Device, name=name, type="storage" if name.startswith(("nas", "ups")) else
+                      ("switch" if name.startswith("sw") else "server"),
+                      vendor="generic", model="E2E", location_id=loc.id, rack_id=rk.id,
+                      u_position=pos, u_size=size, rack_slot=slot, rack_slot_span=span,
+                      rack_vslot=0, rack_vslot_span=vspan, rack_face="front")
+
+        # 名稱置中（rack-label.spec）：1U／2U／3U 各一台，放在有兩側走線空間最寬的 800mm 機櫃，
+        # 走線空間改的是水平方向，順便確認它沒把垂直置中弄歪
+        for name, pos, size in (("dev-1u", 41, 1), ("dev-2u", 38, 2), ("dev-3u", 34, 3)):
+            await one(Device, name=name, type="server", vendor="generic", model=f"SRV-{size}U",
+                      location_id=loc.id, rack_id=rack800.id, u_position=pos, u_size=size,
+                      rack_face="front")
         for dev, names in ((nas, ["eth0", "eth1"]), (sw, ["Gi0/1", "Gi0/2"])):
             for i, n in enumerate(names):
                 exists = (await s.execute(select(DevicePort).where(

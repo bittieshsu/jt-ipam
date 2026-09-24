@@ -625,8 +625,13 @@ async def agent_report(
             from app.services.librenms import mark_scanner_seen
             await mark_scanner_seen(session, ipa, now)
         if item.mac:
+            from app.services.arp_evidence import record_arp_observation
             from app.services.arp_precedence import consider_mac
             await consider_mac(session, ip=ipa, mac=item.mac, source="scanner")
+            # IP 衝突偵測的依據：不管上面有沒有覆寫 IP 記錄上的 MAC 都要記
+            # （被優先序擋下來的那個 MAC 正是衝突的另一方，issue #41）
+            await record_arp_observation(session, ip=ipa, mac=item.mac, source="scanner",
+                                         seen_at=now)
         # OS 偵測：存原始字串 + 正規化家族（前端依 family 配 icon）
         if item.os_guess:
             from app.core.os_fingerprint import normalize_os

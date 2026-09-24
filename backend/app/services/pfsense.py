@@ -33,7 +33,7 @@ from app.services.ip_autocreate import (
 # pfSense-pkg-RESTAPI v2 端點（如不同版本路徑有異，於此集中調整）
 EP_VERSION = "/api/v2/system/version"
 EP_DHCP_LEASES = "/api/v2/status/dhcp_server/leases"
-# 發放範圍：每個介面一筆 DHCP server 設定（含主範圍 range_from/range_to 與巢狀額外池）
+# 發放範圍：每個介面一筆 DHCP server 設定（含主範圍 range_from/range_to 與巢狀額外集區）
 # 複數形才是列表端點（單數需要 id，會回 MODEL_REQUIRES_ID）——已對實機確認。
 EP_DHCP_SERVERS = "/api/v2/services/dhcp_servers"
 EP_DHCP_ADDRESS_POOLS = "/api/v2/services/dhcp_server/address_pools"
@@ -130,8 +130,12 @@ async def _stamp_ip_seen(
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
+        from app.services.arp_evidence import record_firewall_arp
         from app.services.arp_precedence import consider_mac
         await consider_mac(session, ip=ipa, mac=mac, source="pfsense")
+        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
+        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
+                                  seen_at=seen_at, permanent=permanent)
     if hostname:
         await apply_observation(session, ip=ipa, source="pfsense", hostname=hostname)
     return True
@@ -216,7 +220,7 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PfSenseFirewall) -> int:
 def _range_pairs(d: dict) -> list[tuple[str, str]]:
     """從一筆 pfSense DHCP 設定取出所有 (起, 迄)。
 
-    主範圍是 range_from / range_to；額外池放在巢狀 `pool`（同樣的欄位名）。
+    主範圍是 range_from / range_to；額外集區放在巢狀 `pool`（同樣的欄位名）。
     不同版本欄位名可能微調，故多給幾個別名；抓不到就回空（不猜、不硬湊）。
     """
     out: list[tuple[str, str]] = []
@@ -242,7 +246,7 @@ def _range_pairs(d: dict) -> list[tuple[str, str]]:
 async def sync_dhcp_ranges(session: AsyncSession, fw: PfSenseFirewall) -> int:
     """把 pfSense 的 DHCP 發放範圍鏡像進 dhcp_pool_ranges（pfSense 自己的同步，與其他來源互不干涉）。
 
-    來源：每個介面一筆的 dhcp_servers（含巢狀額外池），再補獨立的 address_pools 端點。
+    來源：每個介面一筆的 dhcp_servers（含巢狀額外集區），再補獨立的 address_pools 端點。
     只有啟用中的介面才算（enable=false 的範圍不會被發放）。
     """
     from app.models.dhcp import DHCPPoolRange
@@ -260,7 +264,7 @@ async def sync_dhcp_ranges(session: AsyncSession, fw: PfSenseFirewall) -> int:
         for a, b in _range_pairs(d):
             parsed.append((str(iface) if iface else None, a, b))
 
-    # 額外位址池（獨立端點；抓不到就算了，不影響主範圍）
+    # 額外位址集區（獨立端點；抓不到就算了，不影響主範圍）
     try:
         pools = await _api_get(fw, EP_DHCP_ADDRESS_POOLS, timeout=10.0)
     except PfSenseError:

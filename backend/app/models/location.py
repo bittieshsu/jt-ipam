@@ -47,6 +47,8 @@ class Rack(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         # PostgreSQL 截斷擋下（見 tests/test_rack_slots.py 的資料庫往返測試）。
         String(16), default="rack", server_default="rack", nullable=False,
     )
+    # 表面顏色（角鋼的黑／白／鍍鋅、KALLAX 的白／黑棕／橡木紋…）。null＝該型態的預設色。
+    finish: Mapped[str | None] = mapped_column(String(16))
     # 實體尺寸（mm）：機房平面圖用來把機櫃方框依真實腳印按比例呈現；立面圖也用它決定
     # 要畫多寬（非標準寬度的層架才畫得對）。null = 依 kind 取預設。
     width_mm: Mapped[int | None] = mapped_column(Integer)

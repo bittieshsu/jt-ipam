@@ -16,27 +16,44 @@ from app.models.device import Device
 from app.models.location import Rack
 from app.schemas.base import StrictModel
 from app.services.rack import (
+    KALLAX_DIVIDER_MM,
     RACK_REF_ROW_MM,
     RACK_REF_ROW_PX,
+    RACK_REF_WIDTH_MM,
+    RACK_REF_WIDTH_PX,
     RACK_SLOTS,
-    board_default_mm,
     brace_levels,
+    floor_default_mm,
     has_open_top,
+    kallax_columns,
+    level_boards_px,
     level_render_px,
+    normalize_finish,
     placeable_levels,
+    rack_side_px,
+    scaled_board_px,
 )
 
 
 def _board_px(rack) -> float:  # type: ignore[no-untyped-def]
     """層板畫出來多厚（px）。層高填的是淨空高，板厚要另外占掉高度。"""
-    mm = getattr(rack, "board_mm", None)
-    mm = board_default_mm(getattr(rack, "kind", None)) if mm is None else float(mm)
-    return max(RACK_REF_ROW_PX * (mm / RACK_REF_ROW_MM), 2.0) if mm > 0 else 0.0
+    return scaled_board_px(getattr(rack, "kind", None), getattr(rack, "board_mm", None),
+                           getattr(rack, "width_mm", None), getattr(rack, "row_height_mm", None),
+                           getattr(rack, "level_heights", None), rack.u_height)
 
 
 def _floor_px(rack) -> float:  # type: ignore[no-untyped-def]
-    """離地高度（px）。機櫃與層架都要有腳 —— 沒有的話底部看起來像被齊平切掉。"""
+    """離地高度（px）。機櫃與層架都要有腳 —— 沒有的話底部看起來像被齊平切掉。
+
+    例外是本來就落地的東西（KALLAX 沒有腳）：型態有自己的預設值時照它，0 就是 0。
+    """
+    kind = getattr(rack, "kind", None)
     mm = getattr(rack, "floor_mm", None)
+    dflt = floor_default_mm(kind)
+    if mm is None and dflt is not None:
+        return RACK_REF_ROW_PX * (dflt / RACK_REF_ROW_MM)
+    if kind == "kallax":
+        return RACK_REF_ROW_PX * (float(mm or 0) / RACK_REF_ROW_MM)
     px = RACK_REF_ROW_PX * (float(mm) / RACK_REF_ROW_MM) if mm else 0.0
     return max(px, 7.0)
 
@@ -77,6 +94,8 @@ class RackDiagram(StrictModel):
     # issue #30：層架的列是「層」不是 U，寬度與列高也不是標準值 —— 前端照這些畫
     kind: str = "rack"
     render_width_px: float = 250.0
+    # 機櫃兩側的走線空間各多寬 px（19 吋設備區之外、外寬多出來的部分）；層架是 0
+    render_side_px: float = 0.0
     # 均一層高時的列高（舊欄位，留著給還沒更新的用戶端）。層高逐層不同時這裡是第 1 層的值。
     render_row_px: float = 28.0
     # 每一層的高度 px，由**第 1 層**起算（不是畫面由上往下）。層架的層板一層一層可調。
@@ -90,6 +109,17 @@ class RackDiagram(StrictModel):
     render_board_px: float = 0.0
     # 最下面那片層板離地多高 px —— 層架是站在腳上的，不畫就會像直接貼在地上被切斷
     render_floor_px: float = 0.0
+    # 每一列**底下**那片板的厚度 px，由上往下（畫面順序，含開放頂端那一列）。
+    # 以前只有一個 render_board_px；KALLAX 的外框比內隔板厚、LackRack 疊了幾張就有幾片桌面，
+    # 不能再當成每片一樣厚。既有型態就是 render_board_px 重複 n 次。
+    render_board_px_list: list[float] = []
+    # 最上面那一列**之上**的厚度 px（LackRack 的桌面）。其他型態是 0。
+    render_top_px: float = 0.0
+    # 表面顏色（沒有顏色選項的型態是 None）
+    finish: str | None = None
+    # KALLAX 有幾欄（其他型態是 1）與內隔板的寬 px
+    render_cols: int = 1
+    render_divider_px: float = 0.0
     location_id: uuid.UUID | None
     numbering: str = "top-down"
     face: str = "front"
@@ -233,17 +263,27 @@ async def rack_diagram(
         })
 
     _w, _rows = _size(rack)
+    kind = getattr(rack, "kind", None)
+    board_px = _board_px(rack)
+    top_px, boards = level_boards_px(kind, rack.u_height, board_px)
     return RackDiagram(
         rack_id=rack.id,
         name=rack.name,
         u_height=rack.u_height,
         kind=getattr(rack, "kind", "rack") or "rack",
         render_width_px=_w,
+        render_side_px=rack_side_px(getattr(rack, "kind", None), getattr(rack, "width_mm", None)),
         render_row_px=(_rows[0] if _rows else 28.0),
         render_row_px_list=_rows,
         open_top=has_open_top(getattr(rack, "kind", None)),
-        render_board_px=_board_px(rack),
+        render_board_px=board_px,
         render_floor_px=_floor_px(rack),
+        render_board_px_list=boards,
+        render_top_px=top_px,
+        finish=normalize_finish(kind, getattr(rack, "finish", None)),
+        render_cols=kallax_columns(getattr(rack, "width_mm", None)) if kind == "kallax" else 1,
+        render_divider_px=(KALLAX_DIVIDER_MM * RACK_REF_WIDTH_PX / RACK_REF_WIDTH_MM
+                           if kind == "kallax" else 0.0),
         brace_levels=brace_levels(getattr(rack, "kind", None),
                                   getattr(rack, "width_mm", None),
                                   getattr(rack, "row_height_mm", None),

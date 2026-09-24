@@ -84,7 +84,7 @@ function deviceLabel(id: string | null | undefined): string {
 const deviceOptions = computed(() =>
   devices.value.map((d) => ({ label: d.name, value: d.id })));
 
-// DHCP 發放範圍：標示本 IP 是否落在某 DHCP 主機的動態池內
+// DHCP 發放範圍：標示本 IP 是否落在某 DHCP 主機的動態集區內
 interface DhcpInfo { server: string; source: string; start: string; end: string; }
 const dhcpRanges = ref<{ a: number; b: number; server: string; source: string; start: string; end: string }[]>([]);
 function _ip2int(ip: string): number | null {
@@ -718,8 +718,8 @@ async function remove() {
           <span>{{ props.address?.ip ?? props.createContext?.ip ?? '' }}</span>
           <n-tag v-if="isCreate" type="info" size="small">{{ t("common.create") }}</n-tag>
           <n-tag v-else :type="stateType" size="small">{{ labelState(props.address?.state) }}</n-tag>
-          <!-- 「真的有 DHCP 租約」與「只是落在 DHCP 池範圍內」是兩回事：
-               後者常見於在池範圍內設固定 IP 的機器，標成 DHCP 會誤導，改用中性的「DHCP 範圍」。 -->
+          <!-- 「真的有 DHCP 租約」與「只是落在 DHCP 集區範圍內」是兩回事：
+               後者常見於在集區範圍內設固定 IP 的機器，標成 DHCP 會誤導，改用中性的「DHCP 範圍」。 -->
           <!-- 固定分配（DHCP reservation）：這個位址被綁給某張網卡，不會被回收給別台。
                與上面的「DHCP／DHCP 範圍」是不同的事實，所以分開標。 -->
           <n-tooltip v-if="props.address?.dhcp_reserved" :delay="0">

@@ -157,6 +157,16 @@ def _mouse_button(b: int) -> Any:
             2: MOUSEBUTTON.MOUSEBUTTON_MIDDLE}.get(int(b), MOUSEBUTTON.MOUSEBUTTON_LEFT)
 
 
+def vnc_unavailable_detail() -> dict[str, Any]:
+    """VNC 用不了：講出原因（這台的 Python 沒有 aardwolf 的預編譯套件，issue #39）。
+    VNC 沒有第二個引擎，所以不像 RDP 可以叫人改用 FreeRDP。"""
+    import sys
+    py = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return ui_detail("console_vnc_not_installed",
+                     f"VNC 功能未安裝：需要 aardwolf，而 Python {py} 沒有它的預編譯套件。",
+                     python=py)
+
+
 @router.post("/{address_id}/vnc/ticket")
 async def issue_vnc_ticket(
     address_id: uuid.UUID,
@@ -165,7 +175,7 @@ async def issue_vnc_ticket(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     if not VNC_AVAILABLE:
-        raise HTTPException(status_code=503, detail=ui_detail("console_vnc_not_installed", "VNC 功能未安裝（缺 aardwolf 選用相依）"))
+        raise HTTPException(status_code=503, detail=vnc_unavailable_detail())
     from app.core.rate_limit import limit_per_ip
 
     await limit_per_ip(request, name="vnc")
@@ -480,7 +490,14 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any) -> None:
 
     out_task = asyncio.create_task(pump_out())
     in_task = asyncio.create_task(pump_in())
-    _done, pending = await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+    # 畫面那一端先結束、瀏覽器還開著＝VNC 伺服器結束了連線。以前畫面只是停住，
+    # 使用者會以為網路慢而一直等（與 RDP 主控台同一個處理，GitHub issue #42）。
+    remote_ended = out_task in done and in_task not in done
     for p in pending:
         p.cancel()
     await asyncio.gather(*pending, return_exceptions=True)
+    if remote_ended:
+        with contextlib.suppress(Exception):
+            await send({"type": "error", **ui_detail(
+                "console_remote_ended", "遠端主機結束了這個工作階段（沒有提供原因）")})

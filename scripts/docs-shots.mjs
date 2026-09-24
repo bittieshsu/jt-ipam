@@ -185,6 +185,37 @@ const SHOTS = [
     },
   },
   {
+    // 三種新型態並排：角鋼層架（台灣最常見）、IKEA KALLAX、LackRack。
+    // 示範資料的 Taichung Office 只放這三座，跟 rack-shelves 一樣只截那一排卡片。
+    name: "rack-more-kinds",
+    // 角鋼層架 90 公分寬就佔了 500px，三座並排在 1600 寬會被截掉右邊
+    viewport: { width: 1800, height: 1900 },
+    async go(page) {
+      await page.goto(`${BASE}/racks`);
+      await settle(page, 1500);
+      await page.locator(".n-base-selection").first().click();
+      await page.locator(".n-base-select-option", { hasText: "Taichung Office" }).first().click();
+      await settle(page, 2500);
+      const row = page.locator(".rack-row").first();
+      const text = await row.innerText();
+      for (const n of ["TC-A01", "TC-K01", "TC-L01"]) {
+        if (!text.includes(n)) throw new Error(`機房沒有切換成功（缺 ${n}）`);
+      }
+      await row.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(900);
+      const over = await row.evaluate((e) => Math.max(e.scrollWidth - e.clientWidth,
+        e.getBoundingClientRect().right - window.innerWidth));
+      if (over > 2) throw new Error(`那一排比畫面寬 ${Math.round(over)}px，會被截掉`);
+      const clip = await row.evaluate((e) => {
+        const rs = [...e.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0);
+        const x = Math.min(...rs.map((r) => r.left)), y = Math.min(...rs.map((r) => r.top));
+        return { x, y, width: Math.max(...rs.map((r) => r.right)) - x,
+                 height: Math.max(...rs.map((r) => r.bottom)) - y };
+      });
+      return { clip };
+    },
+  },
+  {
     // 層架的編輯視窗：型態、IKEA IVAR 預設、層板厚度、逐層高度。
     // 視窗很長，只截「種類」到「每層高度」那一段 —— 用欄位的位置而不是標籤文字定位，
     // 三種語言才拍得出同一塊。

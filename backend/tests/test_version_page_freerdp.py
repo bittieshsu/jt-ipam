@@ -34,9 +34,9 @@ async def test_tool_list_matches_what_the_engine_actually_needs(client, auth_hea
 
     兩份清單各自維護的話，總有一天版本頁說「都裝好了」而連線仍然失敗。
     """
-    from app.services.rdp_freerdp import REQUIRED_BINARIES
+    from app.services.rdp_freerdp import required_binaries
 
     r = await client.get("/api/v1/system/version", headers=auth_headers)
     tools = r.json()["host"]["optional_tools"]
-    for exe, pkg in REQUIRED_BINARIES.items():
+    for exe, pkg in required_binaries().items():
         assert tools[exe]["package"] == pkg, f"{exe} 的套件名與引擎那邊不一致"

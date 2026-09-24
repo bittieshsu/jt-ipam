@@ -47,6 +47,7 @@ from app.models.ip_change_log import IPChangeLog
 from app.models.ip_cooldown import IPCooldown
 from app.models.ip_hostname import IPHostnameObservation
 from app.models.ip_liveness import IPLivenessDay
+from app.models.ip_range import IPRange
 from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval
 from app.models.jump_host import JumpHost
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
@@ -136,6 +137,7 @@ __all__ = [
     "IPCooldown",
     "IPHostnameObservation",
     "IPLivenessDay",
+    "IPRange",
     "IPRequest",
     "IPRequestEvent",
     "IPRequestStageApproval",

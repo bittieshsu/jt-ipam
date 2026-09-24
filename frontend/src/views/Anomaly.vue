@@ -235,7 +235,8 @@ function colLabel(k: string): string {
 }
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
-  ip_conflicts: ["ip", "macs"],
+  // 依據：ARP（1 小時內多個 MAC）或 MAC 來回切換（24 小時內，issue #41）
+  ip_conflicts: ["ip", "evidence", "changes", "macs"],
   mac_drifts: ["mac", "ips", "locations"],
   ghost_ips: ["ip", "hostname", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
   unauthorized_ips: ["ip"],
@@ -286,6 +287,10 @@ function pretty(k: string, val: any): string {
     return String(val);
   }
   if (k === "monitored" || k === "randomized") return val ? t("common.yes") : t("common.no");
+  if (k === "evidence" && Array.isArray(val)) {
+    return val.map((x) => (te(`anomaly.evidence_${x}`) ? t(`anomaly.evidence_${x}`) : String(x)))
+      .join("、");
+  }
   if (Array.isArray(val)) {
     return val.map((x) => (typeof x === "object" && x !== null ? objLine(x) : String(x)))
       .join("、");
@@ -316,15 +321,34 @@ function renderLocation(o: Record<string, any>) {
     cell(colLabel("last_seen_at"), pretty("last_seen_at", o.last_seen_at)),
   ]);
 }
+const SEEN_VENDOR: Record<string, string> = {
+  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
+  mikrotik: "MikroTik", librenms: "LibreNMS", adguard: "AdGuard", proxmox: "Proxmox",
+  windows_dhcp: "Windows DHCP",
+};
+/** 誰看到這個 MAC：`scanner` → 掃描代理、`arp:opnsense` → ARP 表（OPNsense） */
+function seenBy(src: string): string {
+  const [kind, vendor] = src.includes(":") ? src.split(":", 2) : ["", src];
+  if (kind === "arp") return t("anomaly.seen_arp_vendor", { vendor: SEEN_VENDOR[vendor] ?? vendor });
+  if (vendor === "scanner") return t("anomaly.seen_scanner");
+  if (vendor === "manual") return t("anomaly.seen_manual");
+  return SEEN_VENDOR[vendor] ?? vendor;
+}
 function renderMac(o: Record<string, any>) {
   // 本地管理位址（虛擬機／容器／手機 MAC 隨機化）沒有 OUI 登記，查不到廠商是正常的。
   // 標出來才看得懂：同一 IP 上「真實 MAC + 隨機 MAC」多半是同一台裝置，不是兩台在搶。
   const tag = o.local
     ? h("span", { class: "mac-tag mac-tag--local" }, t("anomaly.mac_local"))
     : (o.vendor ? h("span", { class: "mac-tag" }, String(o.vendor)) : null);
+  // 誰看到的（掃描代理／防火牆 ARP 表／LibreNMS）：兩個 MAC 各是誰回報的，判斷真假時很關鍵
+  const seen = Array.isArray(o.sources) && o.sources.length
+    ? h("span", { class: "mac-seen", title: colLabel("sources") },
+      o.sources.map((x: string) => seenBy(String(x))).join("、"))
+    : null;
   return h("div", { style: "display:flex;align-items:baseline;gap:8px;font-size:12.5px" }, [
     h("span", { style: "font-family:var(--jt-mono,monospace)" }, o.mac ?? "—"),
     tag,
+    seen,
     h("span", { style: "opacity:.55;margin-left:auto;white-space:nowrap" },
       pretty("last_seen_at", o.last_seen_at)),
   ]);
@@ -336,14 +360,19 @@ function renderIp(row: any, ipText: string) {
     ? links.ipById(row.ip_address_id, ipText)
     : links.ipByText(ipText);
 }
-function renderVal(k: string, v: any, row?: any) {
+function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
   if (v == null || v === "") return "—";
   if ((k === "ip" || k === "server_ip" || k === "offered_ip") && typeof v === "string") {
     return renderIp(row, v);
   }
-  // MAC 歷程：一個 MAC 一行、**不折行**。MAC 字串被折成「0a:1b:2 / c:00:00 / :01」
-  // 三行的話，這一欄就完全讀不出先後順序 —— 而先後順序正是這一類要看的東西。
-  if (k === "macs" && Array.isArray(v) && v.length && typeof v[0] === "object") {
+  // 依據是代碼清單（arp / mac_flip），要翻成字 —— 走下面通用的陣列處理會把代碼原樣印出來
+  if (k === "evidence") return pretty(k, v);
+  // MAC 歷程（只有「頻繁更換 MAC」這一類）：一個 MAC 一行、**不折行**。MAC 字串被折成
+  // 「0a:1b:2 / c:00:00 / :01」三行的話，這一欄就完全讀不出先後順序。
+  // ⚠️ 只限這一類：IP 衝突的 MAC 要走 renderMac（廠商、本地管理標記、誰看到的）——
+  // 以前這裡不分類別，IP 衝突的那些標記從這段加進來之後就再也沒顯示過（issue #41 時發現）。
+  if (cat === "mac_flapping" && k === "macs" && Array.isArray(v) && v.length
+      && typeof v[0] === "object") {
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
       v.map((it: any) => h("div", { style: "white-space:nowrap" }, [
         h("span", { style: "font-family:var(--mono,monospace)" }, String(it.mac ?? "")),
@@ -384,10 +413,11 @@ function catCols(key: CatKey): DataTableColumns<any> {
       title: colLabel(k),
       key: k,
       minWidth: wide ? 420 : (k === "ips" ? 220 : 140),
-      // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上
-      ...(k === "macs" ? { width: 340 } : {}),
+      // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上。
+      // IP 衝突每個 MAC 還帶廠商與「誰看到的」，要寬一些
+      ...(k === "macs" ? { width: key === "ip_conflicts" ? 560 : 340 } : {}),
       ellipsis: wide || k === "ips" ? false : { tooltip: true },
-      render: (r: any) => renderVal(k, r[k], r),
+      render: (r: any) => renderVal(k, r[k], r, key),
     };
   }));
   // 可以逐 IP 忽略的類別：給一顆「忽略這個 IP」。
@@ -721,4 +751,5 @@ onMounted(() => { void loadIgnorable(); });
 }
 /* 本地管理／隨機位址：標成警示色，因為它是「多半不是真衝突」的主要線索 */
 .mac-tag--local { background: rgba(240, 160, 32, .16); color: #b26a00; }
+.mac-seen { font-size: 11.5px; opacity: .6; white-space: nowrap; }
 </style>

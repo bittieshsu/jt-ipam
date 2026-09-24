@@ -300,8 +300,12 @@ async def _stamp_ip_seen(
     if dhcp:
         ipa.in_dhcp_lease = True
     if mac:
+        from app.services.arp_evidence import record_firewall_arp
         from app.services.arp_precedence import consider_mac
         await consider_mac(session, ip=ipa, mac=mac, source="paloalto")
+        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
+        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
+                                  seen_at=seen_at, permanent=permanent)
     if hostname:
         await apply_observation(session, ip=ipa, source="paloalto", hostname=hostname)
     return True

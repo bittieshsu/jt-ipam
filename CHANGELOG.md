@@ -4,6 +4,72 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.46] - 2026-09-24
+
+### Added
+- **Address ranges (pools) inside a subnet** (GitHub issue #40): define a DHCP pool or a reserved
+  range by start and end address, which need not be a CIDR (for example .181–.250); the subnet
+  stays a CIDR. The subnet page lists each range with its size, how many addresses are used and
+  the next free one (click it to create that IP), and the address map marks each range. Ranges
+  used as a DHCP pool count as DHCP ranges everywhere: "in a DHCP range", DHCP pool usage, the
+  DHCP range list and the AI tools. Ranges must sit inside the subnet and may not overlap; every
+  change is audited, and system transfer carries them.
+- **Slotted angle steel shelving**, the boltless kind most common in Taiwan: 40mm L posts with a
+  full column of keyholes, a steel beam plus 9mm plywood per level, five common sizes (90×45×180cm
+  four levels and others) as one-click presets, in black, white or galvanised.
+- **IKEA KALLAX**, drawn cell by cell, with a frame thicker than the dividers and no feet; pick
+  the grid and IKEA's real dimensions are filled in.
+- **LackRack**: an IKEA LACK side table as a 19-inch rack, 8U per table, stacked as high as you
+  like, with room for a device on the tabletop. Legs and tabletop are both 50mm and every edge is
+  outlined.
+- Racks have a "finish" (colour) field for those three kinds; the screen, the SVG/draw.io exports
+  and the embed image share one palette.
+- **Rack drawings show the cable space on both sides** (from the outer width, measured from the
+  465.1mm hole spacing) and **a top panel and base with real thickness** (50mm and 75mm; they were
+  a single line).
+- **One toolbar for a whole room row**: separate and merged cards both get front/rear, a size
+  slider and export; the slider scales every rack at once and keeps them on the same floor line.
+  Side by side there used to be no size control, and separate cards had no front/rear or export.
+- The FreeRDP RDP engine supports **FreeRDP 3** (Ubuntu 25.10/26.04 only ship freerdp3-x11); the
+  installer picks the package the release offers.
+
+### Fixed
+- **IP conflicts were never detected without LibreNMS** (GitHub issue #41): the detector only read
+  the ARP table that the LibreNMS sync writes. Scan agents and firewall ARP tables (dynamic entries;
+  not DHCP leases, VPN sessions or static ARP) now record observations too, regardless of the MAC
+  source priority, tied to their subnet so overlapping networks never conflict with each other
+  (migration 0152). A MAC flipping between the same two addresses 3+ times in 24 hours is flagged
+  as well, since a scan agent sees only one MAC per sweep. The table shows the evidence, the flip
+  count and who saw each MAC, and the vendor and locally-administered tags that had stopped
+  showing are back. The AI tool states the detection window and says a conflict "cannot be
+  determined" rather than "none" when there is no evidence.
+- **The console said nothing when the remote host ended the session** (GitHub issue #42): RDP and
+  VNC now say so. If an RDP session ends before any screen arrives, the console lists the usual
+  server-side causes (no remote logon right, RD licensing or a Connection Broker refusing it, the
+  session limit) and suggests the FreeRDP engine, which shows the server's own reason.
+- **Reasoning models on OpenAI-compatible servers spent the whole output limit thinking** (GitHub
+  issue #36): self-hosted endpoints now get `reasoning_effort: "none"` (llama.cpp b10434+) plus
+  `chat_template_kwargs.enable_thinking=false` and `thinking_budget_tokens: 0` (older builds), and a
+  reply cut off while thinking says so instead of "(empty response)".
+- **When aardwolf can't be installed, say why and what to do** (GitHub issue #39): the installer,
+  the RDP/VNC errors and system settings name the host's Python version (aardwolf only ships wheels
+  for 3.9–3.13) and point to the FreeRDP engine.
+- **The FreeRDP engine could leave an xfreerdp and an Xvfb process behind on every disconnect**: the
+  screen-capture ffmpeg blocked on a full pipe and shutdown waited for it forever. Pipes are now
+  closed first and every wait has a time limit.
+- **The relation chart on the IP page ran the other way round**; it now matches the device page
+  and the dashboard (physical on the left, logical on the right).
+- **LackRack legs were much thinner than the tabletop and had no outline**: only the 34mm outside
+  the rack ears was drawn, and the space under the bottom table looked like the legs were poking
+  out.
+- An 800mm rack drew devices 1.66 times too wide; the bottom U's number sat in the base; LackRack
+  legs overlapped the legend; the single-rack view needed a reload after an edit; device names on
+  KALLAX/LackRack weren't centred; industrial rack posts were never drawn; switching to IVAR didn't
+  update the level count.
+- "Adjust levels" moved into the rack settings dialog and reloads the form afterwards, so saving
+  no longer writes the old level count back.
+- zh-TW wording: "pool" is always 「集區」.
+
 ## [0.6.45] - 2026-09-24
 
 ### Added

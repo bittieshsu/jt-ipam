@@ -93,6 +93,8 @@ import { getSection } from "@/api/sections";
 import { useSubnetTree } from "@/composables/useSubnetTree";
 import { listVLANs, listVRFs, type VLAN, type VRF } from "@/api/basic";
 import SubnetGrid from "@/components/SubnetGrid.vue";
+import SubnetRanges from "@/components/SubnetRanges.vue";
+import { listIPRanges, type IPRange } from "@/api/ipRanges";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import type { IPAddress, Section, Subnet, SubnetUsage } from "@/types";
@@ -149,7 +151,8 @@ async function loadDhcpRanges() {
         out.push({
           a: Math.min(a, b), b: Math.max(a, b),
           server: r.source_name || "—",
-          source: (r.source || "").toUpperCase(),
+          // 子網路裡手動定義的 DHCP 集區（issue #40）不是哪一台伺服器同步回來的
+          source: r.source === "manual" ? t("ranges.manual") : (r.source || "").toUpperCase(),
           start: r.start_ip, end: r.end_ip,
         });
       }
@@ -183,6 +186,18 @@ const subnetDhcpRanges = computed<DhcpRangeInfo[]>(() => {
     .sort((x, y) => x.a - y.a);
 });
 const onlyDhcp = ref(false);
+
+// ── 子網路內的位址範圍（集區，issue #40）──
+const ipRanges = ref<IPRange[]>([]);
+async function loadRanges(id: string) {
+  try { ipRanges.value = await listIPRanges(id); } catch { ipRanges.value = []; }
+}
+/** 範圍改了：清單、DHCP 範圍（用途是 DHCP 集區的會算進「在 DHCP 範圍內」）一起重抓 */
+async function onRangesChanged() {
+  const id = subnet.value?.id;
+  if (!id) return;
+  await Promise.all([loadRanges(id), loadDhcpRanges()]);
+}
 
 const section = ref<Section | null>(null);
 const vlan = ref<VLAN | null>(null);
@@ -238,6 +253,7 @@ async function load(id: string) {
     subnet.value = s;
     usage.value = u;
     addresses.value = a.items;
+    void loadRanges(id);
 
     // 解析名稱：section 必載；vlan/vrf/master_subnet 視情況
     const tasks: Promise<unknown>[] = [];
@@ -808,6 +824,19 @@ onMounted(() => {
         </n-space>
       </n-card>
 
+      <!-- 位址範圍（集區）：DHCP 集區這類「子網路裡的一段位址」，常常不是一個 CIDR 表示得了的 -->
+      <n-card v-if="subnet">
+        <template #header>
+          <n-space align="center" :wrap-item="false">
+            <n-icon :size="22"><ListIcon /></n-icon>
+            <span>{{ t("ranges.title") }} ({{ ipRanges.length }})</span>
+          </n-space>
+        </template>
+        <subnet-ranges :subnet-id="subnet.id" :cidr="subnet.cidr" :ranges="ipRanges"
+                       :can-edit="_authBtn.me?.can_edit !== false"
+                       @changed="onRangesChanged" @create-ip="onGridCreate" />
+      </n-card>
+
       <n-card v-if="subnet">
         <template #header>
           <n-space align="center" :wrap-item="false">
@@ -818,6 +847,7 @@ onMounted(() => {
         <subnet-grid
           :cidr="subnet.cidr"
           :addresses="addresses"
+          :ranges="ipRanges"
           @open-ip="onGridOpen"
           @create-ip="onGridCreate"
         />

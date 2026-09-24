@@ -88,7 +88,13 @@ install_rdp_optional() {
     if ( cd "$bd" && sudo -u "$u" "$bd/.venv/bin/pip" install --quiet --only-binary=:all: -e ".[rdp]" ); then
         log "RDP support installed."
     else
-        warn "Optional RDP dependency not installed (no prebuilt wheel for this platform/Python, or offline). RDP features disabled; core install unaffected."
+        # Say why and what to do (GitHub issue #39): the usual cause is a Python newer than the
+        # wheels aardwolf publishes, and RDP still works through the FreeRDP engine.
+        local pyver
+        pyver="$("$bd/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")"
+        warn "Optional RDP dependency aardwolf not installed: aardwolf 0.2.13 ships prebuilt wheels only for CPython 3.9-3.13 (x86_64 / i686 Linux, arm64 macOS) and this host runs Python ${pyver} (or the host is offline). Core install unaffected."
+        warn "  RDP still works through the FreeRDP engine: choose it in Admin -> System settings -> RDP engine, then run 'jt-ipam.sh upgrade' to install FreeRDP (about 150 MB of packages)."
+        warn "  The VNC console needs aardwolf and has no other engine, so it stays unavailable on this host."
     fi
     # Python side of the FreeRDP engine (screen capture + input injection). These are small,
     # pure-Python packages, so they go on every host -- the heavy part is the apt side
@@ -108,7 +114,17 @@ install_rdp_optional() {
 # default: the default engine is aardwolf and most sites never switch. Two ways in:
 #   - install --with-freerdp
 #   - upgrade, when the site has already selected the FreeRDP engine (see ensure_freerdp_if_selected)
-FREERDP_APT_PACKAGES=(freerdp2-x11 xvfb xclip ffmpeg)
+# FreeRDP 2 (xfreerdp) where the distro still ships it, otherwise FreeRDP 3 (xfreerdp3):
+# Ubuntu 25.10 / 26.04 only have freerdp3-x11 (GitHub issue #39). The engine accepts either and
+# passes the same command-line options (checked against an xrdp target).
+freerdp_client_pkg() {
+    if apt-cache policy freerdp2-x11 2>/dev/null | grep -q 'Candidate: [0-9]'; then
+        echo freerdp2-x11
+    else
+        echo freerdp3-x11
+    fi
+}
+FREERDP_APT_PACKAGES=("$(freerdp_client_pkg)" xvfb xclip ffmpeg)
 
 # The backend's systemd unit carries a SystemCallFilter allowlist. Xvfb needs four calls the
 # backend itself never makes, and the filter's default action is to KILL -- so Xvfb dies with
@@ -149,7 +165,8 @@ install_freerdp_apt() {
 
 # Does this host already have every FreeRDP package?
 freerdp_apt_present() {
-    command -v xfreerdp >/dev/null 2>&1 && command -v Xvfb >/dev/null 2>&1 \
+    { command -v xfreerdp >/dev/null 2>&1 || command -v xfreerdp3 >/dev/null 2>&1; } \
+        && command -v Xvfb >/dev/null 2>&1 \
         && command -v ffmpeg >/dev/null 2>&1
 }
 

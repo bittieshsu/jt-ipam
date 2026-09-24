@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from "vue";
-import { WIDTH_PARTS, spanFor, slotFor, posFor, rackDefaults, usesLevels, boardDefault, rackPixelHeight, levelEditOrder, slotNotation } from "@/utils/rackSlots";
+import { WIDTH_PARTS, spanFor, slotFor, posFor, rackDefaults, usesLevels, boardDefault, rackPixelHeight, levelEditOrder, slotNotation, RACK_FLOOR_MM } from "@/utils/rackSlots";
+import { FINISHES } from "@/utils/rackFinish";
 import { useI18n } from "vue-i18n";
 import {
   NCard,
@@ -18,15 +19,13 @@ import {
   NTooltip,
   NRadioGroup,
   NRadioButton,
-  NButtonGroup,
-  NDropdown,
   useMessage,
   type DataTableColumns,
   type DataTableRowKey,
   NSwitch,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
-import { RacksIcon, DeleteIcon, PlusIcon, EditIcon, SaveIcon, CancelIcon, LocationsIcon, PinIcon, ExportIcon } from "@/icons";
+import { RacksIcon, DeleteIcon, PlusIcon, EditIcon, SaveIcon, CancelIcon, LocationsIcon, PinIcon } from "@/icons";
 import { exportTable, type ExportColumn } from "@/utils/tableExport";
 import { exportRacksSvg, exportRacksPng, exportRacksDrawio, type RackNameAlign } from "@/utils/rackGraphicsExport";
 import { getRackNameAlign } from "@/api/basic";
@@ -34,12 +33,13 @@ import { usePinned } from "@/composables/usePinned";
 import { useRoute, useRouter } from "vue-router";
 import { apiClient, apiErrMsg } from "@/api/client";
 import RackDiagram from "@/components/RackDiagram.vue";
+import RackRoomToolbar from "@/components/RackRoomToolbar.vue";
 import { RACK_DEVICE_TYPES, rackTypeColor } from "@/utils/rackColors";
 import RackFloorPlan from "@/components/RackFloorPlan.vue";
 import {
   getRackDiagram, getRackEmbedConfig, rackEmbedUrl,
   type RackDiagram as RD, type RackEmbedConfig,
-  rackLevelOp, type RackLevelPlan,
+  rackLevelOp, type RackLevelPlan, type RackKind, type RackFinish,
 } from "@/api/racks";
 import { bulkDeleteRacks, listLocations, listDevices, updateDevice, type Location, type Device } from "@/api/basic";
 import { useAuthStore } from "@/stores/auth";
@@ -51,7 +51,8 @@ interface Rack {
   id: string;
   name: string;
   u_height: number;
-  kind?: 'rack' | 'shelf';
+  kind?: RackKind;
+  finish?: RackFinish | null;
   width_mm?: number | null;
   row_height_mm?: number | null;
   depth_mm?: number | null;
@@ -94,8 +95,18 @@ const rackViewMode = computed<"separate" | "merged">({
   get: () => (mergedView.value ? "merged" : "separate"),
   set: (v) => { mergedView.value = v === "merged"; },
 });
-// 合併卡共用的正/背面切換（控制卡內所有機櫃）
+// 整排共用的正/背面切換（合併卡片與分開卡片都是這一個，控制整排機櫃）
 const mergedFace = ref<"front" | "rear">("front");
+// 整排共用的顯示大小：一拉整排一起縮放。與單櫃檢視的分開記（整排通常要縮得比單櫃小）。
+const ROOM_ZOOM_KEY = "jt.rackRoomZoom";
+const roomZoom = ref(1);
+try {
+  const v = Number(localStorage.getItem(ROOM_ZOOM_KEY));
+  if (v >= 0.35 && v <= 1) roomZoom.value = v;
+} catch { /* 隱私模式讀不到就用預設 */ }
+watch(roomZoom, (v) => {
+  try { localStorage.setItem(ROOM_ZOOM_KEY, String(v)); } catch { /* 忽略 */ }
+});
 const mergedHasRear = computed(() =>
   roomDiagrams.value.some((d: any) => (d.devices || []).some((x: any) => x.rack_face === "rear")));
 const roomFocus = ref<RD | null>(null);   // 在平面圖上點選的機櫃 → 顯示其 U 位
@@ -266,7 +277,8 @@ const editing = ref<Rack | null>(null);
 const form = ref({
   name: "", u_height: 42, location_id: null as string | null, description: "",
   seq: null as number | null,
-  kind: "rack" as "rack" | "industrial" | "shelf" | "wire_shelf" | "wood_shelf",
+  kind: "rack" as RackKind,
+  finish: null as RackFinish | null,
   width_mm: null as number | null, row_height_mm: null as number | null,
   level_heights: null as number[] | null,
   board_mm: null as number | null, floor_mm: null as number | null,
@@ -277,7 +289,7 @@ const form = ref({
 function openCreate() {
   editing.value = null;
   form.value = { name: "", u_height: 42, location_id: roomId.value, description: "",
-    seq: null, kind: "rack", width_mm: null, row_height_mm: null, level_heights: null,
+    seq: null, kind: "rack", finish: null, width_mm: null, row_height_mm: null, level_heights: null,
     board_mm: null, floor_mm: null,
     depth_mm: null, numbering: "top-down", face: "front", expose_svg: false };
   showEdit.value = true;
@@ -286,7 +298,8 @@ function openEdit(r: Rack) {
   editing.value = r;
   form.value = {
     name: r.name, u_height: r.u_height, location_id: r.location_id, description: r.description ?? "",
-    kind: (r as any).kind ?? "rack", row_height_mm: (r as any).row_height_mm ?? null,
+    kind: (r as any).kind ?? "rack", finish: r.finish ?? null,
+    row_height_mm: (r as any).row_height_mm ?? null,
     level_heights: ((r as any).level_heights ?? null) as number[] | null,
     board_mm: (r as any).board_mm ?? null, floor_mm: (r as any).floor_mm ?? null,
     seq: r.seq ?? null,
@@ -327,10 +340,17 @@ const numberingOpts = computed(() => kindUsesLevels.value
 const kindOpts = computed(() => [
   { label: t("racks.kind_rack"), value: "rack" },
   { label: t("racks.kind_industrial"), value: "industrial" },
+  { label: t("racks.kind_lackrack"), value: "lackrack" },
   { label: t("racks.kind_shelf"), value: "shelf" },
   { label: t("racks.kind_wire_shelf"), value: "wire_shelf" },
+  { label: t("racks.kind_angle_shelf"), value: "angle_shelf" },
   { label: t("racks.kind_wood_shelf"), value: "wood_shelf" },
+  { label: t("racks.kind_kallax"), value: "kallax" },
 ]);
+/** 表面顏色：只有外觀會因顏色而不同的型態才有（角鋼的黑／白／鍍鋅、KALLAX、LACK） */
+const finishOpts = computed(() => (FINISHES[form.value.kind] ?? []).map((v) => ({
+  label: t(`racks.finish_${v}`), value: v,
+})));
 /** 層架類才需要設「每層高度」；機櫃類是固定 1U。 */
 const kindUsesLevels = computed(() => usesLevels(form.value.kind));
 /** 留白時後端會用的預設值 —— 當成輸入框的提示，使用者才知道不填會變成多少。 */
@@ -338,27 +358,60 @@ const kindDefaults = computed(() => rackDefaults(form.value.kind));
 
 /** 各層高度不同（層架的層板本來就一層一層可調）。關掉＝整台用同一個 row_height_mm。 */
 /**
- * 常見層架的成品組合。IVAR 179 公分側架官方要求至少 4 層，實務上 6 層最常見；
- * 層高是把「側架總高 − 層板厚度 × 片數 − 離地」平均分給每一層算出來的。
+ * 常見的成品組合，一鍵套用。
+ *
+ * - IVAR／角鋼層架：給側架（立柱）總高與層數，層高＝「總高 − 板厚 × 片數 − 離地」平均分給每一層。
+ *   IVAR 179 公分側架官方要求至少 4 層，實務上 6 層最常見。角鋼層架是台灣市售最常見的幾組
+ *   （PChome 848 筆商品統計：寬 90／120、深 45、高 180 壓倒性最多，4 層與 5 層最常見）；
+ *   「4 層」＝4 片板，可放的位置是 3 層之間＋最上面那片板的上面。
+ * - KALLAX：給格數（欄×列），外寬＝65＋350×欄數，格子 335mm。
+ * - LackRack：給疊幾張，一張 8U。
  */
-const RACK_PRESETS: Record<string, { levels: number; frame: number; board: number;
-                                     floor: number; width: number; depth: number }[]> = {
-  wood_shelf: [{ levels: 6, frame: 1790, board: 18, floor: 10, width: 420, depth: 300 }],
-};
-function applyPreset(kind: string) {
-  const pre = RACK_PRESETS[kind]?.[0];
-  if (!pre) return;
+interface RackPreset {
+  label: string;
+  levels: number;          // u_height（層數或 U 數）
+  width: number;
+  depth: number;
+  frame?: number;          // 有給：層高由總高平均算出來
+  board?: number;
+  floor?: number;
+  row?: number;            // 有給：直接用這個層高
+}
+const RACK_PRESETS = computed<Record<string, RackPreset[]>>(() => ({
+  wood_shelf: [{ label: t("racks.preset_ivar_179"), levels: 6, frame: 1790, board: 18, floor: 10, width: 420, depth: 300 }],
+  angle_shelf: ([[900, 450, 1800, 4], [1200, 450, 1800, 4], [1200, 450, 1800, 5], [900, 450, 1500, 4],
+                 [600, 300, 1800, 4]] as const).map(([w, d, h, n]) => ({
+    label: t("racks.preset_angle", { w: w / 10, d: d / 10, h: h / 10, n }),
+    levels: n - 1, frame: h, board: 59, floor: 10, width: w, depth: d,
+  })),
+  kallax: ([[1, 4], [2, 2], [2, 4], [3, 3], [3, 4], [4, 4], [5, 5]] as const).map(([c, r]) => ({
+    label: t("racks.preset_kallax", { c, r }),
+    levels: r, row: 335, board: 15, floor: 0, width: 65 + 350 * c, depth: 390,
+  })),
+  lackrack: [1, 2, 3].map((n) => ({
+    label: t("racks.preset_lack", { n, u: n * 8 }), levels: n * 8, width: 550, depth: 550,
+  })),
+}));
+function applyPreset(pre: RackPreset) {
   form.value.u_height = pre.levels;
-  form.value.board_mm = pre.board;
-  form.value.floor_mm = pre.floor;
   form.value.width_mm = pre.width;
   form.value.depth_mm = pre.depth;
-  // 層板本身與離地都不算在淨空高裡（層高填的是淨空高）
-  const usable = pre.frame - pre.board * (pre.levels + 1) - pre.floor;
-  form.value.row_height_mm = Math.max(10, Math.round(usable / pre.levels));
+  if (pre.board != null) form.value.board_mm = pre.board;
+  if (pre.floor != null) form.value.floor_mm = pre.floor;
+  if (pre.frame != null) {
+    // 層板本身與離地都不算在淨空高裡（層高填的是淨空高）
+    const usable = pre.frame - (pre.board ?? 0) * (pre.levels + 1) - (pre.floor ?? 0);
+    form.value.row_height_mm = Math.max(10, Math.round(usable / pre.levels));
+  } else if (pre.row != null) {
+    form.value.row_height_mm = pre.row;
+  }
   perLevel.value = false;
 }
-const hasPreset = computed(() => Boolean(RACK_PRESETS[form.value.kind]));
+const presetsOf = computed(() => RACK_PRESETS.value[form.value.kind] ?? []);
+const presetHint = computed(() => ({
+  kallax: t("racks.preset_hint_kallax"), lackrack: t("racks.preset_hint_lack"),
+} as Record<string, string>)[form.value.kind] ?? t("racks.preset_hint"));
+const hasPreset = computed(() => presetsOf.value.length > 0);
 /** 這個型態的層板厚度預設（輸入框的提示字）。 */
 const kindBoard = computed(() => boardDefault(form.value.kind));
 
@@ -388,11 +441,21 @@ function rowsText(n: number, kind?: string | null): string {
 // 快捷尺寸也要跟著型態：機櫃是 60/80 公分寬，層架市面上是 90/120/150 公分。
 // 木質層架給 IKEA IVAR 的實際尺寸：層板有 42×30 / 42×50 / 83×30 / 83×50 四種組合。
 const WIDTH_PRESETS = computed(() => {
-  if (form.value.kind === "wood_shelf") return [420, 830];
+  const k = form.value.kind;
+  if (k === "wood_shelf") return [420, 830];
+  // 角鋼：台尺制 15 公分一格，最常見 90、120，其次 60、150、180
+  if (k === "angle_shelf") return [600, 900, 1200, 1500, 1800];
+  // KALLAX：1～5 欄（外寬＝65＋350×欄數）
+  if (k === "kallax") return [415, 765, 1115, 1465, 1815];
+  if (k === "lackrack") return [550];
   return kindUsesLevels.value ? [900, 1200, 1500] : [600, 800];
 });
 const DEPTH_PRESETS = computed(() => {
-  if (form.value.kind === "wood_shelf") return [300, 500];
+  const k = form.value.kind;
+  if (k === "wood_shelf") return [300, 500];
+  if (k === "angle_shelf") return [300, 450, 600];
+  if (k === "kallax") return [390];
+  if (k === "lackrack") return [550];
   return kindUsesLevels.value ? [450, 600, 750] : [600, 800, 1000, 1100, 1200];
 });
 
@@ -400,15 +463,21 @@ const DEPTH_PRESETS = computed(() => {
  * 換型態時把「還沒動過的」列數換成該型態的常見值：層架不會有 42 層，
  * 機櫃也不會只有 4 U。只在值還是另一種型態的預設時才換 —— 使用者自己填過的不動。
  */
-const DEFAULT_ROWS = { rack: 42, shelf: 4 } as const;
+// 各型態的常見列數。以前只分「機櫃 42／層架 4」而且判斷層架時只認 shelf 與 wire_shelf，
+// 換成 IVAR 時列數不會跟著換；現在逐型態列出，只要值還是「上一個型態的預設」就換。
+const DEFAULT_ROWS: Record<string, number> = {
+  rack: 42, industrial: 42, lackrack: 8, shelf: 4, wire_shelf: 4, wood_shelf: 6,
+  angle_shelf: 3, kallax: 4,
+};
 watch(() => form.value.kind, (now, was) => {
   if (!was || now === was) return;
-  const wasLevels = was === "shelf" || was === "wire_shelf";
-  const nowLevels = now === "shelf" || now === "wire_shelf";
-  if (wasLevels === nowLevels) return;
-  const untouched = form.value.u_height === (wasLevels ? DEFAULT_ROWS.shelf : DEFAULT_ROWS.rack);
-  if (untouched) form.value.u_height = nowLevels ? DEFAULT_ROWS.shelf : DEFAULT_ROWS.rack;
+  const untouched = form.value.u_height === (DEFAULT_ROWS[was] ?? 42);
+  if (untouched) form.value.u_height = DEFAULT_ROWS[now] ?? 42;
+  // 顏色只對有顏色選項的型態有意義；換到別的型態時不要帶著一個不適用的值
+  if (form.value.finish && !(FINISHES[now] ?? []).includes(form.value.finish)) form.value.finish = null;
 });
+/** 離地高度留白時會用的值（提示文字）：KALLAX 直接落地、LackRack 桌下約 44mm */
+const kindFloor = computed(() => RACK_FLOOR_MM[form.value.kind] ?? 0);
 
 async function submitRack() {
   if (!form.value.name.trim()) { msg.error(t("common.name_required")); return; }
@@ -423,6 +492,7 @@ async function submitRack() {
     level_heights: perLevel.value ? levelRows.value.slice(0, form.value.u_height) : null,
     board_mm: form.value.board_mm ?? null,
     floor_mm: form.value.floor_mm ?? null,
+    finish: FINISHES[form.value.kind] ? (form.value.finish ?? null) : null,
     width_mm: form.value.width_mm ?? null,
     depth_mm: form.value.depth_mm ?? null,
     numbering: form.value.numbering,
@@ -430,12 +500,16 @@ async function submitRack() {
     expose_svg: form.value.expose_svg,
   };
   try {
+    const editedId = editing.value?.id ?? null;
     if (editing.value) await apiClient.patch(`/api/v1/racks/${editing.value.id}`, payload);
     else await apiClient.post("/api/v1/racks", payload);
     showEdit.value = false;
     msg.success(t("common.ok"));
     await refresh();
     if (roomId.value) await loadRoom(roomId.value);
+    // 單櫃檢視與平面圖點選的那一櫃不在 loadRoom 的範圍裡：以前改完顏色、寬度這類設定，
+    // 畫面要重新整理才會換（使用者回報）。改的是哪一櫃，就把它在每一處都重畫。
+    if (editedId) await refreshRackEverywhere(editedId);
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
 async function removeRack(r: Rack) {
@@ -526,18 +600,24 @@ onMounted(async () => {
 
 // ── 點空 U 位 → 挑裝置放入（任一機櫃圖都可點，event 會帶 rack_id）──
 // ── 層數調整（插入／刪除一層，上面的裝置整批移位）──
+// 放在「機櫃設定」視窗裡（以前在頁首，使用者說不該放那裡）：操作的對象就是正在編輯的那一櫃。
 const showLevelOps = ref(false);
 const levelOp = ref<"insert" | "remove">("remove");
 const levelAt = ref(1);
 const levelPlan = ref<RackLevelPlan | null>(null);
 const levelBusy = ref(false);
+/** 正在調整的機櫃（id／型態／目前的層數）。 */
+const levelRack = ref<{ id: string; kind: string | null; height: number } | null>(null);
 /** 做完留著，按「復原」就照它送回去（插入與刪除互為反操作，伺服器不必存狀態）。 */
-const levelUndo = ref<RackLevelPlan["undo"]>(null);
+const levelUndo = ref<(RackLevelPlan["undo"] & { rackId: string }) | null>(null);
 
 const levelUnit = (n: number) =>
-  usesLevels((diagram.value as any)?.kind) ? t("racks.level_at", { n }) : t("racks.level_at_u", { n });
+  usesLevels(levelRack.value?.kind) ? t("racks.level_at", { n }) : t("racks.level_at_u", { n });
 
 function openLevelOps() {
+  const r = editing.value;
+  if (!r) return;
+  levelRack.value = { id: r.id, kind: (r as any).kind ?? "rack", height: r.u_height };
   levelPlan.value = null;
   levelAt.value = 1;
   levelOp.value = "remove";
@@ -545,10 +625,10 @@ function openLevelOps() {
   void previewLevel();
 }
 async function previewLevel() {
-  if (!selected.value) return;
+  if (!levelRack.value) return;
   levelBusy.value = true;
   try {
-    levelPlan.value = await rackLevelOp(selected.value, {
+    levelPlan.value = await rackLevelOp(levelRack.value.id, {
       op: levelOp.value, at: levelAt.value, dry_run: true,
     });
   } catch (e) {
@@ -556,28 +636,39 @@ async function previewLevel() {
     msg.error(apiErrMsg(e));
   } finally { levelBusy.value = false; }
 }
+/**
+ * 層數調整做完之後：清單、每一處的機櫃圖，以及**還開著的設定視窗**都要換成新的值。
+ * 設定視窗裡留著舊的層數與逐層高度的話，使用者接著按「儲存」就會把剛做的調整蓋回去。
+ */
+async function afterLevelChange(rackId: string) {
+  await refresh();
+  await refreshRackEverywhere(rackId);
+  if (showEdit.value && editing.value?.id === rackId) {
+    const fresh = rows.value.find((x) => x.id === rackId);
+    if (fresh) openEdit(fresh);
+  }
+}
 async function applyLevel() {
-  if (!selected.value) return;
+  const rack = levelRack.value;
+  if (!rack) return;
   levelBusy.value = true;
   try {
-    const r = await rackLevelOp(selected.value, { op: levelOp.value, at: levelAt.value });
-    levelUndo.value = r.undo;
+    const r = await rackLevelOp(rack.id, { op: levelOp.value, at: levelAt.value });
+    levelUndo.value = r.undo ? { ...r.undo, rackId: rack.id } : null;
     showLevelOps.value = false;
     msg.success(t("racks.level_done", { h: `${r.old_height} → ${r.new_height}`, n: r.moves.length }));
-    await refresh();
-    await loadDiagram(selected.value);
+    await afterLevelChange(rack.id);
   } catch (e) { msg.error(apiErrMsg(e)); } finally { levelBusy.value = false; }
 }
 async function undoLevel() {
   const u = levelUndo.value;
-  if (!u || !selected.value) return;
+  if (!u) return;
   levelBusy.value = true;
   try {
-    await rackLevelOp(selected.value, { op: u.op, at: u.at, height_mm: u.height_mm });
+    await rackLevelOp(u.rackId, { op: u.op, at: u.at, height_mm: u.height_mm });
     levelUndo.value = null;
     msg.success(t("racks.level_undone"));
-    await refresh();
-    await loadDiagram(selected.value);
+    await afterLevelChange(u.rackId);
   } catch (e) { msg.error(apiErrMsg(e)); } finally { levelBusy.value = false; }
 }
 
@@ -750,15 +841,6 @@ function onMergedExport(key: string) {
           <template #icon><n-icon><LocationsIcon /></n-icon></template>
           {{ t("racks.manage_rooms") }}
         </n-button>
-        <!-- 層數調整：只在選了單一機櫃時出現（整排檢視沒有「這一層」的概念） -->
-        <n-button v-if="isAdmin && selected" quaternary size="small" @click="openLevelOps">
-          {{ t("racks.level_ops") }}
-        </n-button>
-        <!-- 剛做完才出現的復原：照著回應帶的 undo 送回去即可 -->
-        <n-button v-if="levelUndo" size="small" type="warning" ghost
-                  :loading="levelBusy" @click="undoLevel">
-          {{ t("racks.level_undo") }}
-        </n-button>
         <n-space v-if="roomId" align="center" :size="6" :wrap-item="false" style="margin-left:8px">
           <span style="font-size:13px; opacity:.75">{{ t("racks.view_mode") }}</span>
           <n-radio-group v-model:value="rackViewMode" size="small">
@@ -790,33 +872,16 @@ function onMergedExport(key: string) {
         <template v-if="roomDiagrams.length">
           <!-- 合併單卡：所有機櫃排進同一張卡（去各櫃外框，加小標題） -->
           <n-card v-if="mergedView" :title="t('racks.merged_title')">
-            <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
-            <!-- 用 flex 而不是 n-space：n-space 的項目靠 baseline 對齊，而按鈕群組與單顆
-                 按鈕的 line-height 不一樣，就會差個一兩 px 對不齊（與 RackDiagram 的
-                 .rd-toolbar 同一個理由、同一套寫法）。 -->
-            <div class="merged-toolbar">
-              <n-button-group size="tiny">
-                <n-button :type="mergedFace === 'front' ? 'primary' : 'default'" @click="mergedFace = 'front'">
-                  {{ t("racks.face_front") }}
-                </n-button>
-                <n-button :type="mergedFace === 'rear' ? 'primary' : 'default'" @click="mergedFace = 'rear'">
-                  {{ t("racks.face_rear") }}<span v-if="mergedHasRear" style="margin-left:3px">•</span>
-                </n-button>
-              </n-button-group>
-              <n-dropdown trigger="click" :options="mergedExportOptions" @select="onMergedExport">
-                <n-button size="tiny">
-                  <template #icon><n-icon><ExportIcon /></n-icon></template>
-                  {{ t("common.export") }}
-                </n-button>
-              </n-dropdown>
-            </div>
+            <!-- 控制元件放在卡片內文最上方（標題列不放控制元件） -->
+            <rack-room-toolbar v-model:face="mergedFace" v-model:zoom="roomZoom" :has-rear="mergedHasRear"
+                               :export-options="mergedExportOptions" @export="onMergedExport" />
             <div class="rack-row">
               <div v-for="d in roomDiagrams" :key="d.rack_id" class="merged-rack">
                 <div class="merged-rack__name">
                   {{ d.name }}<span class="merged-rack__u">{{ rowsText(d.u_height, (d as any).kind) }}</span>
                 </div>
                 <rack-diagram :diagram="d" :show-legend="false" :editable="isAdmin"
-                              :floor-align-to="maxRoomU" :face="mergedFace" :controls="false"
+                              :floor-align-to="maxRoomU" :face="mergedFace" :shared-zoom="roomZoom" :controls="false"
                               @measured="onRackMeasured"
                               bare @pick-empty="onPickEmpty" />
               </div>
@@ -828,9 +893,12 @@ function onMergedExport(key: string) {
           </n-card>
           <!-- 各自一張卡片（預設） -->
           <template v-else>
+            <rack-room-toolbar v-model:face="mergedFace" v-model:zoom="roomZoom" :has-rear="mergedHasRear"
+                               :export-options="mergedExportOptions" @export="onMergedExport" />
             <div class="rack-row">
               <rack-diagram v-for="d in roomDiagrams" :key="d.rack_id" :diagram="d"
                             :show-legend="false" :editable="isAdmin" :floor-align-to="maxRoomU"
+                            :face="mergedFace" :shared-zoom="roomZoom"
                             @measured="onRackMeasured" @pick-empty="onPickEmpty" />
             </div>
             <!-- 整排機櫃共用一個圖例（不用每櫃都重複） -->
@@ -915,11 +983,17 @@ function onMergedExport(key: string) {
         </n-form-item>
         <n-form-item v-if="hasPreset" :label="t('racks.preset')">
           <div style="width: 100%">
-            <n-button size="small" @click="applyPreset(form.kind)">
-              {{ t("racks.preset_ivar_179") }}
-            </n-button>
-            <span class="field-hint">{{ t("racks.preset_hint") }}</span>
+            <div class="preset-buttons">
+              <n-button v-for="pre in presetsOf" :key="pre.label" size="small" @click="applyPreset(pre)">
+                {{ pre.label }}
+              </n-button>
+            </div>
+            <span class="field-hint">{{ presetHint }}</span>
           </div>
+        </n-form-item>
+        <n-form-item v-if="finishOpts.length" :label="t('racks.finish')">
+          <n-select v-model:value="form.finish" :options="finishOpts" clearable
+                    :placeholder="finishOpts[0]?.label" style="width: 100%" />
         </n-form-item>
         <n-form-item :label="kindUsesLevels ? t('racks.level_numbering') : t('racks.numbering')">
           <div style="width: 100%">
@@ -928,7 +1002,22 @@ function onMergedExport(key: string) {
           </div>
         </n-form-item>
         <n-form-item :label="kindUsesLevels ? t('racks.levels') : t('racks.u_height')">
-          <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="width: 100%" />
+          <div style="width: 100%">
+            <div class="level-count-row">
+              <n-input-number v-model:value="form.u_height" :min="1" :max="99" style="flex: 1 1 0; min-width: 0" />
+              <!-- 層數調整：插入／刪除一層時上面的裝置整批跟著移（直接改層數不會搬裝置）。
+                   只有既有的機櫃才有裝置可搬，新增時不出現。 -->
+              <n-button v-if="editing && isAdmin" size="small" class="level-ops-btn" @click="openLevelOps">
+                {{ t("racks.level_ops") }}
+              </n-button>
+              <!-- 剛做完才出現的復原：照著回應帶的 undo 送回去即可 -->
+              <n-button v-if="editing && levelUndo && levelUndo.rackId === editing.id"
+                        size="small" type="warning" ghost :loading="levelBusy" @click="undoLevel">
+                {{ t("racks.level_undo") }}
+              </n-button>
+            </div>
+            <span v-if="editing && isAdmin" class="field-hint">{{ t("racks.level_ops_hint") }}</span>
+          </div>
         </n-form-item>
         <n-form-item v-if="kindUsesLevels" :label="t('racks.board_mm')">
           <n-input-number v-model:value="form.board_mm" :min="0" :max="200" :step="1"
@@ -938,7 +1027,7 @@ function onMergedExport(key: string) {
         </n-form-item>
         <n-form-item v-if="kindUsesLevels" :label="t('racks.floor_mm')">
           <n-input-number v-model:value="form.floor_mm" :min="0" :max="1000" :step="5"
-                          clearable placeholder="0" style="width: 100%">
+                          clearable :placeholder="String(kindFloor)" style="width: 100%">
             <template #suffix>mm</template>
           </n-input-number>
         </n-form-item>
@@ -981,6 +1070,7 @@ function onMergedExport(key: string) {
                       class="preset-chip" :class="{ 'preset-chip--on': form.width_mm === w }"
                       @click="form.width_mm = w">{{ w }}</button>
             </div>
+            <span v-if="!kindUsesLevels" class="field-hint">{{ t("racks.width_outer_hint") }}</span>
           </div>
         </n-form-item>
         <n-form-item :label="t('racks.depth_mm')">
@@ -1054,7 +1144,7 @@ function onMergedExport(key: string) {
             <n-radio-button value="insert">{{ t("racks.level_insert") }}</n-radio-button>
           </n-radio-group>
           <n-input-number v-model:value="levelAt" :min="1"
-                          :max="levelOp === 'insert' ? (diagram?.u_height ?? 1) + 1 : (diagram?.u_height ?? 1)"
+                          :max="levelOp === 'insert' ? (levelRack?.height ?? 1) + 1 : (levelRack?.height ?? 1)"
                           size="small" style="width: 120px" @update:value="previewLevel" />
           <span style="font-size: 13px; opacity: .7">{{ levelUnit(levelAt) }}</span>
         </n-space>
@@ -1143,10 +1233,6 @@ function onMergedExport(key: string) {
 
 .embed-hint { font-size: 12px; opacity: 0.65; line-height: 1.5; }
 /* 機房內機櫃並排成一橫排（依平面圖相對位置排序）；超出寬度橫向捲動，不上下堆疊 */
-.merged-toolbar {
-  display: flex; align-items: center; justify-content: flex-end;
-  gap: 8px; margin-bottom: 10px;
-}
 .rack-row {
   display: flex;
   flex-wrap: nowrap;
@@ -1202,6 +1288,9 @@ function onMergedExport(key: string) {
   flex-direction: column;
   gap: 6px;
 }
+.preset-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.level-count-row { display: flex; align-items: center; gap: 8px; }
+.level-ops-btn { flex: 0 0 auto; }
 .preset-chips {
   display: flex;
   align-items: center;

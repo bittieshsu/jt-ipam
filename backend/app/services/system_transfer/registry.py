@@ -49,6 +49,8 @@ CATEGORY: dict[str, str] = {
     "vlan_domains": "core",
     "vlans": "core",
     "subnets": "core",
+    # 子網路內的位址範圍（集區，issue #40）：使用者自己定義的資料，跟著子網路搬
+    "ip_ranges": "core",
     "ip_addresses": "core",
     "devices": "core",
     "nat_translations": "core",

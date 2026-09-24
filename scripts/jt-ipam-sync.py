@@ -744,7 +744,7 @@ async def _run() -> int:
 async def _run_and_dispose() -> int:
     """跑完一定要 dispose engine —— 這是短命腳本用 async engine 的必要收尾。
 
-    少了它，連線池裡的 asyncpg 連線會留到直譯器關閉時才被 GC 回收；那時事件迴圈與
+    少了它，連線集區裡的 asyncpg 連線會留到直譯器關閉時才被 GC 回收；那時事件迴圈與
     greenlet 都已經沒了，SQLAlchemy 在 finalizer 裡呼叫 `terminate()` 會炸出
     `RuntimeError: greenlet is being finalized` / `MissingGreenlet`，行程以非零結束。
     systemd 於是把每一輪都記成 failed（我們自己的 prod 24 小時內 259 次），而且

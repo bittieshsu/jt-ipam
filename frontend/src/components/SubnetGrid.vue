@@ -13,6 +13,7 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NEmpty, NTooltip } from "naive-ui";
 import type { IPAddress } from "@/types";
+import { RANGE_COLORS, type IPRange, type IPRangePurpose } from "@/api/ipRanges";
 import { classifyAddressLiveness, onlineGraceMinutes } from "@/composables/useLivenessSettings";
 
 const { t } = useI18n();
@@ -54,8 +55,33 @@ function hideTip() { tip.value = null; }
 interface Props {
   cidr: string;
   addresses: IPAddress[];
+  /** 子網路內的位址範圍（集區，issue #40）：範圍內的格子底下畫一條該用途的色線 */
+  ranges?: IPRange[];
 }
 const props = defineProps<Props>();
+
+/** 範圍換成整數區間（位址圖只畫 IPv4） */
+const rangeSpans = computed(() => (props.ranges ?? []).flatMap((r) => {
+  const a = ipToInt(r.start_ip), b = ipToInt(r.end_ip);
+  return a == null || b == null ? [] : [{ a, b, r }];
+}));
+function ipToInt(ip: string): number | null {
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(ip).split("/")[0].trim());
+  if (!m) return null;
+  return ((+m[1] << 24) >>> 0) + (+m[2] << 16) + (+m[3] << 8) + +m[4];
+}
+function rangeOf(ip: string): IPRange | null {
+  const n = ipToInt(ip);
+  if (n == null) return null;
+  return rangeSpans.value.find((x) => n >= x.a && n <= x.b)?.r ?? null;
+}
+function rangeTip(ip: string): string {
+  const r = rangeOf(ip);
+  return r ? ` · ${t(`ranges.purpose_${r.purpose}`)}${r.name ? `（${r.name}）` : ""}` : "";
+}
+/** 圖例只列這個子網路真的有的用途 */
+const rangePurposes = computed(() =>
+  [...new Set((props.ranges ?? []).map((r) => r.purpose))] as IPRangePurpose[]);
 
 const emit = defineEmits<{
   (e: "open-ip", address: IPAddress): void;
@@ -285,9 +311,11 @@ function aggColor(pct: number): string {
           cellStyle(c).kind === 'free' ? 'cell-free' : 'cell-filled',
           isAutoAdded(c.addr) ? 'cell-auto' : '',
         ]"
-        :style="{ background: cellStyle(c).background }"
+        :style="{ background: cellStyle(c).background,
+                  ...(rangeOf(c.ip) ? { boxShadow: `inset 0 -3px 0 ${RANGE_COLORS[rangeOf(c.ip)!.purpose]}` } : {}) }"
+        :data-range="rangeOf(c.ip)?.purpose"
         @mouseenter="(e) => showTip(e, `${c.ip}${c.hostname ? ' · ' + c.hostname : ''} · ${cellStatusLabel(c)}`
-          + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : ''))"
+          + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : '') + rangeTip(c.ip))"
         @mousemove="moveTip"
         @mouseleave="hideTip"
         @click="() => {
@@ -331,6 +359,9 @@ function aggColor(pct: number): string {
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, var(--jt-cell-active, #22c55e) 50% 100%)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
+      <span v-for="p in rangePurposes" :key="'rg-' + p" class="legend-item">
+        <i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', boxShadow: `inset 0 -3px 0 ${RANGE_COLORS[p]}` }"></i>{{ t(`ranges.purpose_${p}`) }}
+      </span>
     </div>
   </div>
 </template>

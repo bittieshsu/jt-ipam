@@ -45,6 +45,8 @@ LOCATIONS = [
     ("Singapore Edge", "Downtown Core, Singapore", 1.2897, 103.8501),
     # 只放層架的實驗室：拍層架那張圖時，旁邊不要有一座幾乎全空的 24U 機櫃佔掉一半寬度
     ("Taipei Lab", "Neihu, Taipei", 25.0797, 121.5745),
+    # 三種新型態（角鋼層架、KALLAX、LackRack）各一座，拍 rack-more-kinds 那張圖用
+    ("Taichung Office", "Xitun, Taichung", 24.1631, 120.6408),
 ]
 
 #: 機櫃：(名稱, 機房, U 數, 寬 mm, 深 mm, 平面圖 x, 平面圖 y)
@@ -83,7 +85,18 @@ SHELVES = [
      [210, 210, 110, 140, 140, 140, 140, 45, 90], 18, 10, 0.35, 0.45),
     ("LAB-S02", "Taipei Lab", "wire_shelf", 5, 900, 600, "bottom-up", 300,
      None, None, None, 0.60, 0.45),
+    # 台灣最常見的角鋼層架：90×45×180 公分四層（4 片板＝3 層之間＋頂板上面；
+    # 層高 (1800 − 59×4 − 10) ÷ 3 ≈ 518mm）、KALLAX 2×4、兩張疊起來的 LackRack（16U）
+    ("TC-A01", "Taichung Office", "angle_shelf", 3, 900, 450, "top-down", 518,
+     None, 59, 10, 0.25, 0.45),
+    ("TC-K01", "Taichung Office", "kallax", 4, 765, 390, "top-down", 335,
+     None, 15, 0, 0.50, 0.45),
+    ("TC-L01", "Taichung Office", "lackrack", 16, 550, 550, "top-down", None,
+     None, None, None, 0.72, 0.45),
 ]
+
+#: 表面顏色（只有這三種新型態有）
+SHELF_FINISH = {"TC-A01": "black", "TC-K01": "white", "TC-L01": "black"}
 
 #: 層架上的裝置：(名稱, 型別, 層架, 層, 橫向起點, 橫向格數, 層內起點, 層內格數)
 #: 一層橫向與垂直各 60 格；「層數＋1」＝頂板上方（層架沒有天花板，上面也放得了東西）。
@@ -108,6 +121,26 @@ SHELF_DEVICES = [
     ("nas-15",     "storage", "LAB-S02", 3, 20, 20, 0, 60),
     ("backup-01",  "server",  "LAB-S02", 4, 0, 60, 0, 60),
     ("ups-01",     "ups",     "LAB-S02", 5, 0, 30, 0, 60),
+    # 角鋼層架（90 公分寬 → 一格 15mm；層高 518mm → 一格 8.6mm），尺寸照實物：
+    # 4-bay NAS 200×230、直立式 UPS 160×240、19 吋 1U 交換器 440×44、迷你主機 180×60（疊在交換器上）
+    ("nas-21",     "storage", "TC-A01", 1, 0, 14, 0, 27),
+    ("ups-21",     "ups",     "TC-A01", 1, 16, 11, 0, 28),
+    ("sw-21",      "switch",  "TC-A01", 2, 0, 29, 0, 5),
+    ("mini-pc-21", "server",  "TC-A01", 2, 0, 12, 5, 7),
+    ("nvr-21",     "storage", "TC-A01", 3, 0, 25, 0, 7),
+    ("ap-ctl-21",  "other",   "TC-A01", 4, 0, 13, 0, 5),
+    # KALLAX（格內寬 685mm → 一格 11.4mm，左格 0–29、右格 30–59；格高 335mm → 一格 5.6mm）
+    ("nas-31",     "storage", "TC-K01", 3, 0, 18, 0, 41),
+    ("rt-31",      "router",  "TC-K01", 4, 30, 22, 0, 8),
+    ("sw-31",      "switch",  "TC-K01", 2, 30, 14, 0, 5),
+    ("ups-31",     "ups",     "TC-K01", 1, 0, 13, 0, 43),
+    # LackRack：19 吋設備鎖在桌腳上（最後一欄是 U 數）
+    ("sw-41",      "switch",  "TC-L01", 16, 0, 60, 0, 60),
+    ("patch-41",   "patch_panel", "TC-L01", 15, 0, 60, 0, 60),
+    ("fw-41",      "firewall", "TC-L01", 13, 0, 60, 0, 60),
+    ("srv-41",     "server",  "TC-L01", 6, 0, 60, 0, 60, 2),
+    ("nas-41",     "storage", "TC-L01", 3, 0, 60, 0, 60, 2),
+    ("ap-41",      "other",   "TC-L01", 17, 0, 20, 0, 60),     # 桌面上方（LACK 桌面也放得了東西）
 ]
 
 #: 裝置：(名稱, 型別, 廠牌, 型號, 機櫃, U 位, U 數, 主要 IP)
@@ -317,6 +350,8 @@ def main() -> int:
             patch["board_mm"] = board
         if floor is not None:
             patch["floor_mm"] = floor
+        if name in SHELF_FINISH:
+            patch["finish"] = SHELF_FINISH[name]
         st, body = api.call("PATCH", f"/racks/{rack_ids[name]}", patch)
         if st >= 400:
             print(f"  ! shelf {name} 規格: {st} {body}")
@@ -405,13 +440,13 @@ def main() -> int:
             print(f"  ! device {name}: {st} {body}")
         else:
             dev_ids[name] = body["id"]
-    for name, dtype, shelf, level, slot, span, vslot, vspan in SHELF_DEVICES:
+    for name, dtype, shelf, level, slot, span, vslot, vspan, *more in SHELF_DEVICES:
         if name in dev_ids or shelf not in rack_ids:
             continue
         room = next(loc for sn, loc, *_ in SHELVES if sn == shelf)
         st, body = api.call("POST", "/devices", {
             "name": name, "type": dtype, "rack_id": rack_ids[shelf],
-            "location_id": loc_ids.get(room), "u_position": level, "u_size": 1,
+            "location_id": loc_ids.get(room), "u_position": level, "u_size": more[0] if more else 1,
             "rack_face": "front", "rack_slot": slot, "rack_slot_span": span,
             "rack_vslot": vslot, "rack_vslot_span": vspan})
         if st >= 400:

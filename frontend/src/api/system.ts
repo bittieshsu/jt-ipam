@@ -260,6 +260,9 @@ export interface ConsoleSecurity {
   rdp_engine: RdpEngine;
   // 唯讀：這台機器實際上能不能用 FreeRDP 引擎，缺什麼、怎麼裝（由後端算）
   freerdp_available?: boolean;
+  /** aardwolf（預設引擎與 VNC 主控台）有沒有裝起來，以及伺服器的 Python 版本（issue #39） */
+  aardwolf_available?: boolean;
+  python_version?: string;
   freerdp_missing?: string[];
   freerdp_install_cmd?: string;
 }

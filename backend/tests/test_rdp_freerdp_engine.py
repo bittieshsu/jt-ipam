@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from app.services.rdp_freerdp import (
-    REQUIRED_BINARIES,
+    required_binaries,
     REQUIRED_MODULES,
     FreeRdpConnection,
     VideoTile,
@@ -54,7 +54,7 @@ def test_availability_names_what_is_missing():
     if not av["ok"]:
         assert av["missing_packages"] or av["missing_modules"]
     # 套件名是要印給人照著 apt install 的，不能是空字串
-    assert all(REQUIRED_BINARIES.values())
+    assert all(required_binaries().values())
     assert all(REQUIRED_MODULES.values())
 
 
@@ -684,3 +684,98 @@ def test_credentials_are_never_sent_twice_for_one_attempt():
     code = "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith("#"))
     assert "_CONNECT_RETRIES" not in code and "_worth_retrying" not in code
     assert code.count("await self._start_xfreerdp()") == 1
+
+
+# ── FreeRDP 3（GitHub issue #39）─────────────────────────────────────────
+# Ubuntu 25.10／26.04 已經沒有 freerdp2-x11，只剩 freerdp3-x11（執行檔叫 xfreerdp3）。
+# 以前只認 xfreerdp，在那些版本上 FreeRDP 引擎根本裝不起來 —— 而那正是 aardwolf 也裝不起來
+# （Python 3.14 沒有 wheel）的那批主機，兩個引擎都用不了。
+
+def test_the_engine_falls_back_to_freerdp3(monkeypatch):
+    import app.services.rdp_freerdp as m
+    have = {"xfreerdp3": "/usr/bin/xfreerdp3"}
+    monkeypatch.setattr(m.shutil, "which", lambda b: have.get(b))
+    monkeypatch.delenv("JT_IPAM_FREERDP_BIN", raising=False)
+    assert m.freerdp_binary() == "/usr/bin/xfreerdp3"
+    have["xfreerdp"] = "/usr/bin/xfreerdp"
+    assert m.freerdp_binary() == "/usr/bin/xfreerdp", "兩個都有時用驗證較久的 FreeRDP 2"
+    monkeypatch.setenv("JT_IPAM_FREERDP_BIN", "xfreerdp3")
+    assert m.freerdp_binary() == "/usr/bin/xfreerdp3", "可以用環境變數指定"
+
+
+def test_availability_is_satisfied_by_freerdp3_alone(monkeypatch):
+    import app.services.rdp_freerdp as m
+    have = {"xfreerdp3", "Xvfb", "ffmpeg"}
+    monkeypatch.setattr(m.shutil, "which", lambda b: f"/usr/bin/{b}" if b in have else None)
+    monkeypatch.delenv("JT_IPAM_FREERDP_BIN", raising=False)
+    m.freerdp_package.cache_clear()       # 套件判斷有快取，別讓假的 which 留下錯的結果
+    try:
+        assert "freerdp" not in " ".join(m.availability()["missing_packages"])
+    finally:
+        m.freerdp_package.cache_clear()
+
+
+def test_the_package_to_install_follows_what_the_os_offers(monkeypatch):
+    import app.services.rdp_freerdp as m
+    m.freerdp_package.cache_clear()
+    monkeypatch.setattr(m, "_apt_has_candidate", lambda pkg: pkg == "freerdp3-x11")
+    assert m.freerdp_package() == "freerdp3-x11"
+    assert "freerdp3-x11" in m.freerdp_apt_hint()
+    m.freerdp_package.cache_clear()
+    monkeypatch.setattr(m, "_apt_has_candidate", lambda pkg: True)
+    assert m.freerdp_package() == "freerdp2-x11", "兩個都有時裝驗證較久的 FreeRDP 2"
+    m.freerdp_package.cache_clear()
+
+
+def test_the_installer_picks_freerdp3_where_freerdp2_is_gone():
+    from pathlib import Path
+    sh = (Path(__file__).resolve().parents[2] / "scripts" / "jt-ipam.sh").read_text(encoding="utf-8")
+    assert "freerdp3-x11" in sh, "Ubuntu 25.10 起只有 freerdp3-x11"
+    present = sh[sh.index("freerdp_apt_present() {"):]
+    present = present[:present.index("}")]
+    assert "xfreerdp3" in present, "裝好 FreeRDP 3 要算有裝"
+
+
+@pytest.mark.anyio
+async def test_terminate_does_not_hang_when_nobody_reads_the_queue():
+    """控制端斷線時沒有人在讀畫面佇列；佇列滿了（最多 8 張）的話，`await put(None)` 會永遠
+    卡住，後面收掉 xfreerdp 與 Xvfb 的步驟就不會執行 —— 每斷一次線就留下一組行程。
+    （對 FreeRDP 3 做整合測試時抓到的，FreeRDP 2 一樣會中。）
+    """
+    import asyncio
+
+    conn = FreeRdpConnection(host="192.0.2.1", port=3389, username="u", password="p",
+                             domain=None, width=800, height=600)
+    for i in range(conn.ext_out_queue.maxsize):
+        conn.ext_out_queue.put_nowait(VideoTile(x=0, y=0, width=1, height=1, data=b"%d" % i))
+    async with asyncio.timeout(3):
+        await conn.terminate()
+    # 結束訊號還是要送到（控制端若還在讀，要知道畫面到此為止）
+    items = []
+    while not conn.ext_out_queue.empty():
+        items.append(conn.ext_out_queue.get_nowait())
+    assert items[-1] is None
+
+
+@pytest.mark.anyio
+async def test_terminate_does_not_hang_on_a_capture_process_nobody_reads():
+    """抓畫面的 ffmpeg 一直往管線寫；串流收掉之後沒人讀，管線滿了它就卡在 write 上。
+
+    收的時候：SIGTERM 對卡在 write 的它沒效果；SIGKILL 殺得掉，但 asyncio（Python 3.12）的
+    `proc.wait()` 要等**所有管線都斷開**才會回來 —— 讀取端因為緩衝滿了而暫停著，永遠等不到 EOF，
+    於是永遠卡住，後面收 xfreerdp 與 Xvfb 的步驟都不會執行（每斷一次線留下一組行程）。
+    用一個真的、不停寫 stdout 的行程重現。
+    """
+    import asyncio
+
+    conn = FreeRdpConnection(host="192.0.2.1", port=3389, username="u", password="p",
+                             domain=None, width=800, height=600)
+    # ffmpeg 有自己的 SIGTERM 處理，卡在 write 上時不會結束，只能靠 SIGKILL —— 而 SIGKILL 之後
+    # 的那次 wait 才是會永遠卡住的地方。`trap "" TERM` 再 exec 讓 yes 也忽略 SIGTERM，情況相同。
+    conn._grab = await asyncio.create_subprocess_exec(
+        "sh", "-c", 'trap "" TERM; exec yes 0123456789abcdef0123456789abcdef',
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    await asyncio.sleep(0.5)          # 讓管線寫滿、讀取端暫停
+    async with asyncio.timeout(15):
+        await conn.terminate()
+    assert conn._grab is None

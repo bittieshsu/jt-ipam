@@ -18,7 +18,7 @@
 ## 為什麼不直接用 `ssh_tunnel.open_tunnel()`
 
 規格原本寫「複用 `open_tunnel()`」，但它每呼叫一次就**開一條新的 SSH 連線**，
-而這裡要求「同一跳板的多個 session 共用一條連線」。兩者不相容，所以這裡自己管連線池，
+而這裡要求「同一跳板的多個 session 共用一條連線」。兩者不相容，所以這裡自己管連線集區，
 但**沿用 `ssh_tunnel` 的安全零件**：`LEGACY_SSH_ALGS`（老舊網路裝置的相容演算法）、
 host key 指紋計算與 `SSHHostKeyMismatch`。安全行為因此與既有的 SSH 通道一致。
 
@@ -148,7 +148,7 @@ def route_label(route: Route) -> str | None:
     return route.name if isinstance(route, ViaJumpHost) else None
 
 
-# ─────────────────── 連線池 ───────────────────
+# ─────────────────── 連線集區 ───────────────────
 @dataclass
 class _Pooled:
     conn: asyncssh.SSHClientConnection

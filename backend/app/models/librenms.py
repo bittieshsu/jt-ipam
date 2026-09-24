@@ -3,7 +3,8 @@
 設計：
 - LibreNMSInstance：多站點支援（規格書 §6.10）；api_token 加密
 - LibreNMSDevice：每次 sync 從 LibreNMS 抓回的裝置；legacy_id = LibreNMS device_id
-- ARPEntry：從 LibreNMS API /resources/ip/arp/ 取得，自動補 IP 的 MAC
+- ARPEntry：從 LibreNMS API /resources/ip/arp/ 取得，自動補 IP 的 MAC；
+  掃描代理與防火牆 ARP 表的觀測也寫這裡（IP 衝突偵測的依據，issue #41）
 - FDBEntry：從 LibreNMS API /devices/{id}/fdb 取得，定位 MAC 在哪個 switch port
 """
 
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -131,7 +133,12 @@ class ARPEntry(Base, UUIDPrimaryKeyMixin):
     )
     interface: Mapped[str | None] = mapped_column(String(64))
     vrf: Mapped[str | None] = mapped_column(String(64))
+    # librenms / scanner / arp:<廠牌>（防火牆 ARP 表）。非 LibreNMS 的觀測沒有 device_id，
+    # 改用 subnet_id 界定範圍 —— 重疊網段不可以互相判成衝突（issue #41，見 services/arp_evidence.py）
     source: Mapped[str] = mapped_column(String(16), default="librenms", nullable=False)
+    subnet_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subnets.id", ondelete="CASCADE"), index=True,
+    )
 
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
@@ -142,6 +149,9 @@ class ARPEntry(Base, UUIDPrimaryKeyMixin):
 
     __table_args__ = (
         UniqueConstraint("ip", "mac", "device_id", name="arp_entry_unique"),
+        # 掃描代理／防火牆的觀測：同一個 IP、MAC、來源、子網路只一筆，再看到只更新時間
+        Index("arp_entry_observed_unique", "ip", "mac", "source", "subnet_id", unique=True,
+              postgresql_where=text("device_id IS NULL AND subnet_id IS NOT NULL")),
     )
 
 
