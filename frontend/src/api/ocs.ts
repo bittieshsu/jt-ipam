@@ -84,3 +84,39 @@ export async function syncOcs(id: string): Promise<{ task_id: string }> {
   const { data } = await apiClient.post(`/api/v1/ocs/${id}/sync`);
   return data;
 }
+
+/** OCS 盤點到的電腦，一台一筆（一台電腦的多個 IP 彙整在 ips）。 */
+export interface OcsAgent {
+  ocs_id: number | null;
+  name: string | null;
+  ips: string[];
+  ip_address_ids: string[];
+  os: string | null;
+  agent_version: string | null;
+  tag: string | null;
+  last_inventory: string | null;
+}
+
+/** 有主機名稱、卻從來沒被 OCS 盤點過的 IP（同 Wazuh 的 MissingAgent）。 */
+export interface OcsMissingAgent {
+  ip_address_id: string;
+  ip: string | null;
+  hostname: string | null;
+  // 所屬範圍（依區段／子網路／單位篩選用）
+  subnet_id?: string | null;
+  subnet_cidr?: string | null;
+  section_id?: string | null;
+  section_name?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
+}
+
+export async function listOcsAgents(): Promise<{ items: OcsAgent[]; total: number }> {
+  const { data } = await apiClient.get("/api/v1/ocs/agents");
+  return data;
+}
+
+export async function listOcsMissingAgents(): Promise<OcsMissingAgent[]> {
+  const { data } = await apiClient.get<OcsMissingAgent[]>("/api/v1/ocs/missing-agents");
+  return data;
+}

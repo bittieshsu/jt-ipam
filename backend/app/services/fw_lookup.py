@@ -88,21 +88,26 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     out: dict[str, Any] = {"rules": [], "nat": [], "aliases": []}
 
     # ── 別名：這個 IP 在哪些別名裡（其名字之後也拿來比對規則欄位）──
+    # 每筆別名都帶防火牆名稱：規則那幾行寫著是哪一台，別名也要 —— 有兩台時才分得出來
     alias_names: set[str] = set()
+    opn_names = {f.id: f.name for f in (await session.execute(
+        select(OPNsenseFirewall))).scalars().all()}
     for alias in (await session.execute(select(OPNsenseSyncedAlias))).scalars().all():
         if _member_covers(alias.content, aip):
             alias_names.add(alias.name)
             out["aliases"].append({"source_type": "opnsense", "name": alias.name,
+                                   "firewall": opn_names.get(alias.firewall_id, "?"),
                                    "descr": (alias.description or "")[:120]})
+    pf_names = {f.id: f.name for f in (await session.execute(
+        select(PfSenseFirewall))).scalars().all()}
     for alias in (await session.execute(select(PfSenseSyncedAlias))).scalars().all():
         if _member_covers(alias.members, aip):
             alias_names.add(alias.name)
             out["aliases"].append({"source_type": "pfsense", "name": alias.name,
+                                   "firewall": pf_names.get(alias.firewall_id, "?"),
                                    "descr": (alias.descr or "")[:120]})
 
     # ── OPNsense 規則 ──
-    opn_names = {f.id: f.name for f in (await session.execute(
-        select(OPNsenseFirewall))).scalars().all()}
     for r in (await session.execute(
             select(OPNsenseRule).where(OPNsenseRule.enabled.is_(True)))).scalars().all():
         why_src = _field_matches(r.source_net, aip, alias_names)
@@ -184,13 +189,18 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     # 一列就是一個成員；同名清單只需回報一次。
     mt_names = {f.id: f.name for f in (await session.execute(
         select(MikroTikRouter))).scalars().all()}
-    mt_lists: set[str] = set()
+    # 去重要看「哪台路由器的哪個清單」：只看清單名稱的話，兩台剛好同名時另一台就消失了
+    mt_lists: set[tuple[Any, str]] = set()
     for entry in (await session.execute(select(MikroTikAddressList))).scalars().all():
-        if entry.list_name in mt_lists or not _member_covers(entry.address, aip):
+        key = (entry.router_id, entry.list_name)
+        # address 是單一字串 —— 直接傳給 _member_covers 會被逐字元比對，永遠比不到
+        # （以前 MikroTik 的 address-list 在這裡從來沒出現過，list: 規則也就反查不到）
+        if key in mt_lists or not _member_covers([entry.address], aip):
             continue
-        mt_lists.add(entry.list_name)
+        mt_lists.add(key)
         alias_names.add(entry.list_name)
         out["aliases"].append({"source_type": "mikrotik", "name": entry.list_name,
+                               "firewall": mt_names.get(entry.router_id, "?"),
                                "descr": (entry.comment or "")[:120]})
 
     # ── MikroTik 防火牆規則 ──

@@ -1198,7 +1198,7 @@
     "exact_match": "完全符合",
     "exact_match_hint": "開啟時，IP / 主機名稱需與搜尋字「完全相等」；關閉則為包含比對（例：搜尋 198.51.100.1 不會再撈到 198.51.100.10、198.51.100.100）。需先輸入搜尋字。",
     "link_matching_device": "關聯相符的裝置「{name}」",
-    "related_nat": "關聯的 NAT 規則 ({n})",
+    "related_nat": "關聯的 NAT 規則（{n}）",
     "ip_required": "請輸入 IP 位址",
     "role_gateway": "閘道",
     "role_gateway_hint": "此 IP 是所屬子網路的閘道",
@@ -1221,7 +1221,7 @@
     "role_auto_added": "自動收錄（未登記）",
     "role_auto_added_hint": "這筆位址是由 {src} 自動建立的，沒有人手動登記過。請確認它是否為預期中的設備 —— 自動收錄之後，它就不會再被「未授權 IP」偵測列出來。",
     "fw_title": "防火牆規則（明確涵蓋此 IP 的 {n} 條）",
-    "fw_aliases": "所屬別名",
+    "fw_aliases_title": "所屬別名（{n}）",
     "fw_any_note": "來源或目的為 any 的規則也適用於此 IP，未列出。",
     "virt": "虛實",
     "virt_vm_tag": "虛擬機",
@@ -4462,6 +4462,16 @@
     "interval": "同步間隔（秒）",
     "stale_days": "盤點過期天數",
     "diag_title": "連線診斷",
+    "agents_count": "代理數",
+    "missing_agents": "未裝 Agent 的 IP",
+    "col_ocs_id": "OCS ID",
+    "col_ips": "IP",
+    "col_os": "作業系統",
+    "col_agent": "代理版本",
+    "col_tag": "資產標籤",
+    "col_last_inventory": "最後盤點",
+    "view_ip": "檢視 IP",
+    "agents_hint": "依 OCS 電腦彙整：一台電腦有好幾個 IP 時列在同一筆。",
     "diag_reachable": "可連線",
     "diag_count": "電腦數",
     "diag_incremental": "增量同步",
@@ -4471,5 +4481,10 @@
     "auth_on": "是",
     "auth_off": "否",
     "warn_unauthenticated": "⚠️ 這套 OCS 沒有帶帳密也讀得到資料 —— 代表任何能連到它的人都能讀取全部資產清單。建議在 OCS 端（Apache）為 /ocsapi 加上驗證，或以反向代理限制存取。"
+  },
+  "scope_filter": {
+      "section": "區段",
+      "subnet": "子網路",
+      "customer": "單位"
   }
 }

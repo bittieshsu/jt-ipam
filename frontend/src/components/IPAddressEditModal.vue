@@ -1051,13 +1051,24 @@ async function remove() {
             {{ r.firewall }}｜{{ r.action }} {{ r.src }} → {{ r.dst }}{{ r.dst_port ? ":" + r.dst_port : "" }}
             <span style="opacity:.6">（{{ fwMatchText(r.match) }}{{ r.descr ? "；" + r.descr : "" }}）</span>
           </div>
-          <div v-if="fwInfo.aliases.length" style="font-size: 12.5px; margin-top: 4px">
-            {{ t("addresses.fw_aliases") }}：
-            <n-tag v-for="a in fwInfo.aliases" :key="a.name" size="tiny" style="margin-right: 4px">
-              {{ a.name }}（{{ a.source_type }}）
-            </n-tag>
+          <!-- 這句是在說明上面的規則清單，要緊貼著它，不要被別名隔開 -->
+          <div v-if="fwInfo.rules.length" style="font-size: 11.5px; opacity: 0.55; margin-top: 4px">
+            {{ t("addresses.fw_any_note") }}
           </div>
-          <div style="font-size: 11.5px; opacity: 0.55; margin-top: 4px">{{ t("addresses.fw_any_note") }}</div>
+          <!-- 所屬別名：跟規則同一種排法 —— 灰色小標題獨立一行，每筆一行、廠牌標籤在前、
+               寫出是哪一台防火牆。以前是一行「所屬別名：[名稱（廠牌）]」夾在規則與註記中間，
+               標題樣式、廠牌位置都跟上下兩段不一樣。 -->
+          <template v-if="fwInfo.aliases.length">
+            <div style="font-size: 12px; opacity: 0.6; margin: 12px 0 6px">
+              {{ t("addresses.fw_aliases_title", { n: fwInfo.aliases.length }) }}
+            </div>
+            <div v-for="a in fwInfo.aliases" :key="`${a.source_type}:${a.firewall}:${a.name}`"
+                 style="font-size: 12.5px; line-height: 1.8">
+              <n-tag size="tiny" style="margin-right: 6px">{{ a.source_type }}</n-tag>
+              {{ a.firewall ? `${a.firewall}｜` : "" }}{{ a.name }}
+              <span v-if="a.descr" style="opacity:.6">（{{ a.descr }}）</span>
+            </div>
+          </template>
         </div>
 
         <!-- 關聯的 NAT 規則 -->

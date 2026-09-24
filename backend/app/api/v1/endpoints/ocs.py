@@ -173,3 +173,24 @@ async def trigger_sync(
     )
     return {"task_id": str(task.id), "status": task.status,
             "queued_at": task.queued_at.isoformat()}
+
+
+# ─────────────────── 代理數／未裝 Agent 的 IP（比照 Wazuh 整合頁，管理員限定） ───────────────────
+
+
+@router.get("/agents")
+async def list_ocs_agents(session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
+    """OCS 盤點到的電腦，一台一筆（一台電腦的多個 IP 彙整在一起）。"""
+    items = await svc.list_agents(session)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/missing-agents")
+async def list_ocs_missing_agents(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    hostnamed_only: bool = True,
+) -> list[dict[str, Any]]:
+    """有主機名稱、卻從來沒被 OCS 盤點過的 IP（帶所屬子網路／區段／單位，畫面據此篩選）。"""
+    from app.services.agent_scope import annotate_scope
+    return await annotate_scope(session, await svc.find_missing_agents(
+        session, hostnamed_only=hostnamed_only))

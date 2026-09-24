@@ -1221,7 +1221,7 @@
     "role_auto_added": "自動記録（未登録）",
     "role_auto_added_hint": "このアドレスは {src} によって自動的に作成されたもので、人の手では登録されていません。その機器が本来あるべきものか確認してください。いったん記録されると、未許可 IP の検知には現れなくなります。",
     "fw_title": "ファイアウォールのルール（この IP を明示的に含むもの {n} 件）",
-    "fw_aliases": "所属するエイリアス",
+    "fw_aliases_title": "所属するエイリアス（{n} 件）",
     "fw_any_note": "送信元または宛先が any のルールも適用されますが、ここには列挙していません。",
     "virt": "仮想化",
     "virt_vm_tag": "仮想マシン",
@@ -4462,6 +4462,16 @@
     "interval": "同期間隔（秒）",
     "stale_days": "インベントリの失効日数",
     "diag_title": "接続診断",
+    "agents_count": "エージェント数",
+    "missing_agents": "エージェント未導入の IP",
+    "col_ocs_id": "OCS ID",
+    "col_ips": "IP",
+    "col_os": "OS",
+    "col_agent": "エージェントのバージョン",
+    "col_tag": "資産タグ",
+    "col_last_inventory": "最終インベントリ",
+    "view_ip": "IP を表示",
+    "agents_hint": "OCS のコンピュータ単位で集計しています。IP が複数あるコンピュータも 1 行です。",
     "diag_reachable": "到達可能",
     "diag_count": "コンピュータ数",
     "diag_incremental": "増分同期",
@@ -4471,5 +4481,10 @@
     "auth_on": "はい",
     "auth_off": "いいえ",
     "warn_unauthenticated": "⚠️ この OCS は認証情報なしでデータを返します — 到達できる誰もが全資産一覧を読み取れます。OCS 側（Apache）で /ocsapi に認証を追加するか、リバースプロキシでアクセスを制限してください。"
+  },
+  "scope_filter": {
+      "section": "セクション",
+      "subnet": "サブネット",
+      "customer": "組織"
   }
 }

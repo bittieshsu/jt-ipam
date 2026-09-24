@@ -1221,7 +1221,7 @@
     "role_auto_added": "Auto-recorded (unregistered)",
     "role_auto_added_hint": "This address was created automatically by {src}; nobody registered it by hand. Check that the device is meant to be there — once it is recorded, it no longer shows up in unauthorised-IP detection.",
     "fw_title": "Firewall rules ({n} explicitly covering this IP)",
-    "fw_aliases": "Member of aliases",
+    "fw_aliases_title": "Member of aliases ({n})",
     "fw_any_note": "Rules with any as source or destination also apply; they are not listed.",
     "virt": "Virtualisation",
     "virt_vm_tag": "Virtual machine",
@@ -4462,6 +4462,16 @@
     "interval": "Sync interval (s)",
     "stale_days": "Inventory stale after (days)",
     "diag_title": "Connection diagnostics",
+    "agents_count": "Agents",
+    "missing_agents": "IPs without an agent",
+    "col_ocs_id": "OCS ID",
+    "col_ips": "IP",
+    "col_os": "OS",
+    "col_agent": "Agent version",
+    "col_tag": "Asset tag",
+    "col_last_inventory": "Last inventory",
+    "view_ip": "View IP",
+    "agents_hint": "One row per OCS computer: a computer with several IPs is listed once.",
     "diag_reachable": "Reachable",
     "diag_count": "Computers",
     "diag_incremental": "Incremental sync",
@@ -4471,5 +4481,10 @@
     "auth_on": "Yes",
     "auth_off": "No",
     "warn_unauthenticated": "⚠️ This OCS returns data with no credentials — anyone who can reach it can read the whole asset inventory. Add authentication for /ocsapi on the OCS side (Apache), or restrict access with a reverse proxy."
+  },
+  "scope_filter": {
+      "section": "Section",
+      "subnet": "Subnet",
+      "customer": "Unit"
   }
 }

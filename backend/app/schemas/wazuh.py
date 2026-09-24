@@ -78,3 +78,10 @@ class MissingAgentRow(StrictModel):
     ip_address_id: uuid.UUID
     ip: str | None
     hostname: str | None
+    # 所屬範圍（畫面依子網路／區段／單位篩選；單位＝IP → 子網路 → 區段第一個有掛的）
+    subnet_id: uuid.UUID | None = None
+    subnet_cidr: str | None = None
+    section_id: uuid.UUID | None = None
+    section_name: str | None = None
+    customer_id: uuid.UUID | None = None
+    customer_name: str | None = None

@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.45] - 2026-09-24
+
+### Added
+- **The OCS page has the same tabs as the Wazuh page**: the servers, the agents, and the
+  named IPs that OCS has never inventoried. The agents list has one row per computer with its
+  IPs listed together; a real sync matched 65 IPs for 16 computers, so counting IPs would have
+  overstated the agent count several times over.
+- **"IPs without an agent" can be filtered by section, subnet or unit**, on both the Wazuh and
+  the OCS page. Picking a section narrows the subnet list, the alert shows "filtered / total",
+  and export follows the filter. A row's unit follows the permission hierarchy: the IP's own,
+  else its subnet's, else its section's.
+
+### Fixed
+- **MikroTik address lists never showed up on the IP detail page**, and rules that refer to them
+  (`list:<name>`) could not be traced back to the IP: the single address was compared character
+  by character against a member list.
+- The "member of aliases" line on the IP detail page is laid out like the firewall rules above
+  it: its own grey title, one row per alias with the vendor first, the firewall name and the
+  alias description. Aliases on two routers with the same list name are no longer collapsed
+  into one.
+- The OCS agent version reads "Unix 2.10.0" instead of a long user-agent string whose version
+  number was cut off; the full string is in the tooltip.
+- The docs site's scan agent, certificate and browser console feature cards are trimmed to the
+  length of the others.
+
 ## [0.6.44] - 2026-09-23
 
 ### Fixed

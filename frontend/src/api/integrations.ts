@@ -427,6 +427,13 @@ export interface MissingAgent {
   ip_address_id: string;
   ip: string | null;
   hostname: string | null;
+  // 所屬範圍（依區段／子網路／單位篩選用）
+  subnet_id?: string | null;
+  subnet_cidr?: string | null;
+  section_id?: string | null;
+  section_name?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
 }
 
 export async function listWazuh(

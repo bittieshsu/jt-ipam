@@ -34,6 +34,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useAuthStore } from "@/stores/auth";
 import { storeToRefs } from "pinia";
 import { useTablePagination } from "@/composables/useTablePagination";
+import { shortOcsAgent } from "@/utils/ocsAgent";
 const pg = useTablePagination();
 const { t, te } = useI18n();
 
@@ -618,7 +619,10 @@ onMounted(() => {
           <n-descriptions-item label="OS">{{ integrations.ocs.os ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.ocs_last_inventory')">{{ fmtDateTime(integrations.ocs.last_inventory) }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.ocs_tag')">{{ integrations.ocs.tag ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item :label="t('device_detail.ocs_agent')">{{ integrations.ocs.agent ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_agent')">
+            <span v-if="integrations.ocs.agent" :title="integrations.ocs.agent">{{ shortOcsAgent(integrations.ocs.agent) }}</span>
+            <template v-else>—</template>
+          </n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.ocs_vendor')">{{ integrations.ocs.vendor ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.ocs_model')">{{ integrations.ocs.model ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.ocs_serial')">{{ integrations.ocs.serial ?? "—" }}</n-descriptions-item>

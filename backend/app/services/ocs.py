@@ -562,3 +562,66 @@ def set_api_password(server: OcsServer, password: str | None) -> None:
     enc, nonce = encrypt_secret(password, aad=_aad(server.id))
     server.api_password_enc = enc
     server.api_password_nonce = nonce
+
+
+# ─────────────────── 整合頁：代理數／未裝 Agent 的 IP（比照 Wazuh） ───────────────────
+
+
+async def list_agents(session: AsyncSession) -> list[dict[str, Any]]:
+    """OCS 盤點到的電腦，**一台一筆**。
+
+    OCS 沒有每台電腦的記錄表 —— 盤點資料是依網卡 MAC 補進 IP，而一台電腦常有好幾個 IP
+    （實機一輪同步是 14 台電腦、比對到 60 個 IP）。直接數 IP 會讓「代理數」大好幾倍，
+    所以依 `ocs_id` 彙整；沒有 `ocs_id` 的舊資料（0142 以前寫入）各自算一台。
+    """
+    from sqlalchemy import or_
+
+    rows = (await session.execute(
+        select(IPAddress).where(or_(IPAddress.ocs_id.isnot(None),
+                                    IPAddress.last_seen_ocs.isnot(None)))
+        .order_by(IPAddress.ip)
+    )).scalars().all()
+    groups: dict[Any, dict[str, Any]] = {}
+    for a in rows:
+        key = ("ocs", a.ocs_id) if a.ocs_id is not None else ("ip", a.id)
+        g = groups.get(key)
+        if g is None:
+            g = groups[key] = {"ocs_id": a.ocs_id, "name": None, "ips": [], "ip_address_ids": [],
+                               "os": None, "agent_version": None, "tag": None,
+                               "last_inventory": None}
+        g["ips"].append(str(a.ip).split("/", 1)[0])
+        g["ip_address_ids"].append(str(a.id))
+        g["name"] = g["name"] or a.hostname
+        # 欄位取最新一次盤點那個 IP 的值：同一台電腦的幾個 IP 可能在不同輪被更新
+        if a.last_seen_ocs and (g["last_inventory"] is None or a.last_seen_ocs > g["last_inventory"]):
+            g["last_inventory"] = a.last_seen_ocs
+            g["os"], g["agent_version"], g["tag"] = a.os_ocs, a.ocs_agent, a.ocs_tag
+        else:
+            g["os"] = g["os"] or a.os_ocs
+            g["agent_version"] = g["agent_version"] or a.ocs_agent
+            g["tag"] = g["tag"] or a.ocs_tag
+    out = list(groups.values())
+    out.sort(key=lambda g: g["last_inventory"] or datetime.min.replace(tzinfo=UTC), reverse=True)
+    return out
+
+
+async def find_missing_agents(
+    session: AsyncSession, *, hostnamed_only: bool = True,
+    subnet_ids: list[uuid.UUID] | None = None,
+) -> list[dict[str, Any]]:
+    """應裝 OCS agent 卻從來沒被盤點過的 IP（比照 Wazuh 的 find_missing_agents）。
+
+    `hostnamed_only`=True 只看有主機名稱的 —— 沒名字的多半是 DHCP 臨時位址或設備。
+    `subnet_ids` 給了就只看這些子網路（問「某網段有誰沒裝」時必須給）。
+    """
+    stmt = select(IPAddress.id, IPAddress.ip, IPAddress.hostname).where(
+        IPAddress.ocs_id.is_(None), IPAddress.last_seen_ocs.is_(None))
+    if hostnamed_only:
+        stmt = stmt.where(IPAddress.hostname.is_not(None), IPAddress.hostname != "")
+    if subnet_ids is not None:
+        if not subnet_ids:
+            return []
+        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
+    rows = (await session.execute(stmt.order_by(IPAddress.ip))).all()
+    return [{"ip_address_id": str(rid), "ip": str(rip).split("/", 1)[0] if rip else None,
+             "hostname": hostname} for rid, rip, hostname in rows]

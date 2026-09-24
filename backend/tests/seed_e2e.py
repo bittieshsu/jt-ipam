@@ -106,6 +106,11 @@ async def seed() -> None:
                                 source="e2e"))
         pub = await ip(subnets["198.51.100.0/24"], "198.51.100.7", "web.example.net",
                        description="e2e：對外開放服務的樣本")
+        # OCS 整合頁（代理數要一台電腦一筆）：web-01 與 198.51.100.7 是同一台 OCS 電腦的兩個 IP
+        ocs_seen = datetime(2026, 9, 24, 7, 0, tzinfo=UTC)
+        for row in (web, pub):
+            row.ocs_id, row.last_seen_ocs = 101, ocs_seen
+            row.os_ocs, row.ocs_agent, row.ocs_tag = "Ubuntu 24.04 LTS", "OCS-NG_unified_unix_agent_v2.10.0", "E2E"
         await ip(subnets["203.0.113.0/24"], "203.0.113.5", "ipmi-host-a",
                  description="e2e：管理介面樣本")
 
@@ -247,6 +252,26 @@ async def seed() -> None:
         for pref in (await s.execute(select(UserPreference))).scalars().all():
             pref.locale = "zh-TW"
         subnets["10.20.0.0/24"].anomaly_enabled = True
+
+        # ── 防火牆反查（IP 詳細頁的「防火牆規則」「所屬別名」）──────────
+        # 198.51.100.7 被一個別名涵蓋，另有一條引用那個別名的規則 —— 兩段都要畫得出來。
+        from app.models.firewall import OPNsenseFirewall, OPNsenseSyncedAlias
+        from app.models.firewall_rule import OPNsenseRule
+        fw = (await s.execute(select(OPNsenseFirewall).where(
+            OPNsenseFirewall.name == "fw-e2e"))).scalars().first()
+        if not fw:
+            fw = OPNsenseFirewall(name="fw-e2e", api_url="https://192.0.2.1",
+                                  api_key_enc=b"x", api_key_nonce=b"y",
+                                  api_secret_enc=b"x", api_secret_nonce=b"y")
+            s.add(fw)
+            await s.flush()
+            s.add(OPNsenseSyncedAlias(firewall_id=fw.id, name="web_hosts", alias_type="host",
+                                      enabled=True, content=["198.51.100.7"],
+                                      description="e2e：對外網站主機"))
+            s.add(OPNsenseRule(firewall_id=fw.id, legacy_uuid="e2e-rule-1", enabled=True,
+                               action="pass", interface="wan", protocol="tcp",
+                               source_net="any", destination_net="web_hosts",
+                               destination_port="443", description="e2e：HTTPS 進站"))
 
         # ── 防火牆規則異動（zz-fwchanges-ai 期待 router-e2e）─────────
         if not (await s.execute(select(FwRuleSnapshot).where(
