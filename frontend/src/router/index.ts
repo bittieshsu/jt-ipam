@@ -161,24 +161,26 @@ function isChunkLoadError(e: unknown): boolean {
   const m = (e as Error)?.message || String(e ?? "");
   return /dynamically imported module|Failed to fetch dynamically|Importing a module script failed|Loading chunk|error loading dynamically imported|'?text\/html'? is not a valid JavaScript MIME type/i.test(m);
 }
-function reloadOnce(target?: string): void {
+function reloadOnce(target?: string, reason = ""): void {
   const KEY = "jt-chunk-reload-at";
   const last = Number(sessionStorage.getItem(KEY) || 0);
   // 30 秒內已自動重載過就不再重載(避免伺服器真的故障時無限刷新)
   if (Date.now() - last < 30000) return;
   sessionStorage.setItem(KEY, String(Date.now()));
+  // 留下原因給下一頁回報（utils/pageDiag）：分辨「我們自己重載」與「瀏覽器重載」
+  try { sessionStorage.setItem("jt-diag-reload-reason", `${new Date().toISOString().slice(11, 19)} ${reason}`.slice(0, 300)); } catch { /* noop */ }
   if (target && target !== window.location.pathname) window.location.assign(target);
   else window.location.reload();
 }
 
 router.onError((err, to) => {
-  if (isChunkLoadError(err)) reloadOnce(to?.fullPath);
+  if (isChunkLoadError(err)) reloadOnce(to?.fullPath, `router: ${(err as Error)?.message || err}`);
 });
 
 // Vite 預載動態 chunk 失敗時會丟此事件(比 router.onError 更早攔到)
 window.addEventListener("vite:preloadError", ((e: Event) => {
   e.preventDefault();
-  reloadOnce();
+  reloadOnce(undefined, `preload: ${String((e as any).payload?.message || (e as any).payload || "")}`);
 }) as EventListener);
 
 router.beforeEach(async (to, _from) => {

@@ -27,6 +27,8 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useCustomers } from "@/composables/useCustomers";
 import { listLocations } from "@/api/basic";
 import { useRoute } from "vue-router";
+import { useFocusRow } from "@/composables/useFocusRow";
+import FocusRowBanner from "@/components/FocusRowBanner.vue";
 const { t } = useI18n();
 const { options: customerOptions, ensureLoaded: ensureCustomersLoaded } = useCustomers();
 const route = useRoute();
@@ -104,8 +106,15 @@ async function loadRules() {
   rulesLoading.value = true;
   fAction.value = null; fIface.value = null; fDir.value = null;
   try {
+    // 一頁 500 條；超過就接著抓 —— 只拿第一頁的話，後面的規則看不到也點不進來
     const res = await listFirewallRules(rulesFw.value, 1);
-    rules.value = res.items;
+    const all = [...res.items];
+    for (let page = 2; all.length < res.total && page <= 40; page++) {
+      const more = await listFirewallRules(rulesFw.value, page);
+      if (!more.items.length) break;
+      all.push(...more.items);
+    }
+    rules.value = all;
     // 順便撈該防火牆的別名名稱集合，供來源/目的判斷是否可點
     try {
       const al = await listFirewallAliases(rulesFw.value);
@@ -118,6 +127,7 @@ async function loadRules() {
   }
 }
 function gotoAlias(name: string) {
+  aliasFocus.clear();
   tab.value = "aliases";
   if (rulesFw.value) aliasesFw.value = rulesFw.value;
   aliasFilterQ.value = name;
@@ -142,6 +152,11 @@ function netCell(net: string | null, port: string | number | null) {
 const aliasesFw = ref<string | null>(null);
 const aliases = ref<OPNsenseSyncedAlias[]>([]);
 const { query: aliasFilterQ, filtered: aliasesFiltered } = useTableQuickFilter(aliases);
+// IP 詳細頁點進來：?tab=rules|aliases&fw=<id>&focus=<規則 id／別名名稱>
+const ruleFocus = useFocusRow(rules, (r, k) => r.id === k, "rules");
+const aliasFocus = useFocusRow(aliases, (a, k) => a.name === k, "aliases");
+const rulesShown = computed(() => ruleFocus.apply(rulesView.value));
+const aliasesShown = computed(() => aliasFocus.apply(aliasesFiltered.value));
 const aliasesLoading = ref(false);
 async function loadAliases() {
   if (!aliasesFw.value) { aliases.value = []; return; }
@@ -322,8 +337,11 @@ async function refresh() {
     mappings.value = m.items;
     // 自動選第一台防火牆，別名 / 規則分頁不必再手動選就有資料
     if (f.items.length) {
-      if (!aliasesFw.value) { aliasesFw.value = f.items[0].id; void loadAliases(); }
-      if (!rulesFw.value) { rulesFw.value = f.items[0].id; void loadRules(); }
+      // 網址已指定防火牆（?fw=）時也要載入 —— 以前只有自己挑第一台時才載，帶 fw 進來是空表格
+      if (!aliasesFw.value) aliasesFw.value = f.items[0].id;
+      if (!rulesFw.value) rulesFw.value = f.items[0].id;
+      void loadAliases();
+      void loadRules();
     }
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
@@ -605,7 +623,7 @@ onMounted(() => {
             :options="fwOptions"
             :placeholder="t('firewall_admin.pick_firewall')"
             style="width: 240px"
-            @update:value="loadRules"
+            @update:value="ruleFocus.clear(); loadRules()"
           />
           <n-button @click="loadRules" :loading="rulesLoading">
             <template #icon><n-icon><RefreshIcon /></n-icon></template>
@@ -625,9 +643,10 @@ onMounted(() => {
                         @update:visible="rulePrefs.setVisible" @reset="rulePrefs.reset" />
           <ExportButton :columns="ruleCols" :rows="rulesView" filename="firewall-rules" :title="t('firewall_admin.rules')" />
         </n-space>
+        <FocusRowBanner :ctl="ruleFocus" :loading="rulesLoading || loading" />
         <n-data-table
           v-if="rulesFw"
-          :columns="ruleCols" :data="rulesView" :loading="rulesLoading"
+          :columns="ruleCols" :data="rulesShown" :loading="rulesLoading"
           :bordered="false" size="small" :scroll-x="910"
           :pagination="pg"
         />
@@ -647,7 +666,7 @@ onMounted(() => {
             :options="fwOptions"
             :placeholder="t('firewall_admin.pick_firewall')"
             style="width: 240px"
-            @update:value="loadAliases"
+            @update:value="aliasFocus.clear(); loadAliases()"
           />
           <n-button @click="loadAliases" :loading="aliasesLoading">
             <template #icon><n-icon><RefreshIcon /></n-icon></template>
@@ -661,9 +680,10 @@ onMounted(() => {
                         @update:visible="aliasPrefs.setVisible" @reset="aliasPrefs.reset" />
           <ExportButton :columns="aliasCols" :rows="aliasesFiltered" filename="firewall-aliases" :title="t('firewall_admin.aliases')" />
         </n-space>
+        <FocusRowBanner :ctl="aliasFocus" :loading="aliasesLoading || loading" />
         <n-data-table
           v-if="aliasesFw"
-          :columns="aliasCols" :data="aliasesFiltered" :loading="aliasesLoading"
+          :columns="aliasCols" :data="aliasesShown" :loading="aliasesLoading"
           :bordered="false" size="small" :scroll-x="860"
           :pagination="pg"
         />

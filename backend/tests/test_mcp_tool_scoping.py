@@ -141,3 +141,17 @@ async def test_anomaly_tool_exposes_fw_rule_rot() -> None:
 
     src = inspect.getsource(TOOLS["list_anomalies"]["fn"])
     assert "fw_rule_rot" in src, "AI 問不到防火牆規則劣化"
+
+
+@pytest.mark.anyio
+async def test_missing_agents_default_to_the_integration_scope(db_session, admin_user) -> None:
+    """沒帶網段時跟畫面一致：Wazuh 整合限定了子網路，就只算這些子網路（2026-09-25）。"""
+    from app.models.wazuh import WazuhInstance
+    a, _b, _ips = await _two_subnets(db_session)
+    db_session.add(WazuhInstance(
+        name=f"wz-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.5:55000", api_user="ro",
+        api_password_enc=b"x", api_password_nonce=b"y", scope_subnet_ids=[str(a.id)]))
+    await db_session.flush()
+    got = await TOOLS["wazuh_missing_agents"]["fn"](db_session, user=admin_user)
+    assert got["scope"] == "integration_scope", "要讓模型知道這是整合範圍、不是全站"
+    assert {r["hostname"] for r in got["missing"]} == {"in-scope-1", "in-scope-2"}

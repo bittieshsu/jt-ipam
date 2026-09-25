@@ -97,6 +97,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
             alias_names.add(alias.name)
             out["aliases"].append({"source_type": "opnsense", "name": alias.name,
                                    "firewall": opn_names.get(alias.firewall_id, "?"),
+                                   "firewall_id": str(alias.firewall_id), "ref": alias.name,
                                    "descr": (alias.description or "")[:120]})
     pf_names = {f.id: f.name for f in (await session.execute(
         select(PfSenseFirewall))).scalars().all()}
@@ -105,6 +106,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
             alias_names.add(alias.name)
             out["aliases"].append({"source_type": "pfsense", "name": alias.name,
                                    "firewall": pf_names.get(alias.firewall_id, "?"),
+                                   "firewall_id": str(alias.firewall_id), "ref": alias.name,
                                    "descr": (alias.descr or "")[:120]})
 
     # ── OPNsense 規則 ──
@@ -115,6 +117,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
         if why_src or why_dst:
             out["rules"].append({
                 "source_type": "opnsense", "firewall": opn_names.get(r.firewall_id, "?"),
+                "firewall_id": str(r.firewall_id), "ref": str(r.id),
                 "action": r.action, "interface": r.interface, "protocol": r.protocol,
                 "src": str(r.source_net or "any"), "dst": str(r.destination_net or "any"),
                 "dst_port": str(getattr(r, "destination_port", "") or ""),
@@ -125,7 +128,9 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     # ── pfSense 規則（JSONB）──
     for fw in (await session.execute(
             select(PfSenseFirewall).where(PfSenseFirewall.rules.is_not(None)))).scalars().all():
-        for r in (fw.rules or []):
+        # 規則存在 JSONB、沒有自己的 id：有 tracker 用 tracker，沒有就用在完整清單中的位置
+        # （規則頁列的是同一份清單、同樣的順序，所以位置對得上）
+        for pos, r in enumerate(fw.rules or []):
             if not isinstance(r, dict) or r.get("disabled"):
                 continue
             why_src = _field_matches(r.get("source"), aip, alias_names)
@@ -133,6 +138,8 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
             if why_src or why_dst:
                 out["rules"].append({
                     "source_type": "pfsense", "firewall": fw.name,
+                    "firewall_id": str(fw.id),
+                    "ref": str(r["tracker"]) if r.get("tracker") not in (None, "") else f"#{pos}",
                     "action": r.get("type"), "interface": r.get("interface"),
                     "protocol": r.get("protocol"),
                     "src": str(r.get("source") or "any"), "dst": str(r.get("destination") or "any"),
@@ -153,6 +160,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
         if why_src or why_dst:
             out["rules"].append({
                 "source_type": "fortigate", "firewall": fg_names.get(r.firewall_id, "?"),
+                "firewall_id": str(r.firewall_id), "ref": str(r.id),
                 "action": r.action, "interface": f"{r.srcintf}->{getattr(r, 'dstintf', '')}",
                 "protocol": str(getattr(r, "service", "") or ""),
                 "src": str(getattr(r, "srcaddr", "") or ""), "dst": str(getattr(r, "dstaddr", "") or ""),
@@ -175,6 +183,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
             svc = str(getattr(r, "service", "") or "")
             out["rules"].append({
                 "source_type": "paloalto", "firewall": pa_names.get(r.firewall_id, "?"),
+                "firewall_id": str(r.firewall_id), "ref": str(r.id),
                 "action": r.action,
                 "interface": f"{r.from_zone}->{getattr(r, 'to_zone', '')}",
                 "protocol": " / ".join(x for x in (app_id, svc) if x),
@@ -201,6 +210,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
         alias_names.add(entry.list_name)
         out["aliases"].append({"source_type": "mikrotik", "name": entry.list_name,
                                "firewall": mt_names.get(entry.router_id, "?"),
+                               "firewall_id": str(entry.router_id), "ref": entry.list_name,
                                "descr": (entry.comment or "")[:120]})
 
     # ── MikroTik 防火牆規則 ──
@@ -217,6 +227,7 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
         if why_src or why_dst:
             out["rules"].append({
                 "source_type": "mikrotik", "firewall": mt_names.get(r.router_id, "?"),
+                "firewall_id": str(r.router_id), "ref": str(r.id), "table": r.table_name,
                 "action": r.action,
                 "interface": f"{r.in_interface or ''}->{r.out_interface or ''}",
                 "protocol": r.protocol or "",

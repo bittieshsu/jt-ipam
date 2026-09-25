@@ -46,3 +46,29 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
             "customer_name": names.get(cust) if cust else None,
         })
     return rows
+
+
+def scope_uuids(obj: Any) -> set[uuid.UUID]:
+    """整合的 `scope_subnet_ids`（UUID 字串陣列）→ UUID 集合；空集合＝不限範圍。"""
+    out: set[uuid.UUID] = set()
+    for s in (getattr(obj, "scope_subnet_ids", None) or []):
+        try:
+            out.add(uuid.UUID(str(s)))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def expected_subnets(integrations: list[Any]) -> list[uuid.UUID] | None:
+    """「未裝 Agent 的 IP」要看哪些子網路：這些整合的限定範圍的聯集。
+
+    限定了範圍就表示範圍外的機器本來就不歸這套 Wazuh／OCS 管，不該算成缺口（使用者要求，
+    2026-09-25）。只要有一個整合沒設範圍（＝全域），或根本沒有整合，就回 None（不限）。
+    """
+    union: set[uuid.UUID] = set()
+    for obj in integrations:
+        ids = scope_uuids(obj)
+        if not ids:
+            return None
+        union |= ids
+    return sorted(union) if union else None

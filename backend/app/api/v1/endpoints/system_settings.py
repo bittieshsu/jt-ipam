@@ -389,8 +389,13 @@ class ConsoleSecurityIn(StrictModel):
 
     # 允許 RDP 控制端把文字貼到被控端（剪貼簿單向重導；預設關閉）
     rdp_clipboard_paste: bool = False
-    # RDP 連線引擎：aardwolf（預設，純 Python）或 freerdp（相容性較好，需外部行程）
-    rdp_engine: Literal["aardwolf", "freerdp"] = "aardwolf"
+    # RDP 連線引擎：aardwolf（預設，純 Python）、freerdp（相容性較好，需外部行程）、
+    # guacd（jt-ipam-guacd 服務，見 app/services/guacd.py）
+    rdp_engine: Literal["aardwolf", "freerdp", "guacd"] = "aardwolf"
+    # VNC／SSH 連線引擎：builtin（一路以來的實作）或 guacd。
+    # 沒帶＝維持原值：還開著舊版頁面的人按儲存，不可以把別人剛設好的引擎改回去
+    vnc_engine: Literal["builtin", "guacd"] | None = None
+    ssh_engine: Literal["builtin", "guacd"] | None = None
 
 
 class ConsoleSecurityOut(ConsoleSecurityIn):
@@ -407,6 +412,12 @@ class ConsoleSecurityOut(ConsoleSecurityIn):
     aardwolf_available: bool = False
     python_version: str = ""
     freerdp_install_cmd: str = ""
+    #: guacd：服務有沒有在跑、哪些協定的外掛載得到（設定頁要看得到，選了才發現不能用更糟）
+    guacd_available: bool = False
+    guacd_protocols: dict[str, bool] = {}
+    guacd_address: str = ""
+    guacd_error: str = ""
+    guacd_install_cmd: str = ""
 
 
 @public_router.get("/console-security", response_model=ConsoleSecurityOut)
@@ -414,10 +425,17 @@ async def get_console_security(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
-    from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
-    return _console_security_out(
+    from app.services.system_config import (
+        get_rdp_clipboard_paste,
+        get_rdp_engine,
+        get_ssh_engine,
+        get_vnc_engine,
+    )
+    return await _console_security_out(
         rdp_clipboard_paste=await get_rdp_clipboard_paste(session),
         rdp_engine=await get_rdp_engine(session),
+        vnc_engine=await get_vnc_engine(session),
+        ssh_engine=await get_ssh_engine(session),
     )
 
 
@@ -428,7 +446,14 @@ async def put_console_security(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
-    from app.services.system_config import set_rdp_clipboard_paste, set_rdp_engine
+    from app.services.system_config import (
+        get_ssh_engine,
+        get_vnc_engine,
+        set_rdp_clipboard_paste,
+        set_rdp_engine,
+        set_ssh_engine,
+        set_vnc_engine,
+    )
     await append_audit(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
@@ -437,30 +462,46 @@ async def put_console_security(
         # 換引擎會改變「連得上／連不上」，稽核要看得出是誰換的
         diff={"target": "console_security",
               "rdp_clipboard_paste": payload.rdp_clipboard_paste,
-              "rdp_engine": payload.rdp_engine},
+              "rdp_engine": payload.rdp_engine,
+              "vnc_engine": payload.vnc_engine, "ssh_engine": payload.ssh_engine},
         request_id=getattr(request.state, "request_id", None),
     )
     enabled = await set_rdp_clipboard_paste(
         session, enabled=payload.rdp_clipboard_paste, updated_by_user_id=user.id)
     engine = await set_rdp_engine(
         session, engine=payload.rdp_engine, updated_by_user_id=user.id)
-    return _console_security_out(rdp_clipboard_paste=enabled, rdp_engine=engine)
+    vnc_engine = (await set_vnc_engine(session, engine=payload.vnc_engine, updated_by_user_id=user.id)
+                  if payload.vnc_engine else await get_vnc_engine(session))
+    ssh_engine = (await set_ssh_engine(session, engine=payload.ssh_engine, updated_by_user_id=user.id)
+                  if payload.ssh_engine else await get_ssh_engine(session))
+    return await _console_security_out(rdp_clipboard_paste=enabled, rdp_engine=engine,
+                                       vnc_engine=vnc_engine, ssh_engine=ssh_engine)
 
 
-def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str) -> ConsoleSecurityOut:
+async def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str,
+                                vnc_engine: str = "builtin", ssh_engine: str = "builtin") -> ConsoleSecurityOut:
+    from app.services import guacd as guac
     from app.services.rdp_freerdp import availability, freerdp_apt_hint
 
     av = availability()
     missing = list(av["missing_packages"]) + list(av["missing_modules"])
     from app.api.v1.endpoints.rdp_console import RDP_AVAILABLE, python_version
+    gst = await guac.probe(use_cache=False)
     return ConsoleSecurityOut(
         rdp_clipboard_paste=rdp_clipboard_paste,
         rdp_engine=rdp_engine,  # type: ignore[arg-type]
+        vnc_engine=vnc_engine,  # type: ignore[arg-type]
+        ssh_engine=ssh_engine,  # type: ignore[arg-type]
         freerdp_available=bool(av["ok"]),
         freerdp_missing=missing,
         freerdp_install_cmd="" if av["ok"] else freerdp_apt_hint(),
         aardwolf_available=RDP_AVAILABLE,
         python_version=python_version(),
+        guacd_available=bool(gst["ok"]),
+        guacd_protocols=dict(gst["protocols"]),
+        guacd_address=str(gst["address"]),
+        guacd_error=str(gst.get("error") or ""),
+        guacd_install_cmd="" if gst["ok"] else "sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd",
     )
 
 

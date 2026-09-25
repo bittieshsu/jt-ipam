@@ -35,7 +35,8 @@ def cred_aad(owner_user_id: uuid.UUID, field: str) -> bytes:
 
 class SSHCredentialCreate(StrictModel):
     label: Annotated[str, Field(min_length=1, max_length=128)]
-    username: Annotated[str, Field(min_length=1, max_length=128)]
+    # VNC 可以沒有帳號（傳統 VNC 只有密碼）；其他協定必填（在建立時檢查）
+    username: Annotated[str, Field(max_length=128)] = ""
     auth_type: str  # password | key（RDP 僅支援 password）
     protocol: str = "ssh"  # ssh | rdp
     domain: Annotated[str | None, Field(max_length=128)] = None  # RDP 網域（選填）
@@ -110,6 +111,8 @@ async def create_ssh_credential(
         raise HTTPException(400, detail="auth_type must be 'password' or 'key'")
     if payload.protocol in ("rdp", "vnc", "pve", "bmc") and payload.auth_type != "password":
         raise HTTPException(400, detail=f"{payload.protocol.upper()} credentials only support password auth")
+    if payload.protocol != "vnc" and not payload.username.strip():
+        raise HTTPException(400, detail=ui_detail("cred_username_required", "請填帳號"))
 
     secrets_enc: dict[str, Any] = {}
     if payload.auth_type == "password":

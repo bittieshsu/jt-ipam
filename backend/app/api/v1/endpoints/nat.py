@@ -161,6 +161,7 @@ async def list_nat(
         m.source_kind = kind
         m.source_firewall_id = fw_id
         m.source_label = label
+        m.source_firewall_name = fw_names.get(fw_id) if fw_id else None
         items.append(m)
     return Paginated[NATRead](items=items, total=total, page=page, page_size=page_size)
 

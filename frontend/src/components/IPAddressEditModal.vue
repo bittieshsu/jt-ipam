@@ -34,7 +34,7 @@ import { fmtDateTime } from "@/utils/datetime";
 import { useCustomers } from "@/composables/useCustomers";
 import { listJumpHosts } from "@/api/jumpHosts";
 import { useChangeLogDim } from "@/composables/useChangeLogDim";
-import { useRouter } from "vue-router";
+import { useRouter, type RouteLocationRaw } from "vue-router";
 import { getDevice, listDevices, type Device } from "@/api/basic";
 import { getAddressRelations, type RelationNode } from "@/api/relations";
 import { listDhcpRanges } from "@/api/integrations";
@@ -135,7 +135,9 @@ async function loadRelations() {
 
 // 此 IP 被哪些 NAT 規則引用（src/dst）
 const relatedNat = ref<{ id: string; name: string; type: string; src_interface: string | null;
-  src_port: number | null; dst_port: number | null; source_label: string | null }[]>([]);
+  src_port: number | null; dst_port: number | null; source_label: string | null;
+  source_kind: string | null; source_firewall_id: string | null;
+  source_firewall_name?: string | null }[]>([]);
 async function loadRelatedNat() {
   relatedNat.value = [];
   if (!props.address?.id) return;
@@ -174,9 +176,40 @@ async function loadFirewall() {
   } catch { /* silent — 沒有整合防火牆時就不顯示 */ }
 }
 
-function goNat() {
+// 放行／阻擋用顏色區分，一眼看得出規則的性質
+function fwActionClass(a: unknown): string {
+  const v = String(a ?? "").toLowerCase();
+  if (["pass", "accept", "allow", "permit"].includes(v)) return "fw-pass";
+  if (["block", "reject", "deny", "drop"].includes(v)) return "fw-block";
+  return "";
+}
+
+// 點一列 → 帶到該廠牌的規則／別名頁，選好那一台、只顯示那一筆（使用者要求）。
+// 目標頁讀 ?tab=&fw=&focus=（見 useFocusRow）；別名分頁的名稱各廠牌不同。
+const FW_PAGES: Record<string, { route: string; rules?: string; aliases?: string }> = {
+  opnsense: { route: "firewall", rules: "rules", aliases: "aliases" },
+  pfsense: { route: "pfsense_fw", rules: "rules", aliases: "aliases" },
+  fortigate: { route: "fortigate_fw" },
+  paloalto: { route: "paloalto_fw" },
+  mikrotik: { route: "mikrotik_fw", rules: "rules", aliases: "lists" },
+};
+function fwLink(kind: "rules" | "aliases", x: any): RouteLocationRaw | null {
+  const page = FW_PAGES[x?.source_type];
+  if (!page || !x.firewall_id || !x.ref) return null;
+  const tab = kind === "rules" ? page.rules : page.aliases;
+  if (kind === "aliases" && !tab) return null;
+  const loc = { name: page.route, query: { ...(tab ? { tab } : {}), fw: x.firewall_id, focus: x.ref } };
+  // 沒權限進的頁就不要做成可點（點了只會被導回首頁）
+  if (router.resolve(loc).meta.admin && !auth.me?.is_admin) return null;
+  return loc;
+}
+function natLink(n: { id: string }): RouteLocationRaw | null {
+  return props.address?.id ? { name: "nat", query: { ip: props.address.id, focus: n.id } } : null;
+}
+function goTo(loc: RouteLocationRaw | null) {
+  if (!loc) return;
   emit("update:show", false);
-  void router.push({ name: "nat" });
+  void router.push(loc);
 }
 
 function goDevice(id: string | null | undefined, card?: string) {
@@ -807,7 +840,6 @@ async function remove() {
                 </template>
                 {{ t("rdp.connect") }}
               </n-tooltip>
-              <span class="conn-beta-badge">{{ t("rdp.beta") }}</span>
             </span>
             <!-- VNC 連線分割按鈕：主鍵新分頁、下箭頭另開視窗（僅在啟用且有權限時顯示） -->
             <span v-if="props.address?.vnc_available" key="hx-vnc" class="conn-beta-wrap">
@@ -822,7 +854,6 @@ async function remove() {
                 </template>
                 {{ t("vnc.connect") }}
               </n-tooltip>
-              <span class="conn-beta-badge">{{ t("vnc.beta") }}</span>
             </span>
             <!-- PVE 主控台連線按鈕（noVNC/xterm；僅在該 IP 是 PVE VM/CT 且有權限時顯示），右上小標 PVE -->
             <span v-if="props.address?.novnc_available" key="hx-novnc" class="conn-beta-wrap">
@@ -1035,58 +1066,100 @@ async function remove() {
 
         <!-- 上下關係鏈：區段 → 子網路 → 位址 → 裝置 → 機櫃 → 機房 -->
         <div v-if="!editMode && relations.length > 1" style="margin-top: 14px">
-          <div style="font-size: 12px; opacity: 0.6; margin-bottom: 6px">{{ t("relations.title") }}</div>
+          <div class="detail-sec-title">{{ t("relations.title") }}</div>
           <relation-chain :nodes="relations" :current-id="props.address?.id" />
         </div>
 
         <!-- 防火牆反查：這個 IP 被哪些規則／別名管到（any 規則不列，另以一句話註明） -->
         <div v-if="!editMode && fwInfo && (fwInfo.rules.length || fwInfo.aliases.length)"
              style="margin-top: 14px">
-          <div style="font-size: 12px; opacity: 0.6; margin-bottom: 6px">
+          <div class="detail-sec-title">
             {{ t("addresses.fw_title", { n: fwInfo.rules.length }) }}
           </div>
-          <div v-for="(r, i) in fwInfo.rules.slice(0, 12)" :key="i"
-               style="font-size: 12.5px; line-height: 1.8">
-            <n-tag size="tiny" style="margin-right: 6px">{{ r.source_type }}</n-tag>
-            {{ r.firewall }}｜{{ r.action }} {{ r.src }} → {{ r.dst }}{{ r.dst_port ? ":" + r.dst_port : "" }}
-            <span style="opacity:.6">（{{ fwMatchText(r.match) }}{{ r.descr ? "；" + r.descr : "" }}）</span>
+          <!-- 表格排法（使用者要求「欄位對好」）：以前一條規則擠成一行字，來源／目的／說明長短不一，
+               上下完全對不齊，很難一眼比較 -->
+          <div v-if="fwInfo.rules.length" class="fw-table-wrap">
+            <table class="fw-table">
+              <thead><tr>
+                <th></th><th>{{ t("cols.fw") }}</th><th>{{ t("cols.action") }}</th>
+                <th>{{ t("cols.source") }}</th><th></th><th>{{ t("cols.destination") }}</th>
+                <th>{{ t("cols.port") }}</th><th>{{ t("addresses.fw_col_why") }}</th>
+                <th>{{ t("cols.description") }}</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(r, i) in fwInfo.rules.slice(0, 12)" :key="i"
+                    :class="{ 'fw-row-link': fwLink('rules', r) }" :title="fwLink('rules', r) ? t('addresses.fw_row_goto') : undefined"
+                    @click="goTo(fwLink('rules', r))">
+                  <td><n-tag size="tiny">{{ r.source_type }}</n-tag></td>
+                  <td class="nowrap">{{ r.firewall }}</td>
+                  <td class="nowrap" :class="fwActionClass(r.action)">{{ r.action }}</td>
+                  <td class="mono">{{ r.src }}</td>
+                  <td class="dim">→</td>
+                  <td class="mono">{{ r.dst }}</td>
+                  <td class="mono">{{ r.dst_port || "—" }}</td>
+                  <td class="dim nowrap">{{ fwMatchText(r.match) }}</td>
+                  <td class="dim">{{ r.descr || "—" }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
           <!-- 這句是在說明上面的規則清單，要緊貼著它，不要被別名隔開 -->
           <div v-if="fwInfo.rules.length" style="font-size: 11.5px; opacity: 0.55; margin-top: 4px">
             {{ t("addresses.fw_any_note") }}
           </div>
-          <!-- 所屬別名：跟規則同一種排法 —— 灰色小標題獨立一行，每筆一行、廠牌標籤在前、
+          <!-- 所屬別名：跟規則同一種排法 —— 區塊標題獨立一行，每筆一行、廠牌標籤在前、
                寫出是哪一台防火牆。以前是一行「所屬別名：[名稱（廠牌）]」夾在規則與註記中間，
                標題樣式、廠牌位置都跟上下兩段不一樣。 -->
           <template v-if="fwInfo.aliases.length">
-            <div style="font-size: 12px; opacity: 0.6; margin: 12px 0 6px">
+            <div class="detail-sec-title">
               {{ t("addresses.fw_aliases_title", { n: fwInfo.aliases.length }) }}
             </div>
-            <div v-for="a in fwInfo.aliases" :key="`${a.source_type}:${a.firewall}:${a.name}`"
-                 style="font-size: 12.5px; line-height: 1.8">
-              <n-tag size="tiny" style="margin-right: 6px">{{ a.source_type }}</n-tag>
-              {{ a.firewall ? `${a.firewall}｜` : "" }}{{ a.name }}
-              <span v-if="a.descr" style="opacity:.6">（{{ a.descr }}）</span>
+            <div class="fw-table-wrap">
+              <table class="fw-table">
+                <thead><tr>
+                  <th></th><th>{{ t("cols.fw") }}</th><th>{{ t("cols.name") }}</th>
+                  <th>{{ t("cols.description") }}</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="a in fwInfo.aliases" :key="`${a.source_type}:${a.firewall}:${a.name}`"
+                      :class="{ 'fw-row-link': fwLink('aliases', a) }" :title="fwLink('aliases', a) ? t('addresses.fw_row_goto') : undefined"
+                      @click="goTo(fwLink('aliases', a))">
+                    <td><n-tag size="tiny">{{ a.source_type }}</n-tag></td>
+                    <td class="nowrap">{{ a.firewall || "—" }}</td>
+                    <td class="mono">{{ a.name }}</td>
+                    <td class="dim">{{ a.descr || "—" }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </template>
         </div>
 
         <!-- 關聯的 NAT 規則 -->
         <div v-if="!editMode && relatedNat.length" style="margin-top: 14px">
-          <div style="font-size: 12px; opacity: 0.6; margin-bottom: 6px">
+          <div class="detail-sec-title">
             {{ t("addresses.related_nat", { n: relatedNat.length }) }}
           </div>
-          <n-space vertical :size="6">
-            <div v-for="n in relatedNat" :key="n.id" class="nat-ref" @click="goNat">
-              <n-tag size="small" type="info" :bordered="false">{{ n.type }}</n-tag>
-              <span class="nat-ref-name">{{ n.name }}</span>
-              <span class="nat-ref-meta">
-                <template v-if="n.src_interface">{{ n.src_interface }}</template>
-                <template v-if="n.dst_port"> · :{{ n.dst_port }}</template>
-              </span>
-              <n-tag v-if="n.source_label" size="tiny" :bordered="false">{{ n.source_label }}</n-tag>
-            </div>
-          </n-space>
+          <div class="fw-table-wrap">
+            <!-- 欄位順序跟防火牆規則一樣：廠牌、設備名稱在最前面（使用者要求） -->
+            <table class="fw-table">
+              <thead><tr>
+                <th></th><th>{{ t("cols.fw") }}</th><th>{{ t("cols.type") }}</th>
+                <th>{{ t("cols.name") }}</th><th>{{ t("cols.iface") }}</th><th>{{ t("cols.port") }}</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="n in relatedNat" :key="n.id" class="fw-row-link"
+                    :title="t('addresses.fw_row_goto')" @click="goTo(natLink(n))">
+                  <td><n-tag size="tiny">{{ n.source_firewall_id ? n.source_kind : (n.source_label || "—") }}</n-tag></td>
+                  <td class="nowrap">{{ n.source_firewall_name || "—" }}</td>
+                  <td><n-tag size="tiny" type="info" :bordered="false">{{ n.type }}</n-tag></td>
+                  <td class="nat-ref-name nowrap">{{ n.name }}</td>
+                  <td class="mono">{{ n.src_interface || "—" }}</td>
+                  <td class="mono">{{ n.dst_port || "—" }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- 異動記錄 (feature B)，展開才載入 -->
@@ -1377,15 +1450,43 @@ async function remove() {
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
-.nat-ref {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border-radius: 6px;
-  background: rgba(127, 127, 127, 0.06); cursor: pointer;
-  transition: background .15s;
+/* 詳情下半部各區塊（關係鏈／防火牆規則／所屬別名／NAT）的標題：左側色條＋粗體，
+   一眼分得出區塊。以前是跟表頭同樣的灰色小字，整片看起來黏在一起（使用者回報）。 */
+.detail-sec-title {
+  font-size: 13px; font-weight: 600; line-height: 1.3;
+  margin: 20px 0 8px; padding-left: 8px;
+  border-left: 3px solid #18a058;
 }
-.nat-ref:hover { background: rgba(24, 160, 88, 0.12); }
+/* 防火牆規則／所屬別名／NAT：同一種表格，欄位上下對齊 */
+.fw-table-wrap { overflow-x: auto; }
+/* 寬度跟著內容走：撐滿整列會把多出來的空間平均塞進每一欄，箭頭那欄會被拉得很寬 */
+.fw-table { border-collapse: collapse; font-size: 12.5px; line-height: 1.5; }
+.fw-table th {
+  text-align: left; font-weight: 400; font-size: 11.5px; opacity: .55;
+  padding: 2px 14px 4px 0; white-space: nowrap;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+}
+.fw-table td {
+  padding: 4px 14px 4px 0; vertical-align: top;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.08);
+}
+/* 第一欄留一點左邊距，滑過時整行光棒才不會貼著標籤邊緣 */
+.fw-table td:first-child, .fw-table th:first-child { padding-left: 6px; }
+/* 整行光棒：欄位多、列長時跟著看不會跳行 */
+.fw-table tbody tr { transition: background .12s; }
+.fw-table tbody tr:hover { background: rgba(24, 160, 88, 0.12); }
+.fw-table .nowrap, .fw-table .mono { white-space: nowrap; }
+.fw-table td:last-child { min-width: 12em; }
+.fw-table .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+/* 淡色用文字顏色而不是 opacity：opacity 會連同儲存格背景一起變淡，滑過時光棒會斷成一塊一塊 */
+.fw-table .dim { color: color-mix(in srgb, currentColor 65%, transparent); }
+.fw-table .fw-pass { color: #18a058; }
+.fw-table .fw-block { color: #d03050; }
+.fw-table tbody tr.fw-row-link { cursor: pointer; }
+/* 三張表的前兩欄（廠牌、設備名稱）固定起始寬度，上下三區塊的欄位也對得齊 */
+.fw-table th:nth-child(1) { width: 80px; }
+.fw-table th:nth-child(2) { width: 110px; }
 .nat-ref-name { font-weight: 500; }
-.nat-ref-meta { font-size: 12px; opacity: 0.6; font-family: monospace; }
 /* RDP/VNC Beta 角落小標：疊在按鈕右上角，不佔橫向空間 */
 .conn-beta-wrap { position: relative; display: inline-flex; }
 .conn-beta-badge {

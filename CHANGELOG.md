@@ -4,6 +4,65 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.48] - 2026-09-26
+
+### Added
+- **guacd console engine (RDP / VNC / SSH, optional)**: each protocol can be switched to guacd (the
+  server side of Apache Guacamole) under Admin → System settings; the built-in engines stay the
+  default. Credentials go from the server to guacd and never through the browser. SSH host keys
+  are still confirmed once and pinned, and guacd has to match the pinned key (a mismatch says
+  "host key does not match", not guacd's "Aborted. See logs."). Over guacd, SSH accepts an input
+  method (Chinese IME) and copies/pastes with Ctrl+Shift+C / V. jt-ipam prebuilds guacd for every
+  supported OS version (Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04); install it with
+  `jt-ipam.sh install|upgrade --with-guacd`. It runs as the `jt-ipam-guacd` service bound to
+  127.0.0.1 only, and `doctor` and System check cover it. Online install works once the prebuilt
+  GitHub release is published; until then `--with-guacd` says the build is not listed in
+  SHA256SUMS and does not install it (offline: `--guacd-tarball`).
+- **VNC with a username**: for VNC servers that ask for one (macOS Screen Sharing, UltraVNC
+  MS-Logon, VeNCrypt Plain), fill in the new Username field on the connect form. This needs the
+  guacd engine; the built-in engine supports passwords only and says to switch to guacd if a
+  username is given. Leaving the field empty on such a server says to fill in the username.
+  Saved VNC credentials may have no username; migration 0154 clears the old "vnc" placeholder so
+  it is never sent as a username.
+- **The console status bar names the engine** of the current connection (aardwolf / FreeRDP /
+  guacd / built-in).
+- **OCS can be limited to subnets** (like Wazuh and the other integrations): sync only matches MACs
+  of addresses in scope, so a record in an overlapping range that happens to have the same MAC
+  (a cloned VM, say) is not touched. Empty means global; existing setups behave as before.
+- **Firewall rules, aliases and NAT on the IP detail page click through**: a row opens that
+  vendor's rules or alias page (OPNsense, pfSense, FortiGate, Palo Alto, MikroTik) or the NAT page
+  with the right device selected and only that entry shown; a banner offers "show all" and, when
+  the entry is gone, says why that may be.
+- **Anomaly detection has a filter** (IP / hostname / MAC / details): one keyword applies to every
+  category and the tab counts read "matching / total", so you can see at a glance which kinds of
+  anomaly an IP shows up in.
+- Page-load diagnostics: each page load records how it started (navigate / reload / back-forward,
+  whether the browser had discarded the tab, prerender), logged by the backend only, to track down
+  "the page reloads when I switch back from another tab".
+
+### Fixed
+- **RDP and VNC are no longer marked Beta** (status bar, connect form, IP edit form, the connection
+  type filter, docs).
+- **A wrong VNC password is no longer reported as "host unreachable"** (guacd engine): guacd gives
+  the same status code for both. After such a failure jt-ipam now checks TCP itself and says
+  whether it was the username or password or a host it cannot reach. The check runs only after a
+  failure: TigerVNC and others count a bare connect/close as an authentication failure and block
+  the source after a few.
+- When the built-in VNC engine is unavailable (no aardwolf wheel for this Python), the message
+  points to the guacd engine.
+- **"IPs without an agent" follows the integration's subnet scope** (Wazuh and OCS): machines
+  outside a limited scope are not that Wazuh / OCS's business, yet they were listed as gaps. Only
+  the union of the enabled integrations' scopes is listed now; if any integration has no scope,
+  the list stays global. The page says it is limited, and the AI chat tool wazuh_missing_agents
+  follows the same rule when no subnet is given.
+- **Firewall rules / aliases / related NAT on the IP detail page are tables**: a rule used to be
+  one line of text with source, destination and description of different lengths, never lined up.
+  Columns are now aligned with headers, pass / block are colour-coded, rows highlight on hover, all
+  three tables share the column order (vendor and device first, lined up across tables), section
+  titles carry a colour bar, and narrow screens scroll sideways.
+- The OPNsense rules page loaded only the first 500 rules; arriving with a firewall in the URL
+  (`?fw=`, e.g. from an alias on the NAT page) showed an empty table.
+
 ## [0.6.47] - 2026-09-25
 
 ### Added

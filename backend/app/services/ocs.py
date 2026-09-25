@@ -494,6 +494,23 @@ async def _apply_computer(
     return counts
 
 
+async def mac_index(session: AsyncSession, server: OcsServer) -> dict[str, list[uuid.UUID]]:
+    """MAC → 既有 IP id（一次撈，不逐台查 DB）。
+
+    設了「限定子網路範圍」就只收範圍內的 IP —— 重疊網段裡另一個單位剛好有同一個 MAC 的記錄
+    （例如複製出來的 VM），不能被這套 OCS 寫到。
+    """
+    from app.services.agent_scope import scope_uuids
+    stmt = select(IPAddress.id, IPAddress.mac).where(IPAddress.mac.isnot(None))
+    scope = scope_uuids(server)
+    if scope:
+        stmt = stmt.where(IPAddress.subnet_id.in_(scope))
+    out: dict[str, list[uuid.UUID]] = {}
+    for ip_id, mac in (await session.execute(stmt)).all():
+        out.setdefault(normalize_mac(mac), []).append(ip_id)
+    return out
+
+
 async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, Any]:
     """同步一套 OCS。全量或增量由版本能力決定。不 commit（由呼叫端負責）。"""
     if server.source_type != "rest":
@@ -503,13 +520,7 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
     now = datetime.now(UTC)
     t0 = time.monotonic()
 
-    # 建 MAC → 既有 IP id 的索引（一次撈，不逐台查 DB）
-    ip_ids_by_mac: dict[str, list[uuid.UUID]] = {}
-    rows = (await session.execute(
-        select(IPAddress.id, IPAddress.mac).where(IPAddress.mac.isnot(None))
-    )).all()
-    for ip_id, mac in rows:
-        ip_ids_by_mac.setdefault(normalize_mac(mac), []).append(ip_id)
+    ip_ids_by_mac = await mac_index(session, server)
 
     seen = matched = 0
     async with safe_client(timeout=_SYNC_TIMEOUT, verify=server.verify_tls) as client:

@@ -79,6 +79,8 @@ _CONNECT_TIMEOUT = 20.0       # RDP（NLA）連線逾時（aardwolf：單純的 
 #: 本來就比「開一條 socket」久。共用 20 秒會在機器有負載時把成功的連線判成逾時
 #: （2026-09-17 正式環境上就是這樣）。
 _CONNECT_TIMEOUT_FREERDP = 45.0
+#: guacd：等到第一個畫面才算連上（NLA 登入、慢的目標都在這段時間裡）
+_CONNECT_TIMEOUT_GUACD = 45.0
 #: RDP 標準埠。原本沒有這個常數（靠 aardwolf 的預設），但走跳板時
 #: 必須明確知道要轉發到哪個埠，而且 URL 也要帶上（見下方註解）。
 _RDP_PORT = 3389
@@ -322,9 +324,16 @@ async def issue_rdp_ticket(
     from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
     clip_enabled = await get_rdp_clipboard_paste(session)
     engine = await get_rdp_engine(session)
-    ok, missing = engine_available(engine)
-    if not ok:
-        raise HTTPException(status_code=503, detail=rdp_unavailable_detail(engine, missing))
+    if engine == "guacd":
+        from app.services import guacd as guac
+        try:
+            await guac.require("rdp")
+        except guac.GuacdError as exc:
+            raise HTTPException(status_code=503, detail=exc.ui()) from exc
+    else:
+        ok, missing = engine_available(engine)
+        if not ok:
+            raise HTTPException(status_code=503, detail=rdp_unavailable_detail(engine, missing))
 
     ticket = secrets.token_urlsafe(32)
     payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
@@ -457,6 +466,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     counted = False
     tunnel: console_route.Tunnel | None = None
     started: datetime | None = None
+    # guacd 連上之後這條 WebSocket 改講 Guacamole 協定：不可以再送 JSON（瀏覽器那端會解析錯誤）
+    guac_mode = False
     _log.info("rdp: ws 已接受 host=%s engine=%s user=%s", host, engine, user_id)
     try:
         # 3) 收第一個設定訊息
@@ -534,6 +545,49 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await send({"type": "status", "state": "via_jump", "via": tunnel.via})
 
         _log.info("rdp: 開始連線 host=%s engine=%s via_jump=%s", host, engine, tunnel.via)
+        if engine == "guacd":
+            from app.services import guacd as guac
+            # 帳密只交給本機的 guacd，不經過瀏覽器；目標是通道的位址（走跳板時是本機轉發埠）
+            params = {
+                "hostname": tunnel.host, "port": str(tunnel.port),
+                "username": username, "password": password, "domain": domain,
+                # 憑證不驗：跟另外兩個引擎一致（內網主機多半是自簽憑證）
+                "security": "any", "ignore-cert": "true",
+                "resize-method": "display-update",
+                # 剪貼簿維持單向：被控端的內容不回傳；控制端貼上要管理者開啟
+                "disable-copy": "true", "disable-paste": "false" if clip_enabled else "true",
+                "disable-audio": "true", "client-name": "jt-ipam",
+            }
+            del password
+            try:
+                conn = await guac.GuacdConnection.open()
+                await conn.handshake("rdp", params, width=width, height=height,
+                                     dpi=guac.client_dpi(cfg.get("dpi")),
+                                     timezone=guac.client_timezone(cfg.get("timezone")))
+                del params
+                initial = await conn.wait_first_frame(_CONNECT_TIMEOUT_GUACD)
+            except guac.GuacdError as exc:
+                _log.info("rdp: guacd 連線失敗 host=%s code=%s reason=%s", host, exc.code, exc.reason)
+                await send({"type": "error", **exc.ui()})
+                await websocket.close()
+                return
+            _active_sessions += 1
+            counted = True
+            started = datetime.now(UTC)
+            await _audit_rdp(
+                actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
+                action="rdp.session_open",
+                diff={"host": host, "username": username, "domain": domain or None,
+                      "via_jump_host": tunnel.via, "size": f"{width}x{height}", "engine": "guacd",
+                      "credential_id": str(used_cred_id) if used_cred_id else None},
+            )
+            _log.info("rdp: 已連上（guacd）host=%s", host)
+            await send({"type": "status", "state": "connected", "engine": "guacd",
+                        "width": width, "height": height})
+            guac_mode = True
+            res = await guac.relay(websocket, conn, initial=initial)
+            _log.info("rdp: guacd 工作階段結束 host=%s ended_by=%s dropped=%s", host, res.ended_by, res.dropped)
+            return
         if engine == "freerdp":
             conn = _build_freerdp_conn(
                 tunnel=tunnel, username=username, password=password,
@@ -608,8 +662,9 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         _log.info("rdp: 控制端離線 host=%s", host)
     except Exception:  # 對外不洩漏堆疊，但伺服器端一定要留下來
         _log.exception("rdp: 未預期錯誤 host=%s engine=%s", host, engine)
-        with contextlib.suppress(Exception):
-            await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
+        if not guac_mode:
+            with contextlib.suppress(Exception):
+                await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
     finally:
         if conn is not None:
             with contextlib.suppress(Exception):
@@ -627,7 +682,8 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                         action="rdp.session_close", diff={"host": host, "duration_seconds": round(dur, 1)},
                     )
         with contextlib.suppress(Exception):
-            await send({"type": "status", "state": "disconnected"})
+            if not guac_mode:
+                await send({"type": "status", "state": "disconnected"})
             await websocket.close()
 
 

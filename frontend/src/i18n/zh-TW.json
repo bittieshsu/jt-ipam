@@ -428,7 +428,13 @@
     "password": "密碼",
     "show": "顯示",
     "hide": "隱藏",
-    "html_lang": "zh-Hant"
+    "html_lang": "zh-Hant",
+    "focus_only": "只顯示從 IP 詳細頁點選的項目。",
+    "focus_missing": "找不到從 IP 詳細頁點選的項目 —— 可能已經在設備上刪除，或還沒重新同步。",
+    "show_all": "顯示全部",
+    "console_engine": "引擎：{name}",
+    "console_engine_builtin": "內建",
+    "console_engine_title": "這次連線使用的引擎（可在「管理 → 系統設定」切換）"
   },
   "scan_agent": {
     "outdated": "可更新",
@@ -745,10 +751,8 @@
     "state_connected": "已連線",
     "state_closed": "已關閉",
     "state_error": "連線錯誤",
-    "beta": "Beta",
-    "beta_hint": "RDP 連線為 Beta 功能，部分情境（特殊鍵、剪貼簿、遠端游標、多人並發）仍在強化中。",
-    "enable_label": "啟用 RDP 連線管理（Beta）",
-    "enable_hint": "啟用後，具權限者可在此 IP 詳細資料頁開啟 RDP 畫面（需伺服器已安裝 RDP 選用相依）。此功能為 Beta。",
+    "enable_label": "啟用 RDP 連線管理",
+    "enable_hint": "啟用後，具權限者可在此 IP 詳細資料頁開啟 RDP 畫面（伺服器需已安裝 RDP 選用相依或 guacd）。",
     "err_username": "請輸入帳號",
     "err_ticket": "無法建立連線（權限或網路問題）",
     "err_ws": "WebSocket 連線失敗",
@@ -757,30 +761,30 @@
     "paste_hint": "把本機剪貼簿文字送到被控端，再於遠端按 Ctrl+V 貼上",
     "paste_sent": "已送 {n} 字到被控端剪貼簿，請於遠端按 Ctrl+V 貼上",
     "paste_denied": "無法讀取瀏覽器剪貼簿（請允許剪貼簿權限）",
-    "paste_empty": "剪貼簿是空的"
+    "paste_empty": "剪貼簿是空的",
+    "paste_set": "已寫進被控端剪貼簿，請於遠端按 Ctrl+V 貼上",
+    "keyboard_input": "遠端鍵盤輸入"
   },
   "vnc": {
     "connect": "VNC 連線",
     "connect_to": "VNC 連線到 {ip}",
     "open_popout": "另開視窗",
-    "beta": "Beta",
-    "beta_hint": "VNC 連線為 Beta 功能，部分情境（特殊鍵、滾輪、剪貼簿）仍在強化中。",
     "password": "密碼",
     "password_ph": "VNC 密碼",
-    "auth_note": "僅支援標準 VNC 密碼認證（VncAuth）；不支援 UltraVNC MS-Logon 等帳號型認證。",
+    "auth_note": "傳統 VNC 只要密碼。macOS 螢幕共享、UltraVNC MS 登入、VeNCrypt 等要求帳號的伺服器，請填帳號，並把 VNC 連線引擎設成 guacd（內建引擎只支援密碼）。",
     "port": "連接埠",
     "send_keys": "送出按鍵",
     "scale_fit": "自動縮放",
     "scale_native": "原始解析度",
-    "saved_cred": "已存密碼",
-    "saved_cred_ph": "選擇已儲存的密碼…",
-    "saved_cred_del_confirm": "刪除這筆已存密碼？",
-    "remember": "記住此密碼",
+    "saved_cred": "已存帳密",
+    "saved_cred_ph": "選擇已儲存的帳密…",
+    "saved_cred_del_confirm": "刪除這筆已存帳密？",
+    "remember": "記住帳密",
     "remember_label_ph": "名稱（留空自動以 vnc{'@'}IP 命名）",
-    "no_store_hint": "密碼僅用於本次連線，不會儲存於伺服器。",
-    "store_hint": "勾選後此密碼將以加密方式存於伺服器（僅你本人可用、明文絕不回傳）；下次可直接選用。",
-    "use_saved_hint": "使用已儲存的密碼：以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
-    "err_save_cred": "儲存密碼失敗",
+    "no_store_hint": "帳密僅用於本次連線，不會儲存於伺服器。",
+    "store_hint": "勾選後這組帳密將以加密方式存於伺服器（僅你本人可用、明文絕不回傳）；下次可直接選用。",
+    "use_saved_hint": "使用已儲存的帳密：以加密方式保管於伺服器，僅連線當下於後端解密取用，不會回傳前端。",
+    "err_save_cred": "儲存帳密失敗",
     "disconnect": "中斷連線",
     "reconnect": "重新連線",
     "state_form": "尚未連線",
@@ -788,11 +792,13 @@
     "state_connected": "已連線",
     "state_closed": "已關閉",
     "state_error": "連線錯誤",
-    "enable_label": "啟用 VNC 連線管理（Beta）",
-    "enable_hint": "啟用後，具權限者可在此 IP 詳細資料頁開啟 VNC 畫面（需伺服器已安裝 VNC 選用相依）。此功能為 Beta。",
+    "enable_label": "啟用 VNC 連線管理",
+    "enable_hint": "啟用後，具權限者可在此 IP 詳細資料頁開啟 VNC 畫面（伺服器需已安裝 VNC 選用相依或 guacd）。",
     "err_ticket": "無法建立連線（權限或網路問題）",
     "err_ws": "WebSocket 連線失敗",
-    "err_generic": "連線發生錯誤"
+    "err_generic": "連線發生錯誤",
+    "username": "帳號",
+    "username_ph": "選用；傳統 VNC 只有密碼，留空即可"
   },
   "connections": {
     "hint": "以下是已啟用「SSH 連線管理」且你有權限連線的目標。點「SSH 連線」開新分頁，或用下拉「另開視窗」。",
@@ -1249,7 +1255,9 @@
     "fw_why_net_covers": "網段 {value} 涵蓋",
     "fw_why_exact": "位址完全相符",
     "last_seen_ocs": "最後出現（OCS 盤點）",
-    "last_seen_ocs_jump": "檢視此裝置的 OCS 盤點資料"
+    "last_seen_ocs_jump": "檢視此裝置的 OCS 盤點資料",
+    "fw_col_why": "比對依據",
+    "fw_row_goto": "點一下開啟這一筆"
   },
   "subnets": {
     "title": "子網路",
@@ -1834,8 +1842,8 @@
   },
   "wazuh_admin": {
     "scope_subnets": "限定子網路範圍",
-    "scope_all": "全部 (不限範圍)",
-    "scope_hint": "重疊網段時用：只在這些子網路內比對 IP。空=全域比對。",
+    "scope_all": "全部（不限範圍）",
+    "scope_hint": "重疊網段時用：只在這些子網路內比對 IP；「未裝 Agent 的 IP」也只列這些子網路。空＝全域。",
     "title": "Wazuh 整合",
     "missing_agents": "未裝 Agent 的 IP",
     "agents_count": "代理數",
@@ -1852,7 +1860,8 @@
     "status_disconnected": "離線",
     "status_pending": "等待中",
     "status_never_connected": "從未連線",
-    "api_user_ph": "wazuh-wui 或自建 API user"
+    "api_user_ph": "wazuh-wui 或自建 API user",
+    "missing_scoped": "（只列整合設定的限定子網路範圍）"
   },
   "plugins_admin": {
     "title": "Plugin",
@@ -2063,7 +2072,8 @@
     "evidence_mac_flip": "MAC 來回切換",
     "seen_scanner": "掃描代理",
     "seen_manual": "手動",
-    "seen_arp_vendor": "ARP 表（{vendor}）"
+    "seen_arp_vendor": "ARP 表（{vendor}）",
+    "filter_ph": "篩選：IP／主機名稱／MAC／說明…（所有分類共用）"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -2601,13 +2611,23 @@
       "rdp_engine": "RDP 連線引擎",
       "rdp_engine_aardwolf": "aardwolf（預設）",
       "rdp_engine_freerdp": "FreeRDP",
-      "rdp_engine_hint": "aardwolf 是內建的純 Python 實作，不需額外行程，對 Windows 目標運作正常。FreeRDP 相容性較好 —— 特別是 Linux 上的 xrdp 與 GNOME 遠端登入，aardwolf 的 NTLM 認證會被它們拒絕 —— 但需要在本機安裝 FreeRDP 與虛擬顯示。改了之後開新的連線才會生效。",
+      "rdp_engine_hint": "aardwolf 是內建的純 Python 實作，不需額外行程，對 Windows 目標運作正常。FreeRDP 相容性較好 —— 特別是 Linux 上的 xrdp 與 GNOME 遠端登入，aardwolf 的 NTLM 認證會被它們拒絕 —— 但需要在本機安裝 FreeRDP 與虛擬顯示。guacd 由 jt-ipam-guacd 服務處理（見下方狀態），相容性也好，不需要虛擬顯示。改了之後開新的連線才會生效。",
       "rdp_engine_missing": "這台伺服器還沒有 FreeRDP 引擎需要的套件（缺 {pkgs}）。裝好之後重新整理這一頁；在那之前選了 FreeRDP 也連不上。",
       "rdp_engine_no_aardwolf": "這台伺服器的 Python {python} 沒有 aardwolf 的預編譯套件，aardwolf 引擎與 VNC 主控台都無法使用。RDP 請改用 FreeRDP 引擎。",
       "port_filter_pseudo": "過濾偽介面",
       "port_filter_pseudo_hint": "從整合來源匯入連接埠時，略過並清除符合下列名稱樣式的偽介面（Windows NDIS 過濾器、WAN Miniport、通道等）。關閉時完全不過濾也不清除。",
       "port_ignore_patterns": "略過的名稱樣式",
-      "port_ignore_patterns_hint": "一行一個正規表示式（比對介面名稱，不分大小寫）。留空則使用內建預設。實體交換器與 Linux 埠名不會符合這些樣式，不受影響。"
+      "port_ignore_patterns_hint": "一行一個正規表示式（比對介面名稱，不分大小寫）。留空則使用內建預設。實體交換器與 Linux 埠名不會符合這些樣式，不受影響。",
+      "engine_guacd": "guacd",
+      "engine_builtin": "內建（預設）",
+      "vnc_engine": "VNC 連線引擎",
+      "vnc_engine_hint": "內建引擎用 aardwolf。guacd 由 jt-ipam-guacd 服務處理畫面，不需要 aardwolf。改了之後開新的連線才會生效。",
+      "ssh_engine": "SSH 連線引擎",
+      "ssh_engine_hint": "內建引擎是瀏覽器裡的 xterm.js 終端機。guacd 在伺服器端畫出終端機，瀏覽器收到的是畫面；複製貼上用 Ctrl+Shift+C／Ctrl+Shift+V（Mac 用 ⌘C／⌘V）。主機金鑰一樣首次確認後釘選。改了之後開新的連線才會生效。",
+      "guacd_status": "guacd 服務",
+      "guacd_down": "連不到 guacd（{address}）：{reason}",
+      "guacd_protocol_missing": "guacd 沒有 {protocols} 的支援，選了 guacd 的這些協定會連不上。",
+      "guacd_hint": "guacd 是 Apache Guacamole 的伺服器端，由 jt-ipam 預編、以 jt-ipam-guacd 服務只在本機執行。RDP、VNC、SSH 可以分別選擇要不要改用它。"
     }
   },
   "errors": {
@@ -2843,7 +2863,7 @@
     "console_rdp_not_installed": "RDP 功能未安裝（缺 aardwolf 選用相依）",
     "console_rdp_no_aardwolf": "這台伺服器沒有 aardwolf（Python {python} 沒有它的預編譯套件）。請管理員到「系統設定 → RDP 連線引擎」改用 FreeRDP。",
     "console_rdp_freerdp_missing": "FreeRDP 引擎缺少 {missing}：請在伺服器上執行 jt-ipam.sh upgrade 安裝。",
-    "console_vnc_not_installed": "VNC 功能未安裝：需要 aardwolf，而 Python {python} 沒有它的預編譯套件。",
+    "console_vnc_not_installed": "內建的 VNC 引擎無法使用：需要 aardwolf，而 Python {python} 沒有它的預編譯套件。可以安裝 guacd，再到「管理 → 系統設定」把 VNC 連線引擎改成 guacd。",
     "console_pve_not_installed": "PVE 主控台功能未安裝（缺 websockets 相依）",
     "console_rdp_too_many": "RDP 同時連線已達上限（{max}）",
     "console_vnc_too_many": "連線已達上限（{max}）",
@@ -2966,7 +2986,32 @@
     "range_start_after_end": "起始位址 {start} 比結束位址 {end} 大",
     "range_outside_subnet": "範圍 {start}～{end} 超出子網路 {cidr}",
     "range_overlap": "與既有範圍「{other}」重疊",
-    "cert_export_password_in_url": "PFX 密碼不可以放在網址參數（會被寫進存取日誌）；請改用 POST，把 fmt 與 password 放在 body"
+    "cert_export_password_in_url": "PFX 密碼不可以放在網址參數（會被寫進存取日誌）；請改用 POST，把 fmt 與 password 放在 body",
+    "guacd_unavailable": "連不到 guacd（{reason}）。請確認伺服器上的 jt-ipam-guacd 服務有在執行。",
+    "guacd_protocol_missing": "guacd 沒有這個協定的支援：{reason}",
+    "guacd_handshake_failed": "guacd 交握失敗：{reason}",
+    "guacd_first_frame_timeout": "遠端主機一直沒有送出畫面（{reason}）",
+    "guacd_auth_required": "遠端主機要求帳號密碼，但沒有提供或不正確",
+    "guacd_server_error": "guacd 內部錯誤：{reason}",
+    "guacd_server_busy": "guacd 忙碌中：{reason}",
+    "guacd_upstream_timeout": "連線到遠端主機逾時：{reason}",
+    "guacd_upstream_error": "遠端主機回報錯誤：{reason}",
+    "guacd_resource_not_found": "找不到要連的資源：{reason}",
+    "guacd_upstream_not_found": "連不到遠端主機（主機不存在或連接埠沒開）：{reason}",
+    "guacd_upstream_unavailable": "遠端主機目前無法使用：{reason}",
+    "guacd_session_conflict": "遠端工作階段衝突（可能被另一個登入取代）：{reason}",
+    "guacd_session_timeout": "遠端工作階段逾時：{reason}",
+    "guacd_session_closed": "遠端主機結束了工作階段：{reason}",
+    "guacd_bad_request": "連線參數有誤：{reason}",
+    "guacd_unauthorized": "認證失敗（帳號、密碼或金鑰錯誤）：{reason}",
+    "guacd_forbidden": "遠端主機拒絕登入（帳號可能沒有遠端登入權限）：{reason}",
+    "guacd_client_timeout": "瀏覽器太久沒有回應，guacd 結束了連線：{reason}",
+    "guacd_too_many": "同時連線太多：{reason}",
+    "guacd_host_key_mismatch": "主機金鑰與先前釘選不符，可能遭中間人攻擊（連線中止）：{reason}",
+    "guacd_vnc_rejected": "VNC 伺服器拒絕了這次連線，最常見的原因是帳號或密碼錯誤（也可能是伺服器要求的認證方式不支援；連續失敗太多次時，部分伺服器會暫時封鎖來源）：{reason}",
+    "console_vnc_username_needs_guacd": "內建的 VNC 引擎不支援帳號，請到「管理 → 系統設定」把 VNC 連線引擎改成 guacd",
+    "cred_username_required": "請填帳號",
+    "guacd_vnc_username_required": "這台 VNC 伺服器要求帳號與密碼，請在「帳號」欄填入帳號"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -4406,7 +4451,13 @@
     "f_data_unreadable": "這是程式的欄位限制比資料庫嚴造成的。請把這段訊息回報給我們；先自行處理的話，把上面那幾筆的該欄位改成合規值即可",
     "f_disable_debug": "正式環境請關閉 APP_DEBUG",
     "f_integration_pages": "到各整合設定頁看「最後錯誤」與「測試連線」",
-    "report_counts": "{bad} 項失敗、{warn} 項警告、{ok} 項通過"
+    "report_counts": "{bad} 項失敗、{warn} 項警告、{ok} 項通過",
+    "c_guacd": "guacd 主控台引擎",
+    "d_guacd_idle": "已安裝，還沒有協定使用它（{address}）",
+    "d_guacd_ok": "{protocols} 使用 guacd，服務正常（{address}）",
+    "d_guacd_down": "{protocols} 設定為 guacd，但連不到它（{address}）：{reason}",
+    "d_guacd_missing": "{protocols} 設定為 guacd，但 guacd 沒有這些協定的支援",
+    "f_guacd": "在伺服器上執行 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd，或到系統設定把引擎改回內建"
   },
   "tool_verbs": {
     "get": "查詢",
@@ -4525,7 +4576,11 @@
     "diag_auth": "需要驗證",
     "auth_on": "是",
     "auth_off": "否",
-    "warn_unauthenticated": "⚠️ 這套 OCS 沒有帶帳密也讀得到資料 —— 代表任何能連到它的人都能讀取全部資產清單。建議在 OCS 端（Apache）為 /ocsapi 加上驗證，或以反向代理限制存取。"
+    "warn_unauthenticated": "⚠️ 這套 OCS 沒有帶帳密也讀得到資料 —— 代表任何能連到它的人都能讀取全部資產清單。建議在 OCS 端（Apache）為 /ocsapi 加上驗證，或以反向代理限制存取。",
+    "scope_subnets": "限定子網路範圍",
+    "scope_all": "全部（不限範圍）",
+    "scope_hint": "只跟這些子網路內 IP 的 MAC 比對；「未裝 Agent 的 IP」也只列這些子網路。空＝全域。",
+    "missing_scoped": "（只列整合設定的限定子網路範圍）"
   },
   "scope_filter": {
     "section": "區段",

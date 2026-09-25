@@ -267,8 +267,16 @@ async def missing_agents(
     """應裝 Wazuh agent 卻沒有 active 對映的 IP 清單（hostnamed_only=True 預設只看有設 hostname 的）。
 
     每筆帶所屬子網路／區段／單位，畫面據此篩選（與 OCS 整合頁共用 annotate_scope）。
+    整合設了「限定子網路範圍」就只列範圍內的（見 agent_scope.expected_subnets）。
     """
-    from app.services.agent_scope import annotate_scope
+    from app.services.agent_scope import annotate_scope, expected_subnets
+    if instance_id is not None:
+        one = await session.get(WazuhInstance, instance_id)
+        insts = [one] if one is not None else []
+    else:
+        insts = list((await session.execute(
+            select(WazuhInstance).where(WazuhInstance.enabled.is_(True)))).scalars().all())
     return await annotate_scope(session, await wazuh_service.find_missing_agents(
         session, instance_id=instance_id, hostnamed_only=hostnamed_only,
+        subnet_ids=expected_subnets(insts),
     ))

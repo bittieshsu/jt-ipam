@@ -83,6 +83,12 @@ async function loadSubnetOptions() {
   } catch { /* silent */ }
 }
 
+// 「未裝 Agent 的 IP」只列啟用中整合的範圍聯集；任一個沒設範圍就是全域（同後端 expected_subnets）
+const missingScoped = computed(() => {
+  const on = insts.value.filter((r) => r.enabled);
+  return on.length > 0 && on.every((r) => (r.scope_subnet_ids ?? []).length > 0);
+});
+
 function openCreate() {
   editing.value = null;
   newInst.value = { name: "", api_url: "",
@@ -322,6 +328,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <n-alert v-if="missing.length" type="warning" style="margin-bottom: 12px">
           <template #icon><n-icon><MissingIcon /></n-icon></template>
           {{ scope.active.value ? `${scope.filtered.value.length} / ${missing.length}` : missing.length }} {{ t("wazuh_admin.missing_agents") }}
+          <span v-if="missingScoped" style="opacity: .75">{{ t("wazuh_admin.missing_scoped") }}</span>
         </n-alert>
         <n-space style="margin-bottom: 8px" align="center">
           <ScopeFilterBar v-model:section="scope.section.value" v-model:subnet="scope.subnet.value"

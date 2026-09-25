@@ -15,7 +15,9 @@ import {
   requestVncTicket, buildVncWsUrl,
   listVncCredentials, createVncCredential, deleteVncCredential, type VncCredential,
 } from "@/api/vnc";
-import { buildSendKeysMenu, makeSendCombo } from "@/composables/useSendKeys";
+import { buildSendKeysMenu, makeSendCombo, KEY_COMBOS } from "@/composables/useSendKeys";
+import GuacView from "@/components/GuacView.vue";
+import { consoleEngineLabel } from "@/utils/consoleEngine";
 import { VncIcon, CancelIcon, RefreshIcon, DeleteIcon, ChevronDownIcon, KeyIcon, ExpandIcon, ReduceIcon } from "@/icons";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 
@@ -41,7 +43,7 @@ async function loadCreds() {
     savedCreds.value = await listVncCredentials(props.addressId);
     credOptions.value = [
     { label: t('ssh.cred_manual'), value: null as unknown as string },
-    ...savedCreds.value.map((c) => ({ label: c.label, value: c.id }))];
+    ...savedCreds.value.map((c) => ({ label: c.username ? `${c.label} · ${c.username}` : c.label, value: c.id }))];
     if (!selectedCredId.value && savedCreds.value.length) {
       selectedCredId.value = savedCreds.value[0].id;
     }
@@ -64,7 +66,7 @@ const phase = ref<Phase>("form");
 const viaJump = ref("");
 const errorMsg = ref("");
 
-const form = reactive({ password: "", port: 5900 });
+const form = reactive({ username: "", password: "", port: 5900 });
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const canvasBoxEl = ref<HTMLElement | null>(null);
@@ -81,6 +83,11 @@ const MOVE_THROTTLE = 30;
 // 畫面縮放：fit=自動縮放符合視窗（CSS 縮放、不出捲軸）、native=原始解析度（1:1，超出可捲）
 const scaleMode = ref<"fit" | "native">("fit");
 let srvW = 0, srvH = 0;     // 伺服器 framebuffer 尺寸
+// guacd 引擎（系統設定選的）：畫面與鍵鼠交給 GuacView，這個元件只留表單與工具列
+const guacRef = ref<InstanceType<typeof GuacView> | null>(null);
+// 狀態列的「引擎」標示（這次連線實際用的引擎，來自票證）
+const engineLabel = ref("");
+const guacSession = ref<{ key: number; url: string; config: Record<string, unknown> } | null>(null);
 let ro: ResizeObserver | null = null;
 
 function applyScale() {
@@ -115,7 +122,10 @@ function wsSend(obj: Record<string, unknown>) {
 // 送出特殊按鍵（VNC 目標可能是 Win/Mac/Linux → 含 macOS 組合）
 const sendKeysMenu = buildSendKeysMenu(true);
 const _sendCombo = makeSendCombo(wsSend);
-function onSendKey(key: string) { _sendCombo(key); canvasEl.value?.focus(); }
+function onSendKey(key: string) {
+  if (guacSession.value) { guacRef.value?.sendCombo(KEY_COMBOS[key] || []); return; }
+  _sendCombo(key); canvasEl.value?.focus();
+}
 function onVisibility() {
   // 分頁切回前景：重置計時窗，避免背景期間 lastRecv 變舊 → 一回前景就被 watchdog 誤判斷線
   if (!document.hidden) lastRecv = Date.now();
@@ -142,6 +152,7 @@ function startHeartbeat() {
 }
 function teardown() {
   stopHeartbeat();
+  guacRef.value?.disconnect();
   try { ws?.close(); } catch { /* noop */ }
   ws = null;
   ro?.disconnect(); ro = null;
@@ -182,6 +193,7 @@ async function connect() {
       const saved = await createVncCredential({
         label: rememberLabel.value.trim() || `vnc@${props.ip}`,
         target_ip_id: props.addressId,
+        username: form.username,
         password: form.password,
       });
       credId = saved.id;
@@ -205,6 +217,17 @@ async function connect() {
     return;
   }
 
+  engineLabel.value = consoleEngineLabel(ticket.engine || "builtin");
+  if (ticket.engine === "guacd") {
+    guacSession.value = {
+      key: Date.now(), url: buildVncWsUrl(ticket.ws_path, ticket.ticket),
+      config: credId ? { credential_id: credId, port: form.port }
+        : { username: form.username.trim(), password: form.password, port: form.port },
+    };
+    form.password = "";
+    return;
+  }
+  guacSession.value = null;
   await nextTick();
   if (!canvasEl.value) { phase.value = "error"; errorMsg.value = t("vnc.err_ticket"); return; }
   ctx = canvasEl.value.getContext("2d");
@@ -214,7 +237,7 @@ async function connect() {
     if (credId) {
       wsSend({ type: "config", credential_id: credId, port: form.port });
     } else {
-      wsSend({ type: "config", password: form.password, port: form.port });
+      wsSend({ type: "config", username: form.username.trim(), password: form.password, port: form.port });
     }
     form.password = "";
     startHeartbeat();
@@ -271,8 +294,10 @@ function disconnect() {
 }
 function backToForm() {
   teardown();
+  guacSession.value = null;
   phase.value = "form";
 }
+function onGuacError(text: string) { phase.value = "error"; errorMsg.value = text; }
 
 onBeforeUnmount(teardown);
 </script>
@@ -286,12 +311,8 @@ onBeforeUnmount(teardown);
           <span style="display:flex;align-items:center;gap:8px">
             <n-icon :component="VncIcon" :size="18" />
             <span>{{ t("vnc.connect_to", { ip }) }}</span>
-            <n-tag size="small" type="warning" :bordered="false" round>{{ t("vnc.beta") }}</n-tag>
           </span>
         </template>
-        <n-alert :show-icon="true" type="warning" :bordered="false" style="margin-bottom:12px">
-          {{ t("vnc.beta_hint") }}
-        </n-alert>
         <!-- 已存密碼 -->
         <div v-if="credOptions.length" class="vnc-saved-row">
           <span class="vnc-saved-label">{{ t("vnc.saved_cred") }}</span>
@@ -308,6 +329,10 @@ onBeforeUnmount(teardown);
         </div>
 
         <n-form label-placement="left" :label-width="92" size="small">
+          <n-form-item v-if="!selectedCredId" :label="t('vnc.username')">
+            <n-input v-model:value="form.username" :placeholder="t('vnc.username_ph')"
+                     :input-props="{ autocomplete: 'off' }" @keyup.enter="connect" />
+          </n-form-item>
           <n-form-item v-if="!selectedCredId" :label="t('vnc.password')">
             <n-space vertical :size="2" style="width:100%">
               <n-input v-model:value="form.password" type="password" show-password-on="click"
@@ -354,7 +379,8 @@ onBeforeUnmount(teardown);
             {{ t("jump_hosts.via") }}：{{ viaJump }}
           </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
-          <n-tag size="small" type="warning" :bordered="false" round>{{ t("vnc.beta") }}</n-tag>
+          <n-tag v-if="engineLabel" size="small" :bordered="false" round class="conn-engine"
+                 :title="t('common.console_engine_title')">{{ engineLabel }}</n-tag>
         </span>
         <n-space :size="8" align="center">
           <!-- 送出特殊按鍵 -->
@@ -387,8 +413,13 @@ onBeforeUnmount(teardown);
       </n-alert>
       <div class="vnc-disp" :class="{ 'vnc-full': fullHeight }">
       <div ref="canvasBoxEl" class="vnc-canvas-box"
-           :class="{ 'vnc-full': fullHeight, 'vnc-fit': scaleMode === 'fit', 'vnc-native': scaleMode !== 'fit', 'term-dim': phase === 'closed' }">
-        <canvas ref="canvasEl" class="vnc-canvas" tabindex="0"
+           :class="{ 'vnc-full': fullHeight, 'vnc-fit': scaleMode === 'fit', 'vnc-native': scaleMode !== 'fit', 'term-dim': phase === 'closed', 'vnc-guac-box': !!guacSession }">
+        <GuacView v-if="guacSession" :key="guacSession.key" ref="guacRef" class="vnc-guac"
+                  :ws-url="guacSession.url" :config="guacSession.config" protocol="vnc"
+                  :scale-mode="scaleMode"
+                  @connected="phase = 'connected'" @closed="phase = 'closed'" @error="onGuacError"
+                  @via-jump="(v: string) => (viaJump = v)" />
+        <canvas v-else ref="canvasEl" class="vnc-canvas" tabindex="0"
                 @mousemove="onMouseMove" @mousedown="onMouseDown" @mouseup="onMouseUp"
                 @wheel.prevent="onWheel" @contextmenu.prevent
                 @keydown="onKey($event, true)" @keyup="onKey($event, false)" />
@@ -433,6 +464,10 @@ onBeforeUnmount(teardown);
 .conn-proto--vnc { color: #8a63d2; background: rgba(138,99,210,.16); }
 .vnc-canvas-box.vnc-full { flex: 1; min-height: 0; display: block; }
 .vnc-canvas { display: block; outline: none; background: #000; }
+/* guacd：畫面大小由容器決定（GuacView 自己縮放），容器要有高度 */
+.vnc-canvas-box.vnc-guac-box { display: block; width: 100%; height: 70vh; }
+.vnc-canvas-box.vnc-guac-box.vnc-full { height: auto; }
+.vnc-guac { width: 100%; height: 100%; }
 /* 自動縮放：置中、不出捲軸（canvas 由 JS 設 CSS 尺寸符合容器）。原始解析度：1:1、超出可捲。 */
 .vnc-canvas-box.vnc-fit { overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .vnc-canvas-box.vnc-native { overflow: auto; }

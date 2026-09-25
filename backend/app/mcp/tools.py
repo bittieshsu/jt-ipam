@@ -1772,6 +1772,8 @@ async def wazuh_missing_agents(
     問「某網段有誰沒裝」一定要帶 subnet_cidr/subnet_id：不帶會回全站缺口，
     模型就會把別的網段當成該網段的答案（曾實際發生：問 1.0/24 卻回 11.x/40.x）。
     """
+    from app.models.wazuh import WazuhInstance
+    from app.services.agent_scope import expected_subnets
     from app.services.wazuh import find_missing_agents
     scope_ids: list[uuid.UUID] | None = None
     scope_label = "all"
@@ -1780,6 +1782,12 @@ async def wazuh_missing_agents(
             session, user=user, subnet_id=subnet_id, subnet_cidr=subnet_cidr)
         scope_ids = [subnet.id]
         scope_label = str(subnet.cidr)
+    else:
+        # 沒指定網段 → 跟畫面一致，只看 Wazuh 整合設定的「限定子網路範圍」
+        scope_ids = expected_subnets(list((await session.execute(
+            select(WazuhInstance).where(WazuhInstance.enabled.is_(True)))).scalars().all()))
+        if scope_ids is not None:
+            scope_label = "integration_scope"
     rows = await find_missing_agents(session, subnet_ids=scope_ids)
     return {
         "scope": scope_label,          # 回答時必須說明涵蓋範圍
@@ -3133,8 +3141,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "fn": wazuh_missing_agents,
         "description": ("IPs that have a hostname but no active Wazuh agent (security coverage gap). "
                         "If the question is about one subnet/CIDR, you MUST pass subnet_cidr "
-                        "(e.g. '198.51.100.0/24') — otherwise the result covers the whole system "
-                        "and answering with it would be wrong. The reply includes 'scope'; state it."),
+                        "(e.g. '198.51.100.0/24') — otherwise the result covers every subnet the "
+                        "Wazuh integration is limited to (scope 'integration_scope'), or the whole "
+                        "system (scope 'all') when it has no limit, and answering with it would be "
+                        "wrong. The reply includes 'scope'; state it."),
         "parameters": {"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": 500},
             "subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"},

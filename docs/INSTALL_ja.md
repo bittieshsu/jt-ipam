@@ -798,3 +798,31 @@ sudo apt install -y nodejs
 ```
 
 その後、`/opt/jt-ipam/frontend` で `pnpm install && pnpm build` をやり直します。
+
+## guacd コンソールエンジン（RDP／VNC／SSH、任意）
+
+guacd は [Apache Guacamole](https://guacamole.apache.org/) のサーバー側で、3 種類のコンソールの接続エンジンとして
+使えます。「管理 → システム設定」でプロトコルごとに選びます。任意の機能で、既定は組み込みエンジンのままです。
+
+別途インストールが必要な理由：Debian は guacd の提供をやめ、Ubuntu にはリモートコード実行の脆弱性がある 1.3.0 しかありません。
+そのため jt-ipam はサポート中の OS バージョンごとにビルドを用意しています（Debian 12／13、Ubuntu 22.04／24.04／26.04）。
+OS 自身のライブラリにリンクするので、FreeRDP や libvncclient などのセキュリティ更新は引き続き apt から届きます。
+
+```
+sudo /opt/jt-ipam/scripts/jt-ipam.sh install --with-guacd        # 新規インストール
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd        # 既存の環境に追加
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...-ubuntu24.04-amd64.tar.gz
+                                                                 # オフライン：同じ場所に .deps ファイルが必要
+```
+
+- `jt-ipam-guacd` systemd サービスとして動き、**127.0.0.1:4822 だけで待ち受けます**。guacd 自体には認証がないため、
+  他のインターフェースで開いてはいけません。サービスは権限のない動的ユーザーで動きます。
+- 一度インストールするか、どれかのプロトコルで guacd を選ぶと、以降の `upgrade` で jt-ipam の版に対応するビルドへ更新されます。
+  ダウンロードしたファイルは `scripts/guacd/SHA256SUMS` と照合します。
+- 資格情報はサーバーが guacd に渡し、ブラウザーには届きません。SSH のホスト鍵も初回確認後に固定され、guacd はその鍵と一致しなければなりません。
+- guacd 経由の SSH では端末をサーバー側で描画します。コピーと貼り付けは Ctrl+Shift+C／Ctrl+Shift+V（Mac は ⌘C／⌘V）。
+  日本語・中国語の入力メソッドも使えます。
+- `jt-ipam.sh doctor` と「管理 → システムチェック」で、guacd が動いているか、guacd を選んだプロトコルがサポートされているかを確認できます。
+
+ライセンス：guacd は Apache-2.0 です。各パッケージには LICENSE、NOTICE、正確なソースとビルドスクリプトを記した SOURCE ファイルが含まれます。
+これらは jt-ipam がビルドしたもので、Apache の公式リリースではありません。

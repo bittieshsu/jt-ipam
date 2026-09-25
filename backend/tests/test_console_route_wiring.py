@@ -64,6 +64,20 @@ RDP_ENGINE_DIAL_SITES = (
 )
 
 
+#: guacd 引擎（RDP／VNC／SSH）：交給 guacd 的 hostname／port 也必須是通道的位址
+GUACD_DIAL_SITES = {
+    "rdp_console": '"hostname": tunnel.host, "port": str(tunnel.port),',
+    "vnc_console": 'params = guacd_vnc_params(dial_host, dial_port, username, password)',
+    # ssh 的 host／port 在上面已經換成通道的位址（`host, port = tunnel.host, tunnel.port`）
+    "ssh_console": '"hostname": host, "port": str(port), "username": username,',
+}
+
+
+@pytest.mark.parametrize("name", sorted(GUACD_DIAL_SITES))
+def test_guacd_engine_dials_the_tunnel(name: str) -> None:
+    assert GUACD_DIAL_SITES[name] in _src(name), f"{name} 的 guacd 引擎沒有把連線目標換成通道的位址"
+
+
 def test_every_rdp_engine_dials_the_tunnel() -> None:
     src = _src("rdp_console")
     for site in RDP_ENGINE_DIAL_SITES:

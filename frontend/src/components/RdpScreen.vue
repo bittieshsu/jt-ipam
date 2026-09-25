@@ -15,7 +15,9 @@ import {
   requestRdpTicket, buildRdpWsUrl,
   listRdpCredentials, createRdpCredential, deleteRdpCredential, type RdpCredential,
 } from "@/api/rdp";
-import { buildSendKeysMenu, makeSendCombo } from "@/composables/useSendKeys";
+import { buildSendKeysMenu, makeSendCombo, KEY_COMBOS } from "@/composables/useSendKeys";
+import GuacView from "@/components/GuacView.vue";
+import { consoleEngineLabel } from "@/utils/consoleEngine";
 import { DisplayIcon, CancelIcon, RefreshIcon, DeleteIcon, ChevronDownIcon, ExpandIcon, KeyIcon, PasteIcon } from "@/icons";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 
@@ -115,6 +117,12 @@ const scaleMode = ref<"fit" | "native">("fit");
 let srvW = 0, srvH = 0;
 let ro: ResizeObserver | null = null;
 let sessionCfg: Record<string, unknown> | null = null;  // 本次連線憑證，供「重新調整大小」重連複用
+// guacd 引擎（系統設定選的）：畫面與鍵鼠交給 GuacView，這個元件只留表單與工具列
+const guacRef = ref<InstanceType<typeof GuacView> | null>(null);
+// 狀態列的「引擎」標示（這次連線實際用的引擎，來自票證）
+const engineLabel = ref("");
+const guacSession = ref<{ key: number; url: string; config: Record<string, unknown>;
+  fixedSize: [number, number] | null } | null>(null);
 function applyScale() {
   const c = canvasEl.value, box = canvasBoxEl.value;
   if (!c || !box || !srvW || !srvH) return;
@@ -136,6 +144,15 @@ function wsSend(obj: Record<string, unknown>) {
 // 控制端貼上文字到被控端（需管理者於系統設定開啟；單向、純文字）
 const clipboardPaste = ref(false);
 async function pasteToRemote() {
+  if (guacSession.value) {
+    // guacd：寫進被控端剪貼簿，再由使用者在遠端按 Ctrl+V（跟另外兩個引擎一樣）
+    const r = await guacRef.value?.paste();
+    if (r === "denied") msg.error(t("rdp.paste_denied"));
+    else if (r === "empty") msg.warning(t("rdp.paste_empty"));
+    else msg.success(t("rdp.paste_set"));
+    guacRef.value?.focus();
+    return;
+  }
   let text = "";
   try { text = await navigator.clipboard.readText(); }
   catch { msg.error(t("rdp.paste_denied")); return; }
@@ -147,7 +164,10 @@ async function pasteToRemote() {
 // 送出特殊按鍵（RDP 一律 Windows 目標 → 不含 macOS 組合）
 const sendKeysMenu = buildSendKeysMenu(false);
 const _sendCombo = makeSendCombo(wsSend);
-function onSendKey(key: string) { _sendCombo(key); canvasEl.value?.focus(); }
+function onSendKey(key: string) {
+  if (guacSession.value) { guacRef.value?.sendCombo(KEY_COMBOS[key] || []); return; }
+  _sendCombo(key); canvasEl.value?.focus();
+}
 
 function onVisibility() {
   // 分頁切回前景：重置計時窗，避免背景期間 lastRecv 變舊 → 一回前景就被 watchdog 誤判斷線
@@ -176,6 +196,7 @@ function startHeartbeat() {
 
 function teardown() {
   stopHeartbeat();
+  guacRef.value?.disconnect();
   try { ws?.close(); } catch { /* noop */ }
   ws = null;
   ro?.disconnect(); ro = null;
@@ -256,6 +277,17 @@ async function startSession(w: number, h: number) {
     return;
   }
   clipboardPaste.value = !!ticket.clipboard_paste;
+  engineLabel.value = consoleEngineLabel(ticket.engine);
+  if (ticket.engine === "guacd") {
+    // 解析度選「自動」就讓 guacd 跟著視窗大小走（display-update），選固定值就固定
+    guacSession.value = {
+      key: Date.now(), url: buildRdpWsUrl(ticket.ws_path, ticket.ticket),
+      config: { ...(sessionCfg || {}) },
+      fixedSize: form.resolution === "auto" ? null : [w, h],
+    };
+    return;
+  }
+  guacSession.value = null;
   await nextTick();
   if (!canvasEl.value) { phase.value = "error"; errorMsg.value = t("rdp.err_ticket"); return; }
   canvasEl.value.width = w; canvasEl.value.height = h;
@@ -321,6 +353,7 @@ async function startSession(w: number, h: number) {
 // 「重新調整大小」：以目前視窗大小重新連線。RDP 本身沒有連線中改解析度的路（那要 display-control
 // 通道），兩個引擎都一樣 → 重建 session 取得原生清晰畫面。
 async function reconnectFit() {
+  if (guacSession.value) { guacRef.value?.refit(); return; }   // guacd 可以連線中直接改解析度
   if (!sessionCfg) return;
   phase.value = "connecting";
   stopHeartbeat();
@@ -340,8 +373,10 @@ function disconnect() {
 }
 function backToForm() {
   teardown();
+  guacSession.value = null;
   phase.value = "form";
 }
+function onGuacError(text: string) { phase.value = "error"; errorMsg.value = text; }
 
 onBeforeUnmount(teardown);
 </script>
@@ -355,12 +390,8 @@ onBeforeUnmount(teardown);
           <span style="display:flex;align-items:center;gap:8px">
             <n-icon :component="DisplayIcon" :size="18" />
             <span>{{ t("rdp.connect_to", { ip }) }}</span>
-            <n-tag size="small" type="warning" :bordered="false" round>{{ t("rdp.beta") }}</n-tag>
           </span>
         </template>
-        <n-alert :show-icon="true" type="warning" :bordered="false" style="margin-bottom:12px">
-          {{ t("rdp.beta_hint") }}
-        </n-alert>
         <!-- 已存帳密 -->
         <div v-if="credOptions.length" class="rdp-saved-row">
           <span class="rdp-saved-label">{{ t("rdp.saved_cred") }}</span>
@@ -432,7 +463,8 @@ onBeforeUnmount(teardown);
             {{ t("jump_hosts.via") }}：{{ viaJump }}
           </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
-          <n-tag size="small" type="warning" :bordered="false" round>{{ t("rdp.beta") }}</n-tag>
+          <n-tag v-if="engineLabel" size="small" :bordered="false" round class="conn-engine"
+                 :title="t('common.console_engine_title')">{{ engineLabel }}</n-tag>
         </span>
         <n-space :size="6" align="center">
           <n-dropdown v-if="phase === 'connected'" trigger="click" :options="sendKeysMenu"
@@ -468,8 +500,13 @@ onBeforeUnmount(teardown);
       </n-alert>
       <div class="rdp-disp" :class="{ 'rdp-full': fullHeight }">
       <div ref="canvasBoxEl" class="rdp-canvas-box"
-           :class="{ 'rdp-full': fullHeight, 'rdp-fit': scaleMode === 'fit', 'rdp-native': scaleMode !== 'fit', 'term-dim': phase === 'closed' }">
-        <canvas ref="canvasEl" class="rdp-canvas" tabindex="0"
+           :class="{ 'rdp-full': fullHeight, 'rdp-fit': scaleMode === 'fit', 'rdp-native': scaleMode !== 'fit', 'term-dim': phase === 'closed', 'rdp-guac-box': !!guacSession }">
+        <GuacView v-if="guacSession" :key="guacSession.key" ref="guacRef" class="rdp-guac"
+                  :ws-url="guacSession.url" :config="guacSession.config" protocol="rdp"
+                  :scale-mode="scaleMode" :fixed-size="guacSession.fixedSize" :resize-remote="true"
+                  @connected="phase = 'connected'" @closed="phase = 'closed'" @error="onGuacError"
+                  @via-jump="(v: string) => (viaJump = v)" @notice="(m: string) => msg.warning(m)" />
+        <canvas v-else ref="canvasEl" class="rdp-canvas" tabindex="0"
                 @mousemove="onMouseMove" @mousedown="onMouseDown" @mouseup="onMouseUp"
                 @wheel.prevent="onWheel" @contextmenu.prevent
                 @keydown="onKey($event, true)" @keyup="onKey($event, false)" />
@@ -516,6 +553,10 @@ onBeforeUnmount(teardown);
 .rdp-canvas-box.rdp-fit { overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .rdp-canvas-box.rdp-native { overflow: auto; }
 .rdp-canvas { display: block; outline: none; background: #000; }
+/* guacd：畫面大小由容器決定（GuacView 自己縮放），容器要有高度 */
+.rdp-canvas-box.rdp-guac-box { display: block; width: 100%; height: 70vh; }
+.rdp-canvas-box.rdp-guac-box.rdp-full { height: auto; }
+.rdp-guac { width: 100%; height: 100%; }
 /* 卡片標題 icon+文字垂直置中 */
 :deep(.n-card > .n-card-header) { display: flex; align-items: center; padding-top: 12px; padding-bottom: 12px; }
 /* 「已存帳密」列：flex 列，label 與下拉/刪除鈕保證同一行垂直置中 */

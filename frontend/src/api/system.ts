@@ -254,7 +254,9 @@ export async function checkLatestVersion(): Promise<LatestVersion> {
 }
 
 // 連線管理資安設定（RDP 控制端貼上文字到被控端、RDP 連線引擎）
-export type RdpEngine = "aardwolf" | "freerdp";
+export type RdpEngine = "aardwolf" | "freerdp" | "guacd";
+/** VNC／SSH 主控台的引擎：builtin＝一路以來的實作；guacd＝jt-ipam-guacd 服務 */
+export type ConsoleEngine = "builtin" | "guacd";
 export interface ConsoleSecurity {
   rdp_clipboard_paste: boolean;
   rdp_engine: RdpEngine;
@@ -265,9 +267,18 @@ export interface ConsoleSecurity {
   python_version?: string;
   freerdp_missing?: string[];
   freerdp_install_cmd?: string;
+  vnc_engine?: ConsoleEngine;
+  ssh_engine?: ConsoleEngine;
+  /** 唯讀：guacd 服務有沒有在跑、哪些協定的外掛載得到（由後端實際連一次問出來） */
+  guacd_available?: boolean;
+  guacd_protocols?: Record<string, boolean>;
+  guacd_address?: string;
+  guacd_error?: string;
+  guacd_install_cmd?: string;
 }
-/** PUT 只送得改的那兩個欄位；可用性是伺服器算出來的事實，送回去會被擋（422）。 */
-export type ConsoleSecurityPatch = Pick<ConsoleSecurity, "rdp_clipboard_paste" | "rdp_engine">;
+/** PUT 只送得改的欄位；可用性是伺服器算出來的事實，送回去會被擋（422）。 */
+export type ConsoleSecurityPatch = Pick<ConsoleSecurity, "rdp_clipboard_paste" | "rdp_engine">
+  & Partial<Pick<ConsoleSecurity, "vnc_engine" | "ssh_engine">>;
 export async function getConsoleSecurity(): Promise<ConsoleSecurity> {
   const { data } = await apiClient.get<ConsoleSecurity>("/api/v1/system/console-security");
   return data;

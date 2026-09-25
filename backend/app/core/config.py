@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     # 過多會互相拖慢，故設上限。0 = 不限。
     rdp_max_sessions: int = 5
 
+    # ── guacd（RDP／VNC／SSH 主控台的選用引擎，見 app/services/guacd.py）──
+    # 只能是本機：guacd 的埠沒有任何驗證，綁到別的介面等於開放任何人拿它當跳板。
+    guacd_host: str = "127.0.0.1"
+    guacd_port: int = 4822
+
     # ── Redis ──
     redis_host: str = "redis"
     redis_port: int = 6379

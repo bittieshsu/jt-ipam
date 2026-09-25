@@ -22,8 +22,31 @@ async def test_default_is_aardwolf(db_session):
     assert await get_rdp_engine(db_session) == "aardwolf"
 
 
-async def test_both_engines_are_offered(db_session):
-    assert set(RDP_ENGINES) == {"aardwolf", "freerdp"}
+async def test_all_engines_are_offered(db_session):
+    assert set(RDP_ENGINES) == {"aardwolf", "freerdp", "guacd"}
+
+
+async def test_vnc_and_ssh_default_to_builtin_and_can_use_guacd(db_session):
+    """guacd 是選用的：預設維持一路以來的實作，換引擎要管理者自己選（2026-09-25）。"""
+    from app.services.system_config import (
+        get_rdp_engine,
+        get_ssh_engine,
+        get_vnc_engine,
+        set_ssh_engine,
+        set_vnc_engine,
+    )
+    assert await get_vnc_engine(db_session) == "builtin"
+    assert await get_ssh_engine(db_session) == "builtin"
+    await set_rdp_engine(db_session, engine="freerdp")
+    assert await set_vnc_engine(db_session, engine="guacd") == "guacd"
+    assert await set_ssh_engine(db_session, engine="guacd") == "guacd"
+    # 同一把設定底下的其他值要留著（合併，不是整包換掉）
+    assert await get_rdp_engine(db_session) == "freerdp"
+    assert await get_vnc_engine(db_session) == "guacd"
+    assert await get_ssh_engine(db_session) == "guacd"
+    import pytest
+    with pytest.raises(ValueError):
+        await set_ssh_engine(db_session, engine="putty")
 
 
 async def test_can_switch_and_it_sticks(db_session):

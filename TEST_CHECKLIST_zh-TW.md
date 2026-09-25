@@ -97,6 +97,28 @@
 - [ ] 不要把中文詞當參數傳（`what="下載"`）：差異寫進代碼裡
   （`sftp_download_too_large`），否則英文句子中間會夾一個中文詞
 
+## 5h. guacd 預編檔 —— **每次發版都要跑**（不只動到主控台的時候）
+
+guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除套件，Ubuntu 只有帶著可遠端執行程式碼漏洞的 1.3.0。
+預編檔動態連結各發行版自己的函式庫，所以**出了新版 OS 就要多編一份** —— 否則客戶升級到新 OS 後 guacd 引擎就不能用。
+使用者交代（2026-09-25）：每次發版都要上網查，有新版就跟著編。
+
+- [ ] `scripts/guacd/check-new-os.sh` —— 向 endoflife.date 查 Debian（12 以上）與 Ubuntu（22.04 以上，
+  非 LTS 在支援期內也算）目前支援中的版本，跟 `scripts/guacd/targets.txt` 比對。回傳 1 會列出缺哪些：
+  加進 `targets.txt`。已經停止支援的會列成「可以退場」
+- [ ] guacamole-server 上游：`scripts/guacd/source.env` 釘的版本之後有沒有新版或新 CVE？目前釘在
+  `staging/1.6.1` 的 commit，因為 1.6.0 在 Ubuntu 26.04 畫第一個畫面就 segfault ——
+  **1.6.1 正式發版後改用 Apache 官方 tarball，並核對官方公布的檢查碼**
+- [ ] 有任何變動：`scripts/guacd/build.sh` 再 `scripts/guacd/verify.sh`（都要 docker；鏡像站用
+  `APT_MIRROR`／`UBUNTU_MIRROR`，同其他關卡）。verify 會在乾淨容器只裝執行期套件，**並且真的連一次 RDP 靶** ——
+  外掛載得到不算數（1.6.0 在 26.04 上外掛載得到，一畫第一個畫面就當掉）。它存在預編檔旁邊的截圖要看過
+- [ ] 安裝腳本裝 guacd 的那一段也要在乾淨 OS 上走一次：`GUACD_TARBALL=<同 OS 的預編檔> scripts/test-fresh-install.sh debian:12`
+  —— 驗 `--with-guacd --guacd-tarball` 裝得起來、服務在跑、**只**在 127.0.0.1 回應、doctor 綠
+- [ ] configure 要正確偵測 FreeRDP 3：FreeRDP 3 的目標若印出「freerdp structs have a context... no」，
+  編譯腳本會刻意失敗（靠 CPPFLAGS 裡的 `-Wno-error` 防止，原因見 `in-container-build.sh` 的註解）
+- [ ] 每個壓縮檔都要有 `LICENSE`、`NOTICE`、`SOURCE`（前兩個是 Apache-2.0 的要求；`SOURCE` 指向確切的原始碼與編譯腳本）。
+  libvncclient 是 GPL-2+、由發行版提供 —— 絕不可以打包進去。也不可以把我們的版本稱作 Apache 官方發行版（ASF 商標）
+
 ## 5d. 系統匯出／匯入（跨機搬移）—— **只要動到它，每次發版都要整段跑**
 
 - [ ] **單元（免 DB）**：`pytest tests/test_system_transfer.py -q` —— 加解密封裝（密語錯誤要回
@@ -221,6 +243,30 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
   且網卡上顯示的是**完整名稱**而非截斷後的。ESXi 主機 FQDN 超過 128 字元寫進 `node` 亦同。
   第三方平台給的名稱長度，不是我們可以自己假設的。
 - [ ] 刪除實例；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的實例且不出錯
+
+## 7m. guacd 主控台引擎 —— **只要動到主控台、guacd 或它的編譯就要跑**
+
+guacd 是 RDP／VNC／SSH 的選用第三引擎（管理 → 系統設定，逐協定選）。其他引擎維持預設；
+換引擎不可以改變主控台被允許做的事。
+
+- [ ] `frontend/e2e/console-guacd.spec.ts`，對本機 guacd 與三個測試靶跑（見檔頭：xrdp 容器 3389、
+  `e2e/fixtures/vnc-target.py` 5999、sshd 2222）。它驗：畫面真的畫出來（量像素，不是只有 canvas）、
+  按鍵與中文以 Guacamole 的 `key` 指令送出、Ctrl+Shift+V 會**先**送剪貼簿、再送 V
+- [ ] 每個協定親眼看一次畫面（測試讀不到字）：RDP 打得出字、VNC 看得到目標、SSH 看得到提示字元，
+  而且**中文是全形寬度**（又窄又小＝guacd 不在 UTF-8 locale 下跑；systemd 單元設了 `LANG=C.UTF-8`）
+- [ ] SSH：已釘選的主機金鑰要能被 guacd 接受（靠我們的修補 `scripts/guacd/patches/0001` 讓 libssh2
+  優先交涉釘選的那一種）；金鑰真的換了時，仍要回「主機金鑰不符」
+- [ ] 帳密絕不經過瀏覽器：WebSocket 上只有一則 config，之後全是 Guacamole 指令；伺服器只放行
+  key／mouse／size／clipboard／sync／nop…（`tests/test_guacd.py::test_relay_forwards_allowed_and_drops_the_rest`）
+- [ ] 剪貼簿政策不因引擎改變：RDP 只有在「RDP 控制端貼上」開啟時才能貼、被控端內容不回傳；VNC 沒有；SSH 可複製可貼上
+- [ ] 分頁切到背景超過 5 分鐘不會斷線（背景分頁的計時器會被節流成一分鐘一次；保活由伺服器送，不靠頁面）
+- [ ] `sudo jt-ipam.sh doctor` 與「管理 → 系統診斷」看得到 guacd；停掉 `jt-ipam-guacd` 時兩邊都要變紅並附修法，
+  發票證要回看得懂的 503
+- [ ] VNC 帳號：要帳號的伺服器（檔頭的 VeNCrypt 帳密靶 5998）帳號留空要回「請在「帳號」欄填入帳號」、填了要連得上；
+  密碼錯要說「帳號或密碼錯誤」而不是「連不到主機」，真的連不到時才說連不到（只在 guacd 失敗**之後**才探 TCP ——
+  TigerVNC 會把「連上就斷」算成一次認證失敗，連幾次就封鎖來源；測到一半全部失敗先看靶的日誌有沒有 `blacklisted`）
+- [ ] 狀態列標出這次用的引擎（「引擎：guacd」等），RDP／VNC 不再有 Beta 標示
+- [ ] 已知限制：SSH 終端機裡，一行中第一個輸入的中文字可能要等整行重畫（Ctrl+L）才顯示；指令內容本身是對的
 
 ## 7c. 整合同步的韌性 —— **每個整合都適用，不只這次動到的那個**
 

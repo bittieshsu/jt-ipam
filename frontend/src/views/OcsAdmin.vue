@@ -11,7 +11,7 @@ import { computed, h, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NAlert, NModal, NForm,
-  NFormItem, NInput, NInputNumber, NSwitch, NPopconfirm, NTooltip, NTabs, NTabPane,
+  NFormItem, NInput, NInputNumber, NSwitch, NSelect, NPopconfirm, NTooltip, NTabs, NTabPane,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useRouter } from "vue-router";
@@ -35,6 +35,8 @@ import { useTablePagination } from "@/composables/useTablePagination";
 import { fmtDateTime } from "@/utils/datetime";
 import { shortOcsAgent } from "@/utils/ocsAgent";
 import { apiErrMsg } from "@/api/client";
+import { listSubnets } from "@/api/subnets";
+import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -54,10 +56,26 @@ function blankForm() {
     enabled: true, verify_tls: true,
     sync_networks: true, sync_bios: true, sync_software: false,
     sync_interval_seconds: 3600, stale_after_days: 30,
+    scope_subnet_ids: [] as string[],
     clear_credentials: false,
   };
 }
 const form = ref(blankForm());
+
+// 限定子網路範圍：選單比照 Wazuh 整合頁
+const subnetOptions = ref<{ label: string; value: string }[]>([]);
+async function loadSubnetOptions() {
+  try {
+    const r = await listSubnets({ page: 1, pageSize: 500 });
+    subnetOptions.value = r.items.map((s) => ({
+      label: s.description ? `${s.cidr} — ${s.description}` : s.cidr, value: s.id }));
+  } catch { /* silent */ }
+}
+// 「未裝 Agent 的 IP」只列啟用中整合的範圍聯集；任一個沒設範圍就是全域（同後端 expected_subnets）
+const missingScoped = computed(() => {
+  const on = rows.value.filter((r) => r.enabled);
+  return on.length > 0 && on.every((r) => (r.scope_subnet_ids ?? []).length > 0);
+});
 
 // 頁籤比照 Wazuh 整合頁：整合主機／代理數／未裝 Agent 的 IP
 const router = useRouter();
@@ -80,7 +98,7 @@ async function load() {
     loading.value = false;
   }
 }
-onMounted(load);
+onMounted(() => { void load(); void loadSubnetOptions(); });
 
 function openCreate() {
   editing.value = null;
@@ -98,6 +116,7 @@ function openEdit(row: OcsServer) {
     sync_software: row.sync_software,
     sync_interval_seconds: row.sync_interval_seconds,
     stale_after_days: row.stale_after_days,
+    scope_subnet_ids: row.scope_subnet_ids ?? [],
   };
   show.value = true;
 }
@@ -117,6 +136,7 @@ async function save() {
       sync_software: f.sync_software,
       sync_interval_seconds: f.sync_interval_seconds,
       stale_after_days: f.stale_after_days,
+      scope_subnet_ids: f.scope_subnet_ids,
     };
     if (f.api_password) payload.api_password = f.api_password;
     if (editing.value) {
@@ -345,6 +365,7 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
         <NAlert v-if="missing.length" type="warning" style="margin-bottom: 12px">
           <template #icon><NIcon><MissingIcon /></NIcon></template>
           {{ scope.active.value ? `${scope.filtered.value.length} / ${missing.length}` : missing.length }} {{ t("ocs.missing_agents") }}
+          <span v-if="missingScoped" style="opacity: .75">{{ t("ocs.missing_scoped") }}</span>
         </NAlert>
         <NSpace style="margin-bottom: 8px" align="center">
           <ScopeFilterBar v-model:section="scope.section.value" v-model:subnet="scope.subnet.value"
@@ -397,6 +418,14 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
           <NSwitch v-model:value="form.sync_software" />
           <span style="font-size: 12px; opacity: .7">{{ t("ocs.sync_software_hint") }}</span>
         </NSpace>
+      </NFormItem>
+      <NFormItem :label="t('ocs.scope_subnets')">
+        <div style="width: 100%">
+          <NSelect v-model:value="form.scope_subnet_ids" :options="subnetOptions"
+                   multiple filterable clearable :placeholder="t('ocs.scope_all')" />
+          <ScopeOverlapWarning :scope-empty="!form.scope_subnet_ids?.length" />
+          <div style="font-size: 11px; opacity: .7; margin-top: 2px">{{ t("ocs.scope_hint") }}</div>
+        </div>
       </NFormItem>
       <NFormItem :label="t('ocs.interval')">
         <NInputNumber v-model:value="form.sync_interval_seconds" :min="300" :max="86400"

@@ -571,8 +571,14 @@ async def set_rdp_clipboard_paste(
 #
 # ⚠️ 預設**留在 aardwolf**，直到 FreeRDP 後端完整做完並驗證過。Windows 目標本來就
 # 連得上，貿然換掉會讓能用的東西變不能用。有測試釘住這個預設值。
-RDP_ENGINES: tuple[str, ...] = ("aardwolf", "freerdp")
+#
+# `guacd`（2026-09-25 起）：Apache Guacamole 的伺服器端，預編檔由 scripts/guacd/ 提供、
+# 以 jt-ipam-guacd 服務跑在本機。VNC、SSH 也可以選它（見下方 VNC_ENGINES／SSH_ENGINES）。
+RDP_ENGINES: tuple[str, ...] = ("aardwolf", "freerdp", "guacd")
 _RDP_ENGINE_DEFAULT = "aardwolf"
+#: VNC／SSH：`builtin` 是一路以來的實作（VNC 走 aardwolf、SSH 走 asyncssh＋xterm.js）
+VNC_ENGINES: tuple[str, ...] = ("builtin", "guacd")
+SSH_ENGINES: tuple[str, ...] = ("builtin", "guacd")
 
 
 async def get_rdp_engine(session: AsyncSession) -> str:
@@ -603,6 +609,51 @@ async def set_rdp_engine(
     flag_modified(row, "value")
     await session.commit()
     return engine
+
+
+async def _get_engine(session: AsyncSession, key: str, allowed: tuple[str, ...], default: str) -> str:
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row and isinstance(row.value, dict):
+        engine = row.value.get(key)
+        if engine in allowed:
+            return str(engine)
+    return default
+
+
+async def _set_engine(session: AsyncSession, key: str, engine: str, allowed: tuple[str, ...],
+                      updated_by_user_id: uuid.UUID | None) -> str:
+    if engine not in allowed:
+        raise ValueError(f"unknown {key}: {engine!r}")
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row is None:
+        row = SystemSetting(key=CONSOLE_SECURITY_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    current = dict(row.value or {})        # 同一把 key 底下還有別的設定，要合併
+    current[key] = engine
+    row.value = current
+    row.updated_by = updated_by_user_id
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
+    return engine
+
+
+async def get_vnc_engine(session: AsyncSession) -> str:
+    return await _get_engine(session, "vnc_engine", VNC_ENGINES, "builtin")
+
+
+async def set_vnc_engine(session: AsyncSession, *, engine: str,
+                         updated_by_user_id: uuid.UUID | None = None) -> str:
+    return await _set_engine(session, "vnc_engine", engine, VNC_ENGINES, updated_by_user_id)
+
+
+async def get_ssh_engine(session: AsyncSession) -> str:
+    return await _get_engine(session, "ssh_engine", SSH_ENGINES, "builtin")
+
+
+async def set_ssh_engine(session: AsyncSession, *, engine: str,
+                         updated_by_user_id: uuid.UUID | None = None) -> str:
+    return await _set_engine(session, "ssh_engine", engine, SSH_ENGINES, updated_by_user_id)
 
 
 # ─────────────────── 介面顯示設定（UI display）───────────────────

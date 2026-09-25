@@ -197,6 +197,133 @@ ensure_freerdp_if_selected() {
     install_freerdp_apt || warn "RDP consoles will fail until these are installed."
 }
 
+# ───────────────────────── guacd（RDP／VNC／SSH 主控台的選用引擎）─────────────────────────
+# Distributions no longer ship a usable guacd (Debian removed it; Ubuntu only has 1.3.0 with
+# known remote-code-execution bugs), so jt-ipam provides its own build per OS version:
+# scripts/guacd/ builds them, GitHub releases carry them, scripts/guacd/SHA256SUMS pins them.
+# The builds link against the distribution's own libraries (FreeRDP, libvncclient, cairo...),
+# so security fixes for those still come from apt.
+#
+#   install --with-guacd                     install it now
+#   upgrade                                  keep it current if installed, or if any protocol is
+#                                            set to guacd in Admin -> System settings
+#   --guacd-tarball <file>                   offline hosts / builds that are not published yet:
+#                                            use this file (its .deps must sit next to it)
+GUACD_PREFIX=/opt/jt-ipam-guacd
+GUACD_UNIT=jt-ipam-guacd.service
+GUACD_RELEASE_BASE="https://github.com/jasoncheng7115/jt-ipam/releases/download"
+
+# jt-ipam-guacd-<version>-<rev>-<os><ver>-<arch>, e.g. ...-ubuntu24.04-amd64
+guacd_package_name() {
+    local ver rev
+    ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env")"
+    rev="$(grep -oP '^GUACD_BUILD_REV=\K\S+' "$REPO_ROOT/scripts/guacd/source.env")"
+    # shellcheck disable=SC1091
+    local os_tag; os_tag="$(. /etc/os-release && echo "${ID}${VERSION_ID}")"
+    echo "jt-ipam-guacd-${ver}-${rev}-${os_tag}-$(dpkg --print-architecture)"
+}
+
+guacd_installed_version() {
+    grep -oP '^version:\s*\K.*' "$GUACD_PREFIX/share/doc/jt-ipam-guacd/SOURCE" 2>/dev/null | head -1
+}
+
+# install_guacd [tarball]
+install_guacd() {
+    command -v apt-get >/dev/null 2>&1 || { warn "guacd needs apt (Debian / Ubuntu); skipped."; return 1; }
+    local name tmp tarball deps sums want got
+    name="$(guacd_package_name)"
+    tmp="$(mktemp -d)"
+    if [[ -n "${1:-}" ]]; then
+        tarball="$1"
+        deps="${tarball%.tar.gz}.deps"
+        [[ -f "$tarball" && -f "$deps" ]] || { warn "guacd: $tarball or its .deps file is missing."; rm -rf "$tmp"; return 1; }
+    else
+        local tag="guacd-${name#jt-ipam-guacd-}"; tag="${tag%-*-*}"   # guacd-<version>-<rev>
+        log "Downloading guacd for this OS ($name)…"
+        if ! curl -fsSL --retry 2 -o "$tmp/$name.tar.gz" "$GUACD_RELEASE_BASE/$tag/$name.tar.gz" \
+           || ! curl -fsSL --retry 2 -o "$tmp/$name.deps" "$GUACD_RELEASE_BASE/$tag/$name.deps"; then
+            warn "guacd: no prebuilt package for this OS at $GUACD_RELEASE_BASE/$tag/ ($name)."
+            warn "  Offline, or a new OS version not built yet: pass --guacd-tarball <file>."
+            rm -rf "$tmp"; return 1
+        fi
+        tarball="$tmp/$name.tar.gz"; deps="$tmp/$name.deps"
+    fi
+    # Integrity: a published build must match scripts/guacd/SHA256SUMS. A local file that is not
+    # listed (a build that has not been published yet) is allowed, but said out loud.
+    sums="$REPO_ROOT/scripts/guacd/SHA256SUMS"
+    got="$(sha256sum "$tarball" | cut -d' ' -f1)"
+    # `|| true`：還沒有 SHA256SUMS（從未發佈過）時 awk 讀不到檔案，set -e 會讓整支腳本安靜地結束
+    want="$(awk -v f="$(basename "$tarball")" '$2==f {print $1}' "$sums" 2>/dev/null || true)"
+    if [[ -n "$want" && "$want" != "$got" ]]; then
+        warn "guacd: checksum mismatch for $(basename "$tarball") (expected $want, got $got) -- NOT installing."
+        rm -rf "$tmp"; return 1
+    elif [[ -z "$want" ]]; then
+        if [[ -z "${1:-}" ]]; then
+            warn "guacd: $(basename "$tarball") is not listed in scripts/guacd/SHA256SUMS -- NOT installing."
+            rm -rf "$tmp"; return 1
+        fi
+        warn "guacd: $(basename "$tarball") is not a published build (not in SHA256SUMS); installing the local file as given."
+    fi
+    log "Installing guacd runtime packages ($(tr '\n' ' ' < "$deps"))…"
+    # shellcheck disable=SC2046
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $(cat "$deps"); then
+        warn "guacd: could not install its runtime packages."; rm -rf "$tmp"; return 1
+    fi
+    systemctl stop "$GUACD_UNIT" 2>/dev/null || true
+    rm -rf "$GUACD_PREFIX"
+    tar -C / -xzf "$tarball" || { warn "guacd: could not unpack $tarball."; rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    install -m 0644 "$REPO_ROOT/deploy/systemd/$GUACD_UNIT" "/etc/systemd/system/$GUACD_UNIT"
+    systemctl daemon-reload
+    systemctl enable --now "$GUACD_UNIT" >/dev/null 2>&1 || true
+    local i
+    for i in $(seq 1 20); do
+        # 用連的：精簡映像常常沒有 iproute2（ss），用 ss 看的話在那種機器上永遠等滿 10 秒
+        (exec 3<>/dev/tcp/127.0.0.1/4822) 2>/dev/null && break
+        sleep 0.5
+    done
+    if ! systemctl is-active --quiet "$GUACD_UNIT"; then
+        warn "guacd installed but not running -- journalctl -u jt-ipam-guacd -n 50"
+        return 1
+    fi
+    log "guacd $(guacd_installed_version) running on 127.0.0.1:4822. Pick it per protocol in Admin -> System settings."
+    return 0
+}
+
+# Is any console set to the guacd engine?
+guacd_selected() {
+    local n
+    n="$( (sudo -u postgres psql -tAd jt_ipam -c \
+        "SELECT count(*) FROM system_settings WHERE key='console_security' AND
+           'guacd' IN (value->>'rdp_engine', value->>'vnc_engine', value->>'ssh_engine')" \
+        2>/dev/null || true) | tr -d '[:space:]')"
+    [[ "${n:-0}" != "0" ]]
+}
+
+# On upgrade: never silently leave the site on a stale guacd or without the one it selected.
+ensure_guacd_current() {
+    local want_install="${1:-0}" tarball="${2:-}"
+    command -v apt-get >/dev/null 2>&1 || return 0
+    local installed=0
+    [[ -x "$GUACD_PREFIX/sbin/guacd" ]] && installed=1
+    if [[ "$installed" == "0" && "$want_install" == "0" ]]; then
+        guacd_selected || return 0
+        log "This site uses the guacd console engine but guacd is not installed -- installing…"
+    fi
+    local name want_ver
+    name="$(guacd_package_name)"
+    want_ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env") (build $(grep -oP '^GUACD_BUILD_REV=\K\S+' "$REPO_ROOT/scripts/guacd/source.env"))"
+    if [[ "$installed" == "1" && -z "$tarball" && "$(guacd_installed_version)" == "$want_ver"* ]]; then
+        # Same build: just make sure the unit is current and running
+        install -m 0644 "$REPO_ROOT/deploy/systemd/$GUACD_UNIT" "/etc/systemd/system/$GUACD_UNIT"
+        systemctl daemon-reload
+        systemctl enable --now "$GUACD_UNIT" >/dev/null 2>&1 || true
+        systemctl restart "$GUACD_UNIT" 2>/dev/null || true
+        return 0
+    fi
+    install_guacd "$tarball" || warn "guacd was not updated; consoles set to guacd may fail (see above)."
+}
+
 # Ensure a modern Node.js (>=18) is available to root. Three cases this handles:
 #  - distro 'nodejs' on Ubuntu 22.04 is v12 (too old for pnpm/vite)
 #  - invoked via sudo: an nvm-managed node in the caller's home is not on root's PATH
@@ -464,11 +591,18 @@ Commands:
                                                           (freerdp2-x11 xvfb xclip, ~150 MB of X libraries).
                                                           Needed only for RDP targets that reject the default
                                                           engine -- xrdp and GNOME Remote Login do.
+                 --with-guacd                             also install guacd, the optional console engine for
+                                                          RDP / VNC / SSH (prebuilt per OS version, bound to
+                                                          127.0.0.1 only; choose it per protocol afterwards)
+                 --guacd-tarball <file>                   install guacd from this file instead of downloading it
   doctor       check a running install and print an exact fix for anything wrong
   upgrade      upgrade existing install (git pull -> backup -> pip -> alembic -> build -> restart)
                  --no-pull                                skip git pull
                  --force                                  discard local changes to tracked files (e.g. an edited
                                                           scripts/jt-ipam.sh) so git pull won't abort
+                 --with-guacd                             install guacd if it is not installed yet (it is kept
+                                                          current automatically once installed or selected)
+                 --guacd-tarball <file>                   use this guacd package instead of downloading it
   uninstall    stop and remove systemd units/timers + nginx site (keeps data by default)
                  --purge                                  also dropdb + remove config/uploads/system user
                  --yes                                    skip interactive confirmation when using --purge
@@ -655,11 +789,15 @@ cmd_install() {
     local PUBLIC_FQDN="ipam.example.com"
     local BIND_PORT_DIRECT=8443
     local WITH_FREERDP=0
+    local WITH_GUACD=0
+    local GUACD_TARBALL=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --tls-mode) TLS_MODE="$2"; shift 2 ;;
             --with-freerdp) WITH_FREERDP=1; shift ;;
+            --with-guacd) WITH_GUACD=1; shift ;;
+            --guacd-tarball) WITH_GUACD=1; GUACD_TARBALL="$(readlink -f "$2")"; shift 2 ;;
             --public-fqdn) PUBLIC_FQDN="$2"; shift 2 ;;
             --bind-port) BIND_PORT_DIRECT="$2"; shift 2 ;;
             -h|--help) usage; exit 0 ;;
@@ -963,6 +1101,11 @@ SQL
     else
         log "FreeRDP console engine not installed (use --with-freerdp, or install later:"
         log "  sudo apt-get install -y ${FREERDP_APT_PACKAGES[*]} )"
+    fi
+    if [[ "$WITH_GUACD" == "1" ]]; then
+        install_guacd "$GUACD_TARBALL" || true
+    else
+        log "guacd console engine not installed (optional; later: sudo $0 upgrade --with-guacd)"
     fi
 
     # -- 6. backend.env --
@@ -1396,6 +1539,23 @@ cmd_doctor() {
         fi
     fi
 
+    # guacd（選用的主控台引擎）：裝了就要在跑、答得出來；選了就要有裝
+    if [[ -x "$GUACD_PREFIX/sbin/guacd" ]]; then
+        local greply=""
+        if systemctl is-active --quiet "$GUACD_UNIT"; then
+            greply="$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4822; printf "6.select,3.rdp;" >&3; head -c 100 <&3' 2>/dev/null || true)"
+        fi
+        if [[ "$greply" == *args* ]]; then
+            _ok "guacd $(guacd_installed_version) running and answering on 127.0.0.1:4822"
+        else
+            _bad "guacd is installed but not answering on 127.0.0.1:4822" \
+                 "sudo systemctl restart $GUACD_UNIT; journalctl -u jt-ipam-guacd -n 50 --no-pager"
+        fi
+    elif guacd_selected; then
+        _bad "a console is set to the guacd engine but guacd is not installed" \
+             "sudo $0 upgrade --with-guacd   (or switch the engine back in Admin -> System settings)"
+    fi
+
     # ── database ──
     echo
     echo "Database"
@@ -1581,10 +1741,16 @@ cmd_upgrade() {
     local SVC="jt-ipam-backend"
     local DO_PULL=1
     local FORCE=0
+    local WITH_GUACD=0
+    local GUACD_TARBALL=""
+    local _prev=""
     for arg in "$@"; do
+      if [[ "$_prev" == "--guacd-tarball" ]]; then GUACD_TARBALL="$(readlink -f "$arg")"; WITH_GUACD=1; _prev=""; continue; fi
       case "$arg" in
         --no-pull) DO_PULL=0 ;;
         --force|-f) FORCE=1 ;;
+        --with-guacd) WITH_GUACD=1 ;;
+        --guacd-tarball) _prev="--guacd-tarball" ;;
       esac
     done
 
@@ -1704,6 +1870,7 @@ cmd_upgrade() {
     ( cd "$ROOT/backend"; as_user .venv/bin/pip install --quiet -e . )
     install_rdp_optional
     ensure_freerdp_if_selected
+    ensure_guacd_current "$WITH_GUACD" "$GUACD_TARBALL"
     # IPMI tools for the BMC console (install on upgrade of existing setups; best-effort)
     if command -v apt-get >/dev/null 2>&1 && ! command -v ipmitool >/dev/null 2>&1; then
         log "Installing IPMI tools (ipmitool freeipmi-tools) for the BMC console…"
@@ -1804,6 +1971,7 @@ cmd_uninstall() {
         jt-ipam-backup.timer
         jt-ipam-backup.service
         jt-ipam-scan-agent.service
+        jt-ipam-guacd.service
     )
     local unit
     for unit in "${UNITS[@]}"; do
@@ -1866,6 +2034,7 @@ cmd_uninstall() {
     echo -e "\033[1;31m#   * $ETC_DIR (config / secrets / TLS certs)\033[0m" >&2
     echo -e "\033[1;31m#   * $DATA_DIR (uploads / floorplans / logs)\033[0m" >&2
     echo -e "\033[1;31m#   * system user $JTIPAM_USER\033[0m" >&2
+    echo -e "\033[1;31m#   * $GUACD_PREFIX (guacd, if installed)\033[0m" >&2
     echo -e "\033[1;31m# (the source $REPO_ROOT will not be deleted)\033[0m" >&2
     echo -e "\033[1;31m###############################################################\033[0m" >&2
     echo
@@ -1898,6 +2067,12 @@ cmd_uninstall() {
     if [[ -d "$ETC_DIR" ]]; then
         rm -rf "$ETC_DIR"
         log "Removed $ETC_DIR"
+    fi
+
+    # 2b) guacd（選用的主控台引擎；服務已在上面停掉）
+    if [[ -d "$GUACD_PREFIX" ]]; then
+        rm -rf "$GUACD_PREFIX" /var/lib/private/jt-ipam-guacd /var/lib/jt-ipam-guacd
+        log "Removed $GUACD_PREFIX"
     fi
 
     # 3) /var/lib/jt-ipam (+ log directory)

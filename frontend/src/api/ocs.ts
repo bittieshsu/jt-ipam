@@ -20,6 +20,7 @@ export interface OcsServer {
   sync_bios: boolean;
   /** 預設關：軟體讓每台 ~2 KB → ~80 KB */
   sync_software: boolean;
+  scope_subnet_ids?: string[] | null;
   detected_version: string | null;
   last_sync_at: string | null;
   last_success_at: string | null;
@@ -41,6 +42,7 @@ export interface OcsWrite {
   sync_networks?: boolean;
   sync_bios?: boolean;
   sync_software?: boolean;
+  scope_subnet_ids?: string[];
 }
 
 export interface OcsDiagnosis {

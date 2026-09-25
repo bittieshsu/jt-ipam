@@ -57,6 +57,8 @@ router = APIRouter(prefix="/addresses", tags=["vnc"])
 
 _TICKET_TTL = 60
 _CONNECT_TIMEOUT = 20.0
+#: guacd：等到第一個畫面才算連上
+_CONNECT_TIMEOUT_GUACD = 30.0
 _DEFAULT_PORT = 5900
 
 # VNC（RFB）鍵盤用 X11 keysym（非 PC scancode）。特殊鍵對應表：
@@ -158,14 +160,28 @@ def _mouse_button(b: int) -> Any:
 
 
 def vnc_unavailable_detail() -> dict[str, Any]:
-    """VNC 用不了：講出原因（這台的 Python 沒有 aardwolf 的預編譯套件，issue #39）。
-    VNC 沒有第二個引擎，所以不像 RDP 可以叫人改用 FreeRDP。"""
+    """內建 VNC 引擎用不了：講出原因（這台的 Python 沒有 aardwolf 的預編譯套件，issue #39），
+    並指出另一條路 —— 改用 guacd 引擎（不需要 aardwolf）。"""
     import sys
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     return ui_detail("console_vnc_not_installed",
-                     f"VNC 功能未安裝：需要 aardwolf，而 Python {py} 沒有它的預編譯套件。",
+                     f"內建的 VNC 引擎無法使用：需要 aardwolf，而 Python {py} 沒有它的預編譯套件。"
+                     "可以安裝 guacd，再到「管理 → 系統設定」把 VNC 連線引擎改成 guacd。",
                      python=py)
 
+
+def guacd_vnc_params(host: str, port: int, username: str, password: str) -> dict[str, str]:
+    """交給 guacd 的 VNC 連線參數。
+
+    帳號只在有填時才帶：guacd 會在伺服器要求帳號的認證方式（macOS 螢幕共享的 ARD、
+    UltraVNC MS 登入、VeNCrypt 帳密）時拿它來用；傳統 VncAuth 只看密碼。
+    VNC 原本就沒有剪貼簿，這裡兩個方向都關。
+    """
+    params = {"hostname": host, "port": str(port), "password": password,
+              "disable-copy": "true", "disable-paste": "true"}
+    if username:
+        params["username"] = username
+    return params
 
 @router.post("/{address_id}/vnc/ticket")
 async def issue_vnc_ticket(
@@ -174,7 +190,16 @@ async def issue_vnc_ticket(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    if not VNC_AVAILABLE:
+    from app.services.system_config import get_vnc_engine
+    engine = await get_vnc_engine(session)
+    if engine == "guacd":
+        # guacd 引擎不需要 aardwolf
+        from app.services import guacd as guac
+        try:
+            await guac.require("vnc")
+        except guac.GuacdError as exc:
+            raise HTTPException(status_code=503, detail=exc.ui()) from exc
+    elif not VNC_AVAILABLE:
         raise HTTPException(status_code=503, detail=vnc_unavailable_detail())
     from app.core.rate_limit import limit_per_ip
 
@@ -203,6 +228,7 @@ async def issue_vnc_ticket(
         "ws_path": f"/api/v1/addresses/{ip.id}/vnc/ws",
         "default_port": _DEFAULT_PORT,
         "has_saved_creds": saved is not None,
+        "engine": engine,
         "ttl": _TICKET_TTL,
     }
 
@@ -265,10 +291,6 @@ def _classify_connect_error(err: BaseException) -> tuple[str, str]:
 async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     global _active_sessions
 
-    if not VNC_AVAILABLE:
-        await websocket.close(code=4503)
-        return
-
     user_id = await _redeem_ticket(ticket, address_id)
     if user_id is None:
         await websocket.close(code=4401)
@@ -284,8 +306,13 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         host = str(ip.ip).split("/")[0]
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
+        from app.services.system_config import get_vnc_engine
+        engine = await get_vnc_engine(s)
     if not allowed:
         await websocket.close(code=4403)
+        return
+    if engine != "guacd" and not VNC_AVAILABLE:
+        await websocket.close(code=4503)
         return
 
     await websocket.accept()
@@ -305,6 +332,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     counted = False
     tunnel: console_route.Tunnel | None = None
     started: datetime | None = None
+    # guacd 連上之後這條 WebSocket 改講 Guacamole 協定：不可以再送 JSON
+    guac_mode = False
     try:
         # 連上來卻不送設定的客戶端不可以無限期佔住這條連線（見 core/ws_timeouts）
         try:
@@ -327,6 +356,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await websocket.close()
             return
         password = cfg.get("password") or ""
+        # 帳號：macOS 螢幕共享（ARD）、UltraVNC MS 登入、VeNCrypt 帳密等認證要用；傳統 VNC 沒有
+        username = str(cfg.get("username") or "").strip()[:128]
         credential_id = cfg.get("credential_id")
 
         used_cred_id: uuid.UUID | None = None
@@ -344,6 +375,7 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     await websocket.close()
                     return
                 used_cred_id = cred.id
+                username = (cred.username or "").strip()
                 secrets_enc = dict(cred.secrets_enc or {})
             try:
                 password = envelope_decrypt(secrets_enc["password"], aad=cred_aad(user_id, "password"))
@@ -358,10 +390,15 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     c2.last_used_at = datetime.now(UTC)
                     await s.commit()
 
+        if username and engine != "guacd":
+            # 內建引擎（aardwolf）只會送密碼；默默忽略帳號的話，使用者只會看到「認證失敗」而不知道為什麼
+            await send({"type": "error", **ui_detail(
+                "console_vnc_username_needs_guacd",
+                "內建的 VNC 引擎不支援帳號，請到「管理 → 系統設定」把 VNC 連線引擎改成 guacd")})
+            await websocket.close()
+            return
+
         await send({"type": "status", "state": "connecting"})
-        io = RDPIOSettings()
-        io.video_out_format = VIDEO_FORMAT.PNG
-        io.clipboard_use_pyperclip = False
 
         # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
         try:
@@ -373,6 +410,56 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         if tunnel.via:
             await send({"type": "status", "state": "via_jump", "via": tunnel.via})
         dial_host, dial_port = tunnel.host, tunnel.port
+
+        if engine == "guacd":
+            from app.services import guacd as guac
+            # 密碼只交給本機的 guacd；目標是通道的位址。VNC 原本就沒有剪貼簿，這裡也兩個方向都關
+            params = guacd_vnc_params(dial_host, dial_port, username, password)
+            del password
+            try:
+                conn = await guac.GuacdConnection.open()
+                # 桌面大小由 VNC 伺服器決定；這裡給的尺寸只是 guacd 需要一個初始值
+                await conn.handshake("vnc", params, width=1024, height=768,
+                                     dpi=guac.client_dpi(cfg.get("dpi")),
+                                     timezone=guac.client_timezone(cfg.get("timezone")))
+                del params
+                initial = await conn.wait_first_frame(_CONNECT_TIMEOUT_GUACD)
+            except guac.GuacdError as exc:
+                if exc.code == "guacd_upstream_not_found":
+                    # guacd 對「連不到」與「密碼錯」回的是同一句話 —— 失敗之後才自己試 TCP 分辨。
+                    # 不可以在連線前先試：TigerVNC 等會把「連上就斷」算成一次認證失敗，
+                    # 連幾次就把 jt-ipam 列入黑名單（2026-09-25 實測，7 次就回 Too many security failures）
+                    unreachable = await guac.tcp_reachable(dial_host, dial_port)
+                    if unreachable is not None:
+                        await send({"type": "error", **ui_detail(
+                            "console_connect_failed", f"連線失敗：{host}:{port} {unreachable}",
+                            reason=f"{host}:{port} {unreachable}")})
+                        await websocket.close()
+                        return
+                await send({"type": "error", **guac.refine_vnc_error(exc).ui()})
+                await websocket.close()
+                return
+            width, height = guac.initial_size(initial) or (1024, 768)
+            _active_sessions += 1
+            counted = True
+            started = datetime.now(UTC)
+            await _audit_vnc(
+                actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
+                action="vnc.session_open",
+                diff={"host": host, "port": port, "username": username or None,
+                      "size": f"{width}x{height}", "engine": "guacd",
+                      "via_jump_host": tunnel.via,
+                      "credential_id": str(used_cred_id) if used_cred_id else None},
+            )
+            await send({"type": "status", "state": "connected", "engine": "guacd",
+                        "width": width, "height": height})
+            guac_mode = True
+            await guac.relay(websocket, conn, initial=initial)
+            return
+
+        io = RDPIOSettings()
+        io.video_out_format = VIDEO_FORMAT.PNG
+        io.clipboard_use_pyperclip = False
 
         # 連接埠寫在 URL 裡（`create_connection_newtarget()` 只換 ip/hostname，不動埠）
         if password:
@@ -417,8 +504,9 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     except WebSocketDisconnect:
         pass
     except Exception:
-        with contextlib.suppress(Exception):
-            await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
+        if not guac_mode:
+            with contextlib.suppress(Exception):
+                await send({"type": "error", **ui_detail("console_internal", "連線發生未預期錯誤")})
     finally:
         if conn is not None:
             with contextlib.suppress(Exception):
@@ -436,7 +524,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                         action="vnc.session_close", diff={"host": host, "duration_seconds": round(dur, 1)},
                     )
         with contextlib.suppress(Exception):
-            await send({"type": "status", "state": "disconnected"})
+            if not guac_mode:
+                await send({"type": "status", "state": "disconnected"})
             await websocket.close()
 
 

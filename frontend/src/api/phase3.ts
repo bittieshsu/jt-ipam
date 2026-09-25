@@ -191,6 +191,7 @@ export interface NAT {
   source_kind: string | null;
   source_firewall_id: string | null;
   source_label: string | null;
+  source_firewall_name?: string | null;
   external_id: string | null;
 }
 

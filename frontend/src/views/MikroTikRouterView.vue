@@ -19,12 +19,18 @@ import {
 } from "@/api/mikrotik";
 import { autoSort } from "@/composables/useTableSort";
 import { apiErrMsg } from "@/api/client";
+import { useRoute } from "vue-router";
+import { useFocusRow } from "@/composables/useFocusRow";
+import FocusRowBanner from "@/components/FocusRowBanner.vue";
 
 const { t } = useI18n();
 const msg = useMessage();
 
 const routers = ref<MikroTikRouter[]>([]);
-const routerId = ref<string | null>(null);
+const route = useRoute();
+// IP 詳細頁點進來：?tab=rules|lists&fw=<路由器 id>&focus=<規則 id／清單名稱>
+const routerId = ref<string | null>(typeof route.query.fw === "string" ? route.query.fw : null);
+const tab = ref<"rules" | "lists">(route.query.tab === "lists" ? "lists" : "rules");
 const table = ref<string | null>(null);
 const listFilter = ref("");
 const rules = ref<MikroTikRule[]>([]);
@@ -60,6 +66,11 @@ async function loadData() {
   finally { loading.value = false; }
 }
 
+const ruleFocus = useFocusRow(rules, (r, k) => r.id === k, "rules");
+const listFocus = useFocusRow(entries, (e, k) => e.list_name === k, "lists");
+const rulesShown = computed(() => ruleFocus.apply(rules.value));
+const entriesShown = computed(() => listFocus.apply(filteredEntries.value));
+watch(routerId, (_n, old) => { if (old != null) { ruleFocus.clear(); listFocus.clear(); } });
 watch([routerId, table], () => { void loadData(); });
 onMounted(async () => { await loadRouters(); await loadData(); });
 
@@ -125,13 +136,15 @@ const entryCols = computed<DataTableColumns<MikroTikAddressListEntry>>(() => aut
     </n-space>
 
     <n-empty v-if="!routers.length" :description="t('mikrotik.none_configured')" />
-    <n-tabs v-else type="line">
+    <n-tabs v-else v-model:value="tab" type="line">
       <n-tab-pane name="rules" :tab="t('mikrotik.rules')">
-        <n-data-table :columns="ruleCols" :data="rules" :loading="loading"
+        <FocusRowBanner :ctl="ruleFocus" :loading="loading" />
+        <n-data-table :columns="ruleCols" :data="rulesShown" :loading="loading"
                       :bordered="false" :scroll-x="1400" />
       </n-tab-pane>
       <n-tab-pane name="lists" :tab="t('mikrotik.address_lists')">
-        <n-data-table :columns="entryCols" :data="filteredEntries" :loading="loading"
+        <FocusRowBanner :ctl="listFocus" :loading="loading" />
+        <n-data-table :columns="entryCols" :data="entriesShown" :loading="loading"
                       :bordered="false" :scroll-x="900"
                       :pagination="{ pageSize: 50, showSizePicker: false }" />
       </n-tab-pane>

@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     bmc_console,
     cert_agents,
     certificates,
+    client_diag,
     custom_fields,
     customers,
     dashboard,
@@ -166,6 +167,7 @@ api_v1_router.include_router(system_settings_ep.router)
 api_v1_router.include_router(system_settings_ep.public_router)
 api_v1_router.include_router(system_settings_ep.view_router)
 api_v1_router.include_router(system_transfer_ep.router)
+api_v1_router.include_router(client_diag.router)
 api_v1_router.include_router(graylog_dsv_ep.admin_router)
 api_v1_router.include_router(graylog_dsv_ep.public_router)
 api_v1_router.include_router(ldap_admin_ep.admin_router)

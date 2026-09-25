@@ -21,6 +21,8 @@ import {
 } from "@/api/ssh";
 import { TerminalIcon, CancelIcon, RefreshIcon, DeleteIcon } from "@/icons";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
+import GuacView from "@/components/GuacView.vue";
+import { consoleEngineLabel } from "@/utils/consoleEngine";
 
 const props = withDefaults(defineProps<{
   addressId: string;
@@ -103,6 +105,11 @@ const hostKeyAsk = ref(false);
 const hostKeyFp = ref("");
 // 這條連線是否經由跳板（後端在連線前送 status/via_jump）
 const viaJump = ref("");
+// guacd 引擎（系統設定選的）：終端機由 guacd 在伺服器端畫，這個元件只留表單、工具列與金鑰確認
+const guacRef = ref<InstanceType<typeof GuacView> | null>(null);
+// 狀態列的「引擎」標示（這次連線實際用的引擎，來自票證）
+const engineLabel = ref("");
+const guacSession = ref<{ key: number; url: string; config: Record<string, unknown> } | null>(null);
 
 function clearCreds() {
   form.password = "";
@@ -150,6 +157,7 @@ function startHeartbeat() {
 function teardown() {
   if (detachLinks) { detachLinks(); detachLinks = null; }
   stopHeartbeat();
+  guacRef.value?.disconnect();
   try { ws?.close(); } catch { /* noop */ }
   ws = null;
   disposeTerm();
@@ -208,6 +216,21 @@ async function connect() {
     return;
   }
 
+  engineLabel.value = consoleEngineLabel(ticket.engine || "builtin");
+  if (ticket.engine === "guacd") {
+    guacSession.value = {
+      key: Date.now(), url: buildSshWsUrl(ticket.ws_path, ticket.ticket),
+      config: credId
+        ? { credential_id: credId, port: form.port }
+        : { username: form.username.trim(), port: form.port, auth: form.auth,
+            password: form.auth === "password" ? form.password : undefined,
+            private_key: form.auth === "key" ? form.privateKey : undefined,
+            passphrase: form.auth === "key" ? form.passphrase : undefined },
+    };
+    clearCreds();
+    return;
+  }
+  guacSession.value = null;
   await nextTick();
   if (!termEl.value) { phase.value = "error"; errorMsg.value = t("ssh.err_ticket"); return; }
   term = new Terminal({ cursorBlink: true, fontSize: fontSize.value, scrollback: 5000,
@@ -284,14 +307,19 @@ async function connect() {
 
 function acceptHostKey() {
   hostKeyAsk.value = false;
+  if (guacSession.value) { guacRef.value?.acceptHostKey(); return; }
   wsSend({ type: "hostkey_accept" });
 }
 function rejectHostKey() {
   hostKeyAsk.value = false;
-  wsSend({ type: "hostkey_reject" });
+  if (guacSession.value) guacRef.value?.rejectHostKey();
+  else wsSend({ type: "hostkey_reject" });
   teardown();
+  guacSession.value = null;
   phase.value = "form";
 }
+function onGuacHostKey(fp: string) { hostKeyFp.value = fp; hostKeyAsk.value = true; }
+function onGuacError(text: string) { phase.value = "error"; errorMsg.value = text; }
 
 function disconnect() {
   wsSend({ type: "close" });
@@ -300,6 +328,7 @@ function disconnect() {
 }
 function backToForm() {
   teardown();
+  guacSession.value = null;
   phase.value = "form";
 }
 
@@ -402,10 +431,12 @@ onBeforeUnmount(teardown);
             {{ t("jump_hosts.via") }}：{{ viaJump }}
           </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
+          <n-tag v-if="engineLabel" size="small" :bordered="false" round class="conn-engine"
+                 :title="t('common.console_engine_title')">{{ engineLabel }}</n-tag>
         </span>
         <n-space :size="8" align="center">
           <!-- 文字大小快速調整 -->
-          <n-button-group v-if="phase === 'connected'" size="tiny">
+          <n-button-group v-if="phase === 'connected' && !guacSession" size="tiny">
             <n-button :disabled="fontSize <= FONT_MIN" :title="t('ssh.font_smaller')" @click="setFont(-1)">A−</n-button>
             <n-button :disabled="fontSize >= FONT_MAX" :title="t('ssh.font_larger')" @click="setFont(1)">A+</n-button>
           </n-button-group>
@@ -422,7 +453,13 @@ onBeforeUnmount(teardown);
       </n-alert>
       <div class="ssh-disp" :class="{ 'ssh-full': fullHeight }">
         <div class="term-host">
-          <div ref="termEl" class="ssh-term" :class="{ 'ssh-full': fullHeight, 'term-dim': phase === 'closed' }" />
+          <GuacView v-if="guacSession" :key="guacSession.key" ref="guacRef" class="ssh-term ssh-guac"
+                    :class="{ 'ssh-full': fullHeight, 'term-dim': phase === 'closed' }"
+                    :ws-url="guacSession.url" :config="guacSession.config" protocol="ssh"
+                    scale-mode="native" :resize-remote="true" :sync-clipboard="true"
+                    @connected="phase = 'connected'" @closed="phase = 'closed'" @error="onGuacError"
+                    @hostkey="onGuacHostKey" @via-jump="(v: string) => (viaJump = v)" />
+          <div v-else ref="termEl" class="ssh-term" :class="{ 'ssh-full': fullHeight, 'term-dim': phase === 'closed' }" />
           <div v-if="hoveredUrl" class="term-linkbar" :title="hoveredUrl">{{ hoveredUrl }}</div>
         </div>
         <ConsoleDisconnectedOverlay :show="phase === 'closed' || phase === 'error'" :error="phase === 'error'" />
@@ -474,6 +511,8 @@ onBeforeUnmount(teardown);
 .ssh-term { height: 420px; background: #1e1e1e; padding: 8px; border-radius: 8px;
   border: 1px solid #2b2b30; box-shadow: 0 1px 3px rgba(0,0,0,.18); overflow: hidden; }
 .ssh-term.ssh-full { flex: 1; height: auto; min-height: 0; }
+/* guacd：終端機由伺服器端畫成圖，不要 padding（尺寸要跟 guacd 算的欄列數對齊） */
+.ssh-term.ssh-guac { padding: 0; }
 /* 卡片標題 icon+文字垂直置中（覆蓋主題預設，避免內容偏上） */
 :deep(.n-card > .n-card-header) { display: flex; align-items: center; padding-top: 12px; padding-bottom: 12px; }
 /* 「已存帳密」列：flex 列，label 與下拉/刪除鈕保證垂直置中；label 寬度對齊表單 92px 欄 */

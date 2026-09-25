@@ -16,6 +16,9 @@
 #         「systemd never came up」—— 看起來像 systemd 壞了，其實是 apt 還在下載。
 #         PIP_MIRROR=https://<index>/simple 同理換 PyPI（files.pythonhosted.org 同一天也只有 50 KB/s）。
 #         兩者只影響這個拋棄式容器，不影響發佈內容與客戶安裝。
+# guacd: GUACD_TARBALL=dist/guacd/<ver>/jt-ipam-guacd-…-debian12-amd64.tar.gz 另外以
+#         `--with-guacd --guacd-tarball` 裝 guacd（.deps 要在同目錄），並驗它在跑、只綁 127.0.0.1。
+#         要選跟 IMAGE 同一個 OS 版本的那份。
 # Needs:  docker, and a source tree at the repo root. Nothing else.
 #
 # The container runs systemd (privileged + host cgroups) because the whole point
@@ -70,8 +73,15 @@ tar -C "$ROOT" --exclude=.git --exclude=node_modules --exclude=.venv \
     --exclude=dist --exclude=__pycache__ --exclude=zap-reports -cf - . \
     | docker cp - "$NAME:/opt/jt-ipam"
 
-say "Running scripts/jt-ipam.sh install (this is the part customers do)"
-if dex env DEBIAN_FRONTEND=noninteractive bash /opt/jt-ipam/scripts/jt-ipam.sh install \
+GUACD_ARGS=()
+if [[ -n "${GUACD_TARBALL:-}" ]]; then
+    docker cp "$GUACD_TARBALL" "$NAME:/tmp/"
+    docker cp "${GUACD_TARBALL%.tar.gz}.deps" "$NAME:/tmp/"
+    GUACD_ARGS=(--with-guacd --guacd-tarball "/tmp/$(basename "$GUACD_TARBALL")")
+fi
+
+say "Running scripts/jt-ipam.sh install ${GUACD_ARGS[*]} (this is the part customers do)"
+if dex env DEBIAN_FRONTEND=noninteractive bash /opt/jt-ipam/scripts/jt-ipam.sh install "${GUACD_ARGS[@]}" \
         >/tmp/$NAME.install.log 2>&1; then
     pass "install exited 0"
 else
@@ -130,6 +140,23 @@ if dex journalctl -u jt-ipam-backup -n 40 --no-pager 2>/dev/null | grep -q '226/
     fail "backup unit fails with 226/NAMESPACE when its directory is missing"
 else
     pass "backup unit survives a missing /var/backups/jt-ipam"
+fi
+
+# 3b. guacd (only with GUACD_TARBALL): running, and reachable on loopback only -- its port
+#     has no authentication at all, anyone who can reach it can make it connect anywhere.
+if [[ -n "${GUACD_TARBALL:-}" ]]; then
+    if dex systemctl is-active --quiet jt-ipam-guacd \
+       && dex bash -c 'exec 3<>/dev/tcp/127.0.0.1/4822' 2>/dev/null; then
+        pass "guacd is running on 127.0.0.1:4822"
+    else
+        fail "guacd is not running"; dex journalctl -u jt-ipam-guacd -n 25 --no-pager || true
+    fi
+    ext=$(dex sh -c "hostname -I | awk '{print \$1}'" 2>/dev/null || true)
+    if [[ -n "$ext" ]] && dex bash -c "exec 3<>/dev/tcp/$ext/4822" 2>/dev/null; then
+        fail "guacd answers on $ext:4822 -- it must listen on 127.0.0.1 only"
+    else
+        pass "guacd does not answer on the container address ($ext)"
+    fi
 fi
 
 # 4. doctor must agree with reality -- a diagnostic that lies is worse than none.

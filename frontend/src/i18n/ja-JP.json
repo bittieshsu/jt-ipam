@@ -428,7 +428,13 @@
     "password": "パスワード",
     "show": "表示",
     "hide": "非表示",
-    "html_lang": "ja"
+    "html_lang": "ja",
+    "focus_only": "IP 詳細ページで選んだ項目だけを表示しています。",
+    "focus_missing": "IP 詳細ページで選んだ項目が見つかりません。機器側で削除されたか、まだ同期されていない可能性があります。",
+    "show_all": "すべて表示",
+    "console_engine": "エンジン：{name}",
+    "console_engine_builtin": "組み込み",
+    "console_engine_title": "この接続で使っているエンジン（「管理 → システム設定」で切り替え）"
   },
   "scan_agent": {
     "outdated": "更新があります",
@@ -745,10 +751,8 @@
     "state_connected": "接続済み",
     "state_closed": "切断",
     "state_error": "接続エラー",
-    "beta": "Beta",
-    "beta_hint": "RDP は Beta の機能です。一部の挙動（特殊キー、クリップボード、リモートのカーソル、同時接続）はまだ改善中です。",
-    "enable_label": "RDP 管理を有効にする（Beta）",
-    "enable_hint": "有効にすると、権限のある利用者がこの IP の詳細ページから RDP の画面を開けます（サーバーに RDP の任意依存パッケージが導入されている必要があります）。この機能は Beta です。",
+    "enable_label": "RDP 管理を有効にする",
+    "enable_hint": "有効にすると、権限のある利用者がこの IP の詳細ページから RDP の画面を開けます（サーバーに RDP の任意依存パッケージか guacd が必要です）。",
     "err_username": "ユーザー名は必須です",
     "err_ticket": "接続を確立できません（権限またはネットワークの問題です）",
     "err_ws": "WebSocket の接続に失敗しました",
@@ -757,30 +761,30 @@
     "paste_hint": "手元のクリップボードの文字列を接続先へ送り、そこで Ctrl+V を押してください",
     "paste_sent": "{n} 文字を接続先のクリップボードへ送りました。接続先で Ctrl+V を押してください",
     "paste_denied": "ブラウザのクリップボードを読み取れません（クリップボードの権限を許可してください）",
-    "paste_empty": "クリップボードが空です"
+    "paste_empty": "クリップボードが空です",
+    "paste_set": "接続先のクリップボードに書き込みました。接続先で Ctrl+V を押してください",
+    "keyboard_input": "リモートのキーボード入力"
   },
   "vnc": {
     "connect": "VNC",
     "connect_to": "{ip} へ VNC 接続",
     "open_popout": "新しいウィンドウで開く",
-    "beta": "Beta",
-    "beta_hint": "VNC は Beta の機能です。一部の挙動（特殊キー、ホイール、クリップボード）はまだ改善中です。",
     "password": "パスワード",
     "password_ph": "VNC のパスワード",
-    "auth_note": "標準の VNC パスワード認証（VncAuth）のみに対応します。UltraVNC の MS-Logon のようなアカウントベースの認証には対応していません。",
+    "auth_note": "従来の VNC はパスワードだけで接続します。macOS の画面共有、UltraVNC の MS-Logon、VeNCrypt などユーザー名を求めるサーバーでは、ユーザー名を入力し、VNC の接続エンジンを guacd にしてください（内蔵エンジンはパスワードのみ対応）。",
     "port": "ポート",
     "send_keys": "キーを送信",
     "scale_fit": "フィット",
     "scale_native": "1:1",
-    "saved_cred": "保存済みのパスワード",
-    "saved_cred_ph": "保存済みのパスワードを選択…",
-    "saved_cred_del_confirm": "この保存済みのパスワードを削除しますか。",
-    "remember": "パスワードを記憶する",
+    "saved_cred": "保存済みの資格情報",
+    "saved_cred_ph": "保存済みの資格情報を選択…",
+    "saved_cred_del_confirm": "この保存済みの資格情報を削除しますか？",
+    "remember": "資格情報を記憶する",
     "remember_label_ph": "名前（既定は vnc{'@'}IP）",
-    "no_store_hint": "パスワードは今回の接続にのみ使われ、サーバーに保存されることはありません。",
-    "store_hint": "チェックすると、パスワードはサーバー上で暗号化して保存されます（使えるのはご自身だけで、平文が返されることはありません）。次回から再利用できます。",
-    "use_saved_hint": "保存済みのパスワードを使います。サーバー上で暗号化して保管され、接続時にバックエンドでのみ復号されます。ブラウザへ返されることはありません。",
-    "err_save_cred": "パスワードの保存に失敗しました",
+    "no_store_hint": "資格情報は今回の接続にのみ使われ、サーバーに保存されることはありません。",
+    "store_hint": "チェックすると、資格情報はサーバー上で暗号化して保存されます（使えるのはご自身だけで、平文が返されることはありません）。次回から再利用できます。",
+    "use_saved_hint": "保存済みの資格情報を使用：サーバーに暗号化して保管し、接続時にのみバックエンドで復号します。ブラウザーには送られません。",
+    "err_save_cred": "資格情報の保存に失敗しました",
     "disconnect": "切断",
     "reconnect": "再接続",
     "state_form": "未接続",
@@ -788,11 +792,13 @@
     "state_connected": "接続済み",
     "state_closed": "切断",
     "state_error": "接続エラー",
-    "enable_label": "VNC 管理を有効にする（Beta）",
-    "enable_hint": "有効にすると、権限のある利用者がこの IP の詳細ページから VNC の画面を開けます（サーバーに VNC の任意依存パッケージが必要です）。この機能は Beta です。",
+    "enable_label": "VNC 管理を有効にする",
+    "enable_hint": "有効にすると、権限のある利用者がこの IP の詳細ページから VNC の画面を開けます（サーバーに VNC の任意依存パッケージか guacd が必要です）。",
     "err_ticket": "接続を確立できません（権限またはネットワークの問題です）",
     "err_ws": "WebSocket の接続に失敗しました",
-    "err_generic": "接続エラー"
+    "err_generic": "接続エラー",
+    "username": "ユーザー名",
+    "username_ph": "任意。従来の VNC はパスワードのみなので空欄で構いません"
   },
   "connections": {
     "hint": "SSH 管理が有効で、かつ接続が許可されている対象の一覧です。「SSH」を押すと新しいタブで開きます。ドロップダウンから新しいウィンドウで開くこともできます。",
@@ -1249,7 +1255,9 @@
     "fw_why_net_covers": "{value} に含まれる",
     "fw_why_exact": "アドレスが完全に一致",
     "last_seen_ocs": "最終確認（OCS インベントリ）",
-    "last_seen_ocs_jump": "この機器の OCS インベントリを表示"
+    "last_seen_ocs_jump": "この機器の OCS インベントリを表示",
+    "fw_col_why": "一致の根拠",
+    "fw_row_goto": "クリックでこの項目を開く"
   },
   "subnets": {
     "title": "サブネット",
@@ -1835,7 +1843,7 @@
   "wazuh_admin": {
     "scope_subnets": "対象サブネットを限定",
     "scope_all": "すべて（限定しない）",
-    "scope_hint": "範囲が重複している場合に使います。これらのサブネット内の IP だけを照合します。空欄なら全体が対象です。",
+    "scope_hint": "範囲が重複している場合に使います。これらのサブネット内の IP だけを照合し、「エージェント未導入の IP」もこれらのサブネットだけを表示します。空欄なら全体が対象です。",
     "title": "Wazuh",
     "missing_agents": "Wazuh エージェントが無い IP",
     "agents_count": "エージェント数",
@@ -1852,7 +1860,8 @@
     "status_disconnected": "切断",
     "status_pending": "保留",
     "status_never_connected": "一度も接続していません",
-    "api_user_ph": "wazuh-wui または独自の API ユーザー"
+    "api_user_ph": "wazuh-wui または独自の API ユーザー",
+    "missing_scoped": "（連携で限定したサブネットのみ）"
   },
   "plugins_admin": {
     "title": "プラグイン",
@@ -2063,7 +2072,8 @@
     "evidence_mac_flip": "MAC の往復切り替え",
     "seen_scanner": "スキャンエージェント",
     "seen_manual": "手動",
-    "seen_arp_vendor": "ARP テーブル（{vendor}）"
+    "seen_arp_vendor": "ARP テーブル（{vendor}）",
+    "filter_ph": "絞り込み：IP／ホスト名／MAC／説明…（すべてのタブに適用）"
   },
   "webhooks": {
     "events_label": "イベント（* はすべて）",
@@ -2601,13 +2611,23 @@
       "rdp_engine": "RDP 接続エンジン",
       "rdp_engine_aardwolf": "aardwolf（既定）",
       "rdp_engine_freerdp": "FreeRDP",
-      "rdp_engine_hint": "aardwolf は組み込みの純 Python 実装です。追加のプロセスが不要で、Windows が相手なら問題なく動きます。FreeRDP は互換性がより広く、とくに Linux の xrdp や GNOME のリモートログイン（aardwolf の NTLM 認証を拒否します）に有効ですが、このホストに FreeRDP と仮想ディスプレイが必要です。変更は新しい接続から反映されます。",
+      "rdp_engine_hint": "aardwolf は組み込みの純 Python 実装です。追加のプロセスが不要で、Windows が相手なら問題なく動きます。FreeRDP は互換性がより広く、とくに Linux の xrdp や GNOME のリモートログイン（aardwolf の NTLM 認証を拒否します）に有効ですが、このホストに FreeRDP と仮想ディスプレイが必要です。guacd は jt-ipam-guacd サービスで動き（状態は下に表示）、互換性が広く仮想ディスプレイも不要です。変更は新しい接続から反映されます。",
       "rdp_engine_missing": "このサーバーには FreeRDP エンジンに必要なものがまだありません（不足：{pkgs}）。インストールしてからこのページを再読み込みしてください。それまでは FreeRDP を選んでも接続できません。",
       "rdp_engine_no_aardwolf": "このサーバーの Python {python} には aardwolf のビルド済みパッケージがないため、aardwolf エンジンと VNC コンソールは使えません。RDP には FreeRDP エンジンを使ってください。",
       "port_filter_pseudo": "疑似インターフェースを除外",
       "port_filter_pseudo_hint": "連携元からポートを取り込む際、以下の名前パターンに一致する疑似インターフェース（Windows NDIS フィルタ、WAN Miniport、トンネル等）を除外・削除します。オフの場合は除外も削除も行いません。",
       "port_ignore_patterns": "除外する名前パターン",
-      "port_ignore_patterns_hint": "1 行に 1 つの正規表現（インターフェース名に対して大文字小文字を区別せず照合）。空欄の場合は組み込みの既定値を使用します。物理スイッチや Linux のポート名は一致しないため影響を受けません。"
+      "port_ignore_patterns_hint": "1 行に 1 つの正規表現（インターフェース名に対して大文字小文字を区別せず照合）。空欄の場合は組み込みの既定値を使用します。物理スイッチや Linux のポート名は一致しないため影響を受けません。",
+      "engine_guacd": "guacd",
+      "engine_builtin": "組み込み（既定）",
+      "vnc_engine": "VNC 接続エンジン",
+      "vnc_engine_hint": "組み込みエンジンは aardwolf を使います。guacd は jt-ipam-guacd サービスで画面を処理し、aardwolf を必要としません。変更は新しい接続から反映されます。",
+      "ssh_engine": "SSH 接続エンジン",
+      "ssh_engine_hint": "組み込みエンジンはブラウザー内の xterm.js 端末です。guacd はサーバー側で端末を描画し、ブラウザーは画面を受け取ります。コピーと貼り付けは Ctrl+Shift+C／Ctrl+Shift+V（Mac は ⌘C／⌘V）。ホスト鍵は同じく初回確認後に固定されます。変更は新しい接続から反映されます。",
+      "guacd_status": "guacd サービス",
+      "guacd_down": "guacd（{address}）に接続できません：{reason}",
+      "guacd_protocol_missing": "guacd に {protocols} のサポートがありません。guacd を選んだこれらのプロトコルは接続できません。",
+      "guacd_hint": "guacd は Apache Guacamole のサーバー側で、jt-ipam がビルドしたものを jt-ipam-guacd サービスとしてローカルでのみ動かします。RDP、VNC、SSH ごとに切り替えられます。"
     }
   },
   "errors": {
@@ -2843,7 +2863,7 @@
     "console_rdp_not_installed": "RDP 機能が未インストールです（オプション依存の aardwolf がありません）",
     "console_rdp_no_aardwolf": "このサーバーには aardwolf がありません（Python {python} 向けのビルド済みパッケージがありません）。管理者が「システム設定 → RDP 接続エンジン」で FreeRDP に切り替えてください。",
     "console_rdp_freerdp_missing": "FreeRDP エンジンに {missing} がありません。サーバーで jt-ipam.sh upgrade を実行してインストールしてください。",
-    "console_vnc_not_installed": "VNC はインストールされていません。aardwolf が必要ですが、Python {python} 向けのビルド済みパッケージがありません。",
+    "console_vnc_not_installed": "内蔵の VNC エンジンは使用できません。aardwolf が必要ですが、Python {python} 向けのビルド済みパッケージがありません。guacd をインストールし、「管理 → システム設定」で VNC の接続エンジンを guacd にしてください。",
     "console_pve_not_installed": "PVE コンソール機能が未インストールです（websockets 依存がありません）",
     "console_rdp_too_many": "RDP の同時接続数が上限（{max}）に達しました",
     "console_vnc_too_many": "同時接続数が上限（{max}）に達しました",
@@ -2966,7 +2986,32 @@
     "range_start_after_end": "開始アドレス {start} が終了アドレス {end} より大きいです",
     "range_outside_subnet": "範囲 {start}～{end} がサブネット {cidr} の外にあります",
     "range_overlap": "既存の範囲「{other}」と重なっています",
-    "cert_export_password_in_url": "PFX のパスワードを URL パラメーターに入れることはできません（アクセスログに残ります）。POST で fmt と password を本文に入れてください"
+    "cert_export_password_in_url": "PFX のパスワードを URL パラメーターに入れることはできません（アクセスログに残ります）。POST で fmt と password を本文に入れてください",
+    "guacd_unavailable": "guacd に接続できません（{reason}）。サーバーで jt-ipam-guacd サービスが動いているか確認してください。",
+    "guacd_protocol_missing": "guacd にこのプロトコルのサポートがありません：{reason}",
+    "guacd_handshake_failed": "guacd とのハンドシェイクに失敗しました：{reason}",
+    "guacd_first_frame_timeout": "接続先が画面を送ってきません（{reason}）",
+    "guacd_auth_required": "接続先が資格情報を要求しましたが、未指定または受け付けられませんでした",
+    "guacd_server_error": "guacd の内部エラー：{reason}",
+    "guacd_server_busy": "guacd が混雑しています：{reason}",
+    "guacd_upstream_timeout": "接続先への接続がタイムアウトしました：{reason}",
+    "guacd_upstream_error": "接続先がエラーを返しました：{reason}",
+    "guacd_resource_not_found": "接続対象が見つかりません：{reason}",
+    "guacd_upstream_not_found": "接続先に到達できません（ホストが存在しないかポートが閉じています）：{reason}",
+    "guacd_upstream_unavailable": "接続先は現在利用できません：{reason}",
+    "guacd_session_conflict": "リモートセッションが競合しました（別のログインに置き換えられた可能性）：{reason}",
+    "guacd_session_timeout": "リモートセッションがタイムアウトしました：{reason}",
+    "guacd_session_closed": "接続先がセッションを終了しました：{reason}",
+    "guacd_bad_request": "接続パラメーターが正しくありません：{reason}",
+    "guacd_unauthorized": "認証に失敗しました（ユーザー名、パスワードまたは鍵が違います）：{reason}",
+    "guacd_forbidden": "接続先がログインを拒否しました（アカウントにリモートログイン権限がない可能性）：{reason}",
+    "guacd_client_timeout": "ブラウザーの応答がなく、guacd が接続を終了しました：{reason}",
+    "guacd_too_many": "同時接続が多すぎます：{reason}",
+    "guacd_host_key_mismatch": "ホスト鍵が固定済みのものと一致しません。中間者攻撃の可能性があります（接続を中止）：{reason}",
+    "guacd_vnc_rejected": "VNC サーバーが接続を拒否しました。最も多い原因はユーザー名かパスワードの誤りです（サーバーが求める認証方式に未対応の場合や、失敗が続いて接続元が一時的にブロックされている場合もあります）：{reason}",
+    "console_vnc_username_needs_guacd": "内蔵の VNC エンジンはユーザー名に対応していません。「管理 → システム設定」で VNC の接続エンジンを guacd にしてください。",
+    "cred_username_required": "ユーザー名を入力してください",
+    "guacd_vnc_username_required": "この VNC サーバーはユーザー名とパスワードを要求しています。「ユーザー名」欄に入力してください"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -4406,7 +4451,13 @@
     "f_data_unreadable": "コード側の項目制約がデータベースより厳しいときに起きます。このメッセージをお送りください。ご自分で対処する場合は、上に挙がっている行の該当項目を規定に合う値に直してください",
     "f_disable_debug": "本番環境では APP_DEBUG を無効にしてください",
     "f_integration_pages": "各連携の設定ページで「最後のエラー」と「接続テスト」を確認してください",
-    "report_counts": "失敗 {bad} 件、警告 {warn} 件、正常 {ok} 件"
+    "report_counts": "失敗 {bad} 件、警告 {warn} 件、正常 {ok} 件",
+    "c_guacd": "guacd コンソールエンジン",
+    "d_guacd_idle": "インストール済み、まだどのプロトコルも使っていません（{address}）",
+    "d_guacd_ok": "{protocols} が guacd を使用中で正常です（{address}）",
+    "d_guacd_down": "{protocols} は guacd に設定されていますが接続できません（{address}）：{reason}",
+    "d_guacd_missing": "{protocols} は guacd に設定されていますが、guacd にそのサポートがありません",
+    "f_guacd": "サーバーで sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd を実行するか、システム設定でエンジンを組み込みに戻してください"
   },
   "tool_verbs": {
     "get": "照会",
@@ -4525,7 +4576,11 @@
     "diag_auth": "認証が必要",
     "auth_on": "はい",
     "auth_off": "いいえ",
-    "warn_unauthenticated": "⚠️ この OCS は認証情報なしでデータを返します — 到達できる誰もが全資産一覧を読み取れます。OCS 側（Apache）で /ocsapi に認証を追加するか、リバースプロキシでアクセスを制限してください。"
+    "warn_unauthenticated": "⚠️ この OCS は認証情報なしでデータを返します — 到達できる誰もが全資産一覧を読み取れます。OCS 側（Apache）で /ocsapi に認証を追加するか、リバースプロキシでアクセスを制限してください。",
+    "scope_subnets": "対象サブネットを限定",
+    "scope_all": "すべて（限定しない）",
+    "scope_hint": "これらのサブネット内の IP の MAC だけを照合し、「エージェント未導入の IP」もこれらのサブネットだけを表示します。空欄なら全体が対象です。",
+    "missing_scoped": "（連携で限定したサブネットのみ）"
   },
   "scope_filter": {
     "section": "セクション",

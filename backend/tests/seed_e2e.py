@@ -79,6 +79,8 @@ async def seed() -> None:
             ("10.20.0.0/24", "伺服器網段"),
             ("198.51.100.0/24", "對外服務網段"),
             ("203.0.113.0/24", "管理網段"),
+            # 主控台測試靶都跑在本機（xrdp 容器、vnc-target.py、sshd 容器）
+            ("127.0.0.0/24", "主控台測試靶"),
         ):
             sn = (await s.execute(select(Subnet).where(Subnet.cidr == cidr))).scalars().first()
             if not sn:
@@ -108,6 +110,11 @@ async def seed() -> None:
         db01.mac = "00:00:5e:00:53:12"
         await s.merge(OUIVendor(prefix="00005E", short_name="IANA", name="ICANN, IANA Department",
                                 source="e2e"))
+        # 主控台 e2e（含 guacd 引擎）：RDP 固定 3389（xrdp 測試靶）、VNC／SSH 的埠在表單上填
+        console_ip = await ip(subnets["127.0.0.0/24"], "127.0.0.1", "console-target")
+        console_ip.ssh_enabled = True
+        console_ip.rdp_enabled = True
+        console_ip.vnc_enabled = True
         pub = await ip(subnets["198.51.100.0/24"], "198.51.100.7", "web.example.net",
                        description="e2e：對外開放服務的樣本")
         # OCS 整合頁（代理數要一台電腦一筆）：web-01 與 198.51.100.7 是同一台 OCS 電腦的兩個 IP
@@ -318,6 +325,14 @@ async def seed() -> None:
                                action="pass", interface="wan", protocol="tcp",
                                source_net="any", destination_net="web_hosts",
                                destination_port="443", description="e2e：HTTPS 進站"))
+            await s.flush()
+        # 第二條長短不同的規則：驗「欄位對齊」要有兩列以上（後補的，舊 DB 也要補得上）
+        if not (await s.execute(select(OPNsenseRule).where(
+                OPNsenseRule.legacy_uuid == "e2e-rule-2"))).scalars().first():
+            s.add(OPNsenseRule(firewall_id=fw.id, legacy_uuid="e2e-rule-2", enabled=True,
+                               action="block", interface="lan", protocol="any",
+                               source_net="203.0.113.0/24", destination_net="198.51.100.7",
+                               description="e2e：擋掉測試網段直連對外網站主機（說明刻意寫長一點）"))
 
         # ── 防火牆規則異動（zz-fwchanges-ai 期待 router-e2e）─────────
         if not (await s.execute(select(FwRuleSnapshot).where(

@@ -230,6 +230,38 @@ undetected for the entire life of the English translation.
 - [ ] No Chinese words passed as parameters (`what="下載"`): put the distinction in the code
   (`sftp_download_too_large`), or the English sentence ends up with a Chinese word in it
 
+## 5h. guacd prebuilt binaries — **every release** (not only when the console changes)
+
+We ship guacd ourselves, one build per operating system version: Debian and Ubuntu no
+longer carry a usable package (Debian removed it, Ubuntu only has 1.3.0 with known RCEs).
+The builds link against each distribution's own libraries, so **a new OS release needs a
+new build** — a customer who upgrades to it otherwise loses the guacd engine. The owner's
+instruction (2026-09-25): check online at every release and build for any new version.
+
+- [ ] `scripts/guacd/check-new-os.sh` — asks endoflife.date which Debian (≥12) and Ubuntu
+  (≥22.04, interim releases included while supported) versions are in support and compares
+  them with `scripts/guacd/targets.txt`. Exit 1 lists what is missing: add it to
+  `targets.txt`. Versions past end of support are listed as retirable
+- [ ] guacamole-server upstream: new release or CVE since the pinned source in
+  `scripts/guacd/source.env`? It is pinned to a `staging/1.6.1` commit because 1.6.0
+  segfaults on Ubuntu 26.04 at the first frame — **once 1.6.1 is released, switch to the
+  official Apache tarball and verify its published checksum**
+- [ ] Walk the installer's guacd path on a clean OS too:
+  `GUACD_TARBALL=<prebuilt for the same OS> scripts/test-fresh-install.sh debian:12` — checks that
+  `--with-guacd --guacd-tarball` installs, the service runs, answers on 127.0.0.1 **only**, and
+  doctor is green
+- [ ] If anything changed: `scripts/guacd/build.sh` then `scripts/guacd/verify.sh` (both need
+  docker; `APT_MIRROR` / `UBUNTU_MIRROR` as for the other gates). Verify installs only the
+  runtime packages in a clean container **and connects to an RDP target for real** — the
+  plugins loading is not enough (1.6.0 on 26.04 loaded fine and crashed on the first frame).
+  Look at the screenshots it writes next to the builds
+- [ ] configure must detect FreeRDP 3 correctly: the build fails on purpose if it reports
+  "freerdp structs have a context... no" for a FreeRDP 3 target (the `-Wno-error` in
+  CPPFLAGS is what prevents that — see the comment in `in-container-build.sh`)
+- [ ] Every archive ships `LICENSE`, `NOTICE` and `SOURCE` (Apache-2.0 requires the first two;
+  `SOURCE` points at the exact source and scripts). libvncclient is GPL-2+ and comes from the
+  distribution — never bundle it. Never call the build an Apache release (ASF trademark)
+
 ## 5d. System export / import (cross-instance migration) — **run in full every release that touches it**
 
 - [ ] **Unit (no DB)**: `pytest tests/test_system_transfer.py -q` — crypto seal/open
@@ -439,6 +471,40 @@ The same sshd can play both roles: register it as the jump host, and point the t
 - [ ] **Session lifetime**: close the browser tab → the forward disappears from the jump host
 - [ ] **Deleting a jump host** warns how many subnets/addresses will fall back to direct
 - [ ] Audit records `via_jump_host` on every session open
+
+## 7m. guacd console engine — **whenever a console, guacd or its build changes**
+
+guacd is the optional third engine for RDP / VNC / SSH (Admin → System settings, per protocol).
+Keep the other engines as the defaults; switching must not change what a console is allowed to do.
+
+- [ ] `frontend/e2e/console-guacd.spec.ts` against a local guacd and the three targets (see the file
+  header: xrdp container on 3389, `e2e/fixtures/vnc-target.py` on 5999, an sshd on 2222). It checks
+  that the screen is really painted (pixels, not just a canvas), that keys and Chinese leave as
+  Guacamole `key` instructions, and that Ctrl+Shift+V sends the clipboard **before** the V
+- [ ] Look at the screen yourself once per protocol — the test cannot read text:
+  RDP types, VNC shows the target, SSH shows the prompt and **Chinese is full width** (a narrow,
+  tiny glyph means guacd is not running under a UTF-8 locale — the unit sets `LANG=C.UTF-8`)
+- [ ] SSH: an already pinned host key must be accepted by guacd (our patch
+  `scripts/guacd/patches/0001` makes libssh2 negotiate the pinned key type); a changed key must
+  still fail with the "host key does not match" message
+- [ ] Credentials never reach the browser: the WebSocket carries the config message, then only
+  Guacamole instructions; the server drops anything but key/mouse/size/clipboard/sync/nop/…
+  (`tests/test_guacd.py::test_relay_forwards_allowed_and_drops_the_rest`)
+- [ ] Clipboard policy is unchanged by the engine: RDP paste only when "RDP clipboard paste" is on,
+  nothing back from the remote; VNC none; SSH copy and paste
+- [ ] A background tab stays connected for more than 5 minutes (browsers throttle timers to once a
+  minute there; the server sends the keep-alive, not the page)
+- [ ] `sudo jt-ipam.sh doctor` and Admin → System check show guacd; stopping `jt-ipam-guacd` must turn
+  both red with the fix, and a ticket request must answer with a readable 503
+- [ ] VNC username: on a server that asks for one (the VeNCrypt target on 5998 in the spec header)
+  an empty username must say "enter the username", a filled one must connect; a wrong password must
+  say "wrong username or password", not "host unreachable" — unreachable only when it really is (TCP
+  is probed only **after** guacd failed: TigerVNC counts a bare connect/close as an authentication
+  failure and blocks the source after a few; if everything fails halfway, look for `blacklisted` in
+  the target's log)
+- [ ] The status bar names the engine of this connection ("Engine: guacd" …); RDP / VNC carry no Beta mark
+- [ ] Known limitation to keep in mind: in the SSH terminal, the first Chinese character typed on a
+  line may not be drawn until the line is redrawn (Ctrl+L); the command itself is correct
 
 ## 7c. Integration sync resilience — **applies to every integration, not just the one you changed**
 

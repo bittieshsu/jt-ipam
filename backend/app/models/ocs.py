@@ -77,6 +77,10 @@ class OcsServer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: ⚠️ 預設關：軟體清單讓每台從 ~2 KB 膨脹到 ~80 KB（5000 台 ≈ 400 MB/輪）
     sync_software: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
+    #: 限定子網路範圍（UUID 字串陣列）。重疊網段時只跟這些子網路裡的 IP 比對 MAC，
+    #: 「未裝 Agent 的 IP」也只列這些子網路。空＝全域（比照 Wazuh 等整合）。
+    scope_subnet_ids: Mapped[list[Any] | None] = mapped_column(JSONB)
+
     #: 同步頻率。2.11（有增量）跑得動每小時；2.10 只能全量，管理員應自己調長。
     sync_interval_seconds: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("3600"))

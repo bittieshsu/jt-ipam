@@ -16,7 +16,8 @@ import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
   getSamlConfig, putSamlConfig, testSaml, type SamlConfig,
-  getConsoleSecurity, setConsoleSecurity, type RdpEngine,
+  getConsoleSecurity, setConsoleSecurity, type RdpEngine, type ConsoleEngine,
+  type ConsoleSecurity, type ConsoleSecurityPatch,
   getUiDisplay, setUiDisplay,
   getDevicePortFilter, setDevicePortFilter } from "@/api/system";
 import { listGroups } from "@/api/admin";
@@ -53,28 +54,62 @@ const freerdpCmd = ref("");
 const rdpEngineOpts = computed(() => [
   { label: t("settings.system.rdp_engine_aardwolf"), value: "aardwolf" },
   { label: t("settings.system.rdp_engine_freerdp"), value: "freerdp" },
+  { label: t("settings.system.engine_guacd"), value: "guacd" },
 ]);
-async function changeRdpClipPaste(v: boolean) {
-  const prev = rdpClipPaste.value;
-  rdpClipPaste.value = v;
-  try {
-    await setConsoleSecurity({ rdp_clipboard_paste: v, rdp_engine: rdpEngine.value });
-    msg.success(t("common.ok"));
-  } catch { rdpClipPaste.value = prev; msg.error(t("errors.network")); }
+// VNC／SSH 引擎（2026-09-25 起可以改用 guacd）
+const vncEngine = ref<ConsoleEngine>("builtin");
+const sshEngine = ref<ConsoleEngine>("builtin");
+const consoleEngineOpts = computed(() => [
+  { label: t("settings.system.engine_builtin"), value: "builtin" },
+  { label: t("settings.system.engine_guacd"), value: "guacd" },
+]);
+// guacd 服務的狀態（後端實際連一次問出來的）：選了 guacd 卻沒在跑，要用警示色講清楚
+const guacdOk = ref(false);
+const guacdProtocols = ref<Record<string, boolean>>({});
+const guacdAddress = ref("");
+const guacdError = ref("");
+const guacdCmd = ref("");
+const guacdUsedBy = computed(() => [
+  rdpEngine.value === "guacd" ? "rdp" : "", vncEngine.value === "guacd" ? "vnc" : "",
+  sshEngine.value === "guacd" ? "ssh" : "",
+].filter(Boolean));
+const guacdMissingFor = computed(() => guacdUsedBy.value.filter((p) => !guacdProtocols.value[p]));
+function applyConsole(c: ConsoleSecurity) {
+  rdpClipPaste.value = c.rdp_clipboard_paste;
+  rdpEngine.value = c.rdp_engine;
+  vncEngine.value = c.vnc_engine ?? "builtin";
+  sshEngine.value = c.ssh_engine ?? "builtin";
+  freerdpOk.value = c.freerdp_available ?? true;
+  freerdpMissing.value = c.freerdp_missing ?? [];
+  aardwolfOk.value = c.aardwolf_available ?? true;
+  pythonVer.value = c.python_version ?? "";
+  freerdpCmd.value = c.freerdp_install_cmd ?? "";
+  guacdOk.value = !!c.guacd_available;
+  guacdProtocols.value = c.guacd_protocols ?? {};
+  guacdAddress.value = c.guacd_address ?? "";
+  guacdError.value = c.guacd_error ?? "";
+  guacdCmd.value = c.guacd_install_cmd ?? "";
 }
-async function changeRdpEngine(v: RdpEngine) {
-  const prev = rdpEngine.value;
-  rdpEngine.value = v;
+// 同一個端點管好幾個欄位：每次都把全部送回去，否則沒送的會被蓋成預設值
+async function saveConsole(patch: Partial<ConsoleSecurityPatch>) {
+  const prev = { clip: rdpClipPaste.value, rdp: rdpEngine.value, vnc: vncEngine.value, ssh: sshEngine.value };
   try {
-    const c = await setConsoleSecurity({ rdp_clipboard_paste: rdpClipPaste.value, rdp_engine: v });
-    freerdpOk.value = c.freerdp_available ?? true;
-    freerdpMissing.value = c.freerdp_missing ?? [];
-    aardwolfOk.value = c.aardwolf_available ?? true;
-    pythonVer.value = c.python_version ?? "";
-    freerdpCmd.value = c.freerdp_install_cmd ?? "";
+    const c = await setConsoleSecurity({
+      rdp_clipboard_paste: rdpClipPaste.value, rdp_engine: rdpEngine.value,
+      vnc_engine: vncEngine.value, ssh_engine: sshEngine.value, ...patch,
+    });
+    applyConsole(c);
     msg.success(t("common.ok"));
-  } catch { rdpEngine.value = prev; msg.error(t("errors.network")); }
+  } catch {
+    rdpClipPaste.value = prev.clip; rdpEngine.value = prev.rdp;
+    vncEngine.value = prev.vnc; sshEngine.value = prev.ssh;
+    msg.error(t("errors.network"));
+  }
 }
+function changeRdpClipPaste(v: boolean) { rdpClipPaste.value = v; void saveConsole({ rdp_clipboard_paste: v }); }
+function changeRdpEngine(v: RdpEngine) { rdpEngine.value = v; void saveConsole({ rdp_engine: v }); }
+function changeVncEngine(v: ConsoleEngine) { vncEngine.value = v; void saveConsole({ vnc_engine: v }); }
+function changeSshEngine(v: ConsoleEngine) { sshEngine.value = v; void saveConsole({ ssh_engine: v }); }
 
 // 異動記錄淡化天數（超過 N 天的項目以淡色顯示；0 = 不淡化）
 const changeLogDimDays = ref(30);
@@ -440,15 +475,7 @@ onMounted(() => {
     portFilterOn.value = d.filter_pseudo;
     portFilterText.value = d.ignore_patterns.join("\n");
   }).catch(() => {});
-  getConsoleSecurity().then((c) => {
-    rdpClipPaste.value = c.rdp_clipboard_paste;
-    rdpEngine.value = c.rdp_engine;
-    freerdpOk.value = c.freerdp_available ?? true;
-    freerdpMissing.value = c.freerdp_missing ?? [];
-    aardwolfOk.value = c.aardwolf_available ?? true;
-    pythonVer.value = c.python_version ?? "";
-    freerdpCmd.value = c.freerdp_install_cmd ?? "";
-  }).catch(() => {});
+  getConsoleSecurity().then(applyConsole).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
   getOnlineGrace().then((c) => {
@@ -527,6 +554,37 @@ async function doPreviewAutolink() {
               <div>{{ t("settings.system.rdp_engine_missing", { pkgs: freerdpMissing.join("、") }) }}</div>
               <code class="rdp-install-cmd">{{ freerdpCmd }}</code>
             </n-alert>
+          </div>
+          <div class="fld">
+            <label>{{ t("settings.system.vnc_engine") }}</label>
+            <n-select :value="vncEngine" :options="consoleEngineOpts" @update:value="changeVncEngine" />
+            <div class="hint">{{ t("settings.system.vnc_engine_hint") }}</div>
+          </div>
+          <div class="fld">
+            <label>{{ t("settings.system.ssh_engine") }}</label>
+            <n-select :value="sshEngine" :options="consoleEngineOpts" @update:value="changeSshEngine" />
+            <div class="hint">{{ t("settings.system.ssh_engine_hint") }}</div>
+          </div>
+          <!-- guacd 的實際狀態：選了卻不能用要講清楚原因與怎麼裝；能用就列出支援哪些協定 -->
+          <div class="fld guacd-status">
+            <label>{{ t("settings.system.guacd_status") }}</label>
+            <n-alert v-if="!guacdOk" :type="guacdUsedBy.length ? 'error' : 'info'" :bordered="false">
+              <div>{{ t("settings.system.guacd_down", { address: guacdAddress, reason: guacdError }) }}</div>
+              <code v-if="guacdCmd" class="rdp-install-cmd">{{ guacdCmd }}</code>
+            </n-alert>
+            <template v-else>
+              <n-space :size="6" align="center">
+                <n-tag v-for="p in ['rdp', 'vnc', 'ssh']" :key="p" size="small" :bordered="false"
+                       :type="guacdProtocols[p] ? 'success' : 'default'">
+                  {{ p.toUpperCase() }} {{ guacdProtocols[p] ? "✓" : "—" }}
+                </n-tag>
+                <span class="hint" style="margin:0">{{ guacdAddress }}</span>
+              </n-space>
+              <n-alert v-if="guacdMissingFor.length" type="error" :bordered="false" style="margin-top:8px">
+                {{ t("settings.system.guacd_protocol_missing", { protocols: guacdMissingFor.join("、").toUpperCase() }) }}
+              </n-alert>
+            </template>
+            <div class="hint">{{ t("settings.system.guacd_hint") }}</div>
           </div>
         </div>
       </n-card>

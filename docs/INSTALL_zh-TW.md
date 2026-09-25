@@ -734,3 +734,30 @@ sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg
 ffmpeg 是用來抓畫面的，不是拿來做影片：我們量過其他抓法每張要 334 毫秒，
 會把主控台壓在每秒 3 張以下。
 
+## guacd 主控台引擎（RDP／VNC／SSH，選用）
+
+guacd 是 [Apache Guacamole](https://guacamole.apache.org/) 的伺服器端，可以當三種主控台的連線引擎，
+在「管理 → 系統設定」逐協定選擇。它是選用的，預設仍是內建引擎。
+
+為什麼要另外安裝：Debian 已經不提供 guacd，Ubuntu 只有帶著可遠端執行程式碼漏洞的 1.3.0。
+所以 jt-ipam 替每個支援中的 OS 版本各編一份（Debian 12／13、Ubuntu 22.04／24.04／26.04）。
+預編檔連結的是 OS 自己的函式庫，FreeRDP、libvncclient 等的安全更新照樣由 apt 提供。
+
+```
+sudo /opt/jt-ipam/scripts/jt-ipam.sh install --with-guacd        # 全新安裝
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd        # 已安裝的站台加裝
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...-ubuntu24.04-amd64.tar.gz
+                                                                 # 離線：同一目錄要有對應的 .deps 檔
+```
+
+- 以 `jt-ipam-guacd` systemd 服務執行，**只綁 127.0.0.1:4822**。guacd 本身沒有任何驗證，
+  絕不可以開在其他介面上。服務以沒有任何權限的動態使用者執行。
+- 裝過之後，或只要有協定選了 guacd，每次 `upgrade` 都會換成與該版 jt-ipam 對應的預編檔。
+  下載的檔案會用 `scripts/guacd/SHA256SUMS` 核對。
+- 帳密由伺服器交給 guacd，不會經過瀏覽器。SSH 主機金鑰一樣首次確認後釘選，guacd 必須對得上釘選的金鑰。
+- SSH 走 guacd 時，終端機在伺服器端畫出來。複製、貼上用 Ctrl+Shift+C／Ctrl+Shift+V
+  （Mac 用 ⌘C／⌘V），中文、日文輸入法都可以用。
+- `jt-ipam.sh doctor` 與「管理 → 系統診斷」會顯示 guacd 有沒有在跑，以及選了它的協定是否都有支援。
+
+授權：guacd 是 Apache-2.0。每個預編檔都附 LICENSE、NOTICE，以及寫明確切原始碼與編譯腳本的 SOURCE 檔。
+這些是 jt-ipam 編譯的版本，不是 Apache 官方發行版。

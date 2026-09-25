@@ -29,6 +29,8 @@ class OcsBase(StrictModel):
     sync_bios: bool = True
     #: ⚠️ 預設關：軟體讓每台 ~2 KB → ~80 KB（5000 台 ≈ 400 MB/輪）。第一版尚未落地儲存。
     sync_software: bool = False
+    #: 限定子網路範圍（重疊網段時只在這些子網路內比對；未裝 Agent 的 IP 也只列這些）。空＝全域
+    scope_subnet_ids: list[str] | None = None
 
 
 class OcsCreate(OcsBase):
@@ -49,6 +51,7 @@ class OcsUpdate(StrictModel):
     sync_networks: bool | None = None
     sync_bios: bool | None = None
     sync_software: bool | None = None
+    scope_subnet_ids: list[str] | None = None
 
 
 class OcsRead(StrictModel):
@@ -68,6 +71,7 @@ class OcsRead(StrictModel):
     sync_networks: bool
     sync_bios: bool
     sync_software: bool
+    scope_subnet_ids: list[str] | None = None
     detected_version: str | None
     last_sync_at: datetime | None
     last_success_at: datetime | None

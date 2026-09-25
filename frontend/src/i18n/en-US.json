@@ -428,7 +428,13 @@
     "password": "Password",
     "show": "Show",
     "hide": "Hide",
-    "html_lang": "en"
+    "html_lang": "en",
+    "focus_only": "Showing only the entry you picked on the IP detail page.",
+    "focus_missing": "The entry you picked on the IP detail page isn't here — it may have been deleted on the device, or not synced yet.",
+    "show_all": "Show all",
+    "console_engine": "Engine: {name}",
+    "console_engine_builtin": "built-in",
+    "console_engine_title": "The engine this connection uses (switch it in Admin -> System settings)"
   },
   "scan_agent": {
     "outdated": "update available",
@@ -745,10 +751,8 @@
     "state_connected": "Connected",
     "state_closed": "Closed",
     "state_error": "Connection error",
-    "beta": "Beta",
-    "beta_hint": "RDP is a beta feature; some cases (special keys, clipboard, remote cursor, concurrency) are still being hardened.",
-    "enable_label": "Enable RDP management (Beta)",
-    "enable_hint": "When enabled, authorized users can open an RDP screen from this IP's detail page (requires the RDP optional dependency installed on the server). This feature is beta.",
+    "enable_label": "Enable RDP management",
+    "enable_hint": "When enabled, authorized users can open an RDP screen from this IP's detail page (the server needs the RDP optional dependency or guacd).",
     "err_username": "Username is required",
     "err_ticket": "Could not establish connection (permission or network issue)",
     "err_ws": "WebSocket connection failed",
@@ -757,30 +761,30 @@
     "paste_hint": "Send your local clipboard text to the remote, then press Ctrl+V there",
     "paste_sent": "Sent {n} characters to the remote clipboard — press Ctrl+V on the remote to paste",
     "paste_denied": "Cannot read the browser clipboard (allow clipboard permission)",
-    "paste_empty": "Clipboard is empty"
+    "paste_empty": "Clipboard is empty",
+    "paste_set": "Copied to the remote clipboard — press Ctrl+V on the remote to paste",
+    "keyboard_input": "Remote keyboard input"
   },
   "vnc": {
     "connect": "VNC",
     "connect_to": "VNC to {ip}",
     "open_popout": "Open in new window",
-    "beta": "Beta",
-    "beta_hint": "VNC is a beta feature; some cases (special keys, wheel, clipboard) are still being hardened.",
     "password": "Password",
     "password_ph": "VNC password",
-    "auth_note": "Standard VNC password auth (VncAuth) only — account-based auth such as UltraVNC MS-Logon is not supported.",
+    "auth_note": "Classic VNC needs only a password. For servers that ask for a username (macOS Screen Sharing, UltraVNC MS-Logon, VeNCrypt), enter it here and set the VNC engine to guacd — the built-in engine supports passwords only.",
     "port": "Port",
     "send_keys": "Send keys",
     "scale_fit": "Fit",
     "scale_native": "1:1",
-    "saved_cred": "Saved password",
-    "saved_cred_ph": "Choose a saved password…",
-    "saved_cred_del_confirm": "Delete this saved password?",
-    "remember": "Remember password",
+    "saved_cred": "Saved credentials",
+    "saved_cred_ph": "Pick saved credentials…",
+    "saved_cred_del_confirm": "Delete these saved credentials?",
+    "remember": "Remember credentials",
     "remember_label_ph": "Name (defaults to vnc{'@'}IP)",
-    "no_store_hint": "The password is used only for this session and is not stored on the server.",
-    "store_hint": "When checked, the password is stored encrypted on the server (only you can use it; plaintext is never returned); reusable next time.",
-    "use_saved_hint": "Using a saved password: kept encrypted on the server, decrypted only at connect time on the backend, never returned to the browser.",
-    "err_save_cred": "Failed to save password",
+    "no_store_hint": "The credentials are used only for this session and are not stored on the server.",
+    "store_hint": "When checked, the credentials are stored encrypted on the server (only you can use them; plaintext is never returned); reusable next time.",
+    "use_saved_hint": "Using saved credentials: stored encrypted on the server, decrypted by the backend only at connect time, never sent to the browser.",
+    "err_save_cred": "Failed to save credentials",
     "disconnect": "Disconnect",
     "reconnect": "Reconnect",
     "state_form": "Not connected",
@@ -788,11 +792,13 @@
     "state_connected": "Connected",
     "state_closed": "Closed",
     "state_error": "Connection error",
-    "enable_label": "Enable VNC management (Beta)",
-    "enable_hint": "When enabled, authorized users can open a VNC screen from this IP's detail page (requires the VNC optional dependency on the server). This feature is beta.",
+    "enable_label": "Enable VNC management",
+    "enable_hint": "When enabled, authorized users can open a VNC screen from this IP's detail page (the server needs the VNC optional dependency or guacd).",
     "err_ticket": "Could not establish connection (permission or network issue)",
     "err_ws": "WebSocket connection failed",
-    "err_generic": "Connection error"
+    "err_generic": "Connection error",
+    "username": "Username",
+    "username_ph": "Optional; classic VNC uses a password only"
   },
   "connections": {
     "hint": "Targets with SSH management enabled that you're allowed to connect to. Click 'SSH' for a new tab, or use the dropdown to open in a new window.",
@@ -1249,7 +1255,9 @@
     "fw_why_net_covers": "covered by {value}",
     "fw_why_exact": "exact address match",
     "last_seen_ocs": "Last seen (OCS inventory)",
-    "last_seen_ocs_jump": "View this device's OCS inventory"
+    "last_seen_ocs_jump": "View this device's OCS inventory",
+    "fw_col_why": "Why it matches",
+    "fw_row_goto": "Click to open this entry"
   },
   "subnets": {
     "title": "Subnets",
@@ -1835,7 +1843,7 @@
   "wazuh_admin": {
     "scope_subnets": "Limit to subnets",
     "scope_all": "All (no limit)",
-    "scope_hint": "For overlapping ranges: only match IPs within these subnets. Empty = global.",
+    "scope_hint": "For overlapping ranges: only match IPs within these subnets; “IPs without an agent” also lists only these subnets. Empty = global.",
     "title": "Wazuh",
     "missing_agents": "IPs missing Wazuh agent",
     "agents_count": "Agents",
@@ -1852,7 +1860,8 @@
     "status_disconnected": "Disconnected",
     "status_pending": "Pending",
     "status_never_connected": "Never connected",
-    "api_user_ph": "wazuh-wui or a custom API user"
+    "api_user_ph": "wazuh-wui or a custom API user",
+    "missing_scoped": "(limited to the integration's subnets)"
   },
   "plugins_admin": {
     "title": "Plugins",
@@ -2063,7 +2072,8 @@
     "evidence_mac_flip": "MAC keeps flipping",
     "seen_scanner": "scan agent",
     "seen_manual": "manual",
-    "seen_arp_vendor": "ARP table ({vendor})"
+    "seen_arp_vendor": "ARP table ({vendor})",
+    "filter_ph": "Filter: IP / hostname / MAC / details… (applies to every tab)"
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -2601,13 +2611,23 @@
       "rdp_engine": "RDP connection engine",
       "rdp_engine_aardwolf": "aardwolf (default)",
       "rdp_engine_freerdp": "FreeRDP",
-      "rdp_engine_hint": "aardwolf is the built-in pure-Python implementation. It needs no extra process and works against Windows targets. FreeRDP has broader compatibility — notably with xrdp and GNOME Remote Login on Linux, which reject aardwolf's NTLM authentication — but it requires FreeRDP and a virtual display on this host. The change applies to new connections.",
+      "rdp_engine_hint": "aardwolf is the built-in pure-Python implementation. It needs no extra process and works against Windows targets. FreeRDP has broader compatibility — notably with xrdp and GNOME Remote Login on Linux, which reject aardwolf's NTLM authentication — but it requires FreeRDP and a virtual display on this host. guacd runs in the jt-ipam-guacd service (see its status below); it is also broadly compatible and needs no virtual display. The change applies to new connections.",
       "rdp_engine_missing": "This server does not yet have what the FreeRDP engine needs (missing {pkgs}). Install them and reload this page; until then, selecting FreeRDP will not connect.",
       "rdp_engine_no_aardwolf": "This server runs Python {python}, for which aardwolf has no prebuilt package, so the aardwolf engine and the VNC console are unavailable. Use the FreeRDP engine for RDP.",
       "port_filter_pseudo": "Filter pseudo interfaces",
       "port_filter_pseudo_hint": "When importing ports from integrations, skip and prune pseudo interfaces matching the name patterns below (Windows NDIS filters, WAN Miniport, tunnels, etc.). When off, nothing is filtered or pruned.",
       "port_ignore_patterns": "Ignored name patterns",
-      "port_ignore_patterns_hint": "One regular expression per line (matched against the interface name, case-insensitive). Leave empty to use the built-in defaults. Physical switch and Linux port names do not match these patterns and are unaffected."
+      "port_ignore_patterns_hint": "One regular expression per line (matched against the interface name, case-insensitive). Leave empty to use the built-in defaults. Physical switch and Linux port names do not match these patterns and are unaffected.",
+      "engine_guacd": "guacd",
+      "engine_builtin": "Built-in (default)",
+      "vnc_engine": "VNC connection engine",
+      "vnc_engine_hint": "The built-in engine uses aardwolf. guacd handles the screen in the jt-ipam-guacd service and does not need aardwolf. The change applies to new connections.",
+      "ssh_engine": "SSH connection engine",
+      "ssh_engine_hint": "The built-in engine is the xterm.js terminal in the browser. guacd draws the terminal on the server and the browser receives the screen; copy and paste with Ctrl+Shift+C / Ctrl+Shift+V (⌘C / ⌘V on a Mac). Host keys are still confirmed once and then pinned. The change applies to new connections.",
+      "guacd_status": "guacd service",
+      "guacd_down": "Cannot reach guacd ({address}): {reason}",
+      "guacd_protocol_missing": "guacd has no support for {protocols}; those protocols will not connect while set to guacd.",
+      "guacd_hint": "guacd is the server side of Apache Guacamole, prebuilt by jt-ipam and run locally only as the jt-ipam-guacd service. RDP, VNC and SSH can each be switched to it separately."
     }
   },
   "errors": {
@@ -2843,7 +2863,7 @@
     "console_rdp_not_installed": "RDP is not installed (the optional aardwolf dependency is missing)",
     "console_rdp_no_aardwolf": "aardwolf is not installed on this server (there is no prebuilt package for Python {python}). An administrator can switch to the FreeRDP engine in System settings → RDP engine.",
     "console_rdp_freerdp_missing": "The FreeRDP engine is missing {missing}: run jt-ipam.sh upgrade on the server to install it.",
-    "console_vnc_not_installed": "VNC is not installed: it needs aardwolf, which has no prebuilt package for Python {python}.",
+    "console_vnc_not_installed": "The built-in VNC engine is unavailable: it needs aardwolf, which has no prebuilt package for Python {python}. Install guacd and set the VNC engine to guacd under Admin → System settings.",
     "console_pve_not_installed": "The PVE console is not installed (the websockets dependency is missing)",
     "console_rdp_too_many": "The RDP concurrent-session limit ({max}) has been reached",
     "console_vnc_too_many": "The concurrent-session limit ({max}) has been reached",
@@ -2966,7 +2986,32 @@
     "range_start_after_end": "The start address {start} is greater than the end address {end}",
     "range_outside_subnet": "The range {start}–{end} is outside the subnet {cidr}",
     "range_overlap": "It overlaps the existing range \"{other}\"",
-    "cert_export_password_in_url": "The PFX password must not be in the URL (it would end up in access logs); use POST with fmt and password in the body"
+    "cert_export_password_in_url": "The PFX password must not be in the URL (it would end up in access logs); use POST with fmt and password in the body",
+    "guacd_unavailable": "Cannot reach guacd ({reason}). Check that the jt-ipam-guacd service is running on the server.",
+    "guacd_protocol_missing": "guacd has no support for this protocol: {reason}",
+    "guacd_handshake_failed": "guacd handshake failed: {reason}",
+    "guacd_first_frame_timeout": "The remote host never sent a screen ({reason})",
+    "guacd_auth_required": "The remote host asked for credentials that were missing or not accepted",
+    "guacd_server_error": "guacd internal error: {reason}",
+    "guacd_server_busy": "guacd is busy: {reason}",
+    "guacd_upstream_timeout": "Timed out connecting to the remote host: {reason}",
+    "guacd_upstream_error": "The remote host reported an error: {reason}",
+    "guacd_resource_not_found": "The requested resource was not found: {reason}",
+    "guacd_upstream_not_found": "Cannot reach the remote host (it does not exist or the port is closed): {reason}",
+    "guacd_upstream_unavailable": "The remote host is currently unavailable: {reason}",
+    "guacd_session_conflict": "Remote session conflict (possibly taken over by another login): {reason}",
+    "guacd_session_timeout": "The remote session timed out: {reason}",
+    "guacd_session_closed": "The remote host ended the session: {reason}",
+    "guacd_bad_request": "Invalid connection parameters: {reason}",
+    "guacd_unauthorized": "Authentication failed (wrong username, password or key): {reason}",
+    "guacd_forbidden": "The remote host refused the login (the account may lack remote login rights): {reason}",
+    "guacd_client_timeout": "The browser stopped responding and guacd closed the connection: {reason}",
+    "guacd_too_many": "Too many simultaneous connections: {reason}",
+    "guacd_host_key_mismatch": "The host key does not match the pinned one — possible man-in-the-middle (connection aborted): {reason}",
+    "guacd_vnc_rejected": "The VNC server refused the connection — most often a wrong username or password (or an unsupported authentication method; after repeated failures some servers also block the source for a while): {reason}",
+    "console_vnc_username_needs_guacd": "The built-in VNC engine does not support usernames. Set the VNC engine to guacd under Admin → System settings.",
+    "cred_username_required": "Please enter a username",
+    "guacd_vnc_username_required": "This VNC server asks for a username and password; enter the username in the Username field"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -4406,7 +4451,13 @@
     "f_data_unreadable": "This happens when the code's field constraints are stricter than the database's. Please send us this message; to deal with it yourself, correct the offending field on the rows listed above",
     "f_disable_debug": "Turn APP_DEBUG off in production",
     "f_integration_pages": "Open each integration's settings page and check \"last error\" and \"test connection\"",
-    "report_counts": "{bad} failed, {warn} warnings, {ok} ok"
+    "report_counts": "{bad} failed, {warn} warnings, {ok} ok",
+    "c_guacd": "guacd console engine",
+    "d_guacd_idle": "Installed, not used by any protocol yet ({address})",
+    "d_guacd_ok": "{protocols} use guacd and it is healthy ({address})",
+    "d_guacd_down": "{protocols} are set to guacd but it cannot be reached ({address}): {reason}",
+    "d_guacd_missing": "{protocols} are set to guacd but guacd has no support for them",
+    "f_guacd": "Run sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd on the server, or switch the engine back in System settings"
   },
   "tool_verbs": {
     "get": "Look up",
@@ -4525,7 +4576,11 @@
     "diag_auth": "Authentication required",
     "auth_on": "Yes",
     "auth_off": "No",
-    "warn_unauthenticated": "⚠️ This OCS returns data with no credentials — anyone who can reach it can read the whole asset inventory. Add authentication for /ocsapi on the OCS side (Apache), or restrict access with a reverse proxy."
+    "warn_unauthenticated": "⚠️ This OCS returns data with no credentials — anyone who can reach it can read the whole asset inventory. Add authentication for /ocsapi on the OCS side (Apache), or restrict access with a reverse proxy.",
+    "scope_subnets": "Limit to subnets",
+    "scope_all": "All (no limit)",
+    "scope_hint": "Only match MACs of IPs within these subnets; “IPs without an agent” also lists only these subnets. Empty = global.",
+    "missing_scoped": "(limited to the integration's subnets)"
   },
   "scope_filter": {
     "section": "Section",

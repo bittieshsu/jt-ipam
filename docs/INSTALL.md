@@ -752,3 +752,36 @@ command to run.
 ffmpeg is there for screen capture, not video: reading the framebuffer any other way we measured
 costs 334 ms per frame, which caps the console at under 3 fps.
 
+## guacd console engine (RDP / VNC / SSH, optional)
+
+guacd is the server side of [Apache Guacamole](https://guacamole.apache.org/). It can serve as
+the engine for any of the three consoles, chosen per protocol under **Admin -> System settings**.
+It is optional; the built-in engines stay the defaults.
+
+Why a separate install: Debian no longer ships guacd, and Ubuntu only has 1.3.0, which has known
+remote-code-execution bugs. So jt-ipam provides its own build for each supported OS version
+(Debian 12/13, Ubuntu 22.04/24.04/26.04). Each build links against the OS's own libraries, so
+FreeRDP, libvncclient and the rest keep getting security fixes from apt.
+
+```
+sudo /opt/jt-ipam/scripts/jt-ipam.sh install --with-guacd        # fresh install
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd        # add it to an existing install
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...-ubuntu24.04-amd64.tar.gz
+                                                                 # offline: the .deps file must sit next to it
+```
+
+- It runs as the `jt-ipam-guacd` systemd service, **bound to 127.0.0.1:4822 only**. guacd itself
+  has no authentication, so it must never listen on another interface. The service uses a dynamic
+  user with no privileges.
+- Once installed, or once any protocol is set to guacd, every `upgrade` keeps it on the build that
+  matches that jt-ipam version. Downloads are checked against `scripts/guacd/SHA256SUMS`.
+- Credentials are passed to guacd by the server; they never reach the browser. SSH host keys are
+  still confirmed the first time and pinned, and guacd must match the pinned key.
+- SSH through guacd: the terminal is drawn on the server. Copy and paste with Ctrl+Shift+C /
+  Ctrl+Shift+V (⌘C / ⌘V on a Mac). Chinese/Japanese input methods work.
+- `jt-ipam.sh doctor` and **Admin -> System check** report whether guacd is running and whether each
+  protocol set to it is supported.
+
+Licensing: guacd is Apache-2.0, and each package includes its LICENSE, NOTICE and a SOURCE file
+naming the exact source and build scripts. These builds are made by jt-ipam; they are not
+official Apache releases.

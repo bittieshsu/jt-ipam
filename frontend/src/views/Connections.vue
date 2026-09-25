@@ -38,7 +38,7 @@ const { query, filtered } = useTableQuickFilter(rows);
 // 工具列篩選：連線類型（SSH / RDP）＋ OS
 const typeFilter = ref<string | null>(null);
 const osFilter = ref<string | null>(null);
-const typeOptions = [{ label: "SSH", value: "ssh" }, { label: "RDP (Beta)", value: "rdp" }, { label: "VNC (Beta)", value: "vnc" }, { label: "noVNC/xterm (PVE)", value: "novnc" }, { label: "BMC SOL (Beta)", value: "bmc" }];
+const typeOptions = [{ label: "SSH", value: "ssh" }, { label: "RDP", value: "rdp" }, { label: "VNC", value: "vnc" }, { label: "noVNC/xterm (PVE)", value: "novnc" }, { label: "BMC SOL (Beta)", value: "bmc" }];
 const osOptions = computed(() => {
   const seen = new Map<string, string>();
   for (const r of rows.value) {

@@ -5,7 +5,7 @@ import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
-  NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty,
+  NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty, NInput,
   NTabs, NTabPane, NModal, NSelect, NSwitch, NInputNumber, NTimePicker,
   useMessage, type DataTableColumns,
 } from "naive-ui";
@@ -209,6 +209,31 @@ const anyFindings = computed(() => {
 });
 function catRows(key: CatKey): Record<string, any>[] {
   return ((report.value?.[key] as Record<string, any>[]) ?? []).map(localizeRow);
+}
+
+// 篩選（IP／主機名稱／MAC／說明…）：所有分類共用同一個關鍵字，切頁籤不用重打，
+// 頁籤上的數字也跟著變成「符合／全部」—— 一眼看得出某個 IP 出現在哪幾類異常裡（使用者要求）。
+// 比對「畫面上看到的字」（pretty 之後，例如翻譯過的類型），巢狀的清單再多比一次原始值。
+const filterQ = ref("");
+function rowMatches(key: CatKey, row: Record<string, any>, q: string): boolean {
+  for (const k of CAT_KEYS[key]) {
+    const v = row[k];
+    if (v == null || v === "") continue;
+    if (pretty(k, v).toLowerCase().includes(q)) return true;
+    if (typeof v === "object" && JSON.stringify(v).toLowerCase().includes(q)) return true;
+  }
+  return false;
+}
+function shownRows(key: CatKey): Record<string, any>[] {
+  const rows = catRows(key);
+  const q = filterQ.value.trim().toLowerCase();
+  return q ? rows.filter((r) => rowMatches(key, r, q)) : rows;
+}
+function tabLabel(c: { key: CatKey; label: () => string }): string {
+  const total = catRows(c.key).length;
+  return filterQ.value.trim()
+    ? `${c.label()} (${shownRows(c.key).length}/${total})`
+    : `${c.label()} (${total})`;
 }
 
 // 後端送來的說明文字：`detail` 是中文原字串（匯出與 AI 判讀走那一份，那兩條路沒有
@@ -659,17 +684,19 @@ onMounted(() => { void loadIgnorable(); });
 
       <n-tabs v-else v-model:value="activeTab" type="line" animated>
         <n-tab-pane v-for="c in CATEGORIES" :key="c.key" :name="c.key"
-                    :tab="`${c.label()} (${catRows(c.key).length})`">
+                    :tab="tabLabel(c)">
           <!-- 每個類別先講清楚「這是什麼、為什麼會出現」，否則一長串 IP 沒人看得懂 -->
           <n-alert type="default" :bordered="false" :show-icon="false" class="cat-note">
             {{ t(`anomaly.explain_${c.key}`) }}
           </n-alert>
           <template v-if="catRows(c.key).length">
-            <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+            <div class="cat-toolbar">
+              <n-input v-model:value="filterQ" clearable size="small" class="cat-filter"
+                       :placeholder="t('anomaly.filter_ph')" />
               <ColumnPicker :all="pickerItems(c.key)" :visible="prefs[c.key].visibleKeys.value"
                             @update:visible="prefs[c.key].setVisible" @reset="prefs[c.key].reset" />
             </div>
-            <n-data-table :columns="catCols(c.key)" :data="catRows(c.key)"
+            <n-data-table :columns="catCols(c.key)" :data="shownRows(c.key)"
                           :bordered="false" size="small" :scroll-x="600" :pagination="pg" />
           </template>
           <n-empty v-else :description="t('anomaly.none_found')" style="margin: 16px 0" />
@@ -739,6 +766,11 @@ onMounted(() => { void loadIgnorable(); });
 .triage-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .triage-model { font-size: 12px; opacity: .65; }
 .cat-note { margin: 4px 0 14px; font-size: 12.5px; line-height: 1.7; }
+.cat-toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.cat-filter { width: 320px; max-width: 100%; }
 .rogue-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .rogue-chip {
   font-family: var(--font-mono, monospace); font-size: 12px;

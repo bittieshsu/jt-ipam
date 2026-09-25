@@ -18,12 +18,17 @@ import {
 } from "@/api/paloalto";
 import { autoSort } from "@/composables/useTableSort";
 import { apiErrMsg } from "@/api/client";
+import { useRoute } from "vue-router";
+import { useFocusRow } from "@/composables/useFocusRow";
+import FocusRowBanner from "@/components/FocusRowBanner.vue";
 
 const { t } = useI18n();
 const msg = useMessage();
 
 const firewalls = ref<PaloAltoFirewall[]>([]);
-const fwId = ref<string | null>(null);
+const route = useRoute();
+// IP 詳細頁點進來：?fw=<id>&focus=<政策 id>
+const fwId = ref<string | null>(typeof route.query.fw === "string" ? route.query.fw : null);
 const vsys = ref<string | null>(null);
 const policies = ref<PaloAltoPolicy[]>([]);
 const addresses = ref<PaloAltoAddressObject[]>([]);
@@ -56,6 +61,9 @@ async function loadData() {
   finally { loading.value = false; }
 }
 
+const policyFocus = useFocusRow(policies, (p, k) => p.id === k);
+const policiesShown = computed(() => policyFocus.apply(policies.value));
+watch(fwId, (_n, old) => { if (old != null) policyFocus.clear(); });   // 換了防火牆，那一筆就不在這裡了
 watch([fwId, vsys], () => { void loadData(); });
 onMounted(async () => { await loadFirewalls(); await loadData(); });
 
@@ -115,7 +123,8 @@ const addrCols = computed<DataTableColumns<PaloAltoAddressObject>>(() => autoSor
     <n-empty v-if="!firewalls.length" :description="t('paloalto.none_configured')" />
     <n-tabs v-else type="line">
       <n-tab-pane name="policies" :tab="t('paloalto.policies')">
-        <n-data-table :columns="policyCols" :data="policies" :loading="loading"
+        <FocusRowBanner :ctl="policyFocus" :loading="loading" />
+        <n-data-table :columns="policyCols" :data="policiesShown" :loading="loading"
                       :bordered="false" :scroll-x="1240" />
       </n-tab-pane>
       <n-tab-pane name="addresses" :tab="t('paloalto.addresses')">
