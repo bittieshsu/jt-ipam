@@ -19,8 +19,6 @@ from app.services.rack import (
     ANGLE_PLY_MM,
     ANGLE_POST_MM,
     KALLAX_DIVIDER_MM,
-    RACK_REF_ROW_MM,
-    RACK_REF_ROW_PX,
     RACK_REF_WIDTH_MM,
     RACK_REF_WIDTH_PX,
     RACK_SLOTS,
@@ -35,6 +33,7 @@ from app.services.rack import (
     rack_side_px,
     scaled_board_px,
     uses_rack_units,
+    v_px_per_mm,
 )
 
 #: 與前端 `GEO` 相同的幾何，改這裡要同步改 `rackGraphicsExport.ts`，否則兩邊會長得不一樣
@@ -144,7 +143,7 @@ def build_rack_svg(name: str, u_height: int, devices: list[dict[str, Any]],
     top_px, boards = level_boards_px(kind, u_height, bpx)
     # 離地：只有新型態畫（桌腳、角鋼的腳）；既有型態的嵌入圖本來就不畫，維持原樣
     fl = floor_default_mm(kind) if floor_mm is None else float(floor_mm)
-    floor_px = RACK_REF_ROW_PX * (fl / RACK_REF_ROW_MM) if (fl and kind in _NEW_KINDS) else 0.0
+    floor_px = fl * v_px_per_mm(kind) if (fl and kind in _NEW_KINDS) else 0.0
     return _build(name, u_height, devices, kind or "rack", col_w, row_px, braces,
                   bpx, has_open_top(kind), rack_side_px(kind, width_mm),
                   boards=boards, top_px=top_px, floor_px=floor_px, finish=finish,
@@ -192,8 +191,9 @@ _PINE_BOARD = (
 _SIDE_W = 14.0
 PEG_PITCH_MM = 32.0
 PEG_DIA_MM = 7.0
-_PEG_PITCH = RACK_REF_ROW_PX * (PEG_PITCH_MM / RACK_REF_ROW_MM)
-_PEG_R = RACK_REF_ROW_PX * (PEG_DIA_MM / RACK_REF_ROW_MM) / 2
+# 層架寬高同一個比例（見 rack.v_px_per_mm）
+_PEG_PITCH = PEG_PITCH_MM * v_px_per_mm("wood_shelf")
+_PEG_R = PEG_DIA_MM * v_px_per_mm("wood_shelf") / 2
 _PEGS = (
     f'<pattern id="pegs" width="{_SIDE_W}" height="{_PEG_PITCH:.3f}" '
     f'patternUnits="userSpaceOnUse">'
@@ -339,7 +339,7 @@ def _angle_defs(finish: str | None) -> str:
     c = _palette("angle_shelf", finish)
     fid = normalize_finish("angle_shelf", finish)
     w = ANGLE_POST_MM * RACK_REF_WIDTH_PX / RACK_REF_WIDTH_MM
-    pitch = RACK_REF_ROW_PX * (ANGLE_HOLE_PITCH_MM / RACK_REF_ROW_MM)
+    pitch = ANGLE_HOLE_PITCH_MM * v_px_per_mm("angle_shelf")
     cx = w * 0.56
     return (f'<pattern id="keyholes-{fid}" width="{w:.3f}" height="{pitch:.3f}" '
             f'patternUnits="userSpaceOnUse">'
@@ -354,7 +354,7 @@ def _angle(left: float, COL_W: float, bounds: list[float], boards: list[float],
     c = _palette("angle_shelf", finish)
     fid = normalize_finish("angle_shelf", finish)
     w = ANGLE_POST_MM * RACK_REF_WIDTH_PX / RACK_REF_WIDTH_MM
-    ply = RACK_REF_ROW_PX * (ANGLE_PLY_MM / RACK_REF_ROW_MM)
+    ply = ANGLE_PLY_MM * v_px_per_mm("angle_shelf")
     out: list[str] = []
     # 橫桿勾在兩支立柱之間、立柱在前面：先畫橫桿（只到立柱內緣），再畫立柱蓋上去
     for i in range(rows):

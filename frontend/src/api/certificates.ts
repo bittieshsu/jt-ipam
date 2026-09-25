@@ -109,10 +109,10 @@ export async function listVersions(id: string): Promise<CertVersion[]> {
   return data;
 }
 export async function downloadVersionFile(certId: string, versionId: string, fmt: string, password = ""): Promise<void> {
-  const res = await apiClient.get(`/api/v1/certificates/${certId}/versions/${versionId}/file`, {
-    params: { fmt, ...(password ? { password } : {}) },
-    responseType: "blob",
-  });
+  // POST、密碼放 body：放在網址參數的話，PFX 密碼會原封不動寫進 nginx 存取日誌與瀏覽器歷史
+  // （0.6.43 ZAP 登入後掃描抓到；後端現在直接拒絕網址裡帶 password）
+  const res = await apiClient.post(`/api/v1/certificates/${certId}/versions/${versionId}/file`,
+    { fmt, password }, { responseType: "blob" });
   const cd = String(res.headers["content-disposition"] ?? "");
   const m = cd.match(/filename="?([^"]+)"?/);
   const filename = m ? m[1] : `cert.${fmt}`;

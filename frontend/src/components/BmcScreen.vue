@@ -85,6 +85,8 @@ async function connect() {
         password: form.value.password, target_ip_id: props.addressId,
       });
       selectedCredId.value = c.id;
+      // 同時重新載入清單：否則下拉找不到這個 id 的選項，會直接顯示一串 UUID（noVNC 踩過）
+      void loadCreds();
     } catch { /* 存失敗不擋連線 */ }
   }
 

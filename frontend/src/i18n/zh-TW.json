@@ -161,7 +161,13 @@
     "f_key": "私鑰（.key，PEM）",
     "f_combined": "合併 cert + chain + key（.pem）",
     "f_der": "DER（.der）",
-    "f_pfx": "PKCS#12 / PFX（.pfx）"
+    "f_pfx": "PKCS#12 / PFX（.pfx）",
+    "pfx_title": "PFX 匯出密碼",
+    "pfx_password": "保護密碼",
+    "pfx_password2": "再輸入一次",
+    "pfx_mismatch": "兩次輸入的密碼不一樣",
+    "pfx_hint": "PFX 內含私鑰。匯入時要輸入這個密碼；密碼只用來加密這個檔案，不會被儲存。",
+    "pfx_no_password": "沒有設定密碼：這個 PFX 內含私鑰且不加密，任何拿到檔案的人都能取出私鑰。除非匯入的軟體不支援密碼，否則建議設定。"
   },
   "certs": {
     "tab_certs": "憑證",
@@ -2694,8 +2700,10 @@
     "cert_unknown_format": "不支援的格式：{fmt}",
     "pve_error": "Proxmox VE 回應錯誤",
     "pve_ssrf": "SSRF 守門擋下：{reason}",
-    "pve_unreachable": "PVE 連線失敗：{reason}",
-    "pve_auth_failed": "PVE 認證失敗（帳號或密碼錯誤）",
+    "pve_unreachable": "PVE（{host}）連線失敗：{reason}",
+    "pve_auth_failed": "PVE（{host}）拒絕了 {user} 的登入。這裡要的是 Proxmox VE 的帳密，不是這台 VM／CT 自己的；realm 也要對（pam＝PVE 主機的 Linux 帳號、pve＝PVE 內建帳號）。PVE 不會說是密碼錯、帳號不存在還是被停用，詳細原因在該節點的 journalctl -u pvedaemon。",
+    "pve_unknown_realm": "PVE（{host}）上沒有 realm「{realm}」，可用的有：{available}。帳號要寫成「使用者{'@'}realm」，例如 root{'@'}pam。",
+    "pve_auth_failed_saved": "PVE（{host}）拒絕了已存帳密「{label}」（{user}）。已存的密碼可能打錯或已變更：在下拉選「使用其他帳密（手動輸入）」重新輸入並儲存，再把舊的刪掉。這裡要的是 Proxmox VE 的帳密，不是這台 VM／CT 自己的。",
     "pve_ticket_http": "PVE /access/ticket 回應 HTTP {status_code}",
     "pve_no_ticket": "PVE 未回傳登入 ticket",
     "pve_tfa_required": "此 PVE 帳號啟用了兩階段驗證，請輸入驗證器上的 6 位數驗證碼",
@@ -2957,7 +2965,8 @@
     "range_family_mismatch": "起迄位址的 IP 版本不同（一個是 IPv4、一個是 IPv6）",
     "range_start_after_end": "起始位址 {start} 比結束位址 {end} 大",
     "range_outside_subnet": "範圍 {start}～{end} 超出子網路 {cidr}",
-    "range_overlap": "與既有範圍「{other}」重疊"
+    "range_overlap": "與既有範圍「{other}」重疊",
+    "cert_export_password_in_url": "PFX 密碼不可以放在網址參數（會被寫進存取日誌）；請改用 POST，把 fmt 與 password 放在 body"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",

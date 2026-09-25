@@ -113,6 +113,9 @@ async function connect() {
       credId = saved.id;
       // 記進本地狀態 → 同一分頁「重新連線」直接沿用剛存的憑證，不再跳帳密輸入
       selectedCredId.value = saved.id;
+      // 同時重新載入清單（比照 SSH／RDP）：只設選取值的話，下拉找不到這個 id 的選項，
+      // 連線失敗回到表單時就只看到一串 UUID（使用者回報，2026-09-24）
+      void loadCreds();
     } catch (e: any) {
       phase.value = "error";
       errorMsg.value = e?.response?.data?.detail || t("novnc.err_save_cred");

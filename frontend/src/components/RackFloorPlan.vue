@@ -296,9 +296,8 @@ async function save() {
     <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp"
            style="display:none" @change="onFile" />
 
-    <n-space align="center" style="margin-bottom: 10px" :wrap-item="false">
-      <n-icon :size="18"><RacksIcon /></n-icon>
-      <strong>{{ t("racks.floor_plan") }}</strong>
+    <!-- 標題由外面的卡片標題列負責（跟其他卡片同一個樣式）；這裡只放工具按鈕 -->
+    <n-space v-if="canEdit || hasPlan" align="center" style="margin-bottom: 10px" :wrap-item="false">
       <template v-if="canEdit">
         <n-button size="small" @click="pickFile">
           <template #icon><n-icon><PlusIcon /></n-icon></template>

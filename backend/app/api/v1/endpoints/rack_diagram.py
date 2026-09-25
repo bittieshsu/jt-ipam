@@ -17,8 +17,6 @@ from app.models.location import Rack
 from app.schemas.base import StrictModel
 from app.services.rack import (
     KALLAX_DIVIDER_MM,
-    RACK_REF_ROW_MM,
-    RACK_REF_ROW_PX,
     RACK_REF_WIDTH_MM,
     RACK_REF_WIDTH_PX,
     RACK_SLOTS,
@@ -32,6 +30,7 @@ from app.services.rack import (
     placeable_levels,
     rack_side_px,
     scaled_board_px,
+    v_px_per_mm,
 )
 
 
@@ -50,11 +49,12 @@ def _floor_px(rack) -> float:  # type: ignore[no-untyped-def]
     kind = getattr(rack, "kind", None)
     mm = getattr(rack, "floor_mm", None)
     dflt = floor_default_mm(kind)
+    per_mm = v_px_per_mm(kind)      # 層架寬高同一個比例，機櫃沿用 1U＝28px
     if mm is None and dflt is not None:
-        return RACK_REF_ROW_PX * (dflt / RACK_REF_ROW_MM)
+        return dflt * per_mm
     if kind == "kallax":
-        return RACK_REF_ROW_PX * (float(mm or 0) / RACK_REF_ROW_MM)
-    px = RACK_REF_ROW_PX * (float(mm) / RACK_REF_ROW_MM) if mm else 0.0
+        return float(mm or 0) * per_mm
+    px = float(mm) * per_mm if mm else 0.0
     return max(px, 7.0)
 
 

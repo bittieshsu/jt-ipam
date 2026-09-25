@@ -161,7 +161,13 @@
     "f_key": "秘密鍵（.key、PEM）",
     "f_combined": "証明書＋チェーン＋秘密鍵の結合（.pem）",
     "f_der": "DER（.der）",
-    "f_pfx": "PKCS#12 / PFX（.pfx）"
+    "f_pfx": "PKCS#12 / PFX（.pfx）",
+    "pfx_title": "PFX エクスポートのパスワード",
+    "pfx_password": "保護パスワード",
+    "pfx_password2": "もう一度入力",
+    "pfx_mismatch": "2 回入力したパスワードが一致しません",
+    "pfx_hint": "PFX には秘密鍵が含まれます。インポート時にこのパスワードが必要です。このファイルの暗号化にのみ使われ、保存されません。",
+    "pfx_no_password": "パスワードが未設定です：この PFX は秘密鍵を暗号化せずに含むため、ファイルを入手した人は誰でも鍵を取り出せます。インポート先のソフトがパスワードに対応していない場合を除き、設定をお勧めします。"
   },
   "certs": {
     "tab_certs": "証明書",
@@ -2694,8 +2700,10 @@
     "cert_unknown_format": "対応していない形式です：{fmt}",
     "pve_error": "Proxmox VE がエラーを返しました",
     "pve_ssrf": "SSRF ガードによりブロックされました：{reason}",
-    "pve_unreachable": "PVE に接続できません：{reason}",
-    "pve_auth_failed": "PVE の認証に失敗しました（ユーザー名またはパスワードが違います）",
+    "pve_unreachable": "PVE（{host}）に接続できません：{reason}",
+    "pve_auth_failed": "PVE（{host}）が {user} のログインを拒否しました。必要なのは Proxmox VE の資格情報で、この VM／CT 自身のものではありません。realm も一致している必要があります（pam＝PVE ホストの Linux アカウント、pve＝PVE 組み込みアカウント）。PVE はパスワード誤り・アカウント不在・無効化を区別して返しません。詳しい理由はそのノードの journalctl -u pvedaemon にあります。",
+    "pve_unknown_realm": "PVE（{host}）に realm「{realm}」はありません。使用できるのは：{available}。アカウントは「ユーザー{'@'}realm」の形式で、例：root{'@'}pam。",
+    "pve_auth_failed_saved": "PVE（{host}）が保存済みの資格情報「{label}」（{user}）を拒否しました。保存したパスワードの入力ミスか、その後変更された可能性があります。一覧で「別の資格情報を使う」を選んで入力し直して保存し、古いものを削除してください。必要なのは Proxmox VE の資格情報で、この VM／CT 自身のものではありません。",
     "pve_ticket_http": "PVE /access/ticket が HTTP {status_code} を返しました",
     "pve_no_ticket": "PVE がログインチケットを返しませんでした",
     "pve_tfa_required": "この PVE アカウントは二要素認証が有効です。認証アプリの 6 桁のコードを入力してください",
@@ -2957,7 +2965,8 @@
     "range_family_mismatch": "開始と終了のアドレスの IP バージョンが違います（IPv4 と IPv6）",
     "range_start_after_end": "開始アドレス {start} が終了アドレス {end} より大きいです",
     "range_outside_subnet": "範囲 {start}～{end} がサブネット {cidr} の外にあります",
-    "range_overlap": "既存の範囲「{other}」と重なっています"
+    "range_overlap": "既存の範囲「{other}」と重なっています",
+    "cert_export_password_in_url": "PFX のパスワードを URL パラメーターに入れることはできません（アクセスログに残ります）。POST で fmt と password を本文に入れてください"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",

@@ -43,6 +43,32 @@ def test_usable_nics_drops_virtual_and_zero_mac() -> None:
     assert svc.usable_nics(None) == []
 
 
+def test_old_agent_in_lxc_marks_the_only_nic_virtual() -> None:
+    """舊版 agent（2.4.2 以前）在 LXC 裡把 eth0 標成 VIRTUALDEV=1 —— 容器的網卡背後是 veth。
+
+    全部照「虛擬就丟」的話，這種容器一張網卡都不剩，jt-ipam 永遠對不上它的 IP（2026-09-25
+    實際部署時有兩台容器就是這樣，OCS 收到了、jt-ipam 卻顯示沒盤點過）。
+    規則：有非虛擬網卡時照舊只用那些；**全部都是虛擬**時，退回用有 MAC、有 IP 的那幾張。
+    """
+    lxc = [
+        {"DESCRIPTION": "eth0", "MACADDR": "00:00:5e:00:53:31", "VIRTUALDEV": 1,
+         "IPADDRESS": "198.51.100.67", "TYPE": "ethernet", "STATUS": "Up"},
+        {"DESCRIPTION": "eth1", "MACADDR": "00:00:5e:00:53:32", "VIRTUALDEV": 1,
+         "IPADDRESS": "203.0.113.67", "TYPE": "ethernet", "STATUS": "Up"},
+        {"DESCRIPTION": "tun0", "MACADDR": "", "VIRTUALDEV": 1, "IPADDRESS": "10.8.0.2"},
+    ]
+    assert [n["DESCRIPTION"] for n in svc.usable_nics(lxc)] == ["eth0", "eth1"]
+
+    # 筆電：有實體網卡時，虛擬的 docker0 仍然丟掉（原本的行為不變）
+    laptop = [
+        {"DESCRIPTION": "Wi-Fi", "MACADDR": "aa:bb:cc:00:00:08", "VIRTUALDEV": 0,
+         "IPADDRESS": "198.51.100.8"},
+        {"DESCRIPTION": "docker0", "MACADDR": "02:42:ac:11:00:01", "VIRTUALDEV": 1,
+         "IPADDRESS": "172.17.0.1"},
+    ]
+    assert [n["DESCRIPTION"] for n in svc.usable_nics(laptop)] == ["Wi-Fi"]
+
+
 def test_parse_os_prefers_comments_and_maps_family() -> None:
     g, f = svc.parse_os({"OSNAME": "Windows", "OSVERSION": "10.0.19045",
                          "OSCOMMENTS": "Windows 10 Pro"})

@@ -196,9 +196,10 @@ def test_custom_size_scales_proportionally_but_is_clamped() -> None:
     # 層架：兩倍寬 → 兩倍 px（未觸頂）。機櫃不在此列 —— 見下面的走線空間
     w, _ = rack_render_size("wood_shelf", int(RACK_REF_WIDTH_MM * 2), None)
     assert abs(w - 500.0) < 1.0
-    # 誇張的值要被夾住，不能把版面撐爆
+    # 誇張的值要被夾住，不能把版面撐爆（高度：整張圖的預算，約 3 公尺）
+    from app.services.rack import _TOTAL_MAX_PX
     w2, r2 = rack_render_size("shelf", 5000, 5000)
-    assert w2 <= 620.0 and r2 <= 76.0
+    assert w2 <= 620.0 and r2 <= _TOTAL_MAX_PX
 
 
 # ─────────────────── 機櫃的走線空間 ───────────────────
@@ -365,20 +366,46 @@ def test_row_height_budget_never_shrinks_an_existing_rack() -> None:
 
 
 def test_tall_shelf_levels_are_drawn_to_scale() -> None:
-    """90×150 公分的五層架：高寬比要接近實物，不能被列高上限壓成矮胖的。"""
+    """90×150 公分的五層架：寬高用同一個比例，高寬比就是實物的比例。"""
     from app.services.rack import rack_render_size
 
     w, r = rack_render_size("wire_shelf", 900, 300, 5)
     ratio = (r * 5) / w
-    assert abs(ratio - 1500 / 900) < 0.2, f"比例 {ratio:.2f} 差太多"
+    assert abs(ratio - 1500 / 900) < 0.01, f"比例 {ratio:.3f}"
 
 
 def test_many_level_shelf_stays_within_the_height_budget() -> None:
-    """層數多的時候上限要收回來，整張圖不能無限長。"""
-    from app.services.rack import rack_render_size
+    """離譜的資料（20 層 × 40 公分＝8 公尺）要收回來，整張圖不能無限長；收的時候各層等比例縮。"""
+    from app.services.rack import _TOTAL_MAX_PX, level_render_px, rack_render_size
 
     _, r = rack_render_size("shelf", 900, 400, 20)
-    assert r * 20 <= 1600.0
+    assert r * 20 <= _TOTAL_MAX_PX + 0.01
+    _, rows = level_render_px("shelf", 900, 400, [400] * 10 + [200] * 10, 20)
+    assert sum(rows) <= _TOTAL_MAX_PX + 0.01
+    assert abs(rows[0] / rows[-1] - 2.0) < 0.01, "縮的時候高矮層的比例不能變"
+
+
+def test_shelf_levels_are_true_to_life() -> None:
+    """層架寬高用同一個比例（19 吋 482.6mm＝250px），畫出來就是實物的形狀。
+
+    以前每層最高只畫 160px，寬度卻不跟著縮：角鋼層架 518mm 的一層只畫一半高，放在上面的
+    設備看起來比實物扁（2026-09-24 使用者同意拿掉）。拿掉之後不能改用機櫃的垂直比例
+    （1U 44.45mm＝28px，比水平多 1.22 倍）—— 那樣 KALLAX 的正方形格子會變成直立的長方形。
+    機櫃維持原本的畫法（一張既有的圖都不變）。
+    """
+    from app.services.rack import level_render_px
+    h = 250.0 / 482.6
+    _, rows = level_render_px("angle_shelf", 900, 518, None, 3)
+    assert all(abs(r - 518 * h) < 0.01 for r in rows), rows
+    _, rows = level_render_px("wood_shelf", 420, 330, None, 6)          # IVAR
+    assert all(abs(r - 330 * h) < 0.01 for r in rows), rows
+    # KALLAX 的格子是正方形：畫出來的格高＝格寬
+    w, rows = level_render_px("kallax", 765, None, None, 4)
+    cell_w = (w - 15 * h) / 2
+    assert abs(rows[0] - cell_w) < 0.5, (rows[0], cell_w)
+    # 機櫃不變
+    _, rows = level_render_px("rack", 600, None, None, 42)
+    assert rows == [28.0] * 42
 
 
 def test_wood_shelf_defaults_match_the_ikea_ivar_parts() -> None:
@@ -500,7 +527,8 @@ def test_multi_level_device_height_sums_the_levels_it_spans() -> None:
 
 
 def test_ivar_peg_holes_use_the_real_spec() -> None:
-    """IVAR 側架的調整孔：孔距（中心至中心）32mm、孔徑 7mm，照圖面比例尺換算。
+    """IVAR 側架的調整孔：孔距（中心至中心）32mm、孔徑 7mm，照層架的比例尺換算
+    （寬高同一個比例，19 吋 482.6mm＝250px）。
 
     前端的 CSS 是另外寫一份（radial-gradient），兩邊對不起來就會一邊密一邊疏，
     所以這裡連前端那份也一起比對。
@@ -511,8 +539,8 @@ def test_ivar_peg_holes_use_the_real_spec() -> None:
     from app.services.rack_svg import PEG_DIA_MM, PEG_PITCH_MM, _PEG_PITCH, _PEG_R
 
     assert (PEG_PITCH_MM, PEG_DIA_MM) == (32.0, 7.0)
-    assert abs(_PEG_PITCH - 20.16) < 0.05
-    assert abs(_PEG_R * 2 - 4.41) < 0.05
+    assert abs(_PEG_PITCH - 32 * 250 / 482.6) < 0.05      # 16.58px
+    assert abs(_PEG_R * 2 - 7 * 250 / 482.6) < 0.05       # 3.63px
 
     vue = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "components"
            / "RackDiagram.vue").read_text(encoding="utf-8")

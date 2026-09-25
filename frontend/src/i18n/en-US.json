@@ -161,7 +161,13 @@
     "f_key": "Private key (.key, PEM)",
     "f_combined": "Combined cert + chain + key (.pem)",
     "f_der": "DER (.der)",
-    "f_pfx": "PKCS#12 / PFX (.pfx)"
+    "f_pfx": "PKCS#12 / PFX (.pfx)",
+    "pfx_title": "PFX export password",
+    "pfx_password": "Protection password",
+    "pfx_password2": "Enter it again",
+    "pfx_mismatch": "The two passwords don't match",
+    "pfx_hint": "The PFX contains the private key. You'll need this password when importing it; it only encrypts this file and is not stored.",
+    "pfx_no_password": "No password: this PFX contains the private key unencrypted, so anyone who gets the file can extract the key. Set one unless the importing software can't take a password."
   },
   "certs": {
     "tab_certs": "Certificates",
@@ -2694,8 +2700,10 @@
     "cert_unknown_format": "Unsupported format: {fmt}",
     "pve_error": "Proxmox VE returned an error",
     "pve_ssrf": "Blocked by the SSRF guard: {reason}",
-    "pve_unreachable": "Could not reach PVE: {reason}",
-    "pve_auth_failed": "PVE authentication failed (wrong username or password)",
+    "pve_unreachable": "Could not reach PVE ({host}): {reason}",
+    "pve_auth_failed": "PVE ({host}) rejected the login for {user}. This needs the Proxmox VE credentials, not the VM's or container's own; the realm must match too (pam = a Linux account on the PVE host, pve = a PVE built-in account). PVE doesn't say whether the password was wrong, the account doesn't exist or it is disabled; the reason is in journalctl -u pvedaemon on that node.",
+    "pve_unknown_realm": "PVE ({host}) has no realm \"{realm}\"; available: {available}. Write the account as user{'@'}realm, e.g. root{'@'}pam.",
+    "pve_auth_failed_saved": "PVE ({host}) rejected the saved credentials \"{label}\" ({user}). The saved password may be mistyped or changed since: choose \"Use different credentials\" in the list, enter them again and save, then delete the old ones. This needs the Proxmox VE credentials, not the VM's or container's own.",
     "pve_ticket_http": "PVE /access/ticket returned HTTP {status_code}",
     "pve_no_ticket": "PVE did not return a login ticket",
     "pve_tfa_required": "This PVE account has two-factor authentication enabled; enter the 6-digit code from your authenticator",
@@ -2957,7 +2965,8 @@
     "range_family_mismatch": "The start and end addresses are different IP versions (one IPv4, one IPv6)",
     "range_start_after_end": "The start address {start} is greater than the end address {end}",
     "range_outside_subnet": "The range {start}–{end} is outside the subnet {cidr}",
-    "range_overlap": "It overlaps the existing range \"{other}\""
+    "range_overlap": "It overlaps the existing range \"{other}\"",
+    "cert_export_password_in_url": "The PFX password must not be in the URL (it would end up in access logs); use POST with fmt and password in the body"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",

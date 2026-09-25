@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.47] - 2026-09-25
+
+### Added
+- **Exporting a PFX asks for a protection password**: a PFX holds the private key, and the
+  certificates page used to export it with no password at all (the backend supported one, the UI
+  never offered a field), so anyone who got the file could open it. Choosing PFX now opens a
+  dialog for a password (entered twice; empty is still allowed, with a warning).
+
+### Fixed
+- **The noVNC "saved PVE credentials" list showed a UUID**: after "remember" the new credential
+  was selected but the list was not reloaded, so it showed as soon as a connection failed and
+  the form came back. The BMC console had the same gap; a guard test now covers all six consoles.
+- **PVE console login failures say why**: a mistyped realm lists the realms PVE has; a rejected
+  login names the PVE host and the account and points out that PVE credentials are needed, not
+  the VM's own; a rejected saved credential is named; an unreachable PVE gives the underlying
+  cause (refused, timed out, certificate). The browser used to give up waiting before the
+  backend on an unreachable PVE, so only "failed to get a ticket" ever showed.
+- **The PFX password is no longer sent in the URL**, where it ended up in access logs and
+  browser history (found by the 0.6.43 authenticated ZAP scan): export is now POST with the
+  password in the body, and a GET that carries a password is refused.
+- Failed downloads show the reason the server gave instead of "server error".
+- **Shelves are drawn true to life**: the 160 px cap on a shelf level is gone (widths were not
+  scaled, so gear on shelves looked squashed), and shelves now use the same scale for width
+  and height, so KALLAX cells are square and its frame is as thick on top as on the sides; a
+  518 mm angle-steel level is no longer drawn at half height. Racks are drawn as before.
+- **OCS: containers with an old agent (2.4.2 or earlier) never matched their IP**: those agents
+  mark a container's NIC as virtual, and jt-ipam dropped every virtual NIC. When all of a
+  computer's NICs are virtual, the ones with a MAC and an IP are used.
+- Icon-only buttons on the certificates table have an accessible name.
+- The floor plan card on the racks page has the same title bar as the other cards (the title
+  used to sit in the card body).
+- The certificate download GET no longer advertises a `password` parameter in the API docs
+  (it is still refused if sent; the 0.6.47 authenticated ZAP scan sent it because the docs
+  listed it).
+- The install and upgrade gate containers can use another Debian or PyPI mirror
+  (`APT_MIRROR` / `PIP_MIRROR`).
+
 ## [0.6.46] - 2026-09-24
 
 ### Added

@@ -32,3 +32,22 @@ describe.each(CONSOLES)("%s 的帳密下拉", (file) => {
     expect(src.slice(i, i + 120)).toContain("null");
   });
 });
+
+/**
+ * 勾「記住帳密」連線時，新存的那一筆要**同時**出現在下拉的選項裡。
+ *
+ * 使用者回報（2026-09-24）：noVNC 的已存帳密下拉顯示成一串 UUID。原因是存完只把
+ * 選取值設成新的 id、沒有重新載入清單 —— 下拉找不到對應的選項，就把值原樣印出來。
+ * 連線一失敗回到表單就會看到（那次正是 PVE 認證失敗）。SSH／RDP 存完都會重新載入，
+ * 只有 noVNC 漏了。
+ */
+describe.each(CONSOLES)("%s 存完帳密", (file) => {
+  const src = readFileSync(join(root, file), "utf-8");
+  const m = src.match(/await create\w*Credential\(/);
+
+  it.skipIf(!m)("存完要重新載入清單（否則下拉只剩一串 UUID）", () => {
+    const at = src.indexOf(m![0]);
+    const after = src.slice(at, at + 900);
+    expect(after, "存完帳密之後同一段流程裡要呼叫 loadCreds()").toMatch(/loadCreds\(\)/);
+  });
+});

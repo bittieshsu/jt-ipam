@@ -22,6 +22,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from pydantic import Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,7 +32,8 @@ from app.core.db import get_session
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import detail_of, ui_detail
 from app.models.certificate import CertAgent, Certificate, CertVersion
-from app.schemas.base import Paginated
+from app.models.user import User
+from app.schemas.base import Paginated, StrictModel
 from app.schemas.certificate import (
     CertificateCreate,
     CertificateRead,
@@ -323,15 +325,15 @@ async def rebuild_chain(
     return m
 
 
-@router.get("/{cert_id}/versions/{version_id}/file")
-async def download_version_file(
-    cert_id: uuid.UUID,
-    version_id: uuid.UUID,
-    user: CurrentUser,
-    request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
-    fmt: Annotated[str, Query(description="cert|key|chain|fullchain|combined|der|pfx")] = "fullchain",
-    password: Annotated[str, Query(description="pfx 加密密碼，選填")] = "",
+class CertExportIn(StrictModel):
+    fmt: str = "fullchain"
+    # PFX 的保護密碼（選填）。放在 body，不放網址參數 —— 見 download_version_file_post。
+    password: Annotated[str, Field(max_length=256)] = ""
+
+
+async def _export_version_file(
+    session: AsyncSession, request: Request, user: User,
+    cert_id: uuid.UUID, version_id: uuid.UUID, fmt: str, password: str,
 ) -> Response:
     """下載某版本憑證檔（多格式匯出）。含私鑰的格式（key/combined/pfx）逐次稽核。"""
     cert = await session.get(Certificate, cert_id)
@@ -359,6 +361,40 @@ async def download_version_file(
         await session.commit()
     return Response(content=data, media_type=media_type,
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/{cert_id}/versions/{version_id}/file")
+async def download_version_file(
+    cert_id: uuid.UUID,
+    version_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    fmt: Annotated[str, Query(description="cert|key|chain|fullchain|combined|der|pfx")] = "fullchain",
+) -> Response:
+    """下載某版本憑證檔（不需要密碼的格式；要替 PFX 加密碼請用 POST）。"""
+    # 不宣告 password 參數（API 文件裡不公布它），但舊的呼叫方式帶了還是要擋下來
+    if request.query_params.get("password"):
+        # 網址參數會原封不動寫進 nginx 存取日誌、瀏覽器歷史與中間代理的記錄（0.6.43 ZAP
+        # 登入後掃描抓到）。靜靜照收的話舊的呼叫方式照樣把密碼寫進日誌，所以直接拒絕。
+        raise HTTPException(400, detail=ui_detail(
+            "cert_export_password_in_url",
+            "PFX 密碼不可以放在網址參數（會被寫進存取日誌）；請改用 POST，把 fmt 與 password 放在 body"))
+    return await _export_version_file(session, request, user, cert_id, version_id, fmt, "")
+
+
+@router.post("/{cert_id}/versions/{version_id}/file")
+async def download_version_file_post(
+    cert_id: uuid.UUID,
+    version_id: uuid.UUID,
+    payload: CertExportIn,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """下載某版本憑證檔；PFX 的保護密碼放在 body，不會出現在網址與存取日誌裡。"""
+    return await _export_version_file(session, request, user, cert_id, version_id,
+                                      payload.fmt, payload.password)
 
 
 @router.post("/{cert_id}/versions", response_model=CertVersionRead, status_code=201)

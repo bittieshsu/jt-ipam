@@ -72,18 +72,25 @@ def usable_nics(networks: Any) -> list[dict[str, Any]]:
 
     丟掉的：虛擬介面（VIRTUALDEV=1，VPN／docker0／vSwitch）、全零 MAC、空 MAC。
     不過濾的話會把一堆假 MAC 灌進來 —— 實測筆電就有一張 VPN 介面掛著 00:00:00:00:00:00。
+
+    例外：**全部**網卡都被標成虛擬時，退回用有 MAC、有 IP 的那幾張。舊版 agent（2.4.2 以前）
+    在 LXC 裡把 eth0 標成虛擬（容器的網卡背後是 veth），照舊全丟的話這種容器一張都不剩，
+    jt-ipam 永遠對不上它的 IP（2026-09-25 實際部署時遇到）。有實體網卡的電腦不受影響。
     """
-    out: list[dict[str, Any]] = []
+    real: list[dict[str, Any]] = []
+    virtual: list[dict[str, Any]] = []
     for nic in networks or []:
         if not isinstance(nic, dict):
-            continue
-        if str(nic.get("VIRTUALDEV") or "0") in ("1", "true", "True"):
             continue
         mac = normalize_mac(nic.get("MACADDR"))
         if not mac or mac == "000000000000":
             continue
-        out.append(nic)
-    return out
+        if str(nic.get("VIRTUALDEV") or "0") in ("1", "true", "True"):
+            if nic.get("IPADDRESS"):
+                virtual.append(nic)
+            continue
+        real.append(nic)
+    return real or virtual
 
 
 # 修復亂碼。OCS 代理不論機器是哪國語系，回報給伺服器的都是 **UTF-8**；亂碼的成因是 OCS 的

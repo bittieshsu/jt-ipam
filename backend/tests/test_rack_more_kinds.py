@@ -22,8 +22,11 @@ PX_PER_MM_H = 250.0 / 482.6     # 水平：19 吋面板 482.6mm＝250px
 #: - 2026-09-24 層號改成置中在那一層自己的空間（扣掉底下那片板）：機櫃最下面那一 U 的編號
 #:   原本掉進底座裡（使用者回報），同一條規則套到層架，層號往上移半片板厚（逐行比對過，
 #:   只有層號的 y 變了）。
-SVG_BASELINE = {"shelf": "01acc33204e5", "wire_shelf": "299b83003112",
-                "wood_shelf": "a235c2027b3a"}
+#: - 2026-09-25 層架改成寬高同一個比例（拿掉每層 160px 的上限，使用者同意；見 rack.v_px_per_mm）：
+#:   層高、板厚、離地、IVAR 調整孔都改用 250px／482.6mm。對正式機舊版逐張比對過：數字遮掉後
+#:   結構完全相同、文字標籤相同，只有尺寸與座標變了。
+SVG_BASELINE = {"shelf": "f44f952018f8", "wire_shelf": "0676aa93769b",
+                "wood_shelf": "0f01c0475163"}
 
 
 def test_new_kinds_are_registered_with_the_right_unit() -> None:
@@ -126,8 +129,8 @@ def test_cabinets_have_a_real_top_and_bottom_panel() -> None:
 
 def test_kallax_outer_boards_are_thicker_than_the_dividers() -> None:
     from app.services.rack import level_boards_px
-    inner = 15 * PX_PER_MM_V
-    edge = 40 * PX_PER_MM_V
+    inner = 15 * PX_PER_MM_H          # 層架寬高同一個比例
+    edge = 40 * PX_PER_MM_H
     top, boards = level_boards_px("kallax", 4, inner)
     assert top == 0.0
     assert len(boards) == 5, "4 列格子＋頂部那一列"
@@ -269,14 +272,18 @@ def test_embed_svg_draws_the_cabinet_roof_and_base() -> None:
 
 
 def test_angle_beams_shrink_with_the_levels() -> None:
-    """層高被畫面的上限壓扁時（518mm 畫成 160px），橫桿也要等比例縮 —— 否則 50mm 的橫桿
-    佔了一層的 23%（實物是 11%），整座層架看起來全是粗鐵條。其他型態不受影響。"""
-    from app.services.rack import scaled_board_px
-    per_mm = 28.0 / 44.45
+    """橫桿（50mm 鋼條＋9mm 夾板）跟層高用同一個比例。層高沒被壓時就是實際厚度；
+    離譜的資料被整張圖的預算壓扁時，橫桿也要等比例縮 —— 否則橫桿佔一層的比例會比實物大，
+    整座層架看起來全是粗鐵條。其他型態不受影響。"""
+    from app.services.rack import level_render_px, scaled_board_px
+    per_mm = 250.0 / 482.6            # 層架寬高同一個比例
     got = scaled_board_px("angle_shelf", None, None, None, None, 3)
-    drawn_row = 160.0
-    assert abs(got / drawn_row - 59 / 520) < 0.005, got
-    assert scaled_board_px("wood_shelf", None, None, None, None, 6) == 18 * per_mm, "既有型態不變"
+    assert abs(got - 59 * per_mm) < 0.01, got
+    # 20 層 × 520mm（10 公尺）會被預算壓：橫桿佔一層的比例要維持 59:520
+    squeezed = scaled_board_px("angle_shelf", None, None, None, None, 20)
+    _, rows = level_render_px("angle_shelf", None, None, None, 20)
+    assert abs(squeezed / rows[0] - 59 / 520) < 0.005, (squeezed, rows[0])
+    assert abs(scaled_board_px("wood_shelf", None, None, None, None, 6) - 18 * per_mm) < 1e-9
     assert scaled_board_px("rack", None, None, None, None, 42) == 0.0
 
 
@@ -313,3 +320,11 @@ def test_frontend_palette_and_floor_defaults_match_the_backend() -> None:
     assert front.keys() == _DEFAULT_FLOOR_MM.keys()
     for k, v in _DEFAULT_FLOOR_MM.items():
         assert round(v) == front[k], f"{k}: 前端 {front[k]} vs 後端 {v}"
+
+
+def test_kallax_frame_is_as_thick_on_top_as_on_the_sides() -> None:
+    """KALLAX 的外框四邊都是 40mm：上下的板要跟兩側一樣厚（寬高同一個比例才做得到）。"""
+    from app.services.rack import level_boards_px, rack_side_px
+    _, boards = level_boards_px("kallax", 4, 0.0)
+    assert abs(boards[0] - rack_side_px("kallax", 765)) < 0.01
+    assert abs(boards[-1] - rack_side_px("kallax", 765)) < 0.01

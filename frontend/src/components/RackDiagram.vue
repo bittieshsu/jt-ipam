@@ -868,11 +868,12 @@ const cells = computed<Cell[]>(() => {
   background:
     /* 調整孔：一排**圓孔**。用橫向色帶畫會變成一圈一圈的條紋 —— 那是圓管的樣子，
        IVAR 的側架是平板 + 圓孔，所以要用 radial-gradient。 */
-    /* 孔距 32mm、孔徑 7mm（IVAR 實物規格），照圖面比例尺 28px/44.45mm 換算
-       → 間距 20.16px、直徑 4.41px。與後端 rack_svg.py 的 PEG_PITCH_MM 一致。 */
+    /* 孔距 32mm、孔徑 7mm（IVAR 實物規格），照層架的比例尺換算（寬高同一個比例，
+       250px／482.6mm，見後端 rack.v_px_per_mm）→ 間距 16.58px、直徑 3.63px。
+       與後端 rack_svg.py 的 PEG_PITCH_MM 一致。 */
     radial-gradient(circle at 50% 50%,
-      rgba(74, 48, 24, 0.5) 0 2.2px, rgba(255, 245, 230, 0.35) 2.2px 2.8px,
-      transparent 2.9px) 0 0 / 14px 20.16px,
+      rgba(74, 48, 24, 0.5) 0 1.8px, rgba(255, 245, 230, 0.35) 1.8px 2.3px,
+      transparent 2.4px) 0 0 / 14px 16.58px,
     /* 直的木紋（不是橫紋） */
     repeating-linear-gradient(90deg,
       rgba(120, 80, 40, 0.08) 0 1px, transparent 1px 7px),

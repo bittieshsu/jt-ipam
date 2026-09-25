@@ -853,7 +853,14 @@ function onMergedExport(key: string) {
 
     <!-- 機房模式：平面圖 + 一整排機櫃並排 -->
     <template v-if="roomId">
+      <!-- 標題放在卡片的標題列（跟其他卡片同一個樣式），工具按鈕留在內文最上方 -->
       <n-card style="margin-bottom: 16px">
+        <template #header>
+          <n-space align="center" :wrap-item="false">
+            <n-icon :size="18"><RacksIcon /></n-icon>
+            <span>{{ t("racks.floor_plan") }}</span>
+          </n-space>
+        </template>
         <rack-floor-plan :location-id="roomId" :can-edit="isAdmin" @select="onRoomRackSelect" />
       </n-card>
 

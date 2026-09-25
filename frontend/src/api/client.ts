@@ -13,6 +13,28 @@ const DETAIL_I18N: Record<string, string> = {
   "Forbidden": "errors.forbidden",
 };
 
+/**
+ * 下載類請求（responseType: "blob"）出錯時，錯誤內容也是 Blob —— 不先轉回 JSON，
+ * `detail` 讀不到，畫面只剩「伺服器錯誤」，後端講的原因使用者永遠看不到。
+ * 只轉 JSON 型態的；真的檔案內容原樣保留。
+ */
+export async function unwrapBlobError(error: AxiosError): Promise<void> {
+  const data: unknown = error.response?.data;
+  if (typeof Blob === "undefined" || !(data instanceof Blob) || !/json/i.test(data.type || "")) return;
+  try {
+    // Blob.text() 瀏覽器都有；測試環境（jsdom）沒有，退回 FileReader
+    const text = typeof (data as any).text === "function"
+      ? await data.text()
+      : await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result ?? ""));
+        r.onerror = () => reject(r.error);
+        r.readAsText(data);
+      });
+    (error.response as any).data = JSON.parse(text);
+  } catch { /* 不是合法 JSON 就維持原樣 */ }
+}
+
 function localizeDetail(error: AxiosError): void {
   const data: any = error.response?.data;
   const detail = data?.detail;
@@ -147,6 +169,7 @@ apiClient.interceptors.response.use(
       // 反正畫面正要被導向登入頁。
       return new Promise(() => {});
     }
+    await unwrapBlobError(error);
     localizeDetail(error);
     return Promise.reject(error);
   },

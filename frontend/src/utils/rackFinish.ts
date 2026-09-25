@@ -53,11 +53,13 @@ export function finishColors(kind: string | null | undefined, finish: string | n
   return f ? FINISH_COLORS[kind || ""][f] : {};
 }
 
-/** 角鋼層架的實物規格換成 px（與後端 rack.py 的 ANGLE_* 同一組；垂直比例 1U 44.45mm＝28px）。
- *  葫蘆孔孔距 30mm、夾板 9mm。 */
-const PX_PER_MM_V = 28 / 44.45;
-export const ANGLE_HOLE_PITCH_PX = 30 * PX_PER_MM_V;
-export const ANGLE_PLY_PX = 9 * PX_PER_MM_V;
+/** 角鋼層架的實物規格換成 px（與後端 rack.py 的 ANGLE_* 同一組）。
+ *  葫蘆孔孔距 30mm、夾板 9mm。層架寬高同一個比例（19 吋 482.6mm＝250px，見後端
+ *  rack.v_px_per_mm）；機櫃的垂直比例 1U 44.45mm＝28px 比水平多 1.22 倍，套在層架上
+ *  KALLAX 的正方形格子會變成直立長方形。 */
+const PX_PER_MM_SHELF = 250 / 482.6;
+export const ANGLE_HOLE_PITCH_PX = 30 * PX_PER_MM_SHELF;
+export const ANGLE_PLY_PX = 9 * PX_PER_MM_SHELF;
 
 /**
  * 立柱上的一個葫蘆孔（圓孔接一條往下的窄槽），當成可以直向重複的圖磚。

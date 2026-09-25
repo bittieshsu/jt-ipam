@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { apiErrMsg } from "@/api/client";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import { useEntityLinks } from "@/composables/useEntityLinks";
@@ -303,10 +304,28 @@ async function openFiles(c: Certificate) {
   try { filesVersions.value = await listVersions(c.id); }
   catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
-async function doDownload(v: CertVersion, fmt: string) {
+// PFX 內含私鑰：匯出前先問保護密碼。以前一律不加密碼 —— 後端支援，畫面從來沒給地方填，
+// 匯出的 PFX 任何人拿到都打得開。留空仍可匯出（有些舊軟體只吃無密碼的），但會警告。
+const pfxAsk = ref<CertVersion | null>(null);
+const pfxPw = ref("");
+const pfxPw2 = ref("");
+const pfxMismatch = computed(() => pfxPw.value !== pfxPw2.value);
+async function doDownload(v: CertVersion, fmt: string, password = "") {
   if (!filesTarget.value) return;
-  try { await downloadVersionFile(filesTarget.value.id, v.id, fmt); }
-  catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  if (fmt === "pfx" && pfxAsk.value === null && !password) {
+    pfxPw.value = ""; pfxPw2.value = ""; pfxAsk.value = v;
+    return;
+  }
+  try { await downloadVersionFile(filesTarget.value.id, v.id, fmt, password); }
+  catch (e: any) { msg.error(apiErrMsg(e)); }
+}
+async function confirmPfx() {
+  const v = pfxAsk.value;
+  if (!v || pfxMismatch.value) return;
+  const pw = pfxPw.value;
+  await doDownload(v, "pfx", pw || "");
+  pfxAsk.value = null;
+  pfxPw.value = ""; pfxPw2.value = "";
 }
 async function doRebuildChain(v: CertVersion) {
   if (!filesTarget.value) return;
@@ -654,7 +673,8 @@ const radioGreen = {
 function actBtn(icon: any, label: string, onClick: () => void, props: Record<string, any> = {}) {
   return h(NTooltip, null, {
     trigger: () => h(NButton, {
-      size: "small", quaternary: true, ...props,
+      // 只有圖示的按鈕：說明在 tooltip 裡，螢幕報讀與自動化測試都讀不到 —— 補一個可讀的名稱
+      size: "small", quaternary: true, "aria-label": label, ...props,
       onClick: (e: MouseEvent) => { e.stopPropagation(); onClick(); },
     }, { icon: () => h(NIcon, null, () => h(icon)) }),
     default: () => label,
@@ -959,6 +979,33 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
       <n-button type="primary" @click="doCreate">
         <template #icon><n-icon :component="SaveIcon" /></template>{{ t("common.save") }}
       </n-button>
+    </template>
+  </n-modal>
+
+  <!-- PFX 匯出密碼 -->
+  <n-modal :show="pfxAsk !== null" preset="card" :title="t('certFiles.pfx_title')"
+           style="width: 440px; max-width: 94vw" @update:show="(v: boolean) => { if (!v) pfxAsk = null; }">
+    <n-form label-placement="top" size="small">
+      <n-form-item :label="t('certFiles.pfx_password')">
+        <n-input v-model:value="pfxPw" type="password" show-password-on="click" :input-props="{ autocomplete: 'new-password' }" />
+      </n-form-item>
+      <n-form-item :label="t('certFiles.pfx_password2')"
+                   :validation-status="pfxMismatch ? 'error' : undefined"
+                   :feedback="pfxMismatch ? t('certFiles.pfx_mismatch') : undefined">
+        <n-input v-model:value="pfxPw2" type="password" show-password-on="click" :input-props="{ autocomplete: 'new-password' }"
+                 @keyup.enter="confirmPfx" />
+      </n-form-item>
+    </n-form>
+    <n-alert :type="pfxPw ? 'info' : 'warning'" :bordered="false" :show-icon="true">
+      {{ pfxPw ? t("certFiles.pfx_hint") : t("certFiles.pfx_no_password") }}
+    </n-alert>
+    <template #footer>
+      <n-space justify="end">
+        <n-button size="small" @click="pfxAsk = null">{{ t("common.cancel") }}</n-button>
+        <n-button size="small" type="primary" :disabled="pfxMismatch" @click="confirmPfx">
+          <template #icon><n-icon :component="ExportIcon" /></template>{{ t("certFiles.download") }}
+        </n-button>
+      </n-space>
     </template>
   </n-modal>
 

@@ -177,6 +177,21 @@ async def seed() -> None:
                                  node="pve-01", kind="ct", status="running",
                                  vcpus=2, memory_mb=2048, disk_gb=20))
 
+        # noVNC 主控台（novnc-saved-cred.spec）：一台有 IP 的 PVE VM，連線實例指到 RFC 5737 的
+        # 保留位址 —— 一定連不上，測的是「存帳密 → 連線失敗 → 回到表單」那一段，不需要真的 PVE。
+        from app.models.virt import ProxmoxInstance
+        if not (await s.execute(select(ProxmoxInstance).where(
+                ProxmoxInstance.cluster_id == pve.id))).scalars().first():
+            s.add(ProxmoxInstance(cluster_id=pve.id, api_url="https://198.51.100.250:8006",
+                                  auth_username="e2e@pve", auth_token_id="e2e", enabled=True))
+        novnc_ip = await ip(subnets["10.20.0.0/24"], "10.20.0.232", "vm-novnc-01")
+        novnc_ip.novnc_enabled = True
+        if not (await s.execute(select(VirtualMachine).where(
+                VirtualMachine.name == "vm-novnc-01"))).scalars().first():
+            s.add(VirtualMachine(cluster_id=pve.id, name="vm-novnc-01", legacy_vmid=102,
+                                 node="pve-01", kind="vm", status="running",
+                                 primary_ip_id=novnc_ip.id))
+
         vm = (await s.execute(select(VirtualMachine).where(
             VirtualMachine.name == "app-01"))).scalars().first()
         if not vm:

@@ -123,6 +123,19 @@ def uses_rack_units(kind: str | None) -> bool:
     return (kind if kind in _DEFAULT_WIDTH_MM else "rack") in _U_KINDS
 
 
+def v_px_per_mm(kind: str | None) -> float:
+    """垂直方向 1mm 畫成幾 px。
+
+    以 U 計的（機櫃、工業機櫃、LackRack）沿用 1U 44.45mm＝28px —— 比水平（19 吋 482.6mm＝250px）
+    多約 1.22 倍，但所有既有的機櫃圖都是這樣畫的，一張都不能變。
+    層架寬高用同一個比例，畫出來才是實物的形狀：套機櫃的垂直比例的話，KALLAX 的正方形格子
+    會變成直立的長方形（2026-09-25 拿掉每層 160px 上限時發現）。
+    """
+    if uses_rack_units(kind):
+        return RACK_REF_ROW_PX / RACK_REF_ROW_MM
+    return RACK_REF_WIDTH_PX / RACK_REF_WIDTH_MM
+
+
 def rack_defaults(kind: str | None) -> tuple[float, float]:
     """(預設寬 mm, 預設列高 mm)。層架沒有標準值，給一組常見尺寸。"""
     k = kind if kind in _DEFAULT_WIDTH_MM else "rack"
@@ -167,7 +180,7 @@ def level_boards_px(kind: str | None, u_height: int | None,
     """
     n = max(int(u_height or 0), 0)
     rows = n + 1 if (has_open_top(kind) and n) else n
-    per_mm = RACK_REF_ROW_PX / RACK_REF_ROW_MM
+    per_mm = v_px_per_mm(kind)
     if (kind or "rack") in ("rack", "industrial") and rows >= 1:
         # 頂板在最上面那一 U 之上、底座在最下面那一 U 之下；U 與 U 之間沒有板
         return CABINET_ROOF_MM * per_mm, [*([0.0] * (rows - 1)), CABINET_BASE_MM * per_mm]
@@ -203,13 +216,13 @@ def placeable_levels(kind: str | None, u_height: int | None) -> int:
     return n + 1 if (has_open_top(kind) and n) else n
 
 
-# 列高的上限。76 是「不知道有幾列」時的保守值；知道列數時改用整張圖的高度預算
-# （_TOTAL_MAX_PX）換算，因為真正該控制的是整張圖多高，不是單列多高 —— 一個 5 層
-# 150 公分的層架每層 30 公分，卡在 76px 會被畫成矮胖的樣子，跟實物完全不像。
-# 預算只會「放寬」上限、不會收緊（見下面的 max）：42U 機櫃仍然是 28px，既有的圖都不變。
-_ROW_CAP_PX = 76.0
-_ROW_CAP_MAX_PX = 160.0
-_TOTAL_MAX_PX = 1200.0          # ≈ 42U 機櫃原本就會畫出來的高度
+# 整張圖的高度預算（px）。層架的一層跟機櫃的一 U 用同一個比例（1U 44.45mm＝28px），
+# 只有離譜的資料（總高超過約 3 公尺）才等比例壓回這個預算 —— 版面不能被撐爆。
+#
+# 以前每層最高 160px（另有 76px 的保守值），寬度卻不跟著縮：角鋼層架 518mm 的一層只畫
+# 一半高，放在上面的設備看起來比實物扁（2026-09-24 使用者同意拿掉）。42U 機櫃是 1176px、
+# 2.4 公尺的層架約 1512px，都在預算內，所以實際尺寸的東西全部是真實比例。
+_TOTAL_MAX_PX = 1900.0
 
 
 def level_heights_mm(kind: str | None, row_height_mm: int | None,
@@ -255,11 +268,13 @@ def rack_render_size(
         # 設備放在格子裡：畫的是外框以內（外框另外畫在兩側，見 rack_side_px）
         w = max(w - 2 * KALLAX_FRAME_MM, 1.0)
     px_w = RACK_REF_WIDTH_PX if uses_rack_units(kind) else RACK_REF_WIDTH_PX * (w / RACK_REF_WIDTH_MM)
-    px_r = RACK_REF_ROW_PX * (r / RACK_REF_ROW_MM)
-    cap = _ROW_CAP_PX
-    if rows:
-        cap = max(cap, min(_ROW_CAP_MAX_PX, _TOTAL_MAX_PX / max(int(rows), 1)))
-    return (min(max(px_w, 180.0), 620.0), min(max(px_r, 18.0), cap))
+    px_r = r * v_px_per_mm(kind)
+    # 跟機櫃同一個比例；只有層架的整張圖超過預算才壓（不知道列數時當作一列）。
+    # 以 U 計的（機櫃、LackRack）永遠不壓：一 U 就是 28px，既有的圖一張都不能變。
+    if uses_rack_units(kind):
+        return (min(max(px_w, 180.0), 620.0), max(px_r, 18.0))
+    cap = _TOTAL_MAX_PX / max(int(rows or 1), 1)
+    return (min(max(px_w, 180.0), 620.0), max(min(px_r, cap), 18.0))
 
 
 _SIDE_MAX_PX = 200.0
@@ -472,9 +487,12 @@ def level_render_px(
     if n == 0:
         return px_w, []
     mm = level_heights_mm(kind, row_height_mm, level_heights, n)
-    cap = max(_ROW_CAP_PX, min(_ROW_CAP_MAX_PX, _TOTAL_MAX_PX / n))
-    px = [min(max(RACK_REF_ROW_PX * (m / RACK_REF_ROW_MM), 18.0), cap) for m in mm]
-    return px_w, px
+    px = [m * v_px_per_mm(kind) for m in mm]
+    total = sum(px)
+    if total > _TOTAL_MAX_PX and not uses_rack_units(kind):
+        # 離譜的資料才會到這裡：整座等比例縮，高矮層的比例不變
+        px = [p * _TOTAL_MAX_PX / total for p in px]
+    return px_w, [max(p, 18.0) for p in px]
 
 
 def scaled_board_px(kind: str | None, board_mm: int | None, width_mm: int | None,
@@ -482,18 +500,18 @@ def scaled_board_px(kind: str | None, board_mm: int | None, width_mm: int | None
                     u_height: int | None) -> float:
     """層板畫出來多厚 px（畫面、對外嵌入都叫這支，兩邊不會各算各的）。
 
-    層高會被畫面的上限壓扁（角鋼層架一層 518mm 實際該畫 326px，上限是 160px），
-    但板厚一直是照原比例換算的。多數型態的板很薄，看不出來；角鋼層架的「板」是 50mm 的
-    鋼橫桿＋夾板，不跟著縮就會佔一層的 23%（實物約 11%），整座看起來全是粗鐵條 ——
-    所以角鋼層架的板厚跟層高用同一個縮放比例。其他型態維持原本的算法（畫出來不變）。
+    層高照實際比例畫；只有離譜的資料會被整張圖的預算壓扁（見 _TOTAL_MAX_PX）。板厚一直是
+    照原比例換算的：多數型態的板很薄，被壓也看不出來；角鋼層架的「板」是 50mm 的鋼橫桿＋
+    夾板，不跟著縮就會佔一層的比例比實物大，整座看起來全是粗鐵條 —— 所以角鋼層架的板厚
+    跟層高用同一個縮放比例。其他型態維持原本的算法。
     """
     mm = board_default_mm(kind) if board_mm is None else float(board_mm)
     if mm <= 0:
         return 0.0
-    px = RACK_REF_ROW_PX * (mm / RACK_REF_ROW_MM)
+    px = mm * v_px_per_mm(kind)
     if kind == "angle_shelf":
         _, rows_px = level_render_px(kind, width_mm, row_height_mm, level_heights, u_height)
         real = level_heights_mm(kind, row_height_mm, level_heights, int(u_height or 0))
         if rows_px and real and real[0] > 0:
-            px *= min(1.0, rows_px[0] / (RACK_REF_ROW_PX * (real[0] / RACK_REF_ROW_MM)))
+            px *= min(1.0, rows_px[0] / (real[0] * v_px_per_mm(kind)))
     return max(px, 2.0)
