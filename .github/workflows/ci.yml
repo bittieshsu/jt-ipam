@@ -22,6 +22,8 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # 本機全套約 10 分鐘；卡住時別一路跑到 GitHub 預設的 6 小時
+    timeout-minutes: 60
     services:
       postgres:
         # pgvector 的官方映像：語意搜尋要 vector 擴充，一般 postgres 映像沒有
@@ -119,7 +121,9 @@ jobs:
         working-directory: backend
         env:
           JTIPAM_TEST_DATABASE_URL: postgresql+asyncpg://jt_ipam:ci@127.0.0.1:5432/jt_ipam_test
-        run: pytest -q
+        # --timeout：單一測試卡住就判失敗，annotation（公開 API 讀得到）會講出是哪一支 ——
+        # CI 的日誌要 repo 管理權限才下載得到。--durations 列出最慢的幾支，變慢時看得出來
+        run: pytest -q --timeout=300 --durations=25
 
   frontend:
     runs-on: ubuntu-latest
