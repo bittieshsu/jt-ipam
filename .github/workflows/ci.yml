@@ -94,6 +94,18 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           PGPASSWORD=ci psql -h 127.0.0.1 -U jt_ipam -d jt_ipam_test \
             -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+          # 拋棄式測試庫：關掉持久化。conftest 每支測試前 TRUNCATE 上百張表，每次都要 fsync ——
+          # 開著時全套要好幾個小時（開發機實測約 6.7 支／分鐘），關掉約 10 分鐘。
+          # 三個都是 reload 就生效；ALTER SYSTEM 不能在交易裡跑，所以每個指令各用一個 -c
+          PGPASSWORD=ci psql -h 127.0.0.1 -U jt_ipam -d jt_ipam_test \
+            -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" -c "SELECT pg_reload_conf()"
+          # 另開連線確認（reload 是非同步的，剛送出時新連線也可能還是 on，所以等一下）
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            [ "$(PGPASSWORD=ci psql -h 127.0.0.1 -U jt_ipam -d jt_ipam_test -tAc 'SHOW fsync')" = off ] && break
+            sleep 1
+          done
+          [ "$(PGPASSWORD=ci psql -h 127.0.0.1 -U jt_ipam -d jt_ipam_test -tAc 'SHOW fsync')" = off ]
 
       - name: Migrations (up → down → up)
         working-directory: backend
