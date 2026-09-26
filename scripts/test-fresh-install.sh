@@ -18,7 +18,8 @@
 #         兩者只影響這個拋棄式容器，不影響發佈內容與客戶安裝。
 # guacd: GUACD_TARBALL=dist/guacd/<ver>/jt-ipam-guacd-…-debian12-amd64.tar.gz 另外以
 #         `--with-guacd --guacd-tarball` 裝 guacd（.deps 要在同目錄），並驗它在跑、只綁 127.0.0.1。
-#         要選跟 IMAGE 同一個 OS 版本的那份。
+#         要選跟 IMAGE 同一個 OS 版本的那份。GUACD_TARBALL=online 則走客戶實際的路：
+#         從 GitHub release 下載、以 scripts/guacd/SHA256SUMS 核對後安裝。
 # Needs:  docker, and a source tree at the repo root. Nothing else.
 #
 # The container runs systemd (privileged + host cgroups) because the whole point
@@ -74,7 +75,9 @@ tar -C "$ROOT" --exclude=.git --exclude=node_modules --exclude=.venv \
     | docker cp - "$NAME:/opt/jt-ipam"
 
 GUACD_ARGS=()
-if [[ -n "${GUACD_TARBALL:-}" ]]; then
+if [[ "${GUACD_TARBALL:-}" == online ]]; then
+    GUACD_ARGS=(--with-guacd)
+elif [[ -n "${GUACD_TARBALL:-}" ]]; then
     docker cp "$GUACD_TARBALL" "$NAME:/tmp/"
     docker cp "${GUACD_TARBALL%.tar.gz}.deps" "$NAME:/tmp/"
     GUACD_ARGS=(--with-guacd --guacd-tarball "/tmp/$(basename "$GUACD_TARBALL")")

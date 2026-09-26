@@ -44,7 +44,9 @@ jobs:
       # ⚠️ 名稱要與 app/core/config.py 的欄位一致（曾經寫成 JWT_SECRET，那個欄位不存在，
       # 於是 Settings 驗證直接失敗），且長度必須 >= 32（_MIN_SECRET_BYTES）。
       SECRET_KEY: ci-not-a-real-secret-ci-not-a-real-secret
-      ENCRYPTION_KEY: ci-not-a-real-key-ci-not-a-real-key-0000
+      # 必須是 base64（或 hex）的 32 bytes：之前的值兩種都不是，app 一載入就丟例外，
+      # 所有測試在收集階段失敗（pytest exit 2），CI 從 2026-09-05 上線起就沒綠過。全 0 的測試值，不是機密
+      ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       AUDIT_CHAIN_GENESIS: ci-not-a-real-genesis-ci-not-a-real-gen
       # SSL 是硬性需求：_tls_guards 在**任何環境**都要求這兩個是 https://，
       # 而預設值是 http://localhost。少了它們，Settings 驗證會失敗 ——
@@ -66,7 +68,9 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # rdp-freerdp：FreeRDP 引擎的測試要 python-xlib（純 Python、很小）。只裝 dev 的話
+          # 那些測試在 CI 上 ModuleNotFoundError —— 開發機一直有裝，所以沒被發現
+          pip install -e ".[dev,rdp-freerdp]"
 
       # 與 scripts/ci.sh 同範圍：`ruff check .` 會連 tests/ 一起掃，而那裡從來沒有
       # 被這組規則管過（現在是 259 個 PT018／I001／RUF059 之類的風格項）——
