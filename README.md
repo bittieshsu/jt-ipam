@@ -1,4 +1,4 @@
-# jt-ipam v0.6.49
+# jt-ipam v0.6.50
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -154,7 +154,10 @@ Security is a day-one requirement; every module and PR is checked against **OWAS
 
 ## Install (single host / VM / container)
 
-> Debian 12 / Ubuntu 22.04+ (64-bit). TLS is mandatory.
+> **Supported:** Debian 12 / 13 and Ubuntu 22.04 / 24.04 / 26.04, x86_64 (amd64) — Ubuntu 24.04 LTS or Debian 12 / 13
+> recommended. TLS is mandatory. These are exactly the versions jt-ipam prebuilds guacd for (the required RDP / VNC
+> console engine); on other versions, derivatives (e.g. Linux Mint) or ARM the installer stops. New OS releases are added
+> as they ship — see [docs/INSTALL.md](docs/INSTALL.md#supported-distributions).
 >
 > **Minimum:** 2 vCPU · 4 GB RAM · 20 GB disk. **Recommended:** 4 vCPU · 8 GB RAM · 40 GB+ disk (room for the PostgreSQL database, GeoIP/OUI data, and backups to grow).
 >

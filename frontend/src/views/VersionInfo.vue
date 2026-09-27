@@ -50,6 +50,11 @@ const requiredTools = computed(() => {
   return rt ? Object.entries(rt).map(([name, v]) => ({ name, ...v })) : [];
 });
 const brokenRequired = computed(() => requiredTools.value.filter((x) => !x.running));
+/** 「1.6.1-pre.d9ec474 (build 3) for Ubuntu 24.04.4 LTS (amd64)」→ 去掉「for …」：OS 上面已經有了，
+ *  整串放在卡片右邊會把名稱欄擠成一行一個字（0.6.49 實機回報） */
+function shortVersion(v: string | null | undefined): string {
+  return (v || "").replace(/\s+for\s+.*$/, "").trim();
+}
 
 async function load() {
   loading.value = true;
@@ -151,10 +156,15 @@ onMounted(load);
           {{ t("version.required_missing", { pkgs: brokenRequired.map(x => x.name).join(", ") }) }}
         </n-alert>
         <div class="ver-pkg-grid">
+          <!-- 右邊只放短的狀態字；版本放名稱下面自己一行（版本字串很長，放右邊會把名稱擠扁） -->
           <div v-for="p in requiredTools" :key="p.name" class="ver-pkg">
-            <span class="ver-pkg__name">{{ p.name }}<span class="ver-opt-use">{{ p.used_by }}</span></span>
-            <span class="ver-pkg__ver" :style="p.running ? '' : 'color:#d03050'">
-              {{ p.running ? (p.version || t("version.required_running"))
+            <span class="ver-pkg__name">
+              {{ p.name }}
+              <span v-if="p.version" class="ver-req-version">{{ shortVersion(p.version) }}</span>
+              <span class="ver-opt-use">{{ p.used_by }}</span>
+            </span>
+            <span class="ver-pkg__ver" :style="p.running ? 'color:#18a058' : 'color:#d03050'">
+              {{ p.running ? t("version.required_running")
                  : p.present ? t("version.required_not_running") : t("version.optional_absent") }}
             </span>
           </div>
@@ -256,7 +266,12 @@ onMounted(load);
   border: 1px solid var(--n-border-color, rgba(128,128,128,.16));
   border-radius: 9px;
 }
-.ver-pkg__name { font-size: 13.5px; opacity: .85; }
+/* min-width:0 + 自己吃掉剩下的寬度：右邊的值再長，名稱欄也不會被擠成一行一個字 */
+.ver-pkg__name { font-size: 13.5px; opacity: .85; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.ver-req-version {
+  display: block; margin-top: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+}
 .ver-pkg__ver {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px; font-weight: 600;

@@ -266,6 +266,9 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 預設值：全新安裝的設定頁 RDP、VNC 顯示「guacd（預設）」，SSH 顯示「內建（預設）」；舊站台升級後 RDP／VNC 變成 guacd
   （`frontend/e2e/rdp-engine.spec.ts`、`tests/test_console_engine_default.py`）
 - [ ] guacd 是必要元件：「版本資訊 → 必要相依」列著它（版本、是否在執行）；aardwolf 在「選用相依」
+- [ ] 彈出層在 AI 助手浮動按鈕之上：開在右下角的確認框／下拉選單，與按鈕重疊的地方也點得到（`frontend/e2e/chat-fab-overlays.spec.ts`）
+- [ ] guacd 版本字串很長時（`… for Ubuntu 24.04 LTS (amd64)`），「必要相依」卡片仍然好讀：名稱欄不被擠壓、狀態在右邊、
+  版本（去掉 OS 後綴）在名稱下方 —— 桌面與手機寬度都要看（`frontend/e2e/version-required-deps.spec.ts`）
 - [ ] guacd 停掉時 RDP／VNC **仍連得上**（退回內建引擎，前提是這台有選用的 aardwolf），設定頁的 guacd 狀態是紅的、doctor 與系統診斷是失敗；
   連線中途不會因為 guacd 起落而卡住（引擎寫在票證裡，WebSocket 照票證）
 

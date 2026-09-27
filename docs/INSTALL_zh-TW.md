@@ -2,7 +2,7 @@
 
 > English: [INSTALL.md](INSTALL.md) · 日本語：[INSTALL_ja.md](INSTALL_ja.md)
 
-針對 **Proxmox LXC、裸機、虛擬機**（Ubuntu 22.04+/Debian 12+）。**主力且建議**的安裝方式是
+針對 **Proxmox LXC、裸機、虛擬機**，作業系統為 Debian 12／13 或 Ubuntu 22.04／24.04／26.04（x86_64，見[支援的發行版本](#支援的發行版本)）。**主力且建議**的安裝方式是
 **systemd + apt** 直裝（不使用 Docker）。另有 Docker Compose 路徑，但**屬選用 / 次要、並非優先模式**——見下方 §2.8。
 
 > 安全為 day-one 需求：所有環境強制 HTTPS；憑證可走 nginx 反代或
@@ -14,7 +14,7 @@
 
 | 項目 | 最低 | 建議 | 備註 |
 |---|---|---|---|
-| OS | Ubuntu 22.04 / Debian 12 | **Ubuntu 24.04 LTS** | 24.04 內建 Python 3.12 + PG 16 + Node 18，省事 |
+| OS | Debian 12／13、Ubuntu 22.04／24.04／26.04（x86_64） | **Ubuntu 24.04 LTS** | 只支援這些，見下方；24.04 內建 Python 3.12 + PG 16 + Node 18，省事 |
 | CPU | 2 vCPU | 4 vCPU | argon2id + pgvector embedding 吃 CPU |
 | RAM | 4 GB | 8 GB | 開 LLM Server 還要再加 8 GB |
 | Disk | 20 GB | 50 GB | audit log 累積 |
@@ -23,6 +23,25 @@
 | Redis | 7 | — | 24.04 預設 7.0.15  |
 | Node | 20 LTS | 22 LTS | 24.04 預設 18.19；vite 6 跑得動但有 warning |
 | guacd | jt-ipam 為該 OS 編的版本 | — | **必要**：RDP／VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
+
+### 支援的發行版本
+
+| 發行版 | 版本 | 架構 |
+|---|---|---|
+| Debian | 12（bookworm）、13（trixie） | x86_64（amd64） |
+| Ubuntu | 22.04 LTS、24.04 LTS、26.04 LTS | x86_64（amd64） |
+
+為什麼剛好是這些：RDP 與 VNC 主控台的引擎 guacd 是**必要元件**，而各發行版都沒有可用的 guacd（Debian 已移除，
+Ubuntu 只有帶著可遠端執行程式碼漏洞的 1.3.0）。jt-ipam 替上面每個版本各編一份；其他版本 `install` 會停下來，
+`upgrade` 會警告。安裝腳本依 `/etc/os-release` 的 `ID` ＋ `VERSION_ID` 找對應的預編檔，所以：
+
+- 上列版本的 **Proxmox LXC 範本、虛擬機、裸機**都可以，Proxmox VE 主機本身也可以（它就是 Debian）。
+- **衍生發行版**（Linux Mint、Pop!_OS、Zorin…）、**其他版本**（例如 Debian 11、Ubuntu 20.04、沒有預編檔的非 LTS 版）
+  與 **ARM 機器**（樹莓派、Ampere）不支援。
+- **作業系統出新版時**，每次發版都會檢查（`scripts/guacd/check-new-os.sh`），編好、驗證過才加入。
+  jt-ipam 主機在新版出現在這張表之前，**不要**升級作業系統的大版本。
+- 進階：其他 Debian／Ubuntu 版本可以用 `scripts/guacd/build.sh`（需要 Docker）自己編，再用
+  `jt-ipam.sh install --guacd-tarball <檔案>` 安裝；這種組合我們沒有測試。
 
 **虛擬化備註**：在 Proxmox VM / LXC 上跑時，剛開機 / 重開後 1-2 分鐘內 load avg 可能飆高（hypervisor 上其他 VM 在搶 CPU，看 `mpstat` 的 `%steal`）；這不是 VM 本身忙，可以直接跑 install。
 

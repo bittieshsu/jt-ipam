@@ -503,6 +503,11 @@ what a console is allowed to do.
   (`frontend/e2e/rdp-engine.spec.ts`, `tests/test_console_engine_default.py`)
 - [ ] guacd is required: Version info → Required components lists it (version, running); aardwolf
   is under Optional
+- [ ] Overlays sit above the AI assistant button: a confirmation / dropdown that opens in the bottom-right
+  corner can be clicked where it overlaps the button (`frontend/e2e/chat-fab-overlays.spec.ts`)
+- [ ] The Required components card stays readable with a long guacd version string (`… for Ubuntu
+  24.04 LTS (amd64)`): the name column is not squeezed, the status is on the right, the version (without
+  the OS suffix) is under the name — at desktop and phone widths (`frontend/e2e/version-required-deps.spec.ts`)
 - [ ] With guacd stopped, RDP / VNC **still connect** (built-in engine fallback, if the optional
   aardwolf is present), the settings page shows guacd red and doctor / System check fail; a session does not hang when guacd goes up or down in
   the middle (the engine travels in the ticket and the WebSocket follows it)

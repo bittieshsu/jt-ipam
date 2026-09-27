@@ -1,4 +1,4 @@
-# jt-ipam v0.6.49
+# jt-ipam v0.6.50
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -146,7 +146,9 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 
 ## 安裝（單機 / 虛擬機 / 容器）
 
-> Debian 12 / Ubuntu 22.04+（64 位元）。強制 HTTPS。
+> **支援版本：** Debian 12／13、Ubuntu 22.04／24.04／26.04，x86_64（amd64）；建議 Ubuntu 24.04 LTS 或 Debian 12／13。強制 HTTPS。
+> 這正是 jt-ipam 替 guacd（必要的 RDP／VNC 主控台引擎）預編的版本；其他版本、衍生發行版（如 Linux Mint）或 ARM 機器，安裝會停下來。
+> 作業系統出新版時會跟著加入，見 [docs/INSTALL_zh-TW.md](docs/INSTALL_zh-TW.md#支援的發行版本)。
 >
 > **最低需求：** 2 核心 CPU · 4 GB 記憶體 · 20 GB 磁碟。**建議：** 4 核心 · 8 GB 記憶體 · 40 GB 以上磁碟（保留空間給 PostgreSQL 資料庫、GeoIP/OUI 資料與備份成長）。
 >

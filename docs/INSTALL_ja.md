@@ -2,7 +2,7 @@
 
 > English: [INSTALL.md](INSTALL.md) · 繁體中文版：[INSTALL_zh-TW.md](INSTALL_zh-TW.md)
 
-対象は **Proxmox LXC、ベアメタル、仮想マシン**（Ubuntu 22.04 以降 / Debian 12 以降）です。
+対象は **Proxmox LXC、ベアメタル、仮想マシン**で、OS は Debian 12／13 または Ubuntu 22.04／24.04／26.04（x86_64、[対応ディストリビューション](#対応ディストリビューション)を参照）です。
 **主たる推奨の導入方法**は、**systemd + apt** を直接使う方式です（Docker は使いません）。
 Docker Compose の経路もありますが、**任意かつ副次的で、優先される方式ではありません** —
 [§2.8](#28-任意docker-composeこれは優先される方式ではありません) を参照してください。
@@ -19,7 +19,7 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 
 | 項目 | 最低 | 推奨 | 備考 |
 |---|---|---|---|
-| OS | Ubuntu 22.04 / Debian 12 | **Ubuntu 24.04 LTS** | 24.04 は Python 3.12 + PG 16 + Node 18 を同梱しており手間が省けます |
+| OS | Debian 12／13、Ubuntu 22.04／24.04／26.04（x86_64） | **Ubuntu 24.04 LTS** | 対応はこれらのみ（下記参照）。24.04 は Python 3.12 + PG 16 + Node 18 を同梱しており手間が省けます |
 | CPU | 2 vCPU | 4 vCPU | argon2id と pgvector の埋め込みは CPU を使います |
 | メモリ | 4 GB | 8 GB | LLM サーバーを同居させるならさらに 8 GB |
 | ディスク | 20 GB | 50 GB | 監査ログが増えていきます |
@@ -28,6 +28,26 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 | Redis | 7 | — | 24.04 の既定は 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 の既定は 18.19。vite 6 は動作しますが警告が出ます |
 | guacd | jt-ipam がこの OS 向けにビルドしたもの | — | **必須**：RDP／VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
+
+### 対応ディストリビューション
+
+| ディストリビューション | バージョン | アーキテクチャ |
+|---|---|---|
+| Debian | 12（bookworm）、13（trixie） | x86_64（amd64） |
+| Ubuntu | 22.04 LTS、24.04 LTS、26.04 LTS | x86_64（amd64） |
+
+これらに限られる理由：RDP と VNC コンソールのエンジンである guacd は**必須コンポーネント**ですが、使える guacd を
+提供しているディストリビューションはありません（Debian は削除、Ubuntu にはリモートコード実行の脆弱性がある 1.3.0 のみ）。
+jt-ipam は上記の各バージョン向けにビルドしており、それ以外では `install` が止まり、`upgrade` は警告します。
+インストーラは `/etc/os-release` の `ID` ＋ `VERSION_ID` で対応するビルドを選ぶため：
+
+- 上記バージョンの **Proxmox LXC テンプレート、仮想マシン、ベアメタル**で動きます。Proxmox VE ホスト自体（Debian）も可。
+- **派生ディストリビューション**（Linux Mint、Pop!_OS、Zorin など）、**その他のバージョン**（Debian 11、Ubuntu 20.04、
+  ビルドのない非 LTS など）、**ARM**（Raspberry Pi、Ampere）は対象外です。
+- **OS の新バージョン**はリリースごとに確認し（`scripts/guacd/check-new-os.sh`）、ビルドと検証が済んでから追加します。
+  この表に載るまで、jt-ipam ホストの OS をメジャーアップグレードしないでください。
+- 上級者向け：他の Debian／Ubuntu バージョン用は `scripts/guacd/build.sh`（Docker が必要）でビルドし、
+  `jt-ipam.sh install --guacd-tarball <ファイル>` で入れられます（当方では未検証）。
 
 **仮想環境での注意**：Proxmox の VM / LXC では、起動や再起動の直後 1〜2 分ほど load average が
 跳ね上がることがあります（ハイパーバイザ上の他の VM が CPU を取り合っているためで、`mpstat` の

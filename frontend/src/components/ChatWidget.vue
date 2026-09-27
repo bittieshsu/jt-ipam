@@ -573,7 +573,10 @@ async function removeConversation(id: string) {
   font-size: 24px;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  z-index: 9000;
+  /* 在頁面內容之上、但在彈出層底下：Naive UI 的確認框／下拉／對話框從 2000 起跳，
+   *  原本 9000 會把開在右下角的「確定」蓋住（點到的是 AI 助手）；手機側欄 2000 也要蓋得過它。
+   *  （e2e/chat-fab-overlays.spec.ts） */
+  z-index: 1900;
   /* 平常半透明、不搶視覺；移過去才變實心 */
   opacity: 0.45;
   transition: opacity .15s ease, transform .15s ease;

@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.50] - 2026-09-27
+
+### Fixed
+- **Version info: the Required components card no longer squeezes its name column.** A long guacd
+  version string (for example `… (build 3) for Ubuntu 24.04 LTS (amd64)`) sat unwrappable on the
+  right and crushed the name to one character per line. The right side now shows only the status;
+  the version, without the OS suffix, goes on its own line under the name, and the name column keeps
+  a minimum width (checked at desktop and phone widths).
+- **Confirmation pop-ups, dropdowns and dialogs are no longer covered by the AI assistant button.** The
+  floating button sat above every overlay (z-index 9000 against Naive UI's 2000 and up): a delete
+  confirmation that opened in the bottom-right corner had its OK button half under it, and clicking
+  there opened the assistant instead of deleting (found by the address-range e2e before this release).
+  The button now stays above page content but below overlays and the phone sidebar.
+
+### Documentation
+- **Supported distributions are listed exactly**: Debian 12 / 13 and Ubuntu 22.04 / 24.04 / 26.04 on
+  x86_64. guacd became a required component in 0.6.49 and is prebuilt only for those, so the old
+  "Debian 12+ / Ubuntu 22.04+" was no longer true. INSTALL (en / zh-TW / ja) gains a "Supported
+  distributions" section: why these versions, what happens on derivatives, other versions and ARM,
+  how new OS releases get added, and the `--guacd-tarball` route for other Debian / Ubuntu versions.
+  README and the Pages site list the same versions.
+
+### Tests
+- The SFTP path-probe ticket test uses a fake Redis like the other ticket tests, so it no longer
+  needs a real Redis (it failed on CI, which has none).
+
 ## [0.6.49] - 2026-09-27
 
 ### Changed

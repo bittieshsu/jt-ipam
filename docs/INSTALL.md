@@ -2,7 +2,8 @@
 
 > 繁體中文版：[INSTALL_zh-TW.md](INSTALL_zh-TW.md) · 日本語：[INSTALL_ja.md](INSTALL_ja.md)
 
-For **Proxmox LXC, bare metal, and VMs** (Ubuntu 22.04+/Debian 12+). The **primary, recommended** install
+For **Proxmox LXC, bare metal, and VMs** on Debian 12 / 13 or Ubuntu 22.04 / 24.04 / 26.04, x86_64 (see
+[Supported distributions](#supported-distributions)). The **primary, recommended** install
 uses **systemd + apt** directly (no Docker). A Docker Compose path exists but is **optional / secondary, not
 the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferred-mode).
 
@@ -16,7 +17,7 @@ the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferr
 
 | Item | Minimum | Recommended | Notes |
 |---|---|---|---|
-| OS | Ubuntu 22.04 / Debian 12 | **Ubuntu 24.04 LTS** | 24.04 ships Python 3.12 + PG 16 + Node 18, saving effort |
+| OS | Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86_64) | **Ubuntu 24.04 LTS** | only these — see below; 24.04 ships Python 3.12 + PG 16 + Node 18, saving effort |
 | CPU | 2 vCPU | 4 vCPU | argon2id + pgvector embeddings are CPU-heavy |
 | RAM | 4 GB | 8 GB | add another 8 GB if running LLM Server |
 | Disk | 20 GB | 50 GB | audit log grows |
@@ -25,6 +26,27 @@ the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferr
 | Redis | 7 | — | 24.04 defaults to 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 defaults to 18.19; vite 6 runs but warns |
 | guacd | jt-ipam build for this OS | — | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
+
+### Supported distributions
+
+| Distribution | Versions | Architecture |
+|---|---|---|
+| Debian | 12 (bookworm), 13 (trixie) | x86_64 (amd64) |
+| Ubuntu | 22.04 LTS, 24.04 LTS, 26.04 LTS | x86_64 (amd64) |
+
+Why exactly these: guacd, the engine behind the RDP and VNC consoles, is a **required component**, and no
+distribution ships a usable one (Debian dropped it; Ubuntu only has 1.3.0 with known remote-code-execution
+bugs). jt-ipam builds guacd for each version above; `install` stops on anything else, and `upgrade` warns.
+The installer picks the build from `/etc/os-release` (`ID` + `VERSION_ID`), so:
+
+- **Proxmox LXC templates, VMs and bare metal** of the versions above all work, including a Proxmox VE host
+  itself (it is Debian).
+- **Derivatives** (Linux Mint, Pop!_OS, Zorin, …), **other versions** (e.g. Debian 11, Ubuntu 20.04 or a
+  non-LTS release without a build) and **ARM** (Raspberry Pi, Ampere) are not supported.
+- **New OS releases** are checked every release (`scripts/guacd/check-new-os.sh`) and added once built and
+  verified. Do not upgrade a jt-ipam host to a new OS release until it appears in this table.
+- Advanced: a build for another Debian / Ubuntu version can be made with `scripts/guacd/build.sh` (Docker)
+  and installed with `jt-ipam.sh install --guacd-tarball <file>`; it is not tested by us.
 
 **Virtualization note**: on Proxmox VM / LXC, load avg may spike for 1-2 minutes right after boot/reboot (other VMs on the hypervisor contending for CPU — see `%steal` in `mpstat`); this isn't the VM itself being busy, you can just run the install.
 
