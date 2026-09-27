@@ -11,6 +11,8 @@ import { PlusIcon, EditIcon, DeleteIcon, LinkIcon, RefreshIcon, PhysicalIcon, Ex
 
 import { useTablePagination } from "@/composables/useTablePagination";
 import { apiErrMsg } from "@/api/client";
+import { renderMacWithVendor } from "@/utils/macVendor";
+import { withExportValue } from "@/utils/tableExport";
 const props = defineProps<{ deviceId: string; deviceName: string; admin: boolean }>();
 const { t } = useI18n();
 const msg = useMessage();
@@ -91,8 +93,14 @@ async function importPorts() {
   try {
     const r = await Physical.importPorts(props.deviceId);
     if (!r.linked_librenms) msg.warning(t("ports.import_no_source"));
-    else if (r.imported) { msg.success(t("ports.import_done", { n: r.imported })); await refresh(); }
-    else msg.info(t("ports.import_none"));
+    else if (r.imported || r.removed || r.pruned) {
+      // 新增、以及 LibreNMS 已不再回報而清掉的（網卡拔掉等）一起講
+      const parts = [];
+      if (r.imported) parts.push(t("ports.import_done", { n: r.imported }));
+      if (r.removed || r.pruned) parts.push(t("ports.import_removed", { n: (r.removed ?? 0) + (r.pruned ?? 0) }));
+      msg.success(parts.join("；"));
+      await refresh();
+    } else msg.info(t("ports.import_none"));
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
   finally { importing.value = false; }
 }
@@ -258,9 +266,11 @@ const cols = computed<DataTableColumns<DevicePort>>(() => [
           default: () => "→ " + r.link,
         })
       : "—" },
-  { title: t("ports.col_mac"), key: "mac_address", minWidth: 140, ellipsis: { tooltip: true },
-    sorter: (a, b) => natCompare(a.mac_address ?? "", b.mac_address ?? ""),
-    render: (r) => r.mac_address || "—" },
+  // MAC 在上、OUI 廠商在下（與 IP 清單同一個呈現，utils/macVendor）
+  withExportValue({ title: t("ports.col_mac"), key: "mac_address", minWidth: 150,
+    sorter: (a: DevicePort, b: DevicePort) => natCompare(a.mac_address ?? "", b.mac_address ?? ""),
+    render: (r: DevicePort) => renderMacWithVendor(r.mac_address, r.mac_vendor) },
+    (r) => [r.mac_address, r.mac_vendor].filter(Boolean).join(" ")),
   { title: t("ports.col_peer"), key: "peer_port_id", width: 100,
     sorter: (a, b) => natCompare(peerName(a.peer_port_id), peerName(b.peer_port_id)),
     render: (r) => peerName(r.peer_port_id) },

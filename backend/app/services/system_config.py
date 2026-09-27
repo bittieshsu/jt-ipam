@@ -744,6 +744,8 @@ DEFAULT_PORT_IGNORE_PATTERNS = [
     r"^loopback_\d+$",
     r"^isatap_\d+$",
     r"^teredo_\d+$",
+    # Docker／Podman 容器的 veth：每起一個容器多一個、停掉就消失（實機一台累積 41 個）
+    r"^veth[0-9a-f]+$",
 ]
 
 

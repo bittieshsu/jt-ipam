@@ -174,6 +174,41 @@ async function doLinkIp() {
 const vlans = ref<DeviceVLAN[]>([]);
 const lnms = ref<DeviceLibreNMS | null>(null);
 const integrations = ref<{ wazuh: any; vm: any; ocs: any } | null>(null);
+
+// OCS 硬體摘要（後端 services/ocs.hardware_summary）。記憶體與顯示記憶體是 MiB；
+// 磁碟照 OCS 回報的 MB（廠商標示的容量是十進位，所以用 1000 進位比較對得上）。
+const ocsHw = computed<any | null>(() => integrations.value?.ocs?.hw ?? null);
+const ocsBoard = computed(() => {
+  const b = ocsHw.value?.board;
+  return b ? [b.vendor, b.model].filter(Boolean).join(" ") : "";
+});
+const ocsBios = computed(() => {
+  const b = ocsHw.value?.bios;
+  if (!b) return "";
+  const main = [b.vendor, b.version].filter(Boolean).join(" ");
+  return b.date ? `${main} (${b.date})`.trim() : main;
+});
+function fmtMemMB(mb: number): string {
+  // 四捨五入到一位小數、去掉 .0：16380 MiB（顯示卡回報值）→ 16 GB，128564 → 125.6 GB
+  const gb = Math.round((mb / 1024) * 10) / 10;
+  return gb >= 1 ? `${gb} GB` : `${mb} MB`;
+}
+function fmtDiskMB(mb: number): string {
+  if (mb >= 1_000_000) return `${(mb / 1_000_000).toFixed(2)} TB`;
+  if (mb >= 1000) return `${Math.round(mb / 1000)} GB`;
+  return `${mb} MB`;
+}
+function cpuLine(c: { model: string; cores?: number | null; threads?: number | null; mhz?: number | null; count?: number }): string {
+  const parts = [(c.count ?? 1) > 1 ? `${c.count} × ${c.model}` : c.model];
+  if (c.cores) parts.push(t("device_detail.ocs_cpu_cores", { cores: c.cores, threads: c.threads ?? c.cores }));
+  if (c.mhz) parts.push(`${c.mhz} MHz`);
+  return parts.join(" · ");
+}
+function memLine(m: { size_mb?: number | null; type?: string | null; speed?: number | null; count?: number }): string {
+  const desc = [m.size_mb ? fmtMemMB(m.size_mb) : null, m.type, m.speed ? `${m.speed} MT/s` : null]
+    .filter(Boolean).join(" ");
+  return `${m.count ?? 1} × ${desc}`;
+}
 /** SCA 分數的顏色：低分＝很多項目不符基準。門檻取整數十位，避免給人「剛好及格」的錯覺。 */
 function scaType(score: number): "error" | "warning" | "success" {
   if (score < 50) return "error";
@@ -624,10 +659,46 @@ onMounted(() => {
             <span v-if="integrations.ocs.agent" :title="integrations.ocs.agent">{{ shortOcsAgent(integrations.ocs.agent) }}</span>
             <template v-else>—</template>
           </n-descriptions-item>
+          <!-- 製造商／型號／序號是 OCS 自己回報的，不是裝置欄位（那可能是別的來源寫的） -->
           <n-descriptions-item :label="t('device_detail.ocs_vendor')">{{ integrations.ocs.vendor ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.ocs_model')">{{ integrations.ocs.model ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item :label="t('device_detail.ocs_serial')">{{ integrations.ocs.serial ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_serial')">
+            <template v-if="integrations.ocs.serial">
+              {{ integrations.ocs.serial }}<span v-if="integrations.ocs.serial_from_board" class="ocs-sub"
+                :title="t('device_detail.ocs_serial_board_tip')">{{ t("device_detail.ocs_serial_board") }}</span>
+            </template>
+            <template v-else>—</template>
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_chassis')">{{ ocsHw?.system?.chassis ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_board')">{{ ocsBoard || "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('device_detail.ocs_bios')">{{ ocsBios || "—" }}</n-descriptions-item>
         </n-descriptions>
+        <template v-if="ocsHw">
+          <div class="ocs-sec-h">{{ t("device_detail.ocs_components") }}</div>
+          <n-descriptions bordered :column="1" size="small" label-placement="left"
+                          :label-style="{ whiteSpace: 'nowrap', width: '1%' }" class="ocs-parts">
+            <n-descriptions-item :label="t('device_detail.ocs_cpu')">
+              <div v-for="(c, i) in ocsHw.cpus" :key="i">{{ cpuLine(c) }}</div>
+              <template v-if="!ocsHw.cpus?.length">—</template>
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('device_detail.ocs_memory')">
+              <template v-if="ocsHw.memory?.total_mb || ocsHw.memory?.modules?.length">
+                <span v-if="ocsHw.memory.total_mb">{{ fmtMemMB(ocsHw.memory.total_mb) }}</span>
+                <span v-for="(m, i) in ocsHw.memory.modules" :key="i" class="ocs-sub">{{ memLine(m) }}</span>
+              </template>
+              <template v-else>—</template>
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('device_detail.ocs_disks')">
+              <div v-for="(d, i) in ocsHw.disks" :key="i">{{ d.model }} <span class="ocs-sub">{{ fmtDiskMB(d.size_mb) }}</span></div>
+              <template v-if="!ocsHw.disks?.length">—</template>
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('device_detail.ocs_gpus')">
+              <div v-for="(g, i) in ocsHw.gpus" :key="i">{{ g.name }}<span v-if="g.memory_mb" class="ocs-sub">{{ fmtMemMB(g.memory_mb) }}</span></div>
+              <template v-if="!ocsHw.gpus?.length">—</template>
+            </n-descriptions-item>
+          </n-descriptions>
+        </template>
+        <div v-else class="int-hint" style="margin-top: 8px">{{ t("device_detail.ocs_hw_pending") }}</div>
         <div v-if="integrations.ocs.notes && integrations.ocs.notes.length" class="ocs-notes">
           <div class="ocs-notes-h">{{ t("device_detail.ocs_notes") }}</div>
           <div v-for="(n, i) in integrations.ocs.notes" :key="i" class="ocs-note">
@@ -670,6 +741,8 @@ onMounted(() => {
   opacity: .7;
   margin-bottom: 10px;
 }
+.ocs-sub { opacity: .65; margin-left: 8px; }
+.ocs-sec-h { font-weight: 600; margin: 14px 0 6px; font-size: 13px; }
 .ocs-notes {
   margin-top: 12px;
 }

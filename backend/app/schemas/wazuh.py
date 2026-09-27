@@ -85,3 +85,12 @@ class MissingAgentRow(StrictModel):
     section_name: str | None = None
     customer_id: uuid.UUID | None = None
     customer_name: str | None = None
+    # 上線判斷要吃的欄位（前端用 IP 清單燈號同一套規則算，畫面可依狀態篩選）
+    last_seen_scanner: str | None = None
+    last_seen_librenms: str | None = None
+    last_seen_arp: str | None = None
+    last_seen_wazuh: str | None = None
+    last_seen_zabbix: str | None = None
+    arp_seen: dict[str, str] = {}
+    exclude_from_ping: bool = False
+    subnet_scan_enabled: bool | None = None

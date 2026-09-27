@@ -69,6 +69,9 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     ocs_agent: Mapped[str | None] = mapped_column(String(128))
     #: OCS 最新幾筆備註（itmgmt_comments）：[{date,user,comment,action}]。
     ocs_notes: Mapped[list[Any] | None] = mapped_column(JSONB)
+    #: OCS 回報的硬體摘要（services/ocs.hardware_summary）：系統／主機板／BIOS／CPU／記憶體／磁碟／顯示卡。
+    #: 裝置明細的 OCS 卡片顯示這一份，而不是裝置本身的欄位（那可能是別的來源寫的）。
+    ocs_hw: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # 各 probe 上次被執行的時間（由 report 回填），給「下次到期」顯示用。{"icmp": "...", "os": "..."}
     probe_last_run: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     ptr_ignore: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

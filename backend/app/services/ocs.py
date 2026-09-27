@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -209,19 +210,195 @@ def _is_dmi_placeholder(s: str | None) -> bool:
     return bool(s) and _strip_dmi_placeholder(s) != (s or "").strip()
 
 
+# 序號欄專用的出廠佔位（別的欄位不套：型號叫 "123456789" 不合理，序號才會這樣填）。
+# 實機：Supermicro 的系統序號是 "0123456789"，真正的序號在主機板（MSN）上。
+_SERIAL_JUNK = frozenset({
+    "0123456789", "1234567890", "123456789", "chassis serial number",
+    "base board serial number", "serial number", "type2 - board serial number",
+    "sernum0", "xxxxxxxxxx",
+})
+
+
+def _clean_text(v: Any) -> str | None:
+    return _strip_dmi_placeholder(_repair_text((str(v or "")).strip()))
+
+
+def _clean_serial(v: Any) -> str | None:
+    """序號：去佔位字串與 Dell 格式前後的斜線（"/SN/BOARD/"）；全是同一個字元的也當佔位。"""
+    s = _clean_text(v)
+    if s:
+        s = s.strip("/").strip() or None
+    if not s or s.lower() in _SERIAL_JUNK or len(set(s)) == 1:
+        return None
+    return s
+
+
+def _first_row(section: Any) -> dict[str, Any]:
+    if isinstance(section, list):
+        return section[0] if section and isinstance(section[0], dict) else {}
+    return section if isinstance(section, dict) else {}
+
+
 def bios_asset(bios: Any) -> dict[str, str | None]:
     """從 bios 區段抽出 vendor / model / serial（去佔位字串、修亂碼）。
 
-    bios 在清單回應裡是 list（0 或 1 筆），在 /computer/:id 也是 list。空的回全 None。
+    系統那組（S*）是佔位時退回主機板那組（M*）：序號最常見 —— 系統序號是出廠佔位、
+    主機板序號才是真的。bios 在清單回應裡是 list（0 或 1 筆），在 /computer/:id 也是 list。
     """
-    row = bios[0] if isinstance(bios, list) and bios else (bios if isinstance(bios, dict) else {})
-    def clean(v: Any) -> str | None:
-        return _strip_dmi_placeholder(_repair_text((str(v or "")).strip()))
+    row = _first_row(bios)
     return {
-        "vendor": clean(row.get("SMANUFACTURER")),
-        "model": clean(row.get("SMODEL")),
-        "serial": clean(row.get("SSN")),
+        "vendor": _clean_text(row.get("SMANUFACTURER")) or _clean_text(row.get("MMANUFACTURER")),
+        "model": _clean_text(row.get("SMODEL")) or _clean_text(row.get("MMODEL")),
+        "serial": _clean_serial(row.get("SSN")) or _clean_serial(row.get("MSN")),
     }
+
+
+def _pos_int(v: Any) -> int | None:
+    try:
+        n = int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _grouped(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """相同的項目合併成一筆＋count（兩顆一樣的 CPU、四條一樣的記憶體），保留出現順序。"""
+    out: list[dict[str, Any]] = []
+    for it in items:
+        for o in out:
+            if all(o.get(k) == v for k, v in it.items()):
+                o["count"] += 1
+                break
+        else:
+            out.append({**it, "count": 1})
+    return out
+
+
+# 不是實體磁碟的區塊裝置（Linux 代理照 lsblk 全列）
+_VIRTUAL_DISK = re.compile(r"^(zram|loop|ram|sr|fd|md|dm-|nbd)\d*", re.IGNORECASE)
+_DEVICE_PATH = ("//./", "\\\\.\\")
+# lspci 名稱的公司段：「Intel Corporation …」「ASPEED Technology, Inc. …」
+_GPU_COMPANY = re.compile(r"^(?P<co>.*?(?:Corporation|Corp\.|,? Inc\.|Co\., Ltd\.|Ltd\.))\s+(?P<rest>.+)$")
+# 顯示記憶體低於這個值多半是 lspci 報的 BAR 大小（256／32 MB），不是顯示卡的記憶體
+_GPU_MEM_MIN_MB = 1024
+
+
+def _gpu_name(raw: str) -> str:
+    """lspci 的「公司 代號 [產品名]」→「廠牌 產品名」；Windows／nvidia-smi 的名稱照原樣。"""
+    s = " ".join(raw.split())
+    m = _GPU_COMPANY.match(s)
+    vendor = None
+    if m:
+        co = m.group("co")
+        vendor = "AMD" if co.lower().startswith("advanced micro devices") else co.split()[0].rstrip(",")
+    brackets = re.findall(r"\[([^\]]+)\]", s)
+    if brackets:
+        product = brackets[-1].strip()
+        return f"{vendor} {product}" if vendor and not product.lower().startswith(vendor.lower()) else product
+    return m.group("rest") if m else s
+
+
+def hardware_summary(computer: dict[str, Any]) -> dict[str, Any]:
+    """OCS 一台電腦的硬體摘要，給裝置明細的 OCS 卡片（存在 IP 的 ocs_hw）。
+
+    系統／主機板／BIOS 各自保留（系統序號是佔位時，卡片改顯示主機板序號）；
+    CPU、記憶體模組、磁碟、顯示卡只留看得懂的欄位，相同的合併計數。
+    """
+    hw = computer.get("hardware") or {}
+    b = _first_row(computer.get("bios"))
+    summary: dict[str, Any] = {
+        "system": {"vendor": _clean_text(b.get("SMANUFACTURER")), "model": _clean_text(b.get("SMODEL")),
+                   "serial": _clean_serial(b.get("SSN")), "chassis": _clean_text(b.get("TYPE"))},
+        "board": {"vendor": _clean_text(b.get("MMANUFACTURER")), "model": _clean_text(b.get("MMODEL")),
+                  "serial": _clean_serial(b.get("MSN"))},
+        "bios": {"vendor": _clean_text(b.get("BMANUFACTURER")), "version": _clean_text(b.get("BVERSION")),
+                 "date": _clean_text(b.get("BDATE"))},
+    }
+
+    cpus = []
+    for r in computer.get("cpus") or []:
+        if not isinstance(r, dict):
+            continue
+        model = _clean_text(r.get("TYPE")) or _clean_text(r.get("MANUFACTURER"))
+        if model:
+            cpus.append({"model": model, "cores": _pos_int(r.get("CORES")),
+                         "threads": _pos_int(r.get("LOGICAL_CPUS")),
+                         "mhz": _pos_int(r.get("SPEED")) or _pos_int(r.get("CURRENT_SPEED"))})
+    summary["cpus"] = _grouped(cpus)
+
+    modules = []
+    for r in computer.get("memories") or []:
+        if not isinstance(r, dict):
+            continue
+        mtype = _clean_text(r.get("TYPE"))
+        label = " ".join(str(r.get(k) or "") for k in ("CAPTION", "DESCRIPTION")).lower()
+        if (mtype or "").lower() == "empty slot" or "not installed" in label or "empty" in label:
+            continue
+        size = _pos_int(r.get("CAPACITY"))
+        if (mtype or "").lower() in {"unknown", "other"}:
+            mtype = None
+        if size is None and mtype is None:
+            continue
+        modules.append({"size_mb": size, "type": mtype, "speed": _pos_int(r.get("SPEED"))})
+    summary["memory"] = {"total_mb": _pos_int(hw.get("MEMORY")), "modules": _grouped(modules)}
+
+    disks = []
+    for r in computer.get("storages") or []:
+        if not isinstance(r, dict):
+            continue
+        name = _clean_text(r.get("NAME")) or ""
+        model = _clean_text(r.get("MODEL")) or ""
+        kind = str(r.get("TYPE") or "").lower()
+        size = _pos_int(r.get("DISKSIZE"))
+        if not size or any(k in kind for k in ("removable", "cd", "rom", "floppy")):
+            continue
+        if _VIRTUAL_DISK.match(name) and not model:
+            continue
+        if not model or model.startswith(_DEVICE_PATH):
+            model = name
+        if model:
+            disks.append({"model": model, "size_mb": size})
+    summary["disks"] = disks
+
+    gpus: list[dict[str, Any]] = []
+    seen: dict[str, dict[str, Any]] = {}
+    for r in computer.get("videos") or []:
+        if not isinstance(r, dict):
+            continue
+        raw = _repair_text(str(r.get("NAME") or r.get("CHIPSET") or "").strip())
+        if not raw:
+            continue
+        name = _gpu_name(raw)
+        mem = _pos_int(r.get("MEMORY"))
+        mem = mem if mem and mem >= _GPU_MEM_MIN_MB else None
+        key = re.sub(r"[^a-z0-9]", "", name.lower())
+        if key in seen:     # 同一張卡被 lspci 與驅動工具各報一次
+            if mem and (seen[key]["memory_mb"] or 0) < mem:
+                seen[key]["memory_mb"] = mem
+            continue
+        seen[key] = {"name": name, "memory_mb": mem}
+        gpus.append(seen[key])
+    summary["gpus"] = gpus
+    return summary
+
+
+# 不是硬體資訊、OCS 有真值就該換掉的裝置欄位值：LibreNMS 建立 Windows／Linux 裝置時
+# 把 OS 填進廠牌、把 CPU 架構（"Intel x64"）填進型號（2026-09-27 實機）。
+_OS_AS_VENDOR = frozenset({
+    "windows", "linux", "freebsd", "openbsd", "netbsd", "macos", "darwin", "unix", "generic",
+    "ubuntu", "debian", "centos", "rhel", "rocky", "almalinux", "fedora", "opensuse", "suse",
+})
+_ARCH_AS_MODEL = re.compile(
+    r"^(?:(?:intel|amd)\s*(?:x64|x86)(?:\s.*)?|x86_64|amd64|i[36]86|aarch64|armv7l)$", re.IGNORECASE)
+
+
+def _not_hardware(value: str | None, field: str) -> bool:
+    v = (value or "").strip()
+    if field == "vendor":
+        return v.lower() in _OS_AS_VENDOR
+    if field == "model":
+        return bool(_ARCH_AS_MODEL.match(v))
+    return False
 
 
 def ocs_tag_of(computer: dict[str, Any]) -> str | None:
@@ -467,6 +644,7 @@ async def _apply_computer(
     last = lastdate_of(hw)
     stale = is_stale(last, stale_after_days=server.stale_after_days, now=now)
     asset = bios_asset(computer.get("bios")) if server.sync_bios else {}
+    hwsum = hardware_summary(computer)
     tag = ocs_tag_of(computer)
     agent = ocs_agent_of(hw)
     notes = ocs_notes_of(computer)
@@ -491,6 +669,7 @@ async def _apply_computer(
         ip.ocs_tag = tag
         ip.ocs_agent = agent
         ip.ocs_notes = notes or None
+        ip.ocs_hw = hwsum
 
         # 主機名稱：過期的也記（多源保存），但由優先序決定要不要當有效值。
         if hn_run is not None:
@@ -514,11 +693,17 @@ async def _apply_computer(
                 # 空值或先前存進去的 DMI 佔位垃圾（舊版同步留下的 "To Be Filled By O.E.M. …"）
                 # → 換成 OCS 的乾淨值；OCS 也沒有乾淨值時就清掉垃圾（設 None）。使用者手填的
                 # 真值一律不動。
-                def _pick(cur: str | None, new: str | None) -> str | None:
-                    return new if (not cur or _is_dmi_placeholder(cur)) else cur
-                dev.serial = _pick(dev.serial, asset.get("serial"))
-                dev.model = _pick(dev.model, asset.get("model"))
-                dev.vendor = _pick(dev.vendor, asset.get("vendor"))
+                # 另外，別的來源填的「不是硬體資訊」的值（OS 名稱當廠牌、CPU 架構當型號）
+                # 在 OCS 有真值時換掉；OCS 也沒有就留著，不清成空。
+                def _pick(cur: str | None, new: str | None, field: str) -> str | None:
+                    # 序號另外套序號專用的佔位清單（0123456789 等；舊版同步曾把它存進裝置）
+                    junk = _is_dmi_placeholder(cur) or (field == "serial" and _clean_serial(cur) is None)
+                    if not cur or junk:
+                        return new
+                    return new if (new and _not_hardware(cur, field)) else cur
+                dev.serial = _pick(dev.serial, asset.get("serial"), "serial")
+                dev.model = _pick(dev.model, asset.get("model"), "model")
+                dev.vendor = _pick(dev.vendor, asset.get("vendor"), "vendor")
     return counts
 
 
@@ -642,7 +827,7 @@ async def _clear_unmatched(session: AsyncSession, server: OcsServer, matched_ids
     if len(rows) > BREAKER_MIN and len(rows) > (len(rows) + len(matched_ids)) * BREAKER_RATIO:
         return 0
     for ip in rows:
-        ip.ocs_id = ip.ocs_tag = ip.ocs_agent = ip.ocs_notes = None
+        ip.ocs_id = ip.ocs_tag = ip.ocs_agent = ip.ocs_notes = ip.ocs_hw = None
         ip.os_ocs = None
         ip.last_seen_ocs = None
     return len(rows)

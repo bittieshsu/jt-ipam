@@ -579,6 +579,11 @@ NAT and address objects from syncing at all, while the UI showed a single error 
   not be wiped, `last_error` must say why, and the rule-change sentinel must not report "all removed"
 - [ ] **An unchanged field is not a manual edit**: change only the description in the IP edit form and
   save — neither the hostname source nor the MAC source may become manual
+- [ ] **Device ports follow LibreNMS** (2026-09-27: a pulled dual-port NIC and USB NICs stayed in the
+  list although LibreNMS had marked them deleted): pull a NIC / unplug a USB NIC, let LibreNMS rediscover,
+  then sync or press "Import from source" — its ports disappear from Ports / cabling; ports you created
+  yourself, cabled ports and pass-through-mapped ports stay; a failed read or an empty port list removes
+  nothing. Docker `veth…` interfaces are never imported (`tests/test_device_ports_reconcile.py`)
 
 ## 7d. Probes run from a scan agent — **whenever the probe queue or the agent changes**
 
@@ -797,6 +802,20 @@ happy path of "an upload succeeded" is not enough.
   checking nor unit tests can see this.
 
 ## 8. Recent feature spot-checks
+
+- [ ] **OCS card shows OCS's own hardware** (device detail): manufacturer / model / serial come from OCS,
+  not from device fields another source filled (a Windows device created by LibreNMS once showed
+  "windows / Intel x64"); motherboard and BIOS rows; a factory placeholder system serial ("0123456789")
+  is replaced by the motherboard serial and marked "(motherboard)"; main components list CPU (cores /
+  threads), memory (total + modules), physical disks (no zram / loop), GPUs (lspci and driver entries
+  merged). Before the first sync after upgrading, the card says the details come with the next sync
+  (`e2e/ocs-device-card.spec.ts`, `tests/test_ocs_hardware.py`)
+- [ ] **IPs without an agent can be filtered by status** (Wazuh and OCS pages): the status column is the
+  same dot as the IP list and the filter uses the same rule; the options only list statuses present;
+  exporting the list fills subnet / section / unit / status (these were blank before)
+  (`e2e/missing-agent-scope-filter.spec.ts`)
+- [ ] **Ports / cabling: the MAC column shows the vendor** under the MAC, like the IP list
+  (`e2e/device-ports-mac-vendor.spec.ts`)
 
 - [ ] **Notification matrix** (Admin → 通知發送設定): toggle events × (in-app / email); save persists; events fire
   per matrix (IP request, cert expiring/deployed/drift, anomaly).

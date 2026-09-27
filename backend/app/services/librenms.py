@@ -1107,11 +1107,53 @@ async def recompute_effective_status(
     return updated
 
 
+def port_origin(instance_id: uuid.UUID) -> str:
+    return f"librenms:{instance_id}"
+
+
+async def reconcile_librenms_ports(session: AsyncSession, device_id: uuid.UUID,
+                                   origin: str, current: set[str]) -> int:
+    """這台 LibreNMS 完整讀到裝置的埠清單（`current`）之後：
+
+    1. 認領：清單裡有、但還沒記來源的舊資料 → 記成這台（升級前匯入的埠在這裡被認領）。
+    2. 清除：記成這台、清單裡已經沒有的 → 刪掉（網卡拔掉、USB 網卡移除；LibreNMS 已標 deleted，
+       而它的 API 不回傳已刪的埠）。已接線、有穿透對應的埠不動。
+    使用者自己建的埠（沒有來源）與別台 LibreNMS 匯入的埠都不碰。`current` 是空的一律不做
+    （讀到 0 個埠多半是讀取出問題，不是真的全拔了）。回傳刪除數。
+    """
+    from app.models.physical import CableTermination, DevicePort
+    if not current:
+        return 0
+    rows = list((await session.execute(
+        select(DevicePort).where(DevicePort.device_id == device_id))).scalars().all())
+    gone = []
+    for p in rows:
+        if p.name in current:
+            if p.source_origin is None:
+                p.source_origin = origin
+        elif p.source_origin == origin and p.peer_port_id is None:
+            gone.append(p)
+    if not gone:
+        return 0
+    ids = [p.id for p in gone]
+    keep = set((await session.execute(
+        select(DevicePort.peer_port_id).where(DevicePort.peer_port_id.in_(ids)))).scalars().all())
+    keep |= set((await session.execute(
+        select(CableTermination.object_id).where(CableTermination.object_id.in_(ids)))).scalars().all())
+    removed = 0
+    for p in gone:
+        if p.id not in keep:
+            await session.delete(p)
+            removed += 1
+    return removed
+
+
 async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -> int:
     """把 LibreNMS 介面清單(ifName)同步成已連結 jt-ipam 裝置的 device_ports。
 
-    對 server / switch / OPNsense 等任何受監控裝置都有效；只新增缺少的埠，不刪既有
-    （使用者手動建立或改名的埠保留）。回傳新增的埠數。
+    對 server / switch / OPNsense 等任何受監控裝置都有效。新增缺少的埠並記下來源；
+    LibreNMS 不再回報的、而且是它匯入的埠清掉（見 reconcile_librenms_ports）；使用者手動建立
+    或改名的埠保留。回傳新增的埠數。
 
     **`ifAlias` → `device_ports.description`**：交換器上設的 port description
     （「人資-王小明-10.0.0.5」這種）是現場最有價值的一欄，本來沒有拉進來（使用者回報）。
@@ -1162,6 +1204,7 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
         existing_names = set((await session.execute(
             select(DevicePort.name).where(DevicePort.device_id == d.jt_ipam_device_id)
         )).scalars().all())
+        origin = port_origin(instance.id)
         for n in sorted(name_mac):
             mac = name_mac[n]
             descr = name_descr.get(n)
@@ -1169,7 +1212,7 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
             # 重複處理時，INSERT 撞 device_port_unique_name (device_id, name) 而中斷整批同步（issue #12）。
             ins = pg_insert(DevicePort).values(
                 device_id=d.jt_ipam_device_id, name=n, type="network",
-                mac_address=mac, description=descr)
+                mac_address=mac, description=descr, source_origin=origin)
             # 有值才覆寫；LibreNMS 沒給就不動既有欄位（別把使用者填的東西清掉）
             updates = {k: v for k, v in (("mac_address", mac), ("description", descr)) if v}
             if updates:
@@ -1181,6 +1224,9 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
             if n not in existing_names:
                 created += 1
                 existing_names.add(n)
+        # 認領舊資料、清掉 LibreNMS 不再回報的（這裡一定是完整讀到、而且非空的清單）
+        await session.flush()
+        await reconcile_librenms_ports(session, d.jt_ipam_device_id, origin, set(name_mac))
     return created
 
 

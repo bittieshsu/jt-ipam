@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.51] - 2026-09-27
+
+### Added
+- **The OCS card on device details shows OCS's own hardware.** Vendor / model / serial come from OCS
+  instead of the device fields, which another source may have filled (a Windows machine created by
+  LibreNMS showed "windows / Intel x64", its OS and CPU architecture). New rows: chassis type,
+  motherboard and BIOS, and the main components: CPU (cores / threads), memory (total and modules),
+  physical disks (no zram / loop) and GPUs (one card reported by both lspci and the driver is merged;
+  lspci BAR sizes are not shown as video memory). A factory placeholder system serial ("0123456789")
+  is replaced by the motherboard serial, marked as such. Stored in `ip_addresses.ocs_hw` (migration
+  0160) and filled by the next OCS sync; until then the card says so.
+- **"IPs without an agent" can be filtered by online status** (Wazuh and OCS pages): a status column
+  with the IP list's dot, and a status filter using the same rule.
+- **Ports / cabling: the MAC column shows the vendor** under the MAC, like the IP list.
+
+### Fixed
+- **Device ports follow LibreNMS.** A removed NIC or USB NIC stayed in the device's ports although
+  LibreNMS had marked it deleted: the sync only ever added ports. Imported ports now record their
+  source (migration 0161); after a complete read, ports LibreNMS no longer reports are removed.
+  Ports you created, cabled ports and pass-through-mapped ports stay; a failed read or an empty port
+  list removes nothing. "Import from source" follows the same rule and says how many it removed.
+- Docker / Podman `veth…` interfaces are no longer imported as device ports (one host had 41). Sites
+  that never customised the pseudo-interface patterns get the new pattern on upgrade.
+- Device fields holding something that is not hardware information (an OS name as vendor, a CPU
+  architecture as model) are replaced when OCS has a real value; values you entered stay. A factory
+  placeholder serial on the device is replaced by the motherboard serial.
+- Exporting "IPs without an agent" left subnet, section and unit blank (the column keys differ from
+  the data fields). Table exports can now take a per-column export value.
+- The AI chat's IP-detail tool includes the OCS hardware summary.
+
 ## [0.6.50] - 2026-09-27
 
 ### Fixed

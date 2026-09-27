@@ -3255,7 +3255,19 @@
     "ocs_match_hint": "OCS はネットワークカードの MAC で既存の IP に照合し（照合のみ、IP は新規作成しません）、OS・資産タグ・シリアル／モデル／ベンダー・備考を補完します。",
     "ocs_tag": "資産タグ",
     "ocs_agent": "エージェント版",
-    "ocs_notes": "備考"
+    "ocs_notes": "備考",
+    "ocs_chassis": "筐体",
+    "ocs_board": "マザーボード",
+    "ocs_bios": "BIOS",
+    "ocs_serial_board": "（マザーボード）",
+    "ocs_serial_board_tip": "システムのシリアルは工場出荷時のダミー値（本来のシリアルが書き込まれていない）のため、マザーボードのシリアルを表示しています。",
+    "ocs_components": "主要コンポーネント",
+    "ocs_cpu": "CPU",
+    "ocs_memory": "メモリ",
+    "ocs_disks": "ディスク",
+    "ocs_gpus": "グラフィックス",
+    "ocs_cpu_cores": "{cores} コア {threads} スレッド",
+    "ocs_hw_pending": "ハードウェアの詳細は次回の OCS 同期後に表示されます。"
   },
   "relations": {
     "title": "関連",
@@ -3510,6 +3522,7 @@
     "download_svg": "SVG をダウンロード",
     "import": "ソースから取り込む",
     "import_done": "LibreNMS から {n} 個のポートを取り込みました",
+    "import_removed": "存在しなくなったポートを {n} 件削除しました（LibreNMS が報告しなくなったもの。NIC の取り外しなど）",
     "import_none": "新たに取り込むポートはありません",
     "import_no_source": "この機器に紐づく LibreNMS のソースがありません",
     "col_link": "接続先",
@@ -4619,7 +4632,8 @@
   "scope_filter": {
     "section": "セクション",
     "subnet": "サブネット",
-    "customer": "組織"
+    "customer": "組織",
+    "status": "状態"
   },
   "ranges": {
     "auto_hint": "「{source}」で検出された DHCP 配布範囲から自動作成され、上流に同期します。変更は DHCP サーバー側で行ってください",

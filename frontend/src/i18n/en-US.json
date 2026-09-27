@@ -3255,7 +3255,19 @@
     "ocs_match_hint": "OCS matches this device by network-card MAC to an existing IP (match only, never creates IPs), then fills in OS, asset tag, serial/model/vendor and notes.",
     "ocs_tag": "Asset tag",
     "ocs_agent": "Agent version",
-    "ocs_notes": "Notes"
+    "ocs_notes": "Notes",
+    "ocs_chassis": "Chassis",
+    "ocs_board": "Motherboard",
+    "ocs_bios": "BIOS",
+    "ocs_serial_board": " (motherboard)",
+    "ocs_serial_board_tip": "The system serial is a factory placeholder (no real serial was written), so this is the motherboard serial.",
+    "ocs_components": "Main components",
+    "ocs_cpu": "CPU",
+    "ocs_memory": "Memory",
+    "ocs_disks": "Disks",
+    "ocs_gpus": "Graphics",
+    "ocs_cpu_cores": "{cores} cores / {threads} threads",
+    "ocs_hw_pending": "Hardware details appear after the next OCS sync."
   },
   "relations": {
     "title": "Relationships",
@@ -3510,6 +3522,7 @@
     "download_svg": "Download SVG",
     "import": "Import from source",
     "import_done": "Imported {n} ports from LibreNMS",
+    "import_removed": "removed {n} port(s) that no longer exist (no longer reported by LibreNMS, e.g. a removed NIC)",
     "import_none": "No new ports to import",
     "import_no_source": "No linked LibreNMS source for this device",
     "col_link": "Connected to",
@@ -4619,7 +4632,8 @@
   "scope_filter": {
     "section": "Section",
     "subnet": "Subnet",
-    "customer": "Unit"
+    "customer": "Unit",
+    "status": "Status"
   },
   "ranges": {
     "auto_hint": "Created from the DHCP range detected on {source} and kept in sync with it; change it on the DHCP server instead",

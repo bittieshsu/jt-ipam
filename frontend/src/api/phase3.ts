@@ -482,6 +482,8 @@ export interface DevicePort {
   id: string; device_id: string; name: string; type: string;
   peer_port_id: string | null; position: number | null; description: string | null;
   link?: string | null; mac_address?: string | null;
+  /** OUI 廠商（後端依 MAC 前綴查） */
+  mac_vendor?: string | null;
 }
 export interface TraceNode {
   port_id?: string; port_name?: string; port_type?: string;
@@ -513,7 +515,8 @@ export const Physical = {
     return data;
   },
   async deletePort(id: string): Promise<void> { await apiClient.delete(`/api/v1/device-ports/${id}`); },
-  async importPorts(deviceId: string): Promise<{ imported: number; found: number; linked_librenms: number; source: string }> {
+  async importPorts(deviceId: string): Promise<{ imported: number; removed?: number; pruned?: number;
+    found: number; linked_librenms: number; source: string }> {
     const { data } = await apiClient.post("/api/v1/device-ports/import", null, { params: { device_id: deviceId } });
     return data;
   },

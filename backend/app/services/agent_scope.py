@@ -18,19 +18,36 @@ from app.models.section import Section
 from app.models.subnet import Subnet
 
 
+def _iso(v: Any) -> str | None:
+    return v.isoformat() if v else None
+
+
 async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ids = [uuid.UUID(str(r["ip_address_id"])) for r in rows if r.get("ip_address_id")]
     if not ids:
         return rows
     info = {}
-    for rid, ip_cust, sub_id, cidr, sub_cust, sec_id, sec_name, sec_cust in (await session.execute(
+    live: dict[str, dict[str, Any]] = {}
+    for (rid, ip_cust, sub_id, cidr, sub_cust, sec_id, sec_name, sec_cust, scan_enabled,
+         exclude, s_scan, s_lnms, s_arp, s_wazuh, s_zbx, arp_seen) in (await session.execute(
         select(IPAddress.id, IPAddress.customer_id, Subnet.id, Subnet.cidr, Subnet.customer_id,
-               Section.id, Section.name, Section.customer_id)
+               Section.id, Section.name, Section.customer_id, Subnet.scan_enabled,
+               IPAddress.exclude_from_ping, IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
+               IPAddress.last_seen_arp, IPAddress.last_seen_wazuh, IPAddress.last_seen_zabbix,
+               IPAddress.arp_seen)
         .join(Subnet, Subnet.id == IPAddress.subnet_id)
         .join(Section, Section.id == Subnet.section_id, isouter=True)
         .where(IPAddress.id.in_(ids))
     )).all():
         info[str(rid)] = (ip_cust or sub_cust or sec_cust, sub_id, cidr, sec_id, sec_name)
+        # 上線與否由前端用 IP 清單燈號的同一套規則即時算（classifyAddressLiveness），
+        # 這裡只帶那套規則要吃的欄位 —— 不回傳後端的 effective_status 快照，免得兩邊講不一樣
+        live[str(rid)] = {
+            "last_seen_scanner": _iso(s_scan), "last_seen_librenms": _iso(s_lnms),
+            "last_seen_arp": _iso(s_arp), "last_seen_wazuh": _iso(s_wazuh),
+            "last_seen_zabbix": _iso(s_zbx), "arp_seen": arp_seen or {},
+            "exclude_from_ping": bool(exclude), "subnet_scan_enabled": scan_enabled,
+        }
     cust_ids = {v[0] for v in info.values() if v[0]}
     names = dict((await session.execute(
         select(Customer.id, Customer.name).where(Customer.id.in_(cust_ids))
@@ -44,6 +61,7 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
             "section_name": sec_name,
             "customer_id": str(cust) if cust else None,
             "customer_name": names.get(cust) if cust else None,
+            **live.get(str(r.get("ip_address_id")), {}),
         })
     return rows
 

@@ -3255,7 +3255,19 @@
     "ocs_match_hint": "OCS 透過網卡 MAC 比對到此裝置的 IP（只比對、不新建 IP），再補上作業系統、資產標籤、序號／型號／廠牌與備註。",
     "ocs_tag": "資產標籤",
     "ocs_agent": "代理版本",
-    "ocs_notes": "備註"
+    "ocs_notes": "備註",
+    "ocs_chassis": "機殼類型",
+    "ocs_board": "主機板",
+    "ocs_bios": "BIOS",
+    "ocs_serial_board": "（主機板）",
+    "ocs_serial_board_tip": "系統序號是出廠預設值（沒有燒錄真正的序號），這裡顯示的是主機板序號。",
+    "ocs_components": "主要零件",
+    "ocs_cpu": "處理器",
+    "ocs_memory": "記憶體",
+    "ocs_disks": "磁碟",
+    "ocs_gpus": "顯示卡",
+    "ocs_cpu_cores": "{cores} 核 {threads} 緒",
+    "ocs_hw_pending": "硬體明細會在下一次 OCS 同步後出現。"
   },
   "relations": {
     "title": "關係圖（上下層物件）",
@@ -3510,6 +3522,7 @@
     "download_svg": "下載 SVG",
     "import": "從來源匯入",
     "import_done": "已從 LibreNMS 匯入 {n} 個連接埠",
+    "import_removed": "移除 {n} 個已不存在的連接埠（LibreNMS 不再回報，例如網卡已拔除）",
     "import_none": "沒有新的連接埠可匯入",
     "import_no_source": "此裝置尚未連結 LibreNMS，無來源可匯入",
     "col_link": "連線到",
@@ -4619,7 +4632,8 @@
   "scope_filter": {
     "section": "區段",
     "subnet": "子網路",
-    "customer": "單位"
+    "customer": "單位",
+    "status": "狀態"
   },
   "ranges": {
     "auto_hint": "依「{source}」偵測到的 DHCP 發放範圍自動建立，會跟著上游同步；要改請改 DHCP 伺服器上的設定",

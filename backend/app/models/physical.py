@@ -53,6 +53,9 @@ class DevicePort(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
     # 此埠自身的實體 MAC（LibreNMS ifPhysAddress）；非 FDB/ARP 學到的對端 MAC
     mac_address: Mapped[str | None] = mapped_column(String(32))
+    # 誰匯入的：`librenms:<實例 id>`。LibreNMS 完整讀到這台裝置、不再回報這個埠時由同步清掉；
+    # NULL＝使用者建立（或尚未被認領的舊資料），同步一律不刪（2026-09-27）
+    source_origin: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         UniqueConstraint("device_id", "name", name="device_port_unique_name"),

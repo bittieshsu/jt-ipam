@@ -28,6 +28,8 @@ import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ScopeFilterBar from "@/components/ScopeFilterBar.vue";
 import { useScopeFilter } from "@/composables/useScopeFilter";
+import { livenessColumn } from "@/utils/livenessColumn";
+import { withExportValue } from "@/utils/tableExport";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
@@ -242,9 +244,10 @@ const ocsAgPicker = computed(() => [
   { key: "agent_version", label: t("ocs.col_agent") }, { key: "tag", label: t("ocs.col_tag") },
   { key: "last_inventory", label: t("ocs.col_last_inventory") },
 ]);
-const ocsMiss = useColumnPrefs("ocs_missing", ["ip", "hostname", "subnet", "section", "customer", "actions"],
-  ["ip", "hostname", "subnet", "section", "customer", "actions"]);
+const ocsMiss = useColumnPrefs("ocs_missing", ["status", "ip", "hostname", "subnet", "section", "customer", "actions"],
+  ["status", "ip", "hostname", "subnet", "section", "customer", "actions"]);
 const ocsMissPicker = computed(() => [
+  { key: "status", label: t("cols.status") },
   { key: "ip", label: "IP" }, { key: "hostname", label: t("cols.hostname") },
   { key: "subnet", label: t("cols.subnet") }, { key: "section", label: t("cols.section") },
   { key: "customer", label: t("cols.unit") }, { key: "actions", label: t("cols.actions") },
@@ -285,11 +288,15 @@ const allAgentCols = computed<DataTableColumns<OcsAgent>>(() => autoSort([
   },
 ]));
 const allMissCols = computed<DataTableColumns<OcsMissingAgent>>(() => autoSort([
+  livenessColumn(t("common.status"), t),
   { title: "IP", key: "ip", width: 150, render: (r) => (r.ip ? ipLink(r.ip) : "—") },
   { title: t("cols.hostname"), key: "hostname", minWidth: 180, ellipsis: { tooltip: true }, render: (r) => r.hostname ?? "—" },
-  { title: t("cols.subnet"), key: "subnet", width: 170, render: (r) => r.subnet_cidr ?? "—" },
-  { title: t("cols.section"), key: "section", width: 150, ellipsis: { tooltip: true }, render: (r) => r.section_name ?? "—" },
-  { title: t("cols.unit"), key: "customer", width: 150, ellipsis: { tooltip: true }, render: (r) => r.customer_name ?? "—" },
+  withExportValue({ title: t("cols.subnet"), key: "subnet", width: 170, render: (r: any) => r.subnet_cidr ?? "—" },
+    (r) => r.subnet_cidr),
+  withExportValue({ title: t("cols.section"), key: "section", width: 150, ellipsis: { tooltip: true }, render: (r: any) => r.section_name ?? "—" },
+    (r) => r.section_name),
+  withExportValue({ title: t("cols.unit"), key: "customer", width: 150, ellipsis: { tooltip: true }, render: (r: any) => r.customer_name ?? "—" },
+    (r) => r.customer_name),
   {
     title: t("common.actions"), key: "actions", className: "col-actions", width: 72, titleAlign: "center", align: "center",
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false, justify: "center" }, () => [
@@ -370,13 +377,14 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
         <NSpace style="margin-bottom: 8px" align="center">
           <ScopeFilterBar v-model:section="scope.section.value" v-model:subnet="scope.subnet.value"
                           v-model:customer="scope.customer.value" :section-opts="scope.sectionOpts.value"
-                          :subnet-opts="scope.subnetOpts.value" :customer-opts="scope.customerOpts.value" />
+                          :subnet-opts="scope.subnetOpts.value" :customer-opts="scope.customerOpts.value"
+                          v-model:status="scope.status.value" :status-opts="scope.statusOpts.value" />
           <ColumnPicker :all="ocsMissPicker" :visible="ocsMiss.visibleKeys.value"
                         @update:visible="ocsMiss.setVisible" @reset="ocsMiss.reset" />
           <ExportButton :columns="missCols" :rows="scope.filtered.value" filename="ocs-missing-agents" :title="t('ocs.missing_agents')" />
         </NSpace>
         <NDataTable :columns="missCols" :data="scope.filtered.value" :loading="loading" :bordered="false"
-                    :scroll-x="880" :pagination="pg" />
+                    :scroll-x="960" :pagination="pg" />
       </NTabPane>
     </NTabs>
   </NCard>

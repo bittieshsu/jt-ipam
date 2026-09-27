@@ -22,6 +22,8 @@ import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ScopeFilterBar from "@/components/ScopeFilterBar.vue";
 import { useScopeFilter } from "@/composables/useScopeFilter";
+import { livenessColumn } from "@/utils/livenessColumn";
+import { withExportValue } from "@/utils/tableExport";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 const { t } = useI18n();
@@ -44,9 +46,10 @@ const wzAgPicker = computed(() => [
   { key: "last_keep_alive", label: t("cols.last_alive") },
 ]);
 const wzMiss = useColumnPrefs("wazuh_missing",
-  ["ip", "hostname", "subnet", "section", "customer", "actions"],
-  ["ip", "hostname", "subnet", "section", "customer", "actions"]);
+  ["status", "ip", "hostname", "subnet", "section", "customer", "actions"],
+  ["status", "ip", "hostname", "subnet", "section", "customer", "actions"]);
 const wzMissPicker = computed(() => [
+  { key: "status", label: t("cols.status") },
   { key: "ip", label: "IP" }, { key: "hostname", label: t("cols.hostname") },
   { key: "subnet", label: t("cols.subnet") }, { key: "section", label: t("cols.section") },
   { key: "customer", label: t("cols.unit") }, { key: "actions", label: t("cols.actions") },
@@ -244,6 +247,7 @@ function agentStatusLabel(s: string | null | undefined): string {
   return out === key ? s : out;
 }
 const allMissCols = computed<DataTableColumns<MissingAgent>>(() => autoSort([
+  livenessColumn(t("common.status"), t),
   {
     title: "IP", key: "ip", width: 150,
     render: (r) => r.ip
@@ -251,9 +255,12 @@ const allMissCols = computed<DataTableColumns<MissingAgent>>(() => autoSort([
       : "—",
   },
   { title: t("cols.hostname"), key: "hostname", minWidth: 180, ellipsis: { tooltip: true }, render: (r) => r.hostname ?? "—" },
-  { title: t("cols.subnet"), key: "subnet", width: 170, render: (r) => r.subnet_cidr ?? "—" },
-  { title: t("cols.section"), key: "section", width: 150, ellipsis: { tooltip: true }, render: (r) => r.section_name ?? "—" },
-  { title: t("cols.unit"), key: "customer", width: 150, ellipsis: { tooltip: true }, render: (r) => r.customer_name ?? "—" },
+  withExportValue({ title: t("cols.subnet"), key: "subnet", width: 170, render: (r: any) => r.subnet_cidr ?? "—" },
+    (r) => r.subnet_cidr),
+  withExportValue({ title: t("cols.section"), key: "section", width: 150, ellipsis: { tooltip: true }, render: (r: any) => r.section_name ?? "—" },
+    (r) => r.section_name),
+  withExportValue({ title: t("cols.unit"), key: "customer", width: 150, ellipsis: { tooltip: true }, render: (r: any) => r.customer_name ?? "—" },
+    (r) => r.customer_name),
   {
     title: t("common.actions"), key: "actions", className: "col-actions", width: 72, titleAlign: "center", align: "center",
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false, justify: "center" }, () => [
@@ -333,12 +340,13 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <n-space style="margin-bottom: 8px" align="center">
           <ScopeFilterBar v-model:section="scope.section.value" v-model:subnet="scope.subnet.value"
                           v-model:customer="scope.customer.value" :section-opts="scope.sectionOpts.value"
-                          :subnet-opts="scope.subnetOpts.value" :customer-opts="scope.customerOpts.value" />
+                          :subnet-opts="scope.subnetOpts.value" :customer-opts="scope.customerOpts.value"
+                          v-model:status="scope.status.value" :status-opts="scope.statusOpts.value" />
           <ColumnPicker :all="wzMissPicker" :visible="wzMiss.visibleKeys.value"
                         @update:visible="wzMiss.setVisible" @reset="wzMiss.reset" />
           <ExportButton :columns="missCols" :rows="scope.filtered.value" filename="wazuh-missing-agents" :title="t('wazuh_admin.missing_agents')" />
         </n-space>
-        <n-data-table :columns="missCols" :data="scope.filtered.value" :loading="loading" :bordered="false" :scroll-x="880" :pagination="pg" />
+        <n-data-table :columns="missCols" :data="scope.filtered.value" :loading="loading" :bordered="false" :scroll-x="960" :pagination="pg" />
       </n-tab-pane>
     </n-tabs>
 

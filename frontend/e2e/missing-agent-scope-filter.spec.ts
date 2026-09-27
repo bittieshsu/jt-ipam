@@ -51,12 +51,40 @@ test("OCS 代理版本顯示精簡版", async ({ page }) => {
   await expect(cell).toHaveText("Unix 2.10.0", { timeout: 20_000 });
 });
 
-test("三個篩選下拉排在同一列（不是上下疊）", async ({ page }) => {
+test("四個篩選下拉排在同一列（不是上下疊）", async ({ page }) => {
   await login(page);
   await page.goto("/wazuh");
   await page.locator(".n-tabs-tab", { hasText: /未裝 Agent 的 IP/ }).click();
   const sels = page.locator(".n-tab-pane:visible .scope-filter .n-base-selection");
-  await expect(sels).toHaveCount(3, { timeout: 20_000 });
+  await expect(sels).toHaveCount(4, { timeout: 20_000 });
   const ys = await sels.evaluateAll((els: Element[]) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-  expect(new Set(ys).size, `三個下拉的 top：${ys.join(", ")}`).toBe(1);
+  expect(new Set(ys).size, `四個下拉的 top：${ys.join(", ")}`).toBe(1);
 });
+
+// 「有沒有在線上」（2026-09-27 使用者要求）：狀態欄是 IP 清單同一顆燈號，篩選用同一套規則
+for (const path of ["/wazuh", "/ocs"]) {
+  test(`${path}：未裝 Agent 的 IP 依上線狀態篩選`, async ({ page }) => {
+    await login(page);
+    await page.goto(path);
+    await page.locator(".n-tabs-tab", { hasText: /未裝 Agent 的 IP/ }).click();
+    const pane = page.locator(".n-tab-pane:visible");
+    await expect(pane.locator(".n-alert").first()).toBeVisible({ timeout: 20_000 });
+    await expect(pane.locator(".n-data-table-th", { hasText: "狀態" })).toBeVisible();
+    await expect(pane.locator(".n-data-table-tbody .live-dot").first()).toBeVisible();
+
+    await pane.getByTestId("scope-status").click();
+    const opts = page.locator(".n-base-select-option");
+    await expect(opts.first()).toBeVisible();
+    const labels = (await opts.allInnerTexts()).map((x) => x.trim());
+    for (const l of labels) expect(["上線", "近期出現", "離線", "未知"]).toContain(l);
+    await opts.first().click();
+    await page.waitForTimeout(300);
+
+    await expect(pane.locator(".n-alert").first()).toHaveText(/\d+ \/ \d+/);
+    // 篩完每一列的燈號顏色都一樣（同一種狀態）
+    const colors = await pane.locator(".n-data-table-tbody .live-dot").evaluateAll(
+      (els: Element[]) => els.map((e) => (e as HTMLElement).style.background));
+    expect(colors.length).toBeGreaterThan(0);
+    expect(new Set(colors).size, colors.join(", ")).toBe(1);
+  });
+}

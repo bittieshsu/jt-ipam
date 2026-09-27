@@ -32,4 +32,26 @@ describe("useScopeFilter", () => {
     expect(f.subnetOpts.value.map((o) => o.value)).toEqual(["n1", "n2"]);
     expect(f.subnet.value).toBeNull();
   });
+
+  // 「有沒有在線上」（2026-09-27 使用者要求）：跟 IP 清單燈號同一套規則（classifyAddressLiveness）
+  it("依上線狀態篩選：規則與 IP 清單的燈號相同，選項只列資料裡有的", () => {
+    const now = Date.now();
+    const iso = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+    const live = ref([
+      { ip: "on", last_seen_scanner: iso(1) },                       // 剛掃到 → 上線
+      { ip: "off", last_seen_scanner: iso(60 * 24 * 3) },            // 三天前 → 離線
+      { ip: "never" },                                               // 沒有任何證據、有在掃 → 離線
+      { ip: "noscan", subnet_scan_enabled: false },                  // 子網路沒掃 → 未知，不是離線
+      { ip: "fw", arp_seen: { "arp:opnsense": iso(2) } },            // 只有沒被勾選的來源 → 不算
+    ]);
+    const f = useScopeFilter(live);
+    expect(f.statusOpts.value.map((o) => o.value)).toEqual(["online", "offline", "unknown"]);
+    f.status.value = "online";
+    expect(f.filtered.value.map((r) => r.ip)).toEqual(["on"]);
+    expect(f.active.value).toBe(true);
+    f.status.value = "offline";
+    expect(f.filtered.value.map((r) => r.ip)).toEqual(["off", "never", "fw"]);
+    f.status.value = "unknown";
+    expect(f.filtered.value.map((r) => r.ip)).toEqual(["noscan"]);
+  });
 });

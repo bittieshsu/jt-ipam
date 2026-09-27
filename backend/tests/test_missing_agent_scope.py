@@ -47,3 +47,35 @@ async def test_missing_rows_carry_subnet_section_and_customer(client, auth_heade
     b = rows["198.51.100.31"]
     assert (b["customer_id"], b["customer_name"]) == (str(ctx["beta"].id), "Beta"), \
         "IP 自己掛的單位優先"
+
+
+@pytest.mark.parametrize("path", ["/api/v1/ocs/missing-agents", "/api/v1/wazuh/missing-agents"])
+async def test_missing_rows_carry_what_the_status_dot_needs(client, auth_headers, db_session, path) -> None:
+    """清單要能依「有沒有在線上」篩選（2026-09-27 使用者要求）。
+
+    上線與否由前端用跟 IP 清單燈號同一套規則即時算（classifyAddressLiveness），所以端點要帶
+    那套規則吃的欄位；子網路沒開掃描、或刻意不偵測時，前端不會把它標成離線。
+    """
+    from datetime import UTC, datetime
+
+    from app.models.address import IPAddress
+    from sqlalchemy import select
+    ctx = await _setup(db_session)
+    seen = datetime(2026, 9, 27, 8, 0, tzinfo=UTC)
+    ip = (await db_session.execute(
+        select(IPAddress).where(IPAddress.hostname == "inherits-acme"))).scalar_one()
+    ip.last_seen_scanner = seen
+    ip.arp_seen = {"arp:opnsense": seen.isoformat()}
+    ip.exclude_from_ping = True
+    ctx["net"].scan_enabled = False
+    await db_session.commit()
+
+    r = await client.get(path, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    a = {x["ip"]: x for x in r.json()}["198.51.100.30"]
+    assert a["last_seen_scanner"].startswith("2026-09-27T08:00:00")
+    assert a["arp_seen"] == {"arp:opnsense": seen.isoformat()}
+    assert a["exclude_from_ping"] is True
+    assert a["subnet_scan_enabled"] is False
+    for k in ("last_seen_librenms", "last_seen_arp", "last_seen_wazuh", "last_seen_zabbix"):
+        assert k in a

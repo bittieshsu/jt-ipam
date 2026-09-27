@@ -1155,6 +1155,8 @@ async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[s
         "ocs_tag": obj.ocs_tag,
         "ocs_agent": obj.ocs_agent,
         "ocs_notes": obj.ocs_notes or [],
+        # OCS 回報的硬體：系統／主機板／BIOS／CPU／記憶體／磁碟／顯示卡（記憶體、磁碟單位 MB）
+        "ocs_hardware": obj.ocs_hw,
         # OS 偵測（依來源優先序 scanner/librenms/wazuh 解析）+ 探測項目
         **_os,
         "effective_probes": await _effective_probes(session, sub, obj),

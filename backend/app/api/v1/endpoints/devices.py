@@ -169,7 +169,7 @@ async def get_device_integrations(
     # 以「有 IP 被 OCS 盤點過」（ocs_id / os_ocs / last_seen_ocs 任一非空）當作此裝置有 OCS 資料。
     ocs_row = (await session.execute(
         select(IPAddress.os_ocs, IPAddress.last_seen_ocs, IPAddress.ocs_id,
-               IPAddress.ocs_tag, IPAddress.ocs_agent, IPAddress.ocs_notes)
+               IPAddress.ocs_tag, IPAddress.ocs_agent, IPAddress.ocs_notes, IPAddress.ocs_hw)
         .where(IPAddress.id.in_(ip_ids),
                or_(IPAddress.os_ocs.isnot(None), IPAddress.last_seen_ocs.isnot(None),
                    IPAddress.ocs_id.isnot(None)))
@@ -186,12 +186,23 @@ async def get_device_integrations(
         if srv and srv.base_url and ocs_row.ocs_id is not None:
             ocs_url = (f"{srv.base_url.rstrip('/')}/ocsreports/index.php"
                        f"?function=computer&systemid={ocs_row.ocs_id}")
+        # 製造商／型號／序號顯示 **OCS 自己回報的**（ocs_hw），不是裝置欄位 —— 裝置欄位可能是
+        # 別的來源寫的（LibreNMS 建立 Windows 裝置時填「windows／Intel x64」，2026-09-27 實機）。
+        # 系統序號是出廠佔位時改顯示主機板序號，並標出來。
+        hw = ocs_row.ocs_hw or {}
+        sysd, board = hw.get("system") or {}, hw.get("board") or {}
+        serial, from_board = sysd.get("serial"), False
+        if not serial and board.get("serial"):
+            serial, from_board = board.get("serial"), True
         out["ocs"] = {
             "os": ocs_row.os_ocs,
             "last_inventory": ocs_row.last_seen_ocs.isoformat() if ocs_row.last_seen_ocs else None,
-            "serial": dev.serial, "model": dev.model, "vendor": dev.vendor,
+            "vendor": sysd.get("vendor") or board.get("vendor"),
+            "model": sysd.get("model") or board.get("model"),
+            "serial": serial, "serial_from_board": from_board,
             "tag": ocs_row.ocs_tag, "agent": ocs_row.ocs_agent,
             "notes": ocs_row.ocs_notes or [], "url": ocs_url,
+            "hw": ocs_row.ocs_hw,
         }
     return out
 

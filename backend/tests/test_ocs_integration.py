@@ -593,13 +593,15 @@ async def test_scanner_still_wins_when_ocs_has_nothing(db_session) -> None:
 async def test_device_integrations_exposes_ocs_block(client, auth_headers, db_session) -> None:
     """裝置明細的 /integrations 要回一個 ocs 區塊：作業系統／盤點時間＋序號型號廠牌。
 
-    OCS 沒有自己的每台記錄表，是把資料補進 IP（os_ocs / last_seen_ocs）與裝置
+    OCS 沒有自己的每台記錄表，是把資料補進 IP（os_ocs / last_seen_ocs / ocs_hw）與裝置
     （serial / model / vendor）。有 IP 被盤點過就算此裝置在 OCS 有資料。
+    卡片的製造商／型號／序號顯示 OCS 自己回報的（ocs_hw），不是裝置欄位 —— 裝置欄位
+    這裡刻意放別的來源的值（2026-09-27 實機：LibreNMS 填的「windows／Intel x64」）。
     """
     from datetime import UTC, datetime
 
     from app.models.device import Device
-    dev = Device(name="pc-ocs", serial="SN-OCS-1", model="OptiPlex", vendor="Dell Inc.")
+    dev = Device(name="pc-ocs", model="Intel x64", vendor="windows")
     db_session.add(dev)
     await db_session.flush()
     from app.models.ocs import OcsServer
@@ -613,6 +615,9 @@ async def test_device_integrations_exposes_ocs_block(client, auth_headers, db_se
     ip.ocs_agent = "OCS-NG_unified_unix_agent_v2.10.0"
     ip.ocs_notes = [{"date": "2026-09-19", "user": "admin", "comment": "加入資產編碼",
                      "action": "ADD_NOTE_BY_USER"}]
+    ip.ocs_hw = {"system": {"vendor": "Dell Inc.", "model": "OptiPlex", "serial": "SN-OCS-1",
+                            "chassis": "Desktop"},
+                 "board": {"vendor": None, "model": None, "serial": None}}
     await db_session.commit()
 
     r = await client.get(f"/api/v1/devices/{dev.id}/integrations", headers=auth_headers)

@@ -281,6 +281,7 @@ class DevicePortRead(StrictModel):
     description: str | None
     link: str | None = None   # 對端標籤（已接纜線時）：例「switch-003 · eth1/0/24」
     mac_address: str | None = None   # 此埠自身的實體 MAC（ifPhysAddress）
+    mac_vendor: str | None = None    # MAC 的 OUI 廠商（清單的 MAC 欄第二行，與 IP 清單一致）
 
 
 class DevicePortWrite(StrictModel):
@@ -313,6 +314,11 @@ async def list_device_ports(
     out = [DevicePortRead.model_validate(r) for r in rows]
     if not rows:
         return out
+    from app.services.oui import mac_prefix, vendor_map
+    vmap = await vendor_map(session, [r.mac_address for r in rows])
+    for o in out:
+        pfx = mac_prefix(o.mac_address)
+        o.mac_vendor = vmap.get(pfx) if pfx else None
     by_id = {r.id: r for r in out}
     port_ids = list(by_id)
 
@@ -394,6 +400,10 @@ async def import_device_ports(
     names: set[str] = set()
     name_mac: dict[str, str | None] = {}
     sources: set[str] = set()
+    # 每台 LibreNMS 這次完整讀到的埠名（記來源、清掉不再回報的；與排程同步同一套規則）
+    from app.services.librenms import port_origin, reconcile_librenms_ports
+    per_origin: dict[str, set[str]] = {}
+    origin_of: dict[str, str] = {}
 
     # 1) LibreNMS 介面清單（ifName）— 對 server / PVE 主機 / switch 都有效
     for d in lns_devs:
@@ -406,6 +416,7 @@ async def import_device_ports(
                 inst, f"/api/v0/devices/{d.legacy_device_id}/ports?columns=ifName,ifType,ifPhysAddress",
                 timeout=20.0,
             )
+            seen = per_origin.setdefault(port_origin(inst.id), set())
             for p in pdata.get("ports") or []:
                 nm = (p.get("ifName") or "").strip()
                 if nm and nm.lower() not in ("null", "unrouted vlan 1") \
@@ -413,6 +424,8 @@ async def import_device_ports(
                     names.add(nm)
                     name_mac[nm] = _norm_mac(p.get("ifPhysAddress"))
                     sources.add("librenms")
+                    seen.add(nm)
+                    origin_of.setdefault(nm, port_origin(inst.id))
         except Exception as exc:
             # LibreNMS 不可達/回應異常：略過此來源，改用 FDB
             logging.getLogger(__name__).debug("librenms ports fetch failed: %s", exc)
@@ -439,19 +452,26 @@ async def import_device_ports(
     for n in sorted(names):
         if n in existing:
             continue
-        session.add(DevicePort(device_id=device_id, name=n, type="network"))
+        # FDB 學到的埠（交換器）不記來源：它們不在 LibreNMS 的介面清單裡，不該被清除規則碰到
+        session.add(DevicePort(device_id=device_id, name=n, type="network", source_origin=origin_of.get(n)))
         created += 1
+    await session.flush()
+    removed = 0
+    for origin, seen_names in per_origin.items():
+        removed += await reconcile_librenms_ports(session, device_id, origin, seen_names)
 
     # 自我修復：清掉先前輪詢時被拉進來的偽介面（ethernet_N / ppp_N 等）。只刪未接線、
     # 未做穿透對應的，避免動到手動建立或已納入佈線的埠。
     pruned = await prune_pseudo_ports(session, device_id, pseudo_res) if pseudo_res is not None else 0
 
-    if created or pruned:
+    if created or pruned or removed:
         await _audit(session, user=user, request=request, object_type="device_port",
                      object_id=str(device_id), action="import",
-                     diff={"imported": created, "pruned": pruned, "sources": sorted(sources)})
-        await session.commit()
-    return {"imported": created, "pruned": pruned, "found": len(names),
+                     diff={"imported": created, "pruned": pruned, "removed": removed,
+                           "sources": sorted(sources)})
+    # 認領（只改來源欄位）沒有增刪也要寫進去
+    await session.commit()
+    return {"imported": created, "pruned": pruned, "removed": removed, "found": len(names),
             "linked_librenms": len(lns_devs), "sources": sorted(sources)}
 
 
