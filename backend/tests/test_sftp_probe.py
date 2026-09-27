@@ -104,9 +104,28 @@ async def test_the_session_total_is_capped(op) -> None:
     assert any(m.get("code") == "sftp_probe_session_limit" for m in peer.texts())
 
 
-async def test_ticket_endpoint_is_admin_only_and_points_at_the_sftp_path(client, auth_headers, db_session) -> None:
+class _FakeRedis:
+    """夠用的假 Redis（CI 沒有 Redis 服務；其他票證測試也是這樣做）。"""
+
+    def __init__(self) -> None:
+        self.store: dict[str, bytes] = {}
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value.encode() if isinstance(value, str) else value
+
+    async def eval(self, _script: str, _numkeys: int, key: str) -> bytes | None:
+        return self.store.pop(key, None)
+
+
+async def test_ticket_endpoint_is_admin_only_and_points_at_the_sftp_path(
+    client, auth_headers, db_session, monkeypatch,
+) -> None:
+    fake = _FakeRedis()
+    monkeypatch.setattr("app.api.v1.endpoints.sftp_console._redis_client", lambda: fake)
+    monkeypatch.setattr("app.core.rate_limit._redis_client", lambda: fake)
     r = await client.post("/api/v1/system/sftp-probe/ticket", headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ws_path"] == f"/api/v1/addresses/{probe.PROBE_ADDRESS_ID}/sftp/ws"
     assert body["ticket"] and body["up_bytes"] <= probe.PROBE_MAX
+    assert any(body["ticket"] in k for k in fake.store), "票證沒有存進 Redis"
