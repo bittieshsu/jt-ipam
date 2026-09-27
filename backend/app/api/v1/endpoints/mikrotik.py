@@ -10,7 +10,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,14 +126,8 @@ async def cleanup_shared_rows(session: AsyncSession, router_id: uuid.UUID) -> No
     `dhcp_pool_ranges` 與 `nat_translations` 是多來源共用、沒有 cascade，
     必須自己清且**只能清自己的列** —— 條件一定要帶 `source_type` / `source_origin`。
     """
-    from app.models.dhcp import DHCPPoolRange
-    from app.models.nat import NATTranslation
-    await session.execute(delete(DHCPPoolRange).where(
-        DHCPPoolRange.source_type == "mikrotik", DHCPPoolRange.source_id == router_id,
-    ))
-    await session.execute(delete(NATTranslation).where(
-        NATTranslation.source_origin == f"mikrotik:{router_id}",
-    ))
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="mikrotik", source_id=router_id)
 
 
 @router.delete("/{router_id}", status_code=204)

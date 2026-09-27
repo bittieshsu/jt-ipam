@@ -15,6 +15,9 @@ export interface IPRange {
   size: number;
   used: number;
   first_free: string | null;
+  /** 由偵測到的 DHCP 發放範圍自動建立（跟著上游走，不能手動改／刪）與它的來源 */
+  auto?: boolean;
+  source_label?: string | null;
 }
 
 export type IPRangeInput = Pick<IPRange, "start_ip" | "end_ip" | "purpose"> &

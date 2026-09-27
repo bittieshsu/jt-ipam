@@ -123,10 +123,15 @@ async def _enrich_special_flags(
                 fw_ips.add(h)
     # 掃描代理實際觀測到「這個位址在回應 DHCP」的時間。設定與實測是兩件事：
     # 標記了不代表真的在發，沒標記也不代表沒有在發 —— 兩個都要看得到。
+    # 只看異常偵測同一個時間窗內的：以前沒有界線，私接的路由器拔掉一個月了清單上還是紅的
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.anomaly import ROGUE_DHCP_WINDOW_DAYS
+    observed_since = datetime.now(UTC) - timedelta(days=ROGUE_DHCP_WINDOW_DAYS)
     observed: dict[tuple[Any, str], Any] = {}
     for sub_id, srv_ip, seen in (await session.execute(
         select(DHCPSighting.subnet_id, DHCPSighting.server_ip, DHCPSighting.last_seen_at)
-        .where(DHCPSighting.subnet_id.in_(subnet_ids))
+        .where(DHCPSighting.subnet_id.in_(subnet_ids), DHCPSighting.last_seen_at >= observed_since)
     )).all():
         key = (sub_id, str(srv_ip))
         if key not in observed or seen > observed[key]:
@@ -1072,6 +1077,22 @@ async def update_address(
     pin_changed = "hostname_source_pin" in changes
     if pin_changed and not changes["hostname_source_pin"]:
         changes["hostname_source_pin"] = None  # "" → 取消 pin
+    # 表單每次都會把目前顯示的主機名稱、MAC、固定來源一起送出 —— 值沒變就不是使用者的編輯。
+    # 以前照單全收：只改了說明，當時顯示的 DNS 名稱就被凍結成「手動」、MAC 來源被標成手動
+    # （之後換機器的新 MAC 永遠寫不進來）。2026-09-26
+    def _hn(v: Any) -> str | None:
+        return (str(v or "")).strip() or None
+
+    def _mac(v: Any) -> str:
+        return "".join(ch for ch in str(v or "").lower() if ch in "0123456789abcdef")
+
+    prev_hostname, prev_pin, prev_mac = obj.hostname, obj.hostname_source_pin, obj.mac
+    if hostname_change is not _UNSET and _hn(hostname_change) == _hn(prev_hostname):
+        hostname_change = _UNSET
+    pin_explicit = pin_changed and (changes["hostname_source_pin"] or None) != (prev_pin or None)
+    mac_edited = "mac" in changes and _mac(changes["mac"]) != _mac(prev_mac)
+    if "mac" in changes and not mac_edited:
+        changes.pop("mac")
 
     for key, value in changes.items():
         setattr(obj, key, value)
@@ -1079,7 +1100,7 @@ async def update_address(
     # MAC 與 hostname 同屬「多來源優先序」欄位：人工編輯的 MAC 要標記 mac_source="manual"
     # （ARP 優先序中 manual rank 最高），否則下一次掃描/ARP 同步會用 scanner 等來源把它蓋掉。
     # 清空 MAC 時一併清掉來源。
-    if "mac" in changes:
+    if mac_edited:
         if obj.mac:
             obj.mac_source = "manual"
         else:
@@ -1115,6 +1136,13 @@ async def update_address(
             session, ip=obj, source="manual",
             hostname=hostname_change, actor_user_id=str(user.id),
         )
+        # 使用者明確輸入了新名稱，全域順序卻讓別的來源蓋過它（例如手動排在 DNS 之後）：
+        # 以前存完馬上被蓋回去、畫面沒有任何提示。沒另外指定固定來源時，就固定用手動 ——
+        # 輸入的會生效，表單上的「固定主機名稱來源」也看得出為什麼。
+        typed = _hn(hostname_change)
+        if typed and _hn(obj.hostname) != typed and not pin_explicit:
+            obj.hostname_source_pin = "manual"
+            await recompute_effective(session, ip=obj, source="manual", actor_user_id=str(user.id))
     elif pin_changed:
         await recompute_effective(
             session, ip=obj, source="manual", actor_user_id=str(user.id),

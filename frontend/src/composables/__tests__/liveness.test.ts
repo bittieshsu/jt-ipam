@@ -22,6 +22,11 @@ beforeEach(() => {
 });
 
 describe("classifyAddressLiveness", () => {
+  it("AdGuard 的 DNS 時間不算上線證據（它只代表設定裡有這個 IP，關機的機器也一直有）", () => {
+    expect(classifyAddressLiveness({ last_seen_dns: nowIso() })).toBe("offline");
+    expect(isArpOnlyEvidence({ last_seen_arp: nowIso(), last_seen_dns: nowIso() })).toBe(true);
+  });
+
   it("防火牆 ARP 看得到就是上線（以前這筆資料在 last_seen_scanner 裡）", () => {
     expect(classifyAddressLiveness({ arp_seen: { "arp:opnsense": nowIso() } }))
       .toBe("online");

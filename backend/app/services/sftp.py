@@ -17,8 +17,8 @@ from typing import Any
 
 from app.core.ui_error import UiError, ui_detail
 
-# 單一檔案的上下傳上限。IPAM 的用途是設定檔、憑證、log 片段，不是搬映像檔；
-# 沒有上限的話一個 20 GB 的檔案會把瀏覽器記憶體與後端一起拖垮。
+# 單一檔案上下傳上限的**預設值**。實際值由系統設定決定（`get_sftp_max_file_mb`，2026-09-26 起
+# 可以改）：IPAM 的本意是設定檔、憑證、log 片段，所以預設小；要搬映像檔由管理者自己放大。
 MAX_FILE_BYTES = 100 * 1024 * 1024
 
 # 一次列出的目錄項目上限。原本壓在 2000 是怕畫面一次畫太多列而卡住 —— 前端改成分頁之後
@@ -57,16 +57,19 @@ def normalize_path(path: str | None, *, cwd: str = "/") -> str:
 _WHAT_ZH = {"download": "下載", "upload": "上傳"}
 
 
-def check_size(size: int | None, *, what: str) -> int:
-    """檔案大小檢查。`None`＝遠端沒回報大小，視為未知並拒絕（寧可不傳）。"""
+def check_size(size: int | None, *, what: str, max_bytes: int = MAX_FILE_BYTES) -> int:
+    """檔案大小檢查。`None`＝遠端沒回報大小，視為未知並拒絕（寧可不傳）。
+
+    `max_bytes` 由呼叫端帶系統設定的值；不給就是預設的 100 MB。
+    """
     zh = _WHAT_ZH.get(what, what)
     if size is None:
         raise SftpError(f"{zh}：遠端沒有回報檔案大小，無法確認是否超過上限",
                         code=f"sftp_{what}_size_unknown")
     if size < 0:
         raise SftpError(f"{zh}：檔案大小異常", code=f"sftp_{what}_size_invalid")
-    if size > MAX_FILE_BYTES:
-        mb = MAX_FILE_BYTES // (1024 * 1024)
+    if size > max_bytes:
+        mb = max_bytes // (1024 * 1024)
         raise SftpError(f"{zh}：檔案超過 {mb} MB 上限（這個功能是給設定檔與紀錄用的）",
                         code=f"sftp_{what}_too_large", max=mb)
     return size

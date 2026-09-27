@@ -702,3 +702,90 @@ async def test_get_ip_detail_exposes_ocs_fields(db_session, admin_user) -> None:
     assert d["ocs_tag"] == "ASSET-000114"
     assert d["ocs_agent"] == "agent-2.10"
     assert d["last_seen_ocs"] is not None
+
+
+# ── 2026-09-26：new-host 裝了 OCS agent，jt-ipam 卻對到 BMC 的位址、主機本身沒對上 ──
+
+def test_the_bmc_interface_is_not_the_hosts_nic() -> None:
+    """Linux agent 會把 IPMI 控制器列成一張 DESCRIPTION=bmc 的網卡：那是另一台設備（BMC）的
+    位址與 MAC，把主機的 OS／主機名稱寫到 BMC 的 IP 上是錯的。"""
+    nics = [{"DESCRIPTION": "bmc", "MACADDR": "aa:bb:cc:00:0f:3f", "IPADDRESS": "198.51.100.46",
+             "VIRTUALDEV": 0},
+            {"DESCRIPTION": "eno2", "MACADDR": "aa:bb:cc:00:0d:7d", "IPADDRESS": "198.51.100.139",
+             "VIRTUALDEV": 0}]
+    assert [n["DESCRIPTION"] for n in svc.usable_nics(nics)] == ["eno2"]
+
+
+def test_an_ambiguous_mac_is_settled_by_the_ip_the_nic_reports() -> None:
+    """同一個 MAC 在兩筆 IP 上：常見是舊的 DHCP 位址（改固定 IP 之前拿的）留著同一個 MAC。
+    OCS 回報這張網卡目前的 IP 正好是其中一筆 → MAC 與 IP 都對上，就是它。"""
+    new, old = uuid.uuid4(), uuid.uuid4()
+    idx = {"aabbcc000d7d": [old, new]}
+    addr = {old: "198.51.100.69", new: "198.51.100.139"}
+    assert svc.decide_match("aa:bb:cc:00:0d:7d", idx, reported_ip="198.51.100.139", addr_of=addr) == new
+    # 回報的 IP 不在候選裡 → 仍然不猜
+    assert svc.decide_match("aa:bb:cc:00:0d:7d", idx, reported_ip="198.51.100.7", addr_of=addr) is None
+    assert svc.decide_match("aa:bb:cc:00:0d:7d", idx) is None
+
+
+async def test_ocs_fields_are_cleared_from_an_ip_that_no_longer_matches(monkeypatch, db_session) -> None:
+    """上一輪對到（例如 BMC 的位址、或換掉的舊機器），這一輪完整同步沒對到 → OCS 的資料要清掉，
+    不然 IP 會一直頂著別台機器的 OS 與盤點編號。"""
+    import app.services.ocs as ocs
+
+    host = await _mk_ip(db_session, "198.51.100.139", "aa:bb:cc:00:0d:7d")
+    bmc = await _mk_ip(db_session, "198.51.100.46", "aa:bb:cc:00:0f:3f")
+    bmc.ocs_id, bmc.os_ocs, bmc.ocs_tag = 53, "Fedora Linux 44", "old"
+    bmc.last_seen_ocs = datetime(2026, 9, 26, tzinfo=UTC)
+    await db_session.flush()
+
+    page = {"53": {"hardware": {"NAME": "new-host", "OSNAME": "Linux", "OSCOMMENTS": "Fedora Linux 44",
+                                "LASTDATE": "2026-09-26 08:00:00"},
+                   "networks": [
+                       {"DESCRIPTION": "bmc", "MACADDR": "aa:bb:cc:00:0f:3f", "IPADDRESS": "198.51.100.46"},
+                       {"DESCRIPTION": "eno2", "MACADDR": "aa:bb:cc:00:0d:7d", "IPADDRESS": "198.51.100.139"}]}}
+
+    class _C2:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *e): return False
+
+    async def fake_request(method, url, *, client=None, headers=None, verify=True, **extra):
+        if "lastupdate" in url:
+            return _FakeResp(404, None)
+        return _FakeResp(200, page if "start=0" in url else {})
+
+    monkeypatch.setattr(ocs, "safe_client", lambda *a, **k: _C2())
+    monkeypatch.setattr(ocs, "safe_request", fake_request)
+    from types import SimpleNamespace
+    srv = SimpleNamespace(
+        id=uuid.uuid4(), name="ocs", source_type="rest", base_url="https://192.0.2.10",
+        verify_tls=False, api_username=None, api_password_enc=None, api_password_nonce=None,
+        sync_bios=False, stale_after_days=3650, last_incremental_epoch=None,
+        detected_version=None, last_sync_at=None, last_success_at=None,
+        last_error=None, last_cost=None, scope_subnet_ids=None)
+    await ocs.sync_instance(db_session, srv)
+    await db_session.flush()
+    await db_session.refresh(host)
+    await db_session.refresh(bmc)
+    assert host.ocs_id == 53
+    assert host.os_ocs == "Fedora Linux 44"
+    assert bmc.ocs_id is None
+    assert bmc.os_ocs is None
+    assert bmc.ocs_tag is None
+    assert bmc.last_seen_ocs is None
+
+
+async def test_a_stale_inventory_clears_the_ocs_os(db_session) -> None:
+    """過期的盤點以前只是「不寫」，舊的 OS 一直留著、繼續蓋過掃描代理的即時結果。"""
+    from app.services.arp_precedence import normalize_mac
+    ip = await _mk_ip(db_session, "198.51.100.98", "aa:bb:cc:00:00:98")
+    ip.os_ocs = "Windows 7"
+    await db_session.flush()
+    idx = {normalize_mac("aa:bb:cc:00:00:98"): [ip.id]}
+    await svc._apply_computer(
+        db_session, _server(),
+        _computer("host-old", "aa:bb:cc:00:00:98", lastdate="2025-08-01 08:00:00"),
+        idx, datetime(2026, 9, 18, 12, 0, tzinfo=UTC))
+    await db_session.flush()
+    await db_session.refresh(ip)
+    assert ip.os_ocs is None

@@ -76,25 +76,23 @@ on_exit_hint() {
 }
 trap on_exit_hint EXIT
 
-# Best-effort install of the optional RDP dependency (aardwolf, pinned to a wheel-having
-# version). --only-binary=:all: means: if there is no prebuilt wheel for this platform/Python,
-# fail FAST instead of pulling an sdist and triggering a Rust toolchain build. Failure is
-# non-fatal: RDP features are simply disabled, the core install is unaffected.
+# Best-effort install of aardwolf, the OPTIONAL fallback engine for the RDP / VNC consoles (guacd
+# is the required, default one since 2026-09-27). Pinned to a wheel-having version;
+# --only-binary=:all: means: if there is no prebuilt wheel for this platform/Python, fail FAST
+# instead of pulling an sdist and triggering a Rust toolchain build. Failure is harmless.
 install_rdp_optional() {
     local bd="${REPO_ROOT}/backend"
     local u; u="$(stat -c '%U' "$bd/.venv" 2>/dev/null || echo jtipam)"
     [ -x "$bd/.venv/bin/pip" ] || return 0
-    log "Installing optional RDP dependency (aardwolf, prebuilt wheel only)…"
+    log "Installing optional fallback console engine (aardwolf, prebuilt wheel only)…"
     if ( cd "$bd" && sudo -u "$u" "$bd/.venv/bin/pip" install --quiet --only-binary=:all: -e ".[rdp]" ); then
-        log "RDP support installed."
+        log "aardwolf installed (optional fallback engine)."
     else
-        # Say why and what to do (GitHub issue #39): the usual cause is a Python newer than the
-        # wheels aardwolf publishes, and RDP still works through the FreeRDP engine.
+        # Usual cause: a Python newer than the wheels aardwolf publishes (GitHub issues #39, #42).
+        # Nothing depends on it any more -- guacd serves RDP and VNC.
         local pyver
         pyver="$("$bd/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")"
-        warn "Optional RDP dependency aardwolf not installed: aardwolf 0.2.13 ships prebuilt wheels only for CPython 3.9-3.13 (x86_64 / i686 Linux, arm64 macOS) and this host runs Python ${pyver} (or the host is offline). Core install unaffected."
-        warn "  RDP still works through the FreeRDP engine: choose it in Admin -> System settings -> RDP engine, then run 'jt-ipam.sh upgrade' to install FreeRDP (about 150 MB of packages)."
-        warn "  The VNC console needs aardwolf and has no other engine, so it stays unavailable on this host."
+        log "aardwolf (optional fallback engine) not installed: its prebuilt wheels cover CPython 3.9-3.13 and this host runs Python ${pyver} (or is offline). RDP / VNC use guacd; nothing else is affected."
     fi
     # Python side of the FreeRDP engine (screen capture + input injection). These are small,
     # pure-Python packages, so they go on every host -- the heavy part is the apt side
@@ -111,7 +109,7 @@ install_rdp_optional() {
 # reading the framebuffer through python-xlib costs 334 ms per 1280x800 frame (it parses 4 MB of
 # pixels in pure Python), which caps the console at 2.8 fps. ffmpeg's x11grab uses MIT-SHM and
 # measured 47 fps on the same host. ~150 MB of X libraries in total, so this is NOT installed by
-# default: the default engine is aardwolf and most sites never switch. Two ways in:
+# default: the default engine is guacd and most sites never switch. Two ways in:
 #   - install --with-freerdp
 #   - upgrade, when the site has already selected the FreeRDP engine (see ensure_freerdp_if_selected)
 # FreeRDP 2 (xfreerdp) where the distro still ships it, otherwise FreeRDP 3 (xfreerdp3):
@@ -197,16 +195,20 @@ ensure_freerdp_if_selected() {
     install_freerdp_apt || warn "RDP consoles will fail until these are installed."
 }
 
-# ───────────────────────── guacd（RDP／VNC／SSH 主控台的選用引擎）─────────────────────────
+# ───────────────────────── guacd（必要元件：RDP／VNC 主控台的預設引擎，SSH 可選）─────────────────────────
 # Distributions no longer ship a usable guacd (Debian removed it; Ubuntu only has 1.3.0 with
 # known remote-code-execution bugs), so jt-ipam provides its own build per OS version:
 # scripts/guacd/ builds them, GitHub releases carry them, scripts/guacd/SHA256SUMS pins them.
 # The builds link against the distribution's own libraries (FreeRDP, libvncclient, cairo...),
 # so security fixes for those still come from apt.
 #
-#   install --with-guacd                     install it now
-#   upgrade                                  keep it current if installed, or if any protocol is
-#                                            set to guacd in Admin -> System settings
+# guacd is a REQUIRED component (since 2026-09-27, GitHub issue #42): the default RDP / VNC console
+# engine. The old engine, aardwolf, is optional (a fallback) -- it has no wheels for new Pythons
+# and crashes on 3.14. install stops if guacd cannot be installed; upgrade installs it when
+# missing and, if that fails, warns loudly but still finishes (stopping after the code update
+# and before the migrations would leave the site broken) -- doctor then reports it as a problem.
+#
+#   install / upgrade                        install it, or keep it current
 #   --guacd-tarball <file>                   offline hosts / builds that are not published yet:
 #                                            use this file (its .deps must sit next to it)
 GUACD_PREFIX=/opt/jt-ipam-guacd
@@ -286,30 +288,17 @@ install_guacd() {
         warn "guacd installed but not running -- journalctl -u jt-ipam-guacd -n 50"
         return 1
     fi
-    log "guacd $(guacd_installed_version) running on 127.0.0.1:4822. Pick it per protocol in Admin -> System settings."
+    log "guacd $(guacd_installed_version) running on 127.0.0.1:4822 (default RDP / VNC console engine)."
     return 0
 }
 
-# Is any console set to the guacd engine?
-guacd_selected() {
-    local n
-    n="$( (sudo -u postgres psql -tAd jt_ipam -c \
-        "SELECT count(*) FROM system_settings WHERE key='console_security' AND
-           'guacd' IN (value->>'rdp_engine', value->>'vnc_engine', value->>'ssh_engine')" \
-        2>/dev/null || true) | tr -d '[:space:]')"
-    [[ "${n:-0}" != "0" ]]
-}
-
-# On upgrade: never silently leave the site on a stale guacd or without the one it selected.
+# On upgrade: install guacd (required) when missing, or keep it on the build for this version.
 ensure_guacd_current() {
-    local want_install="${1:-0}" tarball="${2:-}"
+    local tarball="${1:-}"
     command -v apt-get >/dev/null 2>&1 || return 0
     local installed=0
     [[ -x "$GUACD_PREFIX/sbin/guacd" ]] && installed=1
-    if [[ "$installed" == "0" && "$want_install" == "0" ]]; then
-        guacd_selected || return 0
-        log "This site uses the guacd console engine but guacd is not installed -- installing…"
-    fi
+    [[ "$installed" == "0" ]] && log "Installing guacd (required: the RDP / VNC console engine)…"
     local name want_ver
     name="$(guacd_package_name)"
     want_ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env") (build $(grep -oP '^GUACD_BUILD_REV=\K\S+' "$REPO_ROOT/scripts/guacd/source.env"))"
@@ -321,7 +310,14 @@ ensure_guacd_current() {
         systemctl restart "$GUACD_UNIT" 2>/dev/null || true
         return 0
     fi
-    install_guacd "$tarball" || warn "guacd was not updated; consoles set to guacd may fail (see above)."
+    if ! install_guacd "$tarball"; then
+        warn "================================================================================"
+        warn "guacd (REQUIRED) was not installed/updated -- see above. The upgrade continues so the"
+        warn "site keeps working, but RDP / VNC consoles only work through the optional built-in"
+        warn "engine until guacd is in place. Fix, then re-run: sudo $0 upgrade"
+        warn "  (offline host / OS without a prebuilt package: sudo $0 upgrade --guacd-tarball <file>)"
+        warn "================================================================================"
+    fi
 }
 
 # Ensure a modern Node.js (>=18) is available to root. Three cases this handles:
@@ -591,18 +587,16 @@ Commands:
                                                           (freerdp2-x11 xvfb xclip, ~150 MB of X libraries).
                                                           Needed only for RDP targets that reject the default
                                                           engine -- xrdp and GNOME Remote Login do.
-                 --with-guacd                             also install guacd, the optional console engine for
-                                                          RDP / VNC / SSH (prebuilt per OS version, bound to
-                                                          127.0.0.1 only; choose it per protocol afterwards)
-                 --guacd-tarball <file>                   install guacd from this file instead of downloading it
+                 --guacd-tarball <file>                   install guacd (required: the RDP / VNC console engine,
+                                                          prebuilt per OS version, bound to 127.0.0.1 only) from this
+                                                          file instead of downloading it -- for offline hosts
   doctor       check a running install and print an exact fix for anything wrong
   upgrade      upgrade existing install (git pull -> backup -> pip -> alembic -> build -> restart)
                  --no-pull                                skip git pull
                  --force                                  discard local changes to tracked files (e.g. an edited
                                                           scripts/jt-ipam.sh) so git pull won't abort
-                 --with-guacd                             install guacd if it is not installed yet (it is kept
-                                                          current automatically once installed or selected)
                  --guacd-tarball <file>                   use this guacd package instead of downloading it
+                                                          (guacd is required and installed/updated on every upgrade)
   uninstall    stop and remove systemd units/timers + nginx site (keeps data by default)
                  --purge                                  also dropdb + remove config/uploads/system user
                  --yes                                    skip interactive confirmation when using --purge
@@ -789,15 +783,14 @@ cmd_install() {
     local PUBLIC_FQDN="ipam.example.com"
     local BIND_PORT_DIRECT=8443
     local WITH_FREERDP=0
-    local WITH_GUACD=0
-    local GUACD_TARBALL=""
+    local GUACD_TARBALL=""      # guacd 是必要元件，一定會裝（GitHub issue #42）
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --tls-mode) TLS_MODE="$2"; shift 2 ;;
             --with-freerdp) WITH_FREERDP=1; shift ;;
-            --with-guacd) WITH_GUACD=1; shift ;;
-            --guacd-tarball) WITH_GUACD=1; GUACD_TARBALL="$(readlink -f "$2")"; shift 2 ;;
+            --with-guacd) shift ;;                     # 舊參數，保留相容（guacd 一定會裝）
+            --guacd-tarball) GUACD_TARBALL="$(readlink -f "$2")"; shift 2 ;;
             --public-fqdn) PUBLIC_FQDN="$2"; shift 2 ;;
             --bind-port) BIND_PORT_DIRECT="$2"; shift 2 ;;
             -h|--help) usage; exit 0 ;;
@@ -1102,10 +1095,11 @@ SQL
         log "FreeRDP console engine not installed (use --with-freerdp, or install later:"
         log "  sudo apt-get install -y ${FREERDP_APT_PACKAGES[*]} )"
     fi
-    if [[ "$WITH_GUACD" == "1" ]]; then
-        install_guacd "$GUACD_TARBALL" || true
-    else
-        log "guacd console engine not installed (optional; later: sudo $0 upgrade --with-guacd)"
+    # guacd 是必要元件：裝不起來就停在這裡（還沒有任何服務對外），講清楚怎麼補
+    if ! install_guacd "$GUACD_TARBALL"; then
+        die "guacd is required (the RDP / VNC console engine) and could not be installed -- see above.
+  Offline host, or an OS version without a prebuilt package yet: build or download it for this OS
+  (scripts/guacd/, GitHub releases) and re-run: sudo $0 install --guacd-tarball <file> [other options]"
     fi
 
     # -- 6. backend.env --
@@ -1539,7 +1533,7 @@ cmd_doctor() {
         fi
     fi
 
-    # guacd（選用的主控台引擎）：裝了就要在跑、答得出來；選了就要有裝
+    # guacd（必要元件：RDP／VNC 的預設引擎）：一定要裝、在跑、答得出來
     if [[ -x "$GUACD_PREFIX/sbin/guacd" ]]; then
         local greply=""
         if systemctl is-active --quiet "$GUACD_UNIT"; then
@@ -1551,9 +1545,9 @@ cmd_doctor() {
             _bad "guacd is installed but not answering on 127.0.0.1:4822" \
                  "sudo systemctl restart $GUACD_UNIT; journalctl -u jt-ipam-guacd -n 50 --no-pager"
         fi
-    elif guacd_selected; then
-        _bad "a console is set to the guacd engine but guacd is not installed" \
-             "sudo $0 upgrade --with-guacd   (or switch the engine back in Admin -> System settings)"
+    else
+        _bad "guacd is not installed -- it is required (the RDP / VNC console engine); consoles only work through the optional built-in engine" \
+             "sudo $0 upgrade   (installs it; offline: sudo $0 upgrade --guacd-tarball <file>)"
     fi
 
     # ── database ──
@@ -1653,11 +1647,15 @@ cmd_doctor() {
     # Only report the engine the site actually selected. Saying "FreeRDP not installed" on a
     # site that uses the default engine is noise, and noise is what makes people stop reading
     # the output.
-    local rdp_engine
+    local rdp_engine vnc_engine
     rdp_engine="$(sudo -u postgres psql -tAd jt_ipam -c \
-        "SELECT COALESCE(value->>'rdp_engine','aardwolf') FROM system_settings WHERE key='console_security'" \
+        "SELECT COALESCE(value->>'rdp_engine','guacd') FROM system_settings WHERE key='console_security'" \
         2>/dev/null | tr -d '[:space:]')"
-    [[ -n "$rdp_engine" ]] || rdp_engine="aardwolf"
+    [[ -n "$rdp_engine" ]] || rdp_engine="guacd"
+    vnc_engine="$(sudo -u postgres psql -tAd jt_ipam -c \
+        "SELECT COALESCE(value->>'vnc_engine','guacd') FROM system_settings WHERE key='console_security'" \
+        2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$vnc_engine" ]] || vnc_engine="guacd"
     echo
     echo "Remote console"
     if [[ "$rdp_engine" == "freerdp" ]]; then
@@ -1670,8 +1668,17 @@ cmd_doctor() {
             _bad "RDP engine is set to FreeRDP but the syscall drop-in is missing — the virtual display is killed on start (SIGSYS)" \
                  "sudo $0 upgrade   (installs it), or see docs/INSTALL.md"
         fi
-    else
-        _ok "RDP engine: aardwolf (built in)"
+    elif [[ "$rdp_engine" == "guacd" ]]; then
+        _ok "RDP engine: guacd (checked above)"
+    fi
+    # aardwolf is optional now; only a problem when a console is explicitly set to it
+    if [[ "$rdp_engine" == "aardwolf" || "$vnc_engine" == "builtin" ]]; then
+        if "$BACKEND_DIR/.venv/bin/python" -c 'import aardwolf' 2>/dev/null; then
+            _ok "aardwolf present (RDP engine: $rdp_engine, VNC engine: $vnc_engine)"
+        else
+            _bad "a console is set to the built-in aardwolf engine (RDP: $rdp_engine, VNC: $vnc_engine) but aardwolf is not installed" \
+                 "switch RDP / VNC back to guacd in Admin -> System settings (aardwolf is optional)"
+        fi
     fi
 
     echo
@@ -1741,15 +1748,14 @@ cmd_upgrade() {
     local SVC="jt-ipam-backend"
     local DO_PULL=1
     local FORCE=0
-    local WITH_GUACD=0
-    local GUACD_TARBALL=""
+    local GUACD_TARBALL=""      # guacd 是必要元件：每次升級都會裝上／更新
     local _prev=""
     for arg in "$@"; do
-      if [[ "$_prev" == "--guacd-tarball" ]]; then GUACD_TARBALL="$(readlink -f "$arg")"; WITH_GUACD=1; _prev=""; continue; fi
+      if [[ "$_prev" == "--guacd-tarball" ]]; then GUACD_TARBALL="$(readlink -f "$arg")"; _prev=""; continue; fi
       case "$arg" in
         --no-pull) DO_PULL=0 ;;
         --force|-f) FORCE=1 ;;
-        --with-guacd) WITH_GUACD=1 ;;
+        --with-guacd) ;;                    # 舊參數，保留相容（guacd 一定會裝）
         --guacd-tarball) _prev="--guacd-tarball" ;;
       esac
     done
@@ -1870,7 +1876,7 @@ cmd_upgrade() {
     ( cd "$ROOT/backend"; as_user .venv/bin/pip install --quiet -e . )
     install_rdp_optional
     ensure_freerdp_if_selected
-    ensure_guacd_current "$WITH_GUACD" "$GUACD_TARBALL"
+    ensure_guacd_current "$GUACD_TARBALL"
     # IPMI tools for the BMC console (install on upgrade of existing setups; best-effort)
     if command -v apt-get >/dev/null 2>&1 && ! command -v ipmitool >/dev/null 2>&1; then
         log "Installing IPMI tools (ipmitool freeipmi-tools) for the BMC console…"

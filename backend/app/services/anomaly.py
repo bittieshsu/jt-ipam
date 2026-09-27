@@ -567,8 +567,12 @@ async def detect_unauthorized_ips(session: AsyncSession) -> list[dict[str, Any]]
     return [{"ip": ip} for ip in unauthorized[:200]]
 
 
+#: 非法 DHCP 的觀測多久內算數 —— 異常偵測與清單上的紅色標記共用（以前清單沒有時間界線）
+ROGUE_DHCP_WINDOW_DAYS = 7
+
+
 async def detect_rogue_dhcp(
-    session: AsyncSession, *, within_days: int = 7,
+    session: AsyncSession, *, within_days: int = ROGUE_DHCP_WINDOW_DAYS,
 ) -> list[dict[str, Any]]:
     """在網段上回應 DHCP、但沒有被標記為 DHCP 伺服器的主機。
 

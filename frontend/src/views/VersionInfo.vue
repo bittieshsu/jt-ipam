@@ -42,7 +42,14 @@ const optionalTools = computed(() => {
   const ot = info.value?.host?.optional_tools;
   return ot ? Object.entries(ot).map(([name, v]) => ({ name, ...v })) : [];
 });
-const missingTools = computed(() => optionalTools.value.filter((x) => !x.present));
+// 備用引擎（aardwolf）沒裝是正常的：不列進警告（有的 Python 版本根本裝不起來）
+const missingTools = computed(() => optionalTools.value.filter((x) => !x.present && !x.fallback));
+// 必要相依（guacd：RDP／VNC 的預設引擎，必裝）：沒裝或沒在跑都要用紅色講清楚
+const requiredTools = computed(() => {
+  const rt = info.value?.host?.required_tools;
+  return rt ? Object.entries(rt).map(([name, v]) => ({ name, ...v })) : [];
+});
+const brokenRequired = computed(() => requiredTools.value.filter((x) => !x.running));
 
 async function load() {
   loading.value = true;
@@ -134,6 +141,26 @@ onMounted(load);
         </div>
       </template>
 
+      <!-- 必要相依：缺了或沒在跑，對應功能就不能正常運作 -->
+      <template v-if="requiredTools.length">
+        <div class="ver-pkg-head">
+          <span class="ver-pkg-title">{{ t("version.section_required") }}</span>
+          <span class="ver-pkg-hint">{{ t("version.section_required_hint") }}</span>
+        </div>
+        <n-alert v-if="brokenRequired.length" type="error" :bordered="false" style="margin-bottom:10px">
+          {{ t("version.required_missing", { pkgs: brokenRequired.map(x => x.name).join(", ") }) }}
+        </n-alert>
+        <div class="ver-pkg-grid">
+          <div v-for="p in requiredTools" :key="p.name" class="ver-pkg">
+            <span class="ver-pkg__name">{{ p.name }}<span class="ver-opt-use">{{ p.used_by }}</span></span>
+            <span class="ver-pkg__ver" :style="p.running ? '' : 'color:#d03050'">
+              {{ p.running ? (p.version || t("version.required_running"))
+                 : p.present ? t("version.required_not_running") : t("version.optional_absent") }}
+            </span>
+          </div>
+        </div>
+      </template>
+
       <!-- 選用相依（缺了只會讓對應功能不可用，不影響服務） -->
       <template v-if="optionalTools.length">
         <div class="ver-pkg-head">
@@ -146,7 +173,7 @@ onMounted(load);
         <div class="ver-pkg-grid">
           <div v-for="p in optionalTools" :key="p.name" class="ver-pkg">
             <span class="ver-pkg__name">{{ p.name }}<span class="ver-opt-use">{{ p.used_by }}</span></span>
-            <span class="ver-pkg__ver" :style="p.present ? '' : 'color:#d03050'">
+            <span class="ver-pkg__ver" :style="p.present || p.fallback ? '' : 'color:#d03050'">
               {{ p.present ? t("version.optional_present") : t("version.optional_absent") }}
             </span>
           </div>

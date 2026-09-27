@@ -334,7 +334,7 @@ async def run_checks(session: AsyncSession) -> Report:
         rep.checks.append(Check("debug", "執行模式", "warn", f"檢查本身失敗：{exc}"[:200],
         title_key="doctor.c_env", detail_key="doctor.d_check_failed", params={"detail": str(exc)[:200]}))
 
-    # 10) guacd（選用的主控台引擎）：有協定選了它就一定要連得到、外掛都在
+    # 10) guacd（必要元件，RDP／VNC 的預設引擎）：一定要連得到；選了它的協定外掛都要在
     try:
         rep_guacd = await _guacd_check(session)
         if rep_guacd is not None:
@@ -348,31 +348,41 @@ async def run_checks(session: AsyncSession) -> Report:
 
 
 async def _guacd_check(session: AsyncSession) -> Check | None:
-    """選了 guacd 的協定要真的能用。沒有協定選它、也沒裝的話不列（它是選用元件）。"""
+    """guacd 是**必要元件**（RDP／VNC 的預設引擎，2026-09-27 起必裝）：一定要在跑、選了它的協定外掛都要在。
+
+    連不到時設定為 guacd 的連線會暫時退回內建引擎（services/console_engine.py），但那是備援不是正常狀態，
+    所以列成失敗；aardwolf 改為選用，缺了不列（GitHub issue #42：Python 3.14 上 aardwolf 會當掉）。
+    """
     from app.services import guacd as guac
     from app.services.system_config import get_rdp_engine, get_ssh_engine, get_vnc_engine
     used = [p for p, e in (("rdp", await get_rdp_engine(session)), ("vnc", await get_vnc_engine(session)),
                            ("ssh", await get_ssh_engine(session))) if e == "guacd"]
     st = await guac.probe(use_cache=False)
     names = "、".join(p.upper() for p in used)
-    fix = "sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd"
-    if not used:
-        if not st["ok"]:
-            return None
-        return Check("guacd", "guacd 主控台引擎", "ok", f"已安裝，還沒有協定使用它（{st['address']}）",
-                     title_key="doctor.c_guacd", detail_key="doctor.d_guacd_idle",
-                     params={"address": st["address"]})
+    fix = "sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade"
     if not st["ok"]:
+        reason = st.get("error") or ""
+        if used:
+            return Check("guacd", "guacd 主控台引擎", "bad",
+                         f"guacd 是必要元件，但連不到它（{st['address']}）：{reason}；{names} 目前暫時改用內建引擎",
+                         fix, title_key="doctor.c_guacd", detail_key="doctor.d_guacd_down",
+                         fix_key="doctor.f_guacd",
+                         params={"protocols": names, "address": st["address"], "reason": reason})
         return Check("guacd", "guacd 主控台引擎", "bad",
-                     f"{names} 設定為 guacd，但連不到它（{st['address']}）：{st.get('error') or ''}", fix,
-                     title_key="doctor.c_guacd", detail_key="doctor.d_guacd_down", fix_key="doctor.f_guacd",
-                     params={"protocols": names, "address": st["address"], "reason": st.get("error") or ""})
+                     f"guacd 是必要元件，但連不到它（{st['address']}）：{reason}", fix,
+                     title_key="doctor.c_guacd", detail_key="doctor.d_guacd_down_idle", fix_key="doctor.f_guacd",
+                     params={"address": st["address"], "reason": reason})
     missing = [p for p in used if not st["protocols"].get(p)]
     if missing:
         m = "、".join(p.upper() for p in missing)
-        return Check("guacd", "guacd 主控台引擎", "bad", f"{m} 設定為 guacd，但 guacd 沒有這些協定的支援", fix,
+        return Check("guacd", "guacd 主控台引擎", "bad",
+                     f"{m} 設定為 guacd，但 guacd 沒有這些協定的支援；目前連線暫時改用內建引擎", fix,
                      title_key="doctor.c_guacd", detail_key="doctor.d_guacd_missing", fix_key="doctor.f_guacd",
                      params={"protocols": m})
+    if not used:
+        return Check("guacd", "guacd 主控台引擎", "ok", f"服務正常，目前沒有協定使用它（{st['address']}）",
+                     title_key="doctor.c_guacd", detail_key="doctor.d_guacd_idle",
+                     params={"address": st["address"]})
     return Check("guacd", "guacd 主控台引擎", "ok", f"{names} 使用 guacd，服務正常（{st['address']}）",
                  title_key="doctor.c_guacd", detail_key="doctor.d_guacd_ok",
                  params={"protocols": names, "address": st["address"]})

@@ -65,3 +65,26 @@ def subnet_for_ip_str(nets: SubnetCandidates, ip: str) -> UUID | None:
     except ValueError:
         return None
     return pick_subnet_for_ip(nets, aip)
+
+
+async def match_existing(
+    session: AsyncSession, ip: str | None, scope_ids: set[Any] | list[Any] | None = None,
+) -> tuple[Any | None, bool]:
+    """整合看到一個 IP，對到 IPAM 既有的哪一筆 → (IP 物件, 是否不明確)。
+
+    與建立同一條原則：**唯一才算**。同一個 IP 在好幾個子網路都有（重疊網段、整合沒設關聯
+    子網路）→ (None, True)，呼叫端什麼都不寫、也不可以新建（同一個子網路裡已經有了）。
+    以前各整合一律 `.limit(1)` 任意取一筆，主機名稱、MAC、上線證據會掛到別的單位名下
+    （2026-09-26 稽核）。查無 → (None, False)。
+    """
+    from app.models.address import IPAddress
+
+    if not ip:
+        return None, False
+    stmt = select(IPAddress).where(IPAddress.ip == ip)
+    if scope_ids:
+        stmt = stmt.where(IPAddress.subnet_id.in_(list(scope_ids)))
+    rows = (await session.execute(stmt.limit(2))).scalars().all()
+    if len(rows) > 1:
+        return None, True
+    return (rows[0] if rows else None), False

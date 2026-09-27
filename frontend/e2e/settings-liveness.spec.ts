@@ -49,5 +49,19 @@ test("採信哪些證據：分組且欄位對齊", async ({ page }) => {
           .reduce((acc, e) => Math.max(acc, e.getBoundingClientRect().right - right), -9999);
       });
     expect(worst, `視窗 ${width}px 時選項超出卡片 ${worst.toFixed(0)}px`).toBeLessThanOrEqual(0);
+
+    // 每一列的**每一格**都要落在同一組欄位上 —— 只比第一格會漏掉「項目少的列欄寬被撐大」
+    // （使用者回報：VPN 只有 3 項、DHCP 2 項，欄位和上面 4 項的列對不齊；原因是 auto-fit）
+    const perRow = await page.locator(".ss-src-row").evaluateAll((rs) =>
+      rs.map((r) => Array.from(r.querySelectorAll(".ss-src-item"))
+        .map((e) => Math.round(e.getBoundingClientRect().left))));
+    const cols = [...new Set(perRow.flat())].sort((a, b) => a - b);
+    const widest = Math.max(...perRow.map((xs) => new Set(xs).size));
+    expect(cols.length, `視窗 ${width}px 時欄位對不齊：${JSON.stringify(perRow)}`).toBe(widest);
+    // 上面那條要看資料：只有「項目比欄數少、又不只一項」的列才看得出來，測試庫剛好沒有這種列。
+    // 直接比每一列算出來的欄寬：auto-fit 會把用不到的欄收成 0px，欄寬就跟別列不同
+    const tracks = await page.locator(".ss-src-grid").evaluateAll((gs) =>
+      gs.map((g) => getComputedStyle(g).gridTemplateColumns));
+    expect(new Set(tracks).size, `視窗 ${width}px 時各列欄寬不同：${JSON.stringify(tracks)}`).toBe(1);
   }
 });

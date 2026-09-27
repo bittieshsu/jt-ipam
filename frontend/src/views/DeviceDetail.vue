@@ -280,7 +280,8 @@ function lnmsStatusLabel(s: unknown): string {
   return v;
 }
 function lastSeen(r: IPAddress): string {
-  const arr = [r.last_seen_scanner, r.last_seen_librenms, r.last_seen_dns,
+  // last_seen_dns 不算（AdGuard 設定裡有＝每輪都是現在，見 useLivenessSettings）
+  const arr = [r.last_seen_scanner, r.last_seen_librenms,
     (r as { last_seen_arp?: string | null }).last_seen_arp].filter(Boolean) as string[];
   if (!arr.length) return "—";
   return fmtDateTime(arr.sort().reverse()[0]);   // 轉本地時區（原本直接顯示 UTC）

@@ -168,6 +168,12 @@ to see what a customer sees.**
 
 ## 5c. Real-browser testing — **mandatory for every release that touches the UI**
 
+- [ ] Mobile sidebar (`frontend/e2e/mobile-sidebar.spec.ts`, 390×844): collapsed to zero width with the content
+  starting at the left edge; the top-left button opens it over the content; picking a page or tapping the
+  dimmed area closes it; desktop is unchanged
+- [ ] Rack diagrams on phones (`frontend/e2e/mobile-rack.spec.ts`): pan left / right when wider than the
+  screen; the Front / Rear toolbar stays inside the card
+
 Type checks, unit tests and API tests all pass while a page renders the wrong
 thing, renders nothing, or puts it in the wrong place. Defects this project has
 shipped that were only ever visible in a browser: a column added to a table but
@@ -246,10 +252,12 @@ instruction (2026-09-25): check online at every release and build for any new ve
   `scripts/guacd/source.env`? It is pinned to a `staging/1.6.1` commit because 1.6.0
   segfaults on Ubuntu 26.04 at the first frame — **once 1.6.1 is released, switch to the
   official Apache tarball and verify its published checksum**
-- [ ] Walk the installer's guacd path on a clean OS too:
-  `GUACD_TARBALL=<prebuilt for the same OS> scripts/test-fresh-install.sh debian:12` — checks that
-  `--with-guacd --guacd-tarball` installs, the service runs, answers on 127.0.0.1 **only**, and
-  doctor is green
+- [ ] Walk the installer's guacd path on a clean OS too (guacd is the default RDP / VNC engine, so
+  install puts it in by default): `scripts/test-fresh-install.sh debian:12` (the customer path —
+  download from the GitHub release and verify) or `GUACD_TARBALL=<prebuilt for the same OS>
+  scripts/test-fresh-install.sh debian:12` (a build not published yet) — checks that it installs,
+  the service runs, answers on 127.0.0.1 **only**, and doctor is green. guacd is **required**:
+  install must stop when it cannot be installed
 - [ ] If anything changed: `scripts/guacd/build.sh` then `scripts/guacd/verify.sh` (both need
   docker; `APT_MIRROR` / `UBUNTU_MIRROR` as for the other gates). Verify installs only the
   runtime packages in a clean container **and connects to an RDP target for real** — the
@@ -329,6 +337,18 @@ defect is in *what the model was able to ask*.
   order (putting the grouping inside the comparator inverts it on descending — that is the regression
   to watch); Mixed sorts purely by the column. Sorting by size or mtime honours the same mode.
   The choice is saved to user preferences and survives a reconnect or a different device
+- [ ] **SFTP per-file limit (system setting)**: default 100 MB; a raised value sticks, and saving from an
+  older page does not reset it; anything outside 1–102400 MB is refused with a message and reverted (it
+  must **not** be clamped by the input and saved). Changing the limit runs the transfer path check
+  **automatically**; the result gives upload/download speed and how long a file of the limit would take;
+  a broken path names the kind (WebSocket blocked / 1009 message too big / cut mid-transfer / data not
+  getting through). Existing spec: `e2e/sftp-limit-probe.spec.ts` (1009 simulated with routeWebSocket)
+- [ ] **Large SFTP downloads**: over 64 MB, Chrome / Edge ask where to save and write to disk as data
+  arrives (byte-identical, written in many pieces); other browsers fall back to memory (and refuse above
+  2 GB with a message); over the limit is refused at once; progress shows while downloading.
+  Existing spec: `e2e/sftp-stream-download.spec.ts` (needs `E2E_SFTP_ROOT`, `sftp-target.py` on 2223)
+- [ ] **Run the path check on production too**, from outside through the edge reverse proxy — the dev
+  machine's path does not have that layer
 - [ ] Existing spec: `frontend/e2e/terminal-links.spec.ts` (needs `E2E_SSH_ADDRESS_ID/USER/PASS`,
   plus `can_ssh` on the user and `ssh_enabled` on the address; accept the host key on first use)
 
@@ -474,8 +494,18 @@ The same sshd can play both roles: register it as the jump host, and point the t
 
 ## 7m. guacd console engine — **whenever a console, guacd or its build changes**
 
-guacd is the optional third engine for RDP / VNC / SSH (Admin → System settings, per protocol).
-Keep the other engines as the defaults; switching must not change what a console is allowed to do.
+guacd is the default engine for RDP and VNC (since 2026-09-27; migration 0158 switches existing
+installs), and SSH can use it (Admin → System settings, per protocol). Switching must not change
+what a console is allowed to do.
+
+- [ ] Defaults: on a fresh install the settings page shows "guacd (default)" for RDP and VNC and
+  "Built-in (default)" for SSH; after upgrading an old site RDP / VNC are guacd
+  (`frontend/e2e/rdp-engine.spec.ts`, `tests/test_console_engine_default.py`)
+- [ ] guacd is required: Version info → Required components lists it (version, running); aardwolf
+  is under Optional
+- [ ] With guacd stopped, RDP / VNC **still connect** (built-in engine fallback, if the optional
+  aardwolf is present), the settings page shows guacd red and doctor / System check fail; a session does not hang when guacd goes up or down in
+  the middle (the engine travels in the ticket and the WebSocket follows it)
 
 - [ ] `frontend/e2e/console-guacd.spec.ts` against a local guacd and the three targets (see the file
   header: xrdp container on 3389, `e2e/fixtures/vnc-target.py` on 5999, an sshd on 2222). It checks
@@ -495,7 +525,8 @@ Keep the other engines as the defaults; switching must not change what a console
 - [ ] A background tab stays connected for more than 5 minutes (browsers throttle timers to once a
   minute there; the server sends the keep-alive, not the page)
 - [ ] `sudo jt-ipam.sh doctor` and Admin → System check show guacd; stopping `jt-ipam-guacd` must turn
-  both red with the fix, and a ticket request must answer with a readable 503
+  both red with the fix and say the built-in engine is in use; when the built-in
+  engine is unavailable too (no aardwolf, say), a ticket request must answer with a readable 503
 - [ ] VNC username: on a server that asks for one (the VeNCrypt target on 5998 in the spec header)
   an empty username must say "enter the username", a filled one must connect; a wrong password must
   say "wrong username or password", not "host unreachable" — unreachable only when it really is (TCP
@@ -526,6 +557,23 @@ NAT and address objects from syncing at all, while the UI showed a single error 
   API account cannot read it)
 - [ ] **Connection test reflects reality**: the per-endpoint diagnostic shows the same result
   the sync would get — never a green tick for something the sync cannot read
+- [ ] **What the upstream deleted must disappear** (2026-09-26 audit: hostnames from 16 sources and DNS
+  records were never removed): delete one item upstream (DNS record, lease, VM, agent, host) and after
+  one sync the IP's hostname and mirror rows must be gone. Hostnames always go through `HostnameRun`
+  (`services/hostname_reports.py`): `report` what you see, `hold` entities whose data is uncertain this
+  run, `finish(complete=…)` at the end — **complete must mean "this run really read everything"**, never
+  a copy of the heartbeat's ok
+- [ ] **Unreadable must not mean removed** (the opposite defect): make an endpoint time out / return 403
+  for one run; existing hostnames, NAT, policies, VPN tunnels and DHCP ranges / reservations must stay
+  untouched and `last_error` must say why. Only 404 (the feature does not exist there) counts as "read,
+  nothing there". A VDOM / vsys list that fell back to a default is not a complete list — sections that
+  replace a whole snapshot must not run
+- [ ] **Instances of the same kind do not remove each other's data**: two firewalls of one vendor each
+  report their own; when one stops, what the other still reports stays
+- [ ] **Breaker**: make the API return an empty list for one run (permission revoked) — hostnames must
+  not be wiped, `last_error` must say why, and the rule-change sentinel must not report "all removed"
+- [ ] **An unchanged field is not a manual edit**: change only the description in the IP edit form and
+  save — neither the hostname source nor the MAC source may become manual
 
 ## 7d. Probes run from a scan agent — **whenever the probe queue or the agent changes**
 

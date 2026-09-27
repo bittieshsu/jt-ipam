@@ -145,6 +145,9 @@ async def delete_instance(
     ).scalar_one_or_none()
     if inst is None:
         raise HTTPException(404, detail="instance not found")
+    # 它寫進共用表的主機名稱／租約／固定分配／NAT／VPN 通道一併收回（沒有外鍵會跟著刪）
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="wazuh", source_id=inst.id)
     await session.delete(inst)
     await append_audit(
         session,

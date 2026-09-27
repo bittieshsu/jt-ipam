@@ -554,17 +554,28 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
         vms = await s.list_vms()
 
     now = datetime.now(UTC)
+    # 叢集只認 vmware 類型：名稱剛好等於某個 PVE 叢集時，以前會拿 PVE 的來用，
+    # 下面的清除就把 PVE 的 VM 全刪了（2026-09-26 稽核）
     cluster = None
     if inst.cluster_id:
         cluster = await session.get(VirtCluster, inst.cluster_id)
+        if cluster is not None and cluster.type != "vmware":
+            cluster = None
+    name = inst.name
     if cluster is None:
         cluster = (await session.execute(
-            select(VirtCluster).where(VirtCluster.name == inst.name).limit(1)
+            select(VirtCluster).where(VirtCluster.name == name, VirtCluster.type == "vmware").limit(1)
+        )).scalars().first()
+    if cluster is None and (await session.execute(
+            select(VirtCluster.id).where(VirtCluster.name == name))).first():
+        name = f"{inst.name} (ESXi)"[:128]     # 名稱唯一；別的平台已經用了這個名字
+        cluster = (await session.execute(
+            select(VirtCluster).where(VirtCluster.name == name, VirtCluster.type == "vmware").limit(1)
         )).scalars().first()
     if cluster is None:
         # 用資料表 CHECK 約束早就預留的 "vmware"：ESXi 與 vCenter 都屬同一個平台家族，
         # 而且不必為了新平台改約束。
-        cluster = VirtCluster(name=inst.name, type="vmware", is_standalone=True,
+        cluster = VirtCluster(name=name, type="vmware", is_standalone=True,
                               description=inst.description)
         session.add(cluster)
         await session.flush()

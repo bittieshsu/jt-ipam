@@ -14,7 +14,7 @@ import ipaddress
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.address import IPAddress
@@ -22,7 +22,9 @@ from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.subnet import Subnet
 from app.services.dns import DNSAdapterError, get_adapter
 from app.services.dns.base import DNSRecordOp
-from app.services.hostname import apply_observation
+
+#: 某個 zone 讀到 0 筆（A/AAAA/PTR）、本地卻有這麼多筆以上：當成讀取有問題，不刪
+STALE_EMPTY_GUARD = 5
 
 
 def _scope_subnet_uuids(server: DNSServer) -> set[uuid.UUID]:
@@ -192,9 +194,14 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
 
     try:
         # 收集每個 IP 從 DNS 看到的所有正解名稱，最後只套用一個「穩定」的，
-        # 避免同一 IP 有多筆 A 記錄（如 meet3 與 meet3-turn）時每次 sync 挑到不同
+        # 避免同一 IP 有多筆 A 記錄（如 old 與 old-host）時每次 sync 挑到不同
         # 名稱 → hostname 反覆跳動、洗版異動記錄。
         dns_ip_names: dict[str, set[str]] = {}
+        # 同一輪用同一個時間戳：記錄的 last_seen_at 才比得起來
+        run_at = datetime.now(UTC)
+        # 讀取失敗或結果可疑的 zone：它的記錄與名稱這一輪都不清（沒看到不代表伺服器上刪了）
+        zone_problems: list[str] = []
+        summary.setdefault("removed_records", 0)
         for zinfo in zones_remote:
             summary["pulled_zones"] += 1
             zone = (
@@ -216,7 +223,7 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
             try:
                 records = await adapter.list_records(zinfo.name)
             except DNSAdapterError as exc:
-                server.last_error = f"list_records {zinfo.name}: {exc}"
+                zone_problems.append(f"list_records {zinfo.name}: {exc}")
                 continue
 
             # 與本地比對
@@ -251,13 +258,13 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
                         name=op.name, type=op.type, value=op.value, ttl=op.ttl,
                         source="from_dns_pulled",
                         consistency_state="dns_only",
-                        last_seen_at=datetime.now(UTC),
+                        last_seen_at=run_at,
                     )
                     session.add(rec)
                     summary["dns_only"] += 1
                 else:
                     rec.ttl = op.ttl
-                    rec.last_seen_at = datetime.now(UTC)
+                    rec.last_seen_at = run_at
                     if rec.source == "from_ipam":
                         rec.consistency_state = "consistent"
                     elif rec.consistency_state == "ipam_only":
@@ -269,12 +276,28 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
                     rec.consistency_state = "ipam_only"
                     summary["ipam_only"] += 1
 
-            zone.last_sync_at = datetime.now(UTC)
+            # 伺服器上已經刪掉的記錄要跟著刪（以前從不刪：刪掉的 A 記錄一直留著，
+            # 餵給主機名稱、異常偵測、搜尋、AI —— 2026-09-26：IP 換了主機、DNS 記錄已刪，仍顯示舊名）。
+            # 讀到 0 筆、本地卻有不少筆：多半是讀取出了問題（權限、adapter 把錯誤變成空清單），不刪。
+            gone = [rec for key, rec in local_keys.items()
+                    if key not in seen and rec.source == "from_dns_pulled"]
+            if gone and not seen and len(gone) >= STALE_EMPTY_GUARD:
+                zone_problems.append(f"{zinfo.name}: empty read, kept {len(gone)} records")
+                continue
+            for rec in gone:
+                await session.delete(rec)
+            summary["removed_records"] += len(gone)
+
+            zone.last_sync_at = run_at
 
         # 每個 IP 只套用一個穩定的 DNS 名稱（字母序最小），避免多筆 A 記錄造成跳動
         # 重疊網段：若 server 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
         scope_ids = _scope_subnet_uuids(server)
         from app.models.ip_hostname import IPHostnameObservation
+        from app.services.hostname_reports import HostnameRun
+        peers = (await session.execute(select(func.count()).select_from(DNSServer).where(
+            DNSServer.enabled.is_(True)))).scalar_one()
+        run = HostnameRun(session, source="dns", origin=f"dns:{server.id}", peers=peers)
         for ip_val, names in dns_ip_names.items():
             ip_stmt = select(IPAddress).where(IPAddress.ip == ip_val)
             if scope_ids:
@@ -293,12 +316,18 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
             chosen = pick_dns_hostname(set(names), others=others)
             # None＝這個位址上的名字太多、沒有哪一個代表這台機器 → 清掉 dns 這個來源，
             # 而不是留著一個先前硬挑的名字
-            await apply_observation(session, ip=ipa, source="dns", hostname=chosen)
+            run.report(ipa, chosen)
             if chosen:
                 summary["hostname_obs"] = summary.get("hostname_obs", 0) + 1
+        # 所有 zone 都完整讀到，才清掉這台伺服器不再回報的名稱
+        hn = await run.finish(complete=not zone_problems)
+        summary["hostname_removed"] = hn["pruned"]
+        if hn["breaker"]:
+            zone_problems.append(f"hostname cleanup skipped: {hn['breaker']}")
 
         server.last_sync_at = datetime.now(UTC)
-        server.last_error = None
+        # 部分失敗要看得出來：以前最後一律設回 None，失敗的 zone 完全消失
+        server.last_error = "; ".join(zone_problems) or None
         await session.commit()
     finally:
         await adapter.close()

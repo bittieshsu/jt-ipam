@@ -227,6 +227,9 @@ class VPNTunnel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # 給 UI 標示對接可信度用；None = 尚未自動對接到對端裝置。
     pairing_method: Mapped[str | None] = mapped_column(String(24))
     description: Mapped[str | None] = mapped_column(Text)
+    # 同步建立的通道：`<來源>:<實例 id>`（例如 `fortigate:<uuid>`）；手動建立的是 NULL。
+    # 以前以「防火牆名稱/」前綴認定歸屬 → 防火牆改名後舊通道成了孤兒、刪掉防火牆也不會清（2026-09-26）
+    source_origin: Mapped[str | None] = mapped_column(String(64), index=True)
 
     __table_args__ = (
         CheckConstraint(

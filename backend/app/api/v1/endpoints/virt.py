@@ -566,6 +566,9 @@ async def delete_proxmox(
         object_type="proxmox_instance", object_id=str(obj.id), action="delete",
         diff={"api_url": obj.api_url}, request_id=getattr(request.state, "request_id", None),
     )
+    # 它回報的主機名稱與（叢集沒有別的實例時）VM 鏡像一併收回
+    from app.services.integration_cleanup import forget_proxmox_instance
+    await forget_proxmox_instance(session, obj)
     await session.delete(obj)
     await session.commit()
 

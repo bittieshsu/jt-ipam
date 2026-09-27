@@ -136,6 +136,9 @@ async def delete_instance(
 ) -> None:
     inst = await _get_or_404(session, inst_id)
     # 主機鏡像走外鍵 cascade；Zabbix 不寫任何共用表，所以沒有別的要清
+    # 它寫進共用表的主機名稱／租約／固定分配／NAT／VPN 通道一併收回（沒有外鍵會跟著刪）
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="zabbix", source_id=inst.id)
     await session.delete(inst)
     await append_audit(
         session, actor_user_id=str(user.id),

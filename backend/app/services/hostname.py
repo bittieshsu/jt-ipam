@@ -123,7 +123,11 @@ async def apply_observation(
     給「多個來源實體可能指向同一 IP」的 sync 用（如多台 PVE guest 回報同一 IP），避免每次同步來回翻轉、洗版異動記錄。
     """
     if source not in HOSTNAME_SOURCES:
-        source = "manual"
+        # 以前這裡把不認得的來源一律當成 manual：MikroTik 不在清單裡，它的租約名稱就被寫成
+        # 「手動輸入」，蓋過使用者真正填的值、而且永遠不會被清（2026-09-26 稽核）。寧可不寫。
+        import structlog
+        structlog.get_logger("hostname").warning("unknown hostname source ignored", source=source)
+        return False
     hostname = (hostname or "").strip() or None
 
     existing = (await session.execute(

@@ -37,7 +37,6 @@ from app.models.librenms import (
 from app.models.physical import DevicePort
 from app.models.subnet import Subnet
 from app.models.vlan import VLAN, DeviceVLAN, VLANDomain
-from app.services.hostname import apply_observation
 from app.services.ip_history import log_change
 
 LIBRENMS_VLAN_DOMAIN = "LibreNMS"
@@ -351,10 +350,16 @@ async def sync_devices(
     # auto_create_ips：把裝置主 IP（落在既有且符合 scope 的子網路）自動建成 IPAddress。
     # 只在開啟時才查候選子網路（省掉一次 query）。
     addable_nets = await _addable_subnets(session, scope_ids) if instance.auto_create_ips else []
+    from app.models.librenms import LibreNMSInstance as _Inst
+    from app.services.hostname_reports import HostnameRun, enabled_peers
+    hn_run = HostnameRun(session, source="librenms", origin=f"librenms:{instance.id}",
+                         peers=await enabled_peers(session, _Inst))
 
+    seen_legacy: set[int] = set()
     for d in devices:
         legacy = int(d.get("device_id"))
         seen += 1
+        seen_legacy.add(legacy)
         existing = (
             await session.execute(
                 select(LibreNMSDevice).where(
@@ -374,17 +379,12 @@ async def sync_devices(
         # 若 LibreNMS device 上線 + primary_ip 對得到 jt-ipam IPAddress，
         # stamp last_seen_librenms 讓 effective_status 計算抓得到證據。
         if primary_ip:
-            ipa = (
-                await session.execute(
-                    select(IPAddress)
-                    .where(IPAddress.ip == primary_ip)
-                    .where(IPAddress.subnet_id.in_(scope_ids) if scope_ids else sa_true())
-                    .limit(1)
-                )
-            ).scalars().first()
+            # 唯一才算：重疊網段又沒設範圍時不猜、也不新建（以前任意取一筆）
+            from app.services.ip_autocreate import match_existing
+            ipa, ambiguous = await match_existing(session, str(primary_ip).split("/")[0], scope_ids)
             # auto_create_ips：IPAM 還沒有這個裝置主 IP，且它落在既有/符合 scope 的子網路
             # → 自動建一筆（discovery_source='librenms'）。只建裝置主 IP、不碰 ARP 鄰居。
-            if ipa is None and instance.auto_create_ips and addable_nets:
+            if ipa is None and not ambiguous and instance.auto_create_ips and addable_nets:
                 try:
                     aip = ipaddress.ip_address(str(primary_ip).split("/")[0])
                 except ValueError:
@@ -415,10 +415,9 @@ async def sync_devices(
                 if (not dev_hostname or _looks_like_ip(dev_hostname)) \
                         and sysname and not _looks_like_ip(sysname):
                     dev_hostname = sysname
-                if dev_hostname and not _looks_like_ip(dev_hostname):
-                    await apply_observation(
-                        session, ip=ipa, source="librenms", hostname=dev_hostname,
-                    )
+                # 名稱只有 IP 或空白＝LibreNMS 對這台沒有名字 → 也要報，舊名才會被清
+                hn_run.report(ipa, dev_hostname if dev_hostname and not _looks_like_ip(dev_hostname)
+                              else None)
 
         if existing is None:
             obj = LibreNMSDevice(
@@ -460,7 +459,36 @@ async def sync_devices(
             ldev = obj if existing is None else existing
             await link_librenms_device(session, ldev, create=True, scope_ids=scope_ids)
 
+    # /devices 讀取失敗會往外拋；走到這裡就是完整的裝置清單
+    await hn_run.finish(complete=True)
+    await _prune_devices(session, instance, seen_legacy)
     return seen, inserted, updated
+
+
+async def _prune_devices(session: AsyncSession, instance: LibreNMSInstance, seen: set[int]) -> int:
+    """LibreNMS 已刪除的裝置：鏡像連同它的 VLAN 對應（CASCADE）、ARP、FDB 一起刪。
+
+    以前永遠留著，狀態停在最後的值，舊的 ARP／FDB 還繼續參與交換器埠推算與拓樸（2026-09-26 稽核）。
+    讀到 0 台、之前卻有 → 多半是 token 權限被收；一次要刪掉一大半 → 回傳多半不完整：都不刪。
+    對映到的 jt-ipam 裝置是使用者的物件，不動。
+    """
+    from app.services.hostname_reports import BREAKER_MIN, BREAKER_RATIO, EMPTY_GUARD
+
+    rows = (await session.execute(select(LibreNMSDevice.id, LibreNMSDevice.legacy_device_id).where(
+        LibreNMSDevice.instance_id == instance.id))).all()
+    gone = [rid for rid, legacy in rows if legacy not in seen]
+    if not gone:
+        return 0
+    if (not seen and len(rows) >= EMPTY_GUARD) or (
+            len(gone) > BREAKER_MIN and len(gone) > len(rows) * BREAKER_RATIO):
+        logging.getLogger(__name__).warning(
+            "librenms %s: not removing %d of %d devices (listing looks incomplete)",
+            instance.name, len(gone), len(rows))
+        return 0
+    await session.execute(delete(ARPEntry).where(ARPEntry.device_id.in_(gone)))
+    await session.execute(delete(FDBEntry).where(FDBEntry.device_id.in_(gone)))
+    await session.execute(delete(LibreNMSDevice).where(LibreNMSDevice.id.in_(gone)))
+    return len(gone)
 
 
 # ─────────────────── 同步：ARP ───────────────────
@@ -790,10 +818,29 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
         ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(scope_ids))
     ips = list((await session.execute(ip_stmt)).scalars().all())
 
+    # 目前的 FDB 裡找不到這個 MAC：分兩種 ——
+    # 同一台機器只是關機（它的 MAC 以前確實在那個埠出現過）→ 保留「最後接在哪」；
+    # IP 換了機器（新 MAC 從沒出現在那個埠）→ 那是上一台的埠，清掉（2026-09-26 稽核）
+    orphan = [ip for ip in ips if ip.switch_port and not mac_ports.get(str(ip.mac))]
+    history: dict[str, set[str]] = defaultdict(set)
+    if orphan:
+        for mac, dev_id, port in (await session.execute(
+            select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name).where(
+                FDBEntry.mac.in_([str(ip.mac) for ip in orphan]), FDBEntry.port_name.is_not(None))
+        )).all():
+            history[str(mac)].add(f"{sw_name.get(dev_id, '?')} / {port}")
+
     updated = 0
     for ip in ips:
         cands = mac_ports.get(str(ip.mac))
         if not cands:
+            if ip.switch_port and ip.switch_port not in history.get(str(ip.mac), set()):
+                old = ip.switch_port
+                ip.switch_port = None
+                ip.switch_port_confident = None
+                updated += 1
+                await log_change(session, ip=ip, event_type="edited", field="switch_port",
+                                 old=old, new=None, source="librenms")
             continue
         # 取該 MAC 所有 (switch,port) 中 MAC 數最少的 → 最像 access port
         dev_id, port = min(cands, key=lambda k: len(port_macs[k]))
@@ -849,7 +896,8 @@ async def sync_vlans(
         try:
             data = await _api_get(instance, path, timeout=20.0)
         except LibreNMSError:
-            continue  # device 不支援 VLAN 查詢
+            continue  # device 不支援 VLAN 查詢（讀不到就不知道還有哪些 → 既有對應不動）
+        dev_vlans: set[uuid.UUID] = set()
         for v in data.get("vlans") or []:
             raw_num = v.get("vlan_vlan", v.get("vlan_id"))
             try:
@@ -884,6 +932,7 @@ async def sync_vlans(
                     DeviceVLAN.vlan_id == vlan.id,
                 )
             )).scalar_one_or_none()
+            dev_vlans.add(vlan.id)
             if existing is None:
                 session.add(DeviceVLAN(
                     librenms_device_id=d.id, vlan_id=vlan.id,
@@ -892,6 +941,11 @@ async def sync_vlans(
                 mapped += 1
             else:
                 existing.last_seen_at = now
+        # 這台讀到了：裝置上已經拿掉的 VLAN 不再對應（以前永遠留著）
+        stale = delete(DeviceVLAN).where(DeviceVLAN.librenms_device_id == d.id)
+        if dev_vlans:
+            stale = stale.where(DeviceVLAN.vlan_id.notin_(dev_vlans))
+        await session.execute(stale)
 
     return seen, upserted, mapped
 
@@ -925,9 +979,12 @@ async def mark_scanner_seen(
 
 
 async def recompute_effective_status(
-    session: AsyncSession, instance: LibreNMSInstance,
+    session: AsyncSession, instance: LibreNMSInstance | None = None,
 ) -> int:
     """規格書 §6.4.2 對照表：用 ARP 學到的 MAC + 最近 last_seen_arp 推 online。
+
+    全站重算（instance 沒有用到，保留參數相容舊呼叫）；jt-ipam-sync 每輪都跑一次，
+    不依附 LibreNMS —— 以前只有 LibreNMS 同步會呼叫，沒有 LibreNMS 的站台永遠不會變回離線。
 
     保守規則：
     - last_seen_librenms 在過去 30 分鐘內 → online
@@ -1062,12 +1119,16 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
     （實機上一整台都是 `eno1np0` 這種），照抄只會把說明欄塞滿介面名稱。
     LibreNMS 沒有值時不動既有說明（與 MAC 同一條規則）。
     """
+    from app.services.device_port_filter import is_pseudo_iface, load_patterns, prune_pseudo_ports
+
     ldevs = list((await session.execute(
         select(LibreNMSDevice).where(
             LibreNMSDevice.instance_id == instance.id,
             LibreNMSDevice.jt_ipam_device_id.is_not(None),
         )
     )).scalars().all())
+    # 偽介面過濾（與手動匯入同一份設定）：以前排程同步沒套，手動清完下一輪又加回來
+    pseudo = await load_patterns(session)
     created = 0
     for d in ldevs:
         try:
@@ -1091,7 +1152,11 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
             nm = (p.get("ifName") or "").strip()[:255]
             if not nm or nm.lower() in ("null", "unrouted vlan 1"):
                 continue
+            if pseudo is not None and is_pseudo_iface(nm, p.get("ifType"), pseudo):
+                continue
             name_mac[nm] = _norm_mac(p.get("ifPhysAddress"))
+        if pseudo is not None:
+            await prune_pseudo_ports(session, d.jt_ipam_device_id, pseudo)
         if not name_mac:
             continue
         existing_names = set((await session.execute(

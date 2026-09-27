@@ -16,10 +16,10 @@
 #         「systemd never came up」—— 看起來像 systemd 壞了，其實是 apt 還在下載。
 #         PIP_MIRROR=https://<index>/simple 同理換 PyPI（files.pythonhosted.org 同一天也只有 50 KB/s）。
 #         兩者只影響這個拋棄式容器，不影響發佈內容與客戶安裝。
-# guacd: GUACD_TARBALL=dist/guacd/<ver>/jt-ipam-guacd-…-debian12-amd64.tar.gz 另外以
-#         `--with-guacd --guacd-tarball` 裝 guacd（.deps 要在同目錄），並驗它在跑、只綁 127.0.0.1。
-#         要選跟 IMAGE 同一個 OS 版本的那份。GUACD_TARBALL=online 則走客戶實際的路：
-#         從 GitHub release 下載、以 scripts/guacd/SHA256SUMS 核對後安裝。
+# guacd: 必要元件（RDP／VNC 的預設引擎，2026-09-27 起），安裝一定會裝 —— 不設 GUACD_TARBALL 就是走客戶
+#         實際的路：從 GitHub release 下載、以 scripts/guacd/SHA256SUMS 核對後安裝，並驗它在跑、只綁 127.0.0.1。
+#         GUACD_TARBALL=dist/guacd/<ver>/jt-ipam-guacd-…-debian12-amd64.tar.gz 改用本機的檔案
+#         （.deps 要在同目錄；要選跟 IMAGE 同一個 OS 版本的那份）。
 # Needs:  docker, and a source tree at the repo root. Nothing else.
 #
 # The container runs systemd (privileged + host cgroups) because the whole point
@@ -75,12 +75,10 @@ tar -C "$ROOT" --exclude=.git --exclude=node_modules --exclude=.venv \
     | docker cp - "$NAME:/opt/jt-ipam"
 
 GUACD_ARGS=()
-if [[ "${GUACD_TARBALL:-}" == online ]]; then
-    GUACD_ARGS=(--with-guacd)
-elif [[ -n "${GUACD_TARBALL:-}" ]]; then
+if [[ -n "${GUACD_TARBALL:-}" && "${GUACD_TARBALL}" != online ]]; then
     docker cp "$GUACD_TARBALL" "$NAME:/tmp/"
     docker cp "${GUACD_TARBALL%.tar.gz}.deps" "$NAME:/tmp/"
-    GUACD_ARGS=(--with-guacd --guacd-tarball "/tmp/$(basename "$GUACD_TARBALL")")
+    GUACD_ARGS=(--guacd-tarball "/tmp/$(basename "$GUACD_TARBALL")")
 fi
 
 say "Running scripts/jt-ipam.sh install ${GUACD_ARGS[*]} (this is the part customers do)"
@@ -145,9 +143,9 @@ else
     pass "backup unit survives a missing /var/backups/jt-ipam"
 fi
 
-# 3b. guacd (only with GUACD_TARBALL): running, and reachable on loopback only -- its port
+# 3b. guacd (required, always installed): running, and reachable on loopback only -- its port
 #     has no authentication at all, anyone who can reach it can make it connect anywhere.
-if [[ -n "${GUACD_TARBALL:-}" ]]; then
+if true; then
     if dex systemctl is-active --quiet jt-ipam-guacd \
        && dex bash -c 'exec 3<>/dev/tcp/127.0.0.1/4822' 2>/dev/null; then
         pass "guacd is running on 127.0.0.1:4822"

@@ -132,10 +132,12 @@ CATEGORY: dict[str, str] = {
     "mikrotik_address_lists": "synced",
     "wazuh_agents": "synced",
     "ip_hostname_observations": "synced",
+    "ip_hostname_reports": "synced",       # 逐來源實例的主機名稱目擊（觀測由它推導）
     "virtual_machines": "synced",
     "vm_interfaces": "synced",
     "dhcp_pool_ranges": "synced",
     "dhcp_reservations": "synced",
+    "dhcp_lease_sightings": "synced",      # 逐來源的 DHCP 租約目擊（in_dhcp_lease 由它推導）
     "esxi_instances": "integrations",
     # operational（短暫／歷史）
     "audit_logs": "operational",

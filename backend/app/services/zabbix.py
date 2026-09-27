@@ -29,6 +29,7 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.zabbix import ZabbixHost, ZabbixInstance
+from app.services.ip_autocreate import match_existing
 
 
 class ZabbixError(UiError, RuntimeError):
@@ -234,6 +235,10 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
     seen: set[str] = set()
     linked = 0
 
+    from app.models.zabbix import ZabbixInstance as _Inst
+    from app.services.hostname_reports import HostnameRun, enabled_peers
+    hn_run = HostnameRun(session, source="zabbix", origin=f"zabbix:{inst.id}",
+                         peers=await enabled_peers(session, _Inst))
     for h in hosts:
         hostid = str(h.get("hostid") or "")
         if not hostid:
@@ -244,10 +249,8 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
         # 重疊網段：一定要 scope + limit(1)，否則 MultipleResultsFound 會炸掉整批
         addr_id = None
         if ip:
-            stmt = select(IPAddress).where(IPAddress.ip == ip)
-            if scope:
-                stmt = stmt.where(IPAddress.subnet_id.in_(scope))
-            ipa = (await session.execute(stmt.limit(1))).scalars().first()
+            # 唯一才算（重疊網段又沒設範圍時不猜）
+            ipa, _amb = await match_existing(session, ip, scope)
             if ipa is not None:
                 addr_id = ipa.id
                 linked += 1
@@ -256,14 +259,10 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
                 # unknown 是沒有證據，兩者寫進去都會變成「看到過」。
                 if _availability(h) == "up":
                     ipa.last_seen_zabbix = now
-                # 主機名稱觀測（來源 zabbix，依全域優先序決定是否採用）
-                from app.services.hostname import apply_observation
-                name = (h.get("name") or h.get("host") or "").strip()
-                if name:
-                    # 多台 Zabbix 主機可能指向同一 IP → tiebreak 穩定收斂
-                    # （Wazuh 就是漏了這個，十天洗出 620 筆翻動）
-                    await apply_observation(session, ip=ipa, source="zabbix",
-                                            hostname=name, tiebreak_min=True)
+                # 主機名稱觀測（來源 zabbix，依全域優先序決定是否採用）。
+                # 多台 Zabbix 主機可能指向同一 IP → HostnameRun 同一輪內取固定的一個
+                # （Wazuh 就是漏了這個，十天洗出 620 筆翻動）
+                hn_run.report(ipa, (h.get("name") or h.get("host") or "").strip() or None)
 
         existing = (await session.execute(
             select(ZabbixHost).where(ZabbixHost.instance_id == inst.id,
@@ -287,6 +286,9 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
         else:
             for k, v in values.items():
                 setattr(existing, k, v)
+
+    # host.get 是單一呼叫、失敗會往外拋 → 走到這裡就是完整的主機清單
+    await hn_run.finish(complete=True)
 
     # 移除已不存在於 Zabbix 的主機（鏡像資料，不保留幽靈）
     stale = (await session.execute(

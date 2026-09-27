@@ -43,7 +43,7 @@ import sys
 import time
 import urllib.request
 
-AGENT_VERSION = "1.8.0"
+AGENT_VERSION = "1.8.1"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -227,13 +227,19 @@ def _tcp_scan(ip: str) -> list[int]:
     return open_ports
 
 
-def _rdns(ip: str) -> str | None:
-    """rdns 探測：反查 hostname。"""
+def _rdns(ip: str) -> tuple[str | None, bool]:
+    """rdns 探測：反查 hostname → (名稱, DNS 是否明確說沒有)。
+
+    只有 DNS 明確回答「沒有這筆 PTR」（HOST_NOT_FOUND＝NXDOMAIN、NO_DATA）才算沒有；伺服器會拿它
+    清掉舊名。逾時、DNS 連不上、TRY_AGAIN 都不算 —— 那種時候清掉，全部名稱會跟著 DNS 故障一起消失。
+    """
     try:
         host, _, _ = socket.gethostbyaddr(ip)
-        return host or None
+        return (host or None), False
+    except socket.herror as exc:
+        return None, exc.errno in (1, 4)      # HOST_NOT_FOUND / NO_DATA
     except Exception:
-        return None
+        return None, False
 
 
 def _netbios(ip: str) -> str | None:
@@ -659,9 +665,11 @@ def scan_once() -> None:
             # rdns / 重量探測只對「目前判定 alive」的 host 跑，省資源。
             if alive and "rdns" in host_probes:
                 probes_run.append("rdns")
-                rd = _rdns(ip)
+                rd, no_ptr = _rdns(ip)
                 if rd:
                     item["rdns"] = rd
+                elif no_ptr:
+                    item["rdns"] = ""     # DNS 明確說沒有 → 伺服器清掉舊名（1.8.1 起）
 
             if alive and ("os" in host_probes or "ports" in host_probes):
                 want_os = "os" in host_probes
@@ -810,7 +818,7 @@ def _job_execute(kind: str, params: dict) -> tuple[object, str | None]:
         if kind == "traceroute":
             hops = max(1, min(int(params.get("max_hops") or 20), 30))
             return _job_run_traceroute(targets[0], hops), None
-        return [{"target": t, "hostname": _rdns(t)} for t in targets], None
+        return [{"target": t, "hostname": _rdns(t)[0]} for t in targets], None
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
 

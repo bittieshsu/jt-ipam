@@ -116,13 +116,24 @@ def test_source_is_registered_everywhere_it_must_be():
     assert "paloalto" in DEFAULT_ORDER, "沒登記 → 主機名稱優先序解析不到這個來源"
 
 
-def test_nat_rows_are_scoped_to_this_instance():
-    """刪除實例時只能清自己的 NAT 列 —— `nat_translations` 是多來源共用表。"""
-    import inspect
+async def test_nat_rows_are_scoped_to_this_instance(db_session):
+    """刪除實例時只能清自己的 NAT 列 —— `nat_translations` 是多來源共用表。
+    （以前只比對原始碼字串；清除改由 integration_cleanup 集中處理後，改成實際驗行為）"""
+    import uuid
 
     from app.api.v1.endpoints.paloalto import cleanup_shared_rows
-    src = inspect.getsource(cleanup_shared_rows)
-    assert 'f"paloalto:{fw_id}"' in src, "清除條件沒有限定來源，會刪到別家的 NAT 列"
+    from app.models.nat import NATTranslation
+    from sqlalchemy import select
+
+    mine, other = uuid.uuid4(), uuid.uuid4()
+    for origin in (f"paloalto:{mine}", f"paloalto:{other}", f"fortigate:{mine}"):
+        db_session.add(NATTranslation(name=origin, type="port_forward", source_origin=origin,
+                                      external_id="r1"))
+    await db_session.flush()
+    await cleanup_shared_rows(db_session, mine)
+    left = set((await db_session.execute(select(NATTranslation.source_origin))).scalars().all())
+    assert f"paloalto:{mine}" not in left
+    assert {f"paloalto:{other}", f"fortigate:{mine}"} <= left, "清到別台／別家的 NAT 列"
 
 
 def test_api_key_encrypts_into_exactly_two_columns():

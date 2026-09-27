@@ -35,6 +35,7 @@ from app.models.virt import (
 from app.services.ip_autocreate import (
     SubnetCandidates,
     addable_subnets,
+    match_existing,
     subnet_for_ip_str,
 )
 
@@ -141,6 +142,7 @@ class SyncSummary:
     vms_updated: int = 0
     interfaces_seen: int = 0
     ipam_linked: int = 0
+    vms_removed: int = 0
     errors: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)   # 各子同步的細項（如防火牆）
 
@@ -149,6 +151,7 @@ class SyncSummary:
             "cluster": self.cluster,
             "nodes_seen": self.nodes_seen,
             "vms_seen": self.vms_seen,
+            "vms_removed": self.vms_removed,
             "vms_inserted": self.vms_inserted,
             "vms_updated": self.vms_updated,
             "interfaces_seen": self.interfaces_seen,
@@ -219,7 +222,7 @@ def _agent_ipv4_by_mac(agent_data: dict[str, Any]) -> dict[str, str]:
 
 async def _link_ip_to_ipam(
     session: AsyncSession, ip_text: str | None, mac: str | None, hostname: str | None,
-    *, scope_ids: set[Any] | None = None, create_in: SubnetCandidates | None = None,
+    *, scope_ids: set[Any] | None = None, create_in: SubnetCandidates | None = None, hn_run: Any = None,
 ) -> Any:
     """把 Proxmox 撈到的 VM/CT IP+MAC+主機名稱對應進 IPAM 的 ip_addresses。
 
@@ -232,7 +235,6 @@ async def _link_ip_to_ipam(
       改用 VM 網卡 MAC 比對「IPAM 已知的 IP」（scanner/ARP 早就學到），只比對既有、絕不新建
     回傳對應到的 IPAddress（給呼叫端回填 VM.primary_ip_id），無對應子網路則 None。
     """
-    from sqlalchemy import func
 
     from app.models.address import IPAddress
     from app.services.hostname import apply_observation
@@ -248,17 +250,17 @@ async def _link_ip_to_ipam(
         if len(rows) != 1:
             return None
         ipa = rows[0]
-        if hostname:
-            await apply_observation(session, ip=ipa, source="proxmox",
-                                    hostname=hostname, tiebreak_min=True)
+        if hn_run is not None:
+            hn_run.report(ipa, hostname)
+        elif hostname:
+            await apply_observation(session, ip=ipa, source="proxmox", hostname=hostname)
         return ipa
 
     # 先找既有紀錄（重疊網段下同 IP 可能有多筆 → 限定在 scope 內，並取第一筆而非
     # scalar_one_or_none，後者會在多筆時炸掉整批同步）
-    e_stmt = select(IPAddress).where(func.host(IPAddress.ip) == ip_text)
-    if scope_ids:
-        e_stmt = e_stmt.where(IPAddress.subnet_id.in_(list(scope_ids)))
-    ipa = (await session.execute(e_stmt.limit(1))).scalars().first()
+    ipa, ambiguous = await match_existing(session, ip_text, scope_ids)
+    if ambiguous:
+        return None          # 重疊網段又沒設範圍：不猜是哪個單位的，也不可以新建
     if ipa is None:
         if create_in is None:
             return None                       # 沒開「信任虛擬化取得的 IP」→ 不建
@@ -275,9 +277,12 @@ async def _link_ip_to_ipam(
     elif mac:
         from app.services.arp_precedence import consider_mac
         await consider_mac(session, ip=ipa, mac=mac, source="proxmox")
-    if hostname:
-        # 多台 PVE guest 可能回報同一 IP（共用/浮動 IP）→ 用 tiebreak 穩定收斂，避免每次同步翻轉洗版
-        await apply_observation(session, ip=ipa, source="proxmox", hostname=hostname, tiebreak_min=True)
+    # 多台 PVE guest 可能回報同一 IP（共用/浮動 IP）→ HostnameRun 在同一輪內取固定的一個。
+    # 以前用 tiebreak_min 跨輪比較：改名成字典序較大的名字就永遠不會生效（2026-09-26 稽核）
+    if hn_run is not None:
+        hn_run.report(ipa, hostname)
+    elif hostname:
+        await apply_observation(session, ip=ipa, source="proxmox", hostname=hostname)
     return ipa
 
 
@@ -444,19 +449,49 @@ async def _derive_cluster(
     return (urlsplit(instance.api_url).hostname or "proxmox"), True
 
 
+async def _cluster_taken(
+    session: AsyncSession, instance: ProxmoxInstance, obj: VirtCluster, standalone: bool,
+) -> bool:
+    """這個同名叢集是不是別人的（不能共用）。
+
+    叢集以名稱為身分，但名稱不一定唯一：兩台獨立節點都叫 pve 很常見（安裝時的預設習慣），
+    ESXi 的叢集也放在同一張表。共用會讓 VMID 相同的 VM 合成一筆，而且各自的清除會互刪對方的 VM。
+    - 別的平台（ESXi…）的同名叢集 → 不共用。
+    - 獨立節點：已經有**較早建立**的另一個實例在用 → 那是另一台同名主機，不共用。
+    - 真的叢集（pvecm）：兩個實例指向同一個叢集是正常的備援設定 → 共用。
+    """
+    if obj.type != "proxmox":
+        return True
+    if not standalone:
+        return False
+    others = (await session.execute(select(ProxmoxInstance).where(
+        ProxmoxInstance.cluster_id == obj.id, ProxmoxInstance.id != instance.id,
+    ))).scalars().all()
+    mine = (instance.created_at, str(instance.id))
+    return any((o.created_at, str(o.id)) < mine for o in others if o.created_at and instance.created_at)
+
+
 async def _upsert_cluster(
-    session: AsyncSession, name: str, standalone: bool,
+    session: AsyncSession, instance: ProxmoxInstance, name: str, standalone: bool,
 ) -> VirtCluster:
-    obj = (await session.execute(
-        select(VirtCluster).where(VirtCluster.name == name)
-    )).scalar_one_or_none()
-    if obj is None:
-        obj = VirtCluster(name=name, type="proxmox", is_standalone=standalone)
-        session.add(obj)
-        await session.flush()
-    else:
-        obj.is_standalone = standalone
-    return obj
+    from urllib.parse import urlsplit
+
+    candidates = [name, f"{name} ({urlsplit(instance.api_url).hostname or instance.id})",
+                  f"{name} ({instance.id})"]
+    for cand in candidates:
+        cand = cand[:128]
+        obj = (await session.execute(
+            select(VirtCluster).where(VirtCluster.name == cand)
+        )).scalar_one_or_none()
+        if obj is None:
+            obj = VirtCluster(name=cand, type="proxmox", is_standalone=standalone)
+            session.add(obj)
+            await session.flush()
+            return obj
+        if not await _cluster_taken(session, instance, obj, standalone):
+            obj.is_standalone = standalone
+            return obj
+    raise ProxmoxError(f"cannot find a free cluster name for {name!r}")
 
 
 async def sync_instance(
@@ -475,12 +510,17 @@ async def sync_instance(
     try:
         base = await _resolve_base(session, instance)
         cl_name, standalone = await _derive_cluster(session, instance, base)
-        cluster = await _upsert_cluster(session, cl_name, standalone)
+        cluster = await _upsert_cluster(session, instance, cl_name, standalone)
         old_cluster_id = instance.cluster_id
         if old_cluster_id != cluster.id:
             instance.cluster_id = cluster.id
-            # 叢集改名/改綁 → 既有 VM/CT 一併搬到新叢集，避免重複插入
-            if old_cluster_id is not None:
+            # 叢集改名/改綁 → 既有 VM/CT 一併搬到新叢集，避免重複插入。
+            # 舊叢集還有別的實例在用（同名主機拆開的情況）→ 那些 VM 可能是對方的，不搬；
+            # 自己的會在這一輪重新建立，舊叢集裡對方沒看到的由對方的清除處理。
+            others = (await session.execute(select(ProxmoxInstance.id).where(
+                ProxmoxInstance.cluster_id == old_cluster_id,
+                ProxmoxInstance.id != instance.id))).first() if old_cluster_id else None
+            if old_cluster_id is not None and others is None:
                 from sqlalchemy import text as _text
                 await session.execute(
                     _text("UPDATE virtual_machines SET cluster_id = :new "
@@ -511,6 +551,14 @@ async def sync_instance(
     except ProxmoxError:
         pass
 
+    _Inst = ProxmoxInstance
+    from app.services.hostname_reports import HostnameRun, enabled_peers
+    # origin 以叢集為單位：同一個叢集的多個節點實例（故障換手）回報的是同一份資料
+    hn_run = HostnameRun(session, source="proxmox",
+                         origin=f"proxmox:{instance.cluster_id or instance.id}",
+                         peers=await enabled_peers(session, _Inst))
+
+    seen_vmids: set[int] = set()
     for node in nodes:
         node_name = node.get("node")
         if not node_name:
@@ -518,7 +566,8 @@ async def sync_instance(
         # 節點 host 本身的網路（管理 IP + 各介面 IP/MAC）→ IPAM
         nip = node_ip_map.get(node_name)
         if nip and await _link_ip_to_ipam(session, nip, None, node_name,
-                                          scope_ids=scope_ids, create_in=create_in):
+                                          scope_ids=scope_ids, create_in=create_in,
+                                          hn_run=hn_run):
             summary.ipam_linked += 1
         try:
             host_ifaces = (await _api_get(
@@ -528,12 +577,13 @@ async def sync_instance(
                 addr = _clean_ip(itf.get("address"))
                 hw = (itf.get("hwaddr") or "").strip().lower() or None
                 if addr and await _link_ip_to_ipam(session, addr, hw, node_name,
-                                                   scope_ids=scope_ids, create_in=create_in):
+                                                   scope_ids=scope_ids, create_in=create_in,
+                                                   hn_run=hn_run):
                     summary.ipam_linked += 1
             # 把節點網路介面（bridge / 實體NIC / bond / vlan）建成該節點裝置的連接埠
             await _sync_node_ports(session, node_name, nip, host_ifaces, scope_ids)
         except ProxmoxError:
-            pass
+            hn_run.hold(node_name)     # 讀不到節點網路：它先前回報的名稱先保留
         # VMs (qemu)
         try:
             vms = (await _api_get(
@@ -557,6 +607,7 @@ async def sync_instance(
             if vmid == 0:
                 continue
             summary.vms_seen += 1
+            seen_vmids.add(vmid)
             existing = (
                 await session.execute(
                     select(VirtualMachine).where(
@@ -602,6 +653,8 @@ async def sync_instance(
 
             # 網卡：qemu / lxc 都有 /config（格式不同），由 _parse_netcfg 處理
             kind_path = "qemu" if kind == "vm" else "lxc"
+            cfg_failed = False
+            first_linked = None
             try:
                 cfg = (await _api_get(
                     session, instance,
@@ -610,6 +663,8 @@ async def sync_instance(
                 )).get("data") or {}
             except ProxmoxError:
                 cfg = {}
+                cfg_failed = True
+                hn_run.hold(vm.name)   # 設定讀不到＝不知道它的網卡與 IP：先前回報的名稱保留
             # 防火牆同步要用同一份 config（網卡的 firewall=1 旗標只在這裡看得到），
             # 不另外再打一次 API
             fw_guests.append({"node": node_name, "kind": kind_path,
@@ -617,6 +672,7 @@ async def sync_instance(
 
             # qemu running → 用 guest agent 撈活的 IP（以 MAC 對映），等同 ARP
             agent_ips: dict[str, str] = {}
+            agent_failed = False
             if kind == "vm" and status == "running":
                 try:
                     agent = (await _api_get(
@@ -627,7 +683,10 @@ async def sync_instance(
                     )).get("data") or {}
                     agent_ips = _agent_ipv4_by_mac(agent)
                 except ProxmoxError:
-                    pass  # agent 沒裝 / VM 沒開 / 無回應逾時 → 略過（best-effort，不拖垮整批同步）
+                    # agent 沒裝 / VM 沒開 / 無回應逾時 → 略過（best-effort，不拖垮整批同步）。
+                    # 這一輪可能不知道它的 IP：先前回報的名稱保留，不要清了下一輪又加回來
+                    agent_failed = True
+                    hn_run.hold(vm.name)
 
             # cloud-init ipconfigN → 對應 netN 的靜態 IP（qemu 無 agent 時的後援）
             ipcfg: dict[str, str] = {}
@@ -653,13 +712,38 @@ async def sync_instance(
                 # guest agent 的 VM 永遠對不到、主機名稱與 primary_ip 都補不上。
                 if ip or mac:
                     linked = await _link_ip_to_ipam(session, ip, mac, vm.name,
-                                                    scope_ids=scope_ids, create_in=create_in)
+                                                    scope_ids=scope_ids, create_in=create_in,
+                                                    hn_run=hn_run)
                     if linked is not None:
                         summary.ipam_linked += 1
-                        # 回填 VM 主 IP（給 PVE 主控台 noVNC/xterm 用：IP→VM 解析）。
-                        # 取此次同步第一個對應到的 IP 為主 IP。
-                        if vm.primary_ip_id is None:
-                            vm.primary_ip_id = linked.id
+                        # 此次同步第一個對應到的 IP（下面決定要不要當主 IP）
+                        if first_linked is None:
+                            first_linked = linked.id
+            # VM 主 IP（PVE 主控台 noVNC/xterm 用：IP→VM 解析）**每輪重算**。以前只在空的時候設、
+            # 之後永不重算：VM 改 IP 或 VMID 被重複使用時，從舊 IP 開主控台會開到錯的、甚至已刪除的
+            # guest（2026-09-26 稽核）。設定與 agent 都讀到時照本輪結果（沒對到就清空）；
+            # 資料不確定時保留原值，但有找到新的就用新的。
+            if first_linked is not None:
+                vm.primary_ip_id = first_linked
+            elif not cfg_failed and not agent_failed:
+                vm.primary_ip_id = None
+
+    # 已從 PVE 刪除的 guest：鏡像也刪（以前永不刪，status 停在最後的值，例如 running）。
+    # 只在節點與每個節點的 qemu／lxc 清單都讀到時；限定這個叢集（ESXi 也用同一張表）；
+    # 讀到 0 台、之前卻有 → 多半是權限或 API 問題，不刪。網卡列會跟著 CASCADE。
+    if not summary.errors and seen_vmids:
+        gone = (await session.execute(select(VirtualMachine).where(
+            VirtualMachine.cluster_id == cluster.id,
+            VirtualMachine.legacy_vmid.notin_(seen_vmids)))).scalars().all()
+        for g in gone:
+            await session.delete(g)
+        summary.vms_removed = len(gone)
+
+    # 節點清單與每個節點的 qemu／lxc 清單都讀到了，才清掉這個叢集不再回報的名稱
+    # （資料不確定的個別 guest 已在上面 hold）
+    hn = await hn_run.finish(complete=not summary.errors)
+    if hn["breaker"]:
+        summary.errors.append(f"hostname cleanup skipped: {hn['breaker']}")
 
     # ── 防火牆（東西向分段；可獨立關閉）──
     # **區段隔離**：讀不到防火牆不得影響上面已完成的 VM／網路／IPAM 同步。

@@ -71,8 +71,15 @@ def stamp(
     """
     if permanent or not source:
         return
-    ts = (when or datetime.now(UTC)).astimezone(UTC)
+    now = datetime.now(UTC)
+    # 不接受未來的時間：下面取較新的，上游時鐘跑快的值會永遠贏
+    ts = min((when or now).astimezone(UTC), now)
     current = dict(getattr(ipa, "arp_seen", None) or {})
+    # 取較新的：同廠牌的多台實例共用同一個鍵，同一台也可能有好幾筆項目。以前後寫的蓋掉先寫的，
+    # 剩餘時間較短（推回較舊）的那台會把剛看到的時間往回改（2026-09-26 稽核）
+    prev = _parse(current.get(source))
+    if prev is not None and prev >= ts:
+        return
     current[source] = ts.isoformat()
     ipa.arp_seen = current      # 指派而非就地改：JSONB 才會被寫回
 

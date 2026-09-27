@@ -251,6 +251,7 @@
     "chain_ph": "-----BEGIN CERTIFICATE-----（選填）"
   },
   "nav": {
+    "open_menu": "選單",
     "dashboard": "儀表板",
     "sections": "區段",
     "subnets": "子網路",
@@ -434,7 +435,10 @@
     "show_all": "顯示全部",
     "console_engine": "引擎：{name}",
     "console_engine_builtin": "內建",
-    "console_engine_title": "這次連線使用的引擎（可在「管理 → 系統設定」切換）"
+    "console_engine_title": "這次連線使用的引擎（可在「管理 → 系統設定」切換）",
+    "duration_sec": "{n} 秒",
+    "duration_min": "{n} 分鐘",
+    "duration_hour": "{n} 小時"
   },
   "scan_agent": {
     "outdated": "可更新",
@@ -1190,7 +1194,7 @@
     "last_seen": "最後出現",
     "last_seen_scanner": "最後出現（掃描代理）",
     "last_seen_librenms": "最後出現（LibreNMS）",
-    "last_seen_dns": "最後出現（DNS）",
+    "last_seen_dns": "最後出現（AdGuard 設定）",
     "ip_list_title": "IP 清單",
     "state_active": "使用中",
     "state_reserved": "保留",
@@ -2609,25 +2613,42 @@
       "change_log_dim_days": "異動記錄淡化天數",
       "change_log_dim_days_hint": "異動記錄中超過這個天數的項目會以淡色顯示，讓近期變更更明顯。0 = 不淡化。預設 30 天。",
       "rdp_engine": "RDP 連線引擎",
-      "rdp_engine_aardwolf": "aardwolf（預設）",
+      "rdp_engine_aardwolf": "aardwolf",
       "rdp_engine_freerdp": "FreeRDP",
-      "rdp_engine_hint": "aardwolf 是內建的純 Python 實作，不需額外行程，對 Windows 目標運作正常。FreeRDP 相容性較好 —— 特別是 Linux 上的 xrdp 與 GNOME 遠端登入，aardwolf 的 NTLM 認證會被它們拒絕 —— 但需要在本機安裝 FreeRDP 與虛擬顯示。guacd 由 jt-ipam-guacd 服務處理（見下方狀態），相容性也好，不需要虛擬顯示。改了之後開新的連線才會生效。",
+      "rdp_engine_hint": "預設是 guacd：由 jt-ipam-guacd 服務處理（見下方狀態），相容性最好 —— 包括 Linux 上的 xrdp 與 GNOME 遠端登入 —— 也不需要虛擬顯示；guacd 沒在跑時，連線會暫時改用 aardwolf 或 FreeRDP。aardwolf 是內建的純 Python 實作，對 Windows 目標運作正常，但 NTLM 認證會被 xrdp 與 GNOME 遠端登入拒絕。FreeRDP 相容性也好，但需要在本機安裝 FreeRDP 與虛擬顯示。改了之後開新的連線才會生效。",
       "rdp_engine_missing": "這台伺服器還沒有 FreeRDP 引擎需要的套件（缺 {pkgs}）。裝好之後重新整理這一頁；在那之前選了 FreeRDP 也連不上。",
-      "rdp_engine_no_aardwolf": "這台伺服器的 Python {python} 沒有 aardwolf 的預編譯套件，aardwolf 引擎與 VNC 主控台都無法使用。RDP 請改用 FreeRDP 引擎。",
+      "rdp_engine_no_aardwolf": "這台伺服器沒有 aardwolf（Python {python} 沒有它的預編譯套件）。aardwolf 是選用的備用引擎，選了 RDP 的 aardwolf 或 VNC 的內建引擎就連不上 —— 請改回 guacd（預設）。",
       "port_filter_pseudo": "過濾偽介面",
       "port_filter_pseudo_hint": "從整合來源匯入連接埠時，略過並清除符合下列名稱樣式的偽介面（Windows NDIS 過濾器、WAN Miniport、通道等）。關閉時完全不過濾也不清除。",
       "port_ignore_patterns": "略過的名稱樣式",
       "port_ignore_patterns_hint": "一行一個正規表示式（比對介面名稱，不分大小寫）。留空則使用內建預設。實體交換器與 Linux 埠名不會符合這些樣式，不受影響。",
       "engine_guacd": "guacd",
+      "engine_builtin_plain": "內建",
+      "engine_guacd_default": "guacd（預設）",
       "engine_builtin": "內建（預設）",
       "vnc_engine": "VNC 連線引擎",
-      "vnc_engine_hint": "內建引擎用 aardwolf。guacd 由 jt-ipam-guacd 服務處理畫面，不需要 aardwolf。改了之後開新的連線才會生效。",
+      "vnc_engine_hint": "預設是 guacd：由 jt-ipam-guacd 服務處理畫面，支援要帳號密碼的 VNC；guacd 沒在跑時，連線會暫時改用內建引擎（aardwolf）。改了之後開新的連線才會生效。",
       "ssh_engine": "SSH 連線引擎",
       "ssh_engine_hint": "內建引擎是瀏覽器裡的 xterm.js 終端機。guacd 在伺服器端畫出終端機，瀏覽器收到的是畫面；複製貼上用 Ctrl+Shift+C／Ctrl+Shift+V（Mac 用 ⌘C／⌘V）。主機金鑰一樣首次確認後釘選。改了之後開新的連線才會生效。",
       "guacd_status": "guacd 服務",
       "guacd_down": "連不到 guacd（{address}）：{reason}",
       "guacd_protocol_missing": "guacd 沒有 {protocols} 的支援，選了 guacd 的這些協定會連不上。",
-      "guacd_hint": "guacd 是 Apache Guacamole 的伺服器端，由 jt-ipam 預編、以 jt-ipam-guacd 服務只在本機執行。RDP、VNC、SSH 可以分別選擇要不要改用它。"
+      "guacd_hint": "guacd 是 Apache Guacamole 的伺服器端，由 jt-ipam 預編、以 jt-ipam-guacd 服務只在本機執行，是 RDP 與 VNC 的預設引擎（安裝與升級時會自動裝上）。SSH 可以另外選擇要不要改用它。",
+      "sftp_max_mb": "SFTP 單檔上下傳上限",
+      "sftp_max_mb_hint": "預設 100 MB（本意是設定檔、憑證與紀錄），可以放大來搬較大的檔案。檔案走主控台的 WebSocket，每次 256 KB 一塊，會經過前面的反向代理與 IPAM 的 nginx；改了上限會自動實測一次這條路。超過 64 MB 的下載會直接寫入磁碟（Chrome、Edge；其他瀏覽器上限 2 GB）。",
+      "sftp_probe_run": "檢查傳輸路徑",
+      "sftp_probe_running": "正在檢查傳輸路徑：{stage} {pct}%",
+      "sftp_probe_up": "上傳",
+      "sftp_probe_down": "下載",
+      "sftp_probe_ok": "傳輸路徑正常：上傳約每秒 {up}、下載約每秒 {down}。以這個速度，一個 {max} 的檔案約需上傳 {upTime}、下載 {downTime}。",
+      "sftp_probe_ws_blocked": "WebSocket 連不上 SFTP 的路徑（代碼 {code}）：前面的反向代理或 IPAM 的 nginx 沒有替 /api/v1/addresses/…/sftp/ws 開 WebSocket。這樣 SFTP 與其他主控台都不能用。",
+      "sftp_probe_msg_too_big": "傳到 {done}／{total} 時被以「訊息太大」斷線（代碼 1009）：路徑上有一層（多半是前面的反向代理或 WAF）限制了單一 WebSocket 訊息的大小。SFTP 下載每則 256 KB，請放寬到至少 1 MB。",
+      "sftp_probe_closed": "傳到 {done}／{total} 時連線被切斷（代碼 {code}）：路徑上有一層限制了 WebSocket 的傳輸量或時間，請檢查前面的反向代理與 IPAM 的 nginx 的 WebSocket 設定。",
+      "sftp_probe_no_data_up": "上傳的資料送不過去：{sec} 秒內伺服器沒收到新資料（已收到 {done}／{total}）。路徑上有一層吞掉了連續送出的資料。",
+      "sftp_probe_no_data_down": "下載的資料收不到：{sec} 秒沒有新資料（已收到 {done}／{total}）。",
+      "sftp_probe_error": "檢查失敗：{reason}",
+      "sftp_probe_note": "這是從你這台瀏覽器實測的結果：經過你到伺服器之間的每一層。從別的網路連進來的人，走的路可能不同。",
+      "sftp_max_mb_range": "SFTP 上限要在 1～102400 MB（100 GB）之間"
     }
   },
   "errors": {
@@ -2985,6 +3006,7 @@
     "range_family_mismatch": "起迄位址的 IP 版本不同（一個是 IPv4、一個是 IPv6）",
     "range_start_after_end": "起始位址 {start} 比結束位址 {end} 大",
     "range_outside_subnet": "範圍 {start}～{end} 超出子網路 {cidr}",
+    "range_auto_managed": "這段範圍是依「{source}」偵測到的 DHCP 發放範圍自動建立的，會跟著上游同步；要改請改 DHCP 伺服器上的設定",
     "range_overlap": "與既有範圍「{other}」重疊",
     "cert_export_password_in_url": "PFX 密碼不可以放在網址參數（會被寫進存取日誌）；請改用 POST，把 fmt 與 password 放在 body",
     "guacd_unavailable": "連不到 guacd（{reason}）。請確認伺服器上的 jt-ipam-guacd 服務有在執行。",
@@ -3011,7 +3033,10 @@
     "guacd_vnc_rejected": "VNC 伺服器拒絕了這次連線，最常見的原因是帳號或密碼錯誤（也可能是伺服器要求的認證方式不支援；連續失敗太多次時，部分伺服器會暫時封鎖來源）：{reason}",
     "console_vnc_username_needs_guacd": "內建的 VNC 引擎不支援帳號，請到「管理 → 系統設定」把 VNC 連線引擎改成 guacd",
     "cred_username_required": "請填帳號",
-    "guacd_vnc_username_required": "這台 VNC 伺服器要求帳號與密碼，請在「帳號」欄填入帳號"
+    "guacd_vnc_username_required": "這台 VNC 伺服器要求帳號與密碼，請在「帳號」欄填入帳號",
+    "sftp_probe_too_large": "測試量超出範圍（上限 {max} MB）",
+    "sftp_probe_session_limit": "這次測試的額度用完了，請重新檢查",
+    "sftp_probe_stalled": "測試上傳中斷（已收到 {written}/{size} 位元組）"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -3257,6 +3282,11 @@
     "host_kernel": "核心版本",
     "package": "套件",
     "installed": "版本",
+    "section_required": "必要相依",
+    "section_required_hint": "一定要裝好、在執行，對應功能才能正常運作",
+    "required_running": "執行中",
+    "required_not_running": "已安裝但沒有在執行",
+    "required_missing": "{pkgs} 沒有在執行：RDP／VNC 主控台暫時改用內建引擎。請在伺服器上執行 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade（會裝上並啟動）。",
     "section_optional": "選用相依",
     "section_optional_hint": "缺少不影響服務運作，但會讓對應功能無法使用",
     "optional_present": "已安裝",
@@ -4143,7 +4173,10 @@
     "upload_bytes": "上傳中：{name}　{sent} / {total}（{pct}%）",
     "offline_upload": "中斷時正在上傳：{name}　已送出 {sent} / {total}",
     "drop_too_many": "有 {n} 個項目沒有收進來（一次最多 {max} 個檔案）",
-    "err_no_ack": "資料送不到伺服器：第一段資料送出後 15 秒仍未被確認收到。伺服器是好的（它已回覆可以上傳），問題出在這台電腦到伺服器之間 —— 常見於 VPN／代理伺服器把較大的封包丟掉，或瀏覽器擴充功能干擾。可先試無痕視窗（停用擴充功能）或換一條網路。"
+    "err_no_ack": "資料送不到伺服器：第一段資料送出後 15 秒仍未被確認收到。伺服器是好的（它已回覆可以上傳），問題出在這台電腦到伺服器之間 —— 常見於 VPN／代理伺服器把較大的封包丟掉，或瀏覽器擴充功能干擾。可先試無痕視窗（停用擴充功能）或換一條網路。",
+    "download_bytes": "下載中：{name}　{got} / {total}（{pct}%）",
+    "err_save_file": "無法建立存檔：{reason}",
+    "err_big_needs_fs_api": "這個瀏覽器不支援直接寫入磁碟，超過 {max} 的檔案要整個放進記憶體、會讓分頁當掉。請改用 Chrome 或 Edge，或用 scp／WinSCP。"
   },
   "fw_autocreate": {
     "label": "自動建立 IPAM 沒有的位址",
@@ -4453,11 +4486,12 @@
     "f_integration_pages": "到各整合設定頁看「最後錯誤」與「測試連線」",
     "report_counts": "{bad} 項失敗、{warn} 項警告、{ok} 項通過",
     "c_guacd": "guacd 主控台引擎",
-    "d_guacd_idle": "已安裝，還沒有協定使用它（{address}）",
+    "d_guacd_idle": "服務正常，目前沒有協定使用它（{address}）",
     "d_guacd_ok": "{protocols} 使用 guacd，服務正常（{address}）",
-    "d_guacd_down": "{protocols} 設定為 guacd，但連不到它（{address}）：{reason}",
-    "d_guacd_missing": "{protocols} 設定為 guacd，但 guacd 沒有這些協定的支援",
-    "f_guacd": "在伺服器上執行 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd，或到系統設定把引擎改回內建"
+    "d_guacd_down": "guacd 是必要元件，但連不到它（{address}）：{reason}；{protocols} 目前暫時改用內建引擎",
+    "d_guacd_down_idle": "guacd 是必要元件，但連不到它（{address}）：{reason}",
+    "d_guacd_missing": "{protocols} 設定為 guacd，但 guacd 沒有這些協定的支援；目前連線暫時改用內建引擎",
+    "f_guacd": "在伺服器上執行 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade（會裝上 guacd）；已經裝了的話 sudo systemctl restart jt-ipam-guacd"
   },
   "tool_verbs": {
     "get": "查詢",
@@ -4588,10 +4622,13 @@
     "customer": "單位"
   },
   "ranges": {
+    "auto_hint": "依「{source}」偵測到的 DHCP 發放範圍自動建立，會跟著上游同步；要改請改 DHCP 伺服器上的設定",
+    "auto_desc": "依偵測到的 DHCP 發放範圍自動建立",
+    "auto": "自動",
     "title": "位址範圍（集區）",
     "add": "新增範圍",
     "edit": "編輯範圍",
-    "hint": "子網路 {cidr} 裡的一段連續位址，例如 DHCP 集區或保留給某些設備的位址。用途是「DHCP 集區」的範圍也會標成「在 DHCP 範圍內」。",
+    "hint": "子網路 {cidr} 裡的一段連續位址，例如 DHCP 集區或保留給某些設備的位址。用途是「DHCP 集區」的範圍也會標成「在 DHCP 範圍內」。整合偵測到的 DHCP 發放範圍會自動加進來。",
     "empty": "還沒有定義範圍。",
     "start": "起始位址",
     "end": "結束位址",

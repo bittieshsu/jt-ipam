@@ -10,7 +10,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,14 +123,8 @@ async def cleanup_shared_rows(session: AsyncSession, fw_id: uuid.UUID) -> None:
     所以兩個條件都要帶 `source_type`／`source_origin` 限定，不可只用 id。
     抽成函式是為了讓測試能直接驗這段真正的邏輯，而不是在測試裡重寫一份。
     """
-    from app.models.dhcp import DHCPPoolRange
-    from app.models.nat import NATTranslation
-    await session.execute(delete(DHCPPoolRange).where(
-        DHCPPoolRange.source_type == "fortigate", DHCPPoolRange.source_id == fw_id,
-    ))
-    await session.execute(delete(NATTranslation).where(
-        NATTranslation.source_origin == f"fortigate:{fw_id}",
-    ))
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="fortigate", source_id=fw_id)
 
 
 @router.delete("/{fw_id}", status_code=204)

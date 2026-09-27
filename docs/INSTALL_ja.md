@@ -27,6 +27,7 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 | PostgreSQL | 16 + pgvector | — | 22.04 では PGDG リポジトリが必要です（スクリプトが自動で追加します） |
 | Redis | 7 | — | 24.04 の既定は 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 の既定は 18.19。vite 6 は動作しますが警告が出ます |
+| guacd | jt-ipam がこの OS 向けにビルドしたもの | — | **必須**：RDP／VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
 
 **仮想環境での注意**：Proxmox の VM / LXC では、起動や再起動の直後 1〜2 分ほど load average が
 跳ね上がることがあります（ハイパーバイザ上の他の VM が CPU を取り合っているためで、`mpstat` の
@@ -284,6 +285,19 @@ curl -skI https://ipam.example.com/ \
 # 次が出ること：HSTS、Content-Security-Policy（frame-src 'self'）、X-Frame-Options、X-Content-Type-Options、
 # Referrer-Policy、Permissions-Policy、COOP、CORP —— それぞれちょうど 1 回ずつ、そして Server: nginx（バージョン表記なし）。
 ```
+
+**コンソールと SFTP はエッジプロキシを通ります。** SFTP を含むすべてのコンソールは、
+`/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc)/ws` の長時間の WebSocket 1 本です。SFTP はこの WebSocket で
+ファイルを 256 KB ずつ送るため、nginx の `client_max_body_size` のような HTTP 本文のサイズ上限はファイルサイズを**制限しません**。
+大きな転送を妨げるのは、経路上の次のような層です：
+
+- このパスで WebSocket のアップグレードを転送しない（コンソールがまったく接続できません）；
+- WebSocket メッセージ 1 件のサイズを制限する（一部の WAF。1 MB 以上を許可してください）；
+- WebSocket 接続 1 本の転送量や時間を制限する、または 30 秒未満のアイドルで切断する（jt-ipam は 20 秒ごとにキープアライブを送ります）。
+
+各層の設定を読み解く必要はありません。**管理 → システム設定 →「SFTP の 1 ファイルあたりの転送上限」**を既定値より大きくすると、
+ブラウザーから各層（エッジプロキシ、IPAM の nginx、バックエンド）を通して実際に転送テストを行い、どの種類の制限に当たったかを表示します。
+測定した速度から、上限サイズのファイルの転送にかかる時間も見積もります。
 
 ### 2.8 任意：Docker Compose（これは優先される方式ではありません）
 
@@ -799,26 +813,28 @@ sudo apt install -y nodejs
 
 その後、`/opt/jt-ipam/frontend` で `pnpm install && pnpm build` をやり直します。
 
-## guacd コンソールエンジン（RDP／VNC／SSH、任意）
+## guacd コンソールエンジン（RDP／VNC の既定）
 
-guacd は [Apache Guacamole](https://guacamole.apache.org/) のサーバー側で、3 種類のコンソールの接続エンジンとして
-使えます。「管理 → システム設定」でプロトコルごとに選びます。任意の機能で、既定は組み込みエンジンのままです。
+guacd は [Apache Guacamole](https://guacamole.apache.org/) のサーバー側で、**RDP と VNC コンソールの既定エンジン**で、
+**必須コンポーネント**でもあります（0.6.49 から。既存の環境もアップグレードで切り替わります）。
+SSH も「管理 → システム設定」で切り替えられます。`install` が入れ、入れられなければそこで止まります。`upgrade` は未導入なら入れます。
+guacd が止まっている間、RDP と VNC は任意の組み込みエンジン（aardwolf、入っていれば）に戻り、`doctor`、
+「管理 → システム診断」、「バージョン情報 → 必須コンポーネント」が問題を表示します。
 
 別途インストールが必要な理由：Debian は guacd の提供をやめ、Ubuntu にはリモートコード実行の脆弱性がある 1.3.0 しかありません。
 そのため jt-ipam はサポート中の OS バージョンごとにビルドを用意しています（Debian 12／13、Ubuntu 22.04／24.04／26.04）。
 OS 自身のライブラリにリンクするので、FreeRDP や libvncclient などのセキュリティ更新は引き続き apt から届きます。
 
 ```
-sudo /opt/jt-ipam/scripts/jt-ipam.sh install --with-guacd        # 新規インストール
-sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd        # 既存の環境に追加
+sudo /opt/jt-ipam/scripts/jt-ipam.sh install                     # guacd も入ります
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade                     # 未導入なら入れ、導入済みなら更新
 sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...-ubuntu24.04-amd64.tar.gz
                                                                  # オフライン：同じ場所に .deps ファイルが必要
 ```
 
 - `jt-ipam-guacd` systemd サービスとして動き、**127.0.0.1:4822 だけで待ち受けます**。guacd 自体には認証がないため、
   他のインターフェースで開いてはいけません。サービスは権限のない動的ユーザーで動きます。
-- 一度インストールするか、どれかのプロトコルで guacd を選ぶと、以降の `upgrade` で jt-ipam の版に対応するビルドへ更新されます。
-  ダウンロードしたファイルは `scripts/guacd/SHA256SUMS` と照合します。
+- `upgrade` のたびに jt-ipam の版に対応するビルドへ更新されます。ダウンロードしたファイルは `scripts/guacd/SHA256SUMS` と照合します。
 - 資格情報はサーバーが guacd に渡し、ブラウザーには届きません。SSH のホスト鍵も初回確認後に固定され、guacd はその鍵と一致しなければなりません。
 - guacd 経由の SSH では端末をサーバー側で描画します。コピーと貼り付けは Ctrl+Shift+C／Ctrl+Shift+V（Mac は ⌘C／⌘V）。
   日本語・中国語の入力メソッドも使えます。

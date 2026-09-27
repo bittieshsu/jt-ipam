@@ -111,7 +111,8 @@ export function classifyAddressLiveness(addr: {
     use.includes("librenms") ? addr.last_seen_librenms : null,
     use.includes("wazuh") ? addr.last_seen_wazuh : null,
     use.includes("zabbix") ? addr.last_seen_zabbix : null,
-    addr.last_seen_dns,
+    // last_seen_dns（AdGuard）刻意不算：它只代表「AdGuard 的設定裡有這個 IP」（固定用戶端、
+    // DNS 改寫），每輪同步都蓋成現在 —— 關機的機器也一直亮綠燈（2026-09-26 稽核）。後端也不採用。
     use.includes("arp") || use.includes("arp:librenms") ? addr.last_seen_arp : null,
     // 防火牆逐來源：只算被勾選的（`lease:*` 這種不會過期的預設沒被勾）
     ...Object.entries(addr.arp_seen || {})
@@ -150,5 +151,5 @@ export function isArpOnlyEvidence(addr: {
   // 就不算「只靠 ARP」。DHCP 租約（lease:*）不算，租期比開機時間長得多。
   const fw = Object.keys(addr.arp_seen || {}).some((k) => !k.startsWith("lease:"));
   return !addr.last_seen_scanner && !addr.last_seen_librenms
-    && !addr.last_seen_dns && !addr.last_seen_wazuh && !addr.last_seen_zabbix && !fw;
+    && !addr.last_seen_wazuh && !addr.last_seen_zabbix && !fw;
 }

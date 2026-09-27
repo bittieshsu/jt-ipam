@@ -4,6 +4,117 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.49] - 2026-09-27
+
+### Changed
+- **guacd is now the default engine for the RDP and VNC consoles, and a required component** (GitHub
+  issue #42). The old engine, aardwolf, becomes an optional fallback: it ships wheels only up to
+  Python 3.13 and crashes on 3.14. Upgrading switches existing installs to guacd too (migration
+  0158; SSH is left as it is). `install` always installs guacd and stops with instructions
+  (`--guacd-tarball`) if it cannot; `upgrade` installs it when missing and, if that fails, warns
+  loudly but still finishes.
+- While guacd is down, RDP / VNC fall back to an available built-in engine instead of failing;
+  `doctor` and System check report it as a problem with the fix. The engine is decided when the
+  ticket is issued and travels in it, so guacd restarting mid-way cannot make the browser and the
+  server speak different protocols.
+- Version info gains **Required components**, listing guacd (version, running); aardwolf moves to
+  the optional list and no longer raises a warning when absent.
+- System settings: RDP / VNC show "guacd (default)", SSH "Built-in (default)"; the guacd status no
+  longer flashes a red "cannot reach" before it has loaded.
+
+### Added
+- **Detected DHCP ranges appear in the subnet's address ranges (pools) automatically**, marked
+  "Auto" with their source (e.g. firewall-a · KEA). They follow upstream (replaced when the range
+  changes, removed when it is no longer reported or the integration is deleted); manual ranges
+  are never touched; nothing is created when the subnet is ambiguous (overlapping subnets) or the
+  range would overlap an existing one (migration 0159). Auto ranges cannot be edited or deleted by
+  hand (change the DHCP server) and are not counted twice in DHCP usage.
+- **SFTP per-file limit is configurable in System settings** (default still 100 MB, up to 100 GB).
+  Changing it makes the browser **test the actual transfer path** (browser → front reverse proxy →
+  IPAM nginx → backend, over the same WebSocket path as SFTP) and report upload / download speed
+  and how long a file of that size would take; a layer that cannot pass it is named (WebSocket
+  blocked, 1009 message too big, cut off mid-way, data not getting through). With a raised limit
+  the test re-runs whenever the settings page opens.
+- **Large SFTP downloads go straight to disk**: above 64 MB, Chrome / Edge ask where to save and
+  write while receiving instead of holding everything in memory; other browsers are told to switch
+  or use scp above 2 GB; downloads show progress; files over the limit say so up front.
+- **Mobile sidebar**: on phones the sidebar collapses completely and the content uses the full
+  width; a button at the top left opens it over the content; picking a page, tapping the dimmed
+  area or Esc closes it.
+- **Deleting an integration takes back what it wrote**: removing a DNS server, firewall, DHCP
+  server, LibreNMS, Zabbix, Wazuh, OCS, Proxmox, ESXi or scan agent also removes its hostnames,
+  lease / reservation flags, pool ranges, NAT rows, VPN tunnels and VM mirror (they used to stay,
+  with nothing ever syncing them away).
+- **Scan agent 1.8.1**: a reverse lookup clears the agent's old name only when DNS answers that
+  there is no PTR record (timeouts and unreachable DNS do not); it used to report nothing, so the
+  old name stayed forever. Agents update themselves.
+
+### Fixed
+- **Data the upstream stopped reporting is finally removed** (reported: an IP got a new machine,
+  its DNS record was deleted and synced, yet it kept the old host's name). After auditing every
+  integration:
+  - Hostnames: none of the 16 sources (DNS, AdGuard, Windows DHCP, five firewalls, LibreNMS,
+    Proxmox, Zabbix, Wazuh, OCS, the scan agent's rDNS / NetBIOS / mDNS) ever removed a name. Each
+    instance of each source now records what it reports (migration 0155) and removes what it no
+    longer reports **only after a complete read**; failed or partial reads remove nothing; a breaker
+    stops removing more than half at once or anything after an empty complete read; instances of
+    the same kind do not remove each other's names. Pre-upgrade data is claimed by real syncs,
+    at once for single-instance sources and after 24 h otherwise. Renames to a later-sorting name
+    that never took effect (Proxmox, Zabbix, Wazuh, OCS, scan agent) now do.
+  - DNS: records deleted on the server are removed after a sync; zones that fail or read empty
+    are left alone; partially failed zones stay in the error message (it used to end as success).
+  - "Has a DHCP lease": one boolean shared by six DHCP sources, each clearing it its own way (never
+    without a subnet scope, never on Palo Alto, and clearing other sources' leases when scoped).
+    Now recorded per source and derived from all of them (migration 0156); leases not refreshed
+    for 7 days stop counting. Expired / declined Windows DHCP entries and unused reservations are
+    no longer leases.
+  - Proxmox: VMs / CTs deleted in PVE are removed; the VM primary IP is recomputed every run (it
+    was set once, so after an IP change or VMID reuse the console opened from the old IP reached
+    the wrong guest). Two standalone hosts both named "pve" no longer share one cluster; an ESXi
+    instance named like a PVE cluster no longer takes and deletes its VMs.
+  - Wazuh: agents deleted in Wazuh are removed from the mirror; hostnames and OS come only from an
+    agent that still represents the IP (with an old and a new agent on one IP it used to pick one
+    at random).
+  - LibreNMS: deleted devices are removed (with their VLAN mappings, ARP and FDB); VLANs removed
+    from a device are unmapped; the scheduled port sync applies the pseudo-interface filter too
+    (Windows ethernet_N ports came back every run); a replaced machine's switch port is cleared,
+    while a machine that is merely off keeps its last location.
+  - OCS: the BMC (IPMI) interface reported by the Linux agent is no longer used for matching (the
+    host's OS and name landed on the BMC address); a MAC on two IPs (an old DHCP address kept
+    after moving to a static one) is settled by the IP the NIC reports; after a complete full sync,
+    and for stale inventories, OCS OS and inventory id are cleared.
+  - VPN tunnels record their owner (migration 0157): renaming a firewall no longer orphans its
+    tunnels; MikroTik removes the last peer too; idle MikroTik WireGuard peers were written with a
+    status the table rejects, failing the whole VPN section.
+- **An unreachable device no longer wipes data while reporting success**: OPNsense (NAT, VPN
+  tunnels, pool ranges, reservations), FortiGate (policies, NAT, address objects, pool ranges,
+  reservations, IPsec; an unreadable VDOM list is not treated as complete), pfSense (reservations,
+  extra pools), Palo Alto (NAT when the vsys list is unreadable), Windows DHCP (lease flags and
+  names when a scope fails). Failed reads keep existing data and are reported; OPNsense shows
+  partial failures. Rule-change detection no longer snapshots an empty rule set (a failed read) or
+  sends a false "all rules removed" alert.
+- **Overlapping subnets are no longer guessed**: with the same IP in several units' subnets and no
+  scope set on the integration, hostnames, MACs, liveness evidence and lease flags landed on an
+  arbitrary record, often another unit's; ambiguous matches now write and create nothing.
+- **Liveness is recomputed every sync run**: it only happened during a LibreNMS sync, so sites
+  without LibreNMS never saw an IP go back to offline. AdGuard's time no longer counts as liveness
+  (it only means the IP is in AdGuard's configuration, so powered-off hosts stayed green); the
+  field reads "Last seen (AdGuard config)". The red "rogue DHCP" tag uses the detector's 7-day
+  window. Firewall ARP times keep the newer value (two firewalls of one vendor moved it backwards).
+- **MikroTik lease hostnames were stored as "manual"**, overriding what users typed and never
+  cleared: they use their own source; unknown sources are refused. The few IPs already affected can
+  have that manual entry removed under Hostname sources.
+- **Untouched hostname / MAC fields in the IP edit form counted as manual input**: saving only a
+  description froze the displayed name as manual and marked the MAC as manual. Unchanged values are
+  no longer edits; a typed name that another source would override is pinned to manual (it used to
+  be overwritten right after saving, without a word).
+- **Rack diagrams on phones**: pan left / right when the rack is wider than the screen; the
+  Front / Rear toggle no longer sticks out of the card.
+- Address range table column widths (the range no longer overlaps the purpose tag; the name column
+  no longer collapses to one character per line); liveness evidence rows line up.
+- CI backend tests finally run and pass (CI key format, missing rdp-freerdp, test DB fsync, pytest
+  plugin order); an invalid ENCRYPTION_KEY says what is expected and how to generate one.
+
 ## [0.6.48] - 2026-09-26
 
 ### Added

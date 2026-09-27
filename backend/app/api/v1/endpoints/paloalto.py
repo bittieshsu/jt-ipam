@@ -13,7 +13,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,10 +125,8 @@ async def cleanup_shared_rows(session: AsyncSession, fw_id: uuid.UUID) -> None:
     政策／位址物件有外鍵 cascade 可以依靠；`nat_translations` 是多來源共用表、
     沒有 cascade，必須自己清 —— 而且**只能清自己的列**，所以條件要帶 `source_origin`。
     """
-    from app.models.nat import NATTranslation
-    await session.execute(delete(NATTranslation).where(
-        NATTranslation.source_origin == f"paloalto:{fw_id}",
-    ))
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="paloalto", source_id=fw_id)
 
 
 @router.delete("/{fw_id}", status_code=204)

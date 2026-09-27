@@ -77,6 +77,10 @@
 
 ## 5c. headless 瀏覽器 smoke 測試
 
+- [ ] 手機版側欄（`frontend/e2e/mobile-sidebar.spec.ts`，390×844）：收起時寬度 0、內容從最左邊開始；左上角按鈕叫出來、疊在內容上；
+  點選功能後與點暗掉的地方都會收回；桌機維持原樣
+- [ ] 手機上的機櫃圖（`frontend/e2e/mobile-rack.spec.ts`）：比螢幕寬時可以左右捲；「正面／背面」等工具列不凸出卡片
+
 - [ ] `cd frontend && pnpm exec playwright test smoke`（免後端，自起 vite preview）全綠
 - [ ] 對已部署實例（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑 `pnpm test:e2e` 主路徑（登入/sections/audit）
 
@@ -112,8 +116,10 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 - [ ] 有任何變動：`scripts/guacd/build.sh` 再 `scripts/guacd/verify.sh`（都要 docker；鏡像站用
   `APT_MIRROR`／`UBUNTU_MIRROR`，同其他關卡）。verify 會在乾淨容器只裝執行期套件，**並且真的連一次 RDP 靶** ——
   外掛載得到不算數（1.6.0 在 26.04 上外掛載得到，一畫第一個畫面就當掉）。它存在預編檔旁邊的截圖要看過
-- [ ] 安裝腳本裝 guacd 的那一段也要在乾淨 OS 上走一次：`GUACD_TARBALL=<同 OS 的預編檔> scripts/test-fresh-install.sh debian:12`
-  —— 驗 `--with-guacd --guacd-tarball` 裝得起來、服務在跑、**只**在 127.0.0.1 回應、doctor 綠
+- [ ] 安裝腳本裝 guacd 的那一段也要在乾淨 OS 上走一次（guacd 是**必要元件**，安裝一定會裝，裝不起來安裝要停下來）：
+  `scripts/test-fresh-install.sh debian:12`（走客戶的路：從 GitHub release 下載並核對）或
+  `GUACD_TARBALL=<同 OS 的預編檔> scripts/test-fresh-install.sh debian:12`（還沒發佈的建置）
+  —— 驗裝得起來、服務在跑、**只**在 127.0.0.1 回應、doctor 綠
 - [ ] configure 要正確偵測 FreeRDP 3：FreeRDP 3 的目標若印出「freerdp structs have a context... no」，
   編譯腳本會刻意失敗（靠 CPPFLAGS 裡的 `-Wno-error` 防止，原因見 `in-container-build.sh` 的註解）
 - [ ] 每個壓縮檔都要有 `LICENSE`、`NOTICE`、`SOURCE`（前兩個是 Apache-2.0 的要求；`SOURCE` 指向確切的原始碼與編譯腳本）。
@@ -173,6 +179,14 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 - [ ] **SFTP 排序模式**：「資料夾優先」時，**升冪與降冪資料夾都在最前面**（把分組寫進比較函式
   會在降冪時翻掉，這是回歸重點）；「一起排」時只看排序欄位。依大小／修改時間排序也遵守同一模式。
   切換後存進使用者偏好，重新連線／換裝置仍記得
+- [ ] **SFTP 單檔上限（系統設定）**：預設 100 MB；改大後存得住、舊版頁面按儲存不會把它改回預設；
+  超出 1～102400 MB 要提示並還原（**不可以**被輸入框自動夾到邊界後存下去）。改了上限要**自動**實測傳輸路徑，
+  結果講出上下傳速度與「傳一個上限大小的檔案要多久」；路徑有問題要講出是哪一種（WebSocket 不通／1009 訊息太大／
+  傳到一半被切／資料送不過去）。現成 spec：`e2e/sftp-limit-probe.spec.ts`（1009 用 routeWebSocket 模擬）
+- [ ] **SFTP 大檔下載**：超過 64 MB 在 Chrome／Edge 會先問存到哪裡、邊收邊寫進磁碟（內容逐位元組一致、分段寫入）；
+  不支援的瀏覽器退回收進記憶體（2 GB 以上直接講要換瀏覽器）；超過上限當場提示；下載中顯示進度。
+  現成 spec：`e2e/sftp-stream-download.spec.ts`（需 `E2E_SFTP_ROOT`、`sftp-target.py` 起在 2223）
+- [ ] **正式機再實測一次**：從外面（經過前端反向代理）打開系統設定，看傳輸路徑檢查的結果 —— 開發機的路徑沒有那一層
 - [ ] 現成 spec：`frontend/e2e/terminal-links.spec.ts`（需 `E2E_SSH_ADDRESS_ID/USER/PASS`；
   另需該帳號 `can_ssh`、該 IP `ssh_enabled`，第一次連線要按「信任並連線」）
 
@@ -246,8 +260,14 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 
 ## 7m. guacd 主控台引擎 —— **只要動到主控台、guacd 或它的編譯就要跑**
 
-guacd 是 RDP／VNC／SSH 的選用第三引擎（管理 → 系統設定，逐協定選）。其他引擎維持預設；
-換引擎不可以改變主控台被允許做的事。
+guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由遷移 0158 強制改過來），SSH 可以改用
+（管理 → 系統設定，逐協定選）。換引擎不可以改變主控台被允許做的事。
+
+- [ ] 預設值：全新安裝的設定頁 RDP、VNC 顯示「guacd（預設）」，SSH 顯示「內建（預設）」；舊站台升級後 RDP／VNC 變成 guacd
+  （`frontend/e2e/rdp-engine.spec.ts`、`tests/test_console_engine_default.py`）
+- [ ] guacd 是必要元件：「版本資訊 → 必要相依」列著它（版本、是否在執行）；aardwolf 在「選用相依」
+- [ ] guacd 停掉時 RDP／VNC **仍連得上**（退回內建引擎，前提是這台有選用的 aardwolf），設定頁的 guacd 狀態是紅的、doctor 與系統診斷是失敗；
+  連線中途不會因為 guacd 起落而卡住（引擎寫在票證裡，WebSocket 照票證）
 
 - [ ] `frontend/e2e/console-guacd.spec.ts`，對本機 guacd 與三個測試靶跑（見檔頭：xrdp 容器 3389、
   `e2e/fixtures/vnc-target.py` 5999、sshd 2222）。它驗：畫面真的畫出來（量像素，不是只有 canvas）、
@@ -260,8 +280,8 @@ guacd 是 RDP／VNC／SSH 的選用第三引擎（管理 → 系統設定，逐�
   key／mouse／size／clipboard／sync／nop…（`tests/test_guacd.py::test_relay_forwards_allowed_and_drops_the_rest`）
 - [ ] 剪貼簿政策不因引擎改變：RDP 只有在「RDP 控制端貼上」開啟時才能貼、被控端內容不回傳；VNC 沒有；SSH 可複製可貼上
 - [ ] 分頁切到背景超過 5 分鐘不會斷線（背景分頁的計時器會被節流成一分鐘一次；保活由伺服器送，不靠頁面）
-- [ ] `sudo jt-ipam.sh doctor` 與「管理 → 系統診斷」看得到 guacd；停掉 `jt-ipam-guacd` 時兩邊都要變紅並附修法，
-  發票證要回看得懂的 503
+- [ ] `sudo jt-ipam.sh doctor` 與「管理 → 系統診斷」看得到 guacd；停掉 `jt-ipam-guacd` 時兩邊都要變紅並附修法、
+  說明目前改用內建引擎；內建引擎也不能用時（例如沒有 aardwolf），發票證要回看得懂的 503
 - [ ] VNC 帳號：要帳號的伺服器（檔頭的 VeNCrypt 帳密靶 5998）帳號留空要回「請在「帳號」欄填入帳號」、填了要連得上；
   密碼錯要說「帳號或密碼錯誤」而不是「連不到主機」，真的連不到時才說連不到（只在 guacd 失敗**之後**才探 TCP ——
   TigerVNC 會把「連上就斷」算成一次認證失敗，連幾次就封鎖來源；測到一半全部失敗先看靶的日誌有沒有 `blacklisted`）
@@ -284,6 +304,17 @@ guacd 是 RDP／VNC／SSH 的選用第三引擎（管理 → 系統設定，逐�
   或 API 帳號讀不到）
 - [ ] **測試連線要反映真實**：逐端點診斷顯示的結果必須與同步實際拿到的一致 ——
   不可以對同步讀不到的東西打綠勾
+- [ ] **上游刪掉的要跟著消失**（2026-09-26 稽核：16 個來源的主機名稱、DNS 記錄都從不清）：
+  在上游刪掉一筆（DNS 記錄、租約、VM、代理、主機），同步一輪後 IP 的主機名稱與鏡像資料都要不見。
+  主機名稱一律經 `HostnameRun`（`services/hostname_reports.py`）：看到就 `report`、這輪不確定的實體 `hold`、
+  結束時 `finish(complete=…)` —— **complete 必須反映「這一輪真的完整讀到」**，不可以照抄心跳的 ok
+- [ ] **讀不到不可以清**（反方向的缺陷）：讓端點逾時／回 403 一輪，既有的主機名稱、NAT、政策、VPN 通道、
+  DHCP 範圍／固定分配都要原封不動，錯誤寫進 `last_error`。404（這台沒有那個功能）才算「讀到了、沒有」。
+  「VDOM／vsys 清單讀不到而退回預設值」不是完整清單，整份取代的區段這一輪不可以動
+- [ ] **多台同類不互刪**：兩台同廠牌各報各的，一台不再回報時不可以刪掉另一台還在報的
+- [ ] **斷路器**：讓 API 回空清單一輪（權限被收），主機名稱不可以被整批清掉，`last_error` 要寫出原因；
+  規則異動偵測不可以發「全部移除」
+- [ ] **沒改的欄位不是手動編輯**：在 IP 編輯表單只改說明、按儲存，主機名稱來源與 MAC 來源都不可以變成手動
 
 ## 7d. 從掃描代理執行探測 —— **只要動到工作佇列或代理就要跑**
 

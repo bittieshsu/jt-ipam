@@ -39,3 +39,6 @@ class IPRangeRead(StrictModel):
     size: int = 0
     used: int = 0
     first_free: str | None = None
+    #: 由偵測到的 DHCP 發放範圍自動建立（跟著上游走，不能手動改／刪）與它的來源（firewall-a · KEA）
+    auto: bool = False
+    source_label: str | None = None

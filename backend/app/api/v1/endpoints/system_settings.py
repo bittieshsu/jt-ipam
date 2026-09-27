@@ -389,13 +389,16 @@ class ConsoleSecurityIn(StrictModel):
 
     # 允許 RDP 控制端把文字貼到被控端（剪貼簿單向重導；預設關閉）
     rdp_clipboard_paste: bool = False
-    # RDP 連線引擎：aardwolf（預設，純 Python）、freerdp（相容性較好，需外部行程）、
-    # guacd（jt-ipam-guacd 服務，見 app/services/guacd.py）
-    rdp_engine: Literal["aardwolf", "freerdp", "guacd"] = "aardwolf"
-    # VNC／SSH 連線引擎：builtin（一路以來的實作）或 guacd。
+    # RDP 連線引擎：guacd（預設，jt-ipam-guacd 服務，見 app/services/guacd.py）、
+    # aardwolf（純 Python）、freerdp（相容性較好，需外部行程）。
+    # 沒帶＝維持原值（以前預設成 aardwolf：沒帶這個欄位的舊頁面一存就把引擎改回去）
+    rdp_engine: Literal["aardwolf", "freerdp", "guacd"] | None = None
+    # VNC／SSH 連線引擎：builtin（一路以來的實作）或 guacd（VNC 的預設）。
     # 沒帶＝維持原值：還開著舊版頁面的人按儲存，不可以把別人剛設好的引擎改回去
     vnc_engine: Literal["builtin", "guacd"] | None = None
     ssh_engine: Literal["builtin", "guacd"] | None = None
+    # SFTP 單檔上下傳上限（MB）；沒帶＝維持原值（理由同上）。上界見 SFTP_MAX_FILE_MB_LIMIT
+    sftp_max_file_mb: Annotated[int, Field(ge=1, le=102_400)] | None = None
 
 
 class ConsoleSecurityOut(ConsoleSecurityIn):
@@ -428,6 +431,7 @@ async def get_console_security(
     from app.services.system_config import (
         get_rdp_clipboard_paste,
         get_rdp_engine,
+        get_sftp_max_file_mb,
         get_ssh_engine,
         get_vnc_engine,
     )
@@ -436,6 +440,7 @@ async def get_console_security(
         rdp_engine=await get_rdp_engine(session),
         vnc_engine=await get_vnc_engine(session),
         ssh_engine=await get_ssh_engine(session),
+        sftp_max_file_mb=await get_sftp_max_file_mb(session),
     )
 
 
@@ -447,10 +452,13 @@ async def put_console_security(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
     from app.services.system_config import (
+        get_rdp_engine,
+        get_sftp_max_file_mb,
         get_ssh_engine,
         get_vnc_engine,
         set_rdp_clipboard_paste,
         set_rdp_engine,
+        set_sftp_max_file_mb,
         set_ssh_engine,
         set_vnc_engine,
     )
@@ -463,23 +471,28 @@ async def put_console_security(
         diff={"target": "console_security",
               "rdp_clipboard_paste": payload.rdp_clipboard_paste,
               "rdp_engine": payload.rdp_engine,
-              "vnc_engine": payload.vnc_engine, "ssh_engine": payload.ssh_engine},
+              "vnc_engine": payload.vnc_engine, "ssh_engine": payload.ssh_engine,
+              "sftp_max_file_mb": payload.sftp_max_file_mb},
         request_id=getattr(request.state, "request_id", None),
     )
     enabled = await set_rdp_clipboard_paste(
         session, enabled=payload.rdp_clipboard_paste, updated_by_user_id=user.id)
-    engine = await set_rdp_engine(
-        session, engine=payload.rdp_engine, updated_by_user_id=user.id)
+    engine = (await set_rdp_engine(session, engine=payload.rdp_engine, updated_by_user_id=user.id)
+              if payload.rdp_engine else await get_rdp_engine(session))
     vnc_engine = (await set_vnc_engine(session, engine=payload.vnc_engine, updated_by_user_id=user.id)
                   if payload.vnc_engine else await get_vnc_engine(session))
     ssh_engine = (await set_ssh_engine(session, engine=payload.ssh_engine, updated_by_user_id=user.id)
                   if payload.ssh_engine else await get_ssh_engine(session))
+    sftp_mb = (await set_sftp_max_file_mb(session, mb=payload.sftp_max_file_mb, updated_by_user_id=user.id)
+               if payload.sftp_max_file_mb is not None else await get_sftp_max_file_mb(session))
     return await _console_security_out(rdp_clipboard_paste=enabled, rdp_engine=engine,
-                                       vnc_engine=vnc_engine, ssh_engine=ssh_engine)
+                                       vnc_engine=vnc_engine, ssh_engine=ssh_engine,
+                                       sftp_max_file_mb=sftp_mb)
 
 
 async def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str,
-                                vnc_engine: str = "builtin", ssh_engine: str = "builtin") -> ConsoleSecurityOut:
+                                vnc_engine: str = "guacd", ssh_engine: str = "builtin",
+                                sftp_max_file_mb: int = 100) -> ConsoleSecurityOut:
     from app.services import guacd as guac
     from app.services.rdp_freerdp import availability, freerdp_apt_hint
 
@@ -492,6 +505,7 @@ async def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str,
         rdp_engine=rdp_engine,  # type: ignore[arg-type]
         vnc_engine=vnc_engine,  # type: ignore[arg-type]
         ssh_engine=ssh_engine,  # type: ignore[arg-type]
+        sftp_max_file_mb=sftp_max_file_mb,
         freerdp_available=bool(av["ok"]),
         freerdp_missing=missing,
         freerdp_install_cmd="" if av["ok"] else freerdp_apt_hint(),
@@ -503,6 +517,33 @@ async def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str,
         guacd_error=str(gst.get("error") or ""),
         guacd_install_cmd="" if gst["ok"] else "sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd",
     )
+
+
+@router.post("/sftp-probe/ticket")
+async def issue_sftp_probe_ticket(user: CurrentUser, request: Request) -> dict[str, Any]:
+    """SFTP 傳輸路徑測試的票證（管理者限定，見 app/services/sftp_probe.py）。
+
+    測試要由瀏覽器發起、走跟 SFTP 同一條 WebSocket 路徑 —— 只有那樣才會經過前面的反向代理。
+    不寫稽核：不讀也不改任何資料，只把一段隨機資料來回送一次。
+    """
+    import json as _json
+    import secrets as _secrets
+
+    from app.api.v1.endpoints.sftp_console import _probe_ticket_key, _redis_client
+    from app.core.rate_limit import limit_per_ip
+    from app.services import sftp_probe
+
+    await limit_per_ip(request, name="ssh")
+    ticket = _secrets.token_urlsafe(32)
+    await _redis_client().set(_probe_ticket_key(ticket),
+                              _json.dumps({"user_id": str(user.id)}), ex=60)
+    return {
+        "ticket": ticket,
+        "ws_path": f"/api/v1/addresses/{sftp_probe.PROBE_ADDRESS_ID}/sftp/ws",
+        "up_bytes": sftp_probe.DEFAULT_TEST_BYTES,
+        "down_bytes": sftp_probe.DEFAULT_TEST_BYTES,
+        "ttl": 60,
+    }
 
 
 # 本機地圖圖磚代理（OSM）：讓「OpenStreetMap」供應商在維持嚴格 CSP（img-src 'self'）+ COEP require-corp
@@ -1449,7 +1490,39 @@ async def get_version_info() -> dict[str, Any]:
         "package": "xclip",
         "used_by": "RDP console (FreeRDP engine) — clipboard paste",
     }
+    # aardwolf：以前是 RDP 的預設引擎、VNC 唯一的引擎；2026-09-27 起只是選用的備用引擎
+    # （guacd 連不到時才用）。Python 3.14 上它會當掉（GitHub issue #42），缺了不影響服務。
+    from app.api.v1.endpoints.rdp_console import RDP_AVAILABLE
+    info["host"]["optional_tools"]["aardwolf"] = {
+        "present": RDP_AVAILABLE,
+        "package": "aardwolf (pip: .[rdp])",
+        "used_by": "RDP / VNC console — fallback engine when guacd is down",
+        # 備用：沒裝不發警告（Python 3.14 根本裝不起來，「upgrade 會補上」也不成立）
+        "fallback": True,
+    }
+    info["host"]["required_tools"] = await _required_tools()
     return info
+
+
+async def _required_tools() -> dict[str, dict[str, Any]]:
+    """必要相依（缺了對應功能就不能正常運作）。
+
+    guacd：RDP 與 VNC 的預設引擎，2026-09-27 起必裝（GitHub issue #42）。不是 pip 套件，
+    是安裝腳本裝的 jt-ipam-guacd 服務 —— 版本頁要看得到「有沒有裝、有沒有在跑、哪個版本」。
+    """
+    from app.services import guacd as guac
+    st = await guac.probe()
+    ver = guac.installed_version()
+    return {"guacd": {
+        "present": ver is not None or bool(st["ok"]),
+        "running": bool(st["ok"]),
+        "version": ver,
+        "protocols": st.get("protocols") or {},
+        "address": st.get("address"),
+        "error": st.get("error") or "",
+        "package": "jt-ipam-guacd (jt-ipam.sh install / upgrade)",
+        "used_by": "RDP / VNC console (default engine); SSH when selected",
+    }}
 
 
 def _ver_tuple(v: str | None) -> tuple[int, ...]:

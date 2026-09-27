@@ -187,6 +187,16 @@ async def snapshot_if_changed(
 
     if prev is not None and prev.rules_hash == h:
         return None
+    # 整份規則變成空的、上一份卻有規則：幾乎一定是讀取出了問題（連不上、權限被收、某個
+    # 區段吞掉錯誤回了空清單），不是有人把整台防火牆的規則刪光。以前照樣存快照並發出
+    # 「規則全部移除」的告警，下一輪恢復時再發一次「全部新增」（2026-09-26 稽核）。
+    # 不存、不通知；真的刪光的話，下一次有規則出現時的比對仍然正確。
+    if not rules and prev is not None and prev.rule_count:
+        import structlog
+        structlog.get_logger("fw_review").warning(
+            "empty rule set ignored", source_type=source_type,
+            instance=instance_name, previous=prev.rule_count)
+        return None
 
     diff = diff_rules(list(prev.rules), rules) if prev is not None else None
     # taken_at 用應用層時間，不能靠 server_default now()：PostgreSQL 的 now() 是

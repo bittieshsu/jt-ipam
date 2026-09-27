@@ -93,7 +93,92 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
             "start_ip": str(r.start_ip).split("/")[0], "end_ip": str(r.end_ip).split("/")[0],
             "purpose": r.purpose, "name": r.name, "description": r.description,
             "size": hi - lo + 1, "used": used, "first_free": first_free,
+            "auto": bool(r.source_origin), "source_label": r.name if r.source_origin else None,
         })
+    return out
+
+
+def _label(pool: Any) -> str:
+    """自動範圍的名稱：跟子網路上方「DHCP 發放範圍」同一個寫法（firewall-a · KEA）。"""
+    parts = [str(pool.source_name or pool.source_type)]
+    if pool.source:
+        parts.append(str(pool.source).upper())
+    return " · ".join(parts)[:64]
+
+
+async def sync_auto_dhcp_ranges(session: AsyncSession) -> dict[str, int]:
+    """整合偵測到的 DHCP 發放範圍 → 子網路的「位址範圍（集區）」（使用者要求，2026-09-27）。
+
+    全站對帳（jt-ipam-sync 每輪一次）：`dhcp_pool_ranges` 的每一段，落在**唯一**一個最精確的
+    子網路裡就建一筆用途＝DHCP 集區的範圍，記下來源；上游改了就換、不再回報（或整合刪掉）就移除。
+    - 手動建立的範圍一律不動；跟手動的（或另一台整合的同一段）重疊時不建 —— 範圍不可以重疊。
+    - 落點不唯一（重疊網段）不猜，照「唯一才算」的原則（見 ip_autocreate）。
+    發放範圍讀取失敗時 `dhcp_pool_ranges` 會保留原值（各整合已經這樣做），這裡不會因此誤刪。
+    """
+    from app.models.dhcp import DHCPPoolRange
+
+    out = {"created": 0, "updated": 0, "removed": 0, "skipped_overlap": 0, "skipped_ambiguous": 0}
+    nets: list[tuple[Any, uuid.UUID]] = []
+    for sid, cidr in (await session.execute(select(Subnet.id, Subnet.cidr))).all():
+        try:
+            nets.append((ipaddress.ip_network(str(cidr), strict=False), sid))
+        except ValueError:
+            continue
+
+    desired: dict[tuple[uuid.UUID, str, str, str], str] = {}
+    for pool in (await session.execute(select(DHCPPoolRange))).scalars().all():
+        try:
+            a = ipaddress.ip_address(str(pool.start_ip).split("/")[0].strip())
+            b = ipaddress.ip_address(str(pool.end_ip).split("/")[0].strip())
+        except ValueError:
+            continue
+        if a.version != b.version or int(a) > int(b):
+            continue
+        hits = [(n, sid) for n, sid in nets if a in n and b in n]
+        if not hits:
+            continue
+        best = max(n.prefixlen for n, _ in hits)
+        top = [sid for n, sid in hits if n.prefixlen == best]
+        if len(top) != 1:
+            out["skipped_ambiguous"] += 1
+            continue
+        origin = f"{pool.source_type}:{pool.source_id}"[:64]
+        desired.setdefault((top[0], str(a), str(b), origin), _label(pool))
+
+    auto_rows = (await session.execute(
+        select(IPRange).where(IPRange.source_origin.is_not(None)))).scalars().all()
+    have: dict[tuple[uuid.UUID, str, str, str], IPRange] = {}
+    for r in auto_rows:
+        key = (r.subnet_id, str(r.start_ip).split("/")[0], str(r.end_ip).split("/")[0], str(r.source_origin))
+        if key in desired and key not in have:
+            have[key] = r
+            if r.name != desired[key]:
+                r.name = desired[key]
+                out["updated"] += 1
+        else:
+            await session.delete(r)
+            out["removed"] += 1
+    await session.flush()
+
+    for key, label in desired.items():
+        if key in have:
+            continue
+        subnet_id, start, end, origin = key
+        lo, hi = int(ipaddress.ip_address(start)), int(ipaddress.ip_address(end))
+        overlap = False
+        for o in (await session.execute(select(IPRange).where(IPRange.subnet_id == subnet_id))).scalars().all():
+            olo = int(ipaddress.ip_address(str(o.start_ip).split("/")[0]))
+            ohi = int(ipaddress.ip_address(str(o.end_ip).split("/")[0]))
+            if lo <= ohi and olo <= hi:
+                overlap = True
+                break
+        if overlap:
+            out["skipped_overlap"] += 1
+            continue
+        session.add(IPRange(subnet_id=subnet_id, start_ip=start, end_ip=end, purpose="dhcp",
+                            name=label, source_origin=origin))
+        await session.flush()
+        out["created"] += 1
     return out
 
 
@@ -115,9 +200,12 @@ class ManualDhcpPool:
 
 async def manual_dhcp_pools(session: AsyncSession,
                             subnet_ids: list[uuid.UUID] | None = None) -> list[ManualDhcpPool]:
-    """用途＝DHCP 集區的手動範圍（`subnet_ids` 給了就只取那些子網路的）。"""
+    """用途＝DHCP 集區的手動範圍（`subnet_ids` 給了就只取那些子網路的）。
+
+    自動建立的（source_origin 有值）不算：它們就是整合同步回來的 DHCP 範圍，使用端已經算過一次。
+    """
     stmt = (select(IPRange, Subnet.cidr).join(Subnet, Subnet.id == IPRange.subnet_id)
-            .where(IPRange.purpose == "dhcp"))
+            .where(IPRange.purpose == "dhcp", IPRange.source_origin.is_(None)))
     if subnet_ids is not None:
         stmt = stmt.where(IPRange.subnet_id.in_(subnet_ids))
     out: list[ManualDhcpPool] = []

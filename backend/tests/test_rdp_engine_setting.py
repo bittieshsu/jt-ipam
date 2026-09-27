@@ -5,8 +5,8 @@ CHALLENGE 帶了 `MsvAvTimestamp` 時，MS-NLMP 要求用戶端回 MIC，而 Fre
 （gnome-remote-desktop 用的就是它）會強制檢查。結果是同一台主機、同一組帳密，
 FreeRDP 連得上、我們連不上（2026-09-17 對 Ubuntu 24 + gnome-remote-desktop 實測）。
 
-**預設必須留在 aardwolf**：FreeRDP 後端完整做完並驗證過之前，切過去會讓原本能用的
-Windows 目標也連不上。這一條用測試釘住，不靠記得。
+預設曾經是 aardwolf；2026-09-27 起 RDP 與 VNC 的預設改成 guacd（使用者指示，見
+test_console_engine_default.py —— guacd 沒在跑時實際連線退回內建引擎）。
 """
 
 from __future__ import annotations
@@ -18,16 +18,16 @@ from app.services.system_config import (
 )
 
 
-async def test_default_is_aardwolf(db_session):
-    assert await get_rdp_engine(db_session) == "aardwolf"
+async def test_default_is_guacd(db_session):
+    assert await get_rdp_engine(db_session) == "guacd"
 
 
 async def test_all_engines_are_offered(db_session):
     assert set(RDP_ENGINES) == {"aardwolf", "freerdp", "guacd"}
 
 
-async def test_vnc_and_ssh_default_to_builtin_and_can_use_guacd(db_session):
-    """guacd 是選用的：預設維持一路以來的實作，換引擎要管理者自己選（2026-09-25）。"""
+async def test_vnc_defaults_to_guacd_ssh_to_builtin_and_both_can_switch(db_session):
+    """VNC 預設 guacd（2026-09-27）；SSH 預設仍是內建。"""
     from app.services.system_config import (
         get_rdp_engine,
         get_ssh_engine,
@@ -35,7 +35,7 @@ async def test_vnc_and_ssh_default_to_builtin_and_can_use_guacd(db_session):
         set_ssh_engine,
         set_vnc_engine,
     )
-    assert await get_vnc_engine(db_session) == "builtin"
+    assert await get_vnc_engine(db_session) == "guacd"
     assert await get_ssh_engine(db_session) == "builtin"
     await set_rdp_engine(db_session, engine="freerdp")
     assert await set_vnc_engine(db_session, engine="guacd") == "guacd"
@@ -77,7 +77,7 @@ async def test_endpoint_round_trips_both_fields(client, auth_headers):
     """兩個欄位共用一個端點，存一次要兩個都留著。"""
     r = await client.get("/api/v1/system/console-security", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert r.json()["rdp_engine"] == "aardwolf", "預設不是 aardwolf"
+    assert r.json()["rdp_engine"] == "guacd", "預設不是 guacd"
 
     r = await client.put("/api/v1/system/console-security", headers=auth_headers,
                          json={"rdp_clipboard_paste": True, "rdp_engine": "freerdp"})

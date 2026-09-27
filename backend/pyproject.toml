@@ -68,11 +68,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# RDP 連線管理（選用）：純瀏覽器 RDP，後端用 aardwolf 橋接。
+# aardwolf（選用）：RDP／VNC 主控台的舊引擎，2026-09-27 起只是 guacd 停掉時的備用引擎 ——
+# guacd 是必要元件、預設引擎（不是 pip 套件，由 scripts/jt-ipam.sh 裝，見 app/services/guacd.py）。
+# 在 Python 3.14 上會當掉（GitHub issue #42），沒有任何功能依賴它。
 # pin 0.2.13 — PyPI 有 cp311/312/313 manylinux x86_64 wheel（內含已編譯的 librlers
 # Rust 擴充）→ 安裝免 Rust 工具鏈。最新 0.2.14 只有 sdist（要 Rust）故不可用 latest。
 # 安裝腳本以 `pip install --only-binary=:all: -e ".[rdp]"` best-effort 裝；沒 wheel 即快速
-# 失敗、不觸發 Rust 編譯，RDP 功能自動停用、不影響主安裝。
+# 失敗、不觸發 Rust 編譯，只是沒有備用引擎、不影響主安裝。
 rdp = [
     "aardwolf==0.2.13",
 ]

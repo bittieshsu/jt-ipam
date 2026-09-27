@@ -251,6 +251,7 @@
     "chain_ph": "-----BEGIN CERTIFICATE-----（任意）"
   },
   "nav": {
+    "open_menu": "メニュー",
     "dashboard": "ダッシュボード",
     "sections": "セクション",
     "subnets": "サブネット",
@@ -434,7 +435,10 @@
     "show_all": "すべて表示",
     "console_engine": "エンジン：{name}",
     "console_engine_builtin": "組み込み",
-    "console_engine_title": "この接続で使っているエンジン（「管理 → システム設定」で切り替え）"
+    "console_engine_title": "この接続で使っているエンジン（「管理 → システム設定」で切り替え）",
+    "duration_sec": "{n} 秒",
+    "duration_min": "{n} 分",
+    "duration_hour": "{n} 時間"
   },
   "scan_agent": {
     "outdated": "更新があります",
@@ -1190,7 +1194,7 @@
     "last_seen": "最終確認",
     "last_seen_scanner": "最終確認（スキャナ）",
     "last_seen_librenms": "最終確認（LibreNMS）",
-    "last_seen_dns": "最終確認（DNS）",
+    "last_seen_dns": "最終確認（AdGuard 設定）",
     "ip_list_title": "IP 一覧",
     "state_active": "使用中",
     "state_reserved": "予約",
@@ -2609,25 +2613,42 @@
       "change_log_dim_days": "変更履歴を淡く表示するまでの日数",
       "change_log_dim_days_hint": "この日数より古い変更履歴を淡く表示し、最近の変更を目立たせます。0 にすると淡くしません。既定は 30 です。",
       "rdp_engine": "RDP 接続エンジン",
-      "rdp_engine_aardwolf": "aardwolf（既定）",
+      "rdp_engine_aardwolf": "aardwolf",
       "rdp_engine_freerdp": "FreeRDP",
-      "rdp_engine_hint": "aardwolf は組み込みの純 Python 実装です。追加のプロセスが不要で、Windows が相手なら問題なく動きます。FreeRDP は互換性がより広く、とくに Linux の xrdp や GNOME のリモートログイン（aardwolf の NTLM 認証を拒否します）に有効ですが、このホストに FreeRDP と仮想ディスプレイが必要です。guacd は jt-ipam-guacd サービスで動き（状態は下に表示）、互換性が広く仮想ディスプレイも不要です。変更は新しい接続から反映されます。",
+      "rdp_engine_hint": "既定は guacd です。jt-ipam-guacd サービスで処理され（状態は下に表示）、Linux の xrdp や GNOME のリモートログインを含めて最も互換性が高く、仮想ディスプレイも不要です。guacd が動いていない間は aardwolf または FreeRDP で接続します。aardwolf は組み込みの純 Python 実装で Windows が相手なら問題なく動きますが、xrdp と GNOME のリモートログインはその NTLM 認証を拒否します。FreeRDP も互換性は広いものの、このホストに FreeRDP と仮想ディスプレイが必要です。変更は新しい接続から反映されます。",
       "rdp_engine_missing": "このサーバーには FreeRDP エンジンに必要なものがまだありません（不足：{pkgs}）。インストールしてからこのページを再読み込みしてください。それまでは FreeRDP を選んでも接続できません。",
-      "rdp_engine_no_aardwolf": "このサーバーの Python {python} には aardwolf のビルド済みパッケージがないため、aardwolf エンジンと VNC コンソールは使えません。RDP には FreeRDP エンジンを使ってください。",
+      "rdp_engine_no_aardwolf": "このサーバーには aardwolf がありません（Python {python} 用の事前ビルドがありません）。aardwolf は任意の予備エンジンで、RDP を aardwolf、VNC を組み込みにすると接続できません。guacd（既定）に戻してください。",
       "port_filter_pseudo": "疑似インターフェースを除外",
       "port_filter_pseudo_hint": "連携元からポートを取り込む際、以下の名前パターンに一致する疑似インターフェース（Windows NDIS フィルタ、WAN Miniport、トンネル等）を除外・削除します。オフの場合は除外も削除も行いません。",
       "port_ignore_patterns": "除外する名前パターン",
       "port_ignore_patterns_hint": "1 行に 1 つの正規表現（インターフェース名に対して大文字小文字を区別せず照合）。空欄の場合は組み込みの既定値を使用します。物理スイッチや Linux のポート名は一致しないため影響を受けません。",
       "engine_guacd": "guacd",
+      "engine_builtin_plain": "組み込み",
+      "engine_guacd_default": "guacd（既定）",
       "engine_builtin": "組み込み（既定）",
       "vnc_engine": "VNC 接続エンジン",
-      "vnc_engine_hint": "組み込みエンジンは aardwolf を使います。guacd は jt-ipam-guacd サービスで画面を処理し、aardwolf を必要としません。変更は新しい接続から反映されます。",
+      "vnc_engine_hint": "既定は guacd です。jt-ipam-guacd サービスで画面を処理し、ユーザー名を求める VNC サーバーにも対応します。guacd が動いていない間は組み込みエンジン（aardwolf）で接続します。変更は新しい接続から反映されます。",
       "ssh_engine": "SSH 接続エンジン",
       "ssh_engine_hint": "組み込みエンジンはブラウザー内の xterm.js 端末です。guacd はサーバー側で端末を描画し、ブラウザーは画面を受け取ります。コピーと貼り付けは Ctrl+Shift+C／Ctrl+Shift+V（Mac は ⌘C／⌘V）。ホスト鍵は同じく初回確認後に固定されます。変更は新しい接続から反映されます。",
       "guacd_status": "guacd サービス",
       "guacd_down": "guacd（{address}）に接続できません：{reason}",
       "guacd_protocol_missing": "guacd に {protocols} のサポートがありません。guacd を選んだこれらのプロトコルは接続できません。",
-      "guacd_hint": "guacd は Apache Guacamole のサーバー側で、jt-ipam がビルドしたものを jt-ipam-guacd サービスとしてローカルでのみ動かします。RDP、VNC、SSH ごとに切り替えられます。"
+      "guacd_hint": "guacd は Apache Guacamole のサーバー側で、jt-ipam が事前ビルドし、jt-ipam-guacd サービスとしてローカルでのみ動きます。RDP と VNC の既定エンジンです（インストールとアップグレード時に自動で入ります）。SSH は個別に切り替えられます。",
+      "sftp_max_mb": "SFTP の 1 ファイルあたりの転送上限",
+      "sftp_max_mb_hint": "既定は 100 MB（設定ファイル、証明書、ログ向け）です。大きなファイルを扱う場合は引き上げてください。ファイルはコンソールの WebSocket で 256 KB ずつ送られ、前段のリバースプロキシと IPAM の nginx を通ります。上限を変更すると、この経路を実際にテストします。64 MB を超えるダウンロードはディスクに直接書き込みます（Chrome、Edge。その他のブラウザーは 2 GB まで）。",
+      "sftp_probe_run": "転送経路をチェック",
+      "sftp_probe_running": "転送経路をチェック中：{stage} {pct}%",
+      "sftp_probe_up": "アップロード",
+      "sftp_probe_down": "ダウンロード",
+      "sftp_probe_ok": "転送経路は正常です：アップロード約 {up}/秒、ダウンロード約 {down}/秒。この速度では {max} のファイルのアップロードに約 {upTime}、ダウンロードに約 {downTime} かかります。",
+      "sftp_probe_ws_blocked": "SFTP の経路に WebSocket で接続できません（コード {code}）：前段のリバースプロキシまたは IPAM の nginx が /api/v1/addresses/…/sftp/ws の WebSocket を有効にしていません。SFTP とほかのコンソールは使えません。",
+      "sftp_probe_msg_too_big": "{done}／{total} の時点で「メッセージが大きすぎる」として切断されました（コード 1009）：経路上のどこか（多くは前段のリバースプロキシか WAF）が WebSocket メッセージのサイズを制限しています。SFTP のダウンロードは 256 KB ずつ送るため、1 MB 以上を許可してください。",
+      "sftp_probe_closed": "{done}／{total} の時点で接続が切断されました（コード {code}）：経路上のどこかが WebSocket の転送量または時間を制限しています。前段のリバースプロキシと IPAM の nginx の WebSocket 設定を確認してください。",
+      "sftp_probe_no_data_up": "アップロードのデータが届きません：{sec} 秒間サーバーに新しいデータが届いていません（{done}／{total} 受信済み）。経路上のどこかが連続して送ったデータを破棄しています。",
+      "sftp_probe_no_data_down": "ダウンロードのデータが届きません：{sec} 秒間新しいデータがありません（{done}／{total} 受信済み）。",
+      "sftp_probe_error": "チェックに失敗しました：{reason}",
+      "sftp_probe_note": "このブラウザーから実測した結果で、あなたとサーバーの間のすべての層を通っています。別のネットワークから接続する人は経路が異なる場合があります。",
+      "sftp_max_mb_range": "SFTP の上限は 1～102400 MB（100 GB）の範囲で指定してください"
     }
   },
   "errors": {
@@ -2985,6 +3006,7 @@
     "range_family_mismatch": "開始と終了のアドレスの IP バージョンが違います（IPv4 と IPv6）",
     "range_start_after_end": "開始アドレス {start} が終了アドレス {end} より大きいです",
     "range_outside_subnet": "範囲 {start}～{end} がサブネット {cidr} の外にあります",
+    "range_auto_managed": "この範囲は「{source}」で検出された DHCP 配布範囲から自動作成され、上流に同期します。変更は DHCP サーバー側で行ってください",
     "range_overlap": "既存の範囲「{other}」と重なっています",
     "cert_export_password_in_url": "PFX のパスワードを URL パラメーターに入れることはできません（アクセスログに残ります）。POST で fmt と password を本文に入れてください",
     "guacd_unavailable": "guacd に接続できません（{reason}）。サーバーで jt-ipam-guacd サービスが動いているか確認してください。",
@@ -3011,7 +3033,10 @@
     "guacd_vnc_rejected": "VNC サーバーが接続を拒否しました。最も多い原因はユーザー名かパスワードの誤りです（サーバーが求める認証方式に未対応の場合や、失敗が続いて接続元が一時的にブロックされている場合もあります）：{reason}",
     "console_vnc_username_needs_guacd": "内蔵の VNC エンジンはユーザー名に対応していません。「管理 → システム設定」で VNC の接続エンジンを guacd にしてください。",
     "cred_username_required": "ユーザー名を入力してください",
-    "guacd_vnc_username_required": "この VNC サーバーはユーザー名とパスワードを要求しています。「ユーザー名」欄に入力してください"
+    "guacd_vnc_username_required": "この VNC サーバーはユーザー名とパスワードを要求しています。「ユーザー名」欄に入力してください",
+    "sftp_probe_too_large": "テスト量が範囲外です（上限 {max} MB）",
+    "sftp_probe_session_limit": "このテストの上限に達しました。もう一度チェックしてください",
+    "sftp_probe_stalled": "テストのアップロードが中断されました（{written}/{size} バイト受信）"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -3257,6 +3282,11 @@
     "host_kernel": "カーネル",
     "package": "パッケージ",
     "installed": "バージョン",
+    "section_required": "必須コンポーネント",
+    "section_required_hint": "インストールされ動作していないと、関連する機能が正常に動きません",
+    "required_running": "動作中",
+    "required_not_running": "インストール済みですが動作していません",
+    "required_missing": "{pkgs} が動作していません。RDP／VNC コンソールは当面組み込みエンジンで接続します。サーバーで sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade を実行してください（インストールして起動します）。",
     "section_optional": "任意の依存関係",
     "section_optional_hint": "無くてもサービスには影響せず、それを使う機能だけが使えなくなります",
     "optional_present": "導入済み",
@@ -4143,7 +4173,10 @@
     "upload_bytes": "{name} をアップロード中 — {sent} / {total}（{pct}%）",
     "offline_upload": "接続が切れたとき、アップロードが進行中でした：{name} — {total} 中 {sent} を送信済み",
     "drop_too_many": "{n} 件が対象から外れました（1 回のドロップで最大 {max} ファイルです）",
-    "err_no_ack": "データがサーバーへ届いていません。最初のブロックを送ってから 15 秒経っても、ひとつも受領されませんでした。サーバー側は正常です（受信準備ができたと既に応答しています）。この端末とサーバーの間にある何かがデータを捨てており、大きなパケットを破棄する VPN やプロキシ、あるいはブラウザ拡張の干渉が典型です。シークレットウィンドウ（拡張が無効になります）や別のネットワークで試してください。"
+    "err_no_ack": "データがサーバーへ届いていません。最初のブロックを送ってから 15 秒経っても、ひとつも受領されませんでした。サーバー側は正常です（受信準備ができたと既に応答しています）。この端末とサーバーの間にある何かがデータを捨てており、大きなパケットを破棄する VPN やプロキシ、あるいはブラウザ拡張の干渉が典型です。シークレットウィンドウ（拡張が無効になります）や別のネットワークで試してください。",
+    "download_bytes": "ダウンロード中：{name}　{got} / {total}（{pct}%）",
+    "err_save_file": "ファイルを作成できません：{reason}",
+    "err_big_needs_fs_api": "このブラウザーはディスクへの直接書き込みに対応していません。{max} を超えるファイルはすべてメモリーに保持する必要があり、タブがクラッシュします。Chrome か Edge、または scp／WinSCP を使ってください。"
   },
   "fw_autocreate": {
     "label": "IPAM に無いアドレスを作成する",
@@ -4453,11 +4486,12 @@
     "f_integration_pages": "各連携の設定ページで「最後のエラー」と「接続テスト」を確認してください",
     "report_counts": "失敗 {bad} 件、警告 {warn} 件、正常 {ok} 件",
     "c_guacd": "guacd コンソールエンジン",
-    "d_guacd_idle": "インストール済み、まだどのプロトコルも使っていません（{address}）",
+    "d_guacd_idle": "正常に動作中、現在どのプロトコルも使っていません（{address}）",
     "d_guacd_ok": "{protocols} が guacd を使用中で正常です（{address}）",
-    "d_guacd_down": "{protocols} は guacd に設定されていますが接続できません（{address}）：{reason}",
-    "d_guacd_missing": "{protocols} は guacd に設定されていますが、guacd にそのサポートがありません",
-    "f_guacd": "サーバーで sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd を実行するか、システム設定でエンジンを組み込みに戻してください"
+    "d_guacd_down": "guacd は必須コンポーネントですが接続できません（{address}）：{reason}。{protocols} は当面組み込みエンジンで接続します",
+    "d_guacd_down_idle": "guacd は必須コンポーネントですが接続できません（{address}）：{reason}",
+    "d_guacd_missing": "{protocols} は guacd に設定されていますが、guacd にそのサポートがありません。当面は組み込みエンジンで接続します",
+    "f_guacd": "サーバーで sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade を実行してください（guacd が入ります）。インストール済みなら sudo systemctl restart jt-ipam-guacd"
   },
   "tool_verbs": {
     "get": "照会",
@@ -4588,10 +4622,13 @@
     "customer": "組織"
   },
   "ranges": {
+    "auto_hint": "「{source}」で検出された DHCP 配布範囲から自動作成され、上流に同期します。変更は DHCP サーバー側で行ってください",
+    "auto_desc": "検出された DHCP 配布範囲から自動作成",
+    "auto": "自動",
     "title": "アドレス範囲（プール）",
     "add": "範囲を追加",
     "edit": "範囲を編集",
-    "hint": "サブネット {cidr} 内の連続したアドレス。DHCP プールや特定の機器用に確保したアドレスなど。用途が「DHCP プール」の範囲は「DHCP 範囲内」としても表示されます。",
+    "hint": "サブネット {cidr} 内の連続したアドレス。DHCP プールや特定の機器用に確保したアドレスなど。用途が「DHCP プール」の範囲は「DHCP 範囲内」としても表示されます。連携で検出された DHCP 配布範囲は自動で追加されます。",
     "empty": "まだ範囲がありません。",
     "start": "開始アドレス",
     "end": "終了アドレス",

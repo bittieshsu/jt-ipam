@@ -291,10 +291,11 @@ def test_every_guacd_error_code_is_translated() -> None:
                 assert "{reason}" in errors[c], f"{loc} 的 errors.{c} 沒有帶 {{reason}}"
 
 
-async def test_self_check_reports_guacd_only_when_it_matters(db_session, monkeypatch) -> None:
-    """選了 guacd 的協定連不到它 → 自我檢查要列成失敗並給修法；沒人用、也沒裝就不列。"""
+async def test_self_check_treats_guacd_as_required(db_session, monkeypatch) -> None:
+    """guacd 是必要元件（2026-09-27，GitHub issue #42）：連不到一律列成失敗並給修法，
+    有協定選了它時要講「目前暫時改用內建引擎」；缺某個協定的外掛也是失敗。"""
     from app.services import self_check
-    from app.services.system_config import set_rdp_engine, set_ssh_engine
+    from app.services.system_config import set_rdp_engine, set_ssh_engine, set_vnc_engine
 
     state = {"ok": False, "address": "127.0.0.1:4822", "protocols": {}, "error": "connection refused"}
 
@@ -302,14 +303,18 @@ async def test_self_check_reports_guacd_only_when_it_matters(db_session, monkeyp
         return dict(state)
     monkeypatch.setattr(guac, "probe", fake_probe)
 
-    assert await self_check._guacd_check(db_session) is None          # 沒人用、沒裝
+    c = await self_check._guacd_check(db_session)                      # 預設：RDP、VNC 用 guacd
+    assert c.status == "bad" and c.params["protocols"] == "RDP、VNC"
+    assert "內建引擎" in c.detail and "connection refused" in c.detail
+    assert "jt-ipam.sh upgrade" in c.fix
+
+    await set_rdp_engine(db_session, engine="aardwolf")
+    await set_vnc_engine(db_session, engine="builtin")
+    c = await self_check._guacd_check(db_session)                      # 沒人用也是必要元件
+    assert c.status == "bad" and c.detail_key == "doctor.d_guacd_down_idle"
 
     await set_rdp_engine(db_session, engine="guacd")
     await set_ssh_engine(db_session, engine="guacd")
-    c = await self_check._guacd_check(db_session)
-    assert c.status == "bad" and "connection refused" in c.detail and "--with-guacd" in c.fix
-    assert c.params["protocols"] == "RDP、SSH"
-
     state.update(ok=True, error="", protocols={"rdp": True, "vnc": True, "ssh": False})
     c = await self_check._guacd_check(db_session)
     assert c.status == "bad" and c.params["protocols"] == "SSH"      # 缺 SSH 外掛

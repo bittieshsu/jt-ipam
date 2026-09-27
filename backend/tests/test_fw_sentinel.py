@@ -183,3 +183,17 @@ async def test_baseline_diff_is_sql_null_not_json_null(db_session) -> None:
         "SELECT diff IS NULL FROM fw_rule_snapshots WHERE instance_id = :i"),
         {"i": str(fid)})).scalar_one()
     assert is_null is True, "diff 存成了 JSON null 而非 SQL NULL"
+
+
+@pytest.mark.anyio
+async def test_an_empty_rule_set_after_a_populated_one_is_not_stored_or_alerted(db_session) -> None:
+    """整份規則變成空的：幾乎一定是讀取出了問題 —— 以前發「全部移除」、下一輪再發「全部新增」。"""
+    fid = uuid.uuid4()
+    await snapshot_if_changed(db_session, source_type="fortigate", instance_id=fid,
+                              instance_name="fw-a", rules=[_r("1"), _r("2")])
+    diff = await snapshot_if_changed(db_session, source_type="fortigate", instance_id=fid,
+                                     instance_name="fw-a", rules=[])
+    assert diff is None
+    rows = (await db_session.execute(
+        select(FwRuleSnapshot).where(FwRuleSnapshot.instance_id == fid))).scalars().all()
+    assert len(rows) == 1

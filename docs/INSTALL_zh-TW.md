@@ -22,6 +22,7 @@
 | PostgreSQL | 16 + pgvector | — | 22.04 需 PGDG repo（腳本會自動加）|
 | Redis | 7 | — | 24.04 預設 7.0.15  |
 | Node | 20 LTS | 22 LTS | 24.04 預設 18.19；vite 6 跑得動但有 warning |
+| guacd | jt-ipam 為該 OS 編的版本 | — | **必要**：RDP／VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
 
 **虛擬化備註**：在 Proxmox VM / LXC 上跑時，剛開機 / 重開後 1-2 分鐘內 load avg 可能飆高（hypervisor 上其他 VM 在搶 CPU，看 `mpstat` 的 `%steal`）；這不是 VM 本身忙，可以直接跑 install。
 
@@ -259,6 +260,17 @@ curl -skI https://ipam.example.com/ \
 # 應看到：HSTS、Content-Security-Policy（frame-src 'self'）、X-Frame-Options、X-Content-Type-Options、
 # Referrer-Policy、Permissions-Policy、COOP、CORP——每個各一份，且 Server: nginx（無版本）。
 ```
+
+**主控台與 SFTP 經過你的邊緣代理。** 每個主控台（包含 SFTP）都是一條長時間的 WebSocket，路徑是
+`/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc)/ws`。SFTP 的檔案在這條 WebSocket 上以 256 KB 為單位傳送，
+所以 nginx 的 `client_max_body_size` 這類 HTTP 內容大小上限**管不到**檔案大小。會讓大檔傳輸失敗的是路徑上：
+
+- 沒有替這組路徑轉發 WebSocket 升級（主控台會完全連不上）；
+- 限制單一 WebSocket 訊息大小（有些 WAF 會；請至少放寬到 1 MB）；
+- 限制單一 WebSocket 連線的傳輸量或時間，或閒置不到 30 秒就切斷（jt-ipam 每 20 秒送一次保活）。
+
+不必自己去讀各層的設定：**管理 → 系統設定 →「SFTP 單檔上下傳上限」**只要把上限調高到預設值以上，就會由你的瀏覽器
+實際傳一次，經過每一層（邊緣代理、IPAM 的 nginx、後端），並講出是哪一種限制擋住；也會依量到的速度，估算傳一個上限大小的檔案要多久。
 
 ### 2.8 選用：Docker Compose（非本專案優先使用模式）
 
@@ -714,10 +726,12 @@ sudo apt install -y nodejs
 
 ## RDP 主控台的連線引擎
 
-瀏覽器 RDP 主控台可以在「管理 → 系統設定」選用兩個引擎之一：
+瀏覽器 RDP 主控台可以在「管理 → 系統設定」選用三個引擎之一：
 
-- **aardwolf**（預設）—— 純 Python 用戶端。不需要額外行程，對 Windows 目標運作正常。
-- **FreeRDP** —— 相容性較好。Linux 上的 RDP 伺服器（xrdp，以及 Ubuntu 24 內建的
+- **guacd**（預設、必要）—— 見下一節。相容性最好，也不需要虛擬顯示。
+- **aardwolf**（選用）—— 純 Python 用戶端，現在只是 guacd 停掉時的備用引擎。它的預編套件只到
+  Python 3.13，在 3.14 上會當掉（GitHub issue #42），所以能裝才裝、沒有任何東西依賴它。
+- **FreeRDP** —— 相容性比 aardwolf 好。Linux 上的 RDP 伺服器（xrdp，以及 Ubuntu 24 內建的
   GNOME「遠端登入」）會拒絕 aardwolf 的 NTLM 認證，因為那個函式庫沒有送出這些伺服器
   要求的訊息完整性碼；FreeRDP 則通得過。
 
@@ -734,26 +748,27 @@ sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg
 ffmpeg 是用來抓畫面的，不是拿來做影片：我們量過其他抓法每張要 334 毫秒，
 會把主控台壓在每秒 3 張以下。
 
-## guacd 主控台引擎（RDP／VNC／SSH，選用）
+## guacd 主控台引擎（RDP／VNC 的預設）
 
-guacd 是 [Apache Guacamole](https://guacamole.apache.org/) 的伺服器端，可以當三種主控台的連線引擎，
-在「管理 → 系統設定」逐協定選擇。它是選用的，預設仍是內建引擎。
+guacd 是 [Apache Guacamole](https://guacamole.apache.org/) 的伺服器端，是 **RDP 與 VNC 主控台的預設引擎**，
+也是**必要元件**（0.6.49 起；已安裝的站台升級後也會改過來），SSH 也可以在「管理 → 系統設定」改用它。
+`install` 會裝上，裝不起來就停下來；`upgrade` 沒裝就裝上。guacd 停掉時，RDP 與 VNC 會退回選用的內建引擎
+（aardwolf，有裝的話），`doctor`、「管理 → 系統診斷」與「版本資訊 → 必要相依」都會列出問題。
 
 為什麼要另外安裝：Debian 已經不提供 guacd，Ubuntu 只有帶著可遠端執行程式碼漏洞的 1.3.0。
 所以 jt-ipam 替每個支援中的 OS 版本各編一份（Debian 12／13、Ubuntu 22.04／24.04／26.04）。
 預編檔連結的是 OS 自己的函式庫，FreeRDP、libvncclient 等的安全更新照樣由 apt 提供。
 
 ```
-sudo /opt/jt-ipam/scripts/jt-ipam.sh install --with-guacd        # 全新安裝
-sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd        # 已安裝的站台加裝
+sudo /opt/jt-ipam/scripts/jt-ipam.sh install                     # 會一併裝 guacd
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade                     # 沒裝就裝上、裝了就更新
 sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...-ubuntu24.04-amd64.tar.gz
                                                                  # 離線：同一目錄要有對應的 .deps 檔
 ```
 
 - 以 `jt-ipam-guacd` systemd 服務執行，**只綁 127.0.0.1:4822**。guacd 本身沒有任何驗證，
   絕不可以開在其他介面上。服務以沒有任何權限的動態使用者執行。
-- 裝過之後，或只要有協定選了 guacd，每次 `upgrade` 都會換成與該版 jt-ipam 對應的預編檔。
-  下載的檔案會用 `scripts/guacd/SHA256SUMS` 核對。
+- 每次 `upgrade` 都會換成與該版 jt-ipam 對應的預編檔。下載的檔案會用 `scripts/guacd/SHA256SUMS` 核對。
 - 帳密由伺服器交給 guacd，不會經過瀏覽器。SSH 主機金鑰一樣首次確認後釘選，guacd 必須對得上釘選的金鑰。
 - SSH 走 guacd 時，終端機在伺服器端畫出來。複製、貼上用 Ctrl+Shift+C／Ctrl+Shift+V
   （Mac 用 ⌘C／⌘V），中文、日文輸入法都可以用。

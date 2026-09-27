@@ -47,9 +47,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError
-from app.models.address import IPAddress
 from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall, PaloAltoPolicy
+from app.services.dhcp_leases import LeaseRun
 from app.services.hostname import apply_observation
+from app.services.hostname_reports import HostnameRun, enabled_peers
+from app.services.ip_autocreate import match_existing
 
 
 class PaloAltoError(UiError, RuntimeError):
@@ -258,29 +260,40 @@ async def detect_api_version(fw: PaloAltoFirewall) -> str:
 
 async def list_vsys(fw: PaloAltoFirewall) -> list[str]:
     """要同步的 vsys：使用者指定優先；否則從設定檔探索；失敗退回 `['vsys1']`。"""
+    return (await list_vsys_ex(fw))[0]
+
+
+async def list_vsys_ex(fw: PaloAltoFirewall) -> tuple[list[str], bool]:
+    """vsys 清單，以及它是不是**權威的**（使用者指定或成功讀到）。
+
+    退回 `['vsys1']` 時只看得到 vsys1：拿它當完整清單去清 NAT，會把其他 vsys 的 NAT 全刪
+    （2026-09-26 稽核），所以清除只在權威時做。"""
     if fw.vsys_list:
-        return [v for v in fw.vsys_list if v]
+        return [v for v in fw.vsys_list if v], True
     try:
         result = await _xml_get(fw, {
             "type": "config", "action": "get",
             "xpath": "/config/devices/entry/vsys",
         }, timeout=10.0)
     except PaloAltoError:
-        return ["vsys1"]        # 單一 vsys 機型或權限不足
+        return ["vsys1"], False        # 單一 vsys 機型或權限不足
     if result is None:
-        return ["vsys1"]
+        return ["vsys1"], False
     names = [e.get("name") for e in result.iter("entry") if e.get("name")]
-    return names or ["vsys1"]
+    return (names, True) if names else (["vsys1"], False)
 
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
 async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, evidence: str,
     mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
+    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
     permanent: bool = False, seen_at: datetime | None = None,
+    hn_run: HostnameRun | None = None,
 ) -> bool:
     """只標記**既有**的 IP，絕不新建（與其他防火牆整合一致）。
+
+    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清。
 
     `evidence`＝證據契約裡的來源名稱（`arp:paloalto` / `lease:paloalto`），
     逐來源存在 `arp_seen`（見 services/arp_seen.py）。
@@ -288,17 +301,14 @@ async def _stamp_ip_seen(
     ipx = _valid_ip(ip)
     if ipx is None:
         return False
-    stmt = select(IPAddress).where(IPAddress.ip == ipx)
-    if subnet_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
-    # 重疊網段下同一個 IP 會有多筆 → 取一筆，不可以用 scalar_one_or_none（會炸掉整批）
-    ipa = (await session.execute(stmt.limit(1))).scalars().first()
+    # 唯一才算：重疊網段又沒設關聯子網路時不寫（以前任意取一筆，資料掛到別的單位）
+    ipa, _ambiguous = await match_existing(session, ipx, subnet_ids)
     if ipa is None:
         return False
     from app.services import arp_seen as arp_seen_svc
     arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
-    if dhcp:
-        ipa.in_dhcp_lease = True
+    if lease_run is not None:
+        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
     if mac:
         from app.services.arp_evidence import record_firewall_arp
         from app.services.arp_precedence import consider_mac
@@ -306,7 +316,9 @@ async def _stamp_ip_seen(
         # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
         await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
                                   seen_at=seen_at, permanent=permanent)
-    if hostname:
+    if hn_run is not None:
+        hn_run.report(ipa, hostname)
+    elif hostname:
         await apply_observation(session, ip=ipa, source="paloalto", hostname=hostname)
     return True
 
@@ -355,15 +367,22 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PaloAltoFirewall) -> int:
         return 0
     scope_ids = _scope(fw)
     seen = 0
+    hn_run = HostnameRun(session, source="paloalto", origin=f"paloalto:{fw.id}",
+                         peers=await enabled_peers(session, PaloAltoFirewall))
+    lease_run = LeaseRun(session, source_type="paloalto", source_id=fw.id)
     for e in result.iter("entry"):
         ip = (e.findtext("ip") or "").strip()
         mac = (e.findtext("mac") or "").strip()
         host = (e.findtext("hostname") or "").strip() or None
         if await _stamp_ip_seen(
             session, ip, evidence="lease:paloalto", mac=_norm_mac(mac), hostname=host,
-            subnet_ids=scope_ids, dhcp=True,
+            subnet_ids=scope_ids, lease_run=lease_run, hn_run=hn_run,
         ):
             seen += 1
+    # 讀取失敗會往外拋；走到這裡就是完整的租約清單（op 指令涵蓋所有介面）
+    await hn_run.finish(complete=True)
+    # 租約旗標以前從來不清（其他整合至少有設範圍時會清）
+    await lease_run.finish(complete=True)
     return seen
 
 
@@ -462,7 +481,8 @@ async def sync_addresses(session: AsyncSession, fw: PaloAltoFirewall, vsys_list:
     return total
 
 
-async def sync_nat(session: AsyncSession, fw: PaloAltoFirewall, vsys_list: list[str]) -> int:
+async def sync_nat(session: AsyncSession, fw: PaloAltoFirewall, vsys_list: list[str],
+                   *, authoritative: bool = True) -> int:
     """NAT 政策 → 共用的 `nat_translations`（`source_origin = paloalto:<id>`）。
 
     只收**目的地轉換（destination-translation）**：那才是「對外開了什麼」。
@@ -502,8 +522,9 @@ async def sync_nat(session: AsyncSession, fw: PaloAltoFirewall, vsys_list: list[
             if n.id is None:
                 session.add(n)
             total += 1
+    # vsys 清單是退回值（只看得到 vsys1）時不刪：其他 vsys 的 NAT 這一輪根本沒讀
     for ext_id, obj in existing.items():
-        if ext_id not in seen:
+        if authoritative and ext_id not in seen:
             await session.delete(obj)
     return total
 
@@ -564,9 +585,13 @@ async def sync_instance(session: AsyncSession, fw: PaloAltoFirewall) -> dict[str
     if not fw.api_version:
         # 偵測到就記下來，之後不必每輪再問一次
         fw.api_version = await detect_api_version(fw)
-    vsys_list = await list_vsys(fw)
+    vsys_list, vsys_ok = await list_vsys_ex(fw)
     counts: dict[str, Any] = {"vsys": len(vsys_list), "api_version": fw.api_version}
     errors: dict[str, str] = {}
+    if not vsys_ok and not fw.vsys_list:
+        # 單一 vsys 機型本來就讀不到清單 —— 只有在真的有別的 vsys 時才有影響，但我們無從得知，
+        # 所以照常同步、只是不刪 NAT，並講出來（可在整合設定明確指定 vsys）
+        errors["vsys"] = "讀不到 vsys 清單，這一輪不刪除 NAT（可在整合設定明確指定 vsys）"
 
     async def _section(name: str, coro_factory: Any) -> None:
         try:
@@ -585,7 +610,7 @@ async def sync_instance(session: AsyncSession, fw: PaloAltoFirewall) -> dict[str
             from app.services.fw_review import run_sentinel
             await run_sentinel(session, source_type="paloalto", instance=fw)
     if fw.sync_nat:
-        await _section("nat", lambda: sync_nat(session, fw, vsys_list))
+        await _section("nat", lambda: sync_nat(session, fw, vsys_list, authoritative=vsys_ok))
     if fw.sync_addresses:
         await _section("addresses", lambda: sync_addresses(session, fw, vsys_list))
 

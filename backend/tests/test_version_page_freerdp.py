@@ -40,3 +40,18 @@ async def test_tool_list_matches_what_the_engine_actually_needs(client, auth_hea
     tools = r.json()["host"]["optional_tools"]
     for exe, pkg in required_binaries().items():
         assert tools[exe]["package"] == pkg, f"{exe} 的套件名與引擎那邊不一致"
+
+
+async def test_guacd_is_listed_as_required_and_aardwolf_as_optional(client, auth_headers, monkeypatch):
+    """guacd 是必要元件、aardwolf 改為選用（2026-09-27，GitHub issue #42）：版本頁要列得出來、看得出有沒有在跑。"""
+    async def fake_probe(*, use_cache: bool = True):
+        return {"ok": False, "address": "127.0.0.1:4822", "protocols": {}, "error": "connection refused"}
+    monkeypatch.setattr("app.services.guacd.probe", fake_probe)
+    r = await client.get("/api/v1/system/version", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    host = r.json()["host"]
+    g = host["required_tools"]["guacd"]
+    assert g["running"] is False
+    assert "RDP / VNC" in g["used_by"]
+    assert "aardwolf" in host["optional_tools"]
+    assert "aardwolf" not in host["required_tools"]

@@ -19,20 +19,21 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, func, select
-from sqlalchemy import update as sa_update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError
-from app.models.address import IPAddress
 from app.models.fortigate import (
     FortiGateAddressObject,
     FortiGateFirewall,
     FortiGatePolicy,
 )
+from app.services.dhcp_leases import LeaseRun
 from app.services.hostname import apply_observation
+from app.services.hostname_reports import HostnameRun, enabled_peers
+from app.services.ip_autocreate import match_existing
 
 # FortiOS v2 API：monitor=即時狀態、cmdb=設定物件
 EP_VDOMS = "/api/v2/cmdb/system/vdom"
@@ -264,7 +265,15 @@ async def detect_vdom_mode(fw: FortiGateFirewall) -> str | None:
 
 
 async def list_vdoms(fw: FortiGateFirewall) -> list[str]:
-    """要同步的 VDOM 清單。
+    return (await list_vdoms_ex(fw))[0]
+
+
+async def list_vdoms_ex(fw: FortiGateFirewall) -> tuple[list[str], bool]:
+    """要同步的 VDOM 清單，以及這份清單是不是**權威的**。
+
+    權威＝使用者指定、裝置明講沒開 VDOM、或成功列出來。讀不到清單而退回「不指定範圍」時
+    只看得到管理 VDOM —— 拿它當完整清單去清資料，會把其他 VDOM 的租約、名稱、政策全部
+    清掉（2026-09-26 稽核）。所以清除類的動作只在權威時做。
 
     順序：使用者指定 → 問裝置的 `vdom-mode` → 列 `system/vdom` → 都問不到就**不指定範圍**。
 
@@ -275,26 +284,28 @@ async def list_vdoms(fw: FortiGateFirewall) -> list[str]:
     一個參數。不知道就不要指定 —— FortiOS 自己會用管理 VDOM，那正是我們要的。
     """
     if fw.vdoms:
-        return [v for v in fw.vdoms if v]
+        return [v for v in fw.vdoms if v], True
     mode = await detect_vdom_mode(fw)
     if mode == "no-vdom":
-        return [NO_VDOM]           # 裝置明講沒開 VDOM → 一支都不要帶
+        return [NO_VDOM], True     # 裝置明講沒開 VDOM → 一支都不要帶
     try:
         rows = _rows(await _api_get(fw, EP_VDOMS, timeout=10.0))
     except FortiGateError:
-        return [NO_VDOM]           # 讀不到清單就不要猜名字
+        return [NO_VDOM], False    # 讀不到清單就不要猜名字（也不能當完整清單）
     names = [str(r.get("name")) for r in rows if r.get("name")]
-    return names or [NO_VDOM]
+    return (names, True) if names else ([NO_VDOM], False)
 
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
 async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, evidence: str,
     mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    seen_at: datetime | None = None,
+    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
+    seen_at: datetime | None = None, hn_run: HostnameRun | None = None,
 ) -> bool:
     """只標記「既有」IP，絕不新建（與 OPNsense / pfSense 行為一致）。
+
+    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清。
 
     `evidence`＝證據契約裡的來源名稱（`arp:fortigate` / `lease:fortigate` /
     `vpn:fortigate`），逐來源存在 `arp_seen`（見 services/arp_seen.py）。
@@ -302,16 +313,14 @@ async def _stamp_ip_seen(
     ipx = _valid_ip(ip)
     if ipx is None:
         return False
-    stmt = select(IPAddress).where(IPAddress.ip == ipx)
-    if subnet_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
-    ipa = (await session.execute(stmt.limit(1))).scalars().first()   # 重疊網段：取一筆
+    # 唯一才算：重疊網段又沒設關聯子網路時不寫（以前任意取一筆，資料掛到別的單位）
+    ipa, _ambiguous = await match_existing(session, ipx, subnet_ids)
     if ipa is None:
         return False
     from app.services import arp_seen as arp_seen_svc
     arp_seen_svc.stamp(ipa, evidence, seen_at)
-    if dhcp:
-        ipa.in_dhcp_lease = True
+    if lease_run is not None:
+        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
     if mac:
         from app.services.arp_evidence import record_firewall_arp
         from app.services.arp_precedence import consider_mac
@@ -319,7 +328,9 @@ async def _stamp_ip_seen(
         # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
         await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
                                   seen_at=seen_at)
-    if hostname:
+    if hn_run is not None:
+        hn_run.report(ipa, hostname)
+    elif hostname:
         await apply_observation(session, ip=ipa, source="fortigate", hostname=hostname)
     return True
 
@@ -329,30 +340,48 @@ def _scope(fw: FortiGateFirewall) -> list[uuid.UUID] | None:
 
 
 # ─────────────────── 各項同步 ───────────────────
-async def sync_dhcp_leases(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
+async def _fetch_all_vdoms(fw: FortiGateFirewall, path: str, vdoms: list[str]) -> dict[str, list[Any]]:
+    """每個 VDOM 各讀一次；**任何一個失敗就往外拋**（區段失敗、既有資料保留）。
+
+    以前逐 VDOM `continue`／當成空清單，接著照樣把整份快照取代：連不上或權限不足時政策、NAT、
+    位址物件、發放範圍、固定分配全部被清空，同步卻顯示成功；政策清空還會讓規則異動偵測發出
+    「全部移除」的假告警（2026-09-26 稽核）。FortiOS 對「這個 VDOM 沒開 DHCP」回的是空清單、
+    不是錯誤，所以錯誤＝真的沒讀到。
+    """
+    out: dict[str, list[Any]] = {}
+    failed: list[str] = []
+    for vdom in vdoms:
+        try:
+            out[vdom] = _rows(await _api_get(fw, path, vdom=vdom))
+        except FortiGateError as exc:
+            failed.append(f"{vdom_label(vdom) or '-'}: {str(exc)[:120]}")
+    if failed:
+        raise FortiGateError(f"{path} 讀取失敗，保留既有資料：" + "；".join(failed))
+    return out
+
+
+async def sync_dhcp_leases(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str],
+                           *, vdoms_authoritative: bool = True) -> int:
     scope_ids = _scope(fw)
     seen = 0
-    leased: set[str] = set()
+    hn_run = HostnameRun(session, source="fortigate", origin=f"fortigate:{fw.id}",
+                         peers=await enabled_peers(session, FortiGateFirewall))
+    lease_run = LeaseRun(session, source_type="fortigate", source_id=fw.id)
     for vdom in vdoms:
         for d in _rows(await _api_get(fw, EP_DHCP_LEASES, vdom=vdom)):
             ip = _valid_ip(_first(d, "ip", "ip_address", "address"))
             if not ip:
                 continue
-            leased.add(ip)
             if await _stamp_ip_seen(
                 session, ip, evidence="lease:fortigate",
                 mac=_norm_mac(_first(d, "mac", "mac_address")),
                 hostname=(_first(d, "hostname", "host") or None),
-                subnet_ids=scope_ids, dhcp=True,
+                subnet_ids=scope_ids, lease_run=lease_run, hn_run=hn_run,
             ):
                 seen += 1
-    # 撤銷：只在有設 scope 時做，避免多來源在全域互相清掉標記
-    if scope_ids:
-        stmt = sa_update(IPAddress).where(
-            IPAddress.subnet_id.in_(scope_ids), IPAddress.in_dhcp_lease.is_(True))
-        if leased:
-            stmt = stmt.where(func.host(IPAddress.ip).notin_(leased))
-        await session.execute(stmt.values(in_dhcp_lease=False))
+    # 任何一個 VDOM 讀取失敗會往外拋（區段失敗）；VDOM 清單不是權威的就不算完整
+    await hn_run.finish(complete=vdoms_authoritative)
+    await lease_run.finish(complete=vdoms_authoritative)
     return seen
 
 
@@ -362,11 +391,9 @@ async def sync_dhcp_ranges(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
 
     now = datetime.now(UTC)
     parsed: list[tuple[str | None, str, str]] = []
+    by_vdom = await _fetch_all_vdoms(fw, EP_DHCP_SERVERS, vdoms)
     for vdom in vdoms:
-        try:
-            rows = _rows(await _api_get(fw, EP_DHCP_SERVERS, vdom=vdom))
-        except FortiGateError:
-            continue        # 該 VDOM 沒開 DHCP / 無權限 → 略過，不影響其他
+        rows = by_vdom[vdom]
         for d in rows:
             if str(d.get("status") or "enable").lower() == "disable":
                 continue
@@ -400,11 +427,9 @@ async def sync_dhcp_reservations(
     from app.services.dhcp_reservations import Reservation, replace_reservations
 
     rows: list[Reservation] = []
+    by_vdom = await _fetch_all_vdoms(fw, EP_DHCP_SERVERS, vdoms)
     for vdom in vdoms:
-        try:
-            servers = _rows(await _api_get(fw, EP_DHCP_SERVERS, vdom=vdom))
-        except FortiGateError:
-            continue        # 該 VDOM 沒開 DHCP → 略過，不影響其他
+        servers = by_vdom[vdom]
         for d in servers:
             for r in (d.get("reserved-address") or d.get("reserved_address") or []):
                 if not isinstance(r, dict):
@@ -443,7 +468,7 @@ async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
 
 
 async def sync_vpn(
-    session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str],
+    session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str], *, authoritative: bool = True,
 ) -> dict[str, Any]:
     """IPsec 站對站 → 共用 vpn_tunnels；SSL-VPN 連線 → 只 stamp 配發到的 IP。
 
@@ -455,15 +480,18 @@ async def sync_vpn(
 
     scope_ids = _scope(fw)
     prefix = f"{fw.name}/ipsec/"
+    origin = f"fortigate:{fw.id}"
     seen_names: set[str] = set()
     tunnels = 0
     ipsec_ok = False
+    ipsec_failed = False
     for vdom in vdoms:
         try:
             rows = _rows(await _api_get(fw, EP_VPN_IPSEC, vdom=vdom))
             ipsec_ok = True
         except FortiGateError:
             rows = []
+            ipsec_failed = True
         for d in rows:
             label = _first(d, "name", "p1name", "tunnel")
             if not label:
@@ -483,18 +511,22 @@ async def sync_vpn(
             if existing is None:
                 existing = VPNTunnel(name=name, type="ipsec_ikev2")
                 session.add(existing)
+            existing.source_origin = origin
             existing.status = "active" if up else "offline"
             # 對端位址是 rgwy（remote_gateway 不是 FortiOS 的欄位名）
             existing.b_endpoint = str(d.get("rgwy") or "")[:255] or None
             existing.pairing_method = "ipsec_endpoint"
             tunnels += 1
-    # 清掉這台先前建立、這次沒看到的隧道（只動自己的命名首碼）
-    stale = (await session.execute(
-        select(VPNTunnel).where(VPNTunnel.name.like(f"{prefix}%"))
-    )).scalars().all()
-    for t in stale:
-        if t.name not in seen_names:
-            await session.delete(t)
+    # 清掉這台先前建立、這次沒看到的隧道 —— 只在每個 VDOM 都讀到、而且 VDOM 清單是權威的時候。
+    # 以前算了 ipsec_ok 卻沒拿來擋：任何 VDOM 讀取失敗就清空。歸屬看 source_origin 而不是名稱前綴：
+    # 防火牆改名後，舊名字的通道也是這台的（以前會變成孤兒）
+    if not ipsec_failed and authoritative:
+        stale = (await session.execute(
+            select(VPNTunnel).where(VPNTunnel.source_origin == origin)
+        )).scalars().all()
+        for t in stale:
+            if t.name not in seen_names:
+                await session.delete(t)
 
     sessions = 0
     ssl_ok = False
@@ -532,14 +564,12 @@ async def sync_vpn(
 async def sync_policies(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
     """防火牆政策 → fortigate_policies（鏡像取代此防火牆的列）。"""
     now = datetime.now(UTC)
+    by_vdom = await _fetch_all_vdoms(fw, EP_POLICY, vdoms)   # 全部讀到才取代
     await session.execute(delete(FortiGatePolicy).where(FortiGatePolicy.firewall_id == fw.id))
     n = 0
     seen: set[tuple[str, str]] = set()
     for vdom in vdoms:
-        try:
-            rows = _rows(await _api_get(fw, EP_POLICY, vdom=vdom))
-        except FortiGateError:
-            continue
+        rows = by_vdom[vdom]
         for d in rows:
             pid = _first(d, "policyid", "id", "q_origin_key")
             if pid is None:
@@ -573,15 +603,14 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
     from app.models.nat import NATTranslation
 
     origin = f"fortigate:{fw.id}"
+    vips_by = await _fetch_all_vdoms(fw, EP_VIP, vdoms)       # 全部讀到才取代
+    pools_by = await _fetch_all_vdoms(fw, EP_IPPOOL, vdoms)
     await session.execute(delete(NATTranslation).where(NATTranslation.source_origin == origin))
     scope_ids = _scope(fw)
     n = 0
     for vdom in vdoms:
         # VIP → port_forward / one_to_one
-        try:
-            vips = _rows(await _api_get(fw, EP_VIP, vdom=vdom))
-        except FortiGateError:
-            vips = []
+        vips = vips_by[vdom]
         for d in vips:
             name = d.get("name")
             if not name:
@@ -595,10 +624,8 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             target_ip = _valid_ip(mapped_val)
             dst_ip_id = None
             if target_ip:
-                stmt = select(IPAddress.id).where(IPAddress.ip == target_ip)
-                if scope_ids:
-                    stmt = stmt.where(IPAddress.subnet_id.in_(scope_ids))
-                dst_ip_id = (await session.execute(stmt.limit(1))).scalars().first()
+                hit, _amb = await match_existing(session, target_ip, scope_ids)   # 唯一才連
+                dst_ip_id = hit.id if hit is not None else None
             is_pf = str(d.get("portforward") or "").lower() in ("enable", "true", "1")
             session.add(NATTranslation(
                 name=str(name)[:200],
@@ -614,10 +641,7 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             ))
             n += 1
         # IP pool → many_to_one（SNAT）
-        try:
-            pools = _rows(await _api_get(fw, EP_IPPOOL, vdom=vdom))
-        except FortiGateError:
-            pools = []
+        pools = pools_by[vdom]
         for d in pools:
             name = d.get("name")
             if not name:
@@ -638,15 +662,14 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
 async def sync_addresses(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
     """位址物件 + 位址群組 → fortigate_address_objects（鏡像取代）。"""
     now = datetime.now(UTC)
+    addrs_by = await _fetch_all_vdoms(fw, EP_ADDRESS, vdoms)     # 全部讀到才取代
+    grps_by = await _fetch_all_vdoms(fw, EP_ADDRGRP, vdoms)
     await session.execute(
         delete(FortiGateAddressObject).where(FortiGateAddressObject.firewall_id == fw.id))
     n = 0
     seen: set[tuple[str, str, str]] = set()
     for vdom in vdoms:
-        try:
-            addrs = _rows(await _api_get(fw, EP_ADDRESS, vdom=vdom))
-        except FortiGateError:
-            addrs = []
+        addrs = addrs_by[vdom]
         for d in addrs:
             name = d.get("name")
             if not name or (vdom, str(name), "address") in seen:
@@ -666,10 +689,7 @@ async def sync_addresses(session: AsyncSession, fw: FortiGateFirewall, vdoms: li
                 last_sync_at=now,
             ))
             n += 1
-        try:
-            grps = _rows(await _api_get(fw, EP_ADDRGRP, vdom=vdom))
-        except FortiGateError:
-            grps = []
+        grps = grps_by[vdom]
         for d in grps:
             name = d.get("name")
             if not name or (vdom, str(name), "group") in seen:
@@ -742,9 +762,12 @@ async def sync_instance(session: AsyncSession, fw: FortiGateFirewall) -> dict[st
     不存在、或 API 管理員讀不到）。若不隔離，DHCP 租約一掛就會讓 ARP／政策／位址
     物件全部不同步，而畫面上只看得到一行錯誤 —— 看起來像整台壞掉。
     """
-    vdoms = await list_vdoms(fw)
+    vdoms, vdoms_ok = await list_vdoms_ex(fw)
     counts: dict[str, Any] = {"vdoms": len(vdoms)}
     errors: dict[str, str] = {}
+    if not vdoms_ok:
+        # 看得到的只有管理 VDOM：照常同步看得到的部分，但不清任何東西，並講出來
+        errors["vdoms"] = "讀不到 VDOM 清單，這一輪只同步看得到的部分、不清除任何資料（可在整合設定明確指定 VDOM）"
 
     async def _section(name: str, coro_factory: Any) -> None:
         try:
@@ -757,22 +780,25 @@ async def sync_instance(session: AsyncSession, fw: FortiGateFirewall) -> dict[st
             errors[name] = str(exc)[:200]
 
     if fw.sync_dhcp:
-        await _section("dhcp", lambda: sync_dhcp_leases(session, fw, vdoms))
-    if fw.sync_dhcp_ranges:
+        await _section("dhcp", lambda: sync_dhcp_leases(session, fw, vdoms,
+                                                        vdoms_authoritative=vdoms_ok))
+    # 發放範圍／固定分配／政策／NAT／位址物件是「整份取代」：VDOM 清單不是權威的時候
+    # 只看得到管理 VDOM，取代下去會把其他 VDOM 的資料清掉 → 這一輪不動（見上方 errors["vdoms"]）
+    if fw.sync_dhcp_ranges and vdoms_ok:
         await _section("dhcp_ranges", lambda: sync_dhcp_ranges(session, fw, vdoms))
         await _section("dhcp_reservations", lambda: sync_dhcp_reservations(session, fw, vdoms))
     if fw.sync_arp:
         await _section("arp", lambda: sync_arp(session, fw, vdoms))
     if fw.sync_vpn:
-        await _section("vpn", lambda: sync_vpn(session, fw, vdoms))
-    if fw.sync_policies:
+        await _section("vpn", lambda: sync_vpn(session, fw, vdoms, authoritative=vdoms_ok))
+    if fw.sync_policies and vdoms_ok:
         await _section("policies", lambda: sync_policies(session, fw, vdoms))
         if "policies" not in errors:
             from app.services.fw_review import run_sentinel
             await run_sentinel(session, source_type="fortigate", instance=fw)
-    if fw.sync_nat:
+    if fw.sync_nat and vdoms_ok:
         await _section("nat", lambda: sync_nat(session, fw, vdoms))
-    if fw.sync_addresses:
+    if fw.sync_addresses and vdoms_ok:
         await _section("addresses", lambda: sync_addresses(session, fw, vdoms))
 
     fw.last_sync_at = datetime.now(UTC)

@@ -62,13 +62,19 @@ async def _candidates(session: AsyncSession, ip: Any) -> dict[str, str]:
             out["librenms"] = f"{dev.os}{' ' + ver if ver else ''}"
     # Wazuh 代理以 IP 對映
     from app.models.wazuh import WazuhAgent
-    wa = (await session.execute(
-        select(WazuhAgent).where(WazuhAgent.ip == str(ip.ip)).limit(1)
-    )).scalars().first()
-    # 只比對 IP 不夠：DHCP 位址會被回收，失聯 agent 的舊登記會把別台機器的 OS 貼過來
     from app.services.wazuh import agent_represents_ip
-    if wa is not None and not agent_represents_ip(wa, ip):
-        wa = None
+
+    # 只比對 IP 不夠：DHCP 位址會被回收，失聯 agent 的舊登記會把別台機器的 OS 貼過來。
+    # 同一個 IP 可能有好幾個 agent（舊的失聯、新的連著）：以前 .limit(1) 任意取一個，
+    # 取到舊的就被判不代表 → 連著的那個反而沒用上。改成在「還代表這個 IP」的裡面挑，
+    # 連著的優先、再來是最近回報的
+    agents = [a for a in (await session.execute(
+        select(WazuhAgent).where(WazuhAgent.ip == str(ip.ip)).limit(20)
+    )).scalars().all() if agent_represents_ip(a, ip)]
+    agents.sort(key=lambda a: ((a.status or "").lower() == "active",
+                               a.last_keep_alive.timestamp() if a.last_keep_alive else 0.0),
+                reverse=True)
+    wa = agents[0] if agents else None
     if wa is not None and wa.os_platform:
         ver = wa.os_version
         out["wazuh"] = f"{wa.os_platform}{' ' + ver if ver else ''}"

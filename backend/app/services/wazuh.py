@@ -279,6 +279,12 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
     # 重疊網段：若 instance 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
     scope_ids = _scope_subnet_uuids(inst)
     ip_map, ambiguous = await build_ip_map(session, scope_ids=scope_ids)
+    from types import SimpleNamespace
+
+    from app.models.wazuh import WazuhInstance as _Inst
+    from app.services.hostname_reports import HostnameRun, enabled_peers
+    hn_run = HostnameRun(session, source="wazuh", origin=f"wazuh:{inst.id}",
+                         peers=await enabled_peers(session, _Inst))
 
     for raw in agents_raw:
         agent_id = str(raw.get("id") or "").strip()
@@ -315,17 +321,14 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
                     or ipa_live.last_seen_wazuh < keep_alive
                 ):
                     ipa_live.last_seen_wazuh = keep_alive
-            # 回填 IP 主機名稱（來源 "wazuh"，依名稱順序決定是否採用）
-            agent_name = (raw.get("name") or "").strip()
-            if agent_name:
-                from app.services.hostname import apply_observation
-                ipa = await session.get(IPAddress, addr_id)
-                if ipa is not None:
-                    # 多個代理可能登記同一個 IP（DHCP 位址被回收再配給別台，舊代理的登記沒清）
-                    # → 用 tiebreak 穩定收斂到同一個名字；否則每輪同步兩個代理互相覆寫，
-                    # 一天可以洗出好幾百筆 hostname_changed（實機：單一 IP 十天內翻 620 次）
-                    await apply_observation(session, ip=ipa, source="wazuh",
-                                            hostname=agent_name, tiebreak_min=True)
+            # 回填 IP 主機名稱（來源 "wazuh"，依名稱順序決定是否採用）。
+            # 只採用「現在還代表這個 IP」的代理（與 OS 同一條判準）：DHCP 位址被回收再配給
+            # 別台後，舊代理的登記還在 —— 以前照樣寫進去、而且永遠不清（2026-09-26 稽核）。
+            # 多個代理都代表同一個 IP 時，HostnameRun 同一輪內取固定的一個（不再每輪互相覆寫）
+            ipa = await session.get(IPAddress, addr_id)
+            probe = SimpleNamespace(status=raw.get("status"), last_keep_alive=keep_alive)
+            if ipa is not None and agent_represents_ip(probe, ipa):
+                hn_run.report(ipa, (raw.get("name") or "").strip() or None)
 
         if existing is None:
             obj = WazuhAgent(
@@ -364,10 +367,25 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
             existing.jt_ipam_address_id = addr_id
             upd_count += 1
 
+    # 分頁任何一頁失敗都會往外拋 → 走到這裡就是完整的代理清單
+    hn = await hn_run.finish(complete=True)
+
+    # 已從 Wazuh 刪除的代理：鏡像列也刪。以前 seen_ids 收集了卻從來沒用，幽靈代理永遠留著，
+    # 刪除時若是 active，它的 OS 會一直被當成那個 IP 的有效 OS（2026-09-26 稽核）。
+    # 讀到 0 個代理、先前卻有：多半是權限或 API 出問題，不刪。
+    removed = 0
+    if seen_ids:
+        stale = (await session.execute(select(WazuhAgent).where(
+            WazuhAgent.instance_id == inst.id, WazuhAgent.agent_id.notin_(seen_ids)))).scalars().all()
+        for row in stale:
+            await session.delete(row)
+        removed = len(stale)
+
     inst.last_sync_at = now
-    inst.last_error = None
+    inst.last_error = (f"hostname cleanup skipped: {hn['breaker']}" if hn["breaker"] else None)
 
     return {
+        "removed": removed,
         "fetched": len(agents_raw),
         "new": new_count,
         "updated": upd_count,

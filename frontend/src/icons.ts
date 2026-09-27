@@ -105,10 +105,13 @@ import {
   ArrowUp,
   HelpCircle,
   PasteClipboard,
+  Menu,
 } from "@iconoir/vue";
 
 // ── 通用 ──
 export const PlusIcon = Plus;
+/** 手機版左上角：打開側欄選單 */
+export const MenuIcon = Menu;
 export const CloneIcon = Copy;
 export const ArchiveIcon = Archive;
 export const RestoreIcon = Undo;

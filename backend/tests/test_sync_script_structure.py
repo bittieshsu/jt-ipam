@@ -35,6 +35,8 @@ BLOCK_MARKERS = [
     "prune_stale_fdb",           # FDB 過期清除
     "check_integration_health",  # 健康告警（整合／代理／系統）
     "check_jump_host_keys",      # 容量與資安告警（DHCP／跳板金鑰／憑證來源）
+    "recompute_effective_status",  # 上線判定：每輪一次、不依附 LibreNMS（2026-09-26 稽核）
+    "sync_auto_dhcp_ranges",       # 偵測到的 DHCP 發放範圍 → 位址範圍（集區）（2026-09-27）
 ]
 
 

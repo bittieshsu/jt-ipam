@@ -122,6 +122,13 @@ async def delete_instance(
         object_type="esxi_instance", object_id=str(inst.id), action="delete",
         diff={"name": inst.name}, request_id=getattr(request.state, "request_id", None),
     )
+    # VM 鏡像一併刪掉（網卡列 CASCADE）：以前留著、而且再也不會有同步去更新（2026-09-26 稽核）。
+    # 叢集本身留著 —— 上面可能有使用者設的地點／客戶
+    if inst.cluster_id is not None:
+        from sqlalchemy import delete as _delete
+
+        from app.models.virt import VirtualMachine
+        await session.execute(_delete(VirtualMachine).where(VirtualMachine.cluster_id == inst.cluster_id))
     await session.delete(inst)
     await session.commit()
 

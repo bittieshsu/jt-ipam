@@ -231,7 +231,12 @@ export interface VersionInfo {
     node: string | null;
     postgres: string | null;
     /** 選用的作業系統相依：功能存在但主機不一定裝了對應執行檔 */
-    optional_tools?: Record<string, { present: boolean; package: string; used_by: string }>;
+    optional_tools?: Record<string, { present: boolean; package: string; used_by: string; fallback?: boolean }>;
+    /** 必要相依（guacd）：沒裝或沒在跑，對應功能就不能正常運作 */
+    required_tools?: Record<string, {
+      present: boolean; running: boolean; version: string | null; package: string; used_by: string;
+      protocols?: Record<string, boolean>; address?: string; error?: string;
+    }>;
   };
 }
 
@@ -275,10 +280,19 @@ export interface ConsoleSecurity {
   guacd_address?: string;
   guacd_error?: string;
   guacd_install_cmd?: string;
+  /** SFTP 單檔上下傳上限（MB），預設 100 */
+  sftp_max_file_mb?: number;
 }
 /** PUT 只送得改的欄位；可用性是伺服器算出來的事實，送回去會被擋（422）。 */
 export type ConsoleSecurityPatch = Pick<ConsoleSecurity, "rdp_clipboard_paste" | "rdp_engine">
-  & Partial<Pick<ConsoleSecurity, "vnc_engine" | "ssh_engine">>;
+  & Partial<Pick<ConsoleSecurity, "vnc_engine" | "ssh_engine" | "sftp_max_file_mb">>;
+
+/** SFTP 傳輸路徑測試的票證（管理者限定）；ws_path 刻意跟 SFTP 是同一條路徑 */
+export interface SftpProbeTicket { ticket: string; ws_path: string; up_bytes: number; down_bytes: number; ttl: number }
+export async function requestSftpProbeTicket(): Promise<SftpProbeTicket> {
+  const { data } = await apiClient.post<SftpProbeTicket>("/api/v1/system/sftp-probe/ticket");
+  return data;
+}
 export async function getConsoleSecurity(): Promise<ConsoleSecurity> {
   const { data } = await apiClient.get<ConsoleSecurity>("/api/v1/system/console-security");
   return data;

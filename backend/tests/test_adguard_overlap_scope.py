@@ -2,6 +2,8 @@
 
 對應修補：adguard.py 的 sync_clients / sync_rewrites 把 IPAddress.ip 比對改
 .limit(1).scalars().first()（地雷 #7：同 IP 多筆會炸掉整批 sync）。
+2026-09-26 起改用 ip_autocreate.match_existing：多筆＝不明確、**不猜**（以前任意取一筆，
+名稱會掛到別的單位名下）→ 不炸、也不寫進任何一筆。
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ async def test_sync_clients_overlap_no_crash(db_session, monkeypatch):
     inst = _instance()
     # 修補前這裡會 raise MultipleResultsFound
     res = await adguard_svc.sync_clients(db_session, inst)
-    assert res["ips_matched"] >= 1
+    assert res["ips_matched"] == 0, "兩個單位都有這個 IP、又沒設範圍 → 不猜是誰的"
 
 
 async def test_sync_rewrites_overlap_no_crash(db_session, monkeypatch):
@@ -58,4 +60,4 @@ async def test_sync_rewrites_overlap_no_crash(db_session, monkeypatch):
     monkeypatch.setattr(adguard_svc, "_api_get", fake_api_get)
     inst = _instance()
     res = await adguard_svc.sync_rewrites(db_session, inst)
-    assert res["rewrites_matched"] >= 1
+    assert res["rewrites_matched"] == 0, "兩個單位都有這個 IP、又沒設範圍 → 不猜是誰的"

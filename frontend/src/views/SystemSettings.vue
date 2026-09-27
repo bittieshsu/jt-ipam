@@ -17,7 +17,7 @@ import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
   getSamlConfig, putSamlConfig, testSaml, type SamlConfig,
   getConsoleSecurity, setConsoleSecurity, type RdpEngine, type ConsoleEngine,
-  type ConsoleSecurity, type ConsoleSecurityPatch,
+  type ConsoleSecurity, type ConsoleSecurityPatch, requestSftpProbeTicket,
   getUiDisplay, setUiDisplay,
   getDevicePortFilter, setDevicePortFilter } from "@/api/system";
 import { listGroups } from "@/api/admin";
@@ -26,6 +26,7 @@ import { getAutolink, putAutolink, previewAutolink,
 import { listSubnets } from "@/api/subnets";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { apiErrMsg } from "@/api/client";
+import { runSftpProbe, fmtRate, roughDuration, type ProbeResult } from "@/utils/sftpProbe";
 import {
   getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign,
   getOnlineGrace, setOnlineGrace,
@@ -42,29 +43,36 @@ const msg = useMessage();
 // 連線管理資安：RDP 控制端貼上文字到被控端（預設關閉）＋ RDP 連線引擎
 // 兩個欄位共用同一個端點，所以每次都要把另一個一起送回去，否則會把它蓋成預設值
 const rdpClipPaste = ref(false);
-const rdpEngine = ref<RdpEngine>("aardwolf");
+// RDP／VNC 的預設是 guacd（2026-09-27）；載入前先顯示預設值
+const rdpEngine = ref<RdpEngine>("guacd");
 // 這台機器能不能用 FreeRDP（後端算好的事實）。缺套件時要把安裝指令原樣顯示出來，
 // 讓管理者可以直接複製 —— 不要只說「不可用」。
 const freerdpOk = ref(true);
 const freerdpMissing = ref<string[]>([]);
-/** aardwolf（預設引擎與 VNC 主控台都靠它）有沒有裝起來；裝不起來多半是 Python 太新（issue #39） */
+/** aardwolf（選用的備用引擎：RDP 的 aardwolf、VNC 的內建）有沒有裝起來；裝不起來多半是 Python 太新（issue #39／#42） */
 const aardwolfOk = ref(true);
 const pythonVer = ref("");
 const freerdpCmd = ref("");
 const rdpEngineOpts = computed(() => [
+  { label: t("settings.system.engine_guacd_default"), value: "guacd" },
   { label: t("settings.system.rdp_engine_aardwolf"), value: "aardwolf" },
   { label: t("settings.system.rdp_engine_freerdp"), value: "freerdp" },
-  { label: t("settings.system.engine_guacd"), value: "guacd" },
 ]);
-// VNC／SSH 引擎（2026-09-25 起可以改用 guacd）
-const vncEngine = ref<ConsoleEngine>("builtin");
+// VNC 預設 guacd、SSH 預設內建：「（預設）」標在各自的預設值上，所以兩份選項分開
+const vncEngine = ref<ConsoleEngine>("guacd");
 const sshEngine = ref<ConsoleEngine>("builtin");
-const consoleEngineOpts = computed(() => [
+const vncEngineOpts = computed(() => [
+  { label: t("settings.system.engine_guacd_default"), value: "guacd" },
+  { label: t("settings.system.engine_builtin_plain"), value: "builtin" },
+]);
+const sshEngineOpts = computed(() => [
   { label: t("settings.system.engine_builtin"), value: "builtin" },
   { label: t("settings.system.engine_guacd"), value: "guacd" },
 ]);
 // guacd 服務的狀態（後端實際連一次問出來的）：選了 guacd 卻沒在跑，要用警示色講清楚
 const guacdOk = ref(false);
+// 載入完成前不畫 guacd 狀態：guacd 是 RDP／VNC 的預設，未載入的初始值會先閃一個紅色「連不到 guacd（）」
+const consoleLoaded = ref(false);
 const guacdProtocols = ref<Record<string, boolean>>({});
 const guacdAddress = ref("");
 const guacdError = ref("");
@@ -74,10 +82,76 @@ const guacdUsedBy = computed(() => [
   sshEngine.value === "guacd" ? "ssh" : "",
 ].filter(Boolean));
 const guacdMissingFor = computed(() => guacdUsedBy.value.filter((p) => !guacdProtocols.value[p]));
+// SFTP 單檔上限（MB）與傳輸路徑檢查。上限放大之後，瀏覽器 → 前端反向代理 → IPAM 的 nginx
+// 任何一層吃不下都會讓傳輸失敗，而那些設定讀不到 —— 所以由瀏覽器實際送一次（utils/sftpProbe）。
+const SFTP_MAX_DEFAULT = 100;
+const sftpMaxMb = ref(SFTP_MAX_DEFAULT);
+// 載入完成前留空：否則畫面先顯示預設的 100，這時輸入的值會被晚到的載入結果蓋掉
+const sftpMaxInput = ref<number | null>(null);
+const probe = ref<{ running: boolean; stage?: "up" | "down"; pct?: number; result?: ProbeResult } | null>(null);
+async function checkSftpPath() {
+  if (probe.value?.running) return;
+  probe.value = { running: true };
+  try {
+    const tk = await requestSftpProbeTicket();
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const result = await runSftpProbe({
+      url: `${proto}//${window.location.host}${tk.ws_path}?ticket=${encodeURIComponent(tk.ticket)}`,
+      upBytes: tk.up_bytes, downBytes: tk.down_bytes,
+      onProgress: (stage, done, total) => {
+        if (probe.value) probe.value = { running: true, stage, pct: Math.round((done / total) * 100) };
+      },
+    });
+    probe.value = { running: false, result };
+  } catch (e) {
+    probe.value = { running: false, result: { ok: false, problem: "error", detail: apiErrMsg(e) } };
+  }
+}
+/** 檢查結果要講的話（成功也講：速度與「傳一個上限大小的檔案要多久」） */
+const probeText = computed(() => {
+  const r = probe.value?.result;
+  if (!r) return "";
+  const max = sftpMaxMb.value >= 1024 ? `${(sftpMaxMb.value / 1024).toFixed(1)} GB` : `${sftpMaxMb.value} MB`;
+  const bytes = sftpMaxMb.value * 1024 * 1024;
+  if (r.ok) {
+    return t("settings.system.sftp_probe_ok", {
+      up: fmtRate(r.upBps!), down: fmtRate(r.downBps!), max,
+      upTime: roughDuration(bytes / r.upBps!, t), downTime: roughDuration(bytes / r.downBps!, t),
+    });
+  }
+  const mb = (n?: number) => `${((n ?? 0) / 1024 / 1024).toFixed(1)} MB`;
+  return t(`settings.system.sftp_probe_${r.problem}`, {
+    code: r.closeCode ?? "-", done: mb(r.done), total: mb(r.total), sec: r.stallSec ?? 0,
+    reason: r.detail ?? "",
+  });
+});
+/** 成功但慢到傳一個上限大小的檔案要超過一小時：用警示色，提醒這個上限在這條路上不實際 */
+const probeSlow = computed(() => {
+  const r = probe.value?.result;
+  return !!r?.ok && (sftpMaxMb.value * 1024 * 1024) / Math.min(r.upBps!, r.downBps!) > 3600;
+});
+function commitSftpMax() {
+  if (sftpMaxInput.value === null) return;
+  const v = Math.round(Number(sftpMaxInput.value));
+  if (v === sftpMaxMb.value) return;
+  // 範圍自己檢查、不讓輸入框自動夾到邊界：多打幾個 0 被默默存成 100 GB 比擋下來更糟
+  if (!Number.isFinite(v) || v < 1 || v > 102400) {
+    msg.warning(t("settings.system.sftp_max_mb_range"));
+    sftpMaxInput.value = sftpMaxMb.value;
+    return;
+  }
+  void saveConsole({ sftp_max_file_mb: v }).then(() => {
+    sftpMaxInput.value = sftpMaxMb.value;     // 存檔失敗時回到原本的值
+    // 改了上限就自動檢查一次路徑（使用者要求：前面的吃不下要自動檢查出來並提示）
+    if (sftpMaxMb.value === v && v > SFTP_MAX_DEFAULT) void checkSftpPath();
+  });
+}
 function applyConsole(c: ConsoleSecurity) {
   rdpClipPaste.value = c.rdp_clipboard_paste;
+  sftpMaxMb.value = c.sftp_max_file_mb ?? SFTP_MAX_DEFAULT;
+  sftpMaxInput.value = sftpMaxMb.value;
   rdpEngine.value = c.rdp_engine;
-  vncEngine.value = c.vnc_engine ?? "builtin";
+  vncEngine.value = c.vnc_engine ?? "guacd";
   sshEngine.value = c.ssh_engine ?? "builtin";
   freerdpOk.value = c.freerdp_available ?? true;
   freerdpMissing.value = c.freerdp_missing ?? [];
@@ -85,6 +159,7 @@ function applyConsole(c: ConsoleSecurity) {
   pythonVer.value = c.python_version ?? "";
   freerdpCmd.value = c.freerdp_install_cmd ?? "";
   guacdOk.value = !!c.guacd_available;
+  consoleLoaded.value = true;
   guacdProtocols.value = c.guacd_protocols ?? {};
   guacdAddress.value = c.guacd_address ?? "";
   guacdError.value = c.guacd_error ?? "";
@@ -96,7 +171,8 @@ async function saveConsole(patch: Partial<ConsoleSecurityPatch>) {
   try {
     const c = await setConsoleSecurity({
       rdp_clipboard_paste: rdpClipPaste.value, rdp_engine: rdpEngine.value,
-      vnc_engine: vncEngine.value, ssh_engine: sshEngine.value, ...patch,
+      vnc_engine: vncEngine.value, ssh_engine: sshEngine.value,
+      sftp_max_file_mb: sftpMaxMb.value, ...patch,
     });
     applyConsole(c);
     msg.success(t("common.ok"));
@@ -475,7 +551,11 @@ onMounted(() => {
     portFilterOn.value = d.filter_pseudo;
     portFilterText.value = d.ignore_patterns.join("\n");
   }).catch(() => {});
-  getConsoleSecurity().then(applyConsole).catch(() => {});
+  getConsoleSecurity().then((c) => {
+    applyConsole(c);
+    // 上限放大過就每次開頁面都檢查一次：路徑可能在設定之後才變（換了代理、加了 WAF）
+    if (sftpMaxMb.value > SFTP_MAX_DEFAULT) void checkSftpPath();
+  }).catch(() => {});
   getMapProvider().then((p) => { mapProvider.value = p; }).catch(() => {});
   getRackNameAlign().then((a) => { rackAlign.value = a; }).catch(() => {});
   getOnlineGrace().then((c) => {
@@ -544,8 +624,8 @@ async function doPreviewAutolink() {
             <n-select :value="rdpEngine" :options="rdpEngineOpts" @update:value="changeRdpEngine" />
             <div class="hint">{{ t("settings.system.rdp_engine_hint") }}</div>
             <!-- 缺套件就講清楚缺哪些、怎麼裝；選了 FreeRDP 卻沒裝是會連不上的，要用警示色 -->
-            <!-- aardwolf 裝不起來（Python 太新沒有預編譯套件）：預設引擎用不了，要叫人改用 FreeRDP -->
-            <n-alert v-if="!aardwolfOk" :type="rdpEngine === 'aardwolf' ? 'error' : 'info'"
+            <!-- aardwolf 是選用的備用引擎（2026-09-27 起）：沒裝只在真的選了它時才要講 -->
+            <n-alert v-if="!aardwolfOk && (rdpEngine === 'aardwolf' || vncEngine === 'builtin')" type="error"
                      :bordered="false" style="margin-top:8px">
               {{ t("settings.system.rdp_engine_no_aardwolf", { python: pythonVer }) }}
             </n-alert>
@@ -557,18 +637,46 @@ async function doPreviewAutolink() {
           </div>
           <div class="fld">
             <label>{{ t("settings.system.vnc_engine") }}</label>
-            <n-select :value="vncEngine" :options="consoleEngineOpts" @update:value="changeVncEngine" />
+            <n-select :value="vncEngine" :options="vncEngineOpts" @update:value="changeVncEngine" />
             <div class="hint">{{ t("settings.system.vnc_engine_hint") }}</div>
           </div>
           <div class="fld">
             <label>{{ t("settings.system.ssh_engine") }}</label>
-            <n-select :value="sshEngine" :options="consoleEngineOpts" @update:value="changeSshEngine" />
+            <n-select :value="sshEngine" :options="sshEngineOpts" @update:value="changeSshEngine" />
             <div class="hint">{{ t("settings.system.ssh_engine_hint") }}</div>
+          </div>
+          <div class="fld sftp-max">
+            <label>{{ t("settings.system.sftp_max_mb") }}</label>
+            <n-space :size="8" align="center">
+              <!-- Enter 由外層的 div 接：n-input-number 不會把 keyup 轉出來。
+                   不給 min／max：那會讓元件把超出範圍的值自動夾到邊界後存下去 -->
+              <div @keyup.enter="commitSftpMax">
+                <n-input-number v-model:value="sftpMaxInput" :step="100" :show-button="false"
+                                style="width:180px" @blur="commitSftpMax">
+                  <template #suffix>MB</template>
+                </n-input-number>
+              </div>
+              <n-button size="small" :loading="probe?.running" @click="checkSftpPath">
+                {{ t("settings.system.sftp_probe_run") }}
+              </n-button>
+            </n-space>
+            <div class="hint">{{ t("settings.system.sftp_max_mb_hint") }}</div>
+            <div v-if="probe?.running" class="hint sftp-probe-running">
+              {{ t("settings.system.sftp_probe_running", {
+                stage: probe.stage === "down" ? t("settings.system.sftp_probe_down") : t("settings.system.sftp_probe_up"),
+                pct: probe.pct ?? 0 }) }}
+            </div>
+            <n-alert v-else-if="probe?.result" class="sftp-probe-result" :bordered="false" style="margin-top:8px"
+                     :type="probe.result.ok ? (probeSlow ? 'warning' : 'success') : 'error'">
+              <div>{{ probeText }}</div>
+              <div class="hint" style="margin-top:4px">{{ t("settings.system.sftp_probe_note") }}</div>
+            </n-alert>
           </div>
           <!-- guacd 的實際狀態：選了卻不能用要講清楚原因與怎麼裝；能用就列出支援哪些協定 -->
           <div class="fld guacd-status">
             <label>{{ t("settings.system.guacd_status") }}</label>
-            <n-alert v-if="!guacdOk" :type="guacdUsedBy.length ? 'error' : 'info'" :bordered="false">
+            <n-alert v-if="!consoleLoaded" :show-icon="false" :bordered="false" type="default">…</n-alert>
+            <n-alert v-else-if="!guacdOk" type="error" :bordered="false">
               <div>{{ t("settings.system.guacd_down", { address: guacdAddress, reason: guacdError }) }}</div>
               <code v-if="guacdCmd" class="rdp-install-cmd">{{ guacdCmd }}</code>
             </n-alert>
@@ -1125,8 +1233,11 @@ async function doPreviewAutolink() {
      視窗一窄格線就整片衝出卡片外（實測 820px 視窗下超出 195px）。 */
   /* `width: 100%` 是關鍵：只給 flex 屬性時，格線的寬度仍會由內容決定（欄數 × 最小欄寬），
      視窗一窄就整片衝出卡片外。明確綁定容器寬度之後，欄數才會跟著縮。 */
+  /* `auto-fill` 而不是 `auto-fit`：auto-fit 會把用不到的欄收掉、讓剩下的撐滿，
+     於是 4 項的列是 4 欄、3 項的列變 3 欄（每欄更寬）、2 項變 2 欄，上下對不齊（使用者回報）。
+     auto-fill 保留空欄，每一列的欄數與欄寬都一樣。 */
   flex: 1 1 auto; min-width: 0; width: 100%; display: grid; gap: 8px 14px;
-  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); max-width: 940px;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); max-width: 940px;
 }
 /* 選項本身也要能縮：長標籤（Wazuh 代理 keep-alive）在窄欄位裡要換行而不是撐開格線 */
 .ss-src-item { min-width: 0; }

@@ -39,7 +39,6 @@ const meta = computed(() => {
   const ts = [
     { key: "scanner", at: a.last_seen_scanner },
     { key: "LibreNMS", at: a.last_seen_librenms },
-    { key: "DNS", at: a.last_seen_dns },
     { key: "ARP", at: a.last_seen_arp },
   ].filter((x) => x.at) as { key: string; at: string }[];
   // 只有 ARP 撐著 → 綠燈的可信度與實際探測不同，要標出來（ARP 沒有時間概念）

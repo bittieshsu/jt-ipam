@@ -42,7 +42,7 @@ import {
   DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
-  LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon,
+  LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, MenuIcon,
   renderIcon,
 } from "@/icons";
 import { User as UserOutline } from "@iconoir/vue";
@@ -386,6 +386,8 @@ const userMenuOptions = computed(() => [
 const pwModalShow = ref(false);
 
 function handleMenu(key: string) {
+  // 手機版：點選功能後側欄收回（群組節點只是展開，不收）
+  if (isMobile.value && !key.startsWith("subnetgrp:")) siderCollapsed.value = true;
   if (key === "subnets-all" || key === "subnets") {
     router.push({ name: "subnets" }).catch(() => {});
     return;
@@ -425,6 +427,14 @@ watch(winW, (w, prev) => {
   if (w < NARROW_PX && prev >= NARROW_PX) siderCollapsed.value = true;
   else if (w >= NARROW_PX && prev < NARROW_PX) siderCollapsed.value = false;
 });
+// 手機：側欄不是縮成一排圖示，而是整個收起（寬度 0），左上角的按鈕叫出來、疊在內容上，
+// 點選功能或點旁邊暗掉的地方就收回（使用者要求，2026-09-27）
+const MOBILE_PX = 768;
+const isMobile = computed(() => winW.value < MOBILE_PX);
+watch(isMobile, (m) => { if (m) siderCollapsed.value = true; });
+function onEsc(e: KeyboardEvent) {
+  if (e.key === "Escape" && isMobile.value && !siderCollapsed.value) siderCollapsed.value = true;
+}
 // 選單往上捲時，在固定的 logo 欄下方加陰影，與捲動內容分隔
 const menuScrolled = ref(false);
 let siderScrollEl: HTMLElement | null = null;
@@ -434,6 +444,7 @@ function onSiderScroll() {
 onMounted(() => {
   void loadIntegrationPresence();
   window.addEventListener("resize", onResize);
+  window.addEventListener("keydown", onEsc);
   if (winW.value < NARROW_PX) siderCollapsed.value = true;
   void nextTick(() => {
     siderScrollEl = document.querySelector(".app-sider .n-layout-sider-scroll-container");
@@ -445,6 +456,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
+  window.removeEventListener("keydown", onEsc);
   if (siderScrollEl) siderScrollEl.removeEventListener("scroll", onSiderScroll);
 });
 
@@ -482,17 +494,20 @@ function startDrag(e: MouseEvent) {
 
 <template>
   <n-layout has-sider style="height: 100vh">
+    <!-- 手機：側欄打開時，後面暗掉；點一下收回 -->
+    <div v-if="isMobile && !siderCollapsed" class="sider-mask" @click="siderCollapsed = true" />
     <n-layout-sider
       class="app-sider"
+      :class="{ 'app-sider--mobile': isMobile }"
       bordered
       collapse-mode="width"
-      :collapsed-width="64"
-      :width="siderWidth"
-      show-trigger
+      :collapsed-width="isMobile ? 0 : 64"
+      :width="isMobile ? Math.min(siderWidth, 300) : siderWidth"
+      :show-trigger="!isMobile"
       :collapsed="siderCollapsed"
       @update:collapsed="(v) => { siderCollapsed = v; }"
     >
-      <div v-if="!siderCollapsed" class="sider-resizer" @mousedown="startDrag"></div>
+      <div v-if="!siderCollapsed && !isMobile" class="sider-resizer" @mousedown="startDrag"></div>
       <div class="brand" :class="{ 'brand-collapsed': siderCollapsed, 'brand-scrolled': menuScrolled }">
         <!-- 收折：只顯示方塊 icon；展開：方塊 + jt-ipam wordmark(currentColor 跟主題色) -->
         <svg v-if="siderCollapsed"
@@ -545,7 +560,7 @@ function startDrag(e: MouseEvent) {
         :value="menuValue"
         :expanded-keys="expandedKeys"
         :collapsed="siderCollapsed"
-        :collapsed-width="64"
+        :collapsed-width="isMobile ? 0 : 64"
         :collapsed-icon-size="22"
         :indent="12"
         @update:value="handleMenu"
@@ -555,8 +570,15 @@ function startDrag(e: MouseEvent) {
     <n-layout>
       <n-layout-header bordered class="topbar">
         <n-space align="center" justify="space-between" :wrap="false" style="width: 100%; min-width: 0">
-          <global-search v-if="me" />
-          <span v-else />
+          <n-space align="center" :size="6" :wrap="false" style="min-width: 0">
+            <!-- 手機：側欄整個收起，從這裡叫出來 -->
+            <button v-if="isMobile" type="button" class="topbar-ctl mobile-menu-btn"
+                    :aria-label="t('nav.open_menu')" :title="t('nav.open_menu')"
+                    @click="siderCollapsed = !siderCollapsed">
+              <n-icon :size="22" :component="MenuIcon" />
+            </button>
+            <global-search v-if="me" />
+          </n-space>
           <n-space class="topbar-ctls" align="center" :size="4" :wrap="false">
             <!-- 語言：寬螢幕顯示名稱，窄螢幕只剩 icon -->
             <n-dropdown :options="localeMenuOptions" trigger="click" @select="pickLocale">
@@ -779,5 +801,28 @@ function startDrag(e: MouseEvent) {
   border-top: 1px dashed rgba(150, 150, 150, 0.5);
   pointer-events: none;
   z-index: 1;
+}
+
+/* 手機：側欄疊在內容上（fixed，不佔版面），收起時寬度 0 —— 內容用滿整個螢幕寬 */
+.app-sider--mobile {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  height: 100vh;
+  z-index: 2001;
+}
+.app-sider--mobile.n-layout-sider--collapsed {
+  border-right: none;
+}
+.sider-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+}
+.mobile-menu-btn {
+  flex: none;
+  padding: 4px 6px;
 }
 </style>

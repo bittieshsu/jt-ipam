@@ -34,9 +34,13 @@ class IPRange(Base, UUIDPrimaryKeyMixin, TimestampMixin):
                                          server_default="dhcp")
     name: Mapped[str | None] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text)
+    # 由整合偵測到的 DHCP 發放範圍自動建立：`<來源>:<實例 id>`（與 dhcp_pool_ranges 的來源相同）；
+    # 手動建立的是 NULL。自動的跟著上游走（services/ip_ranges.sync_auto_dhcp_ranges），不能手動改／刪
+    source_origin: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         Index("ix_ip_ranges_subnet_id", "subnet_id"),
+        Index("ix_ip_ranges_source_origin", "source_origin"),
         CheckConstraint("family(start_ip) = family(end_ip)", name="ip_range_same_family"),
         CheckConstraint("start_ip <= end_ip", name="ip_range_ordered"),
         CheckConstraint("purpose IN ('dhcp','reserved','other')", name="ip_range_purpose_valid"),

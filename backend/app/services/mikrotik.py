@@ -35,8 +35,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, func, select
-from sqlalchemy import update as sa_update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import (
@@ -48,9 +47,11 @@ from app.core.safe_http import (
 )
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError, ui_detail
-from app.models.address import IPAddress
 from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
+from app.services.dhcp_leases import LeaseRun
 from app.services.hostname import apply_observation
+from app.services.hostname_reports import HostnameRun, enabled_peers
+from app.services.ip_autocreate import match_existing
 
 # ── RouterOS 選單（REST 路徑＝CLI 路徑）──────────────────────────
 EP_RESOURCE = "/system/resource"
@@ -273,23 +274,23 @@ def _scope(router: MikroTikRouter) -> list[uuid.UUID] | None:
 async def _stamp_ip_seen(
     session: AsyncSession, ip: str, *, evidence: str,
     mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, dhcp: bool = False,
-    seen_at: datetime | None = None,
+    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
+    seen_at: datetime | None = None, hn_run: HostnameRun | None = None,
 ) -> bool:
-    """只標記「既有」IP，絕不新建（與其他防火牆整合一致）。"""
+    """只標記「既有」IP，絕不新建（與其他防火牆整合一致）。
+
+    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清。"""
     ipx = _valid_ip(ip)
     if ipx is None:
         return False
-    stmt = select(IPAddress).where(IPAddress.ip == ipx)
-    if subnet_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
-    ipa = (await session.execute(stmt.limit(1))).scalars().first()   # 重疊網段：取一筆
+    # 唯一才算：重疊網段又沒設關聯子網路時不寫（以前任意取一筆，資料掛到別的單位）
+    ipa, _ambiguous = await match_existing(session, ipx, subnet_ids)
     if ipa is None:
         return False
     from app.services import arp_seen as arp_seen_svc
     arp_seen_svc.stamp(ipa, evidence, seen_at)
-    if dhcp:
-        ipa.in_dhcp_lease = True
+    if lease_run is not None:
+        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
     if mac:
         from app.services.arp_evidence import record_firewall_arp
         from app.services.arp_precedence import consider_mac
@@ -297,7 +298,9 @@ async def _stamp_ip_seen(
         # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
         await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
                                   seen_at=seen_at)
-    if hostname:
+    if hn_run is not None:
+        hn_run.report(ipa, hostname)
+    elif hostname:
         await apply_observation(session, ip=ipa, source="mikrotik", hostname=hostname)
     return True
 
@@ -377,15 +380,16 @@ async def sync_dhcp_leases(
     ))
     scope_ids = _scope(router)
     now = datetime.now(UTC)
-    leased: set[str] = set()
     seen = 0
+    hn_run = HostnameRun(session, source="mikrotik", origin=f"mikrotik:{router.id}",
+                         peers=await enabled_peers(session, MikroTikRouter))
+    lease_run = LeaseRun(session, source_type="mikrotik", source_id=router.id)
     for d in rows:
         if str(d.get("status") or "").strip().lower() != "bound":
             continue    # 同 ARP：舊韌體可能忽略查詢參數
         ip = _valid_ip(d.get("active-address") or d.get("address"))
         if not ip:
             continue
-        leased.add(ip)
         # `last-seen` 是「距離上次看到過了多久」→ 推回時刻；沒有就退回同步當下。
         # 租約本身歸 lease:mikrotik（不會過期、預設不採信為上線），所以這個時間
         # 只用來說明「這筆租約多新」，不會讓一台關機的機器顯示上線。
@@ -395,16 +399,12 @@ async def sync_dhcp_leases(
             session, ip, evidence="lease:mikrotik",
             mac=_norm_mac(d.get("active-mac-address") or d.get("mac-address")),
             hostname=_txt(d.get("host-name"), 255),
-            subnet_ids=scope_ids, dhcp=True, seen_at=seen_at,
+            subnet_ids=scope_ids, lease_run=lease_run, seen_at=seen_at, hn_run=hn_run,
         ):
             seen += 1
-    # 撤銷：只在有設 scope 時做，避免多來源在全域互相清掉標記
-    if scope_ids:
-        stmt = sa_update(IPAddress).where(
-            IPAddress.subnet_id.in_(scope_ids), IPAddress.in_dhcp_lease.is_(True))
-        if leased:
-            stmt = stmt.where(func.host(IPAddress.ip).notin_(leased))
-        await session.execute(stmt.values(in_dhcp_lease=False))
+    # 讀取失敗會往外拋；走到這裡就是完整的（bound）租約清單
+    await hn_run.finish(complete=True)
+    await lease_run.finish(complete=True)
     return {"dhcp": seen, "dhcp_rows": len(rows)}
 
 
@@ -715,6 +715,7 @@ async def sync_vpn(
         peers, out["wireguard_absent"] = [], True
 
     prefix = f"{router.name}/wireguard/"
+    origin = f"mikrotik:{router.id}"
     seen_names: set[str] = set()
     for d in peers:
         label = _txt(d.get("name"), 64) or _txt(d.get("public-key"), 64)
@@ -731,14 +732,22 @@ async def sync_vpn(
             existing = VPNTunnel(name=name)
             session.add(existing)
         existing.type = "wireguard"
-        existing.status = "active" if up else "down"
+        existing.source_origin = origin
+        # 資料表只允許 planned／active／offline／decommissioned：以前寫 "down"，任何一個沒握手的
+        # peer 都會讓整段 VPN 同步在寫入時違反約束而失敗
+        existing.status = "active" if up else "offline"
         existing.a_endpoint = _txt(router.api_url, 255)
         existing.b_endpoint = _txt(d.get("endpoint-address"), 255)
         existing.peer_public_key = _txt(d.get("public-key"), 255)
         existing.description = _txt(d.get("allowed-address"), 255)
-    if seen_names or peers:
-        await session.execute(delete(VPNTunnel).where(
-            VPNTunnel.name.like(f"{prefix}%"), VPNTunnel.name.notin_(seen_names or {""})))
+    # 讀到了（這台有 WireGuard）就清掉這台建立、這次沒看到的 —— 包含最後一個 peer 被刪掉的情況
+    # （以前「一個都沒有」時整段跳過，最後那條永遠清不掉）。歸屬看 source_origin：以前用
+    # LIKE '名稱/wireguard/%'，名稱裡的 _ 是萬用字元、改名後舊通道成了孤兒
+    if not out.get("wireguard_absent"):
+        stale = delete(VPNTunnel).where(VPNTunnel.source_origin == origin)
+        if seen_names:
+            stale = stale.where(VPNTunnel.name.notin_(seen_names))
+        await session.execute(stale)
     out["vpn_tunnels"] = len(seen_names)
     return out
 

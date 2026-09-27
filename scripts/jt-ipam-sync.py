@@ -666,6 +666,30 @@ async def _run() -> int:
             await session.rollback()
             log.error("ip-device autolink failed: %s", exc)
 
+        # ── 偵測到的 DHCP 發放範圍 → 子網路的「位址範圍（集區）」（每輪一次，全站對帳）──
+        # 使用者要求（2026-09-27）：子網路上方寫著 DHCP 發放範圍，下面的集區卻是空的。
+        # 自動建的跟著上游走；手動建的不動；落點不唯一、跟手動的重疊都不建。
+        try:
+            from app.services.ip_ranges import sync_auto_dhcp_ranges
+            res = await sync_auto_dhcp_ranges(session)
+            await session.commit()
+            if res["created"] or res["removed"] or res["updated"]:
+                log.info("auto DHCP pool ranges: %s", res)
+        except Exception as exc:
+            await session.rollback()
+            log.error("auto DHCP pool ranges failed: %s", exc)
+
+        # ── 上線判定（每輪一次，不依附 LibreNMS）──
+        # 以前只在 LibreNMS 同步（而且勾了「用於上線判定」）時重算：沒有 LibreNMS 的站台，
+        # 掃描代理或防火牆標成上線的 IP 永遠不會變回離線（2026-09-26 稽核）。放在異常偵測之前，
+        # 它讀的是這一輪的結果。
+        try:
+            await librenms_svc.recompute_effective_status(session)
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("liveness recompute failed: %s", exc)
+
         # ── 異常偵測（排程）──
         # 與 AI 巡檢同樣沿用這個 timer：每輪只判斷「是否已越過設定的時刻」，沒到就跳過。
         # 預設關閉。跑的是同一支 run_detection，差別在通知只發「與上次相比是新的」——

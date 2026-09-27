@@ -9,9 +9,10 @@ import { wsErrorText } from "@/utils/wsError";
  * 版面刻意與 SshTerminal 一致（卡片式連線表單 → 狀態列 + 內容區）：同一套操作在不同
  * 協定間長得不一樣，使用者得重新學一次。
  *
- * 下載採「收完再存檔」：這個功能是給設定檔、憑證、log 片段用的，後端已把單檔上限訂在
- * 100 MB，收在記憶體再落地最單純。真要搬大檔請用 scp/rsync —— 把工具用在它擅長的地方，
- * 比在瀏覽器裡硬做串流落地實在。
+ * 下載：小檔「收完再存檔」最單純。單檔上限在系統設定可以放大（2026-09-26 起，預設 100 MB），
+ * 放到 GB 級之後整個檔案收進記憶體會把分頁撐爆 —— 所以超過 STREAM_OVER 的檔案改成
+ * 「邊收邊寫進磁碟」（File System Access API，Chrome／Edge；會先問存到哪裡）。
+ * 不支援的瀏覽器仍收進記憶體，但超過 MEMORY_MAX 就明講要換瀏覽器或用 scp。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { sortEntries, type SortKey, type SortOrder } from "@/utils/sftpSort";
@@ -98,8 +99,23 @@ let ws: WebSocket | null = null;
  * 於是跳回連線表單並顯示「連線在建立完成前就被關閉（代碼 1005）」—— 明明是使用者
  * 自己按的，卻看起來像連線失敗。 */
 let everConnected = false;
-/** 下載中的檔案：收到 file_begin 後開始累積二進位框，file_end 才落地。 */
-let incoming: { name: string; size: number; chunks: Uint8Array[]; got: number } | null = null;
+/** 下載中的檔案：收到 file_begin 後開始收二進位框，file_end 才落地。
+ *  有 `writer` 時邊收邊寫進磁碟（寫入要照順序，所以串成一條 promise 鏈）；沒有就收進記憶體。 */
+let incoming: {
+  name: string; size: number; got: number; chunks: Uint8Array[];
+  writer: any | null; chain: Promise<void>;
+} | null = null;
+/** download() 先選好存檔位置（要在按鈕的點擊裡問），file_begin 來時接上 */
+let pendingWriter: any | null = null;
+/** 單檔上限（伺服器在 ready 時告訴我們；舊版伺服器沒帶就用原本的 100 MB） */
+const maxFileBytes = ref(100 * 1024 * 1024);
+/** 超過這個大小、而且瀏覽器支援時，下載直接寫進磁碟 */
+const STREAM_OVER = 64 * 1024 * 1024;
+/** 瀏覽器不支援直接寫入磁碟時，收進記憶體的上限（再大就要換瀏覽器或用 scp） */
+const MEMORY_MAX = 2 * 1024 * 1024 * 1024;
+/** 下載進度（大檔要看得出在動） */
+const downloadBytes = ref<{ got: number; total: number; name: string } | null>(null);
+let lastDlPaint = 0;
 /** 等待中的請求，**以請求編號為鍵**。
  *
  *  先前這裡只有一個沒有標記的欄位：伺服器回任何一個 `ok`，都會解掉「當時正在等的那件事」。
@@ -200,8 +216,16 @@ async function connect() {
       if (typeof ev.data !== "string") {
         if (incoming) {
           const u8 = new Uint8Array(ev.data as ArrayBuffer);
-          incoming.chunks.push(u8);
-          incoming.got += u8.byteLength;
+          const cur = incoming;
+          if (cur.writer) cur.chain = cur.chain.then(() => cur.writer.write(u8));
+          else cur.chunks.push(u8);
+          cur.got += u8.byteLength;
+          // 進度不必每一塊都重畫（6 GB 是兩萬多塊），隔一小段時間更新一次就好
+          const now = performance.now();
+          if (now - lastDlPaint > 200 || cur.got >= cur.size) {
+            lastDlPaint = now;
+            downloadBytes.value = { got: cur.got, total: cur.size, name: cur.name };
+          }
         }
         return;
       }
@@ -211,6 +235,7 @@ async function connect() {
           everConnected = true;
           phase.value = "connected";
           viaJump.value = m.via_jump_host || "";
+          if (typeof m.max_file_bytes === "number") maxFileBytes.value = m.max_file_bytes;
           cwd.value = m.cwd || "/";
           void refresh();
           break;
@@ -221,22 +246,34 @@ async function connect() {
             cwd.value = m.path;
             entries.value = m.entries ?? [];
             truncated.value = !!m.truncated;
+            clearCommandError();
           }
           settle(m, "resolve", m);
           break;
         case "file_begin":
-          incoming = { name: m.name, size: m.size, chunks: [], got: 0 };
+          incoming = { name: m.name, size: m.size, chunks: [], got: 0,
+                       writer: pendingWriter, chain: Promise.resolve() };
+          pendingWriter = null;
           break;
         case "file_end": {
-          if (incoming) {
-            const blob = new Blob(incoming.chunks as BlobPart[]);
+          const cur = incoming;
+          incoming = null;
+          if (cur?.writer) {
+            // 等所有寫入完成再關檔 —— 關檔之前檔案只在暫存檔裡，不會出現半截的成品
+            cur.chain.then(() => cur.writer.close())
+              .then(() => { clearCommandError(); settle(m, "resolve", m); })
+              .catch((e: unknown) => settle(m, "reject", e instanceof Error ? e : new Error(String(e))));
+            break;
+          }
+          if (cur) {
+            const blob = new Blob(cur.chunks as BlobPart[]);
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
-            a.download = incoming.name;
+            a.download = cur.name;
             a.click();
             setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-            incoming = null;
           }
+          clearCommandError();
           settle(m, "resolve", m);
           break;
         }
@@ -253,6 +290,7 @@ async function connect() {
           settle(m, "resolve", m);
           break;
         case "ok":
+          clearCommandError();
           settle(m, "resolve", m);
           break;
         case "error": {
@@ -273,6 +311,8 @@ async function connect() {
     };
 
     ws.onclose = (ev) => {
+      // 下載到一半斷線：丟掉暫存檔，不要留下看起來完整、其實只有一半的檔案
+      abortDownloadWriter();
       const wasConnected = everConnected;
       closeCode.value = ev.code || 0;
       phase.value = wasConnected ? "closed" : "error";
@@ -319,11 +359,54 @@ function goUp() {
   void refresh(p.slice(0, p.lastIndexOf("/")) || "/");
 }
 
+/** 指令成功了就清掉上一個指令留下的錯誤。只在已連上時清 —— 連線階段的錯誤要留著給人看。
+ *  少了這個，打錯路徑（找不到 /rmnt）之後改回正確路徑、清單都列出來了，紅框還一直掛著（使用者回報）。 */
+function clearCommandError() {
+  if (phase.value === "connected") errorMsg.value = "";
+}
+
+function abortDownloadWriter() {
+  const w = incoming?.writer ?? pendingWriter;
+  incoming = null;          // 之後還到的殘餘資料塊不可以接到下一次下載上
+  pendingWriter = null;
+  if (w) void Promise.resolve(w.abort?.()).catch(() => {});
+}
+
 async function download(row: SftpEntry) {
+  const size = Number(row.size) || 0;
+  // 超過系統設定的上限：當場就講，不必先等伺服器拒絕
+  if (size > maxFileBytes.value) {
+    msg.error(t("errors.sftp_download_too_large", { max: Math.floor(maxFileBytes.value / 1024 / 1024) }));
+    return;
+  }
+  // 大檔：先問存到哪裡，邊收邊寫。**這一段要在點擊的當下執行**（瀏覽器要求使用者手勢），
+  // 所以放在任何 await 伺服器之前。
+  let writer: any = null;
+  if (size > STREAM_OVER) {
+    const pick = (window as any).showSaveFilePicker;
+    if (typeof pick === "function") {
+      try {
+        const handle = await pick.call(window, { suggestedName: row.name });
+        writer = await handle.createWritable();
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;          // 使用者取消了存檔對話框
+        msg.error(t("sftp.err_save_file", { reason: String(e?.message ?? e) }));
+        return;
+      }
+    } else if (size > MEMORY_MAX) {
+      msg.error(t("sftp.err_big_needs_fs_api", { max: fmtBytes(MEMORY_MAX) }));
+      return;
+    }
+  }
+  pendingWriter = writer;
   busy.value = true;
+  downloadBytes.value = { got: 0, total: size, name: row.name };
   try { await request({ type: "get", path: row.path }); }
-  catch (e: any) { msg.error(wsErrorText(e, String(e))); }
-  finally { busy.value = false; }
+  catch (e: any) {
+    abortDownloadWriter();
+    msg.error(wsErrorText(e, String(e)));
+  }
+  finally { busy.value = false; downloadBytes.value = null; pendingWriter = null; }
 }
 
 const uploadInput = ref<HTMLInputElement | null>(null);
@@ -342,7 +425,8 @@ const uploadBytes = ref<{ sent: number; total: number; name: string } | null>(nu
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 /** 送一個檔案到目前目錄。失敗直接往外拋，由呼叫端決定要不要繼續其他檔案。 */
@@ -1106,6 +1190,13 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         </n-button>
       </n-space>
 
+      <!-- 下載進度：幾 GB 的檔案要看得出在動 -->
+      <div v-if="downloadBytes && phase === 'connected'" class="sftp-upload-note sftp-download-note">
+        {{ t("sftp.download_bytes", {
+          name: downloadBytes.name,
+          got: fmtBytes(downloadBytes.got), total: fmtBytes(downloadBytes.total),
+          pct: Math.floor((downloadBytes.got / Math.max(1, downloadBytes.total)) * 100) }) }}
+      </div>
       <!-- 多檔上傳時講出進度：不然畫面只是卡著，不知道還有幾個 -->
       <div v-if="uploadBytes && phase === 'connected'" class="sftp-upload-note">
         {{ t("sftp.upload_bytes", {

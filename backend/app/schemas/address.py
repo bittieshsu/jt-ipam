@@ -152,7 +152,7 @@ class PveConsoleTarget(StrictModel):
 class IPAddressRead(IPAddressBase):
     id: uuid.UUID
     discovery_source: str
-    in_dhcp_lease: bool = False   # 自動判定：目前有 DHCP 租約（由 OPNsense lease 同步維護）
+    in_dhcp_lease: bool = False   # 自動判定：目前有 DHCP 租約（由各 DHCP 來源推導，見 services/dhcp_leases.py）
     # DHCP 上有把這個位址固定綁給某張網卡。與「有租約」意義不同：有租約＝現在有人在用，
     # 固定分配＝這個位址不會被換人用（位址被回收再發給別台，正是資料張冠李戴的來源）。
     dhcp_reserved: bool = False

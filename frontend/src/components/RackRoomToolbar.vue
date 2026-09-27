@@ -54,6 +54,8 @@ const { t } = useI18n();
 <style scoped>
 .merged-toolbar {
   display: flex; align-items: center; justify-content: flex-end;
+  /* 要能換行：靠右又不換行時，放不下的部分會往左邊溢出（手機上「正面」凸出去） */
+  flex-wrap: wrap;
   gap: 8px; margin-bottom: 10px;
 }
 .zoom-ctl { display: flex; align-items: center; gap: 8px; }

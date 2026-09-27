@@ -29,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import safe_client, safe_request, transport_detail
@@ -73,6 +73,9 @@ def usable_nics(networks: Any) -> list[dict[str, Any]]:
     丟掉的：虛擬介面（VIRTUALDEV=1，VPN／docker0／vSwitch）、全零 MAC、空 MAC。
     不過濾的話會把一堆假 MAC 灌進來 —— 實測筆電就有一張 VPN 介面掛著 00:00:00:00:00:00。
 
+    也丟掉 `DESCRIPTION=bmc`：Linux agent 會把 IPMI 控制器列成一張網卡，但那是**另一台設備**
+    （BMC）的位址與 MAC；拿來比對會把主機的 OS／主機名稱寫到 BMC 的 IP 上（2026-09-26 實機）。
+
     例外：**全部**網卡都被標成虛擬時，退回用有 MAC、有 IP 的那幾張。舊版 agent（2.4.2 以前）
     在 LXC 裡把 eth0 標成虛擬（容器的網卡背後是 veth），照舊全丟的話這種容器一張都不剩，
     jt-ipam 永遠對不上它的 IP（2026-09-25 實際部署時遇到）。有實體網卡的電腦不受影響。
@@ -84,6 +87,8 @@ def usable_nics(networks: Any) -> list[dict[str, Any]]:
             continue
         mac = normalize_mac(nic.get("MACADDR"))
         if not mac or mac == "000000000000":
+            continue
+        if str(nic.get("DESCRIPTION") or "").strip().lower() == "bmc":
             continue
         if str(nic.get("VIRTUALDEV") or "0") in ("1", "true", "True"):
             if nic.get("IPADDRESS"):
@@ -280,14 +285,32 @@ def dedup_sections(computer: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in computer.items() if k != ""}
 
 
-def decide_match(mac: str, ip_ids_by_mac: dict[str, list[uuid.UUID]]) -> uuid.UUID | None:
+def _same_ip(a: str | None, b: str | None) -> bool:
+    import ipaddress
+    try:
+        return bool(a and b) and ipaddress.ip_address(str(a).strip()) == ipaddress.ip_address(str(b).strip())
+    except ValueError:
+        return False
+
+
+def decide_match(mac: str, ip_ids_by_mac: dict[str, list[uuid.UUID]], *,
+                 reported_ip: str | None = None,
+                 addr_of: dict[uuid.UUID, str] | None = None) -> uuid.UUID | None:
     """一張網卡的 MAC 對到哪個既有 IP。
 
     **只比不建**：查不到 → None（不新建 IP）。**多筆→不猜**：同一 MAC 對到多個 IP
     （複製 VM、重疊網段）→ None，視為不明確。只有唯一一筆才回那個 IP id。
+    唯一的例外：這張網卡回報的 IP 正好是候選之一 → MAC 與 IP 都對上，就是它。最常見的成因是
+    舊的 DHCP 位址（改固定 IP 之前拿的）還留著同一個 MAC，以前會讓新位址永遠對不上（2026-09-26）。
     """
     ids = ip_ids_by_mac.get(normalize_mac(mac)) or []
-    return ids[0] if len(ids) == 1 else None
+    if len(ids) == 1:
+        return ids[0]
+    if len(ids) > 1 and reported_ip and addr_of:
+        hit = [i for i in ids if _same_ip(addr_of.get(i), reported_ip)]
+        if len(hit) == 1:
+            return hit[0]
+    return None
 
 
 # ─────────────────── REST 客戶端 ───────────────────
@@ -434,7 +457,8 @@ async def _iter_full(client, base, hdr, verify):
 async def _apply_computer(
     session: AsyncSession, server: OcsServer, computer: dict[str, Any],
     ip_ids_by_mac: dict[str, list[uuid.UUID]], now: datetime,
-    ocs_id: int | None = None,
+    ocs_id: int | None = None, hn_run: Any = None,
+    addr_of: dict[uuid.UUID, str] | None = None, matched_ids: set[uuid.UUID] | None = None,
 ) -> dict[str, int]:
     """把一台 OCS 電腦的資料落到對到的既有 IP（只比不建）。回傳這台命中的計數。"""
     hw = computer.get("hardware") or {}
@@ -450,13 +474,15 @@ async def _apply_computer(
 
     for nic in usable_nics(computer.get("networks")):
         mac = nic.get("MACADDR")
-        ip_id = decide_match(mac, ip_ids_by_mac)
+        ip_id = decide_match(mac, ip_ids_by_mac, reported_ip=nic.get("IPADDRESS"), addr_of=addr_of)
         if ip_id is None:
             continue
         ip = await session.get(IPAddress, ip_id)
         if ip is None:
             continue
         counts["matched"] += 1
+        if matched_ids is not None:
+            matched_ids.add(ip_id)
 
         # 記下 OCS 的 systemid／標籤／代理版本／備註，供裝置明細卡片顯示與深連結。
         # 這些是「目前狀態」的識別/描述資訊，非優先序來源，過期與否都更新。
@@ -467,13 +493,15 @@ async def _apply_computer(
         ip.ocs_notes = notes or None
 
         # 主機名稱：過期的也記（多源保存），但由優先序決定要不要當有效值。
-        if hn:
-            await hostname_svc.apply_observation(
-                session, ip=ip, source="ocs", hostname=hn, tiebreak_min=True)
+        if hn_run is not None:
+            hn_run.report(ip, hn)
+        elif hn:
+            await hostname_svc.apply_observation(session, ip=ip, source="ocs", hostname=hn)
         # OS：寫進 OCS 專屬欄位（不污染掃描代理的 os_guess）；有效值由 os_precedence
-        # 決定（ocs 排在 scanner 之上，agent 回報的 OS 蓋過 nmap 指紋猜測）。過期不寫。
-        if os_guess and not stale:
-            ip.os_ocs = os_guess[:160]
+        # 決定（ocs 排在 scanner 之上，agent 回報的 OS 蓋過 nmap 指紋猜測）。
+        # 過期就清掉：以前只是「不寫」，舊值一直留著並且繼續蓋過掃描代理的即時結果
+        # （機器換掉、OCS 裡的舊記錄還在的時候最常見，2026-09-26 稽核）
+        ip.os_ocs = os_guess[:160] if (os_guess and not stale) else None
         # MAC 不用寫：我們是**用這張網卡的 MAC 比對到這個 IP 的**，兩邊已定義相等。
         # 盤點時間：只有不算過期時才 stamp 成這次盤點的時間
         if last and not stale:
@@ -521,8 +549,18 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
     t0 = time.monotonic()
 
     ip_ids_by_mac = await mac_index(session, server)
+    # 同一個 MAC 有多筆時用網卡回報的 IP 分辨（見 decide_match）—— 只撈這些候選的位址
+    ambiguous = [i for ids in ip_ids_by_mac.values() if len(ids) > 1 for i in ids]
+    addr_of: dict[uuid.UUID, str] = {}
+    if ambiguous:
+        addr_of = {i: str(a) for i, a in (await session.execute(
+            select(IPAddress.id, func.host(IPAddress.ip)).where(IPAddress.id.in_(ambiguous)))).all()}
+    matched_ids: set[uuid.UUID] = set()
 
     seen = matched = 0
+    from app.services.hostname_reports import HostnameRun, enabled_peers
+    hn_run = HostnameRun(session, source="ocs", origin=f"ocs:{server.id}",
+                         peers=await enabled_peers(session, OcsServer))
     async with safe_client(timeout=_SYNC_TIMEOUT, verify=server.verify_tls) as client:
         # 增量能力：實際探一次，不信任儲存的版本（升級後自動啟用）
         incremental = False
@@ -548,25 +586,66 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
                 seen += 1
                 matched += (await _apply_computer(
                     session, server, comp, ip_ids_by_mac, now,
-                    ocs_id=cid if isinstance(cid, int) else None))["matched"]
+                    ocs_id=cid if isinstance(cid, int) else None, hn_run=hn_run,
+                    addr_of=addr_of, matched_ids=matched_ids))["matched"]
         else:
             async for _cid, comp in _iter_full(client, base, hdr, server.verify_tls):
                 seen += 1
                 matched += (await _apply_computer(
                     session, server, comp, ip_ids_by_mac, now,
-                    ocs_id=_cid if isinstance(_cid, int) else None))["matched"]
+                    ocs_id=_cid if isinstance(_cid, int) else None, hn_run=hn_run,
+                    addr_of=addr_of, matched_ids=matched_ids))["matched"]
+
+    # 全量而且沒碰到分頁上限，才算完整清單；增量模式只走訪有異動的電腦，不能拿來清
+    complete = mode == "full" and seen < _PAGE * _MAX_PAGES
+    hn = await hn_run.finish(complete=complete)
+    cleared = 0
+    if complete and seen:
+        cleared = await _clear_unmatched(session, server, matched_ids,
+                                         peers=await enabled_peers(session, OcsServer))
 
     # 增量游標推進到這次同步的當下（epoch）。因為 lastupdate 是嚴格大於、下次會退重疊窗。
     if incremental:
         server.last_incremental_epoch = int(now.timestamp())
     server.last_sync_at = now
     server.last_success_at = now
-    server.last_error = None
+    server.last_error = (f"hostname cleanup skipped: {hn['breaker']}" if hn["breaker"] else None)
     server.last_cost = {
         "mode": mode, "computers": seen, "matched_ips": matched,
         "seconds": round(time.monotonic() - t0, 2),
     }
+    if cleared:
+        server.last_cost["cleared_ips"] = cleared
     return server.last_cost
+
+
+async def _clear_unmatched(session: AsyncSession, server: OcsServer, matched_ids: set[uuid.UUID],
+                           *, peers: int) -> int:
+    """完整同步後：先前掛著 OCS 資料、這一輪沒對到的 IP → 清掉 OCS 欄位。
+
+    以前永遠不清：電腦從 OCS 刪掉、機器換掉、或對錯到 BMC 的位址，IP 就一直
+    頂著別台機器的 OS 與盤點編號（2026-09-26 稽核）。IP 上的 OCS 欄位不記是哪一套 OCS 寫的，
+    所以有好幾套時只清這套「限定子網路範圍」內的；沒設範圍又有多套 → 不清（會清到別套的）。
+    """
+    from app.services.agent_scope import scope_uuids
+    scope = scope_uuids(server)
+    if peers > 1 and not scope:
+        return 0
+    stmt = select(IPAddress).where(IPAddress.ocs_id.isnot(None))
+    if matched_ids:
+        stmt = stmt.where(IPAddress.id.notin_(matched_ids))
+    if scope:
+        stmt = stmt.where(IPAddress.subnet_id.in_(scope))
+    rows = (await session.execute(stmt)).scalars().all()
+    # 斷路器（同主機名稱）：一次要清掉一大半，多半是 API 回傳不完整，不是真的換了那麼多台
+    from app.services.hostname_reports import BREAKER_MIN, BREAKER_RATIO
+    if len(rows) > BREAKER_MIN and len(rows) > (len(rows) + len(matched_ids)) * BREAKER_RATIO:
+        return 0
+    for ip in rows:
+        ip.ocs_id = ip.ocs_tag = ip.ocs_agent = ip.ocs_notes = None
+        ip.os_ocs = None
+        ip.last_seen_ocs = None
+    return len(rows)
 
 
 # ─────────────────── 憑證 helper（給 API 存密碼用） ───────────────────

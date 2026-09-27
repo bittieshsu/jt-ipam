@@ -280,6 +280,22 @@ test("可以進到子目錄再回上一層", async ({ page }) => {
   await expect(page.getByText("app.log")).toBeVisible({ timeout: 15_000 });
 });
 
+test("打錯路徑的錯誤，在成功切換目錄後要消失", async ({ page }) => {
+  // 使用者回報（2026-09-26）：打錯成 /rmnt 之後改回正確路徑、清單也列出來了，
+  // 上方紅框卻還寫著「找不到 /rmnt」—— 指令失敗寫進紅框，之後成功沒人清掉
+  await connect(page);
+  const path = page.locator(".sftp-pathbar input").first();
+  const good = await path.inputValue();
+  await path.fill("/no-such-dir-e2e");
+  await path.press("Enter");
+  const banner = page.locator(".n-alert", { hasText: "no-such-dir-e2e" });
+  await expect(banner).toBeVisible({ timeout: 10_000 });
+  await path.fill(good);
+  await path.press("Enter");
+  await expect(page.getByText("readme-中文.txt")).toBeVisible();
+  await expect(banner).toBeHidden();
+});
+
 test("下載的檔案內容與遠端一致", async ({ page }) => {
   await connect(page);
   const [download] = await Promise.all([

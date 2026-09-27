@@ -46,9 +46,12 @@ async def test_settings_page_knows_whether_aardwolf_is_there(client, auth_header
 
 
 def test_installer_explains_the_python_version_and_the_way_out() -> None:
+    """aardwolf 裝不起來時安裝程式要講清楚（issue #39）。2026-09-27 起它只是選用的備用引擎
+    （issue #42），RDP／VNC 走必裝的 guacd —— 訊息要說它是選用的、沒有東西受影響，不可以再叫人去換引擎。"""
     from pathlib import Path
     sh = (Path(__file__).resolve().parents[2] / "scripts" / "jt-ipam.sh").read_text(encoding="utf-8")
     block = sh[sh.index("install_rdp_optional() {"):sh.index("FREERDP_APT_PACKAGES=")]
     assert "3.9" in block and "3.13" in block, "要說 aardwolf 只有哪些 Python 版本的 wheel"
-    assert "FreeRDP" in block and "System settings" in block, "要說 RDP 可以改用 FreeRDP 引擎"
-    assert "VNC" in block, "要說 VNC 主控台沒有替代引擎"
+    assert "optional" in block, "要說 aardwolf 是選用的"
+    assert "guacd" in block, "要說 RDP／VNC 走 guacd"
+    assert "has no other engine" not in block, "VNC 已經有 guacd，不可以再說沒有替代引擎"

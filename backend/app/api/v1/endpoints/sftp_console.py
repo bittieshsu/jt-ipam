@@ -81,6 +81,39 @@ def _ticket_key(ticket: str) -> str:
     return f"sftp:tk:{ticket}"
 
 
+def _probe_ticket_key(ticket: str) -> str:
+    """傳輸路徑測試的票證：與一般 SFTP 票證分開的命名空間，兩者不可能互換。"""
+    return f"sftp:probe:{ticket}"
+
+
+async def _run_probe(websocket: WebSocket, ticket: str) -> None:
+    """傳輸路徑測試模式（見 app/services/sftp_probe.py）：只給管理者、不連任何主機。"""
+    from app.services import sftp_probe
+
+    raw = await take_once(_redis_client(), _probe_ticket_key(ticket)) if ticket else None
+    try:
+        user_id = uuid.UUID(str(json.loads(raw).get("user_id"))) if raw else None
+    except (TypeError, ValueError, AttributeError):
+        user_id = None
+    if user_id is None:
+        await websocket.close(code=4401)
+        return
+    async with SessionLocal() as s:
+        user = await s.get(User, user_id)
+        if user is None or not user.is_active or not user.is_admin:
+            await websocket.close(code=4403)
+            return
+    await websocket.accept()
+    log.info("sftp probe start", user=str(user_id))
+    try:
+        await sftp_probe.run(websocket.receive, websocket.send_text, websocket.send_bytes)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
+
+
 @router.post("/{address_id}/sftp/ticket")
 async def issue_sftp_ticket(
     address_id: uuid.UUID,
@@ -218,6 +251,10 @@ ACK_EVERY = 16 * 1024
 
 @router.websocket("/{address_id}/sftp/ws")
 async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
+    from app.services.sftp_probe import PROBE_ADDRESS_ID
+    if address_id == PROBE_ADDRESS_ID:
+        await _run_probe(websocket, ticket)
+        return
     user_id = await _redeem(ticket, address_id)
     if user_id is None:
         await websocket.close(code=4401)
@@ -232,6 +269,9 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             return
         allowed = await can_use_sftp(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
+        # 單檔上限：系統設定（預設 100 MB）。連線當下讀一次，改了設定對新連線生效
+        from app.services.system_config import get_sftp_max_file_mb
+        max_bytes = await get_sftp_max_file_mb(s) * 1024 * 1024
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
     if not allowed:
@@ -299,7 +339,9 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         await audit("sftp_open", {"host": host, "port": port, "username": username,
                                   "via_jump_host": tunnel.via})
         # 經跳板時要講出來：畫面上的位址是目標，實際路徑多了一跳
-        await send({"type": "ready", "cwd": str(cwd), "via_jump_host": tunnel.via})
+        # 上限一起告訴前端：超過的檔案當場就講，不用先等伺服器拒絕；大檔也要據此改成直接寫入磁碟
+        await send({"type": "ready", "cwd": str(cwd), "via_jump_host": tunnel.via,
+                    "max_file_bytes": max_bytes})
 
         while True:
             if carry_over is not None:
@@ -353,7 +395,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                 elif op == "get":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
                     st = await sftp.stat(path)
-                    size = check_size(getattr(st, "size", None), what="download")
+                    size = check_size(getattr(st, "size", None), what="download",
+                                      max_bytes=max_bytes)
                     await reply({"type": "file_begin", "path": path,
                                 "name": path.rsplit("/", 1)[-1], "size": size})
                     async with sftp.open(path, "rb") as fh:
@@ -369,7 +412,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
 
                 elif op == "put":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))
-                    size = check_size(req.get("size"), what="upload")
+                    size = check_size(req.get("size"), what="upload", max_bytes=max_bytes)
                     # ⚠️ 先把檔案開起來，成功了才叫對方送資料。
                     # 反過來（先說 put_ready 再開檔）在開檔失敗時會壞掉：客戶端已經
                     # 開始送二進位框，而伺服器跳去回報錯誤、回到主迴圈讀「文字訊息」，

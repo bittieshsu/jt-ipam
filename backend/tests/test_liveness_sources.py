@@ -56,6 +56,23 @@ def test_permanent_arp_entries_are_never_stamped() -> None:
     assert ip.arp_seen == {}
 
 
+def test_an_older_sighting_does_not_move_the_time_backwards() -> None:
+    """兩台同廠牌防火牆共用同一個鍵（arp:opnsense）：B 的 ARP 項目剩餘時間較短、推回的時間較舊，
+    以前會蓋掉 A 剛看到的時間 —— 上線的機器被判成過期（2026-09-26 稽核）。取較新的。"""
+    now = datetime.now(UTC)
+    ip = _IP()
+    arp_seen_svc.stamp(ip, "arp:opnsense", now - timedelta(minutes=1))
+    arp_seen_svc.stamp(ip, "arp:opnsense", now - timedelta(minutes=40))
+    assert arp_seen_svc.newest(ip)[0] >= now - timedelta(minutes=2)
+
+
+def test_a_future_timestamp_is_capped_at_now() -> None:
+    """取較新的之後，未來的時間（上游時鐘跑快）會永遠贏 —— 不接受超過現在的值。"""
+    ip = _IP()
+    arp_seen_svc.stamp(ip, "arp:opnsense", datetime.now(UTC) + timedelta(days=30))
+    assert arp_seen_svc.newest(ip)[0] <= datetime.now(UTC) + timedelta(seconds=1)
+
+
 def test_newest_aging_ignores_leases() -> None:
     """DHCP 租約撐好幾天，不能算「現在活著」；ARP 表會逾時淘汰，可以。"""
     now = datetime.now(UTC)

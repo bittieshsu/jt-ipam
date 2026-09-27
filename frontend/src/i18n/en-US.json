@@ -251,6 +251,7 @@
     "chain_ph": "-----BEGIN CERTIFICATE----- (optional)"
   },
   "nav": {
+    "open_menu": "Menu",
     "dashboard": "Dashboard",
     "sections": "Sections",
     "subnets": "Subnets",
@@ -434,7 +435,10 @@
     "show_all": "Show all",
     "console_engine": "Engine: {name}",
     "console_engine_builtin": "built-in",
-    "console_engine_title": "The engine this connection uses (switch it in Admin -> System settings)"
+    "console_engine_title": "The engine this connection uses (switch it in Admin -> System settings)",
+    "duration_sec": "{n} s",
+    "duration_min": "{n} min",
+    "duration_hour": "{n} h"
   },
   "scan_agent": {
     "outdated": "update available",
@@ -1190,7 +1194,7 @@
     "last_seen": "Last seen",
     "last_seen_scanner": "Last seen (scanner)",
     "last_seen_librenms": "Last seen (LibreNMS)",
-    "last_seen_dns": "Last seen (DNS)",
+    "last_seen_dns": "Last seen (AdGuard config)",
     "ip_list_title": "IP list",
     "state_active": "active",
     "state_reserved": "reserved",
@@ -2609,25 +2613,42 @@
       "change_log_dim_days": "Dim change-log entries after (days)",
       "change_log_dim_days_hint": "Change-log entries older than this many days are shown dimmed so recent changes stand out. 0 = never dim. Default 30.",
       "rdp_engine": "RDP connection engine",
-      "rdp_engine_aardwolf": "aardwolf (default)",
+      "rdp_engine_aardwolf": "aardwolf",
       "rdp_engine_freerdp": "FreeRDP",
-      "rdp_engine_hint": "aardwolf is the built-in pure-Python implementation. It needs no extra process and works against Windows targets. FreeRDP has broader compatibility — notably with xrdp and GNOME Remote Login on Linux, which reject aardwolf's NTLM authentication — but it requires FreeRDP and a virtual display on this host. guacd runs in the jt-ipam-guacd service (see its status below); it is also broadly compatible and needs no virtual display. The change applies to new connections.",
+      "rdp_engine_hint": "The default is guacd, handled by the jt-ipam-guacd service (see its status below). It is the most compatible — including xrdp and GNOME Remote Login on Linux — and needs no virtual display; while guacd is not running, connections use aardwolf or FreeRDP instead. aardwolf is the built-in pure-Python implementation and works against Windows targets, but xrdp and GNOME Remote Login reject its NTLM authentication. FreeRDP is also broadly compatible but requires FreeRDP and a virtual display on this host. The change applies to new connections.",
       "rdp_engine_missing": "This server does not yet have what the FreeRDP engine needs (missing {pkgs}). Install them and reload this page; until then, selecting FreeRDP will not connect.",
-      "rdp_engine_no_aardwolf": "This server runs Python {python}, for which aardwolf has no prebuilt package, so the aardwolf engine and the VNC console are unavailable. Use the FreeRDP engine for RDP.",
+      "rdp_engine_no_aardwolf": "This server has no aardwolf (there is no prebuilt package for Python {python}). aardwolf is an optional fallback engine; with RDP set to aardwolf or VNC set to built-in, those consoles cannot connect — switch back to guacd (the default).",
       "port_filter_pseudo": "Filter pseudo interfaces",
       "port_filter_pseudo_hint": "When importing ports from integrations, skip and prune pseudo interfaces matching the name patterns below (Windows NDIS filters, WAN Miniport, tunnels, etc.). When off, nothing is filtered or pruned.",
       "port_ignore_patterns": "Ignored name patterns",
       "port_ignore_patterns_hint": "One regular expression per line (matched against the interface name, case-insensitive). Leave empty to use the built-in defaults. Physical switch and Linux port names do not match these patterns and are unaffected.",
       "engine_guacd": "guacd",
+      "engine_builtin_plain": "Built-in",
+      "engine_guacd_default": "guacd (default)",
       "engine_builtin": "Built-in (default)",
       "vnc_engine": "VNC connection engine",
-      "vnc_engine_hint": "The built-in engine uses aardwolf. guacd handles the screen in the jt-ipam-guacd service and does not need aardwolf. The change applies to new connections.",
+      "vnc_engine_hint": "The default is guacd, which handles the screen in the jt-ipam-guacd service and supports VNC servers that ask for a username; while guacd is not running, connections use the built-in engine (aardwolf) instead. The change applies to new connections.",
       "ssh_engine": "SSH connection engine",
       "ssh_engine_hint": "The built-in engine is the xterm.js terminal in the browser. guacd draws the terminal on the server and the browser receives the screen; copy and paste with Ctrl+Shift+C / Ctrl+Shift+V (⌘C / ⌘V on a Mac). Host keys are still confirmed once and then pinned. The change applies to new connections.",
       "guacd_status": "guacd service",
       "guacd_down": "Cannot reach guacd ({address}): {reason}",
       "guacd_protocol_missing": "guacd has no support for {protocols}; those protocols will not connect while set to guacd.",
-      "guacd_hint": "guacd is the server side of Apache Guacamole, prebuilt by jt-ipam and run locally only as the jt-ipam-guacd service. RDP, VNC and SSH can each be switched to it separately."
+      "guacd_hint": "guacd is the server side of Apache Guacamole, prebuilt by jt-ipam and run locally only as the jt-ipam-guacd service. It is the default engine for RDP and VNC (installed automatically on install and upgrade); SSH can be switched to it separately.",
+      "sftp_max_mb": "SFTP per-file transfer limit",
+      "sftp_max_mb_hint": "Default 100 MB (meant for config files, certificates and logs); raise it to move larger files. Files travel over the console WebSocket in 256 KB pieces, through any reverse proxy in front and the IPAM nginx; changing the limit runs a real test of that path. Downloads over 64 MB are written straight to disk (Chrome, Edge; other browsers are limited to 2 GB).",
+      "sftp_probe_run": "Check transfer path",
+      "sftp_probe_running": "Checking the transfer path: {stage} {pct}%",
+      "sftp_probe_up": "upload",
+      "sftp_probe_down": "download",
+      "sftp_probe_ok": "Transfer path OK: upload about {up}/s, download about {down}/s. At this speed a {max} file takes about {upTime} to upload and {downTime} to download.",
+      "sftp_probe_ws_blocked": "The WebSocket cannot reach the SFTP path (code {code}): the reverse proxy in front or the IPAM nginx does not enable WebSocket for /api/v1/addresses/…/sftp/ws. SFTP and the other consoles will not work.",
+      "sftp_probe_msg_too_big": "Disconnected as \"message too big\" (code 1009) at {done} of {total}: a layer on the path, most likely the reverse proxy in front or a WAF, limits the size of a WebSocket message. SFTP downloads send 256 KB messages; allow at least 1 MB.",
+      "sftp_probe_closed": "The connection was cut at {done} of {total} (code {code}): a layer on the path limits WebSocket volume or duration. Check the WebSocket settings of the reverse proxy in front and the IPAM nginx.",
+      "sftp_probe_no_data_up": "Upload data does not get through: the server received nothing new for {sec} s ({done} of {total} received). A layer on the path swallows data sent back to back.",
+      "sftp_probe_no_data_down": "Download data does not arrive: nothing new for {sec} s ({done} of {total} received).",
+      "sftp_probe_error": "Check failed: {reason}",
+      "sftp_probe_note": "Measured from this browser, through every layer between you and the server. Users on other networks may take a different path.",
+      "sftp_max_mb_range": "The SFTP limit must be between 1 and 102400 MB (100 GB)"
     }
   },
   "errors": {
@@ -2985,6 +3006,7 @@
     "range_family_mismatch": "The start and end addresses are different IP versions (one IPv4, one IPv6)",
     "range_start_after_end": "The start address {start} is greater than the end address {end}",
     "range_outside_subnet": "The range {start}–{end} is outside the subnet {cidr}",
+    "range_auto_managed": "This range was created from the DHCP range detected on '{source}' and follows it; change it on the DHCP server instead",
     "range_overlap": "It overlaps the existing range \"{other}\"",
     "cert_export_password_in_url": "The PFX password must not be in the URL (it would end up in access logs); use POST with fmt and password in the body",
     "guacd_unavailable": "Cannot reach guacd ({reason}). Check that the jt-ipam-guacd service is running on the server.",
@@ -3011,7 +3033,10 @@
     "guacd_vnc_rejected": "The VNC server refused the connection — most often a wrong username or password (or an unsupported authentication method; after repeated failures some servers also block the source for a while): {reason}",
     "console_vnc_username_needs_guacd": "The built-in VNC engine does not support usernames. Set the VNC engine to guacd under Admin → System settings.",
     "cred_username_required": "Please enter a username",
-    "guacd_vnc_username_required": "This VNC server asks for a username and password; enter the username in the Username field"
+    "guacd_vnc_username_required": "This VNC server asks for a username and password; enter the username in the Username field",
+    "sftp_probe_too_large": "Test size out of range (maximum {max} MB)",
+    "sftp_probe_session_limit": "This test used up its allowance; run the check again",
+    "sftp_probe_stalled": "Test upload interrupted ({written}/{size} bytes received)"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -3257,6 +3282,11 @@
     "host_kernel": "Kernel",
     "package": "Package",
     "installed": "Version",
+    "section_required": "Required components",
+    "section_required_hint": "Must be installed and running for the related features to work normally",
+    "required_running": "Running",
+    "required_not_running": "Installed but not running",
+    "required_missing": "{pkgs} is not running: RDP / VNC consoles use the built-in engines for now. Run sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade on the server (installs and starts it).",
     "section_optional": "Optional dependencies",
     "section_optional_hint": "Absence does not affect the service, only the feature that uses it",
     "optional_present": "installed",
@@ -4143,7 +4173,10 @@
     "upload_bytes": "Uploading {name} — {sent} / {total} ({pct}%)",
     "offline_upload": "An upload was in flight when the connection dropped: {name} — {sent} of {total} sent",
     "drop_too_many": "{n} items were left out (at most {max} files per drop)",
-    "err_no_ack": "The data is not reaching the server: 15 seconds after the first block was sent, none of it had been acknowledged. The server is fine (it already replied that it is ready to receive) — something between this computer and the server is dropping the data, commonly a VPN or proxy discarding larger packets, or a browser extension interfering. Try an incognito window (extensions off) or a different network."
+    "err_no_ack": "The data is not reaching the server: 15 seconds after the first block was sent, none of it had been acknowledged. The server is fine (it already replied that it is ready to receive) — something between this computer and the server is dropping the data, commonly a VPN or proxy discarding larger packets, or a browser extension interfering. Try an incognito window (extensions off) or a different network.",
+    "download_bytes": "Downloading: {name}  {got} / {total} ({pct}%)",
+    "err_save_file": "Cannot create the file: {reason}",
+    "err_big_needs_fs_api": "This browser cannot write straight to disk; a file over {max} would have to be held in memory and would crash the tab. Use Chrome or Edge, or scp / WinSCP."
   },
   "fw_autocreate": {
     "label": "Create addresses IPAM does not have",
@@ -4453,11 +4486,12 @@
     "f_integration_pages": "Open each integration's settings page and check \"last error\" and \"test connection\"",
     "report_counts": "{bad} failed, {warn} warnings, {ok} ok",
     "c_guacd": "guacd console engine",
-    "d_guacd_idle": "Installed, not used by any protocol yet ({address})",
+    "d_guacd_idle": "Running, not used by any protocol right now ({address})",
     "d_guacd_ok": "{protocols} use guacd and it is healthy ({address})",
-    "d_guacd_down": "{protocols} are set to guacd but it cannot be reached ({address}): {reason}",
-    "d_guacd_missing": "{protocols} are set to guacd but guacd has no support for them",
-    "f_guacd": "Run sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd on the server, or switch the engine back in System settings"
+    "d_guacd_down": "guacd is a required component but cannot be reached ({address}): {reason}; {protocols} use the built-in engine for now",
+    "d_guacd_down_idle": "guacd is a required component but cannot be reached ({address}): {reason}",
+    "d_guacd_missing": "{protocols} are set to guacd but guacd has no support for them; connections use the built-in engine for now",
+    "f_guacd": "Run sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade on the server (installs guacd); if it is installed, sudo systemctl restart jt-ipam-guacd"
   },
   "tool_verbs": {
     "get": "Look up",
@@ -4588,10 +4622,13 @@
     "customer": "Unit"
   },
   "ranges": {
+    "auto_hint": "Created from the DHCP range detected on {source} and kept in sync with it; change it on the DHCP server instead",
+    "auto_desc": "Created from the detected DHCP range",
+    "auto": "Auto",
     "title": "Address ranges (pools)",
     "add": "Add range",
     "edit": "Edit range",
-    "hint": "A run of consecutive addresses inside {cidr}, such as a DHCP pool or addresses kept for certain devices. Ranges used as a DHCP pool also mark their addresses as \"in a DHCP range\".",
+    "hint": "A run of consecutive addresses inside {cidr}, such as a DHCP pool or addresses kept for certain devices. Ranges used as a DHCP pool also mark their addresses as \"in a DHCP range\". DHCP ranges detected by integrations are added automatically.",
     "empty": "No ranges defined yet.",
     "start": "Start address",
     "end": "End address",

@@ -562,7 +562,9 @@ const cells = computed<Cell[]>(() => {
         :description="t('rack_diagram.empty')"
       />
 
-      <div v-else class="rack-zoom"
+      <!-- 比卡片寬（手機）時在這一層左右捲：以前整張溢出卡片、頁面又不能橫向捲，右半邊看不到 -->
+      <div v-else class="rack-scroll">
+      <div class="rack-zoom"
            :style="{ height: ownPx * effZoom + 'px', width: ownW * effZoom + 'px',
                      marginTop: floorPad * effZoom + 'px', '--rd-fit': String(fitZoom) }">
        <div ref="wrapEl" class="rack-wrap"
@@ -662,6 +664,7 @@ const cells = computed<Cell[]>(() => {
           </template>
         </div>
        </div>
+      </div>
       </div>
 
       <div v-if="showLegend" class="legend">
@@ -998,7 +1001,7 @@ const cells = computed<Cell[]>(() => {
   max-width: 100%;
 }
 /* 有工具列時才需要撐到工具列的寬度，否則按鈕會被擠到換行 */
-.rack-diagram-card:has(.rd-toolbar) { min-width: 320px; }
+.rack-diagram-card:has(.rd-toolbar) { min-width: min(320px, 100%); }
 
 /* 顯示大小拉桿 */
 .zoom-ctl { display: flex; align-items: center; gap: 8px; }
@@ -1008,6 +1011,17 @@ const cells = computed<Cell[]>(() => {
    邊框與柱腳往下突出的部分，一裁就把三種機架的「腳」都切掉了（看起來像最下一層之後
    就沒有東西）。讓它溢出即可，反正水平方向沒有東西會跑出去。 */
 .rack-zoom { overflow: visible; }
+/* 機櫃比卡片寬（手機、放大）時的左右捲動層。高度已含離地的腳（.rack-frame 的 margin-bottom），
+   下面再留一點空間給邊框陰影，負 margin 抵掉，桌機上版面不變 */
+.rack-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  margin-bottom: -6px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
 .rack-zoom > .rack-wrap {
   transform-origin: top left;
   /* 寬度必須由**內容**決定，不能跟著外層走：外層的寬度是用這一層量出來的，
@@ -1020,6 +1034,8 @@ const cells = computed<Cell[]>(() => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  /* 要能換行：靠右對齊又不換行時，放不下的部分會往**左邊**溢出卡片（手機上「正面」凸出去） */
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
 }

@@ -345,7 +345,8 @@ async function uploadCsv(opts: UploadCustomRequestOptions) {
 
 // ── IP list table ──
 function lastSeen(r: IPAddress): string {
-  const arr = [r.last_seen_scanner, r.last_seen_librenms, r.last_seen_dns,
+  // last_seen_dns 不算（AdGuard 設定裡有＝每輪都是現在，見 useLivenessSettings）
+  const arr = [r.last_seen_scanner, r.last_seen_librenms,
     (r as { last_seen_arp?: string | null }).last_seen_arp].filter(Boolean) as string[];
   if (!arr.length) return "—";
   const max = arr.sort().reverse()[0];
@@ -488,7 +489,8 @@ const staleThreshold = ref(30);          // 天
 const staleNeverOnly = ref(false);       // 只看「從未上線」
 
 function staleDays(r: IPAddress): number | null {
-  const arr = [r.last_seen_scanner, r.last_seen_librenms, r.last_seen_dns].filter(Boolean) as string[];
+  // last_seen_dns 不算：有 DNS 改寫的 IP 永遠不會被列為失聯（AdGuard 設定裡有＝每輪都是現在）
+  const arr = [r.last_seen_scanner, r.last_seen_librenms].filter(Boolean) as string[];
   if (!arr.length) return null;
   const max = Math.max(...arr.map((s) => new Date(s).getTime()));
   return Math.floor((Date.now() - max) / 86400000);

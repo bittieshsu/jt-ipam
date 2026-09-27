@@ -190,8 +190,9 @@ async def issue_vnc_ticket(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    from app.services.system_config import get_vnc_engine
-    engine = await get_vnc_engine(session)
+    from app.services import console_engine
+    # 預設 guacd；這台的 guacd 處理不了 VNC 時退回內建引擎（見 services/console_engine.py）
+    engine = await console_engine.resolve(session, "vnc", fallbacks=[("builtin", VNC_AVAILABLE)])
     if engine == "guacd":
         # guacd 引擎不需要 aardwolf
         from app.services import guacd as guac
@@ -220,7 +221,8 @@ async def issue_vnc_ticket(
     )).first()
 
     ticket = secrets.token_urlsafe(32)
-    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
+    # 引擎寫進票證：WebSocket 照這個用，不自己再判斷（guacd 剛好起落時兩邊會講不同協定）
+    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), "engine": engine})
     await _redis_client().set(_ticket_key(ticket), payload, ex=_TICKET_TTL)
 
     return {
@@ -233,19 +235,20 @@ async def issue_vnc_ticket(
     }
 
 
-async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> uuid.UUID | None:
+async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> tuple[uuid.UUID | None, str | None]:
+    """單次取出 → (user_id, 發票證時決定的引擎)。舊票證沒有引擎欄位 → None（呼叫端照設定）。"""
     if not ticket:
-        return None
+        return None, None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
     if not raw:
-        return None
+        return None, None
     try:
         data = json.loads(raw)
         if data.get("ip_id") != str(address_id):
-            return None
-        return uuid.UUID(data["user_id"])
+            return None, None
+        return uuid.UUID(data["user_id"]), data.get("engine")
     except (ValueError, KeyError, TypeError):
-        return None
+        return None, None
 
 
 async def _audit_vnc(
@@ -291,7 +294,7 @@ def _classify_connect_error(err: BaseException) -> tuple[str, str]:
 async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     global _active_sessions
 
-    user_id = await _redeem_ticket(ticket, address_id)
+    user_id, ticket_engine = await _redeem_ticket(ticket, address_id)
     if user_id is None:
         await websocket.close(code=4401)
         return
@@ -306,8 +309,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         host = str(ip.ip).split("/")[0]
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
-        from app.services.system_config import get_vnc_engine
-        engine = await get_vnc_engine(s)
+        from app.services.system_config import VNC_ENGINES, get_vnc_engine
+        engine = ticket_engine if ticket_engine in VNC_ENGINES else await get_vnc_engine(s)
     if not allowed:
         await websocket.close(code=4403)
         return

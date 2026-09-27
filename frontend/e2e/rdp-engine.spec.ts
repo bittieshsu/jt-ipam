@@ -2,8 +2,7 @@
  * RDP 連線引擎的切換（管理 → 系統設定）。
  *
  * 守兩件事：
- *   ① 預設必須是 aardwolf。FreeRDP 的相容性較好，但它需要本機安裝額外套件；
- *      預設切過去會讓原本能用的 Windows 目標突然連不上。
+ *   ① 預設是 guacd（2026-09-27 起，RDP 與 VNC 都是；SSH 仍是內建），而且標著「預設」。
  *   ② 這台機器不能用 FreeRDP 時，畫面要講得出缺什麼、怎麼裝。選項擺在那裡、
  *      按下去才發現不能用，比沒有這個選項更糟。
  */
@@ -33,7 +32,7 @@ async function readSetting(page: Page) {
 }
 
 test.describe("RDP 連線引擎", () => {
-  test("預設是 aardwolf，而且切換存得住", async ({ page }) => {
+  test("預設是 guacd，而且切換存得住", async ({ page }) => {
     await login(page);
 
     // 先把設定歸位，讓這支測試不依賴前一次跑完留下的狀態
@@ -42,13 +41,19 @@ test.describe("RDP 連線引擎", () => {
         method: "PUT",
         headers: { "Content-Type": "application/json",
                    Authorization: `Bearer ${localStorage.getItem("access_token")}` },
-        body: JSON.stringify({ rdp_clipboard_paste: false, rdp_engine: "aardwolf" }),
+        body: JSON.stringify({ rdp_clipboard_paste: false, rdp_engine: "guacd", vnc_engine: "guacd",
+                               ssh_engine: "builtin" }),
       });
     });
 
     await page.goto("/system-settings");
     const field = page.locator(".fld", { hasText: /RDP 連線引擎|RDP connection engine|RDP 接続エンジン/ });
-    await expect(field).toContainText(/aardwolf/, { timeout: 15_000 });
+    await expect(field).toContainText(/guacd（預設）|guacd \(default\)|guacd（既定）/, { timeout: 15_000 });
+    // 「預設」標在各自的預設值上：VNC 是 guacd、SSH 是內建
+    const vnc = page.locator(".fld", { hasText: /VNC 連線引擎|VNC connection engine|VNC 接続エンジン/ });
+    await expect(vnc).toContainText(/guacd（預設）|guacd \(default\)|guacd（既定）/);
+    const ssh = page.locator(".fld", { hasText: /SSH 連線引擎|SSH connection engine|SSH 接続エンジン/ });
+    await expect(ssh).toContainText(/內建（預設）|Built-in \(default\)|組み込み（既定）/);
 
     // 切到 FreeRDP
     await field.locator(".n-select").click();
@@ -63,8 +68,8 @@ test.describe("RDP 連線引擎", () => {
 
     // 收尾：切回預設
     await field.locator(".n-select").click();
-    await page.locator(".n-base-select-option", { hasText: /aardwolf/ }).click();
-    await expect.poll(async () => (await readSetting(page)).rdp_engine).toBe("aardwolf");
+    await page.locator(".n-base-select-option", { hasText: /guacd/ }).click();
+    await expect.poll(async () => (await readSetting(page)).rdp_engine).toBe("guacd");
   });
 
   test("切換引擎不會把剪貼簿設定一起清掉", async ({ page }) => {
@@ -75,12 +80,12 @@ test.describe("RDP 連線引擎", () => {
         method: "PUT",
         headers: { "Content-Type": "application/json",
                    Authorization: `Bearer ${localStorage.getItem("access_token")}` },
-        body: JSON.stringify({ rdp_clipboard_paste: true, rdp_engine: "aardwolf" }),
+        body: JSON.stringify({ rdp_clipboard_paste: true, rdp_engine: "guacd" }),
       });
     });
     await page.goto("/system-settings");
     const field = page.locator(".fld", { hasText: /RDP 連線引擎|RDP connection engine|RDP 接続エンジン/ });
-    await expect(field).toContainText(/aardwolf/, { timeout: 15_000 });
+    await expect(field).toContainText(/guacd/, { timeout: 15_000 });
     await field.locator(".n-select").click();
     await page.locator(".n-base-select-option", { hasText: /FreeRDP/ }).click();
 
@@ -91,7 +96,7 @@ test.describe("RDP 連線引擎", () => {
         method: "PUT",
         headers: { "Content-Type": "application/json",
                    Authorization: `Bearer ${localStorage.getItem("access_token")}` },
-        body: JSON.stringify({ rdp_clipboard_paste: false, rdp_engine: "aardwolf" }),
+        body: JSON.stringify({ rdp_clipboard_paste: false, rdp_engine: "guacd" }),
       });
     });
   });

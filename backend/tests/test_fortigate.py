@@ -238,13 +238,23 @@ async def test_failing_endpoint_does_not_break_other_syncs(db_session, admin_use
     fw.sync_dhcp_ranges = True
     fw.sync_policies = True
     fw.sync_arp = False
+    from app.models.dhcp import DHCPPoolRange
+    db_session.add(DHCPPoolRange(
+        source_type="fortigate", source_id=fw.id, source_name=fw.name,
+        subnet_cidr="internal", start_ip="10.7.0.1", end_ip="10.7.0.9", family=4, source="fortigate"))
+    await db_session.flush()
     _patch_api(monkeypatch, {
         fg.EP_POLICY: [{"policyid": 7, "name": "p7"}],
     }, fail={fg.EP_DHCP_SERVERS})     # DHCP server 端點不可用
     out = await fg.sync_instance(db_session, fw)
-    assert out["dhcp_ranges"] == 0    # 掛掉的項目回 0
     assert out["policies"] == 1       # 其他項不受影響
-    assert fw.last_error is None
+    # 以前：掛掉的項目回 0 —— 其實是把既有範圍整批清掉，而且 last_error 是空的（藏起失敗）。
+    # 現在：保留既有資料、講出來（2026-09-26 稽核）
+    assert "dhcp_ranges" in out["errors"]
+    kept = (await db_session.execute(select(DHCPPoolRange).where(
+        DHCPPoolRange.source_id == fw.id))).scalars().all()
+    assert len(kept) == 1, "讀取失敗不可以清掉既有的發放範圍"
+    assert fw.last_error and "dhcp_ranges" in fw.last_error
 
 
 @pytest.mark.anyio
@@ -362,7 +372,7 @@ async def test_one_dead_endpoint_does_not_abort_whole_sync(db_session, monkeypat
     await db_session.flush()
 
     async def _vdoms(_fw):
-        return ["root"]
+        return ["root"], True     # (VDOM 清單, 是否權威)
 
     async def _dead(*_a, **_k):
         raise fg.FortiGateError("回應不是 JSON（/api/v2/monitor/system/dhcp）")
@@ -370,7 +380,7 @@ async def test_one_dead_endpoint_does_not_abort_whole_sync(db_session, monkeypat
     async def _arp_ok(*_a, **_k):
         return 7
 
-    monkeypatch.setattr(fg, "list_vdoms", _vdoms)
+    monkeypatch.setattr(fg, "list_vdoms_ex", _vdoms)
     monkeypatch.setattr(fg, "sync_dhcp_leases", _dead)
     monkeypatch.setattr(fg, "sync_arp", _arp_ok)
 
@@ -425,3 +435,47 @@ def test_real_html_body_still_raises() -> None:
 
     with pytest.raises(ValueError, match="Expecting value"):
         _loads_tolerant("<!DOCTYPE html><html><body>login</body></html>")
+
+
+@pytest.mark.anyio
+async def test_one_failing_vdom_does_not_wipe_policies_or_raise_a_false_alert(db_session, admin_user, monkeypatch) -> None:
+    """兩個 VDOM、其中一個讀不到政策：以前照樣整份取代 → 那個 VDOM 的政策全被刪，
+    規則異動偵測還發出「移除」告警。現在整個區段不動。"""
+    from app.models.fortigate import FortiGatePolicy
+    fw = await _mk_fw(db_session, "fgt-2vdom", vdoms=["a", "b"])
+    both = {"a": [{"policyid": 1, "name": "pa"}], "b": [{"policyid": 2, "name": "pb"}]}
+    _patch_api(monkeypatch, {fg.EP_POLICY: lambda vdom: both[vdom]})
+    assert await fg.sync_policies(db_session, fw, ["a", "b"]) == 2
+
+    async def half(_fw, path, *, vdom=None, timeout=15.0):  # type: ignore[no-untyped-def]
+        if path == fg.EP_POLICY and vdom == "b":
+            raise fg.FortiGateError("HTTP 403")
+        return both[vdom] if path == fg.EP_POLICY else []
+    monkeypatch.setattr(fg, "_api_get", half)
+    with pytest.raises(fg.FortiGateError):
+        await fg.sync_policies(db_session, fw, ["a", "b"])
+    left = (await db_session.execute(select(FortiGatePolicy.name).where(
+        FortiGatePolicy.firewall_id == fw.id))).scalars().all()
+    assert sorted(left) == ["pa", "pb"]
+
+
+@pytest.mark.anyio
+async def test_an_unreadable_vdom_list_removes_nothing(db_session, admin_user, monkeypatch) -> None:
+    """VDOM 清單讀不到 → 只看得到管理 VDOM：整份取代的區段這一輪不動，並講出來。"""
+    from app.models.fortigate import FortiGatePolicy
+    fw = await _mk_fw(db_session, "fgt-novdoms")
+    fw.sync_policies = True
+    fw.sync_dhcp = False
+    fw.sync_arp = False
+    db_session.add(FortiGatePolicy(firewall_id=fw.id, vdom="guest", policyid="9", name="guest-rule"))
+    await db_session.flush()
+
+    async def _vdoms(_fw):
+        return [fg.NO_VDOM], False
+    monkeypatch.setattr(fg, "list_vdoms_ex", _vdoms)
+    _patch_api(monkeypatch, {fg.EP_POLICY: []})
+    out = await fg.sync_instance(db_session, fw)
+    assert "vdoms" in out["errors"]
+    left = (await db_session.execute(select(FortiGatePolicy.name).where(
+        FortiGatePolicy.firewall_id == fw.id))).scalars().all()
+    assert left == ["guest-rule"]

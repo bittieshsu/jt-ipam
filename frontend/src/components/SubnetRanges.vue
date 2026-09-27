@@ -33,8 +33,14 @@ const purposeOpts = computed(() => (["dhcp", "reserved", "other"] as IPRangePurp
 
 const columns = computed<DataTableColumns<IPRange>>(() => [
   {
-    title: t("ranges.col_range"), key: "start_ip",
-    render: (r) => h("span", { style: "font-family: monospace; white-space: nowrap" }, `${r.start_ip} – ${r.end_ip}`),
+    // 要給寬度：沒有寬度時等寬、不換行的文字會蓋到隔壁「用途」的標籤上。
+    // 兩端各自不換行、長的（IPv6）在「–」處換行
+    title: t("ranges.col_range"), key: "start_ip", width: 260,
+    render: (r) => h("span", { style: "font-family: monospace; display:inline-flex; flex-wrap:wrap; column-gap:6px" }, [
+      // 空格留在文字裡（複製出來、讀屏都是「起 – 迄」）；換行時行尾的空白不會畫出來
+      h("span", { style: "white-space: nowrap" }, `${r.start_ip} `),
+      h("span", { style: "white-space: nowrap" }, `– ${r.end_ip}`),
+    ]),
   },
   {
     title: t("ranges.col_purpose"), key: "purpose", width: 120,
@@ -42,7 +48,17 @@ const columns = computed<DataTableColumns<IPRange>>(() => [
       color: { color: RANGE_COLORS[r.purpose] + "26", textColor: RANGE_COLORS[r.purpose] } },
     () => t(`ranges.purpose_${r.purpose}`)),
   },
-  { title: t("common.name"), key: "name", render: (r) => r.name || "—" },
+  {
+    title: t("common.name"), key: "name", width: 200,
+    // 自動建立的：名稱就是來源（firewall-a · KEA），前面標「自動」，滑過去講它跟著誰同步
+    render: (r) => r.auto
+      ? h("span", { style: "display:inline-flex; align-items:center; gap:6px; white-space:nowrap",
+                    title: t("ranges.auto_hint", { source: r.source_label || r.name || "" }) }, [
+          h(NTag, { size: "small", bordered: false, type: "info" }, () => t("ranges.auto")),
+          r.name || "—",
+        ])
+      : r.name || "—",
+  },
   {
     title: t("ranges.col_used"), key: "used", width: 190,
     render: (r) => h("div", { style: "display:flex; align-items:center; gap:8px" }, [
@@ -61,10 +77,13 @@ const columns = computed<DataTableColumns<IPRange>>(() => [
       : h("span", { style: "opacity:.6" }, t("ranges.full")),
   },
   { title: t("common.description"), key: "description", ellipsis: { tooltip: true },
-    render: (r) => r.description || "—" },
+    render: (r) => r.description || (r.auto ? t("ranges.auto_desc") : "—") },
   ...(props.canEdit ? [{
     title: "", key: "actions", width: 80,
-    render: (r: IPRange) => h(NSpace, { size: 4, wrap: false }, () => [
+    // 自動建立的由同步管理：不給改、不給刪（後端也會擋），滑過去講要改上游
+    render: (r: IPRange) => r.auto
+      ? h("span", { class: "auto-lock", title: t("ranges.auto_hint", { source: r.source_label || r.name || "" }) }, "—")
+      : h(NSpace, { size: 4, wrap: false }, () => [
       h(NButton, { size: "tiny", quaternary: true, title: t("common.edit"), onClick: () => openEdit(r) },
         { icon: () => h(NIcon, null, () => h(EditIcon)) }),
       h(NPopconfirm, { onPositiveClick: () => remove(r) }, {
@@ -123,7 +142,8 @@ async function remove(r: IPRange) {
         {{ t("ranges.add") }}
       </n-button>
     </n-space>
-    <n-data-table v-if="ranges.length" :columns="columns" :data="ranges" size="small"
+    <!-- scroll-x：窄的時候整張表橫向捲動，不要把欄位擠成一行一個字 -->
+    <n-data-table v-if="ranges.length" :columns="columns" :data="ranges" size="small" :scroll-x="1150"
                   :row-key="(r: IPRange) => r.id" :bordered="false" />
     <div v-else class="empty">{{ t("ranges.empty") }}</div>
 

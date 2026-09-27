@@ -577,6 +577,9 @@ async def agent_report(
     created = 0
     skipped_not_in_ipam = 0
     skipped_no_subnet = 0
+    from app.services.hostname_reports import HostnameRun
+    hn_runs = {src: HostnameRun(session, source=src, origin=f"{src}:{agent.id}", peers=2)
+               for src in ("scanner", "netbios", "mdns")}
     for item in payload.results:
         if not item.alive:
             continue
@@ -639,16 +642,15 @@ async def agent_report(
             ipa.os_family = normalize_os(item.os_guess)
         # 主機名稱觀測 → 走既有來源優先序（各來源獨立一筆，不會 thrash）。
         # rDNS 記 source=scanner；NetBIOS / mDNS 各自獨立來源，方便在優先序頁分別排序/停用。
-        from app.services.hostname import apply_observation
-        if item.rdns:
-            await apply_observation(session, ip=ipa, source="scanner",
-                                    hostname=item.rdns, tiebreak_min=True)
-        if item.netbios:
-            await apply_observation(session, ip=ipa, source="netbios",
-                                    hostname=item.netbios, tiebreak_min=True)
-        if item.mdns:
-            await apply_observation(session, ip=ipa, source="mdns",
-                                    hostname=item.mdns, tiebreak_min=True)
+        # 經 HostnameRun（逐代理記錄）：以前的 tiebreak_min 會讓改名成字典序較大的名字永遠不生效。
+        # 只報「有名字」的：沒有名字可能只是那個探測這輪沒跑、或對方沒回應，不代表名字消失了。
+        # 例外是反解：代理 1.8.1 起在 DNS 明確回答「沒有這筆 PTR」時送空字串（逾時、DNS 連不上
+        # 仍然不送），那才是「名字真的沒了」→ 清掉這台代理先前回報的（以前永遠留著）
+        for _src, _val in (("scanner", item.rdns), ("netbios", item.netbios), ("mdns", item.mdns)):
+            if _val:
+                hn_runs[_src].report(ipa, _val)
+            elif _src == "scanner" and _val == "" and "rdns" in (item.probes_run or []):
+                hn_runs[_src].report(ipa, None)
         # 記各 probe 上次執行時間（給「下次到期」顯示）
         if item.probes_run:
             lr = dict(ipa.probe_last_run or {})
@@ -656,6 +658,9 @@ async def agent_report(
                 lr[p] = now.isoformat()
             ipa.probe_last_run = lr
         updated += 1
+    # 代理只回報活著的主機、而且是逐台回報，沒有「完整一輪」可言 → 不清（complete=False）
+    for _run in hn_runs.values():
+        await _run.finish(complete=False)
     dhcp_seen = await _record_dhcp_sightings(
         session, agent, agent_subnets, payload.dhcp_servers, now)
 
@@ -733,6 +738,10 @@ async def delete_agent(
         diff={"before": {"name": obj.name}},
         request_id=getattr(request.state, "request_id", None),
     )
+    # 它寫進共用表的主機名稱／租約／固定分配／NAT／VPN 通道一併收回（沒有外鍵會跟著刪）
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="scanner", source_id=obj.id,
+                          hostname_sources=("scanner", "netbios", "mdns"))
     await session.delete(obj)
     await session.commit()
 

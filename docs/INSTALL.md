@@ -24,6 +24,7 @@ the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferr
 | PostgreSQL | 16 + pgvector | — | 22.04 needs the PGDG repo (the script adds it automatically) |
 | Redis | 7 | — | 24.04 defaults to 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 defaults to 18.19; vite 6 runs but warns |
+| guacd | jt-ipam build for this OS | — | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
 
 **Virtualization note**: on Proxmox VM / LXC, load avg may spike for 1-2 minutes right after boot/reboot (other VMs on the hypervisor contending for CPU — see `%steal` in `mpstat`); this isn't the VM itself being busy, you can just run the install.
 
@@ -267,6 +268,22 @@ curl -skI https://ipam.example.com/ \
 # Must show: HSTS, Content-Security-Policy (frame-src 'self'), X-Frame-Options, X-Content-Type-Options,
 # Referrer-Policy, Permissions-Policy, COOP, CORP — each exactly ONCE, and Server: nginx (no version).
 ```
+
+**Consoles and SFTP through your edge proxy.** Every console, SFTP included, is one long-lived
+WebSocket on `/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc)/ws`. SFTP moves files over that
+WebSocket in 256 KB messages, so an HTTP body limit such as nginx `client_max_body_size` does **not**
+cap the file size. What can break large transfers is a layer that:
+
+- does not pass the WebSocket upgrade on that path (consoles fail outright);
+- limits the size of a single WebSocket message (some WAFs do; allow at least 1 MB);
+- caps the volume or lifetime of one WebSocket connection, or drops idle ones in under 30 s
+  (jt-ipam sends a keep-alive every 20 s).
+
+You do not have to work this out by reading configs: **Admin → System settings → SFTP per-file
+transfer limit** runs a real transfer test from your browser through every layer (edge proxy, the
+IPAM nginx, the backend) whenever the limit is raised above the default, and says which kind of limit
+got in the way. It also estimates how long a file of the configured size would take at the measured
+speed.
 
 ### 2.8 Optional: Docker Compose (NOT the preferred mode)
 
@@ -731,10 +748,13 @@ then re-run `pnpm install && pnpm build` in `/opt/jt-ipam/frontend`.
 
 ## RDP console engines
 
-The browser RDP console can use either of two engines, selected under **Admin -> System settings**:
+The browser RDP console can use one of three engines, selected under **Admin -> System settings**:
 
-- **aardwolf** (default) -- a pure-Python client. No extra processes, works against Windows targets.
-- **FreeRDP** -- broader compatibility. Linux RDP servers (xrdp, and the GNOME "Remote Login"
+- **guacd** (default, required) -- see the next section. The most compatible, and no virtual display.
+- **aardwolf** (optional) -- a pure-Python client, now only a fallback used while guacd is down. It
+  ships prebuilt wheels only up to Python 3.13 and crashes on 3.14 (GitHub issue #42), so it is
+  installed where it can be and nothing depends on it.
+- **FreeRDP** -- broader compatibility than aardwolf. Linux RDP servers (xrdp, and the GNOME "Remote Login"
   that Ubuntu 24 ships) reject aardwolf's NTLM authentication, because the library does not send
   the message integrity code that those servers require. FreeRDP authenticates against them.
 
@@ -752,11 +772,15 @@ command to run.
 ffmpeg is there for screen capture, not video: reading the framebuffer any other way we measured
 costs 334 ms per frame, which caps the console at under 3 fps.
 
-## guacd console engine (RDP / VNC / SSH, optional)
+## guacd console engine (default for RDP / VNC)
 
-guacd is the server side of [Apache Guacamole](https://guacamole.apache.org/). It can serve as
-the engine for any of the three consoles, chosen per protocol under **Admin -> System settings**.
-It is optional; the built-in engines stay the defaults.
+guacd is the server side of [Apache Guacamole](https://guacamole.apache.org/). It is the
+**default engine for the RDP and VNC consoles** and a **required component** (since 0.6.49;
+upgrading switches existing installs to it too), and SSH can be switched to it under
+**Admin -> System settings**. `install` puts it in place and stops if it cannot; `upgrade`
+installs it when missing. While guacd is down, RDP and VNC fall back to the optional built-in
+engine (aardwolf) where that is installed, and `doctor`, **Admin -> System check** and
+**Version info -> Required components** report the problem.
 
 Why a separate install: Debian no longer ships guacd, and Ubuntu only has 1.3.0, which has known
 remote-code-execution bugs. So jt-ipam provides its own build for each supported OS version
@@ -764,8 +788,8 @@ remote-code-execution bugs. So jt-ipam provides its own build for each supported
 FreeRDP, libvncclient and the rest keep getting security fixes from apt.
 
 ```
-sudo /opt/jt-ipam/scripts/jt-ipam.sh install --with-guacd        # fresh install
-sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --with-guacd        # add it to an existing install
+sudo /opt/jt-ipam/scripts/jt-ipam.sh install                     # guacd is included
+sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade                     # installs it if missing, keeps it current
 sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...-ubuntu24.04-amd64.tar.gz
                                                                  # offline: the .deps file must sit next to it
 ```
@@ -773,8 +797,8 @@ sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...
 - It runs as the `jt-ipam-guacd` systemd service, **bound to 127.0.0.1:4822 only**. guacd itself
   has no authentication, so it must never listen on another interface. The service uses a dynamic
   user with no privileges.
-- Once installed, or once any protocol is set to guacd, every `upgrade` keeps it on the build that
-  matches that jt-ipam version. Downloads are checked against `scripts/guacd/SHA256SUMS`.
+- Every `upgrade` keeps it on the build that matches that jt-ipam version. Downloads are checked
+  against `scripts/guacd/SHA256SUMS`.
 - Credentials are passed to guacd by the server; they never reach the browser. SSH host keys are
   still confirmed the first time and pinned, and guacd must match the pinned key.
 - SSH through guacd: the terminal is drawn on the server. Copy and paste with Ctrl+Shift+C /

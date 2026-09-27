@@ -18,7 +18,9 @@ from app.api.v1.endpoints import sftp_console
 
 def _loop_source() -> str:
     src = inspect.getsource(sftp_console)
-    return src[src.index('                if op == "list":'):src.index("    except WebSocketDisconnect:")]
+    start = src.index('                if op == "list":')
+    # 從迴圈開頭往後找：檔案前面別的函式（例如傳輸路徑測試）也有同樣的 except
+    return src[start:src.index("    except WebSocketDisconnect:", start)]
 
 
 def test_every_reply_in_the_command_loop_carries_the_id():

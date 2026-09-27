@@ -170,6 +170,19 @@ class Parser:
 
 # ───────────────────────── 連線 ─────────────────────────
 
+def installed_version() -> str | None:
+    """安裝腳本裝的 jt-ipam-guacd 版本（SOURCE 檔的 version 行）；沒裝回 None。"""
+    from pathlib import Path
+    try:
+        for line in Path("/opt/jt-ipam-guacd/share/doc/jt-ipam-guacd/SOURCE").read_text(
+                encoding="utf-8").splitlines():
+            if line.startswith("version:"):
+                return line.split(":", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
+
+
 def guacd_address() -> tuple[str, int]:
     s = get_settings()
     return s.guacd_host, int(s.guacd_port)

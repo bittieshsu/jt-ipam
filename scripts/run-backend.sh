@@ -48,9 +48,12 @@ args=(
     # mid-transfer. The client sees "connection lost" with no explanation.
     #
     # The ping interval stays short so a genuinely dead peer is still reaped; only
-    # the patience for the reply grows. 600s covers the 100 MB upload cap down to
-    # roughly 1.4 Mbps of uplink. Do not lower this without re-reading the above:
-    # any timeout shorter than the longest possible upload will cut transfers.
+    # the patience for the reply grows. What the pong waits behind is bounded, not
+    # the whole file: the SFTP client keeps at most its ack window (4 MB) plus its
+    # send-buffer high-water mark (4 MB) in flight. 600s therefore covers uplinks
+    # down to roughly 14 KB/s for ANY file size -- the SFTP size limit is a system
+    # setting since 0.6.48 and can be raised to GBs without touching this. If that
+    # client flow control ever changes, re-read the above before lowering this.
     --ws-ping-interval 20
     --ws-ping-timeout 600
     # No WebSocket compression. The console carries file bytes -- usually already

@@ -164,13 +164,9 @@ async def delete_firewall(
     ).scalar_one_or_none()
     if fw is None:
         raise HTTPException(404, detail="firewall not found")
-    # dhcp_pool_ranges 已無外鍵 cascade → 自行清掉這台寫的列（不碰其他來源）
-    from sqlalchemy import delete as _delete
-
-    from app.models.dhcp import DHCPPoolRange
-    await session.execute(_delete(DHCPPoolRange).where(
-        DHCPPoolRange.source_type == "opnsense", DHCPPoolRange.source_id == fw_id,
-    ))
+    # 它寫進共用表的發放範圍／主機名稱／租約／固定分配／NAT／VPN 通道一併收回（沒有外鍵會跟著刪）
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="opnsense", source_id=fw.id)
     await session.delete(fw)
     await append_audit(
         session,

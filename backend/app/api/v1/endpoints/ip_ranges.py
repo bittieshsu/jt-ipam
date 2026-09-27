@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_object_perm
 from app.core.audit import append_audit
 from app.core.db import get_session
-from app.core.ui_error import UiError, detail_of
+from app.core.ui_error import UiError, detail_of, ui_detail
 from app.models.ip_range import IPRange
 from app.models.subnet import Subnet
 from app.schemas.ip_range import IPRangeCreate, IPRangeRead, IPRangeUpdate
@@ -61,6 +61,16 @@ async def _audit(session: AsyncSession, user: Any, request: Request, r: IPRange,
     )
 
 
+def _refuse_auto(r: IPRange) -> None:
+    """自動建立的範圍由同步管理：改了下一輪會被蓋回去、刪了會再建 —— 直接擋，講清楚要改上游。"""
+    if r.source_origin:
+        raise HTTPException(status_code=409, detail=ui_detail(
+            "range_auto_managed",
+            f"這段範圍是依「{r.name or r.source_origin}」偵測到的 DHCP 發放範圍自動建立的，"
+            "會跟著上游同步；要改請改 DHCP 伺服器上的設定",
+            source=r.name or r.source_origin))
+
+
 @router.get("/{subnet_id}/ranges", response_model=list[IPRangeRead], dependencies=_READ)
 async def list_ranges(
     subnet_id: uuid.UUID, session: Annotated[AsyncSession, Depends(get_session)],
@@ -98,6 +108,7 @@ async def update_range(
 ) -> IPRangeRead:
     sn = await _subnet(session, subnet_id)
     r = await _range(session, subnet_id, range_id)
+    _refuse_auto(r)
     changes = payload.model_dump(exclude_unset=True)
     before = {"start_ip": str(r.start_ip).split("/")[0], "end_ip": str(r.end_ip).split("/")[0],
               "purpose": r.purpose, "name": r.name, "description": r.description}
@@ -123,6 +134,7 @@ async def delete_range(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
     r = await _range(session, subnet_id, range_id)
+    _refuse_auto(r)
     await _audit(session, user, request, r, "delete", {"before": {
         "start_ip": str(r.start_ip).split("/")[0], "end_ip": str(r.end_ip).split("/")[0],
         "purpose": r.purpose, "name": r.name}})

@@ -569,16 +569,18 @@ async def set_rdp_clipboard_paste(
 #
 # `freerdp` 則相容性站在業界標準那邊，代價是要外部行程與虛擬顯示。
 #
-# ⚠️ 預設**留在 aardwolf**，直到 FreeRDP 後端完整做完並驗證過。Windows 目標本來就
-# 連得上，貿然換掉會讓能用的東西變不能用。有測試釘住這個預設值。
-#
 # `guacd`（2026-09-25 起）：Apache Guacamole 的伺服器端，預編檔由 scripts/guacd/ 提供、
-# 以 jt-ipam-guacd 服務跑在本機。VNC、SSH 也可以選它（見下方 VNC_ENGINES／SSH_ENGINES）。
+# 以 jt-ipam-guacd 服務跑在本機。
+#
+# **RDP 與 VNC 的預設是 guacd**（2026-09-27 使用者指示；已安裝的站台由遷移 0158 強制改過來，
+# 安裝／升級腳本預設會裝 guacd）。guacd 沒在跑時實際連線退回內建引擎（services/console_engine.py），
+# 不會因為某個 OS 還沒有預編檔就整個連不上。SSH 預設仍是內建。有測試釘住這些預設值。
 RDP_ENGINES: tuple[str, ...] = ("aardwolf", "freerdp", "guacd")
-_RDP_ENGINE_DEFAULT = "aardwolf"
+_RDP_ENGINE_DEFAULT = "guacd"
 #: VNC／SSH：`builtin` 是一路以來的實作（VNC 走 aardwolf、SSH 走 asyncssh＋xterm.js）
 VNC_ENGINES: tuple[str, ...] = ("builtin", "guacd")
 SSH_ENGINES: tuple[str, ...] = ("builtin", "guacd")
+_VNC_ENGINE_DEFAULT = "guacd"
 
 
 async def get_rdp_engine(session: AsyncSession) -> str:
@@ -639,7 +641,7 @@ async def _set_engine(session: AsyncSession, key: str, engine: str, allowed: tup
 
 
 async def get_vnc_engine(session: AsyncSession) -> str:
-    return await _get_engine(session, "vnc_engine", VNC_ENGINES, "builtin")
+    return await _get_engine(session, "vnc_engine", VNC_ENGINES, _VNC_ENGINE_DEFAULT)
 
 
 async def set_vnc_engine(session: AsyncSession, *, engine: str,
@@ -654,6 +656,41 @@ async def get_ssh_engine(session: AsyncSession) -> str:
 async def set_ssh_engine(session: AsyncSession, *, engine: str,
                          updated_by_user_id: uuid.UUID | None = None) -> str:
     return await _set_engine(session, "ssh_engine", engine, SSH_ENGINES, updated_by_user_id)
+
+
+# SFTP 單檔上下傳上限（MB）。預設 100 MB —— 這個功能的本意是設定檔、憑證、紀錄片段；
+# 管理者可以放大（例如要搬 ISO）。上界是防打錯字（多打三個 0），不是能力限制：
+# 後端逐塊串流、不會整個檔案放進記憶體；大檔下載在瀏覽器端改成直接寫入磁碟（SftpBrowser）。
+SFTP_MAX_FILE_MB_DEFAULT = 100
+SFTP_MAX_FILE_MB_LIMIT = 102_400          # 100 GB
+
+
+async def get_sftp_max_file_mb(session: AsyncSession) -> int:
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row and isinstance(row.value, dict):
+        v = row.value.get("sftp_max_file_mb")
+        # 壞掉的值（字串、越界）當成預設 —— 不要讓一筆壞設定把 SFTP 整個變成不能用
+        if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= SFTP_MAX_FILE_MB_LIMIT:
+            return v
+    return SFTP_MAX_FILE_MB_DEFAULT
+
+
+async def set_sftp_max_file_mb(session: AsyncSession, *, mb: int,
+                               updated_by_user_id: uuid.UUID | None = None) -> int:
+    if not (1 <= int(mb) <= SFTP_MAX_FILE_MB_LIMIT):
+        raise ValueError(f"sftp_max_file_mb out of range: {mb!r}")
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row is None:
+        row = SystemSetting(key=CONSOLE_SECURITY_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    current = dict(row.value or {})        # 同一把 key 底下還有剪貼簿與引擎，要合併
+    current["sftp_max_file_mb"] = int(mb)
+    row.value = current
+    row.updated_by = updated_by_user_id
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
+    return int(mb)
 
 
 # ─────────────────── 介面顯示設定（UI display）───────────────────

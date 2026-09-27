@@ -321,9 +321,12 @@ async def issue_rdp_ticket(
         ).limit(1)
     )).first()
 
-    from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
+    from app.services import console_engine
+    from app.services.system_config import get_rdp_clipboard_paste
     clip_enabled = await get_rdp_clipboard_paste(session)
-    engine = await get_rdp_engine(session)
+    # 預設 guacd；這台的 guacd 處理不了 RDP 時退回可用的內建引擎（見 services/console_engine.py）
+    engine = await console_engine.resolve(session, "rdp", fallbacks=[
+        ("aardwolf", engine_available("aardwolf")[0]), ("freerdp", engine_available("freerdp")[0])])
     if engine == "guacd":
         from app.services import guacd as guac
         try:
@@ -336,7 +339,8 @@ async def issue_rdp_ticket(
             raise HTTPException(status_code=503, detail=rdp_unavailable_detail(engine, missing))
 
     ticket = secrets.token_urlsafe(32)
-    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
+    # 引擎寫進票證：WebSocket 照這個用，不自己再判斷（guacd 剛好起落時兩邊會講不同協定）
+    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), "engine": engine})
     await _redis_client().set(_ticket_key(ticket), payload, ex=_TICKET_TTL)
 
     return {
@@ -350,19 +354,20 @@ async def issue_rdp_ticket(
     }
 
 
-async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> uuid.UUID | None:
+async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> tuple[uuid.UUID | None, str | None]:
+    """單次取出 → (user_id, 發票證時決定的引擎)。舊票證沒有引擎欄位 → None（呼叫端照設定）。"""
     if not ticket:
-        return None
+        return None, None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
     if not raw:
-        return None
+        return None, None
     try:
         data = json.loads(raw)
         if data.get("ip_id") != str(address_id):
-            return None
-        return uuid.UUID(data["user_id"])
+            return None, None
+        return uuid.UUID(data["user_id"]), data.get("engine")
     except (ValueError, KeyError, TypeError):
-        return None
+        return None, None
 
 
 async def _audit_rdp(
@@ -425,7 +430,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
     # 引擎在建立連線時才決定；這裡先不擋 —— aardwolf 沒裝不代表 FreeRDP 不能用
     # 1) 驗 ticket（單次取出）
-    user_id = await _redeem_ticket(ticket, address_id)
+    user_id, ticket_engine = await _redeem_ticket(ticket, address_id)
     if user_id is None:
         await websocket.close(code=4401)
         return
@@ -441,9 +446,9 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         host = str(ip.ip).split("/")[0]
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
-        from app.services.system_config import get_rdp_clipboard_paste, get_rdp_engine
+        from app.services.system_config import RDP_ENGINES, get_rdp_clipboard_paste, get_rdp_engine
         clip_enabled = await get_rdp_clipboard_paste(s)
-        engine = await get_rdp_engine(s)
+        engine = ticket_engine if ticket_engine in RDP_ENGINES else await get_rdp_engine(s)
     if not allowed:
         await websocket.close(code=4403)
         return

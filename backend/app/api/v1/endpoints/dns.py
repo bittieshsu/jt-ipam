@@ -214,6 +214,9 @@ async def delete_server(
         diff={"name": obj.name},
         request_id=getattr(request.state, "request_id", None),
     )
+    # 它寫進共用表的主機名稱／租約／固定分配／NAT／VPN 通道一併收回（沒有外鍵會跟著刪）
+    from app.services.integration_cleanup import forget_instance
+    await forget_instance(session, source="dns", source_id=obj.id)
     await session.delete(obj)
     await session.commit()
 

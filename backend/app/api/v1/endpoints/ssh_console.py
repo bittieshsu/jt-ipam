@@ -150,8 +150,9 @@ async def issue_ssh_ticket(
         # A01：不洩漏存在性差異 — 一律 403
         raise HTTPException(status_code=403, detail=ui_detail("console_ssh_forbidden", "無 SSH 連線權限"))
 
-    from app.services.system_config import get_ssh_engine
-    engine = await get_ssh_engine(session)
+    from app.services import console_engine
+    # 選了 guacd、這台的 guacd 卻處理不了 SSH → 退回內建（asyncssh 一定在）
+    engine = await console_engine.resolve(session, "ssh", fallbacks=[("builtin", True)])
     if engine == "guacd":
         from app.services import guacd as guac
         try:
@@ -160,7 +161,8 @@ async def issue_ssh_ticket(
             raise HTTPException(status_code=503, detail=exc.ui()) from exc
 
     ticket = secrets.token_urlsafe(32)
-    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
+    # 引擎寫進票證：WebSocket 照這個用，不自己再判斷（guacd 剛好起落時兩邊會講不同協定）
+    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), "engine": engine})
     await _redis_client().set(_ticket_key(ticket), payload, ex=_TICKET_TTL)
 
     return {
@@ -173,20 +175,20 @@ async def issue_ssh_ticket(
     }
 
 
-async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> uuid.UUID | None:
-    """單次取出 ticket（getdel）；回傳通過驗證的 user_id，否則 None。"""
+async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> tuple[uuid.UUID | None, str | None]:
+    """單次取出 ticket → (user_id, 發票證時決定的引擎)；舊票證沒有引擎欄位 → None（呼叫端照設定）。"""
     if not ticket:
-        return None
+        return None, None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
     if not raw:
-        return None
+        return None, None
     try:
         data = json.loads(raw)
         if data.get("ip_id") != str(address_id):
-            return None
-        return uuid.UUID(data["user_id"])
+            return None, None
+        return uuid.UUID(data["user_id"]), data.get("engine")
     except (ValueError, KeyError, TypeError):
-        return None
+        return None, None
 
 
 async def _audit_ssh(
@@ -277,7 +279,7 @@ async def _pinned_key_still_matches(host: str, port: int, known_host: str) -> bo
 @router.websocket("/{address_id}/ssh/ws")
 async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     # 1) 驗 ticket（單次取出）
-    user_id = await _redeem_ticket(ticket, address_id)
+    user_id, ticket_engine = await _redeem_ticket(ticket, address_id)
     if user_id is None:
         await websocket.close(code=4401)
         return
@@ -294,8 +296,8 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         pinned = ip.ssh_host_key
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
-        from app.services.system_config import get_ssh_engine
-        engine = await get_ssh_engine(s)
+        from app.services.system_config import SSH_ENGINES, get_ssh_engine
+        engine = ticket_engine if ticket_engine in SSH_ENGINES else await get_ssh_engine(s)
     if not allowed:
         await websocket.close(code=4403)
         return
