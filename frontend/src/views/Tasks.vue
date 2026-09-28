@@ -215,6 +215,13 @@ function formatSummary(kind: string, summary: any): string {
     return lines.join("；");
   }
 
+  // 1b) IP 探測：{job_id, agent, ip, device_type?, os?, ports?}
+  if (kind === "ip.identify") {
+    if (!summary.device_type) return t("tasks.summary.identify_running", { agent: summary.agent ?? "—" });
+    return t("tasks.summary.identify_done", {
+      type: t(`identify.type.${summary.device_type}`), os: summary.os || "—", ports: num(summary.ports) });
+  }
+
   // 2) OPNsense sync 風格：{firewall, tasks, details: [{task, seen, matched}, ...]}
   if (Array.isArray(summary.details)) {
     for (const d of summary.details) {

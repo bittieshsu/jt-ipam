@@ -35,7 +35,15 @@ const props = withDefaults(defineProps<{
 
 const FONT_MIN = 9;
 const FONT_MAX = 24;
+// 字級（px）記住：換頁、重連、換引擎都沿用
+const FONT_KEY = "jt.sshFontSize";
 const fontSize = ref(13);
+try {
+  const v = Number(localStorage.getItem(FONT_KEY));
+  if (v >= FONT_MIN && v <= FONT_MAX) fontSize.value = v;
+} catch { /* 隱私模式讀不到就用預設 */ }
+/** guacd 的字級單位是 pt（96 DPI 下 1pt＝4/3 px） */
+const fontPt = () => Math.round(fontSize.value * 0.75);
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -173,7 +181,10 @@ function doFit() {
 // 文字大小快速調整
 function setFont(delta: number) {
   fontSize.value = Math.min(FONT_MAX, Math.max(FONT_MIN, fontSize.value + delta));
+  try { localStorage.setItem(FONT_KEY, String(fontSize.value)); } catch { /* 忽略 */ }
   if (term) { term.options.fontSize = fontSize.value; doFit(); }
+  // guacd 引擎：連線中改字級（argv 串流），工作階段不中斷
+  if (guacSession.value) guacRef.value?.setArgument("font-size", String(fontPt()));
 }
 
 async function connect() {
@@ -221,8 +232,8 @@ async function connect() {
     guacSession.value = {
       key: Date.now(), url: buildSshWsUrl(ticket.ws_path, ticket.ticket),
       config: credId
-        ? { credential_id: credId, port: form.port }
-        : { username: form.username.trim(), port: form.port, auth: form.auth,
+        ? { credential_id: credId, port: form.port, font_size: fontPt() }
+        : { username: form.username.trim(), port: form.port, auth: form.auth, font_size: fontPt(),
             password: form.auth === "password" ? form.password : undefined,
             private_key: form.auth === "key" ? form.privateKey : undefined,
             passphrase: form.auth === "key" ? form.passphrase : undefined },
@@ -436,7 +447,7 @@ onBeforeUnmount(teardown);
         </span>
         <n-space :size="8" align="center">
           <!-- 文字大小快速調整 -->
-          <n-button-group v-if="phase === 'connected' && !guacSession" size="tiny">
+          <n-button-group v-if="phase === 'connected'" size="tiny">
             <n-button :disabled="fontSize <= FONT_MIN" :title="t('ssh.font_smaller')" @click="setFont(-1)">A−</n-button>
             <n-button :disabled="fontSize >= FONT_MAX" :title="t('ssh.font_larger')" @click="setFont(1)">A+</n-button>
           </n-button-group>
@@ -492,10 +503,14 @@ onBeforeUnmount(teardown);
 .ssh-disp { position: relative; }
 .ssh-disp.ssh-full { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ssh-term-area.ssh-full { flex: 1; min-height: 0; }
-.ssh-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; gap: 8px; }
+.ssh-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 4px 2px; gap: 8px; }
 .ssh-status { font-size: 13px; display: inline-flex; align-items: center; gap: 7px;
   padding: 3px 11px; border-radius: 999px; font-weight: 500;
   background: rgba(128, 128, 128, .12); color: #888; }
+/* 手機：內容放不下時整顆標籤換到下一行，不要把「連線錯誤」擠成直排、也不要超出畫面 */
+.ssh-status { flex-wrap: wrap; row-gap: 4px; max-width: 100%; min-width: 0; }
+.ssh-status > * { flex: none; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) { .ssh-status { border-radius: 14px; } }
 .ssh-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .ssh-ip { opacity: .7; font-variant-numeric: tabular-nums; }
 .ssh-status[data-state="connected"] { color: #18a058; background: rgba(24, 160, 88, .14); }

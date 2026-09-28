@@ -105,14 +105,28 @@ const cardTitle = computed(() => t("racks.card_title", {
 /** 整排並列時不顯示逐櫃工具列：上方已經有共用的一排，而且工具列的寬度會讓卡片
  *  收不進來（窄機櫃旁邊留一大片空白）。 */
 const showControls = computed(() => props.controls && !props.floorAlignTo);
+const ZOOM_MIN = 0.35;
+/**
+ * 手機的預設比例依畫面算，不沿用桌機的 100%（使用者回報手機上太大）：取「寬度放得下、整座
+ * 高度一個畫面看得完」的比例，上限 45%、下限 35%（42U 會落在 35%）。拉過拉桿就記住，
+ * 跟桌機分開記 —— 桌機習慣的大小搬到手機上通常不合用。
+ */
+const MOBILE_ZOOM_MAX = 0.45;
+const narrow = typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 767px)").matches;
+const ZOOM_KEY = narrow ? "jt.rackZoom.mobile" : "jt.rackZoom";
 const zoom = ref(1);
+let zoomFromUser = false;
+let zoomAutoSetting = false;
 try {
-  const v = Number(localStorage.getItem("jt.rackZoom"));
-  if (v >= 0.35 && v <= 1) zoom.value = v;
+  const v = Number(localStorage.getItem(ZOOM_KEY));
+  if (v >= ZOOM_MIN && v <= 1) { zoom.value = v; zoomFromUser = true; }
 } catch { /* 隱私模式讀不到就用預設 */ }
+// flush: sync —— 自動套用時要能分辨「程式設的」與「使用者拉的」，非同步的 watch 會錯過旗標
 watch(zoom, (v: number) => {
-  try { localStorage.setItem("jt.rackZoom", String(v)); } catch { /* 忽略 */ }
-});
+  if (zoomAutoSetting) return;
+  zoomFromUser = true;
+  try { localStorage.setItem(ZOOM_KEY, String(v)); } catch { /* 忽略 */ }
+}, { flush: "sync" });
 
 /**
  * 一格裡的垂直定位。**只能在這裡算**：層內疊放要用行內 style 設 bottom/height，
@@ -346,10 +360,26 @@ onMounted(() => {
     measuredPx.value = wrapEl.value.offsetHeight;
     measuredW.value = wrapEl.value.offsetWidth;
     if (props.diagram) emit("measured", props.diagram.rack_id, measuredPx.value);
+    autoFitMobile();
   });
   ro.observe(wrapEl.value);
   onBeforeUnmount(() => ro.disconnect());
 });
+const scrollEl = ref<HTMLElement | null>(null);
+function autoFitMobile() {
+  if (!narrow || zoomFromUser || !showControls.value || props.sharedZoom != null || props.compact) return;
+  const natW = measuredW.value;
+  const natH = measuredPx.value;
+  const availW = scrollEl.value?.clientWidth || 0;
+  if (!natW || !natH || !availW) return;
+  const availH = Math.max(240, window.innerHeight - 170);   // 扣掉頂列、工具列與卡片標題
+  const fit = Math.floor(Math.min(availW / natW, availH / natH) * 20) / 20;
+  const z = Math.min(MOBILE_ZOOM_MAX, Math.max(ZOOM_MIN, fit));
+  if (z === zoom.value) return;
+  zoomAutoSetting = true;
+  zoom.value = z;
+  zoomAutoSetting = false;
+}
 /**
  * 落地對齊：比該排最高的那台矮多少，就在上面補多少空白。
  *
@@ -532,7 +562,7 @@ const cells = computed<Cell[]>(() => {
           </n-button>
         </n-button-group>
         <span class="zoom-ctl" :title="t('rack_diagram.zoom')">
-          <n-slider v-model:value="zoom" :min="0.35" :max="1" :step="0.05"
+          <n-slider v-model:value="zoom" :min="ZOOM_MIN" :max="1" :step="0.05"
                     :format-tooltip="(v: number) => Math.round(v * 100) + '%'" style="width: 110px" />
           <span class="zoom-ctl__val">{{ Math.round(zoom * 100) }}%</span>
         </span>
@@ -563,7 +593,7 @@ const cells = computed<Cell[]>(() => {
       />
 
       <!-- 比卡片寬（手機）時在這一層左右捲：以前整張溢出卡片、頁面又不能橫向捲，右半邊看不到 -->
-      <div v-else class="rack-scroll">
+      <div v-else ref="scrollEl" class="rack-scroll">
       <div class="rack-zoom"
            :style="{ height: ownPx * effZoom + 'px', width: ownW * effZoom + 'px',
                      marginTop: floorPad * effZoom + 'px', '--rd-fit': String(fitZoom) }">

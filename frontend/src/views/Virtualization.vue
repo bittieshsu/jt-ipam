@@ -582,7 +582,7 @@ onMounted(() => {
                         @update:visible="clusterP.setVisible" @reset="clusterP.reset" />
           <ExportButton :columns="clusterP.visibleCols" :rows="clusterP.filtered" filename="virt-clusters" :title="t('virt.clusters')" />
         </n-space>
-        <n-data-table :columns="clusterP.visibleCols" :data="clusterP.filtered" :loading="loading" :bordered="false" :pagination="pg" />
+        <n-data-table :columns="clusterP.visibleCols" :data="clusterP.filtered" :loading="loading" :bordered="false" :pagination="pg" :scroll-x="720" />
       </n-tab-pane>
       <n-tab-pane v-if="!adminMode" name="vms">
         <template #tab>
@@ -597,7 +597,7 @@ onMounted(() => {
                         @update:visible="vmP.setVisible" @reset="vmP.reset" />
           <ExportButton :columns="vmP.visibleCols" :rows="vmP.filtered" filename="virt-vms" :title="t('virt.vms')" />
         </n-space>
-        <n-data-table :columns="vmP.visibleCols" :data="vmP.filtered" :loading="loading" :bordered="false" :pagination="pg" />
+        <n-data-table :columns="vmP.visibleCols" :data="vmP.filtered" :loading="loading" :bordered="false" :pagination="pg" :scroll-x="960" />
       </n-tab-pane>
       <!-- PVE 防火牆：東西向／主機層分段。刻意不與「對外開放服務」混在一起 ——
            PVE 規則不代表對外可達，混談會製造假的曝險警訊 -->
@@ -656,7 +656,7 @@ onMounted(() => {
                         @update:visible="proxmoxP.setVisible" @reset="proxmoxP.reset" />
           <ExportButton :columns="proxmoxP.visibleCols" :rows="proxmoxP.filtered" filename="proxmox" :title="t('virt.proxmox')" />
         </n-space>
-        <n-data-table :columns="proxmoxP.visibleCols" :data="proxmoxP.filtered" :loading="loading" :bordered="false" />
+        <n-data-table :columns="proxmoxP.visibleCols" :data="proxmoxP.filtered" :loading="loading" :bordered="false" :scroll-x="760" />
       </n-tab-pane>
     </n-tabs>
 

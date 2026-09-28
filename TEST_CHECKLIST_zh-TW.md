@@ -80,9 +80,15 @@
 - [ ] 手機版側欄（`frontend/e2e/mobile-sidebar.spec.ts`，390×844）：收起時寬度 0、內容從最左邊開始；左上角按鈕叫出來、疊在內容上；
   點選功能後與點暗掉的地方都會收回；桌機維持原樣
 - [ ] 手機上的機櫃圖（`frontend/e2e/mobile-rack.spec.ts`）：比螢幕寬時可以左右捲；「正面／背面」等工具列不凸出卡片
+- [ ] **每一個畫面都用手機寬度走一遍**（`frontend/e2e/mobile-all-routes.spec.ts`，390px，路由從 router 現場解析）：
+  整頁不可以左右捲、元素不可以被裁掉或跑出畫面（外層能左右捲的不算）、文字不可以被擠成一個字一行。
+  設 `E2E_SHOT_DIR` 會逐頁逐畫面截圖，**人工看過一遍**（量測抓不到「排得醜但沒超出」）
+- [ ] 手機上的四個回報（`frontend/e2e/mobile-overflow.spec.ts`）：側欄用手指滑得動、不會捲到後面的頁面；
+  主控台狀態列換行不擠成直排；通知框不超出畫面；機櫃圖預設比例依畫面縮小、拉過後記住（跟桌機分開）
+  ⚠️ iOS 的 100vh 比實際看得到的高，Playwright 模擬不出會伸縮的工具列 —— 側欄的修法要**請使用者在 iPhone 上確認**
 
 - [ ] `cd frontend && pnpm exec playwright test smoke`（免後端，自起 vite preview）全綠
-- [ ] 對已部署實例（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑 `pnpm test:e2e` 主路徑（登入/sections/audit）
+- [ ] 對已部署的站台（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑 `pnpm test:e2e` 主路徑（登入/sections/audit）
 
 ## 5g. 伺服器寫在畫面上的訊息 —— **只要新增或改動錯誤訊息就要跑**
 
@@ -218,7 +224,7 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 > pfSense（CE 2.8.x）端前置：安裝 **pfSense-pkg-RESTAPI**（pfrest.org），到 System → REST API →
 > Settings 把 **「API Key」** 加進認證方式（預設只有 BasicAuth），再到 Keys 產一把金鑰。
 
-- [ ] 新增實例：API URL ＋ X-API-Key，自簽憑證要**關掉驗證 TLS**；儲存（金鑰只進不出）
+- [ ] 新增整合：API URL ＋ X-API-Key，自簽憑證要**關掉驗證 TLS**；儲存（金鑰只進不出）
 - [ ] **測試連線** → 成功並顯示 pfSense 版本
 - [ ] **立即同步**（ARP＋別名＋規則開啟；若 LAN 的 DHCP 由別台負責則 **DHCP 關閉**）→ 回筆數；
   範圍內的 ARP IP 會被標上 `last_seen`（來源 `pfsense`）與 MAC；別名／規則筆數與實機相符
@@ -228,7 +234,7 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 - [ ] **規則／NAT 檢視**（眼睛按鈕）能列出同步到的規則與 NAT 筆數
 - [ ] **Graylog DSV**（開啟 Expose DSV 並設好 token）：`GET /api/v1/lookup/pfsense/{id}/aliases?token=…`
   與 `…/rules?token=…` 回 CSV/TSV；**token 錯 → 401**；`expose_dsv` 關閉 → 404
-- [ ] 刪除實例；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的實例且不出錯
+- [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
 ## 7b. VMware ESXi / vCenter 整合（管理 → 整合 VMware）—— **Beta**
 
@@ -236,12 +242,12 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 > ContainerView 會吸收掉層級深度的差異。請用**唯讀**帳號：這個整合從不寫入。
 > 免費／未授權的 ESXi 本來就只開放唯讀 API，剛好夠用。
 
-- [ ] 新增實例：URL ＋ 帳號密碼，自簽憑證要**關掉驗證 TLS**；儲存（密碼只進不出）。
+- [ ] 新增整合：URL ＋ 帳號密碼，自簽憑證要**關掉驗證 TLS**；儲存（密碼只進不出）。
   編輯時密碼留空＝不變更
 - [ ] **測試連線** → 逐步診斷：RetrieveServiceContent（產品與版本）、Login、
   RetrievePropertiesEx（VM 數）。密碼錯必須停在 **Login** 並顯示 VMware 自己的訊息，
   不可以是空泛的「伺服器錯誤」—— VMware 把認證失敗包成 HTTP 500 的 SOAP Fault
-- [ ] **立即同步** → 回 VM 數；叢集清單看得到這個實例、型別 `vmware`；
+- [ ] **立即同步** → 回 VM 數；叢集清單看得到這個整合、型別 `vmware`；
   VM 帶名稱／電源狀態／vCPU／記憶體／所在主機
 - [ ] **實機第一次跑要核對欄位**：拿幾台 VM 跟 vSphere 用戶端比對。關機的 VM 沒有 `guest.*`、
   沒裝 VMware Tools 的沒有 IP、範本沒有 `runtime.host` —— 這些都不可以讓同步中斷，應該只是回空
@@ -256,7 +262,7 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
 - [ ] **外部名稱過長（issue #25）**：VM 掛在名稱超過 64 字元的 NSX-T portgroup 上時，同步不會中斷，
   且網卡上顯示的是**完整名稱**而非截斷後的。ESXi 主機 FQDN 超過 128 字元寫進 `node` 亦同。
   第三方平台給的名稱長度，不是我們可以自己假設的。
-- [ ] 刪除實例；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的實例且不出錯
+- [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
 ## 7m. guacd 主控台引擎 —— **只要動到主控台、guacd 或它的編譯就要跑**
 
@@ -299,8 +305,8 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 位址物件通通不同步，而畫面上只有一行錯誤）。
 
 - [ ] **區段隔離**：故意讓一支端點失敗（改成錯的路徑，或收掉那一項權限），確認其餘區段照常同步
-- [ ] **部分失敗看得見**：實例會把失敗內容寫進 `last_error`；有失敗的那一輪絕不可以對使用者顯示成完全成功
-- [ ] **不可跨實例連鎖中止**：單一實例失敗不能讓整輪同步停掉（寫 `last_error` 前要先 `session.rollback()`，
+- [ ] **部分失敗看得見**：整合會把失敗內容寫進 `last_error`；有失敗的那一輪絕不可以對使用者顯示成完全成功
+- [ ] **不可跨整合連鎖中止**：單一整合失敗不能讓整輪同步停掉（寫 `last_error` 前要先 `session.rollback()`，
   否則下一次寫入會二次爆炸）
 - [ ] **錯誤訊息要帶證據**：「回應不是 JSON」這種訊息在現場毫無用處。要附狀態碼、`content-type`
   與回應開頭約 120 字，並指出最可能的原因（例如裝置回的是網頁介面 → 該韌體沒有這支端點，
@@ -328,7 +334,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 讓伺服器把工作交給代理，等於讓那支代理可以應要求在客戶網路裡發送探測封包。
 這個功能的安全性等於它最寬鬆的那道檢查。
 
-- [ ] **種類白名單**：ping / tcp / traceroute / rdns 以外一律拒絕 —— 後端要擋，
+- [ ] **種類白名單**：ping / tcp / traceroute / rdns / identify 以外一律拒絕 —— 後端要擋，
   **代理也要自己獨立擋**（後端被入侵時不得因此擴大範圍）
 - [ ] **目標驗證**：shell 特殊字元、命令替換、參數注入（`-oProxyCommand=…`）都要拒絕；
   參數一律以陣列傳給子行程，永遠不經過 shell
@@ -337,6 +343,26 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] **過期**：把代理停掉後，排隊中的工作要過期作廢而不是等代理回來才補跑 ——
   遲到幾分鐘的探測結果比沒有結果更糟
 - [ ] **真實代理往返**：建立 → 領取 → 執行 → 回報 → 取回結果，且畫面要標明是哪個代理跑的
+- [ ] **IP 詳細頁「探測」（identify）**：
+  - 只有管理員看得到按鈕；唯讀帳號直接打 `POST／GET /addresses/{id}/identify` 要回 403
+  - 目標只能是那筆 IP 記錄本身的位址：工具頁的代理探測送 `identify` 要被拒；代理收到主機名稱、
+    多個目標、網段也要自己拒絕
+  - 由該子網路指定的掃描代理執行；子網路沒有指定代理時講清楚（不是空白失敗）
+  - 同一個 IP 同時只能有一個探測；每次發起都寫稽核（action=identify）
+  - NSE 腳本清單寫死在代理裡（只讀資訊：banner／HTTP 標題／TLS 憑證／SSH 主機金鑰／SMB／RDP），
+    後端送什麼都改不了；不含工控協定埠
+  - 實機對 PVE 主機跑一次：類型要判成虛擬化主機、8006 要在連接埠清單裡、名稱不可出現憑證簽發者
+    或萬用名稱；代理沒裝 nmap 時要顯示「只查了名稱」的提示
+
+## 7d2. 掃描代理的負載 —— **只要動到代理的掃描迴圈、回報或負載判斷就要跑**
+
+- [ ] **上線偵測不被重量探測拖住**：代理每個子網路做完上線偵測就立刻回報；反解／NetBIOS／mDNS／OS 指紋
+  在背景跑，名稱查詢不等 OS 指紋。實機看 `journalctl -u jt-ipam-scan-agent`：每輪的「probes=… alive=…」
+  幾秒到幾十秒內出現，`[heavy]` 另外跑
+- [ ] 背景結果**不算上線證據**（`liveness=false`）：不更新最後出現時間、不自動新增 IP
+- [ ] 每輪統計寫進 `scan_agents.last_cycle` 與 `scan_agent_cycles`（保留 7 天）；掃描代理頁「負載」欄與面板顯示得出來
+- [ ] 超載通知：連續 3 輪才發、只發一次、恢復時再發一次；建議內容要能照做（移哪幾個子網路、哪個子網路特別慢、哪個被截斷）
+- [ ] 不自動搬子網路：面板上的「移到別的代理」要管理員自己按，並提醒那台代理要在同一個網段
 
 ## 7e. 稽核鏈的錨定 —— **只要動到稽核寫入、錨定或同步排程就要跑**
 

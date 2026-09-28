@@ -217,8 +217,9 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
       :row-class-name="(r:any) => isOldLog(r.created_at) ? 'log-dim' : ''"
     />
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px">
-      <span style="font-size: 13px; opacity: 0.7">{{ t("common.total_rows", { n: total }) }}</span>
+    <!-- 手機上放不下時分頁換到下一行，「共 N 筆」不被擠成直排 -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px">
+      <span style="font-size: 13px; opacity: 0.7; white-space: nowrap">{{ t("common.total_rows", { n: total }) }}</span>
       <n-pagination
         v-model:page="page"
         v-model:page-size="pageSize"

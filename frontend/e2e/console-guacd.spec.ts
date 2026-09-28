@@ -55,6 +55,34 @@ async function paintedPixels(page: Page): Promise<number> {
   });
 }
 
+/** 畫面最上面那一行字的右端位置（像素）。量字級用：同一行內容字變大就變寬。
+ *  （數「畫了多少像素」不準：字變大、行數變少，固定範圍內的總量差不多。） */
+async function firstLineRight(page: Page): Promise<number> {
+  return page.locator(".guac-host").evaluate((host) => {
+    let best = 0;
+    for (const c of Array.from(host.querySelectorAll("canvas"))) {
+      if (!c.width || !c.height) continue;
+      const h = Math.min(c.height, 400);
+      const d = c.getContext("2d")!.getImageData(0, 0, c.width, h).data;
+      const lit = (x: number, y: number) => {
+        const i = (y * c.width + x) * 4;
+        return d[i + 3] > 0 && d[i] + d[i + 1] + d[i + 2] > 90;
+      };
+      let y0 = -1;
+      for (let y = 0; y < h && y0 < 0; y++) for (let x = 0; x < c.width; x += 2) if (lit(x, y)) { y0 = y; break; }
+      if (y0 < 0) continue;
+      let right = 0;
+      for (let y = y0; y < Math.min(h, y0 + 40); y++) {
+        let rowLit = false;
+        for (let x = 0; x < c.width; x++) if (lit(x, y)) { rowLit = true; right = Math.max(right, x); }
+        if (!rowLit && y > y0 + 4) break;       // 第一行結束
+      }
+      best = Math.max(best, right);
+    }
+    return best;
+  });
+}
+
 function recordSent(page: Page): string[] {
   const sent: string[] = [];
   page.on("websocket", (ws) => ws.on("framesent", (f) => { sent.push(String(f.payload)); }));
@@ -219,4 +247,54 @@ test("系統設定：三個協定都能選 guacd，並顯示 guacd 的狀態", a
   for (const label of [/RDP 連線引擎/, /VNC 連線引擎/, /SSH 連線引擎/]) {
     await expect(page.locator(".fld", { hasText: label }).locator(".n-base-selection")).toContainText("guacd");
   }
+});
+
+test.describe("高解析度螢幕（像素倍率 2）", () => {
+  test.use({ deviceScaleFactor: 2 });
+
+  test("SSH 走 guacd：字不會大一倍，而且連線中可以調字級", async ({ page }) => {
+    // 使用者回報：Retina 上字很大、右上的 A−／A+ 不見了。以前 DPI 乘了倍率、畫面尺寸卻沒乘，
+    // guacd 依 DPI 把字畫成兩倍大，再 1:1 顯示出來
+    const sent = recordSent(page);
+    const received: string[] = [];
+    page.on("websocket", (ws) => ws.on("framereceived", (f) => { received.push(String(f.payload)); }));
+    await page.goto(`/ssh/${consoleIp}`);
+    await page.getByPlaceholder("root").fill("tester");
+    await page.locator(".n-input-number input").first().fill("2222");
+    await page.locator("input[type=password]").first().fill("TestPass!2026");
+    await page.getByRole("button", { name: "SSH 連線" }).click();
+    const trust = page.getByRole("button", { name: "信任並連線" });
+    if (await trust.waitFor({ state: "visible", timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await trust.click();
+    }
+    await expect(page.locator(".ssh-status")).toContainText("已連線", { timeout: 30_000 });
+
+    const cfg = JSON.parse(sent.find((m) => m.startsWith("{") && m.includes('"type":"config"'))!);
+    const boxW = await page.locator(".guac-box").evaluate((el) => el.clientWidth);
+    expect(Math.abs(cfg.width - boxW * 2)).toBeLessThanOrEqual(2);   // 畫面用裝置像素算
+    expect(cfg.dpi).toBe(192);
+    expect(cfg.font_size).toBeGreaterThan(0);
+    // 顯示時縮回 CSS 像素：遠端畫面在頁面上的寬度等於容器寬度，不是兩倍
+    await expect.poll(() => page.locator(".guac-host").evaluate((host) => {
+      const el = host.firstElementChild as HTMLElement | null;
+      return el ? Math.round(el.getBoundingClientRect().width) : 0;
+    })).toBeLessThanOrEqual(boxW + 2);
+
+    // A−／A+ 在 guacd 引擎也要有，按了用 argv 串流改字級（工作階段不中斷）。
+    // **要確認 guacd 真的套用了**：以前只驗「瀏覽器有送出」就算過，實際上後端代理把 argv 丟掉了
+    // （使用者回報按了沒反應）。所以看 guacd 回的 ack，以及畫面上的字是不是真的變大。
+    const bigger = page.getByRole("button", { name: "A+" });
+    await expect(bigger).toBeVisible();
+    await page.waitForTimeout(800);
+    const widthBefore = await firstLineRight(page);
+    expect(widthBefore).toBeGreaterThan(50);
+    const before = sent.length;
+    for (let i = 0; i < 4; i++) await bigger.click();
+    await expect.poll(() => sent.slice(before).some((m) => m.startsWith("4.argv,") && m.includes("9.font-size"))).toBe(true);
+    await expect.poll(() => received.some((m) => /(^|;)3\.ack,\d+\.\d+,[^;]*,1\.0;/.test(m)),
+                      { message: "guacd 沒有回 ack（argv 沒送到或被拒）" }).toBe(true);
+    await expect.poll(() => firstLineRight(page), { timeout: 10_000,
+                      message: "按了 A+ 字沒有變大" }).toBeGreaterThan(widthBefore * 1.2);
+    await expect(page.locator(".ssh-status")).toContainText("已連線");
+  });
 });

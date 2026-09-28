@@ -249,6 +249,19 @@ body,
     "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
 }
 
+/* 手機：分頁列放不下時換行，「共 N 筆」維持一行（以前被擠成直排、頁碼超出畫面） */
+@media (max-width: 640px) {
+  .n-pagination { flex-wrap: wrap; row-gap: 6px; justify-content: flex-end; }
+  .n-pagination .n-pagination-prefix { white-space: nowrap; }
+}
+
+/* 手機側欄打開時，後面的頁面不跟著捲（MainLayout 切換這個 class） */
+html.sider-open,
+html.sider-open body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 /* 淺色：給卡片一點陰影 + 圓角，從一片白裡浮出來 */
 html[data-theme="light"] .n-card {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06),

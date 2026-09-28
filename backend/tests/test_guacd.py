@@ -392,3 +392,61 @@ def test_vnc_tcp_check_only_runs_after_guacd_failed() -> None:
     assert src.count("tcp_reachable(") == 1
     assert src.index('conn.handshake("vnc"') < src.index("tcp_reachable(")
     assert src.index("except guac.GuacdError") < src.index("tcp_reachable(")
+
+
+# ─────────────────── argv：只放行呼叫端明確允許的參數（SSH 字級），值要驗證 ───────────────────
+# 使用者回報：SSH 主控台按 A−／A+ 沒反應。瀏覽器有送 argv，但代理的白名單把它丟掉了。
+# argv 能在連線中改 guacd 允許修改的參數（RDP 甚至包含帳號密碼），所以只能逐一開放。
+
+def _font_ok(v: str) -> bool:
+    return v.isdigit() and 6 <= int(v) <= 32
+
+
+async def _relay_with(messages: list[str], allow) -> tuple[FakeGuacd, guac.RelayResult]:  # noqa: ANN001
+    async with FakeGuacd([encode("sync", "1")]) as fake:
+        conn = await _open(fake)
+        await conn.handshake("ssh", {}, width=800, height=600)
+        initial = await conn.wait_first_frame(5)
+        ws = FakeWebSocket(messages)
+
+        async def later() -> None:
+            await asyncio.sleep(0.6)
+            ws.close_from_browser()
+
+        closer = asyncio.create_task(later())
+        res = await guac.relay(ws, conn, initial=initial, argv_allow=allow)
+        await closer
+        await conn.aclose()
+    return fake, res
+
+
+def _argv(stream: str, name: str, value: str) -> str:
+    import base64
+    return (encode("argv", stream, "text/plain", name)
+            + encode("blob", stream, base64.b64encode(value.encode()).decode()) + encode("end", stream))
+
+
+async def test_relay_passes_an_allowed_argv_with_a_valid_value() -> None:
+    fake, res = await _relay_with([_argv("3", "font-size", "14")], {"font-size": _font_ok})
+    got = [i for i in fake.received if i[0] in ("argv", "blob", "end")]
+    assert got == [["argv", "3", "text/plain", "font-size"], ["blob", "3", "MTQ="], ["end", "3"]]
+    assert res.dropped == 0
+
+
+async def test_relay_drops_argv_that_is_not_allowed_or_invalid() -> None:
+    fake, res = await _relay_with(
+        [_argv("3", "password", "x"), _argv("4", "font-size", "999"), _argv("5", "font-size", "12;x")],
+        {"font-size": _font_ok})
+    assert not [i for i in fake.received if i[0] in ("argv", "blob", "end")]
+    assert res.dropped >= 3
+
+
+async def test_relay_without_an_allow_list_still_drops_argv_but_keeps_clipboard() -> None:
+    import base64
+    clip = (encode("clipboard", "7", "text/plain") + encode("blob", "7", base64.b64encode(b"hi").decode())
+            + encode("end", "7"))
+    fake, _ = await _relay_with([_argv("3", "font-size", "14"), clip], None)
+    ops = [i[0] for i in fake.received]
+    assert "argv" not in ops
+    assert ["blob", "7", "aGk="] in fake.received      # 剪貼簿的 blob／end 照常轉送
+    assert ["end", "7"] in fake.received

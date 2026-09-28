@@ -72,6 +72,15 @@ def _ticket_key(ticket: str) -> str:
     return f"ssh:tk:{ticket}"
 
 
+
+def _guac_font_pt(value: object) -> int:
+    """guacd 終端機字級（pt）。沒給或不合法就用 12；夾在 6～32 之間。"""
+    try:
+        pt = int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return 12
+    return max(6, min(32, pt))
+
 @router.get("/ssh/targets", response_model=list[IPAddressRead])
 async def list_ssh_targets(
     user: CurrentUser,
@@ -471,7 +480,9 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             params: dict[str, str] = {
                 "hostname": host, "port": str(port), "username": username,
                 "host-key": guac.known_hosts_line(host, port, known_host),
-                "terminal-type": "xterm-256color", "font-name": "monospace", "font-size": "12",
+                "terminal-type": "xterm-256color", "font-name": "monospace",
+                # 字級（pt）由前端帶（使用者調過會記住）；連線中可再用 argv 串流改，不必重連
+                "font-size": str(_guac_font_pt(cfg.get("font_size"))),
                 "scrollback": "2000", "server-alive-interval": "15",
                 # 跟內建的 xterm.js 一樣可以複製、貼上
                 "disable-copy": "false", "disable-paste": "false",
@@ -510,7 +521,9 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 await send({"type": "status", "state": "connected", "engine": "guacd",
                             "width": width, "height": height})
                 guac_mode = True
-                await guac.relay(websocket, gconn, initial=initial)
+                # 連線中只允許改字級（A−／A+），值是 6～32 的整數（pt）
+                await guac.relay(websocket, gconn, initial=initial,
+                                 argv_allow={"font-size": lambda v: v.isdigit() and 6 <= int(v) <= 32})
                 dur = (datetime.now(UTC) - started).total_seconds()
                 await _audit_ssh(
                     actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),

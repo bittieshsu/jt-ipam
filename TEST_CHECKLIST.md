@@ -173,6 +173,15 @@ to see what a customer sees.**
   dimmed area closes it; desktop is unchanged
 - [ ] Rack diagrams on phones (`frontend/e2e/mobile-rack.spec.ts`): pan left / right when wider than the
   screen; the Front / Rear toolbar stays inside the card
+- [ ] **Every screen at phone width** (`frontend/e2e/mobile-all-routes.spec.ts`, 390px, routes parsed from the
+  router): no page-level horizontal scroll, nothing clipped or off screen (unless a horizontally scrollable
+  container holds it), no text squeezed to one character per line. With `E2E_SHOT_DIR` it screenshots every
+  screen of every page — **look at them**; the measurements cannot see "ugly but inside the screen"
+- [ ] The four phone reports (`frontend/e2e/mobile-overflow.spec.ts`): the sidebar scrolls under a finger and
+  does not scroll the page behind; console status bars wrap instead of stacking one character per line; the
+  notification popover stays on screen; rack diagrams default to a zoom that fits the phone and remember a
+  change (separately from desktop). ⚠️ iOS's 100vh is taller than what is visible and Playwright cannot emulate
+  the collapsing toolbar — **have the sidebar fix confirmed on an iPhone**
 
 Type checks, unit tests and API tests all pass while a page renders the wrong
 thing, renders nothing, or puts it in the wrong place. Defects this project has
@@ -590,7 +599,7 @@ NAT and address objects from syncing at all, while the UI showed a single error 
 Letting the server hand work to an agent turns that agent into something that runs network
 probes on request inside a customer network. The feature is only as safe as its narrowest check.
 
-- [ ] **Kind allowlist**: anything outside ping / tcp / traceroute / rdns is refused — by the
+- [ ] **Kind allowlist**: anything outside ping / tcp / traceroute / rdns / identify is refused — by the
   backend *and independently by the agent* (a compromised backend must not be able to widen it)
 - [ ] **Target validation**: shell metacharacters, command substitution and argument injection
   (`-oProxyCommand=…`) are rejected; arguments are always passed as a list, never through a shell
@@ -601,6 +610,35 @@ probes on request inside a customer network. The feature is only as safe as its 
   agent returns — a probe answering minutes after the question is worse than no answer
 - [ ] **Round trip on a real agent**: create → claim → execute → report → read result, and the
   UI states which agent produced the output
+- [ ] **"Probe" on the IP detail page (identify)**:
+  - only admins see the button; a read-only account calling `POST/GET /addresses/{id}/identify`
+    gets 403
+  - the target can only be that IP record's own address: the tools page's agent probe refuses
+    `identify`; the agent itself refuses host names, multiple targets and networks
+  - it runs on the scan agent assigned to the subnet; a subnet without one says so (not a blank
+    failure)
+  - one probe per IP at a time; every start is audited (action=identify)
+  - the NSE script list is fixed inside the agent (read-only: banner / HTTP title / TLS
+    certificate / SSH host key / SMB / RDP) and nothing the backend sends can change it; no
+    industrial-protocol ports
+  - run it once against a real PVE host: the type is hypervisor, 8006 is in the port list, and
+    the names contain neither the certificate issuer nor wildcard names; an agent without nmap
+    shows the "names only" notice
+
+## 7d2. Scan agent load — **whenever the agent's scan loop, its reports or the load evaluation change**
+
+- [ ] **Liveness is never held up by heavy probes**: the agent reports each subnet as soon as its liveness pass
+  is done; reverse DNS / NetBIOS / mDNS / OS fingerprinting run in the background and names do not wait for
+  the OS fingerprint. On a real agent, `journalctl -u jt-ipam-scan-agent` shows each cycle's "probes=… alive=…"
+  within seconds to tens of seconds, with `[heavy]` running separately
+- [ ] Background results are **not evidence of being online** (`liveness=false`): they do not touch last-seen
+  and never create IPs
+- [ ] Cycle statistics land in `scan_agents.last_cycle` and `scan_agent_cycles` (kept 7 days); the Load column
+  and panel on the Scan agents page show them
+- [ ] Overload alerts: only after 3 consecutive cycles, sent once, plus once on recovery; the suggestions are
+  actionable (which subnets to move, which subnet is unusually slow, which one is truncated)
+- [ ] No automatic re-assignment: "Move to another agent" in the panel is an admin's click, with a reminder that
+  the agent must be on the same network segment
 
 ## 7e. Audit chain anchoring — **whenever audit writes, anchoring or the sync schedule change**
 

@@ -1421,6 +1421,8 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     # 「東西壞了卻沒人知道」三類。只在開始與恢復時發（見 services/state_alert）。
     ("integration.sync_failed", True, False),  # 整合同步失敗／恢復
     ("agent.offline", True, False),            # 掃描／憑證代理失聯／恢復
+    ("agent.overloaded", True, False),         # 掃描代理負載過重（連續 3 輪）／恢復
+    ("identify.done", True, False),            # 自己發起的 IP 探測完成／失敗（只通知發起人）
     ("system.health", True, False),            # 系統檢查未通過／恢復
     ("dhcp.pool_exhausted", True, False),      # DHCP 集區快用完／回到門檻以下
     ("jump_host.key_changed", True, True),     # 跳板主機金鑰改變（資安事件，預設連 Email 都開）

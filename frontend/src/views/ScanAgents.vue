@@ -19,6 +19,8 @@ import {
   type ScanAgentTool,
 } from "@/api/phase3";
 import { listSubnets } from "@/api/subnets";
+import { useRoute } from "vue-router";
+import ScanAgentLoadPanel from "@/components/ScanAgentLoadPanel.vue";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import { autoSort } from "@/composables/useTableSort";
 import { SUDO } from "@/utils/sudo";
@@ -31,7 +33,7 @@ const { catalog } = useScanProbes();
 
 // 所有欄位 = 預設可見（含新加的 tools「相依套件」）。tools 同時在 allKeys（才點得動/開得起來）
 // 與 defaultVisible（才預設打開；在此 → withNewDefaults 讓舊用戶升級後也自動帶出這欄）。
-const SA_COLS = ["name", "enabled", "has_key", "agent_version", "source_ip", "subnet_count",
+const SA_COLS = ["name", "enabled", "has_key", "agent_version", "source_ip", "subnet_count", "load",
   "tools", "last_seen_at", "last_error", "actions"];
 const { visibleKeys: saVis, setVisible: saSet, reset: saReset } = useColumnPrefs(
   "scan_agents", SA_COLS, SA_COLS,
@@ -43,6 +45,7 @@ const saPicker = computed(() => [
   { key: "agent_version", label: t("cols.version") },
   { key: "source_ip", label: t("cols.source_ip") },
   { key: "subnet_count", label: t("cols.subnet") },
+  { key: "load", label: t("scan_load.col_load") },
   { key: "tools", label: t("scan_agent.deps") },
   { key: "last_seen_at", label: t("cols.last_report") },
   { key: "last_error", label: t("cols.last_error") },
@@ -50,7 +53,12 @@ const saPicker = computed(() => [
 ]);
 
 const msg = useMessage();
+const route = useRoute();
 const rows = ref<ScanAgent[]>([]);
+// 負載面板（通知的連結帶 ?load=<代理 id>，進來就直接打開那一台）
+const loadShow = ref(false);
+const loadAgent = ref<ScanAgent | null>(null);
+function openLoad(r: ScanAgent) { loadAgent.value = r; loadShow.value = true; }
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 import { useTablePagination } from "@/composables/useTablePagination";
@@ -270,6 +278,19 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
     render: (r) => r.subnet_count ?? 0,
   },
   {
+    // 負載＝上線偵測一輪耗時 ÷ 週期；點一下看逐子網路細節與建議（代理 1.10.0 起才有）
+    title: t("scan_load.col_load"), key: "load", width: 128,
+    render: (r) => {
+      const l = r.load;
+      if (!l) return h(NText, { depth: 3 }, () => "—");
+      const parts = [`${Math.round(l.ratio * 100)}%`];
+      if (l.heavy_backlog) parts.push(t("scan_load.backlog_short", { n: l.heavy_backlog }));
+      return h(NButton, { text: true, type: l.level === "overloaded" ? "error" : l.level === "busy" ? "warning" : "success",
+                          "data-testid": "scan-load-cell", onClick: () => openLoad(r) },
+        () => (l.truncated || l.coverage_gap ? `${parts.join(" · ")} ⚠` : parts.join(" · ")));
+    },
+  },
+  {
     title: t("scan_agent.deps"), key: "tools", width: 96,
     render: (r) => {
       const ts = r.tools ?? [];
@@ -338,7 +359,12 @@ function toolStateLabel(s: ToolState): string {
       : t("scan_agent.dep_missing");
 }
 
-onMounted(() => { void refresh(); });
+onMounted(async () => {
+  await refresh();
+  const want = String(route.query.load || "");
+  const hit = want ? rows.value.find((a) => a.id === want) : undefined;
+  if (hit) openLoad(hit);
+});
 </script>
 
 <template>
@@ -591,6 +617,9 @@ onMounted(() => { void refresh(); });
         </n-alert>
       </div>
     </n-modal>
+
+    <ScanAgentLoadPanel v-model:show="loadShow" :agent="loadAgent" :agents="rows"
+                        @changed="refresh" @create="loadShow = false; openCreate()" />
   </n-card>
 </template>
 

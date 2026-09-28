@@ -349,7 +349,7 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
           {{ t("ocs.intro") }}
         </NAlert>
         <NDataTable :columns="columns" :data="rows" :loading="loading" :bordered="false"
-                    :row-key="(r: OcsServer) => r.id" />
+                    :row-key="(r: OcsServer) => r.id" :scroll-x="820" />
       </NTabPane>
       <NTabPane name="agents">
         <template #tab>

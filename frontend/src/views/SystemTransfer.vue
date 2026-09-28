@@ -360,10 +360,10 @@ onUnmounted(() => { stopExpTimer(); stopImpTimer(); });
 .fail-list li { margin-bottom: 2px; }
 .st-wrap { display: flex; flex-direction: column; gap: 16px; }
 /* 匯出 / 匯入 並排；寬螢幕兩欄用滿版面，窄螢幕自動堆疊 */
-.st-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 16px; align-items: start; }
+.st-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 16px; align-items: start; }
 .st-group { margin-bottom: 18px; }
 .st-label { font-weight: 600; margin-bottom: 8px; }
 .st-hint { font-size: 12px; opacity: 0.65; margin-top: 6px; }
-.st-scope-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 16px; }
+.st-scope-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 10px 16px; }
 .st-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; margin-bottom: 14px; opacity: 0.85; }
 </style>

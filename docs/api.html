@@ -677,7 +677,7 @@ curl -G https://ipam.example.com/api/v1/addresses \
   <h2 id="openapi"><span class="n">16</span>OpenAPI</h2>
   <p><span class="zh">後端是 FastAPI，會自動產生 OpenAPI 規格。但<b>正式環境（<code>APP_ENV=production</code>）一律關閉</b> <code>/docs</code>、<code>/redoc</code> 與 <code>/openapi.json</code>，避免對外洩漏完整攻擊面。</span>
      <span class="en">The backend is FastAPI and generates an OpenAPI spec automatically. However <code>/docs</code>, <code>/redoc</code> and <code>/openapi.json</code> are <b>disabled in production (<code>APP_ENV=production</code>)</b> so the full attack surface isn't published.</span><span class="ja">バックエンドは FastAPI なので OpenAPI 仕様が自動生成されます。ただし<b>本番環境（<code>APP_ENV=production</code>）では</b> <code>/docs</code>・<code>/redoc</code>・<code>/openapi.json</code> を<b>すべて無効化</b>し、攻撃面の全体像が外部に公開されないようにしています。</span></p>
-  <p><span class="zh">要拿完整的機器可讀規格（含每個端點的全部欄位），在非正式環境的實例上開一台即可：</span>
+  <p><span class="zh">要拿完整的機器可讀規格（含每個端點的全部欄位），在非正式環境的站台上開一台即可：</span>
      <span class="en">To get the complete machine-readable spec (every field of every endpoint), run a non-production instance:</span><span class="ja">機械可読の完全な仕様（各エンドポイントの全項目を含む）が必要な場合は、本番以外の環境でインスタンスを一つ起動してください。</span></p>
   <pre><code>APP_ENV=development uvicorn app.main:app
 curl http://127.0.0.1:8000/openapi.json &gt; jt-ipam-openapi.json</code></pre>

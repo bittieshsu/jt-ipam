@@ -1330,11 +1330,15 @@ html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(20
 .sftp-pathbar { margin-bottom: 10px; }
 
 /* 狀態列 —— 與 SSH 主控台同一套（同樣的圓角膠囊、同樣的狀態配色） */
-.sftp-toolbar { display: flex; justify-content: space-between; align-items: center;
+.sftp-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;
   padding: 4px 2px; gap: 8px; margin-bottom: 8px; }
 .sftp-status { font-size: 13px; display: inline-flex; align-items: center; gap: 7px;
   padding: 3px 11px; border-radius: 999px; font-weight: 500;
   background: rgba(128, 128, 128, .12); color: #888; }
+/* 手機：內容放不下時整顆標籤換到下一行，不要把「連線錯誤」擠成直排、也不要超出畫面 */
+.sftp-status { flex-wrap: wrap; row-gap: 4px; max-width: 100%; min-width: 0; }
+.sftp-status > * { flex: none; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) { .sftp-status { border-radius: 14px; } }
 .sftp-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .sftp-ip { opacity: .7; font-variant-numeric: tabular-nums; }
 .sftp-status[data-state="connected"] { color: #18a058; background: rgba(24, 160, 88, .14); }

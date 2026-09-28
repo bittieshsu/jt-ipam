@@ -527,10 +527,14 @@ onBeforeUnmount(teardown);
 .rdp-disp { position: relative; }
 .rdp-disp.rdp-full { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .rdp-screen-area.rdp-full { flex: 1; min-height: 0; }
-.rdp-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; gap: 8px; }
+.rdp-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 4px 2px; gap: 8px; }
 .rdp-status { font-size: 13px; display: inline-flex; align-items: center; gap: 7px;
   padding: 3px 11px; border-radius: 999px; font-weight: 500;
   background: rgba(128, 128, 128, .12); color: #888; }
+/* 手機：內容放不下時整顆標籤換到下一行，不要把「連線錯誤」擠成直排、也不要超出畫面 */
+.rdp-status { flex-wrap: wrap; row-gap: 4px; max-width: 100%; min-width: 0; }
+.rdp-status > * { flex: none; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) { .rdp-status { border-radius: 14px; } }
 .rdp-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .rdp-ip { opacity: .7; font-variant-numeric: tabular-nums; }
 .rdp-status[data-state="connected"] { color: #18a058; background: rgba(24, 160, 88, .14); }

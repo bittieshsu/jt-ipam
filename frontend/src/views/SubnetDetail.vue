@@ -594,12 +594,13 @@ function ipMatchesFilter(a: IPAddress): boolean {
 }
 
 const ipRows = computed<any[]>(() => {
-  // 失聯篩選開啟時：只列符合的已登記 IP，不插入閒置區間列
-  if (staleFilterOn.value) return staleMatches.value.filter(ipMatchesFilter);
-  // 只看 DHCP：只列落在 DHCP 發放範圍內的已登記 IP，不插入閒置區間列
-  if (onlyDhcp.value) return addresses.value.filter((a) => isDhcpIp(a.ip)).filter(ipMatchesFilter);
-  // 有搜尋字時：只列符合的已登記 IP，不插入閒置區間列
-  if (ipFilterText.value.trim()) return addresses.value.filter(ipMatchesFilter);
+  // 有任何篩選（只看失聯／只看 DHCP／篩選字）時：只列符合的已登記 IP，不插入閒置區間列。
+  // 三個條件要**疊加**：以前寫成一連串提前 return，開了失聯就直接回傳，DHCP 永遠套不到（使用者回報）
+  if (staleFilterOn.value || onlyDhcp.value || ipFilterText.value.trim()) {
+    let rows = staleFilterOn.value ? staleMatches.value : addresses.value;
+    if (onlyDhcp.value) rows = rows.filter((a) => isDhcpIp(a.ip));
+    return rows.filter(ipMatchesFilter);
+  }
   const cidr = subnet.value?.cidr;
   const list = [...addresses.value];
   if (!cidr || cidr.includes(":")) return list;   // IPv6 暫不算閒置區間
@@ -909,7 +910,7 @@ onMounted(() => {
             <n-slider v-model:value="staleThreshold" :min="1" :max="180" :step="1" style="flex: 1; max-width: 360px" />
           </div>
           <div class="stale-hint">
-            {{ t("stale.match_count", { n: staleMatches.length }) }} · {{ t("stale.exclude_note") }}
+            {{ t("stale.match_count", { n: ipRows.length }) }} · {{ t("stale.exclude_note") }}
           </div>
         </div>
 

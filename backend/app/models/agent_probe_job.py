@@ -23,7 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, UUIDPrimaryKeyMixin
 
 # 白名單：只開放唯讀、無副作用的網路探測。**不開放任意指令**。
-PROBE_KINDS = ("ping", "tcp", "traceroute", "rdns")
+# identify：IP 詳細頁的「探測」—— 對單一 IP 做非侵入式識別（服務版本、OS 指紋、banner、
+# TLS 憑證、名稱查詢），只有管理員能發起（services/ip_identify）。
+PROBE_KINDS = ("ping", "tcp", "traceroute", "rdns", "identify")
 
 STATUS_PENDING = "pending"
 STATUS_RUNNING = "running"
@@ -42,6 +44,8 @@ class AgentProbeJob(Base, UUIDPrimaryKeyMixin):
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=STATUS_PENDING)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: 執行中的進度（目前只有 identify 會回報）：{stage, phase, percent, remaining, open[], elapsed, log[]}
+    progress: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     requested_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))

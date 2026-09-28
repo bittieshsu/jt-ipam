@@ -141,3 +141,44 @@ async def test_purge_keeps_recently_expired(db_session) -> None:
 
     assert await ip_lifecycle.purge_expired(db_session, keep_days=90) == 0
     assert await ip_lifecycle.purge_expired(db_session, keep_days=5) == 1
+
+
+# ─────────────── 批次刪除與單筆刪除同一套（2026-09-28 發現） ───────────────
+# 批次刪除以前只寫稽核就刪：沒有進冷卻期、IP 異動記錄也沒有「已刪除」—— 同一件事兩條路徑
+# 行為不同。實機：一筆 IP 被批次刪掉後，位址馬上就能配給別台，異動記錄裡也查不到刪除。
+
+async def test_bulk_delete_starts_the_cooldown_and_logs_the_deletion(
+        client, auth_headers, db_session) -> None:
+    from app.models.ip_change_log import IPChangeLog
+    sub = await _subnet(db_session)
+    a = await _ip(db_session, sub, "198.51.100.2", hostname="host-a")
+    b = await _ip(db_session, sub, "198.51.100.3", hostname="host-b")
+    await db_session.commit()
+    ids = [str(a.id), str(b.id)]
+    sub_id = sub.id
+
+    r = await client.post("/api/v1/addresses/bulk-delete", headers=auth_headers, json={"ids": ids})
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 2
+
+    db_session.expire_all()
+    cds = (await db_session.execute(select(IPCooldown).where(IPCooldown.subnet_id == sub_id))).scalars().all()
+    assert sorted(str(c.ip).split("/")[0] for c in cds) == ["198.51.100.2", "198.51.100.3"]
+    assert {c.previous_hostname for c in cds} == {"host-a", "host-b"}
+    logs = (await db_session.execute(select(IPChangeLog).where(
+        IPChangeLog.subnet_id == sub_id, IPChangeLog.event_type == "deleted"))).scalars().all()
+    assert sorted(str(x.ip_text).split("/")[0] for x in logs) == ["198.51.100.2", "198.51.100.3"]
+
+
+async def test_single_delete_still_does_the_same(client, auth_headers, db_session) -> None:
+    from app.models.ip_change_log import IPChangeLog
+    sub = await _subnet(db_session)
+    a = await _ip(db_session, sub, "198.51.100.4", hostname="host-c")
+    await db_session.commit()
+    aid, sub_id = a.id, sub.id
+    r = await client.delete(f"/api/v1/addresses/{aid}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+    db_session.expire_all()
+    assert (await db_session.execute(select(IPCooldown).where(IPCooldown.subnet_id == sub_id))).scalars().first()
+    assert (await db_session.execute(select(IPChangeLog).where(
+        IPChangeLog.subnet_id == sub_id, IPChangeLog.event_type == "deleted"))).scalars().first()

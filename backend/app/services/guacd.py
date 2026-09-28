@@ -24,7 +24,7 @@ import codecs
 import contextlib
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -415,8 +415,21 @@ class RelayResult:
     dropped: int = 0       # 被白名單擋掉的指令數（稽核用；正常使用應該是 0）
 
 
-async def relay(websocket: Any, conn: GuacdConnection, *, initial: str = "") -> RelayResult:
-    """瀏覽器 ⇄ guacd。回傳誰先結束。websocket 是 FastAPI 的 WebSocket。"""
+#: argv 的值最多幾個字元（字級、配色這類短字串；長的一律當異常）
+_MAX_ARGV_VALUE = 64
+
+
+async def relay(websocket: Any, conn: GuacdConnection, *, initial: str = "",
+                argv_allow: dict[str, Callable[[str], bool]] | None = None) -> RelayResult:
+    """瀏覽器 ⇄ guacd。回傳誰先結束。websocket 是 FastAPI 的 WebSocket。
+
+    `argv_allow`：連線中允許瀏覽器修改的參數名稱 → 值的驗證函式（例如 SSH 的 font-size）。
+    argv 能改 guacd 允許修改的任何參數（RDP 甚至包含帳號密碼），所以預設全擋，只放行呼叫端
+    明確列出的名稱；值要整段收齊、驗證通過，才把 argv／blob／end 一起送出。
+    """
+    import base64
+    import binascii
+
     from fastapi import WebSocketDisconnect
 
     result = RelayResult()
@@ -433,6 +446,46 @@ async def relay(websocket: Any, conn: GuacdConnection, *, initial: str = "") -> 
                 continue
             await websocket.send_text(chunk)
 
+    # argv 串流：stream → [名稱, 已收到的值]；end 時驗證，通過才整段送出
+    argv_streams: dict[str, list[Any]] = {}
+    rejected_streams: set[str] = set()      # 被拒的 argv：它後面的 blob／end 也要擋
+
+    def take_argv(ins: list[str]) -> list[str] | None:
+        """處理 argv 與它的 blob／end。回傳要送給 guacd 的指令（None＝不是 argv 串流、照一般規則）。"""
+        op = ins[0]
+        if op == "argv":
+            if (argv_allow and len(ins) == 4 and ins[2] == "text/plain" and ins[3] in argv_allow
+                    and ins[1] not in argv_streams):
+                argv_streams[ins[1]] = [ins[3], ""]
+            else:
+                result.dropped += 1
+                if len(ins) > 1:
+                    rejected_streams.add(ins[1])
+            return []
+        if op in ("blob", "end") and len(ins) >= 2 and ins[1] in rejected_streams:
+            if op == "end":
+                rejected_streams.discard(ins[1])
+            return []
+        if op in ("blob", "end") and len(ins) >= 2 and ins[1] in argv_streams:
+            name, value = argv_streams[ins[1]]
+            if op == "blob":
+                try:
+                    value += base64.b64decode(ins[2] if len(ins) > 2 else "", validate=True).decode()
+                except (binascii.Error, UnicodeDecodeError, ValueError):
+                    value = "\x00invalid"
+                argv_streams[ins[1]][1] = value
+                return []
+            del argv_streams[ins[1]]
+            check = (argv_allow or {}).get(name)
+            if len(value) > _MAX_ARGV_VALUE or check is None or not check(value):
+                result.dropped += 1
+                return []
+            b64 = base64.b64encode(value.encode()).decode()
+            return [encode("argv", ins[1], "text/plain", name), encode("blob", ins[1], b64), encode("end", ins[1])]
+        if op == "argv":
+            return []
+        return None
+
     async def pump_in() -> None:
         parser = Parser()
         try:
@@ -445,6 +498,10 @@ async def relay(websocket: Any, conn: GuacdConnection, *, initial: str = "") -> 
                     return
                 out: list[str] = []
                 for ins in instructions:
+                    handled = take_argv(ins) if ins else None
+                    if handled is not None:
+                        out.extend(handled)
+                        continue
                     if not ins or ins[0] not in ALLOWED_CLIENT_OPCODES:
                         result.dropped += 1
                         continue

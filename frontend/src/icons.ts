@@ -19,6 +19,7 @@ import { NIcon } from "naive-ui";
 import {
   // 通用動作
   Plus,
+  FingerprintScan,
   Copy,
   Archive,
   Undo,
@@ -224,6 +225,8 @@ export const LoginIcon = LogIn;
 export const LogoutIcon = LogOut;
 export const TokenIcon = Key;
 export const TestIcon = CheckCircle;
+// IP 詳細頁的「探測」：辨識這個位址是什麼主機
+export const IdentifyIcon = FingerprintScan;
 
 /**
  * 把 Iconoir icon 包成 NMenu / NDropdown / NTabs 認得的 render function。

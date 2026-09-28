@@ -274,8 +274,10 @@ def _grouped(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-# 不是實體磁碟的區塊裝置（Linux 代理照 lsblk 全列）
-_VIRTUAL_DISK = re.compile(r"^(zram|loop|ram|sr|fd|md|dm-|nbd)\d*", re.IGNORECASE)
+# 不是實體磁碟的區塊裝置（Linux 代理照 lsblk 全列，OCS 也沒有排除的設定）：
+# 記憶體壓縮、loop、光碟機、軟體 RAID／device-mapper、網路區塊裝置，以及 PVE 主機常見的
+# Ceph RBD（rbdN）、ZFS zvol（zdN）、DRBD。VM 自己的 vda／xvda 是它的磁碟，不在此列。
+_VIRTUAL_DISK = re.compile(r"^(zram|loop|ram|sr|fd|md|dm-|nbd|rbd|zd|drbd)\d*", re.IGNORECASE)
 _DEVICE_PATH = ("//./", "\\\\.\\")
 # lspci 名稱的公司段：「Intel Corporation …」「ASPEED Technology, Inc. …」
 _GPU_COMPANY = re.compile(r"^(?P<co>.*?(?:Corporation|Corp\.|,? Inc\.|Co\., Ltd\.|Ltd\.))\s+(?P<rest>.+)$")

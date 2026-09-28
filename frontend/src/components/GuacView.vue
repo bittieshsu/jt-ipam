@@ -93,11 +93,18 @@ function JtTunnel(this: any, socket: WebSocket) {
 (JtTunnel as any).prototype = new Guacamole.Tunnel();
 
 // ───────── 尺寸與縮放 ─────────
+/**
+ * 高解析度螢幕（Retina 等）的像素倍率。遠端畫面要用**裝置像素**算尺寸、DPI 跟著乘，
+ * 顯示時再縮回 CSS 像素 —— 跟官方 guacamole-client 的作法一樣。以前只把 DPI 乘上倍率、
+ * 尺寸卻用 CSS 像素：guacd 依 DPI 把 SSH 字型畫成兩倍大，1:1 顯示出來字就大一倍（使用者回報）。
+ * 使用者指定固定解析度時就照那個解析度、DPI 96，不乘倍率。
+ */
+const density = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
 function boxSize(): [number, number] {
   const b = boxEl.value;
   const w = Math.max(320, Math.floor(b?.clientWidth || window.innerWidth - 24));
   const h = Math.max(200, Math.floor(b?.clientHeight || window.innerHeight - 120));
-  return [w, h];
+  return [Math.round(w * density), Math.round(h * density)];
 }
 function applyScale() {
   const display = client?.getDisplay();
@@ -105,7 +112,7 @@ function applyScale() {
   if (!display || !b) return;
   const dw = display.getWidth(), dh = display.getHeight();
   if (!dw || !dh) return;
-  if (props.scaleMode === "native") { display.scale(1); return; }
+  if (props.scaleMode === "native") { display.scale(props.fixedSize ? 1 : 1 / density); return; }
   display.scale(Math.min(b.clientWidth / dw, b.clientHeight / dh));
 }
 function onBoxResize() {
@@ -246,7 +253,7 @@ async function connect() {
   ws = new WebSocket(props.wsUrl);
   ws.onopen = () => {
     ws?.send(JSON.stringify({ type: "config", ...props.config, width: w, height: h,
-      dpi: Math.round(96 * (window.devicePixelRatio || 1)), timezone: tz || undefined }));
+      dpi: props.fixedSize ? 96 : Math.round(96 * density), timezone: tz || undefined }));
   };
   ws.onmessage = (ev) => {
     if (tunnel) { tunnel.receive(ev.data); return; }    // 已經切到 Guacamole 協定
@@ -296,7 +303,15 @@ onMounted(connect);
 watch(() => props.scaleMode, () => nextTick(applyScale));
 onBeforeUnmount(() => { finished = true; teardown(); });
 
-defineExpose({ disconnect, sendCombo, paste, focus, acceptHostKey, rejectHostKey,
+/** 連線中修改連線參數（guacd 的 argv 串流），例如 SSH 終端機的 font-size —— 不必重新連線 */
+function setArgument(name: string, value: string) {
+  if (!client) return;
+  const writer = new Guacamole.StringWriter(client.createArgumentValueStream("text/plain", name));
+  writer.sendText(value);
+  writer.sendEnd();
+}
+
+defineExpose({ disconnect, sendCombo, paste, focus, acceptHostKey, rejectHostKey, setArgument,
   refit: onBoxResize });
 </script>
 

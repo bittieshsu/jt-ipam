@@ -25,6 +25,18 @@ const dispTitle = (n: Notification) => notifTitle(n, t);
 const dispBody = (n: Notification) => notifBody(n, t);
 
 const items = ref<Notification[]>([]);
+
+// 彈出框靠鈴鐺右緣對齊（bottom-end）往左展開；手機上鈴鐺離左邊不到 360px，固定寬度會超出畫面左邊
+// （使用者回報）。打開時量鈴鐺的位置，寬度最多用到離畫面左邊 8px 為止。寬度要含左右內距
+// （border-box），否則實際會再寬 28px。
+const POP_W = 360;
+const bellBtn = ref<{ $el?: HTMLElement } | null>(null);
+const popWidth = ref(POP_W);
+function onPopShow(show: boolean) {
+  if (!show) return;
+  const right = bellBtn.value?.$el?.getBoundingClientRect?.().right;
+  popWidth.value = right ? Math.max(240, Math.min(POP_W, Math.floor(right) - 8)) : POP_W;
+}
 const unread = ref(0);
 let timer: number | null = null;
 
@@ -76,9 +88,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-popover trigger="click" placement="bottom-end" style="width: 360px" :show-arrow="false">
+  <n-popover trigger="click" placement="bottom-end" :style="{ width: `${popWidth}px`, boxSizing: 'border-box' }" :show-arrow="false"
+             class="notif-pop" @update:show="onPopShow">
     <template #trigger>
-      <n-button text :focusable="false" aria-label="notifications"
+      <n-button ref="bellBtn" text :focusable="false" aria-label="notifications"
                 style="display: flex; align-items: center;">
         <n-badge :value="unread" :max="99" :show="unread > 0" :offset="[2, -2]"
                  style="display: flex; align-items: center;">

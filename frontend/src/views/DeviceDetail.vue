@@ -204,11 +204,37 @@ function cpuLine(c: { model: string; cores?: number | null; threads?: number | n
   if (c.mhz) parts.push(`${c.mhz} MHz`);
   return parts.join(" · ");
 }
+// 模組寫法：「4 × DDR5-5600」「1 × 16 GB DDR4-2133」；型別不明時「1 × 16 GB · 2133 MT/s」
 function memLine(m: { size_mb?: number | null; type?: string | null; speed?: number | null; count?: number }): string {
-  const desc = [m.size_mb ? fmtMemMB(m.size_mb) : null, m.type, m.speed ? `${m.speed} MT/s` : null]
-    .filter(Boolean).join(" ");
+  const kind = m.type ? (m.speed ? `${m.type}-${m.speed}` : m.type) : (m.speed ? `${m.speed} MT/s` : "");
+  const size = m.size_mb ? fmtMemMB(m.size_mb) : "";
+  const desc = size && kind ? (m.type ? `${size} ${kind}` : `${size} · ${kind}`) : (size || kind);
   return `${m.count ?? 1} × ${desc}`;
 }
+// 實裝容量：每條都有大小才加總（Linux 代理遇到新版 dmidecode 的「GiB」會回 0，那時不猜）
+const memInstalledMB = computed<number | null>(() => {
+  const mods = ocsHw.value?.memory?.modules ?? [];
+  if (!mods.length || mods.some((m: any) => !m.size_mb)) return null;
+  return mods.reduce((n: number, m: any) => n + m.size_mb * (m.count ?? 1), 0);
+});
+// 同型號同容量的磁碟合併成一行（實機一台 5 顆一樣的 SSD 列了 5 行），與處理器、記憶體一致
+const ocsDisks = computed<{ model: string; size_mb: number; count: number }[]>(() => {
+  const out: { model: string; size_mb: number; count: number }[] = [];
+  for (const d of ocsHw.value?.disks ?? []) {
+    const same = out.find((o) => o.model === d.model && o.size_mb === d.size_mb);
+    if (same) same.count += 1;
+    else out.push({ model: d.model, size_mb: d.size_mb, count: 1 });
+  }
+  return out;
+});
+const memSizeUnknown = computed(() => (ocsHw.value?.memory?.modules ?? []).some((m: any) => !m.size_mb));
+// 可用量（作業系統回報、扣掉保留區）：沒有實裝容量時一定講；有的話差超過 2% 才補充
+const memUsableShown = computed(() => {
+  const usable = ocsHw.value?.memory?.total_mb;
+  if (!usable) return false;
+  const inst = memInstalledMB.value;
+  return !inst || Math.abs(inst - usable) / inst > 0.02;
+});
 /** SCA 分數的顏色：低分＝很多項目不符基準。門檻取整數十位，避免給人「剛好及格」的錯覺。 */
 function scaType(score: number): "error" | "warning" | "success" {
   if (score < 50) return "error";
@@ -683,14 +709,23 @@ onMounted(() => {
             </n-descriptions-item>
             <n-descriptions-item :label="t('device_detail.ocs_memory')">
               <template v-if="ocsHw.memory?.total_mb || ocsHw.memory?.modules?.length">
-                <span v-if="ocsHw.memory.total_mb">{{ fmtMemMB(ocsHw.memory.total_mb) }}</span>
-                <span v-for="(m, i) in ocsHw.memory.modules" :key="i" class="ocs-sub">{{ memLine(m) }}</span>
+                <!-- 實裝容量只在每條都知道大小時才算；否則只講作業系統回報的可用量，不冒充實裝 -->
+                <div>
+                  <span v-if="memInstalledMB">{{ fmtMemMB(memInstalledMB) }}</span>
+                  <span v-if="memUsableShown" :class="{ 'ocs-sub': memInstalledMB }">
+                    {{ t("device_detail.ocs_mem_usable", { v: fmtMemMB(ocsHw.memory.total_mb) }) }}</span>
+                </div>
+                <div v-if="ocsHw.memory.modules?.length" class="ocs-sub-line">
+                  {{ ocsHw.memory.modules.map(memLine).join("、") }}<span v-if="memSizeUnknown"
+                    :title="t('device_detail.ocs_mem_size_unknown_tip')">{{ t("device_detail.ocs_mem_size_unknown") }}</span>
+                </div>
               </template>
               <template v-else>—</template>
             </n-descriptions-item>
             <n-descriptions-item :label="t('device_detail.ocs_disks')">
-              <div v-for="(d, i) in ocsHw.disks" :key="i">{{ d.model }} <span class="ocs-sub">{{ fmtDiskMB(d.size_mb) }}</span></div>
-              <template v-if="!ocsHw.disks?.length">—</template>
+              <div v-for="(d, i) in ocsDisks" :key="i">{{ d.count > 1 ? `${d.count} × ${d.model}` : d.model }}
+                <span class="ocs-sub">{{ fmtDiskMB(d.size_mb) }}</span></div>
+              <template v-if="!ocsDisks.length">—</template>
             </n-descriptions-item>
             <n-descriptions-item :label="t('device_detail.ocs_gpus')">
               <div v-for="(g, i) in ocsHw.gpus" :key="i">{{ g.name }}<span v-if="g.memory_mb" class="ocs-sub">{{ fmtMemMB(g.memory_mb) }}</span></div>
@@ -742,6 +777,7 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 .ocs-sub { opacity: .65; margin-left: 8px; }
+.ocs-sub-line { opacity: .65; font-size: 12px; }
 .ocs-sec-h { font-weight: 600; margin: 14px 0 6px; font-size: 13px; }
 .ocs-notes {
   margin-top: 12px;

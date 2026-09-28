@@ -182,7 +182,7 @@ onMounted(() => {
       </n-space>
 
       <n-data-table
-        :columns="columns" :data="rows" :loading="loading" size="small"
+        :columns="columns" :data="rows" :loading="loading" size="small" :scroll-x="900"
         :pagination="pg" :row-key="(r: DnsRecord) => r.id"
       />
     </n-space>

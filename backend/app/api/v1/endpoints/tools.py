@@ -22,7 +22,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import check_rate_limit
-from app.core.ui_error import detail_of
+from app.core.ui_error import detail_of, ui_detail
 from app.schemas.base import StrictModel
 from app.services import netdiag, nettools
 from app.services.nettools import NetToolError
@@ -541,6 +541,11 @@ async def agent_probe(
     from app.models.scan_agent import ScanAgent
     from app.services.agent_probe import ProbeJobError, create_job
 
+    # identify（深度識別）只能從 IP 詳細頁對 jt-ipam 裡的 IP 發起（endpoints/ip_identify），
+    # 不開放在這裡對任意位址跑
+    if payload.kind == "identify":
+        raise HTTPException(status_code=400, detail=ui_detail(
+            "identify_use_ip_page", "探測請從 IP 詳細頁發起"))
     agent = await session.get(ScanAgent, payload.agent_id)
     if agent is None or not agent.enabled:
         raise HTTPException(status_code=404, detail="agent not found or disabled")

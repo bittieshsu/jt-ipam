@@ -55,6 +55,8 @@ const routes: RouteRecordRaw[] = [
       { path: "subnets/:id", name: "subnet-detail", component: () => import("@/views/SubnetDetail.vue") },
       { path: "addresses", name: "addresses", component: () => import("@/views/Addresses.vue") },
       { path: "addresses/:id", name: "address-detail", component: () => import("@/views/IPDetail.vue") },
+      // IP 的「探測」（只有管理員）：獨立頁面，歷次結果都留著、可以點回來看
+      { path: "addresses/:id/identify", name: "address-identify", component: () => import("@/views/IpIdentify.vue") },
       { path: "ai-audit", name: "ai_audit", component: () => import("@/views/AIAudit.vue"), meta: { admin: true } },
       { path: "ip-changes", name: "ip_changes", component: () => import("@/views/IPChanges.vue") },
       { path: "hostname-precedence", name: "hostname_precedence", component: () => import("@/views/HostnamePrecedence.vue"), meta: { admin: true } },

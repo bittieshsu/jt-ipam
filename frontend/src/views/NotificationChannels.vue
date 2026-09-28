@@ -419,4 +419,9 @@ onMounted(() => { void load(); void loadMatrix(); });
 .nmx-ev { font-weight: 500; }
 .nmx-key { font-size: 11px; opacity: .5; }
 .nmx-hint { font-size: 12px; opacity: .65; line-height: 1.5; margin: 4px 0 10px; }
+@media (max-width: 640px) {
+  .nmx th, .nmx td { padding: 8px 6px; }
+  .nmx-c { width: 56px; }
+  .nmx-key { word-break: break-all; }
+}
 </style>

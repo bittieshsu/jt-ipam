@@ -432,6 +432,10 @@ watch(winW, (w, prev) => {
 const MOBILE_PX = 768;
 const isMobile = computed(() => winW.value < MOBILE_PX);
 watch(isMobile, (m) => { if (m) siderCollapsed.value = true; });
+// 手機側欄打開時鎖住後面的頁面：不鎖的話，在選單上滑動會「穿過去」捲動後面的頁面（使用者回報）
+watch([isMobile, siderCollapsed], ([m, c]) => {
+  document.documentElement.classList.toggle("sider-open", m && !c);
+}, { immediate: true });
 function onEsc(e: KeyboardEvent) {
   if (e.key === "Escape" && isMobile.value && !siderCollapsed.value) siderCollapsed.value = true;
 }
@@ -458,6 +462,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
   window.removeEventListener("keydown", onEsc);
   if (siderScrollEl) siderScrollEl.removeEventListener("scroll", onSiderScroll);
+  document.documentElement.classList.remove("sider-open");
 });
 
 // ── 左側選單可拖動改變寬度 ──
@@ -493,7 +498,7 @@ function startDrag(e: MouseEvent) {
 </script>
 
 <template>
-  <n-layout has-sider style="height: 100vh">
+  <n-layout has-sider class="app-root">
     <!-- 手機：側欄打開時，後面暗掉；點一下收回 -->
     <div v-if="isMobile && !siderCollapsed" class="sider-mask" @click="siderCollapsed = true" />
     <n-layout-sider
@@ -635,6 +640,13 @@ function startDrag(e: MouseEvent) {
 </template>
 
 <style scoped>
+/* 高度用 dvh（隨手機瀏覽器網址列／工具列伸縮的「目前可見高度」）。100vh 在 iOS 是工具列收起時的
+ * 最大高度，比實際看得到的高：側欄底部被工具列蓋住、選單本身捲不動，手勢就傳給整頁 ——
+ * 使用者看到的是「捲到後面的頁面」「往上捲放開又彈回去」。不支援 dvh 的瀏覽器退回 100vh。 */
+.app-root {
+  height: 100vh;
+  height: 100dvh;
+}
 /* 側欄 logo 欄與頂端列共用同一個高度：兩者各自由內容撐高的話，底邊會差幾 px，
    在左上角形成一道對不齊的缺口（實機回報）。高度綁在同一個變數上就不會再飄。 */
 .brand {
@@ -810,7 +822,13 @@ function startDrag(e: MouseEvent) {
   left: 0;
   bottom: 0;
   height: 100vh;
+  height: 100dvh;
   z-index: 2001;
+}
+/* 選單捲到頂／底時不要把捲動傳給後面的頁面 */
+.app-sider--mobile :deep(.n-layout-sider-scroll-container) {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .app-sider--mobile.n-layout-sider--collapsed {
   border-right: none;
@@ -820,6 +838,7 @@ function startDrag(e: MouseEvent) {
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
   z-index: 2000;
+  touch-action: none;       /* 在暗掉的地方滑動也不捲後面的頁面 */
 }
 .mobile-menu-btn {
   flex: none;

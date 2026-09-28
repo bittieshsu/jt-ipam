@@ -24,7 +24,8 @@ const SERVER_HW = {
   bios: { vendor: "American Megatrends International, LLC.", version: "2.2", date: "06/12/2023" },
   cpus: [{ model: "12th Gen Intel(R) Core(TM) i5-12400", cores: 6, threads: 12, mhz: null, count: 1 }],
   memory: { total_mb: 128564, modules: [{ size_mb: null, type: "DDR5", speed: 5600, count: 4 }] },
-  disks: [{ model: "SSSTC ER3-CD1920A", size_mb: 1920383 }, { model: "SSSTC ER3-CD240", size_mb: 240057 }],
+  disks: [{ model: "SSSTC ER3-CD1920A", size_mb: 1920383 }, { model: "SSSTC ER3-CD1920A", size_mb: 1920383 },
+          { model: "SSSTC ER3-CD240", size_mb: 240057 }],
   gpus: [{ name: "Intel UHD Graphics 730", memory_mb: null },
          { name: "NVIDIA GeForce RTX 4060 Ti", memory_mb: 16380 }],
 };
@@ -60,10 +61,15 @@ for (const width of [1440, 390]) {
     await expect(card).toContainText("Supermicro X13SAZ-F");
     await expect(card).toContainText("BOARD-SN-0002（主機板）");
     await expect(card).toContainText("12th Gen Intel(R) Core(TM) i5-12400 · 6 核 12 緒");
-    await expect(card).toContainText("125.6 GB");
-    await expect(card).toContainText("4 × DDR5 5600 MT/s");
-    await expect(card).toContainText("SSSTC ER3-CD1920A");
-    await expect(card).toContainText("1.92 TB");
+    // 每條容量讀不到（新版 dmidecode 印 GiB，OCS Linux 代理讀不懂）：只講可用量，不冒充實裝容量
+    const mem = card.locator(".n-descriptions-table-row", { hasText: "記憶體" });
+    await expect(mem).toContainText("可用 125.6 GB");
+    await expect(mem).toContainText("4 × DDR5-5600（每條容量未回報）");
+    // 同型號同容量的磁碟合併成一行（跟處理器、記憶體一樣）
+    const disks = card.locator(".n-descriptions-table-row", { hasText: "磁碟" });
+    await expect(disks).toContainText("2 × SSSTC ER3-CD1920A");
+    await expect(disks).toContainText("1.92 TB");
+    await expect(disks.getByText("SSSTC ER3-CD1920A")).toHaveCount(1);
     await expect(card).toContainText("NVIDIA GeForce RTX 4060 Ti");
     await expect(card).toContainText("16 GB");
     // 手機寬度：卡片不能把頁面撐出水平捲動
@@ -94,7 +100,11 @@ test("OCS 卡片顯示 OCS 的製造商／型號，不是裝置欄位的值", as
   await expect(card).toContainText("LapTop");
   await expect(card).toContainText("Dell Inc. 1.19.3 (20/08/2018)");
   await expect(card).toContainText("2 核 4 緒 · 2501 MHz");
-  await expect(card).toContainText("1 × 16 GB 2133 MT/s");
+  // 每條容量都知道：顯示實裝容量；可用量跟實裝一樣時不重複講
+  const mem = card.locator(".n-descriptions-table-row", { hasText: "記憶體" });
+  await expect(mem).toContainText("16 GB");
+  await expect(mem).toContainText("1 × 16 GB · 2133 MT/s");
+  await expect(mem).not.toContainText("可用");
   await expect(card).toContainText("244 GB");
   await expect(card).not.toContainText("Intel x64");
   await expect(card).not.toContainText("（主機板）");

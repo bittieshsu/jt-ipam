@@ -1183,7 +1183,19 @@ async def delete_address(
     if obj is None:
         raise HTTPException(status_code=404, detail="Address not found")
     await _require_subnet_perm(session, user, obj.subnet_id, "admin")
+    await _delete_ip(session, obj, user=user, request=request, bulk=False)
+    await session.commit()
 
+
+async def _delete_ip(session: AsyncSession, obj: IPAddress, *, user: Any, request: Request,
+                     bulk: bool) -> None:
+    """刪除一筆 IP 的完整步驟：稽核、異動記錄、冷卻期、刪除。單筆與批次刪除共用 ——
+    以前批次刪除只寫稽核就刪，沒有進冷卻期、異動記錄也沒有「已刪除」（2026-09-28）。
+    不 commit，交易邊界由呼叫端決定。"""
+    diff: dict[str, Any] = {"before": {"ip": str(obj.ip), "subnet_id": str(obj.subnet_id),
+                                       "hostname": obj.hostname}}
+    if bulk:
+        diff["bulk"] = True
     await append_audit(
         session,
         actor_user_id=str(user.id),
@@ -1192,7 +1204,7 @@ async def delete_address(
         object_type="ip_address",
         object_id=str(obj.id),
         action="delete",
-        diff={"before": {"ip": str(obj.ip), "subnet_id": str(obj.subnet_id), "hostname": obj.hostname}},
+        diff=diff,
         request_id=getattr(request.state, "request_id", None),
     )
     # feature B：刪除前記一筆（ip_id 之後會被 SET NULL，但 ip_text 快照保留）
@@ -1204,7 +1216,6 @@ async def delete_address(
     await ip_lifecycle.start_cooldown(session, ip=obj, actor_user_id=user.id,
                                       reason="deleted")
     await session.delete(obj)
-    await session.commit()
 
 
 class CooldownClearIn(StrictModel):
@@ -1275,9 +1286,6 @@ async def bulk_delete(
 
     deleted = 0
     errors: list[dict[str, str]] = []
-    actor_ip = request.client.host if request.client else None
-    actor_ua = request.headers.get("user-agent")
-    request_id = getattr(request.state, "request_id", None)
 
     for aid in payload.ids:
         obj = await session.get(IPAddress, aid)
@@ -1289,19 +1297,7 @@ async def bulk_delete(
         except HTTPException:
             errors.append({"id": str(aid), "error": "no_permission"})
             continue
-        await append_audit(
-            session,
-            actor_user_id=str(user.id),
-            actor_ip=actor_ip,
-            actor_user_agent=actor_ua,
-            object_type="ip_address",
-            object_id=str(obj.id),
-            action="delete",
-            diff={"before": {"ip": str(obj.ip), "subnet_id": str(obj.subnet_id),
-                              "hostname": obj.hostname}, "bulk": True},
-            request_id=request_id,
-        )
-        await session.delete(obj)
+        await _delete_ip(session, obj, user=user, request=request, bulk=True)
         deleted += 1
 
     await session.commit()

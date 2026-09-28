@@ -81,6 +81,7 @@ from app.models.pve_firewall import (
     PVEFirewallState,
 )
 from app.models.scan_agent import ScanAgent
+from app.models.scan_agent_cycle import ScanAgentCycle
 from app.models.section import Section
 from app.models.ssh_credential import SSHCredential
 from app.models.subnet import Subnet
@@ -170,6 +171,7 @@ __all__ = [
     "Rack",
     "SSHCredential",
     "ScanAgent",
+    "ScanAgentCycle",
     "Section",
     "Subnet",
     "Tenant",

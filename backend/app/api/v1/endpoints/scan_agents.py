@@ -96,6 +96,9 @@ class ScanAgentRead(StrictModel):
     # 相依工具盤點：[{name, installed, version, probes, package}]（哪些裝了/版本/缺）
     tools: list[dict[str, Any]] | None = None
     subnet_count: int = 0
+    # 最近一輪的負載摘要（services/scan_load.summary）：{ratio, level, duration_s, interval_s,
+    # heavy_backlog, truncated, at}；代理還沒回報過每輪統計（1.10.0 以前）就是 None
+    load: dict[str, Any] | None = None
     last_seen_at: Any
     last_error: str | None
     created_at: Any
@@ -160,6 +163,8 @@ def _to_read(obj: ScanAgent) -> ScanAgentRead:
     m.has_key = bool(obj.enroll_key_hash)
     m.server_agent_version = _server_agent_version()
     m.tools = _merge_tool_meta(obj.tools)
+    from app.services.scan_load import summary
+    m.load = summary(obj)
     return m
 
 
@@ -525,6 +530,9 @@ class AgentReportItem(StrictModel):
     os_guess: str | None = None      # OS 偵測原始字串
     open_ports: list[int] | None = None
     probes_run: list[str] | None = None   # 這輪實際對此 IP 跑了哪些 probe（回填 last_run）
+    # False＝背景重量探測（反解／NetBIOS／mDNS／OS）補的資料，不是上線證據：不更新最後出現時間、
+    # 不自動新增 IP。反解是 DNS 回答的，不是主機本身；OS 指紋可能是幾分鐘前排進佇列的（代理 1.10.0 起）
+    liveness: bool = True
 
 
 class AgentDHCPServer(StrictModel):
@@ -543,6 +551,8 @@ class AgentDHCPServer(StrictModel):
 class AgentReportIn(StrictModel):
     results: Annotated[list[AgentReportItem], Field(max_length=100_000)]
     dhcp_servers: Annotated[list[AgentDHCPServer], Field(max_length=500)] = []
+    # 一輪結束時附上的統計（耗時、逐子網路位址數／在線數、背景待辦量），存到 scan_agents.last_cycle
+    cycle: dict[str, Any] | None = None
 
 
 @router.post("/report")
@@ -588,6 +598,8 @@ async def agent_report(
             stmt = stmt.where(IPAddress.subnet_id.in_(agent_subnet_ids))
         # 重疊網段下可能有多筆同 IP；限定 agent 子網路後通常唯一，取第一筆
         ipa = (await session.execute(stmt.limit(1))).scalar_one_or_none()
+        if ipa is None and not item.liveness:
+            continue            # 背景探測補的資料只補既有的 IP，不當作「發現新主機」
         if ipa is None:
             if not agent.auto_create_ips:
                 # 沒開自動收錄 → 這個位址活著但 IPAM 沒有它，就讓它留在
@@ -622,7 +634,7 @@ async def agent_report(
             # ip_id=None 建 FK row → NOT NULL 違規 500（rdns/mdns/os 等帶 hostname 的回報才會踩到）。
             await session.flush()
             created += 1
-        else:
+        elif item.liveness:
             ipa.last_seen_scanner = now
             # 掃描代理看到回應＝即時上線證據，立刻更新實際狀態（不必等 LibreNMS sync）
             from app.services.librenms import mark_scanner_seen
@@ -664,6 +676,14 @@ async def agent_report(
     dhcp_seen = await _record_dhcp_sightings(
         session, agent, agent_subnets, payload.dhcp_servers, now)
 
+    if payload.cycle is not None:
+        cyc = dict(payload.cycle)
+        if isinstance(cyc.get("subnets"), list):
+            cyc["subnets"] = cyc["subnets"][:1000]
+        agent.last_cycle = {**cyc, "at": now.isoformat()}
+        # 記下這一輪、評估負載；太重時通知管理員（開始與恢復各一次，見 services/scan_load）
+        from app.services.scan_load import record as record_cycle
+        await record_cycle(session, agent, cyc, now)
     agent.last_seen_at = now
     agent.last_error = None
     await session.commit()
@@ -745,6 +765,33 @@ async def delete_agent(
     await session.delete(obj)
     await session.commit()
 
+@router.get("/{agent_id}/load", dependencies=[Depends(require_admin)])
+async def agent_load(
+    agent_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """負載面板：最近一輪的逐子網路細節、評估與建議，以及最近幾輪的耗時（趨勢）。"""
+    from app.services import scan_load
+
+    obj = await session.get(ScanAgent, agent_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Scan agent not found")
+    rows = await scan_load.recent(session, obj.id)
+    hist = [{"at": r.at, "duration_s": r.duration_s, "interval_s": r.interval_s,
+             "heavy_backlog": r.heavy_backlog, "hosts": r.hosts, "alive": r.alive} for r in rows]
+    from app.services.system_config import get_liveness_config
+    online = int((await get_liveness_config(session))["minutes"])
+    ev = scan_load.evaluate(obj.last_cycle, hist, online_minutes=online) if obj.last_cycle else None
+    if ev is not None:
+        # 帶上子網路 id（依 CIDR 對這台代理被指派的子網路），面板上才能直接「移到別的代理」
+        ids = {str(c): i for i, c in (await session.execute(
+            select(Subnet.id, Subnet.cidr).where(Subnet.scan_agent_id == obj.id))).all()}
+        for sub in ev["subnets"]:
+            sid = ids.get(str(sub.get("cidr")))
+            sub["subnet_id"] = str(sid) if sid else None
+    return {"agent_id": str(obj.id), "last_cycle": obj.last_cycle, "evaluation": ev, "history": hist}
+
+
 # ─────────────────── 工具探測工作（代理端；X-Agent-Key 驗證）───────────────────
 @router.get("/jobs", include_in_schema=False)
 async def agent_take_jobs(
@@ -776,6 +823,31 @@ async def agent_take_jobs(
 class _JobResultIn(StrictModel):
     result: Any = None
     error: str | None = None
+
+
+class _JobProgressIn(StrictModel):
+    progress: dict[str, Any]
+
+
+@router.post("/jobs/{job_id}/progress", include_in_schema=False)
+async def agent_job_progress(
+    job_id: uuid.UUID, payload: _JobProgressIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    x_agent_key: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """代理回報執行中的進度（IP「探測」頁顯示現在在做什麼）。只收自己領到、還在跑的工作。"""
+    import json as _json
+
+    from app.services.agent_probe import MAX_PROGRESS_BYTES, update_progress
+
+    agent = await _agent_from_key(session, x_agent_key)
+    if len(_json.dumps(payload.progress, ensure_ascii=False)) > MAX_PROGRESS_BYTES:
+        raise HTTPException(status_code=413, detail="progress too large")
+    ok = await update_progress(session, agent_id=agent.id, job_id=job_id, progress=payload.progress)
+    await session.commit()
+    if not ok:
+        raise HTTPException(status_code=404, detail="job not found or not running")
+    return {"ok": True}
 
 
 @router.post("/jobs/{job_id}/result", include_in_schema=False)

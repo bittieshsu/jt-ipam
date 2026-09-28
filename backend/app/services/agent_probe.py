@@ -30,6 +30,10 @@ from app.models.agent_probe_job import (
 JOB_TTL = timedelta(minutes=2)
 # 領走但沒回報（代理當掉／被 kill）多久視為失敗，才不會永遠卡在 running
 CLAIM_TTL = timedelta(minutes=5)
+# identify（服務版本＋OS 指紋）本身可能跑到四、五分鐘，要給它更長的時間才算卡住
+CLAIM_TTL_BY_KIND = {"identify": timedelta(minutes=9)}
+# 進度只是幾行狀態，不是結果：超過就拒收，免得被當成另一條傳大量資料的管道
+MAX_PROGRESS_BYTES = 8192
 MAX_TARGETS = 64
 MAX_PORTS = 64
 MAX_PENDING_PER_AGENT = 20
@@ -104,6 +108,14 @@ def validate_params(kind: str, params: dict[str, Any]) -> dict[str, Any]:
         if len(targets) != 1:
             raise ProbeJobError("traceroute takes exactly one target")
         out["max_hops"] = max(1, min(int(params.get("max_hops") or 20), 30))
+    elif kind == "identify":
+        # 只能對 jt-ipam 裡的單一 IP：不接受主機名稱（名稱可能解析到別處）、不接受多個目標
+        if len(targets) != 1:
+            raise ProbeJobError("identify takes exactly one target")
+        try:
+            ipaddress.ip_address(targets[0])
+        except ValueError as exc:
+            raise ProbeJobError("identify takes an IP address, not a host name") from exc
     return out
 
 
@@ -135,17 +147,39 @@ async def create_job(
 async def expire_stale(session: AsyncSession) -> int:
     """把過期的待辦與卡住的 running 收掉。每次領取／查詢時順手跑，不另開排程。"""
     now = datetime.now(UTC)
+    # 探測（identify）在「作業」頁有對應的一筆，作廢時要跟著更新 —— 先把會被收掉的挑出來
+    ident_ttl = CLAIM_TTL_BY_KIND["identify"]
+    doomed = list((await session.execute(select(AgentProbeJob).where(
+        AgentProbeJob.kind == "identify",
+        ((AgentProbeJob.status == STATUS_PENDING) & (AgentProbeJob.expires_at <= now))
+        | ((AgentProbeJob.status == STATUS_RUNNING) & (AgentProbeJob.claimed_at <= now - ident_ttl)),
+    ))).scalars().all())
     r1 = await session.execute(
         update(AgentProbeJob)
         .where(AgentProbeJob.status == STATUS_PENDING, AgentProbeJob.expires_at <= now)
         .values(status=STATUS_EXPIRED, finished_at=now,
                 error="沒有代理在時限內領取（代理可能離線）"))
+    slow = tuple(CLAIM_TTL_BY_KIND)
     r2 = await session.execute(
         update(AgentProbeJob)
         .where(AgentProbeJob.status == STATUS_RUNNING,
+               AgentProbeJob.kind.notin_(slow),
                AgentProbeJob.claimed_at <= now - CLAIM_TTL)
         .values(status=STATUS_FAILED, finished_at=now, error="代理領取後未回報結果"))
-    return int(r1.rowcount or 0) + int(r2.rowcount or 0)
+    n = int(r1.rowcount or 0) + int(r2.rowcount or 0)
+    for kind, ttl in CLAIM_TTL_BY_KIND.items():
+        r = await session.execute(
+            update(AgentProbeJob)
+            .where(AgentProbeJob.status == STATUS_RUNNING, AgentProbeJob.kind == kind,
+                   AgentProbeJob.claimed_at <= now - ttl)
+            .values(status=STATUS_FAILED, finished_at=now, error="代理領取後未回報結果"))
+        n += int(r.rowcount or 0)
+    if doomed:
+        from app.services.identify_tasks import on_expired
+        for j in doomed:
+            await session.refresh(j)
+        await on_expired(session, doomed)
+    return n
 
 
 async def claim_jobs(
@@ -166,6 +200,9 @@ async def claim_jobs(
     for j in rows:
         j.status = STATUS_RUNNING
         j.claimed_at = now
+    if any(j.kind == "identify" for j in rows):
+        from app.services.identify_tasks import on_claimed
+        await on_claimed(session, rows)
     return rows
 
 
@@ -184,4 +221,24 @@ async def finish_job(
     job.result = result if isinstance(result, dict) else {"items": result}
     job.error = (error or "")[:2000] or None
     job.finished_at = datetime.now(UTC)
+    if job.kind == "identify":
+        from app.services.identify_tasks import on_finished
+        await on_finished(session, job)
+    return True
+
+
+async def update_progress(
+    session: AsyncSession, *, agent_id: uuid.UUID, job_id: uuid.UUID, progress: dict[str, Any],
+) -> bool:
+    """代理回報執行中的進度。只收自己領到、還在跑的工作（跟 finish_job 同一道驗證）。"""
+    job = (await session.execute(
+        select(AgentProbeJob).where(
+            AgentProbeJob.id == job_id, AgentProbeJob.agent_id == agent_id)
+    )).scalars().first()
+    if job is None or job.status != STATUS_RUNNING:
+        return False
+    job.progress = progress
+    if job.kind == "identify":
+        from app.services.identify_tasks import on_progress
+        await on_progress(session, job)
     return True

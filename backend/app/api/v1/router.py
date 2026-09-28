@@ -31,6 +31,7 @@ from app.api.v1.endpoints import (
     import_external,
     investigate,
     ip_changes,
+    ip_identify,
     ip_ranges,
     ip_requests,
     jump_hosts,
@@ -101,6 +102,7 @@ api_v1_router.include_router(subnets.router)
 api_v1_router.include_router(ip_ranges.router)
 api_v1_router.include_router(system_logs.router)
 api_v1_router.include_router(addresses.router)
+api_v1_router.include_router(ip_identify.router)
 api_v1_router.include_router(ssh_console.router)
 api_v1_router.include_router(sftp_console.router)
 api_v1_router.include_router(ssh_credentials.router)

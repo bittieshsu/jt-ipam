@@ -23,7 +23,8 @@ Environment variables:
   JT_IPAM_AGENT_KEY  enrollment key from the agent page (required)
   JT_IPAM_INTERVAL   fallback fast-loop seconds if server omits interval_seconds, default 300
   JT_IPAM_INSECURE   =1 to skip TLS verification (self-signed server)
-  JT_IPAM_MAX_HOSTS  max hosts scanned per subnet, default 1024 (avoid huge /16)
+  JT_IPAM_MAX_HOSTS  max hosts scanned per subnet per cycle, default 4096; larger subnets are
+                     scanned in rotating chunks (a /16 takes 16 cycles to cover once)
   JT_IPAM_AUTO_UPDATE =0 to disable self-update (default on)
 """
 from __future__ import annotations
@@ -42,13 +43,14 @@ import threading
 import sys
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 
-AGENT_VERSION = "1.8.1"
+AGENT_VERSION = "1.11.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
 INSECURE = os.environ.get("JT_IPAM_INSECURE", "") in ("1", "true", "yes")
-MAX_HOSTS = int(os.environ.get("JT_IPAM_MAX_HOSTS", "1024"))
+MAX_HOSTS = int(os.environ.get("JT_IPAM_MAX_HOSTS", "4096"))
 AUTO_UPDATE = os.environ.get("JT_IPAM_AUTO_UPDATE", "1") not in ("0", "false", "no")
 PING_WORKERS = 128
 AGENT_PATH = os.path.realpath(__file__)
@@ -526,15 +528,31 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
     return result
 
 
-def _hosts(cidr: str) -> list[str]:
+_chunk_pos: dict[str, int] = {}
+
+
+def _subnet_chunk(subnet_id: str, cidr: str) -> tuple[list[str], int, dict]:
+    """這輪要掃的位址、子網路總位址數、{chunk, rounds}。
+
+    比單輪上限（MAX_HOSTS）大的子網路分段輪替：每輪掃下一段，掃完一遍從頭開始。以前是
+    永遠只掃前 1024 個，後面的位址永遠不會被看到，畫面上也沒有任何提示。
+    不為了算總數把整個大網段展開（/8 有一千六百萬個位址）。
+    """
     net = ipaddress.ip_network(cidr, strict=False)
     if not isinstance(net, ipaddress.IPv4Network):
-        return []   # this build scans IPv4 only
-    hosts = [str(h) for h in net.hosts()]
-    if len(hosts) > MAX_HOSTS:
-        print(f"  subnet {cidr} too large ({len(hosts)} hosts) -> scanning first {MAX_HOSTS}", flush=True)
-        hosts = hosts[:MAX_HOSTS]
-    return hosts
+        return [], 0, {"chunk": 1, "rounds": 1}   # this build scans IPv4 only
+    total = max(net.num_addresses - (2 if net.prefixlen < 31 else 0), 0)
+    if total <= MAX_HOSTS:
+        return [str(h) for h in net.hosts()], total, {"chunk": 1, "rounds": 1}
+    rounds = -(-total // MAX_HOSTS)
+    start = _chunk_pos.get(subnet_id, 0)
+    if start >= total:
+        start = 0
+    first = int(net.network_address) + (1 if net.prefixlen < 31 else 0) + start
+    count = min(MAX_HOSTS, total - start)
+    hosts = [str(ipaddress.IPv4Address(first + i)) for i in range(count)]
+    _chunk_pos[subnet_id] = start + count if start + count < total else 0
+    return hosts, total, {"chunk": start // MAX_HOSTS + 1, "rounds": rounds}
 
 
 def _due(subnet_id, probe: str, intervals: dict, fast: int, now: float) -> bool:
@@ -551,7 +569,175 @@ def _due(subnet_id, probe: str, intervals: dict, fast: int, now: float) -> bool:
     return (now - last) >= cadence
 
 
+# 上線偵測（每輪都要跑完、立刻回報）與重量探測（對在線主機逐台查，丟給背景慢慢跑）分開。
+# 以前全部串在一起、整輪跑完才回報：OS 指紋那一輪跑一個小時，這一小時內所有子網路的上線狀態
+# 都沒有更新，連自動更新都卡住（正式環境 2026-09-28 實際發生）。
+LIGHT_PROBES = ("icmp", "tcp", "arp", "dhcp")
+HEAVY_WORKERS = int(os.environ.get("JT_IPAM_HEAVY_WORKERS", "16"))   # 背景同時查幾台
+NMAP_WORKERS = int(os.environ.get("JT_IPAM_NMAP_WORKERS", "4"))      # 其中同時跑 nmap 的上限
+
+
+def _split_probes(due: list[str]) -> tuple[list[str], list[str]]:
+    """本輪到期的探測分成「上線偵測」與「重量探測」兩組（保持原本順序）。"""
+    return [p for p in due if p in LIGHT_PROBES], [p for p in due if p not in LIGHT_PROBES]
+
+
+class _HeavyQueue:
+    """背景重量探測的待辦：同一台主機只排一次（還沒跑到又被排一次就合併探測項目）。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._items: dict[str, tuple[str, list[str]]] = {}
+
+    def submit(self, subnet_id: str, ip: str, probes: list[str]) -> None:
+        with self._lock:
+            if ip in self._items:
+                sid, old = self._items[ip]
+                self._items[ip] = (sid, old + [p for p in probes if p not in old])
+            else:
+                self._items[ip] = (subnet_id, list(probes))
+
+    def take(self, n: int) -> list[tuple[str, list[str]]]:
+        with self._lock:
+            keys = list(self._items)[:n]
+            return [(k, self._items.pop(k)[1]) for k in keys]
+
+    def pending(self) -> int:
+        with self._lock:
+            return len(self._items)
+
+
+_HEAVY = _HeavyQueue()
+_HEAVY_STATS: dict[str, float] = {"done": 0, "last_batch_s": 0.0}
+
+
+NAME_PROBES = ("rdns", "netbios", "mdns")
+HEAVY_FLUSH_S = 20.0     # 查完的結果最多等多久就先回報
+
+
+def _heavy_names(ip: str, probes: list[str]) -> dict:
+    """名稱查詢（反解／NetBIOS／mDNS）：幾秒內完成。"""
+    item: dict = {"ip": ip, "alive": True, "liveness": False}
+    probes_run: list[str] = []
+    if "rdns" in probes:
+        probes_run.append("rdns")
+        rd, no_ptr = _rdns(ip)
+        if rd:
+            item["rdns"] = rd
+        elif no_ptr:
+            item["rdns"] = ""     # DNS 明確說沒有 → 伺服器清掉舊名（1.8.1 起）
+    if "netbios" in probes:
+        probes_run.append("netbios")
+        nb = _netbios(ip)
+        if nb:
+            item["netbios"] = nb
+    if "mdns" in probes:
+        probes_run.append("mdns")
+        md = _mdns(ip)
+        if md:
+            item["mdns"] = md
+    item["probes_run"] = probes_run
+    return item
+
+
+def _heavy_nmap(ip: str, probes: list[str]) -> dict:
+    """OS 指紋／連接埠（nmap）：每台可能要一分多鐘。"""
+    want_os, want_ports = "os" in probes, "ports" in probes
+    item: dict = {"ip": ip, "alive": True, "liveness": False}
+    np = _nmap_os_ports(ip, want_os, want_ports)
+    item["probes_run"] = [p for p in ("os", "ports") if p in probes]
+    if np.get("os_guess"):
+        item["os_guess"] = np["os_guess"]
+    if np.get("open_ports"):
+        item["open_ports"] = sorted(set(np["open_ports"]))
+    return item
+
+
+def _heavy_probe_host(ip: str, probes: list[str]) -> dict:
+    """對一台在線主機跑完所有重量探測，合成一筆。結果**不是上線證據**（liveness=False）：
+    反解是 DNS 回答的，不是主機本身；排進佇列到真正跑到之間也可能隔了幾分鐘。"""
+    item = _heavy_names(ip, probes)
+    if "os" in probes or "ports" in probes:
+        np = _heavy_nmap(ip, probes)
+        item["probes_run"] = item["probes_run"] + np.pop("probes_run")
+        item.update({k: v for k, v in np.items() if k in ("os_guess", "open_ports")})
+    return item
+
+
+def _heavy_drain(q: _HeavyQueue, batch: int = 50) -> int:
+    """把佇列裡的主機跑完。名稱查詢與 nmap 各用自己的工作池（nmap 很慢，不能讓它佔住名稱查詢），
+    查完的結果累積到一批、或最多等 HEAVY_FLUSH_S 秒就先回報。回傳處理了幾台。"""
+    done = 0
+    buf: list[dict] = []
+    last_flush = time.time()
+
+    def flush() -> None:
+        nonlocal buf, last_flush
+        # 伺服器重啟（部署）的那幾秒會回 502：背景結果是花好幾分鐘跑出來的，丟了要等下一個週期
+        # 才會重跑，所以隔幾秒再送，最多三次
+        for attempt in range(3):
+            if not buf:
+                break
+            try:
+                _req("POST", "/api/v1/scan-agents/report", {"results": buf})
+                break
+            except Exception as exc:  # noqa: BLE001
+                print(f"[heavy] report failed ({attempt + 1}/3): {type(exc).__name__}: {exc}",
+                      file=sys.stderr, flush=True)
+                if attempt < 2:
+                    time.sleep(10 * (attempt + 1))
+        buf = []
+        last_flush = time.time()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, HEAVY_WORKERS)) as names_pool, \
+            concurrent.futures.ThreadPoolExecutor(max_workers=max(1, NMAP_WORKERS)) as nmap_pool:
+        while True:
+            work = q.take(batch)
+            if not work:
+                break
+            started = time.time()
+            futs = []
+            for ip, probes in work:
+                if any(p in NAME_PROBES for p in probes):
+                    futs.append(names_pool.submit(_heavy_names, ip, probes))
+                if "os" in probes or "ports" in probes:
+                    futs.append(nmap_pool.submit(_heavy_nmap, ip, probes))
+            pending = set(futs)
+            while pending:
+                finished, pending = concurrent.futures.wait(pending, timeout=1.0)
+                for f in finished:
+                    try:
+                        buf.append(f.result())
+                    except Exception as exc:  # noqa: BLE001 -- 一台失敗不影響其他台
+                        print(f"[heavy] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+                    if len(buf) >= batch:
+                        flush()
+                if buf and time.time() - last_flush >= HEAVY_FLUSH_S:
+                    flush()
+            flush()
+            done += len(work)
+            _HEAVY_STATS["done"] += len(work)
+            _HEAVY_STATS["last_batch_s"] = round(time.time() - started, 1)
+            print(f"[heavy] {len(work)} hosts in {_HEAVY_STATS['last_batch_s']}s, "
+                  f"{q.pending()} still queued", flush=True)
+    return done
+
+
+def _heavy_loop() -> None:
+    """背景執行緒：有待辦就跑，沒有就等。任何錯誤都不能讓它停掉（也不能影響上線偵測）。"""
+    while True:
+        try:
+            if _HEAVY.pending():
+                _heavy_drain(_HEAVY)
+            else:
+                time.sleep(2)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[heavy] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            time.sleep(10)
+
+
 def scan_once() -> None:
+    cycle_started = time.time()
     caps = _capabilities()
     poll = _req("GET", "/api/v1/scan-agents/poll",
                 extra_headers={"X-Agent-Probes": ",".join(caps),
@@ -571,13 +757,13 @@ def scan_once() -> None:
 
     cap_set = set(caps)
     now = time.time()
-    results: list[dict] = []
-    dhcp_servers: list[dict] = []
+    subnet_stats: list[dict] = []
 
     for s in subnets:
         cidr = s.get("cidr")
         if not cidr:
             continue
+        sub_started = time.time()
         subnet_id = s.get("subnet_id")
         # server 要求的探測；缺/空 -> 向下相容用 icmp。再交集本機能力。
         requested = s.get("probes") or list(DEFAULT_PROBES)
@@ -594,9 +780,11 @@ def scan_once() -> None:
         if not due:
             print(f"  {cidr}: no probe due this cycle", flush=True)
             continue
+        light, heavy = _split_probes(due)
 
         # DHCP 偵測是「對整個網段問一次」，不是逐台問 —— 它找的是誰在發 IP。
-        if "dhcp" in due:
+        dhcp_servers: list[dict] = []
+        if "dhcp" in light:
             offers = _dhcp_discover()
             # 先問完再讀 arp 表：剛跟我們講過話的主機這時才會在表裡
             neigh = _arp_table() if offers else {}
@@ -604,121 +792,89 @@ def scan_once() -> None:
                 srv["subnet_cidr"] = cidr
                 srv["mac"] = neigh.get(srv["server_ip"])
                 dhcp_servers.append(srv)
-            print(f"  {cidr}: dhcp offers={len([d for d in dhcp_servers if d.get('subnet_cidr') == cidr])}",
-                  flush=True)
+            print(f"  {cidr}: dhcp offers={len(dhcp_servers)}", flush=True)
 
-        hosts = _hosts(cidr)
+        hosts, total_hosts, chunk = _subnet_chunk(str(subnet_id or cidr), cidr)
+        if chunk["rounds"] > 1:
+            print(f"  subnet {cidr} has {total_hosts} hosts -> scanning part {chunk['chunk']}/{chunk['rounds']} "
+                  f"({hosts[0]}-{hosts[-1]})", flush=True)
         # arp 表用於 arp 探測，也順手在其他探測時補 mac。
         arp = _arp_table()
 
-        # 先用 icmp/tcp/arp 判定哪些 host alive；其餘探測只對 alive host 跑。
         icmp_alive: dict[str, bool] = {}
-        if "icmp" in due:
+        if "icmp" in light:
             with concurrent.futures.ThreadPoolExecutor(max_workers=PING_WORKERS) as ex:
                 for ip, ok in zip(hosts, ex.map(_ping, hosts)):
                     icmp_alive[ip] = bool(ok)
 
         tcp_ports: dict[str, list[int]] = {}
-        if "tcp" in due:
+        if "tcp" in light:
             with concurrent.futures.ThreadPoolExecutor(max_workers=PING_WORKERS) as ex:
                 for ip, ports in zip(hosts, ex.map(_tcp_scan, hosts)):
                     if ports:
                         tcp_ports[ip] = ports
 
-        # 整理每個 host 的本輪結果。
-        subnet_alive = 0
+        results: list[dict] = []
         for ip in hosts:
             # 套用 per-IP override：略過指定探測
             skip = set(ip_overrides.get(ip) or [])
-            host_probes = [p for p in due if p not in skip]
-            if not host_probes:
+            host_light = [p for p in light if p not in skip]
+            host_heavy = [p for p in heavy if p not in skip]
+            if not host_light and not host_heavy:
                 continue
 
             alive = False
             item: dict = {"ip": ip}
             probes_run: list[str] = []
-
-            if "icmp" in host_probes:
+            if "icmp" in host_light:
                 probes_run.append("icmp")
                 if icmp_alive.get(ip):
                     alive = True
-
-            if "tcp" in host_probes:
+            if "tcp" in host_light:
                 probes_run.append("tcp")
                 ports = tcp_ports.get(ip) or []
                 if ports:
                     alive = True
                     item["open_ports"] = sorted(set(ports))
-
-            if "arp" in host_probes:
+            mac = arp.get(ip)
+            if "arp" in host_light:
                 probes_run.append("arp")
-                mac = arp.get(ip)
                 if mac:
-                    item["mac"] = mac
                     alive = True  # 在 neigh 表代表本子網有回應過
-            else:
-                # 即使沒跑 arp 探測，若 arp 表剛好有資料也順手補 mac
-                mac = arp.get(ip)
-                if mac:
-                    item["mac"] = mac
+            if mac:
+                item["mac"] = mac   # 即使沒跑 arp 探測，arp 表剛好有資料也順手補 mac
+            # snmp 仍不實作（需社群字串/憑證，違反「不做需憑證探測」原則）
+            if not alive:
+                continue
+            item["alive"] = True
+            item["probes_run"] = probes_run
+            results.append(item)
+            # 重量探測只對在線主機、丟給背景跑，不佔住這一輪
+            if host_heavy:
+                _HEAVY.submit(subnet_id, ip, host_heavy)
 
-            # rdns / 重量探測只對「目前判定 alive」的 host 跑，省資源。
-            if alive and "rdns" in host_probes:
-                probes_run.append("rdns")
-                rd, no_ptr = _rdns(ip)
-                if rd:
-                    item["rdns"] = rd
-                elif no_ptr:
-                    item["rdns"] = ""     # DNS 明確說沒有 → 伺服器清掉舊名（1.8.1 起）
+        # 每個子網路做完就回報，不等其他子網路（大子網路或慢的子網路不會拖住別人）
+        if results or dhcp_servers:
+            payload: dict = {"results": results}
+            if dhcp_servers:
+                payload["dhcp_servers"] = dhcp_servers
+            r = _req("POST", "/api/v1/scan-agents/report", payload)
+            print(f"  {cidr}: probes={'+'.join(light) or '-'} alive={len(results)}/{len(hosts)} "
+                  f"queued={'+'.join(heavy) or '-'} updated={r.get('updated')}", flush=True)
+        subnet_stats.append({"cidr": cidr, "hosts": len(hosts), "total_hosts": total_hosts,
+                             "alive": len(results), "truncated": False, **chunk,
+                             "duration_s": round(time.time() - sub_started, 1)})
 
-            if alive and ("os" in host_probes or "ports" in host_probes):
-                want_os = "os" in host_probes
-                want_ports = "ports" in host_probes
-                np = _nmap_os_ports(ip, want_os, want_ports)
-                if want_os:
-                    probes_run.append("os")
-                if want_ports:
-                    probes_run.append("ports")
-                if np.get("os_guess"):
-                    item["os_guess"] = np["os_guess"]
-                if np.get("open_ports"):
-                    merged = set(item.get("open_ports") or []) | set(np["open_ports"])
-                    item["open_ports"] = sorted(merged)
-
-            # NetBIOS / mDNS：對 alive host 實際查名（需 nmblookup / avahi-resolve，
-            # 能力清單已先用 shutil.which 過濾，沒工具就不會進到 host_probes）。
-            if alive and "netbios" in host_probes:
-                probes_run.append("netbios")
-                nb = _netbios(ip)
-                if nb:
-                    item["netbios"] = nb
-            if alive and "mdns" in host_probes:
-                probes_run.append("mdns")
-                md = _mdns(ip)
-                if md:
-                    item["mdns"] = md
-            # snmp 仍不實作（需社群字串/憑證，違反「不做需憑證探測」原則）；列到只記錄已嘗試。
-            if "snmp" in host_probes:
-                probes_run.append("snmp")
-
-            if alive:
-                item["alive"] = True
-                item["probes_run"] = probes_run
-                results.append(item)
-                subnet_alive += 1
-
-        summary = "+".join(due)
-        print(f"  {cidr}: probes={summary} alive={subnet_alive}/{len(hosts)}", flush=True)
-
-    if results or dhcp_servers:
-        payload = {"results": results}
-        if dhcp_servers:
-            payload["dhcp_servers"] = dhcp_servers
-        r = _req("POST", "/api/v1/scan-agents/report", payload)
-        print(f"[report] sent={len(results)} dhcp={len(dhcp_servers)} "
-              f"updated={r.get('updated')}", flush=True)
-    else:
-        print("[report] nothing to report", flush=True)
+    # 整輪統計：負載顯示與超載通知用（耗時 ÷ 週期、背景待辦量）
+    _req("POST", "/api/v1/scan-agents/report", {"results": [], "cycle": {
+        "duration_s": round(time.time() - cycle_started, 1),
+        "interval_s": fast,
+        "subnets": subnet_stats,
+        "heavy_backlog": _HEAVY.pending(),
+        "heavy_done": int(_HEAVY_STATS["done"]),
+        "heavy_last_batch_s": _HEAVY_STATS["last_batch_s"],
+        "agent_version": AGENT_VERSION,
+    }})
 
 
 # ─────────────────── On-demand probe jobs (Tools page) ───────────────────
@@ -728,13 +884,13 @@ def scan_once() -> None:
 # SECURITY: we validate every job ourselves and never pass anything to a shell.
 # The server is not trusted to have validated for us: if the server is compromised,
 # this check is the last thing standing between it and arbitrary probing of the
-# customer network. Only these four read-only probe kinds are ever executed.
-_JOB_KINDS = ("ping", "tcp", "traceroute", "rdns")
+# customer network. Only these read-only probe kinds are ever executed; identify runs a
+# fixed, read-only script list defined in this file (see _IDENTIFY_SCRIPTS).
+_JOB_KINDS = ("ping", "tcp", "traceroute", "rdns", "identify")
 _JOB_MAX_TARGETS = 64
 _JOB_MAX_PORTS = 64
 _HOSTNAME_OK = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
                           r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
-
 
 def _job_valid_target(t: str) -> str | None:
     s = (t or "").strip()
@@ -791,7 +947,135 @@ def _job_run_traceroute(target: str, max_hops: int) -> dict:
     return {"target": target, "error": "no traceroute tool available (tracepath/traceroute)"}
 
 
-def _job_execute(kind: str, params: dict) -> tuple[object, str | None]:
+# identify（IP 詳細頁的「探測」）：只做唯讀、非侵入的識別 —— 服務版本、OS 指紋，加上固定一小組
+# 讀取資訊用的 NSE 腳本（banner／HTTP 標題與伺服器標頭／TLS 憑證／SSH 主機金鑰／SMB 與 RDP 的
+# 系統資訊）。清單寫死在這裡、不從伺服器收：後端被入侵也改不了代理會跑什麼。
+_IDENTIFY_SCRIPTS = ("banner,http-title,http-server-header,ssl-cert,ssh-hostkey,"
+                     "smb-os-discovery,rdp-ntlm-info")
+_IDENTIFY_TIMEOUT = 300          # 秒；伺服器端的「領走未回報」門檻比這個長
+_IDENTIFY_MAX_PORTS = 200
+_IDENTIFY_MAX_TEXT = 600         # 每段腳本輸出最多保留幾個字元
+_IDENTIFY_TOP_PORTS = 1000
+# nmap 的前 1000 個常用埠不含這些，但它們最能說明「這是什麼設備」：PVE／PBS 網頁、WinRM、
+# Intel AMT、HPE iLO、MikroTik Winbox／API、Docker／Kubernetes API、常見攝影機與 NVR 管理埠。
+# 刻意不放工控協定（Modbus、S7 等）：老舊 PLC 可能被版本探測弄當。
+_IDENTIFY_EXTRA_PORTS = (902, 2375, 2376, 5601, 5985, 5986, 6443, 8006, 8007, 8123, 8291, 8554,
+                         8728, 8729, 9443, 10050, 10443, 16992, 16993, 17988, 17990, 34567, 37777)
+_NMAP_SERVICES_PATHS = ("/usr/share/nmap/nmap-services", "/usr/local/share/nmap/nmap-services",
+                        "/opt/homebrew/share/nmap/nmap-services")
+
+
+def _identify_port_list(path: str | None = None, top: int = _IDENTIFY_TOP_PORTS) -> str | None:
+    """前 N 個常用 TCP 埠（依 nmap-services 的頻率）＋補充清單，逗號分隔。
+
+    nmap 的 `-p` 與 `--top-ports` 併用時是取交集而不是聯集，所以自己算。讀不到檔案回 None，
+    呼叫端退回 `--top-ports`。
+    """
+    for p in ((path,) if path else _NMAP_SERVICES_PATHS):
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            continue
+        ranked: list[tuple[float, int]] = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 3 or line.startswith("#") or not parts[1].endswith("/tcp"):
+                continue
+            try:
+                ranked.append((float(parts[2]), int(parts[1][:-4])))
+            except ValueError:
+                continue
+        if not ranked:
+            continue
+        ranked.sort(key=lambda x: (-x[0], x[1]))
+        ports = {port for _, port in ranked[:top]} | set(_IDENTIFY_EXTRA_PORTS)
+        return ",".join(str(x) for x in sorted(ports))
+    return None
+
+
+def _parse_nmap_xml(text: str) -> dict:
+    """nmap -oX 輸出 → {hostnames, mac, mac_vendor, ports[開著的], os[]}。解析失敗回空結構。
+
+    XML 是本機剛跑完的 nmap 產生的（不是從網路收來的文件），用標準函式庫解析即可。
+    """
+    out: dict = {"hostnames": [], "mac": None, "mac_vendor": None, "ports": [], "os": []}
+    try:
+        root = ET.fromstring(text)  # noqa: S314 -- local nmap output, not untrusted input
+    except Exception:  # noqa: BLE001
+        return out
+    host = root.find("host")
+    if host is None:
+        return out
+    for a in host.findall("address"):
+        if a.get("addrtype") == "mac":
+            out["mac"], out["mac_vendor"] = a.get("addr"), a.get("vendor")
+    out["hostnames"] = [h.get("name") for h in host.findall("hostnames/hostname") if h.get("name")]
+    for port in host.findall("ports/port"):
+        st = port.find("state")
+        if st is None or st.get("state") != "open":
+            continue
+        svc = port.find("service")
+        g = (lambda k: (svc.get(k) if svc is not None else None) or "")
+        out["ports"].append({
+            "port": int(port.get("portid") or 0), "proto": port.get("protocol") or "tcp",
+            "state": "open", "service": g("name"), "product": g("product"), "version": g("version"),
+            "extrainfo": g("extrainfo"), "tunnel": g("tunnel"), "ostype": g("ostype"),
+            "scripts": {sc.get("id"): (sc.get("output") or "").strip()[:_IDENTIFY_MAX_TEXT]
+                        for sc in port.findall("script") if sc.get("id")},
+        })
+        if len(out["ports"]) >= _IDENTIFY_MAX_PORTS:
+            break
+    for m in host.findall("os/osmatch")[:5]:
+        cls = m.find("osclass")
+        out["os"].append({
+            "name": m.get("name"), "accuracy": int(m.get("accuracy") or 0),
+            "type": cls.get("type") if cls is not None else None,
+            "vendor": cls.get("vendor") if cls is not None else None,
+            "family": cls.get("osfamily") if cls is not None else None,
+        })
+    return out
+
+
+def _job_run_identify(target: str, progress=None) -> dict:  # noqa: ANN001
+    """對單一 IP 做識別：名稱查詢（反解／NetBIOS／mDNS）＋ nmap 服務版本與 OS 指紋。
+
+    `progress`：每個階段開始時呼叫一次（{"stage": ...}），讓畫面看得到現在在做什麼。
+    """
+    started = time.time()
+
+    def stage(name: str) -> None:
+        if progress:
+            try:
+                progress({"stage": name, "elapsed": round(time.time() - started, 1)})
+            except Exception:  # noqa: BLE001 -- 進度回報失敗不可以讓探測本身失敗
+                pass
+
+    stage("names")
+    names = {"rdns": _rdns(target)[0], "netbios": _netbios(target), "mdns": _mdns(target)}
+    if not shutil.which("nmap"):
+        return {"target": target, "names": names, "nmap": {"available": False}}
+    stage("scan")
+    port_list = _identify_port_list()
+    ports = ["-p", port_list] if port_list else ["--top-ports", str(_IDENTIFY_TOP_PORTS)]
+    argv = ["nmap", "-Pn", "-sV", "--version-intensity", "5", *ports, "-T4",
+            "--host-timeout", f"{_IDENTIFY_TIMEOUT - 30}s", "--script", _IDENTIFY_SCRIPTS]
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        argv += ["-O", "--osscan-guess"]      # OS 指紋要 raw socket（root）；沒有就只做服務版本
+    argv += ["-oX", "-", target]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=_IDENTIFY_TIMEOUT)
+        parsed = _parse_nmap_xml(r.stdout or "")
+        nmap = {"available": True, **parsed, "exit": r.returncode,
+                "stderr": (r.stderr or "")[-_IDENTIFY_MAX_TEXT:] or None}
+    except subprocess.TimeoutExpired:
+        nmap = {"available": True, "error": f"nmap timed out after {_IDENTIFY_TIMEOUT}s"}
+    except Exception as exc:  # noqa: BLE001
+        nmap = {"available": True, "error": f"{type(exc).__name__}: {exc}"[:_IDENTIFY_MAX_TEXT]}
+    return {"target": target, "names": names, "nmap": nmap, "elapsed": round(time.time() - started, 1)}
+
+
+def _job_execute(kind: str, params: dict, progress=None) -> tuple[object, str | None]:  # noqa: ANN001
     """Run one job. Returns (result, error). Never raises."""
     if kind not in _JOB_KINDS:
         return None, f"unsupported probe: {kind}"
@@ -818,9 +1102,38 @@ def _job_execute(kind: str, params: dict) -> tuple[object, str | None]:
         if kind == "traceroute":
             hops = max(1, min(int(params.get("max_hops") or 20), 30))
             return _job_run_traceroute(targets[0], hops), None
+        if kind == "identify":
+            # 代理自己也要擋：只接受單一 IP（不收主機名稱、不收多個目標）
+            if len(targets) != 1:
+                return None, "identify takes exactly one target"
+            try:
+                ipaddress.ip_address(targets[0])
+            except ValueError:
+                return None, "identify takes an IP address"
+            return _job_run_identify(targets[0], progress), None
         return [{"target": t, "hostname": _rdns(t)[0]} for t in targets], None
     except Exception as exc:  # noqa: BLE001
         return None, f"{type(exc).__name__}: {exc}"
+
+
+def _job_runs_in_background(kind: str) -> bool:
+    """identify 要跑好幾分鐘；放在工作佇列的執行緒上跑，這段期間其他工具探測會排不到
+    （待辦兩分鐘沒被領就作廢）。其他種類幾秒內就結束，照順序跑即可。"""
+    return kind == "identify"
+
+
+def _job_run_and_report(job: dict) -> None:
+    jid, kind = job.get("id"), str(job.get("kind"))
+
+    def progress(p: dict) -> None:
+        _req("POST", f"/api/v1/scan-agents/jobs/{jid}/progress", {"progress": p})
+
+    result, error = _job_execute(kind, job.get("params") or {},
+                                 progress=progress if kind == "identify" else None)
+    try:
+        _req("POST", f"/api/v1/scan-agents/jobs/{jid}/result", {"result": result, "error": error})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[jobs] report failed: {type(exc).__name__}", file=sys.stderr, flush=True)
 
 
 def _jobs_loop() -> None:
@@ -833,14 +1146,10 @@ def _jobs_loop() -> None:
         try:
             resp = _req("GET", "/api/v1/scan-agents/jobs?wait=25") or {}
             for job in resp.get("jobs") or []:
-                jid, kind = job.get("id"), job.get("kind")
-                result, error = _job_execute(str(kind), job.get("params") or {})
-                try:
-                    _req("POST", f"/api/v1/scan-agents/jobs/{jid}/result",
-                         {"result": result, "error": error})
-                except Exception as exc:  # noqa: BLE001
-                    print(f"[jobs] report failed: {type(exc).__name__}", file=sys.stderr,
-                          flush=True)
+                if _job_runs_in_background(str(job.get("kind"))):
+                    threading.Thread(target=_job_run_and_report, args=(job,), daemon=True).start()
+                else:
+                    _job_run_and_report(job)
         except Exception as exc:  # noqa: BLE001
             print(f"[jobs] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
             time.sleep(10)      # back off; do not hammer a server that is down
@@ -865,6 +1174,8 @@ def main() -> int:
     # On-demand probe jobs run in a separate thread: scanning must not wait on them,
     # and a failure there must not stop scanning.
     threading.Thread(target=_jobs_loop, name="jt-ipam-jobs", daemon=True).start()
+    # 重量探測（反解／NetBIOS／mDNS／OS 指紋）在背景跑，上線偵測每輪都能準時做完、立刻回報
+    threading.Thread(target=_heavy_loop, name="jt-ipam-heavy", daemon=True).start()
     while True:
         try:
             scan_once()

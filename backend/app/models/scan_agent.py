@@ -12,6 +12,7 @@ Phase 1：model + CRUD + Subnet 關聯欄位；agent 通訊協定 stub 留 Phase
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import ARRAY, Boolean, DateTime, LargeBinary, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -66,3 +67,6 @@ class ScanAgent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     tools: Mapped[list | None] = mapped_column(JSONB)
     # 「立刻執行一次」：admin 按鈕設此時間，代理下次 poll 取走（清空）後本輪所有探測強制到期立即跑
     force_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 最近一輪掃描的統計（代理回報）：{at, duration_s, interval_s, heavy_backlog, subnets:[{cidr, hosts,
+    #: alive, duration_s, truncated}]}。負載顯示與超載通知用。
+    last_cycle: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

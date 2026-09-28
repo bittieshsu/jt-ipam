@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.52] - 2026-09-28
+
+### Added
+- **IP probe (admin only).** A "Probe" button next to Investigate on an IP opens a page where the scan
+  agent assigned to the subnet identifies the address: open services and versions, OS fingerprint, TLS
+  certificate and page titles, and name lookups (reverse DNS, NetBIOS, mDNS). It only reads information
+  and never logs in; the script list is fixed inside the agent. The page shows which stage the probe is
+  in, keeps every past result, compares each result with the previous one (opened / closed / version
+  changed), downloads the raw result as JSON, and lists applications (including ones recognisable only
+  from a self-signed certificate). Leaving the page does not stop it. A probe also appears on the Tasks
+  page and notifies the person who started it when it finishes or fails (`identify.done` in the
+  notification matrix). One probe per IP at a time; every start is audited. Migration 0162.
+- **Scan agent load.** Every cycle is recorded (kept 7 days). The Scan agents page has a Load column
+  (liveness cycle time / interval, background queue) and a panel with the trend, per-subnet timing and
+  actionable suggestions (which subnets to move, which subnet is unusually slow, which one is too large);
+  a subnet can be moved to another agent from there. Three overloaded cycles in a row notify admins once,
+  and again on recovery (`agent.overloaded`). Subnets are never re-assigned automatically: the right agent
+  must share the subnet's network segment. Migrations 0163-0164.
+- **Every screen checked at phone width**: `e2e/mobile-all-routes.spec.ts` opens every route at 390px and
+  fails on page-level horizontal scroll, clipped or off-screen content and text squeezed to a few
+  characters per line.
+
+### Changed
+- **Scan agents report liveness right away** (agent 1.11.0, self-updates). The ping/TCP/ARP/DHCP pass
+  reports each subnet as soon as it is done; reverse DNS, NetBIOS, mDNS and OS fingerprinting run in the
+  background with bounded parallelism, names not waiting for nmap. Before, a cycle with OS fingerprinting
+  could run for over an hour without reporting any subnet's online state. Background results fill in data
+  but never count as being seen online and never create IPs, and are retried if the server is restarting.
+- **Large subnets are scanned in rotating chunks.** The per-cycle limit rose from 1024 to 4096 addresses and
+  larger subnets are covered one chunk per cycle instead of scanning only the first chunk forever. If a full
+  pass takes longer than the online threshold, it counts as overload with a suggestion to split the subnet.
+
+### Fixed
+- **guacd consoles on high-DPI screens.** The remote screen size is now in device pixels, like the official
+  client; the SSH console no longer shows text twice as large on a Retina display.
+- **SSH console font size controls work with the guacd engine**: A-/A+ change the size during the session
+  (only the font size is let through to guacd, validated) and the size is remembered.
+- **Phone layout**: the sidebar scrolls under a finger instead of scrolling the page behind; console status
+  bars wrap; the notification popover stays on screen; rack diagrams default to a zoom that fits the phone;
+  pagination wraps; tables that squeezed columns one character wide scroll horizontally; the phpIPAM
+  migration steps, system transfer cards, Graylog guide and notification matrix fit the screen.
+- **AI audit wording**: zh-TW term fixes no longer swap across word boundaries, "production environment"
+  uses Taiwanese usage, and raw field names in findings are annotated with the on-screen name in the reader's
+  language (e.g. 狀態（state）為使用中（active）).
+- A subnet's IP list combines "only stale", "only DHCP" and the text filter; the match count is the number of
+  rows listed.
+- Bulk delete of IPs starts the reuse cooldown and records the deletion in the IP history, like single delete.
+- OCS card: memory shows installed and usable amounts honestly; Ceph RBD, ZFS zvols and DRBD devices are not
+  listed as physical disks.
+- The probe no longer classifies a Linux host running CUPS as a printer, and a certificate name counts as a
+  host name only when it looks like one.
+- zh-TW texts no longer use 實例 for an integration.
+
 ## [0.6.51] - 2026-09-27
 
 ### Added

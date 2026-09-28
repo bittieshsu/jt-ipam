@@ -264,7 +264,10 @@ _ZH_TW_TERMS = (
     "「預設」不用「默認」、「設定」不用「配置」、「支援」不用「支持」、"
     "「品質」不用「質量」、「透過」不用「通過」、「軟體」不用「軟件」、"
     "「硬體」不用「硬件」、「程式」不用「程序」、「檔案」不用「文件」、"
-    "「登入」不用「登錄」、「還原」不用「回滾」、「選用」不用「可選」"
+    "「登入」（login）不用「登錄」（台灣的「登錄」是登記的意思）、「還原」不用「回滾」、"
+    "「選用」不用「可選」、「正式環境」不用「生產環境」。"
+    "提到資料欄位或狀態值時，寫畫面上的中文名稱並把原文放在括號裡，不要只寫原文，例如"
+    "「狀態（state）為使用中（active）」「最後出現（掃描代理，last_seen_scanner）為空值（null）」"
 )
 
 _LANGUAGES = {
@@ -272,13 +275,16 @@ _LANGUAGES = {
         "Traditional Chinese as used in Taiwan（繁體中文，台灣用語，標點用全形）。"
         "特別注意這些對照，寫錯會一眼看出不是台灣的產品：" + _ZH_TW_TERMS
     ),
-    "en-US": "English",
-    "ja-JP": "Japanese（日本語。です・ます調で、専門用語はカタカナまたは英語のまま）",
+    "en-US": ("English. When you mention a data field, use its plain name and put the raw field "
+              "name in parentheses, e.g. \"last seen (scanner, last_seen_scanner)\"."),
+    "ja-JP": ("Japanese（日本語。です・ます調で、専門用語はカタカナまたは英語のまま。"
+              "データ項目や状態値は画面上の日本語名を書き、原文を括弧で添えること。例："
+              "「状態（state）が使用中（active）」「最終確認（スキャナ、last_seen_scanner）が値なし（null）」）"),
 }
 
 
-async def _language_for(session: AsyncSession, user: User) -> str:
-    """發現內容要用哪種語言寫。
+async def _locale_for(session: AsyncSession, user: User) -> str:
+    """發現內容要用哪種語言寫（zh-TW／en-US／ja-JP）。
 
     存下來的是一段文字、不是 i18n key（模型的敘述沒辦法預先翻譯），所以只能挑一種語言。
     取執行者的介面偏好 —— 排程執行時就是設定裡指定的那個管理員。
@@ -288,7 +294,25 @@ async def _language_for(session: AsyncSession, user: User) -> str:
     loc = (await session.execute(
         select(UserPreference.locale).where(UserPreference.user_id == user.id)
     )).scalar_one_or_none()
-    return _LANGUAGES.get(loc or "", _LANGUAGES["zh-TW"])
+    return loc if loc in _LANGUAGES else "zh-TW"
+
+
+def _language_instruction(locale: str) -> str:
+    """語言指示＋欄位名稱對照（跟畫面一致）。只給範例的話，模型會自己取名：實測把 status 寫成
+    「狀態」，跟 state 的「狀態」撞名；兩個最後出現時間也沒標來源。"""
+    base = _LANGUAGES[locale]
+    labels = _FIELD_LABELS.get(locale, {})
+    fields = [k for k in ("state", "status", "last_seen_scanner", "last_seen_librenms", "hostname",
+                          "description", "source", "dhcp_server") if k in labels]
+    if not fields:
+        return base
+    pairs = "、".join(f"{k}＝{labels[k]}" for k in fields) if locale != "en-US" else \
+        ", ".join(f"{k} = {labels[k]}" for k in fields)
+    return f"{base}\nField names on screen: {pairs}"
+
+
+async def _language_for(session: AsyncSession, user: User) -> str:
+    return _language_instruction(await _locale_for(session, user))
 
 
 # 提示詞裡的用詞對照是「盡力而為」—— 模型不一定照做（實測：叫它別用「涉及」，它
@@ -298,15 +322,24 @@ async def _language_for(session: AsyncSession, user: User) -> str:
 # 「支持」（支持某個立場）、「程序」（法律程序）這種一詞兩義的，替換會改錯句意，
 # 只留在提示詞裡靠模型自律。
 _ZH_TW_FIXUPS: tuple[tuple[str, str], ...] = (
-    # 先長後短：「IP 地址」要在「地址」之前，否則會先被短的吃掉
-    ("涉及裝置", "相關裝置"), ("涉及的", "相關的"), ("涉及到", "相關的"),
-    ("IP 地址", "IP 位址"), ("IP地址", "IP 位址"), ("地址", "位址"),
-    ("信息", "資訊"), ("網絡", "網路"), ("服務器", "伺服器"),
-    ("默認", "預設"), ("軟件", "軟體"), ("硬件", "硬體"),
-    ("內存", "記憶體"), ("端口", "連接埠"), ("登錄", "登入"),
-    ("缺失", "缺少"), ("在線", "上線"), ("映射", "對應"),
-    ("子網掩碼", "子網路遮罩"), ("交換機", "交換器"), ("路由器", "路由器"),
+    # 正規表示式＋替換。先長後短：「IP 地址」要在「地址」之前，否則會先被短的吃掉。
+    # **要看前後文**：單純字串取代會跨詞誤轉 —— 「網路區段內存在個人裝置」（內＋存在）
+    # 被換成「區段記憶體在」（2026-09-28 使用者回報）。
+    (r"涉及裝置", "相關裝置"), (r"涉及的", "相關的"), (r"涉及到", "相關的"),
+    (r"IP ?地址", "IP 位址"), (r"地址", "位址"),
+    (r"信息", "資訊"), (r"網絡", "網路"), (r"服務器", "伺服器"),
+    (r"默認", "預設"), (r"軟件", "軟體"), (r"硬件", "硬體"),
+    (r"內存(?!在)", "記憶體"),               # 「內存在」是「內＋存在」
+    (r"端口", "連接埠"),
+    (r"缺失", "缺少"),
+    (r"(?<![所存])在線(?!路)", "上線"),      # 「所在線路」「存在線上」不是「在線」
+    (r"映射", "對應"),
+    (r"子網掩碼", "子網路遮罩"), (r"交換機", "交換器"),
+    # 台灣說「正式環境」；「生產環境」是中國用語（使用者回報）
+    (r"生產(?=環境|網路|伺服器|主機|系統|服務|區段|用途)", "正式"),
+    # 刻意不換「登錄」：台灣的「登錄」是登記的意思（「未登錄於 IPAM」），換成「登入」會改錯句意
 )
+_ZH_TW_RULES = tuple((re.compile(p), r) for p, r in _ZH_TW_FIXUPS)
 
 
 def zh_tw_fixup(text: str) -> str:
@@ -314,9 +347,80 @@ def zh_tw_fixup(text: str) -> str:
 
     只動敘述文字，**不動 evidence** —— 那裡面是主機名稱與位址，一個字都不能改。
     """
-    for bad, good in _ZH_TW_FIXUPS:
-        text = text.replace(bad, good)
+    for pat, good in _ZH_TW_RULES:
+        text = pat.sub(good, text)
     return text
+
+
+# 送給模型的快照用的是資料欄位原名（state、last_seen_scanner……），模型常照抄進敘述，
+# 讀的人只看到一串程式代碼（使用者回報：「不要只有原文」）。敘述裡出現的欄位原名與狀態值，
+# 換成**畫面上的名稱**並把原文放在括號裡，依發起巡檢的使用者語言；名稱跟前端 i18n 一致。
+# 英文本身就是英文字，只替沒有意義的欄位代碼（底線命名）加註。
+_FIELD_LABELS: dict[str, dict[str, str]] = {
+    "zh-TW": {
+        "last_seen_scanner": "最後出現（掃描代理）", "last_seen_librenms": "最後出現（LibreNMS）",
+        "dhcp_server": "DHCP 主機", "scan_enabled": "掃描", "ips_seen": "已偵測到的 IP 數",
+        "ips_total": "IP 總數", "hostname": "主機名稱", "description": "說明", "state": "狀態",
+        "status": "實際狀態", "source": "來源", "device": "裝置",
+        "active": "使用中", "reserved": "保留", "offline": "離線", "online": "上線", "unknown": "未知",
+        "used": "已使用", "inactive": "停用", "null": "空值",
+    },
+    "ja-JP": {
+        "last_seen_scanner": "最終確認（スキャナ）", "last_seen_librenms": "最終確認（LibreNMS）",
+        "dhcp_server": "DHCP サーバー", "scan_enabled": "スキャン", "ips_seen": "検出済み IP 数",
+        "ips_total": "IP 総数", "hostname": "ホスト名", "description": "説明", "state": "状態",
+        "status": "実効状態", "source": "ソース", "device": "機器",
+        "active": "使用中", "reserved": "予約", "offline": "オフライン", "online": "オンライン",
+        "unknown": "不明", "used": "使用済み", "inactive": "無効", "null": "値なし",
+    },
+    "en-US": {
+        "last_seen_scanner": "last seen (scanner)", "last_seen_librenms": "last seen (LibreNMS)",
+        "dhcp_server": "DHCP server", "scan_enabled": "scanning enabled", "ips_seen": "IPs seen",
+        "ips_total": "total IPs",
+    },
+}
+# 前後不可以是英數、底線、點、連字號、斜線、冒號、@：主機名稱（active-dir01、gw-01.example.net）裡的字不算
+_FIELD_BOUND_L = r"(?<![\w.\-/:@])"
+_FIELD_BOUND_R = r"(?![\w.\-/:@])"
+
+
+def _inside_parens(text: str, idx: int) -> bool:
+    """idx 之前有沒有還沒關閉的括號（已經加註過的「狀態（state）」就不要再加）。"""
+    depth = 0
+    for ch in reversed(text[:idx]):
+        if ch in "）)":
+            depth += 1
+        elif ch in "（(":
+            if depth == 0:
+                return True
+            depth -= 1
+    return False
+
+
+def annotate_fields(text: str, locale: str) -> str:
+    """把敘述裡的欄位原名／狀態值換成「畫面上的名稱（原文）」。"""
+    labels = _FIELD_LABELS.get(locale)
+    if not labels or not text:
+        return text
+    cjk = locale in ("zh-TW", "ja-JP")
+    sep = "，" if locale == "zh-TW" else "、"
+    names = sorted(labels, key=len, reverse=True)
+    pat = re.compile(_FIELD_BOUND_L + "(" + "|".join(map(re.escape, names)) + ")" + _FIELD_BOUND_R)
+
+    def repl(m: re.Match[str]) -> str:
+        raw = m.group(1)
+        if _inside_parens(m.string, m.start()):
+            return raw
+        label = labels[raw]
+        if cjk:
+            return f"{label[:-1]}{sep}{raw}）" if label.endswith("）") else f"{label}（{raw}）"
+        return f"{label[:-1]}, {raw})" if label.endswith(")") else f"{label} ({raw})"
+
+    out = pat.sub(repl, text)
+    if cjk:
+        # 中日文裡夾英文時習慣前後留空白；換成全形名稱後，名稱兩側的半形空白就多餘了
+        out = re.sub(r"(?<=[^\x00-\x7f]) (?=[^\x00-\x7f])", "", out)
+    return out
 
 
 #: 敘述裡「看起來像位址」的字樣（四段以點分隔）。刻意寫得寬鬆到連壞掉的也抓得到 ——
@@ -427,7 +531,7 @@ def _salvage_findings(txt: str) -> list[dict[str, Any]] | None:
     return out
 
 
-def _parse(raw: str) -> list[dict[str, Any]] | None:
+def _parse(raw: str, locale: str = "zh-TW") -> list[dict[str, Any]] | None:
     """解析模型輸出。**`None` ＝解析失敗，`[]` ＝解析成功但沒有發現** —— 兩者不同。
 
     模型輸出**一律當成不可信輸入**：可能夾雜說明文字、用自創的嚴重度、或根本不是 JSON。
@@ -480,9 +584,14 @@ def _parse(raw: str) -> list[dict[str, Any]] | None:
             dropped += n
             return cleaned
 
-        title = _sane(zh_tw_fixup(title))
-        detail = _sane(zh_tw_fixup(_clean(it.get("detail"), 4000)))
-        rec_txt = _sane(zh_tw_fixup(rec)) if rec else None
+        def _fix(text: str) -> str:
+            if locale == "zh-TW":
+                text = zh_tw_fixup(text)
+            return annotate_fields(text, locale)
+
+        title = _sane(_fix(title))
+        detail = _sane(_fix(_clean(it.get("detail"), 4000)))
+        rec_txt = _sane(_fix(rec)) if rec else None
         if dropped:
             log.info("ai_audit dropped unverifiable addresses",
                      count=dropped, category=cat)
@@ -586,7 +695,8 @@ async def _run_audit(
                         error="沒有可見的資料可分析（檢查此帳號的權限範圍）")
 
     cfg = await get_llm_config(session)
-    prompt = _PROMPT.replace("{language}", await _language_for(session, user))
+    locale = await _locale_for(session, user)
+    prompt = _PROMPT.replace("{language}", _language_instruction(locale))
     batches = _batches(snapshot, _budget_tokens(cfg))
     total = len(batches)
     await _emit("analyzing", 0, total,
@@ -626,7 +736,7 @@ async def _run_audit(
             await _emit("analyzing", i, total, error=str(exc))
             continue
 
-        parsed = _parse(raw)
+        parsed = _parse(raw, locale=locale)
         if parsed is None:
             # 有回應但解析不出來：把模型實際講了什麼帶出來。只說「無法解析」的話，
             # 要查是模型講廢話、回應被截斷、還是換了格式，完全無從下手。

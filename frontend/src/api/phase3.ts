@@ -68,6 +68,8 @@ export interface ScanAgent {
   available_probes: string[] | null;
   tools: ScanAgentTool[] | null;
   subnet_count: number;
+  /** 最近一輪的負載摘要（代理 1.10.0 起回報）；還沒回報過就是 null */
+  load?: ScanAgentLoadSummary | null;
   last_seen_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -75,6 +77,36 @@ export interface ScanAgent {
 }
 // 建立 / rotate 時多回一次性 enroll_key
 export interface ScanAgentCreated extends ScanAgent { enroll_key: string; }
+
+export type ScanLoadLevel = "ok" | "busy" | "overloaded";
+export interface ScanAgentLoadSummary {
+  ratio: number; level: ScanLoadLevel; duration_s: number; interval_s: number;
+  heavy_backlog: number; truncated: number; coverage_gap?: number; at: string | null;
+}
+export interface ScanLoadSubnet {
+  cidr: string; subnet_id?: string | null; hosts: number; total_hosts?: number; alive: number;
+  duration_s: number; per_host_ms: number | null; truncated: boolean;
+  /** 分段輪替（代理 1.11.0 起）：這輪是第幾段／共幾段 */
+  chunk?: number; rounds?: number;
+}
+export interface ScanLoadSuggestion { code: string; params: Record<string, unknown> }
+export interface ScanAgentLoad {
+  agent_id: string;
+  last_cycle: Record<string, unknown> | null;
+  evaluation: {
+    ratio: number; level: ScanLoadLevel; duration_s: number; interval_s: number;
+    heavy_backlog: number; heavy_lagging: boolean; truncated: string[];
+    subnets: ScanLoadSubnet[]; suggestions: ScanLoadSuggestion[];
+  } | null;
+  history: { at: string; duration_s: number; interval_s: number; heavy_backlog: number;
+             hosts: number | null; alive: number | null }[];
+}
+
+/** 負載面板：最近一輪的逐子網路細節、評估與建議、最近幾輪的耗時 */
+export async function getScanAgentLoad(id: string): Promise<ScanAgentLoad> {
+  const { data } = await apiClient.get<ScanAgentLoad>(`/api/v1/scan-agents/${id}/load`);
+  return data;
+}
 
 export async function listScanAgents(): Promise<Paginated<ScanAgent>> {
   const { data } = await apiClient.get<Paginated<ScanAgent>>("/api/v1/scan-agents", {

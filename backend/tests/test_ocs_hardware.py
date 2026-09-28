@@ -295,3 +295,21 @@ async def test_a_factory_placeholder_serial_already_on_the_device_is_replaced(db
     await db_session.flush()
     await db_session.refresh(dev)
     assert dev.serial == "BOARD-SN-0002"
+
+
+@pytest.mark.parametrize("name", ["rbd0", "rbd7", "zd0", "zd16", "drbd1", "loop3", "dm-0", "nbd0", "zram0"])
+def test_virtual_block_devices_are_not_physical_disks(name: str) -> None:
+    """PVE 主機上 Ceph 的 rbd、ZFS 的 zvol（zd）等是虛擬區塊裝置，OCS 代理照 lsblk 一律回報成 disk
+    （2026-09-27 使用者回報：Ceph 節點的磁碟清單列出 rbd0～rbd7）。"""
+    comp = {"storages": [
+        {"NAME": name, "MODEL": "", "MANUFACTURER": "", "TYPE": "disk", "DISKSIZE": 8590},
+        {"NAME": "sda", "MODEL": "SATA ER2-CD1920A", "MANUFACTURER": "SSSTC", "TYPE": "disk",
+         "DISKSIZE": 1920383},
+    ]}
+    assert [d["model"] for d in svc.hardware_summary(comp)["disks"]] == ["SATA ER2-CD1920A"]
+
+
+def test_a_vm_keeps_its_own_virtual_disk() -> None:
+    """VM 裡的 vda／xvda 就是那台 VM 的磁碟，要留著。"""
+    comp = {"storages": [{"NAME": "vda", "MODEL": "", "TYPE": "disk", "DISKSIZE": 34360}]}
+    assert [d["model"] for d in svc.hardware_summary(comp)["disks"]] == ["vda"]
