@@ -11,7 +11,7 @@
 
 **🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/?lang=zh-TW)**
 
-> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、MikroTik RouterOS、Windows DHCP Server、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix 與本地 AI。
+> 可自架、以整合為核心的 IPAM — 操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、MikroTik RouterOS、Windows DHCP Server、獨立的 Kea 與 ISC DHCP、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix 與本地 AI。
 >
 > 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：AGPL-3.0｜English: [README.md](README.md)｜日本語: [README_ja.md](README_ja.md)
 
@@ -25,7 +25,7 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 - **LibreNMS**：裝置同步、ARP / FDB 抓取、上線狀態互補、自動加入監控
 - **Zabbix**：監控面的唯讀補充 —— 主機↔IP 對應、把存活狀態當作實際狀態的額外證據、維護狀態，以及**監控涵蓋缺口**（IPAM 有主機名稱、Zabbix 卻沒在看的位址）。ARP／FDB 仍以 LibreNMS 為主，那不在 Zabbix 的內建資料裡
 - **基礎設施**：Proxmox VE、**VMware ESXi / vCenter（Beta）** —— 同一套設定同時涵蓋單機 ESXi 與 vCenter，走 vSphere API 唯讀盤點虛擬機、網卡與 IP，與 Proxmox 寫進同一組虛擬化資料表；Wazuh、OPNsense / pfSense（別名 / 規則 / NAT 同步），**FortiGate** —— 透過 FortiOS REST API 唯讀同步（DHCP 租約與發放範圍、ARP、IPsec 通道與 SSL-VPN 連線、防火牆政策、NAT、位址物件；支援多 VDOM），**Palo Alto（Beta）** —— 透過 PAN-OS API 唯讀同步（ARP、DHCP 租約、含 App-ID 的安全政策、NAT、位址物件；支援多 vsys），以及 **MikroTik RouterOS（Beta）** —— 透過 RouterOS v7 REST API 唯讀同步（防火牆規則 filter／mangle／NAT、address-list、DHCP 租約與發放範圍、VPN、ARP）。MikroTik 常是站台的主力路由器，所以同步序列執行、區段之間停頓、CPU 超過門檻就停掉本輪剩下的區段，並有回應大小上限（RouterOS 的 REST 沒有分頁）；重的區段預設關閉，連線診斷會回報每支端點的列數與耗時
-- **DHCP**：各家各自設定 —— OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
+- **DHCP**：各家各自設定 —— OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）；**獨立的 Kea** 走它的 JSON 控制 API（控制代理，或 Kea 3.0 起 DHCP 伺服器自己的 HTTP 控制通道；租約需要 lease_cmds）；**獨立的 ISC DHCP**（isc-dhcp-server 沒有能列出租約的 API）由裝在 DHCP 主機上的掃描代理在本機解析 dhcpd.conf／dhcpd.leases，只回報解析後的範圍、固定分配與有效租約。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
 - **Graylog**：提供 IP→主機名稱/FQDN 的 DSV 對照表端點，供 Graylog「DSV File from HTTP」資料配接器抓取
 - **本地 AI**：LLM Server 自然語言查詢 + 語意搜尋（預設自架、資料不外送；也可明確改接 OpenAI 相容端點），並提供 MCP server（stdio / Streamable HTTP）；實測搭配 `gemma4:26b` 效果良好。資安面：**防火牆規則異動偵測**（三家防火牆的規則每輪同步做快照 diff，半夜多出一條放行規則會通知管理員）、**IP 鑑識問答**（在 AI 對話問「這個 IP 上週是誰」，回欄位級異動＋ARP/MAC＋各來源主機名稱的證據時間軸）、**未授權 IP 的 AI 鑑識卡**（把 OUI／主機名稱／交換器埠彙整成「這最可能是什麼設備＋下一步查哪」的判讀，證據定界防 prompt-injection）
 
@@ -85,7 +85,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 | **Proxmox VE** | 可自動建立 | 「信任虛擬化取得的 IP」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
 | **VMware / ESXi** | 可自動建立 | 「信任虛擬化取得的 IP」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
 | **OPNsense / pfSense** | 可自動建立（DHCP 租約） | 「自動建立 IPAM 沒有的位址」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
-| AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / FortiGate / Palo Alto / MikroTik | **只比對既有，不建** | — | — | — |
+| AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / Kea / ISC DHCP / FortiGate / Palo Alto / MikroTik | **只比對既有，不建** | — | — | — |
 | CSV 匯入 / phpIPAM 遷移 | 由匯入內容建立（使用者明示的動作） | — | — | 依匯入資料 |
 
 **共通規則**：自動建立一律走同一套判斷（`services/ip_autocreate.py`）——

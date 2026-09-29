@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionLocal
@@ -138,20 +138,33 @@ async def _run(task_id: uuid.UUID, runner: TaskRunner) -> None:
         await sess.commit()
         await sess.refresh(task)
 
+        kind = task.kind
+        status, summary, error = "succeeded", None, None
         try:
             summary = await runner(sess, task)
-            task.summary = summary
-            task.status = "succeeded"
-            task.progress = 100
-            task.error = None
+            await sess.commit()           # 作業自己留下的變更；這裡失敗也算作業失敗
         except Exception as exc:
-            logger.exception("background_task %s (%s) failed", task.id, task.kind)
-            task.status = "failed"
-            task.error = f"{type(exc).__name__}: {exc}"[:4096]
-        finally:
-            task.finished_at = datetime.now(UTC)
+            logger.exception("background_task %s (%s) failed", task_id, kind)
+            status, error = "failed", f"{type(exc).__name__}: {exc}"[:4096]
+            # issue #43：作業裡的資料庫錯誤（唯一鍵衝突…）會讓這個 session 停在「交易已失敗」，
+            # 不先還原的話，接下來什麼都寫不進去 —— 作業就永遠停在「執行中」
             try:
-                await sess.commit()
-            except Exception:
-                logger.exception("failed to persist task %s final state", task_id)
                 await sess.rollback()
+            except Exception:
+                logger.exception("rollback after task %s failure failed", task_id)
+
+    # 最終狀態用一個乾淨的 session 寫：作業那個 session 不管壞成什麼樣子，這筆都要寫得進去
+    await _persist_final(task_id, status=status, summary=summary, error=error)
+
+
+async def _persist_final(task_id: uuid.UUID, *, status: str, summary: dict[str, Any] | None,
+                         error: str | None) -> None:
+    values: dict[str, Any] = {"status": status, "error": error, "finished_at": datetime.now(UTC)}
+    if status == "succeeded":
+        values.update(summary=summary, progress=100)
+    try:
+        async with SessionLocal() as sess:
+            await sess.execute(update(BackgroundTask).where(BackgroundTask.id == task_id).values(**values))
+            await sess.commit()
+    except Exception:
+        logger.exception("failed to persist task %s final state", task_id)

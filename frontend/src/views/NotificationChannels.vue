@@ -176,7 +176,7 @@ onMounted(() => { void load(); void loadMatrix(); });
     <!-- 通知矩陣：哪些事件、走哪些管道（總覽，放所有管道設定之上）-->
     <n-card :title="t('notify_ch.matrix_title')">
       <p class="nmx-hint">{{ t("notify_ch.matrix_hint") }}</p>
-      <table class="nmx">
+      <table v-col-resize class="nmx">
         <thead>
           <tr>
             <th>{{ t("notify_ch.matrix_event") }}</th>

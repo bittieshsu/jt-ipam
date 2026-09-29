@@ -635,11 +635,25 @@ async def detect_rogue_dhcp(
         _fw_models.append(PaloAltoFirewall)
     except Exception:
         pass
+    # 獨立 DHCP 伺服器（issue #45）本來就是發 IP 的：Kea 看控制網址的主機、ISC DHCP 看回報代理的來源位址、
+    # Windows DHCP 看設定的主機（以前沒列，Windows DHCP 主機會被報成非法 DHCP）
+    from app.models.dhcp_standalone import KeaDhcpServer
+    _fw_models.append(KeaDhcpServer)
     for model in _fw_models:
         for (url,) in (await session.execute(select(model.api_url))).all():
             host = (urlparse(str(url)).hostname or "").strip()
             if host:
                 integrated.add(host)
+    from app.models.dhcp_standalone import IscDhcpServer
+    from app.models.scan_agent import ScanAgent
+    from app.models.windows_dhcp import WindowsDhcpServer
+    for (ip,) in (await session.execute(select(ScanAgent.last_source_ip).join(
+            IscDhcpServer, IscDhcpServer.agent_id == ScanAgent.id))).all():
+        if ip:
+            integrated.add(str(ip).strip())
+    for (host,) in (await session.execute(select(WindowsDhcpServer.host))).all():
+        if host:
+            integrated.add(str(host).strip())
 
     out: list[dict[str, Any]] = []
     for sighting, cidr in rows:
@@ -1171,8 +1185,9 @@ def _item_fingerprint(item: dict[str, Any]) -> str:
     用穩定的欄位組合而不是整包 JSON 雜湊：像「最後出現時間」「天數」這種欄位每次跑都會變，
     拿整包去比的話每一輪都會是「新的」，去重等於沒做。
     """
+    # firewall／interface：同一台防火牆好幾條沒有描述的規則，靠它們才分得開
     keys = ("ip", "mac", "cidr", "subnet_cidr", "hostname", "device", "device_name",
-            "name", "rule", "rule_id", "server_ip", "fqdn", "port", "id")
+            "name", "rule", "rule_id", "server_ip", "fqdn", "port", "id", "firewall", "interface")
     parts = [f"{k}={item[k]}" for k in keys if item.get(k) not in (None, "")]
     if not parts:                      # 沒有任何可辨識欄位就退回整包（保守：寧可多通知一次）
         parts = [json.dumps(item, sort_keys=True, default=str)]
@@ -1287,26 +1302,71 @@ def _is_any(v: Any) -> bool:
     return str(v).strip().lower() in ("any", "*", "all")
 
 
+async def _firewall_names(session: AsyncSession) -> dict[str, str]:
+    """各廠牌防火牆實例的 id → 名稱（NAT 的 source_origin 是「廠牌:實例 id」）。"""
+    from app.models.firewall import OPNsenseFirewall
+    from app.models.fortigate import FortiGateFirewall
+    from app.models.mikrotik import MikroTikRouter
+    from app.models.paloalto import PaloAltoFirewall
+    from app.models.pfsense import PfSenseFirewall
+
+    out: dict[str, str] = {}
+    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, PaloAltoFirewall,
+                  MikroTikRouter):
+        for fid, name in (await session.execute(select(model.id, model.name))).all():
+            out[str(fid)] = name
+    return out
+
+
+def _is_generated_nat(n: Any) -> bool:
+    """防火牆自己產生的 NAT（OPNsense 的 Anti-Lockout：放行管理介面到防火牆本身）。
+
+    正式環境曾把它們報成懸空轉發。它們沒有目標主機、也沒有轉發埠；OPNsense 給的
+    編號是 lockout_N（不隨介面語言改變，分類名稱則可能被翻譯，所以兩個都看）。
+    """
+    ext = str(n.external_id or "").lower()
+    return ext.startswith("lockout") or (n.category or "") == "Automatically generated rules"
+
+
+def _any_protocol(v: Any) -> bool:
+    """規則是否不限協定。只放行 ICMP／ESP 這類單一協定的，不等於「沒有防火牆」。"""
+    return str(v or "any").strip().lower() in ("any", "tcp/udp", "tcp", "udp", "")
+
+
 async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
     from app.models.nat import NATTranslation
     from app.models.pfsense import PfSenseFirewall
 
     items: list[dict[str, Any]] = []
+    fw_names = await _firewall_names(session)
+
+    def _fw_of(origin: str | None) -> str | None:
+        parts = (origin or "").split(":", 1)
+        return fw_names.get(parts[1]) if len(parts) > 1 else None
 
     # (1) 懸空 NAT：防火牆同步來的、生效中的 port forward，目標解析不到 IPAM。
     #     手動建立的（source_origin 空）不算 —— 手動 NAT 沒連 IP 是常態。
+    #     防火牆自動產生的規則、目標是別名的轉發也不算（見 _is_generated_nat）。
+    #     目標 IP 與埠都不明的無從判定，比照攻擊面盤點不列（誤報比漏報傷害大）。
     rows = (await session.execute(
         select(NATTranslation).where(
             NATTranslation.type == "port_forward",
             NATTranslation.disabled.is_(False),
             NATTranslation.source_origin.is_not(None),
             NATTranslation.dst_ip_id.is_(None),
+            NATTranslation.redirect_alias.is_(None),
         ).limit(100))).scalars().all()
     for n in rows:
-        items.append({"kind": "dangling_nat", "name": n.name,
+        if _is_generated_nat(n) or n.dst_port is None:
+            continue
+        descr = (n.description or "")[:120]
+        items.append({"kind": "dangling_nat", "firewall": _fw_of(n.source_origin),
+                      "name": n.name,
                       "source": (n.source_origin or "").split(":")[0],
+                      "interface": n.src_interface,
                       "port": n.dst_port,
-                      "descr": (n.description or "")[:120],
+                      # 名稱多半就是描述（同步時沒有名稱就拿描述來當），一樣的就不重複
+                      "descr": descr if descr != n.name else "",
                       "detail": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記",
                       "detail_key": "anomaly.rot.dangling_nat"})
 
@@ -1323,16 +1383,19 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
                 continue
             iface = str(r.get("interface") or "").lower()
             dport = str(r.get("destination_port") or "").strip().lower()
-            if _is_any(r.get("source")) and _is_any(r.get("destination")):
-                items.append({"kind": "any_any", "name": fw.name, "source": "pfsense",
-                              "interface": iface, "descr": (r.get("descr") or "")[:120],
+            descr = (r.get("descr") or "")[:120]
+            # any → any 要連協定與埠都不限：只放行 ping、或只開 443 的，都不是「沒有防火牆」
+            if (_is_any(r.get("source")) and _is_any(r.get("destination"))
+                    and _any_protocol(r.get("protocol")) and dport in ("", "any")):
+                items.append({"kind": "any_any", "firewall": fw.name, "name": descr,
+                              "source": "pfsense", "interface": iface, "descr": descr,
                               "detail": "any → any 放行 —— 等於這個介面沒有防火牆",
                               "detail_key": "anomaly.rot.any_any"})
             if "wan" in iface and _is_any(r.get("source")) and (
                     dport in _MGMT_PORTS or dport in _MGMT_SERVICES):
-                items.append({"kind": "mgmt_exposed", "name": fw.name, "source": "pfsense",
-                              "interface": iface, "port": dport,
-                              "descr": (r.get("descr") or "")[:120],
+                items.append({"kind": "mgmt_exposed", "firewall": fw.name, "name": descr,
+                              "source": "pfsense", "interface": iface, "port": dport,
+                              "descr": descr,
                               "detail": "WAN 介面對任意來源開放管理埠",
                               "detail_key": "anomaly.rot.mgmt_exposed"})
     # (4) 別名劣化：別名成員落在「本 IPAM 管理且有開異常偵測」的網段內、卻沒有
@@ -1368,7 +1431,8 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
         )).scalars().all():
             stale = _stale_members(alias.content)
             if stale:
-                items.append({"kind": "alias_rot", "name": alias.name, "source": "opnsense",
+                items.append({"kind": "alias_rot", "firewall": fw_names.get(str(alias.firewall_id)),
+                              "name": alias.name, "source": "opnsense",
                               "descr": (alias.description or "")[:120],
                               "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄",
                               "detail_key": "anomaly.rot.alias_rot",
@@ -1376,7 +1440,8 @@ async def detect_fw_rule_rot(session: AsyncSession) -> list[dict[str, Any]]:
         for alias in (await session.execute(select(PfSenseSyncedAlias))).scalars().all():
             stale = _stale_members(alias.members)
             if stale:
-                items.append({"kind": "alias_rot", "name": alias.name, "source": "pfsense",
+                items.append({"kind": "alias_rot", "firewall": fw_names.get(str(alias.firewall_id)),
+                              "name": alias.name, "source": "pfsense",
                               "descr": (alias.descr or "")[:120],
                               "detail": f"別名成員 {', '.join(stale)} 在管理網段內但 IPAM 沒有紀錄",
                               "detail_key": "anomaly.rot.alias_rot",

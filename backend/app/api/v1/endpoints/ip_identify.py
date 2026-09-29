@@ -5,16 +5,19 @@
 後端不會主動連到任何主機。
 
 - 目標固定是這筆 IP 記錄的位址，使用者不能指定別的目標
+- 以位址探測（`/identify/ip/{ip}`，給異常偵測的「未授權 IP」這類 IPAM 還沒有記錄的位址）：
+  位址必須落在 IPAM 管理的子網路內、由那個子網路的代理執行；重疊網段分不出是哪一邊就拒絕
 - 同一個 IP 同時只能有一個探測在排隊或執行
 - 每次發起都寫稽核
 """
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin
@@ -30,6 +33,8 @@ from app.services.agent_probe import ProbeJobError, create_job, expire_stale
 from app.services.oui import vendor_for_mac
 
 router = APIRouter(prefix="/addresses", tags=["addresses"], dependencies=[Depends(require_admin)])
+# 以位址探測：IPAM 沒有記錄、但在管理網段內的位址（見 _resolve_target）
+ip_router = APIRouter(prefix="/identify", tags=["addresses"], dependencies=[Depends(require_admin)])
 
 
 def _ip_text(ip: IPAddress) -> str:
@@ -49,8 +54,7 @@ async def _ip_or_404(session: AsyncSession, address_id: uuid.UUID) -> IPAddress:
     return ip
 
 
-async def _brief(session: AsyncSession, ip: IPAddress, job: AgentProbeJob,
-                 mac_vendor: str | None) -> dict[str, Any]:
+async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | None) -> dict[str, Any]:
     """清單用的精簡版：不帶整包原始結果，但帶摘要（清單上就看得出是什麼）。"""
     agent = await session.get(ScanAgent, job.agent_id)
     out: dict[str, Any] = {
@@ -68,14 +72,15 @@ async def _brief(session: AsyncSession, ip: IPAddress, job: AgentProbeJob,
     return out
 
 
-async def _job_out(session: AsyncSession, ip: IPAddress, job: AgentProbeJob) -> dict[str, Any]:
-    out = await _brief(session, ip, job, await vendor_for_mac(session, ip.mac))
+async def _job_out(session: AsyncSession, ip_text: str, job: AgentProbeJob,
+                   mac_vendor: str | None) -> dict[str, Any]:
+    out = await _brief(session, job, mac_vendor)
     out["result"] = job.result
     out["progress"] = job.progress
     out["changes"] = None
     if job.status == STATUS_DONE and isinstance(job.result, dict):
         # 跟上一次完成的探測比
-        prev = (await session.execute(_jobs_of(_ip_text(ip)).where(
+        prev = (await session.execute(_jobs_of(ip_text).where(
             AgentProbeJob.status == STATUS_DONE,
             AgentProbeJob.created_at < job.created_at,
         ).order_by(AgentProbeJob.created_at.desc()).limit(1))).scalars().first()
@@ -87,16 +92,9 @@ async def _job_out(session: AsyncSession, ip: IPAddress, job: AgentProbeJob) -> 
 
 
 
-@router.post("/{address_id}/identify", status_code=status.HTTP_202_ACCEPTED)
-async def start_identify(
-    address_id: uuid.UUID,
-    user: CurrentUser,
-    request: Request,
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> dict[str, Any]:
-    ip = await _ip_or_404(session, address_id)
-    ip_text = _ip_text(ip)
-    subnet = await session.get(Subnet, ip.subnet_id)
+async def _start(session: AsyncSession, request: Request, user: Any, *, ip_text: str,
+                 subnet: Subnet | None, ip: IPAddress | None) -> dict[str, Any]:
+    """發起一次探測（兩種進入點共用）：由子網路的代理執行、同一位址同時只能一個、寫稽核。"""
     agent = await session.get(ScanAgent, subnet.scan_agent_id) if subnet and subnet.scan_agent_id else None
     if agent is None or not agent.enabled:
         raise HTTPException(409, detail=ui_detail(
@@ -117,7 +115,7 @@ async def start_identify(
         raise HTTPException(400, detail=detail_of(exc, "probe_job_error")) from exc
     # 「作業」頁上的那一筆（完成時通知發起人），見 services/identify_tasks
     from app.services.identify_tasks import on_created
-    await on_created(session, job=job, ip=ip, user=user, agent=agent)
+    await on_created(session, job=job, ip_text=ip_text, ip=ip, user=user, agent=agent)
 
     await append_audit(
         session,
@@ -125,14 +123,27 @@ async def start_identify(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="ip_address",
-        object_id=str(ip.id),
+        object_id=str(ip.id) if ip is not None else None,
         action="identify",
-        diff={"ip": ip_text, "agent": agent.name, "job_id": str(job.id)},
+        diff={"ip": ip_text, "agent": agent.name, "job_id": str(job.id),
+              **({"subnet": str(subnet.cidr)} if ip is None and subnet is not None else {})},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
     return {"job_id": str(job.id), "agent_id": str(agent.id), "agent_name": agent.name,
             "status": job.status}
+
+
+@router.post("/{address_id}/identify", status_code=status.HTTP_202_ACCEPTED)
+async def start_identify(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    ip = await _ip_or_404(session, address_id)
+    subnet = await session.get(Subnet, ip.subnet_id)
+    return await _start(session, request, user, ip_text=_ip_text(ip), subnet=subnet, ip=ip)
 
 
 @router.get("/{address_id}/identify")
@@ -148,7 +159,7 @@ async def latest_identify(
         AgentProbeJob.created_at.desc()).limit(1))).scalars().first()
     if job is None:
         return {"job_id": None}
-    return await _job_out(session, ip, job)
+    return await _job_out(session, _ip_text(ip), job, await vendor_for_mac(session, ip.mac))
 
 
 @router.get("/{address_id}/identify/history")
@@ -164,7 +175,7 @@ async def identify_history(
     rows = (await session.execute(_jobs_of(_ip_text(ip)).order_by(
         AgentProbeJob.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
     mv = await vendor_for_mac(session, ip.mac)
-    return {"items": [await _brief(session, ip, j, mv) for j in rows]}
+    return {"items": [await _brief(session, j, mv) for j in rows]}
 
 
 @router.get("/{address_id}/identify/{job_id}")
@@ -179,4 +190,125 @@ async def get_identify(
     job = (await session.execute(_jobs_of(_ip_text(ip)).where(AgentProbeJob.id == job_id))).scalars().first()
     if job is None:
         raise HTTPException(status_code=404, detail="Probe not found")
-    return await _job_out(session, ip, job)
+    return await _job_out(session, _ip_text(ip), job, await vendor_for_mac(session, ip.mac))
+
+
+# ─────────────────── 以位址探測 ───────────────────
+
+class _Target:
+    """以位址探測的目標：位址、負責的子網路、（若已登記）那筆 IP 記錄。"""
+
+    def __init__(self, ip_text: str, subnet: Subnet, record: IPAddress | None, record_count: int) -> None:
+        self.ip_text, self.subnet, self.record = ip_text, subnet, record
+        self.record_count = record_count
+
+
+async def _resolve_target(session: AsyncSession, raw: str) -> _Target:
+    """位址 → 負責它的子網路。
+
+    - 只接受單一位址（不接受主機名稱、網段、區間）；IPv4 的網路位址／廣播位址不接受
+    - 必須落在 IPAM 的子網路內（未封存），取最小的那一層；拿來掃外面的主機一律 404
+    - 同一層有好幾個子網路（重疊網段：兩個單位共用同一個 CIDR）而且不是同一個代理 →
+      分不出是哪一邊的主機，拒絕，不可以挑一個就掃
+    """
+    try:
+        addr = ipaddress.ip_address(raw.strip())
+    except ValueError as exc:
+        raise HTTPException(400, detail=ui_detail(
+            "identify_bad_target", "只能探測單一 IP 位址", target=raw[:64])) from exc
+    ip_text = str(addr)
+    rows = (await session.execute(text("""
+        SELECT id, masklen(cidr) AS ml FROM subnets
+         WHERE archived_at IS NULL AND cidr >>= CAST(:ip AS inet)
+         ORDER BY masklen(cidr) DESC
+    """), {"ip": ip_text})).all()
+    if not rows:
+        raise HTTPException(404, detail=ui_detail(
+            "identify_not_managed", "這個位址不在 IPAM 管理的子網路內，無法探測", ip=ip_text))
+    best = [r.id for r in rows if r.ml == rows[0].ml]
+    subnets = [s for s in [await session.get(Subnet, sid) for sid in best] if s is not None]
+    net = ipaddress.ip_network(str(subnets[0].cidr), strict=False)
+    if net.version == 4 and net.prefixlen < 31 and addr in (net.network_address, net.broadcast_address):
+        raise HTTPException(400, detail=ui_detail(
+            "identify_bad_target", "只能探測單一 IP 位址", target=ip_text))
+    if len({s.scan_agent_id for s in subnets}) > 1:
+        raise HTTPException(409, detail=ui_detail(
+            "identify_ambiguous", "有好幾個重疊的子網路包含這個位址，分不出是哪一邊的主機",
+            ip=ip_text, subnets=", ".join(str(s.cidr) for s in subnets)))
+    subnet = subnets[0]
+    record = (await session.execute(select(IPAddress).where(
+        IPAddress.subnet_id.in_([s.id for s in subnets]),
+        text("host(ip_addresses.ip) = :ip").bindparams(ip=ip_text)).limit(2))).scalars().all()
+    # 重複的 IP 記錄（同一個位址好幾筆）不挑一筆來掛：作業只掛位址
+    return _Target(ip_text, subnet, record[0] if len(record) == 1 else None, len(record))
+
+
+async def _arp_vendor(session: AsyncSession, ip_text: str) -> str | None:
+    """沒有 IP 記錄時，用 ARP 最近看到的 MAC 查廠商（判斷裝置類型用得到）。"""
+    from app.models.librenms import ARPEntry
+    mac = (await session.execute(select(ARPEntry.mac).where(
+        text("host(arp_entries.ip) = :ip").bindparams(ip=ip_text)).order_by(
+        ARPEntry.last_seen_at.desc()).limit(1))).scalar()
+    return await vendor_for_mac(session, str(mac)) if mac else None
+
+
+async def _vendor_of(session: AsyncSession, t: _Target) -> str | None:
+    if t.record is not None and t.record.mac:
+        return await vendor_for_mac(session, t.record.mac)
+    return await _arp_vendor(session, t.ip_text)
+
+
+@ip_router.get("/ip/{ip}")
+async def identify_target(
+    ip: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """畫面標題用：位址、子網路、負責的代理；已登記的話帶出那筆記錄（畫面改用記錄的探測頁）。"""
+    t = await _resolve_target(session, ip)
+    agent = await session.get(ScanAgent, t.subnet.scan_agent_id) if t.subnet.scan_agent_id else None
+    return {"ip": t.ip_text, "subnet_id": str(t.subnet.id), "subnet_cidr": str(t.subnet.cidr),
+            "agent_name": agent.name if agent else None,
+            "address_id": str(t.record.id) if t.record is not None else None,
+            # 0＝IPAM 沒有記錄（畫面標「未登記」）；>1＝重複記錄，不代表未登記
+            "record_count": t.record_count}
+
+
+@ip_router.post("/ip/{ip}", status_code=status.HTTP_202_ACCEPTED)
+async def start_identify_by_ip(
+    ip: str,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    t = await _resolve_target(session, ip)
+    return await _start(session, request, user, ip_text=t.ip_text, subnet=t.subnet, ip=t.record)
+
+
+@ip_router.get("/ip/{ip}/history")
+async def identify_history_by_ip(
+    ip: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = 50,
+) -> dict[str, Any]:
+    t = await _resolve_target(session, ip)
+    await expire_stale(session)
+    await session.commit()
+    rows = (await session.execute(_jobs_of(t.ip_text).order_by(
+        AgentProbeJob.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
+    mv = await _vendor_of(session, t)
+    return {"items": [await _brief(session, j, mv) for j in rows]}
+
+
+@ip_router.get("/ip/{ip}/{job_id}")
+async def get_identify_by_ip(
+    ip: str,
+    job_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    t = await _resolve_target(session, ip)
+    await expire_stale(session)
+    await session.commit()
+    job = (await session.execute(_jobs_of(t.ip_text).where(AgentProbeJob.id == job_id))).scalars().first()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Probe not found")
+    return await _job_out(session, t.ip_text, job, await _vendor_of(session, t))

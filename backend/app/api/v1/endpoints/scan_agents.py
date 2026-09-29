@@ -447,6 +447,9 @@ class AgentPollOut(StrictModel):
     ip_overrides: dict[str, list[str]] = Field(default_factory=dict)
     agent_sha: str = ""             # server 端 agent.py 的 sha256；不同→agent 自動更新
     force_scan: bool = False        # 「立刻執行一次」：本輪所有探測強制到期立即跑
+    # 獨立 ISC DHCP Server（issue #45）：有來源指到這台代理時才帶 {source_id, interval_seconds}，
+    # 代理才會去讀本機的 dhcpd.conf／dhcpd.leases；沒有就是 None，代理完全不碰那兩個檔
+    dhcpd: dict[str, Any] | None = None
 
 
 @router.get("/poll", response_model=AgentPollOut)
@@ -504,6 +507,11 @@ async def agent_poll(
             ip_overrides[str(ip)] = scan_probes.normalize_probes(list(excl or []))
 
     intervals = scan_probes.probe_intervals(agent.probe_intervals)
+    from app.models.dhcp_standalone import IscDhcpServer
+    isc = (await session.execute(select(IscDhcpServer).where(
+        IscDhcpServer.agent_id == agent.id, IscDhcpServer.enabled.is_(True)))).scalars().first()
+    dhcpd = ({"source_id": str(isc.id), "interval_seconds": isc.report_interval_seconds}
+             if isc is not None else None)
     # 「立刻執行一次」：有旗標就回 force_scan=True 並清掉（一次性消費）
     force_scan = agent.force_scan_at is not None
     if force_scan:
@@ -517,6 +525,7 @@ async def agent_poll(
         ip_overrides=ip_overrides,
         force_scan=force_scan,
         agent_sha=_agent_sha(),
+        dhcpd=dhcpd,
     )
 
 
@@ -553,6 +562,59 @@ class AgentReportIn(StrictModel):
     dhcp_servers: Annotated[list[AgentDHCPServer], Field(max_length=500)] = []
     # 一輪結束時附上的統計（耗時、逐子網路位址數／在線數、背景待辦量），存到 scan_agents.last_cycle
     cycle: dict[str, Any] | None = None
+
+
+class DhcpdPool(StrictModel):
+    subnet: Annotated[str | None, Field(max_length=64)] = None
+    start: Annotated[str, Field(max_length=64)]
+    end: Annotated[str, Field(max_length=64)]
+
+
+class DhcpdHost(StrictModel):
+    ip: Annotated[str, Field(max_length=64)]
+    mac: Annotated[str | None, Field(max_length=64)] = None
+    hostname: Annotated[str | None, Field(max_length=255)] = None
+    ends: Annotated[str | None, Field(max_length=64)] = None
+
+
+class DhcpdFile(StrictModel):
+    path: Annotated[str | None, Field(max_length=512)] = None
+    ok: bool = False
+    error: Annotated[str | None, Field(max_length=512)] = None
+    size: int | None = None
+    mtime: int | None = None
+
+
+class DhcpdReportIn(StrictModel):
+    """代理讀 dhcpd.conf／dhcpd.leases 的結果（只有解析後的結構化資料，沒有檔案原文）。"""
+    source_id: uuid.UUID
+    pools: Annotated[list[DhcpdPool], Field(max_length=5000)] = Field(default_factory=list)
+    reservations: Annotated[list[DhcpdHost], Field(max_length=20000)] = Field(default_factory=list)
+    leases: Annotated[list[DhcpdHost], Field(max_length=50000)] = Field(default_factory=list)
+    files: dict[str, DhcpdFile] = Field(default_factory=dict)
+
+
+@router.post("/dhcpd-report")
+async def agent_dhcpd_report(
+    payload: DhcpdReportIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    x_agent_key: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """獨立 ISC DHCP Server 的回報（issue #45）。只收指派給這台代理、而且啟用中的來源；
+    別的來源一律 404（不透露存不存在）。"""
+    from app.models.dhcp_standalone import IscDhcpServer
+    from app.services.dhcp_standalone import ingest_isc_report
+
+    agent = await _agent_from_key(session, x_agent_key)
+    src = await session.get(IscDhcpServer, payload.source_id)
+    if src is None or src.agent_id != agent.id:
+        raise HTTPException(404, detail="Not found")
+    if not src.enabled:
+        return {"status": "disabled"}
+    agent.last_seen_at = datetime.now(UTC)
+    counts = await ingest_isc_report(session, src, payload.model_dump())
+    await session.commit()
+    return {"status": "ok", **counts}
 
 
 @router.post("/report")

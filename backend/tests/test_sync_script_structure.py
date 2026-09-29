@@ -28,6 +28,8 @@ BLOCK_MARKERS = [
     "AdGuardInstance",
     "FortiGateFirewall",
     "WindowsDhcpServer",
+    "KeaDhcpServer",               # 獨立 Kea DHCP（issue #45）
+    "mark_stale_isc",              # 獨立 ISC DHCP：代理多久沒回報
     "ProxmoxInstance",
     "DNSServer",
     "get_ai_audit_last_run",     # AI 巡檢

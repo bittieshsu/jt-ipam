@@ -107,6 +107,8 @@ CATEGORY: dict[str, str] = {
     "cert_agents": "integrations",
     "webhook_subscriptions": "integrations",
     "windows_dhcp_servers": "integrations",
+    "kea_dhcp_servers": "integrations",
+    "isc_dhcp_servers": "integrations",
     "fortigate_firewalls": "integrations",
     "paloalto_firewalls": "integrations",
     "mikrotik_routers": "integrations",

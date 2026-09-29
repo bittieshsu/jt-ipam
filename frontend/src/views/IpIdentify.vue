@@ -8,13 +8,17 @@
           <span>{{ t("identify.title") }}</span>
           <span class="idf-head__ip">{{ ipText }}</span>
           <n-tag v-if="addr?.hostname" size="small" :bordered="false" round>{{ addr.hostname }}</n-tag>
+          <!-- 以位址探測：IPAM 還沒有這筆記錄 -->
+          <n-tag v-if="ipTarget && ipTarget.record_count === 0" size="small" type="warning" :bordered="false" round data-testid="identify-unregistered">
+            {{ t("identify.unregistered", { subnet: ipTarget.subnet_cidr }) }}
+          </n-tag>
         </div>
         <n-space :size="8" align="center" :wrap="false">
           <n-button size="small" @click="goBack">
             <template #icon><n-icon><ArrowLeftIcon /></n-icon></template>{{ t("common.back") }}
           </n-button>
           <n-button v-if="isAdmin" type="primary" size="small" :loading="starting"
-                    :disabled="anyRunning || !addr" data-testid="identify-start" @click="start">
+                    :disabled="anyRunning || (!addr && !ipTarget)" data-testid="identify-start" @click="start">
             <template #icon><n-icon><IdentifyIcon /></n-icon></template>
             {{ history.length ? t("identify.again") : t("identify.start") }}
           </n-button>
@@ -177,8 +181,9 @@ import { useI18n } from "vue-i18n";
 import { apiErrMsg } from "@/api/client";
 import { getAddress } from "@/api/addresses";
 import {
-  getIdentify, identifyHistory, startIdentify,
-  type IdentifyBrief, type IdentifyJob, type IdentifyPort, type IdentifyStatus,
+  getIdentify, getIdentifyIpTarget, identifyHistory, startIdentify,
+  type IdentifyBrief, type IdentifyIpTarget, type IdentifyJob, type IdentifyPort, type IdentifyStatus,
+  type IdentifyTarget,
 } from "@/api/identify";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { CheckIcon, DownloadIcon, IdentifyIcon } from "@/icons";
@@ -192,10 +197,15 @@ const router = useRouter();
 const { t } = useI18n();
 const auth = useAuthStore();
 
-const addressId = computed(() => String(route.params.id));
+// 兩種進入點：IP 記錄（/addresses/:id/identify）或 IPAM 沒有記錄的位址（/identify/ip/:ip，
+// 從異常偵測的「未授權 IP」過來）。後者由後端確認位址在管理的子網路內。
+const byIp = computed(() => (route.params.ip ? String(route.params.ip) : ""));
+const addressId = computed(() => String(route.params.id ?? ""));
+const target = computed<IdentifyTarget>(() => (byIp.value ? { ip: byIp.value } : { addressId: addressId.value }));
 const isAdmin = computed(() => !!auth.me?.is_admin);
 const addr = ref<IPAddress | null>(null);
-const ipText = computed(() => (addr.value ? String(addr.value.ip).split("/")[0] : ""));
+const ipTarget = ref<IdentifyIpTarget | null>(null);
+const ipText = computed(() => (addr.value ? String(addr.value.ip).split("/")[0] : (ipTarget.value?.ip ?? byIp.value)));
 
 const history = ref<IdentifyBrief[]>([]);
 const loadingHistory = ref(true);
@@ -314,7 +324,7 @@ function stopPolling() {
 
 async function loadJob(id: string) {
   try {
-    job.value = await getIdentify(addressId.value, id);
+    job.value = await getIdentify(target.value, id);
     // 清單上的狀態跟著更新（不用整份重抓）
     const row = history.value.find((x) => x.job_id === id);
     if (row && job.value) Object.assign(row, { status: job.value.status, summary: job.value.summary,
@@ -335,7 +345,7 @@ async function poll() {
 async function loadHistory() {
   loadingHistory.value = true;
   try {
-    history.value = await identifyHistory(addressId.value);
+    history.value = await identifyHistory(target.value);
   } catch (e) {
     errorText.value = apiErrMsg(e);
   } finally {
@@ -353,7 +363,7 @@ async function start() {
   starting.value = true;
   errorText.value = "";
   try {
-    const r = await startIdentify(addressId.value);
+    const r = await startIdentify(target.value);
     await loadHistory();
     await select(r.job_id);
   } catch (e) {
@@ -376,7 +386,10 @@ function downloadRaw() {
 }
 
 function goBack() {
-  void router.push({ name: "address-detail", params: { id: addressId.value } });
+  if (!byIp.value) { void router.push({ name: "address-detail", params: { id: addressId.value } }); return; }
+  // 以位址探測沒有 IP 詳細頁可回：回上一頁（通常是異常偵測），直接開網址的話回異常偵測
+  if (window.history.state?.back) router.back();
+  else void router.push({ name: "anomaly" });
 }
 
 async function init() {
@@ -384,10 +397,24 @@ async function init() {
   job.value = null;
   selectedId.value = null;
   if (!isAdmin.value) { loadingHistory.value = false; return; }
+  addr.value = null;
+  ipTarget.value = null;
   try {
-    addr.value = await getAddress(addressId.value);
+    if (byIp.value) {
+      const info = await getIdentifyIpTarget(byIp.value);
+      // 已經登記過的位址：改用那筆記錄的探測頁（歷次結果是同一份，以位址記的）
+      if (info.address_id) {
+        void router.replace({ name: "address-identify", params: { id: info.address_id }, query: route.query });
+        return;
+      }
+      ipTarget.value = info;
+    } else {
+      addr.value = await getAddress(addressId.value);
+    }
   } catch (e) {
     errorText.value = apiErrMsg(e);
+    loadingHistory.value = false;
+    return;
   }
   await loadHistory();
   const wanted = String(route.query.job || "");
@@ -395,7 +422,7 @@ async function init() {
   if (first) await select(first.job_id);
 }
 
-watch(addressId, () => void init());
+watch([addressId, byIp], () => void init());
 onMounted(() => {
   window.addEventListener("resize", onResize);
   clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);

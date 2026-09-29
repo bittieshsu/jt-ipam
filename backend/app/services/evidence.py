@@ -134,6 +134,8 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("lease:paloalto", TIER_LEARNED, aging=False),
     _s("lease:mikrotik", TIER_LEARNED, aging=False),
     _s("windows_dhcp", TIER_LEARNED, aging=False),
+    _s("kea_dhcp", TIER_LEARNED, aging=False),
+    _s("isc_dhcp", TIER_LEARNED, aging=False),
     _s("adguard", TIER_LEARNED, aging=False),
 
     # 虛擬化平台：回報的是「設定上這台 VM 有這個 IP」

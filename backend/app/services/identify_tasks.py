@@ -31,11 +31,15 @@ async def _task(session: AsyncSession, job_id: uuid.UUID) -> BackgroundTask | No
         BackgroundTask.summary["job_id"].astext == str(job_id)))).scalars().first()
 
 
-async def on_created(session: AsyncSession, *, job: AgentProbeJob, ip: Any, user: Any, agent: Any) -> None:
-    ip_text = str(ip.ip).split("/", 1)[0]
-    label = f"{ip_text}（{ip.hostname}）" if getattr(ip, "hostname", None) else ip_text
+async def on_created(session: AsyncSession, *, job: AgentProbeJob, ip_text: str, ip: Any | None,
+                     user: Any, agent: Any) -> None:
+    """`ip` 是那筆 IP 記錄；以位址探測 IPAM 沒有記錄的位址時是 None（作業列就只掛位址）。"""
+    hostname = getattr(ip, "hostname", None)
+    label = f"{ip_text}（{hostname}）" if hostname else ip_text
     session.add(BackgroundTask(
-        kind=KIND, status="pending", trigger="manual", target_type="ip_address", target_id=ip.id,
+        kind=KIND, status="pending", trigger="manual",
+        target_type="ip_address" if ip is not None else "ip",
+        target_id=ip.id if ip is not None else None,
         target_label=label, actor_user_id=user.id, progress=0,
         summary={"job_id": str(job.id), "agent": agent.name, "ip": ip_text}))
 
@@ -98,13 +102,15 @@ async def _notify(session: AsyncSession, t: BackgroundTask, job: AgentProbeJob, 
     if not ch.get("in_app"):
         return
     ip_text = summary.get("ip") or ""
-    link = f"/addresses/{t.target_id}/identify?job={job.id}"
+    # 沒有 IP 記錄（以位址探測）→ 連回以位址的探測頁
+    link = (f"/addresses/{t.target_id}/identify?job={job.id}" if t.target_id
+            else f"/identify/ip/{ip_text}?job={job.id}")
     if ok:
         dtype = summary.get("device_type") or "unknown"
         await push_notification(
             session, user_id=t.actor_user_id, severity="info", link=link,
             title=f"探測完成：{ip_text}", body=f"找到 {summary.get('ports', 0)} 個開放的連接埠。",
-            object_type="ip_address", object_id=t.target_id,
+            object_type="ip_address" if t.target_id else None, object_id=t.target_id,
             title_key="notif.identify_done", body_key="notif.identify_done_body",
             params={"ip": ip_text, "type_key": f"identify.type.{dtype}",
                     "ports": summary.get("ports", 0), "os": summary.get("os") or "—"})
@@ -112,6 +118,6 @@ async def _notify(session: AsyncSession, t: BackgroundTask, job: AgentProbeJob, 
         await push_notification(
             session, user_id=t.actor_user_id, severity="warning", link=link,
             title=f"探測失敗：{ip_text}", body=t.error or "",
-            object_type="ip_address", object_id=t.target_id,
+            object_type="ip_address" if t.target_id else None, object_id=t.target_id,
             title_key="notif.identify_failed", body_key="notif.identify_failed_body",
             params={"ip": ip_text, "error": t.error or ""})

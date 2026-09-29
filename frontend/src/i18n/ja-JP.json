@@ -332,7 +332,9 @@
     "mikrotik_fw": "ルーター（MikroTik）",
     "jump_hosts": "踏み台ホスト",
     "doctor": "システムチェック",
-    "ocs": "OCS 連携"
+    "ocs": "OCS 連携",
+    "kea_dhcp": "Kea DHCP",
+    "isc_dhcp": "ISC DHCP"
   },
   "topbar": {
     "search": "検索…",
@@ -438,7 +440,9 @@
     "console_engine_title": "この接続で使っているエンジン（「管理 → システム設定」で切り替え）",
     "duration_sec": "{n} 秒",
     "duration_min": "{n} 分",
-    "duration_hour": "{n} 時間"
+    "duration_hour": "{n} 時間",
+    "scroll_left": "左へスクロール",
+    "scroll_right": "右へスクロール"
   },
   "scan_agent": {
     "outdated": "更新があります",
@@ -1159,7 +1163,9 @@
       "mikrotik": "MikroTik",
       "zabbix": "Zabbix",
       "esxi": "VMware ESXi / vCenter",
-      "ocs": "OCS インベントリ"
+      "ocs": "OCS インベントリ",
+      "kea_dhcp": "Kea DHCP",
+      "isc_dhcp": "ISC DHCP"
     },
     "model_title": "機器の型番のソース順",
     "model_subtitle": "同じ機器について複数のソースが型番を提供した場合、上にあるものが優先されます。手動が最上位で、無効にはできません。ドラッグで並べ替えられます。"
@@ -1261,7 +1267,9 @@
     "last_seen_ocs": "最終確認（OCS インベントリ）",
     "last_seen_ocs_jump": "この機器の OCS インベントリを表示",
     "fw_col_why": "一致の根拠",
-    "fw_row_goto": "クリックでこの項目を開く"
+    "fw_row_goto": "クリックでこの項目を開く",
+    "source_kea_dhcp": "Kea DHCP",
+    "source_isc_dhcp": "ISC DHCP"
   },
   "subnets": {
     "title": "サブネット",
@@ -1981,7 +1989,7 @@
     "triage_btn": "AI 判読",
     "triage_title": "AI 判読：{ip}",
     "fw_rot": "ファイアウォールのルールの劣化",
-    "explain_fw_rule_rot": "現に有効なルールのうち、すでに誤っている部分です。宛先が IPAM に無いポート転送（回収済みの可能性が高い）、any から any への許可（そのインタフェースは実質ファイアウォールが無いのと同じです）、WAN インタフェースで送信元を限定せずに開いている管理ポート（SSH / RDP / VNC / IPMI）。手動 NAT の項目と無効化されたルールは対象外です。",
+    "explain_fw_rule_rot": "現に有効なルールのうち、すでに誤っている部分です。宛先が IPAM に無いポート転送（回収済みの可能性が高い）、any から any への許可（すべてのプロトコル・ポートを許可するもの。そのインタフェースは実質ファイアウォールが無いのと同じです）、WAN インタフェースで送信元を限定せずに開いている管理ポート（SSH / RDP / VNC / IPMI）。手動 NAT の項目、無効化されたルール、ファイアウォールが自動生成するルール（Anti-Lockout など）、特定のプロトコルやポートに限ったルール（ping だけの許可など）は対象外です。",
     "arp_only": "ARP のみの死活",
     "explain_arp_only_liveness": "これらのアドレスはオンラインに見えますが、根拠は ARP の記録だけです。ARP には時刻が無く、報告元の機器のキャッシュも期限切れになりません。数週間前に電源を落とした機器でも、ここではオンラインと表示され続けます。実際の状態を知るには、スキャンエージェントで探査するか、LibreNMS や Zabbix の監視対象に加えてください。",
     "stale_link": "機器との紐づけが古い可能性",
@@ -2066,7 +2074,8 @@
       "mac_changed_at": "MAC が変わった日時",
       "evidence": "根拠",
       "changes": "切り替え回数",
-      "sources": "観測元"
+      "sources": "観測元",
+      "firewall": "ファイアウォール"
     },
     "rot": {
       "dangling_nat": "ポート転送の宛先が IPAM にありません —— 回収済みか、そもそも登録されていない可能性があります",
@@ -2079,7 +2088,11 @@
     "seen_scanner": "スキャンエージェント",
     "seen_manual": "手動",
     "seen_arp_vendor": "ARP テーブル（{vendor}）",
-    "filter_ph": "絞り込み：IP／ホスト名／MAC／説明…（すべてのタブに適用）"
+    "filter_ph": "絞り込み：IP／ホスト名／MAC／説明…（すべてのタブに適用）",
+    "rotk_dangling_nat": "転送先が IPAM に無い",
+    "rotk_any_any": "any → any を許可",
+    "rotk_mgmt_exposed": "WAN で管理ポートを公開",
+    "rotk_alias_rot": "エイリアスのメンバーが無効"
   },
   "webhooks": {
     "events_label": "イベント（* はすべて）",
@@ -3042,7 +3055,16 @@
     "guacd_vnc_username_required": "この VNC サーバーはユーザー名とパスワードを要求しています。「ユーザー名」欄に入力してください",
     "sftp_probe_too_large": "テスト量が範囲外です（上限 {max} MB）",
     "sftp_probe_session_limit": "このテストの上限に達しました。もう一度チェックしてください",
-    "sftp_probe_stalled": "テストのアップロードが中断されました（{written}/{size} バイト受信）"
+    "sftp_probe_stalled": "テストのアップロードが中断されました（{written}/{size} バイト受信）",
+    "identify_not_managed": "{ip} は IPAM が管理するサブネットに含まれていないため、探査できません。探査は管理対象サブネット内のアドレスに対してのみ実行できます。",
+    "identify_bad_target": "探査できるのは単一の IP アドレスだけです（{target} は探査可能なホストアドレスではありません）。",
+    "identify_ambiguous": "{ip} は複数の重複するサブネット（{subnets}）に含まれ、それぞれ別のスキャンエージェントが担当しています。どちら側のホストか判別できないため、探査しません。",
+    "kea_dhcp_error": "Kea DHCP がエラーを返しました：{reason}",
+    "isc_dhcp_agent_missing": "このスキャンエージェントは見つかりません。削除された可能性があります。",
+    "isc_dhcp_agent_taken": "このスキャンエージェントはすでに ISC DHCP ソース「{name}」に割り当てられています。1 台のエージェントに割り当てられるソースは 1 つだけです。",
+    "device_import_encoding": "CSV は UTF-8 である必要があります（{reason}）。Excel で保存するときは「CSV UTF-8」を選ぶか、.xlsx をそのままアップロードしてください。",
+    "device_import_bad_xlsx": "この Excel ファイルを読み込めません：{reason}",
+    "device_import_too_large": "ファイルが大きすぎます（上限 16 MB）。"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -4143,7 +4165,8 @@
       "media": "メディア機器",
       "specialized": "専用機器",
       "unknown": "判定できません"
-    }
+    },
+    "unregistered": "IPAM に記録なし · {subnet}"
   },
   "investigate": {
     "title": "調査",
@@ -4778,5 +4801,101 @@
     "sg_heavy_interval": "バックグラウンドの名前照会と OS フィンガープリントが追いつきません（待ち {backlog} 台）。OS フィンガープリントの周期を延ばすか、大きなサブネットで無効にしてください。",
     "chunk": "第 {chunk}／{rounds} 区画",
     "sg_rotating_large": "{cidr} には {total} 個のアドレスがあり、1 巡するのに {rounds} 周（約 {minutes} 分）かかります。オンライン判定のしきい値は {threshold} 分で、これを超えるとスキャンの間にホストがオフラインと判定されます。IPAM で小さなサブネットに分割するか、複数のエージェントに分けてください。"
+  },
+  "kea_dhcp": {
+    "title": "Kea DHCP サーバー",
+    "intro": "Kea の JSON 制御 API に接続し、プール・予約・リースを読み取り専用で同期します。Kea の設定は一切変更しません。Kea 2.x では Control Agent（kea-ctrl-agent）の URL を入力してください。Kea 3.0 以降は DHCP サーバー自身の HTTP 制御ソケットも使え、どちらかは自動で判別します。OPNsense／pfSense 上の Kea は各ファイアウォール連携を使ってください。",
+    "api_url": "制御 API の URL",
+    "api_url_hint": "例：http://kea.example.test:8000/。Kea がプライベートネットワーク上にある場合、バックエンドで OUTBOUND_ALLOW_PRIVATE が必要です。",
+    "username": "ユーザー名（HTTP 認証）",
+    "username_hint": "Kea で HTTP 認証を使っていなければ空欄",
+    "password": "パスワード",
+    "password_keep": "パスワード（空欄なら変更しない）",
+    "pull_what": "取得するデータ",
+    "scopes": "プールと予約",
+    "leases": "リース",
+    "hooks_hint": "リースには Kea の lease_cmds フックが必要です。データベースに保存された予約には host_cmds が必要です（無い場合は設定ファイル内の予約だけを読みます）。",
+    "test_ok": "接続成功 —— Kea {version}（{how}）、サブネット {subnets} 個、プール {pools} 個",
+    "mode_agent": "Control Agent 経由",
+    "mode_direct": "DHCP サーバーに直接接続",
+    "leases_unsupported": "この Kea は lease_cmds を読み込んでいないため、リースを取得できません。プールと予約は引き続き同期されます。kea-dhcp4 の hooks-libraries に libdhcp_lease_cmds.so を追加してください。",
+    "sync_kind": "Kea DHCP 同期"
+  },
+  "isc_dhcp": {
+    "title": "ISC DHCP サーバー",
+    "intro": "単独の isc-dhcp-server にはすべてのリースを一覧できる API が無いため、DHCP ホストにインストールしたスキャンエージェントがローカルの設定ファイルとリースファイルを読み、解析したプール・固定割り当て・有効なリースを報告します。jt-ipam から DHCP ホストへ接続することはありません。",
+    "step_agent": "DHCP ホストにスキャンエージェントをインストールします（サブネットの割り当ては不要です）。",
+    "go_agents": "スキャンエージェントへ",
+    "step_read": "エージェントは既定で root として動作するため、これらのファイルを読めます（別のアカウントで動かす場合は読めるようにしてください）：",
+    "step_paths": "パスが異なる場合は、そのホストの /etc/jt-ipam-agent.env に次を追加してエージェントを再起動します（systemctl restart jt-ipam-scan-agent）：",
+    "step_create": "ここでソースを追加してそのエージェントを選ぶと、次のポーリングから報告が始まります。",
+    "privacy": "エージェントが報告するのは解析済みのプール・固定割り当て・リースだけで、ファイルの内容は送りません（dhcpd.conf には DDNS／OMAPI の鍵が含まれることがよくあります）。ファイルのパスは DHCP ホスト側でしか設定できず、jt-ipam からは変更できません。エージェント 1.12.0 以降が必要です（エージェントは自動更新されます）。",
+    "agent": "スキャンエージェント（DHCP ホスト上）",
+    "agent_pick": "エージェントを選択",
+    "agent_hint": "1 台のエージェントに割り当てられるソースは 1 つだけです。",
+    "agent_used_by": "{name} が使用中",
+    "no_agent": "エージェント未指定",
+    "agent_old": "エージェント {v} は古いため、更新後に報告されます",
+    "files": "ファイルの状態",
+    "last_report": "最終報告",
+    "pull_what": "報告するデータ",
+    "scopes": "プールと固定割り当て",
+    "leases": "リース",
+    "interval": "報告間隔（秒）",
+    "agent_col": "スキャンエージェント"
+  },
+  "device_import": {
+    "open": "インポート",
+    "title": "デバイスのインポート",
+    "intro": "CSV または Excel（.xlsx）をアップロードします。デバイス一覧からエクスポートしたファイル（どの表示言語でも）は編集してそのまま戻せます。列は見出しで判別するので順序は問いません。まず各行の処理をプレビューし、確認してから取り込みます。",
+    "columns": "使える列：名称（必須）、FQDN、IP、種別、ベンダー、型番、シリアル番号、設置場所、ラック、U 位置、占有 U 数、取り付け面、顧客、説明。設置場所・ラック・顧客は名前で指定します。ラックだけ指定すると設置場所はラックから決まります。IP は IPAM に既にあるアドレスとだけ照合します。",
+    "template": "空のテンプレートをダウンロード",
+    "template_with_data": "テンプレートをダウンロード（既存デバイス込み）",
+    "on_existing": "既に存在するデバイス（同名）：",
+    "mode_skip": "スキップ",
+    "mode_update": "更新（空欄は変更しない）",
+    "choose": "ファイルを選択",
+    "col_line": "行",
+    "col_name": "名称",
+    "col_action": "処理",
+    "col_messages": "詳細",
+    "action_create": "追加",
+    "action_update": "更新",
+    "action_skip": "スキップ",
+    "action_error": "エラー",
+    "sum_create": "追加 {n}",
+    "sum_update": "更新 {n}",
+    "sum_skip": "スキップ {n}",
+    "sum_error": "エラー {n}",
+    "sum_warn": "注意 {n}",
+    "ignored_columns": "次の列は認識できないため取り込みません：{cols}",
+    "errors_not_imported": "エラーのある行は取り込みません（行の一部だけが書き込まれることはありません）。",
+    "run": "インポート",
+    "run_n": "{n} 件をインポート",
+    "queued": "インポートを開始しました。進捗は「タスク」ページで確認できます。",
+    "fatal_empty_file": "ファイルが空です。",
+    "fatal_no_name_column": "名称の列（name）が見つかりません。1 行目は見出しにしてください。",
+    "fatal_too_many_rows": "1 回に取り込めるのは {max} 行までです。分割してください。",
+    "msg": {
+      "missing_name": "名称が空です",
+      "duplicate_in_file": "ファイル内の前の行に同じ名称があります",
+      "name_ambiguous": "同じ名称のデバイスが複数あり、どれを更新するか判断できません",
+      "exists_skipped": "既に存在するため、設定どおりスキップしました",
+      "bad_type": "不明な種別「{value}」",
+      "bad_rack_face": "不明な取り付け面「{value}」（前面／背面）",
+      "bad_number": "{field} は数値にしてください（現在は「{value}」）",
+      "location_not_found": "設置場所「{value}」が見つかりません",
+      "rack_not_found": "ラック「{value}」が見つかりません",
+      "rack_not_in_location": "設置場所「{location}」にラック「{value}」はありません",
+      "rack_ambiguous": "複数の設置場所にラック「{value}」があります。設置場所も指定してください",
+      "unit_not_found": "顧客「{value}」が見つかりません",
+      "unit_ambiguous": "「{value}」に一致する顧客が複数あります",
+      "bad_ip": "「{value}」は IP アドレスではありません",
+      "warn_ip_not_found": "{ip} は IPAM にないため、プライマリ IP は空のままです",
+      "warn_ip_ambiguous": "{ip} は複数のサブネットにあり区別できないため、プライマリ IP は空のままです",
+      "warn_ip_linked_elsewhere": "{ip} は既に別のデバイスに属しているため引き継ぎません。プライマリ IP は空のままです",
+      "invalid": "項目 {field} が不正です：{reason}",
+      "placement": "ラックの位置が不正です：{reason}"
+    }
   }
 }

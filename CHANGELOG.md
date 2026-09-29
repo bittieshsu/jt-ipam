@@ -4,6 +4,67 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.53] - 2026-09-29
+
+### Added
+- **Device import (#46).** The device list only had export. Import takes CSV or Excel (.xlsx); columns are matched
+  by header, including the list's own exported headers in any interface language, and types may be codes or the
+  displayed words. Location, rack and unit are given by name (a rack alone implies its location; a rack name
+  used in two locations must come with the location); an IP only matches an address already in IPAM and is
+  never taken from another device. Existing devices (same name) are skipped or updated — blank cells leave the
+  value unchanged. Every row is previewed first (create / update / skip / error with the reason) using the same
+  validation as the API, including rack-position overlaps within the file; rows with errors are not written.
+  The import runs as a task and audits every device. A template can be downloaded blank or with every current
+  device, to edit and import back in update mode.
+- **Standalone Kea DHCP Server (#45).** Pools, reservations and leases are read over Kea's JSON control API —
+  through the Control Agent (Kea 2.x) or straight from the DHCP server's own HTTP control socket (Kea 3.0); the
+  two are told apart automatically. Reservations kept in a host database are read when host_cmds is loaded;
+  without lease_cmds pools and reservations still sync and the page says leases need lease_cmds. Optional HTTP
+  basic auth (password encrypted). Tested against real Kea 2.4.1 and 3.0.4. Migration 0165.
+- **Standalone ISC DHCP Server (isc-dhcp-server, #45).** It has no API that lists leases, so a scan agent
+  installed on the DHCP host (agent 1.12.0, self-updates) reads dhcpd.conf (including `include` files) and
+  dhcpd.leases locally and reports only the parsed pools, fixed addresses and active leases — never the file
+  contents (dhcpd.conf often holds DDNS/OMAPI keys). The paths can only be set on the DHCP host
+  (`JT_IPAM_DHCPD_CONF` / `JT_IPAM_DHCPD_LEASES`); the server cannot change them. An unreadable file keeps what
+  was there and names the file and the reason; an agent that stops reporting marks the source as failing.
+  Tested against a real isc-dhcpd 4.4.3-P1. Both hosts count as known DHCP servers in rogue-DHCP detection
+  (Windows DHCP hosts now too).
+- **Probe from the anomaly lists (admin only).** Categories whose rows are a single host (IP conflicts,
+  lost IPs, unauthorized IPs, rogue DHCP servers, exposure, duplicate records, ARP-only, stale device
+  links, MAC flapping) have a Probe button in the Actions column that opens the same probe page as the IP
+  detail. An address IPAM has no record of (an unauthorized IP) is probed by address: it must fall inside
+  a managed subnet and is run by that subnet's scan agent; addresses outside every managed subnet,
+  network/broadcast addresses and overlapping subnets handled by different agents are refused. The page
+  marks such an address as not in IPAM.
+- **Every table's columns can be resized by dragging the header edge.** Applied once at the table
+  component, so every existing and future list gets it; the few hand-written tables with column headers
+  (VLAN members, firewall rules on an IP, agent dependencies, notification matrix) use `v-col-resize`.
+  Layout before dragging is unchanged.
+- **Tab bars that do not fit get left/right scroll buttons** (double-click jumps to the end), so the
+  first and last tabs are reachable without a scroll wheel.
+
+### Changed
+- **Anomaly tables size short columns by their content** (kind, source, interface, port…); the last column
+  takes the remaining width and wraps instead of being cut off. The actions (Probe, Ignore, AI triage) are
+  one column; when the window is narrow and the buttons collapse to icons, hovering shows what each is.
+- **Firewall rule rot** has a Firewall column (the same rule name can come from several firewalls) and the
+  kind is shown in words instead of a code.
+
+### Fixed
+- **Device export wrote internal IDs** for location, rack and unit; it now writes their names (and the type and
+  physical/virtual as words).
+- **LibreNMS FDB sync hit `fdb_entry_unique` and the task stayed "running" (#43).** The same MAC/port/VLAN can
+  appear twice in one response; rows are now merged in memory. A task whose database session broke now always
+  ends as "failed" with the error instead of staying "running".
+- **An integration that cannot connect reported "succeeded, 0 records" (#44).** Proxmox with every node
+  failing, and LibreNMS / AdGuard when unreachable or unauthorised, now fail the task with the last error.
+- **"Test connection" for Windows DHCP and Kea showed the browser's own 15-second timeout** instead of the real
+  reason when the host did not answer.
+- **Firewall rule rot false positives.** OPNsense's automatically generated Anti-Lockout rules were
+  reported as port forwards whose target is not in IPAM; port forwards to an alias were reported the
+  same way; and a WAN rule allowing only ICMP (ping) was reported as "any → any, this interface has no
+  firewall". any → any now means every protocol and every port.
+
 ## [0.6.52] - 2026-09-28
 
 ### Added

@@ -57,6 +57,8 @@ const routes: RouteRecordRaw[] = [
       { path: "addresses/:id", name: "address-detail", component: () => import("@/views/IPDetail.vue") },
       // IP 的「探測」（只有管理員）：獨立頁面，歷次結果都留著、可以點回來看
       { path: "addresses/:id/identify", name: "address-identify", component: () => import("@/views/IpIdentify.vue") },
+      // IPAM 還沒有記錄的位址（異常偵測的「未授權 IP」）：以位址探測，同一個畫面
+      { path: "identify/ip/:ip", name: "ip-identify", component: () => import("@/views/IpIdentify.vue") },
       { path: "ai-audit", name: "ai_audit", component: () => import("@/views/AIAudit.vue"), meta: { admin: true } },
       { path: "ip-changes", name: "ip_changes", component: () => import("@/views/IPChanges.vue") },
       { path: "hostname-precedence", name: "hostname_precedence", component: () => import("@/views/HostnamePrecedence.vue"), meta: { admin: true } },
@@ -88,6 +90,8 @@ const routes: RouteRecordRaw[] = [
       { path: "firewall-admin", name: "firewall_admin", component: () => import("@/views/FirewallAdmin.vue"), meta: { admin: true } },
       { path: "pfsense", name: "pfsense", component: () => import("@/views/PfSenseAdmin.vue"), meta: { admin: true } },
       { path: "windows-dhcp", name: "windows_dhcp", component: () => import("@/views/WindowsDhcpAdmin.vue"), meta: { admin: true } },
+      { path: "kea-dhcp", name: "kea_dhcp", component: () => import("@/views/KeaDhcpAdmin.vue"), meta: { admin: true } },
+      { path: "isc-dhcp", name: "isc_dhcp", component: () => import("@/views/IscDhcpAdmin.vue"), meta: { admin: true } },
       { path: "fortigate", name: "fortigate", component: () => import("@/views/FortiGateAdmin.vue"), meta: { admin: true } },
       { path: "paloalto", name: "paloalto", component: () => import("@/views/PaloAltoAdmin.vue"), meta: { admin: true } },
       { path: "doctor", name: "doctor", component: () => import("@/views/SystemDoctor.vue"), meta: { admin: true } },

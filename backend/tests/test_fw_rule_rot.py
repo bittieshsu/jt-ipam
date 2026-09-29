@@ -282,3 +282,78 @@ async def test_attack_surface_attaches_fqdns(db_session) -> None:
     assert "web.example.net" in fqdns, "A 記錄沒對應到"
     assert "meet.example.net" in fqdns, "CNAME 別名也到得了這台，必須列入"
     assert "other.example.net" not in fqdns, "別的 IP 的名稱被錯掛上來"
+
+
+@pytest.mark.anyio
+async def test_dangling_nat_skips_firewall_generated_and_alias_targets(db_session) -> None:
+    """防火牆自己產生的規則（OPNsense 的 Anti-Lockout）與目標是別名的轉發都不是懸空。
+
+    正式環境曾把兩台 OPNsense 各三條 Anti-Lockout 報成「埠轉發目標不在 IPAM」——
+    那是放行管理介面到防火牆自己的自動規則，沒有目標主機可言。目標是別名的轉發
+    解析不到單一 IP 是正常的，別名成員另由「別名劣化」判斷。
+    """
+    db_session.add_all([
+        NATTranslation(name="Anti-Lockout Rule", type="port_forward", protocol="tcp",
+                       source_origin="opnsense:x", external_id="lockout_0",
+                       category="Automatically generated rules", src_interface="LAN",
+                       disabled=False),
+        NATTranslation(name="to-alias", type="port_forward", protocol="tcp", dst_port=443,
+                       source_origin="opnsense:x", external_id="u-alias",
+                       redirect_alias="web_pool", disabled=False),
+        NATTranslation(name="real-dangling", type="port_forward", protocol="tcp", dst_port=8443,
+                       source_origin="opnsense:x", external_id="u-real",
+                       src_interface="WAN", disabled=False),
+    ])
+    await db_session.flush()
+    items = [i for i in await detect_fw_rule_rot(db_session) if i["kind"] == "dangling_nat"]
+    names = {i["name"] for i in items}
+    assert "Anti-Lockout Rule" not in names, "防火牆自動產生的防鎖死規則被當成懸空轉發"
+    assert "to-alias" not in names, "目標是別名的轉發不是懸空"
+    real = next(i for i in items if i["name"] == "real-dangling")
+    assert real["interface"] == "WAN", "要看得出是哪個介面上的轉發"
+
+
+@pytest.mark.anyio
+async def test_dangling_nat_names_the_firewall(db_session) -> None:
+    """同名規則可能來自好幾台防火牆：每一列要帶出是哪一台。"""
+    from app.models.firewall import OPNsenseFirewall
+
+    fw = OPNsenseFirewall(name=f"opn-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.1",
+                          api_key_enc=b"x", api_key_nonce=b"y",
+                          api_secret_enc=b"x", api_secret_nonce=b"y")
+    db_session.add(fw)
+    await db_session.flush()
+    db_session.add(NATTranslation(name="fw-named", type="port_forward", protocol="tcp",
+                                  dst_port=8080, source_origin=f"opnsense:{fw.id}",
+                                  external_id="u-fw", disabled=False))
+    await db_session.flush()
+    items = await detect_fw_rule_rot(db_session)
+    row = next(i for i in items if i.get("name") == "fw-named")
+    assert row["firewall"] == fw.name
+
+
+@pytest.mark.anyio
+async def test_any_any_ignores_protocol_or_port_limited_rules(db_session) -> None:
+    """any → any 只算「任何協定、任何埠」都放行的規則。
+
+    正式環境曾把 WAN 上一條「只放行 ICMP（ping）」的規則報成「等於這個介面沒有防火牆」。
+    """
+    from app.models.pfsense import PfSenseFirewall
+
+    fw = PfSenseFirewall(name=f"pf-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.4",
+                         api_key_enc=b"x", api_key_nonce=b"y",
+                         rules=[
+                             _pf_rule(interface="wan", protocol="icmp", descr="ping only"),
+                             _pf_rule(interface="lan", protocol="tcp", destination_port="443",
+                                      descr="https only"),
+                             _pf_rule(interface="openvpn", protocol=None, descr="vpn all"),
+                             _pf_rule(interface="opt1", protocol="tcp/udp", descr="all tcp udp"),
+                         ])
+    db_session.add(fw)
+    await db_session.flush()
+    rows = [i for i in await detect_fw_rule_rot(db_session)
+            if i["kind"] == "any_any" and i.get("firewall") == fw.name]
+    descrs = {i.get("descr") for i in rows}
+    assert "ping only" not in descrs, "只放行 ICMP 不等於沒有防火牆"
+    assert "https only" not in descrs, "限定目的埠的規則不是 any → any"
+    assert {"vpn all", "all tcp udp"} <= descrs

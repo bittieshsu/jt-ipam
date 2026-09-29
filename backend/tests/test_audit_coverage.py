@@ -32,6 +32,7 @@ EXEMPT: dict[str, str] = {
     # 代理每輪回報，量大；記了會把稽核記錄洗掉，代理活動另有 last_seen 與作業記錄
     "scan_agents.py::agent_report": "代理輪詢回報，高頻",
     "scan_agents.py::agent_job_result": "代理作業回報，高頻",
+    "scan_agents.py::agent_dhcpd_report": "代理定期回報 dhcpd 解析結果（每幾分鐘一次），只寫指派給它的那個 ISC DHCP 來源；來源的設定異動另有稽核",
     "scan_agents.py::agent_job_progress": "代理回報執行中的進度，只更新自己那筆工作的狀態欄；發起探測時已稽核",
     "cert_agents.py::agent_report": "憑證代理回報，高頻",
     # 個人 UI 狀態，不涉及他人可見的資料

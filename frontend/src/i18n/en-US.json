@@ -332,7 +332,9 @@
     "mikrotik_fw": "Router (MikroTik)",
     "jump_hosts": "Jump hosts",
     "doctor": "System check",
-    "ocs": "OCS integration"
+    "ocs": "OCS integration",
+    "kea_dhcp": "Kea DHCP",
+    "isc_dhcp": "ISC DHCP"
   },
   "topbar": {
     "search": "Search…",
@@ -438,7 +440,9 @@
     "console_engine_title": "The engine this connection uses (switch it in Admin -> System settings)",
     "duration_sec": "{n} s",
     "duration_min": "{n} min",
-    "duration_hour": "{n} h"
+    "duration_hour": "{n} h",
+    "scroll_left": "Scroll left",
+    "scroll_right": "Scroll right"
   },
   "scan_agent": {
     "outdated": "update available",
@@ -1159,7 +1163,9 @@
       "mikrotik": "MikroTik",
       "zabbix": "Zabbix",
       "esxi": "VMware ESXi / vCenter",
-      "ocs": "OCS inventory"
+      "ocs": "OCS inventory",
+      "kea_dhcp": "Kea DHCP",
+      "isc_dhcp": "ISC DHCP"
     },
     "model_title": "Device model source order",
     "model_subtitle": "When several sources supply a model for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder."
@@ -1261,7 +1267,9 @@
     "last_seen_ocs": "Last seen (OCS inventory)",
     "last_seen_ocs_jump": "View this device's OCS inventory",
     "fw_col_why": "Why it matches",
-    "fw_row_goto": "Click to open this entry"
+    "fw_row_goto": "Click to open this entry",
+    "source_kea_dhcp": "Kea DHCP",
+    "source_isc_dhcp": "ISC DHCP"
   },
   "subnets": {
     "title": "Subnets",
@@ -1981,7 +1989,7 @@
     "triage_btn": "AI triage",
     "triage_title": "AI triage: {ip}",
     "fw_rot": "Firewall rule rot",
-    "explain_fw_rule_rot": "Parts of the active ruleset that are already wrong: port forwards whose target is not in IPAM (likely reclaimed), any-to-any permits (that interface effectively has no firewall), and management ports (SSH/RDP/VNC/IPMI) open to any source on a WAN interface. Manual NAT entries and disabled rules are excluded.",
+    "explain_fw_rule_rot": "Parts of the active ruleset that are already wrong: port forwards whose target is not in IPAM (likely reclaimed), any-to-any permits (every protocol and port allowed, so that interface effectively has no firewall), and management ports (SSH/RDP/VNC/IPMI) open to any source on a WAN interface. Manual NAT entries, disabled rules, rules the firewall generates itself (such as Anti-Lockout), and rules limited to one protocol or port (such as allowing only ping) are excluded.",
     "arp_only": "ARP-only liveness",
     "explain_arp_only_liveness": "These addresses look online, but the only evidence is an ARP record — and ARP carries no timestamp while the reporting device's cache never expires. A machine that was powered off weeks ago still reads as online here. To find out the real state, probe them with a scan agent or bring them under LibreNMS/Zabbix monitoring.",
     "stale_link": "Device link may be stale",
@@ -2066,7 +2074,8 @@
       "mac_changed_at": "MAC changed at",
       "evidence": "Evidence",
       "changes": "MAC changes",
-      "sources": "Seen by"
+      "sources": "Seen by",
+      "firewall": "Firewall"
     },
     "rot": {
       "dangling_nat": "The port forward's destination is not in IPAM — it may have been reclaimed, or never recorded",
@@ -2079,7 +2088,11 @@
     "seen_scanner": "scan agent",
     "seen_manual": "manual",
     "seen_arp_vendor": "ARP table ({vendor})",
-    "filter_ph": "Filter: IP / hostname / MAC / details… (applies to every tab)"
+    "filter_ph": "Filter: IP / hostname / MAC / details… (applies to every tab)",
+    "rotk_dangling_nat": "Forward target not in IPAM",
+    "rotk_any_any": "any → any allow",
+    "rotk_mgmt_exposed": "Management port open on WAN",
+    "rotk_alias_rot": "Stale alias member"
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -3042,7 +3055,16 @@
     "guacd_vnc_username_required": "This VNC server asks for a username and password; enter the username in the Username field",
     "sftp_probe_too_large": "Test size out of range (maximum {max} MB)",
     "sftp_probe_session_limit": "This test used up its allowance; run the check again",
-    "sftp_probe_stalled": "Test upload interrupted ({written}/{size} bytes received)"
+    "sftp_probe_stalled": "Test upload interrupted ({written}/{size} bytes received)",
+    "identify_not_managed": "{ip} is not inside a subnet managed by IPAM, so it cannot be probed. Probes only run against addresses in managed subnets.",
+    "identify_bad_target": "Only a single IP address can be probed ({target} is not a probeable host address).",
+    "identify_ambiguous": "{ip} falls inside several overlapping subnets ({subnets}) handled by different scan agents. It is unclear which side the host is on, so it is not probed.",
+    "kea_dhcp_error": "Kea DHCP returned an error: {reason}",
+    "isc_dhcp_agent_missing": "That scan agent no longer exists; it may have been deleted.",
+    "isc_dhcp_agent_taken": "That scan agent is already assigned to the ISC DHCP source \"{name}\". An agent can serve only one source.",
+    "device_import_encoding": "The CSV must be UTF-8 ({reason}). In Excel choose \"CSV UTF-8\" when saving, or upload the .xlsx file directly.",
+    "device_import_bad_xlsx": "Cannot read this Excel file: {reason}",
+    "device_import_too_large": "The file is too large (16 MB maximum)."
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -4143,7 +4165,8 @@
       "media": "Media device",
       "specialized": "Specialized device",
       "unknown": "Undetermined"
-    }
+    },
+    "unregistered": "Not in IPAM · {subnet}"
   },
   "investigate": {
     "title": "Investigate",
@@ -4778,5 +4801,101 @@
     "sg_heavy_interval": "Background name lookups and OS fingerprinting never catch up ({backlog} hosts queued). Lengthen the OS fingerprint interval, or turn it off on the large subnets.",
     "chunk": "part {chunk}/{rounds}",
     "sg_rotating_large": "{cidr} has {total} addresses and takes {rounds} cycles (about {minutes} min) to cover once. The online threshold is {threshold} min; if covering takes longer, hosts show offline between scans — split it into smaller subnets in IPAM, or spread it over several agents."
+  },
+  "kea_dhcp": {
+    "title": "Kea DHCP Server",
+    "intro": "Connects to Kea's JSON control API and syncs pools, reservations and leases read-only; nothing on Kea is changed. For Kea 2.x enter the Control Agent (kea-ctrl-agent) URL; from Kea 3.0 the DHCP server's own HTTP control socket also works, and the two are told apart automatically. For Kea running on OPNsense or pfSense use that firewall's integration instead.",
+    "api_url": "Control API URL",
+    "api_url_hint": "For example http://kea.example.test:8000/. If Kea is on a private network the backend needs OUTBOUND_ALLOW_PRIVATE.",
+    "username": "Username (HTTP auth)",
+    "username_hint": "Leave empty if Kea has no HTTP authentication",
+    "password": "Password",
+    "password_keep": "Password (leave empty to keep)",
+    "pull_what": "Data to pull",
+    "scopes": "Pools and reservations",
+    "leases": "Leases",
+    "hooks_hint": "Leases need Kea's lease_cmds hook; reservations stored in a database need host_cmds (without it only reservations in the config file are read).",
+    "test_ok": "Connected — Kea {version} ({how}), {subnets} subnets, {pools} pools",
+    "mode_agent": "via the Control Agent",
+    "mode_direct": "directly to the DHCP server",
+    "leases_unsupported": "This Kea does not load lease_cmds, so leases cannot be read; pools and reservations still sync. Add libdhcp_lease_cmds.so to hooks-libraries in kea-dhcp4.",
+    "sync_kind": "Kea DHCP sync"
+  },
+  "isc_dhcp": {
+    "title": "ISC DHCP Server",
+    "intro": "A standalone isc-dhcp-server has no API that lists all leases, so a scan agent installed on the DHCP host reads the local config and lease files and reports the parsed pools, fixed addresses and active leases. jt-ipam never connects to the DHCP host.",
+    "step_agent": "Install a scan agent on the DHCP host (it needs no subnets assigned).",
+    "go_agents": "Go to scan agents",
+    "step_read": "The agent runs as root by default and can read these files (if you run it as another account, make sure that account can read them):",
+    "step_paths": "If the paths differ, add these to /etc/jt-ipam-agent.env on that host and restart the agent (systemctl restart jt-ipam-scan-agent):",
+    "step_create": "Add a source here and pick that agent; it starts reporting on its next poll.",
+    "privacy": "The agent reports only the parsed pools, fixed addresses and leases, never the file contents (dhcpd.conf often holds DDNS/OMAPI keys). The file paths can only be set on the DHCP host; jt-ipam cannot change them. Requires agent 1.12.0 or later (agents update themselves).",
+    "agent": "Scan agent (on the DHCP host)",
+    "agent_pick": "Pick an agent",
+    "agent_hint": "An agent can serve only one source.",
+    "agent_used_by": "used by {name}",
+    "no_agent": "No agent assigned",
+    "agent_old": "Agent {v} is too old; it reports after updating",
+    "files": "File status",
+    "last_report": "Last report",
+    "pull_what": "Data to report",
+    "scopes": "Pools and fixed addresses",
+    "leases": "Leases",
+    "interval": "Report interval (seconds)",
+    "agent_col": "Scan agent"
+  },
+  "device_import": {
+    "open": "Import",
+    "title": "Import devices",
+    "intro": "Upload a CSV or Excel (.xlsx) file. A file exported from the device list (in any interface language) can be edited and imported straight back; columns are matched by header, in any order. Every row is previewed first and nothing is written until you confirm.",
+    "columns": "Columns: name (required), FQDN, IP, type, vendor, model, serial, location, rack, U position, U size, mount face, unit, description. Location, rack and unit are given by name; a rack alone implies its location; an IP only matches an address already in IPAM.",
+    "template": "Download blank template",
+    "template_with_data": "Download template (with current devices)",
+    "on_existing": "Devices that already exist (same name):",
+    "mode_skip": "Skip",
+    "mode_update": "Update (blank cells are left unchanged)",
+    "choose": "Choose file",
+    "col_line": "Row",
+    "col_name": "Name",
+    "col_action": "Action",
+    "col_messages": "Details",
+    "action_create": "Create",
+    "action_update": "Update",
+    "action_skip": "Skip",
+    "action_error": "Error",
+    "sum_create": "{n} to create",
+    "sum_update": "{n} to update",
+    "sum_skip": "{n} skipped",
+    "sum_error": "{n} errors",
+    "sum_warn": "{n} notices",
+    "ignored_columns": "These columns are not recognised and will not be imported: {cols}",
+    "errors_not_imported": "Rows with errors are not imported (a row is written completely or not at all).",
+    "run": "Import",
+    "run_n": "Import {n}",
+    "queued": "Import started; see the Tasks page for progress.",
+    "fatal_empty_file": "The file is empty.",
+    "fatal_no_name_column": "No name column found. The first row must be the header.",
+    "fatal_too_many_rows": "At most {max} rows per import; split the file.",
+    "msg": {
+      "missing_name": "Name is empty",
+      "duplicate_in_file": "An earlier row in the file has the same name",
+      "name_ambiguous": "Several devices have this name; cannot tell which to update",
+      "exists_skipped": "Already exists; skipped as chosen",
+      "bad_type": "Unknown type \"{value}\"",
+      "bad_rack_face": "Unknown mount face \"{value}\" (front / rear)",
+      "bad_number": "{field} must be a number, got \"{value}\"",
+      "location_not_found": "Location \"{value}\" not found",
+      "rack_not_found": "Rack \"{value}\" not found",
+      "rack_not_in_location": "Location \"{location}\" has no rack \"{value}\"",
+      "rack_ambiguous": "Several locations have a rack \"{value}\"; add the location",
+      "unit_not_found": "Unit \"{value}\" not found",
+      "unit_ambiguous": "Several units match \"{value}\"",
+      "bad_ip": "\"{value}\" is not an IP address",
+      "warn_ip_not_found": "{ip} is not in IPAM; primary IP left empty",
+      "warn_ip_ambiguous": "{ip} exists in several subnets and cannot be told apart; primary IP left empty",
+      "warn_ip_linked_elsewhere": "{ip} already belongs to another device and is not taken over; primary IP left empty",
+      "invalid": "Field {field} is invalid: {reason}",
+      "placement": "Rack position not allowed: {reason}"
+    }
   }
 }

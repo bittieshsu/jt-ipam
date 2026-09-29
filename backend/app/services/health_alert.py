@@ -31,7 +31,8 @@ _INTEGRATION_ROUTE = {
     "adguard": "/adguard", "proxmox": "/virt-admin", "esxi": "/esxi",
     "opnsense": "/firewall", "pfsense": "/pfsense", "fortigate": "/fortigate",
     "paloalto": "/paloalto", "mikrotik": "/mikrotik",
-    "windows_dhcp": "/windows-dhcp", "dns": "/dns", "ocs": "/ocs",
+    "windows_dhcp": "/windows-dhcp", "kea_dhcp": "/kea-dhcp", "isc_dhcp": "/isc-dhcp",
+    "dns": "/dns", "ocs": "/ocs",
 }
 EVENT_AGENT = "agent.offline"
 EVENT_SYSTEM = "system.health"

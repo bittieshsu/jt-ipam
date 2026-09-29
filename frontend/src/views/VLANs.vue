@@ -506,7 +506,7 @@ onMounted(() => {
              style="width: 520px">
       <n-spin :show="devicesLoading">
         <n-empty v-if="!devicesLoading && !deviceList.length" :description="t('common.no_data')" />
-        <n-table v-else :bordered="false" size="small">
+        <n-table v-else v-col-resize :bordered="false" size="small">
           <thead>
             <tr><th>{{ t("addresses.hostname") }}</th><th>IP</th><th>{{ t("addresses.source") }}</th></tr>
           </thead>

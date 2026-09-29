@@ -97,6 +97,8 @@ _LABEL_REGISTRY: dict[str, tuple[str, str, str]] = {
     "wazuh_instance": ("app.models.wazuh", "WazuhInstance", "name"),
     "adguard_instance": ("app.models.adguard", "AdGuardInstance", "name"),
     "windows_dhcp_server": ("app.models.windows_dhcp", "WindowsDhcpServer", "name"),
+    "kea_dhcp_server": ("app.models.dhcp_standalone", "KeaDhcpServer", "name"),
+    "isc_dhcp_server": ("app.models.dhcp_standalone", "IscDhcpServer", "name"),
     "proxmox_instance": ("app.models.virt", "ProxmoxInstance", "api_url"),
     "virt_cluster": ("app.models.virt", "VirtCluster", "name"),
     "dns_server": ("app.models.dns", "DNSServer", "name"),

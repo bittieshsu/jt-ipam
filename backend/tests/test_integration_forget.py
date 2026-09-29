@@ -127,10 +127,15 @@ _DELETE_HANDLERS = {
     "virt.py": "delete_proxmox",
     "scan_agents.py": "delete_agent",
 }
+# 同一個檔案裡有好幾個整合的（字典一個檔案只能對一個函式）
+_MORE_DELETE_HANDLERS = [
+    ("dhcp_standalone.py", "delete_kea"),       # 獨立 Kea DHCP（issue #45）
+    ("dhcp_standalone.py", "delete_isc"),       # 獨立 ISC DHCP（issue #45）
+]
 _ENDPOINTS = Path(__file__).resolve().parent.parent / "app" / "api" / "v1" / "endpoints"
 
 
-@pytest.mark.parametrize(("fname", "func"), sorted(_DELETE_HANDLERS.items()))
+@pytest.mark.parametrize(("fname", "func"), sorted([*_DELETE_HANDLERS.items(), *_MORE_DELETE_HANDLERS]))
 def test_every_integration_delete_forgets_its_shared_rows(fname: str, func: str) -> None:
     tree = ast.parse((_ENDPOINTS / fname).read_text(encoding="utf-8"))
     fn = next((n for n in ast.walk(tree)
@@ -148,7 +153,8 @@ def test_every_hostname_source_is_covered_by_a_delete_handler() -> None:
     src = inspect.getsource(integration_cleanup)
     assert "forget_origin" in src
     covered = {"opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp", "dns",
-               "adguard", "librenms", "zabbix", "wazuh", "ocs", "proxmox", "scanner", "netbios", "mdns"}
+               "adguard", "librenms", "zabbix", "wazuh", "ocs", "proxmox", "scanner", "netbios", "mdns",
+               "kea_dhcp", "isc_dhcp"}
     missing = set(HOSTNAME_SOURCES) - covered - {"manual"}
     assert not missing, f"這些主機名稱來源沒有刪除時的收回：{sorted(missing)}"
 

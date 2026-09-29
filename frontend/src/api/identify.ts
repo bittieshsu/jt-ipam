@@ -40,17 +40,41 @@ export interface IdentifyJob extends IdentifyBrief {
   changes?: IdentifyChanges | null;
 }
 
-export async function startIdentify(addressId: string): Promise<{ job_id: string; agent_name: string; status: string }> {
-  const { data } = await apiClient.post(`/api/v1/addresses/${addressId}/identify`);
+/**
+ * 探測的對象：IPAM 裡的一筆 IP 記錄，或（IPAM 沒有記錄的）管理網段內的位址 ——
+ * 後者給異常偵測的「未授權 IP」用，後端會確認位址在管理的子網路內、由那個子網路的代理執行。
+ */
+export type IdentifyTarget = { addressId: string } | { ip: string };
+
+function base(target: IdentifyTarget | string): string {
+  if (typeof target === "string") return `/api/v1/addresses/${target}/identify`;
+  return "addressId" in target
+    ? `/api/v1/addresses/${target.addressId}/identify`
+    : `/api/v1/identify/ip/${encodeURIComponent(target.ip)}`;
+}
+
+export async function startIdentify(target: IdentifyTarget | string): Promise<{ job_id: string; agent_name: string; status: string }> {
+  const { data } = await apiClient.post(base(target));
   return data;
 }
 
-export async function identifyHistory(addressId: string): Promise<IdentifyBrief[]> {
-  const { data } = await apiClient.get<{ items: IdentifyBrief[] }>(`/api/v1/addresses/${addressId}/identify/history`);
+export async function identifyHistory(target: IdentifyTarget | string): Promise<IdentifyBrief[]> {
+  const { data } = await apiClient.get<{ items: IdentifyBrief[] }>(`${base(target)}/history`);
   return data.items;
 }
 
-export async function getIdentify(addressId: string, jobId: string): Promise<IdentifyJob> {
-  const { data } = await apiClient.get<IdentifyJob>(`/api/v1/addresses/${addressId}/identify/${jobId}`);
+export async function getIdentify(target: IdentifyTarget | string, jobId: string): Promise<IdentifyJob> {
+  const { data } = await apiClient.get<IdentifyJob>(`${base(target)}/${jobId}`);
+  return data;
+}
+
+/** 以位址探測時的標題資訊；已經登記的位址會帶 address_id（畫面改用那筆記錄的探測頁） */
+export interface IdentifyIpTarget {
+  ip: string; subnet_id: string; subnet_cidr: string; agent_name: string | null; address_id: string | null;
+  /** 0＝IPAM 沒有記錄；>1＝重複記錄（不是未登記） */
+  record_count: number;
+}
+export async function getIdentifyIpTarget(ip: string): Promise<IdentifyIpTarget> {
+  const { data } = await apiClient.get<IdentifyIpTarget>(`/api/v1/identify/ip/${encodeURIComponent(ip)}`);
   return data;
 }

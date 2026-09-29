@@ -21,8 +21,10 @@ from app.api.v1.endpoints import (
     custom_fields,
     customers,
     dashboard,
+    device_import,
     devices,
     dhcp,
+    dhcp_standalone,
     dns,
     esxi,
     event_rules,
@@ -103,6 +105,7 @@ api_v1_router.include_router(ip_ranges.router)
 api_v1_router.include_router(system_logs.router)
 api_v1_router.include_router(addresses.router)
 api_v1_router.include_router(ip_identify.router)
+api_v1_router.include_router(ip_identify.ip_router)
 api_v1_router.include_router(ssh_console.router)
 api_v1_router.include_router(sftp_console.router)
 api_v1_router.include_router(ssh_credentials.router)
@@ -113,6 +116,8 @@ api_v1_router.include_router(novnc_console.router)
 api_v1_router.include_router(bmc_console.router)
 api_v1_router.include_router(vlans.router)
 api_v1_router.include_router(vrfs.router)
+# device_import 要在 devices 之前：`/devices/import-template` 不能被 `/devices/{device_id}` 吃掉
+api_v1_router.include_router(device_import.router)
 api_v1_router.include_router(devices.router)
 api_v1_router.include_router(locations.router)
 api_v1_router.include_router(nat.router)
@@ -161,6 +166,8 @@ api_v1_router.include_router(wazuh.router)
 api_v1_router.include_router(zabbix.router)
 api_v1_router.include_router(zabbix.view_router)
 api_v1_router.include_router(windows_dhcp.router)
+api_v1_router.include_router(dhcp_standalone.kea_router)
+api_v1_router.include_router(dhcp_standalone.isc_router)
 api_v1_router.include_router(audit.router)
 api_v1_router.include_router(users.router)
 api_v1_router.include_router(bg_tasks_endpoint.router)

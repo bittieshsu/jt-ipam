@@ -26,6 +26,14 @@ Environment variables:
   JT_IPAM_MAX_HOSTS  max hosts scanned per subnet per cycle, default 4096; larger subnets are
                      scanned in rotating chunks (a /16 takes 16 cycles to cover once)
   JT_IPAM_AUTO_UPDATE =0 to disable self-update (default on)
+  JT_IPAM_DHCPD_CONF    dhcpd.conf path when this host runs isc-dhcp-server and an "ISC DHCP"
+                        source in jt-ipam points at this agent (default: first existing of
+                        /etc/dhcp/dhcpd.conf, /etc/dhcpd.conf, /usr/local/etc/dhcpd.conf)
+  JT_IPAM_DHCPD_LEASES  dhcpd.leases path (default: first existing of /var/lib/dhcp/dhcpd.leases,
+                        /var/lib/dhcpd/dhcpd.leases, /var/db/dhcpd.leases)
+                        Only parsed ranges / fixed addresses / active leases are sent -- never the
+                        file contents (dhcpd.conf often holds DDNS/OMAPI keys). The server cannot
+                        change these paths.
 """
 from __future__ import annotations
 
@@ -44,8 +52,9 @@ import sys
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 
-AGENT_VERSION = "1.11.0"
+AGENT_VERSION = "1.12.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -144,7 +153,7 @@ def _tools_header() -> str:
 
 
 def _req(method: str, path: str, body: dict | None = None,
-         extra_headers: dict | None = None) -> dict:
+         extra_headers: dict | None = None, timeout: float = 30) -> dict:
     url = f"{SERVER}{path}"
     data = json.dumps(body).encode() if body is not None else None
     # S310 is suppressed here and below: the scheme is validated once at startup
@@ -158,7 +167,7 @@ def _req(method: str, path: str, body: dict | None = None,
             req.add_header(k, v)
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30, context=_ctx()) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=timeout, context=_ctx()) as resp:  # noqa: S310
         return json.loads(resp.read().decode() or "{}")
 
 
@@ -531,6 +540,304 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
 _chunk_pos: dict[str, int] = {}
 
 
+# ── 獨立的 ISC DHCP Server（isc-dhcp-server）──────────────────────────────────
+# 代理裝在 DHCP 主機上時，讀本機的 dhcpd.conf／dhcpd.leases，解析後只回報結構化資料
+# （範圍、固定分配、租約）。ISC dhcpd 沒有能列出全部租約的 API（OMAPI 只能逐筆查），只能讀檔。
+#
+# 安全界線：
+# - 檔案路徑只能在這台主機設定（環境變數），伺服器端改不了 —— 不然代理就成了「讀任意檔案」的管道
+# - dhcpd.conf 裡常有 DDNS／OMAPI 金鑰：只取 subnet/range/host，key/zone/failover 等區塊一律不碰，
+#   回報裡不會出現檔案原文
+DHCPD_CONF_CANDIDATES = ("/etc/dhcp/dhcpd.conf", "/etc/dhcpd.conf", "/usr/local/etc/dhcpd.conf")
+DHCPD_LEASES_CANDIDATES = ("/var/lib/dhcp/dhcpd.leases", "/var/lib/dhcpd/dhcpd.leases",
+                           "/var/db/dhcpd.leases", "/var/db/dhcpd/dhcpd.leases")
+DHCPD_MAX_FILE = 256 * 1024 * 1024       # 租約檔是日誌，dhcpd 每小時重寫一次；超過這麼大就不讀
+DHCPD_MAX_INCLUDES = 50
+DHCPD_MAX_POOLS = 5000
+DHCPD_MAX_RESERVATIONS = 20000
+DHCPD_MAX_LEASES = 50000
+_DHCPD_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|#[^\n]*|[{};,]|[^\s{};,"#]+')
+
+
+def _dhcpd_env_path(env: str, candidates: tuple) -> str:
+    v = os.environ.get(env, "").strip()
+    if v:
+        return v
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]
+
+
+def _dhcpd_tree(text: str) -> list:
+    """dhcpd 設定／租約檔的語法樹：[(字詞串, 子節點或 None)]。字串去掉引號、註解略過。"""
+    root: list = []
+    stack = [root]
+    cur: list = []
+    for m in _DHCPD_TOKEN.finditer(text):
+        tok = m.group(0)
+        if tok.startswith("#"):
+            continue
+        if tok == ";":
+            if cur:
+                stack[-1].append((cur, None))
+            cur = []
+        elif tok == "{":
+            node: tuple = (cur, [])
+            stack[-1].append(node)
+            stack.append(node[1])
+            cur = []
+        elif tok == "}":
+            if cur:
+                stack[-1].append((cur, None))
+            cur = []
+            if len(stack) > 1:
+                stack.pop()
+        elif tok.startswith('"'):
+            cur.append(tok[1:-1])
+        else:
+            cur.append(tok)
+    return root
+
+
+def _dhcpd_ip4(v: str) -> str | None:
+    try:
+        a = ipaddress.ip_address(v)
+    except ValueError:
+        return None
+    return str(a) if a.version == 4 else None
+
+
+def _dhcpd_mac(v: str) -> str | None:
+    hexs = "".join(ch for ch in str(v).lower() if ch in "0123456789abcdef")
+    return ":".join(hexs[i:i + 2] for i in range(0, 12, 2)) if len(hexs) == 12 else None
+
+
+def _dhcpd_host(label: str, kids: list) -> list:
+    """host 區塊 → 固定分配（一個 fixed-address 一筆；寫主機名稱的要靠 DNS 才知道位址，不收）。"""
+    mac = name = ddns = None
+    addrs: list = []
+    for words, sub in kids:
+        if sub is not None or not words:
+            continue
+        k = words[0].lower()
+        if k == "hardware" and len(words) >= 3:
+            mac = _dhcpd_mac(words[2])
+        elif k == "fixed-address":
+            addrs = [w for w in words[1:] if w != ","]
+        elif k == "option" and len(words) >= 3 and words[1].lower() == "host-name":
+            name = words[2]
+        elif k == "ddns-hostname" and len(words) >= 2:
+            ddns = words[1]
+    out = []
+    for a in addrs:
+        ip = _dhcpd_ip4(a)
+        if ip:
+            out.append({"ip": ip, "mac": mac, "hostname": name or ddns or label})
+    return out
+
+
+def _dhcpd_parse_conf(text: str, load_include=None) -> dict:  # noqa: ANN001
+    """dhcpd.conf → {"pools": [...], "reservations": [...]}（只看 IPv4 的 subnet／range／host）。"""
+    pools: list = []
+    reservations: list = []
+    seen_includes: set = set()
+
+    def add_range(subnet: str | None, words: list) -> None:
+        ips = [w for w in words if w.lower() != "dynamic-bootp"]
+        start = _dhcpd_ip4(ips[0]) if ips else None
+        end = _dhcpd_ip4(ips[1]) if len(ips) > 1 else start
+        if not start or not end or subnet is None:
+            return
+        if ipaddress.ip_address(start) > ipaddress.ip_address(end):
+            start, end = end, start
+        if len(pools) < DHCPD_MAX_POOLS:
+            pools.append({"subnet": subnet, "start": start, "end": end})
+
+    def walk(nodes: list, subnet: str | None, depth: int) -> None:
+        for words, kids in nodes:
+            if not words:
+                if kids:
+                    walk(kids, subnet, depth)
+                continue
+            key = words[0].lower()
+            if kids is None:
+                if key == "range":
+                    add_range(subnet, words[1:])
+                elif key == "include" and len(words) >= 2 and load_include is not None:
+                    path = words[1]
+                    if depth < 5 and path not in seen_includes and len(seen_includes) < DHCPD_MAX_INCLUDES:
+                        seen_includes.add(path)
+                        inc = load_include(path)
+                        if inc:
+                            walk(_dhcpd_tree(inc), subnet, depth + 1)
+                continue
+            if key == "subnet" and len(words) >= 4 and words[2].lower() == "netmask":
+                try:
+                    net = ipaddress.ip_network(f"{words[1]}/{words[3]}", strict=False)
+                except ValueError:
+                    continue
+                walk(kids, str(net), depth)
+            elif key == "host" and len(words) >= 2:
+                for r in _dhcpd_host(words[1], kids):
+                    if len(reservations) < DHCPD_MAX_RESERVATIONS:
+                        reservations.append(r)
+            elif key in ("shared-network", "group", "pool"):
+                walk(kids, subnet, depth)
+            # 其他區塊（key、zone、failover、class、on commit…）不碰
+
+    walk(_dhcpd_tree(text), None, 0)
+    return {"pools": pools, "reservations": reservations}
+
+
+def _dhcpd_time(words: list) -> tuple[bool, datetime | None]:
+    """租約檔的時間：`4 2026/09/24 13:02:03`（UTC）、`epoch 1695520923`、`never`。
+    回傳 (是否永不到期, 時間)。"""
+    if not words:
+        return False, None
+    if words[0].lower() == "never":
+        return True, None
+    try:
+        if words[0].lower() == "epoch" and len(words) >= 2:
+            return False, datetime.fromtimestamp(int(words[1]), tz=timezone.utc)
+        if len(words) >= 3:
+            return False, datetime.strptime(f"{words[1]} {words[2]}", "%Y/%m/%d %H:%M:%S").replace(
+                tzinfo=timezone.utc)
+    except (ValueError, OverflowError):
+        return False, None
+    return False, None
+
+
+def _dhcpd_parse_leases(text: str, now: datetime | None = None) -> dict:
+    """dhcpd.leases → {"leases": [...目前有效的], "reservations": [...OMAPI 動態新增的 host]}。
+
+    檔案是日誌：同一個位址後面的記錄蓋掉前面的。只有最後一筆是 `binding state active`、
+    而且還沒到期（或永不到期）的才算。
+    """
+    now = now or datetime.now(timezone.utc)
+    latest: dict = {}
+    hosts: dict = {}
+    for words, kids in _dhcpd_tree(text):
+        if kids is None or not words:
+            continue
+        key = words[0].lower()
+        if key == "lease" and len(words) >= 2:
+            ip = _dhcpd_ip4(words[1])
+            if not ip:
+                continue
+            info = {"state": None, "mac": None, "hostname": None, "never": False, "ends": None}
+            for w, sub in kids:
+                if sub is not None or not w:
+                    continue
+                k = w[0].lower()
+                if k == "binding" and len(w) >= 3 and w[1].lower() == "state":
+                    info["state"] = w[2].lower()
+                elif k == "ends":
+                    info["never"], info["ends"] = _dhcpd_time(w[1:])
+                elif k == "hardware" and len(w) >= 3:
+                    info["mac"] = _dhcpd_mac(w[2])
+                elif k == "client-hostname" and len(w) >= 2:
+                    info["hostname"] = w[1]
+            latest.pop(ip, None)          # 維持「最後一次出現」的順序
+            latest[ip] = info
+        elif key == "host" and len(words) >= 2:
+            flags = {w[0].lower() for w, sub in kids if sub is None and w}
+            if "deleted" in flags:
+                hosts.pop(words[1], None)
+            else:
+                hosts[words[1]] = _dhcpd_host(words[1], kids)
+    leases = []
+    for ip, info in latest.items():
+        if info["state"] != "active":
+            continue
+        if not info["never"] and (info["ends"] is None or info["ends"] <= now):
+            continue
+        if len(leases) >= DHCPD_MAX_LEASES:
+            break
+        leases.append({"ip": ip, "mac": info["mac"], "hostname": info["hostname"],
+                       "ends": info["ends"].isoformat() if info["ends"] else None})
+    leases.sort(key=lambda x: ipaddress.ip_address(x["ip"]))
+    reservations = [r for rs in hosts.values() for r in rs][:DHCPD_MAX_RESERVATIONS]
+    return {"leases": leases, "reservations": reservations}
+
+
+def _dhcpd_read(path: str) -> tuple[str | None, dict]:
+    st = {"path": path, "ok": False, "error": None, "size": None, "mtime": None}
+    try:
+        info = os.stat(path)
+        st["size"], st["mtime"] = info.st_size, int(info.st_mtime)
+        if info.st_size > DHCPD_MAX_FILE:
+            st["error"] = f"file too large ({info.st_size} bytes)"
+            return None, st
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        st["ok"] = True
+        return text, st
+    except OSError as exc:
+        st["error"] = f"{type(exc).__name__}: {exc.strerror or exc}"
+        return None, st
+
+
+def _dhcpd_collect(conf_path: str, leases_path: str, now: datetime | None = None) -> dict:
+    """讀本機兩個檔、解析，回報結構化結果與檔案狀態（讀不到就說讀不到，不當成「沒有資料」）。"""
+    base = os.path.dirname(conf_path)
+
+    def load_include(p: str) -> str | None:
+        full = p if os.path.isabs(p) else os.path.join(base, p)
+        if not os.path.isfile(full):
+            return None
+        text, _st = _dhcpd_read(full)
+        return text
+
+    conf_text, conf_st = _dhcpd_read(conf_path)
+    leases_text, leases_st = _dhcpd_read(leases_path)
+    conf = _dhcpd_parse_conf(conf_text, load_include) if conf_text is not None else {
+        "pools": [], "reservations": []}
+    lease = _dhcpd_parse_leases(leases_text, now) if leases_text is not None else {
+        "leases": [], "reservations": []}
+    return {
+        "pools": conf["pools"],
+        "reservations": (conf["reservations"] + lease["reservations"])[:DHCPD_MAX_RESERVATIONS],
+        "leases": lease["leases"],
+        "files": {"conf": conf_st, "leases": leases_st},
+    }
+
+
+_DHCPD_STATE = {"last": 0.0, "running": False}
+_DHCPD_LOCK = threading.Lock()
+
+
+def _dhcpd_report_once(source_id: str) -> None:
+    """讀本機 dhcpd 檔、回報（在背景執行緒跑：租約檔大時解析要幾秒，不能拖到上線偵測）。"""
+    try:
+        conf = _dhcpd_env_path("JT_IPAM_DHCPD_CONF", DHCPD_CONF_CANDIDATES)
+        leases = _dhcpd_env_path("JT_IPAM_DHCPD_LEASES", DHCPD_LEASES_CANDIDATES)
+        data = _dhcpd_collect(conf, leases)
+        data["source_id"] = source_id
+        r = _req("POST", "/api/v1/scan-agents/dhcpd-report", data, timeout=120)
+        print(f"[dhcpd] pools={len(data['pools'])} reservations={len(data['reservations'])} "
+              f"leases={len(data['leases'])} conf_ok={data['files']['conf']['ok']} "
+              f"leases_ok={data['files']['leases']['ok']} -> {r.get('status', 'ok')}", flush=True)
+    except Exception as exc:  # noqa: BLE001 — 下一輪再試
+        print(f"[dhcpd] report failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+    finally:
+        with _DHCPD_LOCK:
+            _DHCPD_STATE["running"] = False
+
+
+def _dhcpd_maybe_report(cfg, now: float) -> None:  # noqa: ANN001
+    """poll 回應帶了 `dhcpd`（伺服器上有 ISC DHCP 來源指到這台代理）才讀檔；沒有就什麼都不做。"""
+    if not isinstance(cfg, dict) or not cfg.get("source_id"):
+        return
+    interval = max(60, int(cfg.get("interval_seconds") or 300))
+    with _DHCPD_LOCK:
+        if _DHCPD_STATE["running"] or now - _DHCPD_STATE["last"] < interval:
+            return
+        _DHCPD_STATE["running"], _DHCPD_STATE["last"] = True, now
+    threading.Thread(target=_dhcpd_report_once, args=(str(cfg["source_id"]),),
+                     name="jt-ipam-dhcpd", daemon=True).start()
+
+
 def _subnet_chunk(subnet_id: str, cidr: str) -> tuple[list[str], int, dict]:
     """這輪要掃的位址、子網路總位址數、{chunk, rounds}。
 
@@ -754,6 +1061,8 @@ def scan_once() -> None:
         print("[poll] force_scan: running all probes now", flush=True)
     print(f"[poll] agent={poll.get('agent')} subnets={len(subnets)} "
           f"fast={fast}s caps={','.join(caps)}", flush=True)
+    # 獨立 ISC DHCP Server：伺服器指派了才讀本機 dhcpd 檔（背景執行，不佔這一輪的時間）
+    _dhcpd_maybe_report(poll.get("dhcpd"), time.time())
 
     cap_set = set(caps)
     now = time.time()

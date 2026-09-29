@@ -6,7 +6,7 @@ import type { Paginated } from "@/api/admin";
 
 // 整合同步/測試可能要打外部 API、跑數百筆 ingest，遠遠超過全域 15s 預設。
 // 給長時操作 5 分鐘空間。
-const LONG_OP_TIMEOUT_MS = 300_000;
+export const LONG_OP_TIMEOUT_MS = 300_000;
 
 // 是否存在重疊網段（同 IP 可能跨子網路多筆）→ 用來提醒未設 scope 的整合可能標錯筆。
 export async function getSubnetOverlapExists(): Promise<boolean> {

@@ -39,7 +39,7 @@ import {
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
   AiAuditIcon, ChatHistoryIcon,
-  DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
+  DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, MenuIcon,
@@ -285,6 +285,8 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.paloalto"),       key: "paloalto",       icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.mikrotik"),       key: "mikrotik",       icon: renderIcon(FirewallIcon) },
           { label: () => t("nav.windows_dhcp"),  key: "windows_dhcp",   icon: renderIcon(WindowsDhcpIcon) },
+          { label: () => t("nav.kea_dhcp"),      key: "kea_dhcp",       icon: renderIcon(KeaDhcpIcon) },
+          { label: () => t("nav.isc_dhcp"),      key: "isc_dhcp",       icon: renderIcon(IscDhcpIcon) },
           { label: () => t("nav.virt_admin"),    key: "virt_admin",     icon: renderIcon(VirtualizationIcon) },
           { label: () => t("nav.esxi_admin"),    key: "esxi_admin",     icon: renderIcon(VirtualizationIcon) },
           { label: () => t("nav.wazuh"),         key: "wazuh",          icon: renderIcon(WazuhIcon) },

@@ -530,10 +530,12 @@ async def sync_instance(
         summary.cluster = cluster.name
         nodes_data = await _api_get(session, instance, "/api2/json/nodes", base_url=base)
     except ProxmoxError as exc:
+        # issue #44：連不上／認證失敗（所有候選節點都不通、拿不到叢集或節點清單）是硬失敗。
+        # 以前記下錯誤後照樣回傳 → 作業顯示「成功、0 筆」，使用者以為環境裡真的沒有 VM。
+        # 寫 last_error 後往上拋（跟 DNS 同步一樣），作業才會是「失敗」並帶最後一個錯誤。
         instance.last_error = str(exc)
-        summary.errors.append(str(exc))
         await session.commit()
-        return summary
+        raise
 
     nodes = nodes_data.get("data") or []
     summary.nodes_seen = len(nodes)

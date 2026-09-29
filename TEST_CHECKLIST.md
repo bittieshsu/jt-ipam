@@ -177,6 +177,12 @@ to see what a customer sees.**
   router): no page-level horizontal scroll, nothing clipped or off screen (unless a horizontally scrollable
   container holds it), no text squeezed to one character per line. With `E2E_SHOT_DIR` it screenshots every
   screen of every page — **look at them**; the measurements cannot see "ugly but inside the screen"
+- [ ] **Column resizing and tab scroll buttons** (site-wide; `e2e/anomaly-identify-cols-tabs.spec.ts`): dragging
+  a header edge resizes that column by the distance dragged (hand-written tables too, including headers with
+  opacity); **the layout before dragging is exactly as before** (a default minimum width once let tables
+  without a fixed layout squeeze IPs into a vertical line on phones — run the phone sweep with it). Arrows
+  appear only when the tab bar does not fit and only on the side that has more; the first and last tabs are
+  reachable and the arrows never block a tab click
 - [ ] The four phone reports (`frontend/e2e/mobile-overflow.spec.ts`): the sidebar scrolls under a finger and
   does not scroll the page behind; console status bars wrap instead of stacking one character per line; the
   notification popover stays on screen; rack diagrams default to a zoom that fits the phone and remember a
@@ -551,6 +557,35 @@ what a console is allowed to do.
 - [ ] Known limitation to keep in mind: in the SSH terminal, the first Chinese character typed on a
   line may not be drawn until the line is redrawn (Ctrl+L); the command itself is correct
 
+## 7b3. Standalone Kea / ISC DHCP servers (issue #45) — **whenever these integrations, the agent's dhcpd report or the shared DHCP write layer change**
+
+- [ ] **A real Kea round trip** (a throwaway container is enough: Ubuntu 24.04 packages Kea 2.4 behind the Control
+  Agent; ISC's own repository has Kea 3.0 for the direct socket): test connection returns the version and the mode
+  (Control Agent / direct); a sync writes pools (range and CIDR forms, subnets under shared networks), reservations
+  and leases (the existing IP is marked leased, MAC source kea_dhcp, host name); works with and without host_cmds;
+  without lease_cmds pools still sync and the page says so; a wrong password fails with the 401 reason.
+  ⚠️ The backend's outbound guard blocks loopback: bind Kea on the docker bridge (172.17.0.1) and enable
+  OUTBOUND_ALLOW_PRIVATE on the local backend
+- [ ] **A real isc-dhcp-server round trip**: the distribution's default dhcpd.conf (full of commented-out examples)
+  yields nothing; `include` files are followed; the secret in a `key` block never appears in a report; after a
+  client takes a lease the agent reads the real dhcpd.leases → fixed addresses are marked reserved, leases leased;
+  a later record for the same address overrides an earlier one
+- [ ] The agent reads the files only when the server assigns it an ISC source (`dhcpd` in the poll response);
+  another agent cannot report for a source that is not its own (404); one agent serves one source
+- [ ] An unreadable file (permissions, wrong path) keeps what was there and the last error names the file and the
+  reason; an agent silent for 3× its report interval marks the source as failing (health alert)
+- [ ] Deleting a source takes back its pools / reservations / leases / host names from the shared tables
+- [ ] `e2e/dhcp-standalone.spec.ts`: a failing Kea test connection shows the real reason (not the browser's own
+  15-second timeout); ISC file status; an agent already in use is disabled in the picker
+
+- [ ] **Device import (issue #46, `e2e/device-import.spec.ts`, `tests/test_device_import.py`)**: a file exported from
+  the list (once each in the zh / en / ja interface) imports back unchanged; the template with current devices imports
+  back in update mode with zero errors; location / rack / unit by name, a rack alone implies its location, a rack
+  name used in two locations asks for the location; existing devices are skipped / updated (blank never clears);
+  rack-position overlaps within one file are refused; rows with errors are not written at all; the preview leaves
+  nothing behind; every device is audited; .xlsx works; a value starting with = gets a leading quote in the template
+  and loses it on the way back in
+
 ## 7c. Integration sync resilience — **applies to every integration, not just the one you changed**
 
 Real devices are partially readable. A firewall answering "9 of 10 endpoints OK" is the
@@ -624,6 +659,17 @@ probes on request inside a customer network. The feature is only as safe as its 
   - run it once against a real PVE host: the type is hypervisor, 8006 is in the port list, and
     the names contain neither the certificate issuer nor wildcard names; an agent without nmap
     shows the "names only" notice
+- [ ] **Probe by address (Probe in the anomaly lists, for an address IPAM has no record of)**
+  (`e2e/anomaly-identify-cols-tabs.spec.ts`):
+  - the address must be inside a managed subnet (the most specific one) and runs on that subnet's agent;
+    an address outside every managed subnet gets `identify_not_managed`, a network/broadcast address
+    `identify_bad_target`, and no job is created
+  - overlapping subnets with the same CIDR handled by different agents → `identify_ambiguous`; never
+    pick one and scan
+  - a registered address goes to that record's probe page (same history); duplicate records must not be
+    labelled "not in IPAM"
+  - the task row carries the address, the completion notification links back to `/identify/ip/<address>`,
+    the audit entry carries the subnet
 
 ## 7d2. Scan agent load — **whenever the agent's scan loop, its reports or the load evaluation change**
 

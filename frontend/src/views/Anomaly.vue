@@ -14,7 +14,8 @@ import {
   runAnomalyScan, updateAnomalySchedule,
   type AnomalyReport, type AnomalySchedule,
 } from "@/api/phase3";
-import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, InfoIcon, PendingIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
+import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, IdentifyIcon, InfoIcon, PendingIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
+import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
 import { downloadTextFile } from "@/utils/investigateReport";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
@@ -153,7 +154,8 @@ const CATEGORY_KEYS = [
   "mac_flapping",
 ];
 const route = useRoute();
-const links = useEntityLinks(useRouter());
+const router = useRouter();
+const links = useEntityLinks(router);
 // 通知點進來要落在對應的頁籤（?tab=fw_rule_rot），不是丟到第一個分類讓人自己找
 const activeTab = ref(
   CATEGORY_KEYS.includes(String(route.query.tab)) ? String(route.query.tab) : "ip_conflicts");
@@ -273,7 +275,8 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   duplicate_ip_records: ["ip", "records"],
   suspicious_changes: ["kind", "actor", "actor_ip", "object_type", "action",
                        "count", "first_at", "last_at"],
-  fw_rule_rot: ["kind", "name", "source", "interface", "port", "descr", "detail"],
+  // 防火牆：同名規則（Anti-Lockout 這類）會來自好幾台，要看得出是哪一台
+  fw_rule_rot: ["kind", "firewall", "name", "source", "interface", "port", "descr", "detail"],
   arp_only_liveness: ["ip", "hostname", "mac", "last_seen_arp", "ip_address_id"],
   // 頻繁換 MAC：先看是哪個 IP、換過幾個、時間跨度，再看 MAC 清單。
   // randomized 要露出來 —— 那一欄是「這些看起來是隱私隨機化位址」，
@@ -287,6 +290,8 @@ const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
   // 預設不顯示，需要的人可在「欄位」自行勾選
   external_exposure: ["ip_address_id", "owner", "rules"],
+  // 規則描述多半就是名稱（同步時沒有名稱就拿描述當），預設不重複顯示
+  fw_rule_rot: ["descr"],
 };
 
 // 每個類別一份欄位顯示偏好
@@ -303,9 +308,9 @@ function pickerItems(key: CatKey) {
 function pretty(k: string, val: any): string {
   if (val == null || val === "") return "";
   // kind 是分類代碼（exposed_unmonitored…），要翻成看得懂的字，不能把 enum 直接印給人看
-  // kind 橫跨兩類（對外曝險 exp_* 與可疑變更 chg_*），找得到才翻，找不到就原樣顯示
+  // kind 橫跨三類（對外曝險 exp_*、可疑變更 chg_*、防火牆規則劣化 rotk_*），找得到才翻，找不到就原樣顯示
   if (k === "kind") {
-    for (const p of ["anomaly.exp_", "anomaly.chg_"]) {
+    for (const p of ["anomaly.exp_", "anomaly.chg_", "anomaly.rotk_"]) {
       const key = `${p}${val}`;
       if (te(key)) return t(key);
     }
@@ -349,7 +354,7 @@ function renderLocation(o: Record<string, any>) {
 const SEEN_VENDOR: Record<string, string> = {
   opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
   mikrotik: "MikroTik", librenms: "LibreNMS", adguard: "AdGuard", proxmox: "Proxmox",
-  windows_dhcp: "Windows DHCP",
+  windows_dhcp: "Windows DHCP", kea_dhcp: "Kea DHCP", isc_dhcp: "ISC DHCP",
 };
 /** 誰看到這個 MAC：`scanner` → 掃描代理、`arp:opnsense` → ARP 表（OPNsense） */
 function seenBy(src: string): string {
@@ -426,55 +431,131 @@ function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
   if (typeof v === "object") return objLine(v);
   return pretty(k, v);
 }
+// ── 欄寬依內容 ────────────────────────────────────────────────────────────
+// 使用者回饋：值都很短的欄（狀況、來源、介面、埠…）不必跟長欄平分寬度，省下來的留給最後一欄
+// （通常是「說明」，原本被截成「埠轉發的目標位址不在 IPA…」）。所以一般欄依內容量出寬度，
+// 最後一個資料欄不給寬度、吃掉剩下的空間；欄寬仍可拖拉調整（全站表格都可以）。
+let measureCtx: CanvasRenderingContext2D | null = null;
+function textWidth(s: string): number {
+  if (!measureCtx) {
+    measureCtx = document.createElement("canvas").getContext("2d");
+    if (measureCtx) measureCtx.font = `14px ${getComputedStyle(document.body).fontFamily}`;
+  }
+  return measureCtx ? measureCtx.measureText(s).width : s.length * 8;
+}
+// 這幾欄一格裡放好幾行物件（MAC＋廠商＋誰看到的、出現位置…），維持原本的寬度設定
+const MULTI_LINE_KEYS = new Set(["locations", "macs", "ips"]);
+const COL_PAD = 26;          // 儲存格左右內距
+const SORT_ICON = 30;        // 標頭的排序圖示
+const COL_MIN = 64;
+const COL_MAX = 360;
+/** 一格實際顯示的文字（陣列一個元素一行，取最長那行） */
+function cellLines(k: string, v: any): string[] {
+  if (v == null || v === "") return ["—"];
+  if (Array.isArray(v) && k !== "evidence") {
+    return v.map((it: any) => (it && typeof it === "object" ? objLine(it) : String(it)));
+  }
+  return [pretty(k, v)];
+}
+function autoWidth(key: CatKey, k: string): number {
+  let w = textWidth(colLabel(k)) + SORT_ICON;
+  for (const row of catRows(key).slice(0, 300)) {
+    for (const line of cellLines(k, row[k])) w = Math.max(w, textWidth(line));
+  }
+  return Math.round(Math.min(COL_MAX, Math.max(COL_MIN, w + COL_PAD)));
+}
+
+// ── 探測 ─────────────────────────────────────────────────────────────────
+// 使用者要求：清單的操作欄也要有 IP 詳細頁那顆「探測」，同一個功能（只有管理員）。
+// 每一列是單一主機的類別才有；IPAM 有記錄就開那筆記錄的探測頁，沒有（未授權 IP）就以位址探測。
+const IDENTIFY_FIELD: Partial<Record<CatKey, string>> = {
+  ip_conflicts: "ip", ghost_ips: "ip", unauthorized_ips: "ip", rogue_dhcp: "server_ip",
+  external_exposure: "ip", duplicate_ip_records: "ip", arp_only_liveness: "ip",
+  mac_flapping: "ip", stale_device_links: "ip",
+};
+const auth = useAuthStore();
+function openIdentify(r: any, key: CatKey) {
+  const ip = String(r[IDENTIFY_FIELD[key] ?? "ip"] ?? "");
+  const id = r.ip_address_id ?? r.ip_id;
+  if (id) void router.push({ name: "address-identify", params: { id: String(id) } });
+  else if (ip) void router.push({ name: "ip-identify", params: { ip } });
+}
+/** 小按鈕的寬度（依目前語言的文字量，含圖示與內距） */
+function btnWidth(label: string, icon = true): number {
+  return Math.ceil(textWidth(label) * (12 / 14)) + 20 + (icon ? 20 : 0);
+}
+
 // 依該類別的可見欄位（已套欄位偏好）組欄位
 function catCols(key: CatKey): DataTableColumns<any> {
   const visible = prefs[key].visibleKeys.value;
+  const keys = CAT_KEYS[key].filter((k) => visible.includes(k));
+  const flexKey = [...keys].reverse().find((k) => !MULTI_LINE_KEYS.has(k));
+  const lastKey = keys[keys.length - 1];
   // autoSort：與全站表格一致，替沒有自訂 sorter 的欄位補上預設排序。
   // 這幾張表原本整排標頭都不能排 —— 十幾筆 MAC 變動想按時間或按網段看都做不到。
-  const cols = autoSort(CAT_KEYS[key].filter((k) => visible.includes(k)).map((k) => {
+  const cols = autoSort(keys.map((k) => {
     // MAC 清單一列要放好幾個「MAC＋時間」，窄欄會擠成一團看不出先後
     const wide = k === "locations" || k === "macs";
+    const sizing = MULTI_LINE_KEYS.has(k)
+      ? { minWidth: wide ? 420 : 220,
+          // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上。
+          // IP 衝突每個 MAC 還帶廠商與「誰看到的」，要寬一些
+          ...(k === "macs" ? { width: key === "ip_conflicts" ? 560 : 340 } : {}) }
+      // 最後一欄吃掉剩下的寬度（只有它是最後一欄時；最後是多行欄的話就照內容寬度）
+      : k === flexKey && k === lastKey
+        ? { minWidth: Math.max(160, autoWidth(key, k)) }
+        : { width: autoWidth(key, k) };
+    // 最後一欄（吃剩下寬度的那欄，通常是說明）放不下就換行，不截斷 —— 要看得到整句
+    const wrapLast = k === flexKey && k === lastKey;
     return {
       title: colLabel(k),
       key: k,
-      minWidth: wide ? 420 : (k === "ips" ? 220 : 140),
-      // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上。
-      // IP 衝突每個 MAC 還帶廠商與「誰看到的」，要寬一些
-      ...(k === "macs" ? { width: key === "ip_conflicts" ? 560 : 340 } : {}),
-      ellipsis: wide || k === "ips" ? false : { tooltip: true },
+      ...sizing,
+      ellipsis: wide || k === "ips" || wrapLast ? false : { tooltip: true },
       render: (r: any) => renderVal(k, r[k], r, key),
     };
   }));
-  // 可以逐 IP 忽略的類別：給一顆「忽略這個 IP」。
-  // 沒有這個機制的話，開了隱私隨機化的裝置（Windows 11／macOS／iOS／Android，每次
-  // 連線都換 MAC）會把整頁洗掉，使用者只能把整條規則關掉 —— 連真正的 IP 搶用也一起看不到。
-  if (IGNORABLE.value.includes(key)) {
-    cols.push({
-      title: t("common.actions"), key: "_ignore", width: 150, className: "col-actions",
-      render: (r: any) => (r.ip_id
-        ? h(NButton, {
-            size: "tiny", secondary: true, loading: ignoreBusy.value.has(r.ip_id),
-            disabled: ignoreBusy.value.has(r.ip_id),
-            onClick: () => doIgnore(r.ip_id, key),
-          }, { default: () => t("anomaly.ignore_btn") })
-        : null),
-    } as any);
-  }
 
-  // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」。
+  // 操作欄（一欄，按鈕並排）：探測、忽略這個 IP、AI 判讀。
   // 欄位標題用「操作」——與按鈕同名看起來像重複貼兩次（使用者回饋，與規則異動頁同一批）。
-  if (key === "unauthorized_ips") {
+  const canIdentify = !!auth.me?.is_admin && !!IDENTIFY_FIELD[key];
+  const canIgnore = IGNORABLE.value.includes(key);
+  // 未授權 IP：加「AI 判讀」—— 把「有一個不明 IP」變成「看起來是什麼、下一步查哪」。
+  const canTriage = key === "unauthorized_ips";
+  if (canIdentify || canIgnore || canTriage) {
+    let w = 24;
+    if (canIdentify) w += btnWidth(t("identify.title")) + 6;
+    if (canIgnore) w += btnWidth(t("anomaly.ignore_btn"), false) + 6;
+    if (canTriage) w += btnWidth(t("anomaly.triage_btn")) + btnWidth(t("fw_changes.ai_view")) + 12;
     cols.push({
-      title: t("common.actions"), key: "_triage", width: 200, className: "col-actions",
+      title: t("common.actions"), key: "_actions", width: Math.max(90, w), className: "col-actions",
       render: (r: any) => h("span",
         { style: "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap" }, [
-          h(NButton, {
-            size: "tiny", secondary: true, loading: triageBusy.value.has(r.ip),
-            disabled: triageBusy.value.has(r.ip),
-            onClick: () => doTriage(r.ip),
-          }, { icon: renderIcon(AiAuditIcon, 15), default: () => t("anomaly.triage_btn") }),
-          triageResults.value[r.ip]
-            ? h(NButton, { size: "tiny", type: "primary", secondary: true,
+          canIdentify && r[IDENTIFY_FIELD[key] ?? "ip"]
+            // title：視窗窄時操作欄只剩圖示（全站 col-actions 規則），滑過要看得出是哪一顆
+            ? h(NButton, { size: "tiny", secondary: true, "data-testid": "anomaly-identify",
+                           title: t("identify.title"), onClick: () => openIdentify(r, key) },
+                { icon: renderIcon(IdentifyIcon, 15), default: () => t("identify.title") })
+            : null,
+          // 可以逐 IP 忽略的類別：給一顆「忽略這個 IP」。
+          // 沒有這個機制的話，開了隱私隨機化的裝置（Windows 11／macOS／iOS／Android，每次
+          // 連線都換 MAC）會把整頁洗掉，使用者只能把整條規則關掉 —— 連真正的 IP 搶用也一起看不到。
+          canIgnore && r.ip_id
+            ? h(NButton, {
+                size: "tiny", secondary: true, loading: ignoreBusy.value.has(r.ip_id),
+                disabled: ignoreBusy.value.has(r.ip_id), title: t("anomaly.ignore_btn"),
+                onClick: () => doIgnore(r.ip_id, key),
+              }, { default: () => t("anomaly.ignore_btn") })
+            : null,
+          canTriage
+            ? h(NButton, {
+                size: "tiny", secondary: true, loading: triageBusy.value.has(r.ip),
+                disabled: triageBusy.value.has(r.ip), title: t("anomaly.triage_btn"),
+                onClick: () => doTriage(r.ip),
+              }, { icon: renderIcon(AiAuditIcon, 15), default: () => t("anomaly.triage_btn") })
+            : null,
+          canTriage && triageResults.value[r.ip]
+            ? h(NButton, { size: "tiny", type: "primary", secondary: true, title: t("fw_changes.ai_view"),
                            onClick: () => { triageShow.value = r.ip; } },
                 { icon: renderIcon(EyeIcon, 15), default: () => t("fw_changes.ai_view") })
             : null,
@@ -482,6 +563,10 @@ function catCols(key: CatKey): DataTableColumns<any> {
     } as any);
   }
   return cols;
+}
+/** 表格總寬：欄位加總，超過畫面時左右捲動（原本寫死 600，欄位一多就擠在一起） */
+function catScrollX(key: CatKey): number {
+  return catCols(key).reduce((sum, c: any) => sum + (Number(c.width) || Number(c.minWidth) || 120), 0);
 }
 
 // AI 判讀：LLM 要跑幾十秒 —— 背景執行，完成後該列長出「檢視結果」，
@@ -697,7 +782,7 @@ onMounted(() => { void loadIgnorable(); });
                             @update:visible="prefs[c.key].setVisible" @reset="prefs[c.key].reset" />
             </div>
             <n-data-table :columns="catCols(c.key)" :data="shownRows(c.key)"
-                          :bordered="false" size="small" :scroll-x="600" :pagination="pg" />
+                          :bordered="false" size="small" :scroll-x="catScrollX(c.key)" :pagination="pg" />
           </template>
           <n-empty v-else :description="t('anomaly.none_found')" style="margin: 16px 0" />
         </n-tab-pane>

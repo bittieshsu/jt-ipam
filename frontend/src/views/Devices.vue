@@ -19,13 +19,15 @@ import {
 import { getRackDiagram, type RackDiagram } from "@/api/racks";
 import { resolveRackLocation } from "@/utils/rackLocation";
 import {
-  DevicesIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, EyeIcon, LinkIcon, RacksIcon,
+  DevicesIcon, PlusIcon, EditIcon, UploadIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, EyeIcon, LinkIcon, RacksIcon,
 } from "@/icons";
 import { cmpNatural } from "@/utils/sort";
 import { useIpOptions } from "@/composables/useIpOptions";
 import { listSubnets } from "@/api/subnets";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
+import DeviceImportModal from "@/components/DeviceImportModal.vue";
+import { withExportValue } from "@/utils/tableExport";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useCustomers } from "@/composables/useCustomers";
 import { useEntityLinks } from "@/composables/useEntityLinks";
@@ -77,6 +79,12 @@ const locations = ref<Location[]>([]);
 const racks = ref<Rack[]>([]);
 const loading = ref(false);
 const show = ref(false);
+// 裝置匯入（issue #46）
+const showImport = ref(false);
+function onImportQueued() {
+  // 匯入在背景跑（作業頁看得到）；幾秒後重抓清單，多數情況已經完成
+  setTimeout(() => { void refresh(); }, 3000);
+}
 const editing = ref<Device | null>(null);
 
 const form = ref<{
@@ -468,21 +476,22 @@ const allCols = computed<DataTableColumns<Device>>(() => [
     ellipsis: { tooltip: true },
     sorter: (a, b) => (a.fqdn ?? "").localeCompare(b.fqdn ?? ""),
   },
-  {
+  withExportValue({
     // 給足寬度：最長的標籤是「無線基地台 (AP)」，沒有寬度時會溢出、壓到隔壁的「虛實」
     title: t("devices.type"), key: "type", width: 148,
-    render: (r) => h(NTag, { size: "small", type: "info" }, () => t(`devices.type_${r.type}`)),
-    sorter: (a, b) => a.type.localeCompare(b.type),
-  },
-  {
+    render: (r: Device) => h(NTag, { size: "small", type: "info" }, () => t(`devices.type_${r.type}`)),
+    sorter: (a: Device, b: Device) => a.type.localeCompare(b.type),
+  // 匯出寫顯示文字（匯入認得三種語言的文字，也認得代碼）
+  }, (r: Device) => t(`devices.type_${r.type}`)),
+  withExportValue({
     // 虛擬 / 實體：同步進來的虛擬機在清單上與實體機長得一模一樣，
     // 分不出來的話，「這台可以斷電維護嗎」這種問題就得逐台去查。
     title: t("devices.virtuality"), key: "is_virtual", width: 92,
-    render: (r) => h(NTag, { size: "small", type: r.is_virtual ? "warning" : "default",
+    render: (r: Device) => h(NTag, { size: "small", type: r.is_virtual ? "warning" : "default",
                              bordered: false },
       () => t(r.is_virtual ? "devices.virtual" : "devices.physical")),
-    sorter: (a, b) => Number(!!a.is_virtual) - Number(!!b.is_virtual),
-  },
+    sorter: (a: Device, b: Device) => Number(!!a.is_virtual) - Number(!!b.is_virtual),
+  }, (r: Device) => t(r.is_virtual ? "devices.virtual" : "devices.physical")),
   {
     title: t("devices.vendor"), key: "vendor",
     render: (r) => r.vendor ?? "—",
@@ -493,7 +502,7 @@ const allCols = computed<DataTableColumns<Device>>(() => [
     render: (r) => r.model ?? "—",
     sorter: (a, b) => (a.model ?? "").localeCompare(b.model ?? ""),
   },
-  {
+  withExportValue({
     title: t("devices.location"), key: "location_id",
     render: (r) => links.location(r.location_id, locations.value.find((l) => l.id === r.location_id)?.name ?? "—"),
     sorter: (a, b) => {
@@ -501,8 +510,9 @@ const allCols = computed<DataTableColumns<Device>>(() => [
       const bn = locations.value.find((l) => l.id === b.location_id)?.name ?? "";
       return an.localeCompare(bn);
     },
-  },
-  {
+  // 匯出寫名稱：以前匯出的是內部 UUID，檔案看不懂、也匯不回來（issue #46）
+  }, (r: Device) => locations.value.find((l) => l.id === r.location_id)?.name ?? ""),
+  withExportValue({
     title: t("devices.rack"), key: "rack_id",
     render: (r) => {
       const rk = racks.value.find((x) => x.id === r.rack_id);
@@ -515,13 +525,13 @@ const allCols = computed<DataTableColumns<Device>>(() => [
       const bn = racks.value.find((x) => x.id === b.rack_id)?.name ?? "";
       return an.localeCompare(bn);
     },
-  },
-  {
+  }, (r: Device) => racks.value.find((x) => x.id === r.rack_id)?.name ?? ""),
+  withExportValue({
     title: t("nav.customers"), key: "customer_id", width: 160,
     ellipsis: { tooltip: true },
     render: (r) => links.customer(r.customer_id, customerLabelFor(r.customer_id)),
     sorter: (a, b) => customerLabelFor(a.customer_id).localeCompare(customerLabelFor(b.customer_id)),
-  },
+  }, (r: Device) => (r.customer_id ? customerLabelFor(r.customer_id) : "")),
   {
     // 釘在右側 + 放得下四顆（連結 IP／檢視／編輯／刪除）：欄位一多表格就橫向溢出，
     // 最後一顆會被推到可視範圍外（實機回報「刪除鈕跑出右邊」）。
@@ -594,6 +604,10 @@ onMounted(async () => {
                     @update:visible="setVisible" @reset="reset" />
       <ExportButton :columns="cols" :rows="rows" :fetch-all="fetchAllForExport"
                     filename="devices" :title="t('nav.devices')" />
+      <n-button v-if="_authBtn.me?.is_admin" data-testid="device-import-open" @click="showImport = true">
+        <template #icon><n-icon><UploadIcon /></n-icon></template>
+        {{ t("device_import.open") }}
+      </n-button>
       <n-button type="primary" :disabled="_authBtn.me?.can_edit === false" @click="openCreate">
         <template #icon><n-icon><PlusIcon /></n-icon></template>
         {{ t("common.create") }}
@@ -761,6 +775,7 @@ onMounted(async () => {
         </div>
       </n-spin>
     </n-modal>
+    <DeviceImportModal v-model:show="showImport" @queued="onImportQueued" />
   </n-card>
 </template>
 

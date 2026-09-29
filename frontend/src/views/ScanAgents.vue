@@ -398,7 +398,7 @@ onMounted(async () => {
     <!-- 相依套件詳細資料 -->
     <n-modal v-model:show="toolsShow" preset="card" :title="t('scan_agent.deps_title')" style="width: 720px; max-width: 94vw">
       <p class="hint" style="margin-top:0">{{ t("scan_agent.deps_hint") }}</p>
-      <table class="dep-tbl">
+      <table v-col-resize class="dep-tbl">
         <thead>
           <tr>
             <th>{{ t("scan_agent.dep_tool") }}</th>

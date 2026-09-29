@@ -5,6 +5,8 @@
 #   sudo JT_IPAM_URL=https://ipam.example.com JT_IPAM_AGENT_KEY=<key> ./jt-ipam-agent-installer.sh
 # Optional:
 #   JT_IPAM_INTERVAL=300   JT_IPAM_INSECURE=1   (set 1 for self-signed server cert)
+#   JT_IPAM_DHCPD_CONF=... JT_IPAM_DHCPD_LEASES=...  (only on an isc-dhcp-server host whose files are
+#   not in the usual places; used when an "ISC DHCP" source in jt-ipam points at this agent)
 #
 # Re-running this installer re-downloads the latest agent and overwrites the old one.
 # The agent also auto-updates itself when the server has a newer version.
@@ -18,6 +20,8 @@ ENVFILE=/etc/jt-ipam-agent.env
 : "${JT_IPAM_AGENT_KEY:?JT_IPAM_AGENT_KEY is required (get it when creating an agent in jt-ipam)}"
 JT_IPAM_INTERVAL="${JT_IPAM_INTERVAL:-300}"
 JT_IPAM_INSECURE="${JT_IPAM_INSECURE:-}"
+JT_IPAM_DHCPD_CONF="${JT_IPAM_DHCPD_CONF:-}"
+JT_IPAM_DHCPD_LEASES="${JT_IPAM_DHCPD_LEASES:-}"
 
 if [[ $EUID -ne 0 ]]; then echo "Please run as root / sudo" >&2; exit 1; fi
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
@@ -67,6 +71,9 @@ JT_IPAM_AGENT_KEY=${JT_IPAM_AGENT_KEY}
 JT_IPAM_INTERVAL=${JT_IPAM_INTERVAL}
 JT_IPAM_INSECURE=${JT_IPAM_INSECURE}
 EOF
+# isc-dhcp-server's files in non-default places only (the agent finds /etc/dhcp/dhcpd.conf etc. itself)
+if [[ -n "$JT_IPAM_DHCPD_CONF" ]]; then echo "JT_IPAM_DHCPD_CONF=${JT_IPAM_DHCPD_CONF}" >> "$ENVFILE"; fi
+if [[ -n "$JT_IPAM_DHCPD_LEASES" ]]; then echo "JT_IPAM_DHCPD_LEASES=${JT_IPAM_DHCPD_LEASES}" >> "$ENVFILE"; fi
 
 echo "==> Creating systemd service ${SVC}"
 cat > "/etc/systemd/system/${SVC}.service" <<EOF

@@ -1088,7 +1088,7 @@ async function remove() {
           <!-- 表格排法（使用者要求「欄位對好」）：以前一條規則擠成一行字，來源／目的／說明長短不一，
                上下完全對不齊，很難一眼比較 -->
           <div v-if="fwInfo.rules.length" class="fw-table-wrap">
-            <table class="fw-table">
+            <table v-col-resize class="fw-table">
               <thead><tr>
                 <th></th><th>{{ t("cols.fw") }}</th><th>{{ t("cols.action") }}</th>
                 <th>{{ t("cols.source") }}</th><th></th><th>{{ t("cols.destination") }}</th>
@@ -1124,7 +1124,7 @@ async function remove() {
               {{ t("addresses.fw_aliases_title", { n: fwInfo.aliases.length }) }}
             </div>
             <div class="fw-table-wrap">
-              <table class="fw-table">
+              <table v-col-resize class="fw-table">
                 <thead><tr>
                   <th></th><th>{{ t("cols.fw") }}</th><th>{{ t("cols.name") }}</th>
                   <th>{{ t("cols.description") }}</th>
@@ -1151,7 +1151,7 @@ async function remove() {
           </div>
           <div class="fw-table-wrap">
             <!-- 欄位順序跟防火牆規則一樣：廠牌、設備名稱在最前面（使用者要求） -->
-            <table class="fw-table">
+            <table v-col-resize class="fw-table">
               <thead><tr>
                 <th></th><th>{{ t("cols.fw") }}</th><th>{{ t("cols.type") }}</th>
                 <th>{{ t("cols.name") }}</th><th>{{ t("cols.iface") }}</th><th>{{ t("cols.port") }}</th>

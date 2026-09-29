@@ -210,7 +210,10 @@ async def sync_instance(session: AsyncSession, inst: AdGuardInstance) -> dict[st
         inst.last_sync_at = datetime.now(UTC)
         inst.last_error = None
     except AdGuardError as exc:
+        # 連不上／認證失敗是硬失敗：寫 last_error 後往上拋，作業才會是「失敗」而不是「成功、0 筆」
+        # （issue #44 在 Proxmox 回報的同一個寫法）
         inst.last_error = str(exc)
-        summary["error"] = str(exc)
+        await session.commit()
+        raise
     await session.commit()
     return summary

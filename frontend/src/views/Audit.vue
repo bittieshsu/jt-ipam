@@ -60,6 +60,8 @@ function renderObjectLink(objectType: string | null, objectId: string | null, la
     case "wazuh_instance":      return go("wazuh");
     case "adguard_instance":    return go("adguard");
     case "windows_dhcp_server": return go("windows_dhcp");
+    case "kea_dhcp_server":     return go("kea_dhcp");
+    case "isc_dhcp_server":     return go("isc_dhcp");
     case "proxmox_instance":
     case "virt_cluster":        return go("virt_admin");
     case "dns_server":          return go("dns");

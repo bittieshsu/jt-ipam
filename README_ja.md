@@ -11,7 +11,7 @@
 
 **🌐 [プロジェクトサイト →](https://jasoncheng7115.github.io/jt-ipam/?lang=ja)**
 
-> 自社運用型で連携を中心に据えた IPAM です。phpIPAM の利用者にとって馴染みのある操作の流れを保ちながら独自に開発し、複数の DNS サーバー、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、MikroTik RouterOS、Windows DHCP Server、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix、そしてローカルの LLM と深く連携します。
+> 自社運用型で連携を中心に据えた IPAM です。phpIPAM の利用者にとって馴染みのある操作の流れを保ちながら独自に開発し、複数の DNS サーバー、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、MikroTik RouterOS、Windows DHCP Server、単独の Kea と ISC DHCP、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix、そしてローカルの LLM と深く連携します。
 >
 > Jason Tools Co., Ltd. 提供 · ライセンス：AGPL-3.0 · English: [README.md](README.md) · 繁體中文: [README_zh-TW.md](README_zh-TW.md)
 
@@ -25,7 +25,7 @@ phpIPAM の利用者がその日から使えるよう操作の流れを揃えつ
 - **LibreNMS** — 機器の同期、ARP / FDB の収集、死活状態の突き合わせ、監視への自動登録
 - **Zabbix** — 監視面を補う読み取り専用の連携です。ホストと IP の対応、実効状態の根拠としての死活、メンテナンス期間、そして**監視の抜け**（IPAM がホスト名を持っているのに Zabbix が見ていないアドレス）が分かります。ARP と FDB は Zabbix の標準データに含まれないため、引き続き LibreNMS が担当します
 - **基盤** — Proxmox VE、**VMware ESXi / vCenter（Beta）**：単体の ESXi と vCenter を同じ設定で扱い、vSphere API 経由の読み取り専用で仮想マシン・NIC・アドレスを取得し、Proxmox と同じ仮想化テーブルに格納します。Wazuh、OPNsense / pfSense（エイリアス／ルール／NAT の同期）、**FortiGate**：FortiOS REST API 経由の読み取り専用（DHCP のリースと範囲、ARP、IPsec トンネルと SSL-VPN セッション、ポリシー、NAT、アドレスオブジェクト。マルチ VDOM 対応）、**Palo Alto（Beta）**：PAN-OS API 経由の読み取り専用（ARP、DHCP リース、App-ID を含むセキュリティポリシー、NAT、アドレスオブジェクト。マルチ vsys 対応）、**MikroTik RouterOS（Beta）**：RouterOS v7 REST API 経由の読み取り専用（filter / mangle / NAT のファイアウォールルール、アドレスリスト、DHCP のリースと範囲、VPN、ARP）。MikroTik は拠点の主力ルーターであることが多いため、区分を直列に実行して間に休止を入れ、CPU 負荷が閾値を超えたらその回を中止し、応答サイズにも上限を設けています（RouterOS の REST にはページングがありません）。負荷の高い区分は既定で無効で、接続診断がエンドポイントごとの行数と秒数を報告します
-- **DHCP** — サーバーごとに個別に設定します。OPNsense（Kea / ISC）と pfSense はそれぞれの REST API でリースとアドレス範囲を同期し、**Windows DHCP Server（Beta）**は WinRM + PowerShell の読み取り専用です（`Get-*` のみ。WinRM に到達できる必要があり、既定は 5986/HTTPS）。プール内のアドレスは IP 一覧と詳細に表示されます。
+- **DHCP** — サーバーごとに個別に設定します。OPNsense（Kea / ISC）と pfSense はそれぞれの REST API でリースとアドレス範囲を同期し、**Windows DHCP Server（Beta）**は WinRM + PowerShell の読み取り専用です（`Get-*` のみ。WinRM に到達できる必要があり、既定は 5986/HTTPS）。**単独の Kea** は JSON 制御 API（Control Agent、または Kea 3.0 以降の DHCP サーバー自身の HTTP 制御ソケット。リースには lease_cmds フックが必要）で読み取り、**単独の ISC DHCP**（isc-dhcp-server にはリースを一覧できる API が無い）は DHCP ホストにインストールしたスキャンエージェントが dhcpd.conf／dhcpd.leases をローカルで解析し、解析済みのプール・固定割り当て・有効なリースだけを報告します。プール内のアドレスは IP 一覧と詳細に表示されます。
 - **Graylog** — Graylog の「DSV File from HTTP」データアダプタ向けに、IP→ホスト名 / FQDN のルックアップ用エンドポイントを提供します
 - **ローカル AI** — LLM サーバーによる自然言語での問い合わせとセマンティック検索（既定は自社運用なのでデータは外部に出ません。OpenAI 互換エンドポイントを明示的に選ぶこともできます）。加えて MCP サーバー（stdio と Streamable HTTP）を備え、外部の LLM クライアントから IPAM を操作できます。検証では `gemma4:26b` が良好でした。セキュリティ面の AI としては、**ファイアウォールのルール変更監視**（三系統すべてのファイアウォールについて同期のたびにスナップショットを比較し、夜のうちに許可ルールが増えれば管理者へ通知）、**チャットでの IP フォレンジック**（「この IP は先週誰のものだったか」と尋ねると、項目単位の変更履歴・ARP / MAC の対応・ソース別のホスト名を根拠つきの時系列で返します）、**未許可 IP の AI 判読カード**（OUI ベンダー・ホスト名・スイッチポートをまとめ、「これはおそらく何の機器で、次にどこを見るべきか」を提示。根拠はプロンプトインジェクション対策として区切ります）があります。
 
@@ -84,7 +84,7 @@ SOL が中継するのはホストの**シリアルポート**だけなので、
 | **Proxmox VE** | 作成することがあります | 「仮想化から得た IP を信頼する」 | **既定で無効** | それを含む最小のサブネットに入れます。判別できなければ何も作りません |
 | **VMware / ESXi** | 作成することがあります | 「仮想化から得た IP を信頼する」 | **既定で無効** | それを含む最小のサブネットに入れます。判別できなければ何も作りません |
 | **OPNsense / pfSense** | 作成することがあります（DHCP リース） | 「IPAM に無いアドレスを作成する」 | **既定で無効** | それを含む最小のサブネットに入れます。判別できなければ何も作りません |
-| AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / FortiGate / Palo Alto / MikroTik | **照合のみ。作成しません** | — | — | — |
+| AdGuard / Wazuh / Zabbix / DNS / Windows DHCP / Kea / ISC DHCP / FortiGate / Palo Alto / MikroTik | **照合のみ。作成しません** | — | — | — |
 | CSV 取り込み／phpIPAM 移行 | 取り込んだ内容から作成（利用者の明示的な操作） | — | — | 取り込んだとおり |
 
 **共通ルール**：自動作成はすべて同じ判断（`services/ip_autocreate.py`）を通ります。**そのアドレスを含む最小のサブネットに入れる。どれに入れるべきか判別できなければ、何も作らない**。

@@ -552,3 +552,137 @@ async def test_a_probe_nobody_picked_up_fails_its_task(client, auth_headers, db_
     task = await _task_of(db_session, job_id)
     await db_session.refresh(task)
     assert task.status == "failed"
+
+
+# ─────────────────── 以位址探測（IPAM 沒有記錄的位址，例如異常偵測的「未授權 IP」） ───────────────────
+# 2026-09-29 使用者要求異常偵測清單也能按「探測」。未授權 IP 按定義就是 IPAM 沒有記錄的位址，
+# 所以目標從「IPAM 裡那筆 IP」放寬成「IPAM 管理的子網路裡的位址」：仍然不能拿來掃外面的主機、
+# 也不能掃沒有代理負責的網段；由那個子網路的代理執行。
+
+async def _subnet_only(db, *, cidr: str = "198.51.100.0/24", with_agent: bool = True):
+    sec = Section(name=f"sec-{uuid.uuid4().hex[:6]}")
+    db.add(sec)
+    await db.flush()
+    agent = None
+    if with_agent:
+        agent = ScanAgent(name=f"agent-{uuid.uuid4().hex[:6]}", enroll_key_hash=uuid.uuid4().hex * 2, enabled=True)
+        db.add(agent)
+        await db.flush()
+    sub = Subnet(section_id=sec.id, cidr=cidr, scan_agent_id=agent.id if agent else None)
+    db.add(sub)
+    await db.commit()
+    return sub, agent
+
+
+async def test_an_unregistered_address_in_a_managed_subnet_can_be_probed(client, auth_headers, db_session) -> None:
+    sub, agent = await _subnet_only(db_session)
+    info = await client.get("/api/v1/identify/ip/198.51.100.50", headers=auth_headers)
+    assert info.status_code == 200, info.text
+    assert info.json()["ip"] == "198.51.100.50"
+    assert info.json()["subnet_cidr"] == "198.51.100.0/24"
+    assert info.json()["agent_name"] == agent.name
+    assert info.json()["address_id"] is None
+    assert info.json()["record_count"] == 0
+
+    r = await client.post("/api/v1/identify/ip/198.51.100.50", headers=auth_headers)
+    assert r.status_code == 202, r.text
+    job = await db_session.get(AgentProbeJob, uuid.UUID(r.json()["job_id"]))
+    assert job.params == {"targets": ["198.51.100.50"]}
+    assert job.agent_id == agent.id
+
+    from app.models.audit import AuditLog
+    audit = (await db_session.execute(select(AuditLog).where(
+        AuditLog.action == "identify", AuditLog.diff["ip"].astext == "198.51.100.50"))).scalars().first()
+    assert audit is not None, "以位址探測也要寫稽核"
+
+    hist = await client.get("/api/v1/identify/ip/198.51.100.50/history", headers=auth_headers)
+    assert [x["job_id"] for x in hist.json()["items"]] == [str(job.id)]
+    job.status, job.result = STATUS_DONE, SAMPLE_RESULT
+    await db_session.commit()
+    got = await client.get(f"/api/v1/identify/ip/198.51.100.50/{job.id}", headers=auth_headers)
+    assert got.status_code == 200, got.text
+    assert got.json()["summary"]["device_type"] == "server"
+
+
+@pytest.mark.parametrize("target", ["203.0.113.5", "8.8.8.8"])
+async def test_an_address_outside_every_managed_subnet_is_refused(client, auth_headers, db_session, target) -> None:
+    await _subnet_only(db_session)
+    for r in (await client.get(f"/api/v1/identify/ip/{target}", headers=auth_headers),
+              await client.post(f"/api/v1/identify/ip/{target}", headers=auth_headers)):
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"]["code"] == "identify_not_managed"
+
+
+@pytest.mark.parametrize("target", ["198.51.100.0", "198.51.100.255", "host.example.net", "198.51.100.0-24"])
+async def test_network_broadcast_and_non_addresses_are_refused(client, auth_headers, db_session, target) -> None:
+    await _subnet_only(db_session)
+    r = await client.post(f"/api/v1/identify/ip/{target}", headers=auth_headers)
+    assert r.status_code in (400, 404), r.text
+    assert not (await db_session.execute(select(AgentProbeJob).where(
+        AgentProbeJob.kind == "identify"))).scalars().first()
+
+
+async def test_a_subnet_without_an_agent_says_so_by_address(client, auth_headers, db_session) -> None:
+    await _subnet_only(db_session, with_agent=False)
+    r = await client.post("/api/v1/identify/ip/198.51.100.50", headers=auth_headers)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "identify_no_agent"
+
+
+async def test_overlapping_subnets_with_different_agents_are_not_guessed(client, auth_headers, db_session) -> None:
+    """兩個單位共用同一個 CIDR、各有自己的代理：不知道是哪一邊的主機，不可以挑一個就掃。"""
+    await _subnet_only(db_session)
+    await _subnet_only(db_session)
+    r = await client.post("/api/v1/identify/ip/198.51.100.50", headers=auth_headers)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "identify_ambiguous"
+
+
+async def test_the_most_specific_subnet_decides_the_agent(client, auth_headers, db_session) -> None:
+    await _subnet_only(db_session, cidr="198.51.0.0/16")
+    _, inner_agent = await _subnet_only(db_session, cidr="198.51.100.0/24")
+    r = await client.post("/api/v1/identify/ip/198.51.100.50", headers=auth_headers)
+    assert r.status_code == 202, r.text
+    assert r.json()["agent_name"] == inner_agent.name
+
+
+async def test_by_address_uses_the_record_when_there_is_one(client, auth_headers, db_session) -> None:
+    """已經登記的位址：資訊裡帶出那筆記錄（畫面轉到記錄的探測頁），作業也掛在那筆記錄上。"""
+    ip, _ = await _setup(db_session)
+    info = await client.get("/api/v1/identify/ip/198.51.100.7", headers=auth_headers)
+    assert info.json()["address_id"] == str(ip.id)
+    job_id = (await client.post("/api/v1/identify/ip/198.51.100.7", headers=auth_headers)).json()["job_id"]
+    task = await _task_of(db_session, job_id)
+    assert task.target_id == ip.id
+
+
+async def test_a_probe_by_address_notifies_with_a_link_back_to_it(client, auth_headers, db_session, admin_user) -> None:
+    from app.api.v1.endpoints.scan_agents import _key_hash
+    from app.models.notification import Notification
+    raw = "v" * 40
+    _, agent = await _subnet_only(db_session)
+    agent.enroll_key_hash = _key_hash(raw)
+    await db_session.commit()
+    job_id = (await client.post("/api/v1/identify/ip/198.51.100.50", headers=auth_headers)).json()["job_id"]
+    task = await _task_of(db_session, job_id)
+    assert task.target_id is None and "198.51.100.50" in task.target_label
+    await client.get("/api/v1/scan-agents/jobs", headers={"X-Agent-Key": raw})
+    await client.post(f"/api/v1/scan-agents/jobs/{job_id}/result", json={"result": SAMPLE_RESULT},
+                      headers={"X-Agent-Key": raw})
+    note = (await db_session.execute(select(Notification).where(
+        Notification.user_id == admin_user.id, Notification.title_key == "notif.identify_done"))).scalars().first()
+    assert note.link == f"/identify/ip/198.51.100.50?job={job_id}"
+
+
+async def test_non_admins_cannot_probe_by_address(client, db_session) -> None:
+    from app.core.security import hash_password
+    from app.models.user import User
+    from app.services.auth import issue_access_token
+    await _subnet_only(db_session)
+    u = User(username=f"viewer-{uuid.uuid4().hex[:6]}", email=f"{uuid.uuid4().hex[:6]}@e.test",
+             password_hash=hash_password("Xx!12345678xX"), is_admin=False, is_active=True)
+    db_session.add(u)
+    await db_session.commit()
+    h = {"Authorization": f"Bearer {issue_access_token(u)}"}
+    assert (await client.post("/api/v1/identify/ip/198.51.100.50", headers=h)).status_code == 403
+    assert (await client.get("/api/v1/identify/ip/198.51.100.50/history", headers=h)).status_code == 403

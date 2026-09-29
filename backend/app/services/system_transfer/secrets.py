@@ -91,6 +91,10 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
         ("password", "password_enc", "password_nonce",
          _aad_id("windows_dhcp_server:{id}:password")),
     ],
+    "kea_dhcp_servers": [
+        ("password", "password_enc", "password_nonce",
+         _aad_id("kea_dhcp_server:{id}:password")),
+    ],
     "cert_versions": [
         (
             "key",

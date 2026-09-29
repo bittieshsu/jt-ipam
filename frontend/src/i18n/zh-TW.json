@@ -332,7 +332,9 @@
     "mikrotik_fw": "路由器 (MikroTik)",
     "jump_hosts": "跳板主機",
     "doctor": "系統診斷",
-    "ocs": "整合 OCS"
+    "ocs": "整合 OCS",
+    "kea_dhcp": "整合 Kea DHCP",
+    "isc_dhcp": "整合 ISC DHCP"
   },
   "topbar": {
     "search": "搜尋…",
@@ -438,7 +440,9 @@
     "console_engine_title": "這次連線使用的引擎（可在「管理 → 系統設定」切換）",
     "duration_sec": "{n} 秒",
     "duration_min": "{n} 分鐘",
-    "duration_hour": "{n} 小時"
+    "duration_hour": "{n} 小時",
+    "scroll_left": "往左捲動",
+    "scroll_right": "往右捲動"
   },
   "scan_agent": {
     "outdated": "可更新",
@@ -1159,7 +1163,9 @@
       "mikrotik": "MikroTik",
       "zabbix": "Zabbix",
       "esxi": "VMware ESXi / vCenter",
-      "ocs": "OCS 資產盤點"
+      "ocs": "OCS 資產盤點",
+      "kea_dhcp": "Kea DHCP",
+      "isc_dhcp": "ISC DHCP"
     },
     "model_title": "裝置型號來源順序",
     "model_subtitle": "多個來源提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
@@ -1261,7 +1267,9 @@
     "last_seen_ocs": "最後出現（OCS 盤點）",
     "last_seen_ocs_jump": "檢視此裝置的 OCS 盤點資料",
     "fw_col_why": "比對依據",
-    "fw_row_goto": "點一下開啟這一筆"
+    "fw_row_goto": "點一下開啟這一筆",
+    "source_kea_dhcp": "Kea DHCP",
+    "source_isc_dhcp": "ISC DHCP"
   },
   "subnets": {
     "title": "子網路",
@@ -1981,7 +1989,7 @@
     "triage_btn": "AI 判讀",
     "triage_title": "AI 鑑識：{ip}",
     "fw_rot": "防火牆規則劣化",
-    "explain_fw_rule_rot": "生效中的規則裡「已經不對勁」的部分：埠轉發指向 IPAM 沒有的位址（目標可能已回收）、any → any 放行（等於該介面沒有防火牆）、WAN 介面對任意來源開放管理埠（SSH／RDP／VNC／IPMI）。手動建立的 NAT 與停用中的規則不列入。",
+    "explain_fw_rule_rot": "生效中的規則裡「已經不對勁」的部分：埠轉發指向 IPAM 沒有的位址（目標可能已回收）、any → any 放行（任何協定、任何埠都放行，等於該介面沒有防火牆）、WAN 介面對任意來源開放管理埠（SSH／RDP／VNC／IPMI）。手動建立的 NAT、停用中的規則、防火牆自動產生的規則（例如 Anti-Lockout），以及只限某個協定或埠的規則（例如只放行 ping）不列入。",
     "arp_only": "僅 ARP 看得到",
     "explain_arp_only_liveness": "這些 IP 看起來在線，但唯一的證據是 ARP 記錄 —— 而 ARP 沒有時間資訊，來源設備（AP／路由器）的快取不會過期。機器就算已經關機，這裡仍會顯示上線。要確認實際狀態，請用掃描代理探測，或改由 LibreNMS／Zabbix 納管。",
     "stale_link": "裝置關聯可能過期",
@@ -2066,7 +2074,8 @@
       "mac_changed_at": "MAC 變動時間",
       "evidence": "依據",
       "changes": "切換次數",
-      "sources": "看到的來源"
+      "sources": "看到的來源",
+      "firewall": "防火牆"
     },
     "rot": {
       "dangling_nat": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記",
@@ -2079,7 +2088,11 @@
     "seen_scanner": "掃描代理",
     "seen_manual": "手動",
     "seen_arp_vendor": "ARP 表（{vendor}）",
-    "filter_ph": "篩選：IP／主機名稱／MAC／說明…（所有分類共用）"
+    "filter_ph": "篩選：IP／主機名稱／MAC／說明…（所有分類共用）",
+    "rotk_dangling_nat": "埠轉發目標不在 IPAM",
+    "rotk_any_any": "any → any 全放行",
+    "rotk_mgmt_exposed": "WAN 開放管理埠",
+    "rotk_alias_rot": "別名成員失效"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -3042,7 +3055,16 @@
     "guacd_vnc_username_required": "這台 VNC 伺服器要求帳號與密碼，請在「帳號」欄填入帳號",
     "sftp_probe_too_large": "測試量超出範圍（上限 {max} MB）",
     "sftp_probe_session_limit": "這次測試的額度用完了，請重新檢查",
-    "sftp_probe_stalled": "測試上傳中斷（已收到 {written}/{size} 位元組）"
+    "sftp_probe_stalled": "測試上傳中斷（已收到 {written}/{size} 位元組）",
+    "identify_not_managed": "{ip} 不在 IPAM 管理的子網路內，無法探測。探測只能對管理網段內的位址執行。",
+    "identify_bad_target": "只能探測單一 IP 位址（{target} 不是可探測的主機位址）。",
+    "identify_ambiguous": "{ip} 同時落在好幾個重疊的子網路（{subnets}），而且由不同的掃描代理負責，分不出是哪一邊的主機，所以不探測。",
+    "kea_dhcp_error": "Kea DHCP 回報錯誤：{reason}",
+    "isc_dhcp_agent_missing": "找不到這台掃描代理，可能已經被刪除。",
+    "isc_dhcp_agent_taken": "這台掃描代理已經指派給另一個 ISC DHCP 來源「{name}」。一台代理只能對應一個來源。",
+    "device_import_encoding": "CSV 必須是 UTF-8 編碼（{reason}）。在 Excel 另存新檔時請選「CSV UTF-8」，或直接上傳 .xlsx。",
+    "device_import_bad_xlsx": "無法讀取這個 Excel 檔：{reason}",
+    "device_import_too_large": "檔案太大（上限 16 MB）。"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -4143,7 +4165,8 @@
       "media": "影音設備",
       "specialized": "專用設備",
       "unknown": "無法判斷"
-    }
+    },
+    "unregistered": "IPAM 沒有記錄 · {subnet}"
   },
   "investigate": {
     "title": "調查",
@@ -4778,5 +4801,101 @@
     "sg_heavy_interval": "背景的名稱查詢與 OS 指紋一直消化不完（待辦 {backlog} 台）。把 OS 指紋的週期拉長，或在大的子網路關掉它。",
     "chunk": "第 {chunk}／{rounds} 段",
     "sg_rotating_large": "{cidr} 有 {total} 個位址，分 {rounds} 輪掃完一遍（約 {minutes} 分鐘）。上線判定門檻是 {threshold} 分鐘，超過的話主機會在兩次掃描之間被判成離線 —— 建議在 IPAM 切成較小的子網路，或分給多台代理。"
+  },
+  "kea_dhcp": {
+    "title": "Kea DHCP 伺服器",
+    "intro": "直接連 Kea 的 JSON 控制 API，唯讀同步發放範圍、保留與租約，不會更動 Kea 的任何設定。Kea 2.x 請填控制代理（kea-ctrl-agent）的網址；Kea 3.0 起也可以填 DHCP 伺服器自己的 HTTP 控制通道，兩種方式會自動判斷。架在 OPNsense／pfSense 上的 Kea 請用對應的防火牆整合。",
+    "api_url": "控制 API 網址",
+    "api_url_hint": "例如 http://kea.example.test:8000/。Kea 在私有網段時，後端需啟用 OUTBOUND_ALLOW_PRIVATE。",
+    "username": "帳號（HTTP 認證）",
+    "username_hint": "Kea 沒有開 HTTP 認證就留空",
+    "password": "密碼",
+    "password_keep": "密碼（留空表示不更改）",
+    "pull_what": "要拉取的資料",
+    "scopes": "範圍與保留",
+    "leases": "租約",
+    "hooks_hint": "租約需要 Kea 載入 lease_cmds；存在資料庫的保留需要 host_cmds（沒有的話只讀設定檔裡的保留）。",
+    "test_ok": "連線成功 —— Kea {version}（{how}），{subnets} 個子網路、{pools} 段發放範圍",
+    "mode_agent": "經由控制代理",
+    "mode_direct": "直接連 DHCP 伺服器",
+    "leases_unsupported": "這台 Kea 沒有載入 lease_cmds，拉不到租約；發放範圍與保留照樣同步。在 kea-dhcp4 的 hooks-libraries 加上 libdhcp_lease_cmds.so 即可。",
+    "sync_kind": "Kea DHCP 同步"
+  },
+  "isc_dhcp": {
+    "title": "ISC DHCP 伺服器",
+    "intro": "獨立的 isc-dhcp-server 沒有能列出全部租約的 API，所以由裝在 DHCP 主機上的掃描代理讀本機的設定檔與租約檔，解析後回報發放範圍、固定分配與目前有效的租約。jt-ipam 不會連到 DHCP 主機。",
+    "step_agent": "在 DHCP 主機上安裝掃描代理（不需要指派任何子網路）。",
+    "go_agents": "前往掃描代理",
+    "step_read": "代理預設以 root 執行，讀得到這兩個檔（自行改成其他帳號的話，要讓它讀得到）：",
+    "step_paths": "路徑不同時，在那台主機的 /etc/jt-ipam-agent.env 加上以下設定後重啟代理（systemctl restart jt-ipam-scan-agent）：",
+    "step_create": "在這裡新增來源、選那台代理；代理下一次輪詢就會開始回報。",
+    "privacy": "代理只回報解析後的範圍、固定分配與租約，不會送出檔案原文（dhcpd.conf 裡常有 DDNS／OMAPI 金鑰）。檔案路徑只能在 DHCP 主機上設定，jt-ipam 改不了。需要代理 1.12.0 以上（代理會自動更新）。",
+    "agent": "掃描代理（裝在 DHCP 主機上）",
+    "agent_pick": "選擇代理",
+    "agent_hint": "一台代理只能對應一個來源。",
+    "agent_used_by": "已由 {name} 使用",
+    "no_agent": "未指定代理",
+    "agent_old": "代理 {v} 太舊，更新後才會回報",
+    "files": "讀檔狀態",
+    "last_report": "最後回報",
+    "pull_what": "要回報的資料",
+    "scopes": "範圍與固定分配",
+    "leases": "租約",
+    "interval": "回報間隔（秒）",
+    "agent_col": "掃描代理"
+  },
+  "device_import": {
+    "open": "匯入",
+    "title": "匯入裝置",
+    "intro": "上傳 CSV 或 Excel（.xlsx）。從裝置清單匯出的檔案（任何介面語言）改完可以直接匯回來；欄位看檔頭，順序不重要。先預覽每一列會怎麼處理，確認後才匯入。",
+    "columns": "可用欄位：名稱（必填）、FQDN、IP、類型、製造商、型號、序號、地點、機櫃、U 位、佔用 U 數、安裝方向、單位、說明。地點／機櫃／單位寫名稱；只寫機櫃時地點由機櫃推出來；IP 只對應 IPAM 裡已有的位址。",
+    "template": "下載空白範本",
+    "template_with_data": "下載範本（含現有裝置）",
+    "on_existing": "已存在的裝置（名稱相同）：",
+    "mode_skip": "略過",
+    "mode_update": "更新（空白欄位不變更）",
+    "choose": "選擇檔案",
+    "col_line": "列",
+    "col_name": "名稱",
+    "col_action": "處理",
+    "col_messages": "說明",
+    "action_create": "新增",
+    "action_update": "更新",
+    "action_skip": "略過",
+    "action_error": "錯誤",
+    "sum_create": "新增 {n}",
+    "sum_update": "更新 {n}",
+    "sum_skip": "略過 {n}",
+    "sum_error": "錯誤 {n}",
+    "sum_warn": "提醒 {n}",
+    "ignored_columns": "這些欄位不認得、不會匯入：{cols}",
+    "errors_not_imported": "有錯誤的列不會匯入（整列都不寫，不會只寫一半）。",
+    "run": "匯入",
+    "run_n": "匯入 {n} 筆",
+    "queued": "已開始匯入，進度可在「作業」頁查看。",
+    "fatal_empty_file": "檔案是空的。",
+    "fatal_no_name_column": "找不到「名稱」欄（name）。第一列要是檔頭。",
+    "fatal_too_many_rows": "一次最多匯入 {max} 列，請分批。",
+    "msg": {
+      "missing_name": "沒有填名稱",
+      "duplicate_in_file": "檔案裡前面已經有同名的裝置",
+      "name_ambiguous": "系統裡有好幾台同名的裝置，無法判斷要更新哪一台",
+      "exists_skipped": "已經有這台裝置，依設定略過",
+      "bad_type": "不認得的類型「{value}」",
+      "bad_rack_face": "不認得的安裝方向「{value}」（前面／後面）",
+      "bad_number": "{field} 要是數字，現在是「{value}」",
+      "location_not_found": "找不到地點「{value}」",
+      "rack_not_found": "找不到機櫃「{value}」",
+      "rack_not_in_location": "地點「{location}」裡沒有機櫃「{value}」",
+      "rack_ambiguous": "有好幾個地點都有機櫃「{value}」，請一併填上地點",
+      "unit_not_found": "找不到單位「{value}」",
+      "unit_ambiguous": "有好幾個單位符合「{value}」",
+      "bad_ip": "「{value}」不是 IP 位址",
+      "warn_ip_not_found": "IPAM 裡沒有 {ip}，主要 IP 留空",
+      "warn_ip_ambiguous": "{ip} 在好幾個子網路都有，分不出是哪一筆，主要 IP 留空",
+      "warn_ip_linked_elsewhere": "{ip} 已經屬於別台裝置，不會搶過來，主要 IP 留空",
+      "invalid": "欄位 {field} 不合格：{reason}",
+      "placement": "機櫃位置不行：{reason}"
+    }
   }
 }

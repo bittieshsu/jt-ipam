@@ -43,6 +43,7 @@ async def _run() -> int:
     from app.models.wazuh import WazuhInstance
     from app.models.zabbix import ZabbixInstance
     from app.models.windows_dhcp import WindowsDhcpServer
+    from app.models.dhcp_standalone import IscDhcpServer, KeaDhcpServer
     from app.services import adguard as adguard_svc
     from app.services import fortigate as fortigate_svc
     from app.services import mikrotik as mikrotik_svc
@@ -55,6 +56,8 @@ async def _run() -> int:
     from app.services import wazuh as wazuh_svc
     from app.services import zabbix as zabbix_svc
     from app.services import windows_dhcp as windows_dhcp_svc
+    from app.services import kea_dhcp as kea_dhcp_svc
+    from app.services import dhcp_standalone as dhcp_standalone_svc
     from app.services.background_tasks import upsert_scheduled_task as _hb
     from app.services.dns.factory import get_adapter as _dns_adapter  # noqa: F401
     from app.services.dns_sync import pull_server
@@ -271,6 +274,7 @@ async def _run() -> int:
                 ("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
                 ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
                 ("mikrotik", MikroTikRouter), ("windows_dhcp", WindowsDhcpServer),
+                ("kea_dhcp", KeaDhcpServer), ("isc_dhcp", IscDhcpServer),
                 ("ocs", OcsServer),
                 ("dns", DNSServer),
             ):
@@ -532,6 +536,40 @@ async def _run() -> int:
                 failed += 1
                 await _hb(session, kind="windows_dhcp.sync", target_type="windows_dhcp_server",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── 獨立 Kea DHCP Server（issue #45；JSON 控制 API 唯讀拉範圍／保留／租約）──
+        keas = (
+            await session.execute(
+                select(KeaDhcpServer).where(KeaDhcpServer.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in keas:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await kea_dhcp_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("kea_dhcp %s: %s", name, summary)
+                await _hb(session, kind="kea_dhcp.sync", target_type="kea_dhcp_server",
+                          target_id=inst.id, target_label=name, ok=True, summary=summary)
+            except Exception as exc:
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("kea_dhcp %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="kea_dhcp.sync", target_type="kea_dhcp_server",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── 獨立 ISC DHCP Server：資料由掃描代理回報，這裡只抓「代理多久沒回報」──
+        try:
+            if await dhcp_standalone_svc.mark_stale_isc(session, now):
+                await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("isc_dhcp stale check failed: %s", exc)
 
         # ── Proxmox（同一 cluster 多節點 → 自動挑健康節點同步，故障換手）──
         pvs = (

@@ -653,11 +653,22 @@ async def sync_fdb(
             data = await _api_get(instance, path, timeout=20.0)
         except LibreNMSError:
             continue
+        # 這台裝置既有的 FDB 一次讀進來，以「MAC＋埠＋VLAN」為鍵（跟唯一鍵 fdb_entry_unique 同一組）。
+        # issue #43：同一次回應裡同一組鍵可能出現兩次（LibreNMS 以內部 VLAN row id 記，換算成
+        # VLAN 號後會重疊）。正式環境 session 是 autoflush=False，逐筆 SELECT 查不到剛 add 還沒
+        # 寫入的那筆 → 新增兩次 → 唯一鍵衝突、整輪同步中斷。改成在記憶體裡以鍵合併。
+        known: dict[tuple[str, str | None, int | None], FDBEntry] = {
+            (str(r.mac).lower(), r.port_name, r.vlan_id_num): r
+            for r in (await session.execute(
+                select(FDBEntry).where(FDBEntry.device_id == d.id))).scalars().all()
+        }
         for entry in data.get("ports_fdb") or []:
             mac = entry.get("mac_address")
             if not mac:
                 continue
-            mac = mac.lower()
+            mac = _norm_fdb_mac(mac)
+            if mac is None:
+                continue
             vlan = entry.get("vlan_id")
             try:
                 raw_vid = int(vlan) if vlan is not None else None
@@ -675,32 +686,41 @@ async def sync_fdb(
                 except (ValueError, TypeError):
                     port_name = None
             seen += 1
-            existing = (
-                await session.execute(
-                    select(FDBEntry).where(
-                        FDBEntry.mac == mac,
-                        FDBEntry.device_id == d.id,
-                        FDBEntry.port_name == port_name,
-                        FDBEntry.vlan_id_num == vlan_int,
-                    )
-                )
-            ).scalar_one_or_none()
+            key = (mac, port_name, vlan_int)
+            existing = known.get(key)
             first_at, last_at = _fdb_times(entry, now)
             if existing is None:
-                session.add(FDBEntry(
+                row = FDBEntry(
                     mac=mac, vlan_id_num=vlan_int,
                     instance_id=instance.id, device_id=d.id,
                     port_name=port_name, source="librenms",
                     first_seen_at=first_at, last_seen_at=last_at,
-                ))
+                )
+                session.add(row)
+                known[key] = row
                 inserted += 1
             else:
-                # 只往前走：上游若回了較舊的時間（分頁、重送），不要把末見時間往回改
-                if existing.last_seen_at is None or last_at > existing.last_seen_at.replace(
-                        tzinfo=existing.last_seen_at.tzinfo or UTC):
+                # 只往前走：上游若回了較舊的時間（分頁、重送），不要把末見時間往回改；
+                # 首見只往回走（同一次回應裡重複的那幾筆，取最早的）
+                if existing.last_seen_at is None or last_at > _aware(existing.last_seen_at):
                     existing.last_seen_at = last_at
+                if existing.first_seen_at is not None and first_at < _aware(existing.first_seen_at):
+                    existing.first_seen_at = first_at
                 updated += 1
     return seen, inserted, updated
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _norm_fdb_mac(raw: object) -> str | None:
+    """LibreNMS 的 FDB MAC 是 12 位 hex（`00005e005321`）；轉成資料庫 MACADDR 的寫法（`00:00:5e:00:53:21`），
+    記憶體裡合併時的鍵才會跟讀回來的既有資料一致。解不出來的不收。"""
+    hexs = "".join(ch for ch in str(raw).lower() if ch in "0123456789abcdef")
+    if len(hexs) != 12:
+        return None
+    return ":".join(hexs[i:i + 2] for i in range(0, 12, 2))
 
 
 def _fdb_times(row: dict[str, Any], now: datetime) -> tuple[datetime, datetime]:
@@ -1437,7 +1457,10 @@ async def sync_instance(
         instance.last_sync_at = datetime.now(UTC)
         instance.last_error = None
     except LibreNMSError as exc:
+        # 連不上／認證失敗是硬失敗：寫 last_error 後往上拋，作業才會是「失敗」而不是「成功、0 筆」
+        # （issue #44 在 Proxmox 回報的同一個寫法）。前面已經 commit 的階段不受影響。
         instance.last_error = str(exc)
-        summary.errors.append(str(exc))
+        await session.commit()
+        raise
     await session.commit()
     return summary
