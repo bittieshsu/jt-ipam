@@ -125,7 +125,7 @@ async def test_attack_surface_tool_answers_by_fqdn(db_session, admin_user) -> No
     by_name = await fn(db_session, user=admin_user, fqdn="meet.example.net")
     assert by_name["count"] == 1, "用 FQDN 問不到自己的對外開口"
     assert by_name["items"][0]["port"] == 443
-    assert "meet.example.net" in by_name["items"][0]["fqdns"]
+    assert {"meet.example.net"} <= set(by_name["items"][0]["fqdns"])
     assert by_name["scope"] == "fqdn:meet.example.net"
 
     other = await fn(db_session, user=admin_user, fqdn="nope.example.net")

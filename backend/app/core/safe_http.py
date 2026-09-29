@@ -246,10 +246,17 @@ async def _do_request(
     finally:
         await resp.aclose()
     body = b"".join(chunks)
-    # 用同樣的狀態與標頭重建一個「已讀完」的回應，呼叫端照常用 .json() / .text
-    return httpx.Response(
-        status_code=resp.status_code, headers=resp.headers, content=body,
+    # 用同樣的狀態與標頭重建一個「已讀完」的回應，呼叫端照常用 .json() / .text。
+    # aiter_bytes() 給的已經是解壓後的內容：content-encoding／content-length 要拿掉，
+    # 否則讀取時會再解壓一次而失敗（GitHub API 一律 gzip）。
+    headers = [(k, v) for k, v in resp.headers.multi_items()
+               if k.lower() not in ("content-encoding", "content-length")]
+    out = httpx.Response(
+        status_code=resp.status_code, headers=headers, content=body,
         request=resp.request, extensions=resp.extensions)
+    # 轉址：呼叫端（safe_request）要靠 next_request 才知道下一站
+    out.next_request = resp.next_request
+    return out
 
 
 @asynccontextmanager

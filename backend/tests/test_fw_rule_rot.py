@@ -279,8 +279,9 @@ async def test_attack_surface_attaches_fqdns(db_session) -> None:
     items = await attack_surface(db_session)
     web = next(i for i in items if i["name"] == "pf-web")
     fqdns = web["identity"]["fqdns"]
-    assert "web.example.net" in fqdns, "A 記錄沒對應到"
-    assert "meet.example.net" in fqdns, "CNAME 別名也到得了這台，必須列入"
+    # 集合比對（清單成員，不是網址子字串）
+    assert {"web.example.net"} <= set(fqdns), "A 記錄沒對應到"
+    assert {"meet.example.net"} <= set(fqdns), "CNAME 別名也到得了這台，必須列入"
     assert "other.example.net" not in fqdns, "別的 IP 的名稱被錯掛上來"
 
 

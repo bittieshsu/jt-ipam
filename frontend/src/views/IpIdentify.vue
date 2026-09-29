@@ -12,6 +12,10 @@
           <n-tag v-if="ipTarget && ipTarget.record_count === 0" size="small" type="warning" :bordered="false" round data-testid="identify-unregistered">
             {{ t("identify.unregistered", { subnet: ipTarget.subnet_cidr }) }}
           </n-tag>
+          <!-- 未授權 IP 是從 ARP 表來的：最後一次在哪裡、什麼時候看到它 -->
+          <span v-if="ipTarget?.arp_last_seen" class="idf-arp" data-testid="identify-arp-seen">
+            {{ t("identify.arp_last_seen", { at: fmtDateTime(ipTarget.arp_last_seen), source: ipTarget.arp_source ?? "—" }) }}
+          </span>
         </div>
         <n-space :size="8" align="center" :wrap="false">
           <n-button size="small" @click="goBack">
@@ -89,6 +93,11 @@
         </n-card>
 
         <template v-if="job?.status === 'done' && job.summary">
+          <!-- 探測時完全沒有回應：講清楚，不要只寫「無法判斷」讓人以為是探測壞掉 -->
+          <n-alert v-if="job.summary.no_response" type="warning" :bordered="false" data-testid="identify-no-response">
+            {{ t("identify.no_response_hint") }}
+            <template v-if="job.summary.vendor"> {{ t("identify.no_response_vendor", { vendor: job.summary.vendor }) }}</template>
+          </n-alert>
           <n-card :title="t('identify.summary')" size="small">
             <n-descriptions bordered :column="narrow ? 1 : 2" size="small" label-placement="left"
                             :label-style="{ whiteSpace: 'nowrap' }" data-testid="identify-summary">
@@ -96,13 +105,17 @@
                 <span class="idf-type" :class="`idf-type--${job.summary.device_type}`">
                   {{ t(`identify.type.${job.summary.device_type}`) }}
                 </span>
+                <span v-if="!job.summary.no_response" class="idf-guess" data-testid="identify-guess">{{ t("identify.guess_tag") }}</span>
               </n-descriptions-item>
               <n-descriptions-item :label="t('identify.os')">
                 <span v-if="job.summary.os" class="idf-os">{{ job.summary.os }}</span>
                 <template v-else>—</template>
               </n-descriptions-item>
               <n-descriptions-item :label="t('identify.vendor')">{{ job.summary.vendor ?? "—" }}</n-descriptions-item>
-              <n-descriptions-item :label="t('identify.names')">
+              <n-descriptions-item :label="t('identify.model')">
+                <span data-testid="identify-model">{{ job.summary.model ?? "—" }}</span>
+              </n-descriptions-item>
+              <n-descriptions-item :label="t('identify.names')" :span="narrow ? 1 : 2">
                 <template v-if="job.summary.names.length">
                   <div v-for="n in job.summary.names" :key="n" class="idf-mono">{{ n }}</div>
                 </template>
@@ -117,11 +130,15 @@
               <n-descriptions-item :label="t('identify.evidence')" :span="narrow ? 1 : 2">
                 <n-space v-if="job.summary.evidence.length" :size="4">
                   <n-tag v-for="e in job.summary.evidence" :key="e" size="small" :bordered="false"
-                         :type="evidenceType(e)">{{ e }}</n-tag>
+                         :type="evidenceType(e)" :color="e.startsWith('recog:') ? RECOG_TAG : undefined">{{ e }}</n-tag>
                 </n-space>
                 <template v-else>{{ t("identify.no_evidence") }}</template>
               </n-descriptions-item>
             </n-descriptions>
+            <div class="idf-guess-note" data-testid="identify-guess-note">{{ t("identify.guess_note") }}</div>
+            <div class="idf-guess-note" data-testid="identify-recog-note">
+              {{ job.summary.recog ? t("identify.recog_used", { v: job.summary.recog }) : t("identify.recog_missing") }}
+            </div>
           </n-card>
 
           <!-- 跟上一次比：新開、關掉、版本變了的服務 -->
@@ -147,7 +164,7 @@
 
           <n-card :title="t('identify.ports', { n: ports.length })" size="small">
             <n-data-table v-if="ports.length" :columns="portCols" :data="ports" size="small" :bordered="false"
-                          :row-key="(r: IdentifyPort) => `${r.proto}/${r.port}`" :scroll-x="900"
+                          :row-key="(r: IdentifyPort) => `${r.proto}/${r.port}`" :scroll-x="portTableWidth"
                           data-testid="identify-ports" />
             <div v-else class="idf-muted">{{ t("identify.no_ports") }}</div>
           </n-card>
@@ -279,7 +296,8 @@ const elapsedText = computed(() => {
   return sec >= 60 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : `0:${String(sec).padStart(2, "0")}`;
 });
 
-/** 判斷依據依來源上色：OS 指紋／服務特徵／OUI 廠商 */
+/** 判斷依據依來源上色：OS 指紋／服務特徵／OUI 廠商／Recog 指紋（紫色，跟服務特徵的綠色分開） */
+const RECOG_TAG = { color: "rgba(138, 99, 210, .16)", textColor: "#8a63d2" };
 function evidenceType(e: string): "info" | "success" | "warning" | "default" {
   if (e.startsWith("service:")) return "success";
   if (e.startsWith("os:") || e.startsWith("osclass:")) return "info";
@@ -291,22 +309,42 @@ function evidenceType(e: string): "info" | "success" | "warning" | "default" {
  * 連接埠表：服務依類型上色（遠端連線／網頁／目錄與資料庫／檔案與列印／郵件／基礎設施），
  * 產品加粗、版本淡色，讀到的資訊一項一框，nmap 轉義的中文（\xHH）解回文字。
  */
+// 欄寬依內容（使用者回饋：畫面拉寬了，產品與其他資訊兩欄內容很少卻平分寬度，
+// 真正長的「讀到的資訊」反而被擠窄）。短欄量出需要的寬度，剩下的全部給最後一欄。
+let measureCtx: CanvasRenderingContext2D | null = null;
+function textWidth(str: string, font = "14px"): number {
+  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return str.length * 8;
+  measureCtx.font = `${font} ${getComputedStyle(document.body).fontFamily}`;
+  return measureCtx.measureText(str).width;
+}
+function fitWidth(header: string, values: string[], min: number, max: number): number {
+  const w = Math.max(textWidth(header) + 24, ...values.map((v) => textWidth(v)));
+  return Math.round(Math.min(max, Math.max(min, w + 32)));
+}
+const productWidth = computed(() => fitWidth(t("identify.col_product"),
+  ports.value.map((p) => [p.product, p.version].filter(Boolean).join(" ")), 110, 360));
+const extraWidth = computed(() => fitWidth(t("identify.col_extra"),
+  ports.value.map((p) => p.extrainfo || ""), 100, 300));
+const portTableWidth = computed(() => 100 + 150 + productWidth.value + extraWidth.value + 360);
+
 const portCols = computed<DataTableColumns<IdentifyPort>>(() => [
   { title: t("identify.col_port"), key: "port", width: 100,
     render: (r) => h("span", { class: "idf-port" }, [h("b", null, String(r.port)), h("span", null, `/${r.proto}`)]) },
-  { title: t("identify.col_service"), key: "service", width: 140,
+  { title: t("identify.col_service"), key: "service", width: 150,
     render: (r) => (r.service
       ? h("span", { class: `idf-svc idf-svc--${serviceKind(r.service)}` },
           r.tunnel ? `${r.service} · ${r.tunnel}` : r.service)
       : "—") },
-  { title: t("identify.col_product"), key: "product", minWidth: 200,
+  { title: t("identify.col_product"), key: "product", width: productWidth.value,
     render: (r) => (r.product || r.version
       ? h("span", null, [h("span", { class: "idf-prod" }, r.product || ""),
                          r.version ? h("span", { class: "idf-ver" }, ` ${r.version}`) : null])
       : "—") },
-  { title: t("identify.col_extra"), key: "extrainfo", minWidth: 150,
+  { title: t("identify.col_extra"), key: "extrainfo", width: extraWidth.value,
     render: (r) => (r.extrainfo ? h("span", { class: "idf-extra" }, r.extrainfo) : "—") },
-  { title: t("identify.col_scripts"), key: "scripts", minWidth: 300,
+  // 最後一欄不給寬度：吃掉剩下的全部空間
+  { title: t("identify.col_scripts"), key: "scripts", minWidth: 360,
     render: (r) => {
       const entries = Object.entries(r.scripts ?? {});
       if (!entries.length) return "—";
@@ -439,6 +477,9 @@ onBeforeUnmount(() => {
 .idf-page { display: flex; flex-direction: column; gap: 12px; }
 .idf-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .idf-head__title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; flex-wrap: wrap; min-width: 0; }
+.idf-guess { margin-left: 8px; font-size: 12px; opacity: .6; }
+.idf-guess-note { margin-top: 8px; font-size: 12px; opacity: .7; line-height: 1.6; }
+.idf-arp { font-size: 12.5px; font-weight: 400; opacity: .7; }
 .idf-head__ip { font-variant-numeric: tabular-nums; }
 .idf-intro { margin: 8px 0 0; font-size: 13px; opacity: .75; line-height: 1.6; }
 .idf-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; align-items: start; }
@@ -468,6 +509,7 @@ onBeforeUnmount(() => {
 .idf-type { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 13px;
   background: rgba(32, 128, 240, .14); color: #2080f0; }
 .idf-type--server { background: rgba(32, 128, 240, .14); color: #2080f0; }
+.idf-type--no_response { background: rgba(240, 160, 32, .16); color: #d08a00; }
 .idf-type--windows { background: rgba(0, 120, 212, .14); color: #1a7fd4; }
 .idf-type--hypervisor, .idf-type--storage { background: rgba(138, 92, 246, .16); color: #8a5cf6; }
 .idf-type--router, .idf-type--switch, .idf-type--firewall, .idf-type--wireless_ap {

@@ -1,3 +1,4 @@
+import { escapeRegExp } from "./fixtures/regexp";
 import { test, expect, type Page } from "@playwright/test";
 
 // AI 巡檢：儀表板區塊 → 巡檢頁（含免責說明與依據資料）→ 立即執行 → 忽略。
@@ -50,7 +51,7 @@ test.describe("AI 巡檢", () => {
     await expect(ip).toBeVisible({ timeout: 15_000 });
     const text = (await ip.textContent())!.trim();
     await ip.click();
-    await expect(page).toHaveURL(new RegExp(`/addresses\\?q=${text.replace(/\./g, "\\.")}`));
+    await expect(page).toHaveURL(new RegExp(`/addresses\\?q=${escapeRegExp(text)}`));
   });
 
   test("儀表板區塊：數字可點、進到巡檢頁", async ({ page }) => {

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -41,12 +42,21 @@ def _spool_dir() -> Path:
     return d
 
 
+def _contained(base: Path, name: str) -> Path:
+    """組出來的路徑解析後必須還在 base 底下（第二道防線；第一道是檔名只接受 UUID）。"""
+    root = os.path.realpath(base)
+    full = os.path.realpath(os.path.join(root, name))
+    if not full.startswith(root + os.sep):
+        raise HTTPException(status_code=400, detail="invalid token")
+    return Path(full)
+
+
 def _safe_path(name: str) -> Path:
     """只接受 <uuid>.json；擋路徑穿越。"""
     stem = name[:-5] if name.endswith(".json") else name
     if not _UUID_RE.match(stem):
         raise HTTPException(status_code=400, detail="invalid token")
-    return _spool_dir() / f"{stem}.json"
+    return _contained(_spool_dir(), f"{stem}.json")
 
 
 def _cleanup_old(keep_hours: int = 48) -> None:
@@ -156,7 +166,7 @@ async def download_export(
         raise HTTPException(status_code=404, detail="export task not found")
     if task.status != "succeeded":
         raise HTTPException(status_code=409, detail=f"export not ready (status={task.status})")
-    path = _spool_dir() / f"{task_id}.json"
+    path = _contained(_spool_dir(), f"{task_id}.json")
     if not path.exists():
         raise HTTPException(status_code=410, detail="export file expired")
     fname = (task.summary or {}).get("filename") or f"jt-ipam-export-{task_id}.json"

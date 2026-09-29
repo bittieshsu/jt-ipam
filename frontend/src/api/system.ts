@@ -1,5 +1,6 @@
 import type { ServerMessage } from "@/utils/wsError";
 import { apiClient } from "@/api/client";
+import { LONG_OP_TIMEOUT_MS } from "@/api/integrations";
 
 export interface GraylogDsv { enabled: boolean; fmt: string; path: string; token: string; }
 export async function getGraylogDsv(): Promise<GraylogDsv> {
@@ -231,13 +232,44 @@ export interface VersionInfo {
     node: string | null;
     postgres: string | null;
     /** 選用的作業系統相依：功能存在但主機不一定裝了對應執行檔 */
-    optional_tools?: Record<string, { present: boolean; package: string; used_by: string; fallback?: boolean }>;
+    optional_tools?: Record<string, {
+      present: boolean; package: string; used_by: string; fallback?: boolean; version?: string | null;
+    }>;
     /** 必要相依（guacd）：沒裝或沒在跑，對應功能就不能正常運作 */
     required_tools?: Record<string, {
       present: boolean; running: boolean; version: string | null; package: string; used_by: string;
       protocols?: Record<string, boolean>; address?: string; error?: string;
     }>;
   };
+  /** Recog 指紋資料庫（選用；探測用） */
+  recog?: RecogStatus | null;
+}
+
+/** Recog 指紋資料庫（rapid7/recog）：安裝／升級時下載，之後每週自動檢查新版 */
+export interface RecogStatus {
+  installed: boolean;
+  release: string | null;
+  databases: number;
+  fingerprints: number;
+  skipped: number;
+  updated_at: string | null;
+  checked_at: string | null;
+  last_ok_at: string | null;
+  latest: string | null;
+  error: string | null;
+  project_url: string;
+  license: string;
+}
+export interface RecogUpdateResult {
+  result: { status: "up_to_date" | "updated" | "error"; release?: string | null; previous?: string | null;
+            latest?: string; fingerprints?: number; error?: string };
+  status: RecogStatus;
+}
+/** 立即檢查新版（有就下載安裝）；下載＋匯入要十幾秒，用長逾時 */
+export async function updateRecog(): Promise<RecogUpdateResult> {
+  const { data } = await apiClient.post<RecogUpdateResult>("/api/v1/system/recog/update", null,
+    { timeout: LONG_OP_TIMEOUT_MS });
+  return data;
 }
 
 export interface LatestVersion {

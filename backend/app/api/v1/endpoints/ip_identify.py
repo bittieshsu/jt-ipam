@@ -31,6 +31,7 @@ from app.models.subnet import Subnet
 from app.services import ip_identify
 from app.services.agent_probe import ProbeJobError, create_job, expire_stale
 from app.services.oui import vendor_for_mac
+from app.services.recog import get_matcher as get_recog_matcher
 
 router = APIRouter(prefix="/addresses", tags=["addresses"], dependencies=[Depends(require_admin)])
 # 以位址探測：IPAM 沒有記錄、但在管理網段內的位址（見 _resolve_target）
@@ -68,7 +69,8 @@ async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | No
     if job.error and job.error.startswith("unsupported probe"):
         out["error_code"] = "identify_agent_outdated"
     if job.status == STATUS_DONE and isinstance(job.result, dict):
-        out["summary"] = ip_identify.summarize(job.result, mac_vendor=mac_vendor)
+        out["summary"] = ip_identify.summarize(job.result, mac_vendor=mac_vendor,
+                                               recog=await get_recog_matcher(session))
     return out
 
 
@@ -266,7 +268,13 @@ async def identify_target(
     """畫面標題用：位址、子網路、負責的代理；已登記的話帶出那筆記錄（畫面改用記錄的探測頁）。"""
     t = await _resolve_target(session, ip)
     agent = await session.get(ScanAgent, t.subnet.scan_agent_id) if t.subnet.scan_agent_id else None
+    # ARP 最後一次看到它（未授權 IP 就是從這裡來的）：探測時沒回應，對照這個時間才知道是剛關機還是早就不在
+    from app.models.librenms import ARPEntry
+    arp = (await session.execute(select(ARPEntry.last_seen_at, ARPEntry.source).where(
+        text("host(arp_entries.ip) = :ip").bindparams(ip=t.ip_text)).order_by(
+        ARPEntry.last_seen_at.desc()).limit(1))).first()
     return {"ip": t.ip_text, "subnet_id": str(t.subnet.id), "subnet_cidr": str(t.subnet.cidr),
+            "arp_last_seen": arp[0] if arp else None, "arp_source": arp[1] if arp else None,
             "agent_name": agent.name if agent else None,
             "address_id": str(t.record.id) if t.record is not None else None,
             # 0＝IPAM 沒有記錄（畫面標「未登記」）；>1＝重複記錄，不代表未登記

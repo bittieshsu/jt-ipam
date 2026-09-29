@@ -9,6 +9,7 @@
  * 異常偵測結果與探測的「發起／歷史」用路由攔截固定回應（e2e 環境沒有代理、也沒有真的異常），
  * 以位址探測的「這個位址歸哪個子網路」打真的後端（seed_e2e 的 10.20.0.0/24）。
  */
+import { escapeRegExp } from "./fixtures/regexp";
 import { test, expect, type Page } from "@playwright/test";
 
 const ADMIN_USER = process.env.E2E_ADMIN_USER || "admin";
@@ -77,7 +78,7 @@ test("未授權 IP 的操作欄有「探測」→ 以位址探測（IPAM 沒有�
   expect((await btn.boundingBox())!.x).toBeLessThan((await ai.boundingBox())!.x);
 
   await btn.click();
-  await expect(page).toHaveURL(new RegExp(`/identify/ip/${UNREG_IP.replace(/\./g, "\\.")}`));
+  await expect(page).toHaveURL(new RegExp(`/identify/ip/${escapeRegExp(UNREG_IP)}`));
   await expect(page.getByTestId("identify-unregistered")).toContainText("IPAM 沒有記錄");
   await expect(page.getByTestId("identify-unregistered")).toContainText("10.20.0.0/24");
   const start = page.getByTestId("identify-start");

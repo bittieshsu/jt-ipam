@@ -161,7 +161,7 @@ def test_summary_of_a_linux_server() -> None:
     assert s["device_type"] == "server"
     assert s["os"] == "Linux 5.0 - 6.2"
     assert s["vendor"] == "IANA"
-    assert "srv-01.example.net" in s["names"]
+    assert {"srv-01.example.net"} <= set(s["names"])
     assert s["services"] == ["22/tcp ssh OpenSSH 9.6p1", "443/tcp https nginx 1.24.0"]
 
 
@@ -180,8 +180,9 @@ def test_summary_of_a_linux_server() -> None:
 ])
 def test_device_type_rules(ports, osclass, expected) -> None:
     from app.services import ip_identify
+    # closed：主機有回應（其餘埠回 RST）—— 這裡測的是「有回應但比對不到」，不是「沒有回應」
     res = {"nmap": {"available": True, "os": [{"name": "x", "accuracy": 90, "type": osclass}] if osclass else [],
-                    "ports": [{"proto": "tcp", "state": "open", **p} for p in ports]}}
+                    "ports": [{"proto": "tcp", "state": "open", **p} for p in ports], "closed": 3}}
     assert ip_identify.summarize(res)["device_type"] == expected
 
 
@@ -686,3 +687,133 @@ async def test_non_admins_cannot_probe_by_address(client, db_session) -> None:
     h = {"Authorization": f"Bearer {issue_access_token(u)}"}
     assert (await client.post("/api/v1/identify/ip/198.51.100.50", headers=h)).status_code == 403
     assert (await client.get("/api/v1/identify/ip/198.51.100.50/history", headers=h)).status_code == 403
+
+
+# ─────────────────── 探測時沒有回應 ───────────────────
+# 2026-09-29 使用者問「無法判斷 正常嗎」：那台主機探測時已經關機（ping 不通、代理主機的 ARP 是 INCOMPLETE），
+# 只從 ARP 的 MAC 查到廠牌。畫面寫「無法判斷」看起來像探測壞掉 —— 要講清楚是「沒有回應」。
+
+def test_a_host_that_did_not_answer_is_no_response_not_unknown() -> None:
+    from app.services.ip_identify import summarize
+    silent = {"target": "198.51.100.61", "names": {"rdns": None, "netbios": None, "mdns": None},
+              "nmap": {"available": True, "exit": 0, "ports": [], "os": [], "mac": None, "closed": 0}}
+    s = summarize(silent, mac_vendor="ProxmoxServe")
+    assert s["device_type"] == "no_response" and s["no_response"] is True
+    assert s["vendor"] == "ProxmoxServe", "廠牌照樣列出（來自先前記錄的 MAC）"
+
+    # 有回 RST（關著的埠）＝主機活著，只是認不出來
+    alive = {**silent, "nmap": {**silent["nmap"], "closed": 998}}
+    s2 = summarize(alive)
+    assert s2["device_type"] == "unknown" and s2["no_response"] is False
+    # 區網內有 MAC 回應也算活著
+    assert summarize({**silent, "nmap": {**silent["nmap"], "mac": "00:00:5E:00:53:61"}})["no_response"] is False
+    # 反解是 DNS 回的，不算主機回應
+    assert summarize({**silent, "names": {"rdns": "vm-61.example.net"}})["no_response"] is True
+    # 代理沒有 nmap：不能說沒回應
+    assert summarize({"names": {}, "nmap": {"available": False}})["no_response"] is False
+
+
+def test_agent_counts_closed_ports_from_nmap_xml() -> None:
+    import importlib.util
+    import pathlib
+    path = pathlib.Path(__file__).resolve().parents[2] / "agent" / "jt_ipam_agent.py"
+    spec = importlib.util.spec_from_file_location(f"jt_agent_closed_{uuid.uuid4().hex[:6]}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    xml = """<nmaprun><host><status state="up" reason="user-set"/>
+      <address addr="198.51.100.62" addrtype="ipv4"/>
+      <ports><extraports state="closed" count="997"/>
+        <port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port>
+        <port protocol="tcp" portid="25"><state state="closed"/></port>
+      </ports></host></nmaprun>"""
+    got = mod._parse_nmap_xml(xml)
+    assert got["closed"] == 998
+    silent = mod._parse_nmap_xml("""<nmaprun><host><status state="up" reason="user-set"/>
+      <ports><extraports state="filtered" count="1000"/></ports></host></nmaprun>""")
+    assert silent["closed"] == 0 and silent["ports"] == [] and silent["mac"] is None
+
+
+async def test_by_address_info_says_when_arp_last_saw_it(client, auth_headers, db_session) -> None:
+    from app.models.librenms import ARPEntry
+    await _subnet_only(db_session)
+    db_session.add(ARPEntry(ip="198.51.100.61", mac="00:00:5e:00:53:61", source="librenms",
+                            first_seen_at=datetime(2026, 9, 29, 1, 0, tzinfo=UTC),
+                            last_seen_at=datetime(2026, 9, 29, 6, 29, tzinfo=UTC)))
+    await db_session.commit()
+    info = (await client.get("/api/v1/identify/ip/198.51.100.61", headers=auth_headers)).json()
+    assert info["arp_source"] == "librenms"
+    assert info["arp_last_seen"].startswith("2026-09-29T06:29")
+
+
+# ─────────────────── 類型推測：NAS 不可以因為開了 RTSP 就被判成攝影機 ───────────────────
+# 2026-09-29 實例：Synology NAS 開 554/rtsp（DSM 的影音服務），nmap 猜那個服務像某款網路攝影機 →
+# 舊規則「有 RTSP 就是攝影機」直接命中。但同一台還有 Synology 的網卡廠牌、DSM 產品字樣、SMB、iSCSI。
+
+def _nas_ports() -> list[dict]:
+    return [
+        {"port": 22, "service": "ssh", "product": "OpenSSH", "version": "8.2"},
+        {"port": 139, "service": "netbios-ssn", "product": "Samba smbd", "version": "3.X - 4.X"},
+        {"port": 445, "service": "netbios-ssn", "product": "Samba smbd", "version": "3.X - 4.X"},
+        {"port": 554, "service": "rtsp", "product": "D-Link DCS-2130 or Pelco IDE10DN webcam rtspd"},
+        {"port": 3260, "service": "iscsi", "product": "Synology DSM Snapshot Replication iSCSI LUN"},
+    ]
+
+
+def _res(ports: list[dict], os_type: str | None = "general purpose") -> dict:
+    return {"nmap": {"available": True, "closed": 900,
+                     "os": [{"name": "Linux 3.10 - 4.11", "accuracy": 100, "type": os_type}] if os_type else [],
+                     "ports": [{"proto": "tcp", "state": "open", **p} for p in ports]}}
+
+
+def test_a_synology_nas_with_rtsp_is_storage_not_a_camera() -> None:
+    from app.services.ip_identify import summarize
+    s = summarize(_res(_nas_ports()), mac_vendor="Synology")
+    assert s["device_type"] == "storage", s["evidence"]
+    # 只靠產品字樣也要認得（例如 IP 記錄沒有 MAC）
+    assert summarize(_res(_nas_ports()))["device_type"] == "storage"
+    # 只靠網卡廠牌＋檔案分享也要認得
+    plain = [p for p in _nas_ports() if p["port"] != 3260]
+    assert summarize(_res(plain), mac_vendor="Synology")["device_type"] == "storage"
+
+
+def test_rtsp_alone_on_a_small_device_is_still_a_camera() -> None:
+    from app.services.ip_identify import summarize
+    cam = [{"port": 80, "service": "http", "product": "lighttpd"}, {"port": 554, "service": "rtsp"}]
+    assert summarize(_res(cam, os_type=None))["device_type"] == "camera"
+    named = [{"port": 80, "service": "http", "product": "Hikvision IP camera httpd"}]
+    assert summarize(_res(named, os_type=None))["device_type"] == "camera"
+
+
+def test_samba_on_linux_is_not_a_windows_host() -> None:
+    from app.services.ip_identify import summarize
+    linux_smb = [{"port": 22, "service": "ssh", "product": "OpenSSH"},
+                 {"port": 445, "service": "microsoft-ds", "product": "Samba smbd"}]
+    assert summarize(_res(linux_smb))["device_type"] == "server"
+    win = [{"port": 445, "service": "microsoft-ds", "product": "Microsoft Windows Server 2019 microsoft-ds"},
+           {"port": 3389, "service": "ms-wbt-server"}]
+    assert summarize(_res(win, os_type=None))["device_type"] == "windows"
+
+
+# ─────────────────── 代理：憑證完整欄位與主機層腳本（給 Recog 比對用） ───────────────────
+
+def test_agent_reports_full_certificate_names_and_host_scripts() -> None:
+    mod = _agent_module()
+    xml = """<?xml version="1.0"?><nmaprun><host><status state="up" reason="user-set"/>
+<address addr="198.51.100.9" addrtype="ipv4"/>
+<ports><port protocol="tcp" portid="443"><state state="open" reason="syn-ack"/>
+<service name="https" method="table" conf="3"/>
+<script id="ssl-cert" output="Subject: commonName=ExampleGate/organizationName=Example Networks"><table key="subject">
+<elem key="commonName">ExampleGate</elem><elem key="countryName">US</elem>
+<elem key="organizationalUnitName">ExampleGate</elem><elem key="localityName">Springfield</elem>
+</table><table key="issuer"><elem key="commonName">ExampleGate CA</elem></table>
+<table key="pubkey"><elem key="bits">2048</elem></table></script></port></ports>
+<hostscript><script id="smb-os-discovery" output="&#xa;  OS: Windows 10 Pro 19045 (Windows 10 Pro 6.3)&#xa;"/></hostscript>
+</host></nmaprun>"""
+    out = mod._parse_nmap_xml(xml)
+    cert = out["ports"][0]["script_data"]["ssl-cert"]
+    # 文字輸出沒有 OU／L；Recog 的設備預設憑證常常要靠這兩個欄位
+    assert cert["subject"] == {"commonName": "ExampleGate", "countryName": "US",
+                               "organizationalUnitName": "ExampleGate", "localityName": "Springfield"}
+    assert cert["issuer"] == {"commonName": "ExampleGate CA"}
+    # smb-os-discovery 是主機層腳本：以前整段被丟掉
+    assert out["host_scripts"]["smb-os-discovery"].startswith("OS: Windows 10 Pro 19045")

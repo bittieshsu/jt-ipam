@@ -4,6 +4,49 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.54] - 2026-09-29
+
+### Added
+- **Recog fingerprint database for the IP probe (optional).** The probe now matches what hosts say about
+  themselves — SSH banners, HTTP `Server` headers, page titles, TLS certificate subjects/issuers, SMB OS strings,
+  FTP/SMTP/POP3/IMAP/telnet banners — against [Recog](https://github.com/rapid7/recog) (Rapid7, BSD-2-Clause).
+  It recognises what nmap cannot: a vendor's default certificate (a FortiGate, a Synology), a management page
+  title, the distribution in an OpenSSH comment ("Ubuntu Linux 20.04" instead of "Linux 4.15 - 5.8"). Results
+  add a device type, OS, hardware vendor, **model** and software for ports nmap left unnamed, each listed in the
+  evidence as `recog:…`; Recog's own "assert nothing" entries (e.g. Let's Encrypt, Samba's spoofed "Windows 6.1")
+  are respected, and a vendor's default-certificate name is no longer shown as the host's name.
+  The Ruby patterns are translated to Python and every fingerprint must pass its own examples, otherwise it is
+  dropped (4,671 of 4,676 kept in 3.2.0); patterns that can backtrack catastrophically on a hostile banner are
+  refused and inputs are capped. The download is checked against GitHub's SHA-256, only `xml/*.xml` is read,
+  with size limits, through defusedxml. Stored in the database (migration 0166, one row per fingerprint file).
+  `jt-ipam.sh install` / `upgrade` download it (a failure only warns — the probe works without it; offline hosts
+  use `--recog-zip <file>`), and **jt-ipam-recog-refresh.timer checks GitHub once a week** (Recog releases every
+  one to six weeks). Version info shows the installed release, fingerprint count, last check and a "Check for
+  updates now" button; the system diagnostics warn when it is missing or has not updated for three weeks.
+  CLI: `python -m app.cli.recog update [--force] [--file …]` / `status`.
+- Scan agent 1.13.0: reports the full certificate subject/issuer fields (the text output has no OU / L, which
+  device default certificates are recognised by) and host-level script results — `smb-os-discovery` was
+  requested but its output was dropped until now.
+
+### Fixed
+- **The OUI and GeoIP refresh timers were never installed** by `jt-ipam.sh`: customer installs never refreshed
+  MAC vendors or GeoIP on their own, and the OUI unit on hosts that had one pointed at a script that was never
+  committed (it failed every month). Install and upgrade now install all three refresh timers (GeoIP, OUI,
+  Recog), a new host fetches the OUI list right away, `doctor` checks them, and `uninstall` removes them.
+- Outbound requests with a response size limit decoded gzip twice (every GitHub API call failed with a
+  decoding error) and did not follow redirects. Both fixed; the limit still counts the decompressed size.
+- Security (CodeQL): Tools → HTTP check could make the server fetch loopback / link-local addresses (cloud
+  metadata) — every hop, redirects included, is now checked; the login `?next=` accepted `//host` and `/\host`
+  and could send the user to another site — only same-origin paths are followed now. Plus hardening: linear-time
+  checks instead of backtracking regexes, path containment for transfer and floor-plan files, less detail in
+  some error messages.
+
+### Changed
+- IP probe: a host that answered nothing is summarised as "no response" (agent 1.12.1 counts closed ports);
+  type / OS / vendor are labelled as a guess; classification looks at the whole host (a NAS with media streaming
+  is no longer a camera, Samba is no longer Windows); the by-address page shows when ARP last saw the address;
+  the ports table sizes columns by content.
+
 ## [0.6.53] - 2026-09-29
 
 ### Added

@@ -124,9 +124,11 @@ def _import(file: str, mode: str, dry_run: bool, passphrase: str) -> int:
             tot[k] += r.get(k, 0)
         if any(r.get(k) for k in tot):
             print(f"       {name}: +{r['inserted']} ~{r['updated']} skip{r['skipped']} err{r['errored']}")
-    cs = report.get("central_secrets")
-    if cs:
-        print(f"       encrypted_secrets: +{cs['inserted']} skip{cs['skipped']} err{cs['errored']}")
+    # 這裡只有筆數（加密機密一律不會出現在報告裡）；先轉成數字再印，記錄工具也看得出不是機密內容
+    counts = report.get("central_secrets") or {}
+    if counts:
+        n_ins, n_skip, n_err = (int(counts.get(k, 0)) for k in ("inserted", "skipped", "errored"))
+        print(f"       encrypted_secrets: +{n_ins} skip{n_skip} err{n_err}")
     print(f"[total] inserted={tot['inserted']} updated={tot['updated']} "
           f"skipped={tot['skipped']} errored={tot['errored']}")
     return 1 if tot["errored"] else 0

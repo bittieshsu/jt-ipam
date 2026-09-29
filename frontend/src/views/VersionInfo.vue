@@ -5,8 +5,10 @@ import { useI18n } from "vue-i18n";
 import { NAlert, NCard, NSpace, NIcon, NButton, NSpin, NTag, useMessage } from "naive-ui";
 import { SettingsIcon, RefreshIcon } from "@/icons";
 import {
-  getVersionInfo, checkLatestVersion, type VersionInfo, type LatestVersion,
+  getVersionInfo, checkLatestVersion, updateRecog, type VersionInfo, type LatestVersion,
 } from "@/api/system";
+import { apiErrMsg } from "@/api/client";
+import { fmtDateTime } from "@/utils/datetime";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -54,6 +56,28 @@ const brokenRequired = computed(() => requiredTools.value.filter((x) => !x.runni
  *  整串放在卡片右邊會把名稱欄擠成一行一個字（0.6.49 實機回報） */
 function shortVersion(v: string | null | undefined): string {
   return (v || "").replace(/\s+for\s+.*$/, "").trim();
+}
+
+// Recog 指紋資料庫（選用；探測用）：安裝／升級時下載，之後每週自動檢查新版
+const recogSt = computed(() => info.value?.recog ?? null);
+const recogBusy = ref(false);
+async function checkRecog() {
+  recogBusy.value = true;
+  try {
+    const r = await updateRecog();
+    if (info.value) {
+      info.value.recog = r.status;
+      const ot = info.value.host?.optional_tools;
+      if (ot?.recog) { ot.recog.present = r.status.installed; ot.recog.version = r.status.release; }
+    }
+    if (r.result.status === "updated") msg.success(t("version.recog_updated", { v: r.result.release ?? "" }));
+    else if (r.result.status === "up_to_date") msg.success(t("version.recog_up_to_date", { v: r.result.release ?? "" }));
+    else msg.error(t("version.recog_error", { e: r.result.error ?? "" }), { duration: 10000, closable: true });
+  } catch (e) {
+    msg.error(apiErrMsg(e), { duration: 10000, closable: true });
+  } finally {
+    recogBusy.value = false;
+  }
 }
 
 async function load() {
@@ -184,10 +208,47 @@ onMounted(load);
           <div v-for="p in optionalTools" :key="p.name" class="ver-pkg">
             <span class="ver-pkg__name">{{ p.name }}<span class="ver-opt-use">{{ p.used_by }}</span></span>
             <span class="ver-pkg__ver" :style="p.present || p.fallback ? '' : 'color:#d03050'">
-              {{ p.present ? t("version.optional_present") : t("version.optional_absent") }}
+              {{ p.present ? (p.version ? p.version : t("version.optional_present")) : t("version.optional_absent") }}
             </span>
           </div>
         </div>
+      </template>
+
+      <!-- 選用資料庫：Recog 指紋庫（探測用），版本、筆數、上次檢查、立即檢查更新 -->
+      <template v-if="recogSt">
+        <div class="ver-pkg-head">
+          <span class="ver-pkg-title">{{ t("version.section_recog") }}</span>
+          <span class="ver-pkg-hint">{{ t("version.section_recog_hint") }}</span>
+        </div>
+        <div class="ver-recog" data-testid="version-recog">
+          <div class="ver-recog__main">
+            <div class="ver-recog__name">
+              Recog
+              <n-tag size="small" round :bordered="false" :type="recogSt.installed ? 'success' : 'warning'">
+                {{ recogSt.installed ? recogSt.release : t("version.optional_absent") }}
+              </n-tag>
+            </div>
+            <div v-if="recogSt.installed" class="ver-recog__meta">
+              {{ t("version.recog_meta", { n: recogSt.fingerprints.toLocaleString(), at: fmtDateTime(recogSt.updated_at) }) }}
+            </div>
+            <div class="ver-recog__meta">
+              {{ t("version.recog_checked", { at: recogSt.checked_at ? fmtDateTime(recogSt.checked_at) : "—" }) }}
+              <template v-if="recogSt.latest"> · {{ t("version.recog_latest", { v: recogSt.latest }) }}</template>
+            </div>
+            <div v-if="recogSt.error" class="ver-recog__err" data-testid="version-recog-error">
+              {{ t("version.recog_error", { e: recogSt.error }) }}
+            </div>
+            <div class="ver-recog__meta">
+              <a :href="recogSt.project_url" target="_blank" rel="noopener" class="ver-link">github.com/rapid7/recog</a>
+              · {{ recogSt.license }}
+            </div>
+          </div>
+          <n-button size="small" :loading="recogBusy" data-testid="version-recog-update" @click="checkRecog">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("version.recog_check_now") }}
+          </n-button>
+        </div>
+        <div class="ver-recog__hint">{{ t("version.recog_offline_hint", { cmd: "python -m app.cli.recog update --file recog-content-<version>.zip" }) }}</div>
       </template>
 
       <!-- 後端套件 -->
@@ -220,6 +281,15 @@ onMounted(load);
 
 <style scoped>
 .ver-opt-use { display: block; font-size: 11.5px; opacity: .6; margin-top: 2px; }
+.ver-recog {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--n-border-color, rgba(128,128,128,.2)); border-radius: 10px; padding: 12px 14px;
+}
+.ver-recog__main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ver-recog__name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ver-recog__meta { font-size: 12.5px; opacity: .75; overflow-wrap: anywhere; }
+.ver-recog__err { font-size: 12.5px; color: #d03050; overflow-wrap: anywhere; }
+.ver-recog__hint { font-size: 12px; opacity: .6; margin-top: 6px; overflow-wrap: anywhere; }
 
 .ver-tiles {
   display: grid;

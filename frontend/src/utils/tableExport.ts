@@ -50,7 +50,8 @@ function toCSV(cols: ExportColumn[], rows: Record<string, any>[]): string {
 
 // ── Markdown ──
 function toMarkdown(cols: ExportColumn[], rows: Record<string, any>[]): string {
-  const esc = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  // 先跳脫反斜線再跳脫 |：不然值結尾的「\」會把後面補上的跳脫吃掉，| 又變回欄位分隔（CodeQL 標出）
+  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   const head = "| " + cols.map((c) => esc(c.label)).join(" | ") + " |";
   const sep = "| " + cols.map(() => "---").join(" | ") + " |";
   const body = rows.map((r) => "| " + cols.map((c) => esc(cellText(r, c))).join(" | ") + " |").join("\n");

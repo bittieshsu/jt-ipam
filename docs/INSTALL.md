@@ -26,6 +26,7 @@ the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferr
 | Redis | 7 | — | 24.04 defaults to 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 defaults to 18.19; vite 6 runs but warns |
 | guacd | jt-ipam build for this OS | — | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
+| Recog | latest release | — | **Optional**: fingerprint database the IP probe uses to recognise devices and OS versions; downloaded by `jt-ipam.sh`, checked weekly (see [Recog](#recog-fingerprint-database-optional)) |
 
 ### Supported distributions
 
@@ -472,6 +473,23 @@ After restart, register the SP metadata with the IdP: `curl https://ipam.example
 ---
 
 ## 5. Backup & restore
+
+### Recog fingerprint database (optional)
+
+The IP probe matches what a host says about itself — SSH banners, HTTP `Server` headers, page titles, TLS
+certificates, SMB OS strings — against [Recog](https://github.com/rapid7/recog) (Rapid7, BSD-2-Clause) to
+recognise devices (a vendor's default certificate, a management page) and exact OS versions. Without it the probe
+still works; it just identifies less.
+
+- `jt-ipam.sh install` and `upgrade` download the latest release (outbound HTTPS to `api.github.com`,
+  `github.com` and `release-assets.githubusercontent.com`). A failure only prints a warning.
+- `jt-ipam-recog-refresh.timer` checks for a new release every Monday (Recog releases every one to six weeks)
+  and downloads only when there is one. **Version info** shows the installed release, the last check and a
+  **Check for updates now** button; the system diagnostics warn when it is missing or has not updated for
+  three weeks.
+- Offline hosts: download `recog-content-<version>.zip` from the
+  [releases page](https://github.com/rapid7/recog/releases), then
+  `sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --recog-zip <file>` (or `install --recog-zip <file>`).
 
 ### LLM / AI (optional)
 

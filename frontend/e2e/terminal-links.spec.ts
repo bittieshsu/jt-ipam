@@ -59,7 +59,7 @@ test.describe("終端機網址連結", () => {
     const spot = await page.evaluate(() => {
       const rows = [...document.querySelectorAll(".xterm-rows > div")];
       const idx = rows.map((r, i) => [r, i] as const)
-        .filter(([r]) => r.textContent?.includes("https://claude.com")).pop()?.[1];
+        .filter(([r]) => /(^|\s)https:\/\/claude\.com\//.test(r.textContent ?? "")).pop()?.[1];
       if (idx === undefined) throw new Error("畫面上找不到網址");
       const box = rows[idx + 1].getBoundingClientRect();
       return { x: box.x + 60, y: box.y + box.height / 2 };

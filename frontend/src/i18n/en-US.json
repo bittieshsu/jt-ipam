@@ -3336,7 +3336,17 @@
     "optional_absent": "missing",
     "optional_missing": "Missing {pkgs}: the matching tools show as unavailable. Installing them is enough (re-running jt-ipam.sh upgrade also pulls them in).",
     "license": "License",
-    "license_link": "Read the full licence"
+    "license_link": "Read the full licence",
+    "section_recog": "Optional databases",
+    "section_recog_hint": "Recog fingerprints: the IP probe uses them to recognise devices and OS versions from banners, page titles and certificates. Downloaded at install / upgrade, then checked weekly for new releases",
+    "recog_meta": "{n} fingerprints · installed {at}",
+    "recog_checked": "Last checked: {at}",
+    "recog_latest": "latest on GitHub {v}",
+    "recog_error": "Last check failed: {e}",
+    "recog_check_now": "Check for updates now",
+    "recog_updated": "Updated to Recog {v}",
+    "recog_up_to_date": "Already the latest release ({v})",
+    "recog_offline_hint": "Offline host: download the release from GitHub, then on the server run {cmd} as jtipam in /opt/jt-ipam/backend"
   },
   "dns_records": {
     "title": "DNS Records",
@@ -3800,7 +3810,7 @@
       "integrations": "Integration connections (with keys)",
       "synced": "Synced mirror data (re-pullable)",
       "operational": "Operational history (audit / tasks / notifications)",
-      "oui": "OUI vendor database"
+      "oui": "OUI vendor and Recog fingerprint databases"
     },
     "passphrase": "Passphrase",
     "passphrase_ph": "Passphrase (min 8 chars)",
@@ -4164,9 +4174,18 @@
       "storage": "Storage",
       "media": "Media device",
       "specialized": "Specialized device",
-      "unknown": "Undetermined"
+      "unknown": "Undetermined",
+      "no_response": "No response"
     },
-    "unregistered": "Not in IPAM · {subnet}"
+    "unregistered": "Not in IPAM · {subnet}",
+    "no_response_hint": "The address did not answer at all during the probe: no open or closed ports and no MAC reply on the local network. The host is most likely switched off or offline, or a firewall dropped every probe.",
+    "no_response_vendor": "The vendor \"{vendor}\" comes from a previously recorded MAC, not from this probe.",
+    "arp_last_seen": "Last seen in ARP: {at} ({source})",
+    "guess_tag": "a guess — may be wrong",
+    "guess_note": "Type, operating system and vendor are inferred from the open services, the OS fingerprint and the network card's vendor, and can be wrong (for example a NAS running a media-streaming service can look like a camera). Check them against the evidence and the ports below.",
+    "model": "Model",
+    "recog_used": "Fingerprints: Recog {v} (evidence marked recog:)",
+    "recog_missing": "The Recog fingerprint database is not installed on this server, so devices and OS versions are not matched against banners, page titles and certificates (see Version info)."
   },
   "investigate": {
     "title": "Investigate",
@@ -4613,7 +4632,13 @@
     "d_guacd_down": "guacd is a required component but cannot be reached ({address}): {reason}; {protocols} use the built-in engine for now",
     "d_guacd_down_idle": "guacd is a required component but cannot be reached ({address}): {reason}",
     "d_guacd_missing": "{protocols} are set to guacd but guacd has no support for them; connections use the built-in engine for now",
-    "f_guacd": "Run sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade on the server (installs guacd); if it is installed, sudo systemctl restart jt-ipam-guacd"
+    "f_guacd": "Run sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade on the server (installs guacd); if it is installed, sudo systemctl restart jt-ipam-guacd",
+    "c_recog": "Recog fingerprint database (optional)",
+    "d_recog_missing": "Not installed: the probe still works, but cannot recognise devices and OS versions from banners, page titles and certificates. {error}",
+    "f_recog": "On the server run: {cmd} (offline hosts: add --file recog-content-<version>.zip); new releases are then checked weekly",
+    "d_recog_stale": "Release {release}; no successful update check for {days} days: {error}",
+    "f_recog_stale": "Make sure this host can reach github.com, and check the schedule with sudo systemctl status jt-ipam-recog-refresh.timer",
+    "d_recog_ok": "Release {release}, {count} fingerprints"
   },
   "tool_verbs": {
     "get": "Look up",

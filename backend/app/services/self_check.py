@@ -344,7 +344,45 @@ async def run_checks(session: AsyncSession) -> Report:
                                 title_key="doctor.c_guacd", detail_key="doctor.d_check_failed",
                                 params={"detail": str(exc)[:200]}))
 
+    # 11) Recog 指紋庫（選用，探測用）：沒裝、或每週的更新檢查一直失敗
+    try:
+        rep.checks.append(await _recog_check(session))
+    except Exception as exc:
+        rep.checks.append(Check("recog", "Recog 指紋庫（選用）", "warn", f"檢查本身失敗：{exc}"[:200],
+                                title_key="doctor.c_recog", detail_key="doctor.d_check_failed",
+                                params={"detail": str(exc)[:200]}))
+
     return rep
+
+
+# 每週檢查一次：連續三週都沒有成功，就不是「偶爾連不到 GitHub」了
+_RECOG_STALE_DAYS = 21
+_RECOG_FIX = "sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/backend.env; set +a; .venv/bin/python -m app.cli.recog update'"
+
+
+async def _recog_check(session: AsyncSession) -> Check:
+    from app.services import recog
+    st = await recog.status(session)
+    if not st["installed"]:
+        return Check("recog", "Recog 指紋庫（選用）", "warn",
+                     "尚未安裝：探測照常運作，但少了由 banner／網頁標題／憑證認出設備與 OS 的比對"
+                     + (f"（上次錯誤：{st['error']}）" if st.get("error") else ""),
+                     _RECOG_FIX, title_key="doctor.c_recog", detail_key="doctor.d_recog_missing",
+                     fix_key="doctor.f_recog", params={"error": st.get("error") or "", "cmd": _RECOG_FIX})
+    last_ok = st.get("last_ok_at") or st.get("updated_at")
+    try:
+        age = (datetime.now(UTC) - datetime.fromisoformat(last_ok)).days if last_ok else None
+    except ValueError:
+        age = None
+    if age is not None and age > _RECOG_STALE_DAYS:
+        return Check("recog", "Recog 指紋庫（選用）", "warn",
+                     f"版本 {st['release']}；已經 {age} 天沒有成功檢查更新：{st.get('error') or '排程沒有執行'}",
+                     "確認這台主機連得到 github.com，並檢查 sudo systemctl status jt-ipam-recog-refresh.timer",
+                     title_key="doctor.c_recog", detail_key="doctor.d_recog_stale", fix_key="doctor.f_recog_stale",
+                     params={"release": st["release"], "days": age, "error": st.get("error") or ""})
+    return Check("recog", "Recog 指紋庫（選用）", "ok", f"版本 {st['release']}，{st['fingerprints']} 條指紋",
+                 title_key="doctor.c_recog", detail_key="doctor.d_recog_ok",
+                 params={"release": st["release"], "count": st["fingerprints"]})
 
 
 async def _guacd_check(session: AsyncSession) -> Check | None:

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { safeNextPath } from "@/utils/safeRedirect";
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -98,10 +99,9 @@ onMounted(async () => {
   } catch { /* 預設只有本機 */ }
 });
 
+// 只接受本站路徑：`//evil.example` 這類也以 / 開頭的會被當成別的網站（開放式轉址，見 utils/safeRedirect）
 function targetAfterLogin(): string {
-  const next = route.query.next;
-  if (typeof next === "string" && next.startsWith("/")) return next;
-  return "/";
+  return safeNextPath(route.query.next);
 }
 
 
@@ -158,8 +158,7 @@ function ssoOidc() {
 }
 
 function ssoSaml() {
-  const next = route.query.next;
-  const returnTo = typeof next === "string" && next.startsWith("/") ? next : "/";
+  const returnTo = safeNextPath(route.query.next);
   window.location.assign(`/api/v1/auth/saml/login?return_to=${encodeURIComponent(returnTo)}`);
 }
 </script>

@@ -81,6 +81,7 @@ from app.models.pve_firewall import (
     PVEFirewallRule,
     PVEFirewallState,
 )
+from app.models.recog import RecogDatabase
 from app.models.scan_agent import ScanAgent
 from app.models.scan_agent_cycle import ScanAgentCycle
 from app.models.section import Section

@@ -20,7 +20,7 @@ SCOPES: tuple[str, ...] = (
     "integrations",   # 整合連線設定（含加密金鑰）：LibreNMS/OPNsense/pfSense/Proxmox/Wazuh/AdGuard/掃描代理/憑證代理/SSH 憑證/Webhook
     "synced",         # 由整合拉回、可重新同步的鏡像資料：ARP/FDB/同步別名/規則/VM/hostname 觀測…
     "operational",    # 短暫／歷史資料：稽核記錄 / IP 異動 / 申請 / 背景作業 / 通知 / AI 對話
-    "oui",            # IEEE OUI 廠商庫（大、可重新產生）
+    "oui",            # 參考資料庫（大、可重新下載）：IEEE OUI 廠商庫、Recog 指紋庫
 )
 
 DEFAULT_SCOPE: tuple[str, ...] = ("settings", "users_rbac", "core", "integrations")
@@ -163,8 +163,10 @@ CATEGORY: dict[str, str] = {
     # DHCP 觀測是「某個時刻在那個網路上看到的事」，換一台機器就不成立
     "dhcp_sightings": "operational",
     "phpipam_migration_mapping": "operational",
-    # oui
+    # oui（參考資料庫）
     "oui_vendors": "oui",
+    # Recog 指紋庫：每一列是一整個指紋檔，合併匯入時整檔覆蓋，不會出現兩版混在一起
+    "recog_databases": "oui",
     # 中央機密（特別處理；分類僅供 validate 檢查完整性）
     ENCRYPTED_SECRETS_TABLE: "_secrets",
 }

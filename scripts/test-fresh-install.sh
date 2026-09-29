@@ -160,6 +160,42 @@ if true; then
     fi
 fi
 
+# 3c. Reference-data refresh (GeoIP / OUI / Recog): the timers are enabled and each unit
+#     really runs to Result=success. Until 2026-09-29 install never installed these at all,
+#     and the OUI unit on hosts that had one pointed at a script that was never committed.
+for unit in jt-ipam-geoip-refresh jt-ipam-oui-refresh jt-ipam-recog-refresh; do
+    if ! dex systemctl is-enabled --quiet "$unit.timer" 2>/dev/null; then
+        fail "$unit.timer is not enabled"
+        continue
+    fi
+    dex systemctl start "$unit.service" >/dev/null 2>&1 || true
+    for _ in $(seq 150); do
+        dex systemctl is-active --quiet "$unit.service" || break
+        sleep 2
+    done
+    result=$(dex systemctl show -p Result --value "$unit.service" 2>/dev/null || echo unknown)
+    if [[ "$result" == success ]]; then
+        pass "$unit ran successfully"
+    else
+        fail "$unit Result=$result"
+        dex journalctl -u "$unit" -n 25 --no-pager || true
+    fi
+done
+# Recog is optional, but a host that can reach GitHub must end up with it installed
+if dex bash -c 'u=$(stat -c %U /opt/jt-ipam); sudo -u "$u" bash -c "cd /opt/jt-ipam/backend; set -a; . /etc/jt-ipam/backend.env; set +a; .venv/bin/python -m app.cli.recog status"' \
+        >"/tmp/$NAME.recog.log" 2>&1; then
+    pass "Recog fingerprint database: $(tr '\t' ' ' <"/tmp/$NAME.recog.log" | head -1)"
+else
+    fail "Recog fingerprint database is not installed: $(head -3 "/tmp/$NAME.recog.log")"
+fi
+# ...and it must be the install itself that installed it: a later timer run covering for a failed
+# download hid a real race here once (2026-09-29, duplicate key on recog_databases)
+if grep -q 'Recog fingerprint database was not installed' "/tmp/$NAME.install.log" 2>/dev/null; then
+    fail "install failed to install Recog by itself:"; grep -A1 'Recog fingerprint database was not installed' "/tmp/$NAME.install.log" | head -4
+else
+    pass "install installed Recog without warnings"
+fi
+
 # 4. doctor must agree with reality -- a diagnostic that lies is worse than none.
 if dex bash /opt/jt-ipam/scripts/jt-ipam.sh doctor >/tmp/$NAME.doctor.log 2>&1; then
     pass "doctor reports a healthy install"

@@ -167,6 +167,40 @@ probe="$(dex bash -c 'set -a; . /etc/jt-ipam/backend.env; set +a;
 [[ "$probe" == 1 ]] && pass "the row written before the upgrade is still there" \
                     || fail "the pre-upgrade row is gone (found $probe)"
 
+# 參考資料排程（GeoIP／OUI／Recog）：舊版站台從來沒有這三個 timer —— upgrade 要補上，而且每支都要真的跑成功
+for unit in jt-ipam-geoip-refresh jt-ipam-oui-refresh jt-ipam-recog-refresh; do
+    if ! dex systemctl is-enabled --quiet "$unit.timer" 2>/dev/null; then
+        fail "$unit.timer is not enabled"
+        continue
+    fi
+    dex systemctl start "$unit.service" >/dev/null 2>&1 || true
+    for _ in $(seq 150); do
+        dex systemctl is-active --quiet "$unit.service" || break
+        sleep 2
+    done
+    result=$(dex systemctl show -p Result --value "$unit.service" 2>/dev/null || echo unknown)
+    if [[ "$result" == success ]]; then
+        pass "$unit ran successfully"
+    else
+        fail "$unit Result=$result"
+        dex journalctl -u "$unit" -n 25 --no-pager || true
+    fi
+done
+# Recog is optional, but a host that can reach GitHub must end up with it installed
+if dex bash -c 'u=$(stat -c %U /opt/jt-ipam); sudo -u "$u" bash -c "cd /opt/jt-ipam/backend; set -a; . /etc/jt-ipam/backend.env; set +a; .venv/bin/python -m app.cli.recog status"' \
+        >"/tmp/$NAME.recog.log" 2>&1; then
+    pass "Recog fingerprint database: $(tr '\t' ' ' <"/tmp/$NAME.recog.log" | head -1)"
+else
+    fail "Recog fingerprint database is not installed: $(head -3 "/tmp/$NAME.recog.log")"
+fi
+# ...and it must be the upgrade itself that installed it: a later timer run covering for a failed
+# download hid a real race here once (2026-09-29, duplicate key on recog_databases)
+if grep -q 'Recog fingerprint database was not installed' "/tmp/$NAME.upgrade.log" 2>/dev/null; then
+    fail "upgrade failed to install Recog by itself:"; grep -A1 'Recog fingerprint database was not installed' "/tmp/$NAME.upgrade.log" | head -4
+else
+    pass "upgrade installed Recog without warnings"
+fi
+
 if dex bash /opt/jt-ipam/scripts/jt-ipam.sh doctor >/tmp/$NAME.doctor.log 2>&1; then
     pass "doctor reports a healthy install"
 else

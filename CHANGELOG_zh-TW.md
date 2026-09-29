@@ -4,6 +4,41 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [0.6.54] — 2026-09-29
+
+### 新增
+- **IP 探測加入 Recog 指紋庫（選用）**：探測會把主機自己回的文字 —— SSH banner、HTTP `Server` 標頭、網頁標題、
+  TLS 憑證的 Subject／Issuer、SMB 回報的 OS、FTP／SMTP／POP3／IMAP／telnet banner —— 拿去比對
+  [Recog](https://github.com/rapid7/recog)（Rapid7，BSD-2-Clause）。認得出 nmap 認不出的東西：廠商的出廠預設憑證
+  （FortiGate、Synology）、管理介面的標題、OpenSSH 註解裡的發行版（「Ubuntu Linux 20.04」而不是「Linux 4.15 - 5.8」）。
+  結果補上設備類型、OS、硬體廠牌、**型號**，以及 nmap 沒認出產品的埠上跑的軟體，每一項都列在判斷依據（`recog:…`）；
+  遵守 Recog 自己標明「不下結論」的條目（例如 Let's Encrypt、Samba 偽裝的「Windows 6.1」），廠商預設憑證上的名稱
+  也不再被當成這台的名稱。
+  Recog 的 Ruby 正規式轉成 Python 後，每條指紋都要通過自己附的範例才收，否則剔除（3.2.0 保留 4,671／4,676 條）；
+  可能被惡意 banner 拖成指數時間的寫法直接拒收，比對的輸入也限制長度。下載檔比對 GitHub 公布的 SHA-256，
+  只讀 `xml/*.xml`、有大小上限、走 defusedxml。存在資料庫（migration 0166，一個指紋檔一列）。
+  `jt-ipam.sh install`／`upgrade` 會下載（失敗只警告，探測照常能用；離線主機用 `--recog-zip <檔案>`），
+  之後 **jt-ipam-recog-refresh.timer 每週檢查一次 GitHub**（Recog 約每 1～6 週發佈一版）。「版本資訊」顯示已安裝的
+  版本、指紋數、上次檢查時間與「立即檢查更新」按鈕；系統診斷在沒安裝、或三週沒更新成功時提出警告。
+  CLI：`python -m app.cli.recog update [--force] [--file …]`／`status`。
+- 掃描代理 1.13.0：回報憑證 Subject／Issuer 的完整欄位（文字輸出沒有 OU、L，而設備預設憑證正是靠這些認的），
+  以及主機層腳本的結果 —— `smb-os-discovery` 一直都有執行，輸出卻被丟掉。
+
+### 修正
+- **OUI 與 GeoIP 的排程更新從來沒被安裝過**：客戶站台的 MAC 廠商與 GeoIP 從不自動更新；有這個 unit 的主機，
+  OUI 那支指向一個從沒進版控的腳本（每個月都失敗）。安裝與升級現在會裝好三個排程（GeoIP、OUI、Recog），
+  新主機會立刻抓一次 OUI 清單，`doctor` 會檢查，`uninstall` 會移除。
+- 設了回應大小上限的對外請求會把 gzip 解兩次（每一次打 GitHub API 都解壓失敗），也不會跟轉址。兩者都已修正；
+  上限仍以解壓後的大小計算。
+- 資安（CodeQL）：「工具 → HTTP 檢查」可以讓伺服器去抓迴路與 link-local 位址（雲端 metadata）—— 現在每一跳
+  （含轉址）都會檢查；登入頁的 `?next=` 接受 `//host` 與 `/\host`，登入後可能被帶到別的網站 —— 現在只跟同源路徑。
+  另有強化：改用線性時間的檢查取代會回溯的正規式、系統轉移與平面圖檔案的路徑限制、部分錯誤訊息少帶細節。
+
+### 變更
+- IP 探測：完全沒有回應的主機摘要寫「沒有回應」（代理 1.12.1 會算關閉的埠）；類型、OS、廠牌標明是推測；
+  判斷看整台主機（開了影音串流的 NAS 不再被當成攝影機，Samba 不再被當成 Windows）；以位址探測時顯示 ARP 最後
+  看到的時間；連接埠表的欄寬依內容。
+
 ## [0.6.53] — 2026-09-29
 
 ### 新增

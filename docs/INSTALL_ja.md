@@ -28,6 +28,7 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 | Redis | 7 | — | 24.04 の既定は 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 の既定は 18.19。vite 6 は動作しますが警告が出ます |
 | guacd | jt-ipam がこの OS 向けにビルドしたもの | — | **必須**：RDP／VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
+| Recog | 最新リリース | — | **任意**：IP 探索が機器や OS バージョンを識別するためのフィンガープリント DB。`jt-ipam.sh` がダウンロードし、毎週新版を確認（下の Recog の節） |
 
 ### 対応ディストリビューション
 
@@ -494,6 +495,21 @@ SAML_ADMIN_GROUPS=jt-ipam-admins
 ---
 
 ## 5. バックアップと復元
+
+### Recog フィンガープリント DB（任意）
+
+IP 探索は、ホスト自身が返す文字列 —— SSH バナー、HTTP `Server` ヘッダー、ページタイトル、TLS 証明書、SMB の OS 名 ——
+を [Recog](https://github.com/rapid7/recog)（Rapid7、BSD-2-Clause）と照合し、機器（ベンダーの出荷時証明書や管理画面）や
+正確な OS バージョンを識別します。未インストールでも探索は動作しますが、識別できる範囲が狭くなります。
+
+- `jt-ipam.sh install` と `upgrade` が最新リリースをダウンロードします（`api.github.com`、`github.com`、
+  `release-assets.githubusercontent.com` への HTTPS 接続が必要）。失敗しても警告のみです。
+- `jt-ipam-recog-refresh.timer` が毎週月曜に新しいリリースを確認し（Recog は 1〜6 週ごとにリリース）、新版がある
+  ときだけダウンロードします。「バージョン情報」にインストール済みのリリース、最終確認日時、「今すぐ更新を確認」ボタンが
+  あり、未インストールまたは 3 週間更新に成功していない場合はシステム診断が警告します。
+- オフラインの場合：[リリースページ](https://github.com/rapid7/recog/releases) から `recog-content-<バージョン>.zip` を
+  ダウンロードし、`sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --recog-zip <ファイル>`（または
+  `install --recog-zip <ファイル>`）を実行します。
 
 ### LLM / AI（任意）
 

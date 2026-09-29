@@ -54,7 +54,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.12.0"
+AGENT_VERSION = "1.13.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -1303,12 +1303,35 @@ def _identify_port_list(path: str | None = None, top: int = _IDENTIFY_TOP_PORTS)
     return None
 
 
+def _script_data(port) -> dict:  # noqa: ANN001 -- ElementTree element
+    """腳本的結構化輸出裡伺服器要用的部分（目前只有 ssl-cert 的 Subject／Issuer 各欄位）。"""
+    out: dict = {}
+    for sc in port.findall("script"):
+        if sc.get("id") != "ssl-cert":
+            continue
+        cert = {}
+        for part in ("subject", "issuer"):
+            table = sc.find(f"table[@key='{part}']")
+            if table is not None:
+                cert[part] = {e.get("key"): (e.text or "")[:200]
+                              for e in table.findall("elem") if e.get("key")}
+        if cert:
+            out["ssl-cert"] = cert
+    return out
+
+
 def _parse_nmap_xml(text: str) -> dict:
-    """nmap -oX 輸出 → {hostnames, mac, mac_vendor, ports[開著的], os[]}。解析失敗回空結構。
+    """nmap -oX 輸出 → {hostnames, mac, mac_vendor, ports[開著的], os[], host_scripts{}}。解析失敗回空結構。
+
+    host_scripts：主機層腳本（smb-os-discovery 不掛在任何埠下，以前整段被丟掉）。
+    ports[].script_data：ssl-cert 的完整 Subject／Issuer —— 文字輸出只有 CN／O／ST／C，
+    伺服器端比對 Recog 的設備預設憑證要 OU、L 這些欄位。
 
     XML 是本機剛跑完的 nmap 產生的（不是從網路收來的文件），用標準函式庫解析即可。
     """
-    out: dict = {"hostnames": [], "mac": None, "mac_vendor": None, "ports": [], "os": []}
+    # closed：回了 RST 的埠數 —— 有這個就代表主機活著，只是那些埠沒開；全部 filtered 又沒有 MAC 回應＝沒回應
+    out: dict = {"hostnames": [], "mac": None, "mac_vendor": None, "ports": [], "os": [], "closed": 0,
+                 "host_scripts": {}}
     try:
         root = ET.fromstring(text)  # noqa: S314 -- local nmap output, not untrusted input
     except Exception:  # noqa: BLE001
@@ -1320,8 +1343,13 @@ def _parse_nmap_xml(text: str) -> dict:
         if a.get("addrtype") == "mac":
             out["mac"], out["mac_vendor"] = a.get("addr"), a.get("vendor")
     out["hostnames"] = [h.get("name") for h in host.findall("hostnames/hostname") if h.get("name")]
+    for ex in host.findall("ports/extraports"):
+        if ex.get("state") == "closed":
+            out["closed"] += int(ex.get("count") or 0)
     for port in host.findall("ports/port"):
         st = port.find("state")
+        if st is not None and st.get("state") == "closed":
+            out["closed"] += 1
         if st is None or st.get("state") != "open":
             continue
         svc = port.find("service")
@@ -1332,9 +1360,12 @@ def _parse_nmap_xml(text: str) -> dict:
             "extrainfo": g("extrainfo"), "tunnel": g("tunnel"), "ostype": g("ostype"),
             "scripts": {sc.get("id"): (sc.get("output") or "").strip()[:_IDENTIFY_MAX_TEXT]
                         for sc in port.findall("script") if sc.get("id")},
+            "script_data": _script_data(port),
         })
         if len(out["ports"]) >= _IDENTIFY_MAX_PORTS:
             break
+    out["host_scripts"] = {sc.get("id"): (sc.get("output") or "").strip()[:_IDENTIFY_MAX_TEXT]
+                           for sc in host.findall("hostscript/script") if sc.get("id")}
     for m in host.findall("os/osmatch")[:5]:
         cls = m.find("osclass")
         out["os"].append({

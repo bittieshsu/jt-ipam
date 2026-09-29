@@ -298,7 +298,9 @@ async def _search_text_trgm(
     qlike = f"%{q}%"
     # 看起來像「IP 片段」：只含數字與點且至少有一個點
     #   e.g. "192.168"（首碼）/ ".1.189"（結尾）/ "1.189"（中段）/ "10.1."
-    looks_like_ip_fragment = bool(re.match(r"^[0-9.]*\.[0-9.]*$", q)) and any(ch.isdigit() for ch in q)
+    # 不用正規表示式：`[0-9.]*\.[0-9.]*` 在一長串數字上會回溯到平方時間（CodeQL 標出）
+    looks_like_ip_fragment = ("." in q and set(q) <= set("0123456789.")
+                              and any(ch.isdigit() for ch in q))
     ipfrag = f"%{q}%"  # IP 片段一律走子字串比對（首碼/結尾/中段都能撞到）
     # IP 片段 / IP / CIDR / MAC 查詢時不要用 trigram 模糊比對（否則 .200 會誤中 .201/.208）
     fuzzy = not (looks_like_ip_fragment or _detect_query_kind(q) in ("ip", "cidr", "mac"))

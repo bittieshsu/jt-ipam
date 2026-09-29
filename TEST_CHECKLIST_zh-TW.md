@@ -74,6 +74,11 @@
 - [ ] **(A) 重置密碼 CLI**：`python -m app.cli.bootstrap create-admin --username admin --password-stdin --force-update` 能重置既有 admin；README 中英都有此段
 - [ ] **(B) 代理探測工具**：`agent/jt-ipam-agent-installer.sh` 裝完，主機上有 `nmap` / `nmblookup`(samba-common-bin) / `avahi-resolve`(avahi-utils)；代理 `available_probes` 回報含 os/netbios/mdns
 - [ ] **(B) 安裝說明 UI**：掃描代理頁與子網路編輯對話框中，不可勾的探測旁有「安裝說明」彈出，內容顯示對應安裝指令
+- [ ] **(C) 參考資料排程**：全新安裝與升級後 `systemctl list-timers` 都有 `jt-ipam-geoip-refresh`／`jt-ipam-oui-refresh`／
+  `jt-ipam-recog-refresh` 三個；全新安裝後 OUI 表不是空的（安裝時會立刻抓一次）；`doctor` 三個都列出來
+- [ ] **(C) Recog 指紋庫（選用）**：安裝／升級的輸出有「Recog: updated … fingerprints」；把主機的對外連線擋掉再升級，
+  只能是警告、升級照常完成；`upgrade --recog-zip <recog-content-版本.zip>` 在離線時裝得起來；
+  `python -m app.cli.recog status` 顯示版本
 
 ## 5c. headless 瀏覽器 smoke 測試
 
@@ -383,6 +388,14 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   - 同一個 CIDR 的重疊網段由不同代理負責 → `identify_ambiguous`，不可以挑一個就掃
   - 已經登記的位址轉到那筆記錄的探測頁（歷次結果共用）；重複記錄不可標成「IPAM 沒有記錄」
   - 作業列掛位址、完成通知的連結回到 `/identify/ip/<位址>`；稽核帶子網路
+- [ ] **探測＋Recog 指紋庫**（`backend/tests/test_recog.py`、`e2e/ip-identify.spec.ts`、`e2e/version-recog.spec.ts`）：
+  - 匯入：每條指紋都要通過自己附的範例，否則剔除（3.2.0 約剔除 5 條）；zip 只讀 `xml/*.xml`、XXE 被擋、
+    太小的一版（少於 1000 條）不可以蓋掉已安裝的
+  - 摘要：OpenSSH 註解推出發行版、設備預設憑證推出類型／廠牌／型號、「不下結論」的條目不採用、nmap 已認出產品的埠
+    不重複列、預設憑證上的名稱不列進「名稱」；沒裝 Recog 時摘要與以前完全相同，畫面提示沒有安裝
+  - 實機拿正式機既有的探測結果比對加入前後：不可以有類型被改錯（NAS、PVE、郵件主機、IPMI）
+  - 版本資訊的「選用資料庫」卡片：版本、指紋數、上次檢查；「立即檢查更新」寫稽核（target=recog_db_update）
+  - 更新失敗（GitHub 連不到）：已安裝的一版不動，錯誤顯示在卡片上；三週沒成功更新時系統診斷警告
 
 ## 7d2. 掃描代理的負載 —— **只要動到代理的掃描迴圈、回報或負載判斷就要跑**
 

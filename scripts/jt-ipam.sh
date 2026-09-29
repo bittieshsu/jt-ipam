@@ -571,6 +571,61 @@ require_root() {
 # Repo root (parent of scripts/)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# ── Scheduled reference-data refresh (GeoIP, OUI vendors, Recog fingerprints) ──
+# Installed by BOTH install and upgrade. Until 2026-09-29 only hand-configured hosts had
+# these timers: customer installs never refreshed OUI or GeoIP at all, and the OUI unit
+# on hosts that had one pointed at a script that was never committed.
+REFRESH_UNITS=(jt-ipam-geoip-refresh jt-ipam-oui-refresh jt-ipam-recog-refresh)
+install_refresh_timers() {
+    local u
+    for u in "${REFRESH_UNITS[@]}"; do
+        install -m 0644 "$REPO_ROOT/deploy/systemd/$u.service" "/etc/systemd/system/$u.service"
+        install -m 0644 "$REPO_ROOT/deploy/systemd/$u.timer" "/etc/systemd/system/$u.timer"
+    done
+    systemctl daemon-reload
+    for u in "${REFRESH_UNITS[@]}"; do
+        systemctl enable --now "$u.timer" >/dev/null 2>&1 || warn "could not enable $u.timer"
+    done
+    # A monthly timer that has never fired would leave a new host without MAC vendors for
+    # up to a month: fetch once now, in the background (a failure only shows in the journal).
+    if [[ "$(systemctl show -p LastTriggerUSecMonotonic --value jt-ipam-oui-refresh.timer 2>/dev/null)" == "0" ]]; then
+        systemctl start --no-block jt-ipam-oui-refresh.service 2>/dev/null || true
+    fi
+}
+
+# Recog fingerprint database (optional; the IP probe uses it to tell NAS / firewall /
+# printer / exact OS apart). A failed download only warns: the probe works without it,
+# and jt-ipam-recog-refresh.timer retries every week. Offline hosts: --recog-zip <file>.
+install_recog_db() {  # <backend_dir> <env_file> <user> [zip]
+    local backend="$1" env_file="$2" user="$3" zip="${4:-}"
+    local args="update" tmpd="" out rc=0
+    if [[ -n "$zip" ]]; then
+        if [[ ! -r "$zip" ]]; then
+            warn "Recog: cannot read $zip -- skipped"
+            return 0
+        fi
+        # The file may live where the service user cannot read it (e.g. /root): hand over a
+        # copy with the same name (the release version is read from the file name).
+        tmpd="$(mktemp -d)"
+        chmod 0755 "$tmpd"
+        install -m 0644 "$zip" "$tmpd/$(basename "$zip")"
+        args="update --file '$tmpd/$(basename "$zip")'"
+    fi
+    log "Recog fingerprint database (optional, used by the IP probe)…"
+    out="$(cd "$backend" && timeout 300 sudo -u "$user" bash -c \
+        "set -a; source '$env_file'; set +a; .venv/bin/python -m app.cli.recog $args" 2>&1)" || rc=$?
+    [[ -n "$tmpd" ]] && rm -rf "$tmpd"
+    if [[ $rc -eq 0 ]]; then
+        log "Recog: ${out//$'\t'/ }"
+    else
+        warn "Recog fingerprint database was not installed/updated (optional -- the probe still works):"
+        warn "  ${out//$'\t'/ }"
+        warn "  Retry: sudo -u $user bash -c 'cd $backend; set -a; source $env_file; set +a; .venv/bin/python -m app.cli.recog update'"
+        warn "  Offline host: get recog-content-<version>.zip from https://github.com/rapid7/recog/releases and re-run with --recog-zip <file>"
+    fi
+    return 0
+}
+
 usage() {
     cat <<'USAGE'
 jt-ipam — deployment tool (single entry point)
@@ -590,6 +645,9 @@ Commands:
                  --guacd-tarball <file>                   install guacd (required: the RDP / VNC console engine,
                                                           prebuilt per OS version, bound to 127.0.0.1 only) from this
                                                           file instead of downloading it -- for offline hosts
+                 --recog-zip <file>                       install the Recog fingerprint database (optional, used by
+                                                          the IP probe) from this recog-content-<ver>.zip instead of
+                                                          downloading it from GitHub -- for offline hosts
   doctor       check a running install and print an exact fix for anything wrong
   upgrade      upgrade existing install (git pull -> backup -> pip -> alembic -> build -> restart)
                  --no-pull                                skip git pull
@@ -597,6 +655,8 @@ Commands:
                                                           scripts/jt-ipam.sh) so git pull won't abort
                  --guacd-tarball <file>                   use this guacd package instead of downloading it
                                                           (guacd is required and installed/updated on every upgrade)
+                 --recog-zip <file>                       update the Recog fingerprint database from this file
+                                                          instead of checking GitHub
   uninstall    stop and remove systemd units/timers + nginx site (keeps data by default)
                  --purge                                  also dropdb + remove config/uploads/system user
                  --yes                                    skip interactive confirmation when using --purge
@@ -784,10 +844,12 @@ cmd_install() {
     local BIND_PORT_DIRECT=8443
     local WITH_FREERDP=0
     local GUACD_TARBALL=""      # guacd 是必要元件，一定會裝（GitHub issue #42）
+    local RECOG_ZIP=""          # Recog 指紋庫（選用）：離線主機用手上的發佈檔
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --tls-mode) TLS_MODE="$2"; shift 2 ;;
+            --recog-zip) RECOG_ZIP="$(readlink -f "$2")"; shift 2 ;;
             --with-freerdp) WITH_FREERDP=1; shift ;;
             --with-guacd) shift ;;                     # 舊參數，保留相容（guacd 一定會裝）
             --guacd-tarball) GUACD_TARBALL="$(readlink -f "$2")"; shift 2 ;;
@@ -1266,6 +1328,9 @@ EOF
     systemctl enable --now jt-ipam-sync.timer
     # Daily backup at 03:30; keep 14 days under /var/backups/jt-ipam/
     systemctl enable --now jt-ipam-backup.timer
+    # GeoIP / OUI / Recog refresh timers, then the Recog database itself (optional)
+    install_refresh_timers
+    install_recog_db "$BACKEND_DIR" "$ENV_FILE" "$JTIPAM_USER" "$RECOG_ZIP"
 
     # -- 11. nginx site (nginx mode only) --
     if [[ "$TLS_MODE" == "nginx" ]]; then
@@ -1611,6 +1676,26 @@ cmd_doctor() {
         systemctl is-active --quiet "$t" && _ok "$t enabled" \
             || _bad "$t is not running" "sudo systemctl enable --now $t"
     done
+    # Reference-data refresh: missing only means stale data, so a warning, not a failure
+    local rt
+    for rt in "${REFRESH_UNITS[@]}"; do
+        if systemctl is-active --quiet "$rt.timer"; then
+            _ok "$rt.timer enabled"
+        elif [[ -f "/etc/systemd/system/$rt.timer" ]]; then
+            _warn "$rt.timer is installed but not running" "sudo systemctl enable --now $rt.timer"
+        else
+            _warn "$rt.timer is not installed (reference data will not refresh)" "sudo $0 upgrade"
+        fi
+    done
+    # Recog fingerprint database (optional component of the IP probe)
+    local recog_out
+    if recog_out="$(cd "$BACKEND_DIR" && timeout 30 sudo -u "${JTIPAM_USER:-jtipam}" bash -c \
+            "set -a; source '$ENV_FILE'; set +a; .venv/bin/python -m app.cli.recog status" 2>/dev/null)"; then
+        _ok "Recog fingerprint database: ${recog_out//$'\t'/ }"
+    else
+        _warn "Recog fingerprint database not installed (optional; the IP probe identifies less without it)" \
+              "sudo -u ${JTIPAM_USER:-jtipam} bash -c 'cd $BACKEND_DIR; set -a; source $ENV_FILE; set +a; .venv/bin/python -m app.cli.recog update'"
+    fi
     # Without the directory the backup unit dies at 226/NAMESPACE, and the message
     # looks like "script not found".
     if [[ -d /var/backups/jt-ipam ]]; then
@@ -1749,14 +1834,17 @@ cmd_upgrade() {
     local DO_PULL=1
     local FORCE=0
     local GUACD_TARBALL=""      # guacd 是必要元件：每次升級都會裝上／更新
+    local RECOG_ZIP=""          # Recog 指紋庫（選用）：離線主機用手上的發佈檔
     local _prev=""
     for arg in "$@"; do
       if [[ "$_prev" == "--guacd-tarball" ]]; then GUACD_TARBALL="$(readlink -f "$arg")"; _prev=""; continue; fi
+      if [[ "$_prev" == "--recog-zip" ]]; then RECOG_ZIP="$(readlink -f "$arg")"; _prev=""; continue; fi
       case "$arg" in
         --no-pull) DO_PULL=0 ;;
         --force|-f) FORCE=1 ;;
         --with-guacd) ;;                    # 舊參數，保留相容（guacd 一定會裝）
         --guacd-tarball) _prev="--guacd-tarball" ;;
+        --recog-zip) _prev="--recog-zip" ;;
       esac
     done
 
@@ -1889,6 +1977,9 @@ cmd_upgrade() {
     # env must be sourced inside the sudo subshell (sudo does not carry parent environment by default)
     as_user bash -c "cd '$ROOT/backend'; set -a; source '$ENV_FILE'; set +a; .venv/bin/alembic upgrade head"
 
+    # -- 5b. Recog fingerprint database (optional): install if missing, update if GitHub has a newer release --
+    install_recog_db "$ROOT/backend" "$ENV_FILE" "$JTIPAM_USER" "$RECOG_ZIP"
+
     # -- 6. frontend build (as root with a clean toolchain, then chown back) --
     log "Building frontend…"
     build_frontend "$ROOT/frontend" "$JTIPAM_USER:$JTIPAM_USER"
@@ -1902,6 +1993,9 @@ cmd_upgrade() {
     # 226/NAMESPACE every night, with a message that looked like "backup script not
     # found".
     ensure_unit_dirs
+
+    # -- 6d. scheduled refresh of GeoIP / OUI / Recog (older installs never had these timers) --
+    install_refresh_timers
 
     # -- 7. restart backend --
     log "Restarting $SVC…"
@@ -1974,6 +2068,10 @@ cmd_uninstall() {
         jt-ipam-sync.service
         jt-ipam-oui-refresh.timer
         jt-ipam-oui-refresh.service
+        jt-ipam-geoip-refresh.timer
+        jt-ipam-geoip-refresh.service
+        jt-ipam-recog-refresh.timer
+        jt-ipam-recog-refresh.service
         jt-ipam-backup.timer
         jt-ipam-backup.service
         jt-ipam-scan-agent.service

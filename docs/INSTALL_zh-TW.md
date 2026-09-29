@@ -23,6 +23,7 @@
 | Redis | 7 | — | 24.04 預設 7.0.15  |
 | Node | 20 LTS | 22 LTS | 24.04 預設 18.19；vite 6 跑得動但有 warning |
 | guacd | jt-ipam 為該 OS 編的版本 | — | **必要**：RDP／VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
+| Recog | 最新發佈版 | — | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
 
 ### 支援的發行版本
 
@@ -288,7 +289,7 @@ curl -skI https://ipam.example.com/ \
 - 限制單一 WebSocket 訊息大小（有些 WAF 會；請至少放寬到 1 MB）；
 - 限制單一 WebSocket 連線的傳輸量或時間，或閒置不到 30 秒就切斷（jt-ipam 每 20 秒送一次保活）。
 
-不必自己去讀各層的設定：**管理 → 系統設定 →「SFTP 單檔上下傳上限」**只要把上限調高到預設值以上，就會由你的瀏覽器
+不必自己去讀各層的設定：在**管理 → 系統設定**的「SFTP 單檔上下傳上限」，只要把上限調高到預設值以上，就會由你的瀏覽器
 實際傳一次，經過每一層（邊緣代理、IPAM 的 nginx、後端），並講出是哪一種限制擋住；也會依量到的速度，估算傳一個上限大小的檔案要多久。
 
 ### 2.8 選用：Docker Compose（非本專案優先使用模式）
@@ -448,6 +449,20 @@ SAML_ADMIN_GROUPS=jt-ipam-admins
 ---
 
 ## 5. 備份與還原
+
+### Recog 指紋庫（選用）
+
+IP 探測會把主機自己回的文字 —— SSH banner、HTTP `Server` 標頭、網頁標題、TLS 憑證、SMB 回報的 OS —— 拿去比對
+[Recog](https://github.com/rapid7/recog)（Rapid7，BSD-2-Clause），認出設備（廠商的出廠預設憑證、管理介面）與精確的
+OS 版本。沒有安裝時探測照常運作，只是認得比較少。
+
+- `jt-ipam.sh install` 與 `upgrade` 會下載最新版（需要對外 HTTPS 連到 `api.github.com`、`github.com`、
+  `release-assets.githubusercontent.com`），下載失敗只會警告。
+- `jt-ipam-recog-refresh.timer` 每週一檢查一次新版（Recog 約每 1～6 週發佈一版），有新版才下載。
+  「版本資訊」頁顯示已安裝的版本、上次檢查時間，並有「立即檢查更新」按鈕；系統診斷在沒安裝、或三週沒有更新成功時
+  會提出警告。
+- 離線主機：從 [發佈頁](https://github.com/rapid7/recog/releases) 下載 `recog-content-<版本>.zip`，再執行
+  `sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --recog-zip <檔案>`（或 `install --recog-zip <檔案>`）。
 
 ### LLM / AI（選用）
 

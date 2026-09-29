@@ -1501,7 +1501,43 @@ async def get_version_info() -> dict[str, Any]:
         "fallback": True,
     }
     info["host"]["required_tools"] = await _required_tools()
+    # Recog 指紋庫（選用資料庫）：列進選用相依，沒裝時跟缺套件一樣會出現在警告裡
+    try:
+        from app.core.db import SessionLocal
+        from app.services import recog
+        async with SessionLocal() as s:
+            info["recog"] = await recog.status(s)
+        info["host"]["optional_tools"]["recog"] = {
+            "present": info["recog"]["installed"],
+            "package": "Recog fingerprint database (github.com/rapid7/recog)",
+            "used_by": "IP probe — recognises devices / OS from banners, page titles and certificates",
+            "version": info["recog"]["release"],
+        }
+    except SQLAlchemyError:
+        info["recog"] = None
     return info
+
+
+@router.post("/recog/update")
+async def update_recog_now(
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """立即檢查 Recog 指紋庫有沒有新版，有就下載安裝（手動觸發；排程是每週的 jt-ipam-recog-refresh.timer）。"""
+    from app.services import recog
+    result = await recog.check_and_update(session)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "recog_db_update", "result": {k: v for k, v in result.items() if k != "error"},
+              "error": result.get("error")},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"result": result, "status": await recog.status(session)}
 
 
 async def _required_tools() -> dict[str, dict[str, Any]]:

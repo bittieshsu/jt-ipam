@@ -36,6 +36,14 @@ from app.services.subnet import (
     compute_master_subnet,
 )
 
+
+def _row_error(exc: BaseException) -> str:
+    """單筆建立失敗的原因。資料庫錯誤的 str() 會連整段 SQL 與參數一起帶出來（CodeQL 標出）：
+    只留驅動回的那一行訊息。"""
+    orig = getattr(exc, "orig", None)
+    text = str(orig if orig is not None else exc).splitlines()[0] if str(orig or exc) else type(exc).__name__
+    return f"{type(orig or exc).__name__}: {text}"[:200]
+
 router = APIRouter(prefix="/import", tags=["import"])
 
 _MAX_BYTES = 2 * 1024 * 1024  # 2MB
@@ -70,7 +78,7 @@ async def _apply_plans(
             await session.flush()
             inserted += 1
         except Exception as exc:
-            errored.append({"cidr": plan.cidr, "error": str(exc)})
+            errored.append({"cidr": plan.cidr, "error": _row_error(exc)})
     return {"inserted": inserted, "skipped": skipped, "errored": errored,
             "total_plans": len(plans)}
 

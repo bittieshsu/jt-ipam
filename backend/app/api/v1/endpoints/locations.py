@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import uuid
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -52,6 +54,28 @@ def _detect_image_ext(data: bytes) -> str | None:
 
 def _floorplan_dir() -> Path:
     return Path(get_settings().upload_dir) / "floorplans"
+
+def _store_floorplan(base: Path, stem: str, ext: str, data: bytes) -> str:
+    """寫入平面圖（同步，放在執行緒裡跑），回傳相對路徑。
+
+    `stem` 是 UUID 型別的路徑參數（只會是十六進位與 -）；另外檢查解析後的實際路徑仍在平面圖目錄底下
+    （第二道防線，也是 CodeQL 認得的寫法）。
+    """
+    base.mkdir(parents=True, exist_ok=True)
+    root = os.path.realpath(base)
+    dest = os.path.realpath(os.path.join(root, f"{stem}.{ext}"))
+    if not dest.startswith(root + os.sep):
+        raise HTTPException(400, detail="invalid location id")
+    # 清掉同 id 但不同副檔名的舊圖（避免換格式後殘留）
+    for old in Path(root).glob(f"{stem}.*"):
+        full = os.path.realpath(old)
+        if full != dest and full.startswith(root + os.sep):
+            os.unlink(full)
+    with open(dest, "wb") as fh:
+        fh.write(data)
+    os.chmod(dest, 0o640)
+    return f"floorplans/{stem}.{ext}"
+
 
 
 # ─────────────────── Locations ───────────────────
@@ -228,16 +252,7 @@ async def upload_floorplan(
     if ext is None:
         raise HTTPException(415, detail="unsupported image type (png / jpg / gif / webp only)")
 
-    base = _floorplan_dir()
-    base.mkdir(parents=True, exist_ok=True)
-    rel = f"floorplans/{location_id}.{ext}"
-    dest = base / f"{location_id}.{ext}"
-    # 清掉同 id 但不同副檔名的舊圖（避免換格式後殘留）
-    for old in base.glob(f"{location_id}.*"):
-        if old != dest:
-            old.unlink(missing_ok=True)
-    dest.write_bytes(data)
-    dest.chmod(0o640)
+    rel = await asyncio.to_thread(_store_floorplan, _floorplan_dir(), str(location_id), ext, data)
 
     obj.floor_plan_path = rel
     await append_audit(

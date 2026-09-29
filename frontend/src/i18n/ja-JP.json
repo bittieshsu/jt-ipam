@@ -3336,7 +3336,17 @@
     "optional_absent": "未導入",
     "optional_missing": "{pkgs} が未導入です。対応するツールは利用不可と表示されます。導入するだけで解決します（jt-ipam.sh upgrade を実行し直しても導入されます）。",
     "license": "ライセンス",
-    "license_link": "ライセンス全文を読む"
+    "license_link": "ライセンス全文を読む",
+    "section_recog": "任意のデータベース",
+    "section_recog_hint": "Recog フィンガープリント：探索がバナー・ページタイトル・証明書から機器や OS を識別するのに使います。インストール／アップグレード時にダウンロードし、以後は毎週新しいリリースを確認します",
+    "recog_meta": "{n} 件のフィンガープリント · {at} にインストール",
+    "recog_checked": "最終確認：{at}",
+    "recog_latest": "GitHub の最新版 {v}",
+    "recog_error": "前回の確認に失敗：{e}",
+    "recog_check_now": "今すぐ更新を確認",
+    "recog_updated": "Recog {v} に更新しました",
+    "recog_up_to_date": "最新リリースです（{v}）",
+    "recog_offline_hint": "オフラインの場合：GitHub からリリースをダウンロードし、サーバーの /opt/jt-ipam/backend で jtipam として {cmd} を実行してください"
   },
   "dns_records": {
     "title": "DNS レコード",
@@ -3800,7 +3810,7 @@
       "integrations": "連携の接続情報（キーを含む）",
       "synced": "同期された複製データ（取り直せます）",
       "operational": "運用履歴（監査／タスク／通知）",
-      "oui": "OUI ベンダーデータベース"
+      "oui": "OUI ベンダー・Recog フィンガープリントデータベース"
     },
     "passphrase": "パスフレーズ",
     "passphrase_ph": "パスフレーズ（8 文字以上）",
@@ -4164,9 +4174,18 @@
       "storage": "ストレージ",
       "media": "メディア機器",
       "specialized": "専用機器",
-      "unknown": "判定できません"
+      "unknown": "判定できません",
+      "no_response": "応答なし"
     },
-    "unregistered": "IPAM に記録なし · {subnet}"
+    "unregistered": "IPAM に記録なし · {subnet}",
+    "no_response_hint": "探査中、このアドレスからはまったく応答がありませんでした（開いている／閉じているポートも、ローカルネットワーク上の MAC 応答もなし）。ホストの電源が切れているかオフラインの可能性が高く、ファイアウォールがすべての探査を破棄している場合もあります。",
+    "no_response_vendor": "ベンダー「{vendor}」は以前に記録された MAC から推定したもので、今回の探査で得たものではありません。",
+    "arp_last_seen": "ARP で最後に確認：{at}（{source}）",
+    "guess_tag": "推測・不正確な場合あり",
+    "guess_note": "種別・OS・ベンダーは、開いているサービス、OS フィンガープリント、NIC のベンダーから推測したもので、誤っている場合があります（例：動画配信サービスを動かしている NAS はカメラのように見えます）。「判断根拠」と下のポートで確認してください。",
+    "model": "モデル",
+    "recog_used": "フィンガープリント照合：Recog {v}（根拠の recog: 項目）",
+    "recog_missing": "このサーバーには Recog フィンガープリント DB がインストールされていないため、バナー・ページタイトル・証明書による機器や OS の照合を行っていません（「バージョン情報」を参照）。"
   },
   "investigate": {
     "title": "調査",
@@ -4613,7 +4632,13 @@
     "d_guacd_down": "guacd は必須コンポーネントですが接続できません（{address}）：{reason}。{protocols} は当面組み込みエンジンで接続します",
     "d_guacd_down_idle": "guacd は必須コンポーネントですが接続できません（{address}）：{reason}",
     "d_guacd_missing": "{protocols} は guacd に設定されていますが、guacd にそのサポートがありません。当面は組み込みエンジンで接続します",
-    "f_guacd": "サーバーで sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade を実行してください（guacd が入ります）。インストール済みなら sudo systemctl restart jt-ipam-guacd"
+    "f_guacd": "サーバーで sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade を実行してください（guacd が入ります）。インストール済みなら sudo systemctl restart jt-ipam-guacd",
+    "c_recog": "Recog フィンガープリント DB（任意）",
+    "d_recog_missing": "未インストール：探索は動作しますが、バナー・ページタイトル・証明書から機器や OS を識別できません。{error}",
+    "f_recog": "サーバーで実行：{cmd}（オフラインの場合は --file recog-content-<バージョン>.zip を追加）。以後は毎週新しいリリースを確認します",
+    "d_recog_stale": "リリース {release}；{days} 日間、更新確認に成功していません：{error}",
+    "f_recog_stale": "このホストから github.com に接続できるか確認し、sudo systemctl status jt-ipam-recog-refresh.timer でスケジュールを確認してください",
+    "d_recog_ok": "リリース {release}、{count} 件のフィンガープリント"
   },
   "tool_verbs": {
     "get": "照会",

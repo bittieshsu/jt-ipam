@@ -165,6 +165,13 @@ to see what a customer sees.**
   reported `available_probes` includes os/netbios/mdns
 - [ ] **(B) Install-help UI**: on the scan-agent page and the subnet edit dialog,
   unavailable probes show an "install help" popover with the matching install command
+- [ ] **(C) Reference-data timers**: after a fresh install and after an upgrade, `systemctl list-timers` shows
+  `jt-ipam-geoip-refresh`, `jt-ipam-oui-refresh` and `jt-ipam-recog-refresh`; after a fresh install the OUI
+  table is not empty (it is fetched once during install); `doctor` lists all three
+- [ ] **(C) Recog fingerprint database (optional)**: install / upgrade output shows "Recog: updated …
+  fingerprints"; with outbound access blocked an upgrade only warns and still completes;
+  `upgrade --recog-zip <recog-content-version.zip>` installs it offline; `python -m app.cli.recog status`
+  shows the release
 
 ## 5c. Real-browser testing — **mandatory for every release that touches the UI**
 
@@ -670,6 +677,21 @@ probes on request inside a customer network. The feature is only as safe as its 
     labelled "not in IPAM"
   - the task row carries the address, the completion notification links back to `/identify/ip/<address>`,
     the audit entry carries the subnet
+- [ ] **Probe + Recog fingerprints** (`backend/tests/test_recog.py`, `e2e/ip-identify.spec.ts`,
+  `e2e/version-recog.spec.ts`):
+  - import: every fingerprint must pass its own examples or it is dropped (about 5 in 3.2.0); only
+    `xml/*.xml` is read from the zip, XXE is blocked, and a suspiciously small release (under 1,000
+    fingerprints) never replaces the installed one
+  - summary: the OpenSSH comment gives the distribution, a device default certificate gives type / vendor /
+    model, "assert nothing" entries are ignored, ports nmap already named are not listed twice, and a default
+    certificate's name is not listed as a host name; without Recog the summary is exactly as before and the
+    page says it is not installed
+  - on real data: re-summarise existing prod probe results with and without Recog — no type may get worse
+    (NAS, PVE, mail host, IPMI)
+  - the "Optional databases" card on Version info: release, fingerprint count, last check; "Check for updates
+    now" is audited (target=recog_db_update)
+  - a failed update (GitHub unreachable) leaves the installed release alone and shows the error on the card;
+    the system diagnostics warn after three weeks without a successful check
 
 ## 7d2. Scan agent load — **whenever the agent's scan loop, its reports or the load evaluation change**
 

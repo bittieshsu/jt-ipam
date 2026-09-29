@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ipaddress
 import json as _json
+import logging
 import time
 from typing import Annotated, Any
 
@@ -19,6 +20,21 @@ from app.api.v1.dependencies import CurrentUser
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.services.investigate import collect_dossier
+
+
+def _narrative_error(exc: BaseException) -> str:
+    """判讀失敗時給畫面看的原因。
+
+    模型那一端的錯誤（AIError：連不上、逾時、回錯）照原文給 —— 看得出是哪裡不通才有用；
+    其他未預期的例外只回類別名稱，細節寫進日誌：原文可能帶出內部資訊（CodeQL 標出，2026-09-29）。
+    """
+    import asyncio
+
+    from app.services.ai import AIError
+    if isinstance(exc, (AIError, asyncio.TimeoutError, TimeoutError)):
+        return (str(exc) or type(exc).__name__)[:300]
+    logging.getLogger(__name__).warning("investigate narrative failed", exc_info=exc)
+    return type(exc).__name__
 
 router = APIRouter(prefix="/investigate", tags=["investigate"])
 
@@ -112,7 +128,7 @@ async def investigate(
             no_thinking=True,
         )).strip() or None
     except Exception as exc:
-        out["narrative_error"] = str(exc)[:300]
+        out["narrative_error"] = _narrative_error(exc)
 
     await append_audit(
         session,
@@ -199,7 +215,7 @@ async def narrative_stream(
         except Exception as exc:
             # 模型不可用不該讓整個功能失效 —— 事實已經在畫面上了，判讀是加分項
             yield ("data: " + _json.dumps(
-                {"type": "error", "detail": str(exc)[:300]}, ensure_ascii=False) + "\n\n")
+                {"type": "error", "detail": _narrative_error(exc)}, ensure_ascii=False) + "\n\n")
 
     return StreamingResponse(
         gen(), media_type="text/event-stream",

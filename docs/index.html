@@ -981,9 +981,14 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
       var c = document.body.className;
       return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
     }
+    // 語言與截圖名稱都先比對白名單再組路徑（不讓頁面上的文字直接變成網址）
+    var LANGS = { en: 1, zh: 1, ja: 1 };
     function apply(lang){
+      if (!Object.prototype.hasOwnProperty.call(LANGS, lang)) lang = 'en';
       document.querySelectorAll('img[data-shot]').forEach(function(img){
-        var next = 'shots/' + lang + '/' + img.getAttribute('data-shot') + '.png';
+        var shot = img.getAttribute('data-shot') || '';
+        if (!/^[a-z0-9_-]+$/i.test(shot)) return;
+        var next = 'shots/' + lang + '/' + shot + '.png';
         if (img.getAttribute('src') !== next) img.setAttribute('src', next);
       });
     }

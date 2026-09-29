@@ -75,7 +75,8 @@ async def on_finished(session: AsyncSession, job: AgentProbeJob) -> None:
     summary = dict(t.summary or {})
     if ok and isinstance(job.result, dict):
         from app.services.ip_identify import summarize
-        s = summarize(job.result)
+        from app.services.recog import get_matcher
+        s = summarize(job.result, recog=await get_matcher(session))
         summary.update({"device_type": s["device_type"], "os": s["os"],
                         "ports": len(s["services"])})
     t.summary = summary

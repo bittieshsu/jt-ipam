@@ -3336,7 +3336,17 @@
     "optional_absent": "未安裝",
     "optional_missing": "缺少 {pkgs}：對應功能會標示為不可用。安裝後即可使用（重新執行 jt-ipam.sh upgrade 也會自動補上）。",
     "license": "授權條款",
-    "license_link": "檢視授權全文"
+    "license_link": "檢視授權全文",
+    "section_recog": "選用資料庫",
+    "section_recog_hint": "Recog 指紋庫：探測用來由 banner、網頁標題、憑證認出設備與 OS；安裝／升級時下載，之後每週自動檢查新版",
+    "recog_meta": "{n} 條指紋 · 安裝於 {at}",
+    "recog_checked": "上次檢查：{at}",
+    "recog_latest": "GitHub 最新版 {v}",
+    "recog_error": "上次檢查失敗：{e}",
+    "recog_check_now": "立即檢查更新",
+    "recog_updated": "已更新到 Recog {v}",
+    "recog_up_to_date": "已是最新版（{v}）",
+    "recog_offline_hint": "離線主機：從 GitHub 下載發佈檔後，在伺服器的 /opt/jt-ipam/backend 以 jtipam 身分執行 {cmd}"
   },
   "dns_records": {
     "title": "DNS 記錄",
@@ -3800,7 +3810,7 @@
       "integrations": "整合連線（含金鑰）",
       "synced": "同步鏡像資料（可重新拉取）",
       "operational": "操作歷史（稽核／作業／通知）",
-      "oui": "OUI 廠商庫"
+      "oui": "OUI 廠商庫與 Recog 指紋庫"
     },
     "passphrase": "密碼",
     "passphrase_ph": "密碼（至少 8 字）",
@@ -4164,9 +4174,18 @@
       "storage": "儲存設備",
       "media": "影音設備",
       "specialized": "專用設備",
-      "unknown": "無法判斷"
+      "unknown": "無法判斷",
+      "no_response": "沒有回應"
     },
-    "unregistered": "IPAM 沒有記錄 · {subnet}"
+    "unregistered": "IPAM 沒有記錄 · {subnet}",
+    "no_response_hint": "探測時這個位址完全沒有回應：沒有開著或關著的連接埠、區網內也沒有 MAC 回應。多半是主機已經關機或離線，也可能是防火牆擋下了所有探測。",
+    "no_response_vendor": "廠牌「{vendor}」是從先前記錄的 MAC 推得的，不是這次探測看到的。",
+    "arp_last_seen": "ARP 最後看到：{at}（{source}）",
+    "guess_tag": "推測，可能不準",
+    "guess_note": "類型、作業系統與廠牌是依開放的服務、作業系統指紋與網卡廠牌推測的，可能判斷錯誤（例如 NAS 開了影音串流服務，看起來就像攝影機）。請對照「判斷依據」與下方的連接埠確認。",
+    "model": "型號",
+    "recog_used": "指紋比對：Recog {v}（依據中標示 recog: 的項目）",
+    "recog_missing": "這台伺服器沒有安裝 Recog 指紋庫，少了由 banner、網頁標題、憑證認出設備與 OS 的比對（見「版本資訊」）。"
   },
   "investigate": {
     "title": "調查",
@@ -4613,7 +4632,13 @@
     "d_guacd_down": "guacd 是必要元件，但連不到它（{address}）：{reason}；{protocols} 目前暫時改用內建引擎",
     "d_guacd_down_idle": "guacd 是必要元件，但連不到它（{address}）：{reason}",
     "d_guacd_missing": "{protocols} 設定為 guacd，但 guacd 沒有這些協定的支援；目前連線暫時改用內建引擎",
-    "f_guacd": "在伺服器上執行 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade（會裝上 guacd）；已經裝了的話 sudo systemctl restart jt-ipam-guacd"
+    "f_guacd": "在伺服器上執行 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade（會裝上 guacd）；已經裝了的話 sudo systemctl restart jt-ipam-guacd",
+    "c_recog": "Recog 指紋庫（選用）",
+    "d_recog_missing": "尚未安裝：探測照常運作，但少了由 banner、網頁標題、憑證認出設備與 OS 的比對。{error}",
+    "f_recog": "在伺服器上執行：{cmd}（離線主機可加 --file recog-content-<版本>.zip）；之後每週會自動檢查新版",
+    "d_recog_stale": "版本 {release}；已經 {days} 天沒有成功檢查更新：{error}",
+    "f_recog_stale": "確認這台主機連得到 github.com，並用 sudo systemctl status jt-ipam-recog-refresh.timer 檢查排程",
+    "d_recog_ok": "版本 {release}，{count} 條指紋"
   },
   "tool_verbs": {
     "get": "查詢",

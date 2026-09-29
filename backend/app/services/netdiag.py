@@ -1080,6 +1080,43 @@ class HttpResult:
     error: str | None = None
 
 
+class DiagTargetBlocked(NetDiagError):
+    """HTTP 檢查不可以打到 jt-ipam 主機自己或雲端中繼資料位址。"""
+
+
+async def _assert_diag_http_target(url: str) -> None:
+    """HTTP 檢查的目標檢查（CodeQL 標出的 SSRF，2026-09-29）。
+
+    這是內網診斷工具，**私有網段是本來的用途，不擋**；但本機（127.0.0.0/8、::1）、link-local
+    （169.254.0.0/16 ＝ 雲端中繼資料 169.254.169.254、fe80::/10）、多播與未指定位址不是診斷對象 ——
+    打得到就等於任何登入的人都能讓伺服器替他去讀本機服務與雲端憑證。主機名稱要先解析，
+    解析出來的每個位址都檢查（DNS 可以把好看的名字指到 127.0.0.1）。
+    """
+    import asyncio
+    import socket
+    from urllib.parse import urlsplit
+
+    from app.core.safe_http import _BLOCKED_CIDRS, _ip_in
+
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise DiagTargetBlocked(f"not an http(s) URL: {url[:200]}")
+    host = parts.hostname
+    try:
+        addrs = [ipaddress.ip_address(host)]
+    except ValueError:
+        loop = asyncio.get_running_loop()
+        try:
+            infos = await loop.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80),
+                                           type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise DiagTargetBlocked(f"DNS resolution failed for {host}: {exc}") from exc
+        addrs = [ipaddress.ip_address(i[4][0]) for i in infos]
+    for ip in addrs:
+        if _ip_in(ip, _BLOCKED_CIDRS):
+            raise DiagTargetBlocked(f"{host} ({ip}) is loopback / link-local / multicast — not a diagnostic target")
+
+
 async def http_check(url: str, *, timeout: float = 10.0, max_redirects: int = 5,
                      verify_tls: bool = False) -> HttpResult:
     """取狀態碼、轉址鏈與幾個關鍵標頭。
@@ -1100,6 +1137,8 @@ async def http_check(url: str, *, timeout: float = 10.0, max_redirects: int = 5,
         async with httpx.AsyncClient(verify=verify_tls, follow_redirects=False,
                                      timeout=timeout, trust_env=False) as client:
             for _ in range(max_redirects + 1):
+                # 每一跳都先檢查目標（轉址可以把人帶去本機或雲端中繼資料位址）
+                await _assert_diag_http_target(current)
                 r = await client.get(current)
                 if r.is_redirect and r.headers.get("location"):
                     res.redirects.append(HttpHop(url=current, status=r.status_code,

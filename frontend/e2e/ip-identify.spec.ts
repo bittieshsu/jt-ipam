@@ -82,7 +82,9 @@ test("管理員：按下探測 → 開探測頁 → 看得到進度 → 完成�
   const summary = { device_type: "server", os: "Linux 5.15 - 6.8", vendor: "IANA", names: ["db-01.example.test"],
                     applications: ["OpenSSH 9.6p1", "PostgreSQL DB 16", "AnyDesk"],
                     services: ["22/tcp ssh OpenSSH 9.6p1", "5432/tcp postgresql PostgreSQL DB 16"],
-                    evidence: ["os:Linux 5.15 - 6.8 (96%)", "osclass:general purpose", "oui:IANA"],
+                    evidence: ["os:Linux 5.15 - 6.8 (96%)", "osclass:general purpose", "oui:IANA",
+                               "recog:OpenSSH running on Ubuntu (22/tcp ssh.banner)"],
+                    model: "PowerEdge R650", recog: "3.2.0",
                     nmap_available: true };
   const oldBrief = { job_id: OLD, status: "done", agent_name: "agent-e2e", created_at: "2026-09-27T01:00:00Z",
                      finished_at: "2026-09-27T01:01:00Z", summary };
@@ -146,13 +148,28 @@ test("管理員：按下探測 → 開探測頁 → 看得到進度 → 完成�
 
   const sum = page.getByTestId("identify-summary");
   await expect(sum).toContainText("伺服器／電腦");
+  // 類型是推測：畫面要講明可能不準（使用者回饋：NAS 被判成攝影機）
+  await expect(page.getByTestId("identify-guess")).toContainText("推測");
+  await expect(page.getByTestId("identify-guess-note")).toContainText("可能判斷錯誤");
   await expect(sum).toContainText("db-01.example.test");
   await expect(page.getByTestId("identify-apps")).toContainText("AnyDesk");
+  // Recog 指紋庫：型號、比中的依據、用的是哪一版
+  await expect(page.getByTestId("identify-model")).toHaveText("PowerEdge R650");
+  await expect(sum).toContainText("recog:OpenSSH running on Ubuntu");
+  await expect(page.getByTestId("identify-recog-note")).toContainText("Recog 3.2.0");
   const ch = page.getByTestId("identify-changes");
   await expect(ch).toContainText("5432/tcp");
   await expect(ch).toContainText("80/tcp");
   await expect(ch).toContainText("OpenSSH 8.9p1 → OpenSSH 9.6p1");
   await expect(page.getByTestId("identify-ports")).toContainText("ssh-hostkey");
+  // 欄寬依內容：產品與其他資訊只拿需要的寬度，剩下的給最後一欄「讀到的資訊」（使用者回饋：拉寬後沒充分利用）
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  const th = (label: string) => page.getByTestId("identify-ports").locator("th").filter({ hasText: label }).first();
+  const wProduct = (await th("產品").boundingBox())!.width;
+  const wExtra = (await th("其他資訊").boundingBox())!.width;
+  const wScripts = (await th("讀到的資訊").boundingBox())!.width;
+  expect(wScripts).toBeGreaterThan(wProduct + wExtra);
+  expect(wProduct).toBeLessThan(400);
 
   // 原始結果可以直接下載，不用自己複製
   await page.getByText("原始結果").click();
@@ -165,4 +182,30 @@ test("管理員：按下探測 → 開探測頁 → 看得到進度 → 完成�
   await page.getByTestId("identify-history-item").nth(1).click();
   await expect(page).toHaveURL(new RegExp(`job=${OLD}`));
   await expect(page.getByTestId("identify-changes")).toHaveCount(0);
+});
+
+
+test("探測時主機沒有回應：講清楚是沒回應，不是「無法判斷」", async ({ page }) => {
+  const JOB = "00000000-0000-4000-8000-00000000e2e9";
+  const silent = { device_type: "no_response", no_response: true, os: null, vendor: "ProxmoxServe", names: [],
+                   applications: [], services: [], evidence: ["oui:ProxmoxServe"], nmap_available: true };
+  const brief = { job_id: JOB, status: "done", agent_name: "agent-e2e", created_at: "2026-09-29T06:37:01Z",
+                  finished_at: "2026-09-29T06:37:09Z", summary: silent };
+  await page.route(/\/api\/v1\/addresses\/[^/]+\/identify(\/[^/?]+)?(\?.*)?$/, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/history")) return route.fulfill({ json: { items: [brief] } });
+    return route.fulfill({ json: { ...brief, error: null, error_code: null, claimed_at: brief.created_at,
+      progress: null, changes: null,
+      result: { target: SAMPLE_IP, names: { rdns: null, netbios: null, mdns: null },
+                nmap: { available: true, ports: [], os: [], mac: null, closed: 0 } } } });
+  });
+  await login(page, ADMIN_USER, ADMIN_PASS);
+  await page.goto(`/addresses/${ipId}/identify`);
+  const alert = page.getByTestId("identify-no-response");
+  await expect(alert).toContainText("完全沒有回應");
+  await expect(alert).toContainText("ProxmoxServe");
+  await expect(page.getByTestId("identify-summary")).toContainText("沒有回應");
+  await expect(page.getByTestId("identify-guess")).toHaveCount(0);
+  // 摘要沒有帶 Recog 版本＝伺服器沒裝指紋庫：要講出來，不然看不出判斷為什麼比較少
+  await expect(page.getByTestId("identify-recog-note")).toContainText("沒有安裝 Recog");
 });

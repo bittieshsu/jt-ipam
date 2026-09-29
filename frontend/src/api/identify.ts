@@ -10,7 +10,13 @@ export interface IdentifyPort {
 }
 export interface IdentifySummary {
   device_type: string; os: string | null; vendor: string | null; names: string[];
+  /** Recog 指紋比中的硬體型號／系列 */
+  model?: string | null;
+  /** 摘要用了哪一版 Recog 指紋庫；沒安裝是 null */
+  recog?: string | null;
   applications: string[]; services: string[]; evidence: string[]; nmap_available: boolean;
+  /** 探測時主機完全沒有回應（沒有開或關的埠、沒有 MAC 回應、沒有 OS 指紋） */
+  no_response?: boolean;
 }
 export interface IdentifyChanges {
   previous_job_id: string; previous_at: string;
@@ -71,6 +77,7 @@ export async function getIdentify(target: IdentifyTarget | string, jobId: string
 /** 以位址探測時的標題資訊；已經登記的位址會帶 address_id（畫面改用那筆記錄的探測頁） */
 export interface IdentifyIpTarget {
   ip: string; subnet_id: string; subnet_cidr: string; agent_name: string | null; address_id: string | null;
+  arp_last_seen?: string | null; arp_source?: string | null;
   /** 0＝IPAM 沒有記錄；>1＝重複記錄（不是未登記） */
   record_count: number;
 }
