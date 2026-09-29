@@ -25,6 +25,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import safe_request
+from app.core.sqlin import in_values
 from app.core.ui_error import UiError
 from app.models.oui import OUIVendor
 
@@ -175,7 +176,7 @@ async def vendor_map(session: AsyncSession, macs: list[str | None]) -> dict[str,
     rows = (
         await session.execute(
             select(OUIVendor.prefix, OUIVendor.short_name, OUIVendor.name)
-            .where(OUIVendor.prefix.in_(prefixes))
+            .where(in_values(OUIVendor.prefix, prefixes))
         )
     ).all()
     return {r[0]: (r[1] or r[2]) for r in rows}

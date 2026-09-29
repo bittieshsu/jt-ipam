@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.sqlin import not_in_values
 from app.models.address import IPAddress
 from app.models.wazuh import WazuhAgent, WazuhInstance
 
@@ -376,7 +377,7 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
     removed = 0
     if seen_ids:
         stale = (await session.execute(select(WazuhAgent).where(
-            WazuhAgent.instance_id == inst.id, WazuhAgent.agent_id.notin_(seen_ids)))).scalars().all()
+            WazuhAgent.instance_id == inst.id, not_in_values(WazuhAgent.agent_id, seen_ids)))).scalars().all()
         for row in stale:
             await session.delete(row)
         removed = len(stale)

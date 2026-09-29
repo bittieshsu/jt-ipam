@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.customer import Customer
 from app.models.section import Section
@@ -37,7 +38,7 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
                IPAddress.arp_seen)
         .join(Subnet, Subnet.id == IPAddress.subnet_id)
         .join(Section, Section.id == Subnet.section_id, isouter=True)
-        .where(IPAddress.id.in_(ids))
+        .where(in_values(IPAddress.id, ids))           # 大站台一次就是幾萬個
     )).all():
         info[str(rid)] = (ip_cust or sub_cust or sec_cust, sub_id, cidr, sec_id, sec_name)
         # 上線與否由前端用 IP 清單燈號的同一套規則即時算（classifyAddressLiveness），
@@ -50,7 +51,7 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
         }
     cust_ids = {v[0] for v in info.values() if v[0]}
     names = dict((await session.execute(
-        select(Customer.id, Customer.name).where(Customer.id.in_(cust_ids))
+        select(Customer.id, Customer.name).where(in_values(Customer.id, cust_ids))
     )).all()) if cust_ids else {}
     for r in rows:
         cust, sub_id, cidr, sec_id, sec_name = info.get(str(r.get("ip_address_id")), (None,) * 5)

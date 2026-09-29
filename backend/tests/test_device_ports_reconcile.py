@@ -160,3 +160,64 @@ async def test_port_list_shows_the_mac_vendor(client, auth_headers, db_session) 
     by = {p["name"]: p for p in r.json()}
     assert by["eno1"]["mac_vendor"] == "IANA"
     assert by["eno2"]["mac_vendor"] is None
+
+
+async def test_port_sync_does_not_query_per_port(db_session, monkeypatch) -> None:
+    """超大規模：以前每個埠各一次 upsert（5,000 台裝置、每台 8 埠 → 一輪 6 萬次查詢、200 秒）。
+    查詢數要跟裝置數成正比、不跟埠數成正比；沒變的埠不重寫。"""
+    from sqlalchemy import event
+    db_session.autoflush = False
+    inst = await _inst(db_session)
+    for i in range(20):
+        await _dev(db_session, inst, legacy_id=100 + i)
+    await db_session.commit()
+    names = [f"eth{i}" for i in range(40)]
+    _api(monkeypatch, {"/api/v0/devices/": {"ports": [
+        {"ifName": n, "ifType": "ethernetCsmacd", "ifPhysAddress": f"00005e0053{i:02x}", "ifAlias": f"desk {i}"}
+        for i, n in enumerate(names)]}})
+    count = {"n": 0}
+    conn = await db_session.connection()
+
+    def _c(*_a, **_k):
+        count["n"] += 1
+    event.listen(conn.sync_connection, "before_cursor_execute", _c)
+    try:
+        created = await lib.sync_device_ports(db_session, inst)
+        await db_session.commit()
+        first, count["n"] = count["n"], 0
+        again = await lib.sync_device_ports(db_session, inst)
+        await db_session.commit()
+        second = count["n"]
+    finally:
+        event.remove(conn.sync_connection, "before_cursor_execute", _c)
+    assert (created, again) == (20 * 40, 0)
+    assert first < 20 * 8, f"第一輪 {first} 次（20 台 × 40 埠）"
+    assert second < 20 * 8, f"第二輪 {second} 次"
+    mac = (await db_session.execute(select(DevicePort.mac_address)
+                                    .where(DevicePort.name == "eth3").limit(1))).scalar()
+    assert mac == "00:00:5e:00:53:03"
+
+
+async def test_librenms_without_a_value_keeps_what_is_there(db_session, monkeypatch) -> None:
+    """LibreNMS 沒給 MAC／說明時不可以把既有的清掉；有給而且不同才覆寫。"""
+    db_session.autoflush = False
+    inst = await _inst(db_session)
+    dev = await _dev(db_session, inst)
+    db_session.add(DevicePort(device_id=dev.id, name="ge-0/0/1", mac_address="00:00:5e:00:53:01",
+                              description="人資 印表機", source_origin=lib.port_origin(inst.id)))
+    await db_session.commit()
+    _api(monkeypatch, {"/api/v0/devices/": {"ports": [
+        {"ifName": "ge-0/0/1", "ifType": "ethernetCsmacd"}, {"ifName": "ge-0/0/2", "ifType": "ethernetCsmacd"}]}})
+    await lib.sync_device_ports(db_session, inst)
+    await db_session.commit()
+    p = (await _rows(db_session, dev))["ge-0/0/1"]
+    assert (p.mac_address, p.description) == ("00:00:5e:00:53:01", "人資 印表機")
+    _api(monkeypatch, {"/api/v0/devices/": {"ports": [
+        {"ifName": "ge-0/0/1", "ifType": "ethernetCsmacd", "ifPhysAddress": "00005e005309",
+         "ifAlias": "財務 3F 影印機"},
+        {"ifName": "ge-0/0/2", "ifType": "ethernetCsmacd", "ifAlias": "ge-0/0/2"}]}})
+    await lib.sync_device_ports(db_session, inst)
+    await db_session.commit()
+    got = (await db_session.execute(select(DevicePort.mac_address, DevicePort.description).where(
+        DevicePort.device_id == dev.id, DevicePort.name == "ge-0/0/1"))).one()
+    assert tuple(got) == ("00:00:5e:00:53:09", "財務 3F 影印機")

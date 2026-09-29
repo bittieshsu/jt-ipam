@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from "@/stores/auth";
 const _authBtn = useAuthStore();
-import { computed, h, onMounted, ref, watch } from "vue";
+import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -125,6 +125,18 @@ async function delThisSubnet() {
 const subnet = ref<Subnet | null>(null);
 const usage = ref<SubnetUsage | null>(null);
 const addresses = ref<IPAddress[]>([]);
+// 超大規模：一個 /16 有六萬多個位址。這一頁一次最多載入 1,000 筆（再多瀏覽器就吃不消），
+// 超過時講清楚只列了前面這些，並連到有伺服器端分頁與搜尋的 IP 位址清單
+const ADDRESS_LOAD_LIMIT = 1000;
+const addressesTotal = ref(0);
+// 位址只載入了一部分時，IP 指示計改用後端彙總的每個 /24 已用數
+const subnetBlocks = ref<{ start: string; used: number }[] | null>(null);
+// 表格分頁：1,000 列一次畫出來會讓瀏覽器卡住將近十秒（每列都有提示框與標籤）
+const ipPagination = reactive({
+  page: 1, pageSize: 100, showSizePicker: true, pageSizes: [50, 100, 200, 500],
+  onChange: (p: number) => { ipPagination.page = p; },
+  onUpdatePageSize: (n: number) => { ipPagination.pageSize = n; ipPagination.page = 1; },
+});
 const loading = ref(false);
 
 // ── DHCP 發放範圍：標示落在 pool 內的 IP（多段都涵蓋）──
@@ -248,11 +260,19 @@ async function load(id: string) {
     const [s, u, a] = await Promise.all([
       apiClient.get<Subnet>(`/api/v1/subnets/${id}`).then((r) => r.data),
       getSubnetUsage(id),
-      listAddresses({ subnetId: id, page: 1, pageSize: 1000 }),
+      listAddresses({ subnetId: id, page: 1, pageSize: ADDRESS_LOAD_LIMIT }),
     ]);
     subnet.value = s;
     usage.value = u;
     addresses.value = a.items;
+    addressesTotal.value = a.total ?? a.items.length;
+    ipPagination.page = 1;
+    subnetBlocks.value = null;
+    if (addressesTotal.value > a.items.length) {
+      apiClient.get<{ blocks: { start: string; used: number }[] }>(`/api/v1/subnets/${id}/blocks`)
+        .then((r) => { subnetBlocks.value = r.data.blocks; })
+        .catch(() => { /* 拿不到就照舊用已載入的（至少不會壞） */ });
+    }
     void loadRanges(id);
 
     // 解析名稱：section 必載；vlan/vrf/master_subnet 視情況
@@ -593,6 +613,9 @@ function ipMatchesFilter(a: IPAddress): boolean {
     .some((v) => !!v && String(v).toLowerCase().includes(q));
 }
 
+// 篩選一變就回第一頁（不然可能停在一個已經沒有資料的頁碼）
+watch([ipFilterText, staleFilterOn, onlyDhcp], () => { ipPagination.page = 1; });
+
 const ipRows = computed<any[]>(() => {
   // 有任何篩選（只看失聯／只看 DHCP／篩選字）時：只列符合的已登記 IP，不插入閒置區間列。
   // 三個條件要**疊加**：以前寫成一連串提前 return，開了失聯就直接回傳，DHCP 永遠套不到（使用者回報）
@@ -851,6 +874,8 @@ onMounted(() => {
           :cidr="subnet.cidr"
           :addresses="addresses"
           :ranges="ipRanges"
+          :blocks="subnetBlocks"
+          :total-addresses="addressesTotal"
           @open-ip="onGridOpen"
           @create-ip="onGridCreate"
         />
@@ -914,6 +939,13 @@ onMounted(() => {
           </div>
         </div>
 
+        <n-alert v-if="addressesTotal > addresses.length" type="info" :bordered="false" style="margin-bottom: 8px"
+                 data-testid="subnet-addresses-truncated">
+          {{ t("subnet_detail.addresses_truncated", { shown: addresses.length.toLocaleString(), total: addressesTotal.toLocaleString() }) }}
+          <router-link v-if="subnet" :to="{ name: 'addresses', query: { subnet_id: subnet.id } }">
+            {{ t("subnet_detail.addresses_truncated_link") }}
+          </router-link>
+        </n-alert>
         <n-space v-if="checkedIps.length" align="center" style="margin-bottom: 8px; padding: 8px 12px; background: rgba(127,127,127,0.08); border-radius: 6px;">
           <span>{{ t("common.selected_n", { n: checkedIps.length }) }}</span>
           <n-popconfirm @positive-click="bulkDeleteIps">
@@ -935,7 +967,7 @@ onMounted(() => {
         <n-data-table
           :columns="ipColumns"
           :data="ipRows"
-          :pagination="false"
+          :pagination="ipRows.length > ipPagination.pageSizes[0] ? ipPagination : false"
           :bordered="false"
           size="small"
           :scroll-x="1180"

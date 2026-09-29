@@ -57,6 +57,9 @@ interface Props {
   addresses: IPAddress[];
   /** 子網路內的位址範圍（集區，issue #40）：範圍內的格子底下畫一條該用途的色線 */
   ranges?: IPRange[];
+  /** 超大規模：`addresses` 只載入了一部分時，後端彙總的每個 /24 已用數（指示計改用它）與真正的總數 */
+  blocks?: { start: string; used: number }[] | null;
+  totalAddresses?: number;
 }
 const props = defineProps<Props>();
 
@@ -190,7 +193,14 @@ const aggregated = computed<AggCell[] | null>(() => {
   const total = p.prefixlen >= 32 ? 1 : 2 ** (32 - p.prefixlen);
   const blocks = Math.ceil(total / 256);
   const idx = new Map<number, number>(); // block index → used count
-  for (const a of props.addresses) {
+  // 位址只載入了一部分：用後端彙總的數字，不然 /16 只會剩幾格
+  for (const b of props.blocks ?? []) {
+    const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(b.start);
+    if (!m) continue;
+    const off = ((Number(m[1]) << 24) | (Number(m[2]) << 16) | (Number(m[3]) << 8) | Number(m[4])) - p.base;
+    if (off >= 0 && off < total) idx.set(Math.floor(off / 256), b.used);
+  }
+  for (const a of props.blocks ? [] : props.addresses) {
     const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a.ip);
     if (!m) continue;
     const ipInt =
@@ -283,9 +293,11 @@ const legendCounts = computed(() => {
     c[classifyAddressLiveness(a)]++;
   }
   const total = parsed.value.ok && !isV6.value ? parsed.value.hostCount : props.addresses.length;
-  c.free = Math.max(total - props.addresses.length, 0);
+  c.free = Math.max(total - (props.totalAddresses ?? props.addresses.length), 0);
   return c;
 });
+// 狀態統計只能依已載入的那些算（上線與否由前端依多個時間欄位判斷）：講清楚
+const partial = computed(() => (props.totalAddresses ?? 0) > props.addresses.length);
 
 function aggColor(pct: number): string {
   // 0..100 → 由淺到深綠
@@ -351,6 +363,9 @@ function aggColor(pct: number): string {
         :style="{ left: tip.x + 'px', top: tip.y + 'px' }"
       >{{ tip.text }}</div>
     </Teleport>
+    <div v-if="partial" class="agg-hint" data-testid="grid-legend-partial">
+      {{ t("visualisation.legend_partial", { n: addresses.length.toLocaleString(), total: (totalAddresses ?? 0).toLocaleString() }) }}
+    </div>
     <div class="legend">
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-active, #22c55e)' }"></i>{{ t("visualisation.online") }} ({{ legendCounts.online }})</span></template>{{ t("visualisation.tip_online", { grace: graceMin }) }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-dhcp, #f59e0b)' }"></i>{{ t("visualisation.stale") }} ({{ legendCounts.stale }})</span></template>{{ t("visualisation.tip_stale", { grace: graceMin, staleMax: staleMaxMin }) }}</n-tooltip>

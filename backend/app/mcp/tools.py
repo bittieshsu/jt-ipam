@@ -1511,6 +1511,9 @@ async def get_topology(
     graph = await build_topology(
         session, user=user, subnet_ids=subnet_ids, include_l3=include_l3, include_vpn=include_vpn,
     )
+    if graph.get("too_large"):
+        return {"too_large": graph["too_large"],
+                "hint": "Too many devices to draw at once; call again with subnet_cidr to narrow it down."}
     labels = {n["data"]["id"]: n["data"].get("label") for n in graph["nodes"]}
     edges = [{
         "from": labels.get(e["data"]["source"], e["data"]["source"]),

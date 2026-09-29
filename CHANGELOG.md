@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.55] - 2026-09-30
+
+Large-scale environments. GitHub issue #47 (a device with 30,000+ ports broke LibreNMS sync) showed that
+the code assumed "one query fits" in many places. A synthetic large site (2,000 /24s plus a full /16,
+145k IPs, 20k devices, 200k ports with 40k on one device, 290k FDB, 100k leases, 500k IP changes,
+1M daily liveness rows — `backend/tests/seed_scale.py`) was then run through every GET endpoint, the
+sync paths, anomaly detection and every page in a real browser.
+
+### Fixed
+- **LibreNMS sync failed with "the number of query arguments cannot exceed 32767" (#47).** Lists that
+  grow with the network (ports of a device, IPs of a subnet, leases, agents…) are now passed as one array
+  parameter (`app.core.sqlin.in_values()`), in port pruning/reconcile, the ports tab, hostname sources,
+  DHCP, uptime, anomaly detection, topology, Wazuh/OCS "missing agents" (also a 500 on large sites),
+  OCS, Proxmox and LibreNMS. A guard test keeps these modules from reintroducing Python-list `IN`.
+- **56 foreign-key columns had no index** (migration 0167): deleting a referenced row scanned the child
+  table once per row — pruning 33k ports took 106 s (now 8 s), deleting a /16 scanned several tables per
+  IP. A guard test fails when a new foreign key has no index.
+- **Opening the topology froze the whole backend.** Backbone inference compared every pair of switches
+  against every port (5,000 switches: 10+ minutes at 100% CPU, every request stuck). It now only looks
+  at pairs that actually see each other — verified identical to the old algorithm on 200 random
+  topologies — and cable ends are loaded in one query (53 s → 20 s on 20k devices). Over 2,000 devices
+  the graph is not built; the page (and the AI tool) ask for a subnet filter instead.
+- **LibreNMS sync on 5,000 devices went from ~14.5 minutes to ~1.5.** ARP 563 s → 22 s (291k queries →
+  6), ports 202 s → 1 s, devices 31 s → 15 s; unchanged rows are no longer rewritten every cycle. A device
+  whose IP field is not an IP (a host name) no longer crashes the whole device sync.
+- Hostname sources and DHCP lease sightings write in batches (a round of 100k names was 100k queries).
+- **Subnet page of a /16:** only the first 1,000 addresses were loaded and all 1,000 rows were rendered
+  at once (the browser froze ~10 s). The table is paginated, the page says when only the first 1,000 are
+  shown (with a link to the paged, searchable IP list), and the IP indicator uses a server-side count per
+  /24 instead of the loaded subset (a full /16 showed 4 blocks).
+- OUI search without criteria returned 500 instead of 400.
+
 ## [0.6.54] - 2026-09-29
 
 ### Added

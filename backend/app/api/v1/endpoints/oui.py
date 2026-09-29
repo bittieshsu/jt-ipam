@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.db import get_session
-from app.core.ui_error import detail_of
+from app.core.ui_error import UiError, detail_of
 from app.services.oui import refresh_oui_db, search_oui_vendors, vendor_for_mac
 from app.services.oui import stats as oui_stats
 
@@ -54,5 +54,5 @@ async def search(
         return await search_oui_vendors(
             session, prefix=prefix or None, name=name or None, limit=limit,
         )
-    except ValueError as exc:
+    except (ValueError, UiError) as exc:      # 服務層丟的是 UiError：以前沒接住，變成 500
         raise HTTPException(status_code=400, detail=detail_of(exc, "oui_bad_input")) from exc

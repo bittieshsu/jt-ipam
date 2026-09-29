@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.models.device import Device
 from app.models.librenms import FDBEntry, LibreNMSDevice
 from app.models.physical import (
@@ -114,7 +115,7 @@ async def list_cables(
     ends: dict[uuid.UUID, dict[str, Any]] = {cid: {} for cid in cable_ids}
     if cable_ids:
         terms = list((await session.execute(
-            select(CableTermination).where(CableTermination.cable_id.in_(cable_ids))
+            select(CableTermination).where(CableTermination.cable_id.in_(cable_ids))  # bounded: one page (≤ 500)
         )).scalars().all())
         # 預載相關 device_port → device 名稱
         port_ids = [t.object_id for t in terms if t.object_type == "device_port"]
@@ -122,14 +123,14 @@ async def list_cables(
         ports: dict[uuid.UUID, DevicePort] = {}
         if port_ids:
             ports = {p.id: p for p in (await session.execute(
-                select(DevicePort).where(DevicePort.id.in_(port_ids))
+                select(DevicePort).where(DevicePort.id.in_(port_ids))  # bounded: ends of one page of cables
             )).scalars().all()}
         # dev_meta: id → (name, customer_id, location_id)
         dev_meta: dict[uuid.UUID, tuple[str, uuid.UUID | None, uuid.UUID | None]] = {}
         need_dev = set(dev_ids) | {p.device_id for p in ports.values()}
         if need_dev:
             dev_meta = {d.id: (d.name, d.customer_id, d.location_id) for d in (await session.execute(
-                select(Device).where(Device.id.in_(need_dev))
+                select(Device).where(Device.id.in_(need_dev))  # bounded: ends of one page of cables
             )).scalars().all()}
         for t in terms:
             label = None
@@ -326,7 +327,7 @@ async def list_device_ports(
     terms = list((await session.execute(
         select(CableTermination).where(
             CableTermination.object_type == "device_port",
-            CableTermination.object_id.in_(port_ids),
+            in_values(CableTermination.object_id, port_ids),      # 一台裝置可以有上萬個埠（issue #47）
         )
     )).scalars().all())
     for t in terms:
@@ -434,7 +435,7 @@ async def import_device_ports(
     if not names and lns_devs:
         rows = (await session.execute(
             select(FDBEntry.port_name).where(
-                FDBEntry.device_id.in_([d.id for d in lns_devs]),
+                FDBEntry.device_id.in_([d.id for d in lns_devs]),  # bounded: LibreNMS entries of one device
                 FDBEntry.port_name.is_not(None),
             ).distinct()
         )).all()
@@ -1012,7 +1013,7 @@ async def list_vpn(
     if dev_ids:
         names = {
             did: nm for did, nm in (await session.execute(
-                select(Device.id, Device.name).where(Device.id.in_(dev_ids))
+                select(Device.id, Device.name).where(Device.id.in_(dev_ids))  # bounded: one page (≤ 500)
             )).all()
         }
 

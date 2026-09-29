@@ -27,6 +27,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.advanced import WirelessLink
 from app.models.device import Device
@@ -72,6 +73,59 @@ def evidence_of(via: str) -> str:
     return best
 
 
+# 一次最多畫幾台裝置。兩萬台的圖瀏覽器畫不動、人也看不懂，後端還要算上十幾秒（期間整個服務卡住）；
+# 超過就不建圖，回傳裝置數讓畫面請使用者先用子網路篩選（2026-09-29 超大規模測試）
+MAX_TOPOLOGY_DEVICES = 2000
+
+
+def uplink_pairs_from_fdb(
+    by_port: dict[tuple[str, str], set[str]],
+    own_macs: dict[str, set[str]],
+    switch_ids: set[str],
+    visible_device_ids: set[str],
+    adjacency: set[tuple[str, str]],
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """兩台交換器直連（骨幹）：A 的埠 P 看得到 B 自己的 MAC、B 的埠 Q 看得到 A 自己的 MAC，
+    而且 P 與 Q 背後的機器（扣掉對方交換器自己的 MAC）不相交。回傳 {(a, b): (P, Q)}，a < b。
+
+    **只看真的互相看得到的那幾對**：以前是把每一對交換器都拿出來、每一對再把全部的埠掃一遍
+    （交換器數平方 × 埠數）。5,000 台交換器時就是一千多萬對 × 幾十萬個埠 —— 拓樸頁讓後端單核
+    跑滿十幾分鐘，整個服務都卡住（2026-09-29 超大規模測試抓到）。現在先從 FDB 反查「誰的埠上
+    出現了哪台交換器自己的 MAC」，候選對只剩真的有目擊的；判準與挑選順序跟以前一模一樣
+    （同一對有多組埠符合時，取埠在 by_port 裡先出現的那組）。
+    """
+    owners: dict[str, set[str]] = {}
+    for sw, macs in own_macs.items():
+        for mac in macs:
+            owners.setdefault(mac, set()).add(sw)
+    all_own = set(owners)
+    # (看的人, 被看到的交換器) → [(埠在 by_port 的順序, 埠, 那個埠背後的 MAC)]
+    sees: dict[tuple[str, str], list[tuple[int, str, set[str]]]] = {}
+    for order, ((sw, port), macs) in enumerate(by_port.items()):
+        for mac in (macs & all_own if len(macs) > len(all_own) else all_own & macs):
+            for other in owners[mac]:
+                if other != sw:
+                    lst = sees.setdefault((sw, other), [])
+                    if not lst or lst[-1][0] != order:
+                        lst.append((order, port, macs))
+    pairs: dict[tuple[str, str], tuple[str, str]] = {}
+    for (a, b) in sorted({(min(x, y), max(x, y)) for x, y in sees}):
+        if a not in switch_ids or b not in switch_ids or (a, b) in adjacency:
+            continue
+        if a not in visible_device_ids or b not in visible_device_ids:
+            continue
+        a_ports, b_ports = sees.get((a, b)), sees.get((b, a))
+        if not a_ports or not b_ports:
+            continue                       # 單邊看得到對方：無從證實，不畫
+        own_a, own_b = own_macs.get(a, set()), own_macs.get(b, set())
+        for _o1, pa, ma in a_ports:
+            hit = next((pb for _o2, pb, mb in b_ports if not ((ma - own_b) & (mb - own_a))), None)
+            if hit is not None:
+                pairs[(a, b)] = (pa, hit)
+                break
+    return pairs
+
+
 async def build_topology(
     session: AsyncSession,
     *,
@@ -84,7 +138,8 @@ async def build_topology(
     include_fdb: bool = True,
     include_vms: bool = False,
     online_only: bool = False,
-) -> dict[str, list[dict[str, Any]]]:
+    max_devices: int | None = None,
+) -> dict[str, Any]:
     nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, Any]] = []
 
@@ -143,9 +198,9 @@ async def build_topology(
     if location_id is not None:
         dstmt = dstmt.where(Device.location_id == location_id)
     if allowed_device_ids is not None:
-        dstmt = dstmt.where(Device.id.in_({uuid.UUID(x) for x in allowed_device_ids} or {uuid.UUID(int=0)}))
+        dstmt = dstmt.where(in_values(Device.id, {uuid.UUID(x) for x in allowed_device_ids}))
     if vis_dev is not None:
-        dstmt = dstmt.where(Device.id.in_(vis_dev))
+        dstmt = dstmt.where(in_values(Device.id, vis_dev))
     devices = list((await session.execute(dstmt)).scalars().all())
     # 只畫上線：限縮成「至少有一個 IP 的 effective_status = online」的裝置
     if online_only:
@@ -158,12 +213,15 @@ async def build_topology(
             )).all() if row[0]
         }
         devices = [d for d in devices if str(d.id) in online_ids]
+    limit = MAX_TOPOLOGY_DEVICES if max_devices is None else max_devices
+    if len(devices) > limit:
+        return {"nodes": [], "edges": [], "too_large": {"devices": len(devices), "limit": limit}}
     # 批次查每台裝置的主要 IP（給 node 帶上，連線卡片可顯示兩端 IP）
     pip_ids = {d.primary_ip_id for d in devices if d.primary_ip_id}  # type: ignore[attr-defined]
     pip_map: dict[uuid.UUID, str] = {}
     if pip_ids:
         for iid, ipval in (await session.execute(
-            select(IPAddress.id, IPAddress.ip).where(IPAddress.id.in_(pip_ids))
+            select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, pip_ids))
         )).all():
             pip_map[iid] = str(ipval).split("/")[0]
     device_objs: dict[str, Device] = {}
@@ -187,10 +245,14 @@ async def build_topology(
 
     # ── 物理纜線 ──
     cables = list((await session.execute(select(Cable))).scalars().all())
+    # 端點一次撈回來再分組：以前每條纜線各查一次，兩萬條纜線就是兩萬次查詢（超大規模測試抓到，
+    # 拓樸頁因此要四十秒、期間整個後端卡住）
+    terms_of: dict[Any, list[CableTermination]] = {}
+    if cables:
+        for t in (await session.execute(select(CableTermination))).scalars().all():
+            terms_of.setdefault(t.cable_id, []).append(t)
     for cable in cables:
-        terms = list((await session.execute(
-            select(CableTermination).where(CableTermination.cable_id == cable.id)
-        )).scalars().all())
+        terms = terms_of.get(cable.id, [])
         if len(terms) != 2:
             continue
         a, b = sorted(terms, key=lambda t: t.side)
@@ -249,7 +311,7 @@ async def build_topology(
         if vis_dev is not None:
             missing = [d for d in missing if d in vis_dev]
         if missing:
-            extra = (await session.execute(select(Device).where(Device.id.in_(missing)))).scalars().all()
+            extra = (await session.execute(select(Device).where(in_values(Device.id, missing)))).scalars().all()
             for d in extra:  # type: ignore[assignment]
                 device_objs[str(d.id)] = d  # type: ignore[assignment]
                 nodes[str(d.id)] = {"data": {
@@ -595,29 +657,7 @@ async def build_topology(
             #    （C 的 MAC 當然會出現在 A 朝 B 的那個埠上）。相交檢查會擋掉，因為
             #    A 朝 B 的埠與 C 朝 B 的埠都含有 B 與 B 底下那些機器。
             #    單邊只看得到對方（對面那台沒在回報 FDB）時**不畫** —— 無從證實。
-            uplink_pairs: dict[tuple[str, str], tuple[str, str]] = {}
-            for a in sorted(switch_ids):
-                for b in sorted(switch_ids):
-                    if a >= b:
-                        continue
-                    pair = (a, b)
-                    if pair in adjacency or pair in uplink_pairs:
-                        continue
-                    if a not in visible_device_ids or b not in visible_device_ids:
-                        continue
-                    a_ports = [(p, m) for (s, p), m in by_port.items()
-                               if s == a and m & own_macs.get(b, set())]
-                    b_ports = [(p, m) for (s, p), m in by_port.items()
-                               if s == b and m & own_macs.get(a, set())]
-                    for pa, ma in a_ports:
-                        for pb, mb in b_ports:
-                            # 兩個埠背後的機器不可以重疊；對方交換器自己的 MAC 不算
-                            if (ma - own_macs.get(b, set())) & (mb - own_macs.get(a, set())):
-                                continue
-                            uplink_pairs[pair] = (pa, pb)
-                            break
-                        if pair in uplink_pairs:
-                            break
+            uplink_pairs = uplink_pairs_from_fdb(by_port, own_macs, switch_ids, visible_device_ids, adjacency)
 
             for (a, b), (pa, pb) in sorted(uplink_pairs.items()):
                 edges.append({"data": {
@@ -698,21 +738,21 @@ async def build_topology(
 
         rack_names: dict[str, str] = {}
         if rack_ids:
-            for r in (await session.execute(select(Rack).where(Rack.id.in_(rack_ids)))).scalars().all():
+            for r in (await session.execute(select(Rack).where(in_values(Rack.id, rack_ids)))).scalars().all():
                 rack_names[str(r.id)] = r.name
         loc_names: dict[str, str] = {}
         if loc_ids:
-            for lo in (await session.execute(select(Location).where(Location.id.in_(loc_ids)))).scalars().all():
+            for lo in (await session.execute(select(Location).where(in_values(Location.id, loc_ids)))).scalars().all():
                 loc_names[str(lo.id)] = lo.name
         pip_map: dict[str, str] = {}
         if pip_ids:
             for pid, pip in (await session.execute(
-                select(IPAddress.id, IPAddress.ip).where(IPAddress.id.in_(pip_ids))
+                select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, pip_ids))
             )).all():
                 pip_map[str(pid)] = str(pip).split("/")[0]
         ln_map: dict[str, LibreNMSDevice] = {}
         ln_rows = (await session.execute(
-            select(LibreNMSDevice).where(LibreNMSDevice.jt_ipam_device_id.in_(dev_uuids))
+            select(LibreNMSDevice).where(in_values(LibreNMSDevice.jt_ipam_device_id, dev_uuids))
         )).scalars().all()
         for ln in ln_rows:
             ln_map[str(ln.jt_ipam_device_id)] = ln

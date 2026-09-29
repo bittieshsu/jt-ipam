@@ -205,6 +205,23 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 - [ ] 現成 spec：`frontend/e2e/terminal-links.spec.ts`（需 `E2E_SSH_ADDRESS_ID/USER/PASS`；
   另需該帳號 `can_ssh`、該 IP `ssh_enabled`，第一次連線要按「信任並連線」）
 
+## 5e. 超大規模環境 —— **動到同步、清單頁、拓樸、匯出或查詢寫法時要跑**
+
+GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參數上限）之後的規則：中等規模的資料測不出
+「一次查詢放得下」這類假設。
+
+- [ ] 守門測試綠：`tests/test_many_values_in.py`（同步路徑上不可以有 Python 清單的 `IN`、三萬個值要能過、
+  整批寫入）、`tests/test_fk_indexes.py`（每個外鍵都有索引）、`tests/test_topology_scale.py`、
+  `tests/test_librenms_arp_sync.py`（沒變動的一輪查詢數是常數）
+- [ ] 灌大型站台：建 `jt_ipam_scale` → `alembic upgrade head` → `POSTGRES_DB=jt_ipam_scale python -m tests.seed_scale`
+  （2,000 個 /24＋滿的 /16、14.5 萬 IP、2 萬裝置、20 萬埠（一台 4 萬）、29 萬 FDB、10 萬租約、50 萬異動）
+- [ ] 後端接這個庫，每一支 GET 打一次：沒有 5xx、沒有超過數秒的；拓樸在兩萬台裝置時回「太大」而不是卡住後端
+- [ ] 同步探測（假 API 回傳同規模資料）：LibreNMS 一輪在數分鐘內、沒有變動的一輪查詢數不跟筆數成正比
+- [ ] 前端接這個庫：`e2e/all-routes.spec.ts`／`mobile-all-routes.spec.ts` 全綠；/16 子網路頁、4 萬埠裝置頁
+  實際打開，主執行緒最長卡頓不超過約 1.5 秒（量 longtask，不要用看的）
+- [ ] 新的清單、同步、匯出要回答：十萬個 IP、單台數萬個埠、十萬筆租約時會怎樣（參數上限、全部載入記憶體、
+  逐筆查詢、一次畫完、沒有分頁）
+
 ## 6. 主要頁面手動點檢（部署後瀏覽器）
 
 - [ ] 登入 / 登出 / 主題切換（淺/深/自動）

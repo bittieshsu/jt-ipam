@@ -1125,7 +1125,8 @@
     "ev_monitored": "第三方監控回報",
     "ev_learned": "被動學到（FDB／ARP）",
     "ev_inferred": "名稱推測",
-    "kind_inferred": "推測（非登記或觀測）"
+    "kind_inferred": "推測（非登記或觀測）",
+    "too_large": "這個範圍有 {n} 台裝置，超過一次能畫的上限（{limit} 台）：圖會大到看不懂，也要算很久。請用上方的子網路篩選縮小範圍。"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",
@@ -1362,7 +1363,8 @@
     "tip_unknown": "無從判定是否上線：此 IP 刻意略過 Ping 偵測，或所屬子網路未啟用掃描",
     "tip_free": "此 IP 尚未登記（未配發）",
     "auto_added": "自動收錄",
-    "tip_auto_added": "由整合或掃描代理自動建立、沒有人手動登記過的位址——格子左上半是紫色（自動收錄），右下半仍是原本的狀態顏色（上線／離線）。留意：位址一旦收錄進來，就不會再被「未授權 IP」偵測列出來。"
+    "tip_auto_added": "由整合或掃描代理自動建立、沒有人手動登記過的位址——格子左上半是紫色（自動收錄），右下半仍是原本的狀態顏色（上線／離線）。留意：位址一旦收錄進來，就不會再被「未授權 IP」偵測列出來。",
+    "legend_partial": "這個子網路有 {total} 個已登記的位址：區塊使用率依全部位址計算，下方的狀態統計只依已載入的前 {n} 個。"
   },
   "tasks": {
     "title": "作業",
@@ -3258,7 +3260,9 @@
     "scan_agent_ph": "跨網段時指定；留空＝由 jt-ipam 主機直接掃",
     "add_child": "新增下層子網路",
     "delete_confirm": "確定刪除此子網路？此動作無法復原。若其下還有 IP 或下層子網路，請先清空。",
-    "add_address": "新增位址"
+    "add_address": "新增位址",
+    "addresses_truncated": "這個子網路有 {total} 個已登記的位址，這裡只列出前 {shown} 個。",
+    "addresses_truncated_link": "到 IP 位址清單看全部（可分頁、搜尋）"
   },
   "device_detail": {
     "hardware": "硬體",

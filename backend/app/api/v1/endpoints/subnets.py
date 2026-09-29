@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
@@ -143,6 +143,28 @@ async def subnet_usage(
         free=free,
         used_pct=pct,
     )
+
+
+@router.get(
+    "/{subnet_id}/blocks",
+    dependencies=[Depends(require_object_perm("subnet", "read", path_param="subnet_id"))],
+)
+async def subnet_blocks(
+    subnet_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """每個 /24 區塊的已用數（大網段的 IP 指示計用）。
+
+    超大規模：子網路頁一次最多載入 1,000 個位址，/16 的六萬多個位址拿前面那些來畫指示計，
+    只會剩幾格、而且看起來像「其他區塊都沒人用」。這裡直接在資料庫彙總（IPv4）。
+    """
+    subnet = await session.get(Subnet, subnet_id)
+    if subnet is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    rows = (await session.execute(text(
+        "SELECT host(network(set_masklen(ip, 24))) AS blk, count(*) FROM ip_addresses "
+        "WHERE subnet_id = :sid AND family(ip) = 4 GROUP BY 1 ORDER BY min(ip)"), {"sid": subnet_id})).all()
+    return {"prefix": 24, "blocks": [{"start": blk, "used": int(n)} for blk, n in rows]}
 
 
 @router.get(

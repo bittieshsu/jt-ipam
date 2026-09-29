@@ -10,7 +10,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import {
+import { NAlert,
   NCard,
   NSpace,
   NCheckbox,
@@ -68,6 +68,8 @@ const viewModeOptions = computed(() => [
 const modeDrivesSources = computed(() => viewMode.value === "l2" || viewMode.value === "l3");
 const onlineOnly = ref(false);   // 預設：不管上線與否都畫
 const loading = ref(false);
+// 超大規模：裝置太多時後端不建圖，只回裝置數與上限
+const tooLarge = ref<{ devices: number; limit: number } | null>(null);
 const selected = ref<Record<string, any> | null>(null);
 // 連線(edge)兩端資訊：name=裝置/子網路、ip、port=連接埠、endpoint=VPN 端點
 type EdgeEnd = { name: string | null; ip: string | null; port: string | null; endpoint: string | null };
@@ -388,6 +390,7 @@ async function refresh() {
       onlineOnly: onlineOnly.value,
       subnetIds: subnetIds.value,
     });
+    tooLarge.value = data.too_large ?? null;
     render(data);
   } catch {
     msg.error(t("errors.network"));
@@ -1070,6 +1073,9 @@ onUnmounted(() => {
           </n-button>
         </n-space>
       </n-space>
+    <n-alert v-if="tooLarge" type="warning" :bordered="false" style="margin-bottom: 10px" data-testid="topology-too-large">
+      {{ t("topology.too_large", { n: tooLarge.devices.toLocaleString(), limit: tooLarge.limit.toLocaleString() }) }}
+    </n-alert>
     <n-spin :show="loading">
       <div class="topology-shell">
         <div ref="containerRef" class="cy"></div>

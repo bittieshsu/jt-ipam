@@ -1125,7 +1125,8 @@
     "ev_monitored": "Reported by monitoring",
     "ev_learned": "Learned passively (FDB/ARP)",
     "ev_inferred": "Guessed from the name",
-    "kind_inferred": "Guessed (neither recorded nor observed)"
+    "kind_inferred": "Guessed (neither recorded nor observed)",
+    "too_large": "This view has {n} devices, more than can be drawn at once ({limit}): the graph would be unreadable and slow to build. Use the subnet filter above to narrow it down."
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",
@@ -1362,7 +1363,8 @@
     "tip_unknown": "Liveness unknown: ping is excluded for this IP, or its subnet has scanning disabled",
     "tip_free": "This IP is not registered yet (unallocated)",
     "auto_added": "Auto-recorded",
-    "tip_auto_added": "Addresses created automatically by an integration or a scan agent, which nobody registered by hand — the upper-left half of the cell is purple (auto-recorded) while the lower-right half keeps the normal liveness colour. Note: once recorded, unauthorised-IP detection no longer lists them."
+    "tip_auto_added": "Addresses created automatically by an integration or a scan agent, which nobody registered by hand — the upper-left half of the cell is purple (auto-recorded) while the lower-right half keeps the normal liveness colour. Note: once recorded, unauthorised-IP detection no longer lists them.",
+    "legend_partial": "This subnet has {total} registered addresses: block usage counts all of them, the status counts below only the first {n} loaded."
   },
   "tasks": {
     "title": "Tasks",
@@ -3258,7 +3260,9 @@
     "scan_agent_ph": "Specify for cross-subnet scanning; blank = scan from the jt-ipam host directly",
     "add_child": "Add child subnet",
     "delete_confirm": "Delete this subnet? This cannot be undone. If it still has IPs or child subnets, clear them first.",
-    "add_address": "Add address"
+    "add_address": "Add address",
+    "addresses_truncated": "This subnet has {total} registered addresses; only the first {shown} are listed here.",
+    "addresses_truncated_link": "See all in the IP address list (paged, searchable)"
   },
   "device_detail": {
     "hardware": "Hardware",

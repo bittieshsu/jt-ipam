@@ -34,6 +34,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values, not_in_values
 from app.models.ip_hostname import HOSTNAME_SOURCES, IPHostnameObservation, IPHostnameReport
 
 if TYPE_CHECKING:
@@ -92,30 +93,32 @@ class HostnameRun:
         await s.flush()
         affected: set[uuid.UUID] = set()
 
-        # 1. 寫入本輪看到的（名稱取字典序最小：穩定，不會因為迭代順序每輪翻動）
-        for ip_id, names in self._names.items():
-            stmt = pg_insert(IPHostnameReport).values(
-                ip_id=ip_id, source=self.source, origin=self.origin, hostname=min(names),
-                first_seen_at=self.run_at, last_seen_at=self.run_at,
-            ).on_conflict_do_update(
+        # 1. 寫入本輪看到的（名稱取字典序最小：穩定，不會因為迭代順序每輪翻動）。
+        #    每一筆都要蓋 last_seen_at（清理靠它），所以整批 upsert：以前每個 IP 各一次，
+        #    一輪十萬個名稱就是十萬次查詢。一次 4,000 列（參數上限 32767）。
+        rows = [{"ip_id": ip_id, "source": self.source, "origin": self.origin, "hostname": min(names),
+                 "first_seen_at": self.run_at, "last_seen_at": self.run_at}
+                for ip_id, names in self._names.items()]
+        for i in range(0, len(rows), 4000):
+            ins = pg_insert(IPHostnameReport).values(rows[i:i + 4000])
+            await s.execute(ins.on_conflict_do_update(
                 constraint="uq_ip_hostname_reports_ip_source_origin",
-                set_={"hostname": min(names), "last_seen_at": self.run_at},
-            )
-            await s.execute(stmt)
-            affected.add(ip_id)
+                set_={"hostname": ins.excluded.hostname, "last_seen_at": ins.excluded.last_seen_at},
+            ))
+        affected.update(self._names)
 
         # 2. 上游明說沒有名稱的 IP：這台的那一筆清掉（不必等完整）
         if self._cleared:
             await s.execute(delete(IPHostnameReport).where(
                 IPHostnameReport.source == self.source, IPHostnameReport.origin == self.origin,
-                IPHostnameReport.ip_id.in_(self._cleared)))
+                in_values(IPHostnameReport.ip_id, self._cleared)))
             affected |= self._cleared
 
         # 3. 認領：真實實例報到了的 IP，舊資料那一筆就不需要了
         if self._names:
             await s.execute(delete(IPHostnameReport).where(
                 IPHostnameReport.source == self.source, IPHostnameReport.origin == LEGACY_ORIGIN,
-                IPHostnameReport.ip_id.in_(list(self._names))))
+                in_values(IPHostnameReport.ip_id, self._names)))
 
         pruned, breaker = 0, None
         if complete:
@@ -135,13 +138,13 @@ class HostnameRun:
             IPHostnameReport.source == self.source, IPHostnameReport.origin == self.origin,
             IPHostnameReport.last_seen_at < self.run_at)
         if self._held:
-            stale_q = stale_q.where(IPHostnameReport.hostname.notin_(self._held))
+            stale_q = stale_q.where(not_in_values(IPHostnameReport.hostname, self._held))
         stale_mine = set((await s.execute(stale_q)).scalars().all()) - seen
         # 舊資料：只有一台時「這台沒看到」就是「沒人看到」；有多台時等寬限期過了、仍沒人認領
         legacy_q = select(IPHostnameReport.ip_id).where(
             IPHostnameReport.source == self.source, IPHostnameReport.origin == LEGACY_ORIGIN)
         if self._held:
-            legacy_q = legacy_q.where(IPHostnameReport.hostname.notin_(self._held))
+            legacy_q = legacy_q.where(not_in_values(IPHostnameReport.hostname, self._held))
         if self.peers > 1:
             legacy_q = legacy_q.where(IPHostnameReport.last_seen_at < self.run_at - LEGACY_GRACE)
         stale_legacy = set((await s.execute(legacy_q)).scalars().all()) - seen
@@ -156,11 +159,11 @@ class HostnameRun:
         if stale_mine:
             await s.execute(delete(IPHostnameReport).where(
                 IPHostnameReport.source == self.source, IPHostnameReport.origin == self.origin,
-                IPHostnameReport.ip_id.in_(stale_mine)))
+                in_values(IPHostnameReport.ip_id, stale_mine)))
         if stale_legacy:
             await s.execute(delete(IPHostnameReport).where(
                 IPHostnameReport.source == self.source, IPHostnameReport.origin == LEGACY_ORIGIN,
-                IPHostnameReport.ip_id.in_(stale_legacy)))
+                in_values(IPHostnameReport.ip_id, stale_legacy)))
         return doomed, None, stale_mine | stale_legacy
 
     async def _derive(self, ip_ids: Iterable[uuid.UUID]) -> int:
@@ -174,7 +177,7 @@ class HostnameRun:
         s = self.session
         rows = (await s.execute(select(
             IPHostnameReport.ip_id, IPHostnameReport.origin, IPHostnameReport.hostname).where(
-            IPHostnameReport.source == self.source, IPHostnameReport.ip_id.in_(ids)))).all()
+            IPHostnameReport.source == self.source, in_values(IPHostnameReport.ip_id, ids)))).all()
         real: dict[uuid.UUID, list[str]] = {}
         legacy: dict[uuid.UUID, list[str]] = {}
         for ip_id, origin, hn in rows:
@@ -182,7 +185,7 @@ class HostnameRun:
         current = dict((await s.execute(select(
             IPHostnameObservation.ip_id, IPHostnameObservation.hostname).where(
             IPHostnameObservation.source == self.source,
-            IPHostnameObservation.ip_id.in_(ids)))).all())
+            in_values(IPHostnameObservation.ip_id, ids)))).all())
 
         changed = 0
         for ip_id in ids:

@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_liveness import IPLivenessDay
@@ -121,7 +122,7 @@ async def uptime_for_ips(
         rows = list((await session.execute(
             select(IPChangeLog.ip_id, IPChangeLog.created_at, IPChangeLog.new_value)
             .where(
-                IPChangeLog.ip_id.in_(ip_ids),
+                in_values(IPChangeLog.ip_id, ip_ids),
                 IPChangeLog.field == "effective_status",
             )
             .order_by(IPChangeLog.created_at)
@@ -137,7 +138,7 @@ async def uptime_for_ips(
                 IPAddress.id, IPAddress.effective_status,
                 IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
                 IPAddress.created_at, IPAddress.arp_seen,
-            ).where(IPAddress.id.in_(ip_ids))
+            ).where(in_values(IPAddress.id, ip_ids))
         )).all():
             # 「有存活來源」刻意不含 LibreNMS 的 ARP：它沒有時間概念，不能回填整段綠色。
             # 防火牆自己的 ARP／VPN 表會逾時淘汰，算數。
@@ -152,7 +153,7 @@ async def uptime_for_ips(
         for oid, oday, oup, odown, oarp in (await session.execute(
             select(IPLivenessDay.ip_id, IPLivenessDay.day, IPLivenessDay.up,
                    IPLivenessDay.down, IPLivenessDay.arp_only)
-            .where(IPLivenessDay.ip_id.in_(ip_ids), IPLivenessDay.day >= start_day)
+            .where(in_values(IPLivenessDay.ip_id, ip_ids), IPLivenessDay.day >= start_day)
         )).all():
             obs.setdefault(oid, {})[oday] = {"up": oup, "down": odown, "arp_only": oarp}
             if observed_from is None or oday < observed_from:
@@ -281,7 +282,7 @@ async def uptime_batch(
 
     ev_rows = list((await session.execute(
         select(IPChangeLog.ip_id, IPChangeLog.created_at, IPChangeLog.new_value)
-        .where(IPChangeLog.ip_id.in_(ip_ids), IPChangeLog.field == "effective_status")
+        .where(in_values(IPChangeLog.ip_id, ip_ids), IPChangeLog.field == "effective_status")
         .order_by(IPChangeLog.created_at)
     )).all())
     by_ip: dict[uuid.UUID, list[tuple[datetime, str | None]]] = {}
@@ -296,7 +297,7 @@ async def uptime_batch(
         for oid, oday, oup, odown, oarp in (await session.execute(
             select(IPLivenessDay.ip_id, IPLivenessDay.day, IPLivenessDay.up,
                    IPLivenessDay.down, IPLivenessDay.arp_only)
-            .where(IPLivenessDay.ip_id.in_(ip_ids), IPLivenessDay.day >= start_day)
+            .where(in_values(IPLivenessDay.ip_id, ip_ids), IPLivenessDay.day >= start_day)
         )).all():
             obs.setdefault(oid, {})[oday] = {"up": oup, "down": odown, "arp_only": oarp}
             if observed_from is None or oday < observed_from:
@@ -311,7 +312,7 @@ async def uptime_batch(
             IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.effective_status,
             IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
             IPAddress.created_at, IPAddress.arp_seen,
-        ).where(IPAddress.id.in_(ip_ids))
+        ).where(in_values(IPAddress.id, ip_ids))
     )).all():
         extra = _aging_keys(aseen)
         meta[i] = (str(ipv).split("/")[0], host, st, bool(seen_s or seen_l or extra),

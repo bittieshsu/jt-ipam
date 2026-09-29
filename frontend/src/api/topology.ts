@@ -33,6 +33,8 @@ export interface CytoscapeEdge {
 export interface TopologyData {
   nodes: CytoscapeNode[];
   edges: CytoscapeEdge[];
+  /** 裝置太多（超過後端上限）時不建圖，只回這個：畫面請使用者先用子網路篩選 */
+  too_large?: { devices: number; limit: number };
 }
 
 export async function getTopology(params: {

@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import safe_client, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.sqlin import in_values, not_in_values
 from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.device import Device
@@ -741,7 +742,7 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
     addr_of: dict[uuid.UUID, str] = {}
     if ambiguous:
         addr_of = {i: str(a) for i, a in (await session.execute(
-            select(IPAddress.id, func.host(IPAddress.ip)).where(IPAddress.id.in_(ambiguous)))).all()}
+            select(IPAddress.id, func.host(IPAddress.ip)).where(in_values(IPAddress.id, ambiguous)))).all()}
     matched_ids: set[uuid.UUID] = set()
 
     seen = matched = 0
@@ -820,7 +821,7 @@ async def _clear_unmatched(session: AsyncSession, server: OcsServer, matched_ids
         return 0
     stmt = select(IPAddress).where(IPAddress.ocs_id.isnot(None))
     if matched_ids:
-        stmt = stmt.where(IPAddress.id.notin_(matched_ids))
+        stmt = stmt.where(not_in_values(IPAddress.id, matched_ids))
     if scope:
         stmt = stmt.where(IPAddress.subnet_id.in_(scope))
     rows = (await session.execute(stmt)).scalars().all()

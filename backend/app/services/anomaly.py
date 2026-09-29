@@ -23,9 +23,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice
 from app.models.user import User
@@ -132,7 +133,7 @@ async def detect_ip_conflicts(
     if unscoped:
         seen_in: dict[str, set[str]] = defaultdict(set)
         for ip, sid in (await session.execute(
-                select(IPAddress.ip, IPAddress.subnet_id).where(IPAddress.ip.in_(unscoped)))).all():
+                select(IPAddress.ip, IPAddress.subnet_id).where(in_values(IPAddress.ip, unscoped)))).all():
             seen_in[str(ip).split("/")[0]].add(str(sid))
         owner = {ip: next(iter(sids)) for ip, sids in seen_in.items() if len(sids) == 1}
 
@@ -240,7 +241,7 @@ async def detect_mac_drifts(
         drows = (
             await session.execute(
                 select(LibreNMSDevice.id, LibreNMSDevice.sysname, LibreNMSDevice.hostname)
-                .where(LibreNMSDevice.id.in_([uuid.UUID(x) for x in dev_ids]))
+                .where(in_values(LibreNMSDevice.id, [uuid.UUID(x) for x in dev_ids]))
             )
         ).all()
         for did, sysname, hostname in drows:
@@ -252,7 +253,7 @@ async def detect_mac_drifts(
     if drift_macs:
         seen_pair: set[tuple[str, str]] = set()
         iarows = (await session.execute(
-            select(IPAddress.mac, IPAddress.ip, IPAddress.hostname).where(IPAddress.mac.in_(drift_macs))
+            select(IPAddress.mac, IPAddress.ip, IPAddress.hostname).where(in_values(IPAddress.mac, drift_macs))
         )).all()
         for m, ip, hn in iarows:
             key = (str(m), str(ip))
@@ -260,7 +261,7 @@ async def detect_mac_drifts(
                 seen_pair.add(key)
                 ips_by_mac[str(m)].append({"ip": str(ip).split("/")[0], "hostname": hn})
         arows = (await session.execute(
-            select(ARPEntry.mac, ARPEntry.ip).where(ARPEntry.mac.in_(drift_macs))
+            select(ARPEntry.mac, ARPEntry.ip).where(in_values(ARPEntry.mac, drift_macs))
         )).all()
         for m, ip in arows:
             key = (str(m), str(ip))
@@ -762,7 +763,7 @@ async def detect_external_exposure(session: AsyncSession) -> list[dict[str, Any]
     if wanted:
         for ip_id, host in (await session.execute(
             select(IPAddress.id, func.host(IPAddress.ip))
-            .where(func.host(IPAddress.ip).in_(list(wanted)))
+            .where(in_values(func.host(IPAddress.ip), wanted, type_=String()))
         )).all():
             for r in wanted.get(str(host), []):
                 proto = (r.protocol or "any").lower()
@@ -776,7 +777,7 @@ async def detect_external_exposure(session: AsyncSession) -> list[dict[str, Any]
         rows = (await session.execute(
             select(IPAddress, Subnet)
             .join(Subnet, IPAddress.subnet_id == Subnet.id)
-            .where(IPAddress.id.in_(list(exposures)))
+            .where(in_values(IPAddress.id, exposures))
         )).all()
         ip_ids = [ipa.id for ipa, _ in rows]
         # 失聯的 agent 不算「有監控」—— 它沒有在看任何東西，而且它登記的 IP 可能早被回收
@@ -785,7 +786,7 @@ async def detect_external_exposure(session: AsyncSession) -> list[dict[str, Any]
         monitored: set[Any] = {
             wa.jt_ipam_address_id
             for wa in (await session.execute(
-                select(WazuhAgent).where(WazuhAgent.jt_ipam_address_id.in_(ip_ids))
+                select(WazuhAgent).where(in_values(WazuhAgent.jt_ipam_address_id, ip_ids))
             )).scalars().all()
             if wa.jt_ipam_address_id
             and agent_represents_ip(wa, ip_by_id.get(wa.jt_ipam_address_id))
@@ -795,7 +796,7 @@ async def detect_external_exposure(session: AsyncSession) -> list[dict[str, Any]
             ln = {
                 r[0] for r in (await session.execute(
                     select(LibreNMSDevice.jt_ipam_device_id)
-                    .where(LibreNMSDevice.jt_ipam_device_id.in_(dev_ids))
+                    .where(in_values(LibreNMSDevice.jt_ipam_device_id, dev_ids))
                 )).all() if r[0]
             }
             monitored |= {ipa.id for ipa, _ in rows if ipa.device_id in ln}

@@ -9,6 +9,7 @@ AdGuard / Proxmox / 手動）可能都替同一個 IP 回報 MAC。本模組決�
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +63,7 @@ def _same_mac(a: object, b: object) -> bool:
 
 async def consider_mac(
     session: AsyncSession, *, ip: IPAddress, mac: str | None, source: str,
+    latest: dict[Any, Any] | None = None,
 ) -> bool:
     """依優先序決定是否用此來源的 MAC 覆寫 ip.mac。回傳是否有更新。
 
@@ -77,24 +79,38 @@ async def consider_mac(
     if source not in ARP_SOURCES:
         source = "scanner"
     order, disabled = await _P.load(session)
-    if source in disabled:
-        return False   # 該來源已停用 → 不參與 MAC 覆寫
-    if ip.mac is None:
-        await _apply(session, ip=ip, mac=mac, source=source)
-        return True
-    if ip.mac_source is None:
-        return False
-
-    new_rank = _P.rank(order, source)
-    cur_rank = _P.rank(order, ip.mac_source)
-    if new_rank < cur_rank or (new_rank == cur_rank and not _same_mac(ip.mac, mac)):
-        await _apply(session, ip=ip, mac=mac, source=source)
+    if would_take(order, disabled, cur_mac=ip.mac, cur_source=ip.mac_source, mac=mac, source=source):
+        await _apply(session, ip=ip, mac=mac, source=source, latest=latest)
         return True
     return False
 
 
+async def load_precedence(session: AsyncSession) -> tuple[Any, Any]:
+    """(優先序, 停用的來源)：給整批處理的呼叫端先取一次，再逐筆用 would_take() 判斷。"""
+    return await _P.load(session)
+
+
+def would_take(order: Any, disabled: Any, *, cur_mac: object, cur_source: str | None,
+               mac: str | None, source: str) -> bool:
+    """這個來源的 MAC 要不要覆寫 IP 目前的 MAC（consider_mac 與整批同步共用同一份規則）。"""
+    if not mac:
+        return False
+    if source not in ARP_SOURCES:
+        source = "scanner"
+    if source in disabled:
+        return False   # 該來源已停用 → 不參與 MAC 覆寫
+    if cur_mac is None:
+        return True
+    if cur_source is None:
+        return False   # 來源不明（舊資料／人工）→ 保留
+    new_rank = _P.rank(order, source)
+    cur_rank = _P.rank(order, cur_source)
+    return new_rank < cur_rank or (new_rank == cur_rank and not _same_mac(cur_mac, mac))
+
+
 async def _apply(
     session: AsyncSession, *, ip: IPAddress, mac: str, source: str,
+    latest: dict[Any, Any] | None = None,
 ) -> None:
     """覆寫 ip.mac，**並留下異動記錄**。
 
@@ -112,5 +128,5 @@ async def _apply(
     await log_change(
         session, ip=ip, event_type="mac_changed", field="mac",
         old=str(old_mac) if old_mac is not None else None, new=str(mac),
-        source=source,
+        source=source, latest=latest,
     )

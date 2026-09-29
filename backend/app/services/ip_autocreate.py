@@ -88,3 +88,42 @@ async def match_existing(
     if len(rows) > 1:
         return None, True
     return (rows[0] if rows else None), False
+
+
+async def match_existing_many(
+    session: AsyncSession, ips: Any, scope_ids: set[Any] | list[Any] | None = None,
+) -> dict[str, tuple[Any | None, bool]]:
+    """match_existing 的整批版（同一條「唯一才算」）：{ip: (IP 物件, 是否不明確)}，一次查詢。
+
+    超大規模：整合一輪逐一 match_existing，5,000 台裝置就是 5,000 次查詢。不是合法 IP 的字串
+    直接當查無（以前單筆比對時會讓整輪同步崩掉；整批時更會拖垮整批）。
+    """
+    import ipaddress as _ip
+    from collections import defaultdict
+
+    from app.core.sqlin import in_values
+    from app.models.address import IPAddress
+
+    out: dict[str, tuple[Any | None, bool]] = {}
+    valid: set[str] = set()
+    for raw in ips:
+        if not raw:
+            continue
+        out[raw] = (None, False)
+        try:
+            _ip.ip_address(raw)
+            valid.add(raw)
+        except ValueError:
+            continue
+    if not valid:
+        return out
+    stmt = select(IPAddress).where(in_values(IPAddress.ip, valid))
+    if scope_ids:
+        stmt = stmt.where(IPAddress.subnet_id.in_(list(scope_ids)))
+    found: dict[str, list[Any]] = defaultdict(list)
+    for row in (await session.execute(stmt)).scalars().all():
+        found[str(row.ip).split("/")[0]].append(row)
+    for key, rows in found.items():
+        if key in out:
+            out[key] = (rows[0], False) if len(rows) == 1 else (None, True)
+    return out

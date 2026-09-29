@@ -56,6 +56,7 @@ async def log_change(
     source: str = "system",
     actor_user_id: str | uuid.UUID | None = None,
     note: str | None = None,
+    latest: dict[uuid.UUID, IPChangeLog | None] | None = None,
 ) -> None:
     """寫一筆 IP 異動記錄。
 
@@ -65,11 +66,16 @@ async def log_change(
     把真正有意義的人為編輯完全埋掉。根因在各 sync 端用 tiebreak 收斂，這裡是最後一道防線。
     """
     if field is not None:
-        prev = (await session.execute(
-            select(IPChangeLog).where(
-                IPChangeLog.ip_id == ip.id, IPChangeLog.field == field,
-            ).order_by(IPChangeLog.created_at.desc()).limit(1)
-        )).scalars().first()
+        # `latest`：整批同步先用 latest_changes() 一次查好（{ip_id: 那個欄位最後一筆}），
+        # 不然每寫一筆就多一次查詢（超大規模：第一次同步補兩萬個 MAC＝多四萬次查詢）
+        if latest is not None and ip.id in latest:
+            prev = latest[ip.id]
+        else:
+            prev = (await session.execute(
+                select(IPChangeLog).where(
+                    IPChangeLog.ip_id == ip.id, IPChangeLog.field == field,
+                ).order_by(IPChangeLog.created_at.desc()).limit(1)
+            )).scalars().first()
         if (prev is not None
                 and prev.old_value == _s(new) and prev.new_value == _s(old)
                 and prev.created_at is not None
@@ -90,6 +96,21 @@ async def log_change(
             note=note,
         )
     )
+
+
+async def latest_changes(session: AsyncSession, ip_ids: Any, field: str) -> dict[uuid.UUID, IPChangeLog | None]:
+    """這些 IP 在某個欄位的最後一筆異動（沒有的是 None）—— 給 log_change(latest=...) 用。"""
+    from app.core.sqlin import in_values
+    ids = list(ip_ids)
+    out: dict[uuid.UUID, IPChangeLog | None] = dict.fromkeys(ids)
+    if ids:
+        rows = (await session.execute(
+            select(IPChangeLog).where(in_values(IPChangeLog.ip_id, ids), IPChangeLog.field == field)
+            .order_by(IPChangeLog.ip_id, IPChangeLog.created_at.desc())
+            .distinct(IPChangeLog.ip_id))).scalars().all()
+        for r in rows:
+            out[r.ip_id] = r
+    return out
 
 
 async def log_field_diffs(

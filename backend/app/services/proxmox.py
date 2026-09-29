@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.sqlin import not_in_values
 from app.models.encrypted_secret import EncryptedSecret
 from app.models.virt import (
     ProxmoxInstance,
@@ -736,7 +737,7 @@ async def sync_instance(
     if not summary.errors and seen_vmids:
         gone = (await session.execute(select(VirtualMachine).where(
             VirtualMachine.cluster_id == cluster.id,
-            VirtualMachine.legacy_vmid.notin_(seen_vmids)))).scalars().all()
+            not_in_values(VirtualMachine.legacy_vmid, seen_vmids)))).scalars().all()
         for g in gone:
             await session.delete(g)
         summary.vms_removed = len(gone)

@@ -27,6 +27,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.dhcp import DHCPLeaseSighting
 
@@ -58,13 +59,14 @@ class LeaseRun:
     async def finish(self, *, complete: bool) -> dict[str, Any]:
         s = self.session
         await s.flush()
-        for ip_id in self._seen:
-            await s.execute(pg_insert(DHCPLeaseSighting).values(
-                ip_address_id=ip_id, source_type=self.source_type, source_id=self.source_id,
-                first_seen_at=self.run_at, last_seen_at=self.run_at,
-            ).on_conflict_do_update(
+        # 整批 upsert（以前每個租約各一次：大型 DHCP 一輪十萬筆＝十萬次查詢）；一次 5,000 列
+        rows = [{"ip_address_id": ip_id, "source_type": self.source_type, "source_id": self.source_id,
+                 "first_seen_at": self.run_at, "last_seen_at": self.run_at} for ip_id in self._seen]
+        for i in range(0, len(rows), 5000):
+            ins = pg_insert(DHCPLeaseSighting).values(rows[i:i + 5000])
+            await s.execute(ins.on_conflict_do_update(
                 constraint="uq_dhcp_lease_sightings_ip_source",
-                set_={"last_seen_at": self.run_at},
+                set_={"last_seen_at": ins.excluded.last_seen_at},
             ))
         mine = (DHCPLeaseSighting.source_type == self.source_type) & (
             DHCPLeaseSighting.source_id == self.source_id)
@@ -72,7 +74,7 @@ class LeaseRun:
         if self._seen:
             await s.execute(delete(DHCPLeaseSighting).where(
                 DHCPLeaseSighting.source_type == LEGACY,
-                DHCPLeaseSighting.ip_address_id.in_(self._seen)))
+                in_values(DHCPLeaseSighting.ip_address_id, self._seen)))
 
         removed, breaker = 0, None
         if complete:

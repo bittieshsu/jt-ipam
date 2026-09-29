@@ -88,5 +88,7 @@ def test_sync_only_overwrites_when_librenms_has_a_value() -> None:
     from app.services.librenms import sync_device_ports
 
     src = inspect.getsource(sync_device_ports)
-    assert 'updates = {k: v for k, v in (("mac_address", mac), ("description", descr)) if v}' in src
+    # 「沒給就不動」由 upsert 的 coalesce 保證；實際行為在 test_device_ports_reconcile 的
+    # test_librenms_without_a_value_keeps_what_is_there 跑同步驗
+    assert "coalesce(ins.excluded.description" in src and "coalesce(ins.excluded.mac_address" in src
     assert "ifAlias" in src, "ports 查詢沒有帶 ifAlias，說明就同步不回來"

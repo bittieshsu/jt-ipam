@@ -17,6 +17,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.services.system_config import DEFAULT_PORT_IGNORE_PATTERNS, get_device_port_filter
 
 PSEUDO_IFTYPES = {"ppp", "tunnel", "softwareloopback"}
@@ -51,11 +52,12 @@ async def prune_pseudo_ports(session: AsyncSession, device_id: uuid.UUID,
         if p.peer_port_id is None and is_pseudo_iface(p.name, None, patterns)]
     if not ports:
         return 0
+    # 一台 Windows 主機可以累積上萬個偽網卡（issue #47：三萬多個 → 超過 IN 的參數上限）
     pids = [p.id for p in ports]
     peered = set((await session.execute(
-        select(DevicePort.peer_port_id).where(DevicePort.peer_port_id.in_(pids)))).scalars().all())
+        select(DevicePort.peer_port_id).where(in_values(DevicePort.peer_port_id, pids)))).scalars().all())
     cabled = set((await session.execute(
-        select(CableTermination.object_id).where(CableTermination.object_id.in_(pids)))).scalars().all())
+        select(CableTermination.object_id).where(in_values(CableTermination.object_id, pids)))).scalars().all())
     pruned = 0
     for p in ports:
         if p.id in peered or p.id in cabled:

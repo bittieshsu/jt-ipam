@@ -374,6 +374,29 @@ defect is in *what the model was able to ask*.
 - [ ] Existing spec: `frontend/e2e/terminal-links.spec.ts` (needs `E2E_SSH_ADDRESS_ID/USER/PASS`,
   plus `can_ssh` on the user and `ssh_enabled` on the address; accept the host key on first use)
 
+## 5e. Large-scale environments — **whenever sync, list pages, topology, exports or query patterns change**
+
+The rule since GitHub issue #47 (a device with 30,000+ ports pushed an `IN` list past asyncpg's 32767
+parameter limit): medium-sized test data cannot catch "one query fits" assumptions.
+
+- [ ] Guard tests green: `tests/test_many_values_in.py` (no Python-list `IN` on sync paths, 30k values
+  pass, batched writes), `tests/test_fk_indexes.py` (every foreign key has an index),
+  `tests/test_topology_scale.py`, `tests/test_librenms_arp_sync.py` (an unchanged round costs a constant
+  number of queries)
+- [ ] Generate a large site: create `jt_ipam_scale` → `alembic upgrade head` →
+  `POSTGRES_DB=jt_ipam_scale python -m tests.seed_scale` (2,000 /24s + a full /16, 145k IPs, 20k devices,
+  200k ports with 40k on one device, 290k FDB, 100k leases, 500k IP changes)
+- [ ] Point a backend at it and hit every GET: no 5xx, nothing taking more than a few seconds; the topology
+  answers "too large" at 20k devices instead of freezing the backend
+- [ ] Sync probe (fake API returning the same volume): a LibreNMS round finishes in minutes, and an
+  unchanged round's query count does not grow with the number of rows
+- [ ] Point the frontend at it: `e2e/all-routes.spec.ts` / `mobile-all-routes.spec.ts` green; open the /16
+  subnet page and the 40k-port device page — the longest main-thread block stays around 1.5 s or less
+  (measure long tasks, do not eyeball)
+- [ ] New lists, syncs and exports must answer: what happens at 100k IPs, tens of thousands of ports on one
+  device, 100k leases (parameter limit, loading everything into memory, per-row queries, rendering
+  everything at once, no pagination)
+
 ## 6. Manual page review (browser, after deploy)
 
 - [ ] Login / logout / theme switch (light / dark / auto)
