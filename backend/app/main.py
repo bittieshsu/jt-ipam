@@ -238,9 +238,11 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        # 標頭要帶上：401 的 WWW-Authenticate、限流 429 的 Retry-After（以前被丟掉，2026-09-30 發現）
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
         )
 
     @app.exception_handler(Exception)

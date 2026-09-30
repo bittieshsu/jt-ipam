@@ -433,6 +433,11 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   floor-plan upload + drag-to-place + select
 - [ ] Topology: nodes / links, VPN pairing links, legend
 - [ ] Scan agents / sync jobs: pages render, no console errors
+- [ ] **Docs site (GitHub Pages)** — every release that adds a feature or an integration: the feature map
+  (`docs/features.html`) and the home page integration badges name it (each product, not a category such as
+  "DNS"); every feature-map item fits on one line at desktop width in zh / en / ja; every section heading has a
+  `#` link with an English anchor and `page.html#anchor` opens scrolled to it (API manual subsections too);
+  `git ls-files '*.md' '*.html' | xargs grep -lP '\x{FF0F}'` finds nothing (docs use a half-width slash)
 
 ## 7. pfSense integration (Admin → 整合 pfSense)
 
@@ -1099,6 +1104,20 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **Wazuh / OCS pages load fast on a large site** (`e2e/agent-tabs-lazy.spec.ts`): the "IPs without an
   agent" list (and Wazuh's full agent list) is fetched only when its tab is opened; the tab still shows the agent
   count on page load
+- [ ] **"IPs without an agent" is paged on the server** (`tests/test_missing_agents_paged.py`,
+  `src/composables/__tests__/useRemoteMissing.test.ts`, `e2e/missing-agent-scope-filter.spec.ts`): the tab fetches one
+  page (not tens of MB); section / subnet / unit / status filters, the text filter and every column sort go to the
+  backend and cover all gaps, not just the page on screen; picking a section narrows the subnet menu and clears a subnet
+  from another section; the status light and the status filter agree with the IP list (same rule, compared in a test);
+  export downloads everything that matches the filters; after an agent is installed the IP drops out on the next
+  refresh. On the scale dataset (53k gaps) the first open takes about a second or two, paging well under one
+- [ ] **AI chat can turn thinking off** (`tests/test_chat_thinking_setting.py`): Admin → LLM / AI has a "Let the model
+  think before answering in AI chat" switch (on by default = old behaviour). Off: Ollama gets `think:false`, OpenAI-compatible
+  servers (LiteLLM, vLLM, llama.cpp) get the thinking-off fields, official OpenAI gets none; a server that rejects one
+  field still answers (only that field is dropped, and remembered). With a thinking model, turning it off makes the
+  "thinking" stage disappear and replies come back noticeably sooner
+- [ ] **Error responses keep their headers** (`tests/test_http_error_headers.py`): a `401` carries
+  `WWW-Authenticate: Bearer`; a backend `429` carries `Retry-After` (60 for the rate limiter, 900 for the login lockout)
 - [ ] **MikroTik lease hostnames** use their own source, not "manual" (`tests/test_hostname_reports.py`): a typed hostname
   is not overridden, and the lease hostname disappears when the lease does
 

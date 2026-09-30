@@ -2,7 +2,7 @@
 
 > English: [INSTALL.md](INSTALL.md) · 日本語：[INSTALL_ja.md](INSTALL_ja.md)
 
-針對 **Proxmox LXC、裸機、虛擬機**，作業系統為 Debian 12／13 或 Ubuntu 22.04／24.04／26.04（x86_64，見[支援的發行版本](#支援的發行版本)）。**主力且建議**的安裝方式是
+針對 **Proxmox LXC、裸機、虛擬機**，作業系統為 Debian 12/13 或 Ubuntu 22.04/24.04/26.04（x86_64，見[支援的發行版本](#支援的發行版本)）。**主力且建議**的安裝方式是
 **systemd + apt** 直裝（不使用 Docker）。另有 Docker Compose 路徑，但**屬選用 / 次要、並非優先模式**——見下方 §2.8。
 
 > 安全為 day-one 需求：所有環境強制 HTTPS；憑證可走 nginx 反代或
@@ -14,7 +14,7 @@
 
 | 項目 | 最低 | 建議 | 備註 |
 |---|---|---|---|
-| OS | Debian 12／13、Ubuntu 22.04／24.04／26.04（x86_64） | **Ubuntu 24.04 LTS** | 只支援這些，見下方；24.04 內建 Python 3.12 + PG 16 + Node 18，省事 |
+| OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 只支援這些，見下方；24.04 內建 Python 3.12 + PG 16 + Node 18，省事 |
 | CPU | 2 vCPU | 4 vCPU | argon2id + pgvector embedding 吃 CPU |
 | RAM | 4 GB | 8 GB | 開 LLM Server 還要再加 8 GB |
 | Disk | 20 GB | 50 GB | audit log 累積 |
@@ -22,7 +22,7 @@
 | PostgreSQL | 16 + pgvector | — | 22.04 需 PGDG repo（腳本會自動加）|
 | Redis | 7 | — | 24.04 預設 7.0.15  |
 | Node | 20 LTS | 22 LTS | 24.04 預設 18.19；vite 6 跑得動但有 warning |
-| guacd | jt-ipam 為該 OS 編的版本 | — | **必要**：RDP／VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
+| guacd | jt-ipam 為該 OS 編的版本 | — | **必要**：RDP/VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
 | Recog | 最新發佈版 | — | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
 
 ### 支援的發行版本
@@ -41,7 +41,7 @@ Ubuntu 只有帶著可遠端執行程式碼漏洞的 1.3.0）。jt-ipam 替上�
   與 **ARM 機器**（樹莓派、Ampere）不支援。
 - **作業系統出新版時**，每次發版都會檢查（`scripts/guacd/check-new-os.sh`），編好、驗證過才加入。
   jt-ipam 主機在新版出現在這張表之前，**不要**升級作業系統的大版本。
-- 進階：其他 Debian／Ubuntu 版本可以用 `scripts/guacd/build.sh`（需要 Docker）自己編，再用
+- 進階：其他 Debian/Ubuntu 版本可以用 `scripts/guacd/build.sh`（需要 Docker）自己編，再用
   `jt-ipam.sh install --guacd-tarball <檔案>` 安裝；這種組合我們沒有測試。
 
 **虛擬化備註**：在 Proxmox VM / LXC 上跑時，剛開機 / 重開後 1-2 分鐘內 load avg 可能飆高（hypervisor 上其他 VM 在搶 CPU，看 `mpstat` 的 `%steal`）；這不是 VM 本身忙，可以直接跑 install。
@@ -239,7 +239,7 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload nginx
 ```
 
-> nginx 範本已內含 WebSocket 升級設定（SSH／SFTP／RDP／VNC／noVNC／BMC 主控台需要）。
+> nginx 範本已內含 WebSocket 升級設定（SSH/SFTP/RDP/VNC/noVNC/BMC 主控台需要）。
 > **自己寫 nginx 設定的話，這段一定要照抄** —— 少了升級標頭，主控台會連不上，
 > 而畫面上只會看到一個沒頭沒尾的 404。
 
@@ -252,19 +252,19 @@ sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload
 - **TLS**：僅 TLS 1.2/1.3、現代化加密套件、OCSP stapling、關閉 session tickets。
 - **HSTS**：`max-age` 2 年 + `includeSubDomains` + `preload`。
 - **CSP**：`default-src 'self'`、`script-src 'self'`、`connect-src 'self'`、`frame-src 'self'`、
-  `frame-ancestors 'none'`、`base-uri 'self'`、`form-action 'self'`——不含任何第三方 script／frame 來源。
+  `frame-ancestors 'none'`、`base-uri 'self'`、`form-action 'self'`——不含任何第三方 script/frame 來源。
 - **標頭**：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy`、
-  `Permissions-Policy`（關閉定位／麥克風／相機／付款／USB）、`Cross-Origin-Opener-Policy` 與
+  `Permissions-Policy`（關閉定位/麥克風/相機/付款/USB）、`Cross-Origin-Opener-Policy` 與
   `Cross-Origin-Resource-Policy: same-origin`。
-- **不洩漏版本指紋**：`server_tokens off`，並隱藏上游（uvicorn）的 `Server`／`X-Powered-By` 標頭。
+- **不洩漏版本指紋**：`server_tokens off`，並隱藏上游（uvicorn）的 `Server`/`X-Powered-By` 標頭。
 - 後端只監聽 `127.0.0.1`，nginx 是唯一對外監聽者。
 
-> **請勿**把 uvicorn 直接對外。`--tls-mode self-signed`／`direct` 只適用於內部／開發。
+> **請勿**把 uvicorn 直接對外。`--tls-mode self-signed`/`direct` 只適用於內部/開發。
 
 > ### ⚠️ 自己在前面再擋一層反向代理時（Mode C）＝必要設定
-> 上述安全標頭是由「**在公開邊緣終結 TLS 的那台 nginx**」送出的。如果你用另一台反向代理（例如公司邊緣 nginx／
+> 上述安全標頭是由「**在公開邊緣終結 TLS 的那台 nginx**」送出的。如果你用另一台反向代理（例如公司邊緣 nginx/
 > 負載平衡器）擋在 jt-ipam 前面，**那台代理必須自己也設這些安全標頭**——它們不會自動跨多一跳存活，否則對外網站就會
-> **完全沒有** CSP／HSTS／Permissions-Policy。這是部署的**必要**步驟，不是選用。
+> **完全沒有** CSP/HSTS/Permissions-Policy。這是部署的**必要**步驟，不是選用。
 >
 > 把內建的硬化外部代理設定套到那台邊緣機：
 > [`deploy/nginx/jt-ipam-external-proxy.conf`](https://github.com/jasoncheng7115/jt-ipam/blob/main/deploy/nginx/jt-ipam-external-proxy.conf)
@@ -334,7 +334,7 @@ docker compose up -d --build   # 建置映像並啟動
 
 backend 容器啟動時會**自動**跑資料庫遷移（entrypoint 執行 `alembic upgrade head`），不需另外手動跑 migration。
 
-**內網／無外網主機**（外網 build、內網 run）：在有外網的主機把映像 build 好、帶進內網載入 —— 安裝與升級同一套流程。
+**內網/無外網主機**（外網 build、內網 run）：在有外網的主機把映像 build 好、帶進內網載入 —— 安裝與升級同一套流程。
 
 ```bash
 # 在有外網的主機：先取得原始碼，再 build + 打包
@@ -782,7 +782,7 @@ sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg
 ffmpeg 是用來抓畫面的，不是拿來做影片：我們量過其他抓法每張要 334 毫秒，
 會把主控台壓在每秒 3 張以下。
 
-## guacd 主控台引擎（RDP／VNC 的預設）
+## guacd 主控台引擎（RDP/VNC 的預設）
 
 guacd 是 [Apache Guacamole](https://guacamole.apache.org/) 的伺服器端，是 **RDP 與 VNC 主控台的預設引擎**，
 也是**必要元件**（0.6.49 起；已安裝的站台升級後也會改過來），SSH 也可以在「管理 → 系統設定」改用它。
@@ -790,7 +790,7 @@ guacd 是 [Apache Guacamole](https://guacamole.apache.org/) 的伺服器端，�
 （aardwolf，有裝的話），`doctor`、「管理 → 系統診斷」與「版本資訊 → 必要相依」都會列出問題。
 
 為什麼要另外安裝：Debian 已經不提供 guacd，Ubuntu 只有帶著可遠端執行程式碼漏洞的 1.3.0。
-所以 jt-ipam 替每個支援中的 OS 版本各編一份（Debian 12／13、Ubuntu 22.04／24.04／26.04）。
+所以 jt-ipam 替每個支援中的 OS 版本各編一份（Debian 12/13、Ubuntu 22.04/24.04/26.04）。
 預編檔連結的是 OS 自己的函式庫，FreeRDP、libvncclient 等的安全更新照樣由 apt 提供。
 
 ```
@@ -804,8 +804,8 @@ sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...
   絕不可以開在其他介面上。服務以沒有任何權限的動態使用者執行。
 - 每次 `upgrade` 都會換成與該版 jt-ipam 對應的預編檔。下載的檔案會用 `scripts/guacd/SHA256SUMS` 核對。
 - 帳密由伺服器交給 guacd，不會經過瀏覽器。SSH 主機金鑰一樣首次確認後釘選，guacd 必須對得上釘選的金鑰。
-- SSH 走 guacd 時，終端機在伺服器端畫出來。複製、貼上用 Ctrl+Shift+C／Ctrl+Shift+V
-  （Mac 用 ⌘C／⌘V），中文、日文輸入法都可以用。
+- SSH 走 guacd 時，終端機在伺服器端畫出來。複製、貼上用 Ctrl+Shift+C/Ctrl+Shift+V
+  （Mac 用 ⌘C/⌘V），中文、日文輸入法都可以用。
 - `jt-ipam.sh doctor` 與「管理 → 系統診斷」會顯示 guacd 有沒有在跑，以及選了它的協定是否都有支援。
 
 授權：guacd 是 Apache-2.0。每個預編檔都附 LICENSE、NOTICE，以及寫明確切原始碼與編譯腳本的 SOURCE 檔。

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -15,13 +15,13 @@ import {
 } from "@/icons";
 import {
   listWazuh, createWazuh, updateWazuh, deleteWazuh, testWazuh, syncWazuh,
-  listWazuhAgents, listMissingAgents,
+  listWazuhAgents, listMissingAgentsPage,
   type WazuhInstance, type WazuhAgent, type MissingAgent,
 } from "@/api/integrations";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ScopeFilterBar from "@/components/ScopeFilterBar.vue";
-import { useScopeFilter } from "@/composables/useScopeFilter";
+import { useRemoteMissing } from "@/composables/useRemoteMissing";
 import { livenessColumn } from "@/utils/livenessColumn";
 import { withExportValue } from "@/utils/tableExport";
 import ExportButton from "@/components/ExportButton.vue";
@@ -65,8 +65,8 @@ const { query: agentFilterQ, filtered: agentsFiltered } = useTableQuickFilter(ag
 import { useTablePagination } from "@/composables/useTablePagination";
 import { apiErrMsg } from "@/api/client";
 const pg = useTablePagination();
-// 只會整份替換、不逐筆改：用 shallowRef，不必把數萬個物件逐一包成深層響應式（打開頁籤卡好幾秒）
-const missing = shallowRef<MissingAgent[]>([]);
+// 缺口清單由後端分頁、篩選、排序（大站台 5 萬筆時整份抓回來要幾十 MB）
+const miss = useRemoteMissing(listMissingAgentsPage);
 const loading = ref(false);
 
 const showInst = ref(false);
@@ -128,7 +128,7 @@ const loaded = ref({ agents: false, missing: false });
 const agentsTotal = ref<number | null>(null);
 async function loadTab(which: "agents" | "missing") {
   if (which === "agents") agents.value = await fetchAllAgents();
-  else missing.value = await listMissingAgents();
+  else await miss.load();
   loaded.value[which] = true;
 }
 async function refresh() {
@@ -295,11 +295,8 @@ const instCols = computed<DataTableColumns<WazuhInstance>>(() =>
   allInstCols.value.filter((c: any) => wzInst.visibleKeys.value.includes(c.key)));
 const agentCols = computed<DataTableColumns<WazuhAgent>>(() =>
   allAgentCols.value.filter((c: any) => wzAg.visibleKeys.value.includes(c.key)));
-// 依區段／子網路／單位篩選（與另一個整合頁共用）
-const scope = useScopeFilter(missing);
-
 const missCols = computed<DataTableColumns<MissingAgent>>(() =>
-  allMissCols.value.filter((c: any) => wzMiss.visibleKeys.value.includes(c.key)));
+  miss.remoteSort(allMissCols.value.filter((c: any) => wzMiss.visibleKeys.value.includes(c.key))));
 
 onMounted(() => { void refresh(); void loadSubnetOptions(); });
 </script>
@@ -346,23 +343,28 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
       </n-tab-pane>
       <n-tab-pane name="missing">
         <template #tab>
-          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><MissingIcon /></n-icon>{{ loaded.missing ? `${t('wazuh_admin.missing_agents')} (${missing.length})` : t('wazuh_admin.missing_agents') }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><MissingIcon /></n-icon>{{ loaded.missing ? `${t('wazuh_admin.missing_agents')} (${miss.totalAll.value})` : t('wazuh_admin.missing_agents') }}</span>
         </template>
-        <n-alert v-if="missing.length" type="warning" style="margin-bottom: 12px">
+        <n-alert v-if="miss.totalAll.value" type="warning" style="margin-bottom: 12px">
           <template #icon><n-icon><MissingIcon /></n-icon></template>
-          {{ scope.active.value ? `${scope.filtered.value.length} / ${missing.length}` : missing.length }} {{ t("wazuh_admin.missing_agents") }}
+          {{ miss.active.value ? `${miss.total.value} / ${miss.totalAll.value}` : miss.totalAll.value }} {{ t("wazuh_admin.missing_agents") }}
           <span v-if="missingScoped" style="opacity: .75">{{ t("wazuh_admin.missing_scoped") }}</span>
         </n-alert>
         <n-space style="margin-bottom: 8px" align="center">
-          <ScopeFilterBar v-model:section="scope.section.value" v-model:subnet="scope.subnet.value"
-                          v-model:customer="scope.customer.value" :section-opts="scope.sectionOpts.value"
-                          :subnet-opts="scope.subnetOpts.value" :customer-opts="scope.customerOpts.value"
-                          v-model:status="scope.status.value" :status-opts="scope.statusOpts.value" />
+          <n-input v-model:value="miss.q.value" :placeholder="t('common.filter')" clearable style="width: 160px"
+                   data-testid="missing-filter" />
+          <ScopeFilterBar v-model:section="miss.section.value" v-model:subnet="miss.subnet.value"
+                          v-model:customer="miss.customer.value" :section-opts="miss.facets.value.sections"
+                          :subnet-opts="miss.facets.value.subnets" :customer-opts="miss.facets.value.customers"
+                          v-model:status="miss.status.value" :status-opts="miss.facets.value.statuses" />
           <ColumnPicker :all="wzMissPicker" :visible="wzMiss.visibleKeys.value"
                         @update:visible="wzMiss.setVisible" @reset="wzMiss.reset" />
-          <ExportButton :columns="missCols" :rows="scope.filtered.value" filename="wazuh-missing-agents" :title="t('wazuh_admin.missing_agents')" />
+          <ExportButton :columns="missCols" :rows="miss.rows.value" :fetch-all="miss.fetchAll"
+                        filename="wazuh-missing-agents" :title="t('wazuh_admin.missing_agents')" />
         </n-space>
-        <n-data-table :columns="missCols" :data="scope.filtered.value" :loading="loading" :bordered="false" :scroll-x="960" :pagination="pg" />
+        <n-data-table :columns="missCols" :data="miss.rows.value" :loading="loading || miss.loading.value"
+                      :bordered="false" :scroll-x="960" remote :pagination="miss.pagination"
+                      @update:sorter="miss.onSorter" />
       </n-tab-pane>
     </n-tabs>
 

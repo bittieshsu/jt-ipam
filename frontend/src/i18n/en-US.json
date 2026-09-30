@@ -3138,6 +3138,8 @@
     "num_ctx": "Chat context length (num_ctx)",
     "num_ctx_placeholder": "Default (leave blank)",
     "num_ctx_hint": "Max tokens the chat model can see at once. Blank or 0 = use the model/Ollama default (usually 4096). Tool-heavy chats with large injected data can exceed the default and get truncated (the model 'forgets' earlier content); raise it to e.g. 8192 / 16384 / 32768. Larger uses more RAM/VRAM. Affects chat only, not the embedding model.",
+    "chat_thinking": "Let the model think before answering in AI chat",
+    "chat_thinking_hint": "On (default): thinking models reason first and the chat shows \"thinking\". Off: every chat turn sends the controls that turn thinking off (Ollama's think:false; reasoning_effort and friends for OpenAI-compatible servers and gateways such as LiteLLM), which answers much faster — useful when the model thinks but you want quick replies. A control the server does not accept is dropped automatically. AI review and AI interpretation always turn thinking off, regardless of this setting.",
     "mcp_ext_title": "Expose MCP (let other systems call it)",
     "mcp_ext_enable": "Provide MCP to external systems",
     "mcp_ext_hint": "When on, other systems (external LLM clients, automation) can call this site's MCP endpoint over HTTP to query data. Off by default — must be turned on to accept external calls.",

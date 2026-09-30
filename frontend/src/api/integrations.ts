@@ -3,6 +3,7 @@
  */
 import { apiClient } from "@/api/client";
 import type { Paginated } from "@/api/admin";
+import type { MissingPage, MissingQuery } from "@/composables/useRemoteMissing";
 
 // 整合同步/測試可能要打外部 API、跑數百筆 ingest，遠遠超過全域 15s 預設。
 // 給長時操作 5 分鐘空間。
@@ -488,8 +489,10 @@ export async function listWazuhAgents(
   return data;
 }
 
-export async function listMissingAgents(): Promise<MissingAgent[]> {
-  const { data } = await apiClient.get<MissingAgent[]>("/api/v1/wazuh/missing-agents");
+/** 帶 page ＝ 伺服器端分頁：篩選、排序、篩選選項都由後端算（見 useRemoteMissing）。
+ *  API 不帶 page 仍回整份清單（相容舊的呼叫端），畫面已不再使用。 */
+export async function listMissingAgentsPage(params: MissingQuery): Promise<MissingPage<MissingAgent>> {
+  const { data } = await apiClient.get<MissingPage<MissingAgent>>("/api/v1/wazuh/missing-agents", { params });
   return data;
 }
 

@@ -436,6 +436,12 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
         />
         <p class="hint">{{ t("llm_settings.num_ctx_hint") }}</p>
       </div>
+      <div data-testid="chat-thinking">
+        <n-switch :value="llm.chat_thinking"
+                  @update:value="(v: boolean) => patch({ chat_thinking: v })" />
+        <span style="margin-left:10px">{{ t("llm_settings.chat_thinking") }}</span>
+        <p class="hint">{{ t("llm_settings.chat_thinking_hint") }}</p>
+      </div>
     </n-space>
     <p v-else style="opacity: 0.7">{{ t("common.loading") }}</p>
   </n-card>

@@ -18,6 +18,7 @@ import json
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -146,7 +147,81 @@ def chat_body(cfg: Any, provider: str, *, messages: list[Any], tools: list[Any])
         body["tools"] = tools
     if provider == "ollama":
         body["options"] = _chat_options(cfg)
+    body.update(chat_thinking_off(cfg, provider, cfg.chat_model))
     return body
+
+
+def chat_thinking_off(cfg: Any, provider: str, model: str) -> dict[str, Any]:
+    """AI 對話設成不允許思考時要送的參數（允許時回空）。
+
+    Ollama 用它自己的 `think: false`；OpenAI 相容服務與閘道（LiteLLM、vLLM、llama.cpp…）用
+    reasoning_effort 等三個（見 _openai_reasoning_off）。官方 OpenAI 對不認得的欄位回 400，不送。
+    這台伺服器先前拒絕過的不再送（_strip_rejected_controls 記下的）。
+    """
+    if getattr(cfg, "chat_thinking", True):
+        return {}
+    skip = _rejected_controls(chat_url(getattr(cfg, "url", ""), provider), model)
+    if provider == "ollama":
+        return {} if "think" in skip else {"think": False}
+    if _is_official_openai(getattr(cfg, "url", "")):
+        return {}
+    return {k: v for k, v in _openai_reasoning_off().items() if k not in skip}
+
+
+def _drop_rejected_thinking(body: dict[str, Any], status: int, text: str, url: str) -> bool:
+    """伺服器拒絕了某個關閉思考的參數 → 拿掉並記住（回 True＝該重送）。
+
+    舊版 Ollama 不認 `think`；OpenAI 相容服務與閘道的另外三個交給 _strip_rejected_controls。
+    """
+    if status in (400, 422) and "think" in body and "think" in (text or "").lower():
+        body.pop("think", None)
+        key = (url, str(body.get("model") or ""))
+        _REJECTED_CONTROLS[key] = (time.monotonic(), _rejected_controls(*key) | {"think"})
+        return True
+    return _strip_rejected_controls(body, status, text, url)
+
+
+class _ReadResponse:
+    """已經讀完主體的失敗回應（_chat_stream 看完錯誤、判斷不必重送時交回給呼叫端）。"""
+
+    def __init__(self, status_code: int, text: str) -> None:
+        self.status_code = status_code
+        self._text = text
+
+    async def aread(self) -> bytes:
+        return self._text.encode("utf-8")
+
+    async def aiter_lines(self) -> AsyncIterator[str]:
+        return
+        yield  # pragma: no cover
+
+
+@asynccontextmanager
+async def _chat_stream(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float,
+                       ) -> AsyncIterator[Any]:
+    """開對話的串流；伺服器拒絕關閉思考的參數時拿掉被點名的再開（還沒吐出任何東西，可以重來）。"""
+    for _ in range(len(_REASONING_OFF_KEYS) + 2):
+        async with safe_stream("POST", url, headers=headers, json=body, timeout=timeout) as resp:
+            if resp.status_code in (400, 422):
+                text = (await resp.aread()).decode("utf-8", "replace")
+                if _drop_rejected_thinking(body, resp.status_code, text, url):
+                    continue
+                yield _ReadResponse(resp.status_code, text)
+                return
+            yield resp
+            return
+    raise AIError("LLM server kept rejecting the request")
+
+
+async def _post_chat(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> Any:
+    """非串流的對話請求；同樣會拿掉被拒絕的關閉思考參數再送。"""
+    resp = await safe_request("POST", url, headers=headers, json=body, timeout=timeout)
+    for _ in range(len(_REASONING_OFF_KEYS) + 1):
+        if resp.status_code not in (400, 422) or not _drop_rejected_thinking(
+                body, resp.status_code, getattr(resp, "text", ""), url):
+            break
+        resp = await safe_request("POST", url, headers=headers, json=body, timeout=timeout)
+    return resp
 
 
 def provider_label(provider: str) -> str:
@@ -849,13 +924,10 @@ async def chat(
             "stream": False,
             # 低溫度：減少模型亂插字（如把 192.168 寫成「19 kiếm 168」之類的跨語言錯字）
             "options": _chat_options(cfg),
+            **chat_thinking_off(cfg, cfg.provider, cfg.chat_model),
         }
         try:
-            resp = await safe_request(
-                "POST", url,
-                headers=auth_headers(cfg.provider, cfg.api_key),
-                json=body, timeout=cfg.timeout,
-            )
+            resp = await _post_chat(url, body, auth_headers(cfg.provider, cfg.api_key), cfg.timeout)
         except UnsafeOutboundURL as exc:
             raise AIError(f"SSRF guard: {exc}") from exc
         except httpx.HTTPError as exc:
@@ -990,12 +1062,10 @@ async def _force_final_answer(cfg: Any, convo: list[dict[str, Any]]) -> str:
         ),
     }
     body = {"model": cfg.chat_model, "messages": [*convo, nudge],
-            "stream": False, "options": _chat_options(cfg)}
+            "stream": False, "options": _chat_options(cfg),
+            **chat_thinking_off(cfg, cfg.provider, cfg.chat_model)}
     try:
-        resp = await safe_request(
-            "POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
-            json=body, timeout=cfg.timeout,
-        )
+        resp = await _post_chat(url, body, auth_headers(cfg.provider, cfg.api_key), cfg.timeout)
         if resp.status_code == 200:
             msg = extract_reply(resp.json(), cfg.provider)
             content = msg.get("content")
@@ -1236,11 +1306,7 @@ async def chat_stream(
         thinking_chars = 0
         thinking_reported = -1
         try:
-            async with safe_stream(
-                "POST", url,
-                headers=auth_headers(cfg.provider, cfg.api_key),
-                json=body, timeout=cfg.timeout,
-            ) as resp:
+            async with _chat_stream(url, body, auth_headers(cfg.provider, cfg.api_key), cfg.timeout) as resp:
                 if resp.status_code != 200:
                     detail = (await resp.aread()).decode("utf-8", "replace")[:200]
                     yield {"type": "error", "detail": f"{provider_label(cfg.provider)} chat {resp.status_code}: {detail}"}
@@ -1326,10 +1392,7 @@ async def chat_stream(
     final_parts: list[str] = []
     body = {**chat_body(cfg, cfg.provider, messages=convo, tools=[]), "stream": True}
     try:
-        async with safe_stream(
-            "POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
-            json=body, timeout=cfg.timeout,
-        ) as resp:
+        async with _chat_stream(url, body, auth_headers(cfg.provider, cfg.api_key), cfg.timeout) as resp:
             if resp.status_code == 200:
                 async for line in resp.aiter_lines():
                     chunk = _stream_payload(line)

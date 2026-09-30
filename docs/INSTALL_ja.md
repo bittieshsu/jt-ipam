@@ -2,7 +2,7 @@
 
 > English: [INSTALL.md](INSTALL.md) · 繁體中文版：[INSTALL_zh-TW.md](INSTALL_zh-TW.md)
 
-対象は **Proxmox LXC、ベアメタル、仮想マシン**で、OS は Debian 12／13 または Ubuntu 22.04／24.04／26.04（x86_64、[対応ディストリビューション](#対応ディストリビューション)を参照）です。
+対象は **Proxmox LXC、ベアメタル、仮想マシン**で、OS は Debian 12/13 または Ubuntu 22.04/24.04/26.04（x86_64、[対応ディストリビューション](#対応ディストリビューション)を参照）です。
 **主たる推奨の導入方法**は、**systemd + apt** を直接使う方式です（Docker は使いません）。
 Docker Compose の経路もありますが、**任意かつ副次的で、優先される方式ではありません** —
 [§2.8](#28-任意docker-composeこれは優先される方式ではありません) を参照してください。
@@ -19,7 +19,7 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 
 | 項目 | 最低 | 推奨 | 備考 |
 |---|---|---|---|
-| OS | Debian 12／13、Ubuntu 22.04／24.04／26.04（x86_64） | **Ubuntu 24.04 LTS** | 対応はこれらのみ（下記参照）。24.04 は Python 3.12 + PG 16 + Node 18 を同梱しており手間が省けます |
+| OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 対応はこれらのみ（下記参照）。24.04 は Python 3.12 + PG 16 + Node 18 を同梱しており手間が省けます |
 | CPU | 2 vCPU | 4 vCPU | argon2id と pgvector の埋め込みは CPU を使います |
 | メモリ | 4 GB | 8 GB | LLM サーバーを同居させるならさらに 8 GB |
 | ディスク | 20 GB | 50 GB | 監査ログが増えていきます |
@@ -27,7 +27,7 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 | PostgreSQL | 16 + pgvector | — | 22.04 では PGDG リポジトリが必要です（スクリプトが自動で追加します） |
 | Redis | 7 | — | 24.04 の既定は 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 の既定は 18.19。vite 6 は動作しますが警告が出ます |
-| guacd | jt-ipam がこの OS 向けにビルドしたもの | — | **必須**：RDP／VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
+| guacd | jt-ipam がこの OS 向けにビルドしたもの | — | **必須**：RDP/VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
 | Recog | 最新リリース | — | **任意**：IP 探索が機器や OS バージョンを識別するためのフィンガープリント DB。`jt-ipam.sh` がダウンロードし、毎週新版を確認（下の Recog の節） |
 
 ### 対応ディストリビューション
@@ -47,7 +47,7 @@ jt-ipam は上記の各バージョン向けにビルドしており、それ以
   ビルドのない非 LTS など）、**ARM**（Raspberry Pi、Ampere）は対象外です。
 - **OS の新バージョン**はリリースごとに確認し（`scripts/guacd/check-new-os.sh`）、ビルドと検証が済んでから追加します。
   この表に載るまで、jt-ipam ホストの OS をメジャーアップグレードしないでください。
-- 上級者向け：他の Debian／Ubuntu バージョン用は `scripts/guacd/build.sh`（Docker が必要）でビルドし、
+- 上級者向け：他の Debian/Ubuntu バージョン用は `scripts/guacd/build.sh`（Docker が必要）でビルドし、
   `jt-ipam.sh install --guacd-tarball <ファイル>` で入れられます（当方では未検証）。
 
 **仮想環境での注意**：Proxmox の VM / LXC では、起動や再起動の直後 1〜2 分ほど load average が
@@ -316,7 +316,7 @@ curl -skI https://ipam.example.com/ \
 - WebSocket メッセージ 1 件のサイズを制限する（一部の WAF。1 MB 以上を許可してください）；
 - WebSocket 接続 1 本の転送量や時間を制限する、または 30 秒未満のアイドルで切断する（jt-ipam は 20 秒ごとにキープアライブを送ります）。
 
-各層の設定を読み解く必要はありません。**管理 → システム設定 →「SFTP の 1 ファイルあたりの転送上限」**を既定値より大きくすると、
+各層の設定を読み解く必要はありません。**管理 → システム設定**の「**SFTP の 1 ファイルあたりの転送上限**」を既定値より大きくすると、
 ブラウザーから各層（エッジプロキシ、IPAM の nginx、バックエンド）を通して実際に転送テストを行い、どの種類の制限に当たったかを表示します。
 測定した速度から、上限サイズのファイルの転送にかかる時間も見積もります。
 
@@ -814,7 +814,7 @@ sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     --username admin2 --email admin2@your.domain --password-stdin <<<"$ADMIN_PW"
 echo "$ADMIN_PW"
 
-# 方法 B：元の管理者が締め出された／失われた場合 —— DB を直接編集してロックを解除しパスワードを再設定します
+# 方法 B：元の管理者が締め出された/失われた場合 —— DB を直接編集してロックを解除しパスワードを再設定します
 sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     /opt/jt-ipam/backend/.venv/bin/python -c '
 import asyncio, sys
@@ -849,7 +849,7 @@ sudo apt install -y nodejs
 
 その後、`/opt/jt-ipam/frontend` で `pnpm install && pnpm build` をやり直します。
 
-## guacd コンソールエンジン（RDP／VNC の既定）
+## guacd コンソールエンジン（RDP/VNC の既定）
 
 guacd は [Apache Guacamole](https://guacamole.apache.org/) のサーバー側で、**RDP と VNC コンソールの既定エンジン**で、
 **必須コンポーネント**でもあります（0.6.49 から。既存の環境もアップグレードで切り替わります）。
@@ -858,7 +858,7 @@ guacd が止まっている間、RDP と VNC は任意の組み込みエンジ�
 「管理 → システム診断」、「バージョン情報 → 必須コンポーネント」が問題を表示します。
 
 別途インストールが必要な理由：Debian は guacd の提供をやめ、Ubuntu にはリモートコード実行の脆弱性がある 1.3.0 しかありません。
-そのため jt-ipam はサポート中の OS バージョンごとにビルドを用意しています（Debian 12／13、Ubuntu 22.04／24.04／26.04）。
+そのため jt-ipam はサポート中の OS バージョンごとにビルドを用意しています（Debian 12/13、Ubuntu 22.04/24.04/26.04）。
 OS 自身のライブラリにリンクするので、FreeRDP や libvncclient などのセキュリティ更新は引き続き apt から届きます。
 
 ```
@@ -872,7 +872,7 @@ sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...
   他のインターフェースで開いてはいけません。サービスは権限のない動的ユーザーで動きます。
 - `upgrade` のたびに jt-ipam の版に対応するビルドへ更新されます。ダウンロードしたファイルは `scripts/guacd/SHA256SUMS` と照合します。
 - 資格情報はサーバーが guacd に渡し、ブラウザーには届きません。SSH のホスト鍵も初回確認後に固定され、guacd はその鍵と一致しなければなりません。
-- guacd 経由の SSH では端末をサーバー側で描画します。コピーと貼り付けは Ctrl+Shift+C／Ctrl+Shift+V（Mac は ⌘C／⌘V）。
+- guacd 経由の SSH では端末をサーバー側で描画します。コピーと貼り付けは Ctrl+Shift+C/Ctrl+Shift+V（Mac は ⌘C/⌘V）。
   日本語・中国語の入力メソッドも使えます。
 - `jt-ipam.sh doctor` と「管理 → システムチェック」で、guacd が動いているか、guacd を選んだプロトコルがサポートされているかを確認できます。
 

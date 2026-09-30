@@ -136,7 +136,7 @@
 <body>
 <script>
   /* 在內容繪製前先決定語言（避免閃爍）。優先序：網址 ?lang= > localStorage 偏好 > 預設英文。
-     安裝／升級腳本會依作業系統語系直接帶 ?lang=zh-TW / ?lang=ja / ?lang=en 進來。 */
+     安裝/升級腳本會依作業系統語系直接帶 ?lang=zh-TW / ?lang=ja / ?lang=en 進來。 */
   (function(){
     try{
       function norm(v){ v = (v || '').toLowerCase();
@@ -353,9 +353,9 @@ sudo bash scripts/jt-ipam.sh upgrade</code></pre>
 # proxy が要る場合（git は apt のプロキシ設定を引き継ぎません）
 sudo -u jtipam git config --global http.proxy http://proxy.example.com:3128</code></pre>
         <p>
-          <span class="zh">離線環境：把新版原始碼自行複製到 <code>/opt/jt-ipam</code>，再用 <code>upgrade --no-pull</code> 跑後面的備份／遷移／建置／重啟。</span>
+          <span class="zh">離線環境：把新版原始碼自行複製到 <code>/opt/jt-ipam</code>，再用 <code>upgrade --no-pull</code> 跑後面的備份/遷移/建置/重啟。</span>
           <span class="en">Air-gapped: copy the new source into <code>/opt/jt-ipam</code> yourself, then run <code>upgrade --no-pull</code> to do the backup / migration / build / restart steps.</span>
-          <span class="ja">閉域環境では、新しいソースを自分で <code>/opt/jt-ipam</code> に配置したうえで <code>upgrade --no-pull</code> を実行し、バックアップ／マイグレーション／ビルド／再起動だけを行わせます。</span>
+          <span class="ja">閉域環境では、新しいソースを自分で <code>/opt/jt-ipam</code> に配置したうえで <code>upgrade --no-pull</code> を実行し、バックアップ/マイグレーション/ビルド/再起動だけを行わせます。</span>
         </p>
       </article>
 
@@ -474,7 +474,7 @@ sudo -u postgres pg_restore --clean --no-owner -d jt_ipam \
 cd /opt/jt-ipam/frontend &amp;&amp; sudo -u jtipam pnpm install &amp;&amp; sudo -u jtipam pnpm build
 sudo systemctl start jt-ipam-backend</code></pre>
         <p class="note">
-          <span class="zh">還原資料庫必須用同一把 <code>ENCRYPTION_KEY</code>，否則 DNS／API 等加密欄位解不開。</span>
+          <span class="zh">還原資料庫必須用同一把 <code>ENCRYPTION_KEY</code>，否則 DNS/API 等加密欄位解不開。</span>
           <span class="en">Restoring the database requires the same <code>ENCRYPTION_KEY</code>, or encrypted fields (DNS / API credentials) cannot be decrypted.</span>
           <span class="ja">データベースを戻すときは同じ <code>ENCRYPTION_KEY</code> が必要です。違うと DNS や API の資格情報など暗号化された項目を復号できません。</span>
         </p>
@@ -524,14 +524,14 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh install …     # 同じコマンド�
 
       <article class="qa" id="qa-pgdg">
         <h3>
-          <span class="zh">很新的 Ubuntu／Debian：apt-get update 在加 PGDG 之後 404</span>
+          <span class="zh">很新的 Ubuntu/Debian：apt-get update 在加 PGDG 之後 404</span>
           <span class="en">Brand-new Ubuntu / Debian: apt-get update 404s after adding PGDG</span>
           <span class="ja">出たばかりの Ubuntu / Debian：PGDG を追加した後 apt-get update が 404 になる</span>
         </h3>
         <p>
-          <span class="zh">PGDG 對剛發布的版本常延遲數月才提供套件。安裝腳本會先用<strong>發行版自帶</strong>的 PostgreSQL（16／17／18 擇一），只有完全找不到才退回 PGDG。若仍失敗，手動裝發行版自帶的版本＋對應 pgvector 再重跑安裝：</span>
+          <span class="zh">PGDG 對剛發布的版本常延遲數月才提供套件。安裝腳本會先用<strong>發行版自帶</strong>的 PostgreSQL（16/17/18 擇一），只有完全找不到才退回 PGDG。若仍失敗，手動裝發行版自帶的版本＋對應 pgvector 再重跑安裝：</span>
           <span class="en">PGDG often lags a freshly released distro by months. The installer prefers whatever PostgreSQL (16/17/18) the distro itself ships and only falls back to PGDG. If it still fails, install the distro's own packages and re-run:</span>
-          <span class="ja">PGDG は出たばかりのディストリビューションへの対応が数か月遅れることがよくあります。インストーラはまずディストリビューション<strong>同梱</strong>の PostgreSQL（16／17／18 のいずれか）を使い、見つからない場合にだけ PGDG に頼ります。それでも失敗する場合は、同梱版と対応する pgvector を手動で入れてからやり直してください。</span>
+          <span class="ja">PGDG は出たばかりのディストリビューションへの対応が数か月遅れることがよくあります。インストーラはまずディストリビューション<strong>同梱</strong>の PostgreSQL（16/17/18 のいずれか）を使い、見つからない場合にだけ PGDG に頼ります。それでも失敗する場合は、同梱版と対応する pgvector を手動で入れてからやり直してください。</span>
         </p>
         <pre><code>apt-cache search --names-only '^postgresql-1[678]$'
 sudo apt install -y postgresql-17 postgresql-17-pgvector
@@ -556,9 +556,9 @@ node -v</code></pre>
 
       <article class="qa" id="qa-pnpm">
         <h3>
-          <span class="zh">pnpm is required to build the frontend ／ <code>/usr/local/bin/pnpm: No such file or directory</code></span>
+          <span class="zh">pnpm is required to build the frontend / <code>/usr/local/bin/pnpm: No such file or directory</code></span>
           <span class="en">pnpm is required to build the frontend</span>
-          <span class="ja">pnpm is required to build the frontend ／ <code>/usr/local/bin/pnpm: No such file or directory</code></span>
+          <span class="ja">pnpm is required to build the frontend / <code>/usr/local/bin/pnpm: No such file or directory</code></span>
         </h3>
         <pre><code>sudo npm install -g pnpm@9        # または: curl -fsSL https://get.pnpm.io/install.sh | sh -
 pnpm --version
@@ -567,9 +567,9 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh install …   # 同じコマンドを�
 
       <article class="qa" id="qa-ping">
         <h3>
-          <span class="zh">LXC 容器裡 ping 不通／掃描代理探測不到任何主機</span>
+          <span class="zh">LXC 容器裡 ping 不通/掃描代理探測不到任何主機</span>
           <span class="en">Inside an LXC container ping never works / the scan agent finds nothing</span>
-          <span class="ja">LXC コンテナ内で ping が通らない／スキャンエージェントが何も見つけられない</span>
+          <span class="ja">LXC コンテナ内で ping が通らない/スキャンエージェントが何も見つけられない</span>
         </h3>
         <p>
           <span class="zh">容器裡 <code>net.ipv4.ping_group_range</code> 是唯讀的（核心屬於宿主），寫 <code>/etc/sysctl.d/</code> 不會生效；<code>setcap</code> 那條路又會被 unit 的 <code>NoNewPrivileges=yes</code> 無聲擋掉。可行的是 systemd drop-in 的 ambient capability，安裝與升級都會自動套用並讀回驗證：</span>
@@ -694,9 +694,9 @@ grep -n proxy_pass /etc/nginx/sites-available/jt-ipam</code></pre>
 
       <article class="qa" id="qa-resetpw">
         <h3>
-          <span class="zh">密碼忘了／帳號被鎖住</span>
+          <span class="zh">密碼忘了/帳號被鎖住</span>
           <span class="en">Forgot the password / locked out</span>
-          <span class="ja">パスワードを忘れた／アカウントがロックされた</span>
+          <span class="ja">パスワードを忘れた/アカウントがロックされた</span>
         </h3>
         <p>
           <span class="zh">用 CLI 重設同一個管理員（<code>--force-update</code> 才是覆寫既有帳號；不加會因為帳號已存在而報錯）：</span>
@@ -727,9 +727,9 @@ echo "$ADMIN_PW"</code></pre>
           <span class="ja">保存が効かない・ボタンの挙動が変・バージョンが古いまま</span>
         </h3>
         <p>
-          <span class="zh">開很久沒關的分頁還在跑舊的 JS，這是最常見的原因，不是後端沒更新。先強制重新整理（Ctrl／Cmd + Shift + R），再看版本資訊頁。</span>
+          <span class="zh">開很久沒關的分頁還在跑舊的 JS，這是最常見的原因，不是後端沒更新。先強制重新整理（Ctrl/Cmd + Shift + R），再看版本資訊頁。</span>
           <span class="en">A long-lived browser tab is still running the old JS bundle — this is the usual cause, not the backend. Hard-refresh (Ctrl/Cmd + Shift + R), then check the version page.</span>
-          <span class="ja">長時間開いたままのタブが古い JS を実行し続けているのが最も多い原因で、バックエンドの問題ではありません。まずスーパーリロード（Ctrl／Cmd + Shift + R）を行い、バージョン情報ページを確認してください。</span>
+          <span class="ja">長時間開いたままのタブが古い JS を実行し続けているのが最も多い原因で、バックエンドの問題ではありません。まずスーパーリロード（Ctrl/Cmd + Shift + R）を行い、バージョン情報ページを確認してください。</span>
         </p>
         <p class="note">
           <span class="zh">新版會自動偵測到版本更換並提示重新載入。若<strong>後端</strong>版本沒變，多半是升級時沒重啟服務：<code>sudo systemctl restart jt-ipam-backend</code>。</span>
@@ -759,9 +759,9 @@ echo "$ADMIN_PW"</code></pre>
 
       <article class="qa" id="qa-rdp-engine">
         <h3>
-          <span class="zh">RDP 連 Linux（xrdp／GNOME 遠端登入）時帳密明明是對的卻說認證失敗</span>
+          <span class="zh">RDP 連 Linux（xrdp/GNOME 遠端登入）時帳密明明是對的卻說認證失敗</span>
           <span class="en">RDP to Linux (xrdp / GNOME Remote Login) reports a logon failure with correct credentials</span>
-          <span class="ja">Linux への RDP（xrdp／GNOME リモートログイン）で、正しい資格情報なのに認証失敗になる</span>
+          <span class="ja">Linux への RDP（xrdp/GNOME リモートログイン）で、正しい資格情報なのに認証失敗になる</span>
         </h3>
         <p>
           <span class="zh">請到 管理 → 系統設定 → 主控台，把 RDP 連線引擎改成 <strong>FreeRDP</strong>。預設的 aardwolf 引擎在 NTLM 認證時不送 MIC（訊息完整性碼），而 FreeRDP 的<strong>伺服器端</strong>會強制檢查它 —— xrdp 與 gnome-remote-desktop 用的正是 FreeRDP 伺服器，於是一律回「帳號或密碼錯誤」。連 Windows 目標時兩個引擎都可以。</span>
@@ -798,7 +798,7 @@ sudo loginctl terminate-user gdm     # <span class="zh">收掉全部登入畫面
 
       <article class="qa" id="qa-rdp-cjk">
         <h3>
-          <span class="zh">用 FreeRDP 引擎時打不出中文／日文</span>
+          <span class="zh">用 FreeRDP 引擎時打不出中文/日文</span>
           <span class="en">Chinese or Japanese cannot be typed with the FreeRDP engine</span>
           <span class="ja">FreeRDP エンジンでは中国語・日本語が入力できない</span>
         </h3>
@@ -858,7 +858,7 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor
 sudo journalctl -u jt-ipam-backend -n 100 --no-pager
 # 4) <span class="zh">失敗當下的完整輸出（只貼最後一行不夠）</span><span class="en">The full output of the failure (the last line alone is not enough)</span><span class="ja">失敗した時の出力全文（最後の一行だけは不可）</span></code></pre>
         <p>
-          <span class="zh">貼之前請把主機名稱、對外網域、IP 與任何密碼／金鑰換掉。</span>
+          <span class="zh">貼之前請把主機名稱、對外網域、IP 與任何密碼/金鑰換掉。</span>
           <span class="en">Please redact hostnames, public domains, IP addresses and any password or key before pasting.</span>
           <span class="ja">貼り付ける前に、ホスト名・公開ドメイン・IP アドレス・パスワードや鍵はすべて伏せてください。</span>
         </p>
@@ -940,7 +940,7 @@ sudo journalctl -u jt-ipam-backend -n 100 --no-pager
       history.replaceState(null, '', u);
     } catch (e) {}
     applyLang();
-    // 全站共用的語言變更事件（其他頁也發這個）：<title>／description／截圖都掛在它上面
+    // 全站共用的語言變更事件（其他頁也發這個）：<title>/description/截圖都掛在它上面
     document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
   }
   if (langBtn) langBtn.addEventListener('click', function(e){ e.stopPropagation(); openLang(langMenu.hidden); });
@@ -1026,5 +1026,6 @@ sudo journalctl -u jt-ipam-backend -n 100 --no-pager
     apply(cur());
   })();
 </script>
+<script src="anchors.js" defer></script>
 </body>
 </html>

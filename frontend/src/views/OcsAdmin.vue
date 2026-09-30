@@ -7,7 +7,7 @@
  *    連得上就跳一條紅色警告：這套 OCS 對任何能到達它的人都是開放的。
  * 2. **軟體區段預設關** —— 每台會從 ~2 KB 膨脹到 ~80 KB；先看規模再決定要不要開。
  */
-import { computed, h, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NAlert, NModal, NForm,
@@ -17,7 +17,7 @@ import {
 import { useRouter } from "vue-router";
 import {
   listOcs, createOcs, updateOcs, deleteOcs, testOcs, syncOcs,
-  listOcsAgents, listOcsMissingAgents,
+  listOcsAgents, listOcsMissingAgentsPage,
   type OcsServer, type OcsDiagnosis, type OcsAgent, type OcsMissingAgent,
 } from "@/api/ocs";
 import {
@@ -27,7 +27,7 @@ import {
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ScopeFilterBar from "@/components/ScopeFilterBar.vue";
-import { useScopeFilter } from "@/composables/useScopeFilter";
+import { useRemoteMissing } from "@/composables/useRemoteMissing";
 import { livenessColumn } from "@/utils/livenessColumn";
 import { withExportValue } from "@/utils/tableExport";
 import ExportButton from "@/components/ExportButton.vue";
@@ -83,8 +83,8 @@ const missingScoped = computed(() => {
 const router = useRouter();
 const tab = ref<"instances" | "agents" | "missing">("instances");
 const agents = ref<OcsAgent[]>([]);
-// 只會整份替換、不逐筆改：用 shallowRef，不必把數萬個物件逐一包成深層響應式（打開頁籤卡好幾秒）
-const missing = shallowRef<OcsMissingAgent[]>([]);
+// 缺口清單由後端分頁、篩選、排序（大站台 5 萬筆時整份抓回來要幾十 MB）
+const miss = useRemoteMissing(listOcsMissingAgentsPage);
 const { query: agentFilterQ, filtered: agentsFiltered } = useTableQuickFilter(agents);
 const pg = useTablePagination();
 
@@ -92,7 +92,7 @@ const pg = useTablePagination();
 // 回應四十幾 MB）。代理清單一台電腦一筆、量小，照舊一起載入（頁籤上的台數要看得到）
 const loaded = ref({ missing: false });
 async function loadMissing() {
-  missing.value = await listOcsMissingAgents();
+  await miss.load();
   loaded.value.missing = true;
 }
 async function load() {
@@ -326,11 +326,8 @@ const allMissCols = computed<DataTableColumns<OcsMissingAgent>>(() => autoSort([
 ]));
 const agentCols = computed<DataTableColumns<OcsAgent>>(() =>
   allAgentCols.value.filter((c: any) => ocsAg.visibleKeys.value.includes(c.key)));
-// 依區段／子網路／單位篩選（與另一個整合頁共用）
-const scope = useScopeFilter(missing);
-
 const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
-  allMissCols.value.filter((c: any) => ocsMiss.visibleKeys.value.includes(c.key)));
+  miss.remoteSort(allMissCols.value.filter((c: any) => ocsMiss.visibleKeys.value.includes(c.key))));
 
 </script>
 
@@ -381,24 +378,28 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
       </NTabPane>
       <NTabPane name="missing">
         <template #tab>
-          <span style="display:inline-flex;align-items:center;gap:6px"><NIcon :size="16"><MissingIcon /></NIcon>{{ loaded.missing ? `${t("ocs.missing_agents")} (${missing.length})` : t("ocs.missing_agents") }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><NIcon :size="16"><MissingIcon /></NIcon>{{ loaded.missing ? `${t("ocs.missing_agents")} (${miss.totalAll.value})` : t("ocs.missing_agents") }}</span>
         </template>
-        <NAlert v-if="missing.length" type="warning" style="margin-bottom: 12px">
+        <NAlert v-if="miss.totalAll.value" type="warning" style="margin-bottom: 12px">
           <template #icon><NIcon><MissingIcon /></NIcon></template>
-          {{ scope.active.value ? `${scope.filtered.value.length} / ${missing.length}` : missing.length }} {{ t("ocs.missing_agents") }}
+          {{ miss.active.value ? `${miss.total.value} / ${miss.totalAll.value}` : miss.totalAll.value }} {{ t("ocs.missing_agents") }}
           <span v-if="missingScoped" style="opacity: .75">{{ t("ocs.missing_scoped") }}</span>
         </NAlert>
         <NSpace style="margin-bottom: 8px" align="center">
-          <ScopeFilterBar v-model:section="scope.section.value" v-model:subnet="scope.subnet.value"
-                          v-model:customer="scope.customer.value" :section-opts="scope.sectionOpts.value"
-                          :subnet-opts="scope.subnetOpts.value" :customer-opts="scope.customerOpts.value"
-                          v-model:status="scope.status.value" :status-opts="scope.statusOpts.value" />
+          <NInput v-model:value="miss.q.value" :placeholder="t('common.filter')" clearable style="width: 160px"
+                  data-testid="missing-filter" />
+          <ScopeFilterBar v-model:section="miss.section.value" v-model:subnet="miss.subnet.value"
+                          v-model:customer="miss.customer.value" :section-opts="miss.facets.value.sections"
+                          :subnet-opts="miss.facets.value.subnets" :customer-opts="miss.facets.value.customers"
+                          v-model:status="miss.status.value" :status-opts="miss.facets.value.statuses" />
           <ColumnPicker :all="ocsMissPicker" :visible="ocsMiss.visibleKeys.value"
                         @update:visible="ocsMiss.setVisible" @reset="ocsMiss.reset" />
-          <ExportButton :columns="missCols" :rows="scope.filtered.value" filename="ocs-missing-agents" :title="t('ocs.missing_agents')" />
+          <ExportButton :columns="missCols" :rows="miss.rows.value" :fetch-all="miss.fetchAll"
+                        filename="ocs-missing-agents" :title="t('ocs.missing_agents')" />
         </NSpace>
-        <NDataTable :columns="missCols" :data="scope.filtered.value" :loading="loading" :bordered="false"
-                    :scroll-x="960" :pagination="pg" />
+        <NDataTable :columns="missCols" :data="miss.rows.value" :loading="loading || miss.loading.value"
+                    :bordered="false" :scroll-x="960" remote :pagination="miss.pagination"
+                    @update:sorter="miss.onSorter" />
       </NTabPane>
     </NTabs>
   </NCard>

@@ -164,7 +164,7 @@
 
   <div class="talks">
     <a class="talk" href="talk-from-spreadsheet-to-ai-assistant.html">
-      <h2>從試算表到 AI 助理 — 讓 AI 讀懂企業網路資產</h2>
+      <h2 id="from-spreadsheet-to-ai-assistant">從試算表到 AI 助理 — 讓 AI 讀懂企業網路資產</h2>
       <div class="meta">2026-08 · <span class="zh">繁體中文</span><span class="en">Traditional Chinese</span><span class="ja">繁体字中国語</span></div>
       <div class="desc">
         <span class="zh">為什麼網路資產管理會從試算表走到 AI 助理，以及過程中在治理、資安與資料品質上的取捨。</span>
@@ -211,7 +211,7 @@
         history.replaceState(null, '', u);
       } catch (e) {}
       mark(); open(false);
-      // 頁面上其他要跟著語言改字的東西（例如 api.html 的上一節／下一節標題）掛這個事件。
+      // 頁面上其他要跟著語言改字的東西（例如 api.html 的上一節/下一節標題）掛這個事件。
       document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
     }
     if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
@@ -245,5 +245,6 @@
     apply(cur());
   })();
 </script>
+<script src="anchors.js" defer></script>
 </body>
 </html>

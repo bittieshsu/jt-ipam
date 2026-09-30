@@ -58,7 +58,7 @@ erDiagram
 
 ## 2. IPAM のコア
 
-### 2.1 `customers` — 管理組織／テナント
+### 2.1 `customers` — 管理組織/テナント
 顧客（管理組織）は jt-ipam における所有の起点です。phpIPAM がセクションとサブネットだけを扱うのに対し、jt-ipam では**セクション・サブネット・IP アドレス・機器・拠点・仮想化クラスタ・VLAN** に `customer_id` の外部キーが付きます。顧客による絞り込みは IP の関連付けの連鎖にも効きます（たとえば同じ顧客の VM にしか IP を紐づけない、など）。
 
 - `name`（一意のスラッグ）、`title`（表示名）、`description`、`contact`、`email`、`phone`、`address`。
@@ -76,28 +76,28 @@ erDiagram
 
 ### 2.4 `ip_addresses`
 - `subnet_id`（CASCADE）、`ip`（`inet`）、`(subnet_id, ip)` に一意制約、`ip` に GiST の索引。
-- `hostname`（解決済みの実効値）、`description`、`owner`、`note`、`state`（`active`／`reserved`／`offline`／`dhcp`／`used`）、`customer_id`、`device_id`。
+- `hostname`（解決済みの実効値）、`description`、`owner`、`note`、`state`（`active`/`reserved`/`offline`/`dhcp`/`used`）、`customer_id`、`device_id`。
 - **MAC とスイッチ上の位置**：`mac`（`macaddr`）、`mac_source`（どのソース由来か。ARP の優先順位に使います）、`switch_port`、`switch_port_confident`（FDB から導出。複数の MAC を抱えるアップリンクやトランクのポートでは false）。
 - **探査とスキャン**：`exclude_from_ping`、`excluded_probes`（`text[]`。IP 単位で除外する探査。icmp は `exclude_from_ping` と同期します）、`probe_last_run`（jsonb の `{probe: timestamp}`。「次はいつ」の表示に使います）。
 - **OS の推定**：`os_guess`（生の文字列）、`os_family`（アイコン対応づけ用に正規化した鍵。`core/os_fingerprint.py` を参照）。
 - **ホスト名の優先順位**：`hostname_source_pin` —— 実効ホスト名を特定のソースに固定します（NULL なら全体の優先順位に従います）。ソースごとの生のホスト名は `ip_hostname_observations` にあります。
-- **複数ソースの死活**：`discovery_source`（`manual`／`scanner`／`librenms`／`dns`／`proxmox`／`opnsense`／`phpipam`）、`last_seen_scanner`、`last_seen_librenms`、`last_seen_dns`、`effective_status`（小文字。`online`／`online (scanner)`／`online (librenms)`／`offline` など）。
+- **複数ソースの死活**：`discovery_source`（`manual`/`scanner`/`librenms`/`dns`/`proxmox`/`opnsense`/`phpipam`）、`last_seen_scanner`、`last_seen_librenms`、`last_seen_dns`、`effective_status`（小文字。`online`/`online (scanner)`/`online (librenms)`/`offline` など）。
 - `in_dhcp_lease`（ファイアウォールの DHCP リースから自動的に付きます）、`ptr_ignore`、`custom_fields`（jsonb）。
 
 ### 2.5 `ip_hostname_observations`
 `(ip, source)` ごとに 1 行で、そのソースが報告したホスト名を保持します。`IPAddress.hostname` は、全体の優先順位と IP 単位の固定からこれらを解決した値です（解決処理は `services/hostname.py`）。ソースは manual / scanner / librenms / dns / proxmox / opnsense / wazuh / adguard です。
 
 ### 2.6 `ip_change_log`
-IP のあらゆる変更の高頻度な履歴です（created / deleted / hostname_changed / mac_changed / state_changed / online / offline / arp_changed / edited）。**あえて**監査の SHA-256 チェーンには含めていません（同期由来のオンライン／オフラインや ARP のイベントは頻度が高すぎて、チェーンに直列化できません）。`ip_text` と `subnet_id` のスナップショットを持つので、IP が削除されても履歴は残ります（外部キーは SET NULL）。索引は `(ip_id, created_at)`。
+IP のあらゆる変更の高頻度な履歴です（created / deleted / hostname_changed / mac_changed / state_changed / online / offline / arp_changed / edited）。**あえて**監査の SHA-256 チェーンには含めていません（同期由来のオンライン/オフラインや ARP のイベントは頻度が高すぎて、チェーンに直列化できません）。`ip_text` と `subnet_id` のスナップショットを持つので、IP が削除されても履歴は残ります（外部キーは SET NULL）。索引は `(ip_id, created_at)`。
 
 ### 2.7 `nat_translations`
 phpIPAM の特徴である NAT を、OPNsense のポート転送ルールを写せるよう拡張したものです。
-- `type`（`one_to_one`／`many_to_one`／`port_forward`）、`src_ip_id` / `dst_ip_id`（FK ip_addresses）、`src_port` / `dst_port`（範囲用に `_to` も）、`protocol`、`src_interface`、`device_id`。
+- `type`（`one_to_one`/`many_to_one`/`port_forward`）、`src_ip_id` / `dst_ip_id`（FK ip_addresses）、`src_port` / `dst_port`（範囲用に `_to` も）、`protocol`、`src_interface`、`device_id`。
 - OPNsense との対応：`disabled`、`no_rdr`、`ip_version`、`src_not` / `dst_not`、`log`、`category`、`nat_reflection`、`pool_options`、`filter_rule`、そしてエイリアスの参照（`src_alias` / `dst_alias` / `src_port_alias` / `dst_port_alias` / `redirect_alias`）。
 - 同期の出どころ：`source_origin`（`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>`）と `external_id`（この組み合わせが upsert の鍵です）。
 
 ### 2.8 `ip_requests` / `ip_request_events`
-IP 申請のワークフローで、状態機械は明確です（`pending → approved → fulfilled` ／ `rejected` ／ `cancelled`）。`ip_request_events` は時系列（状態変化ごとに 1 行）です。承認時に IP をアトミックに確保します（`allocated_ip_id`）。
+IP 申請のワークフローで、状態機械は明確です（`pending → approved → fulfilled` / `rejected` / `cancelled`）。`ip_request_events` は時系列（状態変化ごとに 1 行）です。承認時に IP をアトミックに確保します（`allocated_ip_id`）。
 
 ---
 
@@ -124,21 +124,21 @@ agent.enabled_probes  ∩  subnet.scan_method  −  ip.excluded_probes
 ## 4. 機器と物理層
 
 ### 4.1 `devices`
-- `name`、`fqdn`、`primary_ip_id`（FK ip_addresses、use_alter）、`type`（`server`／`switch`／`router`／`firewall`／`ap`／`storage`／`ipmi`／`other`）、`vendor`、`model`、`serial`、`customer_id`、`custom_fields`。
-- ラックへの設置：`location_id`、`rack_id`、`u_position`、`u_size`、`rack_face`（`front`／`rear`）、`rack_side`（`full`／`left`／`right` —— ハーフ U の機器は 1 つの U を分け合います）。
+- `name`、`fqdn`、`primary_ip_id`（FK ip_addresses、use_alter）、`type`（`server`/`switch`/`router`/`firewall`/`ap`/`storage`/`ipmi`/`other`）、`vendor`、`model`、`serial`、`customer_id`、`custom_fields`。
+- ラックへの設置：`location_id`、`rack_id`、`u_position`、`u_size`、`rack_face`（`front`/`rear`）、`rack_side`（`full`/`left`/`right` —— ハーフ U の機器は 1 つの U を分け合います）。
 
-### 4.2 `locations`（＝データセンター／部屋）と `racks`
+### 4.2 `locations`（＝データセンター/部屋）と `racks`
 - **Location**：`name`（一意）、`address`、`latitude` / `longitude`、`customer_id`、`floor_plan_path`（アップロードしたフロアプランの下図。拠点はそのまま「部屋」としても扱えます）。
-- **Rack**：`location_id`、`name`、`u_height`（既定 42）、物理寸法の `width_mm` / `depth_mm`（フロアプラン上で実寸に合わせるため）、`seq`（左右の並び順）、`numbering`（`top-down`／`bottom-up`）、`face`（`front`／`rear`）、フロアプラン上の配置 `pos_x` / `pos_y`（0〜1 の比率）、`pos_rot`（任意の角度）、`pos_w` / `pos_h`。
+- **Rack**：`location_id`、`name`、`u_height`（既定 42）、物理寸法の `width_mm` / `depth_mm`（フロアプラン上で実寸に合わせるため）、`seq`（左右の並び順）、`numbering`（`top-down`/`bottom-up`）、`face`（`front`/`rear`）、フロアプラン上の配置 `pos_x` / `pos_y`（0〜1 の比率）、`pos_rot`（任意の角度）、`pos_w` / `pos_h`。
 
 ### 4.3 配線 — `device_ports`、`cables`、`cable_terminations`
 NetBox に近い構成ですが、より簡潔です（種別ごとにテーブルを分けず、多態的な終端テーブル 1 つにまとめています）。
-- **DevicePort**：機器上のポートやインタフェース。`type`（`network`／`front`／`rear`／`console`／`power`）、`peer_port_id`（前面↔背面の貫通。パッチパネルを辿るために使います）、`position`、`mac_address`（そのポート自身の物理 MAC。たとえば LibreNMS の `ifPhysAddress` であり、学習した対向の MAC ではありません）。`(device_id, name)` に一意制約。
-- **Cable**：`label`、`type`（`cat6`／`fiber-mm`／`fiber-sm`／`power`）、`color`、`length_m`、`status`（`planned`／`connected`／`decommissioned`）。
-- **CableTermination**：ケーブルの両端。`side`（`A`／`B`）、多態的な `(object_type, object_id)`（機器／パッチパネルのポート／コンセントなど）、`port_label`。ケーブル追跡はこれらと、ポートの `peer_port_id` による貫通を辿ってマルチホップで経路を描きます。
+- **DevicePort**：機器上のポートやインタフェース。`type`（`network`/`front`/`rear`/`console`/`power`）、`peer_port_id`（前面↔背面の貫通。パッチパネルを辿るために使います）、`position`、`mac_address`（そのポート自身の物理 MAC。たとえば LibreNMS の `ifPhysAddress` であり、学習した対向の MAC ではありません）。`(device_id, name)` に一意制約。
+- **Cable**：`label`、`type`（`cat6`/`fiber-mm`/`fiber-sm`/`power`）、`color`、`length_m`、`status`（`planned`/`connected`/`decommissioned`）。
+- **CableTermination**：ケーブルの両端。`side`（`A`/`B`）、多態的な `(object_type, object_id)`（機器/パッチパネルのポート/コンセントなど）、`port_label`。ケーブル追跡はこれらと、ポートの `peer_port_id` による貫通を辿ってマルチホップで経路を描きます。
 
 ### 4.4 電源 — NetBox 方式
-- **PowerPanel** → **PowerFeed**（`voltage_v`、`amperage_a`、`phase` は単相／三相、`supply_type` は ac／dc、任意の `rack_id`）→ **PowerOutlet**（`feed_id`、`rack_id`、`label`）。
+- **PowerPanel** → **PowerFeed**（`voltage_v`、`amperage_a`、`phase` は単相/三相、`supply_type` は ac/dc、任意の `rack_id`）→ **PowerOutlet**（`feed_id`、`rack_id`、`label`）。
 - **DevicePowerPort**：機器側の電源入力（PSU1 / PSU2 など）。`outlet_id`（FK power_outlets。NULL は未接続）、`max_watts`。1 台に複数持たせられるので、A 系統 / B 系統にまたがる二重化を表現できます。
 
 ---
@@ -229,7 +229,7 @@ NetBox に近い構成ですが、より簡潔です（種別ごとにテーブ�
 - `object_type` は `customer / section / subnet / ip / device / rack / location` の 7 種類（付与できる対象）。
 - `object_id` が NULL ならワイルドカード（その種別のすべて）。
 - `principal_type` は `user / group`、`level` は `read / write / admin`。
-- `(object_type, object_id, principal_type, principal_id)` に一意制約。付与されていないものはすべてアクセス不可です。`visible_ids()` は None（すべて見える。管理者かワイルドカード）／集合（限定）／空集合（何も見えない）を返し、一覧・詳細・検索・ダッシュボードの集計・件数はすべてこれで絞り込む必要があります。
+- `(object_type, object_id, principal_type, principal_id)` に一意制約。付与されていないものはすべてアクセス不可です。`visible_ids()` は None（すべて見える。管理者かワイルドカード）/集合（限定）/空集合（何も見えない）を返し、一覧・詳細・検索・ダッシュボードの集計・件数はすべてこれで絞り込む必要があります。
 
 ### 8.3 `audit_logs` — SHA-256 のチェーン（A08）
 主キーは `bigint`。`actor_user_id` / `actor_ip` / `actor_user_agent`、`object_type` / `object_id`（UUID）、`action`、`diff`（jsonb。機微な項目は伏せます）、`request_id`。`prev_hash` と `this_hash` が改ざんを検知できる連鎖を作り、書き込みはアドバイザリロックで直列化します。`object_id` には実在する UUID を入れてください（UUID 以外を詰め込まないこと）。
@@ -247,7 +247,7 @@ NetBox に近い構成ですが、より簡潔です（種別ごとにテーブ�
 利用者ごと（主キーは user_id）：`locale`（zh-TW / en-US / ja-JP —— 言語を足すときは CHECK 制約もマイグレーションで広げる必要があります。忘れると、新しい言語を選んだ瞬間に保存だけが失敗し、画面には「保存に失敗しました」としか出ません）、`theme`、`timezone`、`calendar`（gregorian / minguo）、`page_size`、`table_columns`（jsonb。表ごとの表示列）、`pinned_subnet_ids`（jsonb。ダッシュボードの「よく使うサブネット」）、`pinned`（jsonb の `{namespace: [id…]}`。部屋・拠点・ラックなどの汎用のピン留めで、localStorage ではなくサーバー側に保存します）。なお、オンライン判定の猶予時間は全体設定（`system_settings.online_grace_minutes`）へ移り、個人の設定ではなくなりました。
 
 ### 8.8 `system_settings`
-管理者向けのキー／値ストア（`key` が主キー、`value` は jsonb、`updated_by`）で、環境変数を上書きします。とりわけ、ホスト名 / ARP-MAC / 機器名 / 機器の型番 / OS を解決するための**ソース優先順位**、`online_grace_minutes`、LLM の設定、AI 対話の保持期間を保持します。
+管理者向けのキー/値ストア（`key` が主キー、`value` は jsonb、`updated_by`）で、環境変数を上書きします。とりわけ、ホスト名 / ARP-MAC / 機器名 / 機器の型番 / OS を解決するための**ソース優先順位**、`online_grace_minutes`、LLM の設定、AI 対話の保持期間を保持します。
 
 ### 8.9 `notifications` / `webhook_subscriptions`
 - **Notification**：アプリ内の利用者ごとの通知（`severity`、`title`、`body`、`link`、任意の `object_type` / `object_id`、`read_at`）。

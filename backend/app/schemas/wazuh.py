@@ -94,3 +94,29 @@ class MissingAgentRow(StrictModel):
     arp_seen: dict[str, str] = {}
     exclude_from_ping: bool = False
     subnet_scan_enabled: bool | None = None
+
+
+
+class MissingAgentFacet(StrictModel):
+    value: str
+    label: str
+
+
+class MissingAgentFacets(StrictModel):
+    sections: list[MissingAgentFacet] = []
+    subnets: list[MissingAgentFacet] = []
+    customers: list[MissingAgentFacet] = []
+    statuses: list[MissingAgentFacet] = []
+
+
+class MissingAgentPageRow(MissingAgentRow):
+    #: 伺服器依畫面燈號同一套規則算的上線狀態（online／stale／offline／unknown）
+    status: str | None = None
+
+
+class MissingAgentPage(StrictModel):
+    """帶 page 參數時的回應：一頁資料＋篩選後總數＋全部缺口數＋篩選選項（Wazuh 與 OCS 共用）。"""
+    items: list[MissingAgentPageRow]
+    total: int
+    total_all: int
+    facets: MissingAgentFacets

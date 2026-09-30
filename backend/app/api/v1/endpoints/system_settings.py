@@ -911,6 +911,7 @@ class LLMConfigOut(StrictModel):
     # AI 判讀（未授權 IP 判讀／IP 調查／防火牆規則異動解讀）；None＝沿用對話模型
     ai_interpret_model: str | None = None
     ai_interpret_num_ctx: int | None = None
+    chat_thinking: bool = True           # AI 對話允許模型先思考（False＝送關閉思考的參數）
     server_timezone: str = ""            # 排程時刻是照這個時區算的，UI 要講清楚
 
 
@@ -942,6 +943,7 @@ class LLMConfigPatch(StrictModel):
     # AI 判讀專用模型／上下文長度；空字串／0 ＝清掉，回去沿用對話模型
     ai_interpret_model: Annotated[str | None, Field(max_length=128)] = None
     ai_interpret_num_ctx: Annotated[int | None, Field(ge=0, le=131072)] = None
+    chat_thinking: bool | None = None
 
 
 def _server_tz() -> str:
@@ -970,6 +972,7 @@ def _llm_out(cfg: Any) -> LLMConfigOut:
         ai_audit_num_ctx=cfg.ai_audit_num_ctx,
         ai_interpret_model=cfg.ai_interpret_model,
         ai_interpret_num_ctx=cfg.ai_interpret_num_ctx,
+        chat_thinking=cfg.chat_thinking,
         server_timezone=_server_tz(),
     )
 
@@ -1011,6 +1014,7 @@ async def patch_llm(
         ai_audit_num_ctx=changes.get("ai_audit_num_ctx"),
         ai_interpret_model=changes.get("ai_interpret_model"),
         ai_interpret_num_ctx=changes.get("ai_interpret_num_ctx"),
+        chat_thinking=changes.get("chat_thinking"),
         updated_by_user_id=user.id,
     )
     await append_audit(

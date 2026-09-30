@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.57] - 2026-10-01
+
+"IPs without an agent" is paged on the server, the AI chat can be told not to think, and error responses keep
+their headers. Also fixes the dependency advisories that turned the v0.6.56 CI audit red.
+
+### Changed
+- **"IPs without an agent" (Wazuh and OCS) is paged, filtered and sorted on the server.** A large site with
+  53,000 gaps used to download the whole list (27–42 MB) every time the tab was opened — 8–10 s, with the
+  browser frozen for about 2 s while filtering. Now one page comes back (about 180 KB); the first load takes
+  1–3 s and paging is well under a second. Section, subnet, unit and status filters, a new text filter and
+  every column sort cover all gaps rather than the page on screen, and the filter menus come from the server.
+  Export still downloads everything that matches. Sorting by subnet, section or unit did not work before.
+  The API returns the full list as before when `page` is not given.
+- **AI chat can turn thinking off** (Admin → LLM / AI, "Let the model think before answering in AI chat";
+  on by default, as before). Off sends the thinking-off controls on every chat turn — Ollama's `think:false`,
+  and `reasoning_effort` and friends for OpenAI-compatible servers and gateways such as LiteLLM — so a thinking
+  model answers much sooner. A control the server rejects is dropped and remembered, as for AI triage.
+
+### Fixed
+- Error responses dropped the headers of the exception: a `401` now carries `WWW-Authenticate: Bearer` and a
+  backend `429` carries `Retry-After` (60 s for the rate limiter, 900 s for the failed-login lockout).
+- The zh-TW changelog was missing the 0.6.56 entry; a test now keeps both changelogs on the same version.
+
+### Security
+- Frontend dependencies: axios 1.20.0 (advisories published 2026-09-30), brace-expansion and js-yaml in the
+  build tooling (2026-09-29). These turned the v0.6.56 CI audit job red.
+
+### Documentation
+- API manual: paging, filter and sort parameters of `/wazuh/missing-agents` and `/ocs/missing-agents`, and
+  the `401` / `429` headers. Release test checklist covers these changes.
+- **Feature map rewritten**: one line per item in all three languages, every integration named — each DNS
+  server, Kea, ISC DHCP, OCS Inventory NG, AdGuard Home, Palo Alto, MikroTik — plus features that were missing
+  (IP probe, device import, scan agent load, rack embed, system export / import, AI settings and more). The
+  home page integration badges and the "which sources create IP records" table gain the same products, and the
+  READMEs gain Wazuh and OCS.
+- **Every section heading on the docs site has a `#` link** with a fixed English anchor, so a section that is not
+  in the top bar can be shared and opens scrolled to it; clicking the `#` also copies the link. In the API manual
+  a link to a subsection opens its section and scrolls to it (it used to fall back to section 1).
+- The docs use a half-width slash throughout.
+
 ## [0.6.56] - 2026-09-30
 
 Large-scale environments, second round — every other integration, non-admin accounts, background jobs,

@@ -1,5 +1,6 @@
 import { apiClient } from "@/api/client";
 import type { Paginated } from "@/types";
+import type { MissingPage, MissingQuery } from "@/composables/useRemoteMissing";
 
 // OCS Inventory NG 整合。路徑帶 /api/v1 前綴（baseURL 為 /）。
 // 與其他整合最大不同：帳密選用（OCS REST 預設無驗證）。
@@ -118,7 +119,8 @@ export async function listOcsAgents(): Promise<{ items: OcsAgent[]; total: numbe
   return data;
 }
 
-export async function listOcsMissingAgents(): Promise<OcsMissingAgent[]> {
-  const { data } = await apiClient.get<OcsMissingAgent[]>("/api/v1/ocs/missing-agents");
+/** 帶 page ＝ 伺服器端分頁：篩選、排序、篩選選項都由後端算（見 useRemoteMissing）。 */
+export async function listOcsMissingAgentsPage(params: MissingQuery): Promise<MissingPage<OcsMissingAgent>> {
+  const { data } = await apiClient.get<MissingPage<OcsMissingAgent>>("/api/v1/ocs/missing-agents", { params });
   return data;
 }

@@ -88,3 +88,51 @@ for (const path of ["/wazuh", "/ocs"]) {
     expect(new Set(colors).size, colors.join(", ")).toBe(1);
   });
 }
+
+// 伺服器端分頁（2026-10-01）：大站台 5 萬筆缺口不再整份抓回來；翻頁、排序、關鍵字都由後端做
+for (const path of ["/wazuh", "/ocs"]) {
+  test(`${path}：未裝 Agent 的 IP 由後端分頁、排序、搜尋`, async ({ page }) => {
+    await login(page);
+    await page.goto(path);
+    const reqs: URL[] = [];
+    page.on("request", (r) => { if (r.url().includes("missing-agents")) reqs.push(new URL(r.url())); });
+    const first = page.waitForResponse((r) => r.url().includes("missing-agents"));
+    await page.locator(".n-tabs-tab", { hasText: /未裝 Agent 的 IP/ }).click();
+    const body = await (await first).json();
+    expect(Array.isArray(body), "應該拿到分頁物件而不是整份清單").toBe(false);
+    expect(reqs[0].searchParams.get("page")).toBe("1");
+    expect(body.items.length).toBeLessThanOrEqual(Number(reqs[0].searchParams.get("page_size")));
+
+    const pane = page.locator(".n-tab-pane:visible");
+    const rows = pane.locator(".n-data-table-tbody .n-data-table-tr");
+    await expect(rows.first()).toBeVisible({ timeout: 20_000 });
+    await expect(pane.locator(".n-data-table")).toContainText(`${body.total}`);   // 分頁列的總筆數是後端的 total
+
+    // 依主機名稱排序：送 sort＋order，第一列就是整份裡排第一的（naive-ui 點一下先倒序、再點正序）
+    const hostCol = await pane.locator(".n-data-table-th").evaluateAll((ths: Element[]) =>
+      ths.findIndex((th) => (th as HTMLElement).innerText.trim().startsWith("主機名稱")));
+    const hostTh = pane.locator(".n-data-table-th").nth(hostCol);
+    const desc = page.waitForResponse((r) => r.url().includes("sort=hostname") && r.url().includes("order=desc"));
+    await hostTh.click();
+    const descBody = await (await desc).json();
+    const names = descBody.items.map((i: { hostname: string }) => i.hostname);
+    expect(names.length).toBeGreaterThan(0);
+    await expect(rows.first().locator("td").nth(hostCol)).toHaveText(names[0]);
+    const asc = page.waitForResponse((r) => r.url().includes("sort=hostname") && r.url().includes("order=asc"));
+    await hostTh.click();
+    const ascBody = await (await asc).json();
+    await expect(rows.first().locator("td").nth(hostCol)).toHaveText(ascBody.items[0].hostname);
+    expect(ascBody.items[0].hostname).not.toBe(names[0]);
+
+    // 關鍵字交給後端：輸入主機名稱的一段，結果每一列都含那一段
+    const needle = String(names[0]).slice(0, Math.max(3, String(names[0]).length - 1));
+    const searched = page.waitForResponse((r) => r.url().includes("missing-agents") && r.url().includes("q="));
+    await pane.getByTestId("missing-filter").locator("input").fill(needle);
+    const sb = await (await searched).json();
+    expect(sb.total).toBeGreaterThan(0);
+    for (const i of sb.items) {
+      expect(`${i.hostname}\n${i.ip}`.toLowerCase()).toContain(needle.toLowerCase());
+    }
+    await expect(pane.locator(".n-alert").first()).toHaveText(new RegExp(`${sb.total} / \\d+`));
+  });
+}

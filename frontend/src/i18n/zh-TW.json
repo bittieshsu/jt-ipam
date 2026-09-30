@@ -3142,6 +3142,8 @@
     "num_ctx": "對話上下文長度 (num_ctx)",
     "num_ctx_placeholder": "預設 (留空)",
     "num_ctx_hint": "對話模型一次能看的 token 數上限。留空或 0＝沿用模型/Ollama 預設 (通常 4096)。工具多、注入資料量大的對話容易超過預設而被截斷 (模型「忘記」前面內容)，可調高如 8192／16384／32768；越大越吃記憶體/VRAM。只影響對話，不影響嵌入模型。",
+    "chat_thinking": "AI 對話允許模型先思考",
+    "chat_thinking_hint": "開啟（預設）：會思考的模型先想再答，畫面顯示「思考中」。關閉：每一輪對話都送出關閉思考的參數（Ollama 的 think:false；OpenAI 相容服務與 LiteLLM 等閘道的 reasoning_effort 等），回答快很多，適合接會思考的模型卻想要即時回覆的情況。伺服器不收某個參數時會自動拿掉。AI 巡檢與 AI 判讀一律關閉思考，不受這個設定影響。",
     "mcp_ext_title": "對外提供 MCP（讓其它系統呼叫）",
     "mcp_ext_enable": "提供 MCP 給外部系統",
     "mcp_ext_hint": "打開後，其它系統（外部 LLM 客戶端、自動化腳本）才能以 HTTP 呼叫本站的 MCP 端點查詢資料。預設關閉，打開才接受外部呼叫。",

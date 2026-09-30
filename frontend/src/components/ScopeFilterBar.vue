@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 區段／子網路／單位／上線狀態篩選下拉（搭配 useScopeFilter；選項由它依資料產生）。 */
+/** 區段／子網路／單位／上線狀態篩選下拉（搭配 useRemoteMissing；選項由後端從整份缺口算好）。 */
 import { computed } from "vue";
 import { NSelect } from "naive-ui";
 import { useI18n } from "vue-i18n";

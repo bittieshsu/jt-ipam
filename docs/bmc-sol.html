@@ -272,7 +272,7 @@
     <span class="en">The BIOS only covers POST through the boot loader. For kernel messages and a login prompt the OS has to write to the same serial port.</span><span class="ja">BIOS が面倒を見るのは POST からブートローダまでです。カーネルメッセージとログインプロンプトを見るには、OS も同じシリアルポートへ出力する必要があります。</span>
   </p>
 
-  <h3><span class="zh">步驟 1 &mdash; 找出 SOL 對應的埠</span><span class="en">Step 1 &mdash; find the port SOL maps to</span><span class="ja">手順 1 &mdash; SOL に対応するポートを特定する</span></h3>
+  <h3 id="os-step-1"><span class="zh">步驟 1 &mdash; 找出 SOL 對應的埠</span><span class="en">Step 1 &mdash; find the port SOL maps to</span><span class="ja">手順 1 &mdash; SOL に対応するポートを特定する</span></h3>
   <pre class="cmd">dmesg | grep -iE 'ttyS|SPCR'
 # SPCR: console: uart,io,0x3f8,115200  →  0x3f8 = ttyS0 / 0x2f8 = ttyS1</pre>
   <p class="note">
@@ -280,10 +280,10 @@
     <span class="en">What SPCR declares is not always what the BMC relays. With SOL connected, send a marker to each port and see which one appears: <code>echo test &gt; /dev/ttyS0</code>, <code>echo test &gt; /dev/ttyS1</code> — or read <code>/proc/tty/driver/serial</code> and pick the one whose <code>rx</code> counter moves.</span><span class="ja">SPCR が宣言している値が、BMC が実際に中継しているポートとは限りません。SOL を接続した状態で各ポートへ目印を送り、どれが画面に出るかを見ます。<code>echo test &gt; /dev/ttyS0</code>、<code>echo test &gt; /dev/ttyS1</code>。あるいは <code>/proc/tty/driver/serial</code> を読み、<code>rx</code> のカウンタが増えているポートを選びます。</span>
   </p>
 
-  <h3><span class="zh">步驟 2 &mdash; 啟用序列登入（立即生效、免重開機）</span><span class="en">Step 2 &mdash; enable a serial login (takes effect immediately)</span><span class="ja">手順 2 &mdash; シリアルログインを有効にする（即時反映・再起動不要）</span></h3>
+  <h3 id="os-step-2"><span class="zh">步驟 2 &mdash; 啟用序列登入（立即生效、免重開機）</span><span class="en">Step 2 &mdash; enable a serial login (takes effect immediately)</span><span class="ja">手順 2 &mdash; シリアルログインを有効にする（即時反映・再起動不要）</span></h3>
   <pre class="cmd">systemctl enable --now serial-getty@ttyS1.service</pre>
 
-  <h3><span class="zh">步驟 3 &mdash; 加入核心 console 參數</span><span class="en">Step 3 &mdash; add the kernel console parameter</span><span class="ja">手順 3 &mdash; カーネルの console パラメータを追加する</span></h3>
+  <h3 id="os-step-3"><span class="zh">步驟 3 &mdash; 加入核心 console 參數</span><span class="en">Step 3 &mdash; add the kernel console parameter</span><span class="ja">手順 3 &mdash; カーネルの console パラメータを追加する</span></h3>
   <pre class="cmd"># GRUB：/etc/default/grub
 GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty0 console=ttyS1,115200n8"
 update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline 後 proxmox-boot-tool refresh</pre>
@@ -325,7 +325,7 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
         <td><span class="zh">開機訊息是 systemd 的狀態圖示（核心參數加 <code>systemd.show_status=auto</code> 或改用 <code>quiet</code>）；BIOS 畫面則是 <code>Terminal Type</code> 選了 VT-UTF8。</span><span class="en">In boot messages it is systemd's status glyphs (add <code>systemd.show_status=auto</code>, or use <code>quiet</code>); on the BIOS screen it is <code>Terminal Type</code> set to VT-UTF8.</span><span class="ja">起動メッセージなら systemd のステータス記号です（カーネルパラメータに <code>systemd.show_status=auto</code> を加えるか <code>quiet</code> を使います）。BIOS 画面なら <code>Terminal Type</code> が VT-UTF8 になっています。</span></td>
       </tr>
       <tr>
-        <td><span class="zh">畫面被切掉 / 四周留黑</span><span class="en">Edges cut off, or a small screen with black margins</span><span class="ja">端が切れる／周囲に黒い余白が出る</span></td>
+        <td><span class="zh">畫面被切掉 / 四周留黑</span><span class="en">Edges cut off, or a small screen with black margins</span><span class="ja">端が切れる/周囲に黒い余白が出る</span></td>
         <td><span class="zh">序列連線無法自動傳視窗大小。按主控台工具列的<strong>符合視窗</strong>（送 <code>stty</code>），或把 BIOS 的 <code>Resolution 100x31</code> 關掉。</span><span class="en">A serial line cannot negotiate window size. Use the console's <strong>fit to window</strong> button (it sends <code>stty</code>), or turn the BIOS <code>Resolution 100x31</code> off.</span><span class="ja">シリアル回線はウィンドウサイズを通知できません。コンソールのツールバーの<strong>ウィンドウに合わせる</strong>（<code>stty</code> を送ります）を使うか、BIOS の <code>Resolution 100x31</code> を無効にしてください。</span></td>
       </tr>
     </tbody>
@@ -373,7 +373,7 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
         history.replaceState(null, '', u);
       } catch (e) {}
       mark(); open(false);
-      // 頁面上其他要跟著語言改字的東西（例如 api.html 的上一節／下一節標題）掛這個事件。
+      // 頁面上其他要跟著語言改字的東西（例如 api.html 的上一節/下一節標題）掛這個事件。
       document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
     }
     if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
@@ -407,5 +407,6 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
     apply(cur());
   })();
 </script>
+<script src="anchors.js" defer></script>
 </body>
 </html>

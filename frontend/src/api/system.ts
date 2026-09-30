@@ -155,6 +155,8 @@ export interface LLMConfig {
   // AI 判讀（未授權 IP 判讀／IP 調查／防火牆規則異動解讀）；null＝沿用對話模型
   ai_interpret_model: string | null;
   ai_interpret_num_ctx: number | null;
+  // AI 對話允許模型先思考（false＝每一輪都送關閉思考的參數）
+  chat_thinking: boolean;
   server_timezone: string;
 }
 
@@ -178,6 +180,7 @@ export interface LLMConfigPatch {
   ai_audit_num_ctx?: number;
   ai_interpret_model?: string;
   ai_interpret_num_ctx?: number;
+  chat_thinking?: boolean;
 }
 
 export async function getLLMConfig(): Promise<LLMConfig> {

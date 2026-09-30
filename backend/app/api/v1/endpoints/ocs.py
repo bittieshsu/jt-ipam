@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
@@ -19,6 +19,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_global_r
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.ui_error import detail_of
+from app.models.address import IPAddress
 from app.models.ocs import OcsServer
 from app.schemas.base import Paginated
 from app.schemas.ocs import OcsCreate, OcsRead, OcsUpdate
@@ -192,7 +193,16 @@ async def list_ocs_agents(session: Annotated[AsyncSession, Depends(get_session)]
 async def list_ocs_missing_agents(
     session: Annotated[AsyncSession, Depends(get_session)],
     hostnamed_only: bool = True,
-) -> list[dict[str, Any]]:
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int, Query(ge=1, le=100_000)] = 100,
+    section_id: uuid.UUID | None = None,
+    subnet_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
+    status_filter: Annotated[str | None, Query(alias="status", max_length=16)] = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
+    sort: Annotated[Literal["ip", "hostname", "subnet", "section", "customer", "status"], Query()] = "ip",
+    order: Annotated[Literal["asc", "desc"], Query()] = "asc",
+) -> Any:
     """有主機名稱、卻從來沒被 OCS 盤點過的 IP（帶所屬子網路／區段／單位，畫面據此篩選）。
 
     OCS 設了「限定子網路範圍」就只列範圍內的（見 agent_scope.expected_subnets）。
@@ -200,5 +210,13 @@ async def list_ocs_missing_agents(
     from app.services.agent_scope import annotate_scope, expected_subnets
     servers = list((await session.execute(
         select(OcsServer).where(OcsServer.enabled.is_(True)))).scalars().all())
+    if page is not None:
+        # 伺服器端分頁與篩選（與 Wazuh 頁同一套：agent_scope.missing_page）
+        from app.services.agent_scope import missing_page
+        return await missing_page(
+            session, missing=IPAddress.ocs_id.is_(None) & IPAddress.last_seen_ocs.is_(None),
+            subnet_ids=expected_subnets(servers), hostnamed_only=hostnamed_only, page=page,
+            page_size=page_size, section_id=section_id, subnet_id=subnet_id, customer_id=customer_id,
+            status=status_filter, q=q, sort=sort, order=order, cache_key=("ocs",))
     return await annotate_scope(session, await svc.find_missing_agents(
         session, hostnamed_only=hostnamed_only, subnet_ids=expected_subnets(servers)))

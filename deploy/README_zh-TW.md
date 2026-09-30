@@ -160,7 +160,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart jt-ipam-backend
 ```
 
-> **注意**：自簽憑證瀏覽器會出現警告。可選擇：(1) 使用者端匯入 CA／信任憑證；(2) 內網架小型 CA（step-ca、smallstep）；(3) 改回模式 A 走 Let's Encrypt。
+> **注意**：自簽憑證瀏覽器會出現警告。可選擇：(1) 使用者端匯入 CA/信任憑證；(2) 內網架小型 CA（step-ca、smallstep）；(3) 改回模式 A 走 Let's Encrypt。
 
 優點：少一個元件、設定簡單、適合 LXC 小型部署。
 缺點：HTTP/2 / HTTP/3 / 多 site 不便、自簽憑證信任問題、效能不如 nginx。

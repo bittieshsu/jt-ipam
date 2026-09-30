@@ -111,6 +111,9 @@ class LLMConfig:
     # —— 適合的模型不一定同一個。
     ai_interpret_model: str | None = None
     ai_interpret_num_ctx: int | None = None
+    # AI 對話允不允許模型先思考。預設允許（畫面顯示「思考中」，與以前相同）；關掉時每一輪都送關閉思考的
+    # 參數 —— 接會思考的模型、尤其經過 LiteLLM 這類閘道時，回答快很多。巡檢與判讀一律關閉、不看這個
+    chat_thinking: bool = True
 
 
 _MCP_AAD = b"llm:mcp_api_key"
@@ -216,6 +219,8 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
                 cfg.ai_audit_num_ctx = n if n > 0 else None
             except (ValueError, TypeError):
                 pass
+        if isinstance(v.get("chat_thinking"), bool):
+            cfg.chat_thinking = v["chat_thinking"]
         if v.get("ai_interpret_model"):
             cfg.ai_interpret_model = str(v["ai_interpret_model"]).strip() or None
         if v.get("ai_interpret_num_ctx") is not None:
@@ -266,6 +271,7 @@ async def set_llm_config(
     ai_audit_num_ctx: int | None = None,
     ai_interpret_model: str | None = None,
     ai_interpret_num_ctx: int | None = None,
+    chat_thinking: bool | None = None,
     provider: str | None = None,
     api_key: str | None = None,
     updated_by_user_id: uuid.UUID | None = None,
@@ -288,6 +294,8 @@ async def set_llm_config(
     # 0 ＝清掉，回去沿用對話模型的上下文長度
     if ai_audit_num_ctx is not None:
         current["ai_audit_num_ctx"] = int(ai_audit_num_ctx) if int(ai_audit_num_ctx) > 0 else None
+    if chat_thinking is not None:
+        current["chat_thinking"] = bool(chat_thinking)
     # 判讀：同上，空字串／0 ＝清掉，回去沿用對話模型
     if ai_interpret_model is not None:
         current["ai_interpret_model"] = ai_interpret_model.strip() or None
