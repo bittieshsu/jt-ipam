@@ -30,6 +30,7 @@ import structlog
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.ai_finding import AIFinding
 from app.models.device import Device
@@ -117,7 +118,7 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
     if vis_sub is not None:
         if not vis_sub:
             return {"subnets": [], "ips": [], "devices": [], "empty": True}
-        sub_q = sub_q.where(Subnet.id.in_(vis_sub))
+        sub_q = sub_q.where(in_values(Subnet.id, vis_sub))
     sub_rows = (await session.execute(sub_q.limit(MAX_SAMPLE))).all()
 
     # 每個網段的掃描涵蓋：有沒有在掃、掃到過幾筆。
@@ -130,7 +131,7 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
             select(IPAddress.subnet_id,
                    func.count().filter(IPAddress.last_seen_scanner.isnot(None)),
                    func.count())
-            .where(IPAddress.subnet_id.in_([r[0] for r in sub_rows]))
+            .where(in_values(IPAddress.subnet_id, [r[0] for r in sub_rows]))
             .group_by(IPAddress.subnet_id)
         )).all():
             cover[sid] = (int(seen or 0), int(total or 0))
@@ -153,16 +154,16 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
         if not vis_ip:
             ip_q = ip_q.where(IPAddress.id.is_(None))
         else:
-            ip_q = ip_q.where(IPAddress.id.in_(vis_ip))
+            ip_q = ip_q.where(in_values(IPAddress.id, vis_ip))
     # IP 也跟著子網路的範圍走 —— 否則勾掉的網段照樣被整段送給模型
-    ip_q = ip_q.where(IPAddress.subnet_id.in_([r[0] for r in sub_rows])
+    ip_q = ip_q.where(in_values(IPAddress.subnet_id, [r[0] for r in sub_rows])
                       if sub_rows else IPAddress.id.is_(None))
     ip_rows = (await session.execute(ip_q.limit(MAX_SAMPLE))).all()
 
     vis_dev = await visible_ids(session, user=user, object_type="device", required="read")
     dev_q = select(Device.id, Device.name, Device.type)
     if vis_dev is not None:
-        dev_q = dev_q.where(Device.id.in_(vis_dev)) if vis_dev else dev_q.where(Device.id.is_(None))
+        dev_q = dev_q.where(in_values(Device.id, vis_dev)) if vis_dev else dev_q.where(Device.id.is_(None))
     dev_rows = (await session.execute(dev_q.limit(MAX_SAMPLE))).all()
     # 只給名稱與類型，不給 UUID —— 給了模型就會把 UUID 寫進發現裡，
     # 而人看著一串 UUID 完全不知道那是哪台機器

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.core.ui_error import detail_of, ui_detail
 from app.models.section import Section
 from app.models.subnet import Subnet
@@ -78,8 +79,8 @@ async def list_subnets(
     if vis is not None:                    # None＝全部可見（admin 或萬用授權）
         if not vis:                        # 空 set＝完全沒有可見範圍
             return Paginated[SubnetRead](items=[], total=0, page=page, page_size=page_size)
-        stmt = stmt.where(Subnet.id.in_(vis))
-        count_stmt = count_stmt.where(Subnet.id.in_(vis))
+        stmt = stmt.where(in_values(Subnet.id, vis))
+        count_stmt = count_stmt.where(in_values(Subnet.id, vis))
 
     stmt = stmt.order_by(Subnet.cidr).offset((page - 1) * page_size).limit(page_size)
     vis_rows = list((await session.execute(stmt)).scalars().all())
@@ -89,7 +90,7 @@ async def list_subnets(
     if cust_ids:
         from app.models.customer import Customer
         cust_name = {c.id: c.name for c in (await session.execute(
-            select(Customer).where(Customer.id.in_(cust_ids))
+            select(Customer).where(in_values(Customer.id, cust_ids))
         )).scalars().all()}
     items = []
     for r in vis_rows:

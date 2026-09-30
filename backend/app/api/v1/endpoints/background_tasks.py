@@ -44,8 +44,8 @@ async def list_tasks(
     elif status_in:
         statuses = [s.strip() for s in status_in.split(",") if s.strip()]
         if statuses:
-            stmt = stmt.where(BackgroundTask.status.in_(statuses))
-            count_stmt = count_stmt.where(BackgroundTask.status.in_(statuses))
+            stmt = stmt.where(BackgroundTask.status.in_(statuses))  # bounded: status filter
+            count_stmt = count_stmt.where(BackgroundTask.status.in_(statuses))  # bounded: status filter
 
     if kind:
         stmt = stmt.where(BackgroundTask.kind == kind)

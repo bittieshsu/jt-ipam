@@ -33,18 +33,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall
 from app.models.subnet import Subnet
 from app.services import arp_seen as arp_seen_svc
 from app.services.dhcp_leases import LeaseRun
-from app.services.hostname import apply_observation
+from app.services.fw_sightings import SightingBatch
 from app.services.hostname_reports import HostnameRun, enabled_peers
 from app.services.ip_autocreate import (
-    SubnetCandidates,
     addable_subnets,
-    match_existing,
-    subnet_for_ip_str,
 )
 
 
@@ -332,73 +330,6 @@ async def sync_mapping(
     return summary
 
 
-async def _stamp_ip_seen(
-    session: AsyncSession, ip: str,
-    *, evidence: str, mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
-    permanent: bool = False, seen_at: datetime | None = None,
-    create_in: SubnetCandidates | None = None,
-    hn_run: HostnameRun | None = None,
-) -> bool:
-    """找到 jt-ipam IPAddress 就記下觀測時間，回傳是否找到（或已建立）。
-
-    hn_run：租約帶來的主機名稱交給這一輪的 HostnameRun（見 services/hostname_reports.py），
-    這樣上游不再回報的名稱才會被清掉；有 hn_run 時「沒有名稱」也要報（＝這個 IP 目前沒有名稱）。
-
-    `evidence` 是證據契約裡的來源名稱（`arp:opnsense` / `lease:opnsense` /
-    `vpn:opnsense`）。**不再寫 `last_seen_scanner`** —— 那個欄位屬於掃描代理，
-    防火牆的資料塞進去會讓畫面顯示「上線 (scanner)」但站台根本沒有代理，
-    而且三種可信度差很多的證據混在一起就沒辦法分別採信（見 services/arp_seen.py）。
-    DHCP/ARP 是當下事實 → 有 MAC / hostname 就覆寫舊值。
-    dhcp=True（來自 DHCP lease）→ 自動標記 in_dhcp_lease。
-    subnet_ids 給定時只在該防火牆關聯的子網路內找 IP（避免重疊網段同 IP 撈到別人，
-    也避免 .scalar_one_or_none() 在多筆同 IP 時 MultipleResultsFound 炸掉整批 sync）。
-    """
-    if not ip:
-        return False
-    # 唯一才算：重疊網段又沒設關聯子網路時不寫、也不新建（以前任意取一筆，資料掛到別的單位）
-    ipa, ambiguous = await match_existing(session, ip, subnet_ids)
-    if ambiguous:
-        return False
-    if ipa is None:
-        # 沒有這筆 IP：只有在防火牆開了 auto_create_ips、而且落點子網路唯一時才建
-        # （規則見 services/ip_autocreate.py；歧義寧可不建，也不要掛到別的單位）
-        if create_in is None:
-            return False
-        sid = subnet_for_ip_str(create_in, ip)
-        if sid is None:
-            return False
-        ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="opnsense")
-        session.add(ipa)
-        await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
-    arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
-    if lease_run is not None:
-        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
-    if mac:
-        from app.services.arp_evidence import record_firewall_arp
-        from app.services.arp_precedence import consider_mac
-        await consider_mac(session, ip=ipa, mac=mac, source="opnsense")
-        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
-        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
-                                  seen_at=seen_at, permanent=permanent)
-    if hn_run is not None:
-        hn_run.report(ipa, hostname)
-    elif hostname:
-        await apply_observation(session, ip=ipa, source="opnsense", hostname=hostname)
-    return True
-
-
-
-async def _ip_exists(
-    session: AsyncSession, ip: str, subnet_ids: list[uuid.UUID] | None,
-) -> bool:
-    """這筆 IP 原本在不在 —— 用來區分「對到既有」與「這次新建」。"""
-    stmt = select(IPAddress).where(IPAddress.ip == ip)
-    if subnet_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
-    return (await session.execute(stmt.limit(1))).scalars().first() is not None
-
-
 async def sync_dhcp_ranges(
     session: AsyncSession, fw: OPNsenseFirewall,
 ) -> dict[str, int]:
@@ -577,6 +508,8 @@ async def sync_dhcp_leases(
     hn_run = HostnameRun(session, source="opnsense", origin=f"opnsense:{fw.id}",
                          peers=await enabled_peers(session, OPNsenseFirewall))
     lease_run = LeaseRun(session, source_type="opnsense", source_id=fw.id)
+    batch = SightingBatch(session, source="opnsense", subnet_ids=scope_ids, lease_run=lease_run,
+                          create_in=create_in, hn_run=hn_run)
 
     for path, kind in sources:
         try:
@@ -600,14 +533,13 @@ async def sync_dhcp_leases(
             if not ip:
                 continue
             seen += 1
-            existed = await _ip_exists(session, ip, scope_ids)
-            if await _stamp_ip_seen(session, ip, evidence="lease:opnsense",
-                                    mac=mac, hostname=host,
-                                    subnet_ids=scope_ids, lease_run=lease_run, create_in=create_in,
-                                    hn_run=hn_run):
-                matched += 1
-                if not existed:
-                    before_created += 1
+            batch.add(ip, evidence="lease:opnsense", mac=mac, hostname=host)
+    # 整批寫（以前每筆租約各查 4、5 次；見 services/fw_sightings.py）
+    for found, existed in await batch.flush():
+        if found:
+            matched += 1
+            if not existed:
+                before_created += 1
 
     # 主機名稱：每支租約端點都讀成功（404＝沒裝那個 plugin，不算失敗）才清掉不再出現的
     hn = await hn_run.finish(complete=not errors)
@@ -646,8 +578,9 @@ async def sync_arp_table(
     rows = data.get("rows") or data if isinstance(data, list) else data.get("rows") or []
     if isinstance(data, list):
         rows = data
-    seen = matched = 0
+    seen = 0
     scope_ids = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
+    batch = SightingBatch(session, source="opnsense", subnet_ids=scope_ids)
     # 每一筆帶 `expires`＝剩餘秒數，從 max_age 往下數（FreeBSD 預設 1200 秒，
     # 實機兩台都是 1200）。**用整批的最大值當 max_age**，站台調過 net.link.ether.inet.max_age
     # 也還是對得上；抓不到就退回 1200。
@@ -671,9 +604,8 @@ async def sync_arp_table(
             perm = True
         # 條目自己說了它是什麼時候被更新的 —— 用那個時間，不要一律蓋「現在」
         when = arp_seen_svc.seen_from_remaining(r.get("expires"), max_age)
-        if await _stamp_ip_seen(session, ip, evidence="arp:opnsense", mac=mac,
-                                subnet_ids=scope_ids, permanent=perm, seen_at=when):
-            matched += 1
+        batch.add(ip, evidence="arp:opnsense", mac=mac, permanent=perm, seen_at=when)
+    matched = sum(1 for found, _e in await batch.flush() if found)
     return {"seen": seen, "matched": matched}
 
 
@@ -891,7 +823,7 @@ async def sync_nat_rules(
             stmt = (
                 select(IPAddress.id).where(
                     func.host(IPAddress.ip) == key,
-                    IPAddress.subnet_id.in_(allowed_subnet_ids),
+                    in_values(IPAddress.subnet_id, allowed_subnet_ids),
                 ).limit(1)
             )
         else:
@@ -1231,15 +1163,16 @@ async def sync_openvpn_sessions(
     except OPNsenseError:
         return {"seen": 0, "matched": 0, "error": "endpoint not available"}  # type: ignore[dict-item]
     rows = data.get("rows") or []
-    seen = matched = 0
+    seen = 0
+    batch = SightingBatch(session, source="opnsense")
     for r in rows:
         # 用 virtual_addr 對到 jt-ipam IPAddress（tunnel 內的 IP）
         ip = (r.get("virtual_addr") or r.get("vpn_ip") or "").strip()
         if not ip:
             continue
         seen += 1
-        if await _stamp_ip_seen(session, ip, evidence="vpn:opnsense"):
-            matched += 1
+        batch.add(ip, evidence="vpn:opnsense")
+    matched = sum(1 for found, _e in await batch.flush() if found)
     return {"seen": seen, "matched": matched}
 
 

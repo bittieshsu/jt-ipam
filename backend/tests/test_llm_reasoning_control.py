@@ -117,21 +117,80 @@ async def test_a_normal_answer_after_thinking_is_still_returned(monkeypatch) -> 
     assert out == '{"findings": []}'
 
 
+@pytest.fixture(autouse=True)
+def _forget_rejections():
+    ai_mod._REJECTED_CONTROLS.clear()
+    yield
+    ai_mod._REJECTED_CONTROLS.clear()
+
+
+URL = "http://192.0.2.10:8081/v1/chat/completions"
+
+
 @pytest.mark.anyio
-async def test_a_server_that_rejects_the_controls_gets_a_second_try_without_them(monkeypatch) -> None:
+async def test_only_the_control_the_server_names_is_dropped(monkeypatch) -> None:
+    """LiteLLM 這類閘道預設拒絕它不認得的欄位（2026-09-30，jt-doc-tools 同一天踩到）。以前只要一個被拒，
+    三個一起拿掉 —— 連 LiteLLM 認得、會轉成 Ollama `think:false` 的 reasoning_effort 也拿掉了，
+    重送的請求完全沒關思考，gemma4 每次先寫上萬字。現在只拿掉被點名的，可以連續拿好幾個。"""
     ok = _sse({"choices": [{"delta": {"content": "{}"}}]},
               {"choices": [{"delta": {}, "finish_reason": "stop"}]})
-    rejected = _Resp([], status=400,
-                     text='{"error":{"message":"Unrecognized request argument supplied: '
-                          'chat_template_kwargs"}}')
+    r1 = _Resp([], status=400, text='{"error":{"message":"Unrecognized request argument supplied: '
+                                    'chat_template_kwargs"}}')
+    r2 = _Resp([], status=400, text="litellm.UnsupportedParamsError: ollama_chat does not support "
+                                    "parameters: ['thinking_budget_tokens'], for model=gemma4:26b")
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(ai_mod, "safe_stream", _fake([r1, r2, _Resp(ok)], seen))
+    out = await ai_mod._raw_chat_streamed(URL, _body(_cfg()), 5.0, _noop, provider="openai")
+    assert out == "{}"
+    assert "chat_template_kwargs" not in seen[1]
+    assert "thinking_budget_tokens" in seen[1]
+    assert seen[2].get("reasoning_effort") == "none"                 # 閘道認得的那個一直都在
+    assert not {"chat_template_kwargs", "thinking_budget_tokens"} & set(seen[2])
+
+
+@pytest.mark.anyio
+async def test_a_rejection_is_remembered_for_that_server_and_model(monkeypatch) -> None:
+    """記住這台伺服器、這個模型不收哪些欄位：以後的請求一開始就不送，不必每次先失敗一次（延遲加倍）。"""
+    ok = _sse({"choices": [{"delta": {"content": "{}"}}]},
+              {"choices": [{"delta": {}, "finish_reason": "stop"}]})
+    rejected = _Resp([], status=400, text="does not support parameters: ['thinking_budget_tokens']")
     seen: list[dict[str, Any]] = []
     monkeypatch.setattr(ai_mod, "safe_stream", _fake([rejected, _Resp(ok)], seen))
-    body = _body(_cfg())
-    out = await ai_mod._raw_chat_streamed("http://llm/v1/chat/completions", body, 5.0, _noop,
-                                          provider="openai")
-    assert out == "{}"
-    assert "chat_template_kwargs" in seen[0] and "chat_template_kwargs" not in seen[1]
-    assert "thinking_budget_tokens" not in seen[1] and "reasoning_effort" not in seen[1]
+    await ai_mod._raw_chat_streamed(URL, _body(_cfg()), 5.0, _noop, provider="openai")
+    again = _body(_cfg())
+    assert "thinking_budget_tokens" not in again
+    assert again["reasoning_effort"] == "none"
+    assert again["chat_template_kwargs"] == {"enable_thinking": False}
+    other_model = _body(_cfg(chat_model="another"))
+    assert other_model["thinking_budget_tokens"] == 0                # 別的模型不受影響
+
+
+@pytest.mark.anyio
+async def test_non_streamed_path_drops_only_the_named_control(monkeypatch) -> None:
+    sent: list[dict[str, Any]] = []
+
+    class _R:
+        def __init__(self, status: int, text: str = "", payload: Any = None):
+            self.status_code, self.text, self._p = status, text, payload
+
+        def json(self):
+            return self._p
+    script = iter([_R(422, "Extra inputs are not permitted: thinking_budget_tokens"),
+                   _R(200, payload={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})])
+
+    async def _fake_request(method, url, **kw):
+        sent.append(dict(kw["json"]))
+        return next(script)
+    monkeypatch.setattr(ai_mod, "safe_request", _fake_request)
+
+    async def _get_cfg(_s):
+        return _cfg(provider="openai")
+    from app.services import system_config
+    monkeypatch.setattr(system_config, "get_llm_config", _get_cfg)
+    assert await ai_mod.raw_chat(None, "hi", no_thinking=True) == "ok"
+    assert "thinking_budget_tokens" in sent[0]
+    assert "thinking_budget_tokens" not in sent[1]
+    assert sent[1]["reasoning_effort"] == "none"
 
 
 @pytest.mark.anyio

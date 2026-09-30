@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
@@ -26,6 +27,23 @@ from app.core.middleware import (
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
 )
+
+
+class _MCPTrailingSlash:
+    """把完全等於 /api/mcp、/mcp 的請求路徑補上斜線（純 ASGI，不動其他路徑）。"""
+
+    _PATHS = frozenset({"/api/mcp", "/mcp"})
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") == "http" and scope.get("path") in self._PATHS:
+            scope = dict(scope)
+            scope["path"] = scope["path"] + "/"
+            if scope.get("raw_path"):
+                scope["raw_path"] = bytes(scope["raw_path"]) + b"/"
+        await self.app(scope, receive, send)
 
 
 def _mount_spa(app: FastAPI) -> None:
@@ -191,6 +209,9 @@ def create_app() -> FastAPI:
     from app.mcp.server import build_mcp_app
     app.mount("/api/mcp", build_mcp_app())
     app.mount("/mcp", build_mcp_app())
+    # 不帶斜線的 /api/mcp、/mcp 也要進到 MCP：掛載點只認 /api/mcp/…，不帶斜線的落到前端靜態檔回 405，
+    # 而手冊與設定頁的客戶端設定產生器給的正是不帶斜線的網址（2026-09-30 盤點 API 手冊時抓到）
+    app.add_middleware(_MCPTrailingSlash)
 
     # ── Plugins（Phase 4）──
     from app.plugins import load_plugins

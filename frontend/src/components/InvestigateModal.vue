@@ -119,7 +119,13 @@
                      think: thinkChars }) }}
               </span>
             </div>
-            <div class="inv-ai-note">{{ t("investigate.ai_note") }}</div>
+            <div class="inv-ai-note">
+              {{ t("investigate.ai_note") }}
+              <!-- 出自哪個模型是判讀品質的一部分（判讀可以另設模型，不一定是對話那個） -->
+              <span v-if="aiModel" class="inv-ai-model" data-testid="inv-ai-model">
+                {{ t("investigate.ai_model", { model: aiModel }) }}
+              </span>
+            </div>
             <div class="inv-ai-body" v-html="renderMarkdown(narrative)" />
           </template>
           <div v-if="narrativeError" class="inv-ai-err">{{ narrativeError }}</div>
@@ -158,6 +164,7 @@ const loading = ref(false);
 const asking = ref(false);
 const narrative = ref<string>("");
 const narrativeError = ref<string>("");
+const aiModel = ref<string>("");
 
 const defaultOpen = ["other", "names", "mon"];
 
@@ -198,6 +205,7 @@ const conflicts = computed<string[]>(() => {
 async function load() {
   loading.value = true;
   narrative.value = "";
+  aiModel.value = "";
   narrativeError.value = "";
   try {
     const r = await investigate(props.ip, false, locale.value);
@@ -215,6 +223,7 @@ async function ask() {
   asking.value = true;
   narrative.value = "";
   narrativeError.value = "";
+  aiModel.value = "";
   elapsed.value = 0;
   thinkChars.value = 0;
   ticker = setInterval(() => { elapsed.value += 1; }, 1000);
@@ -222,7 +231,10 @@ async function ask() {
     await narrativeStream(props.ip, locale.value, (ev) => {
       if (ev.type === "thinking") thinkChars.value += (ev.text ?? "").length;
       else if (ev.type === "content") narrative.value += ev.text ?? "";
-      else if (ev.type === "done") { if (ev.text) narrative.value = ev.text; }
+      else if (ev.type === "done") {
+        if (ev.text) narrative.value = ev.text;
+        aiModel.value = ev.model ?? "";
+      }
       else if (ev.type === "error") narrativeError.value = ev.detail ?? "";
       if (ev.elapsed != null) elapsed.value = Math.round(ev.elapsed);
     });
@@ -286,7 +298,9 @@ function doExport(fmt: ReportFormat) {
     conflicts: conflicts.value,
     sections: sectionsForReport(),
     narrative: narrative.value || undefined,
-    narrativeNote: narrative.value ? t("investigate.ai_note") : undefined,
+    narrativeNote: narrative.value
+      ? t("investigate.ai_note") + (aiModel.value ? `（${t("investigate.ai_model", { model: aiModel.value })}）` : "")
+      : undefined,
     // HTML 版把判讀的 markdown 真的渲染出來（**粗體**、`code`、清單），
     // 不要把原始標記直接印在報告上
     narrativeHtml: narrative.value ? renderMarkdown(narrative.value) : undefined,
@@ -315,6 +329,7 @@ watch(() => [props.show, props.ip], ([s]) => { if (s) void load(); }, { immediat
 .inv-ai { margin-top: 14px; border-top: 1px solid var(--n-border-color, #eee); padding-top: 12px; }
 .inv-ai-hd { font-weight: 600; margin-bottom: 2px; }
 .inv-ai-note { font-size: 11.5px; opacity: .6; margin-bottom: 8px; }
+.inv-ai-model { margin-left: 8px; white-space: nowrap; }
 .inv-ai-body { font-size: 13px; line-height: 1.85; }
 .inv-ai-err { color: #d03050; font-size: 12.5px; margin-top: 6px; }
 .inv-export { display: flex; align-items: center; gap: 6px; margin-top: 14px;

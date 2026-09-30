@@ -58,26 +58,20 @@ async def write_leases(session: AsyncSession, *, source_type: str, source_id: uu
                        peers_model: Any, scope_ids: list[Any] | None,
                        leases: list[dict[str, Any]], complete: bool) -> int:
     """租約 → 既有 IP 的租約旗標、MAC、主機名稱。`complete=False` 時這一輪不清任何東西。"""
-    from app.services.arp_precedence import consider_mac
     from app.services.dhcp_leases import LeaseRun
+    from app.services.fw_sightings import SightingBatch
     from app.services.hostname_reports import HostnameRun, enabled_peers
-    from app.services.ip_autocreate import match_existing
 
     hn_run = HostnameRun(session, source=source_type, origin=f"{source_type}:{source_id}",
                          peers=await enabled_peers(session, peers_model))
     lease_run = LeaseRun(session, source_type=source_type, source_id=source_id)
-    seen = 0
+    # 整批（以前每筆租約各比對一次 IP、再判斷一次 MAC）；唯一才算：重疊網段同 IP 多筆又沒設範圍時不猜
+    batch = SightingBatch(session, source=source_type, subnet_ids=scope_ids,
+                          lease_run=lease_run, hn_run=hn_run)
     for le in leases:
-        # 唯一才算：重疊網段同 IP 多筆又沒設範圍時不猜
-        ipa, _amb = await match_existing(session, le["ip"], scope_ids)
-        if ipa is None:
-            continue
-        lease_run.saw(ipa)
-        if le.get("mac"):
-            await consider_mac(session, ip=ipa, mac=le["mac"], source=source_type)
         name = le.get("hostname")
-        hn_run.report(ipa, name.split(".")[0] if name else None)
-        seen += 1
+        batch.add(le["ip"], evidence=None, mac=le.get("mac"), hostname=name.split(".")[0] if name else None)
+    seen = sum(1 for found, _e in await batch.flush() if found)
     await hn_run.finish(complete=complete)
     await lease_run.finish(complete=complete)
     return seen

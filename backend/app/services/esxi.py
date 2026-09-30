@@ -23,11 +23,12 @@ from xml.sax.saxutils import escape as _xml_escape
 
 import httpx
 from defusedxml.ElementTree import fromstring as _safe_xml
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.sqlin import in_values
 from app.core.ui_error import UiError
 from app.models.esxi import ESXiInstance
 
@@ -538,6 +539,15 @@ def pick_vm_ip(candidates: list[str | None]) -> str | None:
     return (v4 or v6 or [None])[0]
 
 
+def _canon_ip(raw: str | None) -> str | None:
+    """位址 → 與資料庫相同的標準寫法（IPv6 小寫壓縮），好拿來對 match_existing_many 的結果。"""
+    import ipaddress
+    try:
+        return ipaddress.ip_address(str(raw or "").strip()).compressed if raw else None
+    except ValueError:
+        return None
+
+
 async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, int]:
     """把 VM 清單鏡像進共用的虛擬化資料表。
 
@@ -548,7 +558,7 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
     """
     from app.models.address import IPAddress
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
-    from app.services.ip_autocreate import addable_subnets, subnet_for_ip_str
+    from app.services.ip_autocreate import addable_subnets, match_existing_many, subnet_for_ip_str
 
     async with Session(inst) as s:
         vms = await s.list_vms()
@@ -588,21 +598,48 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
     # 開了「信任虛擬化取得的 IP」才準備候選子網路
     create_in = await addable_subnets(session, scope) if inst.auto_create_ips else None
 
+    # 整批（2026-09-30 大量資料測試：以前每台 VM 各查一次鏡像列、各刪一次網卡、各比對一次 IP，
+    # 新 VM 還要各 flush 一次 —— vCenter 5,000 台 VM 一輪一萬五千次以上查詢）
+    by_ext = {row.external_id: row for row in (await session.execute(
+        select(VirtualMachine).where(VirtualMachine.cluster_id == cluster.id))).scalars()}
+    cands: dict[Any, str] = {}
+    for v in vms:
+        cand = pick_vm_ip([v.get("ip"),
+                           *(ip for n in (v.get("nics") or []) for ip in (n.get("ips") or []))])
+        c = _canon_ip(cand)
+        if c:
+            cands[id(v)] = c
+    matches = await match_existing_many(session, set(cands.values()), scope) if cands else {}
+    # 先決定要新建的 IP 並寫進去（VM 的 primary_ip_id 會指向它們；分開寫，外鍵順序才確定）
+    created: dict[str, IPAddress] = {}
+    for v in vms:
+        cand = cands.get(id(v))
+        if not cand or cand in created or create_in is None:
+            continue
+        hit, ambiguous = matches.get(cand, (None, False))
+        if hit is None and not ambiguous:
+            # 開了「信任虛擬化取得的 IP」：落點唯一時才建（規則見 ip_autocreate）
+            sid = subnet_for_ip_str(create_in, cand)
+            if sid is not None:
+                created[cand] = IPAddress(id=uuid.uuid4(), subnet_id=sid, ip=cand, state="active",
+                                          discovery_source="vmware")
+    if created:
+        session.add_all(created.values())
+        await session.flush()
+        created_ip = len(created)
+
+    nics: list[VMInterface] = []
     for v in vms:
         moid = v.get("moid") or v.get("name")
         if not moid:
             continue
-        row = (await session.execute(
-            select(VirtualMachine).where(
-                VirtualMachine.cluster_id == cluster.id,
-                VirtualMachine.external_id == str(moid),
-            ).limit(1)
-        )).scalars().first()
+        row = by_ext.get(str(moid))
         if row is None:
-            row = VirtualMachine(cluster_id=cluster.id, external_id=str(moid),
+            # 主鍵先給：網卡可以直接指向它，不必為了拿 id 每台 flush 一次
+            row = VirtualMachine(id=uuid.uuid4(), cluster_id=cluster.id, external_id=str(moid),
                                  name=v.get("name") or str(moid))
             session.add(row)
-            await session.flush()
+            by_ext[str(moid)] = row
         row.name = v.get("name") or row.name
         row.node = v.get("host")
         row.kind = "vm"                      # ESXi 沒有容器的概念
@@ -614,47 +651,30 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
             row.description = v["notes"]
         seen.add(row.id)
 
-        # 網卡：鏡像取代（VM 換過網卡設定時舊的要消失）
-        await session.execute(
-            VMInterface.__table__.delete().where(VMInterface.vm_id == row.id)
-        )
+        # 網卡：鏡像取代（VM 換過網卡設定時舊的要消失）—— 迴圈外一次刪、一次加
         for i, nic in enumerate(v.get("nics") or []):
-            session.add(VMInterface(
+            nics.append(VMInterface(
                 vm_id=row.id, name=f"nic{i}", mac=nic.get("mac"),
                 bridge=nic.get("network"),
                 primary_ip=pick_vm_ip(list(nic.get("ips") or []))))
 
         # 主要 IP：預設只比對既有的 IPAddress。位址挑選見 pick_vm_ip ——
-        # 鏈路本地（fe80::/169.254）一律不採用，IPv4 優先。
-        cand = pick_vm_ip([v.get("ip"),
-                           *(ip for n in (v.get("nics") or []) for ip in (n.get("ips") or []))])
+        # 鏈路本地（fe80::/169.254）一律不採用，IPv4 優先。重疊網段：剛好一筆才採用
+        cand = cands.get(id(v))
         if cand:
-            stmt = select(IPAddress.id).where(func.host(IPAddress.ip) == cand)
-            if scope:
-                stmt = stmt.where(IPAddress.subnet_id.in_(scope))
-            # 重疊網段：取兩筆判斷，剛好一筆才採用 —— 分不出來時不猜
-            ids = (await session.execute(stmt.limit(2))).scalars().all()
-            if len(ids) == 1:
-                row.primary_ip_id = ids[0]
+            hit, _ambiguous = matches.get(cand, (None, False))
+            hit = hit or created.get(cand)
+            if hit is not None:
+                row.primary_ip_id = hit.id
                 matched_ip += 1
-            elif not ids and create_in is not None:
-                # 開了「信任虛擬化取得的 IP」：落點唯一時才建（規則見 ip_autocreate）
-                sid = subnet_for_ip_str(create_in, cand)
-                if sid is not None:
-                    ipa = IPAddress(subnet_id=sid, ip=cand, state="active",
-                                    discovery_source="vmware")
-                    session.add(ipa)
-                    await session.flush()
-                    row.primary_ip_id = ipa.id
-                    matched_ip += 1
-                    created_ip += 1
+    await session.flush()                    # VM 先寫，網卡的外鍵才有對象
+    if seen:
+        await session.execute(VMInterface.__table__.delete().where(in_values(VMInterface.vm_id, seen)))
+    session.add_all(nics)
 
     # 這次沒看到的 VM → 從清單移除（VM 被刪掉了）
-    stale = (await session.execute(
-        select(VirtualMachine).where(VirtualMachine.cluster_id == cluster.id)
-    )).scalars().all()
     removed = 0
-    for row in stale:
+    for row in list(by_ext.values()):
         if row.id not in seen:
             await session.delete(row)
             removed += 1

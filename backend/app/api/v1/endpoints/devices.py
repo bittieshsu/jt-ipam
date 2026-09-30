@@ -7,12 +7,13 @@ from typing import Annotated, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.core.ui_error import detail_of
 from app.models.device import Device
 from app.models.librenms import LibreNMSDevice
@@ -118,11 +119,11 @@ async def get_device_integrations(
     if not ip_ids:
         return out
     wa = (await session.execute(
-        select(WazuhAgent).where(WazuhAgent.jt_ipam_address_id.in_(ip_ids)).limit(1)
+        select(WazuhAgent).where(WazuhAgent.jt_ipam_address_id.in_(ip_ids)).limit(1)  # bounded: IPs of one device
     )).scalar_one_or_none()
     if wa is None and ip_strs:
         wa = (await session.execute(
-            select(WazuhAgent).where(WazuhAgent.ip.in_(ip_strs)).limit(1)
+            select(WazuhAgent).where(WazuhAgent.ip.in_(ip_strs)).limit(1)  # bounded: IPs of one device
         )).scalar_one_or_none()
     if wa is not None:
         inst = await session.get(WazuhInstance, wa.instance_id)
@@ -144,7 +145,7 @@ async def get_device_integrations(
             "last_keep_alive": wa.last_keep_alive.isoformat() if wa.last_keep_alive else None,
         }
     vm = (await session.execute(
-        select(VirtualMachine).where(VirtualMachine.primary_ip_id.in_(ip_ids)).limit(1)
+        select(VirtualMachine).where(VirtualMachine.primary_ip_id.in_(ip_ids)).limit(1)  # bounded: IPs of one device
     )).scalar_one_or_none()
     if vm is not None:
         cl = await session.get(VirtCluster, vm.cluster_id)
@@ -170,7 +171,7 @@ async def get_device_integrations(
     ocs_row = (await session.execute(
         select(IPAddress.os_ocs, IPAddress.last_seen_ocs, IPAddress.ocs_id,
                IPAddress.ocs_tag, IPAddress.ocs_agent, IPAddress.ocs_notes, IPAddress.ocs_hw)
-        .where(IPAddress.id.in_(ip_ids),
+        .where(IPAddress.id.in_(ip_ids),  # bounded: IPs of one device
                or_(IPAddress.os_ocs.isnot(None), IPAddress.last_seen_ocs.isnot(None),
                    IPAddress.ocs_id.isnot(None)))
         .order_by(IPAddress.last_seen_ocs.desc().nullslast())
@@ -254,7 +255,7 @@ async def _resolve_device_ips(session: AsyncSession, devices: list[Any]) -> dict
     pip_map: dict[Any, Any] = {}
     if pip_ids:
         for pid, ip in (await session.execute(
-            select(IPAddress.id, IPAddress.ip).where(IPAddress.id.in_(pip_ids))
+            select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, pip_ids))
         )).all():
             pip_map[pid] = str(ip).split("/")[0]
     dev_ids = [d.id for d in devices]
@@ -262,7 +263,7 @@ async def _resolve_device_ips(session: AsyncSession, devices: list[Any]) -> dict
     if dev_ids:
         for jid, pip, host in (await session.execute(
             select(LibreNMSDevice.jt_ipam_device_id, LibreNMSDevice.primary_ip,
-                   LibreNMSDevice.hostname).where(LibreNMSDevice.jt_ipam_device_id.in_(dev_ids))
+                   LibreNMSDevice.hostname).where(in_values(LibreNMSDevice.jt_ipam_device_id, dev_ids))
         )).all():
             for cand in (pip, host):
                 if not cand:
@@ -335,7 +336,7 @@ async def list_devices(
     from app.services.permission import visible_ids
     vis = await visible_ids(session, user=_user, object_type="device")
     if vis is not None:
-        stmt = stmt.where(Device.id.in_(vis)); cstmt = cstmt.where(Device.id.in_(vis))
+        stmt = stmt.where(in_values(Device.id, vis)); cstmt = cstmt.where(in_values(Device.id, vis))
     stmt = stmt.order_by(Device.name).offset((page - 1) * page_size).limit(page_size)
     rows = list((await session.execute(stmt)).scalars().all())
     total = int(await session.scalar(cstmt) or 0)
@@ -350,7 +351,7 @@ async def list_devices(
     if eff_ips:
         for aid, ahost, adev in (await session.execute(
             select(IPAddress.id, _func.host(IPAddress.ip), IPAddress.device_id)
-            .where(_func.host(IPAddress.ip).in_(eff_ips))
+            .where(in_values(_func.host(IPAddress.ip), eff_ips, type_=String()))
         )).all():
             addr_by_ip.setdefault(str(ahost), (aid, adev))
     # 虛擬 / 實體：一次撈出所有 VM 名稱，避免逐台查
@@ -417,7 +418,7 @@ async def get_device_relations(
             )).all()]
             if ip_ids:
                 vm = (await session.execute(
-                    select(VirtualMachine).where(VirtualMachine.primary_ip_id.in_(ip_ids)).limit(1)
+                    select(VirtualMachine).where(VirtualMachine.primary_ip_id.in_(ip_ids)).limit(1)  # bounded: IPs of one device
                 )).scalar_one_or_none()
         if vm is not None:
             node_dev = await session.get(Device, vm.device_id) if vm.device_id else None

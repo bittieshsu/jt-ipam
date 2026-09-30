@@ -163,7 +163,7 @@ async def expire_stale(session: AsyncSession) -> int:
     r2 = await session.execute(
         update(AgentProbeJob)
         .where(AgentProbeJob.status == STATUS_RUNNING,
-               AgentProbeJob.kind.notin_(slow),
+               AgentProbeJob.kind.notin_(slow),  # bounded: slow probe kinds
                AgentProbeJob.claimed_at <= now - CLAIM_TTL)
         .values(status=STATUS_FAILED, finished_at=now, error="代理領取後未回報結果"))
     n = int(r1.rowcount or 0) + int(r2.rowcount or 0)

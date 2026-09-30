@@ -106,6 +106,11 @@ class LLMConfig:
     # 巡檢用的上下文長度。留空＝沿用對話模型的設定。開大一點可以一批塞更多資料
     # （批次少、跑得快），代價是更多記憶體／VRAM。
     ai_audit_num_ctx: int | None = None
+    # AI 判讀（未授權 IP 判讀／IP 調查／防火牆規則異動解讀）用的模型與上下文長度。
+    # 留空＝沿用對話模型。對話要快（互動、會叫工具），判讀要一次讀完一大包證據再下結論
+    # —— 適合的模型不一定同一個。
+    ai_interpret_model: str | None = None
+    ai_interpret_num_ctx: int | None = None
 
 
 _MCP_AAD = b"llm:mcp_api_key"
@@ -211,6 +216,14 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
                 cfg.ai_audit_num_ctx = n if n > 0 else None
             except (ValueError, TypeError):
                 pass
+        if v.get("ai_interpret_model"):
+            cfg.ai_interpret_model = str(v["ai_interpret_model"]).strip() or None
+        if v.get("ai_interpret_num_ctx") is not None:
+            try:
+                n = int(v["ai_interpret_num_ctx"])
+                cfg.ai_interpret_num_ctx = n if n > 0 else None
+            except (ValueError, TypeError):
+                pass
         if isinstance(v.get("ai_audit_times"), list):
             times = normalize_times(v["ai_audit_times"])
             if times:
@@ -251,6 +264,8 @@ async def set_llm_config(
     ai_audit_month_day: int | None = None,
     ai_audit_model: str | None = None,
     ai_audit_num_ctx: int | None = None,
+    ai_interpret_model: str | None = None,
+    ai_interpret_num_ctx: int | None = None,
     provider: str | None = None,
     api_key: str | None = None,
     updated_by_user_id: uuid.UUID | None = None,
@@ -273,6 +288,12 @@ async def set_llm_config(
     # 0 ＝清掉，回去沿用對話模型的上下文長度
     if ai_audit_num_ctx is not None:
         current["ai_audit_num_ctx"] = int(ai_audit_num_ctx) if int(ai_audit_num_ctx) > 0 else None
+    # 判讀：同上，空字串／0 ＝清掉，回去沿用對話模型
+    if ai_interpret_model is not None:
+        current["ai_interpret_model"] = ai_interpret_model.strip() or None
+    if ai_interpret_num_ctx is not None:
+        current["ai_interpret_num_ctx"] = (int(ai_interpret_num_ctx)
+                                           if int(ai_interpret_num_ctx) > 0 else None)
     if ai_audit_times is not None:
         times = normalize_times(ai_audit_times)
         # 一個時刻都排不出來就不要存 —— 存成空清單等於安靜地把排程關掉，

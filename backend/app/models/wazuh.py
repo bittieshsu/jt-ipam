@@ -94,6 +94,8 @@ class WazuhAgent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     sca_fail: Mapped[int | None] = mapped_column(Integer)
     sca_policy_count: Mapped[int | None] = mapped_column(Integer)
     sca_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 最後一次去查 SCA 的時間（有沒有結果都記）：決定下一輪輪到誰。見 services/wazuh.sync_sca
+    sca_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("instance_id", "agent_id", name="wazuh_agent_unique"),

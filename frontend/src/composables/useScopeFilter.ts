@@ -53,7 +53,13 @@ export function useScopeFilter<T extends ScopedRow>(rows: Ref<T[]>) {
     section.value ? rows.value.filter((r) => r.section_id === section.value) : rows.value,
     "subnet_id", "subnet_cidr"));
   const customerOpts = computed(() => distinct(rows.value, "customer_id", "customer_name"));
-  const statusOf = (r: T): LivenessKind => classifyAddressLiveness(r);
+  // 每列只算一次：選項與篩選都要用，數萬列時每次重算都是好幾秒（2026-09-30 大量資料測試）
+  const statusCache = computed(() => {
+    const m = new WeakMap<T, LivenessKind>();
+    for (const r of rows.value) m.set(r, classifyAddressLiveness(r));
+    return m;
+  });
+  const statusOf = (r: T): LivenessKind => statusCache.value.get(r) ?? classifyAddressLiveness(r);
   // label 就是狀態代碼，由畫面翻譯（這裡沒有 i18n）
   const statusOpts = computed(() => {
     const seen = new Set(rows.value.map(statusOf));

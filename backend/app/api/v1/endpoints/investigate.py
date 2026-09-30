@@ -113,20 +113,23 @@ async def investigate(
         raise HTTPException(422, detail="not an IP address") from None
 
     dossier = await collect_dossier(session, user=user, ip=ip.strip())
-    out: dict[str, Any] = {"dossier": dossier, "narrative": None, "narrative_error": None}
+    out: dict[str, Any] = {"dossier": dossier, "narrative": None, "narrative_error": None,
+                           "model": None}
     if not dossier.get("found") or not narrative:
         return out
 
     # 模型不可用不該讓整個功能失效 —— 事實已經在手上了，敘述是加分項
     try:
-        from app.services.ai import answer_language, raw_chat
+        from app.services.ai import answer_language, interpret_chat
         # `lang` 之前只做 zh / 非 zh 的二分，日文使用者會拿到英文。語言指示改由
         # answer_language 產生（與 AI 對話、鑑識卡、規則異動解讀同一個來源）。
-        out["narrative"] = (await raw_chat(
+        # 模型走「AI 判讀」設定（沒設＝對話模型）
+        text, out["model"] = await interpret_chat(
             session, _prompt(dossier, lang) + await answer_language(session, user),
             timeout=NARRATIVE_TIMEOUT, max_output_tokens=NARRATIVE_MAX_TOKENS,
             no_thinking=True,
-        )).strip() or None
+        )
+        out["narrative"] = text.strip() or None
     except Exception as exc:
         out["narrative_error"] = _narrative_error(exc)
 
@@ -196,8 +199,8 @@ async def narrative_stream(
 
         import asyncio
 
-        from app.services.ai import raw_chat
-        task = asyncio.create_task(raw_chat(
+        from app.services.ai import interpret_chat
+        task = asyncio.create_task(interpret_chat(
             session, prompt, timeout=NARRATIVE_TIMEOUT,
             max_output_tokens=NARRATIVE_MAX_TOKENS, no_thinking=True, on_chunk=on_chunk))
         try:
@@ -207,9 +210,9 @@ async def narrative_stream(
                 if task.done():
                     break
                 await asyncio.sleep(0.15)
-            text = (await task) or ""
+            text, model = await task
             yield ("data: " + _json.dumps(
-                {"type": "done", "text": text.strip(),
+                {"type": "done", "text": (text or "").strip(), "model": model,
                  "elapsed": round(time.monotonic() - started, 1)},
                 ensure_ascii=False) + "\n\n")
         except Exception as exc:

@@ -21,6 +21,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core import scan_probes
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.scan_agent import ScanAgent
 from app.models.subnet import Subnet
@@ -199,7 +200,7 @@ async def list_agents(
     if rows:
         crows = (await session.execute(
             select(Subnet.scan_agent_id, func.count())
-            .where(Subnet.scan_agent_id.in_([r.id for r in rows]))
+            .where(Subnet.scan_agent_id.in_([r.id for r in rows]))  # bounded: scan agents
             .group_by(Subnet.scan_agent_id)
         )).all()
         counts = {sid: n for sid, n in crows}
@@ -393,12 +394,12 @@ async def set_agent_subnets(
     to_clear = current - want
     if to_clear:
         await session.execute(
-            sa_update(Subnet).where(Subnet.id.in_(to_clear))
+            sa_update(Subnet).where(in_values(Subnet.id, to_clear))
             .values(scan_agent_id=None)
         )
     if want:
         await session.execute(
-            sa_update(Subnet).where(Subnet.id.in_(want))
+            sa_update(Subnet).where(in_values(Subnet.id, want))
             .values(scan_agent_id=agent_id, scan_enabled=True)
         )
     await append_audit(
@@ -499,7 +500,7 @@ async def agent_poll(
     if sub_ids:
         orows = (await session.execute(
             select(IPAddress.ip, IPAddress.excluded_probes).where(
-                IPAddress.subnet_id.in_(sub_ids),
+                in_values(IPAddress.subnet_id, sub_ids),
                 func.cardinality(IPAddress.excluded_probes) > 0,
             )
         )).all()
@@ -657,7 +658,7 @@ async def agent_report(
             continue
         stmt = select(IPAddress).where(IPAddress.ip == item.ip)
         if agent_subnet_ids:
-            stmt = stmt.where(IPAddress.subnet_id.in_(agent_subnet_ids))
+            stmt = stmt.where(in_values(IPAddress.subnet_id, agent_subnet_ids))
         # 重疊網段下可能有多筆同 IP；限定 agent 子網路後通常唯一，取第一筆
         ipa = (await session.execute(stmt.limit(1))).scalar_one_or_none()
         if ipa is None and not item.liveness:

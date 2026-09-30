@@ -49,9 +49,8 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError
 from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall, PaloAltoPolicy
 from app.services.dhcp_leases import LeaseRun
-from app.services.hostname import apply_observation
+from app.services.fw_sightings import SightingBatch
 from app.services.hostname_reports import HostnameRun, enabled_peers
-from app.services.ip_autocreate import match_existing
 
 
 class PaloAltoError(UiError, RuntimeError):
@@ -284,43 +283,6 @@ async def list_vsys_ex(fw: PaloAltoFirewall) -> tuple[list[str], bool]:
 
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
-async def _stamp_ip_seen(
-    session: AsyncSession, ip: str, *, evidence: str,
-    mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
-    permanent: bool = False, seen_at: datetime | None = None,
-    hn_run: HostnameRun | None = None,
-) -> bool:
-    """只標記**既有**的 IP，絕不新建（與其他防火牆整合一致）。
-
-    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清。
-
-    `evidence`＝證據契約裡的來源名稱（`arp:paloalto` / `lease:paloalto`），
-    逐來源存在 `arp_seen`（見 services/arp_seen.py）。
-    """
-    ipx = _valid_ip(ip)
-    if ipx is None:
-        return False
-    # 唯一才算：重疊網段又沒設關聯子網路時不寫（以前任意取一筆，資料掛到別的單位）
-    ipa, _ambiguous = await match_existing(session, ipx, subnet_ids)
-    if ipa is None:
-        return False
-    from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
-    if lease_run is not None:
-        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
-    if mac:
-        from app.services.arp_evidence import record_firewall_arp
-        from app.services.arp_precedence import consider_mac
-        await consider_mac(session, ip=ipa, mac=mac, source="paloalto")
-        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
-        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
-                                  seen_at=seen_at, permanent=permanent)
-    if hn_run is not None:
-        hn_run.report(ipa, hostname)
-    elif hostname:
-        await apply_observation(session, ip=ipa, source="paloalto", hostname=hostname)
-    return True
 
 
 # ─────────────────── 各項同步 ───────────────────
@@ -342,17 +304,16 @@ async def sync_arp(session: AsyncSession, fw: PaloAltoFirewall) -> int:
             max_ttl = max(max_ttl, float((e.findtext("ttl") or "").strip()))
         except (TypeError, ValueError):
             continue
+    batch = SightingBatch(session, source="paloalto", subnet_ids=scope_ids)
     for e in entries:
         ip = (e.findtext("ip") or "").strip()
         mac = (e.findtext("mac") or "").strip()
         # PAN-OS 的 status：`c`＝complete、`s`＝static。靜態項目不會逾時淘汰，
         # 拿它宣稱上線就等於在說「這台永遠活著」。
         perm = (e.findtext("status") or "").strip().lower() in ("s", "static")
-        if await _stamp_ip_seen(session, ip, evidence="arp:paloalto", mac=_norm_mac(mac),
-                                subnet_ids=scope_ids, permanent=perm,
-                                seen_at=seen_from_remaining(
-                                    (e.findtext("ttl") or "").strip(), max_ttl)):
-            seen += 1
+        batch.add(ip, evidence="arp:paloalto", mac=_norm_mac(mac), permanent=perm,
+                  seen_at=seen_from_remaining((e.findtext("ttl") or "").strip(), max_ttl))
+    seen = sum(1 for found, _e in await batch.flush() if found)
     return seen
 
 
@@ -370,15 +331,14 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PaloAltoFirewall) -> int:
     hn_run = HostnameRun(session, source="paloalto", origin=f"paloalto:{fw.id}",
                          peers=await enabled_peers(session, PaloAltoFirewall))
     lease_run = LeaseRun(session, source_type="paloalto", source_id=fw.id)
+    batch = SightingBatch(session, source="paloalto", subnet_ids=scope_ids, lease_run=lease_run,
+                          hn_run=hn_run)
     for e in result.iter("entry"):
         ip = (e.findtext("ip") or "").strip()
         mac = (e.findtext("mac") or "").strip()
         host = (e.findtext("hostname") or "").strip() or None
-        if await _stamp_ip_seen(
-            session, ip, evidence="lease:paloalto", mac=_norm_mac(mac), hostname=host,
-            subnet_ids=scope_ids, lease_run=lease_run, hn_run=hn_run,
-        ):
-            seen += 1
+        batch.add(ip, evidence="lease:paloalto", mac=_norm_mac(mac), hostname=host)
+    seen = sum(1 for found, _e in await batch.flush() if found)
     # 讀取失敗會往外拋；走到這裡就是完整的租約清單（op 指令涵蓋所有介面）
     await hn_run.finish(complete=True)
     # 租約旗標以前從來不清（其他整合至少有設範圍時會清）

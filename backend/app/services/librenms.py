@@ -249,7 +249,7 @@ async def link_librenms_device(
         cands = (await session.execute(
             select(IPAddress)
             .where(IPAddress.ip == ldev.primary_ip)
-            .where(IPAddress.subnet_id.in_(scope_ids) if scope_ids else sa_true())
+            .where(in_values(IPAddress.subnet_id, scope_ids) if scope_ids else sa_true())
             .limit(2)
         )).scalars().all()
         ipa = cands[0] if len(cands) == 1 else None
@@ -307,7 +307,7 @@ async def _addable_subnets(
     scope_ids 有值＝只在這些子網路內建（重疊網段安全）；空＝全部既有子網路。"""
     stmt = select(Subnet.id, Subnet.cidr)
     if scope_ids:
-        stmt = stmt.where(Subnet.id.in_(scope_ids))
+        stmt = stmt.where(in_values(Subnet.id, scope_ids))
     rows = (await session.execute(stmt)).all()
     nets: list[tuple[Any, Any]] = []
     for sid, cidr in rows:
@@ -585,7 +585,7 @@ async def sync_arp(
            .where(in_values(IPAddress.ip, {e["ip"] for e in entries.values()}))
            .order_by(IPAddress.created_at, IPAddress.id))
     if scope_ids:
-        ipq = ipq.where(IPAddress.subnet_id.in_(scope_ids))
+        ipq = ipq.where(in_values(IPAddress.subnet_id, scope_ids))
     target: dict[str, list[Any]] = {}
     for iid, ipv, cur_mac, cur_src in (await session.execute(ipq)).all():
         target.setdefault(str(ipv).split("/")[0], [iid, cur_mac, cur_src])
@@ -872,7 +872,7 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
     scope_ids = _scope_uuids(instance)
     ip_stmt = select(IPAddress).where(IPAddress.mac.is_not(None))
     if scope_ids:
-        ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(scope_ids))
+        ip_stmt = ip_stmt.where(in_values(IPAddress.subnet_id, scope_ids))
     ips = list((await session.execute(ip_stmt)).scalars().all())
 
     # 目前的 FDB 裡找不到這個 MAC：分兩種 ——
@@ -1059,37 +1059,56 @@ async def recompute_effective_status(
     # 閾值跟著系統設定走（原本寫死 30 分鐘，和設定頁講的不一致）
     cutoff = now - timedelta(minutes=int(cfg["minutes"]))
 
-    rows = list(
-        (await session.execute(select(IPAddress))).scalars().all()
-    )
+    # 超大規模（2026-09-30）：這裡每 5 分鐘跑一次。以前載入每一個 IP 的 ORM 物件、逐日觀測塞進
+    # 同一個 INSERT（每個 IP 5 個參數）—— 超過約 6,500 個 IP 就超過 asyncpg 的參數上限，整個重算
+    # 失敗、上線狀態不再更新；舊資料的 ARP 起點與每次翻轉的異動記錄也是逐筆查。
+    # 現在：只讀要用的欄位、需要的查詢各一次、變更整批寫回、逐日觀測只寫今天有變的。
+    from sqlalchemy import String
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.ip_liveness import IPLivenessDay
+    from app.services.ip_history import latest_changes
+
+    await session.flush()             # 同一個 session 裡還沒寫出的證據（防火牆 ARP 等）要算進來
+    rows = (await session.execute(select(
+        IPAddress.id, IPAddress.ip, IPAddress.subnet_id, IPAddress.mac, IPAddress.effective_status,
+        IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.last_seen_arp,
+        IPAddress.last_seen_wazuh, IPAddress.last_seen_zabbix, IPAddress.arp_seen))).all()
+    # 從沒對應過 ARP 記錄的舊資料：補一次起點（之後由 sync_arp 維護）—— 一次查完
+    need = {str(r.ip).split("/")[0] for r in rows if not r.last_seen_arp and r.mac}
+    arp_start: dict[str, datetime] = {}
+    if need:
+        host = func.host(ARPEntry.ip)
+        arp_start = dict((await session.execute(
+            select(host, func.max(ARPEntry.last_seen_at))
+            .where(in_values(host, need, type_=String())).group_by(host))).all())
     today = now.date()
+    have_today = {r[0]: (r[1], r[2], r[3]) for r in (await session.execute(
+        select(IPLivenessDay.ip_id, IPLivenessDay.up, IPLivenessDay.down, IPLivenessDay.arp_only)
+        .where(IPLivenessDay.day == today))).all()}
+
+    use_s = "scanner" in sources
+    use_l = "librenms" in sources
+    use_a = "arp" in sources or "arp:librenms" in sources
+    use_w = "wazuh" in sources
+    use_z = "zabbix" in sources
     observations: list[dict[str, Any]] = []
-    updated = 0
+    status_rows: list[dict[str, Any]] = []
+    arp_rows: list[dict[str, Any]] = []
+    flips: list[tuple[Any, str, str, bool]] = []
     for ip in rows:
         s_seen = ip.last_seen_scanner
         l_seen = ip.last_seen_librenms
         a_seen = ip.last_seen_arp
-        # 從沒對應過 ARP 記錄的舊資料：補一次起點（之後由 sync_arp 維護）
         if not a_seen and ip.mac:
-            arp = (
-                await session.execute(
-                    select(ARPEntry.last_seen_at)
-                    .where(ARPEntry.ip == str(ip.ip).split("/")[0])
-                    .order_by(ARPEntry.last_seen_at.desc()).limit(1)
-                )
-            ).scalar_one_or_none()
+            arp = arp_start.get(str(ip.ip).split("/")[0])
             if arp:
                 a_seen = arp
-                ip.last_seen_arp = arp
+                arp_rows.append({"id": ip.id, "last_seen_arp": arp})
 
         # 只有被勾選的來源算數；每個來源會不會過期由 services/evidence.py 的契約決定
         # （LibreNMS 的 ARP 不會過期 → 不在預設之內；防火牆自己的 ARP 表會逾時淘汰
         #  → 逐廠牌各自一個來源，預設採信）
-        use_s = "scanner" in sources
-        use_l = "librenms" in sources
-        use_a = "arp" in sources or "arp:librenms" in sources
-        use_w = "wazuh" in sources
-        use_z = "zabbix" in sources
         s_fresh = use_s and bool(s_seen and s_seen >= cutoff)
         l_fresh = use_l and bool(l_seen and l_seen >= cutoff)
         a_fresh = use_a and bool(a_seen and a_seen >= cutoff)
@@ -1123,35 +1142,42 @@ async def recompute_effective_status(
 
         # 逐日觀測：長條圖要能區分「當天真的看到」與「只是沿用上一筆轉換」。
         # arp_only 的日子不算可用 —— ARP 沒有時間概念（見 models/ip_liveness）。
-        observations.append({
-            "ip_id": ip.id, "day": today,
-            "up": bool(s_fresh or l_fresh or w_fresh or z_fresh or d_fresh),
-            "down": new_status == "offline",
-            "arp_only": new_status == "online (arp)",
-        })
+        # 同一天同一個 IP 只有一列，旗標用 OR 累積（一天內先看到上線、後判定離線，兩者都要留下）；
+        # 今天已經記過同樣旗標的不再寫
+        up = bool(s_fresh or l_fresh or w_fresh or z_fresh or d_fresh)
+        down = new_status == "offline"
+        arp_only = new_status == "online (arp)"
+        before = have_today.get(ip.id)
+        merged = (up, down, arp_only) if before is None else (
+            before[0] or up, before[1] or down, before[2] or arp_only)
+        if merged != before:
+            observations.append({"ip_id": ip.id, "day": today, "up": up, "down": down, "arp_only": arp_only})
 
         if ip.effective_status != new_status:
             prev = ip.effective_status
-            ip.effective_status = new_status
-            updated += 1
+            status_rows.append({"id": ip.id, "effective_status": new_status})
             # feature B：只記真正的 online↔offline 翻轉（避開首次 None→unknown 噪音）
             if prev is not None:
                 was_online = prev.startswith("online")
                 now_online = new_status.startswith("online")
                 if was_online != now_online:
-                    await log_change(
-                        session, ip=ip,
-                        event_type="online" if now_online else "offline",
-                        field="effective_status", old=prev, new=new_status,
-                        source="librenms",
-                    )
-    # 逐日觀測一次寫入：同一天同一個 IP 只有一列，旗標用 OR 累積
-    # （一天內先看到上線、後判定離線，兩者都要留下）
-    if observations:
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
+                    flips.append((ip, prev, new_status, now_online))
 
-        from app.models.ip_liveness import IPLivenessDay
-        stmt = pg_insert(IPLivenessDay).values(observations)
+    if arp_rows:
+        await session.execute(update(IPAddress), arp_rows)
+    if status_rows:
+        await session.execute(update(IPAddress), status_rows)
+    if flips:
+        latest = await latest_changes(session, [f[0].id for f in flips], "effective_status")
+        for ip, prev, new_status, now_online in flips:
+            await log_change(
+                session, ip=ip,
+                event_type="online" if now_online else "offline",
+                field="effective_status", old=prev, new=new_status,
+                source="librenms", latest=latest,
+            )
+    if observations:
+        stmt = pg_insert(IPLivenessDay)
         await session.execute(stmt.on_conflict_do_update(
             index_elements=["ip_id", "day"],
             set_={
@@ -1159,8 +1185,13 @@ async def recompute_effective_status(
                 "down": IPLivenessDay.down.op("OR")(stmt.excluded.down),
                 "arp_only": IPLivenessDay.arp_only.op("OR")(stmt.excluded.arp_only),
             },
-        ))
-
+        ), observations)
+    # 整批寫回繞過了 session 裡已載入的 IP 物件：讓它們下次讀取時重新載入
+    for obj in list(session.identity_map.values()):
+        if isinstance(obj, IPAddress):
+            session.expire(obj, ["effective_status", "last_seen_arp"])
+    await session.flush()
+    updated = len(status_rows)
     return updated
 
 
@@ -1280,15 +1311,17 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
         rows = [{"device_id": d.jt_ipam_device_id, "name": n, "type": "network",
                  "mac_address": name_mac[n], "description": name_descr.get(n), "source_origin": origin}
                 for n in sorted(name_mac) if _port_changed(mine.get(n), name_mac[n], name_descr.get(n))]
-        for i in range(0, len(rows), 4000):
-            ins = pg_insert(DevicePort).values(rows[i:i + 4000])
+        if rows:
+            ins = pg_insert(DevicePort)
             new_mac = func.coalesce(ins.excluded.mac_address, DevicePort.mac_address)
             new_descr = func.coalesce(ins.excluded.description, DevicePort.description)
-            await session.execute(ins.on_conflict_do_update(
+            upsert = ins.on_conflict_do_update(
                 index_elements=["device_id", "name"],
                 set_={"mac_address": new_mac, "description": new_descr},
                 where=DevicePort.mac_address.is_distinct_from(new_mac)
-                | DevicePort.description.is_distinct_from(new_descr)))
+                | DevicePort.description.is_distinct_from(new_descr))
+            for i in range(0, len(rows), 10000):
+                await session.execute(upsert, rows[i:i + 10000])
         created += sum(1 for n in name_mac if n not in existing_names)
         # 認領舊資料、清掉 LibreNMS 不再回報的（這裡一定是完整讀到、而且非空的清單）——有事可做才做
         if any((n in name_mac and o is None) or (n not in name_mac and o == origin and peer is None)

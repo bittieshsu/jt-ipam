@@ -146,14 +146,15 @@ async def test_evidence_is_kept_when_source_priority_rejects_the_mac(
 async def test_firewall_arp_is_evidence_but_leases_and_static_entries_are_not(db_session) -> None:
     """ARP 表的動態項目＝有機器在用這個 IP；DHCP 租約只是「曾經發給誰」、靜態 ARP 是設定值，
     拿來判衝突會把換過網卡、租約重發的正常情況報成衝突。"""
-    from app.services.opnsense_firewall import _stamp_ip_seen
+    from app.services.fw_sightings import SightingBatch
 
     sub = await _subnet(db_session)
     await _ip(db_session, sub, "198.51.100.40")
-    await _stamp_ip_seen(db_session, "198.51.100.40", evidence="arp:opnsense", mac=MAC_A)
-    await _stamp_ip_seen(db_session, "198.51.100.40", evidence="lease:opnsense", mac=MAC_B)
-    await _stamp_ip_seen(db_session, "198.51.100.40", evidence="arp:opnsense",
-                         mac="02:00:00:00:00:99", permanent=True)
+    batch = SightingBatch(db_session, source="opnsense")
+    batch.add("198.51.100.40", evidence="arp:opnsense", mac=MAC_A)
+    batch.add("198.51.100.40", evidence="lease:opnsense", mac=MAC_B)
+    batch.add("198.51.100.40", evidence="arp:opnsense", mac="02:00:00:00:00:99", permanent=True)
+    await batch.flush()
     rows = await _rows(db_session, "198.51.100.40")
     assert [(str(r.mac), r.source) for r in rows] == [(MAC_A, "arp:opnsense")]
 

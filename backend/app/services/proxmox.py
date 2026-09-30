@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
-from app.core.sqlin import not_in_values
+from app.core.sqlin import in_values, not_in_values
 from app.models.encrypted_secret import EncryptedSecret
 from app.models.virt import (
     ProxmoxInstance,
@@ -246,7 +246,7 @@ async def _link_ip_to_ipam(
             return None
         m_stmt = select(IPAddress).where(IPAddress.mac == mac)
         if scope_ids:
-            m_stmt = m_stmt.where(IPAddress.subnet_id.in_(scope_ids))
+            m_stmt = m_stmt.where(in_values(IPAddress.subnet_id, scope_ids))
         rows = list((await session.execute(m_stmt.limit(2))).scalars().all())
         if len(rows) != 1:
             return None
@@ -310,7 +310,7 @@ async def _sync_node_ports(
         # 重疊網段：若 instance 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
         ip_stmt = select(IPAddress).where(func.host(IPAddress.ip) == node_ip)
         if scope_ids:
-            ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(scope_ids))
+            ip_stmt = ip_stmt.where(in_values(IPAddress.subnet_id, scope_ids))
         ipa = (await session.execute(ip_stmt)).scalars().first()
         if ipa is not None:
             dev_id = ipa.device_id
@@ -414,12 +414,20 @@ def _pve_port_desc(ptype: str, members: list[str]) -> str | None:
 async def _upsert_iface(
     session: AsyncSession, vm_id: uuid.UUID, name: str,
     mac: str | None, bridge: str | None, ip: str | None,
+    known: dict[tuple[Any, str], VMInterface] | None = None,
 ) -> None:
-    obj = (await session.execute(
-        select(VMInterface).where(VMInterface.vm_id == vm_id, VMInterface.name == name)
-    )).scalar_one_or_none()
+    """`known`：整個叢集的網卡先載好（{(vm_id, 名稱): 列}），就不必每張網卡查一次。"""
+    if known is not None:
+        obj = known.get((vm_id, name))
+    else:
+        obj = (await session.execute(
+            select(VMInterface).where(VMInterface.vm_id == vm_id, VMInterface.name == name)
+        )).scalar_one_or_none()
     if obj is None:
-        session.add(VMInterface(vm_id=vm_id, name=name, mac=mac, bridge=bridge, primary_ip=ip))
+        obj = VMInterface(vm_id=vm_id, name=name, mac=mac, bridge=bridge, primary_ip=ip)
+        session.add(obj)
+        if known is not None:
+            known[(vm_id, name)] = obj
     else:
         obj.mac = mac
         obj.bridge = bridge
@@ -562,6 +570,12 @@ async def sync_instance(
                          peers=await enabled_peers(session, _Inst))
 
     seen_vmids: set[int] = set()
+    # 這個叢集的 guest 與網卡先整批載入（2026-09-30 大量資料測試：以前每台 guest、每張網卡各查一次）
+    vms_by_vmid = {v.legacy_vmid: v for v in (await session.execute(
+        select(VirtualMachine).where(VirtualMachine.cluster_id == cluster.id))).scalars()}
+    known_ifaces = {(i.vm_id, i.name): i for i in (await session.execute(
+        select(VMInterface).join(VirtualMachine, VirtualMachine.id == VMInterface.vm_id)
+        .where(VirtualMachine.cluster_id == cluster.id))).scalars()}
     for node in nodes:
         node_name = node.get("node")
         if not node_name:
@@ -611,14 +625,7 @@ async def sync_instance(
                 continue
             summary.vms_seen += 1
             seen_vmids.add(vmid)
-            existing = (
-                await session.execute(
-                    select(VirtualMachine).where(
-                        VirtualMachine.cluster_id == cluster.id,
-                        VirtualMachine.legacy_vmid == vmid,
-                    )
-                )
-            ).scalar_one_or_none()
+            existing = vms_by_vmid.get(vmid)
 
             status = str(entry.get("status") or "unknown")
             if status not in (
@@ -640,7 +647,8 @@ async def sync_instance(
                     is_template=bool(entry.get("template", False)),
                 )
                 session.add(vm)
-                await session.flush()
+                await session.flush()      # 網卡的外鍵要指向它（兩者沒有 ORM 關聯，順序要自己保證）
+                vms_by_vmid[vmid] = vm
                 summary.vms_inserted += 1
             else:
                 existing.name = entry.get("name") or existing.name
@@ -709,7 +717,7 @@ async def sync_instance(
                 if mac and mac in agent_ips:
                     ip = agent_ips[mac]          # 優先用 agent 的活 IP
                 ip = ip or ipcfg.get(key)
-                await _upsert_iface(session, vm.id, key, mac, bridge, ip)
+                await _upsert_iface(session, vm.id, key, mac, bridge, ip, known=known_ifaces)
                 # IP↔MAC↔主機名稱 對應進 IPAM
                 # 沒有 IP 也要試（PVE 不知道 IP 時走 MAC 後援比對既有 IP），否則沒裝
                 # guest agent 的 VM 永遠對不到、主機名稱與 primary_ip 都補不上。

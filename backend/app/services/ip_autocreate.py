@@ -21,6 +21,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.subnet import Subnet
 
 # (network, subnet_id)，依首碼長度由長到短
@@ -36,7 +37,7 @@ async def addable_subnets(
     """
     stmt = select(Subnet.id, Subnet.cidr)
     if scope_ids:
-        stmt = stmt.where(Subnet.id.in_(list(scope_ids)))
+        stmt = stmt.where(in_values(Subnet.id, scope_ids))
     rows = (await session.execute(stmt)).all()
     nets: SubnetCandidates = []
     for sid, cidr in rows:
@@ -83,7 +84,7 @@ async def match_existing(
         return None, False
     stmt = select(IPAddress).where(IPAddress.ip == ip)
     if scope_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(list(scope_ids)))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope_ids))
     rows = (await session.execute(stmt.limit(2))).scalars().all()
     if len(rows) > 1:
         return None, True
@@ -119,7 +120,7 @@ async def match_existing_many(
         return out
     stmt = select(IPAddress).where(in_values(IPAddress.ip, valid))
     if scope_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(list(scope_ids)))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope_ids))
     found: dict[str, list[Any]] = defaultdict(list)
     for row in (await session.execute(stmt)).scalars().all():
         found[str(row.ip).split("/")[0]].append(row)

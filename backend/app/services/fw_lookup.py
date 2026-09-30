@@ -458,7 +458,7 @@ async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
     if ip:
         conds.append(VMInterface.primary_ip == ip)
     if macs:
-        conds.append(VMInterface.mac.in_(macs))
+        conds.append(VMInterface.mac.in_(macs))  # bounded: MACs of one IP
     if not conds:
         return None
     from sqlalchemy import or_

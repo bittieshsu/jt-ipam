@@ -161,3 +161,76 @@ async def apply_observation(
     return await recompute_effective(
         session, ip=ip, source=source, actor_user_id=actor_user_id,
     )
+
+
+async def apply_observations_bulk(
+    session: AsyncSession, *, source: str, wants: dict[uuid.UUID, str | None],
+    ips: dict[uuid.UUID, IPAddress] | None = None,
+) -> int:
+    """apply_observation 的整批版：同一個來源、很多 IP（HostnameRun 用）。回傳有效值有變的 IP 數。
+
+    結果與逐筆呼叫 apply_observation 相同，但查詢次數不隨 IP 數成長 —— 逐筆每個 IP 約 7 次查詢
+    （觀測、重算、優先序、異動記錄…），第一次接上一個 3 萬個代理的 Wazuh 或 10 萬筆的 DNS
+    就是幾十萬次（2026-09-30 大量資料測試）。
+    """
+    if source not in HOSTNAME_SOURCES:
+        import structlog
+        structlog.get_logger("hostname").warning("unknown hostname source ignored", source=source)
+        return 0
+    if not wants:
+        return 0
+    from datetime import UTC, datetime
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.core.sqlin import in_values
+    from app.models.address import IPAddress
+    from app.services.ip_history import latest_changes
+
+    clean = {ip_id: ((h or "").strip() or None) for ip_id, h in wants.items()}
+    ids = list(clean)
+    gone = [i for i, h in clean.items() if h is None]
+    if gone:
+        await session.execute(delete(IPHostnameObservation).where(
+            IPHostnameObservation.source == source, in_values(IPHostnameObservation.ip_id, gone)))
+    now = datetime.now(UTC)
+    rows = [{"ip_id": i, "source": source, "hostname": h, "observed_at": now} for i, h in clean.items() if h]
+    ins = pg_insert(IPHostnameObservation)
+    upsert = ins.on_conflict_do_update(
+        constraint="uq_ip_hostname_obs_ip_source",
+        set_={"hostname": ins.excluded.hostname, "observed_at": ins.excluded.observed_at})
+    for k in range(0, len(rows), 10000):
+        await session.execute(upsert, rows[k:k + 10000])
+
+    obs: dict[uuid.UUID, dict[str, str]] = {}
+    for ip_id, src, hn in (await session.execute(select(
+            IPHostnameObservation.ip_id, IPHostnameObservation.source, IPHostnameObservation.hostname)
+            .where(in_values(IPHostnameObservation.ip_id, ids)))).all():
+        obs.setdefault(ip_id, {})[src] = hn
+    have = dict(ips or {})
+    missing = [i for i in ids if i not in have]
+    if missing:
+        have.update({i.id: i for i in (await session.execute(
+            select(IPAddress).where(in_values(IPAddress.id, missing)))).scalars()})
+    order, disabled = await _load(session)
+    eff_order = [x for x in order if x not in disabled]
+
+    changes: list[tuple[IPAddress, str | None, str | None]] = []
+    for ip_id in ids:
+        ip = have.get(ip_id)
+        if ip is None:
+            continue
+        new = _resolve(obs.get(ip_id, {}), ip.hostname_source_pin, eff_order)
+        if (ip.hostname or None) != (new or None):
+            changes.append((ip, ip.hostname, new))
+    if not changes:
+        return 0
+    latest = await latest_changes(session, [ip.id for ip, _o, _n in changes], "hostname")
+    for ip, old, new in changes:
+        ip.hostname = new
+        await log_change(session, ip=ip, event_type="hostname_changed", field="hostname",
+                         old=old, new=new, source=source, latest=latest)
+    # 逐筆版每個 IP 都 flush 過；這裡一次 flush，呼叫端接著 refresh／查詢才看得到
+    await session.flush()
+    return len(changes)
+

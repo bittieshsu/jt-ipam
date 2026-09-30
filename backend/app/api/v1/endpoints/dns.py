@@ -6,7 +6,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_global_r
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.security import encrypt_secret
+from app.core.sqlin import in_values
 from app.core.ui_error import detail_of
 from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.encrypted_secret import EncryptedSecret
@@ -381,7 +382,7 @@ async def list_records(
     val_to_id: dict[str, uuid.UUID] = {}
     if ip_vals:
         for rid, host in (await session.execute(
-            select(_IPA.id, func.host(_IPA.ip)).where(func.host(_IPA.ip).in_(ip_vals))
+            select(_IPA.id, func.host(_IPA.ip)).where(in_values(func.host(_IPA.ip), ip_vals, type_=String()))
         )).all():
             val_to_id[str(host)] = rid
     # zone → 來源 DNS 伺服器（名稱 / id）對照（來源欄顯示用）
@@ -391,7 +392,7 @@ async def list_records(
         for zid, sid, sname in (await session.execute(
             select(DNSZone.id, DNSServer.id, DNSServer.name)
             .join(DNSServer, DNSServer.id == DNSZone.server_id)
-            .where(DNSZone.id.in_(zone_ids))
+            .where(in_values(DNSZone.id, zone_ids))
         )).all():
             zone_to_srv[zid] = (sid, sname)
     items = []

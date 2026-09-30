@@ -49,9 +49,8 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError, ui_detail
 from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
 from app.services.dhcp_leases import LeaseRun
-from app.services.hostname import apply_observation
+from app.services.fw_sightings import SightingBatch
 from app.services.hostname_reports import HostnameRun, enabled_peers
-from app.services.ip_autocreate import match_existing
 
 # ── RouterOS 選單（REST 路徑＝CLI 路徑）──────────────────────────
 EP_RESOURCE = "/system/resource"
@@ -271,38 +270,6 @@ def _scope(router: MikroTikRouter) -> list[uuid.UUID] | None:
     return list(router.scope_subnet_ids) if router.scope_subnet_ids else None
 
 
-async def _stamp_ip_seen(
-    session: AsyncSession, ip: str, *, evidence: str,
-    mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
-    seen_at: datetime | None = None, hn_run: HostnameRun | None = None,
-) -> bool:
-    """只標記「既有」IP，絕不新建（與其他防火牆整合一致）。
-
-    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清。"""
-    ipx = _valid_ip(ip)
-    if ipx is None:
-        return False
-    # 唯一才算：重疊網段又沒設關聯子網路時不寫（以前任意取一筆，資料掛到別的單位）
-    ipa, _ambiguous = await match_existing(session, ipx, subnet_ids)
-    if ipa is None:
-        return False
-    from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence, seen_at)
-    if lease_run is not None:
-        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
-    if mac:
-        from app.services.arp_evidence import record_firewall_arp
-        from app.services.arp_precedence import consider_mac
-        await consider_mac(session, ip=ipa, mac=mac, source="mikrotik")
-        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
-        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
-                                  seen_at=seen_at)
-    if hn_run is not None:
-        hn_run.report(ipa, hostname)
-    elif hostname:
-        await apply_observation(session, ip=ipa, source="mikrotik", hostname=hostname)
-    return True
 
 
 # ─────────────────── system（同時是量測來源）───────────────────
@@ -350,7 +317,7 @@ async def sync_arp(
     ))
     scope_ids = _scope(router)
     now = datetime.now(UTC)
-    matched = 0
+    batch = SightingBatch(session, source="mikrotik", subnet_ids=scope_ids)
     for d in rows:
         # 即使已在伺服器端過濾，仍在本地再確認一次：舊版韌體可能忽略未知的查詢參數
         # 而回整張表 —— 那樣就會把 stale／permanent 當成上線證據。
@@ -359,11 +326,8 @@ async def sync_arp(
         ip = _valid_ip(d.get("address"))
         if not ip:
             continue
-        if await _stamp_ip_seen(
-            session, ip, evidence="arp:mikrotik",
-            mac=_norm_mac(d.get("mac-address")), subnet_ids=scope_ids, seen_at=now,
-        ):
-            matched += 1
+        batch.add(ip, evidence="arp:mikrotik", mac=_norm_mac(d.get("mac-address")), seen_at=now)
+    matched = sum(1 for found, _e in await batch.flush() if found)
     return {"arp": matched, "arp_rows": len(rows)}
 
 
@@ -384,6 +348,8 @@ async def sync_dhcp_leases(
     hn_run = HostnameRun(session, source="mikrotik", origin=f"mikrotik:{router.id}",
                          peers=await enabled_peers(session, MikroTikRouter))
     lease_run = LeaseRun(session, source_type="mikrotik", source_id=router.id)
+    batch = SightingBatch(session, source="mikrotik", subnet_ids=scope_ids, lease_run=lease_run,
+                          hn_run=hn_run)
     for d in rows:
         if str(d.get("status") or "").strip().lower() != "bound":
             continue    # 同 ARP：舊韌體可能忽略查詢參數
@@ -395,13 +361,10 @@ async def sync_dhcp_leases(
         # 只用來說明「這筆租約多新」，不會讓一台關機的機器顯示上線。
         ago = parse_duration(d.get("last-seen"))
         seen_at = now - timedelta(seconds=ago) if ago is not None else now
-        if await _stamp_ip_seen(
-            session, ip, evidence="lease:mikrotik",
-            mac=_norm_mac(d.get("active-mac-address") or d.get("mac-address")),
-            hostname=_txt(d.get("host-name"), 255),
-            subnet_ids=scope_ids, lease_run=lease_run, seen_at=seen_at, hn_run=hn_run,
-        ):
-            seen += 1
+        batch.add(ip, evidence="lease:mikrotik",
+                  mac=_norm_mac(d.get("active-mac-address") or d.get("mac-address")),
+                  hostname=_txt(d.get("host-name"), 255), seen_at=seen_at)
+    seen = sum(1 for found, _e in await batch.flush() if found)
     # 讀取失敗會往外拋；走到這裡就是完整的（bound）租約清單
     await hn_run.finish(complete=True)
     await lease_run.finish(complete=True)
@@ -693,17 +656,14 @@ async def sync_vpn(
             proplist="name,service,address,caller-id,uptime"))
     except RouterOSNotPresent:
         ppp, out["ppp_absent"] = [], True
-    stamped = 0
+    batch = SightingBatch(session, source="mikrotik", subnet_ids=scope_ids)
     for d in ppp:
         ip = _valid_ip(d.get("address"))
         if not ip:
             continue
         # 撥入中的連線＝此刻在線，時間就是現在（uptime 講的是連線多久，不是最後活動）
-        if await _stamp_ip_seen(
-            session, ip, evidence="vpn:mikrotik", subnet_ids=scope_ids, seen_at=now,
-        ):
-            stamped += 1
-    out["vpn_sessions"] = stamped
+        batch.add(ip, evidence="vpn:mikrotik", seen_at=now)
+    out["vpn_sessions"] = sum(1 for found, _e in await batch.flush() if found)
 
     await _breathe(router)
     try:
@@ -746,7 +706,7 @@ async def sync_vpn(
     if not out.get("wireguard_absent"):
         stale = delete(VPNTunnel).where(VPNTunnel.source_origin == origin)
         if seen_names:
-            stale = stale.where(VPNTunnel.name.notin_(seen_names))
+            stale = stale.where(VPNTunnel.name.notin_(seen_names))  # bounded: VPN tunnels of one router
         await session.execute(stale)
     out["vpn_tunnels"] = len(seen_names)
     return out

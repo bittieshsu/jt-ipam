@@ -30,7 +30,7 @@ from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
@@ -39,6 +39,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
+from app.core.sqlin import in_values
 from app.core.tickets import take_once
 from app.core.ui_error import detail_of, ui_detail
 from app.core.ws_timeouts import HANDSHAKE_TIMEOUT, WsTimeout, receive_text_within
@@ -173,7 +174,7 @@ async def list_connection_targets(
         if vis is not None:
             if not vis:
                 return []
-            stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+            stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
     rows = (await session.execute(stmt)).scalars().all()
 
     perm_cache: dict[uuid.UUID, str] = {}
@@ -199,7 +200,7 @@ async def list_connection_targets(
     dev_names: dict[uuid.UUID, str] = {}
     if dev_ids:
         drows = (await session.execute(
-            select(Device.id, Device.name).where(Device.id.in_(dev_ids))
+            select(Device.id, Device.name).where(in_values(Device.id, dev_ids))
         )).all()
         dev_names = {d[0]: d[1] for d in drows}
 
@@ -216,11 +217,11 @@ async def list_connection_targets(
                 func.max(IPAddress.last_seen_librenms),
                 func.max(IPAddress.last_seen_dns),
             )
-            .where(func.host(IPAddress.ip).in_(ip_values))
+            .where(in_values(func.host(IPAddress.ip), ip_values, type_=String()))
             .group_by(func.host(IPAddress.ip))
         )
         if vis is not None:
-            lstmt = lstmt.where(IPAddress.subnet_id.in_(vis))
+            lstmt = lstmt.where(in_values(IPAddress.subnet_id, vis))
         for lr in (await session.execute(lstmt)).all():
             live_map[str(lr[0])] = (lr[1], lr[2], lr[3])
 

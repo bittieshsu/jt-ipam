@@ -100,6 +100,12 @@ class LibreNMSDeviceRead(StrictModel):
     jt_ipam_device_id: uuid.UUID | None
     last_seen_at: Any
 
+    @field_validator("primary_ip", mode="before")
+    @classmethod
+    def _coerce_inet(cls, v: object) -> object:
+        # INET 讀回來是 IPv4Address／IPv6Address：沒轉成字串的話，只要有一台帶主要 IP 整支就 500
+        return v if v is None else str(v).split("/", 1)[0]
+
 
 class ARPEntryRead(StrictModel):
     id: uuid.UUID

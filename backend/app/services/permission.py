@@ -26,6 +26,7 @@ from typing import Any, Literal
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.permission import Permission
 from app.models.user import User, UserGroupMember
 
@@ -336,35 +337,35 @@ async def _resolve_visible(
         return set(granted.get("location", set()))
     if object_type == "section":
         conds = []
-        if granted.get("section"): conds.append(Section.id.in_(granted["section"]))
-        if granted.get("customer"): conds.append(Section.customer_id.in_(granted["customer"]))
+        if granted.get("section"): conds.append(in_values(Section.id, granted["section"]))
+        if granted.get("customer"): conds.append(in_values(Section.customer_id, granted["customer"]))
         return await ids_of(Section.id, *conds)
     if object_type == "rack":
         conds = []
-        if granted.get("rack"): conds.append(Rack.id.in_(granted["rack"]))
-        if granted.get("location"): conds.append(Rack.location_id.in_(granted["location"]))
+        if granted.get("rack"): conds.append(in_values(Rack.id, granted["rack"]))
+        if granted.get("location"): conds.append(in_values(Rack.location_id, granted["location"]))
         return await ids_of(Rack.id, *conds)
     if object_type == "subnet":
         vis_sections = await _resolve_visible(session, "section", granted)  # 含 customer→section
         conds = []
-        if granted.get("subnet"): conds.append(Subnet.id.in_(granted["subnet"]))
-        if vis_sections: conds.append(Subnet.section_id.in_(vis_sections))
-        if granted.get("customer"): conds.append(Subnet.customer_id.in_(granted["customer"]))
+        if granted.get("subnet"): conds.append(in_values(Subnet.id, granted["subnet"]))
+        if vis_sections: conds.append(in_values(Subnet.section_id, vis_sections))
+        if granted.get("customer"): conds.append(in_values(Subnet.customer_id, granted["customer"]))
         return await ids_of(Subnet.id, *conds)
     if object_type == "ip":
         vis_subnets = await _resolve_visible(session, "subnet", granted)
         conds = []
-        if granted.get("ip"): conds.append(IPAddress.id.in_(granted["ip"]))
-        if vis_subnets: conds.append(IPAddress.subnet_id.in_(vis_subnets))
-        if granted.get("customer"): conds.append(IPAddress.customer_id.in_(granted["customer"]))
+        if granted.get("ip"): conds.append(in_values(IPAddress.id, granted["ip"]))
+        if vis_subnets: conds.append(in_values(IPAddress.subnet_id, vis_subnets))
+        if granted.get("customer"): conds.append(in_values(IPAddress.customer_id, granted["customer"]))
         return await ids_of(IPAddress.id, *conds)
     if object_type == "device":
         vis_racks = await _resolve_visible(session, "rack", granted)
         conds = []
-        if granted.get("device"): conds.append(Device.id.in_(granted["device"]))
-        if vis_racks: conds.append(Device.rack_id.in_(vis_racks))
-        if granted.get("location"): conds.append(Device.location_id.in_(granted["location"]))
-        if granted.get("customer"): conds.append(Device.customer_id.in_(granted["customer"]))
+        if granted.get("device"): conds.append(in_values(Device.id, granted["device"]))
+        if vis_racks: conds.append(in_values(Device.rack_id, vis_racks))
+        if granted.get("location"): conds.append(in_values(Device.location_id, granted["location"]))
+        if granted.get("customer"): conds.append(in_values(Device.customer_id, granted["customer"]))
         return await ids_of(Device.id, *conds)
     return set()
 

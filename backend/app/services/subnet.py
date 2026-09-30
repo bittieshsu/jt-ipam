@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.subnet import Subnet
 from app.models.vrf import VRF
@@ -67,7 +68,7 @@ async def find_overlapping(
     if not rows:
         return []
     ids = [row[0] for row in rows]
-    result = await session.execute(select(Subnet).where(Subnet.id.in_(ids)))
+    result = await session.execute(select(Subnet).where(in_values(Subnet.id, ids)))
     return list(result.scalars().all())
 
 

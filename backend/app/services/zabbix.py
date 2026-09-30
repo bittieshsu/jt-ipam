@@ -26,10 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.sqlin import in_values
 from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.zabbix import ZabbixHost, ZabbixInstance
-from app.services.ip_autocreate import match_existing
+from app.services.ip_autocreate import match_existing_many
 
 
 class ZabbixError(UiError, RuntimeError):
@@ -239,18 +240,22 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
     from app.services.hostname_reports import HostnameRun, enabled_peers
     hn_run = HostnameRun(session, source="zabbix", origin=f"zabbix:{inst.id}",
                          peers=await enabled_peers(session, _Inst))
+    # 整批（2026-09-30 大量資料測試：以前每台主機各比對一次 IP、各查一次鏡像列）
+    existing_by_id = {row.hostid: row for row in (await session.execute(
+        select(ZabbixHost).where(ZabbixHost.instance_id == inst.id))).scalars()}
+    first_ips = {str(h.get("hostid") or ""): _first_ip(h.get("interfaces") or []) for h in hosts}
+    matches = await match_existing_many(session, {ip for ip, _d in first_ips.values() if ip}, scope)
     for h in hosts:
         hostid = str(h.get("hostid") or "")
-        if not hostid:
-            continue
+        if not hostid or hostid in seen:
+            continue            # 同一台主機回了兩次：以前會再新增一筆、撞唯一鍵
         seen.add(hostid)
-        ip, dns = _first_ip(h.get("interfaces") or [])
+        ip, dns = first_ips[hostid]
 
-        # 重疊網段：一定要 scope + limit(1)，否則 MultipleResultsFound 會炸掉整批
         addr_id = None
         if ip:
             # 唯一才算（重疊網段又沒設範圍時不猜）
-            ipa, _amb = await match_existing(session, ip, scope)
+            ipa, _amb = matches.get(ip, (None, False))
             if ipa is not None:
                 addr_id = ipa.id
                 linked += 1
@@ -264,9 +269,7 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
                 # （Wazuh 就是漏了這個，十天洗出 620 筆翻動）
                 hn_run.report(ipa, (h.get("name") or h.get("host") or "").strip() or None)
 
-        existing = (await session.execute(
-            select(ZabbixHost).where(ZabbixHost.instance_id == inst.id,
-                                     ZabbixHost.hostid == hostid))).scalars().first()
+        existing = existing_by_id.get(hostid)
         values = {
             "host": str(h.get("host") or "")[:255],
             "name": str(h.get("name") or "")[:255] or None,
@@ -291,11 +294,9 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
     await hn_run.finish(complete=True)
 
     # 移除已不存在於 Zabbix 的主機（鏡像資料，不保留幽靈）
-    stale = (await session.execute(
-        select(ZabbixHost).where(ZabbixHost.instance_id == inst.id))).scalars().all()
     removed = 0
-    for row in stale:
-        if row.hostid not in seen:
+    for hostid, row in existing_by_id.items():
+        if hostid not in seen:
             await session.delete(row)
             removed += 1
 
@@ -323,7 +324,7 @@ async def coverage_gap(
     if subnet_ids is not None:
         if not subnet_ids:
             return []
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, subnet_ids))
     rows = (await session.execute(stmt)).all()
     return [{"ip_address_id": str(i), "ip": str(ip).split("/", 1)[0] if ip else None,
              "hostname": hn} for i, ip, hn in rows]

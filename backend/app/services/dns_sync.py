@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.subnet import Subnet
@@ -163,6 +164,15 @@ async def push_ip(
 # ─────────────────── DNS → IPAM pull + 不一致比對 ───────────────────
 
 
+def _canon_ip(raw: str | None) -> str | None:
+    """DNS 記錄的位址 → 與資料庫相同的標準寫法（IPv6 小寫壓縮）；不是位址就 None。"""
+    import ipaddress
+    try:
+        return ipaddress.ip_address(str(raw or "").strip()).compressed if raw else None
+    except ValueError:
+        return None
+
+
 async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int]:
     """從 server 端 list_zones + list_records，更新本地 dns_records 表並標
     consistency_state。
@@ -298,19 +308,30 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
         peers = (await session.execute(select(func.count()).select_from(DNSServer).where(
             DNSServer.enabled.is_(True)))).scalar_one()
         run = HostnameRun(session, source="dns", origin=f"dns:{server.id}", peers=peers)
+        # 整批（2026-09-30 大量資料測試：以前每個位址各查一次 IP、一次其他來源的名稱 ——
+        # 10 萬筆 A 記錄就是 20 萬次查詢）。比對改成「唯一才算」：以前 .first() 在重疊網段
+        # 又沒設範圍時任意挑一筆，名稱掛到別的單位名下（其他整合 2026-09-26 就改了，這裡漏了）
+        from app.services.ip_autocreate import match_existing_many
+        by_ip: dict[str, set[str]] = {}
         for ip_val, names in dns_ip_names.items():
-            ip_stmt = select(IPAddress).where(IPAddress.ip == ip_val)
-            if scope_ids:
-                ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(scope_ids))
-            ipa = (await session.execute(ip_stmt)).scalars().first()
-            if ipa is None or not names:
+            key = _canon_ip(ip_val)
+            if key and names:
+                by_ip.setdefault(key, set()).update(names)
+        matches = await match_existing_many(session, set(by_ip), scope_ids) if by_ip else {}
+        hits = {k: m[0] for k, m in matches.items() if m[0] is not None}
+        other_names: dict[uuid.UUID, set[str]] = {}
+        if hits:
+            for ip_id, hn in (await session.execute(
+                    select(IPHostnameObservation.ip_id, IPHostnameObservation.hostname).where(
+                        in_values(IPHostnameObservation.ip_id, [i.id for i in hits.values()]),
+                        IPHostnameObservation.source != "dns"))).all():
+                other_names.setdefault(ip_id, set()).add(hn)
+        for key, names in by_ip.items():
+            ipa = hits.get(key)
+            if ipa is None:
                 continue
             # 其他來源怎麼稱呼這台機器 —— DNS 裡若有同一個名字，那才是它的名字
-            others = set((await session.execute(
-                select(IPHostnameObservation.hostname).where(
-                    IPHostnameObservation.ip_id == ipa.id,
-                    IPHostnameObservation.source != "dns")
-            )).scalars().all())
+            others = set(other_names.get(ipa.id, set()))
             if ipa.hostname:
                 others.add(ipa.hostname)
             chosen = pick_dns_hostname(set(names), others=others)

@@ -20,7 +20,7 @@ import {
 import { listMcpTools, type McpTool } from "@/api/chat";
 import { listSubnets, setAIAuditScope } from "@/api/subnets";
 import type { Subnet } from "@/types";
-import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon, AnomalyIcon, PlusIcon, DeleteIcon } from "@/icons";
+import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon, AnomalyIcon, PlusIcon, DeleteIcon, TestIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
@@ -63,6 +63,13 @@ const auditModelOptions = computed(() =>
   modelOptions.value.map((o) => ({
     ...o,
     disabled: isEmbedModel(o.value) && o.value !== llm.value?.ai_audit_model,
+  })));
+
+// 判讀模型下拉：同上；清空＝沿用對話模型
+const interpretModelOptions = computed(() =>
+  modelOptions.value.map((o) => ({
+    ...o,
+    disabled: isEmbedModel(o.value) && o.value !== llm.value?.ai_interpret_model,
   })));
 
 // 巡檢範圍。存的是每個子網路的 ai_audit_enabled 欄位（跟子網路編輯頁同一個），
@@ -431,6 +438,42 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
       </div>
     </n-space>
     <p v-else style="opacity: 0.7">{{ t("common.loading") }}</p>
+  </n-card>
+
+  <!-- AI 判讀：三個按需觸發的判讀功能共用一個模型設定（比照巡檢；留空＝沿用對話模型） -->
+  <n-card v-if="llm" style="margin-top:16px" data-testid="interpret-card">
+    <template #header>
+      <n-space align="center" :size="8">
+        <n-icon :size="18" :component="TestIcon" />
+        <span>{{ t("llm_settings.interpret_title") }}</span>
+      </n-space>
+    </template>
+    <p class="hint" style="margin: 0 0 14px">{{ t("llm_settings.interpret_scope") }}</p>
+    <n-space vertical :size="14">
+      <div>
+        <label>{{ t("llm_settings.interpret_model") }}</label>
+        <n-select
+          :value="llm.ai_interpret_model"
+          :options="interpretModelOptions"
+          :loading="modelsLoading"
+          :placeholder="t('llm_settings.audit_model_inherit', { model: llm.chat_model })"
+          clearable
+          filterable
+          style="width: 100%"
+          data-testid="interpret-model"
+          @update:value="(v: string | null) => patch({ ai_interpret_model: v ?? '' })"
+        />
+        <p class="hint">{{ t("llm_settings.interpret_model_hint") }}</p>
+      </div>
+      <div>
+        <label>{{ t("llm_settings.interpret_num_ctx") }}</label>
+        <n-input-number :value="llm.ai_interpret_num_ctx" :min="0" :max="131072" :step="2048"
+                        clearable style="width: 220px"
+                        :placeholder="String(llm.num_ctx ?? 4096)"
+                        @update:value="(v: number | null) => patch({ ai_interpret_num_ctx: v ?? 0 })" />
+        <p class="hint">{{ t("llm_settings.interpret_num_ctx_hint", { n: llm.num_ctx ?? 4096 }) }}</p>
+      </div>
+    </n-space>
   </n-card>
 
   <!-- AI 巡檢排程 -->

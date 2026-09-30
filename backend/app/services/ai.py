@@ -302,7 +302,9 @@ def json_chat_body(
         if no_thinking and not _is_official_openai(getattr(cfg, "url", "")):
             # 以前這條路完全忽略 no_thinking（issue #36）：推論模型把整個產出額度寫成思考，
             # 答案 0 字。官方 OpenAI 不送 —— 它對不認得的欄位直接回 400。
-            body.update(_openai_reasoning_off())
+            # 這台伺服器先前拒絕過的欄位不再送（見 _strip_rejected_controls）
+            skip = _rejected_controls(chat_url(getattr(cfg, "url", ""), provider), body["model"])
+            body.update({k: v for k, v in _openai_reasoning_off().items() if k not in skip})
         return body
     options = _chat_options(cfg)
     if max_output_tokens:
@@ -341,20 +343,41 @@ def _is_official_openai(url: str) -> bool:
         ".openai.azure.com")
 
 
-def _strip_rejected_controls(body: dict[str, Any], status: int, text: str) -> bool:
-    """伺服器因為不認得「不要思考」的欄位而拒絕時，把它們拿掉（回 True＝該重送一次）。
+#: 這台伺服器、這個模型不收哪些「不要思考」的欄位：{(請求網址, 模型): (記下的時間, 欄位)}。
+#: 記住才不必每個請求都先失敗一次（延遲加倍）；一小時後重試一次（伺服器可能升級了）。
+_REJECTED_CONTROLS: dict[tuple[str, str], tuple[float, frozenset[str]]] = {}
+_REJECT_TTL = 3600.0
 
-    只認 400／422 而且錯誤訊息點名了這些欄位 —— 其他 400（例如超出上下文）照常報錯，
-    重送也不會好。
+
+def _rejected_controls(url: str, model: str) -> frozenset[str]:
+    hit = _REJECTED_CONTROLS.get((url, model))
+    return hit[1] if hit and time.monotonic() - hit[0] < _REJECT_TTL else frozenset()
+
+
+def _strip_rejected_controls(body: dict[str, Any], status: int, text: str, url: str = "") -> bool:
+    """伺服器因為不認得「不要思考」的欄位而拒絕時，把**被點名的那幾個**拿掉（回 True＝該重送）。
+
+    只認 400／422 而且錯誤訊息點名了這些欄位 —— 其他 400（例如超出上下文）照常報錯，重送也不會好。
+    以前一個被拒就三個一起拿掉：LiteLLM 這類閘道預設拒絕它不認得的欄位（例如 thinking_budget_tokens），
+    連它認得、會轉成 Ollama `think:false` 的 reasoning_effort 也一起拿掉，重送的請求完全沒關思考
+    （2026-09-30，jt-doc-tools 同一天踩到：翻譯從幾分鐘變成 400 分鐘）。
+    拿掉的欄位依（網址, 模型）記住，之後的請求一開始就不送。
     """
     if status not in (400, 422):
         return False
     low = (text or "").lower()
     present = [k for k in _REASONING_OFF_KEYS if k in body]
-    if not present or not any(k in low for k in (*_REASONING_OFF_KEYS, "enable_thinking")):
+    named = [k for k in present if k in low]
+    if "enable_thinking" in low and "chat_template_kwargs" in present and "chat_template_kwargs" not in named:
+        named.append("chat_template_kwargs")
+    if not present or not (named or any(k in low for k in _REASONING_OFF_KEYS)):
         return False
-    for k in present:
+    drop = named or present
+    for k in drop:
         body.pop(k, None)
+    if url:
+        key = (url, str(body.get("model") or ""))
+        _REJECTED_CONTROLS[key] = (time.monotonic(), _rejected_controls(*key) | set(drop))
     return True
 
 
@@ -1446,10 +1469,14 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
                                             cfg.provider)
         resp = await safe_request("POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
                                   json=body, timeout=wait)
-        if resp.status_code != 200 and (
-                _rejected_think(resp)
-                or _strip_rejected_controls(body, resp.status_code, getattr(resp, "text", ""))):
-            body.pop("think", None)
+        # 被拒絕的「不要思考」欄位一個一個拿掉重送（每次只拿掉被點名的；最多試到欄位用完）
+        for _ in range(len(_REASONING_OFF_KEYS) + 1):
+            if resp.status_code == 200 or not (
+                    ("think" in body and _rejected_think(resp))
+                    or _strip_rejected_controls(body, resp.status_code, getattr(resp, "text", ""), url)):
+                break
+            if "think" in body and _rejected_think(resp):
+                body.pop("think", None)
             resp = await safe_request("POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
                                       json=body, timeout=wait)
     except UnsafeOutboundURL as exc:
@@ -1467,6 +1494,25 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
                               or (body.get("options") or {}).get("num_predict"))
 
 
+def interpret_model(cfg: Any) -> str:
+    """AI 判讀實際用的模型：有設判讀專用模型就用它，否則沿用對話模型。"""
+    return getattr(cfg, "ai_interpret_model", None) or cfg.chat_model
+
+
+async def interpret_chat(session: AsyncSession, prompt: str, **kw: Any) -> tuple[str, str]:
+    """AI 判讀（未授權 IP 判讀／IP 調查／防火牆規則異動解讀）共用的單次對話。
+
+    三個功能共用一個「判讀模型」設定，所以模型與上下文長度統一在這裡決定 —— 各自呼叫
+    raw_chat 的話，下一個新加的判讀功能很容易又忘了帶、安靜地用回對話模型。
+    回傳 (內容, 模型名)：判讀出自哪個模型是品質的一部分，畫面要顯示真的那個。
+    """
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    text = await raw_chat(session, prompt, model=getattr(cfg, "ai_interpret_model", None),
+                          num_ctx=getattr(cfg, "ai_interpret_num_ctx", None), **kw)
+    return text, interpret_model(cfg)
+
+
 def _rejected_think(resp: Any) -> bool:
     """舊版 Ollama 不認 `think` 欄位 —— 認出這種錯誤，好退回不帶它重送。"""
     if resp.status_code == 200 or "think" not in (resp.text or "").lower():
@@ -1482,11 +1528,13 @@ async def _raw_chat_streamed(
 ) -> str:
     """串流版：邊收邊回報，最後把整段內容拼回來給呼叫端解析。"""
     try:
-        return await _stream_once(url, body, wait, on_chunk, headers, provider)
-    except _Rejected as exc:
-        # 自架的 OpenAI 相容服務不認「不要思考」的欄位：拿掉重來一次，而不是整批失敗
-        if not _strip_rejected_controls(body, exc.status, exc.text):
-            raise
+        for _ in range(len(_REASONING_OFF_KEYS)):
+            try:
+                return await _stream_once(url, body, wait, on_chunk, headers, provider)
+            except _Rejected as exc:
+                # 自架服務或閘道不認某個「不要思考」的欄位：只拿掉被點名的再來，而不是整批失敗
+                if not _strip_rejected_controls(body, exc.status, exc.text, url):
+                    raise
         return await _stream_once(url, body, wait, on_chunk, headers, provider)
     except AIError as exc:
         # 舊版 Ollama 不認 `think`：拿掉重來一次，而不是整批失敗

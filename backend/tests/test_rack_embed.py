@@ -52,6 +52,10 @@ async def test_serves_svg_with_a_valid_token(db_session, client):
     r = await client.get(f"/api/v1/racks/{rack.id}/embed.svg", params={"token": token})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/svg+xml")
+    # 這張圖是要被別的網站用 <img> 貼上去的：站台預設的 CORP same-origin 會讓瀏覽器擋下跨站載入
+    # （2026-09-30 發現；nginx 另有一段 location 處理同一件事）
+    assert r.headers["cross-origin-resource-policy"] == "cross-origin"
+    assert r.headers["cache-control"] == "no-store"
     body = r.text
     assert body.startswith("<svg") or body.lstrip().startswith("<svg")
     assert "R1" in body and "sw-1" in body

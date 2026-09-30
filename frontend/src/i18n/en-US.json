@@ -1961,7 +1961,7 @@
     "none_found": "No anomalies found",
     "mac_local": "locally administered",
     "explain_ip_conflicts": "One IP in the same network used by two or more machines. Two kinds of evidence: \"ARP\" means ARP observations (LibreNMS, scan agents, firewall ARP tables) saw two or more MACs in the last hour; \"MAC keeps flipping\" means the IP's MAC switched between the same two addresses 3 or more times in the last 24 hours (a scan agent sees only one MAC per sweep, so this catches conflicts when scans are far apart). Overlapping subnets are judged separately and never conflict with each other. Addresses tagged as locally administered have no vendor registration — virtual machines, containers and phone MAC randomisation all produce them. An IP showing both a real MAC and a randomised one is usually a single device that changed address (reconnect, migration, NIC failover) rather than two machines fighting over an IP. The ones worth acting on are those where both MACs resolve to a vendor and belong to different devices.",
-    "explain_mac_drifts": "One MAC seen on two or more switch ports within the last hour. Normally this is a device that moved or roamed; seen on several ports at once it can mean a network loop or a spoofed MAC.",
+    "explain_mac_drifts": "A MAC moved to a different port on the same switch (seen on the new port in the last 24 hours, on another port within the previous 7 days): usually a device re-plugged or relocated. Appearing on different switches is the normal forwarding path and does not count. VM migrations, random-MAC roaming and moves between shared ports (uplinks, access points) are listed below for reference and are not notified.",
     "explain_ghost_ips": "IPs marked as assigned in IPAM but with no sign of life for a long time (neither the scan agent nor LibreNMS has seen them). Usually decommissioned hosts whose records were never reclaimed — useful for cleaning up address space.",
     "explain_unauthorized_ips": "IPs actually seen on the network but not recorded in IPAM. Could be a device configured without going through a request, or simply a record not added yet.",
     "rogue_dhcp": "Rogue DHCP servers",
@@ -2077,7 +2077,12 @@
       "evidence": "Evidence",
       "changes": "MAC changes",
       "sources": "Seen by",
-      "firewall": "Firewall"
+      "firewall": "Firewall",
+      "device_name": "Switch",
+      "from_port": "From port",
+      "to_port": "To port",
+      "moved_at": "Moved at",
+      "category": "Category"
     },
     "rot": {
       "dangling_nat": "The port forward's destination is not in IPAM — it may have been reclaimed, or never recorded",
@@ -2094,7 +2099,15 @@
     "rotk_dangling_nat": "Forward target not in IPAM",
     "rotk_any_any": "any → any allow",
     "rotk_mgmt_exposed": "Management port open on WAN",
-    "rotk_alias_rot": "Stale alias member"
+    "rotk_alias_rot": "Stale alias member",
+    "drift_reference": "For reference (not notified): {n}",
+    "drift_reference_hint": "These moved ports too, but are usually routine: a VM migrating between hosts, a phone's random MAC roaming between access points, or a move between two ports shared by many devices (roaming between access points, an uplink switchover or STP reconvergence).",
+    "drift_cat": {
+      "device_move": "Device re-plugged",
+      "vm_migration": "VM migration",
+      "random_mac": "Random-MAC roaming",
+      "uplink_change": "Between shared ports (uplink or AP)"
+    }
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -3157,6 +3170,12 @@
     "tools_intro": "The AI assistant and external MCP clients can call these {n} tools ({m} of which change data and require confirmation). Read-only tools answer instantly; mutating ones pause in the AI chat for you to confirm.",
     "tools_mutating": "Mutating",
     "tools_readonly": "Read-only",
+    "interpret_title": "AI interpretation",
+    "interpret_scope": "Used by: \"AI triage\" for unauthorized IPs, \"Ask AI to read this\" in IP investigation, and the AI reading of firewall rule changes. All three are on-demand features that hand a bundle of evidence to the model for a conclusion.",
+    "interpret_model": "Model used for interpretation",
+    "interpret_model_hint": "Leave empty to use the same model as AI chat. Chat needs quick responses; interpretation reads all the evidence at once before concluding — you can point it at a model with better judgement. Each result shows the model that actually wrote it.",
+    "interpret_num_ctx": "Context length for interpretation (num_ctx)",
+    "interpret_num_ctx_hint": "Leave empty to use the chat model's setting (currently {n}). Raise it when there is a lot of evidence (a long change history, many target addresses) so the prompt is not truncated; the cost is more memory/VRAM.",
     "audit_title": "AI review schedule",
     "audit_enabled": "Enable scheduled review",
     "audit_enabled_hint": "When on, IPAM data is sent to the language model at the times set below to look for anything suspicious or a security concern. Off by default.",
@@ -4215,7 +4234,8 @@
     "report_conflicts": "Conflicts",
     "report_narrative": "AI interpretation",
     "report_col_section": "Section",
-    "report_col_content": "Content"
+    "report_col_content": "Content",
+    "ai_model": "Model: {model}"
   },
   "esxi": {
     "title": "ESXi / vCenter",

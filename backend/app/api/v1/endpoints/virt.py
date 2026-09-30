@@ -7,13 +7,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field, HttpUrl, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.core.ui_error import detail_of
 from app.models.virt import (
     ProxmoxInstance,
@@ -162,7 +163,7 @@ async def list_clusters(
     if cust_ids:
         from app.models.customer import Customer
         cust_names = dict((await session.execute(  # type: ignore[arg-type]
-            select(Customer.id, Customer.name).where(Customer.id.in_(cust_ids))
+            select(Customer.id, Customer.name).where(Customer.id.in_(cust_ids))  # bounded: customers on one page
         )).all())
     items = []
     for r in rows:
@@ -307,7 +308,7 @@ async def list_vms(
     vm_ids = [r.id for r in rows]
     if vm_ids:
         ifaces = (await session.execute(
-            select(VMInterface).where(VMInterface.vm_id.in_(vm_ids))
+            select(VMInterface).where(in_values(VMInterface.vm_id, vm_ids))
             .order_by(VMInterface.name)
         )).scalars().all()
         by_vm: dict[uuid.UUID, dict[str, list[str]]] = {}
@@ -331,7 +332,7 @@ async def list_vms(
         if wanted:
             seen: dict[str, list[str]] = {}
             for aid, ahost in (await session.execute(
-                select(_IPA.id, func.host(_IPA.ip)).where(func.host(_IPA.ip).in_(wanted))
+                select(_IPA.id, func.host(_IPA.ip)).where(in_values(func.host(_IPA.ip), wanted, type_=String()))
             )).all():
                 seen.setdefault(str(ahost), []).append(str(aid))
             unique = {ip: ids[0] for ip, ids in seen.items() if len(ids) == 1}

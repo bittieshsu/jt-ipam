@@ -634,6 +634,30 @@ async def _iter_full(client, base, hdr, verify):
             return
 
 
+async def _prefetch(session: AsyncSession, comps: list[dict[str, Any]],
+                    ip_ids_by_mac: dict[str, list[uuid.UUID]],
+                    addr_of: dict[uuid.UUID, str] | None) -> list[Any]:
+    """把這批電腦會對到的 IP 與它們的裝置一次載入 session（_apply_computer 的 session.get 就不再查）。
+
+    回傳載入的物件：呼叫端要握著它們 —— session 的 identity map 是弱參照，沒人參照的物件會被回收，
+    session.get 又得重查一次。
+    """
+    ids: set[uuid.UUID] = set()
+    for comp in comps:
+        for nic in usable_nics(comp.get("networks")):
+            ip_id = decide_match(nic.get("MACADDR"), ip_ids_by_mac,
+                                 reported_ip=nic.get("IPADDRESS"), addr_of=addr_of)
+            if ip_id is not None:
+                ids.add(ip_id)
+    if not ids:
+        return []
+    ips = list((await session.execute(select(IPAddress).where(in_values(IPAddress.id, ids)))).scalars())
+    dev_ids = {i.device_id for i in ips if i.device_id}
+    devs = list((await session.execute(select(Device).where(in_values(Device.id, dev_ids)))).scalars()) \
+        if dev_ids else []
+    return [*ips, *devs]
+
+
 async def _apply_computer(
     session: AsyncSession, server: OcsServer, computer: dict[str, Any],
     ip_ids_by_mac: dict[str, list[uuid.UUID]], now: datetime,
@@ -720,7 +744,7 @@ async def mac_index(session: AsyncSession, server: OcsServer) -> dict[str, list[
     stmt = select(IPAddress.id, IPAddress.mac).where(IPAddress.mac.isnot(None))
     scope = scope_uuids(server)
     if scope:
-        stmt = stmt.where(IPAddress.subnet_id.in_(scope))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope))
     out: dict[str, list[uuid.UUID]] = {}
     for ip_id, mac in (await session.execute(stmt)).all():
         out.setdefault(normalize_mac(mac), []).append(ip_id)
@@ -764,6 +788,24 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
         use_incremental = incremental and server.last_incremental_epoch is not None
         mode = "incremental" if use_incremental else "full"
 
+        # 一頁一頁處理：先把這一頁會用到的 IP 與裝置整批載入，再逐台套用 —— 以前每張對到的
+        # 網卡各查一次 IP、再各查一次裝置（5,000 台一輪上萬次查詢，2026-09-30 大量資料測試）
+        buf: list[tuple[Any, dict[str, Any]]] = []
+
+        async def _flush_page() -> int:
+            if not buf:
+                return 0
+            keep = await _prefetch(session, [c for _i, c in buf], ip_ids_by_mac, addr_of)
+            n = 0
+            for cid, comp in buf:
+                n += (await _apply_computer(
+                    session, server, comp, ip_ids_by_mac, now,
+                    ocs_id=cid if isinstance(cid, int) else None, hn_run=hn_run,
+                    addr_of=addr_of, matched_ids=matched_ids))["matched"]
+            buf.clear()
+            del keep
+            return n
+
         if use_incremental:
             since = max(0, int(server.last_incremental_epoch) - _INCREMENTAL_OVERLAP)
             ids = await _incremental_ids(client, base, hdr, server.verify_tls, since)
@@ -772,17 +814,16 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
                 if comp is None:
                     continue
                 seen += 1
-                matched += (await _apply_computer(
-                    session, server, comp, ip_ids_by_mac, now,
-                    ocs_id=cid if isinstance(cid, int) else None, hn_run=hn_run,
-                    addr_of=addr_of, matched_ids=matched_ids))["matched"]
+                buf.append((cid, comp))
+                if len(buf) >= _PAGE:
+                    matched += await _flush_page()
         else:
             async for _cid, comp in _iter_full(client, base, hdr, server.verify_tls):
                 seen += 1
-                matched += (await _apply_computer(
-                    session, server, comp, ip_ids_by_mac, now,
-                    ocs_id=_cid if isinstance(_cid, int) else None, hn_run=hn_run,
-                    addr_of=addr_of, matched_ids=matched_ids))["matched"]
+                buf.append((_cid, comp))
+                if len(buf) >= _PAGE:
+                    matched += await _flush_page()
+        matched += await _flush_page()
 
     # 全量而且沒碰到分頁上限，才算完整清單；增量模式只走訪有異動的電腦，不能拿來清
     complete = mode == "full" and seen < _PAGE * _MAX_PAGES
@@ -823,7 +864,7 @@ async def _clear_unmatched(session: AsyncSession, server: OcsServer, matched_ids
     if matched_ids:
         stmt = stmt.where(not_in_values(IPAddress.id, matched_ids))
     if scope:
-        stmt = stmt.where(IPAddress.subnet_id.in_(scope))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope))
     rows = (await session.execute(stmt)).scalars().all()
     # 斷路器（同主機名稱）：一次要清掉一大半，多半是 API 回傳不完整，不是真的換了那麼多台
     from app.services.hostname_reports import BREAKER_MIN, BREAKER_RATIO
@@ -906,7 +947,7 @@ async def find_missing_agents(
     if subnet_ids is not None:
         if not subnet_ids:
             return []
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, subnet_ids))
     rows = (await session.execute(stmt.order_by(IPAddress.ip))).all()
     return [{"ip_address_id": str(rid), "ip": str(rip).split("/", 1)[0] if rip else None,
              "hostname": hostname} for rid, rip, hostname in rows]

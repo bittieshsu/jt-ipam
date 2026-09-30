@@ -334,6 +334,12 @@ defect is in *what the model was able to ask*.
 - [ ] **Permission tiers**: each new/changed tool sits in the right tier (mutating / admin /
   global-read / per-object) and `allowed_tool_names()` hides it from accounts that cannot call
   it. Verify through the actual AI chat with a restricted account, not only in unit tests
+- [ ] **Identifiers from another table are mapped before a permission check**: `fdb_entries.device_id` /
+  `arp_entries.device_id` are LibreNMS devices, not jt-ipam devices. Ask "which switch port is MAC …
+  on?" as a department account that can see the switch: `trace_mac` must return the switch name and
+  port (it compared the two kinds of id and never showed a port to anyone but an admin until
+  2026-09-30); a switch the account cannot see stays hidden (`tests/test_mcp_rbac_scope.py`,
+  `tests/test_rbac_gaps.py`)
 - [ ] **Read-only stays read-only**: analysis/triage tools never write, never notify, never commit
 - [ ] **Prompt injection**: attacker-controlled text (mDNS hostname, firewall rule description)
   stays fenced and truncated; the adversarial tests still pass
@@ -396,6 +402,28 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
 - [ ] New lists, syncs and exports must answer: what happens at 100k IPs, tens of thousands of ports on one
   device, 100k leases (parameter limit, loading everything into memory, per-row queries, rendering
   everything at once, no pagination)
+- [ ] **Run the GET sweep twice: as admin and as a broad non-admin account** (read on every section and on a
+  location holding all devices). Admins skip visibility filtering, so the admin sweep alone never exercised
+  it: an account that could see more than 32767 objects got a 500 from every list page and AI tool
+  (2026-09-30). `tests/test_visibility_scale.py` pads the visible set to 40,000 ids; the `IN` guard in
+  `tests/test_many_values_in.py` now scans all of `app/` and no longer trusts names containing "subnet"
+- [ ] **Every integration's sync, not just LibreNMS** (fake upstream at the same volume, time + query count,
+  an unchanged round must not grow with the rows): Wazuh 30k agents (`tests/test_wazuh_scale.py`, including
+  SCA — at most 200 agents per round, oldest first, stops on HTTP 429), OCS (`tests/test_ocs_scale.py`),
+  Zabbix, ESXi, DNS, AdGuard (`test_*_scale.py`), the five firewalls and Windows / Kea / ISC DHCP through
+  `services/fw_sightings.py` (`tests/test_fw_sightings.py`). A duplicate key in one upstream response must
+  not fail the sync
+- [ ] **The site-wide liveness recompute** runs every 5 minutes over every IP: over ~6,500 IPs it used to
+  exceed the parameter limit and never update statuses again (`tests/test_liveness_scale.py`, 8,000 IPs).
+  On the scale DB an unchanged round is ~10 s and 3 queries
+- [ ] **Background jobs on the scale DB** (anomaly detection, system diagnostics, pool usage, pruning,
+  audit chain): each round completes in seconds; the audit chain is verified in batches of 5,000
+  (`tests/test_audit_anchor.py`) so a first verification over millions of rows does not load them all
+- [ ] **System export / import memory**: export the scale DB with `/usr/bin/time -f %M` — default scope
+  stays around 150 MB RSS and the full scope around 350 MB (it was 1.7 GB / 5.4 GB before streaming); the
+  file decodes to the same content (`tests/test_system_transfer.py::test_streamed_export_is_the_same_file_format`).
+  Import into a fresh DB writes in batches of 1,000 with a per-row fallback (`::test_batched_import_isolates_a_bad_row`);
+  note the import still parses the whole file in memory — size the target host accordingly
 
 ## 6. Manual page review (browser, after deploy)
 
@@ -584,6 +612,9 @@ what a console is allowed to do.
   failure and blocks the source after a few; if everything fails halfway, look for `blacklisted` in
   the target's log)
 - [ ] The status bar names the engine of this connection ("Engine: guacd" …); RDP / VNC carry no Beta mark
+- [ ] **High-DPI screens**: on a Retina / 200% display the remote screen is sized in device pixels (sharp, not
+  blurred) and SSH text is not twice as large; **A- / A+ change the SSH font size during a guacd session** and
+  the size is remembered (only the font size reaches guacd, validated)
 - [ ] Known limitation to keep in mind: in the SSH terminal, the first Chinese character typed on a
   line may not be drawn until the line is redrawn (Ctrl+L); the command itself is correct
 
@@ -658,6 +689,13 @@ NAT and address objects from syncing at all, while the UI showed a single error 
   then sync or press "Import from source" — its ports disappear from Ports / cabling; ports you created
   yourself, cabled ports and pass-through-mapped ports stay; a failed read or an empty port list removes
   nothing. Docker `veth…` interfaces are never imported (`tests/test_device_ports_reconcile.py`)
+- [ ] **Cannot connect = failed, never "succeeded, 0 records"** (#44): point an integration at an unreachable
+  host and at a wrong token; the task ends as failed with the last error (Proxmox with every node failing,
+  LibreNMS, AdGuard…) (`tests/test_sync_total_failure_is_failure.py`)
+- [ ] **The same key twice in one response** (#43): an upstream that repeats a row (the same MAC / port / VLAN)
+  must be merged in memory, not hit a unique constraint; and a task whose database session broke must still
+  end as "failed" with the error — **never stay "running"** (the final status is written with a clean session)
+  (`tests/test_librenms_fdb_duplicates.py`)
 
 ## 7d. Probes run from a scan agent — **whenever the probe queue or the agent changes**
 
@@ -730,6 +768,9 @@ probes on request inside a customer network. The feature is only as safe as its 
   actionable (which subnets to move, which subnet is unusually slow, which one is truncated)
 - [ ] No automatic re-assignment: "Move to another agent" in the panel is an admin's click, with a reminder that
   the agent must be on the same network segment
+- [ ] **Subnets over 4,096 addresses are scanned in rotating chunks**: assign a /19 — each cycle covers the next
+  chunk and wraps around (it used to scan only the first chunk forever); a full pass slower than the online
+  threshold counts as overload with a suggestion to split the subnet (`tests/test_agent_scan_split.py`)
 
 ## 7e. Audit chain anchoring — **whenever audit writes, anchoring or the sync schedule change**
 
@@ -832,6 +873,11 @@ evidence, and a machine powered off for weeks showed 52 days of green.
 - [ ] Two switches are joined only when each sees the other and the MAC sets behind the two ports
   are disjoint. In an A—B—C chain, **A—C must not appear**.
 - [ ] A MAC that maps to more than one device (overlapping subnets) produces no edge at all.
+- [ ] **Device-to-subnet links from ARP**: a switch or router whose LibreNMS ARP table holds addresses of a
+  subnet is linked to that (most specific) subnet with ARP as evidence, and the subnet filter keeps it. These
+  links never appeared from v0.4.29 until 2026-09-30 because `arp_entries.device_id` (a LibreNMS device) was
+  compared with jt-ipam device ids; it must go through `LibreNMSDevice.jt_ipam_device_id`
+  (`tests/test_topology_arp.py`)
 - [ ] Unchecking 存取層 (FDB) removes every l2/l2_uplink edge; the rest of the map is unaffected.
 - [ ] A department account that cannot see one end of a link does not receive that edge (no edge may
   reference a node that is not in the graph).
@@ -949,7 +995,7 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **Notification matrix** (Admin → 通知發送設定): toggle events × (in-app / email); save persists; events fire
   per matrix (IP request, cert expiring/deployed/drift, anomaly).
 - [ ] **Cert distribution `files` profile**: writes cert files only, no reload/restart.
-- [ ] **Anomaly page**: tabs, per-table column picker, `ip_address_id` hidden by default, MAC drift shows IP/hostname.
+- [ ] **Anomaly page**: tabs, per-table column picker, `ip_address_id` hidden by default (MAC drift: see the next list).
 - [ ] **MCP client-config generator** (LLM/AI): button outputs Claude Desktop / opencode / mcpo / generic snippets.
 - [ ] **LLM provider = OpenAI-compatible** (Admin → LLM/AI): switching to it shows the data-egress warning
   and the API-key field; the model dropdown repopulates from `/v1/models` (empty dropdown = the wrong path
@@ -966,6 +1012,95 @@ happy path of "an upload succeeded" is not enough.
   reports a count plus per-reason skips and changes nothing; enabling it attaches on the next sync round
   and writes one IP-change-log row per address with the match reason. Clear a device link by hand, then
   confirm the next round does **not** restore it (the rule that keeps the job from fighting the operator).
+
+### Recent (v0.6.45–v0.6.55 and not yet released)
+
+- [ ] **MAC drift = a port change on the same switch** (2026-09-30; `tests/test_mac_drift.py`,
+  `e2e/mac-drift.spec.ts`): a MAC seen on two switches is the normal path, not a move — only a new port on the
+  **same** switch within 24 h (previous port within 7 days) counts. The table shows switch, from port, to port and
+  when; only physical device moves are anomalies (and notify). VM migrations (a known VM NIC or a Proxmox
+  address), randomised MACs and moves between shared ports go into the collapsed **Reference** block with their
+  category and never notify. Anomaly subnet scope and per-IP ignore ("mac_drifts") apply. On prod data, compare
+  the counts before and after one LibreNMS FDB discovery (FDB timestamps refresh every 6 hours)
+- [ ] **AI interpretation model** (Admin → LLM/AI → AI interpretation; `tests/test_ai_interpret_model.py`,
+  `e2e/llm-interpret-model.spec.ts`): empty = the chat model and its context length (an upgraded site behaves
+  exactly as before). Set a different model and run all three: AI triage of an unauthorised IP, "Ask AI to read
+  this" in an IP investigation (streamed), and the AI reading of a firewall rule change — the LLM server's log shows
+  the chosen model, and each result names it. The review (audit) model is a separate setting and stays unchanged;
+  embedding models are disabled in the picker
+- [ ] **IP conflicts without LibreNMS** (#41; `tests/test_anomaly_ip_conflicts.py`, `tests/test_ip_conflict_evidence.py`,
+  `e2e/anomaly-ip-conflict.spec.ts`): with no LibreNMS configured, scan agents and firewall ARP tables (dynamic
+  entries only) still produce conflicts, tied to their subnet so overlapping networks never conflict with each
+  other; a MAC flipping between two addresses 3+ times in 24 h is flagged; the AI tool says "cannot be determined"
+  when there is no evidence
+- [ ] **Anomaly filter** (`e2e/anomaly-filter.spec.ts`): one keyword (IP / hostname / MAC / details) filters every
+  category and the tab counts read "matching / total"
+- [ ] **Firewall rule rot** (`tests/test_fw_rule_rot.py`): OPNsense Anti-Lockout rules, port forwards to an alias
+  and a WAN rule allowing only ICMP are **not** reported; any → any means every protocol and every port; the
+  table has a Firewall column and the kind in words
+- [ ] **PFX export password** (`e2e/cert-pfx-export.spec.ts`, `tests/test_certificates_api.py`): choosing PFX asks
+  for a password twice (empty allowed, with a warning); the export is a POST with the password in the body — check
+  the nginx access log and the browser history: **no password in any URL**; a GET carrying a password is refused;
+  the file opens with that password on Windows
+- [ ] **Address ranges (pools) inside a subnet** (#40; `tests/test_ip_ranges.py`, `e2e/subnet-ranges.spec.ts`):
+  non-CIDR start–end ranges inside the subnet, no overlaps; size / used / next free (clicking it creates that IP);
+  DHCP-pool ranges count as DHCP ranges everywhere (usage, "in a DHCP range", AI tools); audited; carried by
+  system transfer. **Detected DHCP ranges appear automatically** marked "Auto" with their source, follow upstream
+  (replaced, removed with the integration), never touch manual ranges, are skipped when the subnet is ambiguous or
+  the range would overlap, cannot be edited by hand, and are not counted twice (`tests/test_ip_ranges_auto_dhcp.py`)
+- [ ] **Rack kinds and drawing** (`tests/test_rack_more_kinds.py`, `e2e/rack-more-kinds.spec.ts`,
+  `e2e/rack-side-channels.spec.ts`, `e2e/rack-room-align.spec.ts`): slotted angle steel shelving (presets, finish),
+  IKEA KALLAX (square cells, frame thicker than dividers), LackRack (8U per table, 50 mm legs outlined); shelves use
+  one scale for width and height; cable space on both sides from the outer width (465.1 mm hole spacing), top panel
+  and base with thickness; a room row has one toolbar (front/rear, size slider, export) in both separate and merged
+  layouts. **Compare screen, SVG / draw.io export and the embed image** — three implementations
+- [ ] **IP detail page**: firewall rules, aliases and NAT rows click through to that vendor's page with only that
+  entry shown (a banner offers "show all" and explains a missing entry); MikroTik address lists appear under
+  "member of aliases" and `list:<name>` rules trace back to the IP (`tests/test_fw_lookup_aliases.py`,
+  `e2e/ip-firewall-aliases.spec.ts`); the
+  relation chart runs physical on the left, logical on the right, like the device page
+- [ ] **OCS** (`tests/test_ocs_integration.py`, `tests/test_ocs_agent_tabs.py`, `e2e/ocs-agent-tabs.spec.ts`,
+  `e2e/missing-agent-scope-filter.spec.ts`): the page has the Wazuh tabs (one agent row per computer); a subnet
+  scope limits MAC matching (empty = global) and "IPs without an agent" lists only the union of the enabled
+  integrations' scopes; the list filters by section / subnet / unit and export follows the filter; a container
+  whose old agent (2.4.2 or earlier) marks every NIC virtual still matches its IP
+- [ ] **Consoles**: when the remote host ends an RDP / VNC session the console says so, and an RDP session that
+  ends before any screen lists the server-side causes (`tests/test_rdp_remote_ended.py`); the FreeRDP engine
+  leaves no `xfreerdp` / `Xvfb` behind after 20 connect / disconnect cycles (`ps` before and after); where aardwolf
+  cannot be installed the installer, the RDP/VNC error and system settings name the Python version and point to
+  another engine; after "remember" on noVNC / BMC the saved-credential list shows the name, not a UUID
+  (`e2e/novnc-saved-cred.spec.ts`); a PVE console login failure says why — wrong realm lists the realms, a
+  rejected login names host and account, unreachable gives the cause (`tests/test_pve_login_errors.py`)
+- [ ] **Reasoning models on OpenAI-compatible servers** (#36; `tests/test_llm_reasoning_control.py`): against
+  llama.cpp with a thinking model (see the llama.cpp test target), AI audit / triage get an answer instead of
+  spending the whole output limit thinking; a reply cut off while thinking says so instead of "(empty response)"
+- [ ] **MCP over HTTP** (`tests/test_mcp_url_and_audit.py`): `POST /api/mcp` and `POST /api/mcp/` both reach MCP
+  (the bare URL — the one the manual and the client-config generator give — used to return 405); a mutating
+  tool called through `tools/call` writes an audit entry `mcp_tool_exec` (tool, summary, channel, source IP);
+  configure a real MCP client (mcp-remote) from Admin → LLM/AI and run one read and one write
+- [ ] **Audit entries name the actor** (`tests/test_audit_actor_recorded.py`): create a user, change a group's
+  members and edit an OPNsense / Wazuh integration — each audit row has the acting admin (20 sites used to
+  record nobody; `request.state.user_id` is now set by `get_current_user`)
+- [ ] **AI tools are never looser than the REST data they read** (`tests/test_mcp_tools_match_rest_permissions.py`):
+  as a wildcard-read non-admin, ask the AI chat for Wazuh agents, OCS computers, scan agents and certificates —
+  refused, like the REST pages
+- [ ] **Rack embed from another site**: put `<img src="https://<host>/api/v1/racks/<id>/embed.svg?token=…">` on a page
+  served from a different origin — the image renders (the response carries `Cross-Origin-Resource-Policy:
+  cross-origin` and no 30-day `Expires`); change the rack and reload — the image changes
+- [ ] **Behind nginx** (fresh install and upgraded site): `curl -k https://<host>/readyz` returns the backend's JSON
+  (it used to be the SPA's index.html with 200) and turns 503 when PostgreSQL is stopped; repeated failed
+  phpIPAM logins `POST /api/phpipam/<app_id>/user/` get 429 after the burst; after an upgrade the site has
+  `location = /readyz` and the regex phpIPAM location (`patch_nginx_readyz_phpipam`, idempotent)
+- [ ] **Thinking controls through an LLM gateway** (LiteLLM etc.; `tests/test_llm_reasoning_control.py`): when the
+  server rejects one of `reasoning_effort` / `chat_template_kwargs` / `thinking_budget_tokens`, only the one the
+  error names is dropped (LiteLLM rejects `thinking_budget_tokens` but turns `reasoning_effort: "none"` into
+  Ollama's `think:false`), and the rejection is remembered per server and model so later requests do not fail
+  first. With a real LiteLLM in front of a thinking model, an AI triage reply comes back in seconds, not minutes
+- [ ] **Wazuh / OCS pages load fast on a large site** (`e2e/agent-tabs-lazy.spec.ts`): the "IPs without an
+  agent" list (and Wazuh's full agent list) is fetched only when its tab is opened; the tab still shows the agent
+  count on page load
+- [ ] **MikroTik lease hostnames** use their own source, not "manual" (`tests/test_hostname_reports.py`): a typed hostname
+  is not overridden, and the lease hostname disappears when the lease does
 
 ### Recent (v0.5.6x–0.5.7x)
 

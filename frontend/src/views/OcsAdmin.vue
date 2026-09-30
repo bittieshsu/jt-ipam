@@ -7,7 +7,7 @@
  *    連得上就跳一條紅色警告：這套 OCS 對任何能到達它的人都是開放的。
  * 2. **軟體區段預設關** —— 每台會從 ~2 KB 膨脹到 ~80 KB；先看規模再決定要不要開。
  */
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NAlert, NModal, NForm,
@@ -83,23 +83,37 @@ const missingScoped = computed(() => {
 const router = useRouter();
 const tab = ref<"instances" | "agents" | "missing">("instances");
 const agents = ref<OcsAgent[]>([]);
-const missing = ref<OcsMissingAgent[]>([]);
+// 只會整份替換、不逐筆改：用 shallowRef，不必把數萬個物件逐一包成深層響應式（打開頁籤卡好幾秒）
+const missing = shallowRef<OcsMissingAgent[]>([]);
 const { query: agentFilterQ, filtered: agentsFiltered } = useTableQuickFilter(agents);
 const pg = useTablePagination();
 
+// 缺口清單點進那個頁籤才抓（2026-09-30 大量資料測試：大站台一打開頁面就全抓，要等十幾秒、
+// 回應四十幾 MB）。代理清單一台電腦一筆、量小，照舊一起載入（頁籤上的台數要看得到）
+const loaded = ref({ missing: false });
+async function loadMissing() {
+  missing.value = await listOcsMissingAgents();
+  loaded.value.missing = true;
+}
 async function load() {
   loading.value = true;
   try {
-    const [i, a, m] = await Promise.all([listOcs(), listOcsAgents(), listOcsMissingAgents()]);
+    const [i, a] = await Promise.all([listOcs(), listOcsAgents()]);
     rows.value = i.items;
     agents.value = a.items;
-    missing.value = m;
+    if (tab.value === "missing" || loaded.value.missing) await loadMissing();
   } catch (e) {
     msg.error(apiErrMsg(e));
   } finally {
     loading.value = false;
   }
 }
+watch(tab, async (v) => {
+  if (v === "missing" && !loaded.value.missing) {
+    loading.value = true;
+    try { await loadMissing(); } catch (e) { msg.error(apiErrMsg(e)); } finally { loading.value = false; }
+  }
+});
 onMounted(() => { void load(); void loadSubnetOptions(); });
 
 function openCreate() {
@@ -367,7 +381,7 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
       </NTabPane>
       <NTabPane name="missing">
         <template #tab>
-          <span style="display:inline-flex;align-items:center;gap:6px"><NIcon :size="16"><MissingIcon /></NIcon>{{ `${t("ocs.missing_agents")} (${missing.length})` }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><NIcon :size="16"><MissingIcon /></NIcon>{{ loaded.missing ? `${t("ocs.missing_agents")} (${missing.length})` : t("ocs.missing_agents") }}</span>
         </template>
         <NAlert v-if="missing.length" type="warning" style="margin-bottom: 12px">
           <template #icon><NIcon><MissingIcon /></NIcon></template>

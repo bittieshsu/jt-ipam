@@ -369,7 +369,7 @@ async def list_all_conversations(
     if uids:
         from sqlalchemy import select
         for uid, uname in (await session.execute(
-            select(User.id, User.username).where(User.id.in_(uids))
+            select(User.id, User.username).where(User.id.in_(uids))  # bounded: users on one page
         )).all():
             unames[str(uid)] = uname
     items = []

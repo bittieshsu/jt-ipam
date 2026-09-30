@@ -152,6 +152,9 @@ export interface LLMConfig {
   ai_audit_month_day: number;
   ai_audit_model: string | null;
   ai_audit_num_ctx: number | null;
+  // AI 判讀（未授權 IP 判讀／IP 調查／防火牆規則異動解讀）；null＝沿用對話模型
+  ai_interpret_model: string | null;
+  ai_interpret_num_ctx: number | null;
   server_timezone: string;
 }
 
@@ -173,6 +176,8 @@ export interface LLMConfigPatch {
   ai_audit_month_day?: number;
   ai_audit_model?: string;
   ai_audit_num_ctx?: number;
+  ai_interpret_model?: string;
+  ai_interpret_num_ctx?: number;
 }
 
 export async function getLLMConfig(): Promise<LLMConfig> {

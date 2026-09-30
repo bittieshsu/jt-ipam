@@ -157,7 +157,7 @@ async def rack_diagram(
     if primary_ip_ids:
         ip_rows = (
             await session.execute(
-                select(IPAddress).where(IPAddress.id.in_(primary_ip_ids))
+                select(IPAddress).where(IPAddress.id.in_(primary_ip_ids))  # bounded: devices in one rack
             )
         ).scalars().all()
         for ip in ip_rows:
@@ -170,7 +170,7 @@ async def rack_diagram(
         fb_rows = (
             await session.execute(
                 select(IPAddress)
-                .where(IPAddress.device_id.in_(no_primary))
+                .where(IPAddress.device_id.in_(no_primary))  # bounded: devices in one rack
                 .order_by(IPAddress.ip)
             )
         ).scalars().all()
@@ -349,6 +349,9 @@ async def rack_embed_svg(
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-store",
+            # 要被別的網站用 <img> 貼上：站台預設的 CORP same-origin 會讓瀏覽器擋下跨站載入
+            # （2026-09-30 發現。nginx 模式另有專屬 location，見 deploy/nginx/jt-ipam.conf）
+            "Cross-Origin-Resource-Policy": "cross-origin",
         },
     )
 

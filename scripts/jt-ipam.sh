@@ -460,6 +460,72 @@ WS_LOCATION_LINE="location ~ ^/api/v1/addresses/[0-9a-fA-F-]+/(${WS_PROTOCOLS})/
 # exit status is swallowed, a fresh install could finish with a fully configured
 # nginx that had never been started and was not enabled at boot. Everything looked
 # installed; the product was simply unreachable. Caught by scripts/test-fresh-install.sh.
+# Idempotently fix two locations in an EXISTING nginx site on upgrade (2026-09-30):
+#   - /readyz fell through to the SPA (always 200 + index.html) -> proxy it to the backend
+#   - the phpIPAM login rate limit used a prefix that never matches /api/phpipam/<app_id>/user/
+# Same safety rules as patch_nginx_websocket: only-if-missing, back up, gate on `nginx -t`,
+# restore on failure, never abort the upgrade.
+patch_nginx_readyz_phpipam() {
+    local site=/etc/nginx/sites-available/jt-ipam
+    [[ -f "$site" ]] || return 0
+    command -v nginx >/dev/null 2>&1 || return 0
+    local need_ready=0 need_php=0 need_embed=0
+    grep -q 'location = /readyz' "$site" || need_ready=1
+    grep -q 'location /api/phpipam/user/ {' "$site" && need_php=1
+    grep -q 'embed\\.svg' "$site" || need_embed=1
+    (( need_ready || need_php || need_embed )) || return 0
+    local bak="${site}.pre-readyz.bak"
+    cp -p "$site" "$bak" 2>/dev/null || true
+    if (( need_php )); then
+        log "Fixing nginx phpIPAM login rate-limit location…"
+        sed -i 's#location /api/phpipam/user/ {#location ~ ^/api/phpipam/[^/]+/user/ {#' "$site"
+    fi
+    if (( need_ready )); then
+        log "Adding nginx /readyz location (was answered by the SPA)…"
+        awk '
+          !ins && /location \/api\/ \{/ {
+            print "    location = /readyz {";
+            print "        access_log off;";
+            print "        proxy_pass http://127.0.0.1:8000;";
+            print "        include /etc/nginx/snippets/jt-ipam-proxy.conf;";
+            print "    }";
+            print "";
+            ins = 1;
+          }
+          { print }
+        ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
+    fi
+    if (( need_embed )); then
+        # Rack embed SVG: other sites load it with <img>; the server-level CORP same-origin blocks
+        # that and the image/* expires rule caches it for 30 days over the backend's no-store.
+        log "Adding nginx location for the rack embed SVG (cross-origin, not cached)…"
+        awk '
+          !done && /location \/api\/ \{/ {
+            print "    location ~ ^/api/v1/racks/[0-9a-fA-F-]+/embed\\.svg$ {";
+            print "        limit_req zone=api burst=80 nodelay;";
+            print "        expires off;";
+            print "        add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;";
+            print "        add_header X-Content-Type-Options \"nosniff\" always;";
+            print "        add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;";
+            print "        add_header Cross-Origin-Resource-Policy \"cross-origin\" always;";
+            print "        proxy_pass http://127.0.0.1:8000;";
+            print "        include /etc/nginx/snippets/jt-ipam-proxy.conf;";
+            print "    }";
+            print "";
+            done = 1;
+          }
+          { print }
+        ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
+    fi
+    if apply_nginx_config; then
+        log "nginx /readyz + phpIPAM login limit + rack embed patched + reloaded."
+    else
+        warn "nginx -t failed after the /readyz / phpIPAM patch; restoring previous config."
+        cp -p "$bak" "$site" 2>/dev/null || true
+    fi
+    return 0
+}
+
 apply_nginx_config() {
     if ! nginx -t >/dev/null 2>&1; then
         warn "nginx config test failed; leaving the running config alone. Check: sudo nginx -t"
@@ -1986,6 +2052,7 @@ cmd_upgrade() {
 
     # -- 6b. ensure nginx forwards WebSocket (SSH terminal); idempotent, safe no-op if already present --
     patch_nginx_websocket
+    patch_nginx_readyz_phpipam
 
     # -- 6c. directories the sandboxed units require --
     # Installs from older versions never created /var/backups/jt-ipam, while

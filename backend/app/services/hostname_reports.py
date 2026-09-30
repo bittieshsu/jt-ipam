@@ -99,12 +99,14 @@ class HostnameRun:
         rows = [{"ip_id": ip_id, "source": self.source, "origin": self.origin, "hostname": min(names),
                  "first_seen_at": self.run_at, "last_seen_at": self.run_at}
                 for ip_id, names in self._names.items()]
-        for i in range(0, len(rows), 4000):
-            ins = pg_insert(IPHostnameReport).values(rows[i:i + 4000])
-            await s.execute(ins.on_conflict_do_update(
-                constraint="uq_ip_hostname_reports_ip_source_origin",
-                set_={"hostname": ins.excluded.hostname, "last_seen_at": ins.excluded.last_seen_at},
-            ))
+        # executemany（語句只編譯一次）：`.values(大清單)` 每批要產生幾萬個參數節點，光編譯就是秒級
+        ins = pg_insert(IPHostnameReport)
+        upsert = ins.on_conflict_do_update(
+            constraint="uq_ip_hostname_reports_ip_source_origin",
+            set_={"hostname": ins.excluded.hostname, "last_seen_at": ins.excluded.last_seen_at},
+        )
+        for i in range(0, len(rows), 10000):
+            await s.execute(upsert, rows[i:i + 10000])
         affected.update(self._names)
 
         # 2. 上游明說沒有名稱的 IP：這台的那一筆清掉（不必等完整）
@@ -171,8 +173,7 @@ class HostnameRun:
         ids = list(ip_ids)
         if not ids:
             return 0
-        from app.models.address import IPAddress
-        from app.services.hostname import apply_observation
+        from app.services.hostname import apply_observations_bulk
 
         s = self.session
         rows = (await s.execute(select(
@@ -187,19 +188,15 @@ class HostnameRun:
             IPHostnameObservation.source == self.source,
             in_values(IPHostnameObservation.ip_id, ids)))).all())
 
-        changed = 0
+        wants: dict[uuid.UUID, str | None] = {}
         for ip_id in ids:
             # 真實實例的回報優先；同一來源有多台時取字典序最小（確定、不翻動）
             names = real.get(ip_id) or legacy.get(ip_id) or []
             want = min(names) if names else None
-            if (current.get(ip_id) or None) == want:
-                continue
-            ip = self._ips.get(ip_id) or await s.get(IPAddress, ip_id)
-            if ip is None:
-                continue
-            if await apply_observation(s, ip=ip, source=self.source, hostname=want):
-                changed += 1
-        return changed
+            if (current.get(ip_id) or None) != want:
+                wants[ip_id] = want
+        # 整批（以前每個有變的 IP 各走一次 apply_observation，約 7 次查詢）
+        return await apply_observations_bulk(s, source=self.source, wants=wants, ips=self._ips)
 
 
 async def forget_origin(session: AsyncSession, *, source: str, origin_prefix: str) -> int:

@@ -53,13 +53,13 @@ async def test_overlap_without_scope_is_ambiguous_and_scope_settles_it(db_sessio
 
 async def test_a_firewall_without_scope_does_not_write_to_either_unit(db_session) -> None:
     """OPNsense 租約：兩個單位都有 192.0.2.10、防火牆沒設關聯子網路 → 兩筆都不動、也不新建。"""
-    from app.services import opnsense_firewall as opn
+    from app.services.fw_sightings import SightingBatch
 
     (_a, ip_a), (_b, ip_b) = await _two_units(db_session)
     before = (await db_session.execute(select(func.count()).select_from(IPAddress))).scalar_one()
-    ok = await opn._stamp_ip_seen(db_session, "192.0.2.10", evidence="lease:opnsense",
-                                  hostname="someones-pc", mac="00:00:5e:00:53:10",
-                                  create_in=[])
+    batch = SightingBatch(db_session, source="opnsense", create_in=[])
+    batch.add("192.0.2.10", evidence="lease:opnsense", hostname="someones-pc", mac="00:00:5e:00:53:10")
+    [(ok, _existed)] = await batch.flush()
     assert ok is False
     after = (await db_session.execute(select(func.count()).select_from(IPAddress))).scalar_one()
     assert after == before

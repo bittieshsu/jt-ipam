@@ -19,17 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
-from app.models.address import IPAddress
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 from app.services import arp_seen as arp_seen_svc
 from app.services.dhcp_leases import LeaseRun
-from app.services.hostname import apply_observation
+from app.services.fw_sightings import SightingBatch
 from app.services.hostname_reports import HostnameRun, enabled_peers
 from app.services.ip_autocreate import (
-    SubnetCandidates,
     addable_subnets,
     match_existing,
-    subnet_for_ip_str,
 )
 
 # pfSense-pkg-RESTAPI v2 端點（如不同版本路徑有異，於此集中調整）
@@ -98,55 +95,6 @@ async def test_connection(fw: PfSenseFirewall) -> dict[str, Any]:
 _PF_ARP_MAX_AGE = 1200.0
 
 
-async def _stamp_ip_seen(
-    session: AsyncSession, ip: str, *, evidence: str,
-    mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
-    permanent: bool = False, seen_at: datetime | None = None,
-    create_in: SubnetCandidates | None = None,
-    hn_run: HostnameRun | None = None,
-) -> bool:
-    """找到 jt-ipam IPAddress 就記下觀測時間（逐來源，見 services/arp_seen.py）。
-
-    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清
-    （ARP 顯示「?」＝反解查不到，也要報成沒有名稱）。
-
-    `evidence` 是證據契約裡的來源名稱（`arp:pfsense` / `lease:pfsense`）。
-    `create_in` 有值＝防火牆開了自動建立，對不到時可在這些候選子網路內建一筆。
-    """
-    ip = _valid_ip(ip)
-    if ip is None:
-        return False
-    # 唯一才算：重疊網段又沒設關聯子網路時不寫、也不新建（以前任意取一筆，資料掛到別的單位）
-    ipa, ambiguous = await match_existing(session, ip, subnet_ids)
-    if ambiguous:
-        return False
-    if ipa is None:
-        # 沒有這筆 IP：只有在防火牆開了 auto_create_ips、而且落點子網路唯一時才建
-        # （規則見 services/ip_autocreate.py；歧義寧可不建，也不要掛到別的單位）
-        if create_in is None:
-            return False
-        sid = subnet_for_ip_str(create_in, ip)
-        if sid is None:
-            return False
-        ipa = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="pfsense")
-        session.add(ipa)
-        await session.flush()      # autoflush=False：先取得 id，後面的觀測寫入才有對象
-    arp_seen_svc.stamp(ipa, evidence, seen_at, permanent=permanent)
-    if lease_run is not None:
-        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
-    if mac:
-        from app.services.arp_evidence import record_firewall_arp
-        from app.services.arp_precedence import consider_mac
-        await consider_mac(session, ip=ipa, mac=mac, source="pfsense")
-        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
-        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
-                                  seen_at=seen_at, permanent=permanent)
-    if hn_run is not None:
-        hn_run.report(ipa, hostname)
-    elif hostname:
-        await apply_observation(session, ip=ipa, source="pfsense", hostname=hostname)
-    return True
 
 
 def _first(d: dict[str, Any], *keys: str) -> Any:
@@ -204,18 +152,16 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PfSenseFirewall) -> int:
     hn_run = HostnameRun(session, source="pfsense", origin=f"pfsense:{fw.id}:lease",
                          peers=await enabled_peers(session, PfSenseFirewall))
     lease_run = LeaseRun(session, source_type="pfsense", source_id=fw.id)
+    batch = SightingBatch(session, source="pfsense", subnet_ids=scope_ids, lease_run=lease_run,
+                          create_in=create_in, hn_run=hn_run)
     for d in rows:
         if not isinstance(d, dict):
             continue
         ip = _ip_of(d)
         if not ip:
             continue
-        ipstr = str(ip).split("/")[0]
-        if await _stamp_ip_seen(session, ipstr, evidence="lease:pfsense",
-                                mac=_mac_of(d), hostname=_host_of(d),
-                                subnet_ids=scope_ids, lease_run=lease_run, create_in=create_in,
-                                hn_run=hn_run):
-            seen += 1
+        batch.add(str(ip).split("/")[0], evidence="lease:pfsense", mac=_mac_of(d), hostname=_host_of(d))
+    seen = sum(1 for found, _e in await batch.flush() if found)
     # _api_get 失敗會往外拋、整輪還原 → 走到這裡就是完整的租約清單
     await hn_run.finish(complete=True)
     await lease_run.finish(complete=True)
@@ -341,6 +287,7 @@ async def sync_arp_table(session: AsyncSession, fw: PfSenseFirewall) -> int:
     seen = 0
     hn_run = HostnameRun(session, source="pfsense", origin=f"pfsense:{fw.id}:arp",
                          peers=await enabled_peers(session, PfSenseFirewall))
+    batch = SightingBatch(session, source="pfsense", subnet_ids=scope_ids, hn_run=hn_run)
     for d in rows:
         if not isinstance(d, dict):
             continue
@@ -357,11 +304,9 @@ async def sync_arp_table(session: AsyncSession, fw: PfSenseFirewall) -> int:
         # 那時這筆的意思只剩「這一輪還在表裡」（ARP 逾時之內，仍然是有界的）。
         when = (arp_seen_svc.seen_from_remaining(d.get("expires"), _PF_ARP_MAX_AGE)
                 or arp_seen_svc.seen_from_age(d.get("age")))
-        if await _stamp_ip_seen(session, str(ip).split("/")[0], evidence="arp:pfsense",
-                                mac=_mac_of(d), hostname=_host_of(d),
-                                subnet_ids=scope_ids, permanent=perm, seen_at=when,
-                                hn_run=hn_run):
-            seen += 1
+        batch.add(str(ip).split("/")[0], evidence="arp:pfsense", mac=_mac_of(d),
+                  hostname=_host_of(d), permanent=perm, seen_at=when)
+    seen = sum(1 for found, _e in await batch.flush() if found)
     await hn_run.finish(complete=True)
     return seen
 

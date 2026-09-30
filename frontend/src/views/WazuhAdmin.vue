@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref, shallowRef, watch } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -65,7 +65,8 @@ const { query: agentFilterQ, filtered: agentsFiltered } = useTableQuickFilter(ag
 import { useTablePagination } from "@/composables/useTablePagination";
 import { apiErrMsg } from "@/api/client";
 const pg = useTablePagination();
-const missing = ref<MissingAgent[]>([]);
+// 只會整份替換、不逐筆改：用 shallowRef，不必把數萬個物件逐一包成深層響應式（打開頁籤卡好幾秒）
+const missing = shallowRef<MissingAgent[]>([]);
 const loading = ref(false);
 
 const showInst = ref(false);
@@ -120,19 +121,34 @@ async function fetchAllAgents() {
   return all;
 }
 
+// 代理清單與缺口清單點進那個頁籤才抓（2026-09-30 大量資料測試：3 萬個代理＋5 萬筆缺口，
+// 以前一打開頁面就全抓，光載入就 17 秒、主執行緒卡住將近 3 秒，連只想看整合設定的人也要等）
+const loaded = ref({ agents: false, missing: false });
+// 代理總數只取一筆就拿得到：頁籤上的台數照樣一打開就看得到，完整清單點進去才抓
+const agentsTotal = ref<number | null>(null);
+async function loadTab(which: "agents" | "missing") {
+  if (which === "agents") agents.value = await fetchAllAgents();
+  else missing.value = await listMissingAgents();
+  loaded.value[which] = true;
+}
 async function refresh() {
   loading.value = true;
   try {
-    const [i, a, m] = await Promise.all([
-      listWazuh(50, 0), fetchAllAgents(),
-      listMissingAgents(),
-    ]);
+    const [i, a] = await Promise.all([listWazuh(50, 0), listWazuhAgents(undefined, undefined, 1, 0)]);
     insts.value = i.items;
-    agents.value = a;
-    missing.value = m;
+    agentsTotal.value = a.total;
+    for (const which of ["agents", "missing"] as const) {
+      if (tab.value === which || loaded.value[which]) await loadTab(which);
+    }
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
+watch(tab, async (v) => {
+  if ((v === "agents" || v === "missing") && !loaded.value[v]) {
+    loading.value = true;
+    try { await loadTab(v); } catch (e) { msg.error(apiErrMsg(e)); } finally { loading.value = false; }
+  }
+});
 async function submit() {
   try {
     if (editing.value) {
@@ -318,7 +334,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
       </n-tab-pane>
       <n-tab-pane name="agents">
         <template #tab>
-          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><DevicesIcon /></n-icon>{{ `${t('wazuh_admin.agents_count')} (${agents.length})` }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><DevicesIcon /></n-icon>{{ `${t('wazuh_admin.agents_count')} (${loaded.agents ? agents.length : (agentsTotal ?? 0)})` }}</span>
         </template>
         <n-space style="margin-bottom: 8px" align="center">
           <n-input v-model:value="agentFilterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
@@ -330,7 +346,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
       </n-tab-pane>
       <n-tab-pane name="missing">
         <template #tab>
-          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><MissingIcon /></n-icon>{{ `${t('wazuh_admin.missing_agents')} (${missing.length})` }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><MissingIcon /></n-icon>{{ loaded.missing ? `${t('wazuh_admin.missing_agents')} (${missing.length})` : t('wazuh_admin.missing_agents') }}</span>
         </template>
         <n-alert v-if="missing.length" type="warning" style="margin-bottom: 12px">
           <template #icon><n-icon><MissingIcon /></n-icon></template>

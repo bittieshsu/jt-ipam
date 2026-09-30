@@ -513,3 +513,30 @@ def test_webhook_notify_goes_through_ssrf_guard() -> None:
     src = inspect.getsource(notify_channels._post)
     assert "assert_url_safe(url)" in src, "notify_channels._post 沒有過 SSRF 檢查"
     assert "follow_redirects=False" in src, "不可跟隨重導（會繞過已檢查的目標）"
+
+
+async def test_graphql_trace_ip_names_the_switch(client, auth_headers, db_session) -> None:
+    """switchDeviceId 是 LibreNMS 鏡像的 ID（相容保留）；另外給交換器名稱與 jt-ipam 裝置 ID（2026-09-30）。"""
+    import uuid as _uuid
+
+    from app.models.device import Device
+    from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
+
+    sw = Device(name="sw-floor3", type="switch")
+    db_session.add(sw)
+    inst = LibreNMSInstance(name=f"lnms-{_uuid.uuid4().hex[:6]}", api_url="https://librenms.example",
+                            api_token_enc=b"x", api_token_nonce=b"y")
+    db_session.add(inst)
+    await db_session.flush()
+    ln = LibreNMSDevice(instance_id=inst.id, legacy_device_id=5, sysname="sw-floor3", jt_ipam_device_id=sw.id)
+    db_session.add(ln)
+    await db_session.flush()
+    db_session.add(ARPEntry(ip="198.51.100.77", mac="00:00:5e:00:53:77", device_id=ln.id, instance_id=inst.id))
+    db_session.add(FDBEntry(mac="00:00:5e:00:53:77", device_id=ln.id, instance_id=inst.id, port_name="ge-0/0/7"))
+    await db_session.commit()
+    r = await client.post("/graphql", headers=auth_headers, json={
+        "query": '{ traceIp(ip: "198.51.100.77") { switchPort switchName switchIpamDeviceId switchDeviceId } }'})
+    assert r.status_code == 200, r.text
+    got = r.json()["data"]["traceIp"]
+    assert got == {"switchPort": "ge-0/0/7", "switchName": "sw-floor3",
+                   "switchIpamDeviceId": str(sw.id), "switchDeviceId": str(ln.id)}

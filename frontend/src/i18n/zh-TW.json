@@ -1961,7 +1961,7 @@
     "none_found": "未發現異常",
     "mac_local": "本地管理/隨機",
     "explain_ip_conflicts": "同一個網路裡的同一個 IP 被兩台以上的機器使用。兩種依據：「ARP」是最近 1 小時內，ARP 觀測（LibreNMS、掃描代理、防火牆 ARP 表）看到兩個以上的 MAC；「MAC 來回切換」是最近 24 小時內，這個 IP 的 MAC 在同樣兩個位址之間切換了 3 次以上（掃描代理每輪只看得到一個 MAC，掃描間隔較長時靠這一條）。重疊網段各自判斷，不會互相算成衝突。標成「本地管理/隨機」的位址沒有廠商登記 —— 虛擬機、容器、以及手機的 MAC 隱私隨機化都會產生這種位址；同一個 IP 同時出現「真實 MAC ＋ 隨機 MAC」，通常是同一台裝置換了位址（重新連線、遷移、網卡接手），不是兩台機器在搶同一個 IP。真正需要處理的，是兩個 MAC 都查得到廠商、且分屬不同裝置的情況。",
-    "explain_mac_drifts": "同一個 MAC 在最近 1 小時內出現在兩個以上的交換器埠。正常情況是裝置換了位置或無線漫遊；若同一時間出現在多個埠，可能是網路迴圈或 MAC 被偽造。",
+    "explain_mac_drifts": "同一個 MAC 在同一台交換器上換了埠（最近 24 小時內出現在新的埠，前 7 天在另一個埠）：通常是設備換插或搬移。出現在不同交換器上是正常的傳輸路徑，不算。虛擬機遷移、手機隨機 MAC 漫遊、在共用埠之間的移動（上行埠、無線基地台）列在下方參考，不通知。",
     "explain_ghost_ips": "IPAM 中登記為已配發，但長時間沒有任何存活跡象（掃描代理與 LibreNMS 都沒看到）的 IP。多半是已退役卻沒回收的登記，可用來清理位址空間。",
     "explain_unauthorized_ips": "在網路上實際偵測到、但 IPAM 裡沒有登記的 IP。可能是未經申請就自行設定的裝置，也可能只是還沒補登記。",
     "rogue_dhcp": "非法 DHCP 伺服器",
@@ -2077,7 +2077,12 @@
       "evidence": "依據",
       "changes": "切換次數",
       "sources": "看到的來源",
-      "firewall": "防火牆"
+      "firewall": "防火牆",
+      "device_name": "交換器",
+      "from_port": "原本的埠",
+      "to_port": "換到的埠",
+      "moved_at": "換埠時間",
+      "category": "分類"
     },
     "rot": {
       "dangling_nat": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記",
@@ -2094,7 +2099,15 @@
     "rotk_dangling_nat": "埠轉發目標不在 IPAM",
     "rotk_any_any": "any → any 全放行",
     "rotk_mgmt_exposed": "WAN 開放管理埠",
-    "rotk_alias_rot": "別名成員失效"
+    "rotk_alias_rot": "別名成員失效",
+    "drift_reference": "參考（不通知）：{n} 筆",
+    "drift_reference_hint": "這些也換了埠，但通常是例行狀況：虛擬機在主機之間遷移、手機的隨機 MAC 在無線基地台之間漫遊，或在兩個多台設備共用的埠之間移動（無線基地台之間漫遊、上行埠切換或 STP 重新收斂）。",
+    "drift_cat": {
+      "device_move": "實體設備換埠",
+      "vm_migration": "虛擬機遷移",
+      "random_mac": "隨機 MAC 漫遊",
+      "uplink_change": "共用埠之間（上行或無線基地台）"
+    }
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -3157,6 +3170,12 @@
     "tools_intro": "AI 助理與外部 MCP 客戶端可呼叫以下 {n} 個工具（其中 {m} 個會異動資料、執行前需確認）。查詢類即時回答；異動類在 AI 對話中會先停下來請你按「確認」。",
     "tools_mutating": "異動",
     "tools_readonly": "唯讀",
+    "interpret_title": "AI 判讀",
+    "interpret_scope": "套用於：未授權 IP 的「AI 判讀」、IP 調查的「請 AI 判讀」、防火牆規則異動的「AI 解讀」。這三個都是按需觸發、把一包證據交給模型下結論的功能。",
+    "interpret_model": "判讀使用的模型",
+    "interpret_model_hint": "留空＝跟 AI 對話用同一個模型。對話講求反應快，判讀要一次讀完證據再下結論 —— 可以另外指定判斷力較好的模型；判讀結果上會標出實際使用的模型。",
+    "interpret_num_ctx": "判讀的上下文長度（num_ctx）",
+    "interpret_num_ctx_hint": "留空＝沿用對話模型的設定（目前 {n}）。證據多（例如異動記錄很長、目標位址很多）時開大一點，避免提示詞超出長度被截掉；代價是更多記憶體／VRAM。",
     "audit_title": "AI 巡檢排程",
     "audit_enabled": "啟用排程巡檢",
     "audit_enabled_hint": "啟用後，系統會在下方設定的時刻自動把 IPAM 資料送給語言模型分析，找出可疑或有資安疑慮之處。預設關閉。",
@@ -4215,7 +4234,8 @@
     "report_conflicts": "矛盾",
     "report_narrative": "AI 判讀",
     "report_col_section": "區塊",
-    "report_col_content": "內容"
+    "report_col_content": "內容",
+    "ai_model": "模型：{model}"
   },
   "esxi": {
     "title": "ESXi / vCenter",

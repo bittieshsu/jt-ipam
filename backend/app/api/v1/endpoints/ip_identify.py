@@ -105,7 +105,7 @@ async def _start(session: AsyncSession, request: Request, user: Any, *, ip_text:
 
     await expire_stale(session)
     busy = (await session.execute(_jobs_of(ip_text).where(
-        AgentProbeJob.status.in_((STATUS_PENDING, STATUS_RUNNING))).limit(1))).scalars().first()
+        AgentProbeJob.status.in_((STATUS_PENDING, STATUS_RUNNING))).limit(1))).scalars().first()  # bounded: two statuses
     if busy is not None:
         raise HTTPException(409, detail=ui_detail(
             "identify_in_progress", "這個 IP 已經有探測在進行中", job_id=str(busy.id)))
@@ -239,7 +239,7 @@ async def _resolve_target(session: AsyncSession, raw: str) -> _Target:
             ip=ip_text, subnets=", ".join(str(s.cidr) for s in subnets)))
     subnet = subnets[0]
     record = (await session.execute(select(IPAddress).where(
-        IPAddress.subnet_id.in_([s.id for s in subnets]),
+        IPAddress.subnet_id.in_([s.id for s in subnets]),  # bounded: subnets containing one address
         text("host(ip_addresses.ip) = :ip").bindparams(ip=ip_text)).limit(2))).scalars().all()
     # 重複的 IP 記錄（同一個位址好幾筆）不挑一筆來掛：作業只掛位址
     return _Target(ip_text, subnet, record[0] if len(record) == 1 else None, len(record))

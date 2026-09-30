@@ -126,26 +126,28 @@ async def start_export(
 
     async def _runner(sess: AsyncSession, task: BackgroundTask) -> dict[str, Any]:
         import secrets as _rng
-        inner = await exporter.build_export(sess, scope)
+        # 串流：邊讀邊壓縮、封套分段寫檔（整份組在記憶體裡的話，大型站台會吃掉好幾 GB）
+        raw, counts = await exporter.export_compressed(sess, scope)
         metadata = {
             "app_version": __version__,
             "schema_version": schema_version,
             "scope": scope,
             "exported_at": datetime.now(UTC).isoformat(),
         }
-        env = crypto.seal(inner, passphrase, metadata=metadata, rng=_rng)
         path = _spool_dir() / f"{task.id}.json"
-        data = json.dumps(env, ensure_ascii=False).encode("utf-8")
-        path.write_bytes(data)
-        path.chmod(0o600)
+        # 一建立就是 0600（先寫再 chmod 的話，中間有一段時間是依 umask 的權限）
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            size = crypto.write_sealed(f, raw, passphrase, metadata=metadata, rng=_rng)
+        del raw
         await append_audit(
             sess, actor_user_id=str(actor_id), actor_ip=actor_ip, actor_user_agent=actor_ua,
             object_type="system", object_id=None, action="export",
-            diff={"scope": scope, "counts": inner["counts"], "bytes": len(data)},
+            diff={"scope": scope, "counts": counts, "bytes": size},
             request_id=request_id,
         )
-        return {"filename": f"jt-ipam-export-{task.id}.json", "bytes": len(data),
-                "counts": inner["counts"], "scope": scope}
+        return {"filename": f"jt-ipam-export-{task.id}.json", "bytes": size,
+                "counts": counts, "scope": scope}
 
     from app.services.background_tasks import spawn_task
     task = await spawn_task(

@@ -38,6 +38,8 @@ from app.services.oui import mac_prefix, vendor_map
 class AnomalyReport:
     ip_conflicts: list[dict[str, Any]] = field(default_factory=list)
     mac_drifts: list[dict[str, Any]] = field(default_factory=list)
+    # 參考用的換埠（虛擬機遷移、隨機 MAC 漫遊、上行埠之間的路徑變更）：畫面上收合顯示，不通知、不算總數
+    mac_drift_reference: list[dict[str, Any]] = field(default_factory=list)
     ghost_ips: list[dict[str, Any]] = field(default_factory=list)
     unauthorized_ips: list[dict[str, Any]] = field(default_factory=list)
     rogue_dhcp: list[dict[str, Any]] = field(default_factory=list)
@@ -58,6 +60,7 @@ class AnomalyReport:
         return {
             "ip_conflicts": self.ip_conflicts,
             "mac_drifts": self.mac_drifts,
+            "mac_drift_reference": self.mac_drift_reference,
             "ghost_ips": self.ghost_ips,
             "arp_only_liveness": self.arp_only_liveness,
             "stale_device_links": self.stale_device_links,
@@ -217,76 +220,134 @@ async def ip_conflict_coverage(
     return cov
 
 
+# ── MAC 漂移：同一台交換器上換了埠 ────────────────────────────────────────────
+# 2026-09-30 研究（正式機資料）：舊規則「同一個 MAC 在 1 小時內出現在 ≥2 個（交換器, 埠）」
+# 在多台交換器的網路裡全是誤報 —— 一台主機的 MAC 本來就會同時出現在它插的存取埠，以及沿路
+# 每一台交換器的上行埠（那是路徑，不是移動）。時間窗涵蓋 LibreNMS 最近一次 FDB 探索時 83 筆、
+# 全部牽涉上行埠；平常看起來 0 筆只是因為 FDB 的時間是 LibreNMS 每 6 小時才刷新的 updated_at，
+# 1 小時窗剛好把它擋掉。
+#
+# 新規則只看**同一台交換器**：最近一次看到它的埠，跟它前幾天待的埠不一樣＝它換了埠。
+# 分類（使用者選「分類顯示」）：實體設備換埠才是正式異常；虛擬機遷移、隨機 MAC 漫遊、
+# 上行埠之間的路徑變更列為參考（run_detection 放在 mac_drift_reference，不通知）。
+
+# 虛擬化平台配給 VM 的 MAC 前綴（整合沒登記到的 VM 也認得出來）
+_VM_OUIS = ("bc:24:11", "52:54:00", "00:50:56", "00:0c:29", "00:05:69", "00:1c:14", "00:15:5d",
+            "00:16:3e", "08:00:27", "00:1c:42")
+MAC_DRIFT_REFERENCE = ("vm_migration", "random_mac", "uplink_change")
+
+
 async def detect_mac_drifts(
-    session: AsyncSession, *, window: timedelta = timedelta(hours=1),
+    session: AsyncSession, *, window: timedelta = timedelta(hours=24),
+    lookback: timedelta = timedelta(days=7),
 ) -> list[dict[str, Any]]:
-    """同一 MAC 出現在 ≥2 個 (device, port) 組合（1h 內）。"""
-    cutoff = datetime.now(UTC) - window
-    rows = (
-        await session.execute(
-            select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name,
-                   func.max(FDBEntry.last_seen_at))
-            .where(FDBEntry.last_seen_at >= cutoff)
-            .group_by(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name)
-        )
-    ).all()
-    by_mac: dict[str, list[tuple[str | None, str | None, datetime]]] = defaultdict(list)
-    for mac, did, port, last in rows:
-        by_mac[mac].append((str(did) if did else None, port, last))
+    """同一台交換器上換了埠的 MAC。
 
-    # device_id 是 librenms_devices.id → 解析成交換器友善名（sysname / hostname）供前端顯示
-    dev_ids = {d for locs in by_mac.values() for d, _, _ in locs if d}
-    name_by_id: dict[str, str] = {}
-    if dev_ids:
-        drows = (
-            await session.execute(
-                select(LibreNMSDevice.id, LibreNMSDevice.sysname, LibreNMSDevice.hostname)
-                .where(in_values(LibreNMSDevice.id, [uuid.UUID(x) for x in dev_ids]))
-            )
-        ).all()
-        for did, sysname, hostname in drows:
-            name_by_id[str(did)] = sysname or hostname or str(did)[:8]
+    - 新位置（最近一次看到它的埠）要在 `window` 內（涵蓋 LibreNMS 的 FDB 探索週期）
+    - 舊位置要在 `lookback` 內還看得到（一個月前待過的埠不算這一次的移動）
+    - 跟其他偵測一樣：只看有開異常偵測的子網路裡的位址、套用逐 IP 的忽略清單
+    每筆帶 category：device_move／vm_migration／random_mac／uplink_change。
+    """
+    from app.models.virt import VMInterface
+    from app.services.topology import UPLINK_MAC_THRESHOLD
 
-    # 每個有變動的 MAC → 對應的 IP / 主機名稱（先查 IPAddress.mac，補 ARP 表）
-    drift_macs = {mac for mac, locs in by_mac.items() if len({(d, p) for d, p, _ in locs}) >= 2}
+    now = datetime.now(UTC)
+    since = now - lookback
+    rows = (await session.execute(
+        select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name,
+               func.min(FDBEntry.first_seen_at), func.max(FDBEntry.last_seen_at))
+        .where(FDBEntry.last_seen_at >= since, FDBEntry.port_name.is_not(None),
+               FDBEntry.device_id.is_not(None))
+        .group_by(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name)
+    )).all()
+    # (交換器, MAC) → [(埠, 首見, 末見)]；每個埠背後幾個 MAC（分辨上行埠）
+    by_key: dict[tuple[str, str], list[tuple[str, datetime, datetime]]] = defaultdict(list)
+    port_macs: dict[tuple[str, str], int] = defaultdict(int)
+    for mac, did, port, first, last in rows:
+        by_key[(str(did), str(mac))].append((port, first or last, last))
+        port_macs[(str(did), port)] += 1
+
+    moves: list[dict[str, Any]] = []
+    cutoff = now - window
+    for (did, mac), locs in by_key.items():
+        if len(locs) < 2:
+            continue
+        locs.sort(key=lambda x: x[2], reverse=True)
+        to = locs[0]
+        if to[2] < cutoff:
+            continue                               # 新位置不是最近的事
+        prev = next((loc for loc in locs[1:] if loc[0] != to[0]), None)
+        if prev is None:
+            continue
+        moves.append({"did": did, "mac": mac, "to": to, "prev": prev, "locs": locs})
+    if not moves:
+        return []
+
+    # 範圍與忽略：MAC 要對得到「有開異常偵測的子網路」裡的 IP 記錄
+    subnet_ids = await _anomaly_subnet_ids(session)
+    if not subnet_ids:
+        return []
+    macs = {m["mac"] for m in moves}
     ips_by_mac: dict[str, list[dict[str, str | None]]] = defaultdict(list)
-    if drift_macs:
-        seen_pair: set[tuple[str, str]] = set()
-        iarows = (await session.execute(
-            select(IPAddress.mac, IPAddress.ip, IPAddress.hostname).where(in_values(IPAddress.mac, drift_macs))
-        )).all()
-        for m, ip, hn in iarows:
-            key = (str(m), str(ip))
-            if str(m) in drift_macs and key not in seen_pair:
-                seen_pair.add(key)
-                ips_by_mac[str(m)].append({"ip": str(ip).split("/")[0], "hostname": hn})
-        arows = (await session.execute(
-            select(ARPEntry.mac, ARPEntry.ip).where(in_values(ARPEntry.mac, drift_macs))
-        )).all()
-        for m, ip in arows:
-            key = (str(m), str(ip))
-            if str(m) in drift_macs and key not in seen_pair:
-                seen_pair.add(key)
-                ips_by_mac[str(m)].append({"ip": str(ip).split("/")[0], "hostname": None})
+    ip_id_of: dict[str, Any] = {}
+    ignored: set[str] = set()
+    for iid, m, ip, hn, sid, ignore in (await session.execute(
+            select(IPAddress.id, IPAddress.mac, IPAddress.ip, IPAddress.hostname, IPAddress.subnet_id,
+                   IPAddress.anomaly_ignore)
+            .where(in_values(IPAddress.mac, macs)).order_by(IPAddress.ip))).all():
+        key = str(m)
+        if sid not in subnet_ids:
+            continue
+        if "mac_drifts" in {str(x) for x in (ignore or [])}:
+            ignored.add(key)              # 這台設備的任何一筆 IP 標了忽略＝不再報它換埠
+        ip_id_of.setdefault(key, iid)
+        ips_by_mac[key].append({"ip": str(ip).split("/")[0], "hostname": hn})
+    moves = [m for m in moves if m["mac"] in ip_id_of and m["mac"] not in ignored]
+    if not moves:
+        return []
+
+    vm_macs = {str(v) for v in (await session.execute(
+        select(VMInterface.mac).where(in_values(VMInterface.mac, {m["mac"] for m in moves})))).scalars().all()
+        if v}
+    name_by_id = {str(i): (sn or hn or str(i)[:8]) for i, sn, hn in (await session.execute(
+        select(LibreNMSDevice.id, LibreNMSDevice.sysname, LibreNMSDevice.hostname)
+        .where(in_values(LibreNMSDevice.id, {uuid.UUID(m["did"]) for m in moves})))).all()}
+
+    def _busy(did: str, port: str) -> bool:
+        return port_macs.get((did, port), 0) > UPLINK_MAC_THRESHOLD
 
     out: list[dict[str, Any]] = []
-    for mac, locs in by_mac.items():
-        unique = {(d, p) for d, p, _ in locs}
-        if len(unique) < 2:
-            continue
+    for m in moves:
+        mac, did, (to_port, to_first, _tl), (from_port, _pf, from_last) = m["mac"], m["did"], m["to"], m["prev"]
+        if mac in vm_macs or mac.startswith(_VM_OUIS):
+            category = "vm_migration"
+        elif _is_locally_administered(mac):
+            category = "random_mac"
+        elif _busy(did, to_port) and _busy(did, from_port):
+            # 兩個多台設備共用的埠之間：上行切換／STP 重新收斂，或在兩台無線基地台之間漫遊
+            # （正式機實例：Apple 裝置在兩台 AP 的埠之間來回）—— 不是有人換插線
+            category = "uplink_change"
+        else:
+            category = "device_move"
+        switch = name_by_id.get(did, did[:8])
         out.append({
             "mac": mac,
+            "category": category,
+            "device_id": did,
+            "device_name": switch,
+            "from_port": from_port,
+            "to_port": to_port,
+            "port": to_port,                   # 去重指紋：換到新的埠＝新的一筆
+            # 第一次出現在新埠的時間；再搬回曾經待過的埠時，不早於它最後一次待在舊埠
+            "moved_at": max(to_first, from_last).isoformat(),
             "ips": ips_by_mac.get(mac, []),
+            "ip_id": str(ip_id_of[mac]),       # 「忽略」按鈕用（第一筆 IP 記錄）
             "locations": [
-                {
-                    "device_id": d,
-                    "device_name": name_by_id.get(d) if d else None,
-                    "port": p,
-                    "last_seen_at": dt.isoformat(),
-                }
-                for d, p, dt in sorted(locs, key=lambda x: x[2], reverse=True)
+                {"device_id": did, "device_name": switch, "port": p, "last_seen_at": last.isoformat()}
+                for p, _f, last in m["locs"]
             ],
         })
+    out.sort(key=lambda x: x["moved_at"], reverse=True)
     return out
 
 
@@ -317,7 +378,7 @@ async def detect_ghost_ips(
         await session.execute(
             select(IPAddress)
             .where(
-                IPAddress.subnet_id.in_(subnet_ids),
+                in_values(IPAddress.subnet_id, subnet_ids),
                 (
                     (IPAddress.last_seen_scanner.is_(None))
                     | (IPAddress.last_seen_scanner < cutoff)
@@ -399,7 +460,7 @@ async def detect_arp_only_liveness(
         await session.execute(
             select(IPAddress)
             .where(
-                IPAddress.subnet_id.in_(subnet_ids),
+                in_values(IPAddress.subnet_id, subnet_ids),
                 IPAddress.last_seen_arp.is_not(None),
                 IPAddress.last_seen_arp >= cutoff,
                 IPAddress.last_seen_scanner.is_(None),
@@ -425,7 +486,7 @@ async def detect_arp_only_liveness(
 
 
 # ── 一個 IP 頻繁更換 MAC ────────────────────────────────────────────────────
-# 既有的 detect_mac_drifts 問的是「同一個 MAC 出現在兩個交換器埠」（接錯線／偽裝）。
+# detect_mac_drifts 問的是「同一個 MAC 在同一台交換器上換了埠」（換插、遷移）。
 # 這一條是反過來：**同一個 IP 一直換 MAC** —— DHCP 集區被反覆重用、有人手動搶用固定 IP，
 # 或某台機器在做位址隨機化。
 #
@@ -437,6 +498,7 @@ async def detect_arp_only_liveness(
 # 可以逐 IP 忽略的類別。**刻意不是全部** —— 例如「非法 DHCP 伺服器」不該讓人用
 # 「這台就是這樣」關掉，那正是要立刻處理的事。
 ANOMALY_IGNORABLE: tuple[str, ...] = (
+    "mac_drifts",
     "mac_flapping",
     "ghost_ips",
     "external_exposure",
@@ -478,7 +540,7 @@ async def detect_mac_flapping(
     if not subnet_ids:
         return []
     ip_rows = (await session.execute(
-        select(IPAddress).where(IPAddress.subnet_id.in_(subnet_ids))
+        select(IPAddress).where(in_values(IPAddress.subnet_id, subnet_ids))
     )).scalars().all()
     known = {str(r.ip): r for r in ip_rows}
 
@@ -1122,9 +1184,11 @@ async def run_detection(
     session: AsyncSession, *, notify_admins: bool = True,
 ) -> AnomalyReport:
     """一次跑所有偵測規則；命中時發通知 + webhook event。"""
+    drifts = await detect_mac_drifts(session)
     report = AnomalyReport(
         ip_conflicts=await detect_ip_conflicts(session),
-        mac_drifts=await detect_mac_drifts(session),
+        mac_drifts=[d for d in drifts if d["category"] not in MAC_DRIFT_REFERENCE],
+        mac_drift_reference=[d for d in drifts if d["category"] in MAC_DRIFT_REFERENCE],
         ghost_ips=await detect_ghost_ips(session),
         unauthorized_ips=await detect_unauthorized_ips(session),
         rogue_dhcp=await detect_rogue_dhcp(session),

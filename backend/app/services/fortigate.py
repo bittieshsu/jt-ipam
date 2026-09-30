@@ -31,7 +31,7 @@ from app.models.fortigate import (
     FortiGatePolicy,
 )
 from app.services.dhcp_leases import LeaseRun
-from app.services.hostname import apply_observation
+from app.services.fw_sightings import SightingBatch
 from app.services.hostname_reports import HostnameRun, enabled_peers
 from app.services.ip_autocreate import match_existing
 
@@ -297,42 +297,6 @@ async def list_vdoms_ex(fw: FortiGateFirewall) -> tuple[list[str], bool]:
 
 
 # ─────────────────── IP stamp（重疊網段安全）───────────────────
-async def _stamp_ip_seen(
-    session: AsyncSession, ip: str, *, evidence: str,
-    mac: str | None = None, hostname: str | None = None,
-    subnet_ids: list[uuid.UUID] | None = None, lease_run: LeaseRun | None = None,
-    seen_at: datetime | None = None, hn_run: HostnameRun | None = None,
-) -> bool:
-    """只標記「既有」IP，絕不新建（與 OPNsense / pfSense 行為一致）。
-
-    hn_run：主機名稱交給這一輪的 HostnameRun，上游不再回報的名稱才會被清。
-
-    `evidence`＝證據契約裡的來源名稱（`arp:fortigate` / `lease:fortigate` /
-    `vpn:fortigate`），逐來源存在 `arp_seen`（見 services/arp_seen.py）。
-    """
-    ipx = _valid_ip(ip)
-    if ipx is None:
-        return False
-    # 唯一才算：重疊網段又沒設關聯子網路時不寫（以前任意取一筆，資料掛到別的單位）
-    ipa, _ambiguous = await match_existing(session, ipx, subnet_ids)
-    if ipa is None:
-        return False
-    from app.services import arp_seen as arp_seen_svc
-    arp_seen_svc.stamp(ipa, evidence, seen_at)
-    if lease_run is not None:
-        lease_run.saw(ipa)     # 逐來源記錄，旗標由 dhcp_leases 推導
-    if mac:
-        from app.services.arp_evidence import record_firewall_arp
-        from app.services.arp_precedence import consider_mac
-        await consider_mac(session, ip=ipa, mac=mac, source="fortigate")
-        # IP 衝突偵測的依據（只有 ARP 表的動態項目算，issue #41）
-        await record_firewall_arp(session, ip=ipa, evidence=evidence, mac=mac,
-                                  seen_at=seen_at)
-    if hn_run is not None:
-        hn_run.report(ipa, hostname)
-    elif hostname:
-        await apply_observation(session, ip=ipa, source="fortigate", hostname=hostname)
-    return True
 
 
 def _scope(fw: FortiGateFirewall) -> list[uuid.UUID] | None:
@@ -367,18 +331,16 @@ async def sync_dhcp_leases(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
     hn_run = HostnameRun(session, source="fortigate", origin=f"fortigate:{fw.id}",
                          peers=await enabled_peers(session, FortiGateFirewall))
     lease_run = LeaseRun(session, source_type="fortigate", source_id=fw.id)
+    batch = SightingBatch(session, source="fortigate", subnet_ids=scope_ids, lease_run=lease_run,
+                          hn_run=hn_run)
     for vdom in vdoms:
         for d in _rows(await _api_get(fw, EP_DHCP_LEASES, vdom=vdom)):
             ip = _valid_ip(_first(d, "ip", "ip_address", "address"))
             if not ip:
                 continue
-            if await _stamp_ip_seen(
-                session, ip, evidence="lease:fortigate",
-                mac=_norm_mac(_first(d, "mac", "mac_address")),
-                hostname=(_first(d, "hostname", "host") or None),
-                subnet_ids=scope_ids, lease_run=lease_run, hn_run=hn_run,
-            ):
-                seen += 1
+            batch.add(ip, evidence="lease:fortigate", mac=_norm_mac(_first(d, "mac", "mac_address")),
+                      hostname=(_first(d, "hostname", "host") or None))
+    seen = sum(1 for found, _e in await batch.flush() if found)
     # 任何一個 VDOM 讀取失敗會往外拋（區段失敗）；VDOM 清單不是權威的就不算完整
     await hn_run.finish(complete=vdoms_authoritative)
     await lease_run.finish(complete=vdoms_authoritative)
@@ -448,7 +410,7 @@ async def sync_dhcp_reservations(
 
 async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
     scope_ids = _scope(fw)
-    matched = 0
+    batch = SightingBatch(session, source="fortigate", subnet_ids=scope_ids)
     for vdom in vdoms:
         for d in _rows(await _api_get(fw, EP_ARP, vdom=vdom)):
             ip = _valid_ip(_first(d, "ip", "address"))
@@ -458,13 +420,9 @@ async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             # `age`＝這筆條目已經幾秒沒被更新 → 用它推回真正被看到的時間，
             # 不要一律蓋同步當下（見 services/arp_seen.seen_from_age）。
             from app.services.arp_seen import seen_from_age
-            if await _stamp_ip_seen(
-                session, ip, evidence="arp:fortigate",
-                mac=_norm_mac(d.get("mac")), subnet_ids=scope_ids,
-                seen_at=seen_from_age(d.get("age")),
-            ):
-                matched += 1
-    return matched
+            batch.add(ip, evidence="arp:fortigate", mac=_norm_mac(d.get("mac")),
+                      seen_at=seen_from_age(d.get("age")))
+    return sum(1 for found, _e in await batch.flush() if found)
 
 
 async def sync_vpn(
@@ -528,7 +486,7 @@ async def sync_vpn(
             if t.name not in seen_names:
                 await session.delete(t)
 
-    sessions = 0
+    vpn_batch = SightingBatch(session, source="fortigate", subnet_ids=scope_ids)
     ssl_ok = False
     for vdom in vdoms:
         try:
@@ -549,9 +507,9 @@ async def sync_vpn(
                 cands.append(desc[4:])
             for cand in cands:
                 ip = _valid_ip(cand)
-                if ip and await _stamp_ip_seen(session, ip, evidence="vpn:fortigate",
-                                                subnet_ids=scope_ids):
-                    sessions += 1
+                if ip:
+                    vpn_batch.add(ip, evidence="vpn:fortigate")
+    sessions = sum(1 for found, _e in await vpn_batch.flush() if found)
     out: dict[str, Any] = {"tunnels": tunnels, "ssl_sessions": sessions}
     if not ssl_ok:
         # 所有 VDOM 的 SSL-VPN 端點都讀不到 → 明講，別讓它偽裝成「0 個連線」

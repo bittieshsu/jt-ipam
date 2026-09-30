@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.core.ui_error import UiError
 from app.models.address import IPAddress
 from app.models.ip_range import IPRange
@@ -207,7 +208,7 @@ async def manual_dhcp_pools(session: AsyncSession,
     stmt = (select(IPRange, Subnet.cidr).join(Subnet, Subnet.id == IPRange.subnet_id)
             .where(IPRange.purpose == "dhcp", IPRange.source_origin.is_(None)))
     if subnet_ids is not None:
-        stmt = stmt.where(IPRange.subnet_id.in_(subnet_ids))
+        stmt = stmt.where(in_values(IPRange.subnet_id, subnet_ids))
     out: list[ManualDhcpPool] = []
     for r, cidr in (await session.execute(stmt.order_by(IPRange.start_ip))).all():
         start = str(r.start_ip).split("/")[0]

@@ -13,10 +13,11 @@ import ipaddress
 import uuid
 from typing import Any
 
+from sqlalchemy import String, func, select, text
 from sqlalchemy import false as sa_false
-from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.customer import Customer
 from app.models.device import Device
@@ -268,6 +269,13 @@ async def get_subnet_usage(
     }
 
 
+async def _librenms_name(session: AsyncSession, ln_id: Any) -> str | None:
+    if ln_id is None:
+        return None
+    ln = await session.get(LibreNMSDevice, ln_id)
+    return (ln.sysname or ln.hostname) if ln else None
+
+
 async def trace_mac(
     session: AsyncSession, *, user: User, mac: str,
 ) -> dict[str, Any]:
@@ -294,15 +302,25 @@ async def trace_mac(
             select(IPAddress.subnet_id).where(IPAddress.ip == arp.ip).limit(1))).scalars().first()
         if ip_sub is None or ip_sub not in vis_sub:
             arp = None
-    if fdb is not None and vis_dev is not None and (
-            fdb.device_id is None or fdb.device_id not in vis_dev):
+    # ⚠️ FDB／ARP 的 device_id 是 **LibreNMS 的裝置**，要經 jt_ipam_device_id 才對得到使用者看得到的
+    # jt-ipam 裝置。以前直接拿來比，非管理員永遠看不到交換器埠（2026-09-30 研究）。沒對映到 jt-ipam
+    # 裝置的交換器無從判斷權限 → 非管理員一律遮蔽。
+    switch_name = switch_dev = None
+    if fdb is not None and fdb.device_id is not None:
+        ln = await session.get(LibreNMSDevice, fdb.device_id)
+        if ln is not None:
+            switch_name = ln.sysname or ln.hostname
+            switch_dev = ln.jt_ipam_device_id
+    if fdb is not None and vis_dev is not None and (switch_dev is None or switch_dev not in vis_dev):
         fdb = None
     return {
         "mac": mac,
         "arp": (
             {
                 "ip": arp.ip,
-                "device_id": str(arp.device_id) if arp.device_id else None,
+                # 哪一台回報的（LibreNMS 裝置名稱；防火牆／掃描代理的 ARP 看 source）
+                "seen_by": await _librenms_name(session, arp.device_id),
+                "source": arp.source,
                 "interface": arp.interface,
                 "last_seen_at": arp.last_seen_at.isoformat(),
             }
@@ -310,9 +328,10 @@ async def trace_mac(
         ),
         "fdb": (
             {
+                "switch": switch_name,
+                "switch_device_id": str(switch_dev) if switch_dev else None,
                 "port_name": fdb.port_name,
                 "vlan_id_num": fdb.vlan_id_num,
-                "device_id": str(fdb.device_id) if fdb.device_id else None,
                 "last_seen_at": fdb.last_seen_at.isoformat(),
             }
             if fdb else None
@@ -366,7 +385,7 @@ async def stats_overview(session: AsyncSession, *, user: User) -> dict[str, Any]
         if not vis:
             return 0
         return int(await session.scalar(
-            select(func.count()).select_from(model).where(model.id.in_(vis))) or 0)
+            select(func.count()).select_from(model).where(in_values(model.id, vis))) or 0)
 
     vis_sec = await visible_ids(session, user=user, object_type="section")
     vis_sub = await visible_ids(session, user=user, object_type="subnet")
@@ -382,7 +401,7 @@ async def stats_overview(session: AsyncSession, *, user: User) -> dict[str, Any]
     else:
         ip_n = int(await session.scalar(
             select(func.count()).select_from(IPAddress)
-            .where(IPAddress.subnet_id.in_(vis_sub))) or 0)
+            .where(in_values(IPAddress.subnet_id, vis_sub))) or 0)
 
     out: dict[str, Any] = {
         "sections": await _scoped(Section, vis_sec),
@@ -434,7 +453,7 @@ async def list_racks(
     # 可見性推進 SQL（同 list_devices：先截斷再過濾會漏資料且總數失真）
     vis = await visible_ids(session, user=user, object_type="rack")
     if vis is not None:
-        stmt = stmt.where(Rack.id.in_(list(vis)) if vis else sa_false())
+        stmt = stmt.where(in_values(Rack.id, vis) if vis else sa_false())
     total = int(await session.scalar(
         select(func.count()).select_from(stmt.subquery())) or 0)
     rows = (await session.execute(stmt.order_by(Rack.name).limit(limit))).all()
@@ -561,7 +580,7 @@ async def list_devices(
     # 且總數會把看不到的也算進去
     vis = await visible_ids(session, user=user, object_type="device")
     if vis is not None:
-        stmt = stmt.where(Device.id.in_(list(vis)) if vis else sa_false())
+        stmt = stmt.where(in_values(Device.id, vis) if vis else sa_false())
     total = int(await session.scalar(
         select(func.count()).select_from(stmt.subquery())) or 0)
     rows = list((await session.execute(stmt.order_by(Device.name).limit(limit))).scalars().all())
@@ -694,7 +713,7 @@ async def list_nat(
         session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
     stmt = select(NATTranslation)
     if scope_ids is not None:
-        in_scope = select(IPAddress.id).where(IPAddress.subnet_id.in_(scope_ids))
+        in_scope = select(IPAddress.id).where(in_values(IPAddress.subnet_id, scope_ids))
         stmt = stmt.where(NATTranslation.src_ip_id.in_(in_scope)
                           | NATTranslation.dst_ip_id.in_(in_scope))
     total = int(await session.scalar(
@@ -777,7 +796,7 @@ async def list_vpn_tunnels(session: AsyncSession, *, user: User, limit: int = 20
     dev_pip: dict[Any, Any] = {}
     if dev_ids:
         for did, nm, pip in (await session.execute(
-            select(Device.id, Device.name, Device.primary_ip_id).where(Device.id.in_(dev_ids))
+            select(Device.id, Device.name, Device.primary_ip_id).where(in_values(Device.id, dev_ids))
         )).all():
             names[did] = nm
             dev_pip[did] = pip
@@ -785,7 +804,7 @@ async def list_vpn_tunnels(session: AsyncSession, *, user: User, limit: int = 20
     pip_ids = {p for p in dev_pip.values() if p}
     if pip_ids:
         pip_map = {pid: str(ip).split("/")[0] for pid, ip in (await session.execute(
-            select(IPAddress.id, IPAddress.ip).where(IPAddress.id.in_(pip_ids))
+            select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, pip_ids))
         )).all()}
 
     def _dev_ip(did) -> str | None:  # type: ignore[no-untyped-def]
@@ -830,7 +849,7 @@ async def recent_ip_changes(
     # RBAC：只回使用者可見子網路內 IP 的異動（限定範圍時 subnet_id 必須落在 vis）
     vis = await visible_ids(session, user=user, object_type="subnet")
     if vis is not None:
-        stmt = stmt.where(IPChangeLog.subnet_id.in_(vis)) if vis else stmt.where(sa_false())
+        stmt = stmt.where(in_values(IPChangeLog.subnet_id, vis)) if vis else stmt.where(sa_false())
     stmt = stmt.order_by(IPChangeLog.created_at.desc()).limit(limit)
     rows = list((await session.execute(stmt)).scalars().all())
     return {"changes": [
@@ -888,7 +907,7 @@ async def switch_port_for_ip(
     if vis is not None:                      # None＝全部可見（admin 或萬用授權）
         if not vis:
             raise IPAMToolError("IP not found")
-        stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
     ipa = (await session.execute(stmt.limit(1))).scalars().first()
     if ipa is None:
         raise IPAMToolError("IP not found")
@@ -1046,7 +1065,7 @@ async def get_ip_history(
     if vis is not None:
         if not vis:
             return {"ip": ip, "days": days, "visible": False, "events": []}
-        ip_stmt = ip_stmt.where(IPAddress.subnet_id.in_(vis))
+        ip_stmt = ip_stmt.where(in_values(IPAddress.subnet_id, vis))
     ipa = (await session.execute(ip_stmt.limit(1))).scalars().first()
 
     events: list[dict[str, Any]] = []
@@ -1059,7 +1078,7 @@ async def get_ip_history(
     ch_stmt = (select(IPChangeLog)
                .where(IPChangeLog.ip_text == ip, IPChangeLog.created_at >= since))
     if vis is not None:
-        ch_stmt = ch_stmt.where(IPChangeLog.subnet_id.in_(vis))
+        ch_stmt = ch_stmt.where(in_values(IPChangeLog.subnet_id, vis))
     for c in (await session.execute(
             ch_stmt.order_by(IPChangeLog.created_at.desc()).limit(200))).scalars().all():
         events.append({"at": c.created_at.isoformat(), "kind": "change",
@@ -1119,7 +1138,7 @@ async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[s
     if vis is not None:                      # None＝全部可見（admin 或萬用授權）
         if not vis:
             return {"found": False, "ip": ip}
-        stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
     obj = (await session.execute(stmt.limit(1))).scalars().first()
     if obj is None:
         return {"found": False, "ip": ip}
@@ -1343,7 +1362,7 @@ async def list_dhcp_ranges(
     if scope_ids is not None:
         # 範圍表存的是 CIDR 字串，直接以該子網路的 cidr 比對
         stmt = stmt.where(DHCPPoolRange.subnet_cidr.in_(
-            select(Subnet.cidr).where(Subnet.id.in_(scope_ids))))
+            select(Subnet.cidr).where(in_values(Subnet.id, scope_ids))))
     from app.services.ip_ranges import manual_dhcp_pools
     # 子網路裡手動定義的 DHCP 集區（issue #40），跟整合同步回來的一起列
     manual = await manual_dhcp_pools(session, list(scope_ids) if scope_ids is not None else None)
@@ -1580,7 +1599,7 @@ async def list_dns_records(
     have: set[str] = set()
     if ip_vals:
         for (host,) in (await session.execute(
-            select(func.host(_IPA.ip)).where(func.host(_IPA.ip).in_(ip_vals))
+            select(func.host(_IPA.ip)).where(in_values(func.host(_IPA.ip), ip_vals, type_=String()))
         )).all():
             have.add(str(host))
     zone_ids = {r.zone_id for r in rows if r.zone_id}
@@ -1589,7 +1608,7 @@ async def list_dns_records(
         for zid, sname in (await session.execute(
             select(DNSZone.id, DNSServer.name)
             .join(DNSServer, DNSServer.id == DNSZone.server_id)
-            .where(DNSZone.id.in_(zone_ids))
+            .where(in_values(DNSZone.id, zone_ids))
         )).all():
             zsrv[zid] = sname
     return {"records": [{
@@ -1756,7 +1775,7 @@ async def list_fdb(
         # FDB 只有 MAC 沒有 IP → 以該網段 IP 已知的 MAC 反查
         stmt = stmt.where(FDBEntry.mac.in_(
             select(IPAddress.mac).where(
-                IPAddress.subnet_id.in_(scope_ids), IPAddress.mac.is_not(None))))
+                in_values(IPAddress.subnet_id, scope_ids), IPAddress.mac.is_not(None))))
     total = int(await session.scalar(
         select(func.count()).select_from(stmt.subquery())) or 0)
     stmt = stmt.order_by(FDBEntry.last_seen_at.desc()).limit(limit)
@@ -1890,7 +1909,7 @@ async def list_vms(
     stmt = select(VirtualMachine)
     if scope_ids is not None:
         stmt = stmt.where(VirtualMachine.primary_ip_id.in_(
-            select(IPAddress.id).where(IPAddress.subnet_id.in_(scope_ids))))
+            select(IPAddress.id).where(in_values(IPAddress.subnet_id, scope_ids))))
     total = int(await session.scalar(
         select(func.count()).select_from(stmt.subquery())) or 0)
     rows = list((await session.execute(stmt.limit(limit))).scalars().all())
@@ -2097,7 +2116,7 @@ async def list_wazuh_agents(
     if scope_ids is not None:
         # agent 以 jt_ipam_address_id 對映 IP → 用該 IP 的子網路限縮
         stmt = stmt.where(WazuhAgent.jt_ipam_address_id.in_(
-            select(IPAddress.id).where(IPAddress.subnet_id.in_(scope_ids))))
+            select(IPAddress.id).where(in_values(IPAddress.subnet_id, scope_ids))))
     total = int(await session.scalar(
         select(func.count()).select_from(stmt.subquery())) or 0)
     rows = (await session.execute(
@@ -2131,7 +2150,7 @@ async def list_ocs_computers(
     stmt = select(IPAddress).where(
         or_(IPAddress.ocs_id.isnot(None), IPAddress.last_seen_ocs.isnot(None)))
     if scope_ids is not None:
-        stmt = stmt.where(IPAddress.subnet_id.in_(scope_ids))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope_ids))
     if stale_days is not None:
         cutoff = datetime.now(UTC) - timedelta(days=max(0, int(stale_days)))
         stmt = stmt.where(or_(IPAddress.last_seen_ocs.is_(None),
@@ -2449,7 +2468,7 @@ async def list_connection_targets(
         if vis is not None:
             if not vis:
                 return {"items": [], "count": 0}
-            stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+            stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
     rows = list((await session.execute(stmt)).scalars().all())
     perm_cache: dict[Any, str] = {}
     kept: list[IPAddress] = []
@@ -2475,7 +2494,7 @@ async def list_connection_targets(
     dev_names: dict[Any, str] = {}
     if dev_ids:
         drows = (await session.execute(
-            select(Device.id, Device.name).where(Device.id.in_(dev_ids))
+            select(Device.id, Device.name).where(in_values(Device.id, dev_ids))
         )).all()
         dev_names = {d[0]: d[1] for d in drows}
     items = [{
@@ -3419,12 +3438,11 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_vlans", "list_vrfs", "list_nat", "list_firewalls", "list_firewall_rules",
     "list_firewall_aliases", "list_dns_servers", "list_dns_zones", "list_dns_records",
     "check_dns_consistency", "dns_lookup",
-    "list_vms", "list_wireless_links", "list_vpn_tunnels", "list_scan_agents",
+    "list_vms", "list_wireless_links", "list_vpn_tunnels",
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
-    "list_power", "list_wazuh_agents", "wazuh_missing_agents", "list_ocs_computers", "get_topology",
+    "list_power", "get_topology",
     "list_attack_surface",
-    "list_certificates", "list_cert_distribution",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
     "list_paloalto_policies", "list_paloalto_addresses",
     "list_mikrotik_rules", "list_mikrotik_address_lists",
@@ -3440,6 +3458,11 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
 # MCP 是同一份資料的另一道門，鎖不一樣就等於沒鎖 —— 這個專案在 get_topology 踩過一次。
 ADMIN_TOOLS: frozenset[str] = frozenset({
     "list_ai_findings", "list_anomalies",
+    # 這幾個讀的資料在 REST 上都只給 admin（掃描代理、憑證與派送、Wazuh 代理與缺口、OCS 電腦）；
+    # 以前放在全域讀取，網頁打不開的資料在 AI 對話裡問得到（2026-09-30 盤點 API 手冊時發現）。
+    # tests/test_mcp_tools_match_rest_permissions.py 守著：工具不可以比對應的 REST 端點寬
+    "list_scan_agents", "list_certificates", "list_cert_distribution",
+    "list_wazuh_agents", "wazuh_missing_agents", "list_ocs_computers",
 })
 
 

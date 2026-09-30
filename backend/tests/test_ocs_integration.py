@@ -682,12 +682,16 @@ async def test_mcp_list_ocs_computers(db_session, admin_user) -> None:
 
 
 def test_ocs_tool_is_registered_with_the_right_permission_tier() -> None:
-    """整合開了 REST/UI 就要同步開 MCP 工具，且權限分層要跟同類工具一致（唯讀、全域讀取）。"""
+    """整合開了 REST/UI 就要同步開 MCP 工具，且權限分層要跟同類工具與 REST 一致。
+
+    2026-09-30 起是 admin：`/api/v1/ocs/agents` 只給 admin，工具以前放在全域讀取 ——
+    網頁打不開的資料在 AI 對話裡問得到（見 test_mcp_tools_match_rest_permissions.py）。"""
     from app.mcp.tools import ADMIN_TOOLS, GLOBAL_READ_TOOLS, MUTATING_TOOLS, TOOLS
     assert "list_ocs_computers" in TOOLS
-    assert "list_ocs_computers" in GLOBAL_READ_TOOLS   # 與 list_wazuh_agents 同級
+    assert "list_ocs_computers" in ADMIN_TOOLS          # 與 list_wazuh_agents 同級
+    assert "list_wazuh_agents" in ADMIN_TOOLS
     assert "list_ocs_computers" not in MUTATING_TOOLS  # 唯讀
-    assert "list_ocs_computers" not in ADMIN_TOOLS
+    assert "list_ocs_computers" not in GLOBAL_READ_TOOLS
 
 
 @pytest.mark.anyio

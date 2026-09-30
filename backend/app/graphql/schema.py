@@ -22,10 +22,11 @@ from strawberry.fastapi import GraphQLRouter
 
 from app.api.v1.dependencies import get_current_user
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.graphql import types as gqltypes
 from app.models.address import IPAddress as IPAddressModel
 from app.models.device import Device as DeviceModel
-from app.models.librenms import ARPEntry, FDBEntry
+from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice
 from app.models.section import Section as SectionModel
 from app.models.subnet import Subnet as SubnetModel
 from app.models.user import User
@@ -217,7 +218,7 @@ class Query:
         if vis is not None:               # None＝全部可見（admin 或萬用授權）
             if not vis:                   # 空 set＝沒有任何可見範圍
                 return []
-            stmt = stmt.where(DeviceModel.id.in_(vis))
+            stmt = stmt.where(in_values(DeviceModel.id, vis))
         if type is not None:
             stmt = stmt.where(DeviceModel.type == type)
         stmt = stmt.order_by(DeviceModel.name).limit(limit)
@@ -255,6 +256,7 @@ class Query:
                 .limit(1)
             )
         ).scalar_one_or_none()
+        ln = await session.get(LibreNMSDevice, fdb.device_id) if fdb and fdb.device_id else None
         return gqltypes.ARPLookup(
             ip=ip,
             mac=arp.mac,
@@ -262,6 +264,8 @@ class Query:
             switch_device_id=fdb.device_id if fdb else None,
             switch_port=fdb.port_name if fdb else None,
             vlan=fdb.vlan_id_num if fdb else None,
+            switch_name=(ln.sysname or ln.hostname) if ln else None,
+            switch_ipam_device_id=ln.jt_ipam_device_id if ln else None,
         )
 
 

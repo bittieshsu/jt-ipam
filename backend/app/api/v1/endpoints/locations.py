@@ -19,6 +19,7 @@ from app.api.v1.dependencies import CurrentUser, require_admin, require_object_p
 from app.core.audit import append_audit
 from app.core.config import get_settings
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.core.ui_error import detail_of
 from app.models.location import Location, Rack
 from app.schemas.base import Paginated, StrictModel
@@ -91,7 +92,7 @@ async def list_locations(
     from app.services.permission import visible_ids
     vis = await visible_ids(session, user=_user, object_type="location")
     if vis is not None:
-        stmt = stmt.where(Location.id.in_(vis)); cstmt = cstmt.where(Location.id.in_(vis))
+        stmt = stmt.where(in_values(Location.id, vis)); cstmt = cstmt.where(in_values(Location.id, vis))
     rows = list(
         (await session.execute(
             stmt.order_by(Location.name).offset((page - 1) * page_size).limit(page_size)
@@ -106,11 +107,11 @@ async def list_locations(
         from app.models.device import Device
         from app.models.location import Rack
         rack_counts = dict((await session.execute(  # type: ignore[arg-type]
-            select(Rack.location_id, func.count()).where(Rack.location_id.in_(loc_ids))
+            select(Rack.location_id, func.count()).where(in_values(Rack.location_id, loc_ids))
             .group_by(Rack.location_id)
         )).all())
         dev_counts = dict((await session.execute(  # type: ignore[arg-type]
-            select(Device.location_id, func.count()).where(Device.location_id.in_(loc_ids))
+            select(Device.location_id, func.count()).where(in_values(Device.location_id, loc_ids))
             .group_by(Device.location_id)
         )).all())
     # 所屬單位名稱
@@ -119,7 +120,7 @@ async def list_locations(
     if cust_ids:
         from app.models.customer import Customer
         cust_names = dict((await session.execute(  # type: ignore[arg-type]
-            select(Customer.id, Customer.name).where(Customer.id.in_(cust_ids))
+            select(Customer.id, Customer.name).where(in_values(Customer.id, cust_ids))
         )).all())
     items = []
     for r in rows:
@@ -378,7 +379,7 @@ async def list_racks(
     from app.services.permission import visible_ids
     vis = await visible_ids(session, user=_user, object_type="rack")
     if vis is not None:
-        stmt = stmt.where(Rack.id.in_(vis)); cstmt = cstmt.where(Rack.id.in_(vis))
+        stmt = stmt.where(in_values(Rack.id, vis)); cstmt = cstmt.where(in_values(Rack.id, vis))
     # 排序：編號 seq 小的在前（null 排最後），再依名稱
     stmt = stmt.order_by(
         Rack.seq.is_(None), Rack.seq, Rack.name,
@@ -391,7 +392,7 @@ async def list_racks(
         from app.models.device import Device
         for rid, cnt in (await session.execute(
             select(Device.rack_id, func.count())
-            .where(Device.rack_id.in_([r.id for r in rows]))
+            .where(in_values(Device.rack_id, [r.id for r in rows]))
             .group_by(Device.rack_id)
         )).all():
             dev_counts[rid] = int(cnt)
@@ -400,7 +401,7 @@ async def list_racks(
     loc_ids = [r.location_id for r in rows if r.location_id]
     if loc_ids:
         for lid, lname in (await session.execute(
-            select(Location.id, Location.name).where(Location.id.in_(loc_ids))
+            select(Location.id, Location.name).where(in_values(Location.id, loc_ids))
         )).all():
             loc_names[lid] = lname
     items = []

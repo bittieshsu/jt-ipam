@@ -73,6 +73,38 @@ def evidence_of(via: str) -> str:
     return best
 
 
+def _as_uuids(ids: set[str]) -> set[uuid.UUID]:
+    out = set()
+    for x in ids:
+        try:
+            out.add(uuid.UUID(x))
+        except ValueError:
+            continue
+    return out
+
+
+class _SubnetIndex:
+    """位址 → 包含它的最精確子網路。依前綴長度查表（每個位址只查幾次），不逐一比對所有網段：
+    大站台十幾萬筆 ARP × 幾千個子網路，逐一比對就是幾億次。"""
+
+    def __init__(self, cand: list[tuple[Any, Any]]) -> None:
+        self._by_len: dict[tuple[int, int], dict[int, Any]] = {}
+        for sn, net in cand:
+            self._by_len.setdefault((net.version, net.prefixlen), {})[int(net.network_address)] = sn
+        self._lens = sorted(self._by_len, key=lambda k: -k[1])
+
+    def lookup(self, addr: Any) -> Any:
+        bits = 32 if addr.version == 4 else 128
+        for ver, plen in self._lens:
+            if ver != addr.version:
+                continue
+            key = (int(addr) >> (bits - plen)) << (bits - plen) if plen else 0
+            hit = self._by_len[(ver, plen)].get(key)
+            if hit is not None:
+                return hit
+        return None
+
+
 # 一次最多畫幾台裝置。兩萬台的圖瀏覽器畫不動、人也看不懂，後端還要算上十幾秒（期間整個服務卡住）；
 # 超過就不建圖，回傳裝置數讓畫面請使用者先用子網路篩選（2026-09-29 超大規模測試）
 MAX_TOPOLOGY_DEVICES = 2000
@@ -156,7 +188,7 @@ async def build_topology(
         # 篩選與「全部」一致：用三種訊號決定哪些裝置屬於這些子網路，
         # 否則只靠 IPAddress 連結會漏掉「以 IP 命名」或「ARP 看到」的裝置。
         fsubs = (await session.execute(
-            select(Subnet).where(Subnet.id.in_(subnet_filter))
+            select(Subnet).where(in_values(Subnet.id, subnet_filter))
         )).scalars().all()
         fnets = []
         for sn in fsubs:
@@ -168,7 +200,7 @@ async def build_topology(
         # (ip) 有 IPAddress 連結到這些子網路
         for d in (await session.execute(
             select(IPAddress.device_id).where(
-                IPAddress.subnet_id.in_(subnet_filter),
+                in_values(IPAddress.subnet_id, subnet_filter),
                 IPAddress.device_id.is_not(None),
             )
         )).all():
@@ -182,15 +214,19 @@ async def build_topology(
                 continue
             if any(nip in n for n in fnets):
                 allowed_device_ids.add(str(did))
-        # (arp) 裝置的 ARP 鄰居 IP 落在這些子網路
+        # (arp) 裝置的 ARP 鄰居 IP 落在這些子網路。⚠️ arp_entries.device_id 是 **LibreNMS 的裝置**：
+        # 要經 jt_ipam_device_id 才對得回 jt-ipam 的裝置（以前直接拿來比，從來沒對上過）
+        findex = _SubnetIndex([(n, n) for n in fnets])
         for did, ip in (await session.execute(
-            select(ARPEntry.device_id, ARPEntry.ip).where(ARPEntry.device_id.is_not(None))
+            select(LibreNMSDevice.jt_ipam_device_id, ARPEntry.ip)
+            .join(LibreNMSDevice, LibreNMSDevice.id == ARPEntry.device_id)
+            .where(LibreNMSDevice.jt_ipam_device_id.is_not(None))
         )).all():
             try:
                 aip = _ipaddr.ip_address(str(ip).split("/")[0])
             except ValueError:
                 continue
-            if any(aip in n for n in fnets):
+            if findex.lookup(aip) is not None:
                 allowed_device_ids.add(str(did))
 
     # ── nodes：所有 device（選用依 location / subnet 過濾） ──
@@ -424,22 +460,25 @@ async def build_topology(
                 if name_ip in net:
                     _add(d_str, str(sn.id), str(name_ip), "name")
 
-        # (arp) 裝置的 ARP 紀錄落在候選子網路 → 它接在該網段
+        # (arp) 裝置的 ARP 紀錄落在候選子網路 → 它接在該網段（ARP 只會有直連網段的鄰居）。
+        # ⚠️ arp_entries.device_id 是 **LibreNMS 的裝置**，要經 jt_ipam_device_id 對回 jt-ipam 的裝置；
+        # 以前直接拿來比 jt-ipam 裝置，從 v0.4.29 起一次都沒對上（2026-09-30 研究）。
+        # 網段取包含那個位址的最精確子網路（以前取資料庫順序的第一個）。
+        sindex = _SubnetIndex(cand)
         arp_rows = (await session.execute(
-            select(ARPEntry.device_id, ARPEntry.ip).where(ARPEntry.device_id.is_not(None))
+            select(LibreNMSDevice.jt_ipam_device_id, ARPEntry.ip)
+            .join(LibreNMSDevice, LibreNMSDevice.id == ARPEntry.device_id)
+            .where(in_values(LibreNMSDevice.jt_ipam_device_id, _as_uuids(visible_device_ids)))
         )).all()
         for dev_id, ip in arp_rows:
             d_str = str(dev_id)
-            if d_str not in visible_device_ids:
-                continue
             try:
                 a = _ipaddr.ip_address(str(ip).split("/")[0])  # type: ignore[assignment]
             except ValueError:
                 continue
-            for sn, net in cand:
-                if a in net:
-                    _add(d_str, str(sn.id), None, "arp")
-                    break
+            hit = sindex.lookup(a)
+            if hit is not None:
+                _add(d_str, str(hit.id), None, "arp")
 
         # (librenms) 用 LibreNMS 已知的管理 IP（primary_ip / hostname）關聯 device→subnet。
         #   交換器 / AP / 伺服器常沒有 IPAddress 連結、名稱也不是 IP，但 LibreNMS 知道

@@ -142,7 +142,7 @@ async def _resolve_labels(
     if user_ids:
         urows = (
             await session.execute(
-                select(User.id, User.username, User.display_name).where(User.id.in_(user_ids))
+                select(User.id, User.username, User.display_name).where(User.id.in_(user_ids))  # bounded: users on one page
             )
         ).all()
         for uid, uname, dname in urows:
@@ -167,7 +167,7 @@ async def _resolve_labels(
             model = getattr(importlib.import_module(module_path), cls_name)
             col = getattr(model, attr)
             qrows = (
-                await session.execute(select(model.id, col).where(model.id.in_(ids)))
+                await session.execute(select(model.id, col).where(model.id.in_(ids)))  # bounded: objects on one page
             ).all()
             for oid, val in qrows:
                 if val is not None:
@@ -225,7 +225,7 @@ async def list_audit(
     if action:
         picked = [a for a in action if a]
         if picked:
-            base = base.where(AuditLog.action.in_(picked))
+            base = base.where(AuditLog.action.in_(picked))  # bounded: picked actions
     if since is not None:
         base = base.where(AuditLog.ts >= since)
     if until is not None:

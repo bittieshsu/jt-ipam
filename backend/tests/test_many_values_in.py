@@ -127,7 +127,7 @@ def _unbounded_in_calls(path: str) -> list[str]:
     import re
     from pathlib import Path
 
-    ok_name = re.compile(r"scope|subnet|^[A-Z_][A-Z0-9_]*$")
+    ok_name = re.compile(r"^[A-Z_][A-Z0-9_]*$")
     full = Path(path) if Path(path).is_absolute() else Path(__file__).resolve().parent.parent / path
     src = full.read_text(encoding="utf-8")
     lines = src.splitlines()
@@ -165,7 +165,14 @@ def _unbounded_in_calls(path: str) -> list[str]:
 
 
 def test_no_unbounded_in_lists_on_scale_sensitive_paths() -> None:
-    found = [x for p in _SCALE_SENSITIVE for x in _unbounded_in_calls(p)]
+    """整個 app/ 都要守（2026-09-30 起）：非管理員帳號的可見範圍是把 id 集合帶進 `.in_()`，
+    被授權整個單位的部門帳號看得到超過 32767 個物件時，**每一個**清單端點與 AI 工具都 500 ——
+    只守同步模組的時候完全沒抓到（tests/test_visibility_scale.py）。"""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    paths = sorted({str(p.relative_to(root)) for p in (root / "app").rglob("*.py")} | set(_SCALE_SENSITIVE))
+    assert len(paths) > 300
+    found = [x for p in paths for x in _unbounded_in_calls(p)]
     assert found == [], ("清單會隨網路規模成長的地方要用 app.core.sqlin.in_values()／not_in_values()，"
                          "天然有上限的在同一行註明 `# bounded: <理由>`：\n" + "\n".join(found))
 
@@ -178,12 +185,13 @@ def test_the_guard_sees_an_unbounded_in(tmp_path) -> None:
         "    a = select(X).where(X.id.in_(ids))\n"                       # 抓
         "    sub = select(Y.id).where(Y.ok)\n"
         "    b = select(X).where(X.id.not_in(sub), X.k.in_(('a', 'b')))\n"  # 子查詢、常數：放過
-        "    c = select(X).where(X.subnet_id.in_(subnet_ids))\n"         # 子網路範圍：放過
+        "    c = select(X).where(X.subnet_id.in_(subnet_ids))\n"         # 子網路清單也抓（可見範圍就叫這個名字）
         "    d = select(X).where(X.id.in_(ids))  # bounded: one page\n",  # 有註明：放過
         encoding="utf-8")
     found = _unbounded_in_calls(str(probe))
-    assert len(found) == 1
+    assert len(found) == 2
     assert ":2:" in found[0]
+    assert ":5:" in found[1]
 
 
 async def test_missing_agents_scope_for_tens_of_thousands_of_addresses(db_session) -> None:

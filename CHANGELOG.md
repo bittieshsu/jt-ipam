@@ -4,6 +4,70 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [0.6.56] - 2026-09-30
+
+Large-scale environments, second round — every other integration, non-admin accounts, background jobs,
+export/import — plus fixes found by auditing the API manual against the code.
+
+### Security
+- **Audit entries of user management, OPNsense and Wazuh never recorded who did it.** Twenty endpoints took
+  the actor from a request attribute nothing set, so creating/deleting accounts, changing group membership
+  (privileges) and editing those integrations were logged without an actor. The authenticated user is now
+  set for both JWT and API tokens.
+- **AI tools could read what the REST API refuses.** Scan agents, certificates and distribution, Wazuh
+  agents and gaps, and OCS computers are admin-only over REST but were available to wildcard-read accounts
+  in the AI chat and MCP. They are admin-only now, and a test binds each tool to the REST endpoint it mirrors.
+- **Writes through MCP `tools/call` are audited** (`mcp_tool_exec`: tool, summary, channel, source IP). Unlike
+  the AI chat they run without a confirmation step; the manual now says so.
+- phpIPAM Basic-Auth logins had no rate limit: the nginx location `/api/phpipam/user/` never matched the real
+  path `/api/phpipam/<app_id>/user/`. Fixed in the templates; upgrades patch existing sites.
+- Dependencies: PyJWT ≥ 2.14 (11 CVEs in 2.13), urllib3 ≥ 2.8 (3 CVEs in 2.7).
+
+### Fixed
+- **The site-wide liveness recompute failed on sites with more than about 6,500 IPs.** It wrote one row per IP
+  into a single INSERT and exceeded the database driver's parameter limit, so online/offline statuses stopped
+  updating (every 5 minutes, silently). It now runs in about 10 s on 145k IPs.
+- **Accounts that can see more than 32,767 objects got a 500 from every list page and AI tool** (the visible
+  set was passed as individual parameters). All of the backend now uses one array parameter; the guard test
+  covers every module.
+- The dashboard returned 500 for accounts scoped to a customer.
+- Wazuh and Zabbix: the same agent/host twice in one response failed the whole sync.
+- DNS sync attached a name to an arbitrary one of several overlapping addresses; now unique matches only.
+- `GET /api/v1/librenms/devices` returned 500 when a device had a primary IP.
+- **MCP at `POST /api/mcp` (no trailing slash) returned 405** — the URL the manual and the client-config
+  generator give. Both forms work now.
+- **Rack embed SVG could not be embedded from another site behind nginx**: the site-wide
+  `Cross-Origin-Resource-Policy: same-origin` blocked the `<img>`, and the images rule cached it for 30 days.
+- `/readyz` behind nginx answered with the web page (always 200); it now reaches the backend (DB + Redis).
+- MAC drift was a false alarm in any multi-switch network (a host is also seen on every upstream uplink).
+  It is now a port change on the same switch, shown as from/to port and when; VM migrations, randomised MACs
+  and moves between shared ports are listed separately as reference and do not notify.
+- Topology never drew device-to-subnet links from ARP (it compared LibreNMS device ids with jt-ipam ids);
+  the AI `trace_mac` tool had the same mix-up and never showed a switch port to non-admins.
+- Behind an LLM gateway such as LiteLLM: when the server rejected one "no thinking" control, all
+  three were dropped — including `reasoning_effort`, which LiteLLM turns into Ollama's `think:false` — so
+  thinking was never switched off. Only the rejected one is dropped now, and the rejection is remembered per
+  server and model.
+
+### Changed
+- **Integrations no longer query per row.** Wazuh agent sync 334 s → 16 s on 30k agents; SCA refreshes at most
+  200 agents per round, oldest first, and stops on HTTP 429 (migration 0168). The five firewalls share one
+  batched writer for ARP / DHCP leases / VPN sessions (Windows DHCP, Kea and ISC DHCP use it too); OCS, Zabbix,
+  ESXi, DNS, AdGuard and Proxmox load what they need up front.
+- **System export streams** (memory on 145k IPs: 1.7 GB → 150 MB default scope, 5.4 GB → 350 MB full scope;
+  same file format). Import writes 1,000 rows per statement. The audit chain is verified in batches.
+- Wazuh / OCS pages fetch "IPs without an agent" (and Wazuh's full agent list) only when the tab is opened:
+  page load 17 s → 1.5 s on a large site.
+- **AI interpretation can use its own model** (Admin → LLM/AI): unauthorised-IP triage, the investigation
+  narrative and the firewall-change reading. Empty = the chat model, as before.
+
+### Documentation
+- **API manual rewritten against the code** (21 sections in zh/en/ja): OCS, ESXi, Kea, ISC DHCP, IP probe,
+  event rules, jump hosts, AI audit, investigate, system administration and rack embed were missing; many
+  statements were wrong (`/api/v1/me`, subnet deletion, rate limits, permissions, page sizes, MCP). A test
+  keeps every API group in the manual and every path in the manual real.
+- Release test checklist covers every recent change, and the zh-TW checklist is complete again.
+
 ## [0.6.55] - 2026-09-30
 
 Large-scale environments. GitHub issue #47 (a device with 30,000+ ports broke LibreNMS sync) showed that

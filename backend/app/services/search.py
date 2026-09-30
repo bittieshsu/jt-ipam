@@ -271,7 +271,7 @@ async def _search_vmid(
     if not ip_ids:
         return []
     ips = {ip.id: ip for ip in (await session.execute(
-        select(IPAddress).where(IPAddress.id.in_(ip_ids))
+        select(IPAddress).where(IPAddress.id.in_(ip_ids))  # bounded: one page of search hits
     )).scalars().all()}
     visible = set(await filter_visible(
         session, user=user, object_type="subnet",

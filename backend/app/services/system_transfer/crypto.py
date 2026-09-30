@@ -82,6 +82,50 @@ def seal(
     return env
 
 
+def write_sealed(
+    out: Any,
+    raw_gzip: bytes,
+    passphrase: str,
+    *,
+    metadata: dict[str, Any],
+    rng: Any,
+) -> int:
+    """seal() 的串流版：`raw_gzip` 是已經 gzip 過的 inner JSON（exporter.export_compressed），
+    直接把封套寫進 `out`（二進位檔案物件），回傳寫了幾個位元組。
+
+    與 seal() 產生同一種檔案（json.loads 讀回來的封套欄位一樣）；差別是不組出整份封套字串 ——
+    payload 的 base64 一段一段寫，大型匯出不會為了 base64 與 JSON 字串再多吃幾倍記憶體。
+    """
+    if not passphrase:
+        raise TransferCryptoError("匯出密碼不可為空", code="xfer_passphrase_empty")
+    salt = rng.token_bytes(_SALT_LEN)
+    nonce = rng.token_bytes(_NONCE_LEN)
+    key = _derive_key(passphrase, salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P)
+    ct = AESGCM(key).encrypt(nonce, raw_gzip, None)
+    env: dict[str, Any] = dict(metadata)
+    env.update(
+        {
+            "format": FORMAT,
+            "format_version": FORMAT_VERSION,
+            "encrypted": True,
+            "cipher": "AES-256-GCM",
+            "kdf": {"algo": "scrypt", "salt": _b64e(salt), "n": _SCRYPT_N, "r": _SCRYPT_R, "p": _SCRYPT_P},
+            "nonce": _b64e(nonce),
+            "payload": "",
+        }
+    )
+    head = json.dumps(env, ensure_ascii=False)
+    marker = '"payload": ""'
+    cut = head.rindex(marker) + len(marker) - 1            # 停在結尾那個引號之前
+    written = out.write(head[:cut].encode("utf-8"))
+    step = 3 * 1024 * 1024                                  # 3 的倍數：分段 base64 接起來與一次編碼相同
+    view = memoryview(ct)
+    for i in range(0, len(ct), step):
+        written += out.write(base64.b64encode(view[i:i + step]))
+    written += out.write(head[cut:].encode("utf-8"))
+    return written
+
+
 def read_metadata(env: dict[str, Any]) -> dict[str, Any]:
     """不需密碼即可讀取的頂層 metadata（前端 analyze 顯示來源版本／範圍用）。"""
     if not isinstance(env, dict) or env.get("format") != FORMAT:

@@ -98,6 +98,11 @@ class ARPLookup:
     ip: str
     mac: str | None
     interface: str | None
-    switch_device_id: uuid.UUID | None
+    switch_device_id: uuid.UUID | None = strawberry.field(
+        description="LibreNMS 裝置鏡像（librenms_devices）的 ID —— 不是 jt-ipam 的裝置；"
+                    "要 jt-ipam 裝置請用 switchIpamDeviceId")
     switch_port: str | None
     vlan: int | None
+    switch_name: str | None = strawberry.field(default=None, description="交換器名稱（sysName／hostname）")
+    switch_ipam_device_id: uuid.UUID | None = strawberry.field(
+        default=None, description="交換器對映到的 jt-ipam 裝置 ID（沒有對映時為 null）")

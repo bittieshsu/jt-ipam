@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.models.ip_change_log import CHANGE_SOURCES, EVENT_TYPES, IPChangeLog
 from app.models.section import Section
 from app.models.subnet import Subnet
@@ -51,7 +52,7 @@ async def list_ip_changes(
 
     def _apply(s: Any) -> Any:
         if sub_vis is not None:
-            s = s.where(IPChangeLog.subnet_id.in_(sub_vis)) if sub_vis else s.where(False)
+            s = s.where(in_values(IPChangeLog.subnet_id, sub_vis)) if sub_vis else s.where(False)
         if ip_id is not None:
             s = s.where(IPChangeLog.ip_id == ip_id)
         if subnet_id is not None:
@@ -100,7 +101,7 @@ async def list_ip_changes(
     name_map: dict[uuid.UUID, str] = {}
     if actor_ids:
         for uid, uname in (await session.execute(
-            select(User.id, User.username).where(User.id.in_(actor_ids))
+            select(User.id, User.username).where(User.id.in_(actor_ids))  # bounded: actors on one page
         )).all():
             name_map[uid] = uname
 

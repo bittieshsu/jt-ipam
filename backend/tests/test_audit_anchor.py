@@ -252,3 +252,26 @@ async def test_missing_baseline_row_is_a_failure(db_session, tmp_path, monkeypat
     res = await verify_and_anchor(db_session, path=tmp_path / "a.jsonl")
     assert res["ok"] is False
     assert res["reason"] == "baseline_row_missing"
+
+
+@pytest.mark.anyio
+async def test_chain_is_verified_in_batches_across_boundaries(db_session, monkeypatch) -> None:
+    """一批一批驗（2026-09-30：以前整條鏈一次載進記憶體，上百萬筆會吃掉好幾 GB）。
+    批次邊界不可以讓鏈斷掉，也不可以漏掉邊界上的竄改；增量驗證與 limit 照常。"""
+    from app.core import audit as audit_core
+
+    monkeypatch.setattr(audit_core, "_VERIFY_BATCH", 3)
+    await _write_audits(db_session, 10)
+    assert await verify_chain(db_session) == (True, None)
+    ids = list((await db_session.execute(select(AuditLog.id).order_by(AuditLog.id))).scalars().all())
+    first = (await db_session.execute(select(AuditLog).where(AuditLog.id == ids[2]))).scalar_one()
+    assert await verify_chain(db_session, after_id=ids[2], expected_prev=first.this_hash) == (True, None)
+    assert await verify_chain(db_session, limit=4) == (True, None)
+
+    await _as_table_owner(db_session, True)
+    from sqlalchemy import update
+    await db_session.execute(update(AuditLog).where(AuditLog.id == ids[6]).values(action="tampered"))
+    await db_session.flush()
+    await _as_table_owner(db_session, False)
+    db_session.expire_all()
+    assert await verify_chain(db_session) == (False, ids[6])     # 落在第三批的第一筆

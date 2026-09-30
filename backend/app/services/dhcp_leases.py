@@ -62,12 +62,13 @@ class LeaseRun:
         # 整批 upsert（以前每個租約各一次：大型 DHCP 一輪十萬筆＝十萬次查詢）；一次 5,000 列
         rows = [{"ip_address_id": ip_id, "source_type": self.source_type, "source_id": self.source_id,
                  "first_seen_at": self.run_at, "last_seen_at": self.run_at} for ip_id in self._seen]
-        for i in range(0, len(rows), 5000):
-            ins = pg_insert(DHCPLeaseSighting).values(rows[i:i + 5000])
-            await s.execute(ins.on_conflict_do_update(
-                constraint="uq_dhcp_lease_sightings_ip_source",
-                set_={"last_seen_at": ins.excluded.last_seen_at},
-            ))
+        ins = pg_insert(DHCPLeaseSighting)
+        upsert = ins.on_conflict_do_update(
+            constraint="uq_dhcp_lease_sightings_ip_source",
+            set_={"last_seen_at": ins.excluded.last_seen_at},
+        )
+        for i in range(0, len(rows), 10000):
+            await s.execute(upsert, rows[i:i + 10000])
         mine = (DHCPLeaseSighting.source_type == self.source_type) & (
             DHCPLeaseSighting.source_id == self.source_id)
         # 認領：真實來源看到了的位址，舊旗標那一列就不需要了

@@ -33,9 +33,11 @@ dependencies = [
     "argon2-cffi>=23.1",          # argon2id 密碼雜湊
     "cryptography>=50.0.0",          # AES-GCM、TLS、簽章
     "defusedxml>=0.7",             # 安全 XML 解析（OPNsense config.xml；擋 XXE）
-    "pyjwt[crypto]>=2.13.0",         # JWT
+    "pyjwt[crypto]>=2.14.0",         # JWT（2.13 有 11 個 CVE，2026-09-30 pip-audit）
     "pyotp>=2.9",                  # TOTP MFA
     "python-multipart>=0.0.31",    # 表單
+    # requests／sentry-sdk 帶進來的：寫下限，既有站台升級時 pip 才會換掉有漏洞的版本（2.7 有 3 個 CVE）
+    "urllib3>=2.8.0",
 
     # ── Network / IP ──
     "httpx[http2]>=0.27",          # 統一 async HTTP client（A10 SSRF 包裝）

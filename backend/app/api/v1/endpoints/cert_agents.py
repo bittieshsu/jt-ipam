@@ -173,7 +173,7 @@ async def _resolve_links(
     device_names: dict[str, str] = {}
     if dev_ids:
         rows = (await session.execute(
-            select(Device.id, Device.name).where(Device.id.in_(dev_ids))
+            select(Device.id, Device.name).where(Device.id.in_(dev_ids))  # bounded: cert agents
         )).all()
         device_names = {str(i): n for i, n in rows}
 
@@ -182,7 +182,7 @@ async def _resolve_links(
     if src_ips:
         rows = (await session.execute(
             select(IPAddress.id, IPAddress.ip, IPAddress.device_id)
-            .where(func.host(IPAddress.ip).in_(list(src_ips)))
+            .where(func.host(IPAddress.ip).in_(list(src_ips)))  # bounded: cert agents
         )).all()
         for ip_id, ip_val, did in rows:
             by_ip.setdefault(str(ip_val), []).append((ip_id, did))
@@ -476,7 +476,7 @@ async def _current_versions_for_scope(session: AsyncSession, agent: CertAgent) -
     rows = (await session.execute(
         select(Certificate, CertVersion)
         .join(CertVersion, CertVersion.certificate_id == Certificate.id)
-        .where(CertVersion.is_current.is_(True), Certificate.id.in_([uuid.UUID(s) for s in scope]))
+        .where(CertVersion.is_current.is_(True), Certificate.id.in_([uuid.UUID(s) for s in scope]))  # bounded: one agent's certificates
     )).all()
     return [{
         "cert": cert.name, "cert_id": str(cert.id),

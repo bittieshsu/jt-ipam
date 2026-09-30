@@ -274,6 +274,8 @@ export async function deleteNAT(id: string): Promise<void> {
 export interface AnomalyReport {
   ip_conflicts: any[];
   mac_drifts: any[];
+  /** 參考用的換埠（虛擬機遷移、隨機 MAC 漫遊、上行路徑變更）：不通知、不算總數 */
+  mac_drift_reference?: any[];
   ghost_ips: any[];
   unauthorized_ips: any[];
   rogue_dhcp: any[];

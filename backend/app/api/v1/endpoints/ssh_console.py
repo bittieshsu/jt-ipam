@@ -31,6 +31,7 @@ from app.core.audit import append_audit
 from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
+from app.core.sqlin import in_values
 from app.core.tickets import take_once
 from app.core.ui_error import detail_of, ui_detail
 from app.core.ws_timeouts import (
@@ -97,7 +98,7 @@ async def list_ssh_targets(
         if vis is not None:
             if not vis:
                 return []
-            stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+            stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
     rows = (await session.execute(stmt)).scalars().all()
 
     # 逐 IP 過可連線（per-subnet 權限快取，避免重複查）
@@ -123,7 +124,7 @@ async def list_ssh_targets(
     dev_names: dict[uuid.UUID, str] = {}
     if dev_ids:
         drows = (await session.execute(
-            select(Device.id, Device.name).where(Device.id.in_(dev_ids))
+            select(Device.id, Device.name).where(in_values(Device.id, dev_ids))
         )).all()
         dev_names = {d[0]: d[1] for d in drows}
 

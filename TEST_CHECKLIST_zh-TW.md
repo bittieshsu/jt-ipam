@@ -2,8 +2,8 @@
 
 > 英文版見 [TEST_CHECKLIST.md](TEST_CHECKLIST.md)。
 
-> 規矩：**每次 bump `frontend/package.json` 的 version 之前，先把這份清單跑過一輪，全綠才升版。**
-> CI 目前沒跑驗證，所以靠這份手動把關。紅的先修，不要帶病升版。
+> 規矩：**每次 bump `frontend/package.json` 的 `version` 之前，先把這份清單跑過一輪，全綠才升版。**
+> 把它當成手動把關的關卡。紅的先修，不要帶病升版。
 
 升版流程：跑清單 → 全綠 → 改 version → 部署（backend rsync + alembic + restart；frontend build）。
 
@@ -29,9 +29,47 @@
 ## 3. 後端整合測試（test DB + pytest，全面）
 
 - [ ] 設 `JTIPAM_TEST_DATABASE_URL` 後 `.venv/bin/pytest -q` 全綠（e2e CRUD / auth / 各模組）
-- [ ] 認證：登入、refresh、TOTP、權限（require_admin 的端點未授權回 401/403）
+- [ ] 認證：登入、refresh、TOTP、權限（`require_admin` 的端點未授權回 401/403）
 - [ ] 核心 CRUD：sections / subnets / addresses / devices / customers / locations / racks
 - [ ] 稽核鏈：寫入操作有 audit、鏈完整性驗證過
+
+## 3c. 問題出在資料、不在程式 —— **只要動到讀取用的 schema、整合的寫入端或定期產生結果的作業就要跑**
+
+同一個版本（0.6.9）裡有三個缺陷長得一樣，上面的測試計畫抓不到：**程式是對的、資料是合法的，頁面卻壞了 ——
+而且畫面上沒有任何一句話說明原因。**「乾淨的資料庫上端點回不回 200」這種測法，一個都抓不到。
+
+### 讀取用的 schema 不可以比資料庫還嚴格
+
+客戶看到儀表板算出 55 台裝置，裝置清單卻回 Internal Server Error、什麼都沒顯示。`DeviceRead` 沿用了寫入端的限制
+（`vendor`／`model` ≤ 64 字元、`u_position` 1～99），但這些欄位在資料庫裡是 `text` 與沒有限制的 `integer` ——
+於是整合寫進一個資料庫收得下、讀取端卻拒收的值，**一列資料就讓整頁掛掉**。
+
+- [ ] 這次動到的每個讀取 schema，把每個有限制的欄位拿去跟真正的欄位比對（`\d <table>`）：`text` 欄位上的 `max_length`、
+  沒有限制的 `integer` 上的 `ge`／`le`，都是一顆等著整合寫進較長的值就爆開的 500
+- [ ] **資料庫本身**強制的限制（CHECK、enum、varchar(n)）在讀取端可以維持嚴格 —— 那種值根本不可能存在
+- [ ] 管理 → 系統診斷 → **資料健檢**必須回報零筆。它用真正的讀取 schema 逐列驗證，所以「這裡是綠的」就代表
+  「清單頁讀得出這個資料庫」
+
+> **值得記住的診斷捷徑**：總數正常、清單卻 500，代表壞在**逐列序列化**而不是查詢 —— `count(*)` 不讀任何欄位，
+> `select(Model)` 會讀全部欄位。schema 落後（少了一個欄位）時也會出現同樣的不對稱。
+
+### 「忽略」要撐得過下一次產生結果
+
+AI 巡檢的發現每跑一次就回來一次、得一再忽略，因為識別方式是「分類＋引用的位址集合完全相同」，
+而模型每次引用的子集都不一樣。
+
+- [ ] 任何忽略／確認／靜音的動作：按下去之後**再跑一次產生結果的作業**，確認它沒有再出現 —— 按一次按鈕不等於測過這顆按鈕
+- [ ] 反方向也要確認：真的有**新的**對象出現時，它**要**再冒出來。連新資訊都一起吞掉的「忽略」，比不會生效的還糟
+- [ ] 識別方式不可以取決於模型的措辭、排列順序或剛好引用的那個子集
+
+### 系統偵測得到的，系統就要講出來
+
+一次中斷的升級讓資料庫落後於程式。後端啟動時就判斷得出來；結果卻是每個讀完整記錄的頁面都回 500，管理者只能用猜的。
+
+- [ ] 啟動時或請求中偵測得到的狀況（schema 落差、少了 extension、前端沒 build、相依服務連不上）都要**寫成錯誤日誌並顯示在介面上**，
+  不可以留給人從一堆失敗去推敲
+- [ ] 訊息要講出修法，不是只講症狀
+- [ ] 客服問題就是測試失敗：如果診斷一個問題需要請客戶跑 SQL 或翻日誌，那個診斷就該放進「管理 → 系統診斷」
 
 ## 3b. 認證領域與帳號識別
 
@@ -55,21 +93,32 @@
 
 ## 5. OWASP Top 10:2025 逐項自我檢核（這次動到的模組）
 
-- [ ] A01 權限：新端點有沒有正確 require_admin / 物件層級授權？
+- [ ] A01 權限：新端點有沒有正確使用 `require_admin` / 物件層級授權？
 - [ ] A03 注入 / 輸入驗證：Pydantic StrictModel、檔案上傳驗 magic bytes + 限大小 + 禁危險類型（如 SVG）
 - [ ] A08 完整性：上傳/外部資料有驗證；路徑無 traversal（上傳/下載檔案路徑解析後仍在白名單目錄內）
 - [ ] 機密：無把 secret/token 寫進 log 或回應
 
 ## 5b. 部署腳本流程（拋棄式環境，**勿在 dev/prod 跑 install**）
 
-- [ ] **全新安裝**：乾淨 LXC/VM 跑 `scripts/install-debian.sh`，裝完服務起得來、能登入
+客戶回報過的每一個安裝問題，在一台早就能跑的機器上都看不到，因為那些東西在那裡本來就在：另一個大版本的
+PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pnpm install` 安靜地失敗而沒有前端、安裝腳本印出
+「Done」但什麼都沒在跑、備份單元的 `ReadWritePaths` 目錄還不存在 —— systemd 對此回報 `226/NAMESPACE`，
+這個錯誤完全沒提到真正的原因。**只有在乾淨的 OS 上安裝，才看得到客戶看到的東西。**
+
+- [ ] **從乾淨 OS 全新安裝 —— 必跑**：`scripts/test-fresh-install.sh debian:12` 退出 0。它會起一個拋棄式的
+  systemd 容器、把程式樹複製進去、跑 `scripts/jt-ipam.sh install`，再檢查那些只會在現場壞掉的事：後端在它的埠上
+  **真的有回應**、`jt-ipam-backup` 與 `jt-ipam-sync` 真的跑到 `Result=success`、備份單元的目錄被刪掉後仍撐得住、
+  `doctor` 說的與實際情況一致
+- [ ] **最舊與最新**的支援發行版都要跑（`debian:12`、`ubuntu:24.04`）；PG 大版本與 Node 版本的差異就在這裡
 - [ ] **舊版升級 —— 必跑，而且與上面那項是兩回事**：`scripts/test-upgrade.sh` 退出 0。
   全新安裝與升級幾乎不共用程式碼，通過全新安裝那道關卡對既有站台什麼都沒證明。要把它指向
   **即將發出去的那份**（`JT_IPAM_REPO=/path/to/candidate`），不要指向上一個已發布版本 ——
   否則測到的是你已經發出去的東西。它會在升級**前**寫一列資料並檢查它還在：升級把資料弄丟是
   最糟的失敗，而且不會讓任何指令回非零
-- [ ] 對上一版的環境跑 `scripts/jt-ipam.sh upgrade`，必要時可回滾
-- [ ] 這次若新增了目錄 / 套件 / 服務 / DB extension / env，確認**兩支腳本都已同步**
+- [ ] 對上一版的環境跑 `scripts/jt-ipam.sh upgrade`，必要時也要能還原
+- [ ] 這次若新增了目錄 / 套件 / 服務 / DB extension / env，確認 **`install` 與 `upgrade` 兩條路徑都已同步** ——
+  而且 `doctor` 會檢查它
+- [ ] **部署後在正式環境跑 `scripts/jt-ipam.sh doctor`**：每一行都是綠的，或那一行 `→ fix` 是客戶不用問我們就照做得來的
 - [ ] **(A) 預設管理員帳密**：全新安裝結尾有印出 `admin` 帳號＋隨機密碼，且密碼存到 `/etc/jt-ipam/.admin-initial-password`（root 0600）；用該密碼能登入
 - [ ] **(A) 重置密碼 CLI**：`python -m app.cli.bootstrap create-admin --username admin --password-stdin --force-update` 能重置既有 admin；README 中英都有此段
 - [ ] **(B) 代理探測工具**：`agent/jt-ipam-agent-installer.sh` 裝完，主機上有 `nmap` / `nmblookup`(samba-common-bin) / `avahi-resolve`(avahi-utils)；代理 `available_probes` 回報含 os/netbios/mdns
@@ -77,10 +126,10 @@
 - [ ] **(C) 參考資料排程**：全新安裝與升級後 `systemctl list-timers` 都有 `jt-ipam-geoip-refresh`／`jt-ipam-oui-refresh`／
   `jt-ipam-recog-refresh` 三個；全新安裝後 OUI 表不是空的（安裝時會立刻抓一次）；`doctor` 三個都列出來
 - [ ] **(C) Recog 指紋庫（選用）**：安裝／升級的輸出有「Recog: updated … fingerprints」；把主機的對外連線擋掉再升級，
-  只能是警告、升級照常完成；`upgrade --recog-zip <recog-content-版本.zip>` 在離線時裝得起來；
+  只能是警告、升級照常完成；`upgrade --recog-zip <recog-content-version.zip>` 在離線時裝得起來；
   `python -m app.cli.recog status` 顯示版本
 
-## 5c. headless 瀏覽器 smoke 測試
+## 5c. 真實瀏覽器測試 —— **每次動到 UI 的發版都必跑**
 
 - [ ] 手機版側欄（`frontend/e2e/mobile-sidebar.spec.ts`，390×844）：收起時寬度 0、內容從最左邊開始；左上角按鈕叫出來、疊在內容上；
   點選功能後與點暗掉的地方都會收回；桌機維持原樣
@@ -93,11 +142,34 @@
   讓沒有固定排版的表格在手機上把 IP 擠成直排 —— 手機全畫面巡檢要一起跑）。頁籤列放不下時才有箭頭、在哪一側還有東西
   才有那一側的箭頭，按得到最左與最右，箭頭不可擋住頁籤的點擊
 - [ ] 手機上的四個回報（`frontend/e2e/mobile-overflow.spec.ts`）：側欄用手指滑得動、不會捲到後面的頁面；
-  主控台狀態列換行不擠成直排；通知框不超出畫面；機櫃圖預設比例依畫面縮小、拉過後記住（跟桌機分開）
+  主控台狀態列換行不擠成直排；通知框不超出畫面；機櫃圖預設比例依畫面縮小、拉過後記住（跟桌機分開）。
   ⚠️ iOS 的 100vh 比實際看得到的高，Playwright 模擬不出會伸縮的工具列 —— 側欄的修法要**請使用者在 iPhone 上確認**
 
+型別檢查、單元測試、API 測試全部通過，頁面照樣可能顯示錯的東西、什麼都沒顯示，或放錯位置。本專案發出去過、
+只有在瀏覽器裡才看得見的缺陷：表格加了欄位卻沒加進欄位選擇的預設值（所以從來沒出現過）、匯出把 `undefined`
+寫進報表、日期疊在按鈕上、檔名差 16px 對不齊，以及反向代理把 WebSocket upgrade 丟掉、主控台根本連不上。
+
 - [ ] `cd frontend && pnpm exec playwright test smoke`（免後端，自起 vite preview）全綠
-- [ ] 對已部署的站台（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑 `pnpm test:e2e` 主路徑（登入/sections/audit）
+- [ ] **先灌測試資料**：`POSTGRES_DB=jt_ipam_e2e python -m tests.seed_e2e`（在 `backend/` 下跑）。好幾支 spec 針對特定記錄做斷言，
+  有些還會在執行中**改掉**那些資料 —— 例如忽略一筆 AI 發現 —— 所以沒重灌就跑第二次，會被第一次留下的狀態弄失敗。
+  那個失敗長得跟回歸一模一樣，一個小時就這樣白花了
+- [ ] 對已部署的站台（給 `E2E_BASE_URL` + `E2E_ADMIN_PASS`）跑**整套**：`pnpm test:e2e`。依賴資料的 spec 需要真實資料 ——
+  要對已部署的站台跑，不要對空的測試資料庫跑
+- [ ] **打得開清單頁不代表清單頁沒問題。** 在比一頁還多的資料上，把頁面宣稱的（「共 N 筆」頁尾）拿去跟伺服器回報的比對：
+  只抓第一頁、再在瀏覽器裡分頁的頁面，在有人的資料超過那個數量之前看起來完全健康
+  （GitHub issue #27：95 個區段只顯示 50 個，頁尾也寫 50）
+- [ ] **每個改過的頁面都用真的瀏覽器打開**，同時盯著 console：沒有錯誤、沒有空白區塊，畫面上沒有 `undefined`／原始 JSON／
+  沒翻譯的 i18n key
+- [ ] **這次改的東西要有新的 spec 涵蓋。** 斷言要針對效果，不是針對 UI 自己的宣稱：從遠端主機把檔案讀回來、存檔後重新載入頁面、
+  比對下載下來的位元組。畫面上的「已上傳」不是證據
+- [ ] **幾何要量，不要用看的** —— 只要重點是對齊、重疊或間距，就用 `boundingBox()`；截圖會把 16px 的誤差藏起來
+- [ ] **窄寬度也要看。** 版面缺陷通常只在某個寬度以下才出現，所以只在一個寬視窗跑的測試什麼都證明不了：選項在 820px 時
+  跑出卡片外，而現有測試全綠（使用者回報，v0.6.2）。任何針對版面做斷言的 spec 都要走過好幾個寬度（1500／1180／900／820／700），
+  全路由巡檢則在 900px 下斷言沒有任何頁面可以左右捲
+- [ ] 新增的文字兩個語系都要看（切到英文，確認沒有 key 外漏）
+- [ ] **每一條路由都打得開**：`playwright test e2e/all-routes.spec.ts` 綠。它從 `src/router/index.ts` 解析路由清單，所以新頁面
+  會自動涵蓋 —— 遇到空白畫面、JS 例外、API 呼叫失敗與沒翻譯的 key 都會失敗。會有這支，是因為巡檢以前只走 78 條路由裡的 22 條：
+  四十幾個頁面從來沒被任何測試打開過。只有人會打開的頁面，就是沒有任何東西在檢查的頁面
 
 ## 5g. 伺服器寫在畫面上的訊息 —— **只要新增或改動錯誤訊息就要跑**
 
@@ -128,13 +200,13 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 - [ ] guacamole-server 上游：`scripts/guacd/source.env` 釘的版本之後有沒有新版或新 CVE？目前釘在
   `staging/1.6.1` 的 commit，因為 1.6.0 在 Ubuntu 26.04 畫第一個畫面就 segfault ——
   **1.6.1 正式發版後改用 Apache 官方 tarball，並核對官方公布的檢查碼**
+- [ ] 安裝腳本裝 guacd 的那一段也要在乾淨 OS 上走一次（guacd 是 RDP／VNC 的預設引擎，所以安裝預設就會裝）：
+  `scripts/test-fresh-install.sh debian:12`（走客戶的路：從 GitHub release 下載並核對）或
+  `GUACD_TARBALL=<prebuilt for the same OS> scripts/test-fresh-install.sh debian:12`（同 OS 的預編檔、還沒發佈的建置）
+  —— 驗裝得起來、服務在跑、**只**在 127.0.0.1 回應、doctor 綠。guacd 是**必要元件**：裝不起來時安裝要停下來
 - [ ] 有任何變動：`scripts/guacd/build.sh` 再 `scripts/guacd/verify.sh`（都要 docker；鏡像站用
   `APT_MIRROR`／`UBUNTU_MIRROR`，同其他關卡）。verify 會在乾淨容器只裝執行期套件，**並且真的連一次 RDP 靶** ——
   外掛載得到不算數（1.6.0 在 26.04 上外掛載得到，一畫第一個畫面就當掉）。它存在預編檔旁邊的截圖要看過
-- [ ] 安裝腳本裝 guacd 的那一段也要在乾淨 OS 上走一次（guacd 是**必要元件**，安裝一定會裝，裝不起來安裝要停下來）：
-  `scripts/test-fresh-install.sh debian:12`（走客戶的路：從 GitHub release 下載並核對）或
-  `GUACD_TARBALL=<同 OS 的預編檔> scripts/test-fresh-install.sh debian:12`（還沒發佈的建置）
-  —— 驗裝得起來、服務在跑、**只**在 127.0.0.1 回應、doctor 綠
 - [ ] configure 要正確偵測 FreeRDP 3：FreeRDP 3 的目標若印出「freerdp structs have a context... no」，
   編譯腳本會刻意失敗（靠 CPPFLAGS 裡的 `-Wno-error` 防止，原因見 `in-container-build.sh` 的註解）
 - [ ] 每個壓縮檔都要有 `LICENSE`、`NOTICE`、`SOURCE`（前兩個是 Apache-2.0 的要求；`SOURCE` 指向確切的原始碼與編譯腳本）。
@@ -163,7 +235,7 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 錯誤的 AI 答案看起來不像錯的：裡面每個數字都是真的，只是算在錯的集合上。單元測試會過，
 因為每支工具都確實回了「被問到的東西」——缺陷在於**模型能問到什麼**。
 
-- [ ] **範圍**：每支回傳逐物件資料的工具，都用指名單一子網路／機櫃／機房的問題問一次，
+- [ ] **範圍**：每支回傳逐物件資料的工具，都用指名單一子網路／機櫃／地點的問題問一次，
   確認答案只含該範圍。要防的回歸：「198.51.100.0/24 裡哪些主機沒裝 Wazuh 代理」被用全站資料
   回答，因為那支工具根本沒有子網路參數（v0.5.194）
 - [ ] **schema 要露出範圍參數**：工具說明明確要求「問題指定範圍就必須帶」，回傳含 `scope`
@@ -173,16 +245,21 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 - [ ] **權限分層**：新增／異動的工具要落在正確層級（異動／管理／全域讀取／逐物件），
   且 `allowed_tool_names()` 會對不能呼叫的帳號隱藏它。要用受限帳號**實際走 AI 對話**驗證，
   不能只看單元測試
+- [ ] **別張表的識別碼要先對應過，再做權限檢查**：`fdb_entries.device_id`／`arp_entries.device_id` 是 LibreNMS 的裝置，
+  不是 jt-ipam 的裝置。用看得到那台交換器的部門帳號問「MAC … 在哪台交換器的哪個埠」：`trace_mac` 必須回交換器名稱與埠
+  （它拿兩種識別碼直接比對，直到 2026-09-30 之前除了管理員誰都看不到埠）；帳號看不到的交換器仍然隱藏
+  （`tests/test_mcp_rbac_scope.py`、`tests/test_rbac_gaps.py`）
 - [ ] **唯讀就要真的唯讀**：判讀／巡檢類工具不寫入、不發通知、不 commit
 - [ ] **提示詞注入**：攻擊者可控的文字（mDNS 主機名稱、防火牆規則描述）仍被定界與截長，
   對抗式測試仍然通過
 - [ ] **事實來自工具，不是心算**：使用率／剩餘／筆數一律呼叫工具取得，不可讓模型自己用 CIDR 推算
+
 - [ ] **可中止**：運算中「送出」變成「停止」，按下去會中止請求（連線一斷，LLM 伺服器也停止推論），
-  畫面顯示已停止且回到可送出狀態
+  對話記錄裡會註明已停止
 - [ ] **進度看得見**：連線中／模型思考中／執行哪個工具／整理資料／產生回答，各階段都有文字，
   並附第幾輪與已經過幾秒 —— **空轉的轉圈圈和當機長得一模一樣**
-- [ ] **空回覆不可原樣送出**：模型沒產生文字時會再要求作答一次，仍為空則說明原因
-  （長度上限／只輸出思考），不可顯示成「(沒有回應)」
+- [ ] **空回覆不可原樣送出**：模型沒產生文字時會再要求它直接作答一次，仍為空就講明原因
+  （撞到長度上限，還是完全沒有產生文字）
 
 ## 5f. 瀏覽器主控台（SSH／BMC／PVE）—— **只要動到終端機就要跑**
 
@@ -199,9 +276,9 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
   結果講出上下傳速度與「傳一個上限大小的檔案要多久」；路徑有問題要講出是哪一種（WebSocket 不通／1009 訊息太大／
   傳到一半被切／資料送不過去）。現成 spec：`e2e/sftp-limit-probe.spec.ts`（1009 用 routeWebSocket 模擬）
 - [ ] **SFTP 大檔下載**：超過 64 MB 在 Chrome／Edge 會先問存到哪裡、邊收邊寫進磁碟（內容逐位元組一致、分段寫入）；
-  不支援的瀏覽器退回收進記憶體（2 GB 以上直接講要換瀏覽器）；超過上限當場提示；下載中顯示進度。
+  其他瀏覽器退回收進記憶體（2 GB 以上直接提示拒絕）；超過上限當場拒絕；下載中顯示進度。
   現成 spec：`e2e/sftp-stream-download.spec.ts`（需 `E2E_SFTP_ROOT`、`sftp-target.py` 起在 2223）
-- [ ] **正式機再實測一次**：從外面（經過前端反向代理）打開系統設定，看傳輸路徑檢查的結果 —— 開發機的路徑沒有那一層
+- [ ] **正式環境也要實測一次傳輸路徑**：從外面、經過最外層的反向代理跑 —— 開發機的路徑沒有那一層
 - [ ] 現成 spec：`frontend/e2e/terminal-links.spec.ts`（需 `E2E_SSH_ADDRESS_ID/USER/PASS`；
   另需該帳號 `can_ssh`、該 IP `ssh_enabled`，第一次連線要按「信任並連線」）
 
@@ -221,6 +298,24 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   實際打開，主執行緒最長卡頓不超過約 1.5 秒（量 longtask，不要用看的）
 - [ ] 新的清單、同步、匯出要回答：十萬個 IP、單台數萬個埠、十萬筆租約時會怎樣（參數上限、全部載入記憶體、
   逐筆查詢、一次畫完、沒有分頁）
+- [ ] **GET 全掃要跑兩次：管理員一次、權限很廣的非管理員帳號一次**（授權所有區段＋一個放了所有裝置的地點）。
+  管理員不經過可見範圍過濾，只用管理員掃就完全測不到這條路：看得到超過 32767 個物件的帳號，每個清單頁與
+  AI 工具都 500（2026-09-30）。`tests/test_visibility_scale.py` 把可見範圍灌到 4 萬個 id；
+  `tests/test_many_values_in.py` 的 `IN` 守門改成掃整個 `app/`，名稱含 subnet 的清單也不再放行
+- [ ] **每個整合的同步都要測，不只 LibreNMS**（假上游回傳同規模資料，量時間與查詢數，沒有變動的一輪不可隨筆數
+  成長）：Wazuh 3 萬個代理（`tests/test_wazuh_scale.py`，含 SCA —— 每輪最多 200 個、最久沒查的先查、
+  遇到 HTTP 429 就停）、OCS（`tests/test_ocs_scale.py`）、Zabbix、ESXi、DNS、AdGuard（`test_*_scale.py`）、
+  五家防火牆與 Windows／Kea／ISC DHCP 都走 `services/fw_sightings.py`（`tests/test_fw_sightings.py`）。
+  上游同一份回應裡出現重複的鍵，不可以讓同步失敗
+- [ ] **全站上線狀態重算**每 5 分鐘對所有 IP 跑一次：以前超過約 6,500 個 IP 就超過參數上限、上線狀態從此不再
+  更新（`tests/test_liveness_scale.py`，8,000 個 IP）。在超大規模庫上，沒有變動的一輪約 10 秒、3 次查詢
+- [ ] **背景排程在超大規模庫上跑一次**（異常偵測、系統診斷、集區用量、清理、稽核鏈）：每一輪幾秒內完成；
+  稽核鏈一次驗 5,000 筆（`tests/test_audit_anchor.py`），第一次驗上百萬筆時不會全部載進記憶體
+- [ ] **系統匯出／匯入的記憶體**：用 `/usr/bin/time -f %M` 匯出超大規模庫 —— 預設範圍約 150 MB、完整範圍約
+  350 MB（改成串流前是 1.7 GB／5.4 GB）；檔案解開的內容相同
+  （`tests/test_system_transfer.py::test_streamed_export_is_the_same_file_format`）。匯入到全新的庫時一次寫
+  1,000 列、失敗才逐列（`::test_batched_import_isolates_a_bad_row`）；注意匯入仍會把整個檔案解析進記憶體，
+  目的主機的記憶體要抓足
 
 ## 6. 主要頁面手動點檢（部署後瀏覽器）
 
@@ -229,21 +324,6 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
 - [ ] 裝置 / 機櫃：排序（IP 自然序）、操作鈕高度一致、機房平面圖上傳+拖拉定位+點選
 - [ ] 拓樸圖：節點/連線、VPN 對接連線、圖例
 - [ ] 掃描代理 / 同步作業：頁面正常、無 console error
-
----
-
-### 附：拋棄式 test DB 指令（在 prod 主機，**不碰正式 DB**）
-
-```bash
-set -a; source /etc/jt-ipam/backend.env; set +a
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
-sudo -u postgres psql -c "CREATE DATABASE jt_ipam_test OWNER ${POSTGRES_USER} ENCODING UTF8 TEMPLATE template0;"
-sudo -u postgres psql -d jt_ipam_test -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
-cd /opt/jt-ipam/backend
-POSTGRES_DB=jt_ipam_test .venv/bin/alembic upgrade head
-JTIPAM_TEST_DATABASE_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/jt_ipam_test" .venv/bin/pytest -q
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
-```
 
 ## 7. pfSense 整合（管理 → 整合 pfSense）
 
@@ -290,6 +370,74 @@ sudo -u postgres psql -c "DROP DATABASE IF EXISTS jt_ipam_test;"
   第三方平台給的名稱長度，不是我們可以自己假設的。
 - [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
+## 7b2. MikroTik RouterOS 整合（管理 → 整合 MikroTik）—— **Beta**
+
+> **這個整合的重點是不要把路由器拖慢。** 提出需求的那個站台，MikroTik 是**主力**路由器，所以保護機制本身就是功能 ——
+> 要測的是它們，不只是欄位解析。RouterOS 端要啟用 `www-ssl`，並準備一個有 `api` ＋ `read` 權限的帳號。
+
+- [ ] 新增路由器：URL ＋ 帳號密碼，自簽憑證要**關掉驗證 TLS**；儲存（密碼只進不出）。
+  編輯時密碼留空＝不變更
+- [ ] **測試連線**回報 RouterOS 版本、board name、identity、前後各一次的 CPU，以及**每一支端點的列數＋秒數**。
+  重點就在數字：「ARP 12,000 列／3.2 秒」正是管理員決定要不要開那一段的依據
+- [ ] 裝置本來就沒有的選單（交換器上的 `/ip/dhcp-server`、RouterOS 7.0 的 `/interface/wireguard`）要顯示成
+  **沒有這個功能、不是錯誤** —— 交換器同步完不可以滿版紅字
+- [ ] **講明是 RouterOS 6.x**：指向 v6 的裝置時要說「這是 RouterOS 6.x，沒有 REST API」，不可以是含糊的連線失敗
+- [ ] **一律序列、絕不平行**：同步時看路由器自己的連線數／CPU 圖 —— 同一時間只能有一個請求在跑
+  （用封包擷取或 RouterOS 的 `/tool/profile` 看）
+- [ ] **退讓有效**：把 CPU 門檻調到路由器早就超過的值（例如 1%）再同步 → 這一輪提早結束，清單上出現「提早停止」標籤與原因，
+  而 `last_error` 維持**空白**（提早停止不是失敗）
+- [ ] **大小上限**：在 address list 很大的路由器上把回應上限設成 1 MiB → 那一段中止並顯示寫出上限的可讀訊息，
+  **其餘區段照常跑**
+- [ ] **ARP 只收 reachable**：路由器上顯示為 `stale` 或 `permanent` 的項目不可以把 IP 標成上線
+  （看那個 IP 的 `arp_seen` —— 只能出現 `reachable` 的項目）
+- [ ] **DHCP 三表對應**：集區 ↔ dhcp-server ↔ network 對得起來才會出現範圍；給 PPP／hotspot 用的集區
+  （沒有 DHCP 伺服器指向它）**不可以**被當成 DHCP 範圍。已經設了閘道或 DNS 的子網路**不會**被覆寫
+- [ ] **規則順序保留**：唯讀檢視依路由器自己的順序列出規則（RouterOS 由上往下比對）。在 Winbox 裡搬動一條規則
+  **不可以**觸發規則異動告警；改了內容才要觸發
+- [ ] 刪除路由器 → 它的 `dhcp_pool_ranges` 與 `nat_translations` 資料一起刪掉，其他來源的資料不受影響
+
+## 7l. 主控台跳板主機（issue #24 階段一）—— **只要動到任何主控台或連線路由就要跑**
+
+> 這裡的失敗模式不是「連不上」，而是**「連到別人那裡」**。需要跳板的站台，通常就是私有網段互相重疊的站台，
+> 所以主控台若安靜地退回直連，連到的會是**另一個客戶**的機器 —— 而且哪裡都沒有錯誤。
+> 每一種主控台都要測，不只 SSH。
+
+**架一台真的跳板只要兩分鐘**（不要跳過這步、只測單元層級）：
+
+```bash
+D=/tmp/jump; mkdir -p $D && cd $D
+ssh-keygen -q -t ed25519 -f hostkey -N ''
+ssh-keygen -q -t ed25519 -f clientkey -N ''
+cp clientkey.pub authorized_keys
+printf 'Port 2242\nListenAddress 127.0.0.1\nHostKey %s/hostkey\nPidFile %s/sshd.pid\n' $D $D > sshd_config
+printf 'AuthorizedKeysFile %s/authorized_keys\nPermitRootLogin prohibit-password\n' $D >> sshd_config
+printf 'PasswordAuthentication no\nUsePAM no\nStrictModes no\nAllowTcpForwarding yes\n' >> sshd_config
+printf 'Subsystem sftp /usr/lib/openssh/sftp-server\n' >> sshd_config
+/usr/sbin/sshd -f $D/sshd_config -E $D/sshd.log
+```
+
+需要 `StrictModes no`，是因為 sshd 不接受放在所有人都可寫的 `/tmp` 底下的 `authorized_keys`。
+同一個 sshd 可以一人分飾兩角：把它登記成跳板主機，再把目標 IP 記錄指向 `127.0.0.1` 埠 2242，轉發就會落回它自己身上。
+
+- [ ] **先核對指紋**：沒有釘選主機金鑰的跳板必須**拒絕連線**並講明原因。「測試連線」回傳指紋時**不送出**帳密；
+  要按「信任並儲存」之後才真的登入
+- [ ] **指紋不符**：改掉釘選的值 → 連線必須失敗並出現中間人攔截的警告，不是籠統的錯誤
+- [ ] **決定順序**：子網路設一台跳板、IP 上設**另一台** → 以 IP 的為準。停用跳板 → 退回直連
+  （停用是管理動作，不可以讓一整批主控台全部掛掉）
+- [ ] **四種走通道的主控台**（SSH／SFTP／RDP／VNC）都經由跳板各連一次：
+  - SSH：狀態列顯示「經由跳板：<名稱>」，而且真的有 shell 回應
+  - SFTP：出現目錄清單（這證明的是雙向都通，不只是伺服器→瀏覽器）
+  - RDP／VNC：要核對**埠**，不只是主機 —— aardwolf 的 `create_connection_newtarget()` 會換掉 ip／hostname
+    但保留 URL 裡的埠，所以少了埠就會連到 `127.0.0.1:3389` —— 也就是後端主機自己
+- [ ] **BMC 要拒絕**：設了跳板的位址必須回可讀的「IPMI 走 UDP，SSH 通道只能轉發 TCP」錯誤 —— **絕不可以**安靜地直連
+- [ ] **連線共用與上限**：對同一台跳板開好幾個工作階段 → 共用一條 SSH 連線（在跳板上用 `ss -tnp` 看）；
+  超過 `max_sessions` 要拒絕並給可讀訊息；最後一個工作階段關掉後，那條連線要消失
+- [ ] **失敗也要歸還計數**：故意讓轉發失敗幾次（目標埠填錯），再確認正常的工作階段仍然可用 ——
+  參考計數漏還會安靜地把上限用光
+- [ ] **工作階段的生命週期**：關掉瀏覽器分頁 → 跳板上的轉發跟著消失
+- [ ] **刪除跳板主機**時要警告有多少子網路／位址會退回直連
+- [ ] 每次開啟工作階段，稽核都要記錄 `via_jump_host`
+
 ## 7m. guacd 主控台引擎 —— **只要動到主控台、guacd 或它的編譯就要跑**
 
 guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由遷移 0158 強制改過來），SSH 可以改用
@@ -321,6 +469,8 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   密碼錯要說「帳號或密碼錯誤」而不是「連不到主機」，真的連不到時才說連不到（只在 guacd 失敗**之後**才探 TCP ——
   TigerVNC 會把「連上就斷」算成一次認證失敗，連幾次就封鎖來源；測到一半全部失敗先看靶的日誌有沒有 `blacklisted`）
 - [ ] 狀態列標出這次用的引擎（「引擎：guacd」等），RDP／VNC 不再有 Beta 標示
+- [ ] **高解析度螢幕**：在 Retina／200% 的螢幕上，遠端畫面以裝置像素計算大小（清晰、不糊），SSH 文字也不會變成兩倍大；
+  **guacd 工作階段中按 A-／A+ 會改變 SSH 字型大小**，而且會記住（送到 guacd 的只有字型大小，並經過驗證）
 - [ ] 已知限制：SSH 終端機裡，一行中第一個輸入的中文字可能要等整行重畫（Ctrl+L）才顯示；指令內容本身是對的
 
 ## 7b3. 獨立的 Kea／ISC DHCP 伺服器（issue #45）—— **動到這兩個整合、代理的 dhcpd 回報或 DHCP 共用寫入層就要跑**
@@ -330,7 +480,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   （既有 IP 標「有租約」、MAC 來源是 kea_dhcp、主機名稱）；host_cmds 有沒有載入都要會；沒有 lease_cmds 時範圍照樣同步、
   頁面提示；密碼錯誤是失敗並帶 401 原因。⚠️ 後端的外連防護擋迴路位址：Kea 要綁在 docker 橋接介面（172.17.0.1），
   本機後端要開 OUTBOUND_ALLOW_PRIVATE
-- [ ] **真的 isc-dhcp-server 往返**：發行版預設的 dhcpd.conf（滿是註解掉的範例）不可以被讀出東西；include 要跟到；
+- [ ] **真的 isc-dhcp-server 往返**：發行版預設的 dhcpd.conf（滿是註解掉的範例）不可以被讀出東西；`include` 的檔案要跟進去讀；
   `key` 區塊裡的 secret 絕對不可以出現在回報裡；用戶端要租約後，代理讀真的 dhcpd.leases 回報 → 固定分配標「固定分配」、
   租約標「有租約」；同一個位址後面的記錄蓋前面的
 - [ ] 代理只有在伺服器指派了 ISC 來源時才讀檔（poll 回應的 `dhcpd`）；別的代理不能替不屬於它的來源回報（404）；一台代理只對應一個來源
@@ -374,6 +524,11 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   拔一張網卡／拔掉 USB 網卡、等 LibreNMS 重新探索後同步或按「從來源匯入」—— 那些埠要從「連接埠／佈線」消失；
   自己建的、已接線的、有穿透對應的埠都保留；讀取失敗或讀到 0 個埠時一個都不刪。Docker 的 `veth…` 介面一律不匯入
   （`tests/test_device_ports_reconcile.py`）
+- [ ] **連不上＝失敗，絕不是「成功、0 筆」**（#44）：把整合指向連不到的主機、以及填錯的 token；作業都要以失敗結束並帶最後的錯誤
+  （Proxmox 每個節點都失敗、LibreNMS、AdGuard…）（`tests/test_sync_total_failure_is_failure.py`）
+- [ ] **同一份回應裡出現重複的鍵**（#43）：上游重複給同一列（同一個 MAC／埠／VLAN）時要在記憶體裡合併，不可以撞唯一約束；
+  資料庫 session 已經壞掉的作業仍要以「失敗」結束並帶錯誤 —— **絕不可以一直停在「執行中」**（最終狀態用乾淨的 session 寫）
+  （`tests/test_librenms_fdb_duplicates.py`）
 
 ## 7d. 從掃描代理執行探測 —— **只要動到工作佇列或代理就要跑**
 
@@ -390,7 +545,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   遲到幾分鐘的探測結果比沒有結果更糟
 - [ ] **真實代理往返**：建立 → 領取 → 執行 → 回報 → 取回結果，且畫面要標明是哪個代理跑的
 - [ ] **IP 詳細頁「探測」（identify）**：
-  - 只有管理員看得到按鈕；唯讀帳號直接打 `POST／GET /addresses/{id}/identify` 要回 403
+  - 只有管理員看得到按鈕；唯讀帳號直接打 `POST/GET /addresses/{id}/identify` 要回 403
   - 目標只能是那筆 IP 記錄本身的位址：工具頁的代理探測送 `identify` 要被拒；代理收到主機名稱、
     多個目標、網段也要自己拒絕
   - 由該子網路指定的掃描代理執行；子網路沒有指定代理時講清楚（不是空白失敗）
@@ -404,7 +559,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
     `identify_not_managed`、網路／廣播位址回 `identify_bad_target`，都不建立工作
   - 同一個 CIDR 的重疊網段由不同代理負責 → `identify_ambiguous`，不可以挑一個就掃
   - 已經登記的位址轉到那筆記錄的探測頁（歷次結果共用）；重複記錄不可標成「IPAM 沒有記錄」
-  - 作業列掛位址、完成通知的連結回到 `/identify/ip/<位址>`；稽核帶子網路
+  - 作業列掛位址、完成通知的連結回到 `/identify/ip/<address>`；稽核帶子網路
 - [ ] **探測＋Recog 指紋庫**（`backend/tests/test_recog.py`、`e2e/ip-identify.spec.ts`、`e2e/version-recog.spec.ts`）：
   - 匯入：每條指紋都要通過自己附的範例，否則剔除（3.2.0 約剔除 5 條）；zip 只讀 `xml/*.xml`、XXE 被擋、
     太小的一版（少於 1000 條）不可以蓋掉已安裝的
@@ -423,6 +578,8 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 每輪統計寫進 `scan_agents.last_cycle` 與 `scan_agent_cycles`（保留 7 天）；掃描代理頁「負載」欄與面板顯示得出來
 - [ ] 超載通知：連續 3 輪才發、只發一次、恢復時再發一次；建議內容要能照做（移哪幾個子網路、哪個子網路特別慢、哪個被截斷）
 - [ ] 不自動搬子網路：面板上的「移到別的代理」要管理員自己按，並提醒那台代理要在同一個網段
+- [ ] **超過 4,096 個位址的子網路分段輪替掃描**：指派一個 /19 —— 每一輪掃下一段、掃到最後再從頭開始（以前永遠只掃第一段）；
+  掃完一整遍比上線門檻還慢時算超載，並建議拆分子網路（`tests/test_agent_scan_split.py`）
 
 ## 7e. 稽核鏈的錨定 —— **只要動到稽核寫入、錨定或同步排程就要跑**
 
@@ -452,7 +609,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 這一節守的是：**新來源必須先回答「它的證據會不會過期」**。少了這道門的代價付過了 ——
 ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 天全綠。
 
-- [ ] **登記**：新來源在 `services/evidence.py` 宣告了 tier 與 aging；
+- [ ] **登記**：新來源在 `services/evidence.py` 宣告了 tier 與 `aging`；
   `pytest tests/test_evidence_contract.py` 綠（沒登記會被守門測試擋下）
 - [ ] **分層正確**：被動學到的對應（ARP／FDB／DNS／DHCP／虛擬化設定）＝ `learned` 且
   `aging=False`；只有主動探測與第三方監控才可以是 `aging=True`
@@ -460,6 +617,14 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   一律問 `evidence.is_aging()`（新來源才不會安靜地落進最寬鬆的分支）
 - [ ] **上線判定**：管理 → 系統設定 → 上線判定，勾選項與預設值都由契約推導；
   不會過期的來源預設**不勾**
+- [ ] **逐廠牌的證據要誠實標示**：防火牆的 ARP 表、VPN 連線與 DHCP 租約寫進 `ip_addresses.arp_seen`，分別是
+  `arp:<vendor>`／`vpn:<vendor>`／`lease:<vendor>` —— **絕不**寫進 `last_seen_scanner`。沒有掃描代理的站台絕不可以出現
+  「上線（掃描代理）」。`pytest tests/test_liveness_sources.py` 綠
+- [ ] **升級維持原本的判定**：拆開之前防火牆 ARP 是算數的（當成掃描證據寫入），所以 `arp:<vendor>` 預設仍然採信 ——
+  否則只靠防火牆的站台一升級就全部變離線。租約則**不**採信：租約可能比機器多活好幾天
+- [ ] **靜態 ARP 項目要跳過**：permanent／static 項目永遠不會過期，拿來標記等於宣稱「這台主機永遠活著」
+- [ ] **失聯 IP 與「僅 ARP 看得到」的偵測要跟著改**：只有防火牆看得到的位址，既不可以被報成失聯 IP，
+  也不可以被報成「僅 ARP 看得到」
 - [ ] **可用性長條圖**：只有 ARP 撐著的日子是灰色不是綠色；狀態往後延續時，
   那筆轉換宣稱的來源現在必須還在
 - [ ] **優先序**：五個屬性（主機名稱／MAC／OS／裝置名稱／型號）改設定後即時生效、
@@ -491,7 +656,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 - [ ] **試跑沒有副作用**：試跑只回報命中與否與逐條結果，不送出通知也不打 webhook
 - [ ] **webhook 動作走同一條路**：簽章與 SSRF 檢查不可被規則繞過
 
-## 7j. 拓樸圖存取層（FDB）——**動到 FDB 推導或拓樸圖時**
+## 7j. 拓樸圖存取層（FDB）—— **動到 FDB 推導或拓樸圖時**
 
 > FDB 說的是「這個 MAC 出現在這台交換器的這個埠」。把它變成線有兩個古典陷阱，
 > 而且兩個都會畫出一張「很有自信但是錯的」圖，不是一張明顯空白的圖。
@@ -501,15 +666,19 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 - [ ] 埠上有好幾台已知機器時畫**虛線**（在此埠後面）而非實線；點該條線會顯示「直接連接：否」與此埠上的 MAC 數。
 - [ ] 兩台交換器要互相看到對方、且兩個埠背後的 MAC 集合不重疊才連線。A—B—C 串接時**不可以出現 A—C**。
 - [ ] 同一個 MAC 對到多台裝置（重疊網段）時完全不畫線。
+- [ ] **ARP 推出的裝置↔子網路連線**：LibreNMS ARP 表裡有某個子網路位址的交換器或路由器，要以 ARP 為依據連到那個
+  （最小的）子網路，子網路篩選也要保留它。這些連線從 v0.4.29 到 2026-09-30 從來沒出現過，因為拿
+  `arp_entries.device_id`（LibreNMS 的裝置）去跟 jt-ipam 的裝置識別碼比對；必須經過 `LibreNMSDevice.jt_ipam_device_id`
+  轉換（`tests/test_topology_arp.py`）
 - [ ] 取消勾選「存取層 (FDB)」後所有 l2／l2_uplink 邊消失，其餘圖形不受影響。
 - [ ] 看不到連線某一端的部門帳號不會拿到那條邊（任何邊都不可以指向不在圖上的節點）。
-- [ ] **視圖模式**：工具列可選 自動／以交換器為中心／只看存取層／只看子網路。自動模式在該範圍有
+- [ ] **視圖模式**：工具列可以選擇 自動／以交換器為中心／只看存取層／只看子網路。自動模式在該範圍有
   FDB 資料時以交換器為中心，沒有就退回子網路版面；選「以交換器為中心」但沒有資料時同樣退回，
   不會畫出一個沒有中心的版面。
 - [ ] **存取層 (FDB) 預設不勾**，因此預設畫面與 0.5.213 之前的子網路版面一致。
 - [ ] 交換器為中心的版面：交換器在中間、它的機器在上方、子網路節點在交換器正下方，
   只屬於該網段的裝置再排在子網路下面。
-- [ ] **「只看存取層」不畫沒有 FDB 資料的裝置**（在大多數裝置沒有 FDB 的環境上驗）。
+- [ ] **「只看存取層」不畫沒有 FDB 資料的裝置**，而不是把它們散成一堆孤立的點（在大多數裝置沒有 FDB 的環境上驗）。
 - [ ] **虛擬機（預設不勾）**：勾選後 VM 貼在所在主機正下方、與主機同屬一個網段框；
   取消勾選後完全消失。找不到主機或名稱對到多台裝置的 VM 不畫。已對映成裝置的 VM
   不會在圖上出現兩次。
@@ -521,6 +690,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 - [ ] **每條線的依據**：點任一條線，詳情要顯示「依據」（有人登記／第三方監控回報／
   被動學到／名稱推測）。開啟「只看已登記」後只剩人為登記的線；在子網路視角下
   IP↔裝置的連結仍在，在存取層視角下可能整個清空（那是正確的，代表沒有人登記過）。
+
 ## 7k. 關聯欄位的邏輯 —— **動到任何「A 決定 B」的欄位時**
 
 > 原則：**能從既有關聯推出來的，就不要叫使用者再講一次**；真正該擋的只有
@@ -550,7 +720,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 原因卻各不相同**，所以不能只測「上傳成功」一條路徑。
 
 - [ ] **拖一個資料夾進去**（只拖資料夾，或資料夾＋檔案混拖）：**整個資料夾連同巢狀內容**
-  都要上傳到遠端、目錄結構一致，一起拖的檔案照常上傳，連線**不可以斷**。⚠️ 不可以用「大小 > 0」判斷是不是檔案 ——
+  都要上傳到遠端、目錄結構一致，一起拖的檔案照常上傳，連線**不可以斷**。⚠️ 不可以用 `size > 0` 判斷是不是檔案 ——
   macOS 把資料夾回報成 **256 位元組**，這正是把整條連線打壞的那個判斷。
 - [ ] **一次拖多個檔案**：每一個都要完整送達，逐一比對**位元組數與 md5**。
   只到一個、或到了但是 **0 位元組**，就是上傳迴圈在中途被打斷。
@@ -590,7 +760,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 - [ ] **通知矩陣**（管理 → 通知發送設定）：事件 × （站內／Email）可切換；存檔後保留；
   事件依矩陣實際送出（IP 申請、憑證到期／派送／飄移、異常）
 - [ ] **憑證派送 `files` profile**：只寫憑證檔案，不做 reload/restart
-- [ ] **異常偵測頁**：頁籤、各表欄位選擇、`ip_address_id` 預設隱藏、MAC 變動看得到 IP／主機名稱
+- [ ] **異常偵測頁**：頁籤、各表欄位選擇、`ip_address_id` 預設隱藏（MAC 變動：見下一份清單）
 - [ ] **MCP 用戶端設定產生器**（LLM/AI）：按鈕產出 Claude Desktop／opencode／mcpo／通用片段
 - [ ] **LLM 供應商改成 OpenAI 相容**（管理 → LLM/AI）：切換後出現資料外送警告與 API 金鑰欄；
   模型下拉從 `/v1/models` 重新載入（下拉是空的＝打錯路徑）；base URL 已結尾 `/v1` 不會被重複加；
@@ -606,12 +776,88 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   逐項跳過原因且不改任何資料；啟用後下一輪同步會掛上，並對每個位址寫一筆 IP 異動記錄（含比對原因）。
   手動清掉某個裝置關聯後，確認下一輪**不會**又把它裝回去（這條規則是為了讓背景作業不跟人對著幹）
 
+### 近期（v0.6.45–v0.6.55 與尚未發布）
+
+- [ ] **MAC 變動＝同一台交換器上換了埠**（2026-09-30；`tests/test_mac_drift.py`、`e2e/mac-drift.spec.ts`）：
+  同一個 MAC 出現在兩台交換器上是正常的路徑，不是搬移 —— 只有 24 小時內在**同一台**交換器上出現新的埠
+  （前一個埠在 7 天內）才算。表格顯示交換器、原埠、新埠與時間；只有實體設備的搬移算異常（並發通知）。
+  VM 遷移（已知的 VM 網卡或 Proxmox 的位址）、隨機化 MAC、在共用埠之間移動，歸進預設收合的**參考**區塊並標出分類，
+  永遠不發通知。異常偵測的子網路範圍與逐 IP 忽略（「mac_drifts」）都適用。拿正式環境的資料，
+  比對 LibreNMS 一次 FDB 探索前後的筆數（FDB 時間戳每 6 小時更新一次）
+- [ ] **AI 判讀模型**（管理 → LLM/AI → AI 判讀；`tests/test_ai_interpret_model.py`、`e2e/llm-interpret-model.spec.ts`）：
+  留空＝用對話模型與它的上下文長度（升級上來的站台行為與以前完全相同）。指定另一個模型後三個都跑一次：
+  未授權 IP 的 AI 判讀、IP 調查裡的「請 AI 判讀」（串流）、防火牆規則異動的 AI 解讀 —— LLM 伺服器的日誌看得到
+  選的那個模型，每個結果也都標出它。巡檢（audit）模型是另一個設定、維持不變；選單裡的嵌入模型是反灰的
+- [ ] **沒有 LibreNMS 也能偵測 IP 衝突**（#41；`tests/test_anomaly_ip_conflicts.py`、`tests/test_ip_conflict_evidence.py`、
+  `e2e/anomaly-ip-conflict.spec.ts`）：沒有設定 LibreNMS 時，掃描代理與防火牆 ARP 表（只取動態項目）照樣產生衝突，
+  並綁定各自的子網路，所以重疊網段之間絕不會互相衝突；同一個 MAC 在 24 小時內於兩個位址之間切換 3 次以上會被標出；
+  沒有證據時 AI 工具要說「無法判定」
+- [ ] **異常偵測篩選**（`e2e/anomaly-filter.spec.ts`）：一個關鍵字（IP／主機名稱／MAC／說明）篩選所有分類，
+  頁籤上的數字顯示「符合／全部」
+- [ ] **防火牆規則劣化**（`tests/test_fw_rule_rot.py`）：OPNsense 的 Anti-Lockout 規則、轉到別名的埠轉發、
+  只放行 ICMP 的 WAN 規則都**不**回報；any → any 指的是所有協定、所有埠；表格有「防火牆」欄，種類用文字寫出來
+- [ ] **PFX 匯出密碼**（`e2e/cert-pfx-export.spec.ts`、`tests/test_certificates_api.py`）：選 PFX 時要輸入兩次密碼
+  （可以留空，但會警告）；匯出是 POST、密碼放在 body —— 檢查 nginx 存取日誌與瀏覽器歷程：**任何網址裡都不可以有密碼**；
+  帶著密碼的 GET 要拒絕；在 Windows 上用那個密碼打得開檔案
+- [ ] **子網路裡的位址範圍（集區）**（#40；`tests/test_ip_ranges.py`、`e2e/subnet-ranges.spec.ts`）：子網路內非 CIDR 的起訖範圍、
+  不可重疊；大小／已用／下一個可用（點下去就建立那個 IP）；用途是 DHCP 集區的範圍在各處都算 DHCP 範圍
+  （使用率、「在 DHCP 範圍內」、AI 工具）；有稽核；系統匯出／匯入會帶著走。**偵測到的 DHCP 範圍會自動出現**，
+  標「自動」並附來源，跟著上游走（被取代、隨整合刪除而移除），絕不動到手動建立的範圍；子網路有歧義或範圍會重疊時跳過；
+  不能手動編輯；不會重複計算（`tests/test_ip_ranges_auto_dhcp.py`）
+- [ ] **機櫃種類與繪製**（`tests/test_rack_more_kinds.py`、`e2e/rack-more-kinds.spec.ts`、`e2e/rack-side-channels.spec.ts`、
+  `e2e/rack-room-align.spec.ts`）：免螺絲角鋼層架（預設規格、表面處理）、IKEA KALLAX（正方形格子、外框比隔板厚）、
+  LackRack（每張桌子 8U、50 mm 桌腳畫出輪廓）；層架的寬與高用同一個比例尺；兩側走線空間由外寬推算（孔距 465.1 mm）、
+  頂板與底座有厚度；機房的一排機櫃不論分開或合併版面都只有一條工具列（正面／背面、大小滑桿、匯出）。
+  **畫面、SVG／draw.io 匯出與嵌入圖片三者要互相比對** —— 這是三份各自的實作
+- [ ] **IP 詳細頁**：防火牆規則、別名、NAT 列點下去會進到該廠牌的頁面、只顯示那一筆（橫幅提供「顯示全部」，
+  並說明找不到那一筆的原因）；MikroTik 的 address list 出現在「所屬別名」底下，`list:<name>` 規則能追回這個 IP
+  （`tests/test_fw_lookup_aliases.py`、`e2e/ip-firewall-aliases.spec.ts`）；關係圖跟裝置頁一樣，左邊是實體、右邊是邏輯
+- [ ] **OCS**（`tests/test_ocs_integration.py`、`tests/test_ocs_agent_tabs.py`、`e2e/ocs-agent-tabs.spec.ts`、
+  `e2e/missing-agent-scope-filter.spec.ts`）：頁面有跟 Wazuh 一樣的頁籤（每台電腦一列 agent）；子網路範圍會限制 MAC 比對
+  （空＝全域），「未裝 Agent 的 IP」只列已啟用整合的範圍聯集；清單可依區段／子網路／單位篩選，匯出跟著篩選走；
+  舊版 agent（2.4.2 以前）把每張網卡都標成虛擬的容器，仍然對得到它的 IP
+- [ ] **主控台**：遠端主機結束 RDP／VNC 工作階段時主控台要講出來，還沒出現任何畫面就結束的 RDP 工作階段要列出
+  伺服器端可能的原因（`tests/test_rdp_remote_ended.py`）；FreeRDP 引擎連線／斷線 20 次後不留下任何 `xfreerdp`／`Xvfb`
+  （前後各看一次 `ps`）；裝不了 aardwolf 的環境，安裝腳本、RDP／VNC 錯誤訊息與系統設定都要講出 Python 版本並指向另一個引擎；
+  noVNC／BMC 按「記住」後，已存帳密清單顯示的是名稱而不是 UUID（`e2e/novnc-saved-cred.spec.ts`）；PVE 主控台登入失敗要講原因
+  —— realm 錯了列出可用的 realm、登入被拒講出主機與帳號、連不到講出原因（`tests/test_pve_login_errors.py`）
+- [ ] **OpenAI 相容伺服器上的推理模型**（#36；`tests/test_llm_reasoning_control.py`）：對跑思考模型的 llama.cpp
+  （見 llama.cpp 測試靶）測，AI 巡檢／判讀要拿到答案，而不是把整個輸出額度都花在思考；思考到一半被截斷的回覆要講明，
+  而不是顯示「(沒有回應)」
+- [ ] **HTTP 的 MCP**（`tests/test_mcp_url_and_audit.py`）：`POST /api/mcp` 與 `POST /api/mcp/` 都進得到 MCP
+  （不帶斜線的網址 —— 手冊與客戶端設定產生器給的就是它 —— 以前回 405）；透過 `tools/call` 呼叫異動工具會寫稽核
+  `mcp_tool_exec`（工具、摘要、管道、來源 IP）；用「管理 → LLM / AI」產生的設定接一個真的 MCP 客戶端（mcp-remote），
+  讀一次、寫一次
+- [ ] **稽核記錄記得是誰做的**（`tests/test_audit_actor_recorded.py`）：建立帳號、改群組成員、修改 OPNsense／Wazuh 整合
+  —— 每一筆稽核都有操作的管理員（以前 20 處一律記成空的；現在由 `get_current_user` 設定 `request.state.user_id`）
+- [ ] **AI 工具的權限不可以比它讀的 REST 資料寬**（`tests/test_mcp_tools_match_rest_permissions.py`）：用具萬用讀取的
+  非管理員在 AI 對話問 Wazuh 代理、OCS 電腦、掃描代理、憑證 —— 要被拒絕，跟 REST 頁面一樣
+- [ ] **從別的網站嵌入機櫃圖**：在不同來源的網頁放 `<img src="https://<主機>/api/v1/racks/<id>/embed.svg?token=…">`
+  —— 圖片要顯示（回應帶 `Cross-Origin-Resource-Policy: cross-origin`、沒有 30 天的 `Expires`）；改了機櫃再重新整理，
+  圖片要跟著變
+- [ ] **nginx 後面**（全新安裝與升級上來的站台）：`curl -k https://<主機>/readyz` 回後端的 JSON（以前是前端首頁、200），
+  停掉 PostgreSQL 會變 503；連續用錯的密碼打 phpIPAM 登入 `POST /api/phpipam/<app_id>/user/`，超過 burst 後回 429；
+  升級後站台設定裡有 `location = /readyz` 與 phpIPAM 的正規式 location（`patch_nginx_readyz_phpipam`，可重複執行）
+- [ ] **經過 LLM 閘道時的「不要思考」**（LiteLLM 等；`tests/test_llm_reasoning_control.py`）：伺服器拒絕
+  `reasoning_effort`／`chat_template_kwargs`／`thinking_budget_tokens` 其中一個時，只拿掉錯誤訊息點名的那個
+  （LiteLLM 拒絕 `thinking_budget_tokens`，但會把 `reasoning_effort: "none"` 轉成 Ollama 的 `think:false`），
+  而且依伺服器與模型記住，之後的請求不必先失敗一次。實際在會思考的模型前面接 LiteLLM，AI 判讀幾秒內回來、不是幾分鐘
+- [ ] **大型站台的 Wazuh／OCS 頁打開要快**（`e2e/agent-tabs-lazy.spec.ts`）：「未裝 Agent 的 IP」（與 Wazuh 的完整
+  代理清單）點進頁籤才抓；頁籤上的代理數照樣一打開就看得到
+- [ ] **MikroTik 租約的主機名稱**用自己的來源，不是「手動」（`tests/test_hostname_reports.py`）：手動輸入的主機名稱不會被蓋掉，
+  租約消失時，租約帶來的主機名稱也跟著消失
+
 ### 近期（v0.5.6x–0.5.7x）
 
 - [ ] **BMC 帶外主控台**（IPMI SOL，Beta）：逐 IP 啟用（`bmc_enabled`，migration 0092）→
   IP 詳細資料與連線管理出現按鈕；連線時 cipher 自動退回（17→3）；憑證金庫「記住」會存
   （`protocol='bmc'`）且下次自動帶入；RBAC 與 SSH 相同（逐物件＋can_ssh）；
-  session 開／關都寫稽核；**設定教學**視窗（表單／工具列／空白提示）打得開且有排錯說明
+  session 開／關都寫稽核；**設定教學**視窗（表單／工具列／空白提示）打得開且有排錯說明；
+  **符合視窗**按鈕會送出 `stty`（提示文字會警告它會送出指令）
+- [ ] **連線中斷覆蓋層**（SSH／RDP／VNC／noVNC／xterm／BMC）：工作階段斷掉時，**只在顯示區上方**出現置中的大字
+  「連線已中斷」＋斷線圖示（工具列／「重新連線」仍可點）；重新連線後淡出
+- [ ] **連線管理的 OS 欄**與 IP 詳細頁一致（共用 `OsCell`）：OS 圖示＋在地化的系列名稱＋（來源）註記，
+  滑鼠停上去看原始猜測；值是依來源優先序決定後的 OS
 - [ ] **掃描代理 OS 偵測**（agent ≥ 1.7.0）：設備與 BMC 不再被猜錯 —— Debian 設備（SSH banner）→ `Debian`、
   走 SMB/Service-Info 的 Windows → `Windows`；只靠裝置型號猜出來的（NAS／OpenWrt／路由器）
   一律降成未知，不顯示

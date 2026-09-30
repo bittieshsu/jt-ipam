@@ -48,7 +48,7 @@ async def gather_evidence(session: AsyncSession, user: Any, ip: str) -> dict[str
     ports: list[str] = []
     if macs:
         rows = (await session.execute(
-            select(FDBEntry).where(FDBEntry.mac.in_(macs)).limit(10))).scalars().all()
+            select(FDBEntry).where(FDBEntry.mac.in_(macs)).limit(10))).scalars().all()  # bounded: MACs of one IP
         for f in rows:
             port = getattr(f, "port_name", None) or getattr(f, "ifname", None)
             dev = getattr(f, "device_id", None)
@@ -97,7 +97,7 @@ def build_prompt(ip: str, ev: dict[str, Any], language: str = "zh-TW") -> str:
 
 async def triage_ip(session: AsyncSession, user: Any, ip: str) -> dict[str, Any]:
     """產一張鑑識卡。回傳 {card, evidence}——證據原文一併給，人可對照模型有沒有亂講。"""
-    from app.services.ai import answer_language, raw_chat
+    from app.services.ai import answer_language, interpret_chat
 
     ev = await gather_evidence(session, user, ip)
     prompt = build_prompt(ip, ev)
@@ -107,12 +107,10 @@ async def triage_ip(session: AsyncSession, user: Any, ip: str) -> dict[str, Any]
         prompt = prompt.replace("證據：", "證據：\n" + "\n".join(extra), 1)
     # 回答的語言跟著那個人的介面語言。在這之前提示詞寫死中文，連英文使用者也拿到中文。
     prompt += await answer_language(session, user)
-    card = await raw_chat(session, prompt, timeout=120.0,
-                          max_output_tokens=800, no_thinking=True)
-    # 判讀出自哪個模型是品質的一部分（與規則異動 AI 解讀一致），跟結果一起回
-    from app.services.system_config import get_llm_config
-    cfg = await get_llm_config(session)
-    return {"ip": ip, "card": card.strip(), "model": cfg.chat_model,
+    # 模型走「AI 判讀」設定（沒設＝對話模型）；判讀出自哪個模型是品質的一部分，跟結果一起回
+    card, model = await interpret_chat(session, prompt, timeout=120.0,
+                                       max_output_tokens=800, no_thinking=True)
+    return {"ip": ip, "card": card.strip(), "model": model,
             "evidence": ev["history"]["events"][:30],
             "macs": ev["macs"], "vendors": ev["vendors"],
             "disclaimer": "此為語言模型依觀測證據所做的推測，請對照證據後再行動。"}

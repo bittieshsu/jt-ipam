@@ -40,7 +40,8 @@ def test_suggestion_refuses_to_guess_when_several_devices_match():
 def test_sibling_list_is_scoped_to_what_the_user_can_see():
     src = _src("_sibling_rows")
     assert "visible_ids(" in src, "同名 IP 的清單沒有套可見性"
-    assert "IPAddress.subnet_id.in_(vis)" in src, "可見性沒有推進 SQL（先取再過濾會算錯）"
+    # 可見範圍用單一陣列參數（in_values）：部門帳號看得到超過 32767 個子網路時 .in_() 會超過參數上限
+    assert "in_values(IPAddress.subnet_id, vis)" in src, "可見性沒有推進 SQL（先取再過濾會算錯）"
     assert "device_id.is_(None)" in src, "把已經有裝置的 IP 也算進去了"
 
 

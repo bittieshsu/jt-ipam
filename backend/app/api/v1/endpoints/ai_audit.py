@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.core.ui_error import ui_detail
 from app.models.ai_finding import AIFinding
 from app.schemas.base import StrictModel
@@ -219,7 +220,7 @@ async def dismiss(
     """把發現標為已忽略（不刪除 —— 留著才看得出哪些被判斷為誤報）。"""
     from datetime import UTC, datetime
     rows = (await session.execute(
-        select(AIFinding).where(AIFinding.id.in_(payload.ids))
+        select(AIFinding).where(in_values(AIFinding.id, payload.ids))
     )).scalars().all()
     for f in rows:
         f.status = "dismissed"
@@ -278,7 +279,7 @@ async def restore(
     所以一定要能反悔 —— 沒有回復的路，誤按一下就永久看不到那類問題了。
     """
     rows = (await session.execute(
-        select(AIFinding).where(AIFinding.id.in_(payload.ids))
+        select(AIFinding).where(in_values(AIFinding.id, payload.ids))
     )).scalars().all()
     for f in rows:
         f.status = "open"

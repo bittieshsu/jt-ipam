@@ -156,6 +156,7 @@ async def _import_table(
     existing = set() if mode == "replace" else await _existing_pks(session, table)
     pk_cols = _pk_cols(table)
     deferred = deferred_fk_columns(name) if pending is not None else set()
+    prepared: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
     for raw in rows:
         raw = dict(raw)
         sec = raw.pop("__secrets__", None)
@@ -173,25 +174,60 @@ async def _import_table(
                 hold = {c: v for c, v in hold.items() if v is not None}
                 if hold and pending is not None:
                     pending.append((name, {c: coerced[c] for c in pk_cols}, hold))
-            pkv = _pk_value(table, coerced)
-            is_update = pkv in existing
-            async with session.begin_nested():
-                stmt = pg_insert(table).values(**coerced)
-                update_cols = {c: stmt.excluded[c] for c in coerced if c not in pk_cols}
-                if update_cols:
-                    stmt = stmt.on_conflict_do_update(index_elements=pk_cols, set_=update_cols)
-                else:
-                    stmt = stmt.on_conflict_do_nothing(index_elements=pk_cols)
-                await session.execute(stmt)
-            if is_update:
-                res.updated += 1
-            else:
-                res.inserted += 1
+            prepared.append((coerced, raw, _pk_value(table, coerced) in existing))
         except Exception as exc:
-            res.errored += 1
-            if len(res.errors) < 20:
-                res.errors.append(f"{name} pk={raw.get('id', raw.get('key', '?'))}: {type(exc).__name__}: {exc}")
+            _record_error(res, name, raw, exc)
+
+    # 一批一次寫（2026-09-30 大量資料測試：以前每一列一個 SAVEPOINT＋重新編譯一次 INSERT，
+    # 43 萬列的匯入要跑幾十分鐘）。欄位組合相同的列用同一個語句 executemany；
+    # 整批失敗才退回逐列，壞掉的那幾列照樣報得出來、其他列照寫。
+    for i in range(0, len(prepared), _IMPORT_BATCH):
+        groups: dict[tuple[str, ...], list[tuple[dict[str, Any], dict[str, Any], bool]]] = {}
+        for item in prepared[i:i + _IMPORT_BATCH]:
+            groups.setdefault(tuple(item[0]), []).append(item)
+        for cols, items in groups.items():
+            stmt = _upsert_stmt(table, cols, pk_cols)
+            try:
+                async with session.begin_nested():
+                    await session.execute(stmt, [c for c, _r, _u in items])
+            except Exception:
+                for coerced, raw, is_update in items:
+                    try:
+                        async with session.begin_nested():
+                            await session.execute(stmt, [coerced])
+                    except Exception as exc:
+                        _record_error(res, name, raw, exc)
+                        continue
+                    _count(res, is_update)
+                continue
+            for _c, _r, is_update in items:
+                _count(res, is_update)
     return res
+
+
+#: 匯入一批幾列
+_IMPORT_BATCH = 1000
+
+
+def _upsert_stmt(table: Any, cols: tuple[str, ...], pk_cols: list[str]) -> Any:
+    stmt = pg_insert(table)
+    update_cols = {c: stmt.excluded[c] for c in cols if c not in pk_cols}
+    if update_cols:
+        return stmt.on_conflict_do_update(index_elements=pk_cols, set_=update_cols)
+    return stmt.on_conflict_do_nothing(index_elements=pk_cols)
+
+
+def _count(res: TableResult, is_update: bool) -> None:
+    if is_update:
+        res.updated += 1
+    else:
+        res.inserted += 1
+
+
+def _record_error(res: TableResult, name: str, raw: dict[str, Any], exc: Exception) -> None:
+    res.errored += 1
+    if len(res.errors) < 20:
+        res.errors.append(f"{name} pk={raw.get('id', raw.get('key', '?'))}: {type(exc).__name__}: {exc}")
 
 
 #: 匯出包裡就算有、也永遠不匯入的表（值是寫進報告的理由）。

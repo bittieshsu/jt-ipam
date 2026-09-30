@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.core.ui_error import detail_of, ui_detail
 from app.models.address import IPAddress
 from app.models.ip_change_log import IPChangeLog
@@ -103,7 +104,7 @@ async def _enrich_special_flags(
         return
     subnet_ids = list({r.subnet_id for r in rows})
     gw_map = dict((await session.execute(
-        select(Subnet.id, Subnet.gateway).where(Subnet.id.in_(subnet_ids))
+        select(Subnet.id, Subnet.gateway).where(in_values(Subnet.id, subnet_ids))
     )).all())
     ranges: list[tuple[int, int]] = []
     # 手動定義的 DHCP 集區（子網路內的位址範圍，issue #40）跟整合同步回來的一起算
@@ -131,7 +132,7 @@ async def _enrich_special_flags(
     observed: dict[tuple[Any, str], Any] = {}
     for sub_id, srv_ip, seen in (await session.execute(
         select(DHCPSighting.subnet_id, DHCPSighting.server_ip, DHCPSighting.last_seen_at)
-        .where(DHCPSighting.subnet_id.in_(subnet_ids), DHCPSighting.last_seen_at >= observed_since)
+        .where(in_values(DHCPSighting.subnet_id, subnet_ids), DHCPSighting.last_seen_at >= observed_since)
     )).all():
         key = (sub_id, str(srv_ip))
         if key not in observed or seen > observed[key]:
@@ -142,7 +143,7 @@ async def _enrich_special_flags(
     from app.models.dhcp import DHCPReservation
     resv: dict[Any, dict[str, Any]] = {}
     for rr in (await session.execute(
-        select(DHCPReservation).where(DHCPReservation.ip_address_id.in_([r.id for r in rows]))
+        select(DHCPReservation).where(in_values(DHCPReservation.ip_address_id, [r.id for r in rows]))
     )).scalars().all():
         resv.setdefault(rr.ip_address_id, {
             "mac": rr.mac, "hostname": rr.hostname, "description": rr.description,
@@ -215,8 +216,8 @@ async def list_addresses(
                 return Paginated[IPAddressRead](
                     items=[], total=0, page=page, page_size=page_size,
                 )
-            stmt = stmt.where(IPAddress.subnet_id.in_(vis_subnets))
-            count_stmt = count_stmt.where(IPAddress.subnet_id.in_(vis_subnets))
+            stmt = stmt.where(in_values(IPAddress.subnet_id, vis_subnets))
+            count_stmt = count_stmt.where(in_values(IPAddress.subnet_id, vis_subnets))
 
     if q:
         if exact:
@@ -277,7 +278,7 @@ async def list_addresses(
     if scan_ids:
         scan_map = dict(
             (await session.execute(  # type: ignore[arg-type]
-                select(Subnet.id, Subnet.scan_enabled).where(Subnet.id.in_(scan_ids))
+                select(Subnet.id, Subnet.scan_enabled).where(in_values(Subnet.id, scan_ids))
             )).all()
         )
     # 批次帶上關聯裝置名稱（清單「裝置」欄用）
@@ -287,7 +288,7 @@ async def list_addresses(
         from app.models.device import Device
         dev_map = dict(
             (await session.execute(
-                select(Device.id, Device.name).where(Device.id.in_(dev_ids))
+                select(Device.id, Device.name).where(in_values(Device.id, dev_ids))
             )).all()
         )
     for it, r in zip(items, rows, strict=False):
@@ -440,7 +441,7 @@ async def _sibling_rows(
     if vis is not None:
         if not vis:
             return []
-        q = q.where(IPAddress.subnet_id.in_(vis))
+        q = q.where(in_values(IPAddress.subnet_id, vis))
     return list((await session.execute(q.limit(50))).all())
 
 
@@ -717,7 +718,7 @@ async def get_address_relations(
             names = {n.lower() for n in (obj.hostname, device_name) if n}
             if names:
                 vm = (await session.execute(
-                    select(VirtualMachine).where(func.lower(VirtualMachine.name).in_(names)).limit(1)
+                    select(VirtualMachine).where(func.lower(VirtualMachine.name).in_(names)).limit(1)  # bounded: hostname variants of one IP
                 )).scalar_one_or_none()
         # 只連「同單位」的 VM：IP 所屬單位（取自子網路）與 VM 叢集所屬單位都有設定且不同 → 不連
         if vm is not None and subnet is not None and subnet.customer_id is not None:
@@ -819,7 +820,7 @@ async def get_address_history(
     name_map: dict[uuid.UUID, str] = {}
     if actor_ids:
         for uid, uname in (await session.execute(
-            select(User.id, User.username).where(User.id.in_(actor_ids))
+            select(User.id, User.username).where(User.id.in_(actor_ids))  # bounded: actors on one page
         )).all():
             name_map[uid] = uname
 
@@ -1550,11 +1551,11 @@ async def uptime_batch_endpoint(
 
     # 先縮到可見子網路，再取這些 IP —— 與清單端點同一套規則
     vis = await visible_ids(session, user=user, object_type="subnet", required="read")
-    stmt = select(IPAddress.id).where(IPAddress.id.in_(payload.ip_ids))
+    stmt = select(IPAddress.id).where(in_values(IPAddress.id, payload.ip_ids))
     if vis is not None:
         if not vis:
             return {"items": []}
-        stmt = stmt.where(IPAddress.subnet_id.in_(vis))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
     allowed = set((await session.execute(stmt)).scalars().all())
     ordered = [i for i in payload.ip_ids if i in allowed]   # 保留使用者排的順序
 

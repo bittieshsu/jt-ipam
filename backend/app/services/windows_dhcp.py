@@ -25,7 +25,6 @@ from app.core.config import get_settings
 from app.core.safe_http import _BLOCKED_CIDRS, _PRIVATE_CIDRS, _ip_in
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.windows_dhcp import WindowsDhcpServer
-from app.services.ip_autocreate import match_existing
 
 _PS_SAFE = re.compile(r"^[A-Za-z0-9._:\-/]+$")
 
@@ -264,7 +263,7 @@ async def sync_leases(session: AsyncSession, inst: WindowsDhcpServer) -> int:
     租約旗標逐來源記錄（services/dhcp_leases.py）：每個 scope 都讀成功才清掉這台不再發的，
     不會清到別台 DHCP 還發著的。
     """
-    from app.services.arp_precedence import consider_mac
+    from app.services.fw_sightings import SightingBatch
 
     cli = _client(inst)
     scopes = await asyncio.to_thread(cli.get_scopes)
@@ -278,6 +277,9 @@ async def sync_leases(session: AsyncSession, inst: WindowsDhcpServer) -> int:
     hn_run = HostnameRun(session, source="windows_dhcp", origin=f"windows_dhcp:{inst.id}",
                          peers=await enabled_peers(session, _Srv))
     lease_run = LeaseRun(session, source_type="windows_dhcp", source_id=inst.id)
+    # 整批（以前每筆租約各比對一次 IP、再判斷一次 MAC：10 萬筆租約一輪約 40 萬次查詢）
+    batch = SightingBatch(session, source="windows_dhcp", subnet_ids=scope_ids,
+                          lease_run=lease_run, hn_run=hn_run)
     for sc in scopes:
         sid = _as_str(sc.get("ScopeId"))
         if not sid:
@@ -298,17 +300,10 @@ async def sync_leases(session: AsyncSession, inst: WindowsDhcpServer) -> int:
                 continue
             active = not state or state.startswith(("active", "offered"))
             # 唯一才算：重疊網段同 IP 多筆又沒設範圍時不猜（以前任意取一筆，見已知地雷 #7）
-            ipa, _amb = await match_existing(session, ip_text, scope_ids)
-            if ipa is None:
-                continue
-            if active:
-                lease_run.saw(ipa)
-            mac = _norm_mac(ls.get("ClientId"))
-            if mac:
-                await consider_mac(session, ip=ipa, mac=mac, source="windows_dhcp")
             hostname = _as_str(ls.get("HostName"))
-            hn_run.report(ipa, hostname.split(".")[0] if hostname else None)
-            seen += 1
+            batch.add(ip_text, evidence=None, mac=_norm_mac(ls.get("ClientId")),
+                      hostname=hostname.split(".")[0] if hostname else None, lease=active)
+    seen = sum(1 for found, _e in await batch.flush() if found)
 
     # 有 scope 讀取失敗：那個 scope 的租約這一輪沒看到，不代表過期 —— 名稱與租約旗標都不清。
     # 以前會照清：失敗 scope 裡每一筆 IP 的「有 DHCP 租約」都被拿掉（2026-09-26 稽核）

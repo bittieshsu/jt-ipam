@@ -6,7 +6,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
   NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty, NInput,
-  NTabs, NTabPane, NModal, NSelect, NSwitch, NInputNumber, NTimePicker,
+  NTabs, NTabPane, NModal, NSelect, NSwitch, NInputNumber, NTimePicker, NCollapse, NCollapseItem, NTag,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
@@ -207,8 +207,21 @@ const anyFindings = computed(() => {
     + (r.fw_rule_rot?.length ?? 0)
     + (r.arp_only_liveness?.length ?? 0)
     + (r.stale_device_links?.length ?? 0)
-    + (r.mac_flapping?.length ?? 0)) > 0;
+    + (r.mac_flapping?.length ?? 0)
+    + (r.mac_drift_reference?.length ?? 0)) > 0;
 });
+// MAC 漂移的參考項目（虛擬機遷移、隨機 MAC 漫遊、上行路徑變更）：同一個頁籤下方收合顯示，不通知
+const driftRefs = computed(() => report.value?.mac_drift_reference ?? []);
+const DRIFT_REF_KEYS = ["category", "mac", "ips", "device_name", "from_port", "to_port", "moved_at"];
+const driftRefCols = computed<DataTableColumns<any>>(() => autoSort(DRIFT_REF_KEYS.map((k) => ({
+  title: colLabel(k), key: k,
+  ...(k === "ips" ? { minWidth: 200 } : k === "moved_at" ? { minWidth: 160 }
+    : { width: ({ category: 190, mac: 145, device_name: 120 } as Record<string, number>)[k] ?? 105 }),
+  render: (r: any) => (k === "category"
+    ? h(NTag, { size: "small", bordered: false, type: r.category === "vm_migration" ? "info" : "default" },
+        { default: () => pretty(k, r[k]) })
+    : renderVal(k, r[k], r, "mac_drifts")),
+}))));
 function catRows(key: CatKey): Record<string, any>[] {
   return ((report.value?.[key] as Record<string, any>[]) ?? []).map(localizeRow);
 }
@@ -264,7 +277,8 @@ function colLabel(k: string): string {
 const CAT_KEYS: Record<CatKey, string[]> = {
   // 依據：ARP（1 小時內多個 MAC）或 MAC 來回切換（24 小時內，issue #41）
   ip_conflicts: ["ip", "evidence", "changes", "macs"],
-  mac_drifts: ["mac", "ips", "locations"],
+  // 同一台交換器上換了埠：從哪個埠換到哪個埠、什麼時候（出現位置是明細，預設收起）
+  mac_drifts: ["mac", "ips", "device_name", "from_port", "to_port", "moved_at", "locations"],
   ghost_ips: ["ip", "hostname", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
   unauthorized_ips: ["ip"],
   rogue_dhcp: ["server_ip", "subnet_cidr", "mac", "vendor", "offered_ip", "router",
@@ -285,6 +299,7 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   stale_device_links: ["ip", "hostname", "mac", "device", "linked_at", "mac_changed_at", "ip_address_id"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
+  mac_drifts: ["locations"],
   mac_flapping: ["ip_id", "days"],
   ghost_ips: ["ip_address_id"],
   // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
@@ -317,6 +332,7 @@ function pretty(k: string, val: any): string {
     return String(val);
   }
   if (k === "monitored" || k === "randomized") return val ? t("common.yes") : t("common.no");
+  if (k === "category") return te(`anomaly.drift_cat.${val}`) ? t(`anomaly.drift_cat.${val}`) : String(val);
   if (k === "evidence" && Array.isArray(val)) {
     return val.map((x) => (te(`anomaly.evidence_${x}`) ? t(`anomaly.evidence_${x}`) : String(x)))
       .join("、");
@@ -785,6 +801,14 @@ onMounted(() => { void loadIgnorable(); });
                           :bordered="false" size="small" :scroll-x="catScrollX(c.key)" :pagination="pg" />
           </template>
           <n-empty v-else :description="t('anomaly.none_found')" style="margin: 16px 0" />
+          <n-collapse v-if="c.key === 'mac_drifts' && driftRefs.length" style="margin-top: 12px"
+                      data-testid="drift-reference">
+            <n-collapse-item :title="t('anomaly.drift_reference', { n: driftRefs.length })" name="ref">
+              <div class="drift-ref-hint">{{ t("anomaly.drift_reference_hint") }}</div>
+              <n-data-table :columns="driftRefCols" :data="driftRefs" :bordered="false" size="small"
+                            :scroll-x="1030" :pagination="pg" />
+            </n-collapse-item>
+          </n-collapse>
         </n-tab-pane>
       </n-tabs>
     </template>
@@ -869,4 +893,5 @@ onMounted(() => { void loadIgnorable(); });
 /* 本地管理／隨機位址：標成警示色，因為它是「多半不是真衝突」的主要線索 */
 .mac-tag--local { background: rgba(240, 160, 32, .16); color: #b26a00; }
 .mac-seen { font-size: 11.5px; opacity: .6; white-space: nowrap; }
+.drift-ref-hint { font-size: 12.5px; opacity: .7; margin-bottom: 8px; }
 </style>

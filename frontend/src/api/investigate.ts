@@ -13,6 +13,7 @@ export async function investigate(ip: string, narrative = false, lang = "zh-TW")
     dossier: any;
     narrative: string | null;
     narrative_error: string | null;
+    model: string | null;
   };
 }
 
@@ -21,6 +22,7 @@ export interface NarrativeEvent {
   text?: string;
   elapsed?: number;
   detail?: string;
+  model?: string;        // done 事件：實際寫這段判讀的模型
 }
 
 /**

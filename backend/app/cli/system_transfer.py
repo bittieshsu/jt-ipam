@@ -55,19 +55,12 @@ async def _schema_version() -> str | None:
             return None
 
 
-async def _build_env(scope: list[str], passphrase: str) -> tuple[dict, dict[str, int]]:
+async def _build(scope: list[str]) -> tuple[bytes, dict[str, int], str | None]:
+    """串流匯出（邊讀邊壓縮）：回 (gzip 後的 inner JSON, 各表筆數, schema 版本)。"""
     schema_version = await _schema_version()
     async with SessionLocal() as session:
-        inner = await exporter.build_export(session, scope)
-    env = crypto.seal(
-        inner, passphrase,
-        metadata={
-            "app_version": __version__, "schema_version": schema_version,
-            "scope": scope, "exported_at": datetime.now(UTC).isoformat(),
-        },
-        rng=_rng,
-    )
-    return env, inner["counts"]
+        raw, counts = await exporter.export_compressed(session, scope)
+    return raw, counts, schema_version
 
 
 def _export(scope: list[str], out: str, passphrase: str) -> int:
@@ -76,17 +69,21 @@ def _export(scope: list[str], out: str, passphrase: str) -> int:
         print(f"[error] unknown scope(s): {', '.join(bad)}", file=sys.stderr)
         print(f"        valid: {', '.join(registry.SCOPES)}", file=sys.stderr)
         return 1
-    env, counts = asyncio.run(_build_env(scope, passphrase))
-    data = json.dumps(env, ensure_ascii=False).encode("utf-8")
-    with open(out, "wb") as f:
-        f.write(data)
-    try:
-        import os
-        os.chmod(out, 0o600)
-    except OSError:
-        pass
+    raw, counts, schema_version = asyncio.run(_build(scope))
+    import os
+    # 一建立就是 0600（先寫再 chmod 的話，中間有一段時間是依 umask 的權限）
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        size = crypto.write_sealed(
+            f, raw, passphrase,
+            metadata={
+                "app_version": __version__, "schema_version": schema_version,
+                "scope": scope, "exported_at": datetime.now(UTC).isoformat(),
+            },
+            rng=_rng,
+        )
     print(f"[ok] exported {sum(counts.values())} rows across {len(counts)} tables "
-          f"→ {out} ({len(data)} bytes)")
+          f"→ {out} ({size} bytes)")
     for name, n in sorted(counts.items()):
         if n:
             print(f"       {name}: {n}")

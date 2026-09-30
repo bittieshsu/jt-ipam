@@ -19,22 +19,27 @@ OWASP：
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import logging
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.safe_http import UnsafeOutboundURL, safe_request, transport_detail
 from app.core.security import decrypt_secret, encrypt_secret
-from app.core.sqlin import not_in_values
+from app.core.sqlin import in_values, not_in_values
 from app.models.address import IPAddress
 from app.models.wazuh import WazuhAgent, WazuhInstance
+
+logger = logging.getLogger(__name__)
 
 
 class WazuhError(RuntimeError):
@@ -183,7 +188,7 @@ async def build_ip_map(
     """取得（IP→IPAddress.id 對應表, 不明確的 IP 集合），已套用限定子網路範圍。"""
     stmt = select(IPAddress.id, IPAddress.ip)
     if scope_ids:
-        stmt = stmt.where(IPAddress.subnet_id.in_(scope_ids))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope_ids))
     return _index_by_ip((await session.execute(stmt)).all())
 
 
@@ -197,6 +202,11 @@ def _clean_ip(s: str | None) -> str | None:
     except ValueError:
         return None
     return s.strip()
+
+
+def _inet_str(v: Any) -> str | None:
+    """INET 欄位讀回來的值（位址物件或字串）→ 不帶遮罩的字串，拿來跟上游的字串比。"""
+    return None if v is None else str(v).split("/", 1)[0]
 
 
 def _parse_keep_alive(s: str | None) -> datetime | None:
@@ -268,7 +278,12 @@ async def fetch_agents(inst: WazuhInstance, *, batch: int = 500) -> list[dict[st
 
 
 async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, Any]:
-    """從 Wazuh 拉 agents，upsert 到 wazuh_agents；對映到 IPAddress。"""
+    """從 Wazuh 拉 agents，upsert 到 wazuh_agents；對映到 IPAddress。
+
+    查詢次數不隨代理數成長（2026-09-30 大量資料測試：以前每個代理各查一次鏡像列、兩次 IP，
+    3 萬個代理一輪 15 萬次查詢、334 秒，什麼都沒變也要 155 秒）：鏡像列與要用到的 IP 先整批載入，
+    「這一輪看到了」的時間最後一次寫完。
+    """
     agents_raw = await fetch_agents(inst)
     now = datetime.now(UTC)
     seen_ids: set[str] = set()
@@ -276,7 +291,6 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
     new_count = 0
     upd_count = 0
 
-    # 預先把 IPAddress 的 IP → id 撈出來（小型部署足夠；大型可改 chunk）
     # 重疊網段：若 instance 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
     scope_ids = _scope_subnet_uuids(inst)
     ip_map, ambiguous = await build_ip_map(session, scope_ids=scope_ids)
@@ -287,52 +301,52 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
     hn_run = HostnameRun(session, source="wazuh", origin=f"wazuh:{inst.id}",
                          peers=await enabled_peers(session, _Inst))
 
+    by_id: dict[str, WazuhAgent] = {a.agent_id: a for a in (await session.execute(
+        select(WazuhAgent).where(WazuhAgent.instance_id == inst.id))).scalars()}
+    wanted = {ip_map[ip] for ip in (_clean_ip(r.get("ip")) for r in agents_raw) if ip and ip in ip_map}
+    ips: dict[Any, IPAddress] = {i.id: i for i in (await session.execute(
+        select(IPAddress).where(in_values(IPAddress.id, wanted)))).scalars()} if wanted else {}
+
     for raw in agents_raw:
         agent_id = str(raw.get("id") or "").strip()
         if not agent_id or agent_id == "000":
             # 000 是 manager 自己；不算 agent
+            continue
+        if agent_id in seen_ids:
+            # 同一個代理在回應裡出現兩次（上游分頁重疊）：以前第二次會再新增一筆、撞唯一鍵，
+            # 整個 Wazuh 同步失敗
             continue
         seen_ids.add(agent_id)
 
         ip = _clean_ip(raw.get("ip"))
         register_ip = _clean_ip(raw.get("registerIP"))
         os_block = raw.get("os") or {}
-
-        existing = (
-            await session.execute(
-                select(WazuhAgent).where(
-                    WazuhAgent.instance_id == inst.id,
-                    WazuhAgent.agent_id == agent_id,
-                )
-            )
-        ).scalar_one_or_none()
+        group = (",".join(raw.get("group") or []) if isinstance(raw.get("group"), list)
+                 else raw.get("group"))
 
         addr_id = ip_map.get(ip) if ip else None
         keep_alive = _parse_keep_alive(raw.get("lastKeepAlive"))
+        ipa = ips.get(addr_id) if addr_id is not None else None
         if addr_id is not None:
             matched_ip += 1
+        if ipa is not None:
             # 上線判定：agent 的 keep-alive 是 manager 端維護、會過期的存活證據
             # （使用者要求納入）。**記 keep-alive 本身的時間，不是同步當下的時間** ——
             # 記成 now 的話，一台三個月前就失聯的 agent 每次同步都會讓那個 IP 變上線。
             # 同一個 IP 可能有多個 agent 登記（DHCP 位址被回收），取最新的一個。
-            if keep_alive is not None:
-                ipa_live = await session.get(IPAddress, addr_id)
-                if ipa_live is not None and (
-                    ipa_live.last_seen_wazuh is None
-                    or ipa_live.last_seen_wazuh < keep_alive
-                ):
-                    ipa_live.last_seen_wazuh = keep_alive
+            if keep_alive is not None and (ipa.last_seen_wazuh is None or ipa.last_seen_wazuh < keep_alive):
+                ipa.last_seen_wazuh = keep_alive
             # 回填 IP 主機名稱（來源 "wazuh"，依名稱順序決定是否採用）。
             # 只採用「現在還代表這個 IP」的代理（與 OS 同一條判準）：DHCP 位址被回收再配給
             # 別台後，舊代理的登記還在 —— 以前照樣寫進去、而且永遠不清（2026-09-26 稽核）。
             # 多個代理都代表同一個 IP 時，HostnameRun 同一輪內取固定的一個（不再每輪互相覆寫）
-            ipa = await session.get(IPAddress, addr_id)
             probe = SimpleNamespace(status=raw.get("status"), last_keep_alive=keep_alive)
-            if ipa is not None and agent_represents_ip(probe, ipa):
+            if agent_represents_ip(probe, ipa):
                 hn_run.report(ipa, (raw.get("name") or "").strip() or None)
 
+        existing = by_id.get(agent_id)
         if existing is None:
-            obj = WazuhAgent(
+            by_id[agent_id] = WazuhAgent(
                 instance_id=inst.id,
                 agent_id=agent_id,
                 name=raw.get("name"),
@@ -341,30 +355,29 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
                 os_platform=os_block.get("platform"),
                 os_version=os_block.get("version"),
                 agent_version=raw.get("version"),
-                group=",".join(raw.get("group") or []) if isinstance(raw.get("group"), list) else raw.get("group"),
+                group=group,
                 node_name=raw.get("node_name"),
                 last_keep_alive=keep_alive,
                 last_seen_at=now,
                 jt_ipam_address_id=addr_id,
             )
-            session.add(obj)
+            session.add(by_id[agent_id])
             new_count += 1
         else:
+            # 值沒變的欄位 ORM 不會寫；last_seen_at 迴圈外一次寫完
             existing.name = raw.get("name") or existing.name
-            existing.ip = ip
-            existing.register_ip = register_ip
+            # INET 讀回來是位址物件、上游給的是字串：直接指派每一輪都算「有變」，每一列都被重寫
+            if _inet_str(existing.ip) != ip:
+                existing.ip = ip
+            if _inet_str(existing.register_ip) != register_ip:
+                existing.register_ip = register_ip
             existing.status = raw.get("status")
             existing.os_platform = os_block.get("platform")
             existing.os_version = os_block.get("version")
             existing.agent_version = raw.get("version")
-            existing.group = (
-                ",".join(raw.get("group") or [])
-                if isinstance(raw.get("group"), list)
-                else raw.get("group")
-            )
+            existing.group = group
             existing.node_name = raw.get("node_name")
             existing.last_keep_alive = keep_alive
-            existing.last_seen_at = now
             existing.jt_ipam_address_id = addr_id
             upd_count += 1
 
@@ -376,11 +389,15 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
     # 讀到 0 個代理、先前卻有：多半是權限或 API 出問題，不刪。
     removed = 0
     if seen_ids:
-        stale = (await session.execute(select(WazuhAgent).where(
-            WazuhAgent.instance_id == inst.id, not_in_values(WazuhAgent.agent_id, seen_ids)))).scalars().all()
-        for row in stale:
-            await session.delete(row)
-        removed = len(stale)
+        await session.flush()
+        removed = (await session.execute(delete(WazuhAgent).where(
+            WazuhAgent.instance_id == inst.id, not_in_values(WazuhAgent.agent_id, seen_ids)))).rowcount or 0
+        # 剩下的都是這一輪看到的
+        await session.execute(update(WazuhAgent).where(WazuhAgent.instance_id == inst.id)
+                              .values(last_seen_at=now).execution_options(synchronize_session=False))
+        for a in by_id.values():
+            if a.agent_id in seen_ids:
+                set_committed_value(a, "last_seen_at", now)
 
     inst.last_sync_at = now
     inst.last_error = (f"hostname cleanup skipped: {hn['breaker']}" if hn["breaker"] else None)
@@ -426,7 +443,7 @@ async def find_missing_agents(
     if subnet_ids is not None:
         if not subnet_ids:
             return []
-        stmt = stmt.where(IPAddress.subnet_id.in_(subnet_ids))
+        stmt = stmt.where(in_values(IPAddress.subnet_id, subnet_ids))
     rows = (await session.execute(stmt)).all()
     return [
         {
@@ -438,6 +455,14 @@ async def find_missing_agents(
     ]
 
 
+#: 每個代理的 SCA 隔多久查一次（Wazuh 預設 12 小時跑一次 SCA 掃描）
+SCA_REFRESH = timedelta(hours=12)
+#: 每一輪同步最多查幾個代理（同步每 5 分鐘一輪 → 一天約 5.7 萬個；遠低於 API 預設每分鐘 300 個的限流）
+SCA_MAX_PER_RUN = 200
+#: 同時查幾個
+SCA_CONCURRENCY = 4
+
+
 async def fetch_sca(inst: WazuhInstance, agent_id: str) -> list[dict[str, Any]]:
     """某個 agent 的 SCA 政策結果。用現有的 manager API 帳號即可，不需要額外憑證。"""
     resp = await _api_get(inst, f"/sca/{agent_id}")
@@ -445,7 +470,7 @@ async def fetch_sca(inst: WazuhInstance, agent_id: str) -> list[dict[str, Any]]:
     return [r for r in rows if isinstance(r, dict)]
 
 
-async def sync_sca(session: AsyncSession, inst: WazuhInstance) -> int:
+async def sync_sca(session: AsyncSession, inst: WazuhInstance, *, max_agents: int | None = None) -> int:
     """把每個 agent 的 SCA 摘要寫回 wazuh_agents。
 
     一台機器可能同時跑多個基準（CIS、廠商自訂…）。畫面上只放得下一個數字時，
@@ -453,24 +478,47 @@ async def sync_sca(session: AsyncSession, inst: WazuhInstance) -> int:
 
     單一 agent 查詢失敗不影響其他台：SCA 沒跑過的 agent 本來就會回空清單。
     """
-    agents = (await session.execute(
-        select(WazuhAgent).where(WazuhAgent.instance_id == inst.id)
-    )).scalars().all()
+    # 超大規模（2026-09-30）：以前每一輪都對**每個**代理打一次 API。Wazuh API 預設每分鐘
+    # 只收 300 個請求，3 萬個代理光一輪就要 100 分鐘以上，被限流的請求還被當成「沒有 SCA」
+    # 安靜略過；整輪同步又是依序跑的，其他整合全被卡住。改成：每個代理隔 SCA_REFRESH 才查一次、
+    # 每輪最多 SCA_MAX_PER_RUN 個、最久沒查的先查、被限流就停（後面的一樣會被擋）。
+    limit = SCA_MAX_PER_RUN if max_agents is None else max_agents
     now = datetime.now(UTC)
+    agents = (await session.execute(
+        select(WazuhAgent).where(
+            WazuhAgent.instance_id == inst.id,
+            or_(WazuhAgent.sca_checked_at.is_(None), WazuhAgent.sca_checked_at < now - SCA_REFRESH))
+        .order_by(WazuhAgent.sca_checked_at.asc().nulls_first(), WazuhAgent.agent_id)
+        .limit(limit)
+    )).scalars().all()
     n = 0
-    for a in agents:
-        try:
-            rows = await fetch_sca(inst, a.agent_id)
-        except WazuhError:
-            continue
-        if not rows:
-            continue
-        worst = min(rows, key=lambda r: int(r.get("score") or 0))
-        a.sca_policy = str(worst.get("name") or "")[:128] or None
-        a.sca_score = int(worst.get("score") or 0)
-        a.sca_pass = int(worst.get("pass") or 0)
-        a.sca_fail = int(worst.get("fail") or 0)
-        a.sca_policy_count = len(rows)
-        a.sca_scanned_at = now
-        n += 1
+    for i in range(0, len(agents), SCA_CONCURRENCY):
+        chunk = agents[i:i + SCA_CONCURRENCY]
+
+        async def _one(agent_id: str) -> Any:
+            try:
+                return await fetch_sca(inst, agent_id)
+            except WazuhError as exc:
+                return exc
+        results = await asyncio.gather(*(_one(a.agent_id) for a in chunk))
+        limited = False
+        for a, rows in zip(chunk, results, strict=True):
+            if isinstance(rows, WazuhError):
+                limited = limited or " 429" in str(rows)
+                continue                       # 沒查到的不算查過，下一輪再來
+            a.sca_checked_at = now
+            if not rows:
+                continue
+            worst = min(rows, key=lambda r: int(r.get("score") or 0))
+            a.sca_policy = str(worst.get("name") or "")[:128] or None
+            a.sca_score = int(worst.get("score") or 0)
+            a.sca_pass = int(worst.get("pass") or 0)
+            a.sca_fail = int(worst.get("fail") or 0)
+            a.sca_policy_count = len(rows)
+            a.sca_scanned_at = now
+            n += 1
+        if limited:
+            logger.warning("wazuh %s: SCA rate limited after %d agents; the rest wait for the next run",
+                           inst.name, i + len(chunk))
+            break
     return n

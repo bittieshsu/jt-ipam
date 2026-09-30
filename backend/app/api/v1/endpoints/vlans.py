@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.sqlin import in_values
 from app.models.librenms import LibreNMSDevice
 from app.models.vlan import VLAN, DeviceVLAN, VLANDomain
 from app.schemas.base import Paginated, StrictModel
@@ -184,7 +185,7 @@ async def list_vlans(
     if vlan_ids:
         for vid, cnt in (await session.execute(
             select(DeviceVLAN.vlan_id, func.count())
-            .where(DeviceVLAN.vlan_id.in_(vlan_ids))
+            .where(in_values(DeviceVLAN.vlan_id, vlan_ids))
             .group_by(DeviceVLAN.vlan_id)
         )).all():
             count_map[vid] = cnt
@@ -200,7 +201,7 @@ async def list_vlans(
         for num, cnt in (await session.execute(
             select(FDBEntry.vlan_id_num, func.count(func.distinct(
                 func.concat(cast(FDBEntry.device_id, String), "|", FDBEntry.port_name))))
-            .where(FDBEntry.vlan_id_num.in_(numbers))
+            .where(in_values(FDBEntry.vlan_id_num, numbers))
             .group_by(FDBEntry.vlan_id_num)
         )).all():
             if num is not None:
@@ -208,7 +209,7 @@ async def list_vlans(
         for vid, cnt in (await session.execute(
             select(Subnet.vlan_id, func.count(IPAddress.id))
             .join(IPAddress, IPAddress.subnet_id == Subnet.id)
-            .where(Subnet.vlan_id.in_(vlan_ids))
+            .where(in_values(Subnet.vlan_id, vlan_ids))
             .group_by(Subnet.vlan_id)
         )).all():
             if vid is not None:
