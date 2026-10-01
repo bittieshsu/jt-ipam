@@ -6,6 +6,68 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [0.6.59] - 2026-10-01
+
+Security fixes from a CodeQL review: outbound requests could reach the server itself through IPv4-mapped
+IPv6 addresses, the address check now happens at connect time (no DNS rebinding window), redirects no longer carry
+integration tokens to another host, and ordinary accounts get error codes instead of raw AI errors. LibreNMS can now
+create IP records from its ARP table (off by default, guarded against long-lived ARP caches by requiring a recent
+switch MAC table sighting); Unauthorized IPs no longer samples large ARP tables; liveness changes no longer claim to
+come from LibreNMS on sites without it (#49).
+
+### Added
+- **Create IPs from the LibreNMS ARP table** (GitHub #48; LibreNMS integration settings, **off by default**).
+  Addresses IPAM does not have but LibreNMS's ARP table shows get a record (source "LibreNMS ARP", flagged as
+  auto-collected in the IP list, with a "created" entry in the change history). Because LibreNMS ARP has no
+  timestamps and some devices keep ARP entries for hours or days, by default the MAC must also have been seen
+  in a switch MAC table (LibreNMS or MikroTik FDB) within 24 hours, so devices that left long ago are not brought
+  back. Only inside a unique existing subnet (overlapping networks need a subnet scope); proxy ARP, broadcast and
+  multicast MACs, network and broadcast addresses, one IP with several MACs, addresses in cooldown and (by
+  default) DHCP pools are skipped; at most 500 per round. The background task summary says how many were
+  created and the top reasons for the rest. Turning it on means those devices no longer appear under
+  "Unauthorized IPs"; the settings page says so.
+
+### Fixed
+- **Online/offline entries in the IP change history said "librenms" on sites without LibreNMS** (GitHub #49).
+  The liveness recompute has run for every site since September but still wrote a fixed source. Offline is now
+  recorded as `system` (the evidence expired) and online as the source that brought it back (for example
+  `scanner` or `opnsense`). The source filter on that page now lists every integration, not just seven. On sites with no LibreNMS integration, existing entries are relabelled `system` (with LibreNMS present they are left alone, since they cannot be told apart).
+- **Unauthorized IPs missed most addresses on large sites**: detection looked at an arbitrary 2,000 ARP
+  addresses and then cut the list to 200, sorted as text, without saying so. The difference with IPAM is now
+  computed in the database, the list shows up to 1,000 (most recently seen first) and the tab says how many
+  there are in total.
+- The dashboard racks card sometimes forgot its setting after a reload: saving sent two preference updates at
+  once and the older one could arrive last. Preference writes are now sent one at a time with the latest state.
+- On phones the device list squeezed names into several lines (the name column had no width).
+- Changing a LibreNMS integration's settings is now audited with the fields that changed, not only whether the
+  token was replaced.
+- Backend tests no longer write uploads to `/var/lib/jt-ipam` (they failed on GitHub CI, which cannot create it).
+
+### Security
+- **Outbound requests could reach the server itself through IPv4-mapped IPv6 addresses** (CodeQL review).
+  `http://[::ffff:127.0.0.1]/` and `[::ffff:169.254.169.254]` were neither loopback nor link-local to the
+  guard, yet Linux connects them to 127.0.0.1; any signed-in account could use the Tools page HTTP check to
+  reach local services and cloud metadata. Mapped addresses are now judged as the IPv4 they stand for, and the
+  AWS IPv6 metadata address `fd00:ec2::254` is blocked.
+- **The guard is now applied at connect time.** The name used to be resolved for the check and resolved again
+  by the HTTP client, so a DNS answer that changed in between (DNS rebinding) got through. Every outbound
+  client (integrations, notifications, the AI, the Tools page) now resolves, checks and connects to the checked
+  address in one step; the URL, Host header, SNI and certificate check still use the name.
+- **Redirects no longer carry credentials to another host**: integration tokens (LibreNMS, Proxmox, LLM keys)
+  were resent to wherever a 302 pointed. Same-host redirects and http to https upgrades keep them; a 303 (or a
+  301/302 after POST) becomes a GET without the body; query parameters are no longer appended on every hop.
+- The Tools page TCP, UDP and TLS checks now refuse loopback, link-local and multicast targets like the HTTP
+  check (they could be used to scan the server's own local ports); private networks remain diagnosable.
+- AI chat, semantic search and IP investigation no longer show raw error text to ordinary accounts (internal LLM
+  host names, outbound-guard rules, upstream 401 bodies): they get a translated error code, admins still see
+  the reason. When an AI tool fails, ordinary accounts see only the exception type; admins see its first line, without the SQL and parameters that database errors append.
+- Two regular expressions that parse agent-reported nmap output were quadratic (10+ seconds on crafted input,
+  blocking the worker); both are linear now with identical results.
+- RIPE/TWNIC import (`/import/ripe/commit`) no longer returns database error text with SQL and parameters, and
+  one failed row no longer turns the whole import into a 500.
+- Scan agent 1.14.1: a truncated DHCP option in any reply used to end the rogue-DHCP listening window, so one
+  malformed packet could hide a rogue server.
+
 ## [0.6.58] - 2026-10-01
 
 MAC history: everything about one MAC, the IPs it used, the switch ports it appeared on and its timeline; every

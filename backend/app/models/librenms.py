@@ -67,6 +67,22 @@ class LibreNMSInstance(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     auto_create_ips: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, server_default=text("true"),
     )
+    # 依 ARP 表自動建立 IP（GitHub #48，0173）：**預設關**。開了之後私接的設備也會被收錄，
+    # 而且從此不再出現在「未授權 IP」異常偵測（那道偵測看的就是「ARP 看得到、IPAM 沒有」）。
+    # 規則與把關見 services/arp_autocreate.py。
+    auto_create_from_arp: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=text("false"),
+    )
+    # 要交換器 MAC 表（FDB）在 24 小時內也看過這個 MAC 才建。LibreNMS 的 ARP 沒有時間欄位，
+    # 而有些設備的 ARP 快取幾小時到幾天才清（Cisco 預設 4 小時，有的要到介面斷線或重開機）；
+    # MAC 表通常 5 分鐘就老化，所以拿它證明「最近真的有在講話」。
+    arp_create_require_fdb: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default=text("true"),
+    )
+    # 略過 DHCP 動態範圍內的位址（那段會回收再發給別台，建了只是一直換人）
+    arp_create_skip_dhcp: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default=text("true"),
+    )
 
     # 限定 sync 解析 IP 的子網路範圍（解決重疊網段：A/B 客戶都用 192.168.1.x）。
     # 空 = 全域比對（向下相容）。存 subnet UUID 字串陣列。

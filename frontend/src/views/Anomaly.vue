@@ -37,6 +37,9 @@ const msg = useMessage();
 const pg = useTablePagination();
 const loading = ref(false);
 const report = ref<AnomalyReport | null>(null);
+// 未授權 IP 超過清單上限：只列出最近看到的那些，要講出來（以前靜靜切掉）
+const unauthTruncated = computed(() =>
+  (report.value?.unauthorized_total ?? 0) > (report.value?.unauthorized_ips.length ?? 0));
 const lastRunAt = ref<string | null>(null);
 /** 上次結果是排程跑的還是手動按的（進頁面載入上次結果時顯示） */
 const lastTrigger = ref<"manual" | "schedule" | null>(null);
@@ -875,6 +878,11 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
           <!-- 每個類別先講清楚「這是什麼、為什麼會出現」，否則一長串 IP 沒人看得懂 -->
           <n-alert type="default" :bordered="false" :show-icon="false" class="cat-note">
             {{ t(`anomaly.explain_${c.key}`) }}
+          </n-alert>
+          <n-alert v-if="c.key === 'unauthorized_ips' && unauthTruncated" type="warning" :bordered="false"
+                   :show-icon="false" class="cat-note" data-testid="unauth-truncated">
+            {{ t("anomaly.unauthorized_truncated", { shown: report?.unauthorized_ips.length ?? 0,
+                                                     total: report?.unauthorized_total ?? 0 }) }}
           </n-alert>
           <template v-if="catRows(c.key).length">
             <div class="cat-toolbar">

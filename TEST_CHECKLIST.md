@@ -123,6 +123,17 @@ with the real cause hidden in a traceback.
 - [ ] A08 integrity: uploads / external data are validated; no path traversal
   (resolved upload/download paths stay inside the allow-listed directory)
 - [ ] Secrets: no secret/token written to logs or responses
+- [ ] **Outbound guard** (`tests/test_safe_http_guard.py`, `tests/test_netdiag_http_guard.py`): `::ffff:127.0.0.1`,
+  `::ffff:169.254.169.254` and `fd00:ec2::254` are refused; a DNS answer that changes to 127.0.0.1 after the check
+  is refused at connect time (integrations, shared clients, Tools page HTTP check); a cross-host redirect drops
+  credential headers, same-host and http to https keep them; Tools page TCP/UDP/TLS refuse loopback and
+  link-local but still test private networks. After deploy: run each integration's Test connection once
+  (TLS name check and HTTP/2 must still work through the connect-time guard).
+- [ ] **Error text for ordinary accounts** (`tests/test_ai_error_codes.py`): with the LLM unreachable, a non-admin
+  sees a translated "Cannot reach the LLM server" in AI chat and IP investigation, no host name; an admin sees the
+  reason. A new error code needs `errors.<code>` in all three languages.
+- [ ] **New code reported by GitHub code scanning**: check the open alerts after every push; fix or dismiss with a
+  written reason (admin-only diagnostics are dismissed as "won't fix").
 
 ## 5b. Deploy-script flows (throwaway environment, **never run install on dev/prod**)
 
@@ -450,6 +461,15 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   host name stayed the same. A department account sees only IPs in granted subnets and granted devices, and no DHCP or
   VMs (the page says so). A non-MAC returns `mac_invalid`. On production, check a MAC that really moved against the IP
   details change history.
+- [ ] **Create IPs from the LibreNMS ARP table** (#48, `tests/test_librenms_arp_autocreate.py`): LibreNMS integration →
+  edit → "Create IPs from the ARP table" is off on a new and on an upgraded site. Turn it on → the warning (no longer
+  under Unauthorized IPs, not liveness evidence) and two options appear: "Require a switch MAC table sighting" (on) and
+  "Skip DHCP dynamic ranges" (on); unticking the first shows the ARP-only warning. Sync → new addresses have source
+  "LibreNMS ARP", the auto-collected tag, a MAC and a "created" entry in the change history; the Tasks summary shows
+  "IPs created from ARP N" and the top reasons for the rest. A device unplugged hours ago that still sits in the router's
+  ARP cache is NOT created while the MAC-table option is on. Overlapping subnets without a scope, proxy ARP, broadcast
+  and network addresses, released (cooldown) addresses and DHCP pools are skipped. The created IPs do not turn online on
+  ARP alone. The audit log entry for the settings change lists the changed fields.
 - [ ] **Site-to-site VPN from every vendor** (`tests/test_vpn_site_to_site.py`): the default "Subnets only" view has VPN
   lines; FortiGate IPsec tunnels, Palo Alto IPsec tunnels ("Site-to-site VPN" in the integration settings, on by
   default; Test connection shows `vpn_flow`) and MikroTik WireGuard all know their own device (left side of
@@ -1065,6 +1085,12 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **Anomaly detection keeps the last result**: run once → go elsewhere and come back, the result is shown without
   running again, "Last run" shows when it ran, scheduled runs are marked. On the Unauthorized IPs tab click
   Identify then Back → the same tab with the result still there (`?tab=` in the URL).
+- [ ] **Unauthorized IPs on a large site** (`tests/test_anomaly_scope.py::test_large_arp_tables_are_not_sampled`): with more
+  than 2,000 ARP addresses, unregistered ones beyond the first 2,000 are still found; over 1,000 results the tab shows
+  "Showing the N most recently seen of M" and the list is ordered by last seen.
+- [ ] **Online/offline source in the IP change history** (#49, `tests/test_liveness_flip_source.py`): on a site without
+  LibreNMS, an IP going offline is recorded with source `system`, one coming back online with the source that saw it
+  (`scanner`, `opnsense`, ...); the source filter lists every integration.
 - [ ] **MCP client-config generator** (LLM/AI): button outputs Claude Desktop / opencode / mcpo / generic snippets.
 - [ ] **LLM provider = OpenAI-compatible** (Admin → LLM/AI): switching to it shows the data-egress warning
   and the API-key field; the model dropdown repopulates from `/v1/models` (empty dropdown = the wrong path

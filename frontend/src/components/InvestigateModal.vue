@@ -153,6 +153,7 @@ import { narrativeStream } from "@/api/investigate";
 import { TestIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 import { renderMarkdown } from "@/utils/markdown";
+import { aiErrText } from "@/utils/wsError";
 import { downloadReport, type ReportFormat, type ReportSection } from "@/utils/investigateReport";
 import ChangeValue from "@/components/ChangeValue.vue";
 
@@ -243,7 +244,7 @@ async function ask() {
         if (ev.text) narrative.value = ev.text;
         aiModel.value = ev.model ?? "";
       }
-      else if (ev.type === "error") narrativeError.value = ev.detail ?? "";
+      else if (ev.type === "error") narrativeError.value = aiErrText(ev, ev.detail ?? "");
       if (ev.elapsed != null) elapsed.value = Math.round(ev.elapsed);
     });
   } catch (e: any) {

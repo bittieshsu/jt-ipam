@@ -182,7 +182,12 @@ _RECOG_STRONG_OS = 0.75           # OS 到這個把握度才蓋過 nmap 的 OS �
 _MAX_RECOG_EVIDENCE = 6
 
 _NMAP_ESC = re.compile(r"\\x([0-9A-Fa-f]{2})|\\\\")
-_TELNET_IAC = re.compile(rb"\xff[\xfb-\xfe].|\xff\xfa.*?\xff\xf0|\xff[\xf0-\xfa]", re.S)
+# telnet 協商位元組：WILL/WONT/DO/DONT＋選項、子協商 SB … SE、其他單一指令。
+# 子協商限長（CodeQL #39）：以前寫 `.*?`，每個沒結束的 SB 都掃到結尾＝二次方（40 KB 要十秒）；
+# 子協商內容裡的 IAC 會寫成 \xff\xff，要允許
+_TELNET_IAC = re.compile(rb"\xff[\xfb-\xfe].|\xff\xfa(?:[^\xff]|\xff\xff){0,256}\xff\xf0|\xff[\xf0-\xfa]", re.S)
+#: smb-os-discovery 的「OS: …」那一行（只取整行，括號另外拆：CodeQL #40）
+_SMB_OS_LINE = re.compile(r"^[ \t]*OS: ([^\n]+)$", re.M)
 # nmap ssl-cert 的欄位名稱 → RFC 4514 的簡寫（Recog 的憑證範例是 CN=…,OU=…,O=…,L=…,ST=…,C=… 的順序）
 _DN_ORDER = (("emailAddress", "emailAddress"), ("serialNumber", "SERIALNUMBER"), ("commonName", "CN"),
              ("organizationalUnitName", "OU"), ("organizationName", "O"), ("localityName", "L"),
@@ -277,11 +282,17 @@ def recog_observations(nmap: dict[str, Any]) -> list[tuple[str, str | None, str]
                 obs.append((f"x509.{part}", where, dn))
     # smb-os-discovery 是主機層腳本：「OS: Windows 10 Pro 19045 (Windows 10 Pro 6.3)」＝ native OS (LAN manager)
     smb = str((nmap.get("host_scripts") or {}).get("smb-os-discovery") or "")
-    m = re.search(r"^\s*OS: (.+?)(?: \((.+)\))?\s*$", smb, re.M)
-    if m:
-        obs.append(("smb.native_os", None, m.group(1)))
-        if m.group(2):
-            obs.append(("smb.native_lm", None, m.group(2)))
+    # 以前一條正規表示式同時拆括號（`(.+?)(?: \((.+)\))?\s*$`）：遇到「OS: a ( ( ( …」是二次方。
+    # 現在先取整行、再用字串操作拆：第一個「 (」之前是 native OS，結尾的括號內是 LAN manager
+    m = _SMB_OS_LINE.search(smb)
+    rest = m.group(1).strip() if m else ""
+    if rest:
+        i = rest.find(" (", 1)
+        if i != -1 and rest.endswith(")") and len(rest) - i > 3:
+            obs.append(("smb.native_os", None, rest[:i]))
+            obs.append(("smb.native_lm", None, rest[i + 2:-1]))
+        else:
+            obs.append(("smb.native_os", None, rest))
     return obs
 
 

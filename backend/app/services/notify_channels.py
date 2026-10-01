@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.safe_http import assert_url_safe
+from app.core.safe_http import assert_url_safe, guarded_client
 
 log = logging.getLogger("notify_channels")
 
@@ -43,7 +43,8 @@ async def _post(url: str, *, json: dict | None = None, data: dict | None = None,
     檢查用的是同一個函式。`follow_redirects=False`：避免以重導繞過檢查過的目標。
     """
     assert_url_safe(url)
-    async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+    # 連線當下再檢查一次（DNS 可以在檢查後換答案）、不信任 HTTP_PROXY 等環境變數
+    async with guarded_client(timeout=_TIMEOUT, http2=False) as client:
         r = await client.post(url, json=json, data=data, headers=headers, auth=auth)
         if r.status_code >= 300:
             raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")

@@ -96,6 +96,10 @@ export interface LibreNMSInstance {
   use_for_status: boolean;
   auto_add_devices: boolean;
   auto_create_ips: boolean;
+  /** 依 ARP 表自動建立 IP（#48，預設關） */
+  auto_create_from_arp?: boolean;
+  arp_create_require_fdb?: boolean;
+  arp_create_skip_dhcp?: boolean;
   sync_interval_seconds: number;
   last_sync_at: string | null;
   last_error: string | null;

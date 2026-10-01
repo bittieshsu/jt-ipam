@@ -39,7 +39,8 @@ export type ChatStreamEvent =
   | { type: "tool_round" }
   | { type: "pending_action"; actions: PendingAction[] }
   | { type: "done"; answer: string; trace_messages: ChatMessage[]; model?: string | null; elapsed_ms?: number | null; conversation_id?: string; pending_actions?: PendingAction[] }
-  | { type: "error"; detail: string };
+  // 錯誤：一般帳號只有 code（照語系翻）；管理員的 params.reason 是底層原因。detail 是退路文字
+  | { type: "error"; detail: string; code?: string; params?: Record<string, unknown> };
 
 // 使用者按下「確認」→ 真正執行該異動動作
 export async function confirmAction(tool: string, args: Record<string, unknown>): Promise<{ ok: boolean; tool: string; title: string; result: unknown }> {

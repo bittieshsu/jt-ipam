@@ -148,6 +148,8 @@ class SyncSummary:
     links_upserted: int = 0
     links_pruned: int = 0
     ip_mac_filled: int = 0   # 自動把 ARP 學到的 MAC 填回 IPAddress 表
+    arp_ips_created: int = 0                     # 依 ARP 自動建立的 IP（#48）
+    arp_create_skipped: dict[str, int] = field(default_factory=dict)   # 沒建的原因與筆數
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -162,6 +164,8 @@ class SyncSummary:
                 "seen": self.arp_seen,
                 "inserted": self.arp_inserted,
                 "updated": self.arp_updated,
+                "ips_created": self.arp_ips_created,
+                "create_skipped": self.arp_create_skipped,
             },
             "fdb": {
                 "seen": self.fdb_seen,
@@ -504,9 +508,12 @@ async def _prune_devices(session: AsyncSession, instance: LibreNMSInstance, seen
 
 
 async def sync_arp(
-    session: AsyncSession, instance: LibreNMSInstance,
+    session: AsyncSession, instance: LibreNMSInstance, *, autocreate_stats: dict[str, Any] | None = None,
 ) -> tuple[int, int, int, int]:
-    """逐 device 抓 ARP；回傳 (seen, inserted, updated, ip_mac_filled)。"""
+    """逐 device 抓 ARP；回傳 (seen, inserted, updated, ip_mac_filled)。
+
+    `autocreate_stats`：有給就填入「依 ARP 自動建立 IP」的結果（{"created", "skipped"}）。
+    """
     devices = list(
         (await session.execute(
             select(LibreNMSDevice).where(
@@ -575,6 +582,13 @@ async def sync_arp(
     for i in range(0, len(fresh), 5000):
         await session.execute(insert(ARPEntry), fresh[i:i + 5000])
     inserted, updated = len(fresh), len(touch)
+
+    # 依 ARP 自動建立 IP（#48，預設關）：放在這裡，新建的列會走下面同一段補 last_seen_arp 與 MAC
+    from app.services.arp_autocreate import create_from_arp
+    ac = await create_from_arp(session, instance, [(e["ip"], e["mac"]) for e in entries.values()],
+                               scope_ids=scope_ids, now=now)
+    if autocreate_stats is not None:
+        autocreate_stats.update(ac)
 
     # ARP 看到這個 IP → 蓋 `last_seen_arp`（**不是** last_seen_librenms）。
     # 兩者可信度差很多：LibreNMS 的 ARP API 不回任何時間欄位，我們只能因為
@@ -1115,7 +1129,7 @@ async def recompute_effective_status(
     observations: list[dict[str, Any]] = []
     status_rows: list[dict[str, Any]] = []
     arp_rows: list[dict[str, Any]] = []
-    flips: list[tuple[Any, str, str, bool]] = []
+    flips: list[tuple[Any, str, str, bool, str]] = []
     for ip in rows:
         s_seen = ip.last_seen_scanner
         l_seen = ip.last_seen_librenms
@@ -1141,6 +1155,8 @@ async def recompute_effective_status(
         d_fresh = bool(d_seen and d_seen >= cutoff)
 
         new_status: str
+        # 翻轉記錄的來源（#49）：上線＝讓它上線的那個來源；失聯＝系統判定證據過期
+        flip_src = "system"
         if s_fresh or l_fresh or w_fresh or z_fresh or d_fresh:
             # 會老化的證據：掃描代理實際探測、LibreNMS／Wazuh 的裝置狀態、
             # 防火牆表上此刻還在的項目
@@ -1149,10 +1165,13 @@ async def recompute_effective_status(
                 ("zabbix", z_fresh), (d_src or "", d_fresh),
             ) if ok and n]
             new_status = "online" if len(fresh_srcs) > 1 else f"online ({fresh_srcs[0]})"
+            # 逐來源鍵（arp:opnsense、lease:kea…）記廠牌，跟各整合自己寫的異動記錄一致
+            flip_src = fresh_srcs[0].split(":", 1)[-1]
         elif a_fresh:
             # **只有 ARP 撐著**：算上線，但標成獨立等級。ARP 只證明某個 MAC↔IP 對應
             # 曾被學到，不證明機器現在活著 —— 來源設備快取不老化就會一直是這個狀態。
             new_status = "online (arp)"
+            flip_src = "librenms"         # last_seen_arp 只有 LibreNMS 的 ARP 同步會寫
         elif ((use_s and s_seen) or (use_l and l_seen) or (use_a and a_seen)
               or (use_w and w_seen) or (use_z and z_seen) or d_seen):
             # 有被採信的來源看過它，但都過期 → 離線
@@ -1181,7 +1200,7 @@ async def recompute_effective_status(
                 was_online = prev.startswith("online")
                 now_online = new_status.startswith("online")
                 if was_online != now_online:
-                    flips.append((ip, prev, new_status, now_online))
+                    flips.append((ip, prev, new_status, now_online, flip_src))
 
     if arp_rows:
         await session.execute(update(IPAddress), arp_rows)
@@ -1189,12 +1208,13 @@ async def recompute_effective_status(
         await session.execute(update(IPAddress), status_rows)
     if flips:
         latest = await latest_changes(session, [f[0].id for f in flips], "effective_status")
-        for ip, prev, new_status, now_online in flips:
+        for ip, prev, new_status, now_online, flip_src in flips:
+            # 以前寫死 librenms：沒設 LibreNMS 的站台，失聯事件的來源／操作者也顯示 librenms（#49）
             await log_change(
                 session, ip=ip,
                 event_type="online" if now_online else "offline",
                 field="effective_status", old=prev, new=new_status,
-                source="librenms", latest=latest,
+                source=flip_src, latest=latest,
             )
     if observations:
         stmt = pg_insert(IPLivenessDay)
@@ -1541,9 +1561,12 @@ async def sync_instance(
             await sync_device_ports(session, instance)
             await session.commit()
         if instance.sync_arp:
-            s, i, u, f = await sync_arp(session, instance)
+            ac: dict[str, Any] = {}
+            s, i, u, f = await sync_arp(session, instance, autocreate_stats=ac)
             summary.arp_seen, summary.arp_inserted, summary.arp_updated = s, i, u
             summary.ip_mac_filled = f
+            summary.arp_ips_created = int(ac.get("created") or 0)
+            summary.arp_create_skipped = dict(ac.get("skipped") or {})
             await session.commit()
         if instance.sync_fdb:
             s, i, u = await sync_fdb(session, instance)

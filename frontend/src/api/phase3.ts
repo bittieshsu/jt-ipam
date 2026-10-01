@@ -278,6 +278,8 @@ export interface AnomalyReport {
   mac_drift_reference?: any[];
   ghost_ips: any[];
   unauthorized_ips: any[];
+  /** 未授權 IP 總數：清單最多列 1,000 筆（最近看到的在前），超過時這裡比清單長度大 */
+  unauthorized_total?: number;
   rogue_dhcp: any[];
   external_exposure: any[];
   dangling_dns: any[];

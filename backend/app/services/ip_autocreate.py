@@ -128,3 +128,53 @@ async def match_existing_many(
         if key in out:
             out[key] = (rows[0], False) if len(rows) == 1 else (None, True)
     return out
+
+
+class SubnetIndex:
+    """`pick_subnet_for_ip` 的索引版：規則完全相同，但不必逐一比對每個子網路。
+
+    超大規模：ARP 自動建立第一次打開時可能有幾萬個候選位址、站台有幾千個子網路，逐一比對是
+    幾千萬次。這裡依（位址版本, 首碼長度）分組、以網路位址為鍵，查一個位址只要試過出現過的
+    首碼長度（最多 33／129 種，實際通常個位數），由長到短，第一個命中的長度就是「最精確」。
+    """
+
+    def __init__(self, nets: SubnetCandidates) -> None:
+        self._by: dict[tuple[int, int], dict[int, list[tuple[Any, Any]]]] = {}
+        for net, sid in nets:
+            key = (net.version, net.prefixlen)
+            self._by.setdefault(key, {}).setdefault(int(net.network_address), []).append((net, sid))
+        self._lens: dict[int, list[int]] = {}
+        for ver, plen in self._by:
+            self._lens.setdefault(ver, []).append(plen)
+        for v in self._lens.values():
+            v.sort(reverse=True)
+
+    def pick_net(self, aip: Any) -> tuple[Any, Any] | None:
+        """(子網路, id)；歧義或沒有命中回 None。"""
+        bits = aip.max_prefixlen
+        n = int(aip)
+        for plen in self._lens.get(aip.version, ()):
+            mask = ((1 << bits) - 1) ^ ((1 << (bits - plen)) - 1)
+            hit = self._by[(aip.version, plen)].get(n & mask)
+            if hit:
+                return hit[0] if len(hit) == 1 else None
+        return None
+
+    def pick(self, aip: Any) -> Any | None:
+        got = self.pick_net(aip)
+        return got[1] if got else None
+
+    def longest(self, aip: Any) -> Any | None:
+        """最精確包含此位址的網段（不管是否唯一）；沒有命中回 None。"""
+        bits = aip.max_prefixlen
+        n = int(aip)
+        for plen in self._lens.get(aip.version, ()):
+            mask = ((1 << bits) - 1) ^ ((1 << (bits - plen)) - 1)
+            hit = self._by[(aip.version, plen)].get(n & mask)
+            if hit:
+                return hit[0][0]
+        return None
+
+
+def subnet_index(nets: SubnetCandidates) -> SubnetIndex:
+    return SubnetIndex(nets)

@@ -29,8 +29,21 @@ async function ensureLoaded(): Promise<void> {
   await loadingPromise;
 }
 
-async function persistAll(): Promise<void> {
-  try { await updatePreferences({ pinned: allPinned.value }); } catch { /* ignore */ }
+// 寫回要排隊、而且一律送最新狀態：以前每次異動各送一個 PUT，同時在路上時舊的那個晚到就把新的蓋掉
+// （儀表板機櫃卡片存檔會連續改兩個 namespace，設定時有時無）。送出途中又有異動 → 送完再補送一次最新的。
+let inflight: Promise<void> | null = null;
+let dirty = false;
+
+function persistAll(): Promise<void> {
+  dirty = true;
+  if (inflight) return inflight;
+  inflight = (async () => {
+    while (dirty) {
+      dirty = false;
+      try { await updatePreferences({ pinned: { ...allPinned.value } }); } catch { /* ignore */ }
+    }
+  })().finally(() => { inflight = null; });
+  return inflight;
 }
 
 function make(namespace: string) {

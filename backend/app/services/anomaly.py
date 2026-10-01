@@ -52,6 +52,8 @@ class AnomalyReport:
     stale_device_links: list[dict[str, Any]] = field(default_factory=list)
     mac_flapping: list[dict[str, Any]] = field(default_factory=list)
     identity_changes: list[dict[str, Any]] = field(default_factory=list)
+    #: 未授權 IP 的總數（清單最多列 MAX_UNAUTHORIZED 筆）
+    unauthorized_total: int = 0
 
     def total(self) -> int:
         """所有類別的發現筆數合計（排程的日誌用）。"""
@@ -68,6 +70,7 @@ class AnomalyReport:
             "mac_flapping": self.mac_flapping,
             "identity_changes": self.identity_changes,
             "unauthorized_ips": self.unauthorized_ips,
+            "unauthorized_total": max(self.unauthorized_total, len(self.unauthorized_ips)),
             "rogue_dhcp": self.rogue_dhcp,
             "external_exposure": self.external_exposure,
             "dangling_dns": self.dangling_dns,
@@ -667,44 +670,51 @@ async def _anomaly_networks(session: AsyncSession) -> list[Any]:
     return nets
 
 
-async def detect_unauthorized_ips(session: AsyncSession) -> list[dict[str, Any]]:
+#: 未授權 IP 清單最多列幾筆（超過時取最近看到的，總數另外回報）
+MAX_UNAUTHORIZED = 1000
+
+
+async def detect_unauthorized_ips(
+    session: AsyncSession, *, meta: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """ARP 看到但 IPAM 沒紀錄的 IP。
 
     只看**有開啟異常偵測的子網路**範圍內的位址。落在所有子網路之外的位址，本來就不是
     這套 IPAM 在管的東西，報出來只會製造雜訊。
+
+    超大規模：以前只任取 2,000 個 ARP 位址、全部 IPAM 位址載進記憶體比對、結果再照字串排序
+    切 200 筆 —— 大站台的未授權位址大多根本看不到，也不知道被截掉。現在差集在資料庫做，
+    依最後看到時間排序（最近的在前），超過 MAX_UNAUTHORIZED 才截斷；`meta` 有給就填入
+    {"total": 範圍內總數, "truncated": 是否截斷}。
     """
-    arp_ips_rows = (
-        await session.execute(
-            select(ARPEntry.ip).group_by(ARPEntry.ip).limit(2000)
-        )
-    ).all()
-    arp_ips = {str(r[0]) for r in arp_ips_rows}
-    if not arp_ips:
-        return []
+    from app.services.ip_autocreate import subnet_index
 
-    ipam_ips_rows = (
-        await session.execute(select(IPAddress.ip))
-    ).all()
-    ipam_ips = {str(r[0]).split("/")[0] for r in ipam_ips_rows}
-
-    nets = await _anomaly_networks(session)
+    host = func.host(ARPEntry.ip)
+    registered = select(IPAddress.id).where(func.host(IPAddress.ip) == host).exists()
+    cand = (await session.execute(
+        select(host, func.max(ARPEntry.last_seen_at).label("last"))
+        .where(~registered).group_by(host)
+    )).all()
+    nets = subnet_index([(n, None) for n in await _anomaly_networks(session)])
 
     def _in_scope(ip: str) -> bool:
         if _is_noise_address(ip):
             return False
-        try:
-            addr = ipaddress.ip_address(ip)
-        except ValueError:
+        addr = ipaddress.ip_address(ip)
+        net = nets.longest(addr)
+        if net is None:
             return False
         # 網段的網路位址／廣播位址不對應到機器（/31、/32 例外，那兩種沒有這個概念）
-        for net in nets:
-            if addr in net:
-                if net.prefixlen < 31 and addr in (net.network_address, net.broadcast_address):
-                    return False
-                return True
-        return False
+        return not (net.version == 4 and net.prefixlen < 31
+                    and addr in (net.network_address, net.broadcast_address))
 
-    unauthorized = sorted(ip for ip in (arp_ips - ipam_ips) if _in_scope(ip))[:200]
+    scoped = [(str(ip), last) for ip, last in cand if _in_scope(str(ip))]
+    floor = datetime.min.replace(tzinfo=UTC)
+    scoped.sort(key=lambda r: (-(r[1] or floor).timestamp(), int(ipaddress.ip_address(r[0]))))
+    if meta is not None:
+        meta.clear()
+        meta.update({"total": len(scoped), "truncated": len(scoped) > MAX_UNAUTHORIZED})
+    unauthorized = [ip for ip, _last in scoped[:MAX_UNAUTHORIZED]]
     if not unauthorized:
         return []
     # 只有一個位址看不出是誰：附上 ARP 看到的 MAC（廠商、隨機 MAC、誰看到的、最後時間）。
@@ -1464,12 +1474,13 @@ async def run_detection(
 ) -> AnomalyReport:
     """一次跑所有偵測規則；命中時發通知 + webhook event。"""
     drifts = await detect_mac_drifts(session)
+    unauth_meta: dict[str, Any] = {}
     report = AnomalyReport(
         ip_conflicts=await detect_ip_conflicts(session),
         mac_drifts=[d for d in drifts if d["category"] not in MAC_DRIFT_REFERENCE],
         mac_drift_reference=[d for d in drifts if d["category"] in MAC_DRIFT_REFERENCE],
         ghost_ips=await detect_ghost_ips(session),
-        unauthorized_ips=await detect_unauthorized_ips(session),
+        unauthorized_ips=await detect_unauthorized_ips(session, meta=unauth_meta),
         rogue_dhcp=await detect_rogue_dhcp(session),
         external_exposure=[*await detect_external_exposure(session),
                            *await detect_new_exposure(session)],
@@ -1482,6 +1493,8 @@ async def run_detection(
         mac_flapping=await detect_mac_flapping(session),
         identity_changes=await detect_identity_changes(session),
     )
+    # 清單超過上限時只列最近看到的那些；總數另外帶著，畫面才講得出「還有多少沒列出」
+    report.unauthorized_total = int(unauth_meta.get("total") or len(report.unauthorized_ips))
 
     if notify_admins:
         # 手動按「執行偵測」：把當下所有發現都通知（結果就在眼前，這裡不去重）。

@@ -447,7 +447,8 @@ function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
 const allCols = computed<DataTableColumns<Device>>(() => [
   { type: "selection" },
   {
-    title: t("common.name"), key: "name",
+    // 主欄位要有最小寬度：沒設時固定 scroll-x 下它分到的最少，手機上「sw-demo-core」這種名稱會被斷成三行
+    title: t("common.name"), key: "name", width: 160,
     render: (r) => links.device(r.id, r.name),
     sorter: (a, b) => cmpNatural(a.name, b.name),
   },
@@ -631,7 +632,7 @@ onMounted(async () => {
       :data="filteredRows"
       :loading="loading"
       :bordered="false"
-      :scroll-x="1116"
+      :scroll-x="1180"
       :pagination="pg"
       :row-key="(row: Device) => row.id"
       :checked-row-keys="checkedKeys"

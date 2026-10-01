@@ -70,12 +70,15 @@ async def _apply_plans(
             skipped += 1
             continue
         try:
-            master_id = await compute_master_subnet(session, cidr=plan.cidr, vrf_id=None)
-            session.add(Subnet(
-                section_id=section.id, cidr=plan.cidr,
-                description=plan.description, master_subnet_id=master_id,
-            ))
-            await session.flush()
+            # 每一列一個 savepoint：一列在資料庫失敗後，交易不會卡在「要先 rollback」而拖垮後面每一列
+            # 與最後的 commit（以前會整個 500）
+            async with session.begin_nested():
+                master_id = await compute_master_subnet(session, cidr=plan.cidr, vrf_id=None)
+                session.add(Subnet(
+                    section_id=section.id, cidr=plan.cidr,
+                    description=plan.description, master_subnet_id=master_id,
+                ))
+                await session.flush()
             inserted += 1
         except Exception as exc:
             errored.append({"cidr": plan.cidr, "error": _row_error(exc)})
@@ -246,50 +249,9 @@ async def commit_ripe(
     if section is None:
         raise HTTPException(400, detail="Invalid section_id")
 
-    text = await _read_text(file)
-    plans = planify(text)
-
-    inserted = 0
-    skipped = 0
-    errored: list[dict[str, str]] = []
-
-    for plan in plans:
-        # 重疊檢查 — 已存在就 skip（idempotent）
-        try:
-            await assert_no_overlap(session, cidr=plan.cidr, vrf_id=None)
-        except SubnetOverlap:
-            skipped += 1
-            continue
-        try:
-            master_id = await compute_master_subnet(session, cidr=plan.cidr, vrf_id=None)
-            obj = Subnet(
-                section_id=section.id,
-                cidr=plan.cidr,
-                description=plan.description,
-                master_subnet_id=master_id,
-            )
-            session.add(obj)
-            await session.flush()
-            inserted += 1
-        except Exception as exc:
-            errored.append({"cidr": plan.cidr, "error": str(exc)})
-
-    await append_audit(
-        session,
-        actor_user_id=str(user.id),
-        actor_ip=request.client.host if request.client else None,
-        actor_user_agent=request.headers.get("user-agent"),
-        object_type="section",
-        object_id=str(section.id),
-        action="ripe_twnic_import",
-        diff={"inserted": inserted, "skipped": skipped, "errored": len(errored)},
-        request_id=getattr(request.state, "request_id", None),
-    )
+    # 走共用的 _apply_plans（以前自己複製一份迴圈，把例外原文連 SQL 與參數回給前端：CodeQL #14）
+    result = await _apply_plans(session, section, planify(await _read_text(file)))
+    await _audit_import(session, user, request, section, "ripe_twnic_import", result)
     await session.commit()
-
-    return {
-        "inserted": inserted,
-        "skipped": skipped,
-        "errored": errored[:50],
-        "total_plans": len(plans),
-    }
+    result["errored"] = result["errored"][:50]  # type: ignore[index]
+    return result

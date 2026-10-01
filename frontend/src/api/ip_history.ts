@@ -97,6 +97,10 @@ export const IP_CHANGE_EVENT_TYPES = [
   "state_changed", "online", "offline", "arp_changed", "os_changed", "kind_changed", "edited",
 ] as const;
 
+// 篩選選項：各整合寫入時用的來源名稱（以前只列 7 個，mikrotik、fortigate 等選不到）。
+// 「上線／失聯」翻轉的來源是讓它上線的那個整合；失聯是 system（系統判定證據過期，#49）
 export const IP_CHANGE_SOURCES = [
-  "manual", "scanner", "librenms", "dns", "proxmox", "opnsense", "system",
+  "manual", "user", "system", "scanner", "librenms", "dns",
+  "proxmox", "esxi", "opnsense", "pfsense", "fortigate", "paloalto", "mikrotik",
+  "wazuh", "zabbix", "ocs", "adguard", "kea_dhcp", "isc_dhcp", "windows_dhcp",
 ] as const;

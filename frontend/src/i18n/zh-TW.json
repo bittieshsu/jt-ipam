@@ -1288,7 +1288,8 @@
     "fw_col_why": "比對依據",
     "fw_row_goto": "點一下開啟這一筆",
     "source_kea_dhcp": "Kea DHCP",
-    "source_isc_dhcp": "ISC DHCP"
+    "source_isc_dhcp": "ISC DHCP",
+    "source_librenms_arp": "LibreNMS ARP"
   },
   "subnets": {
     "title": "子網路",
@@ -1427,7 +1428,9 @@
       "tag_total": "總數",
       "raw_json": "原始 JSON",
       "identify_running": "由掃描代理 {agent} 執行",
-      "identify_done": "{type}．{os}．開放的連接埠 {ports} 個"
+      "identify_done": "{type}．{os}．開放的連接埠 {ports} 個",
+      "arp_ips_created": "依 ARP 建立 IP",
+      "arp_create_skipped": "未建立"
     }
   },
   "groups": {
@@ -1810,8 +1813,8 @@
     "scope_hint": "重疊網段時用：只在這些子網路內比對 IP。空=全域比對。",
     "use_for_status": "納入上線狀態判定",
     "auto_add_devices": "自動加入新裝置",
-    "auto_create_ips": "自動建立探索到的 IP",
-    "auto_create_ips_hint": "開啟後，同步時會把 LibreNMS 監控裝置的主 IP，自動建進對應的既有子網路（標來源為 LibreNMS）。只建裝置主 IP、不含 ARP 鄰居；若有設定限定子網路範圍，只會建在範圍內。子網路若尚未建立則略過。",
+    "auto_create_ips": "自動建立裝置主 IP",
+    "auto_create_ips_hint": "開啟後，同步時會把 LibreNMS 監控裝置的主 IP，自動建進對應的既有子網路（標來源為 LibreNMS）。只建裝置主 IP；ARP 學到的位址見下方「依 ARP 表自動建立 IP」。若有設定限定子網路範圍，只會建在範圍內。子網路若尚未建立則略過。",
     "sync_interval": "同步週期 (秒)",
     "error_name_required": "請填名稱",
     "error_token_too_short": "API token 至少 8 字元",
@@ -1819,7 +1822,27 @@
     "verify_tls": "驗證 TLS 憑證",
     "verify_tls_hint": "LibreNMS 用自簽憑證、或用 IP 連線導致主機名稱不符時，關閉此項即可連線（等同不驗證憑證）。",
     "sync_links": "LLDP / CDP 鄰居",
-    "sync_links_hint": "撈 LibreNMS 探到的鄰居連線（links）。這是對端自己宣告的，連交換器之間的 trunk 都畫得出來 —— 那正是用 FDB 推導最不準的地方。前提：對端要有開 LLDP／CDP，且 LibreNMS 的 xdp discovery 有跑到。來源沒有資料時不算錯誤。"
+    "sync_links_hint": "撈 LibreNMS 探到的鄰居連線（links）。這是對端自己宣告的，連交換器之間的 trunk 都畫得出來 —— 那正是用 FDB 推導最不準的地方。前提：對端要有開 LLDP／CDP，且 LibreNMS 的 xdp discovery 有跑到。來源沒有資料時不算錯誤。",
+    "arp_create": "依 ARP 表自動建立 IP",
+    "arp_create_hint": "IPAM 裡沒有、但 LibreNMS 的 ARP 表看得到的位址，自動建一筆紀錄（來源標為 LibreNMS ARP，清單上有「自動收錄」標記）。只建在既有子網路內（重疊網段請設定限定子網路範圍）；代理 ARP、廣播位址、管理員剛釋放（冷卻期內）的位址會略過；一輪最多建 500 筆，其餘下一輪接著。預設關閉。",
+    "arp_create_warn": "打開之後，私接的設備也會被安靜地收錄成正式紀錄，而且從此不再出現在「未授權 IP」異常偵測（那道偵測看的就是「ARP 看得到、IPAM 沒有」）。建出來的紀錄也不代表在線上：LibreNMS 的 ARP 沒有時間，預設不算上線證據。",
+    "arp_create_require_fdb": "需要交換器 MAC 表佐證（建議）",
+    "arp_create_require_fdb_hint": "交換器 MAC 表（FDB）24 小時內也看過這個 MAC 才建。有些設備的 ARP 快取幾小時到幾天才清（Cisco 預設 4 小時，有的要到介面斷線或重開機），只看 ARP 會把早就離開的設備也建進來；MAC 表通常幾分鐘就老化，能證明這台設備最近真的有在傳資料。需要開啟 FDB 同步（MikroTik 整合的 MAC 表也算）。",
+    "arp_create_no_fdb_warn": "只看 ARP：設備離開後，只要路由器的 ARP 快取還沒清，它的位址仍會被建進來。只建議在沒有交換器 MAC 表可用、而且清楚 ARP 快取時間的環境關閉。",
+    "arp_create_skip_dhcp": "略過 DHCP 動態範圍",
+    "arp_create_skip_dhcp_hint": "落在已知 DHCP 發放範圍內的位址不建（那段會回收再發給別台）。範圍來自 DHCP 相關整合。",
+    "arp_skip": {
+      "no_recent_fdb": "缺 MAC 表佐證",
+      "proxy_arp": "代理 ARP",
+      "bad_mac": "無效 MAC",
+      "mac_conflict": "一個 IP 多個 MAC",
+      "not_host": "網路／廣播位址",
+      "ambiguous": "重疊網段不明確",
+      "no_subnet": "沒有對應子網路",
+      "cooldown": "冷卻期內",
+      "dhcp_range": "DHCP 範圍",
+      "cap": "超過本輪上限"
+    }
   },
   "firewall": {
     "scope_title": "關聯範圍 (NAT 對應)",
@@ -2135,7 +2158,8 @@
     "explain_identity_changes": "掃描代理的定期偵測判讀出的設備類型或 OS 家族變了（例如印表機變成 Windows 主機、攝影機變成 Linux 伺服器）。可能是這個 IP 被別台機器拿去用、設備被換掉，或有人冒用。從「不知道」變成知道不算；判讀在兩個答案之間來回的也不列。雙系統開機這種本來就會變的，確認後可以按「忽略這個 IP」。",
     "identity_kind": "設備類型",
     "identity_os": "OS",
-    "identity_times": "（{n} 次）"
+    "identity_times": "（{n} 次）",
+    "unauthorized_truncated": "清單只列出最近看到的 {shown} 筆，共 {total} 筆。數量這麼多時，通常是某個網段整段沒登記：先檢查子網路，或考慮開啟整合的自動建立 IP。"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -3110,7 +3134,13 @@
     "isc_dhcp_agent_taken": "這台掃描代理已經指派給另一個 ISC DHCP 來源「{name}」。一台代理只能對應一個來源。",
     "device_import_encoding": "CSV 必須是 UTF-8 編碼（{reason}）。在 Excel 另存新檔時請選「CSV UTF-8」，或直接上傳 .xlsx。",
     "device_import_bad_xlsx": "無法讀取這個 Excel 檔：{reason}",
-    "device_import_too_large": "檔案太大（上限 16 MB）。"
+    "device_import_too_large": "檔案太大（上限 16 MB）。",
+    "ai_failed": "AI 判讀失敗",
+    "ai_disabled": "LLM 未啟用",
+    "ai_ssrf_blocked": "LLM 伺服器的位址被出站防護擋下，請管理員檢查 LLM 設定",
+    "ai_unreachable": "連不上 LLM 伺服器",
+    "ai_timeout": "LLM 伺服器沒有在時限內回覆",
+    "ai_upstream_error": "LLM 伺服器回報錯誤"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",

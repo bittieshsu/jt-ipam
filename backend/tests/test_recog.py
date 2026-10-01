@@ -533,9 +533,10 @@ def test_a_vendor_default_certificate_name_is_not_a_host_name() -> None:
                 {"port": 8443, "service": "https",
                  "scripts": {"ssl-cert": "Subject: commonName=real-host.example.net"}}])
     s = summarize(res, recog=_all())
-    assert "gate.example.net" not in s["names"]          # 預設憑證那個埠的名稱不算
-    assert "real-host.example.net" in s["names"]         # 其他憑證照常
-    assert "gate.example.net" in summarize(res)["names"]  # 沒有 Recog 時維持原本行為
+    # 寫成集合運算：`"主機名稱" in x` 會被 CodeQL 當成網址子字串檢查（#41／#42），這裡的 names 是清單
+    assert not {"gate.example.net"} & set(s["names"])              # 預設憑證那個埠的名稱不算
+    assert {"real-host.example.net"} <= set(s["names"])            # 其他憑證照常
+    assert {"gate.example.net"} <= set(summarize(res)["names"])    # 沒有 Recog 時維持原本行為
 
 
 async def test_two_updates_at_once_do_not_collide(db_session, session_factory, small_bundles_ok,

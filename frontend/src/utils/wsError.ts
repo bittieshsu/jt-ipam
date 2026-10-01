@@ -31,3 +31,14 @@ export function srvText(payload: ServerMessage | null | undefined, fallback = ""
 
 /** 主控台 WebSocket 的 error frame 用；與 srvText 同一套規則。 */
 export const wsErrorText = srvText;
+
+/**
+ * AI 對話／IP 調查串流的 error 事件：`{code, params, detail}`。
+ * 一般帳號只有代碼；管理員多一個 `params.reason`（底層原因），接在句子後面。
+ */
+export function aiErrText(ev: { code?: string | null; params?: Record<string, unknown> | null;
+                                detail?: string | null }, fallback = ""): string {
+  const base = srvText({ code: ev.code, params: ev.params, message: ev.detail }, fallback);
+  const reason = typeof ev.params?.reason === "string" ? ev.params.reason : "";
+  return reason && !base.includes(reason) ? `${base}（${reason}）` : base;
+}

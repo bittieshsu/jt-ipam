@@ -15,6 +15,7 @@ OWASP A04 / A06：LLM URL 走 safe_request（私網允許）；任何回到該�
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
@@ -29,13 +30,80 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.safe_http import UnsafeOutboundURL, safe_request, safe_stream, transport_detail
 
+log = logging.getLogger(__name__)
+
 
 class AINotConfigured(RuntimeError):
     pass
 
 
 class AIError(RuntimeError):
-    pass
+    """模型那一端的錯誤。訊息是給日誌與管理員看的原文；給一般帳號看的是 `code`（ai_error_event）。"""
+
+    code = "ai_failed"
+
+
+class AIBlocked(AIError):
+    """LLM 位址被出站防護擋下。"""
+
+    code = "ai_ssrf_blocked"
+
+
+class AIUnreachable(AIError):
+    """連不上 LLM 伺服器（名稱解析、拒絕連線、TLS…）。"""
+
+    code = "ai_unreachable"
+
+
+class AITimeout(AIError):
+    """LLM 伺服器沒有在時限內回覆完。"""
+
+    code = "ai_timeout"
+
+
+class AIUpstream(AIError):
+    """LLM 伺服器回了錯誤（HTTP 狀態、串流裡的 error）。"""
+
+    code = "ai_upstream_error"
+
+
+#: 錯誤代碼的退路文字（前端有翻譯 errors.<code> 就不會用到）
+_AI_PUBLIC: dict[str, str] = {
+    "ai_failed": "AI 判讀失敗",
+    "ai_disabled": "LLM 未啟用",
+    "ai_ssrf_blocked": "LLM 伺服器的位址被出站防護擋下，請管理員檢查 LLM 設定",
+    "ai_unreachable": "連不上 LLM 伺服器",
+    "ai_timeout": "LLM 伺服器沒有在時限內回覆",
+    "ai_upstream_error": "LLM 伺服器回報錯誤",
+}
+
+
+def ai_error_code(exc: BaseException) -> str:
+    import asyncio
+    if isinstance(exc, AIError):
+        return exc.code
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return "ai_timeout"
+    return "ai_failed"
+
+
+def ai_error_event(exc: BaseException | None, *, admin: bool, code: str | None = None,
+                   reason: str | None = None) -> dict[str, Any]:
+    """串流與判讀的錯誤：`{"code", "params", "detail"}`。
+
+    CodeQL 判讀（2026-10-01，#11／#15／#16）：以前把例外原文直接給任何登入帳號看 —— 內部 LLM 主機名稱、
+    出站防護規則、上游 401 回應的前 200 字（有的閘道會回遮罩過的金鑰）。現在一般帳號只拿到代碼（前端照
+    語系翻譯）；**管理員**另外附上原因（`params.reason`），因為診斷要靠它。完整原因一律寫進日誌。
+    """
+    code = code or (ai_error_code(exc) if exc is not None else "ai_failed")
+    if exc is not None:
+        log.warning("AI call failed (%s)", code, exc_info=exc)
+    params: dict[str, Any] = {}
+    if admin:
+        raw = reason if reason is not None else (str(exc) if exc is not None else "")
+        if raw:
+            params["reason"] = raw[:300]
+    return {"code": code, "params": params, "detail": _AI_PUBLIC.get(code, _AI_PUBLIC["ai_failed"])}
 
 
 # 單一工具結果回填上下文的字元上限（避免超大清單拖慢/逾時模型）
@@ -210,7 +278,7 @@ async def _chat_stream(url: str, body: dict[str, Any], headers: dict[str, str], 
                 return
             yield resp
             return
-    raise AIError("LLM server kept rejecting the request")
+    raise AIUpstream("LLM server kept rejecting the request")
 
 
 async def _post_chat(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> Any:
@@ -523,14 +591,14 @@ async def embed(session: AsyncSession, text_in: str) -> list[float]:
             json=body, timeout=cfg.timeout,
         )
     except UnsafeOutboundURL as exc:
-        raise AIError(f"SSRF guard: {exc}") from exc
+        raise AIBlocked(f"SSRF guard: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise AIError(f"transport: {transport_detail(exc)}") from exc
+        raise AIUnreachable(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
-        raise AIError(f"{provider_label(cfg.provider)} {resp.status_code}: {resp.text[:200]}")
+        raise AIUpstream(f"{provider_label(cfg.provider)} {resp.status_code}: {resp.text[:200]}")
     vec = extract_embedding(resp.json(), cfg.provider)
     if not vec:
-        raise AIError(f"{provider_label(cfg.provider)} returned no embedding")
+        raise AIUpstream(f"{provider_label(cfg.provider)} returned no embedding")
     expected_dim = get_settings().embedding_dim
     if len(vec) != expected_dim:
         raise AIError(
@@ -929,11 +997,11 @@ async def chat(
         try:
             resp = await _post_chat(url, body, auth_headers(cfg.provider, cfg.api_key), cfg.timeout)
         except UnsafeOutboundURL as exc:
-            raise AIError(f"SSRF guard: {exc}") from exc
+            raise AIBlocked(f"SSRF guard: {exc}") from exc
         except httpx.HTTPError as exc:
-            raise AIError(f"transport: {transport_detail(exc)}") from exc
+            raise AIUnreachable(f"transport: {transport_detail(exc)}") from exc
         if resp.status_code != 200:
-            raise AIError(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
+            raise AIUpstream(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
 
         msg = extract_reply(data, cfg.provider)
@@ -1239,12 +1307,14 @@ async def _run_tool_calls(session: AsyncSession, user: Any, tool_calls: list[dic
             except IPAMToolError as exc:
                 tool_result = {"error": str(exc)}
             except Exception as exc:
-                # 只給類別名稱＝把「為什麼壞了」丟掉：模型看不出是查詢炸了還是真的沒資料，
-                # 使用者也只看到 "tool failed"。原文截短後一起帶上（不會是機密，工具參數
-                # 才是，而那不在這裡）。
-                detail = str(exc).strip().replace("\n", " ")[:300]
-                tool_result = {"error": f"tool failed: {exc.__class__.__name__}"
-                                        + (f": {detail}" if detail else "")}
+                # 工具結果會隨 trace_messages 回到畫面。只給類別名稱＝把「為什麼壞了」丟掉（#34 時刻意
+                # 保留原文）；但原文整段給任何登入帳號看，資料庫錯誤會帶出 SQL 與參數（CodeQL #11，
+                # 2026-10-01）。折衷：管理員保留第一行（SQLAlchemy 的 [SQL: …]／[parameters: …] 在後面
+                # 幾行），一般帳號只給類別名稱；完整原文一律寫進日誌。
+                log.warning("AI tool %s failed", name, exc_info=exc)
+                first = str(exc).strip().splitlines()[0][:300] if str(exc).strip() else ""
+                show = first if bool(getattr(user, "is_admin", False)) else ""
+                tool_result = {"error": f"tool failed: {exc.__class__.__name__}" + (f": {show}" if show else "")}
         blob = json.dumps(tool_result, ensure_ascii=False, default=str)
         # 防止單一工具回傳過大撐爆上下文 → 模型變慢甚至 ReadTimeout
         if len(blob) > _TOOL_RESULT_CAP:
@@ -1281,8 +1351,9 @@ async def chat_stream(
     """
     from app.services.system_config import get_llm_config
     cfg = await get_llm_config(session)
+    admin = bool(getattr(user, "is_admin", False))
     if not cfg.enabled:
-        yield {"type": "error", "detail": "LLM is disabled"}
+        yield {"type": "error", **ai_error_event(None, admin=admin, code="ai_disabled")}
         return
 
     from app.mcp.tools import allowed_tool_names
@@ -1309,7 +1380,9 @@ async def chat_stream(
             async with _chat_stream(url, body, auth_headers(cfg.provider, cfg.api_key), cfg.timeout) as resp:
                 if resp.status_code != 200:
                     detail = (await resp.aread()).decode("utf-8", "replace")[:200]
-                    yield {"type": "error", "detail": f"{provider_label(cfg.provider)} chat {resp.status_code}: {detail}"}
+                    yield {"type": "error", **ai_error_event(
+                        None, admin=admin, code="ai_upstream_error",
+                        reason=f"{provider_label(cfg.provider)} chat {resp.status_code}: {detail}")}
                     return
                 async for line in resp.aiter_lines():
                     chunk = _stream_payload(line)
@@ -1317,7 +1390,8 @@ async def chat_stream(
                         continue
                     d = _stream_delta(chunk)
                     if d.error:
-                        yield {"type": "error", "detail": f"LLM: {d.error[:200]}"}
+                        yield {"type": "error", **ai_error_event(
+                            None, admin=admin, code="ai_upstream_error", reason=f"LLM: {d.error[:200]}")}
                         return
                     if d.thinking:
                         thinking_chars += len(d.thinking)
@@ -1334,10 +1408,12 @@ async def chat_stream(
                         break
             tool_calls = tool_buf.calls()
         except UnsafeOutboundURL as exc:
-            yield {"type": "error", "detail": f"SSRF guard: {exc}"}
+            yield {"type": "error", **ai_error_event(exc, admin=admin, code="ai_ssrf_blocked",
+                                                     reason=f"SSRF guard: {exc}")}
             return
         except httpx.HTTPError as exc:
-            yield {"type": "error", "detail": f"transport: {transport_detail(exc)}"}
+            yield {"type": "error", **ai_error_event(exc, admin=admin, code="ai_unreachable",
+                                                     reason=f"transport: {transport_detail(exc)}")}
             return
 
         full_content = "".join(content_parts)
@@ -1532,15 +1608,15 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
                                             cfg.provider)
         resp = await _post_dropping_rejected(url, body, auth_headers(cfg.provider, cfg.api_key), wait)
     except UnsafeOutboundURL as exc:
-        raise AIError(f"SSRF guard: {exc}") from exc
+        raise AIBlocked(f"SSRF guard: {exc}") from exc
     except httpx.ReadTimeout as exc:
-        raise AIError(
+        raise AITimeout(
             f"LLM 伺服器在 {int(wait)} 秒內沒有回覆完（模型太慢或資料量太大）"
         ) from exc
     except httpx.HTTPError as exc:
-        raise AIError(f"transport: {transport_detail(exc)}") from exc
+        raise AIUnreachable(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
-        raise AIError(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
+        raise AIUpstream(f"{provider_label(cfg.provider)} chat {resp.status_code}: {resp.text[:200]}")
     # 兩家結構不同：Ollama 是 message、OpenAI 是 choices[0].message
     return _answer_or_explain(resp.json(), max_tokens=body.get("max_tokens")
                               or (body.get("options") or {}).get("num_predict"))
@@ -1700,7 +1776,7 @@ async def _stream_once(
             # 這支輔助函式拿不到 cfg，也不需要。
             d = _stream_delta(data)
             if d.error:
-                raise AIError(f"LLM: {d.error[:200]}")
+                raise AIUpstream(f"LLM: {d.error[:200]}")
             # 會思考的模型（gemma4 等）先吐一大段 thinking，content 要等到最後才出現。
             # 只看 content 的話，畫面會停住好幾分鐘完全沒有動靜 —— 實際上模型正在想。
             if d.thinking:

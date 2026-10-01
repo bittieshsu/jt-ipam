@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import ipaddress
 import json as _json
-import logging
 import time
 from typing import Annotated, Any
 
@@ -22,19 +21,18 @@ from app.core.db import get_session
 from app.services.investigate import collect_dossier
 
 
-def _narrative_error(exc: BaseException) -> str:
-    """判讀失敗時給畫面看的原因。
+def _narrative_error(exc: BaseException, user: Any) -> dict[str, Any]:
+    """判讀失敗時給畫面看的原因：`{"code", "params", "detail"}`。
 
-    模型那一端的錯誤（AIError：連不上、逾時、回錯）照原文給 —— 看得出是哪裡不通才有用；
-    其他未預期的例外只回類別名稱，細節寫進日誌：原文可能帶出內部資訊（CodeQL 標出，2026-09-29）。
+    一般帳號只拿到代碼（前端照語系翻譯）；管理員另外附原因 —— 以前任何登入帳號都看得到
+    內部 LLM 主機名稱與上游回應片段（CodeQL #15／#16，2026-10-01）。見 services/ai.ai_error_event。
     """
-    import asyncio
-
-    from app.services.ai import AIError
-    if isinstance(exc, (AIError, asyncio.TimeoutError, TimeoutError)):
-        return (str(exc) or type(exc).__name__)[:300]
-    logging.getLogger(__name__).warning("investigate narrative failed", exc_info=exc)
-    return type(exc).__name__
+    from app.services.ai import AIError, ai_error_event
+    admin = bool(getattr(user, "is_admin", False))
+    if isinstance(exc, (AIError, TimeoutError)):
+        return ai_error_event(exc, admin=admin)
+    # 其他未預期的例外：原文可能帶出內部資訊，只寫日誌（管理員也只看類別名稱）
+    return ai_error_event(exc, admin=admin, code="ai_failed", reason=type(exc).__name__)
 
 router = APIRouter(prefix="/investigate", tags=["investigate"])
 
@@ -131,7 +129,10 @@ async def investigate(
         )
         out["narrative"] = text.strip() or None
     except Exception as exc:
-        out["narrative_error"] = _narrative_error(exc)
+        err = _narrative_error(exc, user)
+        out["narrative_error"] = err["detail"]
+        out["narrative_error_code"] = err["code"]
+        out["narrative_error_params"] = err["params"]
 
     await append_audit(
         session,
@@ -218,7 +219,7 @@ async def narrative_stream(
         except Exception as exc:
             # 模型不可用不該讓整個功能失效 —— 事實已經在畫面上了，判讀是加分項
             yield ("data: " + _json.dumps(
-                {"type": "error", "detail": _narrative_error(exc)}, ensure_ascii=False) + "\n\n")
+                {"type": "error", **_narrative_error(exc, user)}, ensure_ascii=False) + "\n\n")
 
     return StreamingResponse(
         gen(), media_type="text/event-stream",

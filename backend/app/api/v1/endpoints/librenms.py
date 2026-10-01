@@ -42,6 +42,10 @@ class LibreNMSInstanceCreate(StrictModel):
     use_for_status: bool = True
     auto_add_devices: bool = False
     auto_create_ips: bool = True
+    # 依 ARP 表自動建立 IP（#48）：預設關；把關見 services/arp_autocreate.py
+    auto_create_from_arp: bool = False
+    arp_create_require_fdb: bool = True
+    arp_create_skip_dhcp: bool = True
     sync_interval_seconds: Annotated[int, Field(ge=60, le=86400)] = 300
     scope_subnet_ids: list[str] | None = None
 
@@ -59,6 +63,9 @@ class LibreNMSInstanceUpdate(StrictModel):
     use_for_status: bool | None = None
     auto_add_devices: bool | None = None
     auto_create_ips: bool | None = None
+    auto_create_from_arp: bool | None = None
+    arp_create_require_fdb: bool | None = None
+    arp_create_skip_dhcp: bool | None = None
     sync_interval_seconds: Annotated[int | None, Field(ge=60, le=86400)] = None
     scope_subnet_ids: list[str] | None = None
 
@@ -77,6 +84,9 @@ class LibreNMSInstanceRead(StrictModel):
     use_for_status: bool
     auto_add_devices: bool
     auto_create_ips: bool
+    auto_create_from_arp: bool = False
+    arp_create_require_fdb: bool = True
+    arp_create_skip_dhcp: bool = True
     sync_interval_seconds: int
     scope_subnet_ids: list[str] | None = None
     last_sync_at: Any
@@ -188,6 +198,9 @@ async def create_instance(
         use_for_status=payload.use_for_status,
         auto_add_devices=payload.auto_add_devices,
         auto_create_ips=payload.auto_create_ips,
+        auto_create_from_arp=payload.auto_create_from_arp,
+        arp_create_require_fdb=payload.arp_create_require_fdb,
+        arp_create_skip_dhcp=payload.arp_create_skip_dhcp,
         sync_interval_seconds=payload.sync_interval_seconds,
     )
     session.add(obj)
@@ -232,11 +245,15 @@ async def update_instance(
     rotated = False
     if payload.api_url is not None:
         obj.api_url = str(payload.api_url).rstrip("/")
+    changed: dict[str, Any] = {}
     for field_name in ("enabled", "verify_tls", "sync_devices", "sync_arp", "sync_fdb", "sync_vlans", "sync_links",
                        "use_for_status", "auto_add_devices", "auto_create_ips",
+                       "auto_create_from_arp", "arp_create_require_fdb", "arp_create_skip_dhcp",
                        "sync_interval_seconds", "scope_subnet_ids"):
         v = getattr(payload, field_name)
         if v is not None:
+            if getattr(obj, field_name) != v:
+                changed[field_name] = v
             setattr(obj, field_name, v)
     if payload.api_token is not None:
         enc, nonce = svc.encrypt_instance_token(obj.id, payload.api_token)
@@ -252,7 +269,8 @@ async def update_instance(
         object_type="librenms_instance",
         object_id=str(obj.id),
         action="update",
-        diff={"rotated_token": rotated},
+        # 改了哪些設定要看得到（例如打開「依 ARP 自動建立 IP」會改變之後每一輪的行為）
+        diff={"rotated_token": rotated, "changed": changed},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()

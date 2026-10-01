@@ -1288,7 +1288,8 @@
     "fw_col_why": "Why it matches",
     "fw_row_goto": "Click to open this entry",
     "source_kea_dhcp": "Kea DHCP",
-    "source_isc_dhcp": "ISC DHCP"
+    "source_isc_dhcp": "ISC DHCP",
+    "source_librenms_arp": "LibreNMS ARP"
   },
   "subnets": {
     "title": "Subnets",
@@ -1427,7 +1428,9 @@
       "tag_total": "Total",
       "raw_json": "Raw JSON",
       "identify_running": "Run by scan agent {agent}",
-      "identify_done": "{type} · {os} · {ports} open ports"
+      "identify_done": "{type} · {os} · {ports} open ports",
+      "arp_ips_created": "IPs created from ARP",
+      "arp_create_skipped": "not created"
     }
   },
   "groups": {
@@ -1810,8 +1813,8 @@
     "scope_hint": "For overlapping ranges: only match IPs within these subnets. Empty = global.",
     "use_for_status": "Count toward live status",
     "auto_add_devices": "Auto-add new devices",
-    "auto_create_ips": "Auto-create discovered IPs",
-    "auto_create_ips_hint": "When on, sync auto-creates an IPAddress for each monitored device's primary IP inside the matching existing subnet (tagged source LibreNMS). Device primary IPs only — not ARP neighbours; if a scope is set, only within that scope. Skipped if the subnet does not exist yet.",
+    "auto_create_ips": "Auto-create device primary IPs",
+    "auto_create_ips_hint": "When on, sync creates an IP record for each monitored device's primary IP inside the matching existing subnet (source: LibreNMS). Only device primary IPs; for addresses learned from ARP see \"Create IPs from the ARP table\" below. With a subnet scope set, records are only created inside it. Subnets that do not exist yet are skipped.",
     "sync_interval": "Sync interval (seconds)",
     "error_name_required": "Name is required",
     "error_token_too_short": "API token must be at least 8 chars",
@@ -1819,7 +1822,27 @@
     "verify_tls": "Verify TLS certificate",
     "verify_tls_hint": "Turn off to connect when LibreNMS uses a self-signed cert or the hostname doesn't match (e.g. connecting by IP) — skips certificate verification.",
     "sync_links": "LLDP / CDP neighbours",
-    "sync_links_hint": "Pulls the neighbour links LibreNMS discovered. These are declared by the far end, so even switch-to-switch trunks come out right — exactly where deriving topology from FDB is least reliable. Requires LLDP/CDP enabled on the far end and LibreNMS's xdp discovery to have run. No data from the source is not treated as an error."
+    "sync_links_hint": "Pulls the neighbour links LibreNMS discovered. These are declared by the far end, so even switch-to-switch trunks come out right — exactly where deriving topology from FDB is least reliable. Requires LLDP/CDP enabled on the far end and LibreNMS's xdp discovery to have run. No data from the source is not treated as an error.",
+    "arp_create": "Create IPs from the ARP table",
+    "arp_create_hint": "Addresses that IPAM does not have but LibreNMS's ARP table shows get a record created automatically (source: LibreNMS ARP, marked as auto-collected in lists). Only inside existing subnets (set a subnet scope for overlapping networks). Proxy ARP, broadcast addresses and addresses an admin just released (cooldown) are skipped. At most 500 per round; the rest follow in the next round. Off by default.",
+    "arp_create_warn": "Once on, devices plugged in without permission are quietly recorded as regular entries and no longer appear under \"Unauthorized IPs\" in anomaly detection (that check is exactly \"seen in ARP, missing from IPAM\"). A created record does not mean the address is online: LibreNMS ARP has no timestamps and is not liveness evidence by default.",
+    "arp_create_require_fdb": "Require a switch MAC table sighting (recommended)",
+    "arp_create_require_fdb_hint": "Only create when a switch MAC table (FDB) has also seen the MAC within 24 hours. Some devices keep ARP entries for hours or days (Cisco defaults to 4 hours; some keep them until the interface goes down or the device reboots), so ARP alone also creates addresses of devices that left long ago. MAC tables usually age out within minutes, so a recent sighting shows the device really sent traffic. Needs FDB sync on (MikroTik MAC tables count too).",
+    "arp_create_no_fdb_warn": "ARP only: after a device leaves, its address is still created for as long as the router keeps the ARP entry. Only turn this off where no switch MAC table is available and you know how long ARP entries live.",
+    "arp_create_skip_dhcp": "Skip DHCP dynamic ranges",
+    "arp_create_skip_dhcp_hint": "Addresses inside a known DHCP pool are not created (they are handed to other devices later). Ranges come from the DHCP-related integrations.",
+    "arp_skip": {
+      "no_recent_fdb": "no MAC table sighting",
+      "proxy_arp": "proxy ARP",
+      "bad_mac": "invalid MAC",
+      "mac_conflict": "one IP, several MACs",
+      "not_host": "network/broadcast address",
+      "ambiguous": "ambiguous overlap",
+      "no_subnet": "no matching subnet",
+      "cooldown": "in cooldown",
+      "dhcp_range": "DHCP range",
+      "cap": "over this round's cap"
+    }
   },
   "firewall": {
     "scope_title": "Association scope (NAT mapping)",
@@ -2135,7 +2158,8 @@
     "explain_identity_changes": "The scan agent’s periodic detection now identifies a different device type or OS family for this address (a printer that became a Windows host, a camera that became a Linux server). The address may have been taken by another machine, the device replaced, or something is impersonating it. Going from unknown to known does not count, and a judgement that flips back and forth is not listed. For machines that legitimately change (dual boot), use “Ignore this IP”.",
     "identity_kind": "Device type",
     "identity_os": "OS",
-    "identity_times": " ({n} times)"
+    "identity_times": " ({n} times)",
+    "unauthorized_truncated": "Showing the {shown} most recently seen of {total}. Numbers this large usually mean a whole subnet was never registered: check the subnets first, or consider turning on automatic IP creation in the integration."
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -3110,7 +3134,13 @@
     "isc_dhcp_agent_taken": "That scan agent is already assigned to the ISC DHCP source \"{name}\". An agent can serve only one source.",
     "device_import_encoding": "The CSV must be UTF-8 ({reason}). In Excel choose \"CSV UTF-8\" when saving, or upload the .xlsx file directly.",
     "device_import_bad_xlsx": "Cannot read this Excel file: {reason}",
-    "device_import_too_large": "The file is too large (16 MB maximum)."
+    "device_import_too_large": "The file is too large (16 MB maximum).",
+    "ai_failed": "AI interpretation failed",
+    "ai_disabled": "LLM is not enabled",
+    "ai_ssrf_blocked": "The LLM server address was blocked by the outbound guard; ask an admin to check the LLM settings",
+    "ai_unreachable": "Cannot reach the LLM server",
+    "ai_timeout": "The LLM server did not answer in time",
+    "ai_upstream_error": "The LLM server returned an error"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",

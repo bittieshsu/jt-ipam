@@ -29,6 +29,7 @@ import { humanToolName } from "@/utils/toolLabel";
 import { CancelIcon, SendIcon, ChatHistoryIcon, ToolsIcon, RefreshIcon, WarnIcon, ExpandIcon, ReduceIcon } from "@/icons";
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
+import { aiErrText } from "@/utils/wsError";
 
 const { t, te } = useI18n();
 const route = useRoute();
@@ -266,7 +267,8 @@ async function send() {
           partial.value = "";
           toolStatus.value = "";
         } else if (ev.type === "error") {
-          msg.error(friendlyChatError(ev.detail));
+          // 有代碼就照語系翻（管理員另外附原因）；舊格式才走字串比對
+          msg.error(ev.code ? aiErrText(ev) : friendlyChatError(ev.detail));
         }
       },
       inflight.signal,

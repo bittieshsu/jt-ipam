@@ -294,6 +294,14 @@ function formatSummary(kind: string, summary: any): string {
   kn(summary.arp?.inserted, t("tasks.summary.arp_inserted"));
   kn(summary.fdb?.seen, "FDB");
   k("ip_mac_filled", t("tasks.summary.ip_mac_filled"));
+  // 依 ARP 自動建立 IP（#48）：建了幾筆，沒建的列出最多的三個原因（管理員才知道為什麼沒長出來）
+  kn(summary.arp?.ips_created, t("tasks.summary.arp_ips_created"));
+  const skipped = summary.arp?.create_skipped as Record<string, number> | undefined;
+  if (skipped && Object.keys(skipped).length) {
+    const top = Object.entries(skipped).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([why, n]) => `${t(`librenms_admin.arp_skip.${why}`)} ${n}`);
+    lines.push(`${t("tasks.summary.arp_create_skipped")}（${top.join("、")}）`);
+  }
 
   // 4) AdGuard 風格：{clients_result: {clients, ips_seen, ips_matched}, ...}
   if (summary.clients_result) {

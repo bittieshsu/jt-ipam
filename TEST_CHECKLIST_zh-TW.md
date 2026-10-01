@@ -97,6 +97,15 @@ AI 巡檢的發現每跑一次就回來一次、得一再忽略，因為識別�
 - [ ] A03 注入 / 輸入驗證：Pydantic StrictModel、檔案上傳驗 magic bytes + 限大小 + 禁危險類型（如 SVG）
 - [ ] A08 完整性：上傳/外部資料有驗證；路徑無 traversal（上傳/下載檔案路徑解析後仍在白名單目錄內）
 - [ ] 機密：無把 secret/token 寫進 log 或回應
+- [ ] **出站防護**（`tests/test_safe_http_guard.py`、`tests/test_netdiag_http_guard.py`）：`::ffff:127.0.0.1`、
+  `::ffff:169.254.169.254`、`fd00:ec2::254` 都被擋；檢查後 DNS 換成 127.0.0.1 會在連線當下被擋（各整合、共用連線、
+  工具頁 HTTP 檢查）；轉址到別的主機會拿掉認證標頭，同主機與 http 升級 https 保留；工具頁 TCP／UDP／TLS 拒絕
+  本機與 link-local，但私網照常可測。部署後每個整合按一次「測試連線」（連線當下的防護之下，TLS 名稱檢查與
+  HTTP/2 要照常）
+- [ ] **一般帳號看到的錯誤**（`tests/test_ai_error_codes.py`）：LLM 連不上時，非管理員在 AI 對話與 IP 調查看到
+  照語系翻譯的「連不上 LLM 伺服器」、沒有主機名稱；管理員看得到原因。新的錯誤代碼三個語系都要有 `errors.<code>`
+- [ ] **GitHub code scanning 新出現的警示**：每次推送後看一次，修掉或寫明理由關閉（只有管理員用得到的診斷訊息
+  以「won't fix」關閉）
 
 ## 5b. 部署腳本流程（拋棄式環境，**勿在 dev/prod 跑 install**）
 
@@ -336,6 +345,13 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   MikroTik 都有）、時間軸（取得／離開、前一個與下一個 MAC）、DHCP 固定分配、裝置連接埠與虛擬機網卡。隨機 MAC 有標籤與說明，
   「可能是同一台」只列主機名稱沒變的交接。部門帳號只看到授權子網路的 IP 與授權裝置，DHCP 與虛擬機不列（頁面會說明）。
   不是 MAC 回 `mac_invalid`。正式環境拿一個真的換過 IP 的 MAC 核對時間是否對得上 IP 詳細資料的異動記錄
+- [ ] **依 LibreNMS ARP 表自動建立 IP**（#48，`tests/test_librenms_arp_autocreate.py`）：LibreNMS 整合 → 編輯 →
+  「依 ARP 表自動建立 IP」新裝與升級的站台都是關的。打開 → 出現警語（不再列入未授權 IP、不算上線證據）與兩個
+  選項：「需要交換器 MAC 表佐證」（開）、「略過 DHCP 動態範圍」（開）；取消第一個會改顯示「只看 ARP」的警語。
+  同步 → 新位址來源為「LibreNMS ARP」、有自動收錄標記、有 MAC、變更記錄有「新增」；背景作業摘要寫「依 ARP 建立
+  IP N」與其餘沒建的主要原因。幾小時前拔掉、但還留在路由器 ARP 快取的設備，在 MAC 表選項開著時**不會**被建。
+  重疊網段沒設範圍、代理 ARP、廣播與網路位址、冷卻期內的位址、DHCP 範圍都略過。建出來的 IP 不會只靠 ARP 變成
+  上線。修改設定的稽核記錄列出改了哪些欄位
 - [ ] **站對站 VPN 各廠牌都畫得出來**（`tests/test_vpn_site_to_site.py`）：預設的「只看子網路」也有 VPN 線；
   FortiGate 的 IPsec 通道、Palo Alto 的 IPsec 通道（整合設定「站對站 VPN」預設開、測試連線有 `vpn_flow`）、
   MikroTik 的 WireGuard 都記得本機裝置（站對站 VPN 頁「對接/對端」左邊是裝置名稱）。兩端都在 jt-ipam 時連成一條線
@@ -811,6 +827,11 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   （廠商、本地管理/隨機、誰看到的）與最後出現時間
 - [ ] **異常偵測保留上次結果**：跑一次 → 到別頁再回來，結果直接出現（不用重按），「上次執行」顯示當時時間，
   排程跑的會標「排程」。在「未授權 IP」頁籤點「探測」再按返回 → 回到同一個頁籤、結果還在（網址帶 `?tab=`）
+- [ ] **大站台的未授權 IP**（`tests/test_anomaly_scope.py::test_large_arp_tables_are_not_sampled`）：ARP 位址超過
+  2,000 個時，排在 2,000 名之後的未登記位址也找得到；結果超過 1,000 筆時頁籤寫「清單只列出最近看到的 N 筆，
+  共 M 筆」，清單依最後看到時間排序
+- [ ] **IP 變更記錄的上線／失聯來源**（#49，`tests/test_liveness_flip_source.py`）：沒有 LibreNMS 的站台，IP 失聯記為
+  `system`、重新上線記為看到它的那個來源（`scanner`、`opnsense`…）；來源篩選列出所有整合
 - [ ] **MCP 用戶端設定產生器**（LLM/AI）：按鈕產出 Claude Desktop/opencode/mcpo/通用片段
 - [ ] **LLM 供應商改成 OpenAI 相容**（管理 → LLM/AI）：切換後出現資料外送警告與 API 金鑰欄；
   模型下拉從 `/v1/models` 重新載入（下拉是空的＝打錯路徑）；base URL 已結尾 `/v1` 不會被重複加；

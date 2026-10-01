@@ -50,3 +50,26 @@ async def test_private_addresses_are_still_allowed(monkeypatch) -> None:
     """內網主機是這個工具的正常用途。"""
     await netdiag._assert_diag_http_target("http://198.51.100.20/")
     await netdiag._assert_diag_http_target("http://10.20.0.12:8080/")
+
+
+# ── TCP／UDP／TLS 檢查也是任何登入帳號都能用（CodeQL 判讀附帶發現，2026-10-01）──
+# 以前只有 HTTP 檢查擋本機與 link-local：TCP 檢查可以拿來掃 jt-ipam 主機自己的本機埠（Redis、
+# PostgreSQL…），TLS 檢查可以讀本機服務的憑證。規則跟 HTTP 檢查一樣；私網照常可測。
+
+@pytest.mark.parametrize("target", ["127.0.0.1", "169.254.169.254", "::1", "::ffff:127.0.0.1", "localhost"])
+async def test_tcp_udp_tls_refuse_loopback_and_metadata(target) -> None:
+    (tcp,) = await netdiag.tcp_check([target], [6379], timeout=0.5)
+    assert tcp.open is False
+    assert "not a diagnostic target" in (tcp.error or "")
+    (udp,) = await netdiag.udp_check([target], [53], timeout=0.5)
+    assert udp.state != "open"
+    assert "not a diagnostic target" in (udp.detail or "")
+    (tls,) = await netdiag.tls_check([target], 443, timeout=1.0)
+    assert tls.ok is False
+    assert "not a diagnostic target" in (tls.error or "")
+
+
+async def test_private_targets_are_still_diagnosable() -> None:
+    """私網是這個工具本來的用途：被擋的只有本機／link-local／多播（TEST-NET 位址沒人回，會逾時而不是被擋）。"""
+    (tcp,) = await netdiag.tcp_check(["192.0.2.55"], [22], timeout=0.3)
+    assert "not a diagnostic target" not in (tcp.error or "")

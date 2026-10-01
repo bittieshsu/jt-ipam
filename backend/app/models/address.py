@@ -171,7 +171,8 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             name="ip_state_valid",
         ),
         CheckConstraint(
-            "discovery_source IN ('manual','scanner','librenms','dns','proxmox','opnsense','phpipam')",
+            "discovery_source IN ('manual','scanner','librenms','dns','proxmox','opnsense','phpipam',"
+            "'pfsense','vmware','librenms_arp')",
             name="ip_discovery_source_valid",
         ),
         Index("ix_ip_addresses_ip_gist", "ip", postgresql_using="gist"),

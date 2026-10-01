@@ -20,13 +20,25 @@ from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import limit_per_ip
-from app.core.ui_error import detail_of
+from app.core.ui_error import detail_of, ui_detail
 from app.schemas.base import StrictModel
 from app.services import ai as ai_service
 from app.services import ai_chat_store, system_config
 from app.services.ai_guard import AIInputRejected, screen_user_messages
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+def _ai_http_error(exc: Exception, user: Any) -> HTTPException:
+    """模型那一端失敗：管理員拿到帶原因的訊息（診斷用）；一般帳號只拿到代碼。
+
+    以前任何登入帳號都看得到原文：內部 LLM 主機名稱、出站防護規則、上游回應片段
+    （CodeQL 判讀，2026-10-01；HTTPException 的 detail 不在 CodeQL 的模型裡，所以沒被標出來）。
+    """
+    if bool(getattr(user, "is_admin", False)):
+        return HTTPException(status_code=502, detail=detail_of(exc, "ai_error"))
+    ev = ai_service.ai_error_event(exc, admin=False)
+    return HTTPException(status_code=502, detail=ui_detail(ev["code"], ev["detail"]))
 
 
 @router.get("/semantic-search")
@@ -41,7 +53,7 @@ async def semantic_search(
     except ai_service.AINotConfigured as exc:
         raise HTTPException(status_code=503, detail=detail_of(exc, "ai_not_configured")) from exc
     except ai_service.AIError as exc:
-        raise HTTPException(status_code=502, detail=detail_of(exc, "ai_error")) from exc
+        raise _ai_http_error(exc, _user) from exc
 
 
 class ChatMessage(StrictModel):
@@ -108,7 +120,7 @@ async def chat(
     except ai_service.AINotConfigured as exc:
         raise HTTPException(status_code=503, detail=detail_of(exc, "ai_not_configured")) from exc
     except ai_service.AIError as exc:
-        raise HTTPException(status_code=502, detail=detail_of(exc, "ai_error")) from exc
+        raise _ai_http_error(exc, user) from exc
     await append_audit(
         session,
         actor_user_id=str(user.id),
@@ -230,7 +242,10 @@ async def chat_stream(
                     ev = {**ev, "conversation_id": str(conv.id)}
                 yield f"data: {json.dumps(ev, ensure_ascii=False, default=str)}\n\n"
         except Exception as exc:
-            yield f'data: {json.dumps({"type": "error", "detail": f"stream failed: {exc.__class__.__name__}"})}\n\n'
+            from app.services.ai import ai_error_event
+            ev = {"type": "error", **ai_error_event(exc, admin=bool(user.is_admin), code="ai_failed",
+                                                    reason=f"stream failed: {exc.__class__.__name__}")}
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
             return
         # 串流正常結束才寫 audit（與非串流 chat 對齊）
         await append_audit(

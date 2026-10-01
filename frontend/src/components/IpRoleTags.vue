@@ -29,8 +29,15 @@ const isReserved = () => !!r().dhcp_reserved;
 // 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約、
 // 或剛好被掃到。而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡
 // （那道偵測看的是「看得到、IPAM 沒有」）—— 所以它必須在清單上一眼認得出來。
-const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner"];
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner", "librenms_arp"];
 const isAutoAdded = () => AUTO_SOURCES.includes(String(r().discovery_source ?? ""));
+// 來源名稱照翻譯（librenms_arp → LibreNMS ARP）；沒有翻譯的才大寫原樣顯示
+const srcLabel = () => {
+  const v = String(r().discovery_source ?? "");
+  const key = `addresses.source_${v}`;
+  const out = t(key);
+  return out === key ? v.toUpperCase() : out;
+};
 </script>
 
 <template>
@@ -40,7 +47,7 @@ const isAutoAdded = () => AUTO_SOURCES.includes(String(r().discovery_source ?? "
     <n-tooltip v-if="isAutoAdded()" :delay="150">
       <template #trigger><n-icon :size="15" color="#8b5cf6" class="r-ic"><UnregisteredIcon /></n-icon></template>
       {{ t("addresses.role_auto_added") }} —
-      {{ t("addresses.role_auto_added_hint", { src: String(r().discovery_source).toUpperCase() }) }}
+      {{ t("addresses.role_auto_added_hint", { src: srcLabel() }) }}
     </n-tooltip>
     <n-tooltip v-if="r().is_gateway" :delay="150">
       <template #trigger><n-icon :size="15" color="#2080f0" class="r-ic"><GatewayIcon /></n-icon></template>

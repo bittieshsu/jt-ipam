@@ -55,7 +55,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.14.0"
+AGENT_VERSION = "1.14.1"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -353,6 +353,11 @@ def _dhcp_parse(data: bytes) -> dict | None:
             break
         ln = data[i + 1]
         val = data[i + 2:i + 2 + ln]
+        if len(val) < ln:
+            # Truncated option: stop here. Before 1.14.1 this raised (IndexError / OSError from
+            # inet_ntoa) and ended the whole listening window, so any host on the segment could
+            # hide a rogue DHCP server behind one malformed reply.
+            break
         if opt == 53 and ln == 1:
             out["msg_type"] = val[0]
         elif opt == 54 and ln == 4:   # server identifier

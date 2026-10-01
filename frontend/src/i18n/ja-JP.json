@@ -1288,7 +1288,8 @@
     "fw_col_why": "一致の根拠",
     "fw_row_goto": "クリックでこの項目を開く",
     "source_kea_dhcp": "Kea DHCP",
-    "source_isc_dhcp": "ISC DHCP"
+    "source_isc_dhcp": "ISC DHCP",
+    "source_librenms_arp": "LibreNMS ARP"
   },
   "subnets": {
     "title": "サブネット",
@@ -1427,7 +1428,9 @@
       "tag_total": "合計",
       "raw_json": "生の JSON",
       "identify_running": "スキャンエージェント {agent} が実行",
-      "identify_done": "{type}・{os}・開いているポート {ports} 個"
+      "identify_done": "{type}・{os}・開いているポート {ports} 個",
+      "arp_ips_created": "ARP から作成した IP",
+      "arp_create_skipped": "未作成"
     }
   },
   "groups": {
@@ -1810,8 +1813,8 @@
     "scope_hint": "範囲が重複している場合に使います。これらのサブネット内の IP だけを照合します。空欄なら全体が対象です。",
     "use_for_status": "死活の判定に数える",
     "auto_add_devices": "新しい機器を自動的に追加する",
-    "auto_create_ips": "検出した IP を自動作成する",
-    "auto_create_ips_hint": "有効にすると、同期時に監視対象の機器の主 IP について、対応する既存のサブネット内に IPAddress を自動作成します（ソースは LibreNMS として記録されます）。対象は機器の主 IP だけで、ARP の近傍は含みません。範囲を設定している場合はその範囲内に限られます。サブネットがまだ存在しない場合は作成しません。",
+    "auto_create_ips": "機器の主 IP を自動作成する",
+    "auto_create_ips_hint": "有効にすると、同期時に監視対象の機器の主 IP について、対応する既存のサブネット内に IP レコードを自動作成します（ソースは LibreNMS）。対象は機器の主 IP だけです。ARP で学習したアドレスは下の「ARP テーブルから IP を作成する」を使います。サブネット範囲を指定している場合は範囲内だけに作成します。まだ存在しないサブネットはスキップします。",
     "sync_interval": "同期の間隔（秒）",
     "error_name_required": "名称は必須です",
     "error_token_too_short": "API トークンは 8 文字以上にしてください",
@@ -1819,7 +1822,27 @@
     "verify_tls": "TLS 証明書を検証する",
     "verify_tls_hint": "LibreNMS が自己署名証明書を使っている場合や、ホスト名が一致しない場合（IP で接続しているときなど）は無効にしてください。証明書の検証を省略します。",
     "sync_links": "LLDP / CDP の近傍",
-    "sync_links_hint": "LibreNMS が検出した近傍のリンクを取得します。これは対向側が申告した情報なので、スイッチ間のトランクでも正しく得られます。FDB からトポロジーを導く方法が最も当てにならない部分が、まさにそこです。対向側で LLDP / CDP が有効で、LibreNMS の xdp discovery が実行済みである必要があります。ソースにデータが無くてもエラーとは扱いません。"
+    "sync_links_hint": "LibreNMS が検出した近傍のリンクを取得します。これは対向側が申告した情報なので、スイッチ間のトランクでも正しく得られます。FDB からトポロジーを導く方法が最も当てにならない部分が、まさにそこです。対向側で LLDP / CDP が有効で、LibreNMS の xdp discovery が実行済みである必要があります。ソースにデータが無くてもエラーとは扱いません。",
+    "arp_create": "ARP テーブルから IP を作成する",
+    "arp_create_hint": "IPAM にはないが LibreNMS の ARP テーブルに見えるアドレスについて、レコードを自動作成します（ソースは LibreNMS ARP、一覧では「自動収集」と表示）。既存のサブネット内だけに作成します（重複ネットワークではサブネット範囲を指定してください）。プロキシ ARP、ブロードキャストアドレス、管理者が解放したばかりのアドレス（クールダウン中）はスキップします。1 回の同期で最大 500 件、残りは次回に作成します。既定はオフです。",
+    "arp_create_warn": "有効にすると、無断で接続された機器も通常のレコードとして静かに登録され、異常検知の「未承認 IP」に表示されなくなります（この検知は「ARP に見えるが IPAM にない」ものを探します）。作成されたレコードはオンラインであることを意味しません。LibreNMS の ARP には時刻がなく、既定ではオンラインの根拠になりません。",
+    "arp_create_require_fdb": "スイッチの MAC テーブルでの確認を必須にする（推奨）",
+    "arp_create_require_fdb_hint": "スイッチの MAC テーブル（FDB）でも 24 時間以内にその MAC が見えた場合だけ作成します。機器によっては ARP エントリを数時間から数日保持します（Cisco の既定は 4 時間、インターフェースのダウンや再起動まで保持するものもあります）。ARP だけでは、とっくにいなくなった機器のアドレスまで作成されます。MAC テーブルは通常数分で消えるため、最近実際に通信していたことの裏付けになります。FDB 同期を有効にしてください（MikroTik 連携の MAC テーブルも対象です）。",
+    "arp_create_no_fdb_warn": "ARP のみ：機器がいなくなっても、ルーターが ARP エントリを保持している間はアドレスが作成され続けます。スイッチの MAC テーブルが使えず、ARP の保持時間を把握している環境でだけオフにしてください。",
+    "arp_create_skip_dhcp": "DHCP の動的範囲をスキップする",
+    "arp_create_skip_dhcp_hint": "既知の DHCP 配布範囲内のアドレスは作成しません（後で別の機器に配布されるため）。範囲は DHCP 関連の連携から取得します。",
+    "arp_skip": {
+      "no_recent_fdb": "MAC テーブルでの確認なし",
+      "proxy_arp": "プロキシ ARP",
+      "bad_mac": "無効な MAC",
+      "mac_conflict": "1 つの IP に複数の MAC",
+      "not_host": "ネットワーク／ブロードキャストアドレス",
+      "ambiguous": "重複ネットワークで特定不可",
+      "no_subnet": "該当サブネットなし",
+      "cooldown": "クールダウン中",
+      "dhcp_range": "DHCP 範囲",
+      "cap": "今回の上限超過"
+    }
   },
   "firewall": {
     "scope_title": "対応付けの範囲（NAT の照合）",
@@ -2135,7 +2158,8 @@
     "explain_identity_changes": "スキャンエージェントの定期検出で判定された機器タイプまたは OS ファミリーが変わりました（プリンターが Windows ホストに、カメラが Linux サーバーに、など）。この IP を別の機器が使っている、機器が交換された、またはなりすましの可能性があります。不明から判明への変化は数えず、判定が行き来しているものも挙げません。デュアルブートなど正当に変わる機器は「この IP を無視」を使ってください。",
     "identity_kind": "機器タイプ",
     "identity_os": "OS",
-    "identity_times": "（{n} 回）"
+    "identity_times": "（{n} 回）",
+    "unauthorized_truncated": "直近に見えた {shown} 件のみ表示しています（全 {total} 件）。これほど多い場合、たいていはネットワーク全体が未登録です。まずサブネットを確認するか、連携の IP 自動作成を検討してください。"
   },
   "webhooks": {
     "events_label": "イベント（* はすべて）",
@@ -3110,7 +3134,13 @@
     "isc_dhcp_agent_taken": "このスキャンエージェントはすでに ISC DHCP ソース「{name}」に割り当てられています。1 台のエージェントに割り当てられるソースは 1 つだけです。",
     "device_import_encoding": "CSV は UTF-8 である必要があります（{reason}）。Excel で保存するときは「CSV UTF-8」を選ぶか、.xlsx をそのままアップロードしてください。",
     "device_import_bad_xlsx": "この Excel ファイルを読み込めません：{reason}",
-    "device_import_too_large": "ファイルが大きすぎます（上限 16 MB）。"
+    "device_import_too_large": "ファイルが大きすぎます（上限 16 MB）。",
+    "ai_failed": "AI の解釈に失敗しました",
+    "ai_disabled": "LLM が有効になっていません",
+    "ai_ssrf_blocked": "LLM サーバーのアドレスが外向き通信の保護で拒否されました。管理者に LLM 設定の確認を依頼してください",
+    "ai_unreachable": "LLM サーバーに接続できません",
+    "ai_timeout": "LLM サーバーが時間内に応答しませんでした",
+    "ai_upstream_error": "LLM サーバーがエラーを返しました"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",

@@ -132,7 +132,7 @@ def test_agent_periodic_os_probe_returns_nmap_detail(monkeypatch) -> None:
 
     from tests.test_agent_scan_split import _agent_module
     mod = _agent_module()
-    assert mod.AGENT_VERSION == "1.14.0"
+    assert tuple(int(x) for x in mod.AGENT_VERSION.split(".")) >= (1, 14, 0)   # 這個功能從 1.14.0 起
     seen: dict = {}
 
     def fake_run(args, **kw):
@@ -199,3 +199,20 @@ async def test_topology_uses_the_primary_ip_kind_for_unknown_devices(db_session)
     assert types["sw-unknown"] == "switch"       # other → 主要 IP 判讀出交換器
     assert types["cam-1"] == "other"             # 拓樸沒有攝影機這一類，維持 other
     assert types["fw-known"] == "firewall"       # 已知的類型不被覆蓋
+
+
+def test_agent_dhcp_parser_survives_truncated_options() -> None:
+    """截斷的 DHCP 選項不可以丟例外：以前會中止整個偵測視窗，網段上任何主機送一個壞封包就能藏住
+    非法 DHCP 伺服器（CodeQL 判讀附帶發現，代理 1.14.1）。"""
+    from tests.test_agent_scan_split import _agent_module
+    mod = _agent_module()
+    head = bytearray(240)
+    head[0] = 2
+    head[16:20] = bytes([192, 0, 2, 50])
+    head[236:240] = mod.DHCP_MAGIC
+    ok = bytes(head) + bytes([53, 1, 2, 54, 4, 192, 0, 2, 1, 255])
+    assert mod._dhcp_parse(ok)["server_id"] == "192.0.2.1"
+    for tail in (bytes([54, 4, 192, 0]), bytes([53, 1]), bytes([1, 4, 255])):
+        out = mod._dhcp_parse(bytes(head) + tail)          # 不丟例外
+        assert out is not None
+        assert "server_id" not in out
