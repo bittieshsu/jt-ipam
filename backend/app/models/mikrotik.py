@@ -45,22 +45,24 @@ class MikroTikRouter(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     sync_interval_seconds: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("900"))
 
-    #: 🕰️ 同 sync_fdb：介面說明要落到 `device_ports` 得先有「這台路由器＝哪一台 Device」
-    #: 的對應，第二階段一起做。
+    #: 這台路由器＝哪一台 jt-ipam 裝置（migration 0170）。介面、FDB、鄰居都落在這台裝置上；
+    #: 沒指定時同步用 API 位址對到的 IP 所屬裝置自動帶入（services/mikrotik._router_device）
+    device_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="SET NULL"), index=True)
+
+    #: 介面 → 對應裝置的 `device_ports`（第二階段，0170）
     sync_interfaces: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sync_dhcp: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sync_dhcp_ranges: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sync_firewall: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sync_nat: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sync_address_lists: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
-    #: 🕰️ 同上（`/ip/neighbor` 的落點是拓樸鄰居表，目前只吃 LibreNMS）
+    #: `/ip/neighbor`（MNDP／CDP／LLDP）→ mikrotik_neighbors，拓樸畫出「哪個埠接著哪台裝置」
     sync_neighbors: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     #: ⚠️ 預設關：全表 ARP 在大型路由器上可能是上萬列，先看診斷數字再決定
     sync_arp: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    #: 🕰️ 第二階段才會用到，目前不出現在設定頁（欄位先留著，免得屆時再開一次 migration）。
-    #: 之所以還沒做：`fdb_entries.device_id` 綁的是 LibreNMS 裝置、`librenms_links`
-    #: 需要 LibreNMS 實例 —— 要讓 MikroTik 成為這兩者的來源得先動結構。半套接上去的話，
-    #: 交換器在拓樸圖上會是「什麼都沒有」，比沒有這個功能更難查。
+    #: `/interface/bridge/host` → fdb_entries（source=mikrotik，記 jt-ipam 裝置；0170）。
+    #: ⚠️ 預設關：大型 bridge 可能上萬列，先看連線診斷的列數再開
     sync_fdb: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     sync_vpn: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
@@ -127,3 +129,28 @@ class MikroTikAddressList(Base, UUIDPrimaryKeyMixin):
     comment: Mapped[str | None] = mapped_column(Text)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class MikroTikNeighbor(Base, UUIDPrimaryKeyMixin):
+    """`/ip/neighbor`：對方自己宣告的「我是誰、接在你哪個埠」（MNDP／CDP／LLDP，0170）。
+
+    與 FDB 推導不同，這是鄰居親口說的，交換器之間的連線也畫得出來。每輪完整讀到才整批換掉。
+    """
+
+    __tablename__ = "mikrotik_neighbors"
+
+    router_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mikrotik_routers.id", ondelete="CASCADE"), nullable=False, index=True)
+    interface: Mapped[str] = mapped_column(String(128), nullable=False)      # 路由器這端的埠
+    address: Mapped[str | None] = mapped_column(String(64))
+    mac: Mapped[str | None] = mapped_column(String(32))
+    identity: Mapped[str | None] = mapped_column(String(255))
+    platform: Mapped[str | None] = mapped_column(String(128))
+    board: Mapped[str | None] = mapped_column(String(128))
+    version: Mapped[str | None] = mapped_column(String(128))
+    remote_interface: Mapped[str | None] = mapped_column(String(128))       # 對方那端的埠（有宣告才有）
+    discovered_by: Mapped[str | None] = mapped_column(String(32))           # cdp,lldp,mndp
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False)

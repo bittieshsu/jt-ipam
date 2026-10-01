@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import json
 import secrets as _rng
 import sys
 from datetime import UTC, datetime
@@ -30,7 +29,7 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 
 from app.core.db import SessionLocal
-from app.services.system_transfer import crypto, exporter, importer, registry
+from app.services.system_transfer import crypto, exporter, importer, registry, streaming
 from app.version import __version__
 
 
@@ -90,28 +89,31 @@ def _export(scope: list[str], out: str, passphrase: str) -> int:
     return 0
 
 
-async def _apply(inner: dict, mode: str, dry_run: bool) -> dict:
+async def _apply(file: str, passphrase: str, scanned: streaming.ScanResult, mode: str, dry_run: bool) -> dict:
     async with SessionLocal() as session:
-        return await importer.apply_import(session, inner, mode=mode, dry_run=dry_run)
+        return await importer.import_file(session, file, passphrase, mode=mode, dry_run=dry_run,
+                                          scanned=scanned)
 
 
 def _import(file: str, mode: str, dry_run: bool, passphrase: str) -> int:
-    with open(file, "rb") as f:
-        raw = f.read()
+    # 先逐段驗證（密碼、完整性），再串流匯入 —— 不把整份檔案讀進記憶體
     try:
-        env = json.loads(raw.decode("utf-8"))
-        meta = crypto.read_metadata(env)
-        inner = crypto.open_envelope(env, passphrase)
+        scanned = streaming.scan(file, passphrase)
     except crypto.TransferCryptoError as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1
-    except (ValueError, UnicodeDecodeError) as exc:
-        print(f"[error] not a valid export file: {exc}", file=sys.stderr)
+    except OSError as exc:
+        print(f"[error] cannot read {file}: {exc}", file=sys.stderr)
         return 1
+    meta = scanned.metadata
 
     print(f"[info] source app_version={meta.get('app_version')} schema={meta.get('schema_version')} "
           f"scope={','.join(meta.get('scope') or [])}")
-    report = asyncio.run(_apply(inner, mode, dry_run))
+    try:
+        report = asyncio.run(_apply(file, passphrase, scanned, mode, dry_run))
+    except crypto.TransferCryptoError as exc:          # 兩趟之間檔案被換掉：交易已還原
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
 
     tag = "DRY-RUN (nothing written)" if dry_run else "APPLIED"
     print(f"[ok] import {tag}  mode={mode}")

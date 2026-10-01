@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCard, NCheckbox, NCheckboxGroup, NCode, NDataTable, NDivider,
-  NIcon, NInput, NPopconfirm, NRadio, NRadioGroup, NSpace, NSpin, NTag, useMessage,
+  NIcon, NInput, NPopconfirm, NRadio, NRadioGroup, NSpace, NSpin, useMessage,
 } from "naive-ui";
 import { AdminIcon, ExportIcon, ImportIcon } from "@/icons";
 import { srvText } from "@/utils/wsError";
@@ -231,11 +231,17 @@ onUnmounted(() => { stopExpTimer(); stopImpTimer(); });
 
       <div class="st-group">
         <div class="st-label">{{ t("system_transfer.scope_label") }}</div>
+        <!-- 一項一列：名稱與筆數同一行（筆數靠右對齊），內容說明在下一行。以前三欄格子裡
+             名稱一長就把筆數擠到下一行，看起來亂（使用者回報） -->
         <n-checkbox-group v-model:value="scope">
-          <div class="st-scope-grid">
-            <n-checkbox v-for="cat in schema?.scopes ?? []" :key="cat" :value="cat">
-              {{ t(`system_transfer.scope.${cat}`) }}
-              <n-tag size="small" :bordered="false" style="margin-left: 6px">{{ scopeCount(cat) }}</n-tag>
+          <div class="st-scope-list">
+            <n-checkbox v-for="cat in schema?.scopes ?? []" :key="cat" :value="cat" class="st-scope-row"
+                        :data-testid="`st-scope-${cat}`">
+              <span class="st-scope-line">
+                <span class="st-scope-name">{{ t(`system_transfer.scope.${cat}`) }}</span>
+                <span class="st-scope-count">{{ scopeCount(cat).toLocaleString() }}</span>
+              </span>
+              <span class="st-scope-desc">{{ t(`system_transfer.scope_desc.${cat}`) }}</span>
             </n-checkbox>
           </div>
         </n-checkbox-group>
@@ -364,6 +370,13 @@ onUnmounted(() => { stopExpTimer(); stopImpTimer(); });
 .st-group { margin-bottom: 18px; }
 .st-label { font-weight: 600; margin-bottom: 8px; }
 .st-hint { font-size: 12px; opacity: 0.65; margin-top: 6px; }
-.st-scope-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 10px 16px; }
+.st-scope-list { display: flex; flex-direction: column; border: 1px solid var(--n-border-color, rgba(128,128,128,.22)); border-radius: 8px; }
+.st-scope-row { display: flex; width: 100%; box-sizing: border-box; padding: 9px 12px; align-items: flex-start; margin-right: 0; }
+.st-scope-row + .st-scope-row { border-top: 1px solid var(--n-border-color, rgba(128,128,128,.16)); }
+.st-scope-row :deep(.n-checkbox__label) { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.st-scope-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.st-scope-name { font-weight: 500; }
+.st-scope-count { font-variant-numeric: tabular-nums; font-size: 12.5px; opacity: .7; white-space: nowrap; }
+.st-scope-desc { font-size: 12px; opacity: .6; line-height: 1.5; }
 .st-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; margin-bottom: 14px; opacity: 0.85; }
 </style>

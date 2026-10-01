@@ -469,11 +469,12 @@ patch_nginx_readyz_phpipam() {
     local site=/etc/nginx/sites-available/jt-ipam
     [[ -f "$site" ]] || return 0
     command -v nginx >/dev/null 2>&1 || return 0
-    local need_ready=0 need_php=0 need_embed=0
+    local need_ready=0 need_php=0 need_embed=0 need_429=0
     grep -q 'location = /readyz' "$site" || need_ready=1
     grep -q 'location /api/phpipam/user/ {' "$site" && need_php=1
     grep -q 'embed\\.svg' "$site" || need_embed=1
-    (( need_ready || need_php || need_embed )) || return 0
+    grep -q '@rate_limited' "$site" || need_429=1
+    (( need_ready || need_php || need_embed || need_429 )) || return 0
     local bak="${site}.pre-readyz.bak"
     cp -p "$site" "$bak" 2>/dev/null || true
     if (( need_php )); then
@@ -517,8 +518,28 @@ patch_nginx_readyz_phpipam() {
           { print }
         ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
     fi
+    if (( need_429 )); then
+        # nginx's own 429 (limit_req) carried no Retry-After, unlike the backend's (2026-10-01).
+        log "Adding Retry-After to nginx rate-limit responses…"
+        awk '
+          !done && /location \/api\/ \{/ {
+            print "    # Requests nginx itself rejects (limit_req) get Retry-After too, like the backend'"'"'s 429.";
+            print "    error_page 429 @rate_limited;";
+            print "    location @rate_limited {";
+            print "        default_type application/json;";
+            print "        add_header Retry-After 60 always;";
+            print "        add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;";
+            print "        add_header X-Content-Type-Options \"nosniff\" always;";
+            print "        return 429 \047{\"detail\":\"Too Many Requests\"}\047;";
+            print "    }";
+            print "";
+            done = 1;
+          }
+          { print }
+        ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
+    fi
     if apply_nginx_config; then
-        log "nginx /readyz + phpIPAM login limit + rack embed patched + reloaded."
+        log "nginx /readyz + phpIPAM login limit + rack embed + 429 Retry-After patched + reloaded."
     else
         warn "nginx -t failed after the /readyz / phpIPAM patch; restoring previous config."
         cp -p "$bak" "$site" 2>/dev/null || true

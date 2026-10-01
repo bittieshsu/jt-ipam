@@ -529,10 +529,75 @@ async def diagnose(fw: PaloAltoFirewall) -> dict[str, Any]:
             "<show><dhcp><server><lease><interface>all</interface></lease>"
             "</server></dhcp></show>",
         ),
+        _xml_probe("vpn_flow", _VPN_FLOW_CMD),
     ))
     out["checks"] = checks
     out["ok_count"] = sum(1 for c in checks if c["ok"])
     return out
+
+
+_VPN_FLOW_CMD = "<show><vpn><flow></flow></vpn></show>"
+
+
+def _vpn_flow_rows(result: Any) -> list[dict[str, str]]:
+    """`show vpn flow` 的 IPsec 通道：名稱、狀態、本機與對端位址。
+
+    沒有實機可以驗，欄位名稱寫法不只一種都收（`localip`／`local-ip`／`local`）。
+    只取 `<IPSec>` 底下的項目（GlobalProtect 的 SSL-VPN 在另一段，不是站對站）。
+    """
+    if result is None:
+        return []
+    box = result.find("IPSec")
+    if box is None:
+        box = result.find("ipsec")
+    entries = list(box.iter("entry")) if box is not None else []
+
+    def _t(e: Any, *names: str) -> str:
+        for n in names:
+            v = (e.findtext(n) or "").strip()
+            if v:
+                return v
+        return ""
+    out = []
+    for e in entries:
+        name = _t(e, "name")
+        if not name:
+            continue
+        out.append({"name": name, "state": _t(e, "state").lower(),
+                    "local": _t(e, "localip", "local-ip", "local"),
+                    "peer": _t(e, "peerip", "peer-ip", "peer", "remote")})
+    return out
+
+
+async def sync_vpn(session: AsyncSession, fw: PaloAltoFirewall) -> dict[str, Any]:
+    """站對站 IPsec 通道 → 共用 vpn_tunnels（拓樸圖據此畫出與對端之間的 VPN）。"""
+    from app.models.physical import VPNTunnel
+    from app.services.vpn_pairing import link_peers, resolve_device_for
+
+    rows = _vpn_flow_rows(await _xml_get(fw, {"type": "op", "cmd": _VPN_FLOW_CMD}))
+    origin = f"paloalto:{fw.id}"
+    prefix = f"{fw.name}/ipsec/"
+    fw_dev = await resolve_device_for(session, api_url=fw.api_url, name=fw.name)
+    seen: set[str] = set()
+    for r in rows:
+        name = f"{prefix}{r['name']}"[:128]
+        seen.add(name)
+        t = (await session.execute(select(VPNTunnel).where(VPNTunnel.name == name))).scalars().first()
+        if t is None:
+            t = VPNTunnel(name=name, type="ipsec_ikev2")
+            session.add(t)
+        t.source_origin = origin
+        # active＝已建立；init 等其他狀態＝還沒通
+        t.status = "active" if r["state"] == "active" else "offline"
+        t.a_endpoint = _valid_ip(r["local"]) or (r["local"][:255] or None)
+        t.b_endpoint = _valid_ip(r["peer"]) or (r["peer"][:255] or None)
+        t.a_device_id = fw_dev
+    # 讀到了就清掉這台先前建立、這次沒看到的（歸屬看 source_origin，改名也認得）
+    for t in (await session.execute(select(VPNTunnel).where(VPNTunnel.source_origin == origin))).scalars().all():
+        if t.name not in seen:
+            await session.delete(t)
+    await link_peers(session)
+    return {"tunnels": len(seen)}
 
 
 # ─────────────────── 主流程 ───────────────────
@@ -573,6 +638,8 @@ async def sync_instance(session: AsyncSession, fw: PaloAltoFirewall) -> dict[str
         await _section("nat", lambda: sync_nat(session, fw, vsys_list, authoritative=vsys_ok))
     if fw.sync_addresses:
         await _section("addresses", lambda: sync_addresses(session, fw, vsys_list))
+    if getattr(fw, "sync_vpn", True):
+        await _section("vpn", lambda: sync_vpn(session, fw))
 
     fw.last_sync_at = datetime.now(UTC)
     fw.last_error = ("部分區段失敗：" + "；".join(f"{k}: {v}" for k, v in errors.items())

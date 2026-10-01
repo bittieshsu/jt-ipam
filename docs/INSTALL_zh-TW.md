@@ -3,7 +3,7 @@
 > English: [INSTALL.md](INSTALL.md) · 日本語：[INSTALL_ja.md](INSTALL_ja.md)
 
 針對 **Proxmox LXC、裸機、虛擬機**，作業系統為 Debian 12/13 或 Ubuntu 22.04/24.04/26.04（x86_64，見[支援的發行版本](#支援的發行版本)）。**主力且建議**的安裝方式是
-**systemd + apt** 直裝（不使用 Docker）。另有 Docker Compose 路徑，但**屬選用 / 次要、並非優先模式**——見下方 §2.8。
+**systemd + apt** 直裝（不使用 Docker）。另有 Docker Compose 路徑，但**屬選用 / 次要、並非優先模式**，見下方 §2.8。
 
 > 安全為 day-one 需求：所有環境強制 HTTPS；憑證可走 nginx 反代或
 > uvicorn 直接吃自簽。SSL 沒設好 backend **不會啟動**（A02）。
@@ -19,11 +19,11 @@
 | RAM | 4 GB | 8 GB | 開 LLM Server 還要再加 8 GB |
 | Disk | 20 GB | 50 GB | audit log 累積 |
 | Python | 3.11 | 3.12 | 24.04 預設就是 3.12  |
-| PostgreSQL | 16 + pgvector | — | 22.04 需 PGDG repo（腳本會自動加）|
-| Redis | 7 | — | 24.04 預設 7.0.15  |
+| PostgreSQL | 16 + pgvector | 無 | 22.04 需 PGDG repo（腳本會自動加）|
+| Redis | 7 | 無 | 24.04 預設 7.0.15  |
 | Node | 20 LTS | 22 LTS | 24.04 預設 18.19；vite 6 跑得動但有 warning |
-| guacd | jt-ipam 為該 OS 編的版本 | — | **必要**：RDP/VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
-| Recog | 最新發佈版 | — | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
+| guacd | jt-ipam 為該 OS 編的版本 | 無 | **必要**：RDP/VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
+| Recog | 最新發佈版 | 無 | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
 
 ### 支援的發行版本
 
@@ -79,11 +79,11 @@ cd /opt/jt-ipam
 
 # 三種 TLS 模式擇一：
 #
-#   nginx         — nginx 終結 HTTPS，後端 loopback；缺憑證時自動產自簽 bootstrap
-#   self-signed   — uvicorn direct 內建自簽（不裝 nginx；最快上線）
-#   direct        — uvicorn direct，憑證自備（缺則 fallback 產自簽）
+#   nginx         ：nginx 終結 HTTPS，後端 loopback；缺憑證時自動產自簽 bootstrap
+#   self-signed   ：uvicorn direct 內建自簽（不裝 nginx；最快上線）
+#   direct        ：uvicorn direct，憑證自備（缺則 fallback 產自簽）
 
-# (A) nginx + 暫用自簽（之後 cp 正式憑證即可）— 推薦生產環境
+# (A) nginx + 暫用自簽（之後 cp 正式憑證即可），推薦生產環境
 sudo ./scripts/jt-ipam.sh install --tls-mode nginx --public-fqdn ipam.example.com
 
 # (B) uvicorn direct 自簽（內網/開發環境最快）
@@ -186,7 +186,7 @@ openssl s_client -connect ipam.example.com:8443 -servername ipam.example.com </d
 
 #### 監聽在哪個埠？（**預設是 8443，不是 443**）
 
-`self-signed` / `direct` 模式由 uvicorn 自己掛 TLS，**預設監聽 8443** —— 網址是
+`self-signed` / `direct` 模式由 uvicorn 自己掛 TLS，**預設監聽 8443**，網址是
 `https://<你的網域>:8443/`。裝完發現「443 沒有起來」多半就是這個原因，不是安裝失敗。
 實際值寫在 `/etc/jt-ipam/backend.env` 的 `BACKEND_BIND_PORT`。
 
@@ -240,7 +240,7 @@ sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload
 ```
 
 > nginx 範本已內含 WebSocket 升級設定（SSH/SFTP/RDP/VNC/noVNC/BMC 主控台需要）。
-> **自己寫 nginx 設定的話，這段一定要照抄** —— 少了升級標頭，主控台會連不上，
+> **自己寫 nginx 設定的話，這段一定要照抄**：少了升級標頭，主控台會連不上，
 > 而畫面上只會看到一個沒頭沒尾的 404。
 
 ### 2.7 正式環境標準：高安全性 nginx 反向代理
@@ -252,7 +252,7 @@ sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload
 - **TLS**：僅 TLS 1.2/1.3、現代化加密套件、OCSP stapling、關閉 session tickets。
 - **HSTS**：`max-age` 2 年 + `includeSubDomains` + `preload`。
 - **CSP**：`default-src 'self'`、`script-src 'self'`、`connect-src 'self'`、`frame-src 'self'`、
-  `frame-ancestors 'none'`、`base-uri 'self'`、`form-action 'self'`——不含任何第三方 script/frame 來源。
+  `frame-ancestors 'none'`、`base-uri 'self'`、`form-action 'self'`；不含任何第三方 script/frame 來源。
 - **標頭**：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy`、
   `Permissions-Policy`（關閉定位/麥克風/相機/付款/USB）、`Cross-Origin-Opener-Policy` 與
   `Cross-Origin-Resource-Policy: same-origin`。
@@ -263,7 +263,7 @@ sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload
 
 > ### ⚠️ 自己在前面再擋一層反向代理時（Mode C）＝必要設定
 > 上述安全標頭是由「**在公開邊緣終結 TLS 的那台 nginx**」送出的。如果你用另一台反向代理（例如公司邊緣 nginx/
-> 負載平衡器）擋在 jt-ipam 前面，**那台代理必須自己也設這些安全標頭**——它們不會自動跨多一跳存活，否則對外網站就會
+> 負載平衡器）擋在 jt-ipam 前面，**那台代理必須自己也設這些安全標頭**：它們不會自動跨多一跳存活，否則對外網站就會
 > **完全沒有** CSP/HSTS/Permissions-Policy。這是部署的**必要**步驟，不是選用。
 >
 > 把內建的硬化外部代理設定套到那台邊緣機：
@@ -278,7 +278,7 @@ sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload
 curl -skI https://ipam.example.com/ \
   | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions|cross-origin|^server'
 # 應看到：HSTS、Content-Security-Policy（frame-src 'self'）、X-Frame-Options、X-Content-Type-Options、
-# Referrer-Policy、Permissions-Policy、COOP、CORP——每個各一份，且 Server: nginx（無版本）。
+# Referrer-Policy、Permissions-Policy、COOP、CORP：每個各一份，且 Server: nginx（無版本）。
 ```
 
 **主控台與 SFTP 經過你的邊緣代理。** 每個主控台（包含 SFTP）都是一條長時間的 WebSocket，路徑是
@@ -311,7 +311,7 @@ sudo apt-get update && sudo apt-get install -y curl git
 curl -fsSL https://get.docker.com | sudo sh
 docker compose version         # 應印出 v2.x
 
-# 先 git clone 取得專案——gen-env.sh / docker-compose.yml 都在 repo 的 deploy/docker/ 內
+# 先 git clone 取得專案：gen-env.sh / docker-compose.yml 都在 repo 的 deploy/docker/ 內
 git clone https://github.com/jasoncheng7115/jt-ipam.git
 cd jt-ipam/deploy/docker
 ./gen-env.sh                   # 產生 .env 並填入隨機密鑰（只需一次）
@@ -320,7 +320,7 @@ docker compose up -d --build   # 建置映像並啟動
 ```
 
 - **第一個管理員：** `gen-env.sh` 會自動產生一組隨機 `admin` 密碼（印在它的輸出、並存進 `.env` 的
-  `JT_IPAM_ADMIN_PASSWORD`，檔案 0600），backend 首次啟動就用它建立 admin——登入後請立即更換。想自己指定就在
+  `JT_IPAM_ADMIN_PASSWORD`，檔案 0600），backend 首次啟動就用它建立 admin，登入後請立即更換。想自己指定就在
   第一次 `up` 前改 `.env` 的 `JT_IPAM_ADMIN_PASSWORD`；或留空、之後用
   `docker compose exec backend python -m app.cli.bootstrap create-admin --username admin --email admin@example.com --password-stdin` 建立。
 - **正式憑證：** 把 `server.crt` / `server.key` 放到 `deploy/docker/certs/` 即蓋過自簽。
@@ -334,7 +334,7 @@ docker compose up -d --build   # 建置映像並啟動
 
 backend 容器啟動時會**自動**跑資料庫遷移（entrypoint 執行 `alembic upgrade head`），不需另外手動跑 migration。
 
-**內網/無外網主機**（外網 build、內網 run）：在有外網的主機把映像 build 好、帶進內網載入 —— 安裝與升級同一套流程。
+**內網/無外網主機**（外網 build、內網 run）：在有外網的主機把映像 build 好、帶進內網載入；安裝與升級同一套流程。
 
 ```bash
 # 在有外網的主機：先取得原始碼，再 build + 打包
@@ -371,14 +371,14 @@ cd jt-ipam/deploy/docker
 | `APP_PUBLIC_URL` |  | 前端 base URL |
 | `API_PUBLIC_URL` |  | OIDC/SAML callback 用 |
 | `CORS_ORIGINS` |  | 多個用逗號分隔 |
-| `OUTBOUND_ALLOW_CIDRS` | — | safe_http SSRF allowlist；空白 = 只允公網 |
+| `OUTBOUND_ALLOW_CIDRS` | 無 | safe_http SSRF allowlist；空白 = 只允公網 |
 | `FDB_CURRENT_MAX_AGE_HOURS` | 24 | FDB 條目多久沒被看到就只算歷史（不再參與「目前接在哪個埠」的判斷）|
 | `FDB_RETENTION_DAYS` | 365 | FDB 歷史保留天數；0＝永久。這張表的價值是「以前接在哪個埠」，所以預設比 ARP 長很多 |
 | `ARP_RETENTION_DAYS` | 30 | ARP 條目保留天數；0＝停用回收 |
-| `OIDC_*` | — | 啟用 OIDC SSO |
-| `SAML_*` | — | 啟用 SAML SSO |
-| `LDAP_*` | — | LDAP/AD 認證 |
-| `OLLAMA_ENABLED` | — | 開啟 AI 語意搜尋 + chat |
+| `OIDC_*` | 無 | 啟用 OIDC SSO |
+| `SAML_*` | 無 | 啟用 SAML SSO |
+| `LDAP_*` | 無 | LDAP/AD 認證 |
+| `OLLAMA_ENABLED` | 無 | 開啟 AI 語意搜尋 + chat |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | LLM Server 位址 |
 | `OLLAMA_CHAT_MODEL` | `gemma4:26b` | 對話模型 |
 | `OLLAMA_EMBEDDING_MODEL` | `granite-embedding:278m` | 嵌入模型，**維度必須等於 `EMBEDDING_DIM`** |
@@ -452,7 +452,7 @@ SAML_ADMIN_GROUPS=jt-ipam-admins
 
 ### Recog 指紋庫（選用）
 
-IP 探測會把主機自己回的文字 —— SSH banner、HTTP `Server` 標頭、網頁標題、TLS 憑證、SMB 回報的 OS —— 拿去比對
+IP 探測會把主機自己回的文字（SSH banner、HTTP `Server` 標頭、網頁標題、TLS 憑證、SMB 回報的 OS）拿去比對
 [Recog](https://github.com/rapid7/recog)（Rapid7，BSD-2-Clause），認出設備（廠商的出廠預設憑證、管理介面）與精確的
 OS 版本。沒有安裝時探測照常運作，只是認得比較少。
 
@@ -466,7 +466,7 @@ OS 版本。沒有安裝時探測照常運作，只是認得比較少。
 
 ### LLM / AI（選用）
 
-AI 對話與語意搜尋預設走**自架的 Ollama**，資料不出自己的網路。安裝腳本不會幫你裝 LLM Server —— 它通常跑在另一台有顯示卡的機器上。
+AI 對話與語意搜尋預設走**自架的 Ollama**，資料不出自己的網路。安裝腳本不會幫你裝 LLM Server，它通常跑在另一台有顯示卡的機器上。
 
 ```bash
 # 在 LLM Server 上（範例）
@@ -477,17 +477,17 @@ ollama pull granite-embedding:278m     # 嵌入模型（768 維、多語系）
 然後在 **管理 → LLM / AI** 填上位址與兩個模型，按一次「**檢查維度**」確認相符，再按「**重建索引**」把既有資料補上向量。
 
 > **從舊版升級的人請特別看這段。** 升級**不會**自動修好語意搜尋，有三件事只能手動：
-> 1. 出廠預設換成 `granite-embedding:278m`，但**只在你沒有在設定頁存過嵌入模型時才生效** —— 存過的話資料庫裡的值優先，仍是舊的。
+> 1. 出廠預設換成 `granite-embedding:278m`，但**只在你沒有在設定頁存過嵌入模型時才生效**；存過的話資料庫裡的值優先，仍是舊的。
 > 2. 新模型要自己在 LLM Server 上 `ollama pull`。
 > 3. 既有資料的向量要按「重建索引」才會補上。
 >
-> 設定頁在載入時會自動驗一次維度，不符會直接顯示出來 —— 這正是舊版最要命的地方：維度不合完全沒有錯誤訊息，只表現為「語意搜尋永遠沒有結果」。
+> 設定頁在載入時會自動驗一次維度，不符會直接顯示出來，這正是舊版最要命的地方：維度不合完全沒有錯誤訊息，只表現為「語意搜尋永遠沒有結果」。
 
-> ⚠️ **嵌入模型的輸出維度必須等於 `EMBEDDING_DIM`（預設 768）**，那是資料庫 `vector(N)` 欄位的維度。維度不合時**不會有錯誤訊息**，唯一的症狀是「語意搜尋永遠沒有結果」—— 因為每一筆索引寫入都失敗了。換模型之後請按設定頁的「**檢查維度**」驗一次，它會直接告訴你模型回幾維、欄位要幾維。
+> ⚠️ **嵌入模型的輸出維度必須等於 `EMBEDDING_DIM`（預設 768）**，那是資料庫 `vector(N)` 欄位的維度。維度不合時**不會有錯誤訊息**，唯一的症狀是「語意搜尋永遠沒有結果」，因為每一筆索引寫入都失敗了。換模型之後請按設定頁的「**檢查維度**」驗一次，它會直接告訴你模型回幾維、欄位要幾維。
 >
 > 另外，**只支援英文的嵌入模型（如 `nomic-embed-text`）會把不同的中文描述壓成同一個向量**，維度看起來對、搜尋也有結果，但排序是亂的。要換模型的話，挑多語系的，並拿自己實際在用的描述比對一下不同描述是否得到不同結果。
 
-想改接外部服務（ChatGPT、vLLM、LM Studio、OpenRouter 等 OpenAI 相容端點）也可以，設定頁選「OpenAI 相容」並填入 API 金鑰（AES-GCM 加密存放）。**這代表網段、主機名稱與拓樸會送到該服務** —— 要求資料不出網的話請維持自架的 Ollama。
+想改接外部服務（ChatGPT、vLLM、LM Studio、OpenRouter 等 OpenAI 相容端點）也可以，設定頁選「OpenAI 相容」並填入 API 金鑰（AES-GCM 加密存放）。**這代表網段、主機名稱與拓樸會送到該服務**；要求資料不出網的話請維持自架的 Ollama。
 
 ### 自動備份
 
@@ -726,7 +726,7 @@ sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     --username admin2 --email admin2@your.domain --password-stdin <<<"$ADMIN_PW"
 echo "$ADMIN_PW"
 
-# 方案 B：原 admin 已鎖死 / 失聯 — 直接改 DB 把它解鎖並重設密碼
+# 方案 B：原 admin 已鎖死 / 失聯，直接改 DB 把它解鎖並重設密碼
 sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     /opt/jt-ipam/backend/.venv/bin/python -c '
 import asyncio, sys
@@ -762,14 +762,14 @@ sudo apt install -y nodejs
 
 瀏覽器 RDP 主控台可以在「管理 → 系統設定」選用三個引擎之一：
 
-- **guacd**（預設、必要）—— 見下一節。相容性最好，也不需要虛擬顯示。
-- **aardwolf**（選用）—— 純 Python 用戶端，現在只是 guacd 停掉時的備用引擎。它的預編套件只到
+- **guacd**（預設、必要）：見下一節。相容性最好，也不需要虛擬顯示。
+- **aardwolf**（選用）：純 Python 用戶端，現在只是 guacd 停掉時的備用引擎。它的預編套件只到
   Python 3.13，在 3.14 上會當掉（GitHub issue #42），所以能裝才裝、沒有任何東西依賴它。
-- **FreeRDP** —— 相容性比 aardwolf 好。Linux 上的 RDP 伺服器（xrdp，以及 Ubuntu 24 內建的
+- **FreeRDP**：相容性比 aardwolf 好。Linux 上的 RDP 伺服器（xrdp，以及 Ubuntu 24 內建的
   GNOME「遠端登入」）會拒絕 aardwolf 的 NTLM 認證，因為那個函式庫沒有送出這些伺服器
   要求的訊息完整性碼；FreeRDP 則通得過。
 
-FreeRDP 需要的套件**預設不安裝** —— 多數站台不會切換：
+FreeRDP 需要的套件**預設不安裝**，多數站台不會切換：
 
 ```
 sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg

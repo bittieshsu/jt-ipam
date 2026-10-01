@@ -267,6 +267,28 @@ async def embedding_check(
     return await ai_service.probe_embedding(session)
 
 
+@router.get("/thinking-check", dependencies=[Depends(require_admin)])
+async def thinking_check(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """對話模型，以及另外指定的巡檢／判讀模型，照不照「關閉思考」的參數做。
+
+    AI 巡檢與判讀一律送這組參數；伺服器或閘道沒照做時只會「很慢」或答案被思考吃掉，
+    不會報錯 —— 這支把它問出來（見 ai_service.probe_thinking）。同一個模型只問一次。
+    """
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    roles: list[tuple[str, str]] = []
+    for role, model in (("chat", cfg.chat_model), ("audit", getattr(cfg, "ai_audit_model", None)),
+                        ("interpret", getattr(cfg, "ai_interpret_model", None))):
+        if model and model not in {m for _, m in roles}:
+            roles.append((role, model))
+    results = []
+    for role, model in roles:
+        results.append({"role": role, **await ai_service.probe_thinking(session, model)})
+    return {"results": results}
+
+
 @router.post("/reindex", dependencies=[Depends(require_admin)])
 async def reindex(
     user: CurrentUser,

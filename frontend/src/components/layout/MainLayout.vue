@@ -33,7 +33,7 @@ import ChangePasswordModal from "@/components/ChangePasswordModal.vue";
 import {
   // 主導覽
   DashboardIcon, SectionsIcon, SubnetsIcon, AddressesIcon, IPChangesIcon, VlansIcon, VrfsIcon,
-  NatIcon, DevicesIcon, RacksIcon, LocationsIcon, RequestsIcon, TopologyIcon,
+  NatIcon, DevicesIcon, IdentifyIcon, RacksIcon, LocationsIcon, RequestsIcon, TopologyIcon,
   ToolsIcon, SettingsIcon, TasksIcon,
   // Phase 3 / Admin
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
@@ -266,6 +266,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.permissions"),   key: "permissions",    icon: renderIcon(AdminIcon) },
           { label: () => t("nav.custom_fields"), key: "custom_fields",  icon: renderIcon(CustomFieldsIcon) },
           { label: () => t("nav.oui_admin"),     key: "oui_admin",      icon: renderIcon(DevicesIcon) },
+          { label: () => t("nav.recog_admin"),   key: "recog_admin",    icon: renderIcon(IdentifyIcon) },
           { label: () => t("nav.hostname_precedence"), key: "hostname_precedence", icon: renderIcon(AddressesIcon) },
           { label: () => t("nav.anomaly"),       key: "anomaly",        icon: renderIcon(AnomalyIcon) },
           { label: () => t("nav.fw_rule_changes"), key: "fw_rule_changes", icon: renderIcon(FirewallIcon) },

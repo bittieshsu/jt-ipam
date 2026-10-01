@@ -150,7 +150,7 @@ _PER_OBJECT_TOOLS = frozenset({
     "list_locations", "list_subnet_ips", "get_subnet_detail", "get_subnet_usage",
     "get_device", "get_ip_detail", "get_ip_history", "get_customer_summary", "search_ip", "global_search",
     "find_free_ip", "find_free_ips", "recent_ip_changes", "stats_overview",
-    "list_ip_requests", "switch_port_for_ip", "trace_mac", "allocate_ip", "update_ip",
+    "list_ip_requests", "switch_port_for_ip", "trace_mac", "mac_history", "allocate_ip", "update_ip",
     "create_subnet", "create_device", "approve_ip_request", "reject_ip_request",
     "list_connection_targets", "investigate_ip",
 })

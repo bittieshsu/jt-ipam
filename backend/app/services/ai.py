@@ -1530,18 +1530,7 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
             return await _raw_chat_streamed(url, body, wait, on_chunk,
                                             auth_headers(cfg.provider, cfg.api_key),
                                             cfg.provider)
-        resp = await safe_request("POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
-                                  json=body, timeout=wait)
-        # 被拒絕的「不要思考」欄位一個一個拿掉重送（每次只拿掉被點名的；最多試到欄位用完）
-        for _ in range(len(_REASONING_OFF_KEYS) + 1):
-            if resp.status_code == 200 or not (
-                    ("think" in body and _rejected_think(resp))
-                    or _strip_rejected_controls(body, resp.status_code, getattr(resp, "text", ""), url)):
-                break
-            if "think" in body and _rejected_think(resp):
-                body.pop("think", None)
-            resp = await safe_request("POST", url, headers=auth_headers(cfg.provider, cfg.api_key),
-                                      json=body, timeout=wait)
+        resp = await _post_dropping_rejected(url, body, auth_headers(cfg.provider, cfg.api_key), wait)
     except UnsafeOutboundURL as exc:
         raise AIError(f"SSRF guard: {exc}") from exc
     except httpx.ReadTimeout as exc:
@@ -1555,6 +1544,77 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
     # 兩家結構不同：Ollama 是 message、OpenAI 是 choices[0].message
     return _answer_or_explain(resp.json(), max_tokens=body.get("max_tokens")
                               or (body.get("options") or {}).get("num_predict"))
+
+
+async def _post_dropping_rejected(url: str, body: dict[str, Any], headers: dict[str, str], wait: float) -> Any:
+    """非串流送出；被拒絕的「不要思考」欄位一個一個拿掉重送（每次只拿掉被點名的；最多試到欄位用完）。"""
+    resp = await safe_request("POST", url, headers=headers, json=body, timeout=wait)
+    for _ in range(len(_REASONING_OFF_KEYS) + 1):
+        if resp.status_code == 200 or not (
+                ("think" in body and _rejected_think(resp))
+                or _strip_rejected_controls(body, resp.status_code, getattr(resp, "text", ""), url)):
+            break
+        if "think" in body and _rejected_think(resp):
+            body.pop("think", None)
+        resp = await safe_request("POST", url, headers=headers, json=body, timeout=wait)
+    return resp
+
+
+#: 思考檢查的問題與產出上限：思考沒關的話，思考內容也算在額度裡，很快就會停 ——
+#: 不會為了一次檢查讓模型想好幾分鐘。
+_THINK_PROBE_PROMPT = "Reply with exactly one word: OK"
+_THINK_PROBE_TOKENS = 64
+_THINK_TAG = re.compile(r"<think>.*?(</think>|$)", re.S | re.I)
+
+
+async def probe_thinking(session: AsyncSession, model: str | None = None) -> dict[str, Any]:
+    """用 AI 巡檢／判讀同一套「關閉思考」參數問模型一句極短的話，看它照不照做。
+
+    伺服器或閘道沒照做時（LiteLLM 沒轉送、舊版 llama.cpp 忽略 reasoning_effort……），症狀只是
+    「很慢」或「答案被思考吃掉額度」，不會報錯 —— 設定頁要能當場問一次。
+    **回答是空的也算在思考**：有些閘道不把思考內容轉出來，額度被思考用光、正文是空的；只看
+    思考欄位的話會誤報成「不會先思考」（jt-doc-tools 實測 LiteLLM 的 ollama/）。
+    """
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    model = model or cfg.chat_model
+    out: dict[str, Any] = {"model": model, "ok": False, "thinking": None, "reasoning_chars": 0,
+                           "think_tag": False, "empty_answer": False, "answer": "", "seconds": 0.0,
+                           "rejected_params": [], "error": None}
+    if not cfg.enabled:
+        out["error"] = "LLM is disabled"
+        return out
+    url = chat_url(cfg.url, cfg.provider)
+    body = json_chat_body(cfg, cfg.provider, prompt=_THINK_PROBE_PROMPT, stream=False, force_json=False,
+                          max_output_tokens=_THINK_PROBE_TOKENS, num_ctx=None, no_thinking=True, model=model)
+    sent_think = "think" in body
+    t0 = time.monotonic()
+    try:
+        resp = await _post_dropping_rejected(url, body, auth_headers(cfg.provider, cfg.api_key),
+                                             min(float(cfg.timeout or 60), 120.0))
+    except UnsafeOutboundURL as exc:
+        out["error"] = f"SSRF guard: {exc}"
+        return out
+    except httpx.HTTPError as exc:
+        out["error"] = f"transport: {transport_detail(exc)}"
+        return out
+    out["seconds"] = round(time.monotonic() - t0, 1)
+    rejected = sorted(_rejected_controls(url, model))
+    if sent_think and "think" not in body:
+        rejected.append("think")
+    out["rejected_params"] = rejected
+    if resp.status_code != 200:
+        out["error"] = f"{provider_label(cfg.provider)} chat {resp.status_code}: {(resp.text or '')[:200]}"
+        return out
+    data = resp.json() or {}
+    msg = data.get("message") or ((data.get("choices") or [{}])[0] or {}).get("message") or {}
+    content = str(msg.get("content") or "")
+    reasoning = str(msg.get("reasoning_content") or msg.get("reasoning") or msg.get("thinking") or "")
+    tag = bool(_THINK_TAG.search(content))
+    answer = _THINK_TAG.sub("", content).strip()
+    out.update(ok=True, reasoning_chars=len(reasoning), think_tag=tag, empty_answer=not answer,
+               answer=answer[:40], thinking=bool(reasoning or tag or not answer))
+    return out
 
 
 def interpret_model(cfg: Any) -> str:

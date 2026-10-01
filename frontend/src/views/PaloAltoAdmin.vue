@@ -60,7 +60,7 @@ function blankForm() {
     name: "", api_url: "", api_key: "", vsysText: "", api_version: "",
     enabled: true, verify_tls: true,
     sync_dhcp: false, sync_arp: true,
-    sync_policies: false, sync_nat: false, sync_addresses: false,
+    sync_policies: false, sync_nat: false, sync_addresses: false, sync_vpn: true,
     sync_interval_seconds: 300, description: "",
     scope_subnet_ids: [] as string[],
   };
@@ -99,6 +99,7 @@ function openEdit(r: PaloAltoFirewall) {
     sync_dhcp: r.sync_dhcp, sync_arp: r.sync_arp,
     sync_policies: r.sync_policies, sync_nat: r.sync_nat,
     sync_addresses: r.sync_addresses,
+    sync_vpn: r.sync_vpn ?? true,
     sync_interval_seconds: r.sync_interval_seconds,
     description: r.description ?? "",
     scope_subnet_ids: r.scope_subnet_ids ?? [],
@@ -117,6 +118,7 @@ async function submit() {
     sync_dhcp: form.value.sync_dhcp, sync_arp: form.value.sync_arp,
     sync_policies: form.value.sync_policies, sync_nat: form.value.sync_nat,
     sync_addresses: form.value.sync_addresses,
+    sync_vpn: form.value.sync_vpn,
     sync_interval_seconds: form.value.sync_interval_seconds,
     description: form.value.description || undefined,
     scope_subnet_ids: form.value.scope_subnet_ids,
@@ -170,7 +172,7 @@ function iconAction(icon: unknown, label: string, onClick: () => void, type?: st
 
 const SYNC_TAGS: [keyof PaloAltoFirewall, string][] = [
   ["sync_dhcp", "DHCP"], ["sync_arp", "ARP"],
-  ["sync_policies", "policy"], ["sync_nat", "NAT"], ["sync_addresses", "addr"],
+  ["sync_policies", "policy"], ["sync_nat", "NAT"], ["sync_addresses", "addr"], ["sync_vpn", "VPN"],
 ];
 
 const allCols = computed<DataTableColumns<PaloAltoFirewall>>(() => autoSort([
@@ -282,6 +284,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
             <n-checkbox v-model:checked="form.sync_policies">{{ t("paloalto.policies") }}</n-checkbox>
             <n-checkbox v-model:checked="form.sync_nat">NAT</n-checkbox>
             <n-checkbox v-model:checked="form.sync_addresses">{{ t("paloalto.addresses") }}</n-checkbox>
+            <n-checkbox v-model:checked="form.sync_vpn">{{ t("paloalto.vpn_s2s") }}</n-checkbox>
           </n-space>
         </n-form-item>
         <n-form-item :label="t('adguard_admin.sync_interval')">

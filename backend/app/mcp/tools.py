@@ -311,6 +311,10 @@ async def trace_mac(
         if ln is not None:
             switch_name = ln.sysname or ln.hostname
             switch_dev = ln.jt_ipam_device_id
+    elif fdb is not None and fdb.switch_device_id is not None:
+        # MikroTik 回報的列（0170）直接記 jt-ipam 裝置
+        switch_dev = fdb.switch_device_id
+        switch_name = await session.scalar(select(Device.name).where(Device.id == switch_dev))
     if fdb is not None and vis_dev is not None and (switch_dev is None or switch_dev not in vis_dev):
         fdb = None
     return {
@@ -337,6 +341,21 @@ async def trace_mac(
             if fdb else None
         ),
     }
+
+
+async def mac_history(session: AsyncSession, *, user: User, mac: str) -> dict[str, Any]:
+    """以 MAC 為中心的完整歷程：用過哪些 IP（起訖時間）、何時被誰取代、出現在哪台交換器的哪個埠、
+    DHCP 固定分配、是哪台裝置或虛擬機的網卡，以及隨機 MAC 輪替時可能是同一台的其他 MAC。
+    依使用者的可見範圍縮放。"""
+    from app.services.mac_history import mac_history as _history
+    try:
+        out = await _history(session, user=user, mac=mac, ips_limit=100, events_limit=60)
+    except ValueError as exc:
+        raise IPAMToolError("not a valid MAC address") from exc
+    # 上線依據是給畫面畫燈的原始時間，AI 用不到，省 token
+    for r in out["ips"]:
+        r.pop("live", None)
+    return out
 
 
 async def list_vlans(
@@ -916,22 +935,23 @@ async def switch_port_for_ip(
     mac = str(ipa.mac).lower()
     rows = list((await session.execute(
         select(FDBEntry.port_name, FDBEntry.vlan_id_num, FDBEntry.last_seen_at,
-               LibreNMSDevice.hostname, LibreNMSDevice.primary_ip)
+               FDBEntry.device_id, FDBEntry.switch_device_id,
+               LibreNMSDevice.hostname, LibreNMSDevice.primary_ip, Device.name)
         .outerjoin(LibreNMSDevice, LibreNMSDevice.id == FDBEntry.device_id)
+        .outerjoin(Device, Device.id == FDBEntry.switch_device_id)     # MikroTik 回報的列（0170）
         .where(FDBEntry.mac == mac)
     )).all())
     locs = []
-    for port, vlan, seen, sw_host, sw_ip in rows:
+    for port, vlan, seen, ln_id, dev_id, sw_host, sw_ip, dev_name in rows:
         # 該 (switch, port) 上有幾個不同 MAC → 越少越像 access port
+        same_switch = (FDBEntry.device_id == ln_id) if ln_id is not None else (
+            FDBEntry.switch_device_id == dev_id)
         mac_count = int(await session.scalar(
             select(func.count(func.distinct(FDBEntry.mac)))
-            .select_from(FDBEntry)
-            .join(LibreNMSDevice, LibreNMSDevice.id == FDBEntry.device_id, isouter=True)
-            .where(FDBEntry.port_name == port,
-                   LibreNMSDevice.hostname == sw_host)
+            .where(FDBEntry.port_name == port, same_switch)
         ) or 0)
         locs.append({
-            "switch": sw_host, "switch_ip": str(sw_ip) if sw_ip else None,
+            "switch": sw_host or dev_name, "switch_ip": str(sw_ip) if sw_ip else None,
             "port": port, "vlan": vlan,
             "macs_on_port": mac_count,
             "last_seen_at": seen.isoformat() if seen else None,
@@ -1783,6 +1803,8 @@ async def list_fdb(
     return {"scope": scope, "count": total, "returned": len(rows), "fdb": [{
         "mac": str(e.mac), "vlan": e.vlan_id_num, "port": e.port_name,
         "device_id": str(e.device_id) if e.device_id else None, "source": e.source,
+        # source=mikrotik 的列：回報的路由器所對應的 jt-ipam 裝置（device_id 是 LibreNMS 裝置）
+        "switch_device_id": str(e.switch_device_id) if e.switch_device_id else None,
         "last_seen_at": e.last_seen_at,
     } for e in rows]}
 
@@ -2555,6 +2577,11 @@ async def list_anomalies(
         "duplicate_ip_records": _an.detect_duplicate_ip_records,
         "suspicious_changes": _an.detect_suspicious_changes,
         "fw_rule_rot": _an.detect_fw_rule_rot,      # 原本漏掉 → AI 問不到規則劣化
+        # 這三類也曾經漏掉（2026-10-01 補）：畫面上有、AI 問不到
+        "arp_only_liveness": _an.detect_arp_only_liveness,
+        "stale_device_links": _an.detect_stale_device_links,
+        "mac_flapping": _an.detect_mac_flapping,
+        "identity_changes": _an.detect_identity_changes,
     }
     n = max(1, min(int(limit), 100))
     if kind:
@@ -2719,6 +2746,20 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {
             "type": "object",
             "properties": {"mac": {"type": "string", "description": "MAC address"}},
+            "required": ["mac"],
+        },
+    },
+    "mac_history": {
+        "fn": mac_history,
+        "description": (
+            "Everything known about one MAC address: every IP it used (first/last seen, still in use), "
+            "when it was replaced and by which MAC, switch ports it appeared on, DHCP reservations, the device "
+            "or VM it belongs to, and other MACs that are probably the same device (random/private MAC rotation). "
+            "Use when the user has a MAC and asks which IPs it used, where it is, or its history."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"mac": {"type": "string", "description": "MAC address in any common format"}},
             "required": ["mac"],
         },
     },
@@ -3117,7 +3158,9 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "kind": {"type": "string", "description":
                          "ip_conflicts | mac_drifts | ghost_ips | unauthorized_ips | "
-                         "rogue_dhcp | external_exposure | dangling_dns | duplicate_ip_records | suspicious_changes"},
+                         "rogue_dhcp | external_exposure | dangling_dns | duplicate_ip_records | suspicious_changes | "
+                         "fw_rule_rot | arp_only_liveness | stale_device_links | mac_flapping | "
+                         "identity_changes (device type or OS family changed)"},
                 "limit": {"type": "integer", "description": "max items per kind (default 20)"},
             },
         },

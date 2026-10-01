@@ -66,6 +66,8 @@ const routes: RouteRecordRaw[] = [
       { path: "requests", name: "requests", component: () => import("@/views/IPRequests.vue") },
       { path: "requests/:id", name: "request-detail", component: () => import("@/views/IPRequestDetail.vue") },
       { path: "tools", name: "tools", component: () => import("@/views/Tools.vue") },
+      // MAC 歷程：以一個 MAC 為中心（用過的 IP、交換器埠、DHCP、裝置、時間軸）
+      { path: "mac/:mac?", name: "mac-history", component: () => import("@/views/MacHistory.vue") },
       { path: "tasks", name: "tasks", component: () => import("@/views/Tasks.vue") },
       { path: "topology", name: "topology", component: () => import("@/views/Topology.vue") },
       { path: "settings", name: "settings", component: () => import("@/views/Settings.vue") },
@@ -108,6 +110,7 @@ const routes: RouteRecordRaw[] = [
       { path: "plugins", name: "plugins", component: () => import("@/views/PluginsAdmin.vue"), meta: { admin: true } },
       // Phase 3
       { path: "oui", name: "oui_admin", component: () => import("@/views/OUIAdmin.vue"), meta: { admin: true } },
+      { path: "recog", name: "recog_admin", component: () => import("@/views/RecogAdmin.vue"), meta: { admin: true } },
       { path: "custom-fields", name: "custom_fields", component: () => import("@/views/CustomFields.vue"), meta: { admin: true } },
       { path: "customers", name: "customers", component: () => import("@/views/Customers.vue"), meta: { admin: true } },
       { path: "customers/:id", name: "customer-detail", component: () => import("@/views/CustomerDetail.vue"), meta: { admin: true } },

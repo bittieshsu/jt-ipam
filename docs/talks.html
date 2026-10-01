@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jt-ipam — Talks</title>
+<title>jt-ipam: Talks</title>
 <meta name="description" content="Talk decks about jt-ipam." />
 <style>
   :root{
@@ -38,7 +38,7 @@
   /* ── 語言切換（自訂下拉） ── */
   /* 不用原生 <select>：桌面瀏覽器會叫出作業系統自己的彈出視窗，長相與站上其他元件
      完全不同，也套不上我們的配色與圓角。面板自己畫，行為才一致。
-     也不用三顆並排 —— 那在窄視窗會把頂列擠開，每加一種語言就更擠。 */
+     也不用三顆並排：那在窄視窗會把頂列擠開，每加一種語言就更擠。 */
   .langsw{position:relative;display:inline-flex;align-items:center}
   .langsw > button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
     border-radius:10px;background:#fff;color:var(--ink);font-family:inherit;font-size:13px;
@@ -164,7 +164,7 @@
 
   <div class="talks">
     <a class="talk" href="talk-from-spreadsheet-to-ai-assistant.html">
-      <h2 id="from-spreadsheet-to-ai-assistant">從試算表到 AI 助理 — 讓 AI 讀懂企業網路資產</h2>
+      <h2 id="from-spreadsheet-to-ai-assistant">從試算表到 AI 助理：讓 AI 讀懂企業網路資產</h2>
       <div class="meta">2026-08 · <span class="zh">繁體中文</span><span class="en">Traditional Chinese</span><span class="ja">繁体字中国語</span></div>
       <div class="desc">
         <span class="zh">為什麼網路資產管理會從試算表走到 AI 助理，以及過程中在治理、資安與資料品質上的取捨。</span>
@@ -216,7 +216,7 @@
     }
     if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
     items.forEach(function(li){ li.addEventListener('click', function(){ set(li.dataset.lang); }); });
-    // 點面板外面、按 Esc 都要關 —— 自己畫的面板不會自動有這些行為。
+    // 點面板外面、按 Esc 都要關：自己畫的面板不會自動有這些行為。
     document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
     mark();
@@ -224,11 +224,11 @@
 </script>
 <script>
   /* <title> / description / <html lang> 也要跟著語言走。
-     原本只有內文與截圖會切，文件本身的中繼資料留在原地 —— 於是三種語言的
+     原本只有內文與截圖會切，文件本身的中繼資料留在原地，於是三種語言的
      分頁標題、搜尋結果與分享預覽全都是中文。靜態值放預設語言（英文），
      這樣沒有 JavaScript 的讀者與爬蟲拿到的也是對的那一份。 */
   (function(){
-    var META = {"zh": ["jt-ipam — 演講", "jt-ipam 相關演講的簡報。"], "en": ["jt-ipam — Talks", "Talk decks about jt-ipam."], "ja": ["jt-ipam — 講演", "jt-ipam に関する講演のスライド。"]};
+    var META = {"zh": ["jt-ipam：演講", "jt-ipam 相關演講的簡報。"], "en": ["jt-ipam: Talks", "Talk decks about jt-ipam."], "ja": ["jt-ipam：講演", "jt-ipam に関する講演のスライド。"]};
     function cur(){
       var c = document.body.className;
       return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';

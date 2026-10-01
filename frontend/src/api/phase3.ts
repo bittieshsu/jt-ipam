@@ -287,10 +287,22 @@ export interface AnomalyReport {
   arp_only_liveness: any[];
   stale_device_links: any[];
   mac_flapping?: Record<string, any>[];
+  identity_changes?: Record<string, any>[];
 }
 
 export async function runAnomalyScan(): Promise<AnomalyReport> {
   const { data } = await apiClient.post<AnomalyReport>("/api/v1/anomalies/scan");
+  return data;
+}
+
+/** 上一次偵測的結果（手動或排程）。`live`（上線狀態）是現在算的，不是當時的快照。 */
+export interface LastAnomalyReport {
+  report: AnomalyReport | null;
+  at: string | null;
+  trigger: "manual" | "schedule" | null;
+}
+export async function getLastAnomalyReport(): Promise<LastAnomalyReport> {
+  const { data } = await apiClient.get<LastAnomalyReport>("/api/v1/anomalies/last");
   return data;
 }
 

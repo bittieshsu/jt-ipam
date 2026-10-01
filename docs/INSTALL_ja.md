@@ -4,7 +4,7 @@
 
 対象は **Proxmox LXC、ベアメタル、仮想マシン**で、OS は Debian 12/13 または Ubuntu 22.04/24.04/26.04（x86_64、[対応ディストリビューション](#対応ディストリビューション)を参照）です。
 **主たる推奨の導入方法**は、**systemd + apt** を直接使う方式です（Docker は使いません）。
-Docker Compose の経路もありますが、**任意かつ副次的で、優先される方式ではありません** —
+Docker Compose の経路もありますが、**任意かつ副次的で、優先される方式ではありません**。
 [§2.8](#28-任意docker-composeこれは優先される方式ではありません) を参照してください。
 
 > セキュリティは初日からの要件です。どの環境でも HTTPS を強制します。証明書は nginx の
@@ -24,11 +24,11 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 | メモリ | 4 GB | 8 GB | LLM サーバーを同居させるならさらに 8 GB |
 | ディスク | 20 GB | 50 GB | 監査ログが増えていきます |
 | Python | 3.11 | 3.12 | 24.04 の既定は 3.12 |
-| PostgreSQL | 16 + pgvector | — | 22.04 では PGDG リポジトリが必要です（スクリプトが自動で追加します） |
-| Redis | 7 | — | 24.04 の既定は 7.0.15 |
+| PostgreSQL | 16 + pgvector | なし | 22.04 では PGDG リポジトリが必要です（スクリプトが自動で追加します） |
+| Redis | 7 | なし | 24.04 の既定は 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 の既定は 18.19。vite 6 は動作しますが警告が出ます |
-| guacd | jt-ipam がこの OS 向けにビルドしたもの | — | **必須**：RDP/VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
-| Recog | 最新リリース | — | **任意**：IP 探索が機器や OS バージョンを識別するためのフィンガープリント DB。`jt-ipam.sh` がダウンロードし、毎週新版を確認（下の Recog の節） |
+| guacd | jt-ipam がこの OS 向けにビルドしたもの | なし | **必須**：RDP/VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
+| Recog | 最新リリース | なし | **任意**：IP 探索が機器や OS バージョンを識別するためのフィンガープリント DB。`jt-ipam.sh` がダウンロードし、毎週新版を確認（下の Recog の節） |
 
 ### 対応ディストリビューション
 
@@ -88,11 +88,11 @@ cd /opt/jt-ipam
 
 # 3 つの TLS モードから 1 つを選びます：
 #
-#   nginx         — nginx が HTTPS を終端し、バックエンドはループバック。証明書が無ければ自己署名で自動起動
-#   self-signed   — uvicorn が自前の自己署名証明書で直接提供（nginx 不要。最も早く動きます）
-#   direct        — uvicorn が直接提供し、証明書は自分で用意（無ければ自己署名にフォールバック）
+#   nginx         ：nginx が HTTPS を終端し、バックエンドはループバック。証明書が無ければ自己署名で自動起動
+#   self-signed   ：uvicorn が自前の自己署名証明書で直接提供（nginx 不要。最も早く動きます）
+#   direct        ：uvicorn が直接提供し、証明書は自分で用意（無ければ自己署名にフォールバック）
 
-# (A) nginx ＋一時的な自己署名（後から本物の証明書を cp します）— 本番に推奨
+# (A) nginx ＋一時的な自己署名（後から本物の証明書を cp します）、本番に推奨
 sudo ./scripts/jt-ipam.sh install --tls-mode nginx --public-fqdn ipam.example.com
 
 # (B) uvicorn 直接の自己署名（社内や検証で最も手早い）
@@ -271,7 +271,7 @@ nginx が TLS を終端し、バックエンドはループバックに留まり
 - **TLS**：TLS 1.2 / 1.3 のみ、現代的な暗号スイート、OCSP stapling、セッションチケットは無効。
 - **HSTS**：`max-age` 2 年 + `includeSubDomains` + `preload`。
 - **CSP**：`default-src 'self'`、`script-src 'self'`、`connect-src 'self'`、`frame-src 'self'`、
-  `frame-ancestors 'none'`、`base-uri 'self'`、`form-action 'self'` — 第三者のスクリプトやフレームの
+  `frame-ancestors 'none'`、`base-uri 'self'`、`form-action 'self'`。第三者のスクリプトやフレームの
   オリジンは一切ありません。
 - **ヘッダ**：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy`、
   `Permissions-Policy`（位置情報 / マイク / カメラ / 決済 / USB を無効）、`Cross-Origin-Opener-Policy`、
@@ -290,7 +290,7 @@ nginx が TLS を終端し、バックエンドはループバックに留まり
 > 公開サイトに CSP / HSTS / Permissions-Policy が*まったく無い*状態になってしまいます。これは
 > 任意ではなく、**必須**の作業です。
 >
-> その境界の機器に、同梱の堅牢化した外部プロキシ用設定を導入してください —
+> その境界の機器に、同梱の堅牢化した外部プロキシ用設定を導入してください：
 > [`deploy/nginx/jt-ipam-external-proxy.conf`](https://github.com/jasoncheng7115/jt-ipam/blob/main/deploy/nginx/jt-ipam-external-proxy.conf)
 > と [`jt-ipam-external-proxy-snippet.conf`](https://github.com/jasoncheng7115/jt-ipam/blob/main/deploy/nginx/jt-ipam-external-proxy-snippet.conf)
 > （HSTS preload、絞り込んだ CSP、X-Frame-Options DENY、nosniff、Referrer-Policy、Permissions-Policy、
@@ -304,7 +304,7 @@ nginx が TLS を終端し、バックエンドはループバックに留まり
 curl -skI https://ipam.example.com/ \
   | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions|cross-origin|^server'
 # 次が出ること：HSTS、Content-Security-Policy（frame-src 'self'）、X-Frame-Options、X-Content-Type-Options、
-# Referrer-Policy、Permissions-Policy、COOP、CORP —— それぞれちょうど 1 回ずつ、そして Server: nginx（バージョン表記なし）。
+# Referrer-Policy、Permissions-Policy、COOP、CORP：それぞれちょうど 1 回ずつ、そして Server: nginx（バージョン表記なし）。
 ```
 
 **コンソールと SFTP はエッジプロキシを通ります。** SFTP を含むすべてのコンソールは、
@@ -333,7 +333,7 @@ curl -skI https://ipam.example.com/ \
 `/api` をリバースプロキシする nginx。初回起動時に自己署名の HTTPS 証明書を用意します）が立ち上がります。
 
 前提：**git** と **`docker compose` v2 プラグインを含む Docker Engine** です。公式の
-`get.docker.com` スクリプトなら両方入ります。`apt install docker.io` は**使わないでください** —
+`get.docker.com` スクリプトなら両方入ります。`apt install docker.io` は**使わないでください**。
 `docker compose` サブコマンドがありません。Debian 系以外では、各自のパッケージマネージャで git を
 導入してください。
 
@@ -410,17 +410,17 @@ cd jt-ipam/deploy/docker
 | `APP_PUBLIC_URL` | ✓ | フロントエンドのベース URL |
 | `API_PUBLIC_URL` | ✓ | OIDC / SAML のコールバックに使います |
 | `CORS_ORIGINS` | ✓ | カンマ区切り |
-| `OUTBOUND_ALLOW_CIDRS` | — | safe_http の SSRF 許可リスト。空欄なら公開インターネットのみ |
+| `OUTBOUND_ALLOW_CIDRS` | なし | safe_http の SSRF 許可リスト。空欄なら公開インターネットのみ |
 | `FDB_CURRENT_MAX_AGE_HOURS` | 24 | FDB のエントリを「現在のもの」とみなす期間。それより古いものは履歴として残りますが、スイッチポートの判定には使いません |
 | `FDB_RETENTION_DAYS` | 365 | FDB 履歴の保持日数。0 で無期限。ARP より意図的にずっと長くしています。このテーブルの値打ちは「その機器が以前どのポートにいたか」が分かることだからです |
 | `ARP_RETENTION_DAYS` | 30 | ARP エントリの保持日数。0 で削除しません |
-| `OIDC_*` | — | OIDC の SSO を有効にします |
-| `SAML_*` | — | SAML の SSO を有効にします |
-| `LDAP_*` | — | LDAP / AD の認証 |
-| `OLLAMA_ENABLED` | — | AI のセマンティック検索とチャットを有効にします |
+| `OIDC_*` | なし | OIDC の SSO を有効にします |
+| `SAML_*` | なし | SAML の SSO を有効にします |
+| `LDAP_*` | なし | LDAP / AD の認証 |
+| `OLLAMA_ENABLED` | なし | AI のセマンティック検索とチャットを有効にします |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | LLM サーバーのアドレス |
 | `OLLAMA_CHAT_MODEL` | `gemma4:26b` | チャット用モデル |
-| `OLLAMA_EMBEDDING_MODEL` | `granite-embedding:278m` | 埋め込み用モデル — **その次元が `EMBEDDING_DIM` と一致している必要があります** |
+| `OLLAMA_EMBEDDING_MODEL` | `granite-embedding:278m` | 埋め込み用モデル。**その次元が `EMBEDDING_DIM` と一致している必要があります** |
 | `EMBEDDING_DIM` | `768` | データベースの `vector(N)` 列のサイズ。変更するならマイグレーションも変える必要があります |
 
 全一覧は `app/core/config.py` の Settings クラスを参照してください。
@@ -465,7 +465,7 @@ pfSense には REST API が標準で無いため、サードパーティの **pf
 
 ### OIDC（Keycloak / Azure AD / Google）
 
-Web UI（管理 → システム設定 → シングルサインオン — OIDC）で設定するか、
+Web UI（管理 → システム設定 → シングルサインオン（OIDC））で設定するか、
 `/etc/jt-ipam/backend.env` に追記します。
 
 ```
@@ -498,7 +498,7 @@ SAML_ADMIN_GROUPS=jt-ipam-admins
 
 ### Recog フィンガープリント DB（任意）
 
-IP 探索は、ホスト自身が返す文字列 —— SSH バナー、HTTP `Server` ヘッダー、ページタイトル、TLS 証明書、SMB の OS 名 ——
+IP 探索は、ホスト自身が返す文字列（SSH バナー、HTTP `Server` ヘッダー、ページタイトル、TLS 証明書、SMB の OS 名）
 を [Recog](https://github.com/rapid7/recog)（Rapid7、BSD-2-Clause）と照合し、機器（ベンダーの出荷時証明書や管理画面）や
 正確な OS バージョンを識別します。未インストールでも探索は動作しますが、識別できる範囲が狭くなります。
 
@@ -538,7 +538,7 @@ ollama pull granite-embedding:278m     # 埋め込み用モデル（768 次元�
 > 欠けていたもので、不一致でもエラーはまったく出ず、「セマンティック検索が何も返さない」と
 > いう症状だけが残っていました。
 
-> ⚠️ **埋め込みモデルの出力次元は `EMBEDDING_DIM`（既定は 768）と一致している必要があります** —
+> ⚠️ **埋め込みモデルの出力次元は `EMBEDDING_DIM`（既定は 768）と一致している必要があります**。
 > これはデータベースの `vector(N)` 列のサイズです。不一致でも**エラーメッセージは一切出ません**。
 > 索引への書き込みがすべて失敗するため、セマンティック検索が何も返さないという症状だけが現れます。
 > 埋め込みモデルを変更したら、設定ページの**次元を確認**を押してください。モデルが返した次元と、
@@ -814,7 +814,7 @@ sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     --username admin2 --email admin2@your.domain --password-stdin <<<"$ADMIN_PW"
 echo "$ADMIN_PW"
 
-# 方法 B：元の管理者が締め出された/失われた場合 —— DB を直接編集してロックを解除しパスワードを再設定します
+# 方法 B：元の管理者が締め出された/失われた場合、DB を直接編集してロックを解除しパスワードを再設定します
 sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     /opt/jt-ipam/backend/.venv/bin/python -c '
 import asyncio, sys

@@ -34,12 +34,13 @@ import IpRoleTags from "@/components/IpRoleTags.vue";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import OsIcon from "@/components/OsIcon.vue";
+import DeviceKindIcon from "@/components/DeviceKindIcon.vue";
 import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { computed } from "vue";
 import { renderMacWithVendor } from "@/utils/macVendor";
 
-const { t, locale } = useI18n();
+const { t, te, locale } = useI18n();
 const { catalog } = useScanProbes();
 const msg = useMessage();
 const route = useRoute();
@@ -266,12 +267,29 @@ const allColumns: DataTableColumns<IPAddress> = [
       ]);
     },
   },
+  {
+    // 掃描代理定期偵測判讀出的設備類型（含 Recog 指紋庫）；滑過去看廠牌型號
+    title: () => t("cols.device_kind"), key: "device_kind", width: 140, sorter: true,
+    render: (r) => {
+      if (!r.device_kind) return "—";
+      const key = `identify.type.${r.device_kind}`;
+      const label = te(key) ? t(key) : r.device_kind;
+      return h("div", {
+        style: "display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap",
+        title: r.device_model ? `${label} · ${r.device_model}` : label,
+      }, [
+        h(DeviceKindIcon, { kind: r.device_kind, size: 16 }),
+        h("span", { style: "overflow:hidden;text-overflow:ellipsis" }, label),
+      ]);
+    },
+  },
 ];
 
 // 欄位顯示偏好 (per-user，後端 user_preferences.table_columns)
 const { visibleKeys, setVisible, reset } = useColumnPrefs(
   "addresses",
-  ["live", "ip", "hostname", "mac", "state", "owner", "switch_port", "note", "discovery_source", "os"],
+  ["live", "ip", "hostname", "mac", "state", "owner", "switch_port", "note", "discovery_source", "os",
+   "device_kind"],
   ["live", "ip", "hostname", "mac", "state", "discovery_source"],
 );
 
@@ -307,6 +325,7 @@ const columnPickerItems = computed(() => [
   { key: "note", label: t("cols.note") },
   { key: "discovery_source", label: t("cols.source") },
   { key: "os", label: t("cols.os") },
+  { key: "device_kind", label: t("cols.device_kind") },
 ]);
 
 const sortField = ref<string | null>(null);

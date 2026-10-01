@@ -54,7 +54,7 @@ from app.models.jump_host import JumpHost
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
 from app.models.location import Location, Rack
 from app.models.migration_mapping import PhpIPAMMigrationMapping
-from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
+from app.models.mikrotik import MikroTikAddressList, MikroTikNeighbor, MikroTikRouter, MikroTikRule
 from app.models.nat import NATTranslation
 from app.models.notification import Notification, WebhookSubscription
 from app.models.oui import OUIVendor
@@ -149,6 +149,7 @@ __all__ = [
     "LibreNMSInstance",
     "Location",
     "MikroTikAddressList",
+    "MikroTikNeighbor",
     "MikroTikRouter",
     "MikroTikRule",
     "NATTranslation",

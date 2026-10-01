@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     jump_hosts,
     librenms,
     locations,
+    macs,
     migration,
     mikrotik,
     nat,
@@ -156,6 +157,7 @@ api_v1_router.include_router(pfsense.view_router)
 api_v1_router.include_router(event_rules.router)
 api_v1_router.include_router(fortigate.router)
 api_v1_router.include_router(paloalto.router)
+api_v1_router.include_router(macs.router)
 api_v1_router.include_router(mikrotik.router)
 api_v1_router.include_router(fortigate.view_router)
 api_v1_router.include_router(paloalto.view_router)

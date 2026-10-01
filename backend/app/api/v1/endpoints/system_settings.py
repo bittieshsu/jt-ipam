@@ -1532,6 +1532,23 @@ async def get_version_info() -> dict[str, Any]:
     return info
 
 
+@router.get("/recog/status")
+async def recog_status(session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
+    """Recog 指紋庫的狀態與每個指紋檔的筆數（Recog 頁；版本頁只列版本）。"""
+    from sqlalchemy import func, select
+
+    from app.models.recog import RecogDatabase
+    from app.services import recog
+    out = await recog.status(session)
+    out["database_list"] = [
+        {"key": k, "protocol": proto, "database_type": dtype, "fingerprints": int(n or 0)}
+        for k, proto, dtype, n in (await session.execute(
+            select(RecogDatabase.key, RecogDatabase.protocol, RecogDatabase.database_type,
+                   func.jsonb_array_length(RecogDatabase.fingerprints)).order_by(RecogDatabase.key))).all()
+    ]
+    return out
+
+
 @router.post("/recog/update")
 async def update_recog_now(
     user: CurrentUser,

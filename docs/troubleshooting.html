@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jt-ipam — Install & upgrade troubleshooting</title>
-<meta name="description" content="What to do when a jt-ipam install or upgrade fails — a searchable Q&amp;A." />
+<title>jt-ipam: Install & upgrade troubleshooting</title>
+<meta name="description" content="What to do when a jt-ipam install or upgrade fails (a searchable Q&amp;A)." />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <style>
   :root{
@@ -119,7 +119,7 @@
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:var(--ink)}
   pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:12px 14px;overflow:auto;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.8px;line-height:1.6;margin:10px 0}
-  /* `.qa code` 的 specificity 比裸的 `pre code` 高，所以這裡要一起指定 ——
+  /* `.qa code` 的 specificity 比裸的 `pre code` 高，所以這裡要一起指定，
      不然深色程式區塊裡每一行都會多出一塊淺色底，看起來像被標記過。 */
   pre code,.qa pre code{background:transparent;border:0;padding:0;color:inherit;font-size:inherit}
   .sym{display:block;background:#fff7ed;border:1px solid #fed7aa;border-left:3px solid #f59e0b;border-radius:8px;
@@ -225,8 +225,8 @@
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="q" type="search" autocomplete="off" spellcheck="false"
              data-ph-zh="搜尋錯誤訊息或關鍵字，例如 fast-forward、pgvector、8443…"
-             data-ph-en="Search an error message or keyword — fast-forward, pgvector, 8443…"
-             data-ph-ja="エラーメッセージやキーワードで検索 — fast-forward、pgvector、8443…" />
+             data-ph-en="Search an error message or keyword: fast-forward, pgvector, 8443…"
+             data-ph-ja="エラーメッセージやキーワードで検索：fast-forward、pgvector、8443…" />
       <button class="clr" id="clr" type="button" aria-label="clear">&times;</button>
     </div>
     <div class="hits" id="hits"></div>
@@ -238,13 +238,13 @@
       <article class="qa" id="qa-doctor">
         <h3>
           <span class="zh">1. 先跑內建的健檢：它會直接告訴你哪裡壞了、該下哪一行指令</span>
-          <span class="en">1. Run the built-in health check first — it names what is broken and the exact command to fix it</span>
-          <span class="ja">1. まず内蔵の健全性チェックを実行する — どこが壊れているかと、直すためのコマンドをそのまま教えてくれます</span>
+          <span class="en">1. Run the built-in health check first: it names what is broken and the exact command to fix it</span>
+          <span class="ja">1. まず内蔵の健全性チェックを実行する：どこが壊れているかと、直すためのコマンドをそのまま教えてくれます</span>
         </h3>
         <pre><code>sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor</code></pre>
         <p>
           <span class="zh">它會逐項檢查設定檔、資料庫、遷移版本、前端 dist、systemd 服務與計時器、監聽埠、nginx、備份目錄與 ICMP 權限，並對每個紅字附上修復指令。大部分安裝問題在這一步就結束了。</span>
-          <span class="en">It checks the env file, database, migration revision, frontend dist, systemd units and timers, the listening port, nginx, the backup directory and ICMP capability — and prints a fix command next to anything red. Most install problems end here.</span>
+          <span class="en">It checks the env file, database, migration revision, frontend dist, systemd units and timers, the listening port, nginx, the backup directory and ICMP capability, and prints a fix command next to anything red. Most install problems end here.</span>
           <span class="ja">設定ファイル、データベース、マイグレーションのリビジョン、フロントエンドの dist、systemd のユニットとタイマー、待ち受けポート、nginx、バックアップ用ディレクトリ、ICMP の権限を順に確認し、赤く出た項目には必ず修正コマンドを添えます。インストールの問題はたいていここで片付きます。</span>
         </p>
       </article>
@@ -272,7 +272,7 @@
 sudo systemctl status jt-ipam-backend --no-pager</code></pre>
         <p>
           <span class="zh">腳本印出的 <code>FATAL:</code> 通常只是結果；真正的原因（缺套件、密碼錯、埠被占用）幾乎都在上面幾行或 journal 裡。</span>
-          <span class="en">The <code>FATAL:</code> line the script prints is usually the symptom. The cause — a missing package, a bad password, a port already in use — is a few lines above it or in the journal.</span>
+          <span class="en">The <code>FATAL:</code> line the script prints is usually the symptom. The cause (a missing package, a bad password, a port already in use) is a few lines above it or in the journal.</span>
           <span class="ja">スクリプトが出す <code>FATAL:</code> はたいてい結果にすぎません。本当の原因（パッケージ不足、パスワード誤り、ポートの使用中）は、その数行上か journal の中にあります。</span>
         </p>
       </article>
@@ -291,8 +291,8 @@ sudo systemctl status jt-ipam-backend --no-pager</code></pre>
         <code class="sym">fatal: Not possible to fast-forward, aborting.
 fatal: refusing to merge unrelated histories</code>
         <p>
-          <span class="zh">本機的原始碼歷程已經無法快轉到遠端（有人在機器上改過並提交、淺層 clone、或上游歷程被改寫）。因為升級用的是 <code>git pull --ff-only</code>，而且腳本開了 <code>set -e</code>，它會停在第一步——備份、遷移、建置、重啟全都沒跑，所以每次重跑都停在同一個地方。</span>
-          <span class="en">The local source history can no longer fast-forward onto the remote (someone committed an edit on the box, a shallow clone, or upstream history was rewritten). The upgrade pulls with <code>git pull --ff-only</code> under <code>set -e</code>, so it stops at step one — no backup, no migration, no build, no restart — and every re-run stops in exactly the same place.</span>
+          <span class="zh">本機的原始碼歷程已經無法快轉到遠端（有人在機器上改過並提交、淺層 clone、或上游歷程被改寫）。因為升級用的是 <code>git pull --ff-only</code>，而且腳本開了 <code>set -e</code>，它會停在第一步：備份、遷移、建置、重啟全都沒跑，所以每次重跑都停在同一個地方。</span>
+          <span class="en">The local source history can no longer fast-forward onto the remote (someone committed an edit on the box, a shallow clone, or upstream history was rewritten). The upgrade pulls with <code>git pull --ff-only</code> under <code>set -e</code>, so it stops at step one (no backup, no migration, no build, no restart), and every re-run stops in exactly the same place.</span>
           <span class="ja">ローカルのソース履歴がリモートへ早送り（fast-forward）できなくなっています。原因は、このマシン上で誰かが編集をコミットした、浅いクローンだった、上流の履歴が書き換えられた、のいずれかです。アップグレードは <code>set -e</code> の下で <code>git pull --ff-only</code> を実行するため、最初の手順で止まります。バックアップもマイグレーションもビルドも再起動も行われません。リポジトリの状態が変わらない以上、何度やり直しても同じ場所で止まります。</span>
         </p>
         <p class="note">
@@ -327,7 +327,7 @@ sudo bash scripts/jt-ipam.sh upgrade</code></pre>
         <code class="sym">FATAL: Upgrade would overwrite local changes. Re-run 'jt-ipam.sh upgrade --force' to discard them, or commit/stash them first.</code>
         <p>
           <span class="zh">原始碼樹裡有被改過的追蹤檔案（常見於手動修補過 <code>scripts/jt-ipam.sh</code>，或上次升級只完成一半）。確定那些改動不需要保留就：</span>
-          <span class="en">Tracked files in the source tree have been modified — usually a hand-patched <code>scripts/jt-ipam.sh</code>, or a half-finished previous upgrade. If you do not need those edits:</span>
+          <span class="en">Tracked files in the source tree have been modified: usually a hand-patched <code>scripts/jt-ipam.sh</code>, or a half-finished previous upgrade. If you do not need those edits:</span>
           <span class="ja">ソースツリー内の管理対象ファイルが変更されています。多くは <code>scripts/jt-ipam.sh</code> を手で修正した場合か、前回のアップグレードが途中で終わった場合です。その変更が不要なら次を実行します。</span>
         </p>
         <pre><code>sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --force</code></pre>
@@ -488,14 +488,14 @@ sudo systemctl start jt-ipam-backend</code></pre>
       <article class="qa" id="qa-pgvector">
         <h3>
           <span class="zh">extension "vector" is not available，可是 pgvector 明明裝了</span>
-          <span class="en">extension "vector" is not available — but pgvector is installed</span>
+          <span class="en">extension "vector" is not available, but pgvector is installed</span>
           <span class="ja">extension "vector" is not available と出るのに pgvector は入っている</span>
         </h3>
         <code class="sym">ERROR: extension "vector" is not available
 FATAL: Failed to create the required PostgreSQL extensions</code>
         <p>
           <span class="zh">這台機器多半<strong>本來就有一個 PostgreSQL 叢集</strong>（SonarQube、GitLab 之類帶來的）。jt-ipam 連的是 <code>127.0.0.1:5432</code>，也就是那個既有叢集，所以 pgvector 必須裝<strong>它的</strong>主版本；裝在別的版本上完全沒有作用。</span>
-          <span class="en">This host almost certainly <strong>already runs a PostgreSQL cluster</strong> (from SonarQube, GitLab, …). jt-ipam connects to <code>127.0.0.1:5432</code> — that cluster — so pgvector has to be installed for <strong>its</strong> major version; installing it for another version does nothing.</span>
+          <span class="en">This host almost certainly <strong>already runs a PostgreSQL cluster</strong> (from SonarQube, GitLab, …). jt-ipam connects to <code>127.0.0.1:5432</code> (that cluster), so pgvector has to be installed for <strong>its</strong> major version; installing it for another version does nothing.</span>
           <span class="ja">このホストにはほぼ確実に<strong>既存の PostgreSQL クラスタ</strong>があります（SonarQube や GitLab などが入れたもの）。jt-ipam は <code>127.0.0.1:5432</code>、つまりその既存クラスタに接続するため、pgvector は<strong>そのクラスタの</strong>メジャーバージョン向けに入れる必要があります。別のバージョン向けに入れても効果はありません。</span>
         </p>
         <pre><code>sudo -u postgres psql -tAc 'SHOW server_version_num'   # 例: 180004 → メジャー 18
@@ -516,8 +516,8 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh install …     # 同じコマンド�
           <span class="ja">既存の PostgreSQL が 16 未満だと言われる</span>
         </h3>
         <p>
-          <span class="zh">jt-ipam 需要 PostgreSQL 16 以上。既有叢集版本太舊時有兩條路：升級那個叢集，或讓 jt-ipam 連別的資料庫——在 <code>/etc/jt-ipam/backend.env</code> 改 <code>POSTGRES_HOST</code> / <code>POSTGRES_PORT</code> 後重跑安裝。</span>
-          <span class="en">jt-ipam needs PostgreSQL 16 or newer. If the existing cluster is older, either upgrade it, or point jt-ipam at a different one — set <code>POSTGRES_HOST</code> / <code>POSTGRES_PORT</code> in <code>/etc/jt-ipam/backend.env</code> and re-run the install.</span>
+          <span class="zh">jt-ipam 需要 PostgreSQL 16 以上。既有叢集版本太舊時有兩條路：升級那個叢集，或讓 jt-ipam 連別的資料庫，在 <code>/etc/jt-ipam/backend.env</code> 改 <code>POSTGRES_HOST</code> / <code>POSTGRES_PORT</code> 後重跑安裝。</span>
+          <span class="en">jt-ipam needs PostgreSQL 16 or newer. If the existing cluster is older, either upgrade it, or point jt-ipam at a different one: set <code>POSTGRES_HOST</code> / <code>POSTGRES_PORT</code> in <code>/etc/jt-ipam/backend.env</code> and re-run the install.</span>
           <span class="ja">jt-ipam には PostgreSQL 16 以上が必要です。既存クラスタが古い場合は、そのクラスタを上げるか、別のデータベースを使わせます。<code>/etc/jt-ipam/backend.env</code> の <code>POSTGRES_HOST</code> / <code>POSTGRES_PORT</code> を変更してインストールをやり直してください。</span>
         </p>
       </article>
@@ -573,7 +573,7 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh install …   # 同じコマンドを�
         </h3>
         <p>
           <span class="zh">容器裡 <code>net.ipv4.ping_group_range</code> 是唯讀的（核心屬於宿主），寫 <code>/etc/sysctl.d/</code> 不會生效；<code>setcap</code> 那條路又會被 unit 的 <code>NoNewPrivileges=yes</code> 無聲擋掉。可行的是 systemd drop-in 的 ambient capability，安裝與升級都會自動套用並讀回驗證：</span>
-          <span class="en">In a container <code>net.ipv4.ping_group_range</code> is read-only (the kernel belongs to the host), so <code>/etc/sysctl.d/</code> has no effect, and the <code>setcap</code> route is silently defeated by the unit's <code>NoNewPrivileges=yes</code>. What works is a systemd drop-in granting an ambient capability — install and upgrade both apply it and read it back:</span>
+          <span class="en">In a container <code>net.ipv4.ping_group_range</code> is read-only (the kernel belongs to the host), so <code>/etc/sysctl.d/</code> has no effect, and the <code>setcap</code> route is silently defeated by the unit's <code>NoNewPrivileges=yes</code>. What works is a systemd drop-in granting an ambient capability; install and upgrade both apply it and read it back:</span>
           <span class="ja">コンテナ内では <code>net.ipv4.ping_group_range</code> は読み取り専用です（カーネルはホストのもの）。したがって <code>/etc/sysctl.d/</code> に書いても効きません。<code>setcap</code> を使う方法も、ユニットの <code>NoNewPrivileges=yes</code> によって黙って無効化されます。有効なのは systemd の drop-in で ambient capability を与える方法で、インストール時もアップグレード時も自動的に適用し、実際に付いたかを読み戻して確認します。</span>
         </p>
         <pre><code>sudo systemctl show jt-ipam-backend -p AmbientCapabilities
@@ -611,8 +611,8 @@ sudo ss -ltnp | grep -E '8000|8443|443'</code></pre>
       <article class="qa" id="qa-8443">
         <h3>
           <span class="zh">瀏覽器打不開，因為預設埠是 8443 不是 443</span>
-          <span class="en">Nothing opens — the default port is 8443, not 443</span>
-          <span class="ja">ブラウザで開けない — 既定のポートは 443 ではなく 8443 です</span>
+          <span class="en">Nothing opens: the default port is 8443, not 443</span>
+          <span class="ja">ブラウザで開けない：既定のポートは 443 ではなく 8443 です</span>
         </h3>
         <p>
           <span class="zh"><code>--tls-mode self-signed</code> / <code>direct</code> 由 uvicorn 自己處理 HTTPS，網址是 <code>https://&lt;你的 FQDN&gt;:8443/</code>，這個模式<strong>不需要</strong>另外裝 nginx 或 apache。</span>
@@ -667,7 +667,7 @@ grep -n proxy_pass /etc/nginx/sites-available/jt-ipam</code></pre>
           <span class="ja">nginx が ssl_stapling ignored, issuer certificate not found と警告する</span>
         </h3>
         <p>
-          <span class="zh">自簽憑證沒有簽發鏈，無法做 OCSP stapling——這是無害警告，換成正式憑證或 Let's Encrypt 後就不會再出現。</span>
+          <span class="zh">自簽憑證沒有簽發鏈，無法做 OCSP stapling，這是無害警告，換成正式憑證或 Let's Encrypt 後就不會再出現。</span>
           <span class="en">A self-signed certificate has no issuer chain, so OCSP stapling cannot work. Harmless; it disappears once you install a real certificate.</span>
           <span class="ja">自己署名証明書には発行者チェーンが無いため OCSP stapling は動きません。無害な警告で、正式な証明書に入れ替えれば出なくなります。</span>
         </p>
@@ -728,7 +728,7 @@ echo "$ADMIN_PW"</code></pre>
         </h3>
         <p>
           <span class="zh">開很久沒關的分頁還在跑舊的 JS，這是最常見的原因，不是後端沒更新。先強制重新整理（Ctrl/Cmd + Shift + R），再看版本資訊頁。</span>
-          <span class="en">A long-lived browser tab is still running the old JS bundle — this is the usual cause, not the backend. Hard-refresh (Ctrl/Cmd + Shift + R), then check the version page.</span>
+          <span class="en">A long-lived browser tab is still running the old JS bundle; this is the usual cause, not the backend. Hard-refresh (Ctrl/Cmd + Shift + R), then check the version page.</span>
           <span class="ja">長時間開いたままのタブが古い JS を実行し続けているのが最も多い原因で、バックエンドの問題ではありません。まずスーパーリロード（Ctrl/Cmd + Shift + R）を行い、バージョン情報ページを確認してください。</span>
         </p>
         <p class="note">
@@ -764,13 +764,13 @@ echo "$ADMIN_PW"</code></pre>
           <span class="ja">Linux への RDP（xrdp/GNOME リモートログイン）で、正しい資格情報なのに認証失敗になる</span>
         </h3>
         <p>
-          <span class="zh">請到 管理 → 系統設定 → 主控台，把 RDP 連線引擎改成 <strong>FreeRDP</strong>。預設的 aardwolf 引擎在 NTLM 認證時不送 MIC（訊息完整性碼），而 FreeRDP 的<strong>伺服器端</strong>會強制檢查它 —— xrdp 與 gnome-remote-desktop 用的正是 FreeRDP 伺服器，於是一律回「帳號或密碼錯誤」。連 Windows 目標時兩個引擎都可以。</span>
-          <span class="en">Go to Admin → System settings → Console and switch the RDP engine to <strong>FreeRDP</strong>. The default aardwolf engine does not send the NTLM message integrity code (MIC), and the FreeRDP <strong>server</strong> enforces it — xrdp and gnome-remote-desktop are both built on that server, so they answer with a logon failure regardless of the password. Either engine works against Windows targets.</span>
+          <span class="zh">請到 管理 → 系統設定 → 主控台，把 RDP 連線引擎改成 <strong>FreeRDP</strong>。預設的 aardwolf 引擎在 NTLM 認證時不送 MIC（訊息完整性碼），而 FreeRDP 的<strong>伺服器端</strong>會強制檢查它，xrdp 與 gnome-remote-desktop 用的正是 FreeRDP 伺服器，於是一律回「帳號或密碼錯誤」。連 Windows 目標時兩個引擎都可以。</span>
+          <span class="en">Go to Admin → System settings → Console and switch the RDP engine to <strong>FreeRDP</strong>. The default aardwolf engine does not send the NTLM message integrity code (MIC), and the FreeRDP <strong>server</strong> enforces it; xrdp and gnome-remote-desktop are both built on that server, so they answer with a logon failure regardless of the password. Either engine works against Windows targets.</span>
           <span class="ja">管理 → システム設定 → コンソール で RDP 接続エンジンを <strong>FreeRDP</strong> に切り替えてください。既定の aardwolf エンジンは NTLM の MIC（メッセージ整合性コード）を送らず、FreeRDP の<strong>サーバー側</strong>はそれを必須としています。xrdp と gnome-remote-desktop はどちらもそのサーバーを使っているため、パスワードが正しくてもログオン失敗になります。Windows が相手ならどちらのエンジンでも接続できます。</span>
         </p>
         <p class="note">
           <span class="zh">FreeRDP 引擎需要額外的系統套件（約 150 MB），設定頁會列出缺哪些與安裝指令。也可以在安裝時加 <code>--with-freerdp</code>；升級時若已選用 FreeRDP 會自動補上。</span>
-          <span class="en">The FreeRDP engine needs extra system packages (~150 MB); the settings page lists what is missing and the command to install it. You can also pass <code>--with-freerdp</code> at install time — an upgrade installs them automatically when FreeRDP is already selected.</span>
+          <span class="en">The FreeRDP engine needs extra system packages (~150 MB); the settings page lists what is missing and the command to install it. You can also pass <code>--with-freerdp</code> at install time; an upgrade installs them automatically when FreeRDP is already selected.</span>
           <span class="ja">FreeRDP エンジンには追加のシステムパッケージ（約 150 MB）が必要です。不足分とインストールコマンドは設定ページに表示されます。インストール時に <code>--with-freerdp</code> を付けることもでき、FreeRDP を選択済みならアップグレード時に自動で導入されます。</span>
         </p>
         <pre><code>sudo apt-get install -y freerdp2-x11 xvfb xclip ffmpeg</code></pre>
@@ -783,15 +783,15 @@ echo "$ADMIN_PW"</code></pre>
           <span class="ja">何十回か接続した後、GNOME リモートログインが真っ黒な画面しか出さない</span>
         </h3>
         <p>
-          <span class="zh">被控端累積了收不掉的登入畫面工作階段。GNOME 的<strong>遠端登入</strong>每接一次就開一個新的無頭工作階段，而用戶端離線時它不一定會把那個工作階段收掉 —— 累積到一定數量，新的連線就什麼都畫不出來。在被控端上看：</span>
-          <span class="en">The target has accumulated login-screen sessions that were never reaped. GNOME <strong>Remote Login</strong> starts a new headless session for every connection, and does not reliably end it when the client disconnects — past a certain number, new connections render nothing. Check on the target:</span>
+          <span class="zh">被控端累積了收不掉的登入畫面工作階段。GNOME 的<strong>遠端登入</strong>每接一次就開一個新的無頭工作階段，而用戶端離線時它不一定會把那個工作階段收掉，累積到一定數量，新的連線就什麼都畫不出來。在被控端上看：</span>
+          <span class="en">The target has accumulated login-screen sessions that were never reaped. GNOME <strong>Remote Login</strong> starts a new headless session for every connection, and does not reliably end it when the client disconnects; past a certain number, new connections render nothing. Check on the target:</span>
           <span class="ja">接続先にログイン画面のセッションが回収されずに溜まっています。GNOME の<strong>リモートログイン</strong>は接続のたびに新しいヘッドレスセッションを開始しますが、クライアント切断時にそれを確実に終了しません。ある程度溜まると新規接続は何も表示されなくなります。接続先で確認してください：</span>
         </p>
         <pre><code>loginctl list-sessions | grep gdm | wc -l
 sudo loginctl terminate-user gdm     # <span class="zh">收掉全部登入畫面（會重新產生）</span><span class="en">end all login-screen sessions (they respawn)</span><span class="ja">ログイン画面のセッションを全て終了（再生成されます）</span></code></pre>
         <p class="note">
-          <span class="zh">這是被控端的行為，主控台這邊已經是先送 SIGTERM、等它好好關閉連線才收掉。要避免累積，請改用「桌面共享」—— 它接的是既有的工作階段，不會每次都開新的。</span>
-          <span class="en">This is the target's behaviour; the console already sends SIGTERM and waits for a clean disconnect before reaping its own processes. To avoid the build-up, use Desktop Sharing — it attaches to the existing session instead of starting a new one each time.</span>
+          <span class="zh">這是被控端的行為，主控台這邊已經是先送 SIGTERM、等它好好關閉連線才收掉。要避免累積，請改用「桌面共享」：它接的是既有的工作階段，不會每次都開新的。</span>
+          <span class="en">This is the target's behaviour; the console already sends SIGTERM and waits for a clean disconnect before reaping its own processes. To avoid the build-up, use Desktop Sharing: it attaches to the existing session instead of starting a new one each time.</span>
           <span class="ja">これは接続先側の挙動です。コンソール側は既に SIGTERM を送り、正常な切断を待ってから自プロセスを終了しています。蓄積を避けるにはデスクトップ共有をご利用ください。毎回新規に開始せず、既存のセッションに接続します。</span>
         </p>
       </article>
@@ -803,13 +803,13 @@ sudo loginctl terminate-user gdm     # <span class="zh">收掉全部登入畫面
           <span class="ja">FreeRDP エンジンでは中国語・日本語が入力できない</span>
         </h3>
         <p>
-          <span class="zh">請改用主控台工具列的「貼上」—— 剪貼簿這條路不受限制，中文、日文都貼得進去。直接打字時，非 ASCII 字元畫面上會出現提示，不會默默消失。</span>
-          <span class="en">Use <strong>Paste</strong> in the console toolbar instead — the clipboard path has no such limit and handles any text. When you type one directly, the console tells you; the character is never dropped in silence.</span>
+          <span class="zh">請改用主控台工具列的「貼上」：剪貼簿這條路不受限制，中文、日文都貼得進去。直接打字時，非 ASCII 字元畫面上會出現提示，不會默默消失。</span>
+          <span class="en">Use <strong>Paste</strong> in the console toolbar instead: the clipboard path has no such limit and handles any text. When you type one directly, the console tells you; the character is never dropped in silence.</span>
           <span class="ja">コンソールのツールバーの「<strong>貼り付け</strong>」をご利用ください。クリップボード経路にこの制限はなく、どの文字でも入力できます。直接入力した場合は画面に案内が出るため、黙って消えることはありません。</span>
         </p>
         <p class="note">
-          <span class="zh">原因在被控端之外：FreeRDP 的用戶端是用一張<strong>固定的按鍵對照表</strong>把鍵盤事件翻成 RDP 事件，沒有 Unicode 鍵盤通道，因此配置上沒有的字元送不出去。預設的 aardwolf 引擎沒有這個限制 —— 如果目標是 Windows，用預設引擎即可。</span>
-          <span class="en">The cause is in the client, not the target: FreeRDP translates key events through a <strong>fixed key table</strong> and has no Unicode keyboard channel, so characters absent from the layout cannot be sent. The default aardwolf engine does not have this limit — for Windows targets, the default engine is the better choice.</span>
+          <span class="zh">原因在被控端之外：FreeRDP 的用戶端是用一張<strong>固定的按鍵對照表</strong>把鍵盤事件翻成 RDP 事件，沒有 Unicode 鍵盤通道，因此配置上沒有的字元送不出去。預設的 aardwolf 引擎沒有這個限制，如果目標是 Windows，用預設引擎即可。</span>
+          <span class="en">The cause is in the client, not the target: FreeRDP translates key events through a <strong>fixed key table</strong> and has no Unicode keyboard channel, so characters absent from the layout cannot be sent. The default aardwolf engine does not have this limit; for Windows targets, the default engine is the better choice.</span>
           <span class="ja">原因は接続先ではなくクライアント側にあります。FreeRDP はキーイベントを<strong>固定のキー対応表</strong>で RDP イベントに変換しており、Unicode キーボードチャネルを持たないため、配列にない文字は送信できません。既定の aardwolf エンジンにこの制限はなく、Windows が相手なら既定のままで十分です。</span>
         </p>
       </article>
@@ -847,8 +847,8 @@ sudo loginctl terminate-user &lt;username&gt;</code></pre>
       <article class="qa" id="qa-issue">
         <h3>
           <span class="zh">開一張 issue，附上這四樣就夠我們判斷</span>
-          <span class="en">Open an issue — these four outputs are usually enough</span>
-          <span class="ja">issue を立ててください — この四つがあれば判断できます</span>
+          <span class="en">Open an issue: these four outputs are usually enough</span>
+          <span class="ja">issue を立ててください：この四つがあれば判断できます</span>
         </h3>
         <pre><code># 1) <span class="zh">版本與作業系統</span><span class="en">Version and OS</span><span class="ja">バージョンと OS</span>
 cat /opt/jt-ipam/backend/app/version.py; lsb_release -ds; uname -r
@@ -885,8 +885,8 @@ sudo journalctl -u jt-ipam-backend -n 100 --no-pager
 
     <div class="empty" id="empty">
       <span class="zh">找不到符合的項目。試試錯誤訊息裡的一個英文單字，例如 <code>fast-forward</code>、<code>vector</code>、<code>pnpm</code>。</span>
-      <span class="en">No matching entry. Try one English word from the error message — <code>fast-forward</code>, <code>vector</code>, <code>pnpm</code>.</span>
-      <span class="ja">該当する項目がありません。エラーメッセージ中の英単語で試してください — <code>fast-forward</code>、<code>vector</code>、<code>pnpm</code>。</span>
+      <span class="en">No matching entry. Try one English word from the error message: <code>fast-forward</code>, <code>vector</code>, <code>pnpm</code>.</span>
+      <span class="ja">該当する項目がありません。エラーメッセージ中の英単語で試してください：<code>fast-forward</code>、<code>vector</code>、<code>pnpm</code>。</span>
     </div>
   </main>
 </div>
@@ -918,7 +918,7 @@ sudo journalctl -u jt-ipam-backend -n 100 --no-pager
          : body.classList.contains('lang-en') ? 'en' : 'zh';
   }
 
-  /* 語言切換：只換 class。搜尋索引跟著重建 —— innerText 讀不到 display:none 的內容，
+  /* 語言切換：只換 class。搜尋索引跟著重建：innerText 讀不到 display:none 的內容，
      所以同一段搜尋程式對三種語言都成立，不必替每種語言各存一份文字。 */
   function applyLang(){
     var l = lang();
@@ -945,7 +945,7 @@ sudo journalctl -u jt-ipam-backend -n 100 --no-pager
   }
   if (langBtn) langBtn.addEventListener('click', function(e){ e.stopPropagation(); openLang(langMenu.hidden); });
   langItems.forEach(function(li){ li.addEventListener('click', function(){ setLang(li.dataset.lang); openLang(false); }); });
-  // 點面板外面、按 Esc 都要關 —— 自己畫的面板不會自動有這些行為。
+  // 點面板外面、按 Esc 都要關：自己畫的面板不會自動有這些行為。
   document.addEventListener('click', function(e){ if (langMenu && !langMenu.hidden && !langMenu.contains(e.target)) openLang(false); });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && langMenu && !langMenu.hidden) openLang(false); });
 
@@ -1005,11 +1005,11 @@ sudo journalctl -u jt-ipam-backend -n 100 --no-pager
 </script>
 <script>
   /* <title> / description / <html lang> 也要跟著語言走。
-     原本只有內文與截圖會切，文件本身的中繼資料留在原地 —— 於是三種語言的
+     原本只有內文與截圖會切，文件本身的中繼資料留在原地，於是三種語言的
      分頁標題、搜尋結果與分享預覽全都是中文。靜態值放預設語言（英文），
      這樣沒有 JavaScript 的讀者與爬蟲拿到的也是對的那一份。 */
   (function(){
-    var META = {"zh": ["jt-ipam — 安裝與升級疑難排解", "jt-ipam 安裝與升級失敗時的處理方式（可搜尋 Q&A）。"], "en": ["jt-ipam — Install & upgrade troubleshooting", "What to do when a jt-ipam install or upgrade fails — a searchable Q&A."], "ja": ["jt-ipam — インストールとアップグレードのトラブルシューティング", "jt-ipam のインストールやアップグレードが失敗したときの対処法（検索できる Q&A）。"]};
+    var META = {"zh": ["jt-ipam：安裝與升級疑難排解", "jt-ipam 安裝與升級失敗時的處理方式（可搜尋 Q&A）。"], "en": ["jt-ipam: Install & upgrade troubleshooting", "What to do when a jt-ipam install or upgrade fails (a searchable Q&A)."], "ja": ["jt-ipam：インストールとアップグレードのトラブルシューティング", "jt-ipam のインストールやアップグレードが失敗したときの対処法（検索できる Q&A）。"]};
     function cur(){
       var c = document.body.className;
       return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';

@@ -28,6 +28,7 @@ class PaloAltoBase(StrictModel):
     sync_policies: bool = False
     sync_nat: bool = False
     sync_addresses: bool = False
+    sync_vpn: bool = True
     sync_interval_seconds: Annotated[int, Field(ge=30, le=86400)] = 300
     description: Annotated[str | None, Field(max_length=2048)] = None
     scope_subnet_ids: list[uuid.UUID] | None = None
@@ -52,6 +53,7 @@ class PaloAltoUpdate(StrictModel):
     sync_policies: bool | None = None
     sync_nat: bool | None = None
     sync_addresses: bool | None = None
+    sync_vpn: bool | None = None
     sync_interval_seconds: Annotated[int | None, Field(ge=30, le=86400)] = None
     description: Annotated[str | None, Field(max_length=2048)] = None
     scope_subnet_ids: list[uuid.UUID] | None = None
@@ -72,6 +74,7 @@ class PaloAltoRead(StrictModel):
     sync_policies: bool
     sync_nat: bool
     sync_addresses: bool
+    sync_vpn: bool = True
     sync_interval_seconds: int
     description: str | None = None
     scope_subnet_ids: list[uuid.UUID] | None = None

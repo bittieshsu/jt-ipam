@@ -59,6 +59,8 @@ _VIA_EVIDENCE = {
     "name": EV_INFERRED,
     "fdb": EV_LEARNED,
     "virtualization": EV_MONITORED,
+    # MikroTik /ip/neighbor：鄰居自己用 MNDP／CDP／LLDP 宣告的，路由器轉述 —— 與監控平台同一層
+    "neighbor": EV_MONITORED,
 }
 _EV_RANK = {EV_ASSERTED: 3, EV_MONITORED: 2, EV_LEARNED: 1, EV_INFERRED: 0}
 
@@ -157,6 +159,12 @@ def uplink_pairs_from_fdb(
                 break
     return pairs
 
+
+
+#: 掃描代理判讀出的設備類型（IP 的 device_kind）→ 拓樸的裝置類型。沒有對應的（印表機、攝影機…）
+#: 拓樸沒有那一類，維持 other
+_KIND_TO_TYPE = {"router": "router", "switch": "switch", "firewall": "firewall", "wireless_ap": "ap",
+                 "storage": "storage", "server": "server", "windows": "server", "hypervisor": "server"}
 
 async def build_topology(
     session: AsyncSession,
@@ -581,6 +589,12 @@ async def build_topology(
             .where(FDBEntry.port_name.is_not(None),
                    LibreNMSDevice.jt_ipam_device_id.is_not(None))
         )).all()
+        # MikroTik 的 bridge host 表（0170）：直接記 jt-ipam 裝置，不經 LibreNMS
+        fdb_rows = [*fdb_rows, *(await session.execute(
+            select(FDBEntry.port_name, FDBEntry.mac, FDBEntry.vlan_id_num, FDBEntry.switch_device_id)
+            .where(FDBEntry.source == "mikrotik", FDBEntry.port_name.is_not(None),
+                   FDBEntry.switch_device_id.is_not(None))
+        )).all()]
 
         if fdb_rows:
             # MAC → 裝置。對到多台就標成不明確（重疊網段下同一個 MAC 會有多筆 IP 記錄）。
@@ -709,6 +723,38 @@ async def build_topology(
                     "port": pa, "peer_port": pb,
                 }})
 
+    # ── 鄰居探索：MikroTik 的 /ip/neighbor（MNDP／CDP／LLDP，0170）──
+    #
+    # 鄰居自己宣告「我是誰、接在你哪個埠」，交換器之間的連線也畫得出來 —— 那正是 FDB 推導最弱的地方。
+    # 鄰居對不到唯一一台裝置就不畫（services/mikrotik.match_neighbor_devices）。
+    if include_fdb:
+        from app.models.mikrotik import MikroTikNeighbor, MikroTikRouter
+        from app.services.mikrotik import match_neighbor_devices
+        router_dev = {rid: str(did) for rid, did in (await session.execute(
+            select(MikroTikRouter.id, MikroTikRouter.device_id).where(
+                MikroTikRouter.device_id.is_not(None), MikroTikRouter.enabled.is_(True)))).all()}
+        neigh = list((await session.execute(select(MikroTikNeighbor).where(
+            in_values(MikroTikNeighbor.router_id, list(router_dev))))).scalars().all()) if router_dev else []
+        matched = await match_neighbor_devices(session, neigh) if neigh else {}
+        drawn: set[tuple[str, str]] = set()
+        for n in neigh:
+            a = router_dev.get(n.router_id)
+            b = (matched.get(n.id) or {}).get("device_id")
+            if not a or not b or a == b or a not in visible_device_ids or b not in visible_device_ids:
+                continue
+            pair = (min(a, b), max(a, b))
+            if pair in drawn:
+                continue
+            drawn.add(pair)
+            label = f"{n.interface} ↔ {n.remote_interface}" if n.remote_interface else n.interface
+            edges.append({"data": {
+                "id": f"nb:{a}:{b}:{n.interface}",
+                "source": a, "target": b, "label": label,
+                "kind": "l2_uplink", "via": "neighbor", "evidence": EV_MONITORED,
+                "port": n.interface, "peer_port": n.remote_interface,
+                "protocol": n.discovered_by,
+            }})
+
     # ── 虛擬機 ↔ 它跑在哪台實體主機 ──
     #
     # ⚠️ `virtual_machines.device_id` 是 **VM 自己**對映到的裝置，不是它的實體主機。
@@ -784,11 +830,14 @@ async def build_topology(
             for lo in (await session.execute(select(Location).where(in_values(Location.id, loc_ids)))).scalars().all():
                 loc_names[str(lo.id)] = lo.name
         pip_map: dict[str, str] = {}
+        pip_kind: dict[str, str] = {}
         if pip_ids:
-            for pid, pip in (await session.execute(
-                select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, pip_ids))
+            for pid, pip, kind in (await session.execute(
+                select(IPAddress.id, IPAddress.ip, IPAddress.device_kind).where(in_values(IPAddress.id, pip_ids))
             )).all():
                 pip_map[str(pid)] = str(pip).split("/")[0]
+                if kind:
+                    pip_kind[str(pid)] = kind
         ln_map: dict[str, LibreNMSDevice] = {}
         ln_rows = (await session.execute(
             select(LibreNMSDevice).where(in_values(LibreNMSDevice.jt_ipam_device_id, dev_uuids))
@@ -830,5 +879,10 @@ async def build_topology(
                     data["sysname"] = ln.sysname
                 if ln.status:
                     data["status"] = ln.status
+            # 還是不知道是什麼：看主要 IP 的掃描代理判讀（含 Recog 指紋庫，services/device_identity）
+            if data.get("type") in (None, "other") and dev.primary_ip_id:
+                mapped = _KIND_TO_TYPE.get(pip_kind.get(str(dev.primary_ip_id), ""))
+                if mapped:
+                    data["type"] = mapped
 
     return {"nodes": list(nodes.values()), "edges": edges}

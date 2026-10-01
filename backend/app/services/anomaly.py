@@ -51,6 +51,7 @@ class AnomalyReport:
     arp_only_liveness: list[dict[str, Any]] = field(default_factory=list)
     stale_device_links: list[dict[str, Any]] = field(default_factory=list)
     mac_flapping: list[dict[str, Any]] = field(default_factory=list)
+    identity_changes: list[dict[str, Any]] = field(default_factory=list)
 
     def total(self) -> int:
         """所有類別的發現筆數合計（排程的日誌用）。"""
@@ -65,6 +66,7 @@ class AnomalyReport:
             "arp_only_liveness": self.arp_only_liveness,
             "stale_device_links": self.stale_device_links,
             "mac_flapping": self.mac_flapping,
+            "identity_changes": self.identity_changes,
             "unauthorized_ips": self.unauthorized_ips,
             "rogue_dhcp": self.rogue_dhcp,
             "external_exposure": self.external_exposure,
@@ -79,6 +81,7 @@ class AnomalyReport:
                 + len(self.fw_rule_rot) + len(self.arp_only_liveness)
                 + len(self.dangling_dns) + len(self.duplicate_ip_records)
                 + len(self.suspicious_changes) + len(self.stale_device_links)
+                + len(self.mac_flapping) + len(self.identity_changes)
             ),
         }
 
@@ -500,6 +503,7 @@ async def detect_arp_only_liveness(
 ANOMALY_IGNORABLE: tuple[str, ...] = (
     "mac_drifts",
     "mac_flapping",
+    "identity_changes",
     "ghost_ips",
     "external_exposure",
     "arp_only_liveness",
@@ -574,6 +578,80 @@ async def detect_mac_flapping(
     return out
 
 
+#: 類型或 OS 突變看多久以內的變化
+IDENTITY_DAYS = 14
+
+
+async def detect_identity_changes(
+    session: AsyncSession, *, days: int = IDENTITY_DAYS,
+) -> list[dict[str, Any]]:
+    """同一個位址判讀出的設備類型或 OS 家族變了（Recog 的其他用途 ②）。
+
+    依據是掃描代理定期偵測寫下的異動記錄（kind_changed／os_changed，services/device_identity）：
+    只記「從一個確定的值變成另一個」，從不知道到知道不算。印表機突然變成 Windows 主機、攝影機
+    變成 Linux 伺服器 —— 可能是 IP 被別台機器拿去用、設備被換掉，或有人冒用。
+
+    只報**現在仍是變更後的樣子**的：A→B 之後又變回 A，表示判讀在兩個答案之間搖擺，不是設備換了。
+    雙系統開機這種已知會變的，用逐 IP 忽略關掉。
+    """
+    from app.models.ip_change_log import IPChangeLog
+
+    subnet_ids = await _anomaly_subnet_ids(session)
+    if not subnet_ids:
+        return []
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    logs = (await session.execute(
+        select(IPChangeLog).where(
+            IPChangeLog.event_type.in_(("kind_changed", "os_changed")),
+            IPChangeLog.created_at >= cutoff,
+            in_values(IPChangeLog.subnet_id, subnet_ids),
+            IPChangeLog.ip_id.is_not(None),
+        ).order_by(IPChangeLog.created_at)
+    )).scalars().all()
+    if not logs:
+        return []
+    by_ip: dict[Any, list[Any]] = defaultdict(list)
+    for lg in logs:
+        by_ip[lg.ip_id].append(lg)
+    ips = {r.id: r for r in (await session.execute(
+        select(IPAddress).where(in_values(IPAddress.id, list(by_ip))))).scalars().all()}
+
+    out: list[dict[str, Any]] = []
+    for ip_id, changes in by_ip.items():
+        row = ips.get(ip_id)
+        if row is None or is_ignored(row, "identity_changes"):
+            continue
+        current = {"device_kind": row.device_kind, "os_family": row.os_family}
+        kept = []
+        for fld in ("device_kind", "os_family"):
+            mine = [c for c in changes if c.field == fld]
+            if not mine:
+                continue
+            first, last = mine[0], mine[-1]
+            # 現在的值要等於最後一次變更的結果，而且不能是變回原本的樣子
+            if current[fld] != last.new_value or current[fld] == first.old_value:
+                continue
+            kept.append({"field": fld, "old": first.old_value, "new": last.new_value,
+                         "at": last.created_at.isoformat() if last.created_at else None,
+                         "times": len(mine), "note": last.note})
+        if not kept:
+            continue
+        out.append({
+            "ip": str(row.ip).split("/")[0],
+            "ip_id": str(row.id),
+            "hostname": row.hostname,
+            "subnet_id": str(row.subnet_id),
+            "device_kind": row.device_kind,
+            "device_model": row.device_model,
+            "os_guess": row.os_guess,
+            "shifts": kept,
+            "last_at": max((c["at"] or "") for c in kept) or None,
+            "days": days,
+        })
+    out.sort(key=lambda r: r["last_at"] or "", reverse=True)
+    return out
+
+
 async def _anomaly_networks(session: AsyncSession) -> list[Any]:
     """有開啟異常偵測的子網路（網段物件）。"""
     from app.models.subnet import Subnet
@@ -626,8 +704,209 @@ async def detect_unauthorized_ips(session: AsyncSession) -> list[dict[str, Any]]
                 return True
         return False
 
-    unauthorized = sorted(ip for ip in (arp_ips - ipam_ips) if _in_scope(ip))
-    return [{"ip": ip} for ip in unauthorized[:200]]
+    unauthorized = sorted(ip for ip in (arp_ips - ipam_ips) if _in_scope(ip))[:200]
+    if not unauthorized:
+        return []
+    # 只有一個位址看不出是誰：附上 ARP 看到的 MAC（廠商、隨機 MAC、誰看到的、最後時間）。
+    # 一個位址可能有好幾個 MAC（隨機 MAC 輪替、真的有兩台），最近看到的排前面。
+    seen: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for ip_v, mac_v, source, last in (await session.execute(
+        select(ARPEntry.ip, ARPEntry.mac, ARPEntry.source, func.max(ARPEntry.last_seen_at))
+        .where(in_values(ARPEntry.ip, unauthorized))
+        .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.source)
+    )).all():
+        ip_s, mac_s = str(ip_v).split("/")[0], str(mac_v)
+        info = seen[ip_s].setdefault(mac_s, {"last": last, "sources": set()})
+        info["sources"].add(str(source))
+        if last and (info["last"] is None or last > info["last"]):
+            info["last"] = last
+    vendors = await vendor_map(session, [m for macs in seen.values() for m in macs])
+    out: list[dict[str, Any]] = []
+    for ip in unauthorized:
+        macs = sorted(seen.get(ip, {}).items(), key=lambda kv: kv[1]["last"] or datetime.min.replace(tzinfo=UTC),
+                      reverse=True)
+        out.append({
+            "ip": ip,
+            "macs": [{"mac": m, "vendor": vendors.get(mac_prefix(m) or ""),
+                      "local": _is_locally_administered(m),
+                      "last_seen_at": info["last"].isoformat() if info["last"] else None,
+                      "sources": sorted(info["sources"])} for m, info in macs],
+            "last_seen_at": macs[0][1]["last"].isoformat() if macs and macs[0][1]["last"] else None,
+        })
+    return out
+
+
+# ── 上線狀態（顯示當下才算）──────────────────────────────────────────────────
+# 使用者要求（2026-10-01）：異常偵測每一頁有 IP 清單的，都要順便顯示它現在有沒有在線上。
+# 狀態在**送出結果的當下**算，不存進結果裡：保留下來的結果可能是一個小時前跑的。
+# 只送「依據」（各來源最後看到的時間），判定交給前端 —— 與 IP 清單同一顆燈、同一套規則
+# （上線門檻與採用哪些來源是每個使用者自己的設定）。
+
+#: 各類別：哪一欄是 IP、哪一欄是 IP 記錄的 id（有 id 就用 id 對，重疊網段才不會對錯筆）
+_LIVE_FIELDS: dict[str, tuple[str, str | None]] = {
+    "ip_conflicts": ("ip", None),
+    "ghost_ips": ("ip", "ip_address_id"),
+    "unauthorized_ips": ("ip", None),
+    "rogue_dhcp": ("server_ip", None),
+    "external_exposure": ("ip", "ip_address_id"),
+    "dangling_dns": ("value", None),
+    "duplicate_ip_records": ("ip", None),
+    "arp_only_liveness": ("ip", "ip_address_id"),
+    "stale_device_links": ("ip", "ip_address_id"),
+    "mac_flapping": ("ip", "ip_id"),
+    "identity_changes": ("ip", "ip_id"),
+}
+#: 一列有好幾個 IP 的類別（`ips: [{ip, ip_address_id}]`）→ 附 `live_ips: {ip: 依據}`
+_LIVE_LISTS = ("mac_drifts", "mac_drift_reference")
+_LIVE_COLS = ("last_seen_scanner", "last_seen_librenms", "last_seen_arp", "last_seen_wazuh",
+              "last_seen_zabbix")
+
+
+def _ip_text(v: Any) -> str | None:
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        return str(ipaddress.ip_address(v.split("/")[0]))
+    except ValueError:
+        return None
+
+
+def _uuid_or_none(v: Any) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(v)) if v else None
+    except ValueError:
+        return None
+
+
+def _iso(v: Any) -> str | None:
+    return v.isoformat() if isinstance(v, datetime) else (str(v) if v else None)
+
+
+async def _liveness_lookup(
+    session: AsyncSession, ids: set[uuid.UUID], texts: set[str],
+) -> tuple[dict[uuid.UUID, dict[str, Any]], dict[str, dict[str, Any]]]:
+    from app.models.subnet import Subnet
+
+    cols = [IPAddress.id, IPAddress.ip, *[getattr(IPAddress, c) for c in _LIVE_COLS],
+            IPAddress.arp_seen, IPAddress.exclude_from_ping, Subnet.scan_enabled]
+    by_id: dict[uuid.UUID, dict[str, Any]] = {}
+    by_text: dict[str, dict[str, Any]] = {}
+
+    def _row(r: Any) -> dict[str, Any]:
+        d: dict[str, Any] = {"registered": True}
+        for i, c in enumerate(_LIVE_COLS):
+            d[c] = _iso(r[2 + i])
+        d["arp_seen"] = dict(r[2 + len(_LIVE_COLS)] or {})
+        d["exclude_from_ping"] = bool(r[3 + len(_LIVE_COLS)])
+        d["subnet_scan_enabled"] = bool(r[4 + len(_LIVE_COLS)])
+        return d
+
+    conds = []
+    if ids:
+        conds.append(in_values(IPAddress.id, list(ids)))
+    if texts:
+        conds.append(in_values(IPAddress.ip, list(texts)))
+    if conds:
+        from sqlalchemy import or_
+        for r in (await session.execute(
+                select(*cols).join(Subnet, Subnet.id == IPAddress.subnet_id).where(or_(*conds)))).all():
+            d = _row(r)
+            by_id[r[0]] = d
+            t = str(r[1]).split("/")[0]
+            prev = by_text.get(t)
+            if prev is None:
+                by_text[t] = d
+            else:
+                # 重疊網段：同一個位址有好幾筆、這一列又沒有 id 可以分 —— 各欄取最新的
+                # （「其中一台在線上」；有 id 的列不走這裡）
+                merged = dict(prev)
+                for c in _LIVE_COLS:
+                    if d[c] and (not merged[c] or d[c] > merged[c]):
+                        merged[c] = d[c]
+                merged["arp_seen"] = {**prev["arp_seen"], **d["arp_seen"]}
+                by_text[t] = merged
+    # IPAM 沒有記錄的位址（未授權 IP、非法 DHCP 伺服器…）：依據是各來源的 ARP 觀測，
+    # 來源對到與 IP 記錄相同的欄位，前端才能用同一套規則判定
+    unregistered = [t for t in texts if t not in by_text]
+    if unregistered:
+        for ip_v, source, last in (await session.execute(
+            select(ARPEntry.ip, ARPEntry.source, func.max(ARPEntry.last_seen_at))
+            .where(in_values(ARPEntry.ip, unregistered))
+            .group_by(ARPEntry.ip, ARPEntry.source)
+        )).all():
+            t = str(ip_v).split("/")[0]
+            d = by_text.setdefault(t, {"registered": False, **dict.fromkeys(_LIVE_COLS),
+                                       "arp_seen": {}, "exclude_from_ping": False,
+                                       "subnet_scan_enabled": None})
+            src = str(source)
+            col = {"librenms": "last_seen_arp", "scanner": "last_seen_scanner"}.get(src)
+            if col:
+                if d[col] is None or _iso(last) > d[col]:
+                    d[col] = _iso(last)
+            else:
+                d["arp_seen"][src] = _iso(last)
+    return by_id, by_text
+
+
+#: 給其他頁面（MAC 歷程）用同一套上線依據
+liveness_lookup = _liveness_lookup
+
+
+async def attach_liveness(session: AsyncSession, data: dict[str, Any]) -> dict[str, Any]:
+    """在每一列 IP 附上 `live`（多 IP 的列附 `live_ips`）。回傳新的 dict，不改原本的。
+
+    `live` 是 None ＝ IPAM 沒有記錄、也從沒在 ARP 看過（前端顯示「—」，不猜）。
+    """
+    ids: set[uuid.UUID] = set()
+    texts: set[str] = set()
+    for cat, (ip_key, id_key) in _LIVE_FIELDS.items():
+        for row in data.get(cat) or []:
+            if not isinstance(row, dict):
+                continue
+            if id_key and (u := _uuid_or_none(row.get(id_key))):
+                ids.add(u)
+            elif t := _ip_text(row.get(ip_key)):
+                texts.add(t)
+    for cat in _LIVE_LISTS:
+        for row in data.get(cat) or []:
+            for it in (row.get("ips") or []) if isinstance(row, dict) else []:
+                if isinstance(it, dict):
+                    if u := _uuid_or_none(it.get("ip_address_id")):
+                        ids.add(u)
+                    elif t := _ip_text(it.get("ip")):
+                        texts.add(t)
+    by_id, by_text = await _liveness_lookup(session, ids, texts)
+
+    def _for(ip_v: Any, id_v: Any) -> dict[str, Any] | None:
+        u = _uuid_or_none(id_v)
+        if u and u in by_id:
+            return by_id[u]
+        t = _ip_text(ip_v)
+        return by_text.get(t) if t else None
+
+    out = dict(data)
+    for cat, (ip_key, id_key) in _LIVE_FIELDS.items():
+        rows = data.get(cat)
+        if not isinstance(rows, list):
+            continue
+        new_rows = []
+        for row in rows:
+            if not isinstance(row, dict) or _ip_text(row.get(ip_key)) is None:
+                new_rows.append(row)
+                continue
+            new_rows.append({**row, "live": _for(row.get(ip_key), row.get(id_key) if id_key else None)})
+        out[cat] = new_rows
+    for cat in _LIVE_LISTS:
+        rows = data.get(cat)
+        if not isinstance(rows, list):
+            continue
+        out[cat] = [
+            {**row, "live_ips": {str(it.get("ip")): _for(it.get("ip"), it.get("ip_address_id"))
+                                 for it in (row.get("ips") or []) if isinstance(it, dict) and it.get("ip")}}
+            if isinstance(row, dict) else row
+            for row in rows
+        ]
+    return out
 
 
 #: 非法 DHCP 的觀測多久內算數 —— 異常偵測與清單上的紅色標記共用（以前清單沒有時間界線）
@@ -1201,6 +1480,7 @@ async def run_detection(
         arp_only_liveness=await detect_arp_only_liveness(session),
         stale_device_links=await detect_stale_device_links(session),
         mac_flapping=await detect_mac_flapping(session),
+        identity_changes=await detect_identity_changes(session),
     )
 
     if notify_admins:
@@ -1236,6 +1516,7 @@ _NOTIFY_CATEGORIES: tuple[tuple[str, str, str, str], ...] = (
     ("suspicious_changes", "可疑的變更", "anomaly.changes", "suspicious_changes"),
     ("fw_rule_rot", "防火牆規則劣化", "anomaly.fw_rot", "fw_rule_rot"),
     ("mac_flapping", "IP 頻繁更換 MAC", "anomaly.mac_flapping", "mac_flapping"),
+    ("identity_changes", "類型或 OS 突變", "anomaly.identity_changes", "identity_changes"),
 )
 
 # 排程（只報新的）與手動（報當下全部）是兩句不同的話。共用一句的話，人按了「執行掃描」
@@ -1335,12 +1616,13 @@ async def notify_new_findings(
 
 async def run_scheduled(session: AsyncSession) -> AnomalyReport:
     """排程觸發的偵測：跑完只通知新的，並記錄執行時間。"""
-    from app.services.system_config import set_anomaly_last_run
+    from app.services.system_config import set_anomaly_last_run, set_anomaly_report
 
     report = await run_detection(session, notify_admins=False)
     await notify_new_findings(session, report)
     await deliver_event(session, event="anomaly.detected", payload=report.to_dict())
     await set_anomaly_last_run(session, at=datetime.now(UTC))
+    await set_anomaly_report(session, report.to_dict(), trigger="schedule")
     # 掃描代理／防火牆的 ARP 觀測會隨隨機化 MAC 一直增加，太舊的清掉（偵測只看 1 小時～7 天）
     from app.services.arp_evidence import prune
     await prune(session)

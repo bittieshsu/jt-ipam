@@ -49,12 +49,13 @@ import ssl
 import subprocess
 import threading
 import sys
+import tempfile
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.13.0"
+AGENT_VERSION = "1.14.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -497,29 +498,60 @@ def _derive_os(text: str):
     return None
 
 
+#: 定期 OS 偵測額外跑的腳本：都只是讀服務自己送出來的東西（banner、網頁標題、伺服器標頭、憑證），
+#: 伺服器拿去比對 Recog 指紋庫（1.14.0 起）。與 IP 探測相比少了 ssh-hostkey、rdp-ntlm-info
+_OS_SCRIPTS = "smb-os-discovery,banner,http-title,http-server-header,ssl-cert"
+_OS_MAX_PORTS = 32
+_OS_MAX_TEXT = 300
+
+
+def _compact_nmap(parsed: dict) -> dict:
+    """定期 OS 偵測要送回伺服器判讀的部分：埠數與每段文字都有上限，一台通常幾 KB。"""
+    def cut(d) -> dict:  # noqa: ANN001
+        return {k: (v or "")[:_OS_MAX_TEXT] for k, v in (d or {}).items()}
+    ports = [{**p, "scripts": cut(p.get("scripts"))} for p in (parsed.get("ports") or [])[:_OS_MAX_PORTS]]
+    return {"ports": ports, "os": (parsed.get("os") or [])[:3], "closed": int(parsed.get("closed") or 0),
+            "host_scripts": cut(parsed.get("host_scripts")), "mac_vendor": parsed.get("mac_vendor"),
+            "hostnames": (parsed.get("hostnames") or [])[:5]}
+
+
 def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
-    """os / ports 重量探測：有 nmap 才跑，回 {os_guess?, open_ports?}。
+    """os / ports 重量探測：有 nmap 才跑，回 {os_guess?, open_ports?, nmap?}。
 
     os 偵測需 root（-O），失敗就只回 ports；任何錯誤都回空 dict（略過）。
+    `nmap`（1.14.0 起）：結構化結果，伺服器用 IP 探測同一套判讀（含 Recog）推 OS 與設備類型；
+    `os_guess` 照舊附上（舊伺服器只認這個）。
     """
     result: dict = {}
     if not shutil.which("nmap"):
         return result
-    args = ["nmap", "-Pn", "-T4", "--host-timeout", "70s" if want_os else "30s"]
+    args = ["nmap", "-Pn", "-T4", "--host-timeout", "90s" if want_os else "30s"]
     if want_ports:
         args += ["--top-ports", "100"]
     else:
         args += ["-p", ",".join(str(p) for p in TCP_PROBE_PORTS)]
+    xml_path = None
     if want_os:
         # -sV（服務/banner 偵測）+ smb-os-discovery 遠比純 TCP/IP 堆疊指紋（-O）可靠：
         # 裝置/BMC 用 -O 常被自信地誤判。_derive_os 綜合這些訊號、優先採信 banner。
-        args += ["-sV", "-O", "--osscan-guess", "--script", "smb-os-discovery"]
+        args += ["-sV", "-O", "--osscan-guess", "--script", _OS_SCRIPTS, "--script-timeout", "15s"]
+        fd, xml_path = tempfile.mkstemp(prefix="jtipam-nmap-", suffix=".xml")
+        os.close(fd)
+        args += ["-oX", xml_path]
     args.append(ip)
     try:
         r = subprocess.run(
-            args, capture_output=True, text=True, timeout=90 if want_os else 60,
+            args, capture_output=True, text=True, timeout=120 if want_os else 60,
         )
         text = r.stdout or ""
+        if xml_path:
+            try:
+                with open(xml_path, encoding="utf-8", errors="replace") as fh:
+                    parsed = _parse_nmap_xml(fh.read())
+                if parsed.get("ports") or parsed.get("os") or parsed.get("host_scripts"):
+                    result["nmap"] = _compact_nmap(parsed)
+            except OSError:
+                pass
         if want_ports:
             ports: list[int] = []
             for line in text.splitlines():
@@ -534,6 +566,12 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
                 result["os_guess"] = og
     except Exception:
         return {}
+    finally:
+        if xml_path:
+            try:
+                os.unlink(xml_path)
+            except OSError:
+                pass
     return result
 
 
@@ -957,6 +995,8 @@ def _heavy_nmap(ip: str, probes: list[str]) -> dict:
         item["os_guess"] = np["os_guess"]
     if np.get("open_ports"):
         item["open_ports"] = sorted(set(np["open_ports"]))
+    if np.get("nmap"):
+        item["nmap"] = np["nmap"]
     return item
 
 
@@ -967,7 +1007,7 @@ def _heavy_probe_host(ip: str, probes: list[str]) -> dict:
     if "os" in probes or "ports" in probes:
         np = _heavy_nmap(ip, probes)
         item["probes_run"] = item["probes_run"] + np.pop("probes_run")
-        item.update({k: v for k, v in np.items() if k in ("os_guess", "open_ports")})
+        item.update({k: v for k, v in np.items() if k in ("os_guess", "open_ports", "nmap")})
     return item
 
 

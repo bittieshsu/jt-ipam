@@ -33,6 +33,12 @@ class MikroTikBase(StrictModel):
     #: ⚠️ 預設關：全表 ARP 在大型路由器上可能是上萬列。
     #: 先用「測試連線」看它回報幾列、花幾秒，再自己決定要不要開。
     sync_arp: bool = False
+    #: 第二階段（0170）：介面、鄰居落到 `device_id` 這台裝置；FDB 預設關（大型 bridge 可能上萬列）
+    sync_interfaces: bool = True
+    sync_neighbors: bool = True
+    sync_fdb: bool = False
+    #: 這台路由器＝哪一台 jt-ipam 裝置；留空＝同步時用 API 位址對到的 IP 所屬裝置
+    device_id: uuid.UUID | None = None
 
     cpu_load_limit: Annotated[int, Field(ge=0, le=100)] = 70
     section_delay_ms: Annotated[int, Field(ge=0, le=10000)] = 300
@@ -61,6 +67,10 @@ class MikroTikUpdate(StrictModel):
     sync_address_lists: bool | None = None
     sync_vpn: bool | None = None
     sync_arp: bool | None = None
+    sync_interfaces: bool | None = None
+    sync_neighbors: bool | None = None
+    sync_fdb: bool | None = None
+    device_id: uuid.UUID | None = None
     cpu_load_limit: Annotated[int | None, Field(ge=0, le=100)] = None
     section_delay_ms: Annotated[int | None, Field(ge=0, le=10000)] = None
     max_response_mb: Annotated[int | None, Field(ge=1, le=256)] = None
@@ -85,6 +95,10 @@ class MikroTikRead(StrictModel):
     sync_address_lists: bool
     sync_vpn: bool
     sync_arp: bool
+    sync_interfaces: bool = True
+    sync_neighbors: bool = True
+    sync_fdb: bool = False
+    device_id: uuid.UUID | None = None
     cpu_load_limit: int
     section_delay_ms: int
     max_response_mb: int

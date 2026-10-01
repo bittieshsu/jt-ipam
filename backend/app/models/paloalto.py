@@ -33,6 +33,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -69,6 +70,9 @@ class PaloAltoFirewall(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     sync_policies: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sync_nat: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sync_addresses: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    #: 站對站 VPN（IPsec，`show vpn flow`）：一條通道一列、很輕，預設開（0171）
+    sync_vpn: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False,
+                                           server_default=text("true"))
 
     #: 限定比對的子網路；留空＝全域（重疊網段下建議設定）
     scope_subnet_ids: Mapped[list[uuid.UUID] | None] = mapped_column(

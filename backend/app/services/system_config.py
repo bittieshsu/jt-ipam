@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -524,6 +524,31 @@ async def set_anomaly_seen(session: AsyncSession, seen: dict[str, list[str]]) ->
     row.value = {**(row.value or {}), "seen": seen}
     flag_modified(row, "value")
     await session.flush()
+
+
+#: 上一次偵測的結果（手動或排程）。另開一個鍵：結果可能有幾百 KB，不要跟設定擠在一起，
+#: 每次讀排程設定都得把它整份讀出來。
+ANOMALY_REPORT_KEY = "anomaly_report"
+
+
+async def set_anomaly_report(session: AsyncSession, report: dict[str, Any], *, trigger: str) -> None:
+    """保存這次的結果：進頁面先顯示上次的結果，不用每次都重跑（點去探測再返回，結果曾被清空）。"""
+    from fastapi.encoders import jsonable_encoder
+
+    value = {"at": datetime.now(UTC).isoformat(), "trigger": trigger, "report": jsonable_encoder(report)}
+    row = await session.get(SystemSetting, ANOMALY_REPORT_KEY)
+    if row is None:
+        session.add(SystemSetting(key=ANOMALY_REPORT_KEY, value=value))
+    else:
+        row.value = value
+        flag_modified(row, "value")
+    await session.flush()
+
+
+async def get_anomaly_report(session: AsyncSession) -> dict[str, Any] | None:
+    row = await session.get(SystemSetting, ANOMALY_REPORT_KEY)
+    v = row.value if row and isinstance(row.value, dict) else None
+    return v if v and isinstance(v.get("report"), dict) else None
 
 
 # ─────────────────── AI chat 歷程保留設定 ───────────────────
@@ -1435,6 +1460,7 @@ ANOMALY_EVENTS: tuple[str, ...] = (
     "anomaly.suspicious_changes",
     "anomaly.fw_rule_rot",
     "anomaly.mac_flapping",
+    "anomaly.identity_changes",
 )
 LEGACY_ANOMALY_EVENT = "anomaly.detected"
 

@@ -257,6 +257,9 @@ class Query:
             )
         ).scalar_one_or_none()
         ln = await session.get(LibreNMSDevice, fdb.device_id) if fdb and fdb.device_id else None
+        # MikroTik 回報的列（0170）沒有 LibreNMS 裝置，直接記 jt-ipam 裝置
+        ros_dev = (await session.get(DeviceModel, fdb.switch_device_id)
+                   if fdb and fdb.switch_device_id and ln is None else None)
         return gqltypes.ARPLookup(
             ip=ip,
             mac=arp.mac,
@@ -264,8 +267,8 @@ class Query:
             switch_device_id=fdb.device_id if fdb else None,
             switch_port=fdb.port_name if fdb else None,
             vlan=fdb.vlan_id_num if fdb else None,
-            switch_name=(ln.sysname or ln.hostname) if ln else None,
-            switch_ipam_device_id=ln.jt_ipam_device_id if ln else None,
+            switch_name=(ln.sysname or ln.hostname) if ln else (ros_dev.name if ros_dev else None),
+            switch_ipam_device_id=ln.jt_ipam_device_id if ln else (ros_dev.id if ros_dev else None),
         )
 
 

@@ -119,6 +119,7 @@ const VIA_LABELS = computed<Record<string, string>>(() => ({
   librenms: t("topology.via_librenms"),
   fdb: t("topology.via_fdb"),
   virtualization: t("topology.via_virtualization"),
+  neighbor: t("topology.via_neighbor"),
 }));
 const TYPE_LABELS = computed<Record<string, string>>(() => ({
   router: t("topology.type_router"),
@@ -382,7 +383,9 @@ async function refresh() {
     const m = viewMode.value;
     const data = await getTopology({
       includeWireless: m === "l3" ? false : includeWireless.value,
-      includeVpn: m === "l2" || m === "l3" ? false : includeVpn.value,
+      // 「只看子網路」是第三層的圖：站對站 VPN 本來就是第三層的連線，要畫（使用者回報兩台 WireGuard
+      // 對接卻沒有線）。只有「只看存取層」不畫
+      includeVpn: m === "l2" ? false : m === "l3" ? true : includeVpn.value,
       includeL3: m === "l2" ? false : m === "l3" ? true : includeL3.value,
       // 「以交換器為中心」與「只看存取層」都得有 FDB 才畫得出中心，不看勾選框
       includeFdb: m === "l3" ? false : m === "l2" || m === "switch" ? true : includeFdb.value,

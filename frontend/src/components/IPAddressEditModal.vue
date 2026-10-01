@@ -42,6 +42,7 @@ import RelationChain from "@/components/RelationChain.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import { useScanProbes, probeLabel, osFamilyLabel } from "@/api/scanProbes";
 import OsIcon from "@/components/OsIcon.vue";
+import DeviceKindIcon from "@/components/DeviceKindIcon.vue";
 
 const router = useRouter();
 const { options: customerOptions, labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
@@ -293,7 +294,7 @@ const emit = defineEmits<{
   (e: "bmc-popout"): void;
 }>();
 
-const { t, locale } = useI18n();
+const { t, te, locale } = useI18n();
 const msg = useMessage();
 const { catalog } = useScanProbes();
 
@@ -580,6 +581,7 @@ function eventLabel(e: string): string {
 const HISTORY_TYPE: Record<string, "default" | "info" | "success" | "warning" | "error"> = {
   created: "success", deleted: "error", online: "success", offline: "warning",
   hostname_changed: "info", mac_changed: "info", arp_changed: "info",
+  os_changed: "warning", kind_changed: "warning",
   state_changed: "warning", edited: "default",
 };
 
@@ -955,7 +957,10 @@ async function remove() {
                    style="margin-left: 6px">{{ t("hostnameSrc.pinned", { src: hostnameSources.pin }) }}</n-tag>
           </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.mac')">
-            <span>{{ props.address?.mac ?? "—" }}</span>
+            <!-- 點 MAC 看它的完整歷程（用過哪些 IP、出現在哪個交換器埠） -->
+            <router-link v-if="props.address?.mac" :to="{ name: 'mac-history', params: { mac: props.address.mac } }"
+                         class="mac-history-link" :title="t('mac_history.open_hint')">{{ props.address.mac }}</router-link>
+            <span v-else>—</span>
             <n-tag v-if="props.address?.mac_vendor" size="tiny" type="info" bordered
                    style="margin-left: 6px">{{ props.address.mac_vendor }}</n-tag>
           </n-descriptions-item>
@@ -973,6 +978,15 @@ async function remove() {
               {{ props.address?.os_guess }}
             </n-tooltip>
             <span v-else>—</span>
+          </n-descriptions-item>
+          <!-- 掃描代理定期偵測判讀出的設備類型（含 Recog 指紋庫）；只有判讀過才顯示這一列 -->
+          <n-descriptions-item v-if="props.address?.device_kind" :label="t('cols.device_kind')">
+            <span style="display:inline-flex;align-items:center;gap:6px" data-testid="ip-device-kind">
+              <device-kind-icon :kind="props.address.device_kind" :size="16" />
+              <span>{{ te(`identify.type.${props.address.device_kind}`)
+                ? t(`identify.type.${props.address.device_kind}`) : props.address.device_kind }}</span>
+              <span v-if="props.address?.device_model" style="opacity:0.7">· {{ props.address.device_model }}</span>
+            </span>
           </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.owner')">{{ props.address?.owner ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.switch_port')">
@@ -1514,4 +1528,6 @@ async function remove() {
   text-align: center; border-radius: 50%; font-size: 10px; cursor: help;
   background: rgba(251, 191, 36, .18); color: #b45309;
 }
+.mac-history-link { color: var(--primary-color, #18a058); text-decoration: none; font-family: var(--jt-mono, monospace); }
+.mac-history-link:hover { text-decoration: underline; }
 </style>

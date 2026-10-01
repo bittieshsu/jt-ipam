@@ -1,4 +1,4 @@
-# phpIPAM v1.7 API Compatibility Layer — Mapping
+# phpIPAM v1.7 API Compatibility Layer: Mapping
 
 > 繁體中文版：[PHPIPAM_API_MAPPING_zh-TW.md](PHPIPAM_API_MAPPING_zh-TW.md) · 日本語：[PHPIPAM_API_MAPPING_ja.md](PHPIPAM_API_MAPPING_ja.md)
 

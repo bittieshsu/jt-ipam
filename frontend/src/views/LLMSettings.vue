@@ -13,8 +13,8 @@ import {
 } from "naive-ui";
 import {
   getLLMConfig, patchLLMConfig, listOllamaModels, revealMcpKey, rotateMcpKey, checkEmbedding,
-  reindexEmbeddings,
-  type LLMConfig, type LLMConfigPatch, type OllamaModel, type EmbeddingCheck,
+  reindexEmbeddings, checkThinking,
+  type LLMConfig, type LLMConfigPatch, type OllamaModel, type EmbeddingCheck, type ThinkingCheck,
   type ReindexResult,
 } from "@/api/system";
 import { listMcpTools, type McpTool } from "@/api/chat";
@@ -173,6 +173,25 @@ async function doReindex() {
   try { reindexResult.value = await reindexEmbeddings(); }
   catch (e) { msg.error(apiErrMsg(e)); }
   finally { reindexBusy.value = false; }
+}
+
+// 思考檢查：AI 巡檢與判讀一律送「關閉思考」的參數，伺服器或閘道沒照做時只會變慢、
+// 答案被思考吃掉額度，不會報錯 —— 所以要能當場問一次（不自動跑：每個模型要真的問一句）
+const thinkBusy = ref(false);
+const thinkResults = ref<ThinkingCheck[] | null>(null);
+async function doCheckThinking() {
+  thinkBusy.value = true;
+  try { thinkResults.value = await checkThinking(); }
+  catch (e) { msg.error(apiErrMsg(e)); }
+  finally { thinkBusy.value = false; }
+}
+function thinkLine(r: ThinkingCheck): string {
+  const who = `${t(`llm_settings.think_role_${r.role}`)} ${r.model}`;
+  if (!r.ok) return t("llm_settings.think_failed", { who, err: String(r.error ?? "").slice(0, 160) });
+  if (!r.thinking) return t("llm_settings.think_off", { who, sec: r.seconds });
+  const why = r.reasoning_chars ? t("llm_settings.think_why_chars", { n: r.reasoning_chars })
+    : r.think_tag ? t("llm_settings.think_why_tag") : t("llm_settings.think_why_empty");
+  return t("llm_settings.think_on", { who, sec: r.seconds, why });
 }
 
 async function doCheckEmbedding() {
@@ -348,6 +367,10 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           <span v-if="modelsError" style="color: var(--err-color, #e88080); font-size: 11px;">
             {{ t("llm_settings.ollama_unreachable", { err: modelsError.slice(0, 80) }) }}
           </span>
+          <n-button text size="tiny" :loading="thinkBusy" data-testid="think-check" @click="doCheckThinking">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("llm_settings.think_check") }}
+          </n-button>
         </n-space>
         <n-select
           :value="llm.chat_model"
@@ -357,6 +380,16 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           filterable
           @update:value="(v: string) => patch({ chat_model: v })"
         />
+        <div v-if="thinkResults" data-testid="think-results" style="margin-top: 6px">
+          <p v-for="r in thinkResults" :key="r.role" class="hint"
+             :style="r.ok && !r.thinking ? 'color:#18a058' : 'color:#e88080'">
+            {{ thinkLine(r) }}
+            <template v-if="r.rejected_params.length">
+              {{ t("llm_settings.think_rejected", { params: r.rejected_params.join(", ") }) }}
+            </template>
+          </p>
+          <p v-if="thinkResults.some((r) => r.ok && r.thinking)" class="hint">{{ t("llm_settings.think_on_hint") }}</p>
+        </div>
       </div>
       <div>
         <n-space align="center" style="margin-bottom: 4px">

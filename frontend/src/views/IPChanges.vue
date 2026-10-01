@@ -87,6 +87,7 @@ const EVENT_TYPE: Record<string, "default" | "info" | "success" | "warning" | "e
   created: "success", deleted: "error",
   online: "success", offline: "warning",
   hostname_changed: "info", mac_changed: "info", arp_changed: "info",
+  os_changed: "warning", kind_changed: "warning",
   state_changed: "warning", edited: "default",
 };
 

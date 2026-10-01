@@ -268,6 +268,12 @@ export interface RecogStatus {
   project_url: string;
   license: string;
 }
+/** Recog 頁：每個指紋檔（例如 http_servers.xml）與它的筆數 */
+export interface RecogDbRow { key: string; protocol: string | null; database_type: string | null; fingerprints: number }
+export async function getRecogStatus(): Promise<RecogStatus & { database_list: RecogDbRow[] }> {
+  const { data } = await apiClient.get("/api/v1/system/recog/status");
+  return data;
+}
 export interface RecogUpdateResult {
   result: { status: "up_to_date" | "updated" | "error"; release?: string | null; previous?: string | null;
             latest?: string; fingerprints?: number; error?: string };
@@ -450,6 +456,28 @@ export interface EmbeddingCheck {
 export async function checkEmbedding(): Promise<EmbeddingCheck> {
   const { data } = await apiClient.get<EmbeddingCheck>("/api/v1/ai/embedding-check");
   return data;
+}
+
+/** 思考檢查：用 AI 巡檢／判讀同一套「關閉思考」參數問一句極短的話，看模型照不照做 */
+export interface ThinkingCheck {
+  role: "chat" | "audit" | "interpret";
+  model: string;
+  ok: boolean;
+  thinking: boolean | null;
+  reasoning_chars: number;
+  think_tag: boolean;
+  empty_answer: boolean;
+  answer: string;
+  seconds: number;
+  rejected_params: string[];
+  error: string | null;
+}
+
+export async function checkThinking(): Promise<ThinkingCheck[]> {
+  // 最多三個模型、每個最多等 2 分鐘（後端上限），比全域預設的逾時長得多
+  const { data } = await apiClient.get<{ results: ThinkingCheck[] }>("/api/v1/ai/thinking-check",
+    { timeout: LONG_OP_TIMEOUT_MS * 2 });
+  return data.results;
 }
 
 export interface ReindexResult {

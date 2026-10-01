@@ -58,6 +58,11 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # OS 偵測結果：原始字串 + 正規化家族 key（前端依 family 配 icon）。see core/os_fingerprint.py
     os_guess: Mapped[str | None] = mapped_column(String(160))
     os_family: Mapped[str | None] = mapped_column(String(24))
+    #: 掃描代理定期偵測判讀出的設備類型（camera / printer / storage …，見 services/device_identity）
+    #: 與廠牌型號。判讀與 IP 探測同一套（含 Recog 指紋庫）；判讀不出來時保留上一次的結果。
+    device_kind: Mapped[str | None] = mapped_column(String(24))
+    device_model: Mapped[str | None] = mapped_column(String(120))
+    device_identified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: OCS Inventory 代理回報的 OS 原始字串。獨立欄位（不污染掃描代理的 os_guess）——
     #: 經 os_precedence 排在 scanner 之上，讓 agent 回報的 OS 蓋過 nmap 的指紋猜測。
     os_ocs: Mapped[str | None] = mapped_column(String(160))

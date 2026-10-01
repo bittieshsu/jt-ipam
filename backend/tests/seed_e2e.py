@@ -103,7 +103,7 @@ async def seed() -> None:
 
         web = await ip(subnets["10.20.0.0/24"], "10.20.0.10", "web-01",
                        description="e2e：IP 詳細資料的主要樣本")
-        await ip(subnets["10.20.0.0/24"], "10.20.0.11", "app-01")
+        app01 = await ip(subnets["10.20.0.0/24"], "10.20.0.11", "app-01")
         db01 = await ip(subnets["10.20.0.0/24"], "10.20.0.12", "db-01")
         # 清單 MAC 欄的 OUI 廠商（#38）：用 RFC 7042 保留給文件的 00:00:5E:00:53:xx，
         # 它的 OUI 正式登記給 IANA —— 不會對到任何真實設備。
@@ -305,6 +305,33 @@ async def seed() -> None:
         for pref in (await s.execute(select(UserPreference))).scalars().all():
             pref.locale = "zh-TW"
         subnets["10.20.0.0/24"].anomaly_enabled = True
+
+        # ── 設備類型（掃描代理定期偵測的判讀，Recog 的其他用途）＋「類型或 OS 突變」的樣本 ──
+        from app.models.ip_change_log import IPChangeLog
+        db01.device_kind, db01.device_model = "storage", "Synology DS920+"
+        app01.device_kind, app01.device_model = "windows", None
+        app01.os_family, app01.os_guess = "windows", "Microsoft Windows 10"
+        app01.anomaly_ignore = []
+        await s.execute(delete(IPChangeLog).where(
+            IPChangeLog.ip_id == app01.id, IPChangeLog.event_type.in_(("kind_changed", "os_changed"))))
+        for ev, fld, old, new in (("kind_changed", "device_kind", "printer", "windows"),
+                                  ("os_changed", "os_family", "linux", "windows")):
+            s.add(IPChangeLog(ip_id=app01.id, subnet_id=app01.subnet_id, ip_text="10.20.0.11",
+                              event_type=ev, field=fld, old_value=old, new_value=new, source="scanner"))
+
+        # ── MAC 歷程：db-01 的 MAC 以前在 app-01（10.20.0.11）上，被另一個 MAC 取代後搬到 db-01 ──
+        await s.execute(delete(IPChangeLog).where(
+            IPChangeLog.field == "mac", IPChangeLog.ip_id.in_([app01.id, db01.id])))
+        from datetime import UTC as _UTC
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+        _now = _dt.now(_UTC)
+        for ipa, txt, old, new, ago in ((app01, "10.20.0.11", None, "00:00:5e:00:53:12", 30),
+                                        (app01, "10.20.0.11", "00:00:5e:00:53:12", "00:00:5e:00:53:11", 12),
+                                        (db01, "10.20.0.12", "00:00:5e:00:53:19", "00:00:5e:00:53:12", 11)):
+            s.add(IPChangeLog(ip_id=ipa.id, subnet_id=ipa.subnet_id, ip_text=txt, event_type="mac_changed",
+                              field="mac", old_value=old, new_value=new, source="scanner",
+                              created_at=_now - _td(days=ago)))
 
         # ── 防火牆反查（IP 詳細頁的「防火牆規則」「所屬別名」）──────────
         # 198.51.100.7 被一個別名涵蓋，另有一條引用那個別名的規則 —— 兩段都要畫得出來。

@@ -69,6 +69,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "check_ip_exposure": {"ip": "10.0.0.1"},
     "get_subnet_usage": {"subnet_id": _U},
     "trace_mac": {"mac": "00:11:22:33:44:55"},
+    "mac_history": {"mac": "00:11:22:33:44:55"},
     "global_search": {"q": "abc"},
     "dns_lookup": {"name": "example"},
     "find_free_ip": {"subnet_cidr": "10.0.0.0/24"},

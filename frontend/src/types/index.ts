@@ -102,6 +102,10 @@ export interface IPAddress {
   exclude_from_ping: boolean;
   excluded_probes: string[];
   os_guess: string | null;
+  /** 掃描代理定期偵測判讀出的設備類型（camera／printer…）與廠牌型號 */
+  device_kind?: string | null;
+  device_model?: string | null;
+  device_identified_at?: string | null;
   os_family: string | null;
   os_source: string | null;
   probe_last_run: Record<string, string> | null;

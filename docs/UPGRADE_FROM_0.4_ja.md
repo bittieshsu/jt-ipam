@@ -28,7 +28,7 @@ stat -c '%U' /opt/jt-ipam          # jtipam であること
 
 ---
 
-## 手順 0 — まずバックアップ（必ず行ってください）
+## 手順 0：まずバックアップ（必ず行ってください）
 
 ```bash
 # データベース（custom 形式。pg_restore で戻せます）
@@ -45,7 +45,7 @@ tar czf /root/jt-ipam-uploads_$(date +%F).tgz -C /var/lib/jt-ipam uploads 2>/dev
 
 ---
 
-## 手順 1 — まずは通常の方法を試す
+## 手順 1：まずは通常の方法を試す
 
 ```bash
 sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade 2>&1 | tee /root/upgrade.log
@@ -60,7 +60,7 @@ sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade 2>&1 | tee /root/upgrade.log
 
 ---
 
-## 手順 2 — コードを最新にする（git の履歴が食い違っている場合の対処）
+## 手順 2：コードを最新にする（git の履歴が食い違っている場合の対処）
 
 `upgrade` は `git pull --ff-only` を使うため、古い 0.4 のクローンの履歴が公開リポジトリと
 食い違っていると中止されます。手作業で揃えます。
@@ -81,7 +81,7 @@ sudo -u jtipam git -C /opt/jt-ipam fetch origin && sudo -u jtipam git -C /opt/jt
 
 ---
 
-## 手順 3 — バックエンドの依存関係を更新する
+## 手順 3：バックエンドの依存関係を更新する
 
 ```bash
 sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend && .venv/bin/pip install -e .'
@@ -92,7 +92,7 @@ Python が古すぎる可能性が高いです。先へ進む前に、エラー�
 
 ---
 
-## 手順 4 — データベースのマイグレーション（0.4 から最新への大きな跳躍。最も重要です）
+## 手順 4：データベースのマイグレーション（0.4 から最新への大きな跳躍。最も重要です）
 
 ```bash
 # 現在の位置を確認します
@@ -103,7 +103,7 @@ sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/bac
 
 よくある失敗：
 
-- **`Can't locate revision <xxxx>`** — `alembic_version` が、もう存在しないリビジョンを指しています。
+- **`Can't locate revision <xxxx>`**：`alembic_version` が、もう存在しないリビジョンを指しています。
   連なりを確認し、実態に合うものを stamp してから `upgrade head` をやり直します。
   ```bash
   sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; .venv/bin/alembic history | head -40'
@@ -118,7 +118,7 @@ sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/bac
 
 ---
 
-## 手順 5 — フロントエンドを再ビルドして再起動する
+## 手順 5：フロントエンドを再ビルドして再起動する
 
 コードはすでに最新なので、残りのアップグレードは `--no-pull` で実行します（pip → alembic →
 **フロントエンドのビルド** → 再起動、加えて nginx の WebSocket 設定の補正）。
@@ -136,7 +136,7 @@ sudo systemctl restart jt-ipam-backend
 
 ---
 
-## 手順 6 — 確認
+## 手順 6：確認
 
 ```bash
 # バージョンと、Alembic が head にあること

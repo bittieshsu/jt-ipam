@@ -814,14 +814,19 @@ async def prune_stale_fdb(session: AsyncSession, *, max_age_days: int = 365) -> 
     return int(res.rowcount or 0)
 
 
-async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance) -> int:
+async def derive_switch_ports(session: AsyncSession, instance: Any, *, source: str = "librenms") -> int:
     """用 FDB 把每個 IP 的「交換器位置」(switch_port) 填出來。
 
     access port 啟發式：一個 MAC 可能出現在多個 (switch, port)（含 uplink/trunk）；
     取「該 port 上 MAC 數最少」者當作存取埠。值格式 "switchhostname / ifName"。
+
+    `instance` 只用來取範圍（`scope_subnet_ids`）—— LibreNMS 整合或 MikroTik 路由器都行。
+    FDB 有兩種列：LibreNMS 的（`device_id` 是 LibreNMS 裝置）與 MikroTik 的（`switch_device_id`
+    是 jt-ipam 裝置，0170）；兩種一起投票，交換器以 ("ln", id)／("dev", id) 區分。
     """
     from collections import defaultdict
 
+    from app.models.device import Device
     from app.services.ip_history import log_change
 
     # FDB（有 port_name 的）：mac → list[(device_id, port)]；同時算每個 (device,port) 的 MAC 數
@@ -829,18 +834,28 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
     # 但「目前接在哪」不能讓半年前的舊埠參與投票 —— 那會讓 switch_port 指向一個早就
     # 搬走的位置，而畫面上完全看不出哪裡不對。
     cutoff = current_fdb_cutoff(max_age_hours=get_settings().fdb_current_max_age_hours)
+    def _switch(ln_id: Any, dev_id: Any) -> tuple[str, Any] | None:
+        if ln_id is not None:
+            return ("ln", ln_id)
+        if dev_id is not None:
+            return ("dev", dev_id)
+        return None
+
     rows = (await session.execute(
-        select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name)
+        select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.switch_device_id, FDBEntry.port_name)
         .where(FDBEntry.port_name.is_not(None), FDBEntry.last_seen_at >= cutoff)
     )).all()
     if not rows:
         return 0
     port_macs: dict[tuple[Any, ...], set[Any]] = defaultdict(set)
     mac_ports: dict[str, list[Any]] = defaultdict(list)
-    for mac, dev_id, port in rows:
-        key = (dev_id, port)
+    for mac, ln_id, dev_id, port in rows:
+        sw = _switch(ln_id, dev_id)
+        if sw is None:
+            continue
+        key = (sw, port)
         port_macs[key].add(str(mac))
-        mac_ports[str(mac)].append((dev_id, port))
+        mac_ports[str(mac)].append((sw, port))
 
     # switch device_id → 顯示名稱：優先 device/hostname（非 IP）→ 該 IP 的 IPAddress.hostname → IP
     sw_rows = (await session.execute(
@@ -866,7 +881,12 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
                 break
         if not name and ip_s:
             name = ip_host.get(ip_s) or ip_s
-        sw_name[sid] = name or str(sid)[:8]
+        sw_name[("ln", sid)] = name or str(sid)[:8]
+    dev_ids = {sw[1] for sw, _p in port_macs if sw[0] == "dev"}
+    if dev_ids:
+        for did, dname in (await session.execute(
+                select(Device.id, Device.name).where(in_values(Device.id, list(dev_ids))))).all():
+            sw_name[("dev", did)] = dname
 
     # scope（重疊網段）：只處理 instance 指定的子網路
     scope_ids = _scope_uuids(instance)
@@ -881,11 +901,11 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
     orphan = [ip for ip in ips if ip.switch_port and not mac_ports.get(str(ip.mac))]
     history: dict[str, set[str]] = defaultdict(set)
     if orphan:
-        for mac, dev_id, port in (await session.execute(
-            select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name).where(
+        for mac, ln_id, dev_id, port in (await session.execute(
+            select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.switch_device_id, FDBEntry.port_name).where(
                 in_values(FDBEntry.mac, [str(ip.mac) for ip in orphan]), FDBEntry.port_name.is_not(None))
         )).all():
-            history[str(mac)].add(f"{sw_name.get(dev_id, '?')} / {port}")
+            history[str(mac)].add(f"{sw_name.get(_switch(ln_id, dev_id), '?')} / {port}")
 
     updated = 0
     for ip in ips:
@@ -897,13 +917,13 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
                 ip.switch_port_confident = None
                 updated += 1
                 await log_change(session, ip=ip, event_type="edited", field="switch_port",
-                                 old=old, new=None, source="librenms")
+                                 old=old, new=None, source=source)
             continue
         # 取該 MAC 所有 (switch,port) 中 MAC 數最少的 → 最像 access port
-        dev_id, port = min(cands, key=lambda k: len(port_macs[k]))
-        loc = f"{sw_name.get(dev_id, '?')} / {port}"
+        sw, port = min(cands, key=lambda k: len(port_macs[k]))
+        loc = f"{sw_name.get(sw, '?')} / {port}"
         # 信心：該 port 僅一個 MAC = 直連存取埠（對應 LibreNMS 的星號）；多 MAC → uplink/trunk
-        confident = len(port_macs[(dev_id, port)]) <= 1
+        confident = len(port_macs[(sw, port)]) <= 1
         if ip.switch_port != loc or ip.switch_port_confident != confident:
             old = ip.switch_port
             ip.switch_port = loc
@@ -911,7 +931,7 @@ async def derive_switch_ports(session: AsyncSession, instance: LibreNMSInstance)
             updated += 1
             if old != loc:
                 await log_change(session, ip=ip, event_type="edited", field="switch_port",
-                                 old=old, new=loc, source="librenms")
+                                 old=old, new=loc, source=source)
     return updated
 
 

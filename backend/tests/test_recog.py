@@ -475,6 +475,24 @@ async def test_update_now_is_audited(client, auth_headers, db_session, small_bun
     assert any((a.diff or {}).get("target") == "recog_db_update" for a in rows)
 
 
+async def test_recog_page_status_lists_each_database(client, auth_headers, db_session, small_bundles_ok) -> None:
+    """Recog 獨立頁（比照 MAC 製造商資料庫頁）：狀態＋每個指紋檔的筆數，詳細資訊不再放在版本頁。"""
+    empty = await client.get("/api/v1/system/recog/status", headers=auth_headers)
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["installed"] is False
+    assert empty.json()["database_list"] == []
+
+    await recog.install_bundle(db_session, _bundle(), version="3.2.0", source="test")
+    await db_session.commit()
+    body = (await client.get("/api/v1/system/recog/status", headers=auth_headers)).json()
+    assert body["release"] == "3.2.0"
+    dbs = body["database_list"]
+    assert dbs
+    assert all({"key", "protocol", "fingerprints"} <= set(d) for d in dbs)
+    assert sum(d["fingerprints"] for d in dbs) == body["fingerprints"]
+    assert (await client.get("/api/v1/system/recog/status")).status_code in (401, 403)
+
+
 async def test_update_now_is_admin_only(client, db_session) -> None:
     r = await client.post("/api/v1/system/recog/update")
     assert r.status_code in (401, 403)

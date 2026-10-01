@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, h } from "vue";
+import { osFamilyLabel, useScanProbes } from "@/api/scanProbes";
+import { computed, onMounted, ref, h, watch } from "vue";
+import LiveStatusDot from "@/components/LiveStatusDot.vue";
+import { classifyAddressLiveness, type LivenessKind } from "@/composables/useLivenessSettings";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
-import { useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
   NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty, NInput,
@@ -11,7 +14,7 @@ import {
 } from "naive-ui";
 import {
   getAnomalySchedule, ignoreAnomalyForIp, listIgnorableCategories,
-  runAnomalyScan, updateAnomalySchedule,
+  runAnomalyScan, updateAnomalySchedule, getLastAnomalyReport,
   type AnomalyReport, type AnomalySchedule,
 } from "@/api/phase3";
 import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, IdentifyIcon, InfoIcon, PendingIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
@@ -21,17 +24,22 @@ import { downloadTextFile } from "@/utils/investigateReport";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { autoSort } from "@/composables/useTableSort";
+import { withExportValue } from "@/utils/tableExport";
 import type { Subnet } from "@/types";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 
-const { t, te } = useI18n();
+const { t, te, locale } = useI18n();
+// OS 家族的顯示名稱（類型或 OS 突變那一欄；與 IP 清單同一份對照）
+const { catalog: probeCatalog } = useScanProbes();
 const msg = useMessage();
 const pg = useTablePagination();
 const loading = ref(false);
 const report = ref<AnomalyReport | null>(null);
 const lastRunAt = ref<string | null>(null);
+/** 上次結果是排程跑的還是手動按的（進頁面載入上次結果時顯示） */
+const lastTrigger = ref<"manual" | "schedule" | null>(null);
 
 // 偵測範圍（寫的是 subnets.anomaly_enabled，跟子網路編輯頁同一個欄位）
 const scopeShow = ref(false);
@@ -152,6 +160,7 @@ const CATEGORY_KEYS = [
   "arp_only_liveness",
   "stale_device_links",
   "mac_flapping",
+  "identity_changes",
 ];
 const route = useRoute();
 const router = useRouter();
@@ -165,7 +174,8 @@ type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "fw_rule_rot"
   | "arp_only_liveness"
   | "stale_device_links"
-  | "mac_flapping";
+  | "mac_flapping"
+  | "identity_changes";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
@@ -180,6 +190,7 @@ const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "arp_only_liveness", label: () => t("anomaly.arp_only") },
   { key: "stale_device_links", label: () => t("anomaly.stale_link") },
   { key: "mac_flapping", label: () => t("anomaly.mac_flapping") },
+  { key: "identity_changes", label: () => t("anomaly.identity_changes") },
 ];
 
 const rogueTitle = computed(() =>
@@ -208,6 +219,7 @@ const anyFindings = computed(() => {
     + (r.arp_only_liveness?.length ?? 0)
     + (r.stale_device_links?.length ?? 0)
     + (r.mac_flapping?.length ?? 0)
+    + (r.identity_changes?.length ?? 0)
     + (r.mac_drift_reference?.length ?? 0)) > 0;
 });
 // MAC 漂移的參考項目（虛擬機遷移、隨機 MAC 漫遊、上行路徑變更）：同一個頁籤下方收合顯示，不通知
@@ -229,9 +241,16 @@ function catRows(key: CatKey): Record<string, any>[] {
 // 篩選（IP／主機名稱／MAC／說明…）：所有分類共用同一個關鍵字，切頁籤不用重打，
 // 頁籤上的數字也跟著變成「符合／全部」—— 一眼看得出某個 IP 出現在哪幾類異常裡（使用者要求）。
 // 比對「畫面上看到的字」（pretty 之後，例如翻譯過的類型），巢狀的清單再多比一次原始值。
-const filterQ = ref("");
+const filterQ = ref(typeof route.query.q === "string" ? route.query.q : "");
+// 頁籤與篩選寫進網址：從「探測」按返回時回到同一個頁籤、同一個篩選（以前會跳回第一個頁籤）
+watch([activeTab, filterQ], ([tab, q]) => {
+  const query: Record<string, string> = { ...route.query as Record<string, string>, tab };
+  if (q.trim()) query.q = q.trim(); else delete query.q;
+  if (query.tab !== route.query.tab || query.q !== route.query.q) void router.replace({ query });
+});
 function rowMatches(key: CatKey, row: Record<string, any>, q: string): boolean {
   for (const k of CAT_KEYS[key]) {
+    if (k === "live") continue;
     const v = row[k];
     if (v == null || v === "") continue;
     if (pretty(k, v).toLowerCase().includes(q)) return true;
@@ -268,6 +287,17 @@ function localizeRow(row: Record<string, any>): Record<string, any> {
 // 欄位標題。技術縮寫（MAC／IP）三種語言都一樣，所以不進語言檔；其餘查
 // `anomaly.col.*`，查不到就退回欄位原名（後端新增欄位時不會變成空白）。
 const RAW_COL: Record<string, string> = { mac: "MAC", macs: "MAC", ip: "IP" };
+// 上線狀態：與 IP 清單同一顆燈、同一套規則。排序：上線 → 近期出現 → 離線 → 未知 → 沒有依據
+const LIVE_RANK: Record<LivenessKind, number> = { online: 0, stale: 1, offline: 2, unknown: 3 };
+function liveRank(live: any): number {
+  return live ? LIVE_RANK[classifyAddressLiveness(live)] : 4;
+}
+function liveText(live: any): string {
+  return live ? t(`visualisation.${classifyAddressLiveness(live)}`) : "—";
+}
+function liveDot(live: any) {
+  return live ? h(LiveStatusDot, { address: live }) : h("span", { style: "opacity:.5" }, "—");
+}
 function colLabel(k: string): string {
   if (RAW_COL[k]) return RAW_COL[k];
   const key = `anomaly.col.${k}`;
@@ -276,31 +306,35 @@ function colLabel(k: string): string {
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
   // 依據：ARP（1 小時內多個 MAC）或 MAC 來回切換（24 小時內，issue #41）
-  ip_conflicts: ["ip", "evidence", "changes", "macs"],
+  ip_conflicts: ["ip", "live", "evidence", "changes", "macs"],
   // 同一台交換器上換了埠：從哪個埠換到哪個埠、什麼時候（出現位置是明細，預設收起）
   mac_drifts: ["mac", "ips", "device_name", "from_port", "to_port", "moved_at", "locations"],
-  ghost_ips: ["ip", "hostname", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
-  unauthorized_ips: ["ip"],
-  rogue_dhcp: ["server_ip", "subnet_cidr", "mac", "vendor", "offered_ip", "router",
+  ghost_ips: ["ip", "live", "hostname", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
+  // ARP 看到的 MAC（廠商、隨機 MAC、誰看到的）：只有一個位址看不出是誰
+  unauthorized_ips: ["ip", "live", "last_seen_at", "macs"],
+  rogue_dhcp: ["server_ip", "live", "subnet_cidr", "mac", "vendor", "offered_ip", "router",
                "first_seen_at", "last_seen_at"],
-  external_exposure: ["kind", "ip", "hostname", "ports", "subnet", "monitored",
+  external_exposure: ["kind", "ip", "live", "hostname", "ports", "subnet", "monitored",
                       "effective_status", "names", "owner", "rules", "ip_address_id"],
-  dangling_dns: ["name", "value", "type", "zone", "server"],
-  duplicate_ip_records: ["ip", "records"],
+  dangling_dns: ["name", "value", "live", "type", "zone", "server"],
+  duplicate_ip_records: ["ip", "live", "records"],
   suspicious_changes: ["kind", "actor", "actor_ip", "object_type", "action",
                        "count", "first_at", "last_at"],
   // 防火牆：同名規則（Anti-Lockout 這類）會來自好幾台，要看得出是哪一台
   fw_rule_rot: ["kind", "firewall", "name", "source", "interface", "port", "descr", "detail"],
-  arp_only_liveness: ["ip", "hostname", "mac", "last_seen_arp", "ip_address_id"],
+  arp_only_liveness: ["ip", "live", "hostname", "mac", "last_seen_arp", "ip_address_id"],
   // 頻繁換 MAC：先看是哪個 IP、換過幾個、時間跨度，再看 MAC 清單。
   // randomized 要露出來 —— 那一欄是「這些看起來是隱私隨機化位址」，
   // 使用者據此判斷要不要把這個 IP 加進忽略清單。
-  mac_flapping: ["ip", "hostname", "mac_count", "randomized", "days", "macs", "ip_id"],
-  stale_device_links: ["ip", "hostname", "mac", "device", "linked_at", "mac_changed_at", "ip_address_id"],
+  mac_flapping: ["ip", "live", "hostname", "mac_count", "randomized", "days", "macs", "ip_id"],
+  stale_device_links: ["ip", "live", "hostname", "mac", "device", "linked_at", "mac_changed_at", "ip_address_id"],
+  // 類型或 OS 突變：哪個 IP、從什麼變成什麼，再看現在判讀出的型號與 OS
+  identity_changes: ["ip", "live", "hostname", "shifts", "device_model", "os_guess", "last_at", "ip_id"],
 };
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   mac_drifts: ["locations"],
   mac_flapping: ["ip_id", "days"],
+  identity_changes: ["ip_id"],
   ghost_ips: ["ip_address_id"],
   // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
   // 預設不顯示，需要的人可在「欄位」自行勾選
@@ -392,7 +426,11 @@ function renderMac(o: Record<string, any>) {
       o.sources.map((x: string) => seenBy(String(x))).join("、"))
     : null;
   return h("div", { style: "display:flex;align-items:baseline;gap:8px;font-size:12.5px" }, [
-    h("span", { style: "font-family:var(--jt-mono,monospace)" }, o.mac ?? "—"),
+    // 點 MAC 看它的完整歷程（用過哪些 IP、出現在哪個交換器埠）
+    o.mac ? h(RouterLink, { to: { name: "mac-history", params: { mac: o.mac } },
+                           style: "font-family:var(--jt-mono,monospace);color:var(--primary-color,#18a058);text-decoration:none" },
+                     () => o.mac)
+      : h("span", null, "—"),
     tag,
     seen,
     h("span", { style: "opacity:.55;margin-left:auto;white-space:nowrap" },
@@ -407,6 +445,7 @@ function renderIp(row: any, ipText: string) {
     : links.ipByText(ipText);
 }
 function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
+  if (k === "live") return liveDot(v);
   if (v == null || v === "") return "—";
   if ((k === "ip" || k === "server_ip" || k === "offered_ip") && typeof v === "string") {
     return renderIp(row, v);
@@ -427,10 +466,17 @@ function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
           : null,
       ])));
   }
+  // 類型或 OS 突變：「設備類型：印表機 → Windows 主機」一項一行
+  if (cat === "identity_changes" && k === "shifts" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
+      v.map((c: any) => h("div", { style: "white-space:nowrap" }, identityChangeText(c))));
+  }
   if (k === "ips" && Array.isArray(v)) {
     if (!v.length) return h("span", { style: "opacity:.5" }, "—");
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
-      v.map((it: any) => h("div", null, [
+      v.map((it: any) => h("div", { style: "display:flex;align-items:center;gap:6px" }, [
+        // 一列有好幾個 IP（MAC 變動）：每個 IP 前面一顆上線燈
+        row?.live_ips ? liveDot(row.live_ips[it.ip]) : null,
         it.ip_address_id ? links.ipById(it.ip_address_id, it.ip) : links.ipByText(it.ip),
         it.hostname ? h("span", { style: "opacity:.7" }, `（${it.hostname}）`) : null,
       ])));
@@ -446,6 +492,19 @@ function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
   }
   if (typeof v === "object") return objLine(v);
   return pretty(k, v);
+}
+function identityValue(field: string, v: any): string {
+  if (v == null || v === "") return "—";
+  if (field === "device_kind") {
+    const key = `identify.type.${v}`;
+    return te(key) ? t(key) : String(v);
+  }
+  return osFamilyLabel(probeCatalog.value.os_families, String(v), locale.value) || String(v);
+}
+function identityChangeText(c: any): string {
+  const label = c.field === "device_kind" ? t("anomaly.identity_kind") : t("anomaly.identity_os");
+  const times = c.times > 1 ? t("anomaly.identity_times", { n: c.times }) : "";
+  return `${label}：${identityValue(c.field, c.old)} → ${identityValue(c.field, c.new)}${times}`;
 }
 // ── 欄寬依內容 ────────────────────────────────────────────────────────────
 // 使用者回饋：值都很短的欄（狀況、來源、介面、埠…）不必跟長欄平分寬度，省下來的留給最後一欄
@@ -487,7 +546,7 @@ function autoWidth(key: CatKey, k: string): number {
 const IDENTIFY_FIELD: Partial<Record<CatKey, string>> = {
   ip_conflicts: "ip", ghost_ips: "ip", unauthorized_ips: "ip", rogue_dhcp: "server_ip",
   external_exposure: "ip", duplicate_ip_records: "ip", arp_only_liveness: "ip",
-  mac_flapping: "ip", stale_device_links: "ip",
+  mac_flapping: "ip", stale_device_links: "ip", identity_changes: "ip",
 };
 const auth = useAuthStore();
 function openIdentify(r: any, key: CatKey) {
@@ -521,6 +580,14 @@ function catCols(key: CatKey): DataTableColumns<any> {
       : k === flexKey && k === lastKey
         ? { minWidth: Math.max(160, autoWidth(key, k)) }
         : { width: autoWidth(key, k) };
+    if (k === "live") {
+      return withExportValue({
+        title: colLabel(k), key: k, width: Math.max(64, Math.round(textWidth(colLabel(k)) + SORT_ICON + COL_PAD)),
+        titleAlign: "center", align: "center",
+        sorter: (a: any, b: any) => liveRank(a.live) - liveRank(b.live),
+        render: (r: any) => liveDot(r.live),
+      }, (r: any) => liveText(r.live));
+    }
     // 最後一欄（吃剩下寬度的那欄，通常是說明）放不下就換行，不截斷 —— 要看得到整句
     const wrapLast = k === flexKey && k === lastKey;
     return {
@@ -622,18 +689,37 @@ function downloadTriage(fmt: "md" | "txt") {
   downloadTextFile(text, `ip-triage-${ip}.${fmt}`, fmt);
 }
 
+// 進頁面載入上次結果時不要動到「執行偵測」的載入狀態：按鈕載入中會吃掉點擊，使用者一進來就按
+// 會沒反應（e2e 抓到）。手動按過就以手動結果為準，晚到的「上次結果」不蓋掉它
+let ranThisVisit = false;
+const lastLoading = ref(false);
 async function run() {
+  ranThisVisit = true;
   loading.value = true;
   try {
     report.value = await runAnomalyScan();
     lastRunAt.value = fmtDateTime(new Date());
+    lastTrigger.value = "manual";
   } catch (e: any) {
     msg.error(e?.response?.data?.detail ?? t("errors.server"));
   } finally {
     loading.value = false;
   }
 }
-onMounted(() => { void loadIgnorable(); });
+/** 進頁面先拿上次的結果（手動或排程）—— 以前每次進來都是空的，點去探測再返回也得重跑 */
+async function loadLast() {
+  lastLoading.value = true;
+  try {
+    const last = await getLastAnomalyReport();
+    if (last.report && !report.value && !ranThisVisit) {
+      report.value = last.report;
+      lastRunAt.value = last.at ? fmtDateTime(last.at) : null;
+      lastTrigger.value = last.trigger;
+    }
+  } catch { /* 拿不到就照舊：按「執行偵測」 */ }
+  finally { lastLoading.value = false; }
+}
+onMounted(() => { void loadIgnorable(); void loadLast(); });
 </script>
 
 <template>
@@ -650,7 +736,7 @@ onMounted(() => { void loadIgnorable(); });
         {{ t("anomaly.run_scan") }}
       </n-button>
       <span v-if="lastRunAt" style="opacity: 0.7; font-size: 13px">
-        {{ t("anomaly.last_run") }}: {{ lastRunAt }}
+        {{ t("anomaly.last_run") }}: {{ lastRunAt }}<template v-if="lastTrigger === 'schedule'">（{{ t("anomaly.by_schedule") }}）</template>
       </span>
       <n-button size="small" quaternary @click="openScope">
         <template #icon><n-icon><SettingsIcon /></n-icon></template>

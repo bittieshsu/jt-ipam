@@ -67,6 +67,7 @@ function i18nNamespaces(): Set<string> {
 const NOT_I18N = [
   /^(anomaly|firewall|ip|subnet)\.[a-z_.]+$/,   // 事件規則的事件名稱
   /\.(created_at|updated_at|deleted_at)$/,      // 日誌／SQL 裡的欄位名
+  /^app\.cli\./,                                // CLI 指令裡的 Python 模組路徑（python -m app.cli.recog）
 ];
 
 function isNoise(text: string): boolean {

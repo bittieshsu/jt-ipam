@@ -130,6 +130,9 @@ class FDBEntryRead(StrictModel):
     vlan_id_num: int | None
     port_name: str | None
     device_id: uuid.UUID | None
+    #: librenms／mikrotik；mikrotik 的列 device_id 是空的，看 switch_device_id（jt-ipam 裝置）
+    source: str = "librenms"
+    switch_device_id: uuid.UUID | None = None
     first_seen_at: Any
     last_seen_at: Any
 
@@ -514,6 +517,8 @@ async def trace_ip(
         "switch_port": (
             {
                 "device_id": str(fdb.device_id) if fdb.device_id else None,
+                "source": fdb.source,
+                "switch_device_id": str(fdb.switch_device_id) if fdb.switch_device_id else None,
                 "port_name": fdb.port_name,
                 "vlan": fdb.vlan_id_num,
                 "last_seen_at": fdb.last_seen_at.isoformat(),

@@ -37,6 +37,16 @@ view_router = APIRouter(prefix="/mikrotik", tags=["mikrotik"],
                         dependencies=[Depends(require_global_read)])
 
 
+async def _check_device(session: AsyncSession, device_id: uuid.UUID | None) -> None:
+    """指定的對應裝置要存在：不檢查的話外鍵違反會變成 500，畫面上看不出原因。"""
+    if device_id is None:
+        return
+    from app.models.device import Device
+    if await session.get(Device, device_id) is None:
+        from app.core.ui_error import ui_detail
+        raise HTTPException(422, detail=ui_detail("ros_device_not_found", "指定的裝置不存在"))
+
+
 async def _get_or_404(session: AsyncSession, router_id: uuid.UUID) -> MikroTikRouter:
     obj = await session.get(MikroTikRouter, router_id)
     if obj is None:
@@ -68,6 +78,7 @@ async def create_router(
 ) -> MikroTikRead:
     data = payload.model_dump(exclude={"api_password"})
     data["api_url"] = str(data["api_url"]).rstrip("/")
+    await _check_device(session, data.get("device_id"))
     obj = MikroTikRouter(**data, api_password_enc=b"placeholder",
                          api_password_nonce=b"placeholder")
     session.add(obj)
@@ -99,6 +110,7 @@ async def update_router(
     obj = await _get_or_404(session, router_id)
     data = payload.model_dump(exclude_unset=True)
     password = data.pop("api_password", None)
+    await _check_device(session, data.get("device_id"))
     for k, v in data.items():
         if k == "api_url" and v is not None:
             v = str(v).rstrip("/")
@@ -223,3 +235,24 @@ async def list_address_lists(
         MikroTikAddressList.list_name, MikroTikAddressList.address))).scalars().all()
     return {"items": [MikroTikAddressListRead.model_validate(r).model_dump(mode="json")
                       for r in rows]}
+
+
+@view_router.get("/{router_id}/neighbors")
+async def list_neighbors(
+    router_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """`/ip/neighbor` 鏡像（第二階段）。`device_id`／`device_name`：依鄰居宣告的位址或 MAC 對到的裝置
+    （對到多台就不填 —— 重疊網段下同一個位址可能有好幾筆）。"""
+    from app.models.mikrotik import MikroTikNeighbor
+    from app.services.mikrotik import match_neighbor_devices
+    rows = (await session.execute(select(MikroTikNeighbor).where(MikroTikNeighbor.router_id == router_id)
+                                  .order_by(MikroTikNeighbor.interface))).scalars().all()
+    matched = await match_neighbor_devices(session, rows)
+    return {"items": [{
+        "interface": r.interface, "address": r.address, "mac": r.mac, "identity": r.identity,
+        "platform": r.platform, "board": r.board, "version": r.version,
+        "remote_interface": r.remote_interface, "discovered_by": r.discovered_by,
+        "last_seen_at": r.last_seen_at.isoformat() if r.last_seen_at else None,
+        **(matched.get(r.id) or {"device_id": None, "device_name": None}),
+    } for r in rows]}

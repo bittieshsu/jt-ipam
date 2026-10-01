@@ -17,6 +17,8 @@ export interface PaloAltoFirewall {
   sync_policies: boolean;
   sync_nat: boolean;
   sync_addresses: boolean;
+  /** 站對站 VPN（IPsec，show vpn flow）：預設開，拓樸圖據此畫出與對端之間的 VPN */
+  sync_vpn?: boolean;
   sync_interval_seconds: number;
   description: string | null;
   scope_subnet_ids: string[] | null;
@@ -39,6 +41,7 @@ export interface PaloAltoWrite {
   sync_policies?: boolean;
   sync_nat?: boolean;
   sync_addresses?: boolean;
+  sync_vpn?: boolean;
   sync_interval_seconds?: number;
   description?: string;
   scope_subnet_ids?: string[];

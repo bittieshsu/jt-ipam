@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /**
- * MikroTik RouterOS 檢視（唯讀）：防火牆規則 / address-list。
+ * MikroTik RouterOS 檢視（唯讀）：防火牆規則 / address-list / 鄰居（LLDP/CDP/MNDP）。
  * 資料由 MikroTik 整合同步進來；本頁不呼叫路由器、也不修改任何設定。
  *
  * 規則依 `position` 排序，**而且不提供改排序** —— RouterOS 由上而下比對、
  * 第一條命中就決定結果，用別的順序看等於看不出行為。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NSelect, NIcon, NEmpty, NTabs, NTabPane, NTag, NInput,
@@ -14,9 +14,11 @@ import {
 } from "naive-ui";
 import { FirewallIcon } from "@/icons";
 import {
-  listMikroTik, listMikroTikRules, listMikroTikAddressLists,
-  type MikroTikRouter, type MikroTikRule, type MikroTikAddressListEntry,
+  listMikroTik, listMikroTikRules, listMikroTikAddressLists, listMikroTikNeighbors,
+  type MikroTikRouter, type MikroTikRule, type MikroTikAddressListEntry, type MikroTikNeighbor,
 } from "@/api/mikrotik";
+import { RouterLink } from "vue-router";
+import { fmtDateTime } from "@/utils/datetime";
 import { autoSort } from "@/composables/useTableSort";
 import { apiErrMsg } from "@/api/client";
 import { useRoute } from "vue-router";
@@ -28,13 +30,16 @@ const msg = useMessage();
 
 const routers = ref<MikroTikRouter[]>([]);
 const route = useRoute();
-// IP 詳細頁點進來：?tab=rules|lists&fw=<路由器 id>&focus=<規則 id／清單名稱>
+// IP 詳細頁點進來：?tab=rules|lists|neighbors&fw=<路由器 id>&focus=<規則 id／清單名稱>
 const routerId = ref<string | null>(typeof route.query.fw === "string" ? route.query.fw : null);
-const tab = ref<"rules" | "lists">(route.query.tab === "lists" ? "lists" : "rules");
+type Tab = "rules" | "lists" | "neighbors";
+const tab = ref<Tab>(["lists", "neighbors"].includes(String(route.query.tab))
+  ? route.query.tab as Tab : "rules");
 const table = ref<string | null>(null);
 const listFilter = ref("");
 const rules = ref<MikroTikRule[]>([]);
 const entries = ref<MikroTikAddressListEntry[]>([]);
+const neighbors = ref<MikroTikNeighbor[]>([]);
 const loading = ref(false);
 
 const routerOptions = computed(() => routers.value.map((r) => ({ label: r.name, value: r.id })));
@@ -58,9 +63,10 @@ async function loadData() {
   if (!routerId.value) return;
   loading.value = true;
   try {
-    [rules.value, entries.value] = await Promise.all([
+    [rules.value, entries.value, neighbors.value] = await Promise.all([
       listMikroTikRules(routerId.value, table.value ?? undefined),
       listMikroTikAddressLists(routerId.value),
+      listMikroTikNeighbors(routerId.value),
     ]);
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
@@ -114,6 +120,25 @@ const entryCols = computed<DataTableColumns<MikroTikAddressListEntry>>(() => aut
   { title: t("sections.description"), key: "comment", minWidth: 140,
     ellipsis: { tooltip: true }, render: (r) => r.comment ?? "—" },
 ]));
+
+const neighborCols = computed<DataTableColumns<MikroTikNeighbor>>(() => autoSort([
+  { title: t("mikrotik.col_local_port"), key: "interface", width: 130 },
+  // 對方宣告的名稱；對到 jt-ipam 裝置時連過去（依宣告的位址或 MAC，對到多台不猜）
+  { title: t("mikrotik.col_neighbor"), key: "identity", minWidth: 170, ellipsis: { tooltip: true },
+    render: (r) => r.device_id
+      ? h(RouterLink, { to: `/devices/${r.device_id}` }, () => r.device_name ?? r.identity ?? "—")
+      : (r.identity ?? "—") },
+  { title: t("mikrotik.col_remote_port"), key: "remote_interface", width: 140,
+    render: (r) => r.remote_interface ?? "—" },
+  { title: "IP", key: "address", width: 150, render: (r) => r.address ?? "—" },
+  { title: "MAC", key: "mac", width: 160, render: (r) => r.mac ?? "—" },
+  { title: t("mikrotik.col_platform"), key: "platform", minWidth: 180, ellipsis: { tooltip: true },
+    render: (r) => [r.platform, r.board, r.version].filter(Boolean).join(" · ") || "—" },
+  { title: t("mikrotik.col_discovered_by"), key: "discovered_by", width: 130,
+    render: (r) => r.discovered_by ?? "—" },
+  { title: t("cols.last_seen"), key: "last_seen_at", width: 165,
+    render: (r) => fmtDateTime(r.last_seen_at) },
+]));
 </script>
 
 <template>
@@ -148,6 +173,15 @@ const entryCols = computed<DataTableColumns<MikroTikAddressListEntry>>(() => aut
                       :bordered="false" :scroll-x="900"
                       :pagination="{ pageSize: 50, showSizePicker: false }" />
       </n-tab-pane>
+      <n-tab-pane name="neighbors" :tab="t('mikrotik.neighbors')">
+        <div class="nb-hint">{{ t("mikrotik.neighbors_hint") }}</div>
+        <n-data-table :columns="neighborCols" :data="neighbors" :loading="loading"
+                      :bordered="false" :scroll-x="1250" />
+      </n-tab-pane>
     </n-tabs>
   </n-card>
 </template>
+
+<style scoped>
+.nb-hint { font-size: 12px; opacity: .7; margin-bottom: 8px; }
+</style>

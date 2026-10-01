@@ -358,7 +358,11 @@ onMounted(() => {
     // 量的是**未縮放**的自然尺寸：transform 不影響 offsetWidth / offsetHeight
     if (!wrapEl.value) return;
     measuredPx.value = wrapEl.value.offsetHeight;
-    measuredW.value = wrapEl.value.offsetWidth;
+    // 寬度要**無條件進位**：offsetWidth 會四捨五入，KALLAX 實際 428.28px 卻量成 428，外層就窄了
+    // 0.28px → 「一律顯示捲軸」的 Mac 上每個 KALLAX 底下都多一條橫向捲軸（使用者回報）
+    const scale = effZoom.value || 1;
+    measuredW.value = Math.max(wrapEl.value.offsetWidth,
+                               Math.ceil(wrapEl.value.getBoundingClientRect().width / scale - 0.01));
     if (props.diagram) emit("measured", props.diagram.rack_id, measuredPx.value);
     autoFitMobile();
   });
@@ -1226,8 +1230,10 @@ const cells = computed<Cell[]>(() => {
   white-space: nowrap;
   max-width: 90px;
 }
-/* bare：去掉卡片外框/底色/標題與內距，純嵌入 */
-.rd-bare { background: transparent; box-shadow: none; border: none; }
+/* bare：去掉卡片外框/底色/標題與內距，純嵌入。
+   選擇器要比 App.vue 的 `html[data-theme="dark"] .n-card`（全站卡片外框）更明確，否則深色主題下
+   外框還在（儀表板機櫃卡片看得出來，2026-10-01） */
+.n-card.rd-bare { background: transparent; box-shadow: none; border: none; }
 .rd-bare :deep(.n-card__content) { padding: 0; }
 .rd-bare :deep(.n-card-header) { display: none; }
 /* 聚焦模式：設了 highlightId 時，其他裝置淡化，只突顯本裝置 */

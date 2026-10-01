@@ -170,6 +170,9 @@ class IPAddressRead(IPAddressBase):
     os_guess: str | None = None
     os_family: str | None = None
     os_source: str | None = None   # 有效 OS 來自哪個來源（scanner/librenms/wazuh）
+    device_kind: str | None = None             # 掃描代理判讀出的設備類型（services/device_identity）
+    device_model: str | None = None            # 廠牌型號
+    device_identified_at: datetime | None = None
     probe_last_run: dict[str, Any] | None = None
     # 此 IP 實際會被執行的探測（subnet.scan_method − excluded − ∩ agent 能力），後端算好
     effective_probes: list[str] | None = None

@@ -133,6 +133,7 @@ CATEGORY: dict[str, str] = {
     "paloalto_policies": "synced",
     "paloalto_address_objects": "synced",
     "mikrotik_rules": "synced",
+    "mikrotik_neighbors": "synced",
     "mikrotik_address_lists": "synced",
     "wazuh_agents": "synced",
     "ip_hostname_observations": "synced",

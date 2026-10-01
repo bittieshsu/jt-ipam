@@ -5,7 +5,7 @@
 For **Proxmox LXC, bare metal, and VMs** on Debian 12 / 13 or Ubuntu 22.04 / 24.04 / 26.04, x86_64 (see
 [Supported distributions](#supported-distributions)). The **primary, recommended** install
 uses **systemd + apt** directly (no Docker). A Docker Compose path exists but is **optional / secondary, not
-the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferred-mode).
+the preferred mode**; see [§2.7](#27-optional-docker-compose-not-the-preferred-mode).
 
 > Security is a day-one requirement: HTTPS is enforced in all environments; the cert can be
 > served via an nginx reverse proxy or a self-signed cert served directly by uvicorn. If SSL
@@ -17,16 +17,16 @@ the preferred mode** — see [§2.7](#27-optional-docker-compose-not-the-preferr
 
 | Item | Minimum | Recommended | Notes |
 |---|---|---|---|
-| OS | Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86_64) | **Ubuntu 24.04 LTS** | only these — see below; 24.04 ships Python 3.12 + PG 16 + Node 18, saving effort |
+| OS | Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86_64) | **Ubuntu 24.04 LTS** | only these (see below); 24.04 ships Python 3.12 + PG 16 + Node 18, saving effort |
 | CPU | 2 vCPU | 4 vCPU | argon2id + pgvector embeddings are CPU-heavy |
 | RAM | 4 GB | 8 GB | add another 8 GB if running LLM Server |
 | Disk | 20 GB | 50 GB | audit log grows |
 | Python | 3.11 | 3.12 | 24.04 defaults to 3.12 |
-| PostgreSQL | 16 + pgvector | — | 22.04 needs the PGDG repo (the script adds it automatically) |
-| Redis | 7 | — | 24.04 defaults to 7.0.15 |
+| PostgreSQL | 16 + pgvector | None | 22.04 needs the PGDG repo (the script adds it automatically) |
+| Redis | 7 | None | 24.04 defaults to 7.0.15 |
 | Node | 20 LTS | 22 LTS | 24.04 defaults to 18.19; vite 6 runs but warns |
-| guacd | jt-ipam build for this OS | — | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
-| Recog | latest release | — | **Optional**: fingerprint database the IP probe uses to recognise devices and OS versions; downloaded by `jt-ipam.sh`, checked weekly (see [Recog](#recog-fingerprint-database-optional)) |
+| guacd | jt-ipam build for this OS | None | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
+| Recog | latest release | None | **Optional**: fingerprint database the IP probe uses to recognise devices and OS versions; downloaded by `jt-ipam.sh`, checked weekly (see [Recog](#recog-fingerprint-database-optional)) |
 
 ### Supported distributions
 
@@ -49,7 +49,7 @@ The installer picks the build from `/etc/os-release` (`ID` + `VERSION_ID`), so:
 - Advanced: a build for another Debian / Ubuntu version can be made with `scripts/guacd/build.sh` (Docker)
   and installed with `jt-ipam.sh install --guacd-tarball <file>`; it is not tested by us.
 
-**Virtualization note**: on Proxmox VM / LXC, load avg may spike for 1-2 minutes right after boot/reboot (other VMs on the hypervisor contending for CPU — see `%steal` in `mpstat`); this isn't the VM itself being busy, you can just run the install.
+**Virtualization note**: on Proxmox VM / LXC, load avg may spike for 1-2 minutes right after boot/reboot (other VMs on the hypervisor contending for CPU; see `%steal` in `mpstat`); this isn't the VM itself being busy, you can just run the install.
 
 ---
 
@@ -84,11 +84,11 @@ cd /opt/jt-ipam
 
 # Pick one of three TLS modes:
 #
-#   nginx         — nginx terminates HTTPS, backend on loopback; auto self-signed bootstrap if cert missing
-#   self-signed   — uvicorn direct with its own self-signed cert (no nginx; fastest to go live)
-#   direct        — uvicorn direct, you provide the cert (falls back to self-signed if missing)
+#   nginx         : nginx terminates HTTPS, backend on loopback; auto self-signed bootstrap if cert missing
+#   self-signed   : uvicorn direct with its own self-signed cert (no nginx; fastest to go live)
+#   direct        : uvicorn direct, you provide the cert (falls back to self-signed if missing)
 
-# (A) nginx + temporary self-signed (cp a real cert in later) — recommended for production
+# (A) nginx + temporary self-signed (cp a real cert in later), recommended for production
 sudo ./scripts/jt-ipam.sh install --tls-mode nginx --public-fqdn ipam.example.com
 
 # (B) uvicorn direct self-signed (fastest for internal/dev)
@@ -160,7 +160,7 @@ openssl s_client -connect ipam.example.com:443 -servername ipam.example.com </de
     | openssl x509 -noout -issuer -subject -dates
 ```
 
-To replace again later, just repeat the three steps above — no need to re-run install.
+To replace again later, just repeat the three steps above; there is no need to re-run install.
 
 Let's Encrypt route:
 
@@ -191,7 +191,7 @@ openssl s_client -connect ipam.example.com:8443 -servername ipam.example.com </d
 
 #### Which port does it listen on? (**8443 by default, not 443**)
 
-In `self-signed` / `direct` mode uvicorn terminates TLS itself and **listens on 8443 by default** —
+In `self-signed` / `direct` mode uvicorn terminates TLS itself and **listens on 8443 by default**:
 the URL is `https://<your-fqdn>:8443/`. "Port 443 never came up" after an install is almost always
 this, not a failed install. The actual value lives in `BACKEND_BIND_PORT` in `/etc/jt-ipam/backend.env`.
 
@@ -240,14 +240,14 @@ sudo sed 's/ipam\.example\.com/ipam.example.com/g' /opt/jt-ipam/deploy/nginx/jt-
 sudo ln -sf /etc/nginx/sites-available/jt-ipam /etc/nginx/sites-enabled/jt-ipam
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# 3) certificates where nginx can read them — the template reads
+# 3) certificates where nginx can read them: the template reads
 #    /etc/jt-ipam/tls/server.crt and server.key (the existing self-signed pair works)
 
 sudo nginx -t && sudo systemctl restart jt-ipam-backend && sudo systemctl reload nginx
 ```
 
 > The bundled nginx template already contains the WebSocket upgrade block the consoles need
-> (SSH / SFTP / RDP / VNC / noVNC / BMC). **If you write your own config, copy that block** —
+> (SSH / SFTP / RDP / VNC / noVNC / BMC). **If you write your own config, copy that block**:
 > without the upgrade headers the consoles cannot connect and the browser shows only a bare 404.
 
 ### 2.7 Production standard: hardened nginx reverse proxy
@@ -260,12 +260,12 @@ app server is never exposed directly:
 - **TLS**: TLS 1.2/1.3 only, modern cipher suite, OCSP stapling, session tickets off.
 - **HSTS**: `max-age` 2y + `includeSubDomains` + `preload`.
 - **CSP**: `default-src 'self'`; `script-src 'self'`; `connect-src 'self'`; `frame-src 'self'`;
-  `frame-ancestors 'none'`; `base-uri 'self'`; `form-action 'self'` — no third-party script/frame origins.
+  `frame-ancestors 'none'`; `base-uri 'self'`; `form-action 'self'`; no third-party script/frame origins.
 - **Headers**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`,
   `Permissions-Policy` (geolocation/mic/camera/payment/usb off), `Cross-Origin-Opener-Policy` and
   `Cross-Origin-Resource-Policy: same-origin`.
 - **No banner leak**: `server_tokens off` and the upstream (uvicorn) `Server`/`X-Powered-By` headers are
-  hidden — no version or framework fingerprint.
+  hidden, so there is no version or framework fingerprint.
 - Backend listens on `127.0.0.1` only; nginx is the sole public listener.
 
 > Do **not** expose uvicorn directly to the internet. `--tls-mode self-signed`/`direct` is for internal/dev.
@@ -273,10 +273,10 @@ app server is never exposed directly:
 > ### ⚠️ Required when you put your OWN reverse proxy in front (Mode C)
 > The security headers above are applied by whatever nginx **terminates TLS at the public edge**. If you front
 > jt-ipam with a separate reverse proxy (e.g. a company edge nginx / load balancer), **that proxy MUST set the
-> security headers itself** — they will NOT automatically survive an extra hop, so the public site would ship
+> security headers itself**; they will NOT automatically survive an extra hop, so the public site would ship
 > with *no* CSP / HSTS / Permissions-Policy. This is a **required** part of the deployment, not optional.
 >
-> Install the bundled hardened external-proxy config on that edge box —
+> Install the bundled hardened external-proxy config on that edge box:
 > [`deploy/nginx/jt-ipam-external-proxy.conf`](https://github.com/jasoncheng7115/jt-ipam/blob/main/deploy/nginx/jt-ipam-external-proxy.conf)
 > + [`jt-ipam-external-proxy-snippet.conf`](https://github.com/jasoncheng7115/jt-ipam/blob/main/deploy/nginx/jt-ipam-external-proxy-snippet.conf)
 > (sets HSTS preload, the tightened CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy,
@@ -289,7 +289,7 @@ proxy, not just the local box):
 curl -skI https://ipam.example.com/ \
   | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions|cross-origin|^server'
 # Must show: HSTS, Content-Security-Policy (frame-src 'self'), X-Frame-Options, X-Content-Type-Options,
-# Referrer-Policy, Permissions-Policy, COOP, CORP — each exactly ONCE, and Server: nginx (no version).
+# Referrer-Policy, Permissions-Policy, COOP, CORP: each exactly ONCE, and Server: nginx (no version).
 ```
 
 **Consoles and SFTP through your edge proxy.** Every console, SFTP included, is one long-lived
@@ -310,7 +310,7 @@ speed.
 
 ### 2.8 Optional: Docker Compose (NOT the preferred mode)
 
-> ⚠️ **Docker Compose is a secondary / optional path — it is NOT the project's preferred or primary
+> ⚠️ **Docker Compose is a secondary / optional path; it is NOT the project's preferred or primary
 > deployment mode.** The supported, recommended install is **systemd + apt** (sections above). Use Compose
 > only for a quick evaluation or a container-first environment; the systemd path gets the most testing.
 
@@ -320,7 +320,7 @@ loop that replaces the systemd timer), and `web` (nginx serving the frontend + r
 self-signed HTTPS cert on first run).
 
 Prerequisites: **git** and **Docker Engine with the `docker compose` v2 plugin**. The official
-`get.docker.com` script installs both; **do not** use `apt install docker.io` — it lacks the `docker compose`
+`get.docker.com` script installs both; **do not** use `apt install docker.io`, because it lacks the `docker compose`
 subcommand. On non-Debian distros install git with your own package manager.
 
 ```bash
@@ -329,16 +329,16 @@ sudo apt-get update && sudo apt-get install -y curl git
 curl -fsSL https://get.docker.com | sudo sh
 docker compose version         # should print v2.x
 
-# clone the repo first — gen-env.sh / docker-compose.yml live inside it under deploy/docker/
+# clone the repo first: gen-env.sh / docker-compose.yml live inside it under deploy/docker/
 git clone https://github.com/jasoncheng7115/jt-ipam.git
 cd jt-ipam/deploy/docker
 ./gen-env.sh                   # create .env with random secrets (once)
 docker compose up -d --build   # build images and start the stack
-# then open https://localhost  (self-signed cert on first run — trust the warning)
+# then open https://localhost  (self-signed cert on first run; trust the warning)
 ```
 
 - **First admin:** `gen-env.sh` generates a random `admin` password (printed in its output, stored as
-  `JT_IPAM_ADMIN_PASSWORD` in `.env`, mode 0600) and the backend creates the admin on first boot — change it
+  `JT_IPAM_ADMIN_PASSWORD` in `.env`, mode 0600) and the backend creates the admin on first boot; change it
   after the first login. Prefer your own? Set `JT_IPAM_ADMIN_PASSWORD` in `.env` before the first `up`; or
   leave it empty and create one later with
   `docker compose exec backend python -m app.cli.bootstrap create-admin --username admin --email admin@example.com --password-stdin`.
@@ -355,7 +355,7 @@ Database migrations run **automatically** when the backend container starts (its
 `alembic upgrade head`), so there is no separate migration step.
 
 **Air-gapped / no-internet host** (build outside, run inside): build the images on an internet-connected
-host, carry them over, and load them — same flow for install and upgrade.
+host, carry them over, and load them; the flow is the same for install and upgrade.
 
 ```bash
 # on the internet-connected host: get the source, then build + pack
@@ -393,17 +393,17 @@ Main config file: `/etc/jt-ipam/backend.env` (root:jtipam 0640)
 | `APP_PUBLIC_URL` | ✓ | frontend base URL |
 | `API_PUBLIC_URL` | ✓ | used for OIDC/SAML callbacks |
 | `CORS_ORIGINS` | ✓ | comma-separated |
-| `OUTBOUND_ALLOW_CIDRS` | — | safe_http SSRF allowlist; blank = public internet only |
+| `OUTBOUND_ALLOW_CIDRS` | None | safe_http SSRF allowlist; blank = public internet only |
 | `FDB_CURRENT_MAX_AGE_HOURS` | 24 | How long an FDB entry counts as current; older ones stay as history but no longer decide the switch port |
 | `FDB_RETENTION_DAYS` | 365 | FDB history retention in days; 0 = keep forever. Much longer than ARP on purpose -- the value of this table is knowing which port a machine used to be on |
 | `ARP_RETENTION_DAYS` | 30 | ARP entry retention in days; 0 = no pruning |
-| `OIDC_*` | — | enable OIDC SSO |
-| `SAML_*` | — | enable SAML SSO |
-| `LDAP_*` | — | LDAP/AD auth |
-| `OLLAMA_ENABLED` | — | enable AI semantic search + chat |
+| `OIDC_*` | None | enable OIDC SSO |
+| `SAML_*` | None | enable SAML SSO |
+| `LDAP_*` | None | LDAP/AD auth |
+| `OLLAMA_ENABLED` | None | enable AI semantic search + chat |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | LLM server address |
 | `OLLAMA_CHAT_MODEL` | `gemma4:26b` | chat model |
-| `OLLAMA_EMBEDDING_MODEL` | `granite-embedding:278m` | embedding model — **its dimension must equal `EMBEDDING_DIM`** |
+| `OLLAMA_EMBEDDING_MODEL` | `granite-embedding:278m` | embedding model; **its dimension must equal `EMBEDDING_DIM`** |
 | `EMBEDDING_DIM` | `768` | size of the database `vector(N)` column; changing it means changing the migration too |
 
 See the Settings class in `app/core/config.py` for the full list.
@@ -446,7 +446,7 @@ pfSense has no built-in REST API, so install the third-party **pfSense-pkg-RESTA
 
 ### OIDC (Keycloak/Azure AD/Google)
 
-Either configure it in the web UI (Admin → System Settings → Single sign-on — OIDC), or add to `/etc/jt-ipam/backend.env`:
+Either configure it in the web UI (Admin → System Settings → Single sign-on (OIDC)), or add to `/etc/jt-ipam/backend.env`:
 
 ```
 OIDC_ENABLED=true
@@ -476,8 +476,8 @@ After restart, register the SP metadata with the IdP: `curl https://ipam.example
 
 ### Recog fingerprint database (optional)
 
-The IP probe matches what a host says about itself — SSH banners, HTTP `Server` headers, page titles, TLS
-certificates, SMB OS strings — against [Recog](https://github.com/rapid7/recog) (Rapid7, BSD-2-Clause) to
+The IP probe matches what a host says about itself (SSH banners, HTTP `Server` headers, page titles, TLS
+certificates, SMB OS strings) against [Recog](https://github.com/rapid7/recog) (Rapid7, BSD-2-Clause) to
 recognise devices (a vendor's default certificate, a management page) and exact OS versions. Without it the probe
 still works; it just identifies less.
 
@@ -493,7 +493,7 @@ still works; it just identifies less.
 
 ### LLM / AI (optional)
 
-AI chat and semantic search run against a **self-hosted Ollama** by default, so data stays on your own network. The installer does not install the LLM server — it usually lives on a separate machine with a GPU.
+AI chat and semantic search run against a **self-hosted Ollama** by default, so data stays on your own network. The installer does not install the LLM server; it usually lives on a separate machine with a GPU.
 
 ```bash
 # on the LLM server (example)
@@ -504,17 +504,17 @@ ollama pull granite-embedding:278m     # embedding model (768-dim, multilingual)
 Then fill in the URL and the two models under **Admin → LLM / AI**, press **Check dimension** to confirm they match, and press **Rebuild index** to populate vectors for existing records.
 
 > **Read this if you are upgrading.** An upgrade does **not** repair semantic search on its own; three things need a hand:
-> 1. The shipped default is now `granite-embedding:278m`, but that only applies **if you never saved an embedding model on the settings page** — a value in the database wins, and yours is probably the old one.
+> 1. The shipped default is now `granite-embedding:278m`, but that only applies **if you never saved an embedding model on the settings page**; a value in the database wins, and yours is probably the old one.
 > 2. The new model has to be pulled on your LLM server yourself.
 > 3. Existing records only get vectors once you press **Rebuild index**.
 >
-> The settings page probes the dimension when it loads and says so if they do not match — which is precisely what the old behaviour lacked: a mismatch produced no error at all, only "semantic search never returns anything".
+> The settings page probes the dimension when it loads and says so if they do not match, which is precisely what the old behaviour lacked: a mismatch produced no error at all, only "semantic search never returns anything".
 
-> ⚠️ **The embedding model's output dimension must equal `EMBEDDING_DIM` (768 by default)** — the size of the database's `vector(N)` column. A mismatch produces **no error message at all**; the only symptom is that semantic search never returns anything, because every index write failed. After changing the embedding model, press **Check dimension** on the settings page: it reports what the model returned versus what the column holds.
+> ⚠️ **The embedding model's output dimension must equal `EMBEDDING_DIM` (768 by default)**, which is the size of the database's `vector(N)` column. A mismatch produces **no error message at all**; the only symptom is that semantic search never returns anything, because every index write failed. After changing the embedding model, press **Check dimension** on the settings page: it reports what the model returned versus what the column holds.
 >
 > Also note that **English-only embedding models (such as `nomic-embed-text`) collapse different non-Latin descriptions into the same vector**. The dimension looks right and search returns results, but the ranking is meaningless. Prefer a multilingual model, and compare a few of your own descriptions to confirm they produce different results.
 
-You can point it at an external OpenAI-compatible endpoint instead (ChatGPT, vLLM, LM Studio, OpenRouter…) by choosing "OpenAI-compatible" and supplying an API key (stored AES-GCM encrypted). **Your subnets, hostnames and topology are then sent to that provider** — keep the self-hosted Ollama if data must not leave your network.
+You can point it at an external OpenAI-compatible endpoint instead (ChatGPT, vLLM, LM Studio, OpenRouter…) by choosing "OpenAI-compatible" and supplying an API key (stored AES-GCM encrypted). **Your subnets, hostnames and topology are then sent to that provider**; keep the self-hosted Ollama if data must not leave your network.
 
 ### Automatic backup
 
@@ -667,7 +667,7 @@ To move to 443, or to add nginx later, see 2.6 "Which port" and "Do I need nginx
 **Q: The install stopped at `extension "vector" is not available`, but postgresql-16-pgvector is installed?**
 A: This host most likely **already runs a PostgreSQL cluster** (from SonarQube, GitLab, …).
 jt-ipam connects to `127.0.0.1:5432`, i.e. that existing cluster, so pgvector has to be installed
-for **its** major version — installing it for another version has no effect:
+for **its** major version; installing it for another version has no effect:
 
 ```bash
 sudo -u postgres psql -tAc 'SHOW server_version_num'   # e.g. 180004 → major 18
@@ -731,9 +731,9 @@ sudo systemctl restart jt-ipam-backend
 ```
 
 **Q: the installer warns `nginx: ssl_stapling ignored, issuer certificate not found`?**
-A: self-signed certs have no issuer chain so OCSP stapling can't be used — harmless. It disappears once you switch to a real cert or Let's Encrypt.
+A: self-signed certs have no issuer chain so OCSP stapling can't be used, which is harmless. It disappears once you switch to a real cert or Let's Encrypt.
 
-**Q: integration tests need `JTIPAM_TEST_DATABASE_URL` — does production too?**
+**Q: integration tests need `JTIPAM_TEST_DATABASE_URL`; does production too?**
 A: No. Production only needs `POSTGRES_*` in `backend.env`. `JTIPAM_TEST_DATABASE_URL` is just a separate DB for pytest (to avoid polluting prod data).
 
 **Q: after install, IP-only access shows "Welcome to nginx" instead of jt-ipam?**
@@ -745,7 +745,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 **Q: what are the default admin credentials? What if I forget?**
-A: **There are no default credentials.** After install you must bootstrap manually (see §2.3); the password is randomly generated by `openssl rand` and **printed only once at bootstrap** — save it. If forgotten or to change it:
+A: **There are no default credentials.** After install you must bootstrap manually (see §2.3); the password is randomly generated by `openssl rand` and **printed only once at bootstrap**, so save it. If forgotten or to change it:
 ```bash
 # Option A: create another admin (if the original admin still works, have another admin change the password from UI /users)
 ADMIN_PW=$(openssl rand -base64 24)
@@ -754,7 +754,7 @@ sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     --username admin2 --email admin2@your.domain --password-stdin <<<"$ADMIN_PW"
 echo "$ADMIN_PW"
 
-# Option B: original admin locked out / lost — edit the DB directly to unlock and reset the password
+# Option B: original admin locked out / lost; edit the DB directly to unlock and reset the password
 sudo -u jtipam env $(grep -v '^#' /etc/jt-ipam/backend.env | xargs) \
     /opt/jt-ipam/backend/.venv/bin/python -c '
 import asyncio, sys

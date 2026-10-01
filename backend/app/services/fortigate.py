@@ -435,10 +435,13 @@ async def sync_vpn(
     「端點失敗被吞掉」—— 從稽核摘要看不出是哪一種，而這正是判斷解析對不對
     最需要分辨的地方。"""
     from app.models.physical import VPNTunnel
+    from app.services.vpn_pairing import link_peers, resolve_device_for
 
     scope_ids = _scope(fw)
     prefix = f"{fw.name}/ipsec/"
     origin = f"fortigate:{fw.id}"
+    # 通道屬於哪台裝置：拓樸圖畫通道至少要知道一端（以前沒記，FortiGate 的通道從沒出現在圖上）
+    fw_dev = await resolve_device_for(session, api_url=fw.api_url, name=fw.name)
     seen_names: set[str] = set()
     tunnels = 0
     ipsec_ok = False
@@ -473,7 +476,7 @@ async def sync_vpn(
             existing.status = "active" if up else "offline"
             # 對端位址是 rgwy（remote_gateway 不是 FortiOS 的欄位名）
             existing.b_endpoint = str(d.get("rgwy") or "")[:255] or None
-            existing.pairing_method = "ipsec_endpoint"
+            existing.a_device_id = fw_dev
             tunnels += 1
     # 清掉這台先前建立、這次沒看到的隧道 —— 只在每個 VDOM 都讀到、而且 VDOM 清單是權威的時候。
     # 以前算了 ipsec_ok 卻沒拿來擋：任何 VDOM 讀取失敗就清空。歸屬看 source_origin 而不是名稱前綴：
@@ -485,6 +488,9 @@ async def sync_vpn(
         for t in stale:
             if t.name not in seen_names:
                 await session.delete(t)
+    # 兩端配對（整張表一起看：對端可能是 OPNsense、Palo Alto、MikroTik）
+    if ipsec_ok:
+        await link_peers(session)
 
     vpn_batch = SightingBatch(session, source="fortigate", subnet_ids=scope_ids)
     ssl_ok = False

@@ -67,6 +67,11 @@ EP_NAT = "/ip/firewall/nat"
 EP_ADDRESS_LIST = "/ip/firewall/address-list"
 EP_PPP_ACTIVE = "/ppp/active"
 EP_WG_PEERS = "/interface/wireguard/peers"
+EP_WG_INTERFACE = "/interface/wireguard"
+# 第二階段（0170）
+EP_INTERFACE = "/interface"
+EP_NEIGHBOR = "/ip/neighbor"
+EP_BRIDGE_HOST = "/interface/bridge/host"
 
 #: ⛔ 永遠不要加進來的選單 —— 它們在主力路由器上是數十萬到數百萬列，
 #: 而 REST 沒有分頁可以少拿一點。這不是效能微調，是安全上限。
@@ -477,7 +482,231 @@ async def sync_dhcp_ranges(
     return {"dhcp_ranges": len(parsed), "subnets_enriched": enriched}
 
 
-# ─────────────────── 防火牆規則 ───────────────────
+# ─────────────────── 第二階段：介面、鄰居、FDB（0170）───────────────────
+class RouterOSNoDevice(RouterOSError):
+    """這台路由器還沒對應到任何 jt-ipam 裝置：介面、FDB、鄰居沒地方放（不是錯誤，是待設定）。"""
+
+
+#: 寫進 device_ports 的介面類型：實體埠、無線、bond、LTE。VLAN、bridge、通道、PPPoE 這些是
+#: 設定出來的邏輯介面，放進「連接埠」只會淹掉真正接線的那幾個
+PORT_TYPES = frozenset({"ether", "wlan", "wifi", "wifiwave2", "bond", "lte"})
+
+
+def interface_ports(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """`/interface` → {埠名: {mac, description}}（只留 PORT_TYPES）。"""
+    out: dict[str, dict[str, Any]] = {}
+    for d in rows:
+        name = _txt(d.get("name"), 255)
+        if not name or str(d.get("type") or "").strip().lower() not in PORT_TYPES:
+            continue
+        out[name] = {"mac": _norm_mac(d.get("mac-address")), "description": _txt(d.get("comment"), 500)}
+    return out
+
+
+def neighbor_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`/ip/neighbor` → 正規化的鄰居（同一個埠、MAC、名稱只留一筆）。
+
+    `interface` 在有 bridge 的機器上可能是「ether3,bridge」這種組合 —— 取第一段，那才是實體埠。
+    """
+    seen: set[tuple[str, str | None, str | None]] = set()
+    out: list[dict[str, Any]] = []
+    for d in rows:
+        iface = _txt(str(d.get("interface") or "").split(",")[0], 128)
+        if not iface:
+            continue
+        rec = {
+            "interface": iface,
+            "address": _valid_ip(d.get("address")) or _valid_ip(d.get("address4")),
+            "mac": _norm_mac(d.get("mac-address")),
+            "identity": _txt(d.get("identity"), 255),
+            "platform": _txt(d.get("platform"), 128),
+            "board": _txt(d.get("board"), 128),
+            "version": _txt(d.get("version"), 128),
+            "remote_interface": _txt(d.get("interface-name"), 128),
+            "discovered_by": _txt(d.get("discovered-by"), 32),
+        }
+        key = (iface, rec["mac"], rec["identity"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(rec)
+    return out
+
+
+def fdb_rows(rows: list[dict[str, Any]]) -> list[tuple[str, str, int | None]]:
+    """`/interface/bridge/host` → [(MAC, 埠, VLAN)]。路由器自己的（local）與無效的略過。"""
+    out: set[tuple[str, str, int | None]] = set()
+    for d in rows:
+        if _b(d.get("local")) or _b(d.get("disabled")):
+            continue
+        mac = _norm_mac(d.get("mac-address"))
+        port = _txt(str(d.get("interface") or "").split(",")[0], 64)
+        if not mac or not port or port == _txt(d.get("bridge"), 64):
+            continue
+        vid = _num(d.get("vid"))
+        out.add((mac, port, int(vid) if vid is not None else None))
+    return sorted(out, key=lambda r: (r[1], r[0], r[2] or 0))
+
+
+async def _router_device(session: AsyncSession, router: MikroTikRouter) -> uuid.UUID:
+    """這台路由器對應的 jt-ipam 裝置。沒指定時用 API 位址對到的 IP 所屬裝置（找到就記下來）。"""
+    if router.device_id:
+        return router.device_id
+    from urllib.parse import urlparse
+
+    from app.models.address import IPAddress
+    host = _valid_ip(urlparse(router.api_url or "").hostname)
+    if host:
+        found = {d for (d,) in (await session.execute(
+            select(IPAddress.device_id).where(IPAddress.ip == host, IPAddress.device_id.is_not(None)))).all()}
+        if len(found) == 1:                 # 重疊網段下同一個位址可能對到好幾台：不猜
+            router.device_id = found.pop()
+            return router.device_id
+    raise RouterOSNoDevice(
+        "還沒指定這台路由器對應的裝置：介面、FDB、鄰居沒有地方放。請在設定裡選擇裝置"
+        "（或讓 API 位址對到一筆已連結裝置的 IP）",
+        code="ros_no_device",
+    )
+
+
+async def match_neighbor_devices(session: AsyncSession, rows: list[Any]) -> dict[Any, dict[str, str]]:
+    """鄰居 → 它是哪一台 jt-ipam 裝置：先看宣告的位址，再看 MAC（IP 記錄或裝置連接埠的 MAC）。
+
+    對到多台就不填：重疊網段下同一個位址可能屬於好幾台，猜錯比不畫更難查。
+    回傳 {鄰居列 id: {"device_id", "device_name"}}。
+    """
+    from app.core.sqlin import in_values
+    from app.models.address import IPAddress
+    from app.models.device import Device
+    from app.models.physical import DevicePort
+
+    addrs = {r.address for r in rows if r.address}
+    macs = {r.mac for r in rows if r.mac}
+    by_ip: dict[str, set[Any]] = {}
+    by_mac: dict[str, set[Any]] = {}
+    if addrs:
+        for ip, dev in (await session.execute(select(IPAddress.ip, IPAddress.device_id).where(
+                in_values(IPAddress.ip, addrs), IPAddress.device_id.is_not(None)))).all():
+            by_ip.setdefault(str(ip).split("/")[0], set()).add(dev)
+    if macs:
+        for mac, dev in (await session.execute(select(IPAddress.mac, IPAddress.device_id).where(
+                in_values(IPAddress.mac, macs), IPAddress.device_id.is_not(None)))).all():
+            by_mac.setdefault(str(mac).lower(), set()).add(dev)
+        for mac, dev in (await session.execute(select(DevicePort.mac_address, DevicePort.device_id).where(
+                in_values(DevicePort.mac_address, macs)))).all():
+            by_mac.setdefault(str(mac).lower(), set()).add(dev)
+    picked: dict[Any, Any] = {}
+    for r in rows:
+        cand = by_ip.get(r.address or "") or by_mac.get(r.mac or "") or set()
+        if len(cand) == 1:
+            picked[r.id] = next(iter(cand))
+    names = dict((await session.execute(select(Device.id, Device.name).where(
+        in_values(Device.id, set(picked.values()))))).all()) if picked else {}
+    return {rid: {"device_id": str(dev), "device_name": names.get(dev)} for rid, dev in picked.items()}
+
+
+def port_origin(router_id: uuid.UUID) -> str:
+    return f"mikrotik:{router_id}"
+
+
+async def sync_interfaces(
+    session: AsyncSession, router: MikroTikRouter, *, client: httpx.AsyncClient,
+) -> dict[str, Any]:
+    from sqlalchemy import func
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.physical import DevicePort
+    from app.services.librenms import reconcile_librenms_ports
+
+    dev_id = await _router_device(session, router)
+    ports = interface_ports(_rows(await _get(
+        router, EP_INTERFACE, client=client, proplist="name,type,mac-address,comment")))
+    if not ports:
+        return {"interfaces": 0, "interface_rows": 0}
+    origin = port_origin(router.id)
+    have = {n for (n,) in (await session.execute(
+        select(DevicePort.name).where(DevicePort.device_id == dev_id))).all()}
+    ins = pg_insert(DevicePort)
+    new_mac = func.coalesce(ins.excluded.mac_address, DevicePort.mac_address)
+    new_descr = func.coalesce(ins.excluded.description, DevicePort.description)
+    await session.execute(ins.on_conflict_do_update(
+        index_elements=["device_id", "name"], set_={"mac_address": new_mac, "description": new_descr},
+        where=DevicePort.mac_address.is_distinct_from(new_mac) | DevicePort.description.is_distinct_from(new_descr),
+    ), [{"device_id": dev_id, "name": n, "type": "network", "mac_address": v["mac"],
+         "description": v["description"], "source_origin": origin} for n, v in sorted(ports.items())])
+    await session.flush()
+    # 認領沒有來源的舊埠、清掉這台不再回報（而且沒接線）的 —— 與 LibreNMS 同一套規則
+    removed = await reconcile_librenms_ports(session, dev_id, origin, set(ports))
+    return {"interfaces": sum(1 for n in ports if n not in have), "interface_rows": len(ports),
+            "interfaces_removed": removed}
+
+
+async def sync_neighbors(
+    session: AsyncSession, router: MikroTikRouter, *, client: httpx.AsyncClient,
+) -> dict[str, Any]:
+    from app.models.mikrotik import MikroTikNeighbor
+
+    recs = neighbor_rows(_rows(await _get(
+        router, EP_NEIGHBOR, client=client,
+        proplist="interface,address,address4,mac-address,identity,platform,board,version,"
+                 "interface-name,discovered-by")))
+    now = datetime.now(UTC)
+    existing = {(n.interface, n.mac, n.identity): n for n in (await session.execute(
+        select(MikroTikNeighbor).where(MikroTikNeighbor.router_id == router.id))).scalars().all()}
+    keep = set()
+    for r in recs:
+        key = (r["interface"], r["mac"], r["identity"])
+        keep.add(key)
+        row = existing.get(key)
+        if row is None:
+            session.add(MikroTikNeighbor(router_id=router.id, first_seen_at=now, last_seen_at=now, **r))
+        else:
+            for k, v in r.items():
+                setattr(row, k, v)
+            row.last_seen_at = now
+    for key, row in existing.items():       # 這一輪完整讀到了：沒出現的就是不在了
+        if key not in keep:
+            await session.delete(row)
+    return {"neighbors": len(recs)}
+
+
+async def sync_fdb(
+    session: AsyncSession, router: MikroTikRouter, *, client: httpx.AsyncClient,
+) -> dict[str, Any]:
+    from sqlalchemy import insert
+
+    from app.core.sqlin import in_values
+    from app.models.librenms import FDBEntry
+
+    dev_id = await _router_device(session, router)
+    entries = fdb_rows(_rows(await _get(
+        router, EP_BRIDGE_HOST, client=client,
+        proplist="mac-address,interface,bridge,vid,local,disabled")))
+    now = datetime.now(UTC)
+    existing = {(str(m), p, v): i for i, m, p, v in (await session.execute(
+        select(FDBEntry.id, FDBEntry.mac, FDBEntry.port_name, FDBEntry.vlan_id_num)
+        .where(FDBEntry.mikrotik_router_id == router.id))).all()}
+    seen_ids = [existing[k] for k in entries if k in existing]
+    new = [{"mac": m, "port_name": p, "vlan_id_num": v, "source": "mikrotik", "switch_device_id": dev_id,
+            "mikrotik_router_id": router.id, "first_seen_at": now, "last_seen_at": now}
+           for (m, p, v) in entries if (m, p, v) not in existing]
+    if seen_ids:
+        await session.execute(FDBEntry.__table__.update().where(in_values(FDBEntry.id, seen_ids))
+                              .values(last_seen_at=now, switch_device_id=dev_id))
+    if new:
+        await session.execute(insert(FDBEntry), new)
+    wanted = set(entries)
+    gone = [i for k, i in existing.items() if k not in wanted]
+    if gone:
+        await session.execute(delete(FDBEntry).where(in_values(FDBEntry.id, gone)))
+    # IP 的「交換器位置」：與 LibreNMS 同一套推導（兩種 FDB 一起投票、MAC 最少的埠勝出），
+    # 只有 MikroTik 沒有 LibreNMS 的站台也填得出來
+    from app.services.librenms import derive_switch_ports
+    await session.flush()
+    located = await derive_switch_ports(session, router, source="mikrotik")
+    return {"fdb": len(entries), "fdb_new": len(new), "fdb_removed": len(gone), "switch_ports": located}
+
+
 _RULE_PROPLIST = (
     "chain,action,disabled,comment,protocol,src-address,dst-address,"
     "src-port,dst-port,in-interface,out-interface,to-addresses,to-ports,"
@@ -677,6 +906,21 @@ async def sync_vpn(
     prefix = f"{router.name}/wireguard/"
     origin = f"mikrotik:{router.id}"
     seen_names: set[str] = set()
+    # 通道屬於哪台裝置＋本機公鑰：拓樸圖要知道一端是誰，公鑰配對要本機那把（以前兩個都沒記）
+    from app.services.vpn_pairing import link_peers, resolve_device_for, url_host
+    try:
+        local_dev = await _router_device(session, router)
+    except RouterOSNoDevice:
+        local_dev = await resolve_device_for(session, api_url=router.api_url, name=router.name)
+    local_keys: dict[str, str] = {}
+    if peers:
+        await _breathe(router)
+        try:
+            for w in _rows(await _get(router, EP_WG_INTERFACE, client=client, proplist="name,public-key")):
+                if w.get("name") and w.get("public-key"):
+                    local_keys[str(w["name"])] = str(w["public-key"])
+        except RouterOSNotPresent:
+            pass
     for d in peers:
         label = _txt(d.get("name"), 64) or _txt(d.get("public-key"), 64)
         if not label:
@@ -696,9 +940,11 @@ async def sync_vpn(
         # 資料表只允許 planned／active／offline／decommissioned：以前寫 "down"，任何一個沒握手的
         # peer 都會讓整段 VPN 同步在寫入時違反約束而失敗
         existing.status = "active" if up else "offline"
-        existing.a_endpoint = _txt(router.api_url, 255)
+        existing.a_endpoint = url_host(router.api_url)
         existing.b_endpoint = _txt(d.get("endpoint-address"), 255)
         existing.peer_public_key = _txt(d.get("public-key"), 255)
+        existing.local_public_key = _txt(local_keys.get(str(d.get("interface") or "")), 255)
+        existing.a_device_id = local_dev
         existing.description = _txt(d.get("allowed-address"), 255)
     # 讀到了（這台有 WireGuard）就清掉這台建立、這次沒看到的 —— 包含最後一個 peer 被刪掉的情況
     # （以前「一個都沒有」時整段跳過，最後那條永遠清不掉）。歸屬看 source_origin：以前用
@@ -708,6 +954,7 @@ async def sync_vpn(
         if seen_names:
             stale = stale.where(VPNTunnel.name.notin_(seen_names))  # bounded: VPN tunnels of one router
         await session.execute(stale)
+        await link_peers(session)
     out["vpn_tunnels"] = len(seen_names)
     return out
 
@@ -726,12 +973,15 @@ async def _breathe(router: MikroTikRouter) -> None:
 
 #: 由輕到重 —— 停在半路時，先做完的一定是最便宜、最常看的那幾段。
 SECTION_ORDER: tuple[tuple[str, str], ...] = (
+    ("interfaces", "sync_interfaces"),
+    ("neighbors", "sync_neighbors"),
     ("firewall", "sync_firewall"),
     ("nat", "sync_nat"),
     ("dhcp_ranges", "sync_dhcp_ranges"),
     ("dhcp", "sync_dhcp"),
     ("vpn", "sync_vpn"),
     ("address_lists", "sync_address_lists"),
+    ("fdb", "sync_fdb"),
     ("arp", "sync_arp"),
 )
 
@@ -775,6 +1025,9 @@ async def diagnose(router: MikroTikRouter) -> dict[str, Any]:
             ("arp", EP_ARP, {"status": "reachable"}),
             ("ppp_active", EP_PPP_ACTIVE, None),
             ("wireguard_peers", EP_WG_PEERS, None),
+            ("interface", EP_INTERFACE, None),
+            ("neighbor", EP_NEIGHBOR, None),
+            ("bridge_host", EP_BRIDGE_HOST, None),
         )
         checks: list[dict[str, Any]] = []
         for label, path, filters in probes:
@@ -831,6 +1084,9 @@ async def sync_instance(session: AsyncSession, router: MikroTikRouter) -> dict[s
         cost["cpu_before"] = info.get("cpu_load")
 
         handlers = {
+            "interfaces": (router.sync_interfaces, sync_interfaces),
+            "neighbors": (router.sync_neighbors, sync_neighbors),
+            "fdb": (router.sync_fdb, sync_fdb),
             "firewall": (router.sync_firewall, sync_firewall_rules),
             "nat": (router.sync_nat, sync_nat),
             "dhcp_ranges": (router.sync_dhcp_ranges, sync_dhcp_ranges),
@@ -846,6 +1102,10 @@ async def sync_instance(session: AsyncSession, router: MikroTikRouter) -> dict[s
             t0 = time.monotonic()
             try:
                 counts.update(await fn(session, router, client=client))
+            except RouterOSNoDevice as exc:
+                # 待設定，不是錯誤：不要讓「部分區段失敗」每一輪都亮著
+                cost[name] = {"skipped": "no_device", **ui_detail("ros_no_device", str(exc))}
+                continue
             except RouterOSNotPresent as exc:
                 # 「這台沒有這個功能」不是錯誤（交換器沒有 DHCP 伺服器很正常）
                 cost[name] = {"absent": True, "reason": str(exc)[:120]}

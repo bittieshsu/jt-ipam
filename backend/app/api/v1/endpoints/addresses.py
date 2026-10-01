@@ -249,6 +249,7 @@ async def list_addresses(
         "state": IPAddress.state, "owner": IPAddress.owner,
         "switch_port": IPAddress.switch_port, "note": IPAddress.note,
         "discovery_source": IPAddress.discovery_source,
+        "device_kind": IPAddress.device_kind,
     }
     sort_col = _SORT_COLS.get(sort or "", IPAddress.ip)
     stmt = stmt.order_by(sort_col.desc() if order == "desc" else sort_col.asc())

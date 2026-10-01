@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import secrets
 import time
 import uuid
@@ -11,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from pydantic import Field
+from pydantic import Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
@@ -538,11 +539,29 @@ class AgentReportItem(StrictModel):
     netbios: str | None = None       # NetBIOS 名稱（nmblookup -A）
     mdns: str | None = None          # mDNS 名稱（avahi-resolve，.local）
     os_guess: str | None = None      # OS 偵測原始字串
+    #: 代理 1.14.0 起：定期 OS 偵測的 nmap 結構化結果（埠、服務、banner、網頁標題、憑證、smb-os-discovery），
+    #: 伺服器用 IP 探測同一套判讀推出 OS 與設備類型（services/device_identity）。過大就丟掉、只用 os_guess
+    nmap: dict[str, Any] | None = None
     open_ports: list[int] | None = None
     probes_run: list[str] | None = None   # 這輪實際對此 IP 跑了哪些 probe（回填 last_run）
     # False＝背景重量探測（反解／NetBIOS／mDNS／OS）補的資料，不是上線證據：不更新最後出現時間、
     # 不自動新增 IP。反解是 DNS 回答的，不是主機本身；OS 指紋可能是幾分鐘前排進佇列的（代理 1.10.0 起）
     liveness: bool = True
+
+    @field_validator("nmap")
+    @classmethod
+    def _cap_nmap(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        # 一台主機的精簡結果通常幾 KB；不正常的大小不拿來判讀，但也不讓整批回報失敗
+        if v is None:
+            return None
+        try:
+            return v if len(json.dumps(v, default=str)) <= _NMAP_REPORT_MAX else None
+        except (TypeError, ValueError):
+            return None
+
+
+_NMAP_REPORT_MAX = 64 * 1024
+_UNSET: Any = object()
 
 
 class AgentDHCPServer(StrictModel):
@@ -653,6 +672,7 @@ async def agent_report(
     from app.services.hostname_reports import HostnameRun
     hn_runs = {src: HostnameRun(session, source=src, origin=f"{src}:{agent.id}", peers=2)
                for src in ("scanner", "netbios", "mdns")}
+    recog_matcher: Any = _UNSET            # 第一筆需要判讀時才載入（多數回報沒有 OS 偵測結果）
     for item in payload.results:
         if not item.alive:
             continue
@@ -710,11 +730,18 @@ async def agent_report(
             # （被優先序擋下來的那個 MAC 正是衝突的另一方，issue #41）
             await record_arp_observation(session, ip=ipa, mac=item.mac, source="scanner",
                                          seen_at=now)
-        # OS 偵測：存原始字串 + 正規化家族（前端依 family 配 icon）
-        if item.os_guess:
-            from app.core.os_fingerprint import normalize_os
-            ipa.os_guess = item.os_guess[:160]
-            ipa.os_family = normalize_os(item.os_guess)
+        # OS 偵測：有 nmap 結構化結果（代理 1.14.0 起）就用 IP 探測同一套判讀（含 Recog）推 OS、
+        # 設備類型與廠牌型號；沒有就照舊存代理自己推的那行 OS（前端依 family 配 icon）
+        if item.nmap or item.os_guess:
+            from app.services.device_identity import apply_summary
+            summary: dict[str, Any] = {}
+            if item.nmap:
+                from app.services.ip_identify import summarize
+                if recog_matcher is _UNSET:
+                    from app.services.recog import get_matcher
+                    recog_matcher = await get_matcher(session)
+                summary = summarize({"nmap": {"available": True, **item.nmap}}, recog=recog_matcher)
+            await apply_summary(session, ipa, summary, fallback_os=item.os_guess)
         # 主機名稱觀測 → 走既有來源優先序（各來源獨立一筆，不會 thrash）。
         # rDNS 記 source=scanner；NetBIOS / mDNS 各自獨立來源，方便在優先序頁分別排序/停用。
         # 經 HostnameRun（逐代理記錄）：以前的 tiebreak_min 會讓改名成字典序較大的名字永遠不生效。

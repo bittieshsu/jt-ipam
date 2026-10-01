@@ -1,4 +1,4 @@
-# phpIPAM v1.7 API 互換レイヤ — 対応表
+# phpIPAM v1.7 API 互換レイヤ：対応表
 
 > English: [PHPIPAM_API_MAPPING.md](PHPIPAM_API_MAPPING.md) · 繁體中文版：[PHPIPAM_API_MAPPING_zh-TW.md](PHPIPAM_API_MAPPING_zh-TW.md)
 

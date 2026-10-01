@@ -16,6 +16,7 @@ import { usesLevels } from "@/utils/rackSlots";
 import { apiClient } from "@/api/client";
 import DashboardUptime from "@/components/DashboardUptime.vue";
 import DashboardAIAudit from "@/components/DashboardAIAudit.vue";
+import DashboardRacksCard from "@/components/DashboardRacksCard.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "vue-router";
 import {
@@ -606,6 +607,9 @@ onMounted(() => { void load(); void loadPins(); });
            LLM 沒啟用就整塊不顯示（跟 AI 對話小工具同一個判斷）；
            無全域讀取權限者拿到 403 → 元件自行不顯示。 -->
       <DashboardAIAudit v-if="aiEnabled" />
+
+      <!-- 機櫃：放最下面（使用者要求），可設定看哪個機房或挑哪幾個機櫃 -->
+      <DashboardRacksCard :locations="allLocations" :racks="allRacks" />
     </n-space>
   </n-spin>
 </template>

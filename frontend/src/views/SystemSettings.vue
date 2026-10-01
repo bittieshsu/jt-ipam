@@ -613,86 +613,111 @@ async function doPreviewAutolink() {
       <!-- 資安：連線管理 -->
       <n-card class="ss-group" size="small">
         <template #header><span class="ss-h">{{ t("system_settings.grp_security") }}</span></template>
-        <div class="ss-grid">
-          <div class="fld">
-            <label>{{ t("settings.system.rdp_clip_paste") }}</label>
-            <n-switch :value="rdpClipPaste" @update:value="changeRdpClipPaste" />
-            <div class="hint">{{ t("settings.system.rdp_clip_paste_hint") }}</div>
-          </div>
-          <div class="fld">
-            <label>{{ t("settings.system.rdp_engine") }}</label>
-            <n-select :value="rdpEngine" :options="rdpEngineOpts" @update:value="changeRdpEngine" />
-            <div class="hint">{{ t("settings.system.rdp_engine_hint") }}</div>
+        <!-- 一列一個設定：左邊名稱與說明、右邊控制項。以前三欄格子裡說明有長有短，
+             整區高低不齊、控制項東一個西一個（使用者回報排列不好看） -->
+        <div class="ss-rows">
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("settings.system.rdp_engine") }}</label>
+              <div class="hint">{{ t("settings.system.rdp_engine_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-select :value="rdpEngine" :options="rdpEngineOpts" @update:value="changeRdpEngine" />
+            </div>
             <!-- 缺套件就講清楚缺哪些、怎麼裝；選了 FreeRDP 卻沒裝是會連不上的，要用警示色 -->
             <!-- aardwolf 是選用的備用引擎（2026-09-27 起）：沒裝只在真的選了它時才要講 -->
             <n-alert v-if="!aardwolfOk && (rdpEngine === 'aardwolf' || vncEngine === 'builtin')" type="error"
-                     :bordered="false" style="margin-top:8px">
+                     :bordered="false" class="ss-r__full">
               {{ t("settings.system.rdp_engine_no_aardwolf", { python: pythonVer }) }}
             </n-alert>
             <n-alert v-if="!freerdpOk" :type="rdpEngine === 'freerdp' ? 'error' : 'warning'"
-                     :bordered="false" style="margin-top:8px">
+                     :bordered="false" class="ss-r__full">
               <div>{{ t("settings.system.rdp_engine_missing", { pkgs: freerdpMissing.join("、") }) }}</div>
               <code class="rdp-install-cmd">{{ freerdpCmd }}</code>
             </n-alert>
           </div>
-          <div class="fld">
-            <label>{{ t("settings.system.vnc_engine") }}</label>
-            <n-select :value="vncEngine" :options="vncEngineOpts" @update:value="changeVncEngine" />
-            <div class="hint">{{ t("settings.system.vnc_engine_hint") }}</div>
-          </div>
-          <div class="fld">
-            <label>{{ t("settings.system.ssh_engine") }}</label>
-            <n-select :value="sshEngine" :options="sshEngineOpts" @update:value="changeSshEngine" />
-            <div class="hint">{{ t("settings.system.ssh_engine_hint") }}</div>
-          </div>
-          <div class="fld sftp-max">
-            <label>{{ t("settings.system.sftp_max_mb") }}</label>
-            <n-space :size="8" align="center">
-              <!-- Enter 由外層的 div 接：n-input-number 不會把 keyup 轉出來。
-                   不給 min／max：那會讓元件把超出範圍的值自動夾到邊界後存下去 -->
-              <div @keyup.enter="commitSftpMax">
-                <n-input-number v-model:value="sftpMaxInput" :step="100" :show-button="false"
-                                style="width:180px" @blur="commitSftpMax">
-                  <template #suffix>MB</template>
-                </n-input-number>
-              </div>
-              <n-button size="small" :loading="probe?.running" @click="checkSftpPath">
-                {{ t("settings.system.sftp_probe_run") }}
-              </n-button>
-            </n-space>
-            <div class="hint">{{ t("settings.system.sftp_max_mb_hint") }}</div>
-            <div v-if="probe?.running" class="hint sftp-probe-running">
-              {{ t("settings.system.sftp_probe_running", {
-                stage: probe.stage === "down" ? t("settings.system.sftp_probe_down") : t("settings.system.sftp_probe_up"),
-                pct: probe.pct ?? 0 }) }}
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("settings.system.vnc_engine") }}</label>
+              <div class="hint">{{ t("settings.system.vnc_engine_hint") }}</div>
             </div>
-            <n-alert v-else-if="probe?.result" class="sftp-probe-result" :bordered="false" style="margin-top:8px"
-                     :type="probe.result.ok ? (probeSlow ? 'warning' : 'success') : 'error'">
-              <div>{{ probeText }}</div>
-              <div class="hint" style="margin-top:4px">{{ t("settings.system.sftp_probe_note") }}</div>
-            </n-alert>
+            <div class="ss-r__ctl">
+              <n-select :value="vncEngine" :options="vncEngineOpts" @update:value="changeVncEngine" />
+            </div>
+          </div>
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("settings.system.ssh_engine") }}</label>
+              <div class="hint">{{ t("settings.system.ssh_engine_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-select :value="sshEngine" :options="sshEngineOpts" @update:value="changeSshEngine" />
+            </div>
           </div>
           <!-- guacd 的實際狀態：選了卻不能用要講清楚原因與怎麼裝；能用就列出支援哪些協定 -->
-          <div class="fld guacd-status">
-            <label>{{ t("settings.system.guacd_status") }}</label>
-            <n-alert v-if="!consoleLoaded" :show-icon="false" :bordered="false" type="default">…</n-alert>
-            <n-alert v-else-if="!guacdOk" type="error" :bordered="false">
-              <div>{{ t("settings.system.guacd_down", { address: guacdAddress, reason: guacdError }) }}</div>
-              <code v-if="guacdCmd" class="rdp-install-cmd">{{ guacdCmd }}</code>
-            </n-alert>
-            <template v-else>
-              <n-space :size="6" align="center">
+          <div class="ss-r fld guacd-status">
+            <div class="ss-r__text">
+              <label>{{ t("settings.system.guacd_status") }}</label>
+              <div class="hint">{{ t("settings.system.guacd_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <span v-if="!consoleLoaded" class="hint">…</span>
+              <n-space v-else-if="guacdOk" :size="6" align="center" :wrap="true">
                 <n-tag v-for="p in ['rdp', 'vnc', 'ssh']" :key="p" size="small" :bordered="false"
                        :type="guacdProtocols[p] ? 'success' : 'default'">
                   {{ p.toUpperCase() }} {{ guacdProtocols[p] ? "✓" : "—" }}
                 </n-tag>
                 <span class="hint" style="margin:0">{{ guacdAddress }}</span>
               </n-space>
-              <n-alert v-if="guacdMissingFor.length" type="error" :bordered="false" style="margin-top:8px">
-                {{ t("settings.system.guacd_protocol_missing", { protocols: guacdMissingFor.join("、").toUpperCase() }) }}
-              </n-alert>
-            </template>
-            <div class="hint">{{ t("settings.system.guacd_hint") }}</div>
+            </div>
+            <n-alert v-if="consoleLoaded && !guacdOk" type="error" :bordered="false" class="ss-r__full">
+              <div>{{ t("settings.system.guacd_down", { address: guacdAddress, reason: guacdError }) }}</div>
+              <code v-if="guacdCmd" class="rdp-install-cmd">{{ guacdCmd }}</code>
+            </n-alert>
+            <n-alert v-else-if="consoleLoaded && guacdMissingFor.length" type="error" :bordered="false"
+                     class="ss-r__full">
+              {{ t("settings.system.guacd_protocol_missing", { protocols: guacdMissingFor.join("、").toUpperCase() }) }}
+            </n-alert>
+          </div>
+          <div class="ss-r fld sftp-max">
+            <div class="ss-r__text">
+              <label>{{ t("settings.system.sftp_max_mb") }}</label>
+              <div class="hint">{{ t("settings.system.sftp_max_mb_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-space :size="8" align="center" :wrap="false">
+                <!-- Enter 由外層的 div 接：n-input-number 不會把 keyup 轉出來。
+                     不給 min／max：那會讓元件把超出範圍的值自動夾到邊界後存下去 -->
+                <div @keyup.enter="commitSftpMax">
+                  <n-input-number v-model:value="sftpMaxInput" :step="100" :show-button="false"
+                                  style="width:150px" @blur="commitSftpMax">
+                    <template #suffix>MB</template>
+                  </n-input-number>
+                </div>
+                <n-button size="small" :loading="probe?.running" @click="checkSftpPath">
+                  {{ t("settings.system.sftp_probe_run") }}
+                </n-button>
+              </n-space>
+            </div>
+            <div v-if="probe?.running" class="hint sftp-probe-running ss-r__full">
+              {{ t("settings.system.sftp_probe_running", {
+                stage: probe.stage === "down" ? t("settings.system.sftp_probe_down") : t("settings.system.sftp_probe_up"),
+                pct: probe.pct ?? 0 }) }}
+            </div>
+            <n-alert v-else-if="probe?.result" class="sftp-probe-result ss-r__full" :bordered="false"
+                     :type="probe.result.ok ? (probeSlow ? 'warning' : 'success') : 'error'">
+              <div>{{ probeText }}</div>
+              <div class="hint" style="margin-top:4px">{{ t("settings.system.sftp_probe_note") }}</div>
+            </n-alert>
+          </div>
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("settings.system.rdp_clip_paste") }}</label>
+              <div class="hint">{{ t("settings.system.rdp_clip_paste_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-switch :value="rdpClipPaste" @update:value="changeRdpClipPaste" />
+            </div>
           </div>
         </div>
       </n-card>
@@ -1213,6 +1238,21 @@ async function doPreviewAutolink() {
 .ss-group :deep(.n-button + .hint),
 .ss-group :deep(.ss-row + .hint) { margin-top: 10px; }
 .ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* 一列一個設定（資安區塊）：左邊名稱與說明、右邊控制項；警示與檢測結果整列寬放在下面 */
+.ss-rows { display: flex; flex-direction: column; }
+.ss-r { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: 8px 32px;
+        align-items: center; padding: 12px 0; }
+.ss-r + .ss-r { border-top: 1px solid var(--n-border-color, rgba(128, 128, 128, .16)); }
+.ss-r:first-child { padding-top: 2px; }
+.ss-r__text label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+.ss-r__text .hint { max-width: 760px; line-height: 1.6; }
+.ss-r__ctl { display: flex; justify-content: flex-end; min-width: 0; }
+.ss-r__ctl > :deep(.n-select) { width: 100%; }
+.ss-r__full { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .ss-r { grid-template-columns: 1fr; }
+  .ss-r__ctl { justify-content: flex-start; }
+}
 /* 只有一個欄位時就別佔半格：右半邊空著、說明卻提早換行（使用者回報）。 */
 .ss-grid > :only-child { grid-column: 1 / -1; }
 /* 寬螢幕改三欄，把右邊的空間用掉 */

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 
 const { t } = useI18n();
+const router = useRouter();
 
 // 工具結果欄位名稱 → 顯示文字（找不到就原樣顯示）
 const FIELD_LABELS = computed<Record<string, string>>(() => ({
@@ -169,6 +171,11 @@ async function nuRange() { nu.value.rRes = await callTool("range-to-cidr", { sta
 async function nuC2r() { nu.value.c2rRes = await callTool("cidr-to-range", { cidr: nu.value.c2rCidr }); }
 async function nuAgg() { nu.value.aggRes = await callTool("aggregate", { cidrs: nu.value.aggIn }); }
 async function nuNm() { nu.value.nmRes = await callTool("netmask", { value: nu.value.nmVal }); }
+const nuHistMac = ref("");
+function openMacHistory() {
+  const m = nuHistMac.value.trim();
+  if (m) void router.push({ name: "mac-history", params: { mac: m } });
+}
 async function nuMac() { nu.value.macRes = await callTool("mac-format", { mac: nu.value.macVal }); }
 async function nuFqdn() { nu.value.fqdnRes = await callTool("fqdn", { name: nu.value.fqdnVal }); }
 async function nuDns() { nu.value.dnsRes = await callTool("dns-lookup", { name: nu.value.dnsName, type: nu.value.dnsType }); }
@@ -379,6 +386,14 @@ async function runEui64() {
           <span class="tab-h"><n-icon :size="16"><DevicesIcon /></n-icon>{{ t('tools_page.cat_mac') }}</span>
         </template>
         <div class="nu-grid">
+          <!-- MAC 歷程：以 MAC 為中心查它用過的 IP 與所有相關記錄 -->
+          <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><DevicesIcon /></n-icon>{{ t('mac_history.title') }}</span></template>
+            <div class="nu-row">
+              <n-input v-model:value="nuHistMac" placeholder="00:11:22:33:44:55" @keyup.enter="openMacHistory" />
+              <n-button type="primary" class="nu-go" @click="openMacHistory"><template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("tools_page.lookup") }}</n-button>
+            </div>
+            <div style="font-size:12px;opacity:.65;margin-top:8px">{{ t("mac_history.hint") }}</div>
+          </n-card>
           <!-- MAC format -->
           <n-card size="small"><template #header><span class="nu-h"><n-icon :size="16"><DevicesIcon /></n-icon>{{ t('tools_page.t_mac') }}</span></template>
             <div class="nu-row">

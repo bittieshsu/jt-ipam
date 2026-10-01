@@ -46,11 +46,34 @@ async def scan(
             "duplicate_ip_records": len(report.duplicate_ip_records),
             "suspicious_changes": len(report.suspicious_changes),
             "fw_rule_rot": len(report.fw_rule_rot),
+            "mac_flapping": len(report.mac_flapping),
+            "identity_changes": len(report.identity_changes),
         },
         request_id=getattr(request.state, "request_id", None),
     )
+    from app.services.anomaly import attach_liveness
+    from app.services.system_config import set_anomaly_report
+    data = report.to_dict()
+    await set_anomaly_report(session, data, trigger="manual")
     await session.commit()
-    return report.to_dict()
+    return await attach_liveness(session, data)
+
+
+@router.get("/last", dependencies=[Depends(require_admin)])
+async def last_report(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """上一次偵測的結果（手動或排程）。進頁面先顯示這份，不用每次重跑。
+
+    上線狀態（`live`）是**現在**算的，不是偵測當時的快照。
+    """
+    from app.services.anomaly import attach_liveness
+    from app.services.system_config import get_anomaly_report
+    saved = await get_anomaly_report(session)
+    if saved is None:
+        return {"report": None, "at": None, "trigger": None}
+    return {"report": await attach_liveness(session, saved["report"]),
+            "at": saved.get("at"), "trigger": saved.get("trigger")}
 
 @router.post("/triage", dependencies=[Depends(require_admin)])
 async def triage(

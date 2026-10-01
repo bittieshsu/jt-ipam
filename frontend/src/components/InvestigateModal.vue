@@ -142,6 +142,7 @@
  * 事實與推測分開：上半部全是查得到的事實，模型的判讀要按了才出現，而且標明是推測。
  * 模型不可用時這個視窗仍然完整可用 —— 真正省時間的是把線索收在一起，不是那段敘述。
  */
+import { isRandomMac } from "@/utils/mac";
 import { computed, ref, watch } from "vue";
 import {
   NAlert, NButton, NCollapse, NCollapseItem, NIcon, NModal, NSpin, NTag,
@@ -197,8 +198,15 @@ const conflicts = computed<string[]>(() => {
   if (v.other_records?.length) {
     out.push(t("investigate.conflict_duplicate", { n: v.other_records.length + 1 }));
   }
-  const macs = new Set((v.arp ?? []).map((a: any) => a.mac));
-  if (macs.size > 2) out.push(t("investigate.conflict_macs", { n: macs.size }));
+  // 隨機（私人 Wi‑Fi）MAC 不算：手機、筆電換了位址不是「兩台在搶」（使用者回報：
+  // 3 個 MAC 裡有兩個是隨機的，卻被說成「單一主機不會這樣」）
+  const macs: string[] = [...new Set<string>((v.arp ?? []).map((a: any) => String(a.mac)))];
+  const random = macs.filter((m) => isRandomMac(m));
+  const burned = macs.length - random.length;
+  if (burned > 2) out.push(t("investigate.conflict_macs", { n: burned }));
+  else if (macs.length > 2 && random.length) {
+    out.push(t("investigate.conflict_macs_random", { n: macs.length, r: random.length }));
+  }
   return out;
 });
 

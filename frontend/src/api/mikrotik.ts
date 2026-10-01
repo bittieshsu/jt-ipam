@@ -19,6 +19,13 @@ export interface MikroTikRouter {
   sync_vpn: boolean;
   /** 預設關：全表 ARP 在大型路由器上可能是上萬列 */
   sync_arp: boolean;
+  /** 第二階段：實體介面寫進對應裝置的連接埠、/ip/neighbor（LLDP/CDP/MNDP）鄰居 */
+  sync_interfaces: boolean;
+  sync_neighbors: boolean;
+  /** 預設關：bridge host 表（FDB）在大型 bridge 上可能是上萬列 */
+  sync_fdb: boolean;
+  /** 這台路由器＝哪一台 jt-ipam 裝置；沒指定時由 API 位址對到的 IP 所屬裝置帶入 */
+  device_id: string | null;
   /** CPU 超過這個百分比就停掉本輪剩下的區段 */
   cpu_load_limit: number;
   section_delay_ms: number;
@@ -48,6 +55,10 @@ export interface MikroTikWrite {
   sync_address_lists?: boolean;
   sync_vpn?: boolean;
   sync_arp?: boolean;
+  sync_interfaces?: boolean;
+  sync_neighbors?: boolean;
+  sync_fdb?: boolean;
+  device_id?: string | null;
   cpu_load_limit?: number;
   section_delay_ms?: number;
   max_response_mb?: number;
@@ -88,6 +99,14 @@ export interface MikroTikRule {
 export interface MikroTikAddressListEntry {
   id: string; list_name: string; address: string;
   dynamic: boolean; timeout: string | null; comment: string | null;
+}
+
+/** `/ip/neighbor` 鏡像；`device_*`：依鄰居宣告的位址或 MAC 對到的裝置（對到多台不填） */
+export interface MikroTikNeighbor {
+  interface: string; address: string | null; mac: string | null; identity: string | null;
+  platform: string | null; board: string | null; version: string | null;
+  remote_interface: string | null; discovered_by: string | null; last_seen_at: string | null;
+  device_id: string | null; device_name: string | null;
 }
 
 export async function listMikroTik(): Promise<Paginated<MikroTikRouter>> {
@@ -137,5 +156,10 @@ export async function listMikroTikAddressLists(
   const { data } = await apiClient.get<{ items: MikroTikAddressListEntry[] }>(
     `/api/v1/mikrotik/${id}/address-lists`,
     { params: listName ? { list_name: listName } : undefined });
+  return data.items ?? [];
+}
+
+export async function listMikroTikNeighbors(id: string): Promise<MikroTikNeighbor[]> {
+  const { data } = await apiClient.get<{ items: MikroTikNeighbor[] }>(`/api/v1/mikrotik/${id}/neighbors`);
   return data.items ?? [];
 }

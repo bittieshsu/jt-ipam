@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>jt-ipam — BMC serial console (IPMI SOL) setup</title>
+<title>jt-ipam: BMC serial console (IPMI SOL) setup</title>
 <meta name="description" content="Getting a picture out of BMC IPMI SOL: recommended BIOS console-redirection settings field by field, and the host's own serial console setup." />
 <style>
   :root{
@@ -38,7 +38,7 @@
   /* ── 語言切換（自訂下拉） ── */
   /* 不用原生 <select>：桌面瀏覽器會叫出作業系統自己的彈出視窗，長相與站上其他元件
      完全不同，也套不上我們的配色與圓角。面板自己畫，行為才一致。
-     也不用三顆並排 —— 那在窄視窗會把頂列擠開，每加一種語言就更擠。 */
+     也不用三顆並排：那在窄視窗會把頂列擠開，每加一種語言就更擠。 */
   .langsw{position:relative;display:inline-flex;align-items:center}
   .langsw > button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
     border-radius:10px;background:#fff;color:var(--ink);font-family:inherit;font-size:13px;
@@ -178,24 +178,24 @@
 <div class="wrap">
   <h1><span class="zh">BMC 序列主控台（IPMI SOL）設定</span><span class="en">BMC serial console (IPMI SOL) setup</span><span class="ja">BMC シリアルコンソール（IPMI SOL）の設定</span></h1>
   <p class="sub">
-    <span class="zh">SOL 只是把主機的<strong>序列埠</strong>轉播出來 —— 主機沒有把畫面送到序列埠，SOL 就是一片空白，這不是連線失敗。要看到完整畫面需要兩層設定：<strong>BIOS 的 Console Redirection</strong>（POST / BIOS 選單 / 開機載入器）與<strong>作業系統的序列主控台</strong>（kernel 訊息與登入提示）。</span>
-    <span class="en">SOL only relays the host's <strong>serial port</strong>. If the host sends nothing to that port the screen stays blank — that is not a failed connection. Two layers are involved: <strong>BIOS console redirection</strong> (POST, BIOS menu, boot loader) and the <strong>operating system's serial console</strong> (kernel messages and the login prompt).</span><span class="ja">SOL はホストの<strong>シリアルポート</strong>を中継しているだけです。ホストがそのポートへ何も出力していなければ画面は真っ白のままで、これは接続の失敗ではありません。関係する層は二つあります。<strong>BIOS のコンソールリダイレクション</strong>（POST・BIOS メニュー・ブートローダ）と、<strong>OS 側のシリアルコンソール</strong>（カーネルメッセージとログインプロンプト）です。</span>
+    <span class="zh">SOL 只是把主機的<strong>序列埠</strong>轉播出來：主機沒有把畫面送到序列埠，SOL 就是一片空白，這不是連線失敗。要看到完整畫面需要兩層設定：<strong>BIOS 的 Console Redirection</strong>（POST / BIOS 選單 / 開機載入器）與<strong>作業系統的序列主控台</strong>（kernel 訊息與登入提示）。</span>
+    <span class="en">SOL only relays the host's <strong>serial port</strong>. If the host sends nothing to that port the screen stays blank; that is not a failed connection. Two layers are involved: <strong>BIOS console redirection</strong> (POST, BIOS menu, boot loader) and the <strong>operating system's serial console</strong> (kernel messages and the login prompt).</span><span class="ja">SOL はホストの<strong>シリアルポート</strong>を中継しているだけです。ホストがそのポートへ何も出力していなければ画面は真っ白のままで、これは接続の失敗ではありません。関係する層は二つあります。<strong>BIOS のコンソールリダイレクション</strong>（POST・BIOS メニュー・ブートローダ）と、<strong>OS 側のシリアルコンソール</strong>（カーネルメッセージとログインプロンプト）です。</span>
   </p>
 
   <div class="callout">
-    <span class="zh"><strong>只想馬上能登入？</strong> 跳到 <a href="#os">作業系統設定</a> 的步驟 2 —— 啟用 serial-getty 即可，免重新開機。<strong>要看 POST / BIOS 選單</strong>才需要下面的 BIOS 設定。</span>
-    <span class="en"><strong>Just want a login prompt?</strong> Jump to step 2 of <a href="#os">the OS setup</a> — enabling serial-getty is enough and needs no reboot. The BIOS settings below are only needed to see POST and the BIOS menu.</span><span class="ja"><strong>とりあえずログインできれば良い場合</strong>は <a href="#os">OS 側の設定</a>の手順 2 へ。serial-getty を有効にするだけで足り、再起動も不要です。下の BIOS 設定は、POST や BIOS メニューを見たい場合にだけ必要です。</span>
+    <span class="zh"><strong>只想馬上能登入？</strong> 跳到 <a href="#os">作業系統設定</a> 的步驟 2：啟用 serial-getty 即可，免重新開機。<strong>要看 POST / BIOS 選單</strong>才需要下面的 BIOS 設定。</span>
+    <span class="en"><strong>Just want a login prompt?</strong> Jump to step 2 of <a href="#os">the OS setup</a>: enabling serial-getty is enough and needs no reboot. The BIOS settings below are only needed to see POST and the BIOS menu.</span><span class="ja"><strong>とりあえずログインできれば良い場合</strong>は <a href="#os">OS 側の設定</a>の手順 2 へ。serial-getty を有効にするだけで足り、再起動も不要です。下の BIOS 設定は、POST や BIOS メニューを見たい場合にだけ必要です。</span>
   </div>
 
   <!-- ─────────────── BIOS ─────────────── -->
   <h2 id="bios"><span class="zh">一、BIOS：Console Redirection</span><span class="en">1. BIOS: console redirection</span><span class="ja">1. BIOS：コンソールリダイレクション</span></h2>
   <p>
-    <span class="zh">以 AMI (Aptio) 為例，路徑是 <code>Advanced → Serial Port Console Redirection</code>。該畫面通常列出 <code>COM1</code>、<code>COM2</code>、<code>SOL</code> 等多個項目 —— <strong>要設定的是 SOL 那一個</strong>（有些主機板寫成 <code>COM2 (SOL)</code>），先把它的 <code>Console Redirection</code> 設為 <code>Enabled</code>，再進入 <code>Console Redirection Settings</code>：</span>
-    <span class="en">On AMI (Aptio) the path is <code>Advanced → Serial Port Console Redirection</code>. That screen usually lists several entries — <code>COM1</code>, <code>COM2</code>, <code>SOL</code> — and <strong>the one to configure is SOL</strong> (some boards label it <code>COM2 (SOL)</code>). Set its <code>Console Redirection</code> to <code>Enabled</code>, then open <code>Console Redirection Settings</code>:</span><span class="ja">AMI (Aptio) の場合、場所は <code>Advanced → Serial Port Console Redirection</code> です。この画面には <code>COM1</code>・<code>COM2</code>・<code>SOL</code> など複数の項目が並びますが、<strong>設定するのは SOL の項目</strong>です（<code>COM2 (SOL)</code> と表記する製品もあります）。まずその <code>Console Redirection</code> を <code>Enabled</code> にし、続いて <code>Console Redirection Settings</code> を開きます。</span>
+    <span class="zh">以 AMI (Aptio) 為例，路徑是 <code>Advanced → Serial Port Console Redirection</code>。該畫面通常列出 <code>COM1</code>、<code>COM2</code>、<code>SOL</code> 等多個項目，<strong>要設定的是 SOL 那一個</strong>（有些主機板寫成 <code>COM2 (SOL)</code>），先把它的 <code>Console Redirection</code> 設為 <code>Enabled</code>，再進入 <code>Console Redirection Settings</code>：</span>
+    <span class="en">On AMI (Aptio) the path is <code>Advanced → Serial Port Console Redirection</code>. That screen usually lists several entries (<code>COM1</code>, <code>COM2</code>, <code>SOL</code>), and <strong>the one to configure is SOL</strong> (some boards label it <code>COM2 (SOL)</code>). Set its <code>Console Redirection</code> to <code>Enabled</code>, then open <code>Console Redirection Settings</code>:</span><span class="ja">AMI (Aptio) の場合、場所は <code>Advanced → Serial Port Console Redirection</code> です。この画面には <code>COM1</code>・<code>COM2</code>・<code>SOL</code> など複数の項目が並びますが、<strong>設定するのは SOL の項目</strong>です（<code>COM2 (SOL)</code> と表記する製品もあります）。まずその <code>Console Redirection</code> を <code>Enabled</code> にし、続いて <code>Console Redirection Settings</code> を開きます。</span>
   </p>
 
   <div class="bios">
-    <div class="bios-t">Aptio Setup Utility &mdash; Advanced &mdash; SOL &mdash; Console Redirection Settings</div>
+    <div class="bios-t">Aptio Setup Utility: Advanced → SOL → Console Redirection Settings</div>
 <pre>  Terminal Type                       <b>[VT100+]</b>
   Bits per second                     <b>[115200]</b>
   Data Bits                           <b>[8]</b>
@@ -223,7 +223,7 @@
       </tr>
       <tr>
         <td>Bits per second</td><td><code>115200</code></td>
-        <td><span class="zh"><strong>必須與 BMC 的 SOL 速率相同</strong>。查法：<code>ipmitool -I open sol info 1 | grep 'Bit Rate'</code>。不一致的症狀是「有畫面但整片亂碼」。</span><span class="en"><strong>Must match the BMC's SOL rate</strong> — check with <code>ipmitool -I open sol info 1 | grep 'Bit Rate'</code>. A mismatch shows up as a screen full of garbage.</span><span class="ja"><strong>BMC の SOL 速度と一致している必要があります</strong>。確認は <code>ipmitool -I open sol info 1 | grep 'Bit Rate'</code>。食い違うと画面一面が文字化けします。</span></td>
+        <td><span class="zh"><strong>必須與 BMC 的 SOL 速率相同</strong>。查法：<code>ipmitool -I open sol info 1 | grep 'Bit Rate'</code>。不一致的症狀是「有畫面但整片亂碼」。</span><span class="en"><strong>Must match the BMC's SOL rate</strong>; check with <code>ipmitool -I open sol info 1 | grep 'Bit Rate'</code>. A mismatch shows up as a screen full of garbage.</span><span class="ja"><strong>BMC の SOL 速度と一致している必要があります</strong>。確認は <code>ipmitool -I open sol info 1 | grep 'Bit Rate'</code>。食い違うと画面一面が文字化けします。</span></td>
       </tr>
       <tr>
         <td>Data Bits / Parity / Stop Bits</td><td><code>8</code> / <code>None</code> / <code>1</code></td>
@@ -231,7 +231,7 @@
       </tr>
       <tr>
         <td>Flow Control</td><td><code>None</code></td>
-        <td><span class="zh">設成 <code>Hardware RTS/CTS</code> 但 SOL 這條路上沒有對應的線控，輸出送幾行就停住 —— 看起來像「連上之後畫面凍住」。</span><span class="en">Set to <code>Hardware RTS/CTS</code> with nothing on the SOL side to answer it, output stops after a few lines — it looks like the session froze right after connecting.</span><span class="ja"><code>Hardware RTS/CTS</code> にしても SOL 側に応じる相手がいないため、数行で出力が止まります。接続直後に画面が固まったように見えます。</span></td>
+        <td><span class="zh">設成 <code>Hardware RTS/CTS</code> 但 SOL 這條路上沒有對應的線控，輸出送幾行就停住，看起來像「連上之後畫面凍住」。</span><span class="en">Set to <code>Hardware RTS/CTS</code> with nothing on the SOL side to answer it, output stops after a few lines; it looks like the session froze right after connecting.</span><span class="ja"><code>Hardware RTS/CTS</code> にしても SOL 側に応じる相手がいないため、数行で出力が止まります。接続直後に画面が固まったように見えます。</span></td>
       </tr>
       <tr>
         <td>VT-UTF8 Combo Key Support</td><td><code>Enabled</code></td>
@@ -243,7 +243,7 @@
       </tr>
       <tr>
         <td>Resolution 100x31</td><td><code>Enabled</code></td>
-        <td><span class="zh">BIOS 用 100&times;31 而不是 80&times;24。若你的終端機固定 80 欄，右側會被切掉 —— 那就把這格關掉，或在主控台工具列按「符合視窗」。</span><span class="en">Draws the BIOS at 100&times;31 instead of 80&times;24. If your terminal is fixed at 80 columns the right edge is cut off — either turn this off or use the console's "fit to window" button.</span><span class="ja">BIOS を 80&times;24 ではなく 100&times;31 で描画します。端末が 80 桁固定だと右端が切れるので、この項目を無効にするか、コンソールのツールバーの「ウィンドウに合わせる」を使ってください。</span></td>
+        <td><span class="zh">BIOS 用 100&times;31 而不是 80&times;24。若你的終端機固定 80 欄，右側會被切掉，那就把這格關掉，或在主控台工具列按「符合視窗」。</span><span class="en">Draws the BIOS at 100&times;31 instead of 80&times;24. If your terminal is fixed at 80 columns the right edge is cut off; either turn this off or use the console's "fit to window" button.</span><span class="ja">BIOS を 80&times;24 ではなく 100&times;31 で描画します。端末が 80 桁固定だと右端が切れるので、この項目を無効にするか、コンソールのツールバーの「ウィンドウに合わせる」を使ってください。</span></td>
       </tr>
       <tr>
         <td>Legacy OS Redirection Resolution</td><td><code>80x24</code></td>
@@ -255,14 +255,14 @@
       </tr>
       <tr class="hi">
         <td>Redirection After BIOS POST</td><td><code>Always Enable</code></td>
-        <td><span class="zh"><strong>最常設錯的一格。</strong><code>Disabled</code> 或 <code>Boot Loader</code> 會讓轉播在 POST 結束（或載入器交棒）後停掉，症狀是<strong>「看得到 BIOS，開機之後就沒畫面了」</strong> —— 很容易被誤判成作業系統那邊沒設好。</span><span class="en"><strong>The one that is most often wrong.</strong> <code>Disabled</code> or <code>Boot Loader</code> stops the relay once POST finishes (or once the loader hands over), so you <strong>see the BIOS and then nothing after boot</strong> — which is easily mistaken for a missing OS-side setting.</span><span class="ja"><strong>最も間違えやすい項目です。</strong><code>Disabled</code> や <code>Boot Loader</code> にすると、POST 終了時（またはローダが制御を渡した時点）で中継が止まります。<strong>BIOS は見えるのに起動後は何も出ない</strong>という症状になり、OS 側の設定漏れと誤解されがちです。</span></td>
+        <td><span class="zh"><strong>最常設錯的一格。</strong><code>Disabled</code> 或 <code>Boot Loader</code> 會讓轉播在 POST 結束（或載入器交棒）後停掉，症狀是<strong>「看得到 BIOS，開機之後就沒畫面了」</strong>，很容易被誤判成作業系統那邊沒設好。</span><span class="en"><strong>The one that is most often wrong.</strong> <code>Disabled</code> or <code>Boot Loader</code> stops the relay once POST finishes (or once the loader hands over), so you <strong>see the BIOS and then nothing after boot</strong>, which is easily mistaken for a missing OS-side setting.</span><span class="ja"><strong>最も間違えやすい項目です。</strong><code>Disabled</code> や <code>Boot Loader</code> にすると、POST 終了時（またはローダが制御を渡した時点）で中継が止まります。<strong>BIOS は見えるのに起動後は何も出ない</strong>という症状になり、OS 側の設定漏れと誤解されがちです。</span></td>
       </tr>
     </tbody>
   </table>
 
   <p class="note">
     <span class="zh">其他廠牌名稱不同，設定的是同一件事：<strong>HPE iLO</strong> 是 <code>BIOS/Platform Configuration → Serial Port Options → Virtual Serial Port</code>；<strong>Dell iDRAC</strong> 是 <code>Serial Communication</code>（把 <code>Serial Communication</code> 設為 <em>On with Console Redirection</em>、<code>Serial Port Address</code> 對到 <em>Serial Device 2</em>）；<strong>Supermicro</strong> 在 <code>Advanced → Serial Port Console Redirection</code>，項目名為 <code>SOL/COM2</code>。</span>
-    <span class="en">Other vendors name it differently but configure the same thing: <strong>HPE iLO</strong> — <code>BIOS/Platform Configuration → Serial Port Options → Virtual Serial Port</code>; <strong>Dell iDRAC</strong> — <code>Serial Communication</code> (set it to <em>On with Console Redirection</em> and point <code>Serial Port Address</code> at <em>Serial Device 2</em>); <strong>Supermicro</strong> — <code>Advanced → Serial Port Console Redirection</code>, the entry named <code>SOL/COM2</code>.</span><span class="ja">メーカーによって名称は異なりますが、設定している内容は同じです。<strong>HPE iLO</strong> は <code>BIOS/Platform Configuration → Serial Port Options → Virtual Serial Port</code>、<strong>Dell iDRAC</strong> は <code>Serial Communication</code>（<em>On with Console Redirection</em> にし、<code>Serial Port Address</code> を <em>Serial Device 2</em> に向けます）、<strong>Supermicro</strong> は <code>Advanced → Serial Port Console Redirection</code> の <code>SOL/COM2</code> という項目です。</span>
+    <span class="en">Other vendors name it differently but configure the same thing: <strong>HPE iLO</strong>: <code>BIOS/Platform Configuration → Serial Port Options → Virtual Serial Port</code>; <strong>Dell iDRAC</strong>: <code>Serial Communication</code> (set it to <em>On with Console Redirection</em> and point <code>Serial Port Address</code> at <em>Serial Device 2</em>); <strong>Supermicro</strong>: <code>Advanced → Serial Port Console Redirection</code>, the entry named <code>SOL/COM2</code>.</span><span class="ja">メーカーによって名称は異なりますが、設定している内容は同じです。<strong>HPE iLO</strong> は <code>BIOS/Platform Configuration → Serial Port Options → Virtual Serial Port</code>、<strong>Dell iDRAC</strong> は <code>Serial Communication</code>（<em>On with Console Redirection</em> にし、<code>Serial Port Address</code> を <em>Serial Device 2</em> に向けます）、<strong>Supermicro</strong> は <code>Advanced → Serial Port Console Redirection</code> の <code>SOL/COM2</code> という項目です。</span>
   </p>
 
   <!-- ─────────────── OS ─────────────── -->
@@ -272,24 +272,24 @@
     <span class="en">The BIOS only covers POST through the boot loader. For kernel messages and a login prompt the OS has to write to the same serial port.</span><span class="ja">BIOS が面倒を見るのは POST からブートローダまでです。カーネルメッセージとログインプロンプトを見るには、OS も同じシリアルポートへ出力する必要があります。</span>
   </p>
 
-  <h3 id="os-step-1"><span class="zh">步驟 1 &mdash; 找出 SOL 對應的埠</span><span class="en">Step 1 &mdash; find the port SOL maps to</span><span class="ja">手順 1 &mdash; SOL に対応するポートを特定する</span></h3>
+  <h3 id="os-step-1"><span class="zh">步驟 1：找出 SOL 對應的埠</span><span class="en">Step 1: find the port SOL maps to</span><span class="ja">手順 1：SOL に対応するポートを特定する</span></h3>
   <pre class="cmd">dmesg | grep -iE 'ttyS|SPCR'
 # SPCR: console: uart,io,0x3f8,115200  →  0x3f8 = ttyS0 / 0x2f8 = ttyS1</pre>
   <p class="note">
     <span class="zh">SPCR 宣告的未必就是 BMC 實際轉播的那一個。連著 SOL 時逐埠送測試字，哪個出現才是對的：<code>echo test &gt; /dev/ttyS0</code>、<code>echo test &gt; /dev/ttyS1</code>；或看 <code>/proc/tty/driver/serial</code>，<code>rx</code> 有在增加的那個就是。</span>
-    <span class="en">What SPCR declares is not always what the BMC relays. With SOL connected, send a marker to each port and see which one appears: <code>echo test &gt; /dev/ttyS0</code>, <code>echo test &gt; /dev/ttyS1</code> — or read <code>/proc/tty/driver/serial</code> and pick the one whose <code>rx</code> counter moves.</span><span class="ja">SPCR が宣言している値が、BMC が実際に中継しているポートとは限りません。SOL を接続した状態で各ポートへ目印を送り、どれが画面に出るかを見ます。<code>echo test &gt; /dev/ttyS0</code>、<code>echo test &gt; /dev/ttyS1</code>。あるいは <code>/proc/tty/driver/serial</code> を読み、<code>rx</code> のカウンタが増えているポートを選びます。</span>
+    <span class="en">What SPCR declares is not always what the BMC relays. With SOL connected, send a marker to each port and see which one appears: <code>echo test &gt; /dev/ttyS0</code>, <code>echo test &gt; /dev/ttyS1</code>; or read <code>/proc/tty/driver/serial</code> and pick the one whose <code>rx</code> counter moves.</span><span class="ja">SPCR が宣言している値が、BMC が実際に中継しているポートとは限りません。SOL を接続した状態で各ポートへ目印を送り、どれが画面に出るかを見ます。<code>echo test &gt; /dev/ttyS0</code>、<code>echo test &gt; /dev/ttyS1</code>。あるいは <code>/proc/tty/driver/serial</code> を読み、<code>rx</code> のカウンタが増えているポートを選びます。</span>
   </p>
 
-  <h3 id="os-step-2"><span class="zh">步驟 2 &mdash; 啟用序列登入（立即生效、免重開機）</span><span class="en">Step 2 &mdash; enable a serial login (takes effect immediately)</span><span class="ja">手順 2 &mdash; シリアルログインを有効にする（即時反映・再起動不要）</span></h3>
+  <h3 id="os-step-2"><span class="zh">步驟 2：啟用序列登入（立即生效、免重開機）</span><span class="en">Step 2: enable a serial login (takes effect immediately)</span><span class="ja">手順 2：シリアルログインを有効にする（即時反映・再起動不要）</span></h3>
   <pre class="cmd">systemctl enable --now serial-getty@ttyS1.service</pre>
 
-  <h3 id="os-step-3"><span class="zh">步驟 3 &mdash; 加入核心 console 參數</span><span class="en">Step 3 &mdash; add the kernel console parameter</span><span class="ja">手順 3 &mdash; カーネルの console パラメータを追加する</span></h3>
+  <h3 id="os-step-3"><span class="zh">步驟 3：加入核心 console 參數</span><span class="en">Step 3: add the kernel console parameter</span><span class="ja">手順 3：カーネルの console パラメータを追加する</span></h3>
   <pre class="cmd"># GRUB：/etc/default/grub
 GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty0 console=ttyS1,115200n8"
 update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline 後 proxmox-boot-tool refresh</pre>
   <p class="note">
-    <span class="zh">保留 <code>console=tty0</code>，機房實體螢幕才不會失去輸出。<strong><code>console=</code> 只掛 SOL 那一個 ttyS</strong> —— 掛兩個以上時核心會挑最後一個當主控台，很容易挑錯。用 <code>cat /proc/consoles</code> 確認。改完要<strong>重新開機</strong>才生效。</span>
-    <span class="en">Keep <code>console=tty0</code> so the physical monitor still gets output. <strong>List only the SOL port in <code>console=</code></strong> — with more than one the kernel takes the last as its console, which is easy to get wrong. Confirm with <code>cat /proc/consoles</code>. A <strong>reboot</strong> is required.</span><span class="ja"><code>console=tty0</code> は残しておきます。そうすればサーバルームの物理モニタにも出力が残ります。<strong><code>console=</code> には SOL のポートだけを書いてください</strong>。二つ以上書くとカーネルは最後のものをコンソールとして扱うため、意図しない側になりがちです。<code>cat /proc/consoles</code> で確認できます。反映には<strong>再起動</strong>が必要です。</span>
+    <span class="zh">保留 <code>console=tty0</code>，機房實體螢幕才不會失去輸出。<strong><code>console=</code> 只掛 SOL 那一個 ttyS</strong>：掛兩個以上時核心會挑最後一個當主控台，很容易挑錯。用 <code>cat /proc/consoles</code> 確認。改完要<strong>重新開機</strong>才生效。</span>
+    <span class="en">Keep <code>console=tty0</code> so the physical monitor still gets output. <strong>List only the SOL port in <code>console=</code></strong>; with more than one the kernel takes the last as its console, which is easy to get wrong. Confirm with <code>cat /proc/consoles</code>. A <strong>reboot</strong> is required.</span><span class="ja"><code>console=tty0</code> は残しておきます。そうすればサーバルームの物理モニタにも出力が残ります。<strong><code>console=</code> には SOL のポートだけを書いてください</strong>。二つ以上書くとカーネルは最後のものをコンソールとして扱うため、意図しない側になりがちです。<code>cat /proc/consoles</code> で確認できます。反映には<strong>再起動</strong>が必要です。</span>
   </p>
 
   <!-- ─────────────── 疑難排解 ─────────────── -->
@@ -333,7 +333,7 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
 
   <p class="note">
     <span class="zh">同一份教學（作業系統的部分）也內建在 App 裡：開啟 BMC 主控台後按<strong>設定教學</strong>。BMC 主控台為 <strong>Beta</strong>，只有鍵盤與文字畫面，不含電源控制或滑鼠。</span>
-    <span class="en">The OS half of this guide is also built into the app — open a BMC console and press <strong>Setup guide</strong>. The BMC console is <strong>Beta</strong>: keyboard and text screen only, no power control and no mouse.</span><span class="ja">この手引きの OS 側の内容はアプリにも組み込まれています。BMC コンソールを開いて<strong>設定ガイド</strong>を押してください。BMC コンソールは <strong>Beta</strong> で、キーボードとテキスト画面のみです。電源制御やマウスには対応していません。</span>
+    <span class="en">The OS half of this guide is also built into the app: open a BMC console and press <strong>Setup guide</strong>. The BMC console is <strong>Beta</strong>: keyboard and text screen only, no power control and no mouse.</span><span class="ja">この手引きの OS 側の内容はアプリにも組み込まれています。BMC コンソールを開いて<strong>設定ガイド</strong>を押してください。BMC コンソールは <strong>Beta</strong> で、キーボードとテキスト画面のみです。電源制御やマウスには対応していません。</span>
   </p>
   <footer>
     <span class="zh">完整原始碼與文件見 </span><span class="en">Full source &amp; docs at </span><span class="ja">ソースとドキュメントは </span>
@@ -378,7 +378,7 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
     }
     if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
     items.forEach(function(li){ li.addEventListener('click', function(){ set(li.dataset.lang); }); });
-    // 點面板外面、按 Esc 都要關 —— 自己畫的面板不會自動有這些行為。
+    // 點面板外面、按 Esc 都要關：自己畫的面板不會自動有這些行為。
     document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
     mark();
@@ -386,11 +386,11 @@ update-grub          # Proxmox VE (systemd-boot/ZFS)：改 /etc/kernel/cmdline �
 </script>
 <script>
   /* <title> / description / <html lang> 也要跟著語言走。
-     原本只有內文與截圖會切，文件本身的中繼資料留在原地 —— 於是三種語言的
+     原本只有內文與截圖會切，文件本身的中繼資料留在原地，於是三種語言的
      分頁標題、搜尋結果與分享預覽全都是中文。靜態值放預設語言（英文），
      這樣沒有 JavaScript 的讀者與爬蟲拿到的也是對的那一份。 */
   (function(){
-    var META = {"zh": ["jt-ipam — BMC 序列主控台（IPMI SOL）設定", "讓 BMC IPMI SOL 看得到畫面：BIOS Console Redirection 逐欄建議值與作業系統序列主控台設定。"], "en": ["jt-ipam — BMC serial console (IPMI SOL) setup", "Getting a picture out of BMC IPMI SOL: recommended BIOS console-redirection settings field by field, and the host's own serial console setup."], "ja": ["jt-ipam — BMC シリアルコンソール（IPMI SOL）の設定", "BMC の IPMI SOL に画面を出すために：BIOS のコンソールリダイレクト設定を項目ごとに、そして OS 側のシリアルコンソール設定。"]};
+    var META = {"zh": ["jt-ipam：BMC 序列主控台（IPMI SOL）設定", "讓 BMC IPMI SOL 看得到畫面：BIOS Console Redirection 逐欄建議值與作業系統序列主控台設定。"], "en": ["jt-ipam: BMC serial console (IPMI SOL) setup", "Getting a picture out of BMC IPMI SOL: recommended BIOS console-redirection settings field by field, and the host's own serial console setup."], "ja": ["jt-ipam：BMC シリアルコンソール（IPMI SOL）の設定", "BMC の IPMI SOL に画面を出すために：BIOS のコンソールリダイレクト設定を項目ごとに、そして OS 側のシリアルコンソール設定。"]};
     function cur(){
       var c = document.body.className;
       return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';

@@ -170,6 +170,12 @@ class FDBEntry(Base, UUIDPrimaryKeyMixin):
     )
     port_name: Mapped[str | None] = mapped_column(String(64))
     source: Mapped[str] = mapped_column(String(16), default="librenms", nullable=False)
+    #: source=mikrotik 的列（0170）：直接記 jt-ipam 裝置（`device_id` 是 LibreNMS 裝置，這裡沒有），
+    #: 以及是哪台路由器回報的（刪路由器時跟著刪）
+    switch_device_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    mikrotik_router_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mikrotik_routers.id", ondelete="CASCADE"), index=True)
 
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

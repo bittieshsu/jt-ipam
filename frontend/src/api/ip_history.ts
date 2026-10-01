@@ -94,7 +94,7 @@ export async function getAddressSwitchPort(addressId: string): Promise<SwitchPor
 // 事件類型 / 來源 (與後端 EVENT_TYPES / CHANGE_SOURCES 對齊)
 export const IP_CHANGE_EVENT_TYPES = [
   "created", "deleted", "hostname_changed", "mac_changed",
-  "state_changed", "online", "offline", "arp_changed", "edited",
+  "state_changed", "online", "offline", "arp_changed", "os_changed", "kind_changed", "edited",
 ] as const;
 
 export const IP_CHANGE_SOURCES = [

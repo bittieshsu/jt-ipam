@@ -51,7 +51,7 @@ async def gather_evidence(session: AsyncSession, user: Any, ip: str) -> dict[str
             select(FDBEntry).where(FDBEntry.mac.in_(macs)).limit(10))).scalars().all()  # bounded: MACs of one IP
         for f in rows:
             port = getattr(f, "port_name", None) or getattr(f, "ifname", None)
-            dev = getattr(f, "device_id", None)
+            dev = getattr(f, "device_id", None) or getattr(f, "switch_device_id", None)
             ports.append(f"{port or '?'}@device:{dev or '?'}")
 
     return {"history": hist, "macs": macs, "vendors": vendors, "switch_ports": ports}

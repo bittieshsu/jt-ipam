@@ -7,6 +7,7 @@
 - `dhcp_lease_sightings`／`dhcp_reservations`／`dhcp_pool_ranges`：租約、固定分配、發放範圍
   （`in_dhcp_lease`／`dhcp_reserved` 旗標重算）
 - `nat_translations`／`vpn_tunnels`：以 `source_origin = "<來源>:<id>"` 標記的列
+- `device_ports`（MikroTik 介面，0170）：沒接線的刪、已接線的留著並拿掉來源標記
 
 每個條件都帶來源類型＋實例 id，只清自己的列。**不 commit**，交易邊界由呼叫端決定。
 """
@@ -56,6 +57,36 @@ async def forget_instance(session: AsyncSession, *, source: str, source_id: uuid
         from app.models.librenms import ARPEntry, FDBEntry
         await session.execute(delete(ARPEntry).where(ARPEntry.instance_id == source_id))
         await session.execute(delete(FDBEntry).where(FDBEntry.instance_id == source_id))
+    if source == "mikrotik":
+        # FDB／鄰居有外鍵 CASCADE 跟著路由器走；介面寫進裝置連接埠（0170）沒有，要自己收回
+        await release_origin_ports(session, origin)
+
+
+async def release_origin_ports(session: AsyncSession, origin: str) -> int:
+    """收回某個來源寫進 `device_ports` 的埠：沒接線的刪掉；已接線、有穿透對應的留著，
+    只拿掉來源標記（變成使用者的埠，不會被別的同步誤刪）。回傳刪除數。"""
+    from sqlalchemy import select, update
+
+    from app.core.sqlin import in_values
+    from app.models.physical import CableTermination, DevicePort
+
+    ids = list((await session.execute(
+        select(DevicePort.id).where(DevicePort.source_origin == origin))).scalars().all())
+    if not ids:
+        return 0
+    keep = set((await session.execute(select(DevicePort.id).where(
+        in_values(DevicePort.id, ids), DevicePort.peer_port_id.is_not(None)))).scalars().all())
+    keep |= set((await session.execute(
+        select(DevicePort.peer_port_id).where(in_values(DevicePort.peer_port_id, ids)))).scalars().all())
+    keep |= set((await session.execute(
+        select(CableTermination.object_id).where(in_values(CableTermination.object_id, ids)))).scalars().all())
+    gone = [i for i in ids if i not in keep]
+    if gone:
+        await session.execute(delete(DevicePort).where(in_values(DevicePort.id, gone)))
+    kept = [i for i in ids if i in keep]
+    if kept:
+        await session.execute(update(DevicePort).where(in_values(DevicePort.id, kept)).values(source_origin=None))
+    return len(gone)
 
 
 async def forget_proxmox_instance(session: AsyncSession, instance: ProxmoxInstance) -> None:
