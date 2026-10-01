@@ -34,6 +34,11 @@ os.environ.setdefault("OUTBOUND_ALLOW_PRIVATE", "true")
 # 測試一律關閉限流：全部請求來自 127.0.0.1，共用 Redis bucket 會在測試間累積、
 # 觸發 429/401 連鎖失敗，且會污染 prod 的 rl:* bucket。
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+# 上傳檔（系統匯入的暫存、機房平面圖）寫到這次測試自己的暫存目錄：預設的 /var/lib/jt-ipam 在
+# GitHub CI 上不存在、也沒有權限建（v0.6.58 的 CI 因此紅）；dev1 以 root 跑才剛好過，而且會寫進系統目錄。
+if "UPLOAD_DIR" not in os.environ:
+    import tempfile
+    os.environ["UPLOAD_DIR"] = os.path.join(tempfile.mkdtemp(prefix="jtipam-test-"), "uploads")
 
 
 # 這一套測試會在**每個測試前 TRUNCATE 所有資料表**。也就是說 JTIPAM_TEST_DATABASE_URL
