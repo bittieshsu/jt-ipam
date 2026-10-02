@@ -443,6 +443,16 @@ async def _attach_fqdns(session: AsyncSession, items: list[dict[str, Any]]) -> N
             it["identity"]["fqdns"] = sorted(by_ip.get(str(ip), ()))
 
 
+async def is_virtual_guest(session: AsyncSession, ip: str | None, mac: str | None = None) -> bool:
+    """虛擬化整合回報這個位址（或 MAC）是某台虛擬機／容器的網卡。
+
+    判讀設備類型時用：虛擬化讓 nmap 的 TCP/IP 指紋失準（PVE 的 LXC 容器被判成 HP NAS，2026-10-02），
+    定期 OS 偵測、手動探測、探測完成的通知都要用同一個答案，同一台才不會在不同畫面判成不同東西。"""
+    if not ip and not mac:
+        return False
+    return await vm_match_for(session, ip=ip, macs=[mac] if mac else None) is not None
+
+
 async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
                        macs: list[str] | None = None) -> dict[str, Any] | None:
     """這個 IP／這些 MAC 是不是虛擬化平台回報的某台 VM。
@@ -472,4 +482,6 @@ async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
     cluster = await session.get(VirtCluster, vm.cluster_id)
     return {"vm": vm.name,
             "cluster": cluster.name if cluster else None,
-            "platform": cluster.type if cluster else "proxmox"}
+            "platform": cluster.type if cluster else "proxmox",
+            # PVE 的 qemu（KVM 虛擬機）＝"vm"、lxc 容器＝"ct"；VMware 沒有這個區分（None）
+            "kind": vm.kind}

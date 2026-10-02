@@ -613,6 +613,34 @@ async def set_rdp_clipboard_paste(
     return bool(enabled)
 
 
+async def get_console_relay_enabled(session: AsyncSession) -> bool:
+    """允許主控台經由掃描代理中繼（issue #24 階段二）。預設關閉。
+
+    兩道網頁開關之一：這裡（系統）與逐台代理的「允許中繼」，都開才會中繼（代理主機不必設定，可用 JT_IPAM_RELAY=0 否決）。
+    """
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row and isinstance(row.value, dict):
+        return bool(row.value.get("console_relay", False))
+    return False
+
+
+async def set_console_relay_enabled(
+    session: AsyncSession, *, enabled: bool, updated_by_user_id: uuid.UUID | None = None,
+) -> bool:
+    row = await session.get(SystemSetting, CONSOLE_SECURITY_KEY)
+    if row is None:
+        row = SystemSetting(key=CONSOLE_SECURITY_KEY, value={}, updated_by=updated_by_user_id)
+        session.add(row)
+    current = dict(row.value or {})
+    current["console_relay"] = bool(enabled)
+    row.value = current
+    row.updated_by = updated_by_user_id
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "value")
+    await session.commit()
+    return bool(enabled)
+
+
 # RDP 主控台的連線引擎。
 #
 # `aardwolf` 是純 Python、零外部行程，一路以來的預設。它的限制在 asyauth 0.0.23：

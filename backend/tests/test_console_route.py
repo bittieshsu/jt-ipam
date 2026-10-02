@@ -74,12 +74,18 @@ async def test_ip_overrides_subnet(db_session: Any) -> None:
 
 
 @pytest.mark.anyio
-async def test_disabled_jump_host_falls_back_to_direct(db_session: Any) -> None:
-    """停用是管理動作，不該讓一整批主控台變成無法連線。"""
+async def test_disabled_jump_host_refuses_instead_of_going_direct(db_session: Any) -> None:
+    """停用的跳板要拒絕連線，不可以退回直連（issue #24，2026-10-02 使用者決定）。
+
+    以前停用＝直連：在重疊網段的站台，後端會拿同一個私網位址連到**自己網路上**那台，
+    也就是連錯主機，而且畫面上看起來一切正常。要直連就把子網路／IP 的跳板指派拿掉，那是明確的動作。
+    """
     jump = await _mk_jump(db_session, f"j-off-{uuid.uuid4().hex[:6]}", enabled=False)
-    ipa = await _mk_ip(db_session, subnet_jump=jump)
-    assert isinstance(await console_route.resolve_route(db_session, ipa),
-                      console_route.Direct)
+    for ipa in (await _mk_ip(db_session, subnet_jump=jump), await _mk_ip(db_session, ip_jump=jump)):
+        with pytest.raises(console_route.JumpHostError) as exc:
+            await console_route.resolve_route(db_session, ipa)
+        assert exc.value.code == "jump_host_disabled"
+        assert exc.value.params["name"] == jump.name
 
 
 @pytest.mark.anyio

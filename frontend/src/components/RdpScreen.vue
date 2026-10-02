@@ -89,6 +89,7 @@ type Phase = "form" | "connecting" | "connected" | "closed" | "error";
 const phase = ref<Phase>("form");
 // 這條連線是否經由跳板（issue #24）：畫面上的位址是目標，實際路徑多了一跳
 const viaJump = ref("");
+const viaKind = ref("jump");   // "jump"／"agent"（經由掃描代理中繼，issue #24 階段二）
 const errorMsg = ref("");
 
 const form = reactive({
@@ -324,7 +325,7 @@ async function startSession(w: number, h: number) {
           }
           phase.value = "connected"; nextTick(() => canvasEl.value?.focus());
         }
-        else if (payload.state === "via_jump") viaJump.value = payload.via || "";
+        else if (payload.state === "via_jump") { viaJump.value = payload.via || ""; viaKind.value = payload.via_kind || "jump"; }
         else if (payload.state === "disconnected") phase.value = "closed";
         break;
       case "notice":
@@ -460,7 +461,7 @@ onBeforeUnmount(teardown);
           <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
           <span class="conn-proto conn-proto--rdp">RDP</span>
           <n-tag v-if="viaJump" size="small" type="warning" :bordered="false" round>
-            {{ t("jump_hosts.via") }}：{{ viaJump }}
+            {{ viaKind === "agent" ? t("relay.via_agent") : t("jump_hosts.via") }}：{{ viaJump }}
           </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
           <n-tag v-if="engineLabel" size="small" :bordered="false" round class="conn-engine"
@@ -505,7 +506,7 @@ onBeforeUnmount(teardown);
                   :ws-url="guacSession.url" :config="guacSession.config" protocol="rdp"
                   :scale-mode="scaleMode" :fixed-size="guacSession.fixedSize" :resize-remote="true"
                   @connected="phase = 'connected'" @closed="phase = 'closed'" @error="onGuacError"
-                  @via-jump="(v: string) => (viaJump = v)" @notice="(m: string) => msg.warning(m)" />
+                  @via-jump="(v: string, k: string) => { viaJump = v; viaKind = k || 'jump'; }" @notice="(m: string) => msg.warning(m)" />
         <canvas v-else ref="canvasEl" class="rdp-canvas" tabindex="0"
                 @mousemove="onMouseMove" @mousedown="onMouseDown" @mouseup="onMouseUp"
                 @wheel.prevent="onWheel" @contextmenu.prevent

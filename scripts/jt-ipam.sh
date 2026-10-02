@@ -647,6 +647,51 @@ patch_nginx_websocket() {
     return 0
 }
 
+# Console relay through scan agents (issue #24 phase 2, 2026-10-02): agents dial OUT to
+# /api/v1/scan-agents/relay/<sid>/ws. Without a WebSocket location nginx does not forward the
+# Upgrade and closes idle sockets after 60 s. Same safety rules as patch_nginx_websocket:
+# only-if-missing, back up, gate on `nginx -t`, restore on failure, never abort the upgrade.
+patch_nginx_agent_relay() {
+    local site=/etc/nginx/sites-available/jt-ipam
+    [[ -f "$site" ]] || return 0
+    command -v nginx >/dev/null 2>&1 || return 0
+    grep -q 'scan-agents/relay' "$site" && return 0
+    grep -q 'connection_upgrade' "$site" || return 0      # patch_nginx_websocket adds the map first
+    local bak="${site}.pre-relay.bak"
+    log "Adding nginx location for scan agent console relay…"
+    cp -p "$site" "$bak" 2>/dev/null || true
+    local proto='$scheme'
+    grep -q 'jt_fwd_proto' "$site" && proto='$jt_fwd_proto'
+    awk -v proto="$proto" '
+      !ins && /location \/api\/ \{/ {
+        print "    # jt-ipam-agent-relay: console relay WebSocket dialed OUT by scan agents";
+        print "    location ~ \"^/api/v1/scan-agents/relay/[0-9a-f]{32}/ws$\" {";
+        print "        proxy_pass http://127.0.0.1:8000;";
+        print "        proxy_http_version 1.1;";
+        print "        proxy_set_header Host               $host;";
+        print "        proxy_set_header X-Real-IP          $remote_addr;";
+        print "        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;";
+        print "        proxy_set_header X-Forwarded-Proto  " proto ";";
+        print "        proxy_set_header Upgrade            $http_upgrade;";
+        print "        proxy_set_header Connection         $connection_upgrade;";
+        print "        proxy_read_timeout 3600s;";
+        print "        proxy_send_timeout 3600s;";
+        print "        proxy_buffering off;";
+        print "    }";
+        print "";
+        ins = 1;
+      }
+      { print }
+    ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
+    if apply_nginx_config; then
+        log "nginx agent relay location added + reloaded."
+    else
+        warn "nginx -t failed after adding the agent relay location; restoring previous config."
+        cp -p "$bak" "$site" 2>/dev/null || true
+    fi
+    return 0
+}
+
 # -- root guard (used by install/upgrade/uninstall; not by help/usage) --
 require_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -2074,6 +2119,7 @@ cmd_upgrade() {
     # -- 6b. ensure nginx forwards WebSocket (SSH terminal); idempotent, safe no-op if already present --
     patch_nginx_websocket
     patch_nginx_readyz_phpipam
+    patch_nginx_agent_relay
 
     # -- 6c. directories the sandboxed units require --
     # Installs from older versions never created /var/backups/jt-ipam, while

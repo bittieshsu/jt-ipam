@@ -817,3 +817,30 @@ def test_agent_reports_full_certificate_names_and_host_scripts() -> None:
     assert cert["issuer"] == {"commonName": "ExampleGate CA"}
     # smb-os-discovery 是主機層腳本：以前整段被丟掉
     assert out["host_scripts"]["smb-os-discovery"].startswith("OS: Windows 10 Pro 19045")
+
+
+async def test_the_probe_page_judges_a_container_like_the_periodic_probe(client, auth_headers, db_session) -> None:
+    """同一台、不同入口要同一個判讀：PVE 回報這個位址是容器 → 手動「探測」的摘要也不拿 nmap 指紋的類別與廠牌
+    （定期 OS 偵測已經這樣做；探測頁沒帶「是虛擬機／容器」時，同一台在兩個畫面一個伺服器、一個 HP 儲存設備）。"""
+    from app.models.virt import VirtCluster, VirtualMachine, VMInterface
+    ip, _ = await _setup(db_session)
+    cl = VirtCluster(name=f"pve-{uuid.uuid4().hex[:4]}", type="proxmox")
+    db_session.add(cl)
+    await db_session.flush()
+    ct = VirtualMachine(cluster_id=cl.id, name="ct-app-01", kind="ct")
+    db_session.add(ct)
+    await db_session.flush()
+    db_session.add(VMInterface(vm_id=ct.id, name="eth0", primary_ip="198.51.100.7"))
+    await db_session.commit()
+    r = await client.post(f"/api/v1/addresses/{ip.id}/identify", headers=auth_headers)
+    job = await db_session.get(AgentProbeJob, uuid.UUID(r.json()["job_id"]))
+    job.status = STATUS_DONE
+    job.result = {"nmap": {"available": True, "ports": [], "closed": 5,
+                           "os": [{"name": "HP P2000 G3 NAS device", "accuracy": 93,
+                                   "type": "storage-misc", "vendor": "HP"}]}}
+    await db_session.commit()
+    body = (await client.get(f"/api/v1/addresses/{ip.id}/identify/{job.id}", headers=auth_headers)).json()
+    assert body["summary"]["device_type"] == "server"
+    assert body["summary"]["vendor"] != "HP"
+    items = (await client.get(f"/api/v1/addresses/{ip.id}/identify/history", headers=auth_headers)).json()["items"]
+    assert items[0]["summary"]["device_type"] == "server"

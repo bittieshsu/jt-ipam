@@ -44,7 +44,14 @@ def test_documented_api_paths_exist() -> None:
     """反方向：手冊寫的 /api/v1/… 路徑要真的有（盤點時手冊叫人打不存在的 /api/v1/me）。"""
     from app.main import app
     html = DOC.read_text(encoding="utf-8")
+    from starlette.routing import WebSocketRoute
+
+    from tests.route_walk import iter_routes
     real = list(app.openapi()["paths"])
+    # WebSocket 端點不在 OpenAPI 裡（主控台、掃描代理的中繼）：從路由表補進來，手冊寫到時才比對得到
+    ws = [path for path, r in iter_routes(app) if isinstance(r, WebSocketRoute)]
+    assert ws, "路由表裡找不到任何 WebSocket 路由：走訪方式壞了（見 tests/route_walk.py）"
+    real += ws
     # 路徑參數 {x} 視為任意一段
     pats = [re.compile("^" + re.sub(r"\\{[^/]+\\}", "[^/]+", re.escape(p)) + "/?$") for p in real]
     extra = {"/api/v1/racks/{id}/embed.svg"}          # 刻意不在 OpenAPI 的公開路由（見手冊）

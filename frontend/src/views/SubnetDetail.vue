@@ -855,7 +855,9 @@ onMounted(() => {
         <template #header>
           <n-space align="center" :wrap-item="false">
             <n-icon :size="22"><ListIcon /></n-icon>
-            <span>{{ t("ranges.title") }} ({{ ipRanges.length }})</span>
+            <!-- 數量用標籤，不接在標題後面加括號：標題本身已有全形括號，「位址範圍（集區） (1)」兩組括號很怪 -->
+            <span>{{ t("ranges.title") }}</span>
+            <n-tag size="small" round :bordered="false" data-testid="ranges-count">{{ ipRanges.length }}</n-tag>
           </n-space>
         </template>
         <subnet-ranges :subnet-id="subnet.id" :cidr="subnet.cidr" :ranges="ipRanges"
@@ -885,7 +887,8 @@ onMounted(() => {
         <template #header>
           <n-space align="center" :wrap-item="false">
             <n-icon :size="22"><ListIcon /></n-icon>
-            <span>{{ t("addresses.ip_list_title") }} ({{ addresses.length }})</span>
+            <span>{{ t("addresses.ip_list_title") }}</span>
+            <n-tag size="small" round :bordered="false">{{ addresses.length }}</n-tag>
           </n-space>
         </template>
 <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->

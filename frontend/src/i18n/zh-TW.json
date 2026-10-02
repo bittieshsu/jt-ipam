@@ -335,7 +335,8 @@
     "doctor": "系統診斷",
     "ocs": "整合 OCS",
     "kea_dhcp": "整合 Kea DHCP",
-    "isc_dhcp": "整合 ISC DHCP"
+    "isc_dhcp": "整合 ISC DHCP",
+    "mac_history": "MAC 位址"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1284,12 +1285,22 @@
     "fw_why_net_covers": "網段 {value} 涵蓋",
     "fw_why_exact": "位址完全相符",
     "last_seen_ocs": "最後出現（OCS 盤點）",
-    "last_seen_ocs_jump": "檢視此裝置的 OCS 盤點資料",
     "fw_col_why": "比對依據",
     "fw_row_goto": "點一下開啟這一筆",
     "source_kea_dhcp": "Kea DHCP",
     "source_isc_dhcp": "ISC DHCP",
-    "source_librenms_arp": "LibreNMS ARP"
+    "source_librenms_arp": "LibreNMS ARP",
+    "virt_ct_tag": "容器",
+    "seen_title": "各來源最後出現",
+    "seen_col_source": "來源",
+    "seen_col_time": "時間",
+    "seen_col_ago": "距今",
+    "seen_latest": "最新",
+    "seen_src_scanner": "掃描代理",
+    "seen_src_wazuh": "Wazuh 代理",
+    "seen_src_ocs": "OCS 盤點",
+    "seen_src_dns": "AdGuard 設定",
+    "seen_jump": "到裝置頁的 {sys} 卡片"
   },
   "subnets": {
     "title": "子網路",
@@ -3140,7 +3151,25 @@
     "ai_ssrf_blocked": "LLM 伺服器的位址被出站防護擋下，請管理員檢查 LLM 設定",
     "ai_unreachable": "連不上 LLM 伺服器",
     "ai_timeout": "LLM 伺服器沒有在時限內回覆",
-    "ai_upstream_error": "LLM 伺服器回報錯誤"
+    "ai_upstream_error": "LLM 伺服器回報錯誤",
+    "jump_host_disabled": "跳板「{name}」已停用：為避免在重疊網段連錯主機，不會改用直連。要直連請移除子網路或 IP 上的跳板指派",
+    "relay_disabled_system": "系統沒有開啟「經由掃描代理中繼主控台」，不會改用直連（代理「{name}」）",
+    "relay_agent_disabled": "掃描代理「{name}」已停用，不會改用直連",
+    "relay_agent_not_allowed": "掃描代理「{name}」沒有被允許中繼主控台（到掃描代理頁開啟）",
+    "relay_agent_not_capable": "掃描代理「{name}」不能中繼：代理版本太舊（需要 1.15.0 以上），或還沒連上來",
+    "relay_agent_busy": "掃描代理「{name}」的同時中繼數已達上限，請稍後再試",
+    "relay_at_capacity": "掃描代理「{name}」同時中繼數已達上限 {max}，請稍後再試",
+    "relay_target_not_allowed": "掃描代理「{name}」拒絕：目標不在它被指派的子網路內",
+    "relay_port_not_allowed": "掃描代理「{name}」不中繼這個埠（到掃描代理頁的「允許的埠」加上）",
+    "relay_connect_failed": "掃描代理「{name}」連不上目標：{reason}",
+    "relay_ws_failed": "掃描代理「{name}」撥回伺服器失敗：{reason}",
+    "relay_failed": "經由掃描代理「{name}」中繼失敗",
+    "relay_agent_timeout": "掃描代理「{name}」沒有在 {seconds} 秒內回應，可能離線或沒有開啟中繼",
+    "console_egress_both": "主控台出口只能選一種：跳板或掃描代理",
+    "console_agent_not_found": "找不到這台掃描代理",
+    "console_agent_not_assigned": "這台掃描代理沒有被指派到這個子網路，無法經由它中繼；換掃描代理時請一併重新選擇主控台出口",
+    "relay_agent_host_off": "掃描代理「{name}」的主機以 JT_IPAM_RELAY=0 關閉了中繼",
+    "relay_ports_invalid": "允許中繼的埠格式不對：{value}（例：22,3389,5900-5910）"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -5109,5 +5138,29 @@
       "invalid": "欄位 {field} 不合格：{reason}",
       "placement": "機櫃位置不行：{reason}"
     }
+  },
+  "relay": {
+    "via_agent": "經由掃描代理",
+    "via_agent_group": "經由掃描代理中繼",
+    "exit_hint": "主控台要怎麼連到這裡。留空＝直連（IP 上留空則沿用子網路的設定）。後端連不進客戶網路時，選這個子網路的掃描代理，由代理往外撥回來中繼。",
+    "why_agent_disabled": "代理已停用",
+    "why_not_allowed": "代理頁沒有允許中繼",
+    "why_agent_old": "代理版本太舊，需要 1.15.0 以上",
+    "why_agent_off": "代理主機以 JT_IPAM_RELAY=0 關閉了中繼",
+    "why_not_subnet_agent": "不是這個子網路的掃描代理",
+    "agent_allow": "允許中繼主控台",
+    "agent_max": "同時中繼上限",
+    "agent_allow_hint": "打開後，指定這台代理為出口的子網路，可以從瀏覽器經由它開 SSH、SFTP、RDP、VNC。還要在系統設定打開「允許經由掃描代理中繼主控台」；代理主機不必設定任何東西。代理只會中繼到它被指派掃描的子網路與上面允許的埠。",
+    "agent_state_on": "代理可以中繼",
+    "agent_state_off": "代理主機以 JT_IPAM_RELAY=0 關閉了中繼（代理主機擁有者的決定，這裡無法改）",
+    "agent_state_old": "代理沒有回報中繼能力（版本太舊或還沒連上來）",
+    "agent_active": "目前中繼中：{n} 條",
+    "system_switch": "允許經由掃描代理中繼主控台",
+    "system_switch_hint": "後端連不進客戶網路時，主控台可以由放在客戶端的掃描代理往外撥回來中繼（預設關閉）。還需要在掃描代理頁允許該代理；代理主機不必設定任何東西。任何一道沒開都會拒絕連線，不會改用直連。",
+    "agent_ports": "允許的埠",
+    "agent_state_on_limited": "代理可以中繼（代理主機另有限縮：{limits}）",
+    "agent_local_ports": "埠 {ports}",
+    "agent_local_max": "上限 {max}",
+    "agent_local_cidrs": "只限部分網段"
   }
 }

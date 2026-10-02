@@ -34,28 +34,41 @@ Environment variables:
                         Only parsed ranges / fixed addresses / active leases are sent -- never the
                         file contents (dhcpd.conf often holds DDNS/OMAPI keys). The server cannot
                         change these paths.
+  Console relay (SSH/SFTP/RDP/VNC from the browser into the subnets this agent scans) is switched on
+  and configured in the jt-ipam web UI (system settings + the agent page); nothing to set here. The
+  agent relays only what the server currently allows. Optional local limits for the host owner:
+  JT_IPAM_RELAY         =0 refuses all relaying on this host, whatever the server says
+  JT_IPAM_RELAY_PORTS   only relay to these ports (narrows the list set in the web UI)
+  JT_IPAM_RELAY_MAX     at most this many concurrent sessions (narrows the web UI setting)
+  JT_IPAM_RELAY_CIDRS   comma separated: only relay into these networks, whatever the server says
+                        (a compromised server still cannot reach past them; for a real guarantee
+                        also set JT_IPAM_AUTO_UPDATE=0)
 """
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import hashlib
 import ipaddress
 import json
 import os
 import re
+import selectors
 import shutil
 import socket
 import ssl
+import struct
 import subprocess
 import threading
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.14.1"
+AGENT_VERSION = "1.15.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -1093,7 +1106,9 @@ def scan_once() -> None:
     caps = _capabilities()
     poll = _req("GET", "/api/v1/scan-agents/poll",
                 extra_headers={"X-Agent-Probes": ",".join(caps),
-                               "X-Agent-Tools": _tools_header()})
+                               "X-Agent-Tools": _tools_header(),
+                               "X-Agent-Relay": _relay_header()})
+    _relay_set_assigned(poll.get("relay_cidrs") or [], poll.get("relay_ports") or [], poll.get("relay_max") or 0)
     _maybe_self_update(poll.get("agent_sha"))
     subnets = poll.get("subnets") or []
     fast = int(poll.get("interval_seconds") or INTERVAL)
@@ -1521,6 +1536,394 @@ def _job_run_and_report(job: dict) -> None:
         print(f"[jobs] report failed: {type(exc).__name__}", file=sys.stderr, flush=True)
 
 
+# ─────────────────── Console relay (issue #24 phase 2) ───────────────────
+# The server cannot reach into this network; the agent dials out. For each console session the server
+# hands out a `relay_open` job; the agent checks the target against ITS OWN rules, connects to it, then
+# opens one outbound WebSocket per session to /api/v1/scan-agents/relay/<sid>/ws and moves bytes.
+#
+# Security: the server hands out the scope (assigned subnets, ports, session limit) only while the
+# admin has relay switched on in the web UI; without a scope nothing is relayed. The target must be
+# inside that scope (and inside the optional local pins). Loopback, link-local and multicast are always
+# refused. JT_IPAM_RELAY=0 on this host refuses everything. A single-use ticket ties the WebSocket to
+# this job.
+
+
+def _relay_env_on(value) -> bool:
+    """On unless the host owner explicitly says no: whether to relay is decided in the web UI."""
+    return (value or "").strip().lower() not in ("0", "false", "no", "off")
+
+
+RELAY_ENABLED = _relay_env_on(os.environ.get("JT_IPAM_RELAY"))
+RELAY_PORTS_SPEC = os.environ.get("JT_IPAM_RELAY_PORTS", "")
+_max_env = (os.environ.get("JT_IPAM_RELAY_MAX") or "").strip()
+RELAY_MAX_LOCAL = max(1, min(int(_max_env), 64)) if _max_env.isdigit() else None
+RELAY_CIDRS_SPEC = os.environ.get("JT_IPAM_RELAY_CIDRS", "")
+RELAY_FRAME_MAX = 64 * 1024          # largest frame we accept from the server
+RELAY_CHUNK = 64 * 1024              # largest frame we send
+RELAY_CONNECT_TIMEOUT = 10.0
+RELAY_KEEPALIVE = 25.0               # idle seconds before an application-level keepalive frame
+_WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+_RELAY_ASSIGNED: list = []           # networks the server says this agent is assigned to
+_RELAY_PORTS: set = set()            # ports allowed in the web UI (from the server)
+_RELAY_MAX = [0]                     # session limit set in the web UI (from the server)
+_RELAY_ACTIVE = 0
+_RELAY_LOCK = threading.Lock()
+_TOKEN_OK = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_SID_OK = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _parse_ports(spec: str) -> set:
+    out: set = set()
+    for tok in (spec or "").split(","):
+        a, _, b = tok.strip().partition("-")
+        if not a.isdigit() or (b and not b.isdigit()):
+            continue
+        lo, hi = int(a), int(b or a)
+        if 1 <= lo <= hi <= 65535 and hi - lo < 256:
+            out.update(range(lo, hi + 1))
+    return out
+
+
+def _parse_nets(spec) -> list:
+    items = spec if isinstance(spec, list) else str(spec or "").split(",")
+    nets = []
+    for c in items:
+        try:
+            nets.append(ipaddress.ip_network(str(c).strip(), strict=False))
+        except ValueError:
+            continue
+    return nets
+
+
+RELAY_PORTS_LOCAL = _parse_ports(RELAY_PORTS_SPEC) if RELAY_PORTS_SPEC.strip() else None
+RELAY_PINNED = _parse_nets(RELAY_CIDRS_SPEC) if RELAY_CIDRS_SPEC.strip() else None
+
+
+def _relay_header() -> str:
+    """Capabilities for X-Agent-Relay. Sent even when off, so the server can say *why* it cannot relay.
+    ports / max are the host owner's local limits (empty / 0 = none, the web UI decides)."""
+    ports = ",".join(str(p) for p in sorted(RELAY_PORTS_LOCAL or ()))
+    return (f"enabled={1 if RELAY_ENABLED else 0};ports={ports};max={RELAY_MAX_LOCAL or 0};"
+            f"pinned={1 if RELAY_PINNED is not None else 0}")
+
+
+def _relay_set_assigned(cidrs: list, ports=None, max_sessions=None) -> None:
+    """The scope the server currently allows (poll, or fresh in each relay job). Empty = relay nothing."""
+    with _RELAY_LOCK:
+        _RELAY_ASSIGNED[:] = _parse_nets(cidrs)
+        if ports is not None:
+            _RELAY_PORTS.clear()
+            _RELAY_PORTS.update(int(p) for p in ports if str(p).isdigit() and 1 <= int(p) <= 65535)
+        if max_sessions is not None:
+            try:
+                _RELAY_MAX[0] = max(0, min(int(max_sessions), 64))
+            except (TypeError, ValueError):
+                _RELAY_MAX[0] = 0
+
+
+def _relay_limit() -> int:
+    lim = _RELAY_MAX[0]
+    return min(lim, RELAY_MAX_LOCAL) if RELAY_MAX_LOCAL else lim
+
+
+def _relay_acquire() -> bool:
+    global _RELAY_ACTIVE
+    with _RELAY_LOCK:
+        if _RELAY_ACTIVE >= _relay_limit():
+            return False
+        _RELAY_ACTIVE += 1
+        return True
+
+
+def _relay_release() -> None:
+    global _RELAY_ACTIVE
+    with _RELAY_LOCK:
+        _RELAY_ACTIVE = max(0, _RELAY_ACTIVE - 1)
+
+
+def _relay_target_ok(target: str, port: int) -> str | None:
+    """None when allowed, else an error token. The agent decides for itself -- it does not take the
+    server's word for the target."""
+    if not RELAY_ENABLED:
+        return "relay_disabled"
+    with _RELAY_LOCK:
+        ports = set(_RELAY_PORTS)
+    if port not in ports or (RELAY_PORTS_LOCAL is not None and port not in RELAY_PORTS_LOCAL):
+        return "relay_port_not_allowed"
+    try:
+        ip = ipaddress.ip_address(target)
+    except ValueError:
+        return "relay_target_not_allowed"
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+        return "relay_target_not_allowed"
+    with _RELAY_LOCK:
+        assigned = list(_RELAY_ASSIGNED)
+    if not any(ip in n for n in assigned if n.version == ip.version):
+        return "relay_target_not_allowed"
+    if RELAY_PINNED is not None and not any(ip in n for n in RELAY_PINNED if n.version == ip.version):
+        return "relay_target_not_allowed"
+    return None
+
+
+class _WSError(Exception):
+    pass
+
+
+def _ws_mask(payload: bytes, key: bytes) -> bytes:
+    """XOR with the 4-byte key. Big-int XOR: fast enough for 64 KiB frames in pure Python."""
+    n = len(payload)
+    if not n:
+        return b""
+    m = (key * (n // 4 + 1))[:n]
+    return (int.from_bytes(payload, "big") ^ int.from_bytes(m, "big")).to_bytes(n, "big")
+
+
+def _ws_encode(opcode: int, payload: bytes) -> bytes:
+    """One client frame (FIN set, masked as RFC 6455 requires of clients)."""
+    n = len(payload)
+    b1 = 0x80 | opcode
+    if n < 126:
+        head = struct.pack("!BB", b1, 0x80 | n)
+    elif n < 65536:
+        head = struct.pack("!BBH", b1, 0x80 | 126, n)
+    else:
+        head = struct.pack("!BBQ", b1, 0x80 | 127, n)
+    key = os.urandom(4)
+    return head + key + _ws_mask(payload, key)
+
+
+def _ws_decode(buf: bytearray):
+    """Take one complete server frame off the front of `buf` -> (opcode, payload), or None if more
+    bytes are needed. Only the subset we use: no fragmentation, no masked server frames, no
+    unknown opcodes, frames up to RELAY_FRAME_MAX. Anything else closes the session."""
+    if len(buf) < 2:
+        return None
+    b1, b2 = buf[0], buf[1]
+    fin, opcode, masked, n = b1 & 0x80, b1 & 0x0F, b2 & 0x80, b2 & 0x7F
+    i = 2
+    if n == 126:
+        if len(buf) < 4:
+            return None
+        n = struct.unpack("!H", bytes(buf[2:4]))[0]
+        i = 4
+    elif n == 127:
+        if len(buf) < 10:
+            return None
+        n = struct.unpack("!Q", bytes(buf[2:10]))[0]
+        i = 10
+    if masked:
+        raise _WSError("masked frame from server")
+    if not fin or opcode == 0:
+        raise _WSError("fragmented frame")
+    if opcode not in (0x1, 0x2, 0x8, 0x9, 0xA):
+        raise _WSError(f"unexpected opcode {opcode}")
+    if n > RELAY_FRAME_MAX:
+        raise _WSError(f"frame too large ({n})")
+    if len(buf) < i + n:
+        return None
+    payload = bytes(buf[i:i + n])
+    del buf[:i + n]
+    return opcode, payload
+
+
+class _WS:
+    def __init__(self, sock, rest: bytes = b"") -> None:
+        self.sock = sock
+        self.buf = bytearray(rest)
+        self.closed = False
+
+    def send(self, opcode: int, payload: bytes) -> None:
+        self.sock.sendall(_ws_encode(opcode, payload))
+
+    def read_frames(self) -> list:
+        """Read what is available (the selector said readable) and return every complete frame."""
+        data = self.sock.recv(65536)
+        if not data:
+            self.closed = True
+            return []
+        self.buf += data
+        pending = getattr(self.sock, "pending", None)
+        while pending is not None and pending():
+            more = self.sock.recv(65536)
+            if not more:
+                break
+            self.buf += more
+        return self.buffered_frames()
+
+    def buffered_frames(self) -> list:
+        """Complete frames already in the buffer (e.g. one that arrived with the handshake reply)."""
+        frames = []
+        while True:
+            f = _ws_decode(self.buf)
+            if f is None:
+                return frames
+            frames.append(f)
+
+    def close(self) -> None:
+        if not self.closed:
+            self.closed = True
+            try:
+                self.send(0x8, struct.pack("!H", 1000))
+            except OSError:
+                pass
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def _ws_connect(path: str, headers: dict, timeout: float = RELAY_CONNECT_TIMEOUT) -> _WS:
+    """Open a WebSocket to the jt-ipam server (same URL, TLS settings and CA as the rest of the agent)."""
+    u = urllib.parse.urlsplit(SERVER)
+    host = u.hostname or ""
+    tls = u.scheme == "https"
+    port = u.port or (443 if tls else 80)
+    raw = socket.create_connection((host, port), timeout=timeout)
+    try:
+        sock = _ctx().wrap_socket(raw, server_hostname=host) if tls else raw
+        key = base64.b64encode(os.urandom(16)).decode()
+        hosthdr = f"[{host}]" if ":" in host else host
+        if u.port:
+            hosthdr += f":{u.port}"
+        lines = [f"GET {u.path.rstrip('/')}{path} HTTP/1.1", f"Host: {hosthdr}", "Upgrade: websocket",
+                 "Connection: Upgrade", f"Sec-WebSocket-Key: {key}", "Sec-WebSocket-Version: 13",
+                 f"X-Agent-Key: {KEY}", f"X-Agent-Version: {AGENT_VERSION}"]
+        lines += [f"{k}: {v}" for k, v in headers.items()]
+        sock.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
+        resp = b""
+        while b"\r\n\r\n" not in resp:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise _WSError("server closed during handshake")
+            resp += chunk
+            if len(resp) > 16384:
+                raise _WSError("handshake response too large")
+        head, _, rest = resp.partition(b"\r\n\r\n")
+        status, *hdr_lines = head.decode("latin-1").split("\r\n")
+        parts = status.split(" ", 2)
+        if len(parts) < 2 or parts[1] != "101":
+            raise _WSError(f"handshake refused: {status[:80]}")
+        hdrs = {}
+        for line in hdr_lines:
+            k, _, v = line.partition(":")
+            hdrs[k.strip().lower()] = v.strip()
+        want = base64.b64encode(hashlib.sha1((key + _WS_GUID).encode()).digest()).decode()  # noqa: S324 -- RFC 6455 handshake
+        if hdrs.get("sec-websocket-accept") != want:
+            raise _WSError("bad Sec-WebSocket-Accept")
+        sock.settimeout(120)
+        return _WS(sock, rest)
+    except BaseException:
+        raw.close()
+        raise
+
+
+def _relay_report(jid, error=None) -> None:
+    try:
+        _req("POST", f"/api/v1/scan-agents/jobs/{jid}/result",
+             {"result": None if error else {"relay": "open"}, "error": error})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[relay] report failed: {type(exc).__name__}", file=sys.stderr, flush=True)
+
+
+def _relay_pump(tsock, ws: _WS) -> str:
+    """Move bytes until either side closes. Single thread, one selector over both sockets."""
+    sel = selectors.DefaultSelector()
+    sel.register(tsock, selectors.EVENT_READ, "target")
+    sel.register(ws.sock, selectors.EVENT_READ, "ws")
+    last_sent = time.monotonic()
+
+    def handle(frames: list):
+        for opcode, payload in frames:
+            if opcode == 0x2:
+                tsock.sendall(payload)
+            elif opcode == 0x9:
+                ws.send(0xA, payload)
+            elif opcode == 0x8:
+                return "server_closed"
+            # 0x1 (server keepalive) and 0xA (pong) need nothing
+        return None
+
+    try:
+        early = handle(ws.buffered_frames())
+        if early:
+            return early
+        while True:
+            wait = max(0.5, RELAY_KEEPALIVE - (time.monotonic() - last_sent))
+            events = sel.select(wait)
+            if not events and time.monotonic() - last_sent >= RELAY_KEEPALIVE:
+                ws.send(0x1, b"ka")
+                last_sent = time.monotonic()
+            for key, _ in events:
+                if key.data == "target":
+                    data = tsock.recv(RELAY_CHUNK)
+                    if not data:
+                        return "target_closed"
+                    ws.send(0x2, data)
+                    last_sent = time.monotonic()
+                    continue
+                done = handle(ws.read_frames())
+                if done or ws.closed:
+                    return done or "server_closed"
+    finally:
+        sel.close()
+
+
+def _relay_session(job: dict) -> None:
+    """One console session. Never raises: relaying must not disturb scanning or probes."""
+    jid = job.get("id")
+    params = job.get("params") or {}
+    target, sid, ticket = str(params.get("target") or ""), str(params.get("sid") or ""), str(params.get("ticket") or "")
+    try:
+        port = int(params.get("port") or 0)
+    except (TypeError, ValueError):
+        port = 0
+    if not _SID_OK.match(sid) or not _TOKEN_OK.match(ticket):
+        _relay_report(jid, "relay_ws_failed: malformed job")
+        return
+    # The job carries the scope the server allows right now: no waiting for the next poll after an
+    # admin switches relay on in the web UI
+    scope = params.get("scope")
+    if isinstance(scope, dict):
+        _relay_set_assigned(scope.get("cidrs") or [], scope.get("ports") or [], scope.get("max") or 0)
+    err = _relay_target_ok(target, port)
+    if err:
+        _relay_report(jid, f"{err}: {target}:{port}")
+        return
+    if not _relay_acquire():
+        _relay_report(jid, f"relay_busy: {_relay_limit()} sessions in use")
+        return
+    tsock = ws = None
+    reason = "error"
+    started = time.monotonic()
+    try:
+        try:
+            tsock = socket.create_connection((target, port), timeout=RELAY_CONNECT_TIMEOUT)
+            tsock.settimeout(None)
+        except OSError as exc:
+            _relay_report(jid, f"relay_connect_failed: {exc.strerror or exc}")
+            return
+        try:
+            ws = _ws_connect(f"/api/v1/scan-agents/relay/{sid}/ws", {"X-Relay-Ticket": ticket})
+        except Exception as exc:  # noqa: BLE001
+            _relay_report(jid, f"relay_ws_failed: {type(exc).__name__}: {exc}")
+            return
+        _relay_report(jid)
+        print(f"[relay] open {sid[:8]} -> {target}:{port}", flush=True)
+        reason = _relay_pump(tsock, ws)
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+    finally:
+        for s in (ws, tsock):
+            if s is not None:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+        _relay_release()
+        if ws is not None:
+            print(f"[relay] closed {sid[:8]} after {time.monotonic() - started:.0f}s ({reason})", flush=True)
+
+
 def _jobs_loop() -> None:
     """Long-poll for on-demand probes. Runs in its own thread.
 
@@ -1531,6 +1934,11 @@ def _jobs_loop() -> None:
         try:
             resp = _req("GET", "/api/v1/scan-agents/jobs?wait=25") or {}
             for job in resp.get("jobs") or []:
+                if str(job.get("kind")) == "relay_open":
+                    # Console relay: long-lived, one thread per session (never blocks probes or scanning)
+                    threading.Thread(target=_relay_session, args=(job,), name="jt-ipam-relay",
+                                     daemon=True).start()
+                    continue
                 if _job_runs_in_background(str(job.get("kind"))):
                     threading.Thread(target=_job_run_and_report, args=(job,), daemon=True).start()
                 else:

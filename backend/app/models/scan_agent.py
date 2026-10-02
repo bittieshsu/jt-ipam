@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ARRAY, Boolean, DateTime, LargeBinary, String, Text, text
+from sqlalchemy import ARRAY, Boolean, DateTime, Integer, LargeBinary, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -70,3 +70,17 @@ class ScanAgent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: 最近一輪掃描的統計（代理回報）：{at, duration_s, interval_s, heavy_backlog, subnets:[{cidr, hosts,
     #: alive, duration_s, truncated}]}。負載顯示與超載通知用。
     last_cycle: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    # ── 主控台中繼（issue #24 階段二，0175）──
+    #: 管理員允許這台代理中繼主控台（預設關）。另外還要系統開關；代理主機不必設定任何東西
+    #: （代理主機的擁有者可以用 JT_IPAM_RELAY=0 在本機否決）
+    relay_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False,
+                                                server_default=text("false"))
+    #: 同時中繼的工作階段上限（交給代理；代理主機可以用 JT_IPAM_RELAY_MAX 再壓低）
+    relay_max_sessions: Mapped[int] = mapped_column(Integer, default=4, nullable=False,
+                                                    server_default=text("4"))
+    #: 允許中繼的埠（交給代理；代理主機可以用 JT_IPAM_RELAY_PORTS 再限縮）。格式 "22,3389,5900-5910"
+    relay_ports: Mapped[str] = mapped_column(String(200), default="22,3389,5900-5910", nullable=False,
+                                             server_default=text("'22,3389,5900-5910'"))
+    #: 代理回報的中繼能力：{enabled, ports:[本機限縮，空＝不限], max（本機上限，0＝不限）, pinned}（舊代理＝None）
+    relay_caps: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

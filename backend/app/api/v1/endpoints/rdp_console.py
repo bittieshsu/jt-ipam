@@ -541,14 +541,15 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
         # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
         try:
-            tunnel = await console_route.open_route(route, host, _RDP_PORT)
+            tunnel = await console_route.open_route(route, host, _RDP_PORT, user_id=user_id, purpose="rdp")
         except console_route.JumpHostError as exc:
             await send({"type": "error", **detail_of(exc, "jump_failed")})
             await websocket.close()
             return
 
         if tunnel.via:
-            await send({"type": "status", "state": "via_jump", "via": tunnel.via})
+            await send({"type": "status", "state": "via_jump", "via": tunnel.via,
+                        "via_kind": tunnel.via_kind})
 
         _log.info("rdp: 開始連線 host=%s engine=%s via_jump=%s", host, engine, tunnel.via)
         if engine == "guacd":
@@ -584,7 +585,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
                 action="rdp.session_open",
                 diff={"host": host, "username": username, "domain": domain or None,
-                      "via_jump_host": tunnel.via, "size": f"{width}x{height}", "engine": "guacd",
+                      "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind, "size": f"{width}x{height}", "engine": "guacd",
                       "credential_id": str(used_cred_id) if used_cred_id else None},
             )
             _log.info("rdp: 已連上（guacd）host=%s", host)
@@ -645,7 +646,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="rdp.session_open",
             diff={"host": host, "username": username, "domain": domain or None,
-                  "via_jump_host": tunnel.via,
+                  "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
                   "size": f"{width}x{height}",
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )

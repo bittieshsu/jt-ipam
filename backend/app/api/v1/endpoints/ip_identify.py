@@ -55,8 +55,10 @@ async def _ip_or_404(session: AsyncSession, address_id: uuid.UUID) -> IPAddress:
     return ip
 
 
-async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | None) -> dict[str, Any]:
-    """清單用的精簡版：不帶整包原始結果，但帶摘要（清單上就看得出是什麼）。"""
+async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | None,
+                 guest: bool | None = None) -> dict[str, Any]:
+    """清單用的精簡版：不帶整包原始結果，但帶摘要（清單上就看得出是什麼）。
+    `guest`：清單裡每筆都是同一個 IP，由呼叫端查一次傳進來；沒給就自己查。"""
     agent = await session.get(ScanAgent, job.agent_id)
     out: dict[str, Any] = {
         "job_id": str(job.id), "status": job.status,
@@ -69,8 +71,12 @@ async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | No
     if job.error and job.error.startswith("unsupported probe"):
         out["error_code"] = "identify_agent_outdated"
     if job.status == STATUS_DONE and isinstance(job.result, dict):
+        if guest is None:
+            from app.services.identify_tasks import job_is_virtual_guest
+            guest = await job_is_virtual_guest(session, job)
         out["summary"] = ip_identify.summarize(job.result, mac_vendor=mac_vendor,
-                                               recog=await get_recog_matcher(session))
+                                               recog=await get_recog_matcher(session),
+                                               virtual_guest=guest)
     return out
 
 
@@ -177,7 +183,9 @@ async def identify_history(
     rows = (await session.execute(_jobs_of(_ip_text(ip)).order_by(
         AgentProbeJob.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
     mv = await vendor_for_mac(session, ip.mac)
-    return {"items": [await _brief(session, j, mv) for j in rows]}
+    from app.services.fw_lookup import is_virtual_guest
+    guest = await is_virtual_guest(session, _ip_text(ip), str(ip.mac) if ip.mac else None)
+    return {"items": [await _brief(session, j, mv, guest) for j in rows]}
 
 
 @router.get("/{address_id}/identify/{job_id}")
@@ -304,7 +312,10 @@ async def identify_history_by_ip(
     rows = (await session.execute(_jobs_of(t.ip_text).order_by(
         AgentProbeJob.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
     mv = await _vendor_of(session, t)
-    return {"items": [await _brief(session, j, mv) for j in rows]}
+    from app.services.fw_lookup import is_virtual_guest
+    mac = t.record.mac if t.record is not None else None
+    guest = await is_virtual_guest(session, t.ip_text, str(mac) if mac else None)
+    return {"items": [await _brief(session, j, mv, guest) for j in rows]}
 
 
 @ip_router.get("/ip/{ip}/{job_id}")

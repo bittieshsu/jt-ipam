@@ -33,7 +33,7 @@ import ChangePasswordModal from "@/components/ChangePasswordModal.vue";
 import {
   // 主導覽
   DashboardIcon, SectionsIcon, SubnetsIcon, AddressesIcon, IPChangesIcon, VlansIcon, VrfsIcon,
-  NatIcon, DevicesIcon, IdentifyIcon, RacksIcon, LocationsIcon, RequestsIcon, TopologyIcon,
+  NatIcon, DevicesIcon, IdentifyIcon, MacIcon, RacksIcon, LocationsIcon, RequestsIcon, TopologyIcon,
   ToolsIcon, SettingsIcon, TasksIcon,
   // Phase 3 / Admin
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
@@ -225,6 +225,7 @@ const menuOptions = computed<MenuOption[]>(() => {
         ...(intgPresence.value.cert_agents
           ? [{ label: () => t("nav.cert_status"), key: "adv-cert-status", icon: renderIcon(LockIcon) }] : []),
         { label: () => t("nav.connections"),     key: "adv-connections", icon: renderIcon(TerminalIcon) },
+        { label: () => t("nav.mac_history"),     key: "mac-history",     icon: renderIcon(MacIcon) },
         ...(intgPresence.value.proxmox
           ? [{ label: () => t("nav.virt_pve"), key: "virt", icon: renderIcon(VirtualizationIcon) }] : []),
         ...(intgPresence.value.esxi

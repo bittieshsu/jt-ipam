@@ -224,9 +224,12 @@ async def _run() -> int:
                 summary = await librenms_svc.sync_instance(session, inst)
                 await session.commit()
                 log.info("librenms %s: %s", name, summary)
+                # sync_instance 回的是 SyncSummary 物件：以前這裡只收 dict，排程同步在背景作業頁的摘要一直是空的
+                # （手動同步才有）；依 ARP 建立了幾筆、沒建的原因也因此看不到
                 await _hb(session, kind="librenms.sync", target_type="librenms_instance",
                           target_id=inst.id, target_label=name, ok=True,
-                          summary=summary if isinstance(summary, dict) else None)
+                          summary=summary.to_dict() if hasattr(summary, "to_dict")
+                          else (summary if isinstance(summary, dict) else None))
             except Exception as exc:
                 await session.rollback()
                 inst.last_error = str(exc)

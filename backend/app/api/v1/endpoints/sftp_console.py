@@ -320,7 +320,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                                                    address_id=address_id)
         # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
         try:
-            tunnel = await console_route.open_route(route, host, port)
+            tunnel = await console_route.open_route(route, host, port, user_id=user_id, purpose="sftp")
         except console_route.JumpHostError as exc:
             await send({"type": "error", **detail_of(exc, "jump_failed")})
             return
@@ -337,10 +337,10 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         except Exception:
             cwd = "/"
         await audit("sftp_open", {"host": host, "port": port, "username": username,
-                                  "via_jump_host": tunnel.via})
+                                  "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind})
         # 經跳板時要講出來：畫面上的位址是目標，實際路徑多了一跳
         # 上限一起告訴前端：超過的檔案當場就講，不用先等伺服器拒絕；大檔也要據此改成直接寫入磁碟
-        await send({"type": "ready", "cwd": str(cwd), "via_jump_host": tunnel.via,
+        await send({"type": "ready", "cwd": str(cwd), "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
                     "max_file_bytes": max_bytes})
 
         while True:

@@ -216,3 +216,41 @@ def test_agent_dhcp_parser_survives_truncated_options() -> None:
         out = mod._dhcp_parse(bytes(head) + tail)          # 不丟例外
         assert out is not None
         assert "server_id" not in out
+
+
+async def test_a_container_is_not_judged_by_its_tcp_fingerprint_class(client, db_session) -> None:
+    """PVE 回報這個位址是容器的網卡：nmap 指紋說 HP NAS 也不可以把它判成儲存設備（2026-10-02 使用者回報）。"""
+    import uuid
+
+    from app.models.virt import VirtCluster, VirtualMachine, VMInterface
+    raw, _agent, ip, _old = await _agent_ip(db_session)
+    cl = VirtCluster(name=f"pve-{uuid.uuid4().hex[:4]}")
+    db_session.add(cl)
+    await db_session.flush()
+    ct = VirtualMachine(cluster_id=cl.id, name="ct-app-01", status="running", kind="ct")
+    db_session.add(ct)
+    await db_session.flush()
+    db_session.add(VMInterface(vm_id=ct.id, name="eth0", primary_ip="198.51.100.7"))
+    # 已經被舊邏輯判錯的樣子：下一次 OS 偵測要能改過來（「不明」不會覆寫，型號也不可沿用）
+    ip.device_kind, ip.device_model = "storage", "HP"
+    await db_session.commit()
+    fake_nas = {"ports": [], "closed": 5, "host_scripts": {},
+                "os": [{"name": "HP P2000 G3 NAS device", "accuracy": 93, "type": "storage-misc", "vendor": "HP"}]}
+    r = await client.post("/api/v1/scan-agents/report", headers={"X-Agent-Key": raw}, json={
+        "results": [{"ip": "198.51.100.7", "alive": True, "liveness": False, "probes_run": ["os"],
+                     "nmap": fake_nas}]})
+    assert r.status_code == 200, r.text
+    await db_session.refresh(ip)
+    assert ip.device_kind == "server"
+    assert ip.device_model != "HP"
+
+
+async def test_same_kind_without_model_keeps_the_model_but_a_new_kind_drops_it(db_session) -> None:
+    """同一類型、這次沒帶型號（定期偵測常常如此）→ 保留原型號；類型換了 → 舊型號屬於上一次的判讀，不沿用。"""
+    from app.services.device_identity import apply_summary
+    _raw, _agent, ip, _old = await _agent_ip(db_session)
+    ip.device_kind, ip.device_model = "storage", "Synology DS920+"
+    await apply_summary(db_session, ip, {"device_type": "storage", "vendor": None, "model": None, "evidence": []})
+    assert ip.device_model == "Synology DS920+"
+    await apply_summary(db_session, ip, {"device_type": "server", "vendor": None, "model": None, "evidence": []})
+    assert ip.device_kind == "server" and ip.device_model is None

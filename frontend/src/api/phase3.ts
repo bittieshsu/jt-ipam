@@ -70,6 +70,14 @@ export interface ScanAgent {
   subnet_count: number;
   /** 最近一輪的負載摘要（代理 1.10.0 起回報）；還沒回報過就是 null */
   load?: ScanAgentLoadSummary | null;
+  /** 主控台中繼（issue #24 階段二）：管理員允許、上限、代理回報的能力（舊代理＝null）、目前中繼數 */
+  relay_allowed?: boolean;
+  relay_max_sessions?: number;
+  /** 允許中繼的埠（網頁設定，"22,3389,5900-5910"） */
+  relay_ports?: string;
+  /** 代理回報：enabled＝代理主機沒有否決；ports／max＝代理主機的本機限縮（空／0＝不限） */
+  relay_caps?: { enabled: boolean; ports: number[]; max: number; pinned: boolean } | null;
+  relay_active?: number;
   last_seen_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -132,6 +140,7 @@ export async function scanNowAgent(id: string): Promise<{ queued: boolean; eta_s
 export async function updateScanAgent(id: string, p: Partial<{
   description: string; enabled: boolean; auto_create_ips: boolean;
   enabled_probes: string[]; probe_intervals: Record<string, number>;
+  relay_allowed: boolean; relay_max_sessions: number; relay_ports: string;
 }>): Promise<ScanAgent> {
   const { data } = await apiClient.patch<ScanAgent>(`/api/v1/scan-agents/${id}`, p);
   return data;

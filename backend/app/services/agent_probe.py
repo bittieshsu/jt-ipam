@@ -224,7 +224,70 @@ async def finish_job(
     if job.kind == "identify":
         from app.services.identify_tasks import on_finished
         await on_finished(session, job)
+    if job.kind == RELAY_KIND:
+        await _relay_finished(job, error)
     return True
+
+
+# ─────────────────── 主控台中繼（issue #24 階段二）───────────────────
+#: 中繼工作的種類。**刻意不在 PROBE_KINDS 裡**：工具頁的探測 API 走 validate_params，
+#: 因此使用者不可能自己派出中繼工作；只有 console_route 經由 create_relay_job 會建。
+RELAY_KIND = "relay_open"
+
+
+async def create_relay_job(
+    session: AsyncSession, *, agent_id: uuid.UUID, sid: str, ticket: str,
+    target: str, port: int, requested_by: uuid.UUID | None, scope: dict[str, Any] | None = None,
+) -> AgentProbeJob:
+    """請代理開一條中繼。目標只會是 IP 記錄的位址（呼叫端推導，不接受使用者輸入）。
+    `scope`：網頁上當下允許的範圍（relay_scope），代理收到就更新，不必等下一輪 poll。"""
+    ipaddress.ip_address(target)                    # 只接受 IP 字面值
+    if not 1 <= int(port) <= 65535:
+        raise ProbeJobError("invalid port")
+    params: dict[str, Any] = {"sid": sid, "ticket": ticket, "target": target, "port": int(port)}
+    if scope is not None:
+        params["scope"] = scope
+    job = AgentProbeJob(
+        agent_id=agent_id, kind=RELAY_KIND, status=STATUS_PENDING, requested_by=requested_by,
+        params=params,
+        # 使用者在等，代理領不到就不必留：比一般探測的 2 分鐘短很多
+        expires_at=datetime.now(UTC) + timedelta(seconds=30),
+    )
+    session.add(job)
+    await session.flush()
+    return job
+
+
+def _scrub_ticket(job: AgentProbeJob) -> None:
+    """票證只在派工作時有用；用完就從資料庫擦掉（單次、30 秒，但沒必要留在工作紀錄裡）。"""
+    if isinstance(job.params, dict) and "ticket" in job.params:
+        job.params = {k: v for k, v in job.params.items() if k != "ticket"}
+
+
+async def cancel_relay_job(session: AsyncSession, job_id: uuid.UUID | None) -> None:
+    """worker B 等不到就緒時收掉還沒被領的中繼工作（代理晚到也不會再開）。"""
+    if job_id is None:
+        return
+    job = await session.get(AgentProbeJob, job_id)
+    if job is None:
+        return
+    _scrub_ticket(job)
+    if job.status == STATUS_PENDING:
+        job.status = STATUS_EXPIRED
+        job.finished_at = datetime.now(UTC)
+        job.error = "等待代理回應逾時"
+
+
+async def _relay_finished(job: AgentProbeJob, error: str | None) -> None:
+    """代理回報中繼的結果。成功時就緒通知由收到代理 WebSocket 的 worker 送；失敗要馬上告訴等待的那一邊，
+    不讓使用者乾等 15 秒。代理的錯誤格式是「代號: 原因」。"""
+    sid = (job.params or {}).get("sid") if isinstance(job.params, dict) else None
+    _scrub_ticket(job)
+    if not error or not sid:
+        return
+    from app.services import console_relay
+    token, _, reason = str(error).partition(":")
+    await console_relay.push_ready(str(sid), {"error": token.strip(), "reason": reason.strip()[:200]})
 
 
 async def update_progress(

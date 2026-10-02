@@ -405,13 +405,14 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
         # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
         try:
-            tunnel = await console_route.open_route(route, host, port)
+            tunnel = await console_route.open_route(route, host, port, user_id=user_id, purpose="vnc")
         except console_route.JumpHostError as exc:
             await send({"type": "error", **detail_of(exc, "jump_failed")})
             await websocket.close()
             return
         if tunnel.via:
-            await send({"type": "status", "state": "via_jump", "via": tunnel.via})
+            await send({"type": "status", "state": "via_jump", "via": tunnel.via,
+                        "via_kind": tunnel.via_kind})
         dial_host, dial_port = tunnel.host, tunnel.port
 
         if engine == "guacd":
@@ -451,7 +452,7 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 action="vnc.session_open",
                 diff={"host": host, "port": port, "username": username or None,
                       "size": f"{width}x{height}", "engine": "guacd",
-                      "via_jump_host": tunnel.via,
+                      "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
                       "credential_id": str(used_cred_id) if used_cred_id else None},
             )
             await send({"type": "status", "state": "connected", "engine": "guacd",
@@ -497,7 +498,7 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="vnc.session_open",
             diff={"host": host, "port": port, "size": f"{width}x{height}",
-                  "via_jump_host": tunnel.via,
+                  "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
         await send({"type": "status", "state": "connected", "width": width, "height": height})

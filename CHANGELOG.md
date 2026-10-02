@@ -6,6 +6,50 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [0.6.60] - 2026-10-02
+
+### Added
+- **Console relay through scan agents** (issue #24 phase 2, Beta). When the server cannot reach into a customer
+  network, SSH, SFTP, RDP and VNC consoles can be relayed by the scan agent on site, which dials out over one
+  WebSocket per session; nothing has to be reachable inbound. Pick it per subnet (or per IP) as the console exit;
+  it must be that subnet's scan agent, so overlapping networks each go through their own agent. Everything is set
+  in the web UI with two switches, both off by default: system settings and "Allow console relay" on the agent page
+  (which also sets the allowed ports and session limit). Nothing to do on the agent host: once the agent updates
+  itself after the upgrade, it works; a host owner who wants to refuse can set `JT_IPAM_RELAY=0` there. The agent
+  relays only within the scope allowed in the web UI (assigned subnets, allowed ports), never to loopback or
+  link-local; tickets are single use and bound to the agent, and every relay is audited with bytes each way. Any
+  failure is refused with a clear message and never falls back to a direct connection. Scan agent 1.15.0; the
+  upgrade adds the nginx location.
+- IP details show **last seen by source** as a section of its own: source, time and how long ago in aligned
+  columns, with the most recent row marked, so you can compare at a glance which sources still see the address
+  (these used to be scattered among the basic fields). LibreNMS and Wazuh times are clickable and open the device
+  page scrolled to that system's card (OCS already was).
+- **Virtual/physical shows the guest kind**: Proxmox VE tells KVM virtual machines from LXC containers, VMware is
+  labelled VMware (IP details and device page). The API's `virt_vm` gains `kind` (`vm` / `ct`).
+- The sidebar has "MAC address" under Advanced, opening the MAC history page.
+
+### Fixed
+- The IP edit dialog never saved the per-IP jump host override (the update did not send it).
+- Agents could lose on-demand jobs: when an agent reconnected, the server kept the old long poll open and
+  claimed jobs for a client that was gone (the first console relay after an agent restart waited 15 seconds).
+- **A disabled jump host no longer falls back to a direct connection** (issue #24): on overlapping networks
+  that reached the same address on the server's own network, i.e. the wrong host, with nothing on screen to
+  say so. The console now refuses with "jump host is disabled"; remove the assignment to connect directly.
+- Scheduled LibreNMS syncs left an empty summary on the Tasks page (only manual syncs had one), so the
+  "IPs created from ARP" count and skip reasons were missing for scheduled rounds.
+- **A Proxmox LXC container (Linux inside) showed as "Storage · HP"**: the nmap OS fingerprint took the Linux network
+  stack for an HP storage device and the device type and vendor were copied from it. When Recog names a different OS
+  with high confidence, the fingerprint's type and vendor are now dropped too (the OS decides, e.g. server), and
+  guests matched by a virtualization integration never take type or vendor from the fingerprint (with no
+  role-specific service they are general hosts), the same in the periodic OS probe, the manual probe and its
+  completion notice; when the kind changes the old model is no longer kept. Already misjudged IPs correct
+  themselves on the next OS probe.
+- The dashboard racks card header holds only the title and a count; which room is shown and the Settings button
+  moved to the top of the card body (like the AI audit card).
+- The subnet page read "Address ranges (pools) (1)" with two sets of brackets; the count is now a tag next to the
+  title, and the IP list header matches.
+- The three cards at the bottom of the MAC history page had no gap between them.
+
 ## [0.6.59] - 2026-10-01
 
 Security fixes from a CodeQL review: outbound requests could reach the server itself through IPv4-mapped

@@ -69,7 +69,34 @@ const show = ref(false);
 const showHelp = ref(false);
 const editing = ref<ScanAgent | null>(null);
 const form = ref({ name: "", description: "", enabled: true, autoCreate: false,
-                   subnet_ids: [] as string[] });
+                   subnet_ids: [] as string[], relayAllowed: false, relayMax: 4,
+                   relayPorts: "22,3389,5900-5910" });
+// 主控台中繼（issue #24 階段二）：要不要中繼、哪些埠都在這裡設定，代理主機不必做任何事。
+// 標籤只講代理那一端的狀態：舊代理（沒回報）、代理主機的擁有者否決了（JT_IPAM_RELAY=0）、本機另有限縮
+const relayState = computed(() => {
+  const caps = editing.value?.relay_caps;
+  if (!caps) return { tag: "default" as const, text: t("relay.agent_state_old") };
+  if (!caps.enabled) return { tag: "warning" as const, text: t("relay.agent_state_off") };
+  const limits: string[] = [];
+  if (caps.ports?.length) limits.push(t("relay.agent_local_ports", { ports: fmtPorts(caps.ports) }));
+  if (caps.max) limits.push(t("relay.agent_local_max", { max: caps.max }));
+  if (caps.pinned) limits.push(t("relay.agent_local_cidrs"));
+  return { tag: "success" as const,
+           text: limits.length ? t("relay.agent_state_on_limited", { limits: limits.join("；") })
+                               : t("relay.agent_state_on") };
+});
+function fmtPorts(ports: number[]): string {
+  // 連續的埠縮成範圍：22, 3389, 5900–5910
+  const out: string[] = [];
+  let i = 0;
+  while (i < ports.length) {
+    let j = i;
+    while (j + 1 < ports.length && ports[j + 1] === ports[j] + 1) j++;
+    out.push(j > i ? `${ports[i]}–${ports[j]}` : String(ports[i]));
+    i = j + 1;
+  }
+  return out.join(", ");
+}
 // 每代理探測設定
 const enabledProbes = ref<string[]>([]);
 const probeIntervals = ref<Record<string, number>>({});
@@ -143,7 +170,8 @@ async function refresh() {
 }
 function openCreate() {
   editing.value = null;
-  form.value = { name: "", description: "", enabled: true, autoCreate: false, subnet_ids: [] };
+  form.value = { name: "", description: "", enabled: true, autoCreate: false, subnet_ids: [],
+                 relayAllowed: false, relayMax: 4, relayPorts: "22,3389,5900-5910" };
   enabledProbes.value = ["icmp"];
   probeIntervals.value = {};
   enabledProbes.value.forEach(ensureInterval);
@@ -153,7 +181,9 @@ function openCreate() {
 function openEdit(r: ScanAgent) {
   editing.value = r;
   form.value = { name: r.name, description: r.description ?? "", enabled: r.enabled,
-                 autoCreate: !!r.auto_create_ips, subnet_ids: [] };
+                 autoCreate: !!r.auto_create_ips, subnet_ids: [],
+                 relayAllowed: !!r.relay_allowed, relayMax: r.relay_max_sessions ?? 4,
+                 relayPorts: r.relay_ports ?? "22,3389,5900-5910" };
   enabledProbes.value = [...(r.enabled_probes ?? [])];
   probeIntervals.value = { ...(r.probe_intervals ?? {}) };
   enabledProbes.value.forEach(ensureInterval);
@@ -179,6 +209,9 @@ async function submit() {
         auto_create_ips: form.value.autoCreate,
         enabled_probes: enabledProbes.value,
         probe_intervals: buildProbeIntervals(),
+        relay_allowed: form.value.relayAllowed,
+        relay_max_sessions: form.value.relayMax,
+        relay_ports: form.value.relayPorts,
       });
       await setAgentSubnets(editing.value.id, form.value.subnet_ids);
       show.value = false;
@@ -454,6 +487,31 @@ onMounted(async () => {
             <n-text depth="3" style="font-size:12px">
               {{ t("scan_agents.auto_create_ips_hint") }}
             </n-text>
+          </n-space>
+        </n-form-item>
+        <!-- 主控台中繼：打開＝這台代理變成通往客戶網路的跳點。系統設定與這裡兩道開關都開才會中繼；
+             代理主機不必設定任何東西（升級後自動可用），擁有者要否決才在代理主機寫 JT_IPAM_RELAY=0 -->
+        <n-form-item v-if="editing" :label="t('relay.agent_allow')">
+          <n-space vertical size="small" style="width:100%" data-testid="agent-relay">
+            <n-space align="center" :size="12">
+              <n-switch v-model:value="form.relayAllowed" data-testid="agent-relay-switch" />
+              <template v-if="form.relayAllowed">
+                <span style="font-size:12px">{{ t("relay.agent_max") }}</span>
+                <n-input-number v-model:value="form.relayMax" :min="1" :max="64" size="small" style="width:90px" />
+              </template>
+            </n-space>
+            <n-space v-if="form.relayAllowed" align="center" :size="8" :wrap="false">
+              <span style="font-size:12px;white-space:nowrap">{{ t("relay.agent_ports") }}</span>
+              <n-input v-model:value="form.relayPorts" size="small" style="max-width:240px"
+                       placeholder="22,3389,5900-5910" data-testid="agent-relay-ports" />
+            </n-space>
+            <n-tag :type="relayState.tag" size="small" :bordered="false" data-testid="agent-relay-state">
+              {{ relayState.text }}
+            </n-tag>
+            <n-text v-if="editing.relay_active" depth="3" style="font-size:12px">
+              {{ t("relay.agent_active", { n: editing.relay_active }) }}
+            </n-text>
+            <n-text depth="3" style="font-size:12px">{{ t("relay.agent_allow_hint") }}</n-text>
           </n-space>
         </n-form-item>
         <n-form-item :label="t('scanAgentHelp.assign_subnets')">

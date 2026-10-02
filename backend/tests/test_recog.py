@@ -562,3 +562,37 @@ async def test_two_updates_at_once_do_not_collide(db_session, session_factory, s
             return r["status"]
 
     assert sorted(await asyncio.gather(run(), run())) == ["up_to_date", "updated"]
+
+
+def test_a_wrong_tcp_fingerprint_does_not_decide_the_device_type() -> None:
+    """PVE 的 LXC 容器（2026-10-02 使用者回報被判成「儲存設備 · HP」）：容器跟宿主共用核心，
+    nmap 的 TCP/IP 指紋第一名是「HP P2000 G3 NAS（93%）」；OpenSSH 的註解卻明講是 Ubuntu。
+    OS 已經採信 Recog（Ubuntu），設備類型就不可以再拿被推翻的那個指紋的類別（storage）—— 自相矛盾。"""
+    res = _res([{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1",
+                 "scripts": {"banner": "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.4"}}],
+               os=[{"name": "HP P2000 G3 NAS device", "accuracy": 93, "type": "storage-misc", "vendor": "HP"}])
+    s = summarize(res, recog=_all())
+    assert s["os"] == "Ubuntu Linux"
+    assert s["device_type"] == "server"
+    assert "osclass:storage-misc" not in s["evidence"]
+    assert s["vendor"] != "HP"                                   # 被推翻的指紋的廠牌也不採信
+    # 沒有 Recog 時維持原本行為（只能信 nmap）
+    assert summarize(res)["device_type"] == "storage"
+
+
+def test_known_virtual_guests_ignore_the_tcp_fingerprint_class() -> None:
+    """已由 Proxmox／VMware 確認是虛擬機或容器：虛擬化讓 TCP/IP 指紋失準，不拿它的類別判斷；
+    但服務本身的證據照常（TrueNAS 的 VM 仍然是儲存設備）。"""
+    fp = [{"name": "HP P2000 G3 NAS device", "accuracy": 93, "type": "storage-misc", "vendor": "HP"}]
+    bare = _res([], os=fp)
+    assert summarize(bare)["device_type"] == "storage"
+    # 指紋的類別不採信之後就沒有別的證據了：一台虛擬機／容器沒有特定角色的服務，就是一般主機。
+    # 不可以停在「不明」—— 不明不會覆寫 IP 上舊的（錯的）「儲存設備」，畫面永遠改不過來
+    assert summarize(bare, virtual_guest=True)["device_type"] == "server"
+    assert summarize(bare, virtual_guest=True)["vendor"] != "HP"
+    win = _res([], os=[{"name": "Microsoft Windows 10 1809", "accuracy": 96, "type": "general purpose",
+                        "vendor": "Microsoft"}])
+    assert summarize(win, virtual_guest=True)["device_type"] == "windows"
+    nas = _res([{"port": 445, "service": "microsoft-ds"}, {"port": 2049, "service": "nfs"},
+                {"port": 80, "service": "http", "product": "nginx", "scripts": {"http-title": "TrueNAS"}}], os=fp)
+    assert summarize(nas, virtual_guest=True)["device_type"] == "storage"

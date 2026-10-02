@@ -211,6 +211,31 @@ async def seed() -> None:
             s.add(VMInterface(vm_id=vm.id, name="nic0", mac="00:00:5e:00:53:01",
                               primary_ip="10.20.0.11", bridge="VM Network"))
 
+        # ── IP 詳細的「各來源最後出現」＋點時間跳到裝置頁的卡片＋虛實標 LXC（ip-seen-sources.spec）──
+        # 專用一個位址與裝置，不動 web-01：在既有樣本上補掃描／監控時間會改變它的上線判定，
+        # 別的 spec 看的是現在的樣子。時間每次 seed 重新錨定（「距今」才會固定）。
+        from app.models.librenms import LibreNMSDevice, LibreNMSInstance
+        from app.models.wazuh import WazuhAgent, WazuhInstance
+        seen_dev = await one(Device, name="seen-host-01", type="server", vendor="generic", model="E2E")
+        seen_ip = await ip(subnets["10.20.0.0/24"], "10.20.0.40", "seen-host-01")
+        seen_ip.device_id = seen_dev.id
+        seen_dev.primary_ip_id = seen_ip.id
+        _n = datetime.now(UTC)
+        seen_ip.last_seen_scanner = _n - timedelta(minutes=5)
+        seen_ip.last_seen_librenms = _n - timedelta(hours=3)
+        seen_ip.last_seen_wazuh = _n - timedelta(days=2)
+        lnms = await one(LibreNMSInstance, name="lnms-seen-e2e", api_url="https://librenms.example.net",
+                         api_token_enc=b"x", api_token_nonce=b"y", enabled=False)
+        await one(LibreNMSDevice, legacy_device_id=9001, instance_id=lnms.id, hostname="seen-host-01",
+                  os="linux", jt_ipam_device_id=seen_dev.id)
+        wz = await one(WazuhInstance, name="wazuh-seen-e2e", api_url="https://wazuh.example.net",
+                       api_user="e2e", api_password_enc=b"x", api_password_nonce=b"y", enabled=False)
+        await one(WazuhAgent, agent_id="901", instance_id=wz.id, name="seen-host-01",
+                  jt_ipam_address_id=seen_ip.id)
+        ct = (await s.execute(select(VirtualMachine).where(VirtualMachine.name == "ct-log-01"))).scalars().first()
+        if ct and not (await s.execute(select(VMInterface).where(VMInterface.vm_id == ct.id))).scalars().first():
+            s.add(VMInterface(vm_id=ct.id, name="net0", primary_ip="10.20.0.40", bridge="vmbr0"))
+
         # ── 對外開放服務（NAT port forward 指到已登錄的 IP）──────────
         if not (await s.execute(select(NATTranslation).where(
                 NATTranslation.name == "e2e-https-forward"))).scalars().first():

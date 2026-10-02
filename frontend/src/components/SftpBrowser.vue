@@ -58,6 +58,7 @@ const errorMsg = ref("");
 const cwd = ref("/");
 // 這條連線是否經由跳板（issue #24）：畫面上的位址是目標，實際路徑多了一跳
 const viaJump = ref("");
+const viaKind = ref("jump");   // "jump"／"agent"（經由掃描代理中繼，issue #24 階段二）
 const entries = ref<SftpEntry[]>([]);
 const truncated = ref(false);
 const busy = ref(false);
@@ -235,6 +236,7 @@ async function connect() {
           everConnected = true;
           phase.value = "connected";
           viaJump.value = m.via_jump_host || "";
+          viaKind.value = m.via_kind || "jump";
           if (typeof m.max_file_bytes === "number") maxFileBytes.value = m.max_file_bytes;
           cwd.value = m.cwd || "/";
           void refresh();
@@ -1074,7 +1076,7 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
           <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
           <span class="conn-proto conn-proto--sftp">SFTP</span>
           <n-tag v-if="viaJump" size="small" type="warning" :bordered="false" round>
-            {{ t("jump_hosts.via") }}：{{ viaJump }}
+            {{ viaKind === "agent" ? t("relay.via_agent") : t("jump_hosts.via") }}：{{ viaJump }}
           </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
         </span>

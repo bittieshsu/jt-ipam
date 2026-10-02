@@ -113,6 +113,7 @@ const hostKeyAsk = ref(false);
 const hostKeyFp = ref("");
 // 這條連線是否經由跳板（後端在連線前送 status/via_jump）
 const viaJump = ref("");
+const viaKind = ref("jump");   // "jump"／"agent"（經由掃描代理中繼，issue #24 階段二）
 // guacd 引擎（系統設定選的）：終端機由 guacd 在伺服器端畫，這個元件只留表單、工具列與金鑰確認
 const guacRef = ref<InstanceType<typeof GuacView> | null>(null);
 // 狀態列的「引擎」標示（這次連線實際用的引擎，來自票證）
@@ -290,7 +291,7 @@ async function connect() {
         else if (payload.state === "disconnected") phase.value = "closed";
         // 經跳板時要講出來：使用者看到的位址是目標，實際路徑卻多了一跳，
         // 出問題時（例如跳板掛了）知道這件事才查得下去
-        else if (payload.state === "via_jump") viaJump.value = payload.via || "";
+        else if (payload.state === "via_jump") { viaJump.value = payload.via || ""; viaKind.value = payload.via_kind || "jump"; }
         break;
       case "hostkey":
         hostKeyFp.value = payload.fingerprint;
@@ -439,7 +440,7 @@ onBeforeUnmount(teardown);
           <span class="conn-proto conn-proto--ssh">SSH</span>
           <!-- 位址顯示的是目標，但實際路徑多了一跳 —— 不講出來，跳板掛掉時會查錯方向 -->
           <n-tag v-if="viaJump" size="small" type="warning" :bordered="false" round>
-            {{ t("jump_hosts.via") }}：{{ viaJump }}
+            {{ viaKind === "agent" ? t("relay.via_agent") : t("jump_hosts.via") }}：{{ viaJump }}
           </n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
           <n-tag v-if="engineLabel" size="small" :bordered="false" round class="conn-engine"
@@ -469,7 +470,7 @@ onBeforeUnmount(teardown);
                     :ws-url="guacSession.url" :config="guacSession.config" protocol="ssh"
                     scale-mode="native" :resize-remote="true" :sync-clipboard="true"
                     @connected="phase = 'connected'" @closed="phase = 'closed'" @error="onGuacError"
-                    @hostkey="onGuacHostKey" @via-jump="(v: string) => (viaJump = v)" />
+                    @hostkey="onGuacHostKey" @via-jump="(v: string, k: string) => { viaJump = v; viaKind = k || 'jump'; }" />
           <div v-else ref="termEl" class="ssh-term" :class="{ 'ssh-full': fullHeight, 'term-dim': phase === 'closed' }" />
           <div v-if="hoveredUrl" class="term-linkbar" :title="hoveredUrl">{{ hoveredUrl }}</div>
         </div>

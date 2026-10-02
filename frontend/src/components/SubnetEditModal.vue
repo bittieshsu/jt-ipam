@@ -32,7 +32,7 @@ import type { Subnet, Section } from "@/types";
 import { EditIcon, PlusIcon, SaveIcon, CancelIcon } from "@/icons";
 import { probeInstall } from "@/utils/probeInstall";
 import { useCustomers } from "@/composables/useCustomers";
-import { listJumpHosts } from "@/api/jumpHosts";
+import ConsoleEgressSelect from "@/components/ConsoleEgressSelect.vue";
 import { useSubnetTree } from "@/composables/useSubnetTree";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 
@@ -51,16 +51,6 @@ const { t, locale } = useI18n();
 const msg = useMessage();
 const { catalog } = useScanProbes();
 const { options: customerOptions, ensureLoaded: ensureCustomerOptsLoaded } = useCustomers();
-// 主控台的連線出口（issue #24）。跳板清單只有 admin 讀得到 —— 讀不到就不顯示這個欄位，
-// 而不是讓一般使用者看到一個永遠空的下拉。
-const jumpOptions = ref<{ label: string; value: string }[]>([]);
-async function loadJumpOptions() {
-  try {
-    jumpOptions.value = (await listJumpHosts()).items
-      .filter((j) => j.enabled)
-      .map((j) => ({ label: `${j.name}（${j.username}@${j.host}:${j.port}）`, value: j.id }));
-  } catch { jumpOptions.value = []; }
-}
 const { bump: bumpSubnetTree } = useSubnetTree();
 
 const showModel = computed({
@@ -126,6 +116,7 @@ const form = ref({
   master_subnet_id: null as string | null,
   customer_id: null as string | null,
   jump_host_id: null as string | null,
+  console_agent_id: null as string | null,
   is_pool: false,
   is_full: false,
   ai_audit_enabled: true,
@@ -182,7 +173,6 @@ async function loadAuxOpts() {
     allSubnets.value = res.items;
   } catch { /* silent */ }
   void ensureCustomerOptsLoaded();
-  void loadJumpOptions();
 }
 
 function resetForm() {
@@ -197,6 +187,7 @@ function resetForm() {
       master_subnet_id: (r as any).master_subnet_id ?? null,
       customer_id: r.customer_id ?? null,
       jump_host_id: r.jump_host_id ?? null,
+      console_agent_id: r.console_agent_id ?? null,
       is_pool: r.is_pool, is_full: r.is_full,
       ai_audit_enabled: r.ai_audit_enabled ?? true,
       anomaly_enabled: r.anomaly_enabled ?? true,
@@ -217,6 +208,7 @@ function resetForm() {
       description: "",
       vlan_id: null, vrf_id: null, master_subnet_id: null, customer_id: null,
       jump_host_id: null,
+      console_agent_id: null,
       is_pool: false, is_full: false,
       ai_audit_enabled: true, anomaly_enabled: true,
       scan_enabled: false, scan_method: ["icmp"],
@@ -260,6 +252,7 @@ async function submit() {
         master_subnet_id: form.value.master_subnet_id ?? null,
         customer_id: form.value.customer_id ?? null,
         jump_host_id: form.value.jump_host_id ?? null,
+        console_agent_id: form.value.console_agent_id ?? null,
         is_pool: form.value.is_pool,
         is_full: form.value.is_full,
         ai_audit_enabled: form.value.ai_audit_enabled,
@@ -282,6 +275,7 @@ async function submit() {
         vrf_id: form.value.vrf_id ?? null,
         customer_id: form.value.customer_id ?? null,
         jump_host_id: form.value.jump_host_id ?? null,
+        console_agent_id: form.value.console_agent_id ?? null,
         is_pool: form.value.is_pool, is_full: form.value.is_full,
         ai_audit_enabled: form.value.ai_audit_enabled,
         anomaly_enabled: form.value.anomaly_enabled,
@@ -345,15 +339,9 @@ async function submit() {
         <n-select v-model:value="form.customer_id" :options="customerOptions"
                   :placeholder="t('common.not_specified')" clearable filterable />
       </n-form-item>
-      <n-form-item v-if="jumpOptions.length" :label="t('jump_hosts.exit')">
-        <div style="width: 100%">
-          <n-select v-model:value="form.jump_host_id" :options="jumpOptions"
-                    :placeholder="t('jump_hosts.exit_direct')" clearable filterable />
-          <div style="font-size: 11px; opacity: .7; margin-top: 4px">
-            {{ t("jump_hosts.exit_hint") }}
-          </div>
-        </div>
-      </n-form-item>
+      <ConsoleEgressSelect v-model:jump-host-id="form.jump_host_id"
+                           v-model:console-agent-id="form.console_agent_id"
+                           :scan-agent-id="form.scan_agent_id === LOCAL_SCAN ? null : form.scan_agent_id" />
       <n-form-item :label="t('subnets.gateway')">
         <n-input v-model:value="form.gateway" :placeholder="t('subnets.gateway_ph')" />
       </n-form-item>

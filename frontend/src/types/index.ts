@@ -45,6 +45,7 @@ export interface Section {
   customer_id: string | null;
   /** 主控台的連線出口（issue #24）：空＝繼承上層或直連 */
   jump_host_id?: string | null;
+  console_agent_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +70,7 @@ export interface Subnet {
   customer_id: string | null;
   /** 主控台的連線出口（issue #24）：空＝繼承上層或直連 */
   jump_host_id?: string | null;
+  console_agent_id?: string | null;
   customer_name: string | null;
   gateway: string | null;
   dns_servers: string | null;
@@ -115,6 +117,7 @@ export interface IPAddress {
   customer_id: string | null;
   /** 主控台的連線出口（issue #24）：空＝繼承上層或直連 */
   jump_host_id?: string | null;
+  console_agent_id?: string | null;
   custom_fields: Record<string, unknown> | null;
   hostname_source_pin: string | null;
   switch_port_confident: boolean | null;

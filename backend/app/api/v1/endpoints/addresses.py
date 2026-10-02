@@ -1095,6 +1095,14 @@ async def update_address(
     mac_edited = "mac" in changes and _mac(changes["mac"]) != _mac(prev_mac)
     if "mac" in changes and not mac_edited:
         changes.pop("mac")
+    if "jump_host_id" in changes or "console_agent_id" in changes:
+        from app.services.console_route import EgressError, normalize_egress
+        parent = await session.get(Subnet, obj.subnet_id) if obj.subnet_id else None
+        try:
+            await normalize_egress(session, changes,
+                                   scan_agent_id=parent.scan_agent_id if parent is not None else None)
+        except EgressError as exc:
+            raise HTTPException(status_code=422, detail=ui_detail(exc.code, str(exc), **exc.params)) from exc
 
     for key, value in changes.items():
         setattr(obj, key, value)

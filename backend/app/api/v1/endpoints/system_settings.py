@@ -399,6 +399,8 @@ class ConsoleSecurityIn(StrictModel):
     ssh_engine: Literal["builtin", "guacd"] | None = None
     # SFTP 單檔上下傳上限（MB）；沒帶＝維持原值（理由同上）。上界見 SFTP_MAX_FILE_MB_LIMIT
     sftp_max_file_mb: Annotated[int, Field(ge=1, le=102_400)] | None = None
+    # 允許主控台經由掃描代理中繼（issue #24 階段二，預設關）；沒帶＝維持原值
+    console_relay: bool | None = None
 
 
 class ConsoleSecurityOut(ConsoleSecurityIn):
@@ -429,6 +431,7 @@ async def get_console_security(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
     from app.services.system_config import (
+        get_console_relay_enabled,
         get_rdp_clipboard_paste,
         get_rdp_engine,
         get_sftp_max_file_mb,
@@ -441,6 +444,7 @@ async def get_console_security(
         vnc_engine=await get_vnc_engine(session),
         ssh_engine=await get_ssh_engine(session),
         sftp_max_file_mb=await get_sftp_max_file_mb(session),
+        console_relay=await get_console_relay_enabled(session),
     )
 
 
@@ -452,10 +456,12 @@ async def put_console_security(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConsoleSecurityOut:
     from app.services.system_config import (
+        get_console_relay_enabled,
         get_rdp_engine,
         get_sftp_max_file_mb,
         get_ssh_engine,
         get_vnc_engine,
+        set_console_relay_enabled,
         set_rdp_clipboard_paste,
         set_rdp_engine,
         set_sftp_max_file_mb,
@@ -472,7 +478,8 @@ async def put_console_security(
               "rdp_clipboard_paste": payload.rdp_clipboard_paste,
               "rdp_engine": payload.rdp_engine,
               "vnc_engine": payload.vnc_engine, "ssh_engine": payload.ssh_engine,
-              "sftp_max_file_mb": payload.sftp_max_file_mb},
+              "sftp_max_file_mb": payload.sftp_max_file_mb,
+              "console_relay": payload.console_relay},
         request_id=getattr(request.state, "request_id", None),
     )
     enabled = await set_rdp_clipboard_paste(
@@ -485,14 +492,17 @@ async def put_console_security(
                   if payload.ssh_engine else await get_ssh_engine(session))
     sftp_mb = (await set_sftp_max_file_mb(session, mb=payload.sftp_max_file_mb, updated_by_user_id=user.id)
                if payload.sftp_max_file_mb is not None else await get_sftp_max_file_mb(session))
+    relay = (await set_console_relay_enabled(session, enabled=payload.console_relay, updated_by_user_id=user.id)
+             if payload.console_relay is not None else await get_console_relay_enabled(session))
     return await _console_security_out(rdp_clipboard_paste=enabled, rdp_engine=engine,
                                        vnc_engine=vnc_engine, ssh_engine=ssh_engine,
-                                       sftp_max_file_mb=sftp_mb)
+                                       sftp_max_file_mb=sftp_mb, console_relay=relay)
 
 
 async def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str,
                                 vnc_engine: str = "guacd", ssh_engine: str = "builtin",
-                                sftp_max_file_mb: int = 100) -> ConsoleSecurityOut:
+                                sftp_max_file_mb: int = 100,
+                                console_relay: bool = False) -> ConsoleSecurityOut:
     from app.services import guacd as guac
     from app.services.rdp_freerdp import availability, freerdp_apt_hint
 
@@ -506,6 +516,7 @@ async def _console_security_out(*, rdp_clipboard_paste: bool, rdp_engine: str,
         vnc_engine=vnc_engine,  # type: ignore[arg-type]
         ssh_engine=ssh_engine,  # type: ignore[arg-type]
         sftp_max_file_mb=sftp_max_file_mb,
+        console_relay=console_relay,
         freerdp_available=bool(av["ok"]),
         freerdp_missing=missing,
         freerdp_install_cmd="" if av["ok"] else freerdp_apt_hint(),

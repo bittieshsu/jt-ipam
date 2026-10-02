@@ -34,7 +34,7 @@ const emit = defineEmits<{
   (e: "connected", size: { width: number; height: number }): void;
   (e: "closed"): void;
   (e: "error", text: string): void;
-  (e: "via-jump", via: string): void;
+  (e: "via-jump", via: string, kind: string): void;
   (e: "hostkey", fingerprint: string): void;
   (e: "notice", text: string): void;
 }>();
@@ -264,7 +264,7 @@ async function connect() {
         if (payload.state === "connected") {
           startGuac();
           emit("connected", { width: Number(payload.width) || w, height: Number(payload.height) || h });
-        } else if (payload.state === "via_jump") emit("via-jump", payload.via || "");
+        } else if (payload.state === "via_jump") emit("via-jump", payload.via || "", payload.via_kind || "jump");
         else if (payload.state === "disconnected") closed();
         break;
       case "hostkey": emit("hostkey", payload.fingerprint || ""); break;

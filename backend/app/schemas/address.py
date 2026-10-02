@@ -36,6 +36,8 @@ class IPAddressBase(StrictModel):
     customer_id: uuid.UUID | None = None
     #: 主控台的連線出口（issue #24）：空＝繼承上層或直連
     jump_host_id: uuid.UUID | None = None
+    #: 或經由掃描代理中繼（階段二）：必須是所屬子網路的掃描代理；與 jump_host_id 擇一
+    console_agent_id: uuid.UUID | None = None
     custom_fields: dict[str, Any] | None = None
 
     @field_validator("ip", mode="before")
@@ -121,6 +123,8 @@ class IPAddressUpdate(StrictModel):
     customer_id: uuid.UUID | None = None
     #: 主控台的連線出口（issue #24）：空＝繼承上層或直連
     jump_host_id: uuid.UUID | None = None
+    #: 或經由掃描代理中繼（階段二）：必須是所屬子網路的掃描代理；與 jump_host_id 擇一
+    console_agent_id: uuid.UUID | None = None
     custom_fields: dict[str, Any] | None = None
     # feature A：固定以某來源 hostname 為準（"" / null = 跟全域優先序）
     hostname_source_pin: Annotated[str | None, Field(max_length=16)] = None

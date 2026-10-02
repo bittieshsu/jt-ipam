@@ -31,6 +31,9 @@ export async function getAddress(id: string): Promise<IPAddress> {
 }
 
 export interface IPAddressUpdate {
+  /** 主控台的連線出口（issue #24）：空＝沿用所屬子網路；跳板與掃描代理擇一 */
+  jump_host_id?: string | null;
+  console_agent_id?: string | null;
   hostname?: string | null;
   description?: string | null;
   state?: string | null;
@@ -76,6 +79,7 @@ export interface IPAddressCreate {
   device_id?: string | null;
   /** 主控台的連線出口（issue #24）：空＝沿用所屬子網路 */
   jump_host_id?: string | null;
+  console_agent_id?: string | null;
 }
 
 export async function createAddress(payload: IPAddressCreate): Promise<IPAddress> {

@@ -20,6 +20,7 @@ import {
   // 通用動作
   Plus,
   FingerprintScan,
+  Barcode,
   Copy,
   Archive,
   Undo,
@@ -232,6 +233,8 @@ export const TokenIcon = Key;
 export const TestIcon = CheckCircle;
 // IP 詳細頁的「探測」：辨識這個位址是什麼主機
 export const IdentifyIcon = FingerprintScan;
+/** MAC 位址（網卡的硬體識別碼）：選單的「MAC 位址」 */
+export const MacIcon = Barcode;
 
 /**
  * 把 Iconoir icon 包成 NMenu / NDropdown / NTabs 認得的 render function。

@@ -390,9 +390,10 @@ def _recog_evidence(m: dict[str, Any]) -> str:
 
 
 def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
-              recog: Matcher | None = None) -> dict[str, Any]:
+              recog: Matcher | None = None, virtual_guest: bool = False) -> dict[str, Any]:
     """代理回報的探測結果 → 摘要。`mac_vendor` 是 jt-ipam 依 IP 記錄的 MAC 查到的 OUI 廠商；
-    `recog` 是已安裝的 Recog 指紋庫（沒安裝就是 None，摘要照常，只是少了這一層）。"""
+    `recog` 是已安裝的 Recog 指紋庫（沒安裝就是 None，摘要照常，只是少了這一層）；
+    `virtual_guest`：已由虛擬化整合確認是虛擬機或容器 —— 虛擬化讓 TCP/IP 指紋失準，不拿它的類別判斷。"""
     result = result or {}
     nmap = result.get("nmap") or {}
     names_in = result.get("names") or {}
@@ -410,10 +411,15 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
         evidence.append(f"os:{top.get('name')} ({top.get('accuracy')}%)")
     # Recog 的 OS 來自服務自己講的話（OpenSSH 的註解、SMB 回的 OS 名稱），夠有把握時比 TCP/IP 指紋精確；
     # 把握度低的（例如「IIS 10 大概是 Windows」）只在 nmap 沒結論時才用
+    # nmap 的指紋被推翻了沒有：Recog 有把握地講出另一個 OS 時，指紋的類別與廠牌也不再採信
+    #（2026-10-02 PVE 的 LXC 容器：指紋說 HP NAS，OpenSSH 說 Ubuntu → 以前 OS 寫 Ubuntu、類型卻寫儲存設備）
+    fingerprint_overruled = False
     if rc and rc["os"]:
         rname, rcert, _m = rc["os"]
         if rcert >= _RECOG_STRONG_OS or os_name is None:
+            fingerprint_overruled = bool(top and os_name and rcert >= _RECOG_STRONG_OS and os_name != rname)
             os_name = rname
+    trust_fingerprint = top is not None and not fingerprint_overruled and not virtual_guest
 
     ctx = {
         "file_sharing": any(p.get("service") in _FILE_SHARING or p.get("port") in (2049, 3260, 548)
@@ -431,14 +437,27 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
                 device_type = code
                 evidence.append(f"service:{_service_line(hit)}")
                 break
-    if device_type == "unknown" and top and top.get("type"):
+    if device_type == "unknown" and trust_fingerprint and top and top.get("type"):
         mapped = _OSCLASS_TYPE.get(str(top["type"]).lower())
         if mapped and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY:
             device_type = mapped
             evidence.append(f"osclass:{top['type']}")
+    if device_type == "unknown" and fingerprint_overruled and os_name:
+        # 服務自己講出的是一般作業系統（Ubuntu、Windows…）：那就是一台一般主機
+        from app.core.os_fingerprint import normalize_os
+        fam = normalize_os(os_name)
+        if fam in ("linux", "windows", "bsd", "macos"):
+            device_type = "windows" if fam == "windows" else "server"
+            evidence.append(f"recog-os:{os_name}")
+    if device_type == "unknown" and virtual_guest:
+        # 虛擬機／容器沒有任何服務講出特定角色 → 一般主機（Windows 的話標 Windows）。
+        # 不能停在「不明」：不明不會覆寫 IP 上舊的判讀，被指紋判錯的「儲存設備」就永遠改不過來
+        from app.core.os_fingerprint import normalize_os
+        device_type = "windows" if os_name and normalize_os(os_name) == "windows" else "server"
+        evidence.append("virt:guest")
 
     vendor = (mac_vendor or nmap.get("mac_vendor") or (rc["vendor"] if rc else None)
-              or (top or {}).get("vendor") or None)
+              or ((top or {}).get("vendor") if trust_fingerprint else None) or None)
     if mac_vendor:
         evidence.append(f"oui:{mac_vendor}")
     if rc:

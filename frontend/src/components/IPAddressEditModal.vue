@@ -12,7 +12,7 @@ import {
   NForm, NFormItem, NInput, NSelect, NSwitch, NPopconfirm, NTag, NIcon, NPagination,
   NCollapse, NCollapseItem, NTimeline, NTimelineItem, NText, NEmpty, NSpin,
   NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider,
-  NInputGroup, NInputGroupLabel,
+  NInputGroup, NInputGroupLabel, NTable,
   useMessage,
 } from "naive-ui";
 import { useAuthStore } from "@/stores/auth";
@@ -30,9 +30,10 @@ import InvestigateModal from "@/components/InvestigateModal.vue";
 import ChangeValue from "@/components/ChangeValue.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
-import { fmtDateTime } from "@/utils/datetime";
+import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { useCustomers } from "@/composables/useCustomers";
-import { listJumpHosts } from "@/api/jumpHosts";
+import ConsoleEgressSelect from "@/components/ConsoleEgressSelect.vue";
+import { virtTagText } from "@/utils/virt";
 import { useChangeLogDim } from "@/composables/useChangeLogDim";
 import { useRouter, type RouteLocationRaw } from "vue-router";
 import { getDevice, listDevices, type Device } from "@/api/basic";
@@ -46,15 +47,6 @@ import DeviceKindIcon from "@/components/DeviceKindIcon.vue";
 
 const router = useRouter();
 const { options: customerOptions, labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
-// 主控台的連線出口（issue #24）。跳板清單只有 admin 讀得到 —— 讀不到就不顯示這個欄位。
-const jumpOptions = ref<{ label: string; value: string }[]>([]);
-async function loadJumpOptions() {
-  try {
-    jumpOptions.value = (await listJumpHosts()).items
-      .filter((j) => j.enabled)
-      .map((j) => ({ label: `${j.name}（${j.username}@${j.host}:${j.port}）`, value: j.id }));
-  } catch { jumpOptions.value = []; }
-}
 const { isOld: isOldLog } = useChangeLogDim();
 const devices = ref<Device[]>([]);
 
@@ -333,6 +325,7 @@ interface FormState {
   note: string;
   customer_id: string | null;
   jump_host_id: string | null;
+  console_agent_id: string | null;
   device_id: string | null;
   hostname_source_pin: string;  // "" = 自動 (跟全域優先序)
   ssh_enabled: boolean;
@@ -355,6 +348,7 @@ function emptyForm(): FormState {
     ptr_ignore: false, note: "",
     customer_id: null,
     jump_host_id: null,
+    console_agent_id: null,
     device_id: null,
     hostname_source_pin: "",
     ssh_enabled: false,
@@ -448,6 +442,7 @@ function fromAddress(a: IPAddress): FormState {
     note: a.note ?? "",
     customer_id: a.customer_id ?? null,
     jump_host_id: a.jump_host_id ?? null,
+    console_agent_id: a.console_agent_id ?? null,
     device_id: (a as any).device_id ?? null,
     hostname_source_pin: a.hostname_source_pin ?? "",
     ssh_enabled: !!a.ssh_enabled,
@@ -487,7 +482,6 @@ watch(
     }
     if (props.show) {
       void ensureCustomersLoaded();
-      void loadJumpOptions();
       void loadDevices();
       void loadDhcpRanges();
       void loadRelations();
@@ -571,6 +565,34 @@ function fwSeenLabel(key: string): string {
   if (!vendor) return key;
   return `${t(`system_settings.src_kind_${kind}`)}（${FW_VENDOR[vendor] ?? vendor}）`;
 }
+
+// 「各來源最後出現」一區的列：固定順序（每個 IP 都同一個位置，比較時不用重新找），
+// 掃描代理／LibreNMS／ARP／DNS 一律列出（「—」本身就是資訊：這個來源沒看過它），
+// Wazuh／OCS 只有比對得到才列；jump＝裝置頁上對應卡片的 id。
+interface SeenRow { key: string; label: string; at: string | null | undefined; jump?: string; hint?: string }
+const seenRows = computed<SeenRow[]>(() => {
+  const a = props.address as any;
+  if (!a) return [];
+  const rows: SeenRow[] = [
+    { key: "scanner", label: t("addresses.seen_src_scanner"), at: a.last_seen_scanner },
+    { key: "librenms", label: "LibreNMS", at: a.last_seen_librenms, jump: "librenms" },
+    { key: "arp", label: "ARP", at: a.last_seen_arp, hint: t("live_dot.arp_only_hint") },
+  ];
+  if (a.last_seen_wazuh) rows.push({ key: "wazuh", label: t("addresses.seen_src_wazuh"), at: a.last_seen_wazuh, jump: "wazuh" });
+  if (a.last_seen_ocs) rows.push({ key: "ocs", label: t("addresses.seen_src_ocs"), at: a.last_seen_ocs, jump: "ocs" });
+  for (const [k, v] of fwSeen.value) rows.push({ key: k, label: fwSeenLabel(k), at: v });
+  rows.push({ key: "dns", label: t("addresses.seen_src_dns"), at: a.last_seen_dns });
+  return rows;
+});
+const seenLatestKey = computed<string | null>(() => {
+  let best: string | null = null;
+  let bestTs = -Infinity;
+  for (const r of seenRows.value) {
+    const ts = r.at ? Date.parse(r.at) : NaN;
+    if (!Number.isNaN(ts) && ts > bestTs) { best = r.key; bestTs = ts; }
+  }
+  return best;
+});
 
 function eventLabel(e: string): string {
   const key = `ipChanges.event.${e}`;
@@ -705,6 +727,9 @@ async function save() {
       note: form.value.note.trim() || null,
       customer_id: form.value.customer_id ?? null,
       device_id: form.value.device_id ?? null,
+      // 主控台出口：以前更新時沒有送這一欄，IP 層級的跳板覆寫在畫面上選了也不會存
+      jump_host_id: form.value.jump_host_id ?? null,
+      console_agent_id: form.value.console_agent_id ?? null,
       hostname_source_pin: form.value.hostname_source_pin || null,
       ssh_enabled: form.value.ssh_enabled,
       sftp_enabled: form.value.sftp_enabled,
@@ -1050,42 +1075,57 @@ async function remove() {
           <!-- 虛擬化對應：比對到 VM 網卡才顯示「虛擬機」；比對不到不顯示——
                「查無」是「不知道」，不是「實體機」，反向斷言是誤導 -->
           <n-descriptions-item v-if="(props.address as any)?.virt_vm" :label="t('addresses.virt')">
-            <n-tag size="small" type="info">{{ t('addresses.virt_vm_tag') }}</n-tag>
+            <n-tag size="small" type="info">{{ virtTagText((props.address as any).virt_vm, t) }}</n-tag>
             <span style="margin-left:6px">{{ (props.address as any).virt_vm.vm }}
               <span style="opacity:.65">@ {{ (props.address as any).virt_vm.cluster || (props.address as any).virt_vm.platform }}</span></span>
           </n-descriptions-item>
-          <n-descriptions-item :label="t('addresses.last_seen_scanner')">{{ fmtDateTime(props.address?.last_seen_scanner) }}</n-descriptions-item>
-          <n-descriptions-item :label="t('addresses.last_seen_librenms')">{{ fmtDateTime(props.address?.last_seen_librenms) }}</n-descriptions-item>
-          <n-descriptions-item :label="t('addresses.last_seen_arp')">
-            {{ fmtDateTime(props.address?.last_seen_arp) }}
-            <n-tooltip v-if="props.address?.last_seen_arp" trigger="hover">
-              <template #trigger><span class="arp-caveat">?</span></template>
-              <div style="max-width: 300px">{{ t("live_dot.arp_only_hint") }}</div>
-            </n-tooltip>
-          </n-descriptions-item>
-          <n-descriptions-item v-if="props.address?.last_seen_wazuh"
-                               :label="t('addresses.last_seen_wazuh')">
-            {{ fmtDateTime(props.address?.last_seen_wazuh) }}
-          </n-descriptions-item>
-          <!-- 盤點時間可點 → 帶到裝置頁並捲到 OCS 卡片（沒連到裝置時就只是純文字） -->
-          <n-descriptions-item v-if="props.address?.last_seen_ocs"
-                               :label="t('addresses.last_seen_ocs')">
-            <a v-if="props.address?.device_id" class="ocs-jump"
-               :title="t('addresses.last_seen_ocs_jump')"
-               @click="goDevice(props.address?.device_id, 'ocs')">
-              {{ fmtDateTime(props.address?.last_seen_ocs) }}
-            </a>
-            <template v-else>{{ fmtDateTime(props.address?.last_seen_ocs) }}</template>
-          </n-descriptions-item>
-          <!-- 防火牆給的證據逐來源列出。以前這些全被寫成「掃描代理」，於是沒有代理的站台
-               也看得到掃描代理的時間 —— 現在照實顯示是哪一台防火牆、哪一種表看到的。 -->
-          <n-descriptions-item v-for="[k, v] in fwSeen" :key="k" :label="fwSeenLabel(k)">
-            {{ fmtDateTime(v) }}
-          </n-descriptions-item>
-          <n-descriptions-item :label="t('addresses.last_seen_dns')">{{ fmtDateTime(props.address?.last_seen_dns) }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.created_at')">{{ fmtDateTime(props.address?.created_at) }}</n-descriptions-item>
           <n-descriptions-item :label="t('common.updated_at')" :span="2">{{ fmtDateTime(props.address?.updated_at) }}</n-descriptions-item>
         </n-descriptions>
+
+        <!-- 各來源最後出現時間：獨立成一區、同一欄對齊並附「距今」，方便一眼比較哪個來源還在看到它
+             （使用者要求）。以前散在上面的欄位之間，要上下找、自己心算差多久。
+             LibreNMS／Wazuh／OCS 的時間可點 → 帶到裝置頁並捲到該系統的卡片。 -->
+        <div v-if="!editMode && seenRows.length" data-testid="ip-seen-section">
+          <div class="detail-sec-title">{{ t("addresses.seen_title") }}</div>
+          <n-table size="small" :single-line="false" class="seen-table">
+            <thead><tr>
+              <th>{{ t("addresses.seen_col_source") }}</th>
+              <th>{{ t("addresses.seen_col_time") }}</th>
+              <th class="seen-ago-col">{{ t("addresses.seen_col_ago") }}</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="r in seenRows" :key="r.key" :class="{ 'seen-latest': r.key === seenLatestKey }">
+                <td class="nowrap">
+                  {{ r.label }}
+                  <n-tooltip v-if="r.hint && r.at" trigger="hover">
+                    <template #trigger><span class="arp-caveat">?</span></template>
+                    <div style="max-width: 300px">{{ r.hint }}</div>
+                  </n-tooltip>
+                </td>
+                <td class="nowrap mono">
+                  <a v-if="r.jump && r.at && props.address?.device_id" class="ocs-jump"
+                     :data-testid="`seen-jump-${r.jump}`"
+                     :title="t('addresses.seen_jump', { sys: r.label })"
+                     @click="goDevice(props.address?.device_id, r.jump)">
+                    {{ fmtDateTime(r.at) }}
+                  </a>
+                  <template v-else>{{ fmtDateTime(r.at) }}</template>
+                  <!-- 手機：第三欄放不下，「距今」改成時間下方第二行 -->
+                  <div v-if="r.at" class="seen-ago-inline dim">
+                    {{ fmtRelative(r.at) }}
+                    <span v-if="r.key === seenLatestKey"> · {{ t("addresses.seen_latest") }}</span>
+                  </div>
+                </td>
+                <td class="nowrap dim seen-ago-col">
+                  {{ r.at ? fmtRelative(r.at) : "—" }}
+                  <n-tag v-if="r.key === seenLatestKey" size="tiny" type="success" :bordered="false"
+                         style="margin-left: 6px">{{ t("addresses.seen_latest") }}</n-tag>
+                </td>
+              </tr>
+            </tbody>
+          </n-table>
+        </div>
 
         <!-- 上下關係鏈：區段 → 子網路 → 位址 → 裝置 → 機櫃 → 機房 -->
         <div v-if="!editMode && relations.length > 1" style="margin-top: 14px">
@@ -1301,13 +1341,9 @@ async function remove() {
             <n-select v-model:value="form.customer_id" :options="customerOptions"
                       :placeholder="t('common.not_specified')" clearable filterable />
           </n-form-item>
-          <n-form-item v-if="jumpOptions.length" :label="t('jump_hosts.exit')">
-            <n-space vertical :size="4" style="width: 100%">
-              <n-select v-model:value="form.jump_host_id" :options="jumpOptions"
-                        :placeholder="t('jump_hosts.exit_inherit')" clearable filterable />
-              <span style="font-size: 11px; opacity: .7">{{ t("jump_hosts.exit_hint") }}</span>
-            </n-space>
-          </n-form-item>
+          <ConsoleEgressSelect v-model:jump-host-id="form.jump_host_id"
+                               v-model:console-agent-id="form.console_agent_id"
+                               :subnet-id="address?.subnet_id ?? createContext?.subnet_id ?? null" inherit />
           <n-form-item :label="t('nav.devices')">
             <n-space vertical :size="4" style="width: 100%">
               <n-select v-model:value="form.device_id" :options="deviceOptions"
@@ -1488,6 +1524,20 @@ async function remove() {
   text-align: left; font-weight: 400; font-size: 11.5px; opacity: .55;
   padding: 2px 14px 4px 0; white-space: nowrap;
   border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+}
+/* 各來源最後出現：三欄對齊；最新那一列加粗，一眼看出誰最近還看得到它 */
+.seen-table { width: auto; min-width: min(100%, 460px); }
+.seen-table th, .seen-table td { padding: 4px 12px; }
+.seen-table .nowrap { white-space: nowrap; }
+.seen-table .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.seen-table .dim { color: color-mix(in srgb, currentColor 70%, transparent); }
+.seen-table tr.seen-latest td { font-weight: 600; }
+.seen-ago-inline { display: none; font-family: inherit; font-size: 12px; }
+@media (max-width: 600px) {
+  .seen-table { min-width: 0; width: 100%; }
+  .seen-table th, .seen-table td { padding: 4px 8px; }
+  .seen-table .seen-ago-col { display: none; }
+  .seen-ago-inline { display: block; }
 }
 .fw-table td {
   padding: 4px 14px 4px 0; vertical-align: top;

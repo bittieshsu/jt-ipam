@@ -91,6 +91,10 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     jump_host_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jump_hosts.id", ondelete="SET NULL"), index=True,
     )
+    # 或經由掃描代理中繼（issue #24 階段二，0175）；與 jump_host_id 只能擇一
+    console_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scan_agents.id", ondelete="SET NULL"), index=True,
+    )
 
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
@@ -176,4 +180,6 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             name="ip_discovery_source_valid",
         ),
         Index("ix_ip_addresses_ip_gist", "ip", postgresql_using="gist"),
+        CheckConstraint("jump_host_id IS NULL OR console_agent_id IS NULL",
+                        name="ip_console_egress_one"),
     )

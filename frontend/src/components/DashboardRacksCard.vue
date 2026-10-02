@@ -10,7 +10,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import {
-  NButton, NCard, NEmpty, NForm, NFormItem, NIcon, NModal, NRadio, NRadioGroup, NSelect, NSpace, NSpin,
+  NButton, NCard, NEmpty, NForm, NFormItem, NIcon, NModal, NRadio, NRadioGroup, NSelect, NSpace, NSpin, NTag,
 } from "naive-ui";
 import RackDiagram from "@/components/RackDiagram.vue";
 import CardTitle from "@/components/CardTitle.vue";
@@ -97,22 +97,26 @@ const rackOptions = computed(() => props.racks.map((r) => ({
 
 <template>
   <n-card data-testid="dash-racks">
+    <!-- 標題列只放標題＋數量（使用者要求：儀表板卡片標題不放按鈕、不放標題以外的文字）；
+         顯示哪個機房／幾個機櫃與「設定」按鈕放內文最上方的控制列，比照 AI 巡檢卡 -->
     <template #header>
-      <CardTitle :icon="RacksIcon" :text="t('dashboard.racks_title')" />
-      <span v-if="subtitle" class="dr-sub">{{ subtitle }}</span>
+      <CardTitle :icon="RacksIcon" :text="t('dashboard.racks_title')">
+        <n-tag v-if="configured && wanted.length" size="small" round :bordered="false">
+          {{ wanted.length }}
+        </n-tag>
+      </CardTitle>
     </template>
-    <template #header-extra>
-      <n-space :size="6" :wrap-item="false">
-        <n-button size="small" quaternary data-testid="dash-racks-settings" @click="openSettings">
-          <template #icon><n-icon><SettingsIcon /></n-icon></template>
-          {{ t("dashboard.racks_settings") }}
-        </n-button>
-      </n-space>
-    </template>
+    <div v-if="configured" class="dr-ctrl">
+      <span class="dr-sub" data-testid="dash-racks-sub">{{ subtitle }}</span>
+      <n-button size="small" data-testid="dash-racks-settings" @click="openSettings">
+        <template #icon><n-icon><SettingsIcon /></n-icon></template>
+        {{ t("dashboard.racks_settings") }}
+      </n-button>
+    </div>
 
     <n-empty v-if="!configured" :description="t('dashboard.racks_empty')">
       <template #extra>
-        <n-button size="small" type="primary" @click="openSettings">{{ t("dashboard.racks_settings") }}</n-button>
+        <n-button size="small" type="primary" data-testid="dash-racks-settings" @click="openSettings">{{ t("dashboard.racks_settings") }}</n-button>
       </template>
     </n-empty>
     <n-empty v-else-if="!wanted.length" :description="t('dashboard.racks_none')" />
@@ -165,7 +169,8 @@ const rackOptions = computed(() => props.racks.map((r) => ({
 </template>
 
 <style scoped>
-.dr-sub { margin-left: 10px; font-size: 12.5px; font-weight: 400; opacity: .6; }
+.dr-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.dr-sub { font-size: 12.5px; opacity: .65; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 一整排靠下對齊（落地），超出寬度左右捲 */
 .dr-row { display: flex; flex-wrap: nowrap; gap: 18px; align-items: flex-end; overflow-x: auto; padding: 0 2px 8px; }
 .dr-rack { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; }

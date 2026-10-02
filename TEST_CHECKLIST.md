@@ -451,6 +451,16 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   racks drawn in one row standing on the same floor (no border in the dark theme), names open the Racks page; switch to
   selected racks → only those; the setting survives a reload and another browser; more than 12 shows "N more" linking to
   the Racks page
+- [ ] **Dashboard card headers hold only the title (at most a count)**: no buttons, no subtitle text; the racks card's
+  Settings button and scope sit at the top of its body
+- [ ] **IP details "Last seen by source"** (`e2e/ip-seen-sources.spec.ts`): a section of its own with source / time / ago
+  columns in a fixed order (scanner, LibreNMS, ARP, Wazuh, OCS, each firewall, AdGuard), the most recent row bold and
+  tagged "Latest"; the basic fields no longer carry last-seen rows; on a phone "ago" moves under the time with no
+  horizontal scroll. Clicking the LibreNMS / Wazuh / OCS time opens the device page scrolled to that card (outline flashes)
+- [ ] **Virtual/physical shows the guest kind** (`tests/test_virt_correlation.py`): a PVE LXC reads "Container · LXC",
+  qemu "Virtual machine · KVM", VMware "Virtual machine · VMware", the same on IP details and the device page
+- [ ] **Counts in subnet page card headers**: "Address ranges (pools)" and "IP list" show the count as a tag next to the
+  title, not in brackets
 - [ ] Topology: nodes / links, VPN pairing links, legend
 - [ ] **MAC history** (`tests/test_mac_history.py`, `e2e/mac-history.spec.ts`): typing a full MAC into global search (upper
   case, dashes, Cisco dots all work) shows "Full history of …" on top, Enter goes straight there and clears the box; the MAC
@@ -461,6 +471,23 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   host name stayed the same. A department account sees only IPs in granted subnets and granted devices, and no DHCP or
   VMs (the page says so). A non-MAC returns `mac_invalid`. On production, check a MAC that really moved against the IP
   details change history.
+- [ ] **Console relay through scan agents** (issue #24 phase 2; `tests/test_console_relay.py`, `e2e/console-relay.spec.ts`).
+  Setup: two containers as customer sites, each with a dummy interface 10.99.0.5/24 (overlapping), sshd, a marker file and a
+  scan agent dialing back to the backend (no relay variables set on the agent host); two 10.99.0.0/24 subnets assigned to their own agent as
+  scan agent and console exit; the backend host cannot reach 10.99.0.5. Check: SFTP to each IP lists its own marker file and the
+  status bar says "via scan agent: <name>"; an SSH session works the same way; a second worker process gets the port over Redis.
+  Everything is set in the web UI: with the system switch and "Allow console relay" on the agent page turned on, the agent
+  host needs nothing and consoles connect right away (no waiting for the next poll); setting Allowed ports to 2222 lets SSH
+  on 2222 through and refuses 22 (`relay_port_not_allowed`); an invalid list (`abc`, `1-70000`) returns
+  `relay_ports_invalid`. Refusals, never direct: system switch off, agent not allowed (the poll hands out an empty scope and
+  the agent relays nothing), agent too old, the host owner refusing with `JT_IPAM_RELAY=0` (`relay_agent_host_off`; the
+  agent also refuses when the server is forged to think it is on), target outside the agent's subnets, port not allowed,
+  agent offline (`relay_agent_timeout` after 15 s). `JT_IPAM_RELAY_PORTS` / `_MAX` / `_CIDRS` on the agent host can only
+  narrow, and the agent page's status tag lists those local limits. Restarting the agent and relaying right away works (no lost job).
+  Audit has `console_relay` with bytes each way. Subnet edit shows the subnet's scan agent as a console exit (greyed out with
+  the reason when it cannot relay); changing the scan agent while the exit points at the old one is refused. Upgrade adds the
+  nginx location (`grep scan-agents/relay /etc/nginx/sites-available/jt-ipam`, `nginx -t`).
+- [ ] **Disabled jump host refuses** (`jump_host_disabled`) instead of connecting directly; IP edit saves a per-IP jump host or agent.
 - [ ] **Create IPs from the LibreNMS ARP table** (#48, `tests/test_librenms_arp_autocreate.py`): LibreNMS integration →
   edit → "Create IPs from the ARP table" is off on a new and on an upgraded site. Turn it on → the warning (no longer
   under Unauthorized IPs, not liveness evidence) and two options appear: "Require a switch MAC table sighting" (on) and
@@ -622,8 +649,9 @@ The same sshd can play both roles: register it as the jump host, and point the t
 - [ ] **Wrong fingerprint**: change the pinned value → connecting must fail with a man-in-the-middle
   warning, not a generic error.
 - [ ] **Resolution order**: set a jump host on the subnet and a *different* one on the IP → the IP
-  wins. Disable the jump host → falls back to direct (disabling is an admin action, it must not
-  brick a batch of consoles).
+  wins. Disable the jump host → the console **refuses** with "jump host is disabled" (since 2026-10-02:
+  falling back to direct on overlapping networks reaches the wrong host); removing the assignment
+  is the way to connect directly.
 - [ ] **All four tunnelled consoles** (SSH / SFTP / RDP / VNC), each through the jump:
   - SSH: the status bar shows「經由跳板：<name>」and a real shell responds
   - SFTP: a directory listing appears (this proves both directions, not just server→browser)
@@ -1218,6 +1246,12 @@ happy path of "an upload succeeded" is not enough.
   listed; Ignore this IP works); the IP list's Device type column (column picker) and the IP details show it; a
   topology device of unknown type takes its primary IP's kind. Run the agent's nmap path for real once (nmap in a
   container against a container target); unit tests mock nmap
+- [ ] **An overruled fingerprint does not lend its type or vendor** (`tests/test_recog.py`, `tests/test_device_identity.py`):
+  when Recog names a different OS than the nmap fingerprint with high confidence (e.g. fingerprint says HP storage, Recog
+  says Linux), the device type follows the OS (server) and the vendor is not HP; VMs and containers matched by a
+  virtualization integration never take type or vendor from the fingerprint (no role-specific service → server /
+  windows), and the IP "Probe" page summary agrees with the periodic probe; an already misjudged "Storage · HP" becomes
+  "Server" on the next probe without keeping HP as model (`test_ip_identify.py`). On production check a PVE LXC
 - [ ] **MikroTik lease hostnames** use their own source, not "manual" (`tests/test_hostname_reports.py`): a typed hostname
   is not overridden, and the lease hostname disappears when the lease does
 

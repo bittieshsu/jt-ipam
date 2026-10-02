@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { virtTagText } from "@/utils/virt";
 import { computed, h, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -59,15 +60,26 @@ function openExternal(url: string | null | undefined) {
   if (url) window.open(url, "_blank", "noopener");
 }
 
-// 從別頁帶 ?card=<id> 進來時，捲到該卡片並短暫highlight，讓使用者知道落在哪
+// 從別頁帶 ?card=<id> 進來時，捲到該卡片並短暫highlight，讓使用者知道落在哪。
+// 卡片來自兩支各自載入的 API（LibreNMS 一支、Wazuh／OCS 一支），兩邊載完都呼叫一次；
+// 先到的那邊找不到卡片就略過，捲過一次就不再捲（不然後到的那支會把畫面又拉一次）。
 const focusedCard = ref<string>("");
+let cardFocusDone = false;
 function focusRequestedCard() {
   const card = String(route.query.card || "");
-  if (!card) return;
+  if (!card || cardFocusDone) return;
   void nextTick(() => {
     const el = document.getElementById(`card-${card}`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!el || cardFocusDone) return;
+    cardFocusDone = true;
+    const align = () => el.scrollIntoView({ behavior: "smooth", block: "start" });
+    align();
+    // 上方的卡片（機櫃圖、連接埠、IP 清單）可能比這張晚載入、把它往下推到畫面底部；
+    // 版面穩定後若已經不在上半部就再對齊一次
+    setTimeout(() => {
+      const top = el.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.4) align();
+    }, 900);
     focusedCard.value = card;
     setTimeout(() => { focusedCard.value = ""; }, 2400);
   });
@@ -273,10 +285,11 @@ async function load(id: string) {
     addresses.value = addrs.items;
     getDeviceRelations(id).then((c) => { relations.value = c; }).catch(() => { relations.value = []; });
     getDeviceVlans(id).then((v) => { vlans.value = v; }).catch(() => { vlans.value = []; });
-    getDeviceLibrenms(id).then((l) => { lnms.value = l; }).catch(() => { lnms.value = null; });
+    cardFocusDone = false;
+    getDeviceLibrenms(id).then((l) => { lnms.value = l; focusRequestedCard(); }).catch(() => { lnms.value = null; });
     apiClient.get(`/api/v1/devices/${id}/integrations`).then((r) => {
       integrations.value = r.data;
-      focusRequestedCard();   // 從 IP 頁「最後出現（OCS 盤點）」點進來時捲到該卡片
+      focusRequestedCard();   // 從 IP 頁「各來源最後出現」點 LibreNMS／Wazuh／OCS 的時間進來時捲到該卡片
     }).catch(() => { integrations.value = null; });
 
     const tasks: Promise<unknown>[] = [];
@@ -418,7 +431,7 @@ onMounted(() => {
             <!-- 虛實：由虛擬化整合對應（名稱／IP／MAC 對到 VM）。對不到不標——不知道≠實體機 -->
             <n-tooltip v-if="(device as any).virt_vm" trigger="hover">
               <template #trigger>
-                <n-tag type="info" size="small">{{ t("devices.vm_tag") }}</n-tag>
+                <n-tag type="info" size="small">{{ virtTagText((device as any).virt_vm, t) }}</n-tag>
               </template>
               {{ (device as any).virt_vm.vm }} @ {{ (device as any).virt_vm.cluster || (device as any).virt_vm.platform }}
             </n-tooltip>
@@ -565,7 +578,9 @@ onMounted(() => {
         </n-space>
       </n-modal>
 
-      <n-card v-if="device && lnms" :title="() => cardHead(LibreNMSIcon, 'LibreNMS')">
+      <n-card v-if="device && lnms" id="card-librenms"
+              :class="{ 'card-focus': focusedCard === 'librenms' }"
+              :title="() => cardHead(LibreNMSIcon, 'LibreNMS')">
         <template v-if="lnms.url" #header-extra>
           <n-button size="small" quaternary type="primary" @click="openExternal(lnms.url)">
             <template #icon><n-icon><OpenNewWindowIcon /></n-icon></template>
@@ -586,7 +601,9 @@ onMounted(() => {
       </n-card>
 
       <!-- Wazuh agent（依裝置 IP 比對）-->
-      <n-card v-if="integrations && integrations.wazuh" :title="() => cardHead(WazuhIcon, 'Wazuh')" style="margin-top: 16px">
+      <n-card v-if="integrations && integrations.wazuh" id="card-wazuh"
+              :class="{ 'card-focus': focusedCard === 'wazuh' }"
+              :title="() => cardHead(WazuhIcon, 'Wazuh')" style="margin-top: 16px">
         <template v-if="integrations.wazuh.url" #header-extra>
           <n-button size="small" quaternary type="primary" @click="openExternal(integrations.wazuh.url)">
             <template #icon><n-icon><OpenNewWindowIcon /></n-icon></template>
@@ -767,6 +784,8 @@ onMounted(() => {
 
 <style scoped>
 /* 從別頁帶 ?card= 進來時短暫highlight，讓使用者知道落點在哪 */
+/* ?card= 捲到的卡片：頂端留出固定標題列的高度 */
+[id^="card-"] { scroll-margin-top: 72px; }
 .card-focus {
   box-shadow: 0 0 0 2px var(--n-primary-color, #18a058);
   transition: box-shadow .35s ease;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import secrets
@@ -23,6 +24,7 @@ from app.core import scan_probes
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.sqlin import in_values
+from app.core.ui_error import ui_detail
 from app.models.address import IPAddress
 from app.models.scan_agent import ScanAgent
 from app.models.subnet import Subnet
@@ -76,6 +78,10 @@ class ScanAgentUpdate(StrictModel):
     auto_create_ips: bool | None = None
     enabled_probes: list[str] | None = None
     probe_intervals: dict[str, int] | None = None
+    # 主控台中繼（issue #24 階段二）：允許這台代理中繼、同時中繼上限、允許的埠（"22,3389,5900-5910"）
+    relay_allowed: bool | None = None
+    relay_max_sessions: Annotated[int | None, Field(ge=1, le=64)] = None
+    relay_ports: Annotated[str | None, Field(max_length=200)] = None
 
 
 class ScanAgentRead(StrictModel):
@@ -101,10 +107,27 @@ class ScanAgentRead(StrictModel):
     # 最近一輪的負載摘要（services/scan_load.summary）：{ratio, level, duration_s, interval_s,
     # heavy_backlog, truncated, at}；代理還沒回報過每輪統計（1.10.0 以前）就是 None
     load: dict[str, Any] | None = None
+    # 主控台中繼：管理員的允許、上限、代理回報的能力（舊代理＝None）、目前中繼中的工作階段數
+    relay_allowed: bool = False
+    relay_max_sessions: int = 4
+    relay_ports: str = "22,3389,5900-5910"
+    relay_caps: dict[str, Any] | None = None
+    relay_active: int = 0
     last_seen_at: Any
     last_error: str | None
     created_at: Any
     updated_at: Any
+
+
+async def _with_relay_active(m: ScanAgentRead) -> ScanAgentRead:
+    """目前中繼中的工作階段數（Redis）。Redis 不通時當 0：這只是顯示，不能讓代理清單整頁壞掉。"""
+    if m.relay_allowed:
+        try:
+            from app.services.console_relay import active_count
+            m.relay_active = await active_count(m.id)
+        except Exception:
+            m.relay_active = 0
+    return m
 
 
 class ScanAgentCreated(ScanAgentRead):
@@ -207,7 +230,7 @@ async def list_agents(
         counts = {sid: n for sid, n in crows}
     items = []
     for r in rows:
-        m = _to_read(r)
+        m = await _with_relay_active(_to_read(r))
         m.subnet_count = int(counts.get(r.id, 0))
         items.append(m)
     return Paginated[ScanAgentRead](items=items, total=total, page=page, page_size=page_size)
@@ -323,7 +346,21 @@ async def update_agent(
     if obj is None:
         raise HTTPException(404, detail="Agent not found")
 
-    before = {"enabled": obj.enabled, "auto_create_ips": obj.auto_create_ips}
+    before = {"enabled": obj.enabled, "auto_create_ips": obj.auto_create_ips,
+              "relay_allowed": obj.relay_allowed, "relay_max_sessions": obj.relay_max_sessions,
+              "relay_ports": obj.relay_ports}
+    if payload.relay_ports is not None:
+        from app.services.relay_scope import normalize_ports
+        try:
+            obj.relay_ports = normalize_ports(payload.relay_ports)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=ui_detail(
+                "relay_ports_invalid", f"允許中繼的埠格式不對：{exc}（例：22,3389,5900-5910）",
+                value=str(exc))) from None
+    if payload.relay_allowed is not None:
+        obj.relay_allowed = payload.relay_allowed
+    if payload.relay_max_sessions is not None:
+        obj.relay_max_sessions = payload.relay_max_sessions
     if payload.description is not None:
         obj.description = payload.description
     if payload.enabled is not None:
@@ -341,12 +378,13 @@ async def update_agent(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="scan_agent", object_id=str(obj.id), action="update",
-        diff={"before": before},
+        # 打開中繼＝這台代理變成通往客戶網路的跳點，改了什麼要看得到
+        diff={"before": before, "changes": payload.model_dump(exclude_none=True)},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
     await session.refresh(obj)
-    return _to_read(obj)
+    return await _with_relay_active(_to_read(obj))
 
 
 class AgentSubnetsOut(StrictModel):
@@ -452,6 +490,41 @@ class AgentPollOut(StrictModel):
     # 獨立 ISC DHCP Server（issue #45）：有來源指到這台代理時才帶 {source_id, interval_seconds}，
     # 代理才會去讀本機的 dhcpd.conf／dhcpd.leases；沒有就是 None，代理完全不碰那兩個檔
     dhcpd: dict[str, Any] | None = None
+    # 主控台中繼（issue #24 階段二）：網頁上允許的範圍（被指派的子網路、埠、同時上限）。代理只中繼範圍內的目標；
+    # 系統設定與掃描代理頁兩道開關都開才給，否則是空的（代理什麼都不中繼）
+    relay_cidrs: list[str] = Field(default_factory=list)
+    relay_ports: list[int] = Field(default_factory=list)
+    relay_max: int = 0
+
+
+def parse_relay_header(raw: str | None) -> dict[str, Any] | None:
+    """`X-Agent-Relay: enabled=1;ports=22,3389,5900-5910;max=4;pinned=0` → 能力；格式不對回 None。
+
+    埠的範圍展開成清單（最多 256 個，代理端預設 13 個）。
+    """
+    if raw is None:
+        return None
+    out: dict[str, Any] = {"enabled": False, "ports": [], "max": 0, "pinned": False}
+    for part in raw.split(";")[:8]:
+        k, _, v = part.strip().partition("=")
+        k, v = k.strip().lower(), v.strip()
+        if k == "enabled":
+            out["enabled"] = v in ("1", "true", "yes")
+        elif k == "max" and v.isdigit():
+            out["max"] = min(int(v), 64)
+        elif k == "pinned":
+            out["pinned"] = v in ("1", "true", "yes")
+        elif k == "ports":
+            ports: list[int] = []
+            for tok in v.split(",")[:64]:
+                a, _, b = tok.strip().partition("-")
+                if not a.isdigit() or (b and not b.isdigit()):
+                    continue
+                lo, hi = int(a), int(b or a)
+                if 1 <= lo <= hi <= 65535 and hi - lo < 256:
+                    ports.extend(range(lo, hi + 1))
+            out["ports"] = sorted(set(ports))[:256]
+    return out
 
 
 @router.get("/poll", response_model=AgentPollOut)
@@ -462,6 +535,7 @@ async def agent_poll(
     x_agent_version: Annotated[str | None, Header()] = None,
     x_agent_probes: Annotated[str | None, Header()] = None,
     x_agent_tools: Annotated[str | None, Header()] = None,
+    x_agent_relay: Annotated[str | None, Header()] = None,
 ) -> AgentPollOut:
     """Agent 主動拉取「要掃哪些網段、各網段跑哪些探測、各探測間隔、逐 IP 略過」。"""
     agent = await _agent_from_key(session, x_agent_key)
@@ -480,6 +554,8 @@ async def agent_poll(
     # 相依工具盤點（裝了哪些 / 版本）→ 掃描代理頁「相依套件 N/M」
     if x_agent_tools is not None:
         agent.tools = _parse_tools_header(x_agent_tools)
+    # 中繼能力（代理 1.15.0 起）：舊代理不帶這個標頭 → 視為不支援
+    agent.relay_caps = parse_relay_header(x_agent_relay)
 
     cap = set(agent.enabled_probes or ["icmp"])   # 代理能力天花板
     rows = (await session.execute(
@@ -518,10 +594,15 @@ async def agent_poll(
     force_scan = agent.force_scan_at is not None
     if force_scan:
         agent.force_scan_at = None
+    from app.services.relay_scope import relay_scope
+    scope = await relay_scope(session, agent)
     await session.commit()
     return AgentPollOut(
         agent=agent.name,
         subnets=subnets_out,
+        relay_cidrs=scope["cidrs"],
+        relay_ports=scope["ports"],
+        relay_max=scope["max"],
         interval_seconds=scan_probes.fast_interval(intervals),
         intervals=intervals,
         ip_overrides=ip_overrides,
@@ -562,6 +643,34 @@ class AgentReportItem(StrictModel):
 
 _NMAP_REPORT_MAX = 64 * 1024
 _UNSET: Any = object()
+
+
+async def _virtual_guests(session: AsyncSession, items: list[Any]) -> set[str]:
+    """這次回報裡、有 OS 偵測結果的位址中，哪些是虛擬化整合回報的虛擬機或容器網卡（依 IP 或 MAC）。
+
+    虛擬化讓 nmap 的 TCP/IP 指紋失準（PVE 的 LXC 容器被判成 HP NAS，2026-10-02），判讀時不拿指紋的類別。
+    一次查完：大量回報時不可以每台各查一次。"""
+    from sqlalchemy import String, or_
+
+    from app.models.virt import VMInterface
+    from app.services.arp_evidence import normalize as norm_mac
+    ips = {str(it.ip).split("/")[0] for it in items if it.nmap}
+    if not ips:
+        return set()
+    macs = {m for it in items if it.nmap and (m := norm_mac(it.mac))}
+    by_mac = {norm_mac(it.mac): str(it.ip).split("/")[0] for it in items if it.nmap and norm_mac(it.mac)}
+    host = func.host(VMInterface.primary_ip)
+    conds = [in_values(host, ips, type_=String())]
+    if macs:
+        conds.append(in_values(VMInterface.mac, macs))
+    out: set[str] = set()
+    for ip, mac in (await session.execute(select(host, VMInterface.mac).where(or_(*conds)))).all():
+        if ip and str(ip) in ips:
+            out.add(str(ip))
+        m = norm_mac(mac) if mac else None
+        if m and m in by_mac:
+            out.add(by_mac[m])
+    return out
 
 
 class AgentDHCPServer(StrictModel):
@@ -673,6 +782,7 @@ async def agent_report(
     hn_runs = {src: HostnameRun(session, source=src, origin=f"{src}:{agent.id}", peers=2)
                for src in ("scanner", "netbios", "mdns")}
     recog_matcher: Any = _UNSET            # 第一筆需要判讀時才載入（多數回報沒有 OS 偵測結果）
+    vm_guests: set[str] | None = None      # 已由虛擬化整合確認是虛擬機／容器的位址（同樣第一次需要時整批查）
     for item in payload.results:
         if not item.alive:
             continue
@@ -740,7 +850,10 @@ async def agent_report(
                 if recog_matcher is _UNSET:
                     from app.services.recog import get_matcher
                     recog_matcher = await get_matcher(session)
-                summary = summarize({"nmap": {"available": True, **item.nmap}}, recog=recog_matcher)
+                if vm_guests is None:
+                    vm_guests = await _virtual_guests(session, payload.results)
+                summary = summarize({"nmap": {"available": True, **item.nmap}}, recog=recog_matcher,
+                                    virtual_guest=str(item.ip).split("/")[0] in vm_guests)
             await apply_summary(session, ipa, summary, fallback_os=item.os_guess)
         # 主機名稱觀測 → 走既有來源優先序（各來源獨立一筆，不會 thrash）。
         # rDNS 記 source=scanner；NetBIOS / mDNS 各自獨立來源，方便在優先序頁分別排序/停用。
@@ -885,6 +998,7 @@ async def agent_load(
 # ─────────────────── 工具探測工作（代理端；X-Agent-Key 驗證）───────────────────
 @router.get("/jobs", include_in_schema=False)
 async def agent_take_jobs(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     x_agent_key: Annotated[str | None, Header()] = None,
     wait: int = Query(0, ge=0, le=25),
@@ -898,16 +1012,37 @@ async def agent_take_jobs(
 
     agent = await _agent_from_key(session, x_agent_key)
     deadline = time.monotonic() + wait
-    while True:
-        jobs = await claim_jobs(session, agent_id=agent.id)
-        if jobs:
+    # 代理已經斷線（重啟、網路中斷）就不要再替它領：否則工作被領走後回給一條死掉的連線，就此遺失
+    # （代理重啟後的第一次主控台中繼因此乾等 15 秒）。
+    # 不能用 request.is_disconnected()：它用預先取消的 scope 探測，在 BaseHTTPMiddleware（這裡有三層）底下
+    # 永遠回 False（2026-10-02 實機抓到）。改由背景工作真的等 receive() 的斷線訊號。
+    hung_up = asyncio.create_task(_wait_disconnect(request)) if wait else None
+    try:
+        while True:
+            if hung_up is not None and hung_up.done():
+                return {"jobs": []}
+            jobs = await claim_jobs(session, agent_id=agent.id)
+            if jobs and hung_up is not None and hung_up.done():
+                await session.rollback()        # 領的當下才斷線：放回去，留給重新連上來的代理
+                return {"jobs": []}
             await session.commit()
-            return {"jobs": [{"id": str(j.id), "kind": j.kind, "params": j.params}
-                             for j in jobs]}
-        await session.commit()
-        if time.monotonic() >= deadline:
-            return {"jobs": []}
-        await asyncio.sleep(1.0)
+            if jobs:
+                return {"jobs": [{"id": str(j.id), "kind": j.kind, "params": j.params}
+                                 for j in jobs]}
+            if time.monotonic() >= deadline:
+                return {"jobs": []}
+            await asyncio.sleep(1.0)
+    finally:
+        if hung_up is not None:
+            hung_up.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await hung_up
+
+
+async def _wait_disconnect(request: Request) -> None:
+    """等到用戶端斷線才結束（第一則是請求本體，之後只會有斷線訊號）。"""
+    while (await request.receive()).get("type") != "http.disconnect":
+        pass
 
 
 class _JobResultIn(StrictModel):

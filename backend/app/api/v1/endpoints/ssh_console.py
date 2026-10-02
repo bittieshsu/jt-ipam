@@ -421,14 +421,15 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         # 一定要在 host key 步驟**之前**——`fetch_host_key` 也得走同一條路，
         # 否則會去釘到「後端直連看到的那台」的金鑰（可能根本是另一台機器）。
         try:
-            tunnel = await console_route.open_route(route, host, port)
+            tunnel = await console_route.open_route(route, host, port, user_id=user_id, purpose="ssh")
         except console_route.JumpHostError as exc:
             await send({"type": "error", **detail_of(exc, "jump_failed")})
             await websocket.close()
             return
         host, port = tunnel.host, tunnel.port
         if tunnel.via:
-            await send({"type": "status", "state": "via_jump", "via": tunnel.via})
+            await send({"type": "status", "state": "via_jump", "via": tunnel.via,
+                        "via_kind": tunnel.via_kind})
 
         # 5) host key — TOFU：未釘選先取指紋給使用者確認再釘選
         known_host = pinned
@@ -516,7 +517,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
                     action="ssh.session_open",
                     diff={"host": host, "port": port, "username": username, "auth": auth,
-                          "via_jump_host": tunnel.via, "engine": "guacd",
+                          "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind, "engine": "guacd",
                           "credential_id": str(used_cred_id) if used_cred_id else None},
                 )
                 await send({"type": "status", "state": "connected", "engine": "guacd",
@@ -575,7 +576,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="ssh.session_open",
             diff={"host": host, "port": port, "username": username, "auth": auth,
-                  "via_jump_host": tunnel.via,
+                  "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
                   "credential_id": str(used_cred_id) if used_cred_id else None},
         )
         async with conn:

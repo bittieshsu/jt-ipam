@@ -63,6 +63,15 @@ async def on_progress(session: AsyncSession, job: AgentProbeJob) -> None:
         t.progress = max(t.progress or 0, _STAGE_PROGRESS[stage])
 
 
+async def job_is_virtual_guest(session: AsyncSession, job: AgentProbeJob) -> bool:
+    """探測目標是不是虛擬化整合回報的虛擬機／容器（依目標 IP 與探測時回應的 MAC）。
+    探測頁的摘要與完成通知都用這個，跟定期 OS 偵測的判讀一致。"""
+    from app.services.fw_lookup import is_virtual_guest
+    target = ((job.params or {}).get("targets") or [None])[0]
+    mac = ((job.result or {}).get("nmap") or {}).get("mac") if isinstance(job.result, dict) else None
+    return await is_virtual_guest(session, target, mac)
+
+
 async def on_finished(session: AsyncSession, job: AgentProbeJob) -> None:
     """完成或失敗：更新作業列、通知發起人。"""
     if job.kind != "identify":
@@ -76,7 +85,8 @@ async def on_finished(session: AsyncSession, job: AgentProbeJob) -> None:
     if ok and isinstance(job.result, dict):
         from app.services.ip_identify import summarize
         from app.services.recog import get_matcher
-        s = summarize(job.result, recog=await get_matcher(session))
+        s = summarize(job.result, recog=await get_matcher(session),
+                      virtual_guest=await job_is_virtual_guest(session, job))
         summary.update({"device_type": s["device_type"], "os": s["os"],
                         "ports": len(s["services"])})
     t.summary = summary

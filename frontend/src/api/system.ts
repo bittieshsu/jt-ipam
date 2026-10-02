@@ -328,10 +328,12 @@ export interface ConsoleSecurity {
   guacd_install_cmd?: string;
   /** SFTP 單檔上下傳上限（MB），預設 100 */
   sftp_max_file_mb?: number;
+  /** 允許主控台經由掃描代理中繼（issue #24 階段二，預設關） */
+  console_relay?: boolean;
 }
 /** PUT 只送得改的欄位；可用性是伺服器算出來的事實，送回去會被擋（422）。 */
 export type ConsoleSecurityPatch = Pick<ConsoleSecurity, "rdp_clipboard_paste" | "rdp_engine">
-  & Partial<Pick<ConsoleSecurity, "vnc_engine" | "ssh_engine" | "sftp_max_file_mb">>;
+  & Partial<Pick<ConsoleSecurity, "vnc_engine" | "ssh_engine" | "sftp_max_file_mb" | "console_relay">>;
 
 /** SFTP 傳輸路徑測試的票證（管理者限定）；ws_path 刻意跟 SFTP 是同一條路徑 */
 export interface SftpProbeTicket { ticket: string; ws_path: string; up_bytes: number; down_bytes: number; ttl: number }

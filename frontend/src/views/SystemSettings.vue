@@ -43,6 +43,7 @@ const msg = useMessage();
 // 連線管理資安：RDP 控制端貼上文字到被控端（預設關閉）＋ RDP 連線引擎
 // 兩個欄位共用同一個端點，所以每次都要把另一個一起送回去，否則會把它蓋成預設值
 const rdpClipPaste = ref(false);
+const consoleRelay = ref(false);
 // RDP／VNC 的預設是 guacd（2026-09-27）；載入前先顯示預設值
 const rdpEngine = ref<RdpEngine>("guacd");
 // 這台機器能不能用 FreeRDP（後端算好的事實）。缺套件時要把安裝指令原樣顯示出來，
@@ -148,6 +149,7 @@ function commitSftpMax() {
 }
 function applyConsole(c: ConsoleSecurity) {
   rdpClipPaste.value = c.rdp_clipboard_paste;
+  consoleRelay.value = !!c.console_relay;
   sftpMaxMb.value = c.sftp_max_file_mb ?? SFTP_MAX_DEFAULT;
   sftpMaxInput.value = sftpMaxMb.value;
   rdpEngine.value = c.rdp_engine;
@@ -183,6 +185,14 @@ async function saveConsole(patch: Partial<ConsoleSecurityPatch>) {
   }
 }
 function changeRdpClipPaste(v: boolean) { rdpClipPaste.value = v; void saveConsole({ rdp_clipboard_paste: v }); }
+// 主控台中繼：只送這一個欄位（後端「沒帶＝維持原值」），失敗時退回原值
+async function changeConsoleRelay(v: boolean) {
+  const prev = consoleRelay.value;
+  consoleRelay.value = v;
+  try { applyConsole(await setConsoleSecurity({ rdp_clipboard_paste: rdpClipPaste.value, rdp_engine: rdpEngine.value,
+                                                 console_relay: v })); msg.success(t("common.ok")); }
+  catch { consoleRelay.value = prev; msg.error(t("errors.network")); }
+}
 function changeRdpEngine(v: RdpEngine) { rdpEngine.value = v; void saveConsole({ rdp_engine: v }); }
 function changeVncEngine(v: ConsoleEngine) { vncEngine.value = v; void saveConsole({ vnc_engine: v }); }
 function changeSshEngine(v: ConsoleEngine) { sshEngine.value = v; void saveConsole({ ssh_engine: v }); }
@@ -717,6 +727,15 @@ async function doPreviewAutolink() {
             </div>
             <div class="ss-r__ctl">
               <n-switch :value="rdpClipPaste" @update:value="changeRdpClipPaste" />
+            </div>
+          </div>
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("relay.system_switch") }}</label>
+              <div class="hint">{{ t("relay.system_switch_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-switch :value="consoleRelay" data-testid="console-relay-switch" @update:value="changeConsoleRelay" />
             </div>
           </div>
         </div>

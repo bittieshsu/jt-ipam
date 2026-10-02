@@ -12,12 +12,13 @@ import pytest
 from app.services.fw_lookup import vm_match_for
 
 
-async def _mk_vm(db_session, *, name: str, ip: str | None, mac: str | None):
+async def _mk_vm(db_session, *, name: str, ip: str | None, mac: str | None,
+                 kind: str = "vm", platform: str = "proxmox"):
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
-    cl = VirtCluster(name=f"cl-{uuid.uuid4().hex[:6]}", type="proxmox")
+    cl = VirtCluster(name=f"cl-{uuid.uuid4().hex[:6]}", type=platform)
     db_session.add(cl)
     await db_session.flush()
-    vm = VirtualMachine(cluster_id=cl.id, name=name)
+    vm = VirtualMachine(cluster_id=cl.id, name=name, kind=kind)
     db_session.add(vm)
     await db_session.flush()
     db_session.add(VMInterface(vm_id=vm.id, name="net0", primary_ip=ip, mac=mac))
@@ -38,6 +39,17 @@ async def test_matches_by_mac_when_ip_differs(db_session) -> None:
     await _mk_vm(db_session, name="db-vm", ip=None, mac="00:00:5e:00:53:44")
     m = await vm_match_for(db_session, ip="203.0.113.99", macs=["00:00:5e:00:53:44"])
     assert m and m["vm"] == "db-vm"
+
+
+@pytest.mark.anyio
+async def test_kind_tells_kvm_from_lxc(db_session) -> None:
+    """PVE 有 KVM 虛擬機（qemu）與 LXC 容器兩種，畫面要分得出來 → 回傳要帶 kind。"""
+    await _mk_vm(db_session, name="ct-app-01", ip="198.51.100.41", mac=None, kind="ct")
+    await _mk_vm(db_session, name="win-vm", ip="198.51.100.42", mac=None, kind="vm")
+    ct = await vm_match_for(db_session, ip="198.51.100.41")
+    vm = await vm_match_for(db_session, ip="198.51.100.42")
+    assert ct and ct["kind"] == "ct" and ct["platform"] == "proxmox"
+    assert vm and vm["kind"] == "vm"
 
 
 @pytest.mark.anyio

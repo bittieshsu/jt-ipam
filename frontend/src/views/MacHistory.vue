@@ -119,7 +119,9 @@ const portCols = computed<DataTableColumns<MacHistory["switch_ports"][number]>>(
 </script>
 
 <template>
-  <n-space vertical :size="14" class="mh-page">
+  <!-- 用 flex＋gap 而不是 n-space：結果的幾張卡片包在 n-spin 裡，n-space 把整組當成一個項目，
+       卡片之間就沒有間距（使用者回報三張卡片黏在一起）；spin 的內容層也要同樣排（見 style） -->
+  <div class="mh-page">
     <n-card>
       <template #header>{{ t("mac_history.title") }}</template>
       <n-space align="center" :wrap="true" :size="10">
@@ -135,7 +137,7 @@ const portCols = computed<DataTableColumns<MacHistory["switch_ports"][number]>>(
 
     <n-alert v-if="error" type="error" :bordered="false">{{ error }}</n-alert>
 
-    <n-spin :show="loading">
+    <n-spin :show="loading" class="mh-results">
       <template v-if="data">
         <n-card data-testid="mh-summary">
           <div class="mh-head">
@@ -231,10 +233,12 @@ const portCols = computed<DataTableColumns<MacHistory["switch_ports"][number]>>(
         </n-card>
       </template>
     </n-spin>
-  </n-space>
+  </div>
 </template>
 
 <style scoped>
+.mh-page { display: flex; flex-direction: column; gap: 14px; }
+.mh-results :deep(.n-spin-content) { display: flex; flex-direction: column; gap: 14px; }
 .mh-hint { font-size: 12px; opacity: .65; }
 /* 連結用主題色（瀏覽器預設的藍色在深色主題下幾乎看不見） */
 .mh-page :deep(a) { color: var(--primary-color, #18a058); text-decoration: none; }

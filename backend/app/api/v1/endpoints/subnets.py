@@ -45,6 +45,15 @@ from app.services.subnet import (
 router = APIRouter(prefix="/subnets", tags=["subnets"])
 
 
+
+async def _egress_or_422(session: AsyncSession, changes: dict[str, Any], *, scan_agent_id: Any) -> None:
+    """主控台出口（跳板／掃描代理擇一）的驗證；子網路與 IP 的編輯共用 console_route.normalize_egress。"""
+    from app.services.console_route import EgressError, normalize_egress
+    try:
+        await normalize_egress(session, changes, scan_agent_id=scan_agent_id)
+    except EgressError as exc:
+        raise HTTPException(status_code=422, detail=ui_detail(exc.code, str(exc), **exc.params)) from exc
+
 @router.get("/overlaps/exists", dependencies=[Depends(require_admin)])
 async def overlaps_exist(
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -230,6 +239,7 @@ async def create_subnet(
         if parent is not None and parent.customer_id is not None:
             data["customer_id"] = parent.customer_id
     data["custom_fields"] = validated_cf or None
+    await _egress_or_422(session, data, scan_agent_id=data.get("scan_agent_id"))
     subnet = Subnet(**data)
     session.add(subnet)
     await session.flush()
@@ -302,6 +312,17 @@ async def update_subnet(
             ) or None
         except CustomFieldError as exc:
             raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
+    new_scan_agent = changes.get("scan_agent_id", subnet.scan_agent_id)
+    if "jump_host_id" in changes or "console_agent_id" in changes:
+        await _egress_or_422(session, changes, scan_agent_id=new_scan_agent)
+    elif (subnet.console_agent_id is not None and "scan_agent_id" in changes
+          and new_scan_agent != subnet.console_agent_id):
+        # 換掉掃描代理、主控台出口卻還指著舊的那台：代理的白名單只認自己掃描的子網路，出口會變成無效。
+        # 不替使用者默默改掉或清空（清空＝直連，在重疊網段會連錯主機），請他重新選出口
+        raise HTTPException(status_code=422, detail=ui_detail(
+            "console_agent_not_assigned",
+            "這個子網路的主控台出口指定了原本的掃描代理；換掃描代理時請一併重新選擇主控台出口",
+            name=""))
     for key, value in changes.items():
         setattr(subnet, key, value)
 

@@ -335,7 +335,8 @@
     "doctor": "System check",
     "ocs": "OCS integration",
     "kea_dhcp": "Kea DHCP",
-    "isc_dhcp": "ISC DHCP"
+    "isc_dhcp": "ISC DHCP",
+    "mac_history": "MAC addresses"
   },
   "topbar": {
     "search": "Search…",
@@ -1284,12 +1285,22 @@
     "fw_why_net_covers": "covered by {value}",
     "fw_why_exact": "exact address match",
     "last_seen_ocs": "Last seen (OCS inventory)",
-    "last_seen_ocs_jump": "View this device's OCS inventory",
     "fw_col_why": "Why it matches",
     "fw_row_goto": "Click to open this entry",
     "source_kea_dhcp": "Kea DHCP",
     "source_isc_dhcp": "ISC DHCP",
-    "source_librenms_arp": "LibreNMS ARP"
+    "source_librenms_arp": "LibreNMS ARP",
+    "virt_ct_tag": "Container",
+    "seen_title": "Last seen by source",
+    "seen_col_source": "Source",
+    "seen_col_time": "Time",
+    "seen_col_ago": "Ago",
+    "seen_latest": "Latest",
+    "seen_src_scanner": "Scanner",
+    "seen_src_wazuh": "Wazuh agent",
+    "seen_src_ocs": "OCS inventory",
+    "seen_src_dns": "AdGuard config",
+    "seen_jump": "Open the {sys} card on the device page"
   },
   "subnets": {
     "title": "Subnets",
@@ -3140,7 +3151,25 @@
     "ai_ssrf_blocked": "The LLM server address was blocked by the outbound guard; ask an admin to check the LLM settings",
     "ai_unreachable": "Cannot reach the LLM server",
     "ai_timeout": "The LLM server did not answer in time",
-    "ai_upstream_error": "The LLM server returned an error"
+    "ai_upstream_error": "The LLM server returned an error",
+    "jump_host_disabled": "Jump host \"{name}\" is disabled. To avoid reaching the wrong host on overlapping networks it will not fall back to a direct connection; remove the jump host from the subnet or IP to connect directly",
+    "relay_disabled_system": "Console relay through scan agents is turned off in system settings; not connecting directly (agent \"{name}\")",
+    "relay_agent_disabled": "Scan agent \"{name}\" is disabled; not connecting directly",
+    "relay_agent_not_allowed": "Scan agent \"{name}\" is not allowed to relay consoles (turn it on in the scan agent page)",
+    "relay_agent_not_capable": "Scan agent \"{name}\" cannot relay: the agent is too old (1.15.0 or later needed) or has not connected yet",
+    "relay_agent_busy": "Scan agent \"{name}\" has reached its concurrent relay limit; please try again later",
+    "relay_at_capacity": "Scan agent \"{name}\" has reached its limit of {max} concurrent relays; please try again later",
+    "relay_target_not_allowed": "Scan agent \"{name}\" refused: the target is not in a subnet assigned to it",
+    "relay_port_not_allowed": "Scan agent \"{name}\" does not relay this port (add it under Allowed ports on the agent page)",
+    "relay_connect_failed": "Scan agent \"{name}\" could not reach the target: {reason}",
+    "relay_ws_failed": "Scan agent \"{name}\" could not dial back to the server: {reason}",
+    "relay_failed": "Relaying through scan agent \"{name}\" failed",
+    "relay_agent_timeout": "Scan agent \"{name}\" did not answer within {seconds} seconds; it may be offline or have relay turned off",
+    "console_egress_both": "Pick one console exit: a jump host or a scan agent",
+    "console_agent_not_found": "Scan agent not found",
+    "console_agent_not_assigned": "This scan agent is not assigned to this subnet, so it cannot relay here; when changing the scan agent, pick the console exit again too",
+    "relay_agent_host_off": "The host of scan agent \"{name}\" switched relaying off with JT_IPAM_RELAY=0",
+    "relay_ports_invalid": "Allowed relay ports are not valid: {value} (e.g. 22,3389,5900-5910)"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -5109,5 +5138,29 @@
       "invalid": "Field {field} is invalid: {reason}",
       "placement": "Rack position not allowed: {reason}"
     }
+  },
+  "relay": {
+    "via_agent": "Via scan agent",
+    "via_agent_group": "Relay through a scan agent",
+    "exit_hint": "How consoles reach this address. Empty means direct (on an IP, empty inherits the subnet). When the server cannot reach into the customer network, pick this subnet's scan agent: the agent dials out and relays.",
+    "why_agent_disabled": "agent disabled",
+    "why_not_allowed": "relay not allowed on the agent page",
+    "why_agent_old": "agent too old, needs 1.15.0 or later",
+    "why_agent_off": "The agent host switched relaying off (JT_IPAM_RELAY=0)",
+    "why_not_subnet_agent": "not this subnet's scan agent",
+    "agent_allow": "Allow console relay",
+    "agent_max": "Concurrent relays",
+    "agent_allow_hint": "When on, subnets that use this agent as their console exit can open SSH, SFTP, RDP and VNC through it from the browser. \"Allow consoles to relay through scan agents\" must also be on in system settings; nothing needs to be set on the agent host. The agent only relays into the subnets it scans and the ports allowed above.",
+    "agent_state_on": "The agent can relay",
+    "agent_state_off": "The agent host switched relaying off with JT_IPAM_RELAY=0 (the host owner's decision; it cannot be changed here)",
+    "agent_state_old": "The agent has not reported relay capability (too old, or not connected yet)",
+    "agent_active": "Active relays: {n}",
+    "system_switch": "Allow consoles to relay through scan agents",
+    "system_switch_hint": "When the server cannot reach into a customer network, consoles can be relayed by the scan agent on site, which dials out (off by default). The agent must also be allowed on the Scan agents page; nothing needs to be set on the agent host. If any switch is off the console refuses; it never falls back to a direct connection.",
+    "agent_ports": "Allowed ports",
+    "agent_state_on_limited": "The agent can relay (the agent host narrows it: {limits})",
+    "agent_local_ports": "ports {ports}",
+    "agent_local_max": "limit {max}",
+    "agent_local_cidrs": "some networks only"
   }
 }

@@ -54,7 +54,10 @@ async def apply_summary(session: AsyncSession, ipa: IPAddress, summary: dict[str
     if kind in KINDS:
         old_kind = ipa.device_kind
         ipa.device_kind = kind
-        ipa.device_model = model_text(summary) or ipa.device_model
+        # 同一類型、這次沒帶型號 → 保留原型號（定期偵測常常沒有）；類型換了 → 舊型號屬於上一次的判讀，
+        # 不可沿用（PVE 的 LXC 從「儲存設備 · HP」改判成伺服器時，留著 HP 就變成「伺服器 · HP」）
+        new_model = model_text(summary)
+        ipa.device_model = new_model if (new_model or old_kind != kind) else ipa.device_model
         ipa.device_identified_at = datetime.now(UTC)
         if old_kind and old_kind != kind:
             evidence = ", ".join((summary.get("evidence") or [])[:3])
