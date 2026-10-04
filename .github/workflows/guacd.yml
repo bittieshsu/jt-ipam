@@ -23,13 +23,13 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write        # 只有 publish 時用到（建 release）
       id-token: write        # build provenance
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 有支援中的 OS 版本沒列在 targets.txt 就不發 —— 客戶升級到那一版會沒有 guacd 可用
       - name: Every supported OS version has a target
@@ -42,11 +42,11 @@ jobs:
       - name: Verify
         run: scripts/guacd/verify.sh
 
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/guacd/*/*.tar.gz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: guacd
           path: |

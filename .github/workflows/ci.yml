@@ -19,9 +19,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Runner 版本寫死：`ubuntu-latest` 從 2026-10-19 起陸續換成 Ubuntu 26，套件名稱或版本一變 CI 就會
+# 在我們什麼都沒改的情況下轉紅（09 月就因為套件名稱紅過三週）。正式關卡固定在 24.04；
+# 另外每次都在 26.04 試跑一份（失敗不擋，`continue-on-error`），等它穩定綠了再整體換過去。
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    name: backend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     # 本機全套約 10 分鐘；卡住時別一路跑到 GitHub 預設的 6 小時
     timeout-minutes: 60
     services:
@@ -59,8 +68,8 @@ jobs:
       API_PUBLIC_URL: https://localhost:8443
       APP_ENV: development
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -126,13 +135,19 @@ jobs:
         run: pytest -q --timeout=300 --durations=25
 
   frontend:
-    runs-on: ubuntu-latest
+    name: frontend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-26.04' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: pnpm
@@ -161,16 +176,16 @@ jobs:
     # 等於把把關外包給別人。
     # 真的暫時修不了時，用 `.github/audit-allowlist.txt` 記下理由與到期日，
     # 而不是把整個步驟改成忽略錯誤。
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
