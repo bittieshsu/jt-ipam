@@ -187,6 +187,78 @@ test("拖曳多個檔案進來會全部上傳到目前目錄", async ({ page }) 
   expect(readFileSync(`${SFTP_ROOT}/${bn}`, "utf-8"), "第二個檔案沒落地或內容不對").toBe("B\n");
 });
 
+test("上傳中顯示速率與剩餘時間；停住時講「停住了」", async ({ page }) => {
+  await connect(page);
+  // 用 CDP 的網路節流讓 20 MB 傳個十幾秒，速率才看得到（本機直傳一下子就完了）
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.emulateNetworkConditions",
+    { offline: false, latency: 20, downloadThroughput: -1, uploadThroughput: 4 * 1024 * 1024 });
+  const name = `big-rate-${Date.now()}.bin`;
+  await page.locator('input[type="file"]').first().setInputFiles(
+    { name, mimeType: "application/octet-stream", buffer: Buffer.alloc(20 * 1024 * 1024, 7) });
+  const rate = page.getByTestId("sftp-upload-rate");
+  await expect(rate).toHaveText(/(KB|MB)\/s · 剩約/, { timeout: 15_000 });
+  await cdp.send("Network.emulateNetworkConditions",
+    { offline: false, latency: 20, downloadThroughput: -1, uploadThroughput: 1 });
+  await expect(rate).toHaveText(/停住了/, { timeout: 20_000 });
+  await cdp.send("Network.emulateNetworkConditions",
+    { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await expect(page.locator("table").getByText(name)).toBeVisible({ timeout: 60_000 });
+});
+
+test("同名檔案：先問；兩份都留、覆蓋、略過都照選的做，原檔不會被清空", async ({ page }) => {
+  await connect(page);
+  const name = `uploaded-conflict-${Date.now()}.txt`;
+  const dup = name.replace(/\.txt$/, " (1).txt");
+  writeFileSync(`${SFTP_ROOT}/${name}`, "OLD\n", "utf-8");
+  await page.getByRole("button", { name: "重新整理" }).click();
+  const input = page.locator('input[type="file"]').first();
+  const dlg = page.getByTestId("sftp-conflict");
+  const upload = async (body: string) => input.setInputFiles({ name, mimeType: "text/plain", buffer: Buffer.from(body) });
+
+  // ① 兩份都留：新檔改名，原檔不動
+  await upload("NEW1\n");
+  await expect(dlg).toBeVisible({ timeout: 15_000 });
+  await expect(dlg).toContainText(name);
+  await page.getByTestId("sftp-conflict-rename").click();
+  await expect(page.locator("table").getByText(dup)).toBeVisible({ timeout: 20_000 });
+  expect(readFileSync(`${SFTP_ROOT}/${name}`, "utf-8")).toBe("OLD\n");
+  expect(readFileSync(`${SFTP_ROOT}/${dup}`, "utf-8")).toBe("NEW1\n");
+
+  // ② 略過：什麼都不動
+  await upload("NEW2\n");
+  await expect(dlg).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("sftp-conflict-skip").click();
+  await expect(page.getByText(/略過 1 個同名檔案/)).toBeVisible({ timeout: 10_000 });
+  expect(readFileSync(`${SFTP_ROOT}/${name}`, "utf-8")).toBe("OLD\n");
+
+  // ③ 覆蓋：換成新內容，不留暫存檔
+  await upload("NEW3\n");
+  await expect(dlg).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("sftp-conflict-overwrite").click();
+  await expect.poll(() => readFileSync(`${SFTP_ROOT}/${name}`, "utf-8"), { timeout: 20_000 }).toBe("NEW3\n");
+  expect(readdirSync(SFTP_ROOT).filter((n) => n.includes(".jtipam-upload-"))).toEqual([]);
+});
+
+test("多個同名檔案：勾「其餘也這樣處理」只問一次", async ({ page }) => {
+  await connect(page);
+  const ts = Date.now();
+  const names = [`uploaded-many-a-${ts}.txt`, `uploaded-many-b-${ts}.txt`];
+  for (const n of names) writeFileSync(`${SFTP_ROOT}/${n}`, "OLD\n", "utf-8");
+  await page.getByRole("button", { name: "重新整理" }).click();
+  await page.locator('input[type="file"]').first().setInputFiles(
+    names.map((n) => ({ name: n, mimeType: "text/plain", buffer: Buffer.from("NEW\n") })));
+  const dlg = page.getByTestId("sftp-conflict");
+  await expect(dlg).toBeVisible({ timeout: 15_000 });
+  await dlg.getByText("其餘同名的檔案也這樣處理").click();
+  await page.getByTestId("sftp-conflict-overwrite").click();
+  for (const n of names) {
+    await expect.poll(() => readFileSync(`${SFTP_ROOT}/${n}`, "utf-8"), { timeout: 20_000 }).toBe("NEW\n");
+  }
+  await expect(dlg).toBeHidden();
+});
+
 test("資料夾＋檔案一起拖：整個資料夾連同內容上傳，檔案也完整落地", async ({ page }) => {
   await connect(page);
   // 客戶實機情境：從桌面同時拖一個資料夾和一個檔案進來。

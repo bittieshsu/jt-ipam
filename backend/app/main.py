@@ -69,7 +69,7 @@ def _mount_spa(app: FastAPI) -> None:
         async def get_response(self, path: str, scope: Scope):  # type: ignore[override]
             # API 命名空間的 404 保持 JSON（不可被 fallback 吃掉變成回 HTML）——
             # 前端 client 靠 JSON 錯誤判斷；回 index.html 會變成「JSON 解析失敗」的迷惑錯誤
-            spa_fallback = path.split("/", 1)[0] not in ("api", "graphql", "mcp", "healthz")
+            spa_fallback = path.split("/", 1)[0] not in ("api", "mcp", "healthz")
             # Starlette 找不到檔案是「拋」HTTPException(404)，不是回 404 response —— 兩種都要接
             fell_back = False
             try:
@@ -198,10 +198,6 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(api_v1_router, prefix="/api/v1")
     app.include_router(phpipam_router, prefix="/api/phpipam")
-
-    # ── GraphQL（Phase 2）──
-    from app.graphql.schema import make_graphql_router
-    app.include_router(make_graphql_router(), prefix="/graphql")
 
     # ── MCP server（Phase 4）──
     # 掛在 /api/mcp：nginx 只反代 /api/ 到後端，掛 /api 底下外部 client 才連得到。

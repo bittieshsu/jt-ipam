@@ -45,7 +45,7 @@ import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import OsIcon from "@/components/OsIcon.vue";
 import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
-const { t, locale } = useI18n();
+const { t, te, locale } = useI18n();
 const { catalog } = useScanProbes();
 
 const { labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
@@ -63,7 +63,7 @@ const { isPinned, toggle: togglePinned, ensureLoaded: ensurePinsLoaded } = usePi
 
 const { visibleKeys: ipVisibleKeys, setVisible: setIpVisible, reset: resetIpVisible } = useColumnPrefs(
   "subnet_detail_ips",
-  ["live", "ip", "hostname", "state", "dhcp", "mac", "mac_vendor", "os", "owner", "switch_port", "device", "description", "last_seen", "stale_days", "note"],
+  ["live", "ip", "hostname", "state", "dhcp", "mac", "mac_vendor", "os", "device_kind", "owner", "switch_port", "device", "description", "last_seen", "stale_days", "note"],
   ["live", "ip", "hostname", "state", "dhcp", "mac", "mac_vendor", "switch_port", "description", "last_seen"],
 );
 const ipColumnPickerItems = [
@@ -75,6 +75,7 @@ const ipColumnPickerItems = [
   { key: "mac", label: "MAC" },
   { key: "mac_vendor", label: t("cols.vendor") },
   { key: "os", label: t("cols.os") },
+  { key: "device_kind", label: t("cols.device_kind") },
   { key: "owner", label: t("cols.owner") },
   { key: "switch_port", label: t("cols.switch_port") },
   { key: "device", label: t("cols.device") },
@@ -97,6 +98,7 @@ import SubnetRanges from "@/components/SubnetRanges.vue";
 import { listIPRanges, type IPRange } from "@/api/ipRanges";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
+import { renderDeviceKind } from "@/utils/deviceKindCell";
 import type { IPAddress, Section, Subnet, SubnetUsage } from "@/types";
 import { renderMacWithVendor } from "@/utils/macVendor";
 
@@ -441,6 +443,10 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
         label ? h("span", { style: "overflow:hidden;text-overflow:ellipsis" }, label) : null,
       ]);
     } },
+  { title: t("cols.device_kind"), key: "device_kind", width: 140,
+    sorter: (a: any, b: any) => (a.__gap || b.__gap ? 0
+      : String(a.device_kind ?? "").localeCompare(String(b.device_kind ?? ""))),
+    render: (r) => ((r as any).__gap ? "" : renderDeviceKind(r as any, t, te)) },
   { title: t("addresses.owner"), key: "owner", width: 120,
     ellipsis: { tooltip: true }, render: (r) => r.owner ?? "" },
   { title: t("addresses.switch_port"), key: "switch_port", width: 210,

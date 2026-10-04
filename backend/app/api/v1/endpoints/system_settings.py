@@ -1364,7 +1364,7 @@ def _gather_version_info() -> dict[str, Any]:
         "python-multipart", "email-validator", "urllib3",
         "authlib", "python3-saml", "ldap3", "pyrad",
         "pymysql", "asyncssh", "dnspython", "pywinrm", "geoip2",
-        "strawberry-graphql", "pgvector", "mcp",
+        "pgvector", "mcp",
         "aardwolf", "websockets", "pillow",
         "structlog", "python-json-logger",
     ]

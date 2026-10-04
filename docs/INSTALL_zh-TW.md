@@ -15,9 +15,9 @@
 | 項目 | 最低 | 建議 | 備註 |
 |---|---|---|---|
 | OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 只支援這些，見下方；24.04 內建 Python 3.12 + PG 16 + Node 18，省事 |
-| CPU | 2 vCPU | 4 vCPU | argon2id + pgvector embedding 吃 CPU |
-| RAM | 4 GB | 8 GB | 開 LLM Server 還要再加 8 GB |
-| Disk | 20 GB | 50 GB | audit log 累積 |
+| CPU | 2 vCPU | 4 vCPU | 升級時要 build 前端（約 1 分鐘）；RDP 主控台（guacd）與本機掃描代理（nmap）吃 CPU。embedding 是 LLM 伺服器算的，不在這台 |
+| RAM | 4 GB | 8 GB | 4 個 worker 時平常約用 1.8 GB；升級時 build 前端峰值約 1.6 GB。4 GB 或 2 核的機器後端只開 2 個 worker，記憶體不夠時 build 期間會暫停後端（加 2 GB swap 就不會）。每條 RDP 主控台約佔數百 MB。LLM 伺服器裝在同一台要再加 8 GB 以上 |
+| Disk | 20 GB | 50 GB | 安裝本身約 2 GB（Python 套件、node_modules、快取）加作業系統；資料庫、稽核記錄、IP 異動記錄與備份會隨網路規模成長；journald 的日誌有上限 |
 | Python | 3.11 | 3.12 | 24.04 預設就是 3.12  |
 | PostgreSQL | 16 + pgvector | 無 | 22.04 需 PGDG repo（腳本會自動加）|
 | Redis | 7 | 無 | 24.04 預設 7.0.15  |

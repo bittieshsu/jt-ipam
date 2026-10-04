@@ -11,7 +11,7 @@
 #   BACKEND_BIND_PORT        bind port
 #   BACKEND_TLS_CERT_FILE    PEM certificate for direct mode
 #   BACKEND_TLS_KEY_FILE     PEM private key for direct mode
-#   UVICORN_WORKERS          number of workers (default 4)
+#   UVICORN_WORKERS          number of workers (default: 2 on 2-core or <=4.5 GB machines, else 4)
 #   UVICORN_EXTRA_OPTS       extra flags (e.g. --reload)
 #
 # OWASP mapping:
@@ -29,7 +29,22 @@ fi
 mode="${BACKEND_TLS_MODE:-nginx}"
 host="${BACKEND_BIND_HOST:-127.0.0.1}"
 port="${BACKEND_BIND_PORT:-8000}"
-workers="${UVICORN_WORKERS:-4}"
+# Worker count when UVICORN_WORKERS is not set. Each worker is ~250 MB resident; a
+# 4 GB machine with four of them has too little left for the ~1.6 GB frontend build an
+# upgrade runs (measured 2026-10-02), and a 2-core machine gains nothing from four.
+# In a container without lxcfs /proc/meminfo shows the host, so the cgroup limit wins.
+# JT_IPAM_NPROC / JT_IPAM_MEMINFO / JT_IPAM_CGROUP_DIR only exist for the tests.
+default_workers() {
+    local cpus mem_mb cg
+    cpus="${JT_IPAM_NPROC:-$(nproc 2>/dev/null || echo 4)}"
+    mem_mb="$(awk '/^MemTotal:/ {print int($2/1024)}' "${JT_IPAM_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)"
+    cg="$(cat "${JT_IPAM_CGROUP_DIR:-/sys/fs/cgroup}/memory.max" 2>/dev/null || echo max)"
+    if [[ "$cg" =~ ^[0-9]+$ ]] && { (( mem_mb == 0 )) || (( cg / 1048576 < mem_mb )); }; then
+        mem_mb=$(( cg / 1048576 ))
+    fi
+    if (( cpus <= 2 )) || (( mem_mb > 0 && mem_mb <= 4608 )); then echo 2; else echo 4; fi
+}
+workers="${UVICORN_WORKERS:-$(default_workers)}"
 extra_opts="${UVICORN_EXTRA_OPTS:-}"
 
 args=(

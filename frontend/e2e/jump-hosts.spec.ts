@@ -25,6 +25,23 @@ async function login(page: Page) {
 }
 
 test.describe("跳板主機", () => {
+  test("需求與設定說明：系統、轉發、帳號、私鑰格式都講得到，新增視窗裡也打得開", async ({ page }) => {
+    await login(page);
+    await page.goto("/jump-hosts");
+    await page.getByTestId("jump-help-btn").click();
+    const help = page.getByTestId("jump-help");
+    await expect(help).toBeVisible();
+    for (const s of ["OpenSSH", "AllowTcpForwarding", "不需要 root", "不支援有密碼保護的私鑰", "信任並儲存",
+                     "useradd -m -s /usr/sbin/nologin jtipam-jump", "經由掃描代理中繼"]) {
+      await expect(help).toContainText(s);
+    }
+    if (process.env.SHOT_DIR) await help.screenshot({ path: `${process.env.SHOT_DIR}/jump-help.png` });
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "新增" }).first().click();
+    await page.getByRole("button", { name: "跳板要符合哪些條件？" }).click();
+    await expect(help).toBeVisible();
+  });
+
   test("新增 → 未釘選指紋要看得出來 → 刪除", async ({ page }) => {
     await login(page);
     await page.goto("/jump-hosts");

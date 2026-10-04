@@ -72,7 +72,6 @@ curl -fsS https://ipam.example.com/api/v1/plugins -H "Authorization: Bearer ..."
 - `app.include_router(...)` で REST のエンドポイントを追加する
 - `app.middleware(...)` でミドルウェアを追加する
 - バックグラウンドのタスクを開始する（`asyncio.create_task`）
-- GraphQL の型を登録する（`app.state.graphql_schema` を読んでから合成します）
 
 後片付け用のフックは `on_shutdown(app)` です。
 
@@ -94,8 +93,7 @@ curl -fsS https://ipam.example.com/api/v1/plugins -H "Authorization: Bearer ..."
 
 - データベースのマイグレーションは管理されません。プラグイン自身のテーブルは、自前の
   alembic で管理してください（jt-ipam 本体の alembic とは分けた、別の alembic env を推奨します）。
-- OpenAPI スキーマの自動統合はありません。プラグインのエンドポイントは `/openapi.json` に
-  現れますが、GraphQL の union スキーマは手作業で扱う必要があります。
+- プラグインのエンドポイントは `/openapi.json` に自動的に現れます。
 - プラグインのホットアンインストールはありません。現時点で無効化するには
   `pip uninstall && systemctl restart` です。
 

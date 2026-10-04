@@ -68,7 +68,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.15.0"
+AGENT_VERSION = "1.15.1"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -199,6 +199,47 @@ def _self_sha() -> str:
             return hashlib.sha256(f.read()).hexdigest()
     except OSError:
         return ""
+
+
+def _children_of(pid: int, proc: str = "/proc") -> list:
+    """PIDs whose parent is `pid` (Linux /proc). The name in /proc/<pid>/stat may itself contain
+    ')' and spaces, so the fields are read after the LAST ')'."""
+    out = []
+    try:
+        entries = os.listdir(proc)
+    except OSError:
+        return out
+    for name in entries:
+        if not name.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc, name, "stat"), encoding="utf-8", errors="replace") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+            if int(fields[1]) == pid:
+                out.append(int(name))
+        except (OSError, IndexError, ValueError):
+            continue
+    return out
+
+
+# Self-update re-executes in place (os.execv keeps the PID), so probes the old program had
+# running become children nobody waits for: when they finish they stay as zombies (seen in
+# production: 8 nmap zombies left by an update). Children that already exist when this
+# program starts can only be such leftovers; reap exactly those, never waitpid(-1), which
+# would steal the exit status of a subprocess call that is still waiting for its child.
+_INHERITED: list = _children_of(os.getpid())
+
+
+def _reap_inherited() -> None:
+    for pid in list(_INHERITED):
+        try:
+            done, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            done = pid
+        except OSError:
+            continue
+        if done:
+            _INHERITED.remove(pid)
 
 
 def _maybe_self_update(server_sha: str | None) -> None:
@@ -543,33 +584,46 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
     result: dict = {}
     if not shutil.which("nmap"):
         return result
-    args = ["nmap", "-Pn", "-T4", "--host-timeout", "90s" if want_os else "30s"]
-    if want_ports:
-        args += ["--top-ports", "100"]
-    else:
-        args += ["-p", ",".join(str(p) for p in TCP_PROBE_PORTS)]
+    port_args = ["--top-ports", "100"] if want_ports else ["-p", ",".join(str(p) for p in TCP_PROBE_PORTS)]
+    args = ["nmap", "-Pn", "-T4", "--host-timeout", "90s" if want_os else "30s", *port_args]
     xml_path = None
     if want_os:
         # -sV（服務/banner 偵測）+ smb-os-discovery 遠比純 TCP/IP 堆疊指紋（-O）可靠：
         # 裝置/BMC 用 -O 常被自信地誤判。_derive_os 綜合這些訊號、優先採信 banner。
-        args += ["-sV", "-O", "--osscan-guess", "--script", _OS_SCRIPTS, "--script-timeout", "15s"]
+        # --version-light：預設強度會對認不得的服務一連試幾十種探針、每種等好幾秒，一個慢服務（PVE 的 8006）
+        # 就能拖過單台時限，nmap 會把這台的結果整筆丟掉（2026-10-04 正式環境）；常見服務輕量模式就認得
+        args += ["-sV", "--version-light", "-O", "--osscan-guess",
+                 "--script", _OS_SCRIPTS, "--script-timeout", "15s"]
         fd, xml_path = tempfile.mkstemp(prefix="jtipam-nmap-", suffix=".xml")
         os.close(fd)
         args += ["-oX", xml_path]
     args.append(ip)
-    try:
-        r = subprocess.run(
-            args, capture_output=True, text=True, timeout=120 if want_os else 60,
-        )
-        text = r.stdout or ""
+
+    def _run(cmd: list) -> tuple:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120 if want_os else 60)
+        parsed: dict = {}
         if xml_path:
             try:
                 with open(xml_path, encoding="utf-8", errors="replace") as fh:
                     parsed = _parse_nmap_xml(fh.read())
-                if parsed.get("ports") or parsed.get("os") or parsed.get("host_scripts"):
-                    result["nmap"] = _compact_nmap(parsed)
             except OSError:
                 pass
+        return r.stdout or "", parsed
+
+    def _has_data(parsed: dict) -> bool:
+        return bool(parsed.get("ports") or parsed.get("os") or parsed.get("host_scripts"))
+
+    try:
+        text, parsed = _run(args)
+        if want_os and not _has_data(parsed):
+            # 還是拖過單台時限（或腳本卡住）：nmap 不留這台的任何結果。退回只做 OS 指紋（十幾秒），
+            # 至少有 OS 與設備類型可判讀，不要整筆白跑
+            text2, parsed2 = _run(["nmap", "-Pn", "-T4", "--host-timeout", "60s", *port_args,
+                                   "-O", "--osscan-guess", "-oX", xml_path, ip])
+            if _has_data(parsed2):
+                text, parsed = text2, parsed2
+        if _has_data(parsed):
+            result["nmap"] = _compact_nmap(parsed)
         if want_ports:
             ports: list[int] = []
             for line in text.splitlines():
@@ -1102,6 +1156,7 @@ def _heavy_loop() -> None:
 
 
 def scan_once() -> None:
+    _reap_inherited()
     cycle_started = time.time()
     caps = _capabilities()
     poll = _req("GET", "/api/v1/scan-agents/poll",

@@ -6,6 +6,55 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [0.6.61] - 2026-10-04
+
+### Added
+- The subnet page's IP list can show the Device type column too (only the Addresses page had it); both share one renderer.
+- IP details "Last seen by source" gains **Counts as up** (current, expired, ARP only or not counted, per the liveness
+  sources and time limit in system settings) and **What it means**, adds Zabbix, and sorts by any header; on phones it
+  folds to three columns without horizontal scrolling.
+- SFTP uploads and downloads show **rate and time left** (5-second average); when data stops the rate falls toward 0 and
+  says "stalled" instead of showing the last number forever.
+- The jump host page has a Requirements guide (also reachable from the create dialog): what system a jump host can
+  be, network needs, local forwarding allowed on the SSH server, no root or shell needed, private key formats
+  (passphrase-protected keys are not supported), host key pinning, and an example forwarding-only account on Linux
+  (tested: forwarding works, commands and interactive logins are refused). The page intro now says to use relay
+  through the scan agent when the site already has one.
+
+### Changed
+- **The GraphQL endpoint `/graphql` is removed**: nothing in the UI used it, the API manual never documented it, and nginx
+  never forwarded it to the backend (unreachable on standard installs); keeping it meant a second permission check to
+  keep in sync with REST by hand. Use REST or MCP for integrations. New installs no longer install strawberry-graphql
+  (on upgraded sites it stays in the venv unused).
+- More spacing between the sections of IP details.
+- **Backend worker count adapts to small machines**: without `UVICORN_WORKERS`, machines with 2 cores or <= 4.5 GB of
+  memory (container limits included) run 2 workers, others keep 4. Each worker is about 250 MB; with four on a 4 GB
+  machine there was little left for the frontend build an upgrade runs (peak about 1.6 GB).
+- **Upgrades (and installs) check memory before building the frontend**: below 2 GB the backend is paused for the build
+  (about a minute longer; the upgrade restarts it anyway), and if that is still not enough it suggests adding swap; a
+  failed build brings the paused backend back instead of leaving the site down.
+- Hardware requirements corrected: 50 GB recommended disk (README and INSTALL disagreed), CPU notes list what actually
+  uses CPU (embeddings run on the LLM server, not here), and the 4 GB behaviour and RDP console usage are noted.
+
+### Fixed
+- **SFTP uploads overwrote files with the same name, and an interrupted upload deleted the original**. Opening the target
+  truncated an existing file to 0 bytes without asking, and a stalled upload then removed the path, so the original was
+  gone. A name clash now asks Overwrite / Keep both / Skip (with "do the same for the rest" for batches), and every
+  upload is written to a temporary file in the same directory and renamed into place only when complete (keeping the
+  old file's permissions when overwriting); a failed or cancelled upload removes only the temporary file.
+- **The periodic OS probe took the vendor from nmap's outdated MAC database**: a SuperMicro machine read "Server ·
+  Hewlett Packard". Like the Probe page, it now uses jt-ipam's own OUI table (refreshed monthly from IEEE) first.
+- **Ambiguous nmap guesses are no longer taken as devices**: recent Linux kernels are often guessed as "HP P2000 G3 NAS"
+  within 0-1 points of Linux, so two identical machines came out as storage and server. When the top guess is a device
+  class but a general-purpose OS is within 2 points, the general-purpose one is used. A host with port 8006 (Proxmox VE
+  web UI) open is a hypervisor.
+- **Scan agent 1.15.1: an OS probe could come back empty for a whole host**. With a service like PVE's 8006 open, nmap's
+  version detection (default intensity tries dozens of probes) ran past the per-host limit and nmap dropped every result
+  for that host, so it never got a device type. Version detection now uses the light mode, and if the host still times
+  out the agent retries with OS fingerprinting only.
+- Scan agents left zombie processes after a self-update: probes (nmap) running at the time were never reaped once they
+  finished. The new program records those leftover children at start-up and reaps them each round.
+
 ## [0.6.60] - 2026-10-02
 
 ### Added

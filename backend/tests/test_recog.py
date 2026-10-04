@@ -596,3 +596,24 @@ def test_known_virtual_guests_ignore_the_tcp_fingerprint_class() -> None:
     nas = _res([{"port": 445, "service": "microsoft-ds"}, {"port": 2049, "service": "nfs"},
                 {"port": 80, "service": "http", "product": "nginx", "scripts": {"http-title": "TrueNAS"}}], os=fp)
     assert summarize(nas, virtual_guest=True)["device_type"] == "storage"
+
+
+def test_an_ambiguous_fingerprint_is_not_a_device() -> None:
+    """nmap 的積極猜測常把新版 Linux 核心認成「HP P2000 G3 NAS」，與 Linux 的猜測只差 0~1 個百分點（2026-10-04 正式環境，
+    兩台同款 SuperMicro 一台判成儲存設備、一台判成伺服器，只看哪一筆剛好排第一）。差距這麼小＝分不出來，不可以當成設備。"""
+    hp = {"name": "HP P2000 G3 NAS device", "accuracy": 93, "type": "storage-misc", "vendor": "HP"}
+    lin = {"name": "Linux 5.3 - 5.4", "accuracy": 93, "type": "general purpose", "vendor": "Linux"}
+    s = summarize(_res([], os=[hp, lin]))
+    assert s["device_type"] == "server"
+    assert s["os"] == "Linux 5.3 - 5.4"
+    assert s["vendor"] != "HP"
+    # 差距夠大才是真的設備
+    printer = {"name": "HP LaserJet printer", "accuracy": 98, "type": "printer", "vendor": "HP"}
+    assert summarize(_res([], os=[printer, {**lin, "accuracy": 88}]))["device_type"] == "printer"
+
+
+def test_proxmox_web_port_means_a_hypervisor() -> None:
+    """8006 是 Proxmox VE 的網頁介面；版本偵測常認不出它（tcpwrapped），但開著這個埠本身就足以判斷。"""
+    res = _res([{"port": 22, "service": "ssh", "product": "OpenSSH"}, {"port": 8006, "service": "tcpwrapped"}],
+               os=[{"name": "Linux 5.3 - 5.4", "accuracy": 94, "type": "general purpose", "vendor": "Linux"}])
+    assert summarize(res)["device_type"] == "hypervisor"

@@ -371,6 +371,46 @@ ensure_node() {
     log "Using Node.js $(node -v)"
 }
 
+# Memory the system can still hand out, in MB: MemAvailable + free swap, capped by the
+# container's cgroup limit (without lxcfs /proc/meminfo shows the host's memory).
+# JT_IPAM_MEMINFO / JT_IPAM_CGROUP_DIR only exist for the tests.
+mem_available_mb() {
+    local avail swap cgdir cgmax cgcur
+    avail="$(awk '/^MemAvailable:/ {print int($2/1024)}' "${JT_IPAM_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)"
+    swap="$(awk '/^SwapFree:/ {print int($2/1024)}' "${JT_IPAM_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)"
+    avail=$(( ${avail:-0} + ${swap:-0} ))
+    cgdir="${JT_IPAM_CGROUP_DIR:-/sys/fs/cgroup}"
+    cgmax="$(cat "$cgdir/memory.max" 2>/dev/null || echo max)"
+    cgcur="$(cat "$cgdir/memory.current" 2>/dev/null || echo 0)"
+    if [[ "$cgmax" =~ ^[0-9]+$ && "$cgcur" =~ ^[0-9]+$ ]] && (( (cgmax - cgcur) / 1048576 < avail )); then
+        avail=$(( (cgmax - cgcur) / 1048576 ))
+    fi
+    echo "$avail"
+}
+
+# The frontend build peaks around 1.6 GB (measured 2026-10-02). On a 4 GB machine with the
+# backend running, an upgrade that meets a background sync could be OOM-killed half way.
+# When memory is short, pause the backend for the build (about a minute; the upgrade
+# restarts it anyway) instead of letting the kernel pick a victim. Sets BUILD_PAUSED_BACKEND.
+FRONTEND_BUILD_MIN_MB=2048
+BUILD_PAUSED_BACKEND=0
+ensure_build_memory() {
+    local avail
+    avail="$(mem_available_mb)"
+    (( avail >= FRONTEND_BUILD_MIN_MB )) && return 0
+    if systemctl is-active --quiet jt-ipam-backend.service 2>/dev/null; then
+        warn "Only ${avail} MB of memory available; pausing jt-ipam-backend during the frontend build (needs about ${FRONTEND_BUILD_MIN_MB} MB)."
+        systemctl stop jt-ipam-backend.service 2>/dev/null || true
+        BUILD_PAUSED_BACKEND=1
+        sleep 2
+        avail="$(mem_available_mb)"
+    fi
+    if (( avail < FRONTEND_BUILD_MIN_MB )); then
+        warn "Only ${avail} MB of memory available for the frontend build (about ${FRONTEND_BUILD_MIN_MB} MB is needed)."
+        warn "If the build is killed, add swap and re-run: fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
+    fi
+}
+
 # Build the frontend as root with a clean toolchain, then hand ownership back to $2.
 # Why as root: avoids (a) stale corepack pnpm shims pinned to an old /usr/bin/node, and
 # (b) sudo -u / PAM failures when the owner is a nologin system account on restrictive hosts.
@@ -404,7 +444,14 @@ build_frontend() {
 
     HOME=/var/lib/jt-ipam "$pnpm_bin" install --frozen-lockfile \
         || HOME=/var/lib/jt-ipam "$pnpm_bin" install
-    HOME=/var/lib/jt-ipam "$pnpm_bin" run build
+    ensure_build_memory
+    if ! HOME=/var/lib/jt-ipam "$pnpm_bin" run build; then
+        # a failed upgrade must not leave the site down because we paused the backend for the build
+        if (( BUILD_PAUSED_BACKEND == 1 )); then
+            systemctl start jt-ipam-backend.service 2>/dev/null || true
+        fi
+        die "Frontend build failed (see the output above). If it was killed for lack of memory, add swap and re-run."
+    fi
     chown -R "$owner" node_modules dist 2>/dev/null || true
 }
 

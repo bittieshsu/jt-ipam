@@ -62,7 +62,8 @@ def _is_samba(p: dict[str, Any]) -> bool:
 
 _SERVICE_RULES: list[tuple[str, Any]] = [
     ("hypervisor", lambda p, c: re.search(r"proxmox|vmware esxi|vmware authentication|xenserver|hyper-v",
-                                          _text(p), re.I)),
+                                          _text(p), re.I)
+                                or p.get("port") == 8006),   # Proxmox VE 網頁介面；版本偵測常只認得 tcpwrapped
     # NAS：產品字樣、主力做 NAS 的廠牌＋檔案分享、或 iSCSI／NFS／AFP 這種儲存服務
     ("storage", lambda p, c: _NAS_PRODUCT.search(_text(p))
                              or (c["nas_vendor"] and p.get("service") in _FILE_SHARING)
@@ -80,6 +81,9 @@ _SERVICE_RULES: list[tuple[str, Any]] = [
 ]
 
 _MIN_OS_ACCURACY = 85
+#: 第一名是設備類、但通用作業系統的猜測只差這麼多以內 → 分不出來，改用通用作業系統那筆
+#: （nmap 常把新版 Linux 核心認成 HP P2000 G3 NAS，兩者只差 0~1 個百分點）
+_AMBIGUOUS_GAP = 2
 
 
 def _open_ports(nmap: dict[str, Any]) -> list[dict[str, Any]]:
@@ -405,7 +409,12 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
           if recog else None)
 
     os_name = None
-    top = next((o for o in (nmap.get("os") or []) if isinstance(o, dict)), None)
+    os_list = [o for o in (nmap.get("os") or []) if isinstance(o, dict)]
+    top = os_list[0] if os_list else None
+    if top and str(top.get("type") or "").lower() not in ("", "general purpose"):
+        gp = next((o for o in os_list if str(o.get("type") or "").lower() == "general purpose"), None)
+        if gp and int(top.get("accuracy") or 0) - int(gp.get("accuracy") or 0) <= _AMBIGUOUS_GAP:
+            top = gp
     if top and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY:
         os_name = top.get("name")
         evidence.append(f"os:{top.get('name')} ({top.get('accuracy')}%)")

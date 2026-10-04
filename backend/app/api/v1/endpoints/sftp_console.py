@@ -419,8 +419,14 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     # 讀到的卻是那些二進位框 → 協定錯位 → 整條連線死掉，連帶把後面
                     # 還沒上傳的檔案一起拖走。實機上就是這樣：第一個檔案因為遠端
                     # 回「找不到檔案或目錄」而失敗，第二個檔案顯示「連線已中斷」。
+                    # 同名檔案：沒指定 on_conflict 就先問（回 sftp_exists，在 put_ready 之前，一個位元組都還沒送）。
+                    # 一律寫到同目錄的暫存檔，完整寫完才換成正式檔名 —— 中途失敗原本的檔案不會受損
+                    # （以前 "wb" 一開檔就把同名檔清成 0 位元組、中斷時還會把它刪掉）
+                    from app.services.sftp import abort_upload, begin_upload, finish_upload
+                    target = await begin_upload(sftp, path, on_conflict=req.get("on_conflict"))
+                    path = failed_path = target.final_path
                     t_open = time.monotonic()
-                    fh = await sftp.open(path, "wb")
+                    fh = await sftp.open(target.tmp_path, "wb")
                     # 開檔成功了才通知對方可以送 —— 這一行在 0.5.225 改寫時被弄丟，
                     # 造成客戶端永遠等不到「可以送了」，上傳完全失效。
                     await reply({"type": "put_ready", "path": path})
@@ -432,82 +438,88 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
                     next_ack = 0
                     first_frame = True
                     stalled = False
-                    async with fh:
-                        while written < size:
-                            try:
-                                # ⚠️ 兩件事都要防：
-                                # (1) 逾時 —— 客戶端在 put_ready 之後沒把資料送完，
-                                #     沒有時限就會無限期佔住這條連線。
-                                # (2) **框的型別不如預期** —— 客戶端在資料還沒送完就
-                                #     改送下一個指令（放棄這次上傳卻沒告知）。這時候
-                                #     `receive_bytes()` 會丟 `KeyError: 'bytes'`，
-                                #     整個 handler 當掉、連線關閉。實機日誌抓到的就是
-                                #     這一行：使用者看到「連線已中斷」，而原因只是
-                                #     伺服器對一個文字框沒有防備。
-                                message = await asyncio.wait_for(
-                                    websocket.receive(), timeout=UPLOAD_STALL_TIMEOUT)
-                            except TimeoutError:
-                                stalled = True
-                                break
-                            if message.get("type") == "websocket.disconnect":
-                                # 上傳途中對方斷線 —— 「斷掉的當下已經寫了多少」是這裡
-                                # 唯一有用的資訊：0 代表對方根本沒開始送（問題在客戶端
-                                # 讀檔或送出），接近 size 代表是快傳完才死（問題在連線
-                                # 途中的某一段）。少了這行只知道「斷了」，等於沒線索。
-                                log.info("sftp put aborted by client",
-                                         session=session_tag, written=written, size=size,
-                                         code=message.get("code", 1005))
-                                raise WebSocketDisconnect(message.get("code", 1005))
-                            if first_frame:
-                                # 第一個框到底是什麼、隔了多久 —— 「送出了但沒收到」
-                                # 與「根本沒送」只有這一行分得出來
-                                first_frame = False
-                                log.info("sftp put first frame", session=session_tag,
-                                         kind=("bytes" if message.get("bytes") is not None
-                                               else message.get("type", "text")),
-                                         after_ms=round((time.monotonic() - t_open) * 1000))
-                            chunk = message.get("bytes")
-                            if chunk is None:
-                                # 對方改送指令了 → 這次上傳視同放棄，把那個指令留著
-                                # 等一下照常處理，不要把它丟掉也不要因此斷線。
-                                carry_over = message.get("text")
-                                stalled = True
-                                break
-                            # 用戶端多送的部分一律截斷 —— 宣告多少就寫多少，
-                            # 否則上限可以被「宣告小、實際送大」繞過
-                            take = chunk[: size - written]
-                            await fh.write(take)
-                            written += len(take)
-                            # 收到就回報。客戶端靠**第一個**確認判斷「資料真的走得過去」
-                            # ——實機遇過瀏覽器把整個檔案交出去、伺服器一個框都沒收到
-                            # 的情況（小的文字指令通得過、第一個大資料框就消失）。
-                            # 沒有這個回報，客戶端只能一直等到連線自己死掉。
-                            if written >= next_ack or written >= size:
-                                next_ack = written + ACK_EVERY
-                                await reply({"type": "put_ack", "bytes": written})
-                            # 每 4 MB 記一次：長時間上傳時，「還在動」與「卡住不動」
-                            # 在日誌上本來長得一模一樣（都是一片空白）
-                            if written // PUT_PROGRESS_EVERY != (written - len(take)) // PUT_PROGRESS_EVERY:
-                                log.info("sftp put progress", session=session_tag,
-                                         written=written, size=size)
+                    try:
+                        async with fh:
+                            while written < size:
+                                try:
+                                    # ⚠️ 兩件事都要防：
+                                    # (1) 逾時 —— 客戶端在 put_ready 之後沒把資料送完，
+                                    #     沒有時限就會無限期佔住這條連線。
+                                    # (2) **框的型別不如預期** —— 客戶端在資料還沒送完就
+                                    #     改送下一個指令（放棄這次上傳卻沒告知）。這時候
+                                    #     `receive_bytes()` 會丟 `KeyError: 'bytes'`，
+                                    #     整個 handler 當掉、連線關閉。實機日誌抓到的就是
+                                    #     這一行：使用者看到「連線已中斷」，而原因只是
+                                    #     伺服器對一個文字框沒有防備。
+                                    message = await asyncio.wait_for(
+                                        websocket.receive(), timeout=UPLOAD_STALL_TIMEOUT)
+                                except TimeoutError:
+                                    stalled = True
+                                    break
+                                if message.get("type") == "websocket.disconnect":
+                                    # 上傳途中對方斷線 —— 「斷掉的當下已經寫了多少」是這裡
+                                    # 唯一有用的資訊：0 代表對方根本沒開始送（問題在客戶端
+                                    # 讀檔或送出），接近 size 代表是快傳完才死（問題在連線
+                                    # 途中的某一段）。少了這行只知道「斷了」，等於沒線索。
+                                    log.info("sftp put aborted by client",
+                                             session=session_tag, written=written, size=size,
+                                             code=message.get("code", 1005))
+                                    raise WebSocketDisconnect(message.get("code", 1005))
+                                if first_frame:
+                                    # 第一個框到底是什麼、隔了多久 —— 「送出了但沒收到」
+                                    # 與「根本沒送」只有這一行分得出來
+                                    first_frame = False
+                                    log.info("sftp put first frame", session=session_tag,
+                                             kind=("bytes" if message.get("bytes") is not None
+                                                   else message.get("type", "text")),
+                                             after_ms=round((time.monotonic() - t_open) * 1000))
+                                chunk = message.get("bytes")
+                                if chunk is None:
+                                    # 對方改送指令了 → 這次上傳視同放棄，把那個指令留著
+                                    # 等一下照常處理，不要把它丟掉也不要因此斷線。
+                                    carry_over = message.get("text")
+                                    stalled = True
+                                    break
+                                # 用戶端多送的部分一律截斷 —— 宣告多少就寫多少，
+                                # 否則上限可以被「宣告小、實際送大」繞過
+                                take = chunk[: size - written]
+                                await fh.write(take)
+                                written += len(take)
+                                # 收到就回報。客戶端靠**第一個**確認判斷「資料真的走得過去」
+                                # ——實機遇過瀏覽器把整個檔案交出去、伺服器一個框都沒收到
+                                # 的情況（小的文字指令通得過、第一個大資料框就消失）。
+                                # 沒有這個回報，客戶端只能一直等到連線自己死掉。
+                                if written >= next_ack or written >= size:
+                                    next_ack = written + ACK_EVERY
+                                    await reply({"type": "put_ack", "bytes": written})
+                                # 每 4 MB 記一次：長時間上傳時，「還在動」與「卡住不動」
+                                # 在日誌上本來長得一模一樣（都是一片空白）
+                                if written // PUT_PROGRESS_EVERY != (written - len(take)) // PUT_PROGRESS_EVERY:
+                                    log.info("sftp put progress", session=session_tag,
+                                             written=written, size=size)
+                    except BaseException:
+                        # 中途斷線或任何錯誤：只刪暫存檔，原本的檔案不動
+                        with contextlib.suppress(Exception):
+                            await abort_upload(sftp, target)
+                        raise
                     log.info("sftp put done", session=session_tag,
                              written=written, size=size, stalled=stalled,
                              carry_over=carry_over is not None)
                     if stalled:
                         # 只讓這次上傳失敗，連線繼續可用 —— 一次上傳中斷不該逼人重連。
-                        # 檔案已經被建出來（可能是 0 位元組），把它清掉再回報，
-                        # 免得遠端留下一個看起來成功、其實是空的檔案。
-                        with contextlib.suppress(Exception):
-                            await sftp.remove(path)
+                        # 只刪暫存檔：同名的原檔從頭到尾沒動過（以前這裡 remove(path)，覆蓋中斷＝原檔被刪）
+                        await abort_upload(sftp, target)
                         await reply({"type": "error", "op": "put", "path": path,
                                      **ui_detail("put_stalled",
                                                  f"上傳中斷（已寫入 {written}/{size} 位元組，"
-                                                 f"檔案已移除）",
+                                                 f"遠端沒有任何變動）",
                                                  written=written, size=size)})
                         failed_path = None
                         continue
-                    await reply({"type": "ok", "op": "put", "path": path, "bytes": written})
-                    await audit("sftp_upload", {"path": path, "bytes": written})
+                    await finish_upload(sftp, target)
+                    await reply({"type": "ok", "op": "put", "path": path, "bytes": written,
+                                 "replaced": target.replaces})
+                    await audit("sftp_upload", {"path": path, "bytes": written, "replaced": target.replaces})
 
                 elif op == "mkdir":
                     path = failed_path = normalize_path(req.get("path"), cwd=str(cwd))

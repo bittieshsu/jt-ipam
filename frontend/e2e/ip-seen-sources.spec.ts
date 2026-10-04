@@ -39,9 +39,27 @@ test("各來源最後出現獨立一區：固定順序、附距今、最新的�
   await expect(sec.locator("tr.seen-latest")).toContainText("掃描代理");
   await expect(sec.locator("tr.seen-latest")).toContainText("最新");
   await expect(sec.locator("tr", { hasText: "Wazuh 代理" })).toContainText(/前天|2 天前/);
+  // 上線判定：掃描代理 5 分鐘前＝計入且有效；LibreNMS 3 小時前＝計入但過期；ARP 沒看過＝「—」
+  await expect(sec.getByTestId("seen-verdict-scanner")).toHaveText("計入 · 有效");
+  await expect(sec.getByTestId("seen-verdict-librenms")).toHaveText("計入 · 已過期");
+  await expect(sec.getByTestId("seen-verdict-arp")).toHaveCount(0);
+  await expect(sec.locator("thead")).toContainText("代表什麼");
   // 這些欄位不再散在上面的基本資料裡
   await expect(page.locator(".n-descriptions").first()).not.toContainText("最後出現");
   await expect(page.getByText("容器 · LXC")).toBeVisible();
+});
+
+test("各來源最後出現：點標題排序（時間第一下最新在上；來源依名稱）", async ({ page }) => {
+  await login(page);
+  const sec = await openIp(page);
+  const first = () => sec.locator("tbody tr").first();
+  // 與全站表格一樣：點第一下是遞減 —— 「時間」遞減＝最新的在最上面
+  await sec.locator("th", { hasText: "時間" }).click();
+  await expect(first()).toContainText("掃描代理");
+  // 「來源」點兩下＝遞增（依名稱）
+  await sec.locator("th", { hasText: "來源" }).click();
+  await sec.locator("th", { hasText: "來源" }).click();
+  await expect(first()).toContainText("AdGuard");
 });
 
 for (const [card, label] of [["librenms", "LibreNMS"], ["wazuh", "Wazuh"]] as const) {

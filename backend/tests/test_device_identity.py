@@ -254,3 +254,51 @@ async def test_same_kind_without_model_keeps_the_model_but_a_new_kind_drops_it(d
     assert ip.device_model == "Synology DS920+"
     await apply_summary(db_session, ip, {"device_type": "server", "vendor": None, "model": None, "evidence": []})
     assert ip.device_kind == "server" and ip.device_model is None
+
+
+def test_a_slow_service_does_not_throw_away_the_whole_os_probe(monkeypatch) -> None:
+    """2026-10-04 正式環境：一台 PVE 的 8006 埠讓 nmap 的版本偵測（-sV，預設強度試幾十種探針、每種等好幾秒）
+    跑超過 90 秒的單台時限，nmap 就把這台的結果**整筆丟掉**（OS 指紋單獨只要 12 秒）→ 那台永遠沒有設備類型。
+    ① 版本偵測用輕量模式（--version-light）；② 還是逾時（XML 裡沒有這台的結果）→ 退回只做 OS 指紋再試一次。"""
+    from types import SimpleNamespace
+
+    from tests.test_agent_scan_split import _agent_module
+    mod = _agent_module()
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        calls.append(list(args))
+        xml_path = args[args.index("-oX") + 1]
+        with open(xml_path, "w", encoding="utf-8") as fh:
+            if "-sV" in args:          # 第一次：單台逾時，nmap 不寫出這台的任何資料
+                fh.write('<?xml version="1.0"?><nmaprun><runstats><hosts up="1" down="0"/></runstats></nmaprun>')
+                return SimpleNamespace(stdout="Skipping host 198.51.100.7 due to host timeout\n", stderr="", returncode=0)
+            fh.write(_XML.replace("BANNER_LONG", "x"))
+            return SimpleNamespace(stdout="OS details: Linux 4.15 - 5.8\n", stderr="", returncode=0)
+    monkeypatch.setattr(mod.shutil, "which", lambda _n: "/usr/bin/nmap")
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    out = mod._nmap_os_ports("198.51.100.7", True, False)
+    assert "--version-light" in calls[0]
+    assert len(calls) == 2, "逾時後要退回只做 OS 指紋再試一次"
+    assert "-sV" not in calls[1] and "-O" in calls[1] and "--script" not in calls[1]
+    assert out["nmap"]["os"][0]["name"] == "Linux 4.15 - 5.8"
+    assert out["os_guess"] == "Linux 4.15 - 5.8"
+
+
+async def test_periodic_probe_uses_our_oui_vendor_not_nmaps(client, db_session) -> None:
+    """2026-10-04 正式環境：MAC 的 OUI 在 IEEE 登記的是 SuperMicro，jt-ipam 的 OUI 表也是，但 nmap 自帶的 MAC 廠商資料庫說
+    Hewlett Packard。「探測」頁判讀時帶 jt-ipam 查到的廠商，定期 OS 偵測卻沒帶 → 退回用 nmap 的 → 同一台在兩個入口廠商不同，
+    設備類型旁邊寫著 HP。定期偵測也要先用 jt-ipam 的 OUI 表。"""
+    from app.models.oui import OUIVendor
+    raw, _agent, ip, _old = await _agent_ip(db_session)
+    ip.mac = "00:00:5e:00:53:21"
+    await db_session.merge(OUIVendor(prefix="00005E", short_name="IANA", name="ICANN, IANA Department", source="test"))
+    await db_session.commit()
+    nmap = {"ports": [], "closed": 5, "host_scripts": {}, "mac_vendor": "Hewlett Packard",
+            "os": [{"name": "Linux 5.3 - 5.4", "accuracy": 94, "type": "general purpose", "vendor": "Linux"}]}
+    r = await client.post("/api/v1/scan-agents/report", headers={"X-Agent-Key": raw}, json={
+        "results": [{"ip": "198.51.100.7", "alive": True, "liveness": False, "probes_run": ["os"], "nmap": nmap}]})
+    assert r.status_code == 200, r.text
+    await db_session.refresh(ip)
+    assert ip.device_kind == "server"
+    assert ip.device_model == "IANA"

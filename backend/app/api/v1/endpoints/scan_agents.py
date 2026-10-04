@@ -852,7 +852,11 @@ async def agent_report(
                     recog_matcher = await get_matcher(session)
                 if vm_guests is None:
                     vm_guests = await _virtual_guests(session, payload.results)
+                # 廠商先用 jt-ipam 自己的 OUI 表（每月從 IEEE 更新），與「探測」頁同一套；nmap 自帶的 MAC 廠商
+                # 資料庫會過時（曾把 SuperMicro 的 OUI 認成 Hewlett Packard，畫面於是寫著「伺服器 · HP」）
+                from app.services.oui import vendor_for_mac
                 summary = summarize({"nmap": {"available": True, **item.nmap}}, recog=recog_matcher,
+                                    mac_vendor=await vendor_for_mac(session, ipa.mac or item.mac),
                                     virtual_guest=str(item.ip).split("/")[0] in vm_guests)
             await apply_summary(session, ipa, summary, fallback_os=item.os_guess)
         # 主機名稱觀測 → 走既有來源優先序（各來源獨立一筆，不會 thrash）。

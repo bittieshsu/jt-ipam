@@ -137,6 +137,11 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 - [ ] **(C) Recog 指紋庫（選用）**：安裝/升級的輸出有「Recog: updated … fingerprints」；把主機的對外連線擋掉再升級，
   只能是警告、升級照常完成；`upgrade --recog-zip <recog-content-version.zip>` 在離線時裝得起來；
   `python -m app.cli.recog status` 顯示版本
+- [ ] **(D) 小機器**（`tests/test_resource_sizing.py`）：在 `--cpuset-cpus=0,1` 或 `--memory=4g` 的容器裡全新安裝，
+  `ps` 看到 2 個 uvicorn worker（4 核 8 GB 是 4 個；`UVICORN_WORKERS` 有設就照設定）；在 `--memory=3g`、沒有 swap 的容器裡升級，
+  輸出有「pausing jt-ipam-backend during the frontend build」，升級完後端有起來；把 build 故意弄失敗，後端要被開回來
+- [ ] **(D) 掃描代理自動更新不留殭屍**（`tests/test_agent_reap_inherited.py`）：代理正在跑 OS 偵測時讓伺服器換一版 agent.py，
+  更新後一兩輪 `ps -eo stat,comm | grep -c '^Z'` 要回到 0
 
 ## 5c. 真實瀏覽器測試：**每次動到 UI 的發版都必跑**
 
@@ -342,6 +347,19 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
 - [ ] **IP 詳細資料「各來源最後出現」**（`e2e/ip-seen-sources.spec.ts`）：獨立一區，來源／時間／距今三欄，順序固定（掃描代理、
   LibreNMS、ARP、Wazuh、OCS、各防火牆、AdGuard），最新的一列加粗並標「最新」；基本資料裡不再有「最後出現」欄位；手機上
   「距今」併到時間下方、不出現橫向捲動。LibreNMS／Wazuh／OCS 的時間點下去 → 裝置頁並捲到對應卡片（外框亮一下）
+- [ ] **各來源最後出現的上線判定與排序**（`e2e/ip-seen-sources.spec.ts`、`tests/test_ip_seen_rule.py`）：掃描代理在時限內＝「計入 ·
+  有效」、LibreNMS 過期＝「計入 · 已過期」、DHCP 租約與 AdGuard＝「不計入」（改系統設定的採信來源後跟著變）；「時間」點一下最新在上；
+  手機只剩三欄、不左右捲動；IP 清單 API 不帶 `liveness_rule`
+- [ ] **SFTP 同名檔案**（`tests/test_sftp_upload_conflict.py`、`e2e/sftp.spec.ts`）：上傳同名先跳「覆蓋／兩份都留／略過」；兩份都留產生
+  「名稱 (1).副檔名」、原檔不動；覆蓋後內容換新且權限照舊；多檔勾「其餘也這樣處理」只問一次；覆蓋到一半拔網路，原檔完整、目錄裡沒有
+  `.jtipam-upload-` 殘檔；對沒有 posix-rename 的 SFTP 伺服器也能覆蓋
+- [ ] **子網路頁 IP 清單的設備類型欄**：欄位選擇器有「設備類型」，顯示與「IP 位址」頁一樣（圖示＋名稱、滑過看型號）
+- [ ] **設備類型的廠商與分不出來的猜測**（`tests/test_device_identity.py`、`tests/test_recog.py`）：SuperMicro 的機器不再寫 HP（用 jt-ipam 的
+  OUI 表）；Linux 與 HP P2000 只差一兩個百分點時判成伺服器；開著 8006 的判成虛擬化主機
+- [ ] **SFTP 速率**（`e2e/sftp.spec.ts`）：上傳與下載大檔時進度後面有「MB/s · 剩約 …」；拔網路線或壓到接近 0，幾秒內變「0 B/s · 停住了」
+- [ ] **GraphQL 已移除**：`POST /graphql` 不再是 GraphQL（404 或前端靜態檔的 405）；版本資訊頁的套件清單沒有 strawberry
+- [ ] **代理 OS 偵測遇到慢服務**（`tests/test_device_identity.py`）：對開著 PVE 8006 的主機跑定期 OS 偵測，結果要有設備類型（以前整台逾時、
+  什麼都沒有）
 - [ ] **虛實標出客體種類**（`tests/test_virt_correlation.py`）：PVE 的 LXC 標「容器 · LXC」、qemu 標「虛擬機 · KVM」、VMware 標
   「虛擬機 · VMware」，IP 詳細資料與裝置頁一致
 - [ ] **子網路頁卡片標題的數量**：「位址範圍（集區）」與「IP 清單」的數量是標題旁的標籤，不是半形括號
@@ -514,6 +532,9 @@ printf 'Subsystem sftp /usr/lib/openssh/sftp-server\n' >> sshd_config
   參考計數漏還會安靜地把上限用光
 - [ ] **工作階段的生命週期**：關掉瀏覽器分頁 → 跳板上的轉發跟著消失
 - [ ] **刪除跳板主機**時要警告有多少子網路/位址會退回直連
+- [ ] **需求與設定說明**（`e2e/jump-hosts.spec.ts`）：「需求與設定」按鈕與新增視窗裡的「跳板要符合哪些條件？」都打得開；列出系統、網路、
+  允許轉發、帳號（不需要 root／shell）、認證（不支援有密碼保護的私鑰）、主機金鑰；範例照抄到乾淨的 Debian／Ubuntu（OpenSSH）上
+  建帳號，jt-ipam 經由它開 SSH 主控台要成功，用那把金鑰 `ssh -tt` 互動登入要被拒（PTY allocation request failed）
 - [ ] 每次開啟工作階段，稽核都要記錄 `via_jump_host`
 
 ## 7m. guacd 主控台引擎：**只要動到主控台、guacd 或它的編譯就要跑**

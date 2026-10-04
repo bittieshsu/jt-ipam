@@ -203,6 +203,9 @@ class IPAddressRead(IPAddressBase):
     # 虛擬化對應：這個 IP 是虛擬化平台回報的某台 VM →（顯示用）。
     # None＝比對不到，**不代表實體機**（整合可能沒涵蓋），前端不得反向標示。
     virt_vm: dict | None = None
+    # 上線判定規則（只在單筆讀取帶）：{minutes, sources}，與 recompute_effective_status 用同一份系統設定。
+    # 畫面「各來源最後出現」據此標出每個來源算不算上線證據、是否還在時限內
+    liveness_rule: dict | None = None
     ssh_available: bool = False
     # SFTP 檔案傳輸：是否已啟用 + 目前使用者是否可用
     sftp_enabled: bool = False

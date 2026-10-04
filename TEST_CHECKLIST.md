@@ -183,6 +183,12 @@ to see what a customer sees.**
   fingerprints"; with outbound access blocked an upgrade only warns and still completes;
   `upgrade --recog-zip <recog-content-version.zip>` installs it offline; `python -m app.cli.recog status`
   shows the release
+- [ ] **(D) Small machines** (`tests/test_resource_sizing.py`): a fresh install in a `--cpuset-cpus=0,1` or `--memory=4g`
+  container runs 2 uvicorn workers (4 cores / 8 GB runs 4; `UVICORN_WORKERS` wins when set); an upgrade in a `--memory=3g`
+  container without swap prints "pausing jt-ipam-backend during the frontend build" and the backend is up afterwards; a
+  build forced to fail brings the backend back
+- [ ] **(D) No zombies after an agent self-update** (`tests/test_agent_reap_inherited.py`): swap the server's agent.py while
+  the agent runs an OS probe; within a round or two after the update `ps -eo stat,comm | grep -c '^Z'` is back to 0
 
 ## 5c. Real-browser testing: **mandatory for every release that touches the UI**
 
@@ -457,6 +463,26 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   columns in a fixed order (scanner, LibreNMS, ARP, Wazuh, OCS, each firewall, AdGuard), the most recent row bold and
   tagged "Latest"; the basic fields no longer carry last-seen rows; on a phone "ago" moves under the time with no
   horizontal scroll. Clicking the LibreNMS / Wazuh / OCS time opens the device page scrolled to that card (outline flashes)
+- [ ] **Last seen by source: verdict and sorting** (`e2e/ip-seen-sources.spec.ts`, `tests/test_ip_seen_rule.py`): the scanner
+  within the limit reads "Counts · current", an old LibreNMS time "Counts · expired", DHCP lease and AdGuard "Not counted"
+  (and follow the liveness sources in system settings); one click on Time puts the newest first; phones show three columns
+  without horizontal scrolling; the IP list API carries no `liveness_rule`
+- [ ] **SFTP name clashes** (`tests/test_sftp_upload_conflict.py`, `e2e/sftp.spec.ts`): uploading an existing name asks
+  Overwrite / Keep both / Skip; Keep both creates "name (1).ext" and leaves the original; Overwrite replaces the content and
+  keeps the permissions; with several clashes "do the same for the rest" asks once; cutting the link half way through an
+  overwrite leaves the original intact and no `.jtipam-upload-` leftovers; overwriting works on SFTP servers without
+  posix-rename
+- [ ] **Device type column on the subnet page's IP list**: the column picker offers it and it looks the same as on the
+  Addresses page (icon and name, model on hover)
+- [ ] **Device type vendor and ambiguous guesses** (`tests/test_device_identity.py`, `tests/test_recog.py`): a SuperMicro
+  machine is no longer labelled HP (jt-ipam's OUI table wins); Linux vs HP P2000 within a point or two comes out as server;
+  port 8006 open means hypervisor
+- [ ] **SFTP rate** (`e2e/sftp.spec.ts`): large uploads and downloads show "MB/s · about … left" after the progress; with the
+  link cut or throttled to almost nothing it turns into "0 B/s · stalled" within seconds
+- [ ] **GraphQL removed**: `POST /graphql` is no longer GraphQL (404, or 405 from the static frontend); the version page's
+  package list has no strawberry
+- [ ] **Agent OS probe with a slow service** (`tests/test_device_identity.py`): a periodic OS probe of a host with PVE's 8006
+  open ends up with a device type (it used to time out with nothing)
 - [ ] **Virtual/physical shows the guest kind** (`tests/test_virt_correlation.py`): a PVE LXC reads "Container · LXC",
   qemu "Virtual machine · KVM", VMware "Virtual machine · VMware", the same on IP details and the device page
 - [ ] **Counts in subnet page card headers**: "Address ranges (pools)" and "IP list" show the count as a tag next to the
@@ -667,6 +693,10 @@ The same sshd can play both roles: register it as the jump host, and point the t
   then confirm normal sessions still work; a leaked reference count silently uses up the limit
 - [ ] **Session lifetime**: close the browser tab → the forward disappears from the jump host
 - [ ] **Deleting a jump host** warns how many subnets/addresses will fall back to direct
+- [ ] **Requirements guide** (`e2e/jump-hosts.spec.ts`): both the Requirements button and "What does a jump host need?" in
+  the create dialog open it; it covers system, network, forwarding, account (no root or shell needed), authentication
+  (passphrase-protected keys not supported) and host key; following the example on a clean Debian/Ubuntu (OpenSSH) host,
+  an SSH console through it works, and an interactive `ssh -tt` with that key is refused (PTY allocation request failed)
 - [ ] Audit records `via_jump_host` on every session open
 
 ## 7m. guacd console engine: **whenever a console, guacd or its build changes**

@@ -18,9 +18,9 @@ the preferred mode**; see [§2.7](#27-optional-docker-compose-not-the-preferred-
 | Item | Minimum | Recommended | Notes |
 |---|---|---|---|
 | OS | Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86_64) | **Ubuntu 24.04 LTS** | only these (see below); 24.04 ships Python 3.12 + PG 16 + Node 18, saving effort |
-| CPU | 2 vCPU | 4 vCPU | argon2id + pgvector embeddings are CPU-heavy |
-| RAM | 4 GB | 8 GB | add another 8 GB if running LLM Server |
-| Disk | 20 GB | 50 GB | audit log grows |
+| CPU | 2 vCPU | 4 vCPU | upgrades build the frontend (about a minute); RDP consoles (guacd) and the local scan agent (nmap) use CPU. Embeddings run on the LLM server, not here |
+| RAM | 4 GB | 8 GB | about 1.8 GB in use with 4 workers; the frontend build during an upgrade peaks at about 1.6 GB. With 4 GB or 2 cores the backend runs 2 workers and is paused during the build if memory is short (2 GB of swap avoids that). Each RDP console takes a few hundred MB. An LLM server on the same machine needs 8 GB+ on top |
+| Disk | 20 GB | 50 GB | the install takes about 2 GB (Python packages, node_modules, caches) plus the OS; the database, audit log, IP history and backups grow with the network; journald caps its logs |
 | Python | 3.11 | 3.12 | 24.04 defaults to 3.12 |
 | PostgreSQL | 16 + pgvector | None | 22.04 needs the PGDG repo (the script adds it automatically) |
 | Redis | 7 | None | 24.04 defaults to 7.0.15 |

@@ -161,7 +161,7 @@ Security is a day-one requirement; every module and PR is checked against **OWAS
 > console engine); on other versions, derivatives (e.g. Linux Mint) or ARM the installer stops. New OS releases are added
 > as they ship; see [docs/INSTALL.md](docs/INSTALL.md#supported-distributions).
 >
-> **Minimum:** 2 vCPU · 4 GB RAM · 20 GB disk. **Recommended:** 4 vCPU · 8 GB RAM · 40 GB+ disk (room for the PostgreSQL database, GeoIP/OUI data, and backups to grow).
+> **Minimum:** 2 vCPU · 4 GB RAM · 20 GB disk. **Recommended:** 4 vCPU · 8 GB RAM · 50 GB disk (room for the database, audit log, IP history and backups to grow). On a 4 GB machine the backend runs 2 workers, and an upgrade pauses it while the frontend builds if memory is short; 2 GB of swap avoids that. Each RDP console session takes a few hundred MB and some CPU. An LLM server on the same machine needs its own memory on top.
 >
 > The optional local LLM (Ollama) is **not** included in these figures. Run it on a separate host; it needs its own RAM/VRAM sized to the chosen model.
 

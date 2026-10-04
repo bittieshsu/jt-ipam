@@ -10,10 +10,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import posixpath
 import stat as statmod
+import uuid
 from dataclasses import dataclass
 from typing import Any
+
+import asyncssh
 
 from app.core.ui_error import UiError, ui_detail
 
@@ -268,3 +272,79 @@ async def walk_for_delete(sftp: Any, root: str) -> list[tuple[str, str]]:
     await walk(root)
     plan.append(("dir", root))
     return plan
+
+
+# ─────────────────── 上傳：同名處理＋暫存檔（2026-10-04）───────────────────
+# 以前一開檔就用 "wb" 把同名檔清成 0 位元組、事前不問；上傳中斷時又 remove(path) —— 原本的檔案等於被刪掉。
+# 現在一律寫到同目錄的暫存檔，完整寫完才換成正式檔名；失敗或放棄只刪暫存檔，原檔從頭到尾不動。
+
+UPLOAD_TMP_MARK = ".jtipam-upload-"
+CONFLICT_CHOICES = ("overwrite", "rename")
+
+
+@dataclass
+class UploadTarget:
+    final_path: str
+    tmp_path: str
+    replaces: bool                  # 正式檔名目前已有檔案（覆蓋）
+    mode: int | None = None         # 被覆蓋的檔案原本的權限，換名前套到新檔上
+
+
+def _split(path: str) -> tuple[str, str]:
+    d, _, n = path.rpartition("/")
+    return (d or "/"), n
+
+
+async def _exists(sftp: Any, path: str) -> Any | None:
+    try:
+        return await sftp.stat(path)
+    except asyncssh.SFTPNoSuchFile:
+        return None
+
+
+async def begin_upload(sftp: Any, path: str, *, on_conflict: str | None) -> UploadTarget:
+    """決定寫到哪裡。同名時：沒指定＝先問（丟 `sftp_exists`，什麼都不動）、overwrite＝覆蓋、rename＝兩份都留。"""
+    choice = on_conflict if on_conflict in CONFLICT_CHOICES else None
+    final = path
+    st = await _exists(sftp, final)
+    if st is not None:
+        if choice is None:
+            d, n = _split(final)
+            raise SftpError(
+                f"遠端已有同名檔案：{n}", code="sftp_exists", name=n, path=final,
+                size=int(getattr(st, "size", 0) or 0), mtime=getattr(st, "mtime", None))
+        if choice == "rename":
+            d, n = _split(final)
+            stem, dot, ext = n.rpartition(".") if "." in n.lstrip(".") else (n, "", "")
+            for i in range(1, 1000):
+                cand = f"{d.rstrip('/')}/{stem} ({i}){dot}{ext}"
+                if await _exists(sftp, cand) is None:
+                    final, st = cand, None
+                    break
+            else:
+                raise SftpError(f"找不到可用的檔名：{n}", code="sftp_exists", name=n, path=path, size=0, mtime=None)
+    d, n = _split(final)
+    tmp = f"{d.rstrip('/')}/.{n}{UPLOAD_TMP_MARK}{uuid.uuid4().hex[:8]}"
+    mode = (getattr(st, "permissions", None) & 0o7777) if st is not None and getattr(st, "permissions", None) else None
+    return UploadTarget(final_path=final, tmp_path=tmp, replaces=st is not None, mode=mode)
+
+
+async def finish_upload(sftp: Any, t: UploadTarget) -> None:
+    """暫存檔換成正式檔名。覆蓋時先套原本的權限，再用 posix-rename（一步取代，原檔不會有不見的空窗）；
+    伺服器不支援時退回「刪原檔再換名」。"""
+    if t.mode is not None:
+        with contextlib.suppress(asyncssh.SFTPError):
+            await sftp.chmod(t.tmp_path, t.mode)
+    if t.replaces:
+        try:
+            await sftp.posix_rename(t.tmp_path, t.final_path)
+            return
+        except (asyncssh.SFTPOpUnsupported, asyncssh.SFTPBadMessage):
+            await sftp.remove(t.final_path)
+    await sftp.rename(t.tmp_path, t.final_path)
+
+
+async def abort_upload(sftp: Any, t: UploadTarget) -> None:
+    """失敗或放棄：只刪暫存檔。"""
+    with contextlib.suppress(Exception):
+        await sftp.remove(t.tmp_path)

@@ -5,14 +5,14 @@
  *
  * 預設 read-only 顯示完整欄位；按「編輯」進 edit 模式才能改。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NModal, NCard, NSpace, NButton, NDescriptions, NDescriptionsItem,
   NForm, NFormItem, NInput, NSelect, NSwitch, NPopconfirm, NTag, NIcon, NPagination,
   NCollapse, NCollapseItem, NTimeline, NTimelineItem, NText, NEmpty, NSpin,
   NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider,
-  NInputGroup, NInputGroupLabel, NTable,
+  NInputGroup, NInputGroupLabel, NDataTable, type DataTableColumns,
   useMessage,
 } from "naive-ui";
 import { useAuthStore } from "@/stores/auth";
@@ -566,33 +566,129 @@ function fwSeenLabel(key: string): string {
   return `${t(`system_settings.src_kind_${kind}`)}（${FW_VENDOR[vendor] ?? vendor}）`;
 }
 
-// 「各來源最後出現」一區的列：固定順序（每個 IP 都同一個位置，比較時不用重新找），
+// 「各來源最後出現」一區的列：固定順序（每個 IP 都同一個位置，比較時不用重新找；標題可點排序），
 // 掃描代理／LibreNMS／ARP／DNS 一律列出（「—」本身就是資訊：這個來源沒看過它），
-// Wazuh／OCS 只有比對得到才列；jump＝裝置頁上對應卡片的 id。
-interface SeenRow { key: string; label: string; at: string | null | undefined; jump?: string; hint?: string }
+// Wazuh／Zabbix／OCS 只有比對得到才列；jump＝裝置頁上對應卡片的 id；
+// live＝這個來源在上線判定裡的名字（系統設定「上線判定來源」用的鍵）
+interface SeenRow { key: string; label: string; at: string | null | undefined; jump?: string; live: string[]; why: string }
 const seenRows = computed<SeenRow[]>(() => {
   const a = props.address as any;
   if (!a) return [];
   const rows: SeenRow[] = [
-    { key: "scanner", label: t("addresses.seen_src_scanner"), at: a.last_seen_scanner },
-    { key: "librenms", label: "LibreNMS", at: a.last_seen_librenms, jump: "librenms" },
-    { key: "arp", label: "ARP", at: a.last_seen_arp, hint: t("live_dot.arp_only_hint") },
+    { key: "scanner", label: t("addresses.seen_src_scanner"), at: a.last_seen_scanner, live: ["scanner"],
+      why: t("addresses.seen_why_scanner") },
+    { key: "librenms", label: "LibreNMS", at: a.last_seen_librenms, jump: "librenms", live: ["librenms"],
+      why: t("addresses.seen_why_librenms") },
+    { key: "arp", label: "ARP", at: a.last_seen_arp, live: ["arp", "arp:librenms"], why: t("addresses.seen_why_arp") },
   ];
-  if (a.last_seen_wazuh) rows.push({ key: "wazuh", label: t("addresses.seen_src_wazuh"), at: a.last_seen_wazuh, jump: "wazuh" });
-  if (a.last_seen_ocs) rows.push({ key: "ocs", label: t("addresses.seen_src_ocs"), at: a.last_seen_ocs, jump: "ocs" });
-  for (const [k, v] of fwSeen.value) rows.push({ key: k, label: fwSeenLabel(k), at: v });
-  rows.push({ key: "dns", label: t("addresses.seen_src_dns"), at: a.last_seen_dns });
+  if (a.last_seen_wazuh) rows.push({ key: "wazuh", label: t("addresses.seen_src_wazuh"), at: a.last_seen_wazuh,
+    jump: "wazuh", live: ["wazuh"], why: t("addresses.seen_why_wazuh") });
+  if (a.last_seen_zabbix) rows.push({ key: "zabbix", label: "Zabbix", at: a.last_seen_zabbix, live: ["zabbix"],
+    why: t("addresses.seen_why_zabbix") });
+  if (a.last_seen_ocs) rows.push({ key: "ocs", label: t("addresses.seen_src_ocs"), at: a.last_seen_ocs,
+    jump: "ocs", live: ["ocs"], why: t("addresses.seen_why_ocs") });
+  for (const [k, v] of fwSeen.value) {
+    const kind = k.split(":", 1)[0];
+    const why = ["arp", "vpn", "lease"].includes(kind) ? t(`addresses.seen_why_fw_${kind}`) : "";
+    rows.push({ key: k, label: fwSeenLabel(k), at: v, live: [k], why });
+  }
+  rows.push({ key: "dns", label: t("addresses.seen_src_dns"), at: a.last_seen_dns, live: ["dns"],
+    why: t("addresses.seen_why_dns") });
   return rows;
 });
+const seenTs = (r: SeenRow) => (r.at ? Date.parse(r.at) || 0 : 0);
 const seenLatestKey = computed<string | null>(() => {
   let best: string | null = null;
-  let bestTs = -Infinity;
+  let bestTs = 0;
   for (const r of seenRows.value) {
-    const ts = r.at ? Date.parse(r.at) : NaN;
-    if (!Number.isNaN(ts) && ts > bestTs) { best = r.key; bestTs = ts; }
+    const ts = seenTs(r);
+    if (ts > bestTs) { best = r.key; bestTs = ts; }
   }
   return best;
 });
+// 上線判定：與後端 recompute_effective_status 同一份規則（IP 詳細資料帶的 liveness_rule）。
+// fresh＝採信且在時限內（會讓 IP 判為上線）、weak＝只有 ARP（「上線（ARP）」等級）、stale＝採信但過期、
+// ignored＝系統設定沒有採信這個來源、none＝這個來源沒看過它
+type SeenVerdict = "fresh" | "weak" | "stale" | "ignored" | "none";
+const VERDICT_RANK: Record<SeenVerdict, number> = { fresh: 0, weak: 1, stale: 2, ignored: 3, none: 4 };
+const seenRule = computed(() => (props.address as any)?.liveness_rule as { minutes: number; sources: string[] } | undefined);
+function seenVerdict(r: SeenRow): SeenVerdict {
+  const rule = seenRule.value;
+  if (!r.at || !rule) return "none";
+  if (!r.live.some((n) => rule.sources.includes(n))) return "ignored";
+  const fresh = Date.now() - seenTs(r) <= rule.minutes * 60_000;
+  if (!fresh) return "stale";
+  return r.key === "arp" ? "weak" : "fresh";
+}
+const VERDICT_TAG: Record<SeenVerdict, "success" | "info" | "warning" | "default"> =
+  { fresh: "success", weak: "info", stale: "warning", ignored: "default", none: "default" };
+// 手機：「距今」與「代表什麼」兩欄整欄拿掉（只用 CSS 藏起來，表格仍會保留那兩欄的寬度而左右捲動）
+const seenNarrow = ref(typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches);
+let seenMq: MediaQueryList | null = null;
+const onSeenMq = (e: MediaQueryListEvent) => { seenNarrow.value = e.matches; };
+onMounted(() => {
+  seenMq = window.matchMedia("(max-width: 600px)");
+  seenNarrow.value = seenMq.matches;
+  seenMq.addEventListener("change", onSeenMq);
+});
+onBeforeUnmount(() => seenMq?.removeEventListener("change", onSeenMq));
+const SEEN_NARROW_MIN: Record<string, number> = { label: 76, at: 100, verdict: 92 };
+const seenColumns = computed<DataTableColumns<SeenRow>>(() => seenColumnsAll.value
+  .filter((c: any) => !(seenNarrow.value && (c.key === "ago" || c.key === "why")))
+  .map((c: any) => (seenNarrow.value ? { ...c, minWidth: SEEN_NARROW_MIN[c.key] ?? c.minWidth } : c)));
+const seenColumnsAll = computed<DataTableColumns<SeenRow>>(() => [
+  {
+    title: t("addresses.seen_col_source"), key: "label", minWidth: 120,
+    sorter: (a, b) => a.label.localeCompare(b.label),
+    render: (r) => h("span", { class: "nowrap" }, r.label),
+  },
+  {
+    title: t("addresses.seen_col_time"), key: "at", minWidth: 150,
+    sorter: (a, b) => seenTs(a) - seenTs(b),
+    render: (r) => h("div", { class: "mono" }, [
+      r.jump && r.at && props.address?.device_id
+        ? h("a", { class: "ocs-jump", "data-testid": `seen-jump-${r.jump}`,
+                   title: t("addresses.seen_jump", { sys: r.label }),
+                   onClick: () => goDevice(props.address?.device_id, r.jump) }, fmtDateTime(r.at))
+        : fmtDateTime(r.at),
+      // 手機：「距今」欄放不下，改成時間下方第二行
+      r.at ? h("div", { class: "seen-ago-inline dim" },
+        fmtRelative(r.at) + (r.key === seenLatestKey.value ? ` · ${t("addresses.seen_latest")}` : "")) : null,
+    ]),
+  },
+  {
+    title: t("addresses.seen_col_ago"), key: "ago", className: "seen-ago-col", minWidth: 110,
+    sorter: (a, b) => seenTs(b) - seenTs(a),
+    render: (r) => h("span", { class: "nowrap dim" }, [
+      r.at ? fmtRelative(r.at) : "—",
+      r.key === seenLatestKey.value
+        ? h(NTag, { size: "tiny", type: "success", bordered: false, style: "margin-left: 6px" },
+            () => t("addresses.seen_latest"))
+        : null,
+    ]),
+  },
+  {
+    title: () => h(NTooltip, { trigger: "hover" }, {
+      trigger: () => h("span", { class: "seen-th-help" }, t("addresses.seen_col_verdict")),
+      default: () => t("addresses.seen_verdict_help", { minutes: seenRule.value?.minutes ?? "—" }),
+    }),
+    key: "verdict", minWidth: 120,
+    sorter: (a, b) => VERDICT_RANK[seenVerdict(a)] - VERDICT_RANK[seenVerdict(b)],
+    render: (r) => {
+      const v = seenVerdict(r);
+      if (v === "none") return h("span", { class: "dim" }, "—");
+      return h(NTooltip, { trigger: "hover" }, {
+        trigger: () => h(NTag, { size: "small", type: VERDICT_TAG[v], bordered: false, "data-testid": `seen-verdict-${r.key}` },
+          () => t(`addresses.seen_verdict_${v}`)),
+        default: () => t(`addresses.seen_verdict_${v}_tip`, { minutes: seenRule.value?.minutes ?? "—" }),
+      });
+    },
+  },
+  {
+    title: t("addresses.seen_col_why"), key: "why", className: "seen-why-col", minWidth: 200,
+    render: (r) => h("span", { class: "seen-why" }, r.why || "—"),
+  },
+]);
 
 function eventLabel(e: string): string {
   const key = `ipChanges.event.${e}`;
@@ -1088,43 +1184,10 @@ async function remove() {
              LibreNMS／Wazuh／OCS 的時間可點 → 帶到裝置頁並捲到該系統的卡片。 -->
         <div v-if="!editMode && seenRows.length" data-testid="ip-seen-section">
           <div class="detail-sec-title">{{ t("addresses.seen_title") }}</div>
-          <n-table size="small" :single-line="false" class="seen-table">
-            <thead><tr>
-              <th>{{ t("addresses.seen_col_source") }}</th>
-              <th>{{ t("addresses.seen_col_time") }}</th>
-              <th class="seen-ago-col">{{ t("addresses.seen_col_ago") }}</th>
-            </tr></thead>
-            <tbody>
-              <tr v-for="r in seenRows" :key="r.key" :class="{ 'seen-latest': r.key === seenLatestKey }">
-                <td class="nowrap">
-                  {{ r.label }}
-                  <n-tooltip v-if="r.hint && r.at" trigger="hover">
-                    <template #trigger><span class="arp-caveat">?</span></template>
-                    <div style="max-width: 300px">{{ r.hint }}</div>
-                  </n-tooltip>
-                </td>
-                <td class="nowrap mono">
-                  <a v-if="r.jump && r.at && props.address?.device_id" class="ocs-jump"
-                     :data-testid="`seen-jump-${r.jump}`"
-                     :title="t('addresses.seen_jump', { sys: r.label })"
-                     @click="goDevice(props.address?.device_id, r.jump)">
-                    {{ fmtDateTime(r.at) }}
-                  </a>
-                  <template v-else>{{ fmtDateTime(r.at) }}</template>
-                  <!-- 手機：第三欄放不下，「距今」改成時間下方第二行 -->
-                  <div v-if="r.at" class="seen-ago-inline dim">
-                    {{ fmtRelative(r.at) }}
-                    <span v-if="r.key === seenLatestKey"> · {{ t("addresses.seen_latest") }}</span>
-                  </div>
-                </td>
-                <td class="nowrap dim seen-ago-col">
-                  {{ r.at ? fmtRelative(r.at) : "—" }}
-                  <n-tag v-if="r.key === seenLatestKey" size="tiny" type="success" :bordered="false"
-                         style="margin-left: 6px">{{ t("addresses.seen_latest") }}</n-tag>
-                </td>
-              </tr>
-            </tbody>
-          </n-table>
+          <n-data-table class="seen-table" size="small" :bordered="true" :single-line="false"
+                        :columns="seenColumns" :data="seenRows" :row-key="(r: any) => r.key"
+                        :row-class-name="(r: any) => (r.key === seenLatestKey ? 'seen-latest' : '')"
+                        :scroll-x="seenNarrow ? undefined : 720" />
         </div>
 
         <!-- 上下關係鏈：區段 → 子網路 → 位址 → 裝置 → 機櫃 → 機房 -->
@@ -1513,7 +1576,8 @@ async function remove() {
    一眼分得出區塊。以前是跟表頭同樣的灰色小字，整片看起來黏在一起（使用者回報）。 */
 .detail-sec-title {
   font-size: 13px; font-weight: 600; line-height: 1.3;
-  margin: 20px 0 8px; padding-left: 8px;
+  /* 區塊之間留多一點（使用者回報各區太靠近）：上方 32px、標題與內容 10px */
+  margin: 32px 0 10px; padding-left: 8px;
   border-left: 3px solid #18a058;
 }
 /* 防火牆規則／所屬別名／NAT：同一種表格，欄位上下對齊 */
@@ -1525,19 +1589,17 @@ async function remove() {
   padding: 2px 14px 4px 0; white-space: nowrap;
   border-bottom: 1px solid rgba(127, 127, 127, 0.2);
 }
-/* 各來源最後出現：三欄對齊；最新那一列加粗，一眼看出誰最近還看得到它 */
-.seen-table { width: auto; min-width: min(100%, 460px); }
-.seen-table th, .seen-table td { padding: 4px 12px; }
-.seen-table .nowrap { white-space: nowrap; }
-.seen-table .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.seen-table .dim { color: color-mix(in srgb, currentColor 70%, transparent); }
-.seen-table tr.seen-latest td { font-weight: 600; }
-.seen-ago-inline { display: none; font-family: inherit; font-size: 12px; }
+/* 各來源最後出現：對齊比較；最新那一列加粗，一眼看出誰最近還看得到它 */
+.seen-table :deep(.nowrap) { white-space: nowrap; }
+.seen-table :deep(.mono) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; }
+.seen-table :deep(.dim) { color: color-mix(in srgb, currentColor 70%, transparent); }
+.seen-table :deep(tr.seen-latest td) { font-weight: 600; }
+.seen-table :deep(.seen-why) { font-size: 12px; opacity: .75; line-height: 1.5; }
+.seen-table :deep(.seen-th-help) { border-bottom: 1px dotted currentColor; cursor: help; }
+.seen-table :deep(.seen-ago-inline) { display: none; font-family: inherit; font-size: 12px; }
 @media (max-width: 600px) {
-  .seen-table { min-width: 0; width: 100%; }
-  .seen-table th, .seen-table td { padding: 4px 8px; }
-  .seen-table .seen-ago-col { display: none; }
-  .seen-ago-inline { display: block; }
+  .seen-table :deep(.seen-ago-inline) { display: block; }
+  .seen-table :deep(.mono) { white-space: normal; }
 }
 .fw-table td {
   padding: 4px 14px 4px 0; vertical-align: top;

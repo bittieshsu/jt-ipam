@@ -19,12 +19,37 @@ import {
 } from "@/api/jumpHosts";
 import {
   TerminalIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, TestIcon, SaveIcon, CancelIcon,
+  InfoIcon, CloneIcon,
 } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
 const msg = useMessage();
+// 需求與設定說明（使用者 2026-10-02：「跳板主機要是什麼系統、有什麼條件，在這邊沒看到說明」）
+const showHelp = ref(false);
+// 只給轉發用的專用帳號：jt-ipam 只登入並做本機轉發（direct-tcpip），不執行任何指令，所以不需要 shell。
+// 這份設定實測過（OpenSSH 9.2：nologin 帳號＋Match 區塊，轉發可用、互動登入被拒）
+const SETUP_SNIPPET = [
+  "# 1. 建立只供轉發的帳號（不給 shell）",
+  "useradd -m -s /usr/sbin/nologin jtipam-jump",
+  "",
+  "# 2. 產生金鑰：公鑰放進跳板；私鑰（jtipam-jump）內容貼到 jt-ipam 後刪掉",
+  "ssh-keygen -t ed25519 -N '' -C jt-ipam -f ./jtipam-jump",
+  "install -d -m 700 -o jtipam-jump /home/jtipam-jump/.ssh",
+  "install -m 600 -o jtipam-jump ./jtipam-jump.pub /home/jtipam-jump/.ssh/authorized_keys",
+  "",
+  "# 3. 加在 /etc/ssh/sshd_config 最後面，再 systemctl reload ssh",
+  "Match User jtipam-jump",
+  "    AllowTcpForwarding local",
+  "    PermitTTY no",
+  "    X11Forwarding no",
+  "    AllowAgentForwarding no",
+].join("\n");
+async function copySnippet() {
+  try { await navigator.clipboard.writeText(SETUP_SNIPPET); msg.success(t("common.copied")); }
+  catch { /* 瀏覽器不給用剪貼簿時，使用者照樣可以直接選取上面的文字 */ }
+}
 
 const rows = ref<JumpHost[]>([]);
 const loading = ref(false);
@@ -206,6 +231,10 @@ onMounted(() => { void refresh(); });
         <template #icon><n-icon><PlusIcon /></n-icon></template>
         {{ t("common.create") }}
       </n-button>
+      <n-button quaternary data-testid="jump-help-btn" @click="showHelp = true">
+        <template #icon><n-icon><InfoIcon /></n-icon></template>
+        {{ t("jump_hosts.help_button") }}
+      </n-button>
     </n-space>
 
     <n-data-table :columns="cols" :data="rows" :loading="loading" :bordered="false"
@@ -257,6 +286,11 @@ onMounted(() => { void refresh(); });
       <n-alert type="warning" :bordered="false" style="margin-bottom: 12px">
         {{ t("jump_hosts.pin_required") }}
       </n-alert>
+      <!-- 新增時最需要知道跳板要符合什麼條件：從這裡也打得開說明 -->
+      <n-button text type="primary" size="small" style="margin-bottom: 12px" @click="showHelp = true">
+        <template #icon><n-icon><InfoIcon /></n-icon></template>
+        {{ t("jump_hosts.help_link") }}
+      </n-button>
       <n-space justify="end">
         <n-button @click="show = false">
           <template #icon><n-icon><CancelIcon /></n-icon></template>
@@ -300,9 +334,50 @@ onMounted(() => { void refresh(); });
         </n-button>
       </n-space>
     </n-modal>
+    <!-- 需求與設定說明 -->
+    <n-modal v-model:show="showHelp" preset="card" :title="t('jump_hosts.help_title')"
+             style="width: 800px; max-width: 92vw" data-testid="jump-help">
+      <div class="jh-help">
+        <n-alert type="info" :bordered="false" style="margin-bottom: 14px">
+          {{ t("jump_hosts.help_when") }}
+        </n-alert>
+        <h4>{{ t("jump_hosts.help_req_title") }}</h4>
+        <ol class="jh-steps">
+          <li v-for="k in ['os', 'net', 'fwd', 'account', 'auth', 'hostkey']" :key="k">
+            <span class="sn">{{ ['os', 'net', 'fwd', 'account', 'auth', 'hostkey'].indexOf(k) + 1 }}</span>
+            <span><b>{{ t(`jump_hosts.req_${k}_t`) }}</b>：{{ t(`jump_hosts.req_${k}`) }}</span>
+          </li>
+        </ol>
+        <h4>{{ t("jump_hosts.help_setup_title") }}</h4>
+        <div class="jh-code">
+          <pre>{{ SETUP_SNIPPET }}</pre>
+          <n-button size="small" secondary @click="copySnippet">
+            <template #icon><n-icon><CloneIcon /></n-icon></template>
+          </n-button>
+        </div>
+        <div class="jh-muted">{{ t("jump_hosts.help_setup_note") }}</div>
+        <h4>{{ t("jump_hosts.help_limits_title") }}</h4>
+        <div class="jh-muted" style="margin-top:0">{{ t("jump_hosts.help_limits") }}</div>
+      </div>
+    </n-modal>
   </n-card>
 </template>
 
 <style scoped>
 .jh-hint { font-size: 11px; opacity: .7; margin-top: 4px; }
+/* 說明視窗：照掃描代理頁「安裝說明」的樣式 */
+.jh-help h4 { margin: 16px 0 6px; font-size: 14px; }
+.jh-steps { list-style: none; padding: 0; margin: 0; }
+.jh-steps li { display: flex; align-items: flex-start; gap: 10px; margin: 8px 0; line-height: 1.6; font-size: 14px; }
+.jh-steps .sn {
+  flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--primary-color, #18a058); color: #fff; font-size: 12px; font-weight: 600;
+}
+.jh-code { display: flex; align-items: flex-start; gap: 8px; }
+.jh-code pre {
+  flex: 1 1 auto; margin: 0; background: rgba(127,127,127,0.12); padding: 10px 12px; border-radius: 6px;
+  overflow-x: auto; font-size: 12px; line-height: 1.5; white-space: pre;
+}
+.jh-muted { opacity: .7; font-size: 12px; margin-top: 8px; line-height: 1.6; }
 </style>
