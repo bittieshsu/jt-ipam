@@ -19,6 +19,10 @@ Release flow: run the checklist → all green → bump version → deploy
 - [ ] Frontend build: `npm run build` (dist produced successfully)
 - [ ] i18n: every new key exists in both `zh-TW.json` and `en-US.json`; no hard-coded
   Chinese slipped through
+- [ ] **Dependency audits with exactly the CI commands**: `cd frontend && pnpm audit --audit-level moderate` (dev
+  dependencies included; running only `--prod` misses what CI's audit job checks, which is how v0.6.61 went out and turned
+  red) and `cd backend && .venv/bin/pip-audit`. Only a dev-only advisory with no patched version may be listed in
+  `frontend/package.json` `pnpm.auditConfig.ignoreGhsas`, with the reason in the commit message; if a patch exists, upgrade
 
 ## 2. Database / migration (use a throwaway test DB, never touch prod data)
 
