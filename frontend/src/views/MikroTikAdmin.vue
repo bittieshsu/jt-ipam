@@ -37,7 +37,7 @@ const msg = useMessage();
 
 const COLS = ["name", "api_url", "enabled", "model", "sync_flags", "last_sync_at",
   "last_error", "actions"];
-const { visibleKeys: vis, setVisible: setVis, reset: resetVis } =
+const { visibleKeys: vis, setVisible: setVis, reset: resetVis, order, setOrder, orderColumns } =
   useColumnPrefs("mikrotik", COLS, COLS);
 const picker = computed(() => [
   { key: "name", label: t("cols.name") },
@@ -295,7 +295,7 @@ const allCols = computed<DataTableColumns<MikroTikRouter>>(() => autoSort([
   },
 ]));
 const cols = computed<DataTableColumns<MikroTikRouter>>(() =>
-  allCols.value.filter((c) => vis.value.includes((c as { key: string }).key)),
+  orderColumns(allCols.value.filter((c) => vis.value.includes((c as { key: string }).key))),
 );
 
 onMounted(() => { void refresh(); void loadSubnetOptions(); });
@@ -324,7 +324,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <template #icon><n-icon><PlusIcon /></n-icon></template>
         {{ t("common.create") }}
       </n-button>
-      <ColumnPicker :all="picker" :visible="vis" @update:visible="setVis" @reset="resetVis" />
+      <ColumnPicker :all="picker" :visible="vis" @update:visible="setVis" @reset="resetVis"
+                    :order="order" @update:order="setOrder" />
     </n-space>
 
     <n-data-table :columns="cols" :data="rows" :loading="loading" :bordered="false"

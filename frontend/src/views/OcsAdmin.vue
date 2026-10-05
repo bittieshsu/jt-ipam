@@ -36,11 +36,12 @@ import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { fmtDateTime } from "@/utils/datetime";
 import { shortOcsAgent } from "@/utils/ocsAgent";
+import { deviceKindColumn } from "@/utils/deviceKindCell";
 import { apiErrMsg } from "@/api/client";
 import { listSubnets } from "@/api/subnets";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const msg = useMessage();
 
 const rows = ref<OcsServer[]>([]);
@@ -258,11 +259,14 @@ const ocsAgPicker = computed(() => [
   { key: "agent_version", label: t("ocs.col_agent") }, { key: "tag", label: t("ocs.col_tag") },
   { key: "last_inventory", label: t("ocs.col_last_inventory") },
 ]);
-const ocsMiss = useColumnPrefs("ocs_missing", ["status", "ip", "hostname", "subnet", "section", "customer", "actions"],
-  ["status", "ip", "hostname", "subnet", "section", "customer", "actions"]);
+// 設備類型預設顯示：一眼看出缺的是電腦還是印表機／交換器（那些本來就不會裝 OCS agent）
+const ocsMiss = useColumnPrefs("ocs_missing",
+  ["status", "ip", "hostname", "device_kind", "subnet", "section", "customer", "actions"],
+  ["status", "ip", "hostname", "device_kind", "subnet", "section", "customer", "actions"]);
 const ocsMissPicker = computed(() => [
   { key: "status", label: t("cols.status") },
   { key: "ip", label: "IP" }, { key: "hostname", label: t("cols.hostname") },
+  { key: "device_kind", label: t("cols.device_kind") },
   { key: "subnet", label: t("cols.subnet") }, { key: "section", label: t("cols.section") },
   { key: "customer", label: t("cols.unit") }, { key: "actions", label: t("cols.actions") },
 ]);
@@ -305,6 +309,7 @@ const allMissCols = computed<DataTableColumns<OcsMissingAgent>>(() => autoSort([
   livenessColumn(t("common.status"), t),
   { title: "IP", key: "ip", width: 150, render: (r) => (r.ip ? ipLink(r.ip) : "—") },
   { title: t("cols.hostname"), key: "hostname", minWidth: 180, ellipsis: { tooltip: true }, render: (r) => r.hostname ?? "—" },
+  deviceKindColumn(t, te) as any,
   withExportValue({ title: t("cols.subnet"), key: "subnet", width: 170, render: (r: any) => r.subnet_cidr ?? "—" },
     (r) => r.subnet_cidr),
   withExportValue({ title: t("cols.section"), key: "section", width: 150, ellipsis: { tooltip: true }, render: (r: any) => r.section_name ?? "—" },
@@ -325,9 +330,9 @@ const allMissCols = computed<DataTableColumns<OcsMissingAgent>>(() => autoSort([
   },
 ]));
 const agentCols = computed<DataTableColumns<OcsAgent>>(() =>
-  allAgentCols.value.filter((c: any) => ocsAg.visibleKeys.value.includes(c.key)));
+  ocsAg.orderColumns(allAgentCols.value.filter((c: any) => ocsAg.visibleKeys.value.includes(c.key))));
 const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
-  miss.remoteSort(allMissCols.value.filter((c: any) => ocsMiss.visibleKeys.value.includes(c.key))));
+  miss.remoteSort(ocsMiss.orderColumns(allMissCols.value.filter((c: any) => ocsMiss.visibleKeys.value.includes(c.key)))));
 
 </script>
 
@@ -369,7 +374,8 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
         <NSpace style="margin-bottom: 8px" align="center">
           <NInput v-model:value="agentFilterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
           <ColumnPicker :all="ocsAgPicker" :visible="ocsAg.visibleKeys.value"
-                        @update:visible="ocsAg.setVisible" @reset="ocsAg.reset" />
+                        @update:visible="ocsAg.setVisible" @reset="ocsAg.reset"
+                        :order="ocsAg.order.value" @update:order="ocsAg.setOrder" />
           <ExportButton :columns="agentCols" :rows="agents" filename="ocs-agents" :title="t('ocs.agents_count')" />
           <span style="font-size: 12px; opacity: .65">{{ t("ocs.agents_hint") }}</span>
         </NSpace>
@@ -393,7 +399,8 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
                           :subnet-opts="miss.facets.value.subnets" :customer-opts="miss.facets.value.customers"
                           v-model:status="miss.status.value" :status-opts="miss.facets.value.statuses" />
           <ColumnPicker :all="ocsMissPicker" :visible="ocsMiss.visibleKeys.value"
-                        @update:visible="ocsMiss.setVisible" @reset="ocsMiss.reset" />
+                        @update:visible="ocsMiss.setVisible" @reset="ocsMiss.reset"
+                        :order="ocsMiss.order.value" @update:order="ocsMiss.setOrder" />
           <ExportButton :columns="missCols" :rows="miss.rows.value" :fetch-all="miss.fetchAll"
                         filename="ocs-missing-agents" :title="t('ocs.missing_agents')" />
         </NSpace>

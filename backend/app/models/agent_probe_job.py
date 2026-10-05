@@ -4,7 +4,7 @@
 把「請求」放進佇列、由代理自己來領，是在不開放任何入站連線的前提下唯一乾淨的作法。
 
 安全邊界（實作時務必維持）：
-- `kind` 只接受白名單探測；代理端也要自己驗一次，不可只信後端給的內容
+- `kind` 只接受允許清單探測；代理端也要自己驗一次，不可只信後端給的內容
 - 參數一律以陣列傳給子行程，**永遠不經過 shell**
 - `expires_at`：代理離線時工作自動作廢，避免它上線後一次補跑一堆過期探測
 """
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
 
-# 白名單：只開放唯讀、無副作用的網路探測。**不開放任意指令**。
+# 允許清單：只開放唯讀、無副作用的網路探測。**不開放任意指令**。
 # identify：IP 詳細頁的「探測」—— 對單一 IP 做非侵入式識別（服務版本、OS 指紋、banner、
 # TLS 憑證、名稱查詢），只有管理員能發起（services/ip_identify）。
 PROBE_KINDS = ("ping", "tcp", "traceroute", "rdns", "identify")

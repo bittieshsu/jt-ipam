@@ -81,17 +81,18 @@ async def test_last_seen_and_mac_fill_respect_scope_and_precedence(db_session, m
     ])
     _seen, _ins, _upd, filled = await lib.sync_arp(db_session, inst)
     await db_session.commit()
-    assert filled == 1
+    assert filled == 2
     for row in (out_scope, in_scope, same_mac, legacy):
         await db_session.refresh(row)
     assert out_scope.last_seen_arp is None and out_scope.mac is None          # 範圍外：不碰
     assert in_scope.last_seen_arp is not None and str(in_scope.mac) == "00:00:5e:00:53:30"
     assert in_scope.mac_source == "librenms"
     assert same_mac.last_seen_arp is not None and str(same_mac.mac) == "00:00:5e:00:53:31"
-    assert str(legacy.mac) == "00:00:5e:00:53:99"                             # 來源不明的舊資料不覆寫
+    # 來源不明的舊 MAC 優先序最低：ARP 看到別的 MAC 就更新（以前會永遠凍結，2026-10-05）
+    assert str(legacy.mac) == "00:00:5e:00:53:32" and legacy.mac_source == "librenms"
     logs = (await db_session.execute(select(IPChangeLog.ip_id, IPChangeLog.field, IPChangeLog.new_value)
                                      .where(IPChangeLog.event_type == "arp_changed"))).all()
-    assert [(i, f) for i, f, _v in logs] == [(in_scope.id, "mac")]
+    assert sorted((str(i), f) for i, f, _v in logs) == sorted([(str(in_scope.id), "mac"), (str(legacy.id), "mac")])
 
 
 async def test_tens_of_thousands_of_arp_entries_take_a_handful_of_queries(db_session, monkeypatch) -> None:
@@ -167,3 +168,51 @@ async def test_device_sync_does_not_query_per_device(db_session, monkeypatch) ->
     seen_ips = (await db_session.execute(select(func.count()).select_from(IPAddress).where(
         IPAddress.last_seen_librenms.is_not(None)))).scalar()
     assert seen_ips == n
+
+
+async def _devices(db, inst, n: int) -> None:
+    for k in range(n):
+        db.add(LibreNMSDevice(instance_id=inst.id, legacy_device_id=100 + k, hostname=f"r-{k}"))
+    await db.flush()
+
+
+async def test_several_devices_disagreeing_on_a_mac_decide_once_per_sync(db_session, monkeypatch) -> None:
+    """同一個 IP 好幾台設備各回一個 MAC（某台的 ARP 快取沒老化，還留著上一台的 MAC）。
+
+    以前照回報順序一筆一筆套：同一輪 MAC 來回換好幾次、每輪同步都記異動（2026-10-05 正式環境 14 個 IP
+    每 16 分鐘來回跳；之前因為來源不明被凍結才沒顯現）。現在一輪只決定一次：取最多台設備回報的 MAC。
+    """
+    db_session.autoflush = False
+    inst, _dev, a, _b = await _setup(db_session)
+    await _devices(db_session, inst, 4)
+    flap = IPAddress(subnet_id=a.id, ip="198.51.100.40", mac="00:00:5e:00:53:41", mac_source="librenms")
+    tie_keep = IPAddress(subnet_id=a.id, ip="198.51.100.41", mac="00:00:5e:00:53:51", mac_source="librenms")
+    tie_new = IPAddress(subnet_id=a.id, ip="198.51.100.42")
+    db_session.add_all([flap, tie_keep, tie_new])
+    await db_session.commit()
+    arp = [
+        # .40：一台還留著舊的 :41、三台回報 :40 → :40；舊值排在後面也不可以蓋回去
+        {"ipv4_address": "198.51.100.40", "mac_address": "00005e005340", "device_id": 100},
+        {"ipv4_address": "198.51.100.40", "mac_address": "00005e005340", "device_id": 101},
+        {"ipv4_address": "198.51.100.40", "mac_address": "00005e005340", "device_id": 102},
+        {"ipv4_address": "198.51.100.40", "mac_address": "00005e005341", "device_id": 103},
+        # .41：兩邊一樣多、目前的 MAC 是其中之一 → 不動
+        {"ipv4_address": "198.51.100.41", "mac_address": "00005e005350", "device_id": 100},
+        {"ipv4_address": "198.51.100.41", "mac_address": "00005e005351", "device_id": 101},
+        # .42：兩邊一樣多、還沒有 MAC → 不猜
+        {"ipv4_address": "198.51.100.42", "mac_address": "00005e005360", "device_id": 100},
+        {"ipv4_address": "198.51.100.42", "mac_address": "00005e005361", "device_id": 101},
+    ]
+    _api(monkeypatch, arp)
+    for _ in range(3):      # 同樣的資料再同步兩輪：不可以再記任何異動
+        await lib.sync_arp(db_session, inst)
+        await db_session.commit()
+    for row in (flap, tie_keep, tie_new):
+        await db_session.refresh(row)
+    assert str(flap.mac) == "00:00:5e:00:53:40"
+    assert str(tie_keep.mac) == "00:00:5e:00:53:51"
+    assert tie_new.mac is None
+    logs = (await db_session.execute(select(IPChangeLog.ip_id, IPChangeLog.event_type)
+                                     .where(IPChangeLog.field == "mac"))).all()
+    assert sorted(e for i, e in logs if i == flap.id) == ["arp_changed", "mac_changed"]
+    assert [e for i, e in logs if i != flap.id] == []

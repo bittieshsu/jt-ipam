@@ -1,4 +1,4 @@
-"""guacd 轉接（app/services/guacd.py）：協定、握手、錯誤、白名單、保活。
+"""guacd 轉接（app/services/guacd.py）：協定、握手、錯誤、允許清單、保活。
 
 用一個假的 guacd（asyncio 伺服器）代替真的；真的 guacd 由 e2e 與 scripts/guacd/verify.sh 驗。
 """
@@ -395,7 +395,7 @@ def test_vnc_tcp_check_only_runs_after_guacd_failed() -> None:
 
 
 # ─────────────────── argv：只放行呼叫端明確允許的參數（SSH 字級），值要驗證 ───────────────────
-# 使用者回報：SSH 主控台按 A−／A+ 沒反應。瀏覽器有送 argv，但代理的白名單把它丟掉了。
+# 使用者回報：SSH 主控台按 A−／A+ 沒反應。瀏覽器有送 argv，但代理的允許清單把它丟掉了。
 # argv 能在連線中改 guacd 允許修改的參數（RDP 甚至包含帳號密碼），所以只能逐一開放。
 
 def _font_ok(v: str) -> bool:

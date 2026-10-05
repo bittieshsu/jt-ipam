@@ -114,7 +114,7 @@ async def test_result_comes_back_with_a_summary(client, auth_headers, db_session
     body = got.json()
     assert body["status"] == STATUS_DONE
     assert body["summary"]["device_type"] == "server"
-    assert body["summary"]["os"] == "Linux 5.0 - 6.2"
+    assert body["summary"]["os"] == "Ubuntu Linux", "指紋只給核心範圍時，改顯示 SSH 講出的發行版"
     assert "22/tcp ssh OpenSSH 9.6p1" in body["summary"]["services"]
 
     # 最近一次的結果：重新打開畫面時看得到
@@ -159,8 +159,9 @@ def test_summary_of_a_linux_server() -> None:
     from app.services import ip_identify
     s = ip_identify.summarize(SAMPLE_RESULT, mac_vendor="IANA")
     assert s["device_type"] == "server"
-    assert s["os"] == "Linux 5.0 - 6.2"
-    assert s["vendor"] == "IANA"
+    assert s["os"] == "Ubuntu Linux", "指紋只給核心範圍（Linux 5.0 - 6.2）時，改顯示 SSH 講出的發行版"
+    assert s["nic_vendor"] == "IANA"
+    assert s["vendor"] is None, "指紋的「廠牌」是作業系統作者（Linux），不是硬體廠牌"
     assert {"srv-01.example.net"} <= set(s["names"])
     assert s["services"] == ["22/tcp ssh OpenSSH 9.6p1", "443/tcp https nginx 1.24.0"]
 
@@ -270,6 +271,28 @@ def test_agent_parses_nmap_xml() -> None:
     assert out["ports"][1]["scripts"]["http-title"] == "Welcome"
     assert out["os"][0] == {"name": "Linux 5.0 - 6.2", "accuracy": 96, "type": "general purpose",
                             "vendor": "Linux", "family": "Linux"}
+
+
+def test_agent_reports_how_nmap_identified_each_service() -> None:
+    """代理 1.17.2：每個埠帶 nmap 的 method／conf／devicetype。method="table" ＝沒有探針比中、名稱只是照埠號表寫的
+    （9100 寫 jetdirect），伺服器據此不把它當成認出了服務；devicetype 是 nmap-service-probes 的 d/ 欄位。"""
+    mod = _agent_module()
+    assert tuple(int(x) for x in mod.AGENT_VERSION.split(".")) >= (1, 17, 2)
+    xml = """<?xml version="1.0"?><nmaprun><host><status state="up" reason="arp-response"/>
+<address addr="198.51.100.20" addrtype="ipv4"/>
+<ports>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack"/>
+<service name="http" product="Hikvision IP camera httpd" devicetype="webcam" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="9100"><state state="open" reason="syn-ack"/>
+<service name="jetdirect" method="table" conf="3"/></port>
+<port protocol="tcp" portid="22"><state state="open" reason="syn-ack"/></port>
+</ports></host></nmaprun>"""
+    ports = {p["port"]: p for p in mod._parse_nmap_xml(xml)["ports"]}
+    assert (ports[80]["method"], ports[80]["conf"], ports[80]["devicetype"]) == ("probed", "10", "webcam")
+    assert (ports[9100]["method"], ports[9100]["conf"], ports[9100]["devicetype"]) == ("table", "3", "")
+    assert (ports[22]["method"], ports[22]["devicetype"]) == ("", "")          # 沒有 <service> 也不出錯
+    # 定期 OS 偵測送回伺服器的精簡版也帶著
+    assert mod._compact_nmap({"ports": list(ports.values())})["ports"][0]["method"] == "probed"
 
 
 def test_agent_parse_survives_garbage() -> None:
@@ -699,7 +722,7 @@ def test_a_host_that_did_not_answer_is_no_response_not_unknown() -> None:
               "nmap": {"available": True, "exit": 0, "ports": [], "os": [], "mac": None, "closed": 0}}
     s = summarize(silent, mac_vendor="ProxmoxServe")
     assert s["device_type"] == "no_response" and s["no_response"] is True
-    assert s["vendor"] == "ProxmoxServe", "廠牌照樣列出（來自先前記錄的 MAC）"
+    assert s["nic_vendor"] == "ProxmoxServe", "網卡廠牌照樣列出（來自先前記錄的 MAC）"
 
     # 有回 RST（關著的埠）＝主機活著，只是認不出來
     alive = {**silent, "nmap": {**silent["nmap"], "closed": 998}}
@@ -784,6 +807,290 @@ def test_rtsp_alone_on_a_small_device_is_still_a_camera() -> None:
     assert summarize(_res(named, os_type=None))["device_type"] == "camera"
 
 
+def _mac_airplay(os_name: str = "Apple macOS 11 (Big Sur) (Darwin 20.6.0)") -> dict:
+    """2026-10-05 正式環境的 MacBook（192.0.2.200）：macOS 的 AirPlay 接收器在 5000／7000 用 RTSP，
+    nmap 正確認出 rtsp，以前一律判成攝影機；網卡是 CalDigit 擴充座的。"""
+    ports = [{"port": 3000, "service": "websocket", "product": "Ogar agar.io server"},
+             {"port": 5000, "service": "rtsp"}, {"port": 7000, "service": "rtsp"},
+             {"port": 7070, "service": "realserver"}, {"port": 8084, "service": "websnp"}]
+    return {"nmap": {"available": True, "closed": 900,
+                     "os": [{"name": os_name, "accuracy": 96, "type": "general purpose", "vendor": "Apple"}],
+                     "ports": [{"proto": "tcp", "state": "open", **p} for p in ports]}}
+
+
+def test_airplay_rtsp_on_a_mac_is_not_a_camera() -> None:
+    from app.services.ip_identify import summarize
+    s = summarize(_mac_airplay(), mac_vendor="CalDigit")
+    assert s["device_type"] == "server", s["evidence"]
+    assert not any(e.startswith("service:") and "rtsp" in e for e in s["evidence"])
+    # Windows、iOS 也是一般電腦／手機：單憑 RTSP 不算攝影機
+    assert summarize(_mac_airplay("Microsoft Windows 10 1607"))["device_type"] != "camera"
+    assert summarize(_mac_airplay("Apple iOS 15.0 - 16.1 (Darwin 21.0.0 - 22.1.0)"))["device_type"] != "camera"
+    # 明確認出攝影機產品的照算（例如 Windows 上的錄影軟體不算，但這裡是產品字樣直接寫攝影機）
+    named = _mac_airplay()
+    named["nmap"]["ports"].append({"proto": "tcp", "state": "open", "port": 80, "service": "http",
+                                   "product": "Hikvision IP camera httpd"})
+    assert summarize(named)["device_type"] == "camera"
+    # Linux 上的 RTSP 照舊算攝影機（IP 攝影機幾乎都是 Linux）
+    cam = [{"port": 80, "service": "http", "product": "lighttpd"}, {"port": 554, "service": "rtsp"}]
+    assert summarize(_res(cam))["device_type"] == "camera"
+
+
+def _nm(ports: list[dict], os: list[tuple] | None = None) -> dict:
+    """os: (name, accuracy, type, vendor)"""
+    return {"nmap": {"available": True, "closed": 900,
+                     "os": [{"name": n, "accuracy": a, "type": t, "vendor": v} for n, a, t, v in (os or [])],
+                     "ports": [{"proto": "tcp", "state": "open", **p} for p in ports]}}
+
+
+FREEBSD = [("FreeBSD 11.2-RELEASE", 94, "general purpose", "FreeBSD")]
+
+
+def test_opnsense_is_a_firewall_and_its_node_exporter_is_not_a_printer() -> None:
+    """2026-10-05 正式環境 fw-01：OPNsense 開著 9100（Prometheus node_exporter 外掛），nmap 只照埠號表
+    寫 jetdirect、沒有產品 → 以前判成印表機。http 明明寫著 OPNsense。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "10.2"},
+             {"port": 80, "service": "http", "product": "OPNsense"},
+             {"port": 443, "service": "https", "product": "OPNsense"},
+             {"port": 3493, "service": "nut", "product": "Network UPS Tools upsd"},
+             {"port": 9100, "service": "jetdirect"}]
+    assert summarize(_nm(ports, FREEBSD))["device_type"] == "firewall"
+    # 沒有 OPNsense 字樣、一般作業系統上只有埠號猜的 9100 → 也不是印表機（多半是 node_exporter）
+    plain = [{"port": 22, "service": "ssh", "product": "OpenSSH"}, {"port": 9100, "service": "jetdirect"}]
+    assert summarize(_nm(plain, [("Linux 5.0 - 5.4", 100, "general purpose", "Linux")]))["device_type"] == "server"
+    # 真的印表機：沒有一般作業系統的指紋、或 9100 有認出產品 → 照算
+    assert summarize(_nm([{"port": 9100, "service": "jetdirect"}]))["device_type"] == "printer"
+    assert summarize(_nm([{"port": 9100, "service": "jetdirect", "product": "HP JetDirect"}],
+                         [("Linux 3.2 - 4.9", 95, "general purpose", "Linux")]))["device_type"] == "printer"
+
+
+def test_router_and_firewall_products() -> None:
+    from app.services.ip_identify import summarize
+    for prod, kind in (("pfSense", "firewall"), ("FortiGate", "firewall"), ("MikroTik RouterOS", "router"),
+                       ("OpenWrt LuCI", "router"), ("DrayTek Vigor2927", "router")):
+        assert summarize(_nm([{"port": 443, "service": "https", "product": prod}]))["device_type"] == kind, prod
+
+
+def test_pve_port_on_a_container_or_mail_gateway_is_not_a_hypervisor() -> None:
+    """pmg-01（Proxmox Mail Gateway，PVE 上的 LXC）：管理頁同樣在 8006 → 以前判成虛擬化主機。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.2p1 Debian 2+deb12u10"},
+             {"port": 25, "service": "smtp", "product": "Postfix smtpd"}, {"port": 8006, "service": "wpl-analytics"}]
+    linux = [("Linux 5.3 - 5.4", 94, "general purpose", "Linux")]
+    assert summarize(_nm(ports, linux), virtual_guest=True)["device_type"] == "server"
+    pmg = [{"port": 8006, "service": "https", "product": "Proxmox Mail Gateway"}]
+    assert summarize(_nm(pmg, linux))["device_type"] != "hypervisor"
+    # 實體主機上的 8006 照舊是 Proxmox VE
+    assert summarize(_nm([{"port": 8006, "service": "wpl-analytics"}], linux))["device_type"] == "hypervisor"
+
+
+def test_ambiguous_fingerprint_does_not_pick_a_device_class() -> None:
+    """192.0.2.185（網卡是 Dyson）：前四名都是 90%，交換器／影音設備／影音設備／手機 → 以前判成 HP 交換器。"""
+    from app.services.ip_identify import summarize
+    os = [("HP ProCurve E2910al switch", 90, "switch", "HP"),
+          ("Slingbox Pro-HD TV over IP gateway", 90, "media device", "Sling"),
+          ("Denon AVR-2113 audio receiver", 90, "media device", "Denon"),
+          ("Nokia 5800 mobile phone (Symbian OS 9.4)", 90, "phone", "Nokia")]
+    s = summarize(_nm([], os), mac_vendor="Dyson")
+    assert s["device_type"] == "specialized", "指紋不採用；Dyson 只做家電 → 網卡廠牌當最後的線索"
+    assert not any(e.startswith("osclass:") for e in s["evidence"]) and "oui-kind:Dyson" in s["evidence"]
+    assert s["os"] is None, "猜不出來的指紋也不該寫成作業系統"
+    assert summarize(_nm([], os), mac_vendor="SomeOtherCo")["device_type"] == "unknown"
+
+
+def test_fingerprint_class_must_agree_with_the_nic_vendor() -> None:
+    """atomcam-01（網卡 ATOMtech，ATOM Cam 攝影機）：指紋是 Linux 2.4 的 OpenWrt（WAP）→ 以前判成無線 AP。
+    指紋的類別只是「這個 TCP/IP 指紋常見於哪種機器」；廠牌對不上就不採信。"""
+    from app.services.ip_identify import summarize
+    os = [("OpenWrt 0.9 - 7.09 (Linux 2.4.30 - 2.4.34)", 97, "WAP", "Linux"),
+          ("OpenWrt White Russian 0.9 (Linux 2.4.30)", 97, "WAP", "Linux"),
+          ("Asus RT-AC66U router (Linux 2.6)", 95, "broadband router", "Asus")]
+    assert summarize(_nm([{"port": 9999, "service": "abyss"}], os), mac_vendor="ATOMtech")["device_type"] != "wireless_ap"
+    # D-Link 交換器：指紋廠牌與網卡廠牌一致 → 照算
+    sw = [("D-Link DGS-1510 switch", 98, "switch", "D-Link")]
+    assert summarize(_nm([], sw), mac_vendor="DLinkInterna")["device_type"] == "switch"
+    # 不知道網卡廠牌（沒有 MAC）時照舊採信
+    assert summarize(_nm([], sw))["device_type"] == "switch"
+
+
+def test_mobile_phone_fingerprint_is_not_a_voip_phone() -> None:
+    from app.services.ip_identify import summarize
+    os = [("Apple iOS 14.0 - 15.6 (Darwin 20.0.0 - 21.6.0)", 98, "phone", "Apple")]
+    assert summarize(_nm([], os))["device_type"] != "voip"
+
+
+def test_nic_vendor_is_reported_separately_from_the_device_vendor() -> None:
+    """網卡廠牌（MAC 的 OUI）不等於設備廠牌：Mac 接 CalDigit 擴充座，以前畫面寫「廠牌 CalDigit」。"""
+    from app.services.ip_identify import summarize
+    s = summarize(_mac_airplay(), mac_vendor="CalDigit")
+    assert s["nic_vendor"] == "CalDigit"
+    assert s["vendor"] != "CalDigit"
+    hp = summarize(_nm([], [("HP LaserJet M476dw printer", 98, "printer", "HP")]), mac_vendor="HP")
+    assert hp["vendor"] == "HP" and hp["nic_vendor"] == "HP"
+
+
+def test_xrdp_on_linux_is_not_a_windows_host() -> None:
+    """ws-ud24（Ubuntu，裝了 xrdp）：3389 開著 → 以前判成 Windows 主機。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1 Ubuntu 3ubuntu13"},
+             {"port": 3389, "service": "ms-wbt-server", "product": "xrdp"}]
+    assert summarize(_nm(ports, [("Linux 5.0 - 5.14", 98, "general purpose", "Linux")]))["device_type"] == "server"
+    assert summarize(_nm(ports))["device_type"] == "server", "xrdp 本身就說明不是 Windows"
+    # 作業系統確定是 Linux 時，沒有產品字樣的 3389 也不算 Windows
+    bare = [{"port": 3389, "service": "ms-wbt-server"}]
+    assert summarize(_nm(bare, [("Linux 5.0 - 5.14", 98, "general purpose", "Linux")]))["device_type"] == "server"
+    assert summarize(_nm(bare))["device_type"] == "windows"
+
+
+def test_phones_and_tablets_are_mobile() -> None:
+    """192.0.2.166（iPhone，隨機 MAC）被判成 Windows 主機；ipad 以前是「影音設備」。"""
+    from app.services.ip_identify import summarize
+    iphone = [{"port": 62078, "service": "iphone-sync"}]
+    assert summarize(_nm(iphone))["device_type"] == "mobile"
+    ipad = [{"port": 49152, "service": "tcpwrapped"}, {"port": 62078, "service": "tcpwrapped"}]
+    os = [("Apple macOS 10.13 (High Sierra) - 10.15 (Catalina) or iOS 11.0 - 13.4 (Darwin 17.0.0 - 19.6.0)", 90,
+           "phone", "Apple"), ("Apple macOS 11 (Big Sur) (Darwin 20.6.0)", 90, "general purpose", "Apple")]
+    s = summarize(_nm(ipad, os))
+    assert s["device_type"] == "mobile", "62078 只有 iOS 會開"
+    assert "iOS" in (s["os"] or ""), "iPhone 與 Mac 的指紋幾乎一樣；62078 說明是 iOS，作業系統取 iOS 那個候選"
+    android = [("Android 10 - 12 (Linux 4.14 - 4.19)", 96, "phone", "Google")]
+    assert summarize(_nm([], android))["device_type"] == "mobile"
+
+
+LINUX100 = [("Linux 5.0 - 5.4", 100, "general purpose", "Linux")]
+
+
+def test_samba_ad_dc_msrpc_on_linux_is_not_windows() -> None:
+    """samba-dc-01／samba-dc-02（Debian 上的 Samba AD DC）：nmap 把 Samba 的 135 認成「Microsoft Windows RPC」→ 知識表的產品樣式
+    判成 Windows（2026-10-05 正式環境）。作業系統確定不是 Windows 時，任何一條路講 Windows 都不採信。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.2p1 Debian 2+deb12u7"},
+             {"port": 53, "service": "domain"}, {"port": 88, "service": "kerberos-sec"},
+             {"port": 135, "service": "msrpc", "product": "Microsoft Windows RPC", "method": "probed"},
+             {"port": 139, "service": "netbios-ssn", "product": "Samba smbd", "version": "4"},
+             {"port": 445, "service": "netbios-ssn", "product": "Samba smbd", "version": "4"}]
+    s = summarize(_nm(ports, LINUX100))
+    assert s["device_type"] == "server", s["evidence"]
+    # 虛擬機（samba-dc-01 是 KVM）同樣不可以是 Windows
+    assert summarize(_nm(ports, LINUX100), virtual_guest="vm")["device_type"] != "windows"
+    # 反向代理轉出 IIS 的 Server 標頭、主機本身是 Linux：也不是 Windows
+    iis = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1 Ubuntu 3ubuntu13"},
+           {"port": 443, "service": "https", "scripts": {"http-server-header": "Microsoft-IIS/10.0"}}]
+    assert summarize(_nm(iis, LINUX100))["device_type"] != "windows"
+    # 不知道作業系統時，msrpc 的產品字樣照舊算 Windows
+    assert summarize(_nm([{"port": 135, "service": "msrpc", "product": "Microsoft Windows RPC",
+                           "method": "probed"}]))["device_type"] == "windows"
+
+
+def test_port_8006_on_ubuntu_is_not_proxmox() -> None:
+    """gpu-node-01（NVIDIA DGX，Ubuntu）：8006 是別的服務。Proxmox VE 一定是 Debian。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1 Ubuntu 3ubuntu13.18"},
+             {"port": 8006, "service": "wpl-analytics"}]
+    assert summarize(_nm(ports, LINUX100), mac_vendor="NVIDIA")["device_type"] == "server"
+    pve = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.2p1 Debian 2+deb12u3"},
+           {"port": 8006, "service": "wpl-analytics"}]
+    assert summarize(_nm(pve, LINUX100))["device_type"] == "hypervisor"
+
+
+def test_nfs_on_a_samba_domain_controller_is_not_storage() -> None:
+    """samba-dc-01（Debian 上的 Samba AD DC）開了 NFS → 以前判成儲存設備。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.2p1 Debian 2+deb12u7"},
+             {"port": 88, "service": "kerberos-sec"}, {"port": 445, "service": "netbios-ssn", "product": "Samba smbd"},
+             {"port": 2049, "service": "rpcbind"}]
+    assert summarize(_nm(ports, LINUX100))["device_type"] == "server"
+    # 沒有一般作業系統的指紋、只有 iSCSI → 照舊是儲存設備
+    assert summarize(_nm([{"port": 3260, "service": "iscsi"}]))["device_type"] == "storage"
+
+
+def test_rtsp_misdetected_on_web_ports_is_not_a_camera() -> None:
+    """sso-01（Keycloak）：nmap 把 8080／8443 的網頁認成 rtsp → 以前判成攝影機。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1 Ubuntu 3ubuntu13.19"},
+             {"port": 8080, "service": "rtsp"}, {"port": 8443, "service": "rtsp"}]
+    assert summarize(_nm(ports, LINUX100))["device_type"] == "server"
+    # 攝影機（Linux）的 554 照舊算
+    assert summarize(_nm([{"port": 554, "service": "rtsp"}], LINUX100))["device_type"] == "camera"
+
+
+def test_supermicro_bmc_is_specialized() -> None:
+    """192.0.2.63：SuperMicro 網卡、Dropbear、UPnP、VNC（iKVM）→ BMC。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "Dropbear sshd", "version": "2019.78"},
+             {"port": 80, "service": "http"}, {"port": 443, "service": "https"},
+             {"port": 5900, "service": "vnc"}]
+    os = [("OpenWrt Kamikaze 7.09 (Linux 2.6.22)", 94, "WAP", "Linux"), ("Linux 3.12 - 4.10", 94, "general purpose", "Linux")]
+    assert summarize(_nm(ports, os), mac_vendor="SuperMicroCo")["device_type"] == "specialized"
+    assert summarize(_nm([{"port": 623, "service": "asf-rmcp"}]))["device_type"] == "specialized"
+
+
+def test_single_purpose_nic_vendors_hint_the_kind_when_nothing_else_does() -> None:
+    from app.services.ip_identify import summarize
+    silent = {"nmap": {"available": True, "closed": 999, "ports": [], "os": []}}
+    assert summarize(silent, mac_vendor="Nintendo")["device_type"] == "media"
+    assert summarize(silent, mac_vendor="ATOMtech")["device_type"] == "camera"
+    assert summarize(silent, mac_vendor="Dyson")["device_type"] == "specialized"
+    # 2026-10-05 改成廠牌名稱完全相等才算：IPAM 拿到的是 Wireshark manuf 的短名稱，Brother 的是「BrotherIndus」。
+    # 以前這裡寫 "Brother"，是靠子字串比對才過的 —— 同一個比對也讓「McKayBrother」變成印表機
+    assert summarize(silent, mac_vendor="BrotherIndus")["device_type"] == "printer"
+    assert summarize(silent, mac_vendor="McKayBrother")["device_type"] == "unknown"
+    assert summarize(silent, mac_vendor="SomeOtherCo")["device_type"] == "unknown"
+    # 服務證據講出別的時，網卡廠牌不蓋過它
+    assert summarize(_nm([{"port": 9100, "service": "jetdirect", "product": "HP JetDirect"}]),
+                     mac_vendor="Nintendo")["device_type"] == "printer"
+
+
+def test_consistent_embedded_fingerprint_is_specialized_even_if_vendor_differs() -> None:
+    """ps-001（TP-Link 網卡）：指紋前幾名都是 lwIP 的嵌入式設備（Philips Hue、Enlogic PDU…）→ 專用設備。"""
+    from app.services.ip_identify import summarize
+    os = [("Philips Hue Bridge (lwIP stack)", 94, "specialized", "Philips"),
+          ("Enlogic PDU (FreeRTOS/lwIP)", 91, "specialized", "Enlogic")]
+    assert summarize(_nm([{"port": 9999, "service": "abyss"}], os), mac_vendor="TPLink")["device_type"] == "specialized"
+
+
+def test_guest_fallback_only_for_containers() -> None:
+    """沒有任何服務講出角色時：LXC 容器＝Linux 主機；KVM 虛擬機不知道（可能是防火牆或 Windows）。"""
+    from app.services.ip_identify import summarize
+    tw = {"nmap": {"available": True, "closed": 5, "ports": [{"port": 22, "proto": "tcp", "state": "open",
+                                                             "service": "tcpwrapped"}], "os": []}}
+    assert summarize(tw, virtual_guest="ct")["device_type"] == "server"
+    assert summarize(tw, virtual_guest="vm")["device_type"] == "unknown"
+
+
+def test_device_fingerprint_name_is_not_an_os_when_the_vendor_disagrees() -> None:
+    """CyberPower UPS 與 TP-Link 插座的作業系統都寫成「Philips Hue Bridge」（對抗式驗證 2026-10-05）。"""
+    from app.services.ip_identify import summarize
+    os = [("Philips Hue Bridge (lwIP stack)", 94, "specialized", "Philips"),
+          ("Enlogic PDU (FreeRTOS/lwIP)", 91, "specialized", "Enlogic")]
+    s = summarize(_nm([], os), mac_vendor="CyberPower")
+    assert s["device_type"] == "specialized" and s["os"] is None
+
+
+def test_consistent_wap_fingerprint_on_an_ap_vendor_nic() -> None:
+    """ap-hall-01（Ubiquiti 網卡、Dropbear、指紋前幾名都是 WAP）以前判不出來。"""
+    from app.services.ip_identify import summarize
+    os = [("OpenWrt 0.9 - 7.09 (Linux 2.4.30 - 2.4.34)", 97, "WAP", "Linux"),
+          ("OpenWrt White Russian 0.9 (Linux 2.4.30)", 97, "WAP", "Linux")]
+    ports = [{"port": 22, "service": "ssh", "product": "Dropbear sshd"}]
+    assert summarize(_nm(ports, os), mac_vendor="Ubiquiti")["device_type"] == "wireless_ap"
+    assert summarize(_nm(ports, os), mac_vendor="ATOMtech")["device_type"] != "wireless_ap"
+
+
+def test_lpd_on_routers_and_nas_is_not_a_printer() -> None:
+    """198.51.100.2 VigorAP903、198.51.100.6 Synology RT1900ac：分享 USB 印表機開著 515（LPD）→ 以前判成印表機。"""
+    from app.services.ip_identify import summarize
+    ap = [{"port": 23, "service": "telnet", "product": "BusyBox telnetd"},
+          {"port": 80, "service": "http", "product": "GoAhead WebServer"}, {"port": 515, "service": "printer"}]
+    assert summarize(_nm(ap, [("Linux 3.2 - 3.8", 100, "general purpose", "Linux")]))["device_type"] != "printer"
+    # Recog 認出 DrayTek（作業系統家族＝網通設備）時也一樣
+    assert summarize(_nm(ap, [("DrayTek Vigor 2910 router", 95, "broadband router", "DrayTek")]),
+                     mac_vendor="DrayTek")["device_type"] == "router"
+    # 真的印表機：認出產品
+    assert summarize(_nm([{"port": 515, "service": "printer", "product": "Brother printer lpd"}]))["device_type"] == "printer"
+
+
 def test_samba_on_linux_is_not_a_windows_host() -> None:
     from app.services.ip_identify import summarize
     linux_smb = [{"port": 22, "service": "ssh", "product": "OpenSSH"},
@@ -844,3 +1151,145 @@ async def test_the_probe_page_judges_a_container_like_the_periodic_probe(client,
     assert body["summary"]["vendor"] != "HP"
     items = (await client.get(f"/api/v1/addresses/{ip.id}/identify/history", headers=auth_headers)).json()["items"]
     assert items[0]["summary"]["device_type"] == "server"
+
+
+# ── 對抗式驗證第二輪（2026-10-05）：規則要在任何網路都成立 ───────────────────────────────────────────
+
+def test_a_linux_fingerprint_alone_does_not_make_a_server() -> None:
+    """TCP/IP 指紋的「general purpose」只代表 Linux 核心：路由器、AP、IoT 閘道全是 Linux（198.51.100.53
+    只開 80、198.51.100.130 只開 443／8800，都被判成伺服器）。要看得到一般主機的正面證據才算。"""
+    from app.services.ip_identify import summarize
+    old = [("Linux 3.2 - 3.8", 90, "general purpose", "Linux")]
+    assert summarize(_nm([{"port": 80, "service": "http"}], old))["device_type"] == "unknown"
+    gw = [{"port": 443, "service": "https"}, {"port": 8800, "service": "sunwebadmin"}]
+    assert summarize(_nm(gw, [("Linux 2.6.30", 90, "general purpose", "Linux")]))["device_type"] == "unknown"
+    # BusyBox 是嵌入式設備：同一台另外開著 OpenSSH 也不算一般主機
+    bb = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "8.0"},
+          {"port": 23, "service": "telnet", "product": "BusyBox telnetd"}]
+    assert summarize(_nm(bb, old))["device_type"] != "server"
+    # 正面證據：OpenSSH（RHEL 系的 banner 不帶發行版）、發行版字樣、資料庫、Samba
+    for ports in ([{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "8.7"}],
+                  [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1 Ubuntu 3ubuntu13"}],
+                  [{"port": 5432, "service": "postgresql", "product": "PostgreSQL DB"}],
+                  [{"port": 445, "service": "netbios-ssn", "product": "Samba smbd"}]):
+        assert summarize(_nm(ports, LINUX100))["device_type"] == "server", ports
+    # Windows／macOS 的指紋本身就說明是一般電腦
+    win = {"nmap": {"available": True, "closed": 900, "ports": [], "os": [
+        {"name": "Microsoft Windows 10 1607", "accuracy": 96, "type": "general purpose", "vendor": "Microsoft",
+         "family": "Windows"}]}}
+    assert summarize(win)["device_type"] == "windows"
+    mac = {"nmap": {"available": True, "closed": 900, "ports": [], "os": [
+        {"name": "Apple macOS 13 (Ventura)", "accuracy": 95, "type": "general purpose", "vendor": "Apple",
+         "family": "macOS"}]}}
+    assert summarize(mac)["device_type"] == "server"
+
+
+def test_iapp_on_an_embedded_device_is_an_access_point() -> None:
+    """3517/tcp（802.11 IAPP，AP 之間的漫遊協定）：嵌入式 Linux 上開著 → AP（198.51.100.3 VigorAP903 以前是伺服器）。"""
+    from app.services.ip_identify import summarize
+    ap = [{"port": 22, "service": "ssh"}, {"port": 23, "service": "telnet", "product": "BusyBox telnetd"},
+          {"port": 80, "service": "http"}, {"port": 515, "service": "printer"},
+          {"port": 3517, "service": "802-11-iapp", "method": "table"}]
+    old = [("Linux 3.2 - 3.8", 100, "general purpose", "Linux")]
+    assert summarize(_nm(ap, old), mac_vendor="DrayTek")["device_type"] == "wireless_ap"
+    # 一般主機上剛好開著 3517 不算
+    srv = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.2p1 Debian 2+deb12u7"},
+           {"port": 3517, "service": "802-11-iapp", "method": "table"}]
+    assert summarize(_nm(srv, LINUX100))["device_type"] == "server"
+
+
+def test_a_multi_line_vendor_without_a_model_is_not_a_router() -> None:
+    """DrayTek 同時做 Vigor 路由器、VigorAP、VigorSwitch，網頁標題都是 Vigor：只有網卡廠牌或沒有型號的
+    「DrayTek Vigor」說不出是哪一種（198.51.100.2 VigorAP903 被判成路由器）。有型號才算。"""
+    from app.services.ip_identify import summarize
+    ap = [{"port": 23, "service": "telnet", "product": "BusyBox telnetd"},
+          {"port": 80, "service": "http", "product": "GoAhead WebServer"}, {"port": 515, "service": "printer"}]
+    old = [("Linux 3.2 - 3.8", 100, "general purpose", "Linux")]
+    assert summarize(_nm(ap, old), mac_vendor="DrayTek")["device_type"] not in ("router", "server")
+    assert summarize(_nm([{"port": 443, "service": "https", "product": "DrayTek Vigor"}]))["device_type"] != "router"
+    for prod, kind in (("Vigor2927", "router"), ("DrayTek Vigor ADSL router httpd", "router"),
+                       ("VigorAP 903", "wireless_ap"), ("VigorSwitch G1282", "switch")):
+        assert summarize(_nm([{"port": 443, "service": "https", "product": prod}]))["device_type"] == kind, prod
+
+
+def test_port_8006_with_mail_or_datacenter_manager_ports_is_not_proxmox_ve() -> None:
+    """Proxmox Mail Gateway 的管理頁也在 8006（同時開 25／26），Proxmox Datacenter Manager 在 8443：
+    實體主機上只認得埠號時，這兩種都不是虛擬化主機。只開 8006／8007（PVE＋PBS）照舊是。"""
+    from app.services.ip_identify import summarize
+    deb = {"port": 22, "service": "ssh", "product": "OpenSSH", "version": "10.0p2 Debian 7+deb13u4"}
+    pve = {"port": 8006, "service": "wpl-analytics", "method": "table"}
+    pmg = [deb, {"port": 25, "service": "smtp", "product": "Postfix smtpd"}, {"port": 26, "service": "smtp"}, pve]
+    assert summarize(_nm(pmg, LINUX100))["device_type"] == "server"
+    pdm = [deb, pve, {"port": 8443, "service": "https-alt"}]
+    assert summarize(_nm(pdm, LINUX100))["device_type"] == "server"
+    node = [deb, pve, {"port": 8007, "service": "ajp12", "method": "table"}]
+    assert summarize(_nm(node, LINUX100))["device_type"] == "hypervisor"
+
+
+def test_tapo_ship_header_is_a_smart_home_device() -> None:
+    """TP-Link Tapo／Kasa 新款的網頁 Server 標頭是「SHIP 2.0」（一個 P105 插座只剩主機名稱可判）。
+    同一台串流 RTSP（554）就是攝影機。"""
+    from app.services.ip_identify import summarize
+    plug = [{"port": 80, "service": "http", "product": "SHIP 2.0"}]
+    assert summarize(_nm(plug), mac_vendor="TPLink")["device_type"] == "specialized"
+    cam = [*plug, {"port": 554, "service": "rtsp"}, {"port": 2020, "service": "xinupageserver"}]
+    assert summarize(_nm(cam), mac_vendor="TPLink")["device_type"] == "camera"
+
+
+def test_lockdownd_with_airplay_is_apple_tv_not_a_phone() -> None:
+    """62078 只有 Apple 的行動裝置會開，但 Apple TV／HomePod 也會；它們同時是 AirPlay 接收器（7000）。"""
+    from app.services.ip_identify import summarize
+    assert summarize(_nm([{"port": 62078, "service": "iphone-sync"}]))["device_type"] == "mobile"
+    atv = [{"port": 7000, "service": "rtsp", "product": "AirTunes rtspd"}, {"port": 62078, "service": "iphone-sync"}]
+    assert summarize(_nm(atv))["device_type"] == "media"
+
+
+def test_windows_stack_fingerprint_beats_a_container_banner() -> None:
+    """Windows 桌機用 Docker Desktop 把 Ubuntu 底的容器發布在本機 IP：SSH 寫著 Ubuntu，但 TCP/IP 堆疊是 Windows
+    ——「作業系統不是 Windows」要看堆疊指紋，應用程式的 banner 不算。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "9.6p1 Ubuntu 3ubuntu13.5"},
+             {"port": 135, "service": "msrpc", "product": "Microsoft Windows RPC"},
+             {"port": 445, "service": "microsoft-ds"}, {"port": 3389, "service": "ms-wbt-server"}]
+    ports[0]["scripts"] = {"banner": "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"}
+    win = [("Microsoft Windows 10 1709 - 21H2", 97, "general purpose", "Microsoft")]
+    from app.services import recog
+    db = recog.parse_database(b"""<fingerprints matches="ssh.banner" preference="0.9">
+  <fingerprint pattern="^OpenSSH_([\\w.]+) Ubuntu-\\S+$">
+    <description>OpenSSH running on Ubuntu</description>
+    <example>OpenSSH_9.6p1 Ubuntu-3ubuntu13.5</example>
+    <param pos="0" name="service.product" value="OpenSSH"/>
+    <param pos="0" name="os.vendor" value="Ubuntu"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Linux"/>
+  </fingerprint>
+</fingerprints>""", "ssh_banners.xml")
+    matcher = recog.Matcher("9.9.9", {db.key: (db.preference, db.fingerprints)})
+    s = summarize(_nm(ports, win), recog=matcher)
+    assert any(e.startswith("recog:") for e in s["evidence"]), "測試本身要讓 Recog 比中 Ubuntu"
+    assert s["device_type"] == "windows", s["evidence"]
+    assert "windows" in (s["os"] or "").lower(), s["os"]
+
+
+def test_debian_release_from_the_ssh_banner_replaces_a_vague_kernel_range() -> None:
+    """Debian 11／13 的虛擬機顯示「Linux 2.6.32」：SSH banner 的 debNNuM 講得出是哪一版 Debian。"""
+    from app.core.os_fingerprint import normalize_os
+    from app.services.ip_identify import summarize
+    ports = [{"port": 22, "service": "ssh", "product": "OpenSSH", "version": "8.4p1 Debian 5+deb11u3"}]
+    s = summarize(_nm(ports, [("Linux 2.6.32", 93, "general purpose", "Linux")]))
+    assert "Debian" in (s["os"] or "") and "11" in (s["os"] or ""), s["os"]
+    assert normalize_os(s["os"]) == "linux"
+    # 堆疊指紋是 Windows 時不改（banner 可能來自容器）
+    win = [("Microsoft Windows Server 2019", 96, "general purpose", "Microsoft")]
+    assert "windows" in (summarize(_nm(ports, win))["os"] or "").lower()
+
+
+def test_mobile_evidence_names_the_os_that_was_chosen() -> None:
+    """192.0.2.166 iPhone：作業系統已改取 iOS 的候選，依據卻還寫 Big Sur。"""
+    from app.services.ip_identify import summarize
+    ports = [{"port": 49152, "service": "tcpwrapped"}, {"port": 62078, "service": "iphone-sync"}]
+    os = [("Apple macOS 10.13 (High Sierra) - 10.15 (Catalina) or iOS 11.0 - 13.4 (Darwin 17.0.0 - 19.6.0)", 90,
+           "phone", "Apple"), ("Apple macOS 11 (Big Sur) (Darwin 20.6.0)", 90, "general purpose", "Apple")]
+    s = summarize(_nm(ports, os))
+    line = next(e for e in s["evidence"] if e.startswith("os:"))
+    assert "iOS" in line and "Big Sur" not in line, s["evidence"]

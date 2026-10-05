@@ -17,14 +17,14 @@ the preferred mode**; see [§2.7](#27-optional-docker-compose-not-the-preferred-
 
 | Item | Minimum | Recommended | Notes |
 |---|---|---|---|
-| OS | Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86_64) | **Ubuntu 24.04 LTS** | only these (see below); 24.04 ships Python 3.12 + PG 16 + Node 18, saving effort |
+| OS | Debian 12 / 13, Ubuntu 22.04 / 24.04 / 26.04 (x86_64) | **Ubuntu 24.04 LTS** | only these (see below); 24.04 ships Python 3.12 + PG 16, saving effort |
 | CPU | 2 vCPU | 4 vCPU | upgrades build the frontend (about a minute); RDP consoles (guacd) and the local scan agent (nmap) use CPU. Embeddings run on the LLM server, not here |
 | RAM | 4 GB | 8 GB | about 1.8 GB in use with 4 workers; the frontend build during an upgrade peaks at about 1.6 GB. With 4 GB or 2 cores the backend runs 2 workers and is paused during the build if memory is short (2 GB of swap avoids that). Each RDP console takes a few hundred MB. An LLM server on the same machine needs 8 GB+ on top |
 | Disk | 20 GB | 50 GB | the install takes about 2 GB (Python packages, node_modules, caches) plus the OS; the database, audit log, IP history and backups grow with the network; journald caps its logs |
 | Python | 3.11 | 3.12 | 24.04 defaults to 3.12 |
 | PostgreSQL | 16 + pgvector | None | 22.04 needs the PGDG repo (the script adds it automatically) |
 | Redis | 7 | None | 24.04 defaults to 7.0.15 |
-| Node | 20 LTS | 22 LTS | 24.04 defaults to 18.19; vite 6 runs but warns |
+| Node | 22 LTS | None | only for building the frontend; `jt-ipam.sh` installs NodeSource 22 on install (only Ubuntu 26.04 ships 22 itself) and moves an older Node to 22 on upgrade |
 | guacd | jt-ipam build for this OS | None | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
 | Recog | latest release | None | **Optional**: fingerprint database the IP probe uses to recognise devices and OS versions; downloaded by `jt-ipam.sh`, checked weekly (see [Recog](#recog-fingerprint-database-optional)) |
 
@@ -293,12 +293,12 @@ curl -skI https://ipam.example.com/ \
 ```
 
 **Consoles and SFTP through your edge proxy.** Every console, SFTP included, is one long-lived
-WebSocket on `/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc)/ws`. SFTP moves files over that
+WebSocket on `/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc|rustdesk)/ws`. SFTP moves files over that
 WebSocket in 256 KB messages, so an HTTP body limit such as nginx `client_max_body_size` does **not**
 cap the file size. What can break large transfers is a layer that:
 
 - does not pass the WebSocket upgrade on that path (consoles fail outright);
-- limits the size of a single WebSocket message (some WAFs do; allow at least 1 MB);
+- limits the size of a single WebSocket message (some WAFs do; allow at least 1 MB, and 16 MB for the RustDesk-compatible web connection, which sends whole video keyframes);
 - caps the volume or lifetime of one WebSocket connection, or drops idle ones in under 30 s
   (jt-ipam sends a keep-alive every 20 s).
 
@@ -778,13 +778,22 @@ asyncio.run(main(sys.argv[1], sys.argv[2]))
 ' admin "MyNewPassword2026!"
 ```
 
-**Q: Ubuntu 24.04 frontend build shows `Unsupported engine: wanted Node >= 20`?**
-A: 24.04 bundles nodejs 18; vite 6 / vue-tsc run but warn. To silence it: install Node 20+ via nvm / nodesource:
+**Q: `Node.js install failed or too old (need >= 22)`, or the upgrade prints a "Node.js 22 could not be installed" banner?**
+A: Node.js 22 LTS is only used to build the frontend (Node 20 reached end of life on 2026-04-30). `jt-ipam.sh`
+installs it from NodeSource (`setup_22.x`) on install and on upgrade, so normally there is nothing to do. When the
+host cannot install it (no access to deb.nodesource.com, a proxy, an apt conflict), `install` stops, while `upgrade`
+keeps an existing Node 20 or newer, builds with it and finishes with that banner; pnpm then also prints
+`Unsupported engine: wanted: {"node":">=22"}`, and `doctor` keeps reporting the old Node. Install it by hand and
+re-run the same command:
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs
+node -v      # v22.x
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade      # or install
 ```
-then re-run `pnpm install && pnpm build` in `/opt/jt-ipam/frontend`.
+If apt reports a conflict with the distro's own packages (`trying to overwrite ... libnode-dev`), remove them first:
+`sudo apt-get purge -y nodejs libnode-dev`. With nvm, an nvm Node 22 of the user who runs `sudo` is used as is;
+an older nvm Node is ignored.
 
 ## RDP console engines
 

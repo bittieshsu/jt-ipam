@@ -42,6 +42,19 @@ async def test_matches_by_mac_when_ip_differs(db_session) -> None:
 
 
 @pytest.mark.anyio
+async def test_ip_match_needs_the_mac_to_agree(db_session) -> None:
+    """DHCP 位址換了主人：PVE 還記得某台 VM 的網卡用過這個 IP，但現在回應這個 IP 的是另一張網卡。
+    2026-10-05 正式環境的 iPhone（隨機 MAC）被標成 vm-lab-02 虛擬機，連帶判讀全錯。兩邊 MAC 都知道而不同 → 不是它。"""
+    await _mk_vm(db_session, name="vm-lab-02", ip="198.51.100.66", mac="bc:24:11:00:00:66")
+    assert await vm_match_for(db_session, ip="198.51.100.66", macs=["d2:11:22:33:44:66"]) is None
+    # MAC 一樣（大小寫不同）、或 IP 記錄沒有 MAC、或 VM 網卡沒回報 MAC → 照舊對得到
+    assert await vm_match_for(db_session, ip="198.51.100.66", macs=["BC:24:11:00:00:66"])
+    assert await vm_match_for(db_session, ip="198.51.100.66")
+    await _mk_vm(db_session, name="no-mac", ip="198.51.100.67", mac=None)
+    assert await vm_match_for(db_session, ip="198.51.100.67", macs=["d2:11:22:33:44:66"])
+
+
+@pytest.mark.anyio
 async def test_kind_tells_kvm_from_lxc(db_session) -> None:
     """PVE 有 KVM 虛擬機（qemu）與 LXC 容器兩種，畫面要分得出來 → 回傳要帶 kind。"""
     await _mk_vm(db_session, name="ct-app-01", ip="198.51.100.41", mac=None, kind="ct")
@@ -79,3 +92,16 @@ async def test_ip_read_carries_virt_vm(client, auth_headers, db_session) -> None
     r = await client.get(f"/api/v1/addresses/{ipa.id}", headers=auth_headers)
     assert r.status_code == 200
     assert r.json()["virt_vm"]["vm"] == "app-vm"
+
+
+@pytest.mark.anyio
+async def test_guest_kind_and_proxmox_oui(db_session) -> None:
+    """KVM 虛擬機與 LXC 容器分開（容器一定是 Linux，虛擬機可能是防火牆或 Windows）；Proxmox 指派的 MAC
+    （bc:24:11）只會出現在 PVE 的虛擬機／容器上，盤點沒對到也算（192.0.2.82 的 TrueNAS 虛擬機）。"""
+    from app.services.fw_lookup import virtual_guest_kind
+    await _mk_vm(db_session, name="ct-x", ip="198.51.100.81", mac="bc:24:11:00:00:81", kind="ct")
+    await _mk_vm(db_session, name="vm-x", ip="198.51.100.82", mac="bc:24:11:00:00:82", kind="vm")
+    assert await virtual_guest_kind(db_session, "198.51.100.81", "bc:24:11:00:00:81") == "ct"
+    assert await virtual_guest_kind(db_session, "198.51.100.82", "BC:24:11:00:00:82") == "vm"
+    assert await virtual_guest_kind(db_session, "198.51.100.83", "bc:24:11:aa:bb:cc") == "vm"
+    assert await virtual_guest_kind(db_session, "198.51.100.84", "3c:ec:ef:00:00:84") is None

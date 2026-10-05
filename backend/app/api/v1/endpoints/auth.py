@@ -299,7 +299,7 @@ async def refresh(
 async def logout(_user: CurrentUser) -> None:
     """JWT 無狀態；client 端自行清除即可。
 
-    若日後需要伺服器端撤銷，改用 token blacklist + Redis（A07）。
+    若日後需要伺服器端撤銷，改用 token denylist + Redis（A07）。
     """
     return None
 

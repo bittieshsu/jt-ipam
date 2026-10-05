@@ -29,7 +29,8 @@ const { t } = useI18n();
 const msg = useMessage();
 
 const COLS = ["name", "api_url", "enabled", "sync_flags", "last_sync_at", "last_error", "actions"];
-const { visibleKeys: vis, setVisible: setVis, reset: resetVis } = useColumnPrefs("kea_dhcp", COLS, COLS);
+const { visibleKeys: vis, setVisible: setVis, reset: resetVis, order, setOrder, orderColumns } =
+  useColumnPrefs("kea_dhcp", COLS, COLS);
 const picker = computed(() => [
   { key: "name", label: t("cols.name") },
   { key: "api_url", label: t("kea_dhcp.api_url") },
@@ -183,7 +184,7 @@ const allCols = computed<DataTableColumns<KeaDhcpServer>>(() => autoSort([
   },
 ]));
 const cols = computed<DataTableColumns<KeaDhcpServer>>(() =>
-  allCols.value.filter((c: any) => vis.value.includes(c.key)),
+  orderColumns(allCols.value.filter((c: any) => vis.value.includes(c.key))),
 );
 
 onMounted(() => { void refresh(); void loadSubnetOptions(); });
@@ -211,7 +212,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <template #icon><n-icon><PlusIcon /></n-icon></template>
         {{ t("common.create") }}
       </n-button>
-      <ColumnPicker :all="picker" :visible="vis" @update:visible="setVis" @reset="resetVis" />
+      <ColumnPicker :all="picker" :visible="vis" @update:visible="setVis" @reset="resetVis"
+                    :order="order" @update:order="setOrder" />
     </n-space>
 
     <n-data-table :columns="cols" :data="rows" :loading="loading" :bordered="false" :scroll-x="1150" />

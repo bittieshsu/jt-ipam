@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     # 過多會互相拖慢，故設上限。0 = 不限。
     rdp_max_sessions: int = 5
 
+    # ── 相容 RustDesk 的網頁連線（docs/SPEC_RUSTDESK_WEBCLIENT_zh-TW.md）──
+    # 後端只轉送密文（不解碼畫面），一條連線很輕；上限是防止拿來當無限制的轉送通道。0 = 不限。
+    rustdesk_web_max_sessions: int = 20
+    rustdesk_web_max_sessions_per_user: int = 3
+    # 規格 7.8：受控端以「jt-ipam 後端的 IP」計算密碼錯誤次數（所有使用者共用），錯 6 次／分鐘或累計 30 次
+    # 就把整台 jt-ipam 鎖在外面。所以後端要自己先擋：每位使用者、每台受控端的失敗次數上限。
+    rustdesk_web_fail_per_minute: int = 3
+    rustdesk_web_fail_per_day: int = 10
+
     # ── guacd（RDP／VNC／SSH 主控台的選用引擎，見 app/services/guacd.py）──
     # 只能是本機：guacd 的埠沒有任何驗證，綁到別的介面等於開放任何人拿它當跳板。
     guacd_host: str = "127.0.0.1"
@@ -115,7 +124,7 @@ class Settings(BaseSettings):
     # AdGuard/DNS/Ollama…）本來就在內網，關掉會讓多數部署開箱不能用。loopback /
     # link-local / cloud-metadata(169.254.169.254) 仍由 safe_http 硬擋、不受此旗標影響。
     # ⚠️ 取捨：被攻陷的 admin 帳號可藉整合 URL 對內網其他服務發請求（橫向移動面）。
-    # 若部署不需打私網，設 false 並用 outbound_allow_cidrs 白名單各整合目標網段收斂。
+    # 若部署不需打私網，設 false 並用 outbound_allow_cidrs 允許清單各整合目標網段收斂。
     outbound_allow_cidrs: Annotated[list[str], NoDecode, Field(default_factory=list)]
     outbound_allow_hosts: Annotated[list[str], NoDecode, Field(default_factory=list)]
     outbound_allow_private: bool = True

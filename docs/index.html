@@ -69,7 +69,7 @@
   .langsw li[aria-selected="true"] .tick{opacity:1}
   /* 手機：頂列讓它自己長高換行，不要硬壓在 60px 裡把品牌名擠成兩行。 */
   @media(max-width:560px){
-    .nav-in{height:auto;padding:10px 0;flex-wrap:wrap;gap:10px}
+    .nav-in{height:auto;padding:10px 16px;flex-wrap:wrap;gap:10px}
     .brand{font-size:16px;white-space:nowrap}
     .nav-links{gap:8px;width:100%;justify-content:flex-end}
   }
@@ -115,7 +115,9 @@
   .grid{display:grid;gap:18px}
   .g3{grid-template-columns:repeat(3,1fr)}
   .g2{grid-template-columns:repeat(2,1fr)}
-  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}.nav-links a:not(.btn){display:none}}
+  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+  /* 頂列的文字連結在放不下一列之前就收起（含「導入流程」後，英文版到 1005px 會擠成兩列） */
+  @media(max-width:1010px){.nav-links a:not(.btn){display:none}}
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;
     box-shadow:0 2px 10px rgba(15,23,42,.04);transition:.18s}
   .card:hover{box-shadow:0 8px 24px rgba(15,23,42,.09);transform:translateY(-2px)}
@@ -356,6 +358,7 @@
       <a href="#enterprise"><span class="zh">企業管理</span><span class="en">Enterprise</span><span class="ja">エンタープライズ</span></a>
       <a href="#ai">AI</a>
       <a href="#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
+      <a href="adoption.html"><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></a>
       <a href="features.html"><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></a>
       <a href="api.html">API</a>
       <a class="btn btn-ghost btn-sm" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
@@ -822,8 +825,8 @@
       <p class="note"><span class="zh">⚠️ 必要：若你在前面再擋一層自己的反向代理/LB，<strong>那台邊緣機也必須設同一套安全標頭</strong>（HSTS/CSP/X-Frame-Options/Permissions-Policy/COOP/CORP），安全標頭不會自動跨多一跳存活；內建外部代理範本已含。</span><span class="en">⚠️ Required: if you put your own reverse proxy / LB in front, <strong>that edge box must set the same security headers</strong> (HSTS / CSP / X-Frame-Options / Permissions-Policy / COOP / CORP), since they don't survive an extra hop; the bundled external-proxy templates already do.</span><span class="ja">⚠️ 必須：自前のリバースプロキシやロードバランサをさらに前段に置く場合、<strong>その境界の機器にも同じセキュリティヘッダを設定してください</strong>（HSTS/CSP/X-Frame-Options/Permissions-Policy/COOP/CORP）。セキュリティヘッダは一段余分に経由しても自動では引き継がれません。同梱の外部プロキシ用テンプレートには既に含まれています。</span></p>
     </div>
     <p style="margin:0 0 14px" class="sysreq">
-      <span class="zh"><strong>系統需求：</strong>Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64），建議 Ubuntu 24.04 LTS 或 Debian 12/13。RDP/VNC 主控台引擎 guacd 是必要元件，jt-ipam 只替這些版本預編；其他版本、衍生發行版（如 Linux Mint）與 ARM 機器，安裝會停下來。Proxmox LXC、虛擬機、裸機皆可。<br><strong>硬體：</strong>最低 2 核心 CPU / 4 GB 記憶體 / 20 GB 磁碟；建議 4 核心 / 8 GB / 50 GB（保留給資料庫、稽核記錄與備份成長）。4 GB 的機器後端只開 2 個 worker，升級時記憶體不夠會在前端 build 期間暫停後端，加 2 GB swap 就不會。選用的本地 LLM 請另跑於獨立主機、依模型自行配足記憶體 / 顯示記憶體，不含在此。<br><strong>自動安裝：</strong>安裝腳本會自動裝好並設定 PostgreSQL 16、Python 3.11+、Node 20+、nginx 等相依套件，並自動產生所有金鑰。<br><strong>更多：</strong>完整步驟與環境變數見 GitHub 上的 README 與 <code>scripts/</code>。</span>
-      <span class="en"><strong>Requirements:</strong> Debian 12 / 13 or Ubuntu 22.04 / 24.04 / 26.04 (x86_64); Ubuntu 24.04 LTS or Debian 12 / 13 recommended. guacd, the RDP / VNC console engine, is required and prebuilt only for these versions; on other versions, derivatives (e.g. Linux Mint) or ARM the installer stops. Proxmox LXC, VMs and bare metal all work.<br><strong>Hardware:</strong> minimum 2 vCPU / 4 GB RAM / 20 GB disk; recommended 4 vCPU / 8 GB / 50 GB (headroom for the database, audit log and backups). On a 4 GB machine the backend runs 2 workers and an upgrade pauses it during the frontend build if memory is short; 2 GB of swap avoids that. The optional local LLM runs on a separate host with its own RAM/VRAM and is not included here.<br><strong>Auto-setup:</strong> the install script installs and configures PostgreSQL 16, Python 3.11+, Node 20+ and nginx, and generates all keys for you.<br><strong>More:</strong> see the README and <code>scripts/</code> on GitHub for full steps and env vars.</span><span class="ja"><strong>システム要件：</strong>Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64）。推奨は Ubuntu 24.04 LTS または Debian 12/13。RDP/VNC コンソールのエンジン guacd は必須で、これらのバージョン向けにのみ事前ビルドしています。その他のバージョン、派生ディストリビューション（Linux Mint など）、ARM ではインストールが止まります。Proxmox LXC、仮想マシン、ベアメタルのいずれでも動きます。<br><strong>ハードウェア：</strong>最低 2 vCPU / 4 GB メモリ / 20 GB ディスク。推奨は 4 vCPU / 8 GB / 50 GB（データベース、監査ログ、バックアップの増加に備えて）。4 GB のマシンではワーカーは 2 つになり、アップグレード時にメモリが足りなければフロントエンドのビルド中はバックエンドを一時停止します。2 GB のスワップがあれば停止しません。任意のローカル LLM は別ホストで動かし、モデルに応じたメモリ/VRAM を用意してください。ここには含まれません。<br><strong>自動セットアップ：</strong>インストールスクリプトが PostgreSQL 16、Python 3.11 以降、Node 20 以降、nginx などの依存関係を導入・設定し、必要な鍵もすべて生成します。<br><strong>詳細：</strong>手順と環境変数の全体は GitHub の README と <code>scripts/</code> を参照してください。</span>
+      <span class="zh"><strong>系統需求：</strong>Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64），建議 Ubuntu 24.04 LTS 或 Debian 12/13。RDP/VNC 主控台引擎 guacd 是必要元件，jt-ipam 只替這些版本預編；其他版本、衍生發行版（如 Linux Mint）與 ARM 機器，安裝會停下來。Proxmox LXC、虛擬機、裸機皆可。<br><strong>硬體：</strong>最低 2 核心 CPU / 4 GB 記憶體 / 20 GB 磁碟；建議 4 核心 / 8 GB / 50 GB（保留給資料庫、稽核記錄與備份成長）。4 GB 的機器後端只開 2 個 worker，升級時記憶體不夠會在前端 build 期間暫停後端，加 2 GB swap 就不會。選用的本地 LLM 請另跑於獨立主機、依模型自行配足記憶體 / 顯示記憶體，不含在此。<br><strong>自動安裝：</strong>安裝腳本會自動裝好並設定 PostgreSQL 16、Python 3.11+、Node 22 LTS（建置前端用）、nginx 等相依套件，並自動產生所有金鑰。<br><strong>更多：</strong>完整步驟與環境變數見 GitHub 上的 README 與 <code>scripts/</code>。</span>
+      <span class="en"><strong>Requirements:</strong> Debian 12 / 13 or Ubuntu 22.04 / 24.04 / 26.04 (x86_64); Ubuntu 24.04 LTS or Debian 12 / 13 recommended. guacd, the RDP / VNC console engine, is required and prebuilt only for these versions; on other versions, derivatives (e.g. Linux Mint) or ARM the installer stops. Proxmox LXC, VMs and bare metal all work.<br><strong>Hardware:</strong> minimum 2 vCPU / 4 GB RAM / 20 GB disk; recommended 4 vCPU / 8 GB / 50 GB (headroom for the database, audit log and backups). On a 4 GB machine the backend runs 2 workers and an upgrade pauses it during the frontend build if memory is short; 2 GB of swap avoids that. The optional local LLM runs on a separate host with its own RAM/VRAM and is not included here.<br><strong>Auto-setup:</strong> the install script installs and configures PostgreSQL 16, Python 3.11+, Node 22 LTS (to build the frontend) and nginx, and generates all keys for you.<br><strong>More:</strong> see the README and <code>scripts/</code> on GitHub for full steps and env vars.</span><span class="ja"><strong>システム要件：</strong>Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64）。推奨は Ubuntu 24.04 LTS または Debian 12/13。RDP/VNC コンソールのエンジン guacd は必須で、これらのバージョン向けにのみ事前ビルドしています。その他のバージョン、派生ディストリビューション（Linux Mint など）、ARM ではインストールが止まります。Proxmox LXC、仮想マシン、ベアメタルのいずれでも動きます。<br><strong>ハードウェア：</strong>最低 2 vCPU / 4 GB メモリ / 20 GB ディスク。推奨は 4 vCPU / 8 GB / 50 GB（データベース、監査ログ、バックアップの増加に備えて）。4 GB のマシンではワーカーは 2 つになり、アップグレード時にメモリが足りなければフロントエンドのビルド中はバックエンドを一時停止します。2 GB のスワップがあれば停止しません。任意のローカル LLM は別ホストで動かし、モデルに応じたメモリ/VRAM を用意してください。ここには含まれません。<br><strong>自動セットアップ：</strong>インストールスクリプトが PostgreSQL 16、Python 3.11 以降、Node 22 LTS（フロントエンドのビルド用）、nginx などの依存関係を導入・設定し、必要な鍵もすべて生成します。<br><strong>詳細：</strong>手順と環境変数の全体は GitHub の README と <code>scripts/</code> を参照してください。</span>
     </p>
     <!-- ───────── Zone A: systemd + apt (primary) ───────── -->
     <div class="deploy-zone deploy-zone--primary">
@@ -845,6 +848,11 @@ curl -fsSL https://raw.githubusercontent.com/jasoncheng7115/jt-ipam/main/scripts
       <h3 class="dz-h3" id="uninstall-apt"><span class="zh">移除</span><span class="en">Uninstall</span><span class="ja">アンインストール</span></h3>
       <pre>sudo <span class="g">bash /opt/jt-ipam/scripts/jt-ipam.sh uninstall</span></pre>
     </div>
+
+    <p class="sysreq" style="margin:0 0 14px">
+      <span class="zh"><strong>裝好之後：</strong>要依什麼順序開啟功能（先管 IP 與子網路，再接掃描代理與 LibreNMS 等整合，最後是裝置、機櫃與自動化），見<a href="adoption.html">導入流程</a>。</span>
+      <span class="en"><strong>After installing:</strong> for the order to turn features on (IPs and subnets first, then scan agents and integrations such as LibreNMS, then devices, racks and automation), see the <a href="adoption.html">adoption roadmap</a>.</span><span class="ja"><strong>インストールの後は：</strong>機能を有効にする順番（まず IP とサブネット、次にスキャンエージェントと LibreNMS などの連携、最後に機器・ラック・自動化）は<a href="adoption.html">導入ガイド</a>をご覧ください。</span>
+    </p>
 
     <!-- ───────── Zone B: Docker Compose (optional) ───────── -->
     <div class="deploy-zone deploy-zone--optional">
@@ -901,9 +909,9 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
     <div>
       <a href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a> ·
       <a href="https://github.com/jasoncheng7115/jt-ipam/issues" target="_blank" rel="noopener">Issues</a><span
-        class="zh"> · <a href="talks.html">演講</a> · <a href="troubleshooting.html">疑難排解</a></span><span
-        class="en"> · <a href="talks.html">Talks</a> · <a href="troubleshooting.html">Troubleshooting</a></span><span
-        class="ja"> · <a href="talks.html">発表資料</a> · <a href="troubleshooting.html">トラブルシューティング</a></span>
+        class="zh"> · <a href="adoption.html">導入流程</a> · <a href="https://slide.jason.tools/#q=jt-ipam" target="_blank" rel="noopener">演講</a> · <a href="troubleshooting.html">疑難排解</a></span><span
+        class="en"> · <a href="adoption.html">Adoption roadmap</a> · <a href="https://slide.jason.tools/#q=jt-ipam" target="_blank" rel="noopener">Talks</a> · <a href="troubleshooting.html">Troubleshooting</a></span><span
+        class="ja"> · <a href="adoption.html">導入ガイド</a> · <a href="https://slide.jason.tools/#q=jt-ipam" target="_blank" rel="noopener">発表資料</a> · <a href="troubleshooting.html">トラブルシューティング</a></span>
     </div>
   </div>
 </footer>
@@ -993,7 +1001,7 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
       var c = document.body.className;
       return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
     }
-    // 語言與截圖名稱都先比對白名單再組路徑（不讓頁面上的文字直接變成網址）
+    // 語言與截圖名稱都先比對允許清單再組路徑（不讓頁面上的文字直接變成網址）
     var LANGS = { en: 1, zh: 1, ja: 1 };
     function apply(lang){
       if (!Object.prototype.hasOwnProperty.call(LANGS, lang)) lang = 'en';

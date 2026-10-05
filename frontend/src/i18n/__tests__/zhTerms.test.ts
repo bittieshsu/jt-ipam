@@ -43,7 +43,7 @@ describe("繁中用詞", () => {
 
   it("公開文件也一樣", () => {
     const root = resolve(__dirname, "../../../..");
-    const files = ["docs/index.html", "docs/features.html", "README_zh-TW.md", "CHANGELOG_zh-TW.md"];
+    const files = ["docs/index.html", "docs/features.html", "docs/adoption.html", "README_zh-TW.md", "CHANGELOG_zh-TW.md"];
     const found = files.flatMap((f) => offences(readFileSync(resolve(root, f), "utf8")).map((o) => `${f}: ${o}`));
     expect(found).toEqual([]);
   });

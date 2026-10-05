@@ -166,7 +166,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", onWinResize); teard
           </span>
         </template>
         <!-- 已存帳密 -->
-        <div v-if="credOptions.length" class="bmc-saved-row">
+        <div v-if="creds.length" class="bmc-saved-row">
           <span class="bmc-saved-label">{{ t("bmc.saved_cred") }}</span>
           <n-select v-model:value="selectedCredId" :options="credOptions" clearable size="small"
                     :placeholder="t('bmc.saved_cred_ph')" style="flex:1" />

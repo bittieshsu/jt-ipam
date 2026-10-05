@@ -256,7 +256,7 @@ function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } 
     unknown: "var(--jt-cell-unknown, #6b7280)",
   };
   // 自動收錄：對角雙色 —— 左上半紫（自動收錄）、右下半保留狀態色（上線/離線）。
-  // 第一版橘框、第二版角標都「太小看不到」；第三版整格紫又看不出在不在線上。
+  // 第一版橘框、第二版角標都「太小看不到」；第三版整格紫又看不出在不上線。
   // 各佔半格，兩個資訊都一眼可見；紫是調色盤唯一沒用過的顏色。
   if (isAutoAdded(cell.addr)) {
     return { background: `linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, ${colorMap[kind]} 50% 100%)`,

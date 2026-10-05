@@ -14,14 +14,14 @@
 
 | 項目 | 最低 | 建議 | 備註 |
 |---|---|---|---|
-| OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 只支援這些，見下方；24.04 內建 Python 3.12 + PG 16 + Node 18，省事 |
+| OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 只支援這些，見下方；24.04 內建 Python 3.12 + PG 16，省事 |
 | CPU | 2 vCPU | 4 vCPU | 升級時要 build 前端（約 1 分鐘）；RDP 主控台（guacd）與本機掃描代理（nmap）吃 CPU。embedding 是 LLM 伺服器算的，不在這台 |
 | RAM | 4 GB | 8 GB | 4 個 worker 時平常約用 1.8 GB；升級時 build 前端峰值約 1.6 GB。4 GB 或 2 核的機器後端只開 2 個 worker，記憶體不夠時 build 期間會暫停後端（加 2 GB swap 就不會）。每條 RDP 主控台約佔數百 MB。LLM 伺服器裝在同一台要再加 8 GB 以上 |
 | Disk | 20 GB | 50 GB | 安裝本身約 2 GB（Python 套件、node_modules、快取）加作業系統；資料庫、稽核記錄、IP 異動記錄與備份會隨網路規模成長；journald 的日誌有上限 |
 | Python | 3.11 | 3.12 | 24.04 預設就是 3.12  |
 | PostgreSQL | 16 + pgvector | 無 | 22.04 需 PGDG repo（腳本會自動加）|
 | Redis | 7 | 無 | 24.04 預設 7.0.15  |
-| Node | 20 LTS | 22 LTS | 24.04 預設 18.19；vite 6 跑得動但有 warning |
+| Node | 22 LTS | 無 | 只用來建置前端；`jt-ipam.sh` 安裝時會裝 NodeSource 22（只有 Ubuntu 26.04 內建 22），升級時會把較舊的 Node 換成 22 |
 | guacd | jt-ipam 為該 OS 編的版本 | 無 | **必要**：RDP/VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
 | Recog | 最新發佈版 | 無 | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
 
@@ -282,11 +282,11 @@ curl -skI https://ipam.example.com/ \
 ```
 
 **主控台與 SFTP 經過你的邊緣代理。** 每個主控台（包含 SFTP）都是一條長時間的 WebSocket，路徑是
-`/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc)/ws`。SFTP 的檔案在這條 WebSocket 上以 256 KB 為單位傳送，
+`/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc|rustdesk)/ws`。SFTP 的檔案在這條 WebSocket 上以 256 KB 為單位傳送，
 所以 nginx 的 `client_max_body_size` 這類 HTTP 內容大小上限**管不到**檔案大小。會讓大檔傳輸失敗的是路徑上：
 
 - 沒有替這組路徑轉發 WebSocket 升級（主控台會完全連不上）；
-- 限制單一 WebSocket 訊息大小（有些 WAF 會；請至少放寬到 1 MB）；
+- 限制單一 WebSocket 訊息大小（有些 WAF 會；請至少放寬到 1 MB。相容 RustDesk 的網頁連線會整張傳送畫面的關鍵影格，請放寬到 16 MB）；
 - 限制單一 WebSocket 連線的傳輸量或時間，或閒置不到 30 秒就切斷（jt-ipam 每 20 秒送一次保活）。
 
 不必自己去讀各層的設定：在**管理 → 系統設定**的「SFTP 單檔上下傳上限」，只要把上限調高到預設值以上，就會由你的瀏覽器
@@ -750,13 +750,20 @@ asyncio.run(main(sys.argv[1], sys.argv[2]))
 ' admin "MyNewPassword2026!"
 ```
 
-**Q: Ubuntu 24.04 跑前端 build 出現 `Unsupported engine: wanted Node >= 20`？**
-A: 24.04 內建 nodejs 18，vite 6 / vue-tsc 跑得動但有警告。要消警告：用 nvm / nodesource 安裝 Node 20+：
+**Q: 出現 `Node.js install failed or too old (need >= 22)`，或升級時印出「Node.js 22 could not be installed」的警告框？**
+A: Node.js 22 LTS 只用來建置前端（Node 20 已在 2026-04-30 停止支援）。`jt-ipam.sh` 在安裝與升級時都會從
+NodeSource（`setup_22.x`）裝好，平常不用做任何事。主機裝不起來時（連不到 deb.nodesource.com、走代理、apt 衝突），
+`install` 會停下來；`upgrade` 則沿用既有的 Node 20 以上版本建置、照常完成，最後印出那個警告框，此時 pnpm 也會印
+`Unsupported engine: wanted: {"node":">=22"}`，`doctor` 會持續提醒 Node 太舊。手動裝好後重跑同一個指令：
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs
+node -v      # v22.x
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade      # 或 install
 ```
-然後在 `/opt/jt-ipam/frontend` 重 `pnpm install && pnpm build`。
+apt 回報和發行版自己的套件衝突（`trying to overwrite ... libnode-dev`）時，先移除：
+`sudo apt-get purge -y nodejs libnode-dev`。有用 nvm 的話，執行 `sudo` 的那個使用者若有 nvm 的 Node 22 會直接沿用；
+較舊的 nvm Node 不會被採用。
 
 ## RDP 主控台的連線引擎
 

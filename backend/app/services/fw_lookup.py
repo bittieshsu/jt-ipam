@@ -1,10 +1,12 @@
 """「這個 IP 被哪些防火牆規則管到」—— 反向查詢。
 
 日常維運最常問的是反向問題：不是「這條規則管誰」，而是「這台機器對外開了什麼、
-誰能連它」。這裡把三家防火牆的規則、NAT 與別名做成以 IP 為中心的反查。
+誰能連它」。這裡把各家防火牆（OPNsense、pfSense、FortiGate、Palo Alto、MikroTik）的規則、NAT、
+別名與位址物件做成以 IP 為中心的反查（IP 詳細資料的防火牆區塊與「調查」共用）。
 
 比對語意（刻意保守、每筆附命中原因）：
-- **明確命中**才列：規則欄位是這個 IP、或是包含它的 CIDR、或是「成員包含它的別名」。
+- **明確命中**才列：規則欄位是這個 IP、或是包含它的 CIDR、或是「成員包含它的別名／位址物件」。
+  FortiGate／Palo Alto 的政策以物件名稱引用（常常好幾個寫在同一欄），所以先找出涵蓋這個 IP 的物件。
 - `any` 不列 —— 每條 any 規則都命中每個 IP，列了等於整頁雜訊；UI 另以一句話註明
   「來源/目的為 any 的規則也適用」。
 - 全部確定性查詢；別名成員只認單一 IP 與 CIDR（URL 型別名內容不可判定，跳過）。
@@ -73,15 +75,75 @@ def _member_covers(members: list | None, aip: Any) -> bool:
     return False
 
 
+def _object_covers(value: Any, aip: Any) -> bool:
+    """FortiGate／Palo Alto 位址物件的值涵不涵蓋這個 IP：單一位址、`位址/前綴`、`位址/遮罩`、`起-迄`。
+
+    涵蓋全部位址的物件（FortiGate 的 `all` 是 0.0.0.0/0）不算：每個 IP 都命中，比照規則的 any 不列。
+    FQDN、地理位置這類無法以位址判定的一律不命中。
+    """
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        if "-" in text and "/" not in text:
+            lo, hi = (ipaddress.ip_address(x.strip()) for x in text.split("-", 1))
+            return lo.version == aip.version and lo <= aip <= hi
+        if "/" in text:
+            net = ipaddress.ip_network(text, strict=False)
+            return net.prefixlen > 0 and aip in net
+        return ipaddress.ip_address(text) == aip
+    except (ValueError, TypeError):
+        return False
+
+
+def _names_match(field: Any, aip: Any, names: set[str]) -> dict[str, Any] | None:
+    """FortiGate／Palo Alto 的政策欄位是以逗號串起來的物件名稱（`h-a, h-b`）：逐一比對。"""
+    text = str(field or "").strip()
+    if not text:
+        return None
+    for part in [p.strip() for p in text.split(",")] if "," in text else [text]:
+        r = _field_matches(part, aip, names)
+        if r:
+            return r
+    return None
+
+
+def _covering_objects(rows: list[Any], aip: Any) -> dict[Any, dict[str, str]]:
+    """{防火牆 id: {涵蓋這個 IP 的物件名稱: 說明}}。群組只要有成員命中（可巢狀，最多幾層）就算。"""
+    def descr(o: Any) -> str:
+        return str(getattr(o, "comment", None) or getattr(o, "description", None) or "")[:120]
+
+    hit: dict[Any, dict[str, str]] = {}
+    groups: list[Any] = []
+    for o in rows:
+        if o.kind == "group":
+            groups.append(o)
+        elif _object_covers(o.value, aip):
+            hit.setdefault(o.firewall_id, {})[o.name] = descr(o)
+    for _ in range(5):            # 群組裡還有群組：一層一層往外擴，到沒有新的為止
+        grew = False
+        for g in groups:
+            names = hit.setdefault(g.firewall_id, {})
+            if g.name in names:
+                continue
+            members = {str(m).strip() for m in (g.members or [])}
+            if members & names.keys() or _member_covers(list(members), aip):
+                names[g.name] = descr(g)
+                grew = True
+        if not grew:
+            break
+    return {k: v for k, v in hit.items() if v}
+
+
 async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     """回傳 {rules, nat, aliases}，每筆附 source_type／防火牆名／命中原因。"""
     from app.models.address import IPAddress
     from app.models.firewall import OPNsenseFirewall, OPNsenseSyncedAlias
     from app.models.firewall_rule import OPNsenseRule
-    from app.models.fortigate import FortiGateFirewall, FortiGatePolicy
+    from app.models.fortigate import FortiGateAddressObject, FortiGateFirewall, FortiGatePolicy
     from app.models.mikrotik import MikroTikAddressList, MikroTikRouter, MikroTikRule
     from app.models.nat import NATTranslation
-    from app.models.paloalto import PaloAltoFirewall, PaloAltoPolicy
+    from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall, PaloAltoPolicy
     from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 
     aip = ipaddress.ip_address(ip)
@@ -148,15 +210,27 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
                     "match": _match_payload(why_src, why_dst),
                 })
 
-    # ── FortiGate 政策 ──
+    # ── FortiGate 位址物件／群組 ──
+    # 政策欄位寫的是物件名稱（而且常常好幾個串在一起），不先找出涵蓋這個 IP 的物件，
+    # 以物件引用的政策就永遠反查不到。名稱只在同一台防火牆內有意義，所以逐台記。
     fg_names = {f.id: f.name for f in (await session.execute(
         select(FortiGateFirewall))).scalars().all()}
+    fg_objs = _covering_objects(list((await session.execute(
+        select(FortiGateAddressObject))).scalars().all()), aip)
+    for fid, names in fg_objs.items():
+        for name in sorted(names):
+            out["aliases"].append({"source_type": "fortigate", "name": name,
+                                   "firewall": fg_names.get(fid, "?"),
+                                   "firewall_id": str(fid), "ref": name, "descr": names[name]})
+
+    # ── FortiGate 政策 ──
     for r in (await session.execute(
             select(FortiGatePolicy))).scalars().all():
         if (r.status or "") == "disable":
             continue
-        why_src = _field_matches(getattr(r, "srcaddr", None), aip, alias_names)
-        why_dst = _field_matches(getattr(r, "dstaddr", None), aip, alias_names)
+        names = alias_names | set(fg_objs.get(r.firewall_id, {}))
+        why_src = _names_match(getattr(r, "srcaddr", None), aip, names)
+        why_dst = _names_match(getattr(r, "dstaddr", None), aip, names)
         if why_src or why_dst:
             out["rules"].append({
                 "source_type": "fortigate", "firewall": fg_names.get(r.firewall_id, "?"),
@@ -173,11 +247,19 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
     # 不然使用者看到的規則會少掉真正在管的那一半。
     pa_names = {f.id: f.name for f in (await session.execute(
         select(PaloAltoFirewall))).scalars().all()}
+    pa_objs = _covering_objects(list((await session.execute(
+        select(PaloAltoAddressObject))).scalars().all()), aip)
+    for fid, names in pa_objs.items():
+        for name in sorted(names):
+            out["aliases"].append({"source_type": "paloalto", "name": name,
+                                   "firewall": pa_names.get(fid, "?"),
+                                   "firewall_id": str(fid), "ref": name, "descr": names[name]})
     for r in (await session.execute(select(PaloAltoPolicy))).scalars().all():
         if r.disabled:
             continue
-        why_src = _field_matches(getattr(r, "source", None), aip, alias_names)
-        why_dst = _field_matches(getattr(r, "destination", None), aip, alias_names)
+        names = alias_names | set(pa_objs.get(r.firewall_id, {}))
+        why_src = _names_match(getattr(r, "source", None), aip, names)
+        why_dst = _names_match(getattr(r, "destination", None), aip, names)
         if why_src or why_dst:
             app_id = str(getattr(r, "application", "") or "")
             svc = str(getattr(r, "service", "") or "")
@@ -293,6 +375,8 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
         return {
             "registered": True, "ip": str(ipa.ip), "ip_id": str(ipa.id),
             "hostname": ipa.hostname, "status": ipa.effective_status,
+            # 「設備類型」欄（對外開的是攝影機、NAS 還是伺服器）
+            "device_kind": ipa.device_kind, "device_model": ipa.device_model,
             "subnet": str(sub.cidr) if sub else None,
             "customer": cust.name if cust else None,
             "wazuh": None if wa is None else (wa.status or "present"),
@@ -448,9 +532,24 @@ async def is_virtual_guest(session: AsyncSession, ip: str | None, mac: str | Non
 
     判讀設備類型時用：虛擬化讓 nmap 的 TCP/IP 指紋失準（PVE 的 LXC 容器被判成 HP NAS，2026-10-02），
     定期 OS 偵測、手動探測、探測完成的通知都要用同一個答案，同一台才不會在不同畫面判成不同東西。"""
-    if not ip and not mac:
-        return False
-    return await vm_match_for(session, ip=ip, macs=[mac] if mac else None) is not None
+    return await virtual_guest_kind(session, ip, mac) is not None
+
+
+#: Proxmox VE 指派給虛擬機／容器網卡的 OUI（Proxmox Server Solutions GmbH）：實體主機的網卡不會是這段
+PROXMOX_GUEST_OUI = "bc:24:11:"
+
+
+async def virtual_guest_kind(session: AsyncSession, ip: str | None, mac: str | None = None) -> str | None:
+    """"ct"（LXC 容器）、"vm"（KVM 虛擬機或其他平台的虛擬機）或 None（不知道，不代表實體機）。
+
+    容器一定是 Linux；虛擬機可能是防火牆、Windows（同一個網段裡就有好幾台），判讀時要分開。網卡是 Proxmox 指派的
+    MAC（bc:24:11）時，就算盤點沒對到也是 PVE 上的虛擬機或容器（192.0.2.82 的 TrueNAS 虛擬機，對抗式驗證 2026-10-05）。"""
+    m = await vm_match_for(session, ip=ip, macs=[mac] if mac else None) if (ip or mac) else None
+    if m is not None:
+        return "ct" if m.get("kind") == "ct" else "vm"
+    if mac and str(mac).lower().startswith(PROXMOX_GUEST_OUI):
+        return "vm"
+    return None
 
 
 async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
@@ -465,17 +564,22 @@ async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
 
     conds = []
+    want = {str(m).lower() for m in (macs or []) if m}
     if ip:
         conds.append(VMInterface.primary_ip == ip)
-    if macs:
-        conds.append(VMInterface.mac.in_(macs))  # bounded: MACs of one IP
+    if want:
+        conds.append(VMInterface.mac.in_(sorted(want)))  # bounded: MACs of one IP（macaddr 本身不分大小寫）
     if not conds:
         return None
     from sqlalchemy import or_
-    row = (await session.execute(
+    rows = (await session.execute(
         select(VMInterface, VirtualMachine)
         .join(VirtualMachine, VMInterface.vm_id == VirtualMachine.id)
-        .where(or_(*conds)).limit(1))).first()
+        .where(or_(*conds)).limit(8))).all()
+    # 只有 IP 對到、而兩邊的 MAC 都知道卻不同 → DHCP 位址換了主人，不是這台 VM（2026-10-05 iPhone 被標成
+    # vm-lab-02 虛擬機）。MAC 對到的優先
+    row = next((r for r in rows if r[0].mac and str(r[0].mac).lower() in want), None) or next(
+        (r for r in rows if not (want and r[0].mac and str(r[0].mac).lower() not in want)), None)
     if row is None:
         return None
     vm = row[1]
@@ -484,4 +588,8 @@ async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
             "cluster": cluster.name if cluster else None,
             "platform": cluster.type if cluster else "proxmox",
             # PVE 的 qemu（KVM 虛擬機）＝"vm"、lxc 容器＝"ct"；VMware 沒有這個區分（None）
-            "kind": vm.kind}
+            "kind": vm.kind,
+            # 調查用：在哪個節點、現在的狀態、哪張網卡對到的（PVE 的 VMID）
+            "node": vm.node, "status": vm.status, "vmid": vm.legacy_vmid,
+            "interface": row[0].name,
+            "matched_by": "mac" if row[0].mac and str(row[0].mac).lower() in want else "ip"}

@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>jt-ipam: Adoption roadmap</title>
+<meta name="description" content="How to roll jt-ipam out in an organisation, phase by phase: what to turn on, in which order, and when each phase is done." />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<style>
+  :root{
+    --green:#18a058; --green-h:#36ad6a; --cyan:#22d3ee;
+    --ink:#0f172a; --body:#334155; --muted:#64748b;
+    --bg:#eef3ee; --card:#ffffff; --line:#e2e8e4;
+    /* 導入流程圖的兩種階段：核心（綠）與擴充（藍） */
+    --core:#18a058; --core-soft:#e8f6ee; --ext:#0284c7; --ext-soft:#e6f3fb;
+    --warn-bg:#fff7ed; --warn-line:#fed7aa; --warn-ink:#7c2d12;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    color:var(--body);background:var(--bg);line-height:1.7}
+  a{color:inherit;text-decoration:none}
+  /* 三語切換：只顯示目前語言的節點。 */
+  .zh,.en,.ja{display:none}
+  body.lang-zh .zh{display:initial}
+  body.lang-en .en{display:initial}
+  body.lang-ja .ja{display:initial}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  /* ── 與首頁一致的頂列 ── */
+  nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(8px);
+    border-bottom:1px solid var(--line)}
+  .nav-in{display:flex;align-items:center;gap:18px;height:60px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--ink);font-size:18px}
+  .nav-links{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap;align-items:center}
+  .nav-links a{color:var(--body);font-size:14px;font-weight:500}
+  .nav-links a:hover{color:var(--green)}
+  .nav-links a[aria-current="page"]{color:var(--green);font-weight:700}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 18px;border-radius:10px;
+    font-weight:600;font-size:15px;line-height:1.3;border:1px solid transparent;cursor:pointer;font-family:inherit}
+  .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--green)}
+  .btn-sm{padding:6px 12px;font-size:13px}
+  /* ── 語言切換（自訂下拉） ── */
+  .langsw{position:relative;display:inline-flex;align-items:center}
+  .langsw > button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+    border-radius:10px;background:#fff;color:var(--ink);font-family:inherit;font-size:13px;
+    font-weight:600;padding:6px 11px;cursor:pointer;line-height:1.3;white-space:nowrap}
+  .langsw > button:hover{border-color:var(--green)}
+  .langsw > button:focus-visible{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(24,160,88,.12)}
+  .langsw .chev{width:7px;height:7px;flex:none;border-right:1.6px solid var(--muted);
+    border-bottom:1.6px solid var(--muted);transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+  .langsw > button[aria-expanded="true"] .chev{transform:translateY(1px) rotate(-135deg)}
+  .langsw ul{position:absolute;top:calc(100% + 6px);right:0;z-index:60;margin:0;padding:5px;
+    list-style:none;min-width:140px;background:#fff;border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 10px 28px rgba(15,23,42,.13)}
+  .langsw li{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+    font-size:13.5px;color:var(--body);cursor:pointer;white-space:nowrap}
+  .langsw li:hover{background:#f1f5f2;color:var(--ink)}
+  .langsw li[aria-selected="true"]{color:var(--green);font-weight:700}
+  .langsw li .tick{width:14px;flex:none;text-align:center;opacity:0}
+  .langsw li[aria-selected="true"] .tick{opacity:1}
+  @media(max-width:560px){
+    .wrap{padding:0 16px}
+    .nav-in{height:auto;padding:10px 16px;flex-wrap:wrap;gap:10px}
+    .brand{font-size:16px;white-space:nowrap}
+    .nav-links{gap:8px;width:100%;justify-content:flex-end}
+  }
+  @media(max-width:900px){.nav-links a:not(.btn){display:none}}
+
+  /* ── 頁首 ── */
+  h1{font-size:clamp(26px,4vw,36px);color:var(--ink);margin:30px 0 6px}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 10px;max-width:820px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;font-size:13px;font-weight:600;color:var(--ink);background:var(--card);
+    border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+  .toc a:hover{border-color:var(--green);color:var(--green)}
+
+  /* ── 區塊 ── */
+  section.blk{margin:34px 0 0}
+  h2{font-size:clamp(20px,2.6vw,24px);color:var(--ink);margin:0 0 12px;line-height:1.4}
+  h3{font-size:16.5px;color:var(--ink);margin:18px 0 8px;line-height:1.5}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 24px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .box p{margin:8px 0;font-size:14.8px}
+  .box ul{margin:6px 0 10px;padding-left:22px;font-size:14.6px}
+  .box li{margin:4px 0}
+  code{background:#eef3ee;border:1px solid var(--line);border-radius:5px;padding:1px 5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.8px;color:var(--ink);
+    overflow-wrap:anywhere}
+  pre{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px 14px;overflow:auto;margin:10px 0;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.8px;line-height:1.6}
+  pre code{background:transparent;border:0;padding:0;color:inherit;font-size:inherit}
+  a.lnk{color:var(--green);font-weight:600}
+  a.lnk:hover{text-decoration:underline}
+  .note{border-left:3px solid var(--green);background:#f1f8f3;border-radius:8px;padding:9px 13px;margin:12px 0;font-size:14px}
+  .warn{border-left:3px solid #f59e0b;background:var(--warn-bg);border-radius:8px;padding:9px 13px;margin:12px 0;
+    font-size:14px;color:var(--warn-ink)}
+
+  /* ── 三個原則 ── */
+  .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .card h3{margin:0 0 6px;font-size:15.5px}
+  .card p{margin:0;font-size:14.2px}
+  @media(max-width:820px){.cards{grid-template-columns:minmax(0,1fr)}}
+
+  /* ── 導入流程圖（純 CSS） ──
+     六個階段排成一列、中間用箭頭接起來；寬度不夠時改成兩列三個，手機改成直排、箭頭朝下。
+     上緣色條區分核心（每個站台都做）與擴充（依環境選擇）。 */
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 12px;font-size:13px;color:var(--muted)}
+  .legend span.k{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:22px;height:8px;border-radius:4px;display:inline-block}
+  .legend i.core{background:var(--core)}
+  .legend i.ext{background:var(--ext)}
+  ol.flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}
+  ol.flow > li{position:relative;min-width:0}
+  ol.flow > li > a{display:flex;flex-direction:column;gap:4px;height:100%;background:var(--card);
+    border:1px solid var(--line);border-top:5px solid var(--c);border-radius:12px;padding:10px 12px 12px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05);transition:border-color .15s, transform .15s}
+  ol.flow > li > a:hover{border-color:var(--c);transform:translateY(-1px)}
+  ol.flow > li.core{--c:var(--core);--s:var(--core-soft)}
+  ol.flow > li.ext{--c:var(--ext);--s:var(--ext-soft)}
+  .ph-n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;
+    background:var(--c);color:#fff;font-weight:800;font-size:14px;flex:none}
+  .ph-top{display:flex;align-items:center;gap:8px}
+  .ph-k{font-size:11.5px;font-weight:700;letter-spacing:.04em;color:var(--c);text-transform:uppercase}
+  .ph-t{font-weight:800;color:var(--ink);font-size:14.5px;line-height:1.4}
+  .ph-d{font-size:12.8px;color:var(--body);line-height:1.55}
+  .ph-time{margin-top:auto;padding-top:6px;font-size:12px;color:var(--muted)}
+  .ph-time b{color:var(--ink);font-weight:700}
+  /* 箭頭：放在格線間距裡 */
+  ol.flow > li:not(:last-child)::after{content:"";position:absolute;top:50%;right:-13px;width:9px;height:9px;
+    border-top:2.5px solid #94a3b8;border-right:2.5px solid #94a3b8;transform:translateY(-50%) rotate(45deg)}
+  @media(max-width:960px){
+    ol.flow{grid-template-columns:repeat(3,minmax(0,1fr))}
+    ol.flow > li:nth-child(3)::after{display:none}
+  }
+  @media(max-width:560px){
+    ol.flow{grid-template-columns:minmax(0,1fr);gap:20px}
+    ol.flow > li:not(:last-child)::after,
+    ol.flow > li:nth-child(3)::after{display:block;top:auto;bottom:-15px;right:auto;left:50%;
+      transform:translateX(-50%) rotate(135deg)}
+  }
+
+  /* ── 兩種節奏的時間軸（與上面六個階段對齊成六欄） ── */
+  .pchart{margin:22px 0 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 16px}
+  .pc-head,.pc-track{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}
+  .pc-head > span{display:flex;justify-content:center}
+  .pc-head > span.core{--c:var(--core)} .pc-head > span.ext{--c:var(--ext)}
+  .pc-head .ph-n{font-style:normal;width:22px;height:22px;font-size:12.5px}
+  .pc-label{font-size:13.5px;font-weight:700;color:var(--ink);margin:12px 0 5px}
+  .pc-label small{font-weight:500;color:var(--muted);margin-left:6px;font-size:12.5px}
+  .pc-track > span{min-height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    text-align:center;font-size:12px;line-height:1.25;padding:3px 4px;background:#f1f5f2;color:var(--muted)}
+  .pc-track > span.q{background:var(--core);color:#fff;font-weight:600}
+  .pc-track > span.qp{background:repeating-linear-gradient(135deg,var(--core-soft) 0 6px,#d3eedd 6px 12px);
+    color:#14532d;font-weight:600;border:1px dashed var(--core)}
+  .pc-track > span.f{background:var(--ext);color:#fff;font-weight:600}
+  .pc-note{font-size:12.5px;color:var(--muted);margin:10px 0 0}
+  /* 手機：六欄擠不下（「第 10～13 週」會折成三行）→ 改成一個階段一列的表 */
+  .pc-mobile{display:none}
+  @media(max-width:560px){
+    .pchart .pc-head,.pchart .pc-label,.pchart .pc-track{display:none}
+    .pc-mobile{display:table;width:100%;border-collapse:collapse;font-size:13.5px}
+    .pc-mobile th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:2px 6px 6px}
+    .pc-mobile td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
+    .pc-mobile tr.core{--c:var(--core)} .pc-mobile tr.ext{--c:var(--ext)}
+    .pc-mobile td.ph{white-space:nowrap;font-weight:600;color:var(--ink)}
+    .pc-mobile td.ph .ph-n{font-style:normal;width:22px;height:22px;font-size:12.5px;margin-right:6px;vertical-align:middle}
+    .pc-mobile td.w{color:var(--core);font-weight:600}
+    .pc-mobile td.w.later{color:var(--muted);font-weight:500}
+    .pc-mobile td.q{color:var(--ext);font-weight:600}
+  }
+
+  /* ── 階段總表：桌面是表格，窄螢幕改成一階段一張卡片 ── */
+  .tbl{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;font-size:13.8px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .tbl th,.tbl td{padding:11px 13px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  .tbl thead th{background:rgba(24,160,88,.07);color:var(--ink);font-weight:700;font-size:13.2px}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl td.ph-cell{font-weight:800;color:var(--ink);white-space:nowrap}
+  .tbl td.ph-cell .ph-n{width:22px;height:22px;font-size:12.5px;margin-right:6px;vertical-align:-5px}
+  .tbl tr.core{--c:var(--core)} .tbl tr.ext{--c:var(--ext)}
+  .tbl td.ph-cell span.nm{display:inline}
+  .tbl ul{margin:0;padding-left:17px} .tbl li{margin:2px 0}
+  .tbl.order td.ord{font-weight:800;color:var(--ink);white-space:nowrap}
+  @media(max-width:760px){
+    .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+    .tbl{border:0;background:transparent;box-shadow:none;overflow:visible}
+    .tbl thead{display:none}
+    .tbl tr{background:var(--card);border:1px solid var(--line);border-top:5px solid var(--c,var(--green));
+      border-radius:12px;margin:0 0 12px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+    .tbl td{border-bottom:1px dashed var(--line);padding:9px 14px}
+    .tbl tbody tr:last-child td{border-bottom:1px dashed var(--line)}
+    .tbl tr td:last-child,.tbl tbody tr:last-child td:last-child{border-bottom:0}
+    .tbl td.ph-cell,.tbl.order td.ord{white-space:normal;font-size:15px}
+    /* 卡片裡每一格前面補上欄名（依目前語言） */
+    .tbl td[data-zh]::before{display:block;font-size:11.5px;font-weight:700;color:var(--muted);
+      letter-spacing:.03em;margin-bottom:2px}
+    body.lang-zh .tbl td[data-zh]::before{content:attr(data-zh)}
+    body.lang-en .tbl td[data-zh]::before{content:attr(data-en)}
+    body.lang-ja .tbl td[data-zh]::before{content:attr(data-ja)}
+  }
+
+  /* ── 兩條路線 ── */
+  .paths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .path{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    border-top:5px solid var(--c);box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .path.quick{--c:var(--core)} .path.full{--c:var(--ext)}
+  .path h3{margin:0 0 4px}
+  .path .who{font-size:13.5px;color:var(--muted);margin:0 0 8px}
+  .path ol{margin:0;padding-left:0;list-style:none;font-size:14.2px}
+  .path ol li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:7px 0;border-top:1px dashed var(--line)}
+  .path ol li:first-child{border-top:0}
+  .path .when{font-weight:700;color:var(--c);white-space:nowrap;font-size:13.2px;min-width:74px}
+  .path .out{margin:10px 0 0;font-size:13.5px;background:var(--s,#f1f8f3);border-radius:8px;padding:8px 11px}
+  .path.quick .out{background:var(--core-soft)} .path.full .out{background:var(--ext-soft)}
+  @media(max-width:820px){.paths{grid-template-columns:minmax(0,1fr)}}
+
+  /* ── 各階段細節 ── */
+  .phase{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:16px;
+    padding:18px 24px 20px;box-shadow:0 1px 3px rgba(15,23,42,.05);margin:0 0 18px}
+  .phase.core{--c:var(--core)} .phase.ext{--c:var(--ext)}
+  .phase > h2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .phase > h2 .ph-n{width:30px;height:30px;font-size:15px;margin-top:2px}
+  /* anchors.js 把標題包成可換行的 inline-flex；數字圓圈與標題要留在同一列，長標題自己在文字內換行 */
+  .phase > h2 .head-link{flex-wrap:nowrap;align-items:flex-start}
+  .phase p{margin:8px 0;font-size:14.6px}
+  .phase .goal{margin:0 0 6px;font-size:15px;color:var(--ink)}
+  .phase h3{font-size:15px;margin:16px 0 6px;color:var(--ink)}
+  .phase ul{margin:4px 0 8px;padding-left:22px;font-size:14.5px}
+  .phase li{margin:5px 0}
+  /* 連結之間沒有空白可斷行，所以用 flex-wrap 讓它們自己換行（否則窄螢幕整列撐出頁面） */
+  .phase .refs{margin:14px 0 0;padding-top:10px;border-top:1px dashed var(--line);font-size:13.5px;
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+  .phase .refs b{color:var(--ink)}
+  .phase .refs a{color:var(--green);font-weight:600;white-space:nowrap}
+  .phase .refs a:hover{text-decoration:underline}
+  @media(max-width:560px){
+    .box,.phase{padding:16px 16px 18px}
+    .phase .refs a{white-space:normal}
+  }
+
+  footer{margin:36px 0 80px;font-size:12.5px;color:var(--muted);text-align:center}
+  footer a{color:var(--green)}
+</style>
+<noscript><style>.en{display:initial}</style></noscript>
+</head>
+<body>
+<script>
+  /* 在內容繪製前先決定語言（避免閃爍）。優先序：網址 ?lang= > localStorage 偏好 > 預設英文。 */
+  (function(){
+    try{
+      function norm(v){ v = (v || '').toLowerCase();
+        if (v === 'en' || v === 'en-us') return 'en';
+        if (v === 'ja' || v === 'ja-jp') return 'ja';
+        if (v === 'zh' || v === 'zh-tw' || v === 'zh-hant') return 'zh';
+        return null; }
+      var u = null; try { u = norm(new URLSearchParams(location.search).get('lang')); } catch (e) {}
+      var lang = u || norm(localStorage.getItem('jtipam-doc-lang')) || 'en';
+      document.body.classList.add('lang-' + lang);
+      document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : lang === 'ja' ? 'ja' : 'zh-Hant');
+      if (u){ try {
+        localStorage.setItem('jtipam-doc-lang', u);
+        var url = new URL(location.href);
+        url.searchParams.set('lang', u === 'en' ? 'en' : u === 'ja' ? 'ja' : 'zh-TW');
+        history.replaceState(null, '', url);
+      } catch (e) {} }
+    } catch (e) {}
+  })();
+</script>
+<nav>
+  <div class="wrap nav-in">
+    <span class="brand">
+      <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+        <rect width="64" height="64" rx="14" fill="#18a058"/>
+        <g stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-opacity="0.9">
+          <line x1="18" y1="18" x2="32" y2="32"/><line x1="46" y1="18" x2="32" y2="32"/>
+          <line x1="18" y1="46" x2="32" y2="32"/><line x1="46" y1="46" x2="32" y2="32"/>
+        </g>
+        <g fill="#fff"><circle cx="18" cy="18" r="5"/><circle cx="46" cy="18" r="5"/>
+          <circle cx="18" cy="46" r="5"/><circle cx="46" cy="46" r="5"/></g>
+        <circle cx="32" cy="32" r="8" fill="#fff"/><circle cx="32" cy="32" r="3.5" fill="#18a058"/>
+      </svg>
+      jt-ipam
+    </span>
+    <div class="nav-links">
+      <a href="index.html#features"><span class="zh">特色</span><span class="en">Features</span><span class="ja">機能</span></a>
+      <a href="index.html#integrations"><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></a>
+      <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
+      <a href="adoption.html" aria-current="page"><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></a>
+      <a href="features.html"><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></a>
+      <a href="api.html">API</a>
+      <a class="btn btn-ghost btn-sm" href="index.html"><span class="zh">回首頁</span><span class="en">Home</span><span class="ja">ホーム</span></a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
+      <span class="langsw">
+        <button type="button" id="langBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+          <span id="langCur">繁體中文</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <ul id="langMenu" role="listbox" hidden>
+          <li role="option" data-lang="zh"><span class="tick">✓</span>繁體中文</li>
+          <li role="option" data-lang="en"><span class="tick">✓</span>English</li>
+          <li role="option" data-lang="ja"><span class="tick">✓</span>日本語</li>
+        </ul>
+      </span>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+  <h1><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></h1>
+  <p class="sub"><span class="zh">給負責把 jt-ipam 帶進公司的網管與資訊主管：從安裝到自動化分成六個階段，依序開啟功能。每個階段都有明確的完成標準，做完再往下走，資料在每一步都可信。</span><span class="en">For the network admins and IT leads bringing jt-ipam into an organisation: six phases from install to automation, turning features on in order. Each phase has a clear finish line, and you move on only when it is met, so the data can be trusted at every step.</span><span class="ja">jt-ipam を社内に導入するネットワーク管理者と情報システム部門の責任者向けのガイドです。インストールから自動化までを 6 つのフェーズに分け、順番に機能を有効にしていきます。各フェーズには完了の目安があり、それを満たしてから次へ進むので、どの段階でもデータを信頼できます。</span></p>
+  <ul class="toc">
+    <li><a href="#principles"><span class="zh">為什麼分階段</span><span class="en">Why phases</span><span class="ja">段階的に進める理由</span></a></li>
+    <li><a href="#flow"><span class="zh">導入順序圖</span><span class="en">Roadmap at a glance</span><span class="ja">導入の流れ</span></a></li>
+    <li><a href="#phase-table"><span class="zh">階段總表</span><span class="en">Phase table</span><span class="ja">フェーズ一覧</span></a></li>
+    <li><a href="#paths"><span class="zh">一週與一季兩種節奏</span><span class="en">One week or one quarter</span><span class="ja">1 週間と四半期の進め方</span></a></li>
+    <li><a href="#phase-0"><span class="zh">各階段細節</span><span class="en">Phase details</span><span class="ja">各フェーズの詳細</span></a></li>
+    <li><a href="#related"><span class="zh">相關文件</span><span class="en">Related docs</span><span class="ja">関連ドキュメント</span></a></li>
+  </ul>
+
+  <!-- ───────── 原則 ───────── -->
+  <section class="blk">
+    <h2 id="principles"><span class="zh">為什麼要分階段</span><span class="en">Why roll out in phases</span><span class="ja">段階的に導入する理由</span></h2>
+    <div class="cards">
+      <div class="card">
+        <h3 id="principle-plan-first"><span class="zh">先有規劃，再讓機器補上事實</span><span class="en">Plan first, then let machines add the facts</span><span class="ja">まず計画、事実は機械に補わせる</span></h3>
+        <p><span class="zh">子網路與 IP 的規劃是人決定的「應該如何」；掃描與整合回報的是「實際如何」。先把規劃建好，回報的資料才有東西可以比對，落差才看得出來。</span><span class="en">The subnet and IP plan is what people decide should be; scans and integrations report what actually is. Build the plan first and the reports have something to be compared against, so the gaps show.</span><span class="ja">サブネットと IP の計画は人が決める「あるべき姿」、スキャンと連携が報告するのは「実際の姿」です。計画を先に作っておけば、報告されたデータと突き合わせて差分が見えるようになります。</span></p>
+      </div>
+      <div class="card">
+        <h3 id="principle-read-only-first"><span class="zh">先唯讀比對，再考慮自動建立</span><span class="en">Read-only first, auto-create later</span><span class="ja">まず読み取りで照合、自動作成は後で</span></h3>
+        <p><span class="zh">整合一律唯讀拉取。會自動建立 IP 紀錄的開關，除了 LibreNMS 的「自動建立裝置主 IP」之外都預設關閉。先觀察一陣子比對結果，確定來源可靠再開；否則私接的設備會被安靜地收成正式紀錄。</span><span class="en">Integrations always pull read-only. Every switch that creates IP records is off by default, except LibreNMS's "Auto-create device primary IPs". Watch the comparisons for a while and turn one on only once you trust the source; otherwise an unauthorised device quietly becomes an official record.</span><span class="ja">連携は常に読み取り専用で取得します。IP レコードを自動作成するスイッチは、LibreNMS の「機器の主 IP を自動作成する」を除いてすべて既定で無効です。しばらく照合結果を観察し、ソースを信頼できると判断してから有効にしてください。そうしないと、無断で接続された機器が正式なレコードとして静かに登録されてしまいます。</span></p>
+      </div>
+      <div class="card">
+        <h3 id="principle-finish-line"><span class="zh">每個階段都有完成標準</span><span class="en">Every phase has a finish line</span><span class="ja">各フェーズに完了の目安</span></h3>
+        <p><span class="zh">總表的「完成標準」達到了再進下一階段。跳過的話，後面的偵測（例如未授權 IP）會因為底下的資料不完整而一直誤報，大家很快就不再相信它。</span><span class="en">Move on when the "done when" column is met. Skip ahead and later checks (unauthorised IPs, for example) keep raising false alarms because the data underneath is incomplete, and people soon stop trusting them.</span><span class="ja">一覧の「完了の目安」を満たしてから次のフェーズへ進みます。飛ばしてしまうと、後の検知（たとえば未許可の IP）が土台のデータ不足のために誤報を出し続け、すぐに誰も信用しなくなります。</span></p>
+      </div>
+    </div>
+    <p class="note"><span class="zh">jt-ipam 是集中記錄與管理的工具：它<b>不會</b>發放或回收位址，也不會封鎖設備。實際的發放與阻擋仍由你的 DHCP、防火牆與 NAC 負責。詳見<a class="lnk" href="index.html#positioning">定位說明</a>。</span><span class="en">jt-ipam records and manages; it does <b>not</b> hand out or revoke addresses, and it does not block devices. Assignment and blocking stay with your DHCP, firewalls and NAC. See <a class="lnk" href="index.html#positioning">what it is</a>.</span><span class="ja">jt-ipam は記録と集中管理のための道具です。アドレスの払い出しや回収、機器の遮断は<b>行いません</b>。それらは引き続き DHCP・ファイアウォール・NAC の役割です。詳しくは<a class="lnk" href="index.html#positioning">位置づけ</a>をご覧ください。</span></p>
+  </section>
+
+  <!-- ───────── 流程圖 ───────── -->
+  <section class="blk">
+    <h2 id="flow"><span class="zh">導入順序圖</span><span class="en">Roadmap at a glance</span><span class="ja">導入の流れ</span></h2>
+    <div class="legend">
+      <span class="k"><i class="core"></i><span class="zh">核心：每個站台都要做</span><span class="en">Core: every site does these</span><span class="ja">コア：どのサイトでも実施</span></span>
+      <span class="k"><i class="ext"></i><span class="zh">擴充：依你已有的系統與需求選擇</span><span class="en">Extend: pick by the systems you run and what you need</span><span class="ja">拡張：既存のシステムと必要に応じて選択</span></span>
+    </div>
+    <ol class="flow" aria-label="Adoption phases 0 to 5">
+      <li class="core"><a href="#phase-0">
+        <span class="ph-top"><span class="ph-n">0</span><span class="ph-k"><span class="zh">階段 0</span><span class="en">Phase 0</span><span class="ja">フェーズ 0</span></span></span>
+        <span class="ph-t"><span class="zh">安裝與安全</span><span class="en">Install and secure</span><span class="ja">インストールと保護</span></span>
+        <span class="ph-d"><span class="zh">HTTPS、管理員密碼、LDAP / SSO、群組與權限、備份</span><span class="en">HTTPS, admin password, LDAP / SSO, groups and permissions, backups</span><span class="ja">HTTPS、管理者パスワード、LDAP / SSO、グループと権限、バックアップ</span></span>
+        <span class="ph-time"><span class="zh">約 <b>1 天</b></span><span class="en">about <b>1 day</b></span><span class="ja">約 <b>1 日</b></span></span>
+      </a></li>
+      <li class="core"><a href="#phase-1">
+        <span class="ph-top"><span class="ph-n">1</span><span class="ph-k"><span class="zh">階段 1</span><span class="en">Phase 1</span><span class="ja">フェーズ 1</span></span></span>
+        <span class="ph-t"><span class="zh">IP 規劃成為唯一依據</span><span class="en">The IP plan becomes the source of truth</span><span class="ja">IP 計画を唯一の拠り所に</span></span>
+        <span class="ph-d"><span class="zh">區段、子網路、VLAN、VRF、匯入、位址範圍、單位、IP 申請</span><span class="en">Sections, subnets, VLANs, VRFs, import, address ranges, customers, IP requests</span><span class="ja">セクション、サブネット、VLAN、VRF、取り込み、アドレス範囲、顧客、IP 申請</span></span>
+        <span class="ph-time"><span class="zh">約 <b>2 天至 2 週</b></span><span class="en">about <b>2 days to 2 weeks</b></span><span class="ja">約 <b>2 日〜2 週間</b></span></span>
+      </a></li>
+      <li class="core"><a href="#phase-2">
+        <span class="ph-top"><span class="ph-n">2</span><span class="ph-k"><span class="zh">階段 2</span><span class="en">Phase 2</span><span class="ja">フェーズ 2</span></span></span>
+        <span class="ph-t"><span class="zh">探索與上線狀態</span><span class="en">Discovery and liveness</span><span class="ja">検出と死活</span></span>
+        <span class="ph-d"><span class="zh">掃描代理、上線判定、各來源最後出現、IP 異動記錄、異常偵測</span><span class="en">Scan agents, liveness, last seen by source, IP change log, anomaly detection</span><span class="ja">スキャンエージェント、死活、ソース別の最終確認、IP 変更履歴、異常検知</span></span>
+        <span class="ph-time"><span class="zh">約 <b>1 至 2 週</b></span><span class="en">about <b>1 to 2 weeks</b></span><span class="ja">約 <b>1〜2 週間</b></span></span>
+      </a></li>
+      <li class="ext"><a href="#phase-3">
+        <span class="ph-top"><span class="ph-n">3</span><span class="ph-k"><span class="zh">階段 3</span><span class="en">Phase 3</span><span class="ja">フェーズ 3</span></span></span>
+        <span class="ph-t"><span class="zh">用整合印證現況</span><span class="en">Integrations confirm reality</span><span class="ja">連携で実態を裏付け</span></span>
+        <span class="ph-d"><span class="zh">LibreNMS、防火牆、DHCP、DNS、虛擬化、Wazuh / OCS / Zabbix / RustDesk</span><span class="en">LibreNMS, firewalls, DHCP, DNS, virtualization, Wazuh / OCS / Zabbix / RustDesk</span><span class="ja">LibreNMS、ファイアウォール、DHCP、DNS、仮想化、Wazuh / OCS / Zabbix / RustDesk</span></span>
+        <span class="ph-time"><span class="zh">每個整合約 <b>1 週</b></span><span class="en">about <b>1 week</b> per integration</span><span class="ja">連携ごとに約 <b>1 週間</b></span></span>
+      </a></li>
+      <li class="ext"><a href="#phase-4">
+        <span class="ph-top"><span class="ph-n">4</span><span class="ph-k"><span class="zh">階段 4</span><span class="en">Phase 4</span><span class="ja">フェーズ 4</span></span></span>
+        <span class="ph-t"><span class="zh">裝置與實體</span><span class="en">Devices and the physical layer</span><span class="ja">機器と物理</span></span>
+        <span class="ph-d"><span class="zh">機房 / 地點、機櫃、裝置、連接埠與佈線、纜線追蹤、電力</span><span class="en">Rooms / locations, racks, devices, ports and cabling, cable trace, power</span><span class="ja">サーバルーム/拠点、ラック、機器、ポートと配線、ケーブル追跡、電源</span></span>
+        <span class="ph-time"><span class="zh">可與階段 3 並行</span><span class="en">can run alongside phase 3</span><span class="ja">フェーズ 3 と並行可</span></span>
+      </a></li>
+      <li class="ext"><a href="#phase-5">
+        <span class="ph-top"><span class="ph-n">5</span><span class="ph-k"><span class="zh">階段 5</span><span class="en">Phase 5</span><span class="ja">フェーズ 5</span></span></span>
+        <span class="ph-t"><span class="zh">維運與自動化</span><span class="en">Operations and automation</span><span class="ja">運用と自動化</span></span>
+        <span class="ph-d"><span class="zh">主控台、調查、通知、憑證派送、API 權杖、MCP、AI（選用）</span><span class="en">Consoles, Investigate, notifications, certificates, API tokens, MCP, AI (optional)</span><span class="ja">コンソール、調査、通知、証明書、API トークン、MCP、AI（任意）</span></span>
+        <span class="ph-time"><span class="zh">持續擴充</span><span class="en">ongoing</span><span class="ja">継続的に拡張</span></span>
+      </a></li>
+    </ol>
+
+    <div class="pchart" aria-label="Quick start and full rollout timeline">
+      <div class="pc-head" aria-hidden="true"><span class="core"><i class="ph-n">0</i></span><span class="core"><i class="ph-n">1</i></span><span class="core"><i class="ph-n">2</i></span><span class="ext"><i class="ph-n">3</i></span><span class="ext"><i class="ph-n">4</i></span><span class="ext"><i class="ph-n">5</i></span></div>
+      <div class="pc-label"><span class="zh">一週快速上線</span><span class="en">One-week quick start</span><span class="ja">1 週間で立ち上げ</span><small><span class="zh">（工作天）</span><span class="en">(working days)</span><span class="ja">（営業日）</span></small></div>
+      <div class="pc-track">
+        <span class="q"><span class="zh">第 1 天</span><span class="en">Day 1</span><span class="ja">1 日目</span></span>
+        <span class="q"><span class="zh">第 2～3 天</span><span class="en">Days 2–3</span><span class="ja">2〜3 日目</span></span>
+        <span class="q"><span class="zh">第 4 天</span><span class="en">Day 4</span><span class="ja">4 日目</span></span>
+        <span class="qp"><span class="zh">第 5 天：接一個</span><span class="en">Day 5: one source</span><span class="ja">5 日目：1 つだけ</span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class="pc-label"><span class="zh">一季完整導入</span><span class="en">Full rollout over a quarter</span><span class="ja">四半期で全面導入</span><small><span class="zh">（週）</span><span class="en">(weeks)</span><span class="ja">（週）</span></small></div>
+      <div class="pc-track">
+        <span class="f"><span class="zh">第 1～2 週</span><span class="en">Wk 1–2</span><span class="ja">1〜2 週</span></span>
+        <span class="f"><span class="zh">第 2～4 週</span><span class="en">Wk 2–4</span><span class="ja">2〜4 週</span></span>
+        <span class="f"><span class="zh">第 4～6 週</span><span class="en">Wk 4–6</span><span class="ja">4〜6 週</span></span>
+        <span class="f"><span class="zh">第 6～10 週</span><span class="en">Wk 6–10</span><span class="ja">6〜10 週</span></span>
+        <span class="f"><span class="zh">第 7～11 週</span><span class="en">Wk 7–11</span><span class="ja">7〜11 週</span></span>
+        <span class="f"><span class="zh">第 10～13 週</span><span class="en">Wk 10–13</span><span class="ja">10〜13 週</span></span>
+      </div>
+      <table class="pc-mobile">
+        <thead><tr><th><span class="zh">階段</span><span class="en">Phase</span><span class="ja">フェーズ</span></th><th><span class="zh">一週快速上線</span><span class="en">One-week quick start</span><span class="ja">1 週間で立ち上げ</span></th><th><span class="zh">一季完整導入</span><span class="en">Full quarter</span><span class="ja">四半期で全面導入</span></th></tr></thead>
+        <tbody>
+        <tr class="core"><td class="ph"><i class="ph-n">0</i><span class="zh">安裝與安全</span><span class="en">Install and secure</span><span class="ja">インストールと保護</span></td><td class="w"><span class="zh">第 1 天</span><span class="en">Day 1</span><span class="ja">1 日目</span></td><td class="q"><span class="zh">第 1～2 週</span><span class="en">Wk 1–2</span><span class="ja">1〜2 週</span></td></tr>
+        <tr class="core"><td class="ph"><i class="ph-n">1</i><span class="zh">IP 規劃</span><span class="en">IP plan</span><span class="ja">IP 計画</span></td><td class="w"><span class="zh">第 2～3 天</span><span class="en">Days 2–3</span><span class="ja">2〜3 日目</span></td><td class="q"><span class="zh">第 2～4 週</span><span class="en">Wk 2–4</span><span class="ja">2〜4 週</span></td></tr>
+        <tr class="core"><td class="ph"><i class="ph-n">2</i><span class="zh">探索與上線</span><span class="en">Discovery</span><span class="ja">検出と死活</span></td><td class="w"><span class="zh">第 4 天</span><span class="en">Day 4</span><span class="ja">4 日目</span></td><td class="q"><span class="zh">第 4～6 週</span><span class="en">Wk 4–6</span><span class="ja">4〜6 週</span></td></tr>
+        <tr class="ext"><td class="ph"><i class="ph-n">3</i><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></td><td class="w"><span class="zh">第 5 天：接一個</span><span class="en">Day 5: one source</span><span class="ja">5 日目：1 つだけ</span></td><td class="q"><span class="zh">第 6～10 週</span><span class="en">Wk 6–10</span><span class="ja">6〜10 週</span></td></tr>
+        <tr class="ext"><td class="ph"><i class="ph-n">4</i><span class="zh">裝置與實體</span><span class="en">Devices</span><span class="ja">機器と物理</span></td><td class="w later"><span class="zh">之後</span><span class="en">Later</span><span class="ja">後で</span></td><td class="q"><span class="zh">第 7～11 週</span><span class="en">Wk 7–11</span><span class="ja">7〜11 週</span></td></tr>
+        <tr class="ext"><td class="ph"><i class="ph-n">5</i><span class="zh">維運與自動化</span><span class="en">Operations</span><span class="ja">運用と自動化</span></td><td class="w later"><span class="zh">之後</span><span class="en">Later</span><span class="ja">後で</span></td><td class="q"><span class="zh">第 10～13 週</span><span class="en">Wk 10–13</span><span class="ja">10〜13 週</span></td></tr>
+        </tbody>
+      </table>
+      <p class="pc-note"><span class="zh">時間只是參考，依網段數量與資料整理的程度而定。快速上線只接一個網路來源（LibreNMS 或主要防火牆），其餘留到後面。</span><span class="en">Durations are a guide; they depend on how many networks you have and how tidy the existing data is. The quick start connects just one network source (LibreNMS or the main firewall) and leaves the rest for later.</span><span class="ja">期間は目安で、ネットワークの数と既存データの整理具合によって変わります。クイックスタートではネットワーク系のソースを 1 つ（LibreNMS か主要なファイアウォール）だけ接続し、残りは後に回します。</span></p>
+    </div>
+  </section>
+
+  <!-- ───────── 總表 ───────── -->
+  <section class="blk">
+    <h2 id="phase-table"><span class="zh">階段總表</span><span class="en">Phase table</span><span class="ja">フェーズ一覧</span></h2>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="width:13%"><span class="zh">階段</span><span class="en">Phase</span><span class="ja">フェーズ</span></th>
+          <th style="width:17%"><span class="zh">目標</span><span class="en">Goal</span><span class="ja">目的</span></th>
+          <th style="width:27%"><span class="zh">要開啟的功能</span><span class="en">Features to turn on</span><span class="ja">有効にする機能</span></th>
+          <th style="width:18%"><span class="zh">前置條件</span><span class="en">Prerequisites</span><span class="ja">前提条件</span></th>
+          <th style="width:25%"><span class="zh">完成標準</span><span class="en">Done when</span><span class="ja">完了の目安</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="core">
+          <td class="ph-cell"><a href="#phase-0"><span class="ph-n">0</span><span class="zh">安裝與安全</span><span class="en">Install and secure</span><span class="ja">インストールと保護</span></a></td>
+          <td data-zh="目標" data-en="Goal" data-ja="目的"><span class="zh">一台安全、可還原、每個人用自己帳號登入的系統。</span><span class="en">A secure, restorable system where everyone signs in with their own account.</span><span class="ja">安全で復元でき、全員が自分のアカウントでログインするシステム。</span></td>
+          <td data-zh="要開啟的功能" data-en="Features to turn on" data-ja="有効にする機能"><span class="zh">一行安裝（<code>scripts/jt-ipam.sh</code>）、正式 HTTPS 憑證、admin 密碼與 TOTP、LDAP / AD、OIDC、SAML、使用者、群組、權限指派、稽核記錄、每日備份。</span><span class="en">One-line install (<code>scripts/jt-ipam.sh</code>), a real HTTPS certificate, admin password and TOTP, LDAP / AD, OIDC, SAML, users, groups, permissions, audit log, daily backups.</span><span class="ja">一行インストール（<code>scripts/jt-ipam.sh</code>）、正式な HTTPS 証明書、admin のパスワードと TOTP、LDAP / AD、OIDC、SAML、ユーザー、グループ、権限、監査ログ、毎日のバックアップ。</span></td>
+          <td data-zh="前置條件" data-en="Prerequisites" data-ja="前提条件"><span class="zh">Debian 12 / 13 或 Ubuntu 22.04 / 24.04 / 26.04（x86_64）主機，至少 2 核心、4 GB、20 GB；一個 DNS 名稱與憑證。</span><span class="en">A Debian 12 / 13 or Ubuntu 22.04 / 24.04 / 26.04 (x86_64) host with at least 2 vCPU, 4 GB and 20 GB; a DNS name and certificate.</span><span class="ja">Debian 12 / 13 または Ubuntu 22.04 / 24.04 / 26.04（x86_64）のホスト（最低 2 コア、4 GB、20 GB）、DNS 名と証明書。</span></td>
+          <td data-zh="完成標準" data-en="Done when" data-ja="完了の目安"><span class="zh"><code>jt-ipam.sh doctor</code> 全部通過；初始密碼已更換、檔案已刪；備份已啟用且還原演練過；非管理員帳號只看得到該看的東西。</span><span class="en"><code>jt-ipam.sh doctor</code> passes; the initial password is changed and its file deleted; backups run and a restore was rehearsed; a non-admin account sees only what it should.</span><span class="ja"><code>jt-ipam.sh doctor</code> がすべて合格、初期パスワードを変更してファイルを削除済み、バックアップが動き復元を一度試した、管理者以外のアカウントは見るべきものだけが見える。</span></td>
+        </tr>
+        <tr class="core">
+          <td class="ph-cell"><a href="#phase-1"><span class="ph-n">1</span><span class="zh">IP 規劃</span><span class="en">The IP plan</span><span class="ja">IP 計画</span></a></td>
+          <td data-zh="目標" data-en="Goal" data-ja="目的"><span class="zh">試算表退場，jt-ipam 成為查 IP、要 IP 的唯一地方。</span><span class="en">The spreadsheet retires; jt-ipam is the one place to look up or ask for an IP.</span><span class="ja">表計算を引退させ、IP を調べるのも申請するのも jt-ipam だけにする。</span></td>
+          <td data-zh="要開啟的功能" data-en="Features to turn on" data-ja="有効にする機能"><span class="zh">區段、子網路（上層子網路）、VLAN、VRF、單位、位址範圍（集區）、IP 位址（CSV 匯入或 phpIPAM 匯入）、自訂欄位、IP 申請與審核設定。</span><span class="en">Sections, subnets (with master subnets), VLANs, VRFs, customers, address ranges (pools), addresses (CSV import or phpIPAM migration), custom fields, IP requests and their approval settings.</span><span class="ja">セクション、サブネット（親サブネット）、VLAN、VRF、顧客、アドレス範囲（プール）、IP アドレス（CSV 取り込みまたは phpIPAM 移行）、カスタム項目、IP 申請と承認設定。</span></td>
+          <td data-zh="前置條件" data-en="Prerequisites" data-ja="前提条件"><span class="zh">階段 0；現有的試算表或 phpIPAM；每個網段的負責人。</span><span class="en">Phase 0; your current spreadsheet or phpIPAM; an owner for each network.</span><span class="ja">フェーズ 0、現在の表計算または phpIPAM、ネットワークごとの担当者。</span></td>
+          <td data-zh="完成標準" data-en="Done when" data-ja="完了の目安"><span class="zh">每個使用中的網段都有子網路；DHCP 範圍與保留範圍標好；舊試算表改成唯讀；新位址都從 jt-ipam 配發或申請。</span><span class="en">Every network in use has a subnet; DHCP and reserved ranges are marked; the old spreadsheet is read-only; new addresses come from jt-ipam.</span><span class="ja">使用中のネットワークすべてにサブネットがある、DHCP 範囲と予約範囲を設定済み、旧表計算は読み取り専用、新しいアドレスは jt-ipam から払い出しまたは申請する。</span></td>
+        </tr>
+        <tr class="core">
+          <td class="ph-cell"><a href="#phase-2"><span class="ph-n">2</span><span class="zh">探索與上線</span><span class="en">Discovery and liveness</span><span class="ja">検出と死活</span></a></td>
+          <td data-zh="目標" data-en="Goal" data-ja="目的"><span class="zh">每個 IP 都有最後看到的時間，規劃與現況的落差看得見。</span><span class="en">Every IP has a last-seen time, and the gap between plan and reality is visible.</span><span class="ja">すべての IP に最終確認の時刻があり、計画と実態の差が見える。</span></td>
+          <td data-zh="要開啟的功能" data-en="Features to turn on" data-ja="有効にする機能"><span class="zh">掃描代理（本機與各網段）、子網路的「啟用掃描」、掃描項目、上線判定、IP 指示計、各來源最後出現、IP 異動記錄、釋放後冷卻天數、異常偵測。</span><span class="en">Scan agents (local and per network), "Enable scanning" on subnets, scan probes, liveness settings, the IP indicator, last seen by source, IP change log, cooldown after release, anomaly detection.</span><span class="ja">スキャンエージェント（ローカルとネットワークごと）、サブネットの「スキャンを有効にする」、スキャンの探査、死活の設定、IP インジケータ、ソース別の最終確認、IP 変更履歴、解放後の待機期間、異常検知。</span></td>
+          <td data-zh="前置條件" data-en="Prerequisites" data-ja="前提条件"><span class="zh">階段 1 的子網路；代理主機能以 HTTPS 連到 jt-ipam。</span><span class="en">The subnets from phase 1; agent hosts can reach jt-ipam over HTTPS.</span><span class="ja">フェーズ 1 のサブネット、エージェントのホストから HTTPS で jt-ipam に接続できること。</span></td>
+          <td data-zh="完成標準" data-en="Done when" data-ja="完了の目安"><span class="zh">每個啟用掃描的子網路都有代理負責、負載正常；失聯 IP 與未授權 IP 清單逐筆處理過一輪。</span><span class="en">Every scanned subnet has an agent and the load is normal; the ghost IP and unauthorised IP lists have been worked through once.</span><span class="ja">スキャン対象のサブネットすべてに担当エージェントがあり負荷が正常、ゴースト IP と未許可の IP の一覧を一通り処理した。</span></td>
+        </tr>
+        <tr class="ext">
+          <td class="ph-cell"><a href="#phase-3"><span class="ph-n">3</span><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></a></td>
+          <td data-zh="目標" data-en="Goal" data-ja="目的"><span class="zh">用既有系統印證並補足：MAC、交換器埠、DHCP 租約、DNS 名稱、VM、端點代理。</span><span class="en">Existing systems confirm and fill in: MACs, switch ports, DHCP leases, DNS names, VMs, endpoint agents.</span><span class="ja">既存のシステムで裏付けと補完：MAC、スイッチのポート、DHCP リース、DNS 名、VM、端末のエージェント。</span></td>
+          <td data-zh="要開啟的功能" data-en="Features to turn on" data-ja="有効にする機能"><span class="zh">LibreNMS；OPNsense、pfSense、FortiGate、Palo Alto、MikroTik；Windows DHCP、Kea、ISC DHCP；DNS 整合、AdGuard Home；Proxmox VE、VMware；Wazuh、OCS、Zabbix、RustDesk；名稱/ARP 來源順序。</span><span class="en">LibreNMS; OPNsense, pfSense, FortiGate, Palo Alto, MikroTik; Windows DHCP, Kea, ISC DHCP; DNS servers, AdGuard Home; Proxmox VE, VMware; Wazuh, OCS, Zabbix, RustDesk; name / ARP source order.</span><span class="ja">LibreNMS、OPNsense・pfSense・FortiGate・Palo Alto・MikroTik、Windows DHCP・Kea・ISC DHCP、DNS サーバー・AdGuard Home、Proxmox VE・VMware、Wazuh・OCS・Zabbix・RustDesk、名称/ARP のソース順。</span></td>
+          <td data-zh="前置條件" data-en="Prerequisites" data-ja="前提条件"><span class="zh">階段 2；各系統的唯讀 API 帳號；重疊網段已用單位或 VRF 分開。</span><span class="en">Phase 2; read-only API accounts on each system; overlapping networks already separated by customer or VRF.</span><span class="ja">フェーズ 2、各システムの読み取り専用 API アカウント、重複ネットワークを顧客または VRF で分離済み。</span></td>
+          <td data-zh="完成標準" data-en="Done when" data-ja="完了の目安"><span class="zh">每個整合同步成功、限定子網路範圍設好；每個自動建立開關都是審過後刻意的決定；主機名稱來源順序符合實際。</span><span class="en">Every integration syncs and has its subnet scope set; each auto-create switch is a deliberate, reviewed decision; the hostname source order matches reality.</span><span class="ja">すべての連携が同期に成功し対象サブネットを設定済み、自動作成スイッチはどれも検討したうえでの判断、ホスト名のソース順が実態に合っている。</span></td>
+        </tr>
+        <tr class="ext">
+          <td class="ph-cell"><a href="#phase-4"><span class="ph-n">4</span><span class="zh">裝置與實體</span><span class="en">Devices and physical</span><span class="ja">機器と物理</span></a></td>
+          <td data-zh="目標" data-en="Goal" data-ja="目的"><span class="zh">從 IP 一路找到裝置、機櫃位置、接在哪個埠、走哪條線、用哪路電。</span><span class="en">From an IP, find the device, its rack position, its switch port, the cable and the power feed.</span><span class="ja">IP から機器、ラックの位置、接続ポート、ケーブル、電源系統までたどれる。</span></td>
+          <td data-zh="要開啟的功能" data-en="Features to turn on" data-ja="有効にする機能"><span class="zh">機房 / 地點（平面圖）、機櫃、裝置（CSV / xlsx 匯入或連結 LibreNMS 裝置）、連接埠 / 佈線、纜線追蹤、電力、機櫃圖對外嵌入（選用）。</span><span class="en">Rooms / locations (floor plans), racks, devices (CSV / xlsx import or linked from LibreNMS), ports / cabling, cable trace, power, rack embedding (optional).</span><span class="ja">サーバルーム/拠点（平面図）、ラック、機器（CSV / xlsx 取り込みまたは LibreNMS から紐づけ）、ポート/配線、ケーブル追跡、電源、ラック図の外部埋め込み（任意）。</span></td>
+          <td data-zh="前置條件" data-en="Prerequisites" data-ja="前提条件"><span class="zh">階段 1（裝置要掛 IP）；有 LibreNMS 可以省下手動建埠。</span><span class="en">Phase 1 (devices hang off IPs); LibreNMS saves creating ports by hand.</span><span class="ja">フェーズ 1（機器は IP に紐づく）、LibreNMS があればポートを手作業で作らずに済む。</span></td>
+          <td data-zh="完成標準" data-en="Done when" data-ja="完了の目安"><span class="zh">核心機房的機櫃圖與現場一致；網路設備的上行埠都有佈線；從任一伺服器 IP 追得到交換器埠。</span><span class="en">Core room rack drawings match the floor; network uplinks are cabled in the system; any server IP traces to its switch port.</span><span class="ja">主要なサーバルームのラック図が現場と一致、ネットワーク機器のアップリンクに配線を登録済み、どのサーバーの IP からもスイッチのポートまでたどれる。</span></td>
+        </tr>
+        <tr class="ext">
+          <td class="ph-cell"><a href="#phase-5"><span class="ph-n">5</span><span class="zh">維運與自動化</span><span class="en">Operations and automation</span><span class="ja">運用と自動化</span></a></td>
+          <td data-zh="目標" data-en="Goal" data-ja="目的"><span class="zh">日常工作直接在 jt-ipam 完成，異常主動通知，其他系統透過 API 取用。</span><span class="en">Daily work happens in jt-ipam, problems notify people, and other systems use it through the API.</span><span class="ja">日常業務を jt-ipam で完結し、異常は通知され、他のシステムは API で利用する。</span></td>
+          <td data-zh="要開啟的功能" data-en="Features to turn on" data-ja="有効にする機能"><span class="zh">SSH / SFTP / RDP / VNC 主控台、Proxmox 主控台、BMC 序列主控台、RustDesk 網頁連線、調查、探測、IP 拓樸圖、通知發送設定、事件規則、Webhook、憑證派送、API 權杖、MCP、Graylog、AI 對話與 AI 巡檢（選用）。</span><span class="en">SSH / SFTP / RDP / VNC consoles, the Proxmox console, BMC serial console, RustDesk web connection, Investigate, Probe, IP topology, notification channels, event rules, webhooks, certificates, API tokens, MCP, Graylog, AI chat and AI review (optional).</span><span class="ja">SSH / SFTP / RDP / VNC コンソール、Proxmox コンソール、BMC シリアルコンソール、RustDesk の Web 接続、調査、探査、IP トポロジー、通知チャネル、イベントルール、Webhook、証明書、API トークン、MCP、Graylog、AI チャットと AI 点検（任意）。</span></td>
+          <td data-zh="前置條件" data-en="Prerequisites" data-ja="前提条件"><span class="zh">前面各階段；AI 功能需要自備 LLM 伺服器。</span><span class="en">The earlier phases; AI features need your own LLM server.</span><span class="ja">これまでのフェーズ、AI 機能には自前の LLM サーバーが必要。</span></td>
+          <td data-zh="完成標準" data-en="Done when" data-ja="完了の目安"><span class="zh">值班人員用主控台與調查處理問題；重要事件有通知；自動化腳本用權杖存取，權限只給需要的。</span><span class="en">On-call staff use the consoles and Investigate; important events notify someone; automation uses tokens with only the rights it needs.</span><span class="ja">当番の担当者がコンソールと調査で対応している、重要なイベントに通知がある、自動化スクリプトは必要な権限だけのトークンで接続している。</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ───────── 兩種節奏 ───────── -->
+  <section class="blk">
+    <h2 id="paths"><span class="zh">兩種節奏：一週快速上線、一季完整導入</span><span class="en">Two paces: a one-week quick start or a full quarter</span><span class="ja">2 つのペース：1 週間で立ち上げるか、四半期で全面導入するか</span></h2>
+    <div class="paths">
+      <div class="path quick">
+        <h3 id="path-one-week"><span class="zh">一週快速上線</span><span class="en">One-week quick start</span><span class="ja">1 週間で立ち上げ</span></h3>
+        <p class="who"><span class="zh">適合：單一站台、網段不多、想先取代試算表的團隊。</span><span class="en">For: one site, a modest number of networks, a team that wants the spreadsheet gone first.</span><span class="ja">対象：拠点が 1 つでネットワークが多くなく、まず表計算を置き換えたいチーム。</span></p>
+        <ol>
+          <li><span class="when"><span class="zh">第 1 天</span><span class="en">Day 1</span><span class="ja">1 日目</span></span><span><span class="zh">安裝、換上正式憑證、更換 admin 密碼並啟用 TOTP、跑 <code>doctor</code>、啟用備份；有 AD 就接 LDAP。</span><span class="en">Install, put in the real certificate, change the admin password and turn on TOTP, run <code>doctor</code>, enable backups; connect LDAP if you have AD.</span><span class="ja">インストール、正式な証明書の設定、admin のパスワード変更と TOTP 有効化、<code>doctor</code> の実行、バックアップの有効化。AD があれば LDAP を接続。</span></span></li>
+          <li><span class="when"><span class="zh">第 2～3 天</span><span class="en">Days 2–3</span><span class="ja">2〜3 日目</span></span><span><span class="zh">建區段、VLAN、子網路；匯入試算表（先 Dry-run）或從 phpIPAM 匯入；標出 DHCP 集區與保留範圍、DHCP 伺服器。</span><span class="en">Create sections, VLANs and subnets; import the spreadsheet (dry run first) or migrate from phpIPAM; mark DHCP pools, reserved ranges and DHCP servers.</span><span class="ja">セクション、VLAN、サブネットを作成し、表計算を取り込む（まず Dry-run）か phpIPAM から移行。DHCP プール、予約範囲、DHCP サーバーを設定。</span></span></li>
+          <li><span class="when"><span class="zh">第 4 天</span><span class="en">Day 4</span><span class="ja">4 日目</span></span><span><span class="zh">把子網路指派給本機掃描代理，其他網段裝代理；開啟需要的探測；設定上線判定閾值。</span><span class="en">Assign subnets to the local scan agent and install agents on other networks; enable the probes you need; set the liveness threshold.</span><span class="ja">サブネットをローカルのスキャンエージェントに割り当て、他のネットワークにはエージェントを導入。必要な探査を有効にし、死活のしきい値を設定。</span></span></li>
+          <li><span class="when"><span class="zh">第 5 天</span><span class="en">Day 5</span><span class="ja">5 日目</span></span><span><span class="zh">接一個你已經有的網路來源（LibreNMS 或主要防火牆），唯讀、設好限定子網路範圍；用小範圍跑一次異常偵測，跟團隊一起看落差清單。</span><span class="en">Connect one network source you already run (LibreNMS or the main firewall), read-only, with its subnet scope set; run anomaly detection on a narrow scope and review the gaps with the team.</span><span class="ja">既存のネットワーク系ソースを 1 つ（LibreNMS か主要なファイアウォール）読み取り専用で接続し、対象サブネットを設定。範囲を絞って異常検知を実行し、差分の一覧をチームで確認。</span></span></li>
+        </ol>
+        <p class="out"><span class="zh">成果：任何 IP 都查得到，啟用掃描的網段有即時的上線狀態，大家不再改試算表。</span><span class="en">Result: any IP can be looked up, scanned networks show live status, and nobody edits the spreadsheet any more.</span><span class="ja">成果：どの IP も検索でき、スキャン対象のネットワークは稼働状況がリアルタイムに分かり、誰も表計算を編集しなくなる。</span></p>
+      </div>
+      <div class="path full">
+        <h3 id="path-one-quarter"><span class="zh">一季完整導入</span><span class="en">Full rollout over a quarter</span><span class="ja">四半期で全面導入</span></h3>
+        <p class="who"><span class="zh">適合：多個站台或多個單位、已有監控與防火牆，要把實體與維運一起收進來的組織。</span><span class="en">For: several sites or business units, existing monitoring and firewalls, and the physical layer and operations to bring in too.</span><span class="ja">対象：複数の拠点や部門があり、監視とファイアウォールが既にあり、物理層と運用もまとめて取り込みたい組織。</span></p>
+        <ol>
+          <li><span class="when"><span class="zh">第 1～2 週</span><span class="en">Wk 1–2</span><span class="ja">1〜2 週</span></span><span><span class="zh">階段 0，先挑一個試點站台；設計群組與權限（依團隊或單位）；SSO；備份與還原演練。</span><span class="en">Phase 0 with one pilot site; design groups and permissions (by team or customer); SSO; backup and a restore rehearsal.</span><span class="ja">フェーズ 0。まず試験拠点を 1 つ選び、グループと権限を設計（チームまたは顧客単位）、SSO、バックアップと復元の予行演習。</span></span></li>
+          <li><span class="when"><span class="zh">第 2～4 週</span><span class="en">Wk 2–4</span><span class="ja">2〜4 週</span></span><span><span class="zh">階段 1 擴到所有站台；每個區段或單位的資料負責人確認內容；IP 申請上線；試算表改唯讀。</span><span class="en">Phase 1 for every site; data owners per section or customer sign off; IP requests go live; the spreadsheet becomes read-only.</span><span class="ja">フェーズ 1 を全拠点へ。セクションまたは顧客ごとのデータ担当者が内容を確認し、IP 申請を開始、表計算は読み取り専用に。</span></span></li>
+          <li><span class="when"><span class="zh">第 4～6 週</span><span class="en">Wk 4–6</span><span class="ja">4〜6 週</span></span><span><span class="zh">階段 2：每個網段的掃描代理、調整上線判定來源、設定異常偵測範圍。</span><span class="en">Phase 2: a scan agent per network, tune the liveness sources, set the anomaly detection scope.</span><span class="ja">フェーズ 2：ネットワークごとのスキャンエージェント、死活ソースの調整、異常検知の対象範囲の設定。</span></span></li>
+          <li><span class="when"><span class="zh">第 6～10 週</span><span class="en">Wk 6–10</span><span class="ja">6〜10 週</span></span><span><span class="zh">階段 3：照建議順序一次接一個整合，每個觀察一週再決定要不要開自動建立。</span><span class="en">Phase 3: one integration at a time in the recommended order, each watched for a week before deciding on auto-create.</span><span class="ja">フェーズ 3：推奨の順番で連携を 1 つずつ接続し、それぞれ 1 週間観察してから自動作成を判断。</span></span></li>
+          <li><span class="when"><span class="zh">第 7～11 週</span><span class="en">Wk 7–11</span><span class="ja">7〜11 週</span></span><span><span class="zh">階段 4 與階段 3 並行：機房、機櫃、裝置、連接埠、佈線、電力，先做核心機房。</span><span class="en">Phase 4 alongside phase 3: rooms, racks, devices, ports, cabling and power, core rooms first.</span><span class="ja">フェーズ 4 をフェーズ 3 と並行：サーバルーム、ラック、機器、ポート、配線、電源。主要なサーバルームから。</span></span></li>
+          <li><span class="when"><span class="zh">第 10～13 週</span><span class="en">Wk 10–13</span><span class="ja">10〜13 週</span></span><span><span class="zh">階段 5：主控台、通知與事件規則、憑證派送、API 權杖與 MCP；有 LLM 再開 AI。</span><span class="en">Phase 5: consoles, notifications and event rules, certificates, API tokens and MCP; AI if you have an LLM.</span><span class="ja">フェーズ 5：コンソール、通知とイベントルール、証明書、API トークンと MCP。LLM があれば AI も。</span></span></li>
+        </ol>
+        <p class="out"><span class="zh">成果：IP、裝置、機櫃與佈線都在同一處，整合每 5 分鐘自動印證，異常會主動通知。</span><span class="en">Result: IPs, devices, racks and cabling in one place, integrations confirming them every 5 minutes, and problems that notify people.</span><span class="ja">成果：IP、機器、ラック、配線が 1 か所にまとまり、連携が 5 分ごとに自動で裏付け、異常は通知される。</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── 各階段細節 ───────── -->
+  <section class="blk">
+    <div class="phase core">
+      <h2 id="phase-0"><span class="ph-n">0</span><span class="zh">階段 0：安裝與安全</span><span class="en">Phase 0: install and secure</span><span class="ja">フェーズ 0：インストールと保護</span></h2>
+      <p class="goal"><span class="zh">先把地基打好：資料還沒進來之前，就決定好誰能登入、誰能看什麼、壞了怎麼救回來。</span><span class="en">Lay the foundation before any data arrives: who can sign in, who sees what, and how you recover when something breaks.</span><span class="ja">データを入れる前に土台を固めます。誰がログインでき、誰が何を見られ、壊れたときにどう復旧するかを決めておきます。</span></p>
+      <h3 id="phase-0-configure"><span class="zh">要設定什麼</span><span class="en">What to configure</span><span class="ja">設定すること</span></h3>
+      <ul>
+        <li><span class="zh"><b>安裝</b>：一行指令會把程式放到 <code>/opt/jt-ipam</code> 並執行 <code>scripts/jt-ipam.sh install</code>（PostgreSQL、Redis、nginx、guacd、本機掃描代理一起裝好）。</span><span class="en"><b>Install</b>: the one-liner places the code in <code>/opt/jt-ipam</code> and runs <code>scripts/jt-ipam.sh install</code> (PostgreSQL, Redis, nginx, guacd and a local scan agent come with it).</span><span class="ja"><b>インストール</b>：一行のコマンドでコードを <code>/opt/jt-ipam</code> に置き、<code>scripts/jt-ipam.sh install</code> を実行します（PostgreSQL・Redis・nginx・guacd・ローカルのスキャンエージェントも一緒に入ります）。</span></li>
+      </ul>
+      <pre><code>sudo apt-get update &amp;&amp; sudo apt-get install -y curl
+curl -fsSL https://raw.githubusercontent.com/jasoncheng7115/jt-ipam/main/scripts/bootstrap.sh | sudo bash</code></pre>
+      <ul>
+        <li><span class="zh"><b>HTTPS</b>：預設的 nginx 模式先用自簽憑證；正式上線前把憑證放到 <code>/etc/jt-ipam/tls/server.crt</code> 與 <code>server.key</code> 再重新載入 nginx。對外或正式環境請照 INSTALL 的強化 nginx 反向代理設定。</span><span class="en"><b>HTTPS</b>: the default nginx mode starts with a self-signed certificate; before go-live put yours at <code>/etc/jt-ipam/tls/server.crt</code> and <code>server.key</code> and reload nginx. For internet-facing or production use, follow the hardened nginx reverse proxy in INSTALL.</span><span class="ja"><b>HTTPS</b>：既定の nginx モードは自己署名証明書で始まります。本番開始前に証明書を <code>/etc/jt-ipam/tls/server.crt</code> と <code>server.key</code> に置いて nginx を再読み込みしてください。外部公開や本番環境では、INSTALL の強化した nginx リバースプロキシの設定に従ってください。</span></li>
+        <li><span class="zh"><b>管理員</b>：安裝結束時會印出一次 <code>admin</code> 的隨機密碼（也存在 <code>/etc/jt-ipam/.admin-initial-password</code>）。登入後立刻更換、刪掉這個檔案，並在「個人資料」的「安全」頁籤啟用 TOTP。</span><span class="en"><b>Admin</b>: the installer prints a random <code>admin</code> password once (also saved to <code>/etc/jt-ipam/.admin-initial-password</code>). Change it right after logging in, delete the file, and turn on TOTP under Profile, Security tab.</span><span class="ja"><b>管理者</b>：インストールの最後に <code>admin</code> のランダムなパスワードが一度だけ表示されます（<code>/etc/jt-ipam/.admin-initial-password</code> にも保存）。ログインしたらすぐに変更してファイルを削除し、「プロフィール」の「セキュリティ」タブで TOTP を有効にしてください。</span></li>
+        <li><span class="zh"><b>登入方式</b>：「管理 → 系統設定」裡有 LDAP / AD、OIDC 與 SAML 2.0。啟用 LDAP 後，使用者第一次成功登入會自動建立帳號。</span><span class="en"><b>Sign-in</b>: Admin → System Settings holds LDAP / AD, OIDC and SAML 2.0. With LDAP on, an account is created the first time a user signs in successfully.</span><span class="ja"><b>ログイン方法</b>：「管理 → システム設定」に LDAP / AD、OIDC、SAML 2.0 があります。LDAP を有効にすると、初回のログインに成功した時点でアカウントが自動作成されます。</span></li>
+        <li><span class="zh"><b>帳號與權限</b>：「管理 → 使用者 / 群組 / 權限指派」。有五個內建角色（系統管理員、唯讀檢視者、網路操作員、稽核員、部門管理員）；權限可以給到單位、區段、子網路、IP、裝置、機櫃、地點七類物件，給上層就涵蓋下層，沒給就看不到。</span><span class="en"><b>Accounts and permissions</b>: Admin → Users / Groups / Permissions. There are five built-in roles (system administrator, read-only viewer, network operator, auditor, department administrator); permissions apply to seven object types (customer, section, subnet, IP, device, rack, location), a grant on a parent covers its children, and anything not granted is invisible.</span><span class="ja"><b>アカウントと権限</b>：「管理 → ユーザー / グループ / 権限」。組み込みロールが 5 つ（システム管理者、読み取り専用、ネットワークオペレーター、監査担当、部門管理者）あり、権限は顧客・セクション・サブネット・IP・機器・ラック・拠点の 7 種類に付与できます。上位に付与すれば下位にも及び、付与されていないものは見えません。</span></li>
+        <li><span class="zh"><b>備份</b>：安裝程式<b>不會</b>自動啟用備份。照 INSTALL「備份與還原」啟用 <code>jt-ipam-backup.timer</code>（每天 03:30，資料庫加設定檔與憑證，保留 14 天），再把 <code>/var/backups/jt-ipam/</code> 同步到另一台機器。</span><span class="en"><b>Backups</b>: the installer does <b>not</b> enable them. Follow "Backup &amp; restore" in INSTALL to enable <code>jt-ipam-backup.timer</code> (daily at 03:30: the database plus config and certificates, kept 14 days), then copy <code>/var/backups/jt-ipam/</code> to another machine.</span><span class="ja"><b>バックアップ</b>：インストーラーは自動では<b>有効にしません</b>。INSTALL の「バックアップと復元」に従って <code>jt-ipam-backup.timer</code>（毎日 03:30、データベースと設定ファイルと証明書、14 日間保持）を有効にし、<code>/var/backups/jt-ipam/</code> を別のマシンへ同期してください。</span></li>
+      </ul>
+      <h3 id="phase-0-check"><span class="zh">要檢查什麼</span><span class="en">What to check</span><span class="ja">確認すること</span></h3>
+      <ul>
+        <li><span class="zh"><code>sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor</code> 每一項都通過；沒過的項目會附上可以照抄的修正指令。網頁的「管理 → 系統診斷」也看得到。</span><span class="en"><code>sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor</code> passes every check; anything that fails comes with a command to copy. Admin → System check shows the same in the browser.</span><span class="ja"><code>sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor</code> のすべての項目が合格すること。不合格の項目にはそのまま実行できる修正コマンドが付きます。ブラウザーでは「管理 → システムチェック」でも確認できます。</span></li>
+        <li><span class="zh">用一個非管理員帳號登入，確認看不到沒授權的區段與子網路。</span><span class="en">Sign in as a non-admin and confirm that sections and subnets you did not grant are invisible.</span><span class="ja">管理者以外のアカウントでログインし、権限を与えていないセクションやサブネットが見えないことを確認します。</span></li>
+        <li><span class="zh">在另一台測試機做一次還原演練，確認備份真的救得回來。</span><span class="en">Rehearse a restore on a test machine to prove the backup actually works.</span><span class="ja">別のテスト機で一度復元を試し、バックアップで本当に戻せることを確認します。</span></li>
+        <li><span class="zh">「管理 → 稽核記錄」看得到剛才的登入與設定異動。</span><span class="en">Admin → Audit Log shows the sign-ins and settings changes you just made.</span><span class="ja">「管理 → 監査ログ」に、今行ったログインと設定変更が記録されていることを確認します。</span></li>
+      </ul>
+      <h3 id="phase-0-pitfalls"><span class="zh">常見地雷</span><span class="en">Common pitfalls</span><span class="ja">よくある落とし穴</span></h3>
+      <ul>
+        <li><span class="zh">還原需要同一把 <code>ENCRYPTION_KEY</code>（在 <code>/etc/jt-ipam/backend.env</code>）才解得開整合帳密等加密欄位。備份檔已包含這個檔案，所以異地備份要當機密保管。</span><span class="en">A restore needs the same <code>ENCRYPTION_KEY</code> (in <code>/etc/jt-ipam/backend.env</code>) to decrypt integration credentials and other encrypted fields. The backup includes that file, so treat off-site copies as secrets.</span><span class="ja">復元には同じ <code>ENCRYPTION_KEY</code>（<code>/etc/jt-ipam/backend.env</code> 内）が必要で、これがないと連携の認証情報などの暗号化項目を復号できません。バックアップにはこのファイルが含まれるので、外部保管のコピーは機密として扱ってください。</span></li>
+        <li><span class="zh">在 jt-ipam 前面再放一層自己的反向代理或負載平衡器時，那一層也要設同一套安全標頭；安全標頭不會自動跨過多出來的那一跳。</span><span class="en">If you put your own reverse proxy or load balancer in front, it must send the same security headers; they do not survive the extra hop on their own.</span><span class="ja">jt-ipam の前段に独自のリバースプロキシやロードバランサーを置く場合、そこでも同じセキュリティヘッダーを設定してください。ヘッダーは余分な中継を自動では通り抜けません。</span></li>
+        <li><span class="zh">主機規格照建議值準備（4 核心、8 GB、50 GB）：稽核記錄、IP 歷程與備份會一直成長。自架 LLM 不要和 jt-ipam 放同一台。</span><span class="en">Size the host at the recommended 4 vCPU, 8 GB and 50 GB: the audit log, IP history and backups keep growing. Do not run a self-hosted LLM on the same machine.</span><span class="ja">ホストは推奨値（4 コア、8 GB、50 GB）で用意してください。監査ログ、IP の履歴、バックアップは増え続けます。自前の LLM を同じマシンで動かすのは避けてください。</span></li>
+      </ul>
+      <p class="refs"><b><span class="zh">相關</span><span class="en">See also</span><span class="ja">関連</span></b><a href="index.html#install"><span class="zh">部署</span><span class="en">Deployment</span><span class="ja">デプロイ</span></a><a href="https://github.com/jasoncheng7115/jt-ipam/blob/main/docs/INSTALL.md" target="_blank" rel="noopener">INSTALL</a><a href="troubleshooting.html#qa-doctor"><span class="zh">疑難排解：doctor</span><span class="en">Troubleshooting: doctor</span><span class="ja">トラブルシューティング：doctor</span></a><a href="troubleshooting.html#login"><span class="zh">登入問題</span><span class="en">Sign-in problems</span><span class="ja">ログインの問題</span></a><a href="features.html#security-admin"><span class="zh">安全與管理</span><span class="en">Security &amp; admin</span><span class="ja">セキュリティと管理</span></a><a href="api.html#rbac"><span class="zh">權限模型</span><span class="en">Permission model</span><span class="ja">権限モデル</span></a></p>
+    </div>
+
+    <div class="phase core">
+      <h2 id="phase-1"><span class="ph-n">1</span><span class="zh">階段 1：IP 規劃成為唯一依據</span><span class="en">Phase 1: the IP plan becomes the source of truth</span><span class="ja">フェーズ 1：IP 計画を唯一の拠り所に</span></h2>
+      <p class="goal"><span class="zh">把「應該如何」完整建進 jt-ipam，讓它取代試算表。這一階段只靠人工與匯入，還不需要任何掃描或整合。</span><span class="en">Put the whole "what should be" into jt-ipam so it replaces the spreadsheet. This phase is manual work and imports only; no scans or integrations yet.</span><span class="ja">「あるべき姿」をすべて jt-ipam に入れ、表計算を置き換えます。このフェーズは手作業と取り込みだけで、スキャンや連携はまだ使いません。</span></p>
+      <h3 id="phase-1-configure"><span class="zh">要設定什麼</span><span class="en">What to configure</span><span class="ja">設定すること</span></h3>
+      <ul>
+        <li><span class="zh"><b>區段</b>：依組織、地區或用途分（例如「總部」「分公司」「資料中心」）。不要分太細，子網路才是主要的管理單位。</span><span class="en"><b>Sections</b>: split by organisation, region or purpose (for example "Head office", "Branches", "Data centre"). Keep them few; the subnet is the main unit you manage.</span><span class="ja"><b>セクション</b>：組織、地域、用途で分けます（例：「本社」「支社」「データセンター」）。細かく分けすぎないでください。管理の中心はサブネットです。</span></li>
+        <li><span class="zh"><b>單位</b>（管理員）：同一套系統管多家公司、多個部門或客戶時先建單位。區段、子網路與裝置都可以掛單位，權限也能依單位隔離。</span><span class="en"><b>Customers</b> (admins): create them first if one system serves several companies, departments or clients. Sections, subnets and devices can belong to a customer, and permissions can be isolated per customer.</span><span class="ja"><b>顧客</b>（管理者）：1 つのシステムで複数の会社・部門・顧客を管理する場合は先に作成します。セクション、サブネット、機器を顧客に紐づけられ、権限も顧客ごとに分離できます。</span></li>
+        <li><span class="zh"><b>VLAN 與 VRF</b>：有用到才建。不同單位用到相同網段時（例如兩邊都有 192.0.2.0/24），用 VRF 或單位區分，子網路勾「允許重疊」。</span><span class="en"><b>VLANs and VRFs</b>: only if you use them. When different customers use the same network (both have 192.0.2.0/24, say), separate them by VRF or customer and tick "Allow overlap" on the subnet.</span><span class="ja"><b>VLAN と VRF</b>：使っている場合だけ作成します。異なる顧客が同じネットワークを使う場合（どちらにも 192.0.2.0/24 があるなど）は VRF か顧客で区別し、サブネットで「重複を許可」をオンにします。</span></li>
+        <li><span class="zh"><b>子網路</b>：大網段當上層，下面切實際使用的網段（例如 198.51.100.0/24 底下切 198.51.100.0/26），填閘道、DNS、地點、單位與使用率門檻。</span><span class="en"><b>Subnets</b>: big blocks as masters with the networks actually in use beneath them (198.51.100.0/26 under 198.51.100.0/24, for example); fill in gateway, DNS, location, customer and usage threshold.</span><span class="ja"><b>サブネット</b>：大きなブロックを親にして、その下に実際に使うネットワークを切ります（例：198.51.100.0/24 の下に 198.51.100.0/26）。ゲートウェイ、DNS、拠点、顧客、使用率のしきい値を入力します。</span></li>
+        <li><span class="zh"><b>位址範圍（集區）</b>：在子網路裡標出 DHCP 集區與保留範圍。之後接上 DHCP 整合時，偵測到的發放範圍會自動成為集區。合法 DHCP 伺服器的 IP 勾「標記為 DHCP 伺服器」。</span><span class="en"><b>Address ranges (pools)</b>: mark DHCP pools and reserved ranges inside each subnet. Once a DHCP integration is connected, detected scopes become pools automatically. Tick "Mark as DHCP server" on the IPs of your legitimate DHCP servers.</span><span class="ja"><b>アドレス範囲（プール）</b>：各サブネット内に DHCP プールと予約範囲を設定します。後で DHCP 連携を接続すると、検出した配布範囲は自動でプールになります。正規の DHCP サーバーの IP には「DHCP サーバーとして指定」をオンにします。</span></li>
+        <li><span class="zh"><b>匯入</b>：試算表整理成 CSV（必要欄位 <code>ip</code>，選用 <code>hostname, mac, state, description, owner, switch_port, note</code>），在子網路頁「匯入 CSV」先用 Dry-run 預覽。從 phpIPAM 搬過來的用「管理 → phpIPAM 匯入」，第一次先 dry-run；衝突處理選略過，就能在兩邊並行期間重複執行。公有 IP 可以用「進階 → RIPE / TWNIC 匯入」依登記資料建子網路（管理員）。</span><span class="en"><b>Import</b>: turn the spreadsheet into CSV (required column <code>ip</code>; optional <code>hostname, mac, state, description, owner, switch_port, note</code>) and use "Import CSV" on the subnet page with a dry run first. Coming from phpIPAM, use Admin → phpIPAM Migration, dry run first; with conflicts set to skip you can re-run it while both systems are in use. Public ranges can be created from registry data with Advanced Modules → RIPE / TWNIC import (admins).</span><span class="ja"><b>取り込み</b>：表計算を CSV にまとめ（必須項目 <code>ip</code>、任意項目 <code>hostname, mac, state, description, owner, switch_port, note</code>）、サブネットのページの「CSV 取り込み」でまず Dry-run でプレビューします。phpIPAM からは「管理 → phpIPAM 移行」を使い、最初は dry-run で確認します。競合時の処理をスキップにすれば、両システムを並行運用する間に何度でも実行できます。グローバル IP は「拡張モジュール → RIPE / TWNIC 取り込み」で登録情報からサブネットを作成できます（管理者）。</span></li>
+        <li><span class="zh"><b>自訂欄位</b>（管理員）：要記資產編號、合約之類的額外資訊時再加，不要一開始就加一堆。</span><span class="en"><b>Custom fields</b> (admins): add them when you need extra data such as asset tags or contracts, not a pile on day one.</span><span class="ja"><b>カスタム項目</b>（管理者）：資産番号や契約など追加の情報が必要になってから追加します。最初から大量に作らないでください。</span></li>
+        <li><span class="zh"><b>IP 申請</b>：讓一般使用者申請位址；「管理 → IP 申請審核設定」可以設多關卡會簽或依序審核，並發通知與 Email。這是管理上的簽核紀錄，不會在網路上擋人。</span><span class="en"><b>IP requests</b>: let ordinary users ask for addresses; Admin → IP Request Approval sets parallel or sequential stages with in-app and email notifications. It is an administrative sign-off record and blocks nothing on the network.</span><span class="ja"><b>IP 申請</b>：一般のユーザーがアドレスを申請できるようにします。「管理 → IP 申請の承認」で並列または順番の多段階承認を設定でき、通知とメールが送られます。これは管理上の承認記録で、ネットワーク上で何かを遮断するものではありません。</span></li>
+      </ul>
+      <h3 id="phase-1-check"><span class="zh">要檢查什麼</span><span class="en">What to check</span><span class="ja">確認すること</span></h3>
+      <ul>
+        <li><span class="zh">子網路清單的使用率與 IP 指示計跟你對現況的認知一致。</span><span class="en">Subnet utilisation and the IP indicator match what you know about the network.</span><span class="ja">サブネット一覧の使用率と IP インジケータが、ネットワークについての認識と一致していること。</span></li>
+        <li><span class="zh">每個區段或單位都有指定的資料負責人，由他確認內容正確。</span><span class="en">Each section or customer has a named data owner who confirms the content.</span><span class="ja">セクションまたは顧客ごとにデータの担当者を決め、内容を確認してもらうこと。</span></li>
+        <li><span class="zh">新位址從 jt-ipam 配發：位址範圍會顯示下一個可用位址，IP 指示計也看得出哪些還空著。</span><span class="en">New addresses come from jt-ipam: address ranges show the next free address, and the IP indicator shows what is still free.</span><span class="ja">新しいアドレスは jt-ipam から払い出すこと。アドレス範囲には次の空きアドレスが表示され、IP インジケータでも空きが分かります。</span></li>
+      </ul>
+      <h3 id="phase-1-pitfalls"><span class="zh">常見地雷</span><span class="en">Common pitfalls</span><span class="ja">よくある落とし穴</span></h3>
+      <ul>
+        <li><span class="zh">先建子網路再匯入：CSV 匯入是逐個子網路進行，子網路裡已經有的位址會略過。</span><span class="en">Create subnets before importing: the CSV import runs per subnet, and addresses the subnet already has are skipped.</span><span class="ja">取り込みの前にサブネットを作成してください。CSV の取り込みはサブネット単位で行われ、すでにあるアドレスはスキップされます。</span></li>
+        <li><span class="zh">不要把試算表裡過時的資料原樣搬進來就算數。拿不準的先標成「保留」或在備註寫明來源，階段 2 的掃描會告訴你哪些其實已經不在（失聯 IP）。</span><span class="en">Do not trust stale spreadsheet rows just because they imported. Mark doubtful ones as reserved or note their origin; phase 2 scanning will show which are really gone (ghost IPs).</span><span class="ja">表計算の古い行を、取り込めたからといってそのまま信用しないでください。怪しいものは「予約」にするかメモに出どころを書いておけば、フェーズ 2 のスキャンで実際にはもう無いもの（ゴースト IP）が分かります。</span></li>
+        <li><span class="zh">舊試算表的退場日期要明講並改成唯讀，否則兩邊會一直分歧。</span><span class="en">Announce a retirement date for the old spreadsheet and make it read-only, or the two will keep drifting apart.</span><span class="ja">旧表計算の廃止日をはっきり伝えて読み取り専用にしてください。そうしないと両者がずっと食い違い続けます。</span></li>
+      </ul>
+      <p class="refs"><b><span class="zh">相關</span><span class="en">See also</span><span class="ja">関連</span></b><a href="features.html#core-ipam"><span class="zh">IPAM 核心</span><span class="en">Core IPAM</span><span class="ja">IPAM のコア</span></a><a href="index.html#multi-tenant"><span class="zh">多單位管理</span><span class="en">Many companies or clients</span><span class="ja">複数組織の管理</span></a><a href="api.html#addresses-csv-import"><span class="zh">CSV 匯入 API</span><span class="en">CSV import API</span><span class="ja">CSV 取り込み API</span></a><a href="api.html#phpipam"><span class="zh">phpIPAM 相容 API</span><span class="en">phpIPAM-compatible API</span><span class="ja">phpIPAM 互換 API</span></a></p>
+    </div>
+
+    <div class="phase core">
+      <h2 id="phase-2"><span class="ph-n">2</span><span class="zh">階段 2：探索與上線狀態</span><span class="en">Phase 2: discovery and liveness</span><span class="ja">フェーズ 2：検出と死活</span></h2>
+      <p class="goal"><span class="zh">讓掃描代理回報「實際如何」，每個 IP 有了最後看到的時間，規劃與現況的落差開始浮現。</span><span class="en">Scan agents report what actually is: every IP gets a last-seen time and the gaps between plan and reality start to show.</span><span class="ja">スキャンエージェントに「実際の姿」を報告させます。すべての IP に最終確認の時刻が付き、計画と実態の差が見え始めます。</span></p>
+      <h3 id="phase-2-configure"><span class="zh">要設定什麼</span><span class="en">What to configure</span><span class="ja">設定すること</span></h3>
+      <ul>
+        <li><span class="zh"><b>本機代理</b>：安裝時已在 jt-ipam 主機上裝好一個掃描代理。先把它直接連得到的子網路指派給它：子網路設定的「啟用掃描」與「掃描代理」。掃描一律由代理執行，沒指派代理的子網路不會被掃描。</span><span class="en"><b>Local agent</b>: the install put a scan agent on the jt-ipam host. Assign it the subnets it can reach directly, using "Enable scanning" and "Scan agent" in the subnet settings. Scanning always runs through an agent; a subnet without one is never scanned.</span><span class="ja"><b>ローカルのエージェント</b>：インストール時に jt-ipam のホストにスキャンエージェントが 1 つ入っています。まずそこから直接届くサブネットを、サブネット設定の「スキャンを有効にする」と「スキャンエージェント」で割り当てます。スキャンは常にエージェントが行うので、エージェントが割り当てられていないサブネットはスキャンされません。</span></li>
+        <li><span class="zh"><b>其他網段</b>：在「管理 → 掃描代理」新增代理，到該網段的一台 Linux 主機執行頁面給的一行安裝指令。代理是主動以 HTTPS 連回 jt-ipam 領工作，不需要開放連入代理的連線。</span><span class="en"><b>Other networks</b>: add an agent under Admin → Scan Agents and run the one-line installer it shows on a Linux host in that network. The agent dials out to jt-ipam over HTTPS for its work, so nothing has to connect in to it.</span><span class="ja"><b>他のネットワーク</b>：「管理 → スキャンエージェント」でエージェントを追加し、表示される一行のインストールコマンドをそのネットワーク内の Linux ホストで実行します。エージェントは HTTPS で jt-ipam に自分から接続して作業を受け取るので、エージェントへの着信を許可する必要はありません。</span></li>
+        <li><span class="zh"><b>掃描項目</b>：代理預設只跑 ICMP。在代理上勾選允許的探測（ARP、反解 PTR、NetBIOS、mDNS、DHCP 伺服器偵測、OS 偵測），再在子網路選要跑哪些；缺少的工具會列在「相依套件」並附安裝指令。</span><span class="en"><b>Scan probes</b>: an agent runs only ICMP by default. Allow more probes on the agent (ARP, reverse DNS, NetBIOS, mDNS, DHCP server discovery, OS detection), then pick which ones each subnet runs; missing tools appear under Dependencies with the command to install them.</span><span class="ja"><b>スキャンの探査</b>：エージェントは既定では ICMP だけを実行します。エージェント側で許可する探査（ARP、逆引き PTR、NetBIOS、mDNS、DHCP サーバーの検出、OS 検出）を選び、サブネットごとに実行するものを選択します。足りないツールは「依存関係」にインストールコマンドとともに表示されます。</span></li>
+        <li><span class="zh"><b>上線判定</b>：「管理 → 系統設定 → 上線判定」設定閾值（預設 30 分鐘，建議至少是掃描週期的兩倍）與採計的證據來源。</span><span class="en"><b>Liveness</b>: in Admin → System Settings → Liveness, set the threshold (30 minutes by default; at least twice the scan interval is advisable) and which evidence sources count.</span><span class="ja"><b>死活</b>：「管理 → システム設定 → 死活」でしきい値（既定 30 分、スキャン周期の 2 倍以上を推奨）と、根拠として数えるソースを設定します。</span></li>
+        <li><span class="zh"><b>冷卻期</b>：同一頁「IP 生命週期」的釋放後冷卻天數（預設 30 天）。被釋放的位址在這段期間不會被重新配發，因為 DNS、防火牆規則、監控可能還指著它。</span><span class="en"><b>Cooldown</b>: "Cooldown after release" under IP lifecycle on the same page (30 days by default). A released address is not handed out again during that time, because DNS, firewall rules or monitoring may still point at it.</span><span class="ja"><b>待機期間</b>：同じページの「IP のライフサイクル」にある解放後の待機期間（既定 30 日）。解放されたアドレスは、DNS・ファイアウォールのルール・監視がまだ指している可能性があるため、その間は再度払い出されません。</span></li>
+        <li><span class="zh"><b>異常偵測</b>（管理員）：先用「偵測範圍」只選已經整理好的子網路再執行；訪客與實驗網段可以在子網路設定取消「納入異常偵測」。之後可以排程定期執行。</span><span class="en"><b>Anomaly detection</b> (admins): use Scope to select only subnets you have already tidied, then run it; for guest and lab networks untick "Include in anomaly detection" on the subnet. Schedule it once the results are useful.</span><span class="ja"><b>異常検知</b>（管理者）：「対象範囲」で整理済みのサブネットだけを選んでから実行します。ゲストや実験用のネットワークはサブネット設定で「異常検知の対象に含める」をオフにします。結果が役立つようになったら定期実行を設定します。</span></li>
+      </ul>
+      <h3 id="phase-2-check"><span class="zh">要檢查什麼</span><span class="en">What to check</span><span class="ja">確認すること</span></h3>
+      <ul>
+        <li><span class="zh">IP 指示計的上線、離線、未知比例合理。「未知」多半是子網路沒啟用掃描，或該 IP 刻意略過 Ping。</span><span class="en">The online, offline and unknown shares on the IP indicator look plausible. "Unknown" usually means scanning is off for the subnet or the IP deliberately skips ping.</span><span class="ja">IP インジケータのオンライン・オフライン・不明の割合が妥当であること。「不明」の多くは、サブネットのスキャンが無効か、その IP が意図的に Ping を除外しているためです。</span></li>
+        <li><span class="zh">IP 詳細資料的「各來源最後出現」看得到掃描代理的時間，以及每個來源會不會被採計為上線。</span><span class="en">"Last seen by source" in the IP details shows the scan agent's time and whether each source counts toward online.</span><span class="ja">IP の詳細にある「ソース別の最終確認」に、スキャンエージェントの時刻と、各ソースがオンライン判定に数えられるかが表示されること。</span></li>
+        <li><span class="zh">掃描代理的負載面板沒有「過重」。超過 4096 個位址的子網路會分段輪替，掃完一遍的時間要短於上線判定閾值，否則主機會在兩次掃描之間被判成離線。</span><span class="en">The scan agent load panel shows no "overloaded". Subnets over 4096 addresses are scanned in slices, and a full pass must take less than the liveness threshold, or hosts go offline between scans.</span><span class="ja">スキャンエージェントの負荷パネルに「過重」が無いこと。4096 アドレスを超えるサブネットは分割して巡回します。一巡の時間が死活のしきい値より短くないと、スキャンの合間にホストがオフラインと判定されます。</span></li>
+        <li><span class="zh">「IP 異動記錄」開始累積狀態變化與欄位異動。</span><span class="en">The IP Change Log starts collecting status changes and field edits.</span><span class="ja">「IP 変更履歴」に状態の変化と項目の変更が蓄積され始めること。</span></li>
+        <li><span class="zh">異常偵測的「失聯 IP」「未授權 IP」與「IP 衝突」逐筆處理一輪：該回收的回收，該登記的登記，衝突的找出是哪兩台。</span><span class="en">Work through "Ghost IPs", "Unauthorized IPs" and "IP conflicts" once: reclaim what should be reclaimed, register what should be registered, and find the two machines behind each conflict.</span><span class="ja">異常検知の「ゴースト IP」「未許可の IP」「IP の競合」を一通り処理します。回収すべきものは回収し、登録すべきものは登録し、競合はどの 2 台かを突き止めます。</span></li>
+      </ul>
+      <h3 id="phase-2-pitfalls"><span class="zh">常見地雷</span><span class="en">Common pitfalls</span><span class="ja">よくある落とし穴</span></h3>
+      <ul>
+        <li><span class="zh">代理的位置決定看得到什麼：ARP 與 MAC 只在同一個廣播網域拿得到，要知道 MAC 與廠牌，代理就要放在那個網段裡（或在那個 VLAN 有介面的主機上）；跨過路由就只剩 ICMP。</span><span class="en">Where an agent sits decides what it sees: ARP and MACs are only available inside the same broadcast domain, so to learn MACs and vendors the agent must live in that network (or on a host with an interface in that VLAN). Across a router, only ICMP is left.</span><span class="ja">エージェントの設置場所で見えるものが決まります。ARP と MAC は同じブロードキャストドメイン内でしか取得できないため、MAC とメーカーを知りたいならエージェントをそのネットワーク内（またはその VLAN にインターフェースを持つホスト）に置きます。ルーターを越えると ICMP しか使えません。</span></li>
+        <li><span class="zh">代理與目標之間有防火牆擋 ICMP 時，整段會看起來都離線；先確認代理到目標網段的 ICMP 是通的。</span><span class="en">A firewall that drops ICMP between agent and target makes a whole network look offline; check that ICMP from the agent reaches it first.</span><span class="ja">エージェントと対象の間に ICMP を遮断するファイアウォールがあると、ネットワーク全体がオフラインに見えます。まずエージェントから対象ネットワークへ ICMP が通ることを確認してください。</span></li>
+        <li><span class="zh">「自動收錄未登錄的 IP」預設關閉，建議維持關閉：位址一旦收錄，私接的設備就不會再出現在未授權 IP 清單。</span><span class="en">"Record unregistered IPs automatically" is off by default; keep it off. Once an address is recorded, an unauthorised device no longer shows up under unauthorised IPs.</span><span class="ja">「未登録の IP を自動的に記録する」は既定で無効です。無効のままを推奨します。いったん記録されると、無断で接続された機器は未許可の IP の一覧に現れなくなります。</span></li>
+        <li><span class="zh">OS 偵測屬於侵入性探測，可能觸發 IDS 告警；開啟前先知會資安團隊，間隔拉長。DHCP 伺服器偵測會在網段上廣播，逐個子網路決定要不要開。</span><span class="en">OS detection is an intrusive probe that may trip IDS alerts; tell your security team first and keep the interval long. DHCP server discovery broadcasts on the network, so decide per subnet.</span><span class="ja">OS 検出は侵入的な探査で、IDS の警告を引き起こすことがあります。有効にする前にセキュリティ担当へ知らせ、間隔を長めにしてください。DHCP サーバーの検出はネットワーク上でブロードキャストするので、サブネットごとに判断してください。</span></li>
+      </ul>
+      <p class="refs"><b><span class="zh">相關</span><span class="en">See also</span><span class="ja">関連</span></b><a href="features.html#core-ipam"><span class="zh">掃描代理與 IPAM 核心</span><span class="en">Scan agents and core IPAM</span><span class="ja">スキャンエージェントと IPAM のコア</span></a><a href="index.html#autocreate"><span class="zh">哪些來源會自己新增 IP</span><span class="en">Which sources create IPs</span><span class="ja">IP を自動作成するソース</span></a><a href="api.html#agents-scan-agent"><span class="zh">掃描代理協定</span><span class="en">Scan agent protocol</span><span class="ja">スキャンエージェントのプロトコル</span></a></p>
+    </div>
+
+    <div class="phase ext">
+      <h2 id="phase-3"><span class="ph-n">3</span><span class="zh">階段 3：用整合印證現況</span><span class="en">Phase 3: integrations confirm reality</span><span class="ja">フェーズ 3：連携で実態を裏付け</span></h2>
+      <p class="goal"><span class="zh">把你已經在用的系統接進來，補上掃描看不到的東西：交換器埠、閘道的 ARP、DHCP 租約、DNS 名稱、VM 與端點代理。每個整合都在「管理」底下各自的頁面新增，之後由排程自動同步（預設每 5 分鐘一輪）。</span><span class="en">Connect the systems you already run to add what scans cannot see: switch ports, gateway ARP, DHCP leases, DNS names, VMs and endpoint agents. Each integration is added on its own page under Admin and then synced on a schedule (every 5 minutes by default).</span><span class="ja">すでに使っているシステムを接続し、スキャンでは見えないもの（スイッチのポート、ゲートウェイの ARP、DHCP リース、DNS 名、VM、端末のエージェント）を補います。各連携は「管理」の下のそれぞれのページで追加し、その後はスケジュールで自動同期されます（既定は 5 分ごと）。</span></p>
+      <h3 id="phase-3-order"><span class="zh">建議順序與理由</span><span class="en">Recommended order, and why</span><span class="ja">推奨の順番と理由</span></h3>
+      <p><span class="zh">從網路底層往上接：先確定位址在網路上的位置（MAC、交換器埠、閘道），再確定位址的用途（動態或固定），接著是名稱，最後才是位址上面跑的東西。越上層的來源，越依賴底下的資料已經正確。只接你有的，沒有的跳過。</span><span class="en">Work up from the bottom of the network: first where an address sits (MAC, switch port, gateway), then what it is for (dynamic or fixed), then its name, and last what runs on it. Higher sources depend on the lower data being right. Connect only what you have; skip the rest.</span><span class="ja">ネットワークの下の層から順に接続します。まずアドレスがネットワーク上のどこにあるか（MAC、スイッチのポート、ゲートウェイ）、次にその用途（動的か固定か）、続いて名前、最後にその上で動いているものです。上の層のソースほど、下の層のデータが正しいことに依存します。持っているものだけを接続し、無いものは飛ばしてください。</span></p>
+      <table class="tbl order">
+        <thead>
+          <tr>
+            <th style="width:6%"><span class="zh">順序</span><span class="en">Step</span><span class="ja">順番</span></th>
+            <th style="width:24%"><span class="zh">來源</span><span class="en">Sources</span><span class="ja">ソース</span></th>
+            <th style="width:38%"><span class="zh">帶來什麼</span><span class="en">What it adds</span><span class="ja">得られるもの</span></th>
+            <th style="width:32%"><span class="zh">先注意</span><span class="en">Watch out for</span><span class="ja">注意点</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="ord">1</td>
+            <td data-zh="來源" data-en="Sources" data-ja="ソース"><b>LibreNMS</b></td>
+            <td data-zh="帶來什麼" data-en="What it adds" data-ja="得られるもの"><span class="zh">裝置、連接埠、ARP、FDB（交換器 MAC 表）、VLAN、LLDP / CDP 鄰居。FDB 回答「這台接在哪台交換器的哪個埠」，是 MAC 歷程、拓樸圖存取層與階段 4 連接埠的基礎。</span><span class="en">Devices, ports, ARP, FDB (switch MAC tables), VLANs, LLDP / CDP neighbours. FDB answers "which switch port is this plugged into", the basis for MAC history, the topology's access layer and the ports in phase 4.</span><span class="ja">機器、ポート、ARP、FDB（スイッチの MAC テーブル）、VLAN、LLDP / CDP ネイバー。FDB は「どのスイッチのどのポートにつながっているか」に答え、MAC の履歴、トポロジーのアクセス層、フェーズ 4 のポートの土台になります。</span></td>
+            <td data-zh="先注意" data-en="Watch out for" data-ja="注意点"><span class="zh">「自動建立裝置主 IP」預設開啟，第一次同步前決定要不要；「依 ARP 表自動建立 IP」預設關閉。</span><span class="en">"Auto-create device primary IPs" is on by default; decide before the first sync. "Create IPs from the ARP table" is off by default.</span><span class="ja">「機器の主 IP を自動作成する」は既定で有効なので、初回の同期の前に判断してください。「ARP テーブルから IP を作成する」は既定で無効です。</span></td>
+          </tr>
+          <tr>
+            <td class="ord">2</td>
+            <td data-zh="來源" data-en="Sources" data-ja="ソース"><span class="zh"><b>閘道與防火牆</b>：OPNsense、pfSense、FortiGate、Palo Alto（Beta）、MikroTik RouterOS（Beta）</span><span class="en"><b>Gateways and firewalls</b>: OPNsense, pfSense, FortiGate, Palo Alto (Beta), MikroTik RouterOS (Beta)</span><span class="ja"><b>ゲートウェイとファイアウォール</b>：OPNsense、pfSense、FortiGate、Palo Alto（Beta）、MikroTik RouterOS（Beta）</span></td>
+            <td data-zh="帶來什麼" data-en="What it adds" data-ja="得られるもの"><span class="zh">閘道的 ARP（路由過去的網段只有閘道看得到 MAC）、DHCP 租約、NAT 與規則、VPN。規則與 NAT 讓「對外曝險」與「防火牆規則異動」有資料可看。</span><span class="en">Gateway ARP (for routed networks only the gateway sees the MACs), DHCP leases, NAT and rules, VPN. Rules and NAT feed the external exposure check and firewall rule change detection.</span><span class="ja">ゲートウェイの ARP（ルーティング先のネットワークの MAC はゲートウェイにしか見えません）、DHCP リース、NAT とルール、VPN。ルールと NAT は「外部への公開」と「ファイアウォールのルール変更」の検知に使われます。</span></td>
+            <td data-zh="先注意" data-en="Watch out for" data-ja="注意点"><span class="zh">pfSense 要先裝 pfSense-pkg-RESTAPI；MikroTik 通常是主路由器，較吃資源的區段預設關閉；OPNsense / pfSense 的「自動建立 IPAM 沒有的位址」預設關閉。</span><span class="en">pfSense needs pfSense-pkg-RESTAPI installed first; a MikroTik is usually the main router, so its heavier sections are off by default; on OPNsense / pfSense "Create addresses IPAM does not have" is off by default.</span><span class="ja">pfSense は先に pfSense-pkg-RESTAPI が必要です。MikroTik は通常メインのルーターなので、負荷の大きいセクションは既定で無効です。OPNsense / pfSense の「IPAM に無いアドレスを作成する」は既定で無効です。</span></td>
+          </tr>
+          <tr>
+            <td class="ord">3</td>
+            <td data-zh="來源" data-en="Sources" data-ja="ソース"><span class="zh"><b>DHCP</b>：Windows DHCP（Beta）、Kea DHCP、ISC DHCP</span><span class="en"><b>DHCP</b>: Windows DHCP (Beta), Kea DHCP, ISC DHCP</span><span class="ja"><b>DHCP</b>：Windows DHCP（Beta）、Kea DHCP、ISC DHCP</span></td>
+            <td data-zh="帶來什麼" data-en="What it adds" data-ja="得られるもの"><span class="zh">租約、發放範圍與固定分配：發放範圍自動成為集區，分得出哪些位址是動態、哪些是固定。防火牆內建的 DHCP 在上一步已經涵蓋。</span><span class="en">Leases, scopes and reservations: scopes become pools automatically, so dynamic and fixed addresses can be told apart. DHCP served by the firewalls is already covered in the previous step.</span><span class="ja">リース、配布範囲、固定割り当て。配布範囲は自動でプールになり、動的なアドレスと固定のアドレスを区別できます。ファイアウォール内蔵の DHCP は前のステップで扱っています。</span></td>
+            <td data-zh="先注意" data-en="Watch out for" data-ja="注意点"><span class="zh">ISC DHCP 沒有 API，要在 DHCP 主機上裝掃描代理讀檔；Kea 要載入 lease_cmds 才拿得到租約；Windows 要能用 WinRM 連線（預設 5986/HTTPS）。</span><span class="en">ISC DHCP has no API, so a scan agent on the DHCP host reads its files; Kea needs the lease_cmds hook for leases; Windows needs WinRM reachable (5986/HTTPS by default).</span><span class="ja">ISC DHCP には API が無いので、DHCP ホストにスキャンエージェントを入れてファイルを読みます。Kea でリースを取得するには lease_cmds が必要です。Windows は WinRM で接続できる必要があります（既定 5986/HTTPS）。</span></td>
+          </tr>
+          <tr>
+            <td class="ord">4</td>
+            <td data-zh="來源" data-en="Sources" data-ja="ソース"><span class="zh"><b>DNS</b>：PowerDNS、BIND9、Unbound（OPNsense）、Windows DNS、Univention UCS、AdGuard Home</span><span class="en"><b>DNS</b>: PowerDNS, BIND9, Unbound (OPNsense), Windows DNS, Univention UCS, AdGuard Home</span><span class="ja"><b>DNS</b>：PowerDNS、BIND9、Unbound（OPNsense）、Windows DNS、Univention UCS、AdGuard Home</span></td>
+            <td data-zh="帶來什麼" data-en="What it adds" data-ja="得られるもの"><span class="zh">主機名稱來源；A、AAAA、PTR 與 IPAM 比對；「DNS 記錄」頁找出沒有對應 IP 的記錄；「失效 DNS 記錄」偵測。</span><span class="en">A hostname source; A, AAAA and PTR compared with IPAM; the DNS Records page finds records with no matching IP; the dangling DNS check.</span><span class="ja">ホスト名のソース、A・AAAA・PTR と IPAM の照合、「DNS レコード」ページで対応する IP の無いレコードを発見、「失効した DNS レコード」の検知。</span></td>
+            <td data-zh="先注意" data-en="Watch out for" data-ja="注意点"><span class="zh">預設只讀取比對；名稱要以哪個來源為準，在「管理 → 名稱/ARP 來源順序」調整。</span><span class="en">It reads and compares by default; which source wins for names is set in Admin → Name / ARP source order.</span><span class="ja">既定では読み取りと照合のみです。名前にどのソースを優先するかは「管理 → 名称/ARP のソース順」で調整します。</span></td>
+          </tr>
+          <tr>
+            <td class="ord">5</td>
+            <td data-zh="來源" data-en="Sources" data-ja="ソース"><span class="zh"><b>虛擬化</b>：Proxmox VE、VMware ESXi / vCenter（Beta）</span><span class="en"><b>Virtualization</b>: Proxmox VE, VMware ESXi / vCenter (Beta)</span><span class="ja"><b>仮想化</b>：Proxmox VE、VMware ESXi / vCenter（Beta）</span></td>
+            <td data-zh="帶來什麼" data-en="What it adds" data-ja="得られるもの"><span class="zh">VM 與容器對應到 IP；沒有 guest agent 時用 MAC 對應；Proxmox 另有主控台（階段 5）。</span><span class="en">VMs and containers matched to IPs, by MAC when there is no guest agent; Proxmox also brings its console (phase 5).</span><span class="ja">VM とコンテナを IP に対応付け、guest agent が無い場合は MAC で対応付け。Proxmox はコンソールも使えます（フェーズ 5）。</span></td>
+            <td data-zh="先注意" data-en="Watch out for" data-ja="注意点"><span class="zh">「信任虛擬化取得的 IP」預設關閉；打開的話，測試機與臨時複製的 VM 也會被收錄。</span><span class="en">"Trust addresses reported by virtualization" is off by default; turned on, test machines and temporary clones get recorded too.</span><span class="ja">「仮想化から報告されたアドレスを信頼する」は既定で無効です。有効にすると、テスト機や一時的に複製した VM も記録されます。</span></td>
+          </tr>
+          <tr>
+            <td class="ord">6</td>
+            <td data-zh="來源" data-en="Sources" data-ja="ソース"><span class="zh"><b>端點與監控</b>：Wazuh、OCS Inventory NG、Zabbix、RustDesk Server（開源版，Beta）</span><span class="en"><b>Endpoints and monitoring</b>: Wazuh, OCS Inventory NG, Zabbix, RustDesk Server (open source, Beta)</span><span class="ja"><b>端末と監視</b>：Wazuh、OCS Inventory NG、Zabbix、RustDesk Server（オープンソース版、Beta）</span></td>
+            <td data-zh="帶來什麼" data-en="What it adds" data-ja="得られるもの"><span class="zh">只比對、不建立紀錄，列出缺口：沒裝 Wazuh 代理的 IP、OCS 從未盤點的 IP、Zabbix 沒監控到的主機；RustDesk 對應到 IP 之後可以從 IP 頁連線。</span><span class="en">Match only, never create; they list the gaps: IPs without a Wazuh agent, IPs OCS never inventoried, hosts Zabbix does not watch. Once RustDesk maps to an IP you can connect from the IP page.</span><span class="ja">照合のみでレコードは作成せず、抜けを一覧にします：Wazuh エージェントの無い IP、OCS で一度も棚卸しされていない IP、Zabbix が監視していないホスト。RustDesk が IP に対応すると IP のページから接続できます。</span></td>
+            <td data-zh="先注意" data-en="Watch out for" data-ja="注意点"><span class="zh">這些缺口清單要在 IP 規劃完整之後才有意義，否則會被沒登記的位址灌爆。RustDesk 要在 RustDesk 主機上裝專用代理。</span><span class="en">These gap lists only mean something once the IP plan is complete; otherwise unregistered addresses flood them. RustDesk needs its dedicated agent on the RustDesk host.</span><span class="ja">これらの抜けの一覧は IP 計画が揃ってから意味を持ちます。そうでないと未登録のアドレスで埋め尽くされます。RustDesk は RustDesk ホストに専用エージェントが必要です。</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <h3 id="phase-3-configure"><span class="zh">要設定什麼</span><span class="en">What to configure</span><span class="ja">設定すること</span></h3>
+      <ul>
+        <li><span class="zh">每個整合都用唯讀的 API 帳號。整合本來就只讀取；會寫回的功能（例如 OPNsense 別名推送、憑證派送）要你明確開啟才會動。</span><span class="en">Give every integration a read-only API account. Integrations only read; features that write back (OPNsense alias push, certificate delivery) act only when you explicitly turn them on.</span><span class="ja">各連携には読み取り専用の API アカウントを使います。連携はもともと読み取りのみで、書き戻す機能（OPNsense エイリアスへの反映、証明書の配布など）は明示的に有効にしたときだけ動きます。</span></li>
+        <li><span class="zh">有重疊網段時，每個整合都要設「限定子網路範圍」，否則自動建立會因為落點不明確而略過，比對也可能對到別的單位。</span><span class="en">With overlapping networks, set "Limit to subnets" on each integration; otherwise auto-creation skips addresses it cannot place, and matching may land on another customer's subnet.</span><span class="ja">重複ネットワークがある場合は、各連携で「対象サブネットを限定」を設定してください。そうしないと配置先が判別できないアドレスは自動作成でスキップされ、照合が別の顧客のサブネットに当たることもあります。</span></li>
+        <li><span class="zh">上線判定的來源：防火牆的 ARP 與 VPN 連線會逾時淘汰，預設採信；LibreNMS 的 ARP 不帶時間，關機後仍會一直顯示上線，不建議勾。</span><span class="en">Liveness sources: firewall ARP and VPN sessions age out, so they count by default; LibreNMS ARP carries no timestamp and keeps a machine online after it is switched off, so leave it unticked.</span><span class="ja">死活のソース：ファイアウォールの ARP と VPN 接続は時間切れで消えるので既定で採用します。LibreNMS の ARP には時刻が無く、電源を切った後もオンラインのままになるため、オンにしないことを推奨します。</span></li>
+        <li><span class="zh">打開「依 ARP 表自動建立 IP」時，保留「需要交換器 MAC 表佐證（建議）」：只看 ARP 的話，路由器快取還沒清的舊設備會被建回來。</span><span class="en">If you turn on "Create IPs from the ARP table", keep "Require a switch MAC table sighting (recommended)": with ARP alone, devices long gone come back while the router's cache still holds them.</span><span class="ja">「ARP テーブルから IP を作成する」を有効にする場合は「スイッチの MAC テーブルでの確認を必須にする（推奨）」を残してください。ARP だけでは、ルーターのキャッシュに残っている、とうにいなくなった機器まで作成されます。</span></li>
+      </ul>
+      <h3 id="phase-3-check"><span class="zh">要檢查什麼</span><span class="en">What to check</span><span class="ja">確認すること</span></h3>
+      <ul>
+        <li><span class="zh">整合頁顯示同步成功，筆數合理；連不上時錯誤訊息會帶底層原因（DNS、拒絕連線、憑證），先看那裡。</span><span class="en">The integration page shows a successful sync with plausible counts; when a connection fails, the error carries the underlying cause (DNS, refused, certificate), so start there.</span><span class="ja">連携のページで同期の成功と妥当な件数が表示されること。接続できないときはエラーに根本原因（DNS、接続拒否、証明書）が含まれるので、まずそこを確認します。</span></li>
+        <li><span class="zh">抽查幾個 IP 的「各來源最後出現」：每個來源的時間都合理，主機名稱取自你預期的來源。</span><span class="en">Spot-check "Last seen by source" on a few IPs: every source's time is plausible and the hostname comes from the source you expect.</span><span class="ja">いくつかの IP で「ソース別の最終確認」を抜き取りで確認し、各ソースの時刻が妥当で、ホスト名が想定したソースから取られていること。</span></li>
+        <li><span class="zh">「IP 拓樸圖」在接上 FDB 或 LLDP 之後補上存取層與骨幹。</span><span class="en">The IP Topology gains its access layer and backbone once FDB or LLDP is connected.</span><span class="ja">FDB か LLDP を接続すると、「IP トポロジー」にアクセス層とバックボーンが加わること。</span></li>
+      </ul>
+      <h3 id="phase-3-pitfalls"><span class="zh">常見地雷</span><span class="en">Common pitfalls</span><span class="ja">よくある落とし穴</span></h3>
+      <ul>
+        <li><span class="zh">一次接好幾個整合又同時開自動建立，事後很難分辨紀錄從哪來。一次接一個、自動建立先全關，觀察一週再逐一決定。</span><span class="en">Connecting several integrations at once with auto-create on makes it hard to tell later where records came from. One at a time, auto-create off, a week of watching, then decide each switch.</span><span class="ja">複数の連携を一度に接続して自動作成も有効にすると、後からレコードの出どころが分からなくなります。1 つずつ接続し、自動作成はまず無効にして 1 週間観察してから個別に判断してください。</span></li>
+        <li><span class="zh">刪除整合會收回它寫入的資料，不要用「刪掉重建」來修設定，改編輯就好。</span><span class="en">Deleting an integration removes the data it wrote, so do not delete and recreate to fix a setting; edit it.</span><span class="ja">連携を削除すると、その連携が書き込んだデータも回収されます。設定を直すために削除して作り直すのではなく、編集してください。</span></li>
+      </ul>
+      <p class="refs"><b><span class="zh">相關</span><span class="en">See also</span><span class="ja">関連</span></b><a href="index.html#integrations"><span class="zh">整合總覽</span><span class="en">Integration map</span><span class="ja">連携の全体像</span></a><a href="index.html#autocreate"><span class="zh">哪些來源會自己新增 IP</span><span class="en">Which sources create IPs</span><span class="ja">IP を自動作成するソース</span></a><a href="features.html#integrations-network"><span class="zh">網路與防火牆</span><span class="en">Network &amp; firewalls</span><span class="ja">ネットワークとファイアウォール</span></a><a href="features.html#integrations-dns-dhcp"><span class="zh">DNS 與 DHCP</span><span class="en">DNS &amp; DHCP</span><span class="ja">DNS と DHCP</span></a><a href="features.html#virtualization"><span class="zh">虛擬化</span><span class="en">Virtualization</span><span class="ja">仮想化</span></a><a href="features.html#integrations-inventory"><span class="zh">資產、監控與記錄</span><span class="en">Inventory, monitoring &amp; logs</span><span class="ja">資産・監視・ログ</span></a><a href="troubleshooting.html#qa-integration"><span class="zh">整合一直同步失敗</span><span class="en">An integration keeps failing</span><span class="ja">連携の同期が失敗し続ける</span></a></p>
+    </div>
+
+    <div class="phase ext">
+      <h2 id="phase-4"><span class="ph-n">4</span><span class="zh">階段 4：裝置與實體</span><span class="en">Phase 4: devices and the physical layer</span><span class="ja">フェーズ 4：機器と物理</span></h2>
+      <p class="goal"><span class="zh">把 IP 背後的實體補齊：在哪個機房、哪一櫃哪一 U、接哪個埠、走哪條線、用哪路電。可以和階段 3 並行。</span><span class="en">Fill in the physical side behind each IP: which room, which rack and U, which port, which cable, which power feed. It can run alongside phase 3.</span><span class="ja">IP の背後にある物理の情報を揃えます。どのサーバルームの、どのラックの何 U に、どのポートで、どのケーブルで、どの電源系統か。フェーズ 3 と並行できます。</span></p>
+      <h3 id="phase-4-configure"><span class="zh">要設定什麼（依這個順序）</span><span class="en">What to configure (in this order)</span><span class="ja">設定すること（この順番で）</span></h3>
+      <ul>
+        <li><span class="zh"><b>機房 / 地點</b>：建立地點與機房，在平面圖上拖拉放置機櫃（可旋轉），也可以在世界地圖上看各地點。</span><span class="en"><b>Rooms / locations</b>: create sites and rooms, drag racks onto the floor plan (rotation supported), and see the sites on a world map.</span><span class="ja"><b>サーバルーム/拠点</b>：拠点とサーバルームを作成し、平面図にラックをドラッグで配置します（回転可）。世界地図で各拠点も確認できます。</span></li>
+        <li><span class="zh"><b>機櫃</b>：U 數、正面 / 背面、半 U、兩側走線空間；也支援層架（鍍鉻、角鋼、IKEA IVAR、IKEA KALLAX、LackRack）。可匯出 SVG / PNG / draw.io。</span><span class="en"><b>Racks</b>: height in U, front / rear, half-U, cable space on both sides; shelving too (chrome wire, slotted angle, IKEA IVAR, IKEA KALLAX, LackRack). Export to SVG / PNG / draw.io.</span><span class="ja"><b>ラック</b>：U 数、前面 / 背面、ハーフ U、両側の配線スペース。棚（スチール、アングル、IKEA IVAR、IKEA KALLAX、LackRack）にも対応し、SVG / PNG / draw.io に出力できます。</span></li>
+        <li><span class="zh"><b>裝置</b>：網路設備可以從 LibreNMS 的「連結裝置」或「自動加入新裝置」帶進來；其他設備用 CSV / xlsx 匯入（先預覽；範本可帶出現有裝置，改完用更新模式匯回）。新增、修改與匯入裝置只有管理員能做。</span><span class="en"><b>Devices</b>: bring network gear in from LibreNMS with "Link devices" or "Auto-add new devices"; import the rest from CSV / xlsx (with a preview; the template can include existing devices so you can edit and re-import in update mode). Only admins can create, edit or import devices.</span><span class="ja"><b>機器</b>：ネットワーク機器は LibreNMS の「機器を紐づける」または「新しい機器を自動的に追加する」で取り込み、それ以外は CSV / xlsx で取り込みます（プレビュー付き。テンプレートに既存の機器を含めて、編集後に更新モードで取り込み直せます）。機器の作成・変更・取り込みは管理者のみです。</span></li>
+        <li><span class="zh"><b>連接埠</b>：網路設備在裝置頁的「連接埠 / 佈線」用「從來源匯入」帶入 LibreNMS 的埠；跳接面板手動建立前埠與後埠，並設定穿透對應。</span><span class="en"><b>Ports</b>: for network gear use "Import from source" in Ports / Cabling on the device page to pull ports from LibreNMS; for patch panels create front and rear ports by hand and set their pass-through.</span><span class="ja"><b>ポート</b>：ネットワーク機器は機器ページの「ポート/配線」で「ソースから取り込む」を使い LibreNMS のポートを取り込みます。パッチパネルは前面ポートと背面ポートを手作業で作り、パススルーの対応を設定します。</span></li>
+        <li><span class="zh"><b>佈線</b>：在連接埠之間建立纜線連線（類型、顏色），之後用「纜線追蹤」看多跳路徑並下載 SVG。</span><span class="en"><b>Cabling</b>: connect ports with cables (type, colour), then use "Cable trace" to follow multi-hop paths and download them as SVG.</span><span class="ja"><b>配線</b>：ポート同士をケーブルで接続し（種類、色）、「ケーブル追跡」で多段の経路を確認して SVG でダウンロードします。</span></li>
+        <li><span class="zh"><b>電力</b>：配電盤 → 饋線 → 插座，裝置接上插座後看電力試算。</span><span class="en"><b>Power</b>: panel → feed → outlet; once devices are plugged in, check the power budget.</span><span class="ja"><b>電源</b>：分電盤 → フィード → コンセント。機器をコンセントにつないだら電力試算を確認します。</span></li>
+        <li><span class="zh"><b>機櫃圖對外嵌入</b>（選用）：要在其他系統（例如監控儀表板）顯示機櫃圖時，在「管理 → 系統設定」啟用，再到機櫃頁逐櫃開放。</span><span class="en"><b>Rack embedding</b> (optional): to show rack drawings in another system such as a monitoring dashboard, enable it in Admin → System Settings, then open it up rack by rack on the Racks page.</span><span class="ja"><b>ラック図の外部埋め込み</b>（任意）：監視ダッシュボードなど他のシステムでラック図を表示したい場合は、「管理 → システム設定」で有効にし、ラックのページで 1 台ずつ公開します。</span></li>
+      </ul>
+      <h3 id="phase-4-check"><span class="zh">要檢查什麼</span><span class="en">What to check</span><span class="ja">確認すること</span></h3>
+      <ul>
+        <li><span class="zh">從一台伺服器的 IP → 裝置 → 機櫃位置 → 連接埠 → 纜線追蹤，一路點得到交換器。</span><span class="en">From a server's IP → device → rack position → port → cable trace, you can click all the way to the switch.</span><span class="ja">サーバーの IP → 機器 → ラックの位置 → ポート → ケーブル追跡と、スイッチまでクリックでたどれること。</span></li>
+        <li><span class="zh">抽查幾櫃，機櫃圖與現場一致。</span><span class="en">Spot-check a few racks against the real thing.</span><span class="ja">いくつかのラックを抜き取りで確認し、ラック図が現場と一致していること。</span></li>
+      </ul>
+      <h3 id="phase-4-pitfalls"><span class="zh">常見地雷</span><span class="en">Common pitfalls</span><span class="ja">よくある落とし穴</span></h3>
+      <ul>
+        <li><span class="zh">想一次把所有機房建完，通常會半途而廢。先做核心機房與網路設備，其餘依優先順序補。</span><span class="en">Trying to model every room at once usually stalls halfway. Start with core rooms and network gear and add the rest by priority.</span><span class="ja">すべてのサーバルームを一度に作ろうとすると、たいてい途中で止まります。主要なサーバルームとネットワーク機器から始め、残りは優先度順に追加してください。</span></li>
+        <li><span class="zh">佈線與電力沒有任何系統會自動回報，只能靠人維護：指定負責人，並納入上架、搬遷、汰換的變更流程。</span><span class="en">Nothing reports cabling and power automatically; people maintain them. Name an owner and make updates part of the change process for installs, moves and removals.</span><span class="ja">配線と電源を自動で報告してくれるシステムはなく、人が維持するしかありません。担当者を決め、設置・移設・撤去の変更手順に更新を組み込んでください。</span></li>
+      </ul>
+      <p class="refs"><b><span class="zh">相關</span><span class="en">See also</span><span class="ja">関連</span></b><a href="features.html#physical-assets"><span class="zh">實體資產</span><span class="en">Physical assets</span><span class="ja">物理資産</span></a><a href="index.html#shelves"><span class="zh">層架</span><span class="en">Shelving</span><span class="ja">棚</span></a><a href="api.html#devices-device-import"><span class="zh">裝置匯入 API</span><span class="en">Device import API</span><span class="ja">機器の取り込み API</span></a><a href="api.html#rack-embed"><span class="zh">機櫃圖嵌入</span><span class="en">Rack embedding</span><span class="ja">ラック図の埋め込み</span></a></p>
+    </div>
+
+    <div class="phase ext">
+      <h2 id="phase-5"><span class="ph-n">5</span><span class="zh">階段 5：維運與自動化</span><span class="en">Phase 5: operations and automation</span><span class="ja">フェーズ 5：運用と自動化</span></h2>
+      <p class="goal"><span class="zh">資料可信之後，讓日常工作直接在 jt-ipam 裡完成，並把它接到通知與其他系統。</span><span class="en">With data you can trust, do the daily work inside jt-ipam and connect it to notifications and other systems.</span><span class="ja">データを信頼できるようになったら、日常業務を jt-ipam の中で行い、通知や他のシステムとつなぎます。</span></p>
+      <h3 id="phase-5-configure"><span class="zh">要設定什麼</span><span class="en">What to configure</span><span class="ja">設定すること</span></h3>
+      <ul>
+        <li><span class="zh"><b>主控台</b>：使用者要有「連線管理權限」，IP 要打開「啟用 SSH 連線管理」等開關（SSH、SFTP、RDP、VNC 各自獨立）。帳密預設不儲存，也可以存進個人加密金庫；每次連線都留稽核。另有 Proxmox 主控台、BMC 序列主控台（Beta）與相容 RustDesk 的網頁連線（Beta）；後端連不到的站台可以走跳板主機或經由掃描代理中繼（皆為 Beta）。</span><span class="en"><b>Consoles</b>: users need the "SSH access" right and each IP needs its switch, such as "Enable SSH management" (SSH, SFTP, RDP and VNC are separate). Credentials are not stored by default but can go into a personal encrypted vault; every session is audited. There is also the Proxmox console, the BMC serial console (Beta) and the RustDesk-compatible web connection (Beta); sites the backend cannot reach can go through a jump host or be relayed through a scan agent (both Beta).</span><span class="ja"><b>コンソール</b>：ユーザーに「SSH の利用」の権限を与え、IP ごとに「SSH 管理を有効にする」などのスイッチをオンにします（SSH・SFTP・RDP・VNC はそれぞれ独立）。資格情報は既定では保存せず、個人用の暗号化保管庫にも保存できます。接続はすべて監査されます。Proxmox コンソール、BMC シリアルコンソール（Beta）、RustDesk 互換の Web 接続（Beta）もあります。バックエンドから届かないサイトは踏み台か、スキャンエージェント経由の中継を使えます（いずれも Beta）。</span></li>
+        <li><span class="zh"><b>調查與探測</b>：IP 詳細資料的「調查」把主機名稱來源、ARP / MAC、交換器埠、防火牆、異動記錄與異常收在一起，可以匯出報告；管理員另有「探測」，由代理辨識這是什麼設備。「進階 → MAC 位址」可以看一個 MAC 用過的 IP 與交換器埠。</span><span class="en"><b>Investigate and Probe</b>: "Investigate" in the IP details gathers hostname sources, ARP / MAC, switch port, firewalls, change history and anomalies in one place, with a report export; admins also have "Probe", where an agent works out what the device is. Advanced Modules → MAC addresses shows the IPs and switch ports a MAC has used.</span><span class="ja"><b>調査と探査</b>：IP の詳細の「調査」は、ホスト名のソース、ARP / MAC、スイッチのポート、ファイアウォール、変更履歴、異常を 1 か所にまとめ、レポートとして出力できます。管理者には、エージェントが機器を判別する「探査」もあります。「拡張モジュール → MAC アドレス」では、ある MAC が使った IP とスイッチのポートを確認できます。</span></li>
+        <li><span class="zh"><b>通知</b>：「管理 → 通知發送設定」設定 Email、Telegram、Slack、Teams、Nextcloud Talk、Zulip 或 Webhook；「事件規則」用「事件 → 條件 → 動作」決定誰在什麼情況收到什麼，可以先試跑。</span><span class="en"><b>Notifications</b>: Admin → Notification Channels for email, Telegram, Slack, Teams, Nextcloud Talk, Zulip or a webhook; Event rules (event → conditions → actions, with a dry run) decide who hears about what.</span><span class="ja"><b>通知</b>：「管理 → 通知チャネル」でメール、Telegram、Slack、Teams、Nextcloud Talk、Zulip、Webhook を設定し、「イベントルール」（イベント → 条件 → アクション、試行可）で誰にどの状況で何を送るかを決めます。</span></li>
+        <li><span class="zh"><b>憑證派送</b>（管理員）：集中保管憑證，Linux 代理（nginx、Apache、Caddy、Traefik、HAProxy 等）與 Windows / IIS 代理定期取用；套用前先測試設定，換上後實際連線確認，不對就自動還原。</span><span class="en"><b>Certificates</b> (admins): keep certificates centrally; the Linux agent (nginx, Apache, Caddy, Traefik, HAProxy and more) and the Windows / IIS agent fetch them on a schedule, test the configuration first, check the served certificate afterwards and roll back if it is wrong.</span><span class="ja"><b>証明書</b>（管理者）：証明書を集中保管し、Linux エージェント（nginx、Apache、Caddy、Traefik、HAProxy など）と Windows / IIS エージェントが定期的に取得します。適用前に設定を検査し、適用後は実際に接続して確認し、問題があれば自動で元に戻します。</span></li>
+        <li><span class="zh"><b>自動化</b>：每個帳號在「API 權杖」建立自己的權杖，範圍與期限給到剛好夠用；外部 LLM 用 MCP（唯讀金鑰，異動需要管理員並寫進稽核）；Graylog 用 DSV 查詢表替記錄補上主機名稱。</span><span class="en"><b>Automation</b>: each account creates its own tokens under API tokens, with just enough scope and lifetime; external LLMs use MCP (read-only key; changes need an admin and are audited); Graylog uses the DSV lookup table to add hostnames to logs.</span><span class="ja"><b>自動化</b>：各アカウントが「API トークン」で自分のトークンを作成し、範囲と期限は必要最小限にします。外部の LLM は MCP を使い（読み取り専用のキー、変更は管理者のみで監査に記録）、Graylog は DSV ルックアップテーブルでログにホスト名を補います。</span></li>
+        <li><span class="zh"><b>AI</b>（選用）：需要自備 LLM 伺服器（預設自架 Ollama），在「管理 → LLM / AI」設定後才會出現 AI 對話、AI 巡檢（管理員）與未授權 IP 的 AI 判讀。敏感網段可以在子網路設定取消「納入 AI 巡檢」。</span><span class="en"><b>AI</b> (optional): needs your own LLM server (a self-hosted Ollama by default). After setup in Admin → LLM / AI, AI chat, AI review (admins) and AI triage of unauthorised IPs appear. Untick "Include in AI review" on sensitive subnets.</span><span class="ja"><b>AI</b>（任意）：自前の LLM サーバー（既定は自前で動かす Ollama）が必要です。「管理 → LLM / AI」で設定すると、AI チャット、AI 点検（管理者）、未許可の IP の AI 判定が使えるようになります。機密性の高いサブネットは「AI 点検の対象に含める」をオフにします。</span></li>
+      </ul>
+      <h3 id="phase-5-check"><span class="zh">要檢查什麼</span><span class="en">What to check</span><span class="ja">確認すること</span></h3>
+      <ul>
+        <li><span class="zh">值班人員能從 IP 直接開主控台、用調查找出原因，不必再到處翻。</span><span class="en">On-call staff can open a console straight from an IP and use Investigate to find causes without hunting around.</span><span class="ja">当番の担当者が IP から直接コンソールを開き、調査で原因を探せること。あちこち探し回る必要がないこと。</span></li>
+        <li><span class="zh">事件規則試跑一次，確認通知真的送得到。</span><span class="en">Dry-run an event rule and confirm the notification actually arrives.</span><span class="ja">イベントルールを試行し、通知が実際に届くことを確認します。</span></li>
+        <li><span class="zh">API 權杖都有期限、權限最小，離職或換手時收回。</span><span class="en">API tokens all have an expiry and minimal rights, and are revoked when people leave or hand over.</span><span class="ja">API トークンにはすべて期限と最小限の権限があり、退職や引き継ぎの際に取り消すこと。</span></li>
+      </ul>
+      <h3 id="phase-5-pitfalls"><span class="zh">常見地雷</span><span class="en">Common pitfalls</span><span class="ja">よくある落とし穴</span></h3>
+      <ul>
+        <li><span class="zh">改用外部 OpenAI 相容服務時，子網路、主機名稱與拓樸會送到該服務；資料不能離開公司就維持自架。</span><span class="en">Switching to an external OpenAI-compatible service sends subnets, hostnames and topology to that provider; keep it self-hosted if the data must not leave.</span><span class="ja">外部の OpenAI 互換サービスに切り替えると、サブネット、ホスト名、トポロジーがその事業者に送られます。データを社外に出せない場合は自前のままにしてください。</span></li>
+        <li><span class="zh">嵌入模型的維度要和資料庫欄位一致（預設 768），否則語意搜尋不會報錯，只是永遠找不到東西；換模型後在設定頁按「檢查維度」。</span><span class="en">The embedding model's dimension must match the database column (768 by default); otherwise semantic search raises no error and simply never finds anything. After changing models, press "Check dimension" on the settings page.</span><span class="ja">埋め込みモデルの次元はデータベースの列と一致させてください（既定 768）。一致しないと意味検索はエラーを出さず、ただ何も見つからなくなります。モデルを変えたら設定ページで「次元を確認」を押してください。</span></li>
+        <li><span class="zh">升級或重啟服務會切斷進行中的主控台連線與檔案上傳，請挑維護時段進行。</span><span class="en">Upgrades and service restarts cut console sessions and file uploads in progress; schedule them in a maintenance window.</span><span class="ja">アップグレードやサービスの再起動は、進行中のコンソール接続とファイルのアップロードを切断します。メンテナンスの時間帯に行ってください。</span></li>
+        <li><span class="zh">憑證代理的金鑰等同它範圍內所有憑證的私鑰，要當最高機密保管。</span><span class="en">A certificate agent's key is as good as the private keys of every certificate in its scope; guard it as a top-tier secret.</span><span class="ja">証明書エージェントのキーは、その範囲内のすべての証明書の秘密鍵に相当します。最高機密として保管してください。</span></li>
+      </ul>
+      <p class="refs"><b><span class="zh">相關</span><span class="en">See also</span><span class="ja">関連</span></b><a href="features.html#remote-console"><span class="zh">瀏覽器連線管理</span><span class="en">In-browser remote console</span><span class="ja">ブラウザ内リモートコンソール</span></a><a href="bmc-sol.html"><span class="zh">BMC / SOL 設定</span><span class="en">BMC / SOL setup</span><span class="ja">BMC / SOL 設定</span></a><a href="features.html#ai-assistant"><span class="zh">AI 助理</span><span class="en">AI assistant</span><span class="ja">AI アシスタント</span></a><a href="features.html#certificates"><span class="zh">憑證派送</span><span class="en">Certificates</span><span class="ja">証明書</span></a><a href="api.html#auth"><span class="zh">API 權杖</span><span class="en">API tokens</span><span class="ja">API トークン</span></a><a href="api.html#mcp">MCP</a><a href="api.html#automation-event-rules"><span class="zh">事件規則</span><span class="en">Event rules</span><span class="ja">イベントルール</span></a><a href="troubleshooting.html#console"><span class="zh">主控台問題</span><span class="en">Console problems</span><span class="ja">コンソールの問題</span></a></p>
+    </div>
+  </section>
+
+  <!-- ───────── 相關文件 ───────── -->
+  <section class="blk">
+    <h2 id="related"><span class="zh">相關文件</span><span class="en">Related docs</span><span class="ja">関連ドキュメント</span></h2>
+    <div class="box">
+      <ul>
+        <li><a class="lnk" href="features.html"><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></a><span class="zh">：所有功能的樹狀總覽。</span><span class="en">: every feature as a tree.</span><span class="ja">：全機能のツリー表示。</span></li>
+        <li><a class="lnk" href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a><span class="zh">與完整的安裝維運手冊：</span><span class="en"> and the full install and operations manual: </span><span class="ja">と、インストールと運用の完全な手順書：</span><a class="lnk" href="https://github.com/jasoncheng7115/jt-ipam/blob/main/docs/INSTALL_zh-TW.md" target="_blank" rel="noopener">INSTALL_zh-TW.md</a> · <a class="lnk" href="https://github.com/jasoncheng7115/jt-ipam/blob/main/docs/INSTALL.md" target="_blank" rel="noopener">INSTALL.md</a> · <a class="lnk" href="https://github.com/jasoncheng7115/jt-ipam/blob/main/docs/INSTALL_ja.md" target="_blank" rel="noopener">INSTALL_ja.md</a></li>
+        <li><a class="lnk" href="troubleshooting.html"><span class="zh">安裝與升級疑難排解</span><span class="en">Install &amp; upgrade troubleshooting</span><span class="ja">インストールとアップグレードのトラブルシューティング</span></a></li>
+        <li><a class="lnk" href="api.html"><span class="zh">API 使用手冊</span><span class="en">API manual</span><span class="ja">API マニュアル</span></a><span class="zh">：權杖、匯入、MCP 與代理協定。</span><span class="en">: tokens, imports, MCP and the agent protocols.</span><span class="ja">：トークン、取り込み、MCP、エージェントのプロトコル。</span></li>
+        <li><a class="lnk" href="index.html#autocreate"><span class="zh">哪些來源會自己新增 IP 紀錄</span><span class="en">Which sources create IP records on their own</span><span class="ja">自分で IP レコードを作るソース</span></a></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <span class="zh">完整原始碼與文件見 </span><span class="en">Full source &amp; docs at </span><span class="ja">ソースとドキュメントは </span>
+    <a href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+</div>
+
+<script>
+  (function(){
+    // 初始語言已由 <body> 開頭的 inline script 決定（避免閃爍）；這裡只負責切換按鈕。
+    var KEY = 'jtipam-doc-lang';
+    var btn = document.getElementById('langBtn');
+    var menu = document.getElementById('langMenu');
+    var label = document.getElementById('langCur');
+    var items = menu ? Array.prototype.slice.call(menu.querySelectorAll('li')) : [];
+    function cur(){ return document.body.classList.contains('lang-ja') ? 'ja'
+                         : document.body.classList.contains('lang-en') ? 'en' : 'zh'; }
+    function mark(){
+      var c = cur();
+      items.forEach(function(li){ li.setAttribute('aria-selected', String(li.dataset.lang === c)); });
+      var on = items.filter(function(li){ return li.dataset.lang === c; })[0];
+      if (label && on) label.textContent = on.textContent.replace('✓', '').trim();
+    }
+    function open(v){
+      if (!menu || !btn) return;
+      menu.hidden = !v;
+      btn.setAttribute('aria-expanded', String(v));
+    }
+    function set(l){
+      document.body.classList.remove('lang-zh','lang-en','lang-ja');
+      document.body.classList.add('lang-' + l);
+      document.documentElement.setAttribute('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-Hant');
+      try {
+        localStorage.setItem(KEY, l);
+        var u = new URL(location.href);
+        u.searchParams.set('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-TW');
+        history.replaceState(null, '', u);
+      } catch (e) {}
+      mark(); open(false);
+      document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
+    }
+    if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
+    items.forEach(function(li){ li.addEventListener('click', function(){ set(li.dataset.lang); }); });
+    document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
+    mark();
+  })();
+</script>
+<script>
+  /* <title> / description / <html lang> 跟著語言走；靜態值放預設語言（英文）。 */
+  (function(){
+    var META = {"zh": ["jt-ipam：導入流程", "企業依序導入 jt-ipam 做 IP 管理：每個階段要開啟的功能、順序與完成標準。"], "en": ["jt-ipam: Adoption roadmap", "How to roll jt-ipam out in an organisation, phase by phase: what to turn on, in which order, and when each phase is done."], "ja": ["jt-ipam：導入ガイド", "企業で jt-ipam を段階的に導入する手順：各フェーズで有効にする機能、順番、完了の目安。"]};
+    function cur(){
+      var c = document.body.className;
+      return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
+    }
+    function apply(l){
+      var m = META[l] || META.en;
+      document.title = m[0];
+      var d = document.querySelector('meta[name="description"]');
+      if (d) d.setAttribute('content', m[1]);
+      document.documentElement.setAttribute('lang', {"zh": "zh-Hant", "en": "en", "ja": "ja"}[l] || 'en');
+    }
+    document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
+    apply(cur());
+  })();
+</script>
+<script src="anchors.js" defer></script>
+</body>
+</html>

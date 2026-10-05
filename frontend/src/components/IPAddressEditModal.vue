@@ -11,26 +11,28 @@ import {
   NModal, NCard, NSpace, NButton, NDescriptions, NDescriptionsItem,
   NForm, NFormItem, NInput, NSelect, NSwitch, NPopconfirm, NTag, NIcon, NPagination,
   NCollapse, NCollapseItem, NTimeline, NTimelineItem, NText, NEmpty, NSpin,
-  NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider,
-  NInputGroup, NInputGroupLabel, NDataTable, type DataTableColumns,
+  NTooltip, NCheckbox, NCheckboxGroup, NButtonGroup, NDivider, NDropdown,
+  NInputGroup, NInputGroupLabel, NDataTable, NAlert, type DataTableColumns,
   useMessage,
 } from "naive-ui";
 import { useAuthStore } from "@/stores/auth";
-import { apiClient } from "@/api/client";
+import { apiClient, apiErrMsg } from "@/api/client";
 import type { IPAddress } from "@/types";
 import {
-  updateAddress, deleteAddress, createAddress, getDeviceSuggestion, applyDeviceSuggestion,
+  getAddress, updateAddress, deleteAddress, createAddress, getDeviceSuggestion, applyDeviceSuggestion,
   type IPAddressUpdate, type DeviceSuggestion,
 } from "@/api/addresses";
 import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
   type SwitchPortInfo } from "@/api/ip_history";
-import { getHostnameSources, type HostnameSources } from "@/api/hostname";
-import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon, FilesIcon, IdentifyIcon } from "@/icons";
+import { clearHostnameSource, getHostnameSources, type HostnameSources } from "@/api/hostname";
+import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon, FilesIcon, IdentifyIcon, RustDeskIcon, ChevronDownIcon } from "@/icons";
+import CopyButton from "@/components/CopyButton.vue";
 import InvestigateModal from "@/components/InvestigateModal.vue";
 import ChangeValue from "@/components/ChangeValue.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
+import { rustdeskOs } from "@/utils/rustdeskOs";
 import { useCustomers } from "@/composables/useCustomers";
 import ConsoleEgressSelect from "@/components/ConsoleEgressSelect.vue";
 import { virtTagText } from "@/utils/virt";
@@ -39,11 +41,13 @@ import { useRouter, type RouteLocationRaw } from "vue-router";
 import { getDevice, listDevices, type Device } from "@/api/basic";
 import { getAddressRelations, type RelationNode } from "@/api/relations";
 import { listDhcpRanges } from "@/api/integrations";
+import { logRustDeskLocalOpen } from "@/api/rustdeskWeb";
 import RelationChain from "@/components/RelationChain.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import { useScanProbes, probeLabel, osFamilyLabel } from "@/api/scanProbes";
 import OsIcon from "@/components/OsIcon.vue";
 import DeviceKindIcon from "@/components/DeviceKindIcon.vue";
+import { fwSeenLabel as fwSeenLabelOf } from "@/utils/investigateSections";
 
 const router = useRouter();
 const { options: customerOptions, labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
@@ -284,7 +288,44 @@ const emit = defineEmits<{
   (e: "novnc-popout"): void;
   (e: "bmc-open"): void;
   (e: "bmc-popout"): void;
+  (e: "rustdesk-open"): void;
+  (e: "rustdesk-files-open"): void;
 }>();
+
+// RustDesk 分割按鈕的下拉：用本機的 RustDesk 客戶端軟體開啟（rustdesk:// 網址，不帶密碼）。
+// 滑過去要有說明（使用者 2026-10-05）
+// 「檔案傳輸」（規格附錄 J.6）：伺服器開了「允許網頁檔案傳輸」而且有權限（file_available）才出現，開新分頁
+const rustdeskMenu = computed(() => [
+  ...(props.address?.rustdesk?.file_available ? [{
+    key: "files",
+    label: () => h(NTooltip, { placement: "left", delay: 200 }, {
+      trigger: () => h("span", { "data-testid": "rustdesk-open-files" }, t("rustdesk.open_files")),
+      default: () => t("rustdesk.open_files_tip", { id: props.address?.rustdesk?.id ?? "" }),
+    }),
+    icon: () => h(NIcon, null, { default: () => h(FilesIcon) }),
+  }] : []),
+  ...(props.address?.rustdesk?.connect_uri ? [{
+    key: "local",
+    label: () => h(NTooltip, { placement: "left", delay: 200 }, {
+      trigger: () => h("span", { "data-testid": "rustdesk-open-local" }, t("rustdesk.open_local_client")),
+      default: () => t("rustdesk.open_local_client_tip", { id: props.address?.rustdesk?.id ?? "" }),
+    }),
+    icon: () => h(NIcon, null, { default: () => h(RustDeskIcon) }),
+  }] : []),
+]);
+function onRustdeskMenu(key: string) {
+  const uri = props.address?.rustdesk?.connect_uri;
+  if (key === "files") {
+    emit("rustdesk-files-open");
+  } else if (key === "local" && uri) {
+    logLocalOpen();
+    window.location.href = uri;
+  }
+}
+// 用本機客戶端開啟：連線不經 jt-ipam，至少記一筆稽核（「調查」的遠端連線記錄看得到）。記錄失敗不擋開啟
+function logLocalOpen() {
+  if (props.address?.id) logRustDeskLocalOpen(props.address.id).catch(() => undefined);
+}
 
 const { t, te, locale } = useI18n();
 const msg = useMessage();
@@ -334,6 +375,7 @@ interface FormState {
   vnc_enabled: boolean;
   novnc_enabled: boolean;
   bmc_enabled: boolean;
+  rustdesk_enabled: boolean;
   is_dhcp_server: boolean;
 }
 
@@ -357,6 +399,7 @@ function emptyForm(): FormState {
     vnc_enabled: false,
     novnc_enabled: false,
     bmc_enabled: false,
+    rustdesk_enabled: false,
     is_dhcp_server: false,
   };
 }
@@ -365,6 +408,10 @@ function emptyForm(): FormState {
 const currentIpHost = computed(() => (props.address?.ip ?? "").split("/")[0].trim());
 const matchingDevice = computed<Device | null>(() => {
   if (form.value.device_id) return null;
+  // 後端建議（下面的 suggestion）已經判斷過：它還看得到 MAC、連接埠，對到多台也不猜，而且會一併處理同名的 IP。
+  // 有它的答案就只顯示它的 —— 兩邊各自判斷時常常指向同一台，畫面上就出現兩個意思一樣的按鈕
+  // （使用者 2026-10-06：「這兩個差在那」）。這裡只補後端沒看到的情況：新增 IP、或主機名稱改了還沒存
+  if (suggestion.value && hostnameUnchanged.value) return null;
   const ip = currentIpHost.value;
   // 以「主機名稱」或「IP」找尚未連結的裝置：hostname=nas2 → 裝置 nas2
   const hn = (form.value.hostname || props.address?.hostname || "").trim().toLowerCase();
@@ -382,6 +429,9 @@ const matchingDevice = computed<Device | null>(() => {
 // ── 「還沒有裝置」時的建議：由後端判斷（它看得到 MAC、連接埠、同名 IP 有幾筆）。
 //    **只是建議** —— 不按就什麼都不會發生。
 const suggestion = ref<DeviceSuggestion | null>(null);
+/** 表單上的主機名稱跟存著的一樣：後端建議就是用這個名稱算的 */
+const hostnameUnchanged = computed(() =>
+  (form.value.hostname || "").trim().toLowerCase() === (props.address?.hostname || "").trim().toLowerCase());
 const applyingSuggestion = ref(false);
 /** 要一併關聯的其他 IP —— **預設只勾 MAC 相同的那些**。
  *
@@ -451,6 +501,7 @@ function fromAddress(a: IPAddress): FormState {
     vnc_enabled: !!a.vnc_enabled,
     novnc_enabled: !!a.novnc_enabled,
     bmc_enabled: !!a.bmc_enabled,
+    rustdesk_enabled: !!a.rustdesk_enabled,
     is_dhcp_server: !!a.is_dhcp_server,
   };
 }
@@ -554,17 +605,8 @@ const fwSeen = computed<[string, string][]>(() => {
   return Object.entries(raw).sort((a, b) => (a[1] < b[1] ? 1 : -1));
 });
 
-const FW_VENDOR: Record<string, string> = {
-  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate",
-  paloalto: "Palo Alto", librenms: "LibreNMS",
-};
-
-/** `arp:opnsense` → 「ARP 表（OPNsense）」 */
-function fwSeenLabel(key: string): string {
-  const [kind, vendor] = key.split(":", 2);
-  if (!vendor) return key;
-  return `${t(`system_settings.src_kind_${kind}`)}（${FW_VENDOR[vendor] ?? vendor}）`;
-}
+/** `arp:opnsense` → 「ARP 表（OPNsense）」（與調查共用一份廠牌名稱，MikroTik 以前沒列到、印成原始的 mikrotik） */
+const fwSeenLabel = (key: string) => fwSeenLabelOf(key, t);
 
 // 「各來源最後出現」一區的列：固定順序（每個 IP 都同一個位置，比較時不用重新找；標題可點排序），
 // 掃描代理／LibreNMS／ARP／DNS 一律列出（「—」本身就是資訊：這個來源沒看過它），
@@ -587,6 +629,10 @@ const seenRows = computed<SeenRow[]>(() => {
     why: t("addresses.seen_why_zabbix") });
   if (a.last_seen_ocs) rows.push({ key: "ocs", label: t("addresses.seen_src_ocs"), at: a.last_seen_ocs,
     jump: "ocs", live: ["ocs"], why: t("addresses.seen_why_ocs") });
+  // RustDesk 客戶端的最後心跳（沒有心跳過的用 jt-ipam 最後看到它上線的時間）。不列入上線判定
+  const rd = a.rustdesk;
+  if (rd && (rd.last_heartbeat_at || rd.last_online_at)) rows.push({ key: "rustdesk", label: t("addresses.seen_src_rustdesk"),
+    at: rd.last_heartbeat_at || rd.last_online_at, live: ["rustdesk"], why: t("addresses.seen_why_rustdesk") });
   for (const [k, v] of fwSeen.value) {
     const kind = k.split(":", 1)[0];
     const why = ["arp", "vpn", "lease"].includes(kind) ? t(`addresses.seen_why_fw_${kind}`) : "";
@@ -622,7 +668,7 @@ function seenVerdict(r: SeenRow): SeenVerdict {
 }
 const VERDICT_TAG: Record<SeenVerdict, "success" | "info" | "warning" | "default"> =
   { fresh: "success", weak: "info", stale: "warning", ignored: "default", none: "default" };
-// 手機：「距今」與「代表什麼」兩欄整欄拿掉（只用 CSS 藏起來，表格仍會保留那兩欄的寬度而左右捲動）
+// 手機：「多久以前」與「說明」兩欄整欄拿掉（只用 CSS 藏起來，表格仍會保留那兩欄的寬度而左右捲動）
 const seenNarrow = ref(typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches);
 let seenMq: MediaQueryList | null = null;
 const onSeenMq = (e: MediaQueryListEvent) => { seenNarrow.value = e.matches; };
@@ -651,7 +697,7 @@ const seenColumnsAll = computed<DataTableColumns<SeenRow>>(() => [
                    title: t("addresses.seen_jump", { sys: r.label }),
                    onClick: () => goDevice(props.address?.device_id, r.jump) }, fmtDateTime(r.at))
         : fmtDateTime(r.at),
-      // 手機：「距今」欄放不下，改成時間下方第二行
+      // 手機：「多久以前」欄放不下，改成時間下方第二行
       r.at ? h("div", { class: "seen-ago-inline dim" },
         fmtRelative(r.at) + (r.key === seenLatestKey.value ? ` · ${t("addresses.seen_latest")}` : "")) : null,
     ]),
@@ -713,6 +759,23 @@ async function loadHostnameSources() {
     hostnameSources.value = await getHostnameSources(props.address.id);
     hostnameSourcesLoaded.value = true;
   } catch { /* silent */ }
+}
+
+// 刪掉手動主機名稱：重算後的有效名稱要回到畫面（父層靠 saved 更新列表／詳情）
+const clearingSource = ref<string | null>(null);
+async function clearManualHostname() {
+  const id = props.address?.id;
+  clearingSource.value = null;
+  if (!id) return;
+  try {
+    await clearHostnameSource(id, "manual");
+    hostnameSourcesLoaded.value = false;
+    const [updated] = await Promise.all([getAddress(id), loadHostnameSources()]);
+    emit("saved", updated);
+    msg.success(t("hostnameSrc.manual_cleared"));
+  } catch (e) {
+    msg.error(apiErrMsg(e));
+  }
 }
 
 // pin 下拉選項：auto + 有觀測的來源 (顯示該來源回報的 hostname)
@@ -833,6 +896,7 @@ async function save() {
       vnc_enabled: form.value.vnc_enabled,
       novnc_enabled: form.value.novnc_enabled,
       bmc_enabled: form.value.bmc_enabled,
+      rustdesk_enabled: form.value.rustdesk_enabled,
       is_dhcp_server: form.value.is_dhcp_server,
     };
     const updated = await updateAddress(props.address?.id, payload);
@@ -884,7 +948,8 @@ async function remove() {
                與上面的「DHCP／DHCP 範圍」是不同的事實，所以分開標。 -->
           <n-tooltip v-if="props.address?.dhcp_reserved" :delay="0">
             <template #trigger>
-              <n-tag type="success" size="small" :bordered="false">
+              <!-- 標題列的標籤一律有框線（與狀態標籤一致；使用者要求） -->
+              <n-tag type="success" size="small">
                 {{ t("addresses.dhcp_reserved_tag") }}
               </n-tag>
             </template>
@@ -904,7 +969,7 @@ async function remove() {
           </n-tooltip>
           <n-tooltip v-if="dhcpInfo || props.address?.in_dhcp_lease" :delay="0">
             <template #trigger>
-              <n-tag :type="props.address?.in_dhcp_lease ? 'warning' : 'default'" size="small" :bordered="false">
+              <n-tag :type="props.address?.in_dhcp_lease ? 'warning' : 'default'" size="small">
                 {{ props.address?.in_dhcp_lease ? "DHCP" : t("addresses.dhcp_in_range_tag") }}
               </n-tag>
             </template>
@@ -1014,8 +1079,50 @@ async function remove() {
               </n-tooltip>
               <span class="conn-beta-badge conn-sol-badge">SOL</span>
             </span>
-            <!-- 連線鈕（SSH/RDP/VNC/PVE/BMC）與編輯/刪除間只留一條分隔線 -->
-            <n-divider v-if="props.address?.ssh_available || props.address?.sftp_available || props.address?.rdp_available || props.address?.vnc_available || props.address?.novnc_available || props.address?.bmc_available"
+            <!-- RustDesk 伺服器開放網頁連線時：主按鈕在網頁裡直接連（相容 RustDesk 的網頁連線，新分頁），沒有小標 -->
+            <!-- RustDesk 分割按鈕（照 Proxmox 主控台的樣式，使用者 2026-10-05）：主鍵在網頁裡連線；
+                 右邊的 ▾ 展開「用本機 RustDesk 客戶端開啟」（rustdesk:// 網址，不帶密碼，連線在客戶端與對方之間） -->
+            <span v-if="props.address?.rustdesk?.web_available" key="hx-rustdesk-web" class="conn-beta-wrap">
+              <n-button-group>
+                <n-tooltip :delay="200">
+                  <template #trigger>
+                    <n-button type="info" size="small" data-testid="rustdesk-web-connect" @click="emit('rustdesk-open')">
+                      <template #icon><n-icon><RustDeskIcon /></n-icon></template>
+                      <span v-if="!consoleCompact">RustDesk</span>
+                    </n-button>
+                  </template>
+                  {{ t("rustdesk.web_connect_hint", { id: props.address.rustdesk.id }) }}
+                </n-tooltip>
+                <n-dropdown v-if="rustdeskMenu.length" trigger="click" placement="bottom-end"
+                            :options="rustdeskMenu" @select="onRustdeskMenu">
+                  <n-tooltip :delay="200">
+                    <template #trigger>
+                      <n-button type="info" size="small" class="split-caret" data-testid="rustdesk-more"
+                                :aria-label="t('rustdesk.more_ways')">
+                        <template #icon><n-icon><ChevronDownIcon /></n-icon></template>
+                      </n-button>
+                    </template>
+                    {{ t("rustdesk.more_ways") }}
+                  </n-tooltip>
+                </n-dropdown>
+              </n-button-group>
+            </span>
+            <!-- 沒有網頁連線時：叫出使用者電腦上的 RustDesk 客戶端；右上小標「本機」＝不是在網頁裡連線 -->
+            <span v-else-if="props.address?.rustdesk?.connect_uri" key="hx-rustdesk" class="conn-beta-wrap">
+              <n-tooltip :delay="200">
+                <template #trigger>
+                  <n-button tag="a" size="small" :href="props.address.rustdesk.connect_uri" data-testid="rustdesk-connect"
+                            @click="logLocalOpen">
+                    <template #icon><n-icon><RustDeskIcon /></n-icon></template>
+                    <span v-if="!consoleCompact">RustDesk</span>
+                  </n-button>
+                </template>
+                {{ t("rustdesk.connect_hint", { id: props.address.rustdesk.id }) }}（{{ t("rustdesk.badge_local_tip") }}）
+              </n-tooltip>
+              <span class="conn-beta-badge conn-local-badge" data-testid="rustdesk-local-badge">{{ t("rustdesk.badge_local") }}</span>
+            </span>
+            <!-- 連線鈕（SSH/RDP/VNC/PVE/BMC/RustDesk）與編輯/刪除間只留一條分隔線 -->
+            <n-divider v-if="props.address?.ssh_available || props.address?.sftp_available || props.address?.rdp_available || props.address?.vnc_available || props.address?.novnc_available || props.address?.bmc_available || props.address?.rustdesk?.connect_uri || props.address?.rustdesk?.web_available"
                        key="hx-conn-div" vertical />
             <!-- 探測（只有管理員）：由負責這個子網路的掃描代理主動識別這是什麼主機 -->
             <n-button v-if="auth.me?.is_admin" key="hx-idf" size="small" data-testid="ip-identify-btn"
@@ -1134,21 +1241,40 @@ async function remove() {
             </a>
             <span v-else>—</span>
           </n-descriptions-item>
+          <!-- 上線狀態與最後回報在「各來源最後出現」、主機名稱在「主機名稱來源」，這裡不重複（使用者要求） -->
           <n-descriptions-item
             v-if="hostnameSources && hostnameSources.observations.length"
             :label="t('hostnameSrc.sources')" :span="2"
           >
             <n-space :size="6" style="flex-wrap: wrap">
-              <!-- 純顯示，不提供刪除：這裡是「各來源分別回報了什麼」的觀測記錄，
-                   實際採用哪一個由主機名稱優先序決定。給一個 X 會讓人以為要在這裡挑，
-                   而且刪掉之後下次同步又會回來。 -->
-              <n-tag
+              <!-- 這裡是「各來源分別回報了什麼」的觀測記錄，實際採用哪一個由主機名稱優先序決定。
+                   只有「手動」可以刪：它不會自己過期，換了設備後舊名字就一直掛著；
+                   其他來源刪了下次同步又會回來（換設備時由 MAC 異動自動清掉，見 forget_device_names）。 -->
+              <n-popconfirm
                 v-for="o in hostnameSources.observations" :key="o.source"
-                size="small" :bordered="false"
-                :type="o.hostname === props.address?.hostname ? 'success' : 'default'"
+                trigger="manual" :show="clearingSource === o.source"
+                @clickoutside="clearingSource = null"
+                @positive-click="clearManualHostname"
+                @negative-click="clearingSource = null"
               >
-                {{ labelSource(o.source) }}: {{ o.hostname }}
-              </n-tag>
+                <template #trigger>
+                  <n-tooltip :delay="200">
+                    <template #trigger>
+                      <n-tag
+                        size="small" :bordered="false"
+                        :type="o.hostname === props.address?.hostname ? 'success' : 'default'"
+                        :closable="o.source === 'manual' && auth.me?.can_edit !== false"
+                        :data-testid="`hostname-src-${o.source}`"
+                        @close="clearingSource = o.source"
+                      >
+                        {{ labelSource(o.source) }}: {{ o.hostname }}
+                      </n-tag>
+                    </template>
+                    {{ t("hostnameSrc.observed_at", { at: fmtDateTime(o.observed_at) }) }}
+                  </n-tooltip>
+                </template>
+                {{ t("hostnameSrc.clear_manual_confirm", { name: o.hostname }) }}
+              </n-popconfirm>
             </n-space>
           </n-descriptions-item>
           <n-descriptions-item :label="t('common.description')" :span="2">
@@ -1179,9 +1305,44 @@ async function remove() {
           <n-descriptions-item :label="t('common.updated_at')" :span="2">{{ fmtDateTime(props.address?.updated_at) }}</n-descriptions-item>
         </n-descriptions>
 
-        <!-- 各來源最後出現時間：獨立成一區、同一欄對齊並附「距今」，方便一眼比較哪個來源還在看到它
+        <!-- 各來源最後出現時間：獨立成一區、同一欄對齊並附「多久以前」，方便一眼比較哪個來源還在看到它
              （使用者要求）。以前散在上面的欄位之間，要上下找、自己心算差多久。
              LibreNMS／Wazuh／OCS 的時間可點 → 帶到裝置頁並捲到該系統的卡片。 -->
+        <!-- RustDesk 獨立一區（使用者要求），不擠在上面的欄位表裡；上線狀態與最後心跳在「各來源最後出現」、
+             主機名稱在「主機名稱來源」。同一份資訊在裝置頁也有一張卡片（客戶端裝在機器上） -->
+        <div v-if="!editMode && props.address?.rustdesk" class="rdx-sec" data-testid="ip-rustdesk-section">
+          <div class="detail-sec-title">RustDesk</div>
+          <!-- Key 設錯：照樣註冊、回報、區網直連，只有走中繼被拒（網頁連線一定走中繼）→ 一定要講出來 -->
+          <n-alert v-if="props.address.rustdesk.key_problem" type="error" :show-icon="true" style="margin-bottom: 8px"
+                   data-testid="ip-rustdesk-key-problem">
+            {{ t(props.address.rustdesk.key_problem.scope === "hbbs" ? "rustdesk.key_problem_hint_hbbs" : "rustdesk.key_problem_hint",
+                 { at: fmtDateTime(props.address.rustdesk.key_problem.at), n: props.address.rustdesk.key_problem.count }) }}
+            {{ t("rustdesk.key_problem_fix") }}
+          </n-alert>
+          <n-descriptions bordered :column="seenNarrow ? 1 : 2" size="small" label-placement="left"
+                          :label-style="{ whiteSpace: 'nowrap' }" data-testid="ip-rustdesk-reported">
+            <n-descriptions-item :label="t('rustdesk.id')">
+              <span class="rd-id" data-testid="ip-rustdesk-id">{{ props.address.rustdesk.id }}</span>
+              <CopyButton :text="props.address.rustdesk.id" />
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('rustdesk.server_pick')">{{ props.address.rustdesk.server_name ?? "—" }}</n-descriptions-item>
+            <n-descriptions-item :label="t('rustdesk.col_username')">{{ props.address.rustdesk.username ?? "—" }}</n-descriptions-item>
+            <!-- 客戶端回報的是「windows / Windows 11 Pro - 11 (26200)」：前面的平台名稱重複，拿掉 -->
+            <n-descriptions-item :label="t('rustdesk.col_os')">
+              {{ props.address.rustdesk.os ? rustdeskOs(props.address.rustdesk.os)[0] : "—" }}
+            </n-descriptions-item>
+            <n-descriptions-item :label="t('rustdesk.col_client_version')">{{ props.address.rustdesk.version ?? "—" }}</n-descriptions-item>
+            <n-descriptions-item :label="t('rustdesk.col_evidence')">
+              <span v-if="props.address.rustdesk.evidence?.length" class="rdx-ev">
+                <n-tag v-for="e in props.address.rustdesk.evidence" :key="e" size="tiny" type="success" :bordered="false">
+                  {{ t(`rustdesk.ev_${e}`) }}
+                </n-tag>
+              </span>
+              <template v-else>—</template>
+            </n-descriptions-item>
+          </n-descriptions>
+        </div>
+
         <div v-if="!editMode && seenRows.length" data-testid="ip-seen-section">
           <div class="detail-sec-title">{{ t("addresses.seen_title") }}</div>
           <n-data-table class="seen-table" size="small" :bordered="true" :single-line="false"
@@ -1416,7 +1577,8 @@ async function remove() {
                 <template #icon><n-icon><LinkIcon /></n-icon></template>
                 {{ t("addresses.link_matching_device", { name: matchingDevice.name }) }}
               </n-button>
-              <template v-if="!form.device_id && suggestion">
+              <!-- 主機名稱改了還沒存：後端建議是照舊名稱算的，前端比對到裝置時就不顯示它 -->
+              <template v-if="!form.device_id && suggestion && !matchingDevice">
                 <n-button v-if="suggestion.existing_device_id" size="tiny" dashed type="primary"
                           :loading="applyingSuggestion" @click="applySuggestion(false)">
                   <template #icon><n-icon><LinkIcon /></n-icon></template>
@@ -1439,7 +1601,7 @@ async function remove() {
                                   size="small">
                         <span class="sug-ip">{{ s.ip }}</span>
                         <span class="sug-mac">{{ s.mac || "—" }}</span>
-                        <span class="sug-vendor">{{ s.mac_vendor || "" }}</span>
+                        <n-tag v-if="s.mac_vendor" size="tiny" type="info" :bordered="false" class="sug-vendor">{{ s.mac_vendor }}</n-tag>
                         <n-tag v-if="s.same_mac" size="tiny" type="success" :bordered="false">
                           {{ t("addresses.suggest_same_mac") }}
                         </n-tag>
@@ -1518,6 +1680,27 @@ async function remove() {
               <span style="font-size: 11px; opacity: .7">{{ t("bmc.enable_hint") }}</span>
             </n-space>
           </n-form-item>
+          <!-- RustDesk 連線按鈕開關：只有這個 IP 已對應到 RustDesk 裝置時才出現（比照 PVE 主控台） -->
+          <n-form-item v-if="props.address?.rustdesk" :label="t('rustdesk.enable_label')">
+            <n-space vertical :size="2" style="width:100%">
+              <n-switch v-model:value="form.rustdesk_enabled" data-testid="ip-rustdesk-enable" />
+              <span style="font-size: 11px; opacity: .7">{{ t("rustdesk.enable_hint") }}</span>
+            </n-space>
+          </n-form-item>
+          <!-- 這個 IP 沒有 RustDesk 裝置、同一台裝置的另一個 IP 有（兩張網卡）：講清楚對應在哪，
+               不然看起來像選項不見了（使用者 2026-10-05 問） -->
+          <n-form-item v-else-if="props.address?.rustdesk_elsewhere?.length" :label="t('rustdesk.enable_label')">
+            <n-space vertical :size="2" style="width:100%" data-testid="ip-rustdesk-elsewhere">
+              <n-switch :value="false" disabled />
+              <span style="font-size: 11px; opacity: .7">{{ t("rustdesk.elsewhere_hint") }}</span>
+              <span v-for="o in props.address.rustdesk_elsewhere" :key="o.address_id" style="font-size: 12px">
+                <router-link :to="{ name: 'address-detail', params: { id: o.address_id } }"
+                             data-testid="ip-rustdesk-elsewhere-link">{{ o.ip }}</router-link>
+                <span style="opacity: .7">（{{ t("rustdesk.elsewhere_item", { id: o.rustdesk_id }) }}，{{
+                  o.enabled ? t("rustdesk.elsewhere_on") : t("rustdesk.elsewhere_off") }}）</span>
+              </span>
+            </n-space>
+          </n-form-item>
           <n-form-item :label="t('addresses.is_dhcp_server')">
             <n-space vertical :size="2" style="width:100%">
               <n-switch v-model:value="form.is_dhcp_server" />
@@ -1566,6 +1749,7 @@ async function remove() {
 </template>
 
 <style scoped>
+.rd-id { font-family: ui-monospace, monospace; cursor: pointer; }
 .ocs-jump {
   cursor: pointer;
   color: var(--n-primary-color, #18a058);
@@ -1631,6 +1815,14 @@ async function remove() {
   color: #fff; background: #d99812; box-shadow: 0 0 0 1.5px var(--n-color, #fff);
 }
 .conn-sol-badge { background: #909399; }
+.conn-local-badge { background: #4b5563; }
+/* IP 頁的 RustDesk 區 */
+.rdx-sec { margin-top: 14px; }
+.rdx-ev { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+/* 「另有 N 筆 IP 用同一個主機名稱」：IP、MAC、廠商各自一欄，對得齊（以前三段黏在一起） */
+.sug-ip { display: inline-block; min-width: 128px; font-family: var(--jt-mono, monospace); }
+.sug-mac { display: inline-block; min-width: 150px; margin-left: 10px; font-family: var(--jt-mono, monospace); opacity: .8; }
+.sug-vendor { margin-left: 8px; }
 /* 異動記錄超過 N 天（系統設定）的項目以淡色顯示 */
 .log-dim { opacity: .45; }
 
@@ -1642,4 +1834,5 @@ async function remove() {
 }
 .mac-history-link { color: var(--primary-color, #18a058); text-decoration: none; font-family: var(--jt-mono, monospace); }
 .mac-history-link:hover { text-decoration: underline; }
+.split-caret { padding: 0 6px; }
 </style>

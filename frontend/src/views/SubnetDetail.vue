@@ -61,7 +61,8 @@ function onSubnetSaved() {
 }
 const { isPinned, toggle: togglePinned, ensureLoaded: ensurePinsLoaded } = usePinnedSubnets();
 
-const { visibleKeys: ipVisibleKeys, setVisible: setIpVisible, reset: resetIpVisible } = useColumnPrefs(
+const { visibleKeys: ipVisibleKeys, setVisible: setIpVisible, reset: resetIpVisible,
+  order: ipColOrder, setOrder: setIpColOrder, orderColumns: orderIpColumns } = useColumnPrefs(
   "subnet_detail_ips",
   ["live", "ip", "hostname", "state", "dhcp", "mac", "mac_vendor", "os", "device_kind", "owner", "switch_port", "device", "description", "last_seen", "stale_days", "note"],
   ["live", "ip", "hostname", "state", "dhcp", "mac", "mac_vendor", "switch_port", "description", "last_seen"],
@@ -134,10 +135,21 @@ const addressesTotal = ref(0);
 // 位址只載入了一部分時，IP 指示計改用後端彙總的每個 /24 已用數
 const subnetBlocks = ref<{ start: string; used: number }[] | null>(null);
 // 表格分頁：1,000 列一次畫出來會讓瀏覽器卡住將近十秒（每列都有提示框與標籤）
+// 頁碼與每頁筆數記在網址上（?page=2&ps=200）：點進 IP 詳細資料再按上一頁，要回到原本那一頁，
+// 不是第 1 頁（使用者 2026-10-05）
+function syncPageQuery() {
+  setTimeout(() => {
+    const q = { ...route.query };
+    if (ipPagination.page > 1) q.page = String(ipPagination.page); else delete q.page;
+    if (ipPagination.pageSize !== 100) q.ps = String(ipPagination.pageSize); else delete q.ps;
+    if (q.page === route.query.page && q.ps === route.query.ps) return;
+    router.replace({ query: q }).catch(() => {});
+  }, 0);
+}
 const ipPagination = reactive({
   page: 1, pageSize: 100, showSizePicker: true, pageSizes: [50, 100, 200, 500],
-  onChange: (p: number) => { ipPagination.page = p; },
-  onUpdatePageSize: (n: number) => { ipPagination.pageSize = n; ipPagination.page = 1; },
+  onChange: (p: number) => { ipPagination.page = p; syncPageQuery(); },
+  onUpdatePageSize: (n: number) => { ipPagination.pageSize = n; ipPagination.page = 1; syncPageQuery(); },
 });
 const loading = ref(false);
 
@@ -268,7 +280,12 @@ async function load(id: string) {
     usage.value = u;
     addresses.value = a.items;
     addressesTotal.value = a.total ?? a.items.length;
-    ipPagination.page = 1;
+    // 從網址還原頁碼（上一頁回來時），超出範圍就收到最後一頁
+    const ps = Number(route.query.ps);
+    ipPagination.pageSize = ipPagination.pageSizes.includes(ps) ? ps : 100;
+    const want = Math.max(1, Math.floor(Number(route.query.page) || 1));
+    // 表格的列還包含閒置區間列，用實際的列數算有幾頁
+    ipPagination.page = Math.min(want, Math.max(1, Math.ceil(ipRows.value.length / ipPagination.pageSize)));
     subnetBlocks.value = null;
     if (addressesTotal.value > a.items.length) {
       apiClient.get<{ blocks: { start: string; used: number }[] }>(`/api/v1/subnets/${id}/blocks`)
@@ -390,22 +407,21 @@ function stateTag(state: string) {
 }
 
 // 閒置區間列：IP 欄要橫跨「ip 之後的所有可見欄位」，文字才不會被切在一欄裡。
-const IP_COL_ORDER = ["live", "ip", "hostname", "state", "dhcp", "mac", "mac_vendor", "os",
-  "owner", "switch_port", "device", "description", "last_seen", "stale_days", "note"];
-const gapSpan = computed(() => {
-  const vis = IP_COL_ORDER.filter((k) => ipVisibleKeys.value.includes(k));
-  const i = vis.indexOf("ip");
-  return i < 0 ? 1 : vis.length - i;   // ip 自己 + 後面所有可見欄
+// 照實際顯示的欄位（含使用者拖拉後的順序）算，不另外維護一份欄位順序清單。
+const gapSpan = computed<number>(() => {
+  const keys: string[] = ipColumns.value.filter((c: any) => c.type !== "selection").map((c: any) => String(c.key));
+  const i = keys.indexOf("ip");
+  return i < 0 ? 1 : keys.length - i;   // ip 自己 + 後面所有可見欄
 });
 
 const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
   { type: "selection", disabled: (r: any) => !!r.__gap },
   { title: "", key: "live", width: 28, render: (r) => (r as any).__gap ? "" : liveDot(r) },
-  { title: t("addresses.ip"), key: "ip", width: 140, sorter: (a, b) => ipSort(a.ip, b.ip),
+  { title: t("addresses.ip"), key: "ip", width: 180, sorter: (a, b) => ipSort(a.ip, b.ip),
     colSpan: (r: any) => r.__gap ? gapSpan.value : 1,
     render: (r) => (r as any).__gap
       ? h("div", { style: "text-align: center; color: var(--n-text-color-3, #999); font-style: italic" }, gapLabel(r))
-      : h("span", { style: "display:inline-flex;align-items:center;white-space:nowrap" }, [String(r.ip), h(IpRoleTags, { row: r, hideRange: true })]) },
+      : h("span", { class: "ip-cell" }, [h("span", { class: "ip-cell-addr" }, String(r.ip)), h(IpRoleTags, { row: r, hideRange: true })]) },
   { title: t("addresses.hostname"), key: "hostname", minWidth: 120,
     ellipsis: { tooltip: true }, render: (r) => (r as any).__gap ? "" : (r.hostname ?? "") },
   { title: t("common.status"), key: "state", width: 100,
@@ -486,7 +502,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
 ]));
 
 const ipColumns = computed<DataTableColumns<IPAddress>>(() =>
-  allIpColumns.value.filter((c: any) => c.type === "selection" || ipVisibleKeys.value.includes(c.key)),
+  orderIpColumns(allIpColumns.value.filter((c: any) => c.type === "selection" || ipVisibleKeys.value.includes(c.key))),
 );
 
 // IP 清單複選 + 批次刪除（閒置區間列不可選）
@@ -620,7 +636,7 @@ function ipMatchesFilter(a: IPAddress): boolean {
 }
 
 // 篩選一變就回第一頁（不然可能停在一個已經沒有資料的頁碼）
-watch([ipFilterText, staleFilterOn, onlyDhcp], () => { ipPagination.page = 1; });
+watch([ipFilterText, staleFilterOn, onlyDhcp], () => { ipPagination.page = 1; syncPageQuery(); });
 
 const ipRows = computed<any[]>(() => {
   // 有任何篩選（只看失聯／只看 DHCP／篩選字）時：只列符合的已登記 IP，不插入閒置區間列。
@@ -919,7 +935,8 @@ onMounted(() => {
             {{ t("subnets.only_dhcp") }}
           </n-button>
           <ColumnPicker :all="ipColumnPickerItems" :visible="ipVisibleKeys"
-                        @update:visible="setIpVisible" @reset="resetIpVisible" />
+                        @update:visible="setIpVisible" @reset="resetIpVisible"
+                        :order="ipColOrder" @update:order="setIpColOrder" />
           <ExportButton v-if="subnet" size="small" :columns="ipColumns" :rows="addresses"
                         :filename="`ip-${subnet.cidr.replace('/', '_')}`"
                         :title="`${t('addresses.ip_list_title')} ${subnet.cidr}`" />

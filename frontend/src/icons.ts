@@ -57,6 +57,9 @@ import {
   Settings,
   GraphUp,
   ScaleFrameEnlarge,
+  ModernTv,
+  HdDisplay,
+  FrameSimple,
   SendDiagonal,
   Hammer,
   Terminal,
@@ -64,6 +67,7 @@ import {
   Reduce,
   NavArrowDown,
   OpenNewWindow,
+  DoubleCheck,
   // Admin / 安全
   ShieldCheck,
   Shield,
@@ -110,12 +114,15 @@ import {
   HelpCircle,
   PasteClipboard,
   Menu,
+  Computer,
 } from "@iconoir/vue";
 
 // ── 通用 ──
 export const PlusIcon = Plus;
 /** 手機版左上角：打開側欄選單 */
 export const MenuIcon = Menu;
+/** 拖拉把手（欄位選單調整欄位順序）：三條橫線是常見的「抓這裡拖」圖示 */
+export const DragHandleIcon = Menu;
 export const CloneIcon = Copy;
 export const ArchiveIcon = Archive;
 export const RestoreIcon = Undo;
@@ -148,6 +155,7 @@ export const BellIcon = Bell;
 export const UsageIcon = StatsReport;
 export const GridIcon = GridPlus;
 export const ListIcon = List;
+export const SelectAllIcon = DoubleCheck;
 
 // ── Customers / 管理單位 ──
 export const CustomersIcon = Group;  // 借用 Group icon，視覺上「一群人」
@@ -178,6 +186,12 @@ export const WindowsDhcpIcon = Windows;
 // 獨立 Kea（jt-ipam 拉 API）／ISC DHCP（代理讀設定與租約檔）—— 兩個選單要分得出來，也不能跟 Server 撞
 export const KeaDhcpIcon = DataTransferBoth;
 export const IscDhcpIcon = DatabaseScript;
+// RustDesk Server（開源版）：選單與 IP 詳細資料的「以 RustDesk 連線」。不用 R 字螢幕 —— 那顆是 RDP
+export const RustDeskIcon = Computer;
+// RustDesk 網頁連線的工具列：「螢幕」選單（多螢幕切換）、「畫質」選單、螢幕選單裡的「解析度」子選單
+export const ScreensIcon = ModernTv;
+export const QualityIcon = HdDisplay;
+export const ResolutionIcon = FrameSimple;
 export const LocationsIcon = MapPin;
 // DHCP 固定分配：這個位址被綁給某張網卡，不會被回收給別台
 export const ReservedIcon = Lock;

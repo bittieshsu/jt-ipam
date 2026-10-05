@@ -23,7 +23,7 @@ from app.models.base import Base, UUIDPrimaryKeyMixin
 # posture 取值：見 docs/SPEC_PVE_FIREWALL_zh-TW.md §3
 POSTURE_UNPROTECTED = "unprotected"   # 三個開關任一沒開 → 規則不生效
 POSTURE_OPEN = "open"                 # 生效但 policy_in=ACCEPT → 未命中一律放行
-POSTURE_FILTERED = "filtered"         # policy_in=DROP 且有 ACCEPT 規則 → 正常白名單
+POSTURE_FILTERED = "filtered"         # policy_in=DROP 且有 ACCEPT 規則 → 正常允許清單
 POSTURE_BLOCKED = "blocked"           # policy_in=DROP 但無 ACCEPT 規則 → 全擋（常是誤設）
 
 

@@ -139,6 +139,18 @@ export interface IPAddress {
   /** Wazuh 代理的 keep-alive（manager 端維護，會過期 → 算得上上線證據） */
   last_seen_wazuh?: string | null;
   last_seen_ocs?: string | null;
+  /** RustDesk Server（開源版）：對應到這個 IP 的 ID。connect_uri 只給有遠端主控台權限的人；
+   *  web_available＝可以在網頁裡直接連（相容 RustDesk 的網頁連線：伺服器開放、而且有權限） */
+  rustdesk?: { id: string; online: boolean; last_online_at: string | null; server_id: string;
+               server_name: string; connect_uri: string | null; web_available?: boolean;
+               /** 網頁檔案傳輸可用（伺服器開了「允許網頁檔案傳輸」、而且有權限；附錄 J.6） */
+               file_available?: boolean;
+               hostname?: string | null; os?: string | null;
+               username?: string | null; version?: string | null; evidence?: string[];
+               /** Key 設錯：中繼拒絕過這台、之後沒通過（網頁連線與外網連線都會失敗） */
+               key_problem?: { at: string; scope: "relay" | "hbbs" | null; count: number } | null } | null;
+  /** 這個 IP 沒有 RustDesk 裝置、同一台裝置的其他 IP 有（一台電腦多張網卡時 RustDesk 只對應得到連出去的那個） */
+  rustdesk_elsewhere?: { address_id: string; ip: string; rustdesk_id: string; enabled: boolean }[];
   /** Zabbix 最後一次回報這台主機可用 */
   last_seen_zabbix?: string | null;
   /** 防火牆給的逐來源觀測時間：`{"arp:opnsense": "…", "lease:pfsense": "…"}` */
@@ -157,6 +169,9 @@ export interface IPAddress {
   novnc_enabled?: boolean;
   novnc_available?: boolean;
   bmc_enabled?: boolean;
+  rustdesk_enabled?: boolean;
+  /** 連線管理頁：相容 RustDesk 的網頁連線可用 */
+  rustdesk_web_available?: boolean;
   bmc_available?: boolean;
   pve?: { kind: "vm" | "ct"; node: string; vmid: number; cluster: string | null } | null;
   mac_vendor: string | null;

@@ -66,6 +66,12 @@ const _menuActive = {
 const TH_LIGHT = "#f7f9fc";
 const TH_DARK = "rgba(148, 163, 184, 0.10)";
 const TH_DARK_BASE = "#1a212c";
+// 固定欄（操作欄 fixed: "right"）用 sticky 疊在捲動中的欄位上面：深色的表頭與滑過列是半透明的，
+// 固定欄照用就會透出底下的欄位、字疊在一起。這三個是「半透明值疊在卡片底色 #0f1825 上」算出來的不透明色，
+// 看起來與旁邊一樣。卡片底色或 TH_DARK 改了要一起重算。
+const FIXED_TH_DARK = "#1c2634";        // TH_DARK 疊在卡片上
+const FIXED_TD_DARK = "#0f1825";        // 卡片底色
+const FIXED_TD_HOVER_DARK = "#17202e";  // 滑過列 rgba(148,163,184,.06) 疊在卡片上
 
 const lightOverrides = {
   common: {
@@ -147,6 +153,9 @@ const themeOverrides = computed(() =>
 // 複製一份色碼到別的檔案的話，主題一改就會有一個地方沒跟上。
 const cssVars = computed(() => ({
   "--table-th-color": effectiveTheme.value === "dark" ? TH_DARK : TH_LIGHT,
+  "--table-fixed-th-color": FIXED_TH_DARK,
+  "--table-fixed-td-color": FIXED_TD_DARK,
+  "--table-fixed-td-hover": FIXED_TD_HOVER_DARK,
 }));
 </script>
 
@@ -177,11 +186,17 @@ const cssVars = computed(() => ({
 /* tooltip 內若含連結（例如表格 ellipsis tooltip 會把綠色 <a> 一起複製進來），
    淺色主題下 tooltip 是深底，綠字看不清 → 讓 tooltip 內連結改用 tooltip 自身的淺色字 */
 .n-tooltip a { color: inherit !important; text-decoration: underline; }
+/* 提示文字不可以超出畫面：窄視窗（手機、縮小的瀏覽器）長的提示要換行（使用者回報 RustDesk 按鈕的提示被切掉） */
+.n-tooltip { max-width: min(420px, calc(100vw - 80px)); box-sizing: border-box; }
 
 /* 表格「操作」欄：依「該欄實際可用寬度」自動決定顯示完整按鈕或只剩 icon。
    欄位寬度不足以容納完整按鈕時 → 收成只剩 icon（不換行）。
    只要把該欄 column 設 className: "col-actions" 即可套用，免改每顆按鈕。 */
 td.col-actions { container-type: inline-size; }
+/* IP 欄：位址本身不斷行；後面的角色圖示（自動收錄、閘道、DHCP、固定分配…）放不下就換行，
+   不可以溢出蓋到右邊的主機名稱欄（使用者回報綠色鎖頭擋到主機名稱） */
+.ip-cell { display: inline-flex; align-items: center; flex-wrap: wrap; row-gap: 2px; max-width: 100%; }
+.ip-cell-addr { white-space: nowrap; }
 td.col-actions .n-space { flex-wrap: nowrap !important; }
 @container (max-width: 230px) {
   td.col-actions .n-button__content { font-size: 0; justify-content: center; }
@@ -300,6 +315,19 @@ html[data-theme="dark"] .n-data-table-td {
 html[data-theme="dark"] .n-data-table-tr:hover .n-data-table-td {
   background-color: rgba(148, 163, 184, 0.06) !important;
 }
+/* 固定欄不可以半透明：會透出底下捲過去的欄位（色碼見 FIXED_*_DARK） */
+html[data-theme="dark"] .n-data-table-th.n-data-table-th--fixed-left,
+html[data-theme="dark"] .n-data-table-th.n-data-table-th--fixed-right {
+  background-color: var(--table-fixed-th-color) !important;
+}
+html[data-theme="dark"] .n-data-table-td.n-data-table-td--fixed-left,
+html[data-theme="dark"] .n-data-table-td.n-data-table-td--fixed-right {
+  background-color: var(--table-fixed-td-color);
+}
+html[data-theme="dark"] .n-data-table-tr:hover .n-data-table-td.n-data-table-td--fixed-left,
+html[data-theme="dark"] .n-data-table-tr:hover .n-data-table-td.n-data-table-td--fixed-right {
+  background-color: var(--table-fixed-td-hover) !important;
+}
 
 /* ── 深色科幻風點綴 ── */
 /* 主畫面背景：極淡的藍/青徑向光暈，從深藍黑浮出層次（非整片死黑） */
@@ -337,7 +365,7 @@ html[data-theme="light"] .n-card > .n-card-header {
    ════════════════════════════════════════════════════════════════ */
 @media (max-width: 640px) {
   /* 內容區與卡片留白縮小，把寶貴的水平空間還給內容 */
-  .n-layout-content .n-layout-scroll-container { padding: 10px !important; }
+  .n-layout-content .n-layout-scroll-container { padding: 10px 10px 88px !important; }  /* 底部留給 AI 助手浮動按鈕（MainLayout） */
   .n-card > .n-card__content { padding: 12px !important; }
   .n-card > .n-card-header { padding: 12px 12px 10px !important; }
 

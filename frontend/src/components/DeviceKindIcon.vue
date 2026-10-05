@@ -8,7 +8,7 @@ import { NIcon } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import {
   Computer, CubeDots, HardDrive, Headset, Industry, ModernTv, Network, NetworkLeft, PcFirewall, Printer,
-  Server, VideoCamera, Wifi,
+  Server, SmartphoneDevice, VideoCamera, Wifi,
 } from "@iconoir/vue";
 
 const props = defineProps<{ kind?: string | null; size?: number }>();
@@ -17,7 +17,7 @@ const { t, te } = useI18n();
 const ICONS: Record<string, unknown> = {
   router: Network, switch: NetworkLeft, firewall: PcFirewall, wireless_ap: Wifi, printer: Printer,
   camera: VideoCamera, voip: Headset, storage: HardDrive, hypervisor: CubeDots, media: ModernTv,
-  specialized: Industry, server: Server, windows: Computer,
+  specialized: Industry, server: Server, windows: Computer, mobile: SmartphoneDevice,
 };
 const icon = computed(() => (props.kind ? ICONS[props.kind] : undefined));
 const label = computed(() => {

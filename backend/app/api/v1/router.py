@@ -54,6 +54,9 @@ from app.api.v1.endpoints import (
     preferences,
     rack_diagram,
     rdp_console,
+    rustdesk,
+    rustdesk_agent,
+    rustdesk_console,
     scan,
     scan_agent_relay,
     scan_agents,
@@ -172,6 +175,9 @@ api_v1_router.include_router(zabbix.view_router)
 api_v1_router.include_router(windows_dhcp.router)
 api_v1_router.include_router(dhcp_standalone.kea_router)
 api_v1_router.include_router(dhcp_standalone.isc_router)
+api_v1_router.include_router(rustdesk.router)
+api_v1_router.include_router(rustdesk_agent.router)
+api_v1_router.include_router(rustdesk_console.router)
 api_v1_router.include_router(audit.router)
 api_v1_router.include_router(users.router)
 api_v1_router.include_router(bg_tasks_endpoint.router)

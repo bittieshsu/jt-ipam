@@ -10,7 +10,7 @@
 不允許直接 `httpx.AsyncClient(...)` 呼叫使用者控制的 URL。
 
 防護內容：
-1. URL 白名單（協定、host、解析後 IP CIDR）
+1. URL 允許清單（協定、host、解析後 IP CIDR）
 2. DNS 解析後 pin IP，避免 DNS rebinding
 3. 重導向 follow 上限 + 每次 redirect 重檢
 4. 超時必填
@@ -129,14 +129,14 @@ Addr = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
 def check_addrs(host: str, addrs: Iterable[Addr]) -> None:
-    """出站的位址規則：黑名單一律擋、私網要設定允許、白名單網段可放行。不安全丟 UnsafeOutboundURL。"""
+    """出站的位址規則：封鎖清單一律擋、私網要設定允許、允許清單網段可放行。不安全丟 UnsafeOutboundURL。"""
     settings = get_settings()
     extra_allow = _parse_allow_cidrs(settings.outbound_allow_cidrs)
     for ip in addrs:
-        # 白名單命中可放行（即便落在 private）
+        # 允許清單命中可放行（即便落在 private）
         if extra_allow and _ip_in(ip, extra_allow):
             continue
-        # 黑名單一律擋
+        # 封鎖清單一律擋
         if _ip_in(ip, _BLOCKED_CIDRS):
             raise UnsafeOutboundURL(f"Blocked IP for SSRF: {ip}")
         # 私網需明確允許（A10）
@@ -167,8 +167,8 @@ def assert_url_safe(url: str) -> list[Addr]:
     except ValueError:
         # 走 DNS
         if settings.outbound_allow_hosts and host not in settings.outbound_allow_hosts:
-            # host 白名單存在則必須命中
-            pass  # fallthrough：仍會檢 IP 白名單
+            # host 允許清單存在則必須命中
+            pass  # fallthrough：仍會檢 IP 允許清單
         addrs = _resolve(host)
 
     check_addrs(host, addrs)

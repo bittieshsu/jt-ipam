@@ -98,7 +98,7 @@ AI 巡檢的發現每跑一次就回來一次、得一再忽略，因為識別�
 
 - [ ] A01 權限：新端點有沒有正確使用 `require_admin` / 物件層級授權？
 - [ ] A03 注入 / 輸入驗證：Pydantic StrictModel、檔案上傳驗 magic bytes + 限大小 + 禁危險類型（如 SVG）
-- [ ] A08 完整性：上傳/外部資料有驗證；路徑無 traversal（上傳/下載檔案路徑解析後仍在白名單目錄內）
+- [ ] A08 完整性：上傳/外部資料有驗證；路徑無 traversal（上傳/下載檔案路徑解析後仍在允許清單目錄內）
 - [ ] 機密：無把 secret/token 寫進 log 或回應
 - [ ] **出站防護**（`tests/test_safe_http_guard.py`、`tests/test_netdiag_http_guard.py`）：`::ffff:127.0.0.1`、
   `::ffff:169.254.169.254`、`fd00:ec2::254` 都被擋；檢查後 DNS 換成 127.0.0.1 會在連線當下被擋（各整合、共用連線、
@@ -128,6 +128,10 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
   否則測到的是你已經發出去的東西。它會在升級**前**寫一列資料並檢查它還在：升級把資料弄丟是
   最糟的失敗，而且不會讓任何指令回非零
 - [ ] 對上一版的環境跑 `scripts/jt-ipam.sh upgrade`，必要時也要能還原
+- [ ] **建置前端用的 Node.js 22**：兩道關卡都會拿容器裡的 `node -v` 對照 `engines.node`（全新安裝：v22，且 `doctor`
+  有「Node.js v22... for building the frontend」那一行；從還在用 Node 20 的版本（v0.6.61 以前）升級：記錄顯示
+  Node.js v20 -> v22，站台仍經 HTTPS 有回應）。升級時裝不起來 22 的退路（沿用 Node 20 以上、印警告框、`doctor` 提醒；
+  全新安裝則停下來）與 nvm 的幾種情況，由 `scripts/tests/test_ensure_node.sh` 守住
 - [ ] 這次若新增了目錄 / 套件 / 服務 / DB extension / env，確認 **`install` 與 `upgrade` 兩條路徑都已同步**，
   而且 `doctor` 會檢查它
 - [ ] **部署後在正式環境跑 `scripts/jt-ipam.sh doctor`**：每一行都是綠的，或那一行 `→ fix` 是客戶不用問我們就照做得來的
@@ -148,6 +152,15 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 
 ## 5c. 真實瀏覽器測試：**每次動到 UI 的發版都必跑**
 
+- [ ] **完整 e2e 用 `frontend/e2e/run-release.sh` 跑**（不要自己加 `--workers=2` 跑全部）：一般的 spec 平行，
+  `e2e/global-state-specs.txt` 裡會改全站設定的 spec 之後單一 worker 依序跑；跑前先 `seed_e2e`
+- [ ] **主控台連線路徑**（`e2e/console-route-note.spec.ts`、`tests/test_console_route_describe.py`）：SSH／SFTP／RDP／VNC 連線表單有
+  「連線路徑：直連／經由跳板「X」／經由掃描代理「X」」與設定來源（IP／子網路）；跳板停用或金鑰沒釘選、代理沒被允許中繼時按連線
+  之前就顯示原因；「變更」就地開視窗（不離開連線表單）改這個 IP 的出口，存檔後路徑說明跟著更新（設定在 IP）；
+  視窗裡「改整個子網路的設定」開子網路的編輯視窗；沒有可用跳板也沒有可中繼代理時寫明只能直連、沒有儲存鈕；
+  沒有編輯權限的帳號看不到「變更」
+- [ ] **跳板在掃描代理頁的頁籤**：左側選單沒有「跳板主機」；`/jump-hosts` 轉到 `/scan-agents?tab=jump`；頁籤切換網址跟著變
+
 - [ ] 手機版側欄（`frontend/e2e/mobile-sidebar.spec.ts`，390×844）：收起時寬度 0、內容從最左邊開始；左上角按鈕叫出來、疊在內容上；
   點選功能後與點暗掉的地方都會收回；桌機維持原樣
 - [ ] 手機上的機櫃圖（`frontend/e2e/mobile-rack.spec.ts`）：比螢幕寬時可以左右捲；「正面/背面」等工具列不凸出卡片
@@ -158,6 +171,13 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
   寬度變化跟拖的距離相符（手寫表格也要，含標頭設了透明度的）；**拖之前的排版與原本一模一樣**（曾經補了最小寬度，
   讓沒有固定排版的表格在手機上把 IP 擠成直排；手機全畫面巡檢要一起跑）。頁籤列放不下時才有箭頭、在哪一側還有東西
   才有那一側的箭頭，按得到最左與最右，箭頭不可擋住頁籤的點擊
+- [ ] **拖拉調整欄位順序**（所有「欄位」選單；`e2e/column-reorder.spec.ts`，vitest `columnPickerWiring.test.ts` 會在有欄位選單
+  或頁面欄位沒接上時失敗）：抓住把手拖拉，表格欄位跟著同樣移動；手機上用手指拖得動、把手聚焦後按上下方向鍵也能移動；
+  清掉本機快取再重新整理順序還在（來自 `table_columns["<表格>:order"]`）；隱藏再勾回來的欄位回到原本的位置；勾選欄、固定在
+  左右兩側的欄位、不在選單裡的欄位（操作欄）不動；匯出照畫面上的順序；「還原預設值」連順序一起還原。全部欄位勾起來時，選單的順序
+  要與表頭一致（子網路、機房與地點、NAT、連線管理原本不一致，第一次拖拉會讓不相干的欄位跟著跳）。**沒調整過順序的表格要與以前一模一樣**（舊的可見欄位
+  清單是勾選先後，不可以被當成欄位順序）。自己組欄位的頁面要抽查：子網路詳情（閒置區間列仍從 IP 橫跨到最後一欄）、異常偵測
+  各類別、對外開放服務、進階模組、佈線與電力、虛擬化的各頁籤
 - [ ] 手機上的四個回報（`frontend/e2e/mobile-overflow.spec.ts`）：側欄用手指滑得動、不會捲到後面的頁面；
   主控台狀態列換行不擠成直排；通知框不超出畫面；機櫃圖預設比例依畫面縮小、拉過後記住（跟桌機分開）。
   ⚠️ iOS 的 100vh 比實際看得到的高，Playwright 模擬不出會伸縮的工具列，所以側欄的修法要**請使用者在 iPhone 上確認**
@@ -347,9 +367,9 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   畫出來（深色主題沒有外框），點名稱進機櫃頁；改成挑幾個機櫃 → 只畫那幾個；重新整理、換瀏覽器設定還在；超過 12 個顯示
   「還有 N 個」連到機櫃頁
 - [ ] **儀表板卡片標題只放標題（頂多一個數量）**：沒有按鈕、沒有副標文字；機櫃卡的「設定」與顯示範圍在內文最上方
-- [ ] **IP 詳細資料「各來源最後出現」**（`e2e/ip-seen-sources.spec.ts`）：獨立一區，來源／時間／距今三欄，順序固定（掃描代理、
+- [ ] **IP 詳細資料「各來源最後出現」**（`e2e/ip-seen-sources.spec.ts`）：獨立一區，來源／時間／多久以前三欄，順序固定（掃描代理、
   LibreNMS、ARP、Wazuh、OCS、各防火牆、AdGuard），最新的一列加粗並標「最新」；基本資料裡不再有「最後出現」欄位；手機上
-  「距今」併到時間下方、不出現橫向捲動。LibreNMS／Wazuh／OCS 的時間點下去 → 裝置頁並捲到對應卡片（外框亮一下）
+  「多久以前」併到時間下方、不出現橫向捲動。LibreNMS／Wazuh／OCS 的時間點下去 → 裝置頁並捲到對應卡片（外框亮一下）
 - [ ] **各來源最後出現的上線判定與排序**（`e2e/ip-seen-sources.spec.ts`、`tests/test_ip_seen_rule.py`）：掃描代理在時限內＝「計入 ·
   有效」、LibreNMS 過期＝「計入 · 已過期」、DHCP 租約與 AdGuard＝「不計入」（改系統設定的採信來源後跟著變）；「時間」點一下最新在上；
   手機只剩三欄、不左右捲動；IP 清單 API 不帶 `liveness_rule`
@@ -591,6 +611,178 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 刪除來源會收回它寫進共用表的範圍/保留/租約/主機名稱
 - [ ] `e2e/dhcp-standalone.spec.ts`：Kea 測試連線失敗時看得到真正原因（不是前端 15 秒逾時）；ISC 讀檔狀態、被佔用的代理反灰
 
+## 7b4. RustDesk Server（開源版）：**動到這個整合、RustDesk 代理或 IP 詳細資料就要跑**
+
+- [ ] **真的 RustDesk Server 往返**（官方 deb、`/var/lib/rustdesk-server`；`tests/test_agent_rustdesk.py`、
+  `tests/test_rustdesk.py`）：代理只讀 id/created_at/info.ip（pk、uuid 不讀，`id_ed25519` 絕不開啟）；`::ffff:` 位址還原成 IPv4；
+  上線數與 hbbs 實際一致；查上線狀態連的是主機自己的位址（從 127.0.0.1 連，hbbs 會當成文字管理指令）；`.env` 改過 `PORT` 會跟著改
+- [ ] **專用 RustDesk 代理安裝**（`agent/jt-ipam-rustdesk-agent-installer.sh`，乾淨的 Debian／Ubuntu 裝好官方 RustDesk Server deb）：
+  新增伺服器 → 視窗直接給一行安裝指令（帶這台伺服器的金鑰）；在 RustDesk 主機上執行 → `jt-ipam-rustdesk-agent` 在跑、身分是
+  `/var/lib/rustdesk-server` 的擁有者（`systemctl show -p User`）、那個目錄對它是唯讀（從服務的命名空間 touch 會失敗）、設定檔是 root 0600，
+  約 10 秒內代理欄變成「已連線」並顯示主機、來源 IP、版本。重跑會就地升級；`JT_IPAM_UNINSTALL=1` 移除服務、程式與設定，不動 RustDesk
+- [ ] **代理金鑰**：新增時給一次，之後可從「安裝指令」再看到（留 `view_agent_key` 稽核）；「換新金鑰」後舊金鑰立刻失效（代理記 401、
+  停止接收）；刪掉伺服器後代理輪詢被拒；金鑰不能寫別台伺服器的資料（409）；改用專用代理前建立的伺服器顯示「沒有金鑰」與「產生金鑰」
+- [ ] **測試／立即同步**：測試逐項列出（工作目錄、資料庫、公鑰、hbbs 版本、線上狀態查詢、接收端），失敗時帶真正的原因（例如 21114 被占用）；
+  沒有代理連上時直接講、60 秒後逾時；立即同步約 10 秒內回報（最後回報時間會變）；停用的伺服器拒絕立即同步，代理不讀也不聽但照樣輪詢
+- [ ] **頁面版面**（`e2e/rustdesk.spec.ts`）：「RustDesk 伺服器／裝置／連線稽核」三個頁籤（網址保留 `?tab=`）；1280 px 寬不用橫向捲動就看得到
+  編輯／測試／立即同步／安裝指令（操作欄固定在右側，深色模式不會透出底下的字）；掃描代理頁不再出現任何 RustDesk 相關的東西
+- [ ] 資料庫讀不到時保留裝置清單，最後錯誤寫出路徑與原因；查不到上線狀態時保留上一次的；truncated 的回報不刪任何東西；
+  hbbs 刪掉的裝置這裡跟著刪；代理超過 3 倍間隔沒回報會發健康告警
+- [ ] 對應：IP 唯一且 7 天內上線才對應；從沒上線、離線超過 7 天、同一 IP 三個以上（NAT）、同一 IP 兩台都上線、重疊網段、
+  不在管理網段都不對應，頁面上寫出原因
+- [ ] IP 詳細資料顯示 ID 與上線狀態；「RustDesk」按鈕的網址是 `rustdesk://connect/<ID>@<客戶端位址>?key=<公鑰>`、不含密碼，
+  按下去會叫出已安裝的客戶端；沒有遠端主控台權限的帳號看不到按鈕（但看得到 ID）
+- [ ] `e2e/rustdesk.spec.ts`：伺服器那一列（版本、數量、代理主機）、裝置搜尋/上線篩選/對應狀態、點到 IP、連線網址、客戶端位址格式檢查、
+  安裝指令、測試往返、立即同步；中英日介面各看一次
+- [ ] **客戶端回報接收端**（RustDesk 代理，`tests/test_agent_rustdesk_api.py`、`tests/test_rustdesk_contract.py`）：只有伺服器啟用而且開著
+  「接收客戶端回報」時才聽 21114（關掉 → 埠關閉；綁不上時頁面上看得到原因）；API 伺服器留空的真實客戶端一分鐘內送來心跳與系統資訊；心跳一律回 `{}`，
+  絕不含 strategy/disconnect/modified_at；uuid 不符丟掉並計數；任何轉送內容與日誌都沒有 uuid；64 KB、10 秒、每個 IP 的頻率與連線數限制；
+  格式不合的事件在後端跳過（`rejected`），不會讓整批被拒
+- [ ] **連線稽核與告警**：從另一台用密碼連進去、傳一個檔案、關閉 → 稽核頁籤依序看到建立 → 驗證通過（對方 ID、名稱、類型）→ 檔案 → 結束；
+  連錯 6 次密碼 → 告警一筆，`rustdesk.alarm` 通知只發一次（不是每次都發）；通知連結直接開到稽核頁籤；超過 400 天的稽核會清掉
+- [ ] **多條件比對**：心跳來源 IP 優先於 NAT 共用的登記 IP；主機名稱相符會列為依據；主機名稱和 IP 記錄不同時，只有「只剩登記 IP 可以判斷」
+  才顯示「主機名稱不符」且不關聯（剛從那個位址收到心跳仍然關聯）；只有名稱相符只當建議；localhost、ubuntu、desktop 這類常見名稱不當依據
+- [ ] **逐 IP 的 RustDesk 開關**（`test_connect_button_needs_the_per_ip_switch`、`e2e/rustdesk.spec.ts`）：那個 IP 打開「啟用 RustDesk 連線」
+  才出現連線按鈕（管理員也一樣），按鈕右上角有「本機」標示，關掉後按鈕消失；開關只在已對應到 RustDesk 裝置的 IP 出現；IP 頁的 RustDesk 列
+  不再有上線狀態、最後上線與主機名稱，「各來源最後出現」有「RustDesk 客戶端」
+- [ ] **探測會更新 IP 的設備類型**（`test_device_kind_identify.py`）：對 IP 頁顯示「伺服器」的攝影機／印表機按「探測」→ 之後 IP 頁顯示
+  探測判斷的類型；下一輪定期偵測維持不變（沒有 `kind_changed` 記錄）；定期偵測有另一種設備的服務證據時照樣會改
+- [ ] **設備類型欄**（`test_device_kind_columns.py`）：連線管理、Wazuh／OCS「未裝 Agent 的 IP」、異常偵測、對外開放服務的「欄位」選單都有
+  設備類型（標註預設顯示的頁面一打開就有），可以排序（缺口清單由伺服器用 `sort=device_kind` 排，沒有值的排最後）、可以匯出
+- [ ] **IP 表單存檔不清掉主機名稱**（`test_ip_edit_keeps_hostname.py`）：打開一個主機名稱沒有任何來源觀測的 IP，只改說明就儲存 →
+  主機名稱還在，也沒有 `hostname_changed` 異動記錄
+- [ ] **主機名稱來源 `rustdesk`**（`test_reported_hostname_feeds_the_ip_record_last`）：已對應裝置回報的名稱會補上沒有名稱的 IP；已有 DNS
+  或其他來源名稱的 IP 不被蓋掉；主機名稱來源順序設定頁最後一項顯示「RustDesk 客戶端」；預設名不採用；裝置不再對應、刪掉 RustDesk 伺服器時收回
+- [ ] **相容 RustDesk 的網頁連線：真的往返**（測試靶 `scripts/rustdesk-test-target/run.sh up`，再用同目錄的 `seed_jtipam.py` 接到拋棄式
+  開發資料庫；單元測試 `tests/test_rustdesk_web_proto.py`、`tests/test_rustdesk_web_net.py`、`tests/test_rustdesk_web_console.py`、前端
+  `src/rdweb/__tests__/`）：RustDesk 伺服器編輯表單打開「網頁連線」、填 hbbs 位址（或留空用代理位址）→ IP 頁的 RustDesk 主按鈕開新分頁、
+  輸入對方密碼 → 幾秒內出畫面；傳輸方式改 WebSocket 再連一次也一樣；後端日誌與稽核沒有密碼、雜湊或金鑰
+- [ ] **登入**：正確密碼直接連上；密碼錯 → 畫面要求重輸，改輸正確的就連上，**不用重新連線**；不填密碼 → 對方畫面跳出同意視窗、這邊顯示
+  「等待對方同意」（測試靶沒有連線管理視窗，這一項要用真的桌面驗）；連錯 3 次 → jt-ipam 自己先擋（第 4 次試不到、新票證 429），
+  受控端不會累積到它自己的 6 次限制；開了兩步驟驗證的受控端會要求驗證碼，錯的驗證碼可以重輸
+- [ ] **畫面**：VP9 出畫面；受控端換解析度後畫面正確；兩個分頁同時連同一台都正常；分頁卡住 10 秒（或切到背景）再回來不卡、不花屏；
+  有 H.264 硬體編碼的受控端用 H.264 也出得了畫面（不行就記下來，改成不宣告）；「自動縮放」與「原始解析度」都能用
+- [ ] **輸入**：左、右、中鍵、雙擊、拖曳（拖得動視窗）、滾輪方向（往下捲畫面往下）；四個角落的座標準確（測試靶裡用
+  `docker exec rdtest-client sh -c 'DISPLAY=:0 xdotool getmouselocation'` 量）；中文、英文鍵盤配置下打字正確；CapsLock 開關都正確；
+  數字鍵盤正確（NumLock 開關都試）；Ctrl+Alt+Del 與「鎖定畫面」按鈕；按住 Shift 時切到別的視窗再回來不會卡鍵；唯讀檢視不送任何輸入
+- [ ] **遠端游標**（規格附錄 E；單元測試 `src/rdweb/__tests__/cursor.test.ts`）：測試靶裡移到文字框上，本地游標變成文字游標，
+  大小跟著畫面縮放（「自動縮放」與「原始解析度」各看一次）；對方隱藏游標時本地游標也隱藏；
+  `docker exec rdtest-client sh -c 'DISPLAY=:0 xdotool mousemove 200 200'` → 畫面上那個位置出現遠端游標，本地一動滑鼠（或 3 秒後）
+  就消失；換螢幕、重新連線後恢復一般游標；畫面本身已經畫了游標的受控端只看得到一個游標；實體 Windows 受控端也要驗一次
+- [ ] **保活**：連上後放著 5 分鐘不動，連線不斷（hbbr 與受控端的 30 秒閒置都沒觸發）
+- [ ] **自動重新連線**（規格附錄 G；前端 `src/rdweb/__tests__/reconnect.test.ts`、`src/components/__tests__/rustdeskReconnect.test.ts`）：
+  連上測試靶後執行 `docker restart rdtest-client` → 畫面顯示「連線中斷」加倒數（「N 秒後自動重新連線（第 k 次，共 8 次）」）與
+  「立即重連」/「取消」，不會變成要手動按「重新連線」；受控端回來後自己連上、看得到畫面；每一次重連都有自己的票證與
+  `rustdesk.web_session_open` / `rustdesk.web_session_close` 稽核。連線中重新啟動 jt-ipam 後端 → 一樣。按「取消」回到「連線已中斷」與
+  手動「重新連線」，之後不再重試；受控端一直不回來時試 8 次（間隔 1、2、3、5、5、10、10、15 秒）才顯示錯誤，帶最後一次的原因。
+  受控端剛重新啟動時第一次登入可能回「connection refused」：畫面繼續倒數，之後的某一次連上，不會就此停下。打開
+  「記住密碼」時密碼只存一次，重連成功不再存；用已存的密碼時每一次重連都有 `rustdesk.saved_password_used`；受控端停機期間改了密碼
+  → 重連停在密碼輸入框。唯讀檢視與剪貼簿開關沿用原本的設定；受控端說明原因結束、或自己按「中斷」都不重連；localStorage 與
+  sessionStorage 沒有密碼或雜湊。受控端停機期間把它的 IP 允許清單改成不含 jt-ipam 伺服器（或設定成主視窗開著才接受連線）→ 重連收到
+  「Your ip is blocked by the peer」（或「The main window is not open」）就立刻停止並顯示原因，不會試滿 8 次。
+  實體 Linux 受控端停在 GDM 登入畫面時，從網頁連線登入 → 不用按任何按鈕就回到新的桌面工作階段
+- [ ] **受控端切換工作階段**（規格附錄 G.5；前端 `src/rdweb/__tests__/sessionSwitch.test.ts`）：每一次重連的 LoginRequest 都帶跟第一次
+  一樣的 `session_id` 與 `my_name`，重連前不送 `close_reason`（只有按「中斷」才送）；Windows 登出、切換使用者、RDP 搶走主控台都會自己
+  連回來，鎖定、Ctrl+Alt+Del、UAC 不會中斷；Linux 用 GDM 與另一種桌面管理器（LightDM 或 SDDM）、X11 與 Wayland 各試登出與切換使用者；
+  macOS 從登入視窗登入。受控端用一次性密碼又重新啟動 → 重連停在密碼輸入框並提示一次性密碼可能已更換；受控端在登入畫面時用空密碼連
+  → 提示「受控端目前在登入畫面，請輸入密碼」，在同一條連線輸入密碼就能登入；Wayland 登入畫面 → 顯示說明，文件連結只是文字，不重連；
+  登入 Wayland 桌面後出現「選擇要分享的畫面」訊息方塊，畫面繼續等到受控端那邊的人選好
+- [ ] **Windows 工作階段選擇**（規格附錄 G.6）：已安裝的 Windows 受控端同時有主控台與 RDP 工作階段（開著分享 RDP 工作階段）→ 列出兩個、
+  標出目前的那個；選目前的 → 出畫面；選另一個 → 受控端切換過去，畫面自己重新連線並顯示那個工作階段，不再詢問；只有一個工作階段時
+  不詢問、直接出畫面；中英日各看一次
+- [ ] **沒有桌面的 Linux 受控端**（規格附錄 G.7；RustDesk 1.4.x、開了允許無桌面連線、沒有人登入）：畫面請使用者輸入作業系統帳號密碼
+  （受控端說 RustDesk 密碼是空的或錯的時加 RustDesk 密碼）；第二次登入走同一條連線（只有一筆 `rustdesk.web_session_open`），約 10 秒內
+  出現桌面；作業系統密碼錯（「Desktop xsession failed」）會再問一次；已有別的使用者登入時結束並說明原因；作業系統帳號密碼不出現在
+  瀏覽器儲存空間、日誌或稽核裡，之後重新連線也不會自動重送；這條路上 RustDesk 密碼錯三次（「password wrong」，跟「Wrong Password」
+  混著也一樣）會碰到同一個每人限額（`tests/test_rustdesk_web_console.py`），「password empty」那個提示不算
+- [ ] **剪貼簿**（規格附錄 F；前端 `src/rdweb/__tests__/clipboard.test.ts`、`clipboardSession.test.ts`）：工具列「剪貼簿」開關預設開，
+  唯讀檢視時關閉且反灰。在受控端執行 `docker exec rdtest-client sh -c 'echo -n peer-123 | DISPLAY=:0 xclip -selection clipboard'`
+  → 瀏覽器剪貼簿是 `peer-123`（分頁在背景時畫面出現「對方複製了內容」提示，按一下就複製）；在瀏覽器複製一段文字、點一下畫面、
+  在受控端的程式裡按 Ctrl+V → 貼上的是新的內容，不是舊的（受控端 `xclip -o -selection clipboard` 看得到；Mac 上按 Cmd+V 也一樣）；
+  **傳送文字**只改對方剪貼簿、不按任何鍵；任一方向超過 1 MB 都會擋下並提示；關閉開關 → 兩個方向都不同步，Ctrl+V 貼上的是對方自己
+  剪貼簿裡的內容；再打開 → 恢復同步。真的 Windows 受控端再驗一次（兩邊都用記事本複製、貼上）
+- [ ] **多螢幕與畫質**（規格附錄 H、I；前端 `src/rdweb/__tests__/displays.test.ts`、`quality.test.ts`、
+  `src/components/__tests__/rustdeskDisplayQuality.test.ts`）：只有一個螢幕、而且沒有可選的解析度時沒有「螢幕」選單；
+  單一實體螢幕、受控端有回報解析度時照樣有選單，裡面只有「解析度」子選單，選了受控端的解析度跟著改。讓測試靶多一個螢幕（或用真的雙螢幕
+  受控端）：選單列出兩個螢幕與各自的大小，標出目前的與主螢幕；切換後看到另一個螢幕，在第二個螢幕的 xterm 點下去打字，字出現在點的
+  位置；拔掉正在看的螢幕 → 出提示並回到主螢幕；改正在看的螢幕的解析度 → 畫面跟著變，不算切換；停在螢幕 2 時重新啟動受控端容器 →
+  自動重新連線後回到螢幕 2。唯讀檢視時沒有「解析度」子選單。**畫質**：切到「低」與「最佳」時工具列小字的位元率跟著變；更新率上限 15 時
+  每秒解出的張數不超過 15；編碼偏好只列兩邊都支援的，換編碼後畫面照常；重新整理頁面 → 三個選項都還在，瀏覽器儲存空間只有
+  `jt-ipam.rdweb.quality`（畫質、自訂數值、更新率、編碼偏好）
+- [ ] **安全**：jt-ipam 存的公鑰改錯一個字元 → 「公鑰與伺服器不符」；hbbs 用 `-k <公鑰字串>` 啟動（不簽受控端身分）→ 拒絕連線、
+  不降級，錯誤訊息提示改用金鑰檔（`KEY=_`）；票證重放、過期（30 秒）、拿去連別的 IP 都被拒；沒有遠端主控台權限、IP 沒開 RustDesk 連線、伺服器沒開網頁連線都看不到按鈕也換不到票證
+- [ ] **稽核與資源**：每次連線都有 `rustdesk.web_session_open` 與 `rustdesk.web_session_close`（受控端 ID、傳輸方式、hbbs 給的中繼名稱、
+  實際連的中繼位址、結束原因、瀏覽器回報的登入結果）；受控端自己送來的連線稽核（`my_name` 是「帳號 (jt-ipam)」）對得上；同時連線超過
+  每人 3 條或全站 20 條會被擋
+- [ ] **安裝與升級**：新安裝的 nginx 主控台 WebSocket location 含 `rustdesk`；從舊版升級時 `jt-ipam.sh upgrade` 把舊的 location 改寫成
+  含 `rustdesk`、`jt-ipam.sh doctor` 顯示「nginx forwards WebSocket for all consoles」；migration 0180 升級後所有伺服器的網頁連線都是關的
+- [ ] **設備類型參考 IPAM 事實**：裝置記錄是防火牆／路由器／交換器／AP 的 IP，探測猜成別的也照裝置記錄；LibreNMS 分類為防火牆、印表機、
+  AP、NAS、交換器的同理；裝了 Wazuh／RustDesk／OCS 代理又開 xrdp 的 Linux 是伺服器不是 Windows；虛擬機不會變成交換器、印表機、攝影機；
+  DHCP 位址的舊虛擬機或舊 Wazuh 代理屬於別台（MAC 不同、代理超過 7 天沒回報）時不受影響；探測頁顯示「IP 記錄採用：…（依…）」。
+  iPhone（62078 埠）判成手機／平板；探測摘要的設備廠牌與網卡廠牌分兩列。
+- [ ] **設備類型的知識表**（`tests/test_device_kind_knowledge.py`、`tests/test_device_kind_generic.py`、
+  `tests/test_ip_identify_regex_safety.py`）：對站台上每一種設備（攝影機、IP 電話、UPS 網路卡、NAS、防火牆、AP、印表機、ESXi 或
+  PVE 主機、BMC、PLC 或樓宇控制器、串流播放器、手機）按「探測」，看類型與依據那一行。開著 node_exporter（9100）、CUPS（631）、Plex
+  或 Blue Iris 這類錄影軟體的 Linux 伺服器仍是伺服器。網卡廠牌顯示 SonoSite、Carlo Gavazzi、Boser 的不推類型，`ZhejiangDahu`、
+  `AmericanPowe`、`SonyInteract` 分別推成攝影機、專用設備、影音設備；隨機 MAC 的手機不會因為廠牌被推成任何類型。主機名稱：
+  `DESKTOP-XXXXXXX` 是 Windows，`nvr-server`、`camera-archive-01` 不推設備類型，`*.cam.ac.uk` 不是攝影機，名稱叫 `printer-2f`
+  但現在是 Windows 電腦在用的位址顯示 Windows。掃描代理更新到 1.17.2 之後，探測結果每個埠帶 `method`/`devicetype`，445 只是
+  nmap 照埠號表猜的 Linux 主機（Samba）不會判成 Windows。
+- [ ] **設備類型第二輪規則**（`tests/test_ip_identify.py` 的「對抗式驗證第二輪」、`tests/test_device_kind_identify.py`）：
+  對只開網頁、沒有 SSH 的路由器或 IoT 閘道按「探測」→ 不明（不是伺服器）；有 OpenSSH 或 Debian/Ubuntu 字樣的 Linux 照樣是伺服器；
+  有 BusyBox 的設備不是伺服器。VigorAP 這類開著 3517 的 AP 判成無線 AP，只有 DrayTek 網卡、沒有型號時不判路由器。Samba AD DC
+  （135 寫著 Microsoft Windows RPC、作業系統是 Debian）是伺服器不是 Windows；跑 Docker Desktop 的 Windows 桌機仍是 Windows。
+  Proxmox Mail Gateway、Datacenter Manager 的實體主機不是虛擬化主機。Tapo 插座（網頁標頭 SHIP 2.0）是專用設備、Tapo 攝影機是攝影機；
+  Apple TV 是影音設備、iPhone 是手機。Debian 虛擬機的作業系統顯示 Debian Linux 11/12/13 而不是 Linux 2.6.32。主機名稱 `P105`
+  只在 TP-Link 網卡上推專用設備，`voip-router-2`、`smart-gw` 不推類型。
+- [ ] **本機 RustDesk 客戶端的稽核**（`tests/test_rustdesk_local_open.py`）：按「用本機的 RustDesk 客戶端軟體開啟」（▾ 選項或「本機」按鈕）→ 稽核多一筆 `rustdesk.local_client_open`，管理員的「調查」遠端連線記錄列出「RustDesk 本機客戶端」；沒有 RustDesk 權限的帳號呼叫端點回 403。
+- [ ] **RustDesk 分割按鈕**：網頁連線可用時 IP 頁只有一顆 RustDesk 按鈕，▾ 裡是「用本機的 RustDesk 客戶端軟體開啟」；▾ 與那個選項滑過去都有說明；
+  不可用時是一顆有「本機」小標的按鈕。
+- [ ] **上一頁回到原本那一頁**：子網路的 IP 清單（以及 IP 位址清單）切到第 2 頁、點進一筆再按上一頁，仍在第 2 頁，每頁筆數也保留。
+- [ ] **客戶端 Key 設錯**：把某台客戶端的 RustDesk Key 改錯（改一個字母的大小寫）再試網頁連線：約 10 秒內 RustDesk 頁的伺服器列
+  出現「Key 錯誤 1」（點下去只列那台）、裝置清單標出來、IP 頁與裝置頁有說明，網頁連線以 Key 錯誤的訊息失敗、不會從會合重來。
+  改回正確的 Key 再連一次，標記消失。NAT 後面共用一個 IP 的多台不標。「測試」有 hbbr／hbbs 日誌一項；`JT_RD_LOG_DIR` 指到不存在
+  的目錄時這項失敗、其他功能照常。日誌輪替（`logrotate -f`）後事件不漏也不重複。1.0.0 的代理輪詢升級後的伺服器照常、並自我更新。
+- [ ] **刪除舊註冊**（`tests/test_rustdesk_peer_delete.py`、`tests/test_agent_rustdesk_delete.py`、`tests/test_rustdesk_installer.py`、
+  `e2e/rustdesk-peer-delete.spec.ts`；
+  真的 RustDesk Server，可用 `scripts/rustdesk-test-target`）：預設關，裝置頁籤沒有勾選欄，「刪除舊註冊」按鈕反灰、提示說要先開設定。
+  伺服器設定打開「允許刪除舊註冊」、代理沒以 `--allow-delete` 安裝時，提示顯示代理回報的原因（not enabled on this host…），「測試」的
+  「刪除舊註冊（寫入權限）」是 ✓ 唯讀；`systemctl cat jt-ipam-rustdesk-agent` 仍是 `ReadOnlyPaths=/var/lib/rustdesk-server`。
+  安裝視窗的指令多了 `JT_RD_ALLOW_DELETE=1` 並有說明；在 RustDesk 主機上執行 `… | sudo env JT_RD_ALLOW_DELETE=1 bash`（不帶網址
+  與金鑰）→ 設定檔原本的網址與金鑰都在、多一行 `JT_RD_ALLOW_DELETE=1`，unit 變成 `ReadWritePaths=… /var/lib/rustdesk-server` 加
+  `InaccessiblePaths=-/var/lib/rustdesk-server/id_ed25519`（`nsenter` 進服務的命名空間讀不到私鑰），其餘加固不變；約 10 秒內按鈕可以按。
+  篩選「從未上線」→「全選符合條件的離線裝置」→ 刪除：確認視窗寫出數量、上線中會略過、之後再上線會自己重新註冊；約 10 秒內出現「已刪除 N」，
+  清單與裝置數跟著更新，`sqlite3 db_v2.sqlite3 "select count(*) from peer"` 少了 N 筆、其他表沒變；勾選期間讓其中一台上線 → 那台
+  「略過（上線中）」；停掉 hbbs 讓資料庫鎖住或查不到線上狀態 → 「失敗」並帶原因、一筆都沒刪。被刪的客戶端重新上線後會再出現
+  （hbbs 這次啟動後見過的要等 hbbs 重新啟動）。「刪除紀錄」列出每一筆結果與要求者；稽核有 `rustdesk.peer_delete_requested`（誰、哪些 ID）
+  與 `rustdesk.peer_deleted`。關掉設定 → 等待中的變「已取消」；代理離線超過一天 → 「失敗」（expired）。不帶旗標重新執行安裝指令 →
+  unit 變回唯讀。有兩台以上伺服器時，上線篩選只改它自己、不會改到對應狀態篩選。zh / en / ja 各看一次。
+- [ ] **密碼欄位**：Chrome 存有 jt-ipam 登入密碼時，不會自動填進 RustDesk 的密碼欄位。
+- [ ] **記住密碼**（附錄 D；`tests/test_rustdesk_saved_password.py`、`src/rdweb/__tests__/session.test.ts`、對測試靶跑
+  `e2e/rustdesk-web.spec.ts`，表單狀態在 `e2e/rustdesk.spec.ts`；表單版面照 VNC 主控台，桌面與手機寬度各和 VNC 並排比一次）：
+  打開「記住密碼」開關，先輸入錯的密碼再輸入對的 → 錯的那次不會存，登入成功後金庫裡這個 IP 只有一筆 `rustdesk`；再開啟連線 →
+  「已存密碼」下拉已選好那筆、沒有密碼框與「記住密碼」列，不必輸入就連上（稽核有 `rustdesk.saved_password_used`，憑證的上次使用時間
+  更新）；改掉受控端的密碼 → 畫面顯示已存的密碼已失效、不會自動重試、提供「刪除已存的密碼」，勾「記住密碼」輸入新密碼後取代舊的那筆
+  （仍然只有一筆）；下拉選「使用其他密碼（手動輸入）」或清掉就回到密碼框，下拉旁的刪除鈕刪得掉已存的那筆；localStorage 與
+  sessionStorage 沒有密碼或雜湊；後端日誌與稽核沒有密碼或雜湊；刪掉最後一筆（或從沒存過）時整列「已存密碼」不出現（SSH、SFTP、RDP、
+  VNC、noVNC、BMC 的「已存帳密」同樣）
+- [ ] **同一台裝置的另一個 IP**：一台裝置有兩個 IP、RustDesk 只對應到其中一個時，編輯另一個 IP 會看到反灰的「啟用 RustDesk 連線」，
+  並附上對應的 IP 連結（RustDesk ID、是否已啟用）；只是主機名稱相同的 IP 不顯示；看不到另一個子網路的使用者也不顯示。
+- [ ] **中繼拒絕**：受控端 RustDesk 的 Key 跟伺服器不同時，網頁連線以中繼逾時失敗，訊息點出 Key 是最常見的原因
+  （hbbr 日誌有 `Relay authentication failed ... invalid key`）。
+- [ ] **介面**：RustDesk 伺服器編輯表單的新欄位（網頁連線、hbbs 位址、中繼位址、傳輸方式）中英日各看一次；連線管理頁有 RustDesk
+  按鈕與「RustDesk」類型篩選；網頁連線沒開時 IP 頁維持原本帶「本機」小標的按鈕
+- [ ] **傳送文字的直接打字輸入**（附錄 F.4；`src/rdweb/__tests__/typeText.test.ts`）：在測試靶的 xterm 打一行有大寫、符號與
+  換行的指令，會直接執行；含中文的被拒絕並提示改用剪貼簿；2001 個字元被拒絕；長文字輸入中按「停止輸入」不會卡鍵；唯讀檢視與
+  對方關閉控制權時按鈕反灰；中/英/日各看一次。
+- [ ] **檔案傳輸**（附錄 J；`tests/test_rustdesk_web_files.py`、`src/rdweb/__tests__/files.test.ts`、`fileSession.test.ts`、
+  `fileSave.test.ts`）：**允許網頁檔案傳輸** 關著時，IP 頁 RustDesk 的 ▾ 選單沒有 **檔案傳輸**，`kind: "file"` 的票證被拒絕
+  （`rd_file_disabled`）；打開（順便試上限）之後選單有了、開新分頁；登入後列出家目錄；Windows 受控端從 `C:\` 往上一層列出磁碟機；
+  顯示隱藏檔；下載一個檔案、跟受控端上的雜湊比對（Chrome 下載超過 200 MB 的檔案會先問存到哪裡、邊收邊寫）；選檔上傳與拖放上傳，
+  再傳一次同名的會問要覆蓋還是略過（可以套用到其餘的）；新增資料夾、改名、刪除檔案與有內容的資料夾；取消進行中的傳輸；
+  第二個傳輸在佇列裡排隊；超過單檔上限的不送；連線中在受控端關掉檔案傳輸權限，畫面結束並顯示說明，連到沒開權限的受控端時登入就
+  顯示翻譯的原因；稽核有 `rustdesk.file_*`，標明是瀏覽器回報的、沒有任何檔案內容；中/英/日各看一次。
+
 - [ ] **裝置匯入（issue #46，`e2e/device-import.spec.ts`、`tests/test_device_import.py`）**：清單匯出的檔案（中/英/日介面各一次）
   原樣匯回來不報錯；範本（含現有裝置）用「更新」模式匯回來零錯誤；地點/機櫃/單位寫名稱、只寫機櫃時推出地點、
   同名機櫃要求補地點；已存在的裝置略過/更新（空白不清值）；同一個檔案裡的 U 位重疊會被擋；有錯的列一筆都不寫；
@@ -623,6 +815,18 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] **斷路器**：讓 API 回空清單一輪（權限被收），主機名稱不可以被整批清掉，`last_error` 要寫出原因；
   規則異動偵測不可以發「全部移除」
 - [ ] **沒改的欄位不是手動編輯**：在 IP 編輯表單只改說明、按儲存，主機名稱來源與 MAC 來源都不可以變成手動
+- [ ] **來源不明的 MAC 不會卡住**（2026-10-05：DHCP 位址換給另一台筆電，IP 頁一直顯示上一台的 Apple 廠牌）：把某 IP 的
+  `mac_source` 設成 NULL、MAC 改成別的值，等掃描代理或防火牆 ARP 同步，MAC 要換成實際的值並記一筆「MAC 變更」；值本來就對時只補記來源、不記異動
+- [ ] **換設備時清掉上一台報的名稱**（`test_mac_change_forgets_names_reported_by_the_previous_device`）：IP 有 NetBIOS/mDNS 名稱時讓 MAC 換成另一台，
+  「主機名稱來源」裡的 NetBIOS、mDNS、Wazuh、OCS、RustDesk 消失，手動、DNS、防火牆、DHCP 保留；同一個 MAC 再回報一次不清；第一次填 MAC 不清
+- [ ] **手動主機名稱可刪**（`e2e/hostname-source-clear.spec.ts`）：IP 詳細資料「主機名稱來源」的「手動」有 ×，按下先確認、刪完主機名稱依優先序重算、
+  稽核有一筆；其他來源沒有 ×；唯讀帳號看不到 ×；滑過每個來源顯示「最後回報：時間」
+- [ ] **同一個 IP 好幾個 MAC 不來回換**（`test_several_devices_disagreeing_on_a_mac_decide_once_per_sync`、`test_mac_run_decides_once_whatever_the_report_order`、
+  `test_two_macs_for_one_ip_in_a_batch_do_not_flip`）：LibreNMS 三台回報 A、一台回報 B → A，連跑三輪不再記異動；一樣多且目前的在其中 → 不動；
+  一樣多且都不是目前的 → 不換；Proxmox 兩台 guest 同一個 IP 不管回報順序都不換；同步後 `ip_change_log` 同一個 IP 不可以每輪都有「MAC 變更」
+- [ ] **裝置欄只有一個關聯按鈕**（`e2e/device-link-single-button.spec.ts`）：主機名稱跟既有裝置同名時只出現一個「關聯…」按鈕；
+  把主機名稱改成另一台裝置的名稱（還沒存），改出現那一台的按鈕
+- [ ] **RustDesk 工具列**：視窗約 1,370px 寬、Windows 受控端（狀態列較長）時，按鈕都在第一行，延遲/位元率/張數/編碼獨立在第二行
 - [ ] **裝置連接埠跟著 LibreNMS 走**（2026-09-27：拔掉的雙埠網卡、USB 網卡，LibreNMS 已標成刪除，清單還列著）：
   拔一張網卡/拔掉 USB 網卡、等 LibreNMS 重新探索後同步或按「從來源匯入」，那些埠要從「連接埠/佈線」消失；
   自己建的、已接線的、有穿透對應的埠都保留；讀取失敗或讀到 0 個埠時一個都不刪。Docker 的 `veth…` 介面一律不匯入
@@ -638,7 +842,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 讓伺服器把工作交給代理，等於讓那支代理可以應要求在客戶網路裡發送探測封包。
 這個功能的安全性等於它最寬鬆的那道檢查。
 
-- [ ] **種類白名單**：ping / tcp / traceroute / rdns / identify 以外一律拒絕，後端要擋，
+- [ ] **種類允許清單**：ping / tcp / traceroute / rdns / identify 以外一律拒絕，後端要擋，
   **代理也要自己獨立擋**（後端被入侵時不得因此擴大範圍）
 - [ ] **目標驗證**：shell 特殊字元、命令替換、參數注入（`-oProxyCommand=…`）都要拒絕；
   參數一律以陣列傳給子行程，永遠不經過 shell
@@ -908,6 +1112,17 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   `e2e/anomaly-ip-conflict.spec.ts`）：沒有設定 LibreNMS 時，掃描代理與防火牆 ARP 表（只取動態項目）照樣產生衝突，
   並綁定各自的子網路，所以重疊網段之間絕不會互相衝突；同一個 MAC 在 24 小時內於兩個位址之間切換 3 次以上會被標出；
   沒有證據時 AI 工具要說「無法判定」
+- [ ] **雙網卡主機不算 IP 衝突**（`tests/test_ip_conflict_evidence.py`）：一台主機兩個網段在同一個廣播網域時，兩張網卡都會回答
+  ARP（ARP flux）；兩個 MAC 都屬於同一個裝置（登記在它其他 IP 上或是它的埠）時不報，多出第三台照樣報，沒連到裝置的 IP 照舊判斷。
+  定期 OS 偵測的「設備類型 · 廠商」用 IP 記錄上的 MAC 查，不是當下回應的那張網卡
+- [ ] **整合狀態顯示翻譯**（`src/utils/integrationStatus.test.ts`）：裝置詳情的 Wazuh 卡片、調查報告的 Wazuh/LibreNMS 狀態
+  顯示「上線/離線/從未連線」，不是 `active`/`disconnected`；三種語系都切換看一次
+- [ ] **調查涵蓋每個整合**（`tests/test_investigate_sections.py`、`src/utils/__tests__/investigateSections.test.ts`）：對一台有 OCS、
+  RustDesk、Zabbix、虛擬機、DHCP 與交換器埠資料的 Windows 主機按「調查」，看得到設備識別（類型、決定依據、網卡廠牌、隨機 MAC）、
+  電腦上的代理、虛擬化、DHCP、接在哪裡、防火牆的觀測、各來源最後出現；只有基本資料的位址一段都不出現（沒有空標題）。部門帳號
+  看不到防火牆物件與規則、DHCP 回應；非管理員的全域讀取帳號看得到那些，但看不到探測、異常、AI 巡檢與主控台連線。三個來源分別
+  回報 `win11-desk-01`、`win11-desk-01.`、`WIN11-DESK-01` **不算**主機名稱不一致，`web01` 對 `db01` 算。四種匯出（.md/.txt/.html/.csv）
+  都有新段落，矛盾跟畫面一樣；三種語系都切換看一次
 - [ ] **異常偵測篩選**（`e2e/anomaly-filter.spec.ts`）：一個關鍵字（IP/主機名稱/MAC/說明）篩選所有分類，
   頁籤上的數字顯示「符合/全部」
 - [ ] **防火牆規則劣化**（`tests/test_fw_rule_rot.py`）：OPNsense 的 Anti-Lockout 規則、轉到別名的埠轉發、

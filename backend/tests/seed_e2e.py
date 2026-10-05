@@ -218,6 +218,9 @@ async def seed() -> None:
         from app.models.wazuh import WazuhAgent, WazuhInstance
         seen_dev = await one(Device, name="seen-host-01", type="server", vendor="generic", model="E2E")
         seen_ip = await ip(subnets["10.20.0.0/24"], "10.20.0.40", "seen-host-01")
+        seen_ip.rustdesk_enabled = True     # 「以 RustDesk 連線」按鈕要逐 IP 開啟（0179）
+        # 主控台「連線路徑 → 變更」用（e2e/console-route-note.spec.ts 會改它的出口再還原；不用共用的 console-target）
+        await ip(subnets["10.20.0.0/24"], "10.20.0.41", "route-edit-01")
         seen_ip.device_id = seen_dev.id
         seen_dev.primary_ip_id = seen_ip.id
         _n = datetime.now(UTC)
@@ -231,7 +234,48 @@ async def seed() -> None:
         wz = await one(WazuhInstance, name="wazuh-seen-e2e", api_url="https://wazuh.example.net",
                        api_user="e2e", api_password_enc=b"x", api_password_nonce=b"y", enabled=False)
         await one(WazuhAgent, agent_id="901", instance_id=wz.id, name="seen-host-01",
-                  jt_ipam_address_id=seen_ip.id)
+                  status="disconnected", jt_ipam_address_id=seen_ip.id)
+        # ── RustDesk Server（開源版）：一台伺服器、三個裝置（對應到 seen-host-01／NAT 共用／不在管理網段）──
+        from app.models.rustdesk import RustDeskPeer, RustDeskServer
+        from app.services import rustdesk as rustdesk_svc
+        rd = await one(RustDeskServer, name="rd-e2e", client_address="rd.example.net",
+                       agent_version=rustdesk_svc.agent_latest_version(), agent_last_seen_at=_n,
+                       agent_hostname="rd-host-e2e", agent_source_ip="192.0.2.73",
+                       agent_status={"data_dir": "/var/lib/rustdesk-server",
+                                     "receiver": {"listening": True, "port": 21114, "error": None}},
+                       public_key="E2EfakeRustDeskKeyForTestsOnly0000000000000=", server_version="1.1.16",
+                       last_report_at=_n, file_status={"db": {"path": "/var/lib/rustdesk-server/db_v2.sqlite3",
+                                                              "ok": True, "error": None, "truncated": False}},
+                       last_summary={"peers": 3, "online": 2, "matched": 1, "removed": 0, "online_ok": True})
+        await rustdesk_svc.save_agent_key(s, rd, "rustdesk-e2e-agent-key-" + "0" * 20)
+        for rid, rip, on, status, addr in (
+                ("100200300", "10.20.0.40", True, "matched", seen_ip.id),
+                ("100200301", "192.0.2.1", True, "shared", None),
+                ("100200302", "203.0.113.77", False, "unmanaged", None)):
+            await one(RustDeskPeer, rustdesk_id=rid, server_id=rd.id, registered_ip=rip, online=on,
+                      last_online_at=_n - timedelta(minutes=2) if on else _n - timedelta(days=3),
+                      match_status=status, address_id=addr, first_registered_at=_n - timedelta(days=90))
+        # 客戶端回報（系統資訊、心跳）與多訊號對應的依據
+        p300 = (await s.execute(select(RustDeskPeer).where(RustDeskPeer.rustdesk_id == "100200300"))).scalars().first()
+        p300.hostname, p300.os_name, p300.username, p300.client_version = "seen-host-01", "Windows 11 Pro", "alice", "1.5.0"
+        # 心跳比掃描代理早：同一個 IP 的「各來源最後出現」測試要掃描代理是最新的那一列
+        p300.report_ip, p300.report_ip_at, p300.last_heartbeat_at = "10.20.0.40", _n, _n - timedelta(hours=6)
+        p300.match_evidence = ["hostname", "registered_ip", "report_ip"]
+        # 稽核：一次完整的連線（建立→驗證→檔案→結束）與一筆暴力破解告警
+        from app.models.rustdesk import RustDeskAuditEvent
+        await s.execute(delete(RustDeskAuditEvent).where(RustDeskAuditEvent.server_id == rd.id))
+        for i, (kind, action, extra) in enumerate((
+                ("conn", "new", {"ip": "198.51.100.20"}),
+                ("conn", "auth", {"peer_id": "999888777", "peer_name": "helpdesk", "conn_type": 0, "session_id": "4242"}),
+                ("file", None, {"peer_id": "999888777", "peer_name": "helpdesk", "ip": "198.51.100.20",
+                                "detail": {"direction": 0, "path": "C:/Users/alice/Desktop", "is_file": True, "num": 1,
+                                           "files": [["report.pdf", 20480]]}}),
+                ("conn", "close", {"session_id": "4242"}),
+                ("alarm", None, {"alarm_type": 2, "ip": "203.0.113.66", "peer_id": "555444333",
+                                 "detail": {"ip": "203.0.113.66", "id": "555444333", "name": "unknown"}}))):
+            s.add(RustDeskAuditEvent(server_id=rd.id, kind=kind, action=action, rustdesk_id="100200300", conn_id=7,
+                                     nonce=f"e2e-{i}", occurred_at=_n - timedelta(minutes=30 - i), src_ip="10.20.0.40",
+                                     **extra))
         ct = (await s.execute(select(VirtualMachine).where(VirtualMachine.name == "ct-log-01"))).scalars().first()
         if ct and not (await s.execute(select(VMInterface).where(VMInterface.vm_id == ct.id))).scalars().first():
             s.add(VMInterface(vm_id=ct.id, name="net0", primary_ip="10.20.0.40", bridge="vmbr0"))

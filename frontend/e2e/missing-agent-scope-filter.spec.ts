@@ -61,7 +61,7 @@ test("四個篩選下拉排在同一列（不是上下疊）", async ({ page }) 
   expect(new Set(ys).size, `四個下拉的 top：${ys.join(", ")}`).toBe(1);
 });
 
-// 「有沒有在線上」（2026-09-27 使用者要求）：狀態欄是 IP 清單同一顆燈號，篩選用同一套規則
+// 「有沒有上線」（2026-09-27 使用者要求）：狀態欄是 IP 清單同一顆燈號，篩選用同一套規則
 for (const path of ["/wazuh", "/ocs"]) {
   test(`${path}：未裝 Agent 的 IP 依上線狀態篩選`, async ({ page }) => {
     await login(page);

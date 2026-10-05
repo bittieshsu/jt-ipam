@@ -203,7 +203,7 @@ async function doBulkDelete() {
   finally { bulkBusy.value = false; }
 }
 
-const { visibleKeys, setVisible, reset } = useColumnPrefs(
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "racks",
   ["seq", "location_name", "name", "u_height", "dimensions", "device_count", "description"],
   ["seq", "location_name", "name", "u_height", "dimensions", "device_count", "description"],
@@ -267,8 +267,8 @@ const allColumns = computed<DataTableColumns<Rack>>(() => [
   },
 ]);
 const columns = computed<DataTableColumns<Rack>>(() =>
-  allColumns.value.filter((c: any) =>
-    c.type === "selection" || c.key === "actions" || visibleKeys.value.includes(c.key)),
+  orderColumns(allColumns.value.filter((c: any) =>
+    c.type === "selection" || c.key === "actions" || visibleKeys.value.includes(c.key))),
 );
 
 // ── 新增 / 編輯 / 刪除機櫃 ──
@@ -938,7 +938,8 @@ function onMergedExport(key: string) {
           {{ t("racks.add") }}
         </n-button>
         <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                      @update:visible="setVisible" @reset="reset" />
+                      @update:visible="setVisible" @reset="reset"
+                      :order="order" @update:order="setOrder" />
         <ExportButton :columns="columns" :rows="rows" filename="racks" :title="t('nav.racks')" />
       </n-space>
       <n-space v-if="checkedKeys.length" align="center" style="margin-bottom: 8px; padding: 8px 12px; background: rgba(127,127,127,0.08); border-radius: 6px;">

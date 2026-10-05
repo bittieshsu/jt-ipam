@@ -9,7 +9,7 @@ guacd 是一個獨立的常駐程式（預編檔見 scripts/guacd/，裝在本�
    帳密錯、連不上都要等一下才會以 `error` 指令回來。等到第一個 `sync`（第一個畫面畫完）才算連上，
    這樣「已連線」與稽核的 session_open 才是真的，錯誤也能用跟其他引擎一樣的方式顯示。
 3. **轉送**（`relay`）：之後瀏覽器（guacamole-common-js）與 guacd 直接講 Guacamole 協定。
-   瀏覽器送來的指令只放行白名單（鍵盤、滑鼠、尺寸、剪貼簿…）；伺服器另外每幾秒替瀏覽器送 `nop` ——
+   瀏覽器送來的指令只放行允許清單（鍵盤、滑鼠、尺寸、剪貼簿…）；伺服器另外每幾秒替瀏覽器送 `nop` ——
    guacd 15 秒沒收到東西就判定「User is not responding」斷線，而瀏覽器背景分頁的計時器會被節流到
    一分鐘一次，只靠前端保活的話，分頁切到背景五分鐘就會被斷線。
 
@@ -412,7 +412,7 @@ def _from_error_instruction(ins: list[str]) -> GuacdError:
 class RelayResult:
     #: 誰先結束：「client」＝瀏覽器關了／斷了；「remote」＝guacd 那一端結束（目標登出、網路斷）
     ended_by: str = ""
-    dropped: int = 0       # 被白名單擋掉的指令數（稽核用；正常使用應該是 0）
+    dropped: int = 0       # 被允許清單擋掉的指令數（稽核用；正常使用應該是 0）
 
 
 #: argv 的值最多幾個字元（字級、配色這類短字串；長的一律當異常）

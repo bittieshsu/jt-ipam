@@ -96,7 +96,7 @@
           <!-- 探測時完全沒有回應：講清楚，不要只寫「無法判斷」讓人以為是探測壞掉 -->
           <n-alert v-if="job.summary.no_response" type="warning" :bordered="false" data-testid="identify-no-response">
             {{ t("identify.no_response_hint") }}
-            <template v-if="job.summary.vendor"> {{ t("identify.no_response_vendor", { vendor: job.summary.vendor }) }}</template>
+            <template v-if="job.summary.nic_vendor ?? job.summary.vendor"> {{ t("identify.no_response_vendor", { vendor: job.summary.nic_vendor ?? job.summary.vendor }) }}</template>
           </n-alert>
           <n-card :title="t('identify.summary')" size="small">
             <n-descriptions bordered :column="narrow ? 1 : 2" size="small" label-placement="left"
@@ -106,12 +106,22 @@
                   {{ t(`identify.type.${job.summary.device_type}`) }}
                 </span>
                 <span v-if="!job.summary.no_response" class="idf-guess" data-testid="identify-guess">{{ t("identify.guess_tag") }}</span>
+                <!-- IP 記錄還會對照 IPAM 已知的事實；講出最後採用什麼、依據什麼，跟 IP 頁一致 -->
+                <div v-if="job.summary.ipam" class="idf-ipam" data-testid="identify-ipam-kind">
+                  {{ t("identify.ipam_kind", { kind: t(`identify.type.${job.summary.ipam.kind ?? "unknown"}`),
+                                               source: ipamSource(job.summary.ipam.reason) }) }}
+                </div>
               </n-descriptions-item>
               <n-descriptions-item :label="t('identify.os')">
                 <span v-if="job.summary.os" class="idf-os">{{ job.summary.os }}</span>
                 <template v-else>—</template>
               </n-descriptions-item>
+              <!-- 設備廠牌（服務自己講的、可信的指紋）與網卡廠牌（MAC 的 OUI）分開：網卡的品牌不等於設備的品牌，
+                   Mac 接 CalDigit 擴充座、PC 插了 Intel 網卡都很常見（使用者 2026-10-05） -->
               <n-descriptions-item :label="t('identify.vendor')">{{ job.summary.vendor ?? "—" }}</n-descriptions-item>
+              <n-descriptions-item :label="t('identify.nic_vendor')">
+                <span data-testid="identify-nic-vendor">{{ job.summary.nic_vendor ?? "—" }}</span>
+              </n-descriptions-item>
               <n-descriptions-item :label="t('identify.model')">
                 <span data-testid="identify-model">{{ job.summary.model ?? "—" }}</span>
               </n-descriptions-item>
@@ -211,7 +221,7 @@ import { decodeNmapEscapes, serviceKind } from "@/utils/nmapText";
 
 const route = useRoute();
 const router = useRouter();
-const { t } = useI18n();
+const { t, te } = useI18n();
 const auth = useAuthStore();
 
 // 兩種進入點：IP 記錄（/addresses/:id/identify）或 IPAM 沒有記錄的位址（/identify/ip/:ip，
@@ -471,6 +481,13 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer);
   window.removeEventListener("resize", onResize);
 });
+
+/** 依據代碼（device:firewall、librenms:opnsense、wazuh:linux、virt:guest…）→ 人看得懂的來源名稱 */
+function ipamSource(reason: string): string {
+  const src = (reason || "").split(":")[0];
+  const key = `identify.ipam_src_${src}`;
+  return te(key) ? t(key) : src;
+}
 </script>
 
 <style scoped>
@@ -512,6 +529,7 @@ onBeforeUnmount(() => {
 .idf-type--no_response { background: rgba(240, 160, 32, .16); color: #d08a00; }
 .idf-type--windows { background: rgba(0, 120, 212, .14); color: #1a7fd4; }
 .idf-type--hypervisor, .idf-type--storage { background: rgba(138, 92, 246, .16); color: #8a5cf6; }
+.idf-ipam { margin-top: 4px; font-size: 12px; opacity: .85; }
 .idf-type--router, .idf-type--switch, .idf-type--firewall, .idf-type--wireless_ap {
   background: rgba(24, 160, 88, .15); color: #18a058; }
 .idf-type--printer, .idf-type--camera, .idf-type--voip, .idf-type--media, .idf-type--specialized {

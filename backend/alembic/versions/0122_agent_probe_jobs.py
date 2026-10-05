@@ -8,7 +8,7 @@ Create Date: 2026-08-24
 走工作佇列：後端建立待辦 → 代理長輪詢領取 → 當地執行 → 回報結果 → 前端取回。
 探測是請求／回應、不需要低延遲串流，長輪詢就夠，不必動用 WebSocket。
 
-安全考量寫在欄位上：`kind` 只允許白名單探測種類；`requested_by` 逐筆留痕；
+安全考量寫在欄位上：`kind` 只允許允許清單內的探測種類；`requested_by` 逐筆留痕；
 `expires_at` 讓沒人領的工作自動作廢，避免代理離線後累積成一堆遲來的探測。
 """
 from __future__ import annotations

@@ -176,7 +176,7 @@ const allCols = computed<DataTableColumns<PfSense>>(() => autoSort([
   },
 ]));
 const cols = computed<DataTableColumns<PfSense>>(() =>
-  allCols.value.filter((c: any) => pfPrefs.visibleKeys.value.includes(c.key)));
+  pfPrefs.orderColumns(allCols.value.filter((c: any) => pfPrefs.visibleKeys.value.includes(c.key))));
 
 onMounted(() => { void refresh(); void loadSubnetOptions(); });
 </script>
@@ -210,7 +210,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         {{ t("pfsense_admin.create") }}
       </n-button>
       <ColumnPicker :all="pfPicker" :visible="pfPrefs.visibleKeys.value"
-                    @update:visible="pfPrefs.setVisible" @reset="pfPrefs.reset" />
+                    @update:visible="pfPrefs.setVisible" @reset="pfPrefs.reset"
+                    :order="pfPrefs.order.value" @update:order="pfPrefs.setOrder" />
       <ExportButton :columns="cols" :rows="rows" filename="pfsense" :title="t('pfsense_admin.title')" />
     </n-space>
     <n-data-table :columns="cols" :data="rows" :loading="loading" :bordered="false" :scroll-x="980" />

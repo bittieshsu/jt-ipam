@@ -317,7 +317,7 @@ async def update_subnet(
         await _egress_or_422(session, changes, scan_agent_id=new_scan_agent)
     elif (subnet.console_agent_id is not None and "scan_agent_id" in changes
           and new_scan_agent != subnet.console_agent_id):
-        # 換掉掃描代理、主控台出口卻還指著舊的那台：代理的白名單只認自己掃描的子網路，出口會變成無效。
+        # 換掉掃描代理、主控台出口卻還指著舊的那台：代理的允許清單只認自己掃描的子網路，出口會變成無效。
         # 不替使用者默默改掉或清空（清空＝直連，在重疊網段會連錯主機），請他重新選出口
         raise HTTPException(status_code=422, detail=ui_detail(
             "console_agent_not_assigned",

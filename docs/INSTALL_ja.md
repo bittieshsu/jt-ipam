@@ -19,14 +19,14 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 
 | 項目 | 最低 | 推奨 | 備考 |
 |---|---|---|---|
-| OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 対応はこれらのみ（下記参照）。24.04 は Python 3.12 + PG 16 + Node 18 を同梱しており手間が省けます |
+| OS | Debian 12/13、Ubuntu 22.04/24.04/26.04（x86_64） | **Ubuntu 24.04 LTS** | 対応はこれらのみ（下記参照）。24.04 は Python 3.12 + PG 16 を同梱しており手間が省けます |
 | CPU | 2 vCPU | 4 vCPU | アップグレード時にフロントエンドをビルドします（約 1 分）。RDP コンソール（guacd）とローカルのスキャンエージェント（nmap）が CPU を使います。埋め込みは LLM サーバー側で計算され、このマシンではありません |
 | メモリ | 4 GB | 8 GB | ワーカー 4 つで通常約 1.8 GB を使用し、アップグレード時のフロントエンドのビルドは最大約 1.6 GB。4 GB または 2 コアのマシンではワーカーは 2 つになり、メモリが足りなければビルド中はバックエンドを一時停止します（2 GB のスワップがあれば停止しません）。RDP コンソールは 1 セッションあたり数百 MB。LLM サーバーを同居させるならさらに 8 GB 以上 |
 | ディスク | 20 GB | 50 GB | インストール自体は約 2 GB（Python パッケージ、node_modules、キャッシュ）と OS。データベース、監査ログ、IP 変更履歴、バックアップはネットワークの規模に応じて増えます。journald のログには上限があります |
 | Python | 3.11 | 3.12 | 24.04 の既定は 3.12 |
 | PostgreSQL | 16 + pgvector | なし | 22.04 では PGDG リポジトリが必要です（スクリプトが自動で追加します） |
 | Redis | 7 | なし | 24.04 の既定は 7.0.15 |
-| Node | 20 LTS | 22 LTS | 24.04 の既定は 18.19。vite 6 は動作しますが警告が出ます |
+| Node | 22 LTS | なし | フロントエンドのビルドにだけ使います。`jt-ipam.sh` がインストール時に NodeSource 22 を入れ（22 を同梱しているのは Ubuntu 26.04 だけ）、アップグレード時に古い Node を 22 に上げます |
 | guacd | jt-ipam がこの OS 向けにビルドしたもの | なし | **必須**：RDP/VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
 | Recog | 最新リリース | なし | **任意**：IP 探索が機器や OS バージョンを識別するためのフィンガープリント DB。`jt-ipam.sh` がダウンロードし、毎週新版を確認（下の Recog の節） |
 
@@ -308,12 +308,12 @@ curl -skI https://ipam.example.com/ \
 ```
 
 **コンソールと SFTP はエッジプロキシを通ります。** SFTP を含むすべてのコンソールは、
-`/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc)/ws` の長時間の WebSocket 1 本です。SFTP はこの WebSocket で
+`/api/v1/addresses/<id>/(ssh|sftp|rdp|vnc|novnc|bmc|rustdesk)/ws` の長時間の WebSocket 1 本です。SFTP はこの WebSocket で
 ファイルを 256 KB ずつ送るため、nginx の `client_max_body_size` のような HTTP 本文のサイズ上限はファイルサイズを**制限しません**。
 大きな転送を妨げるのは、経路上の次のような層です：
 
 - このパスで WebSocket のアップグレードを転送しない（コンソールがまったく接続できません）；
-- WebSocket メッセージ 1 件のサイズを制限する（一部の WAF。1 MB 以上を許可してください）；
+- WebSocket メッセージ 1 件のサイズを制限する（一部の WAF。1 MB 以上を許可してください。RustDesk 互換の Web 接続は映像のキーフレームを丸ごと送るため 16 MB まで許可してください）；
 - WebSocket 接続 1 本の転送量や時間を制限する、または 30 秒未満のアイドルで切断する（jt-ipam は 20 秒ごとにキープアライブを送ります）。
 
 各層の設定を読み解く必要はありません。**管理 → システム設定**の「**SFTP の 1 ファイルあたりの転送上限**」を既定値より大きくすると、
@@ -838,16 +838,24 @@ asyncio.run(main(sys.argv[1], sys.argv[2]))
 ' admin "MyNewPassword2026!"
 ```
 
-**Q：Ubuntu 24.04 でフロントエンドのビルドが `Unsupported engine: wanted Node >= 20` と出ます。**
-A：24.04 は nodejs 18 を同梱しています。vite 6 と vue-tsc は動作しますが警告が出ます。消すには
-nvm か nodesource で Node 20 以降を導入してください。
+**Q：`Node.js install failed or too old (need >= 22)` と出る、またはアップグレードで「Node.js 22 could not be installed」の警告枠が出ます。**
+A：Node.js 22 LTS はフロントエンドのビルドにだけ使います（Node 20 は 2026-04-30 でサポート終了）。`jt-ipam.sh`
+はインストール時もアップグレード時も NodeSource（`setup_22.x`）から導入するので、通常は何もする必要はありません。
+導入できない場合（deb.nodesource.com に届かない、プロキシ、apt の競合）、`install` は止まります。`upgrade` は既存の
+Node 20 以降でビルドしてそのまま完了し、最後にその警告枠を出します。このとき pnpm も
+`Unsupported engine: wanted: {"node":">=22"}` を出し、`doctor` は古い Node を指摘し続けます。手動で導入してから
+同じコマンドをやり直してください。
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs
+node -v      # v22.x
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade      # または install
 ```
 
-その後、`/opt/jt-ipam/frontend` で `pnpm install && pnpm build` をやり直します。
+apt がディストリビューション同梱パッケージとの競合（`trying to overwrite ... libnode-dev`）を報告する場合は、先に
+`sudo apt-get purge -y nodejs libnode-dev` で削除してください。nvm を使っている場合、`sudo` を実行したユーザーの
+nvm に Node 22 があればそれをそのまま使い、古い nvm の Node は使いません。
 
 ## guacd コンソールエンジン（RDP/VNC の既定）
 

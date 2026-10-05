@@ -117,7 +117,8 @@ else
 fi
 
 before_ver="$(dex sh -c "grep -m1 '\"version\"' /opt/jt-ipam/frontend/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
-pass "site is running $before_ver"
+before_node="$(dex node -v 2>/dev/null || echo none)"
+pass "site is running $before_ver (Node.js $before_node)"
 
 say "Leaving a row behind, so the migration has real data to move"
 dex bash -c 'set -a; . /etc/jt-ipam/backend.env; set +a;
@@ -155,9 +156,31 @@ else
     dex journalctl -u jt-ipam-backend -n 30 --no-pager || true
 fi
 
+# 建置前端用的 Node.js：升級要自己把舊版（v0.6.61 以前裝的是 NodeSource 20）換成 "engines" 要求的版本
+want_node="$(grep -oP '"node":\s*">=\K[0-9]+' "$ROOT/frontend/package.json" || echo 22)"
+after_node="$(dex node -v 2>/dev/null || echo none)"
+nmaj="${after_node#v}"; nmaj="${nmaj%%.*}"
+if [[ "$nmaj" =~ ^[0-9]+$ ]] && (( nmaj >= want_node )); then
+    pass "Node.js $before_node -> $after_node (the frontend build needs >= $want_node)"
+else
+    fail "Node.js is $after_node after the upgrade (was $before_node); the frontend build needs >= $want_node"
+fi
+
 code="$(dex curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/api/v1/system/version || true)"
 [[ "$code" == 401 || "$code" == 200 ]] && pass "answers over HTTPS (HTTP $code)" \
                                        || fail "no answer over HTTPS (HTTP ${code:-none})"
+
+UI_URL="https://127.0.0.1"
+# 畫面本身也要送得出來：API 有回應只證明後端活著；nginx 送的 dist 可能根本沒建、或 index.html 指到不存在的檔案
+page="$(dex curl -sk --max-time 15 "${UI_URL}/" 2>/dev/null || true)"
+asset="$(grep -oP 'src="\K/assets/[^"]+\.js' <<<"$page" | head -1 || true)"
+acode="000"
+[[ -n "$asset" ]] && acode="$(dex curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "${UI_URL}${asset}" 2>/dev/null || echo 000)"
+if [[ "${page,,}" == *"<!doctype html"* && "$acode" == 200 ]]; then
+    pass "UI page and its script bundle are served (${UI_URL}${asset})"
+else
+    fail "UI is not served end to end (page: ${#page} bytes, bundle '${asset:-none}' HTTP $acode)"
+fi
 
 # 資料要還在 —— 升級把資料弄丟是最糟的失敗，而它不會讓任何指令回非零。
 probe="$(dex bash -c 'set -a; . /etc/jt-ipam/backend.env; set +a;

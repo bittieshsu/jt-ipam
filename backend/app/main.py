@@ -1,6 +1,6 @@
 """FastAPI 應用入口。
 
-OWASP A02 — production guard、安全 headers、CORS 白名單；
+OWASP A02 — production guard、安全 headers、CORS 允許清單；
 A09 — 結構化日誌與 request id。
 """
 

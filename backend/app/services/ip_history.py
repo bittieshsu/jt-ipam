@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ip_change_log import IPChangeLog
@@ -66,21 +66,12 @@ async def log_change(
     把真正有意義的人為編輯完全埋掉。根因在各 sync 端用 tiebreak 收斂，這裡是最後一道防線。
     """
     if field is not None:
-        # `latest`：整批同步先用 latest_changes() 一次查好（{ip_id: 那個欄位最後一筆}），
-        # 不然每寫一筆就多一次查詢（超大規模：第一次同步補兩萬個 MAC＝多四萬次查詢）
-        if latest is not None and ip.id in latest:
-            prev = latest[ip.id]
-        else:
-            prev = (await session.execute(
-                select(IPChangeLog).where(
-                    IPChangeLog.ip_id == ip.id, IPChangeLog.field == field,
-                ).order_by(IPChangeLog.created_at.desc()).limit(1)
-            )).scalars().first()
-        if (prev is not None
-                and prev.old_value == _s(new) and prev.new_value == _s(old)
-                and prev.created_at is not None
-                and datetime.now(UTC) - prev.created_at <= _FLAP_WINDOW):
+        prev = await _reverted_change(session, ip=ip, field=field, old=old, new=new, latest=latest)
+        if prev is not None:
             await session.delete(prev)
+            if latest is not None:
+                # 刪掉的那筆不可以再拿來比：同一批第二次翻動會去刪一筆已經不存在的列
+                latest[ip.id] = None
             return
     session.add(
         IPChangeLog(
@@ -96,6 +87,52 @@ async def log_change(
             note=note,
         )
     )
+
+
+async def _reverted_change(
+    session: AsyncSession, *, ip: IPAddress, field: str, old: Any, new: Any,
+    latest: dict[uuid.UUID, IPChangeLog | None] | None = None,
+) -> IPChangeLog | None:
+    """這次異動若正好把 `_FLAP_WINDOW` 內的上一筆改回去（A→B 之後 B→A），回那一筆；否則 None。"""
+    # `latest`：整批同步先用 latest_changes() 一次查好（{ip_id: 那個欄位最後一筆}），
+    # 不然每寫一筆就多一次查詢（超大規模：第一次同步補兩萬個 MAC＝多四萬次查詢）
+    if latest is not None and ip.id in latest:
+        prev = latest[ip.id]
+    else:
+        prev = (await session.execute(
+            select(IPChangeLog).where(
+                IPChangeLog.ip_id == ip.id, IPChangeLog.field == field,
+            ).order_by(IPChangeLog.created_at.desc()).limit(1)
+        )).scalars().first()
+    if (prev is not None
+            and prev.old_value == _s(new) and prev.new_value == _s(old)
+            and prev.created_at is not None
+            and datetime.now(UTC) - prev.created_at <= _FLAP_WINDOW):
+        return prev
+    return None
+
+
+async def had_mac_recently(session: AsyncSession, *, ip: IPAddress, mac: Any, within: timedelta) -> bool:
+    """這個 IP 在 `within` 之內用過這個 MAC（MAC 異動記錄的舊值或新值）。要在 log_change 之前問。
+
+    給「換回最近用過的 MAC」用：雙網卡主機的 ARP flux、兩台 VM 設了同一個 IP，掃描每隔幾小時看到另一張網卡，
+    10 分鐘後又換回來 —— 那是同一批設備輪流出現，不是換了一台。
+    記錄裡的 MAC 寫法不一定一致（有冒號、沒冒號、大小寫），兩邊都正規化成十六進位再比。
+    """
+    hexs = "".join(c for c in str(mac or "").lower() if c in "0123456789abcdef")
+    if ip.id is None or len(hexs) != 12:
+        return False
+
+    def _norm(col: Any) -> Any:
+        return func.regexp_replace(func.lower(col), "[^0-9a-f]", "", "g")
+    row = (await session.execute(
+        select(IPChangeLog.id).where(
+            IPChangeLog.ip_id == ip.id, IPChangeLog.field == "mac",
+            IPChangeLog.created_at >= datetime.now(UTC) - within,
+            or_(_norm(IPChangeLog.old_value) == hexs, _norm(IPChangeLog.new_value) == hexs),
+        ).limit(1)
+    )).first()
+    return row is not None
 
 
 async def latest_changes(session: AsyncSession, ip_ids: Any, field: str) -> dict[uuid.UUID, IPChangeLog | None]:

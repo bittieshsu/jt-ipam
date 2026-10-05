@@ -33,7 +33,8 @@ const { t } = useI18n();
 const msg = useMessage();
 
 const COLS = ["name", "api_url", "enabled", "auth", "last_sync_at", "last_error", "actions"];
-const { visibleKeys: vis, setVisible: setVis, reset: resetVis } = useColumnPrefs("zabbix", COLS, COLS);
+const { visibleKeys: vis, setVisible: setVis, reset: resetVis, order, setOrder, orderColumns } =
+  useColumnPrefs("zabbix", COLS, COLS);
 const picker = computed(() => [
   { key: "name", label: t("cols.name") },
   { key: "api_url", label: "API URL" },
@@ -228,7 +229,7 @@ const allCols = computed<DataTableColumns<ZabbixInstance>>(() => autoSort([
   },
 ]));
 const cols = computed<DataTableColumns<ZabbixInstance>>(() =>
-  allCols.value.filter((c) => vis.value.includes(String((c as { key?: string }).key))),
+  orderColumns(allCols.value.filter((c) => vis.value.includes(String((c as { key?: string }).key)))),
 );
 
 const hostCols = computed<DataTableColumns<ZabbixHost>>(() => autoSort([
@@ -291,7 +292,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <template #icon><n-icon><PlusIcon /></n-icon></template>
         {{ t("common.create") }}
       </n-button>
-      <ColumnPicker :all="picker" :visible="vis" @update:visible="setVis" @reset="resetVis" />
+      <ColumnPicker :all="picker" :visible="vis" @update:visible="setVis" @reset="resetVis"
+                    :order="order" @update:order="setOrder" />
     </n-space>
 
     <n-data-table :columns="cols" :data="rows" :loading="loading" :bordered="false"

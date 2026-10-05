@@ -224,6 +224,7 @@ def _agent_ipv4_by_mac(agent_data: dict[str, Any]) -> dict[str, str]:
 async def _link_ip_to_ipam(
     session: AsyncSession, ip_text: str | None, mac: str | None, hostname: str | None,
     *, scope_ids: set[Any] | None = None, create_in: SubnetCandidates | None = None, hn_run: Any = None,
+    mac_run: Any = None,
 ) -> Any:
     """把 Proxmox 撈到的 VM/CT IP+MAC+主機名稱對應進 IPAM 的 ip_addresses。
 
@@ -275,9 +276,15 @@ async def _link_ip_to_ipam(
             ipa.mac_source = "proxmox"
         session.add(ipa)
         await session.flush()
+        if mac_run is not None and mac:
+            mac_run.report(ipa, mac)     # 同一輪另一台 guest 也報這個 IP 時，建立時的 MAC 也算一票
     elif mac:
-        from app.services.arp_precedence import consider_mac
-        await consider_mac(session, ip=ipa, mac=mac, source="proxmox")
+        # 兩台 guest 設了同一個 IP：MacRun 在同一輪收齊之後只決定一次，不會每輪來回換（2026-10-05）
+        if mac_run is not None:
+            mac_run.report(ipa, mac)
+        else:
+            from app.services.arp_precedence import consider_mac
+            await consider_mac(session, ip=ipa, mac=mac, source="proxmox")
     # 多台 PVE guest 可能回報同一 IP（共用/浮動 IP）→ HostnameRun 在同一輪內取固定的一個。
     # 以前用 tiebreak_min 跨輪比較：改名成字典序較大的名字就永遠不會生效（2026-09-26 稽核）
     if hn_run is not None:
@@ -568,6 +575,8 @@ async def sync_instance(
     hn_run = HostnameRun(session, source="proxmox",
                          origin=f"proxmox:{instance.cluster_id or instance.id}",
                          peers=await enabled_peers(session, _Inst))
+    from app.services.arp_precedence import MacRun
+    mac_run = MacRun(session, source="proxmox")
 
     seen_vmids: set[int] = set()
     # 這個叢集的 guest 與網卡先整批載入（2026-09-30 大量資料測試：以前每台 guest、每張網卡各查一次）
@@ -584,7 +593,7 @@ async def sync_instance(
         nip = node_ip_map.get(node_name)
         if nip and await _link_ip_to_ipam(session, nip, None, node_name,
                                           scope_ids=scope_ids, create_in=create_in,
-                                          hn_run=hn_run):
+                                          hn_run=hn_run, mac_run=mac_run):
             summary.ipam_linked += 1
         try:
             host_ifaces = (await _api_get(
@@ -595,7 +604,7 @@ async def sync_instance(
                 hw = (itf.get("hwaddr") or "").strip().lower() or None
                 if addr and await _link_ip_to_ipam(session, addr, hw, node_name,
                                                    scope_ids=scope_ids, create_in=create_in,
-                                                   hn_run=hn_run):
+                                                   hn_run=hn_run, mac_run=mac_run):
                     summary.ipam_linked += 1
             # 把節點網路介面（bridge / 實體NIC / bond / vlan）建成該節點裝置的連接埠
             await _sync_node_ports(session, node_name, nip, host_ifaces, scope_ids)
@@ -724,7 +733,7 @@ async def sync_instance(
                 if ip or mac:
                     linked = await _link_ip_to_ipam(session, ip, mac, vm.name,
                                                     scope_ids=scope_ids, create_in=create_in,
-                                                    hn_run=hn_run)
+                                                    hn_run=hn_run, mac_run=mac_run)
                     if linked is not None:
                         summary.ipam_linked += 1
                         # 此次同步第一個對應到的 IP（下面決定要不要當主 IP）
@@ -752,6 +761,7 @@ async def sync_instance(
 
     # 節點清單與每個節點的 qemu／lxc 清單都讀到了，才清掉這個叢集不再回報的名稱
     # （資料不確定的個別 guest 已在上面 hold）
+    await mac_run.finish()
     hn = await hn_run.finish(complete=not summary.errors)
     if hn["breaker"]:
         summary.errors.append(f"hostname cleanup skipped: {hn['breaker']}")

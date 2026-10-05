@@ -64,3 +64,48 @@ async def test_mikrotik_list_rules_are_found_through_the_list(db_session) -> Non
     await db_session.flush()
     out = await rules_touching_ip(db_session, "198.51.100.60")
     assert [(a["firewall"], a["name"]) for a in out["aliases"]] == [("mt-e", "web")]
+
+
+@pytest.mark.anyio
+async def test_fortigate_and_paloalto_address_objects_and_the_policies_using_them(db_session) -> None:
+    """FortiGate／Palo Alto 的政策以物件名稱引用（而且常常好幾個串在同一欄）：以前只比對位址字面值，
+    以物件引用的政策一條都反查不到，位址物件本身也不會出現在「所屬別名」（2026-10-05，調查加強時發現）。"""
+    from app.models.fortigate import FortiGateAddressObject, FortiGateFirewall, FortiGatePolicy
+    from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall, PaloAltoPolicy
+
+    ip = "198.51.100.70"
+    fg = FortiGateFirewall(name="fg-a", api_url="https://192.0.2.10", api_token_enc=b"x", api_token_nonce=b"y")
+    fg2 = FortiGateFirewall(name="fg-b", api_url="https://192.0.2.11", api_token_enc=b"x", api_token_nonce=b"y")
+    pa = PaloAltoFirewall(name="pa-a", api_url="https://192.0.2.12", api_key_enc=b"x", api_key_nonce=b"y")
+    db_session.add_all([fg, fg2, pa])
+    await db_session.flush()
+    db_session.add_all([
+        FortiGateAddressObject(firewall_id=fg.id, name="srv-70", kind="address", obj_type="ipmask",
+                               value=f"{ip}/255.255.255.255", comment="app server"),
+        FortiGateAddressObject(firewall_id=fg.id, name="servers", kind="group", obj_type="addrgrp",
+                               members=["srv-70", "srv-71"]),
+        FortiGateAddressObject(firewall_id=fg.id, name="all", kind="address", obj_type="ipmask",
+                               value="0.0.0.0/0.0.0.0"),
+        FortiGateAddressObject(firewall_id=fg.id, name="fqdn-x", kind="address", obj_type="fqdn",
+                               value="x.example.com"),
+        FortiGatePolicy(firewall_id=fg.id, policyid="3", name="to-servers", action="accept",
+                        srcaddr="all", dstaddr="lan-net, servers"),
+        # 另一台防火牆剛好有同名物件，但不是指這個位址：不可以因為名稱一樣就命中
+        FortiGateAddressObject(firewall_id=fg2.id, name="other", kind="address", value="203.0.113.1/32"),
+        FortiGatePolicy(firewall_id=fg2.id, policyid="4", name="fg2-servers", action="accept",
+                        srcaddr="all", dstaddr="servers"),
+        PaloAltoAddressObject(firewall_id=pa.id, name="range-70", kind="address", obj_type="ip-range",
+                              value="198.51.100.64-198.51.100.79"),
+        PaloAltoPolicy(firewall_id=pa.id, name="allow-range", action="allow", source="any",
+                       destination="range-70"),
+    ])
+    await db_session.flush()
+
+    out = await rules_touching_ip(db_session, ip)
+    aliases = {(a["firewall"], a["name"]) for a in out["aliases"]}
+    assert aliases == {("fg-a", "srv-70"), ("fg-a", "servers"), ("pa-a", "range-70")}
+    assert next(a for a in out["aliases"] if a["name"] == "srv-70")["descr"] == "app server"
+    rules = {(r["firewall"], r["descr"]) for r in out["rules"]}
+    assert ("fg-a", "to-servers") in rules
+    assert ("pa-a", "allow-range") in rules
+    assert ("fg-b", "fg2-servers") not in rules

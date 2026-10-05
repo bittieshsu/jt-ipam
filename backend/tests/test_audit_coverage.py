@@ -33,6 +33,10 @@ EXEMPT: dict[str, str] = {
     "scan_agents.py::agent_report": "代理輪詢回報，高頻",
     "scan_agents.py::agent_job_result": "代理作業回報，高頻",
     "scan_agents.py::agent_dhcpd_report": "代理定期回報 dhcpd 解析結果（每幾分鐘一次），只寫指派給它的那個 ISC DHCP 來源；來源的設定異動另有稽核",
+    "rustdesk_agent.py::agent_poll": "RustDesk 專用代理每 10 秒輪詢一次，只更新自己那台伺服器的代理狀態欄；金鑰的產生／檢視／輪替另有稽核",
+    "rustdesk_agent.py::agent_report": "RustDesk 代理定期回報裝置清單與線上狀態（每幾分鐘一次），只寫金鑰所屬的那台伺服器；伺服器的設定異動另有稽核",
+    "rustdesk_agent.py::agent_events": "RustDesk 代理轉送客戶端的心跳／系統資訊／稽核（每 5 秒一批），這些本身就是稽核資料，另存 rustdesk_audit_events",
+    "rustdesk_agent.py::agent_test_result": "RustDesk 代理送回「測試」的逐項結果；發起測試時已稽核",
     "scan_agents.py::agent_job_progress": "代理回報執行中的進度，只更新自己那筆工作的狀態欄；發起探測時已稽核",
     "cert_agents.py::agent_report": "憑證代理回報，高頻",
     # 個人 UI 狀態，不涉及他人可見的資料

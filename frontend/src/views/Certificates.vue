@@ -756,7 +756,7 @@ const certColsAll = computed<DataTableColumns<Certificate>>(() => autoSort([
     ])) },
 ]));
 const certCols = computed<DataTableColumns<Certificate>>(() =>
-  certColsAll.value.filter((c: any) => certPrefs.visibleKeys.value.includes(c.key)));
+  certPrefs.orderColumns(certColsAll.value.filter((c: any) => certPrefs.visibleKeys.value.includes(c.key))));
 
 // ── 派送代理表格欄位 + 顯示偏好 ──
 const AGENT_KEYS = ["name", "enabled", "scope", "agent_version", "source_ip", "last_seen_at", "reported", "actions"];
@@ -888,7 +888,7 @@ const agentColsAll = computed<DataTableColumns<CertAgent>>(() => autoSort([
     ])) },
 ]));
 const agentCols = computed<DataTableColumns<CertAgent>>(() =>
-  agentColsAll.value.filter((c: any) => agentPrefs.visibleKeys.value.includes(c.key)));
+  agentPrefs.orderColumns(agentColsAll.value.filter((c: any) => agentPrefs.visibleKeys.value.includes(c.key))));
 </script>
 
 <template>
@@ -917,7 +917,8 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
             <ExportButton :columns="certExportCols" :rows="certExportRows" filename="certificates"
                           :title="t('certs.tab_certs')" />
             <ColumnPicker :all="certPickerItems" :visible="certPrefs.visibleKeys.value"
-                          @update:visible="certPrefs.setVisible" @reset="certPrefs.reset" />
+                          @update:visible="certPrefs.setVisible" @reset="certPrefs.reset"
+                          :order="certPrefs.order.value" @update:order="certPrefs.setOrder" />
             <n-button size="small" quaternary @click="loadCerts">
               <template #icon><n-icon :component="RefreshIcon" /></template>{{ t("common.refresh") }}
             </n-button>
@@ -954,7 +955,8 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
             <ExportButton :columns="agentExportCols" :rows="agentExportRows" filename="cert-agents"
                           :title="t('certs.tab_agents')" />
             <ColumnPicker :all="agentPickerItems" :visible="agentPrefs.visibleKeys.value"
-                          @update:visible="agentPrefs.setVisible" @reset="agentPrefs.reset" />
+                          @update:visible="agentPrefs.setVisible" @reset="agentPrefs.reset"
+                          :order="agentPrefs.order.value" @update:order="agentPrefs.setOrder" />
             <n-button size="small" quaternary @click="loadAgents">
               <template #icon><n-icon :component="RefreshIcon" /></template>{{ t("common.refresh") }}
             </n-button>

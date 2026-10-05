@@ -36,7 +36,8 @@ const { t } = useI18n();
 const router = useRouter();
 function goPerms(r: User) { router.push({ name: "permissions", query: { ptype: "user", pid: r.id } }); }
 
-const { visibleKeys: usrVis, setVisible: usrSet, reset: usrReset } = useColumnPrefs(
+const { visibleKeys: usrVis, setVisible: usrSet, reset: usrReset,
+  order: usrOrder, setOrder: usrSetOrder, orderColumns: usrOrderCols } = useColumnPrefs(
   "users",
   ["username", "email", "display_name", "auth_provider", "is_active", "is_admin", "can_ssh", "last_login_at", "locked_until", "actions"],
   ["username", "email", "display_name", "auth_provider", "is_active", "is_admin", "can_ssh", "last_login_at", "locked_until", "actions"],
@@ -313,7 +314,7 @@ const allColumns = computed<DataTableColumns<User>>(() => autoSort([
 ]));
 
 const columns = computed<DataTableColumns<User>>(() =>
-  allColumns.value.filter((c: any) => usrVis.value.includes(c.key)),
+  usrOrderCols(allColumns.value.filter((c: any) => usrVis.value.includes(c.key))),
 );
 
 onMounted(() => { void refresh(); });
@@ -341,7 +342,8 @@ onMounted(() => { void refresh(); });
         {{ t("users.create_user") }}
       </n-button>
       <ColumnPicker :all="usrPicker" :visible="usrVis"
-                    @update:visible="usrSet" @reset="usrReset" />
+                    @update:visible="usrSet" @reset="usrReset"
+                    :order="usrOrder" @update:order="usrSetOrder" />
       <ExportButton :columns="columns" :rows="rows" :fetch-all="fetchAllForExport"
                     filename="users" :title="t('users.title')" />
       <span style="opacity: 0.6">{{ t("common.total_n", { n: total }) }}</span>

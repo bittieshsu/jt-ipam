@@ -82,7 +82,13 @@ class SightingBatch:
     async def flush(self) -> list[tuple[bool, bool]]:
         from app.services import arp_seen as arp_seen_svc
         from app.services.arp_evidence import normalize as norm_mac
-        from app.services.arp_precedence import ARP_SOURCES, _apply, load_precedence, would_take
+        from app.services.arp_precedence import (
+            ARP_SOURCES,
+            _apply,
+            load_precedence,
+            pick_mac,
+            would_take,
+        )
         from app.services.hostname import apply_observations_bulk
         from app.services.ip_autocreate import match_existing_many, subnet_for_ip_str
         from app.services.ip_history import latest_changes
@@ -110,7 +116,7 @@ class SightingBatch:
         src = self.source if self.source in ARP_SOURCES else "scanner"
         order, disabled = await load_precedence(s)
         results: list[tuple[bool, bool]] = []
-        mac_cands: list[tuple[IPAddress, str]] = []
+        reported: dict[Any, tuple[IPAddress, dict[str, list[Any]]]] = {}
         arp_obs: list[dict[str, Any]] = []
         names: dict[Any, str] = {}
         for r in rows:
@@ -124,11 +130,10 @@ class SightingBatch:
             if self.lease_run is not None and r.lease:
                 self.lease_run.saw(ipa)
             if r.mac:
-                mac = r.mac.strip().lower()
-                if would_take(order, disabled, cur_mac=ipa.mac, cur_source=ipa.mac_source,
-                              mac=mac, source=src):
-                    mac_cands.append((ipa, mac))
                 m = norm_mac(r.mac)
+                if m:     # 佔位值（00:00:00:00:00:00 這類沒解析完成的 ARP）不算回報了 MAC
+                    reported.setdefault(ipa.id, (ipa, {}))[1].setdefault(
+                        m.replace(":", ""), [0, r.mac.strip().lower()])[0] += 1
                 # IP 衝突偵測的依據：只有 ARP 表的動態項目算（issue #41），不管來源優先序
                 if (m and not r.permanent and (r.evidence or "").startswith("arp:")
                         and ipa.subnet_id is not None):
@@ -140,12 +145,18 @@ class SightingBatch:
             elif r.hostname:
                 names[ipa.id] = r.hostname
 
+        # 同一批裡同一個 IP 報了好幾個 MAC（ARP 是新的那台、租約還是上一台）：每個 IP 只決定一次（pick_mac）。
+        # 以前依序套用，每一輪都換過去再換回來
+        mac_cands: list[tuple[IPAddress, str]] = []
+        for ipa, macs in reported.values():
+            pick = pick_mac(ipa.mac, {k: v[0] for k, v in macs.items()})
+            if pick is not None and would_take(order, disabled, cur_mac=ipa.mac, cur_source=ipa.mac_source,
+                                               mac=macs[pick][1], source=src):
+                mac_cands.append((ipa, macs[pick][1]))
         if mac_cands:
             latest = await latest_changes(s, {ipa.id for ipa, _m in mac_cands}, "mac")
             for ipa, mac in mac_cands:
-                # 依序重新判斷：同一個 IP 在同一批裡出現兩次時，第二次看的是第一次寫完的狀態
-                if would_take(order, disabled, cur_mac=ipa.mac, cur_source=ipa.mac_source, mac=mac, source=src):
-                    await _apply(s, ip=ipa, mac=mac, source=src, latest=latest)
+                await _apply(s, ip=ipa, mac=mac, source=src, latest=latest)
         if arp_obs:
             from app.models.librenms import ARPEntry
             from app.services.arp_evidence import _OBSERVED

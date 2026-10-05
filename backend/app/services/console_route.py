@@ -44,6 +44,7 @@ import asyncssh
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decrypt_secret, encrypt_secret
+from app.core.ui_error import ui_detail
 from app.models.address import IPAddress
 from app.models.jump_host import JumpHost
 from app.models.subnet import Subnet
@@ -177,6 +178,37 @@ async def resolve_route(session: AsyncSession, ip: IPAddress) -> Route:
         host_key_fingerprint=jump.host_key_fingerprint,
         max_sessions=jump.max_sessions,
     )
+
+
+async def describe_route(session: AsyncSession, ip: IPAddress) -> dict[str, Any]:
+    """連線表單上的「連線路徑」：走哪條路、設定在 IP 還是子網路上、現在走不走得通。
+
+    與實際連線用同一個 resolve_route，畫面講的就是按下連線後會發生的事；走不通時帶錯誤代碼，
+    讓使用者在按連線之前就知道（而不是按下去才失敗）。"""
+    source: str | None = None
+    if ip.jump_host_id is not None or ip.console_agent_id is not None:
+        source = "ip"
+    elif ip.subnet_id is not None:
+        subnet = await session.get(Subnet, ip.subnet_id)
+        if subnet is not None and (subnet.jump_host_id is not None or subnet.console_agent_id is not None):
+            source = "subnet"
+    try:
+        route = await resolve_route(session, ip)
+    except JumpHostError as exc:
+        kind = "agent" if isinstance(exc, RelayError) else "jump"
+        params = dict(getattr(exc, "params", {}) or {})
+        return {"kind": kind, "name": params.get("name"), "source": source, "ok": False,
+                "code": getattr(exc, "code", None), "params": params, "message": str(exc)}
+    if isinstance(route, ViaAgent):
+        return {"kind": "agent", "name": route.name, "source": source, "ok": True}
+    if isinstance(route, ViaJumpHost):
+        if not route.host_key_fingerprint:
+            return {"kind": "jump", "name": route.name, "source": source, "ok": False,
+                    **ui_detail("jump_host_key_unpinned",
+                                f"跳板「{route.name}」尚未信任主機金鑰：請先到管理頁按「測試連線」核對指紋",
+                                name=route.name)}
+        return {"kind": "jump", "name": route.name, "source": source, "ok": True}
+    return {"kind": "direct", "name": None, "source": None, "ok": True}
 
 
 async def _resolve_agent(session: AsyncSession, agent_id: uuid.UUID) -> Route:
@@ -537,7 +569,7 @@ async def normalize_egress(session: AsyncSession, changes: dict[str, Any], *,
         if row is None:
             raise EgressError("找不到這台掃描代理", code="console_agent_not_found")
         if scan_agent_id != row.id:
-            # 代理的自我白名單只認它被指派掃描的子網路；指到別台的子網路，代理一定會拒絕
+            # 代理的自我允許清單只認它被指派掃描的子網路；指到別台的子網路，代理一定會拒絕
             raise EgressError(f"掃描代理「{row.name}」沒有被指派到這個子網路，無法經由它中繼",
                               code="console_agent_not_assigned", name=row.name)
     elif jump is not None:

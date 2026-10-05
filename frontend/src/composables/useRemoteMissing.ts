@@ -16,7 +16,7 @@ type Opt = { label: string; value: string };
 
 export interface MissingFacets { sections: Opt[]; subnets: Opt[]; customers: Opt[]; statuses: Opt[] }
 export interface MissingPage<T> { items: T[]; total: number; total_all: number; facets: MissingFacets }
-export type MissingSort = "ip" | "hostname" | "subnet" | "section" | "customer" | "status";
+export type MissingSort = "ip" | "hostname" | "subnet" | "section" | "customer" | "status" | "device_kind";
 export interface MissingQuery {
   page: number;
   page_size: number;
@@ -32,6 +32,7 @@ export interface MissingQuery {
 /** 表格欄位 key → 後端的排序欄位（畫面的欄名與 API 不完全一樣） */
 const SORT_OF: Record<string, MissingSort> = {
   ip: "ip", hostname: "hostname", subnet: "subnet", section: "section", customer: "customer", status: "status",
+  device_kind: "device_kind",
 };
 const EMPTY: MissingFacets = { sections: [], subnets: [], customers: [], statuses: [] };
 /** 匯出時一次拿多少筆（後端上限 100,000） */

@@ -167,6 +167,10 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     bmc_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default=text("false")
     )
+    # 「以 RustDesk 連線」按鈕（叫出操作者電腦上的 RustDesk 客戶端）；比照 VNC 逐 IP 開啟
+    rustdesk_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=text("false")
+    )
 
     __table_args__ = (
         UniqueConstraint("subnet_id", "ip", name="ip_subnet_ip_uq"),

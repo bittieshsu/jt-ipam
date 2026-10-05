@@ -5,51 +5,69 @@ banner／TLS 憑證等唯讀資訊，加上反解、NetBIOS、mDNS 名稱。這�
 （規則表），每個結論都附上依據，畫面上看得到為什麼這樣判斷 —— 不交給 LLM 猜。
 
 設備類型代碼（前端翻譯）：server／windows／router／switch／firewall／wireless_ap／printer／
-camera／voip／hypervisor／storage／media／specialized／unknown。
+camera／voip／hypervisor／storage／media／mobile／specialized／unknown。
 
 有安裝 Recog 指紋庫（選用，services/recog.py）時，另外拿 banner、網頁標題、憑證、SMB 回的
 OS 字串去比對：認得出 nmap 認不出的設備（預設憑證、管理介面標題）與更精確的 OS（OpenSSH 註解裡的
 發行版）。Recog 的結論一樣列在依據裡。
+
+對應表（nmap 的類別、Recog 的設備值、網卡廠牌、產品字樣、埠的特徵）在 services/device_kind_knowledge.py；
+這裡決定證據的先後（2026-10-05 起）：
+  1. 服務自己講的話：每個埠的產品字樣、網頁標題、Server 標頭逐欄比對，以及 Recog 比中的設備
+  2. nmap 服務偵測附的設備類別（devicetype，代理 1.17.2 起回報）
+  3. 開著的埠（PVE、BMC、儲存、印表機、攝影機、VoIP、iOS、Windows，與廠牌專屬協定的埠）
+  4. TCP/IP 指紋的類別（要夠準、前幾名不矛盾、廠牌跟網卡對得上）
+  5. 只做一種東西的網卡廠牌（完全相等才算）
+IPAM 自己知道的事實（裝置記錄、LibreNMS、電腦上的代理、虛擬化平台、主機名稱）在 device_identity.resolve_kind。
 """
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+from app.services import device_kind_knowledge as kk
 
 if TYPE_CHECKING:
     from app.services.recog import Matcher
 
-# nmap osclass 的 type → 設備類型
-_OSCLASS_TYPE = {
-    "general purpose": "server",
-    "router": "router",
-    "switch": "switch",
-    "firewall": "firewall",
-    "wap": "wireless_ap",
-    "printer": "printer",
-    "print server": "printer",
-    "webcam": "camera",
-    "phone": "voip",
-    "voip phone": "voip",
-    "voip adapter": "voip",
-    "pbx": "voip",
-    "storage-misc": "storage",
-    "media device": "media",
-    "specialized": "specialized",
-    "power-device": "specialized",
-    "remote management": "specialized",
-}
-
 # 服務特徵 → 設備類型（比 OS 指紋可靠：服務是實際回應的內容）。依序比對，第一個命中為準。
 # 每條規則看（這個埠, 整台的背景）：單一個埠常常不夠 —— NAS 也會開 RTSP、Linux 的 Samba 也會開 445。
 # ⚠️ 這終究是推測（畫面上會標明可能不準），規則要「寧可說不知道，也不要自信地說錯」。
-_NAS_PRODUCT = re.compile(r"synology|diskstation|\bdsm\b|qnap|\bqts\b|asustor|terramaster|readynas|truenas|"
-                          r"freenas|unraid|openmediavault", re.I)
-_CAMERA_PRODUCT = re.compile(r"webcam|ip ?camera|network camera|hikvision|dahua|axis .*camera|vivotek|"
-                             r"reolink|foscam", re.I)
-# OUI 廠商：主力產品是 NAS 的（Synology 也做路由器，但少見；判錯時畫面上的依據看得出來）
-_NAS_VENDORS = ("synology", "qnap", "asustor", "terramaster", "buffalo", "drobo")
+# 產品字樣（Synology、OPNsense、Hikvision…）的比對在 device_kind_knowledge.SERVICE_PRODUCT_PATTERNS，
+# 下面的 _PORT_RULES 只看埠號與背景。
+# Proxmox 的郵件閘道（PMG）與備份伺服器（PBS）也叫 Proxmox，PMG 的管理頁同樣在 8006
+_NOT_PVE = re.compile(r"mail gateway|backup server", re.I)
+# Proxmox VE 一定是 Debian：SSH 標頭寫著別的發行版 → 8006 是別的服務（gpu-node-01：NVIDIA DGX 的 Ubuntu）
+_NOT_DEBIAN_DISTRO = re.compile(r"\b(?:ubuntu|centos|red ?hat|rhel|fedora|rocky|almalinux|suse|alpine|arch ?linux|"
+                                r"raspbian|gentoo)\b", re.I)
+_DEBIAN = re.compile(r"\bdebian\b|\+deb\d", re.I)
+# BMC（伺服器的頻外管理）：主機板廠牌的網卡＋Dropbear＋iKVM 的 VNC（這些廠牌的伺服器網卡與 BMC 共用 OUI，
+# 單看廠牌分不出來，要三個一起成立）
+_BMC_VENDORS = ("supermicro", "asrockrack", "quanta", "gigabyte", "tyan", "inventec", "wiwynn")
+# RTSP 的標準埠：攝影機幾乎都在這些；別的埠上的「rtsp」常是 nmap 把網頁誤認（keycloak 的 8080／8443）
+_RTSP_PORTS = (554, 8554, 10554)
+# Intel AMT（vPro 電腦內建）的網頁埠：同一台有這些時，623 是 AMT 不是伺服器的 BMC
+_AMT_PORTS = (16992, 16993, 16994, 16995)
+
+_LINUX_DISTRO = re.compile(r"\b(?:ubuntu|debian|centos|red ?hat|rhel|fedora|rocky|almalinux|suse|alpine|"
+                           r"arch ?linux|raspbian|gentoo)\b", re.I)
 _FILE_SHARING = ("nfs", "iscsi", "afp", "netbios-ssn", "microsoft-ds")
+_FILE_SHARING_PORTS = (139, 445, 2049, 3260, 548)
+
+#: 一般電腦／手機的作業系統家族：攝影機、印表機這類嵌入式設備不會跑這些
+DESKTOP_FAMILIES = kk.DESKTOP_OS
+#: 一般用途的作業系統家族（含 Linux、BSD）：埠號推測的「印表機」在這些上面多半是別的服務
+GENERAL_FAMILIES = kk.GENERAL_OS
+#: 「一般主機」的兩個類型：與其他類型並存不算矛盾
+_GENERIC = frozenset({"server", "windows"})
+#: 嵌入式設備：nmap 服務的類別（不夠具體的證據）在 Windows／macOS／iOS 上不採用這些
+_EMBEDDED = frozenset({"printer", "camera", "switch", "wireless_ap", "voip", "media"})
+#: 同一階段有好幾個候選（不同埠講出不同類型）、信心又相同時的順序：角色明確、不會跟別的類型並存的在前
+#: （NAS 上的影音服務、路由器上的 AP 功能、Windows 上的虛擬化）
+_KIND_RANK = {k: i for i, k in enumerate((
+    "hypervisor", "specialized", "firewall", "router", "switch", "wireless_ap", "storage", "printer", "camera",
+    "voip", "media", "mobile", "windows", "server"))}
+_CONF_RANK = {"high": 0, "medium": 1}
 
 
 def _text(p: dict[str, Any]) -> str:
@@ -60,25 +78,262 @@ def _is_samba(p: dict[str, Any]) -> bool:
     return "samba" in _text(p).lower()
 
 
-_SERVICE_RULES: list[tuple[str, Any]] = [
-    ("hypervisor", lambda p, c: re.search(r"proxmox|vmware esxi|vmware authentication|xenserver|hyper-v",
-                                          _text(p), re.I)
-                                or p.get("port") == 8006),   # Proxmox VE 網頁介面；版本偵測常只認得 tcpwrapped
-    # NAS：產品字樣、主力做 NAS 的廠牌＋檔案分享、或 iSCSI／NFS／AFP 這種儲存服務
-    ("storage", lambda p, c: _NAS_PRODUCT.search(_text(p))
-                             or (c["nas_vendor"] and p.get("service") in _FILE_SHARING)
-                             or p.get("service") in ("iscsi", "nfs", "afp") or p.get("port") in (3260, 2049, 548)),
+#: 只有嵌入式設備會用的軟體：同一台有這些就不是一般主機（OpenWrt、BMC、AP、印表機、攝影機…）
+_EMBEDDED_SOFTWARE = re.compile(r"busybox|dropbear|goahead|\bboa\b|mini_httpd|micro_httpd|uhttpd|thttpd|rompager|"
+                                r"allegro|virata|emweb|\blwip\b|embedded web server", re.I)
+#: 一般主機才會跑的服務（要真的比中，不是照埠號表猜的）
+_SERVER_SERVICES = frozenset({"mysql", "postgresql", "redis", "mongodb", "mongod", "ms-sql-s", "oracle-tns",
+                              "elasticsearch", "memcache", "amqp", "zabbix-agent", "nrpe", "docker", "kubernetes"})
+
+
+def _general_host_evidence(ports: list[dict[str, Any]], os_name: str | None) -> bool:
+    """看得到「這是一般用途的主機」的正面證據嗎。TCP/IP 指紋的「general purpose」只代表 Linux／BSD 核心，
+    路由器、AP、IoT 閘道也都是（對抗式驗證 2026-10-05：198.51.100.53／.130、VigorAP903 被判成伺服器）。
+    OpenSSH 算（RHEL 系的 banner 不帶發行版）、遠端桌面算，但同一台有 BusyBox／Dropbear 這類嵌入式軟體就不算。"""
+    texts = [f"{p.get('product') or ''} {p.get('version') or ''} {p.get('extrainfo') or ''}" for p in ports]
+    if any(_EMBEDDED_SOFTWARE.search(t) for t in texts):
+        return False
+    if os_name and _LINUX_DISTRO.search(os_name):
+        return True
+    for p, t in zip(ports, texts, strict=True):
+        low = t.lower()
+        if "openssh" in low or "xrdp" in low or "samba" in low or _LINUX_DISTRO.search(t):
+            return True
+        # 遠端桌面：不是 Windows 的堆疊上是 xrdp／GNOME 遠端登入，嵌入式設備不會開
+        if _confirmed_service(p) in _SERVER_SERVICES or p.get("port") == 3389:
+            return True
+    return False
+
+
+_DEBIAN_RELEASE = re.compile(r"\bdeb(\d{1,2})u\d+\b")
+
+
+def _distro_from_banners(ports: list[dict[str, Any]]) -> str | None:
+    """服務版本字串講出的發行版（OpenSSH 的「Debian 5+deb11u3」→ Debian 11）：TCP/IP 指紋只給得出
+    「Linux 2.6.32」這種核心範圍時拿來顯示。"""
+    for p in ports:
+        t = f"{p.get('product') or ''} {p.get('version') or ''} {p.get('extrainfo') or ''}"
+        m = _DEBIAN_RELEASE.search(t)
+        if m and "debian" in t.lower():
+            return f"Debian Linux {m.group(1)}"
+    for p in ports:
+        t = f"{p.get('product') or ''} {p.get('version') or ''} {p.get('extrainfo') or ''}"
+        m = _LINUX_DISTRO.search(t)
+        if m:
+            name = {"red hat": "Red Hat", "redhat": "Red Hat", "rhel": "Red Hat", "almalinux": "AlmaLinux",
+                    "suse": "SUSE"}.get(m.group(0).lower(), m.group(0).title())
+            return f"{name} Linux"
+    return None
+
+
+def _table_guess(p: dict[str, Any]) -> bool:
+    """nmap 沒有任何探針比中、只是照埠號表寫出服務名稱（XML 的 <service method="table">）：這個名稱只代表
+    「開著這個埠」，等同沒有認出服務。代理 1.17.2 起才回報 method；舊代理沒有這個欄位 ＝ 照舊當成比中。"""
+    return str(p.get("method") or "").lower() == "table"
+
+
+def _confirmed_service(p: dict[str, Any]) -> str:
+    """確認過的服務名稱：照埠號表猜的不算（例如 445 的 microsoft-ds? 在 Linux 的 Samba 上也是這樣）。"""
+    return "" if _table_guess(p) else str(p.get("service") or "")
+
+
+def _port_condition_ok(cond: str, c: dict[str, Any]) -> bool:
+    """埠的特徵（PORT_SIGNATURES）的條件。needs_product 這類要靠產品字樣的，單憑埠號不成立。"""
+    if cond == "":
+        return True
+    if cond == "not_general_os":
+        return not c["general_os"]
+    if cond == "not_desktop_os":
+        return not c["desktop_os"]
+    if cond == "not_guest":
+        return not c["guest"]
+    if cond == "no_file_sharing":
+        return not c["file_sharing"]
+    if cond == "embedded":
+        return not c["general_host"] and not c["desktop_os"]
+    return False
+
+
+def _oui_disagrees(kind: str, c: dict[str, Any]) -> bool:
+    """只做一種東西的網卡廠牌講的是另一種類型（一般主機之間不算矛盾）。"""
+    h = c["oui"]
+    return h is not None and h.kind != kind and not {h.kind, kind} <= _GENERIC
+
+
+# 埠的特徵裡已經由下面較細的規則處理的：PVE 要 Debian、623 要排除 Intel AMT、iOS 的 62078、WinRM
+_SIG_HANDLED = frozenset({(8006, "tcp"), (623, "udp"), (62078, "tcp"), (5985, "tcp"), (5986, "tcp")})
+
+
+def _strong_sig(kind: str) -> Any:
+    """「開著這個埠就足以判斷」的特徵（PORT_SIGNATURES 的 strong，多是廠牌專屬協定：MikroTik 的 8291、Dahua 的
+    37777、Siemens S7 的 102、Sonos 的 1400…）。網卡是只做別種東西的廠牌時不採信 —— 同一個埠號別家也會用
+    （ATOM Cam 攝影機也開 Kasa 插座的 9999）。"""
+    sigs = {(s.port, s.proto): s for s in kk.PORT_SIGNATURES
+            if s.kind == kind and s.strength == "strong" and (s.port, s.proto) not in _SIG_HANDLED}
+
+    def rule(p: dict[str, Any], c: dict[str, Any]) -> bool:
+        s = sigs.get((p.get("port"), str(p.get("proto") or "tcp").lower()))
+        return s is not None and _port_condition_ok(s.condition, c) and not _oui_disagrees(kind, c)
+    return rule
+
+
+_PORT_RULES: list[tuple[str, Any]] = [
+    # Proxmox VE 網頁介面在 8006；版本偵測常只認得 tcpwrapped，所以只有埠號也算 —— 但虛擬機／容器不算
+    # （pmg-01 是 PVE 上的容器，跑 Proxmox Mail Gateway，管理頁也在 8006，以前判成虛擬化主機）
+    # Proxmox Mail Gateway（同時收信：25／26）與 Datacenter Manager（8443）的管理頁也在 8006 附近，只認得埠號時不算
+    ("hypervisor", lambda p, c: p.get("port") == 8006 and not c["guest"] and not c["not_debian"]
+                                and not c["pve_conflict"] and not _NOT_PVE.search(_text(p))),
+    # BMC：IPMI 的 623；同一台開著 Intel AMT 的網頁（16992～16995）或作業系統是 Windows／macOS → 是 vPro 電腦的
+    # AMT，不是伺服器的 BMC。或主機板廠牌的網卡＋Dropbear（BMC 的 SSH）＋iKVM 的 VNC
+    ("specialized", lambda p, c: ((p.get("port") == 623 or p.get("service") in ("asf-rmcp", "ipmi"))
+                                  and not c["amt"] and not c["desktop_os"])
+                                 or (c["bmc_vendor"] and "dropbear" in _text(p).lower() and c["has_vnc"])),
+    ("firewall", _strong_sig("firewall")),
+    ("router", _strong_sig("router")),
+    ("switch", _strong_sig("switch")),
+    ("wireless_ap", _strong_sig("wireless_ap")),
+    # NAS：主力做 NAS 的廠牌＋檔案分享、或 iSCSI／NFS／AFP 這種儲存服務（產品字樣在前一階段就比過了）
+    # 一般作業系統上只有 NFS／iSCSI／AFP 的埠，是一台順便分享檔案的主機，不是儲存設備（samba-dc-01：Debian 上的 Samba
+    # 網域控制站開了 NFS）；NAS 要有產品字樣或 NAS 廠牌
+    ("storage", lambda p, c: (c["nas_vendor"] and (p.get("service") in _FILE_SHARING
+                                                   or p.get("port") in _FILE_SHARING_PORTS))
+                             or ((p.get("service") in ("iscsi", "nfs", "afp") or p.get("port") in (3260, 2049, 548))
+                                 and not c["general_os"])),
     # IPP 本身不代表印表機：Linux 的 CUPS 列印服務也開 631/ipp（實測 Ubuntu 開發機被判成印表機）
-    ("printer", lambda p, c: p.get("service") in ("jetdirect", "printer") or p.get("port") == 9100
-                             or (p.get("service") == "ipp" and "cups" not in str(p.get("product") or "").lower())),
-    ("camera", lambda p, c: _CAMERA_PRODUCT.search(_text(p)) and not c["file_sharing"]),
-    # 只有 RTSP 時：有檔案分享的不算（NAS、媒體伺服器都會開 RTSP）
-    ("camera", lambda p, c: (p.get("service") == "rtsp" or p.get("port") == 554) and not c["file_sharing"]),
+    # 9100 只有埠號（nmap 照埠號表寫 jetdirect、沒認出產品）時，在一般作業系統上多半是 Prometheus 的
+    # node_exporter（OPNsense、Linux 伺服器都常開），不算印表機；認出產品、或指紋不是一般作業系統才算
+    # 515（LPD）同理：路由器、NAS 分享 USB 印表機都會開（VigorAP903、Synology RT1900ac 被判成印表機）
+    # 631 只是照埠號表猜的 ipp（沒有探針比中）跟沒認出產品的 9100 一樣看待
+    ("printer", lambda p, c: ((p.get("service") in ("jetdirect", "printer") or p.get("port") in (9100, 515)
+                               or (_table_guess(p) and p.get("port") == 631))
+                              and (bool(p.get("product")) or not (c["general_os"] or c["network_os"])))
+                             or (_confirmed_service(p) == "ipp" and "cups" not in str(p.get("product") or "").lower())),
+    # 只有 RTSP 時：有檔案分享的不算（NAS、媒體伺服器都會開 RTSP）；作業系統是一般電腦／手機的也不算 ——
+    # macOS 的 AirPlay 接收器就在 5000／7000 用 RTSP（2026-10-05 正式環境的 MacBook 被判成攝影機）
+    ("camera", lambda p, c: ((p.get("service") == "rtsp" and (p.get("port") in _RTSP_PORTS or not c["general_os"]))
+                             or p.get("port") == 554) and not c["file_sharing"] and not c["desktop_os"]),
+    ("camera", _strong_sig("camera")),
+    # 工控（S7 的 102、EtherNet/IP、BACnet、Modbus…）、門禁打卡機、智慧插座的區網協定
+    ("specialized", _strong_sig("specialized")),
+    ("media", _strong_sig("media")),
     ("voip", lambda p, c: p.get("service") in ("sip", "sip-tls") or p.get("port") in (5060, 5061)),
-    # 445／139 在 Linux 上是 Samba，不是 Windows
-    ("windows", lambda p, c: (p.get("service") in ("ms-wbt-server", "msrpc") or p.get("port") == 3389
-                              or (p.get("service") == "microsoft-ds" and not _is_samba(p)))),
+    # iOS 的 lockdownd（iTunes／Finder 同步）：只有 Apple 的行動裝置會聽 62078 —— Apple TV／HomePod 也會，
+    # 它們同時是 AirPlay 接收器（7000）；Mac 有 AirPlay 但不開 62078
+    ("media", lambda p, c: (p.get("port") == 62078 or p.get("service") == "iphone-sync") and c["airplay"]),
+    ("mobile", lambda p, c: (p.get("port") == 62078 or p.get("service") == "iphone-sync") and not c["airplay"]),
+    # 445／139 在 Linux 上是 Samba，3389 在 Linux 上是 xrdp，都不是 Windows；作業系統確定不是 Windows 時整條不套
+    #（ws-ud24 是 Ubuntu，裝了 xrdp → 以前判成 Windows 主機）。msrpc／microsoft-ds 要真的比中服務才算：
+    # 照埠號表猜的只代表 135／445 開著（Samba 也是）。5985／5986 是 WinRM
+    ("windows", lambda p, c: not c["non_windows_os"] and "xrdp" not in _text(p).lower()
+                             and (p.get("service") == "ms-wbt-server" or _confirmed_service(p) == "msrpc"
+                                  or p.get("port") in (3389, 5985, 5986)
+                                  or (_confirmed_service(p) == "microsoft-ds" and not _is_samba(p)))),
+    # 最後：服務自己講出是一般 Linux（xrdp、Samba、版本字串裡的發行版名稱）→ 一般主機（前面的具體角色都沒中時才用）
+    ("server", lambda p, c: "xrdp" in _text(p).lower() or _is_samba(p)
+                            or _LINUX_DISTRO.search(f"{p.get('product') or ''} {p.get('version') or ''} "
+                                                    f"{p.get('extrainfo') or ''}")),
 ]
+
+#: 指紋的「廠牌」其實是作業系統的作者，不是硬體廠牌（ESXi 的指紋寫 VMware，硬體是 Dell、HPE…）
+_OS_AUTHORS = ("linux", "freebsd", "openbsd", "netbsd", "microsoft", "openwrt", "vmware")
+#: 產品全是網通設備的混合廠牌（AP、交換器、路由器都做）：指紋只說得出「OpenWrt／Linux 的 WAP」時，網卡是這些、
+#: 或是 device_kind_knowledge 裡主力做 AP／路由器／交換器的廠牌就採信。以前是子字串比對，"aruba" 在 manuf 裡
+#: 根本不存在（Aruba 的 OUI 登記在 HPE 名下）、Meraki 也做攝影機，都拿掉了
+_NETWORK_VENDOR_TOKENS = frozenset({"ubiquiti", "ubiquitiinc", "routerboardc", "routerboardcom", "mikrotik"})
+#: 網卡 OUI 名稱與指紋廠牌寫法不同的常見對照（OUI 名稱已去掉空白、截成 12 字元）
+_VENDOR_ALIASES = {"hp": ("hewlett", "hpe", "aruba"), "dlink": ("dlink",), "tplink": ("tplink", "tp-link"),
+                   "cisco": ("cisco",), "ubiquiti": ("ubiquiti",), "netgear": ("netgear",)}
+
+
+def _norm_vendor(v: str | None) -> str:
+    return re.sub(r"[^a-z0-9]", "", (v or "").lower())
+
+
+def _vendors_agree(fp_vendor: str | None, nic_vendor: str | None) -> bool:
+    """指紋說的廠牌與網卡 OUI 廠牌是不是同一家。任一邊不知道 → 不能說不一致（照舊採信）。"""
+    a, b = _norm_vendor(fp_vendor), _norm_vendor(nic_vendor)
+    if not a or not b:
+        return True
+    if a in _OS_AUTHORS:
+        return False            # 指紋只說得出作業系統（OpenWrt／Linux），說不出是哪家的硬體
+    if a[:5] in b or b[:5] in a:
+        return True
+    return any(x in b for x in _VENDOR_ALIASES.get(a, ()))
+
+
+def _network_vendor(nic_vendor: str | None, mac: str | None) -> bool:
+    if not kk.oui_usable(mac):
+        return False
+    h = kk.oui_hint(nic_vendor, mac)
+    return kk.normalize_vendor(nic_vendor) in _NETWORK_VENDOR_TOKENS or (
+        h is not None and h.kind in ("wireless_ap", "router", "switch"))
+
+
+def _ports_contradict(kind: str, ports: list[dict[str, Any]], c: dict[str, Any]) -> bool:
+    """開著的埠講出另一種設備（一般主機不算）：medium 的網卡廠牌線索要「沒有矛盾的證據」才用
+    （Canon 也做網路攝影機：開著 Google Cast 的 8009 就不猜印表機）。
+    廠牌專屬協定的埠（strong）不算矛盾：跟網卡廠牌不一致時，在前面就因為廠牌對不上而不採信了。"""
+    for p in ports:
+        for s in kk.port_signatures(p.get("port") or 0, str(p.get("proto") or "tcp")):
+            if (s.strength != "strong" and s.kind and s.kind != kind and s.kind not in _GENERIC
+                    and _port_condition_ok(s.condition, c)):
+                return True
+    return False
+
+
+class _Cand(NamedTuple):
+    """一個類型的候選：同一階段裡依（信心, 來源, 類型順序, 埠的位置）挑一個。"""
+
+    kind: str
+    conf: str
+    source: int                 # 0＝服務自己講的產品字樣、1＝Recog
+    port: int
+    evidence: str | None
+
+
+def _pick(cands: list[_Cand]) -> _Cand | None:
+    if not cands:
+        return None
+    return min(cands, key=lambda x: (_CONF_RANK.get(x.conf, 1), x.source, _KIND_RANK.get(x.kind, 99), x.port))
+
+
+def _kind_allowed(kind: str, c: dict[str, Any], *, specific: bool) -> bool:
+    """證據講的類型在這台的背景下說得通嗎。
+    - 攝影機：同一台有檔案分享（NFS／SMB／AFP／iSCSI）時不算 —— NAS、媒體伺服器也會開 RTSP，nmap 還常把
+      NAS 的 RTSP 認成某款攝影機（2026-09-29 Synology）
+    - 不夠具體的證據（nmap 服務偵測附的設備類別）：作業系統是 Windows／macOS／iOS 時不會是嵌入式設備
+      （macOS 的 AirPlay 接收器在 nmap 的服務類別是 media device）
+    - Windows：作業系統確定是 Linux／BSD／macOS 時不算 —— Samba AD DC 的 135 在 nmap 寫「Microsoft Windows RPC」、
+      反向代理會把後端 IIS 的 Server 標頭轉出來（2026-10-05 samba-dc-01／samba-dc-02 被判成 Windows）"""
+    if kind == "camera" and c["file_sharing"]:
+        return False
+    if kind == "windows" and c["non_windows_os"]:
+        return False
+    return specific or not (kind in _EMBEDDED and c["desktop_os"])
+
+
+_NO_TITLE = ("Site doesn't have a title", "Did not follow redirect")
+_MAX_SCRIPT_TEXT = 4000
+
+
+def _text_fields(p: dict[str, Any], recog_app: str | None) -> list[tuple[str, str]]:
+    """一個埠可以拿來比對產品樣式的文字欄位（欄位名稱, 文字）。每個欄位分開比對：一個欄位裡的排除條件
+    （例如 Plex Media Server）不可以蓋掉另一個欄位講出的產品（Synology DiskStation）。
+    「Did not follow redirect to https://printer…」這種是 nmap 的訊息不是標題，裡面的網址不可以當成產品。"""
+    out: list[tuple[str, str]] = []
+    prod = " ".join(str(x) for x in (p.get("product"), p.get("version"), p.get("extrainfo")) if x).strip()
+    if prod:
+        out.append(("product", prod))
+    scripts = p.get("scripts") or {}
+    title = _first_line(str(scripts.get("http-title") or "")[:_MAX_SCRIPT_TEXT])
+    if title and not title.startswith(_NO_TITLE):
+        out.append(("title", _unescape(title)))
+    for line in str(scripts.get("http-server-header") or "")[:_MAX_SCRIPT_TEXT].splitlines():
+        if line.strip():
+            out.append(("server", _unescape(line.strip())))
+    if recog_app:
+        out.append(("recog", recog_app))
+    return out
 
 _MIN_OS_ACCURACY = 85
 #: 第一名是設備類、但通用作業系統的猜測只差這麼多以內 → 分不出來，改用通用作業系統那筆
@@ -160,27 +415,8 @@ def _applications(ports: list[dict[str, Any]], recog_apps: dict[str, str] | None
 
 # ───────────────────────── Recog 指紋比對 ─────────────────────────
 
-# Recog 的 hw.device／os.device → 設備類型。刻意不對應的：Desktop／Laptop／Mobile Phone（我們沒有這類）、
-# Device／Appliance／Networking 這種太籠統的 —— 對不上就交給其他規則，不硬猜。
-_RECOG_DEVICE: dict[str, str] = {
-    **dict.fromkeys(("printer", "multifunction device", "print server", "copier", "fax server"), "printer"),
-    **dict.fromkeys(("router", "broadband router", "adsl router", "cable modem", "docsis cable modem",
-                     "dsl modem", "adsl modem", "sd-wan appliance", "remote access server"), "router"),
-    **dict.fromkeys(("switch", "hub"), "switch"),
-    **dict.fromkeys(("firewall", "security appliance", "ips", "ids", "vpn", "utm"), "firewall"),
-    **dict.fromkeys(("wap", "wireless controller", "wlan repeater"), "wireless_ap"),
-    **dict.fromkeys(("ip camera", "web cam", "dvr", "cloud network video recorder", "video encoder"), "camera"),
-    **dict.fromkeys(("voip", "sip gateway", "sip device", "voip gateway", "voip server", "voip switch",
-                     "voice appliance", "video conferencing"), "voip"),
-    **dict.fromkeys(("nas", "storage", "storage appliance", "tape library"), "storage"),
-    "hypervisor": "hypervisor",
-    **dict.fromkeys(("media server", "media player", "smart tv", "iptv", "media receiver", "av receiver",
-                     "network audio"), "media"),
-    **dict.fromkeys(("lights out management", "management processor", "onboard administrator", "kvm",
-                     "power device", "ups", "pdu", "plc", "hmi controller", "industrial control",
-                     "building automation", "environment control", "access control", "alarm panel",
-                     "sensor", "device server", "test instrument"), "specialized"),
-}
+# Recog 的 hw.device／os.device → 設備類型：device_kind_knowledge.RECOG_DEVICE（Recog 全部 117 個值逐一整理，
+# 籠統的 Device／Appliance／Security Appliance 這類對到 None，交給其他規則，不硬猜）
 _RECOG_MIN_CERTAINTY = 0.5        # 低於這個（例如 0.0＝「assert nothing」）的欄位一律不用
 _RECOG_STRONG_OS = 0.75           # OS 到這個把握度才蓋過 nmap 的 OS 指紋
 _MAX_RECOG_EVIDENCE = 6
@@ -342,13 +578,15 @@ def _service_name(pr: dict[str, str]) -> str | None:
 
 def _recog_conclusions(matches: list[dict[str, Any]], matcher: Matcher,
                        known_ports: set[str]) -> dict[str, Any]:
-    """比對結果 → 類型、OS（附把握度）、硬體廠牌、型號、每個埠的軟體。偏好度高的指紋庫先看。
+    """比對結果 → 設備的候選、OS（附把握度）、硬體廠牌、型號、每個埠的軟體。偏好度高的指紋庫先看。
 
     `known_ports`：nmap 已經認出產品的埠 —— 這些埠的軟體用 nmap 的，Recog 的就不算貢獻
-    （不然依據裡會塞滿「nginx with version info」這種對結論沒有幫助的條目）。"""
+    （不然依據裡會塞滿「nginx with version info」這種對結論沒有幫助的條目）。
+    設備（hw.device／os.device）只收集成候選、依偏好度排好：對應成哪個類型要等作業系統決定之後才知道
+    （Recog 的 AirPlay 指紋在 macOS 上不算影音設備），由 summarize 挑。"""
     ranked = sorted(matches, key=lambda m: -matcher.preference(m["db"]))
-    out: dict[str, Any] = {"device": None, "os": None, "vendor": None, "model": None, "apps": {}, "used": [],
-                           "default_cert_ports": set()}
+    out: dict[str, Any] = {"devices": [], "os": None, "vendor": None, "model": None, "apps": {}, "used": [],
+                           "default_cert_ports": set(), "ranked": ranked}
     for m in ranked:
         pr = m["params"]
         used = False
@@ -358,13 +596,10 @@ def _recog_conclusions(matches: list[dict[str, Any]], matcher: Matcher,
         if m["db"] == "x509.subject" and m.get("port") and (
                 (hw_ok and any(k.startswith("hw.") for k in pr)) or (os_ok and any(k.startswith("os.") for k in pr))):
             out["default_cert_ports"].add(m["port"])
-        if out["device"] is None:
-            for dev, ok in ((pr.get("hw.device"), hw_ok), (pr.get("os.device"), os_ok)):
-                code = _RECOG_DEVICE.get((dev or "").lower()) if ok else None
-                if code:
-                    out["device"] = (code, m)
-                    used = True
-                    break
+        for ns, ok in (("hw", hw_ok), ("os", os_ok)):
+            if ok and pr.get(f"{ns}.device"):
+                out["devices"].append((pr[f"{ns}.device"], pr.get(f"{ns}.vendor"),
+                                       pr.get(f"{ns}.product") or pr.get(f"{ns}.family"), m.get("description"), m))
         if os_ok:
             name = _os_from_params(pr)
             cert = _certainty(m, "os")
@@ -394,10 +629,13 @@ def _recog_evidence(m: dict[str, Any]) -> str:
 
 
 def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
-              recog: Matcher | None = None, virtual_guest: bool = False) -> dict[str, Any]:
+              recog: Matcher | None = None, virtual_guest: bool | str | None = False,
+              mac: str | None = None) -> dict[str, Any]:
     """代理回報的探測結果 → 摘要。`mac_vendor` 是 jt-ipam 依 IP 記錄的 MAC 查到的 OUI 廠商；
     `recog` 是已安裝的 Recog 指紋庫（沒安裝就是 None，摘要照常，只是少了這一層）；
-    `virtual_guest`：已由虛擬化整合確認是虛擬機或容器 —— 虛擬化讓 TCP/IP 指紋失準，不拿它的類別判斷。"""
+    `virtual_guest`：已由虛擬化整合確認是虛擬機或容器 —— 虛擬化讓 TCP/IP 指紋失準，不拿它的類別判斷；
+    `mac`：查出 `mac_vendor` 的那個 MAC。本機管理（隨機）的、虛擬網卡的 MAC，廠牌不拿來推類型。
+    沒給時用 nmap 回報的 MAC（只在 `mac_vendor` 也沒給、廠牌是 nmap 查的時候）。"""
     result = result or {}
     nmap = result.get("nmap") or {}
     names_in = result.get("names") or {}
@@ -415,8 +653,28 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
         gp = next((o for o in os_list if str(o.get("type") or "").lower() == "general purpose"), None)
         if gp and int(top.get("accuracy") or 0) - int(gp.get("accuracy") or 0) <= _AMBIGUOUS_GAP:
             top = gp
-    if top and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY:
-        os_name = top.get("name")
+    # 沒有一般作業系統可退，而前幾名（差距 _AMBIGUOUS_GAP 以內）的類別互相矛盾 → 指紋分不出來：
+    # 192.0.2.185（網卡是 Dyson）前四名都是 90%：交換器、影音設備、影音設備、手機，以前寫成「HP 交換器」
+    fp_ambiguous = False
+    if top is not None and str(top.get("type") or "").lower() not in ("", "general purpose"):
+        near = [o for o in os_list
+                if int(top.get("accuracy") or 0) - int(o.get("accuracy") or 0) <= _AMBIGUOUS_GAP]
+        fp_ambiguous = len({str(o.get("type") or "").lower() for o in near}) > 1
+    # 設備類的指紋（不是一般用途的作業系統）名稱其實是某個產品，廠牌跟網卡對不上時不是作業系統
+    #（CyberPower UPS、TP-Link 插座都寫成「Philips Hue Bridge」，對抗式驗證 2026-10-05）
+    fp_device_mismatch = bool(top) and str(top.get("type") or "").lower() not in ("", "general purpose") \
+        and _norm_vendor(top.get("vendor")) not in _OS_AUTHORS \
+        and not _vendors_agree(top.get("vendor"), mac_vendor or nmap.get("mac_vendor"))
+    from app.core.os_fingerprint import normalize_os as _family
+    # TCP/IP 堆疊本身是哪一家的作業系統（一般用途的指紋才算）。banner 可能來自容器、WSL、轉送的埠，
+    # 堆疊不會：Windows 桌機用 Docker Desktop 發布 Ubuntu 容器，SSH 寫 Ubuntu、堆疊照樣是 Windows
+    stack_fam = None
+    if top and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY and not fp_ambiguous and not fp_device_mismatch \
+            and str(top.get("type") or "").lower() == "general purpose":
+        stack_fam = _family(top.get("name"))
+    if top and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY and not fp_ambiguous:
+        if not fp_device_mismatch:
+            os_name = top.get("name")
         evidence.append(f"os:{top.get('name')} ({top.get('accuracy')}%)")
     # Recog 的 OS 來自服務自己講的話（OpenSSH 的註解、SMB 回的 OS 名稱），夠有把握時比 TCP/IP 指紋精確；
     # 把握度低的（例如「IIS 10 大概是 Windows」）只在 nmap 沒結論時才用
@@ -425,29 +683,140 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
     fingerprint_overruled = False
     if rc and rc["os"]:
         rname, rcert, _m = rc["os"]
-        if rcert >= _RECOG_STRONG_OS or os_name is None:
+        if (rcert >= _RECOG_STRONG_OS or os_name is None) and not (stack_fam == "windows"
+                                                                   and _family(rname) != "windows"):
             fingerprint_overruled = bool(top and os_name and rcert >= _RECOG_STRONG_OS and os_name != rname)
             os_name = rname
-    trust_fingerprint = top is not None and not fingerprint_overruled and not virtual_guest
+    trust_fingerprint = top is not None and not fingerprint_overruled and not virtual_guest and not fp_ambiguous
+    nic_vendor = mac_vendor or nmap.get("mac_vendor") or None
+    # 廠牌是從哪個 MAC 查的：呼叫端給的（IP 記錄上的），或廠牌本身就是 nmap 查的那個 MAC
+    oui_mac = mac if mac is not None else (None if mac_vendor else nmap.get("mac"))
+    oui = kk.oui_hint(nic_vendor, oui_mac)
 
-    ctx = {
+    # 指紋只給得出核心範圍（Linux 2.6.32）時，服務版本字串講得出發行版就顯示發行版（堆疊是 Windows 時不用：
+    # 那個 banner 多半是容器的）
+    if stack_fam != "windows" and (os_name is None or re.match(r"linux \d", os_name, re.I)):
+        distro = _distro_from_banners(ports)
+        if distro:
+            os_name = distro
+    fam_now = _family(os_name) if os_name else None
+    banner_text = " ".join([os_name or "", *(f"{p.get('product') or ''} {p.get('version') or ''}" for p in ports)])
+    not_debian = bool(_NOT_DEBIAN_DISTRO.search(banner_text))
+    ctx: dict[str, Any] = {
         "file_sharing": any(p.get("service") in _FILE_SHARING or p.get("port") in (2049, 3260, 548)
                             for p in ports),
-        "nas_vendor": any(v in (mac_vendor or nmap.get("mac_vendor") or "").lower() for v in _NAS_VENDORS),
+        # 作業系統是一般電腦／手機（不是嵌入式設備）：單憑 RTSP 不能說是攝影機
+        "desktop_os": fam_now in DESKTOP_FAMILIES,
+        "os_family": fam_now,
+        # 主力做 NAS 的網卡廠牌（完全相等才算；以前的子字串比對對不到 Drobo 的「DataRobotics」）。Buffalo 也做
+        # 路由器，但這條還要同一台開著檔案分享
+        "nas_vendor": (oui is not None and oui.kind == "storage")
+                      or (kk.oui_usable(oui_mac) and kk.normalize_vendor(nic_vendor) == "buffalo"),
+        "oui": oui,
+        "guest": virtual_guest,
+        "general_os": fam_now in GENERAL_FAMILIES,
+        # 作業系統確定不是 Windows：先看 TCP/IP 堆疊，沒有堆疊指紋才看 banner 推出的
+        "non_windows_os": (stack_fam in GENERAL_FAMILIES - {"windows"}) if stack_fam
+                          else fam_now in GENERAL_FAMILIES - {"windows"},
+        "general_host": (stack_fam in ("windows", "macos")) or _general_host_evidence(ports, os_name),
+        "airplay": any(p.get("port") == 7000 or re.search(r"airtunes|airplay", _text(p), re.I) for p in ports),
+        "pve_conflict": any((p.get("port") in (25, 26) and str(p.get("service") or "").startswith("smtp"))
+                            or p.get("port") == 8443 for p in ports),
+        "network_os": fam_now == "network",
+        "not_debian": not_debian,
+        # Proxmox VE 只裝在 Debian 上：True ＝看得到 Debian、False ＝看得到別的發行版、None ＝不知道
+        "debian": False if not_debian else (True if _DEBIAN.search(banner_text) else None),
+        "bmc_vendor": any(v in _norm_vendor(nic_vendor) for v in _BMC_VENDORS),
+        "has_vnc": any(p.get("service") == "vnc" or p.get("port") == 5900 for p in ports),
+        "amt": any(p.get("port") in _AMT_PORTS for p in ports),
     }
     device_type = "unknown"
-    # Recog 比中的是特定產品的預設憑證、管理介面標題、banner —— 比「開了哪個埠」具體，先看
-    if rc and rc["device"]:
-        device_type = rc["device"][0]
-    else:
-        for code, rule in _SERVICE_RULES:
-            hit = next((p for p in ports if rule(p, ctx)), None)
+
+    # ① 服務自己講的話：每個埠的每個文字欄位分開比對產品樣式，加上 Recog 比中的設備（特定產品的預設憑證、
+    # 管理介面標題、banner），比「開了哪個埠」具體。不同埠講出不同類型時，信心高的先、產品字樣先於 Recog、
+    # 再依類型順序。排除條件（node_exporter、CUPS、Plex、錄影軟體…）比中的埠，不再拿來當埠號的證據
+    guarded: set[int] = set()
+    cands: list[_Cand] = []
+    recog_apps = rc["apps"] if rc else {}
+    for i, p in enumerate(ports):
+        for field, text in _text_fields(p, recog_apps.get(_port_key(p))):
+            sp = kk.classify_service_text(text, os_family=fam_now, debian=ctx["debian"], guest=bool(virtual_guest))
+            if sp is None:
+                continue
+            if sp.kind is None:
+                if field == "product":
+                    guarded.add(i)
+                continue
+            if _kind_allowed(sp.kind, ctx, specific=True):
+                where = "" if field == "product" else f" ({field}: {text[:80]})"
+                cands.append(_Cand(sp.kind, sp.confidence, 0, i, f"service:{_service_line(p)}{where}"))
+    recog_dev = None
+    for dev, dvendor, dproduct, ddesc, dm in (rc["devices"] if rc else []):
+        kind, conf, _why = kk.recog_kind(dev, dvendor, dproduct, ddesc, os_family=fam_now)
+        if kind and _kind_allowed(kind, ctx, specific=True):
+            cands.append(_Cand(kind, conf, 1, 0, None))
+            recog_dev = dm
+            break
+    best = _pick(cands)
+    if best is not None:
+        device_type = best.kind
+        if best.evidence:
+            evidence.append(best.evidence)
+        # 智慧家庭／專用設備同時串流 RTSP（554）＝攝影機（Tapo 的插座與攝影機網頁標頭一樣是 SHIP 2.0）
+        rtsp = next((p for p in ports if p.get("port") == 554), None)
+        if device_type == "specialized" and rtsp is not None and not ctx["file_sharing"]:
+            device_type = "camera"
+            evidence.append(f"service:{_service_line(rtsp)}")
+        elif rc is not None and recog_dev is not None and not any(u is recog_dev for u in rc["used"]):
+            # Recog 的設備決定了類型：依據裡要列出它（依偏好度的順序）
+            keep = [*rc["used"], recog_dev]
+            rc["used"] = [m for m in rc["ranked"] if any(m is u for u in keep)]
+
+    # ② nmap 服務偵測附的設備類別（nmap-service-probes 的 d/ 欄位，代理 1.17.2 起回報）：只有探針真的比中才有。
+    # 那個埠的產品是排除條件時不用（motion、ZoneMinder 這類軟體在 nmap 標成 webcam）
+    if device_type == "unknown":
+        dcands = []
+        for i, p in enumerate(ports):
+            dt = str(p.get("devicetype") or "").strip()[:40]
+            if not dt or _table_guess(p) or i in guarded:
+                continue
+            name = " ".join(str(x) for x in (p.get("product"), p.get("extrainfo")) if x)
+            kind, conf, _why = kk.nmap_kind(dt, name=name)
+            if kind and _kind_allowed(kind, ctx, specific=False):
+                dcands.append(_Cand(kind, conf, 0, i, f"service:{_service_line(p)} (devicetype: {dt})"))
+        dbest = _pick(dcands)
+        if dbest is not None:
+            device_type = dbest.kind
+            evidence.append(dbest.evidence or "")
+
+    # ③ 開著的埠
+    if device_type == "unknown":
+        for code, rule in _PORT_RULES:
+            hit = next((p for i, p in enumerate(ports) if (code in _GENERIC or i not in guarded) and rule(p, ctx)),
+                       None)
             if hit:
                 device_type = code
                 evidence.append(f"service:{_service_line(hit)}")
                 break
+
+    # ④ TCP/IP 指紋的類別（nmap 的 device type 對照 device_kind_knowledge.NMAP_DEVICE_TYPES 與覆寫規則：
+    # Windows → windows、iOS／Android → mobile、ESXi／PVE → hypervisor、lwIP／VxWorks 這類嵌入式核心不當成伺服器）
     if device_type == "unknown" and trust_fingerprint and top and top.get("type"):
-        mapped = _OSCLASS_TYPE.get(str(top["type"]).lower())
+        mapped, _conf, _why = kk.nmap_kind(str(top["type"]), top.get("vendor"), top.get("family"), top.get("name"))
+        # 指紋的類別只是「這個 TCP/IP 指紋常見於哪種機器」：說的廠牌跟網卡廠牌對不上就不採信
+        # （atomcam-01 是 ATOMtech 的攝影機，指紋是 Linux 2.4 的 OpenWrt → 以前判成無線 AP）
+        # 一般主機、虛擬化主機與手機例外：作業系統本身就說明是什麼（Android 的指紋寫 Google，手機卻是 Samsung、
+        # 小米…；Windows 的指紋寫 Microsoft、ESXi 的寫 VMware，網卡是 Intel、Broadcom）
+        # 專用設備例外：前幾名一致都是嵌入式（lwIP 之類）時，「是一台嵌入式設備」本身就成立，不看廠牌
+        # 網通例外：指紋只說得出「Linux 的 WAP」、但網卡是主力做 AP／網通的廠牌 → 採信（ap-hall-01：Ubiquiti）
+        net_ok = (mapped in ("wireless_ap", "router", "switch") and _norm_vendor(top.get("vendor")) in _OS_AUTHORS
+                  and _network_vendor(nic_vendor, oui_mac))
+        if mapped and mapped not in ("server", "windows", "hypervisor", "mobile", "specialized") and not net_ok \
+                and not _vendors_agree(top.get("vendor"), nic_vendor):
+            mapped = None
+        # 「general purpose」的 Linux／BSD 只是核心：沒有一般主機的正面證據時，路由器、AP、IoT 閘道也長這樣
+        if mapped == "server" and _family(top.get("name")) in ("linux", "bsd") and not ctx["general_host"]:
+            mapped = None
         if mapped and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY:
             device_type = mapped
             evidence.append(f"osclass:{top['type']}")
@@ -458,15 +827,39 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
         if fam in ("linux", "windows", "bsd", "macos"):
             device_type = "windows" if fam == "windows" else "server"
             evidence.append(f"recog-os:{os_name}")
+    # 手機：iPhone 與 Mac 的 TCP/IP 指紋幾乎一樣（前面會選到「一般用途」的 macOS）；服務已經說明是手機時，
+    # 作業系統改取候選裡寫著 iOS／Android 的那個（192.0.2.166 的 iPhone 曾寫成 macOS）
+    if device_type == "mobile":
+        mob = next((o for o in os_list if re.search(r"\bios\b|android", f"{o.get('name')} {o.get('family')}", re.I)),
+                   None)
+        if mob is not None and int(mob.get("accuracy") or 0) >= _MIN_OS_ACCURACY:
+            os_name = mob.get("name")
+            evidence = [f"os:{mob.get('name')} ({mob.get('accuracy')}%)" if e.startswith("os:") else e
+                        for e in evidence]
+    # ⑤ 只做一種東西的網卡廠牌：證據最弱，什麼都看不出來時才用。廠牌名稱要完全相等（以前是子字串比對：
+    # "sonos" 對到超音波儀器的 SonoSite、"arlo" 對到 Carlo Gavazzi、"dahua" 只對得到秤的製造商）。
+    # medium 的廠牌（Canon 也做攝影機、Espressif 也有攝影機模組）要沒有開著的埠講出別種設備才用
+    if device_type == "unknown" and not virtual_guest and oui is not None:
+        if oui.confidence == "high" or not _ports_contradict(oui.kind, ports, ctx):
+            device_type = oui.kind
+            evidence.append(f"oui-kind:{nic_vendor}")
     if device_type == "unknown" and virtual_guest:
-        # 虛擬機／容器沒有任何服務講出特定角色 → 一般主機（Windows 的話標 Windows）。
-        # 不能停在「不明」：不明不會覆寫 IP 上舊的判讀，被指紋判錯的「儲存設備」就永遠改不過來
+        # 虛擬機／容器沒有任何服務講出特定角色：Windows 的話標 Windows；LXC 容器一定是 Linux → 一般主機。
+        # KVM 虛擬機不知道（同一個網段裡就有防火牆、Windows 的虛擬機），停在「不明」（對抗式驗證 2026-10-05）
         from app.core.os_fingerprint import normalize_os
-        device_type = "windows" if os_name and normalize_os(os_name) == "windows" else "server"
-        evidence.append("virt:guest")
+        if os_name and normalize_os(os_name) == "windows":
+            device_type = "windows"
+            evidence.append("virt:guest")
+        elif virtual_guest is True or virtual_guest == "ct":
+            device_type = "server"
+            evidence.append("virt:ct")
 
-    vendor = (mac_vendor or nmap.get("mac_vendor") or (rc["vendor"] if rc else None)
-              or ((top or {}).get("vendor") if trust_fingerprint else None) or None)
+    # 設備廠牌與網卡廠牌分開：網卡的 OUI 不等於設備的品牌（Mac 接 CalDigit 擴充座，以前寫「廠牌 CalDigit」）。
+    # 設備廠牌只採服務自己講的（Recog）或可信的指紋；指紋的「廠牌」若是作業系統作者（FreeBSD、Linux）不算
+    fp_vendor = (top or {}).get("vendor") if trust_fingerprint else None
+    if fp_vendor and _norm_vendor(fp_vendor) in _OS_AUTHORS:
+        fp_vendor = None
+    vendor = (rc["vendor"] if rc else None) or fp_vendor or None
     if mac_vendor:
         evidence.append(f"oui:{mac_vendor}")
     if rc:
@@ -496,6 +889,7 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
         "no_response": no_response,
         "os": os_name,
         "vendor": vendor,
+        "nic_vendor": nic_vendor,
         "model": rc["model"] if rc else None,
         "names": names,
         "applications": _applications(ports, rc["apps"] if rc else None),

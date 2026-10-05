@@ -6,11 +6,12 @@ import { useI18n } from "vue-i18n";
 import { usesLevels } from "@/utils/rackSlots";
 import {
   NCard, NSpace, NIcon, NButton, NDescriptions, NDescriptionsItem,
-  NTag, NDataTable, NSpin, NTooltip, NModal, NSelect, NPopconfirm,
+  NTag, NDataTable, NSpin, NTooltip, NModal, NSelect, NPopconfirm, NAlert,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
-import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon, OpenNewWindowIcon } from "@/icons";
+import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon, OpenNewWindowIcon, RustDeskIcon } from "@/icons";
+import CopyButton from "@/components/CopyButton.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { listAddresses, updateAddress } from "@/api/addresses";
 import { listLocations, listRacks, getDeviceVlans, getDeviceLibrenms, deleteDevice, type Device, type Location, type Rack, type DeviceVLAN, type DeviceLibreNMS } from "@/api/basic";
@@ -29,6 +30,8 @@ import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import type { IPAddress } from "@/types";
 import { autoSort } from "@/composables/useTableSort";
 import { fmtDateTime } from "@/utils/datetime";
+import { rustdeskOs } from "@/utils/rustdeskOs";
+import { lnmsStatusLabel, wazuhStatusLabel } from "@/utils/integrationStatus";
 import { useCustomers } from "@/composables/useCustomers";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -85,7 +88,8 @@ function focusRequestedCard() {
   });
 }
 const { labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
-const { visibleKeys: ipVisibleKeys, setVisible: setIpVisible, reset: resetIpVisible } = useColumnPrefs(
+const { visibleKeys: ipVisibleKeys, setVisible: setIpVisible, reset: resetIpVisible,
+  order: ipColOrder, setOrder: setIpColOrder, orderColumns: orderIpColumns } = useColumnPrefs(
   "device_detail_ips",
   ["live", "ip", "hostname", "state", "mac", "mac_vendor", "switch_port", "description", "last_seen"],
   ["live", "ip", "hostname", "state", "mac", "mac_vendor", "switch_port", "last_seen"],
@@ -185,7 +189,7 @@ async function doLinkIp() {
 }
 const vlans = ref<DeviceVLAN[]>([]);
 const lnms = ref<DeviceLibreNMS | null>(null);
-const integrations = ref<{ wazuh: any; vm: any; ocs: any } | null>(null);
+const integrations = ref<{ wazuh: any; vm: any; ocs: any; rustdesk?: any } | null>(null);
 
 // OCS 硬體摘要（後端 services/ocs.hardware_summary）。記憶體與顯示記憶體是 MiB；
 // 磁碟照 OCS 回報的 MB（廠商標示的容量是十進位，所以用 1000 進位比較對得上）。
@@ -345,14 +349,6 @@ function stateTag(state: string) {
   return h(NTag, { type: map[state] ?? "default", size: "small" }, () => label);
 }
 
-// LibreNMS device status：1=up / 0=down（原始值對使用者沒意義，翻成上線/離線）
-function lnmsStatusLabel(s: unknown): string {
-  if (s == null || s === "") return "—";
-  const v = String(s);
-  if (v === "1" || v.toLowerCase() === "up") return t("topology.status_up");
-  if (v === "0" || v.toLowerCase() === "down") return t("topology.status_down");
-  return v;
-}
 function lastSeen(r: IPAddress): string {
   // last_seen_dns 不算（AdGuard 設定裡有＝每輪都是現在，見 useLivenessSettings）
   const arr = [r.last_seen_scanner, r.last_seen_librenms,
@@ -391,7 +387,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
 ]));
 
 const ipColumns = computed<DataTableColumns<IPAddress>>(() =>
-  allIpColumns.value.filter((c: any) => ipVisibleKeys.value.includes(c.key)),
+  orderIpColumns(allIpColumns.value.filter((c: any) => ipVisibleKeys.value.includes(c.key))),
 );
 
 function openRow(row: IPAddress) {
@@ -539,7 +535,8 @@ onMounted(() => {
             {{ t("devices.link_ip") }}
           </n-button>
           <ColumnPicker size="small" :all="ipColumnPickerItems" :visible="ipVisibleKeys"
-                        @update:visible="setIpVisible" @reset="resetIpVisible" />
+                        @update:visible="setIpVisible" @reset="resetIpVisible"
+                        :order="ipColOrder" @update:order="setIpColOrder" />
           <n-button size="small" @click="load(device.id)" :loading="loading">
             <template #icon><n-icon><RefreshIcon /></n-icon></template>
             {{ t("common.refresh") }}
@@ -594,7 +591,7 @@ onMounted(() => {
           <n-descriptions-item :label="t('device_detail.hardware')">{{ lnms.hardware ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('cols.version')">{{ lnms.version ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('devices.serial')">{{ lnms.serial ?? "—" }}</n-descriptions-item>
-          <n-descriptions-item :label="t('common.status')">{{ lnmsStatusLabel(lnms.status) }}</n-descriptions-item>
+          <n-descriptions-item :label="t('common.status')">{{ lnmsStatusLabel(t, lnms.status) }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.primary_ip')">{{ lnms.primary_ip ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('scanAgentHelp.col_last_seen')">{{ fmtDateTime(lnms.last_seen_at) }}</n-descriptions-item>
         </n-descriptions>
@@ -613,7 +610,7 @@ onMounted(() => {
         <n-descriptions bordered :column="2" size="small" label-placement="left"
                         :label-style="{ whiteSpace: 'nowrap' }">
           <n-descriptions-item :label="t('device_detail.wz_agent')">{{ integrations.wazuh.name ?? "—" }} ({{ integrations.wazuh.agent_id }})</n-descriptions-item>
-          <n-descriptions-item :label="t('common.status')">{{ integrations.wazuh.status ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('common.status')">{{ wazuhStatusLabel(t, integrations.wazuh.status) }}</n-descriptions-item>
           <n-descriptions-item label="OS">{{ integrations.wazuh.os_platform ?? "—" }} {{ integrations.wazuh.os_version ?? "" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_agent_version')">{{ integrations.wazuh.agent_version ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_group')">{{ integrations.wazuh.group ?? "—" }}</n-descriptions-item>
@@ -759,6 +756,49 @@ onMounted(() => {
             <span class="ocs-note-text">{{ n.comment }}</span>
           </div>
         </div>
+      </n-card>
+
+      <!-- RustDesk：客戶端裝在這台機器上（跟 Wazuh／OCS 代理同一類）。連線按鈕在 IP 頁（逐 IP 開關＋權限），這裡連回那個 IP -->
+      <n-card v-if="integrations && integrations.rustdesk" id="card-rustdesk"
+              :class="{ 'card-focus': focusedCard === 'rustdesk' }"
+              :title="() => cardHead(RustDeskIcon, 'RustDesk')" style="margin-top: 16px" data-testid="device-rustdesk-card">
+        <template #header-extra>
+          <n-button size="small" quaternary type="primary"
+                    @click="router.push({ name: 'address-detail', params: { id: integrations.rustdesk.address_id } })">
+            <template #icon><n-icon><AddressesIcon /></n-icon></template>
+            {{ integrations.rustdesk.ip }}
+          </n-button>
+        </template>
+        <n-alert v-if="integrations.rustdesk.key_problem" type="error" :show-icon="true" style="margin-bottom: 8px"
+                 data-testid="device-rustdesk-key-problem">
+          {{ t(integrations.rustdesk.key_problem.scope === "hbbs" ? "rustdesk.key_problem_hint_hbbs" : "rustdesk.key_problem_hint",
+               { at: fmtDateTime(integrations.rustdesk.key_problem.at), n: integrations.rustdesk.key_problem.count }) }}
+          {{ t("rustdesk.key_problem_fix") }}
+        </n-alert>
+        <n-descriptions bordered :column="2" size="small" label-placement="left"
+                        :label-style="{ whiteSpace: 'nowrap' }">
+          <n-descriptions-item :label="t('rustdesk.id')">
+            <span style="font-family: var(--jt-mono, monospace)">{{ integrations.rustdesk.id }}</span>
+            <CopyButton :text="integrations.rustdesk.id" />
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('rustdesk.server_pick')">{{ integrations.rustdesk.server_name ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('rustdesk.col_username')">{{ integrations.rustdesk.username ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('rustdesk.col_os')">
+            {{ integrations.rustdesk.os ? rustdeskOs(integrations.rustdesk.os)[0] : "—" }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('rustdesk.col_client_version')">{{ integrations.rustdesk.version ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="t('rustdesk.col_last_heartbeat')">
+            {{ fmtDateTime(integrations.rustdesk.last_heartbeat_at || integrations.rustdesk.last_online_at) }}
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('rustdesk.col_evidence')" :span="2">
+            <n-space v-if="integrations.rustdesk.evidence?.length" :size="4">
+              <n-tag v-for="e in integrations.rustdesk.evidence" :key="e" size="tiny" type="success" :bordered="false">
+                {{ t(`rustdesk.ev_${e}`) }}
+              </n-tag>
+            </n-space>
+            <template v-else>—</template>
+          </n-descriptions-item>
+        </n-descriptions>
       </n-card>
 
       <n-card v-if="device && vlans.length" :title="() => cardHead(SubnetsIcon, `VLAN (${vlans.length})`)">

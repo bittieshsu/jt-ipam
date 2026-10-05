@@ -140,6 +140,8 @@ class IPAddressUpdate(StrictModel):
     novnc_enabled: bool | None = None
     # BMC OOB主控台（IPMI SOL）開關
     bmc_enabled: bool | None = None
+    # 「以 RustDesk 連線」按鈕開關（沿用 IP 編輯權限）
+    rustdesk_enabled: bool | None = None
     # 手動標記此 IP 是 DHCP 伺服器（清單視覺化用）
     is_dhcp_server: bool | None = None
     # ip / subnet_id 不允許更新；如要搬移走專用 endpoint
@@ -206,6 +208,10 @@ class IPAddressRead(IPAddressBase):
     # 上線判定規則（只在單筆讀取帶）：{minutes, sources}，與 recompute_effective_status 用同一份系統設定。
     # 畫面「各來源最後出現」據此標出每個來源算不算上線證據、是否還在時限內
     liveness_rule: dict | None = None
+    # RustDesk Server（開源版）整合：對應到這個 IP 的 RustDesk ID。connect_uri 只給有遠端主控台權限的人
+    rustdesk: dict[str, Any] | None = None
+    # 這個 IP 沒有 RustDesk 裝置、但同一台裝置的其他 IP 有：[{address_id, ip, rustdesk_id, enabled}]（只列看得到的）
+    rustdesk_elsewhere: list[dict[str, Any]] = Field(default_factory=list)
     ssh_available: bool = False
     # SFTP 檔案傳輸：是否已啟用 + 目前使用者是否可用
     sftp_enabled: bool = False
@@ -223,6 +229,10 @@ class IPAddressRead(IPAddressBase):
     # BMC OOB主控台（IPMI SOL）：是否已啟用 + 目前使用者是否可用
     bmc_enabled: bool = False
     bmc_available: bool = False
+    # RustDesk 連線按鈕是否已啟用（可不可用看 rustdesk.connect_uri 有沒有值）
+    rustdesk_enabled: bool = False
+    # 連線管理頁：相容 RustDesk 的網頁連線可用（IP 啟用、對應到裝置、伺服器開放網頁連線、使用者有權限）
+    rustdesk_web_available: bool = False
     # 後端從 oui_vendors 表 lookup 帶上來；前端不用自己查
     mac_vendor: str | None = None
     # 關聯裝置名稱（清單顯示用，前端不用再查）

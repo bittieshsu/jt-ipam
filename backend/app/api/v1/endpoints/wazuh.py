@@ -275,7 +275,8 @@ async def missing_agents(
     customer_id: uuid.UUID | None = None,
     status_filter: Annotated[str | None, Query(alias="status", max_length=16)] = None,
     q: Annotated[str | None, Query(max_length=128)] = None,
-    sort: Annotated[Literal["ip", "hostname", "subnet", "section", "customer", "status"], Query()] = "ip",
+    sort: Annotated[Literal["ip", "hostname", "subnet", "section", "customer", "status", "device_kind"],
+                    Query()] = "ip",
     order: Annotated[Literal["asc", "desc"], Query()] = "asc",
 ) -> Any:
     """應裝 Wazuh agent 卻沒有 active 對映的 IP 清單（hostnamed_only=True 預設只看有設 hostname 的）。

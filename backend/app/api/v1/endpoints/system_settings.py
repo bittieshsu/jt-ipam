@@ -1385,7 +1385,7 @@ def _gather_version_info() -> dict[str, Any]:
               "vue-i18n", "axios", "@xterm/xterm", "@xterm/addon-fit",
               "@xterm/addon-unicode11", "@xterm/addon-web-links",
               "@novnc/novnc", "@iconoir/vue", "@vueuse/core",
-              "cytoscape", "cytoscape-cose-bilkent", "qrcode", "vfonts", "zod"]:
+              "cytoscape", "cytoscape-cose-bilkent", "fzstd", "qrcode", "tweetnacl", "vfonts", "zod"]:
         ver: str | None = None
         try:
             ver = json.loads((fe_root / p / "package.json").read_text(encoding="utf-8")).get("version")

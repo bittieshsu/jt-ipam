@@ -2,7 +2,7 @@
 /**
  * 主控台的連線出口（issue #24）：直連／跳板主機／掃描代理中繼。子網路與 IP 的編輯視窗共用這一個。
  *
- * 掃描代理只能選**這個子網路的掃描代理**：代理的自我白名單只認它被指派掃描的子網路，選別台一定會被拒絕。
+ * 掃描代理只能選**這個子網路的掃描代理**：代理的自我允許清單只認它被指派掃描的子網路，選別台一定會被拒絕。
  * 還不能用的（沒被允許中繼、代理主機以 JT_IPAM_RELAY=0 否決、代理太舊）照樣列出但反灰並講原因，
  * 免得使用者以為這個選項不存在。值以 jump:<id>／agent:<id> 編碼在同一個下拉裡，兩個欄位一定只會有一個有值。
  */
@@ -84,6 +84,8 @@ const visible = computed(() => jumps.value.some((j) => j.enabled) || !!props.jum
   || !!agentId.value || !!props.consoleAgentId);
 const value = computed(() => (props.consoleAgentId ? `agent:${props.consoleAgentId}`
   : props.jumpHostId ? `jump:${props.jumpHostId}` : null));
+// 「連線路徑 → 變更」視窗要知道有沒有東西可選（沒有就講清楚只能直連，而不是一個空視窗）
+defineExpose({ visible });
 function onPick(v: string | null) {
   const [kind, id] = (v ?? "").split(":");
   emit("update:jumpHostId", kind === "jump" ? id : null);

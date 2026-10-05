@@ -644,6 +644,16 @@ async def get_address(
     out.rdp_available = await can_use_rdp(session, user=user, ip=obj)
     out.vnc_available = await can_use_vnc(session, user=user, ip=obj)
     await _fill_pve_console(session, obj, out, user)
+    from app.services.permission import can_use_rustdesk
+    from app.services.rustdesk import elsewhere_on_device
+    from app.services.rustdesk import for_address as rustdesk_for_address
+    out.rustdesk = await rustdesk_for_address(session, obj.id)
+    if out.rustdesk is None:
+        out.rustdesk_elsewhere = await elsewhere_on_device(session, obj, user=user)
+    if out.rustdesk is not None and not await can_use_rustdesk(session, user=user, ip=obj):
+        out.rustdesk["connect_uri"] = None
+        out.rustdesk["web_available"] = False
+        out.rustdesk["file_available"] = False
     # 算出此 IP 實際會被執行的探測（子網路要跑 − IP 略過 ∩ 代理能力）給詳細資料頁顯示
     out.effective_probes = await _effective_probes_for(session, obj)
     # OS 依來源優先序（scanner/librenms/wazuh）解析有效值 + 來源
@@ -651,6 +661,45 @@ async def get_address(
     _os = await effective_os(session, obj)
     out.os_guess = _os["os_guess"]; out.os_family = _os["os_family"]; out.os_source = _os["os_source"]
     return out
+
+
+@router.post("/{address_id}/rustdesk/local-open", status_code=204)
+async def rustdesk_local_open(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """使用者按「用本機的 RustDesk 客戶端軟體開啟」時記一筆稽核（使用者 2026-10-05）。
+
+    rustdesk:// 網址交給使用者電腦上的客戶端，連線在客戶端與對方之間、jt-ipam 看不到；至少記下誰、什麼時候、
+    對哪個 IP（哪個 RustDesk ID）開了 —— 「調查」的遠端連線記錄以前只列得出網頁連線。
+    權限與 IP 詳細資料給 connect_uri 的條件相同（can_use_rustdesk）；網址本身照舊由詳細資料提供，這裡不回傳。"""
+    from app.core.rate_limit import limit_per_ip
+    from app.services import rustdesk as rustdesk_svc
+    from app.services.permission import can_use_rustdesk
+
+    await limit_per_ip(request, name="rustdesk")
+    ip = await session.get(IPAddress, address_id)
+    if ip is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    if not await can_use_rustdesk(session, user=user, ip=ip):
+        raise HTTPException(status_code=403, detail=ui_detail(
+            "rd_not_permitted", "沒有權限，或這個 IP 沒有開啟 RustDesk 連線"))
+    row = await rustdesk_svc.matched_peer(session, ip.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=ui_detail("rd_no_peer", "這個 IP 沒有對應到 RustDesk 裝置"))
+    peer, srv = row
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip", object_id=str(ip.id), action="rustdesk.local_client_open",
+        diff={"ip": str(ip.ip).split("/")[0], "peer_id": peer.rustdesk_id, "server": srv.name},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/{address_id}/relations")
@@ -1155,7 +1204,9 @@ async def update_address(
         if typed and _hn(obj.hostname) != typed and not pin_explicit:
             obj.hostname_source_pin = "manual"
             await recompute_effective(session, ip=obj, source="manual", actor_user_id=str(user.id))
-    elif pin_changed:
+    elif pin_explicit:
+        # 只有固定來源真的改了才重算：表單每次都會帶 hostname_source_pin（沒改也帶），
+        # 以前一律重算 → 沒有任何來源觀測的 IP（舊資料、匯入）存一次表單主機名稱就被清空
         await recompute_effective(
             session, ip=obj, source="manual", actor_user_id=str(user.id),
         )
@@ -1571,3 +1622,20 @@ async def uptime_batch_endpoint(
     ordered = [i for i in payload.ip_ids if i in allowed]   # 保留使用者排的順序
 
     return {"items": await uptime_batch(session, ordered, days=payload.days)}
+
+
+@router.get("/{address_id}/console-route")
+async def address_console_route(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """主控台會走哪條路（直連／跳板／掃描代理）、設定在哪裡、現在走不走得通 —— 連線表單顯示用。"""
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "read")
+    from app.services.console_route import describe_route
+    out = await describe_route(session, obj)
+    out["subnet_id"] = str(obj.subnet_id) if obj.subnet_id else None   # 「變更」連結到子網路頁用
+    return out

@@ -130,7 +130,7 @@ const rackOptions = computed(() => props.racks.map((r) => ({
       </div>
       <div class="dr-foot">
         <span class="dr-legend">
-          <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="dr-chip" :style="{ background: rackTypeColor(ty) }">{{ ty }}</span>
+          <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="dr-chip" :style="{ background: rackTypeColor(ty) }">{{ t(`devices.type_${ty}`) }}</span>
         </span>
         <a v-if="wanted.length > shown.length" class="dr-more" @click="openRacksPage">
           {{ t("dashboard.racks_more", { n: wanted.length - shown.length }) }}
@@ -171,15 +171,17 @@ const rackOptions = computed(() => props.racks.map((r) => ({
 <style scoped>
 .dr-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .dr-sub { font-size: 12.5px; opacity: .65; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 一整排靠下對齊（落地），超出寬度左右捲 */
-.dr-row { display: flex; flex-wrap: nowrap; gap: 18px; align-items: flex-end; overflow-x: auto; padding: 0 2px 8px; }
+/* 機櫃一整排靠下對齊（落地），名稱一律在同一條線上（使用者：「機櫃名稱位置高度要統一」）：
+   每一欄撐滿整排的高度，名稱在最上面、機櫃圖用 margin-top:auto 推到底。超出寬度左右捲 */
+.dr-row { display: flex; flex-wrap: nowrap; gap: 18px; align-items: stretch; overflow-x: auto; padding: 0 2px 8px; }
 .dr-rack { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; }
+.dr-rack > :last-child { margin-top: auto; }
 .dr-name { font-weight: 600; font-size: 13px; margin-bottom: 6px; cursor: pointer;
            color: var(--primary-color, #18a058); white-space: nowrap; }
 .dr-name:hover { text-decoration: underline; }
 .dr-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .dr-legend { display: flex; flex-wrap: wrap; gap: 6px; }
-.dr-chip { font-size: 11px; color: #fff; padding: 1px 6px; border-radius: 4px; font-family: var(--jt-mono, monospace); }
+.dr-chip { font-size: 11px; color: #fff; padding: 1px 6px; border-radius: 4px; }
 .dr-more { font-size: 12.5px; cursor: pointer; color: var(--primary-color, #18a058); }
 .dr-hint { font-size: 12px; opacity: .65; }
 </style>

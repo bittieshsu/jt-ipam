@@ -186,6 +186,23 @@ async def can_use_ssh(session: AsyncSession, *, user: User, ip: Any) -> bool:
     return bool(getattr(user, "can_ssh", False))
 
 
+async def can_use_rustdesk(session: AsyncSession, *, user: User, ip: Any) -> bool:
+    """是否給「以 RustDesk 連線」的網址。比照 VNC：這個 IP 要勾了 rustdesk_enabled，再看遠端主控台權限
+    （admin、子網路 write、或 can_ssh 且看得到）。連線本身在 RustDesk 客戶端與對方之間，對方的 RustDesk 密碼仍是最後一道。"""
+    if not getattr(ip, "rustdesk_enabled", False):
+        return False
+    if user.is_admin:
+        return True
+    level = await get_object_permission(
+        session, user=user, object_type="subnet", object_id=ip.subnet_id
+    )
+    if level == "none":
+        return False
+    if has_permission(level, "write"):
+        return True
+    return bool(getattr(user, "can_ssh", False))
+
+
 async def can_use_sftp(session: AsyncSession, *, user: User, ip: Any) -> bool:
     """是否可對此 IP 開 SFTP 檔案瀏覽器（deny-by-default）。
 

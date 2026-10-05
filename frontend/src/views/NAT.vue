@@ -28,20 +28,21 @@ const { t } = useI18n();
 
 const router = useRouter();
 const route = useRoute();
-const { visibleKeys, setVisible, reset } = useColumnPrefs(
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "nat",
   ["name", "type", "protocol", "src_ip_id", "src_interface", "src_port", "dst_ip_id", "dst_port", "device_id", "description", "source_label", "actions"],
   ["name", "type", "protocol", "src_ip_id", "src_interface", "src_port", "dst_ip_id", "dst_port", "device_id", "description", "source_label", "actions"],
 );
+// 選單順序與表格欄位一致：拖拉排序以選單上看到的順序為準
 const columnPickerItems = computed(() => [
   { key: "name", label: t("cols.name") },
   { key: "type", label: t("cols.type") },
   { key: "protocol", label: t("cols.protocol") },
   { key: "src_ip_id", label: t("cols.src_ip") },
-  { key: "dst_ip_id", label: t("cols.dst_ip") },
-  { key: "src_port", label: t("cols.src_port") },
-  { key: "dst_port", label: t("cols.dst_port") },
   { key: "src_interface", label: t("cols.src_iface") },
+  { key: "src_port", label: t("cols.src_port") },
+  { key: "dst_ip_id", label: t("cols.dst_ip") },
+  { key: "dst_port", label: t("cols.dst_port") },
   { key: "device_id", label: t("cols.device") },
   { key: "description", label: t("cols.description") },
   { key: "source_label", label: t("cols.source") },
@@ -406,7 +407,7 @@ const allCols = computed<DataTableColumns<NAT>>(() => autoSort([
 ]));
 
 const cols = computed<DataTableColumns<NAT>>(() =>
-  allCols.value.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key)),
+  orderColumns(allCols.value.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key))),
 );
 
 onMounted(() => { void refresh(); void loadOpts(); });
@@ -432,7 +433,8 @@ onMounted(() => { void refresh(); void loadOpts(); });
         {{ t("common.create") }}
       </n-button>
       <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="reset" />
+                    @update:visible="setVisible" @reset="reset"
+                    :order="order" @update:order="setOrder" />
       <ExportButton :columns="cols" :rows="rows" filename="nat" :title="t('nav.nat')" />
       <n-select
         v-model:value="filterDeviceId"

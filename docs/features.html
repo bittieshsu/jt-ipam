@@ -59,11 +59,11 @@
   .langsw li[aria-selected="true"] .tick{opacity:1}
   /* 手機：頂列讓它自己長高換行，不要硬壓在 60px 裡把品牌名擠成兩行。 */
   @media(max-width:560px){
-    .nav-in{height:auto;padding:10px 0;flex-wrap:wrap;gap:10px}
+    .nav-in{height:auto;padding:10px 16px;flex-wrap:wrap;gap:10px}
     .brand{font-size:16px;white-space:nowrap}
     .nav-links{gap:8px;width:100%;justify-content:flex-end}
   }
-  @media(max-width:820px){.nav-links a:not(.btn){display:none}}
+  @media(max-width:920px){.nav-links a:not(.btn){display:none}}
   /* ── 內容 ── */
   h1{font-size:clamp(26px,4vw,36px);color:var(--ink);margin:30px 0 6px}
   .sub{color:var(--muted);font-size:14.5px;margin:0 0 24px}
@@ -130,6 +130,7 @@
       <a href="index.html#screens"><span class="zh">畫面</span><span class="en">Screenshots</span><span class="ja">画面</span></a>
       <a href="index.html#ai">AI</a>
       <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
+      <a href="adoption.html"><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></a>
       <a href="api.html">API</a>
       <a class="btn btn-ghost btn-sm" href="index.html"><span class="zh">回首頁</span><span class="en">Home</span><span class="ja">ホーム</span></a>
       <a class="btn btn-ghost btn-sm" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
@@ -216,6 +217,7 @@
       <li><span class="leaf"><span class="zh">Wazuh：代理、作業系統、CVE、SCA，並列出應裝未裝代理的 IP</span><span class="en">Wazuh: agents, OS, CVEs and SCA, plus the IPs that should have an agent but do not</span><span class="ja">Wazuh：エージェント、OS、CVE、SCA、エージェント未導入の IP の一覧</span></span></li>
       <li><span class="leaf"><span class="zh">Zabbix：主機 ↔ IP、可用性、維護狀態，以及監控涵蓋缺口</span><span class="en">Zabbix: host ↔ IP, availability, maintenance, and monitoring coverage gaps</span><span class="ja">Zabbix：ホスト ↔ IP、可用性、メンテナンス状態、監視の抜け</span></span></li>
       <li><span class="leaf"><span class="zh">OCS Inventory NG：電腦資產依網卡 MAC 對到 IP，並列出從未盤點的 IP</span><span class="en">OCS Inventory NG: computers matched to IPs by NIC MAC, plus IPs that were never inventoried</span><span class="ja">OCS Inventory NG：NIC の MAC で PC を IP に対応付け、一度も棚卸しされていない IP を一覧</span></span></li>
+      <li><span class="leaf"><span class="zh">RustDesk Server（開源版，Beta）：專用代理一行安裝；裝置清單與線上狀態、客戶端回報的主機名稱與 OS、連線稽核與暴力破解告警（不用改客戶端設定）、刪除舊註冊（jt-ipam 與主機兩邊都允許時），對到 IP 後一鍵叫出客戶端，或直接在網頁裡連線（相容 RustDesk 的網頁連線，不用安裝客戶端）</span><span class="en">RustDesk Server (open source, Beta): dedicated agent, one-line install; devices and online state, client-reported host name and OS, connection audit and brute-force alarms (no client change needed), deleting old registrations (when both jt-ipam and the host allow it); once mapped to an IP, one click launches the client or connects right in the browser (RustDesk-compatible web connection, no client install)</span><span class="ja">RustDesk Server（オープンソース版、Beta）：専用エージェントを 1 行でインストール。デバイスとオンライン状態、クライアントが報告するホスト名と OS、接続監査と総当たり警告（クライアント設定の変更不要）、古い登録の削除（jt-ipam とホストの両方が許可した場合）、IP に対応したらワンクリックでクライアントを起動、またはブラウザーで直接接続（RustDesk 互換の Web 接続、クライアント不要）</span></span></li>
       <li><span class="leaf"><span class="zh">Graylog：DSV 查詢表替記錄補主機名稱、稽核事件轉送（syslog / CEF / GELF）</span><span class="en">Graylog: DSV lookup tables add hostnames to logs; audit events forwarded (syslog / CEF / GELF)</span><span class="ja">Graylog：DSV ルックアップでログにホスト名を補完、監査イベント転送（syslog / CEF / GELF）</span></span></li>
       <li><span class="leaf"><span class="zh">phpIPAM：經 SSH tunnel 遷移匯入，並提供 phpIPAM 相容 API</span><span class="en">phpIPAM: migration over an SSH tunnel, plus a phpIPAM-compatible API</span><span class="ja">phpIPAM：SSH トンネル経由の移行と phpIPAM 互換 API</span></span></li>
       <li><span class="leaf"><span class="zh">整合一律唯讀拉取（DNS 推送除外）、可限定子網路；刪除整合會收回它寫入的資料</span><span class="en">Integrations are read-only pulls (except DNS push), can be limited to subnets, and clean up when deleted</span><span class="ja">連携は読み取りのみ（DNS 書き込みを除く）、サブネットで範囲限定可、削除時は書いたデータを回収</span></span></li>
@@ -284,6 +286,7 @@
   </div>
 
   <footer>
+    <span class="zh">不知道從哪裡開始？看<a href="adoption.html">導入流程</a>。</span><span class="en">Not sure where to start? See the <a href="adoption.html">adoption roadmap</a>.</span><span class="ja">どこから始めればよいか迷ったら<a href="adoption.html">導入ガイド</a>をご覧ください。</span><br>
     <span class="zh">完整原始碼與文件見 </span><span class="en">Full source &amp; docs at </span><span class="ja">ソースとドキュメントは </span>
     <a href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
   </footer>

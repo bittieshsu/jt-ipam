@@ -114,6 +114,18 @@ else
     dex systemctl status nginx --no-pager -l 2>/dev/null | head -15 || true
 fi
 
+UI_URL="${url%/api/v1/system/version}"
+# 畫面本身也要送得出來：API 有回應只證明後端活著；nginx 送的 dist 可能根本沒建、或 index.html 指到不存在的檔案
+page="$(dex curl -sk --max-time 15 "${UI_URL}/" 2>/dev/null || true)"
+asset="$(grep -oP 'src="\K/assets/[^"]+\.js' <<<"$page" | head -1 || true)"
+acode="000"
+[[ -n "$asset" ]] && acode="$(dex curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "${UI_URL}${asset}" 2>/dev/null || echo 000)"
+if [[ "${page,,}" == *"<!doctype html"* && "$acode" == 200 ]]; then
+    pass "UI page and its script bundle are served (${UI_URL}${asset})"
+else
+    fail "UI is not served end to end (page: ${#page} bytes, bundle '${asset:-none}' HTTP $acode)"
+fi
+
 # 2. Timer-driven units. These only ever fail in the field, hours after install,
 #    which is exactly why they have to be triggered here.
 for unit in jt-ipam-backup jt-ipam-sync; do
@@ -201,6 +213,17 @@ if dex bash /opt/jt-ipam/scripts/jt-ipam.sh doctor >/tmp/$NAME.doctor.log 2>&1; 
     pass "doctor reports a healthy install"
 else
     fail "doctor reports problems:"; grep -E '✗|→' "/tmp/$NAME.doctor.log" || true
+fi
+
+# 5. 建置前端用的 Node.js 要是 frontend/package.json "engines" 要求的版本。裝了舊的，建置有時照樣成功，
+#    要到下一次升級或下一個相依套件才會出事。
+want_node="$(grep -oP '"node":\s*">=\K[0-9]+' "$ROOT/frontend/package.json" || echo 22)"
+nv="$(dex node -v 2>/dev/null || echo none)"
+nmaj="${nv#v}"; nmaj="${nmaj%%.*}"
+if [[ "$nmaj" =~ ^[0-9]+$ ]] && (( nmaj >= want_node )); then
+    pass "Node.js $nv for the frontend build (needs >= $want_node)"
+else
+    fail "Node.js is $nv; the frontend build needs >= $want_node"
 fi
 
 say "Result"

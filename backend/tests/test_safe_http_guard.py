@@ -101,7 +101,7 @@ class _Srv:
 
 @pytest.fixture
 def srv(monkeypatch, env):
-    """兩個「主機名稱」都解析到本機測試伺服器；本機加進白名單（否則本來就會被擋）。"""
+    """兩個「主機名稱」都解析到本機測試伺服器；本機加進允許清單（否則本來就會被擋）。"""
     s = _Srv()
     env("OUTBOUND_ALLOW_CIDRS", "127.0.0.1/32")
     names = {"api.test", "other.test"}

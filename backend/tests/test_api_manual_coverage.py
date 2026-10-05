@@ -36,7 +36,7 @@ def test_every_api_group_is_in_the_manual() -> None:
 
 
 def test_the_undocumented_list_does_not_rot() -> None:
-    """白名單裡的群組要真的存在 —— 拿掉的功能不該留在例外清單裡。"""
+    """允許清單裡的群組要真的存在 —— 拿掉的功能不該留在例外清單裡。"""
     assert set(_UNDOCUMENTED) <= _groups()
 
 

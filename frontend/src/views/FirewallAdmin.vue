@@ -527,13 +527,13 @@ const allMapCols = computed<DataTableColumns<OPNsenseAliasMapping>>(() => autoSo
 ]));
 
 const fwCols = computed<DataTableColumns<OPNsenseFirewall>>(() =>
-  allFwCols.value.filter((c: any) => fwPrefs.visibleKeys.value.includes(c.key)));
+  fwPrefs.orderColumns(allFwCols.value.filter((c: any) => fwPrefs.visibleKeys.value.includes(c.key))));
 const mapCols = computed<DataTableColumns<OPNsenseAliasMapping>>(() =>
-  allMapCols.value.filter((c: any) => mapPrefs.visibleKeys.value.includes(c.key)));
+  mapPrefs.orderColumns(allMapCols.value.filter((c: any) => mapPrefs.visibleKeys.value.includes(c.key))));
 const ruleCols = computed<DataTableColumns<OPNsenseRule>>(() =>
-  allRuleCols.value.filter((c: any) => rulePrefs.visibleKeys.value.includes(c.key)));
+  rulePrefs.orderColumns(allRuleCols.value.filter((c: any) => rulePrefs.visibleKeys.value.includes(c.key))));
 const aliasCols = computed<DataTableColumns<OPNsenseSyncedAlias>>(() =>
-  allAliasCols.value.filter((c: any) => aliasPrefs.visibleKeys.value.includes(c.key)));
+  aliasPrefs.orderColumns(allAliasCols.value.filter((c: any) => aliasPrefs.visibleKeys.value.includes(c.key))));
 
 onMounted(() => {
   // 預設分頁：管理區從 firewalls 起、進階區從 rules 起
@@ -586,7 +586,8 @@ onMounted(() => {
             {{ t("firewall_admin.create_firewall") }}
           </n-button>
           <ColumnPicker :all="fwPicker" :visible="fwPrefs.visibleKeys.value"
-                        @update:visible="fwPrefs.setVisible" @reset="fwPrefs.reset" />
+                        @update:visible="fwPrefs.setVisible" @reset="fwPrefs.reset"
+                        :order="fwPrefs.order.value" @update:order="fwPrefs.setOrder" />
           <ExportButton :columns="fwCols" :rows="fws" filename="firewalls" :title="t('firewall_admin.title')" />
         </n-space>
         <n-data-table :columns="fwCols" :data="fws" :loading="loading" :bordered="false" :scroll-x="986" />
@@ -605,7 +606,8 @@ onMounted(() => {
             {{ t("firewall_admin.create_mapping") }}
           </n-button>
           <ColumnPicker :all="mapPicker" :visible="mapPrefs.visibleKeys.value"
-                        @update:visible="mapPrefs.setVisible" @reset="mapPrefs.reset" />
+                        @update:visible="mapPrefs.setVisible" @reset="mapPrefs.reset"
+                        :order="mapPrefs.order.value" @update:order="mapPrefs.setOrder" />
           <ExportButton :columns="mapCols" :rows="mappings" filename="firewall-alias-mappings" :title="t('firewall_admin.alias_mappings')" />
         </n-space>
         <n-data-table :columns="mapCols" :data="mappings" :loading="loading" :bordered="false" :scroll-x="946" :pagination="pg" />
@@ -640,7 +642,8 @@ onMounted(() => {
           <n-select v-model:value="fDir" :options="dirOpts" clearable
                     :placeholder="t('cols.direction')" style="width: 110px" />
           <ColumnPicker :all="rulePicker" :visible="rulePrefs.visibleKeys.value"
-                        @update:visible="rulePrefs.setVisible" @reset="rulePrefs.reset" />
+                        @update:visible="rulePrefs.setVisible" @reset="rulePrefs.reset"
+                        :order="rulePrefs.order.value" @update:order="rulePrefs.setOrder" />
           <ExportButton :columns="ruleCols" :rows="rulesView" filename="firewall-rules" :title="t('firewall_admin.rules')" />
         </n-space>
         <FocusRowBanner :ctl="ruleFocus" :loading="rulesLoading || loading" />
@@ -677,7 +680,8 @@ onMounted(() => {
           </span>
           <n-input v-model:value="aliasFilterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
           <ColumnPicker :all="aliasPicker" :visible="aliasPrefs.visibleKeys.value"
-                        @update:visible="aliasPrefs.setVisible" @reset="aliasPrefs.reset" />
+                        @update:visible="aliasPrefs.setVisible" @reset="aliasPrefs.reset"
+                        :order="aliasPrefs.order.value" @update:order="aliasPrefs.setOrder" />
           <ExportButton :columns="aliasCols" :rows="aliasesFiltered" filename="firewall-aliases" :title="t('firewall_admin.aliases')" />
         </n-space>
         <FocusRowBanner :ctl="aliasFocus" :loading="aliasesLoading || loading" />

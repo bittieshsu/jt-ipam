@@ -645,7 +645,7 @@ _NMAP_REPORT_MAX = 64 * 1024
 _UNSET: Any = object()
 
 
-async def _virtual_guests(session: AsyncSession, items: list[Any]) -> set[str]:
+async def _virtual_guests(session: AsyncSession, items: list[Any]) -> dict[str, str]:
     """這次回報裡、有 OS 偵測結果的位址中，哪些是虛擬化整合回報的虛擬機或容器網卡（依 IP 或 MAC）。
 
     虛擬化讓 nmap 的 TCP/IP 指紋失準（PVE 的 LXC 容器被判成 HP NAS，2026-10-02），判讀時不拿指紋的類別。
@@ -663,13 +663,25 @@ async def _virtual_guests(session: AsyncSession, items: list[Any]) -> set[str]:
     conds = [in_values(host, ips, type_=String())]
     if macs:
         conds.append(in_values(VMInterface.mac, macs))
-    out: set[str] = set()
-    for ip, mac in (await session.execute(select(host, VMInterface.mac).where(or_(*conds)))).all():
-        if ip and str(ip) in ips:
-            out.add(str(ip))
+    from app.models.virt import VirtualMachine
+    from app.services.fw_lookup import PROXMOX_GUEST_OUI
+    mac_of = {str(it.ip).split("/")[0]: norm_mac(it.mac) for it in items if it.nmap}
+    out: dict[str, str] = {}
+    rows = (await session.execute(select(host, VMInterface.mac, VirtualMachine.kind)
+                                  .join(VirtualMachine, VirtualMachine.id == VMInterface.vm_id)
+                                  .where(or_(*conds)))).all()
+    for ip, mac, vm_kind in rows:
+        kind = "ct" if vm_kind == "ct" else "vm"
         m = norm_mac(mac) if mac else None
         if m and m in by_mac:
-            out.add(by_mac[m])
+            out[by_mac[m]] = kind
+        # 只有 IP 對到、兩邊 MAC 都知道卻不同 → DHCP 位址換了主人，不是這台（同 fw_lookup.vm_match_for）
+        elif ip and str(ip) in ips and not (m and mac_of.get(str(ip)) and mac_of[str(ip)] != m):
+            out.setdefault(str(ip), kind)
+    # Proxmox 指派的 MAC（bc:24:11）只會出現在 PVE 的虛擬機／容器上
+    for ip, m in mac_of.items():
+        if m and m.lower().startswith(PROXMOX_GUEST_OUI):
+            out.setdefault(ip, "vm")
     return out
 
 
@@ -782,7 +794,7 @@ async def agent_report(
     hn_runs = {src: HostnameRun(session, source=src, origin=f"{src}:{agent.id}", peers=2)
                for src in ("scanner", "netbios", "mdns")}
     recog_matcher: Any = _UNSET            # 第一筆需要判讀時才載入（多數回報沒有 OS 偵測結果）
-    vm_guests: set[str] | None = None      # 已由虛擬化整合確認是虛擬機／容器的位址（同樣第一次需要時整批查）
+    vm_guests: dict[str, str] | None = None   # 虛擬機（"vm"）／容器（"ct"）的位址（同樣第一次需要時整批查）
     for item in payload.results:
         if not item.alive:
             continue
@@ -852,12 +864,14 @@ async def agent_report(
                     recog_matcher = await get_matcher(session)
                 if vm_guests is None:
                     vm_guests = await _virtual_guests(session, payload.results)
-                # 廠商先用 jt-ipam 自己的 OUI 表（每月從 IEEE 更新），與「探測」頁同一套；nmap 自帶的 MAC 廠商
-                # 資料庫會過時（曾把 SuperMicro 的 OUI 認成 Hewlett Packard，畫面於是寫著「伺服器 · HP」）
+                # 廠商用 IP 記錄上的 MAC 查 jt-ipam 自己的 OUI 表，與「探測」頁同一套。nmap 報的是當下回應 ARP 的
+                # 那張網卡：雙網卡主機的兩個網段在同一個廣播網域時，Linux 會用任何一張網卡回答本機任何一個位址
+                # （arp_ignore=0），SuperMicro 主機的位址曾由它的 HP 擴充網卡回答，畫面於是寫著「伺服器 · HP」
                 from app.services.oui import vendor_for_mac
+                vendor_mac = str(ipa.mac or item.mac) if (ipa.mac or item.mac) else None
                 summary = summarize({"nmap": {"available": True, **item.nmap}}, recog=recog_matcher,
-                                    mac_vendor=await vendor_for_mac(session, ipa.mac or item.mac),
-                                    virtual_guest=str(item.ip).split("/")[0] in vm_guests)
+                                    mac_vendor=await vendor_for_mac(session, vendor_mac),
+                                    virtual_guest=vm_guests.get(str(item.ip).split("/")[0]), mac=vendor_mac)
             await apply_summary(session, ipa, summary, fallback_os=item.os_guess)
         # 主機名稱觀測 → 走既有來源優先序（各來源獨立一筆，不會 thrash）。
         # rDNS 記 source=scanner；NetBIOS / mDNS 各自獨立來源，方便在優先序頁分別排序/停用。

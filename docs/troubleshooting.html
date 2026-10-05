@@ -61,7 +61,7 @@
   @media(max-width:900px){.nav-links a:not(.btn){display:none}}
   /* 手機：頂列讓它自己長高換行，不要硬壓在 60px 裡把品牌名擠成兩行。 */
   @media(max-width:560px){
-    .nav-in{height:auto;padding:10px 0;flex-wrap:wrap;gap:10px}
+    .nav-in{height:auto;padding:10px 16px;flex-wrap:wrap;gap:10px}
     .brand{font-size:16px;white-space:nowrap}
     .nav-links{gap:8px;width:100%;justify-content:flex-end}
   }
@@ -174,6 +174,7 @@
     </a>
     <div class="nav-links">
       <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
+      <a href="adoption.html"><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></a>
       <a href="features.html"><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></a>
       <a href="api.html">API</a>
       <a class="btn btn-ghost btn-sm" href="index.html"><span class="zh">回首頁</span><span class="en">Home</span><span class="ja">ホーム</span></a>
@@ -540,13 +541,19 @@ sudo rm -f /etc/apt/sources.list.d/pgdg.list &amp;&amp; sudo apt-get update</cod
 
       <article class="qa" id="qa-node">
         <h3>
-          <span class="zh">Node.js install failed or too old（需要 18 以上）</span>
-          <span class="en">Node.js install failed or too old (need &gt;= 18)</span>
-          <span class="ja">Node.js install failed or too old（18 以上が必要）</span>
+          <span class="zh">Node.js install failed or too old（需要 22 以上）/升級時出現「Node.js 22 could not be installed」</span>
+          <span class="en">Node.js install failed or too old (need &gt;= 22) / "Node.js 22 could not be installed" during an upgrade</span>
+          <span class="ja">Node.js install failed or too old（22 以上が必要）/アップグレードで「Node.js 22 could not be installed」</span>
         </h3>
-        <pre><code>curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+        <p>
+          <span class="zh">Node.js 22 LTS 只用來建置前端，安裝與升級都會自動從 NodeSource 裝好。裝不起來時（連不到 deb.nodesource.com、走代理、apt 衝突），安裝會停下來；升級則沿用既有的 Node 20 以上版本建置、照常完成並印出警告框，<code>doctor</code> 會持續提醒。手動裝好後重跑同一個指令：</span>
+          <span class="en">Node.js 22 LTS is only used to build the frontend; install and upgrade both get it from NodeSource automatically. When that fails (no access to deb.nodesource.com, a proxy, an apt conflict), install stops, while upgrade builds with an existing Node 20 or newer, finishes with a warning banner, and <code>doctor</code> keeps reporting it. Install it by hand and re-run the same command:</span>
+          <span class="ja">Node.js 22 LTS はフロントエンドのビルドにだけ使い、インストールでもアップグレードでも NodeSource から自動で導入します。導入できない場合（deb.nodesource.com に届かない、プロキシ、apt の競合）、インストールは止まり、アップグレードは既存の Node 20 以降でビルドして完了し、警告枠を出します。<code>doctor</code> も指摘し続けます。手動で導入してから同じコマンドをやり直してください。</span>
+        </p>
+        <pre><code>curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt-get install -y nodejs
-node -v</code></pre>
+node -v      # v22.x
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade      # (or: install)</code></pre>
         <p>
           <span class="zh">機器上原本有發行版的舊 node 時要先移除，否則 PATH 會取到舊的：<code>sudo apt-get purge -y nodejs libnode-dev</code>，再裝一次。</span>
           <span class="en">If the distro's old node is present, purge it first or PATH will keep finding it: <code>sudo apt-get purge -y nodejs libnode-dev</code>, then install again.</span>
@@ -837,6 +844,32 @@ sudo loginctl terminate-user gdm     # <span class="zh">收掉全部登入畫面
         </p>
         <pre><code>loginctl list-sessions
 sudo loginctl terminate-user &lt;username&gt;</code></pre>
+      </article>
+
+      <article class="qa" id="qa-rustdesk-web-insecure">
+        <h3>
+          <span class="zh">相容 RustDesk 的網頁連線顯示「無法建立加密連線」</span>
+          <span class="en">The RustDesk-compatible web connection says &ldquo;Encryption could not be set up&rdquo;</span>
+          <span class="ja">RustDesk 互換の Web 接続で「暗号化接続を確立できません」と表示される</span>
+        </h3>
+        <p>
+          <span class="zh">hbbs 沒有簽受控端的身分。hbbs 要有簽章用的私鑰才會簽：用工作目錄裡的金鑰檔啟動（官方 deb 的 <code>.env</code> 設 <code>KEY=_</code>，或 <code>-k</code> 留空、設成 <code>_</code>）。用 <code>-k &lt;公鑰字串&gt;</code> 啟動的 hbbs 手上沒有私鑰，永遠不簽；網頁連線不會在沒有加密的情況下連線，所以一律拒絕。改好後重新啟動 hbbs，原本的 RustDesk 客戶端不用改設定（公鑰不變）。</span>
+          <span class="en">hbbs did not sign the device identity. hbbs signs only when it holds the private signing key: start it with the key file in its working directory (<code>KEY=_</code> in the <code>.env</code> of the official deb, or <code>-k</code> empty or <code>_</code>). An hbbs started with <code>-k &lt;public key string&gt;</code> has no private key and never signs, and the web connection never connects without encryption, so it is always refused. Restart hbbs after the change; RustDesk clients need no change (the public key stays the same).</span>
+          <span class="ja">hbbs が接続先の ID に署名していません。hbbs は署名用の秘密鍵を持っているときだけ署名します。作業ディレクトリの鍵ファイルで起動してください（公式 deb の <code>.env</code> で <code>KEY=_</code>、または <code>-k</code> を空か <code>_</code> にする）。<code>-k &lt;公開鍵の文字列&gt;</code> で起動した hbbs は秘密鍵を持たないため署名せず、Web 接続は暗号化なしでは接続しないので常に拒否されます。変更後に hbbs を再起動してください。RustDesk クライアントの設定変更は不要です（公開鍵は変わりません）。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-rustdesk-web-wrong-key">
+        <h3>
+          <span class="zh">網頁連線連不上，同一區網用 RustDesk 程式卻連得上</span>
+          <span class="en">The web connection fails, but the RustDesk app on the same LAN connects</span>
+          <span class="ja">Web 接続はつながらないが、同じ LAN の RustDesk アプリではつながる</span>
+        </h3>
+        <p>
+          <span class="zh">最常見的原因是對方電腦的 RustDesk Key 設錯（例如大小寫打錯）。Key 錯的電腦照樣能向 ID 伺服器註冊（顯示「就緒」）、照樣回報主機名稱，同一區網內的 RustDesk 程式會直接連線、不經過中繼，所以也連得上；只有走中繼時會被中繼伺服器（hbbr）拒絕，而網頁連線一定走中繼，從外網用 RustDesk 程式連也一樣會失敗。RustDesk 代理 1.1.0 起會讀 hbbr／hbbs 的日誌找出這種電腦：伺服器列顯示「Key 錯誤 N」、裝置清單標「Key 錯誤」、IP 頁說明被拒的時間，網頁連線的錯誤訊息也會直接說是對方的 Key。修法：在那台電腦的 RustDesk「設定 → 網路 → ID / 中繼伺服器」把 Key 改成跟伺服器公鑰完全相同（用複製貼上）。改好之後下一次經過中繼成功，標記就會消失。日誌不在 <code>/var/log/rustdesk-server/</code> 的站台（例如自己寫 systemd unit 或用容器）可以在代理的設定檔加 <code>JT_RD_LOG_DIR=</code> 指到日誌目錄；按「測試」會顯示讀不讀得到。</span>
+          <span class="en">Most often the device's RustDesk Key is wrong (for example a letter in the wrong case). A device with a wrong Key still registers with the ID server (it shows "Ready") and still reports its host name, and the RustDesk app on the same LAN connects directly without the relay, so that works too; only connections through the relay are refused by the relay server (hbbr). The web connection always uses the relay, and the RustDesk app connecting from outside fails as well. From RustDesk agent 1.1.0 the agent reads the hbbr/hbbs logs to find such devices: the server row shows "Wrong Key N", the device list marks "Wrong Key", the IP page says when it was refused, and the web connection error names the device's Key directly. Fix: on that computer, set the Key in RustDesk "Settings → Network → ID/Relay server" to exactly the server's public key (copy and paste it). The mark goes away after the next successful connection through the relay. If the logs are not in <code>/var/log/rustdesk-server/</code> (a hand-written systemd unit or a container, for example), add <code>JT_RD_LOG_DIR=</code> with the log directory to the agent's config file; <b>Test</b> shows whether they can be read.</span>
+          <span class="ja">最も多い原因は、接続先の RustDesk の Key の設定ミス（大文字と小文字の打ち間違いなど）です。Key が誤っていても ID サーバーへの登録（「準備完了」と表示）やホスト名の報告はでき、同じ LAN 内の RustDesk アプリは中継を通さず直接接続するので、それもつながります。中継を通る接続だけが中継サーバー（hbbr）に拒否されます。Web 接続は必ず中継を使い、外部から RustDesk アプリで接続しても同じく失敗します。RustDesk エージェント 1.1.0 以降は hbbr/hbbs のログを読んでこうしたデバイスを見つけます。サーバー行に「Key 不一致 N」、デバイス一覧に「Key 不一致」、IP ページに拒否された時刻を表示し、Web 接続のエラーも接続先の Key が原因だと示します。対処：そのコンピューターの RustDesk「設定 → ネットワーク → ID/中継サーバー」で Key をサーバーの公開鍵と完全に同じにします（コピー＆ペースト推奨）。次に中継経由の接続が成功すると表示は消えます。ログが <code>/var/log/rustdesk-server/</code> にないサイト（自作の systemd unit やコンテナなど）は、エージェントの設定ファイルに <code>JT_RD_LOG_DIR=</code> でログのディレクトリを指定してください。「テスト」で読めるかどうか確認できます。</span>
+        </p>
       </article>
     </section>
 

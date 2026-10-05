@@ -20,7 +20,8 @@
         <template #icon><n-icon><PlusIcon /></n-icon></template>{{ t("esxi.create_title") }}
       </n-button>
       <ColumnPicker :all="pickerItems" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="resetCols" />
+                    @update:visible="setVisible" @reset="resetCols"
+                    :order="colPrefs.order.value" @update:order="colPrefs.setOrder" />
       <ExportButton :columns="visibleCols" :rows="filtered" filename="vmware"
                     :title="t('esxi.page_title')" />
     </n-space>
@@ -322,8 +323,8 @@ const colLabel: Record<string, string> = {
   last_error: t("cols.last_error"),
 };
 // 操作欄永遠留著；其餘依偏好顯示
-const visibleCols = computed(() => cols.filter(
-  (c: any) => c.key === "actions" || visibleKeys.value.includes(String(c.key))));
+const visibleCols = computed(() => colPrefs.orderColumns(cols.filter(
+  (c: any) => c.key === "actions" || visibleKeys.value.includes(String(c.key)))));
 
 onMounted(() => { void load(); void loadSubnetOptions(); });
 </script>

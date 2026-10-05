@@ -89,7 +89,7 @@ const allRuleCols = computed<DataTableColumns<PfRule>>(() => autoSort([
   { title: t("common.description"), key: "descr", minWidth: 150, ellipsis: { tooltip: true }, render: (r) => r.descr || "—" },
   { title: "tracker", key: "tracker", width: 110, render: (r) => r.tracker ?? "—" },
 ]));
-const ruleCols = computed(() => allRuleCols.value.filter((c: any) => rPrefs.visibleKeys.value.includes(c.key)));
+const ruleCols = computed(() => rPrefs.orderColumns(allRuleCols.value.filter((c: any) => rPrefs.visibleKeys.value.includes(c.key))));
 const allAliasCols = computed<DataTableColumns<any>>(() => autoSort([
   { title: t("common.name"), key: "name", minWidth: 160, ellipsis: { tooltip: true } },
   { title: t("pfsense_admin.r_action"), key: "type", width: 100, render: (r) => r.type ?? "—" },
@@ -97,7 +97,7 @@ const allAliasCols = computed<DataTableColumns<any>>(() => autoSort([
     render: (r) => (r.members || []).join(" ") || "—" },
   { title: t("common.description"), key: "descr", minWidth: 150, ellipsis: { tooltip: true }, render: (r) => r.descr || "—" },
 ]));
-const aliasCols = computed(() => allAliasCols.value.filter((c: any) => aPrefs.visibleKeys.value.includes(c.key)));
+const aliasCols = computed(() => aPrefs.orderColumns(allAliasCols.value.filter((c: any) => aPrefs.visibleKeys.value.includes(c.key))));
 
 const tab = ref<"rules" | "aliases">(route.query.tab === "aliases" ? "aliases" : "rules");
 onMounted(async () => { await loadInstances(); await loadData(); });
@@ -127,7 +127,8 @@ onMounted(async () => { await loadInstances(); await loadData(); });
         <n-space align="center" style="margin-bottom: 8px">
           <n-input v-model:value="ruleQ" :placeholder="t('common.filter')" clearable style="width: 180px" />
           <ColumnPicker :all="rPicker" :visible="rPrefs.visibleKeys.value"
-                        @update:visible="rPrefs.setVisible" @reset="rPrefs.reset" />
+                        @update:visible="rPrefs.setVisible" @reset="rPrefs.reset"
+                        :order="rPrefs.order.value" @update:order="rPrefs.setOrder" />
           <ExportButton :columns="ruleCols" :rows="rulesFiltered" filename="pfsense-rules" :title="t('pfsense_admin.rules')" />
         </n-space>
         <FocusRowBanner :ctl="ruleFocus" :loading="loading" />
@@ -138,7 +139,8 @@ onMounted(async () => { await loadInstances(); await loadData(); });
         <n-space align="center" style="margin-bottom: 8px">
           <n-input v-model:value="aliasQ" :placeholder="t('common.filter')" clearable style="width: 180px" />
           <ColumnPicker :all="aPicker" :visible="aPrefs.visibleKeys.value"
-                        @update:visible="aPrefs.setVisible" @reset="aPrefs.reset" />
+                        @update:visible="aPrefs.setVisible" @reset="aPrefs.reset"
+                        :order="aPrefs.order.value" @update:order="aPrefs.setOrder" />
           <ExportButton :columns="aliasCols" :rows="aliasesFiltered" filename="pfsense-aliases" :title="t('pfsense_admin.alias')" />
         </n-space>
         <FocusRowBanner :ctl="aliasFocus" :loading="loading" />

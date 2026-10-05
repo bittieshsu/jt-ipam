@@ -320,18 +320,54 @@ ensure_guacd_current() {
     fi
 }
 
-# Ensure a modern Node.js (>=18) is available to root. Three cases this handles:
-#  - distro 'nodejs' on Ubuntu 22.04 is v12 (too old for pnpm/vite)
-#  - invoked via sudo: an nvm-managed node in the caller's home is not on root's PATH
-#  - no node at all
+# Node.js only builds the frontend; nothing runs on it once the site is up.
+NODE_REQUIRED_MAJOR=22          # same as frontend/package.json "engines", .nvmrc and CI
+NODE_FALLBACK_MAJOR=20          # upgrade only: the oldest node kept when installing 22 fails
+# Test hooks (like JT_IPAM_MEMINFO): where links for root go, and where NodeSource puts node.
+NODE_LINK_DIR="${JT_IPAM_NODE_LINK_DIR:-/usr/local/bin}"
+NODE_SYSTEM_BIN="${JT_IPAM_NODE_SYSTEM_BIN:-/usr/bin/node}"
+NODE_READY=0                    # settled for this run (upgrade checks early, then builds)
+
+# Major version of a node binary; 0 when it is missing or does not run.
+node_major() {
+    local v
+    v="$("${1:-node}" -v 2>/dev/null || true)"
+    v="${v#v}"; v="${v%%.*}"
+    if [[ "$v" =~ ^[0-9]+$ ]]; then echo "$v"; else echo 0; fi
+}
+
+# Ensure Node.js >= $NODE_REQUIRED_MAJOR is available to root for the frontend build.
+#   $1 = install | upgrade
+# In this order:
+#  - the node on PATH is already new enough (NodeSource 22, a distro 22, an earlier link): use it
+#  - invoked via sudo and the caller has an nvm node >= 22: link it for root (nvm's node is not
+#    on root's PATH). An nvm node OLDER than 22 is not reused: NodeSource 22 is installed for
+#    root instead, so the build does not depend on what a developer left in their home.
+#  - otherwise install NodeSource 22. On a site that already has NodeSource 20 (every install
+#    up to v0.6.61) this rewrites the apt source and upgrades the same 'nodejs' package in place.
+#
+# Why upgrade falls back and install does not: node is only the build toolchain, and the build
+# still works on Node 20 today. A site that cannot reach deb.nodesource.com during an upgrade
+# (proxy, local mirror, outage) is better off upgraded with a loud warning than stuck on the old
+# version over a toolchain download; the next upgrade tries 22 again, and doctor keeps saying so.
+# A fresh install has no site to keep running and no toolchain known to work, so there a node
+# that is not 22 stops the install with a clear message.
 ensure_node() {
-    local ver
-    if command -v node >/dev/null 2>&1; then
-        ver=$(node -v 2>/dev/null | sed 's/^v//; s/\..*//')
-        if [[ "${ver:-0}" -ge 18 ]]; then return 0; fi
+    local mode="${1:-install}" cur_bin cur h nb="" fallback="" sys_major
+    [[ "$NODE_READY" == 1 ]] && return 0
+    hash -r 2>/dev/null || true
+    cur_bin="$(command -v node 2>/dev/null || true)"
+    cur="$(node_major "$cur_bin")"
+    if (( cur >= NODE_REQUIRED_MAJOR )); then
+        log "Using Node.js $("$cur_bin" -v) ($cur_bin)"
+        NODE_READY=1
+        return 0
     fi
+    if [[ "$mode" == upgrade ]] && (( cur >= NODE_FALLBACK_MAJOR )); then
+        fallback="$cur_bin"
+    fi
+
     if [[ -n "${SUDO_USER:-}" ]]; then
-        local h nb
         # WARNING: with `set -e` + `pipefail`, `var=$(pipeline)` fails the whole
         # assignment when the pipeline fails, so the script exits SILENTLY with no
         # error at all. Here `find` returns non-zero when ~/.nvm does not exist, and
@@ -339,36 +375,79 @@ ensure_node() {
         # line was why a customer's Debian 13 install printed "Building frontend..."
         # and dropped straight back to the prompt.
         h=$(getent passwd "$SUDO_USER" | cut -d: -f6 || true)
-        nb=$(find "$h/.nvm/versions/node" -maxdepth 2 -name node -type f 2>/dev/null | sort -Vr | head -1 || true)
-        if [[ -n "$nb" ]] && [[ "$("$nb" -v 2>/dev/null | sed 's/^v//; s/\..*//')" -ge 18 ]]; then
-            ln -sf "$nb" /usr/local/bin/node
-            ln -sf "$(dirname "$nb")/npm" /usr/local/bin/npm 2>/dev/null || true
+        # nvm keeps node at ~/.nvm/versions/node/vX.Y.Z/bin/node, three levels down. This used
+        # to be `-maxdepth 2`, which never matched, so the nvm case had silently never run.
+        nb=$(find "$h/.nvm/versions/node" -mindepth 3 -maxdepth 3 -path '*/bin/node' -type f 2>/dev/null | sort -Vr | head -1 || true)
+        if [[ -n "$nb" ]] && (( $(node_major "$nb") >= NODE_REQUIRED_MAJOR )); then
+            ln -sf "$nb" "$NODE_LINK_DIR/node"
+            ln -sf "$(dirname "$nb")/npm" "$NODE_LINK_DIR/npm" 2>/dev/null || true
             hash -r
             log "Using nvm Node.js $("$nb" -v) from \$SUDO_USER ($SUDO_USER)"
-            return 0
+        elif [[ -n "$nb" ]]; then
+            log "nvm Node.js $("$nb" -v) of \$SUDO_USER ($SUDO_USER) is older than ${NODE_REQUIRED_MAJOR}; not using it."
         fi
     fi
-    log "Installing Node.js 20 (NodeSource)…"
-    # NOTE: errors are NOT silenced here — a failed Node install must be visible, not
-    # swallowed (a silent failure leaves the frontend unbuilt yet the install "looks" OK).
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-        || warn "NodeSource setup script returned non-zero (see output above)"
-    if ! apt-get install -y nodejs; then
-        # Likely the distro libnode-dev/headers (e.g. Ubuntu 22.04 v12) conflict with the
-        # NodeSource package files → purge the distro node stack and retry once.
-        warn "nodejs install hit a conflict; purging distro node packages and retrying…"
-        apt-get purge -y nodejs npm libnode-dev 2>/dev/null || true
-        apt-get autoremove -y 2>/dev/null || true
-        apt-get install -y nodejs || true
+
+    if (( $(node_major "$(command -v node 2>/dev/null || true)") < NODE_REQUIRED_MAJOR )); then
+        log "Installing Node.js ${NODE_REQUIRED_MAJOR} (NodeSource)…"
+        # NOTE: errors are NOT silenced here — a failed Node install must be visible, not
+        # swallowed (a silent failure leaves the frontend unbuilt yet the install "looks" OK).
+        curl -fsSL "https://deb.nodesource.com/setup_${NODE_REQUIRED_MAJOR}.x" | bash - \
+            || warn "NodeSource setup script returned non-zero (see output above)"
+        if ! apt-get install -y nodejs; then
+            if [[ -n "$fallback" ]]; then
+                # No purge-and-retry here: it would remove the very node this upgrade falls back
+                # on, and when the retry failed too (offline, proxy) the site would have none.
+                warn "nodejs ${NODE_REQUIRED_MAJOR} did not install; keeping the existing Node.js $("$fallback" -v) ($fallback)."
+            else
+                # Likely the distro libnode-dev/headers (e.g. Ubuntu 22.04 v12) conflict with the
+                # NodeSource package files → purge the distro node stack and retry once.
+                warn "nodejs install hit a conflict; purging distro node packages and retrying…"
+                apt-get purge -y nodejs npm libnode-dev 2>/dev/null || true
+                apt-get autoremove -y 2>/dev/null || true
+                apt-get install -y nodejs || true
+            fi
+        fi
+        hash -r
+        # NodeSource puts node in /usr/bin, but an older node earlier on PATH still wins --
+        # typically a /usr/local/bin/node link an earlier run made to a sudo user's nvm node --
+        # and the build would quietly go on using it.
+        cur_bin="$(command -v node 2>/dev/null || true)"
+        sys_major="$(node_major "$NODE_SYSTEM_BIN")"
+        if [[ -n "$cur_bin" ]] && (( sys_major >= NODE_REQUIRED_MAJOR )) \
+                && (( $(node_major "$cur_bin") < NODE_REQUIRED_MAJOR )); then
+            if [[ -L "$cur_bin" && "$(readlink "$cur_bin")" == */.nvm/* ]]; then
+                warn "Removing $cur_bin -> $(readlink "$cur_bin") (Node.js $("$cur_bin" -v)); it hid Node.js $("$NODE_SYSTEM_BIN" -v) in $NODE_SYSTEM_BIN."
+                rm -f "$cur_bin"
+                if [[ -L "$(dirname "$cur_bin")/npm" && "$(readlink "$(dirname "$cur_bin")/npm")" == */.nvm/* ]]; then
+                    rm -f "$(dirname "$cur_bin")/npm"
+                fi
+            else
+                warn "$cur_bin (Node.js $("$cur_bin" -v)) comes before $NODE_SYSTEM_BIN on PATH; using $(dirname "$NODE_SYSTEM_BIN") first for this run."
+                PATH="$(dirname "$NODE_SYSTEM_BIN"):$PATH"
+            fi
+            hash -r
+        fi
     fi
-    hash -r
-    # Verify: Node must be >= 18, otherwise stop NOW with a clear, debuggable error —
-    # don't let the frontend build silently fail later while the install appears successful.
-    ver=$(command -v node >/dev/null 2>&1 && node -v 2>/dev/null | sed 's/^v//; s/\..*//' || echo 0)
-    if [[ "${ver:-0}" -lt 18 ]]; then
-        die "Node.js install failed or too old (need >= 18; got '$(command -v node >/dev/null 2>&1 && node -v || echo none)').\n  Install Node 20 manually, then re-run install:\n  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash - && sudo apt-get install -y nodejs"
+
+    # Verdict: verify what PATH really resolves to now -- don't let the frontend build fail
+    # later (or quietly use an old node) while the install appears successful.
+    cur_bin="$(command -v node 2>/dev/null || true)"
+    cur="$(node_major "$cur_bin")"
+    if (( cur >= NODE_REQUIRED_MAJOR )); then
+        log "Using Node.js $("$cur_bin" -v) ($cur_bin)"
+    elif [[ -n "$fallback" ]] && (( cur >= NODE_FALLBACK_MAJOR )); then
+        warn "================================================================================"
+        warn "Node.js ${NODE_REQUIRED_MAJOR} could not be installed -- see above. The upgrade continues and builds the"
+        warn "frontend with the existing Node.js $("$cur_bin" -v) ($cur_bin), which still works for now;"
+        warn "a later version will need ${NODE_REQUIRED_MAJOR}. Fix it, then re-run the upgrade:"
+        warn "  curl -fsSL https://deb.nodesource.com/setup_${NODE_REQUIRED_MAJOR}.x | sudo bash - && sudo apt-get install -y nodejs"
+        warn "  sudo $0 upgrade"
+        warn "================================================================================"
+    else
+        die "Node.js install failed or too old (need >= ${NODE_REQUIRED_MAJOR}; got '$([[ -n "$cur_bin" ]] && "$cur_bin" -v 2>/dev/null || echo none)').\n  Install Node ${NODE_REQUIRED_MAJOR} manually, then re-run ${mode}:\n  curl -fsSL https://deb.nodesource.com/setup_${NODE_REQUIRED_MAJOR}.x | sudo bash - && sudo apt-get install -y nodejs"
     fi
-    log "Using Node.js $(node -v)"
+    NODE_READY=1
 }
 
 # Memory the system can still hand out, in MB: MemAvailable + free swap, capped by the
@@ -414,10 +493,10 @@ ensure_build_memory() {
 # Build the frontend as root with a clean toolchain, then hand ownership back to $2.
 # Why as root: avoids (a) stale corepack pnpm shims pinned to an old /usr/bin/node, and
 # (b) sudo -u / PAM failures when the owner is a nologin system account on restrictive hosts.
-# $1 = frontend dir, $2 = owner (user:group)
+# $1 = frontend dir, $2 = owner (user:group), $3 = install | upgrade (how ensure_node may fall back)
 build_frontend() {
     local fdir="$1" owner="$2" pnpm_bin
-    ensure_node
+    ensure_node "${3:-install}"
     cd "$fdir"
     # drop stale corepack pnpm shims (they may hardcode an old node path → v12 errors)
     rm -f /usr/bin/pnpm /usr/local/bin/pnpm 2>/dev/null || true
@@ -442,8 +521,12 @@ build_frontend() {
     rm -f "$pnpm_log"
     log "Using pnpm $("$pnpm_bin" --version) (node $(node -v))"
 
-    HOME=/var/lib/jt-ipam "$pnpm_bin" install --frozen-lockfile \
-        || HOME=/var/lib/jt-ipam "$pnpm_bin" install
+    # CI=true: when node_modules was laid out by another pnpm version/config, pnpm asks
+    # "The modules directory will be removed and reinstalled. Proceed?" and, with no terminal
+    # (upgrade over SSH, cron, systemd), takes no answer as "no" and installs nothing; the build
+    # then fails on the new dependency (2026-10-05, tweetnacl on the production host).
+    HOME=/var/lib/jt-ipam CI=true "$pnpm_bin" install --frozen-lockfile \
+        || HOME=/var/lib/jt-ipam CI=true "$pnpm_bin" install
     ensure_build_memory
     if ! HOME=/var/lib/jt-ipam "$pnpm_bin" run build; then
         # a failed upgrade must not leave the site down because we paused the backend for the build
@@ -495,7 +578,7 @@ ensure_unit_dirs() {
 # headers nginx forwards a plain GET, the backend has no HTTP route at that
 # path, and the browser sees a bare 404 with nothing to suggest the proxy.
 # That is exactly how SFTP shipped broken in 0.5.155.
-WS_PROTOCOLS='ssh|sftp|rdp|vnc|novnc|bmc'
+WS_PROTOCOLS='ssh|sftp|rdp|vnc|novnc|bmc|rustdesk'
 WS_LOCATION_LINE="location ~ ^/api/v1/addresses/[0-9a-fA-F-]+/(${WS_PROTOCOLS})/ws\$ {"
 
 # Apply an nginx config change: test it, make sure nginx is actually RUNNING and
@@ -1223,7 +1306,7 @@ cmd_install() {
     )
 
     # Node.js is handled by ensure_node() right before the frontend build — distro 'nodejs'
-    # on Ubuntu 22.04 is v12 (too old), so we install NodeSource 20 / reuse a modern node instead.
+    # is too old on most supported releases, so we install NodeSource 22 / reuse a node >= 22 instead.
     # only install nginx in nginx mode
     if [[ "$TLS_MODE" == "nginx" ]]; then
         PKGS+=(nginx)
@@ -1846,6 +1929,19 @@ cmd_doctor() {
     else
         _bad "frontend was never built (no dist/index.html)" "sudo $0 upgrade"
     fi
+    # The build toolchain is only used by install / upgrade, so an old one is a warning. A site
+    # shows it after an upgrade that could not install Node.js 22 and fell back (ensure_node).
+    local nbin nmaj
+    nbin="$(command -v node 2>/dev/null || true)"
+    nmaj="$(node_major "$nbin")"
+    if (( nmaj >= NODE_REQUIRED_MAJOR )); then
+        _ok "Node.js $("$nbin" -v) for building the frontend"
+    elif (( nmaj > 0 )); then
+        _warn "Node.js $("$nbin" -v) is older than ${NODE_REQUIRED_MAJOR}, which building the frontend needs" \
+              "curl -fsSL https://deb.nodesource.com/setup_${NODE_REQUIRED_MAJOR}.x | sudo bash - && sudo apt-get install -y nodejs   (or: sudo $0 upgrade)"
+    else
+        _warn "Node.js not found (only needed to rebuild the frontend)" "sudo $0 upgrade   (installs it)"
+    fi
 
     # ── scheduled work ──
     echo
@@ -2124,6 +2220,13 @@ cmd_upgrade() {
         exec bash "$ROOT/scripts/jt-ipam.sh" upgrade --no-pull "${UPGRADE_ARGS[@]}"
     fi
 
+    # -- 2b. Node.js for the frontend build: settle it before anything touches the database.
+    # Found out at build time (as it used to be), a missing node stopped the upgrade with the
+    # schema already migrated under a backend still running the old code. Falls back to an
+    # existing Node >= 20 when 22 cannot be installed -- see ensure_node. The call in
+    # build_frontend is then a no-op.
+    ensure_node upgrade
+
     # -- 3. back up the database (use the existing script if present) --
     if [[ -x "$ROOT/scripts/jt-ipam-backup.sh" ]]; then
       log "Backing up the database…"
@@ -2161,7 +2264,7 @@ cmd_upgrade() {
 
     # -- 6. frontend build (as root with a clean toolchain, then chown back) --
     log "Building frontend…"
-    build_frontend "$ROOT/frontend" "$JTIPAM_USER:$JTIPAM_USER"
+    build_frontend "$ROOT/frontend" "$JTIPAM_USER:$JTIPAM_USER" upgrade
 
     # -- 6b. ensure nginx forwards WebSocket (SSH terminal); idempotent, safe no-op if already present --
     patch_nginx_websocket

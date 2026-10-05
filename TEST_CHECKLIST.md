@@ -165,6 +165,11 @@ to see what a customer sees.**
   the version you already shipped. It writes a row *before* upgrading and checks it survived:
   losing data is the worst upgrade failure and it does not make any command exit non-zero
 - [ ] Against a previous-version environment `scripts/jt-ipam.sh upgrade` also rolls back if needed
+- [ ] **Node.js 22 for the frontend build**: both gates check `node -v` in the container against `engines.node`
+  (fresh install: v22 and `doctor` shows "Node.js v22... for building the frontend"; upgrade from a release that
+  used Node 20, v0.6.61 or older: the log shows Node.js v20 -> v22 and the site still answers over HTTPS). The
+  fallback (22 cannot be installed during an upgrade: keep Node 20 or newer, warning banner, `doctor` warns; a
+  fresh install stops) and the nvm cases are covered by `scripts/tests/test_ensure_node.sh`
 - [ ] If this release added a directory / package / service / DB extension / env,
   confirm **`install` and `upgrade` are both in sync**, and that `doctor` checks it
 - [ ] **`scripts/jt-ipam.sh doctor` on prod after deploying**: every line green, or
@@ -196,6 +201,19 @@ to see what a customer sees.**
 
 ## 5c. Real-browser testing: **mandatory for every release that touches the UI**
 
+- [ ] **Run the full e2e with `frontend/e2e/run-release.sh`** (not a hand-rolled `--workers=2` over everything): ordinary
+  specs run in parallel, the specs in `e2e/global-state-specs.txt` that change system-wide settings run afterwards one at
+  a time; run `seed_e2e` first
+- [ ] **Console connection path** (`e2e/console-route-note.spec.ts`, `tests/test_console_route_describe.py`): SSH / SFTP /
+  RDP / VNC connect forms show "Connection path: Direct / via jump host "X" / via scan agent "X"" and where it is set (IP
+  or subnet); a disabled jump host, an unpinned host key or an agent not allowed to relay shows the reason before
+  connecting; "Change" opens a dialog in place (without leaving the connect form) to set this IP's exit, and after
+  saving the path line updates (set on the IP); "Change it for the whole subnet" opens the subnet edit dialog; with no
+  jump host available and no agent allowed to relay it says only direct is possible and has no Save button; accounts
+  that cannot edit do not see "Change"
+- [ ] **Jump hosts are a tab on the Scan agents page**: no "Jump hosts" in the sidebar; `/jump-hosts` redirects to
+  `/scan-agents?tab=jump`; switching tabs updates the URL
+
 - [ ] Mobile sidebar (`frontend/e2e/mobile-sidebar.spec.ts`, 390×844): collapsed to zero width with the content
   starting at the left edge; the top-left button opens it over the content; picking a page or tapping the
   dimmed area closes it; desktop is unchanged
@@ -211,6 +229,18 @@ to see what a customer sees.**
   without a fixed layout squeeze IPs into a vertical line on phones; run the phone sweep with it). Arrows
   appear only when the tab bar does not fit and only on the side that has more; the first and last tabs are
   reachable and the arrows never block a tab click
+- [ ] **Drag to reorder columns** (every "Columns" picker; `e2e/column-reorder.spec.ts`, vitest
+  `columnPickerWiring.test.ts` fails if a picker or a page's columns are not wired): dragging a row by its handle
+  moves the table column the same way, also by touch on a phone and with the up and down arrow keys on a focused
+  handle; the order survives a reload with the local cache cleared (it comes from `table_columns["<table>:order"]`);
+  hiding a column and showing it again puts it back where it was; the selection column, columns fixed left or right
+  and columns that are not in the list (actions) do not move; the export uses the displayed order; "Reset to
+  default" restores the order. With every column ticked, the list shows the columns in the same order as the table
+  header (it did not on Subnets, Locations, NAT and Connections, so the first drag made unrelated columns jump).
+  **A table that was never reordered must look exactly as before** (an old saved visible list is in click order and
+  must not be read as a column order). Spot-check pages that build columns themselves: Subnet detail (idle-range rows still span from IP
+  to the last column), Anomaly categories, Attack surface, and the tabs of Advanced modules, Cabling and power,
+  and Virtualization
 - [ ] The four phone reports (`frontend/e2e/mobile-overflow.spec.ts`): the sidebar scrolls under a finger and
   does not scroll the page behind; console status bars wrap instead of stacking one character per line; the
   notification popover stays on screen; rack diagrams default to a zoom that fits the phone and remember a
@@ -780,6 +810,267 @@ what a console is allowed to do.
 - [ ] `e2e/dhcp-standalone.spec.ts`: a failing Kea test connection shows the real reason (not the browser's own
   15-second timeout); ISC file status; an agent already in use is disabled in the picker
 
+## 7b4. RustDesk Server (open source): **whenever this integration, the RustDesk agent or the IP detail change**
+
+- [ ] **A real RustDesk Server round trip** (official deb, `/var/lib/rustdesk-server`; `tests/test_agent_rustdesk.py`,
+  `tests/test_rustdesk.py`): the agent reads only id / created_at / info.ip (never pk / uuid, never `id_ed25519`);
+  `::ffff:` addresses become IPv4; the online count matches what hbbs reports; the online query goes to the host's own
+  address (from 127.0.0.1 hbbs answers as its text admin console); a non-default `PORT` in `.env` is followed
+- [ ] **Dedicated RustDesk agent install** (`agent/jt-ipam-rustdesk-agent-installer.sh`, a clean Debian / Ubuntu with the
+  official RustDesk Server deb): Add a server → the dialog shows the one-line install command with that server's key;
+  run it on the RustDesk host → `jt-ipam-rustdesk-agent` is active, runs as the owner of `/var/lib/rustdesk-server`
+  (`systemctl show -p User`), the directory is read-only for it (`touch` from `nsenter`/a test fails), the config is
+  root 0600, and the agent column turns "Connected" with host, source IP and version within ~10 s. Re-running upgrades
+  in place; `JT_IPAM_UNINSTALL=1` removes service, program and config and leaves RustDesk untouched
+- [ ] **Agent key**: shown once on Add, again via "Install command" (audited `view_agent_key`); "New key" makes the old
+  key fail at once (agent logs 401 and stops receiving); deleting the server makes the agent's polls fail; a key cannot
+  write another server's data (409); a server created before the dedicated agent shows "No key" with "Generate key"
+- [ ] **Test / Sync now**: Test lists each check (data directory, database, public key, hbbs version, online query,
+  receiver) with the real reason when one fails (e.g. port 21114 taken); with no agent connected it says so and times
+  out after 60 s; Sync now reports within ~10 s (last report time changes); a disabled server refuses Sync now and the
+  agent stops reading and listening but keeps polling
+- [ ] **Page layout** (`e2e/rustdesk.spec.ts`): tabs RustDesk servers / Devices / Connection audit (`?tab=` kept in the
+  URL); edit / test / sync now / install command visible without horizontal scrolling at 1280 px (pinned column, no
+  text showing through it in dark mode); the scan agents page no longer lists anything for RustDesk
+- [ ] An unreadable database keeps the device list and the last error names the path and reason; a failed online
+  query keeps the last state; a truncated report deletes nothing; a device removed from hbbs is removed here; an
+  agent silent for 3x its interval raises a health alert
+- [ ] Mapping: a unique IP that was online within 7 days is mapped; never seen online / offline over 7 days / three or
+  more IDs on one IP (NAT) / two online on one IP / overlapping subnets / unmanaged IP are not, and the page says why
+- [ ] IP detail shows the ID and online state; the "RustDesk" button's link is
+  `rustdesk://connect/<id>@<client address>?key=<public key>` with no password, opens the installed client, and is
+  missing for users without remote console rights (they still see the ID)
+- [ ] `e2e/rustdesk.spec.ts`: server row (version, counts, agent host), device search / online filter / mapping labels,
+  jump to the IP, the connect link, client address validation, install command, test round trip, sync now; check
+  zh / en / ja once
+- [ ] **Client report receiver** (RustDesk agent, `tests/test_agent_rustdesk_api.py`, `tests/test_rustdesk_contract.py`):
+  listens on 21114 only while the server is enabled and "Receive client reports" is on (switch it off → port closed;
+  a bind failure shows on the page); a real client
+  with an empty API server field sends heartbeat / sysinfo within a minute; heartbeat answer is always `{}`, never
+  strategy / disconnect / modified_at; a wrong uuid is dropped and counted; the uuid appears in no forwarded payload
+  and no log; 64 KB / 10 s / per-IP rate and connection limits; a malformed event is skipped server-side (`rejected`)
+  instead of failing the batch
+- [ ] **Connection audit and alarms**: connect from another machine with a password, transfer a file, close → the audit
+  tab shows connected → authenticated (peer ID, name, type) → file → closed; six wrong passwords → alarm row and one
+  `rustdesk.alarm` notification (not one per attempt); the notification link opens the audit tab; audit older than
+  400 days is pruned
+- [ ] **Multi-signal mapping**: the heartbeat source IP wins over a NAT-shared registered IP; a matching host name is
+  listed as evidence; a host name differing from the record gives "Host name differs" and no mapping only when the
+  registered IP is the sole evidence (a fresh heartbeat from that address still maps it); a name-only match is a
+  suggestion; generic names (localhost, ubuntu, desktop…) are not evidence
+- [ ] **Per-IP RustDesk switch** (`test_connect_button_needs_the_per_ip_switch`, `e2e/rustdesk.spec.ts`): the connect
+  button appears only after "Enable RustDesk connection" is on for that IP (admin too), carries the "Local" badge,
+  and disappears when switched off; the switch shows only for IPs mapped to a RustDesk device; the IP page RustDesk
+  row has no online state / last online / host name, and "Last seen by source" lists "RustDesk client"
+- [ ] **Identify updates the IP's device type** (`test_device_kind_identify.py`): run Identify on a camera / printer
+  whose IP shows "server" → the IP page shows the identified type afterwards; the next periodic cycle keeps it (no
+  `kind_changed` entry); a periodic result with service evidence of another device still changes it
+- [ ] **Device type column** (`test_device_kind_columns.py`): Connections, Wazuh / OCS "IPs without an agent",
+  Anomalies and Exposed services offer 設備類型 in the column picker (default shown where noted), sort by it (the
+  missing-agent lists sort on the server with `sort=device_kind`, empty last) and export it
+- [ ] **IP form save keeps the host name** (`test_ip_edit_keeps_hostname.py`): open an IP whose name has no source
+  observation, change only the description, save → the host name stays and no `hostname_changed` entry appears
+- [ ] **Host name source `rustdesk`** (`test_reported_hostname_feeds_the_ip_record_last`): a mapped device's reported
+  name fills an IP that has no other name; an IP named by DNS / another source keeps that name; the source shows last
+  in the host name order settings as "RustDesk client"; generic names are not used; the name is withdrawn when the
+  device is no longer mapped and when the RustDesk server is deleted
+- [ ] **RustDesk-compatible web connection: real round trip** (test target `scripts/rustdesk-test-target/run.sh up`, wired to
+  a disposable dev database with `seed_jtipam.py` from the same folder; unit tests `tests/test_rustdesk_web_proto.py`,
+  `tests/test_rustdesk_web_net.py`, `tests/test_rustdesk_web_console.py`, frontend `src/rdweb/__tests__/`): turn on "Web
+  connection" in the RustDesk server form and set the hbbs address (or leave it empty to use the agent's address) → the
+  RustDesk button on the IP page opens a new tab; enter the device password → the picture shows within seconds; switch the
+  transport to WebSocket and connect again, same result; backend logs and audit contain no password, hash or key
+- [ ] **Login**: the right password connects at once; a wrong password asks again and the right one then connects **without
+  reconnecting**; an empty password pops up the approval dialog on the device while this side shows "Waiting for approval"
+  (the test target has no connection manager window, so check this on a real desktop); 3 wrong passwords → jt-ipam blocks
+  first (no fourth attempt, new tickets get 429) and the device never reaches its own limit of 6; a device with two-factor
+  login asks for the code and a wrong code can be retyped
+- [ ] **Picture**: VP9 shows; after the device changes resolution the picture is right; two tabs connected to the same device
+  both work; a tab frozen for 10 seconds (or put in the background) recovers without stalling or garbage; a device with a
+  hardware H.264 encoder also shows a picture with H.264 (if not, note it and stop advertising it); "Fit" and "Original
+  size" both work
+- [ ] **Input**: left, right and middle button, double click, drag (a window can be dragged), wheel direction (scrolling down
+  moves the page down); the four corners are exact (in the test target measure with
+  `docker exec rdtest-client sh -c 'DISPLAY=:0 xdotool getmouselocation'`); typing is right with Chinese and English keyboard
+  layouts; CapsLock on and off; the numeric keypad (NumLock on and off); the Ctrl+Alt+Del and "Lock screen" buttons; holding
+  Shift while switching to another window and back leaves no stuck key; view only sends no input
+- [ ] **Remote cursor** (appendix E of the spec; unit tests `src/rdweb/__tests__/cursor.test.ts`): in the test target,
+  move over a text field → the local pointer becomes a text cursor, sized with the picture (check "Fit" and "Original
+  size"); when the device hides its cursor the local pointer is hidden too;
+  `docker exec rdtest-client sh -c 'DISPLAY=:0 xdotool mousemove 200 200'` → a remote cursor appears at that spot and
+  goes away when you move the mouse locally (or after 3 seconds); switching displays or reconnecting brings back the
+  normal pointer; a device whose picture already contains the cursor shows only one cursor; repeat on a real Windows
+  device
+- [ ] **Keepalive**: connected and untouched for 5 minutes, the session stays up (neither the hbbr nor the device 30-second
+  idle limit triggers)
+- [ ] **Automatic reconnect** (spec appendix G; frontend `src/rdweb/__tests__/reconnect.test.ts`,
+  `src/components/__tests__/rustdeskReconnect.test.ts`): connected to the test target, run `docker restart rdtest-client`
+  → the page shows "Connection lost" with a countdown ("reconnecting in N s, attempt k of 8") and **Reconnect now** /
+  **Cancel**, never the manual "Reconnect" state; once the device is back it connects by itself and the picture shows;
+  every attempt has its own ticket and `rustdesk.web_session_open` / `rustdesk.web_session_close` entries. Restart the
+  jt-ipam backend during a session → same. **Cancel** goes back to "Disconnected" with the manual "Reconnect" button
+  and nothing more is tried; with the device kept down there are 8 attempts (1, 2, 3, 5, 5, 10, 10, 15 s apart) and then
+  the error with the last reason. A device that has just restarted may answer the first login with "connection refused":
+  the page keeps counting down and connects on a later attempt instead of stopping. With "Remember password" on, the password is saved once, not again after a reconnect;
+  with a saved password every attempt logs `rustdesk.saved_password_used`; change the device password while it is down
+  → the reconnect stops at the password prompt. View only and the clipboard switch keep their values; the device ending
+  the session with a reason, or **Disconnect**, does not reconnect; localStorage and sessionStorage hold no password or
+  hash. While the device is down, change its IP allowlist so it leaves out the jt-ipam server (or make it accept
+  connections only while its main window is open) → the reconnect gets "Your ip is blocked by the peer" (or "The main
+  window is not open"), stops at once and shows the reason instead of trying 8 times. On a real Linux device at the GDM
+  login screen, log in through the web session → it comes back on the new desktop session without a click
+- [ ] **Session switches on the device** (spec appendix G.5; frontend `src/rdweb/__tests__/sessionSwitch.test.ts`):
+  every reconnect's LoginRequest carries the same `session_id` and `my_name` as the first connection, and no
+  `close_reason` is sent before a reconnect (only **Disconnect** sends one); Windows logoff, user switch and an RDP
+  session taking the console reconnect by themselves, while lock, Ctrl+Alt+Del and UAC do not drop the session; on Linux
+  log out and switch users with GDM and with another display manager (LightDM or SDDM), X11 and Wayland; on macOS log in
+  from the login window. A device with a one-time password that restarts → the reconnect stops at the password prompt
+  with the one-time password hint; connect with an empty password while the device is at its login screen → "The device
+  is at its login screen" and the password works on the same connection; a Wayland login screen → the explanation with
+  the documentation link as plain text and no retries; after logging in to a Wayland desktop the "choose the screen to
+  share" message box appears and the page keeps waiting until someone at the device chooses
+- [ ] **Windows session picker** (spec appendix G.6): an installed Windows device with a console and an RDP session
+  (sharing RDP sessions on) → the page lists both with the current one marked; keep the current one → the picture
+  appears; pick the other → the device switches, the page reconnects by itself and shows that session without asking
+  again; with only one session nothing is asked and the picture appears; zh / en / ja once
+- [ ] **Linux device without a desktop** (spec appendix G.7; RustDesk 1.4.x with "allow headless" on, nobody logged in):
+  the page asks for the OS username and password (plus the RustDesk password when the device says it is empty or wrong);
+  the second login goes over the same connection (one `rustdesk.web_session_open`) and the desktop appears within about
+  10 seconds; a wrong OS password ("Desktop xsession failed") asks again; another user already logged in ends with an
+  explanation; the OS username and password appear in no browser storage, log or audit entry, and a later reconnect
+  does not send them again; three wrong RustDesk passwords on this path ("password wrong", mixed with "Wrong Password"
+  or not) hit the same per-user limit (`tests/test_rustdesk_web_console.py`), while the "password empty" prompt does not
+  count
+- [ ] **Clipboard** (spec appendix F; frontend `src/rdweb/__tests__/clipboard.test.ts`, `clipboardSession.test.ts`): the
+  toolbar "Clipboard" switch is on by default, off and greyed out in view only. On the device run
+  `docker exec rdtest-client sh -c 'echo -n peer-123 | DISPLAY=:0 xclip -selection clipboard'` → the browser clipboard
+  holds `peer-123` (with the tab in the background, the "copied something" prompt appears and one click copies it); copy
+  text in the browser, click the picture, press Ctrl+V in an application on the device → it pastes the new text, not the
+  old one (`xclip -o -selection clipboard` on the device shows it; on a Mac, Cmd+V does the same); **Send text** changes
+  the device clipboard without pressing a key; more than 1 MB in either direction is refused with a message; switch it
+  off → neither direction syncs and Ctrl+V pastes the device's own clipboard; switch it back on → syncing resumes.
+  Repeat once against a real Windows device (copy and paste in Notepad on both sides)
+- [ ] **Multiple displays and quality** (spec appendices H and I; frontend `src/rdweb/__tests__/displays.test.ts`,
+  `quality.test.ts`, `src/components/__tests__/rustdeskDisplayQuality.test.ts`): with one display and no
+  resolution to choose there is no **Displays** menu; a single physical display that reports resolutions shows the
+  menu with only the **Resolution** submenu, and picking one changes the device's resolution. Give the test target a second display (or use a real two-monitor device): the menu lists both with
+  their sizes and marks the current and the primary one; switching shows the other display, and clicking into an xterm
+  on the second display and typing works where you click; unplug the display you are viewing → a notice and back to the
+  primary display; change the resolution of the shown display → the picture follows, no switch; restart the device
+  container while on display 2 → after the automatic reconnect you are on display 2 again. The **Resolution** submenu
+  is missing in view only. **Quality**: Low and Best change the bitrate in the toolbar readout; with a 15 fps limit the
+  decoded frames per second stay at 15 or below; the codec list shows only codecs both sides support, and switching the
+  codec keeps the picture; reload the page → the three choices are kept, and browser storage holds only
+  `jt-ipam.rdweb.quality` (level, custom value, fps, codec)
+- [ ] **Security**: one character wrong in the public key stored in jt-ipam → "public key does not match the server"; hbbs
+  started with `-k <public key string>` (does not sign the device identity) → refused, no downgrade, and the
+  message points to the key file (`KEY=_`); replayed, expired
+  (30 seconds) or other-IP tickets are refused; without remote console rights, with RustDesk connections off on the IP or
+  with web connections off on the server there is no button and no ticket
+- [ ] **Audit and resources**: every session has `rustdesk.web_session_open` / `rustdesk.web_session_close` (RustDesk ID,
+  transport, relay name from hbbs, relay address actually used, end reason, login results reported by the browser); the
+  device's own connection audit (`my_name` is "user (jt-ipam)") matches; more than 3 sessions per user or 20 per server
+  are refused
+- [ ] **Install and upgrade**: a fresh install's nginx console WebSocket location includes `rustdesk`; upgrading an older site
+  with `jt-ipam.sh upgrade` rewrites the location to include `rustdesk` and `jt-ipam.sh doctor` shows "nginx forwards
+  WebSocket for all consoles"; after migration 0180 every server has web connections off
+- [ ] **Device type from IPAM facts**: an IP whose device record is a firewall/router/switch/AP shows that type even when
+  Identify guesses otherwise; a LibreNMS-classified firewall, printer, AP, NAS or switch likewise; a Linux machine with a
+  Wazuh/RustDesk/OCS agent and xrdp is a server, not Windows; a VM never becomes a switch/printer/camera; a DHCP address
+  whose old VM or Wazuh agent belonged to another machine (different MAC, agent silent > 7 days) is not influenced by
+  them; the Identify page shows "The IP record uses: … (from …)". An iPhone (port 62078) is a phone/tablet; the Identify
+  summary shows the device vendor and the NIC vendor on separate rows.
+- [ ] **Device type knowledge tables** (`tests/test_device_kind_knowledge.py`, `tests/test_device_kind_generic.py`,
+  `tests/test_ip_identify_regex_safety.py`): run Identify on every kind of device the site has (camera, IP phone, UPS
+  card, NAS, firewall, AP, printer, ESXi or PVE host, BMC, PLC or building controller, streaming player, phone) and check
+  the type and its evidence line. A Linux server with node_exporter (9100), CUPS (631), Plex or video management software
+  such as Blue Iris stays a server. A NIC vendor shown as SonoSite, Carlo Gavazzi or Boser gives no type, while
+  `ZhejiangDahu`, `AmericanPowe` and `SonyInteract` give camera, specialized and media; a phone with a randomized MAC gets
+  no type from its vendor. Host names: `DESKTOP-XXXXXXX` gives Windows, `nvr-server` and `camera-archive-01` give no
+  device type, `*.cam.ac.uk` is not a camera, and an address named `printer-2f` that a Windows PC now uses shows Windows.
+  After the scan agents update to 1.17.2, the identify result carries `method`/`devicetype` per port, and a Linux host
+  whose 445 nmap only guessed from the port table (Samba) is not Windows.
+- [ ] **Device type, second-round rules** (the "second adversarial round" tests in `tests/test_ip_identify.py`,
+  `tests/test_device_kind_identify.py`): Identify on a router or IoT gateway that only serves a web page and no SSH
+  gives unknown (not server); a Linux host with OpenSSH or a Debian/Ubuntu string is still a server; a device running
+  BusyBox is not a server. An AP with 3517 open (VigorAP) is a wireless AP, and a DrayTek NIC without a model is not a
+  router. A Samba AD DC (135 says Microsoft Windows RPC, OS is Debian) is a server, not Windows; a Windows desktop
+  running Docker Desktop stays Windows. A bare-metal Proxmox Mail Gateway or Datacenter Manager is not a hypervisor. A
+  Tapo plug (Server header SHIP 2.0) is specialized and a Tapo camera is a camera; an Apple TV is media and an iPhone is
+  mobile. A Debian VM's OS shows Debian Linux 11/12/13 instead of Linux 2.6.32. The host name `P105` gives specialized
+  only on a TP-Link NIC, and `voip-router-2` and `smart-gw` give no type.
+- [ ] **Local RustDesk client audit** (`tests/test_rustdesk_local_open.py`): clicking "Open in the RustDesk client software on this computer" (the arrow item or the "Local" button) adds an audit entry `rustdesk.local_client_open`, and an admin's Investigate lists it under recent remote sessions; an account without RustDesk rights gets 403 from the endpoint.
+- [ ] **RustDesk split button**: with the web connection available the IP page has one RustDesk button whose arrow offers
+  "Open in the RustDesk client software on this computer"; hovering the arrow and that item shows a tooltip; without it,
+  the single local-app button with the "Local" badge.
+- [ ] **Page kept on back**: on page 2 of a subnet's IP list (and of the IP address list), open an IP and go back: still
+  page 2, with the page size kept.
+- [ ] **Wrong Key on a client**: set a client's RustDesk Key wrong (change the case of one letter) and try the web
+  connection: within about 10 seconds the RustDesk page shows "Wrong Key 1" on the server row (click lists only that
+  device), the device list marks it, the IP page and device page explain it, and the web connection fails with the
+  wrong-Key message without restarting from rendezvous. Fix the Key and connect again: the mark goes away. Several clients
+  behind one NAT IP are not marked. **Test** shows the hbbr/hbbs log check; with `JT_RD_LOG_DIR` pointing at a missing
+  directory it fails and everything else keeps working. Rotating the log (`logrotate -f`) does not lose or repeat
+  events. Agent 1.0.0 polling an upgraded server still works and updates itself.
+- [ ] **Delete old registrations** (`tests/test_rustdesk_peer_delete.py`, `tests/test_agent_rustdesk_delete.py`,
+  `tests/test_rustdesk_installer.py`, `e2e/rustdesk-peer-delete.spec.ts`; a real RustDesk Server, e.g. `scripts/rustdesk-test-target`): off by default, the
+  Devices tab has no tick column and "Delete old registrations" is greyed out with a tooltip that asks to switch the
+  setting on. With "Allow deleting old registrations" on but the agent not installed with `--allow-delete`, the tooltip
+  shows the agent's reason (not enabled on this host...), Test shows "Delete old registrations (write access)" as a
+  passing read-only check, and `systemctl cat jt-ipam-rustdesk-agent` still has `ReadOnlyPaths=/var/lib/rustdesk-server`.
+  The install dialog's command gains `JT_RD_ALLOW_DELETE=1` with an explanation; on the RustDesk host run
+  `... | sudo env JT_RD_ALLOW_DELETE=1 bash` (no URL or key) → the config keeps its URL and key and gains
+  `JT_RD_ALLOW_DELETE=1`, the unit has `ReadWritePaths=... /var/lib/rustdesk-server` and
+  `InaccessiblePaths=-/var/lib/rustdesk-server/id_ed25519` (the private key cannot be read from the service namespace
+  with `nsenter`), other hardening unchanged; within about 10 s the button can be used. Filter "Never seen online" →
+  "Tick all matching offline devices" → delete: the dialog states the count, that online devices are skipped and that a
+  client registers again by itself; within about 10 s "N deleted" appears, the list and device count update,
+  `sqlite3 db_v2.sqlite3 "select count(*) from peer"` drops by N and no other table changes; bring one ticked device
+  online first → it is "Skipped (online)"; lock the database or stop hbbs so the online check fails → "Failed" with the
+  reason and nothing deleted. A deleted client that comes back online reappears (one hbbs has seen since its last start
+  needs an hbbs restart first). "Deletion log" lists every result and who asked; the audit log has
+  `rustdesk.peer_delete_requested` (who, which IDs) and `rustdesk.peer_deleted`. Turning the setting off makes waiting
+  requests "Cancelled"; an agent offline for over a day makes them "Failed" (expired). Re-running the install command
+  without the flag makes the unit read-only again. With two or more servers the online filter changes only itself, not
+  the mapping status filter. Check zh / en / ja once.
+- [ ] **Password field**: Chrome with a saved jt-ipam login does not fill the RustDesk password field.
+- [ ] **Remember password** (appendix D; `tests/test_rustdesk_saved_password.py`, `src/rdweb/__tests__/session.test.ts`,
+  `e2e/rustdesk-web.spec.ts` against the test target, form states in `e2e/rustdesk.spec.ts`; the form is laid out like
+  the VNC one, compare the two side by side at desktop and phone width): turn on the "Remember password" switch,
+  type a wrong password and then the right one → nothing is stored after the wrong one, and once the login succeeds the
+  vault holds exactly one `rustdesk` entry for that IP; open the connection again → the "Saved password" drop-down has
+  it selected, there is no password field or "Remember password" row, and it connects without typing (audit
+  `rustdesk.saved_password_used`, the credential's last-used time updates); change the device's password → the page says the saved password no longer works, does not retry it, offers
+  "Delete saved password", and the new password typed with "Remember password" replaces the old entry (still one
+  entry); picking "Use a different password (enter it below)" or clearing the drop-down shows the password field again,
+  and the delete button next to the drop-down removes the saved entry; localStorage and sessionStorage hold
+  no password or hash; backend logs and audit contain no password or hash; after the last entry is deleted (or when
+  nothing was ever saved) the whole "Saved password" row is gone (the same for the SSH, SFTP, RDP, VNC, noVNC and BMC
+  "Saved credentials" row)
+- [ ] **Same device, other IP**: on a device with two IPs where RustDesk maps to one, editing the other IP shows a
+  disabled "Enable RustDesk connection" with the mapped IP as a link (RustDesk ID, enabled or not); an IP that only shares
+  the hostname shows nothing; a user who cannot see the other subnet sees nothing.
+- [ ] **Relay refused**: a peer whose RustDesk Key differs from the server's fails the web connection with the relay
+  timeout message that names the Key as the most common cause (hbbr logs `Relay authentication failed ... invalid key`).
+- [ ] **UI**: the new fields in the RustDesk server form (web connection, hbbs address, relay address, transport) in zh /
+  en / ja; the Connections page has a RustDesk button and a "RustDesk" type filter; with web connections off the IP page
+  keeps the original button with the "Local" badge
+- [ ] **Send text, Type it** (appendix F.4; `src/rdweb/__tests__/typeText.test.ts`): in the test target's xterm type a
+  command with capitals, symbols and a line break and it runs; text with Chinese is refused with the clipboard hint;
+  2001 characters are refused; Stop during a long text leaves no stuck key; the button is disabled in view-only mode
+  and while the device has turned off control; zh / en / ja each once.
+- [ ] **File transfer** (appendix J; `tests/test_rustdesk_web_files.py`, `src/rdweb/__tests__/files.test.ts`,
+  `fileSession.test.ts`, `fileSave.test.ts`): with **Allow web file transfer** off the RustDesk ▾ menu on the IP page has
+  no **File transfer** and a `kind: "file"` ticket is refused (`rd_file_disabled`); turn it on (try the limits too) and
+  the entry opens a new tab; log in and the home folder is listed; on a Windows device going up from `C:\` lists the
+  drives; show hidden files; download a file and compare its hash with the one on the device (in Chrome a file over
+  200 MB asks where to save and is streamed); upload by picking and by dropping, then the same file again and the page
+  asks to overwrite or skip (with "apply to the rest"); new folder, rename, delete a file and a folder with contents;
+  cancel a running transfer; a second transfer waits in the queue; a file over the per-file limit is not sent; turn off
+  file transfer on the device during the connection and the page ends with the explanation, and a device without the
+  permission shows the translated reason at login; the audit log has `rustdesk.file_*` entries marked as reported by the
+  browser, without any file contents; zh / en / ja each once.
+
 - [ ] **Device import (issue #46, `e2e/device-import.spec.ts`, `tests/test_device_import.py`)**: a file exported from
   the list (once each in the zh / en / ja interface) imports back unchanged; the template with current devices imports
   back in update mode with zero errors; location / rack / unit by name, a rack alone implies its location, a rack
@@ -825,6 +1116,27 @@ NAT and address objects from syncing at all, while the UI showed a single error 
   not be wiped, `last_error` must say why, and the rule-change sentinel must not report "all removed"
 - [ ] **An unchanged field is not a manual edit**: change only the description in the IP edit form and
   save; neither the hostname source nor the MAC source may become manual
+- [ ] **An unknown-source MAC does not freeze** (2026-10-05: a DHCP address moved to another laptop and the IP page kept
+  showing the previous Apple vendor): set an IP's `mac_source` to NULL and its MAC to some other value, wait for a scan
+  agent or firewall ARP sync; the MAC must change to the real one with a "MAC changed" entry; when the value was already
+  right only the source is recorded, with no change entry
+- [ ] **A device change clears the previous device's names** (`test_mac_change_forgets_names_reported_by_the_previous_device`):
+  with NetBIOS/mDNS names on an IP, make its MAC change to another device; NetBIOS, mDNS, Wazuh, OCS and RustDesk vanish
+  from "Hostname sources" while manual, DNS, firewall and DHCP stay; the same MAC reported again clears nothing; the
+  first MAC fill clears nothing
+- [ ] **Manual hostname is removable** (`e2e/hostname-source-clear.spec.ts`): "Manual" under "Hostname sources" on the IP
+  detail has an x; it asks first, then the hostname is recomputed in precedence order and an audit entry is written;
+  other sources have no x; a read-only account sees no x; hovering each source shows "Last reported: <time>"
+- [ ] **Several MACs for one IP do not flip** (`test_several_devices_disagreeing_on_a_mac_decide_once_per_sync`,
+  `test_mac_run_decides_once_whatever_the_report_order`, `test_two_macs_for_one_ip_in_a_batch_do_not_flip`): three LibreNMS
+  devices report A and one reports B -> A, and three rounds log nothing more; a tie that includes the current MAC changes
+  nothing; a tie without it changes nothing; two Proxmox guests on one IP never flip whatever the report order; after syncs
+  `ip_change_log` must not show a "MAC changed" for the same IP every round
+- [ ] **One link button in the device field** (`e2e/device-link-single-button.spec.ts`): with the hostname equal to an
+  existing device's name only one "Link ..." button shows; changing the hostname (unsaved) to another device's name shows
+  that device's button instead
+- [ ] **RustDesk toolbar**: at about 1,370px wide with a Windows peer (longer status pill) all buttons stay on the first
+  line and latency/bitrate/fps/codec sit alone on the second line
 - [ ] **Device ports follow LibreNMS** (2026-09-27: a pulled dual-port NIC and USB NICs stayed in the
   list although LibreNMS had marked them deleted): pull a NIC / unplug a USB NIC, let LibreNMS rediscover,
   then sync or press "Import from source", and its ports disappear from Ports / cabling; ports you created
@@ -1190,6 +1502,21 @@ happy path of "an upload succeeded" is not enough.
   entries only) still produce conflicts, tied to their subnet so overlapping networks never conflict with each
   other; a MAC flipping between two addresses 3+ times in 24 h is flagged; the AI tool says "cannot be determined"
   when there is no evidence
+- [ ] **A dual-NIC host is not an IP conflict** (`tests/test_ip_conflict_evidence.py`): when a host's two networks
+  share a broadcast domain, both NICs answer ARP (ARP flux); two MACs that both belong to the same device (on its
+  other IPs or its ports) are not reported, a third machine still is, and an IP with no device keeps the old rule.
+  The periodic OS probe's "device type · vendor" comes from the MAC on the IP record, not the NIC that answered
+- [ ] **Integration states are translated** (`src/utils/integrationStatus.test.ts`): the Wazuh card on device detail
+  and the Wazuh / LibreNMS state in the Investigate report read "Active / Disconnected / Never connected", not
+  `active` / `disconnected`; check all three languages
+- [ ] **Investigate covers every integration** (`tests/test_investigate_sections.py`,
+  `src/utils/__tests__/investigateSections.test.ts`): on a Windows host with OCS, RustDesk, Zabbix, a VM, DHCP and
+  switch ports, Investigate shows Identity (type, the reason it was decided, NIC vendor, random MAC), Endpoint agents,
+  Virtualization, DHCP, Where it is plugged in, Firewall evidence and Last seen by source; a bare record shows none of
+  them (no empty headers). A department account gets no firewall objects/rules or DHCP offers; a global reader who is
+  not admin gets those but no probe, anomalies, AI findings or console sessions. `win11-desk-01`, `win11-desk-01.` and
+  `WIN11-DESK-01` from three sources are **not** a hostname conflict, `web01` vs `db01` is. All four exports (.md / .txt
+  / .html / .csv) contain the new sections and the same conflicts as the screen; check all three languages
 - [ ] **Anomaly filter** (`e2e/anomaly-filter.spec.ts`): one keyword (IP / hostname / MAC / details) filters every
   category and the tab counts read "matching / total"
 - [ ] **Firewall rule rot** (`tests/test_fw_rule_rot.py`): OPNsense Anti-Lockout rules, port forwards to an alias

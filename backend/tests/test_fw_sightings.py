@@ -143,3 +143,23 @@ async def test_leases_and_hostnames(db_session) -> None:
     got = dict((await db_session.execute(select(func.host(IPAddress.ip), IPAddress.hostname).where(
         IPAddress.in_dhcp_lease.is_(True)))).all())
     assert got == {"198.51.100.8": "printer-2f", "198.51.100.9": None}
+
+
+async def test_two_macs_for_one_ip_in_a_batch_do_not_flip(db_session) -> None:
+    """同一批裡同一個 IP 有兩個 MAC（ARP 是新的那台、租約還是上一台）：以前依序套用，每一輪都換兩次。"""
+    db_session.autoflush = False
+    sn = await _subnet(db_session)
+    ip = IPAddress(subnet_id=sn.id, ip="10.80.9.9", mac=_mac(2), mac_source="opnsense")
+    db_session.add(ip)
+    await db_session.commit()
+    for _ in range(2):
+        b = SightingBatch(db_session, source="opnsense", subnet_ids=[sn.id])
+        b.add("10.80.9.9", evidence="arp:opnsense", mac=_mac(1))
+        b.add("10.80.9.9", evidence=None, mac=_mac(2))
+        await b.flush()
+        await db_session.commit()
+        await db_session.refresh(ip)
+        assert str(ip.mac) == _mac(2)      # 每一輪都要檢查：異動記錄會把「改過去又改回來」合併掉，只看記錄看不出來
+    n = (await db_session.execute(select(func.count()).select_from(IPChangeLog)
+                                  .where(IPChangeLog.ip_id == ip.id, IPChangeLog.field == "mac"))).scalar()
+    assert n == 0

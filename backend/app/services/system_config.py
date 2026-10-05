@@ -1516,6 +1516,8 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     # 權限變更是低頻高影響 → 預設連 Email 都開；暴力破解只在「多個帳號同時被鎖」時發
     ("security.privilege_changed", True, True),
     ("security.brute_force", True, False),
+    # RustDesk 客戶端回報的告警（密碼一分鐘錯 6 次、累計 30 次、允許清單違規…）；同一台同一類 10 分鐘內只發一次
+    ("rustdesk.alarm", True, False),
 )
 
 

@@ -608,14 +608,33 @@ async def sync_arp(
     await session.execute(update(IPAddress).where(in_values(IPAddress.id, [v[0] for v in target.values()]))
                           .values(last_seen_arp=now).execution_options(synchronize_session=False))
 
-    # MAC：依優先序只挑真的要覆寫的（照 ARP 回報的順序模擬，後面的可以蓋掉前面的，同以前）
+    # MAC：同一個 IP 可能有好幾台設備各回一個 MAC（某台的 ARP 快取沒老化，還留著上一台的 MAC；
+    # LibreNMS 不給時間，分不出誰新）。以前照回報順序一筆一筆套，同一輪 MAC 來回換好幾次、每輪都記異動
+    # （2026-10-05 正式環境 14 個 IP 每 16 分鐘來回跳）。現在每個 IP 一輪只決定一次：取最多台設備回報的
+    # MAC；目前的 MAC 也在並列最多之中就不動；最多的有兩個以上又都不是目前的 → 不猜。
+    votes: dict[str, dict[str, list[Any]]] = {}
+    for e in entries.values():
+        votes.setdefault(e["ip"], {}).setdefault(normalize_mac(e["mac"]), [0, e["mac"]])[0] += 1
     order, disabled = await load_precedence(session)
     changes: list[tuple[uuid.UUID, str]] = []
-    for e in entries.values():
-        t = target.get(e["ip"])
-        if t and would_take(order, disabled, cur_mac=t[1], cur_source=t[2], mac=e["mac"], source="librenms"):
-            changes.append((t[0], e["mac"]))
-            t[1], t[2] = e["mac"], "librenms"
+    for ipv, by_mac in votes.items():
+        t = target.get(ipv)
+        if not t:
+            continue
+        top = max(n for n, _m in by_mac.values())
+        best = [k for k, (n, _m) in by_mac.items() if n == top]
+        cur = normalize_mac(t[1]) if t[1] else None
+        if cur in best:
+            if t[2] is not None:
+                continue
+            pick = cur          # 值是對的、只是來源不明：讓 consider_mac 補記來源
+        elif len(best) == 1:
+            pick = best[0]
+        else:
+            continue
+        mac = by_mac[pick][1]
+        if would_take(order, disabled, cur_mac=t[1], cur_source=t[2], mac=mac, source="librenms"):
+            changes.append((t[0], mac))
     if changes:
         from app.services.ip_history import latest_changes
         objs = {o.id: o for o in (await session.execute(
@@ -629,7 +648,8 @@ async def sync_arp(
             # 舊值要在覆寫前先取：寫死 None 的話，異動記錄的舊值永遠空白，
             # 看不出「從哪個 MAC 換成哪個」——真的換網卡時反而查不出來
             prev_mac = str(ipa.mac) if ipa.mac else None
-            if await consider_mac(session, ip=ipa, mac=mac, source="librenms", latest=latest):
+            if await consider_mac(session, ip=ipa, mac=mac, source="librenms", latest=latest) \
+                    and normalize_mac(prev_mac) != normalize_mac(mac):
                 filled += 1
                 await log_change(
                     session, ip=ipa, event_type="arp_changed",

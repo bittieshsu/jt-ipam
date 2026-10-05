@@ -124,6 +124,7 @@ _DELETE_HANDLERS = {
     "zabbix.py": "delete_instance",
     "wazuh.py": "delete_instance",
     "ocs.py": "delete_server",
+    "rustdesk.py": "delete_server",
     "virt.py": "delete_proxmox",
     "scan_agents.py": "delete_agent",
 }
@@ -154,7 +155,7 @@ def test_every_hostname_source_is_covered_by_a_delete_handler() -> None:
     assert "forget_origin" in src
     covered = {"opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp", "dns",
                "adguard", "librenms", "zabbix", "wazuh", "ocs", "proxmox", "scanner", "netbios", "mdns",
-               "kea_dhcp", "isc_dhcp"}
+               "kea_dhcp", "isc_dhcp", "rustdesk"}
     missing = set(HOSTNAME_SOURCES) - covered - {"manual"}
     assert not missing, f"這些主機名稱來源沒有刪除時的收回：{sorted(missing)}"
 

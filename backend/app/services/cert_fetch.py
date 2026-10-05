@@ -4,7 +4,7 @@
 (不是新檔、不處理)**;不同才存成新版本。來源未提供私鑰時沿用目前版本的 key(多數商業續約
 不換 key)。帳密 / SSH key 走 encrypted_secret(object_type='certificate'),不回明文。
 
-安全:URL 走 safe_http(SSRF 白名單);SFTP host 先過 SSRF 檢查(擋 metadata/loopback)。
+安全:URL 走 safe_http(SSRF 允許清單);SFTP host 先過 SSRF 檢查(擋 metadata/loopback)。
 """
 
 from __future__ import annotations

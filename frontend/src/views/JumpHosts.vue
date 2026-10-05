@@ -25,6 +25,9 @@ import { autoSort } from "@/composables/useTableSort";
 import { apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
+// embedded：放在掃描代理頁的頁籤裡時不要自己的卡片標題與外框
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });
+void props;
 const msg = useMessage();
 // 需求與設定說明（使用者 2026-10-02：「跳板主機要是什麼系統、有什麼條件，在這邊沒看到說明」）
 const showHelp = ref(false);
@@ -210,8 +213,11 @@ onMounted(() => { void refresh(); });
 </script>
 
 <template>
-  <n-card>
-    <template #header>
+  <!-- 放在掃描代理頁的頁籤裡時不要再套一層卡片的外框與底色（用 inline style：Naive UI 自己的樣式會蓋過 scoped CSS） -->
+  <n-card :bordered="!embedded"
+          :style="embedded ? 'border: none; background: transparent; box-shadow: none' : undefined"
+          :content-style="embedded ? 'padding: 0' : undefined">
+    <template v-if="!embedded" #header>
       <n-space align="center" :wrap-item="false">
         <n-icon :size="22"><TerminalIcon /></n-icon>
         <span>{{ t("jump_hosts.title") }}</span>

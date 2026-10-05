@@ -280,7 +280,7 @@ def _classify_connect_error(err: BaseException) -> tuple[str, str]:
     text = str(err).lower()
     if "stream ended" in text or "connection reset" in text or "closed" in text:
         return "handshake_failed", (
-            "目標在 VNC 交握完成前就關閉連線 —— 對方不是 VNC 服務、被白名單／防火牆擋掉，"
+            "目標在 VNC 交握完成前就關閉連線 —— 對方不是 VNC 服務、被允許清單／防火牆擋掉，"
             f"或這個位址同時被多台主機使用（原始錯誤：{detail}）"
         )
     if "refused" in text:
@@ -432,7 +432,7 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                 if exc.code == "guacd_upstream_not_found":
                     # guacd 對「連不到」與「密碼錯」回的是同一句話 —— 失敗之後才自己試 TCP 分辨。
                     # 不可以在連線前先試：TigerVNC 等會把「連上就斷」算成一次認證失敗，
-                    # 連幾次就把 jt-ipam 列入黑名單（2026-09-25 實測，7 次就回 Too many security failures）
+                    # 連幾次就把 jt-ipam 列入封鎖清單（2026-09-25 實測，7 次就回 Too many security failures）
                     unreachable = await guac.tcp_reachable(dial_host, dial_port)
                     if unreachable is not None:
                         await send({"type": "error", **ui_detail(

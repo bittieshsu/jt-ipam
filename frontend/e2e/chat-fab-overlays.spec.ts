@@ -50,3 +50,33 @@ test("彈出層蓋在 AI 助手浮動按鈕上面", async ({ page }) => {
   expect(top.inFab, "浮動按鈕蓋在下拉選單上面").toBe(false);
   expect(top.inMenu).toBe(true);
 });
+
+/**
+ * 頁面內容捲到底時，最後一列不可以壓在浮動按鈕底下。
+ *   0.6.61 之後 e2e 抓到：RustDesk 伺服器清單的最後一列，右側固定欄的「刪除」鈕剛好在右下角，
+ *   被浮動按鈕蓋住 —— 捲到底也一樣（內容區底部沒有留白），點下去開的是 AI 助手。
+ * 不靠哪一頁剛好有幾列：把內容撐到比畫面高，捲到底，量最後一個元素的底邊在不在浮動按鈕上緣之上。
+ */
+for (const vp of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+  test(`內容捲到底不會壓在浮動按鈕底下（${vp.width}px）`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    await login(page);
+    await page.goto("/");
+    const fab = page.locator(".chat-fab");
+    await expect(fab).toBeVisible();
+    const r = await page.evaluate(() => {
+      const sc = document.querySelector(".n-layout-content .n-layout-scroll-container") as HTMLElement;
+      const filler = document.createElement("div");
+      filler.style.height = "3000px";
+      sc.appendChild(filler);
+      const last = document.createElement("div");
+      last.style.height = "20px";
+      sc.appendChild(last);
+      // 實際捲動的可能是外層（Naive UI 的 n-scrollbar 容器），每一層都捲到底
+      for (let el: HTMLElement | null = last; el; el = el.parentElement) el.scrollTop = el.scrollHeight;
+      const fabTop = (document.querySelector(".chat-fab") as HTMLElement).getBoundingClientRect().top;
+      return { lastBottom: last.getBoundingClientRect().bottom, fabTop };
+    });
+    expect(r.lastBottom, "捲到底後最後一列仍在浮動按鈕上緣之下").toBeLessThanOrEqual(r.fabTop);
+  });
+}

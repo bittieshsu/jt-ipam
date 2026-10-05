@@ -252,7 +252,8 @@ async def test_same_kind_without_model_keeps_the_model_but_a_new_kind_drops_it(d
     ip.device_kind, ip.device_model = "storage", "Synology DS920+"
     await apply_summary(db_session, ip, {"device_type": "storage", "vendor": None, "model": None, "evidence": []})
     assert ip.device_model == "Synology DS920+"
-    await apply_summary(db_session, ip, {"device_type": "server", "vendor": None, "model": None, "evidence": []})
+    await apply_summary(db_session, ip, {"device_type": "server", "vendor": None, "model": None,
+                                         "evidence": ["recog-os:Ubuntu 22.04"]})
     assert ip.device_kind == "server" and ip.device_model is None
 
 
@@ -286,19 +287,24 @@ def test_a_slow_service_does_not_throw_away_the_whole_os_probe(monkeypatch) -> N
 
 
 async def test_periodic_probe_uses_our_oui_vendor_not_nmaps(client, db_session) -> None:
-    """2026-10-04 正式環境：MAC 的 OUI 在 IEEE 登記的是 SuperMicro，jt-ipam 的 OUI 表也是，但 nmap 自帶的 MAC 廠商資料庫說
-    Hewlett Packard。「探測」頁判讀時帶 jt-ipam 查到的廠商，定期 OS 偵測卻沒帶 → 退回用 nmap 的 → 同一台在兩個入口廠商不同，
-    設備類型旁邊寫著 HP。定期偵測也要先用 jt-ipam 的 OUI 表。"""
+    """2026-10-04 正式環境：IP 記錄上的 MAC 是 SuperMicro，nmap 卻報 Hewlett Packard —— 不是 nmap 的資料庫錯（它的
+    3CECEF 也是 Super Micro），而是當下回應 ARP 的是這台的另一張 HP 擴充網卡（兩個網段在同一個廣播網域，Linux 預設
+    任何一張網卡都會回答本機任何一個位址）。「探測」頁判讀時帶 jt-ipam 用 IP 記錄的 MAC 查到的廠商，定期 OS 偵測卻沒帶
+    → 退回用 nmap 的 → 設備類型旁邊寫著 HP。定期偵測也要用 IP 記錄的 MAC 查 jt-ipam 的 OUI 表。"""
     from app.models.oui import OUIVendor
     raw, _agent, ip, _old = await _agent_ip(db_session)
     ip.mac = "00:00:5e:00:53:21"
     await db_session.merge(OUIVendor(prefix="00005E", short_name="IANA", name="ICANN, IANA Department", source="test"))
     await db_session.commit()
-    nmap = {"ports": [], "closed": 5, "host_scripts": {}, "mac_vendor": "Hewlett Packard",
+    # 有 OpenSSH 才算一般主機（只有 Linux 指紋是「不明」，2026-10-05 起）
+    nmap = {"ports": [{"port": 22, "proto": "tcp", "state": "open", "service": "ssh", "product": "OpenSSH"}],
+            "closed": 5, "host_scripts": {}, "mac_vendor": "Hewlett Packard",
             "os": [{"name": "Linux 5.3 - 5.4", "accuracy": 94, "type": "general purpose", "vendor": "Linux"}]}
     r = await client.post("/api/v1/scan-agents/report", headers={"X-Agent-Key": raw}, json={
         "results": [{"ip": "198.51.100.7", "alive": True, "liveness": False, "probes_run": ["os"], "nmap": nmap}]})
     assert r.status_code == 200, r.text
     await db_session.refresh(ip)
     assert ip.device_kind == "server"
-    assert ip.device_model == "IANA"
+    # 2026-10-05 起網卡廠牌（OUI）不再當成設備的廠牌型號寫進 device_model（Mac 接 CalDigit 擴充座曾顯示「CalDigit」）；
+    # 網卡廠牌在 IP 頁的 MAC 旁邊。這裡要守的是：nmap 報的 HP 不可以跑進來
+    assert ip.device_model is None

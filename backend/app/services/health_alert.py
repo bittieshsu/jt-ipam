@@ -32,6 +32,7 @@ _INTEGRATION_ROUTE = {
     "opnsense": "/firewall", "pfsense": "/pfsense", "fortigate": "/fortigate",
     "paloalto": "/paloalto", "mikrotik": "/mikrotik",
     "windows_dhcp": "/windows-dhcp", "kea_dhcp": "/kea-dhcp", "isc_dhcp": "/isc-dhcp",
+    "rustdesk": "/rustdesk",
     "dns": "/dns", "ocs": "/ocs",
 }
 EVENT_AGENT = "agent.offline"

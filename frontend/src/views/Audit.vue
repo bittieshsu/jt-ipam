@@ -62,6 +62,7 @@ function renderObjectLink(objectType: string | null, objectId: string | null, la
     case "windows_dhcp_server": return go("windows_dhcp");
     case "kea_dhcp_server":     return go("kea_dhcp");
     case "isc_dhcp_server":     return go("isc_dhcp");
+    case "rustdesk_server":     return go("rustdesk");
     case "proxmox_instance":
     case "virt_cluster":        return go("virt_admin");
     case "dns_server":          return go("dns");
@@ -72,7 +73,8 @@ function renderObjectLink(objectType: string | null, objectId: string | null, la
   }
 }
 
-const { visibleKeys: auditVis, setVisible: auditSet, reset: auditReset } = useColumnPrefs(
+const { visibleKeys: auditVis, setVisible: auditSet, reset: auditReset,
+  order: auditOrder, setOrder: auditSetOrder, orderColumns: auditOrderCols } = useColumnPrefs(
   "audit",
   ["id", "ts", "actor", "actor_ip", "object_type", "object_link", "action", "diff", "this_hash_hex"],
   // 預設不顯示 ID 與雜湊（要稽核鏈驗證時再自行於「欄位」開）
@@ -181,7 +183,7 @@ const allColumns = computed<DataTableColumns<AuditLog>>(() => autoSort([
 ]));
 
 const columns = computed<DataTableColumns<AuditLog>>(() =>
-  allColumns.value.filter((c: any) => auditVis.value.includes(c.key)),
+  auditOrderCols(allColumns.value.filter((c: any) => auditVis.value.includes(c.key))),
 );
 
 // 匯出全部：用相同篩選分頁抓完整資料集
@@ -294,7 +296,8 @@ onMounted(() => {
         {{ t("audit.verify_chain") }}
       </n-button>
       <ColumnPicker :all="auditPickerItems" :visible="auditVis"
-                    @update:visible="auditSet" @reset="auditReset" />
+                    @update:visible="auditSet" @reset="auditReset"
+                    :order="auditOrder" @update:order="auditSetOrder" />
       <ExportButton :columns="columns" :rows="rows" :fetch-all="fetchAllForExport"
                     filename="audit" :title="t('audit.title')" />
       <span style="opacity: 0.6">{{ t("common.total_n", { n: total }) }}</span>

@@ -1196,6 +1196,8 @@ async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[s
         "ocs_notes": obj.ocs_notes or [],
         # OCS 回報的硬體：系統／主機板／BIOS／CPU／記憶體／磁碟／顯示卡（記憶體、磁碟單位 MB）
         "ocs_hardware": obj.ocs_hw,
+        # RustDesk Server（開源版）：對應到這個 IP 的 RustDesk ID 與線上狀態（不帶連線網址）
+        "rustdesk": await _rustdesk_brief(session, obj.id),
         # OS 偵測（依來源優先序 scanner/librenms/wazuh 解析）+ 探測項目
         **_os,
         "effective_probes": await _effective_probes(session, sub, obj),
@@ -2191,6 +2193,96 @@ async def list_ocs_computers(
     } for a in rows]}
 
 
+async def _rustdesk_brief(session: AsyncSession, address_id: Any) -> dict[str, Any] | None:
+    from app.services.rustdesk import for_address
+    rd = await for_address(session, address_id)
+    if rd is None:
+        return None
+    return {"id": rd["id"], "online": rd["online"], "last_online_at": rd["last_online_at"],
+            "server": rd["server_name"]}
+
+
+async def list_rustdesk_peers(
+    session: AsyncSession, *, user: User, limit: int = 200,
+    subnet_cidr: str | None = None, subnet_id: str | None = None,
+    online: bool | None = None, q: str | None = None,
+) -> dict[str, Any]:
+    """RustDesk Server（開源版）上註冊的裝置：ID、是否上線、最後上線、登記 IP、對應到的 IP 記錄。
+
+    hbbs 不存主機名稱／OS；hostname 欄是對應到的 jt-ipam IP 記錄的。問某網段時要帶 subnet_cidr ——
+    帶了就只列「對應到該網段 IP」的裝置（沒對應到的不知道在哪個網段）。
+    """
+    from sqlalchemy import or_
+
+    from app.models.rustdesk import RustDeskPeer, RustDeskServer
+
+    scope_ids, scope = await _scope_subnet(
+        session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    stmt = (select(RustDeskPeer, RustDeskServer.name, IPAddress.ip, IPAddress.hostname)
+            .join(RustDeskServer, RustDeskServer.id == RustDeskPeer.server_id)
+            .outerjoin(IPAddress, IPAddress.id == RustDeskPeer.address_id))
+    if scope_ids is not None:
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope_ids))
+    if online is not None:
+        stmt = stmt.where(RustDeskPeer.online.is_(bool(online)))
+    if q and str(q).strip():
+        like = f"%{str(q).strip()[:100]}%"
+        stmt = stmt.where(or_(RustDeskPeer.rustdesk_id.ilike(like), IPAddress.hostname.ilike(like),
+                              func.host(RustDeskPeer.registered_ip).ilike(like)))
+    total = int(await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (await session.execute(
+        stmt.order_by(RustDeskPeer.online.desc(), RustDeskPeer.last_online_at.desc().nullslast())
+        .limit(min(int(limit), 500)))).all()
+    return {"scope": scope, "count": total, "returned": len(rows), "peers": [{
+        "rustdesk_id": p.rustdesk_id, "server": server, "online": p.online,
+        "last_online_at": p.last_online_at,
+        "registered_ip": str(p.registered_ip).split("/")[0] if p.registered_ip else None,
+        "match_status": p.match_status,
+        "ip": str(ip).split("/")[0] if ip else None, "hostname": hostname,
+    } for p, server, ip, hostname in rows]}
+
+
+async def list_rustdesk_audit(
+    session: AsyncSession, *, user: User, limit: int = 100, hours: int = 168,
+    kind: str | None = None, q: str | None = None, subnet_cidr: str | None = None, subnet_id: str | None = None,
+) -> dict[str, Any]:
+    """RustDesk 客戶端回報的稽核：誰（對方 ID、名稱、IP）在什麼時候連進哪台、傳了什麼檔案、告警（密碼錯太多次等）。
+
+    受控端要開著回報（客戶端 API 伺服器沒填時會自動送到 ID 伺服器的 21114，代理在那裡收）才會有資料。
+    問某網段時帶 subnet_cidr：只列受控端對應到該網段 IP 的紀錄。
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import and_, or_
+
+    from app.models.rustdesk import RustDeskAuditEvent, RustDeskPeer
+
+    scope_ids, scope = await _scope_subnet(session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
+    E = RustDeskAuditEvent
+    since = datetime.now(UTC) - timedelta(hours=max(1, min(int(hours), 24 * 400)))
+    stmt = (select(E, IPAddress.ip, IPAddress.hostname, RustDeskPeer.hostname)
+            .outerjoin(RustDeskPeer, and_(RustDeskPeer.server_id == E.server_id,
+                                          RustDeskPeer.rustdesk_id == E.rustdesk_id))
+            .outerjoin(IPAddress, IPAddress.id == RustDeskPeer.address_id)
+            .where(E.occurred_at >= since))
+    if kind in ("conn", "file", "alarm", "note"):
+        stmt = stmt.where(E.kind == kind)
+    if scope_ids is not None:
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope_ids))
+    if q and str(q).strip():
+        like = f"%{str(q).strip()[:100]}%"
+        stmt = stmt.where(or_(E.rustdesk_id.ilike(like), E.peer_id.ilike(like), E.peer_name.ilike(like),
+                              IPAddress.hostname.ilike(like), RustDeskPeer.hostname.ilike(like)))
+    total = int(await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (await session.execute(stmt.order_by(E.occurred_at.desc()).limit(min(int(limit), 500)))).all()
+    return {"scope": scope, "since": since, "count": total, "returned": len(rows), "events": [{
+        "at": e.occurred_at, "kind": e.kind, "action": e.action, "device_rustdesk_id": e.rustdesk_id,
+        "device_ip": str(ip).split("/")[0] if ip else None, "device_hostname": host or rhost,
+        "peer_id": e.peer_id, "peer_name": e.peer_name, "peer_ip": str(e.ip).split("/")[0] if e.ip else None,
+        "conn_type": e.conn_type, "alarm_type": e.alarm_type, "detail": e.detail, "verified": e.verified,
+    } for e, ip, host, rhost in rows]}
+
+
 # ── 寫入類（一律 ADMIN ONLY，與 allocate_ip 同模式） ──
 
 async def update_ip(
@@ -2637,8 +2729,9 @@ async def investigate_ip(
 ) -> dict[str, Any]:
     """把一個位址散落在各處的線索收成一份檔案（只回事實，不做推論）。
 
-    可見性由 collect_dossier 依子網路授權處理；全域基礎設施那幾段（NAT／防火牆／DNS）
-    只有具全域讀取權限者才會拿到。
+    可見性由 collect_dossier 依子網路授權處理；全域基礎設施那幾段（NAT／防火牆／DNS／非法 DHCP）
+    只有具全域讀取權限者才會拿到，探測、異常、AI 巡檢與主控台連線只有管理員才會拿到
+    （與對應的 REST 端點同一層，不會因為走 AI 對話就鬆一級）。
     """
     from app.services.investigate import collect_dossier
     return await collect_dossier(session, user=user, ip=str(ip).strip())
@@ -2661,13 +2754,14 @@ async def check_ip_exposure(session: AsyncSession, user: User, ip: str) -> dict[
     if not d.get("found"):
         return {"found": False, "ip": ip}
     nat = d.get("nat") or []
-    fw = [r for r in (d.get("firewall") or []) if str(r.get("action", "")).lower() == "pass"]
+    # 檔案裡的鍵是 firewall_rules、主機名稱在 address 底下（以前讀 firewall／hostname，永遠是空的）
+    fw = [r for r in (d.get("firewall_rules") or []) if str(r.get("action", "")).lower() == "pass"]
     ports = sorted({str(n.get("port")) for n in nat if n.get("port")}
                    | {str(r.get("port")) for r in fw if r.get("port")})
     return {
         "found": True,
         "ip": ip,
-        "hostname": d.get("hostname"),
+        "hostname": (d.get("address") or {}).get("hostname"),
         # 有 NAT 轉發＝從外網打得到；沒有不代表安全（可能走反向代理或另一條路徑）
         "reachable_from_wan": bool(nat),
         "open_ports": ports,
@@ -3138,9 +3232,16 @@ TOOLS: dict[str, dict[str, Any]] = {
         "fn": investigate_ip,
         "description": "Everything known about one IP address in one place: the record, "
                        "other records for the same address in overlapping subnets, what "
-                       "each source reports as its hostname and OS, monitoring coverage, "
-                       "ARP history, recent changes, and (for global readers) DNS, NAT "
-                       "and firewall rules. Facts only, no inference.",
+                       "each source reports as its hostname and OS, device type and how it "
+                       "was decided, NIC vendor, monitoring (Wazuh, LibreNMS, Zabbix), "
+                       "endpoint agents (OCS inventory, RustDesk), the matching VM or "
+                       "container, DHCP reservations/leases/pool, the switch ports its MAC "
+                       "was learned on, firewall ARP/VPN/lease evidence, last seen by "
+                       "source, ARP history, recent changes, and a computed list of "
+                       "contradictions (conflicts). Global readers also get DNS, NAT, "
+                       "firewall rules/objects on every vendor and rogue DHCP sightings; "
+                       "admins also get the latest identify probe, open anomalies, AI "
+                       "findings and recent console sessions. Facts only, no inference.",
         "parameters": {
             "type": "object",
             "properties": {"ip": {"type": "string", "description": "IPv4 or IPv6"}},
@@ -3447,6 +3548,16 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "List computers inventoried by OCS Inventory (OS, asset tag, agent version, last inventory time, notes). OCS matches machines to existing IPs by network-card MAC. If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. Use stale_days=N to find assets not inventoried for N days. The reply carries 'scope' and 'count'; state them.",
         "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"}, "stale_days": {"type": "integer", "minimum": 0, "description": "Only computers not inventoried for this many days"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
+    "list_rustdesk_audit": {
+        "fn": list_rustdesk_audit,
+        "description": "RustDesk connection audit reported by the RustDesk clients themselves: who (peer RustDesk ID, name, IP) connected to which device and when (kind=conn, action new/auth/close; conn_type 0 desktop, 1 file transfer, 2 port forward, 3 camera, 4 terminal), file transfers (kind=file) and alarms (kind=alarm; alarm_type 1 = over 30 wrong passwords, 2 = 6 wrong passwords within a minute, 6 = too many from one IPv6 prefix, 0/10 = IP/ID allowlist violation). Default window is the last 168 hours. If the question is about one subnet/CIDR you MUST pass subnet_cidr. The reply carries 'scope', 'since' and 'count'; state them.",
+        "parameters": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["conn", "file", "alarm", "note"]}, "q": {"type": "string", "description": "Search device or peer RustDesk ID, peer name, hostname"}, "hours": {"type": "integer", "minimum": 1, "maximum": 9600}, "subnet_cidr": {"type": "string", "description": "Restrict to devices mapped to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
+    "list_rustdesk_peers": {
+        "fn": list_rustdesk_peers,
+        "description": "List devices registered on the RustDesk Server (open source): RustDesk ID, online now, last time seen online, the IP the server saw, and the jt-ipam IP record it maps to (hostname comes from that record; RustDesk itself does not store hostnames or OS). If the question is about one subnet/CIDR you MUST pass subnet_cidr (only devices mapped to that subnet are listed). The reply carries 'scope' and 'count'; state them.",
+        "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string", "description": "Restrict to devices mapped to this subnet, e.g. 198.51.100.0/24"}, "subnet_id": {"type": "string"}, "online": {"type": "boolean", "description": "Only online (true) or offline (false) devices"}, "q": {"type": "string", "description": "Search RustDesk ID, hostname or IP"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "list_wazuh_agents": {
         "fn": list_wazuh_agents,
         "description": "List Wazuh agents (status, OS, version, CVE critical/high counts). For the coverage GAP use wazuh_missing_agents instead. If the question is about one subnet/CIDR you MUST pass subnet_cidr, otherwise the answer covers the whole system. The reply carries 'scope' and 'count'; state them.",
@@ -3506,6 +3617,8 @@ ADMIN_TOOLS: frozenset[str] = frozenset({
     # tests/test_mcp_tools_match_rest_permissions.py 守著：工具不可以比對應的 REST 端點寬
     "list_scan_agents", "list_certificates", "list_cert_distribution",
     "list_wazuh_agents", "wazuh_missing_agents", "list_ocs_computers",
+    # RustDesk 整合頁（REST /rustdesk）只給 admin
+    "list_rustdesk_peers", "list_rustdesk_audit",
 })
 
 

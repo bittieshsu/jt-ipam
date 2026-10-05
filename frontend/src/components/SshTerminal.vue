@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { wsErrorText } from "@/utils/wsError";
+import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
  * SSH 終端機（xterm.js）。先換 ticket → 開 WebSocket → 橋接後端 asyncssh。
  * 憑證（密碼/私鑰）只在連線時送出，前端不保存。Host key 採 TOFU：首次顯示指紋確認後由後端釘選。
@@ -359,7 +360,7 @@ onBeforeUnmount(teardown);
           </span>
         </template>
       <!-- 已存帳密（個人保管）：選一筆即以 reference 連線。獨立 flex 列確保 label 與下拉垂直置中 -->
-      <div v-if="credOptions.length" class="ssh-saved-row">
+      <div v-if="savedCreds.length" class="ssh-saved-row">
         <span class="ssh-saved-label">{{ t("ssh.saved_cred") }}</span>
         <n-select v-model:value="selectedCredId" :options="credOptions" clearable size="small"
                   :placeholder="t('ssh.saved_cred_ph')" style="flex:1" />
@@ -414,6 +415,10 @@ onBeforeUnmount(teardown);
                      :placeholder="t('ssh.remember_label_ph')" />
           </n-space>
         </n-form-item>
+
+        <!-- 按連線之前就看得到會走哪條路（直連／跳板／掃描代理）、走不通的話原因 -->
+
+        <ConsoleRouteNote :address-id="props.addressId" />
 
         <n-alert :show-icon="false" type="info" style="margin-bottom:10px">
           {{ selectedCredId ? t("ssh.use_saved_hint") : (remember ? t("ssh.store_hint") : t("ssh.no_store_hint")) }}

@@ -3,7 +3,7 @@
 OWASP 對應：
 - A02：Webhook secret 用 AES-GCM 加密儲存（aad 綁 webhook id）
 - A09：每次 Webhook 出站結果寫 audit
-- A10：對外請求一律走 safe_http；URL 經白名單驗證
+- A10：對外請求一律走 safe_http；URL 經允許清單驗證
 """
 
 from __future__ import annotations

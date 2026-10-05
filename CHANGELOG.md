@@ -6,6 +6,472 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-05
+
+### Added
+- **Adoption roadmap on the documentation site** (`docs/adoption.html`, Traditional Chinese / English / Japanese): how
+  an organisation rolls jt-ipam out in six phases (install and secure; the IP plan as the source of truth; discovery
+  and liveness with scan agents; integrations that confirm reality; devices and the physical layer; operations and
+  automation). It has a phase diagram, a phase table (goal, features to turn on, prerequisites, "done when"), a
+  one-week quick start next to a one-quarter full rollout, the recommended order of integrations with the reason for
+  each, and per-phase settings to make, checks and common pitfalls, all using the names on the screens. Linked from
+  the nav of every documentation page, the home page footer and its install section. The text links in the nav now
+  fold away before they would wrap onto a second line (the home page already wrapped in English at 821 to 860 px).
+- **RustDesk web connection: “Send text” can type the text.** Besides **Put on remote clipboard**, the dialog has
+  **Type it**, which presses the keys one by one in map mode as on a US keyboard layout (printable ASCII, Enter for line
+  breaks, Tab; Shift around capitals and shifted symbols), about 8 ms apart, up to 2000 characters, with a Stop button.
+  Text with other characters (Chinese, full-width, emoji) is not typed and the page suggests the clipboard action. Both
+  actions are unavailable in view-only mode or while the device has turned off control. It works where pasting does
+  not, such as terminals and login screens; a note says that another keyboard layout or Caps Lock can change letter
+  case and symbols.
+- **RustDesk web connection: multiple displays and image quality.** A **Displays** toolbar menu (hidden only when the
+  device has one display and no resolution to choose; with one display it holds just the resolution submenu) lists
+  every display with its size and marks the current and the primary one; picking one switches to it (one display at a time) and clicks land on that display: coordinates include the display's position in
+  the device's virtual desktop, also for displays left of or above the primary one and for macOS Retina screens.
+  Pictures from other displays are dropped, an unplugged display shows a notice and returns to the primary display, a
+  resolution change of the shown display is not treated as a switch, and an automatic reconnect returns to the display
+  you picked. Without view only, a **Resolution** submenu offers the resolutions the device reports and its original
+  resolution. A **Quality** menu sets image quality (Low, Balanced, Best, or Custom 10 to 100), a frame rate limit
+  (15, 30 or 60 fps) and a codec preference (Automatic, VP9, H.264, AV1; only codecs this browser can decode and the
+  device can encode are listed). Changes apply at once, reconnects keep them, and the browser remembers only these three
+  choices. When several people view one device, the most recent quality setting applies to everyone (the menu says
+  so). The toolbar shows the delay, the bitrate, the frames the browser decodes per second and the codec in use.
+- **RustDesk-compatible web connection: file transfer.** A separate connection to the device for files, opened from
+  the ▾ menu of the RustDesk split button on the IP page (**File transfer**, a new tab at `/rustdesk/:id/files`). The entry
+  shows only when the RustDesk server setting **Allow web file transfer** is on (off by default; migration 0183 adds it
+  with the upload limits, 2048 MB per file and 10240 MB per upload by default) and the user has the RustDesk rights. It
+  uses the same ticket (`kind: "file"`, refused with `409 rd_file_disabled` while the setting is off) and the same
+  ciphertext-only relay, and logs in with the `file_transfer` union. The page lists folders (Windows drives at the top
+  level, hidden files on request), uploads by picking or dropping files (asks to overwrite or skip when the device
+  already has a file with that name, optionally for the rest), downloads single files (small ones assembled in memory,
+  large ones streamed to disk where the browser supports it, otherwise written in segments), creates folders, renames
+  and deletes (a folder with its contents after a second confirmation). One transfer runs at a time, the rest wait in a
+  queue with progress and cancel; there is no resume. File actions are audited as `rustdesk.file_download`,
+  `rustdesk.file_upload`, `rustdesk.file_delete`, `rustdesk.file_rename` and `rustdesk.file_mkdir`, marked as reported
+  by the browser (the backend never sees file contents): it accepts only those operations, caps the path at 512
+  characters, needs an integer size and rate-limits each connection. A device without the file transfer permission, or
+  set to one-way transfer, gets a translated explanation.
+- **Opening a host in the local RustDesk client software is audited too**: that connection runs between the user's own client and the device, not through jt-ipam, so nothing used to be recorded. Clicking it now writes `rustdesk.local_client_open` (who, when, which RustDesk ID), and Investigate lists it under recent remote sessions as "RustDesk client software (local)". New endpoint `POST /api/v1/addresses/{id}/rustdesk/local-open` (same rights as the connect URL in the IP details).
+- **Investigate gathers what every integration knows about the address.** Besides hostnames, OS, Wazuh, ARP and
+  changes, the dossier now has: identity (device type, model and OS, how the type was decided such as `wazuh:windows`,
+  `librenms:…` or `hostname:…`, the NIC vendor and whether the MAC is randomized), LibreNMS found by primary IP as well
+  as by device link, Zabbix hosts, OCS inventory (OS, asset tag, hardware, notes), RustDesk devices (online, OS, reported
+  hostname and user, match status, key problem), the matching Proxmox/ESXi VM or container (the MAC has to agree), DHCP
+  reservations, leases from every DHCP integration and the pool flag, the switch ports the MAC was learned on (LibreNMS
+  and MikroTik MAC tables), firewall ARP/VPN/lease evidence, and last seen by source with the liveness verdict. Global
+  readers also get the aliases, address objects and rules covering the address on FortiGate, Palo Alto, pfSense and
+  MikroTik besides OPNsense, and the DHCP offers observed for it; admins also get the latest identify probe, open
+  anomalies and AI findings, and the last 10 console sessions from the audit log (who, when, from where). Empty sections
+  are not shown, a broken or unconfigured integration leaves only its own section empty, every section is capped at 20
+  rows, and all four export formats include the new sections. The contradictions are now computed by the server
+  (`conflicts`), so the screen, the exports and the AI reading use the same list: hostnames that differ only in letter
+  case, a trailing dot or short name vs FQDN (`win11-desk-01`, `win11-desk-01.`, `WIN11-DESK-01`) are no longer reported as
+  different, and a DHCP reservation bound to another MAC than the one using the address now is. The AI reading gets a
+  compact copy (capped lists, no internal IDs) so the bigger dossier does not overflow the model context, and is told
+  that a DHCP lease with a randomized MAC makes address and MAC changes normal. On the IP details page, FortiGate and
+  Palo Alto policies that reference an address object (or several in one field) are now found and the objects listed.
+  The MCP tool `check_ip_exposure` now reads the dossier's firewall rules and hostname (it always returned none).
+- **RustDesk: delete old registrations from the RustDesk server.** hbbs keeps every ID that ever registered (reinstalls,
+  replaced PCs, test machines), and the open source edition has no admin API to remove them, so the dedicated RustDesk
+  agent (1.2.0, updates itself) does it on the RustDesk host. Both sides must agree: the server setting **Allow deleting
+  old registrations** (off by default) and the host admin re-running the installer with `--allow-delete` (or
+  `JT_RD_ALLOW_DELETE=1`; the existing config is kept, so the key is not needed again). Only then does the systemd unit
+  make the hbbs directory writable for the agent (SQLite needs to create its journal there), with the private key file
+  `id_ed25519` made inaccessible and all other hardening kept; without the flag the unit is unchanged and read-only, and
+  re-running without it makes it read-only again. The agent reports `capabilities.delete` (and the reason when it
+  cannot) with each poll, and **Test** gains a write access check ("read-only" is the default, not an error). On the
+  Devices tab, offline devices can be ticked (also "tick all matching", up to 500, and a new **Never seen online**
+  filter); the confirm dialog says how many will be deleted, that online devices are skipped, and that a client registers
+  again by itself when it next comes online. The agent takes up to 200 requests per poll, asks hbbs again right before
+  deleting and skips devices that are online, deletes only rows of the `peer` table by ID in one transaction with a 10
+  second busy timeout, and reports deleted / skipped (online) / not found / failed. jt-ipam removes deleted devices from
+  its list at once, asks the agent for a fresh report, and keeps a deletion log. Requests not taken within a day become
+  failed, and turning the setting off cancels waiting ones. Audited as `rustdesk.peer_delete_requested` (who asked,
+  which IDs) and `rustdesk.peer_deleted`. Devices that hbbs has seen since its last start stay in its memory and can
+  still be reached; they reappear in the list after hbbs restarts and they come online again. Migration 0182.
+- **Device type now weighs what IPAM already knows** (checked against an Identify sweep of a production /24). The type
+  written to the IP record is decided in this order: the device record's type (firewall, router, switch, AP, storage,
+  IPMI/PDU/UPS; generic server/other do not count), LibreNMS's own classification (firewall, wireless, printer, storage,
+  power; network split into router or switch by its OS; Proxmox/ESXi hosts as hypervisors), the agents on the machine
+  (Wazuh, RustDesk, OCS: a machine with an agent is a general-purpose computer, and its OS comes from the agent), the
+  virtualization platform (a VM or container is never a switch, AP, printer, camera or physical hypervisor), and only
+  then the port and fingerprint guesses. Facts must be fresh: agents silent for over 7 days are ignored, and a VM whose
+  NIC MAC differs from the IP's current MAC is not that IP (a DHCP address had moved to an iPhone, which was shown as a
+  Windows VM). The Identify page shows the type the IP record uses and why. New type **Phone/tablet** (`mobile`).
+- Identify rules: OPNsense, pfSense, FortiGate and other firewall products, and MikroTik, OpenWrt, DrayTek and other
+  routers are recognised from their web interface; xrdp, Samba and a Linux distribution in a version string mean a Linux
+  host, not Windows (and once the OS is known to be Linux/BSD/macOS, neither is a Samba AD DC's "Microsoft Windows RPC" nor an IIS
+  header passed through a reverse proxy); iOS devices (port 62078) and phone fingerprints are phones; and the NIC vendor (the MAC's OUI) is
+  shown separately from the device vendor, so a Mac on a CalDigit dock is no longer labelled "CalDigit".
+- **Device type rules cover any network, not just the one they were first tuned on.** Identify and the periodic OS probe
+  now map their evidence through generic knowledge tables (`backend/app/services/device_kind_knowledge.py`) built from
+  nmap (every OS-fingerprint device type and every service-probe `d/` type), Recog (all 117 device values), the
+  Wireshark OUI list (327 single-purpose vendors, 64 mixed vendors that are never used alone, virtual NIC prefixes),
+  108 product, banner, page-title and Server-header patterns, 104 port signatures and 23 host-name conventions, each
+  entry with jt-ipam's own decision and the reason for it. Evidence is weighed in this order: what the services say
+  (product text matched per field, and Recog), nmap's device type for a matched service, open ports, the TCP/IP
+  fingerprint class, and last the NIC vendor. Software that looks like a device no longer makes a host one (CUPS,
+  node_exporter, Plex, UniFi Network or Omada controllers, video management software such as Blue Iris or Frigate,
+  PowerChute), and a guard in one field does not hide a product named in another. Newly recognised: cameras and NVRs
+  (Hikvision, Dahua, Axis, Hanwha, Uniview...), IP phones and intercoms (Yealink, Polycom, Grandstream, snom...),
+  UPS and PDU cards, NAS (Synology, QNAP, TrueNAS...), firewalls (FortiGate, Sophos, Palo Alto, Check Point...), APs
+  and controllers (Aruba, Ruckus, UniFi, Omada), printers of every major brand, ESXi and XCP-ng hosts, BMCs (iDRAC,
+  iLO, XCC), PLCs and building automation (Siemens S7 on port 102, EtherNet/IP, BACnet), streaming players and
+  speakers (Roku on 8060, Sonos on 1400). A vendor protocol port counts only when the NIC vendor does not name another
+  kind (an ATOM Cam camera also listens on the Kasa plug port 9999). A Windows fingerprint now gives `windows`,
+  embedded RTOS fingerprints (lwIP, VxWorks, NetBSD) no longer give "server", and a Recog "Security Appliance" is no
+  longer a firewall. Host names: only the first DNS label is read (`*.cam.ac.uk` is not a camera), server-role words
+  veto device kinds (`nvr-server` and `camera-archive-01` are servers), Windows default names (`DESKTOP-XXXXXXX`,
+  `LAPTOP-`, `WIN-`) mean Windows, and a host already known to run Windows or macOS is never turned into a printer or
+  camera by its name.
+- **Generic rules from the second adversarial review of device types (105 IPs on two subnets).**
+  - A "general purpose" TCP/IP fingerprint only says Linux/BSD kernel, and routers, APs and IoT gateways look the same:
+    "server" now needs positive evidence of a general-purpose host (OpenSSH, a distribution string, Samba, xrdp/remote
+    desktop, a database or similar server service), and embedded software on the same host (BusyBox, Dropbear, GoAhead)
+    rules it out. Without evidence the result is unknown instead of a guessed server.
+  - An embedded host with 3517/tcp open (802.11 IAPP, roaming between APs) is a wireless AP.
+  - A multi-line vendor seen only through its NIC or without a model decides nothing: DrayTek routers, VigorAP and
+    VigorSwitch share OUIs and LibreNMS calls them all `draytek`, so the model decides (Vigor2927 is a router, VigorAP
+    an AP, VigorSwitch a switch).
+  - When 8006 is only a port number, a host that also takes mail (25/26, Proxmox Mail Gateway) or has 8443 open
+    (Proxmox Datacenter Manager) is not a hypervisor.
+  - The `SHIP 2.0` Server header of newer TP-Link Tapo/Kasa firmware means a smart-home device; a special-purpose device
+    that also streams RTSP (554) is a camera.
+  - 62078 together with AirPlay (7000) is an Apple TV/HomePod (media); 62078 alone is a phone.
+  - "The OS is not Windows" now looks at the TCP/IP stack first: a Windows desktop publishing an Ubuntu container
+    through Docker Desktop stays Windows even though its SSH says Ubuntu.
+  - When the fingerprint only gives a kernel range (Linux 2.6.32), the OS shows the distribution named in a service
+    version string (`Debian 5+deb11u3` becomes Debian Linux 11).
+  - Host names: model codes (P105, HS300) need a matching NIC vendor; a name that says two kinds (voip-router-2) is
+    decided by the more confident hint and otherwise not at all; `smart-gw` is gone (gw usually means the default
+    gateway). A phone's evidence now names the iOS candidate that was actually used.
+  - VMs and containers ignore LibreNMS hardware (an LXC reports its host's); a PVE node's reason is `virt:pve-node`.
+- **Scan agent 1.17.2** reports how nmap identified each service (`method`, `conf` and `devicetype` per port; older
+  servers ignore them). A service name nmap only took from its port table (`method="table"`, such as `jetdirect` on
+  9100 or `microsoft-ds` on 445) now counts as "port open", not as a confirmed service, and nmap's device type for a
+  matched service is used as evidence.
+- **RustDesk: find clients with a wrong Key.** A RustDesk client whose Key differs from the server's still registers
+  (it shows "Ready"), still reports, and connects directly on the same LAN; only connections through the relay are refused
+  by hbbr, and the web connection always uses the relay, so it looked like the web connection was broken (seen on
+  2026-10-05: two letters in the wrong case). The RustDesk agent (1.1.0, updates itself) now reads the hbbr/hbbs logs
+  incrementally (official deb layout `/var/log/rustdesk-server/`, `JT_RD_LOG_DIR` to override; copytruncate rotation
+  handled; only the last 256 KB on first start) and sends, with its 10-second poll, which IPs were refused for the Key
+  and which passed the relay, summed per IP and without log text. jt-ipam records it on the one device at that IP (not
+  when several devices share the IP behind NAT) and clears it after the device next passes the relay. The server row
+  shows "Wrong Key N" (click to list those devices), the device list marks them and can filter on them, the IP page and
+  the device page explain when it was refused and how to fix it, and a web connection that times out because of it says
+  so directly (`rd_peer_key_mismatch`) instead of retrying. **Test** gains a check that the logs can be read. Migration
+  0181.
+- **RustDesk web connection shows the remote cursor.** The local pointer over the picture takes the device's cursor
+  shape (text cursor, resize arrows and so on), scaled with the picture and capped at 128x128, and disappears when the
+  device hides its cursor; when the device's picture already contains the cursor the pointer stays normal, so there are
+  never two. When someone at the device moves the cursor, a marker shows where it is (hidden as soon as you move the
+  mouse, or after 3 seconds without a new position). Cursor images arrive zstd-compressed and are decoded in the browser
+  with `fzstd` (MIT, new frontend dependency): a size outside 1 to 256 pixels, a length that does not match, or data
+  that would expand beyond 256x256x4 bytes is dropped without affecting the session, and decoding never allocates more
+  than the cursor needs, whatever the compressed data declares. Up to 64 shapes are cached; the cache is cleared on
+  disconnect, reconnect and display switch.
+- **RustDesk-compatible web connection: two-way clipboard (text).** A "Clipboard" switch on the toolbar (on by default,
+  always off in view only) sets `disable_clipboard` at login and can be flipped during the session. What the device
+  copies lands in the browser clipboard as plain text (HTML-only content is converted to text and also written as HTML
+  where the browser allows; if the browser refuses because the tab has no focus, a prompt copies it with one click).
+  Pressing Ctrl+V on the picture first sends the local clipboard and only then the key, so the device pastes the new
+  text; on a Mac, Cmd+V works too and reaches the device as Ctrl+V (unchanged when the device is a Mac). Identical
+  content is not sent twice. **Send text** puts typed or pasted text on the device clipboard without pressing anything,
+  for browsers that do not let the page read the clipboard. Text is limited to 1 MB in both directions; zstd content
+  from the device is decompressed with a 1 MB cap that is checked against the frame headers before anything is
+  allocated (new frontend dependency `fzstd`, MIT, pure JavaScript because the CSP blocks WebAssembly). Text sent to the
+  device is not compressed (no suitable pure-JavaScript zstd compressor; the device accepts uncompressed content).
+  Switching it off stops both directions, and the browser stops sending by itself because the device still writes
+  whatever it receives.
+- **RustDesk web connection reconnects by itself after an unexpected drop.** When a session that had logged in ends
+  without a reason from the device (for example a Linux device at the GDM login screen switches to the new desktop
+  session after you log in through the web session), the browser loses its WebSocket to jt-ipam, or the relay or network
+  fails, the page no longer stops at "Disconnected": it shows "Connection lost" with a countdown ("reconnecting in N s,
+  attempt k of 8"), **Reconnect now** and **Cancel**, and tries again after 1, 2, 3, 5, 5, 10, 10 and 15 seconds. Every
+  attempt is a full new connection (new ticket, new relay pairing, new login challenge and hash); while the device is
+  still offline, the relay fails, jt-ipam is restarting or the device's login answers with an error from a program that
+  is still starting (such as "connection refused"), the next attempt follows, and only after the eighth does the page
+  show the error with the last reason. During a reconnect only login answers that need the user or cannot improve stop
+  the retries (Wrong Password, 2FA, No Password Access, rate limits, "Desktop..." replies, unsupported display servers,
+  anything "not allowed"); the first, manual connection still shows every login error directly. The two refusals a
+  device can send before the login challenge, "Your ip is blocked by the peer" (the jt-ipam server is not on the
+  device's IP allowlist) and "The main window is not open", also stop the retries at once and show the reason instead
+  of trying all 8 times. There is no reconnect when you disconnect or leave the page, when the device
+  states a reason, when the connection never logged in, or for errors a retry cannot fix (permission, key mismatch,
+  unsupported codec); an attempt that gets Wrong Password, 2FA Required or a rate limit stops and asks as usual. A typed
+  password is kept only in the page's memory for reconnecting and is cleared on disconnect, cancel, when the attempts run
+  out or when the page is left; it is never written to browser storage. A saved password asks the backend for a fresh
+  login hash on every attempt, and a successful reconnect does not save the password again. View only and the clipboard
+  switch keep their current values. This covers every kind of session switch on the device (Windows logoff, user switch
+  or RDP taking the console; any Linux display manager, X11 or Wayland; the macOS login window), because the device
+  always just drops the connection then. Every connection from the page uses the same `session_id` and `my_name`, so a
+  device whose program did not restart keeps the earlier login; a planned reconnect never sends `close_reason`; a Wrong
+  Password during a reconnect says the device's one-time password may have changed; "No Password Access" while waiting
+  for approval says the device is at its login screen and asks for the password on the same connection; "Wayland login
+  screen is not supported" stops and explains what to do on the device (the RustDesk documentation link is shown as
+  text); a message box from the device (such as Wayland asking someone there to choose the screen to share) is shown
+  and the page keeps waiting.
+- **RustDesk web connection: Windows session picker.** When an installed Windows device has more than one session
+  (for example the console and an RDP session), it sends the session list at login and shows no picture until the
+  controller picks one (`Misc.selected_sid`). The page sends it straight away when there is only one session or the
+  current one was chosen before; otherwise it lists the sessions with the current one marked and preselected. Picking
+  another session makes the device switch and drop the connection; the page reconnects by itself and, when the device's
+  current session is then the one picked, sends it without asking again. The choice is kept only in the page's memory.
+- **RustDesk web connection: log in to a Linux device that has no desktop.** A RustDesk 1.4.x Linux device with
+  "allow headless" and nobody logged in answers "Desktop session not ready" (and related messages); the page now asks
+  for an OS username and password (and the RustDesk password too when the device says it is empty or wrong) and logs
+  in again on the same connection with `os_login`, reusing the login hash it already sent when the RustDesk password
+  is not retyped. "Desktop xsession failed" asks again; "another user login", "xorg not found" and "Desktop none" end
+  with an explanation. The OS username and password go only inside the encrypted login message: they are not stored,
+  not logged, and never sent again on a reconnect. A wrong RustDesk password on this path ("password wrong") counts
+  toward jt-ipam's login failure limit exactly like "Wrong Password"; the first prompt ("password empty") does not.
+- **Device type column on more pages**: Connections (shown by default), the Wazuh and OCS "IPs without an agent"
+  lists (shown by default, server-side sortable with `sort=device_kind`; the API rows also carry `device_kind` and
+  `device_model`), Anomalies (shown by default for "type or OS changed", selectable for the other IP-based
+  categories), Exposed services and the RustDesk devices tab (type of the mapped IP, server-side sortable). All use
+  one shared column definition, and the column can be picked, sorted
+  and exported like the others.
+- **RustDesk Server (open source) integration (Beta), with its own dedicated agent.** The open source server has no
+  management API, so a small dedicated **RustDesk agent** (`agent/jt_ipam_rustdesk_agent.py`, standard library only; not
+  the scan agent) runs on the RustDesk host. Adding a RustDesk server in jt-ipam ("Integrate RustDesk") generates that
+  server's own agent key and a one-line install command (`/api/v1/rustdesk/agent/installer.sh`): systemd service
+  `jt-ipam-rustdesk-agent`, program in `/opt/jt-ipam-rustdesk-agent/`, config `/etc/jt-ipam-rustdesk-agent.env` (root
+  only). The service runs as the owner of the hbbs directory with that directory mounted read-only, no capabilities
+  and a read-only system; the agent updates itself. It polls every 10 seconds, so the page's **Test** (the agent
+  checks the database, public key, hbbs version, online query and client report receiver on the host and reports each
+  result) and **Sync now** answer within seconds. The key is stored hashed for authentication and encrypted for
+  showing the install command again; viewing and replacing it are audited, and a key only works for its own server.
+  The agent reads the hbbs database read-only (device ID, first registration time, registered IP; never the
+  public-key or UUID columns, never the private key file) and asks hbbs which IDs are online (`OnlineRequest`, over
+  the host's own address, because hbbs treats loopback as its text admin console). The page follows the Wazuh page:
+  tabs for **RustDesk servers** (agent state, host and version, receiver state, edit / test / sync now / install
+  command in an action column pinned to the right), **Devices** (search, online filter, mapping status, export) and
+  **Connection audit**. An ID is mapped to an IP record only when the evidence is clear (below); the IP page shows the
+  RustDesk ID and online state, and users with remote console rights get a "RustDesk" button that launches the local
+  client with `rustdesk://connect/<id>@<server>?key=<public key>` (no password in the link). An unreadable database
+  never clears the list, a failed online query keeps the last state, devices removed from hbbs are removed here, and
+  a silent agent raises a health alert. AI tool `list_rustdesk_peers` (admin, with `subnet_cidr`); `get_ip_detail`
+  includes the RustDesk ID. API: `/api/v1/rustdesk/servers` (+ `/peers`, `/audit`, `/test`, `/sync-now`,
+  `/agent-key`, `/rotate-agent-key`), agent protocol `/api/v1/rustdesk/agent/{poll,report,events,test-result}`.
+- **RustDesk connection audit, client host name / OS and brute-force alarms.** The open source server keeps no record
+  of who connected to what, but the open source clients report it themselves to an "API server", and when that
+  setting is empty they send it to port 21114 of their ID server. With "Receive client reports" on (default), the
+  RustDesk agent listens there, so no client needs reconfiguring: heartbeats, host name / OS / user, connection audit
+  (connected, authenticated with peer ID / name / IP and type, closed), file transfers, alarms (6 wrong passwords in a
+  minute, over 30 in total, allowlist violations) and session notes. Each report's uuid is compared with the hbbs
+  database on the host itself (forged reports are dropped and counted; the uuid never leaves the host), responses
+  never push settings or disconnect anyone, and the receiver has body, time, connection and rate limits. If it cannot
+  listen (port taken) the reason shows on the page. Alarms raise the `rustdesk.alarm` notification (once per device
+  and type per 10 minutes). Mapping an ID to an IP combines signals: the heartbeat's source address (a LAN client
+  reaches the agent directly, so this is its real current address), the registered IP and the host name. A host name
+  that differs from the IP record only blocks the mapping when the registered IP is the sole evidence (an address
+  handed to another machine); a heartbeat that just came from that address wins, since the record simply names the
+  machine differently. A name-only match is shown as a suggestion. The client-reported host name is also a new
+  **host name source** for IP records (`rustdesk`, last in the default order, so it only fills IPs that no other
+  source names; generic names such as localhost / ubuntu are ignored, and the names are withdrawn when a device is no
+  longer mapped or the server is deleted). The receiver was written from a spec only (`docs/SPEC_RUSTDESK_API_zh-TW.md`), without RustDesk or
+  third-party API server source. Audit is kept 400 days. AI tool `list_rustdesk_audit` (admin).
+- **RustDesk connect button needs a per-IP switch**, like SSH / RDP / VNC: "Enable RustDesk connection" in the IP
+  edit form (shown only when the IP is mapped to a RustDesk device; migration 0179, off by default, so after
+  upgrading the button appears only where you turn it on). The button carries a "Local" badge because it opens the
+  RustDesk client on the operator's computer; the RustDesk row on the IP page now shows only the ID (with a copy
+  button), server, user, OS and client version, while the last heartbeat moves to "Last seen by source" and the
+  host name to the host name sources. The RustDesk page tables no longer combine values in one cell (IP and host
+  name, agent host / IP / version, peer ID / name / IP each have their own column), every column can be sorted
+  (device and audit lists sort on the server) and shown or hidden, and copy buttons react on hover.
+- Console connect forms (SSH, SFTP, RDP, VNC) show the **connection path**: direct, through which jump host or scan
+  agent, and whether that is set on the IP or the subnet; if the path cannot be used (jump host disabled, host key
+  not pinned, agent not allowed to relay…) the reason shows before you click connect. Users who can edit get
+  "Change", which opens the exit setting for this IP in place (the same picker as the IP edit dialog), with a link
+  to the subnet's edit dialog to change it for the whole subnet; when nothing but direct is possible it says so. API: `GET /addresses/{id}/console-route`. There is deliberately no per-connection
+  choice between direct and relay: picking direct on an overlapping network reaches the wrong host.
+- **RustDesk-compatible web connection (Beta, phase 1)**: operate a RustDesk device mapped to an IP record right in the
+  browser (screen, keyboard, mouse) without installing RustDesk. RustDesk server settings gain a "Web connection" switch
+  (off by default, migration 0180), the hbbs address (empty = the source address the agent reports), the relay address
+  (empty = the hbbs host plus the default relay port) and the transport (TCP 21116/21117 or WebSocket 21118/21119). When
+  it is on, the RustDesk button on the IP page opens the web connection in a new tab (no badge) and a secondary button
+  with the "Local" badge still opens the client installed on your computer; the Connections page gets a RustDesk button
+  and filter. The jt-ipam server only does rendezvous (hbbs) and relay (hbbr) and then forwards ciphertext: the secure
+  handshake (key exchange v0, secretbox), password hashing, login (two-factor and "waiting for approval" included),
+  VP9/H.264/VP8/AV1 decoding (WebCodecs) and map-mode keyboard input (key codes from the spec's appendix A, CapsLock and
+  NumLock kept in sync) all run in the browser, so **typed passwords, hashes and keys never reach the server** (unless
+  you choose to remember the password, see the "remember the password" entry). No downgrade: if hbbs did not sign
+  the device identity, the signature does not verify or the identity does not match, the connection stops (hbbs started
+  with `-k <public key string>` does not sign, so web connections are refused; run hbbs with its key file, `KEY=_` in
+  the `.env` of the official deb, as the troubleshooting page explains. The backend handles the hbbr race when both
+  sides arrive at once: it waits a moment after rendezvous, reconnects with the same uuid when dropped at once, and
+  restarts from rendezvous once if nothing pairs within 10 seconds). Security: permission follows the remote
+  console rules (the IP must have RustDesk connections enabled); tickets last 30 seconds, work once and are bound to
+  user, IP, server and RustDesk ID; the backend only connects to the hbbs/hbbr addresses configured for that server
+  (outbound rules applied at connect time); every session start and end is audited (RustDesk ID, transport, the relay
+  name hbbs returned and the address actually used, end reason, login results reported by the browser). The device
+  counts wrong passwords per source IP, which is the jt-ipam server for everyone, so jt-ipam limits first: 3 failures
+  per minute and 10 per day per user and device (two-factor codes counted separately; tune with
+  `RUSTDESK_WEB_FAIL_PER_MINUTE`/`_PER_DAY`), and a session that keeps sending logins without reporting results is cut
+  off. At most 3 sessions per user and 20 per server (`RUSTDESK_WEB_MAX_SESSIONS`/`_PER_USER`). The nginx console
+  WebSocket location now includes `rustdesk` (fresh installs use the template, `jt-ipam.sh upgrade` patches existing
+  sites); one message can be up to 16 MB (keyframes can exceed 1 MB, so loosen any WAF in front). A disposable test
+  target is included in `scripts/rustdesk-test-target/` (official hbbs/hbbr and Linux client, bound to 127.0.0.1 only).
+  The protocol is a clean-room implementation of our own written specification; no RustDesk or third-party web client
+  source code was consulted.
+- **Drag to reorder columns.** Every table with a "Columns" button (74 pickers on 50 pages) now lets you drag a column
+  in that list by its handle to change the table's column order; the handle also moves with the up and down arrow keys,
+  and dragging works with touch. The order is saved per user and per table next to the visible columns (in the same
+  `table_columns` preference, under `<table>:order`, as the order of every column in the list including hidden ones, so
+  a column you hide and show again returns to where you put it). Columns added in later versions, the selection column,
+  columns fixed to the left or right edge and columns that are not in the list (such as an actions column) stay where
+  the page puts them; exports follow the displayed order; "Reset to default" restores the order too. Tables you never
+  reordered look exactly as before. The lists on Subnets, Locations, NAT and Connections now show the columns in the
+  same order as the table.
+- **RustDesk web connection: remember the password.** Turn on "Remember password" and, once the login succeeds, the
+  password goes into the per-user credential vault (protocol `rustdesk`, envelope encrypted, bound to that IP; saving
+  again for the same IP replaces the old one; a failed login stores nothing). Next time the form uses the saved
+  password without asking: after the device sends its challenge, the browser asks the backend over the connection's
+  WebSocket (`login_assist`), and the backend decrypts the password and returns only the hash for this one connection's
+  challenge. Neither the password nor the reusable first-stage hash reaches the browser, which keeps only the
+  credential id (nothing in localStorage or sessionStorage). The backend checks, in order: the relay is paired and the
+  session is not logged in yet, at most 3 requests per connection, salt and challenge are 1 to 64 printable ASCII
+  characters, the credential is the user's own `rustdesk` one for this IP, and it decrypts; a failed check is answered
+  without closing the connection and the browser asks for the password instead. Each use is audited as
+  `rustdesk.saved_password_used` (RustDesk ID and credential id, no secrets) and updates the credential's last-used
+  time. If the device rejects the saved password (it was changed), the page says so, never retries it automatically,
+  and offers to delete it or remember the new one; a rejected saved password counts toward the same failure limits as
+  a typed one. The connect form looks and behaves like the VNC one: a first "Saved password" row with a drop-down
+  (the saved one is picked by default; "Use a different password (enter it below)" or clearing it goes back to typing)
+  and a delete button next to it, then the password, "View only" and a "Remember password" switch row (with an
+  optional name), and the same hint box below. The ticket response gains `has_saved_password`; the vault accepts `protocol=rustdesk` (password only, username may be empty, `target_ip_id`
+  required, otherwise `cred_target_required`). New error codes `rd_saved_password_unavailable`,
+  `rd_saved_password_decrypt`, `rd_saved_password_rejected` and `rd_login_assist_limit`. No database migration.
+
+### Changed
+- Inclusive wording everywhere: the UI, backend messages, code comments and docs say allowlist/denylist (Traditional Chinese 允許清單/封鎖清單, Japanese 許可リスト/拒否リスト), e.g. the PVE firewall posture "Allow-list" and the RustDesk alarm "Source IP not in allowlist". Text quoted from other systems stays verbatim (TigerVNC's `blacklisted` log line). A guard test keeps it that way.
+- IP details, "Last seen by source": the "Ago" column is now "How long ago" (Traditional Chinese 「多久以前」 instead of 「距今」).
+- **Jump hosts moved to a tab on the Scan agents page**, "SSH jump hosts (sites without an agent)", and left the sidebar;
+  the old `/jump-hosts` URL redirects there.
+- **Install / upgrade: building the frontend needs Node.js 22 LTS** (Node 20 reached end of life on 2026-04-30).
+  A fresh install gets NodeSource 22, and `upgrade` moves an existing Node 20 (or anything older than 22) to 22 by
+  itself, before the database migration. If 22 cannot be installed during an upgrade (no access to
+  deb.nodesource.com, a proxy, an apt conflict), the upgrade builds with the existing Node 20 or newer and finishes
+  with a warning banner, and `doctor` keeps reporting the old Node; with nothing that new it stops before touching
+  the database. A fresh install that cannot get 22 stops and says how to install it by hand. An nvm Node 22 of the
+  user running `sudo` is used as is; an older nvm Node is not (that lookup had never matched anything before). CI,
+  `.nvmrc` and `engines` are on 22.
+- Development: CI runners are pinned to Ubuntu 24.04 (`ubuntu-latest` moves to 26.04 from October 19), with a
+  non-blocking 26.04 preview on every run; GitHub Actions are on their Node 24 releases. The dependency-audit
+  allowlist has a guard test (every entry needs an expiry, and package.json ignores must be registered).
+- Development: the release e2e run is `frontend/e2e/run-release.sh`: ordinary specs run in parallel, specs that
+  change system-wide settings (listed in `e2e/global-state-specs.txt`) run afterwards one at a time, and the
+  language specs use temporary accounts instead of switching the shared admin to Japanese.
+
+### Fixed
+- **An IP record's MAC no longer stays stuck on the previous device**: a MAC with an unknown source (old data, imports) used to be treated as "maybe typed in by hand" and was never updated, so after a DHCP address moved to another computer the scan agent, firewall ARP and the lease all saw the new MAC while the IP page kept showing the old vendor, with no change logged. An unknown-source MAC now has the lowest priority: any source that sees a different MAC updates it and logs a "MAC changed" entry; a MAC that was already right just gets its source recorded. MACs edited on the IP form are still marked manual and win; MACs written through the phpIPAM-compatible API are now marked manual too.
+- **When an IP moves to another device, the previous device's names no longer linger**: when the MAC changes to a different device, the hostnames the previous device reported about itself (NetBIOS, mDNS, Wazuh, OCS, RustDesk) are cleared and the hostname is recomputed in precedence order, instead of waiting for them to expire (an old NetBIOS name used to stay under "Hostname sources" indefinitely). Sources that follow the address (DNS, firewall, DHCP) are unaffected. Filling in a MAC for the first time does not count as a device change.
+- IP detail, "Hostname sources": the "Manual" entry can be removed with its x (after a confirmation; the hostname is then recomputed in precedence order), so an old manual name no longer has to be blanked out in the edit form after the device changes; hovering any source shows when it last reported. Other sources stay read-only (removing them would only last until the next sync).
+- **An IP reported with several MACs no longer flips every round**: several LibreNMS devices each reporting a different MAC (one device's ARP cache still holding the previous machine), two Proxmox guests configured with the same IP, or two MACs for one IP in the same firewall batch used to be applied in report order, so the MAC flipped back and forth within and across rounds and kept adding change entries. Each IP now gets one decision per round: the most reported MAC; the current MAC stays when it is among them; nothing changes when it cannot be told apart. Switching back to a MAC this IP used within the last 24 hours (ARP flux on dual-NIC hosts, two VMs sharing an IP) counts as the same set of devices taking turns and does not clear the device-reported names.
+- IP edit form, device field: one device no longer shows both "Link the matching device" and "Link to existing device". With the hostname unchanged the system suggestion wins (it also checks MACs and ports and handles IPs with the same hostname); with an edited, unsaved hostname the new name is matched instead.
+- RustDesk web connection: latency, bitrate, frames per second and codec moved to their own line under the toolbar, so a narrow window no longer pushes the whole row of buttons onto a second line.
+- Consoles (SSH, SFTP, RDP, VNC, noVNC, BMC, RustDesk web connection): with nothing saved yet, the connect form no
+  longer shows the "Saved credentials"/"Saved password" row, whose drop-down only offered manual entry.
+- Connections: the MAC and MAC vendor columns offered in the "Columns" list could not be turned on (ticking them did
+  nothing).
+- Virtualization tables: a column meant to be hidden by default (the VMID column of the VM list) was shown at first and,
+  once any column choice was saved, could never be shown again (the list of all columns and the default columns were
+  swapped).
+- RustDesk devices tab with two or more RustDesk servers: choosing a value in the online filter changed the mapping
+  status filter instead (the server picker appears after the list loads, and the toolbar's unkeyed components were
+  reused by position, keeping the neighbour's event handler). The toolbar components now have keys.
+- The last-resort NIC vendor hint matched brand words anywhere in the OUI vendor name: "sonos" matched SonoSite
+  (ultrasound), "arlo" matched Carlo Gavazzi, "bose" matched Boser, "brother" matched McKay Brothers, and "dahua" only
+  matched a weighing-scale maker, while Dahua's own OUIs (`ZhejiangDahu`), APC (`AmericanPowe`) and PlayStation
+  (`SonyInteract`) never matched. The vendor name now has to equal a known manuf short name or registry name, and the
+  hint is never taken from a randomized (locally administered) MAC, a virtual NIC prefix or an all-zero MAC.
+- An address whose host name suggests a device (for example `printer-2f`) kept that device type after a Windows PC took
+  the address, so "Device type or OS changed" never reported it; a host name no longer overrides a Windows result.
+- Intel AMT in a vPro PC (port 623 together with 16992 to 16995, or a Windows or macOS fingerprint) is no longer reported
+  as a server BMC.
+- Identify misclassifications found in the production sweep: an OPNsense firewall was a **printer** (its Prometheus
+  node_exporter on port 9100, which nmap only names by port number, counted as JetDirect; port 9100 without a recognised
+  product no longer means a printer on a general-purpose OS); a Proxmox Mail Gateway container was a **hypervisor** (its
+  web interface is also on 8006; that port alone no longer counts for VMs, containers or Proxmox Mail Gateway/Backup
+  Server); a Dyson appliance was an **HP switch** (the top fingerprint candidates disagreed about the kind of device;
+  such fingerprints no longer pick a kind or an OS); a camera was a **wireless AP** (a fingerprint's device class is no
+  longer used when its vendor contradicts the NIC vendor); nmap's "phone" class meant VoIP. An explicit Identify that
+  cannot tell what a host is now clears the previous guess instead of keeping it, and a device model that was really the
+  NIC vendor is cleared.
+- RustDesk: devices whose old registrations share an IP were all marked "shared"; only IDs seen online in the last 7
+  days count now, so old registrations show "not seen online". The agent column showed "offline" whenever the page had
+  been open for a minute (the page compared old data with the browser's clock); the server now decides and the servers
+  table refreshes every 15 seconds while visible.
+- Identify: LPD (515) without a recognised product no longer means a printer on general-purpose or network systems
+  (routers and NAS share USB printers with it); nmap's "broadband router" class is a router; LibreNMS hardware models
+  outrank coarse types (a VigorAP is an AP even when its device record says router, a Synology RT/MR/WRX is a router,
+  not storage); host names give a last-resort hint for phones, cameras, smart plugs, printers, APs, laptops and VoIP.
+- RustDesk on the IP page: one split button instead of two; the main button connects in the browser and its arrow
+  offers "Open in the RustDesk app on this computer" (like the Proxmox console button). Without the web connection the
+  single local-app button with its "Local" badge stays. The devices tab shows the registered and report IP in one
+  two-line column, the OS name without build numbers above its platform, and the mapping status inside the status
+  column.
+- Lists: going back from an IP to the subnet's IP list or the IP address list returns to the page you were on (the page
+  and page size are kept in the URL).
+- **A Mac was identified as a camera.** macOS's AirPlay receiver serves RTSP on ports 5000 and 7000, and any RTSP
+  used to mean "camera", even when the OS fingerprint said macOS; since Identify results are now written back to the IP
+  record (and periodic detection also looks at port 5000), the wrong type showed up on the IP page. RTSP alone no longer
+  means a camera on a host whose OS is macOS, Windows or iOS (a named camera product still does), and periodic detection
+  may now replace an earlier specific type when the fingerprint says one of those desktop systems (embedded devices do not
+  run them); a plain Linux fingerprint still cannot turn a camera back into a server.
+- RustDesk web connection: the password field no longer lets the browser or a password manager fill in a saved
+  password (`autocomplete=off` did not stop Chrome from filling the jt-ipam login password, and every wrong attempt counts
+  towards the device blocking jt-ipam).
+- RustDesk servers table: the public key preview shows only its first 5 characters (the tooltip and the copy button still
+  give the whole key).
+- **"Enable RustDesk connection" seemed to vanish on a computer with two network cards.** RustDesk maps only to the
+  address the client connects from, so the other IP had no switch at all. When another IP of the same device has RustDesk,
+  editing this IP now says so and links to that IP (RustDesk ID, enabled or not). Only IPs linked to the same device count
+  (a shared hostname is not enough), and IPs in subnets the user cannot see are not shown. The address API carries this as
+  `rustdesk_elsewhere`.
+- RustDesk web connection: when the relay does not pair in time, the message now names the most common cause, a device
+  whose RustDesk Key differs from the server's. The relay refuses such a device, while the RustDesk app on the same LAN
+  connects directly without the relay and so still works, which made the web connection look broken.
+- The AI assistant's floating button covered the last row of a list: with the action column pinned to the right,
+  the last row's Delete button sat right under it and stayed there even when scrolled to the bottom, so clicking it
+  opened the assistant instead. The content area now keeps room at the bottom for the button (desktop and mobile).
+- Upgrade: when `node_modules` had been laid out by another pnpm version, `pnpm install` stopped at an
+  interactive "reinstall from scratch?" prompt, took the missing answer as no and installed nothing, so the build
+  failed on any new frontend dependency. The install now runs non-interactively (`CI=true`).
+- **The IP page kept a wrong device type even after Identify got it right** (a Foscam camera showed as
+  "Server / computer"). Identify results were only shown on the Identify page; they are now written back to the IP
+  record (type, OS, vendor/model). Periodic detection without the "ports" probe only looked at six ports, so it never
+  saw the camera's RTSP 554 and fell back to the Linux TCP/IP fingerprint; it now also checks a few
+  device-identifying ports (RTSP 554/8554, printer 9100/631/515, SIP 5060, NAS 5000/5001, 8080/8443, NVR
+  37777/34567; scan agent 1.17.1). A periodic result backed only by the OS fingerprint no longer turns a specific
+  type (camera, printer…) back into a generic server, which also removes false "type changed" anomalies; service,
+  Recog, banner OS and virtualization evidence, or a changed OS family, still change it.
+- **Saving the IP edit form without touching the host name could clear it**: the form always sends the "pinned
+  host name source" field, and the server recomputed the host name whenever that field was present. An IP whose
+  name had no source observation behind it (older records, imports) came out empty, and the change log showed a
+  manual edit to blank. The name is now only recomputed when the pinned source actually changes.
+- IP detail header: the reservation and DHCP tags now have borders like the state tag.
+- IP lists: the role icons after an address (auto-added, gateway, DHCP, reservation lock) could spill over the
+  host name column in the subnet page (the IP column was too narrow). The column is wider and icons that do not fit
+  wrap below the address instead of overlapping.
+- Host name source chips on the IP page showed raw keys for OCS, RustDesk, Zabbix, Palo Alto, MikroTik and pfSense;
+  they now show the product names. The "other IPs with the same host name" list in the IP form ran IP, MAC and
+  vendor together; they are now separate, aligned columns.
+- Dashboard rack card: rack names sat at different heights (each name followed its rack's height); they now line up
+  while the racks stay bottom-aligned. The rack legend (dashboard and rack pages) showed type keys such as
+  `patch_panel`; it now shows the translated device type names.
+- Dark mode: tables whose action column is pinned to the right (certificates, scan agents, users, devices,
+  RustDesk) showed the scrolled columns through it, so the buttons sat on top of other text. Pinned cells now get an
+  opaque background that matches the rest of the row.
+- **A host with two NICs was reported as an IP conflict**: when its networks share a broadcast domain, both NICs answer
+  ARP for each of its addresses (Linux's default `arp_ignore=0`), which looked like two machines using one IP. Two MACs
+  that both belong to the same device (registered on its other IPs or on its ports) no longer count; a third machine
+  still does. To stop the double answers on the host itself, set `net.ipv4.conf.all.arp_ignore=1` and
+  `net.ipv4.conf.all.arp_announce=2`.
+- Device detail and the Investigate report showed Wazuh's raw agent state (`disconnected`); they now show it translated,
+  as the Wazuh page does. The Investigate report does the same for the LibreNMS state.
+
 ## [0.6.61] - 2026-10-04
 
 ### Added
@@ -42,8 +508,10 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
   gone. A name clash now asks Overwrite / Keep both / Skip (with "do the same for the rest" for batches), and every
   upload is written to a temporary file in the same directory and renamed into place only when complete (keeping the
   old file's permissions when overwriting); a failed or cancelled upload removes only the temporary file.
-- **The periodic OS probe took the vendor from nmap's outdated MAC database**: a SuperMicro machine read "Server ·
-  Hewlett Packard". Like the Probe page, it now uses jt-ipam's own OUI table (refreshed monthly from IEEE) first.
+- **The periodic OS probe took the vendor from whichever NIC answered the probe**: on a host with two NICs whose
+  networks share a broadcast domain, Linux answers ARP for every local address on every NIC, so a SuperMicro machine's
+  address was sometimes answered by its HP add-in NIC and read "Server · Hewlett Packard". Like the Probe page, it now
+  looks up the MAC on the IP record in jt-ipam's own OUI table.
 - **Ambiguous nmap guesses are no longer taken as devices**: recent Linux kernels are often guessed as "HP P2000 G3 NAS"
   within 0-1 points of Linux, so two identical machines came out as storage and server. When the top guess is a device
   class but a general-purpose OS is within 2 points, the general-purpose one is used. A host with port 8006 (Proxmox VE

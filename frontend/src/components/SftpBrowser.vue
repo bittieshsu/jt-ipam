@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { wsErrorText } from "@/utils/wsError";
+import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
  * SFTP 檔案瀏覽器：先換 ticket → 開 WebSocket → 後端橋接 asyncssh 的 SFTP。
  *
@@ -1079,7 +1080,7 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
         </n-alert>
 
         <!-- 已存帳密（個人保管）：選一筆即以 reference 連線 -->
-        <div v-if="credOptions.length" class="sftp-saved-row">
+        <div v-if="creds.length" class="sftp-saved-row">
           <span class="sftp-saved-label">{{ t("ssh.saved_cred") }}</span>
           <n-select v-model:value="form.credential_id" :options="credOptions" clearable size="small"
                     :placeholder="t('ssh.saved_cred_ph')" style="flex:1" />
@@ -1134,6 +1135,10 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
                        :placeholder="t('ssh.remember_label_ph')" />
             </n-space>
           </n-form-item>
+
+          <!-- 按連線之前就看得到會走哪條路（直連／跳板／掃描代理）、走不通的話原因 -->
+
+          <ConsoleRouteNote :address-id="props.addressId" />
 
           <n-alert :show-icon="false" type="info" style="margin-bottom:10px">
             {{ form.credential_id ? t("ssh.use_saved_hint") : (remember ? t("ssh.store_hint") : t("ssh.no_store_hint")) }}

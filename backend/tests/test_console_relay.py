@@ -146,7 +146,7 @@ def test_anything_outside_the_subset_closes_the_session(frame, why) -> None:
         mod._ws_decode(bytearray(frame))
 
 
-# ─────────────────── 代理端：自我白名單 ───────────────────
+# ─────────────────── 代理端：自我允許清單 ───────────────────
 def _relay_agent(monkeypatch, *, enabled=True, ports="22,3389,5900-5910", local_ports=None, local_max=None,
                  pinned=None, assigned=("192.0.2.0/24",), max_sessions=4):
     """ports／max_sessions／assigned＝伺服器在 poll 裡給的（網頁上的設定）；local_*／pinned＝代理主機的選用限縮。"""
@@ -437,7 +437,7 @@ async def test_agent_errors_reach_the_waiting_console_quickly(db_session, fake_r
 
 
 async def test_relay_jobs_cannot_be_created_through_the_probe_api() -> None:
-    """工具頁的探測 API 走 validate_params：relay_open 不在白名單，使用者不可能自己派中繼工作。"""
+    """工具頁的探測 API 走 validate_params：relay_open 不在允許清單，使用者不可能自己派中繼工作。"""
     from app.services.agent_probe import ProbeJobError, validate_params
     with pytest.raises(ProbeJobError):
         validate_params("relay_open", {"targets": "192.0.2.1"})

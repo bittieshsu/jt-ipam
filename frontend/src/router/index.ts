@@ -45,6 +45,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/BmcConsole.vue"),
   },
   {
+    // 另開分頁的全頁「相容 RustDesk 的網頁連線」（透過 RustDesk 伺服器連線；不套 MainLayout 側欄；仍需登入）
+    path: "/rustdesk/:id",
+    name: "rustdesk-console",
+    component: () => import("@/views/RustDeskConsole.vue"),
+  },
+  {
+    // 另開分頁的全頁「相容 RustDesk 的網頁連線」檔案傳輸（另一條連線，附錄 J；同一道權限＋伺服器的檔案傳輸開關）
+    path: "/rustdesk/:id/files",
+    name: "rustdesk-files",
+    component: () => import("@/views/RustDeskFilesConsole.vue"),
+  },
+  {
     path: "/",
     component: () => import("@/components/layout/MainLayout.vue"),
     children: [
@@ -94,10 +106,12 @@ const routes: RouteRecordRaw[] = [
       { path: "windows-dhcp", name: "windows_dhcp", component: () => import("@/views/WindowsDhcpAdmin.vue"), meta: { admin: true } },
       { path: "kea-dhcp", name: "kea_dhcp", component: () => import("@/views/KeaDhcpAdmin.vue"), meta: { admin: true } },
       { path: "isc-dhcp", name: "isc_dhcp", component: () => import("@/views/IscDhcpAdmin.vue"), meta: { admin: true } },
+      { path: "rustdesk", name: "rustdesk", component: () => import("@/views/RustDeskAdmin.vue"), meta: { admin: true } },
       { path: "fortigate", name: "fortigate", component: () => import("@/views/FortiGateAdmin.vue"), meta: { admin: true } },
       { path: "paloalto", name: "paloalto", component: () => import("@/views/PaloAltoAdmin.vue"), meta: { admin: true } },
       { path: "doctor", name: "doctor", component: () => import("@/views/SystemDoctor.vue"), meta: { admin: true } },
-      { path: "jump-hosts", name: "jump_hosts", component: () => import("@/views/JumpHosts.vue"), meta: { admin: true } },
+      // 跳板移到掃描代理頁的頁籤（2026-10-04）；舊網址與書籤照樣到得了
+      { path: "jump-hosts", name: "jump_hosts", redirect: { name: "scan_agents", query: { tab: "jump" } } },
       { path: "mikrotik", name: "mikrotik", component: () => import("@/views/MikroTikAdmin.vue"), meta: { admin: true } },
       { path: "ocs", name: "ocs", component: () => import("@/views/OcsAdmin.vue"), meta: { admin: true } },
       { path: "pfsense-fw", name: "pfsense_fw", component: () => import("@/views/PfSenseFirewallView.vue") },

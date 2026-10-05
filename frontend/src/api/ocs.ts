@@ -112,6 +112,9 @@ export interface OcsMissingAgent {
   section_name?: string | null;
   customer_id?: string | null;
   customer_name?: string | null;
+  // 設備類型欄（掃描代理判讀出的類型與型號）
+  device_kind?: string | null;
+  device_model?: string | null;
 }
 
 export async function listOcsAgents(): Promise<{ items: OcsAgent[]; total: number }> {

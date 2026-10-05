@@ -289,7 +289,7 @@ async function removeCred() {
         </n-alert>
 
         <!-- 已存 PVE 帳密 -->
-        <div v-if="credOptions.length" class="vnc-saved-row">
+        <div v-if="savedCreds.length" class="vnc-saved-row">
           <span class="vnc-saved-label">{{ t("novnc.saved_cred") }}</span>
           <n-select v-model:value="selectedCredId" :options="credOptions" clearable size="small"
                     :placeholder="t('novnc.use_typed')" style="flex:1" />

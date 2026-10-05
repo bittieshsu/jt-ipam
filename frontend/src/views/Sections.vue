@@ -124,7 +124,7 @@ async function doBulkDelete() {
   finally { bulkBusy.value = false; }
 }
 
-const { visibleKeys, setVisible, reset } = useColumnPrefs(
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "sections",
   ["name", "description", "subnet_count", "customer_id", "actions"],
   ["name", "description", "subnet_count", "customer_id", "actions"],
@@ -177,7 +177,7 @@ const allColumns: DataTableColumns<Section> = [
 ];
 
 const columns = computed<DataTableColumns<Section>>(() =>
-  allColumns.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key)),
+  orderColumns(allColumns.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key))),
 );
 
 /** 分頁抓到完。只抓第一頁的話，第 51 筆之後的區段整批消失 —— 而且表格的
@@ -232,7 +232,8 @@ onMounted(() => {
         {{ t("common.create") }}
       </n-button>
       <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="reset" />
+                    @update:visible="setVisible" @reset="reset"
+                    :order="order" @update:order="setOrder" />
       <ExportButton :columns="columns" :rows="rows" filename="sections" :title="t('nav.sections')" />
     </n-space>
     <n-space v-if="checkedKeys.length" align="center" style="margin-bottom: 8px; padding: 8px 12px; background: rgba(127,127,127,0.08); border-radius: 6px;">

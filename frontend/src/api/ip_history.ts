@@ -102,5 +102,5 @@ export const IP_CHANGE_EVENT_TYPES = [
 export const IP_CHANGE_SOURCES = [
   "manual", "user", "system", "scanner", "librenms", "dns",
   "proxmox", "esxi", "opnsense", "pfsense", "fortigate", "paloalto", "mikrotik",
-  "wazuh", "zabbix", "ocs", "adguard", "kea_dhcp", "isc_dhcp", "windows_dhcp",
+  "wazuh", "zabbix", "ocs", "adguard", "kea_dhcp", "isc_dhcp", "windows_dhcp", "rustdesk",
 ] as const;

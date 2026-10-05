@@ -28,6 +28,7 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 - **DHCP**：各家各自設定，OPNsense（Kea/ISC）與 pfSense 透過各自的 REST API 同步租約與發放範圍；**Windows DHCP Server（Beta）** 走 WinRM + PowerShell 唯讀（只跑 `Get-*`，需 WinRM 可連線，預設 5986/HTTPS）；**獨立的 Kea** 走它的 JSON 控制 API（控制代理，或 Kea 3.0 起 DHCP 伺服器自己的 HTTP 控制通道；租約需要 lease_cmds）；**獨立的 ISC DHCP**（isc-dhcp-server 沒有能列出租約的 API）由裝在 DHCP 主機上的掃描代理在本機解析 dhcpd.conf/dhcpd.leases，只回報解析後的範圍、固定分配與有效租約。落在發放範圍內的位址會在 IP 清單與詳細資料標示出來。
 - **Wazuh**：代理清單（狀態、作業系統、CVE 數、SCA）對到 IP，並列出有主機名稱卻沒有啟用中代理的 IP
 - **OCS Inventory NG**：電腦資產依網卡 MAC 對到既有 IP（不會新建記錄），裝置頁顯示硬體資訊，並列出 OCS 從未盤點過的 IP
+- **RustDesk Server（開源版，Beta）**：RustDesk 主機上的專用 RustDesk 代理（一行指令安裝）唯讀讀取已註冊的裝置 ID 與線上狀態（私鑰檔絕不讀取；jt-ipam 與主機管理員兩邊都允許時，也可以刪除舊註冊）；登記 IP 明確且最近上線才對應到 IP 記錄，IP 頁可在網頁裡直接連線操作（相容 RustDesk 的網頁連線，加密在瀏覽器裡完成），或叫出電腦上的 RustDesk 客戶端並帶入伺服器與公鑰（網址不含密碼）；另收客戶端自己的回報，得到連線稽核、主機名稱 / OS / 使用者與暴力破解告警，不用改任何客戶端設定
 - **Graylog**：提供 IP→主機名稱/FQDN 的 DSV 對照表端點，供 Graylog「DSV File from HTTP」資料配接器抓取
 - **本地 AI**：LLM Server 自然語言查詢 + 語意搜尋（預設自架、資料不外送；也可明確改接 OpenAI 相容端點），並提供 MCP server（stdio / Streamable HTTP）；實測搭配 `gemma4:26b` 效果良好。資安面：**防火牆規則異動偵測**（三家防火牆的規則每輪同步做快照 diff，半夜多出一條放行規則會通知管理員）、**IP 鑑識問答**（在 AI 對話問「這個 IP 上週是誰」，回欄位級異動＋ARP/MAC＋各來源主機名稱的證據時間軸）、**未授權 IP 的 AI 鑑識卡**（把 OUI/主機名稱/交換器埠彙整成「這最可能是什麼設備＋下一步查哪」的判讀，證據定界防 prompt-injection）
 
@@ -87,7 +88,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 | **Proxmox VE** | 可自動建立 | 「信任虛擬化取得的 IP」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
 | **VMware / ESXi** | 可自動建立 | 「信任虛擬化取得的 IP」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
 | **OPNsense / pfSense** | 可自動建立（DHCP 租約） | 「自動建立 IPAM 沒有的位址」 | **預設關閉** | 放進「包含它的最小網段」；分不出來就不建 |
-| AdGuard / Wazuh / Zabbix / OCS / DNS / Windows DHCP / Kea / ISC DHCP / FortiGate / Palo Alto / MikroTik | **只比對既有，不建** | 無 | 無 | 無 |
+| AdGuard / Wazuh / Zabbix / OCS / RustDesk / DNS / Windows DHCP / Kea / ISC DHCP / FortiGate / Palo Alto / MikroTik | **只比對既有，不建** | 無 | 無 | 無 |
 | CSV 匯入 / phpIPAM 遷移 | 由匯入內容建立（使用者明示的動作） | 無 | 無 | 依匯入資料 |
 
 **共通規則**：自動建立一律走同一套判斷（`services/ip_autocreate.py`），
@@ -133,7 +134,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
   （`/var/lib/jt-ipam/audit-anchors.jsonl` 與 journald），因為只有鏈本身抓不到「尾端被切掉」。
   `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` 可指定驗證起點，給既有站台那些再也驗不回來的舊記錄用
 - A09：結構化稽核記錄
-- A10：所有對外整合走 SSRF 白名單；封鎖 metadata / link-local
+- A10：所有對外整合走 SSRF 允許清單；封鎖 metadata / link-local
 
 ## 技術堆疊
 

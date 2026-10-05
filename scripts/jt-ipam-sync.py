@@ -44,6 +44,7 @@ async def _run() -> int:
     from app.models.zabbix import ZabbixInstance
     from app.models.windows_dhcp import WindowsDhcpServer
     from app.models.dhcp_standalone import IscDhcpServer, KeaDhcpServer
+    from app.models.rustdesk import RustDeskServer
     from app.services import adguard as adguard_svc
     from app.services import fortigate as fortigate_svc
     from app.services import mikrotik as mikrotik_svc
@@ -58,6 +59,7 @@ async def _run() -> int:
     from app.services import windows_dhcp as windows_dhcp_svc
     from app.services import kea_dhcp as kea_dhcp_svc
     from app.services import dhcp_standalone as dhcp_standalone_svc
+    from app.services import rustdesk as rustdesk_svc
     from app.services.background_tasks import upsert_scheduled_task as _hb
     from app.services.dns.factory import get_adapter as _dns_adapter  # noqa: F401
     from app.services.dns_sync import pull_server
@@ -278,6 +280,7 @@ async def _run() -> int:
                 ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
                 ("mikrotik", MikroTikRouter), ("windows_dhcp", WindowsDhcpServer),
                 ("kea_dhcp", KeaDhcpServer), ("isc_dhcp", IscDhcpServer),
+                ("rustdesk", RustDeskServer),
                 ("ocs", OcsServer),
                 ("dns", DNSServer),
             ):
@@ -573,6 +576,22 @@ async def _run() -> int:
         except Exception as exc:
             await session.rollback()
             log.error("isc_dhcp stale check failed: %s", exc)
+
+        # ── RustDesk Server（開源版）：資料由專用 RustDesk 代理回報，這裡只抓「代理多久沒回報」──
+        try:
+            if await rustdesk_svc.mark_stale_rustdesk(session, now):
+                await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("rustdesk stale check failed: %s", exc)
+
+        # ── RustDesk 客戶端稽核：保留 400 天 ──
+        try:
+            if await rustdesk_svc.prune_audit(session, now):
+                await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            log.error("rustdesk audit prune failed: %s", exc)
 
         # ── Proxmox（同一 cluster 多節點 → 自動挑健康節點同步，故障換手）──
         pvs = (

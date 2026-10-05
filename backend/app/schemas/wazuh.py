@@ -94,6 +94,9 @@ class MissingAgentRow(StrictModel):
     arp_seen: dict[str, str] = {}
     exclude_from_ping: bool = False
     subnet_scan_enabled: bool | None = None
+    # 「設備類型」欄：掃描代理判讀出的類型與型號（services/device_identity）
+    device_kind: str | None = None
+    device_model: str | None = None
 
 
 

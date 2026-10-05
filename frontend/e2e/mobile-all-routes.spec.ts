@@ -54,6 +54,7 @@ const ID_SOURCES: Record<string, string> = {
   "/sftp/:id": "/api/v1/addresses?q=10.20.0.12&page_size=1",
   "/rdp/:id": "/api/v1/addresses?q=10.20.0.12&page_size=1",
   "/vnc/:id": "/api/v1/addresses?q=10.20.0.12&page_size=1",
+  "/rustdesk/:id": "/api/v1/addresses?q=10.20.0.12&page_size=1",
 };
 const SKIP = new Set(["/login", "/novnc/:id", "/bmc/:id"]);   // 需要 PVE／BMC 目標，另有專屬 spec
 

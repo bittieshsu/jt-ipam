@@ -167,7 +167,7 @@ async def chat_confirm(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """執行使用者在 AI 對話中按下「確認」的異動動作（白名單工具；權限仍由工具本身把關）。"""
+    """執行使用者在 AI 對話中按下「確認」的異動動作（允許清單工具；權限仍由工具本身把關）。"""
     await limit_per_ip(request, name="ai")
     from app.mcp.tools import MUTATING_TOOLS, TOOLS, IPAMToolError, summarize_action
     if payload.tool not in MUTATING_TOOLS or payload.tool not in TOOLS:

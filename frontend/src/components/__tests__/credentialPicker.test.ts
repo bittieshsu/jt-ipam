@@ -51,3 +51,27 @@ describe.each(CONSOLES)("%s 存完帳密", (file) => {
     expect(after, "存完帳密之後同一段流程裡要呼叫 loadCreds()").toMatch(/loadCreds\(\)/);
   });
 });
+
+/**
+ * 「已存帳密／已存密碼」那一列只在**真的存過**時才出現。
+ *
+ * 使用者回報（2026-10-05，RustDesk 網頁連線）：還沒存過任何密碼，表單上卻有一列「已存密碼」下拉，打開只有
+ * 「使用其他密碼（手動輸入）」。下拉的選項永遠含有那個手動選項，所以 `credOptions.length` 永遠 ≥ 1 ——
+ * 條件要看已存的清單本身。七個主控台是同一種互動，一起守。
+ */
+const ALL_CONSOLES: [string, string][] = [
+  ["SshTerminal.vue", "savedCreds"], ["SftpBrowser.vue", "creds"], ["RdpScreen.vue", "savedCreds"],
+  ["VncScreen.vue", "savedCreds"], ["NoVncScreen.vue", "savedCreds"], ["BmcScreen.vue", "creds"],
+  ["RustDeskScreen.vue", "savedCreds"],
+];
+
+describe.each(ALL_CONSOLES)("%s 的已存帳密列", (file, list) => {
+  const src = readFileSync(join(root, file), "utf-8");
+
+  it("沒存過任何一筆時不出現（條件看已存清單，不看含手動選項的下拉選項）", () => {
+    const row = src.match(/<div v-if="([^"]+)" class="[\w-]*saved-row"/);
+    expect(row, "找不到已存帳密那一列").not.toBeNull();
+    expect(row![1]).not.toContain("credOptions");
+    expect(row![1]).toBe(`${list}.length`);
+  });
+});

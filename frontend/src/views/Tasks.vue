@@ -19,7 +19,8 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { fmtDateTime } from "@/utils/datetime";
 const { t } = useI18n();
 
-const { visibleKeys: tkVis, setVisible: tkSet, reset: tkReset } = useColumnPrefs(
+const { visibleKeys: tkVis, setVisible: tkSet, reset: tkReset,
+  order: tkOrder, setOrder: tkSetOrder, orderColumns: tkOrderCols } = useColumnPrefs(
   "tasks_history",
   ["kind", "target_label", "status", "progress", "queued_at", "duration", "finished_at", "summary"],
   ["kind", "target_label", "status", "progress", "queued_at", "duration", "finished_at", "summary"],
@@ -372,7 +373,7 @@ const allHistoryCols = computed<DataTableColumns<BackgroundTask>>(() => autoSort
 
 const historyCols = computed<DataTableColumns<BackgroundTask>>(() =>
   // 觸發方式（排程／手動）永遠顯示，不受欄位選擇隱藏
-  allHistoryCols.value.filter((c: any) => c.key === "trigger" || tkVis.value.includes(c.key)),
+  tkOrderCols(allHistoryCols.value.filter((c: any) => c.key === "trigger" || tkVis.value.includes(c.key))),
 );
 
 onMounted(() => {
@@ -429,7 +430,8 @@ onUnmounted(() => {
           </template>
           <n-space style="margin-bottom: 8px">
             <ColumnPicker :all="tkPicker" :visible="tkVis"
-                          @update:visible="tkSet" @reset="tkReset" />
+                          @update:visible="tkSet" @reset="tkReset"
+                          :order="tkOrder" @update:order="tkSetOrder" />
           </n-space>
           <n-data-table
             :columns="historyCols"

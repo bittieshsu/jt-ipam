@@ -275,6 +275,8 @@ async def update_address(
         a.note = payload["note"]  # type: ignore[assignment]
     if "mac" in payload:
         a.mac = payload["mac"]  # type: ignore[assignment]
+        # 透過 API 明確寫入的 MAC 等同人工編輯：標成 manual（優先序最高）；清空時一併清掉來源
+        a.mac_source = "manual" if a.mac else None  # type: ignore[assignment]
 
     await append_audit(
         session,

@@ -24,7 +24,8 @@ import { useTablePagination } from "@/composables/useTablePagination";
 const pg = useTablePagination();
 const { t } = useI18n();
 
-const { visibleKeys: snVis, setVisible: snSet, reset: snReset } = useColumnPrefs(
+const { visibleKeys: snVis, setVisible: snSet, reset: snReset,
+  order: snOrder, setOrder: snSetOrder, orderColumns: snOrderCols } = useColumnPrefs(
   "section_detail_subnets",
   ["cidr", "description", "usage"],
   ["cidr", "description", "usage"],
@@ -139,7 +140,7 @@ const allColumns: DataTableColumns<Subnet> = autoSort([
 ]);
 
 const columns = computed<DataTableColumns<Subnet>>(() =>
-  allColumns.filter((c: any) => snVis.value.includes(c.key)),
+  snOrderCols(allColumns.filter((c: any) => snVis.value.includes(c.key))),
 );
 
 watch(() => route.params.id, (id) => {
@@ -194,7 +195,8 @@ onMounted(() => {
 <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
         <n-space align="center" justify="end" style="margin-bottom: 10px">
           <ColumnPicker :all="snPicker" :visible="snVis"
-                        @update:visible="snSet" @reset="snReset" />
+                        @update:visible="snSet" @reset="snReset"
+                        :order="snOrder" @update:order="snSetOrder" />
           <n-button
             v-if="section"
             @click="load(section.id)"

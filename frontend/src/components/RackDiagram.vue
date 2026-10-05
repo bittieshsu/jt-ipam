@@ -15,7 +15,7 @@ import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { NCard, NEmpty, NAlert, NSpace, NTooltip, NButton, NButtonGroup, NIcon, NDropdown, NSlider } from "naive-ui";
 import type { RackDiagram } from "@/api/racks";
-import { rackTypeColor as colorFor } from "@/utils/rackColors";
+import { rackTypeColor as colorFor, RACK_DEVICE_TYPES } from "@/utils/rackColors";
 import { exportRacksDrawio, exportRacksPng, exportRacksSvg,
   type ExportDiagram } from "@/utils/rackGraphicsExport";
 import { exportTable, type ExportColumn } from "@/utils/tableExport";
@@ -702,16 +702,10 @@ const cells = computed<Cell[]>(() => {
       </div>
 
       <div v-if="showLegend" class="legend">
-        <span class="legend-item" :style="{ background: colorFor('router') }">router</span>
-        <span class="legend-item" :style="{ background: colorFor('switch') }">switch</span>
-        <span class="legend-item" :style="{ background: colorFor('firewall') }">firewall</span>
-        <span class="legend-item" :style="{ background: colorFor('server') }">server</span>
-        <span class="legend-item" :style="{ background: colorFor('storage') }">storage</span>
-        <span class="legend-item" :style="{ background: colorFor('ap') }">ap</span>
-        <span class="legend-item" :style="{ background: colorFor('ipmi') }">ipmi</span>
-        <span class="legend-item" :style="{ background: colorFor('patch_panel') }">patch panel</span>
-        <span class="legend-item" :style="{ background: colorFor('pdu') }">pdu</span>
-        <span class="legend-item" :style="{ background: colorFor('ups') }">ups</span>
+        <!-- 圖例用裝置類型的顯示名稱（以前直接印 router／patch panel 這些代碼） -->
+        <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="legend-item" :style="{ background: colorFor(ty) }">
+          {{ t(`devices.type_${ty}`) }}
+        </span>
         <span class="legend-note">{{ t("racks.rear_legend") }}</span>
       </div>
     </n-space>

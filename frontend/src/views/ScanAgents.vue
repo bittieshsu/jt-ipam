@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NDataTable, NSpace, NIcon, NButton, NModal, NForm, NFormItem,
   NInput, NSwitch, NPopconfirm, NTag, NInputGroup, NAlert, NSelect, NTooltip,
-  NCheckbox, NCheckboxGroup, NInputNumber, NPopover, NText,
+  NCheckbox, NCheckboxGroup, NInputNumber, NPopover, NText, NTabs, NTabPane,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
@@ -19,7 +19,8 @@ import {
   type ScanAgentTool,
 } from "@/api/phase3";
 import { listSubnets } from "@/api/subnets";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import JumpHosts from "@/views/JumpHosts.vue";
 import ScanAgentLoadPanel from "@/components/ScanAgentLoadPanel.vue";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import { autoSort } from "@/composables/useTableSort";
@@ -35,7 +36,8 @@ const { catalog } = useScanProbes();
 // 與 defaultVisible（才預設打開；在此 → withNewDefaults 讓舊用戶升級後也自動帶出這欄）。
 const SA_COLS = ["name", "enabled", "has_key", "agent_version", "source_ip", "subnet_count", "load",
   "tools", "last_seen_at", "last_error", "actions"];
-const { visibleKeys: saVis, setVisible: saSet, reset: saReset } = useColumnPrefs(
+const { visibleKeys: saVis, setVisible: saSet, reset: saReset,
+  order: saOrder, setOrder: saSetOrder, orderColumns: saOrderCols } = useColumnPrefs(
   "scan_agents", SA_COLS, SA_COLS,
 );
 const saPicker = computed(() => [
@@ -54,6 +56,12 @@ const saPicker = computed(() => [
 
 const msg = useMessage();
 const route = useRoute();
+const router = useRouter();
+// 頁籤跟著網址（?tab=jump）：舊的 /jump-hosts 書籤轉到這裡也落在跳板頁籤
+const tab = ref<string>(route.query.tab === "jump" ? "jump" : "agents");
+watch(tab, (v) => {
+  void router.replace({ query: { ...route.query, tab: v === "jump" ? "jump" : undefined } });
+});
 const rows = ref<ScanAgent[]>([]);
 // 負載面板（通知的連結帶 ?load=<代理 id>，進來就直接打開那一台）
 const loadShow = ref(false);
@@ -364,7 +372,7 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
   },
 ]));
 const cols = computed<DataTableColumns<ScanAgent>>(() =>
-  allCols.value.filter((c: any) => saVis.value.includes(c.key)),
+  saOrderCols(allCols.value.filter((c: any) => saVis.value.includes(c.key))),
 );
 
 // 相依套件詳細資料
@@ -408,25 +416,35 @@ onMounted(async () => {
         <span>{{ t("nav.scan_agents") }}</span>
       </n-space>
     </template>
-    <n-space style="margin-bottom: 12px" align="center">
-      <n-input v-model:value="filterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
-      <n-button @click="refresh" :loading="loading">
-        <template #icon><n-icon><RefreshIcon /></n-icon></template>
-        {{ t("common.refresh") }}
-      </n-button>
-      <n-button type="primary" @click="openCreate">
-        <template #icon><n-icon><PlusIcon /></n-icon></template>
-        {{ t("common.create") }}
-      </n-button>
-      <n-button quaternary @click="showHelp = true">
-        <template #icon><n-icon><InfoIcon /></n-icon></template>
-        {{ t("scanAgentHelp.button") }}
-      </n-button>
-      <ColumnPicker :all="saPicker" :visible="saVis"
-                    @update:visible="saSet" @reset="saReset" />
-      <ExportButton :columns="cols" :rows="rows" filename="scan-agents" :title="t('nav.scan_agents')" />
-    </n-space>
-    <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1080" :pagination="pg" />
+    <!-- 主控台出口集中在這一頁：掃描代理（客戶端只能往外連時中繼）與 SSH 跳板（後端連得到站台上的 SSH 主機、
+         站台不能裝代理時用）。跳板原本是左側選單的獨立一項，看起來像重疊功能（使用者 2026-10-04） -->
+    <n-tabs v-model:value="tab" type="line" animated data-testid="agent-tabs">
+      <n-tab-pane name="agents" :tab="t('nav.scan_agents')">
+        <n-space style="margin-bottom: 12px" align="center">
+          <n-input v-model:value="filterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
+          <n-button @click="refresh" :loading="loading">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>
+            {{ t("common.refresh") }}
+          </n-button>
+          <n-button type="primary" @click="openCreate">
+            <template #icon><n-icon><PlusIcon /></n-icon></template>
+            {{ t("common.create") }}
+          </n-button>
+          <n-button quaternary @click="showHelp = true">
+            <template #icon><n-icon><InfoIcon /></n-icon></template>
+            {{ t("scanAgentHelp.button") }}
+          </n-button>
+          <ColumnPicker :all="saPicker" :visible="saVis"
+                        @update:visible="saSet" @reset="saReset"
+                        :order="saOrder" @update:order="saSetOrder" />
+          <ExportButton :columns="cols" :rows="rows" filename="scan-agents" :title="t('nav.scan_agents')" />
+        </n-space>
+        <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1080" :pagination="pg" />
+      </n-tab-pane>
+      <n-tab-pane name="jump" :tab="t('jump_hosts.tab')" display-directive="show:lazy">
+        <JumpHosts embedded />
+      </n-tab-pane>
+    </n-tabs>
 
     <!-- 相依套件詳細資料 -->
     <n-modal v-model:show="toolsShow" preset="card" :title="t('scan_agent.deps_title')" style="width: 720px; max-width: 94vw">

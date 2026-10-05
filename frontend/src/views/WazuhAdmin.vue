@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from "vue";
 import { fmtDateTime } from "@/utils/datetime";
+import { wazuhStatusLabel } from "@/utils/integrationStatus";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
@@ -26,7 +27,8 @@ import { livenessColumn } from "@/utils/livenessColumn";
 import { withExportValue } from "@/utils/tableExport";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
-const { t } = useI18n();
+import { deviceKindColumn } from "@/utils/deviceKindCell";
+const { t, te } = useI18n();
 
 const wzInst = useColumnPrefs("wazuh_inst",
   ["name", "api_url", "api_user", "last_sync_at", "last_error", "actions"],
@@ -45,12 +47,14 @@ const wzAgPicker = computed(() => [
   { key: "os_platform", label: "OS" }, { key: "agent_version", label: t("cols.version") },
   { key: "last_keep_alive", label: t("cols.last_alive") },
 ]);
+// 設備類型預設顯示：一眼看出缺的是伺服器還是交換器／印表機（那些本來就裝不了 Wazuh agent）
 const wzMiss = useColumnPrefs("wazuh_missing",
-  ["status", "ip", "hostname", "subnet", "section", "customer", "actions"],
-  ["status", "ip", "hostname", "subnet", "section", "customer", "actions"]);
+  ["status", "ip", "hostname", "device_kind", "subnet", "section", "customer", "actions"],
+  ["status", "ip", "hostname", "device_kind", "subnet", "section", "customer", "actions"]);
 const wzMissPicker = computed(() => [
   { key: "status", label: t("cols.status") },
   { key: "ip", label: "IP" }, { key: "hostname", label: t("cols.hostname") },
+  { key: "device_kind", label: t("cols.device_kind") },
   { key: "subnet", label: t("cols.subnet") }, { key: "section", label: t("cols.section") },
   { key: "customer", label: t("cols.unit") }, { key: "actions", label: t("cols.actions") },
 ]);
@@ -239,7 +243,7 @@ const allAgentCols = computed<DataTableColumns<WazuhAgent>>(() => autoSort([
     render: (r) => h(NTag, {
       size: "small",
       type: r.status === "active" ? "success" : r.status === "disconnected" ? "error" : "default",
-    }, () => agentStatusLabel(r.status)),
+    }, () => wazuhStatusLabel(t, r.status)),
   },
   { title: t("wazuh_admin.col_os"), key: "os_platform", width: 140, ellipsis: { tooltip: true }, render: (r) => r.os_platform ?? "—" },
   { title: t("wazuh_admin.col_version"), key: "agent_version", width: 120, render: (r) => r.agent_version ?? "—" },
@@ -256,12 +260,6 @@ function gotoAgentAddress(r: WazuhAgent) {
   if (!r.ip) return;
   void router.push({ name: "addresses", query: { q: r.ip } });
 }
-function agentStatusLabel(s: string | null | undefined): string {
-  if (!s) return "—";
-  const key = `wazuh_admin.status_${s}`;
-  const out = t(key);
-  return out === key ? s : out;
-}
 const allMissCols = computed<DataTableColumns<MissingAgent>>(() => autoSort([
   livenessColumn(t("common.status"), t),
   {
@@ -271,6 +269,7 @@ const allMissCols = computed<DataTableColumns<MissingAgent>>(() => autoSort([
       : "—",
   },
   { title: t("cols.hostname"), key: "hostname", minWidth: 180, ellipsis: { tooltip: true }, render: (r) => r.hostname ?? "—" },
+  deviceKindColumn(t, te) as any,
   withExportValue({ title: t("cols.subnet"), key: "subnet", width: 170, render: (r: any) => r.subnet_cidr ?? "—" },
     (r) => r.subnet_cidr),
   withExportValue({ title: t("cols.section"), key: "section", width: 150, ellipsis: { tooltip: true }, render: (r: any) => r.section_name ?? "—" },
@@ -292,11 +291,11 @@ const allMissCols = computed<DataTableColumns<MissingAgent>>(() => autoSort([
 ]));
 
 const instCols = computed<DataTableColumns<WazuhInstance>>(() =>
-  allInstCols.value.filter((c: any) => wzInst.visibleKeys.value.includes(c.key)));
+  wzInst.orderColumns(allInstCols.value.filter((c: any) => wzInst.visibleKeys.value.includes(c.key))));
 const agentCols = computed<DataTableColumns<WazuhAgent>>(() =>
-  allAgentCols.value.filter((c: any) => wzAg.visibleKeys.value.includes(c.key)));
+  wzAg.orderColumns(allAgentCols.value.filter((c: any) => wzAg.visibleKeys.value.includes(c.key))));
 const missCols = computed<DataTableColumns<MissingAgent>>(() =>
-  miss.remoteSort(allMissCols.value.filter((c: any) => wzMiss.visibleKeys.value.includes(c.key))));
+  miss.remoteSort(wzMiss.orderColumns(allMissCols.value.filter((c: any) => wzMiss.visibleKeys.value.includes(c.key)))));
 
 onMounted(() => { void refresh(); void loadSubnetOptions(); });
 </script>
@@ -324,7 +323,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
             {{ t("wazuh_admin.create_instance") }}
           </n-button>
           <ColumnPicker :all="wzInstPicker" :visible="wzInst.visibleKeys.value"
-                        @update:visible="wzInst.setVisible" @reset="wzInst.reset" />
+                        @update:visible="wzInst.setVisible" @reset="wzInst.reset"
+                        :order="wzInst.order.value" @update:order="wzInst.setOrder" />
           <ExportButton :columns="instCols" :rows="insts" filename="wazuh-instances" :title="t('wazuh_admin.title')" />
         </n-space>
         <n-data-table :columns="instCols" :data="insts" :loading="loading" :bordered="false" :scroll-x="1006" />
@@ -336,7 +336,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <n-space style="margin-bottom: 8px" align="center">
           <n-input v-model:value="agentFilterQ" :placeholder="t('common.filter')" clearable style="width: 160px" />
           <ColumnPicker :all="wzAgPicker" :visible="wzAg.visibleKeys.value"
-                        @update:visible="wzAg.setVisible" @reset="wzAg.reset" />
+                        @update:visible="wzAg.setVisible" @reset="wzAg.reset"
+                        :order="wzAg.order.value" @update:order="wzAg.setOrder" />
           <ExportButton :columns="agentCols" :rows="agents" filename="wazuh-agents" :title="t('wazuh_admin.agents_count')" />
         </n-space>
         <n-data-table :columns="agentCols" :data="agentsFiltered" :loading="loading" :bordered="false" :scroll-x="960" :pagination="pg" />
@@ -358,7 +359,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
                           :subnet-opts="miss.facets.value.subnets" :customer-opts="miss.facets.value.customers"
                           v-model:status="miss.status.value" :status-opts="miss.facets.value.statuses" />
           <ColumnPicker :all="wzMissPicker" :visible="wzMiss.visibleKeys.value"
-                        @update:visible="wzMiss.setVisible" @reset="wzMiss.reset" />
+                        @update:visible="wzMiss.setVisible" @reset="wzMiss.reset"
+                        :order="wzMiss.order.value" @update:order="wzMiss.setOrder" />
           <ExportButton :columns="missCols" :rows="miss.rows.value" :fetch-all="miss.fetchAll"
                         filename="wazuh-missing-agents" :title="t('wazuh_admin.missing_agents')" />
         </n-space>

@@ -63,13 +63,13 @@ async def on_progress(session: AsyncSession, job: AgentProbeJob) -> None:
         t.progress = max(t.progress or 0, _STAGE_PROGRESS[stage])
 
 
-async def job_is_virtual_guest(session: AsyncSession, job: AgentProbeJob) -> bool:
-    """探測目標是不是虛擬化整合回報的虛擬機／容器（依目標 IP 與探測時回應的 MAC）。
+async def job_is_virtual_guest(session: AsyncSession, job: AgentProbeJob) -> str | None:
+    """探測目標是不是虛擬機／容器："ct"、"vm" 或 None（依目標 IP 與探測時回應的 MAC）。
     探測頁的摘要與完成通知都用這個，跟定期 OS 偵測的判讀一致。"""
-    from app.services.fw_lookup import is_virtual_guest
+    from app.services.fw_lookup import virtual_guest_kind
     target = ((job.params or {}).get("targets") or [None])[0]
     mac = ((job.result or {}).get("nmap") or {}).get("mac") if isinstance(job.result, dict) else None
-    return await is_virtual_guest(session, target, mac)
+    return await virtual_guest_kind(session, target, mac)
 
 
 async def on_finished(session: AsyncSession, job: AgentProbeJob) -> None:
@@ -83,12 +83,27 @@ async def on_finished(session: AsyncSession, job: AgentProbeJob) -> None:
     ok = job.status == STATUS_DONE
     summary = dict(t.summary or {})
     if ok and isinstance(job.result, dict):
-        from app.services.ip_identify import summarize
+        from app.services import ip_identify
         from app.services.recog import get_matcher
-        s = summarize(job.result, recog=await get_matcher(session),
-                      virtual_guest=await job_is_virtual_guest(session, job))
+        ipa = None
+        mac_vendor = None
+        vendor_mac = None
+        if t.target_type == "ip_address" and t.target_id:
+            from app.models.address import IPAddress
+            from app.services.oui import vendor_for_mac
+            ipa = await session.get(IPAddress, t.target_id)
+            mac = ((job.result.get("nmap") or {}).get("mac")) if isinstance(job.result.get("nmap"), dict) else None
+            vendor_mac = (str(ipa.mac) if ipa is not None and ipa.mac else None) or mac
+            mac_vendor = await vendor_for_mac(session, vendor_mac)
+        s = ip_identify.summarize(job.result, mac_vendor=mac_vendor, recog=await get_matcher(session),
+                                  virtual_guest=await job_is_virtual_guest(session, job), mac=vendor_mac)
         summary.update({"device_type": s["device_type"], "os": s["os"],
                         "ports": len(s["services"])})
+        # 探測的結論寫回 IP 記錄（設備類型、OS、廠牌型號）：以前只顯示在探測頁，IP 頁還是定期偵測的舊判讀
+        # （攝影機在探測頁是攝影機、IP 頁卻是「伺服器」，2026-10-04）。與探測頁同一套判讀、同一個 OUI 廠商
+        if ipa is not None:
+            from app.services.device_identity import apply_summary
+            await apply_summary(session, ipa, s, source="identify")
     t.summary = summary
     t.status = "succeeded" if ok else "failed"
     t.progress = 100 if ok else t.progress

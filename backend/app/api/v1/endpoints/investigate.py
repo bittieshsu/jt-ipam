@@ -55,7 +55,9 @@ def _prompt(dossier: dict[str, Any], lang: str) -> str:
         "1. 只根據下列資料推論，資料裡沒有的不要自己補\n"
         "2. 先講最值得注意的一點，再講其餘\n"
         "3. **特別指出彼此矛盾的線索**（例如各來源回報的主機名稱不同、"
-        "監控說離線但剛剛還有 ARP、Wazuh agent 已失聯卻仍掛在這個位址）\n"
+        "監控說離線但剛剛還有 ARP、Wazuh agent 已失聯卻仍掛在這個位址）。"
+        "`conflicts` 是系統以固定規則算出的矛盾清單；主機名稱只差在大小寫、結尾的點，"
+        "或短名稱等於某個 FQDN 的第一段，是同一個名字，不算矛盾\n"
         "4. 不確定就直說不確定，不要用肯定語氣講沒把握的事\n"
         "5. 不要重複列出原始資料，那些畫面上已經有了\n"
     ) if zh else (
@@ -65,11 +67,13 @@ def _prompt(dossier: dict[str, Any], lang: str) -> str:
         "2. Lead with the single most notable point\n"
         "3. **Call out contradictions between clues** (sources disagreeing on hostname, "
         "monitoring saying offline while ARP just saw it, a disconnected agent still "
-        "claiming the address)\n"
+        "claiming the address). `conflicts` is the list the system computed with fixed rules; "
+        "hostnames that differ only in letter case, a trailing dot, or a short name matching "
+        "the first label of an FQDN are the same name, not a contradiction\n"
         "4. Say plainly when something is uncertain\n"
         "5. Do not restate the raw data; it is already on screen\n"
     )
-    from app.services.investigate import infer_role_hints
+    from app.services.investigate import infer_role_hints, prompt_view
 
     hints = infer_role_hints(dossier)
     # 沒有訊號時，連提都不要提 —— 說「見下方角色訊號」卻沒有那個區塊，只是雜訊。
@@ -87,8 +91,10 @@ def _prompt(dossier: dict[str, Any], lang: str) -> str:
         )
         label = "角色訊號（這些樣態對這台是正常的）" if zh else "Role signals (normal for this host)"
         hint_block = rule6 + f"\n{label}:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
+    # 送的是精簡版（每個清單有上限、拿掉空值與內部識別碼）：檔案加強後大了好幾倍，
+    # 超過模型的 num_ctx 不會報錯，只會被靜靜截斷（services/investigate.prompt_view）
     return (f"{rules}{hint_block}\n---\n"
-            f"{json.dumps(dossier, ensure_ascii=False, default=str)}\n")
+            f"{json.dumps(prompt_view(dossier), ensure_ascii=False, default=str)}\n")
 
 
 @router.get("")

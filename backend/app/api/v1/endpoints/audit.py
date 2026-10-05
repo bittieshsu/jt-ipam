@@ -85,6 +85,7 @@ _LABEL_REGISTRY: dict[str, tuple[str, str, str]] = {
     "rdp_credential": ("app.models.ssh_credential", "SSHCredential", "label"),
     "vnc_credential": ("app.models.ssh_credential", "SSHCredential", "label"),
     "pve_credential": ("app.models.ssh_credential", "SSHCredential", "label"),
+    "rustdesk_credential": ("app.models.ssh_credential", "SSHCredential", "label"),
     # ── 整合實例 ──
     # 沒有這些的話，稽核的「目標」欄只會顯示截斷 UUID，多台同型整合時完全分不出
     # 是哪一台在同步（客戶實測 FortiGate 時發現）。
@@ -99,6 +100,7 @@ _LABEL_REGISTRY: dict[str, tuple[str, str, str]] = {
     "windows_dhcp_server": ("app.models.windows_dhcp", "WindowsDhcpServer", "name"),
     "kea_dhcp_server": ("app.models.dhcp_standalone", "KeaDhcpServer", "name"),
     "isc_dhcp_server": ("app.models.dhcp_standalone", "IscDhcpServer", "name"),
+    "rustdesk_server": ("app.models.rustdesk", "RustDeskServer", "name"),
     "proxmox_instance": ("app.models.virt", "ProxmoxInstance", "api_url"),
     "virt_cluster": ("app.models.virt", "VirtCluster", "name"),
     "dns_server": ("app.models.dns", "DNSServer", "name"),

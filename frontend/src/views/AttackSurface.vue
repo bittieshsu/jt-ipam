@@ -25,8 +25,9 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
+import { deviceKindColumn } from "@/utils/deviceKindCell";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const msg = useMessage();
 const pg = useTablePagination();
 const links = useEntityLinks(useRouter());
@@ -36,13 +37,14 @@ interface Entry {
   protocol: string | null; port: number | string | null; descr: string;
   identity: { registered: boolean; ip?: string; ip_id?: string; hostname?: string | null;
               status?: string | null; subnet?: string | null;
-              customer?: string | null; wazuh?: string | null; fqdns?: string[] };
+              customer?: string | null; wazuh?: string | null; fqdns?: string[];
+              device_kind?: string | null; device_model?: string | null };
 }
 /** 攤平後的表格列：欄位 key 與 column key 一一對應，排序／搜尋才有得比。 */
 interface Row {
   ip: string | null; ip_id?: string; registered: boolean;
   port: number | null; portText: string;
-  hostname: string | null; via: string; name: string;
+  hostname: string | null; device_kind: string | null; device_model: string | null; via: string; name: string;
   firewall: string | null; source: string; protocol: string | null;
   owner: string | null; wazuh: string | null;
   status: string | null; online: boolean | null; statusSrc: string;
@@ -75,6 +77,7 @@ const rows = computed<Row[]>(() => items.value.map((i, idx) => {
     port: i.port == null || i.port === "" || Number.isNaN(pn) ? null : pn,
     portText: i.port == null || i.port === "" ? "" : String(i.port),
     hostname: ident.hostname ?? null,
+    device_kind: ident.device_kind ?? null, device_model: ident.device_model ?? null,
     via: i.via, name: i.name || "", firewall: i.firewall, source: i.source,
     // 協定統一大寫（NAT 同步存小寫、規則存大寫，混著顯示很刺眼——使用者回饋）
     protocol: i.protocol ? String(i.protocol).toUpperCase() : null,
@@ -232,10 +235,12 @@ const fqdnCols = computed<DataTableColumns<FqdnRow>>(() => autoSort([
 ]));
 const tab = ref<"ip" | "fqdn">("ip");
 
-const ALL_KEYS = ["ip", "port", "hostname", "via", "name", "firewall",
+const ALL_KEYS = ["ip", "port", "hostname", "device_kind", "via", "name", "firewall",
                   "protocol", "owner", "wazuh", "status", "descr"];
-const { visibleKeys, setVisible, reset } = useColumnPrefs("attack_surface", ALL_KEYS, ALL_KEYS);
-const pickerCols = computed(() => ALL_KEYS.map((k) => ({ key: k, label: t(`surface.col_${k}`) })));
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } =
+  useColumnPrefs("attack_surface", ALL_KEYS, ALL_KEYS);
+const pickerCols = computed(() => ALL_KEYS.map((k) => ({
+  key: k, label: k === "device_kind" ? t("cols.device_kind") : t(`surface.col_${k}`) })));
 
 const allCols: Record<string, any> = {
   ip: { title: () => t("surface.col_ip"), key: "ip", width: 150,
@@ -248,6 +253,8 @@ const allCols: Record<string, any> = {
     render: (r: Row) => r.portText || "—" },
   hostname: { title: () => t("surface.col_hostname"), key: "hostname", width: 160,
     render: (r: Row) => r.hostname || "—" },
+  // 對外開的是攝影機、NAS 還是伺服器（掃描代理判讀出的設備類型，滑過看型號）
+  device_kind: deviceKindColumn(t, te),
   via: { title: () => t("surface.col_via"), key: "via", width: 130,
     render: (r: Row) => h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
       r.via === "nat" ? "NAT" : t("surface.rule"),
@@ -300,7 +307,7 @@ const allCols: Record<string, any> = {
     ellipsis: { tooltip: true } },
 };
 const cols = computed<DataTableColumns<Row>>(
-  () => autoSort(ALL_KEYS.filter((k) => visibleKeys.value.includes(k)).map((k) => allCols[k])));
+  () => autoSort(orderColumns(ALL_KEYS.filter((k) => visibleKeys.value.includes(k)).map((k) => allCols[k]))));
 // 表格要在卡片內水平捲動，不能溢出卡片右緣（使用者截圖）：
 // scroll-x 取「可見欄寬總和」，欄位少的時候不強撐寬度。
 const scrollX = computed(() =>
@@ -339,7 +346,8 @@ const scrollX = computed(() =>
       <n-select v-model:value="ownerFilter" :options="ownerOptions" style="width: 170px"
                 :placeholder="t('surface.all_owner')" clearable />
       <ColumnPicker :all="pickerCols" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="reset" />
+                    @update:visible="setVisible" @reset="reset"
+                    :order="order" @update:order="setOrder" />
       <n-button size="small" :loading="loading" @click="load">
         <template #icon><n-icon><RefreshIcon /></n-icon></template>
         {{ t("common.refresh") }}

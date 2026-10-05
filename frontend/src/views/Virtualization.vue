@@ -514,15 +514,18 @@ function useVirtPrefs(name: string, cols: typeof clusterCols,
     .filter((c: any) => c.key && c.key !== "actions" && c.key !== "_")
     .map((c: any) => String(c.key));
   const defaults = allKeys.filter((k: string) => !defaultHidden.includes(k));
-  const { visibleKeys, setVisible, reset } = useColumnPrefs(`virt_${name}`, defaults, allKeys);
+  // 第二個參數是「全部選用欄位」、第三個是「預設可見」（原本兩者寫反：預設隱藏的欄位反而一開始就顯示、
+  // 而且一旦存過偏好就再也勾不回來，拖拉順序時也排不到它）
+  const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } =
+    useColumnPrefs(`virt_${name}`, allKeys, defaults);
   const items = computed(() => cols.value
     .filter((c: any) => c.key && c.key !== "actions" && c.key !== "_")
     .map((c: any) => ({ key: String(c.key), label: typeof c.title === "string" ? c.title : String(c.key) })));
   const visibleCols = computed<DataTableColumns<any>>(() =>
-    cols.value.filter((c: any) => c.key === "actions" || c.key === "_" || visibleKeys.value.includes(String(c.key))));
+    orderColumns(cols.value.filter((c: any) => c.key === "actions" || c.key === "_" || visibleKeys.value.includes(String(c.key)))));
   // 只比對「目前顯示的欄位」，避免查數字（如 102）誤中 memory_mb / disk_gb 等內部欄位
   const { query, filtered } = useTableQuickFilter(rows, () => visibleKeys.value);
-  return reactive({ visibleKeys, setVisible, reset, items, visibleCols, query, filtered });
+  return reactive({ visibleKeys, setVisible, reset, order, setOrder, items, visibleCols, query, filtered });
 }
 const clusterP = useVirtPrefs("clusters", clusterCols, clusters);
 const vmP = useVirtPrefs("vms", vmCols, vms, ["legacy_vmid"]);
@@ -579,7 +582,8 @@ onMounted(() => {
             {{ t("virt.add_cluster") }}
           </n-button>
           <ColumnPicker :all="clusterP.items" :visible="clusterP.visibleKeys"
-                        @update:visible="clusterP.setVisible" @reset="clusterP.reset" />
+                        @update:visible="clusterP.setVisible" @reset="clusterP.reset"
+                        :order="clusterP.order" @update:order="clusterP.setOrder" />
           <ExportButton :columns="clusterP.visibleCols" :rows="clusterP.filtered" filename="virt-clusters" :title="t('virt.clusters')" />
         </n-space>
         <n-data-table :columns="clusterP.visibleCols" :data="clusterP.filtered" :loading="loading" :bordered="false" :pagination="pg" :scroll-x="720" />
@@ -594,7 +598,8 @@ onMounted(() => {
             <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
           </n-button>
           <ColumnPicker :all="vmP.items" :visible="vmP.visibleKeys"
-                        @update:visible="vmP.setVisible" @reset="vmP.reset" />
+                        @update:visible="vmP.setVisible" @reset="vmP.reset"
+                        :order="vmP.order" @update:order="vmP.setOrder" />
           <ExportButton :columns="vmP.visibleCols" :rows="vmP.filtered" filename="virt-vms" :title="t('virt.vms')" />
         </n-space>
         <n-data-table :columns="vmP.visibleCols" :data="vmP.filtered" :loading="loading" :bordered="false" :pagination="pg" :scroll-x="960" />
@@ -630,7 +635,8 @@ onMounted(() => {
             <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
           </n-button>
           <ColumnPicker :all="fwP.items" :visible="fwP.visibleKeys"
-                        @update:visible="fwP.setVisible" @reset="fwP.reset" />
+                        @update:visible="fwP.setVisible" @reset="fwP.reset"
+                        :order="fwP.order" @update:order="fwP.setOrder" />
           <ExportButton :columns="fwP.visibleCols" :rows="fwP.filtered"
                         filename="pve-firewall" :title="t('virt.pve_fw')" />
         </n-space>
@@ -653,7 +659,8 @@ onMounted(() => {
             {{ t("virt.add_proxmox") }}
           </n-button>
           <ColumnPicker :all="proxmoxP.items" :visible="proxmoxP.visibleKeys"
-                        @update:visible="proxmoxP.setVisible" @reset="proxmoxP.reset" />
+                        @update:visible="proxmoxP.setVisible" @reset="proxmoxP.reset"
+                        :order="proxmoxP.order" @update:order="proxmoxP.setOrder" />
           <ExportButton :columns="proxmoxP.visibleCols" :rows="proxmoxP.filtered" filename="proxmox" :title="t('virt.proxmox')" />
         </n-space>
         <n-data-table :columns="proxmoxP.visibleCols" :data="proxmoxP.filtered" :loading="loading" :bordered="false" :scroll-x="760" />

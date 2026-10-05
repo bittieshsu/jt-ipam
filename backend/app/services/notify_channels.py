@@ -1,7 +1,7 @@
 """通知管道發送器：Telegram / Slack / Teams / Nextcloud Talk / Zulip。
 
 這些是「團隊頻道」型通知（一則事件推一次到設定好的頻道），與 Email（逐收件者）並行。
-目標為管理者設定的外部端點（等同 SMTP 主機的信任模型：admin-only、直接連出、不套 SSRF 白名單，
+目標為管理者設定的外部端點（等同 SMTP 主機的信任模型：admin-only、直接連出、不套 SSRF 允許清單，
 以支援自架 Nextcloud/Zulip 內網位址）。每個 send_* 成功回 None、失敗丟例外（供測試端點回報）；
 broadcast_channels 逐管道 best-effort，單一失敗不影響其他管道或主流程。
 """

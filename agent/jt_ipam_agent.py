@@ -68,7 +68,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.15.1"
+AGENT_VERSION = "1.17.2"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -84,6 +84,9 @@ DEFAULT_PROBES = ("icmp",)
 
 # tcp 探測掃的常見埠（也作為 alive 判定依據）
 TCP_PROBE_PORTS = (22, 80, 443, 445, 3389, 8006)
+# 定期 OS 偵測另外看的埠（只在沒開「連接埠」探測時補上）：RTSP 554／8554（攝影機）、9100／631／515（印表機）、
+# 5060（VoIP）、5000／5001（NAS 管理頁）、8080／8443（設備網頁）、37777／34567（常見 NVR／DVR）
+OS_PROBE_KIND_PORTS = (554, 8554, 9100, 631, 515, 5060, 5000, 5001, 8080, 8443, 37777, 34567)
 TCP_PROBE_TIMEOUT = 1.0
 
 # 每個探測在記憶體裡的「上次執行時間」：key = (subnet_id, probe) -> epoch seconds。
@@ -584,7 +587,13 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
     result: dict = {}
     if not shutil.which("nmap"):
         return result
-    port_args = ["--top-ports", "100"] if want_ports else ["-p", ",".join(str(p) for p in TCP_PROBE_PORTS)]
+    if want_ports:
+        port_args = ["--top-ports", "100"]
+    else:
+        # 沒開「連接埠」探測時只看幾個埠：OS 偵測至少要看得到最能說明設備類型的那幾個
+        #（攝影機的 RTSP、印表機、VoIP、NAS、NVR），否則只剩 TCP/IP 指紋，攝影機會被判成一般主機
+        ports = sorted(set(TCP_PROBE_PORTS) | set(OS_PROBE_KIND_PORTS)) if want_os else list(TCP_PROBE_PORTS)
+        port_args = ["-p", ",".join(str(p) for p in ports)]
     args = ["nmap", "-Pn", "-T4", "--host-timeout", "90s" if want_os else "30s", *port_args]
     xml_path = None
     if want_os:
@@ -1441,6 +1450,9 @@ def _parse_nmap_xml(text: str) -> dict:
     host_scripts：主機層腳本（smb-os-discovery 不掛在任何埠下，以前整段被丟掉）。
     ports[].script_data：ssl-cert 的完整 Subject／Issuer —— 文字輸出只有 CN／O／ST／C，
     伺服器端比對 Recog 的設備預設憑證要 OU、L 這些欄位。
+    ports[].method／conf／devicetype（1.17.2 起）：nmap 怎麼認出這個服務。method="table" ＝沒有探針比中、
+    服務名稱只是照埠號表寫的（9100 寫 jetdirect、554 寫 rtsp），伺服器不可以當成認出了服務；devicetype 是
+    nmap-service-probes 的 d/ 欄位（這個服務通常跑在哪種設備上）。舊伺服器不認得這幾個欄位，照樣忽略。
 
     XML 是本機剛跑完的 nmap 產生的（不是從網路收來的文件），用標準函式庫解析即可。
     """
@@ -1473,6 +1485,7 @@ def _parse_nmap_xml(text: str) -> dict:
             "port": int(port.get("portid") or 0), "proto": port.get("protocol") or "tcp",
             "state": "open", "service": g("name"), "product": g("product"), "version": g("version"),
             "extrainfo": g("extrainfo"), "tunnel": g("tunnel"), "ostype": g("ostype"),
+            "method": g("method"), "conf": g("conf"), "devicetype": g("devicetype"),
             "scripts": {sc.get("id"): (sc.get("output") or "").strip()[:_IDENTIFY_MAX_TEXT]
                         for sc in port.findall("script") if sc.get("id")},
             "script_data": _script_data(port),

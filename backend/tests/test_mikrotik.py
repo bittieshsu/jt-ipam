@@ -68,7 +68,7 @@ def test_unparsable_duration_is_none_not_zero() -> None:
 
 # ─────────────────── ARP：只收 reachable ───────────────────
 
-def test_arp_status_whitelist_is_reachable_only() -> None:
+def test_arp_status_allowlist_is_reachable_only() -> None:
     """RouterOS 的 `/ip/arp` 沒有 age／TTL —— 資格完全靠鄰居狀態。
 
     放寬到 `stale` 就等於宣稱「還在表裡＝還活著」，那正是 0.5.206 那次

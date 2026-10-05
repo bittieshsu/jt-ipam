@@ -56,9 +56,10 @@ async def _ip_or_404(session: AsyncSession, address_id: uuid.UUID) -> IPAddress:
 
 
 async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | None,
-                 guest: bool | None = None) -> dict[str, Any]:
+                 guest: str | bool | None = False, *, mac: str | None = None) -> dict[str, Any]:
     """清單用的精簡版：不帶整包原始結果，但帶摘要（清單上就看得出是什麼）。
-    `guest`：清單裡每筆都是同一個 IP，由呼叫端查一次傳進來；沒給就自己查。"""
+    `guest`：清單裡每筆都是同一個 IP，由呼叫端查一次傳進來；沒給就自己查。
+    `mac`：查出 `mac_vendor` 的 MAC（隨機 MAC、虛擬網卡的廠牌不拿來推類型）。"""
     agent = await session.get(ScanAgent, job.agent_id)
     out: dict[str, Any] = {
         "job_id": str(job.id), "status": job.status,
@@ -71,18 +72,31 @@ async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | No
     if job.error and job.error.startswith("unsupported probe"):
         out["error_code"] = "identify_agent_outdated"
     if job.status == STATUS_DONE and isinstance(job.result, dict):
-        if guest is None:
+        if guest is False:
             from app.services.identify_tasks import job_is_virtual_guest
             guest = await job_is_virtual_guest(session, job)
         out["summary"] = ip_identify.summarize(job.result, mac_vendor=mac_vendor,
                                                recog=await get_recog_matcher(session),
-                                               virtual_guest=guest)
+                                               virtual_guest=guest, mac=mac)
     return out
 
 
 async def _job_out(session: AsyncSession, ip_text: str, job: AgentProbeJob,
-                   mac_vendor: str | None) -> dict[str, Any]:
-    out = await _brief(session, job, mac_vendor)
+                   mac_vendor: str | None, ipa: IPAddress | None = None, *,
+                   mac: str | None = None) -> dict[str, Any]:
+    if mac is None and ipa is not None and ipa.mac:
+        mac = str(ipa.mac)
+    out = await _brief(session, job, mac_vendor, mac=mac)
+    if ipa is not None and out["summary"] is not None:
+        # IP 記錄上的類型還會對照 IPAM 已知的事實（裝置記錄、LibreNMS、電腦上的代理、虛擬化平台）：
+        # 探測頁也講出最後採用的是什麼、依據什麼，兩個畫面才不會各說各話
+        from app.core.os_fingerprint import normalize_os
+        from app.services.device_identity import ipam_facts, resolve_kind
+        os_text = out["summary"].get("os")
+        kind, reason = resolve_kind(out["summary"]["device_type"], await ipam_facts(session, ipa),
+                                    os_family=normalize_os(os_text) if os_text else None)
+        if reason is not None:
+            out["summary"]["ipam"] = {"kind": kind, "reason": reason}
     out["result"] = job.result
     out["progress"] = job.progress
     out["changes"] = None
@@ -167,7 +181,7 @@ async def latest_identify(
         AgentProbeJob.created_at.desc()).limit(1))).scalars().first()
     if job is None:
         return {"job_id": None}
-    return await _job_out(session, _ip_text(ip), job, await vendor_for_mac(session, ip.mac))
+    return await _job_out(session, _ip_text(ip), job, await vendor_for_mac(session, ip.mac), ip)
 
 
 @router.get("/{address_id}/identify/history")
@@ -183,9 +197,9 @@ async def identify_history(
     rows = (await session.execute(_jobs_of(_ip_text(ip)).order_by(
         AgentProbeJob.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
     mv = await vendor_for_mac(session, ip.mac)
-    from app.services.fw_lookup import is_virtual_guest
-    guest = await is_virtual_guest(session, _ip_text(ip), str(ip.mac) if ip.mac else None)
-    return {"items": [await _brief(session, j, mv, guest) for j in rows]}
+    from app.services.fw_lookup import virtual_guest_kind
+    guest = await virtual_guest_kind(session, _ip_text(ip), str(ip.mac) if ip.mac else None)
+    return {"items": [await _brief(session, j, mv, guest, mac=str(ip.mac) if ip.mac else None) for j in rows]}
 
 
 @router.get("/{address_id}/identify/{job_id}")
@@ -200,7 +214,7 @@ async def get_identify(
     job = (await session.execute(_jobs_of(_ip_text(ip)).where(AgentProbeJob.id == job_id))).scalars().first()
     if job is None:
         raise HTTPException(status_code=404, detail="Probe not found")
-    return await _job_out(session, _ip_text(ip), job, await vendor_for_mac(session, ip.mac))
+    return await _job_out(session, _ip_text(ip), job, await vendor_for_mac(session, ip.mac), ip)
 
 
 # ─────────────────── 以位址探測 ───────────────────
@@ -253,18 +267,19 @@ async def _resolve_target(session: AsyncSession, raw: str) -> _Target:
     return _Target(ip_text, subnet, record[0] if len(record) == 1 else None, len(record))
 
 
-async def _arp_vendor(session: AsyncSession, ip_text: str) -> str | None:
-    """沒有 IP 記錄時，用 ARP 最近看到的 MAC 查廠商（判斷裝置類型用得到）。"""
+async def _arp_vendor(session: AsyncSession, ip_text: str) -> tuple[str | None, str | None]:
+    """沒有 IP 記錄時，用 ARP 最近看到的 MAC 查廠商（判斷裝置類型用得到）→（廠商, MAC）。"""
     from app.models.librenms import ARPEntry
     mac = (await session.execute(select(ARPEntry.mac).where(
         text("host(arp_entries.ip) = :ip").bindparams(ip=ip_text)).order_by(
         ARPEntry.last_seen_at.desc()).limit(1))).scalar()
-    return await vendor_for_mac(session, str(mac)) if mac else None
+    return (await vendor_for_mac(session, str(mac)), str(mac)) if mac else (None, None)
 
 
-async def _vendor_of(session: AsyncSession, t: _Target) -> str | None:
+async def _vendor_of(session: AsyncSession, t: _Target) -> tuple[str | None, str | None]:
+    """（廠商, 查廠商用的 MAC）：IP 記錄的 MAC，沒有的話 ARP 最近看到的。"""
     if t.record is not None and t.record.mac:
-        return await vendor_for_mac(session, t.record.mac)
+        return await vendor_for_mac(session, t.record.mac), str(t.record.mac)
     return await _arp_vendor(session, t.ip_text)
 
 
@@ -311,11 +326,11 @@ async def identify_history_by_ip(
     await session.commit()
     rows = (await session.execute(_jobs_of(t.ip_text).order_by(
         AgentProbeJob.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
-    mv = await _vendor_of(session, t)
+    mv, vmac = await _vendor_of(session, t)
     from app.services.fw_lookup import is_virtual_guest
     mac = t.record.mac if t.record is not None else None
     guest = await is_virtual_guest(session, t.ip_text, str(mac) if mac else None)
-    return {"items": [await _brief(session, j, mv, guest) for j in rows]}
+    return {"items": [await _brief(session, j, mv, guest, mac=vmac) for j in rows]}
 
 
 @ip_router.get("/ip/{ip}/{job_id}")
@@ -330,4 +345,5 @@ async def get_identify_by_ip(
     job = (await session.execute(_jobs_of(t.ip_text).where(AgentProbeJob.id == job_id))).scalars().first()
     if job is None:
         raise HTTPException(status_code=404, detail="Probe not found")
-    return await _job_out(session, t.ip_text, job, await _vendor_of(session, t))
+    mv, vmac = await _vendor_of(session, t)
+    return await _job_out(session, t.ip_text, job, mv, mac=vmac)

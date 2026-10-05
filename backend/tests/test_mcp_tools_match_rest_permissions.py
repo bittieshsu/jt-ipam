@@ -16,6 +16,8 @@ TOOL_REST = {
     "list_wazuh_agents": "/api/v1/wazuh/agents",
     "wazuh_missing_agents": "/api/v1/wazuh/missing-agents",
     "list_ocs_computers": "/api/v1/ocs/agents",
+    "list_rustdesk_peers": "/api/v1/rustdesk/servers",
+    "list_rustdesk_audit": "/api/v1/rustdesk/servers",
     "list_dns_records": "/api/v1/dns/records",
     "list_vms": "/api/v1/virt/vms",
     "list_arp": "/api/v1/librenms/arp",

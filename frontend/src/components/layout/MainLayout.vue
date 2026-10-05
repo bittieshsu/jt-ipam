@@ -39,7 +39,7 @@ import {
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
   AiAuditIcon, ChatHistoryIcon,
-  DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
+  DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, RustDeskIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, MenuIcon,
@@ -289,6 +289,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.windows_dhcp"),  key: "windows_dhcp",   icon: renderIcon(WindowsDhcpIcon) },
           { label: () => t("nav.kea_dhcp"),      key: "kea_dhcp",       icon: renderIcon(KeaDhcpIcon) },
           { label: () => t("nav.isc_dhcp"),      key: "isc_dhcp",       icon: renderIcon(IscDhcpIcon) },
+          { label: () => t("nav.rustdesk"),      key: "rustdesk",       icon: renderIcon(RustDeskIcon) },
           { label: () => t("nav.virt_admin"),    key: "virt_admin",     icon: renderIcon(VirtualizationIcon) },
           { label: () => t("nav.esxi_admin"),    key: "esxi_admin",     icon: renderIcon(VirtualizationIcon) },
           { label: () => t("nav.wazuh"),         key: "wazuh",          icon: renderIcon(WazuhIcon) },
@@ -296,7 +297,6 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => t("nav.ocs"),            key: "ocs",            icon: renderIcon(DevicesIcon) },
           { label: () => t("nav.event_rules"),  key: "event_rules",    icon: renderIcon(WebhooksIcon) },
           { label: () => t("nav.graylog_dsv"),   key: "graylog_dsv",    icon: renderIcon(ExportIcon) },
-          { label: () => t("nav.jump_hosts"),    key: "jump_hosts",     icon: renderIcon(TerminalIcon) },
           { label: () => t("nav.scan_agents"),   key: "scan_agents",    icon: renderIcon(ScanAgentsIcon) },
           { label: () => t("nav.certificates"),  key: "certificates",   icon: renderIcon(LockIcon) },
           { label: () => t("nav.webhooks"),      key: "webhooks",       icon: renderIcon(WebhooksIcon) },
@@ -626,7 +626,9 @@ function startDrag(e: MouseEvent) {
           </n-space>
         </n-space>
       </n-layout-header>
-      <n-layout-content content-style="padding: 16px;">
+      <!-- 底部多留 88px：AI 助手浮動按鈕固定在右下角（bottom 24 + 高 56），
+           不留的話清單最後一列右邊的操作鈕（刪除）捲到底也還壓在它底下、點不到。 -->
+      <n-layout-content content-style="padding: 16px 16px 88px;">
         <!-- 資料庫結構落後於程式時，讀完整欄位的頁面會 500（清單空白、儀表板卻正常）。
              系統啟動時就知道了，所以要在使用者踩到之前講，而不是讓人一頁一頁試。 -->
         <n-alert v-if="me?.schema_behind" type="error" :bordered="false"

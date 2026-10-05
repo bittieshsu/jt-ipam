@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { wsErrorText } from "@/utils/wsError";
+import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
  * VNC 畫面（原生 canvas）。先換 ticket → 開 WebSocket → 橋接後端 aardwolf VNCConnection。
  * 密碼只在連線時送出，前端不保存（或選已存密碼以 reference 連線）。
@@ -315,7 +316,7 @@ onBeforeUnmount(teardown);
           </span>
         </template>
         <!-- 已存密碼 -->
-        <div v-if="credOptions.length" class="vnc-saved-row">
+        <div v-if="savedCreds.length" class="vnc-saved-row">
           <span class="vnc-saved-label">{{ t("vnc.saved_cred") }}</span>
           <n-select v-model:value="selectedCredId" :options="credOptions" clearable size="small"
                     :placeholder="t('vnc.saved_cred_ph')" style="flex:1" />
@@ -352,6 +353,10 @@ onBeforeUnmount(teardown);
                        :placeholder="t('vnc.remember_label_ph')" />
             </n-space>
           </n-form-item>
+
+          <!-- 按連線之前就看得到會走哪條路（直連／跳板／掃描代理）、走不通的話原因 -->
+
+          <ConsoleRouteNote :address-id="props.addressId" />
 
           <n-alert :show-icon="false" type="info" style="margin-bottom:10px">
             {{ selectedCredId ? t("vnc.use_saved_hint") : (remember ? t("vnc.store_hint") : t("vnc.no_store_hint")) }}

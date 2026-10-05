@@ -31,7 +31,7 @@ const pg = useTablePagination();
 const { t } = useI18n();
 const router = useRouter();
 
-const { visibleKeys, setVisible, reset } = useColumnPrefs(
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "customers",
   ["name", "subnet_count", "contact", "email", "phone", "description", "created_at", "actions"],
   ["name", "subnet_count", "contact", "email", "phone", "description", "created_at", "actions"],
@@ -172,7 +172,7 @@ const allCols = computed<DataTableColumns<Customer>>(() => autoSort([
 ]));
 
 const cols = computed<DataTableColumns<Customer>>(() =>
-  allCols.value.filter((c: any) => visibleKeys.value.includes(c.key)),
+  orderColumns(allCols.value.filter((c: any) => visibleKeys.value.includes(c.key))),
 );
 
 onMounted(() => { void refresh(); });
@@ -199,7 +199,8 @@ onMounted(() => { void refresh(); });
         {{ t("common.create") }}
       </n-button>
       <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="reset" />
+                    @update:visible="setVisible" @reset="reset"
+                    :order="order" @update:order="setOrder" />
       <ExportButton :columns="cols" :rows="rows" filename="customers" :title="t('nav.customers')" />
     </n-space>
     <n-data-table

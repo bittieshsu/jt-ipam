@@ -3,7 +3,7 @@
 這個功能讓後端可以指使代理對客戶內網發包，因此**驗證比功能本身重要**。
 被守住的性質：
 
-- 只接受白名單探測種類（絕不執行任意指令）
+- 只接受允許清單探測種類（絕不執行任意指令）
 - 目標必須是 IP 或合法主機名稱（不讓奇怪字串進到子行程 argv）
 - 埠與數量都有上限，待辦數也有上限（代理離線時使用者連按不會堆積）
 - 代理只能結束**自己領到**的工作
@@ -38,8 +38,8 @@ from app.services.agent_probe import (
 
 # ─────────── 參數驗證（安全核心）───────────
 @pytest.mark.parametrize("kind", ["exec", "shell", "os", "", "PING; rm -rf /"])
-def test_only_whitelisted_probe_kinds(kind) -> None:
-    """白名單之外一律拒絕 —— 這個端點絕不能變成遠端執行任意指令的入口。"""
+def test_only_allowlisted_probe_kinds(kind) -> None:
+    """允許清單之外一律拒絕 —— 這個端點絕不能變成遠端執行任意指令的入口。"""
     with pytest.raises(ProbeJobError):
         validate_params(kind, {"targets": "198.51.100.1"})
 
@@ -245,7 +245,7 @@ def _agent_module():
 
 
 @pytest.mark.parametrize("kind", ["exec", "shell", "rm", ""])
-def test_agent_refuses_non_whitelisted_kind(kind) -> None:
+def test_agent_refuses_non_allowlisted_kind(kind) -> None:
     """代理**自己**要擋 —— 後端被入侵時，這是唯一還站著的檢查。"""
     mod = _agent_module()
     result, error = mod._job_execute(kind, {"targets": ["198.51.100.1"]})

@@ -189,6 +189,16 @@ async def detect_ip_conflicts(
         evidence[key].add("mac_flip")
         changes[key] = max(changes.get(key, 0), len(seq))
 
+    # 同一台機器的兩張網卡（ARP flux）不是衝突：只剩一台機器的 MAC 就拿掉
+    machines = await _device_macs(session, list(evidence))
+    for key in list(evidence):
+        own = machines.get(key)
+        if not own:
+            continue
+        seen = set(found[key])
+        if len(seen - own) + (1 if seen & own else 0) < 2:
+            del evidence[key]
+
     conflicts = {k: found[k] for k in evidence}
     # 帶上 OUI 廠商：兩個裸 MAC 位址擺在一起看不出是誰在打架，
     # 「Dell vs Apple」才讓人知道該去找哪一台。一次批次查完，不要逐筆查。
@@ -214,6 +224,47 @@ async def detect_ip_conflicts(
             ],
         })
     return out
+
+
+async def _device_macs(
+    session: AsyncSession, keys: list[tuple[str | None, str]],
+) -> dict[tuple[str | None, str], set[str]]:
+    """(子網路, IP) → 這個 IP 所屬裝置的全部 MAC（它其他 IP 上登記的、裝置埠的）。
+
+    Linux 預設會用任何一張網卡回答本機任何一個 IP 的 ARP（arp_ignore=0）；兩個網段在同一個
+    廣播網域時，雙網卡主機的一個 IP 會被兩張網卡同時回答，看起來就像兩台機器在搶這個 IP
+    （正式環境 2026-10-04：SuperMicro 主機板網卡＋HP 擴充網卡）。沒有連到裝置的 IP 不在結果裡，
+    照舊判斷。
+    """
+    from app.models.physical import DevicePort
+    from app.services.arp_evidence import normalize
+
+    scoped = [(sid, ip) for sid, ip in keys if sid]
+    if not scoped:
+        return {}
+    device_of: dict[tuple[str, str], uuid.UUID] = {}
+    for sid, ip, dev in (await session.execute(
+            select(IPAddress.subnet_id, IPAddress.ip, IPAddress.device_id)
+            .where(in_values(IPAddress.ip, {ip for _s, ip in scoped}),
+                   IPAddress.device_id.is_not(None)))).all():
+        device_of[(str(sid), str(ip).split("/")[0])] = dev
+    if not device_of:
+        return {}
+    devices = set(device_of.values())
+    macs: dict[uuid.UUID, set[str]] = defaultdict(set)
+    for dev, mac in (await session.execute(
+            select(IPAddress.device_id, IPAddress.mac)
+            .where(in_values(IPAddress.device_id, devices), IPAddress.mac.is_not(None)))).all():
+        if (m := normalize(str(mac))) is not None:
+            macs[dev].add(m)
+    for dev, mac in (await session.execute(
+            select(DevicePort.device_id, DevicePort.mac_address)
+            .where(in_values(DevicePort.device_id, devices),
+                   DevicePort.mac_address.is_not(None)))).all():
+        if (m := normalize(str(mac))) is not None:
+            macs[dev].add(m)
+    return {key: macs[dev] for key in scoped
+            if (dev := device_of.get((str(key[0]), key[1]))) is not None and macs.get(dev)}
 
 
 async def ip_conflict_coverage(
@@ -448,7 +499,7 @@ def _is_noise_address(ip: str) -> bool:
 async def detect_arp_only_liveness(
     session: AsyncSession, *, days: int = 3,
 ) -> list[dict[str, Any]]:
-    """看起來在線、但**只有 ARP 這一個來源**在說話的 IP。
+    """看起來上線、但**只有 ARP 這一個來源**在說話的 IP。
 
     為什麼這值得單獨列出來：ARP 記錄沒有時間概念（LibreNMS 的 ARP API 不回任何時間
     欄位），我們只能因為「這筆還在清單裡」就當成剛看到。來源設備（AP／路由器）的
@@ -747,7 +798,7 @@ async def detect_unauthorized_ips(
 
 
 # ── 上線狀態（顯示當下才算）──────────────────────────────────────────────────
-# 使用者要求（2026-10-01）：異常偵測每一頁有 IP 清單的，都要順便顯示它現在有沒有在線上。
+# 使用者要求（2026-10-01）：異常偵測每一頁有 IP 清單的，都要順便顯示它現在有沒有上線。
 # 狀態在**送出結果的當下**算，不存進結果裡：保留下來的結果可能是一個小時前跑的。
 # 只送「依據」（各來源最後看到的時間），判定交給前端 —— 與 IP 清單同一顆燈、同一套規則
 # （上線門檻與採用哪些來源是每個使用者自己的設定）。
@@ -798,7 +849,8 @@ async def _liveness_lookup(
     from app.models.subnet import Subnet
 
     cols = [IPAddress.id, IPAddress.ip, *[getattr(IPAddress, c) for c in _LIVE_COLS],
-            IPAddress.arp_seen, IPAddress.exclude_from_ping, Subnet.scan_enabled]
+            IPAddress.arp_seen, IPAddress.exclude_from_ping, Subnet.scan_enabled,
+            IPAddress.device_kind, IPAddress.device_model]
     by_id: dict[uuid.UUID, dict[str, Any]] = {}
     by_text: dict[str, dict[str, Any]] = {}
 
@@ -809,6 +861,9 @@ async def _liveness_lookup(
         d["arp_seen"] = dict(r[2 + len(_LIVE_COLS)] or {})
         d["exclude_from_ping"] = bool(r[3 + len(_LIVE_COLS)])
         d["subnet_scan_enabled"] = bool(r[4 + len(_LIVE_COLS)])
+        # 「設備類型」欄（不是上線依據；順路帶，免得每一頁各查一次）
+        d["device_kind"] = r[5 + len(_LIVE_COLS)]
+        d["device_model"] = r[6 + len(_LIVE_COLS)]
         return d
 
     conds = []
@@ -828,12 +883,14 @@ async def _liveness_lookup(
                 by_text[t] = d
             else:
                 # 重疊網段：同一個位址有好幾筆、這一列又沒有 id 可以分 —— 各欄取最新的
-                # （「其中一台在線上」；有 id 的列不走這裡）
+                # （「其中一台上線」；有 id 的列不走這裡）
                 merged = dict(prev)
                 for c in _LIVE_COLS:
                     if d[c] and (not merged[c] or d[c] > merged[c]):
                         merged[c] = d[c]
                 merged["arp_seen"] = {**prev["arp_seen"], **d["arp_seen"]}
+                merged["device_kind"] = prev.get("device_kind") or d.get("device_kind")
+                merged["device_model"] = prev.get("device_model") or d.get("device_model")
                 by_text[t] = merged
     # IPAM 沒有記錄的位址（未授權 IP、非法 DHCP 伺服器…）：依據是各來源的 ARP 觀測，
     # 來源對到與 IP 記錄相同的欄位，前端才能用同一套規則判定
@@ -904,7 +961,11 @@ async def attach_liveness(session: AsyncSession, data: dict[str, Any]) -> dict[s
             if not isinstance(row, dict) or _ip_text(row.get(ip_key)) is None:
                 new_rows.append(row)
                 continue
-            new_rows.append({**row, "live": _for(row.get(ip_key), row.get(id_key) if id_key else None)})
+            live = _for(row.get(ip_key), row.get(id_key) if id_key else None)
+            new_rows.append({**row, "live": live,
+                             # 「設備類型」欄：列自己帶的（例如類型突變的現在型號）優先
+                             "device_kind": row.get("device_kind") or (live or {}).get("device_kind"),
+                             "device_model": row.get("device_model") or (live or {}).get("device_model")})
         out[cat] = new_rows
     for cat in _LIVE_LISTS:
         rows = data.get(cat)

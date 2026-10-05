@@ -2,7 +2,7 @@
 
 與 Windows DNS 共用同一套安全作法：
 - `_check_address_safe`：SSRF 防護（封鎖 metadata/link-local；私網需 OUTBOUND_ALLOW_PRIVATE）
-- `_safe_ps_arg`：PowerShell 參數白名單，杜絕指令注入（A03）
+- `_safe_ps_arg`：PowerShell 參數允許清單，杜絕指令注入（A03）
 - 阻塞式 pywinrm 包進 `asyncio.to_thread`，不卡住 event loop
 
 只做 GET 類的 cmdlet（Get-*），絕不改 Windows DHCP 任何設定。

@@ -60,7 +60,7 @@ def test_accept_policy_without_rules_is_open_not_filtered() -> None:
 
 
 def test_drop_policy_with_and_without_accept_rules() -> None:
-    """DROP + 有放行 = 正常白名單；DROP + 沒有放行 = 全擋（多半是誤設，要提醒）。"""
+    """DROP + 有放行 = 正常允許清單；DROP + 沒有放行 = 全擋（多半是誤設，要提醒）。"""
     _, filtered = compute_posture(
         cluster_enabled=True, guest_enabled=True, nic_flags={"net0": True},
         guest_policy_in="DROP", has_accept_rule=True)

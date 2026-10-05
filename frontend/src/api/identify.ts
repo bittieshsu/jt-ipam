@@ -17,6 +17,10 @@ export interface IdentifySummary {
   applications: string[]; services: string[]; evidence: string[]; nmap_available: boolean;
   /** 探測時主機完全沒有回應（沒有開或關的埠、沒有 MAC 回應、沒有 OS 指紋） */
   no_response?: boolean;
+  /** 網卡廠牌（MAC 的 OUI）；`vendor` 是設備本身的廠牌（服務自己講的、可信的指紋），兩者不一定相同 */
+  nic_vendor?: string | null;
+  /** IP 記錄對照 IPAM 已知的事實後採用的類型與依據（device:／librenms:／wazuh:／rustdesk:／ocs:／virt:） */
+  ipam?: { kind: string | null; reason: string } | null;
 }
 export interface IdentifyChanges {
   previous_job_id: string; previous_at: string;

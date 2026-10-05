@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 HOSTNAME_KEY = "hostname_precedence"
 # 預設：人工最優先，其次 DNS、LibreNMS、OPNsense、掃描、Proxmox
-DEFAULT_ORDER: list[str] = ["manual", "dns", "librenms", "opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp", "kea_dhcp", "isc_dhcp", "scanner", "netbios", "mdns", "proxmox", "zabbix", "wazuh", "adguard", "ocs"]
+DEFAULT_ORDER: list[str] = ["manual", "dns", "librenms", "opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp", "kea_dhcp", "isc_dhcp", "scanner", "netbios", "mdns", "proxmox", "zabbix", "wazuh", "adguard", "ocs", "rustdesk"]
 
 # 排序／停用／快取的共通機制在 services/precedence.py；
 # 這裡只留 hostname 特有的部分：觀測表、pin、重算與異動記錄。
@@ -88,6 +88,23 @@ async def _observations_for(session: AsyncSession, ip_id) -> dict[str, str]:  # 
         .where(IPHostnameObservation.ip_id == ip_id)
     )).all()
     return {src: hn for src, hn in rows}
+
+
+#: 「跟著設備走」的名稱來源：設備自己報的（NetBIOS、mDNS）或裝在設備上的代理回報的。IP 換給另一台設備
+#: （MAC 變了）時，這些名稱描述的是上一台，要清掉；新設備有回報時會再寫進來。DNS、防火牆租約、人填的跟著
+#: 位址走，不清（租約會跟著新租約重報）。2026-10-05：DHCP 位址換給 Windows 筆電之後，NetBIOS 還掛著一個月前
+#: 那台 Mac 的名稱，新筆電擋了 NetBIOS，舊值永遠不會被蓋掉。
+DEVICE_BOUND_SOURCES = ("netbios", "mdns", "wazuh", "ocs", "rustdesk")
+
+
+async def forget_device_names(session: AsyncSession, *, ip: IPAddress, source: str | None = None) -> None:
+    """IP 換了一台設備：清掉上一台自己報的名稱，再重算有效主機名稱。"""
+    if ip.id is None:
+        return
+    await session.execute(delete(IPHostnameObservation).where(
+        IPHostnameObservation.ip_id == ip.id, IPHostnameObservation.source.in_(DEVICE_BOUND_SOURCES)))
+    await session.flush()
+    await recompute_effective(session, ip=ip, source=source or "system")
 
 
 async def recompute_effective(

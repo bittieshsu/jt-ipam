@@ -115,9 +115,20 @@ async def get_device_integrations(
         if pr:
             ip_ids.append(pr.id)
             ip_strs.append(str(pr.ip).split("/")[0])
-    out: dict[str, Any] = {"wazuh": None, "vm": None, "ocs": None}
+    out: dict[str, Any] = {"wazuh": None, "vm": None, "ocs": None, "rustdesk": None}
     if not ip_ids:
         return out
+    # RustDesk：這台裝置的某個 IP 對應到 RustDesk 裝置（客戶端裝在這台機器上，跟 Wazuh／OCS 代理同一類）。
+    # 連線按鈕在 IP 頁（逐 IP 開關＋權限），這裡只顯示資訊並連回那個 IP
+    from app.services.rustdesk import for_address as _rustdesk_for_address
+    for _ipid in ip_ids:                      # bounded: IPs of one device
+        _rd = await _rustdesk_for_address(session, _ipid)
+        if _rd is not None:
+            _ip = await session.get(IPAddress, _ipid)
+            _rd.pop("connect_uri", None)
+            out["rustdesk"] = {**_rd, "address_id": str(_ipid),
+                               "ip": str(_ip.ip).split("/")[0] if _ip is not None else None}
+            break
     wa = (await session.execute(
         select(WazuhAgent).where(WazuhAgent.jt_ipam_address_id.in_(ip_ids)).limit(1)  # bounded: IPs of one device
     )).scalar_one_or_none()

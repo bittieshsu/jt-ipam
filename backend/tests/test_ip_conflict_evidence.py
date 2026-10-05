@@ -209,6 +209,93 @@ async def test_an_observation_older_than_the_window_is_not_a_current_conflict(db
     assert not [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.50"]
 
 
+# ── 2b. 同一台機器的兩張網卡（ARP flux）────────────────────────────────────
+# Linux 預設會用任何一張網卡回答本機任何一個 IP 的 ARP（arp_ignore=0）。兩個網段在同一個廣播
+# 網域時，一台雙網卡主機的同一個位址會同時被兩張網卡回答 —— 看起來像兩個 MAC 在搶一個 IP，
+# 其實是同一台機器（正式環境 2026-10-04：SuperMicro 主機板網卡與 HP 擴充網卡）。兩個 MAC 都
+# 屬於同一個裝置（登記在它的其他 IP 上、或是它的埠）時不算衝突；多出第三台才算。
+
+async def _device(session, name: str = "dual-nic-host", port_macs: tuple[str, ...] = ()):
+    from app.models.device import Device
+    from app.models.physical import DevicePort
+
+    dev = Device(name=f"{name}-{uuid.uuid4().hex[:6]}")
+    session.add(dev)
+    await session.flush()
+    for i, mac in enumerate(port_macs):
+        session.add(DevicePort(device_id=dev.id, name=f"eth{i}", mac_address=mac))
+    await session.flush()
+    return dev
+
+
+async def test_one_machine_answering_on_two_nics_is_not_a_conflict(db_session) -> None:
+    from app.services.anomaly import detect_ip_conflicts
+    from app.services.arp_evidence import record_arp_observation
+
+    dev = await _device(db_session)
+    s1 = await _subnet(db_session, "198.51.100.0/24")
+    s2 = await _subnet(db_session, "203.0.113.0/24")
+    a = await _ip(db_session, s1, "198.51.100.111", mac=MAC_A, device_id=dev.id)
+    await _ip(db_session, s2, "203.0.113.111", mac=MAC_B, device_id=dev.id)
+    await record_arp_observation(db_session, ip=a, mac=MAC_A, source="scanner")
+    await record_arp_observation(db_session, ip=a, mac=MAC_B, source="arp:opnsense")
+    assert not [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.111"], \
+        "兩個 MAC 都是同一個裝置的網卡，不是兩台機器在搶"
+
+
+async def test_a_port_mac_of_the_same_device_is_the_same_machine(db_session) -> None:
+    """另一張網卡不一定登記成 IP；從 LibreNMS 匯入的裝置埠也帶 MAC。"""
+    from app.services.anomaly import detect_ip_conflicts
+    from app.services.arp_evidence import record_arp_observation
+
+    dev = await _device(db_session, port_macs=(MAC_B.upper(),))
+    sub = await _subnet(db_session)
+    a = await _ip(db_session, sub, "198.51.100.112", mac=MAC_A, device_id=dev.id)
+    await record_arp_observation(db_session, ip=a, mac=MAC_A, source="scanner")
+    await record_arp_observation(db_session, ip=a, mac=MAC_B, source="scanner")
+    assert not [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.112"]
+
+
+async def test_a_mac_of_another_device_is_still_a_conflict(db_session) -> None:
+    """另一個 MAC 登記在別台裝置上：那正是搶走這個 IP 的機器，要報。"""
+    from app.services.anomaly import detect_ip_conflicts
+    from app.services.arp_evidence import record_arp_observation
+
+    d1, d2 = await _device(db_session, "one"), await _device(db_session, "two")
+    s1 = await _subnet(db_session, "198.51.100.0/24")
+    s2 = await _subnet(db_session, "203.0.113.0/24")
+    a = await _ip(db_session, s1, "198.51.100.113", mac=MAC_A, device_id=d1.id)
+    await _ip(db_session, s2, "203.0.113.113", mac=MAC_B, device_id=d2.id)
+    await record_arp_observation(db_session, ip=a, mac=MAC_A, source="scanner")
+    await record_arp_observation(db_session, ip=a, mac=MAC_B, source="scanner")
+    assert len([r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.113"]) == 1
+
+
+async def test_a_third_machine_besides_the_two_nics_is_still_a_conflict(db_session) -> None:
+    from app.services.anomaly import detect_ip_conflicts
+    from app.services.arp_evidence import record_arp_observation
+
+    dev = await _device(db_session, port_macs=(MAC_B,))
+    sub = await _subnet(db_session)
+    a = await _ip(db_session, sub, "198.51.100.114", mac=MAC_A, device_id=dev.id)
+    for mac in (MAC_A, MAC_B, "00:00:5e:00:53:03"):
+        await record_arp_observation(db_session, ip=a, mac=mac, source="scanner")
+    rows = [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.114"]
+    assert len(rows) == 1
+    assert len(rows[0]["macs"]) == 3
+
+
+async def test_an_ip_without_a_device_keeps_the_old_rule(db_session) -> None:
+    from app.services.anomaly import detect_ip_conflicts
+    from app.services.arp_evidence import record_arp_observation
+
+    sub = await _subnet(db_session)
+    a = await _ip(db_session, sub, "198.51.100.115", mac=MAC_A)
+    await record_arp_observation(db_session, ip=a, mac=MAC_A, source="scanner")
+    await record_arp_observation(db_session, ip=a, mac=MAC_B, source="scanner")
+    assert len([r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.115"]) == 1
+
+
 # ── 3. MAC 來回切換 ───────────────────────────────────────────────────────
 
 async def _changes(session, ipa: IPAddress, seq: list[tuple[str, str]], *, hours_ago: float) -> None:
@@ -234,6 +321,17 @@ async def test_mac_flipping_between_two_addresses_is_a_conflict(db_session) -> N
     assert rows[0]["evidence"] == ["mac_flip"]
     assert rows[0]["changes"] == 3
     assert {m["mac"] for m in rows[0]["macs"]} == {MAC_A, MAC_B}
+
+
+async def test_flipping_between_two_nics_of_one_device_is_not_a_conflict(db_session) -> None:
+    """ARP flux 也會讓 IP 記錄上的 MAC 在兩張網卡之間來回換（沒有手動釘住 MAC 時）。"""
+    from app.services.anomaly import detect_ip_conflicts
+
+    dev = await _device(db_session, port_macs=(MAC_A, MAC_B))
+    sub = await _subnet(db_session)
+    ipa = await _ip(db_session, sub, "198.51.100.61", device_id=dev.id)
+    await _changes(db_session, ipa, [(MAC_A, MAC_B), (MAC_B, MAC_A), (MAC_A, MAC_B)], hours_ago=6)
+    assert not [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.61"]
 
 
 @pytest.mark.parametrize("seq", [

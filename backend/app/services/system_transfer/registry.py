@@ -109,6 +109,7 @@ CATEGORY: dict[str, str] = {
     "windows_dhcp_servers": "integrations",
     "kea_dhcp_servers": "integrations",
     "isc_dhcp_servers": "integrations",
+    "rustdesk_servers": "integrations",
     "fortigate_firewalls": "integrations",
     "paloalto_firewalls": "integrations",
     "mikrotik_routers": "integrations",
@@ -119,6 +120,8 @@ CATEGORY: dict[str, str] = {
     "jump_hosts": "integrations",
     # synced（可重新拉取的鏡像）
     "librenms_devices": "synced",
+    # RustDesk 裝置清單：代理下一輪回報就重建；last_online_at（我們自己記的）搬不過去也只是要重新看到一次上線
+    "rustdesk_peers": "synced",
     "librenms_links": "synced",
     "arp_entries": "synced",
     "fdb_entries": "synced",
@@ -146,6 +149,10 @@ CATEGORY: dict[str, str] = {
     "esxi_instances": "integrations",
     # operational（短暫／歷史）
     "audit_logs": "operational",
+    # RustDesk 客戶端回報的連線／檔案／告警稽核：與 jt-ipam 自己的稽核記錄同性質
+    "rustdesk_audit_events": "operational",
+    # RustDesk「刪除舊註冊」的請求與結果：執行紀錄（等待中的過一天就逾時），不是要跟著搬的設定
+    "rustdesk_peer_deletes": "operational",
     "ip_change_log": "operational",
     # 逐日存活觀測：可重建的運維資料，不隨設定搬移
     "ip_liveness_days": "operational",

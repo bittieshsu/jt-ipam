@@ -25,6 +25,7 @@ import { listSubnets, setAnomalyScope } from "@/api/subnets";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { autoSort } from "@/composables/useTableSort";
 import { withExportValue } from "@/utils/tableExport";
+import { deviceKindColumn, deviceKindLabel } from "@/utils/deviceKindCell";
 import type { Subnet } from "@/types";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
@@ -254,6 +255,10 @@ watch([activeTab, filterQ], ([tab, q]) => {
 function rowMatches(key: CatKey, row: Record<string, any>, q: string): boolean {
   for (const k of CAT_KEYS[key]) {
     if (k === "live") continue;
+    if (k === "device_kind") {
+      if (deviceKindLabel(row[k], t, te).toLowerCase().includes(q)) return true;
+      continue;
+    }
     const v = row[k];
     if (v == null || v === "") continue;
     if (pretty(k, v).toLowerCase().includes(q)) return true;
@@ -303,21 +308,22 @@ function liveDot(live: any) {
 }
 function colLabel(k: string): string {
   if (RAW_COL[k]) return RAW_COL[k];
+  if (k === "device_kind") return t("cols.device_kind");
   const key = `anomaly.col.${k}`;
   return te(key) ? t(key) : k;
 }
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
   // 依據：ARP（1 小時內多個 MAC）或 MAC 來回切換（24 小時內，issue #41）
-  ip_conflicts: ["ip", "live", "evidence", "changes", "macs"],
+  ip_conflicts: ["ip", "live", "device_kind", "evidence", "changes", "macs"],
   // 同一台交換器上換了埠：從哪個埠換到哪個埠、什麼時候（出現位置是明細，預設收起）
   mac_drifts: ["mac", "ips", "device_name", "from_port", "to_port", "moved_at", "locations"],
-  ghost_ips: ["ip", "live", "hostname", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
+  ghost_ips: ["ip", "live", "hostname", "device_kind", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
   // ARP 看到的 MAC（廠商、隨機 MAC、誰看到的）：只有一個位址看不出是誰
   unauthorized_ips: ["ip", "live", "last_seen_at", "macs"],
   rogue_dhcp: ["server_ip", "live", "subnet_cidr", "mac", "vendor", "offered_ip", "router",
                "first_seen_at", "last_seen_at"],
-  external_exposure: ["kind", "ip", "live", "hostname", "ports", "subnet", "monitored",
+  external_exposure: ["kind", "ip", "live", "hostname", "device_kind", "ports", "subnet", "monitored",
                       "effective_status", "names", "owner", "rules", "ip_address_id"],
   dangling_dns: ["name", "value", "live", "type", "zone", "server"],
   duplicate_ip_records: ["ip", "live", "records"],
@@ -325,23 +331,29 @@ const CAT_KEYS: Record<CatKey, string[]> = {
                        "count", "first_at", "last_at"],
   // 防火牆：同名規則（Anti-Lockout 這類）會來自好幾台，要看得出是哪一台
   fw_rule_rot: ["kind", "firewall", "name", "source", "interface", "port", "descr", "detail"],
-  arp_only_liveness: ["ip", "live", "hostname", "mac", "last_seen_arp", "ip_address_id"],
+  arp_only_liveness: ["ip", "live", "hostname", "device_kind", "mac", "last_seen_arp", "ip_address_id"],
   // 頻繁換 MAC：先看是哪個 IP、換過幾個、時間跨度，再看 MAC 清單。
   // randomized 要露出來 —— 那一欄是「這些看起來是隱私隨機化位址」，
   // 使用者據此判斷要不要把這個 IP 加進忽略清單。
-  mac_flapping: ["ip", "live", "hostname", "mac_count", "randomized", "days", "macs", "ip_id"],
-  stale_device_links: ["ip", "live", "hostname", "mac", "device", "linked_at", "mac_changed_at", "ip_address_id"],
+  mac_flapping: ["ip", "live", "hostname", "device_kind", "mac_count", "randomized", "days", "macs", "ip_id"],
+  stale_device_links: ["ip", "live", "hostname", "device_kind", "mac", "device", "linked_at", "mac_changed_at",
+                       "ip_address_id"],
   // 類型或 OS 突變：哪個 IP、從什麼變成什麼，再看現在判讀出的型號與 OS
-  identity_changes: ["ip", "live", "hostname", "shifts", "device_model", "os_guess", "last_at", "ip_id"],
+  identity_changes: ["ip", "live", "hostname", "device_kind", "shifts", "device_model", "os_guess", "last_at",
+                     "ip_id"],
 };
+// 設備類型（IP 記錄上掃描代理判讀出的類型）：各頁都可以在「欄位」勾選；只有「類型或 OS 突變」預設顯示
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
+  ip_conflicts: ["device_kind"],
   mac_drifts: ["locations"],
-  mac_flapping: ["ip_id", "days"],
+  mac_flapping: ["ip_id", "days", "device_kind"],
   identity_changes: ["ip_id"],
-  ghost_ips: ["ip_address_id"],
+  ghost_ips: ["ip_address_id", "device_kind"],
+  arp_only_liveness: ["device_kind"],
+  stale_device_links: ["device_kind"],
   // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
   // 預設不顯示，需要的人可在「欄位」自行勾選
-  external_exposure: ["ip_address_id", "owner", "rules"],
+  external_exposure: ["ip_address_id", "owner", "rules", "device_kind"],
   // 規則描述多半就是名稱（同步時沒有名稱就拿描述當），預設不重複顯示
   fw_rule_rot: ["descr"],
 };
@@ -563,10 +575,10 @@ function btnWidth(label: string, icon = true): number {
   return Math.ceil(textWidth(label) * (12 / 14)) + 20 + (icon ? 20 : 0);
 }
 
-// 依該類別的可見欄位（已套欄位偏好）組欄位
+// 依該類別的可見欄位（已套欄位偏好與使用者拖拉的順序）組欄位
 function catCols(key: CatKey): DataTableColumns<any> {
   const visible = prefs[key].visibleKeys.value;
-  const keys = CAT_KEYS[key].filter((k) => visible.includes(k));
+  const keys = prefs[key].orderKeys(CAT_KEYS[key].filter((k) => visible.includes(k)));
   const flexKey = [...keys].reverse().find((k) => !MULTI_LINE_KEYS.has(k));
   const lastKey = keys[keys.length - 1];
   // autoSort：與全站表格一致，替沒有自訂 sorter 的欄位補上預設排序。
@@ -583,6 +595,7 @@ function catCols(key: CatKey): DataTableColumns<any> {
       : k === flexKey && k === lastKey
         ? { minWidth: Math.max(160, autoWidth(key, k)) }
         : { width: autoWidth(key, k) };
+    if (k === "device_kind") return deviceKindColumn(t, te);
     if (k === "live") {
       return withExportValue({
         title: colLabel(k), key: k, width: Math.max(64, Math.round(textWidth(colLabel(k)) + SORT_ICON + COL_PAD)),
@@ -889,7 +902,8 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
               <n-input v-model:value="filterQ" clearable size="small" class="cat-filter"
                        :placeholder="t('anomaly.filter_ph')" />
               <ColumnPicker :all="pickerItems(c.key)" :visible="prefs[c.key].visibleKeys.value"
-                            @update:visible="prefs[c.key].setVisible" @reset="prefs[c.key].reset" />
+                            @update:visible="prefs[c.key].setVisible" @reset="prefs[c.key].reset"
+                            :order="prefs[c.key].order.value" @update:order="prefs[c.key].setOrder" />
             </div>
             <n-data-table :columns="catCols(c.key)" :data="shownRows(c.key)"
                           :bordered="false" size="small" :scroll-x="catScrollX(c.key)" :pagination="pg" />

@@ -219,17 +219,18 @@ const allColumns: DataTableColumns<Subnet> = [
   },
 ];
 
-const { visibleKeys, setVisible, reset } = useColumnPrefs(
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "subnets",
-  ["pinned", "cidr", "description", "usage", "ip_total", "gateway", "customer_id", "scan_enabled", "actions"],
-  ["pinned", "cidr", "description", "usage", "ip_total", "gateway", "customer_id", "scan_enabled", "actions"],
+  ["cidr", "pinned", "description", "usage", "ip_total", "gateway", "customer_id", "scan_enabled", "actions"],
+  ["cidr", "pinned", "description", "usage", "ip_total", "gateway", "customer_id", "scan_enabled", "actions"],
 );
 const columns = computed<DataTableColumns<Subnet>>(() =>
-  allColumns.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key)),
+  orderColumns(allColumns.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key))),
 );
+// 選單順序與表格欄位一致：拖拉排序以選單上看到的順序為準
 const columnPickerItems = computed(() => [
-  { key: "pinned", label: t("cols.pinned") },
   { key: "cidr", label: "CIDR" },
+  { key: "pinned", label: t("cols.pinned") },
   { key: "description", label: t("cols.description") },
   { key: "usage", label: t("cols.usage") },
   { key: "gateway", label: t("subnets.gateway") },
@@ -365,7 +366,8 @@ onMounted(() => {
         {{ t("common.create") }}
       </n-button>
       <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="reset" />
+                    @update:visible="setVisible" @reset="reset"
+                    :order="order" @update:order="setOrder" />
       <ExportButton :columns="columns" :rows="rows" filename="subnets" :title="t('nav.subnets')" />
       <n-space align="center" :size="6" style="margin-left: 4px">
         <span style="font-size: 13px; opacity: .75">{{ t("subnets.tree_view") }}</span>

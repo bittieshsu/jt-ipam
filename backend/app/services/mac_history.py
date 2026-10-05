@@ -72,6 +72,45 @@ async def _global_read(session: AsyncSession, user: Any) -> bool:
     return await has_global_read(session, user)
 
 
+async def switch_ports_for_mac(session: AsyncSession, mac: str, *, dev_ok: Any,
+                               limit: int = 200) -> list[dict[str, Any]]:
+    """交換器 MAC 表（FDB）上這個 MAC 出現在哪台交換器的哪個埠（MAC 歷程與調查共用）。
+
+    fdb_entries 有兩種列（0170）：LibreNMS 的 `device_id` 指向 LibreNMS 裝置（再經它的 jt_ipam_device_id
+    對到 jt-ipam 裝置）；MikroTik 的直接記 `switch_device_id`（jt-ipam 裝置）。`dev_ok(jt 裝置 id)` 決定
+    看不看得到那台交換器（依裝置可見性；沒對到 jt-ipam 裝置的列只有全部可見的帳號看得到）。
+    `mac` 要先正規化成 `aa:bb:cc:dd:ee:ff`（走 mac 欄位的索引）。
+    """
+    from app.models.device import Device
+    from app.models.librenms import FDBEntry, LibreNMSDevice
+    from app.models.mikrotik import MikroTikRouter
+
+    sw_dev = Device.__table__.alias("sw_dev")
+    fdb_rows = (await session.execute(
+        select(FDBEntry.port_name, FDBEntry.vlan_id_num, FDBEntry.source,
+               func.min(FDBEntry.first_seen_at), func.max(FDBEntry.last_seen_at),
+               LibreNMSDevice.sysname, LibreNMSDevice.hostname, LibreNMSDevice.jt_ipam_device_id,
+               FDBEntry.switch_device_id, sw_dev.c.name, MikroTikRouter.name)
+        .outerjoin(LibreNMSDevice, LibreNMSDevice.id == FDBEntry.device_id)
+        .outerjoin(sw_dev, sw_dev.c.id == FDBEntry.switch_device_id)
+        .outerjoin(MikroTikRouter, MikroTikRouter.id == FDBEntry.mikrotik_router_id)
+        .where(FDBEntry.mac == mac)
+        .group_by(FDBEntry.port_name, FDBEntry.vlan_id_num, FDBEntry.source, LibreNMSDevice.sysname,
+                  LibreNMSDevice.hostname, LibreNMSDevice.jt_ipam_device_id, FDBEntry.switch_device_id,
+                  sw_dev.c.name, MikroTikRouter.name)
+        .order_by(func.max(FDBEntry.last_seen_at).desc()).limit(limit))).all()
+    out: list[dict[str, Any]] = []
+    for port, vlan, source, first, last, sysname, lhost, ln_dev, ros_dev, ros_name, router_name in fdb_rows:
+        jt_dev = ln_dev or ros_dev
+        if not dev_ok(jt_dev):
+            continue
+        out.append({"switch": sysname or lhost or ros_name or router_name,
+                    "switch_device_id": str(jt_dev) if jt_dev else None,
+                    "port": port, "vlan": vlan, "source": source,
+                    "first_seen": _iso(first), "last_seen": _iso(last)})
+    return out
+
+
 async def mac_history(session: AsyncSession, *, user: Any, mac: str,
                       ips_limit: int = IPS_LIMIT, events_limit: int = EVENTS_LIMIT) -> dict[str, Any]:
     """一個 MAC 的完整歷程。不是 MAC → ValueError("mac_invalid")。"""
@@ -79,7 +118,7 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
     from app.models.device import Device
     from app.models.dhcp import DHCPReservation
     from app.models.ip_change_log import IPChangeLog
-    from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice
+    from app.models.librenms import ARPEntry
     from app.models.physical import DevicePort
     from app.models.subnet import Subnet
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
@@ -265,27 +304,7 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
         e["subnet_id"] = str(e["subnet_id"]) if e["subnet_id"] else None
 
     # ── 交換器 MAC 表（FDB） ──
-    sw_dev = Device.__table__.alias("sw_dev")
-    fdb_rows = (await session.execute(
-        select(FDBEntry.port_name, FDBEntry.vlan_id_num, FDBEntry.source,
-               func.min(FDBEntry.first_seen_at), func.max(FDBEntry.last_seen_at),
-               LibreNMSDevice.sysname, LibreNMSDevice.hostname, LibreNMSDevice.jt_ipam_device_id,
-               FDBEntry.switch_device_id, sw_dev.c.name)
-        .outerjoin(LibreNMSDevice, LibreNMSDevice.id == FDBEntry.device_id)
-        .outerjoin(sw_dev, sw_dev.c.id == FDBEntry.switch_device_id)
-        .where(FDBEntry.mac == m)
-        .group_by(FDBEntry.port_name, FDBEntry.vlan_id_num, FDBEntry.source, LibreNMSDevice.sysname,
-                  LibreNMSDevice.hostname, LibreNMSDevice.jt_ipam_device_id, FDBEntry.switch_device_id,
-                  sw_dev.c.name)
-        .order_by(func.max(FDBEntry.last_seen_at).desc()).limit(200))).all()
-    switch_ports = []
-    for port, vlan, source, first, last, sysname, lhost, ln_dev, ros_dev, ros_name in fdb_rows:
-        jt_dev = ln_dev or ros_dev
-        if not dev_ok(jt_dev):
-            continue
-        switch_ports.append({"switch": sysname or lhost or ros_name, "switch_device_id": str(jt_dev) if jt_dev else None,
-                             "port": port, "vlan": vlan, "source": source,
-                             "first_seen": _iso(first), "last_seen": _iso(last)})
+    switch_ports = await switch_ports_for_mac(session, m, dev_ok=dev_ok)
 
     # ── 這是哪台裝置自己的網卡 ──
     device_ports = [

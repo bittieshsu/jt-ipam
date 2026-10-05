@@ -270,14 +270,16 @@ def test_default_certificate_identifies_the_device() -> None:
     assert not any("Lets Encrypt" in e for e in s["evidence"])
 
 
-def test_recog_device_beats_the_port_heuristics_but_oui_vendor_stays_first() -> None:
+def test_recog_device_beats_the_port_heuristics_and_vendors_stay_apart() -> None:
     # 開了 RTSP 的 NAS 以前被判成攝影機；反過來，Recog 認得的攝影機網頁伺服器要判成攝影機
     res = _res([{"port": 80, "service": "http", "scripts": {"http-server-header": "ExampleCam-httpd/1.2"}},
                 {"port": 5060, "service": "sip"}])
     assert summarize(res)["device_type"] == "voip"
     s = summarize(res, recog=_all(), mac_vendor="Some NIC Maker")
     assert s["device_type"] == "camera"
-    assert s["vendor"] == "Some NIC Maker"
+    # 網卡廠牌（OUI）與設備廠牌（服務自己講的）分開：網卡的品牌不等於設備的品牌（2026-10-05）
+    assert s["nic_vendor"] == "Some NIC Maker"
+    assert s["vendor"] == "ExampleCam"
     assert "ExampleCam httpd 1.2" in s["applications"]            # nmap 沒認出產品 → 用 Recog 的
 
 
@@ -604,7 +606,7 @@ def test_an_ambiguous_fingerprint_is_not_a_device() -> None:
     hp = {"name": "HP P2000 G3 NAS device", "accuracy": 93, "type": "storage-misc", "vendor": "HP"}
     lin = {"name": "Linux 5.3 - 5.4", "accuracy": 93, "type": "general purpose", "vendor": "Linux"}
     s = summarize(_res([], os=[hp, lin]))
-    assert s["device_type"] == "server"
+    assert s["device_type"] in ("server", "unknown"), "不可以是儲存設備（只有 Linux 指紋時是不明）"
     assert s["os"] == "Linux 5.3 - 5.4"
     assert s["vendor"] != "HP"
     # 差距夠大才是真的設備

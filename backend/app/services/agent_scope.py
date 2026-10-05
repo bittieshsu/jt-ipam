@@ -30,12 +30,12 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
     info = {}
     live: dict[str, dict[str, Any]] = {}
     for (rid, ip_cust, sub_id, cidr, sub_cust, sec_id, sec_name, sec_cust, scan_enabled,
-         exclude, s_scan, s_lnms, s_arp, s_wazuh, s_zbx, arp_seen) in (await session.execute(
+         exclude, s_scan, s_lnms, s_arp, s_wazuh, s_zbx, arp_seen, kind, model) in (await session.execute(
         select(IPAddress.id, IPAddress.customer_id, Subnet.id, Subnet.cidr, Subnet.customer_id,
                Section.id, Section.name, Section.customer_id, Subnet.scan_enabled,
                IPAddress.exclude_from_ping, IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
                IPAddress.last_seen_arp, IPAddress.last_seen_wazuh, IPAddress.last_seen_zabbix,
-               IPAddress.arp_seen)
+               IPAddress.arp_seen, IPAddress.device_kind, IPAddress.device_model)
         .join(Subnet, Subnet.id == IPAddress.subnet_id)
         .join(Section, Section.id == Subnet.section_id, isouter=True)
         .where(in_values(IPAddress.id, ids))           # 大站台一次就是幾萬個
@@ -48,6 +48,8 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
             "last_seen_arp": _iso(s_arp), "last_seen_wazuh": _iso(s_wazuh),
             "last_seen_zabbix": _iso(s_zbx), "arp_seen": arp_seen or {},
             "exclude_from_ping": bool(exclude), "subnet_scan_enabled": scan_enabled,
+            # 「設備類型」欄（圖示＋名稱，滑過看型號）
+            "device_kind": kind, "device_model": model,
         }
     cust_ids = {v[0] for v in info.values() if v[0]}
     names = dict((await session.execute(
@@ -251,7 +253,8 @@ async def _compute_missing(session: AsyncSession, *, missing: Any, subnet_ids: l
                    cast(Subnet.id, Text).label("sid"), cast(Subnet.cidr, Text).label("cidr"),
                    cast(Section.id, Text).label("secid"), Section.name.label("secname"),
                    cast(cust, Text).label("cust"), Subnet.scan_enabled.label("subnet_scan_enabled"),
-                   IPAddress.exclude_from_ping, seen_col.label("seen"), *keyed)
+                   IPAddress.exclude_from_ping, IPAddress.device_kind, IPAddress.device_model,
+                   seen_col.label("seen"), *keyed)
             .join(Subnet, Subnet.id == IPAddress.subnet_id)
             .join(Section, Section.id == Subnet.section_id, isouter=True)
             .where(missing))
@@ -265,11 +268,11 @@ async def _compute_missing(session: AsyncSession, *, missing: Any, subnet_ids: l
     by_section: dict[str | None, dict[str, str]] = {}
     sections: dict[str, str] = {}
     cust_ids: set[str] = set()
-    for rid, ip, host, sid, cidr, secid, secname, cid, scan_en, excl, seen, *keys in rows:
+    for rid, ip, host, sid, cidr, secid, secname, cid, scan_en, excl, kind, model, seen, *keys in rows:
         ts = [t for t in (_parse_ts(v) for v in (seen, *keys) if v) if t is not None]
         st = _liveness_kind(ts, no_probe=bool(excl) or scan_en is False, minutes=minutes, now=now)
         recs.append((secid, sid, cid, st, f"{(host or '').lower()}\n{ip}", rid, ip, host, cidr, secname,
-                     scan_en, excl))
+                     scan_en, excl, kind, model))
         by_section.setdefault(secid, {}).setdefault(sid, cidr)
         if secid:
             sections.setdefault(secid, secname)
@@ -287,7 +290,7 @@ async def _compute_missing(session: AsyncSession, *, missing: Any, subnet_ids: l
 
 
 #: 可排序的欄 → recs 裡的位置。名次沿用篩選選項的順序（自然排序；單位依名稱），沒有值的一律排最後。
-_SORT_FIELD = {"section": 0, "subnet": 1, "customer": 2, "status": 3, "hostname": 7}
+_SORT_FIELD = {"section": 0, "subnet": 1, "customer": 2, "status": 3, "hostname": 7, "device_kind": 12}
 
 
 def _ranks(gaps: _Gaps, sort: str) -> dict[Any, int]:
@@ -299,7 +302,8 @@ def _ranks(gaps: _Gaps, sort: str) -> dict[Any, int]:
             opts = {"section": gaps.sections, "subnet": gaps.subnets[None], "customer": gaps.customers}[sort]
             got = {o["value"]: i for i, o in enumerate(opts)}
         else:
-            got = {h: i for i, h in enumerate(sorted({rec[7] for rec in gaps.recs if rec[7]}, key=_natural))}
+            idx = _SORT_FIELD[sort]
+            got = {v: i for i, v in enumerate(sorted({rec[idx] for rec in gaps.recs if rec[idx]}, key=_natural))}
         gaps.ranks[sort] = got
     return got
 
@@ -323,7 +327,7 @@ async def _page_from(session: AsyncSession, gaps: _Gaps, *, page: int, page_size
     detail = await _page_details(session, [rec[5] for rec in shown])
     names = gaps.names
     items = []
-    for secid, sid, cid, st, _key, rid, ip, host, cidr, secname, scan_en, excl in shown:
+    for secid, sid, cid, st, _key, rid, ip, host, cidr, secname, scan_en, excl, kind, model in shown:
         d = detail.get(rid)
         if d is None:        # 算好之後才被刪掉的 IP：這一頁少一筆，下次重算就會修正
             continue
@@ -336,6 +340,7 @@ async def _page_from(session: AsyncSession, gaps: _Gaps, *, page: int, page_size
             "last_seen_arp": _iso(d.last_seen_arp), "last_seen_wazuh": _iso(d.last_seen_wazuh),
             "last_seen_zabbix": _iso(d.last_seen_zabbix), "arp_seen": d.arp_seen or {},
             "exclude_from_ping": bool(excl), "subnet_scan_enabled": scan_en,
+            "device_kind": kind, "device_model": model,
             "status": st,
         })
     facets = {"sections": gaps.sections, "subnets": gaps.subnets.get(sec_f, []) if sec_f else gaps.subnets[None],

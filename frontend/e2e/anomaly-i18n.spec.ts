@@ -10,8 +10,8 @@
  * そのまま表示されていました。いまは `detail_key`（＋`detail_params`）で送られます。
  */
 import { test, expect, type Page } from "@playwright/test";
+import { createTempAdmin, deleteTempUser, type TempUser } from "./helpers/tempAdmin";
 
-const ADMIN_USER = process.env.E2E_ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.E2E_ADMIN_PASS || "";
 
 test.skip(!ADMIN_PASS, "需要 E2E_ADMIN_PASS env 才能跑");
@@ -41,10 +41,13 @@ const ROT_ROWS = [
   },
 ];
 
+// 語言存在帳號上：改的是自己這個臨時帳號，平行跑的其他 spec（共用 admin）不受影響
+let tmp: TempUser | null = null;
+
 async function login(page: Page) {
   await page.goto("/login");
-  await page.getByPlaceholder(/帳號|Username|ユーザー名/).fill(ADMIN_USER);
-  await page.getByPlaceholder(/密碼|Password|パスワード/).fill(ADMIN_PASS);
+  await page.getByPlaceholder(/帳號|Username|ユーザー名/).fill(tmp!.username);
+  await page.getByPlaceholder(/密碼|Password|パスワード/).fill(tmp!.password);
   await page.getByRole("button", { name: /^(登入|Sign in|サインイン)$/ }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
@@ -65,6 +68,8 @@ async function setLocale(page: Page, locale: string) {
 }
 
 test.describe("異常偵測の表の在地化", () => {
+  test.beforeAll(async ({ request }) => { tmp = await createTempAdmin(request, "locale"); });
+  test.afterAll(async ({ request }) => { await deleteTempUser(request, tmp); });
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/v1/anomalies/scan", (route) =>
       route.fulfill({

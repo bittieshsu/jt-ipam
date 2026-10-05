@@ -12,7 +12,7 @@
 
 - Debian 12 / Ubuntu 22.04+（Proxmox LXC 範本即可）
 - 2 vCPU / 4 GB RAM / 20 GB 磁碟（最小）
-- Python 3.12、PostgreSQL 16、Redis 7、Node 20+
+- Python 3.12、PostgreSQL 16、Redis 7、Node 22 LTS（只用來建置前端）
 - **TLS 強制**（兩種模式擇一，見 §1.3）
 
 ### 1.2 一鍵安裝

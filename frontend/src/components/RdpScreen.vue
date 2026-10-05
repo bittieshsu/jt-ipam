@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { wsErrorText } from "@/utils/wsError";
+import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
  * RDP 畫面（原生 canvas）。先換 ticket → 開 WebSocket → 橋接後端 aardwolf。
  * 後端把畫面以 PNG tile 串流過來畫到 canvas；鍵鼠/滾輪事件回送。
@@ -394,7 +395,7 @@ onBeforeUnmount(teardown);
           </span>
         </template>
         <!-- 已存帳密 -->
-        <div v-if="credOptions.length" class="rdp-saved-row">
+        <div v-if="savedCreds.length" class="rdp-saved-row">
           <span class="rdp-saved-label">{{ t("rdp.saved_cred") }}</span>
           <n-select v-model:value="selectedCredId" :options="credOptions" clearable size="small"
                     :placeholder="t('rdp.saved_cred_ph')" style="flex:1" />
@@ -436,6 +437,10 @@ onBeforeUnmount(teardown);
                        :placeholder="t('rdp.remember_label_ph')" />
             </n-space>
           </n-form-item>
+
+          <!-- 按連線之前就看得到會走哪條路（直連／跳板／掃描代理）、走不通的話原因 -->
+
+          <ConsoleRouteNote :address-id="props.addressId" />
 
           <n-alert :show-icon="false" type="info" style="margin-bottom:10px">
             {{ selectedCredId ? t("rdp.use_saved_hint") : (remember ? t("rdp.store_hint") : t("rdp.no_store_hint")) }}

@@ -24,7 +24,8 @@ import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 const { t } = useI18n();
 
-const { visibleKeys: lnVis, setVisible: lnSet, reset: lnReset } = useColumnPrefs(
+const { visibleKeys: lnVis, setVisible: lnSet, reset: lnReset,
+  order: lnOrder, setOrder: lnSetOrder, orderColumns: lnOrderCols } = useColumnPrefs(
   "librenms",
   ["name", "api_url", "enabled", "sync_interval_seconds", "last_sync_at", "last_error", "actions"],
   ["name", "api_url", "enabled", "sync_interval_seconds", "last_sync_at", "last_error", "actions"],
@@ -210,7 +211,7 @@ const allCols = computed<DataTableColumns<LibreNMSInstance>>(() => autoSort([
 ]));
 
 const cols = computed<DataTableColumns<LibreNMSInstance>>(() =>
-  allCols.value.filter((c: any) => lnVis.value.includes(c.key)),
+  lnOrderCols(allCols.value.filter((c: any) => lnVis.value.includes(c.key))),
 );
 
 onMounted(() => { void refresh(); void loadSubnetOptions(); });
@@ -236,7 +237,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         {{ t("librenms_admin.create") }}
       </n-button>
       <ColumnPicker :all="lnPicker" :visible="lnVis"
-                    @update:visible="lnSet" @reset="lnReset" />
+                    @update:visible="lnSet" @reset="lnReset"
+                    :order="lnOrder" @update:order="lnSetOrder" />
       <ExportButton :columns="cols" :rows="rows" filename="librenms" :title="t('librenms_admin.title')" />
     </n-space>
 

@@ -200,7 +200,8 @@ async def list_ocs_missing_agents(
     customer_id: uuid.UUID | None = None,
     status_filter: Annotated[str | None, Query(alias="status", max_length=16)] = None,
     q: Annotated[str | None, Query(max_length=128)] = None,
-    sort: Annotated[Literal["ip", "hostname", "subnet", "section", "customer", "status"], Query()] = "ip",
+    sort: Annotated[Literal["ip", "hostname", "subnet", "section", "customer", "status", "device_kind"],
+                    Query()] = "ip",
     order: Annotated[Literal["asc", "desc"], Query()] = "asc",
 ) -> Any:
     """有主機名稱、卻從來沒被 OCS 盤點過的 IP（帶所屬子網路／區段／單位，畫面據此篩選）。

@@ -405,7 +405,7 @@ async function loadSubnetOptions() {
   } catch { /* 沒權限就不顯示選項，篩選仍可留空 */ }
 }
 
-const { visibleKeys, setVisible, reset } = useColumnPrefs(
+const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "devices",
   // 全部可選欄位 / 預設顯示的欄位。**新增欄位要兩份都加** —— 只加到 catCols 的話，
   // 欄位存在卻不在預設清單裡，使用者得自己去「欄位」勾才看得到（真實瀏覽器巡檢抓到）。
@@ -552,7 +552,7 @@ const allCols = computed<DataTableColumns<Device>>(() => [
 ]);
 
 const cols = computed<DataTableColumns<Device>>(() =>
-  allCols.value.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key)),
+  orderColumns(allCols.value.filter((c: any) => c.type === "selection" || visibleKeys.value.includes(c.key))),
 );
 
 import { useRoute } from "vue-router";
@@ -602,7 +602,8 @@ onMounted(async () => {
         {{ t("common.refresh") }}
       </n-button>
       <ColumnPicker :all="columnPickerItems" :visible="visibleKeys"
-                    @update:visible="setVisible" @reset="reset" />
+                    @update:visible="setVisible" @reset="reset"
+                    :order="order" @update:order="setOrder" />
       <ExportButton :columns="cols" :rows="rows" :fetch-all="fetchAllForExport"
                     filename="devices" :title="t('nav.devices')" />
       <n-button v-if="_authBtn.me?.is_admin" data-testid="device-import-open" @click="showImport = true">

@@ -29,7 +29,7 @@ test.setTimeout(900_000);   // 七十幾頁逐一走訪
  * 帶參數的詳細資料頁沒有可靠的假 id（deep-sweep.spec 從清單點進去測）。
  */
 const SKIP = new Set([
-  "/login", "/ssh/:id", "/sftp/:id", "/rdp/:id", "/vnc/:id", "/novnc/:id", "/bmc/:id",
+  "/login", "/ssh/:id", "/sftp/:id", "/rdp/:id", "/vnc/:id", "/novnc/:id", "/bmc/:id", "/rustdesk/:id",
 ]);
 
 function routePaths(): string[] {

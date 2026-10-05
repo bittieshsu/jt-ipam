@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { createTempAdmin, deleteTempUser, type TempUser } from "./helpers/tempAdmin";
 
 /**
  * 日本語ロケールの端から端までの確認。
@@ -9,7 +10,6 @@ import { test, expect, type Page } from "@playwright/test";
  * 選んだ瞬間に保存だけが失敗し、画面には「保存に失敗しました」としか出ません。
  * どちらもブラウザで実際に切り替えてみないと分かりません。
  */
-const ADMIN_USER = process.env.E2E_ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.E2E_ADMIN_PASS || "";
 
 test.skip(!ADMIN_PASS, "需要 E2E_ADMIN_PASS env 才能跑");
@@ -18,10 +18,13 @@ test.skip(!ADMIN_PASS, "需要 E2E_ADMIN_PASS env 才能跑");
 // 入れると、正しい日本語が大量に誤検知されます。
 const CHINESE_ONLY = /[這們麼嗎呢您臺灣沒裡哪樣點體實說讓會國學關與將從區發處屬單當]/;
 
+// 語言存在帳號上：改的是自己這個臨時帳號，平行跑的其他 spec（共用 admin）不受影響
+let tmp: TempUser | null = null;
+
 async function login(page: Page) {
   await page.goto("/login");
-  await page.getByPlaceholder(/帳號|Username|ユーザー名/).fill(ADMIN_USER);
-  await page.getByPlaceholder(/密碼|Password|パスワード/).fill(ADMIN_PASS);
+  await page.getByPlaceholder(/帳號|Username|ユーザー名/).fill(tmp!.username);
+  await page.getByPlaceholder(/密碼|Password|パスワード/).fill(tmp!.password);
   await page.getByRole("button", { name: /^(登入|Sign in|サインイン)$/ }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 }
@@ -43,6 +46,8 @@ async function setLocale(page: Page, locale: string) {
 }
 
 test.describe("日本語ロケール", () => {
+  test.beforeAll(async ({ request }) => { tmp = await createTempAdmin(request, "locale"); });
+  test.afterAll(async ({ request }) => { await deleteTempUser(request, tmp); });
   test.afterEach(async ({ page }) => {
     // 他のテストは中文の文字列で要素を探すので、必ず戻します。
     try { await setLocale(page, "zh-TW"); } catch { /* ログイン前に落ちた場合 */ }
