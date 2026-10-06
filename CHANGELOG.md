@@ -6,6 +6,9 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+### Changed
+- The RustDesk icon now matches the RDP and VNC ones: a screen frame with two offset half circles (inspired by, not copied from, the RustDesk logo) instead of a generic computer icon.
+
 ### Fixed
 - The Connections page hint is up to date: it used to mention SSH only and a removed "open in new window" dropdown; it now lists SSH, RDP, VNC, the PVE console, BMC and RustDesk, and says a button opens a new tab.
 - In the Japanese UI, operating system families (network device, printer, unknown and so on) were shown in English; they are now translated.

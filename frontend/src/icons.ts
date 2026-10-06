@@ -115,7 +115,6 @@ import {
   HelpCircle,
   PasteClipboard,
   Menu,
-  Computer,
 } from "@iconoir/vue";
 
 // ── 通用 ──
@@ -190,7 +189,6 @@ export const WindowsDhcpIcon = Windows;
 export const KeaDhcpIcon = DataTransferBoth;
 export const IscDhcpIcon = DatabaseScript;
 // RustDesk Server（開源版）：選單與 IP 詳細資料的「以 RustDesk 連線」。不用 R 字螢幕 —— 那顆是 RDP
-export const RustDeskIcon = Computer;
 // RustDesk 網頁連線的工具列：「螢幕」選單（多螢幕切換）、「畫質」選單、螢幕選單裡的「解析度」子選單
 export const ScreensIcon = ModernTv;
 export const QualityIcon = HdDisplay;
@@ -291,6 +289,21 @@ function screenLetterIcon(letter: string) {
 export const DisplayIcon = screenLetterIcon("R");  // RDP
 export const VncIcon = screenLetterIcon("V");      // VNC
 export const NoVncIcon = screenLetterIcon("N");    // noVNC（PVE 圖形主控台）
+// RustDesk：同一個螢幕外框，裡面兩個上下錯開的半圓（取 RustDesk 標誌的意象但不照抄；使用者 2026-10-06）。
+// 以前用一般的電腦圖示，跟 RDP／VNC 的「螢幕＋符號」不同一家族
+export const RustDeskIcon = () => h("svg", {
+  xmlns: "http://www.w3.org/2000/svg", viewBox: "0 0 24 24",
+  width: "1em", height: "1em", fill: "none",
+}, [
+  h("rect", { x: 1.75, y: 3, width: 20.5, height: 15, rx: 2.4,
+    stroke: "currentColor", "stroke-width": 1.4 }),
+  h("path", { d: "M12 18v2.6", stroke: "currentColor", "stroke-width": 1.5 }),
+  h("path", { d: "M8 20.6h8", stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round" }),
+  h("path", { d: "M10.6 6.3A3.3 3.3 0 0 0 10.6 12.9", stroke: "currentColor", "stroke-width": 2.3,
+    "stroke-linecap": "round" }),
+  h("path", { d: "M13.4 8.1A3.3 3.3 0 0 1 13.4 14.7", stroke: "currentColor", "stroke-width": 2.3,
+    "stroke-linecap": "round" }),
+]);
 export const ExpandIcon = Expand;                  // 重新調整大小 / 自動縮放
 export const ReduceIcon = Reduce;                  // 原始解析度（1:1）
 export const KeyIcon = Key;                        // 送出按鍵
