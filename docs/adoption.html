@@ -408,6 +408,52 @@
     .tree > .meter-h{grid-row:3}
     .tree > .meter{grid-row:4}
   }
+  /* 原則卡的小圖（使用者 2026-10-06：「這區也全是文字」） */
+  .card{display:flex;flex-direction:column}
+  .card h3::before{content:none}
+  .pv{height:92px;margin:0 0 12px;border:1px solid var(--line);border-radius:5px;padding:12px;display:flex;align-items:center;justify-content:center;gap:8px;
+    background-color:#fafcfb;background-image:linear-gradient(#edf2ee 1px,transparent 1px),linear-gradient(90deg,#edf2ee 1px,transparent 1px);background-size:14px 14px}
+  .pv1{display:grid;grid-template-columns:auto auto auto;grid-template-rows:auto auto;gap:6px 8px;align-content:center;justify-content:center}
+  .pv1 .pv-l{font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .pv1 .pv-c{display:flex;gap:3px}
+  .pv1 .pv-c i{width:13px;height:13px;border-radius:2px;background:#dfe7e2}
+  .pv1 .pv-c i.u{background:var(--green)}
+  .pv1 .pv-c i.diff{outline:2px solid #f59e0b;outline-offset:1px}
+  .pv1 .pv-tag{grid-column:3;grid-row:1 / span 2;align-self:center;font-size:11px;font-weight:700;color:#b45309;border:1.5px solid #f59e0b;border-radius:3px;padding:2px 6px;background:#fff}
+  .pv2 .ar{min-width:46px}
+  .pv2 .sw{display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-size:11px;color:var(--muted)}
+  .pv2 .sw i{position:relative;width:28px;height:16px;border-radius:9px;background:#cbd5d0}
+  .pv2 .sw i::after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+  .pv3{align-items:flex-end;gap:5px}
+  .pv3 .st{position:relative;width:26px;border:1.5px solid var(--ink);border-bottom-width:1.5px;border-radius:3px 3px 0 0;background:#fff;display:flex;justify-content:center}
+  .pv3 .st.ok{background:var(--green);border-color:var(--green)}
+  .pv3 .st b{position:absolute;top:-17px;font:600 10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted)}
+  .pv3 .st.ok::after{content:"";position:absolute;top:calc(50% - 5px);width:4px;height:7px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  /* 導入順序圖改成路線圖：一條線串六站，核心綠、擴充藍；每站只留名稱與時間（細節在下面各階段） */
+  ol.flow{gap:0}
+  ol.flow > li > a{background:transparent;border:0;box-shadow:none;padding:0 6px;align-items:center;text-align:center;gap:6px}
+  ol.flow > li > a:hover{transform:none}
+  ol.flow > li > a:hover .ph-t{color:var(--c)}
+  ol.flow > li::before{content:"";position:absolute;top:17px;left:0;right:0;height:5px;background:var(--c)}
+  ol.flow > li:first-child::before{left:50%}
+  ol.flow > li:last-child::before{right:50%}
+  ol.flow > li:not(:last-child)::after{display:none}
+  ol.flow .ph-top{flex-direction:column;gap:6px}
+  ol.flow .ph-n{position:relative;z-index:1;width:38px;height:38px;border-radius:50%;border:5px solid var(--c);background:#fff;color:var(--ink);font-size:15px}
+  ol.flow .ph-k{font-size:10.5px}
+  ol.flow .ph-d{display:none}
+  ol.flow .ph-t{font-size:14px}
+  ol.flow .ph-time{margin-top:0;padding:2px 8px;border:1px solid var(--line);border-radius:3px;background:#fff}
+  @media(max-width:960px){
+    ol.flow{grid-template-columns:minmax(0,1fr);gap:0}
+    ol.flow > li::before,ol.flow > li:first-child::before,ol.flow > li:last-child::before{top:0;bottom:0;left:17px;right:auto;width:5px;height:auto}
+    ol.flow > li:first-child::before{top:50%}
+    ol.flow > li:last-child::before{bottom:50%}
+    ol.flow > li > a{flex-direction:row;flex-wrap:wrap;text-align:left;padding:8px 0;gap:4px 12px}
+    ol.flow .ph-top{flex-direction:row}
+    ol.flow .ph-k{display:none}
+    ol.flow > li:nth-child(3)::after{display:none}
+  }
 </style>
 <noscript><style>.en{display:initial}</style></noscript>
 </head>
@@ -488,14 +534,17 @@
     <h2 id="principles"><span class="zh">為什麼要分階段</span><span class="en">Why roll out in phases</span><span class="ja">段階的に導入する理由</span></h2>
     <div class="cards">
       <div class="card">
+        <div class="pv pv1" aria-hidden="true"><span class="pv-l"><span class="zh">規劃</span><span class="en">plan</span><span class="ja">計画</span></span><span class="pv-c"><i class="u"></i><i class="u"></i><i class="u"></i><i class=""></i><i class="u"></i><i class=""></i><i class=""></i><i class="u"></i><i class=""></i><i class=""></i></span><span class="pv-l"><span class="zh">掃描</span><span class="en">scan</span><span class="ja">スキャン</span></span><span class="pv-c"><i class="u"></i><i class="u"></i><i class="diff"></i><i class=""></i><i class="u"></i><i class=""></i><i class=""></i><i class="u"></i><i class="u diff"></i><i class=""></i></span><span class="pv-tag"><span class="zh">落差</span><span class="en">gap</span><span class="ja">差分</span></span></div>
         <h3 id="principle-plan-first"><span class="zh">先有規劃，再讓機器補上事實</span><span class="en">Plan first, then let machines add the facts</span><span class="ja">まず計画、事実は機械に補わせる</span></h3>
         <p><span class="zh">規劃是「應該如何」，掃描與整合是「實際如何」；先有規劃，落差才看得出來。</span><span class="en">The plan says how it should be; scans and integrations say how it is. Without the plan there is nothing to compare.</span><span class="ja">計画は「あるべき姿」、スキャンと連携は「実際の姿」。計画がないと差が見えません。</span></p>
       </div>
       <div class="card">
+        <div class="pv pv2" aria-hidden="true"><span class="nd"><span class="zh">來源</span><span class="en">source</span><span class="ja">ソース</span></span><span class="ar"><em><span class="zh">讀取</span><span class="en">read</span><span class="ja">読み取り</span></em></span><span class="nd dark">jt-ipam</span><span class="sw"><span class="zh">自動建立</span><span class="en">auto-create</span><span class="ja">自動作成</span><i></i></span></div>
         <h3 id="principle-read-only-first"><span class="zh">先唯讀比對，再考慮自動建立</span><span class="en">Read-only first, auto-create later</span><span class="ja">まず読み取りで照合、自動作成は後で</span></h3>
         <p><span class="zh">整合一律唯讀；自動建立除了 LibreNMS 主 IP 之外都預設關閉。</span><span class="en">Integrations only read; auto-create is off by default except LibreNMS primary IPs.</span><span class="ja">連携は読み取りのみ。自動作成は LibreNMS の主 IP 以外は既定でオフです。</span></p>
       </div>
       <div class="card">
+        <div class="pv pv3" aria-hidden="true"><i class="st ok" style="height:14px"><b>0</b></i><i class="st ok" style="height:23px"><b>1</b></i><i class="st ok" style="height:32px"><b>2</b></i><i class="st" style="height:41px"><b>3</b></i><i class="st" style="height:50px"><b>4</b></i><i class="st" style="height:59px"><b>5</b></i></div>
         <h3 id="principle-finish-line"><span class="zh">每個階段都有完成標準</span><span class="en">Every phase has a finish line</span><span class="ja">各フェーズに完了の目安</span></h3>
         <p><span class="zh">達到完成標準再往下；跳過的話，未授權 IP 這類偵測會一直誤報。</span><span class="en">Reach the finish line before moving on; skip it and checks such as unauthorised IPs keep raising false alarms.</span><span class="ja">完了の目安を満たしてから次へ。飛ばすと未承認 IP などの検知が誤報を続けます。</span></p>
       </div>

@@ -214,57 +214,54 @@
   /* 整合配線圖（2026-10-06 改版）：以前是彩色左邊框卡片＋粉彩膠囊＋漸層圓球（使用者：「一看就很 AI」）。
      改成配線表：每類一列（編號、類別、產品），右端拉一條線接到中間的機箱面板；只用墨色與品牌綠。
      實線＝一直在跑，虛線＝你開啟才會寫回。 */
-  .wire{display:grid;grid-template-columns:minmax(0,1.75fr) 128px minmax(0,1fr);align-items:stretch;margin:10px 0 8px}
-  .w-col{min-width:0;display:flex;flex-direction:column}
-  .w-in{padding-right:30px}
-  .w-out{padding-left:30px}
-  .w-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-bottom:7px;
+  .wire{display:grid;grid-template-columns:minmax(0,1.75fr) 200px minmax(0,1fr);grid-template-rows:auto auto;align-items:center;margin:10px 0 8px}
+  /* 標題一列、內容一列：兩欄標題對齊在最上面，內容與中樞置中 */
+  .w-col{display:contents}
+  .w-in > .w-head{grid-column:1;grid-row:1;align-self:end}
+  .w-in > .w-body{grid-column:1;grid-row:2}
+  .w-out > .w-head{grid-column:3;grid-row:1;align-self:end}
+  .w-out > .w-body{grid-column:3;grid-row:2}
+  .w-core{grid-column:2;grid-row:2;justify-self:center;width:150px}
+  .w-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-bottom:7px;margin-right:30px;
     border-bottom:1.5px solid var(--ink);font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     letter-spacing:.09em;text-transform:uppercase;color:var(--ink)}
   .w-head em{font-style:normal;font-weight:500;letter-spacing:.02em;text-transform:none;color:var(--muted)}
-  .w-row{position:relative;display:grid;grid-template-columns:2.2em 9.5em minmax(0,1fr);gap:2px 12px;align-items:baseline;
-    padding:10px 0;border-bottom:1px solid var(--line)}
-  .w-out .w-row{grid-template-columns:2.2em minmax(0,1fr)}
-  .w-out .w-row .w-v{grid-column:2}
-  .w-n{font:500 11px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#94a59b}
+  .w-out .w-head{margin:0 0 0 30px}
+  /* 列：類別＋產品；淡分隔線 */
+  .w-body{position:relative}
+  .w-in .w-body{padding-right:30px}
+  .w-out .w-body{padding-left:30px}
+  .w-row{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:2px 14px;align-items:baseline;padding:9px 0;border-bottom:1px solid #edf1ee}
+  .w-out .w-row{grid-template-columns:minmax(0,1fr)}
   .w-k{font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.5}
   .w-v{display:flex;flex-wrap:wrap;gap:1px 16px;font-size:13.5px;color:var(--body);line-height:1.65}
   .w-v i{font-style:normal;white-space:nowrap}
-  /* 接線：列的中線拉到機箱，接頭是一個綠色小方塊 */
-  .w-row::after{content:"";position:absolute;top:50%;width:30px;border-top:1px solid #a7bfb1}
-  .w-row::before{content:"";position:absolute;top:calc(50% - 3px);width:6px;height:6px;background:#18a058}
-  .w-in .w-row::after{right:-30px}
-  .w-in .w-row::before{right:-33px}
-  .w-out .w-row::after{left:-30px}
-  .w-out .w-row::before{left:-33px}
   .w-out .w-v i{white-space:normal}
-  .w-out .w-row.w-wb::after{border-top-style:dashed;border-top-color:#18a058}
-  .w-out .w-row.w-wb::before{background:#fff;box-shadow:inset 0 0 0 1.5px #18a058}
-  /* 中間的機箱面板：兩側是機櫃導軌的孔位，上下一排指示燈 */
-  .w-core{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
-    padding:20px 16px;border-radius:6px;background:#0f1913;color:#e8f2eb;text-align:center;
-    box-shadow:inset 0 0 0 1px rgba(255,255,255,.07),0 1px 0 rgba(15,23,42,.08)}
-  .w-core::before,.w-core::after{content:"";position:absolute;top:12px;bottom:12px;width:4px;
-    background:repeating-linear-gradient(to bottom,rgba(255,255,255,.22) 0 3px,transparent 3px 13px)}
-  .w-core::before{left:6px}
-  .w-core::after{right:6px}
-  .w-core b{font:700 16.5px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.01em}
+  /* 括號把整欄收起來，只拉一條線到中樞 */
+  .w-body::after{content:"";position:absolute;top:14px;bottom:14px;width:9px;border:1.5px solid #9fb6a8}
+  .w-in .w-body::after{right:8px;border-left:0;border-radius:0 7px 7px 0}
+  .w-out .w-body::after{left:8px;border-right:0;border-radius:7px 0 0 7px}
+  .w-body::before{content:"";position:absolute;top:50%;width:33px;border-top:1.5px solid #9fb6a8}
+  .w-in .w-body::before{right:-25px}
+  .w-out .w-body::before{left:-25px}
+  /* 中樞：深色面板，只有名稱、說明、一排指示燈 */
+  .w-core{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 14px;
+    border-radius:8px;background:#0f1913;color:#e8f2eb;text-align:center;box-shadow:0 8px 24px rgba(15,25,19,.18)}
+  .w-core b{font:700 17px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .w-core small{font-size:11px;line-height:1.55;color:#a9bdb0}
   .w-leds{display:flex;gap:5px}
   .w-leds i{width:6px;height:6px;border-radius:50%;background:#2a3a31}
   .w-leds i.on{background:#3ddc84;box-shadow:0 0 6px rgba(61,220,132,.8)}
   @media(max-width:980px){
-    .wire{grid-template-columns:1fr}
-    .w-in,.w-out{padding:0}
-    .w-row::after,.w-row::before{display:none}
+    .wire{grid-template-columns:1fr;grid-template-rows:none}
+    .w-in > .w-head,.w-in > .w-body,.w-out > .w-head,.w-out > .w-body,.w-core{grid-column:1;grid-row:auto}
+    .w-core{width:auto;justify-self:stretch}
+    .w-head,.w-out .w-head{margin:0}
+    .w-in .w-body,.w-out .w-body{padding:0}
+    .w-body::after,.w-body::before{display:none}
     .w-core{flex-direction:row;flex-wrap:wrap;gap:8px 14px;padding:12px 22px;margin:16px 0}
-    .w-core::before,.w-core::after{display:none}
-    .w-out .w-head em{display:none}
   }
-  @media(max-width:560px){
-    .w-row{grid-template-columns:2.2em minmax(0,1fr)}
-    .w-row .w-v{grid-column:2}
-  }
+  @media(max-width:560px){.w-row{grid-template-columns:minmax(0,1fr)}}
   .hub-cap{text-align:center;font-size:13px;opacity:.7;margin:6px 0 0}
   /* Graylog 說明（2026-10-06 跟配線圖同一套：上下兩條線、等寬字標籤，不用膠囊與圓點） */
   .gl-note{max-width:780px;margin:30px auto 0;padding:14px 0 16px;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--line)}
@@ -578,22 +575,26 @@
     <div class="wire" role="figure" aria-label="jt-ipam integration map">
       <div class="w-col w-in">
         <div class="w-head"><span><span class="zh">資料來源</span><span class="en">Sources</span><span class="ja">データソース</span></span><em><span class="zh">唯讀拉取，不改動來源</span><span class="en">read-only pull, never modified</span><span class="ja">読み取りのみ、変更しない</span></em></div>
-        <div class="w-row"><span class="w-n">01</span><span class="w-k"><span class="zh">防火牆與路由</span><span class="en">Firewalls &amp; routers</span><span class="ja">ファイアウォールとルーター</span></span><span class="w-v"><i>OPNsense</i><i>pfSense</i><i>FortiGate</i><i>Palo Alto</i><i>MikroTik RouterOS</i></span></div>
-        <div class="w-row"><span class="w-n">02</span><span class="w-k"><span class="zh">DNS</span><span class="en">DNS</span><span class="ja">DNS</span></span><span class="w-v"><i>PowerDNS</i><i>BIND9</i><i>Unbound</i><i>Windows DNS</i><i>Univention UCS</i><i>AdGuard Home</i></span></div>
-        <div class="w-row"><span class="w-n">03</span><span class="w-k"><span class="zh">DHCP</span><span class="en">DHCP</span><span class="ja">DHCP</span></span><span class="w-v"><i>Windows DHCP</i><i>Kea DHCP</i><i>ISC DHCP</i></span></div>
-        <div class="w-row"><span class="w-n">04</span><span class="w-k"><span class="zh">監控</span><span class="en">Monitoring</span><span class="ja">監視</span></span><span class="w-v"><i>LibreNMS</i><i>Zabbix</i></span></div>
-        <div class="w-row"><span class="w-n">05</span><span class="w-k"><span class="zh">虛擬化</span><span class="en">Virtualization</span><span class="ja">仮想化</span></span><span class="w-v"><i>Proxmox VE</i><i>VMware ESXi / vCenter</i></span></div>
-        <div class="w-row"><span class="w-n">06</span><span class="w-k"><span class="zh">資安與資產</span><span class="en">Security &amp; inventory</span><span class="ja">セキュリティと資産</span></span><span class="w-v"><i>Wazuh</i><i>OCS Inventory NG</i><i>RustDesk Server</i></span></div>
-        <div class="w-row"><span class="w-n">07</span><span class="w-k"><span class="zh">參考資料</span><span class="en">Reference data</span><span class="ja">参照データ</span></span><span class="w-v"><i>RIPE</i><i>TWNIC</i><i>MaxMind GeoIP</i><i>IEEE OUI</i><i>Recog</i></span></div>
-        <div class="w-row"><span class="w-n">08</span><span class="w-k"><span class="zh">匯入與遷移</span><span class="en">Import &amp; migration</span><span class="ja">取り込みと移行</span></span><span class="w-v"><i>phpIPAM</i><i>CSV</i></span></div>
+        <div class="w-body">
+        <div class="w-row"><span class="w-k"><span class="zh">防火牆與路由</span><span class="en">Firewalls &amp; routers</span><span class="ja">ファイアウォールとルーター</span></span><span class="w-v"><i>OPNsense</i><i>pfSense</i><i>FortiGate</i><i>Palo Alto</i><i>MikroTik RouterOS</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">DNS</span><span class="en">DNS</span><span class="ja">DNS</span></span><span class="w-v"><i>PowerDNS</i><i>BIND9</i><i>Unbound</i><i>Windows DNS</i><i>Univention UCS</i><i>AdGuard Home</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">DHCP</span><span class="en">DHCP</span><span class="ja">DHCP</span></span><span class="w-v"><i>Windows DHCP</i><i>Kea DHCP</i><i>ISC DHCP</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">監控</span><span class="en">Monitoring</span><span class="ja">監視</span></span><span class="w-v"><i>LibreNMS</i><i>Zabbix</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">虛擬化</span><span class="en">Virtualization</span><span class="ja">仮想化</span></span><span class="w-v"><i>Proxmox VE</i><i>VMware ESXi / vCenter</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">資安與資產</span><span class="en">Security &amp; inventory</span><span class="ja">セキュリティと資産</span></span><span class="w-v"><i>Wazuh</i><i>OCS Inventory NG</i><i>RustDesk Server</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">參考資料</span><span class="en">Reference data</span><span class="ja">参照データ</span></span><span class="w-v"><i>RIPE</i><i>TWNIC</i><i>MaxMind GeoIP</i><i>IEEE OUI</i><i>Recog</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">匯入與遷移</span><span class="en">Import &amp; migration</span><span class="ja">取り込みと移行</span></span><span class="w-v"><i>phpIPAM</i><i>CSV</i></span></div>
+        </div>
       </div>
-      <div class="w-core"><span class="w-leds" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i></span><b>jt-ipam</b><small><span class="zh">IPAM 中樞<br>在自家機房</span><span class="en">IPAM hub<br>on-prem</span><span class="ja">IPAM ハブ<br>自社設備内</span></small><span class="w-leds" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i></span></div>
+      <div class="w-core"><span class="w-leds" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i></span><b>jt-ipam</b><small><span class="zh">IPAM 中樞<br>在自家機房</span><span class="en">IPAM hub<br>on-prem</span><span class="ja">IPAM ハブ<br>自社設備内</span></small></div>
       <div class="w-col w-out">
-        <div class="w-head"><span><span class="zh">提供給其他系統</span><span class="en">Serves other systems</span><span class="ja">ほかのシステムへ</span></span><em><span class="zh">虛線＝開啟才寫回</span><span class="en">dashed = opt-in write-back</span><span class="ja">破線＝有効時のみ書き戻し</span></em></div>
-        <div class="w-row"><span class="w-n">A</span><span class="w-k"><span class="zh">記錄補上主機名稱</span><span class="en">Log enrichment</span><span class="ja">ログへのホスト名付与</span></span><span class="w-v"><i>Graylog (Lookup Table)</i></span></div>
-        <div class="w-row"><span class="w-n">B</span><span class="w-k"><span class="zh">AI</span><span class="en">AI</span><span class="ja">AI</span></span><span class="w-v"><i>LLM Server</i><i>MCP server</i></span></div>
-        <div class="w-row"><span class="w-n">C</span><span class="w-k"><span class="zh">API 與通知</span><span class="en">API &amp; notifications</span><span class="ja">API と通知</span></span><span class="w-v"><i>REST API</i><i>Webhook</i><i>Email</i><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
-        <div class="w-row w-wb"><span class="w-n">D</span><span class="w-k"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></span><span class="w-v"><i><span><span class="zh">OPNsense 別名推送</span><span class="en">OPNsense alias push</span><span class="ja">OPNsense エイリアスへの反映</span></span></i><i><span><span class="zh">憑證派送（nginx、Apache、Proxmox VE、IIS）</span><span class="en">Certificate delivery (nginx, Apache, Proxmox VE, IIS)</span><span class="ja">証明書の配布（nginx、Apache、Proxmox VE、IIS）</span></span></i></span></div>
+        <div class="w-head"><span><span class="zh">提供給其他系統</span><span class="en">Serves other systems</span><span class="ja">ほかのシステムへ</span></span></div>
+        <div class="w-body">
+        <div class="w-row"><span class="w-k"><span class="zh">記錄補上主機名稱</span><span class="en">Log enrichment</span><span class="ja">ログへのホスト名付与</span></span><span class="w-v"><i>Graylog (Lookup Table)</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">AI</span><span class="en">AI</span><span class="ja">AI</span></span><span class="w-v"><i>LLM Server</i><i>MCP server</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">API 與通知</span><span class="en">API &amp; notifications</span><span class="ja">API と通知</span></span><span class="w-v"><i>REST API</i><i>Webhook</i><i>Email</i><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
+        <div class="w-row w-wb"><span class="w-k"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></span><span class="w-v"><i><span><span class="zh">OPNsense 別名推送</span><span class="en">OPNsense alias push</span><span class="ja">OPNsense エイリアスへの反映</span></span></i><i><span><span class="zh">憑證派送（nginx、Apache、Proxmox VE、IIS）</span><span class="en">Certificate delivery (nginx, Apache, Proxmox VE, IIS)</span><span class="ja">証明書の配布（nginx、Apache、Proxmox VE、IIS）</span></span></i></span></div>
+        </div>
       </div>
     </div>
     <p class="hub-cap"><span class="zh">資料來源一律唯讀拉取、不改動來源，資料集中在自家機房；只有你明確開啟的 OPNsense 別名推送與憑證派送會寫回。</span><span class="en">Sources are always read-only and never modified, and the data stays on-prem; only OPNsense alias push and certificate delivery write back, and only when you enable them.</span><span class="ja">データソースは常に読み取りのみで変更せず、データは自社設備内に集約されます。書き戻すのは、明示的に有効にした OPNsense エイリアスへの反映と証明書の配布だけです。</span></p>
