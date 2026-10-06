@@ -213,8 +213,8 @@
   @media(max-width:820px){.src-blocks{grid-template-columns:1fr}}
   /* 整合配線圖（2026-10-06 改版）：以前是彩色左邊框卡片＋粉彩膠囊＋漸層圓球（使用者：「一看就很 AI」）。
      改成配線表：每類一列（編號、類別、產品），右端拉一條線接到中間的機箱面板；只用墨色與品牌綠。
-     實線＝一直在跑，虛線＝你開啟才會寫回。 */
-  .wire{display:grid;grid-template-columns:minmax(0,1.75fr) 200px minmax(0,1fr);grid-template-rows:auto auto;align-items:center;margin:10px 0 8px}
+     左右兩欄同一種列（類別在左、產品在右，類別欄寬跟著該欄最長的類別走）；寫回的兩列在右欄另起一個小標。 */
+  .wire{display:grid;grid-template-columns:minmax(0,1.3fr) 200px minmax(0,1fr);grid-template-rows:auto auto;align-items:center;margin:10px 0 8px}
   /* 標題一列、內容一列：兩欄標題對齊在最上面，內容與中樞置中 */
   .w-col{display:contents}
   .w-in > .w-head{grid-column:1;grid-row:1;align-self:end}
@@ -228,15 +228,15 @@
   .w-head em{font-style:normal;font-weight:500;letter-spacing:.02em;text-transform:none;color:var(--muted)}
   .w-out .w-head{margin:0 0 0 30px}
   /* 列：類別＋產品；淡分隔線 */
-  .w-body{position:relative}
+  .w-body{position:relative;display:grid;grid-template-columns:fit-content(8.5em) minmax(0,1fr);column-gap:14px}
   .w-in .w-body{padding-right:30px}
   .w-out .w-body{padding-left:30px}
-  .w-row{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:2px 14px;align-items:baseline;padding:9px 0;border-bottom:1px solid #edf1ee}
-  .w-out .w-row{grid-template-columns:minmax(0,1fr)}
+  .w-row{grid-column:1/-1;display:grid;grid-template-columns:subgrid;row-gap:2px;align-items:baseline;padding:9px 0;border-bottom:1px solid #edf1ee}
+  .w-sub{grid-column:1/-1;padding:16px 0 6px;border-bottom:1px solid #edf1ee;font:600 10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.06em;color:var(--muted)}
   .w-k{font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.5}
   .w-v{display:flex;flex-wrap:wrap;gap:1px 16px;font-size:13.5px;color:var(--body);line-height:1.65}
   .w-v i{font-style:normal;white-space:nowrap}
-  .w-out .w-v i{white-space:normal}
   /* 括號把整欄收起來，只拉一條線到中樞 */
   .w-body::after{content:"";position:absolute;top:14px;bottom:14px;width:9px;border:1.5px solid #9fb6a8}
   .w-in .w-body::after{right:8px;border-left:0;border-radius:0 7px 7px 0}
@@ -261,7 +261,7 @@
     .w-body::after,.w-body::before{display:none}
     .w-core{flex-direction:row;flex-wrap:wrap;gap:8px 14px;padding:12px 22px;margin:16px 0}
   }
-  @media(max-width:560px){.w-row{grid-template-columns:minmax(0,1fr)}}
+  @media(max-width:560px){.w-body{display:block}.w-row{grid-template-columns:minmax(0,1fr)}}
   .hub-cap{text-align:center;font-size:13px;opacity:.7;margin:6px 0 0}
   /* Graylog 說明（2026-10-06 跟配線圖同一套：上下兩條線、等寬字標籤，不用膠囊與圓點） */
   .gl-note{max-width:780px;margin:30px auto 0;padding:14px 0 16px;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--line)}
@@ -592,8 +592,11 @@
         <div class="w-body">
         <div class="w-row"><span class="w-k"><span class="zh">記錄補上主機名稱</span><span class="en">Log enrichment</span><span class="ja">ログへのホスト名付与</span></span><span class="w-v"><i>Graylog (Lookup Table)</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">AI</span><span class="en">AI</span><span class="ja">AI</span></span><span class="w-v"><i>LLM Server</i><i>MCP server</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">API 與通知</span><span class="en">API &amp; notifications</span><span class="ja">API と通知</span></span><span class="w-v"><i>REST API</i><i>Webhook</i><i>Email</i><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
-        <div class="w-row w-wb"><span class="w-k"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></span><span class="w-v"><i><span><span class="zh">OPNsense 別名推送</span><span class="en">OPNsense alias push</span><span class="ja">OPNsense エイリアスへの反映</span></span></i><i><span><span class="zh">憑證派送（nginx、Apache、Proxmox VE、IIS）</span><span class="en">Certificate delivery (nginx, Apache, Proxmox VE, IIS)</span><span class="ja">証明書の配布（nginx、Apache、Proxmox VE、IIS）</span></span></i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">API</span><span class="en">API</span><span class="ja">API</span></span><span class="w-v"><i>REST API</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">通知</span><span class="en">Notifications</span><span class="ja">通知</span></span><span class="w-v"><i>Email</i><i>Webhook</i><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
+        <div class="w-sub"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">防火牆別名</span><span class="en">Firewall aliases</span><span class="ja">ファイアウォールのエイリアス</span></span><span class="w-v"><i>OPNsense</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">憑證派送</span><span class="en">Certificate delivery</span><span class="ja">証明書の配布</span></span><span class="w-v"><i>nginx</i><i>Apache</i><i>Proxmox VE</i><i>IIS</i></span></div>
         </div>
       </div>
     </div>
@@ -786,7 +789,7 @@
       <div class="screen-txt">
         <span class="num">13</span>
         <h3 id="screens-cert-vault"><span class="zh">憑證集中保管與自動派送</span><span class="en">Centralized cert vault &amp; auto-distribution</span><span class="ja">証明書の集中保管と自動配布</span></h3>
-        <p><span class="zh">把商業憑證或 Let's Encrypt 憑證集中保管在一處（私鑰 AES-GCM 加密），再由各站台的輕量代理（純 bash，只相依 curl）自動拉取部署到 nginx / Apache / Caddy / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / Zimbra 等服務，套用前先做設定測試、失敗自動還原、部署後重載服務。憑證檔案可以手動上傳或設定 URL / SFTP 來源定期自動同步，同步時若偵測到缺中繼或根憑證會用系統信任庫自動補齊完整鏈，憑證快到期或內容飄移會主動告警──再也不用每次續簽就手動登入每一台貼憑證。Windows / IIS 另有 PowerShell 代理（Server 2019 以上內建，不裝額外模組）：匯入 Windows 憑證存放區、換上 HTTPS 繫結，再實際連線確認送出的是新憑證，不對就自動還原。</span><span class="en">Keep commercial or Let's Encrypt certificates in one vault (private keys AES-GCM encrypted); a lightweight per-site agent (pure bash, curl-only) pulls and deploys them to nginx / Apache / Caddy / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / Zimbra and more, with config-testing before apply, auto-rollback on failure, and reloading the service afterwards. Certificate files can be uploaded manually or pulled from a URL / SFTP source on a periodic sync; missing intermediate or root certs are auto-completed from the system trust store, and expiry or drift raises an alert, so you no longer log into every host to paste certs at each renewal. Windows / IIS has its own PowerShell agent (built into Server 2019+, no extra modules): it imports into the Windows certificate store, repoints the HTTPS binding, then opens a real TLS connection to confirm the new certificate is being served, and rolls back if it is not.</span><span class="ja">商用証明書や Let's Encrypt の証明書をひとつの保管庫にまとめます（秘密鍵は AES-GCM で暗号化）。各拠点の軽量エージェント（純粋な bash、依存は curl だけ）がそれを取得し、nginx / Apache / Caddy / HAProxy / Postfix / Dovecot / Proxmox VE / PMG / PBS / Zimbra などへ配備します。適用前に設定テストを行い、失敗すれば自動的に元へ戻し、配備後はサービスを再読み込みします。証明書ファイルは手動でアップロードするほか、URL / SFTP のソースを指定して定期的に同期できます。同期時に中間証明書やルート証明書の不足を検出すると、システムの信頼ストアから補って完全なチェーンにします。期限が近づいたり内容が食い違ったりすれば警告します。更新のたびに全台へログインして貼り付ける作業はもう不要です。Windows / IIS には別途 PowerShell エージェントがあります（Server 2019 以降に標準搭載、追加モジュール不要）。Windows 証明書ストアへ取り込み、HTTPS バインディングを張り替え、実際に接続して新しい証明書が提供されていることを確認し、そうでなければ自動的に元へ戻します。</span></p>
+        <p><span class="zh">商業憑證與 Let's Encrypt 憑證集中保管（私鑰加密），各站台的輕量代理自動部署到 nginx、Apache、Proxmox VE、Postfix 等服務，失敗自動還原；Windows / IIS 另有 PowerShell 代理。快到期或內容不一致會告警，續簽不必再逐台登入。</span><span class="en">Commercial and Let's Encrypt certificates in one vault (private keys encrypted). A lightweight per-site agent deploys them to nginx, Apache, Proxmox VE, Postfix and more, rolling back on failure; Windows / IIS has its own PowerShell agent. Expiry and drift raise alerts, so a renewal no longer means logging into every host.</span><span class="ja">商用証明書と Let's Encrypt の証明書を一か所で保管します（秘密鍵は暗号化）。各拠点の軽量エージェントが nginx、Apache、Proxmox VE、Postfix などへ自動で配備し、失敗すれば元に戻します。Windows / IIS には専用の PowerShell エージェントがあります。期限切れ間近や内容の食い違いは警告するので、更新のたびに全台へログインする必要はありません。</span></p>
       </div>
     </div>
 
@@ -795,7 +798,7 @@
       <div class="screen-txt">
         <span class="num">14</span>
         <h3 id="screens-remote-console"><span class="zh">瀏覽器連線管理（SSH / RDP / VNC / PVE / BMC / RustDesk）</span><span class="en">In-browser remote console (SSH / RDP / VNC / PVE / BMC / RustDesk)</span><span class="ja">ブラウザ内リモートコンソール（SSH / RDP / VNC / PVE / BMC / RustDesk）</span></h3>
-        <p><span class="zh">直接從 IP 或裝置開啟 SSH 終端機、SFTP 檔案瀏覽器（上下傳檔案，獨立開關、與 SSH 同等強度的權限與稽核）、RDP 與 VNC 桌面、Proxmox VE 主控台（VM 走 noVNC、容器 CT 走 xterm）與 BMC 序列主控台（IPMI SOL，不經作業系統的獨立連線），以及相容 RustDesk 的網頁連線（加密在瀏覽器裡完成，含檔案傳輸，不用裝 RustDesk 客戶端）（PVE / BMC / RustDesk 為 Beta），全程在瀏覽器內，不必再裝 PuTTY / 遠端桌面 / 各廠 KVM 等用戶端。連線帳密預設不儲存（僅連線當下傳送），也可選擇存進個人加密金庫（by-user、AES-GCM 加密，私鑰 / 密碼逐欄加密）；依逐物件權限控管誰能連哪一台，每次開閉連線都留稽核（含連了多久），連線中狀態列也看得到連線時間；RDP / VNC 可送出被作業系統攔截的特殊組合鍵（Ctrl + Alt + Del、F1～F12、⊞ Win / ⌘…），並支援自動縮放符合視窗、以目前視窗大小重連取得原生清晰畫面。</span><span class="en">Open an SSH terminal, an SFTP file browser (upload/download, its own toggle with the same permission strength and audit as SSH), an RDP or VNC desktop, a Proxmox VE console (noVNC for VMs, xterm for CT containers) a BMC out-of-band serial console (IPMI SOL) and a RustDesk-compatible web connection (encrypted in the browser, with file transfer, no RustDesk client needed) (PVE / BMC / RustDesk are Beta) straight from an IP or device, entirely in the browser with no PuTTY / remote-desktop client / vendor KVM to install. Credentials are not stored by default (sent only at connect time) and can optionally be saved to a per-user AES-GCM-encrypted vault; per-object permissions control who may reach each target, and every session open/close is audited with its length (the status bar shows the connected time); RDP / VNC can send special key combos the OS would otherwise intercept (Ctrl + Alt + Del, F1–F12, ⊞ Win / ⌘…), and support auto-fit-to-window plus reconnecting at the current window size for a crisp native picture.</span><span class="ja">IP や機器から直接、SSH 端末、SFTP ファイルブラウザ（アップロード/ダウンロード。独立した切り替えを持ち、SSH と同等の権限管理と監査が適用されます）、RDP と VNC のデスクトップ、Proxmox VE コンソール（VM は noVNC、コンテナ CT は xterm）、BMC シリアルコンソール（IPMI SOL。OS を介さない独立した経路）、RustDesk 互換の Web 接続（暗号化はブラウザ内で完結、ファイル転送付き、RustDesk クライアント不要）を開けます（PVE / BMC / RustDesk は Beta）。すべてブラウザ内で完結し、PuTTY やリモートデスクトップ、各社の KVM クライアントを入れる必要はありません。接続時の資格情報は既定では保存せず（接続時に送るだけです）、必要なら利用者ごとの暗号化保管庫に保存できます（ユーザー単位・AES-GCM・項目ごとの暗号化）。誰がどの機器へ接続してよいかはオブジェクト単位で制御し、接続の開始と終了は接続時間とともにすべて監査に残り、接続中はステータスバーに接続時間が表示されます。RDP / VNC では OS が横取りする特殊なキーの組み合わせ（Ctrl + Alt + Del、F1～F12、⊞ Win / ⌘ など）を送信でき、ウィンドウへの自動フィットや、現在のウィンドウサイズでの再接続による等倍の鮮明な表示にも対応します。</span></p>
+        <p><span class="zh">從 IP 或裝置直接開 SSH、SFTP、RDP、VNC、Proxmox VE 主控台、BMC 序列主控台與 RustDesk 網頁連線，全在瀏覽器內，不必裝 PuTTY 或遠端桌面用戶端（PVE、BMC、RustDesk 為 Beta）。帳密預設不儲存，誰能連哪一台依物件權限控管，每次連線都留稽核與連線時間。</span><span class="en">Open SSH, SFTP, RDP, VNC, a Proxmox VE console, a BMC serial console or a RustDesk web connection straight from an IP or device, all in the browser with no PuTTY or remote-desktop client to install (PVE, BMC and RustDesk are Beta). Credentials are not stored by default, per-object permissions decide who can reach what, and every session is audited with its length.</span><span class="ja">IP や機器から直接、SSH、SFTP、RDP、VNC、Proxmox VE コンソール、BMC シリアルコンソール、RustDesk の Web 接続を開けます。すべてブラウザ内で完結し、PuTTY やリモートデスクトップのクライアントは不要です（PVE、BMC、RustDesk は Beta）。資格情報は既定で保存せず、誰がどこへ接続できるかはオブジェクト単位で制御し、接続はすべて接続時間とともに監査に残ります。</span></p>
       </div>
     </div>
   </div>
