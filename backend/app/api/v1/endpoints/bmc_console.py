@@ -13,6 +13,7 @@ import contextlib
 import json
 import os
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -88,12 +89,13 @@ async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> uuid.UUID | None
         return None
 
 
-async def _audit_bmc(action: str, *, user_id: uuid.UUID, ip_id: uuid.UUID, actor_ip: str | None) -> None:
+async def _audit_bmc(action: str, *, user_id: uuid.UUID, ip_id: uuid.UUID, actor_ip: str | None,
+                     diff: dict[str, Any] | None = None) -> None:
     async with SessionLocal() as s:
         with contextlib.suppress(Exception):
             await append_audit(
                 s, actor_user_id=str(user_id), actor_ip=actor_ip, actor_user_agent=None,
-                object_type="ip", object_id=str(ip_id), action=action, diff=None,
+                object_type="ip", object_id=str(ip_id), action=action, diff=diff,
                 request_id=None,
             )
             await s.commit()
@@ -225,6 +227,7 @@ async def bmc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
     proc, master = bmc_svc.spawn_sol(bmc_ip, username, password, cipher)
     del password
     await _audit_bmc("bmc.session_open", user_id=user_id, ip_id=address_id, actor_ip=actor_ip)
+    opened = time.monotonic()
     await send({"type": "status", "state": "connected", "cipher": cipher, "vendor": chk["vendor"]})
 
     loop = asyncio.get_event_loop()
@@ -265,7 +268,9 @@ async def bmc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             proc.wait(timeout=3)
         with contextlib.suppress(Exception):
             proc.kill()
-        await _audit_bmc("bmc.session_close", user_id=user_id, ip_id=address_id, actor_ip=actor_ip)
+        # 跟其他主控台一樣記連了多久（使用者 2026-10-06 問到；以前只有開與關兩筆，要自己相減）
+        await _audit_bmc("bmc.session_close", user_id=user_id, ip_id=address_id, actor_ip=actor_ip,
+                         diff={"duration_seconds": round(time.monotonic() - opened, 1)})
         with contextlib.suppress(Exception):
             await websocket.close()
 

@@ -297,6 +297,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
 
     conn = None
     sftp = None
+    opened: float | None = None          # 真的開成功的時間（monotonic）；結束時記連了多久
     tunnel: console_route.Tunnel | None = None
     port = 22          # 先給預設值：錯誤處理會用到，設定還沒讀到就失敗時不能是未定義
     #: 上傳途中收到的指令（客戶端放棄這次上傳、直接送下一個要求）—— 留著下一輪處理
@@ -338,6 +339,7 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             cwd = "/"
         await audit("sftp_open", {"host": host, "port": port, "username": username,
                                   "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind})
+        opened = time.monotonic()
         # 經跳板時要講出來：畫面上的位址是目標，實際路徑多了一跳
         # 上限一起告訴前端：超過的檔案當場就講，不用先等伺服器拒絕；大檔也要據此改成直接寫入磁碟
         await send({"type": "ready", "cwd": str(cwd), "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
@@ -630,8 +632,10 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         # 通道與 WS session 同生共死：連線關掉之後才還，否則轉發會在還有人用時被收掉
         if tunnel is not None:
             await tunnel.aclose()
+        # 跟其他主控台一樣記連了多久（使用者 2026-10-06 問到）；沒開成功的不記
         await _audit(actor_user_id=str(user_id), actor_ip=actor_ip, object_id=aid,
-                     action="sftp_close", diff={"host": host})
+                     action="sftp_close", diff={"host": host, **({"duration_seconds": round(time.monotonic() - opened, 1)}
+                                                                if opened is not None else {})})
         try:
             await websocket.close()
         except Exception:

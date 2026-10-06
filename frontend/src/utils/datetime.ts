@@ -64,6 +64,13 @@ export function fmtRelative(
   return fmtDate(d);
 }
 
+/** 連線時間的時鐘格式：65 → "00:01:05"；小時至少兩位，超過一天照樣累加（26:00:03） */
+export function fmtClock(seconds: number | null | undefined): string {
+  const sec = Math.max(0, Math.floor(Number(seconds) || 0));
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(Math.floor(sec / 3600))}:${two(Math.floor(sec / 60) % 60)}:${two(sec % 60)}`;
+}
+
 /** 秒數差人話：65 → "1m 5s" */
 export function fmtDuration(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds)) return "—";

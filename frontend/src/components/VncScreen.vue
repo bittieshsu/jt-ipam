@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { wsErrorText } from "@/utils/wsError";
+import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
  * VNC 畫面（原生 canvas）。先換 ticket → 開 WebSocket → 橋接後端 aardwolf VNCConnection。
@@ -387,6 +388,7 @@ onBeforeUnmount(teardown);
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
           <n-tag v-if="engineLabel" size="small" :bordered="false" round class="conn-engine"
                  :title="t('common.console_engine_title')">{{ engineLabel }}</n-tag>
+          <ConnElapsed :active="phase === 'connected'" />
         </span>
         <n-space :size="8" align="center">
           <!-- 送出特殊按鍵 -->

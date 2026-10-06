@@ -27,6 +27,11 @@ test("相容 RustDesk 的網頁連線：密碼錯可以重輸、連上後出畫�
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await page.waitForURL((u) => !u.pathname.includes("/login"));
 
+  // 下面要驗「jt-ipam 淺色、作業系統深色」的組合：先把 jt-ipam 固定成淺色（偏好會從伺服器同步回來，
+  // 只改 localStorage 會被蓋掉）；測完還原
+  const prefs = await api<{ theme?: string }>(page, "GET", "/api/v1/me/preferences");
+  await api(page, "PATCH", "/api/v1/me/preferences", { theme: "light" });
+  await page.evaluate(() => localStorage.setItem("theme", "light"));
   await page.goto(`/rustdesk/${IPID}`);
   await page.getByTestId("rdweb-password").locator("input").fill("definitely-wrong");
   await page.getByTestId("rdweb-connect").click();
@@ -51,6 +56,41 @@ test("相容 RustDesk 的網頁連線：密碼錯可以重輸、連上後出畫�
   });
   expect(painted.w, "canvas 尺寸來自解出來的影格").toBeGreaterThan(100);
   expect(painted.n, "canvas 全黑＝沒有解出畫面").toBeGreaterThan(500);
+
+  // 下拉選單最後一行的說明要看得到（2026-10-06 使用者回報：畫質、請求提權兩個選單最後都是一塊空白）。
+  // 真因：作業系統是深色、jt-ipam 是淺色時，瀏覽器給沒指定顏色的文字白色（index.html 的 color-scheme 是
+  // light dark），掛在 body 底下的選單說明就變成白字白底 → 這裡模擬深色作業系統
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe("light");
+  await page.getByTestId("rdweb-quality").click();
+  const note = page.getByText(/多人同時看同一台/);
+  await expect(note).toBeVisible();
+  const noteBox = (await note.boundingBox())!;
+  expect(noteBox.height, "說明文字被壓扁或沒有畫出來").toBeGreaterThan(10);
+  const ink = await note.evaluate((el) => {
+    const c = getComputedStyle(el);
+    return { color: c.color, opacity: c.opacity, text: (el.textContent || "").trim().length };
+  });
+  expect(ink.text).toBeGreaterThan(5);
+  expect(ink.color).not.toMatch(/rgba\(\d+, \d+, \d+, 0\)|transparent/);
+  // 淺色主題的選單是白底：文字不可以是白色或接近白色
+  const [r, g, b] = (ink.color.match(/\d+/g) || ["255", "255", "255"]).map(Number);
+  expect(r + g + b, `說明文字顏色 ${ink.color} 在白底上看不見`).toBeLessThan(600);
+  await page.screenshot({ path: "test-results/rustdesk-quality-menu.png" });
+  await page.keyboard.press("Escape");
+  await page.emulateMedia({ colorScheme: null });
+  await api(page, "PATCH", "/api/v1/me/preferences", { theme: prefs?.theme ?? "auto" });
+
+  // 狀態列的連線時間（使用者 2026-10-06：所有連線都要顯示）：看得到，而且會走
+  const elapsed = page.getByTestId("conn-elapsed");
+  await expect(elapsed).toHaveText(/\d{2}:\d{2}:\d{2}/);
+  const t0 = await elapsed.textContent();
+  await expect(elapsed).not.toHaveText(t0 ?? "", { timeout: 5_000 });
+
+  // 附錄 K：Linux 受控端不會送提權相關的訊息 → 畫面不可以出現免安裝標籤、提示或「請求提權」
+  for (const id of ["rdweb-elev-tag", "rdweb-elev-menu", "rdweb-elev-foreground", "rdweb-elev-uac"]) {
+    await expect(page.getByTestId(id), id).toHaveCount(0);
+  }
 
   // 鍵盤：點進畫面、打一行字（測試靶的桌面是一個 xterm）
   const box = (await canvas.boundingBox())!;

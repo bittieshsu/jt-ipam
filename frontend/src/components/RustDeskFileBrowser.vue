@@ -14,6 +14,7 @@
  * - 受控端給的檔名與路徑只當文字顯示（不用 v-html），下載的檔名先過濾（safeDownloadName）
  */
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import ConnElapsed from "@/components/ConnElapsed.vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCard, NCheckbox, NDataTable, NForm, NFormItem, NIcon, NInput, NModal, NPopconfirm, NProgress,
@@ -762,6 +763,7 @@ onBeforeUnmount(() => {
           <n-tag v-if="peerIdShown" size="small" :bordered="false" round :title="serverName || undefined">ID {{ peerIdShown }}</n-tag>
           <n-tag v-if="platform" size="small" :bordered="false" round>{{ platform }}</n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
+          <ConnElapsed :active="ui === 'connected'" />
         </span>
         <n-space :size="8" align="center">
           <n-popconfirm v-if="ui !== 'closed' && ui !== 'error' && activeJobs" @positive-click="disconnect">

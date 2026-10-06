@@ -976,3 +976,23 @@ async def test_poll_without_key_checks_still_works(client, db_session) -> None:
     await _server(db_session, raw)
     r = await _poll(client, raw)
     assert r.status_code == 200, r.text
+
+
+async def test_report_does_not_flip_a_heartbeating_device_offline(client, db_session) -> None:
+    """hbbs 的線上狀態只看 30 秒內有沒有 UDP 註冊：UDP 掉包、或走 TCP／WebSocket 連 hbbs 的客戶端會被說成離線，
+    但它每 15 秒的心跳照樣送到。以前每 5 分鐘的完整回報只信 hbbs → 在線的裝置被改成離線、下一個心跳又改回上線
+    （使用者 2026-10-06：「明明都在線上，有時會變離線、有時又上線」）。45 秒內有心跳就算上線。"""
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    raw = "q9" * 20
+    srv = await _server(db_session, raw)
+    await _send(client, raw, _report(srv.id, [("111111111", "198.51.100.9", True), ("222222222", "198.51.100.10", True)]))
+    await _events(client, raw, srv.id, [_ev("heartbeat", "111111111"), _ev("heartbeat", "222222222")])
+    # 222222222 的心跳已經停了一陣子
+    p2 = (await _peers(db_session, srv))["222222222"]
+    p2.last_heartbeat_at = _dt.now(UTC) - _td(minutes=3)
+    await db_session.commit()
+    await _send(client, raw, _report(srv.id, [("111111111", "198.51.100.9", False), ("222222222", "198.51.100.10", False)]))
+    peers = await _peers(db_session, srv)
+    assert peers["111111111"].online is True, "剛剛還有心跳 → hbbs 說離線也不算離線"
+    assert peers["222222222"].online is False, "hbbs 說離線、心跳也停了 → 離線"

@@ -26,6 +26,9 @@
  * 多螢幕（附錄 H，狀態在 displays.ts）：切換送 switch_display → capture_displays set=[n] → refresh_video_display(n)；
  * 不是目前螢幕的影格丟掉；連線中的 peer_info 只更新清單（目前選的不見了就切到主螢幕或 0）；要求關鍵影格帶目前的螢幕編號。
  * 畫質（附錄 I）：登入時照目前的設定填 OptionMessage；之後改了用 Misc.option 只送改變的欄位。
+ * 請求提權（附錄 K，規則在 elevation.ts）：連線中收到的 Misc.uac／foreground_window_elevated／elevation_response／
+ * portable_service_running 交給畫面；requestElevation 送 Misc.elevation_request（logon 的帳號密碼只放進那一則加密的
+ * 訊息，這裡不留）；reportElevation 送稽核摘要給後端（`elevation_audit`：method、result、detail 四個欄位，不含帳號密碼）。
  */
 import { base64ToBytes, keyExchangeV0, openSigned, passwordHash, randomSessionId, SecretBoxStream } from "./crypto";
 import { MouseKind } from "./input";
@@ -37,7 +40,11 @@ import {
   type Decoding, type EncodedFrame, type MessageBox, type PeerInfo, type WindowsSessions,
   encodeCaptureDisplays, encodeChangeResolution, encodeOptionMisc, encodeQualityFields, encodeSwitchDisplay,
   parseTestDelay, type QualityOption, type Resolution, type SupportedEncoding,
+  encodeElevationRequest, type ElevationRequest,
 } from "./messages";
+import {
+  clipElevationDetail, ELEVATION_METHODS, ELEVATION_RESULTS, type ElevationMethod, type ElevationResult,
+} from "./elevation";
 import { DisplayTracker, type DisplayEventKind, type DisplayView } from "./displays";
 import { PbError } from "./pb";
 import { encodeClipboardOption } from "./clipboard";
@@ -125,6 +132,14 @@ export interface SessionEvents {
   unhandled?(plain: Uint8Array): void;
   /** 附錄 J.1：Misc.permission_info 的 File（4）：受控端在連線中開關了檔案傳輸權限 */
   filePermission?(enabled: boolean): void;
+  /** 附錄 K.1：Misc.uac：受控端的 UAC 確認畫面是不是正在顯示（Windows 免安裝受控端才送） */
+  uac?(showing: boolean): void;
+  /** 附錄 K.1：Misc.foreground_window_elevated：受控端前景的視窗是不是以系統管理員權限執行 */
+  foregroundElevated?(elevated: boolean): void;
+  /** 附錄 K.1：Misc.elevation_response：請求提權的回覆（空字串＝已發出啟動，非空＝錯誤原文） */
+  elevationResponse?(text: string): void;
+  /** 附錄 K.1：Misc.portable_service_running：提權用的輔助服務是不是在跑 */
+  portableService?(running: boolean): void;
 }
 
 export interface WebSocketLike {
@@ -374,6 +389,27 @@ export class RdSession {
   requestKeyframe(): void {
     if (this.phase !== "connected") return;
     this.sendEncrypted(encodeRefreshVideo(this.disp.current));
+  }
+
+  /**
+   * 附錄 K.1：請求提權（Misc.elevation_request）。只在可以控制時送（連線中、對方沒關閉控制權、不是唯讀檢視），
+   * 檔案傳輸的連線不送；真的送出才回 true。logon 的帳號密碼只放進這一則加密的訊息，這裡不留也不告訴後端。
+   */
+  requestElevation(req: ElevationRequest): boolean {
+    if (!this.canControl() || this.opts.encodeLogin) return false;
+    this.sendEncrypted(encodeElevationRequest(req));
+    return true;
+  }
+
+  /**
+   * 附錄 K.2：提權的稽核摘要給後端（瀏覽器自報，沿用 file_audit 的作法，在一般遠端桌面連線上）：
+   * 只有 t、method、result、detail 四個欄位，不含帳號密碼；detail 是受控端的錯誤原文，截到 200 個字元。
+   * method／result 不在清單內、檔案傳輸的連線不送。
+   */
+  reportElevation(method: ElevationMethod, result: ElevationResult, detail = ""): void {
+    if (this.finished || this.opts.encodeLogin) return;
+    if (!ELEVATION_METHODS.includes(method) || !ELEVATION_RESULTS.includes(result)) return;
+    this.sendControl({ t: "elevation_audit", method, result, detail: clipElevationDetail(String(detail)) });
   }
 
   /** 附錄 J（檔案傳輸）：送一則已經編好的 Message（一律加密）。登入後才送；沒送出回 false。 */
@@ -820,6 +856,12 @@ export class RdSession {
       if (kind !== "stale") this.opts.events.displays?.(this.disp.view(), kind);
     } else if (misc.type === "supported_encoding") {
       this.opts.events.encoding?.(misc.encoding);
+    } else if (this.phase === "connected") {
+      // 附錄 K.1：受控端登入成功之後才檢查、才送（Windows 免安裝受控端）；規則在 elevation.ts
+      if (misc.type === "uac") this.opts.events.uac?.(misc.value);
+      else if (misc.type === "foreground_window_elevated") this.opts.events.foregroundElevated?.(misc.value);
+      else if (misc.type === "elevation_response") this.opts.events.elevationResponse?.(misc.text);
+      else if (misc.type === "portable_service_running") this.opts.events.portableService?.(misc.value);
     }
   }
 }

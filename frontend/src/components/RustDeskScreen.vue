@@ -32,6 +32,13 @@
  * 解析度子選單只在可以控制時出現。
  * 畫質（附錄 I，規則在 src/rdweb/quality.ts）：工具列「畫質」選單（畫質、更新率上限、編碼偏好），改了立刻送出；
  * localStorage 只記這三個選項；狀態列的小字顯示延遲、位元率、每秒解出的張數與編碼名稱。
+ *
+ * Windows 免安裝受控端的系統管理員視窗、UAC 與請求提權（附錄 K，規則在 src/rdweb/elevation.ts，這裡只接線）：
+ * - 平台標籤旁的「免安裝版」標籤（滑過有說明；輔助服務在跑時是「免安裝版・已提權」）
+ * - 前景是系統管理員視窗、UAC 確認畫面：畫面上方的警告提示（不擋畫面），附「請求提權」
+ * - 工具列「請求提權」下拉（由受控端確認／用系統管理員帳號）：Windows 免安裝、輔助服務沒在跑、有控制權、不是唯讀檢視才有
+ * - 用帳號提權的對話框：密碼不記住、不寫進瀏覽器儲存、不送給 jt-ipam 後端，只在加密連線裡送給受控端；送出後立刻清空
+ * - 稽核（瀏覽器自報）由 elevation.ts 在送出時與得到結果時各送一則；自動重連或連線結束時一切重新判斷
  */
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -50,7 +57,7 @@ import { fmtDateTime } from "@/utils/datetime";
 import { RdSession, type CloseInfo, type OsLoginKind, type PasswordReason, type Phase } from "@/rdweb/session";
 import { probeDecoding, VideoPipeline } from "@/rdweb/video";
 import type {
-  Decoding, MessageBox, PeerInfo, QualityOption, Resolution, SupportedEncoding, WindowsSessions,
+  Decoding, ElevationRequest, MessageBox, PeerInfo, QualityOption, Resolution, SupportedEncoding, WindowsSessions,
 } from "@/rdweb/messages";
 import { randomSessionId } from "@/rdweb/crypto";
 import { keyCodeFor, lockModifiers } from "@/rdweb/keymap";
@@ -71,9 +78,13 @@ import {
   AutoReconnect, pickWindowsSession, RECONNECT_DELAYS_S, ticketFailure, TICKET_REFUSED, TICKET_UNAVAILABLE,
   type ReconnectAuth, type ReconnectView,
 } from "@/rdweb/reconnect";
-import { PasteIcon, SendIcon } from "@/icons";
+import {
+  ElevationTracker, elevationUi, initialElevationState, type ElevationState,
+} from "@/rdweb/elevation";
+import { AdminIcon, PasteIcon, SendIcon } from "@/icons";
 import { RustDeskIcon, CancelIcon, RefreshIcon, KeyIcon, LockIcon, ExpandIcon, ReduceIcon, DeleteIcon } from "@/icons";
 import { CheckIcon, ChevronDownIcon, QualityIcon, renderIcon, ResolutionIcon, ScreensIcon } from "@/icons";
+import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 
 const props = withDefaults(defineProps<{
@@ -230,6 +241,17 @@ const dispView = ref<DisplayView | null>(null);
 /** H.5：使用者在這個頁面選過的螢幕（只在記憶體）：自動重連後回到它；手動重新連線時清掉 */
 let chosenDisplay: number | null = null;
 
+// 請求提權（附錄 K）：狀態只有這條連線收到的訊息（elevation.ts）；帳號密碼只在對話框的欄位裡，送出或關閉就清掉
+const elevState = ref<ElevationState>(initialElevationState());
+const elevation = new ElevationTracker({
+  send: (req) => !!session?.requestElevation(req),
+  audit: (method, result, detail) => session?.reportElevation(method, result, detail),
+  change: (st) => { elevState.value = st; },
+});
+const elevDlg = reactive({ show: false, username: "", password: "" });
+/** 網域帳號的寫法（放在 i18n 參數裡，避免反斜線進文案） */
+const ELEV_USER_EXAMPLE = "DOMAIN\\user";
+
 // 畫質（附錄 I）：localStorage 只記畫質、更新率、編碼偏好三個選項（quality.ts），讀不到就用預設值
 const quality = reactive<QualitySettings>(loadQuality());
 const decodeCaps = ref<Decoding>({ vp9: true, h264: false, vp8: false, av1: false });
@@ -342,6 +364,8 @@ async function openSession(auto: { auth: ReconnectAuth | null } | null) {
   cursorEmbedded = false;
   dispView.value = null;
   peerEncoding.value = null;
+  elevation.reset();                        // 附錄 K.2：提權狀態與提示都不沿用（自動重連也是）
+  closeElevLogon();
   stopStats();
   resetStats();
   stage.value = "connecting";
@@ -474,6 +498,7 @@ async function openSession(auto: { auth: ReconnectAuth | null } | null) {
         const toSave = reconnect.connected();     // 計數歸零；自動重連成功不會交出要存的密碼
         if (wasAuto) hasVideo.value = false;      // 斷線前的畫面：等新的畫面進來
         onPeerInfo(info);
+        elevation.login(info);                    // 附錄 K：平台與 is_installed 以登入回應為準
         peerEncoding.value = info.encoding ?? null;
         const v = viewFromPeerInfo(info);         // session 接著會送 displays（login），這裡先有起始值
         if (v) onDisplays(v, "login");
@@ -483,7 +508,7 @@ async function openSession(auto: { auth: ReconnectAuth | null } | null) {
         if (toSave) void rememberIfAsked(toSave);
       },
       windowsSessions: onWindowsSessions,
-      peerInfo: onPeerInfo,
+      peerInfo: (info) => { onPeerInfo(info); elevation.peerInfo(info); },
       video: (codec, frames) => pipeline?.push(codec, frames),
       displays: onDisplays,
       delay: (d) => { stats.delay = d.lastDelay; stats.bitrate = d.targetBitrate; },
@@ -494,6 +519,11 @@ async function openSession(auto: { auth: ReconnectAuth | null } | null) {
       keyboardPermission: (enabled) => { keyboardBlocked.value = !enabled; },
       messageBox: (mb) => { messageBoxes.value = [...messageBoxes.value.slice(-2), mb]; },
       clipboard: onRemoteClipboard,
+      // 附錄 K.1：Windows 免安裝受控端的權限狀態與提權結果
+      uac: (v) => elevation.uac(v),
+      foregroundElevated: (v) => elevation.foreground(v),
+      elevationResponse: (text) => elevation.response(text),
+      portableService: (v) => elevation.service(v),
       closed: onClosed,
     },
   });
@@ -666,6 +696,71 @@ function onDisplaySelect(key: string | number) {
   }
   canvasEl.value?.focus({ preventScroll: true });
 }
+
+// ── 請求提權（附錄 K）──
+
+/** K.2 的顯示條件（標籤、前景／UAC 提示、工具列選單），規則在 elevation.ts */
+const elevUi = computed(() => elevationUi(elevState.value, {
+  connected: ui.value === "connected", viewOnly: form.viewOnly, keyboardBlocked: keyboardBlocked.value,
+}));
+
+/** 「請求提權」的兩種方式（工具列與提示裡共用），最後一行說明稽核是瀏覽器自報的 */
+const elevMenu = computed<MenuItem[]>(() => [
+  { key: "direct", label: t("rdweb.elev_direct"), icon: renderIcon(AdminIcon, MENU_ICON) },
+  { key: "logon", label: t("rdweb.elev_logon"), icon: renderIcon(KeyIcon, MENU_ICON) },
+  { type: "divider", key: "d_note" },
+  { type: "render", key: "elev_note",
+    render: () => h("div", { style: "padding:4px 14px 6px;max-width:260px;font-size:11px;line-height:1.5;opacity:.7" },
+                    t("rdweb.elev_audit_note")) },
+]);
+
+function onElevSelect(key: string | number) {
+  if (key === "direct") {
+    requestElevation({ method: "direct" });
+    canvasEl.value?.focus({ preventScroll: true });
+  } else if (key === "logon") {
+    elevDlg.username = "";
+    elevDlg.password = "";
+    elevDlg.show = true;
+  }
+}
+
+/** 交給 elevation.ts；session 沒有送出（唯讀、對方剛關閉控制權、已斷線）時說明原因 */
+function requestElevation(req: ElevationRequest) {
+  if (!elevation.request(req)) msg.warning(t("rdweb.elev_unavailable"));
+}
+
+/** 對話框的欄位清掉（帳號密碼不留在畫面上） */
+function closeElevLogon() {
+  elevDlg.show = false;
+  elevDlg.username = "";
+  elevDlg.password = "";
+}
+
+/** K.2：帳號密碼只在這一則加密的訊息裡送給受控端；送出前就清掉欄位（不記住、不進瀏覽器儲存、不送給後端） */
+function submitElevLogon() {
+  const username = elevDlg.username.trim();
+  const password = elevDlg.password;
+  if (!username) return;
+  closeElevLogon();
+  requestElevation({ method: "logon", username, password });
+  canvasEl.value?.focus({ preventScroll: true });
+}
+
+/** 已送出／成功／錯誤／逾時的提示 */
+const elevNotice = computed<{ type: "info" | "success" | "error" | "warning"; text: string; busy: boolean } | null>(() => {
+  const n = elevState.value.notice;
+  if (!n) return null;
+  if (n.kind === "requesting") return { type: "info", text: t("rdweb.elev_requesting"), busy: true };
+  if (n.kind === "sent") {
+    return { type: "info", text: t(n.method === "direct" ? "rdweb.elev_sent_direct" : "rdweb.elev_sent_logon"), busy: true };
+  }
+  if (n.kind === "ok") return { type: "success", text: t("rdweb.elev_ok"), busy: false };
+  if (n.kind === "timeout") return { type: "warning", text: t("rdweb.elev_timeout"), busy: false };
+  // 三種常見的原文翻譯成說明（附上原文），其他照原文顯示
+  const text = n.reason ? t(`rdweb.elev_err_${n.reason}`, { raw: n.text }) : t("rdweb.elev_err_raw", { raw: n.text });
+  return { type: "error", text, busy: false };
+});
 
 // ── 畫質（附錄 I）──
 
@@ -848,6 +943,8 @@ function placeRemoteCursor() {
 
 function onClosed(info: CloseInfo) {
   winPick.value = null;
+  elevation.reset();
+  closeElevLogon();
   stopStats();
   qualityMenuShow.value = false;
   clearOsForm();
@@ -1215,6 +1312,7 @@ onBeforeUnmount(() => {
   if (customTimer) clearTimeout(customTimer);
   stopStats();
   session?.close();
+  elevation.reset();
   pipeline?.close();
   ro?.disconnect();
 });
@@ -1300,9 +1398,23 @@ onBeforeUnmount(() => {
           <n-tag v-if="peerIdShown" size="small" :bordered="false" round :title="serverName || undefined">ID {{ peerIdShown }}</n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
           <n-tag v-if="peer?.platform" size="small" :bordered="false" round>{{ peer.platform }}</n-tag>
+          <!-- 附錄 K.2：Windows 免安裝受控端（is_installed = false） -->
+          <n-tooltip v-if="elevUi.tag" :delay="200">
+            <template #trigger>
+              <n-tag size="small" :type="elevUi.tag === 'elevated' ? 'success' : 'warning'" :bordered="false" round
+                     data-testid="rdweb-elev-tag">
+                {{ elevUi.tag === "elevated" ? t("rdweb.elev_tag_elevated") : t("rdweb.elev_tag_portable") }}
+              </n-tag>
+            </template>
+            <span class="rdw-tip">
+              {{ elevUi.tag === "elevated" ? t("rdweb.elev_tag_elevated_hint") : t("rdweb.elev_tag_hint") }}
+            </span>
+          </n-tooltip>
           <n-tag v-if="form.viewOnly && ui === 'connected'" size="small" type="warning" :bordered="false" round>
             {{ t("rdweb.view_only") }}
           </n-tag>
+          <!-- 連線時間：自動重連中（附錄 G）照樣計時，重連成功不歸零 -->
+          <ConnElapsed :active="ui === 'connected'" :paused="rcView.state !== 'idle'" />
         </span>
         <n-space :size="8" align="center">
           <template v-if="ui === 'connected'">
@@ -1318,6 +1430,14 @@ onBeforeUnmount(() => {
             <n-button size="tiny" :disabled="form.viewOnly || keyboardBlocked" @click="sendLockScreen">
               <template #icon><n-icon :component="LockIcon" /></template>{{ t("rdweb.lock_screen") }}
             </n-button>
+            <!-- 附錄 K.2：Windows 免安裝受控端、輔助服務沒在跑、有控制權、不是唯讀檢視時才有 -->
+            <n-dropdown v-if="elevUi.menu" trigger="click" size="small" :options="elevMenu" :disabled="elevUi.busy"
+                        @select="onElevSelect">
+              <n-button size="tiny" :disabled="elevUi.busy" data-testid="rdweb-elev-menu">
+                <template #icon><n-icon :component="AdminIcon" /></template>
+                {{ t("rdweb.elev_menu") }}<n-icon :component="ChevronDownIcon" style="margin-left:2px" />
+              </n-button>
+            </n-dropdown>
             <!-- 剪貼簿（附錄 F） -->
             <n-tooltip :delay="200">
               <template #trigger>
@@ -1393,6 +1513,32 @@ onBeforeUnmount(() => {
       </n-alert>
       <n-alert v-if="keyboardBlocked && ui === 'connected'" type="warning" style="margin:8px 0">
         {{ t("rdweb.keyboard_blocked") }}
+      </n-alert>
+      <!-- 附錄 K.2：請求提權的進度與結果 -->
+      <n-alert v-if="elevNotice && ui === 'connected'" :type="elevNotice.type" :closable="!elevNotice.busy"
+               style="margin:8px 0" data-testid="rdweb-elev-notice" @close="elevation.dismiss()">
+        <span class="rdw-alert-row"><n-spin v-if="elevNotice.busy" :size="12" />{{ elevNotice.text }}</span>
+      </n-alert>
+      <!-- 附錄 K.2：前景是系統管理員視窗、UAC 確認畫面（不擋畫面，照常可看） -->
+      <n-alert v-if="elevUi.foregroundAlert" type="warning" style="margin:8px 0" data-testid="rdweb-elev-foreground">
+        <span class="rdw-alert-row">
+          {{ t("rdweb.elev_foreground") }}
+          <n-dropdown trigger="click" size="small" :options="elevMenu" :disabled="elevUi.busy" @select="onElevSelect">
+            <n-button size="tiny" :disabled="elevUi.busy" data-testid="rdweb-elev-foreground-request">
+              <template #icon><n-icon :component="AdminIcon" /></template>{{ t("rdweb.elev_menu") }}
+            </n-button>
+          </n-dropdown>
+        </span>
+      </n-alert>
+      <n-alert v-if="elevUi.uacAlert" type="warning" style="margin:8px 0" data-testid="rdweb-elev-uac">
+        <span class="rdw-alert-row">
+          {{ t("rdweb.elev_uac") }}
+          <n-dropdown trigger="click" size="small" :options="elevMenu" :disabled="elevUi.busy" @select="onElevSelect">
+            <n-button size="tiny" :disabled="elevUi.busy" data-testid="rdweb-elev-uac-request">
+              <template #icon><n-icon :component="AdminIcon" /></template>{{ t("rdweb.elev_menu") }}
+            </n-button>
+          </n-dropdown>
+        </span>
       </n-alert>
       <n-alert v-for="(mb, i) in messageBoxes" :key="i" type="info" closable style="margin:8px 0"
                :title="mb.title || undefined" @close="messageBoxes.splice(i, 1)">
@@ -1575,6 +1721,37 @@ onBeforeUnmount(() => {
         </n-space>
       </template>
     </n-modal>
+    <!-- 附錄 K.2：用受控端的系統管理員帳號提權。密碼不記住、不進瀏覽器儲存、不送給 jt-ipam 後端；送出或關閉就清空 -->
+    <n-modal :show="elevDlg.show" preset="card" :title="t('rdweb.elev_logon_title')" style="width:440px;max-width:92vw"
+             data-testid="rdweb-elev-logon" @update:show="(v: boolean) => { if (!v) closeElevLogon(); }">
+      <n-form label-placement="top" size="small" :show-feedback="false" @submit.prevent="submitElevLogon">
+        <n-space vertical :size="8">
+          <n-form-item :label="t('rdweb.elev_logon_user')">
+            <n-input v-model:value="elevDlg.username" size="small" :input-props="NO_AUTOFILL_USER"
+                     :placeholder="t('rdweb.elev_logon_user_ph', { ex: ELEV_USER_EXAMPLE })"
+                     data-testid="rdweb-elev-user" @keyup.enter="submitElevLogon" />
+          </n-form-item>
+          <n-form-item :label="t('rdweb.elev_logon_password')">
+            <n-input v-model:value="elevDlg.password" type="password" show-password-on="click" size="small"
+                     placeholder="" :input-props="NO_AUTOFILL" data-testid="rdweb-elev-password"
+                     @keyup.enter="submitElevLogon" />
+          </n-form-item>
+        </n-space>
+      </n-form>
+      <div class="rdw-note" style="margin-top:8px">{{ t("rdweb.elev_logon_note") }}</div>
+      <div class="rdw-note" style="margin-top:4px">{{ t("rdweb.elev_audit_note") }}</div>
+      <template #footer>
+        <n-space justify="end">
+          <n-button size="small" data-testid="rdweb-elev-logon-cancel" @click="closeElevLogon">
+            {{ t("common.cancel") }}
+          </n-button>
+          <n-button size="small" type="primary" :disabled="!elevDlg.username.trim()"
+                    data-testid="rdweb-elev-logon-submit" @click="submitElevLogon">
+            <template #icon><n-icon :component="AdminIcon" /></template>{{ t("rdweb.elev_logon_submit") }}
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -1636,6 +1813,9 @@ onBeforeUnmount(() => {
 /* 跟旁邊的 tiny 按鈕同高、垂直置中：行內元素會落在文字基線上，看起來偏上（使用者 2026-10-05） */
 .rdw-clip { display: flex; align-items: center; gap: 6px; height: 22px; font-size: 12px; line-height: 1; }
 .rdw-clip-pending { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 請求提權（附錄 K）：提示的文字與按鈕同一行，放不下就換行；標籤的說明不要太寬 */
+.rdw-alert-row { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rdw-tip { display: inline-block; max-width: 320px; line-height: 1.5; }
 .rdw-type-progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }
 /* 狀態列的小字（附錄 I.2）：工具列下方獨立一行，左邊對齊狀態膠囊裡的文字 */
 .rdw-stats-row { display: flex; padding: 0 2px 4px 13px; }

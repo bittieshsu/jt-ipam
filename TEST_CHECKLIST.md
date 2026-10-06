@@ -1137,6 +1137,27 @@ NAT and address objects from syncing at all, while the UI showed a single error 
   that device's button instead
 - [ ] **RustDesk toolbar**: at about 1,370px wide with a Windows peer (longer status pill) all buttons stay on the first
   line and latency/bitrate/fps/codec sit alone on the second line
+- [ ] **RustDesk Windows portable peers and elevation** (`rdweb/__tests__/elevation.test.ts`,
+  `components/__tests__/rustdeskElevation.test.ts`, `test_rustdesk_web_elevation.py`): Linux and installed Windows peers
+  show no elevation UI at all (`e2e/rustdesk-web.spec.ts` checks it too); a portable Windows peer (rustdesk-x.y.z-x86_64.exe
+  run directly, not installed) shows "Portable"; open a program that needs administrator rights there and accept UAC, and
+  the web shows the elevated-foreground notice; "Request elevation -> confirmed on the peer" plus a UAC click there makes
+  that program usable and the tag reads "Portable, elevated"; "with an administrator account" succeeds without touching
+  the peer; a wrong password shows an error; the audit has `rustdesk.elevation_request` (requested and ok/error) without
+  credentials
+- [ ] **Dark operating system with jt-ipam light (and the reverse)** (`e2e/rustdesk-web.spec.ts` emulates a dark OS): the
+  note at the bottom of the RustDesk web connection's "Quality" menu is readable, not a blank area; dropdowns, scrollbars
+  and inputs elsewhere follow the jt-ipam theme
+- [ ] **Connected time** (`components/__tests__/connElapsed.test.ts`, `e2e/rustdesk-web.spec.ts`): SSH, SFTP, RDP, VNC, PVE,
+  BMC, RustDesk desktop and file transfer show a running hours:minutes:seconds timer in the status bar once connected, with
+  the start time on hover; it stops on disconnect, restarts from zero on a new connection, and RustDesk auto-reconnect
+  does not reset it
+- [ ] **Audit records connection length** (`test_console_session_duration.py`, `test_investigate_sections.py`): every
+  console's close audit has `duration_seconds` (SFTP sessions that never opened record none); Investigate's recent remote
+  sessions show "connected hh:mm:ss", two parallel sessions by one user pair in order, unfinished ones show nothing
+- [ ] **RustDesk online state does not flap** (`test_report_does_not_flip_a_heartbeating_device_offline`): a client
+  with an API server (heartbeat every 15 s) stays online across several full reports; after the client is closed it
+  turns offline at the next full report once heartbeats have stopped for over 45 seconds
 - [ ] **Device ports follow LibreNMS** (2026-09-27: a pulled dual-port NIC and USB NICs stayed in the
   list although LibreNMS had marked them deleted): pull a NIC / unplug a USB NIC, let LibreNMS rediscover,
   then sync or press "Import from source", and its ports disappear from Ports / cabling; ports you created

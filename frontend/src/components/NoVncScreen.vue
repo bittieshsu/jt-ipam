@@ -14,6 +14,7 @@ import {
 import {
   NoVncIcon, TerminalIcon, DeleteIcon, CancelIcon, RefreshIcon, KeyIcon, ExpandIcon, ReduceIcon, ChevronDownIcon, InfoIcon,
 } from "@/icons";
+import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 import { buildSendKeysMenu } from "@/composables/useSendKeys";
 import { apiErrMsg } from "@/api/client";
@@ -353,6 +354,7 @@ async function removeCred() {
           <n-tag size="small" type="warning" :bordered="false" round>PVE</n-tag>
           <n-tag size="small" :bordered="false" round>{{ protoLabel }}</n-tag>
           <n-tag v-if="deviceName" size="small" type="info" :bordered="false" round>{{ deviceName }}</n-tag>
+          <ConnElapsed :active="phase === 'connected'" />
         </span>
         <!-- LXC（xterm）提示：放在狀態列右側、單行，太長以 … 截斷 -->
         <span v-if="phase === 'connected' && !isVm && !ctHintDismissed" class="vnc-hint"

@@ -18,6 +18,7 @@ import "@xterm/xterm/css/xterm.css";
 import { requestBmcTicket, buildBmcWsUrl, listBmcCredentials, createBmcCredential } from "@/api/bmc";
 import type { SshCredential } from "@/api/ssh";
 import { TerminalIcon, CancelIcon, RefreshIcon, InfoIcon, FitIcon } from "@/icons";
+import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 
 const props = withDefaults(defineProps<{
@@ -213,6 +214,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", onWinResize); teard
           <n-tag v-if="hostname" size="small" :bordered="false" round>{{ hostname }}</n-tag>
           <span class="conn-proto conn-proto--bmc">BMC SOL</span>
           <span v-if="connInfo" class="bmc-meta">{{ connInfo }}</span>
+          <ConnElapsed :active="phase === 'connected'" />
         </span>
         <n-space :size="8" align="center">
           <n-tooltip v-if="phase === 'connected'" :delay="0" trigger="hover" placement="bottom">

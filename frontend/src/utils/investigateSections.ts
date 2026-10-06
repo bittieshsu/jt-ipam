@@ -8,6 +8,7 @@
  * 純函式：不碰 i18n 實例，翻譯與時間格式由呼叫端傳進來（vitest 直接測）。
  * 段落沒有資料就不回傳（畫面不放空標題）。
  */
+import { fmtClock } from "./datetime";
 
 export type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -322,6 +323,8 @@ function consoleLines(d: D, h: SectionHelpers): string[] {
     c.user ?? h.t("investigate.console_unknown_user"),
     c.actor_ip ? h.t("investigate.console_from", { ip: c.actor_ip }) : null,
     c.remote_user ? h.t("investigate.console_login_as", { user: c.remote_user }) : null,
+    // 連了多久：後端配對到結束記錄才有（本機 RustDesk 客戶端不經 jt-ipam，沒有）
+    typeof c.duration_seconds === "number" ? h.t("investigate.console_duration", { time: fmtClock(c.duration_seconds) }) : null,
   ]));
 }
 

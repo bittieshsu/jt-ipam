@@ -532,6 +532,29 @@ async def test_recent_console_sessions_for_admins(db_session, admin_user, target
     assert cs[0]["user"] == admin_user.username
     assert cs[0]["remote_user"] == "alice"
     assert cs[0]["at"]
+    # 連了多久：配對同一個人、同一種主控台、之後的那筆結束記錄（使用者 2026-10-06 問「有記錄連線多久嗎」）
+    assert cs[1]["duration_seconds"] == 12
+    assert "duration_seconds" not in cs[0], "還沒有結束記錄的不可以亂配"
+
+
+@pytest.mark.anyio
+async def test_console_session_durations_pair_in_order(db_session, admin_user, target):
+    """同一個人對同一台開了兩個 SSH：先開的配先結束的那筆；別人的、別種主控台的結束記錄不可以配進來。"""
+    from app.core.audit import append_audit
+    _sn, ipa = target
+    other = await _user(db_session, wildcard=True)
+    for actor, action, diff in ((admin_user, "ssh.session_open", {"host": IP, "username": "a"}),
+                                (admin_user, "ssh.session_open", {"host": IP, "username": "b"}),
+                                (other, "ssh.session_close", {"host": IP, "duration_seconds": 99}),
+                                (admin_user, "sftp_close", {"host": IP, "duration_seconds": 77}),
+                                (admin_user, "ssh.session_close", {"host": IP, "duration_seconds": 30}),
+                                (admin_user, "ssh.session_close", {"host": IP, "duration_seconds": 5})):
+        await append_audit(db_session, actor_user_id=str(actor.id), actor_ip="192.0.2.50",
+                           actor_user_agent=None, object_type="ip", object_id=str(ipa.id),
+                           action=action, diff=diff, request_id=None)
+    await db_session.commit()
+    cs = (await collect_dossier(db_session, user=admin_user, ip=IP))["console_sessions"]
+    assert [(c["remote_user"], c.get("duration_seconds")) for c in cs] == [("b", 5), ("a", 30)]
 
 
 @pytest.mark.anyio

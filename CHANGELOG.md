@@ -6,6 +6,20 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-06
+
+### Added
+- **RustDesk web connection: Windows portable peers explain elevated windows and UAC, and elevation can be requested**: a RustDesk running without installation has ordinary user rights, and Windows does not let it send keyboard or mouse input to windows running as administrator, nor see the UAC prompt. The web client used to ignore the notices the peer sends about this, so the screen kept updating while input did nothing and the session looked frozen. The status bar now shows "Portable", a notice above the screen explains when the foreground window is elevated or a UAC prompt is showing, and the toolbar's "Request elevation" offers two ways: confirmed on the peer (someone there clicks the UAC prompt) or with an administrator account of the peer (nobody needed there; the credentials go encrypted straight to the peer, the jt-ipam server cannot see them, and they are never remembered). Every elevation is audited as `rustdesk.elevation_request` (method and result, reported by the browser, no credentials). Installing RustDesk on the peer (as a service) removes the limitation.
+- **Every console shows the connected time**: SSH, SFTP, RDP, VNC, the PVE console, BMC and RustDesk (remote desktop and file transfer) show a timer (hours:minutes:seconds) in the status bar, with the start time on hover; after disconnecting it stays at how long the connection lasted, a new connection starts from zero, and RustDesk keeps counting during auto-reconnect.
+- Connection length is audited everywhere: SFTP and BMC now record `duration_seconds` when the connection ends (SSH, RDP, VNC, the PVE console and RustDesk already did), with a guard test so new consoles must record it too. Investigate shows how long each recent remote session lasted.
+
+### Changed
+- Dependencies: Vue 3.5.43 (`@vue/server-renderer` attribute-name XSS, GHSA-g2v6-rqmx-r4w6), `source-map-js` 1.2.2 (GHSA-68fv-2mgg-jv7q); the development-only `eslint-plugin-vue` moves to 10, bringing `postcss-selector-parser` 7.1.6 (GHSA-rj75-hqrm-r3gf).
+
+### Fixed
+- With a dark operating system and jt-ipam in the light theme (or the other way round), notes inside dropdown menus were invisible (for example the blank area at the bottom of the RustDesk web connection's "Quality" and "Request elevation" menus): the browser's own color scheme followed the operating system, so text without an explicit color came out white on white. It now follows the jt-ipam theme, and scrollbars and native controls match too.
+- **RustDesk devices that were online sometimes showed as offline**: the open-source hbbs only counts devices with a UDP registration in the last 30 seconds, so UDP loss or clients reaching hbbs over TCP/WebSocket look offline; the five-minute full report trusted hbbs alone and flipped online devices to offline until the next client heartbeat flipped them back. While offline, devices sharing an address with another ID could lose their mapping, and the "Enable RustDesk connection" switch disappeared from the IP form. A device is now online when hbbs says so or a client heartbeat arrived within 45 seconds.
+
 ## [1.0.0] - 2026-10-05
 
 ### Added

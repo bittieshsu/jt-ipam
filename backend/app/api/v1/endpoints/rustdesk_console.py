@@ -22,6 +22,12 @@
 （`{"t": "file_audit", "op", "path", "size", "result"}`），後端驗過格式、限流後寫稽核 `rustdesk.file_<op>`，
 並標明是瀏覽器自報的。登入時的 union file_transfer 在密文裡，後端看不到也擋不了：開關管的是「發不發檔案傳輸的
 票證、畫面給不給入口」，能開遠端桌面的人本來就能操作那台電腦。
+
+請求提權（附錄 K.2）：Windows 免安裝受控端的提權（Misc.elevation_request）在密文裡，後端看不到請求也看不到回覆。
+提權是對受控端取得系統管理員權限，所以瀏覽器在送出請求時、以及得到結果時，各送一則摘要（沿用 file_audit 的作法，
+這次在一般遠端桌面連線上）：`{"t": "elevation_audit", "method", "result", "detail"}`。後端只取這四個欄位
+（瀏覽器多帶帳號密碼也不會進稽核）、method／result 不在清單內就丟掉，寫稽核 `rustdesk.elevation_request`
+並標明是瀏覽器自報的；檔案傳輸的連線上收到不處理。
 """
 
 from __future__ import annotations
@@ -88,12 +94,20 @@ _FILE_RESULTS = frozenset({"ok", "error", "cancelled"})
 _FILE_PATH_MAX = 512
 #: size 的上限（PostgreSQL bigint）
 _FILE_SIZE_MAX = 2**63 - 1
-#: 每條連線的 file_audit 限流（權杖桶）：一次最多 30 則，之後每秒補 2 則；超過的丟掉並記數量
-_FILE_AUDIT_BURST = 30.0
-_FILE_AUDIT_PER_SECOND = 2.0
+#: 每條連線的瀏覽器自報稽核（file_audit、elevation_audit）限流（權杖桶）：一次最多 30 則，之後每秒補 2 則；
+#: 超過的丟掉並記數量
+_AUDIT_BURST = 30.0
+_AUDIT_PER_SECOND = 2.0
 #: 控制字元拿掉（PostgreSQL 的 JSONB 存不了 \u0000；其他的也只會讓稽核難讀）
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _FILE_AUDIT_NOTE = "reported by the browser (the backend relays ciphertext only and cannot verify it)"
+
+#: 附錄 K.2：elevation_audit 的 method、result 只收這幾種（稽核動作是 rustdesk.elevation_request）
+_ELEVATION_METHODS = frozenset({"direct", "logon"})
+_ELEVATION_RESULTS = frozenset({"requested", "ok", "error", "timeout"})
+#: detail（受控端的錯誤原文）截到 200 個字元
+_ELEVATION_DETAIL_MAX = 200
+_ELEVATION_AUDIT_NOTE = _FILE_AUDIT_NOTE
 
 # 同時連線數（本行程內；與其他主控台一致）
 _active_total = 0
@@ -242,7 +256,9 @@ class _State:
     kind: str = "desktop"                # desktop／file（附錄 J.6）
     file_audits: int = 0                 # 寫進稽核的 file_audit 則數
     file_audits_dropped: int = 0         # 被限流或格式不對而丟掉的
-    audit_tokens: float = _FILE_AUDIT_BURST
+    elevation_audits: int = 0            # 寫進稽核的 elevation_audit 則數（附錄 K.2）
+    elevation_audits_dropped: int = 0    # 被限流或格式不對而丟掉的
+    audit_tokens: float = _AUDIT_BURST
     audit_tokens_at: float = field(default_factory=time.monotonic)
 
 
@@ -448,7 +464,12 @@ async def rustdesk_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str =
                              "saved_password_used": st.saved_password_used,
                              "bytes_up": st.bytes_up, "bytes_down": st.bytes_down,
                              **({"file_audits": st.file_audits, "file_audits_dropped": st.file_audits_dropped,
-                                 "file_audits_source": "browser"} if st.kind == "file" else {})})
+                                 "file_audits_source": "browser"} if st.kind == "file" else {}),
+                             # 附錄 K.2：有提權的稽核才記數量（絕大多數連線沒有，不多出欄位）
+                             **({"elevation_audits": st.elevation_audits,
+                                 "elevation_audits_dropped": st.elevation_audits_dropped,
+                                 "elevation_audits_source": "browser"}
+                                if st.elevation_audits or st.elevation_audits_dropped else {})})
         _log.info("rustdesk-web: 結束 peer=%s reason=%s duration=%ss", peer_id, end_reason, duration)
         with contextlib.suppress(Exception):
             await websocket.close()
@@ -536,6 +557,8 @@ async def _pump(websocket: WebSocket, ch: rustdesk_web.Channel, inbox: asyncio.Q
                 await _login_assist(send_json, st, val)
             elif t == "file_audit":
                 await _file_audit(st, val)
+            elif t == "elevation_audit":
+                await _elevation_audit(st, val)
 
     async def idle() -> str:
         while True:
@@ -667,10 +690,11 @@ async def _saved_password_h2(st: _State, obj: dict[str, Any]) -> bytes:
     return h2
 
 
-def _file_audit_allowed(st: _State) -> bool:
-    """每條連線的權杖桶：一次最多 _FILE_AUDIT_BURST 則，之後每秒補 _FILE_AUDIT_PER_SECOND 則。"""
+def _browser_audit_allowed(st: _State) -> bool:
+    """瀏覽器自報稽核（file_audit、elevation_audit）每條連線的權杖桶：一次最多 _AUDIT_BURST 則，
+    之後每秒補 _AUDIT_PER_SECOND 則。"""
     now = time.monotonic()
-    st.audit_tokens = min(_FILE_AUDIT_BURST, st.audit_tokens + (now - st.audit_tokens_at) * _FILE_AUDIT_PER_SECOND)
+    st.audit_tokens = min(_AUDIT_BURST, st.audit_tokens + (now - st.audit_tokens_at) * _AUDIT_PER_SECOND)
     st.audit_tokens_at = now
     if st.audit_tokens < 1.0:
         return False
@@ -713,7 +737,7 @@ async def _file_audit(st: _State, obj: dict[str, Any]) -> None:
     """
     if st.kind != "file" or not st.logged_in:
         return
-    if not _file_audit_allowed(st):
+    if not _browser_audit_allowed(st):
         st.file_audits_dropped += 1
         if st.file_audits_dropped in (1, 100, 1000):
             _log.info("rustdesk-web: file_audit 太頻繁，丟掉 peer=%s user=%s（累計 %s 則）",
@@ -735,3 +759,51 @@ async def _file_audit(st: _State, obj: dict[str, Any]) -> None:
         _log.exception("rustdesk-web: file_audit 寫入失敗 peer=%s", st.peer_id)
         return
     st.file_audits += 1
+
+
+def _parse_elevation_audit(obj: dict[str, Any]) -> dict[str, Any] | None:
+    """附錄 K.2 的 elevation_audit：只取 method、result、detail（t 已經看過）；其他欄位（例如帳號密碼）一律不看。
+
+    method、result 只收固定的值，否則整則丟掉；detail 是受控端的錯誤原文，要是字串（不是字串就不記內容，
+    事件本身照記），控制字元換成空白、截到 200 個字元。
+    """
+    method, result = obj.get("method"), obj.get("result")
+    if (not isinstance(method, str) or method not in _ELEVATION_METHODS
+            or not isinstance(result, str) or result not in _ELEVATION_RESULTS):
+        return None
+    raw = obj.get("detail")
+    detail = _CONTROL_CHARS.sub(" ", raw)[:_ELEVATION_DETAIL_MAX] if isinstance(raw, str) else ""
+    return {"method": method, "result": result, "detail": detail}
+
+
+async def _elevation_audit(st: _State, obj: dict[str, Any]) -> None:
+    """附錄 K.2：瀏覽器自報的請求提權（送出時、得到結果時各一則）→ 稽核 rustdesk.elevation_request
+    （誰、哪台、方式、結果、錯誤原文）。
+
+    後端只看得到密文，內容無法驗證，所以稽核裡標明是瀏覽器回報的。只收一般遠端桌面、而且已經登入的連線
+    （檔案傳輸的連線上收到不處理）；格式不對、超過限流的丟掉（記數量，連線結束的稽核看得到），不切斷連線。
+    不含帳號密碼：只取 _parse_elevation_audit 挑出來的三個欄位。
+    """
+    if st.kind != "desktop" or not st.logged_in:
+        return
+    if not _browser_audit_allowed(st):
+        st.elevation_audits_dropped += 1
+        if st.elevation_audits_dropped in (1, 100, 1000):
+            _log.info("rustdesk-web: elevation_audit 太頻繁，丟掉 peer=%s user=%s（累計 %s 則）",
+                      st.peer_id, st.user_id, st.elevation_audits_dropped)
+        return
+    entry = _parse_elevation_audit(obj)
+    if entry is None:
+        st.elevation_audits_dropped += 1
+        _log.info("rustdesk-web: elevation_audit 格式不對，丟掉 peer=%s user=%s", st.peer_id, st.user_id)
+        return
+    try:
+        await _audit(user_id=st.user_id, actor_ip=st.actor_ip, user_agent=st.user_agent, ip_id=st.ip_id,
+                     action="rustdesk.elevation_request",
+                     diff={"peer_id": st.peer_id, "server_id": st.server_id, **entry,
+                           "source": "browser", "description": _ELEVATION_AUDIT_NOTE})
+    except Exception:
+        st.elevation_audits_dropped += 1
+        _log.exception("rustdesk-web: elevation_audit 寫入失敗 peer=%s", st.peer_id)
+        return
+    st.elevation_audits += 1

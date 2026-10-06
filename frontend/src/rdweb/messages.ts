@@ -329,12 +329,22 @@ export type Misc =
   | { type: "permission_info"; permission: number; enabled: boolean }
   | { type: "close_reason"; reason: string }
   | { type: "supported_encoding"; encoding: SupportedEncoding }
+  // 附錄 K.1：Windows 免安裝受控端的權限狀態與提權結果（受控端每秒檢查，值有變化才送；false 與空字串也會送）
+  | { type: "uac"; value: boolean }
+  | { type: "foreground_window_elevated"; value: boolean }
+  | { type: "elevation_response"; text: string }
+  | { type: "portable_service_running"; value: boolean }
   | { type: "other" };
 
 export function parseMisc(body: Uint8Array): Misc {
   const f = parse(body);
   // 30 capture_displays、34 supported_encoding、36 change_display_resolution、38 follow_current_display（附錄 H、I）
-  const which = oneof(f, [5, 6, 7, 9, 10, 12, 30, 31, 34, 36, 38]);
+  // 15 uac、16 foreground_window_elevated、19 elevation_response、20 portable_service_running（附錄 K）
+  const which = oneof(f, [5, 6, 7, 9, 10, 12, 15, 16, 19, 20, 30, 31, 34, 36, 38]);
+  if (which === 15) return { type: "uac", value: getBool(f, 15) };
+  if (which === 16) return { type: "foreground_window_elevated", value: getBool(f, 16) };
+  if (which === 19) return { type: "elevation_response", text: getStr(f, 19) };
+  if (which === 20) return { type: "portable_service_running", value: getBool(f, 20) };
   if (which === 5) {
     const s = parse(getBytes(f, 5));
     return { type: "switch_display", display: getInt(s, 1), x: getSint(s, 2), y: getSint(s, 3),
@@ -359,6 +369,28 @@ export function encodeCloseReason(reason: string): Uint8Array {
 /** 附錄 G.6：回答 windows_sessions 的 Misc.selected_sid（欄位 35，uint32）。在 oneof 裡，0 也要寫出。 */
 export function encodeSelectedSid(sid: number): Uint8Array {
   return encodeMessage("misc", fVarintAlways(35, sid));
+}
+
+// ── 請求提權（附錄 K.1）──
+
+/**
+ * K.1：ElevationRequest { oneof union { direct (1): bool, logon (2): ElevationRequestWithLogon } }，
+ * ElevationRequestWithLogon { username (1), password (2) }（兩個都是字串）。
+ */
+export type ElevationRequest =
+  | { method: "direct" }
+  | { method: "logon"; username: string; password: string };
+
+/**
+ * K.1：Misc.elevation_request（18）。
+ * - direct = true：受控端以「以系統管理員身分執行」啟動輔助服務，受控端那台會跳 UAC，要有人在那台按「是」
+ * - logon：用受控端那台的系統管理員帳號密碼啟動（網域帳號寫 網域\帳號），不需要有人在那台；
+ *   子訊息在 oneof 裡，帳號密碼都空也要寫出這個欄位。帳號密碼只放進這一則（呼叫端加密後送給受控端）
+ * 回覆是 Misc.elevation_response（19）；成功與否看之後的 portable_service_running（20）。
+ */
+export function encodeElevationRequest(r: ElevationRequest): Uint8Array {
+  const body = r.method === "direct" ? fBool(1, true) : fMsg(2, concat(fStr(1, r.username), fStr(2, r.password)));
+  return encodeMessage("misc", fMsg(18, body));
 }
 
 // ── 多螢幕（附錄 H）──

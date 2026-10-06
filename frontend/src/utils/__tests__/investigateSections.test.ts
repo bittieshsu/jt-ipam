@@ -68,7 +68,7 @@ const full = {
   anomalies: [{ category: "ip_conflicts", macs: ["00:11:22:33:44:77", "02:00:00:00:00:01"] }],
   ai_findings: [{ severity: "medium", title: "RDP 對外開放", at: "2026-10-05T05:00:00Z" }],
   console_sessions: [{ at: "2026-10-05T06:00:00Z", kind: "rdp", user: "admin", actor_ip: "192.0.2.50",
-                       remote_user: "alice" }],
+                       remote_user: "alice", duration_seconds: 3725.4 }],
 };
 
 describe("沒有資料的段落不出現", () => {
@@ -144,6 +144,11 @@ describe("每一段的文字", () => {
     expect(by.console).toBe(1);
     expect(by.agents).toBeUndefined();
     expect(by.dhcp).toBeUndefined();
+  });
+
+  it("遠端連線記錄帶連了多久（有結束記錄才有）", () => {
+    const sec = all.find((s) => s.key === "console")!;
+    expect(sec.lines[0]).toContain("連線 01:02:05");
   });
 });
 

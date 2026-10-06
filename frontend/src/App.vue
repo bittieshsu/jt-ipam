@@ -277,6 +277,12 @@ html.sider-open body {
   overscroll-behavior: none;
 }
 
+/* 瀏覽器自己的配色（沒指定顏色的文字、捲軸、原生控制項）跟著 jt-ipam 的主題，不跟著作業系統。
+   index.html 的 color-scheme 是 light dark（第一次繪製前用）：作業系統深色、jt-ipam 淺色時，瀏覽器給沒指定顏色的
+   文字白色，掛在 body 底下的下拉選單裡的說明就成了白字白底（2026-10-06 使用者回報畫質、請求提權選單最後一塊空白） */
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
 /* 淺色：給卡片一點陰影 + 圓角，從一片白裡浮出來 */
 html[data-theme="light"] .n-card {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06),

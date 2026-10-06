@@ -36,6 +36,9 @@ from app.models.rustdesk import (
 )
 
 STALE_FACTOR = 3
+#: 客戶端每 15 秒送一次心跳（只送給設了 API 伺服器的客戶端）；這段時間內收過就算在線，hbbs 說離線也一樣。
+#: hbbs 的線上狀態只看 30 秒內有沒有 UDP 註冊：UDP 掉包、走 TCP／WebSocket 連 hbbs 的客戶端都會被說成離線
+HEARTBEAT_FRESH = timedelta(seconds=45)
 
 # ── 專用代理（agent/jt_ipam_rustdesk_agent.py）─────────────────────────────────
 
@@ -177,8 +180,11 @@ async def ingest_report(session: AsyncSession, server: RustDeskServer, report: d
         p.registered_ip = row.get("ip") or None
         p.first_registered_at = _parse_created(row.get("created_at"))
         if online_ok and row.get("online") is not None:
-            p.online = bool(row["online"])
-            if p.online:
+            # 兩個訊號合併：hbbs 說在線，或剛剛還收到心跳。以前只信 hbbs，在線的裝置每 5 分鐘被改成離線、
+            # 下一個心跳又改回上線（使用者 2026-10-06：「明明都在線上，有時會變離線」）
+            beat = p.last_heartbeat_at is not None and now - p.last_heartbeat_at <= HEARTBEAT_FRESH
+            p.online = bool(row["online"]) or beat
+            if row["online"]:
                 p.last_online_at = now
     removed = 0
     if not truncated:

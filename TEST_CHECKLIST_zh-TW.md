@@ -827,6 +827,15 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] **裝置欄只有一個關聯按鈕**（`e2e/device-link-single-button.spec.ts`）：主機名稱跟既有裝置同名時只出現一個「關聯…」按鈕；
   把主機名稱改成另一台裝置的名稱（還沒存），改出現那一台的按鈕
 - [ ] **RustDesk 工具列**：視窗約 1,370px 寬、Windows 受控端（狀態列較長）時，按鈕都在第一行，延遲/位元率/張數/編碼獨立在第二行
+- [ ] **RustDesk Windows 免安裝受控端與提權**（`rdweb/__tests__/elevation.test.ts`、`components/__tests__/rustdeskElevation.test.ts`、
+  `test_rustdesk_web_elevation.py`）：Linux 與已安裝的 Windows 受控端不出現任何提權相關畫面（`e2e/rustdesk-web.spec.ts` 也檢查）；
+  免安裝 Windows 受控端（直接執行 rustdesk-x.y.z-x86_64.exe、沒按安裝）狀態列有「免安裝版」；在那台開一個要系統管理員的程式並按 UAC「是」，
+  網頁出現「前景視窗以系統管理員權限執行」提示；「請求提權 → 由受控端確認」在那台按 UAC 後可以操作那個程式、標籤變「免安裝版・已提權」；
+  「用系統管理員帳號」不用碰那台就成功；錯的密碼顯示錯誤；稽核有 `rustdesk.elevation_request`（requested 與 ok/error），不含帳號密碼
+- [ ] **作業系統深色＋jt-ipam 淺色（與反過來）**（`e2e/rustdesk-web.spec.ts` 模擬深色作業系統）：RustDesk 網頁連線的「畫質」選單最後一行說明看得到，不是一塊空白；其他頁面的下拉選單、捲軸、輸入框顏色跟著 jt-ipam 主題
+- [ ] **連線時間**（`components/__tests__/connElapsed.test.ts`、`e2e/rustdesk-web.spec.ts`）：SSH、SFTP、RDP、VNC、PVE、BMC、RustDesk 桌面與檔案傳輸，連上後狀態列有 時:分:秒 在走、滑過看開始時間；斷線停住；重新連線從 0；RustDesk 自動重連中不歸零
+- [ ] **稽核記連線多久**（`test_console_session_duration.py`、`test_investigate_sections.py`）：每種主控台結束連線的稽核都有 `duration_seconds`（SFTP 沒開成功的不記）；「調查」的遠端連線記錄顯示「連線 時:分:秒」，同一個人同時開兩條依序配對，還沒結束的不顯示
+- [ ] **RustDesk 上線狀態不跳動**（`test_report_does_not_flip_a_heartbeating_device_offline`）：有設 API 伺服器的客戶端（每 15 秒心跳）跨過幾次完整回報都維持上線；關掉客戶端後，心跳停 45 秒以上、下一次完整回報才變離線
 - [ ] **裝置連接埠跟著 LibreNMS 走**（2026-09-27：拔掉的雙埠網卡、USB 網卡，LibreNMS 已標成刪除，清單還列著）：
   拔一張網卡/拔掉 USB 網卡、等 LibreNMS 重新探索後同步或按「從來源匯入」，那些埠要從「連接埠/佈線」消失；
   自己建的、已接線的、有穿透對應的埠都保留；讀取失敗或讀到 0 個埠時一個都不刪。Docker 的 `veth…` 介面一律不匯入

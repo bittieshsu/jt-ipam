@@ -96,6 +96,7 @@ import {
   CheckCircle,
   XmarkCircle,
   ClockRotateRight,
+  Timer,
   Pin,
   MapPin,
   MultiplePages,
@@ -147,6 +148,8 @@ export const DismissIcon = EyeClosed;
 export const OkIcon = CheckCircle;
 export const FailIcon = XmarkCircle;
 export const PendingIcon = ClockRotateRight;
+/** 主控台狀態列的連線時間 */
+export const ElapsedIcon = Timer;
 export const TasksIcon = ClockRotateRight;
 export const MissingIcon = WarningTriangle;
 export const BellIcon = Bell;

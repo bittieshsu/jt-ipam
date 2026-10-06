@@ -77,6 +77,11 @@ _CONSOLE_ACTIONS = ("ssh.session_open", "sftp_open", "rdp.session_open", "vnc.se
                     "rustdesk.local_client_open")
 _CONSOLE_KIND = {a: a.split(".")[0].split("_")[0] for a in _CONSOLE_ACTIONS}
 _CONSOLE_KIND["rustdesk.local_client_open"] = "rustdesk_local"
+#: 結束連線的稽核動作 → 種類（帶 duration_seconds；本機 RustDesk 客戶端不經 jt-ipam，沒有結束記錄）
+_CONSOLE_CLOSE_KIND = {"ssh.session_close": "ssh", "sftp_close": "sftp", "rdp.session_close": "rdp",
+                       "vnc.session_close": "vnc", "novnc.session_close": "novnc", "bmc.session_close": "bmc",
+                       "rustdesk.web_session_close": "rustdesk"}
+_CONSOLE_CLOSE_ACTIONS = tuple(_CONSOLE_CLOSE_KIND)
 
 #: DHCP 租約／固定分配的 source_type → 整合的資料表（只用來把 id 換成名稱）
 _DHCP_SOURCE_MODELS: dict[str, tuple[str, str]] = {
@@ -622,13 +627,14 @@ async def _sec_console_sessions(c: _Ctx) -> list[dict[str, Any]] | None:
     """
     from app.models.audit import AuditLog
     rows = (await c.session.execute(
-        select(AuditLog.ts, AuditLog.action, AuditLog.actor_user_id, AuditLog.actor_ip, AuditLog.diff)
+        select(AuditLog.id, AuditLog.ts, AuditLog.action, AuditLog.actor_user_id, AuditLog.actor_ip, AuditLog.diff)
         .where(AuditLog.object_type == "ip", AuditLog.object_id == c.ipa.id,
                AuditLog.action.in_(_CONSOLE_ACTIONS))
         .order_by(AuditLog.ts.desc()).limit(CONSOLE_ROWS)
     )).all()
     if not rows:
         return None
+    durations = await _console_durations(c, rows)
     ids = {r.actor_user_id for r in rows if r.actor_user_id}
     users: dict[Any, str] = {}
     if ids:
@@ -638,7 +644,38 @@ async def _sec_console_sessions(c: _Ctx) -> list[dict[str, Any]] | None:
         "at": _dt(r.ts), "kind": _CONSOLE_KIND.get(r.action, r.action),
         "user": users.get(r.actor_user_id), "actor_ip": str(r.actor_ip) if r.actor_ip else None,
         "remote_user": _text((r.diff or {}).get("username"), 64) if isinstance(r.diff, dict) else None,
+        "duration_seconds": durations.get(r.id),
     }) for r in rows]
+
+
+async def _console_durations(c: _Ctx, opens: list[Any]) -> dict[Any, float]:
+    """每一筆「開啟連線」配上它的「結束連線」記錄裡的 duration_seconds（開啟的稽核 id → 秒數）。
+
+    結束記錄沒有連線編號，所以照順序配：同一個人、同一種主控台、在開啟之後（稽核 id 較大）最早的那筆還沒配過的
+    結束記錄。同一個人同時開兩條時先開的配先結束的，個別秒數可能對調，總和不變；還沒有結束記錄的不配。
+    """
+    from app.models.audit import AuditLog
+    first = min(r.id for r in opens)
+    closes = (await c.session.execute(
+        select(AuditLog.id, AuditLog.action, AuditLog.actor_user_id, AuditLog.diff)
+        .where(AuditLog.object_type == "ip", AuditLog.object_id == c.ipa.id,
+               AuditLog.action.in_(_CONSOLE_CLOSE_ACTIONS), AuditLog.id > first)
+        .order_by(AuditLog.id).limit(CONSOLE_ROWS * 4)
+    )).all()
+    used: set[Any] = set()
+    out: dict[Any, float] = {}
+    for o in sorted(opens, key=lambda r: r.id):
+        kind = _CONSOLE_KIND.get(o.action)
+        for cl in closes:
+            if (cl.id in used or cl.id <= o.id or cl.actor_user_id != o.actor_user_id
+                    or _CONSOLE_CLOSE_KIND.get(cl.action) != kind):
+                continue
+            used.add(cl.id)
+            dur = (cl.diff or {}).get("duration_seconds") if isinstance(cl.diff, dict) else None
+            if isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur >= 0:
+                out[o.id] = float(dur)
+            break
+    return out
 
 
 # ═══════════════════════════ 全域讀取：基礎設施 ═══════════════════════════
