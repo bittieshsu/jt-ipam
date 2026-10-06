@@ -55,6 +55,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.os_fingerprint import wazuh_os_display
 from app.core.sqlin import in_values
 from app.models.address import IPAddress
 from app.models.subnet import Subnet
@@ -192,7 +193,8 @@ async def _sec_wazuh(c: _Ctx) -> dict[str, Any] | None:
         return None
     return {
         "agent_id": wa.agent_id, "name": wa.name, "status": wa.status,
-        "os": wa.os_platform, "last_keep_alive": _dt(wa.last_keep_alive),
+        "os": wazuh_os_display(wa.os_name, wa.os_platform, wa.os_version),
+        "last_keep_alive": _dt(wa.last_keep_alive),
         "sca_score": wa.sca_score, "sca_policy": wa.sca_policy,
         # 失聯 agent 的登記可能是舊的（DHCP 位址被回收給別台）
         "still_represents_this_ip": agent_represents_ip(wa, c.ipa),

@@ -206,6 +206,25 @@ async def claim_jobs(
     return rows
 
 
+#: 使用者取消的工作：記成失敗並寫明原因（代理晚到的回報因為狀態已不是 running 會被忽略）
+CANCELLED_ERROR = "使用者取消"
+
+
+async def cancel_job(session: AsyncSession, job: AgentProbeJob) -> bool:
+    """取消還在等待或執行中的工作（2026-10-07：部署重啟時代理的回報掉了，探測要等 9 分鐘才會逾時）。
+    代理那邊的 nmap 會照跑完，但結果回來時這筆已經不是 running，不會被寫回。已經結束的回 False。"""
+    if job.status not in (STATUS_PENDING, STATUS_RUNNING):
+        return False
+    job.status = STATUS_FAILED
+    job.error = CANCELLED_ERROR
+    job.finished_at = datetime.now(UTC)
+    _scrub_ticket(job)
+    if job.kind == "identify":
+        from app.services.identify_tasks import on_cancelled
+        await on_cancelled(session, job)
+    return True
+
+
 async def finish_job(
     session: AsyncSession, *, agent_id: uuid.UUID, job_id: uuid.UUID,
     result: Any = None, error: str | None = None,

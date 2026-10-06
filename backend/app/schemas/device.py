@@ -11,7 +11,7 @@ from pydantic import Field, field_validator
 from app.schemas.base import StrictModel
 
 _VALID_TYPES = {"server", "switch", "router", "firewall", "ap", "storage", "ipmi",
-                "patch_panel", "pdu", "ups", "other"}
+                "patch_panel", "pdu", "ups", "workstation", "other"}
 
 
 class DeviceBase(StrictModel):
@@ -104,6 +104,8 @@ class DeviceRead(DeviceBase):
     u_size: int | None = None
 
     id: uuid.UUID
+    # 類型是誰定的（auto＝依作業系統／機殼自動判斷）；畫面可據此標「自動判斷」
+    type_source: str | None = None
     primary_ip_id: uuid.UUID | None
     ip: str | None = None   # 由 endpoint 解析 primary_ip_id 後填入（清單顯示用）
     ip_address_id: str | None = None   # 有對應的 IPAddress → IP 欄可點進該位址

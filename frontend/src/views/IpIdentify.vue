@@ -82,6 +82,14 @@
               <div class="idf-muted">{{ t("identify.elapsed", { s: elapsedText }) }}</div>
             </n-collapse-item>
           </n-collapse>
+          <!-- 卡住時可以取消（例如部署重啟時代理的回報掉了），不必等滿逾時 -->
+          <n-popconfirm v-if="running" @positive-click="cancel">
+            <template #trigger>
+              <n-button size="small" secondary :loading="cancelling" style="margin-top: 10px"
+                        data-testid="identify-cancel">{{ t("identify.cancel") }}</n-button>
+            </template>
+            {{ t("identify.cancel_confirm") }}
+          </n-popconfirm>
 
           <n-alert v-if="job.status === 'done' && job.summary && !job.summary.nmap_available" type="warning"
                    :bordered="false" style="margin-top: 12px">{{ t("identify.no_nmap") }}</n-alert>
@@ -202,13 +210,13 @@ import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   NAlert, NButton, NCard, NCollapse, NCollapseItem, NDataTable, NDescriptions, NDescriptionsItem, NIcon,
-  NResult, NSpace, NSpin, NTag, type DataTableColumns,
+  NPopconfirm, NResult, NSpace, NSpin, NTag, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { apiErrMsg } from "@/api/client";
 import { getAddress } from "@/api/addresses";
 import {
-  getIdentify, getIdentifyIpTarget, identifyHistory, startIdentify,
+  cancelIdentify, getIdentify, getIdentifyIpTarget, identifyHistory, startIdentify,
   type IdentifyBrief, type IdentifyIpTarget, type IdentifyJob, type IdentifyPort, type IdentifyStatus,
   type IdentifyTarget,
 } from "@/api/identify";
@@ -405,6 +413,23 @@ async function select(id: string) {
   selectedId.value = id;
   void router.replace({ query: { ...route.query, job: id } });
   await poll();
+}
+
+const cancelling = ref(false);
+async function cancel() {
+  if (!job.value) return;
+  cancelling.value = true;
+  try {
+    const id = job.value.job_id;
+    await cancelIdentify(target.value, id);
+    stopPolling();
+    await loadJob(id);
+    await loadHistory();
+  } catch (e) {
+    errorText.value = apiErrMsg(e);
+  } finally {
+    cancelling.value = false;
+  }
 }
 
 async function start() {

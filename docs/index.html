@@ -212,40 +212,51 @@
   .src-chips > span{font-size:12.5px;padding:2px 9px;border-radius:999px;background:#f1f5f2;border:1px solid var(--line);white-space:nowrap}
   @media(max-width:820px){.src-blocks{grid-template-columns:1fr}}
   /* 整合配線圖（2026-10-06 改版）：以前是彩色左邊框卡片＋粉彩膠囊＋漸層圓球（使用者：「一看就很 AI」）。
-     改成配線表：每類一列（編號、類別、產品），右端拉一條線接到中間的機箱面板；只用墨色與品牌綠。
-     左右兩欄同一種列（類別在左、產品在右，類別欄寬跟著該欄最長的類別走）；寫回的兩列在右欄另起一個小標。 */
-  .wire{display:grid;grid-template-columns:minmax(0,1.3fr) 200px minmax(0,1fr);grid-template-rows:auto auto;align-items:center;margin:10px 0 8px}
-  /* 標題一列、內容一列：兩欄標題對齊在最上面，內容與中樞置中 */
-  .w-col{display:contents}
-  .w-in > .w-head{grid-column:1;grid-row:1;align-self:end}
-  .w-in > .w-body{grid-column:1;grid-row:2}
-  .w-out > .w-head{grid-column:3;grid-row:1;align-self:end}
-  .w-out > .w-body{grid-column:3;grid-row:2}
-  .w-core{grid-column:2;grid-row:2;justify-self:center;width:150px}
-  .w-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-bottom:7px;margin-right:30px;
+     改成配線表：每類一列（類別、產品），括號收起整欄、拉一條線接到中間的機箱面板；只用墨色與品牌綠。 */
+  /* 左右兩邊放在同一個格線裡、共用每一列的高度：哪一邊換行，另一邊同一列也跟著高，
+     分隔線左右永遠對齊（使用者：「還是感覺不夠整齊」）。兩邊都是 8 列；類別欄寬跟著該邊最長的類別走。 */
+  .wire{display:grid;grid-template-columns:fit-content(11em) minmax(0,1.3fr) 200px fit-content(11em) minmax(0,1fr);
+    margin:10px 0 8px}
+  /* 寬螢幕上圖比內文寬（最寬 1240px）：大部分列才放得進一行，不會這邊換行、那邊空一截 */
+  @media(min-width:1100px){.wire{margin-inline:calc((100% - min(1240px, 100vw - 64px)) / 2)}}
+  .w-in,.w-out,.w-row{display:contents}
+  .w-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-bottom:7px;
     border-bottom:1.5px solid var(--ink);font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    letter-spacing:.09em;text-transform:uppercase;color:var(--ink)}
+    letter-spacing:.09em;text-transform:uppercase;color:var(--ink);grid-row:1;align-self:end}
   .w-head em{font-style:normal;font-weight:500;letter-spacing:.02em;text-transform:none;color:var(--muted)}
-  .w-out .w-head{margin:0 0 0 30px}
-  /* 列：類別＋產品；淡分隔線 */
-  .w-body{position:relative;display:grid;grid-template-columns:fit-content(8.5em) minmax(0,1fr);column-gap:14px}
-  .w-in .w-body{padding-right:30px}
-  .w-out .w-body{padding-left:30px}
-  .w-row{grid-column:1/-1;display:grid;grid-template-columns:subgrid;row-gap:2px;align-items:baseline;padding:9px 0;border-bottom:1px solid #edf1ee}
-  .w-sub{grid-column:1/-1;padding:16px 0 6px;border-bottom:1px solid #edf1ee;font:600 10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    letter-spacing:.06em;color:var(--muted)}
-  .w-k{font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.5}
-  .w-v{display:flex;flex-wrap:wrap;gap:1px 16px;font-size:13.5px;color:var(--body);line-height:1.65}
+  .w-in > .w-head{grid-column:1/3;margin-right:30px}
+  .w-out > .w-head{grid-column:4/6;margin-left:30px}
+  .w-row:nth-child(2) > *{grid-row:2}
+  .w-row:nth-child(3) > *{grid-row:3}
+  .w-row:nth-child(4) > *{grid-row:4}
+  .w-row:nth-child(5) > *{grid-row:5}
+  .w-row:nth-child(6) > *{grid-row:6}
+  .w-row:nth-child(7) > *{grid-row:7}
+  .w-row:nth-child(8) > *{grid-row:8}
+  .w-row:nth-child(9) > *{grid-row:9}
+  /* 每一格：類別＋產品；同一列的格子底線連成一條 */
+  .w-k,.w-v,.w-s{padding:10px 0;border-bottom:1px solid #edf1ee}
+  /* 內容在格子裡垂直置中：另一邊同一列換行變高時，這一列看起來是刻意留白、不是掉了一截 */
+  .w-k{display:flex;align-items:center;padding-right:14px;font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.5}
+  .w-v{display:flex;flex-wrap:wrap;align-content:center;gap:1px 14px;font-size:13.5px;color:var(--body);line-height:1.5}
   .w-v i{font-style:normal;white-space:nowrap}
+  .w-in .w-k{grid-column:1}
+  .w-in .w-v{grid-column:2;margin-right:30px}
+  .w-out .w-k{grid-column:4;margin-left:30px}
+  .w-out .w-v{grid-column:5}
+  /* 右欄的小標（寫回的兩列）：佔一列，字貼在格子底部，像下面兩列的標題 */
+  .w-s{grid-column:4/6;margin-left:30px;display:flex;align-items:flex-end;padding:0 0 6px;
+    font:600 10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;color:var(--muted)}
   /* 括號把整欄收起來，只拉一條線到中樞 */
-  .w-body::after{content:"";position:absolute;top:14px;bottom:14px;width:9px;border:1.5px solid #9fb6a8}
-  .w-in .w-body::after{right:8px;border-left:0;border-radius:0 7px 7px 0}
-  .w-out .w-body::after{left:8px;border-right:0;border-radius:7px 0 0 7px}
-  .w-body::before{content:"";position:absolute;top:50%;width:33px;border-top:1.5px solid #9fb6a8}
-  .w-in .w-body::before{right:-25px}
-  .w-out .w-body::before{left:-25px}
+  .w-brk{grid-row:2/10;position:relative;width:9px;margin:14px 0;border:1.5px solid #9fb6a8;pointer-events:none}
+  .w-brk-l{grid-column:2;justify-self:end;margin-right:8px;border-left:0;border-radius:0 7px 7px 0}
+  .w-brk-r{grid-column:4;justify-self:start;margin-left:8px;border-right:0;border-radius:7px 0 0 7px}
+  .w-brk::before{content:"";position:absolute;top:50%;width:33px;border-top:1.5px solid #9fb6a8}
+  .w-brk-l::before{left:100%}
+  .w-brk-r::before{right:100%}
   /* 中樞：深色面板，只有名稱、說明、一排指示燈 */
-  .w-core{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 14px;
+  .w-core{grid-column:3;grid-row:2/10;align-self:center;justify-self:center;width:150px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 14px;
     border-radius:8px;background:#0f1913;color:#e8f2eb;text-align:center;box-shadow:0 8px 24px rgba(15,25,19,.18)}
   .w-core b{font:700 17px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .w-core small{font-size:11px;line-height:1.55;color:#a9bdb0}
@@ -253,15 +264,19 @@
   .w-leds i{width:6px;height:6px;border-radius:50%;background:#2a3a31}
   .w-leds i.on{background:#3ddc84;box-shadow:0 0 6px rgba(61,220,132,.8)}
   @media(max-width:980px){
-    .wire{grid-template-columns:1fr;grid-template-rows:none}
-    .w-in > .w-head,.w-in > .w-body,.w-out > .w-head,.w-out > .w-body,.w-core{grid-column:1;grid-row:auto}
-    .w-core{width:auto;justify-self:stretch}
-    .w-head,.w-out .w-head{margin:0}
-    .w-in .w-body,.w-out .w-body{padding:0}
-    .w-body::after,.w-body::before{display:none}
-    .w-core{flex-direction:row;flex-wrap:wrap;gap:8px 14px;padding:12px 22px;margin:16px 0}
+    .wire{display:block}
+    .w-in,.w-out{display:block}
+    .w-in > .w-head,.w-out > .w-head{margin:0}
+    .w-row{display:grid;grid-template-columns:8.5em minmax(0,1fr);border-bottom:1px solid #edf1ee}
+    .wire .w-row > *{grid-column:auto;grid-row:auto}
+    .w-k,.w-v{border-bottom:0}
+    .w-in .w-v,.w-out .w-k{margin:0}
+    .w-sub{display:block}
+    .w-s{margin:0;padding-top:16px}
+    .w-brk{display:none}
+    .w-core{width:auto;flex-direction:row;flex-wrap:wrap;gap:8px 14px;padding:12px 22px;margin:16px 0}
   }
-  @media(max-width:560px){.w-body{display:block}.w-row{grid-template-columns:minmax(0,1fr)}}
+  @media(max-width:560px){.w-row{grid-template-columns:minmax(0,1fr)}.w-k{padding-bottom:0}}
   .hub-cap{text-align:center;font-size:13px;opacity:.7;margin:6px 0 0}
   /* Graylog 說明（2026-10-06 跟配線圖同一套：上下兩條線、等寬字標籤，不用膠囊與圓點） */
   .gl-note{max-width:780px;margin:30px auto 0;padding:14px 0 16px;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--line)}
@@ -573,9 +588,8 @@
     <!-- 整合配線圖（2026-10-06 改版，原本是卡片＋膠囊＋圓球）：左邊是唯讀拉取的來源，右邊是提供給其他系統的出口，
          中間是 jt-ipam 機箱面板。三語文字、手機自動改上下排。 -->
     <div class="wire" role="figure" aria-label="jt-ipam integration map">
-      <div class="w-col w-in">
+      <div class="w-in">
         <div class="w-head"><span><span class="zh">資料來源</span><span class="en">Sources</span><span class="ja">データソース</span></span><em><span class="zh">唯讀拉取，不改動來源</span><span class="en">read-only pull, never modified</span><span class="ja">読み取りのみ、変更しない</span></em></div>
-        <div class="w-body">
         <div class="w-row"><span class="w-k"><span class="zh">防火牆與路由</span><span class="en">Firewalls &amp; routers</span><span class="ja">ファイアウォールとルーター</span></span><span class="w-v"><i>OPNsense</i><i>pfSense</i><i>FortiGate</i><i>Palo Alto</i><i>MikroTik RouterOS</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">DNS</span><span class="en">DNS</span><span class="ja">DNS</span></span><span class="w-v"><i>PowerDNS</i><i>BIND9</i><i>Unbound</i><i>Windows DNS</i><i>Univention UCS</i><i>AdGuard Home</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">DHCP</span><span class="en">DHCP</span><span class="ja">DHCP</span></span><span class="w-v"><i>Windows DHCP</i><i>Kea DHCP</i><i>ISC DHCP</i></span></div>
@@ -584,21 +598,20 @@
         <div class="w-row"><span class="w-k"><span class="zh">資安與資產</span><span class="en">Security &amp; inventory</span><span class="ja">セキュリティと資産</span></span><span class="w-v"><i>Wazuh</i><i>OCS Inventory NG</i><i>RustDesk Server</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">參考資料</span><span class="en">Reference data</span><span class="ja">参照データ</span></span><span class="w-v"><i>RIPE</i><i>TWNIC</i><i>MaxMind GeoIP</i><i>IEEE OUI</i><i>Recog</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">匯入與遷移</span><span class="en">Import &amp; migration</span><span class="ja">取り込みと移行</span></span><span class="w-v"><i>phpIPAM</i><i>CSV</i></span></div>
-        </div>
       </div>
       <div class="w-core"><span class="w-leds" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i></span><b>jt-ipam</b><small><span class="zh">IPAM 中樞<br>在自家機房</span><span class="en">IPAM hub<br>on-prem</span><span class="ja">IPAM ハブ<br>自社設備内</span></small></div>
-      <div class="w-col w-out">
+      <div class="w-out">
         <div class="w-head"><span><span class="zh">提供給其他系統</span><span class="en">Serves other systems</span><span class="ja">ほかのシステムへ</span></span></div>
-        <div class="w-body">
         <div class="w-row"><span class="w-k"><span class="zh">記錄補上主機名稱</span><span class="en">Log enrichment</span><span class="ja">ログへのホスト名付与</span></span><span class="w-v"><i>Graylog (Lookup Table)</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">AI</span><span class="en">AI</span><span class="ja">AI</span></span><span class="w-v"><i>LLM Server</i><i>MCP server</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">API</span><span class="en">API</span><span class="ja">API</span></span><span class="w-v"><i>REST API</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">通知</span><span class="en">Notifications</span><span class="ja">通知</span></span><span class="w-v"><i>Email</i><i>Webhook</i><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
-        <div class="w-sub"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">通知</span><span class="en">Notifications</span><span class="ja">通知</span></span><span class="w-v"><i>Email</i><i>Webhook</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">即時通訊</span><span class="en">Chat</span><span class="ja">チャット</span></span><span class="w-v"><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
+        <div class="w-row w-sub"><span class="w-s"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">防火牆別名</span><span class="en">Firewall aliases</span><span class="ja">ファイアウォールのエイリアス</span></span><span class="w-v"><i>OPNsense</i></span></div>
         <div class="w-row"><span class="w-k"><span class="zh">憑證派送</span><span class="en">Certificate delivery</span><span class="ja">証明書の配布</span></span><span class="w-v"><i>nginx</i><i>Apache</i><i>Proxmox VE</i><i>IIS</i></span></div>
-        </div>
       </div>
+      <span class="w-brk w-brk-l" aria-hidden="true"></span><span class="w-brk w-brk-r" aria-hidden="true"></span>
     </div>
     <p class="hub-cap"><span class="zh">資料來源一律唯讀拉取、不改動來源，資料集中在自家機房；只有你明確開啟的 OPNsense 別名推送與憑證派送會寫回。</span><span class="en">Sources are always read-only and never modified, and the data stays on-prem; only OPNsense alias push and certificate delivery write back, and only when you enable them.</span><span class="ja">データソースは常に読み取りのみで変更せず、データは自社設備内に集約されます。書き戻すのは、明示的に有効にした OPNsense エイリアスへの反映と証明書の配布だけです。</span></p>
     <div class="gl-note">
@@ -798,7 +811,7 @@
       <div class="screen-txt">
         <span class="num">14</span>
         <h3 id="screens-remote-console"><span class="zh">瀏覽器連線管理（SSH / RDP / VNC / PVE / BMC / RustDesk）</span><span class="en">In-browser remote console (SSH / RDP / VNC / PVE / BMC / RustDesk)</span><span class="ja">ブラウザ内リモートコンソール（SSH / RDP / VNC / PVE / BMC / RustDesk）</span></h3>
-        <p><span class="zh">從 IP 或裝置直接開 SSH、SFTP、RDP、VNC、Proxmox VE 主控台、BMC 序列主控台與 RustDesk 網頁連線，全在瀏覽器內，不必裝 PuTTY 或遠端桌面用戶端（PVE、BMC、RustDesk 為 Beta）。帳密預設不儲存，誰能連哪一台依物件權限控管，每次連線都留稽核與連線時間。</span><span class="en">Open SSH, SFTP, RDP, VNC, a Proxmox VE console, a BMC serial console or a RustDesk web connection straight from an IP or device, all in the browser with no PuTTY or remote-desktop client to install (PVE, BMC and RustDesk are Beta). Credentials are not stored by default, per-object permissions decide who can reach what, and every session is audited with its length.</span><span class="ja">IP や機器から直接、SSH、SFTP、RDP、VNC、Proxmox VE コンソール、BMC シリアルコンソール、RustDesk の Web 接続を開けます。すべてブラウザ内で完結し、PuTTY やリモートデスクトップのクライアントは不要です（PVE、BMC、RustDesk は Beta）。資格情報は既定で保存せず、誰がどこへ接続できるかはオブジェクト単位で制御し、接続はすべて接続時間とともに監査に残ります。</span></p>
+        <p><span class="zh">從 IP 或裝置直接開 SSH、SFTP、RDP、VNC、Proxmox VE 主控台、BMC 序列主控台與 RustDesk 網頁連線，全在瀏覽器內，不必裝 PuTTY 或遠端桌面用戶端（BMC 為 Beta）。帳密預設不儲存，誰能連哪一台依物件權限控管，每次連線都留稽核與連線時間。</span><span class="en">Open SSH, SFTP, RDP, VNC, a Proxmox VE console, a BMC serial console or a RustDesk web connection straight from an IP or device, all in the browser with no PuTTY or remote-desktop client to install (BMC is Beta). Credentials are not stored by default, per-object permissions decide who can reach what, and every session is audited with its length.</span><span class="ja">IP や機器から直接、SSH、SFTP、RDP、VNC、Proxmox VE コンソール、BMC シリアルコンソール、RustDesk の Web 接続を開けます。すべてブラウザ内で完結し、PuTTY やリモートデスクトップのクライアントは不要です（BMC は Beta）。資格情報は既定で保存せず、誰がどこへ接続できるかはオブジェクト単位で制御し、接続はすべて接続時間とともに監査に残ります。</span></p>
       </div>
     </div>
   </div>

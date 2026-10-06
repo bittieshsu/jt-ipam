@@ -169,7 +169,7 @@ const allColumns = computed<DataTableColumns<AuditLog>>(() => autoSort([
     render: (r) => renderObjectLink(r.object_type, r.object_id, r.object_label),
   },
   {
-    title: t("audit.action"), key: "action", width: 120,
+    title: t("audit.action"), key: "action", width: 230,
     render: (r) => h_tag(r.action, action_color(r.action)),
   },
   {
@@ -247,8 +247,10 @@ function action_color(action: string): "default" | "success" | "warning" | "erro
   return "default";
 }
 
+// 標籤不會自己縮：比欄寬長的動作名（rustdesk.web_session_close…）會整段蓋到右邊的欄位。
+// 限制在欄寬內、超出的用 … 收起來，滑過去看完整名稱。
 function h_tag(text: string, type: "default" | "success" | "warning" | "error" | "info" = "default") {
-  return h(NTag, { type, size: "small", bordered: false }, () => text);
+  return h(NTag, { type, size: "small", bordered: false, class: "audit-tag", title: text }, () => text);
 }
 
 // 差異欄：整理成好讀文字（field: 舊 → 新；或 field: 值），不直接吐 JSON。
@@ -355,6 +357,13 @@ onMounted(() => {
     </n-modal>
   </n-card>
 </template>
+
+<!-- 表格儲存格是 NDataTable 自己渲染的，scoped 樣式套不到 render 函式產生的標籤 -->
+<style>
+.audit-tag { max-width: 100%; }
+/* 只裁水平方向：overflow:hidden 會連底線（_）往下突出的那一截一起切掉，看起來像空白 */
+.audit-tag .n-tag__content { min-width: 0; overflow-x: clip; overflow-y: visible; text-overflow: ellipsis; }
+</style>
 
 <style scoped>
 .audit-meta { width: 100%; border-collapse: collapse; font-size: 13px; }

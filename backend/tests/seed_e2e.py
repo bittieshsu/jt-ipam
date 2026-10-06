@@ -442,6 +442,37 @@ async def seed() -> None:
                 rules_hash=hashlib.sha256(b"e2e").hexdigest(), rule_count=len(rules),
                 rules=rules, diff={"added": rules, "removed": [], "changed": []}))
 
+        # ── 指示計的「未納管」格子（subnet-grid-unmanaged.spec）：10.20.0.0/24 裡沒有 IP 記錄、但看得到在用的兩個位址 ──
+        from app.models.subnet import Subnet as _Sub
+        from app.models.unmanaged_sighting import UnmanagedSighting
+        sub_um = (await s.execute(select(_Sub).where(_Sub.cidr == "10.20.0.0/24"))).scalars().first()
+        if sub_um is not None:
+            now_um = datetime.now(UTC)
+            for ip_um, age, mac_um, host_um in (("10.20.0.240", timedelta(minutes=3), "00:00:5e:00:53:f0", "laptop-07"),
+                                                ("10.20.0.241", timedelta(days=2), None, None)):
+                row = (await s.execute(select(UnmanagedSighting).where(
+                    UnmanagedSighting.subnet_id == sub_um.id, UnmanagedSighting.ip == ip_um))).scalars().first()
+                if row is None:
+                    row = UnmanagedSighting(subnet_id=sub_um.id, ip=ip_um, source="scanner", first_seen_at=now_um - age)
+                    s.add(row)
+                row.last_seen_at, row.mac, row.hostname = now_um - age, mac_um, host_um
+
+        # ── 作業頁（tasks-filters.spec）：代理回報、資料庫更新、沒有錯誤訊息的失敗探測 ─────
+        from app.models.background_task import BackgroundTask
+        now = datetime.now(UTC)
+        for kind, trig, label, st, summ, err in (
+            ("rustdesk.sync", "scheduled", "rd-e2e", "succeeded",
+             {"peers": 3, "online": 2, "matched": 1, "removed": 0}, None),
+            ("oui.refresh", "scheduled", "Wireshark manuf", "succeeded",
+             {"downloaded": 1, "parsed": 39000, "inserted": 12, "updated": 3}, None),
+            ("ip.identify", "manual", "198.51.100.250 (e2e-probe)", "failed",
+             {"job_id": "e2e", "agent": "agent-e2e", "ip": "198.51.100.250"}, None),
+        ):
+            if not (await s.execute(select(BackgroundTask).where(
+                    BackgroundTask.kind == kind, BackgroundTask.target_label == label))).scalars().first():
+                s.add(BackgroundTask(kind=kind, trigger=trig, target_label=label, status=st, progress=100,
+                                     summary=summ, error=err, queued_at=now, started_at=now, finished_at=now))
+
         # 儀表板的 AI 巡檢區塊看 `/me` 的 ai_enabled（＝全域 LLM 開關），沒開就整塊
         # 不渲染 —— 那是設計，不是壞掉。這裡只把開關打開，不需要真的有 Ollama：
         # 區塊要的資料來自 ai-audit 的摘要端點，不會去呼叫模型。

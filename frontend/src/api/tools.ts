@@ -12,6 +12,9 @@ export interface TraceHopEvent {
   truncated?: boolean;
   reached?: boolean;
   detail?: string;
+  /** 錯誤事件：代碼＋參數（errors.<code>）；底層原因只有管理員拿得到（params.reason） */
+  code?: string;
+  params?: Record<string, unknown>;
 }
 
 /**

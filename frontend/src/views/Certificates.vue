@@ -2,6 +2,7 @@
 import { computed, h, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { apiErrMsg } from "@/api/client";
+import { srvText } from "@/utils/wsError";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
 import { useEntityLinks } from "@/composables/useEntityLinks";
@@ -27,7 +28,8 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import {
   listCertificates, createCertificate, updateCertificate, deleteCertificate, uploadVersion, generateSelfSigned,
-  setCertSource, fetchCertNow, testCertSource, genCertSourceSshKey, listVersions, downloadVersionFile, rebuildChain,
+  setCertSource, fetchCertNow, testCertSource, genCertSourceSshKey, forgetCertSourceHostKey, listVersions,
+  downloadVersionFile, rebuildChain,
   listCertAgents, createCertAgent, rotateCertAgentKey, deleteCertAgent, getCertAgentKey, updateCertAgent,
   getServerAgentVersion,
   type Certificate, type CertAgent, type CertVersion,
@@ -478,6 +480,7 @@ function openSource(c: Certificate) {
   };
   sshPubKey.value = "";
   sshInstalled.value = false;
+  testedFingerprint.value = "";
   showSource.value = true;
 }
 function buildSourcePayload() {
@@ -505,10 +508,30 @@ async function testSource() {
   testing.value = true;
   try {
     const r = await testCertSource(sourceTarget.value.id, buildSourcePayload());
-    if (r.ok) msg.success(r.message || t("certSource.test_ok"));
-    else msg.error(r.message || t("certSource.test_fail"));
+    if (r.ok) {
+      msg.success(r.message || t("certSource.test_ok"));
+      if (r.host_key_fingerprint) testedFingerprint.value = r.host_key_fingerprint;
+    } else {
+      msg.error(srvText({ code: r.code ?? undefined, params: r.params, message: r.message },
+                        t("certSource.test_fail")), { duration: 10000 });
+    }
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
   finally { testing.value = false; }
+}
+// SFTP 主機金鑰：已記住的指紋（存在來源設定裡）與這次測試看到的指紋
+const testedFingerprint = ref("");
+const pinnedFingerprint = computed(() =>
+  String(((sourceTarget.value?.source_config ?? {}) as any).host_key_fingerprint ?? ""));
+async function forgetHostKey() {
+  if (!sourceTarget.value) return;
+  try {
+    await forgetCertSourceHostKey(sourceTarget.value.id);
+    await loadCerts();
+    const fresh = certs.value.find((c) => c.id === sourceTarget.value?.id);
+    if (fresh) sourceTarget.value = fresh;
+    testedFingerprint.value = "";
+    msg.success(t("certSource.host_key_forgotten"));
+  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
 }
 const sshPubKey = ref("");
 const sshInstalled = ref(false);
@@ -531,7 +554,10 @@ async function doFetchNow(c: Certificate) {
     const r = await fetchCertNow(c.id);
     if (r.status === "updated") msg.success(t("certSource.fetched_updated"));
     else if (r.status === "skipped") msg.info(t("certSource.fetched_skipped"));
-    else if (r.status === "error") msg.error(r.error ?? t("errors.server"));
+    else if (r.status === "error") {
+      msg.error(srvText({ code: r.code ?? undefined, params: r.params, message: r.error ?? "" }, t("errors.server")),
+                { duration: 10000 });
+    }
     else msg.info(String(r.status));
     await loadCerts();
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
@@ -1182,6 +1208,23 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
         <n-divider style="margin: 4px 0 10px" title-placement="left">
           <span style="font-size: 12px; opacity: .7">{{ t("certSource.remote_files") }}</span>
         </n-divider>
+        <!-- SFTP 主機金鑰：第一次連線記住，之後每次都要相同（防止有人冒充主機騙走密碼） -->
+        <n-form-item :label="t('certSource.host_key')">
+          <n-space vertical :size="4" style="width:100%">
+            <span v-if="pinnedFingerprint" style="font-family:monospace;font-size:12px" data-testid="cert-src-host-key">
+              {{ pinnedFingerprint }}
+            </span>
+            <span v-else style="font-size:12px;opacity:.7">
+              {{ testedFingerprint ? t("certSource.host_key_seen", { fp: testedFingerprint }) : t("certSource.host_key_none") }}
+            </span>
+            <n-popconfirm v-if="pinnedFingerprint" @positive-click="forgetHostKey">
+              <template #trigger>
+                <n-button size="tiny" secondary data-testid="cert-src-forget-host-key">{{ t("certSource.host_key_forget") }}</n-button>
+              </template>
+              {{ t("certSource.host_key_forget_confirm") }}
+            </n-popconfirm>
+          </n-space>
+        </n-form-item>
         <n-form-item label="cert_path"><n-input v-model:value="sourceForm.cert_path" placeholder="/etc/ssl/cert.pem" /></n-form-item>
         <n-form-item label="key_path"><n-input v-model:value="sourceForm.key_path" :placeholder="t('certSource.optional_reuse_key')" /></n-form-item>
         <n-form-item label="chain_path"><n-input v-model:value="sourceForm.chain_path" :placeholder="t('certSource.optional')" /></n-form-item>

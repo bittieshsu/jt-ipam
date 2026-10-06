@@ -108,6 +108,30 @@ export function saveQuality(s: QualitySettings, storage?: Storage | null): boole
   }
 }
 
+/** 效能列（延遲、位元率、每秒張數、編碼）要不要顯示：預設不顯示，畫質選單勾了才顯示。
+ *  跟畫質選項分開一個鍵，值只有 "1"／"0"。 */
+export const SHOW_STATS_STORAGE_KEY = "jt-ipam.rdweb.show_stats";
+
+export function loadShowStats(storage?: Storage | null): boolean {
+  try {
+    const st = storage === undefined ? globalThis.localStorage : storage;
+    return st?.getItem(SHOW_STATS_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveShowStats(v: boolean, storage?: Storage | null): boolean {
+  try {
+    const st = storage === undefined ? globalThis.localStorage : storage;
+    if (!st) return false;
+    st.setItem(SHOW_STATS_STORAGE_KEY, v ? "1" : "0");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** 狀態列顯示的編碼名稱 */
 export function codecLabel(c: Codec | CodecPref | null | undefined): string {
   return ({ vp9: "VP9", vp8: "VP8", av1: "AV1", h264: "H.264", h265: "H.265" } as Record<string, string>)[c || ""] || "";

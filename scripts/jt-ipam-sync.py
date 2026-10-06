@@ -726,6 +726,30 @@ async def _run() -> int:
             await session.rollback()
             log.error("ip-device autolink failed: %s", exc)
 
+        # ── 裝置類型自動判斷：工作站／伺服器（每輪一次）──
+        # 只碰「other 而且沒人定過」或「上次就是自動判斷」的裝置，人工設定的一律不動；
+        # 依據是這台裝置 IP 上代理回報的作業系統（Wazuh／RustDesk／OCS），其次 nmap，再其次 OCS 機殼。
+        try:
+            from app.services.device_type_auto import refresh_auto_types
+            n_types = await refresh_auto_types(session)
+            await session.commit()
+            if n_types:
+                log.info("device types auto-set: %d", n_types)
+        except Exception as exc:
+            await session.rollback()
+            log.error("device type auto-set failed: %s", exc)
+
+        # ── 未納管位址的目擊：30 天沒再看到就清掉（每輪一次）──
+        try:
+            from app.services.unmanaged import purge as purge_unmanaged
+            n_purged = await purge_unmanaged(session)
+            await session.commit()
+            if n_purged:
+                log.info("unmanaged sightings purged: %d", n_purged)
+        except Exception as exc:
+            await session.rollback()
+            log.error("unmanaged sightings purge failed: %s", exc)
+
         # ── 偵測到的 DHCP 發放範圍 → 子網路的「位址範圍（集區）」（每輪一次，全站對帳）──
         # 使用者要求（2026-09-27）：子網路上方寫著 DHCP 發放範圍，下面的集區卻是空的。
         # 自動建的跟著上游走；手動建的不動；落點不唯一、跟手動的重疊都不建。

@@ -1146,6 +1146,56 @@ async def _diag_addr(host: str, port: int) -> str:
     return str(addrs[0])
 
 
+_LOCAL_CACHE: tuple[float, frozenset[str]] = (0.0, frozenset())
+
+
+def _local_addresses() -> frozenset[str]:
+    """這台伺服器自己的位址（迴路以外）。Linux 讀 /proc/net/fib_trie 的 LOCAL 項與 /proc/net/if_inet6；
+    讀不到就退回主機名稱解析。快取 60 秒（介面位址不常變，每次 HTTP 檢查都讀檔沒必要）。"""
+    import ipaddress
+    import socket
+    import time
+    global _LOCAL_CACHE
+    now = time.monotonic()
+    if now - _LOCAL_CACHE[0] < 60:
+        return _LOCAL_CACHE[1]
+    out: set[str] = set()
+    try:
+        last = None
+        with open("/proc/net/fib_trie", encoding="ascii", errors="replace") as fh:
+            for line in fh:
+                s = line.strip()
+                if s.startswith("|--"):
+                    last = s[3:].strip()
+                elif "host LOCAL" in s and last:
+                    out.add(last)
+    except OSError:
+        pass
+    try:
+        with open("/proc/net/if_inet6", encoding="ascii", errors="replace") as fh:
+            for line in fh:
+                h = line.split()[0] if line.split() else ""
+                if len(h) == 32:
+                    out.add(str(ipaddress.ip_address(int(h, 16))))
+    except (OSError, ValueError):
+        pass
+    if not out:
+        try:
+            out.update(socket.gethostbyname_ex(socket.gethostname())[2])
+        except OSError:
+            pass
+    clean = set()
+    for a in out:
+        try:
+            ip = ipaddress.ip_address(a)
+        except ValueError:
+            continue
+        if not ip.is_loopback:
+            clean.add(str(ip))
+    _LOCAL_CACHE = (now, frozenset(clean))
+    return _LOCAL_CACHE[1]
+
+
 def _diag_check(host: str, addrs: list[Any]) -> None:
     """診斷工具的位址規則：私網是本來的用途（不擋），本機／link-local／多播不是。
 
@@ -1154,9 +1204,14 @@ def _diag_check(host: str, addrs: list[Any]) -> None:
     """
     from app.core.safe_http import _BLOCKED_CIDRS, _ip_in
 
+    local = _local_addresses()
     for ip in addrs:
         if _ip_in(ip, _BLOCKED_CIDRS):
             raise DiagTargetBlocked(f"{host} ({ip}) is loopback / link-local / multicast — not a diagnostic target")
+        # 伺服器自己的區網位址：打得到就能讀本機上只綁區網介面的服務（2026-10-06 CodeQL 判讀）
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if str(ip) in local or (mapped is not None and str(mapped) in local):
+            raise DiagTargetBlocked(f"{host} ({ip}) is this server — not a diagnostic target")
 
 
 async def http_check(url: str, *, timeout: float = 10.0, max_redirects: int = 5,

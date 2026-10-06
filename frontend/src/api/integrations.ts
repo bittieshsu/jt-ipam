@@ -423,6 +423,9 @@ export interface WazuhAgent {
   ip: string | null;
   status: string | null;
   os_platform: string | null;
+  /** 顯示用：產品名稱（os.name）優先，沒有時退回平台＋版本 */
+  os?: string | null;
+  os_name?: string | null;
   agent_version: string | null;
   last_keep_alive: string | null;
   jt_ipam_address_id: string | null;

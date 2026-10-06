@@ -882,7 +882,11 @@ async def update_geoip_now(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     """立即下載/更新本地 mmdb（手動觸發；排程由 systemd timer 跑）。"""
-    from app.services.geoip import get_geoip_config, update_databases
+    from datetime import UTC, datetime
+
+    from app.services.background_tasks import record_finished_task
+    from app.services.geoip import get_geoip_config, update_databases, update_outcome
+    started = datetime.now(UTC)
     result = await update_databases(session)
     await append_audit(
         session, actor_user_id=str(user.id),
@@ -893,6 +897,9 @@ async def update_geoip_now(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
+    ok, err = update_outcome(result)
+    await record_finished_task(session, kind="geoip.refresh", ok=ok, actor_user_id=user.id,
+                               started_at=started, summary=result, error=err)
     cfg = await get_geoip_config(session)
     return {"result": result, "config": cfg}
 
@@ -1450,6 +1457,17 @@ async def system_doctor(
     return (await run_checks(session)).as_dict()
 
 
+@router.get("/doctor/stats")
+async def system_doctor_stats(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """系統診斷的「資料統計」：各類資料各有幾筆（admin）。只在本機計算，不回傳、不蒐集。"""
+    from datetime import UTC, datetime
+
+    from app.services.data_stats import collect
+    return {"generated_at": datetime.now(UTC).isoformat(), "groups": await collect(session)}
+
+
 @router.get("/doctor/report", response_class=PlainTextResponse)
 async def system_doctor_report(
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -1540,6 +1558,40 @@ async def get_version_info() -> dict[str, Any]:
         }
     except SQLAlchemyError:
         info["recog"] = None
+    # MAC 製造商資料庫（Wireshark manuf，每月排程更新）：跟 Recog 一樣是下載來的資料庫。
+    # 表是空的時候 IP 清單、MAC 歷程、異常偵測的製造商欄全部空白，卻沒有地方講（2026-10-06 使用者）。
+    try:
+        from app.services import oui
+        async with SessionLocal() as s:
+            st = await oui.stats(s)
+        info["host"]["optional_tools"]["oui"] = {
+            "present": st["count"] > 0,
+            "package": "MAC vendor database (Wireshark manuf)",
+            "used_by": "MAC vendor names in IP lists, MAC history, anomaly detection and the IP probe",
+            "version": st["last_updated"][:10] if st["last_updated"] else None,
+        }
+    except SQLAlchemyError:
+        pass
+    # GeoIP：本機 mmdb 優先、沒有就走 MaxMind web service；兩者都要管理員自己的帳號，
+    # 沒設定是正常狀態 → opt_in：列出來但不進「缺少」警告
+    try:
+        from app.services import geoip
+        dbs = geoip.local_databases()
+        async with SessionLocal() as s:
+            acct, key = await geoip.get_geoip_creds(s)
+        if dbs:
+            geo_ver: str | None = max(ts for _, ts in dbs).date().isoformat()
+        else:
+            geo_ver = "web service" if acct and key else None
+        info["host"]["optional_tools"]["geoip"] = {
+            "present": bool(dbs) or bool(acct and key),
+            "package": "GeoIP database (MaxMind GeoLite2 / GeoIP2)",
+            "used_by": "Tools → GeoIP and the AI GeoIP tool: country, city and ASN of public IPs",
+            "version": geo_ver,
+            "opt_in": True,
+        }
+    except SQLAlchemyError:
+        pass
     return info
 
 
@@ -1567,7 +1619,11 @@ async def update_recog_now(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     """立即檢查 Recog 指紋庫有沒有新版，有就下載安裝（手動觸發；排程是每週的 jt-ipam-recog-refresh.timer）。"""
+    from datetime import UTC, datetime
+
     from app.services import recog
+    from app.services.background_tasks import record_finished_task
+    started = datetime.now(UTC)
     result = await recog.check_and_update(session)
     await append_audit(
         session, actor_user_id=str(user.id),
@@ -1579,6 +1635,11 @@ async def update_recog_now(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
+    await record_finished_task(
+        session, kind="recog.refresh", ok=result.get("status") != "error", actor_user_id=user.id,
+        started_at=started, error=result.get("error"),
+        summary={k: result.get(k) for k in ("status", "release", "previous", "latest",
+                                            "databases", "fingerprints", "skipped")})
     return {"result": result, "status": await recog.status(session)}
 
 

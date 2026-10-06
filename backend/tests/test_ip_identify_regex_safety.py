@@ -96,3 +96,18 @@ def test_knowledge_helpers_cap_their_input() -> None:
     kk.recog_kind("Device", "v" * 100000, "p" * 100000, "d" * 100000)
     kk.oui_hint("v" * 100000, "0" * 100000)
     assert time.monotonic() - t0 < 1.0
+
+
+def test_first_alternative_keeps_its_meaning_and_is_linear(monkeypatch) -> None:
+    """CodeQL #45：分隔符改成單一空白後，結果要跟以前一樣，而且不靠長度上限也是線性。"""
+    from app.services import device_kind_knowledge as kk
+    assert kk.first_alternative("A  or  B") == "A"
+    assert kk.first_alternative("A,\tB") == "A"
+    assert kk.first_alternative("A; B") == "A"
+    assert kk.first_alternative("Linux 4.15 - 5.6 or Linux 3.2") == "Linux 4.15 - 5.6"
+    assert kk.first_alternative("Microsoft Windows 10 (1903) or Windows 11") == "Microsoft Windows 10"
+    assert kk.first_alternative("Motorola camera") == "Motorola camera"
+    monkeypatch.setattr(kk, "MAX_TEXT", 10_000_000)
+    t0 = time.monotonic()
+    kk.first_alternative("a" + " " * 50000 + "b")
+    assert time.monotonic() - t0 < 0.1

@@ -41,6 +41,27 @@ _RULES: list[tuple[str, list[str]]] = [
 ]
 
 
+def wazuh_os_display(name: str | None, platform: str | None, version: str | None) -> str | None:
+    """Wazuh 代理的作業系統要怎麼顯示：有產品名稱（os.name）就用它。
+
+    沒有時退回「平台 版本」；Windows 的核心版本號在 Windows 11 仍是 10.0，build 22000 以上才是 11，
+    只看「windows 10.0.26200」會被當成 Windows 10 —— 這種情況補上「Windows 11」。
+    """
+    if name and name.strip():
+        return name.strip()[:160]
+    if not platform:
+        return None
+    ver = (version or "").strip()
+    if platform.strip().lower() == "windows" and ver.startswith("10.0."):
+        try:
+            build = int(ver.split(".")[2])
+        except (IndexError, ValueError):
+            build = 0
+        if build >= 22000:
+            return f"Windows 11 {ver}"
+    return f"{platform}{' ' + ver if ver else ''}"
+
+
 def normalize_os(raw: str | None) -> str:
     """原始 OS 字串 → 家族 key。比不到回 'unknown'。"""
     if not raw:

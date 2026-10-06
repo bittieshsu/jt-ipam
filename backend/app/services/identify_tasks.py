@@ -114,6 +114,18 @@ async def on_finished(session: AsyncSession, job: AgentProbeJob) -> None:
         await _notify(session, t, job, ok, summary)
 
 
+async def on_cancelled(session: AsyncSession, job: AgentProbeJob) -> None:
+    """使用者取消：作業列記成「已取消」，不發通知（是自己按的）。"""
+    t = await _task(session, job.id)
+    if t is None:
+        return
+    now = datetime.now(UTC)
+    t.status = "cancelled"
+    t.error = job.error
+    t.finished_at = now
+    t.started_at = t.started_at or job.claimed_at or now
+
+
 async def on_expired(session: AsyncSession, jobs: list[AgentProbeJob]) -> None:
     """沒人領走而作廢、或領走後沒回報：作業列跟著失敗，也通知一聲（不然會一直等下去）。"""
     for j in jobs:

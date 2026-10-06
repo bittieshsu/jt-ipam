@@ -44,7 +44,7 @@ const form = ref<{
 });
 
 const typeOpts = ["server", "switch", "router", "firewall", "ap", "storage", "ipmi",
-  "patch_panel", "pdu", "ups", "other"]
+  "patch_panel", "pdu", "ups", "workstation", "other"]
   .map((v) => ({ label: t(`devices.type_${v}`), value: v }));
 const rackFaceOpts = computed(() => [
   { label: t("devices.rack_face_front"), value: "front" },
@@ -268,7 +268,10 @@ async function submit() {
     <n-form label-placement="top">
       <n-form-item :label="t('common.name')"><n-input v-model:value="form.name" /></n-form-item>
       <n-form-item label="FQDN"><n-input v-model:value="form.fqdn" placeholder="sw1.dc.example.com" /></n-form-item>
-      <n-form-item :label="t('devices.type')"><n-select v-model:value="form.type" :options="typeOpts" /></n-form-item>
+      <n-form-item :label="t('devices.type')"
+                   :feedback="form.type === 'workstation' ? t('devices.type_workstation_hint') : undefined">
+        <n-select v-model:value="form.type" :options="typeOpts" />
+      </n-form-item>
       <n-space>
         <n-form-item :label="t('devices.vendor')" style="min-width: 220px">
           <n-input v-model:value="form.vendor" placeholder="Cisco / Juniper / Dell …" />

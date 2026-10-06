@@ -41,6 +41,11 @@ async def _update(force: bool, file: str | None, version: str | None) -> int:
             return 0
         res = await recog.check_and_update(session, force=force)
         await session.commit()
+        # 作業頁看得到這次檢查（每週 timer 跑的就是這裡；已是最新也算一次成功的檢查）
+        from app.services.background_tasks import record_refresh
+        await record_refresh(session, "recog.refresh", ok=res["status"] != "error", error=res.get("error"),
+                             summary={k: res.get(k) for k in ("status", "release", "previous", "latest",
+                                                               "databases", "fingerprints", "skipped")})
     if res["status"] == "error":
         print(f"error\t{res['error']}" + (f"\t(installed: {res['release']})" if res.get("release") else ""))
         return 1

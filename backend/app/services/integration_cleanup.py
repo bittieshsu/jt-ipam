@@ -60,6 +60,10 @@ async def forget_instance(session: AsyncSession, *, source: str, source_id: uuid
     if source == "mikrotik":
         # FDB／鄰居有外鍵 CASCADE 跟著路由器走；介面寫進裝置連接埠（0170）沒有，要自己收回
         await release_origin_ports(session, origin)
+    # 作業頁上它的排程心跳列（每個實例一列，target_id＝實例 id）：不刪的話作業頁永遠留著一台已經不存在的來源。
+    # 手動作業是歷史記錄（誰在什麼時候按了同步），留著。
+    from app.services.background_tasks import forget_scheduled_rows
+    await forget_scheduled_rows(session, source_id)
 
 
 async def release_origin_ports(session: AsyncSession, origin: str) -> int:

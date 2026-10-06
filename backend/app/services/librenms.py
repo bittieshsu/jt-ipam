@@ -218,6 +218,9 @@ def _infer_device_type(ldev: LibreNMSDevice) -> str:
     if any(k in blob for k in ("router", "ios-xe", "routeros", "mikrotik", "vyos", "isr",
                                "draytek", "vigor", "edgeos", "openwrt")):
         return "router"
+    # LibreNMS 自己標成 workstation 的就是使用者電腦（以前併進 server）
+    if native == "workstation":
+        return "workstation"
     if any(k in blob for k in ("proxmox", "linux", "windows", "ubuntu", "debian", "centos",
                                "freebsd", "esxi", "vmware", "dsm", "synology", "truenas",
                                "freenas", "macos", "server")):
@@ -225,7 +228,7 @@ def _infer_device_type(ldev: LibreNMSDevice) -> str:
     # 關鍵字沒命中 → 用 LibreNMS 原生 type 欄位補推
     return {
         "firewall": "firewall", "wireless": "ap", "storage": "storage",
-        "server": "server", "workstation": "server", "network": "switch",
+        "server": "server", "network": "switch",
     }.get(native, "other")
 
 
@@ -285,8 +288,9 @@ async def link_librenms_device(
             return None, False
         from app.services.model_precedence import resolve_device_model
         model_val = await resolve_device_model(session, {"librenms": str(ldev.hardware or "")})
+        dtype = _infer_device_type(ldev)
         dev = Device(
-            name=name, type=_infer_device_type(ldev),
+            name=name, type=dtype, type_source="librenms" if dtype != "other" else None,
             vendor=ldev.os or ldev.hardware, model=model_val, serial=ldev.serial,
         )
         session.add(dev)

@@ -43,11 +43,14 @@ from app.schemas.certificate import (
     SelfSignedRequest,
 )
 from app.services.cert_fetch import (
+    PIN_FIELDS,
     FetchError,
     fetch_certificate,
     generate_source_ssh_keypair,
     install_public_key_sftp,
     load_cert_secret,
+    merge_pin,
+    pin_target,
     probe_source_connection,
     save_cert_secret,
 )
@@ -446,7 +449,8 @@ async def set_source(
     if cert is None:
         raise HTTPException(404, detail="Not found")
     cert.source_type = payload.source_type
-    cert.source_config = payload.source_config or {}
+    # SFTP 主機金鑰的釘選由伺服器記住：表單送來的一律不採用，主機與埠沒變才保留已記住的
+    cert.source_config = merge_pin(cert.source_config, payload.source_config)
     cert.fetch_interval_seconds = payload.fetch_interval_seconds
     if payload.source_password:
         await save_cert_secret(session, cert_id, "source_password", payload.source_password)
@@ -486,6 +490,8 @@ async def fetch_now(
 async def test_source(
     cert_id: uuid.UUID,
     payload: CertSourceUpdate,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, object]:
     """以表單目前內容測試來源連線（不存檔）。密碼/私鑰留空時沿用已存的。"""
@@ -495,15 +501,54 @@ async def test_source(
     password = payload.source_password or await load_cert_secret(session, cert_id, "source_password")
     private_key = payload.source_private_key or await load_cert_secret(
         session, cert_id, "source_private_key")
+    cfg = merge_pin(cert.source_config, payload.source_config)
     try:
-        message = await probe_source_connection(
-            payload.source_config, source_type=payload.source_type,
+        message, info = await probe_source_connection(
+            cfg, source_type=payload.source_type,
             password=password, private_key=private_key)
     except FetchError as exc:
         # 以 200 回應但帶代碼：前端用 srvText 翻譯，句子不再由後端寫死中文
         return {"ok": False, "message": str(exc),
                 "code": exc.code, "params": exc.params}
-    return {"ok": True, "message": message}
+    new_pin = info.get("new_pin")
+    if (new_pin and payload.source_type == "sftp" and cert.source_type == "sftp"
+            and pin_target(cfg) == pin_target(cert.source_config or {})):
+        # 測的就是已存的那台：第一次連上就記住主機金鑰（表單還沒存的新主機，等存檔後第一次連線再記）
+        cert.source_config = {**(cert.source_config or {}), **new_pin}
+        await append_audit(
+            session, actor_user_id=str(user.id),
+            actor_ip=request.client.host if request.client else None,
+            actor_user_agent=request.headers.get("user-agent"),
+            object_type="certificate", object_id=str(cert_id), action="cert_source_pin_host_key",
+            diff={"fingerprint": new_pin["host_key_fingerprint"], "host": new_pin["host_key_for"]},
+            request_id=getattr(request.state, "request_id", None),
+        )
+        await session.commit()
+    return {"ok": True, "message": message, "host_key_fingerprint": info.get("host_key_fingerprint")}
+
+
+@router.post("/{cert_id}/source/forget-host-key")
+async def forget_source_host_key(
+    cert_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """「重新信任主機金鑰」：SFTP 主機重灌或換了金鑰時，管理員確認新指紋後清掉記住的釘選，下一次連線重新記住。"""
+    cert = await session.get(Certificate, cert_id)
+    if cert is None:
+        raise HTTPException(404, detail="Not found")
+    old = (cert.source_config or {}).get("host_key_fingerprint")
+    cert.source_config = {k: v for k, v in (cert.source_config or {}).items() if k not in PIN_FIELDS}
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="certificate", object_id=str(cert_id), action="cert_source_forget_host_key",
+        diff={"fingerprint": old}, request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"ok": True}
 
 
 @router.post("/{cert_id}/source/ssh-keypair")
@@ -538,10 +583,21 @@ async def gen_source_ssh_keypair(
     if payload.source_type == "sftp":
         password = payload.source_password or await load_cert_secret(
             session, cert_id, "source_password")
+        cfg = merge_pin(cert.source_config, payload.source_config)
         try:
-            message = await install_public_key_sftp(
-                payload.source_config, password=password or "", public_key=pub)
+            message, new_pin = await install_public_key_sftp(cfg, password=password or "", public_key=pub)
             installed = True
+            if new_pin and pin_target(cfg) == pin_target(cert.source_config or {}):
+                cert.source_config = {**(cert.source_config or {}), **new_pin}
+                await append_audit(
+                    session, actor_user_id=str(user.id),
+                    actor_ip=request.client.host if request.client else None,
+                    actor_user_agent=request.headers.get("user-agent"),
+                    object_type="certificate", object_id=str(cert_id), action="cert_source_pin_host_key",
+                    diff={"fingerprint": new_pin["host_key_fingerprint"], "host": new_pin["host_key_for"]},
+                    request_id=getattr(request.state, "request_id", None),
+                )
+                await session.commit()
         except FetchError as exc:
             message, err_code, err_params = str(exc), exc.code, exc.params
     return {"public_key": pub, "installed": installed, "message": message,

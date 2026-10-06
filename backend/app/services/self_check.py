@@ -227,8 +227,17 @@ async def run_checks(session: AsyncSession) -> Report:
         from sqlalchemy import func, select
 
         from app.models.background_task import BackgroundTask
+        from app.services.background_tasks import NOT_SYNC_TIMER_KINDS
+        # 只看 jt-ipam-sync 排程寫的列：代理回報、探測與資料庫更新各有自己的節奏，
+        # 拿它們當「排程還活著」會把停擺的排程遮掉
         last = (await session.execute(
-            select(func.max(BackgroundTask.queued_at)))).scalar_one_or_none()
+            select(func.max(BackgroundTask.queued_at)).where(
+                BackgroundTask.trigger == "scheduled",
+                BackgroundTask.kind.not_in(NOT_SYNC_TIMER_KINDS)))).scalar_one_or_none()
+        if last is None:
+            # 一個排程同步都沒有過（多半是還沒設定任何整合）：沒有東西可以判斷排程，維持舊的看法（任何作業都算），
+            # 不要讓沒設定整合的站台多一個警告
+            last = (await session.execute(select(func.max(BackgroundTask.queued_at)))).scalar_one_or_none()
         if last is None:
             rep.checks.append(Check("sync", "背景作業", "warn", "從來沒有背景作業記錄",
                                     "systemctl status jt-ipam-sync.timer",
@@ -238,13 +247,13 @@ async def run_checks(session: AsyncSession) -> Report:
             if age_h > 24:
                 rep.checks.append(Check(
                     "sync", "背景作業停擺", "warn",
-                    f"最後一筆是 {age_h:.0f} 小時前（{last:%Y-%m-%d %H:%M}）",
+                    f"最後一筆是 {age_h:.0f} 小時前（{last.astimezone():%Y-%m-%d %H:%M}）",
                     "systemctl status jt-ipam-sync.timer；journalctl -u jt-ipam-sync -n 60",
-        title_key="doctor.c_jobs_stalled", detail_key="doctor.c_jobs_stalled_d", fix_key="doctor.f_sync_timer_logs", params={"hours": f"{age_h:.0f}", "last": f"{last:%Y-%m-%d %H:%M}"}))
+        title_key="doctor.c_jobs_stalled", detail_key="doctor.c_jobs_stalled_d", fix_key="doctor.f_sync_timer_logs", params={"hours": f"{age_h:.0f}", "last": last.isoformat()}))
             else:
                 rep.checks.append(Check("sync", "背景作業", "ok",
-                                        f"最後一筆 {last:%Y-%m-%d %H:%M}",
-        title_key="doctor.c_jobs", detail_key="doctor.c_jobs_ok", params={"last": f"{last:%Y-%m-%d %H:%M}"}))
+                                        f"最後一筆 {last.astimezone():%Y-%m-%d %H:%M}",
+        title_key="doctor.c_jobs", detail_key="doctor.c_jobs_ok", params={"last": last.isoformat()}))
     except Exception as exc:
         rep.checks.append(Check("sync", "背景作業", "warn", str(exc)[:200],
         title_key="doctor.c_jobs", detail_key="doctor.d_raw", params={"detail": str(exc)[:200]}))

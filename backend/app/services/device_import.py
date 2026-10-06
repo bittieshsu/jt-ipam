@@ -63,6 +63,8 @@ TYPE_LABELS: dict[str, tuple[str, ...]] = {
     "ap": ("無線基地台 (ap)", "access point (ap)", "アクセスポイント（ap）", "access point"),
     "storage": ("儲存設備", "ストレージ"), "ipmi": ("ipmi / bmc", "bmc"),
     "patch_panel": ("配線架", "patch panel", "パッチパネル"),
+    "workstation": ("工作站", "workstation", "ワークステーション", "pc", "desktop", "laptop", "notebook",
+                    "電腦", "桌機", "筆電"),
     "pdu": ("電源分配器 (pdu)",), "ups": ("不斷電系統 (ups)",), "other": ("其他", "その他"),
 }
 FACE_LABELS: dict[str, tuple[str, ...]] = {
@@ -328,6 +330,8 @@ async def import_devices(session: AsyncSession, rows: list[list[str]], *, on_exi
             continue
 
         obj = dev or Device(name=name, type=data.get("type", "other"))
+        if "type" in data and data["type"] != "other":
+            obj.type_source = "import"     # 檔案裡明確給了類型 → 自動判斷不碰
         before = None if dev is None else {k: getattr(dev, k) for k in data}
         for k, v in data.items():
             setattr(obj, k, v)

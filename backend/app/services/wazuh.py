@@ -263,7 +263,7 @@ async def fetch_agents(inst: WazuhInstance, *, batch: int = 500) -> list[dict[st
         data = await _api_get(
             inst, "/agents",
             params={"limit": batch, "offset": offset, "select":
-                    "id,name,ip,registerIP,status,os.platform,os.version,version,"
+                    "id,name,ip,registerIP,status,os.platform,os.version,os.name,version,"
                     "group,node_name,lastKeepAlive"},
         )
         items = (data.get("data") or {}).get("affected_items") or []
@@ -354,6 +354,7 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
                 status=raw.get("status"),
                 os_platform=os_block.get("platform"),
                 os_version=os_block.get("version"),
+                os_name=(os_block.get("name") or None),
                 agent_version=raw.get("version"),
                 group=group,
                 node_name=raw.get("node_name"),
@@ -374,6 +375,7 @@ async def sync_agents(session: AsyncSession, inst: WazuhInstance) -> dict[str, A
             existing.status = raw.get("status")
             existing.os_platform = os_block.get("platform")
             existing.os_version = os_block.get("version")
+            existing.os_name = os_block.get("name") or None
             existing.agent_version = raw.get("version")
             existing.group = group
             existing.node_name = raw.get("node_name")

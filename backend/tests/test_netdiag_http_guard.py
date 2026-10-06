@@ -73,3 +73,28 @@ async def test_private_targets_are_still_diagnosable() -> None:
     """私網是這個工具本來的用途：被擋的只有本機／link-local／多播（TEST-NET 位址沒人回，會逾時而不是被擋）。"""
     (tcp,) = await netdiag.tcp_check(["192.0.2.55"], [22], timeout=0.3)
     assert "not a diagnostic target" not in (tcp.error or "")
+
+
+async def test_the_servers_own_addresses_are_refused(monkeypatch) -> None:
+    """jt-ipam 主機自己的區網位址（不是 127.0.0.1）也不是診斷對象：打得到就能讀本機上只綁區網介面的服務。"""
+    monkeypatch.setattr(netdiag, "_local_addresses", lambda: {"192.0.2.10"})
+    res = await netdiag.http_check("http://192.0.2.10:8000/api/v1/system/version")
+    assert res.ok is False and res.status is None
+    assert "this server" in (res.error or "")
+
+
+def test_local_addresses_reads_the_kernel_table() -> None:
+    addrs = netdiag._local_addresses()
+    assert isinstance(addrs, (set, frozenset))
+    assert not any(a.startswith("127.") for a in addrs), "迴路位址另外擋，不需要在這裡"
+
+
+async def test_accounts_without_any_visibility_cannot_use_the_http_check(client, db_session) -> None:
+    """完全沒有任何檢視權限的帳號不能叫伺服器替它去連內網（比照 AI 對話的總閘）。"""
+    from tests.test_rbac_enforcement import _nonadmin_token
+    _u, token = await _nonadmin_token(db_session)
+    await db_session.commit()
+    r = await client.post("/api/v1/tools/net/http", headers={"Authorization": f"Bearer {token}"},
+                          json={"url": "http://192.0.2.1/"})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "nd_no_visibility"

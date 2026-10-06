@@ -68,7 +68,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.17.2"
+AGENT_VERSION = "1.17.3"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -101,6 +101,8 @@ def _ctx() -> ssl.SSLContext | None:
     if not SERVER.startswith("https"):
         return None
     ctx = ssl.create_default_context()
+    # 代理連回伺服器一律 TLS 1.2 以上（CodeQL #43）。Python 3.10 起預設就是，明寫出來不靠預設值
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     if INSECURE:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE

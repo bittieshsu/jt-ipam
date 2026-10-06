@@ -22,6 +22,9 @@ class Device(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("ip_addresses.id", ondelete="SET NULL", use_alter=True),
     )
     type: Mapped[str] = mapped_column(String(16), default="other", nullable=False)
+    # 類型是誰定的：manual／import／librenms／proxmox／phpipam／auto（自動判斷）；NULL＝沒人定過（舊資料或預設值）。
+    # 自動判斷（services/device_type_auto）只碰「other 且沒人定過」或「上次就是自動判斷」的裝置。
+    type_source: Mapped[str | None] = mapped_column(String(16))
     vendor: Mapped[str | None] = mapped_column(Text)
     model: Mapped[str | None] = mapped_column(Text)
     serial: Mapped[str | None] = mapped_column(Text)
@@ -59,7 +62,7 @@ class Device(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint(
             "type IN ('server','switch','router','firewall','ap','storage','ipmi',"
-            "'patch_panel','pdu','ups','other')",
+            "'patch_panel','pdu','ups','workstation','other')",
             name="device_type_valid",
         ),
     )

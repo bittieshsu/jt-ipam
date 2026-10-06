@@ -242,6 +242,8 @@ export interface VersionInfo {
     /** 選用的作業系統相依：功能存在但主機不一定裝了對應執行檔 */
     optional_tools?: Record<string, {
       present: boolean; package: string; used_by: string; fallback?: boolean; version?: string | null;
+      /** 要管理員自己設定才會有（GeoIP 的 MaxMind 帳號）：沒設定不算缺少 */
+      opt_in?: boolean;
     }>;
     /** 必要相依（guacd）：沒裝或沒在跑，對應功能就不能正常運作 */
     required_tools?: Record<string, {

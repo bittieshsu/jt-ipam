@@ -18,8 +18,8 @@ import {
 } from "../messages";
 import { RdSession, type CloseInfo, type SessionEvents, type SessionOptions, type WebSocketLike } from "../session";
 import {
-  codecChoices, codecLabel, customImageQualityValue, DEFAULT_QUALITY, FpsMeter, loadQuality, QUALITY_STORAGE_KEY,
-  saveQuality, toQualityOption, type QualitySettings,
+  codecChoices, codecLabel, customImageQualityValue, DEFAULT_QUALITY, FpsMeter, loadQuality, loadShowStats,
+  QUALITY_STORAGE_KEY, saveQuality, saveShowStats, SHOW_STATS_STORAGE_KEY, toQualityOption, type QualitySettings,
 } from "../quality";
 import { VideoPipeline, type VideoSink } from "../video";
 
@@ -297,6 +297,36 @@ describe("I.2：設定記在 localStorage（只存三個選項）", () => {
     expect(saveQuality(q(), broken)).toBe(false);
     expect(loadQuality(null)).toEqual(DEFAULT_QUALITY);
     expect(saveQuality(q(), null)).toBe(false);
+  });
+});
+
+describe("效能列（延遲、位元率…）預設不顯示，畫質選單勾了才顯示（使用者 2026-10-06）", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it("沒設定過：不顯示", () => {
+    expect(loadShowStats()).toBe(false);
+  });
+
+  it("勾了記住、取消也記住；跟畫質選項分開存，不動畫質那個鍵", () => {
+    expect(saveShowStats(true)).toBe(true);
+    expect(loadShowStats()).toBe(true);
+    expect(localStorage.getItem(QUALITY_STORAGE_KEY)).toBeNull();
+    expect(saveShowStats(false)).toBe(true);
+    expect(loadShowStats()).toBe(false);
+    expect(localStorage.getItem(SHOW_STATS_STORAGE_KEY)).toBe("0");
+  });
+
+  it("壞掉的值與不能用的儲存空間：當作不顯示，不丟例外", () => {
+    localStorage.setItem(SHOW_STATS_STORAGE_KEY, "yes please");
+    expect(loadShowStats()).toBe(false);
+    const broken = {
+      getItem: () => { throw new Error("SecurityError"); },
+      setItem: () => { throw new Error("QuotaExceededError"); },
+    } as unknown as Storage;
+    expect(loadShowStats(broken)).toBe(false);
+    expect(saveShowStats(true, broken)).toBe(false);
+    expect(loadShowStats(null)).toBe(false);
   });
 });
 

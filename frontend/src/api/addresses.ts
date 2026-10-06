@@ -146,3 +146,21 @@ export async function applyDeviceSuggestion(
     `/api/v1/addresses/${id}/device-suggestion/apply`, body);
   return data;
 }
+
+
+/** 沒有 IP 記錄、但最近看得到在用的位址（掃描代理目擊＋LibreNMS ARP）：指示計的「未納管」格子 */
+export interface UnmanagedAddress {
+  ip: string;
+  last_seen_at: string | null;
+  /** scanner／arp:librenms … */
+  sources: string[];
+  mac: string | null;
+  vendor: string | null;
+  hostname: string | null;
+}
+
+export async function listUnmanaged(subnetId: string): Promise<UnmanagedAddress[]> {
+  const { data } = await apiClient.get<UnmanagedAddress[]>("/api/v1/addresses/unmanaged",
+                                                           { params: { subnet_id: subnetId } });
+  return data;
+}

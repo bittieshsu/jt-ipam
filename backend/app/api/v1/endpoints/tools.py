@@ -9,6 +9,7 @@ OWASP A05：所有輸入透過 stdlib `ipaddress` 解析（service 層），拒�
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import asdict
 from typing import Annotated, Any
@@ -26,6 +27,8 @@ from app.core.ui_error import detail_of, ui_detail
 from app.schemas.base import StrictModel
 from app.services import netdiag, nettools
 from app.services.nettools import NetToolError
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
@@ -358,6 +361,25 @@ async def net_traceroute(
             "truncated": res.truncated, "hops": [asdict(h) for h in res.hops]}
 
 
+def _trace_error_event(exc: netdiag.NetDiagError, *, admin: bool) -> dict[str, Any]:
+    """路徑追蹤串流的錯誤事件：代碼＋參數，前端照語系翻譯（以前直接送中文句子，英日文介面也看到中文）。
+
+    底層例外原文（例如無法啟動 traceroute 的 OSError）只給管理員看；一般帳號只拿到例外的類別名稱
+    （CodeQL #20）。完整原因寫日誌。
+    """
+    code = exc.code or "nd_error"
+    params = {k: v for k, v in (exc.params or {}).items() if k != "reason"}
+    raw = str((exc.params or {}).get("reason") or exc)
+    if admin:
+        params["reason"] = raw[:300]
+    else:
+        cause = exc.__cause__
+        params["reason"] = type(cause).__name__ if cause is not None else ""
+    log.warning("traceroute stream failed (%s): %s", code, raw[:300])
+    return {"type": "error", "code": code, "params": params,
+            "detail": raw[:300] if admin else "traceroute failed"}
+
+
 @router.post("/net/traceroute/stream")
 async def net_traceroute_stream(
     payload: _TraceIn, user: CurrentUser, request: Request,
@@ -374,14 +396,14 @@ async def net_traceroute_stream(
         raise _bad(exc) from exc
     await _diag_guard(session, user, request, "net_traceroute", {"target": target})
 
+    admin = bool(user.is_admin)
+
     async def gen() -> Any:
         try:
             async for ev in netdiag.traceroute_stream(target, max_hops=payload.max_hops):
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
-        except netdiag.NetDiagUnavailable as exc:
-            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
-        except netdiag.NetDiagError as exc:
-            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+        except netdiag.NetDiagError as exc:          # 含 NetDiagUnavailable
+            yield f"data: {json.dumps(_trace_error_event(exc, admin=admin), ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         gen(), media_type="text/event-stream",
@@ -482,7 +504,15 @@ async def net_http(
     payload: _HttpIn, user: CurrentUser, request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """狀態碼、轉址鏈與關鍵回應標頭。"""
+    """狀態碼、轉址鏈與關鍵回應標頭。
+
+    完全沒有任何檢視權限的帳號不能用（比照 AI 對話的 has_no_visibility 總閘）：這支會讓伺服器替呼叫者
+    對內網送出 GET，零權限帳號不該拿得到這個能力（2026-10-06 CodeQL 判讀）。
+    """
+    from app.mcp.tools import has_no_visibility
+    if await has_no_visibility(session, user):
+        raise HTTPException(status_code=403, detail=ui_detail(
+            "nd_no_visibility", "這個帳號沒有任何檢視權限，不能使用 HTTP 檢查"))
     await _diag_guard(session, user, request, "net_http", {"url": payload.url[:200]})
     res = await netdiag.http_check(
         payload.url, timeout=payload.timeout, max_redirects=payload.max_redirects,

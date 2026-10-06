@@ -66,6 +66,8 @@ class WazuhAgent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     status: Mapped[str | None] = mapped_column(String(32))   # active / disconnected / pending / never_connected
     os_platform: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(64))
+    # 產品名稱（os.name，如「Microsoft Windows 11 Pro」）；顯示優先用它，見 os_fingerprint.wazuh_os_display
+    os_name: Mapped[str | None] = mapped_column(String(160))
     agent_version: Mapped[str | None] = mapped_column(String(64))
     group: Mapped[str | None] = mapped_column(Text)
     node_name: Mapped[str | None] = mapped_column(String(64))

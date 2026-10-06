@@ -78,6 +78,11 @@ export async function getIdentify(target: IdentifyTarget | string, jobId: string
   return data;
 }
 
+/** 取消還在等待或執行中的探測（卡住時不必等滿逾時） */
+export async function cancelIdentify(target: IdentifyTarget | string, jobId: string): Promise<void> {
+  await apiClient.post(`${base(target)}/${jobId}/cancel`);
+}
+
 /** 以位址探測時的標題資訊；已經登記的位址會帶 address_id（畫面改用那筆記錄的探測頁） */
 export interface IdentifyIpTarget {
   ip: string; subnet_id: string; subnet_cidr: string; agent_name: string | null; address_id: string | null;

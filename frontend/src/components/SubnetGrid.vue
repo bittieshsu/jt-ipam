@@ -13,6 +13,8 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { NEmpty, NTooltip } from "naive-ui";
 import type { IPAddress } from "@/types";
+import type { UnmanagedAddress } from "@/api/addresses";
+import { fmtRelative } from "@/utils/datetime";
 import { RANGE_COLORS, type IPRange, type IPRangePurpose } from "@/api/ipRanges";
 import { classifyAddressLiveness, onlineGraceMinutes } from "@/composables/useLivenessSettings";
 
@@ -60,8 +62,25 @@ interface Props {
   /** 超大規模：`addresses` 只載入了一部分時，後端彙總的每個 /24 已用數（指示計改用它）與真正的總數 */
   blocks?: { start: string; used: number }[] | null;
   totalAddresses?: number;
+  /** 沒有 IP 記錄、但最近看得到在用的位址：格子畫成「未納管」（不是閒置） */
+  unmanaged?: UnmanagedAddress[];
 }
 const props = defineProps<Props>();
+
+// 未納管格子的說明：誰看到的、多久以前、MAC（廠商）
+function umSource(src: string): string {
+  if (src === "scanner") return t("anomaly.seen_scanner");
+  if (src.startsWith("arp:")) return t("anomaly.seen_arp_vendor", { vendor: src.slice(4) === "librenms" ? "LibreNMS" : src.slice(4) });
+  return src;
+}
+function umTip(u: UnmanagedAddress): string {
+  const parts = [u.sources.map(umSource).join("、"), fmtRelative(u.last_seen_at)];
+  if (u.mac) parts.push(u.vendor ? `${u.mac} (${u.vendor})` : u.mac);
+  return " · " + parts.filter(Boolean).join(" · ");
+}
+function umOld(u: UnmanagedAddress): boolean {
+  return !!u.last_seen_at && Date.now() - new Date(u.last_seen_at).getTime() > 24 * 3600 * 1000;
+}
 
 /** 範圍換成整數區間（位址圖只畫 IPv4） */
 const rangeSpans = computed(() => (props.ranges ?? []).flatMap((r) => {
@@ -132,10 +151,12 @@ function intToIpV4(n: number): string {
 
 interface Cell {
   ip: string;
-  state: "active" | "reserved" | "offline" | "dhcp" | "used" | "free";
+  state: "active" | "reserved" | "offline" | "dhcp" | "used" | "free" | "unmanaged";
   hostname: string | null;
   // 完整 IPAddress(給 live color 邏輯用)
   addr: IPAddress | null;
+  /** 沒有 IP 記錄、但看得到在用（掃描代理目擊／ARP） */
+  um?: UnmanagedAddress;
 }
 
 const parsed = computed<ParsedCidr>(() => parseCidrV4(props.cidr));
@@ -153,6 +174,8 @@ const directCells = computed<Cell[] | null>(() => {
   // 建 ip → IPAddress 索引
   const idx: Record<string, IPAddress> = {};
   for (const a of props.addresses) idx[a.ip] = a;
+  const umIdx: Record<string, UnmanagedAddress> = {};
+  for (const u of props.unmanaged ?? []) umIdx[u.ip] = u;
 
   // 計算 cell 範圍：/31、/32 含 network/broadcast；其餘從 +1 到 -1
   const total = p.prefixlen >= 32 ? 1 : 2 ** (32 - p.prefixlen);
@@ -170,6 +193,8 @@ const directCells = computed<Cell[] | null>(() => {
     if (a) {
       const st = (a.state || "used") as Cell["state"];
       out.push({ ip, state: st, hostname: a.hostname, addr: a });
+    } else if (umIdx[ip]) {
+      out.push({ ip, state: "unmanaged", hostname: umIdx[ip].hostname, addr: null, um: umIdx[ip] });
     } else {
       out.push({ ip, state: "free", hostname: null, addr: null });
     }
@@ -232,14 +257,16 @@ const aggregated = computed<AggCell[] | null>(() => {
 
 // 由整合／掃描代理自動建進來、沒有人登記過的位址。狀態照舊（可能上線也可能離線），
 // 但要能一眼認出「這不是有人登記的」—— 它一旦進了 IPAM 就不會再被「未授權 IP」
-// 偵測列出來，等於私接的機器會安靜地變成正式紀錄。清單上是橘色 icon，格子圖用橘框。
-const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner"];
+// 偵測列出來，等於私接的機器會安靜地變成正式紀錄。清單上是紫色 icon，格子圖是半格紫。
+// 來源清單要跟 IpRoleTags 一致：以前少了 librenms_arp，清單有標記、格子圖卻沒有。
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner", "librenms_arp"];
 function isAutoAdded(a: IPAddress | null): boolean {
   return !!a && AUTO_SOURCES.includes(String((a as any).discovery_source ?? ""));
 }
 
 // 回傳 { color, kind } — kind 用來決定 cell 額外樣式 (free 走空心 dashed)
-function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } {
+function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" | "unmanaged" } {
+  if (cell.state === "unmanaged") return { background: "transparent", kind: "unmanaged" };
   if (cell.state === "free" || !cell.addr) {
     return { background: "transparent", kind: "free" };
   }
@@ -267,6 +294,7 @@ function cellStyle(cell: Cell): { background: string; kind: "filled" | "free" } 
 
 // tooltip 用的狀態標籤：要跟 cell 顏色一致 (active 的紅點代表離線，不是 active)
 function cellStatusLabel(cell: Cell): string {
+  if (cell.state === "unmanaged") return t("visualisation.unmanaged");
   if (cell.state === "free" || !cell.addr) return t("visualisation.free");
   if (cell.state === "reserved") return t("addresses.state_reserved");
   if (cell.state === "dhcp") return t("addresses.state_dhcp");
@@ -284,7 +312,7 @@ function cellStatusLabel(cell: Cell): string {
 // auto 是「疊在顏色上」的另一個維度（自動收錄的位址仍然有自己的上線／離線狀態），
 // 所以它跟其它項目相加不會等於總數 —— 圖例文字要講清楚，不然看起來像算錯。
 const legendCounts = computed(() => {
-  const c = { online: 0, stale: 0, offline: 0, reserved: 0, unknown: 0, free: 0, auto: 0 };
+  const c = { online: 0, stale: 0, offline: 0, reserved: 0, unknown: 0, free: 0, auto: 0, unmanaged: 0 };
   for (const a of props.addresses) {
     if (isAutoAdded(a)) c.auto++;
     const st = a.state || "used";
@@ -293,7 +321,9 @@ const legendCounts = computed(() => {
     c[classifyAddressLiveness(a)]++;
   }
   const total = parsed.value.ok && !isV6.value ? parsed.value.hostCount : props.addresses.length;
-  c.free = Math.max(total - (props.totalAddresses ?? props.addresses.length), 0);
+  c.unmanaged = (props.unmanaged ?? []).length;
+  // 未納管的位址沒有 IP 記錄，以前算在閒置裡；現在分開算
+  c.free = Math.max(total - (props.totalAddresses ?? props.addresses.length) - c.unmanaged, 0);
   return c;
 });
 // 狀態統計只能依已載入的那些算（上線與否由前端依多個時間欄位判斷）：講清楚
@@ -320,14 +350,16 @@ function aggColor(pct: number): string {
         :key="c.ip"
         class="cell"
         :class="[
-          cellStyle(c).kind === 'free' ? 'cell-free' : 'cell-filled',
+          cellStyle(c).kind === 'free' ? 'cell-free' : cellStyle(c).kind === 'unmanaged' ? 'cell-unmanaged' : 'cell-filled',
           isAutoAdded(c.addr) ? 'cell-auto' : '',
+          c.um && umOld(c.um) ? 'cell-unmanaged-old' : '',
         ]"
+        :data-state="c.state"
         :style="{ background: cellStyle(c).background,
                   ...(rangeOf(c.ip) ? { boxShadow: `inset 0 -3px 0 ${RANGE_COLORS[rangeOf(c.ip)!.purpose]}` } : {}) }"
         :data-range="rangeOf(c.ip)?.purpose"
         @mouseenter="(e) => showTip(e, `${c.ip}${c.hostname ? ' · ' + c.hostname : ''} · ${cellStatusLabel(c)}`
-          + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : '') + rangeTip(c.ip))"
+          + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : '') + (c.um ? umTip(c.um) : '') + rangeTip(c.ip))"
         @mousemove="moveTip"
         @mouseleave="hideTip"
         @click="() => {
@@ -373,6 +405,7 @@ function aggColor(pct: number): string {
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-reserved, #3b82f6)' }"></i>{{ t("visualisation.reserved") }} ({{ legendCounts.reserved }})</span></template>{{ t("visualisation.tip_reserved") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, var(--jt-cell-active, #22c55e) 50% 100%)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" data-testid="grid-legend-unmanaged"><i class="legend-unmanaged"></i>{{ t("visualisation.unmanaged") }} ({{ legendCounts.unmanaged }})</span></template>{{ t("visualisation.tip_unmanaged") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
       <span v-for="p in rangePurposes" :key="'rg-' + p" class="legend-item">
         <i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', boxShadow: `inset 0 -3px 0 ${RANGE_COLORS[p]}` }"></i>{{ t(`ranges.purpose_${p}`) }}
@@ -409,6 +442,14 @@ function aggColor(pct: number): string {
   border: 1px dashed rgba(127, 127, 127, 0.55);
   background: transparent !important;
 }
+/* 未納管：IPAM 沒有記錄、但看得到在用 —— 橘色虛線框＋淡橘底，跟閒置的灰色虛線分得出來 */
+.cell.cell-unmanaged {
+  border: 1.5px dashed #f59e0b;
+  background: rgba(245, 158, 11, 0.16) !important;
+}
+/* 超過一天沒再看到：淡一點（可能已經不在了） */
+.cell.cell-unmanaged-old { opacity: 0.5; }
+.legend-unmanaged { border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.16) !important; box-sizing: border-box; }
 .cell:hover {
   transform: scale(1.7);
   outline: 2px solid #ffffff;

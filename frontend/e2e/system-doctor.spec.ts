@@ -39,6 +39,20 @@ test.describe("系統診斷", () => {
     await expect(page.getByText(/jt-ipam\.sh doctor/)).toBeVisible();
   });
 
+  test("資料統計：各類資料的筆數都是數字，並寫明不會傳送出去", async ({ page }) => {
+    await login(page);
+    await page.goto("/doctor");
+    const st = page.getByTestId("doctor-stats");
+    await expect(st).toBeVisible({ timeout: 20_000 });
+    await expect(st).toContainText("不會傳送到任何地方");
+    for (const key of ["subnets", "ipv4", "devices", "audit_logs"]) {
+      await expect(st.locator(`.doc-stat[data-key="${key}"] .doc-stat-v`)).toHaveText(/^(約 )?[\d,]+$/);
+    }
+    // 時間參數換成觀看者的時區（以前直接印 UTC）：背景作業那一列不可以有 T 或 +00:00
+    const jobs = page.locator(".doc-row", { hasText: "背景作業" });
+    if (await jobs.count()) await expect(jobs.first()).not.toContainText(/\dT\d|\+00:00/);
+  });
+
   test("可以下載純文字記錄檔", async ({ page }) => {
     await login(page);
     await page.goto("/doctor");

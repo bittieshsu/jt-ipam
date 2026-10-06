@@ -88,7 +88,7 @@ const ipColumnPickerItems = [
 import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon, AddressesIcon, DeleteIcon } from "@/icons";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { apiClient } from "@/api/client";
-import { listAddresses } from "@/api/addresses";
+import { listAddresses, listUnmanaged, type UnmanagedAddress } from "@/api/addresses";
 import { listDhcpRanges } from "@/api/integrations";
 import { getSubnetUsage, deleteSubnet } from "@/api/subnets";
 import { getSection } from "@/api/sections";
@@ -132,6 +132,7 @@ const addresses = ref<IPAddress[]>([]);
 // 超過時講清楚只列了前面這些，並連到有伺服器端分頁與搜尋的 IP 位址清單
 const ADDRESS_LOAD_LIMIT = 1000;
 const addressesTotal = ref(0);
+const unmanaged = ref<UnmanagedAddress[]>([]);
 // 位址只載入了一部分時，IP 指示計改用後端彙總的每個 /24 已用數
 const subnetBlocks = ref<{ start: string; used: number }[] | null>(null);
 // 表格分頁：1,000 列一次畫出來會讓瀏覽器卡住將近十秒（每列都有提示框與標籤）
@@ -293,6 +294,8 @@ async function load(id: string) {
         .catch(() => { /* 拿不到就照舊用已載入的（至少不會壞） */ });
     }
     void loadRanges(id);
+    // 沒納管、但看得到在用的位址（指示計的「未納管」格子）；拿不到就當沒有，不影響其他內容
+    listUnmanaged(id).then((rows) => { unmanaged.value = rows; }).catch(() => { unmanaged.value = []; });
 
     // 解析名稱：section 必載；vlan/vrf/master_subnet 視情況
     const tasks: Promise<unknown>[] = [];
@@ -900,6 +903,7 @@ onMounted(() => {
           :ranges="ipRanges"
           :blocks="subnetBlocks"
           :total-addresses="addressesTotal"
+          :unmanaged="unmanaged"
           @open-ip="onGridOpen"
           @create-ip="onGridCreate"
         />

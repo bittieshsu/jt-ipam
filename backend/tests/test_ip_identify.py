@@ -1293,3 +1293,45 @@ def test_mobile_evidence_names_the_os_that_was_chosen() -> None:
     s = summarize(_nm(ports, os))
     line = next(e for e in s["evidence"] if e.startswith("os:"))
     assert "iOS" in line and "Big Sur" not in line, s["evidence"]
+
+
+async def test_a_running_probe_can_be_cancelled_and_a_late_result_is_ignored(client, auth_headers, db_session) -> None:
+    """探測卡住（例如部署重啟時代理的回報掉了）要能取消，不必等滿 9 分鐘（使用者 2026-10-07）。"""
+    from app.models.background_task import BackgroundTask
+    raw = "c" * 40
+    ip, _ = await _agent_with_key(db_session, raw)
+    ip_id = ip.id
+    job_id = (await client.post(f"/api/v1/addresses/{ip_id}/identify", headers=auth_headers)).json()["job_id"]
+    await client.get("/api/v1/scan-agents/jobs", headers={"X-Agent-Key": raw})      # 代理領走 → running
+
+    r = await client.post(f"/api/v1/addresses/{ip_id}/identify/{job_id}/cancel", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = (await client.get(f"/api/v1/addresses/{ip_id}/identify/{job_id}", headers=auth_headers)).json()
+    assert body["status"] == "failed" and "取消" in (body.get("error") or "")
+    db_session.expire_all()
+    task = (await db_session.execute(select(BackgroundTask).where(
+        BackgroundTask.kind == "ip.identify"))).scalars().all()[-1]
+    assert task.status == "cancelled"
+
+    # 代理之後才回報：不可以把取消掉的工作改回完成
+    r = await client.post(f"/api/v1/scan-agents/jobs/{job_id}/result", json={"result": {"names": {}}},
+                          headers={"X-Agent-Key": raw})
+    body = (await client.get(f"/api/v1/addresses/{ip_id}/identify/{job_id}", headers=auth_headers)).json()
+    assert body["status"] == "failed"
+    # 取消後可以馬上再探測一次（同一個位址同時只能一個，取消的不算進行中）
+    again = await client.post(f"/api/v1/addresses/{ip_id}/identify", headers=auth_headers)
+    assert again.status_code == 202, again.text
+    # 稽核
+    from app.models.audit import AuditLog
+    rows = (await db_session.execute(select(AuditLog).where(AuditLog.action == "identify_cancel"))).scalars().all()
+    assert rows
+
+
+async def test_finished_probes_cannot_be_cancelled(client, auth_headers, db_session) -> None:
+    ip, agent = await _setup(db_session)
+    job = AgentProbeJob(agent_id=agent.id, kind="identify", params={"targets": ["198.51.100.7"]},
+                        status="done", result={}, expires_at=datetime.now(UTC))
+    db_session.add(job)
+    await db_session.commit()
+    r = await client.post(f"/api/v1/addresses/{ip.id}/identify/{job.id}/cancel", headers=auth_headers)
+    assert r.status_code == 409

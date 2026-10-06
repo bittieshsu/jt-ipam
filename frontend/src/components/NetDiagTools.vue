@@ -607,7 +607,8 @@ async function runTrace() {
         trace.res!.truncated = !!ev.truncated;
         trace.res!.reached = ev.reached;
       } else if (ev.type === "error") {
-        msg.error(ev.detail ?? t("errors.server"));
+        // 後端給代碼，照語系翻譯（以前直接送中文句子）；舊後端沒有代碼才退回 detail
+        msg.error(ev.code ? t(`errors.${ev.code}`, ev.params ?? {}) : (ev.detail ?? t("errors.server")));
       }
     }, traceAbort.signal);
   } catch (e: any) {

@@ -35,6 +35,27 @@ test("選機房 → 那一間的機櫃都畫出來；改成挑一個機櫃 → �
   await expect(card).toContainText("測試機房 A");
   await expect(card.locator(".dr-rack").filter({ hasText: "KALLAX-24" })).toBeVisible({ timeout: 15_000 });
   expect(await card.locator(".dr-rack").count()).toBeGreaterThan(2);
+  // 整排同一個縮放比例：以前每台各自縮到放得下，42U 被縮小、3 層層架維持原尺寸，看起來一樣高
+  await expect.poll(async () => new Set(await card.locator(".rack-wrap").evaluateAll(
+    (els) => els.map((e) => getComputedStyle(e).transform))).size, { timeout: 10_000 }).toBe(1);
+
+  // 大小可以調（使用者 2026-10-06）：放大後整排一起變大，比例不變
+  const scaleOf = async () => card.locator(".rack-wrap").first().evaluate(
+    (e) => new DOMMatrix(getComputedStyle(e).transform).a);
+  const before = await scaleOf();
+  await openSettings(page);
+  const handle = page.getByTestId("dash-racks-scale").getByRole("slider");
+  await handle.focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight");
+  await page.getByTestId("dash-racks-save").click();
+  await expect.poll(scaleOf, { timeout: 10_000 }).toBeGreaterThan(before * 1.3);
+  expect(new Set(await card.locator(".rack-wrap").evaluateAll(
+    (els) => els.map((e) => getComputedStyle(e).transform))).size).toBe(1);
+  // 還原大小
+  await openSettings(page);
+  await handle.focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowLeft");
+  await page.getByTestId("dash-racks-save").click();
 
   await openSettings(page);
   await page.getByText("指定幾個機櫃").click();

@@ -55,6 +55,7 @@ _COLORS: dict[str, str] = {
     "patch_panel": "rgba(20, 184, 166, 0.75)",
     "pdu": "rgba(217, 119, 6, 0.8)",
     "ups": "rgba(202, 138, 4, 0.85)",
+    "workstation": "rgba(14, 165, 233, 0.8)",
 }
 _DEFAULT_COLOR = "rgba(107, 114, 128, 0.6)"
 

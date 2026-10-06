@@ -56,6 +56,7 @@ class WazuhAgentRead(StrictModel):
     status: str | None
     os_platform: str | None
     os_version: str | None
+    os_name: str | None = None
     agent_version: str | None
     group: str | None
     node_name: str | None

@@ -2984,7 +2984,9 @@ def first_alternative(osmatch_name: str | None) -> str:
     """nmap 的名稱常列好幾個候選（「A or B」「A, B, C」）；第一個才對應第一筆 <osclass>。括號內的細節去掉。
     依名稱覆寫的規則只看這一段。"""
     n = re.sub(r"\([^()]{0,200}\)", " ", (osmatch_name or "")[:MAX_TEXT])
-    return re.split(r"\s+or\s+|,\s+|;\s+", n.strip())[0].strip()
+    # 只要第一段，分隔符兩側只需一個空白（後面的 strip 會去掉其餘）：`\s+or\s+` 在一長串空白後面
+    # 不是 or 時會二次方回溯（CodeQL #45）；現在有長度上限擋著，這樣寫則不靠上限也是線性
+    return re.split(r"\sor\s|,\s|;\s", n.strip(), maxsplit=1)[0].strip()
 
 
 _NMAP_TYPE_LC = {k.lower(): k for k in NMAP_DEVICE_TYPES}

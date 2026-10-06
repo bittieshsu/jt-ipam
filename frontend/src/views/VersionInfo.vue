@@ -42,8 +42,11 @@ const optionalTools = computed(() => {
   const ot = info.value?.host?.optional_tools;
   return ot ? Object.entries(ot).map(([name, v]) => ({ name, ...v })) : [];
 });
-// 備用引擎（aardwolf）沒裝是正常的：不列進警告（有的 Python 版本根本裝不起來）
-const missingTools = computed(() => optionalTools.value.filter((x) => !x.present && !x.fallback));
+// 備用引擎（aardwolf）沒裝是正常的：不列進警告（有的 Python 版本根本裝不起來）；
+// GeoIP 要管理員自己的 MaxMind 帳號（opt_in），沒設定也是正常的
+const missingTools = computed(() => optionalTools.value.filter((x) => !x.present && !x.fallback && !x.opt_in));
+// 下載來的資料庫各有自己的頁面（版本、更新、設定），這裡只列狀態並連過去
+const toolPages: Record<string, string> = { recog: "recog_admin", oui: "oui_admin", geoip: "system_settings" };
 // 必要相依（guacd：RDP／VNC 的預設引擎，必裝）：沒裝或沒在跑都要用紅色講清楚
 const requiredTools = computed(() => {
   const rt = info.value?.host?.required_tools;
@@ -182,15 +185,16 @@ onMounted(load);
         </n-alert>
         <div class="ver-pkg-grid">
           <div v-for="p in optionalTools" :key="p.name" class="ver-pkg">
-            <!-- Recog 的詳細資訊與更新在自己的頁面（比照 MAC 製造商資料庫），這裡只列版本並連過去 -->
+            <!-- Recog／OUI／GeoIP 的詳細資訊與更新在各自的頁面，這裡只列版本並連過去 -->
             <span class="ver-pkg__name">
-              <router-link v-if="p.name === 'recog'" :to="{ name: 'recog_admin' }" class="ver-link"
-                           data-testid="version-recog-link">{{ p.name }}</router-link>
+              <router-link v-if="toolPages[p.name]" :to="{ name: toolPages[p.name] }" class="ver-link"
+                           :data-testid="`version-${p.name}-link`">{{ p.name }}</router-link>
               <template v-else>{{ p.name }}</template>
               <span class="ver-opt-use">{{ p.used_by }}</span>
             </span>
-            <span class="ver-pkg__ver" :style="p.present || p.fallback ? '' : 'color:#d03050'">
-              {{ p.present ? (p.version ? p.version : t("version.optional_present")) : t("version.optional_absent") }}
+            <span class="ver-pkg__ver" :style="p.present || p.fallback || p.opt_in ? '' : 'color:#d03050'">
+              {{ p.present ? (p.version ? p.version : t("version.optional_present"))
+                : (p.opt_in ? t("version.optional_not_configured") : t("version.optional_absent")) }}
             </span>
           </div>
         </div>

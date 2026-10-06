@@ -143,13 +143,24 @@ export async function setCertSource(id: string, payload: CertSourcePayload): Pro
   const { data } = await apiClient.put(`/api/v1/certificates/${id}/source`, payload);
   return data;
 }
-export async function fetchCertNow(id: string): Promise<{ status: string; error?: string; fingerprint?: string; not_after?: string }> {
+export async function fetchCertNow(id: string): Promise<{
+  status: string; error?: string; fingerprint?: string; not_after?: string;
+  code?: string | null; params?: Record<string, unknown>;
+}> {
   const { data } = await apiClient.post(`/api/v1/certificates/${id}/fetch-now`);
   return data;
 }
-export async function testCertSource(id: string, payload: CertSourcePayload): Promise<{ ok: boolean; message: string }> {
+export async function testCertSource(id: string, payload: CertSourcePayload): Promise<{
+  ok: boolean; message: string; code?: string | null; params?: Record<string, unknown>;
+  /** SFTP 主機金鑰的指紋（第一次連上時記住，之後每次都要相同） */
+  host_key_fingerprint?: string | null;
+}> {
   const { data } = await apiClient.post(`/api/v1/certificates/${id}/source/test`, payload);
   return data;
+}
+/** 「重新信任主機金鑰」：SFTP 主機重灌或換了金鑰時，確認新指紋後清掉記住的，下一次連線重新記住 */
+export async function forgetCertSourceHostKey(id: string): Promise<void> {
+  await apiClient.post(`/api/v1/certificates/${id}/source/forget-host-key`);
 }
 export async function genCertSourceSshKey(id: string, payload: CertSourcePayload): Promise<{ public_key: string; installed: boolean; message: string }> {
   const { data } = await apiClient.post(`/api/v1/certificates/${id}/source/ssh-keypair`, payload);

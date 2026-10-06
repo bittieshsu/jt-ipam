@@ -89,6 +89,7 @@ from app.models.section import Section
 from app.models.ssh_credential import SSHCredential
 from app.models.subnet import Subnet
 from app.models.system_setting import SystemSetting
+from app.models.unmanaged_sighting import UnmanagedSighting
 from app.models.user import APIToken, Group, User, UserGroupMember, UserPreference
 from app.models.virt import (
     ProxmoxInstance,
@@ -180,6 +181,7 @@ __all__ = [
     "Subnet",
     "Tenant",
     "TenantGroup",
+    "UnmanagedSighting",
     "User",
     "UserGroupMember",
     "UserPreference",

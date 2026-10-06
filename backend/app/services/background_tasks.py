@@ -80,6 +80,63 @@ async def upsert_scheduled_task(
         await session.rollback()
 
 
+# 不是 jt-ipam-sync 排程寫的作業：代理推上來的回報、使用者發起的探測、各自 timer 跑的資料庫更新。
+# 系統診斷用「最後一筆排程作業」判斷 jt-ipam-sync.timer 有沒有在跑，這幾種要排除，
+# 否則代理每 5 分鐘一列會把停擺的排程遮掉。
+NOT_SYNC_TIMER_KINDS = ("ip.identify", "rustdesk.sync", "isc_dhcp.sync",
+                        "oui.refresh", "recog.refresh", "geoip.refresh")
+
+# 資料庫更新（沒有對應的整合物件）在作業頁上的目標名稱；也是 upsert 的鍵，所以要固定
+REFRESH_LABELS = {
+    "oui.refresh": "Wireshark manuf",
+    "recog.refresh": "Recog",
+    "geoip.refresh": "MaxMind GeoIP",
+}
+
+
+async def record_refresh(
+    session: AsyncSession, kind: str, *, ok: bool,
+    summary: dict[str, Any] | None = None, error: str | None = None,
+) -> None:
+    """OUI／Recog／GeoIP 的排程更新：跟整合的排程同步一樣每種只留一列。絕不 raise。"""
+    await upsert_scheduled_task(session, kind=kind, target_type="system", target_id=None,
+                                target_label=REFRESH_LABELS[kind], ok=ok, summary=summary, error=error)
+
+
+async def record_finished_task(
+    session: AsyncSession, *, kind: str, ok: bool,
+    target_type: str | None = None, target_id: uuid.UUID | None = None,
+    target_label: str | None = None, actor_user_id: uuid.UUID | None = None,
+    started_at: datetime | None = None,
+    summary: dict[str, Any] | None = None, error: str | None = None,
+) -> None:
+    """在請求裡同步做完的手動操作（「立即更新」）補一列已完成的作業，作業頁才看得到誰、何時、結果。
+
+    每次手動一列（跟 spawn_task 一樣），不 upsert。絕不 raise：記不進去不可以讓操作本身失敗。
+    """
+    now = datetime.now(UTC)
+    try:
+        session.add(BackgroundTask(
+            kind=kind, trigger="manual", status="succeeded" if ok else "failed", progress=100,
+            target_type=target_type, target_id=target_id,
+            target_label=target_label or REFRESH_LABELS.get(kind), actor_user_id=actor_user_id,
+            summary=summary, error=(error or None) if not ok else None,
+            queued_at=started_at or now, started_at=started_at or now, finished_at=now,
+        ))
+        await session.commit()
+    except Exception:
+        logger.exception("record_finished_task failed for %s", kind)
+        await session.rollback()
+
+
+async def forget_scheduled_rows(session: AsyncSession, target_id: uuid.UUID) -> None:
+    """刪掉某個整合時，一併拿掉它的排程心跳列（否則作業頁永遠留著一台已經不存在的來源）。
+    由 integration_cleanup.forget_instance 呼叫，所有整合一體適用。"""
+    from sqlalchemy import delete
+    await session.execute(delete(BackgroundTask).where(
+        BackgroundTask.trigger == "scheduled", BackgroundTask.target_id == target_id))
+
+
 async def spawn_task(
     *,
     session: AsyncSession,

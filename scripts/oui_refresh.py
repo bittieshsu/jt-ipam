@@ -12,16 +12,23 @@ import sys
 
 async def _main() -> int:
     from app.core.db import SessionLocal, engine
+    from app.services.background_tasks import record_refresh
     from app.services.oui import refresh_oui_db
 
     try:
         async with SessionLocal() as session:
-            result = await refresh_oui_db(session)
-        print(f"[oui_refresh] {result}")
-        return 0
-    except Exception as exc:  # 下載失敗：記錄原因、回非零讓 systemd 標記失敗；既有資料不受影響
-        print(f"[oui_refresh] failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+            try:
+                result = await refresh_oui_db(session)
+            except Exception as exc:  # 下載失敗：記錄原因、回非零讓 systemd 標記失敗；既有資料不受影響
+                await session.rollback()
+                err = f"{type(exc).__name__}: {exc}"
+                print(f"[oui_refresh] failed: {err}", file=sys.stderr)
+                await record_refresh(session, "oui.refresh", ok=False, error=err[:500])
+                return 1
+            print(f"[oui_refresh] {result}")
+            # 作業頁看得到這次更新（每種資料庫更新只留一列）
+            await record_refresh(session, "oui.refresh", ok=True, summary=result)
+            return 0
     finally:
         await engine.dispose()
 

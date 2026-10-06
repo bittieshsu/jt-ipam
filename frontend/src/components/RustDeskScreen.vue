@@ -68,7 +68,8 @@ import {
 import { viewFromPeerInfo, type DisplayEventKind, type DisplayView } from "@/rdweb/displays";
 import {
   clampCustom, codecChoices, codecLabel, CUSTOM_MAX, CUSTOM_MIN, DEFAULT_QUALITY, FPS_CHOICES, FpsMeter, loadQuality,
-  QUALITY_LEVELS, saveQuality, toQualityOption, type CodecPref, type QualityLevel, type QualitySettings,
+  loadShowStats, QUALITY_LEVELS, saveQuality, saveShowStats, toQualityOption, type CodecPref, type QualityLevel,
+  type QualitySettings,
 } from "@/rdweb/quality";
 import {
   CursorCache, isRemoteMove, REMOTE_CURSOR_TIMEOUT_MS, renderCursorPng, type RenderedCursor,
@@ -254,6 +255,8 @@ const ELEV_USER_EXAMPLE = "DOMAIN\\user";
 
 // 畫質（附錄 I）：localStorage 只記畫質、更新率、編碼偏好三個選項（quality.ts），讀不到就用預設值
 const quality = reactive<QualitySettings>(loadQuality());
+// 效能列預設不顯示（使用者 2026-10-06）：畫質選單裡勾「顯示效能資訊」才出現，記在這台瀏覽器
+const showStats = ref(loadShowStats());
 const decodeCaps = ref<Decoding>({ vp9: true, h264: false, vp8: false, av1: false });
 const peerEncoding = ref<SupportedEncoding | null>(null);
 const qualityMenuShow = ref(false);
@@ -797,6 +800,8 @@ const qualityMenu = computed<MenuItem[]>(() => {
         key: `codec:${c}`, icon: checkIcon(shownCodec.value === c),
         label: c === "auto" ? t("rdweb.q_codec_auto") : codecLabel(c),
       })) },
+    { type: "divider", key: "d_stats" },
+    { key: "stats:toggle", label: t("rdweb.q_show_stats"), icon: checkIcon(showStats.value) },
     { type: "divider", key: "d_note" },
     // I.2：多人同時看同一台時，畫質以最後設定的為準
     { type: "render", key: "q_note",
@@ -826,6 +831,9 @@ function onQualitySelect(key: string | number) {
   } else if (group === "codec") {
     quality.codec = val as CodecPref;
     applyQuality(["prefer"]);
+  } else if (group === "stats") {
+    showStats.value = !showStats.value;
+    saveShowStats(showStats.value);
   }
 }
 
@@ -1040,7 +1048,17 @@ function submit2fa() {
 }
 
 function disconnect() {
-  session?.close();
+  if (session) {
+    session.close();
+    return;
+  }
+  // 還在準備（檢查解碼器、換票證）時 session 還沒建立：以前按了沒反應、連線照樣接下去。
+  // 讓進行中的那一次作廢、取消自動重連，停在「已關閉」
+  connectGen++;
+  reconnect.cancel();
+  pipeline?.close();
+  pipeline = null;
+  ui.value = "closed";
 }
 
 function backToForm() {
@@ -1500,7 +1518,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- 附錄 I.2：延遲、位元率、每秒解出的張數、編碼。獨立一行：跟按鈕擠在同一行時，寬度不夠會把整排按鈕
            推到第二行（使用者 2026-10-05） -->
-      <div v-if="ui === 'connected' && statsText" class="rdw-stats-row">
+      <div v-if="ui === 'connected' && showStats && statsText" class="rdw-stats-row">
         <n-tooltip :delay="200">
           <template #trigger>
             <span class="rdw-stats" data-testid="rdweb-stats">{{ statsText }}</span>

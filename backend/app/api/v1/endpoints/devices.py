@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.os_fingerprint import wazuh_os_display
 from app.core.sqlin import in_values
 from app.core.ui_error import detail_of
 from app.models.device import Device
@@ -145,7 +146,8 @@ async def get_device_integrations(
         out["wazuh"] = {
             "agent_id": wa.agent_id, "name": wa.name, "url": wz_url,
             "ip": str(wa.ip) if wa.ip else None, "status": wa.status,
-            "os_platform": wa.os_platform, "os_version": wa.os_version,
+            "os_platform": wa.os_platform, "os_version": wa.os_version, "os_name": wa.os_name,
+            "os": wazuh_os_display(wa.os_name, wa.os_platform, wa.os_version),
             "agent_version": wa.agent_version, "group": wa.group,
             # 資安組態評估（SCA）—— 目前唯一拿得到的資安體質指標
             "sca_policy": wa.sca_policy, "sca_score": wa.sca_score,
@@ -540,6 +542,9 @@ async def create_device(
     data = payload.model_dump()
     data["custom_fields"] = cf or None
     obj = Device(**data)
+    # 建立時明確選了類型（不是表單預設的 other）就算人定的，自動判斷不碰
+    if "type" in payload.model_fields_set and obj.type != "other":
+        obj.type_source = "manual"
     # 放進機櫃時先防呆：U 位不可越界或與其他裝置重疊（規則與裝置匯入共用 services/device_write）
     from app.services.device_write import PlacementError, check_placement, link_primary_ip
     try:
@@ -586,6 +591,9 @@ async def update_device(
             raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
     for k, v in changes.items():
         setattr(obj, k, v)
+    # 人改過類型 → 之後的自動判斷（services/device_type_auto）不再碰它。編輯表單每次都會送 type，所以要比對有沒有真的改
+    if "type" in changes and changes["type"] != before["type"]:
+        obj.type_source = "manual"
     # 放進機櫃時先防呆：U 位不可越界或與其他裝置（同安裝方向）重疊（與裝置匯入共用 services/device_write）
     from app.services.device_write import PlacementError, check_placement, link_primary_ip
     try:

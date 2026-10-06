@@ -433,14 +433,15 @@ function renderMac(o: Record<string, any>) {
   // 本地管理位址（虛擬機／容器／手機 MAC 隨機化）沒有 OUI 登記，查不到廠商是正常的。
   // 標出來才看得懂：同一 IP 上「真實 MAC + 隨機 MAC」多半是同一台裝置，不是兩台在搶。
   const tag = o.local
-    ? h("span", { class: "mac-tag mac-tag--local" }, t("anomaly.mac_local"))
-    : (o.vendor ? h("span", { class: "mac-tag" }, String(o.vendor)) : null);
+    ? h("span", { class: "anm-mac-tag anm-mac-tag--local", title: t("anomaly.mac_local") }, t("anomaly.mac_local"))
+    : (o.vendor ? h("span", { class: "anm-mac-tag", title: String(o.vendor) }, String(o.vendor)) : h("span"));
   // 誰看到的（掃描代理／防火牆 ARP 表／LibreNMS）：兩個 MAC 各是誰回報的，判斷真假時很關鍵
   const seen = Array.isArray(o.sources) && o.sources.length
-    ? h("span", { class: "mac-seen", title: colLabel("sources") },
+    ? h("span", { class: "anm-mac-seen", title: colLabel("sources") },
       o.sources.map((x: string) => seenBy(String(x))).join("、"))
-    : null;
-  return h("div", { style: "display:flex;align-items:baseline;gap:8px;font-size:12.5px" }, [
+    : h("span");
+  // 每一列同一組欄寬（MAC｜廠商｜誰看到的｜時間），多個 MAC 疊起來時上下對齊；MAC 與廠商不折行
+  return h("div", { class: "anm-mac-row" }, [
     // 點 MAC 看它的完整歷程（用過哪些 IP、出現在哪個交換器埠）
     o.mac ? h(RouterLink, { to: { name: "mac-history", params: { mac: o.mac } },
                            style: "font-family:var(--jt-mono,monospace);color:var(--primary-color,#18a058);text-decoration:none" },
@@ -448,8 +449,7 @@ function renderMac(o: Record<string, any>) {
       : h("span", null, "—"),
     tag,
     seen,
-    h("span", { style: "opacity:.55;margin-left:auto;white-space:nowrap" },
-      pretty("last_seen_at", o.last_seen_at)),
+    h("span", { class: "anm-mac-time" }, pretty("last_seen_at", o.last_seen_at)),
   ]);
 }
 // 表格裡的 IP 要能點進 IP 詳細資料（回報：看到可疑 IP 卻只能自己複製去搜）。
@@ -951,6 +951,27 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
   </n-modal>
 </template>
 
+<!-- 表格儲存格是 NDataTable 用 render 函式畫的，scoped 樣式套不到：IP 衝突的 MAC 列樣式放這裡（以前寫在 scoped 裡，
+     廠商標籤沒有底色也不會不折行，MAC 與廠商被折成兩三行、各列對不齊） -->
+<style>
+.anm-mac-row {
+  display: grid; grid-template-columns: 17.5ch 8.5em minmax(0, 1fr) auto;
+  column-gap: 8px; align-items: baseline; font-size: 12.5px;
+}
+.anm-mac-row > a, .anm-mac-row > span { min-width: 0; }
+.anm-mac-row > a { white-space: nowrap; }
+.anm-mac-tag {
+  font-size: 11px; padding: 0 6px; border-radius: 3px; white-space: nowrap; justify-self: start; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis;
+  background: var(--n-color-embedded, rgba(128, 128, 128, .12));
+  color: var(--n-text-color-disabled, inherit);
+}
+/* 本地管理／隨機位址：標成警示色，因為它是「多半不是真衝突」的主要線索 */
+.anm-mac-tag--local { background: rgba(240, 160, 32, .16); color: #b26a00; }
+.anm-mac-seen { font-size: 11.5px; opacity: .6; }
+.anm-mac-time { opacity: .55; white-space: nowrap; }
+</style>
+
 <style scoped>
 /* 排程視窗：提示文字要小一號、灰一點，否則整個視窗看起來都是同等重要的字 */
 .sched-hint { margin: 6px 0 0; font-size: 12px; opacity: .7; line-height: 1.5; }
@@ -993,13 +1014,5 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
   font-family: var(--font-mono, monospace); font-size: 12px;
   padding: 2px 8px; border-radius: 4px; background: rgba(208, 48, 80, .12);
 }
-.mac-tag {
-  font-size: 11px; padding: 0 6px; border-radius: 3px; white-space: nowrap;
-  background: var(--n-color-embedded, rgba(128, 128, 128, .12));
-  color: var(--n-text-color-disabled);
-}
-/* 本地管理／隨機位址：標成警示色，因為它是「多半不是真衝突」的主要線索 */
-.mac-tag--local { background: rgba(240, 160, 32, .16); color: #b26a00; }
-.mac-seen { font-size: 11.5px; opacity: .6; white-space: nowrap; }
 .drift-ref-hint { font-size: 12.5px; opacity: .7; margin-bottom: 8px; }
 </style>

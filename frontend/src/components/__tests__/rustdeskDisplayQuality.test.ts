@@ -14,7 +14,7 @@ import zhTW from "@/i18n/zh-TW.json";
 import type { CloseInfo, SessionOptions } from "@/rdweb/session";
 import type { DisplayInfo, PeerInfo, QualityOption } from "@/rdweb/messages";
 import type { DisplayView } from "@/rdweb/displays";
-import { QUALITY_STORAGE_KEY } from "@/rdweb/quality";
+import { QUALITY_STORAGE_KEY, SHOW_STATS_STORAGE_KEY } from "@/rdweb/quality";
 import RustDeskScreen from "../RustDeskScreen.vue";
 
 interface FakeSession {
@@ -331,6 +331,8 @@ describe("「畫質」選單（I.2）", () => {
 
 describe("狀態列的小字（I.2）", () => {
   it("延遲、位元率、每秒解出的張數、編碼名稱", async () => {
+    // 效能列預設不顯示（畫質選單勾「顯示效能資訊」才出現）：這裡直接打開
+    localStorage.setItem(SHOW_STATS_STORAGE_KEY, "1");
     const w = render();
     await connected(w);
     sessions()[0].opts.events.delay?.({ lastDelay: 23, targetBitrate: 2073 });

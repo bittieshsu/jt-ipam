@@ -2148,7 +2148,7 @@ async def list_wazuh_agents(
     )).scalars().all()
     return {"scope": scope, "count": total, "returned": len(rows), "agents": [{
         "id": str(a.id), "agent_id": a.agent_id, "name": a.name, "ip": a.ip,
-        "status": a.status, "os_platform": a.os_platform, "os_version": a.os_version,
+        "status": a.status, "os_platform": a.os_platform, "os_version": a.os_version, "os_name": a.os_name,
         "agent_version": a.agent_version, "group": a.group,
         "last_keep_alive": a.last_keep_alive,
     } for a in rows]}
@@ -2344,7 +2344,8 @@ async def create_device(
     """ADMIN ONLY。建立裝置。"""
     if not user.is_admin:
         raise IPAMToolError("create_device requires admin")
-    dev = Device(name=name.strip(), type=type, fqdn=fqdn, vendor=vendor, model=model)
+    dev = Device(name=name.strip(), type=type, fqdn=fqdn, vendor=vendor, model=model,
+                 type_source="manual" if type != "other" else None)
     session.add(dev)
     await session.flush()
     return {"id": str(dev.id), "name": dev.name, "type": dev.type}

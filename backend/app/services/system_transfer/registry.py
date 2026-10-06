@@ -124,6 +124,8 @@ CATEGORY: dict[str, str] = {
     "rustdesk_peers": "synced",
     "librenms_links": "synced",
     "arp_entries": "synced",
+    # 沒有納管、但看得到在用的位址：掃描代理下一輪就重建
+    "unmanaged_sightings": "synced",
     "fdb_entries": "synced",
     "device_vlans": "synced",
     "opnsense_rules": "synced",

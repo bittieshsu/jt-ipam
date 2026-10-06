@@ -43,7 +43,7 @@ const srcLabel = () => {
 <template>
   <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt() || isReserved() || isAutoAdded()"
         class="ip-roles">
-    <!-- 自動收錄、未經登記 —— 用橘色（提醒而非錯誤）並講清楚它的來歷 -->
+    <!-- 自動收錄、未經登記 —— 用紫色（提醒而非錯誤，跟指示計同色）並講清楚它的來歷 -->
     <n-tooltip v-if="isAutoAdded()" :delay="150">
       <template #trigger><n-icon :size="15" color="#8b5cf6" class="r-ic"><UnregisteredIcon /></n-icon></template>
       {{ t("addresses.role_auto_added") }} —

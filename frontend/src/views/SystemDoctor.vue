@@ -30,10 +30,17 @@ interface Check {
   params?: Record<string, unknown>;
 }
 
-/** 有代碼就翻譯，沒有就用後端寫好的字 —— 後端沒有「當前語言」可言。 */
+/** 有代碼就翻譯，沒有就用後端寫好的字 —— 後端沒有「當前語言」可言。
+ *  時間參數後端給 ISO（UTC），這裡換成觀看者的時區：以前直接印 UTC，「最後一筆 13:33」其實是本地 21:33。 */
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 function field(c: Check, which: "title" | "detail" | "fix"): string {
   const key = c[`${which}_key` as const];
-  return key ? t(key, (c.params || {}) as Record<string, unknown>) : (c[which] ?? "");
+  if (!key) return c[which] ?? "";
+  const params: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(c.params || {})) {
+    params[k] = typeof v === "string" && ISO_RE.test(v) ? fmtDateTime(v) : v;
+  }
+  return t(key, params);
 }
 interface Report {
   generated_at: string; ok: number; warn: number; bad: number; checks: Check[];
@@ -42,11 +49,25 @@ interface Report {
 const report = ref<Report | null>(null);
 const loading = ref(false);
 
+// 資料統計：各類資料各有幾筆（只在本機算，不回傳）。逾時的大表是估計值，前面加「約」
+interface StatItem { key: string; count: number | null; approx: boolean }
+interface StatGroup { key: string; items: StatItem[] }
+const stats = ref<StatGroup[]>([]);
+const nf = new Intl.NumberFormat();
+function statText(i: StatItem): string {
+  if (i.count == null) return "—";
+  return (i.approx ? t("doctor.stats_approx") + " " : "") + nf.format(i.count);
+}
+
 async function run() {
   loading.value = true;
   try {
-    const { data } = await apiClient.get<Report>("/api/v1/system/doctor");
+    const [{ data }, st] = await Promise.all([
+      apiClient.get<Report>("/api/v1/system/doctor"),
+      apiClient.get<{ groups: StatGroup[] }>("/api/v1/system/doctor/stats").catch(() => null),
+    ]);
     report.value = data;
+    stats.value = st?.data.groups ?? [];
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
@@ -142,6 +163,23 @@ onMounted(() => { void run(); });
         {{ t("doctor.cli_note") }}
         <code>sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor</code>
       </n-alert>
+
+      <!-- 資料統計（使用者 2026-10-06，比照 LibreNMS 的統計頁；但只在本機算，不回傳、不蒐集） -->
+      <section v-if="stats.length" class="doc-stats" data-testid="doctor-stats">
+        <div class="doc-stats-head">
+          <span class="doc-stats-title">{{ t("doctor.stats_title") }}</span>
+          <span class="doc-stats-hint">{{ t("doctor.stats_hint") }}</span>
+        </div>
+        <div v-for="g in stats" :key="g.key" class="doc-stats-group">
+          <div class="doc-stats-gname">{{ t(`doctor.stats_group.${g.key}`) }}</div>
+          <div class="doc-stats-grid">
+            <div v-for="i in g.items" :key="i.key" class="doc-stat" :data-key="i.key">
+              <span class="doc-stat-k">{{ t(`doctor.stats.${i.key}`) }}</span>
+              <span class="doc-stat-v">{{ statText(i) }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </n-spin>
   </n-card>
 </template>
@@ -170,4 +208,15 @@ onMounted(() => { void run(); });
 .doc-fix { font-size: 12px; margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 .doc-fix-label { opacity: .7; flex: 0 0 auto; }
 .doc-fix code, .doc-row code { word-break: break-all; }
+
+.doc-stats { margin-top: 22px; }
+.doc-stats-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.doc-stats-title { font-weight: 600; font-size: 15px; }
+.doc-stats-hint { font-size: 12px; opacity: .65; }
+.doc-stats-group { margin-top: 10px; }
+.doc-stats-gname { font-size: 12px; opacity: .7; margin-bottom: 4px; }
+.doc-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); column-gap: 24px; }
+.doc-stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px;
+            border-bottom: 1px solid var(--n-border-color, rgba(0, 0, 0, .06)); font-size: 13px; }
+.doc-stat-v { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
 </style>

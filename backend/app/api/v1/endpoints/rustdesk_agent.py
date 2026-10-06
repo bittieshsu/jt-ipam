@@ -136,7 +136,14 @@ async def agent_report(
         await session.commit()
         return {"status": "disabled"}
     counts = await rustdesk_svc.ingest_report(session, srv, payload.model_dump())
+    sid, sname = srv.id, srv.name          # commit 之後屬性會過期，async 下不能再延遲載入
     await session.commit()
+    # 作業頁：每台伺服器一列（每次完整回報更新同一列；輪詢與事件不算）
+    from app.services.background_tasks import upsert_scheduled_task
+    await upsert_scheduled_task(
+        session, kind="rustdesk.sync", target_type="rustdesk_server", target_id=sid,
+        target_label=sname, ok=not counts.get("error"), error=counts.get("error"),
+        summary={k: counts.get(k) for k in ("peers", "online", "matched", "removed")})
     return {"status": "ok", **counts}
 
 

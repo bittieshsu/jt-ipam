@@ -306,6 +306,26 @@ async def list_addresses(
 
 
 # 注意：此路由必須宣告在 /{address_id} 之前，否則 "export.csv" 會被當成 address_id（UUID 驗證 422）
+@router.get("/unmanaged")
+async def list_unmanaged(
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    subnet_id: uuid.UUID = Query(...),
+) -> list[dict[str, Any]]:
+    """這個子網路裡沒有 IP 記錄、但最近看得到在用的位址（掃描代理目擊＋LibreNMS ARP）：指示計的「未納管」格子。
+
+    權限跟 IP 清單一樣（子網路的讀取權限；沒有就回 404，不洩漏存在性）。
+    """
+    await _require_subnet_perm(session, user, subnet_id, "read")
+    from app.services.unmanaged import for_subnet
+    rows = await for_subnet(session, subnet_id)
+    macs = [r["mac"] for r in rows if r.get("mac")]
+    vendors = await vendor_map(session, macs) if macs else {}
+    for r in rows:
+        r["vendor"] = vendors.get(mac_prefix(r["mac"]) or "") if r.get("mac") else None
+    return rows
+
+
 @router.get("/export.csv")
 async def export_csv(
     user: CurrentUser,
@@ -580,6 +600,11 @@ async def apply_device_suggestion(
         )
         obj.device_id = device.id
         linked += 1
+    if payload.create_name:
+        # 剛從 IP 建出來的裝置：照這筆 IP 的作業系統證據先判斷類型（以前一律寫死 other）
+        from app.services.device_type_auto import refresh_auto_types
+        await session.flush()
+        await refresh_auto_types(session, [device.id])
 
     if payload.link_ip_ids and (obj.hostname or "").strip():
         # 客戶端送來的 id 不能直接相信：只接受「這個使用者能寫、且確實同主機名稱、

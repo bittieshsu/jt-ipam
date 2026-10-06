@@ -71,6 +71,9 @@ async def _brief(session: AsyncSession, job: AgentProbeJob, mac_vendor: str | No
     # 舊版代理不認得這個探測種類（自動更新前）：講清楚是代理版本，而不是丟一句英文
     if job.error and job.error.startswith("unsupported probe"):
         out["error_code"] = "identify_agent_outdated"
+    from app.services.agent_probe import CANCELLED_ERROR
+    if job.error == CANCELLED_ERROR:
+        out["error_code"] = "identify_cancelled"
     if job.status == STATUS_DONE and isinstance(job.result, dict):
         if guest is False:
             from app.services.identify_tasks import job_is_virtual_guest
@@ -202,6 +205,40 @@ async def identify_history(
     return {"items": [await _brief(session, j, mv, guest, mac=str(ip.mac) if ip.mac else None) for j in rows]}
 
 
+async def _cancel(session: AsyncSession, request: Request, user: Any, *, ip_text: str, job_id: uuid.UUID,
+                  ip_id: uuid.UUID | None) -> dict[str, Any]:
+    """取消一次探測（兩種進入點共用）：只有等待中或執行中的可以取消，寫稽核。"""
+    from app.services.agent_probe import cancel_job
+    await expire_stale(session)
+    job = (await session.execute(_jobs_of(ip_text).where(AgentProbeJob.id == job_id))).scalars().first()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Probe not found")
+    if not await cancel_job(session, job):
+        raise HTTPException(409, detail=ui_detail("identify_not_running", "這次探測已經結束，不能取消"))
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip_address", object_id=str(ip_id) if ip_id is not None else None,
+        action="identify_cancel", diff={"ip": ip_text, "job_id": str(job_id)},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"ok": True}
+
+
+@router.post("/{address_id}/identify/{job_id}/cancel")
+async def cancel_identify(
+    address_id: uuid.UUID,
+    job_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    ip = await _ip_or_404(session, address_id)
+    return await _cancel(session, request, user, ip_text=_ip_text(ip), job_id=job_id, ip_id=ip.id)
+
+
 @router.get("/{address_id}/identify/{job_id}")
 async def get_identify(
     address_id: uuid.UUID,
@@ -331,6 +368,19 @@ async def identify_history_by_ip(
     mac = t.record.mac if t.record is not None else None
     guest = await is_virtual_guest(session, t.ip_text, str(mac) if mac else None)
     return {"items": [await _brief(session, j, mv, guest, mac=vmac) for j in rows]}
+
+
+@ip_router.post("/ip/{ip}/{job_id}/cancel")
+async def cancel_identify_by_ip(
+    ip: str,
+    job_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    t = await _resolve_target(session, ip)
+    return await _cancel(session, request, user, ip_text=t.ip_text, job_id=job_id,
+                         ip_id=t.record.id if t.record is not None else None)
 
 
 @ip_router.get("/ip/{ip}/{job_id}")

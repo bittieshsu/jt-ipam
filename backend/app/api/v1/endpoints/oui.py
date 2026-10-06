@@ -26,10 +26,24 @@ async def get_stats(
 
 @router.post("/refresh", dependencies=[Depends(require_admin)])
 async def refresh(
-    _user: CurrentUser,
+    user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    return await refresh_oui_db(session)
+    from datetime import UTC, datetime
+
+    from app.services.background_tasks import record_finished_task
+    started = datetime.now(UTC)
+    try:
+        result = await refresh_oui_db(session)
+    except Exception as exc:
+        # 作業頁也要看得到失敗的那次（誰按的、為什麼），錯誤照原樣回給畫面
+        await session.rollback()
+        await record_finished_task(session, kind="oui.refresh", ok=False, actor_user_id=user.id,
+                                   started_at=started, error=f"{type(exc).__name__}: {exc}"[:500])
+        raise
+    await record_finished_task(session, kind="oui.refresh", ok=True, actor_user_id=user.id,
+                               started_at=started, summary=result)
+    return result
 
 
 @router.get("/lookup")

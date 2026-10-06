@@ -336,6 +336,7 @@ function typeColor(type: string): "success" | "info" | "warning" | "error" | "de
     patch_panel: "default",
     pdu: "warning",
     ups: "warning",
+    workstation: "info",
     other: "default",
   } as Record<string, "success" | "info" | "warning" | "error" | "default">)[type] ?? "default";
 }
@@ -611,7 +612,8 @@ onMounted(() => {
                         :label-style="{ whiteSpace: 'nowrap' }">
           <n-descriptions-item :label="t('device_detail.wz_agent')">{{ integrations.wazuh.name ?? "—" }} ({{ integrations.wazuh.agent_id }})</n-descriptions-item>
           <n-descriptions-item :label="t('common.status')">{{ wazuhStatusLabel(t, integrations.wazuh.status) }}</n-descriptions-item>
-          <n-descriptions-item label="OS">{{ integrations.wazuh.os_platform ?? "—" }} {{ integrations.wazuh.os_version ?? "" }}</n-descriptions-item>
+          <!-- 產品名稱優先（Windows 11 的核心版本號仍是 10.0，只看平台＋版本會被當成 Windows 10） -->
+          <n-descriptions-item label="OS">{{ integrations.wazuh.os || [integrations.wazuh.os_platform, integrations.wazuh.os_version].filter(Boolean).join(" ") || "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_agent_version')">{{ integrations.wazuh.agent_version ?? "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('device_detail.wz_group')">{{ integrations.wazuh.group ?? "—" }}</n-descriptions-item>
           <!-- 資安體質用 SCA（資安組態評估）呈現。

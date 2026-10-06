@@ -114,7 +114,7 @@ const kpiTiles = computed(() => {
 const DEVICE_TYPE_COLOR: Record<string, string> = {
   server: "#8b5cf6", switch: "#0ea5e9", router: "#6366f1", firewall: "#ef4444",
   ap: "#14b8a6", storage: "#f59e0b", ipmi: "#ec4899",
-  patch_panel: "#0d9488", pdu: "#d97706", ups: "#ca8a04", other: "#94a3b8",
+  patch_panel: "#0d9488", pdu: "#d97706", ups: "#ca8a04", workstation: "#0ea5e9", other: "#94a3b8",
 };
 const deviceTypes = computed(() => data.value?.device_types ?? []);
 const deviceTypeMax = computed(() => Math.max(1, ...deviceTypes.value.map((d) => d.count)));

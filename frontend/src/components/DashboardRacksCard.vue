@@ -10,7 +10,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import {
-  NButton, NCard, NEmpty, NForm, NFormItem, NIcon, NModal, NRadio, NRadioGroup, NSelect, NSpace, NSpin, NTag,
+  NButton, NCard, NEmpty, NForm, NFormItem, NIcon, NModal, NRadio, NRadioGroup, NSelect, NSlider, NSpace, NSpin, NTag,
 } from "naive-ui";
 import RackDiagram from "@/components/RackDiagram.vue";
 import CardTitle from "@/components/CardTitle.vue";
@@ -29,6 +29,14 @@ const MAX = 12;
 
 const roomPin = usePinned("dash_rack_room");
 const rackPin = usePinned("dash_racks");
+// 顯示大小（使用者 2026-10-06）：整排照實際比例畫以後，矮的機櫃在高層架旁邊會很小，要能自己放大。
+// 跟其他設定一樣存在帳號的偏好裡（釘選欄位的值是字串）
+const scalePin = usePinned("dash_rack_scale");
+const SCALE_MIN = 0.5, SCALE_MAX = 3;
+const scale = computed(() => {
+  const v = Number(scalePin.ids.value[0]);
+  return Number.isFinite(v) && v > 0 ? Math.min(SCALE_MAX, Math.max(SCALE_MIN, v)) : 1;
+});
 const roomId = computed(() => roomPin.ids.value[0] ?? null);
 
 /** 要畫的機櫃：設了機房就是那一間的全部（依名稱），否則是挑的那幾個（依挑的順序） */
@@ -57,8 +65,19 @@ watch(() => shown.value.map((r) => r.id).join(","), async (key) => {
   const res = await Promise.allSettled(shown.value.map((r) => getRackDiagram(r.id)));
   if (mine !== seq) return;
   diagrams.value = res.flatMap((x) => (x.status === "fulfilled" ? [x.value] : []));
+  measured.value = {};
   loading.value = false;
 }, { immediate: true });
+
+// 每台量到的自然高度（未縮放 px）；整排最高的那台決定共用的縮放比例
+const measured = ref<Record<string, number>>({});
+function onMeasured(rackId: string, px: number) {
+  if (measured.value[rackId] !== px) measured.value = { ...measured.value, [rackId]: px };
+}
+const rowMaxPx = computed(() => {
+  const ids = new Set(diagrams.value.map((d) => d.rack_id));
+  return Math.max(0, ...Object.entries(measured.value).filter(([id]) => ids.has(id)).map(([, v]) => v));
+});
 
 function openRack(id: string) {
   void router.push({ name: "racks", query: { rack: id } });
@@ -72,13 +91,16 @@ const show = ref(false);
 const mode = ref<"room" | "racks">("room");
 const formRoom = ref<string | null>(null);
 const formRacks = ref<string[]>([]);
+const formScale = ref(1);
 function openSettings() {
+  formScale.value = scale.value;
   mode.value = roomId.value || !rackPin.ids.value.length ? "room" : "racks";
   formRoom.value = roomId.value;
   formRacks.value = [...rackPin.ids.value];
   show.value = true;
 }
 function save() {
+  scalePin.setAll(formScale.value === 1 ? [] : [String(Math.round(formScale.value * 100) / 100)]);
   if (mode.value === "room") {
     roomPin.setAll(formRoom.value ? [formRoom.value] : []);
     rackPin.setAll([]);
@@ -125,7 +147,9 @@ const rackOptions = computed(() => props.racks.map((r) => ({
         <div v-for="d in diagrams" :key="d.rack_id" class="dr-rack">
           <a class="dr-name" @click="openRack(d.rack_id)">{{ d.name }}</a>
           <!-- 儀表板空間有限：精簡列高、縮小比例，一排機櫃一眼看得完 -->
-          <RackDiagram :diagram="d" :show-legend="false" :controls="false" :shared-zoom="0.55" compact bare />
+          <!-- 整排用同一個縮放比例（fit-to＝最高那台的自然高度），大小才看得出誰高誰矮 -->
+          <RackDiagram :diagram="d" :show-legend="false" :controls="false" :shared-zoom="0.55 * scale" compact bare
+                       :fit-to="rowMaxPx || null" @measured="onMeasured" />
         </div>
       </div>
       <div class="dr-foot">
@@ -156,6 +180,14 @@ const rackOptions = computed(() => props.racks.map((r) => ({
           <n-select v-model:value="formRacks" :options="rackOptions" multiple filterable clearable
                     data-testid="dash-racks-pick" />
         </n-form-item>
+        <n-form-item :label="t('dashboard.racks_scale')">
+          <div class="dr-scale">
+            <n-slider v-model:value="formScale" :min="SCALE_MIN" :max="SCALE_MAX" :step="0.1"
+                      :format-tooltip="(v: number) => `${Math.round(v * 100)}%`" data-testid="dash-racks-scale" />
+            <span class="dr-scale-v">{{ Math.round(formScale * 100) }}%</span>
+          </div>
+        </n-form-item>
+        <div class="dr-hint">{{ t("dashboard.racks_scale_hint") }}</div>
         <div class="dr-hint">{{ t("dashboard.racks_hint", { n: MAX }) }}</div>
       </n-form>
       <template #footer>
@@ -184,4 +216,7 @@ const rackOptions = computed(() => props.racks.map((r) => ({
 .dr-chip { font-size: 11px; color: #fff; padding: 1px 6px; border-radius: 4px; }
 .dr-more { font-size: 12.5px; cursor: pointer; color: var(--primary-color, #18a058); }
 .dr-hint { font-size: 12px; opacity: .65; }
+.dr-scale { display: flex; align-items: center; gap: 12px; width: 100%; }
+.dr-scale > :first-child { flex: 1 1 auto; }
+.dr-scale-v { font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; font-size: 13px; }
 </style>

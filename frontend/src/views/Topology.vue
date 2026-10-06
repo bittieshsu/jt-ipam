@@ -128,6 +128,7 @@ const TYPE_LABELS = computed<Record<string, string>>(() => ({
   ap: t("topology.type_ap"),
   server: t("topology.type_server"),
   storage: t("topology.type_storage"),
+  workstation: t("topology.type_workstation"),
   ipmi: "IPMI",
   other: t("topology.type_other"),
   subnet: t("topology.type_subnet"),
@@ -217,6 +218,7 @@ const NODE_COLOURS: Record<string, string> = {
   ap: "#3b82f6",
   server: "#6b7280",
   storage: "#f59e0b",
+  workstation: "#0ea5e9",
   ipmi: "#ec4899",
   other: "#9ca3af",
   subnet: "#0ea5e9",  // L3 subnet 節點 — 青藍色，跟 device 區分
@@ -229,7 +231,7 @@ const { pinned, ensureLoaded } = usePinnedSubnets();
 // 預設先把「伺服器 / 其他」這類點暗——它們數量最多、最會把網路骨幹（防火牆/路由器/
 // 交換器/AP/子網路/VPN）洗掉。使用者點圖例即可重新顯示。
 // 端點類節點預設不畫：一個實際環境有上百台，全畫進來就沒人看得懂了。
-const hiddenTypes = ref<Set<string>>(new Set(["server", "storage", "ipmi", "other"]));
+const hiddenTypes = ref<Set<string>>(new Set(["server", "storage", "workstation", "ipmi", "other"]));
 // ...但「查得出插在哪台交換器哪個埠」的端點是例外：它在網路裡有明確位置，不是雜訊。
 // 這是 FDB 存取層的重點，如果照樣被藏起來，那個功能等於沒有。
 // 使用者一旦自己動過「伺服器 / 其他」圖例，就以他的選擇為準，不再自動放行。
@@ -237,7 +239,7 @@ const fdbPlaced = ref<Set<string>>(new Set());
 const endpointGroupTouched = ref(false);
 const LEGEND_GROUPS: Record<string, string[]> = {
   firewall: ["firewall"], router: ["router"], switch: ["switch"], ap: ["ap"],
-  server: ["server", "storage", "ipmi", "other"], vpn_site: ["vpn_site"], subnet: ["subnet"],
+  server: ["server", "storage", "workstation", "ipmi", "other"], vpn_site: ["vpn_site"], subnet: ["subnet"],
   vm: ["vm"],
 };
 function isGroupOff(group: string): boolean {

@@ -3,7 +3,9 @@
 OS 資訊有三個來源，各自存在不同地方：
   - scanner  : 掃描代理 nmap 偵測 → ip_addresses.os_guess
   - librenms : LibreNMS 裝置 → devices.os（IP 經 device_id 關聯）
-  - wazuh    : Wazuh 代理 → wazuh_agents.os_platform / os_version（以 IP 對映）
+  - wazuh    : Wazuh 代理 → wazuh_agents.os_name（沒有才用 os_platform / os_version）（以 IP 對映）
+  - ocs      : OCS 代理 → ip_addresses.os_ocs
+  - rustdesk : RustDesk 客戶端心跳 → rustdesk_peers.os_name（已對應到這筆 IP 的）
 
 依設定的順序取第一個有值的來源當作此 IP 的「有效 OS」。compute-on-read：不另存欄位，
 由 `effective_os()` 即時彙整（OS 不常變，且免 migration / sync hook）。
@@ -23,8 +25,9 @@ from app.core.os_fingerprint import normalize_os
 from app.services.precedence import Precedence
 
 OS_KEY = "os_precedence"
-OS_SOURCES: list[str] = ["scanner", "librenms", "wazuh", "ocs"]
-DEFAULT_ORDER: list[str] = ["librenms", "wazuh", "ocs", "scanner"]
+OS_SOURCES: list[str] = ["scanner", "librenms", "wazuh", "ocs", "rustdesk"]
+# rustdesk 排最後（使用者 2026-10-06）：既有站台存的順序裡沒有它，Precedence 會依預設次序補在最後
+DEFAULT_ORDER: list[str] = ["librenms", "wazuh", "ocs", "scanner", "rustdesk"]
 
 # OS 沒有「停用個別來源」的需求，protected 留空即可（沒有 manual 這個來源）
 _P = Precedence(key=OS_KEY, sources=tuple(OS_SOURCES),
@@ -75,9 +78,20 @@ async def _candidates(session: AsyncSession, ip: Any) -> dict[str, str]:
                                a.last_keep_alive.timestamp() if a.last_keep_alive else 0.0),
                 reverse=True)
     wa = agents[0] if agents else None
-    if wa is not None and wa.os_platform:
-        ver = wa.os_version
-        out["wazuh"] = f"{wa.os_platform}{' ' + ver if ver else ''}"
+    if wa is not None:
+        from app.core.os_fingerprint import wazuh_os_display
+        shown = wazuh_os_display(wa.os_name, wa.os_platform, wa.os_version)
+        if shown:
+            out["wazuh"] = shown
+    # RustDesk 客戶端回報的作業系統（只用已對應到這筆 IP 的裝置；預設排最後）
+    from app.models.rustdesk import RustDeskPeer
+    rd_os = (await session.execute(
+        select(RustDeskPeer.os_name).where(RustDeskPeer.address_id == ip.id, RustDeskPeer.match_status == "matched",
+                                           RustDeskPeer.os_name.is_not(None))
+        .order_by(RustDeskPeer.online.desc(), RustDeskPeer.last_online_at.desc().nulls_last()).limit(1)
+    )).scalar_one_or_none()
+    if rd_os:
+        out["rustdesk"] = rd_os
     return out
 
 

@@ -754,7 +754,13 @@ async def agent_dhcpd_report(
         return {"status": "disabled"}
     agent.last_seen_at = datetime.now(UTC)
     counts = await ingest_isc_report(session, src, payload.model_dump())
+    sid, sname, serr = src.id, src.name, src.last_error   # commit 之後屬性會過期
     await session.commit()
+    # 作業頁：每個 ISC 來源一列；檔案讀不到算失敗（原因跟整合頁的最後錯誤一樣）
+    from app.services.background_tasks import upsert_scheduled_task
+    await upsert_scheduled_task(
+        session, kind="isc_dhcp.sync", target_type="isc_dhcp_server", target_id=sid,
+        target_label=sname, ok=not serr, error=serr, summary=dict(counts))
     return {"status": "ok", **counts}
 
 
@@ -789,6 +795,8 @@ async def agent_report(
     updated = 0
     created = 0
     skipped_not_in_ipam = 0
+    # 沒開自動收錄時掃到的未登錄活位址：不建 IP 記錄，只記「看到過」（指示計顯示「未納管」、未授權 IP 偵測也看得到）
+    unmanaged: dict[tuple[Any, str], dict[str, Any]] = {}
     skipped_no_subnet = 0
     from app.services.hostname_reports import HostnameRun
     hn_runs = {src: HostnameRun(session, source=src, origin=f"{src}:{agent.id}", peers=2)
@@ -807,10 +815,20 @@ async def agent_report(
             continue            # 背景探測補的資料只補既有的 IP，不當作「發現新主機」
         if ipa is None:
             if not agent.auto_create_ips:
-                # 沒開自動收錄 → 這個位址活著但 IPAM 沒有它，就讓它留在
-                # 「未授權 IP」異常偵測裡（判定正是「掃得到、IPAM 沒有」）。
-                # 回報筆數，別讓資料靜靜消失——看不到的丟棄是先前吃過虧的地方。
+                # 沒開自動收錄 → 不建紀錄，但記下「看到過」（unmanaged_sightings）：指示計上顯示「未納管」，
+                # 不再跟閒置一模一樣；「未授權 IP」偵測也讀得到。只記指派給這個代理、有開掃描的子網路內的位址。
                 skipped_not_in_ipam += 1
+                try:
+                    aip_u = _ipaddr.ip_address(str(item.ip).split("/")[0])
+                except ValueError:
+                    continue
+                sub_u = next((sid for net, sid in addable_nets if aip_u in net), None)
+                if sub_u is not None:
+                    unmanaged[(sub_u, str(aip_u))] = {
+                        "mac": (item.mac or None) and str(item.mac)[:17],
+                        "hostname": ((item.netbios or item.mdns or item.rdns) or None)
+                        and str(item.netbios or item.mdns or item.rdns)[:255],
+                    }
                 continue
             # 掃描代理發現的新 IP → 自動加進它所屬（有開掃描）的子網路
             try:
@@ -905,6 +923,9 @@ async def agent_report(
         # 記下這一輪、評估負載；太重時通知管理員（開始與恢復各一次，見 services/scan_load）
         from app.services.scan_load import record as record_cycle
         await record_cycle(session, agent, cyc, now)
+    if unmanaged:
+        from app.services.unmanaged import record_sightings
+        await record_sightings(session, source="scanner", source_id=agent.id, now=now, sightings=unmanaged)
     agent.last_seen_at = now
     agent.last_error = None
     await session.commit()

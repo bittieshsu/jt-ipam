@@ -81,6 +81,17 @@ test("相容 RustDesk 的網頁連線：密碼錯可以重輸、連上後出畫�
   await page.emulateMedia({ colorScheme: null });
   await api(page, "PATCH", "/api/v1/me/preferences", { theme: prefs?.theme ?? "auto" });
 
+  // 效能列（延遲、位元率…）預設不顯示；畫質選單勾「顯示效能資訊」才出現，再點一次收起來（使用者 2026-10-06）
+  await expect(page.getByTestId("rdweb-stats")).toHaveCount(0);
+  await page.getByTestId("rdweb-quality").click();
+  await page.getByText(/顯示效能資訊/).click();
+  await expect(page.getByTestId("rdweb-stats")).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press("Escape");
+  await page.getByTestId("rdweb-quality").click();
+  await page.getByText(/顯示效能資訊/).click();
+  await expect(page.getByTestId("rdweb-stats")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
   // 狀態列的連線時間（使用者 2026-10-06：所有連線都要顯示）：看得到，而且會走
   const elapsed = page.getByTestId("conn-elapsed");
   await expect(elapsed).toHaveText(/\d{2}:\d{2}:\d{2}/);

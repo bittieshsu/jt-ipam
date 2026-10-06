@@ -742,10 +742,29 @@ async def detect_unauthorized_ips(
 
     host = func.host(ARPEntry.ip)
     registered = select(IPAddress.id).where(func.host(IPAddress.ip) == host).exists()
-    cand = (await session.execute(
+    cand = list((await session.execute(
         select(host, func.max(ARPEntry.last_seen_at).label("last"))
         .where(~registered).group_by(host)
-    )).all()
+    )).all())
+    # 掃描代理看到、但自動收錄關閉而沒建記錄的位址（unmanaged_sightings）也算：以前這種目擊直接丟掉，
+    # 只有 LibreNMS 的 ARP 表也看得到時才會列出來
+    from app.models.unmanaged_sighting import UnmanagedSighting
+    from app.services.unmanaged import GRID_WINDOW
+    s_host = func.host(UnmanagedSighting.ip)
+    s_reg = select(IPAddress.id).where(func.host(IPAddress.ip) == s_host).exists()
+    sighted: dict[str, dict[str, Any]] = {}
+    for ip_v, mac_v, last in (await session.execute(
+            select(s_host, func.max(UnmanagedSighting.mac), func.max(UnmanagedSighting.last_seen_at))
+            .where(UnmanagedSighting.last_seen_at >= datetime.now(UTC) - GRID_WINDOW, ~s_reg)
+            .group_by(s_host))).all():
+        sighted[str(ip_v)] = {"mac": mac_v, "last": last}
+    known = {str(ip): i for i, (ip, _l) in enumerate(cand)}
+    for ip_s, info in sighted.items():
+        if ip_s in known:
+            ip0, last0 = cand[known[ip_s]]
+            cand[known[ip_s]] = (ip0, max(x for x in (last0, info["last"]) if x is not None))
+        else:
+            cand.append((ip_s, info["last"]))
     nets = subnet_index([(n, None) for n in await _anomaly_networks(session)])
 
     def _in_scope(ip: str) -> bool:
@@ -781,6 +800,16 @@ async def detect_unauthorized_ips(
         info["sources"].add(str(source))
         if last and (info["last"] is None or last > info["last"]):
             info["last"] = last
+    # 掃描代理的目擊：有 MAC 就併進同一個 MAC 的來源，沒有 MAC 的只算最後看到的時間
+    for ip_s, info in sighted.items():
+        if ip_s not in seen and not info["mac"]:
+            continue
+        if info["mac"]:
+            m = str(info["mac"]).lower()
+            e = seen[ip_s].setdefault(m, {"last": info["last"], "sources": set()})
+            e["sources"].add("scanner")
+            if info["last"] and (e["last"] is None or info["last"] > e["last"]):
+                e["last"] = info["last"]
     vendors = await vendor_map(session, [m for macs in seen.values() for m in macs])
     out: list[dict[str, Any]] = []
     for ip in unauthorized:
@@ -792,7 +821,8 @@ async def detect_unauthorized_ips(
                       "local": _is_locally_administered(m),
                       "last_seen_at": info["last"].isoformat() if info["last"] else None,
                       "sources": sorted(info["sources"])} for m, info in macs],
-            "last_seen_at": macs[0][1]["last"].isoformat() if macs and macs[0][1]["last"] else None,
+            "last_seen_at": (macs[0][1]["last"].isoformat() if macs and macs[0][1]["last"]
+                             else (sighted[ip]["last"].isoformat() if ip in sighted and sighted[ip]["last"] else None)),
         })
     return out
 

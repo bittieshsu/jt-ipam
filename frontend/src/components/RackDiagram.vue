@@ -201,10 +201,9 @@ const boundaryTops = computed<number[]>(() => {
   // 不跳掉就會有一圈套環浮在半空中。與層板的處理一致。
   return openTop.value ? out.slice(1) : out;
 });
-const colPx = computed(() => {
-  const base = props.diagram?.render_width_px ?? 250;
-  return props.compact ? Math.min(base, 300) : base;
-});
+// 縮圖不在這裡限寬：以前 compact 把寬度壓到 300、高度不動，寬的層架（KALLAX 2×2、90 公分鍍鉻層架）
+// 就被擠成瘦長形。寬度上限改由 fitZoom 整張等比縮。
+const colPx = computed(() => props.diagram?.render_width_px ?? 250);
 // 機櫃兩側的走線空間（19 吋設備區以外、外寬多出來的部分）：600mm 每側約 35px、800mm 約 87px。
 // KALLAX／角鋼層架／LackRack 借這個值畫兩側的外框／立柱／桌腳；其他層架是 0。
 // 後端算好，畫面與匯出吃同一個值。
@@ -333,8 +332,11 @@ interface Props {
   face?: "front" | "rear" | null;  // 外部強制指定檢視面（合併卡共用切換用）；null = 用自身切換
   controls?: boolean;              // 是否顯示自身的面切換 + 匯出（合併卡傳 false 改由外層統一）
   sharedZoom?: number | null;      // 外部指定的顯示大小（機房整排共用一條拉桿）；null = 用自身的
+  /** compact 並排時（儀表板）傳入該排最高那台的自然高度 px：整排用同一個縮放比例。
+   *  不傳就各自縮到放得下 —— 高的被縮、矮的不縮，並排時大小比例就失真了（使用者回報）。 */
+  fitTo?: number | null;
 }
-const props = withDefaults(defineProps<Props>(), { showLegend: true, editable: false, floorAlignTo: 0, highlightId: null, compact: false, bare: false, face: null, controls: true, sharedZoom: null });
+const props = withDefaults(defineProps<Props>(), { showLegend: true, editable: false, floorAlignTo: 0, highlightId: null, compact: false, bare: false, face: null, controls: true, sharedZoom: null, fitTo: null });
 const faceView = ref<"front" | "rear">("front");   // 機櫃正面 / 背面切換
 // 實際採用的檢視面：外部有指定就用外部（合併卡共用），否則用自身切換
 const effFace = computed(() => props.face ?? faceView.value);
@@ -394,10 +396,14 @@ function autoFitMobile() {
  */
 /** 縮圖放得下的高度（px）。超過就整張等比縮小 —— 比例不動，字級再由 --rd-fit 補回來。 */
 const COMPACT_MAX_PX = 460;
+/** 單獨一張縮圖（裝置詳細資料側欄）放得下的寬度：超過也是整張等比縮，不壓扁 */
+const COMPACT_MAX_W = 300;
 const fitZoom = computed(() => {
   if (!props.compact) return 1;
+  if (props.fitTo) return props.fitTo > COMPACT_MAX_PX ? COMPACT_MAX_PX / props.fitTo : 1;
   const nat = ownPx.value || rackPixelHeight(props.diagram as any) || 1;
-  return nat > COMPACT_MAX_PX ? COMPACT_MAX_PX / nat : 1;
+  const byH = nat > COMPACT_MAX_PX ? COMPACT_MAX_PX / nat : 1;
+  return colPx.value > COMPACT_MAX_W ? Math.min(byH, COMPACT_MAX_W / colPx.value) : byH;
 });
 /** 真正套上去的縮放：縮圖先縮到放得下，再乘上使用者拉的那一段。 */
 const effZoom = computed(() => fitZoom.value * (props.sharedZoom ?? zoom.value));

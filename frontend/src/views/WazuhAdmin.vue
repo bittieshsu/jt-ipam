@@ -245,7 +245,7 @@ const allAgentCols = computed<DataTableColumns<WazuhAgent>>(() => autoSort([
       type: r.status === "active" ? "success" : r.status === "disconnected" ? "error" : "default",
     }, () => wazuhStatusLabel(t, r.status)),
   },
-  { title: t("wazuh_admin.col_os"), key: "os_platform", width: 140, ellipsis: { tooltip: true }, render: (r) => r.os_platform ?? "—" },
+  { title: t("wazuh_admin.col_os"), key: "os_platform", width: 140, ellipsis: { tooltip: true }, render: (r) => r.os_name || r.os_platform || "—" },
   { title: t("wazuh_admin.col_version"), key: "agent_version", width: 120, render: (r) => r.agent_version ?? "—" },
   {
     title: t("wazuh_admin.col_last_alive"), key: "last_keep_alive", width: 170,

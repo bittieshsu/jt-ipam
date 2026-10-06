@@ -66,6 +66,10 @@ wrote a value the database accepts and the read path rejects, and **one row kill
   those values cannot exist
 - [ ] Admin → System check → **data health** must report zero rows. It validates every row with the
   real read schemas, so "green here" means "the list pages can render this database"
+- [ ] Diagnostics **data statistics** (`tests/test_doctor_stats.py`, `e2e/system-doctor.spec.ts`): all five groups show
+  numbers (no blanks or NaN), adding subnets and IPs changes them on the next check (IPv4 and IPv6 counted apart); a
+  non-admin gets 403 from `/api/v1/system/doctor/stats`; the page says it is counted locally and never sent; the
+  "Background jobs" time is in the viewer's time zone
 
 > **Diagnostic shortcut worth remembering:** a count that works while the list 500s means the failure
 > is *per-row serialization*, not the query; `count(*)` reads no columns, `select(Model)` reads all
@@ -491,6 +495,31 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   racks drawn in one row standing on the same floor (no border in the dark theme), names open the Racks page; switch to
   selected racks → only those; the setting survives a reload and another browser; more than 12 shows "N more" linking to
   the Racks page
+  - the whole row uses one scale: a 42U rack is clearly taller than a 3-level shelf (each used to be shrunk to fit on
+    its own, so they looked the same height); a 2×2 KALLAX stays square in the thumbnail, not squeezed narrower
+  - the "Size" slider in its settings (50% to 300%): enlarging scales the whole row with proportions intact; it survives
+    a reload and another browser (stored with the account)
+- [ ] **Probe cancel** (`tests/test_ip_identify.py`): "Cancel probe" while running → failed with "This probe was cancelled",
+  the task shows cancelled, no notification; a later agent result does not turn it back to done; a new probe can start
+  right away; cancelling a finished probe returns 409
+- [ ] **Certificate SFTP host key** (`tests/test_cert_source_host_key.py`): after the first connection test or fetch the
+  source settings show a SHA256 fingerprint; give the SFTP host a different host key → the fetch fails listing both
+  fingerprints; after "Trust the host key again" the next fetch works and remembers the new one; changing the host clears
+  the pin
+- [ ] **HTTP check** (`tests/test_netdiag_http_guard.py`): the jt-ipam server's own LAN IP is refused; an account with no
+  permissions gets 403
+- [ ] **"Unmanaged" in the IP grid** (`tests/test_unmanaged_sightings.py`, `e2e/subnet-grid-unmanaged.spec.ts`): an agent with
+  auto-create off scans a live address missing from IPAM → no IP record, the cell is a dashed orange box (faded after a
+  day), the legend shows "Unmanaged (N)" and the free count drops, hover shows source / how long ago / MAC; clicking
+  registers it and the cell turns normal; background probe data (liveness=false) does not count; addresses outside the
+  agent's subnets are not kept; unauthorised-IP detection lists an address only the scan agent saw; the API returns 404
+  without subnet read access; sightings not seen for 30 days are removed
+- [ ] **Device type "Workstation" and auto-detection** (`tests/test_device_workstation_type.py`): create, edit, list
+  filter and import ("workstation", "laptop", "PC") all accept it; an "other" device whose IPs have Windows 10/11 or macOS
+  from Wazuh, RustDesk or OCS becomes a workstation after the next sync round; Windows Server becomes a server; Linux is
+  left alone; a type changed by hand (even back to "other") is never auto-changed afterwards; a device created from the
+  IP page's "Create device" gets Workstation right away; the topology legend's "Servers / other" group includes
+  workstations; racks show a workstation colour
 - [ ] **Dashboard card headers hold only the title (at most a count)**: no buttons, no subtitle text; the racks card's
   Settings button and scope sit at the top of its body
 - [ ] **IP details "Last seen by source"** (`e2e/ip-seen-sources.spec.ts`): a section of its own with source / time / ago
@@ -565,6 +594,17 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   ⚠️ Palo Alto has not been checked against a real device: on a customer site compare the `vpn_flow` row count and
   tunnel states.
 - [ ] Scan agents / sync jobs: pages render, no console errors
+- [ ] **Table column widths** (`src/utils/__tests__/resizableColumns.test.ts`): on a wide screen (1800px) the date
+  columns of the OCS agent list, audit log and task history do not wrap and spare width is shared in proportion; widening
+  one column changes only that column (columns resized earlier stay put) with space left empty on the right; going wider
+  than the screen scrolls horizontally; the mobile sweep shows no horizontal overflow
+- [ ] **Tasks page** (`e2e/tasks-filters.spec.ts`, `tests/test_tasks_page_sources.py`): history can be searched by type, target
+  and error and filtered by type, status and trigger, and the total follows; after a RustDesk agent report there is a
+  `rustdesk.sync` row (one per server, updated on the next report), ISC DHCP gives `isc_dhcp.sync`; "update now" for
+  OUI, Recog and GeoIP adds a manual row (who clicked), a timer run is one scheduled row; deleting a RustDesk server or any
+  integration removes its scheduled row; probes, agent reports and database refreshes show their outcome instead of four
+  zeros; the diagnostics "Background jobs" check only counts scheduled syncs (stop jt-ipam-sync.timer for a day and it
+  must warn even while RustDesk keeps reporting)
 - [ ] **Docs site (GitHub Pages)**, on every release that adds a feature or an integration: the feature map
   (`docs/features.html`) and the home page integration badges name it (each product, not a category such as
   "DNS"); every feature-map item fits on one line at desktop width in zh / en / ja; every section heading has a
@@ -812,6 +852,11 @@ what a console is allowed to do.
 
 ## 7b4. RustDesk Server (open source): **whenever this integration, the RustDesk agent or the IP detail change**
 
+- [ ] **OS source** (`tests/test_os_sources_rustdesk_wazuh.py`): the last entry of the OS precedence on the name / ARP
+  sources page is "RustDesk client" (also appended on upgraded sites); an IP whose only OS comes from RustDesk shows it
+  (source: RustDesk client); with the scan agent or Wazuh the order applies; ambiguous RustDesk matches do not count.
+  A Windows 11 Wazuh agent shows "Microsoft Windows 11 Pro" on the device page and the Wazuh page, not windows 10.0.x
+
 - [ ] **A real RustDesk Server round trip** (official deb, `/var/lib/rustdesk-server`; `tests/test_agent_rustdesk.py`,
   `tests/test_rustdesk.py`): the agent reads only id / created_at / info.ip (never pk / uuid, never `id_ed25519`);
   `::ffff:` addresses become IPv4; the online count matches what hbbs reports; the online query goes to the host's own
@@ -958,10 +1003,12 @@ what a console is allowed to do.
   on the second display and typing works where you click; unplug the display you are viewing → a notice and back to the
   primary display; change the resolution of the shown display → the picture follows, no switch; restart the device
   container while on display 2 → after the automatic reconnect you are on display 2 again. The **Resolution** submenu
-  is missing in view only. **Quality**: Low and Best change the bitrate in the toolbar readout; with a 15 fps limit the
-  decoded frames per second stay at 15 or below; the codec list shows only codecs both sides support, and switching the
-  codec keeps the picture; reload the page → the three choices are kept, and browser storage holds only
-  `jt-ipam.rdweb.quality` (level, custom value, fps, codec)
+  is missing in view only. The **performance line** (latency, bitrate, frames, codec) is hidden by default; ticking
+  "Show performance" in the quality menu shows it, clicking again hides it, and it survives a reload
+  (`jt-ipam.rdweb.show_stats`). **Quality**: with the performance line on, Low and Best change the bitrate; with a
+  15 fps limit the decoded frames per second stay at 15 or below; the codec list shows only codecs both sides support,
+  and switching the codec keeps the picture; reload the page → the three choices are kept, and browser storage holds only
+  `jt-ipam.rdweb.quality` (level, custom value, fps, codec) and `jt-ipam.rdweb.show_stats`
 - [ ] **Security**: one character wrong in the public key stored in jt-ipam → "public key does not match the server"; hbbs
   started with `-k <public key string>` (does not sign the device identity) → refused, no downgrade, and the
   message points to the key file (`KEY=_`); replayed, expired
@@ -1227,6 +1274,9 @@ probes on request inside a customer network. The feature is only as safe as its 
     check times, per-file fingerprint counts (filterable); "Check for updates now" is audited
     (target=recog_db_update). Version info only lists the Recog release among the optional dependencies, with
     the name linking to this page; there is **no** update button on Version info
+  - the optional dependencies also list **oui** (last update date; an empty OUI table shows "missing" in red and joins
+    the warning) and **geoip** (without a MaxMind account it shows "not configured" and is not in the warning; a local
+    database shows the file date, an account alone shows web service); the names link to the OUI page and System settings
   - a failed update (GitHub unreachable) leaves the installed release alone and shows the error on the Recog page;
     the system diagnostics warn after three weeks without a successful check
 
@@ -1585,6 +1635,8 @@ happy path of "an upload succeeded" is not enough.
   (the bare URL, the one the manual and the client-config generator give, used to return 405); a mutating
   tool called through `tools/call` writes an audit entry `mcp_tool_exec` (tool, summary, channel, source IP);
   configure a real MCP client (mcp-remote) from Admin → LLM/AI and run one read and one write
+- [ ] **Audit log action column stays inside its cell**: filter a long name such as `rustdesk.peer_delete_requested`;
+  the tag stays in the column (underscores visible), and narrowing the column turns it into "…" with the full name on hover
 - [ ] **Audit entries name the actor** (`tests/test_audit_actor_recorded.py`): create a user, change a group's
   members and edit an OPNsense / Wazuh integration; each audit row has the acting admin (20 sites used to
   record nobody; `request.state.user_id` is now set by `get_current_user`)

@@ -110,7 +110,7 @@ const form = ref<{
 });
 
 const DEVICE_TYPES = ["server", "switch", "router", "firewall", "ap", "storage", "ipmi",
-  "patch_panel", "pdu", "ups", "other"];
+  "patch_panel", "pdu", "ups", "workstation", "other"];
 const typeOpts = DEVICE_TYPES.map((v) => ({ label: t(`devices.type_${v}`), value: v }));
 const rackFaceOpts = computed(() => [
   { label: t("devices.rack_face_front"), value: "front" },
