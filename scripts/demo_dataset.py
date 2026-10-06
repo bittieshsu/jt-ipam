@@ -20,6 +20,10 @@
 
 重複執行是安全的：同名的物件會被跳過而不是重複建立，所以補資料、改資料都可以
 直接再跑一次。
+
+`--consoles`（要搭配 `--db-url`）另外建立瀏覽器連線管理的示範目標（SSH／RDP／VNC／
+PVE／BMC／RustDesk），拍 `ssh-rdp` 那張圖用。它會多出幾筆 IP、讓其他畫面也出現連線按鈕，
+所以預設不做；其他截圖照舊在沒有加這個參數的資料上拍。
 """
 from __future__ import annotations
 
@@ -233,7 +237,8 @@ class Api:
         self.base = base.rstrip("/")
         self.token = token
 
-    def call(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
+    def call(self, method: str, path: str, body: Any = None,
+             headers: dict[str, str] | None = None) -> tuple[int, Any]:
         data = json.dumps(body).encode() if body is not None else None
         # 網址由執行者自己在命令列上給（這是個開發用的灌資料腳本），不是從資料
         # 或使用者輸入來的，所以 S310 在這裡不適用
@@ -241,6 +246,8 @@ class Api:
         req.add_header("Content-Type", "application/json")
         if self.token:
             req.add_header("Authorization", "Bearer " + self.token)
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
         try:
             with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310  # nosec B310
                 raw = r.read()
@@ -297,6 +304,9 @@ def main() -> int:
     ap.add_argument("--password", required=True)
     ap.add_argument("--db-url", help="給定時直接寫資料庫，補上示範用的上線／離線狀態"
                                      "（IP 指示計需要）。只對可丟棄的資料庫使用。")
+    ap.add_argument("--consoles", action="store_true",
+                    help="另外建立瀏覽器連線管理的示範目標（SSH/RDP/VNC/PVE/BMC/RustDesk，"
+                         "拍 ssh-rdp 那張圖用；需要 --db-url）。會多出幾筆 IP、改變其他畫面，所以預設不做。")
     args = ap.parse_args()
 
     api = Api(args.base)
@@ -563,6 +573,9 @@ def main() -> int:
     if args.db_url:
         _fake_liveness(args.db_url)
 
+    if args.consoles:
+        _console_targets(api, args.db_url, subnet_for, ip_ids, dev_ids)
+
     print("\n完成。這份資料是虛構的：位址都在 RFC 5737／RFC 3849 的文件保留網段內，"
           "名稱不對應任何真實組織。")
     return 0
@@ -617,6 +630,190 @@ def _fake_liveness(db_url: str) -> None:
         print("上線／離線狀態 已寫入（示範用）")
     except (OSError, subprocess.CalledProcessError) as exc:
         print(f"  ! 寫入上線狀態失敗（需要 psql）：{exc}")
+
+
+# ── 瀏覽器連線管理的示範目標（--consoles；拍 ssh-rdp 那張圖用）──────────────
+#
+# 只有加 --consoles 才建立：會多出幾筆 IP、子網路與 IP 明細也會出現連線按鈕，
+# 其他截圖的內容就不一樣了。所以這一段跟上面完全分開，預設不跑。
+#
+# 連線管理頁每一種連線都要看得到：SSH、RDP、VNC、PVE 主控台（VM 的 noVNC、CT 的 xterm）、
+# BMC 序列主控台，以及相容 RustDesk 的網頁連線。排序是照 IP 字串排的，所以位址挑成
+# 「字串序＝數值序」（同一段都是兩位數或都是三位數），畫面上才不會出現 .141 排在 .31 前面。
+# 列數也要收斂：日文的欄位名稱長、裝置名稱會折成兩行，超過 11 列整張表就超出 1600×900 的畫面。
+
+#: 新增的位址：(IP, 主機名稱, 說明, 掛到哪台裝置)。BMC 是伺服器的頻外管理介面，掛回那台伺服器
+CONSOLE_IPS: list[tuple[str, str, str, str | None]] = [
+    ("192.0.2.101", "ws-01", "Office desktop", None),
+    ("192.0.2.102", "ws-02", "Office desktop", None),
+    ("192.0.2.103", "ws-03", "Design workstation", None),
+    ("192.0.2.141", "app-srv-01-bmc", "BMC", "app-srv-01"),
+]
+
+#: 每個位址開哪幾種連線（＝IP 編輯表單裡的開關）
+CONSOLE_FLAGS: dict[str, tuple[str, ...]] = {
+    "192.0.2.101": ("rdp", "rustdesk"),
+    "192.0.2.102": ("rustdesk",),
+    "192.0.2.103": ("vnc", "rustdesk"),
+    "192.0.2.141": ("bmc",),
+    "198.51.100.12": ("ssh", "sftp"),
+    "198.51.100.21": ("ssh", "sftp"),
+    "198.51.100.41": ("ssh", "novnc"),
+    "198.51.100.51": ("ssh", "novnc"),
+    "198.51.100.81": ("rdp",),
+    "203.0.113.2": ("ssh",),
+    "203.0.113.31": ("ssh", "sftp"),
+}
+
+#: 掃描代理會寫的 OS 與設備類型（沒有 API，要 --db-url）：IP → (OS 原始字串, OS 家族, 設備類型)
+CONSOLE_OS: dict[str, tuple[str | None, str | None, str]] = {
+    "192.0.2.101": ("Microsoft Windows 11 Pro", "windows", "windows"),
+    "192.0.2.102": ("Microsoft Windows 11 Pro", "windows", "windows"),
+    "192.0.2.103": ("Apple macOS 14", "macos", "server"),
+    "192.0.2.141": (None, None, "specialized"),
+    "198.51.100.12": ("Linux 6.8 (Ubuntu 24.04)", "linux", "server"),
+    "198.51.100.21": ("Linux 6.1 (Debian 12)", "linux", "server"),
+    "198.51.100.41": ("Linux 6.8 (Ubuntu 24.04)", "linux", "server"),
+    "198.51.100.51": ("Linux 6.1 (Debian 12)", "linux", "server"),
+    "198.51.100.81": ("Microsoft Windows Server 2022", "windows", "windows"),
+    "203.0.113.2": ("Embedded switch OS 9.3", "network", "switch"),
+    "203.0.113.31": ("Linux 6.8 (Ubuntu 24.04)", "linux", "server"),
+}
+
+#: PVE 的 VM／CT：(IP, VMID, 名稱, 種類)。VM 開 noVNC、CT 開 xterm（PVE 主控台按鈕會依種類換）
+CONSOLE_PVE = [
+    ("198.51.100.41", 101, "web-01", "vm"),
+    ("198.51.100.51", 201, "cache-01", "ct"),
+]
+
+#: RustDesk 伺服器與已註冊的裝置：(RustDesk ID, 登記 IP)。ID 是隨手編的 9 位數
+CONSOLE_RUSTDESK_SERVER = "rd-hub-01"
+CONSOLE_RUSTDESK_PEERS = [
+    ("318204557", "192.0.2.101"),
+    ("462097183", "192.0.2.102"),
+    ("705316942", "192.0.2.103"),
+]
+
+
+def _console_targets(api: Api, db_url: str | None, subnet_for: Any,
+                     ip_ids: dict[str, str], dev_ids: dict[str, str]) -> None:
+    """建立連線管理頁的示範目標。RustDesk 走真正的代理協定（/rustdesk/agent/report），
+    讓「哪個 ID 對應到哪筆 IP」由正式的比對邏輯決定，而不是直接塞資料表。"""
+    import base64
+
+    # 位址
+    for ip, host, desc, _dev in CONSOLE_IPS:
+        if ip in ip_ids:
+            continue
+        sid = subnet_for(ip)
+        if not sid:
+            print(f"  ! console ip {ip}: 找不到子網路")
+            continue
+        st, body = api.call("POST", "/addresses", {
+            "subnet_id": sid, "ip": ip, "hostname": host, "description": desc})
+        if st >= 400:
+            print(f"  ! console ip {ip}: {st} {body}")
+        else:
+            ip_ids[ip] = body["id"]
+    for ip, _host, _desc, dev in CONSOLE_IPS:
+        if dev and ip in ip_ids and dev in dev_ids:
+            st, body = api.call("PATCH", f"/addresses/{ip_ids[ip]}", {"device_id": dev_ids[dev]})
+            if st >= 400:
+                print(f"  ! link {ip} → {dev}: {st} {body}")
+
+    # 逐 IP 的連線開關
+    enabled = 0
+    for ip, kinds in CONSOLE_FLAGS.items():
+        if ip not in ip_ids:
+            print(f"  ! console flags {ip}: 沒有這筆 IP")
+            continue
+        st, body = api.call("PATCH", f"/addresses/{ip_ids[ip]}",
+                            {f"{k}_enabled": True for k in kinds})
+        if st >= 400:
+            print(f"  ! console flags {ip}: {st} {body}")
+        else:
+            enabled += 1
+    print(f"連線目標 {enabled}")
+
+    # RustDesk：建伺服器（開網頁連線），再以它的代理金鑰送一份 hbbs 回報
+    st, body = api.call("GET", "/rustdesk/servers?page_size=100")
+    srv = next((s for s in (body or {}).get("items", []) if s.get("name") == CONSOLE_RUSTDESK_SERVER),
+               None) if st == 200 else None
+    key = None
+    if srv is None:
+        st, srv = api.call("POST", "/rustdesk/servers", {
+            "name": CONSOLE_RUSTDESK_SERVER, "client_address": "rd.example.net",
+            "hbbs_host": "rd.example.net", "web_enabled": True, "web_file_transfer": True})
+        if st >= 400:
+            print(f"  ! rustdesk server: {st} {srv}")
+            srv = None
+        else:
+            key = srv.get("agent_key")
+    elif srv.get("id"):
+        st, kb = api.call("GET", f"/rustdesk/servers/{srv['id']}/agent-key")
+        key = kb.get("agent_key") if st == 200 and isinstance(kb, dict) else None
+    if srv and key:
+        report = {
+            "source_id": srv["id"], "version": "1.1.14",
+            # 隨機產生的公鑰（格式對就好；示範環境不會真的連到 hbbs）
+            "public_key": base64.b64encode(secrets.token_bytes(32)).decode(),
+            "files": {"db": {"path": "/var/lib/rustdesk-server/db_v2.sqlite3", "ok": True}},
+            "online_ok": True,
+            "peers": [{"id": rid, "ip": ip, "online": True} for rid, ip in CONSOLE_RUSTDESK_PEERS],
+        }
+        # 代理端點認的是 X-Agent-Key，不是登入的 token
+        agent = Api(api.base)
+        st, body = agent.call("POST", "/rustdesk/agent/report", report, headers={"X-Agent-Key": key})
+        if st >= 400:
+            print(f"  ! rustdesk report: {st} {body}")
+        else:
+            print(f"RustDesk 裝置 {body.get('peers')}（對應到 IP {body.get('matched')}）")
+
+    if not db_url:
+        print("  ! 沒給 --db-url：PVE 主控台、OS 與上線狀態要直接寫資料庫，這幾項會缺")
+        return
+    _console_db(db_url)
+
+
+def _sql_str(v: str | None) -> str:
+    """常數表裡的字串轉 SQL 字面值（只用在上面那幾張寫死的表，不是外來輸入）。"""
+    return "NULL" if v is None else "'" + v.replace("'", "''") + "'"
+
+
+def _console_db(db_url: str) -> None:
+    """PVE 的 VM／CT 只會從同步進來（沒有新增的 API）；OS 與設備類型是掃描代理寫的。
+    跟 _fake_liveness 一樣只給可丟棄的示範資料庫。"""
+    import subprocess
+    os_rows = ", ".join(f"({_sql_str(ip)}, {_sql_str(raw)}, {_sql_str(fam)}, {_sql_str(kind)})"
+                        for ip, (raw, fam, kind) in CONSOLE_OS.items())
+    vm_sql = "\n".join(
+        "INSERT INTO virtual_machines (cluster_id, legacy_vmid, name, node, kind, status, primary_ip_id)\n"
+        f"SELECT c.id, {vmid}, {_sql_str(name)}, 'pve-01', {_sql_str(kind)}, 'running', a.id\n"
+        f"  FROM virt_clusters c JOIN ip_addresses a ON host(a.ip) = {_sql_str(ip)}\n"
+        " WHERE c.name = 'pve-lab'\n"
+        "ON CONFLICT (cluster_id, legacy_vmid) DO NOTHING;"
+        for ip, vmid, name, kind in CONSOLE_PVE)
+    new_ips = ", ".join(_sql_str(ip) for ip, *_ in CONSOLE_IPS)
+    sql = f"""
+INSERT INTO virt_clusters (name, type) VALUES ('pve-lab', 'proxmox') ON CONFLICT (name) DO NOTHING;
+-- 網址用 example.net（RFC 2606）：PVE 主控台按鈕只看「對應到啟用中的 PVE 整合」，不會真的連過去
+INSERT INTO proxmox_instances (cluster_id, api_url, auth_username, auth_token_id, enabled)
+SELECT c.id, 'https://pve-01.example.net:8006', 'jtipam@pve', 'docs', true FROM virt_clusters c
+ WHERE c.name = 'pve-lab' AND NOT EXISTS (SELECT 1 FROM proxmox_instances p WHERE p.cluster_id = c.id);
+{vm_sql}
+UPDATE ip_addresses SET os_guess = v.raw, os_family = v.fam, device_kind = v.kind
+  FROM (VALUES {os_rows}) AS v(ip, raw, fam, kind)
+ WHERE host(ip_addresses.ip) = v.ip;
+UPDATE ip_addresses SET effective_status = 'online',
+       last_seen_scanner = now() - (random() * interval '20 minutes')
+ WHERE host(ip) IN ({new_ips});
+"""  # noqa: S608  # 只由上面寫死的常數表組成（_sql_str 跳脫），沒有外來輸入
+    try:
+        cmd = ["psql", db_url, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql]  # noqa: S607
+        subprocess.run(cmd, check=True)  # noqa: S603
+        print("PVE 主控台／OS／上線狀態 已寫入（示範用）")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"  ! 寫入連線示範資料失敗（需要 psql）：{exc}")
 
 
 if __name__ == "__main__":

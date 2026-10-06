@@ -829,7 +829,7 @@
     "username_ph": "選用；傳統 VNC 只有密碼，留空即可"
   },
   "connections": {
-    "hint": "以下是已啟用「SSH 連線管理」且你有權限連線的目標。點「SSH 連線」開新分頁，或用下拉「另開視窗」。",
+    "hint": "以下是你有權限連線、而且已在 IP 上開啟連線管理的目標（SSH、RDP、VNC、PVE 主控台、BMC、RustDesk）。點按鈕在新分頁開啟。",
     "filter_type": "連線類型",
     "filter_os": "OS",
     "col_ip": "IP",

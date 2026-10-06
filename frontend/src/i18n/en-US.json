@@ -829,7 +829,7 @@
     "username_ph": "Optional; classic VNC uses a password only"
   },
   "connections": {
-    "hint": "Targets with SSH management enabled that you're allowed to connect to. Click 'SSH' for a new tab, or use the dropdown to open in a new window.",
+    "hint": "Targets you may connect to whose IP has console access turned on (SSH, RDP, VNC, PVE console, BMC, RustDesk). Click a button to open it in a new tab.",
     "filter_type": "Type",
     "filter_os": "OS",
     "col_ip": "IP",

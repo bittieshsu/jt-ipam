@@ -149,6 +149,49 @@ const SHOTS = [
     async go(page) { await page.goto(`${BASE}/certificates`); await settle(page, 1500); },
   },
   {
+    // 瀏覽器連線管理（進階 → 連線管理）。連線目標要先用
+    // `demo_dataset.py --consoles --db-url ...` 灌：那個參數會多出幾筆 IP、讓別的畫面也
+    // 出現連線按鈕，所以這張在另外灌過的資料庫上單獨拍（--only ssh-rdp）。
+    name: "ssh-rdp",
+    async go(page) {
+      await page.goto(`${BASE}/advanced/connections`);
+      await settle(page, 1500);
+      const table = page.locator(".n-data-table").first();
+      const rows = table.locator(".n-data-table-tbody .n-data-table-tr");
+      await rows.first().waitFor();
+      // 每一種連線都要看得到按鈕 —— 少了哪一種就是資料沒灌齊，拍出來等於沒展示到。
+      // 按鈕文字是協定名，三種語言都一樣；圖示裡也有字（RDP 的「R」），所以取最後一行
+      const have = new Set((await table.locator(".n-data-table-tbody button").allInnerTexts())
+        .map((s) => s.trim().split("\n").pop().trim()));
+      for (const want of ["SSH", "RDP", "VNC", "noVNC", "xterm", "BMC", "RustDesk"]) {
+        if (!have.has(want)) {
+          throw new Error(`連線管理頁沒有 ${want} 按鈕（先跑 demo_dataset.py --consoles --db-url ...）`);
+        }
+      }
+      // 後端不保證順序：點「IP」標題照 IP 由小到大排（示範位址挑成字串序＝數值序）。
+      // naive-ui 第一下是由大到小、第二下才是由小到大，所以點到排好為止，每一下都讀回來確認 ——
+      // 點錯地方不會報錯，只會拍到一張亂序的表
+      const header = table.locator(".n-data-table-th", { hasText: /^\s*IP\s*$/ }).first();
+      const readIps = async () => (await rows.allInnerTexts())
+        .map((t) => (t.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/) || [""])[0]);
+      let ips = [];
+      for (let i = 0; i < 3; i++) {
+        await header.click();
+        await page.waitForTimeout(600);
+        ips = await readIps();
+        if (ips.join() === [...ips].sort().join()) break;
+      }
+      if (ips.length < 10 || ips[0] !== "192.0.2.101" || ips.join() !== [...ips].sort().join()) {
+        throw new Error(`連線清單沒有照 IP 排好：${ips.join(", ")}`);
+      }
+      // 整張表都要在畫面內（列數多了會被視窗切掉下半部）
+      const box = await table.boundingBox();
+      if (!box || box.y + box.height > page.viewportSize().height) {
+        throw new Error(`連線清單超出畫面（底部在 ${Math.round((box?.y || 0) + (box?.height || 0))}px）`);
+      }
+    },
+  },
+  {
     // ⚠️ docs/shots 裡這兩張目前是擁有者核准的**正式系統**截圖（見
     // backend/tests/test_docs_screenshots_provenance.py 的 OWNER_APPROVED_REAL_SHOTS）。
     // 用這裡重拍會換成虛構資料版 —— 那是更安全的方向，換了要順手刪掉那份核准清單的項目。

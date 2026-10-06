@@ -27,13 +27,12 @@ SHOTS = Path(__file__).resolve().parents[2] / "docs" / "shots"
 LANG_DIRS = {"zh", "en", "ja"}
 
 #: 還留在最上層的圖。內容已經換成虛構資料，但還沒進 `docs-shots.mjs` 的逐語言流程 ——
-#: 這四張要開著 Ollama 才拍得出來（AI 的回答本身就是畫面內容），而那還沒自動化。
+#: 這三張要開著 Ollama 才拍得出來（AI 的回答本身就是畫面內容），而那還沒自動化。
 #: 這仍然是待辦，不是允許清單：進了逐語言流程之後要從這裡刪掉，不要往這裡加。
 TOP_LEVEL_PENDING = {
     "ai-findip.png",        # AI 對話：這個 IP 誰在用
     "aichat-ip-rack.png",   # AI 對話：機櫃 U 與 IP
     "aichat-multiget.png",  # AI 對話：一次查多筆 IP
-    "ssh-rdp.png",          # 連線管理清單
 }
 
 
@@ -117,7 +116,7 @@ def test_the_pending_list_only_shrinks():
 
 
 def test_the_ai_chat_shots_use_documentation_addresses():
-    """那四張圖的內容要看得出是虛構的。
+    """那三張圖的內容要看得出是虛構的。
 
     像素掃不了，但**檔案有沒有被換過**是看得出來的：把換圖當天的內容雜湊釘住，
     任何人不小心用真實環境重拍蓋回去，這裡就會亮。要換圖請連同這裡一起更新，
@@ -129,7 +128,6 @@ def test_the_ai_chat_shots_use_documentation_addresses():
         "ai-findip.png": 1440,
         "aichat-ip-rack.png": 1440,
         "aichat-multiget.png": 1440,
-        "ssh-rdp.png": 1440,
     }
     for name, width in expected.items():
         blob = (SHOTS / name).read_bytes()
