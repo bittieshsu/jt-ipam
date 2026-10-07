@@ -11,9 +11,11 @@ import { fmtDateTime } from "@/utils/datetime";
 
 const { t } = useI18n();
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   address: IPAddress;
-}>();
+  /** 燈號直徑（px）；清單用預設 10，IP 詳情標題字比較大用 12 */
+  size?: number;
+}>(), { size: 10 });
 
 const tip = ref<{ x: number; y: number } | null>(null);
 
@@ -74,7 +76,7 @@ const meta = computed(() => {
 <template>
   <span
     class="live-dot"
-    :style="{ background: meta.color, boxShadow: `0 0 6px ${meta.color}` }"
+    :style="{ background: meta.color, boxShadow: `0 0 6px ${meta.color}`, width: `${size}px`, height: `${size}px` }"
     @mouseenter="showTip"
     @mousemove="moveTip"
     @mouseleave="hideTip"
@@ -100,8 +102,7 @@ const meta = computed(() => {
 <style scoped>
 .live-dot {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  flex: none;
   border-radius: 50%;
   cursor: help;
 }

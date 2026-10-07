@@ -7,7 +7,18 @@ import { apiClient } from "./client";
 export interface IdentifyPort {
   port: number; proto: string; state?: string; service?: string; product?: string;
   version?: string; extrainfo?: string; tunnel?: string; scripts?: Record<string, string>;
+  /** nmap 怎麼認出服務：table ＝沒有探針比中，名稱只是照埠號表寫的 */
+  method?: string;
+  /** 輸出被截斷的腳本（代理 1.17.4 起） */
+  truncated?: string[];
 }
+export interface IdentifyNote { code: string; params: Record<string, string | number> }
+export interface IdentifyCert {
+  port: string; subject: string | null; issuer: string | null; self_signed: boolean;
+  not_before: string | null; not_after: string | null; sha256: string | null; sha1: string | null;
+  key: string | null; san: string[];
+}
+export interface IdentifySshKey { port: string; type: string | null; bits: number | null; fingerprint: string | null }
 export interface IdentifySummary {
   device_type: string; os: string | null; vendor: string | null; names: string[];
   /** Recog 指紋比中的硬體型號／系列 */
@@ -21,10 +32,35 @@ export interface IdentifySummary {
   nic_vendor?: string | null;
   /** IP 記錄對照 IPAM 已知的事實後採用的類型與依據（device:／librenms:／wazuh:／rustdesk:／ocs:／virt:） */
   ipam?: { kind: string | null; reason: string } | null;
+  /** nmap 本身失敗（不是主機沒回應） */
+  scan_failed?: boolean;
+  scan_error?: string | null;
+  name_sources?: { name: string; sources: string[] }[];
+  windows?: { computer: string | null; domain: string | null; dns_domain: string | null; fqdn: string | null;
+              workgroup: string | null; product_version: string | null } | null;
+  certs?: IdentifyCert[];
+  ssh_keys?: IdentifySshKey[];
+  /** filtered 為 null ＝舊代理沒回報 */
+  port_counts?: { open: number; closed: number; filtered: number | null } | null;
+  distance?: number | null;
+  uptime_seconds?: number | null;
+  elapsed?: number | null;
+  /** false ＝代理不是 root，nmap 沒做 OS 指紋；null ＝舊代理沒回報 */
+  os_scan?: boolean | null;
+  /** 顯示的 MAC（算網卡廠牌用的那個）與這次 nmap 看到的 */
+  mac?: string | null;
+  mac_seen?: string | null;
+  notes?: IdentifyNote[];
 }
 export interface IdentifyChanges {
   previous_job_id: string; previous_at: string;
   opened: string[]; closed: string[]; changed: { port: string; before: string; after: string }[];
+  /** 其中一次沒回應／失敗／沒有 nmap：連接埠不比 */
+  baseline?: string | null; current?: string | null;
+  fields?: { field: string; before: string; after: string }[];
+  names_added?: string[]; names_removed?: string[];
+  ssh_keys?: { port: string; type: string | null; before: string; after: string }[];
+  certs?: { port: string; before: Record<string, string | null>; after: Record<string, string | null> }[];
 }
 export type IdentifyStatus = "pending" | "running" | "done" | "failed" | "expired";
 /** 清單用的精簡版（不帶原始結果） */

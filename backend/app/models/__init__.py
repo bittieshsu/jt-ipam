@@ -22,6 +22,18 @@ from app.models.audit import AuditLog
 from app.models.background_task import BackgroundTask
 from app.models.base import Base
 from app.models.certificate import CertAgent, Certificate, CertVersion
+from app.models.change_impact import (
+    ChangePlan,
+    ChangePlanRevision,
+    ChangeTask,
+    ImpactAIArtifact,
+    ImpactEvidence,
+    ImpactFinding,
+    ImpactGap,
+    ImpactRelation,
+    ImpactReview,
+    ImpactRun,
+)
 from app.models.custom_field import CustomFieldDefinition
 from app.models.customer import Customer
 from app.models.device import Device
@@ -118,6 +130,9 @@ __all__ = [
     "CertAgent",
     "CertVersion",
     "Certificate",
+    "ChangePlan",
+    "ChangePlanRevision",
+    "ChangeTask",
     "Circuit",
     "CircuitType",
     "Contact",
@@ -146,6 +161,13 @@ __all__ = [
     "IPRequest",
     "IPRequestEvent",
     "IPRequestStageApproval",
+    "ImpactAIArtifact",
+    "ImpactEvidence",
+    "ImpactFinding",
+    "ImpactGap",
+    "ImpactRelation",
+    "ImpactReview",
+    "ImpactRun",
     "JumpHost",
     "LibreNMSDevice",
     "LibreNMSInstance",

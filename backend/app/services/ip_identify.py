@@ -628,6 +628,174 @@ def _recog_evidence(m: dict[str, Any]) -> str:
     return f"recog:{m['description'] or m['db']} ({where}{m['db']})"
 
 
+# ─────────────────── 已經抓到、以前沒顯示的欄位（2026-10-07） ───────────────────
+
+# 值用貪婪的 [^\n]* 再 strip：值後面接 [ \t]*$ 的寫法遇到一長串空白會二次方回溯
+_KV_LINE = re.compile(r"^[ \t|_]*([A-Za-z][A-Za-z0-9 _-]{0,40}?):[ \t]*(\S[^\n]*)", re.M)
+_HOSTKEY_LINE = re.compile(r"^[ \t|_]*(\d{3,5})[ \t]+((?:[0-9a-fA-F]{2}:)+[0-9a-fA-F]{2}|SHA256:\S+)[ \t]+\(([\w-]{1,30})\)",
+                           re.M)
+_WIN_BUILD = re.compile(r"^\d{1,2}\.\d{1,2}\.(\d{3,6})$")
+_MAX_CERTS = 10
+
+
+def _kv(text: str | None) -> dict[str, str]:
+    """nmap 腳本的「欄位: 值」文字 → dict（rdp-ntlm-info、smb-os-discovery、ssl-cert 的文字輸出都是這種）。
+    值結尾的 `\x00`（nmap 把 NUL 寫成這樣，NetBIOS 名稱常帶）去掉。"""
+    out: dict[str, str] = {}
+    for k, v in _KV_LINE.findall(text or ""):
+        v = v.replace("\\x00", "").replace("\x00", "").strip()
+        if v and k.strip() not in out:
+            out[k.strip()] = v
+    return out
+
+
+def _windows_identity(ports: list[dict[str, Any]], nmap: dict[str, Any]) -> dict[str, Any] | None:
+    """rdp-ntlm-info（3389）與 smb-os-discovery（主機層）講出的 Windows 電腦名稱、網域、工作群組、版本。
+    沒加入網域的電腦，NTLM 回的「網域」就是電腦名稱自己 —— 那不是網域，不列。"""
+    rdp = next((str((p.get("scripts") or {}).get("rdp-ntlm-info")) for p in ports
+                if (p.get("scripts") or {}).get("rdp-ntlm-info")), None)
+    smb = (nmap.get("host_scripts") or {}).get("smb-os-discovery")
+    if not rdp and not smb:
+        return None
+    r, m = _kv(rdp), _kv(smb)
+    computer = r.get("NetBIOS_Computer_Name") or m.get("NetBIOS computer name") or m.get("Computer name")
+    domain = r.get("NetBIOS_Domain_Name")
+    dns_domain = r.get("DNS_Domain_Name") or m.get("Domain name")
+    fqdn = r.get("DNS_Computer_Name") or m.get("FQDN")
+    def same(v: str | None) -> bool:
+        return bool(v and computer and v.lower() == computer.lower())
+    out = {
+        "computer": computer,
+        "domain": None if same(domain) else domain,
+        "dns_domain": None if same(dns_domain) or not (dns_domain and "." in dns_domain) else dns_domain,
+        "fqdn": fqdn if fqdn and "." in fqdn else None,
+        "workgroup": m.get("Workgroup"),
+        "product_version": r.get("Product_Version"),
+    }
+    return out if any(out.values()) else None
+
+
+def _windows_os(nmap: dict[str, Any], win: dict[str, Any] | None) -> tuple[str, str] | None:
+    """OS 指紋與 Recog 都沒結論時，SMB 與 RDP 自己講的作業系統 →（OS, 依據）。
+
+    Samba 會自稱「Windows 6.1」，不採信；RDP 只給核心版本號（10.0.26100），分不出用戶端或伺服器版，照實寫 build。"""
+    smb = str((nmap.get("host_scripts") or {}).get("smb-os-discovery") or "")
+    m = _SMB_OS_LINE.search(smb)
+    if m and "samba" not in smb.lower():
+        name = m.group(1).split("(", 1)[0].strip()
+        if name.lower().startswith("windows"):
+            return name[:80], f"smb-os:{name[:80]}"
+    ver = (win or {}).get("product_version") or ""
+    b = _WIN_BUILD.match(ver)
+    if b:
+        return f"Windows (build {b.group(1)})", f"rdp:{ver}"
+    return None
+
+
+def _dn_display(fields: dict[str, Any]) -> str:
+    return ", ".join(f"{short}={fields[long]}" for long, short in _DN_ORDER
+                     if isinstance(fields.get(long), str) and fields.get(long))
+
+
+def _dn_display_text(line: str) -> str:
+    fields: dict[str, str] = {}
+    for part in line.split("/"):
+        k, sep, v = part.partition("=")
+        if sep:
+            fields[k.strip()] = v.strip()
+    return _dn_display(fields)
+
+
+def _hex(v: str | None) -> str | None:
+    h = re.sub(r"[^0-9a-fA-F]", "", v or "").lower()
+    return h or None
+
+
+def _certs(ports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """每個 TLS 埠的憑證：主體、簽發者、有效期間、指紋、金鑰、SAN。新代理（1.17.4）給結構化欄位；
+    舊代理只有文字（600 字內），能讀多少算多少。"""
+    out = []
+    for p in ports:
+        data = ((p.get("script_data") or {}).get("ssl-cert")) or {}
+        text = str((p.get("scripts") or {}).get("ssl-cert") or "")
+        if not data and not text:
+            continue
+        kv = _kv(text)
+        subject = _dn_display(data["subject"]) if data.get("subject") else _dn_display_text(kv.get("Subject", ""))
+        issuer = _dn_display(data["issuer"]) if data.get("issuer") else _dn_display_text(kv.get("Issuer", ""))
+        key_type = data.get("key_type") or kv.get("Public Key type")
+        key_bits = data.get("key_bits") or kv.get("Public Key bits")
+        san = data.get("san")
+        if san is None and kv.get("Subject Alternative Name"):
+            san = [x.strip() for x in kv["Subject Alternative Name"].split(",") if x.strip()][:20]
+        out.append({
+            "port": _port_key(p),
+            "subject": subject or None,
+            "issuer": issuer or None,
+            "self_signed": bool(subject) and subject == issuer,
+            "not_before": data.get("not_before") or kv.get("Not valid before"),
+            "not_after": data.get("not_after") or kv.get("Not valid after"),
+            "sha256": data.get("sha256") or _hex(kv.get("SHA-256")),
+            "sha1": data.get("sha1") or _hex(kv.get("SHA-1")),
+            "key": " ".join(str(x) for x in (key_type, key_bits) if x) or None,
+            "san": san or [],
+        })
+    return out[:_MAX_CERTS]
+
+
+def _ssh_keys(ports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """SSH 主機金鑰。新代理給 SHA256 指紋（跟 `ssh-keygen -lf` 一樣）；舊代理只有 nmap 預設的 MD5 文字。"""
+    out = []
+    for p in ports:
+        data = (p.get("script_data") or {}).get("ssh-hostkey")
+        if data:
+            out += [{"port": _port_key(p), "type": k.get("type"), "bits": k.get("bits"), "fingerprint": k.get("sha256")}
+                    for k in data if isinstance(k, dict)]
+            continue
+        for bits, fp, typ in _HOSTKEY_LINE.findall(str((p.get("scripts") or {}).get("ssh-hostkey") or "")):
+            out.append({"port": _port_key(p), "type": typ, "bits": int(bits),
+                        "fingerprint": fp if fp.startswith("SHA256:") else f"MD5:{fp.lower()}"})
+    return out[:16]
+
+
+def _scan_error(nmap: dict[str, Any]) -> str | None:
+    """nmap 本身失敗（不是主機沒回應）：例外、逾時、結束碼非零、輸出裡沒有這台、單台時限到了被丟掉。"""
+    if not bool(nmap.get("available", bool(nmap))):
+        return None
+    if nmap.get("error"):
+        return str(nmap["error"])[:600]
+    stderr = str(nmap.get("stderr") or "").strip()
+    if nmap.get("exit") not in (None, 0):
+        return f"exit {nmap.get('exit')}" + (f": {stderr[-500:]}" if stderr else "")
+    if nmap.get("host_found") is False:
+        return stderr[-500:] or "no host in nmap output"
+    if nmap.get("timedout"):
+        return "host timeout"
+    return None
+
+
+def _responded(result: dict[str, Any]) -> bool:
+    """主機到底有沒有回應：-Pn 時 nmap 一律把主機當成「在線」，不能看它的狀態欄；
+    要看實際的證據 —— 開著或關著的埠、區網內的 MAC 回應、OS 指紋、主機自己回的 NetBIOS／mDNS 名稱。
+    反解是 DNS 回的，不算。"""
+    nmap = result.get("nmap") or {}
+    names_in = result.get("names") or {}
+    os_list = [o for o in (nmap.get("os") or []) if isinstance(o, dict)]
+    return bool(_open_ports(nmap) or int(nmap.get("closed") or 0) or nmap.get("mac") or os_list
+                or names_in.get("netbios") or names_in.get("mdns"))
+
+
+def probe_state(result: dict[str, Any] | None) -> str:
+    """ok／no_response（真的沒回應）／scan_failed（nmap 自己失敗）／unavailable（代理沒有 nmap）。"""
+    result = result or {}
+    nmap = result.get("nmap") or {}
+    if not bool(nmap.get("available", bool(nmap))):
+        return "unavailable"
+    if _responded(result):
+        return "ok"
+    return "scan_failed" if _scan_error(nmap) else "no_response"
+
+
 def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
               recog: Matcher | None = None, virtual_guest: bool | str | None = False,
               mac: str | None = None) -> dict[str, Any]:
@@ -641,6 +809,9 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
     names_in = result.get("names") or {}
     ports = _open_ports(nmap)
     evidence: list[str] = []
+    # 判斷的理由（畫面列出來：為什麼作業系統是「—」、為什麼不採信指紋…）：{code, params}，前端翻譯
+    notes: list[dict[str, Any]] = []
+    win = _windows_identity(ports, nmap)
 
     rc = (_recog_conclusions(recog_matches(nmap, recog), recog,
                              {f"{p.get('port')}/{p.get('proto') or 'tcp'}" for p in ports if p.get("product")})
@@ -675,7 +846,16 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
     if top and int(top.get("accuracy") or 0) >= _MIN_OS_ACCURACY and not fp_ambiguous:
         if not fp_device_mismatch:
             os_name = top.get("name")
+        else:
+            notes.append({"code": "fp_device_mismatch",
+                          "params": {"fp": str(top.get("name") or ""),
+                                     "nic": str(mac_vendor or nmap.get("mac_vendor") or "—")}})
         evidence.append(f"os:{top.get('name')} ({top.get('accuracy')}%)")
+    elif top and fp_ambiguous:
+        notes.append({"code": "os_ambiguous", "params": {}})
+    elif top:
+        notes.append({"code": "os_low_accuracy",
+                      "params": {"acc": int(top.get("accuracy") or 0), "min": _MIN_OS_ACCURACY}})
     # Recog 的 OS 來自服務自己講的話（OpenSSH 的註解、SMB 回的 OS 名稱），夠有把握時比 TCP/IP 指紋精確；
     # 把握度低的（例如「IIS 10 大概是 Windows」）只在 nmap 沒結論時才用
     # nmap 的指紋被推翻了沒有：Recog 有把握地講出另一個 OS 時，指紋的類別與廠牌也不再採信
@@ -688,11 +868,22 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
             fingerprint_overruled = bool(top and os_name and rcert >= _RECOG_STRONG_OS and os_name != rname)
             os_name = rname
     trust_fingerprint = top is not None and not fingerprint_overruled and not virtual_guest and not fp_ambiguous
+    if fingerprint_overruled and top:
+        notes.append({"code": "recog_overruled", "params": {"fp": str(top.get("name") or ""), "os": str(os_name or "")}})
+    if virtual_guest and top:
+        notes.append({"code": "guest_fp_ignored", "params": {}})
     nic_vendor = mac_vendor or nmap.get("mac_vendor") or None
     # 廠牌是從哪個 MAC 查的：呼叫端給的（IP 記錄上的），或廠牌本身就是 nmap 查的那個 MAC
     oui_mac = mac if mac is not None else (None if mac_vendor else nmap.get("mac"))
     oui = kk.oui_hint(nic_vendor, oui_mac)
 
+    # 指紋與 Recog 都沒結論：SMB／RDP 自己講的 Windows 版本（以前這兩段資料都沒用上，探測頁的作業系統是「—」，
+    # IP 頁卻有）
+    if os_name is None:
+        wos = _windows_os(nmap, win)
+        if wos:
+            os_name = wos[0]
+            evidence.append(wos[1])
     # 指紋只給得出核心範圍（Linux 2.6.32）時，服務版本字串講得出發行版就顯示發行版（堆疊是 Windows 時不用：
     # 那個 banner 多半是容器的）
     if stack_fam != "windows" and (os_name is None or re.match(r"linux \d", os_name, re.I)):
@@ -865,24 +1056,49 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
     if rc:
         evidence += [_recog_evidence(m) for m in rc["used"][:_MAX_RECOG_EVIDENCE]]
 
-    names: list[str] = []
+    # 名稱與來源：反解、NetBIOS、mDNS、nmap、Windows 自己講的（RDP／SMB）、憑證。同一個名稱好幾個來源都列
     skip_certs = rc["default_cert_ports"] if rc else set()
-    for n in [names_in.get("rdns"), names_in.get("netbios"), names_in.get("mdns"),
-              *(nmap.get("hostnames") or []),
-              *[c for p in ports if f"{p.get('port')}/{p.get('proto') or 'tcp'}" not in skip_certs
-                for c in _cert_names(p)]]:
-        if n and n not in names:
-            names.append(str(n))
+    rdp_said = any((p.get("scripts") or {}).get("rdp-ntlm-info") for p in ports)
+    win_src = "rdp" if rdp_said else "smb"
+    sourced: list[tuple[Any, str]] = [
+        (names_in.get("rdns"), "rdns"), (names_in.get("netbios"), "netbios"), (names_in.get("mdns"), "mdns"),
+        *((h, "nmap") for h in (nmap.get("hostnames") or [])),
+        ((win or {}).get("fqdn"), win_src), ((win or {}).get("computer"), win_src),
+        *((c, "cert") for p in ports if f"{p.get('port')}/{p.get('proto') or 'tcp'}" not in skip_certs
+          for c in _cert_names(p)),
+    ]
+    name_sources: list[dict[str, Any]] = []
+    for n, src in sourced:
+        if not n:
+            continue
+        hit = next((x for x in name_sources if x["name"] == str(n)), None)
+        if hit is None:
+            name_sources.append({"name": str(n), "sources": [src]})
+        elif src not in hit["sources"]:
+            hit["sources"].append(src)
+    names = [x["name"] for x in name_sources]
 
     # 主機到底有沒有回應：-Pn 時 nmap 一律把主機當成「在線」，不能看它的狀態欄；
     # 要看實際的證據 —— 開著或關著的埠、區網內的 MAC 回應、OS 指紋、主機自己回的 NetBIOS／mDNS 名稱。
     # 反解是 DNS 回的，不算。全部沒有＝探測時沒有回應（多半是關機、離線，或防火牆擋掉所有探測）
+    # nmap 自己失敗（結束碼非零、輸出裡沒有這台、逾時）不是「主機沒回應」：以前一律顯示成沒回應
     nmap_ok = bool(nmap.get("available", bool(nmap)))
-    responded = bool(ports or int(nmap.get("closed") or 0) or nmap.get("mac") or top
-                     or names_in.get("netbios") or names_in.get("mdns"))
-    no_response = nmap_ok and not responded
+    scan_error = _scan_error(nmap)
+    no_response = nmap_ok and not _responded(result) and scan_error is None
     if no_response:
         device_type = "no_response"
+
+    if nmap.get("os_scan") is False:
+        notes.append({"code": "no_os_scan", "params": {}})
+    guessed = [_port_key(p) for p in ports if _table_guess(p)]
+    if guessed:
+        notes.append({"code": "port_table_guess", "params": {"ports": ", ".join(guessed[:12])}})
+    seen_mac = nmap.get("mac") or None
+    shown_mac = mac if mac is not None else seen_mac
+    if mac and seen_mac and str(mac).lower() != str(seen_mac).lower():
+        notes.append({"code": "mac_differs", "params": {"seen": str(seen_mac)}})
+    if shown_mac and kk.is_locally_administered(str(shown_mac)):
+        notes.append({"code": "mac_random", "params": {}})
 
     return {
         "device_type": device_type,
@@ -898,6 +1114,24 @@ def summarize(result: dict[str, Any] | None, *, mac_vendor: str | None = None,
         "nmap_available": bool(nmap.get("available", bool(nmap))),
         # 用了哪一版 Recog 指紋庫（沒裝是 None，畫面上會提示判斷較有限）
         "recog": recog.release if recog else None,
+        "scan_failed": scan_error is not None,
+        "scan_error": scan_error,
+        "name_sources": name_sources,
+        "windows": win,
+        "certs": _certs(ports),
+        "ssh_keys": _ssh_keys(ports),
+        # 舊代理（1.17.4 以前）沒有過濾數：None ＝不知道，不寫 0
+        "port_counts": ({"open": len(ports), "closed": int(nmap.get("closed") or 0),
+                         "filtered": int(nmap["filtered"]) if nmap.get("filtered") is not None else None}
+                        if (nmap_ok and scan_error is None) or ports else None),
+        "distance": nmap.get("distance"),
+        "uptime_seconds": (nmap.get("uptime") or {}).get("seconds") if isinstance(nmap.get("uptime"), dict) else None,
+        "elapsed": result.get("elapsed"),
+        "os_scan": nmap.get("os_scan"),
+        # 顯示的 MAC 跟算網卡廠牌用的是同一個；這次 nmap 看到的另外列（不同時 notes 有 mac_differs）
+        "mac": shown_mac,
+        "mac_seen": seen_mac,
+        "notes": notes,
     }
 
 
@@ -909,18 +1143,60 @@ def _port_product(p: dict[str, Any]) -> str:
     return " ".join(x for x in (p.get("product"), p.get("version")) if x).strip()
 
 
-def changes_between(previous: dict[str, Any] | None, current: dict[str, Any] | None) -> dict[str, Any]:
-    """兩次探測之間的差異：新開的埠、關掉的埠、產品／版本變了的服務。"""
-    before = {_port_key(p): p for p in _open_ports((previous or {}).get("nmap") or {})}
-    after = {_port_key(p): p for p in _open_ports((current or {}).get("nmap") or {})}
-    changed = []
+def changes_between(previous: dict[str, Any] | None, current: dict[str, Any] | None,
+                    prev_summary: dict[str, Any] | None = None,
+                    cur_summary: dict[str, Any] | None = None) -> dict[str, Any]:
+    """兩次探測之間的差異：新開、關掉、產品／版本變了的服務，以及 MAC、作業系統、設備類型、名稱、
+    SSH 主機金鑰、TLS 憑證的變化（金鑰或憑證變了可能代表重灌、換機或被冒充）。
+
+    其中一次沒回應或 nmap 失敗時不比連接埠（`baseline`／`current` 說明原因）：以前上一次沒回應，
+    這次所有埠都被列成「新開」。摘要沒傳就自己算（不含 Recog 與 IPAM 的對照）。"""
+    previous, current = previous or {}, current or {}
+    before_state, after_state = probe_state(previous), probe_state(current)
+    out: dict[str, Any] = {
+        "opened": [], "closed": [], "changed": [],
+        "baseline": None if before_state == "ok" else before_state,
+        "current": None if after_state == "ok" else after_state,
+        "fields": [], "names_added": [], "names_removed": [], "ssh_keys": [], "certs": [],
+    }
+    if before_state != "ok" or after_state != "ok":
+        return out
+    before = {_port_key(p): p for p in _open_ports(previous.get("nmap") or {})}
+    after = {_port_key(p): p for p in _open_ports(current.get("nmap") or {})}
     for k in after:
         if k in before:
             a, b = _port_product(before[k]), _port_product(after[k])
             if a != b and a and b:
-                changed.append({"port": k, "before": a, "after": b})
-    return {
-        "opened": [k for k in after if k not in before],
-        "closed": [k for k in before if k not in after],
-        "changed": changed,
-    }
+                out["changed"].append({"port": k, "before": a, "after": b})
+    out["opened"] = [k for k in after if k not in before]
+    out["closed"] = [k for k in before if k not in after]
+
+    ps = prev_summary if prev_summary is not None else summarize(previous)
+    cs = cur_summary if cur_summary is not None else summarize(current)
+    # 兩邊都有值、而且不同才算（指紋時有時無，一邊是「—」不算變化）
+    for field, key in (("mac", "mac_seen"), ("os", "os"), ("device_type", "device_type")):
+        va, vb = ps.get(key), cs.get(key)
+        if not va or not vb or va == "unknown" or vb == "unknown":
+            continue
+        if (str(va).lower() != str(vb).lower()) if field == "mac" else va != vb:
+            out["fields"].append({"field": field, "before": va, "after": vb})
+    pn, cn = list(ps.get("names") or []), list(cs.get("names") or [])
+    out["names_added"] = [n for n in cn if n not in pn]
+    out["names_removed"] = [n for n in pn if n not in cn]
+    # 金鑰：同一個埠、同一種演算法的指紋不同。舊代理是 MD5、新代理是 SHA256，格式不同不算變化
+    pk = {(k["port"], k.get("type")): k.get("fingerprint") for k in ps.get("ssh_keys") or []}
+    for k in cs.get("ssh_keys") or []:
+        old = pk.get((k["port"], k.get("type")))
+        new = k.get("fingerprint")
+        if old and new and old != new and old.split(":", 1)[0] == new.split(":", 1)[0]:
+            out["ssh_keys"].append({"port": k["port"], "type": k.get("type"), "before": old, "after": new})
+    pc = {c["port"]: c for c in ps.get("certs") or []}
+    for c in cs.get("certs") or []:
+        o = pc.get(c["port"])
+        if not o:
+            continue
+        algo = "sha256" if o.get("sha256") and c.get("sha256") else ("sha1" if o.get("sha1") and c.get("sha1") else None)
+        if algo and o[algo] != c[algo]:
+            out["certs"].append({"port": c["port"], "before": {algo: o[algo], "not_after": o.get("not_after")},
+                                 "after": {algo: c[algo], "not_after": c.get("not_after")}})
+    return out

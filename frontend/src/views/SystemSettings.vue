@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { getImpactSettings, putImpactSettings } from "@/api/changeImpact";
+import { useChangeImpact } from "@/composables/useChangeImpact";
 /**
  * 系統設定（僅管理員）— 全域、所有使用者共用的設定，獨立於「個人設定」。
  * 含：地圖供應商、機櫃名稱對齊、上線判定閾值、GeoIP(MaxMind) 本地資料庫與排程。
@@ -183,6 +185,23 @@ async function saveConsole(patch: Partial<ConsoleSecurityPatch>) {
     vncEngine.value = prev.vnc; sshEngine.value = prev.ssh;
     msg.error(t("errors.network"));
   }
+}
+// 變更影響預演的設定（後端 /change-impact/settings；管理員才拿得到 config）
+const impactCfg = ref<Record<string, any>>({ enabled: false, ai_enabled: true, allow_self_review: false,
+                                             run_valid_hours: 24, retention_days: 180 });
+const impactShared = useChangeImpact();
+async function loadImpact() {
+  try { const s = await getImpactSettings(); if (s.config) impactCfg.value = s.config; } catch { /* 舊後端沒有這支 */ }
+}
+async function saveImpact(patch: Record<string, unknown>) {
+  const prev = { ...impactCfg.value };
+  impactCfg.value = { ...impactCfg.value, ...patch };
+  try {
+    const s = await putImpactSettings(patch);
+    if (s.config) impactCfg.value = s.config;
+    void impactShared.load(true);          // 選單與入口跟著出現或消失
+    msg.success(t("common.ok"));
+  } catch { impactCfg.value = prev; msg.error(t("errors.network")); }
 }
 function changeRdpClipPaste(v: boolean) { rdpClipPaste.value = v; void saveConsole({ rdp_clipboard_paste: v }); }
 // 主控台中繼：只送這一個欄位（後端「沒帶＝維持原值」），失敗時退回原值
@@ -555,6 +574,7 @@ async function doTestAf() {
 }
 
 onMounted(() => {
+  void loadImpact();
   void loadRackEmbed();
   getUiDisplay().then((d) => { changeLogDimDays.value = d.change_log_dim_days; }).catch(() => {});
   getDevicePortFilter().then((d) => {
@@ -737,6 +757,52 @@ async function doPreviewAutolink() {
             <div class="ss-r__ctl">
               <n-switch :value="consoleRelay" data-testid="console-relay-switch" @update:value="changeConsoleRelay" />
             </div>
+          </div>
+        </div>
+      </n-card>
+
+      <!-- 變更影響預演（預設關閉；開了之後選單、IP 頁、裝置頁才有入口） -->
+      <n-card class="ss-group" size="small" data-testid="ss-change-impact">
+        <template #header><span class="ss-h">{{ t("change_impact.title") }}</span></template>
+        <div class="ss-grid">
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("change_impact.set_enabled") }}</label>
+              <div class="hint">{{ t("change_impact.set_enabled_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-switch :value="impactCfg.enabled" data-testid="cip-enabled-switch"
+                        @update:value="(v: boolean) => saveImpact({ enabled: v })" />
+            </div>
+          </div>
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("change_impact.set_ai") }}</label>
+              <div class="hint">{{ t("change_impact.set_ai_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-switch :value="impactCfg.ai_enabled" @update:value="(v: boolean) => saveImpact({ ai_enabled: v })" />
+            </div>
+          </div>
+          <div class="ss-r fld">
+            <div class="ss-r__text">
+              <label>{{ t("change_impact.set_self_review") }}</label>
+              <div class="hint">{{ t("change_impact.set_self_review_hint") }}</div>
+            </div>
+            <div class="ss-r__ctl">
+              <n-switch :value="impactCfg.allow_self_review"
+                        @update:value="(v: boolean) => saveImpact({ allow_self_review: v })" />
+            </div>
+          </div>
+          <div class="fld">
+            <label>{{ t("change_impact.set_valid_hours") }}</label>
+            <n-input-number :value="impactCfg.run_valid_hours" :min="1" :max="168" style="width: 160px"
+                            @update:value="(v: number | null) => v && saveImpact({ run_valid_hours: v })" />
+          </div>
+          <div class="fld">
+            <label>{{ t("change_impact.set_retention") }}</label>
+            <n-input-number :value="impactCfg.retention_days" :min="7" :max="3650" style="width: 160px"
+                            @update:value="(v: number | null) => v && saveImpact({ retention_days: v })" />
           </div>
         </div>
       </n-card>

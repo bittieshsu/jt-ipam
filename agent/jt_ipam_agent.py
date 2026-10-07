@@ -68,7 +68,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.17.3"
+AGENT_VERSION = "1.17.4"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -596,7 +596,11 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
         #（攝影機的 RTSP、印表機、VoIP、NAS、NVR），否則只剩 TCP/IP 指紋，攝影機會被判成一般主機
         ports = sorted(set(TCP_PROBE_PORTS) | set(OS_PROBE_KIND_PORTS)) if want_os else list(TCP_PROBE_PORTS)
         port_args = ["-p", ",".join(str(p) for p in ports)]
-    args = ["nmap", "-Pn", "-T4", "--host-timeout", "90s" if want_os else "30s", *port_args]
+    try:
+        v6 = ["-6"] if ipaddress.ip_address(ip).version == 6 else []     # 沒有 -6，IPv6 位址一定失敗
+    except ValueError:
+        v6 = []
+    args = ["nmap", "-Pn", "-T4", "--host-timeout", "90s" if want_os else "30s", *v6, *port_args]
     xml_path = None
     if want_os:
         # -sV（服務/banner 偵測）+ smb-os-discovery 遠比純 TCP/IP 堆疊指紋（-O）可靠：
@@ -629,7 +633,7 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
         if want_os and not _has_data(parsed):
             # 還是拖過單台時限（或腳本卡住）：nmap 不留這台的任何結果。退回只做 OS 指紋（十幾秒），
             # 至少有 OS 與設備類型可判讀，不要整筆白跑
-            text2, parsed2 = _run(["nmap", "-Pn", "-T4", "--host-timeout", "60s", *port_args,
+            text2, parsed2 = _run(["nmap", "-Pn", "-T4", "--host-timeout", "60s", *v6, *port_args,
                                    "-O", "--osscan-guess", "-oX", xml_path, ip])
             if _has_data(parsed2):
                 text, parsed = text2, parsed2
@@ -1429,21 +1433,95 @@ def _identify_port_list(path: str | None = None, top: int = _IDENTIFY_TOP_PORTS)
     return None
 
 
+_MAX_SAN = 20
+
+
+def _cert_data(sc) -> dict:  # noqa: ANN001 -- ElementTree element
+    """ssl-cert 的結構化欄位：Subject／Issuer、有效期間、指紋、金鑰、SAN（1.17.4 起多了後四項）。
+
+    文字輸出最多留 600 字，SAN 很長時到期日會被切掉；這裡不受影響。nmap 7.94 不給 SHA-256，
+    從 PEM 自己算；PEM 本身不送回伺服器（只要指紋）。"""
+    cert: dict = {}
+    for part in ("subject", "issuer"):
+        table = sc.find(f"table[@key='{part}']")
+        if table is not None:
+            cert[part] = {e.get("key"): (e.text or "")[:200] for e in table.findall("elem") if e.get("key")}
+    val = sc.find("table[@key='validity']")
+    if val is not None:
+        for key, out_key in (("notBefore", "not_before"), ("notAfter", "not_after")):
+            e = val.find(f"elem[@key='{key}']")
+            if e is not None and e.text:
+                cert[out_key] = e.text[:40]
+    sha1 = sc.find("elem[@key='sha1']")
+    if sha1 is not None and sha1.text:
+        cert["sha1"] = sha1.text.strip().lower()[:64]
+    pem = sc.find("elem[@key='pem']")
+    if pem is not None and pem.text:
+        body = "".join(ln for ln in pem.text.splitlines() if ln and not ln.startswith("-----"))
+        try:
+            cert["sha256"] = hashlib.sha256(base64.b64decode(body)).hexdigest()
+        except Exception:  # noqa: BLE001 -- 指紋算不出來就不給，其餘照常
+            pass
+    pk = sc.find("table[@key='pubkey']")
+    if pk is not None:
+        t, b = pk.find("elem[@key='type']"), pk.find("elem[@key='bits']")
+        if t is not None and t.text:
+            cert["key_type"] = t.text[:20]
+        if b is not None and (b.text or "").isdigit():
+            cert["key_bits"] = int(b.text)
+    for ext in sc.findall("table[@key='extensions']/table"):
+        name = ext.find("elem[@key='name']")
+        value = ext.find("elem[@key='value']")
+        if name is not None and name.text == "X509v3 Subject Alternative Name" and value is not None:
+            cert["san"] = [x.strip()[:200] for x in (value.text or "").split(",") if x.strip()][:_MAX_SAN]
+    return cert
+
+
+def _hostkey_data(sc) -> list:  # noqa: ANN001 -- ElementTree element
+    """ssh-hostkey → [{type, bits, sha256}]。nmap 預設只給 MD5；OpenSSH 現在顯示的是 SHA256，
+    從金鑰本體自己算，畫面才對得上 `ssh-keygen -lf`。金鑰本體不送回伺服器。"""
+    keys = []
+    for tb in sc.findall("table"):
+        g = {e.get("key"): (e.text or "") for e in tb.findall("elem") if e.get("key")}
+        if not g.get("key"):
+            continue
+        try:
+            fp = "SHA256:" + base64.b64encode(hashlib.sha256(base64.b64decode(g["key"])).digest()).decode().rstrip("=")
+        except Exception:  # noqa: BLE001
+            continue
+        keys.append({"type": g.get("type", "")[:40], "bits": int(g["bits"]) if g.get("bits", "").isdigit() else None,
+                     "sha256": fp})
+    return keys[:8]
+
+
 def _script_data(port) -> dict:  # noqa: ANN001 -- ElementTree element
-    """腳本的結構化輸出裡伺服器要用的部分（目前只有 ssl-cert 的 Subject／Issuer 各欄位）。"""
+    """腳本的結構化輸出裡伺服器要用的部分：ssl-cert（Subject／Issuer 各欄位、有效期間、指紋、金鑰、SAN）
+    與 ssh-hostkey（SHA256 指紋）。"""
     out: dict = {}
     for sc in port.findall("script"):
-        if sc.get("id") != "ssl-cert":
-            continue
-        cert = {}
-        for part in ("subject", "issuer"):
-            table = sc.find(f"table[@key='{part}']")
-            if table is not None:
-                cert[part] = {e.get("key"): (e.text or "")[:200]
-                              for e in table.findall("elem") if e.get("key")}
-        if cert:
-            out["ssl-cert"] = cert
+        if sc.get("id") == "ssl-cert":
+            cert = _cert_data(sc)
+            if cert:
+                out["ssl-cert"] = cert
+        elif sc.get("id") == "ssh-hostkey":
+            keys = _hostkey_data(sc)
+            if keys:
+                out["ssh-hostkey"] = keys
     return out
+
+
+def _scripts_of(el) -> tuple[dict, list]:  # noqa: ANN001 -- ElementTree element
+    """{腳本 id: 輸出（最多 _IDENTIFY_MAX_TEXT 字）}，以及被截斷的腳本 id（畫面要標出來）。"""
+    texts, cut = {}, []
+    for sc in el.findall("script"):
+        sid = sc.get("id")
+        if not sid:
+            continue
+        full = (sc.get("output") or "").strip()
+        texts[sid] = full[:_IDENTIFY_MAX_TEXT]
+        if len(full) > _IDENTIFY_MAX_TEXT:
+            cut.append(sid)
+    return texts, cut
 
 
 def _parse_nmap_xml(text: str) -> dict:
@@ -1455,12 +1533,16 @@ def _parse_nmap_xml(text: str) -> dict:
     ports[].method／conf／devicetype（1.17.2 起）：nmap 怎麼認出這個服務。method="table" ＝沒有探針比中、
     服務名稱只是照埠號表寫的（9100 寫 jetdirect、554 寫 rtsp），伺服器不可以當成認出了服務；devicetype 是
     nmap-service-probes 的 d/ 欄位（這個服務通常跑在哪種設備上）。舊伺服器不認得這幾個欄位，照樣忽略。
+    1.17.4 起：filtered（被過濾的埠數）、distance（跳數）、uptime（nmap 推估的開機時間）、host_found
+    （輸出裡有沒有這台：沒有＝nmap 失敗或略過，不是「沒回應」）、timedout（單台時限到了、結果被丟掉）、
+    ports[].truncated／host_scripts_truncated（輸出被截斷的腳本）。
 
     XML 是本機剛跑完的 nmap 產生的（不是從網路收來的文件），用標準函式庫解析即可。
     """
     # closed：回了 RST 的埠數 —— 有這個就代表主機活著，只是那些埠沒開；全部 filtered 又沒有 MAC 回應＝沒回應
     out: dict = {"hostnames": [], "mac": None, "mac_vendor": None, "ports": [], "os": [], "closed": 0,
-                 "host_scripts": {}}
+                 "filtered": 0, "host_scripts": {}, "host_scripts_truncated": [], "distance": None, "uptime": None,
+                 "host_found": False, "timedout": False}
     try:
         root = ET.fromstring(text)  # noqa: S314 -- local nmap output, not untrusted input
     except Exception:  # noqa: BLE001
@@ -1468,34 +1550,43 @@ def _parse_nmap_xml(text: str) -> dict:
     host = root.find("host")
     if host is None:
         return out
+    out["host_found"] = True
+    out["timedout"] = host.get("timedout") == "true"
+    dist = host.find("distance")
+    if dist is not None and (dist.get("value") or "").isdigit():
+        out["distance"] = int(dist.get("value"))
+    up = host.find("uptime")
+    if up is not None and (up.get("seconds") or "").isdigit():
+        out["uptime"] = {"seconds": int(up.get("seconds")), "lastboot": (up.get("lastboot") or "")[:60] or None}
     for a in host.findall("address"):
         if a.get("addrtype") == "mac":
             out["mac"], out["mac_vendor"] = a.get("addr"), a.get("vendor")
     out["hostnames"] = [h.get("name") for h in host.findall("hostnames/hostname") if h.get("name")]
     for ex in host.findall("ports/extraports"):
-        if ex.get("state") == "closed":
-            out["closed"] += int(ex.get("count") or 0)
+        if ex.get("state") in ("closed", "filtered"):
+            out[ex.get("state")] += int(ex.get("count") or 0)
     for port in host.findall("ports/port"):
         st = port.find("state")
-        if st is not None and st.get("state") == "closed":
-            out["closed"] += 1
+        if st is not None and st.get("state") in ("closed", "filtered"):
+            out[st.get("state")] += 1
         if st is None or st.get("state") != "open":
             continue
         svc = port.find("service")
         g = (lambda k: (svc.get(k) if svc is not None else None) or "")
+        scripts, cut = _scripts_of(port)
         out["ports"].append({
             "port": int(port.get("portid") or 0), "proto": port.get("protocol") or "tcp",
             "state": "open", "service": g("name"), "product": g("product"), "version": g("version"),
             "extrainfo": g("extrainfo"), "tunnel": g("tunnel"), "ostype": g("ostype"),
             "method": g("method"), "conf": g("conf"), "devicetype": g("devicetype"),
-            "scripts": {sc.get("id"): (sc.get("output") or "").strip()[:_IDENTIFY_MAX_TEXT]
-                        for sc in port.findall("script") if sc.get("id")},
+            "scripts": scripts, "truncated": cut,
             "script_data": _script_data(port),
         })
         if len(out["ports"]) >= _IDENTIFY_MAX_PORTS:
             break
-    out["host_scripts"] = {sc.get("id"): (sc.get("output") or "").strip()[:_IDENTIFY_MAX_TEXT]
-                           for sc in host.findall("hostscript/script") if sc.get("id")}
+    hs = host.find("hostscript")
+    if hs is not None:
+        out["host_scripts"], out["host_scripts_truncated"] = _scripts_of(hs)
     for m in host.findall("os/osmatch")[:5]:
         cls = m.find("osclass")
         out["os"].append({
@@ -1530,18 +1621,22 @@ def _job_run_identify(target: str, progress=None) -> dict:  # noqa: ANN001
     ports = ["-p", port_list] if port_list else ["--top-ports", str(_IDENTIFY_TOP_PORTS)]
     argv = ["nmap", "-Pn", "-sV", "--version-intensity", "5", *ports, "-T4",
             "--host-timeout", f"{_IDENTIFY_TIMEOUT - 30}s", "--script", _IDENTIFY_SCRIPTS]
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
+    # IPv6 要 -6，不然 nmap 把位址當成解析不了的主機名稱（以前 IPv6 的探測一定失敗）
+    if ipaddress.ip_address(target).version == 6:
+        argv.append("-6")
+    os_scan = hasattr(os, "geteuid") and os.geteuid() == 0
+    if os_scan:
         argv += ["-O", "--osscan-guess"]      # OS 指紋要 raw socket（root）；沒有就只做服務版本
     argv += ["-oX", "-", target]
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=_IDENTIFY_TIMEOUT)
         parsed = _parse_nmap_xml(r.stdout or "")
-        nmap = {"available": True, **parsed, "exit": r.returncode,
+        nmap = {"available": True, **parsed, "exit": r.returncode, "os_scan": os_scan,
                 "stderr": (r.stderr or "")[-_IDENTIFY_MAX_TEXT:] or None}
     except subprocess.TimeoutExpired:
-        nmap = {"available": True, "error": f"nmap timed out after {_IDENTIFY_TIMEOUT}s"}
+        nmap = {"available": True, "os_scan": os_scan, "error": f"nmap timed out after {_IDENTIFY_TIMEOUT}s"}
     except Exception as exc:  # noqa: BLE001
-        nmap = {"available": True, "error": f"{type(exc).__name__}: {exc}"[:_IDENTIFY_MAX_TEXT]}
+        nmap = {"available": True, "os_scan": os_scan, "error": f"{type(exc).__name__}: {exc}"[:_IDENTIFY_MAX_TEXT]}
     return {"target": target, "names": names, "nmap": nmap, "elapsed": round(time.time() - started, 1)}
 
 

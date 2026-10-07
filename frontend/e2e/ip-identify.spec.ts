@@ -209,3 +209,99 @@ test("探測時主機沒有回應：講清楚是沒回應，不是「無法判�
   // 摘要沒有帶 Recog 版本＝伺服器沒裝指紋庫：要講出來，不然看不出判斷為什麼比較少
   await expect(page.getByTestId("identify-recog-note")).toContainText("沒有安裝 Recog");
 });
+
+
+test("已經抓到的資料都顯示出來：Windows 名稱、埠數、耗時、名稱來源、判斷說明、憑證與金鑰、照埠號猜、截斷", async ({ page }) => {
+  const JOB = "00000000-0000-4000-8000-00000000e2f1";
+  const OLD = "00000000-0000-4000-8000-00000000e2f0";
+  const soon = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 19);
+  const summary = {
+    device_type: "windows", os: "Windows 10 Pro 19045", vendor: null, nic_vendor: "Example Corp",
+    names: ["laptop-07.corp.example.test", "LAPTOP-07"], applications: [], services: [], evidence: ["smb-os:Windows 10 Pro 19045"],
+    nmap_available: true, scan_failed: false, scan_error: null,
+    name_sources: [{ name: "laptop-07.corp.example.test", sources: ["rdns", "rdp"] }, { name: "LAPTOP-07", sources: ["netbios", "rdp"] }],
+    windows: { computer: "LAPTOP-07", domain: "CORP", dns_domain: "corp.example.test", fqdn: "laptop-07.corp.example.test",
+               workgroup: null, product_version: "10.0.19045" },
+    certs: [{ port: "3389/tcp", subject: "CN=laptop-07.corp.example.test", issuer: "CN=laptop-07.corp.example.test",
+              self_signed: true, not_before: "2026-01-01T00:00:00", not_after: soon, sha256: "ab".repeat(32), sha1: null,
+              key: "rsa 2048", san: [] }],
+    ssh_keys: [{ port: "22/tcp", type: "ssh-ed25519", bits: 256, fingerprint: "SHA256:e2eNewKeyExampleExample" }],
+    port_counts: { open: 3, closed: 990, filtered: 7 }, distance: 1, uptime_seconds: 864000, elapsed: 83.4, os_scan: false,
+    mac: "00:00:5e:00:53:07", mac_seen: "00:00:5E:00:53:99",
+    notes: [{ code: "no_os_scan", params: {} }, { code: "port_table_guess", params: { ports: "9100/tcp" } },
+            { code: "mac_differs", params: { seen: "00:00:5E:00:53:99" } }],
+  };
+  const done = {
+    job_id: JOB, status: "done", error: null, error_code: null, agent_name: "agent-e2e",
+    created_at: "2026-10-07T01:00:00Z", claimed_at: "2026-10-07T01:00:02Z", finished_at: "2026-10-07T01:01:30Z",
+    progress: null, summary,
+    result: { target: SAMPLE_IP, names: {}, nmap: { available: true, ports: [
+      { port: 9100, proto: "tcp", state: "open", service: "jetdirect", method: "table", scripts: {} },
+      { port: 3389, proto: "tcp", state: "open", service: "ms-wbt-server", method: "probed",
+        scripts: { "ssl-cert": "Subject: commonName=laptop-07" }, truncated: ["ssl-cert"] },
+    ] } },
+    changes: { previous_job_id: OLD, previous_at: "2026-10-06T01:00:00Z", opened: [], closed: [], changed: [],
+               baseline: null, current: null, fields: [{ field: "os", before: "Windows 10 Pro 19044", after: "Windows 10 Pro 19045" }],
+               names_added: [], names_removed: [],
+               ssh_keys: [{ port: "22/tcp", type: "ssh-ed25519", before: "SHA256:e2eOldKey", after: "SHA256:e2eNewKeyExampleExample" }],
+               certs: [] },
+  };
+  const brief = { job_id: JOB, status: "done", agent_name: "agent-e2e", created_at: done.created_at,
+                  finished_at: done.finished_at, summary };
+  await page.route(/\/api\/v1\/addresses\/[^/]+\/identify(\/[^/?]+)?(\?.*)?$/, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/history")) return route.fulfill({ json: { items: [brief] } });
+    return route.fulfill({ json: done });
+  });
+  await login(page, ADMIN_USER, ADMIN_PASS);
+  await page.goto(`/addresses/${ipId}/identify`);
+  const sum = page.getByTestId("identify-summary");
+  await expect(sum).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("identify-windows")).toHaveText("電腦 LAPTOP-07 · 網域 CORP（corp.example.test）");
+  await expect(page.getByTestId("identify-port-counts")).toHaveText("開放 3 · 關閉 990 · 過濾 7");
+  await expect(page.getByTestId("identify-scan")).toHaveText("耗時 1:23 · 1 跳 · 推估開機 10 天");
+  await expect(page.getByTestId("identify-name").first()).toContainText("反解 · RDP");
+  await expect(page.getByTestId("identify-mac")).toHaveText("00:00:5e:00:53:07");
+  await expect(page.getByTestId("identify-mac-seen")).toContainText("00:00:5E:00:53:99");
+  const notes = page.getByTestId("identify-notes");
+  await expect(notes).toContainText("代理不是以 root 執行");
+  await expect(notes).toContainText("9100/tcp 沒有認出服務");
+  // 憑證與金鑰
+  const certs = page.getByTestId("identify-certs");
+  await expect(certs).toContainText("CN=laptop-07.corp.example.test");
+  await expect(certs).toContainText("自簽");
+  await expect(certs).toContainText(/\d+ 天後到期/);
+  await expect(certs).toContainText("SHA-256 AB:AB:AB");
+  await expect(page.getByTestId("identify-ssh-keys")).toContainText("SHA256:e2eNewKeyExampleExample");
+  // 照埠號猜的服務、被截斷的輸出都有標記
+  await expect(page.getByTestId("identify-port-guess")).toHaveCount(1);
+  await expect(page.getByTestId("identify-ports")).toContainText("（已截斷）");
+  // 前後比對：作業系統與主機金鑰
+  const ch = page.getByTestId("identify-changes");
+  await expect(ch).toContainText("Windows 10 Pro 19044 → Windows 10 Pro 19045");
+  await expect(page.getByTestId("identify-change-key")).toContainText("SHA256:e2eOldKey → SHA256:e2eNewKeyExampleExample");
+  await expect(ch).toContainText("可能是被冒充");
+});
+
+test("nmap 失敗不是「沒有回應」；上一次沒回應時連接埠不比", async ({ page }) => {
+  const JOB = "00000000-0000-4000-8000-00000000e2f9";
+  const failed = { device_type: "unknown", no_response: false, os: null, vendor: null, names: [], applications: [],
+                   services: [], evidence: [], nmap_available: true, scan_failed: true,
+                   scan_error: "exit 1: Failed to resolve given hostname/IP", notes: [] };
+  const brief = { job_id: JOB, status: "done", agent_name: "agent-e2e", created_at: "2026-10-07T02:00:00Z",
+                  finished_at: "2026-10-07T02:00:09Z", summary: failed };
+  await page.route(/\/api\/v1\/addresses\/[^/]+\/identify(\/[^/?]+)?(\?.*)?$/, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/history")) return route.fulfill({ json: { items: [brief] } });
+    return route.fulfill({ json: { ...brief, error: null, error_code: null, claimed_at: brief.created_at, progress: null,
+      result: { target: SAMPLE_IP, names: {}, nmap: { available: true, exit: 1, ports: [] } },
+      changes: { previous_job_id: "x", previous_at: "2026-10-06T02:00:00Z", opened: [], closed: [], changed: [],
+                 baseline: "no_response", current: null } } });
+  });
+  await login(page, ADMIN_USER, ADMIN_PASS);
+  await page.goto(`/addresses/${ipId}/identify`);
+  await expect(page.getByTestId("identify-scan-failed")).toContainText("nmap 執行失敗", { timeout: 20_000 });
+  await expect(page.getByTestId("identify-scan-failed")).toContainText("Failed to resolve");
+  await expect(page.getByTestId("identify-no-response")).toHaveCount(0);
+  await expect(page.getByTestId("identify-cmp-blocked")).toContainText("上一次探測沒有回應");
+});

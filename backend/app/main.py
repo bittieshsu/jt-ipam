@@ -160,6 +160,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 log.info("orphan_tasks_reconciled", count=res.rowcount)
     except Exception as exc:
         log.warning("orphan_task_reconcile_failed", error=str(exc))
+    # 變更影響預演：沒有心跳的分析重新排隊並啟動（只看 impact_runs 自己的心跳，不會誤殺別的 worker 正在跑的）
+    try:
+        from app.services.change_impact.jobs import reclaim_and_relaunch
+        n = await reclaim_and_relaunch()
+        if n:
+            log.info("impact_runs_relaunched", count=n)
+    except Exception as exc:
+        log.warning("impact_run_reclaim_failed", error=str(exc))
     yield
     log.info("shutdown")
 

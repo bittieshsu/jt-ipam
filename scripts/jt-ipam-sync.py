@@ -750,6 +750,19 @@ async def _run() -> int:
             await session.rollback()
             log.error("unmanaged sightings purge failed: %s", exc)
 
+        # ── 變更影響預演：回收沒有心跳的分析（標失敗或重新排隊，由網頁程序啟動）、清除過期的計畫 ──
+        try:
+            from app.services.change_impact.jobs import reclaim_stale
+            from app.services.change_impact.retention import purge as purge_impact
+            await reclaim_stale(session)
+            gone = await purge_impact(session)
+            await session.commit()
+            if gone["plans"] or gone["failed_runs"]:
+                log.info("change impact purged: %s", gone)
+        except Exception as exc:
+            await session.rollback()
+            log.error("change impact housekeeping failed: %s", exc)
+
         # ── 偵測到的 DHCP 發放範圍 → 子網路的「位址範圍（集區）」（每輪一次，全站對帳）──
         # 使用者要求（2026-09-27）：子網路上方寫著 DHCP 發放範圍，下面的集區卻是空的。
         # 自動建的跟著上游走；手動建的不動；落點不唯一、跟手動的重疊都不建。

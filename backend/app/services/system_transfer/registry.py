@@ -151,6 +151,17 @@ CATEGORY: dict[str, str] = {
     "esxi_instances": "integrations",
     # operational（短暫／歷史）
     "audit_logs": "operational",
+    # 變更影響預演（0187）：計畫、每次分析的快照、待辦、覆核、AI 產出 —— 歷史資料
+    "change_plans": "operational",
+    "change_plan_revisions": "operational",
+    "impact_runs": "operational",
+    "impact_evidence": "operational",
+    "impact_relations": "operational",
+    "impact_findings": "operational",
+    "impact_gaps": "operational",
+    "change_tasks": "operational",
+    "impact_reviews": "operational",
+    "impact_ai_artifacts": "operational",
     # RustDesk 客戶端回報的連線／檔案／告警稽核：與 jt-ipam 自己的稽核記錄同性質
     "rustdesk_audit_events": "operational",
     # RustDesk「刪除舊註冊」的請求與結果：執行紀錄（等待中的過一天就逾時），不是要跟著搬的設定

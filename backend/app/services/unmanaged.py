@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,11 +53,18 @@ async def purge(session: AsyncSession, *, now: datetime | None = None) -> int:
     return int(res.rowcount or 0)
 
 
+def usable_mac(mac: str | None) -> bool:
+    """可以顯示的 MAC：不是全零，也不是只有第一個位元組的殘缺值（LibreNMS 偶爾給 26:00:00:00:00:00 這種）。"""
+    if not mac:
+        return False
+    parts = str(mac).lower().replace("-", ":").split(":")
+    return len(parts) == 6 and any(p.strip("0") for p in parts[1:])
+
+
 async def for_subnet(session: AsyncSession, subnet_id: uuid.UUID, *, now: datetime | None = None,
                      window: timedelta = GRID_WINDOW) -> list[dict[str, Any]]:
     """這個子網路裡、IPAM 沒有記錄、最近看得到的位址（掃描代理目擊＋LibreNMS ARP），一個位址一筆。"""
     from app.models.address import IPAddress
-    from app.models.librenms import ARPEntry
     from app.models.unmanaged_sighting import UnmanagedSighting
 
     since = (now or datetime.now(UTC)) - window
@@ -81,13 +88,22 @@ async def for_subnet(session: AsyncSession, subnet_id: uuid.UUID, *, now: dateti
             .where(UnmanagedSighting.subnet_id == subnet_id, UnmanagedSighting.last_seen_at >= since, ~reg_s))).all():
         _merge(str(ip), str(source), last, mac, hostname)
 
-    a_host = func.host(ARPEntry.ip)
-    reg_a = select(IPAddress.id).where(IPAddress.subnet_id == subnet_id, func.host(IPAddress.ip) == a_host).exists()
-    for ip, source, last, mac in (await session.execute(
-            select(a_host, ARPEntry.source, func.max(ARPEntry.last_seen_at), func.max(func.text(ARPEntry.mac)))
-            .where(ARPEntry.subnet_id == subnet_id, ARPEntry.last_seen_at >= since, ~reg_a)
-            .group_by(a_host, ARPEntry.source))).all():
-        _merge(str(ip), f"arp:{source}", last, str(mac) if mac else None, None)
+    # ARP：防火牆、掃描代理的列有 subnet_id（界定了範圍）；LibreNMS 的列沒有 —— 只有當這個子網路是包含該位址、
+    # 唯一最細的那一個時才算它的（重疊網段分不出是哪一邊，不猜）。以前只看 subnet_id，LibreNMS 看到的位址從沒合併進來，
+    # 掃描代理跟遠端子網路不在同一個二層網路時就永遠沒有 MAC（使用者 2026-10-07）。
+    # 同一個位址同一個來源取最新的那筆（以前取字串最大的 MAC，跟時間無關）
+    rows = (await session.execute(text("""
+        SELECT DISTINCT ON (host(e.ip), e.source) host(e.ip) AS ip, e.source, e.last_seen_at, e.mac::text AS mac
+          FROM arp_entries e JOIN subnets s ON s.id = :sid
+         WHERE e.last_seen_at >= :since AND e.ip << s.cidr
+           AND (e.subnet_id = :sid OR (e.subnet_id IS NULL AND NOT EXISTS (
+                 SELECT 1 FROM subnets o WHERE o.id <> s.id AND o.archived_at IS NULL
+                    AND o.cidr >>= e.ip AND masklen(o.cidr) >= masklen(s.cidr))))
+           AND NOT EXISTS (SELECT 1 FROM ip_addresses a WHERE a.subnet_id = :sid AND host(a.ip) = host(e.ip))
+         ORDER BY host(e.ip), e.source, e.last_seen_at DESC
+    """), {"sid": subnet_id, "since": since})).all()
+    for ip, source, last, mac in rows:
+        _merge(str(ip), f"arp:{source}", last, mac if usable_mac(mac) else None, None)
 
     res = []
     for e in out.values():

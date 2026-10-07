@@ -3569,9 +3569,15 @@ TOOLS: dict[str, dict[str, Any]] = {
 
 # ─────────────────── AI 對話：異動類工具需使用者確認 ───────────────────
 # 這些工具會新增 / 修改 / 刪除資料；AI 對話中不直接執行，先回前端請使用者按「確認」。
+from app.mcp.impact_tools import IMPACT_TOOLS  # noqa: E402 -- 工具字典建好之後才併入
+
+TOOLS.update(IMPACT_TOOLS)
+
 MUTATING_TOOLS: frozenset[str] = frozenset({
     "allocate_ip", "update_ip", "create_subnet", "create_device",
     "approve_ip_request", "reject_ip_request",
+    # 變更影響預演：建立計畫、開始分析、存 AI 草擬的待辦（都不改來源資料，但會寫入計畫）
+    "impact_create_plan", "impact_start_run", "impact_accept_task_draft",
 })
 
 
@@ -3655,6 +3661,11 @@ async def authorize_tool(session: AsyncSession, user: User, name: str) -> str | 
     """
     if name in UTILITY_TOOLS:
         return None
+    if name.startswith("impact_"):
+        # 變更影響預演關閉時，工具清單裡也不出現（少佔小模型的提示詞）
+        from app.services.change_impact.config import get_config
+        if not (await get_config(session))["enabled"]:
+            return "feature_disabled: 變更影響預演尚未啟用。"
     if name in MUTATING_TOOLS and not getattr(user, "is_admin", False):
         return "permission_denied: 此操作需要管理員權限。"
     if name in ADMIN_TOOLS and not getattr(user, "is_admin", False):
@@ -3695,4 +3706,10 @@ def summarize_action(name: str, args: dict[str, Any]) -> str:
         return "核准一筆 IP 申請"
     if name == "reject_ip_request":
         return "駁回一筆 IP 申請"
+    if name == "impact_create_plan":
+        return f"建立變更影響預演計畫「{a.get('title') or ''}」（只建立計畫，不改任何設備）"
+    if name == "impact_start_run":
+        return "開始一次變更影響分析（唯讀預演）"
+    if name == "impact_accept_task_draft":
+        return f"把 {len(a.get('indices') or [])} 個 AI 草擬的待辦存進計畫"
     return f"執行 {name}"

@@ -86,6 +86,9 @@ from app.api.v1.endpoints import (
     background_tasks as bg_tasks_endpoint,
 )
 from app.api.v1.endpoints import (
+    change_impact as change_impact_ep,
+)
+from app.api.v1.endpoints import (
     graylog_dsv as graylog_dsv_ep,
 )
 from app.api.v1.endpoints import (
@@ -191,6 +194,7 @@ api_v1_router.include_router(graylog_dsv_ep.admin_router)
 api_v1_router.include_router(graylog_dsv_ep.public_router)
 api_v1_router.include_router(ldap_admin_ep.admin_router)
 api_v1_router.include_router(audit_admin_ep.admin_router)
+api_v1_router.include_router(change_impact_ep.router)
 
 # Phase 3 [DONE] Tenancy/Contacts/ASN/Circuits/Wireless、Virtualization/Proxmox、
 #           Cabling/Power/VPN、Topology、OIDC SSO（SAML stub）

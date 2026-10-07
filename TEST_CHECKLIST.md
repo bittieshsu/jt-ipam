@@ -1718,6 +1718,38 @@ happy path of "an upload succeeded" is not enough.
   created in the matching (scoped) subnet; ambiguous overlaps are skipped, not mis-placed.
 - [ ] **PVE browser console** (noVNC for VMs / xterm for CTs, migration 0089): per-IP toggle on PVE VM/CT IPs;
   connects with the PVE account; orange button + PVE badge on IP detail + Connections.
+- [ ] **Status light in the IP detail header**: a light left of the address, the same colour as that IP in the IP list (online green,
+  recent amber, offline red); hover lists when each source last saw it; the create IP form shows no light
+- [ ] **Change log sources are translated**: no raw codes in the IP detail change log or the IP changes page's source filter and tags
+  (`system`, `user` in Chinese and Japanese); a new source without all three translations fails
+  `src/i18n/__tests__/changeSourceLabels.test.ts`
+- [ ] **All probe fields shown** (agent 1.17.4, `tests/test_ip_identify_fields.py`, `e2e/ip-identify.spec.ts`): probing a Windows host
+  shows a Windows name row (computer, domain or workgroup), port counts (open/closed/filtered), scan (duration, hops, estimated
+  uptime) and a source after each name; a TLS host gets the certificates and host keys card (subject, issuer or self-signed, expiry
+  with a 30-day warning, fingerprint with the full value on hover) and SSH keys are SHA256; services named only from the port are
+  marked, cut script output is marked as truncated, and the reasons list explains an unused fingerprint and similar
+- [ ] **Probe misreadings fixed**: a failed nmap run shows why instead of "no response"; probing an IPv6 address really runs; after a
+  silent previous probe the comparison says ports cannot be compared instead of listing every port as new; a changed SSH host key or
+  certificate is listed with a warning
+- [ ] **Change impact preview** (migration 0187; `tests/test_change_impact_*.py`, `e2e/change-impact.spec.ts`): while off, the menu, IP
+  and device pages show no entry and the API returns 403 `impact_feature_disabled`; turning it on in System settings shows them. "Preview
+  renumber" on an IP page → create and analyse → the result page says nothing has been changed; findings show disposition, severity,
+  category and a reason sentence, and expand to evidence with observed and collected times and the rule version; the gaps list shows
+  unconfigured integrations, stale sources (one line per integration), CNAMEs not stored and so on; zero findings never reads as safe
+- [ ] **Preview verdicts**: a new IP that is registered or reserved, reserved in DHCP for another NIC, or recently seen is a blocker; a CIDR
+  rule covering both addresses is informational; an alias cycle is a gap and makes the result partial; shared aliases on decommission say
+  to remove only the member; 192.0.2.1 does not match a note that says 192.0.2.10
+- [ ] **Preview workflow and permissions**: after submitting, the creator cannot review their own plan; blockers cannot be approved;
+  incomplete data allows only accept-risk with a reason; a new reference after approval makes "Start maintenance" fail with
+  `impact_run_stale` and moves the plan back to draft; an account that sees only the subnet does not get DNS/firewall findings and is told
+  the scope differs; another user's run or evidence id returns 404; Markdown/JSON exports follow the downloader's permissions
+- [ ] **Preview AI**: with AI off the analysis still works and the AI buttons say it is unavailable; invented ids or addresses are rejected,
+  repaired once and then replaced by a template summary; drafted tasks are saved only when ticked; read-only MCP keys do not see the
+  plan-creating tools, and creating needs the draft token from `impact_prepare_scenario`
+- [ ] **Unmanaged address rows and page** (`e2e/subnet-grid-unmanaged.spec.ts`): with auto-create off, let the scan agent see an
+  unregistered address → the IP list has a row with a dashed orange marker, an Unmanaged tag, MAC and vendor and "seen by scan agent ·
+  N minutes ago", not folded into a free range; clicking the grid cell or the row opens the address page with Probe (admins), Add and Back
+  at the top right; after adding, it switches to the new record's IP page and the grid and list show it as a normal registered address
 
 ---
 

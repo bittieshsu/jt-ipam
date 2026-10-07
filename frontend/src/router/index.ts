@@ -65,6 +65,7 @@ const routes: RouteRecordRaw[] = [
       { path: "sections/:id", name: "section-detail", component: () => import("@/views/SectionDetail.vue") },
       { path: "subnets", name: "subnets", component: () => import("@/views/Subnets.vue") },
       { path: "subnets/:id", name: "subnet-detail", component: () => import("@/views/SubnetDetail.vue") },
+      { path: "subnets/:id/unmanaged/:ip", name: "address-unmanaged", component: () => import("@/views/UnmanagedAddress.vue") },
       { path: "addresses", name: "addresses", component: () => import("@/views/Addresses.vue") },
       { path: "addresses/:id", name: "address-detail", component: () => import("@/views/IPDetail.vue") },
       // IP 的「探測」（只有管理員）：獨立頁面，歷次結果都留著、可以點回來看
@@ -73,6 +74,8 @@ const routes: RouteRecordRaw[] = [
       { path: "identify/ip/:ip", name: "ip-identify", component: () => import("@/views/IpIdentify.vue") },
       { path: "ai-audit", name: "ai_audit", component: () => import("@/views/AIAudit.vue"), meta: { admin: true } },
       { path: "ip-changes", name: "ip_changes", component: () => import("@/views/IPChanges.vue") },
+      { path: "change-impact", name: "change_impact", component: () => import("@/views/ChangeImpactList.vue") },
+      { path: "change-impact/:id", name: "change_impact_plan", component: () => import("@/views/ChangeImpactPlan.vue") },
       { path: "hostname-precedence", name: "hostname_precedence", component: () => import("@/views/HostnamePrecedence.vue"), meta: { admin: true } },
       { path: "racks", name: "racks", component: () => import("@/views/Racks.vue") },
       { path: "requests", name: "requests", component: () => import("@/views/IPRequests.vue") },

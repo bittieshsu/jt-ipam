@@ -33,7 +33,7 @@ import {
   UploadIcon,
   ExportIcon,
 } from "@/icons";
-import { fmtDateTime } from "@/utils/datetime";
+import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { autoSort } from "@/composables/useTableSort";
 import { useCustomers } from "@/composables/useCustomers";
 import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
@@ -89,6 +89,7 @@ import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusI
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { apiClient } from "@/api/client";
 import { listAddresses, listUnmanaged, type UnmanagedAddress } from "@/api/addresses";
+import { unmanagedSources } from "@/utils/unmanaged";
 import { listDhcpRanges } from "@/api/integrations";
 import { getSubnetUsage, deleteSubnet } from "@/api/subnets";
 import { getSection } from "@/api/sections";
@@ -241,6 +242,12 @@ const createCtx = ref<{ subnet_id: string; ip: string } | null>(null);
 
 function onGridOpen(a: IPAddress) {
   void router.push({ name: "address-detail", params: { id: a.id } });
+}
+
+/** 未納管的位址：先進到這個位址的頁面（沒有記錄，但看得到誰看到它；可以從那裡探測或登錄） */
+function openUnmanaged(ip: string) {
+  if (!subnet.value) return;
+  void router.push({ name: "address-unmanaged", params: { id: subnet.value.id, ip } });
 }
 
 function onGridCreate(ip: string) {
@@ -400,6 +407,22 @@ function liveDot(r: IPAddress) {
   return h(LiveStatusDot, { address: r });
 }
 
+// ── 未納管：IPAM 沒有記錄、但看得到在用的位址（指示計畫成虛線格）。清單上也自成一列，不併進閒置區間 ──
+// 「虛擬列」＝閒置區間列或未納管列：沒有 IP 記錄，不可勾選、不顯示記錄欄位
+function isVirtualRow(r: any): boolean { return !!(r.__gap || r.__um); }
+const umRows = computed<any[]>(() => {
+  const registered = new Set(addresses.value.map((a) => String(a.ip).split("/")[0]));
+  return unmanaged.value.filter((u) => !registered.has(u.ip)).map((u) => ({
+    __um: true, id: `um:${u.ip}`, ip: u.ip, hostname: u.hostname, mac: u.mac, mac_vendor: u.vendor, um: u,
+  }));
+});
+function umMarker() {
+  return h("span", { class: "um-dot", title: t("visualisation.unmanaged") });
+}
+function umSeenText(u: UnmanagedAddress): string {
+  return t("addresses.um_seen_by", { sources: unmanagedSources(t, u.sources), ago: fmtRelative(u.last_seen_at) });
+}
+
 function stateTag(state: string) {
   const map: Record<string, "success" | "warning" | "error" | "default" | "info"> = {
     active: "success", reserved: "info", offline: "error", dhcp: "warning", used: "default",
@@ -418,17 +441,22 @@ const gapSpan = computed<number>(() => {
 });
 
 const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
-  { type: "selection", disabled: (r: any) => !!r.__gap },
-  { title: "", key: "live", width: 28, render: (r) => (r as any).__gap ? "" : liveDot(r) },
+  { type: "selection", disabled: (r: any) => isVirtualRow(r) },
+  { title: "", key: "live", width: 28,
+    render: (r) => (r as any).__um ? umMarker() : (r as any).__gap ? "" : liveDot(r) },
   { title: t("addresses.ip"), key: "ip", width: 180, sorter: (a, b) => ipSort(a.ip, b.ip),
     colSpan: (r: any) => r.__gap ? gapSpan.value : 1,
     render: (r) => (r as any).__gap
       ? h("div", { style: "text-align: center; color: var(--n-text-color-3, #999); font-style: italic" }, gapLabel(r))
-      : h("span", { class: "ip-cell" }, [h("span", { class: "ip-cell-addr" }, String(r.ip)), h(IpRoleTags, { row: r, hideRange: true })]) },
+      : (r as any).__um
+        ? h("span", { class: "ip-cell" }, [h("span", { class: "ip-cell-addr" }, String(r.ip))])
+        : h("span", { class: "ip-cell" }, [h("span", { class: "ip-cell-addr" }, String(r.ip)), h(IpRoleTags, { row: r, hideRange: true })]) },
   { title: t("addresses.hostname"), key: "hostname", minWidth: 120,
     ellipsis: { tooltip: true }, render: (r) => (r as any).__gap ? "" : (r.hostname ?? "") },
   { title: t("common.status"), key: "state", width: 100,
-    render: (r) => (r as any).__gap ? "" : stateTag(r.state) },
+    render: (r) => (r as any).__um
+      ? h(NTag, { size: "small", type: "warning" }, () => t("visualisation.unmanaged"))
+      : (r as any).__gap ? "" : stateTag(r.state) },
   { title: "DHCP", key: "dhcp", width: 80,
     render: (r) => {
       if ((r as any).__gap) return "";
@@ -463,9 +491,9 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
       ]);
     } },
   { title: t("cols.device_kind"), key: "device_kind", width: 140,
-    sorter: (a: any, b: any) => (a.__gap || b.__gap ? 0
+    sorter: (a: any, b: any) => (isVirtualRow(a) || isVirtualRow(b) ? 0
       : String(a.device_kind ?? "").localeCompare(String(b.device_kind ?? ""))),
-    render: (r) => ((r as any).__gap ? "" : renderDeviceKind(r as any, t, te)) },
+    render: (r) => (isVirtualRow(r) ? "" : renderDeviceKind(r as any, t, te)) },
   { title: t("addresses.owner"), key: "owner", width: 120,
     ellipsis: { tooltip: true }, render: (r) => r.owner ?? "" },
   { title: t("addresses.switch_port"), key: "switch_port", width: 210,
@@ -490,16 +518,17 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
       }, r.device_name || (r.device_id.slice(0, 8) + "…"));
     } },
   { title: t("common.description"), key: "description", width: 200,
-    ellipsis: { tooltip: true }, render: (r) => r.description ?? "" },
-  { title: t("addresses.last_seen"), key: "last_seen", width: 170, render: (r) => lastSeen(r) },
+    ellipsis: { tooltip: true }, render: (r) => (r as any).__um ? umSeenText((r as any).um) : (r.description ?? "") },
+  { title: t("addresses.last_seen"), key: "last_seen", width: 170,
+    render: (r) => (r as any).__um ? fmtRelative((r as any).um.last_seen_at) : (r as any).__gap ? "" : lastSeen(r) },
   { title: t("stale.col_stale"), key: "stale_days", width: 110,
     sorter: (a: any, b: any) => {
-      if (a.__gap || b.__gap) return 0;
+      if (isVirtualRow(a) || isVirtualRow(b)) return 0;
       const da = isProbed(a) ? (staleDays(a) ?? Number.MAX_SAFE_INTEGER) : -1;
       const db = isProbed(b) ? (staleDays(b) ?? Number.MAX_SAFE_INTEGER) : -1;
       return da - db;
     },
-    render: (r) => (r as any).__gap ? "" : staleDaysLabel(r) },
+    render: (r) => isVirtualRow(r) ? "" : staleDaysLabel(r) },
   { title: t("addresses.note"), key: "note", width: 220,
     ellipsis: { tooltip: true }, render: (r) => r.note ?? "" },
 ]));
@@ -512,7 +541,7 @@ const ipColumns = computed<DataTableColumns<IPAddress>>(() =>
 const checkedIps = ref<Array<string | number>>([]);
 const ipBulkBusy = ref(false);
 async function bulkDeleteIps() {
-  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:"));
+  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:") && !k.startsWith("um:"));
   if (!ids.length) return;
   ipBulkBusy.value = true;
   try {
@@ -575,7 +604,7 @@ const stateMenuOptions = computed(() =>
   })),
 );
 async function bulkSetState(state: string) {
-  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:"));
+  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:") && !k.startsWith("um:"));
   if (!ids.length) return;
   ipBulkBusy.value = true;
   try {
@@ -589,7 +618,7 @@ async function bulkSetState(state: string) {
   finally { ipBulkBusy.value = false; }
 }
 async function bulkNotifyStale() {
-  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:"));
+  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:") && !k.startsWith("um:"));
   if (!ids.length || !subnet.value) return;
   ipBulkBusy.value = true;
   try {
@@ -614,6 +643,7 @@ function ipSort(a: string, b: string): number {
 }
 
 function openRow(row: IPAddress) {
+  if ((row as any).__um) { openUnmanaged(row.ip); return; }
   if ((row as any).__gap) return;   // 閒置區間列不開頁
   void router.push({ name: "address-detail", params: { id: row.id } });
 }
@@ -647,10 +677,18 @@ const ipRows = computed<any[]>(() => {
   if (staleFilterOn.value || onlyDhcp.value || ipFilterText.value.trim()) {
     let rows = staleFilterOn.value ? staleMatches.value : addresses.value;
     if (onlyDhcp.value) rows = rows.filter((a) => isDhcpIp(a.ip));
-    return rows.filter(ipMatchesFilter);
+    rows = rows.filter(ipMatchesFilter);
+    // 只有篩選字時，未納管的位址也照 IP／主機名稱／MAC／廠商比對（失聯、DHCP 篩選針對的是記錄）
+    if (!staleFilterOn.value && !onlyDhcp.value) {
+      const q = ipFilterText.value.trim().toLowerCase();
+      const um = umRows.value.filter((u) => [u.ip, u.hostname, u.mac, u.mac_vendor]
+        .some((v) => !!v && String(v).toLowerCase().includes(q)));
+      return [...rows, ...um].sort((a, b) => ipSort(String(a.ip), String(b.ip)));
+    }
+    return rows;
   }
   const cidr = subnet.value?.cidr;
-  const list = [...addresses.value];
+  const list = [...addresses.value, ...umRows.value];
   if (!cidr || cidr.includes(":")) return list;   // IPv6 暫不算閒置區間
   const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/.exec(cidr);
   if (!m) return list;
@@ -905,6 +943,7 @@ onMounted(() => {
           :total-addresses="addressesTotal"
           :unmanaged="unmanaged"
           @open-ip="onGridOpen"
+          @open-unmanaged="openUnmanaged"
           @create-ip="onGridCreate"
         />
       </n-card>
@@ -1004,9 +1043,10 @@ onMounted(() => {
           :row-key="(row: any) => row.id"
           :checked-row-keys="checkedIps"
           @update:checked-row-keys="(keys: Array<string | number>) => checkedIps = keys"
-          :row-class-name="(row: any) => row.__gap ? 'ip-gap-row' : ''"
+          :row-class-name="(row: any) => row.__gap ? 'ip-gap-row' : row.__um ? 'ip-um-row' : ''"
           :row-props="(row: any) => ({
             style: row.__gap ? '' : 'cursor: pointer',
+            'data-testid': row.__um ? 'ip-row-unmanaged' : undefined,
             onClick: (e: MouseEvent) => {
               if ((e.target as HTMLElement).closest('.n-checkbox')) return;
               openRow(row);
@@ -1046,6 +1086,8 @@ onMounted(() => {
 .stale-slider-label { font-size: 12px; opacity: 0.8; min-width: 130px; }
 .stale-hint { font-size: 12px; opacity: 0.6; }
 /* 閒置區間列：灰底、不可點 */
+:deep(.um-dot) { display: inline-block; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box;
+  border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.16); vertical-align: middle; }
 :deep(.ip-gap-row td) {
   background: rgba(127, 127, 127, 0.06);
   cursor: default;

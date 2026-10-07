@@ -10,6 +10,10 @@ import pytest
 
 #: 工具 → 它讀的資料在 REST 上的清單端點（GET）
 TOOL_REST = {
+    "impact_list_plans": "/api/v1/change-plans",
+    "impact_get_run": "/api/v1/impact-runs/{run_id}",
+    "impact_list_findings": "/api/v1/impact-runs/{run_id}/findings",
+    "impact_get_evidence": "/api/v1/impact-runs/{run_id}/evidence/{evidence_id}",
     "list_scan_agents": "/api/v1/scan-agents",
     "list_certificates": "/api/v1/certificates",
     "list_cert_distribution": "/api/v1/cert-agents",

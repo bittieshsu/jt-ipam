@@ -93,7 +93,8 @@
 
           <n-alert v-if="job.status === 'done' && job.summary && !job.summary.nmap_available" type="warning"
                    :bordered="false" style="margin-top: 12px">{{ t("identify.no_nmap") }}</n-alert>
-          <n-alert v-if="nmapError" type="warning" :bordered="false" style="margin-top: 12px">{{ nmapError }}</n-alert>
+          <n-alert v-if="scanError" type="warning" :bordered="false" style="margin-top: 12px"
+                   data-testid="identify-scan-failed">{{ scanError }}</n-alert>
           <n-alert v-if="jobError" type="error" :bordered="false" style="margin-top: 12px">{{ jobError }}</n-alert>
         </n-card>
         <n-card v-else-if="!loadingHistory" size="small">
@@ -110,10 +111,12 @@
             <n-descriptions bordered :column="narrow ? 1 : 2" size="small" label-placement="left"
                             :label-style="{ whiteSpace: 'nowrap' }" data-testid="identify-summary">
               <n-descriptions-item :label="t('identify.device_type')">
-                <span class="idf-type" :class="`idf-type--${job.summary.device_type}`">
-                  {{ t(`identify.type.${job.summary.device_type}`) }}
+                <span class="idf-type-row">
+                  <span class="idf-type" :class="`idf-type--${job.summary.device_type}`">
+                    {{ t(`identify.type.${job.summary.device_type}`) }}
+                  </span>
+                  <span v-if="!job.summary.no_response" class="idf-guess" data-testid="identify-guess">{{ t("identify.guess_tag") }}</span>
                 </span>
-                <span v-if="!job.summary.no_response" class="idf-guess" data-testid="identify-guess">{{ t("identify.guess_tag") }}</span>
                 <!-- IP 記錄還會對照 IPAM 已知的事實；講出最後採用什麼、依據什麼，跟 IP 頁一致 -->
                 <div v-if="job.summary.ipam" class="idf-ipam" data-testid="identify-ipam-kind">
                   {{ t("identify.ipam_kind", { kind: t(`identify.type.${job.summary.ipam.kind ?? "unknown"}`),
@@ -140,15 +143,31 @@
                     </template>
                     {{ t("investigate.mac_random") }}
                   </n-tooltip>
+                  <!-- 這次 nmap 看到的 MAC 跟 IP 記錄不同（換了網卡、IP 被別台用了） -->
+                  <n-tag v-if="macSeenOther" size="small" :bordered="false" type="warning" style="margin-left: 6px"
+                         data-testid="identify-mac-seen">{{ t("identify.mac_seen", { mac: macSeenOther }) }}</n-tag>
                 </template>
                 <span v-else data-testid="identify-nic-vendor">{{ job.summary.nic_vendor ?? "—" }}</span>
               </n-descriptions-item>
               <n-descriptions-item :label="t('identify.model')">
                 <span data-testid="identify-model">{{ job.summary.model ?? "—" }}</span>
               </n-descriptions-item>
+              <!-- Windows 自己講的電腦名稱、網域／工作群組（RDP 的 NTLM 資訊、SMB）：以前抓到了卻沒顯示 -->
+              <n-descriptions-item v-if="windowsText" :label="t('identify.windows_label')">
+                <span data-testid="identify-windows">{{ windowsText }}</span>
+              </n-descriptions-item>
+              <n-descriptions-item v-if="portCountsText" :label="t('identify.port_counts_label')">
+                <span data-testid="identify-port-counts">{{ portCountsText }}</span>
+              </n-descriptions-item>
+              <n-descriptions-item v-if="scanText" :label="t('identify.scan_label')">
+                <span data-testid="identify-scan">{{ scanText }}</span>
+              </n-descriptions-item>
               <n-descriptions-item :label="t('identify.names')" :span="narrow ? 1 : 2">
-                <template v-if="job.summary.names.length">
-                  <div v-for="n in job.summary.names" :key="n" class="idf-mono">{{ n }}</div>
+                <template v-if="nameRows.length">
+                  <div v-for="n in nameRows" :key="n.name" class="idf-name" data-testid="identify-name">
+                    <span class="idf-mono">{{ n.name }}</span>
+                    <span v-if="n.sources.length" class="idf-name__src">{{ n.sources.map(nameSource).join(" · ") }}</span>
+                  </div>
                 </template>
                 <template v-else>—</template>
               </n-descriptions-item>
@@ -165,6 +184,12 @@
                 </n-space>
                 <template v-else>{{ t("identify.no_evidence") }}</template>
               </n-descriptions-item>
+              <!-- 判斷的理由：為什麼作業系統是「—」、為什麼不採信指紋、哪些服務只是照埠號猜的 -->
+              <n-descriptions-item v-if="noteTexts.length" :label="t('identify.notes_label')" :span="narrow ? 1 : 2">
+                <ul class="idf-notes" data-testid="identify-notes">
+                  <li v-for="n in noteTexts" :key="n">{{ n }}</li>
+                </ul>
+              </n-descriptions-item>
             </n-descriptions>
             <div class="idf-guess-note" data-testid="identify-guess-note">{{ t("identify.guess_note") }}</div>
             <div class="idf-guess-note" data-testid="identify-recog-note">
@@ -172,10 +197,21 @@
             </div>
           </n-card>
 
-          <!-- 跟上一次比：新開、關掉、版本變了的服務 -->
+          <!-- TLS 憑證與 SSH 主機金鑰：簽發者、到期日、指紋（以前只取憑證上的名稱） -->
+          <n-card v-if="certs.length || sshKeys.length" :title="t('identify.certs_title')" size="small"
+                  data-testid="identify-certs">
+            <n-data-table v-if="certs.length" :columns="certCols" :data="certs" size="small" :bordered="false"
+                          :row-key="(r: IdentifyCert) => r.port" :scroll-x="820" />
+            <n-data-table v-if="sshKeys.length" :columns="keyCols" :data="sshKeys" size="small" :bordered="false"
+                          :row-key="(r: IdentifySshKey) => `${r.port}-${r.type}`" :scroll-x="640"
+                          :style="certs.length ? 'margin-top: 10px' : ''" data-testid="identify-ssh-keys" />
+          </n-card>
+
+          <!-- 跟上一次比：新開、關掉、版本變了的服務，以及 MAC、作業系統、名稱、金鑰、憑證 -->
           <n-card v-if="job.changes" size="small" data-testid="identify-changes"
                   :title="t('identify.changes_since', { at: fmtDateTime(job.changes.previous_at) })">
-            <div v-if="!hasChanges" class="idf-muted">{{ t("identify.no_changes") }}</div>
+            <div v-if="cmpBlocked" class="idf-muted" data-testid="identify-cmp-blocked">{{ cmpBlocked }}</div>
+            <div v-else-if="!hasChanges" class="idf-muted">{{ t("identify.no_changes") }}</div>
             <div v-else class="idf-changes">
               <div v-if="job.changes.opened.length">
                 <span class="idf-changes__k">{{ t("identify.opened") }}</span>
@@ -189,6 +225,31 @@
                 <span class="idf-changes__k">{{ t("identify.changed") }}</span>
                 <n-tag size="small" type="warning" :bordered="false">{{ c.port }}</n-tag>
                 <span class="idf-changes__v">{{ c.before }} → {{ c.after }}</span>
+              </div>
+              <div v-for="f in job.changes.fields ?? []" :key="f.field" data-testid="identify-change-field">
+                <span class="idf-changes__k">{{ t(`identify.cmp_field_${f.field}`) }}</span>
+                <span class="idf-changes__v">{{ cmpValue(f.field, f.before) }} → {{ cmpValue(f.field, f.after) }}</span>
+              </div>
+              <div v-if="job.changes.names_added?.length">
+                <span class="idf-changes__k">{{ t("identify.names_added") }}</span>
+                <span class="idf-changes__v idf-mono">{{ job.changes.names_added.join(", ") }}</span>
+              </div>
+              <div v-if="job.changes.names_removed?.length">
+                <span class="idf-changes__k">{{ t("identify.names_removed") }}</span>
+                <span class="idf-changes__v idf-mono">{{ job.changes.names_removed.join(", ") }}</span>
+              </div>
+              <div v-for="k in job.changes.ssh_keys ?? []" :key="`k-${k.port}-${k.type}`" data-testid="identify-change-key">
+                <span class="idf-changes__k">{{ t("identify.key_changed") }}</span>
+                <n-tag size="small" type="error" :bordered="false">{{ k.port }}</n-tag>
+                <span class="idf-changes__v idf-mono">{{ k.type }} {{ k.before }} → {{ k.after }}</span>
+              </div>
+              <div v-for="c in job.changes.certs ?? []" :key="`c-${c.port}`" data-testid="identify-change-cert">
+                <span class="idf-changes__k">{{ t("identify.cert_changed") }}</span>
+                <n-tag size="small" type="error" :bordered="false">{{ c.port }}</n-tag>
+                <span class="idf-changes__v">{{ certChangeText(c) }}</span>
+              </div>
+              <div v-if="(job.changes.ssh_keys?.length ?? 0) + (job.changes.certs?.length ?? 0)" class="idf-muted">
+                {{ t("identify.key_changed_hint") }}
               </div>
             </div>
           </n-card>
@@ -231,8 +292,8 @@ import { apiErrMsg } from "@/api/client";
 import { getAddress } from "@/api/addresses";
 import {
   cancelIdentify, getIdentify, getIdentifyIpTarget, identifyHistory, startIdentify,
-  type IdentifyBrief, type IdentifyIpTarget, type IdentifyJob, type IdentifyPort, type IdentifyStatus,
-  type IdentifyTarget,
+  type IdentifyBrief, type IdentifyCert, type IdentifyIpTarget, type IdentifyJob, type IdentifyPort,
+  type IdentifySshKey, type IdentifyStatus, type IdentifyTarget,
 } from "@/api/identify";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { CheckIcon, DownloadIcon, IdentifyIcon } from "@/icons";
@@ -274,17 +335,145 @@ const isRunning = (s?: IdentifyStatus) => s === "pending" || s === "running";
 const running = computed(() => isRunning(job.value?.status));
 const anyRunning = computed(() => history.value.some((x) => isRunning(x.status)));
 const ports = computed<IdentifyPort[]>(() => job.value?.result?.nmap?.ports ?? []);
-const nmapError = computed(() => job.value?.result?.nmap?.error ?? "");
+/** nmap 自己失敗（結束碼非零、輸出裡沒有這台、逾時）：不是主機沒回應 */
+const scanError = computed(() => {
+  const s = job.value?.summary;
+  if (s?.scan_failed) return t("identify.scan_failed", { reason: s.scan_error ?? "" });
+  return job.value?.result?.nmap?.error ?? "";
+});
 const rawText = computed(() => JSON.stringify(job.value?.result ?? null, null, 2));
 const hasChanges = computed(() => {
   const c = job.value?.changes;
-  return !!c && (c.opened.length + c.closed.length + c.changed.length) > 0;
+  if (!c) return false;
+  return (c.opened.length + c.closed.length + c.changed.length + (c.fields?.length ?? 0)
+          + (c.names_added?.length ?? 0) + (c.names_removed?.length ?? 0)
+          + (c.ssh_keys?.length ?? 0) + (c.certs?.length ?? 0)) > 0;
 });
+/** 其中一次沒回應／失敗：連接埠不比（以前上一次沒回應，這次所有埠都算「新開」） */
+const cmpBlocked = computed(() => {
+  const c = job.value?.changes;
+  if (c?.baseline) return t(`identify.cmp_baseline_${c.baseline}`);
+  if (c?.current) return t(`identify.cmp_current_${c.current}`);
+  return "";
+});
+function cmpValue(field: string, v: string): string {
+  return field === "device_type" ? t(`identify.type.${v}`) : v;
+}
+function certChangeText(c: NonNullable<IdentifyJob["changes"]>["certs"] extends (infer U)[] | undefined ? U : never): string {
+  const fp = (x: Record<string, string | null>) => String(x.sha256 ?? x.sha1 ?? "").slice(0, 16);
+  const exp = (x: Record<string, string | null>) => (x.not_after ? fmtDate(x.not_after) : "—");
+  return `${fp(c.before)}… (${exp(c.before)}) → ${fp(c.after)}… (${exp(c.after)})`;
+}
+
+const summaryNotes = computed(() => job.value?.summary?.notes ?? []);
+// MAC 不同、隨機 MAC 已經在 MAC 那一格用標籤標了，這裡不重複
+const NOTES_SHOWN_ELSEWHERE = new Set(["mac_differs", "mac_random"]);
+const noteTexts = computed(() => summaryNotes.value
+  .filter((n) => !NOTES_SHOWN_ELSEWHERE.has(n.code) && te(`identify.note_${n.code}`))
+  .map((n) => t(`identify.note_${n.code}`, n.params)));
+const macSeenOther = computed(() => {
+  const n = summaryNotes.value.find((x) => x.code === "mac_differs");
+  return n ? String(n.params.seen ?? "") : "";
+});
+const windowsText = computed(() => {
+  const w = job.value?.summary?.windows;
+  if (!w) return "";
+  const parts: string[] = [];
+  if (w.computer) parts.push(t("identify.win_computer", { v: w.computer }));
+  const dom = [w.domain, w.dns_domain && w.dns_domain !== w.domain ? w.dns_domain : null].filter(Boolean);
+  if (dom.length) parts.push(t("identify.win_domain", { v: dom.length > 1 ? `${dom[0]}（${dom[1]}）` : String(dom[0]) }));
+  if (w.workgroup) parts.push(t("identify.win_workgroup", { v: w.workgroup }));
+  return parts.join(" · ");
+});
+const portCountsText = computed(() => {
+  const c = job.value?.summary?.port_counts;
+  if (!c) return "";
+  return c.filtered == null
+    ? t("identify.port_counts_nofilter", { open: c.open, closed: c.closed })
+    : t("identify.port_counts", { open: c.open, closed: c.closed, filtered: c.filtered });
+});
+function fmtDuration(sec: number): string {
+  const s = Math.round(sec);
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `0:${String(s).padStart(2, "0")}`;
+}
+const scanText = computed(() => {
+  const s = job.value?.summary;
+  if (!s) return "";
+  const parts: string[] = [];
+  if (s.elapsed != null) parts.push(t("identify.took", { s: fmtDuration(s.elapsed) }));
+  if (s.distance != null) parts.push(t("identify.distance", { n: s.distance }));
+  if (s.uptime_seconds) parts.push(t("identify.uptime", { d: Math.max(1, Math.round(s.uptime_seconds / 86400)) }));
+  return parts.join(" · ");
+});
+/** 名稱與來源（新摘要）；舊摘要只有名稱 */
+const nameRows = computed(() => {
+  const s = job.value?.summary;
+  if (!s) return [];
+  return s.name_sources ?? s.names.map((name) => ({ name, sources: [] as string[] }));
+});
+function nameSource(src: string): string {
+  const key = `identify.name_src_${src}`;
+  return te(key) ? t(key) : src;
+}
+const certs = computed<IdentifyCert[]>(() => job.value?.summary?.certs ?? []);
+const sshKeys = computed<IdentifySshKey[]>(() => job.value?.summary?.ssh_keys ?? []);
+function fmtDate(iso: string): string {
+  return fmtDateTime(iso).slice(0, 10);
+}
+function daysLeft(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso.endsWith("Z") || /[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`).getTime();
+  return Number.isFinite(ms) ? Math.floor((ms - Date.now()) / 86400000) : null;
+}
+const certCols = computed<DataTableColumns<IdentifyCert>>(() => [
+  { title: t("identify.col_port"), key: "port", width: 90, render: (r) => h("span", { class: "idf-mono" }, r.port) },
+  // 主體一行、簽發者（或「自簽」）與其他名稱在第二行：六欄並排在一般視窗寬度放不下
+  { title: t("identify.col_subject"), key: "subject", minWidth: 240,
+    render: (r) => h("div", null, [
+      h("div", { class: "idf-mono" }, r.subject ?? "—"),
+      h("div", { class: "idf-cert-sub" }, [
+        r.self_signed
+          ? h(NTag, { size: "tiny", bordered: false }, { default: () => t("identify.self_signed") })
+          : h("span", null, t("identify.issued_by", { v: r.issuer ?? "—" })),
+        r.san.length > 1 ? h("span", null, t("identify.san_more", { n: r.san.length - 1 })) : null,
+      ]),
+    ]) },
+  { title: t("identify.col_valid_until"), key: "not_after", width: 170,
+    render: (r) => {
+      if (!r.not_after) return "—";
+      const d = daysLeft(r.not_after);
+      const tag = d == null ? null : d < 0
+        ? h(NTag, { size: "tiny", type: "error", bordered: false, style: "margin-left: 6px" }, { default: () => t("identify.expired") })
+        : d <= 30
+          ? h(NTag, { size: "tiny", type: "warning", bordered: false, style: "margin-left: 6px" },
+              { default: () => t("identify.expires_in", { n: d }) })
+          : null;
+      return h("span", null, [fmtDate(r.not_after), tag]);
+    } },
+  { title: t("identify.col_key"), key: "key", width: 90, render: (r) => r.key ?? "—" },
+  // 指紋很長（SHA-256 是 64 個十六進位字）：顯示前 6 位元組，滑過看完整值
+  { title: t("identify.col_fingerprint"), key: "sha256", width: 230,
+    render: (r) => {
+      const [algo, hex] = r.sha256 ? ["SHA-256", r.sha256] : r.sha1 ? ["SHA-1", r.sha1] : ["", ""];
+      if (!hex) return "—";
+      const short = (hex.match(/../g) ?? []).slice(0, 6).join(":").toUpperCase();
+      return h("span", { class: "idf-fp", title: `${algo} ${hex}` }, `${algo} ${short}…`);
+    } },
+]);
+const keyCols = computed<DataTableColumns<IdentifySshKey>>(() => [
+  { title: t("identify.col_port"), key: "port", width: 90, render: (r) => h("span", { class: "idf-mono" }, r.port) },
+  { title: t("identify.col_key_type"), key: "type", width: 190,
+    render: (r) => h("span", { class: "idf-mono" }, `${r.type ?? "—"}${r.bits ? ` (${r.bits})` : ""}`) },
+  { title: t("identify.col_fingerprint"), key: "fingerprint", minWidth: 320,
+    render: (r) => h("span", { class: "idf-fp" }, r.fingerprint ?? "—") },
+]);
 
 /** 顯示的 MAC：跟後端算網卡廠牌用的同一個（IP 記錄上的優先，沒有才用這次 nmap 看到的，同網段才拿得到），
  *  不然會出現「這個 MAC 配上另一個 MAC 的廠牌」 */
 const probeMac = computed(() => {
-  const m = (addr.value as any)?.mac || job.value?.result?.nmap?.mac || "";
+  const s = job.value?.summary;
+  // 新摘要直接告訴我們用的是哪一個（未登記 IP 用 ARP 的 MAC 算廠牌）；舊摘要照以前的推法
+  const m = (s && "mac" in s ? s.mac : null) || (addr.value as any)?.mac || job.value?.result?.nmap?.mac || "";
   return m ? String(m).toLowerCase() : "";
 });
 
@@ -372,8 +561,18 @@ const portCols = computed<DataTableColumns<IdentifyPort>>(() => [
     render: (r) => h("span", { class: "idf-port" }, [h("b", null, String(r.port)), h("span", null, `/${r.proto}`)]) },
   { title: t("identify.col_service"), key: "service", width: 150,
     render: (r) => (r.service
-      ? h("span", { class: `idf-svc idf-svc--${serviceKind(r.service)}` },
-          r.tunnel ? `${r.service} · ${r.tunnel}` : r.service)
+      ? h("span", null, [
+          h("span", { class: `idf-svc idf-svc--${serviceKind(r.service)}` },
+            r.tunnel ? `${r.service} · ${r.tunnel}` : r.service),
+          // nmap 沒認出服務、只是照埠號表寫的名稱：標出來，不要看起來像真的認出來
+          r.method === "table"
+            ? h(NTooltip, null, {
+                trigger: () => h("span", { class: "idf-svc-guess", "data-testid": "identify-port-guess" },
+                                 t("identify.guess_port_tag")),
+                default: () => t("identify.guess_port_hint"),
+              })
+            : null,
+        ])
       : "—") },
   { title: t("identify.col_product"), key: "product", width: productWidth.value,
     render: (r) => (r.product || r.version
@@ -389,11 +588,17 @@ const portCols = computed<DataTableColumns<IdentifyPort>>(() => [
       if (!entries.length) return "—";
       return h("div", { class: "idf-scripts" }, entries.map(([k, v]) =>
         h("div", { class: "idf-script" }, [
-          h("span", { class: "idf-script__k" }, k),
+          h("span", { class: "idf-script__k" }, [k, isCut(r, k, v) ? h("span", { class: "idf-script__cut" },
+                                                                         t("identify.truncated")) : null]),
           h("pre", { class: "idf-script__v" }, decodeNmapEscapes(v)),
         ])));
     } },
 ]);
+
+/** 腳本輸出被截斷了沒：新代理直接講；舊代理看長度剛好是上限（600 字） */
+function isCut(r: IdentifyPort, key: string, text: string): boolean {
+  return r.truncated ? r.truncated.includes(key) : text.length >= 600;
+}
 
 function stopPolling() {
   if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
@@ -540,7 +745,9 @@ function ipamSource(reason: string): string {
 .idf-page { display: flex; flex-direction: column; gap: 12px; }
 .idf-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .idf-head__title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; flex-wrap: wrap; min-width: 0; }
-.idf-guess { margin-left: 8px; font-size: 12px; opacity: .6; }
+/* 空間不夠時整句換到下一行，不要斷在句子中間（「推測，可能不」/「準」，使用者 2026-10-07） */
+.idf-type-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.idf-guess { white-space: nowrap; font-size: 12px; opacity: .6; }
 .idf-guess-note { margin-top: 8px; font-size: 12px; opacity: .7; line-height: 1.6; }
 .idf-arp { font-size: 12.5px; font-weight: 400; opacity: .7; }
 .idf-head__ip { font-variant-numeric: tabular-nums; }
@@ -569,7 +776,7 @@ function ipamSource(reason: string): string {
 .idf-changes__v { font-size: 13px; }
 .idf-raw { max-height: 420px; overflow: auto; font-size: 12px; margin: 0; white-space: pre-wrap; word-break: break-all; }
 /* 摘要 */
-.idf-type { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 13px;
+.idf-type { display: inline-block; white-space: nowrap; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 13px;
   background: rgba(32, 128, 240, .14); color: #2080f0; }
 .idf-type--server { background: rgba(32, 128, 240, .14); color: #2080f0; }
 .idf-type--no_response { background: rgba(240, 160, 32, .16); color: #d08a00; }
@@ -583,6 +790,13 @@ function ipamSource(reason: string): string {
 .idf-type--unknown { background: rgba(128, 128, 128, .16); color: inherit; opacity: .8; }
 .idf-os { font-weight: 600; }
 .idf-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+.idf-name { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.idf-name__src { font-size: 12px; opacity: .6; }
+.idf-notes { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+:deep(.idf-fp) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+:deep(.idf-cert-sub) { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 2px; font-size: 12px; opacity: .7; }
+:deep(.idf-svc-guess) { margin-left: 6px; font-size: 11px; opacity: .65; border-bottom: 1px dotted currentColor; cursor: help; }
+:deep(.idf-script__cut) { margin-left: 6px; font-weight: 400; color: #d08a00; }
 /* 連接埠表 */
 :deep(.idf-port) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
 :deep(.idf-port b) { font-weight: 700; }

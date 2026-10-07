@@ -13,6 +13,7 @@ import {
   listIpChanges, IP_CHANGE_EVENT_TYPES, IP_CHANGE_SOURCES,
   type IPChangeLog,
 } from "@/api/ip_history";
+import { sourceLabel } from "@/utils/sourceLabel";
 import { fmtDateTime } from "@/utils/datetime";
 import { useChangeLogDim } from "@/composables/useChangeLogDim";
 import ExportButton from "@/components/ExportButton.vue";
@@ -79,7 +80,7 @@ const eventOptions = computed(() => [
 ]);
 const sourceOptions = computed(() => [
   { label: t("ipChanges.all_sources"), value: "" },
-  ...IP_CHANGE_SOURCES.map((s) => ({ label: s, value: s })),
+  ...IP_CHANGE_SOURCES.map((s) => ({ label: sourceLabel(t, s), value: s })),
 ]);
 
 // 事件 → tag 顏色
@@ -151,11 +152,11 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
   },
   {
     title: t("ipChanges.col_source"), key: "source", width: 100,
-    render: (r) => h(NTag, { size: "small", bordered: false }, { default: () => r.source }),
+    render: (r) => h(NTag, { size: "small", bordered: false }, { default: () => sourceLabel(t, r.source) }),
   },
   {
     title: t("ipChanges.col_actor"), key: "actor", width: 120,
-    render: (r) => r.actor_username ?? (r.source === "manual" ? "—" : r.source),
+    render: (r) => r.actor_username ?? (r.source === "manual" ? "—" : sourceLabel(t, r.source)),
   },
 ]);
 </script>

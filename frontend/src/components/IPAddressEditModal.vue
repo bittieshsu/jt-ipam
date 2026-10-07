@@ -25,14 +25,18 @@ import {
 import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
   type SwitchPortInfo } from "@/api/ip_history";
 import { clearHostnameSource, getHostnameSources, type HostnameSources } from "@/api/hostname";
-import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon, FilesIcon, IdentifyIcon, RustDeskIcon, ChevronDownIcon } from "@/icons";
+import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon, FilesIcon, IdentifyIcon, RustDeskIcon, ChevronDownIcon, ChangeImpactIcon } from "@/icons";
 import CopyButton from "@/components/CopyButton.vue";
 import InvestigateModal from "@/components/InvestigateModal.vue";
+import ChangeImpactWizard from "@/components/ChangeImpactWizard.vue";
+import { useChangeImpact } from "@/composables/useChangeImpact";
 import ChangeValue from "@/components/ChangeValue.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
+import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { rustdeskOs } from "@/utils/rustdeskOs";
+import { sourceLabel } from "@/utils/sourceLabel";
 import { useCustomers } from "@/composables/useCustomers";
 import ConsoleEgressSelect from "@/components/ConsoleEgressSelect.vue";
 import { virtTagText } from "@/utils/virt";
@@ -229,10 +233,7 @@ function labelState(v: string | null | undefined): string {
   return out === key ? v : out;
 }
 function labelSource(v: string | null | undefined): string {
-  if (!v) return "—";
-  const key = `addresses.source_${v}`;
-  const out = t(key);
-  return out === key ? v : out;
+  return sourceLabel(t, v);
 }
 function labelEffective(v: string | null | undefined): string {
   if (!v) return "—";
@@ -354,6 +355,9 @@ onMounted(() => {
 onBeforeUnmount(() => { cro?.disconnect(); cro = null; });
 
 const isCreate = computed(() => !props.address && !!props.createContext);
+const impact = useChangeImpact();
+void impact.load();
+const impactWizard = ref(false);
 
 interface FormState {
   hostname: string;
@@ -939,7 +943,11 @@ async function remove() {
       <!-- 標題：IP + 狀態標籤並排（比照裝置詳細資料的 名稱+類型標籤）-->
       <template #header>
         <span style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span>{{ props.address?.ip ?? props.createContext?.ip ?? '' }}</span>
+          <!-- 燈號：一眼看出上線／離線（與清單同一個元件、同一套判斷；滑過看各來源最後看到的時間） -->
+          <span style="display:inline-flex;align-items:center;gap:8px">
+            <LiveStatusDot v-if="!isCreate && props.address" :address="props.address" :size="12" />
+            <span>{{ props.address?.ip ?? props.createContext?.ip ?? '' }}</span>
+          </span>
           <n-tag v-if="isCreate" type="info" size="small">{{ t("common.create") }}</n-tag>
           <n-tag v-else :type="stateType" size="small">{{ labelState(props.address?.state) }}</n-tag>
           <!-- 「真的有 DHCP 租約」與「只是落在 DHCP 集區範圍內」是兩回事：
@@ -1132,6 +1140,11 @@ async function remove() {
             <!-- 調查：把這個位址散在各處的線索收在一起（追問題時最花時間的就是到處翻） -->
             <n-button key="hx-inv" size="small" @click="investigating = true">
               <template #icon><n-icon><SearchIcon /></n-icon></template>{{ t("investigate.title") }}
+            </n-button>
+            <!-- 預演改址：改之前先看哪些地方引用了這個位址（功能開啟、而且有修改權才顯示；後端會再檢查） -->
+            <n-button v-if="impact.settings.value.enabled && auth.me?.can_edit !== false" key="hx-cip" size="small"
+                      data-testid="ip-change-impact-btn" @click="impactWizard = true">
+              <template #icon><n-icon><ChangeImpactIcon /></n-icon></template>{{ t("change_impact.entry_renumber") }}
             </n-button>
             <n-button key="hx-edit" type="primary" size="small" @click="editMode = true">
               <template #icon><n-icon><EditIcon /></n-icon></template>{{ t("common.edit") }}
@@ -1746,6 +1759,9 @@ async function remove() {
   </component>
   <InvestigateModal v-if="props.address?.ip"
                     v-model:show="investigating" :ip="String(props.address.ip)" />
+  <ChangeImpactWizard v-if="props.address?.id && impact.settings.value.enabled" v-model:show="impactWizard"
+                      preset-scenario="ip_renumber" :preset-target-id="props.address.id"
+                      :preset-label="String(props.address.ip).split('/')[0]" />
 </template>
 
 <style scoped>

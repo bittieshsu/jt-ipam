@@ -81,6 +81,7 @@ _LABEL_REGISTRY: dict[str, tuple[str, str, str]] = {
     "location": ("app.models.location", "Location", "name"),
     "rack": ("app.models.location", "Rack", "name"),
     "customer": ("app.models.customer", "Customer", "name"),
+    "change_plan": ("app.models.change_impact", "ChangePlan", "title"),
     "ssh_credential": ("app.models.ssh_credential", "SSHCredential", "label"),
     "rdp_credential": ("app.models.ssh_credential", "SSHCredential", "label"),
     "vnc_credential": ("app.models.ssh_credential", "SSHCredential", "label"),

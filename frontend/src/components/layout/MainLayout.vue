@@ -38,7 +38,7 @@ import {
   // Phase 3 / Admin
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
-  AiAuditIcon, ChatHistoryIcon,
+  AiAuditIcon, ChatHistoryIcon, ChangeImpactIcon,
   DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, RustDeskIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
@@ -46,6 +46,8 @@ import {
   renderIcon,
 } from "@/icons";
 import { User as UserOutline } from "@iconoir/vue";
+import { useChangeImpact } from "@/composables/useChangeImpact";
+const impact = useChangeImpact();
 
 const { t } = useI18n();
 const route = useRoute();
@@ -209,6 +211,9 @@ const menuOptions = computed<MenuOption[]>(() => {
       ? [{ label: () => t("nav.customers"), key: "customers", icon: renderIcon(CustomersIcon) }]
       : []),
     { label: () => t("nav.requests"),    key: "requests",   icon: renderIcon(RequestsIcon) },
+    // 變更影響預演：管理員在系統設定打開才出現（預設關閉）
+    ...(impact.settings.value.enabled
+      ? [{ label: () => t("nav.change_impact"), key: "change_impact", icon: renderIcon(ChangeImpactIcon) }] : []),
     { label: () => t("nav.topology"),    key: "topology",   icon: renderIcon(TopologyIcon) },
     {
       label: () => t("nav.phase3_section"),
@@ -451,6 +456,7 @@ function onSiderScroll() {
 }
 onMounted(() => {
   void loadIntegrationPresence();
+  void impact.load();
   window.addEventListener("resize", onResize);
   window.addEventListener("keydown", onEsc);
   if (winW.value < NARROW_PX) siderCollapsed.value = true;

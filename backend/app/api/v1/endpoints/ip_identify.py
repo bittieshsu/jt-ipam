@@ -110,8 +110,13 @@ async def _job_out(session: AsyncSession, ip_text: str, job: AgentProbeJob,
             AgentProbeJob.created_at < job.created_at,
         ).order_by(AgentProbeJob.created_at.desc()).limit(1))).scalars().first()
         if prev is not None and isinstance(prev.result, dict):
+            # 上一次的摘要用同一組條件算（IP 記錄的 MAC、Recog、是不是虛擬機），比的才是同一件事
+            from app.services.identify_tasks import job_is_virtual_guest
+            prev_summary = ip_identify.summarize(prev.result, mac_vendor=mac_vendor,
+                                                 recog=await get_recog_matcher(session),
+                                                 virtual_guest=await job_is_virtual_guest(session, prev), mac=mac)
             out["changes"] = {"previous_job_id": str(prev.id), "previous_at": prev.created_at,
-                              **ip_identify.changes_between(prev.result, job.result)}
+                              **ip_identify.changes_between(prev.result, job.result, prev_summary, out["summary"])}
     return out
 
 

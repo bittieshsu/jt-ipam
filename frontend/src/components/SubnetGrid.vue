@@ -14,6 +14,7 @@ import { useI18n } from "vue-i18n";
 import { NEmpty, NTooltip } from "naive-ui";
 import type { IPAddress } from "@/types";
 import type { UnmanagedAddress } from "@/api/addresses";
+import { unmanagedSources } from "@/utils/unmanaged";
 import { fmtRelative } from "@/utils/datetime";
 import { RANGE_COLORS, type IPRange, type IPRangePurpose } from "@/api/ipRanges";
 import { classifyAddressLiveness, onlineGraceMinutes } from "@/composables/useLivenessSettings";
@@ -68,13 +69,8 @@ interface Props {
 const props = defineProps<Props>();
 
 // 未納管格子的說明：誰看到的、多久以前、MAC（廠商）
-function umSource(src: string): string {
-  if (src === "scanner") return t("anomaly.seen_scanner");
-  if (src.startsWith("arp:")) return t("anomaly.seen_arp_vendor", { vendor: src.slice(4) === "librenms" ? "LibreNMS" : src.slice(4) });
-  return src;
-}
 function umTip(u: UnmanagedAddress): string {
-  const parts = [u.sources.map(umSource).join("、"), fmtRelative(u.last_seen_at)];
+  const parts = [unmanagedSources(t, u.sources), fmtRelative(u.last_seen_at)];
   if (u.mac) parts.push(u.vendor ? `${u.mac} (${u.vendor})` : u.mac);
   return " · " + parts.filter(Boolean).join(" · ");
 }
@@ -108,6 +104,8 @@ const rangePurposes = computed(() =>
 const emit = defineEmits<{
   (e: "open-ip", address: IPAddress): void;
   (e: "create-ip", ip: string): void;
+  /** 未納管的格子：先進到這個位址的頁面（沒有記錄，但可以從那裡探測或登錄） */
+  (e: "open-unmanaged", ip: string): void;
 }>();
 
 interface ParsedCidr {
@@ -365,6 +363,7 @@ function aggColor(pct: number): string {
         @click="() => {
           const a = addresses.find((x) => x.ip === c.ip);
           if (a) emit('open-ip', a);
+          else if (c.state === 'unmanaged') emit('open-unmanaged', c.ip);
           else emit('create-ip', c.ip);
         }"
       ></span>

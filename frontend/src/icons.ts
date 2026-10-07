@@ -115,6 +115,7 @@ import {
   HelpCircle,
   PasteClipboard,
   Menu,
+  TestTube,
 } from "@iconoir/vue";
 
 // ── 通用 ──
@@ -222,6 +223,8 @@ export const AnomalyIcon = ShieldAlert;
 // AI 巡檢：跟異常偵測分開的圖示 —— 一個是量到的事實、一個是模型的推測，
 // 選單上並排時要一眼分得出來
 export const AiAuditIcon = BrainResearch;
+/** 變更影響預演：試管＝預演、不會真的改 */
+export const ChangeImpactIcon = TestTube;
 export const DnsIcon = Globe;
 export const LibreNMSIcon = Cloud;
 export const FirewallIcon = Shield;

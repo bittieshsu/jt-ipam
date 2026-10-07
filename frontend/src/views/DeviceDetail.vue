@@ -10,7 +10,9 @@ import {
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
-import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon, OpenNewWindowIcon, RustDeskIcon } from "@/icons";
+import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon, OpenNewWindowIcon, RustDeskIcon, ChangeImpactIcon } from "@/icons";
+import ChangeImpactWizard from "@/components/ChangeImpactWizard.vue";
+import { useChangeImpact } from "@/composables/useChangeImpact";
 import CopyButton from "@/components/CopyButton.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { listAddresses, updateAddress } from "@/api/addresses";
@@ -43,6 +45,9 @@ const pg = useTablePagination();
 const { t, te } = useI18n();
 
 const { me } = storeToRefs(useAuthStore());
+const impact = useChangeImpact();
+void impact.load();
+const impactWizard = ref(false);
 const isAdmin = computed(() => !!me.value?.is_admin);
 // 卡片標題：icon + 文字（NCard title 支援 render function）
 /** 虛擬機狀態：平台回來的是 running / stopped 這種英文字，畫面上要說人話。
@@ -448,6 +453,12 @@ onMounted(() => {
         </template>
 <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
         <n-space align="center" justify="end" style="margin-bottom: 10px">
+          <!-- 預演除役：拆之前先看還有哪些地方引用它、它上面跑著什麼（功能開啟才顯示，後端會再檢查權限） -->
+          <n-button v-if="impact.settings.value.enabled && me?.can_edit !== false" size="small"
+                    data-testid="device-change-impact-btn" @click="impactWizard = true">
+            <template #icon><n-icon><ChangeImpactIcon /></n-icon></template>
+            {{ t("change_impact.entry_decommission") }}
+          </n-button>
           <n-button type="primary" size="small" @click="editShow = true">
             <template #icon><n-icon><EditIcon /></n-icon></template>
             {{ t("common.edit") }}
@@ -822,6 +833,8 @@ onMounted(() => {
   />
   <DeviceEditModal v-model:show="editShow" :device="device"
                    @saved="() => load(String(route.params.id))" />
+  <ChangeImpactWizard v-if="device && impact.settings.value.enabled" v-model:show="impactWizard"
+                      preset-scenario="device_decommission" :preset-target-id="device.id" :preset-label="device.name" />
 </template>
 
 <style scoped>

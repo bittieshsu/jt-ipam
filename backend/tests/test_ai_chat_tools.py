@@ -77,6 +77,17 @@ SAMPLE_ARGS: dict[str, dict] = {
     "switch_port_for_ip": {"ip": "10.0.0.1"},
     # ── 管理 / 變更（用查無資料的參數，預期 IPAMToolError，不污染 DB） ──
     "allocate_ip": {"subnet_cidr": "10.255.255.0/24", "requested_ip": "10.255.255.9"},
+    # 變更影響預演：功能預設關閉時工具回 impact_feature_disabled（只驗證走得到、不會爆）
+    "impact_list_plans": {}, "impact_get_run": {"run_id": "00000000-0000-0000-0000-000000000000"},
+    "impact_list_findings": {"run_id": "00000000-0000-0000-0000-000000000000"},
+    "impact_get_evidence": {"run_id": "00000000-0000-0000-0000-000000000000",
+                            "evidence_id": "00000000-0000-0000-0000-000000000000"},
+    "impact_prepare_scenario": {"target_ip": "10.255.255.9", "new_ip": "10.255.255.10"},
+    "impact_create_plan": {"draft_token": "0.x", "scenario_type": "ip_renumber", "target_type": "ip_address",
+                           "target_id": "00000000-0000-0000-0000-000000000000"},
+    "impact_start_run": {"plan_id": "00000000-0000-0000-0000-000000000000"},
+    "impact_accept_task_draft": {"plan_id": "00000000-0000-0000-0000-000000000000",
+                                 "artifact_id": "00000000-0000-0000-0000-000000000000", "indices": [0]},
     "create_subnet": {"cidr": "10.255.255.0/24", "section_name": "no-such-section"},
     "create_device": {"name": "zz-ai-smoke-device"},
     "update_ip": {"ip": "10.255.255.1", "hostname": "x"},
