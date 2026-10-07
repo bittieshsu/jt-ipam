@@ -54,6 +54,30 @@ TEST_TIMEOUT = timedelta(seconds=60)
 _SECRET_TYPE, _SECRET_FIELD = "rustdesk_server", "agent_key"
 
 
+_OS_TAIL = re.compile(r"\s+-\s+[\d.]+\s*\(\d+\)\s*$")
+_LINUX_DETAIL = re.compile(r"^linux\s+(\d[\w.-]*)\s+(.+)$", re.I)
+_LINUX_NO_VERSION = re.compile(r"^linux\s+(\D.*)$", re.I)
+
+
+def os_display(raw: str | None) -> str | None:
+    """客戶端回報的作業系統字串 → 給人看的寫法（跟前端 utils/rustdeskOs.ts 同一套規則）。
+
+    「windows / Windows 11 Pro - 11 (26200)」→「Windows 11 Pro」；「ubuntu / Linux 24.04 Ubuntu」→「Ubuntu 24.04」
+    （Linux 的原文是「Linux <版本> <發行版>」，使用者 2026-10-07 指出順序怪）。
+    """
+    if not raw or not str(raw).strip():
+        return None
+    plat, sep, rest = str(raw).partition(" / ")
+    detail = _OS_TAIL.sub("", (rest if sep else plat)).strip()
+    m = _LINUX_DETAIL.match(detail)
+    if m:
+        return f"{m.group(2).strip()} {m.group(1)}"
+    n = _LINUX_NO_VERSION.match(detail)
+    if n:
+        return n.group(1).strip()
+    return detail or None
+
+
 def new_agent_key() -> str:
     return secrets.token_urlsafe(32)
 

@@ -238,8 +238,10 @@
   .w-k,.w-v,.w-s{padding:10px 0;border-bottom:1px solid #edf1ee}
   /* 內容在格子裡垂直置中：另一邊同一列換行變高時，這一列看起來是刻意留白、不是掉了一截 */
   .w-k{display:flex;align-items:center;padding-right:14px;font-size:13.5px;font-weight:700;color:var(--ink);line-height:1.5}
-  .w-v{display:flex;flex-wrap:wrap;align-content:center;gap:1px 14px;font-size:13.5px;color:var(--body);line-height:1.5}
-  .w-v i{font-style:normal;white-space:nowrap}
+  .w-v{display:flex;flex-wrap:wrap;align-content:center;gap:5px 6px;font-size:13px;color:var(--body);line-height:1.5}
+  /* 每個產品一個淡框：名稱裡有空格的（Windows DHCP、Palo Alto）才不會被看成兩樣東西（使用者 2026-10-07）。
+     細框＋極淡底、小圓角，不做膠囊 */
+  .w-v i{font-style:normal;white-space:nowrap;padding:0 7px;border:1px solid var(--line);border-radius:4px;background:#f7faf8}
   .w-in .w-k{grid-column:1}
   .w-in .w-v{grid-column:2;margin-right:30px}
   .w-out .w-k{grid-column:4;margin-left:30px}

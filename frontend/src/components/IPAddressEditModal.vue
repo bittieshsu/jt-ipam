@@ -1088,7 +1088,7 @@ async function remove() {
                   <template #trigger>
                     <n-button type="info" size="small" data-testid="rustdesk-web-connect" @click="emit('rustdesk-open')">
                       <template #icon><n-icon><RustDeskIcon /></n-icon></template>
-                      <span v-if="!consoleCompact">RustDesk</span>
+                      <span v-if="!consoleCompact">{{ t("rustdesk.connect") }}</span>
                     </n-button>
                   </template>
                   {{ t("rustdesk.web_connect_hint", { id: props.address.rustdesk.id }) }}
@@ -1114,7 +1114,7 @@ async function remove() {
                   <n-button tag="a" size="small" :href="props.address.rustdesk.connect_uri" data-testid="rustdesk-connect"
                             @click="logLocalOpen">
                     <template #icon><n-icon><RustDeskIcon /></n-icon></template>
-                    <span v-if="!consoleCompact">RustDesk</span>
+                    <span v-if="!consoleCompact">{{ t("rustdesk.connect") }}</span>
                   </n-button>
                 </template>
                 {{ t("rustdesk.connect_hint", { id: props.address.rustdesk.id }) }}（{{ t("rustdesk.badge_local_tip") }}）

@@ -91,7 +91,8 @@ async def _candidates(session: AsyncSession, ip: Any) -> dict[str, str]:
         .order_by(RustDeskPeer.online.desc(), RustDeskPeer.last_online_at.desc().nulls_last()).limit(1)
     )).scalar_one_or_none()
     if rd_os:
-        out["rustdesk"] = rd_os
+        from app.services.rustdesk import os_display
+        out["rustdesk"] = os_display(rd_os) or rd_os
     return out
 
 

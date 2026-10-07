@@ -4439,6 +4439,8 @@
     "allocation": "Allocation"
   },
   "identify": {
+    "mac_label": "MAC",
+    "mac_random_tag": "Random (private) address",
     "cancel": "Cancel probe",
     "cancel_confirm": "Cancel this probe? Results the agent sends back later will not be recorded.",
     "title": "Probe",
@@ -5473,6 +5475,7 @@
     "edit_nothing": "No jump host is available and this subnet's scan agent does not allow relay, so the only path is direct."
   },
   "rustdesk": {
+    "connect": "RustDesk",
     "title": "RustDesk Server",
     "intro": "Integrate RustDesk Server (open source): install the dedicated RustDesk agent (not a scan agent) on the RustDesk host. It reads the registered devices and their online state, receives the host name, OS and connection audit reported by the clients, and sends them to jt-ipam. Once a device is mapped to an IP record, you can open a RustDesk session from the IP page.",
     "step_create": "Click Add to create the RustDesk server. A dedicated agent key and install command are generated for it.",
@@ -5537,7 +5540,7 @@
     "drop_bad_request": "Malformed",
     "receive_reports": "Receive client reports",
     "api_port": "Port",
-    "receive_reports_hint": "When on, the RustDesk agent listens on this port on the RustDesk host and receives client heartbeats, system info, connection and file transfer audits and alarms. Clients with the API server left empty already send to port 21114 of the ID server, so no client change is needed; clients outside must be able to reach this port.",
+    "receive_reports_hint": "When on, the RustDesk agent listens on this port on the RustDesk host and receives client heartbeats, system info, connection and file transfer audits and alarms. Clients with the API server left empty already send to port 21114 of the ID server, so no client change is needed. ⚠️ Do not open this port to the internet (reports need no login, so anyone could send fake data): internal networks only, with outside clients on a VPN or restricted by source IP.",
     "audit": "Connection audit",
     "audit_kind": "Type",
     "audit_time": "Time",
@@ -5576,7 +5579,7 @@
     "page_title": "RustDesk integration",
     "step_install": "Run the install command as root on the RustDesk host (where hbbs runs). The agent reads the official working directory read-only:",
     "step_test": "When the agent column shows Connected, click Test to check the database, the online query and the client report receiver one by one; Sync now reads once right away.",
-    "step_reports": "Clients that only have the ID server set (API server left empty) send their host name, OS and connection audit to TCP {port} on the RustDesk host, where the agent receives them. No client change is needed. Clients outside your network can only report if this port is reachable (port forward).",
+    "step_reports": "Clients that only have the ID server set (API server left empty) send their host name, OS and connection audit to TCP {port} on the RustDesk host, where the agent receives them. No client change is needed. ⚠️ Do not open this port to the internet: it accepts client reports without any login, so anyone could send fake reports and alarms. Open it to internal networks only; have outside clients use a VPN, or restrict source IPs on the firewall.",
     "agent_never": "Not installed",
     "agent_online": "Connected",
     "agent_offline": "Offline",

@@ -127,8 +127,21 @@
               <!-- 設備廠牌（服務自己講的、可信的指紋）與網卡廠牌（MAC 的 OUI）分開：網卡的品牌不等於設備的品牌，
                    Mac 接 CalDigit 擴充座、PC 插了 Intel 網卡都很常見（使用者 2026-10-05） -->
               <n-descriptions-item :label="t('identify.vendor')">{{ job.summary.vendor ?? "—" }}</n-descriptions-item>
-              <n-descriptions-item :label="t('identify.nic_vendor')">
-                <span data-testid="identify-nic-vendor">{{ job.summary.nic_vendor ?? "—" }}</span>
+              <!-- MAC 本身也要看得到：以前只顯示網卡廠牌，隨機（私人）MAC 查不到廠牌時整格是「—」，
+                   看起來像沒抓到 MAC（使用者 2026-10-07，iPhone） -->
+              <n-descriptions-item :label="t('identify.mac_label')">
+                <template v-if="probeMac">
+                  <span class="idf-mono" data-testid="identify-mac">{{ probeMac }}</span>
+                  <span v-if="job.summary.nic_vendor" data-testid="identify-nic-vendor"> （{{ job.summary.nic_vendor }}）</span>
+                  <n-tooltip v-else-if="isRandomMac(probeMac)">
+                    <template #trigger>
+                      <n-tag size="small" :bordered="false" type="warning" style="margin-left: 6px"
+                             data-testid="identify-mac-random">{{ t("identify.mac_random_tag") }}</n-tag>
+                    </template>
+                    {{ t("investigate.mac_random") }}
+                  </n-tooltip>
+                </template>
+                <span v-else data-testid="identify-nic-vendor">{{ job.summary.nic_vendor ?? "—" }}</span>
               </n-descriptions-item>
               <n-descriptions-item :label="t('identify.model')">
                 <span data-testid="identify-model">{{ job.summary.model ?? "—" }}</span>
@@ -210,9 +223,10 @@ import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   NAlert, NButton, NCard, NCollapse, NCollapseItem, NDataTable, NDescriptions, NDescriptionsItem, NIcon,
-  NPopconfirm, NResult, NSpace, NSpin, NTag, type DataTableColumns,
+  NPopconfirm, NResult, NSpace, NSpin, NTag, NTooltip, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
+import { isRandomMac } from "@/utils/mac";
 import { apiErrMsg } from "@/api/client";
 import { getAddress } from "@/api/addresses";
 import {
@@ -265,6 +279,13 @@ const rawText = computed(() => JSON.stringify(job.value?.result ?? null, null, 2
 const hasChanges = computed(() => {
   const c = job.value?.changes;
   return !!c && (c.opened.length + c.closed.length + c.changed.length) > 0;
+});
+
+/** 顯示的 MAC：跟後端算網卡廠牌用的同一個（IP 記錄上的優先，沒有才用這次 nmap 看到的，同網段才拿得到），
+ *  不然會出現「這個 MAC 配上另一個 MAC 的廠牌」 */
+const probeMac = computed(() => {
+  const m = (addr.value as any)?.mac || job.value?.result?.nmap?.mac || "";
+  return m ? String(m).toLowerCase() : "";
 });
 
 const jobError = computed(() => {

@@ -113,7 +113,8 @@ async def _evidence(session: AsyncSession, device_ids: list[uuid.UUID]) -> dict[
             .where(in_values(RustDeskPeer.address_id, ip_ids), RustDeskPeer.match_status == "matched",
                    RustDeskPeer.os_name.is_not(None),
                    or_(RustDeskPeer.last_online_at.is_(None), RustDeskPeer.last_online_at >= fresh)))).all():
-        ev[ip_dev[addr_id]]["agent"].append(os_name)
+        from app.services.rustdesk import os_display
+        ev[ip_dev[addr_id]]["agent"].append(os_display(os_name) or os_name)
     return ev
 
 

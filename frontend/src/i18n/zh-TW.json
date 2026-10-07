@@ -4439,6 +4439,8 @@
     "allocation": "配發方式"
   },
   "identify": {
+    "mac_label": "MAC",
+    "mac_random_tag": "隨機（私人）位址",
     "cancel": "取消探測",
     "cancel_confirm": "確定取消這次探測？代理那邊跑完的結果不會再寫回。",
     "title": "探測",
@@ -5473,6 +5475,7 @@
     "edit_nothing": "目前沒有可用的跳板主機，這個子網路的掃描代理也沒有開放中繼，所以只能直連。"
   },
   "rustdesk": {
+    "connect": "RustDesk 連線",
     "title": "RustDesk 伺服器",
     "intro": "整合 RustDesk Server（開源版）：在 RustDesk 主機上安裝專用的「RustDesk 代理」（不是掃描代理），由它讀取已註冊的裝置與線上狀態、接收客戶端回報的主機名稱、作業系統與連線稽核，再送回 jt-ipam。裝置對應到 IP 記錄後，可以在 IP 頁直接叫出 RustDesk 客戶端連線。",
     "step_create": "按「新增」建立 RustDesk 伺服器，畫面會產生這台伺服器專用的代理金鑰與安裝指令。",
@@ -5537,7 +5540,7 @@
     "drop_bad_request": "格式錯誤",
     "receive_reports": "接收客戶端回報",
     "api_port": "埠",
-    "receive_reports_hint": "開啟後，RustDesk 代理在 RustDesk 主機上聽這個埠，收客戶端的心跳、系統資訊、連線與檔案稽核、告警。客戶端「API 伺服器」留空時本來就會送到 ID 伺服器的 21114，不用改客戶端設定；外部客戶端要能連到這個埠才收得到。",
+    "receive_reports_hint": "開啟後，RustDesk 代理在 RustDesk 主機上聽這個埠，收客戶端的心跳、系統資訊、連線與檔案稽核、告警。客戶端「API 伺服器」留空時本來就會送到 ID 伺服器的 21114，不用改客戶端設定。⚠️ 不要對網際網路開放這個埠（收回報不需要登入，任何人都能送假資料）：只開給內網，外部客戶端走 VPN 或限定來源 IP。",
     "audit": "連線稽核",
     "audit_kind": "類型",
     "audit_time": "時間",
@@ -5576,7 +5579,7 @@
     "page_title": "RustDesk 整合",
     "step_install": "在執行 hbbs 的 RustDesk 主機上以 root 執行安裝指令。代理只以唯讀方式讀取官方安裝的工作目錄：",
     "step_test": "代理欄顯示「已連線」後，按「測試」逐項檢查資料庫、線上狀態查詢與客戶端回報接收端；按「立即同步」馬上讀一次。",
-    "step_reports": "客戶端只設定 ID 伺服器、「API 伺服器」留空時，會把主機名稱、作業系統與連線稽核送到 RustDesk 主機的 TCP {port}，由代理接收，不用改客戶端設定。外部客戶端要能連到這個埠（防火牆轉送）才收得到。",
+    "step_reports": "客戶端只設定 ID 伺服器、「API 伺服器」留空時，會把主機名稱、作業系統與連線稽核送到 RustDesk 主機的 TCP {port}，由代理接收，不用改客戶端設定。⚠️ 這個埠不要對網際網路開放：它收客戶端回報不需要登入，開放出去任何人都能送假的回報與告警。只開給內網；外部客戶端請走 VPN，或在防火牆限定來源 IP。",
     "agent_never": "尚未安裝",
     "agent_online": "已連線",
     "agent_offline": "離線",

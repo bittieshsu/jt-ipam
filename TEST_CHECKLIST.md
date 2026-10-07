@@ -499,6 +499,8 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
     its own, so they looked the same height); a 2×2 KALLAX stays square in the thumbnail, not squeezed narrower
   - the "Size" slider in its settings (50% to 300%): enlarging scales the whole row with proportions intact; it survives
     a reload and another browser (stored with the account)
+- [ ] **MAC on the probe page**: the summary has a "MAC" row; a normal NIC shows MAC (vendor), a random MAC such as an
+  iPhone's shows the "Random (private) address" tag (with an explanation on hover)
 - [ ] **Probe cancel** (`tests/test_ip_identify.py`): "Cancel probe" while running → failed with "This probe was cancelled",
   the task shows cancelled, no notification; a later agent result does not turn it back to done; a new probe can start
   right away; cancelling a finished probe returns 409

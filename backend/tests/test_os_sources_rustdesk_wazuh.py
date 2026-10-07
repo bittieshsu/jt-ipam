@@ -92,3 +92,23 @@ async def test_wazuh_candidate_uses_the_product_name(db_session) -> None:
     await db_session.flush()
     eff = await os_precedence.effective_os(db_session, ip)
     assert eff["os_source"] == "wazuh" and eff["os_guess"] == "Microsoft Windows 11 Pro"
+
+
+def test_rustdesk_os_strings_are_tidied_like_the_ui() -> None:
+    """跟前端 utils/rustdeskOs.ts 同一套規則：「Linux 24.04 Ubuntu」→「Ubuntu 24.04」（使用者 2026-10-07）。"""
+    from app.services.rustdesk import os_display
+    assert os_display("ubuntu / Linux 24.04 Ubuntu") == "Ubuntu 24.04"
+    assert os_display("debian / Linux 12 Debian") == "Debian 12"
+    assert os_display("windows / Windows 11 Pro - 11 (26200)") == "Windows 11 Pro"
+    assert os_display("macos / MacOS 15.7.5") == "MacOS 15.7.5"
+    assert os_display("Windows 10 Pro") == "Windows 10 Pro"
+    assert os_display("") is None and os_display(None) is None
+
+
+async def test_rustdesk_os_source_uses_the_tidy_string(db_session) -> None:
+    from app.services import os_precedence
+    ip = await _ip(db_session, "198.51.100.64")
+    await _rd_peer(db_session, ip, "ubuntu / Linux 24.04 Ubuntu")
+    eff = await os_precedence.effective_os(db_session, ip)
+    assert eff["os_source"] == "rustdesk" and eff["os_guess"] == "Ubuntu 24.04"
+    assert eff["os_family"] in ("ubuntu", "linux")
