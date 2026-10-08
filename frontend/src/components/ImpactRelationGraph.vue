@@ -56,8 +56,8 @@
             <n-button size="small" data-testid="cip-graph-fit" @click="fit">
               <template #icon><n-icon><FitIcon /></n-icon></template>{{ t("change_impact.graph_fit") }}
             </n-button>
-            <n-dropdown trigger="hover" :options="exportOptions" @select="onExport">
-              <n-button size="small" data-testid="cip-graph-export">
+            <n-dropdown trigger="hover" :options="exportOptions" :disabled="exporting" @select="onExport">
+              <n-button size="small" :loading="exporting" :disabled="exporting" data-testid="cip-graph-export">
                 <template #icon><n-icon><DownloadIcon /></n-icon></template>{{ t("change_impact.graph_export") }}
               </n-button>
             </n-dropdown>
@@ -176,6 +176,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { fmtDateTime } from "@/utils/datetime";
 import { reasonText } from "@/utils/changeImpact";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { useFillHeight } from "@/composables/usePageFill";
 import { graphToSvg } from "@/utils/graphSvg";
 import { download } from "@/utils/tableExport";
@@ -539,7 +540,8 @@ const exportOptions = computed(() => [
   { label: t("change_impact.graph_export_png"), key: "png" },
   { label: t("change_impact.graph_export_svg"), key: "svg" },
 ]);
-function onExport(key: string) { if (key === "svg") saveSvg(); else savePng(); }
+const { exporting, run: runExport } = useExportBusy();
+function onExport(key: string) { void runExport(() => (key === "svg" ? saveSvg() : savePng())); }
 function saveSvg() {
   if (!cy) return;
   // 匯出不要帶滑過／點選時的淡化

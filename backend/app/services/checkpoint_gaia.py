@@ -533,8 +533,26 @@ async def _section(errors: dict[str, str], key: str, coro: Any) -> Any:
         return None
 
 
+#: 讀不到但不算錯的原因（使用者 2026-10-08：「抓不到沒關係」）—— 記在摘要的 skipped，不寫 last_error、不告警
+SKIP_NO_PERMISSION = "no_permission"     # 帳號不能執行指令（唯讀角色：HTTP 500 generic_err_no_permissions）
+SKIP_UNSUPPORTED = "unsupported"         # 這版 Gaia API 沒有 run-script
+SKIP_NO_LEASE_FILE = "no_lease_file"     # 閘道上沒有租約檔（版本或部署方式不同）
+SKIP_DHCP_OFF = "dhcp_off"               # 閘道的 DHCP 伺服器沒有在發位址
+
+
+def _skip_reason(exc: GaiaError) -> str | None:
+    if exc.code == "cpg_denied":
+        return SKIP_NO_PERMISSION
+    if exc.code == "cpg_unsupported":
+        return SKIP_UNSUPPORTED
+    return None
+
+
 async def sync_target(session: AsyncSession, t: Any) -> dict[str, Any]:
-    """拉一次。登入失敗就往上拋（作業顯示失敗）；個別區段失敗記在摘要與 last_error。"""
+    """拉一次。登入失敗就往上拋（作業顯示失敗）；個別區段失敗記在摘要與 last_error。
+
+    ARP 與租約要在閘道上執行指令：帳號沒權限、Gaia 沒有 run-script、閘道沒有租約檔、DHCP 伺服器沒開，
+    都只記成略過（skipped），DHCP 設定照常同步，也不算同步失敗。"""
     from app.models.checkpoint import CheckPointServer
 
     now = datetime.now(UTC)
@@ -542,6 +560,8 @@ async def sync_target(session: AsyncSession, t: Any) -> dict[str, Any]:
     scope = _scope_ids(t, server)
     counts: dict[str, Any] = {}
     errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+    dhcp_serving: bool | None = None        # None＝不知道（沒讀 DHCP 設定或讀失敗）
     try:
         async with GaiaSession(t) as g:
             if g.version and t.api_version != g.version:
@@ -552,31 +572,57 @@ async def sync_target(session: AsyncSession, t: Any) -> dict[str, Any]:
                     parsed = parse_dhcp_server(data)
                     counts["dhcp_subnets"] = len(parsed)
                     counts["pools"] = await _write_dhcp(session, t, parsed, now)
+                    dhcp_serving = any(x["enabled"] for x in parsed)
                 await asyncio.sleep(PAUSE)
+            cannot_run: str | None = None       # 第一個指令就被拒的話，第二個不用再試
+
+            async def script(key: str) -> str | None:
+                nonlocal cannot_run
+                if cannot_run:
+                    skipped[key] = cannot_run
+                    return None
+                try:
+                    return await g.run_script(key)
+                except GaiaError as exc:
+                    reason = _skip_reason(exc)
+                    if reason is None:
+                        errors[key] = str(exc)[:300]
+                        return None
+                    cannot_run = skipped[key] = reason
+                    return None
+
             if t.allow_scripts and t.sync_arp:
-                out = await _section(errors, "arp", g.run_script("arp"))
+                out = await script("arp")
                 if out is not None:
                     rows = parse_neigh(out, now=datetime.now(UTC))
                     counts["arp_rows"] = len(rows)
                     counts["arp_matched"] = await _write_arp(session, t, rows, scope)
                 await asyncio.sleep(PAUSE)
             if t.allow_scripts and t.sync_leases:
-                out = await _section(errors, "leases", g.run_script("leases"))
-                if out is not None:
-                    size, body = _split_size(out)
-                    if size is None or size < 0:
-                        errors["leases"] = f"{LEASE_FILE}: not readable"
-                    elif size > MAX_LEASE_FILE:
-                        errors["leases"] = f"{LEASE_FILE}: too large ({size} bytes, limit {MAX_LEASE_FILE})"
-                    else:
-                        leases = parse_leases(body, now=datetime.now(UTC))
-                        counts["leases"] = len(leases)
-                        counts["lease_matched"] = await _write_leases(session, t, leases, scope)
+                if dhcp_serving is False:
+                    # 沒有人在發位址：租約檔裡沒到期的舊紀錄也不是上線證據 → 當成「沒有租約」，清掉舊標記
+                    skipped["leases"] = SKIP_DHCP_OFF
+                    counts["leases"] = 0
+                    counts["lease_matched"] = await _write_leases(session, t, [], scope)
+                else:
+                    out = await script("leases")
+                    if out is not None:
+                        size, body = _split_size(out)
+                        if size is None or size < 0:
+                            skipped["leases"] = SKIP_NO_LEASE_FILE      # 讀不到檔案不等於沒有租約：舊標記保留
+                        elif size > MAX_LEASE_FILE:
+                            errors["leases"] = f"{LEASE_FILE}: too large ({size} bytes, limit {MAX_LEASE_FILE})"
+                        else:
+                            leases = parse_leases(body, now=datetime.now(UTC))
+                            counts["leases"] = len(leases)
+                            counts["lease_matched"] = await _write_leases(session, t, leases, scope)
     except GaiaError as exc:
         t.last_error = str(exc)
         await session.commit()
         raise
     summary: dict[str, Any] = {**counts, "api_version": t.api_version}
+    if skipped:
+        summary["skipped"] = skipped
     if errors:
         summary["errors"] = errors
     t.last_summary = summary
@@ -586,7 +632,9 @@ async def sync_target(session: AsyncSession, t: Any) -> dict[str, Any]:
 
 
 async def diagnose(t: Any) -> dict[str, Any]:
-    """測試連線：版本、DHCP 設定讀不讀得到、可不可以執行指令（只有打開 allow_scripts 才試，跑 `echo`）。"""
+    """測試連線：版本、DHCP 設定讀不讀得到、可不可以執行指令（打開 allow_scripts 才試，跑 `echo`）。
+
+    帳號沒權限或 Gaia 沒有 run-script 只回報在 scripts，不算錯誤（同步時那兩項會略過）。"""
     out: dict[str, Any] = {"version": None, "dhcp_subnets": None, "scripts": "not_enabled", "errors": {}}
     async with GaiaSession(t, timeout=20.0) as g:
         out["version"] = g.version
@@ -599,8 +647,14 @@ async def diagnose(t: Any) -> dict[str, Any]:
                 res = await g.run_script("probe", wait=30.0)
                 out["scripts"] = "ok" if "jt-ipam" in res else "unexpected_output"
             except GaiaError as exc:
-                out["scripts"] = "denied" if exc.code == "cpg_denied" else "failed"
-                out["errors"]["scripts"] = str(exc)[:300]
+                reason = _skip_reason(exc)
+                if reason == SKIP_NO_PERMISSION:
+                    out["scripts"] = "denied"           # 同步時 ARP 與租約會略過，不算測試失敗
+                elif reason == SKIP_UNSUPPORTED:
+                    out["scripts"] = "unsupported"
+                else:
+                    out["scripts"] = "failed"
+                    out["errors"]["scripts"] = str(exc)[:300]
     if not out["errors"]:
         out.pop("errors")
     return out

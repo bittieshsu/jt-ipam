@@ -148,8 +148,13 @@ const rackOptions = computed(() => props.racks.map((r) => ({
           <a class="dr-name" @click="openRack(d.rack_id)">{{ d.name }}</a>
           <!-- 儀表板空間有限：精簡列高、縮小比例，一排機櫃一眼看得完 -->
           <!-- 整排用同一個縮放比例（fit-to＝最高那台的自然高度），大小才看得出誰高誰矮 -->
-          <RackDiagram :diagram="d" :show-legend="false" :controls="false" :shared-zoom="0.55 * scale" compact bare
-                       :fit-to="rowMaxPx || null" @measured="onMeasured" />
+          <!-- 點機櫃圖本身也到機櫃頁（使用者 2026-10-08：除了點標題外，點機櫃本身也要可以去）；
+               設備自己的點擊（到設備頁）會 stopPropagation，不受影響 -->
+          <div class="dr-diagram" role="link" tabindex="0" :title="t('dashboard.racks_open', { name: d.name })"
+               data-testid="dash-rack-diagram" @click="openRack(d.rack_id)" @keydown.enter="openRack(d.rack_id)">
+            <RackDiagram :diagram="d" :show-legend="false" :controls="false" :shared-zoom="0.55 * scale" compact bare
+                         :fit-to="rowMaxPx || null" @measured="onMeasured" />
+          </div>
         </div>
       </div>
       <div class="dr-foot">
@@ -208,6 +213,9 @@ const rackOptions = computed(() => props.racks.map((r) => ({
 .dr-row { display: flex; flex-wrap: nowrap; gap: 18px; align-items: stretch; overflow-x: auto; padding: 0 2px 8px; }
 .dr-rack { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; }
 .dr-rack > :last-child { margin-top: auto; }
+.dr-diagram { cursor: pointer; border-radius: 6px; transition: box-shadow .12s ease; }
+.dr-diagram:hover { box-shadow: 0 0 0 2px rgba(24, 160, 88, .35); }
+.dr-diagram:focus-visible { outline: 2px solid #18a058; outline-offset: 2px; }
 .dr-name { font-weight: 600; font-size: 13px; margin-bottom: 6px; cursor: pointer;
            color: var(--primary-color, #18a058); white-space: nowrap; }
 .dr-name:hover { text-decoration: underline; }

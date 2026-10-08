@@ -3,9 +3,10 @@
  * 通用表格匯出按鈕：丟進任何 n-data-table 的 columns 與資料即可。
  * 支援 CSV / Markdown / PDF / ODS / ODT，全部前端產生、零相依。
  */
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { NButton, NDropdown, NIcon, useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { ExportIcon } from "@/icons";
 import { columnsForExport, exportTable, type ExportColumn, type ExportFormat } from "@/utils/tableExport";
 
@@ -27,7 +28,8 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const msg = useMessage();
-const loading = ref(false);
+// 抓全資料集與產生檔案的整段期間都反灰＋轉圈（使用者 2026-10-08；以前只有抓資料時才有）
+const { exporting: loading, run } = useExportBusy();
 
 const exportCols = computed<ExportColumn[]>(() => {
   // 已是 {key,label} 形狀就直接用，否則當作 DataTable columns 萃取
@@ -48,30 +50,26 @@ const options = computed(() => [
 ]);
 
 async function onSelect(key: ExportFormat) {
-  if (loading.value) return;
   try {
-    let data = props.rows;
-    if (props.fetchAll) {
-      loading.value = true;
-      data = await props.fetchAll();   // 抓全資料集（remote 分頁）
-    }
-    if (!data.length) {
-      msg.warning(t("export.empty"));
-      return;
-    }
-    exportTable(key, props.filename, exportCols.value, data, props.title);
-    if (key === "pdf") msg.info(t("export.pdf_hint"));
+    await run(async () => {
+      let data = props.rows;
+      if (props.fetchAll) data = await props.fetchAll();   // 抓全資料集（remote 分頁）
+      if (!data.length) {
+        msg.warning(t("export.empty"));
+        return;
+      }
+      exportTable(key, props.filename, exportCols.value, data, props.title);
+      if (key === "pdf") msg.info(t("export.pdf_hint"));
+    });
   } catch (e: any) {
     msg.error(e?.message === "popup blocked" ? t("export.popup_blocked") : t("export.failed"));
-  } finally {
-    loading.value = false;
   }
 }
 </script>
 
 <template>
   <n-dropdown trigger="click" :options="options" :disabled="loading" @select="onSelect">
-    <n-button :size="size" :loading="loading">
+    <n-button :size="size" :loading="loading" :disabled="loading">
       <template #icon><n-icon><ExportIcon /></n-icon></template>
       {{ t("export.label") }}
     </n-button>

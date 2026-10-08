@@ -103,6 +103,7 @@ class GaiaMock(MockServer):
         self.outputs: dict[str, str] = {"ip -s neigh": NEIGH, "dhcpd.leases": "JTIPAM_SIZE 1234\n" + LEASES,
                                         "echo jt-ipam": "jt-ipam\n"}
         self.pending_polls = 1                  # show-task 先回幾次 in progress
+        self.dhcp: dict[str, Any] = DHCP         # show-dhcp-server 的回應（測試可換成伺服器關閉）
         for cmd in ("login", "logout", "show-api-versions", "show-dhcp-server", "run-script", "show-task"):
             self.route("POST", f"/gaia_api/{cmd}", self._handler(cmd))
 
@@ -133,7 +134,7 @@ class GaiaMock(MockServer):
                 return self._json({"current-version": "1.6",
                                    "supported-versions": ["1", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6"]})
             if cmd == "show-dhcp-server":
-                return self._json(DHCP)
+                return self._json(self.dhcp)
             if cmd == "run-script":
                 if self.sessions[sid] == RO_USER:
                     # 實機：HTTP 500，不是 403

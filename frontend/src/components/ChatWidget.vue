@@ -423,9 +423,7 @@ async function removeConversation(id: string) {
               <span class="chat-act-label">{{ t("chat.reset") }}</span>
             </n-button>
           </div>
-          <n-button quaternary circle size="small" :title="t('common.cancel')" @click="open = false">
-            <template #icon><n-icon :size="18"><CancelIcon /></n-icon></template>
-          </n-button>
+          <!-- 放大／縮小在前、關閉固定在最右邊（使用者 2026-10-08） -->
           <n-button quaternary circle size="small" class="chat-expand-btn"
                     :title="expanded ? t('chat.collapse') : t('chat.expand')"
                     @click="expanded = !expanded">
@@ -435,6 +433,9 @@ async function removeConversation(id: string) {
                 <ExpandIcon v-else />
               </n-icon>
             </template>
+          </n-button>
+          <n-button quaternary circle size="small" :title="t('common.close')" data-testid="chat-close" @click="open = false">
+            <template #icon><n-icon :size="18"><CancelIcon /></n-icon></template>
           </n-button>
         </div>
       </n-space>

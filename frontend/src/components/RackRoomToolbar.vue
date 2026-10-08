@@ -15,6 +15,8 @@ defineProps<{
   zoom: number;
   hasRear: boolean;
   exportOptions: DropdownOption[];
+  /** 匯出處理中：按鈕反灰＋轉圈 */
+  exporting?: boolean;
 }>();
 const emit = defineEmits<{
   (e: "update:face", v: "front" | "rear"): void;
@@ -42,8 +44,8 @@ const { t } = useI18n();
                 @update:value="(v: number) => emit('update:zoom', v)" />
       <span class="zoom-ctl__val">{{ Math.round(zoom * 100) }}%</span>
     </span>
-    <n-dropdown trigger="click" :options="exportOptions" @select="(k: string) => emit('export', k)">
-      <n-button size="tiny">
+    <n-dropdown trigger="click" :options="exportOptions" :disabled="exporting" @select="(k: string) => emit('export', k)">
+      <n-button size="tiny" :loading="exporting" :disabled="exporting">
         <template #icon><n-icon><ExportIcon /></n-icon></template>
         {{ t("common.export") }}
       </n-button>

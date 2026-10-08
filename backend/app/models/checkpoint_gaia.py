@@ -6,8 +6,9 @@
 - 一筆＝一台閘道的 Gaia 連線，掛在某台管理伺服器底下。`gateway_uid` 對到第一階段同步回來的閘道
   （只是對照，不是外鍵：管理伺服器那邊閘道清單暫時讀不到時，這裡的帳密不能跟著被刪）
 - 唯讀（`sync_dhcp`，預設開）：`show-dhcp-server` → 發放範圍與發給用戶端的閘道/DNS
-- 選用（`allow_scripts`，預設關）：Gaia API 沒有讀 ARP 或租約的指令，只能用 `run-script` 跑
-  **寫死的**讀表／讀檔指令。那需要能執行指令的帳號（不是唯讀角色），所以要管理員明確打開
+- `allow_scripts`（預設開，0196 起；使用者 10-08「抓 dhcp 跟 arp 直接實作，抓不到沒關係」）：Gaia API
+  沒有讀 ARP 或租約的指令，只能用 `run-script` 跑**寫死的**讀表／讀檔指令。那需要能執行指令的帳號；
+  唯讀角色會被拒，同步時記成略過（不算失敗），DHCP 設定照常
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ class CheckPointGaiaTarget(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     sync_dhcp: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # 允許執行寫死的讀取指令（ARP 表、租約檔）；要能執行指令的帳號
-    allow_scripts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    allow_scripts: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sync_arp: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sync_leases: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # 空＝沿用管理伺服器的限定子網路範圍

@@ -1,7 +1,7 @@
 """Check Point 第二階段 endpoints（admin only）：閘道的 Gaia API 連線設定、測試、手動同步、DHCP 子網路鏡像。
 
 一筆＝一台閘道，掛在某台管理伺服器（第一階段）底下。唯讀讀 DHCP 設定；
-ARP 表與租約要打開 `allow_scripts`（需要能執行指令的帳號，見 services/checkpoint_gaia.py）。
+ARP 表與租約靠 `allow_scripts`（預設開；帳號不能執行指令時同步記成略過，見 services/checkpoint_gaia.py）。
 """
 
 from __future__ import annotations

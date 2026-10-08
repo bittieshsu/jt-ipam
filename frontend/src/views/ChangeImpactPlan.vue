@@ -29,8 +29,8 @@
               </template>
               {{ t("change_impact.reopen_confirm") }}
             </n-popconfirm>
-            <n-dropdown v-if="run && isDone" :options="exportOptions" @select="doExport">
-              <n-button size="small" data-testid="cip-export"><template #icon><n-icon><DownloadIcon /></n-icon></template>{{ t("change_impact.export") }}</n-button>
+            <n-dropdown v-if="run && isDone" :options="exportOptions" :disabled="exporting" @select="(k: string) => runExport(() => doExport(k))">
+              <n-button size="small" :loading="exporting" :disabled="exporting" data-testid="cip-export"><template #icon><n-icon><DownloadIcon /></n-icon></template>{{ t("change_impact.export") }}</n-button>
             </n-dropdown>
             <n-button v-if="plan.can_edit && editable" type="primary" size="small" @click="openEdit">
               <template #icon><n-icon><EditIcon /></n-icon></template>{{ t("common.edit") }}
@@ -440,6 +440,7 @@ import {
   type Report, type ReportSection, type ReportTone, type Sheet,
 } from "@/utils/reportExport";
 import { renderReportPdf } from "@/api/reports";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { fmtDateTime } from "@/utils/datetime";
 import {
   decisionType, dispositionType, gapAffected, gapText, lifecycleType, reasonText, severityType, taskTitle,
@@ -933,6 +934,9 @@ function buildSheets(): Sheet[] {
                                        e.collected_at ? fmtDateTime(e.collected_at) : ""]) },
   ];
 }
+
+// 選了格式到檔案存好之前：按鈕反灰＋轉圈（使用者 2026-10-08）
+const { exporting, run: runExport } = useExportBusy();
 
 async function doExport(fmt: string) {
   if (!run.value || !plan.value) return;

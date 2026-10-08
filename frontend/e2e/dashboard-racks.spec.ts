@@ -69,6 +69,12 @@ test("選機房 → 那一間的機櫃都畫出來；改成挑一個機櫃 → �
   await page.reload();
   await expect(page.getByTestId("dash-racks").locator(".dr-rack")).toHaveCount(1, { timeout: 20_000 });
 
+  // 點機櫃圖本身（不只標題）也要到機櫃頁（使用者 2026-10-08）；點左上角的框架，避開設備（設備另外連到設備頁）
+  await page.getByTestId("dash-rack-diagram").first().click({ position: { x: 3, y: 3 } });
+  await expect(page).toHaveURL(/\/racks\?rack=[0-9a-f-]+/, { timeout: 15_000 });
+  await page.goto("/");
+  await expect(page.getByTestId("dash-racks").locator(".dr-rack")).toHaveCount(1, { timeout: 20_000 });
+
   // 還原：不要影響其他 spec 的儀表板
   await openSettings(page);
   await page.getByText("一個機房的全部機櫃").click();

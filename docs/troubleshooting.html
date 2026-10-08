@@ -802,6 +802,19 @@ sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart jt-ipam-backend</
           <span class="ja">Windows Server のファイアウォールは既定で WinRM HTTP 5985 のみ開いています。HTTPS 5986 には証明書付きリスナーとファイアウォール規則が別途必要で、証明書は自己署名であることがほとんどです。DNS サーバーの設定で「WinRM 接続」を HTTP（5985）にしてください（内容と資格情報は常に NTLM で暗号化され、暗号化できなければ平文には戻さず接続に失敗します）。自己署名証明書で HTTPS 5986 を使う場合は「TLS 証明書を検証」をオフにするか、発行元 CA を jt-ipam ホストにインポートしてください。アカウントには WinRM の利用権限（Remote Management Users または管理者）と DNS の管理権限（DnsAdmins）が必要です。</span>
         </p>
       </article>
+
+      <article class="qa" id="qa-ai-chat-network-error">
+        <h3>
+          <span class="zh">AI 對話跑了很久，最後只顯示網路錯誤，沒有答案</span>
+          <span class="en">AI chat runs for a long time, then shows a network error instead of an answer</span>
+          <span class="ja">AI チャットが長時間動いたあと、回答ではなくネットワークエラーが表示される</span>
+        </h3>
+        <p>
+          <span class="zh">模型查工具、整理答案的空檔可能幾十秒沒有送出任何資料，反向代理的讀取逾時（本產品的 nginx 設定是 30 秒）一到就把連線切斷，後端其實還在算。1.0.4 起 AI 對話、IP 調查判讀與路徑追蹤在等待時每 10 秒送一則保活訊息，代理不會再因為等太久而切斷，升級即可，不必改逾時設定。jt-ipam 前面若還有自己的反向代理，請不要緩衝這些回應（nginx 用 <code>proxy_buffering off</code>，或保留上游送的 <code>X-Accel-Buffering: no</code>），否則進度會等到最後才一次出現。等了很久之後顯示的是「LLM 伺服器沒有在時限內回覆」而不是網路錯誤，則是模型本身太慢：到「管理 → LLM / AI」調高逾時，或換較小的模型。</span>
+          <span class="en">While the model looks things up and writes the answer, the stream can send nothing for tens of seconds, and the reverse proxy's read timeout (30 seconds in the bundled nginx configuration) cuts the connection while the backend is still working. From 1.0.4 the AI chat, IP investigation narrative and traceroute send a keepalive every 10 seconds while waiting, so proxies no longer cut them off; upgrading is enough and no timeout needs to change. If you run your own reverse proxy in front of jt-ipam, do not buffer these responses (nginx: <code>proxy_buffering off</code>, or honour the upstream <code>X-Accel-Buffering: no</code>), otherwise the progress only appears at the end. If the message after a long wait is "The LLM server did not answer in time" rather than a network error, the model itself is too slow: raise the timeout under Admin → LLM / AI, or choose a smaller model.</span>
+          <span class="ja">モデルがツールを調べて回答をまとめている間、数十秒間何も送られないことがあり、リバースプロキシの読み取りタイムアウト（同梱の nginx 設定では 30 秒）で接続が切られます。バックエンドはまだ処理を続けています。1.0.4 から AI チャット、IP 調査の解説、経路追跡は待機中に 10 秒ごとにキープアライブを送るため、プロキシに切られなくなりました。アップグレードするだけでよく、タイムアウトの変更は不要です。jt-ipam の前に独自のリバースプロキシがある場合は、これらの応答をバッファリングしないでください（nginx なら <code>proxy_buffering off</code>、または上流の <code>X-Accel-Buffering: no</code> に従う設定）。そうしないと進捗が最後にまとめて表示されます。長く待ったあとに出るのがネットワークエラーではなく「LLM サーバーが時間内に応答しませんでした」なら、モデル自体が遅すぎます。「管理 → LLM / AI」でタイムアウトを延ばすか、より小さいモデルを選んでください。</span>
+        </p>
+      </article>
     </section>
 
     <!-- ══════════════ 遠端主控台 ══════════════ -->

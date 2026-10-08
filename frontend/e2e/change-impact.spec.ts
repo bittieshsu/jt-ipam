@@ -103,6 +103,9 @@ test("從 IP 頁評估改址：看到引用、證據、缺口與模板待辦，�
     return { x: p.x, y: p.y };
   });
   const cbox = (await canvas.boundingBox())!;
+  // 圖不可以比畫面高（2026-10-08 發版 e2e 抓到：分頁切換中量高度量到 1720px，評估目標跑到畫面外點不到）
+  expect(cbox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  expect(rootPos.y).toBeLessThan(cbox.height);
   await page.mouse.click(cbox.x + rootPos.x, cbox.y + rootPos.y);
   await expect(page.getByTestId("cip-graph-picked")).toContainText("評估目標");
   await expect(page.getByTestId("cip-graph-rel-group").first()).toBeVisible();
@@ -116,6 +119,21 @@ test("從 IP 頁評估改址：看到引用、證據、缺口與模板待辦，�
   await page.getByTestId("cip-export").hover();
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByText("Markdown", { exact: true }).click()]);
   expect(dl.suggestedFilename()).toMatch(/\.md$/);
+  // 選了格式、檔案還在產生時：按鈕反灰＋轉圈，存好才恢復（使用者 2026-10-08）。PDF 走後端，先把回應扣住才看得到
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  await page.route("**/api/v1/reports/pdf", async (route) => { await held; await route.continue(); });
+  const exportBtn = page.getByTestId("cip-export");
+  await exportBtn.hover();
+  const pdfDl = page.waitForEvent("download");
+  await page.getByText("PDF", { exact: true }).click();
+  await expect(exportBtn).toBeDisabled();
+  await expect(exportBtn.locator(".n-base-loading")).toBeVisible();
+  release();
+  expect((await pdfDl).suggestedFilename()).toMatch(/\.pdf$/);
+  await expect(exportBtn).toBeEnabled();
+  await expect(exportBtn.locator(".n-base-loading")).toHaveCount(0);
+  await page.unroute("**/api/v1/reports/pdf");
   // 送審 → 覆核：沒填處置與理由就送不出去
   // 送審先跳確認視窗、列出會通知誰；按確認才真的送出
   await page.getByTestId("cip-act-submit").click();

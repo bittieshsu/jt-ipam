@@ -20,7 +20,7 @@ import {
   type GaiaDhcpSubnet, type GaiaTarget, type GaiaTargetWrite,
 } from "@/api/checkpointGaia";
 import {
-  CancelIcon, DeleteIcon, EditIcon, ListIcon, PlusIcon, SaveIcon, SyncIcon, TestIcon, WarnIcon,
+  CancelIcon, DeleteIcon, EditIcon, InfoIcon, ListIcon, PlusIcon, SaveIcon, SyncIcon, TestIcon, WarnIcon,
 } from "@/icons";
 
 const props = defineProps<{
@@ -71,11 +71,30 @@ function iconAction(icon: any, label: string, onClick: () => void, type?: any, t
 function gaiaTag(tg: GaiaTarget | null) {
   if (!tg) return h(NTag, { size: "small", bordered: false }, () => t("checkpoint.gaia_none"));
   if (!tg.enabled) return h(NTag, { size: "small", bordered: false }, () => t("common.disabled"));
-  const tag = h(NTag, { size: "small", type: tg.allow_scripts ? "warning" : "info", bordered: false },
-    () => tg.allow_scripts ? t("checkpoint.gaia_with_scripts") : t("checkpoint.gaia_read_only"));
-  if (!tg.last_error) return tag;
+  // 標籤照實際能做到的：開了讀取指令、但帳號沒權限執行，實際上就是唯讀
+  const sk = tg.last_summary?.skipped ?? {};
+  const scripts = tg.allow_scripts && sk.arp !== "no_permission" && sk.leases !== "no_permission";
+  const tag = h(NTag, { size: "small", type: scripts ? "warning" : "info", bordered: false },
+    () => scripts ? t("checkpoint.gaia_with_scripts") : t("checkpoint.gaia_read_only"));
+  // 略過的原因放在標籤旁邊（摘要欄在窄螢幕要橫向捲動才看得到）
+  const skippedText = skippedParts(tg).join("；");
+  if (!tg.last_error && !skippedText) return tag;
   return h(NSpace, { size: 4, wrapItem: false, align: "center" }, () => [tag,
-    h(NTooltip, null, { trigger: () => h(NIcon, { color: "#d03050" }, () => h(WarnIcon)), default: () => tg.last_error })]);
+    skippedText ? h(NTooltip, null, {
+      trigger: () => h(NIcon, { depth: 3, "data-testid": "cpg-skipped" }, () => h(InfoIcon)), default: () => skippedText }) : null,
+    tg.last_error ? h(NTooltip, null, {
+      trigger: () => h(NIcon, { color: "#d03050" }, () => h(WarnIcon)), default: () => tg.last_error }) : null]);
+}
+
+/** 略過的項目：同一個原因合併成一句（沒權限時 ARP 與租約一起略過） */
+function skippedParts(tg: GaiaTarget | null): string[] {
+  const byReason = new Map<string, string[]>();
+  for (const [what, why] of Object.entries(tg?.last_summary?.skipped ?? {})) {
+    if (!why) continue;
+    byReason.set(why, [...(byReason.get(why) ?? []), t(`checkpoint.gaia_sync_${what}`)]);
+  }
+  return [...byReason].map(([why, what]) =>
+    t("checkpoint.gaia_skipped", { what: what.join(t("checkpoint.gaia_and")), why: t(`checkpoint.gaia_skip_${why}`) }));
 }
 
 function summaryText(tg: GaiaTarget | null): string {
@@ -87,6 +106,7 @@ function summaryText(tg: GaiaTarget | null): string {
   if (s.pools != null) parts.push(t("checkpoint.gaia_n_pools", { n: s.pools }));
   if (s.arp_rows != null) parts.push(t("checkpoint.gaia_n_arp", { n: s.arp_rows }));
   if (s.leases != null) parts.push(t("checkpoint.gaia_n_leases", { n: s.leases }));
+  parts.push(...skippedParts(tg));
   return parts.join(" · ") || "—";
 }
 
@@ -125,7 +145,7 @@ function blank(gw: CheckPointGateway | null) {
   const addr = gw?.ipv4_address;
   return {
     name: gw?.name ?? "", gaia_url: addr ? `https://${addr}/gaia_api` : "", username: "", secret: "",
-    verify_tls: true, enabled: true, sync_interval_seconds: 300, sync_dhcp: true, allow_scripts: false,
+    verify_tls: true, enabled: true, sync_interval_seconds: 300, sync_dhcp: true, allow_scripts: true,
     sync_arp: true, sync_leases: true, scope_subnet_ids: [] as string[], description: "",
   };
 }
@@ -265,7 +285,7 @@ const dhcpCols = computed<DataTableColumns<GaiaDhcpSubnet>>(() => [
             <n-checkbox v-model:checked="form.allow_scripts" data-testid="cpg-allow-scripts">
               {{ t("checkpoint.gaia_allow_scripts") }}
             </n-checkbox>
-            <n-alert v-if="form.allow_scripts" type="warning" :bordered="false" :show-icon="true">
+            <n-alert v-if="form.allow_scripts" type="info" :bordered="false" :show-icon="true">
               {{ t("checkpoint.gaia_scripts_warning") }}
             </n-alert>
             <n-space :size="20" style="padding-left: 24px">

@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
+from app.core import sse
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.services.investigate import collect_dossier
@@ -210,12 +211,18 @@ async def narrative_stream(
         task = asyncio.create_task(interpret_chat(
             session, prompt, timeout=NARRATIVE_TIMEOUT,
             max_output_tokens=NARRATIVE_MAX_TOKENS, no_thinking=True, on_chunk=on_chunk))
+        last_sent = time.monotonic()
         try:
             while not task.done() or queue:
                 while queue:
                     yield f"data: {queue.pop(0)}\n\n"
+                    last_sent = time.monotonic()
                 if task.done():
                     break
+                if time.monotonic() - last_sent >= sse.KEEPALIVE_SECONDS:
+                    # 模型還在讀資料、沒吐出第一個字：送保活，免得反向代理逾時切斷
+                    yield sse.KEEPALIVE
+                    last_sent = time.monotonic()
                 await asyncio.sleep(0.15)
             text, model = await task
             yield ("data: " + _json.dumps(

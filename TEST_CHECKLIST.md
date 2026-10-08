@@ -552,6 +552,8 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
     its own, so they looked the same height); a 2×2 KALLAX stays square in the thumbnail, not squeezed narrower
   - the "Size" slider in its settings (50% to 300%): enlarging scales the whole row with proportions intact; it survives
     a reload and another browser (stored with the account)
+- [ ] Dashboard racks card: clicking the rack drawing itself (frame, empty space) opens that rack (`/racks?rack=`); a device
+  opens the device page; Tab to a rack drawing and press Enter works too
 - [ ] **MAC on the probe page**: the summary has a "MAC" row; a normal NIC shows MAC (vendor), a random MAC such as an
   iPhone's shows the "Random (private) address" tag (with an explanation on hover)
 - [ ] **Probe cancel** (`tests/test_ip_identify.py`): "Cancel probe" while running → failed with "This probe was cancelled",
@@ -867,6 +869,17 @@ what a console is allowed to do.
   row under that setting; at phone width the row stacks
 - [ ] Overlays sit above the AI assistant button: a confirmation / dropdown that opens in the bottom-right
   corner can be clicked where it overlaps the button (`frontend/e2e/chat-fab-overlays.spec.ts`)
+- [ ] AI chat window top right: action buttons, expand/collapse, then close (close is rightmost, tooltip "Close")
+- [ ] **Full-height graphs never exceed the window** (`frontend/src/composables/__tests__/usePageFill.test.ts`, `frontend/e2e/change-impact.spec.ts`): on a 720 px tall window, open an IP change assessment, scroll down to the evidence, then switch to the relation graph tab; the graph fits the window and the assessed IP is visible and clickable. Same for IP topology
+- [ ] **Export buttons show they are working** (`frontend/src/composables/__tests__/useExportBusy.test.ts`,
+  `frontend/e2e/change-impact.spec.ts`): after picking a format, the export button greys out with a spinner until the file
+  is saved, and picking again meanwhile does nothing; covers IP change assessment (report and relation graph), every table
+  export button, rack diagrams, the rack room toolbar, IP topology and cable trace
+- [ ] **Long AI answers survive the reverse proxy** (`tests/test_sse_keepalive.py`): on a site behind the bundled nginx
+  (30-second read timeout), ask the AI chat something that takes several tool rounds and well over 30 seconds; the
+  answer arrives instead of a network error. The response carries `: keepalive` lines every 10 seconds while the model
+  is silent (DevTools → Network → the `chat/stream` request). Same for the IP investigation narrative and traceroute.
+  Closing the chat mid-answer stops the model calls (no further LLM requests in the backend log)
 - [ ] The Required components card stays readable with a long guacd version string (`… for Ubuntu
   24.04 LTS (amd64)`): the name column is not squeezed, the status is on the right, the version (without
   the OS suffix) is under the name, at desktop and phone widths (`frontend/e2e/version-required-deps.spec.ts`)
@@ -993,22 +1006,28 @@ HTTP forces NTLM message encryption, default port follows the scheme, the untrus
 
 ## 7b3d. Check Point gateways (Gaia API, phase 2): **Beta; whenever the Gaia part, shared DHCP/lease writes, liveness evidence or the DHCP part of IP change assessment change**
 
-Automated: `backend/tests/test_checkpoint_gaia.py` (mock Gaia API: read-only login/logout, `run-script` never called unless
-"allow read commands" is on, only the fixed scripts run, DHCP pools minus exclusions and disabled ranges, ARP confirmation
-age and PERMANENT/FAILED handling, lease file last-record rule, a read-only account still gets DHCP and says why commands
-failed, an oversized lease file keeps the previous flags, API CRUD that never returns the password, deleting a gateway or
+Automated: `backend/tests/test_checkpoint_gaia.py` (mock Gaia API: read-only login/logout, ARP and leases read by default,
+`run-script` never called when "read the ARP table and DHCP leases" is off, only the fixed scripts run, DHCP pools minus
+exclusions and disabled ranges, ARP confirmation age and PERMANENT/FAILED handling, lease file last-record rule, a read-only
+account gets DHCP and records ARP / leases as skipped (no_permission, one refused call, no `last_error`), a missing lease
+file is skipped and keeps the flags, the DHCP server off skips the lease file and clears old leases, no `run-script` on old
+Gaia is skipped, an oversized lease file keeps the previous flags, API CRUD that never returns the password, deleting a gateway or
 the management server takes back pools and lease flags, IP change assessment sees the default gateway handed out by DHCP,
 admin-only).
 
 - [ ] Gateways tab: each gateway from the management server has "Set up Gaia connection"; the URL is prefilled with
   `https://<gateway>/gaia_api`; "Add gateway manually" works for a gateway not in the list
-- [ ] Read-only account (Gaia role with read-only features): test connection shows the Gaia API version and DHCP subnet
-  count, "Read commands: not enabled"; sync writes the DHCP pools (exclusions removed) and the "DHCP subnets" dialog shows
-  default gateway and DNS
-- [ ] Turn on "Allow fixed read commands": the warning explains the account needs more than read-only rights; with the
-  read-only account the test says the account lacks permission and DHCP still syncs; with an account that may run commands
-  the ARP table marks addresses (`arp:checkpoint` on the IP's evidence, time close to the neighbour's last confirmation),
-  and active leases set the DHCP lease flag, MAC and host name
+- [ ] New Gaia connection: "Read the ARP table and DHCP leases" is ticked by default and the note says a read-only account
+  just skips them; upgrading from 1.0.3 turns it on for existing connections (migration 0196)
+- [ ] Read-only account (Gaia role with read-only features; `frontend/e2e/checkpoint.spec.ts` with `E2E_CPG_URL` /
+  `E2E_CPG_USER` / `E2E_CPG_PASS`): test connection shows the Gaia API version, DHCP subnet count and "account lacks
+  permission (ARP and leases will be skipped)" with no warning toast; sync writes the DHCP pools (exclusions removed), the
+  row shows "Read only" with an info icon whose tooltip gives the skip reason, no red error icon, no health alert; the
+  "DHCP subnets" dialog shows default gateway and DNS
+- [ ] Gateway whose DHCP server is off: leases are shown as skipped ("the DHCP server is not enabled") and old lease flags
+  from this gateway are cleared
+- [ ] Account that may run commands: the ARP table marks addresses (`arp:checkpoint` on the IP's evidence, time close to the
+  neighbour's last confirmation), and active leases set the DHCP lease flag, MAC and host name
 - [ ] The gateway's DHCP server lease file larger than the limit: sync reports it and keeps the previous lease flags
 - [ ] Liveness settings list "ARP table (Check Point)" and "DHCP lease (Check Point)" only when a Gaia connection exists
 - [ ] Deleting the Gaia connection (or the whole management server) takes back its pools, lease flags and host names;

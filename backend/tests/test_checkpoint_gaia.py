@@ -128,11 +128,22 @@ def test_only_fixed_scripts_can_run() -> None:
 
 # ─────────────────── 同步 ───────────────────
 
-async def test_read_only_sync_reads_dhcp_and_never_runs_scripts(db_session, gaia) -> None:
+async def test_arp_and_leases_are_read_by_default() -> None:
+    """使用者 2026-10-08：「抓 dhcp 跟 arp 直接實作，抓不到沒關係，給客戶測」—— 預設就讀，沒權限再略過。"""
+    from app.models.checkpoint_gaia import CheckPointGaiaTarget
+    from app.schemas.checkpoint_gaia import GaiaTargetCreate
+    col = CheckPointGaiaTarget.__table__.c
+    assert col.allow_scripts.default.arg is True and col.sync_arp.default.arg is True
+    assert col.sync_leases.default.arg is True
+    body = GaiaTargetCreate(name="gw", gaia_url="https://192.0.2.1/gaia_api", username="u", secret="p")
+    assert body.allow_scripts is True and body.sync_arp is True and body.sync_leases is True
+
+
+async def test_scripts_off_reads_dhcp_and_never_runs_scripts(db_session, gaia) -> None:
     from app.models.checkpoint_gaia import CheckPointDhcpSubnet
     await _net(db_session)
-    t = await _target(db_session, gaia)
-    assert t.allow_scripts is False and t.sync_dhcp is True, "預設：只做唯讀的部分"
+    t = await _target(db_session, gaia, allow_scripts=False)
+    assert t.sync_dhcp is True
     summary = await cpg.sync_target(db_session, t)
     await db_session.commit()
     assert "errors" not in summary, summary
@@ -188,15 +199,18 @@ async def test_plain_text_script_output_also_works(db_session, gaia) -> None:
     assert "arp:checkpoint" in (ips["10"].arp_seen or {})
 
 
-async def test_a_read_only_account_still_gets_dhcp_and_says_why_scripts_failed(db_session, gaia) -> None:
+async def test_a_read_only_account_gets_dhcp_and_skips_arp_and_leases_quietly(db_session, gaia) -> None:
+    """唯讀帳號不能執行指令：DHCP 設定照讀，ARP 與租約記成「略過（沒有權限）」，不算同步失敗、不發告警。"""
     await _net(db_session)
     t = await _target(db_session, gaia, user=RO_USER, allow_scripts=True)
     summary = await cpg.sync_target(db_session, t)
     await db_session.commit()
     assert summary["pools"] == 2
-    assert set(summary["errors"]) == {"arp", "leases"}
+    assert "errors" not in summary, summary
+    assert summary["skipped"] == {"arp": "no_permission", "leases": "no_permission"}
+    assert len(gaia.hits("POST", "/gaia_api/run-script")) == 1, "第一個指令被拒就不再試第二個"
     await db_session.refresh(t)
-    assert t.last_error and "arp" in t.last_error
+    assert t.last_error is None and t.last_sync_at is not None
 
 
 async def test_oversized_lease_file_keeps_the_previous_lease_flags(db_session, gaia) -> None:
@@ -226,7 +240,8 @@ async def test_an_empty_lease_file_is_authoritative(db_session, gaia) -> None:
     assert ips["10"].in_dhcp_lease is False
 
 
-async def test_missing_lease_file_is_an_error_not_an_empty_list(db_session, gaia) -> None:
+async def test_missing_lease_file_is_skipped_and_keeps_the_previous_flags(db_session, gaia) -> None:
+    """閘道上沒有租約檔（版本或部署方式不同）：略過、不算錯，但也不能當成「沒有租約」把舊標記清掉。"""
     ips = await _net(db_session)
     t = await _target(db_session, gaia, allow_scripts=True)
     await cpg.sync_target(db_session, t)
@@ -234,9 +249,41 @@ async def test_missing_lease_file_is_an_error_not_an_empty_list(db_session, gaia
     gaia.outputs["dhcpd.leases"] = "JTIPAM_SIZE -1\n"
     summary = await cpg.sync_target(db_session, t)
     await db_session.commit()
-    assert "leases" in summary["errors"]
+    assert "errors" not in summary, summary
+    assert summary["skipped"] == {"leases": "no_lease_file"}
     await db_session.refresh(ips["10"])
     assert ips["10"].in_dhcp_lease is True, "讀不到檔案不等於沒有租約"
+    await db_session.refresh(t)
+    assert t.last_error is None
+
+
+async def test_dhcp_server_off_skips_the_lease_file_and_clears_old_leases(db_session, gaia) -> None:
+    """閘道的 DHCP 伺服器整個關掉：沒有人在發位址，租約檔裡沒到期的舊紀錄也不能當上線證據。"""
+    from tests.checkpoint_gaia_mock import DHCP
+    ips = await _net(db_session)
+    t = await _target(db_session, gaia, allow_scripts=True)
+    await cpg.sync_target(db_session, t)
+    await db_session.commit()
+    await db_session.refresh(ips["10"])
+    assert ips["10"].in_dhcp_lease is True
+    gaia.dhcp = {**DHCP, "enabled": False}
+    summary = await cpg.sync_target(db_session, t)
+    await db_session.commit()
+    assert "errors" not in summary, summary
+    assert summary["skipped"] == {"leases": "dhcp_off"}
+    assert cpg.SCRIPTS["leases"] not in gaia.scripts[2:], "伺服器關著就不讀租約檔"
+    await db_session.refresh(ips["10"])
+    assert ips["10"].in_dhcp_lease is False
+
+
+async def test_run_script_missing_on_old_gaia_is_skipped(db_session, gaia) -> None:
+    await _net(db_session)
+    t = await _target(db_session, gaia, allow_scripts=True)
+    gaia.fail["run-script"] = (404, {"code": "generic_err_command_not_found", "message": "Command not found"})
+    summary = await cpg.sync_target(db_session, t)
+    await db_session.commit()
+    assert "errors" not in summary, summary
+    assert summary["skipped"] == {"arp": "unsupported", "leases": "unsupported"}
 
 
 async def test_wrong_password_is_a_clear_error_without_the_password(db_session, gaia) -> None:
@@ -250,7 +297,7 @@ async def test_wrong_password_is_a_clear_error_without_the_password(db_session, 
 
 
 async def test_diagnose_reports_version_dhcp_and_script_permission(db_session, gaia) -> None:
-    t = await _target(db_session, gaia)
+    t = await _target(db_session, gaia, allow_scripts=False)
     out = await cpg.diagnose(t)
     assert out["version"] == "1.6" and out["dhcp_subnets"] == 2
     assert out["scripts"] == "not_enabled"
@@ -259,7 +306,10 @@ async def test_diagnose_reports_version_dhcp_and_script_permission(db_session, g
     assert (await cpg.diagnose(t))["scripts"] == "ok"
     ro = await _target(db_session, gaia, user=RO_USER, allow_scripts=True)
     out = await cpg.diagnose(ro)
-    assert out["scripts"] == "denied"
+    # 沒權限只是「ARP 與租約會略過」，不是連線測試失敗
+    assert out["scripts"] == "denied" and "errors" not in out, out
+    gaia.fail["run-script"] = (404, {"code": "generic_err_command_not_found", "message": "Command not found"})
+    assert (await cpg.diagnose(t))["scripts"] == "unsupported"
 
 
 # ─────────────────── API／刪除／評估 ───────────────────

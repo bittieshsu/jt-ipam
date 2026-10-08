@@ -20,6 +20,7 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin
+from app.core import sse
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import check_rate_limit
@@ -400,7 +401,10 @@ async def net_traceroute_stream(
 
     async def gen() -> Any:
         try:
-            async for ev in netdiag.traceroute_stream(target, max_hops=payload.max_hops):
+            async for ev in sse.with_keepalive(netdiag.traceroute_stream(target, max_hops=payload.max_hops)):
+                if ev is None:      # 連續幾個沒回應的躍點：送保活，免得反向代理逾時切斷
+                    yield sse.KEEPALIVE
+                    continue
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
         except netdiag.NetDiagError as exc:          # 含 NetDiagUnavailable
             yield f"data: {json.dumps(_trace_error_event(exc, admin=admin), ensure_ascii=False)}\n\n"

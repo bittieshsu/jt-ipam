@@ -6,6 +6,18 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-08
+
+### Changed
+- Check Point gateways (Gaia API): the ARP table and DHCP leases are now read by default. When the account may not run commands (a read-only Gaia role), the Gaia API has no `run-script`, the gateway has no lease file, or the gateway's DHCP server is off, those parts are marked as skipped with the reason (an info icon next to the gateway's tag) instead of failing the sync or raising an alert; the DHCP settings still sync. A gateway whose DHCP server is off no longer has its leftover leases counted as live. Upgrading turns this on for connections made with 1.0.3 (migration 0196); untick "Read the ARP table and DHCP leases" in the Gaia settings to stop it.
+- Export buttons now grey out and show a spinner from picking a format until the file is saved, and ignore a second pick meanwhile: IP change assessment (report and relation graph), every table export button, rack diagrams, the rack room toolbar, IP topology and cable trace.
+- Dashboard racks card: clicking the rack drawing itself (not only its title) opens that rack; devices inside still open the device page.
+- AI chat window: the expand/collapse button now sits before the close button, which stays rightmost; the close button's tooltip says "Close".
+
+### Fixed
+- IP change assessment relation graph and IP topology: the graph could come out taller than the window (about 1,700 px on a 720 px screen) when its height was measured mid tab switch, pushing the assessed IP off screen. A measurement taken before the layout settles is now discarded, and the height never exceeds the visible area.
+- AI chat that took a while (several tool rounds, a slow model) ended in a network error with no answer: the stream sent nothing while the model was working and the reverse proxy's read timeout (30 seconds in the bundled nginx configuration) cut the connection although the backend was still running. The AI chat, IP investigation narrative and traceroute streams now send a keepalive comment every 10 seconds while waiting; no proxy setting needs to change. Closing the chat while it is still working stops the model calls.
+
 ## [1.0.3] - 2026-10-08
 
 ### Added

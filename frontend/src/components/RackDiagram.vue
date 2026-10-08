@@ -20,6 +20,7 @@ import { exportRacksDrawio, exportRacksPng, exportRacksSvg,
   type ExportDiagram } from "@/utils/rackGraphicsExport";
 import { exportTable, type ExportColumn } from "@/utils/tableExport";
 import { ExportIcon } from "@/icons";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { getRackNameAlign, type RackNameAlign } from "@/api/basic";
 
 // 全域設定：機櫃中裝置名稱靠左/置中/靠右（管理員在系統設定調整）
@@ -304,7 +305,9 @@ function exportData(fmt: "csv" | "xlsx" | "ods" | "md" | "txt") {
     .map((dev: any) => ({ ...dev, slot: slotNotation(dev) }));
   exportTable(fmt, `rack-${d.name}`, cols, rows as any, `Rack ${d.name}`);
 }
-function onExport(key: string) {
+const { exporting, run: runExport } = useExportBusy();
+function onExport(key: string) { void runExport(() => doExport(key)); }
+function doExport(key: string) {
   if (key === "svg") exportSvg();
   else if (key === "png") exportPng();
   else if (key === "drawio") exportDrawio();
@@ -576,8 +579,8 @@ const cells = computed<Cell[]>(() => {
                     :format-tooltip="(v: number) => Math.round(v * 100) + '%'" style="width: 110px" />
           <span class="zoom-ctl__val">{{ Math.round(zoom * 100) }}%</span>
         </span>
-        <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
-          <n-button size="tiny" :title="t('rack_diagram.export_svg_hint')">
+        <n-dropdown trigger="click" :options="exportOptions" :disabled="exporting" @select="onExport">
+          <n-button size="tiny" :loading="exporting" :disabled="exporting" :title="t('rack_diagram.export_svg_hint')">
             <template #icon><n-icon><ExportIcon /></n-icon></template>
             {{ t("common.export") }}
           </n-button>

@@ -23,7 +23,7 @@ class GaiaTargetCreate(StrictModel):
     enabled: bool = True
     sync_interval_seconds: Annotated[int, Field(ge=60, le=86400)] = 300
     sync_dhcp: bool = True
-    allow_scripts: bool = False
+    allow_scripts: bool = True
     sync_arp: bool = True
     sync_leases: bool = True
     scope_subnet_ids: list[uuid.UUID] | None = None

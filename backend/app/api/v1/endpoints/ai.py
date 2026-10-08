@@ -17,6 +17,7 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin
+from app.core import sse
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.rate_limit import limit_per_ip
@@ -223,11 +224,14 @@ async def chat_stream(
     async def event_gen() -> Any:
         iterations = 0
         try:
-            async for ev in ai_service.chat_stream(
+            async for ev in sse.with_keepalive(ai_service.chat_stream(
                 session, user=user, messages=msgs,
                 locale=user_locale, max_iterations=payload.max_iterations,
                 page_context=payload.context.model_dump() if payload.context else None,
-            ):
+            )):
+                if ev is None:      # 模型還在想／查工具：送保活，免得反向代理逾時切斷
+                    yield sse.KEEPALIVE
+                    continue
                 if ev.get("type") == "done":
                     iterations = len(ev.get("trace_messages") or [])
                     conv = await ai_chat_store.save_turn(

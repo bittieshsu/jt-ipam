@@ -30,6 +30,7 @@ import { exportTable, type ExportColumn } from "@/utils/tableExport";
 import { exportRacksSvg, exportRacksPng, exportRacksDrawio, type RackNameAlign } from "@/utils/rackGraphicsExport";
 import { getRackNameAlign } from "@/api/basic";
 import { usePinned } from "@/composables/usePinned";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { useRoute, useRouter } from "vue-router";
 import { apiClient, apiErrMsg } from "@/api/client";
 import RackDiagram from "@/components/RackDiagram.vue";
@@ -763,7 +764,9 @@ const mergedExportOptions = computed(() => [
   { label: "Markdown (.md)", key: "md" },
   { label: t("export.fmt_txt"), key: "txt" },
 ]);
-function onMergedExport(key: string) {
+const { exporting: mergedExporting, run: runMergedExport } = useExportBusy();
+function onMergedExport(key: string) { void runMergedExport(() => doMergedExport(key)); }
+function doMergedExport(key: string) {
   if (["svg", "png", "drawio"].includes(key)) {
     if (!roomDiagrams.value.length) return;
     // 文案（「9 層」「頂」）在這裡翻好再交給匯出器 —— utils 不碰 i18n
@@ -881,7 +884,7 @@ function onMergedExport(key: string) {
           <n-card v-if="mergedView" :title="t('racks.merged_title')">
             <!-- 控制元件放在卡片內文最上方（標題列不放控制元件） -->
             <rack-room-toolbar v-model:face="mergedFace" v-model:zoom="roomZoom" :has-rear="mergedHasRear"
-                               :export-options="mergedExportOptions" @export="onMergedExport" />
+                               :export-options="mergedExportOptions" :exporting="mergedExporting" @export="onMergedExport" />
             <div class="rack-row">
               <div v-for="d in roomDiagrams" :key="d.rack_id" class="merged-rack">
                 <div class="merged-rack__name">
@@ -901,7 +904,7 @@ function onMergedExport(key: string) {
           <!-- 各自一張卡片（預設） -->
           <template v-else>
             <rack-room-toolbar v-model:face="mergedFace" v-model:zoom="roomZoom" :has-rear="mergedHasRear"
-                               :export-options="mergedExportOptions" @export="onMergedExport" />
+                               :export-options="mergedExportOptions" :exporting="mergedExporting" @export="onMergedExport" />
             <div class="rack-row">
               <rack-diagram v-for="d in roomDiagrams" :key="d.rack_id" :diagram="d"
                             :show-legend="false" :editable="isAdmin" :floor-align-to="maxRoomU"

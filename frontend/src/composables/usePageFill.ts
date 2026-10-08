@@ -27,6 +27,19 @@ function visibleHeight(el: HTMLElement): number {
   return Math.min(rect.bottom, window.innerHeight) - top;
 }
 
+/**
+ * 算高度。量不準的時候回 null（呼叫端就不更新，等下一次量）：
+ * - 還沒排版（分頁藏著、正在切換）：量到的位置全是 0，外框底部卻可能在畫面上方很遠，
+ *   算出來是「可視高度＋一千多」（e2e 2026-10-08 抓到 1720px：圖比畫面高，評估目標跑到畫面外點不到）
+ * - 外框底部在圖的底部之上：版面正在變，量到的是兩個不同時間點的東西
+ * 算出來也不會超過可視高度（但小視窗仍保有最低高度）。
+ */
+export function fillHeight(p: { visible: number; above: number; below: number; min: number; laidOut: boolean }): number | null {
+  if (!p.laidOut || p.below < 0) return null;
+  const h = Math.floor(Math.min(p.visible - p.above - p.below, p.visible));
+  return Math.max(p.min, h);
+}
+
 export function useFillHeight(target: Ref<HTMLElement | null>, anchor: Ref<HTMLElement | null>,
                               opts: { min?: number } = {}) {
   const height = ref<number | null>(null);
@@ -43,7 +56,9 @@ export function useFillHeight(target: Ref<HTMLElement | null>, anchor: Ref<HTMLE
     // 圖下方到頁面底部的固定距離：卡片內距＋版面底部留白（與圖本身多高無關）
     const below = card.getBoundingClientRect().bottom - r.bottom + pad;
     const above = r.top - a.getBoundingClientRect().top;     // 工具列頂端到圖頂端
-    height.value = Math.max(min, Math.floor(visibleHeight(el) - above - below));
+    const laidOut = el.isConnected && el.getClientRects().length > 0 && a.getClientRects().length > 0;
+    const h = fillHeight({ visible: visibleHeight(el), above, below, min, laidOut });
+    if (h !== null) height.value = h;
   }
   // 版面改了（主版面留白變了、圖例折行、明細欄開關）要重量；排到下一幀，等瀏覽器先排好版
   function schedule() { requestAnimationFrame(() => requestAnimationFrame(measure)); }

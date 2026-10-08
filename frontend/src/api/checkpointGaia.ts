@@ -26,6 +26,8 @@ export interface GaiaTarget {
   last_summary: {
     api_version?: string | null; dhcp_subnets?: number; pools?: number; arp_rows?: number; arp_matched?: number;
     leases?: number; lease_matched?: number; errors?: Record<string, string>;
+    /** 讀不到但不算錯：no_permission／unsupported／no_lease_file／dhcp_off */
+    skipped?: Partial<Record<"arp" | "leases", string>>;
   } | null;
   description: string | null;
 }

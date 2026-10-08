@@ -30,6 +30,7 @@ import coseBilkent from "cytoscape-cose-bilkent";
 import { getTopology, type TopologyData } from "@/api/topology";
 import { listSubnets } from "@/api/subnets";
 import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { useFillHeight } from "@/composables/usePageFill";
 
 cytoscape.use(coseBilkent as any);
@@ -379,7 +380,9 @@ const exportOptions = [
   { label: "SVG", key: "svg" },
   { label: "draw.io", key: "drawio" },
 ];
-function onExport(key: string) {
+const { exporting, run: runExport } = useExportBusy();
+function onExport(key: string) { void runExport(() => doExport(key)); }
+function doExport(key: string) {
   if (!cy) { msg.warning(t("errors.network")); return; }
   if (key === "png") exportPng();
   else if (key === "svg") exportSvg();
@@ -1074,8 +1077,8 @@ onUnmounted(() => {
         </n-button-group>
         <!-- 兩顆動作綁成同一個 flex 子項：換行時一起換 -->
         <n-space align="center" :size="8" :wrap-item="false">
-          <n-dropdown trigger="click" :options="exportOptions" @select="onExport">
-            <n-button>
+          <n-dropdown trigger="click" :options="exportOptions" :disabled="exporting" @select="onExport">
+            <n-button :loading="exporting" :disabled="exporting">
               <template #icon><n-icon><ExportIcon /></n-icon></template>
               {{ t("common.export") }}
             </n-button>

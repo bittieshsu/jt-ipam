@@ -9,6 +9,7 @@ import { Physical, type DevicePort, type PortTrace } from "@/api/phase3";
 import { listDevices } from "@/api/basic";
 import { PlusIcon, EditIcon, DeleteIcon, LinkIcon, RefreshIcon, PhysicalIcon, ExportIcon } from "@/icons";
 
+import { useExportBusy } from "@/composables/useExportBusy";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { apiErrMsg } from "@/api/client";
 import { renderMacWithVendor } from "@/utils/macVendor";
@@ -244,7 +245,9 @@ const traceExportOptions = [
   { label: "PNG", key: "png" },
   { label: "draw.io", key: "drawio" },
 ];
-function onTraceExport(key: string) {
+const { exporting: traceExporting, run: runTraceExport } = useExportBusy();
+function onTraceExport(key: string) { void runTraceExport(() => doTraceExport(key)); }
+function doTraceExport(key: string) {
   if (key === "svg") exportTraceSvg();
   else if (key === "png") exportTracePng();
   else if (key === "drawio") exportTraceDrawio();
@@ -366,8 +369,8 @@ onMounted(() => { void refresh(); });
     <n-modal v-model:show="showTrace" preset="card" style="width:520px" :title="t('ports.trace_title', { p: traceTitle })">
       <!-- 控制列：自標題列搬到內文最上方 -->
       <n-space align="center" justify="end" style="margin-bottom: 10px">
-        <n-dropdown v-if="traceConnected" trigger="click" :options="traceExportOptions" @select="onTraceExport">
-          <n-button size="tiny">
+        <n-dropdown v-if="traceConnected" trigger="click" :options="traceExportOptions" :disabled="traceExporting" @select="onTraceExport">
+          <n-button size="tiny" :loading="traceExporting" :disabled="traceExporting">
             <template #icon><n-icon><ExportIcon /></n-icon></template>
             {{ t("common.download") }}
           </n-button>
