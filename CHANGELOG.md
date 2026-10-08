@@ -6,6 +6,8 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-08
+
 ### Added
 - **Check Point integration (Beta, phase 1)** (new page under Admin → External integrations, R81.20):
   - Reads the management server (Security Management Server or Multi-Domain) through the Management API, read-only: the login asks for a read-only session and always logs out. One management server covers every gateway and policy package it manages; for Multi-Domain list the domains (one login each), and the policy packages can be narrowed.

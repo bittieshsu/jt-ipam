@@ -84,10 +84,14 @@ test("各來源最後出現：點標題排序（時間第一下最新在上；�
   // 與全站表格一樣：點第一下是遞減 —— 「時間」遞減＝最新的在最上面
   await sec.locator("th", { hasText: "時間" }).click();
   await expect(first()).toContainText("掃描代理");
-  // 「來源」點兩下＝遞增（依名稱）
+  // 「來源」點兩下＝遞增（依名稱）。不寫死第一列是哪一家：沒設定的整合不顯示那一列（2026-10-08），
+  // 有哪些來源要看環境；檢查第一列是名稱最小的那個
   await sec.locator("th", { hasText: "來源" }).click();
   await sec.locator("th", { hasText: "來源" }).click();
-  await expect(first()).toContainText("AdGuard");
+  const names = (await sec.locator("tbody tr td:first-child").allInnerTexts()).map((x) => x.trim()).filter(Boolean);
+  expect(names.length).toBeGreaterThan(1);
+  const smallest = [...names].sort((a, b) => a.localeCompare(b))[0];
+  await expect(first()).toContainText(smallest);
 });
 
 for (const [card, label] of [["librenms", "LibreNMS"], ["wazuh", "Wazuh"]] as const) {

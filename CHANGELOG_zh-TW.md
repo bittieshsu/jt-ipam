@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-08
+
 ### 新增
 - **Check Point 整合（Beta，第一階段）**（管理 → 外部系統整合的新頁面，R81.20）：
   - 透過 Management API 讀取管理伺服器（Security Management Server 或 Multi-Domain），唯讀：登入時要求唯讀工作階段，結束一定登出。一台管理伺服器管的所有閘道與政策套件都在裡面；Multi-Domain 填要同步的網域（每個網域各登入一次），政策套件也可以只挑幾個。
