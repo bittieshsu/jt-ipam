@@ -18,8 +18,8 @@ from app.models.address import IPAddress
 from app.services.precedence import Precedence
 
 ARP_KEY = "arp_precedence"
-ARP_SOURCES = ("manual", "scanner", "opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp",
-               "kea_dhcp", "isc_dhcp", "librenms", "adguard", "proxmox")
+ARP_SOURCES = ("manual", "scanner", "opnsense", "pfsense", "fortigate", "paloalto", "checkpoint", "mikrotik",
+               "windows_dhcp", "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "librenms", "adguard", "proxmox")
 # 預設：手動最優先，其次主動掃描、防火牆 ARP、LibreNMS、AdGuard、Proxmox
 DEFAULT_ARP_ORDER: list[str] = list(ARP_SOURCES)
 

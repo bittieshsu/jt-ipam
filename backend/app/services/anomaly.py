@@ -1078,6 +1078,17 @@ async def detect_rogue_dhcp(
         _fw_models.append(PaloAltoFirewall)
     except Exception:
         pass
+    # Check Point：DHCP 由閘道發，管理伺服器的網址不是發 DHCP 的主機 → 放行它管的閘道位址
+    from app.models.checkpoint import CheckPointGateway
+    for (gw_ip,) in (await session.execute(select(CheckPointGateway.ipv4_address).where(
+            CheckPointGateway.ipv4_address.is_not(None)))).all():
+        integrated.add(str(gw_ip))
+    # 第二階段：手動新增、不在管理伺服器清單裡的閘道也是發 DHCP 的主機 → 看 Gaia API 網址的主機
+    from app.models.checkpoint_gaia import CheckPointGaiaTarget
+    for (url,) in (await session.execute(select(CheckPointGaiaTarget.gaia_url))).all():
+        host = (urlparse(str(url)).hostname or "").strip()
+        if host:
+            integrated.add(host)
     # 獨立 DHCP 伺服器（issue #45）本來就是發 IP 的：Kea 看控制網址的主機、ISC DHCP 看回報代理的來源位址、
     # Windows DHCP 看設定的主機（以前沒列，Windows DHCP 主機會被報成非法 DHCP）
     from app.models.dhcp_standalone import KeaDhcpServer
@@ -1097,6 +1108,21 @@ async def detect_rogue_dhcp(
     for (host,) in (await session.execute(select(WindowsDhcpServer.host))).all():
         if host:
             integrated.add(str(host).strip())
+    # ISOinsight 本身就是發 IP 的設備：看設定的 Base URL 主機
+    from app.models.isoinsight import IsoInsightSource
+    for (url,) in (await session.execute(select(IsoInsightSource.base_url))).all():
+        host = (urlparse(str(url)).hostname or "").strip()
+        if host:
+            integrated.add(host)
+    # Technitium DHCP：主控台網址的主機，加上它回報的 DHCP 介面位址（可以跟主控台不是同一個位址）
+    from app.models.technitium import TechnitiumDhcpScope, TechnitiumDhcpServer
+    for (url,) in (await session.execute(select(TechnitiumDhcpServer.api_url))).all():
+        host = (urlparse(str(url)).hostname or "").strip()
+        if host:
+            integrated.add(host)
+    for (addr,) in (await session.execute(select(TechnitiumDhcpScope.server_address).where(
+            TechnitiumDhcpScope.server_address.is_not(None)).distinct())).all():
+        integrated.add(str(addr))
 
     out: list[dict[str, Any]] = []
     for sighting, cidr in rows:
@@ -1755,6 +1781,7 @@ def _is_any(v: Any) -> bool:
 
 async def _firewall_names(session: AsyncSession) -> dict[str, str]:
     """各廠牌防火牆實例的 id → 名稱（NAT 的 source_origin 是「廠牌:實例 id」）。"""
+    from app.models.checkpoint import CheckPointServer
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.mikrotik import MikroTikRouter
@@ -1763,7 +1790,7 @@ async def _firewall_names(session: AsyncSession) -> dict[str, str]:
 
     out: dict[str, str] = {}
     for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, PaloAltoFirewall,
-                  MikroTikRouter):
+                  MikroTikRouter, CheckPointServer):
         for fid, name in (await session.execute(select(model.id, model.name))).all():
             out[str(fid)] = name
     return out

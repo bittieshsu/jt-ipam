@@ -14,6 +14,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.change_impact import adapters_ipam as ai
+from app.services.change_impact import adapters_m2 as m2
 from app.services.change_impact import adapters_net as an
 from app.services.change_impact.access import viewer
 from app.services.change_impact.context import Ctx, LimitExceeded
@@ -23,7 +24,7 @@ from app.services.change_impact.model import (
     Gap,
     stable_hash,
 )
-from app.services.change_impact.scenario import Scenario, build
+from app.services.change_impact.scenario import M2_SCENARIOS, Scenario, build
 from app.services.change_impact.sources import (
     ADMIN_CATEGORIES,
     GLOBAL_CATEGORIES,
@@ -39,13 +40,22 @@ ADAPTERS: tuple[tuple[str, Callable[[Ctx], Awaitable[None]]], ...] = (
     ("config", ai.config_refs),
     ("dns", an.dns),
     ("dhcp", an.dhcp),
+    ("dhcp", an.dhcp_observed),
     ("firewall", an.firewall),
     ("nat", an.nat),
     ("monitoring", an.monitoring),
     ("virt", an.virt),
     ("cert", an.certs),
     ("physical", ai.device_relations),
+    ("service", m2.service_refs),
     ("text", ai.text_hints),
+)
+
+# M2 情境（交換器維護、節點停機）不找舊位址的引用：看的是誰跟著停、服務還剩不剩所需的依賴
+M2_ADAPTERS: tuple[tuple[str, Callable[[Ctx], Awaitable[None]]], ...] = (
+    ("network", m2.network_dependents),
+    ("workload", m2.workloads),
+    ("service", m2.services),
 )
 
 # 來源狀態造成的缺口：讓結果不能算「完整」
@@ -86,7 +96,7 @@ async def analyze(session: AsyncSession, *, user: Any, scenario_type: str, targe
     await ai.compute_overlap(ctx)
     truncated: dict[str, Any] | None = None
     try:
-        for stage, fn in ADAPTERS:
+        for stage, fn in (M2_ADAPTERS if sc.scenario_type in M2_SCENARIOS else ADAPTERS):
             await ctx.check(stage)
             await fn(ctx)
     except LimitExceeded as exc:
@@ -208,6 +218,13 @@ async def persist(session: AsyncSession, run_id: Any, res: Result) -> dict[str, 
             suggested_action=f.suggested_action or {"kind": "manual_review", "reason_code": f"REVIEW_{r.reason}"},
             fingerprint=f.fingerprint(), sort_key=f.sort_key()[:120], visibility_type=vt, visibility_id=vid))
         subj = f"{f.subject_type}:{f.subject_id or f.subject_key}"
+        if f.links:
+            # M2：明確知道連到誰（接在哪台停機的交換器、在哪個節點上、服務依賴哪些受影響的物件）
+            for to, rel in f.links:
+                session.add(ImpactRelation(run_id=run_id, from_ref=subj[:160], to_ref=to[:160], relation_type=rel,
+                                           namespace=None, evidence_keys=f.evidence_keys,
+                                           strength=f.strength or r.strength))
+            continue
         addr = f.params.get("address")
         to = next((ref for ref, root in zip(root_refs, res.scenario.roots, strict=False)
                    if root.ip_text == addr), root_refs[0])

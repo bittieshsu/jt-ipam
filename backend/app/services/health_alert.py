@@ -30,8 +30,11 @@ _INTEGRATION_ROUTE = {
     "librenms": "/librenms", "wazuh": "/wazuh", "zabbix": "/zabbix",
     "adguard": "/adguard", "proxmox": "/virt-admin", "esxi": "/esxi",
     "opnsense": "/firewall", "pfsense": "/pfsense", "fortigate": "/fortigate",
-    "paloalto": "/paloalto", "mikrotik": "/mikrotik",
+    "paloalto": "/paloalto", "checkpoint": "/checkpoint", "checkpoint_gaia": "/checkpoint",
+    "mikrotik": "/mikrotik",
     "windows_dhcp": "/windows-dhcp", "kea_dhcp": "/kea-dhcp", "isc_dhcp": "/isc-dhcp",
+    "technitium": "/technitium-dhcp",
+    "isoinsight": "/isoinsight",
     "rustdesk": "/rustdesk",
     "dns": "/dns", "ocs": "/ocs",
 }

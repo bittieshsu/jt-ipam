@@ -63,6 +63,11 @@ dependencies = [
     "redis[hiredis]>=5.2",
     "celery>=5.4",
 
+    # ── 報告 ──
+    # PDF 報告由後端產生（IP 變更評估等）：純 Python、LGPL-3.0（可與 AGPL 併用），內嵌字型子集。
+    # 會帶進 fonttools（MIT）與 Pillow；中文字型由 apt 的 fonts-noto-cjk 提供（install／upgrade 都會補）
+    "fpdf2>=2.8,<3",
+
     # ── Observability ──
     "structlog>=24.4",             # 結構化日誌（A09）
     "python-json-logger>=2.0",

@@ -17,9 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # 分析類別 → 會被哪些整合餵資料。ipam、config、cert、physical 是 jt-ipam 自己的資料，一定有
-CATEGORIES = ("ipam", "dns", "dhcp", "firewall", "nat", "librenms", "virt", "monitoring", "cert", "config", "physical")
-# 全域基礎設施：沒有全域讀取權的帳號看不到（結果標 permission_limited）
-GLOBAL_CATEGORIES = frozenset({"dns", "dhcp", "firewall", "nat", "librenms", "virt"})
+CATEGORIES = ("ipam", "dns", "dhcp", "firewall", "nat", "librenms", "virt", "monitoring", "cert", "config", "physical",
+              "network", "workload", "service")
+# 全域基礎設施：沒有全域讀取權的帳號看不到（結果標 permission_limited）。
+# 服務（M2）是跨單位的共享基礎設施：現有權限模型表達不了跨單位依賴，要全域讀取才分析（規格 §11.1）
+GLOBAL_CATEGORIES = frozenset({"dns", "dhcp", "firewall", "nat", "librenms", "virt", "service"})
 # 只有管理員看得到的資料
 ADMIN_CATEGORIES = frozenset({"monitoring", "cert"})
 
@@ -76,6 +78,13 @@ _SPECS: tuple[tuple[str, str, str, tuple[str, ...], str, tuple[str, ...]], ...] 
      ("rules", "address_objects", "vdom")),
     ("app.models.paloalto", "PaloAltoFirewall", "paloalto", ("firewall", "nat", "dhcp"), "sync_interval_seconds",
      ("rules", "address_objects", "vsys")),
+    # Check Point：管理伺服器上的存取規則、位址物件、NAT（第一階段）
+    ("app.models.checkpoint", "CheckPointServer", "checkpoint", ("firewall", "nat"), "sync_interval_seconds",
+     ("rules", "address_objects", "domains")),
+    # Check Point 第二階段：閘道的 Gaia API（同一個 kind；共用表的 source_id 是這台閘道的連線設定）。
+    # 發放範圍、發給用戶端的閘道/DNS（adapters_net.dhcp）；租約要打開 run-script 才有
+    ("app.models.checkpoint_gaia", "CheckPointGaiaTarget", "checkpoint", ("dhcp",), "sync_interval_seconds",
+     ("leases", "pools", "scope_options", "ipv4_only")),
     ("app.models.mikrotik", "MikroTikRouter", "mikrotik", ("firewall", "nat", "dhcp"), "sync_interval_seconds",
      ("rules", "address_lists")),
     ("app.models.librenms", "LibreNMSInstance", "librenms", ("librenms", "monitoring"), "sync_interval_seconds",
@@ -85,7 +94,33 @@ _SPECS: tuple[tuple[str, str, str, tuple[str, ...], str, tuple[str, ...]], ...] 
     ("app.models.zabbix", "ZabbixInstance", "zabbix", ("monitoring",), "sync_interval_seconds", ("hosts",)),
     ("app.models.wazuh", "WazuhInstance", "wazuh", ("monitoring",), "sync_interval_seconds", ("agents",)),
     ("app.models.ocs", "OcsServer", "ocs", ("monitoring",), "sync_interval_seconds", ("inventory",)),
+    # ISOinsight：租約有真正的起訖時間，也保留對不到 IP 記錄的租約（services/isoinsight）；IPv6 只存觀察、未驗證
+    ("app.models.isoinsight", "IsoInsightSource", "isoinsight", ("dhcp",), "sync_interval_seconds",
+     ("leases", "lease_expiry", "unmatched_leases", "ipv4_only")),
+    # Technitium DHCP：保留、發放範圍、租約走共用表；另有範圍鏡像給出發給用戶端的閘道／DNS／NTP／WINS（adapters_net.dhcp）
+    ("app.models.technitium", "TechnitiumDhcpServer", "technitium", ("dhcp",), "sync_interval_seconds",
+     ("reservations", "leases", "pools", "scope_options", "ipv4_only")),
+    # AdGuard：DNS 改寫與用戶端設定（從主機名稱觀測得知，adapters_net._adguard）
+    ("app.models.adguard", "AdGuardInstance", "adguard", ("dns",), "sync_interval_seconds", ("rewrites", "clients")),
+    # RustDesk：受控端的登記（adapters_net.monitoring）；同步狀態要納入資料不足的判斷
+    ("app.models.rustdesk", "RustDeskServer", "rustdesk", ("monitoring",), "report_interval_seconds", ("peers",)),
 )
+# 沒有 last_sync_at 欄位的整合：用哪一欄當「最近一次成功同步」
+_LAST_SYNC_ATTR = {"isoinsight": "last_commit_at", "rustdesk": "last_report_at"}
+
+# 整合清單（/system/integration-presence 的鍵，跟管理選單「外部系統整合」同一份）→ 評估的來源種類。
+# 新增整合時：能提供引用的就加進 _SPECS 並在 adapter 讀它；不適用就寫進 NOT_SOURCES 並附理由。
+# tests/test_change_impact_coverage.py 會比對，漏了就擋（使用者 2026-10-08：新整合都要考慮評估）。
+PRESENCE_KIND = {
+    "dns": "dns_server", "adguard": "adguard", "librenms": "librenms", "opnsense": "opnsense", "pfsense": "pfsense",
+    "fortigate": "fortigate", "paloalto": "paloalto", "mikrotik": "mikrotik", "windows_dhcp": "windows_dhcp",
+    "kea_dhcp": "kea_dhcp", "isc_dhcp": "isc_dhcp", "isoinsight": "isoinsight", "rustdesk": "rustdesk",
+    "technitium": "technitium", "checkpoint": "checkpoint",
+    "proxmox": "proxmox", "esxi": "esxi", "wazuh": "wazuh", "zabbix": "zabbix", "ocs": "ocs",
+}
+NOT_SOURCES = {
+    "graylog": "只把 IPAM 的資料匯出給 Graylog 查表，本身不存任何引用；改址後匯出內容自動跟著變",
+}
 
 
 async def collect_sources(session: AsyncSession, *, now: datetime | None = None,
@@ -102,12 +137,13 @@ async def collect_sources(session: AsyncSession, *, now: datetime | None = None,
             scope = getattr(r, "scope_subnet_ids", None)
             # 防火牆的 DHCP／NAT 要另外開，沒開的那一類不算這台的能力
             eff = tuple(c for c in cats if not (
-                (c == "dhcp" and kind in ("opnsense", "pfsense", "fortigate", "paloalto", "mikrotik")
+                (c == "dhcp" and kind in ("opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "checkpoint")
                  and not getattr(r, "sync_dhcp", False))
                 or (c == "nat" and kind in ("opnsense", "fortigate", "paloalto", "mikrotik")
                     and not getattr(r, "sync_nat", False))))
             st = SourceStatus(kind=kind, id=r.id, name=str(getattr(r, "name", "") or kind), categories=eff,
-                              last_sync_at=r.last_sync_at, last_error=r.last_error,
+                              last_sync_at=getattr(r, _LAST_SYNC_ATTR.get(kind, "last_sync_at")),
+                              last_error=getattr(r, "last_error", None),
                               interval_seconds=int(interval) if interval else None,
                               scope_subnet_ids=[str(x) for x in scope] if scope else None,
                               capabilities=list(caps))

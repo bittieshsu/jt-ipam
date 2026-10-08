@@ -38,7 +38,7 @@ export async function listDNSServers(): Promise<{ items: DNSServer[] }> {
   return data;
 }
 
-export type DNSServerType = "powerdns" | "bind9" | "unbound_opnsense" | "windows_dns" | "univention_ucs";
+export type DNSServerType = "powerdns" | "bind9" | "unbound_opnsense" | "windows_dns" | "univention_ucs" | "technitium";
 
 export interface DNSServerCreate {
   name: string;
@@ -74,7 +74,7 @@ export async function syncDNSServer(id: string): Promise<unknown> {
   return data;
 }
 
-export async function testDNSServer(id: string): Promise<unknown> {
+export async function testDNSServer(id: string): Promise<{ ok: boolean; server?: Record<string, unknown> }> {
   const { data } = await apiClient.post(`/api/v1/dns/servers/${id}/test`);
   return data;
 }

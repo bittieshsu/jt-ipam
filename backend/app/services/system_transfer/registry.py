@@ -109,9 +109,20 @@ CATEGORY: dict[str, str] = {
     "windows_dhcp_servers": "integrations",
     "kea_dhcp_servers": "integrations",
     "isc_dhcp_servers": "integrations",
+    # Technitium DHCP：設定跟著整合走；範圍鏡像可以重新拉
+    "technitium_dhcp_servers": "integrations",
+    "technitium_dhcp_scopes": "synced",
+    # ISOinsight 整合：來源設定跟著整合走；來源租約觀察是可重新拉取的鏡像；同步記錄是歷史
+    "isoinsight_sources": "integrations",
+    "isoinsight_leases": "synced",
+    "isoinsight_sync_runs": "operational",
     "rustdesk_servers": "integrations",
     "fortigate_firewalls": "integrations",
     "paloalto_firewalls": "integrations",
+    # Check Point：管理伺服器設定跟著整合走；閘道／物件／規則是可重新拉的鏡像
+    "checkpoint_servers": "integrations",
+    # 第二階段：每台閘道的 Gaia API 連線跟著整合走；DHCP 子網路鏡像可以重新拉
+    "checkpoint_gaia_targets": "integrations",
     "mikrotik_routers": "integrations",
     "ocs_servers": "integrations",
     "opnsense_alias_mappings": "integrations",
@@ -137,6 +148,10 @@ CATEGORY: dict[str, str] = {
     "fortigate_address_objects": "synced",
     "paloalto_policies": "synced",
     "paloalto_address_objects": "synced",
+    "checkpoint_gateways": "synced",
+    "checkpoint_objects": "synced",
+    "checkpoint_rules": "synced",
+    "checkpoint_dhcp_subnets": "synced",
     "mikrotik_rules": "synced",
     "mikrotik_neighbors": "synced",
     "mikrotik_address_lists": "synced",
@@ -151,7 +166,7 @@ CATEGORY: dict[str, str] = {
     "esxi_instances": "integrations",
     # operational（短暫／歷史）
     "audit_logs": "operational",
-    # 變更影響預演（0187）：計畫、每次分析的快照、待辦、覆核、AI 產出 —— 歷史資料
+    # IP 變更評估（0187）：計畫、每次分析的快照、待辦、覆核、AI 產出 —— 歷史資料
     "change_plans": "operational",
     "change_plan_revisions": "operational",
     "impact_runs": "operational",
@@ -162,6 +177,11 @@ CATEGORY: dict[str, str] = {
     "change_tasks": "operational",
     "impact_reviews": "operational",
     "impact_ai_artifacts": "operational",
+    # IP 變更評估 M2（0189）：人工登錄的服務與依賴 —— 跟網段、裝置一樣是要搬的核心資料（引用物件時保留型別＋id）
+    "impact_services": "core",
+    "impact_service_endpoints": "core",
+    "impact_dependency_groups": "core",
+    "impact_dependency_members": "core",
     # RustDesk 客戶端回報的連線／檔案／告警稽核：與 jt-ipam 自己的稽核記錄同性質
     "rustdesk_audit_events": "operational",
     # RustDesk「刪除舊註冊」的請求與結果：執行紀錄（等待中的過一天就逾時），不是要跟著搬的設定

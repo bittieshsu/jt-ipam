@@ -10,6 +10,13 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
+from app.api.v1.write_guards import (
+    require_admin_for_infra,
+    require_admin_for_monitoring,
+    require_move,
+    require_parent_write,
+    require_visible,
+)
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.sqlin import in_values
@@ -209,6 +216,10 @@ async def create_subnet(
     )
     if not has_permission(level, "write"):
         raise HTTPException(status_code=403, detail="Forbidden")
+    requested = payload.model_dump(exclude_unset=True)
+    require_admin_for_infra(user, requested)
+    require_admin_for_monitoring(user, requested)
+    await require_parent_write(session, user, "customer", payload.customer_id)
 
     try:
         await assert_no_overlap(
@@ -312,6 +323,16 @@ async def update_subnet(
             ) or None
         except CustomFieldError as exc:
             raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
+    require_admin_for_infra(user, changes, subnet)
+    require_admin_for_monitoring(user, changes, subnet)
+    if "section_id" in changes and changes["section_id"] != subnet.section_id:
+        await require_move(session, user, object_type="subnet", object_id=subnet.id,
+                           dest_type="section", dest_id=changes["section_id"])
+    if "customer_id" in changes and changes["customer_id"] != subnet.customer_id:
+        await require_move(session, user, object_type="subnet", object_id=subnet.id,
+                           dest_type="customer", dest_id=changes["customer_id"])
+    if "master_subnet_id" in changes and changes["master_subnet_id"] != subnet.master_subnet_id:
+        await require_visible(session, user, "subnet", changes["master_subnet_id"], "Subnet not found")
     new_scan_agent = changes.get("scan_agent_id", subnet.scan_agent_id)
     if "jump_host_id" in changes or "console_agent_id" in changes:
         await _egress_or_422(session, changes, scan_agent_id=new_scan_agent)

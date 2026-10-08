@@ -6,12 +6,13 @@ import { useI18n } from "vue-i18n";
 import { usesLevels } from "@/utils/rackSlots";
 import {
   NCard, NSpace, NIcon, NButton, NDescriptions, NDescriptionsItem,
-  NTag, NDataTable, NSpin, NTooltip, NModal, NSelect, NPopconfirm, NAlert,
+  NTag, NDataTable, NSpin, NTooltip, NModal, NSelect, NPopconfirm, NAlert, NDropdown,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { DevicesIcon, RefreshIcon, EditIcon, DeleteIcon, TopologyIcon, AddressesIcon, LibreNMSIcon, WazuhIcon, VirtualizationIcon, SubnetsIcon, LinkIcon , DhcpServerIcon, OpenNewWindowIcon, RustDeskIcon, ChangeImpactIcon } from "@/icons";
 import ChangeImpactWizard from "@/components/ChangeImpactWizard.vue";
+import type { ScenarioType } from "@/api/changeImpact";
 import { useChangeImpact } from "@/composables/useChangeImpact";
 import CopyButton from "@/components/CopyButton.vue";
 import { apiClient, apiErrMsg } from "@/api/client";
@@ -48,6 +49,23 @@ const { me } = storeToRefs(useAuthStore());
 const impact = useChangeImpact();
 void impact.load();
 const impactWizard = ref(false);
+const impactScenario = ref<ScenarioType>("device_decommission");
+// 網路設備可以評估維護、伺服器可以評估停機（虛擬化節點）；除役每種都有
+const impactMenu = computed(() => {
+  const type = device.value?.type ?? "";
+  const out = [{ key: "device_decommission", label: t("change_impact.entry_decommission") }];
+  if (["switch", "router", "firewall", "ap"].includes(type)) {
+    out.push({ key: "switch_maintenance", label: t("change_impact.entry_maintenance") });
+  }
+  if (["server", "storage", "other"].includes(type)) {
+    out.push({ key: "node_downtime", label: t("change_impact.entry_downtime") });
+  }
+  return out;
+});
+function openImpact(key: string) {
+  impactScenario.value = key as ScenarioType;
+  impactWizard.value = true;
+}
 const isAdmin = computed(() => !!me.value?.is_admin);
 // 卡片標題：icon + 文字（NCard title 支援 render function）
 /** 虛擬機狀態：平台回來的是 running / stopped 這種英文字，畫面上要說人話。
@@ -453,12 +471,15 @@ onMounted(() => {
         </template>
 <!-- 控制元件移到卡片內文最上方（標題列不放控制元件） -->
         <n-space align="center" justify="end" style="margin-bottom: 10px">
-          <!-- 預演除役：拆之前先看還有哪些地方引用它、它上面跑著什麼（功能開啟才顯示，後端會再檢查權限） -->
-          <n-button v-if="impact.settings.value.enabled && me?.can_edit !== false" size="small"
-                    data-testid="device-change-impact-btn" @click="impactWizard = true">
-            <template #icon><n-icon><ChangeImpactIcon /></n-icon></template>
-            {{ t("change_impact.entry_decommission") }}
-          </n-button>
+          <!-- 變更評估：除役（拆之前看還有誰引用它）；網路設備多「維護」、伺服器多「停機」（M2：誰跟著停、服務還剩不剩依賴）。
+               功能開啟才顯示，後端會再檢查權限 -->
+          <n-dropdown v-if="impact.settings.value.enabled && me?.can_edit !== false" trigger="click"
+                      :options="impactMenu" @select="openImpact">
+            <n-button size="small" data-testid="device-change-impact-btn">
+              <template #icon><n-icon><ChangeImpactIcon /></n-icon></template>
+              {{ t("change_impact.entry_assess") }}
+            </n-button>
+          </n-dropdown>
           <n-button type="primary" size="small" @click="editShow = true">
             <template #icon><n-icon><EditIcon /></n-icon></template>
             {{ t("common.edit") }}
@@ -834,7 +855,7 @@ onMounted(() => {
   <DeviceEditModal v-model:show="editShow" :device="device"
                    @saved="() => load(String(route.params.id))" />
   <ChangeImpactWizard v-if="device && impact.settings.value.enabled" v-model:show="impactWizard"
-                      preset-scenario="device_decommission" :preset-target-id="device.id" :preset-label="device.name" />
+                      :preset-scenario="impactScenario" :preset-target-id="device.id" :preset-label="device.name" />
 </template>
 
 <style scoped>

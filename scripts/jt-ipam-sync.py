@@ -27,6 +27,41 @@ logging.basicConfig(
 log = logging.getLogger("jt-ipam-sync")
 
 
+def _is_deadlock(exc: BaseException) -> bool:
+    """例外鏈上有 PostgreSQL 的死結（asyncpg DeadlockDetectedError，外面可能包了 SQLAlchemy 的例外）。"""
+    e: BaseException | None = exc
+    seen = 0
+    while e is not None and seen < 10:
+        if type(e).__name__ == "DeadlockDetectedError" or "deadlock detected" in str(e):
+            return True
+        e = e.__cause__ or e.__context__
+        seen += 1
+    return False
+
+
+async def _commit_with_retry(session, obj, label: str, fn, *args):  # type: ignore[no-untyped-def]
+    """跑一個整合的同步並 commit；遇到資料庫死結就 rollback、整筆重做一次。
+
+    會寫 IP 上線證據的同步（防火牆 ARP、DHCP 租約）跟同時在寫同一批 IP 的掃描代理回報會互鎖：
+    兩邊都分好幾個階段鎖列，排序救不了（prod 兩週 53 次，全在 commit 時 flush 的
+    `UPDATE ip_addresses SET arp_seen`）。PostgreSQL 的標準做法是重做整筆交易。
+    rollback 會讓物件過期，重做前要 refresh；第二次還死結就照常往外丟、記成失敗。
+    """
+    for attempt in (1, 2):
+        try:
+            result = await fn(*args)
+            await session.commit()
+            return result
+        except Exception as exc:
+            if attempt == 2 or not _is_deadlock(exc):
+                raise
+            await session.rollback()
+            await session.refresh(obj)
+            log.warning("%s: deadlock with a concurrent writer, retrying once", label)
+            await asyncio.sleep(1)
+    return None
+
+
 async def _run() -> int:
     from app.core.db import SessionLocal
     from app.models.adguard import AdGuardInstance
@@ -37,6 +72,8 @@ async def _run() -> int:
     from app.models.mikrotik import MikroTikRouter
     from app.models.ocs import OcsServer
     from app.models.paloalto import PaloAltoFirewall
+    from app.models.checkpoint import CheckPointServer
+    from app.models.checkpoint_gaia import CheckPointGaiaTarget
     from app.models.librenms import LibreNMSInstance
     from app.models.pfsense import PfSenseFirewall
     from app.models.virt import ProxmoxInstance, VirtCluster
@@ -44,12 +81,16 @@ async def _run() -> int:
     from app.models.zabbix import ZabbixInstance
     from app.models.windows_dhcp import WindowsDhcpServer
     from app.models.dhcp_standalone import IscDhcpServer, KeaDhcpServer
+    from app.models.isoinsight import IsoInsightSource
+    from app.models.technitium import TechnitiumDhcpServer
     from app.models.rustdesk import RustDeskServer
     from app.services import adguard as adguard_svc
     from app.services import fortigate as fortigate_svc
     from app.services import mikrotik as mikrotik_svc
     from app.services import ocs as ocs_svc
     from app.services import paloalto as paloalto_svc
+    from app.services import checkpoint as checkpoint_svc
+    from app.services import checkpoint_gaia as checkpoint_gaia_svc
     from app.services import librenms as librenms_svc
     from app.services import opnsense_firewall as fw_svc
     from app.services import pfsense as pfsense_svc
@@ -58,6 +99,7 @@ async def _run() -> int:
     from app.services import zabbix as zabbix_svc
     from app.services import windows_dhcp as windows_dhcp_svc
     from app.services import kea_dhcp as kea_dhcp_svc
+    from app.services import technitium_dhcp as technitium_dhcp_svc
     from app.services import dhcp_standalone as dhcp_standalone_svc
     from app.services import rustdesk as rustdesk_svc
     from app.services.background_tasks import upsert_scheduled_task as _hb
@@ -82,8 +124,7 @@ async def _run() -> int:
                 continue
             name = fw.name
             try:
-                results = await fw_svc.sync_all_for_firewall(session, fw)
-                await session.commit()
+                results = await _commit_with_retry(session, fw, f"opnsense {name}", fw_svc.sync_all_for_firewall, session, fw)
                 log.info("opnsense %s: %d mappings", name, len(results))
                 await _hb(session, kind="opnsense.sync", target_type="opnsense_firewall",
                           target_id=fw.id, target_label=name, ok=True,
@@ -110,8 +151,7 @@ async def _run() -> int:
                 continue
             name = fw.name
             try:
-                counts = await pfsense_svc.sync_instance(session, fw)
-                await session.commit()
+                counts = await _commit_with_retry(session, fw, f"pfsense {name}", pfsense_svc.sync_instance, session, fw)
                 log.info("pfsense %s: %s", name, counts)
                 await _hb(session, kind="pfsense.sync", target_type="pfsense_firewall",
                           target_id=fw.id, target_label=name, ok=True,
@@ -278,8 +318,10 @@ async def _run() -> int:
                 ("proxmox", ProxmoxInstance), ("esxi", ESXiInstance),
                 ("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
                 ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
+                ("checkpoint", CheckPointServer), ("checkpoint_gaia", CheckPointGaiaTarget),
                 ("mikrotik", MikroTikRouter), ("windows_dhcp", WindowsDhcpServer),
                 ("kea_dhcp", KeaDhcpServer), ("isc_dhcp", IscDhcpServer),
+                ("isoinsight", IsoInsightSource), ("technitium", TechnitiumDhcpServer),
                 ("rustdesk", RustDeskServer),
                 ("ocs", OcsServer),
                 ("dns", DNSServer),
@@ -416,8 +458,7 @@ async def _run() -> int:
                 continue
             name = inst.name
             try:
-                summary = await fortigate_svc.sync_instance(session, inst)
-                await session.commit()
+                summary = await _commit_with_retry(session, inst, f"fortigate {name}", fortigate_svc.sync_instance, session, inst)
                 log.info("fortigate %s: %s", name, summary)
                 await _hb(session, kind="fortigate.sync", target_type="fortigate_firewall",
                           target_id=inst.id, target_label=name, ok=True,
@@ -443,8 +484,7 @@ async def _run() -> int:
                 continue
             name = inst.name
             try:
-                summary = await paloalto_svc.sync_instance(session, inst)
-                await session.commit()
+                summary = await _commit_with_retry(session, inst, f"paloalto {name}", paloalto_svc.sync_instance, session, inst)
                 log.info("paloalto %s: %s", name, summary)
                 await _hb(session, kind="paloalto.sync", target_type="paloalto_firewall",
                           target_id=inst.id, target_label=name, ok=True,
@@ -457,6 +497,60 @@ async def _run() -> int:
                 log.error("paloalto %s sync failed: %s", name, exc)
                 failed += 1
                 await _hb(session, kind="paloalto.sync", target_type="paloalto_firewall",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Check Point（Beta；管理伺服器的 Management API 唯讀，一台管多個閘道）──
+        cps = (
+            await session.execute(
+                select(CheckPointServer).where(CheckPointServer.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in cps:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await _commit_with_retry(session, inst, f"checkpoint {name}", checkpoint_svc.sync_instance, session, inst)
+                log.info("checkpoint %s: %s", name, summary)
+                await _hb(session, kind="checkpoint.sync", target_type="checkpoint_server",
+                          target_id=inst.id, target_label=name, ok=True,
+                          summary=summary if isinstance(summary, dict) else None)
+            except Exception as exc:
+                # 先 rollback 再寫 last_error —— 不 rollback 會二次爆並中斷整輪
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("checkpoint %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="checkpoint.sync", target_type="checkpoint_server",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Check Point 閘道的 Gaia API（第二階段：DHCP 設定；選用的寫死指令讀 ARP／租約）──
+        cpgs = (
+            await session.execute(
+                select(CheckPointGaiaTarget).where(CheckPointGaiaTarget.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in cpgs:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await _commit_with_retry(session, inst, f"checkpoint_gaia {name}", checkpoint_gaia_svc.sync_target, session, inst)
+                log.info("checkpoint_gaia %s: %s", name, summary)
+                await _hb(session, kind="checkpoint_gaia.sync", target_type="checkpoint_gaia_target",
+                          target_id=inst.id, target_label=name, ok=True,
+                          summary=summary if isinstance(summary, dict) else None)
+            except Exception as exc:
+                # 先 rollback 再寫 last_error —— 不 rollback 會二次爆並中斷整輪
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("checkpoint_gaia %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="checkpoint_gaia.sync", target_type="checkpoint_gaia_target",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
 
         # ── MikroTik RouterOS（v7 REST 唯讀）──
@@ -473,8 +567,7 @@ async def _run() -> int:
                 continue
             name = inst.name
             try:
-                summary = await mikrotik_svc.sync_instance(session, inst)
-                await session.commit()
+                summary = await _commit_with_retry(session, inst, f"mikrotik {name}", mikrotik_svc.sync_instance, session, inst)
                 log.info("mikrotik %s: %s", name, summary)
                 await _hb(session, kind="mikrotik.sync", target_type="mikrotik_router",
                           target_id=inst.id, target_label=name, ok=True,
@@ -528,8 +621,7 @@ async def _run() -> int:
                 continue
             name = inst.name
             try:
-                summary = await windows_dhcp_svc.sync_instance(session, inst)
-                await session.commit()
+                summary = await _commit_with_retry(session, inst, f"windows_dhcp {name}", windows_dhcp_svc.sync_instance, session, inst)
                 log.info("windows_dhcp %s: %s", name, summary)
                 await _hb(session, kind="windows_dhcp.sync", target_type="windows_dhcp_server",
                           target_id=inst.id, target_label=name, ok=True,
@@ -555,8 +647,7 @@ async def _run() -> int:
                 continue
             name = inst.name
             try:
-                summary = await kea_dhcp_svc.sync_instance(session, inst)
-                await session.commit()
+                summary = await _commit_with_retry(session, inst, f"kea_dhcp {name}", kea_dhcp_svc.sync_instance, session, inst)
                 log.info("kea_dhcp %s: %s", name, summary)
                 await _hb(session, kind="kea_dhcp.sync", target_type="kea_dhcp_server",
                           target_id=inst.id, target_label=name, ok=True, summary=summary)
@@ -568,6 +659,51 @@ async def _run() -> int:
                 failed += 1
                 await _hb(session, kind="kea_dhcp.sync", target_type="kea_dhcp_server",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Technitium DHCP（HTTP API 唯讀拉範圍／保留／選項／租約；DNS 那一半在下面的 DNS 區塊）──
+        tdns = (
+            await session.execute(
+                select(TechnitiumDhcpServer).where(TechnitiumDhcpServer.enabled.is_(True))
+            )
+        ).scalars().all()
+        for inst in tdns:
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                summary = await _commit_with_retry(session, inst, f"technitium {name}",
+                                                   technitium_dhcp_svc.sync_instance, session, inst)
+                log.info("technitium %s: %s", name, summary)
+                await _hb(session, kind="technitium_dhcp.sync", target_type="technitium_dhcp_server",
+                          target_id=inst.id, target_label=name, ok=True, summary=summary)
+            except Exception as exc:
+                await session.rollback()
+                inst.last_error = str(exc)
+                await session.commit()
+                log.error("technitium %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="technitium_dhcp.sync", target_type="technitium_dhcp_server",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── ISOinsight 整合（登入 HTTP(S) 介面讀 DHCP 租約）──
+        # 排程條件（開了排程、沒有因登入失敗暫停、不在 429 延後期間、到期；沒成功預覽過的只記「要先預覽」）、跨行程的鎖
+        # （與網頁上的「立即同步」共用）、交易與同步記錄都在 services/isoinsight/job.py；每個來源用自己的 session。
+        try:
+            from app.services.isoinsight import job as isoinsight_job
+            for res in await isoinsight_job.run_due(SessionLocal, now):
+                ok = res.get("result") in ("success", "partial", "skipped")
+                info = {k: v for k, v in res.items() if k not in ("id", "name", "error")}
+                log.info("isoinsight %s: %s", res["name"], info)
+                if not ok:
+                    failed += 1
+                await _hb(session, kind="isoinsight.sync", target_type="isoinsight_source",
+                          target_id=res["id"], target_label=res["name"], ok=ok, summary=info,
+                          error=None if ok else f"{res.get('error_code')}: {res.get('error') or ''}".strip())
+        except Exception as exc:
+            await session.rollback()
+            log.error("isoinsight scheduled sync failed: %s", exc)
+            failed += 1
 
         # ── 獨立 ISC DHCP Server：資料由掃描代理回報，這裡只抓「代理多久沒回報」──
         try:
@@ -750,7 +886,7 @@ async def _run() -> int:
             await session.rollback()
             log.error("unmanaged sightings purge failed: %s", exc)
 
-        # ── 變更影響預演：回收沒有心跳的分析（標失敗或重新排隊，由網頁程序啟動）、清除過期的計畫 ──
+        # ── IP 變更評估：回收沒有心跳的分析（標失敗或重新排隊，由網頁程序啟動）、清除過期的計畫 ──
         try:
             from app.services.change_impact.jobs import reclaim_stale
             from app.services.change_impact.retention import purge as purge_impact

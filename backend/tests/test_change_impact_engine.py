@@ -1,4 +1,4 @@
-"""變更影響預演：確定性引擎（規格 §15 的 T01–T14、T26、T27）。
+"""IP 變更評估：確定性引擎（規格 §15 的 T01–T14、T26、T27）。
 
 直接呼叫引擎（不經 API），用 RFC 5737／3849 的位址造合成資料。API、權限、作業、AI 在別的檔案。
 """
@@ -379,3 +379,37 @@ async def test_t27_same_snapshot_same_findings_same_order(db_session, admin_user
     assert [f.fingerprint() for f in r1.findings] == [f.fingerprint() for f in r2.findings]
     assert r1.snapshot_hash == r2.snapshot_hash and r1.scenario_hash == r2.scenario_hash
     assert [f.sort_key() for f in r1.findings] == sorted(f.sort_key() for f in r1.findings)
+
+
+# ─────────────────── ISOinsight 租約（2026-10-08 接上評估） ───────────────────
+
+async def test_isoinsight_leases_count_for_old_and_new_addresses(db_session, admin_user) -> None:
+    """ISOinsight 的租約有真正的起訖時間，也保留對不到 IP 記錄的租約：新位址沒登記但有人租著，一樣要擋。"""
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.isoinsight import IsoInsightLease, IsoInsightSource
+    sub = await _net(db_session)
+    root = await _ip(db_session, sub, "198.51.100.10", hostname="erp")
+    now = datetime.now(UTC)
+    src = IsoInsightSource(name=f"iso-{uuid.uuid4().hex[:6]}", base_url="https://192.0.2.9", username="op",
+                           password_enc=b"x", password_nonce=b"x", scope_subnet_ids=[sub.id],
+                           last_commit_at=now, last_attempt_at=now)
+    db_session.add(src)
+    await db_session.flush()
+
+    def lease(ip, mac, start, end, ip_id=None):  # type: ignore[no-untyped-def]
+        return IsoInsightLease(source_id=src.id, ip=ip, mac_key=mac.replace(":", ""), mac=mac, name="laptop-07",
+                               start_at=start, end_at=end, subnet_id=sub.id, ip_address_id=ip_id,
+                               match_status="matched", first_observed_at=now, lease_observed_at=now)
+    db_session.add_all([
+        lease("198.51.100.10", "00:00:5e:00:53:10", now - timedelta(hours=1), now + timedelta(hours=3), root.id),
+        lease("198.51.100.80", "00:00:5e:00:53:80", now - timedelta(hours=1), now + timedelta(hours=2)),
+        lease("198.51.100.81", "00:00:5e:00:53:81", now - timedelta(days=2), now - timedelta(days=1)),
+    ])
+    res = await _run(db_session, admin_user, root, "198.51.100.80")
+    assert "dhcp.new_ip_leased_until" in _rules(res) and res.decision == "blocked"
+    assert "dhcp.active_lease_until" in _rules(res)
+    assert "dhcp_lease_unmatched_not_stored" not in _gap_codes(res)   # ISOinsight 會留對不到記錄的租約
+    # 已到期的租約不算
+    res = await _run(db_session, admin_user, root, "198.51.100.81")
+    assert not {"dhcp.new_ip_leased", "dhcp.new_ip_leased_until"} & set(_rules(res))

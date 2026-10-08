@@ -179,6 +179,7 @@ Each integration has an **instance** table (connection metadata; API keys/passwo
 - **OPNsenseRuleLabel**: parsed from `pf_statistics`, it maps a filterlog `rid` (pf rule label) to the alias(es) the rule references (`label`, `action`, `interface`, `alias_names` jsonb). Feeds the rule→alias Graylog DSV so log events can be enriched by `rid`.
 - **OPNsenseRule**: firewall rules pulled as a read-only cache (`legacy_uuid`, action/interface/direction/protocol, src/dst net & port, `raw` jsonb).
 - **DHCPPoolRange**: DHCP pool ranges synced from the firewall (Kea/ISC): `subnet_cidr`, `start_ip`/`end_ip`; IPs falling in a range are flagged DHCP.
+- **TechnitiumDhcpServer** / **TechnitiumDhcpScope**: the Technitium DHCP integration (`technitium_dhcp_servers`, token encrypted in `token_enc`/`token_nonce`) and a mirror of its scopes (`technitium_dhcp_scopes`: range, exclusions, `server_address`, and the `router` / `dns_servers` / `ntp_servers` / `wins_servers` handed to clients, read by IP change assessment). Pools, reservations and leases go to the shared DHCP tables with `source_type = technitium`; Technitium DNS is a `dns_servers.type`.
 
 > **Graylog DSV** (token-protected lookup endpoints under `/api/v1/lookup/...`): a global IP→hostname/FQDN table, per-firewall `rid → alias` and `alias → members` tables (gated by `expose_dsv`), and per-cluster Proxmox `vmid → VM name`. Consumed by Graylog's "DSV File from HTTP" data adapter (key column 0, value column 1).
 
@@ -190,6 +191,17 @@ Talks to pfSense via the third-party **pfSense-pkg-RESTAPI** (pfrest.org; base `
 - **PfSenseSyncedAlias**: aliases pulled back for read-only viewing (`members`, `alias_type`); also feeds the alias→members Graylog DSV.
 - pfSense NAT port-forwards are synced into the same `nat_translations` table with `source_origin = pfsense:<fw_uuid>`, so they list alongside OPNsense NAT (filterable by source).
 
+### 6.3c Check Point: `checkpoint.py` (Beta, migration 0194)
+
+Talks to the **management server** (Security Management Server / Multi-Domain, R81.20) through the Management API (`POST <url>/web_api/<command>`, `X-chkp-sid`), read-only: the login asks for a read-only session and always logs out. One management server manages many gateways and policy packages, so the integration unit is the management server, not a gateway.
+
+- **CheckPointServer** (`checkpoint_servers`): `api_url`, `verify_tls`, `auth_mode` (`api_key` / `password`, with `username`), the API key or password encrypted in `secret_enc`/`secret_nonce` (AAD `checkpoint_server:{id}:secret`), `domains` (empty = single management server; Multi-Domain logs in once per domain), `packages` (empty = all), sync toggles (`sync_objects`/`sync_policies`/`sync_nat`), `scope_subnet_ids`, and the last run (`api_version`, `last_summary`, `last_error`).
+- **CheckPointGateway** (`checkpoint_gateways`): gateways and servers registered on the management server (`domain`, `uid`, `name`, `gw_type`, `ipv4_address`, `version`); their addresses join the rogue-DHCP allowlist and IP change assessment.
+- **CheckPointObject** (`checkpoint_objects`): network objects (host, network, address-range, group, group-with-exclusion) with a display `value` and group `members`; the IP detail firewall lookup matches against them.
+- **CheckPointRule** (`checkpoint_rules`): access rules per `domain` / `package` / `layer` (inline layers as "parent › inline layer") with `section`, `rule_number`, `action`, `enabled`, source/destination/service names, `source_negate`/`destination_negate`, `install_on`, `hits` and `last_hit_at`.
+- Destination NAT translations go to the shared `nat_translations` table as `port_forward` with `source_origin = checkpoint:<server_uuid>`.
+- Phase 2 (`checkpoint_gaia.py`, migration 0195): **CheckPointGaiaTarget** (`checkpoint_gaia_targets`) is one gateway's Gaia API connection under a management server (`server_id`, optional `gateway_uid`/`domain` matching a mirrored gateway, `gaia_url`, `username`, the password in `secret_enc`/`secret_nonce` (AAD `checkpoint_gateway:<id>:gaia_secret`), `verify_tls`, `sync_dhcp` (read only, on by default), `allow_scripts` (off by default; runs fixed read commands through `run-script`, needs an account that may run commands), `sync_arp`, `sync_leases`, optional `scope_subnet_ids` (empty = the management server's scope), `sync_interval_seconds`, `api_version`, last sync status). **CheckPointDhcpSubnet** (`checkpoint_dhcp_subnets`) mirrors the gateway's DHCP server subnets (`subnet_cidr`, `enabled`, `default_gateway`, `dns_servers`, `domain_name`, lease times, raw `pools`) for IP change assessment. Pools, lease flags and host names go to the shared tables with `source_type`/`source = checkpoint` and `source_id` = the Gaia target; ARP and leases are stamped as `arp:checkpoint` (aging, from the neighbour's confirmation age) and `lease:checkpoint` (not aging) in `ip_addresses.arp_seen`. VPN status is not synced.
+
 ### 6.4 Proxmox virtualization: `virt.py`
 - **ProxmoxInstance**: PVE API connection (`api_url` + `extra_api_urls` for node failover, `auth_username`/`auth_token_id`, secret via `encrypted_secrets`, `verify_tls`).
 - **VirtCluster**: a Proxmox cluster (`type`, `is_standalone`, `location_id`, `tenant_id`, `customer_id`).
@@ -197,7 +209,7 @@ Talks to pfSense via the third-party **pfSense-pkg-RESTAPI** (pfrest.org; base `
 - **VMInterface**: `mac`, `primary_ip`, `bridge`, `vlan_id`.
 
 ### 6.5 DNS: `dns.py`
-- **DNSServer**: provider abstraction `type` (powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs); credentials in `encrypted_secrets`.
+- **DNSServer**: provider abstraction `type` (powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs/technitium); credentials in `encrypted_secrets`, non-secret settings in `extra_config` (for `windows_dns`: `username`, `use_ssl` (HTTPS 5986, default, or HTTP 5985 with forced NTLM message encryption), optional `winrm_port`, `verify_tls`).
 - **DNSZone**: `type` (forward/reverse), `managed`, `associated_subnet_ids` (`uuid[]`).
 - **DNSRecord**: `type` (A/AAAA/PTR/CNAME/MX/TXT/SRV/NS/SOA), `source` (manual/from_ipam/from_dns_pulled), `consistency_state` (consistent/dns_only/ipam_only/mismatch) for the drift report, optional `ipam_address_id` back-link.
 

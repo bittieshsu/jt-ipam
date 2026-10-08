@@ -20,10 +20,25 @@ import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { auditSinceFromQuery } from "@/utils/dashboardKpiTarget";
 const { t } = useI18n();
 
 const router = useRouter();
+const route = useRoute();
+// 從儀表板「24h 稽核事件」點進來：?since=24h 只看最近 24 小時（可以按 × 拿掉）
+const sinceLabel = ref<string | null>(auditSinceFromQuery(route.query.since)?.label ?? null);
+function sinceIso(): string | undefined {
+  return sinceLabel.value ? auditSinceFromQuery(sinceLabel.value)?.since : undefined;
+}
+function clearSince() {
+  sinceLabel.value = null;
+  const q = { ...route.query };
+  delete q.since;
+  router.replace({ query: q }).catch(() => {});
+  offset.value = 0;
+  void refresh();
+}
 
 // 把 audit (object_type, object_id) → 可點連結
 function renderObjectLink(objectType: string | null, objectId: string | null, label?: string | null) {
@@ -54,6 +69,8 @@ function renderObjectLink(objectType: string | null, objectId: string | null, la
     // 整合實例 → 點進對應的設定頁（標籤已由後端解析成實例名稱）
     case "fortigate_firewall":  return go("fortigate");
     case "paloalto_firewall":   return go("paloalto");
+    case "checkpoint_server":   return go("checkpoint");
+    case "checkpoint_gaia_target": return go("checkpoint", undefined, { tab: "gateways" });
     case "pfsense_firewall":    return go("pfsense");
     case "opnsense_firewall":   return go("firewall_admin");
     case "librenms_instance":   return go("librenms");
@@ -61,7 +78,9 @@ function renderObjectLink(objectType: string | null, objectId: string | null, la
     case "adguard_instance":    return go("adguard");
     case "windows_dhcp_server": return go("windows_dhcp");
     case "kea_dhcp_server":     return go("kea_dhcp");
+    case "technitium_dhcp_server": return go("technitium_dhcp");
     case "isc_dhcp_server":     return go("isc_dhcp");
+    case "isoinsight_source":   return go("isoinsight");
     case "rustdesk_server":     return go("rustdesk");
     case "proxmox_instance":
     case "virt_cluster":        return go("virt_admin");
@@ -195,6 +214,7 @@ async function fetchAllForExport(): Promise<AuditLog[]> {
     const res = await listAudit({
       object_type: filterObjType.value || undefined,
       action: filterActions.value.length ? filterActions.value : undefined,
+      since: sinceIso(),
       limit: big, offset: off,
     });
     all.push(...res.items);
@@ -210,6 +230,7 @@ async function refresh() {
     const res = await listAudit({
       object_type: filterObjType.value || undefined,
       action: filterActions.value.length ? filterActions.value : undefined,
+      since: sinceIso(),
       limit: limit.value, offset: offset.value,
     });
     rows.value = res.items;
@@ -280,6 +301,9 @@ onMounted(() => {
       </n-space>
     </template>
     <n-space style="margin-bottom: 12px" align="center">
+      <n-tag v-if="sinceLabel" type="warning" closable data-testid="audit-since" @close="clearSince">
+        {{ t("audit.since_tag", { range: sinceLabel.endsWith("d") ? t("audit.since_days", { n: parseInt(sinceLabel) }) : t("audit.since_hours", { n: parseInt(sinceLabel) }) }) }}
+      </n-tag>
       <n-select v-model:value="filterObjType" :options="objTypeOptions" filterable clearable
                 :placeholder="t('audit.filter_object_type')"
                 @update:value="refresh"

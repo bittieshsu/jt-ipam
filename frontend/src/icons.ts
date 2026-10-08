@@ -51,6 +51,7 @@ import {
   Server,
   Windows,
   DataTransferBoth,
+  DatabaseExport,
   DatabaseScript,
   Text,
   ServerConnection,
@@ -115,7 +116,15 @@ import {
   HelpCircle,
   PasteClipboard,
   Menu,
-  TestTube,
+  ClipboardCheck,
+  Play,
+  Sparks,
+  PlugTypeA,
+  Cube,
+  NetworkReverse,
+  ShareAndroid,
+  NetworkRight,
+  Rings,
 } from "@iconoir/vue";
 
 // ── 通用 ──
@@ -189,6 +198,10 @@ export const WindowsDhcpIcon = Windows;
 // 獨立 Kea（jt-ipam 拉 API）／ISC DHCP（代理讀設定與租約檔）—— 兩個選單要分得出來，也不能跟 Server 撞
 export const KeaDhcpIcon = DataTransferBoth;
 export const IscDhcpIcon = DatabaseScript;
+// ISOinsight 整合（登入設備的網頁介面讀 DHCP 租約）：跟 Kea 的雙向箭頭、ISC 的設定檔圖示分得出來
+export const IsoInsightIcon = DatabaseExport;
+// Technitium DHCP（同一台還是 DNS 伺服器）：跟 Kea／ISC／ISOinsight 的圖示分得出來
+export const TechnitiumIcon = NetworkReverse;
 // RustDesk Server（開源版）：選單與 IP 詳細資料的「以 RustDesk 連線」。不用 R 字螢幕 —— 那顆是 RDP
 // RustDesk 網頁連線的工具列：「螢幕」選單（多螢幕切換）、「畫質」選單、螢幕選單裡的「解析度」子選單
 export const ScreensIcon = ModernTv;
@@ -223,8 +236,15 @@ export const AnomalyIcon = ShieldAlert;
 // AI 巡檢：跟異常偵測分開的圖示 —— 一個是量到的事實、一個是模型的推測，
 // 選單上並排時要一眼分得出來
 export const AiAuditIcon = BrainResearch;
-/** 變更影響預演：試管＝預演、不會真的改 */
-export const ChangeImpactIcon = TestTube;
+/** IP 變更評估：檢核板＝評估（只讀，不會真的改） */
+export const ChangeImpactIcon = ClipboardCheck;
+export const ReviewIcon = ShieldCheck;      // 覆核
+export const PlayIcon = Play;               // 開始（維護）
+export const AiIcon = Sparks;               // 請 AI 草擬
+/** 管理選單的「外部系統整合」子樹 */
+export const IntegrationsIcon = PlugTypeA;
+/** IP 變更評估 M2 的服務 */
+export const ServiceIcon = Cube;
 export const DnsIcon = Globe;
 export const LibreNMSIcon = Cloud;
 export const FirewallIcon = Shield;
@@ -318,3 +338,9 @@ export function renderIcon(Icon: any, size = 18) {
 }
 /** SFTP 檔案傳輸（沿用資料夾圖示 —— 這個功能就是在瀏覽遠端目錄） */
 export const FilesIcon = Folder;
+
+// IP 變更評估關係圖的排列方式（使用者 2026-10-08：按鈕要有圖示）
+export const GraphForceIcon = ShareAndroid;   // 自動排列：幾個點互相連著
+export const GraphRadialIcon = SunLight;      // 放射：中心向外
+export const GraphTreeIcon = NetworkRight;    // 樹狀：由左往右
+export const GraphRingsIcon = Rings;          // 依影響分層：同心圈

@@ -153,7 +153,9 @@ _PER_OBJECT_TOOLS = frozenset({
     "list_ip_requests", "switch_port_for_ip", "trace_mac", "mac_history", "allocate_ip", "update_ip",
     "create_subnet", "create_device", "approve_ip_request", "reject_ip_request",
     "list_connection_targets", "investigate_ip",
-    # 變更影響預演：計畫依根目標的可見性、結果依 Viewer 逐筆過濾（services/change_impact/access.py）
+    # ISOinsight 來源租約：依可見子網路過濾，配對不到子網路的只給管理員（services/isoinsight/queries.py）
+    "list_isoinsight_leases",
+    # IP 變更評估：計畫依根目標的可見性、結果依 Viewer 逐筆過濾（services/change_impact/access.py）
     "impact_list_plans", "impact_get_run", "impact_list_findings", "impact_get_evidence",
     "impact_prepare_scenario", "impact_create_plan", "impact_start_run", "impact_accept_task_draft",
 })

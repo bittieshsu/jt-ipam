@@ -131,6 +131,8 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
   否則測到的是你已經發出去的東西。它會在升級**前**寫一列資料並檢查它還在：升級把資料弄丟是
   最糟的失敗，而且不會讓任何指令回非零
 - [ ] 對上一版的環境跑 `scripts/jt-ipam.sh upgrade`，必要時也要能還原
+- [ ] **PDF 報告的中文字型**：全新安裝與升級後都有 `fonts-noto-cjk`（記錄顯示「CJK font for PDF reports present」或「Installed fonts-noto-cjk」），
+  `fpdf2` 有裝進 venv（版本資訊頁的套件清單看得到）；把 apt 鏡像斷掉再升級，只出現警告、升級照樣完成
 - [ ] **建置前端用的 Node.js 22**：兩道關卡都會拿容器裡的 `node -v` 對照 `engines.node`（全新安裝：v22，且 `doctor`
   有「Node.js v22... for building the frontend」那一行；從還在用 Node 20 的版本（v0.6.61 以前）升級：記錄顯示
   Node.js v20 -> v22，站台仍經 HTTPS 有回應）。升級時裝不起來 22 的退路（沿用 Node 20 以上、印警告框、`doctor` 提醒；
@@ -210,6 +212,33 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 - [ ] **每一條路由都打得開**：`playwright test e2e/all-routes.spec.ts` 綠。它從 `src/router/index.ts` 解析路由清單，所以新頁面
   會自動涵蓋；遇到空白畫面、JS 例外、API 呼叫失敗與沒翻譯的 key 都會失敗。會有這支，是因為巡檢以前只走 78 條路由裡的 22 條：
   四十幾個頁面從來沒被任何測試打開過。只有人會打開的頁面，就是沒有任何東西在檢查的頁面
+
+## 5i. IP 變更評估涵蓋新功能：**每次發版都要跑**（使用者 2026-10-08）
+
+- [ ] 這次新增的整合：已加進 `services/change_impact/sources.py` 的來源清單、adapter 有讀它的資料，或寫進 `NOT_SOURCES` 並附理由（`tests/test_change_impact_coverage.py` 綠）
+- [ ] 這次新增會存 IP、裝置、主機名稱引用的功能（設定欄位、規則、記錄）：改址、除役、維護或停機時會列出來（有對應的規則與三語句子），或在發版說明寫明為什麼不需要
+- [ ] 實際對一個用到新資料的位址或裝置建一份評估，影響清單或資料不足裡看得到新來源
+- [ ] 只有防火牆 ARP 表或 VPN 看到的位址（沒有掃描代理、監控）做改址評估：出現「舊位址仍有設備在用」，來源寫「ARP 表（廠牌）」；只有 DHCP 租約的不出現（`tests/test_change_impact_activity.py`）
+- [ ] 新整合或新系統設定有連線位址（網址、主機）：加進 `adapters_ipam._INTEGRATION_URLS` 或 `_system_endpoints`（多值欄位用換行或逗號分隔也要比得到）
+- [ ] `tests/test_change_impact_column_coverage.py` 綠：資料表裡每個存位址、主機或網址的欄位都在 COVERED（評估真的有讀）或 EXEMPT（寫了理由）
+
+## 5j. 新的相依與系統元件：**每次發版都要跑**（使用者 2026-10-08：「這都應該是你要知道要處理的，不需我提醒」）
+
+- [ ] 新的 Python / npm 套件：已寫進 `backend/pyproject.toml` / `frontend/package.json`，版本資訊頁的清單也列出來（`tests/test_dependency_page.py` 綠）
+- [ ] 新的 apt 套件、字型、指令、systemd 設定：安裝與升級兩條路徑都會處理（放進 `ensure_runtime_deps` 最省事；`tests/test_install_upgrade_parity.py` 綠），升級時裝不起來只警告、功能要有清楚的錯誤代碼
+- [ ] 新功能要在**正式環境的服務沙箱**下跑過一次（systemd 的 SystemCallFilter／MemoryDenyWriteExecute 會直接殺掉程序、開發機沒有這層）：在測試機用 `systemd-run` 帶上與 `jt-ipam-backend.service` 相同的限制執行，或部署後實際操作一次並查 `journalctl -u jt-ipam-backend` 有沒有 `Child process ... died`
+- [ ] 新的環境變數、目錄、對外連線（含 `OUTBOUND_ALLOW_*`）：安裝與升級都有預設值或建立步驟，網頁上可以開關（不可要求改 env 重啟）
+- [ ] README（三語）的需求與安裝說明、導入指南、本清單的全新安裝/升級項目已更新；CHANGELOG 註明安裝/升級的影響
+- [ ] 實際走過 `scripts/test-fresh-install.sh` 與 `scripts/test-upgrade.sh`（`JT_IPAM_REPO` 指向這次要發的那份），新功能在兩種站台上都能用
+
+## 5k. 文件與網站：**每次發版都要跑**（使用者 2026-10-08：「該更新的都要一併更新到」「以後這些都要檢查，列入發版前作業跟守門」）
+
+- [ ] `tests/test_docs_site_coverage.py` 綠：網站每頁三語段落數一致、每個整合的產品名稱都在功能清單/首頁/三份 README、主要功能在首頁與 README、文件沒有全形「/」與破折號
+- [ ] 這次新增或改變的功能：`docs/features.html` 有一行（一項一行）、大功能在 `docs/index.html` 有卡片並加進守門測試的 MAJOR_FEATURES、三份 README 的功能說明跟上
+- [ ] 新的 API：`docs/api.html`（三語，`tests/test_api_manual_coverage.py`）；新的資料表：三份 DATA_MODEL；新的系統需求或套件：三份 INSTALL 與 README 的需求段落
+- [ ] 這次修掉、會讓人卡住的問題：`docs/troubleshooting.html` 補一則（症狀、原因、怎麼處理），並檢查既有條目有沒有因為這次的改動而過時（例如預設值改了）
+- [ ] 導入指南 `docs/adoption.html` 的整合注意事項、畫面截圖（`docs/shots/{zh,en,ja}/`，用 `scripts/docs-shots.mjs` 重拍）有沒有過時
+- [ ] CHANGELOG 中英兩份、本清單中英兩份都寫到這次的改動
 
 ## 5g. 伺服器寫在畫面上的訊息：**只要新增或改動錯誤訊息就要跑**
 
@@ -381,14 +410,21 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   不建 IP 記錄，格子是橘色虛線框（超過一天變淡），圖例「未納管 (N)」、閒置數同時減少，滑過看到來源／多久以前／MAC；點格子可以登錄，登錄後變成一般格子；
   背景探測（liveness=false）補的資料不算；不在代理子網路內的位址不記；「未授權 IP」列得出只有掃描代理看到的位址；沒有子網路讀取權限打 API 是 404；
   30 天沒再看到就被清掉
+- [ ] **同一台代理同時送兩筆回報不會死結**（`tests/test_scan_agent_report_concurrency.py`）：另一筆還在交易裡時下一筆會等；同一批 IP 相反順序同時送，兩筆都 200。上線後看 prod 日誌 `DeadlockDetectedError` 不再出現在 `/scan-agents/report`
+- [ ] **DHCP 集區使用率不混算重疊網段**（`tests/test_dhcp_pool_usage_scope.py`）：兩個同 CIDR 子網路時手動集區只算自己的；整合集區用整合的範圍設定；分不出來不計入；巢狀子網路取最具體的；IP 清單的「在 DHCP 範圍」不會被另一個同 CIDR 子網路的集區（手動或整合）標上，「DHCP 伺服器（自動）」只標在防火牆範圍內的子網路；同位址兩筆時 IP 詳細資料的 NAT 只列這一筆的
+- [ ] **每日備份看得出失敗**（`tests/test_backup_script.py`、`tests/test_self_check_backup.py`、`tests/test_self_check_i18n.py`）：備份腳本成功與失敗都寫 `last-run`，失敗不截斷同一天先前的 dump、不留空目錄、權限錯誤印出 ALTER TABLE 指令；系統診斷「每日備份」成功是綠、失敗或 48 小時沒成功是紅（發系統告警）、timer 沒啟用是黃；`jt-ipam.sh doctor` 失敗時是 ✗；升級後 `/usr/local/bin/jt-ipam-backup.sh` 與 repo 那份相同
+- [ ] **同步遇到死結重做一次**（`tests/test_sync_deadlock_retry.py`）：防火牆與 DHCP 的同步都走 `_commit_with_retry`；死結只重做一次、其他錯誤不吞；上線後 `journalctl -u jt-ipam-sync` 看到 `deadlock with a concurrent writer, retrying once` 之後是成功，不再出現 `sync failed: ... deadlock detected`
 - [ ] **裝置類型「工作站」與自動判斷**（`tests/test_device_workstation_type.py`）：新增、編輯、清單篩選、匯入（「工作站」「筆電」「PC」）都認得；
   類型是「其他」、IP 上有 Wazuh/RustDesk/OCS 回報 Windows 10/11 或 macOS 的裝置，下一輪同步後變工作站；Windows Server 變伺服器；
   Linux 不動；人工改過類型的（含改回「其他」）之後不會被自動改；從 IP 頁「建立裝置」建出來的裝置直接帶工作站；拓樸圖例的「伺服器 / 其他」群組含工作站；
   機櫃圖有工作站的顏色
 - [ ] **儀表板卡片標題只放標題（頂多一個數量）**：沒有按鈕、沒有副標文字；機櫃卡的「設定」與顯示範圍在內文最上方
+- [ ] **儀表板上方的數字卡點下去到對應清單**：區段 → 區段頁、子網路與 IPv4 容量 → 子網路頁、已配發 IP → IP 位址頁、24h 稽核事件 →
+  稽核頁並帶「只看最近 24 小時」標籤（按 × 看全部）；鍵盤 Enter 也可以；非管理員的稽核卡不可點、沒有浮起效果。
 - [ ] **IP 詳細資料「各來源最後出現」**（`e2e/ip-seen-sources.spec.ts`）：獨立一區，來源／時間／多久以前三欄，順序固定（掃描代理、
   LibreNMS、ARP、Wazuh、OCS、各防火牆、AdGuard），最新的一列加粗並標「最新」；基本資料裡不再有「最後出現」欄位；手機上
   「多久以前」併到時間下方、不出現橫向捲動。LibreNMS／Wazuh／OCS 的時間點下去 → 裝置頁並捲到對應卡片（外框亮一下）
+  沒設定 AdGuard（或 LibreNMS）整合、也沒有資料時，不列「AdGuard 設定」（或 LibreNMS、ARP）那一列；只有子網路讀取權的帳號也一樣（`tests/test_ip_seen_integrations.py`）
 - [ ] **各來源最後出現的上線判定與排序**（`e2e/ip-seen-sources.spec.ts`、`tests/test_ip_seen_rule.py`）：掃描代理在時限內＝「計入 ·
   有效」、LibreNMS 過期＝「計入 · 已過期」、DHCP 租約與 AdGuard＝「不計入」（改系統設定的採信來源後跟著變）；「時間」點一下最新在上；
   手機只剩三欄、不左右捲動；IP 清單 API 不帶 `liveness_rule`
@@ -451,7 +487,7 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   打開 `page.html#錨點` 會捲到那一區（API 手冊的小標題也是）；`git ls-files '*.md' '*.html' | xargs grep -lP '\x{FF0F}'`
   沒有結果（文件的斜線一律半形）
 
-## 7. pfSense 整合（管理 → 整合 pfSense）
+## 7. pfSense 整合（管理 → 外部系統整合 → pfSense）
 
 > pfSense（CE 2.8.x）端前置：安裝 **pfSense-pkg-RESTAPI**（pfrest.org），到 System → REST API →
 > Settings 把 **「API Key」** 加進認證方式（預設只有 BasicAuth），再到 Keys 產一把金鑰。
@@ -468,7 +504,7 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   與 `…/rules?token=…` 回 CSV/TSV；**token 錯 → 401**；`expose_dsv` 關閉 → 404
 - [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
-## 7b. VMware ESXi / vCenter 整合（管理 → 整合 VMware）：**Beta**
+## 7b. VMware ESXi / vCenter 整合（管理 → 外部系統整合 → VMware）：**Beta**
 
 > SOAP 端點固定是 `<url>/sdk`。同一套實作**同時**涵蓋單機 ESXi 與 vCenter：它們是同一組 VIM API，
 > ContainerView 會吸收掉層級深度的差異。請用**唯讀**帳號：這個整合從不寫入。
@@ -496,7 +532,7 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   第三方平台給的名稱長度，不是我們可以自己假設的。
 - [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
-## 7b2. MikroTik RouterOS 整合（管理 → 整合 MikroTik）：**Beta**
+## 7b2. MikroTik RouterOS 整合（管理 → 外部系統整合 → MikroTik）：**Beta**
 
 > **這個整合的重點是不要把路由器拖慢。** 提出需求的那個站台，MikroTik 是**主力**路由器，所以保護機制本身就是功能；
 > 要測的是它們，不只是欄位解析。RouterOS 端要啟用 `www-ssl`，並準備一個有 `api` ＋ `read` 權限的帳號。
@@ -594,6 +630,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 預設值：全新安裝的設定頁 RDP、VNC 顯示「guacd（預設）」，SSH 顯示「內建（預設）」；舊站台升級後 RDP/VNC 變成 guacd
   （`frontend/e2e/rdp-engine.spec.ts`、`tests/test_console_engine_default.py`）
 - [ ] guacd 是必要元件：「版本資訊 → 必要相依」列著它（版本、是否在執行）；aardwolf 在「選用相依」
+- [ ] RDP 引擎是 guacd（預設）時，版本資訊的 xfreerdp / Xvfb / ffmpeg / xclip 顯示「未選用此引擎」、不進缺少警告；改選 FreeRDP 後缺了才紅字並進警告（客戶 2026-10-08，Ubuntu 26.04）。升級時 aardwolf 裝不起來只印一行說明、沒有紅色 pip ERROR
 - [ ] 系統設定的資安區塊一列一個設定：左邊名稱與說明、右邊控制項，列與列有分隔線；缺套件、guacd 沒在跑、傳輸路徑檢測結果整列寬顯示在該設定下面；手機寬度改成上下排
 - [ ] 彈出層在 AI 助手浮動按鈕之上：開在右下角的確認框/下拉選單，與按鈕重疊的地方也點得到（`frontend/e2e/chat-fab-overlays.spec.ts`）
 - [ ] guacd 版本字串很長時（`… for Ubuntu 24.04 LTS (amd64)`），「必要相依」卡片仍然好讀：名稱欄不被擠壓、狀態在右邊、
@@ -637,6 +674,77 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 刪除來源會收回它寫進共用表的範圍/保留/租約/主機名稱
 - [ ] `e2e/dhcp-standalone.spec.ts`：Kea 測試連線失敗時看得到真正原因（不是前端 15 秒逾時）；ISC 讀檔狀態、被佔用的代理反灰
 
+## 7b3a. Technitium DNS Server（DNS 與 DHCP）：**動到這個整合、DNS 同步、DHCP 共用寫入層或改址評估的 DHCP 規則就要跑**
+
+自動化：`backend/tests/test_technitium_client.py`（真的本機 HTTP 伺服器：token 放 POST 表單不進網址、錯誤分類、不跟轉址、
+錯誤訊息不含 token）、`test_technitium_dns.py`、`test_technitium_dhcp.py`、`test_change_impact_technitium.py`；
+`frontend/e2e/technitium.spec.ts`（要真的 Technitium，見下方）。
+
+- [ ] **真的 Technitium 往返**：`docker run -d --name tdns-test --network <自建橋接網路> --ip <固定位址> -e DNS_SERVER_ADMIN_PASSWORD=… technitium/dns-server`
+  （⚠️ 後端的外連防護擋迴路位址：用橋接網路的位址連，不用 127.0.0.1）；建唯讀帳號與群組，給「DHCP」「區域」檢視權限，
+  要同步的區域另外給群組檢視權限，用這個帳號建 API token；建一個啟用的範圍（含排除區間、保留、閘道、DNS），用
+  `docker run --rm --network <同一個網路> --mac-address … --cap-add NET_ADMIN busybox udhcpc -i eth0 -n -q -f -s /bin/true -x hostname:…`
+  要真的租約。跑 `E2E_TECHNITIUM_URL=… E2E_TECHNITIUM_TOKEN=… e2e/technitium.spec.ts`
+- [ ] DHCP 測試連線講出版本、帳號、範圍數（啟用幾個）、有效租約數；token 有修改權限時提醒；token 錯是「token 無效」、
+  沒有 DHCP 權限是「沒有權限」，HTTP 轉 HTTPS 時講出要改用的網址
+- [ ] 同步：發放範圍扣掉排除區間；停用的範圍不寫發放範圍與保留；保留標「固定分配」；既有 IP 標「有租約」、MAC 與主機名稱；
+  過期的租約不算；範圍頁籤列出閘道、DNS、NTP、WINS、網域、租約時間；伺服器上刪掉的範圍這邊也消失；讀不到時不清任何東西
+- [ ] DNS（「DNS 伺服器」選 Technitium）：測試連線講出讀得到幾個區域（沒有權限的區域 Technitium 不會列出來）；同步拉回 A/AAAA/PTR，
+  停用的區域與紀錄不算；jt-ipam 不寫回
+- [ ] IP 變更評估：位址是某個啟用範圍的預設閘道 → 「嚴重」；是 DNS/NTP/WINS 或發 DHCP 的介面位址 → 「高」；
+  保留、發放範圍、租約照其他 DHCP 來源評估；主控台網址是這個位址也會列出
+- [ ] 非法 DHCP 偵測放行 Technitium 主控台的主機與各範圍的 DHCP 介面位址；刪除整合會收回範圍、保留、租約與主機名稱
+
+## 7b3b. Check Point（Management API，第一階段）：**Beta；動到這個整合、防火牆反查、規則異動偵測或改址評估的防火牆/NAT 規則就要跑**
+
+⚠️ **尚未在實機驗證**（依官方 API 文件與模擬伺服器開發）；實機的回應不同時以實機為準，改 `services/checkpoint.py` 與
+`tests/checkpoint_mock.py`。
+
+自動化：`backend/tests/test_checkpoint.py`（模擬 Management API：唯讀登入、出錯也登出、金鑰錯誤且訊息不含金鑰、分頁、
+段落與內嵌層、除外旗標、NAT、伺服器上刪除會同步刪除、某個區段失敗保留資料、Multi-Domain 逐網域登入、IP 詳細資料反查、
+IP 變更評估、API 增刪改不回傳金鑰、限管理員）。
+
+- [ ] **實機**：測試用的 R81.20 Standalone 或 Security Management Server；在 SmartConsole 建權限設定檔為 Read Only All、
+  驗證方式為 API Key 的管理員；Manage & Settings → Blades → Management API → Advanced Settings 允許 jt-ipam 主機，
+  再執行 `api restart`
+- [ ] 測試連線逐網域講出 API 版本與閘道、主機、網路物件、政策套件的數量；金鑰錯誤說登入失敗（不帶金鑰），管理伺服器
+  不接受 API 連線時講出原因
+- [ ] 同步：閘道、網路物件、存取規則三個頁籤跟 SmartConsole 一致（規則編號、段落、內嵌層標成「上層 › 內嵌層」、
+  反向的欄位有「除外」標籤、停用的規則變淡、命中數）；伺服器上刪掉的規則或物件下一輪同步後消失；大型政策的搜尋與分頁正常
+- [ ] 目的地 NAT（自動 static NAT 與手動規則）出現在 NAT 頁、來源是「Check Point」；hide NAT 不會出現
+- [ ] Multi-Domain：填兩個網域，各自登入、資料帶網域；網域名稱打錯只有那個網域失敗
+- [ ] 測試與同步之後，管理伺服器的工作階段清單沒有殘留的 jt-ipam 工作階段（一定登出）
+- [ ] IP 詳細資料：防火牆卡片列出相符的 Check Point 規則與物件，點下去會帶到那一筆；規則異動偵測記到新增的規則；
+  IP 變更評估列出引用這個位址的規則與 NAT（來源有 Check Point）
+- [ ] 刪除整合會收回它的 NAT；系統匯出/匯入保留這個整合，金鑰維持加密
+
+## 7b3c. Windows DNS（WinRM）：**動到 Windows DNS 的連線程式或 DNS 伺服器表單就要跑**
+
+自動化：`backend/tests/test_dns_adapter_connection_errors.py`（預設驗證憑證、可關閉、HTTP 強制 NTLM 加密、預設連接埠跟著
+連線方式、憑證不受信任的錯誤附處理方式）。
+
+- [ ] Windows Server 2022 預設防火牆（只開 WinRM HTTP 5985）：選「HTTP（5985）」，測試連線成功、區域同步得到
+- [ ] HTTPS 5986 監聽用自簽憑證：「驗證 TLS 憑證」開著時錯誤訊息說憑證不受信任與處理方式；關掉後連得上；重開表單時
+  連線方式、連接埠與開關都保留
+
+## 7b3d. Check Point 閘道（Gaia API，第二階段）：**Beta；動到 Gaia 這一段、共用的 DHCP/租約寫入、上線證據或改址評估的 DHCP 部分就要跑**
+
+自動化：`backend/tests/test_checkpoint_gaia.py`（模擬 Gaia API：唯讀登入與登出、沒打開「允許讀取指令」就不會呼叫
+`run-script`、只跑寫死的指令、發放範圍扣掉排除區間與停用的範圍、ARP 的確認時間與 PERMANENT/FAILED 處理、租約檔以最後一筆為準、
+唯讀帳號照樣讀得到 DHCP 並說明指令為什麼失敗、租約檔太大時保留舊的租約標記、API 增刪改不回傳密碼、刪閘道或刪管理伺服器
+會收回發放範圍與租約標記、IP 變更評估看得到 DHCP 發出去的預設閘道、限管理員）。
+
+- [ ] 閘道頁籤：管理伺服器上的每台閘道都有「設定 Gaia 連線」，網址預填 `https://<閘道>/gaia_api`；清單裡沒有的閘道可以
+  用「手動新增閘道」
+- [ ] 唯讀帳號（Gaia 角色只給唯讀功能）：測試連線講出 Gaia API 版本與 DHCP 子網路數、「讀取指令：未開啟」；同步寫入
+  發放範圍（已扣掉排除區間），「DHCP 子網路」對話框列出預設閘道與 DNS
+- [ ] 打開「允許執行寫死的讀取指令」：警告說明這個帳號要比唯讀大的權限；用唯讀帳號時測試說帳號沒有權限、DHCP 照樣同步；
+  用能執行指令的帳號時 ARP 表會標記位址（IP 的證據有 `arp:checkpoint`，時間接近鄰居最後一次確認），有效租約會設定租約旗標、
+  MAC 與主機名稱
+- [ ] 閘道 DHCP 伺服器的租約檔超過上限：同步回報原因，保留舊的租約標記
+- [ ] 上線判定設定頁只有在有 Gaia 連線時才列出「ARP 表（Check Point）」與「DHCP 租約（Check Point）」
+- [ ] 移除 Gaia 連線（或刪掉整台管理伺服器）會收回它的發放範圍、租約標記與主機名稱；系統匯出/匯入保留連線，密碼維持加密
+
 ## 7b4. RustDesk Server（開源版）：**動到這個整合、RustDesk 代理或 IP 詳細資料就要跑**
 
 - [ ] **OS 來源**（`tests/test_os_sources_rustdesk_wazuh.py`）：名稱 / ARP 來源頁的 OS 優先順序最後一個是「RustDesk 客戶端」（升級的站台
@@ -678,7 +786,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] **探測會更新 IP 的設備類型**（`test_device_kind_identify.py`）：對 IP 頁顯示「伺服器」的攝影機／印表機按「探測」→ 之後 IP 頁顯示
   探測判斷的類型；下一輪定期偵測維持不變（沒有 `kind_changed` 記錄）；定期偵測有另一種設備的服務證據時照樣會改
 - [ ] **設備類型欄**（`test_device_kind_columns.py`）：連線管理、Wazuh／OCS「未裝 Agent 的 IP」、異常偵測、對外開放服務的「欄位」選單都有
-  設備類型（標註預設顯示的頁面一打開就有），可以排序（缺口清單由伺服器用 `sort=device_kind` 排，沒有值的排最後）、可以匯出
+  設備類型（標註預設顯示的頁面一打開就有），可以排序（未裝代理清單由伺服器用 `sort=device_kind` 排，沒有值的排最後）、可以匯出
 - [ ] **IP 表單存檔不清掉主機名稱**（`test_ip_edit_keeps_hostname.py`）：打開一個主機名稱沒有任何來源觀測的 IP，只改說明就儲存 →
   主機名稱還在，也沒有 `hostname_changed` 異動記錄
 - [ ] **主機名稱來源 `rustdesk`**（`test_reported_hostname_feeds_the_ip_record_last`）：已對應裝置回報的名稱會補上沒有名稱的 IP；已有 DNS
@@ -819,6 +927,33 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   同名機櫃要求補地點；已存在的裝置略過/更新（空白不清值）；同一個檔案裡的 U 位重疊會被擋；有錯的列一筆都不寫；
   預覽不留任何變更；每台裝置都有稽核；.xlsx 也能匯；公式注入（= 開頭）在範本裡有加單引號、匯回來會拿掉
 
+## 7b5. ISOinsight 整合：**動到這個整合、租約/主機名稱/MAC 共用寫入層或同步排程就要跑**
+
+自動化：`backend/tests/test_isoinsight_parser.py`、`test_isoinsight_config.py`、`test_isoinsight_client.py`
+（真的本機 HTTP 伺服器：方法、編碼、Cookie、Token、錯誤分類、重試、上限、秘密）、`test_isoinsight_sync.py`
+（資料庫：配對、合併、非破壞性、鎖、排程、兩萬筆租約）、`test_isoinsight_api.py`、`test_isoinsight_mcp.py`。
+這些只證明 jt-ipam 的行為，**不代表**設備接受。
+
+- [ ] **待真機驗證（逐版本填相容性矩陣）**：GET、POST form、POST JSON 各自能否登入；登入回應（Cookie 名稱與屬性，或
+  Token 欄位與 Header，值要遮蔽）；用登入後的 Session 讀租約；是否全量、有無分頁、含不含過期租約；`start_time`/`end_time`
+  的時區與設備時間；唯讀帳號看得到所有需要的子網路；正式機與測試機路徑是否相同
+- [ ] 測試連線逐步顯示（登入、讀租約、結構驗證）的方法、已遮蔽的路徑、HTTP 狀態與耗時；Cookie 只列名稱、不列值；
+  租約 JSON 驗證通過才顯示「連線與讀取成功」；選用的「不登入讀取」另外顯示，不當成帳密正確的證據
+- [ ] 密碼錯 → AUTH_FAILED、不換方法、排程自動暫停（清單上有標籤），修改來源或測試成功後恢復；405/415 →
+  METHOD_UNSUPPORTED；重新導向不跟隨
+- [ ] 預覽寫著「尚未套用」，列出會新增/會套用/未配對/衝突，不寫任何 IP 或租約；新來源的排程預設開啟，用目前設定成功預覽之前清單標「待重新預覽」、排程輪到只記「排程等待中」（不連線、不留同步記錄）；
+  改了密碼、Base URL、方法、路徑、時區或範圍，預覽標記會清掉
+- [ ] 同步：既有 IP 的 MAC（來源 isoinsight）與主機名稱只經由優先序套用、標上有租約、不碰上線時間；只有在允許的子網路內、
+  租約期間內才新增 IP；人工的名稱與 MAC 不變；名稱空白不清除；MAC 不合法不覆蓋；兩個 MAC 租期重疊留成衝突、兩邊都不套用；
+  相同資料再同步一次不產生重複 IP、也不多一筆異動記錄
+- [ ] 兩個 VRF 的重疊網段 → 未配對（SUBNET_UNMAPPED、部分成功）；允許的子網路被改到別的單位，同步時排除；表單拒絕別的租戶的子網路
+- [ ] 空清單、租約沒出現、登入失敗、停用或刪除來源都不刪正式 IP；過了到期時間的租約拿掉有租約旗標；刪除來源收回它的旗標與主機名稱
+- [ ] 排程持有鎖時按立即同步 → 409；工作中途當掉留下的鎖 15 分鐘後失效；HTTP 429 依 Retry-After 延後排程
+- [ ] jt-ipam-sync 日誌、作業錯誤與同步記錄都不含密碼、Cookie 值、Token 或 GET 登入的 Query（httpx 的請求日誌顯示 `/api/logon?<redacted>`）
+- [ ] AI 對話：「192.0.2.20 的租約何時到期」會帶來源與觀察時間，不說設備上線；只看得到一個子網路的帳號只拿到那個子網路的租約（含總數）
+- [ ] 瀏覽器：頁面（管理 → 外部系統整合 → ISOinsight）有來源/租約/同步記錄頁籤，操作欄（編輯、測試、預覽、立即同步、記錄、刪除）固定在右邊看得到，
+  GET 警告與關閉 TLS 的警告會出現，主機名稱以純文字顯示
+
 ## 7c. 整合同步的韌性：**每個整合都適用，不只這次動到的那個**
 
 實機本來就是「部分可讀」。防火牆回報「10 個端點中有 9 個可讀取」是常態而非異常：
@@ -945,7 +1080,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
   同一份內容要進 journald（檔案被刪時仍留副本）
 - [ ] **告警**：驗證失敗時所有管理員收到 severity=error 通知，且訊息指明是哪一種
 
-## 7f. Zabbix 整合：**只要動到 Zabbix 同步或涵蓋缺口就要跑**
+## 7f. Zabbix 整合：**只要動到 Zabbix 同步或未監控的位址就要跑**
 
 - [ ] **網址三種寫法**：`https://host`、`https://host/zabbix`、完整 `api_jsonrpc.php` 都要能連
 - [ ] **兩種認證**：API token 與帳號密碼各測一次；Read 回應不得帶出任何機密
@@ -953,7 +1088,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] **限定範圍**：設了 `scope_subnet_ids` 後，重疊網段的同 IP 不會被標到別的單位；
   查詢要用 `limit(1)`（`scalar_one_or_none` 會炸掉整輪）
 - [ ] **主機名稱收斂**：兩台 Zabbix 主機指向同一 IP 時不得每輪互相覆寫（看異動記錄不該洗版）
-- [ ] **涵蓋缺口**：帶子網路範圍問就只回那些網段；空範圍回空而不是退化成全域
+- [ ] **未監控的位址**：帶子網路範圍問就只回那些網段；空範圍回空而不是退化成全域
 
 ## 7g. 證據契約：**只要新增/修改任何「來源」就要跑**
 
@@ -1085,7 +1220,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 - [ ] **主控台閒置不可被切斷**：開啟 SSH/SFTP/RDP/VNC/noVNC 後**放著不動 3 分鐘**，
   回來要能直接操作。任何一個沒有心跳或保活的主控台，都會被中間的反向代理在
   **60 秒無流量**時切掉（常見預設值），使用者看到的是莫名其妙的「連線已中斷」。
-  ⚠️ 目前 BMC 主控台**沒有**心跳（純轉發，注入資料會污染 SOL），已知缺口。
+  ⚠️ 目前 BMC 主控台**沒有**心跳（純轉發，注入資料會污染 SOL），已知的不足。
 - [ ] **主控台傳一個「大到會傳很久」的檔案**（例如 50 MB，或在慢速線路上傳 5 MB）：
   要能傳完。**這一項不能只在區域網路裡測**：uvicorn 預設 20 秒收不到 pong 就切斷連線，
   而 pong 會排在上傳資料後面，只有真實的慢速上行才會踩到（v0.5.231 修）。
@@ -1222,9 +1357,9 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   代理清單）點進頁籤才抓；頁籤上的代理數照樣一打開就看得到
 - [ ] **「未裝 Agent 的 IP」由伺服器分頁**（`tests/test_missing_agents_paged.py`、
   `src/composables/__tests__/useRemoteMissing.test.ts`、`e2e/missing-agent-scope-filter.spec.ts`）：點進頁籤只抓一頁（不是幾十 MB）；
-  區段/子網路/單位/狀態篩選、關鍵字與每一欄的排序都交給後端、涵蓋全部缺口而不是只有畫面上那一頁；選了區段，子網路選單
+  區段/子網路/單位/狀態篩選、關鍵字與每一欄的排序都交給後端、涵蓋全部未裝代理的 IP 而不是只有畫面上那一頁；選了區段，子網路選單
   只列該區段的，原本選的別區段子網路會被清掉；狀態燈號與狀態篩選和 IP 清單一致（同一套規則，有測試對照）；匯出是符合篩選的
-  全部；裝好代理之後，下次重新整理那筆就消失。大量資料（5.3 萬筆缺口）第一次打開約一兩秒，翻頁遠低於一秒
+  全部；裝好代理之後，下次重新整理那筆就消失。大量資料（5.3 萬筆未裝代理的 IP）第一次打開約一兩秒，翻頁遠低於一秒
 - [ ] **AI 對話可以關閉思考**（`tests/test_chat_thinking_setting.py`）：「管理 → LLM / AI」有「AI 對話允許模型先思考」開關
   （預設開＝以前的行為）。關掉時：Ollama 送 `think:false`、OpenAI 相容伺服器（LiteLLM、vLLM、llama.cpp）送關閉思考的欄位、
   官方 OpenAI 不送；伺服器拒絕其中一個欄位也照樣回答（只拿掉那一個、並記住）。接會思考的模型時，關掉後「思考中」階段不見、
@@ -1279,17 +1414,40 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   照埠號猜的服務標「照埠號猜」、被截斷的腳本輸出標「（已截斷）」；判斷說明列出不採用指紋等理由
 - [ ] **探測的判讀錯誤**：nmap 失敗（例如代理停掉 nmap 權限）顯示失敗原因而不是「沒有回應」；探測一個 IPv6 位址會真的跑完；
   上一次沒回應時「與上一次相比」寫連接埠無法比較，不會全部列成新開；SSH 主機金鑰或憑證換了會列出並提醒
-- [ ] **變更影響預演**（migration 0187；`tests/test_change_impact_*.py`、`e2e/change-impact.spec.ts`）：預設關閉時選單、IP 頁、裝置頁都沒有入口，
-  API 回 403 `impact_feature_disabled`；在「系統設定」打開後才出現。從 IP 頁「預演改址」填新 IP → 建立並分析 → 結果頁頂端寫著「尚未執行任何變更」，
-  影響清單每列有處置、嚴重度、類別、原因句子，展開看得到證據的觀察與收錄時間、規則版本；「證據與資料缺口」列出沒設定的整合、
-  過期的來源（同一個整合只列一次）、DNS 不存 CNAME 等；零發現時寫「未找到符合條件的引用；仍須查看資料缺口」，不說安全
-- [ ] **預演的判定**：新 IP 已被登記或保留、DHCP 保留給別張網卡、最近有人在用 → 存在阻擋項目；新舊位址都在同一個 CIDR 規則內 → 參考、不要求改；
-  別名群組有循環 → 缺口而且結果「部分」；共用別名在除役時標「只移除成員」；192.0.2.1 不會比中寫著 192.0.2.10 的備註
-- [ ] **預演的流程與權限**：送審後建立者不能覆核自己的計畫；阻擋項目不可核准；資料不完整只能「接受風險」並填理由；核准後來源多了新引用，
+- [ ] **IP 變更評估**（migration 0187；`tests/test_change_impact_*.py`、`e2e/change-impact.spec.ts`）：預設關閉時選單、IP 頁、裝置頁都沒有入口，
+  API 回 403 `impact_feature_disabled`；在「系統設定」打開後才出現。從 IP 頁「改址評估」填新 IP → 建立並分析 → 結果頁頂端寫著「尚未執行任何變更」，
+  影響清單每列有處置、嚴重度、類別、原因句子，展開看得到證據的觀察與收錄時間、規則版本；「證據與資料不足」列出沒設定的整合、
+  過期的來源（同一個整合只列一次）、DNS 不存 CNAME 等；零發現時寫「未找到符合條件的引用；仍須查看資料不足的項目」，不說安全
+- [ ] **評估的判定**：新 IP 已被登記或保留、DHCP 保留給別張網卡、最近有人在用 → 有阻擋項目；新舊位址都在同一個 CIDR 規則內 → 參考、不要求改；
+  別名群組有循環 → 資料不足而且結果「部分」；共用別名在除役時標「只移除成員」；192.0.2.1 不會比中寫著 192.0.2.10 的備註
+- [ ] **評估的流程與權限**：送審後建立者不能覆核自己的計畫；阻擋項目不可核准；資料不完整只能「接受風險」並填理由；核准後來源多了新引用，
   「開始維護」會回 `impact_run_stale` 並退回草稿；只看得到子網路的帳號看不到 DNS/防火牆等全域資料的發現，畫面提示權限範圍不同；
-  拿別人的 run 或證據 id 一律 404；匯出 Markdown/JSON 內容依下載者權限過濾
-- [ ] **預演的 AI**：AI 關閉時分析照常、AI 按鈕提示不可用；模型編造 id 或位址會被拒、修一次後改用模板摘要；草擬的待辦要勾選才存；
+  拿別人的 run 或證據 id 一律 404；匯出 Markdown/JSON 內容依下載者權限過濾；只看得到子網路的帳號看到的數量、資料來源清單、範本待辦都只算看得到的（沒有「更新 DNS 引用」這類看不到類別的待辦）；建立者的權限被收回後也看不到自己的計畫（目標被刪除時才保留）
+- [ ] **建立評估的範圍與權限訊息**（`e2e/change-impact.spec.ts`）：從清單頁「新增評估」要先選子網路，IP 欄位才能填；在子網路搜尋框打 IP 會列出包含它的子網路，選了之後 IP 自動帶入；非管理員只看得到自己可以修改的子網路，單位、區段選項也只有那些；新位址落在看不到的子網路 → 「你沒有新位址 … 所在子網路的權限」；API 直接查沒有權限的位址回「你沒有 … 或所在子網路的權限」，不是「找不到」；IPAM 沒登記、不在管理的子網路各有自己的說明
+- [ ] **審核人名單與通知**（`tests/test_change_impact_reviewers.py`）：系統設定指定一個群組當審核人 → 送審後群組成員收到通知、建立者與其他有修改權的人沒收到；計畫頁寫「送審給：…」；名單外的人看不到「覆核」、直接呼叫 API 回 `impact_not_reviewer`；名單內只有檢視權限的人可以覆核；清單勾「待我覆核」只列輪到我的；覆核完建立者收到通知；清空名單 → 回到「對目標有修改權就能覆核、通知管理員」；通知發送設定頁有兩個新事件
+- [ ] **M2：維護、停機與服務**（`tests/test_change_impact_m2.py`、`tests/test_change_impact_services_api.py`、`e2e/change-impact-m2.spec.ts`）：交換器維護時只接這台的裝置（含經過跳接面板）列模型內中斷並附路徑、另有連線的列備援待驗證、另一條路只回到同一台的列共用上游；多台一起停機合併計算；節點停機三種情境（直接、先遷移、交給 HA）各自的判定與資料不足；服務的 k-of-n 三值邏輯、references 不傳播、依賴循環列未知；服務頁只有全域讀取看得到、只有管理員能改、需要可用數超過成員會被擋；裝置頁「變更評估」下拉依類型出現維護或停機；結果頁的關係圖看得到根目標、受影響的裝置與服務，只看得到裝置的人看不到服務
+- [ ] **關係圖**（`src/utils/impactGraph.test.ts`）：同一種類型、連到同一個物件的葉節點有 3 個以上收成一個群組（例如「DNS 紀錄（26）」，顏色取最嚴重的影響），路徑上的物件照畫、自己連到自己的線不畫；每個節點有類型圖示，圖上方列出圖示說明；四種排列（放射、樹狀卡片、依影響分層、力導向）切換後記在這台瀏覽器；粗線＝對方停機這個也會中斷、細線＝設定裡寫著這個位址；線上的字只在滑過或點選外圍節點時顯示（樹狀一律顯示、每段字不疊）；點節點明細在圖右側的面板；右下角縮圖顯示目前範圍，點或拖曳會移過去；「匯出 PNG」是整張圖；右邊框線完整；深色主題與英日文都看過。IP 變更評估清單裡已取消的計畫整列變淡
+- [ ] 關係圖預設「分層」；捲到底時工具列緊貼頂列、圖填滿到視窗底（只剩 16px），IP 拓樸圖也一樣；其他頁面底部仍留 88px（AI 對話按鈕不蓋住清單最後一列）；匯出 → SVG 下載的向量圖與畫面一致（分層的圈是虛線框、不是實心）；資料不足是有分隔線的表格；待辦依階段分區
+- [ ] **評估結果頁的排版**：影響清單「物件與原因」第一行是類型標籤＋名稱、第二行「原因：…」；展開的細節縮排、左側色條與底色，展開中的那一列同色；「資料不足的項目」分類一欄、說明對齊；「歷史」三段都是對齊的表格
+- [ ] **評估的 AI 進度與引用**（`tests/test_change_impact_api.py::test_ai_artifact_reports_what_it_is_doing`）：執行中顯示做到哪一步與經過秒數（排隊中／整理資料／等候模型回覆／檢查回覆／請模型修正）；改用範本摘要時寫出原因；引用除了編號還有物件名稱、滑過看原因、超過 6 個先收起來；離開頁面再回來結果還在（存在這次分析底下）
+- [ ] **評估匯出**：報告（PDF、Word .docx、OpenDocument .odt）含基本資料、AI 摘要、影響清單、資料不足、各階段待辦、覆核記錄；表格清單（Excel .xlsx、OpenDocument .ods）每個分頁一張工作表；Markdown/JSON 照舊（`src/utils/reportExport.test.ts`）
+- [ ] **PDF 是真正的檔案**（`tests/test_report_pdf.py`）：按「匯出 → PDF」直接下載 `.pdf`，**不會**跳出瀏覽器列印視窗；中文檔名正確；
+  在沒裝中文字型的電腦上打開，繁中與日文照樣顯示（字型子集內嵌）、文字可以選取與搜尋；日文介面匯出用日文字面
+- [ ] **報告版面三種格式一致**：A4 直式；標題區（jt-ipam、標題、評估目標與版本）加品牌色線；基本資料兩組一列、欄名有底色；
+  段落標題前有色條；影響清單併成 4 欄（處置/嚴重度、物件、原因、影響/證據），**表格不超出右邊界**；深色表頭跨頁重複、斑馬紋；
+  阻擋那一列第一欄紅色、需覆核橘色；頁尾有「jt-ipam · IP 變更評估 · 產生時間」與頁碼；DOCX/ODT 用 LibreOffice 與 Word 打開都一樣
+- [ ] **伺服器沒有中文字型**：PDF 匯出顯示「伺服器上沒有中文字型…sudo apt install fonts-noto-cjk」（`report_pdf_no_font`），
+  DOCX/ODT 照常；補裝字型後**不必重啟**，下一次匯出就成功；版本資訊頁「選用相依」的 `cjk_font` 顯示目前用的字型
+- [ ] **評估頁的按鈕**：每顆都有圖示；送審、覆核、開始維護等是藍色，編輯是綠色，「取消計畫」是紅框而且要先確認，返回在最右邊；建立視窗與覆核、編輯、新增待辦視窗底部的取消/確認也有圖示
+- [ ] **評估的 AI**：AI 關閉時分析照常、AI 按鈕提示不可用；模型編造 id 或位址會被拒、修一次後改用範本摘要；草擬的待辦要勾選才存；
   MCP 唯讀金鑰看不到建案工具，建案要帶 `impact_prepare_scenario` 給的草稿憑證
+- [ ] **申請審核設定**（`tests/test_change_impact_review_policy.py`）：選單叫「申請審核設定」，舊網址 `/ip-request-policy` 會轉過來；兩個頁籤畫面一致（共用元件）；IP 變更評估的五種模式：有修改權的人（升級沒存過時沿用舊名單）、僅管理員、指定人員、會簽（每組都要核准、不分先後）、依序（只通知並只允許目前這關，通過才通知下一關）；退回後重新送審關卡重算；多關卡沒有關卡或某關沒人回 422；修改寫稽核；評估頁顯示各關進度、送審確認依模式說明；系統設定的評估區塊只剩連結；AI 的計畫清單附審核進度
+- [ ] **已取消的計畫重新分析、送審確認**（`tests/test_change_impact_api.py`）：已取消的計畫有「重新分析」，確認後回到草稿並開始分析；已結案的不行；按「送審」先跳確認、列出會通知的審核人（有名單／沒名單是管理員／名單裡沒人看得到目標時的警告），按確認才送出
+- [ ] **新位址的 DHCP 看目標子網路**（`tests/test_change_impact_more_refs.py`）：重疊網段裡另一個單位（範圍設在別的子網路）的 DHCP 保留與集區不會擋改址；整合沒設範圍時是推定並列資料不足
+- [ ] **AI 準備 M2 草稿**（`tests/test_change_impact_mcp.py`）：`impact_prepare_scenario` 帶 `switch_maintenance`＋`also_down` 或 `node_downtime`＋`mode` 回草稿與憑證、可以建案；不認得的模式回 `impact_invalid_scenario`
+- [ ] **評估補齊的 IP 參照**（`tests/test_change_impact_more_refs.py`、`src/utils/__tests__/changeImpactText.test.ts`）：改 IP 時列出線路的 IP/閘道/DNS、較新整合的連線位址（AdGuard Home、ISOinsight、PVE/ESXi 其他節點、OCS 資料庫、RustDesk 伺服器、Webhook）、系統設定（LDAP、SMTP、AI 模型、稽核轉送）、掃描代理看到在發 DHCP 或被當預設閘道；新位址有未配發的 IP 申請、落在 IP 範圍裡；整合與設定名稱翻成文字（不露出代碼）；除役一台服務需要的裝置 → 服務模型內中斷（另有成員撐著的列依賴仍成立），以 IP 登錄的依賴也算；改址列出依賴這個位址的服務與端點寫了它的服務；沒登錄服務時除役不多一筆資料不足；沒有全域讀取的帳號看到「VPN 端點」「線路」各一筆權限不足，非管理員看到「整合與系統設定的連線位址」權限不足
+- [ ] **全站權限守門**（`tests/test_rbac_write_guards.py`、`tests/test_mcp_scope_guards.py`、`tests/test_semantic_search_scope.py`）：非管理員改子網路或 IP 的掃描代理、主控台出口、跳板 → 403；關掉異常偵測或 AI 巡檢 → 403（表單上這兩個勾選反灰）；只有寫入權時改子網路的區段或單位、區段的單位、IP 的單位 → 403；IP 掛到看不到的裝置 → 404；phpIPAM API 刪 IP 要子網路 admin，刪了有異動記錄與冷卻期；唯讀帳號發失聯提醒 → 404；只看得到子網路的帳號在 IP 關係圖看不到裝置、機櫃、地點；AI 對話問裝置只列看得到的 IP；語意搜尋只回看得到的
+- [ ] **管理選單的外部系統整合子樹**（`e2e/nav-integrations.spec.ts`、`tests/test_integration_presence.py`）：「管理」底下有「外部系統整合」，預設展開、可以收合；子項目只寫產品名（不再每項都是「整合 X」），Graylog 也在裡面；已設定的整合名稱後面有綠色勾、沒設定的沒有；新增或刪除一台整合後，切到別頁勾勾就跟著更新
 - [ ] **未納管位址的清單列與頁面**（`e2e/subnet-grid-unmanaged.spec.ts`）：關閉自動收錄、讓掃描代理掃到一個沒登記的位址 →
   IP 清單有一列虛線橘點、「未納管」標籤、MAC 與廠商、「掃描代理看到 · N 分鐘前」，不再併進閒置區間；點指示計的格子或那一列進到位址頁，
   右上有探測（管理員）、新增、返回；新增後換成那筆記錄的 IP 頁，指示計與清單上它變成一般的已登記位址

@@ -33,9 +33,10 @@ const SEP = " · ";
 
 /** 防火牆／整合廠牌的顯示名稱（IP 詳細資料「各來源最後出現」與調查共用） */
 export const VENDOR_LABEL: Record<string, string> = {
-  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
+  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto", checkpoint: "Check Point",
   mikrotik: "MikroTik", librenms: "LibreNMS", windows_dhcp: "Windows DHCP", kea_dhcp: "Kea DHCP",
-  isc_dhcp: "ISC DHCP", proxmox: "Proxmox", vmware: "VMware", wazuh: "Wazuh", rustdesk: "RustDesk",
+  technitium: "Technitium DHCP",
+  isc_dhcp: "ISC DHCP", isoinsight: "ISOinsight", proxmox: "Proxmox", vmware: "VMware", wazuh: "Wazuh", rustdesk: "RustDesk",
   ocs: "OCS", zabbix: "Zabbix",
 };
 

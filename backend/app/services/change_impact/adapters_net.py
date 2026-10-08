@@ -86,6 +86,29 @@ async def dns(ctx: Ctx) -> None:
                              params={"address": root.ip_text, "name": fqdn, "ttl": r.ttl if ttl_known else None,
                                      "server": src.name},
                              strength=ctx.strength_for(src, root)))
+    await _adguard(ctx, [s for s in srcs if s.kind == "adguard"])
+
+
+async def _adguard(ctx: Ctx, srcs: list[Any]) -> None:
+    """AdGuard 的 DNS 改寫與用戶端設定只寫進主機名稱觀測（來源 adguard），沒有另存記錄：
+    觀測對到根位址就表示 AdGuard 設定裡有這個位址，改址時要一起改（2026-10-08 補上）。"""
+    if not srcs:
+        return
+    for root in _addresses(ctx):
+        for o in (await ctx.session.execute(text("""
+            SELECT ip_id, hostname, observed_at FROM ip_hostname_observations WHERE ip_id = :id AND source = 'adguard'
+        """), {"id": root.ip_id})).all():
+            src = srcs[0] if len(srcs) == 1 else None
+            key = ctx.add(Evidence(key=f"adguard:{root.ip_id}", source_type="dns", object_type="adguard_entry",
+                                   label=f"{o.hostname} → {root.ip_text}"[:300],
+                                   payload={"hostname": o.hostname, "address": root.ip_text,
+                                            "instances": [s.name for s in srcs]},
+                                   integration_ref=src.ref if src else None, observed_at=o.observed_at,
+                                   freshness=src.freshness if src else "unknown"))
+            ctx.find(Finding("dns.adguard_entry", "adguard_entry", f"{o.hostname} → {root.ip_text}"[:300], [key],
+                             subject_key=f"adguard:{root.ip_id}", match_kind="exact",
+                             params={"address": root.ip_text, "name": o.hostname},
+                             strength=ctx.strength_for(src, root) if src else "inferred"))
 
 
 # ─────────────────── DHCP ───────────────────
@@ -94,7 +117,9 @@ async def dhcp(ctx: Ctx) -> None:
     srcs = ctx.sources_of("dhcp")
     if not srcs or not ctx.allowed("dhcp"):
         return
-    ctx.gap("dhcp", "dhcp_lease_expiry_unknown", affected="dhcp")
+    # 只有 ISOinsight 知道租約到期時間；其他來源只知道最近一次看到
+    if any("lease_expiry" not in s.capabilities for s in srcs):
+        ctx.gap("dhcp", "dhcp_lease_expiry_unknown", affected="dhcp")
     v6_kinds = {s.kind for s in srcs if "ipv4_only" in s.capabilities}
     sc = ctx.scenario
     if any(r.aip.version == 6 for r in ctx.roots) or (sc.new_aip is not None and sc.new_aip.version == 6):
@@ -113,6 +138,88 @@ async def dhcp(ctx: Ctx) -> None:
             "SELECT id, start_ip, end_ip, source_type, source_id, source_name, family, synced_at FROM dhcp_pool_ranges"
         ))).all()
         return [r for r in rows if value_match(f"{r.start_ip}-{r.end_ip}", aip)]
+
+    async def iso_leases(addr: str, subnet_id: Any) -> list[Any]:
+        """ISOinsight 生效中的租約（到期時間在現在之後，或沒有到期時間＝未知）。只看配對到這個子網路的。"""
+        return list((await ctx.session.execute(text("""
+            SELECT id, source_id, mac, name, start_at, end_at, lease_observed_at FROM isoinsight_leases
+             WHERE ip = CAST(:ip AS inet) AND subnet_id = :sid AND (end_at IS NULL OR end_at > :now)
+             ORDER BY lease_observed_at DESC LIMIT 20
+        """), {"ip": addr, "sid": subnet_id, "now": ctx.now})).all())
+
+    def ev_iso(ls: Any, label: str) -> str:
+        src = ctx.source("isoinsight", ls.source_id)
+        return ctx.add(Evidence(key=f"isoinsight_lease:{ls.id}", source_type="dhcp", object_type="dhcp_lease",
+                                object_id=ls.id, integration_ref=f"isoinsight:{ls.source_id}", label=label,
+                                payload={"source": src.name if src else "isoinsight", "mac": ls.mac, "name": ls.name,
+                                         "start": ls.start_at.isoformat() if ls.start_at else None,
+                                         "end": ls.end_at.isoformat() if ls.end_at else None,
+                                         "expiry_known": ls.end_at is not None},
+                                observed_at=ls.lease_observed_at, freshness=src.freshness if src else "unknown"))
+
+    has_iso = any(s.kind == "isoinsight" for s in srcs)
+    has_scope_options = any("scope_options" in s.capabilities for s in srcs)
+
+    async def scope_options(root: TargetAddr) -> None:
+        """DHCP 範圍設定裡發給用戶端的閘道／DNS／NTP／WINS，或發 DHCP 的介面位址就是這個位址（Technitium 的範圍鏡像）。
+        只看啟用中的範圍。"""
+        rows = (await ctx.session.execute(text("""
+            SELECT id, server_id, name, subnet_cidr, synced_at,
+                   router = CAST(:ip AS inet) AS is_router,
+                   CAST(:ip AS inet) = ANY(COALESCE(dns_servers, '{}')) AS is_dns,
+                   CAST(:ip AS inet) = ANY(COALESCE(ntp_servers, '{}')) AS is_ntp,
+                   CAST(:ip AS inet) = ANY(COALESCE(wins_servers, '{}')) AS is_wins,
+                   server_address = CAST(:ip AS inet) AS is_server
+              FROM technitium_dhcp_scopes
+             WHERE enabled AND (router = CAST(:ip AS inet) OR server_address = CAST(:ip AS inet)
+                   OR CAST(:ip AS inet) = ANY(COALESCE(dns_servers, '{}'))
+                   OR CAST(:ip AS inet) = ANY(COALESCE(ntp_servers, '{}'))
+                   OR CAST(:ip AS inet) = ANY(COALESCE(wins_servers, '{}')))
+             ORDER BY name
+        """), {"ip": root.ip_text})).all()
+        for r in rows:
+            src = ctx.source("technitium", r.server_id)
+            key = ctx.add(Evidence(key=f"technitium_scope:{r.id}", source_type="dhcp", object_type="dhcp_scope",
+                                   object_id=r.id, integration_ref=f"technitium:{r.server_id}",
+                                   label=f"{r.name} {r.subnet_cidr or ''}".strip(),
+                                   payload={"source": src.name if src else "technitium", "scope": r.name,
+                                            "subnet": r.subnet_cidr},
+                                   observed_at=r.synced_at, freshness=src.freshness if src else "unknown"))
+            # server：Technitium 在這個範圍發 DHCP 用的介面位址（改了，這個範圍沒有人發位址）
+            for opt, hit in (("router", r.is_router), ("dns", r.is_dns), ("ntp", r.is_ntp), ("wins", r.is_wins),
+                             ("server", r.is_server)):
+                if not hit:
+                    continue
+                ctx.find(Finding("dhcp.scope_router" if opt == "router" else "dhcp.scope_option", "dhcp_scope",
+                                 f"{r.name} ({opt})", [key], subject_id=r.id, subject_key=opt, match_kind="exact",
+                                 params={"address": root.ip_text, "option": opt, "scope": r.name,
+                                         "subnet": r.subnet_cidr or "", "source": src.name if src else ""},
+                                 strength=ctx.strength_for(src, root)))
+        # Check Point 閘道的 DHCP 伺服器（Gaia API 第二階段）：子網路設定裡發給用戶端的預設閘道與 DNS
+        for r in (await ctx.session.execute(text("""
+            SELECT s.id, s.target_id, s.subnet_cidr, s.synced_at, t.name AS gw_name,
+                   s.default_gateway = CAST(:ip AS inet) AS is_router,
+                   CAST(:ip AS inet) = ANY(COALESCE(s.dns_servers, '{}')) AS is_dns
+              FROM checkpoint_dhcp_subnets s JOIN checkpoint_gaia_targets t ON t.id = s.target_id
+             WHERE s.enabled AND t.enabled AND t.sync_dhcp
+               AND (s.default_gateway = CAST(:ip AS inet) OR CAST(:ip AS inet) = ANY(COALESCE(s.dns_servers, '{}')))
+             ORDER BY t.name, s.subnet_cidr
+        """), {"ip": root.ip_text})).all():
+            src = ctx.source("checkpoint", r.target_id)
+            label = f"{r.gw_name} {r.subnet_cidr}"
+            key = ctx.add(Evidence(key=f"checkpoint_dhcp:{r.id}", source_type="dhcp", object_type="dhcp_scope",
+                                   object_id=r.id, integration_ref=f"checkpoint:{r.target_id}", label=label,
+                                   payload={"source": src.name if src else r.gw_name, "scope": r.subnet_cidr,
+                                            "subnet": r.subnet_cidr},
+                                   observed_at=r.synced_at, freshness=src.freshness if src else "unknown"))
+            for opt, hit in (("router", r.is_router), ("dns", r.is_dns)):
+                if not hit:
+                    continue
+                ctx.find(Finding("dhcp.scope_router" if opt == "router" else "dhcp.scope_option", "dhcp_scope",
+                                 f"{label} ({opt})", [key], subject_id=r.id, subject_key=opt, match_kind="exact",
+                                 params={"address": root.ip_text, "option": opt, "scope": r.subnet_cidr,
+                                         "subnet": r.subnet_cidr, "source": src.name if src else r.gw_name},
+                                 strength=ctx.strength_for(src, root)))
 
     def ev_res(r: Any, root: TargetAddr | None) -> str:
         src = ctx.source(r.source_type, r.source_id)
@@ -146,6 +253,16 @@ async def dhcp(ctx: Ctx) -> None:
             ctx.find(Finding("dhcp.active_lease", "dhcp_lease", root.ip_text, [key], subject_id=ls.id,
                              match_kind="exact", params={"address": root.ip_text,
                                                          "last_seen": ls.last_seen_at.isoformat()}))
+        for ls in (await iso_leases(root.ip_text, root.subnet_id)) if has_iso else []:
+            src = ctx.source("isoinsight", ls.source_id)
+            if src is None or ctx.in_scope(src, root) is False:
+                continue
+            key = ev_iso(ls, root.ip_text)
+            ctx.find(Finding("dhcp.active_lease_until" if ls.end_at else "dhcp.active_lease", "dhcp_lease",
+                             root.ip_text, [key], subject_id=ls.id, match_kind="exact",
+                             params={"address": root.ip_text, "last_seen": ls.lease_observed_at.isoformat(),
+                                     "until": ls.end_at.isoformat() if ls.end_at else None},
+                             strength=ctx.strength_for(src, root)))
         for p in await pools(root.aip):
             src = ctx.source(p.source_type, p.source_id)
             if ctx.in_scope(src, root) is False:
@@ -156,24 +273,56 @@ async def dhcp(ctx: Ctx) -> None:
                                    freshness=src.freshness if src else "unknown"))
             ctx.find(Finding("dhcp.pool_member", "dhcp_pool", f"{p.start_ip}-{p.end_ip}", [key], subject_id=p.id,
                              match_kind="range_contains", params={"address": root.ip_text}))
+        if has_scope_options:
+            await scope_options(root)
 
     if not ctx.is_renumber or sc.new_aip is None:
         return
     root = ctx.roots[0]
+    # 新位址的範圍判斷看「目標子網路」，不是舊位址的子網路：重疊網段裡另一個單位的 DHCP
+    # 保留或集區同一個位址，不可以擋這邊的改址；整合沒設範圍又重疊時降為推定並記資料不足
+    new_overlap = (await ctx.session.execute(text(
+        "SELECT count(*) FROM subnets WHERE archived_at IS NULL AND cidr >>= CAST(:ip AS inet)"),
+        {"ip": sc.new_ip})).scalar_one() > 1
+
+    def new_in_scope(src: Any) -> bool | None:
+        if src is None or not src.scope_subnet_ids:
+            return None
+        return str(sc.target_subnet_id) in src.scope_subnet_ids
+
+    def new_strength(src: Any) -> str | None:
+        if new_in_scope(src) is None and new_overlap:
+            ctx.gap("scope", "scope_unset_overlap", scope=src.ref if src else None,
+                    source=src.name if src else "", address=sc.new_ip or "")
+            return "inferred"
+        return None
+
     for r in await reservations(sc.new_ip or ""):
         src = ctx.source(r.source_type, r.source_id)
+        if new_in_scope(src) is False:
+            continue
         key = ev_res(r, None)
         same = bool(r.mac and root.mac and r.mac.replace("-", ":").lower() == root.mac.lower())
         ctx.find(Finding("dhcp.new_ip_reserved_same_mac" if same else "dhcp.new_ip_reserved", "dhcp_reservation",
                          f"{r.ip} {r.mac or ''}".strip(), [key], subject_id=r.id, match_kind="exact",
                          params={"address": sc.new_ip, "mac": r.mac or "", "hostname": r.hostname or ""},
-                         strength=ctx.strength_for(src, root)))
+                         strength=new_strength(src)))
     new_objs = (await ctx.session.execute(text(
         "SELECT id FROM ip_addresses WHERE subnet_id = :sid AND ip = CAST(:ip AS inet)"),
         {"sid": sc.target_subnet_id, "ip": sc.new_ip})).scalars().all()
-    if not new_objs:
-        # 對不上 IP 物件的租約不會留下任何記錄：沒有物件就無法從租約判斷這個位址有沒有人用（缺口 G9）
+    if not new_objs and any("unmatched_leases" not in s.capabilities for s in srcs):
+        # 對不上 IP 物件的租約不會留下任何記錄：沒有物件就無法從租約判斷這個位址有沒有人用（缺口 G9）。
+        # ISOinsight 例外：它連對不到記錄的租約都留著（下面會查）
         ctx.gap("dhcp", "dhcp_lease_unmatched_not_stored", address=sc.new_ip, affected="new_ip")
+    for ls in (await iso_leases(sc.new_ip or "", sc.target_subnet_id)) if has_iso else []:
+        src = ctx.source("isoinsight", ls.source_id)
+        if src is None:
+            continue
+        key = ev_iso(ls, sc.new_ip or "")
+        ctx.find(Finding("dhcp.new_ip_leased_until" if ls.end_at else "dhcp.new_ip_leased", "dhcp_lease",
+                         sc.new_ip or "", [key], subject_id=ls.id, match_kind="exact",
+                         params={"address": sc.new_ip, "last_seen": ls.lease_observed_at.isoformat(),
+                                 "until": ls.end_at.isoformat() if ls.end_at else None}))
     for oid in new_objs:
         for ls in (await ctx.session.execute(text("""
             SELECT id, source_type, source_id, last_seen_at FROM dhcp_lease_sightings
@@ -189,12 +338,48 @@ async def dhcp(ctx: Ctx) -> None:
                                                          "last_seen": ls.last_seen_at.isoformat()}))
     for p in await pools(sc.new_aip):
         src = ctx.source(p.source_type, p.source_id)
+        if new_in_scope(src) is False:
+            continue
         key = ctx.add(Evidence(key=f"dhcp_pool:{p.id}", source_type="dhcp", object_type="dhcp_pool", object_id=p.id,
                                integration_ref=f"{p.source_type}:{p.source_id}", label=f"{p.start_ip}-{p.end_ip}",
                                payload={"source": p.source_name or p.source_type}, observed_at=p.synced_at,
                                freshness=src.freshness if src else "unknown"))
         ctx.find(Finding("dhcp.new_ip_in_pool", "dhcp_pool", f"{p.start_ip}-{p.end_ip}", [key], subject_id=p.id,
-                         match_kind="range_contains", params={"address": sc.new_ip}))
+                         match_kind="range_contains", params={"address": sc.new_ip}, strength=new_strength(src)))
+
+
+async def dhcp_observed(ctx: Ctx) -> None:
+    """掃描代理的 DHCP 探測：看到這個位址在發 DHCP，或 DHCP 回應把它當預設閘道發給用戶端。
+
+    跟 DHCP 整合無關（沒設任何 DHCP 整合也會有），所以獨立一支。只看同一個 VRF 的子網路裡的目擊，
+    重疊網段裡同一個位址是別台；太久沒再看到的不算；閘道位址不在目擊所屬子網路裡的不算閘道。
+    """
+    since = ctx.now - LEASE_WINDOW
+    for root in _addresses(ctx):
+        for r in (await ctx.session.execute(text("""
+            SELECT d.id, d.subnet_id, s.cidr::text AS cidr, host(d.server_ip) AS server, host(d.router) AS router,
+                   COALESCE(d.router <<= s.cidr, false) AS router_on_link, d.via_relay, d.last_seen_at
+              FROM dhcp_sightings d JOIN subnets s ON s.id = d.subnet_id
+             WHERE (d.server_ip = CAST(:ip AS inet) OR d.router = CAST(:ip AS inet))
+               AND d.last_seen_at >= :since AND s.archived_at IS NULL
+               AND s.vrf_id IS NOT DISTINCT FROM :vrf
+             ORDER BY d.last_seen_at DESC LIMIT 50
+        """), {"ip": root.ip_text, "since": since, "vrf": root.vrf_id})).all():
+            if not ctx.can_see("subnet", r.subnet_id):
+                continue
+            vis = ("subnet", r.subnet_id)
+            key = ctx.add(Evidence(key=f"dhcp_sighting:{r.id}", source_type="activity", object_type="dhcp_sighting",
+                                   object_id=r.id, label=f"{r.server} ({r.cidr})",
+                                   payload={"server": r.server, "router": r.router, "via_relay": r.via_relay},
+                                   observed_at=r.last_seen_at, freshness="current", visibility=vis))
+            p = {"address": root.ip_text, "server": r.server, "subnet": r.cidr, "last_seen": r.last_seen_at.isoformat()}
+            if norm_ip(r.server) == root.aip:
+                ctx.find(Finding("dhcp.observed_server", "dhcp_sighting", r.cidr, [key], subject_id=r.id,
+                                 subject_key="server", match_kind="exact", params=p, visibility=vis))
+            # 預設閘道一定在用戶端的子網路裡；不在的是代理把別的網段的回應算到這裡，不當成這裡的閘道
+            if r.router and r.router_on_link and norm_ip(r.router) == root.aip:
+                ctx.find(Finding("dhcp.observed_router", "dhcp_sighting", r.cidr, [key], subject_id=r.id,
+                                 subject_key="router", match_kind="exact", params=p, visibility=vis))
 
 
 # ─────────────────── 防火牆 ───────────────────
@@ -359,6 +544,30 @@ async def _load_firewalls(ctx: Ctx) -> list[_FwScope]:
             "dst_not": str(raw.get("negate-destination", "")).lower() == "yes",
             "enabled": not p.disabled, "action": p.action,
             "interface": f"{p.from_zone or ''}->{p.to_zone or ''}", "observed": p.last_sync_at})
+    # Check Point（物件與規則以網域為範圍；單一管理伺服器是空網域）
+    from app.models.checkpoint import CheckPointObject, CheckPointRule, CheckPointServer
+    cps = {f.id: f.name for f in (await s.execute(select(CheckPointServer))).scalars().all()
+           if ("checkpoint", f.id) in enabled}
+    for o in (await s.execute(select(CheckPointObject))).scalars().all():
+        if o.server_id not in cps:
+            continue
+        sc = scope("checkpoint", o.server_id, cps[o.server_id], o.domain or None)
+        if o.obj_type == "group-with-exclusion":
+            # 「include 扣掉 except」：只看名稱判斷不了，跟動態物件一樣列進資料不足
+            sc.dynamic_objects += 1
+            continue
+        members = [str(x) for x in (o.members or [])] if o.obj_type == "group" else ([str(o.value)] if o.value else [])
+        sc.groups[o.name] = members
+        sc.objects[o.name] = {"id": o.id, "descr": (o.comments or "")[:120], "enabled": True, "type": o.obj_type,
+                              "members": len(members)}
+    for p in (await s.execute(select(CheckPointRule))).scalars().all():
+        if p.server_id not in cps:
+            continue
+        scope("checkpoint", p.server_id, cps[p.server_id], p.domain or None).rules.append({
+            "id": p.id, "key": None, "label": (p.name or f"{p.layer} #{p.rule_number or ''}")[:120],
+            "src": _split_names(p.source), "dst": _split_names(p.destination),
+            "src_not": p.source_negate, "dst_not": p.destination_negate, "enabled": p.enabled, "action": p.action,
+            "interface": f"{p.package} / {p.layer}", "observed": p.last_sync_at})
     # MikroTik（address-list 一列一個成員）
     mts = {f.id: f.name for f in (await s.execute(select(MikroTikRouter))).scalars().all()
            if ("mikrotik", f.id) in enabled}
@@ -612,28 +821,36 @@ async def monitoring(ctx: Ctx) -> None:
     if not ctx.allowed("monitoring"):
         return
     for a in (await ctx.session.execute(text("""
-        SELECT id, name, host(ip) AS ip, jt_ipam_address_id, instance_id, status, last_keep_alive FROM wazuh_agents
-         WHERE jt_ipam_address_id = ANY(:ids) OR host(ip) = ANY(:texts)
+        SELECT id, name, host(ip) AS ip, host(register_ip) AS reg, jt_ipam_address_id, instance_id, status,
+               last_keep_alive FROM wazuh_agents
+         WHERE jt_ipam_address_id = ANY(:ids) OR host(ip) = ANY(:texts) OR host(register_ip) = ANY(:texts)
     """), {"ids": ids, "texts": texts})).all():
-        root = by_id.get(a.jt_ipam_address_id) or by_text.get(a.ip)
+        root = by_id.get(a.jt_ipam_address_id) or by_text.get(a.ip) or by_text.get(a.reg)
         if root is None:
             continue
         src = ctx.source("wazuh", a.instance_id)
+        label = (a.name or a.ip or a.reg or "")[:300]
         key = ctx.add(Evidence(key=f"wazuh_agent:{a.id}", source_type="monitoring", object_type="wazuh_agent",
-                               object_id=a.id, integration_ref=f"wazuh:{a.instance_id}", label=(a.name or a.ip)[:300],
-                               payload={"status": a.status}, observed_at=a.last_keep_alive,
+                               object_id=a.id, integration_ref=f"wazuh:{a.instance_id}", label=label,
+                               payload={"status": a.status, "register_ip": a.reg}, observed_at=a.last_keep_alive,
                                freshness=src.freshness if src else "unknown", visibility=("admin", None)))
-        ctx.find(Finding("monitoring.wazuh_agent", "wazuh_agent", (a.name or a.ip)[:300], [key], subject_id=a.id,
+        ctx.find(Finding("monitoring.wazuh_agent", "wazuh_agent", label, [key], subject_id=a.id,
                          match_kind="exact", params={"address": root.ip_text}, visibility=("admin", None)))
+        # 以固定位址註冊（registerIP 不是 any）：改址後管理端會拒絕這個代理，要重新註冊或改成 any
+        if a.reg and a.reg == root.ip_text:
+            ctx.find(Finding("monitoring.wazuh_register_ip", "wazuh_agent", label, [key], subject_id=a.id,
+                             subject_key="register_ip", match_kind="exact", params={"address": root.ip_text},
+                             visibility=("admin", None)))
     for root in ctx.roots:
         o = (await ctx.session.execute(text(
-            "SELECT ocs_id, ocs_tag, last_seen_ocs FROM ip_addresses WHERE id = :id AND ocs_id IS NOT NULL"),
+            "SELECT ocs_id, ocs_tag, last_seen_ocs, hostname FROM ip_addresses WHERE id = :id AND ocs_id IS NOT NULL"),
             {"id": root.ip_id})).first()
         if o is not None:
             key = ctx.add(Evidence(key=f"ocs:{root.ip_id}", source_type="monitoring", object_type="ocs_computer",
                                    object_key=str(o.ocs_id), label=f"OCS #{o.ocs_id}", payload={"tag": o.ocs_tag},
                                    observed_at=o.last_seen_ocs, freshness="unknown", visibility=("admin", None)))
-            ctx.find(Finding("monitoring.ocs_inventory", "ocs_computer", f"OCS #{o.ocs_id}", [key],
+            # 名稱用主機名稱（OCS 的電腦編號沒人認得）；「OCS」由畫面上的來源標示
+            ctx.find(Finding("monitoring.ocs_inventory", "ocs_computer", o.hostname or f"#{o.ocs_id}", [key],
                              subject_key=str(o.ocs_id), params={"address": root.ip_text}, visibility=("admin", None)))
     for p in (await ctx.session.execute(text("""
         SELECT id, rustdesk_id, hostname, address_id, last_online_at FROM rustdesk_peers WHERE address_id = ANY(:ids)

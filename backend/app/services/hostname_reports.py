@@ -96,9 +96,10 @@ class HostnameRun:
         # 1. 寫入本輪看到的（名稱取字典序最小：穩定，不會因為迭代順序每輪翻動）。
         #    每一筆都要蓋 last_seen_at（清理靠它），所以整批 upsert：以前每個 IP 各一次，
         #    一輪十萬個名稱就是十萬次查詢。一次 4,000 列（參數上限 32767）。
+        # 依 IP id 排序：別的交易同時寫同一批列時，取得鎖的順序一致，不會互相死結
         rows = [{"ip_id": ip_id, "source": self.source, "origin": self.origin, "hostname": min(names),
                  "first_seen_at": self.run_at, "last_seen_at": self.run_at}
-                for ip_id, names in self._names.items()]
+                for ip_id, names in sorted(self._names.items())]
         # executemany（語句只編譯一次）：`.values(大清單)` 每批要產生幾萬個參數節點，光編譯就是秒級
         ins = pg_insert(IPHostnameReport)
         upsert = ins.on_conflict_do_update(
@@ -170,7 +171,7 @@ class HostnameRun:
 
     async def _derive(self, ip_ids: Iterable[uuid.UUID]) -> int:
         """依目擊表重算這些 IP 在這個來源的觀測值；有變才寫（經 apply_observation）。"""
-        ids = list(ip_ids)
+        ids = sorted(ip_ids)    # 寫入順序固定（同上，避免死結）
         if not ids:
             return 0
         from app.services.hostname import apply_observations_bulk

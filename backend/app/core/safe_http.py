@@ -308,6 +308,7 @@ async def safe_request(
     max_redirects: int = _MAX_REDIRECTS,
     client: httpx.AsyncClient | None = None,
     max_bytes: int | None = None,
+    follow_redirects: bool = True,
 ) -> httpx.Response:
     """經過 SSRF 檢查的 HTTP 請求。
 
@@ -315,6 +316,9 @@ async def safe_request(
 
     `client`：共用連線（見 `safe_client`）。給了就不再自己建 client，
     省下每支端點一次 TLS 握手。
+
+    `follow_redirects=False`：3xx 直接回給呼叫端（例如 POST 帶著 token，被 HTTP→HTTPS 轉址時會變成 GET、
+    token 掉了，對方只回「token 無效」—— 呼叫端自己把要改用的網址講出來比較清楚）。
 
     `max_bytes`：回應大小上限。**超過就在串流途中中止**，不會先把整份讀進記憶體 ——
     像是帶著全表 BGP 的路由器，一支 `/ip/route` 可能是上百萬列，等讀完再判斷已經太遲。
@@ -331,7 +335,7 @@ async def safe_request(
                 resp = await _do_request(
                     owned, method, current_url, headers=headers, params=params,
                     json=json, content=content, max_bytes=max_bytes)
-        if resp.is_redirect and resp.next_request is not None:
+        if follow_redirects and resp.is_redirect and resp.next_request is not None:
             cur, nxt = httpx.URL(current_url), resp.next_request.url
             # 轉址到別的主機：認證標頭不帶過去（以前整包沿用，302 到別的網域就把
             # X-Auth-Token／Authorization／LLM 金鑰送給對方 —— httpx 自己會剝掉，手動處理時丟了這一步）

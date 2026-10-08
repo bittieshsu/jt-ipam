@@ -179,6 +179,7 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 - **OPNsenseRuleLabel**：從 `pf_statistics` 解析，把 filterlog 的 `rid`（pf 規則 label）對應到規則引用的 alias：`label`/`action`/`interface`/`alias_names` jsonb，給規則→alias 的 Graylog DSV 用。
 - **OPNsenseRule**：拉回的防火牆規則唯讀快取（`legacy_uuid`、action/interface/direction/protocol、src/dst net & port、`raw` jsonb）。
 - **DHCPPoolRange**：從防火牆（Kea/ISC）同步回的 DHCP 發放範圍，含 `subnet_cidr`、`start_ip`/`end_ip`；落在範圍內的 IP 標示為 DHCP。
+- **TechnitiumDhcpServer** / **TechnitiumDhcpScope**：Technitium DHCP 整合（`technitium_dhcp_servers`，token 加密存在 `token_enc`/`token_nonce`）與它的範圍鏡像（`technitium_dhcp_scopes`：發放範圍、排除區間、`server_address`，以及發給用戶端的 `router`/`dns_servers`/`ntp_servers`/`wins_servers`，IP 變更評估會讀）。發放範圍、保留、租約寫進共用的 DHCP 表，`source_type = technitium`；Technitium DNS 是 `dns_servers.type` 的一種。
 
 > **Graylog DSV**（token 保護的 `/api/v1/lookup/...` 端點）：全域 IP→hostname/FQDN、每台防火牆的 `rid → alias` 與 `alias → members`（受 `expose_dsv` 控制）、每個 PVE 叢集的 `vmid → VM 名稱`；供 Graylog「DSV File from HTTP」配接器抓取（key 欄=0、value 欄=1）。
 
@@ -190,6 +191,17 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 - **PfSenseSyncedAlias**：抓回的別名（`members`、`alias_type`）供唯讀檢視；也餵 alias→members 的 Graylog DSV。
 - pfSense 的 NAT port-forward 會同步進同一張 `nat_translations` 表、`source_origin = pfsense:<fw_uuid>`，與 OPNsense NAT 並列（可依來源篩選）。
 
+### 6.3c Check Point：`checkpoint.py`（Beta，migration 0194）
+
+透過 Management API（`POST <url>/web_api/<指令>`、`X-chkp-sid`）連**管理伺服器**（Security Management Server / Multi-Domain，R81.20），唯讀：登入時要求唯讀工作階段，結束一定登出。一台管理伺服器管很多閘道與政策套件，所以整合單位是管理伺服器，不是閘道。
+
+- **CheckPointServer**（`checkpoint_servers`）：`api_url`、`verify_tls`、`auth_mode`（`api_key` / `password`，後者搭配 `username`）、加密的 API key 或密碼 `secret_enc`/`secret_nonce`（AAD `checkpoint_server:{id}:secret`）、`domains`（留空＝單一管理伺服器；Multi-Domain 每個網域各登入一次）、`packages`（留空＝全部）、同步開關（`sync_objects`/`sync_policies`/`sync_nat`）、`scope_subnet_ids`，以及上次結果（`api_version`、`last_summary`、`last_error`）。
+- **CheckPointGateway**（`checkpoint_gateways`）：管理伺服器上登記的閘道與伺服器（`domain`、`uid`、`name`、`gw_type`、`ipv4_address`、`version`）；位址會列入未授權 DHCP 的允許清單與 IP 變更評估。
+- **CheckPointObject**（`checkpoint_objects`）：網路物件（host、network、address-range、group、group-with-exclusion），含顯示用的 `value` 與群組 `members`；IP 詳細資料的防火牆反查以它比對。
+- **CheckPointRule**（`checkpoint_rules`）：依 `domain` / `package` / `layer`（內嵌層標成「上層 › 內嵌層」）存的存取規則，含 `section`、`rule_number`、`action`、`enabled`、來源/目的/服務名稱、`source_negate`/`destination_negate`、`install_on`、`hits` 與 `last_hit_at`。
+- 目的地 NAT 以 `port_forward` 寫進共用的 `nat_translations` 表，`source_origin = checkpoint:<server_uuid>`。
+- 第二階段（`checkpoint_gaia.py`，migration 0195）：**CheckPointGaiaTarget**（`checkpoint_gaia_targets`）是一台閘道的 Gaia API 連線，掛在管理伺服器底下（`server_id`、對照鏡像閘道用的 `gateway_uid`/`domain`（選用）、`gaia_url`、`username`、加密的密碼 `secret_enc`/`secret_nonce`（AAD `checkpoint_gateway:<id>:gaia_secret`）、`verify_tls`、`sync_dhcp`（唯讀，預設開）、`allow_scripts`（預設關；用 `run-script` 跑寫死的讀取指令，要能執行指令的帳號）、`sync_arp`、`sync_leases`、`scope_subnet_ids`（選用，空＝沿用管理伺服器的範圍）、`sync_interval_seconds`、`api_version`、上次同步狀態）。**CheckPointDhcpSubnet**（`checkpoint_dhcp_subnets`）是閘道 DHCP 伺服器的子網路鏡像（`subnet_cidr`、`enabled`、`default_gateway`、`dns_servers`、`domain_name`、租期、原始 `pools`），給 IP 變更評估用。發放範圍、租約旗標、主機名稱寫進共用表，`source_type`/`source = checkpoint`、`source_id` 是那筆 Gaia 連線；ARP 與租約在 `ip_addresses.arp_seen` 記成 `arp:checkpoint`（會過期，用鄰居的確認時間推回）與 `lease:checkpoint`（不會過期）。VPN 狀態沒有同步。
+
 ### 6.4 Proxmox 虛擬化：`virt.py`
 - **ProxmoxInstance**：PVE API 連線（`api_url` + `extra_api_urls` 供節點換手、`auth_username`/`auth_token_id`、secret 走 `encrypted_secrets`、`verify_tls`）。
 - **VirtCluster**：Proxmox 叢集（`type`、`is_standalone`、`location_id`、`tenant_id`、`customer_id`）。
@@ -197,7 +209,7 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 - **VMInterface**：`mac`、`primary_ip`、`bridge`、`vlan_id`。
 
 ### 6.5 DNS：`dns.py`
-- **DNSServer**：provider 抽象 `type`（powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs）；密鑰在 `encrypted_secrets`。
+- **DNSServer**：provider 抽象 `type`（powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs/technitium）；密鑰在 `encrypted_secrets`，非機密設定在 `extra_config`（`windows_dns` 用 `username`、`use_ssl`（HTTPS 5986 為預設，或 HTTP 5985 並強制 NTLM 加密）、選用的 `winrm_port`、`verify_tls`）。
 - **DNSZone**：`type`（forward/reverse）、`managed`、`associated_subnet_ids`（`uuid[]`）。
 - **DNSRecord**：`type`（A/AAAA/PTR/CNAME/MX/TXT/SRV/NS/SOA）、`source`（manual/from_ipam/from_dns_pulled）、`consistency_state`（consistent/dns_only/ipam_only/mismatch）供不一致報表、選填 `ipam_address_id` 反向連結。
 

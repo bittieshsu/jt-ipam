@@ -477,3 +477,37 @@ async def purge_permissions_for_object(
         ).returning(Permission.id)
     )).scalars().all()
     return len(rows)
+
+
+_CHAIN_TYPES = {"location": "location", "rack": "rack", "device": "device", "vmnode": "device",
+                "ip": "ip", "subnet": "subnet", "section": "section"}
+
+
+async def visible_chain(session: AsyncSession, user: User, chain: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """關係鏈（IP 頁、裝置頁的上下關係圖）依讀者逐一過濾：看不到的物件整個節點拿掉。
+
+    以前只檢查起點，鏈上串出來的裝置、機櫃、地點、子網路、區段名稱都直接回（2026-10-07 稽核）。
+    虛擬機與只有名稱的 PVE 節點來自虛擬化整合，屬於全域資料，要全域讀取。
+    """
+    if user.is_admin:
+        return chain
+    from app.mcp.tools import has_global_read
+    global_read: bool | None = None
+    out = []
+    for node in chain:
+        t, nid = node.get("type"), str(node.get("id") or "")
+        otype = _CHAIN_TYPES.get(str(t))
+        try:
+            oid = uuid.UUID(nid) if otype else None
+        except ValueError:
+            oid = None
+        if otype and oid is not None:
+            ok = has_permission(await get_object_permission(session, user=user, object_type=otype, object_id=oid),  # type: ignore[arg-type]
+                                "read")
+        else:
+            if global_read is None:
+                global_read = await has_global_read(session, user)
+            ok = global_read
+        if ok:
+            out.append(node)
+    return out

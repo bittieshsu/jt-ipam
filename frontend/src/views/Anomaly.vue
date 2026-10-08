@@ -417,9 +417,9 @@ function renderLocation(o: Record<string, any>) {
   ]);
 }
 const SEEN_VENDOR: Record<string, string> = {
-  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
+  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto", checkpoint: "Check Point",
   mikrotik: "MikroTik", librenms: "LibreNMS", adguard: "AdGuard", proxmox: "Proxmox",
-  windows_dhcp: "Windows DHCP", kea_dhcp: "Kea DHCP", isc_dhcp: "ISC DHCP",
+  windows_dhcp: "Windows DHCP", kea_dhcp: "Kea DHCP", isc_dhcp: "ISC DHCP", technitium: "Technitium DHCP",
 };
 /** 誰看到這個 MAC：`scanner` → 掃描代理、`arp:opnsense` → ARP 表（OPNsense） */
 function seenBy(src: string): string {

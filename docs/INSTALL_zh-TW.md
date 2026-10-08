@@ -24,6 +24,7 @@
 | Node | 22 LTS | 無 | 只用來建置前端；`jt-ipam.sh` 安裝時會裝 NodeSource 22（只有 Ubuntu 26.04 內建 22），升級時會把較舊的 Node 換成 22 |
 | guacd | jt-ipam 為該 OS 編的版本 | 無 | **必要**：RDP/VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
 | Recog | 最新發佈版 | 無 | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
+| 中文字型 | `fonts-noto-cjk` | 無 | **PDF 報告需要**：後端產生 PDF 時內嵌的中文/日文字型（下載約 60 MB）。`jt-ipam.sh` 安裝與升級時都會裝；升級時連不到 apt 鏡像只會警告，PDF 匯出會說明缺字型（DOCX/ODT 照常可用），之後用 `sudo apt install fonts-noto-cjk` 補上 |
 
 ### 支援的發行版本
 
@@ -390,7 +391,7 @@ cd jt-ipam/deploy/docker
 
 ## 4. 整合設定（裝完後）
 
-所有整合都在 admin 介面 (`/firewall`、`/wazuh`、`/librenms`、`/dns`) 加主機。
+所有整合都在管理介面的「管理 → 外部系統整合」裡新增（例如 `/firewall`、`/wazuh`、`/librenms`、`/dns`），已設定的整合在選單名稱後面會有標示。
 新增後預設每 5 分鐘由 `jt-ipam-sync.timer` 自動同步。
 
 ### OPNsense 防火牆
@@ -491,7 +492,7 @@ ollama pull granite-embedding:278m     # 嵌入模型（768 維、多語系）
 
 ### 自動備份
 
-安裝腳本不會啟用備份；要手動加 cron 或 systemd timer。最簡單：
+安裝腳本會裝好並啟用每日備份（`jt-ipam-backup.timer`），升級時也會更新備份腳本。不是用安裝腳本裝的，可以手動加上：
 
 ```bash
 sudo cp /opt/jt-ipam/scripts/jt-ipam-backup.sh /usr/local/bin/
@@ -503,6 +504,8 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 預設每天 03:30 跑，把 `pg_dump -Fc` + `/etc/jt-ipam/backend.env` + TLS 憑證
 打包到 `/var/backups/jt-ipam/`，保留 14 天。
+
+每次執行（成功或失敗）都會寫 `/var/backups/jt-ipam/last-run`：結果、時間、最後一次成功的時間、失敗原因。「系統診斷」頁的「每日備份」與 `sudo /opt/jt-ipam/scripts/jt-ipam.sh doctor` 都看這個檔；備份失敗或超過 48 小時沒有成功時診斷會標紅，並發系統告警給管理員。最常見的失敗原因是資料庫裡有一張不是 jt-ipam 角色擁有的資料表（例如手動留下的複本），pg_dump 讀不到就整份中止；診斷頁會直接列出要執行的指令。
 
 ### 異地備份
 

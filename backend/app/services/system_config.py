@@ -1518,6 +1518,9 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("security.brute_force", True, False),
     # RustDesk 客戶端回報的告警（密碼一分鐘錯 6 次、累計 30 次、允許清單違規…）；同一台同一類 10 分鐘內只發一次
     ("rustdesk.alarm", True, False),
+    # IP 變更評估：送審通知審核人（跟 IP 申請一樣預設連 Email）、覆核結果通知建立者
+    ("change_impact.submitted", True, True),
+    ("change_impact.reviewed", True, False),
 )
 
 

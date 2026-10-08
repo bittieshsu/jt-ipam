@@ -415,7 +415,8 @@ describe("回覆是錯誤、逾時", () => {
       wrapper = null;
       m.sessions.length = 0;
     }
-  });
+    // 一個測試裡掛載五次元件：整套平行跑、機器忙時會超過預設的 5 秒（單獨跑約 1 秒）
+  }, 20_000);
 
   it("送出後 60 秒還沒成功：提權沒有完成，可以再試；稽核 timeout", async () => {
     const w = render();

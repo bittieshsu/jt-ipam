@@ -116,6 +116,7 @@ _DELETE_HANDLERS = {
     "pfsense.py": "delete_firewall",
     "fortigate.py": "cleanup_shared_rows",
     "paloalto.py": "cleanup_shared_rows",
+    "checkpoint.py": "delete_server",          # Check Point 管理伺服器（NAT）
     "mikrotik.py": "cleanup_shared_rows",
     "windows_dhcp.py": "delete_server",
     "dns.py": "delete_server",
@@ -125,6 +126,8 @@ _DELETE_HANDLERS = {
     "wazuh.py": "delete_instance",
     "ocs.py": "delete_server",
     "rustdesk.py": "delete_server",
+    "isoinsight.py": "delete_source",          # ISOinsight 整合
+    "technitium.py": "delete_server",          # Technitium DHCP
     "virt.py": "delete_proxmox",
     "scan_agents.py": "delete_agent",
 }
@@ -132,6 +135,7 @@ _DELETE_HANDLERS = {
 _MORE_DELETE_HANDLERS = [
     ("dhcp_standalone.py", "delete_kea"),       # 獨立 Kea DHCP（issue #45）
     ("dhcp_standalone.py", "delete_isc"),       # 獨立 ISC DHCP（issue #45）
+    ("checkpoint_gaia.py", "delete_target"),    # Check Point 閘道的 Gaia API（第二階段）
 ]
 _ENDPOINTS = Path(__file__).resolve().parent.parent / "app" / "api" / "v1" / "endpoints"
 
@@ -155,7 +159,7 @@ def test_every_hostname_source_is_covered_by_a_delete_handler() -> None:
     assert "forget_origin" in src
     covered = {"opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp", "dns",
                "adguard", "librenms", "zabbix", "wazuh", "ocs", "proxmox", "scanner", "netbios", "mdns",
-               "kea_dhcp", "isc_dhcp", "rustdesk"}
+               "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "rustdesk", "checkpoint"}
     missing = set(HOSTNAME_SOURCES) - covered - {"manual"}
     assert not missing, f"這些主機名稱來源沒有刪除時的收回：{sorted(missing)}"
 

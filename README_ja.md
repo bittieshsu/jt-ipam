@@ -11,7 +11,7 @@
 
 **🌐 [プロジェクトサイト →](https://jasoncheng7115.github.io/jt-ipam/?lang=ja)**
 
-> 自社運用型で連携を中心に据えた IPAM です。phpIPAM の利用者にとって馴染みのある操作の流れを保ちながら独自に開発し、複数の DNS サーバー、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、MikroTik RouterOS、Windows DHCP Server、単独の Kea と ISC DHCP、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix、そしてローカルの LLM と深く連携します。
+> 自社運用型で連携を中心に据えた IPAM です。phpIPAM の利用者にとって馴染みのある操作の流れを保ちながら独自に開発し、複数の DNS サーバー、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、Check Point、MikroTik RouterOS、Windows DHCP Server、単独の Kea と ISC DHCP、Technitium DNS/DHCP、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix、そしてローカルの LLM と深く連携します。
 >
 > Jason Tools Co., Ltd. 提供 · ライセンス：AGPL-3.0 · English: [README.md](README.md) · 繁體中文: [README_zh-TW.md](README_zh-TW.md)
 
@@ -21,18 +21,20 @@
 
 phpIPAM の利用者がその日から使えるよう操作の流れを揃えつつ、現代的な技術スタックでゼロから作り直しています（phpIPAM のコードは使っていません）。連携が中核です。
 
-- **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS（正引き・逆引きの状態を読み取り、レコードの書き込みも選択可）
+- **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS、Technitium DNS Server（正引き・逆引きの状態を読み取り、レコードの書き込みも選択可。Technitium は読み取りのみ。Windows DNS は WinRM の HTTPS 5986、または NTLM 暗号化を強制した HTTP 5985）
 - **LibreNMS**：機器の同期、ARP / FDB の収集、死活状態の突き合わせ、監視への自動登録
 - **Zabbix**：監視面を補う読み取り専用の連携です。ホストと IP の対応、実効状態の根拠としての死活、メンテナンス期間、そして**監視の抜け**（IPAM がホスト名を持っているのに Zabbix が見ていないアドレス）が分かります。ARP と FDB は Zabbix の標準データに含まれないため、引き続き LibreNMS が担当します
-- **基盤**：Proxmox VE、**VMware ESXi / vCenter（Beta）**：単体の ESXi と vCenter を同じ設定で扱い、vSphere API 経由の読み取り専用で仮想マシン・NIC・アドレスを取得し、Proxmox と同じ仮想化テーブルに格納します。Wazuh、OPNsense / pfSense（エイリアス/ルール/NAT の同期）、**FortiGate**：FortiOS REST API 経由の読み取り専用（DHCP のリースと範囲、ARP、IPsec トンネルと SSL-VPN セッション、ポリシー、NAT、アドレスオブジェクト。マルチ VDOM 対応）、**Palo Alto（Beta）**：PAN-OS API 経由の読み取り専用（ARP、DHCP リース、App-ID を含むセキュリティポリシー、NAT、アドレスオブジェクト。マルチ vsys 対応）、**MikroTik RouterOS（Beta）**：RouterOS v7 REST API 経由の読み取り専用（filter / mangle / NAT のファイアウォールルール、アドレスリスト、DHCP のリースと範囲、VPN、ARP）。MikroTik は拠点の主力ルーターであることが多いため、区分を直列に実行して間に休止を入れ、CPU 負荷が閾値を超えたらその回を中止し、応答サイズにも上限を設けています（RouterOS の REST にはページングがありません）。負荷の高い区分は既定で無効で、接続診断がエンドポイントごとの行数と秒数を報告します
-- **DHCP**：サーバーごとに個別に設定します。OPNsense（Kea / ISC）と pfSense はそれぞれの REST API でリースとアドレス範囲を同期し、**Windows DHCP Server**（Beta）は WinRM + PowerShell の読み取り専用です（`Get-*` のみ。WinRM に到達できる必要があり、既定は 5986/HTTPS）。**単独の Kea** は JSON 制御 API（Control Agent、または Kea 3.0 以降の DHCP サーバー自身の HTTP 制御ソケット。リースには lease_cmds フックが必要）で読み取り、**単独の ISC DHCP**（isc-dhcp-server にはリースを一覧できる API が無い）は DHCP ホストにインストールしたスキャンエージェントが dhcpd.conf/dhcpd.leases をローカルで解析し、解析済みのプール・固定割り当て・有効なリースだけを報告します。プール内のアドレスは IP 一覧と詳細に表示されます。
+- **基盤**：Proxmox VE、**VMware ESXi / vCenter（Beta）**：単体の ESXi と vCenter を同じ設定で扱い、vSphere API 経由の読み取り専用で仮想マシン・NIC・アドレスを取得し、Proxmox と同じ仮想化テーブルに格納します。Wazuh、OPNsense / pfSense（エイリアス/ルール/NAT の同期）、**FortiGate**：FortiOS REST API 経由の読み取り専用（DHCP のリースと範囲、ARP、IPsec トンネルと SSL-VPN セッション、ポリシー、NAT、アドレスオブジェクト。マルチ VDOM 対応）、**Palo Alto（Beta）**：PAN-OS API 経由の読み取り専用（ARP、DHCP リース、App-ID を含むセキュリティポリシー、NAT、アドレスオブジェクト。マルチ vsys 対応）、**Check Point（Beta）**：管理サーバーの R81.20 Management API 経由の読み取り専用（ゲートウェイ一覧、ネットワークオブジェクト、インラインレイヤーとヒット数を含むアクセスルール、宛先 NAT。Multi-Domain 対応でドメインごとにログイン、読み取り専用セッション。ゲートウェイごとに Gaia API で DHCP サーバー設定を読み取り専用で取得し、明示的に許可した場合は固定の読み取りコマンドで ARP テーブルと DHCP リースも取得）、**MikroTik RouterOS（Beta）**：RouterOS v7 REST API 経由の読み取り専用（filter / mangle / NAT のファイアウォールルール、アドレスリスト、DHCP のリースと範囲、VPN、ARP）。MikroTik は拠点の主力ルーターであることが多いため、区分を直列に実行して間に休止を入れ、CPU 負荷が閾値を超えたらその回を中止し、応答サイズにも上限を設けています（RouterOS の REST にはページングがありません）。負荷の高い区分は既定で無効で、接続診断がエンドポイントごとの行数と秒数を報告します
+- **DHCP**：サーバーごとに個別に設定します。OPNsense（Kea / ISC）と pfSense はそれぞれの REST API でリースとアドレス範囲を同期し、**Windows DHCP Server**（Beta）は WinRM + PowerShell の読み取り専用です（`Get-*` のみ。WinRM に到達できる必要があり、既定は 5986/HTTPS）。**単独の Kea** は JSON 制御 API（Control Agent、または Kea 3.0 以降の DHCP サーバー自身の HTTP 制御ソケット。リースには lease_cmds フックが必要）で読み取り、**Technitium DHCP** は Technitium の HTTP API で読み取り（トークンは閲覧権限のみ。除外範囲を差し引いたスコープ、予約、リース、スコープごとにクライアントへ配布するゲートウェイ/DNS で、IP 変更評価が照合します）、**単独の ISC DHCP**（isc-dhcp-server にはリースを一覧できる API が無い）は DHCP ホストにインストールしたスキャンエージェントが dhcpd.conf/dhcpd.leases をローカルで解析し、解析済みのプール・固定割り当て・有効なリースだけを報告します。プール内のアドレスは IP 一覧と詳細に表示されます。**ISOinsight（Beta）** は機器の HTTP(S) インターフェイスにログインし、DHCP リースを読み取り専用で取得します。
 - **Wazuh**：エージェント一覧（状態、OS、CVE 件数、SCA）を IP に対応付け、ホスト名があるのに有効なエージェントの無い IP を一覧表示します
 - **OCS Inventory NG**：NIC の MAC で PC を既存の IP に対応付け（レコードは作成しません）、装置ページにハードウェア情報を表示し、一度も棚卸しされていない IP を一覧表示します
 - **RustDesk Server（オープンソース版）**：RustDesk ホストに入れた専用の RustDesk エージェント（1 行でインストール）が登録済みデバイスの ID とオンライン状態を読み取り専用で読みます（秘密鍵ファイルは決して開きません。jt-ipam とホスト管理者の両方が許可した場合は古い登録の削除もできます）。登録 IP が明確で最近オンラインのときだけ IP レコードに対応付け、IP ページから Web ブラウザー内で直接接続でき（RustDesk 互換の Web 接続。暗号化はブラウザー内で行います）、サーバーと公開鍵を渡してローカルの RustDesk クライアントを起動することもできます（リンクにパスワードは含みません）。クライアント自身の報告から、接続監査、ホスト名 / OS / ユーザー、総当たり警告も得られます（クライアント設定の変更は不要）
 - **Graylog**：Graylog の「DSV File from HTTP」データアダプタ向けに、IP→ホスト名 / FQDN のルックアップ用エンドポイントを提供します
-- **ローカル AI**：LLM サーバーによる自然言語での問い合わせとセマンティック検索（既定は自社運用なのでデータは外部に出ません。OpenAI 互換エンドポイントを明示的に選ぶこともできます）。加えて MCP サーバー（stdio と Streamable HTTP）を備え、外部の LLM クライアントから IPAM を操作できます。検証では `gemma4:26b` が良好でした。セキュリティ面の AI としては、**ファイアウォールのルール変更監視**（三系統すべてのファイアウォールについて同期のたびにスナップショットを比較し、夜のうちに許可ルールが増えれば管理者へ通知）、**チャットでの IP フォレンジック**（「この IP は先週誰のものだったか」と尋ねると、項目単位の変更履歴・ARP / MAC の対応・ソース別のホスト名を根拠つきの時系列で返します）、**未許可 IP の AI 判読カード**（OUI ベンダー・ホスト名・スイッチポートをまとめ、「これはおそらく何の機器で、次にどこを見るべきか」を提示。根拠はプロンプトインジェクション対策として区切ります）があります。
+- **ローカル AI**：LLM サーバーによる自然言語での問い合わせとセマンティック検索（既定は自社運用なのでデータは外部に出ません。OpenAI 互換エンドポイントを明示的に選ぶこともできます）。加えて MCP サーバー（stdio と Streamable HTTP）を備え、外部の LLM クライアントから IPAM を操作できます。検証では `gemma4:26b` が良好でした。セキュリティ面の AI としては、**ファイアウォールのルール変更監視**（OPNsense・pfSense・FortiGate・Palo Alto・Check Point・MikroTik のファイアウォールについて同期のたびにスナップショットを比較し、夜のうちに許可ルールが増えれば管理者へ通知）、**チャットでの IP フォレンジック**（「この IP は先週誰のものだったか」と尋ねると、項目単位の変更履歴・ARP / MAC の対応・ソース別のホスト名を根拠つきの時系列で返します）、**未許可 IP の AI 判読カード**（OUI ベンダー・ホスト名・スイッチポートをまとめ、「これはおそらく何の機器で、次にどこを見るべきか」を提示。根拠はプロンプトインジェクション対策として区切ります）があります。
 
-さらに標準で備えるもの：**ブラウザ内のリモートコンソール**では、SSH 端末、**SFTP ファイルブラウザ**（別のクライアント無しでアップロード/ダウンロード）、RDP と VNC のデスクトップ、**BMC 帯域外シリアルコンソール**（IPMI SOL）、RustDesk 互換の **Web 接続**（暗号化はブラウザ内で完結、ファイル転送付き、RustDesk クライアント不要）（BMC は **Beta**）をブラウザ内で開けます。ステータスバーには接続時間が表示されます。資格情報は既定では保存せず、利用者ごとの**暗号化された保管庫**も選べます。**踏み台ホスト**（バックエンドから直接届かない拠点では「バックエンド → 踏み台 → 対象」の経路にでき、出口はサブネット単位で設定してアドレス単位で上書きできます。踏み台の鍵はピン留めするまで接続を許可しません）、オブジェクト単位の RBAC、使い捨てチケットから確立する WebSocket セッション、完全な監査（接続ごとに接続時間も記録）（RDP / VNC はプリビルドの wheel がある場合だけ導入される任意依存を使うため、基本のインストールは変わりません）。**IP 申請の承認フロー**（多段階/並行承認を設定可能。アプリ内通知とメール通知）、**DNS レコードの点検**（IPAM に対応するアドレスの無いレコードを洗い出します）、**スキャンエージェント**（ICMP / ARP / 逆引き / NetBIOS / mDNS / OS の探査。ホストには自動的に 1 つ導入されます。スキャンは必ずエージェント経由です）、管理者専用の **IP 探索**（サービス・OS フィンガープリント・バナー・証明書からホストの種類を推定し、任意の [Recog](https://github.com/rapid7/recog) フィンガープリント DB とも照合。インストール時にダウンロードし毎週新版を確認。結論にはすべて根拠を表示）、**証明書の集中保管と配布**（商用または自己署名の証明書を一度アップロードすれば、純粋な bash のエージェントがスケジュールで取得し、nginx / apache / caddy / haproxy / Proxmox VE・PMG・PBS / Zimbra などへ配備してサービスを再読み込みします。**Windows / IIS 向けの PowerShell エージェント**もあり、Windows 証明書ストアへ取り込み、HTTPS バインディングを張り替え、実際の TLS 接続で切り替わりを確認し、失敗すれば元へ戻します。秘密鍵は暗号化され、期限の警告と手動更新にも対応）、**フロアプランとラックの立面図**（標準ラック・産業用ラック・シェルフ/クロムワイヤーシェルフ/アングル棚/木製シェルフ（IKEA IVAR 型）/IKEA KALLAX、さらに LackRack（IKEA LACK サイドテーブルを 19 インチラックとして使用）に対応し、幅を指定でき、段の高さは段ごとに設定でき、最上段の天板の上にも機器を置け、1 段の中で積み重ねられます。1 段に最大 6 台の横並び、前面/背面、SVG / PNG / draw.io への書き出し）、**ケーブル追跡**（マルチホップ）、未使用 IP の回収を伴う IP 変更履歴、そして汎用の列選択と複数形式でのエクスポート。
+**IP 変更の影響評価**：IP の変更、廃止、スイッチの保守、ノードの停止の前に、各連携でそのアドレスやデバイスを参照している箇所（DNS、DHCP、ファイアウォールルールと NAT、監視、仮想化、連携の接続先、証明書…）と影響を受けるサービスを一覧化し、ブロック・要レビュー・要変更・データ不足に分類します。影響別の関係図、レビューの流れ、作業と切り戻し手順付きで、レポートは PDF、Word、OpenDocument（一覧は Excel）でエクスポートできます。読み取りのみで、機器は一切変更しません。
+
+さらに標準で備えるもの：**ブラウザ内のリモートコンソール**では、SSH 端末、**SFTP ファイルブラウザ**（別のクライアント無しでアップロード/ダウンロード）、RDP と VNC のデスクトップ、**BMC 帯域外シリアルコンソール**（IPMI SOL）、RustDesk 互換の **Web 接続**（暗号化はブラウザ内で完結、ファイル転送付き、RustDesk クライアント不要）（BMC は **Beta**）をブラウザ内で開けます。ステータスバーには接続時間が表示されます。資格情報は既定では保存せず、利用者ごとの**暗号化された保管庫**も選べます。**踏み台ホスト**（バックエンドから直接届かない拠点では「バックエンド → 踏み台 → 対象」の経路にでき、出口はサブネット単位で設定してアドレス単位で上書きできます。踏み台の鍵はピン留めするまで接続を許可しません）、オブジェクト単位の RBAC、使い捨てチケットから確立する WebSocket セッション、完全な監査（接続ごとに接続時間も記録）（RDP / VNC はプリビルドの wheel がある場合だけ導入される任意依存を使うため、基本のインストールは変わりません）。**申請の承認フロー**（IP 申請と IP 変更評価それぞれに多段階/並行承認を設定可能。アプリ内とメールで通知）、**DNS レコードの点検**（IPAM に対応するアドレスの無いレコードを洗い出します）、**スキャンエージェント**（ICMP / ARP / 逆引き / NetBIOS / mDNS / OS の探査。ホストには自動的に 1 つ導入されます。スキャンは必ずエージェント経由です）、管理者専用の **IP 探索**（サービス・OS フィンガープリント・バナー・証明書からホストの種類を推定し、任意の [Recog](https://github.com/rapid7/recog) フィンガープリント DB とも照合。インストール時にダウンロードし毎週新版を確認。結論にはすべて根拠を表示）、**証明書の集中保管と配布**（商用または自己署名の証明書を一度アップロードすれば、純粋な bash のエージェントがスケジュールで取得し、nginx / apache / caddy / haproxy / Proxmox VE・PMG・PBS / Zimbra などへ配備してサービスを再読み込みします。**Windows / IIS 向けの PowerShell エージェント**もあり、Windows 証明書ストアへ取り込み、HTTPS バインディングを張り替え、実際の TLS 接続で切り替わりを確認し、失敗すれば元へ戻します。秘密鍵は暗号化され、期限の警告と手動更新にも対応）、**フロアプランとラックの立面図**（標準ラック・産業用ラック・シェルフ/クロムワイヤーシェルフ/アングル棚/木製シェルフ（IKEA IVAR 型）/IKEA KALLAX、さらに LackRack（IKEA LACK サイドテーブルを 19 インチラックとして使用）に対応し、幅を指定でき、段の高さは段ごとに設定でき、最上段の天板の上にも機器を置け、1 段の中で積み重ねられます。1 段に最大 6 台の横並び、前面/背面、SVG / PNG / draw.io への書き出し）、**ケーブル追跡**（マルチホップ）、未使用 IP の回収を伴う IP 変更履歴、そして汎用の列選択と複数形式でのエクスポート。
 
 ## Graylog のログ補完（DSV ルックアップ）
 
@@ -87,7 +89,7 @@ SOL が中継するのはホストの**シリアルポート**だけなので、
 | **Proxmox VE** | 作成することがあります | 「仮想化から得た IP を信頼する」 | **既定で無効** | それを含む最小のサブネットに入れます。判別できなければ何も作りません |
 | **VMware / ESXi** | 作成することがあります | 「仮想化から得た IP を信頼する」 | **既定で無効** | それを含む最小のサブネットに入れます。判別できなければ何も作りません |
 | **OPNsense / pfSense** | 作成することがあります（DHCP リース） | 「IPAM に無いアドレスを作成する」 | **既定で無効** | それを含む最小のサブネットに入れます。判別できなければ何も作りません |
-| AdGuard / Wazuh / Zabbix / OCS / RustDesk / DNS / Windows DHCP / Kea / ISC DHCP / FortiGate / Palo Alto / MikroTik | **照合のみ。作成しません** | なし | なし | なし |
+| AdGuard / Wazuh / Zabbix / OCS / RustDesk / DNS / Windows DHCP / Kea / ISC DHCP / Technitium DHCP / ISOinsight / FortiGate / Palo Alto / Check Point / MikroTik | **照合のみ。作成しません** | なし | なし | なし |
 | CSV 取り込み/phpIPAM 移行 | 取り込んだ内容から作成（利用者の明示的な操作） | なし | なし | 取り込んだとおり |
 
 **共通ルール**：自動作成はすべて同じ判断（`services/ip_autocreate.py`）を通ります。**そのアドレスを含む最小のサブネットに入れる。どれに入れるべきか判別できなければ、何も作らない**。
@@ -103,7 +105,7 @@ SOL が中継するのはホストの**シリアルポート**だけなので、
 
 ## 主要なエンティティ
 
-`セクション → サブネット → IP アドレス` に加えて、`機器` / `ラック` / `拠点`、`顧客`（管理組織）、`VLAN` / `VRF`、`NAT`、OPNsense / pfSense / FortiGate / Palo Alto / MikroTik のファイアウォール、そして IEEE の OUI ベンダーテーブル（毎月更新）です。
+`セクション → サブネット → IP アドレス` に加えて、`機器` / `ラック` / `拠点`、`顧客`（管理組織）、`VLAN` / `VRF`、`NAT`、OPNsense / pfSense / FortiGate / Palo Alto / Check Point / MikroTik のファイアウォール、そして IEEE の OUI ベンダーテーブル（毎月更新）です。
 
 ## アクセス制御（RBAC）
 
@@ -154,7 +156,7 @@ sudo apt-get update && sudo apt-get install -y curl
 curl -fsSL https://raw.githubusercontent.com/jasoncheng7115/jt-ipam/main/scripts/bootstrap.sh | sudo bash
 ```
 
-このスクリプトは `postgresql-16` / `python3.12` / `nginx` / `redis` を導入し、`jtipam` のシステムアカウントと PG のロールを作成し、鍵を生成して `/etc/jt-ipam/backend.env` に書き込み、`alembic upgrade head` を実行し、フロントエンドをビルドして `jt-ipam-backend.service` を有効にします。
+このスクリプトは `postgresql-16` / `python3.12` / `nginx` / `redis`（PDF レポートに埋め込む中国語・日本語フォント `fonts-noto-cjk` も）を導入し、`jtipam` のシステムアカウントと PG のロールを作成し、鍵を生成して `/etc/jt-ipam/backend.env` に書き込み、`alembic upgrade head` を実行し、フロントエンドをビルドして `jt-ipam-backend.service` を有効にします。
 
 既存の環境の更新は `sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade` です。**スクリプト自身が `git pull` を実行し**、続いてバックアップ → 依存関係 → alembic → ビルド → 再起動を行います。詳細は [`docs/INSTALL_ja.md`](docs/INSTALL_ja.md) を参照してください。
 
@@ -270,7 +272,7 @@ jt-ipam/
 
 - **フェーズ 1（完了）**：phpIPAM と同等の機能に改善を加えたもの（セクション/サブネット/IP/VLAN/VRF/NAT/機器/ラック/拠点/IP 申請、TOTP/API トークン/RBAC、phpIPAM の取り込み、CSV / RIPE / TWNIC、サブネットの可視化グリッド、TLS の強制）
 - **フェーズ 2（完了）**：複数ベンダーの DNS と LibreNMS の深い連携（機器/ARP/FDB/実効状態）、異常検知、SHA-256 の監査チェーン、pgvector による AI セマンティック検索
-- **フェーズ 3（完了）**：組織/連絡先/配線/電源/VPN/仮想化、Proxmox VE の同期、Cytoscape のトポロジー、OIDC / SAML の SSO、OPNsense / pfSense / FortiGate / Palo Alto / MikroTik のファイアウォール同期、VMware ESXi / vCenter の棚卸し、Wazuh のエージェント棚卸し、Zabbix の監視カバレッジ
+- **フェーズ 3（完了）**：組織/連絡先/配線/電源/VPN/仮想化、Proxmox VE の同期、Cytoscape のトポロジー、OIDC / SAML の SSO、OPNsense / pfSense / FortiGate / Palo Alto / Check Point / MikroTik のファイアウォール同期、VMware ESXi / vCenter の棚卸し、Wazuh のエージェント棚卸し、Zabbix の監視カバレッジ
 - **フェーズ 4（範囲を絞って完了）**：MCP サーバー、ローカル LLM による自然言語（LLM サーバー）、プラグイン機構
 
 ### ラック図を他のシステムに埋め込む

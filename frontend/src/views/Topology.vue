@@ -30,6 +30,7 @@ import coseBilkent from "cytoscape-cose-bilkent";
 import { getTopology, type TopologyData } from "@/api/topology";
 import { listSubnets } from "@/api/subnets";
 import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
+import { useFillHeight } from "@/composables/usePageFill";
 
 cytoscape.use(coseBilkent as any);
 
@@ -210,6 +211,12 @@ async function loadSubnetOptions() {
 }
 
 let cy: cytoscape.Core | null = null;
+// 往下佔滿視窗（使用者 2026-10-08：IP 拓樸圖下面也留空）：工具列到頁面底部剛好等於可視高度，
+// 圖例在畫布下方，量的時候一起算進去
+const topoBarEl = ref<HTMLElement | null>(null);
+const shellEl = ref<HTMLElement | null>(null);
+const fill = useFillHeight(shellEl, topoBarEl, { min: 420 });
+watch(fill.height, () => requestAnimationFrame(() => cy?.resize()));
 
 const NODE_COLOURS: Record<string, string> = {
   router: "#6366f1",
@@ -1030,6 +1037,7 @@ onUnmounted(() => {
     </template>
     <!-- 動作靠右、與篩選同一列。原本它們自己獨占一列靠右對齊，畫面上多一條空帶，
          視窗一窄又會跟篩選擠在一起；卡片標題列則只放標題（使用者回報兩次）。 -->
+    <div ref="topoBarEl">
     <n-space class="topo-toolbar" align="center" :wrap="true"
              style="margin-bottom: 12px; row-gap: 8px">
       <n-select
@@ -1078,11 +1086,12 @@ onUnmounted(() => {
           </n-button>
         </n-space>
       </n-space>
+    </div>
     <n-alert v-if="tooLarge" type="warning" :bordered="false" style="margin-bottom: 10px" data-testid="topology-too-large">
       {{ t("topology.too_large", { n: tooLarge.devices.toLocaleString(), limit: tooLarge.limit.toLocaleString() }) }}
     </n-alert>
     <n-spin :show="loading">
-      <div class="topology-shell">
+      <div ref="shellEl" class="topology-shell" :style="fill.height.value ? { height: `${fill.height.value}px` } : undefined">
         <div ref="containerRef" class="cy"></div>
         <n-card v-if="selected" size="small" class="info-pane" :title="selectedTitle" closable @close="selected = null">
           <table class="info-table">

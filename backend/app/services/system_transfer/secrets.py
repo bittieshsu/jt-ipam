@@ -67,6 +67,14 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
         ("api_key", "api_key_enc", "api_key_nonce",
          _aad_id("paloalto_firewall:{id}:api_key")),
     ],
+    "checkpoint_servers": [
+        ("secret", "secret_enc", "secret_nonce",
+         _aad_id("checkpoint_server:{id}:secret")),
+    ],
+    "checkpoint_gaia_targets": [
+        ("secret", "secret_enc", "secret_nonce",
+         _aad_id("checkpoint_gateway:{id}:gaia_secret")),
+    ],
     "jump_hosts": [
         ("private_key", "private_key_enc", "private_key_nonce",
          _aad_id("jump_host:{id}:private_key")),
@@ -94,6 +102,14 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
     "kea_dhcp_servers": [
         ("password", "password_enc", "password_nonce",
          _aad_id("kea_dhcp_server:{id}:password")),
+    ],
+    "technitium_dhcp_servers": [
+        ("token", "token_enc", "token_nonce",
+         _aad_id("technitium_dhcp_server:{id}:token")),
+    ],
+    "isoinsight_sources": [
+        ("password", "password_enc", "password_nonce",
+         _aad_id("isoinsight_source:{id}:password")),
     ],
     "cert_versions": [
         (

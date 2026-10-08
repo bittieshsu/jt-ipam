@@ -61,6 +61,13 @@ def _parse_origin(
             return "paloalto", None, "Palo Alto (unknown)"
         name = fw_names.get(fw_id) or "unknown"
         return "paloalto", fw_id, f"Palo Alto: {name}"
+    if origin.startswith("checkpoint:"):
+        try:
+            fw_id = uuid.UUID(origin.split(":", 1)[1])
+        except ValueError:
+            return "checkpoint", None, "Check Point (unknown)"
+        name = fw_names.get(fw_id) or "unknown"
+        return "checkpoint", fw_id, f"Check Point: {name}"
     if origin.startswith("fortigate:"):
         try:
             fw_id = uuid.UUID(origin.split(":", 1)[1])
@@ -78,7 +85,7 @@ async def list_nat(
     type: str | None = Query(None),
     device_id: uuid.UUID | None = Query(None),
     ip_id: uuid.UUID | None = Query(None, description="篩選 src 或 dst 指向此 IP 的規則"),
-    source_kind: list[str] | None = Query(None, description="可複選：opnsense | pfsense | fortigate | paloalto | mikrotik | phpipam | manual"),
+    source_kind: list[str] | None = Query(None, description="可複選：opnsense | pfsense | fortigate | paloalto | checkpoint | mikrotik | phpipam | manual"),
     source_firewall_id: uuid.UUID | None = Query(None),
     page: int = Query(1, ge=1, le=10_000),
     page_size: int = Query(50, ge=1, le=500),
@@ -99,7 +106,7 @@ async def list_nat(
     # 來源可複選：phpipam / manual / opnsense / pfsense（OR）
     kinds = {k for k in (source_kind or [])
              if k in ("phpipam", "manual", "opnsense", "pfsense", "fortigate", "paloalto",
-                      "mikrotik")}
+                      "checkpoint", "mikrotik")}
     if kinds:
         from sqlalchemy import or_
         conds = []
@@ -122,6 +129,11 @@ async def list_nat(
                 conds.append(NATTranslation.source_origin == f"paloalto:{source_firewall_id}")
             else:
                 conds.append(NATTranslation.source_origin.like("paloalto:%"))
+        if "checkpoint" in kinds:
+            if source_firewall_id is not None and kinds == {"checkpoint"}:
+                conds.append(NATTranslation.source_origin == f"checkpoint:{source_firewall_id}")
+            else:
+                conds.append(NATTranslation.source_origin.like("checkpoint:%"))
         if "mikrotik" in kinds:
             if source_firewall_id is not None and kinds == {"mikrotik"}:
                 conds.append(NATTranslation.source_origin == f"mikrotik:{source_firewall_id}")
@@ -150,6 +162,9 @@ async def list_nat(
     from app.models.paloalto import PaloAltoFirewall
     pa_rows = (await session.execute(select(PaloAltoFirewall.id, PaloAltoFirewall.name))).all()
     fw_names.update({r[0]: r[1] for r in pa_rows})
+    from app.models.checkpoint import CheckPointServer
+    cp_rows = (await session.execute(select(CheckPointServer.id, CheckPointServer.name))).all()
+    fw_names.update({r[0]: r[1] for r in cp_rows})
     from app.models.mikrotik import MikroTikRouter
     mt_rows = (await session.execute(select(MikroTikRouter.id, MikroTikRouter.name))).all()
     fw_names.update({r[0]: r[1] for r in mt_rows})

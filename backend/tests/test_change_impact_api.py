@@ -1,9 +1,10 @@
-"""變更影響預演：API、權限、作業、覆核、AI（規格 §15 的 T15–T24，加上功能開關與稽核）。"""
+"""IP 變更評估：API、權限、作業、覆核、AI（規格 §15 的 T15–T24，加上功能開關與稽核）。"""
 from __future__ import annotations
 
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -315,6 +316,148 @@ async def test_t19_revoked_permission_before_the_worker_starts(client, db_sessio
     assert not (await db_session.execute(select(ImpactFinding).where(ImpactFinding.run_id == run.id))).scalars().all()
 
 
+# ─────────────────── 輸入沒有權限的 IP：要說清楚是權限問題，不是「找不到」 ───────────────────
+
+def _code(r) -> str:  # type: ignore[no-untyped-def]
+    return r.json()["detail"]["code"]
+
+
+async def test_typed_address_without_permission_says_so(client, db_session) -> None:
+    await _enable(db_session)
+    _sec, sub, ip = await _setup(db_session)
+    u = await _user(db_session)
+    url = "/api/v1/change-impact/candidates?ip="
+    # 看不到所在子網路：已登記的、還沒登記的都說沒有權限
+    for addr in ("198.51.100.10", "198.51.100.99"):
+        r = await client.get(url + addr, headers=_hdr(u))
+        assert r.status_code == 403 and _code(r) == "impact_target_no_permission", addr
+        assert r.json()["detail"]["params"]["address"] == addr
+    # 不在任何管理的子網路
+    r = await client.get(url + "203.0.113.5", headers=_hdr(u))
+    assert r.status_code == 404 and _code(r) == "impact_target_unmanaged"
+    # 看得到子網路：已登記的給候選；還沒登記的說 IPAM 沒有這筆（帶子網路）
+    await _grant(db_session, u, "subnet", sub.id, "read")
+    r = await client.get(url + "198.51.100.10", headers=_hdr(u))
+    assert r.status_code == 200 and [x["id"] for x in r.json()["items"]] == [str(ip.id)]
+    r = await client.get(url + "198.51.100.99", headers=_hdr(u))
+    assert r.status_code == 404 and _code(r) == "impact_target_not_registered"
+    assert r.json()["detail"]["params"]["subnet"] == "198.51.100.0/24"
+    # 只有檢視權限：建立時說要修改權限
+    r = await _plan(client, _hdr(u), ip.id)
+    assert r.status_code == 403 and _code(r) == "impact_target_forbidden"
+
+
+async def test_new_ip_in_a_subnet_you_cannot_see_says_so(client, db_session) -> None:
+    await _enable(db_session)
+    sec, sub, ip = await _setup(db_session)
+    db_session.add(Subnet(section_id=sec.id, cidr="203.0.113.0/24"))
+    await db_session.commit()
+    u = await _user(db_session)
+    await _grant(db_session, u, "subnet", sub.id, "write")
+    r = await _plan(client, _hdr(u), ip.id, new_ip="203.0.113.20")
+    assert r.status_code == 403 and _code(r) == "impact_new_ip_no_permission"
+    assert r.json()["detail"]["params"]["address"] == "203.0.113.20"
+    r = await _plan(client, _hdr(u), ip.id, new_ip="192.0.2.20")
+    assert _code(r) == "impact_new_ip_unmanaged"
+
+
+async def test_target_subnets_only_list_what_you_can_change(client, db_session) -> None:
+    """建立視窗的子網路下拉：只列可以修改的；單位與區段選項也只從這些子網路推出來（使用者 2026-10-07）。"""
+    from app.models.customer import Customer
+    await _enable(db_session)
+    sec, sub, _ip = await _setup(db_session, customer=True)
+    sub.description = "ERP servers"
+    other_sec = Section(name=f"hidden-{uuid.uuid4().hex[:6]}")
+    other_cust = Customer(name=f"hidden-{uuid.uuid4().hex[:6]}")
+    db_session.add_all([other_sec, other_cust])
+    await db_session.flush()
+    ro = Subnet(section_id=other_sec.id, cidr="203.0.113.0/24", customer_id=other_cust.id)
+    hidden = Subnet(section_id=other_sec.id, cidr="192.0.2.0/24", customer_id=other_cust.id)
+    db_session.add_all([ro, hidden])
+    await db_session.commit()
+    u = await _user(db_session)
+    await _grant(db_session, u, "subnet", sub.id, "write")
+    await _grant(db_session, u, "subnet", ro.id, "read")
+    url = "/api/v1/change-impact/target-subnets"
+    body = (await client.get(url, headers=_hdr(u))).json()
+    assert [x["cidr"] for x in body["subnets"]] == ["198.51.100.0/24"]
+    assert body["subnets"][0]["section_name"] == sec.name and body["subnets"][0]["customer_name"]
+    assert [x["id"] for x in body["sections"]] == [str(sec.id)]
+    assert [x["id"] for x in body["customers"]] == [str(sub.customer_id)]
+    # 輸入 IP 找包含它的子網路；輸入文字找 CIDR／說明
+    for q in ("198.51.100.10", "erp", "198.51"):
+        got = (await client.get(url, params={"q": q}, headers=_hdr(u))).json()["subnets"]
+        assert [x["cidr"] for x in got] == ["198.51.100.0/24"], q
+    assert (await client.get(url, params={"q": "203.0.113.5"}, headers=_hdr(u))).json()["subnets"] == []
+    # 篩選帶了看不到的區段：不會因此看到那個區段的子網路
+    got = (await client.get(url, params={"section_id": str(other_sec.id)}, headers=_hdr(u))).json()
+    assert got["subnets"] == []
+
+
+async def test_candidates_within_the_chosen_subnet(client, db_session) -> None:
+    await _enable(db_session)
+    sec, sub, ip = await _setup(db_session)
+    hidden = Subnet(section_id=sec.id, cidr="203.0.113.0/24")
+    db_session.add(hidden)
+    await db_session.commit()
+    u = await _user(db_session)
+    await _grant(db_session, u, "subnet", sub.id, "write")
+    url = "/api/v1/change-impact/candidates"
+    r = await client.get(url, params={"ip": "198.51.100.10", "subnet_id": str(sub.id)}, headers=_hdr(u))
+    assert r.status_code == 200 and [x["id"] for x in r.json()["items"]] == [str(ip.id)]
+    r = await client.get(url, params={"ip": "203.0.113.9", "subnet_id": str(sub.id)}, headers=_hdr(u))
+    assert r.status_code == 422 and _code(r) == "impact_target_outside_subnet"
+    assert r.json()["detail"]["params"]["subnet"] == "198.51.100.0/24"
+    r = await client.get(url, params={"ip": "198.51.100.99", "subnet_id": str(sub.id)}, headers=_hdr(u))
+    assert r.status_code == 404 and _code(r) == "impact_target_not_registered"
+    r = await client.get(url, params={"ip": "203.0.113.9", "subnet_id": str(hidden.id)}, headers=_hdr(u))
+    assert r.status_code == 403 and _code(r) == "impact_target_no_permission"
+
+
+async def test_counts_sources_and_tasks_follow_the_reader(client, auth_headers, db_session) -> None:
+    """數量、資料來源清單、模板待辦都要依讀者重新過濾：看不到 DNS 的人不可以從數字或待辦知道有 DNS 引用。"""
+    await _enable(db_session)
+    _sec, sub, ip = await _setup(db_session, customer=True)
+    pid = (await _plan(client, auth_headers, ip.id)).json()["id"]
+    run_id = (await client.post(f"/api/v1/change-plans/{pid}/runs", headers=auth_headers)).json()["id"]
+    full = (await client.get(f"/api/v1/impact-runs/{run_id}", headers=auth_headers)).json()
+    assert any("dns" in s["categories"] for s in full["scope_manifest"]["sources"])
+    admin_tasks = (await client.get(f"/api/v1/change-plans/{pid}/tasks", headers=auth_headers)).json()["items"]
+    assert any(t["template_code"] == "update_refs_dns" for t in admin_tasks)
+
+    reader = await _user(db_session)
+    await _grant(db_session, reader, "subnet", sub.id, "read")
+    seen = (await client.get(f"/api/v1/impact-runs/{run_id}/findings", headers=_hdr(reader))).json()["items"]
+    got = (await client.get(f"/api/v1/impact-runs/{run_id}", headers=_hdr(reader))).json()
+    assert got["counts"]["findings"] == len(seen) < full["counts"]["findings"]
+    assert not any("dns" in s["categories"] for s in got["scope_manifest"]["sources"])
+    lst = (await client.get("/api/v1/change-plans", headers=_hdr(reader))).json()["items"]
+    lr = next(p for p in lst if p["id"] == pid)["latest_run"]
+    assert lr["counts"] is None or lr["counts"]["findings"] == len(seen)
+    runs = (await client.get(f"/api/v1/change-plans/{pid}/runs", headers=_hdr(reader))).json()["items"]
+    assert all(r["counts"] is None or r["counts"]["findings"] == len(seen) for r in runs)
+    tasks = (await client.get(f"/api/v1/change-plans/{pid}/tasks", headers=_hdr(reader))).json()["items"]
+    assert not any(t["template_code"] == "update_refs_dns" for t in tasks)
+    for t in tasks:
+        assert set(t["finding_ids"]) <= {f["id"] for f in seen}
+
+
+async def test_creator_keeps_access_only_when_the_target_is_gone(client, auth_headers, db_session) -> None:
+    await _enable(db_session)
+    _sec, sub, ip = await _setup(db_session)
+    u = await _user(db_session)
+    grant = await _grant(db_session, u, "subnet", sub.id, "write")
+    pid = (await _plan(client, _hdr(u), ip.id)).json()["id"]
+    await db_session.delete(await db_session.get(Permission, grant.id))
+    await db_session.commit()
+    # 權限被收回、目標還在 → 建立者也看不到
+    assert (await client.get(f"/api/v1/change-plans/{pid}", headers=_hdr(u))).status_code == 404
+    # 目標被刪掉了 → 建立者還看得到自己的計畫（留著當紀錄）
+    await db_session.delete(await db_session.get(IPAddress, ip.id))
+    await db_session.commit()
+    assert (await client.get(f"/api/v1/change-plans/{pid}", headers=_hdr(u))).status_code == 200
+
+
 # ─────────────────── T20／T21：撤權後讀取、直接拿別人的 id ───────────────────
 
 async def test_t20_t21_results_follow_current_permissions(client, auth_headers, db_session) -> None:
@@ -474,3 +617,61 @@ async def test_retention_purges_old_closed_plans_and_failed_runs(client, auth_he
     assert await db_session.get(ChangePlan, uuid.UUID(keep)) is not None
     acts = set((await db_session.execute(select(AuditLog.action))).scalars())
     assert "change_plan_purge" in acts
+
+
+async def test_a_cancelled_plan_can_be_reopened_and_analysed_again(client, auth_headers, db_session) -> None:
+    """使用者 2026-10-08：已取消的要可以重新分析。取消 → 重新開啟回草稿 → 可以再分析；已結案的仍然不行。"""
+    await _enable(db_session)
+    _sec, _sub, ip = await _setup(db_session)
+    pid = (await _plan(client, auth_headers, ip.id)).json()["id"]
+    r = await client.post(f"/api/v1/change-plans/{pid}/transitions", headers=auth_headers, json={"action": "cancel"})
+    assert r.json()["lifecycle"] == "cancelled"
+    r = await client.post(f"/api/v1/change-plans/{pid}/runs", headers=auth_headers)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "impact_plan_closed"
+    r = await client.post(f"/api/v1/change-plans/{pid}/transitions", headers=auth_headers, json={"action": "reopen"})
+    assert r.status_code == 200, r.text
+    assert r.json()["lifecycle"] == "draft"
+    r = await client.post(f"/api/v1/change-plans/{pid}/runs", headers=auth_headers)
+    assert r.status_code == 202, r.text
+
+
+async def test_a_closed_plan_stays_closed(db_session, admin_user) -> None:
+    from app.services.change_impact import plans
+    from app.services.change_impact.plans import PlanError
+    plan = SimpleNamespace(lifecycle="closed", archived_at=None)
+    try:
+        await plans.transition(db_session, admin_user, plan, "reopen")   # type: ignore[arg-type]
+        raise AssertionError("closed plans must not reopen")
+    except PlanError as exc:
+        assert exc.code == "impact_invalid_transition"
+
+
+async def test_ai_artifact_reports_what_it_is_doing(client, auth_headers, db_session, monkeypatch) -> None:
+    """使用者 2026-10-08：按下 AI 後只有轉圈，要看得出正在做什麼。每一步先寫進 artifact 再去做，
+    畫面輪詢時讀得到；做完清掉。"""
+    from app.models.change_impact import ImpactAIArtifact
+    pid, run_id = await _run_for_ai(client, auth_headers, db_session)
+    seen: list[str | None] = []
+
+    async def stage_now() -> str | None:
+        db_session.expire_all()
+        row = (await db_session.execute(select(ImpactAIArtifact).where(ImpactAIArtifact.run_id == uuid.UUID(run_id)))).scalar_one()
+        return row.stage
+
+    def reply(prompt, n):  # type: ignore[no-untyped-def]
+        return "not json" if n == 1 else json.dumps({"schema_version": "1", "run_id": run_id, "summary": []})
+    calls = await _ai_ready(db_session, monkeypatch, reply)
+    import app.services.ai as ai_mod
+    inner = ai_mod.interpret_chat
+
+    async def watching(session, prompt, **kw):  # type: ignore[no-untyped-def]
+        seen.append(await stage_now())
+        return await inner(session, prompt, **kw)
+    monkeypatch.setattr(ai_mod, "interpret_chat", watching)
+    r = await client.post(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers,
+                          json={"artifact_type": "summary"})
+    assert r.status_code == 202, r.text
+    assert len(calls) == 2
+    assert seen == ["asking", "retrying"], seen
+    art = (await client.get(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers)).json()["items"][0]
+    assert "stage" in art and art["stage"] is None and art["status"] == "completed"

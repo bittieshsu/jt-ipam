@@ -88,8 +88,8 @@ test("IP 詳細資料：RustDesk ID 與連線按鈕（帶伺服器與公鑰、�
   });
   await page.goto(`/addresses/${id}`);
   await expect(page.getByTestId("ip-rustdesk-id")).toContainText("100200300", { timeout: 15_000 });
-  const row = page.locator(".n-descriptions-table-row", { hasText: "RustDesk" }).first();
-  await expect(row).toContainText("rd-e2e");
+  // 限定在 RustDesk 區塊裡找：上面作業系統那一列的來源也可能寫「RustDesk 客戶端」，用文字找列會抓錯
+  await expect(page.getByTestId("ip-rustdesk-reported")).toContainText("rd-e2e");
   // 上線狀態與最後回報改放「各來源最後出現」，主機名稱在「主機名稱來源」：這一列不重複
   await expect(page.getByTestId("ip-rustdesk-id")).not.toContainText("上線");
   await expect(page.getByTestId("ip-seen-section")).toContainText("RustDesk 客戶端");

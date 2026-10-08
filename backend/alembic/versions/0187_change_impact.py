@@ -1,7 +1,7 @@
-"""change_impact：變更影響預演 M1（docs/SPEC_CHANGE_IMPACT_zh-TW.md）
+"""change_impact：IP 變更評估 M1（docs/SPEC_CHANGE_IMPACT_zh-TW.md）
 
 計畫與不可變的版本、每次分析的快照（證據、關係、發現、缺口）、待辦、只能新增的覆核、AI 產出。
-預演只讀，不改任何來源資料。功能預設關閉（system_settings 的 change_impact 鍵，在網頁開）。
+評估只讀，不改任何來源資料。功能預設關閉（system_settings 的 change_impact 鍵，在網頁開）。
 
 Revision ID: 0187_change_impact
 Revises: 0186_unmanaged_sightings

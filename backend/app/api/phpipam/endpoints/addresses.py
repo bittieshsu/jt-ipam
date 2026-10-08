@@ -305,19 +305,14 @@ async def delete_address(
     a = await session.get(IPAddress, address_id)
     if a is None:
         raise HTTPException(404, detail="Address not found")
-    await _require_subnet_write(session, user, a.subnet_id)
-
-    await append_audit(
-        session,
-        actor_user_id=str(user.id),
-        actor_ip=request.client.host if request.client else None,
-        actor_user_agent=request.headers.get("user-agent"),
-        object_type="ip_address",
-        object_id=str(a.id),
-        action="delete",
-        diff={"before": {"ip": str(a.ip)}, "via": "phpipam"},
-        request_id=getattr(request.state, "request_id", None),
-    )
-    await session.delete(a)
+    # 跟 REST 一樣要子網路 admin，也走同一套刪除步驟（異動記錄、冷卻期）。以前只要寫入權、
+    # 而且直接刪掉：網路操作員自建一個 token 就能刪任何 IP，位址也馬上能再配給別人（2026-10-07 稽核）
+    s = await session.get(Subnet, a.subnet_id)
+    level = await _get_perm(session, user=user, object_type="subnet", object_id=a.subnet_id) if s else "none"
+    if not _has_perm(level, "admin"):
+        raise HTTPException(404, detail="Subnet not found")
+    # 別名照實說它會寫稽核（tests/test_audit_coverage.py 靠呼叫名稱判斷，跨檔的 helper 看不到裡面）
+    from app.api.v1.endpoints.addresses import _delete_ip as _delete_ip_and_audit
+    await _delete_ip_and_audit(session, a, user=user, request=request, bulk=False, via="phpipam")
     await session.commit()
     return phpipam_response(success=True, message="Address deleted", started=started)

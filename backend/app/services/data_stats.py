@@ -57,6 +57,7 @@ STATS: list[tuple[str, list[tuple[str, list[tuple[str, Cond]]]]]] = [
         ("arp_entries", [("arp_entries", None)]),
         ("fdb_entries", [("fdb_entries", None)]),
         ("firewall_rules", [("opnsense_rules", None), ("fortigate_policies", None), ("paloalto_policies", None),
+                            ("checkpoint_rules", None),
                             ("mikrotik_rules", None), ("pve_firewall_rules", None)]),
         ("nat_translations", [("nat_translations", None)]),
         ("vpn_tunnels", [("vpn_tunnels", None)]),

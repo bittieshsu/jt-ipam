@@ -13,7 +13,7 @@ import ipaddress
 import uuid
 from typing import Any
 
-from sqlalchemy import String, func, select, text
+from sqlalchemy import String, and_, func, literal, or_, select, text
 from sqlalchemy import false as sa_false
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,7 +136,7 @@ async def find_free_ip(
         object_ids=[subnet.id], required="read",
     ))
     if subnet.id not in visible:
-        raise IPAMToolError("subnet not visible to this user")
+        raise IPAMToolError("subnet not found")   # 跟不存在同一句，不透露它在不在
     ip = await find_first_free_address(session, subnet)
     return {
         "subnet_id": str(subnet.id),
@@ -166,7 +166,7 @@ async def _resolve_subnet(
         object_ids=[subnet.id], required="read",
     ))
     if subnet.id not in visible:
-        raise IPAMToolError("subnet not visible to this user")
+        raise IPAMToolError("subnet not found")   # 跟不存在同一句，不透露它在不在
     return subnet
 
 
@@ -261,7 +261,7 @@ async def get_subnet_usage(
         object_ids=[s.id], required="read",
     ))
     if s.id not in visible:
-        raise IPAMToolError("subnet not visible")
+        raise IPAMToolError("subnet not found")   # 跟不存在同一句，不透露它在不在
     total, used, free, pct = await get_usage(session, s)
     return {
         "subnet_id": subnet_id, "cidr": str(s.cidr),
@@ -646,18 +646,25 @@ async def get_device(
     vis = await visible_ids(session, user=user, object_type="device")
     if vis is not None and dev.id not in vis:
         raise IPAMToolError("device not found")   # 不洩漏不可見裝置
-    ips = list((await session.execute(
-        select(IPAddress.ip, IPAddress.hostname, IPAddress.mac)
-        .where(IPAddress.device_id == dev.id)
-    )).all())
-    # VLAN（透過連結的 librenms device）
-    vlans = list((await session.execute(
-        select(VLAN.number, VLAN.name)
-        .join(DeviceVLAN, DeviceVLAN.vlan_id == VLAN.id)
-        .join(LibreNMSDevice, LibreNMSDevice.id == DeviceVLAN.librenms_device_id)
-        .where(LibreNMSDevice.jt_ipam_device_id == dev.id)
-        .distinct()
-    )).all())
+    # 這台裝置的 IP 只列看得到的（以前全部回，連看不到的子網路裡的位址、主機名稱、MAC 都在；
+    # REST 的裝置詳細資料只給主要 IP，2026-10-07 稽核）
+    ip_stmt = select(IPAddress.ip, IPAddress.hostname, IPAddress.mac).where(IPAddress.device_id == dev.id)
+    vis_ip = await visible_ids(session, user=user, object_type="ip")
+    ips: list[Any] = []
+    if vis_ip is None or vis_ip:
+        if vis_ip is not None:
+            ip_stmt = ip_stmt.where(in_values(IPAddress.id, vis_ip))
+        ips = list((await session.execute(ip_stmt)).all())
+    # VLAN（透過連結的 librenms device）是全域資料：要全域讀取
+    vlans: list[Any] = []
+    if await has_global_read(session, user):
+        vlans = list((await session.execute(
+            select(VLAN.number, VLAN.name)
+            .join(DeviceVLAN, DeviceVLAN.vlan_id == VLAN.id)
+            .join(LibreNMSDevice, LibreNMSDevice.id == DeviceVLAN.librenms_device_id)
+            .where(LibreNMSDevice.jt_ipam_device_id == dev.id)
+            .distinct()
+        )).all())
     rack_info = None
     if dev.rack_id:
         rk = await session.get(Rack, dev.rack_id)
@@ -1105,10 +1112,20 @@ async def get_ip_history(
                        "source": c.source, "event": c.event_type, "field": c.field,
                        "old": c.old_value, "new": c.new_value})
 
-    # ARP：這個 IP 綁過哪些 MAC（換 MAC ＝ 換機器或偽冒，是鑑識關鍵）
+    # ARP：這個 IP 綁過哪些 MAC（換 MAC ＝ 換機器或偽冒，是鑑識關鍵）。
+    # 受限帳號只看這個子網路的 ARP；沒有子網路歸屬的列（LibreNMS）只在這個子網路是唯一最細的容器時才給 ——
+    # 重疊網段裡同一個位址可能是別的單位的機器（2026-10-07 稽核；規則同 unmanaged.for_subnet）
+    arp_stmt = select(ARPEntry).where(ARPEntry.ip == ip)
+    if vis is not None and ipa is not None:
+        others = await session.scalar(text("""
+            SELECT count(*) FROM subnets o, subnets s
+             WHERE s.id = :sid AND o.id <> s.id AND o.archived_at IS NULL
+               AND o.cidr >>= CAST(:ip AS inet) AND masklen(o.cidr) >= masklen(s.cidr)
+        """), {"sid": ipa.subnet_id, "ip": ip})
+        arp_stmt = arp_stmt.where(or_(ARPEntry.subnet_id == ipa.subnet_id,
+                                      and_(ARPEntry.subnet_id.is_(None), literal(not others))))
     for a in ([] if not can_see_global_evidence else (await session.execute(
-            select(ARPEntry).where(ARPEntry.ip == ip)
-            .order_by(ARPEntry.last_seen_at.desc()).limit(20))).scalars().all()):
+            arp_stmt.order_by(ARPEntry.last_seen_at.desc()).limit(20))).scalars().all()):
         events.append({"at": a.last_seen_at.isoformat() if a.last_seen_at else None,
                        "kind": "arp", "mac": str(a.mac),
                        "first_seen": a.first_seen_at.isoformat() if getattr(a, "first_seen_at", None) else None})
@@ -1286,13 +1303,14 @@ async def list_subnet_ips(
 
 
 async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
-    """所有防火牆清單（OPNsense / pfSense / FortiGate / Palo Alto / MikroTik，不含密鑰）。
+    """所有防火牆清單（OPNsense / pfSense / FortiGate / Palo Alto / Check Point / MikroTik，不含密鑰）。
     每筆帶 `vendor` 標明廠牌。
 
     **所有廠牌一起回**：只回其中一種的話，模型會拿一份不完整的清單當成全部去回答
     「我們有哪些防火牆」—— 那比答不出來更糟。新增廠牌時這裡一定要跟著加
     （`tests/test_integration_coverage.py` 會擋）。
     """
+    from app.models.checkpoint import CheckPointServer
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.mikrotik import MikroTikRouter
@@ -1300,9 +1318,10 @@ async def list_firewalls(session: AsyncSession, *, user: User, limit: int = 200)
     from app.models.pfsense import PfSenseFirewall
 
     out: list[dict[str, Any]] = []
+    # Check Point 的整合單位是管理伺服器（一台管多個閘道），閘道清單在 list_checkpoint_rules 的 install_on
     for vendor, model in (("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
                           ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
-                          ("mikrotik", MikroTikRouter)):
+                          ("checkpoint", CheckPointServer), ("mikrotik", MikroTikRouter)):
         rows = (await session.execute(select(model).limit(limit))).scalars().all()
         out.extend({
             "id": str(f.id), "vendor": vendor, "name": f.name,
@@ -1493,6 +1512,53 @@ async def list_paloalto_addresses(
     } for a, fw_name in rows]}
 
 
+async def list_checkpoint_rules(
+    session: AsyncSession, *, user: User,
+    server_name: str | None = None, layer: str | None = None, limit: int = 200,
+) -> dict[str, Any]:
+    """Check Point 存取規則（唯讀鏡像，來自管理伺服器）。可依管理伺服器名稱與政策層篩選。
+
+    依網域／政策套件／層／規則編號排序：Check Point 由上而下比對，順序本身就是語意。
+    `source_negate`／`destination_negate` 為真時欄位意思是「除了這些以外」，不可以讀成正向。
+    """
+    from app.models.checkpoint import CheckPointRule, CheckPointServer
+    stmt = select(CheckPointRule, CheckPointServer.name).join(
+        CheckPointServer, CheckPointServer.id == CheckPointRule.server_id)
+    if server_name:
+        stmt = stmt.where(CheckPointServer.name == server_name)
+    if layer:
+        stmt = stmt.where(CheckPointRule.layer == layer)
+    rows = (await session.execute(stmt.order_by(
+        CheckPointRule.domain, CheckPointRule.package, CheckPointRule.layer, CheckPointRule.rule_number)
+        .limit(limit))).all()
+    return {"rules": [{
+        "server": srv, "domain": r.domain or None, "package": r.package, "layer": r.layer,
+        "section": r.section, "rule_number": r.rule_number, "name": r.name, "action": r.action,
+        "enabled": r.enabled, "source": r.source, "source_negate": r.source_negate,
+        "destination": r.destination, "destination_negate": r.destination_negate,
+        "service": r.service, "install_on": r.install_on, "hits": r.hits, "comments": r.comments,
+    } for r, srv in rows]}
+
+
+async def list_checkpoint_objects(
+    session: AsyncSession, *, user: User,
+    server_name: str | None = None, name: str | None = None, limit: int = 300,
+) -> dict[str, Any]:
+    """Check Point 網路物件（host／network／address-range／group／group-with-exclusion，唯讀鏡像）。"""
+    from app.models.checkpoint import CheckPointObject, CheckPointServer
+    stmt = select(CheckPointObject, CheckPointServer.name).join(
+        CheckPointServer, CheckPointServer.id == CheckPointObject.server_id)
+    if server_name:
+        stmt = stmt.where(CheckPointServer.name == server_name)
+    if name:
+        stmt = stmt.where(CheckPointObject.name.ilike(f"%{name}%"))
+    rows = (await session.execute(stmt.order_by(CheckPointObject.domain, CheckPointObject.name).limit(limit))).all()
+    return {"objects": [{
+        "server": srv, "domain": o.domain or None, "name": o.name, "type": o.obj_type, "value": o.value,
+        "members": o.members, "comments": o.comments,
+    } for o, srv in rows]}
+
+
 async def list_firewall_rules(
     session: AsyncSession, *, user: User,
     firewall_id: str | None = None, firewall_name: str | None = None, limit: int = 200,
@@ -1646,12 +1712,13 @@ async def list_ip_requests(
 ) -> dict[str, Any]:
     """IP 申請工作流清單。
 
-    可見範圍與 REST 端點同一套判定，不另立規則：admin 或具全域讀取權限者看得到全部，
-    其餘只看自己提出的（避免同一件事有兩套邏輯，日後各自演化到不一致）。
+    可見範圍與 REST 端點同一套判定，不另立規則：審核人（admin 或指定審核人）看得到全部，
+    其餘只看自己提出的。以前這裡用「全域讀取」判斷，跟 REST 不同（2026-10-07 稽核）。
     """
     from app.models.ip_request import IPRequest
+    from app.services.ip_request_policy import is_global_approver
     stmt = select(IPRequest)
-    if not await has_global_read(session, user):
+    if not await is_global_approver(session, user):
         stmt = stmt.where(IPRequest.requester_user_id == user.id)
     if status:
         stmt = stmt.where(IPRequest.status == status)
@@ -3161,6 +3228,23 @@ TOOLS: dict[str, dict[str, Any]] = {
             "firewall_name": {"type": "string"}, "vsys": {"type": "string"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },
+    "list_checkpoint_rules": {
+        "fn": list_checkpoint_rules,
+        "description": ("List Check Point access rules (from the management server) in evaluation order. "
+                        "When source_negate/destination_negate is true the field means 'anything except these'. "
+                        "Filter by server_name and/or layer."),
+        "parameters": {"type": "object", "properties": {
+            "server_name": {"type": "string"}, "layer": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
+    "list_checkpoint_objects": {
+        "fn": list_checkpoint_objects,
+        "description": ("List Check Point network objects (hosts, networks, ranges, groups, groups with exclusion). "
+                        "Filter by server_name and/or a name fragment."),
+        "parameters": {"type": "object", "properties": {
+            "server_name": {"type": "string"}, "name": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
+    },
     "list_mikrotik_rules": {
         "fn": list_mikrotik_rules,
         "description": ("List MikroTik RouterOS firewall rules in evaluation order "
@@ -3572,11 +3656,15 @@ TOOLS: dict[str, dict[str, Any]] = {
 from app.mcp.impact_tools import IMPACT_TOOLS  # noqa: E402 -- 工具字典建好之後才併入
 
 TOOLS.update(IMPACT_TOOLS)
+# ISOinsight 來源租約（唯讀、逐物件權限：工具內依可見子網路過濾）
+from app.mcp.isoinsight_tools import ISOINSIGHT_TOOLS  # noqa: E402
+
+TOOLS.update(ISOINSIGHT_TOOLS)
 
 MUTATING_TOOLS: frozenset[str] = frozenset({
     "allocate_ip", "update_ip", "create_subnet", "create_device",
     "approve_ip_request", "reject_ip_request",
-    # 變更影響預演：建立計畫、開始分析、存 AI 草擬的待辦（都不改來源資料，但會寫入計畫）
+    # IP 變更評估：建立計畫、開始分析、存 AI 草擬的待辦（都不改來源資料，但會寫入計畫）
     "impact_create_plan", "impact_start_run", "impact_accept_task_draft",
 })
 
@@ -3606,6 +3694,7 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_attack_surface",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
     "list_paloalto_policies", "list_paloalto_addresses",
+    "list_checkpoint_rules", "list_checkpoint_objects",
     "list_mikrotik_rules", "list_mikrotik_address_lists",
     # NAT 與防火牆規則是全域基礎設施資料 —— 與 list_nat / list_firewall_rules 同一層，
     # 不能因為它是「以 IP 為單位查」就鬆一級（改端點權限時要同步收 MCP，這裡踩過）。
@@ -3662,10 +3751,10 @@ async def authorize_tool(session: AsyncSession, user: User, name: str) -> str | 
     if name in UTILITY_TOOLS:
         return None
     if name.startswith("impact_"):
-        # 變更影響預演關閉時，工具清單裡也不出現（少佔小模型的提示詞）
+        # IP 變更評估關閉時，工具清單裡也不出現（少佔小模型的提示詞）
         from app.services.change_impact.config import get_config
         if not (await get_config(session))["enabled"]:
-            return "feature_disabled: 變更影響預演尚未啟用。"
+            return "feature_disabled: IP 變更評估尚未啟用。"
     if name in MUTATING_TOOLS and not getattr(user, "is_admin", False):
         return "permission_denied: 此操作需要管理員權限。"
     if name in ADMIN_TOOLS and not getattr(user, "is_admin", False):
@@ -3707,9 +3796,9 @@ def summarize_action(name: str, args: dict[str, Any]) -> str:
     if name == "reject_ip_request":
         return "駁回一筆 IP 申請"
     if name == "impact_create_plan":
-        return f"建立變更影響預演計畫「{a.get('title') or ''}」（只建立計畫，不改任何設備）"
+        return f"建立 IP 變更評估計畫「{a.get('title') or ''}」（只建立計畫，不改任何設備）"
     if name == "impact_start_run":
-        return "開始一次變更影響分析（唯讀預演）"
+        return "開始一次 IP 變更評估的分析（唯讀）"
     if name == "impact_accept_task_draft":
         return f"把 {len(a.get('indices') or [])} 個 AI 草擬的待辦存進計畫"
     return f"執行 {name}"

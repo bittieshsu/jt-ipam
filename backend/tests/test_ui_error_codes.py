@@ -64,6 +64,9 @@ def test_dynamic_codes_are_translated_too() -> None:
                for kind in ("size_unknown", "size_invalid", "too_large")}
     dynamic |= {code for code, _zh in _WAITING_FOR.values()}
     dynamic.add("ws_timeout")   # 認不得的 what 用的退路
+    # ISOinsight 整合：IsoError 由 spec_code 組成 isoinsight_<小寫>（測試連線畫面與同步記錄都會顯示）
+    from app.services.isoinsight.errors import UI_CODES
+    dynamic |= set(UI_CODES)
 
     for locale in _LOCALES:
         table = json.loads((_I18N / f"{locale}.json").read_text(encoding="utf-8"))["errors"]

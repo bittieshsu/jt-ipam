@@ -4,7 +4,7 @@ import { useI18n } from "vue-i18n";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NTooltip, NAlert,
-  NModal, NForm, NFormItem, NInput, NInputNumber, NSelect, NSwitch, NPopconfirm,
+  NModal, NForm, NFormItem, NInput, NInputNumber, NSelect, NSwitch, NPopconfirm, NRadioGroup, NRadio,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
@@ -57,6 +57,9 @@ interface Form {
   password: string;
   username: string;
   verify_tls: boolean;
+  /** Windows DNS：WinRM 走 HTTPS 5986 或 HTTP 5985（Windows Server 預設只開 5985） */
+  winrm_https: boolean;
+  winrm_port: number | null;
   scope_subnet_ids: string[];
 }
 
@@ -66,7 +69,7 @@ function emptyForm(): Form {
     api_url: "", server_address: "",
     enabled: true, sync_interval_seconds: 300,
     api_key: "", api_secret: "", tsig_key: "", password: "", zones: [] as string[],
-    username: "", verify_tls: true,
+    username: "", verify_tls: true, winrm_https: true, winrm_port: null,
     scope_subnet_ids: [],
   };
 }
@@ -87,17 +90,20 @@ const typeOpts = [
   { label: t("dns_admin.type_unbound_opnsense"), value: "unbound_opnsense" },
   { label: t("dns_admin.type_windows_dns"),      value: "windows_dns" },
   { label: t("dns_admin.type_univention_ucs"),   value: "univention_ucs" },
+  { label: t("dns_admin.type_technitium"),       value: "technitium" },
 ];
 
 // 不同 type 該顯示哪些憑證欄位
-const showApiKey   = computed(() => ["powerdns", "unbound_opnsense"].includes(form.value.type));
+const showApiKey   = computed(() => ["powerdns", "unbound_opnsense", "technitium"].includes(form.value.type));
 const showApiSecret = computed(() => form.value.type === "unbound_opnsense");
 const showTsig     = computed(() => form.value.type === "bind9");
 const showPassword = computed(() => ["windows_dns", "univention_ucs"].includes(form.value.type));
-const showApiUrl   = computed(() => ["powerdns", "unbound_opnsense", "univention_ucs"].includes(form.value.type));
+const showApiUrl   = computed(() => ["powerdns", "unbound_opnsense", "univention_ucs", "technitium"].includes(form.value.type));
 const showServerAddr = computed(() => ["bind9", "windows_dns"].includes(form.value.type));
 const showUsername = computed(() => ["windows_dns", "univention_ucs"].includes(form.value.type));
-const showVerifyTls = computed(() => form.value.type === "univention_ucs");
+// Windows DNS：WinRM HTTPS 常是自簽憑證（客戶 2026-10-08 回報 CERTIFICATE_VERIFY_FAILED）；走 HTTP 時沒有憑證可驗
+const showVerifyTls = computed(() => ["univention_ucs", "technitium"].includes(form.value.type)
+  || (form.value.type === "windows_dns" && form.value.winrm_https));
 
 async function refresh() {
   loading.value = true;
@@ -126,11 +132,13 @@ function openEdit(r: DNSServer) {
   if (r.extra_config) {
     try {
       const extra = JSON.parse(r.extra_config) as {
-        username?: string; verify_tls?: boolean; zones?: string[];
+        username?: string; verify_tls?: boolean; zones?: string[]; use_ssl?: boolean; winrm_port?: number;
       };
       if (Array.isArray(extra.zones)) form.value.zones = [...extra.zones];
       if (typeof extra.username === "string") f.username = extra.username;
       if (typeof extra.verify_tls === "boolean") f.verify_tls = extra.verify_tls;
+      if (typeof extra.use_ssl === "boolean") f.winrm_https = extra.use_ssl;
+      if (typeof extra.winrm_port === "number") f.winrm_port = extra.winrm_port;
     } catch { /* ignore malformed */ }
   }
   form.value = f;
@@ -161,6 +169,10 @@ async function submit() {
   const extra: Record<string, unknown> = {};
   if (showUsername.value && form.value.username) extra.username = form.value.username;
   if (showVerifyTls.value) extra.verify_tls = form.value.verify_tls;
+  if (form.value.type === "windows_dns") {
+    extra.use_ssl = form.value.winrm_https;
+    if (form.value.winrm_port) extra.winrm_port = form.value.winrm_port;
+  }
   if (form.value.type === "bind9") {
     extra.zones = form.value.zones.map((z) => z.trim().replace(/\.$/, "")).filter(Boolean);
   }
@@ -171,11 +183,25 @@ async function submit() {
     show.value = false;
     msg.success(t("common.ok"));
     await refresh();
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 async function test(id: string) {
-  try { await testDNSServer(id); msg.success(t("librenms_admin.test_ok")); }
-  catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  try {
+    const r = await testDNSServer(id);
+    const s = (r?.server ?? {}) as Record<string, unknown>;
+    // Technitium：講出版本、帳號、讀得到幾個 zone；逐個 zone 的權限沒給到的列出來（新建的 zone 預設只給管理員）
+    if (rows.value.find((x) => x.id === id)?.type === "technitium") {
+      msg.success(t("dns_admin.technitium_test_ok", { version: s.version ?? "?", user: s.user ?? "?", n: s.zones ?? 0 }));
+      const bad = (s.unreadable_zones as string[] | undefined) ?? [];
+      if (bad.length) {
+        msg.warning(t("dns_admin.technitium_unreadable", { n: bad.length, zones: bad.slice(0, 5).join(", ") }),
+                    { duration: 12000, closable: true });
+      }
+      if (s.can_modify) msg.info(t("dns_admin.technitium_can_modify"), { duration: 8000 });
+      return;
+    }
+    msg.success(t("librenms_admin.test_ok"));
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 async function del(id: string) {
   try { await deleteDNSServer(id); msg.success(t("common.ok")); await refresh(); }
@@ -191,7 +217,7 @@ async function sync(id: string) {
 
 function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
   return h(NTooltip, null, {
-    trigger: () => h(NButton, { size: "small", quaternary: true, type,
+    trigger: () => h(NButton, { size: "small", quaternary: true, type, "aria-label": label,
       onClick: (e: MouseEvent) => { e.stopPropagation(); onClick(); } },
       { icon: () => h(NIcon, null, () => h(icon)) }),
     default: () => label,
@@ -292,19 +318,34 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
                      ? 'https://powerdns.example.com:8081'
                      : form.type === 'univention_ucs'
                        ? 'https://ucs.example.com'
-                       : 'https://opnsense.example.com'" />
+                       : form.type === 'technitium'
+                         ? 'https://dns.example.com:53443'
+                         : 'https://opnsense.example.com'" />
         </n-form-item>
         <n-form-item v-if="showUsername" :label="t('dns_admin.username')">
           <n-input v-model:value="form.username"
-                   :placeholder="form.type === 'univention_ucs' ? 'Administrator' : 'DOMAIN\\\\svc-dns'" />
+                   :placeholder="form.type === 'univention_ucs' ? 'Administrator' : 'DOMAIN\\svc-dns'" />
         </n-form-item>
         <n-form-item v-if="showServerAddr" :label="t('dns_admin.server_address')">
           <n-input v-model:value="form.server_address"
                    :placeholder="form.type === 'bind9' ? 'ns1.example.com' : 'dc01.example.com'" />
         </n-form-item>
+        <n-form-item v-if="form.type === 'windows_dns'" :label="t('dns_admin.winrm_transport')">
+          <n-space vertical :size="4" style="width: 100%">
+            <n-space align="center" :wrap-item="false">
+              <n-radio-group v-model:value="form.winrm_https" data-testid="dns-winrm-transport">
+                <n-radio :value="true">HTTPS（5986）</n-radio>
+                <n-radio :value="false">HTTP（5985）</n-radio>
+              </n-radio-group>
+              <n-input-number v-model:value="form.winrm_port" :min="1" :max="65535" clearable style="width: 140px"
+                              :placeholder="form.winrm_https ? '5986' : '5985'" />
+            </n-space>
+            <span style="font-size:11px;opacity:.7">{{ t("dns_admin.winrm_transport_hint") }}</span>
+          </n-space>
+        </n-form-item>
 
         <n-form-item v-if="showApiKey"
-                     :label="form.type === 'powerdns' ? 'X-API-Key' : 'OPNsense API key'">
+                     :label="form.type === 'powerdns' ? 'X-API-Key' : form.type === 'technitium' ? t('dns_admin.technitium_token') : 'OPNsense API key'">
           <n-input v-model:value="form.api_key" type="password" show-password-on="click" />
         </n-form-item>
         <n-form-item v-if="showApiSecret" label="OPNsense API secret">
@@ -328,7 +369,10 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           <n-input v-model:value="form.password" type="password" show-password-on="click" />
         </n-form-item>
         <n-form-item v-if="showVerifyTls" :label="t('dns_admin.verify_tls')">
-          <n-switch v-model:value="form.verify_tls" />
+          <n-space vertical :size="2">
+            <n-switch v-model:value="form.verify_tls" data-testid="dns-verify-tls" />
+            <span v-if="form.type === 'windows_dns'" style="font-size:11px;opacity:.7">{{ t("dns_admin.verify_tls_winrm_hint") }}</span>
+          </n-space>
         </n-form-item>
 
         <n-form-item :label="t('common.enabled')">

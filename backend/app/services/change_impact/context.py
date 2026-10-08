@@ -46,6 +46,8 @@ class Ctx:
     skipped: set[str] = field(default_factory=set)
     # 根位址是否落在別的子網路也有的位址空間（重疊網段）：整合沒設範圍時，比中的證據只能算推定
     overlap: dict[uuid.UUID, bool] = field(default_factory=dict)
+    # M2：物件的情境狀態（"device:<id>" → unavailable／unknown），由網路與工作負載階段填入，服務階段使用
+    status: dict[str, str] = field(default_factory=dict)
 
     # ── 權限 ──
     def can_see(self, object_type: str, object_id: uuid.UUID | None) -> bool:

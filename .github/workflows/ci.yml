@@ -102,7 +102,8 @@ jobs:
 
       - name: Enable PostgreSQL extensions
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          # fonts-wqy-microhei：PDF 報告的測試要一套 CJK 字型（正式環境裝 fonts-noto-cjk，CI 用 1.6 MB 的這套就夠驗內嵌子集）
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client fonts-wqy-microhei
           PGPASSWORD=ci psql -h 127.0.0.1 -U jt_ipam -d jt_ipam_test \
             -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
           # 拋棄式測試庫：關掉持久化。conftest 每支測試前 TRUNCATE 上百張表，每次都要 fsync ——

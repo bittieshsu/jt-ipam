@@ -17,6 +17,8 @@ from app.api.v1.endpoints import (
     bmc_console,
     cert_agents,
     certificates,
+    checkpoint,
+    checkpoint_gaia,
     client_diag,
     custom_fields,
     customers,
@@ -36,6 +38,7 @@ from app.api.v1.endpoints import (
     ip_identify,
     ip_ranges,
     ip_requests,
+    isoinsight,
     jump_hosts,
     librenms,
     locations,
@@ -54,6 +57,7 @@ from app.api.v1.endpoints import (
     preferences,
     rack_diagram,
     rdp_console,
+    reports,
     rustdesk,
     rustdesk_agent,
     rustdesk_console,
@@ -68,6 +72,7 @@ from app.api.v1.endpoints import (
     sso,
     subnets,
     system_logs,
+    technitium,
     tools,
     topology,
     users,
@@ -87,6 +92,9 @@ from app.api.v1.endpoints import (
 )
 from app.api.v1.endpoints import (
     change_impact as change_impact_ep,
+)
+from app.api.v1.endpoints import (
+    change_impact_services as change_impact_services_ep,
 )
 from app.api.v1.endpoints import (
     graylog_dsv as graylog_dsv_ep,
@@ -178,6 +186,11 @@ api_v1_router.include_router(zabbix.view_router)
 api_v1_router.include_router(windows_dhcp.router)
 api_v1_router.include_router(dhcp_standalone.kea_router)
 api_v1_router.include_router(dhcp_standalone.isc_router)
+api_v1_router.include_router(technitium.router)
+api_v1_router.include_router(checkpoint.router)
+api_v1_router.include_router(reports.router)
+api_v1_router.include_router(checkpoint_gaia.router)
+api_v1_router.include_router(isoinsight.router)
 api_v1_router.include_router(rustdesk.router)
 api_v1_router.include_router(rustdesk_agent.router)
 api_v1_router.include_router(rustdesk_console.router)
@@ -195,6 +208,7 @@ api_v1_router.include_router(graylog_dsv_ep.public_router)
 api_v1_router.include_router(ldap_admin_ep.admin_router)
 api_v1_router.include_router(audit_admin_ep.admin_router)
 api_v1_router.include_router(change_impact_ep.router)
+api_v1_router.include_router(change_impact_services_ep.router)
 
 # Phase 3 [DONE] Tenancy/Contacts/ASN/Circuits/Wireless、Virtualization/Proxmox、
 #           Cabling/Power/VPN、Topology、OIDC SSO（SAML stub）

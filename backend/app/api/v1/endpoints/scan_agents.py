@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -764,6 +764,11 @@ async def agent_dhcpd_report(
     return {"status": "ok", **counts}
 
 
+def report_lock_key(agent_id: Any) -> str:
+    """同一台代理的回報在交易內排隊用的 advisory lock 鍵（見 agent_report）。"""
+    return f"scan_agent_report:{agent_id}"
+
+
 @router.post("/report")
 async def agent_report(
     payload: AgentReportIn,
@@ -773,6 +778,10 @@ async def agent_report(
     """Agent push 掃描結果：對有回應的 IP stamp last_seen_scanner（+補 MAC）。"""
     import ipaddress as _ipaddr
     agent = await _agent_from_key(session, x_agent_key)
+    # 同一台代理的回報排隊處理：代理會同時送逐子網路回報與背景結果（逾時也會重送），兩筆交易涵蓋同一批 IP、
+    # 卻在不同階段取得列鎖（ORM flush 一批、重算主機名稱再一批），交錯時互相死結（prod 兩週 28 次 500）。
+    # 交易層的鎖，commit／rollback 時自動放開；不同代理不受影響
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": report_lock_key(agent.id)})
     now = datetime.now(UTC)
     # 只在「指派給此 agent 的子網路」範圍內配對 —— 解決重疊網段（A/B 客戶都用
     # 192.168.1.0/24）誤配到別人子網路的問題。同時帶出 CIDR，供自動新增比對。

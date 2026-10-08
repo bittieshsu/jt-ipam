@@ -1,4 +1,4 @@
-"""變更影響預演的核心型別與版本化規則表。
+"""IP 變更評估的核心型別與版本化規則表。
 
 規則表是唯一的判定來源：每條規則固定 impact／severity／disposition／預設證據強度與原因碼。
 AI 不能改這些欄位（規格 §5.6、§10.3）；改規則語意就升 `RULES_VERSION`，舊結果仍以當時的版本呈現。
@@ -15,7 +15,9 @@ from datetime import datetime
 from typing import Any
 
 ENGINE_VERSION = "1"
-RULES_VERSION = "1"
+# 2：M2 加入網路相依、工作負載、服務的規則（2026-10-08）
+# 4：DHCP 範圍發給用戶端的閘道／DNS／NTP／WINS（Technitium，2026-10-08）
+RULES_VERSION = "4"
 
 
 @dataclass(frozen=True)
@@ -40,8 +42,12 @@ RULES: dict[str, Rule] = {
     "ipam.new_ip_reserved": _r("ipam", "potential_disruption", "high", "blocker", "explicit", "NEW_IP_RESERVED"),
     "ipam.new_ip_overlap_record": _r("ipam", "unknown", "medium", "review", "explicit", "NEW_IP_OVERLAP_RECORD"),
     "ipam.new_ip_cooldown": _r("ipam", "unknown", "medium", "review", "explicit", "NEW_IP_COOLDOWN"),
+    "ipam.new_ip_requested": _r("ipam", "potential_disruption", "high", "review", "explicit", "NEW_IP_REQUESTED"),
+    "ipam.new_ip_in_range": _r("ipam", "unknown", "medium", "review", "explicit", "NEW_IP_IN_RANGE"),
     "dhcp.new_ip_reserved": _r("dhcp", "potential_disruption", "high", "blocker", "explicit", "NEW_IP_DHCP_RESERVED"),
     "dhcp.new_ip_leased": _r("dhcp", "potential_disruption", "high", "blocker", "explicit", "NEW_IP_DHCP_LEASED"),
+    "dhcp.new_ip_leased_until": _r("dhcp", "potential_disruption", "high", "blocker", "explicit",
+                                   "NEW_IP_DHCP_LEASED_UNTIL"),
     "dhcp.new_ip_in_pool": _r("dhcp", "unknown", "medium", "review", "explicit", "NEW_IP_IN_DHCP_POOL"),
     # 新位址已經保留給同一張網卡（事先準備好的）：不是衝突，但要記得之後收回舊的保留
     "dhcp.new_ip_reserved_same_mac": _r("dhcp", "reference_only", "info", "informational", "explicit",
@@ -51,9 +57,21 @@ RULES: dict[str, Rule] = {
     # ── 舊 IP／裝置 IP 的引用 ──
     "dns.address_record": _r("dns", "change_required", "medium", "review", "explicit", "OLD_IP_IN_ADDRESS_RECORD"),
     "dns.ptr_record": _r("dns", "change_required", "low", "review", "explicit", "OLD_IP_PTR_RECORD"),
+    # AdGuard 的 DNS 改寫或用戶端設定有這個位址（從主機名稱觀測得知）
+    "dns.adguard_entry": _r("dns", "change_required", "medium", "review", "explicit", "ADGUARD_ENTRY"),
     "dhcp.reservation": _r("dhcp", "change_required", "medium", "review", "explicit", "OLD_IP_DHCP_RESERVATION"),
     "dhcp.active_lease": _r("dhcp", "potential_disruption", "high", "review", "explicit", "IP_ACTIVE_LEASE"),
+    # ISOinsight 的租約知道到期時間（其他來源只知道最近一次看到）
+    "dhcp.active_lease_until": _r("dhcp", "potential_disruption", "high", "review", "explicit", "IP_ACTIVE_LEASE_UNTIL"),
     "dhcp.pool_member": _r("dhcp", "reference_only", "info", "informational", "explicit", "IP_IN_DHCP_POOL"),
+    # DHCP 範圍把這個位址當預設閘道發給用戶端（設定裡明寫的，不是觀察到的）：改了整個範圍斷線
+    "dhcp.scope_router": _r("dhcp", "potential_disruption", "critical", "review", "explicit", "DHCP_SCOPE_ROUTER"),
+    # 當 DNS／NTP／WINS 發給用戶端
+    "dhcp.scope_option": _r("dhcp", "potential_disruption", "high", "review", "explicit", "DHCP_SCOPE_OPTION"),
+    # 掃描代理的 DHCP 探測（不靠 DHCP 整合）
+    "dhcp.observed_server": _r("dhcp", "potential_disruption", "high", "review", "explicit", "DHCP_SERVER_OBSERVED"),
+    "dhcp.observed_router": _r("dhcp", "potential_disruption", "critical", "review", "explicit",
+                               "DHCP_ROUTER_OBSERVED"),
     "fw.rule_exact": _r("firewall", "change_required", "high", "review", "explicit", "FW_RULE_EXACT"),
     "fw.rule_group": _r("firewall", "change_required", "high", "review", "explicit", "FW_RULE_VIA_OBJECT"),
     "fw.rule_range": _r("firewall", "reference_only", "low", "review", "explicit", "FW_RULE_RANGE"),
@@ -69,6 +87,8 @@ RULES: dict[str, Rule] = {
     "monitoring.wazuh_agent": _r("monitoring", "reference_only", "low", "review", "explicit", "WAZUH_AGENT"),
     "monitoring.librenms_device": _r("monitoring", "change_required", "medium", "review", "explicit", "LIBRENMS_DEVICE"),
     "monitoring.ocs_inventory": _r("monitoring", "reference_only", "info", "informational", "explicit", "OCS_INVENTORY"),
+    "monitoring.wazuh_register_ip": _r("monitoring", "potential_disruption", "high", "review", "explicit",
+                                       "WAZUH_REGISTER_IP"),
     "monitoring.rustdesk_peer": _r("monitoring", "reference_only", "info", "informational", "explicit", "RUSTDESK_PEER"),
     "virt.vm_interface": _r("virt", "reference_only", "info", "informational", "inferred", "VM_INTERFACE"),
     "cert.ip_san": _r("cert", "change_required", "high", "review", "explicit", "CERT_IP_SAN"),
@@ -79,6 +99,13 @@ RULES: dict[str, Rule] = {
     "config.vpn_endpoint": _r("config", "change_required", "high", "review", "explicit", "VPN_ENDPOINT"),
     "config.integration_endpoint": _r("config", "change_required", "high", "review", "explicit", "INTEGRATION_ENDPOINT"),
     "config.dhcp_server_ip": _r("config", "potential_disruption", "high", "review", "explicit", "DHCP_SERVER_ADDRESS"),
+    # 改址、除役時的服務（服務登錄是 M2 的，這兩條在 M1 情境也會出現）
+    "service.depends_on_address": _r("service", "potential_disruption", "medium", "review", "explicit",
+                                     "SERVICE_DEPENDS_ON_ADDRESS"),
+    "service.endpoint_address": _r("service", "change_required", "high", "review", "explicit",
+                                   "SERVICE_ENDPOINT_ADDRESS"),
+    "config.system_endpoint": _r("config", "change_required", "high", "review", "explicit", "SYSTEM_ENDPOINT"),
+    "config.circuit_address": _r("config", "change_required", "high", "review", "explicit", "CIRCUIT_ADDRESS"),
     "text.hint": _r("text", "unknown", "low", "review", "inferred", "TEXT_MENTIONS_ADDRESS"),
     "activity.old_ip_active": _r("activity", "reference_only", "info", "informational", "corroborated", "IP_RECENTLY_ACTIVE"),
     # ── 裝置除役 ──
@@ -96,6 +123,24 @@ RULES: dict[str, Rule] = {
     "device.circuit": _r("physical", "change_required", "medium", "review", "explicit", "DEVICE_CIRCUIT"),
     "device.nat_device": _r("nat", "change_required", "high", "review", "explicit", "DEVICE_NAT"),
     "device.no_ips": _r("ipam", "reference_only", "info", "informational", "explicit", "DEVICE_HAS_NO_IPS"),
+    # ── M2：交換器維護／節點停機（adapters_m2）──
+    "network.single_homed": _r("network", "modeled_disruption", "high", "review", "explicit", "NET_SINGLE_HOMED"),
+    "network.shared_upstream": _r("network", "modeled_disruption", "high", "review", "explicit", "NET_SHARED_UPSTREAM"),
+    "network.redundancy_unverified": _r("network", "redundancy_unverified", "medium", "review", "explicit",
+                                        "NET_REDUNDANCY_UNVERIFIED"),
+    "network.fdb_inferred": _r("network", "potential_disruption", "medium", "review", "inferred", "NET_FDB_INFERRED"),
+    "workload.vm_stops": _r("workload", "modeled_disruption", "high", "review", "inferred", "VM_STOPS_WITH_NODE"),
+    "workload.vm_ha_unverified": _r("workload", "redundancy_unverified", "high", "review", "inferred", "VM_HA_UNVERIFIED"),
+    "workload.vm_network_unverified": _r("workload", "redundancy_unverified", "medium", "review", "inferred",
+                                         "VM_NETWORK_UNVERIFIED"),
+    "workload.vm_stopped": _r("workload", "reference_only", "info", "informational", "inferred", "VM_ALREADY_STOPPED"),
+    "service.modeled_disruption": _r("service", "modeled_disruption", "critical", "review", "explicit",
+                                     "SERVICE_MODELED_DISRUPTION"),
+    "service.redundancy_unverified": _r("service", "redundancy_unverified", "high", "review", "explicit",
+                                        "SERVICE_REDUNDANCY_UNVERIFIED"),
+    "service.dependencies_hold": _r("service", "reference_only", "info", "informational", "explicit",
+                                    "SERVICE_DEPENDENCIES_HOLD"),
+    "service.cycle": _r("service", "unknown", "medium", "review", "explicit", "SERVICE_DEPENDENCY_CYCLE"),
 }
 
 _SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
@@ -137,6 +182,8 @@ class Finding:
     strength: str | None = None          # None ＝規則預設
     suggested_action: dict[str, Any] | None = None
     visibility: tuple[str, uuid.UUID | None] = ("global", None)
+    # 關係圖的邊：這個發現連到哪些物件（"device:<id>"、"vm:<id>"…）與關係類型；沒給就連到根目標
+    links: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def rule(self) -> Rule:
@@ -165,7 +212,10 @@ class Gap:
     remediation_hint: str | None = None
 
     def key(self) -> str:
-        return f"{self.category}|{self.reason_code}|{self.source_scope or ''}|{_hash(self.params)[:10]}"
+        # 同一類別、同一原因但影響不同分析的資料不足要各自保留（例：VPN 端點與整合端點都看不到）；
+        # 沒有 affected 的維持原本的鍵，既有結果的快照雜湊不變
+        k = f"{self.category}|{self.reason_code}|{self.source_scope or ''}|{_hash(self.params)[:10]}"
+        return f"{k}|{self.affected_analysis}" if self.affected_analysis else k
 
 
 @dataclass

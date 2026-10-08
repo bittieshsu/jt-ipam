@@ -110,8 +110,9 @@ async def get_adapter(session: AsyncSession, server: DNSServer) -> DNSAdapter:
             host=server.server_address or "",
             username=str(extra.get("username", "")),
             password=password or "",
-            port=int(extra.get("winrm_port", 5986)),
+            port=int(extra.get("winrm_port") or (5986 if extra.get("use_ssl", True) else 5985)),
             use_ssl=bool(extra.get("use_ssl", True)),
+            verify_tls=bool(extra.get("verify_tls", True)),
         )
 
     if server.type == "univention_ucs":
@@ -125,5 +126,13 @@ async def get_adapter(session: AsyncSession, server: DNSServer) -> DNSAdapter:
             password=password,
             verify_tls=bool(extra.get("verify_tls", True)),
         )
+
+    if server.type == "technitium":
+        from app.services.dns.technitium import TechnitiumDNSAdapter
+        token = await _load_secret(session, server, "api_key")
+        if not server.api_url or not token:
+            raise DNSAdapterError("Technitium requires the API URL and an API token", code="dns_technitium_incomplete")
+        return TechnitiumDNSAdapter(api_url=server.api_url, token=token,
+                                    verify_tls=bool(extra.get("verify_tls", True)))
 
     raise DNSAdapterError(f"Unknown DNS server type: {server.type}")

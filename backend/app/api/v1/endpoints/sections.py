@@ -15,6 +15,7 @@ from app.api.v1.dependencies import (
     require_admin,
     require_object_perm,
 )
+from app.api.v1.write_guards import require_move, require_visible
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.sqlin import in_values
@@ -156,6 +157,11 @@ async def update_section(
         "display_order": section.display_order,
     }
     changes = payload.model_dump(exclude_unset=True)
+    if "customer_id" in changes and changes["customer_id"] != section.customer_id:
+        await require_move(session, user, object_type="section", object_id=section.id,
+                           dest_type="customer", dest_id=changes["customer_id"])
+    if "parent_id" in changes and changes["parent_id"] != section.parent_id:
+        await require_visible(session, user, "section", changes["parent_id"], "Section not found")
     for key, value in changes.items():
         setattr(section, key, value)
 

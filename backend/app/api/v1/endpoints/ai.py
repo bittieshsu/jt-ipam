@@ -49,7 +49,7 @@ async def semantic_search(
     limit: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
     try:
-        return await ai_service.semantic_search(session, query=q, limit=limit)
+        return await ai_service.semantic_search(session, query=q, limit=limit, user=_user)
     except ai_service.AINotConfigured as exc:
         raise HTTPException(status_code=503, detail=detail_of(exc, "ai_not_configured")) from exc
     except ai_service.AIError as exc:

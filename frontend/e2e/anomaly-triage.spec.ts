@@ -5,6 +5,9 @@
  */
 import { test, expect } from "@playwright/test";
 
+const ADMIN_PASS = process.env.E2E_ADMIN_PASS || "";
+test.skip(!ADMIN_PASS, "需要 E2E_ADMIN_PASS");
+
 const BASE = "http://127.0.0.1:5199";
 
 const EMPTY: Record<string, any[]> = {
@@ -28,7 +31,7 @@ test("異常偵測 AI 判讀流程", async ({ page }) => {
 
   await page.goto(BASE + "/login");
   await page.getByPlaceholder(/帳號|username/i).fill("admin");
-  await page.getByPlaceholder(/密碼|password/i).fill("Test12345678!");
+  await page.getByPlaceholder(/密碼|password/i).fill(ADMIN_PASS);
   await page.keyboard.press("Enter");
   await page.waitForURL(/dashboard|\/$/, { timeout: 15000 });
   await page.goto(BASE + "/anomaly");

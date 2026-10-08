@@ -27,8 +27,12 @@ BLOCK_MARKERS = [
     "LibreNMSInstance",
     "AdGuardInstance",
     "FortiGateFirewall",
+    "CheckPointServer",            # Check Point 管理伺服器
+    "CheckPointGaiaTarget",        # Check Point 閘道的 Gaia API（第二階段）
     "WindowsDhcpServer",
     "KeaDhcpServer",               # 獨立 Kea DHCP（issue #45）
+    "TechnitiumDhcpServer",        # Technitium DHCP
+    "isoinsight_job.run_due",      # ISOinsight 整合
     "mark_stale_isc",              # 獨立 ISC DHCP：代理多久沒回報
     "mark_stale_rustdesk",         # RustDesk Server（開源版）：代理多久沒回報
     "rustdesk_svc.prune_audit",    # RustDesk 客戶端稽核保留天數

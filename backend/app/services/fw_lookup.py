@@ -135,7 +135,7 @@ def _covering_objects(rows: list[Any], aip: Any) -> dict[Any, dict[str, str]]:
     return {k: v for k, v in hit.items() if v}
 
 
-async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
+async def rules_touching_ip(session: AsyncSession, ip: str, *, ip_id: Any = None) -> dict[str, Any]:
     """回傳 {rules, nat, aliases}，每筆附 source_type／防火牆名／命中原因。"""
     from app.models.address import IPAddress
     from app.models.firewall import OPNsenseFirewall, OPNsenseSyncedAlias
@@ -275,6 +275,33 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
                 "match": _match_payload(why_src, why_dst),
             })
 
+    # ── Check Point 存取規則（物件以網域為範圍；帶排除的群組無法單以位址判定，不算命中）──
+    from types import SimpleNamespace
+
+    from app.models.checkpoint import CheckPointObject, CheckPointRule, CheckPointServer
+    cp_names = {f.id: f.name for f in (await session.execute(select(CheckPointServer))).scalars().all()}
+    cp_rows = [SimpleNamespace(kind="group" if o.obj_type == "group" else "address", firewall_id=(o.server_id, o.domain),
+                               name=o.name, value=o.value, members=o.members, comment=o.comments)
+               for o in (await session.execute(select(CheckPointObject).where(
+                   CheckPointObject.obj_type != "group-with-exclusion"))).scalars().all()]
+    cp_objs = _covering_objects(cp_rows, aip)
+    for (sid, _dom), names in cp_objs.items():
+        for name in sorted(names):
+            out["aliases"].append({"source_type": "checkpoint", "name": name, "firewall": cp_names.get(sid, "?"),
+                                   "firewall_id": str(sid), "ref": name, "descr": names[name]})
+    for r in (await session.execute(select(CheckPointRule).where(CheckPointRule.enabled.is_(True)))).scalars().all():
+        names = alias_names | set(cp_objs.get((r.server_id, r.domain), {}))
+        why_src = None if r.source_negate else _names_match(r.source, aip, names)
+        why_dst = None if r.destination_negate else _names_match(r.destination, aip, names)
+        if why_src or why_dst:
+            out["rules"].append({
+                "source_type": "checkpoint", "firewall": cp_names.get(r.server_id, "?"),
+                "firewall_id": str(r.server_id), "ref": str(r.id), "action": r.action,
+                "interface": f"{r.layer} #{r.rule_number or ''}".strip(), "protocol": r.service or "",
+                "src": r.source or "", "dst": r.destination or "", "dst_port": "",
+                "descr": (r.name or f"#{r.rule_number}")[:120], "match": _match_payload(why_src, why_dst),
+            })
+
     # ── MikroTik address-list ──
     # RouterOS 的「別名」是逐筆位址的清單（不是一個物件裝很多成員），所以這裡
     # 一列就是一個成員；同名清單只需回報一次。
@@ -320,8 +347,13 @@ async def rules_touching_ip(session: AsyncSession, ip: str) -> dict[str, Any]:
             })
 
     # ── NAT：指向（或來自）這個 IP 的對應 ──
-    ipa = (await session.execute(
-        select(IPAddress).where(IPAddress.ip == ip).limit(1))).scalars().first()
+    # NAT 綁的是 IP 記錄：呼叫端知道是哪一筆就用那一筆；只給位址時唯一才用，重疊網段裡有好幾筆就不猜
+    # （以前取第一筆，另一個單位同一個位址的 NAT 會出現在這邊）
+    if ip_id is not None:
+        ipa = await session.get(IPAddress, ip_id)
+    else:
+        same = (await session.execute(select(IPAddress).where(IPAddress.ip == ip).limit(2))).scalars().all()
+        ipa = same[0] if len(same) == 1 else None
     if ipa is not None:
         for n in (await session.execute(
                 select(NATTranslation).where(
@@ -383,11 +415,12 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
         }
 
     # ── NAT port forwards（各廠牌共用的正規化表）──
+    from app.models.checkpoint import CheckPointServer as _CP
     from app.models.fortigate import FortiGateFirewall
     from app.models.mikrotik import MikroTikRouter as _MT
     from app.models.paloalto import PaloAltoFirewall as _PA
     inst_names: dict[str, str] = {}
-    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, _PA, _MT):
+    for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, _PA, _MT, _CP):
         for f in (await session.execute(select(model))).scalars().all():
             inst_names[str(f.id)] = f.name
     for n in (await session.execute(

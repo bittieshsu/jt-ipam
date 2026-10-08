@@ -22,6 +22,7 @@ TOOL_REST = {
     "list_ocs_computers": "/api/v1/ocs/agents",
     "list_rustdesk_peers": "/api/v1/rustdesk/servers",
     "list_rustdesk_audit": "/api/v1/rustdesk/servers",
+    "list_isoinsight_leases": "/api/v1/isoinsight/leases",
     "list_dns_records": "/api/v1/dns/records",
     "list_vms": "/api/v1/virt/vms",
     "list_arp": "/api/v1/librenms/arp",

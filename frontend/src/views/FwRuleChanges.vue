@@ -43,6 +43,7 @@ onMounted(load);
 /** 廠牌顯示名稱：`source_type` 是內部鍵，直接印出來會是全小寫的 paloalto／pfsense。 */
 const VENDOR_LABEL: Record<string, string> = {
   opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
+  checkpoint: "Check Point", mikrotik: "MikroTik",
 };
 
 function ruleLine(r: any): string {

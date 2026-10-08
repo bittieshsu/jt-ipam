@@ -10,10 +10,11 @@ import json
 from typing import Any
 
 from app.models.change_impact import ChangePlan, ChangeTask, ImpactRun
+from app.services.change_impact.labels import display_label
 
 _SEV = {"critical": "嚴重", "high": "高", "medium": "中", "low": "低", "info": "資訊"}
 _DISP = {"blocker": "阻擋", "review": "需覆核", "informational": "參考"}
-_DECISION = {"blocked": "存在阻擋項目", "needs_review": "需覆核", "no_known_blocker": "未發現已知阻擋"}
+_DECISION = {"blocked": "有阻擋項目", "needs_review": "需覆核", "no_known_blocker": "沒有已知的阻擋項目"}
 
 
 def _iso(d: Any) -> str | None:
@@ -38,7 +39,7 @@ def as_json(plan: ChangePlan, run: ImpactRun, bundle: dict[str, Any], tasks: lis
                 "truncated": run.truncated, "permission_scope_changed": scope_changed,
                 "scope_limited_to_current_permissions": True},
         "findings": [{"id": str(f.id), "rule_id": f.rule_id, "rule_version": f.rule_version,
-                      "category": f.category, "subject_type": f.subject_type, "subject": f.subject_label,
+                      "category": f.category, "subject_type": f.subject_type, "subject": display_label(f.subject_type, f.subject_label, f.params),
                       "impact": f.impact, "severity": f.severity, "disposition": f.disposition,
                       "evidence_strength": f.evidence_strength, "reason_code": f.reason_code, "params": f.params,
                       "match_kind": f.match_kind, "evidence_ids": [ev_ids[k] for k in f.evidence_keys if k in ev_ids],
@@ -64,16 +65,17 @@ def _cell(s: Any) -> str:
 
 def as_markdown(plan: ChangePlan, run: ImpactRun, bundle: dict[str, Any], tasks: list[ChangeTask],
                 *, scope_changed: bool) -> str:
-    c = run.counts or {}
-    out = [f"# 變更影響預演：{plan.title}", "",
-           "> 這是預演結果，尚未執行任何變更。結果僅涵蓋產生時與下載時的授權範圍。", "",
+    from app.services.change_impact.access import visible_counts
+    c = visible_counts(bundle, run.counts)   # 依下載者看得到的重算，不用分析者當時的數量
+    out = [f"# IP 變更評估：{plan.title}", "",
+           "> 這是評估結果，尚未執行任何變更。結果僅涵蓋產生時與下載時的授權範圍。", "",
            f"- 情境：{plan.scenario_type}；目標：{plan.target_label}；計畫版本 {plan.revision}",
            f"- 分析：{_iso(run.completed_at) or '-'}（引擎 {run.engine_version}、規則 {run.rules_version}），"
            f"有效至 {_iso(run.expires_at) or '-'}",
            f"- 決策狀態：{_DECISION.get(run.decision_status or '', run.decision_status or '-')}；"
            f"完整性：{run.completeness or '-'}",
            f"- 發現 {c.get('findings', 0)}（阻擋 {c.get('blockers', 0)}、需覆核 {c.get('review', 0)}、"
-           f"參考 {c.get('informational', 0)}）；資料缺口 {len(bundle['gaps'])}"]
+           f"參考 {c.get('informational', 0)}）；資料不足 {len(bundle['gaps'])}"]
     if plan.parameters.get("new_ip"):
         out.append(f"- 新位址：{plan.parameters['new_ip']}")
     if scope_changed:
@@ -82,11 +84,11 @@ def as_markdown(plan: ChangePlan, run: ImpactRun, bundle: dict[str, Any], tasks:
             "| --- | --- | --- | --- | --- | --- | --- |"]
     for f in bundle["findings"]:
         out.append(f"| {_DISP.get(f.disposition, f.disposition)} | {_SEV.get(f.severity, f.severity)} | "
-                   f"{_cell(f.category)} | {_cell(f.subject_label)} | {_cell(f.impact)} | "
+                   f"{_cell(f.category)} | {_cell(display_label(f.subject_type, f.subject_label, f.params))} | {_cell(f.impact)} | "
                    f"{_cell(f.evidence_strength)} | {_cell(f.reason_code)} |")
     if not bundle["findings"]:
-        out.append("| - | - | - | 在本次可取得且支援的資料中，未找到符合條件的引用；仍須查看資料缺口 | - | - | - |")
-    out += ["", "## 資料缺口", ""]
+        out.append("| - | - | - | 在本次可取得且支援的資料中，未找到符合條件的引用；仍須查看資料不足的項目 | - | - | - |")
+    out += ["", "## 資料不足的項目", ""]
     for g in bundle["gaps"]:
         params = ", ".join(f"{k}={v}" for k, v in (g.params or {}).items() if v not in (None, ""))
         out.append(f"- [{g.category}] {g.reason_code}" + (f"（{_cell(params)}）" if params else ""))

@@ -1,4 +1,4 @@
-"""變更影響預演的 MCP 工具（規格 §10.6、T25）。
+"""IP 變更評估的 MCP 工具（規格 §10.6、T25）。
 
 - 唯讀 MCP 金鑰看不到、也呼叫不了建案／開始分析／存待辦；讀取類照常
 - 建案一定要帶 impact_prepare_scenario 簽發的草稿憑證；內容被改過（換了新位址）就拒絕
@@ -16,6 +16,7 @@ from app.models.address import IPAddress
 from app.models.section import Section
 from app.models.subnet import Subnet
 from app.services.change_impact import jobs
+from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
@@ -110,3 +111,48 @@ async def test_non_admins_cannot_create_plans_through_tools(db_session) -> None:
     await db_session.commit()
     names = await _names(u)
     assert "impact_prepare_scenario" in names and "impact_create_plan" not in names
+
+
+async def test_prepare_says_when_the_address_is_not_yours(db_session) -> None:
+    """AI 對話問一個沒有權限的位址：回「沒有權限」，不是「找不到」（使用者 2026-10-07）。"""
+    from app.core.security import hash_password
+    from app.models.user import User
+    from app.models.permission import Permission
+    await _setup(db_session)
+    u = User(username=f"u-{uuid.uuid4().hex[:6]}", email=f"{uuid.uuid4().hex[:6]}@t.local", display_name="U",
+             password_hash=hash_password("TestPassword2026!"), auth_provider="local", is_active=True)
+    db_session.add(u)
+    # 有別的子網路的權限（完全沒有權限的帳號會先被 AI 對話的總閘擋下，那也是權限訊息）
+    other = Subnet(section_id=(await db_session.execute(select(Section.id).limit(1))).scalar_one(),
+                   cidr="203.0.113.0/24")
+    db_session.add(other)
+    await db_session.flush()
+    db_session.add(Permission(object_type="subnet", object_id=other.id, principal_type="user", principal_id=u.id,
+                              level="write"))
+    await db_session.commit()
+    _r, body = await _call(u, "impact_prepare_scenario", {"target_ip": "198.51.100.10", "new_ip": "198.51.100.80"})
+    assert body.get("error") == "impact_target_no_permission", body
+    assert body["params"]["address"] == "198.51.100.10"
+
+
+async def test_ai_can_prepare_maintenance_and_downtime_drafts(db_session, admin_user) -> None:
+    """M2 的交換器維護與節點停機也要能經由 AI 準備草稿（模式、一起停機的裝置要帶得進去、驗得出錯）。"""
+    from app.models.device import Device
+    await _setup(db_session)
+    sw = Device(name=f"sw-{uuid.uuid4().hex[:4]}", type="switch")
+    sw2 = Device(name=f"sw-{uuid.uuid4().hex[:4]}", type="switch")
+    node = Device(name=f"pve-{uuid.uuid4().hex[:4]}", type="server")
+    db_session.add_all([sw, sw2, node])
+    await db_session.commit()
+    _r, d = await _call(admin_user, "impact_prepare_scenario",
+                        {"scenario_type": "switch_maintenance", "target_id": str(sw.id), "also_down": [str(sw2.id)]})
+    assert d.get("draft_token"), d
+    assert d["draft"]["parameters"].get("also_down") == [str(sw2.id)], d
+    _r, made = await _call(admin_user, "impact_create_plan", {**d["draft"], "draft_token": d["draft_token"]})
+    assert made.get("plan_id"), made
+    _r, d = await _call(admin_user, "impact_prepare_scenario",
+                        {"scenario_type": "node_downtime", "target_id": str(node.id), "mode": "migrate_first"})
+    assert d["draft"]["parameters"]["mode"] == "migrate_first"
+    _r, bad = await _call(admin_user, "impact_prepare_scenario",
+                          {"scenario_type": "node_downtime", "target_id": str(node.id), "mode": "yolo"})
+    assert bad.get("error") == "impact_invalid_scenario"

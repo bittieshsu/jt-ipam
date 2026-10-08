@@ -1,4 +1,4 @@
-"""變更影響預演的設定（system_settings 的 change_impact 鍵）。預設關閉，在網頁開。"""
+"""IP 變更評估的設定（system_settings 的 change_impact 鍵）。預設關閉，在網頁開。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ DEFAULTS: dict[str, Any] = {
     "ai_enabled": True,
     # 預設不允許建立者自己覆核自己的計畫（管理員例外）
     "allow_self_review": False,
+    # 審核人名單（使用者／群組 id）。空＝對目標有修改權的人都能覆核，送審通知管理員（services/change_impact/reviewers.py）
+    "reviewer_user_ids": [],
+    "reviewer_group_ids": [],
     "limits": {
         "analysis_seconds": 120,
         "max_findings": 5000,
@@ -55,6 +58,16 @@ def _validate(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg["enabled"] = bool(cfg["enabled"])
     cfg["ai_enabled"] = bool(cfg["ai_enabled"])
     cfg["allow_self_review"] = bool(cfg["allow_self_review"])
+    for k in ("reviewer_user_ids", "reviewer_group_ids"):
+        ids: list[str] = []
+        for v in cfg.get(k) or []:
+            try:
+                u = str(uuid.UUID(str(v)))
+            except ValueError:
+                continue
+            if u not in ids:
+                ids.append(u)
+        cfg[k] = ids[:200]
     for k, hard in _HARD_LIMITS.items():
         try:
             v = int(cfg["limits"][k])
@@ -70,12 +83,28 @@ def _validate(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
+async def _keep_existing_reviewers(session: AsyncSession, cfg: dict[str, Any]) -> None:
+    """名單只留存在的使用者與群組（刪掉的帳號、打錯的 id 不留著）。"""
+    from sqlalchemy import select
+
+    from app.core.sqlin import in_values
+    from app.models.user import Group, User
+    for key, model in (("reviewer_user_ids", User), ("reviewer_group_ids", Group)):
+        ids = cfg.get(key) or []
+        if not ids:
+            continue
+        found = {str(i) for i in (await session.execute(select(model.id).where(
+            in_values(model.id, [uuid.UUID(i) for i in ids])))).scalars()}
+        cfg[key] = [i for i in ids if i in found]
+
+
 async def set_config(session: AsyncSession, patch: dict[str, Any], *, updated_by: uuid.UUID | None) -> dict[str, Any]:
     """合併後驗證再存；呼叫端負責稽核與 commit。"""
     from sqlalchemy.orm.attributes import flag_modified
 
     from app.models.system_setting import SystemSetting
     cfg = _validate(_merge(await get_config(session), patch))
+    await _keep_existing_reviewers(session, cfg)
     row = await session.get(SystemSetting, KEY)
     if row is None:
         row = SystemSetting(key=KEY, value=cfg, updated_by=updated_by)

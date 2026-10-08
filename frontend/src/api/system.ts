@@ -244,6 +244,8 @@ export interface VersionInfo {
       present: boolean; package: string; used_by: string; fallback?: boolean; version?: string | null;
       /** 要管理員自己設定才會有（GeoIP 的 MaxMind 帳號）：沒設定不算缺少 */
       opt_in?: boolean;
+      /** FreeRDP 引擎沒選用：那組套件本來就不裝，不算缺 */
+      engine_off?: boolean;
     }>;
     /** 必要相依（guacd）：沒裝或沒在跑，對應功能就不能正常運作 */
     required_tools?: Record<string, {

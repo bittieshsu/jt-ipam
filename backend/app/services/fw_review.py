@@ -115,6 +115,28 @@ def normalize_paloalto(rows: list[Any]) -> list[dict[str, str]]:
     return out
 
 
+def normalize_checkpoint(rows: list[Any]) -> list[dict[str, str]]:
+    """CheckPointRule ORM 列 → 正規化形狀。
+
+    Check Point 的規則有穩定的 uid（改名、搬位置都不變），key 用 `網域:層:uid`；
+    規則編號（rule_number）跟順序一樣不進 key 也不進比對內容（在上面插一條，底下全部的編號都會變）。
+    命中數與最後命中時間是執行期資料，也不進比對（不然每一輪都是「變更」）。
+    """
+    out = []
+    for r in rows:
+        out.append({
+            "key": f"{_norm_val(r.domain)}:{_norm_val(r.layer)}:{_norm_val(r.uid)}",
+            "action": _norm_val(r.action),
+            "interface": _norm_val(r.install_on),
+            "protocol": _norm_val(r.service),
+            "src": ("!" if r.source_negate else "") + _norm_val(r.source), "src_port": "",
+            "dst": ("!" if r.destination_negate else "") + _norm_val(r.destination), "dst_port": "",
+            "descr": _norm_val(f"{r.name or ''} {r.comments or ''}").strip()[:200],
+            "disabled": "0" if r.enabled else "1",
+        })
+    return out
+
+
 def normalize_mikrotik(rows: list[Any]) -> list[dict[str, str]]:
     """MikroTikRule ORM 列 → 正規化形狀。
 
@@ -283,6 +305,12 @@ async def run_sentinel(session: AsyncSession, *, source_type: str,
                 select(PaloAltoPolicy).where(PaloAltoPolicy.firewall_id == instance.id)
             )).scalars().all()
             rules = normalize_paloalto(rows)
+        elif source_type == "checkpoint":
+            from app.models.checkpoint import CheckPointRule
+            rows = (await session.execute(
+                select(CheckPointRule).where(CheckPointRule.server_id == instance.id)
+            )).scalars().all()
+            rules = normalize_checkpoint(rows)
         elif source_type == "mikrotik":
             from app.models.mikrotik import MikroTikRule
             rows = (await session.execute(

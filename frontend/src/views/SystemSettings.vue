@@ -12,7 +12,7 @@ import {
   NButton, NPopconfirm, NTag, NAlert, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
-import { AdminIcon, SaveIcon, RefreshIcon, WarnIcon } from "@/icons";
+import { AdminIcon, SaveIcon, RefreshIcon, RequestsIcon, WarnIcon } from "@/icons";
 import { getRackEmbedConfig, setRackEmbedConfig, type RackEmbedConfig } from "@/api/racks";
 import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
@@ -23,6 +23,7 @@ import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getUiDisplay, setUiDisplay,
   getDevicePortFilter, setDevicePortFilter } from "@/api/system";
 import { listGroups } from "@/api/admin";
+import { useRouter } from "vue-router";
 import { getAutolink, putAutolink, previewAutolink,
   type AutolinkConfig, type AutolinkPreview } from "@/api/system";
 import { listSubnets } from "@/api/subnets";
@@ -39,6 +40,7 @@ import {
 } from "@/api/basic";
 
 const { t } = useI18n();
+const router = useRouter();
 const msg = useMessage();
 
 // 地圖供應商
@@ -270,7 +272,7 @@ const livenessAvail = ref<LivenessSource[]>([]);
 
 const VENDOR_LABEL: Record<string, string> = {
   opnsense: "OPNsense", pfsense: "pfSense",
-  fortigate: "FortiGate", paloalto: "Palo Alto", mikrotik: "MikroTik",
+  fortigate: "FortiGate", paloalto: "Palo Alto", checkpoint: "Check Point", mikrotik: "MikroTik",
 };
 
 /** `arp:opnsense` → 「ARP 表（OPNsense）」；沒有廠牌後綴的用既有翻譯。 */
@@ -784,14 +786,16 @@ async function doPreviewAutolink() {
               <n-switch :value="impactCfg.ai_enabled" @update:value="(v: boolean) => saveImpact({ ai_enabled: v })" />
             </div>
           </div>
-          <div class="ss-r fld">
+          <!-- 誰能覆核、會簽或依序多關卡、是否允許自己覆核：都在「申請審核設定」（使用者 2026-10-08） -->
+          <div class="ss-r fld" data-testid="cip-reviewers">
             <div class="ss-r__text">
-              <label>{{ t("change_impact.set_self_review") }}</label>
-              <div class="hint">{{ t("change_impact.set_self_review_hint") }}</div>
+              <label>{{ t("change_impact.set_reviewers") }}</label>
+              <div class="hint">{{ t("change_impact.set_reviewers_moved") }}</div>
             </div>
             <div class="ss-r__ctl">
-              <n-switch :value="impactCfg.allow_self_review"
-                        @update:value="(v: boolean) => saveImpact({ allow_self_review: v })" />
+              <n-button size="small" @click="router.push({ name: 'approval_settings', query: { tab: 'change_impact' } })">
+                <template #icon><n-icon><RequestsIcon /></n-icon></template>{{ t("change_impact.set_reviewers_go") }}
+              </n-button>
             </div>
           </div>
           <div class="fld">

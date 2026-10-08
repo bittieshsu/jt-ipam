@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -55,7 +56,8 @@ async def new_ip(ctx: Ctx) -> None:
             observed_at=r.updated_at, freshness="current", visibility=("ip", r.id)))
         if r.subnet_id == sc.target_subnet_id:
             rule = "ipam.new_ip_reserved" if r.state == "reserved" else "ipam.new_ip_assigned"
-            ctx.find(Finding(rule, "ip_address", f"{r.ip} ({r.cidr})", [key], subject_id=r.id, match_kind="exact",
+            ctx.find(Finding(rule, "ip_address", f"{r.ip} {r.hostname}" if r.hostname else r.ip, [key],
+                             subject_id=r.id, match_kind="exact",
                              params={"address": r.ip, "state": r.state, "hostname": r.hostname or ""},
                              visibility=("ip", r.id)))
         elif r.vrf_id == sc.target_vrf_id:
@@ -78,6 +80,32 @@ async def new_ip(ctx: Ctx) -> None:
         ctx.find(Finding("ipam.new_ip_cooldown", "ip_address", cd.ip, [key], subject_key=cd.ip, match_kind="exact",
                          params={"address": cd.ip, "until": cd.until.isoformat()},
                          visibility=("subnet", sc.target_subnet_id)))
+
+    if ctx.can_see("subnet", sc.target_subnet_id):
+        vis = ("subnet", sc.target_subnet_id)
+        # 有人申請了這個位址、還沒配發（待審核或已核准）：改過去就會跟申請撞在一起
+        for rq in (await ctx.session.execute(text("""
+            SELECT id, host(requested_ip) AS ip, hostname, status, created_at FROM ip_requests
+             WHERE subnet_id = :sid AND requested_ip = CAST(:ip AS inet) AND status IN ('pending', 'approved')
+        """), {"sid": sc.target_subnet_id, "ip": sc.new_ip})).all():
+            key = ctx.add(Evidence(key=f"ip_request:{rq.id}", source_type="ipam", object_type="ip_request",
+                                   object_id=rq.id, label=rq.ip, payload={"hostname": rq.hostname, "status": rq.status},
+                                   observed_at=rq.created_at, freshness="current", visibility=vis))
+            ctx.find(Finding("ipam.new_ip_requested", "ip_request", rq.ip, [key], subject_id=rq.id, match_kind="exact",
+                             params={"address": rq.ip, "hostname": rq.hostname or ""}, visibility=vis))
+        # IP 範圍（DHCP／保留／其他）：落在範圍裡要確認用途允許
+        for rg in (await ctx.session.execute(text("""
+            SELECT id, host(start_ip) AS s, host(end_ip) AS e, purpose, name FROM ip_ranges
+             WHERE subnet_id = :sid AND CAST(:ip AS inet) BETWEEN start_ip AND end_ip
+        """), {"sid": sc.target_subnet_id, "ip": sc.new_ip})).all():
+            label = rg.name or f"{rg.s}-{rg.e}"
+            key = ctx.add(Evidence(key=f"ip_range:{rg.id}", source_type="ipam", object_type="ip_range",
+                                   object_id=rg.id, label=label, payload={"start": rg.s, "end": rg.e,
+                                                                          "purpose": rg.purpose},
+                                   freshness="current", visibility=vis))
+            ctx.find(Finding("ipam.new_ip_in_range", "ip_range", label, [key], subject_id=rg.id,
+                             match_kind="range_contains",
+                             params={"address": sc.new_ip, "range": label, "purpose": rg.purpose}, visibility=vis))
 
     if sc.cross_subnet:
         gw = (await ctx.session.execute(text("SELECT host(gateway) FROM subnets WHERE id = :id"),
@@ -145,14 +173,22 @@ async def new_ip_activity(ctx: Ctx) -> None:
 # ─────────────────── 舊位址／裝置位址的活動 ───────────────────
 
 async def root_activity(ctx: Ctx) -> None:
+    from app.services.arp_seen import _parse
+    from app.services.evidence import is_aging
     since = ctx.now - ACTIVITY_WINDOW
     for root in ctx.roots:
         row = (await ctx.session.execute(text(f"""
-            SELECT {", ".join(_SEEN_FIELDS)}, effective_status, in_dhcp_lease FROM ip_addresses WHERE id = :id
+            SELECT {", ".join(_SEEN_FIELDS)}, arp_seen, effective_status, in_dhcp_lease FROM ip_addresses WHERE id = :id
         """), {"id": root.ip_id})).mappings().first()  # noqa: S608 -- 欄位名稱是本檔常數
         if row is None:
             continue
         seen = {f.removeprefix("last_seen_"): row[f] for f in _SEEN_FIELDS if row[f] and row[f] >= since}
+        # 防火牆同步的逐來源時間（使用者 2026-10-08：只有防火牆看得到的機器改址時也要提醒）。
+        # 採信範圍跟上線判定一致：會過期的（ARP 表、目前連著的 VPN）才算；DHCP 租約可能是幾天前拿的，不算
+        for src, raw in (row["arp_seen"] or {}).items():
+            ts = _parse(raw)
+            if ts is not None and ts >= since and is_aging(src):
+                seen[src] = ts
         if not seen:
             continue
         newest = max(seen.values())
@@ -194,9 +230,52 @@ _INTEGRATION_URLS: tuple[tuple[str, str, str, str], ...] = (
     ("app.models.dns", "DNSServer", "api_url", "dns_server"),
     ("app.models.dns", "DNSServer", "server_address", "dns_server"),
     ("app.models.dhcp_standalone", "KeaDhcpServer", "api_url", "kea_dhcp"),
+    ("app.models.technitium", "TechnitiumDhcpServer", "api_url", "technitium"),
+    # Check Point：管理伺服器的網址；它管的閘道位址（管理伺服器靠這個位址跟閘道溝通、安裝政策）
+    ("app.models.checkpoint", "CheckPointServer", "api_url", "checkpoint"),
+    ("app.models.checkpoint", "CheckPointGateway", "ipv4_address", "checkpoint"),
+    # 第二階段：閘道的 Gaia API 網址（jt-ipam 連這個位址讀 DHCP／ARP／租約）
+    ("app.models.checkpoint_gaia", "CheckPointGaiaTarget", "gaia_url", "checkpoint"),
     ("app.models.windows_dhcp", "WindowsDhcpServer", "host", "windows_dhcp"),
     ("app.models.ocs", "OcsServer", "base_url", "ocs"),
+    ("app.models.ocs", "OcsServer", "db_host", "ocs"),
+    ("app.models.adguard", "AdGuardInstance", "api_url", "adguard"),
+    ("app.models.isoinsight", "IsoInsightSource", "base_url", "isoinsight"),
+    # 叢集的其他節點：換行或逗號分隔
+    ("app.models.virt", "ProxmoxInstance", "extra_api_urls", "proxmox"),
+    ("app.models.esxi", "ESXiInstance", "extra_api_urls", "esxi"),
+    # RustDesk：網頁連線連 hbbs／hbbr 的位址、客戶端連線用的位址（都可以帶 :埠）
+    ("app.models.rustdesk", "RustDeskServer", "hbbs_host", "rustdesk"),
+    ("app.models.rustdesk", "RustDeskServer", "relay_host", "rustdesk"),
+    ("app.models.rustdesk", "RustDeskServer", "client_address", "rustdesk"),
+    # 舊 pull 模式的掃描代理：伺服器主動連 agent_url
+    ("app.models.scan_agent", "ScanAgent", "agent_url", "scan_agent"),
+    ("app.models.notification", "WebhookSubscription", "target_url", "webhook"),
 )
+
+
+def _hosts_in(value: str | None) -> list[Any]:
+    """一個欄位裡的所有主機位址：可以是單一位址、網址、主機:埠，或以換行／逗號分隔的多個。"""
+    out: list[Any] = []
+    for tok in re.split(r"[,\s]+", value or ""):
+        a = norm_ip(tok) or norm_ip(_host_of(tok))
+        if a is not None and a not in out:
+            out.append(a)
+    return out
+
+
+async def _system_endpoints(ctx: Ctx) -> list[tuple[str, str]]:
+    """jt-ipam 自己會主動連的主機（系統設定優先、沒設才用環境變數，與各 get_* 相同）。"""
+    from app.services import system_config as scfg
+    ldap = await scfg.get_ldap_config(ctx.session)
+    llm = await scfg.get_llm_config(ctx.session)
+    fwd = await scfg.get_audit_forward(ctx.session)
+    ch = await scfg.get_notification_channels(ctx.session)
+    oidc = await scfg.get_oidc_config(ctx.session)
+    saml = await scfg.get_saml_config(ctx.session)
+    pairs = (("ldap", ldap.server), ("llm", llm.url), ("audit_forward", fwd.host), ("smtp", ch.get("smtp_host")),
+             ("oidc", oidc.issuer), ("saml", saml.idp_metadata_url))
+    return [(k, str(v)) for k, v in pairs if v]
 
 
 async def config_refs(ctx: Ctx) -> None:
@@ -246,6 +325,28 @@ async def config_refs(ctx: Ctx) -> None:
     else:
         ctx.gap("config", "permission_limited", affected="vpn_endpoint")
 
+    # 線路（ISP）的 IP、閘道、DNS：進階資源是全域資料，同 VPN
+    if ctx.global_read:
+        for root in ctx.roots:
+            like = f"%{root.ip_text}%"
+            for c in (await ctx.session.execute(text("""
+                SELECT id, cid, status, ip_address, gateway, dns_servers FROM circuits
+                 WHERE ip_address ILIKE :l OR gateway ILIKE :l OR dns_servers ILIKE :l
+            """), {"l": like})).all():
+                for fld in ("ip_address", "gateway", "dns_servers"):
+                    if root.aip not in text_mentions(getattr(c, fld) or "", [root.aip]):
+                        continue
+                    key = ctx.add(Evidence(key=f"circuit_cfg:{c.id}", source_type="config", object_type="circuit",
+                                           object_id=c.id, label=c.cid,
+                                           payload={"ip_address": c.ip_address, "gateway": c.gateway,
+                                                    "dns_servers": c.dns_servers, "status": c.status},
+                                           freshness="current"))
+                    ctx.find(Finding("config.circuit_address", "circuit", c.cid, [key], subject_id=c.id,
+                                     subject_key=fld, match_kind="exact",
+                                     params={"address": root.ip_text, "field": fld, "circuit": c.cid}))
+    else:
+        ctx.gap("config", "permission_limited", affected="circuit")
+
     # 跳板主機與各整合的連線端點：管理資料，只給管理員
     if not ctx.is_admin:
         ctx.gap("config", "permission_limited", affected="integration_endpoint")
@@ -259,22 +360,42 @@ async def config_refs(ctx: Ctx) -> None:
                                    freshness="current", visibility=("admin", None)))
             ctx.find(Finding("config.jump_host", "jump_host", j.name, [key], subject_id=j.id, match_kind="exact",
                              params={"address": str(a)}, visibility=("admin", None)))
+    from app.models.virt import VirtCluster
+    from app.services.change_impact.labels import integration_label
+    # Proxmox 連線沒有名稱欄位：用它所屬的叢集名稱
+    clusters = {c.id: c.name for c in (await ctx.session.execute(select(VirtCluster))).scalars().all()}
     for mod, cls, attr, kind in _INTEGRATION_URLS:
         model = getattr(importlib.import_module(mod), cls, None)
         if model is None or not hasattr(model, attr):
             continue
         for row in (await ctx.session.execute(select(model))).scalars().all():
-            a = norm_ip(_host_of(getattr(row, attr, None)))
-            if a in targets:
-                name = str(getattr(row, "name", kind))
+            raw = getattr(row, attr, None)
+            # INET 欄位（例如 Check Point 閘道位址）讀出來是 IPv4Address，不是字串
+            for a in _hosts_in(str(raw) if raw is not None and not isinstance(raw, str) else raw):
+                if a not in targets:
+                    continue
+                host = _host_of(getattr(row, "api_url", None) or getattr(row, "base_url", None)
+                                or getattr(row, "server_address", None) or getattr(row, "host", None))
+                name = integration_label(kind, getattr(row, "name", None)
+                                         or clusters.get(getattr(row, "cluster_id", None)), host)
                 key = ctx.add(Evidence(key=f"integration:{kind}:{row.id}:{attr}", source_type="config",
-                                       object_type="integration", object_id=row.id, label=f"{kind} {name}",
+                                       object_type="integration", object_id=row.id, label=name,
                                        payload={"kind": kind, "field": attr}, freshness="current",
                                        visibility=("admin", None)))
-                ctx.find(Finding("config.integration_endpoint", "integration", f"{kind} {name}", [key],
-                                 subject_id=row.id, subject_key=f"{kind}:{attr}", match_kind="exact",
+                ctx.find(Finding("config.integration_endpoint", "integration", name, [key],
+                                 subject_id=row.id, subject_key=f"{kind}:{attr}:{a}", match_kind="exact",
                                  params={"address": str(a), "kind": kind, "field": attr},
                                  visibility=("admin", None)))
+    for setting, value in await _system_endpoints(ctx):
+        for a in _hosts_in(value):
+            if a not in targets:
+                continue
+            key = ctx.add(Evidence(key=f"system_setting:{setting}", source_type="config", object_type="system_setting",
+                                   label=setting, payload={"setting": setting}, freshness="current",
+                                   visibility=("admin", None)))
+            ctx.find(Finding("config.system_endpoint", "system_setting", "jt-ipam", [key], subject_key=f"{setting}:{a}",
+                             match_kind="exact", params={"address": str(a), "setting": setting},
+                             visibility=("admin", None)))
 
 
 # ─────────────────── 文字線索 ───────────────────

@@ -169,6 +169,9 @@ to see what a customer sees.**
   the version you already shipped. It writes a row *before* upgrading and checks it survived:
   losing data is the worst upgrade failure and it does not make any command exit non-zero
 - [ ] Against a previous-version environment `scripts/jt-ipam.sh upgrade` also rolls back if needed
+- [ ] **CJK font for PDF reports**: after both a fresh install and an upgrade `fonts-noto-cjk` is present (the log says "CJK font for PDF
+  reports present" or "Installed fonts-noto-cjk") and `fpdf2` is in the venv (listed on the version page); with the apt mirror cut off
+  the upgrade only warns and still completes
 - [ ] **Node.js 22 for the frontend build**: both gates check `node -v` in the container against `engines.node`
   (fresh install: v22 and `doctor` shows "Node.js v22... for building the frontend"; upgrade from a release that
   used Node 20, v0.6.61 or older: the log shows Node.js v20 -> v22 and the site still answers over HTTPS). The
@@ -292,6 +295,56 @@ the reverse proxy dropped the WebSocket upgrade.
   fails on blank screens, JS exceptions, failed API calls and untranslated keys. This exists
   because the sweep used to visit 22 of 78 routes: forty-odd pages had never been opened by
   any test. A page that only a human ever opens is a page nothing is checking
+
+## 5i. IP change assessment covers new features: **every release** (user request 2026-10-08)
+
+- [ ] A new integration this release is in the source list in `services/change_impact/sources.py` and an adapter reads
+  its data, or it is in `NOT_SOURCES` with a reason (`tests/test_change_impact_coverage.py` is green)
+- [ ] A new feature that stores references to IPs, devices or hostnames (settings, rules, records) shows up when
+  renumbering, decommissioning, maintaining or shutting down (with a rule and sentences in three languages), or the
+  release notes say why it does not need to
+- [ ] Create an assessment for an address or device that uses the new data and see the new source in the impact list
+  or the data-gap list
+- [ ] Renumber an address seen only by a firewall ARP table or VPN (no scan agent, not monitored): "old address still in
+  use" appears with the source as "ARP table (vendor)"; one with only a DHCP lease does not (`tests/test_change_impact_activity.py`)
+- [ ] A new integration or system setting with a connection address (URL, host) is added to
+  `adapters_ipam._INTEGRATION_URLS` or `_system_endpoints` (multi-valued fields separated by newlines or commas must match too)
+- [ ] `tests/test_change_impact_column_coverage.py` is green: every column storing an address, host or URL is in COVERED
+  (really read by the assessment) or EXEMPT (with a reason)
+
+
+## 5j. New dependencies and system components: **every release** (user request 2026-10-08: "you should know to handle this without being reminded")
+
+- [ ] New Python / npm packages are in `backend/pyproject.toml` / `frontend/package.json` and listed on the version info
+  page (`tests/test_dependency_page.py` is green)
+- [ ] New apt packages, fonts, commands or systemd settings are handled by both install and upgrade (putting them in
+  `ensure_runtime_deps` is simplest; `tests/test_install_upgrade_parity.py` is green); a failed install on upgrade only
+  warns and the feature reports a clear error code
+- [ ] Run a new feature once **under the production service sandbox** (systemd SystemCallFilter / MemoryDenyWriteExecute kill
+  the process, and dev machines do not have them): `systemd-run` with the same restrictions as `jt-ipam-backend.service`, or
+  use it after deploying and check `journalctl -u jt-ipam-backend` for `Child process ... died`
+- [ ] New environment variables, directories or outbound connections (including `OUTBOUND_ALLOW_*`) get defaults or
+  setup steps on both paths and can be switched in the web UI (never "edit env and restart")
+- [ ] README (three languages) requirements and install notes, the adoption guide and this checklist's fresh-install /
+  upgrade items are updated; the CHANGELOG states the install / upgrade impact
+- [ ] Actually run `scripts/test-fresh-install.sh` and `scripts/test-upgrade.sh` (`JT_IPAM_REPO` pointing at what is
+  about to ship); the new feature works on both kinds of site
+
+
+## 5k. Docs and website: **every release** (user request 2026-10-08: "update everything that should be updated", "check these from now on, as a pre-release step and with guards")
+
+- [ ] `tests/test_docs_site_coverage.py` is green: every site page has matching zh/en/ja paragraph counts, every integration's
+  product name appears in features / index / all three READMEs, major features appear on the index and READMEs, docs have no
+  full-width slash or em dash
+- [ ] Features added or changed in this release: one line in `docs/features.html`, a card in `docs/index.html` for a major one
+  (also added to MAJOR_FEATURES in the guard test), and the three READMEs updated
+- [ ] New APIs: `docs/api.html` (three languages, `tests/test_api_manual_coverage.py`); new tables: the three DATA_MODELs; new
+  requirements or packages: the three INSTALLs and the README requirements
+- [ ] A problem fixed in this release that would stop people: an entry in `docs/troubleshooting.html` (symptom, cause, fix), and
+  check existing entries this release made outdated (for example a changed default)
+- [ ] The adoption guide's per-integration notes and the screenshots (`docs/shots/{zh,en,ja}/`, re-shot with
+  `scripts/docs-shots.mjs`) are still current
+- [ ] Both CHANGELOGs and both checklists cover this release
 
 ## 5g. Messages the server writes on the screen: **whenever an error message is added or changed**
 
@@ -516,6 +569,22 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   registers it and the cell turns normal; background probe data (liveness=false) does not count; addresses outside the
   agent's subnets are not kept; unauthorised-IP detection lists an address only the scan agent saw; the API returns 404
   without subnet read access; sightings not seen for 30 days are removed
+- [ ] **Two reports at once from one agent do not deadlock** (`tests/test_scan_agent_report_concurrency.py`): the second
+  waits while the first is still in its transaction; the same IPs in opposite order sent together both return 200. After
+  deploying, `DeadlockDetectedError` no longer shows up for `/scan-agents/report` in the prod log
+- [ ] **DHCP pool usage does not mix overlapping networks** (`tests/test_dhcp_pool_usage_scope.py`): with two subnets
+  of the same CIDR a manual pool counts only its own; a synced pool uses the integration's scope; an ambiguous one counts
+  nothing; nested subnets use the most specific; the IP list's "in DHCP range" is not set by a pool (manual or synced)
+  of another subnet with the same CIDR, and "DHCP server (auto)" appears only in the firewall's own subnet; with two
+  records at one address, IP details list NAT for this record only
+- [ ] **Backup failures are visible** (`tests/test_backup_script.py`, `tests/test_self_check_backup.py`,
+  `tests/test_self_check_i18n.py`): the script writes `last-run` on success and failure, a failure keeps an earlier dump
+  from the same day, leaves no empty directory and prints the ALTER TABLE command for a permission error; System
+  diagnostics "Daily backup" is green on success, red on failure or no success for 48 hours (system alert), yellow when
+  the timer is off; `jt-ipam.sh doctor` shows ✗ on failure; after an upgrade `/usr/local/bin/jt-ipam-backup.sh` matches the repo copy
+- [ ] **Syncs redo a deadlocked transaction once** (`tests/test_sync_deadlock_retry.py`): firewall and DHCP syncs go through
+  `_commit_with_retry`; a deadlock is retried once and other errors are not swallowed; after deploying, `journalctl -u
+  jt-ipam-sync` shows `deadlock with a concurrent writer, retrying once` followed by success, never `sync failed: ... deadlock detected`
 - [ ] **Device type "Workstation" and auto-detection** (`tests/test_device_workstation_type.py`): create, edit, list
   filter and import ("workstation", "laptop", "PC") all accept it; an "other" device whose IPs have Windows 10/11 or macOS
   from Wazuh, RustDesk or OCS becomes a workstation after the next sync round; Windows Server becomes a server; Linux is
@@ -524,10 +593,14 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   workstations; racks show a workstation colour
 - [ ] **Dashboard card headers hold only the title (at most a count)**: no buttons, no subtitle text; the racks card's
   Settings button and scope sit at the top of its body
+- [ ] **Dashboard number cards open their lists**: Sections → sections, Subnets and IPv4 capacity → subnets, Allocated IPs →
+  addresses, 24h audit events → the audit log with an "Only the last 24 hours" tag (× shows everything again); Enter works
+  from the keyboard; for a non-admin the audit card is not a link and has no hover effect.
 - [ ] **IP details "Last seen by source"** (`e2e/ip-seen-sources.spec.ts`): a section of its own with source / time / ago
   columns in a fixed order (scanner, LibreNMS, ARP, Wazuh, OCS, each firewall, AdGuard), the most recent row bold and
   tagged "Latest"; the basic fields no longer carry last-seen rows; on a phone "ago" moves under the time with no
   horizontal scroll. Clicking the LibreNMS / Wazuh / OCS time opens the device page scrolled to that card (outline flashes)
+  Without an AdGuard (or LibreNMS) integration and no data, the "AdGuard settings" (or LibreNMS, ARP) row is not listed, for subnet-only readers too (`tests/test_ip_seen_integrations.py`)
 - [ ] **Last seen by source: verdict and sorting** (`e2e/ip-seen-sources.spec.ts`, `tests/test_ip_seen_rule.py`): the scanner
   within the limit reads "Counts · current", an old LibreNMS time "Counts · expired", DHCP lease and AdGuard "Not counted"
   (and follow the liveness sources in system settings); one click on Time puts the newest first; phones show three columns
@@ -613,7 +686,7 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   `#` link with an English anchor and `page.html#anchor` opens scrolled to it (API manual subsections too);
   `git ls-files '*.md' '*.html' | xargs grep -lP '\x{FF0F}'` finds nothing (docs use a half-width slash)
 
-## 7. pfSense integration (Admin → 整合 pfSense)
+## 7. pfSense integration (Admin → External integrations → pfSense)
 
 > Prereq on the pfSense (CE 2.8.x): install **pfSense-pkg-RESTAPI** (pfrest.org), then System →
 > REST API → Settings add **"API Key"** to auth methods, and create a key under Keys.
@@ -629,7 +702,7 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   and `…/rules?token=…` return CSV/TSV; **wrong token → 401**; `expose_dsv` off → 404.
 - [ ] Delete instance; periodic `jt-ipam-sync` picks up enabled instances every ~5 min without errors.
 
-## 7b. VMware ESXi / vCenter integration (Admin → 整合 VMware): **Beta**
+## 7b. VMware ESXi / vCenter integration (Admin → External integrations → VMware): **Beta**
 
 > The SOAP endpoint is always `<url>/sdk`. One implementation covers **both** a standalone ESXi
 > host and vCenter: they are the same VIM API, and ContainerView absorbs the depth difference.
@@ -661,7 +734,7 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   platform has no length we get to assume.
 - [ ] Delete instance; periodic `jt-ipam-sync` picks up enabled instances every ~5 min without errors.
 
-## 7b2. MikroTik RouterOS integration (Admin → 整合 MikroTik): **Beta**
+## 7b2. MikroTik RouterOS integration (Admin → External integrations → MikroTik): **Beta**
 
 > **The point of this integration is not to slow the router down.** At the site that asked for it,
 > the MikroTik boxes are the *main* routers, so the safeguards are the feature; test them, not
@@ -786,6 +859,9 @@ what a console is allowed to do.
   (`frontend/e2e/rdp-engine.spec.ts`, `tests/test_console_engine_default.py`)
 - [ ] guacd is required: Version info → Required components lists it (version, running); aardwolf
   is under Optional
+- [ ] With the guacd RDP engine (default), Version info shows xfreerdp / Xvfb / ffmpeg / xclip as "Engine not selected" and keeps
+  them out of the missing warning; after selecting FreeRDP a missing one is red and warned (customer 2026-10-08, Ubuntu 26.04).
+  On upgrade a failed aardwolf install prints one explanatory line, no red pip ERROR
 - [ ] The security section of System settings is one setting per row: name and explanation on the left, the control on
   the right, a divider between rows; missing packages, guacd not running and the transfer path result span the full
   row under that setting; at phone width the row stacks
@@ -851,6 +927,92 @@ what a console is allowed to do.
 - [ ] Deleting a source takes back its pools / reservations / leases / host names from the shared tables
 - [ ] `e2e/dhcp-standalone.spec.ts`: a failing Kea test connection shows the real reason (not the browser's own
   15-second timeout); ISC file status; an agent already in use is disabled in the picker
+
+## 7b3a. Technitium DNS Server (DNS and DHCP): **whenever this integration, DNS sync, the shared DHCP write layer or the DHCP rules of IP change assessment change**
+
+Automated: `backend/tests/test_technitium_client.py` (a real local HTTP server: the token goes in the POST body and never in
+the URL, error classes, redirects not followed, no token in error text), `test_technitium_dns.py`, `test_technitium_dhcp.py`,
+`test_change_impact_technitium.py`; `frontend/e2e/technitium.spec.ts` (needs a real Technitium, see below).
+
+- [ ] **A real Technitium round trip**: `docker run -d --name tdns-test --network <own bridge network> --ip <fixed address> -e DNS_SERVER_ADMIN_PASSWORD=… technitium/dns-server`
+  (the backend's outbound guard blocks loopback: connect through the bridge address, not 127.0.0.1); create a read-only
+  user and group with view permission for DHCP and Zones, give the group view permission on each zone to sync, and create
+  the API token as that user; create an enabled scope (with an exclusion, a reservation, a gateway and DNS) and get a real
+  lease with `docker run --rm --network <same network> --mac-address … --cap-add NET_ADMIN busybox udhcpc -i eth0 -n -q -f -s /bin/true -x hostname:…`.
+  Run `E2E_TECHNITIUM_URL=… E2E_TECHNITIUM_TOKEN=… e2e/technitium.spec.ts`
+- [ ] DHCP test connection reports the version, account, scope count (how many enabled) and active leases; warns when the
+  token can modify; a wrong token says "invalid token", no DHCP permission says "no permission", and an HTTP-to-HTTPS
+  redirect names the URL to use
+- [ ] Sync: pools exclude the exclusions; disabled scopes write no pools or reservations; reservations flag the IP as
+  reserved; existing IPs get the lease flag, MAC and host name; expired leases do not count; the Scopes tab lists the
+  gateway, DNS, NTP, WINS, domain and lease time; a scope removed on the server disappears here; a failed read clears nothing
+- [ ] DNS ("DNS servers", type Technitium): the test says how many zones are readable (Technitium does not list zones the
+  account cannot read); sync pulls A/AAAA/PTR, disabled zones and records do not count; jt-ipam does not write back
+- [ ] IP change assessment: the address is the default gateway of an enabled scope → critical; DNS/NTP/WINS or the DHCP
+  interface address → high; reservations, pools and leases are assessed like other DHCP sources; a console URL on the
+  address is listed too
+- [ ] Rogue DHCP detection allows the Technitium console host and each scope's DHCP interface address; deleting the
+  integration takes back its pools, reservations, leases and host names
+
+## 7b3b. Check Point (Management API, phase 1): **Beta; whenever this integration, the firewall lookup, rule change detection or the firewall/NAT rules of IP change assessment change**
+
+⚠️ **Not yet verified on a real system** (built against the official API reference and a mock server); results on a real
+R81.20 management server win, and any difference is fixed in `services/checkpoint.py` and `tests/checkpoint_mock.py`.
+
+Automated: `backend/tests/test_checkpoint.py` (mock Management API: read-only login and logout even on errors, wrong key
+without the key in the message, paging, sections and inline layers, negate flags, NAT, removals mirrored, a failed section
+keeps its data, Multi-Domain logins, IP detail lookup, IP change assessment, API CRUD that never returns the key, admin-only).
+
+- [ ] **Real system**: a lab R81.20 Standalone or Security Management Server; in SmartConsole create an administrator with
+  the Read Only All permission profile and API Key authentication; under Manage & Settings → Blades → Management API →
+  Advanced Settings accept the jt-ipam host and run `api restart`
+- [ ] Test connection reports the API version and the gateway, host, network and policy package counts per domain; a
+  wrong key says the login failed (without the key), a host that does not accept API clients says why
+- [ ] Sync: the Gateways, Network objects and Access rules tabs match SmartConsole (rule numbers, sections, inline layers
+  shown as "parent › inline layer", "except" tag on negated cells, disabled rules dimmed, hit counts); a rule or object
+  deleted on the server disappears after the next sync; search and paging work on a large policy
+- [ ] Destination NAT (automatic static NAT and manual rules) shows on the NAT page under source "Check Point"; hide NAT
+  does not
+- [ ] Multi-Domain: list two domains; each logs in separately and rows carry the domain; a wrong domain name fails only
+  that domain
+- [ ] The management server's session list shows no leftover jt-ipam sessions after test and sync (always logs out)
+- [ ] IP detail: the firewall card lists the matching Check Point rules and objects, and clicking opens the page focused
+  on that rule or object; rule change detection records an added rule; IP change assessment lists rules and NAT that
+  reference the address (Check Point appears as a source)
+- [ ] Deleting the integration takes back its NAT rows; system export/import keeps the integration with its key encrypted
+
+## 7b3c. Windows DNS over WinRM: **whenever the Windows DNS adapter or the DNS server form changes**
+
+Automated: `backend/tests/test_dns_adapter_connection_errors.py` (certificate validated by default, can be skipped,
+HTTP forces NTLM message encryption, default port follows the scheme, the untrusted-certificate error has a fix hint).
+
+- [ ] Windows Server 2022 with the default firewall (WinRM HTTP 5985 only): choose "HTTP (5985)", the test connection
+  succeeds and zones sync
+- [ ] HTTPS 5986 listener with a self-signed certificate: with "Verify TLS certificate" on the error says the certificate
+  is not trusted and how to fix it; turned off, it connects; reopening the form keeps the transport, port and switch
+
+## 7b3d. Check Point gateways (Gaia API, phase 2): **Beta; whenever the Gaia part, shared DHCP/lease writes, liveness evidence or the DHCP part of IP change assessment change**
+
+Automated: `backend/tests/test_checkpoint_gaia.py` (mock Gaia API: read-only login/logout, `run-script` never called unless
+"allow read commands" is on, only the fixed scripts run, DHCP pools minus exclusions and disabled ranges, ARP confirmation
+age and PERMANENT/FAILED handling, lease file last-record rule, a read-only account still gets DHCP and says why commands
+failed, an oversized lease file keeps the previous flags, API CRUD that never returns the password, deleting a gateway or
+the management server takes back pools and lease flags, IP change assessment sees the default gateway handed out by DHCP,
+admin-only).
+
+- [ ] Gateways tab: each gateway from the management server has "Set up Gaia connection"; the URL is prefilled with
+  `https://<gateway>/gaia_api`; "Add gateway manually" works for a gateway not in the list
+- [ ] Read-only account (Gaia role with read-only features): test connection shows the Gaia API version and DHCP subnet
+  count, "Read commands: not enabled"; sync writes the DHCP pools (exclusions removed) and the "DHCP subnets" dialog shows
+  default gateway and DNS
+- [ ] Turn on "Allow fixed read commands": the warning explains the account needs more than read-only rights; with the
+  read-only account the test says the account lacks permission and DHCP still syncs; with an account that may run commands
+  the ARP table marks addresses (`arp:checkpoint` on the IP's evidence, time close to the neighbour's last confirmation),
+  and active leases set the DHCP lease flag, MAC and host name
+- [ ] The gateway's DHCP server lease file larger than the limit: sync reports it and keeps the previous lease flags
+- [ ] Liveness settings list "ARP table (Check Point)" and "DHCP lease (Check Point)" only when a Gaia connection exists
+- [ ] Deleting the Gaia connection (or the whole management server) takes back its pools, lease flags and host names;
+  system export/import keeps the connection with its password encrypted
 
 ## 7b4. RustDesk Server (open source): **whenever this integration, the RustDesk agent or the IP detail change**
 
@@ -1128,6 +1290,46 @@ what a console is allowed to do.
   nothing behind; every device is audited; .xlsx works; a value starting with = gets a leading quote in the template
   and loses it on the way back in
 
+## 7b5. ISOinsight integration: **whenever this integration, the shared lease / host name / MAC write layer or the sync schedule change**
+
+Automated: `backend/tests/test_isoinsight_parser.py`, `test_isoinsight_config.py`, `test_isoinsight_client.py`
+(a real local HTTP server: method, encoding, cookies, token, error classes, retries, limits, secrets),
+`test_isoinsight_sync.py` (database: matching, merge, non-destructive rules, lock, schedule, 20,000 leases),
+`test_isoinsight_api.py`, `test_isoinsight_mcp.py`. They prove what jt-ipam does, **not** that the device accepts it.
+
+- [ ] **Pending verification on a real device (fill in the compatibility matrix per version)**: GET, POST form and
+  POST JSON each logged in or not; the login response (cookie names and attributes, or the token field and header;
+  values masked); the lease request with the logged-in session; whether the list is complete, paginated, includes
+  expired leases; the time zone of `start_time` / `end_time` and the device clock; a read-only account sees every
+  needed subnet; production and test units on the same paths
+- [ ] Test connection shows each step (login, read leases, validate structure) with method, masked path, HTTP
+  status and time; cookie names only, never values; "connection and read succeeded" appears only after the lease
+  JSON validated; the optional anonymous check is reported separately and is not treated as proof of credentials
+- [ ] Wrong password → AUTH_FAILED, the method is not switched, the schedule pauses (tag on the list) and resumes
+  after editing the source or a successful test; 405/415 → METHOD_UNSUPPORTED; a redirect is not followed
+- [ ] Preview says "not applied", shows would-create / would-apply / unmatched / conflict rows, writes no IP or
+  lease row; a new source has the schedule on by default, and until a preview with the current settings succeeds the
+  list shows "needs preview" and each scheduled turn only records "schedule waiting" (no connection, no sync record); changing the
+  password, Base URL, method, paths, time zone or scope clears the preview mark
+- [ ] A sync: existing IP gets MAC (source isoinsight) and host name only through the precedence, the lease flag is
+  set, last-seen is not touched; a new IP is created only inside an allowed subnet and within its lease period;
+  manual name and MAC stay; an empty name clears nothing; an invalid MAC does not overwrite; two MACs with
+  overlapping leases are kept as a conflict and applied to neither; a second identical sync creates no duplicate
+  IP and no new change-log entry
+- [ ] Overlapping subnets in two VRFs → unmatched (SUBNET_UNMAPPED, partial result); an allowed subnet moved to
+  another customer is excluded at sync time; the form refuses subnets of another tenant
+- [ ] An empty lease list, a missing lease, a failed login, disabling or deleting the source never deletes IP
+  records; a lease past its end time drops the lease flag; deleting the source withdraws its flags and host names
+- [ ] Manual sync while a scheduled run holds the lock → 409; a run that crashed leaves a lock that expires after
+  15 minutes; HTTP 429 postpones the schedule by Retry-After
+- [ ] The jt-ipam-sync log, the task error and the sync record never contain the password, cookie values, the token
+  or the GET login query (the httpx request log shows `/api/logon?<redacted>`)
+- [ ] AI chat: "when does the lease of 192.0.2.20 expire" cites the source and observed time and does not call the
+  device online; an account that sees one subnet gets only that subnet's leases (count included)
+- [ ] Browser: the page (Admin → External integrations → ISOinsight) has the sources / leases / sync records tabs, the actions
+  column (edit, test, preview, sync now, records, delete) stays visible on the right, the GET warning and the TLS-off
+  warning show, host names are plain text
+
 ## 7c. Integration sync resilience: **applies to every integration, not just the one you changed**
 
 Real devices are partially readable. A firewall answering "9 of 10 endpoints OK" is the
@@ -1315,7 +1517,7 @@ What this section tests is the thing the chain itself cannot catch. Verifying th
   not break reading; the same record also goes to journald (a copy survives file deletion)
 - [ ] **Alerting**: on failure every admin gets a severity=error notification naming which case it was
 
-## 7f. Zabbix integration: **whenever the Zabbix sync or coverage gap changes**
+## 7f. Zabbix integration: **whenever the Zabbix sync or the not-monitored list changes**
 
 - [ ] **Three URL forms**: `https://host`, `https://host/zabbix` and a full `api_jsonrpc.php` all connect
 - [ ] **Both auth modes**: API token and username/password each tested; the read response carries no secret
@@ -1324,7 +1526,7 @@ What this section tests is the thing the chain itself cannot catch. Verifying th
   another tenant's address; queries use `limit(1)` (`scalar_one_or_none` aborts the whole round)
 - [ ] **Hostname convergence**: two Zabbix hosts pointing at one IP must not overwrite each other every
   round (the change log must not fill up)
-- [ ] **Coverage gap**: asking with a subnet scope answers only for those subnets; an empty scope
+- [ ] **Addresses not monitored**: asking with a subnet scope answers only for those subnets; an empty scope
   returns empty rather than falling back to global
 
 ## 7g. Evidence contract: **whenever a source is added or changed**
@@ -1731,19 +1933,107 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **Probe misreadings fixed**: a failed nmap run shows why instead of "no response"; probing an IPv6 address really runs; after a
   silent previous probe the comparison says ports cannot be compared instead of listing every port as new; a changed SSH host key or
   certificate is listed with a warning
-- [ ] **Change impact preview** (migration 0187; `tests/test_change_impact_*.py`, `e2e/change-impact.spec.ts`): while off, the menu, IP
-  and device pages show no entry and the API returns 403 `impact_feature_disabled`; turning it on in System settings shows them. "Preview
-  renumber" on an IP page → create and analyse → the result page says nothing has been changed; findings show disposition, severity,
+- [ ] **Site-wide permission guards** (`tests/test_rbac_write_guards.py`, `tests/test_mcp_scope_guards.py`, `tests/test_semantic_search_scope.py`):
+  a non-admin changing a subnet's or IP's scan agent, console egress or jump host gets 403, and so does turning off anomaly detection or AI
+  audit (those boxes are disabled in the form); with write only, changing a subnet's section or customer, a section's customer or an IP's
+  customer gets 403; linking an IP to an invisible device gets 404; deleting an IP via the phpIPAM API needs subnet admin and is logged and
+  put into cooldown; a read-only account sending the stale reminder gets 404; an account that sees only the subnet sees no device, rack or
+  location in the IP relation chart; asking the AI about a device lists only visible IPs; semantic search returns only visible items
+- [ ] **External integrations group in the Admin menu** (`e2e/nav-integrations.spec.ts`, `tests/test_integration_presence.py`):
+  Admin has "External integrations", expanded by default and collapsible; items show only the product name (Graylog included);
+  configured integrations have a green check and unconfigured ones do not; after adding or deleting one, switching pages updates it
+- [ ] **IP change assessment** (migration 0187; `tests/test_change_impact_*.py`, `e2e/change-impact.spec.ts`): while off, the menu, IP
+  and device pages show no entry and the API returns 403 `impact_feature_disabled`; turning it on in System settings shows them. "Assess
+  renumbering" on an IP page → create and analyse → the result page says nothing has been changed; findings show disposition, severity,
   category and a reason sentence, and expand to evidence with observed and collected times and the rule version; the gaps list shows
   unconfigured integrations, stale sources (one line per integration), CNAMEs not stored and so on; zero findings never reads as safe
-- [ ] **Preview verdicts**: a new IP that is registered or reserved, reserved in DHCP for another NIC, or recently seen is a blocker; a CIDR
+- [ ] **Assessment verdicts**: a new IP that is registered or reserved, reserved in DHCP for another NIC, or recently seen is a blocker; a CIDR
   rule covering both addresses is informational; an alias cycle is a gap and makes the result partial; shared aliases on decommission say
   to remove only the member; 192.0.2.1 does not match a note that says 192.0.2.10
-- [ ] **Preview workflow and permissions**: after submitting, the creator cannot review their own plan; blockers cannot be approved;
+- [ ] **Assessment workflow and permissions**: after submitting, the creator cannot review their own plan; blockers cannot be approved;
   incomplete data allows only accept-risk with a reason; a new reference after approval makes "Start maintenance" fail with
   `impact_run_stale` and moves the plan back to draft; an account that sees only the subnet does not get DNS/firewall findings and is told
-  the scope differs; another user's run or evidence id returns 404; Markdown/JSON exports follow the downloader's permissions
-- [ ] **Preview AI**: with AI off the analysis still works and the AI buttons say it is unavailable; invented ids or addresses are rejected,
+  the scope differs; another user's run or evidence id returns 404; Markdown/JSON exports follow the downloader's permissions; for an account that sees only
+  the subnet, counts, the source list and template tasks cover only what it can see (no "update DNS references" task for a hidden
+  category); a creator whose permission is revoked can no longer read the plan (only kept when the target was deleted)
+- [ ] **Creating: scope and permission messages** (`e2e/change-impact.spec.ts`): "New assessment" on the list page needs a subnet before
+  the IP field opens; typing an IP into the subnet search lists the subnets containing it and fills the IP once one is picked; a non-admin
+  sees only subnets it can edit, and only their customers and sections; a new IP in a subnet it cannot see says "no permission on the
+  subnet of the new IP"; asking the API about an address without permission says so instead of "not found"; unregistered and
+  unmanaged addresses each get their own message
+- [ ] **Reviewer list and notifications** (`tests/test_change_impact_reviewers.py`): set a group as reviewers in System settings →
+  after submission its members are notified and the creator and other editors are not; the plan page says who it was sent to; people not
+  on the list do not see Review and the API returns `impact_not_reviewer`; a listed person with view permission only can review; the
+  "Awaiting my review" filter lists only plans waiting for me; the creator is notified after review; clearing the list goes back to
+  "edit permission on the target can review, admins are notified"; the notification settings page has two new events
+- [ ] **M2: maintenance, downtime and services** (`tests/test_change_impact_m2.py`, `tests/test_change_impact_services_api.py`,
+  `e2e/change-impact-m2.spec.ts`): in switch maintenance, devices cabled only to the switch (patch panels included) are a modelled
+  disruption with the path, devices with other links are unverified redundancy, a second path back to the same switch is a shared
+  upstream; several devices down together are one analysis; node downtime's three scenarios (direct, migrate first, HA) each give
+  their verdicts and gaps; services follow k-of-n three-valued logic, references do not propagate, cycles are unknown; the
+  services page needs global read and only admins edit, and "needed" above the member count is rejected; the device page "Assess
+  change" menu shows maintenance or downtime by type; the Relations tab shows the target, affected devices and services, and a
+  device-only reader does not see services
+- [ ] **Relations graph** (`src/utils/impactGraph.test.ts`): three or more leaves of the same type linked to the same object collapse into
+  one group (for example "DNS record (26)", coloured by the most severe impact); objects on a path are still drawn and self loops are not;
+  every node has a type icon with a legend above; four layouts (radial, tree cards, by impact, force) are remembered per browser; thick
+  lines mean the item is cut off when the other end goes down, thin lines mean the address is only written in its settings; line text
+  shows only on hover or for a selected outer node (always in tree view, never overlapping); node details open in a panel on the right;
+  the thumbnail at the bottom right shows the visible area and click or drag moves there; "Export PNG" saves the whole graph; the right
+  border is intact; checked in dark theme, English and Japanese. Cancelled plans are dimmed in the list
+- [ ] The relation graph opens in "By impact"; scrolled to the bottom the toolbar sits right under the top bar and the graph fills to
+  the window bottom (16px left), same for IP topology; other pages keep 88px (the AI chat button never covers the last row);
+  Export → SVG matches the screen (rings are dashed outlines, not filled); data gaps are a lined table; tasks are grouped by phase
+- [ ] **Result page layout**: the impact list's "Object and reason" shows a type badge and the name, then "Why: …"; expanded details are
+  indented with a coloured left bar and tint, and the open row has the same tint; data gaps align in a category column and a text column;
+  the three History sections are aligned tables
+- [ ] **Assessment AI progress and references** (`tests/test_change_impact_api.py::test_ai_artifact_reports_what_it_is_doing`): while running
+  it shows the step and elapsed seconds (queued, gathering data, waiting for the model, checking, asking the model to fix it); a fallback
+  says why; references show the object name as well as the number, the reason on hover, and fold after 6; results are still there after
+  leaving and returning (they belong to the run)
+- [ ] **Assessment export**: reports (PDF, Word .docx, OpenDocument .odt) carry the overview, AI summary, impact list, data gaps, tasks
+  by phase and reviews; tables (Excel .xlsx, OpenDocument .ods) have one sheet per tab; Markdown / JSON as before
+  (`src/utils/reportExport.test.ts`)
+- [ ] **The PDF is a real file** (`tests/test_report_pdf.py`): "Export → PDF" downloads a `.pdf` directly, with **no** browser print
+  dialog; Chinese file names are correct; on a computer without CJK fonts, Traditional Chinese and Japanese still display (font subset
+  embedded) and the text can be selected and searched; exporting from the Japanese UI uses the Japanese glyph forms
+- [ ] **The report layout matches across the three formats**: A4 portrait; title block (jt-ipam, title, target and revision) with an
+  accent rule; the overview in two label/value pairs per row with shaded labels; an accent bar before each heading; the impact list
+  merged into 4 columns (disposition / severity, object, reason, impact / evidence) and **no table runs past the right margin**; dark
+  header row repeated on every page, zebra rows; the first cell of blocker rows red and of review rows orange; a footer with
+  "jt-ipam · IP change assessment · generated time" and page numbers; DOCX / ODT look the same in LibreOffice and Word
+- [ ] **No CJK font on the server**: PDF export shows "The server has no CJK font… sudo apt install fonts-noto-cjk"
+  (`report_pdf_no_font`) while DOCX / ODT keep working; after installing the font **no restart** is needed, the next export works; the
+  version page lists the font in use as `cjk_font` under optional components
+- [ ] **Approval settings** (`tests/test_change_impact_review_policy.py`): the menu says "Approval settings" and the old
+  `/ip-request-policy` URL redirects; both tabs look the same (shared component); the five assessment modes: target editors
+  (the old list carries over when nothing was saved), admins only, designated people, parallel (every group, any order),
+  sequential (only the current stage is notified and may approve; the next one is notified after it); a resubmission
+  starts the stages over; a multi-stage policy without stages or approvers returns 422; changes are audited; the plan
+  page shows stage progress and the submit confirmation explains the mode; the System settings assessment block only
+  links here; the AI plan listing includes review progress
+- [ ] **Re-analysing a cancelled plan, submit confirmation** (`tests/test_change_impact_api.py`): a cancelled plan shows
+  "Analyse again", which returns it to draft and starts an analysis; a closed plan cannot; "Submit" opens a confirmation
+  listing the reviewers to be notified (list / admins without a list / warning when nobody on the list can see the target)
+- [ ] **New-address DHCP uses the target subnet** (`tests/test_change_impact_more_refs.py`): in overlapping networks another
+  customer's DHCP reservation or pool (scoped elsewhere) does not block a renumber; an unscoped integration gives an inferred
+  finding and a data gap
+- [ ] **AI prepares M2 drafts** (`tests/test_change_impact_mcp.py`): `impact_prepare_scenario` with `switch_maintenance` +
+  `also_down` or `node_downtime` + `mode` returns a draft and token that creates a plan; an unknown mode returns `impact_invalid_scenario`
+- [ ] **IP references the assessment now reads** (`tests/test_change_impact_more_refs.py`,
+  `src/utils/__tests__/changeImpactText.test.ts`): renumbering lists a circuit's IP/gateway/DNS, the connection addresses of
+  newer integrations (AdGuard Home, ISOinsight, other PVE/ESXi nodes, the OCS database, RustDesk servers, webhooks), system
+  settings (LDAP, SMTP, AI model, audit forwarding), and a scan agent seeing the address hand out DHCP or act as the default
+  gateway; the new address shows unfulfilled IP requests and IP ranges; decommissioning a device a service needs is a
+  modelled disruption (a service still held up by another member shows its dependencies hold), dependencies registered by
+  IP count too; renumbering lists services depending on the address and services whose endpoint uses it; without any
+  modelled service a decommission gets no extra gap; integration and setting names appear as words, not
+  codes; an account without global read sees one "permission limited" for VPN endpoints and one for circuits, and a non-admin
+  sees one for integration and system connection addresses
+- [ ] **Assessment page buttons**: every button has an icon; submit, review, start maintenance and the like are blue, edit is green,
+  "Cancel plan" is red-outlined and asks first, back sits at the right end; Cancel/Confirm in the create, review, edit and add-task
+  dialogs have icons too
+- [ ] **Assessment AI**: with AI off the analysis still works and the AI buttons say it is unavailable; invented ids or addresses are rejected,
   repaired once and then replaced by a template summary; drafted tasks are saved only when ticked; read-only MCP keys do not see the
   plan-creating tools, and creating needs the draft token from `impact_prepare_scenario`
 - [ ] **Unmanaged address rows and page** (`e2e/subnet-grid-unmanaged.spec.ts`): with auto-create off, let the scan agent see an

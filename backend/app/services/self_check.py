@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -361,7 +361,122 @@ async def run_checks(session: AsyncSession) -> Report:
                                 title_key="doctor.c_recog", detail_key="doctor.d_check_failed",
                                 params={"detail": str(exc)[:200]}))
 
+    # 12) 每日備份：pg_dump 被擋住時備份曾經靜靜失敗了六週（2026-10-08 發現）；bad 會經系統告警通知管理員
+    try:
+        chk = await _backup_check()
+        if chk is not None:
+            rep.checks.append(chk)
+    except Exception as exc:
+        rep.checks.append(Check("backup", "每日備份", "warn", f"檢查本身失敗：{exc}"[:200],
+                                title_key="doctor.c_backup", detail_key="doctor.d_check_failed",
+                                params={"detail": str(exc)[:200]}))
+
     return rep
+
+
+BACKUP_DIR = Path(os.environ.get("JTIPAM_BACKUP_DIR", "/var/backups/jt-ipam"))
+#: 每天 03:30 跑一次；超過這麼久沒有成功的備份就是停擺了（多留一天給排程漂移與手動停機）
+BACKUP_STALE_HOURS = 48
+_BACKUP_LOGS = "journalctl -u jt-ipam-backup -n 30"
+_BACKUP_TIMER_FIX = "sudo systemctl enable --now jt-ipam-backup.timer"
+
+
+def _parse_kv(text_: str | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in (text_ or "").splitlines():
+        k, sep, v = line.partition("=")
+        if sep:
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _iso(v: str | None) -> datetime | None:
+    try:
+        d = datetime.fromisoformat(v) if v else None
+    except ValueError:
+        return None
+    return d if d is None or d.tzinfo else d.replace(tzinfo=UTC)
+
+
+def backup_check_from(status_text: str | None, unit: dict[str, str], timer: dict[str, str], *,
+                      now: datetime) -> Check | None:
+    """依備份腳本的狀態檔（`last-run`）與 systemd 的 unit／timer 狀態判斷。
+
+    沒有這個 timer（開發環境、不是用安裝腳本裝的）就不檢查。狀態檔是新版腳本才寫的：
+    沒有它（升級前的舊腳本）就退回看 systemd 的最後結果。
+    """
+    import re
+    if timer.get("LoadState", "not-found") == "not-found":
+        return None
+    title = "每日備份"
+    st = _parse_kv(status_text) if status_text else {}
+    if st.get("status") == "fail":
+        err = st.get("error", "")
+        m = re.search(r"permission denied for table ([A-Za-z0-9_.]+)", err)
+        cmd = (f"sudo -u postgres psql -d jt_ipam -c 'ALTER TABLE public.{m.group(1).split('.')[-1]} "
+               f"OWNER TO jt_ipam'") if m else _BACKUP_LOGS
+        last = st.get("last_success_at", "")
+        return Check("backup", "每日備份失敗", "bad",
+                     f"{st.get('finished_at', '')} 失敗：{err or '—'}；最後一次成功：{last or '從來沒有'}", cmd,
+                     title_key="doctor.c_backup_failed", detail_key="doctor.d_backup_failed",
+                     fix_key="doctor.f_backup_owner" if m else "doctor.f_backup_logs",
+                     params={"at": st.get("finished_at", ""), "error": err or "—", "last": last or "—",
+                             "cmd": cmd})
+    if timer.get("UnitFileState") not in ("enabled", "static", "linked") or timer.get("ActiveState") != "active":
+        state = f"{timer.get('UnitFileState', '?')}/{timer.get('ActiveState', '?')}"
+        return Check("backup", "每日備份沒有排程", "warn", f"jt-ipam-backup.timer：{state}", _BACKUP_TIMER_FIX,
+                     title_key="doctor.c_backup_no_timer", detail_key="doctor.d_backup_no_timer",
+                     fix_key="doctor.f_backup_timer", params={"state": state})
+    if st.get("status") == "ok":
+        last_s = st.get("last_success_at") or st.get("finished_at", "")
+        last = _iso(last_s)
+        if last is not None and now - last > timedelta(hours=BACKUP_STALE_HOURS):
+            hours = int((now - last).total_seconds() // 3600)
+            return Check("backup", "每日備份停擺", "bad", f"最後一次成功是 {hours} 小時前（{last_s}）",
+                         "systemctl list-timers jt-ipam-backup.timer；" + _BACKUP_LOGS,
+                         title_key="doctor.c_backup_stale", detail_key="doctor.d_backup_stale",
+                         fix_key="doctor.f_backup_logs", params={"hours": str(hours), "last": last_s})
+        return Check("backup", title, "ok", f"最後一次成功：{last_s}（{st.get('dump_size', '')}）",
+                     title_key="doctor.c_backup", detail_key="doctor.d_backup_ok",
+                     params={"at": last_s, "size": st.get("dump_size", "") or "—"})
+    # 沒有狀態檔：舊版腳本，看 systemd
+    result = unit.get("Result", "")
+    ended = unit.get("ExecMainExitTimestamp", "")
+    if result and result != "success":
+        return Check("backup", "每日備份失敗", "bad", f"備份服務最後一次執行失敗（systemd：{result}，{ended}）",
+                     _BACKUP_LOGS, title_key="doctor.c_backup_failed", detail_key="doctor.d_backup_unit_failed",
+                     fix_key="doctor.f_backup_logs", params={"result": result, "at": ended})
+    if not ended:
+        return Check("backup", title, "warn", "還沒有執行過備份", "sudo systemctl start jt-ipam-backup.service",
+                     title_key="doctor.c_backup", detail_key="doctor.d_backup_never", fix_key="doctor.f_backup_run")
+    return Check("backup", title, "ok", f"備份服務最後一次執行成功（{ended}）",
+                 title_key="doctor.c_backup", detail_key="doctor.d_backup_unit_ok", params={"at": ended})
+
+
+async def _systemctl_show(unit: str, props: tuple[str, ...]) -> dict[str, str]:
+    import asyncio
+    exe = shutil.which("systemctl")
+    if exe is None:
+        return {"LoadState": "not-found"}
+    proc = await asyncio.create_subprocess_exec(
+        exe, "show", unit, *[f"--property={p}" for p in props],
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+    except TimeoutError:
+        proc.kill()
+        return {"LoadState": "not-found"}
+    return _parse_kv(out.decode("utf-8", "replace"))
+
+
+async def _backup_check() -> Check | None:
+    timer = await _systemctl_show("jt-ipam-backup.timer", ("LoadState", "UnitFileState", "ActiveState"))
+    unit = await _systemctl_show("jt-ipam-backup.service", ("Result", "ExecMainExitTimestamp"))
+    try:
+        status_text: str | None = (BACKUP_DIR / "last-run").read_text(encoding="utf-8")
+    except OSError:
+        status_text = None
+    return backup_check_from(status_text, unit, timer, now=datetime.now(UTC))
 
 
 # 每週檢查一次：連續三週都沒有成功，就不是「偶爾連不到 GitHub」了
@@ -440,6 +555,8 @@ async def _integration_errors(session: AsyncSession) -> Check:
     from sqlalchemy import select
 
     from app.models.adguard import AdGuardInstance
+    from app.models.checkpoint import CheckPointServer
+    from app.models.checkpoint_gaia import CheckPointGaiaTarget
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.librenms import LibreNMSInstance
@@ -455,6 +572,7 @@ async def _integration_errors(session: AsyncSession) -> Check:
     for model, label in (
         (OPNsenseFirewall, "OPNsense"), (PfSenseFirewall, "pfSense"),
         (FortiGateFirewall, "FortiGate"), (PaloAltoFirewall, "Palo Alto"),
+        (CheckPointServer, "Check Point"), (CheckPointGaiaTarget, "Check Point Gaia"),
         (MikroTikRouter, "MikroTik"), (LibreNMSInstance, "LibreNMS"),
         (ZabbixInstance, "Zabbix"), (WazuhInstance, "Wazuh"),
         (AdGuardInstance, "AdGuard"), (ProxmoxInstance, "Proxmox"),

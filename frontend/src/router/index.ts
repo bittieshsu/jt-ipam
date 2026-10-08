@@ -75,6 +75,8 @@ const routes: RouteRecordRaw[] = [
       { path: "ai-audit", name: "ai_audit", component: () => import("@/views/AIAudit.vue"), meta: { admin: true } },
       { path: "ip-changes", name: "ip_changes", component: () => import("@/views/IPChanges.vue") },
       { path: "change-impact", name: "change_impact", component: () => import("@/views/ChangeImpactList.vue") },
+      // 要排在 change-impact/:id 前面，否則 services 會被當成計畫 id
+      { path: "change-impact/services", name: "change_impact_services", component: () => import("@/views/ChangeImpactServices.vue") },
       { path: "change-impact/:id", name: "change_impact_plan", component: () => import("@/views/ChangeImpactPlan.vue") },
       { path: "hostname-precedence", name: "hostname_precedence", component: () => import("@/views/HostnamePrecedence.vue"), meta: { admin: true } },
       { path: "racks", name: "racks", component: () => import("@/views/Racks.vue") },
@@ -108,10 +110,13 @@ const routes: RouteRecordRaw[] = [
       { path: "pfsense", name: "pfsense", component: () => import("@/views/PfSenseAdmin.vue"), meta: { admin: true } },
       { path: "windows-dhcp", name: "windows_dhcp", component: () => import("@/views/WindowsDhcpAdmin.vue"), meta: { admin: true } },
       { path: "kea-dhcp", name: "kea_dhcp", component: () => import("@/views/KeaDhcpAdmin.vue"), meta: { admin: true } },
+      { path: "technitium-dhcp", name: "technitium_dhcp", component: () => import("@/views/TechnitiumDhcpAdmin.vue"), meta: { admin: true } },
       { path: "isc-dhcp", name: "isc_dhcp", component: () => import("@/views/IscDhcpAdmin.vue"), meta: { admin: true } },
+      { path: "isoinsight", name: "isoinsight", component: () => import("@/views/IsoInsightAdmin.vue"), meta: { admin: true } },
       { path: "rustdesk", name: "rustdesk", component: () => import("@/views/RustDeskAdmin.vue"), meta: { admin: true } },
       { path: "fortigate", name: "fortigate", component: () => import("@/views/FortiGateAdmin.vue"), meta: { admin: true } },
       { path: "paloalto", name: "paloalto", component: () => import("@/views/PaloAltoAdmin.vue"), meta: { admin: true } },
+      { path: "checkpoint", name: "checkpoint", component: () => import("@/views/CheckPointAdmin.vue"), meta: { admin: true } },
       { path: "doctor", name: "doctor", component: () => import("@/views/SystemDoctor.vue"), meta: { admin: true } },
       // 跳板移到掃描代理頁的頁籤（2026-10-04）；舊網址與書籤照樣到得了
       { path: "jump-hosts", name: "jump_hosts", redirect: { name: "scan_agents", query: { tab: "jump" } } },
@@ -134,7 +139,9 @@ const routes: RouteRecordRaw[] = [
       { path: "llm", name: "llm_settings", component: () => import("@/views/LLMSettings.vue"), meta: { admin: true } },
       { path: "system-settings", name: "system_settings", component: () => import("@/views/SystemSettings.vue"), meta: { admin: true } },
       { path: "notification-channels", name: "notification_channels", component: () => import("@/views/NotificationChannels.vue"), meta: { admin: true } },
-      { path: "ip-request-policy", name: "ip_request_policy", component: () => import("@/views/IPRequestPolicy.vue"), meta: { admin: true } },
+      // 申請審核設定（原「IP 申請審核設定」，2026-10-08 改名並分成 IP 申請審核／IP 變更評估審核兩個頁籤）；舊網址轉過來
+      { path: "approval-settings", name: "approval_settings", component: () => import("@/views/ApprovalSettings.vue"), meta: { admin: true } },
+      { path: "ip-request-policy", name: "ip_request_policy", redirect: { name: "approval_settings" } },
       { path: "version", name: "version", component: () => import("@/views/VersionInfo.vue"), meta: { admin: true } },
       { path: "system-logs", name: "system_logs", component: () => import("@/views/SystemLogs.vue"), meta: { admin: true } },
       { path: "graylog-dsv", name: "graylog_dsv", component: () => import("@/views/GraylogDsvSettings.vue"), meta: { admin: true } },

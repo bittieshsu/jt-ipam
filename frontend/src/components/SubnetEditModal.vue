@@ -35,6 +35,7 @@ import { useCustomers } from "@/composables/useCustomers";
 import ConsoleEgressSelect from "@/components/ConsoleEgressSelect.vue";
 import { useSubnetTree } from "@/composables/useSubnetTree";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
+import { useAuthStore } from "@/stores/auth";
 
 const props = defineProps<{
   show: boolean;
@@ -48,6 +49,8 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
+const auth = useAuthStore();
+const isAdmin = computed(() => !!auth.me?.is_admin);
 const msg = useMessage();
 const { catalog } = useScanProbes();
 const { options: customerOptions, ensureLoaded: ensureCustomerOptsLoaded } = useCustomers();
@@ -360,11 +363,12 @@ async function submit() {
       </n-form-item>
       <n-form-item :label="t('subnets.checks')">
         <n-space vertical size="small" style="width: 100%">
-          <n-checkbox v-model:checked="form.anomaly_enabled">
+          <!-- 關掉這兩項只有管理員可以（集中設定本來就是管理員限定，後端也會擋） -->
+          <n-checkbox v-model:checked="form.anomaly_enabled" :disabled="!isAdmin">
             {{ t("subnets.anomaly_enable") }}
           </n-checkbox>
           <span style="font-size: 12px; opacity: .7">{{ t("subnets.anomaly_hint") }}</span>
-          <n-checkbox v-model:checked="form.ai_audit_enabled">
+          <n-checkbox v-model:checked="form.ai_audit_enabled" :disabled="!isAdmin">
             {{ t("subnets.ai_audit_enable") }}
           </n-checkbox>
           <span style="font-size: 12px; opacity: .7">{{ t("subnets.ai_audit_hint") }}</span>

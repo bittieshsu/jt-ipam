@@ -53,7 +53,7 @@ def test_backend_page_lists_every_runtime_dependency():
 #: 刻意列出、但不是我們直接宣告的套件 → 理由。
 #: 這種項目要是沒有理由，就跟「列錯了」分不出來。
 TRANSITIVE_BY_DESIGN = {
-    "pillow": "aardwolf（RDP 選用相依）的傳遞相依；列出來是為了看 RDP 那組套件是否完整",
+    "pillow": "aardwolf（RDP 選用相依）與 fpdf2（PDF 報告）的傳遞相依；列出來是為了看這兩組套件是否完整",
 }
 
 

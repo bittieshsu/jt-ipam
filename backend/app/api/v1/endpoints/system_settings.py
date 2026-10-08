@@ -754,6 +754,7 @@ async def _liveness_candidates(
     """
     from sqlalchemy import func, select
 
+    from app.models.checkpoint_gaia import CheckPointGaiaTarget
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.librenms import LibreNMSInstance
@@ -777,6 +778,8 @@ async def _liveness_candidates(
         "fortigate": await _has(FortiGateFirewall),
         "paloalto": await _has(PaloAltoFirewall),
         "mikrotik": await _has(MikroTikRouter),
+        # Check Point 的 ARP／租約來自閘道的 Gaia API（第二階段），有設定閘道才算
+        "checkpoint": await _has(CheckPointGaiaTarget),
     }
     out: list[LivenessSourceOut] = []
     for key in LIVENESS_SOURCES:
@@ -1372,7 +1375,7 @@ def _gather_version_info() -> dict[str, Any]:
         "authlib", "python3-saml", "ldap3", "pyrad",
         "pymysql", "asyncssh", "dnspython", "pywinrm", "geoip2",
         "pgvector", "mcp",
-        "aardwolf", "websockets", "pillow",
+        "aardwolf", "websockets", "pillow", "fpdf2",
         "structlog", "python-json-logger",
     ]
     versions: dict[str, str | None] = {}
@@ -1516,6 +1519,15 @@ async def get_version_info() -> dict[str, Any]:
     import shutil as _shutil
 
     from app.services.rdp_freerdp import binary_present, required_binaries
+    # 預設引擎是 guacd：FreeRDP 那組套件（約 150 MB）只有選了這個引擎才裝（升級也只在選了時補）。
+    # 沒選時標 engine_off：列出來但不進「缺少」警告（客戶 2026-10-08 在 Ubuntu 26.04 上被紅字嚇到）
+    try:
+        from app.core.db import SessionLocal as _SL
+        from app.services.system_config import get_rdp_engine
+        async with _SL() as _s:
+            _freerdp_on = (await get_rdp_engine(_s)) == "freerdp"
+    except SQLAlchemyError:
+        _freerdp_on = False
     _rdp_used_by = {
         "xfreerdp": "RDP console (FreeRDP engine)",
         "Xvfb": "RDP console (FreeRDP engine) — virtual display",
@@ -1527,11 +1539,22 @@ async def get_version_info() -> dict[str, Any]:
             "present": binary_present(exe),
             "package": pkg,
             "used_by": _rdp_used_by.get(exe, "RDP console (FreeRDP engine)"),
+            "engine_off": not _freerdp_on,
         }
+    # PDF 報告的中文字型（fonts-noto-cjk）：沒有的話 PDF 匯出會回 report_pdf_no_font
+    from app.services.report_pdf import font_status
+    _font = font_status()
+    info["host"]["optional_tools"]["cjk_font"] = {
+        "present": _font["present"],
+        "package": "fonts-noto-cjk",
+        "used_by": "PDF reports (IP change assessment): Chinese / Japanese text",
+        "version": _font["name"],
+    }
     info["host"]["optional_tools"]["xclip"] = {
         "present": _shutil.which("xclip") is not None,
         "package": "xclip",
         "used_by": "RDP console (FreeRDP engine) — clipboard paste",
+        "engine_off": not _freerdp_on,
     }
     # aardwolf：以前是 RDP 的預設引擎、VNC 唯一的引擎；2026-09-27 起只是選用的備用引擎
     # （guacd 連不到時才用）。Python 3.14 上它會當掉（GitHub issue #42），缺了不影響服務。
@@ -1983,24 +2006,36 @@ async def test_notification_channel(
 async def integration_presence(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, bool]:
-    """各整合是否至少有一個實例。
+    """各整合是否至少設定了一台。
 
     「進階」選單裡的整合唯讀檢視頁（防火牆 / 虛擬化 / DNS 記錄 / 憑證派送），
     在該整合完全沒設定時只會顯示「尚未設定 X」，等於是空選項 —— 前端據此隱藏。
+    管理選單的「外部系統整合」子樹也用它在已設定的整合名稱後面加圖示（使用者 2026-10-07）。
     只回布林值、不回任何實例內容，所以掛 global_read 就夠（無需 admin），
     否則具全域讀取的非 admin 會看不到自己有權限看的選單。
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
+    from app.models.adguard import AdGuardInstance
     from app.models.certificate import CertAgent
+    from app.models.checkpoint import CheckPointServer
+    from app.models.dhcp_standalone import IscDhcpServer, KeaDhcpServer
     from app.models.dns import DNSServer
     from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.isoinsight import IsoInsightSource
+    from app.models.librenms import LibreNMSInstance
     from app.models.mikrotik import MikroTikRouter
+    from app.models.ocs import OcsServer
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
+    from app.models.rustdesk import RustDeskServer
+    from app.models.technitium import TechnitiumDhcpServer
     from app.models.virt import ProxmoxInstance
+    from app.models.wazuh import WazuhInstance
+    from app.models.windows_dhcp import WindowsDhcpServer
+    from app.models.zabbix import ZabbixInstance
 
     out: dict[str, bool] = {}
     for key, model in (
@@ -2008,12 +2043,27 @@ async def integration_presence(
         ("pfsense", PfSenseFirewall),
         ("fortigate", FortiGateFirewall),
         ("paloalto", PaloAltoFirewall),
+        ("checkpoint", CheckPointServer),
         ("mikrotik", MikroTikRouter),
         ("dns", DNSServer),
         ("cert_agents", CertAgent),
         ("proxmox", ProxmoxInstance),
         ("esxi", ESXiInstance),
+        ("adguard", AdGuardInstance),
+        ("librenms", LibreNMSInstance),
+        ("windows_dhcp", WindowsDhcpServer),
+        ("kea_dhcp", KeaDhcpServer),
+        ("isc_dhcp", IscDhcpServer),
+        ("isoinsight", IsoInsightSource),
+        ("technitium", TechnitiumDhcpServer),
+        ("rustdesk", RustDeskServer),
+        ("wazuh", WazuhInstance),
+        ("zabbix", ZabbixInstance),
+        ("ocs", OcsServer),
     ):
-        n = await session.scalar(select(func.count()).select_from(model))
-        out[key] = bool(n)
+        # 只要知道有沒有：EXISTS 比 count 省（大站台的表可能很大）
+        out[key] = bool(await session.scalar(select(select(model.id).limit(1).exists())))
+    # Graylog DSV 查表不是一台台的整合，是一組設定：打開了就算已設定
+    from app.services.system_config import get_graylog_dsv
+    out["graylog"] = (await get_graylog_dsv(session))["enabled"]
     return out

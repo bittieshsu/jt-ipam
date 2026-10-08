@@ -179,6 +179,7 @@ NetBox に近い構成ですが、より簡潔です（種別ごとにテーブ�
 - **OPNsenseRuleLabel**：`pf_statistics` から解析したもので、filterlog の `rid`（pf のルールラベル）を、そのルールが参照するエイリアスへ対応づけます（`label`、`action`、`interface`、`alias_names` jsonb）。ルール→エイリアスの Graylog DSV に供給され、ログイベントを `rid` から補完できます。
 - **OPNsenseRule**：ファイアウォールのルールを読み取り専用のキャッシュとして取得します（`legacy_uuid`、action / interface / direction / protocol、送信元と宛先のネットワークとポート、`raw` jsonb）。
 - **DHCPPoolRange**：ファイアウォール（Kea / ISC）から同期した DHCP のプール範囲（`subnet_cidr`、`start_ip` / `end_ip`）。範囲に入る IP には DHCP の印が付きます。
+- **TechnitiumDhcpServer** / **TechnitiumDhcpScope**：Technitium DHCP 連携（`technitium_dhcp_servers`、トークンは `token_enc` / `token_nonce` に暗号化）とスコープのミラー（`technitium_dhcp_scopes`：配布範囲、除外範囲、`server_address`、クライアントへ配布する `router` / `dns_servers` / `ntp_servers` / `wins_servers`。IP 変更評価が読み取ります）。配布範囲・予約・リースは共通の DHCP テーブルに `source_type = technitium` で書き込みます。Technitium DNS は `dns_servers.type` の一つです。
 
 > **Graylog DSV**（`/api/v1/lookup/...` 配下の、トークンで保護されたルックアップ用エンドポイント）：全体の IP→ホスト名 / FQDN の表、ファイアウォールごとの `rid → エイリアス` と `エイリアス → メンバー`（`expose_dsv` で制御）、クラスタごとの Proxmox `vmid → VM 名`。Graylog の「DSV File from HTTP」データアダプタから利用します（キー列 0、値列 1）。
 
@@ -190,6 +191,17 @@ NetBox に近い構成ですが、より簡潔です（種別ごとにテーブ�
 - **PfSenseSyncedAlias**：閲覧用に取得したエイリアス（`members`、`alias_type`）。エイリアス→メンバーの Graylog DSV にも供給します。
 - pfSense の NAT ポート転送は、`source_origin = pfsense:<fw_uuid>` として同じ `nat_translations` テーブルへ同期されるため、OPNsense の NAT と並べて一覧でき、ソースで絞り込めます。
 
+### 6.3c Check Point：`checkpoint.py`（Beta、migration 0194）
+
+Management API（`POST <url>/web_api/<コマンド>`、`X-chkp-sid`）で**管理サーバー**（Security Management Server / Multi-Domain、R81.20）に接続します（読み取り専用）。読み取り専用セッションでログインし、終了時は必ずログアウトします。1 台の管理サーバーが多数のゲートウェイとポリシーパッケージを管理するため、連携の単位はゲートウェイではなく管理サーバーです。
+
+- **CheckPointServer**（`checkpoint_servers`）：`api_url`、`verify_tls`、`auth_mode`（`api_key` / `password`、後者は `username` と併用）、暗号化された API キーまたはパスワード `secret_enc` / `secret_nonce`（AAD `checkpoint_server:{id}:secret`）、`domains`（空欄 = 単一の管理サーバー。Multi-Domain はドメインごとにログイン）、`packages`（空欄 = すべて）、同期の切り替え（`sync_objects` / `sync_policies` / `sync_nat`）、`scope_subnet_ids`、前回の結果（`api_version`、`last_summary`、`last_error`）。
+- **CheckPointGateway**（`checkpoint_gateways`）：管理サーバーに登録されたゲートウェイとサーバー（`domain`、`uid`、`name`、`gw_type`、`ipv4_address`、`version`）。アドレスは不正 DHCP の許可リストと IP 変更評価に使います。
+- **CheckPointObject**（`checkpoint_objects`）：ネットワークオブジェクト（host、network、address-range、group、group-with-exclusion）。表示用の `value` とグループの `members` を持ち、IP 詳細のファイアウォール照会はこれと照合します。
+- **CheckPointRule**（`checkpoint_rules`）：`domain` / `package` / `layer`（インラインレイヤーは「親 › インラインレイヤー」）ごとのアクセスルール。`section`、`rule_number`、`action`、`enabled`、送信元/宛先/サービス名、`source_negate` / `destination_negate`、`install_on`、`hits`、`last_hit_at`。
+- 宛先 NAT は `port_forward` として共用の `nat_translations` テーブルへ書き込み、`source_origin = checkpoint:<server_uuid>` です。
+- 第 2 段階（`checkpoint_gaia.py`、migration 0195）：**CheckPointGaiaTarget**（`checkpoint_gaia_targets`）は管理サーバー配下のゲートウェイ 1 台分の Gaia API 接続です（`server_id`、ミラーのゲートウェイと対応させる `gateway_uid`/`domain`（任意）、`gaia_url`、`username`、暗号化されたパスワード `secret_enc`/`secret_nonce`（AAD `checkpoint_gateway:<id>:gaia_secret`）、`verify_tls`、`sync_dhcp`（読み取り専用、既定でオン）、`allow_scripts`（既定でオフ。`run-script` で固定の読み取りコマンドを実行し、コマンドを実行できるアカウントが必要）、`sync_arp`、`sync_leases`、`scope_subnet_ids`（任意、空なら管理サーバーの範囲）、`sync_interval_seconds`、`api_version`、前回の同期状態）。**CheckPointDhcpSubnet**（`checkpoint_dhcp_subnets`）はゲートウェイの DHCP サーバーのサブネットのミラー（`subnet_cidr`、`enabled`、`default_gateway`、`dns_servers`、`domain_name`、リース時間、元の `pools`）で、IP 変更評価に使います。配布範囲・リースの印・ホスト名は `source_type`/`source = checkpoint`、`source_id` を Gaia 接続として共用テーブルへ書き込み、ARP とリースは `ip_addresses.arp_seen` に `arp:checkpoint`（期限あり。近隣エントリの確認時刻から逆算）と `lease:checkpoint`（期限なし）として記録します。VPN の状態は同期しません。
+
 ### 6.4 Proxmox の仮想化：`virt.py`
 - **ProxmoxInstance**：PVE の API 接続（ノードのフェイルオーバー用の `api_url` と `extra_api_urls`、`auth_username` / `auth_token_id`、秘密は `encrypted_secrets` 経由、`verify_tls`）。
 - **VirtCluster**：Proxmox のクラスタ（`type`、`is_standalone`、`location_id`、`tenant_id`、`customer_id`）。
@@ -197,7 +209,7 @@ NetBox に近い構成ですが、より簡潔です（種別ごとにテーブ�
 - **VMInterface**：`mac`、`primary_ip`、`bridge`、`vlan_id`。
 
 ### 6.5 DNS：`dns.py`
-- **DNSServer**：提供元の抽象化である `type`（powerdns / bind9 / unbound_opnsense / windows_dns / univention_ucs）。資格情報は `encrypted_secrets` にあります。
+- **DNSServer**：提供元の抽象化である `type`（powerdns / bind9 / unbound_opnsense / windows_dns / univention_ucs / technitium）。資格情報は `encrypted_secrets`、秘密でない設定は `extra_config` にあります（`windows_dns` では `username`、`use_ssl`（既定は HTTPS 5986、または NTLM 暗号化を強制する HTTP 5985）、任意の `winrm_port`、`verify_tls`）。
 - **DNSZone**：`type`（forward / reverse）、`managed`、`associated_subnet_ids`（`uuid[]`）。
 - **DNSRecord**：`type`（A / AAAA / PTR / CNAME / MX / TXT / SRV / NS / SOA）、`source`（manual / from_ipam / from_dns_pulled）、ずれの報告に使う `consistency_state`（consistent / dns_only / ipam_only / mismatch）、任意の `ipam_address_id` による逆参照。
 

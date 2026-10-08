@@ -51,6 +51,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_ai_findings": {}, "list_anomalies": {}, "investigate_ip": {"ip": "10.0.0.1"}, "list_dhcp_ranges": {},
     "list_fortigate_policies": {}, "list_fortigate_addresses": {},
     "list_paloalto_policies": {}, "list_paloalto_addresses": {},
+    "list_checkpoint_rules": {}, "list_checkpoint_objects": {},
     "list_mikrotik_rules": {}, "list_mikrotik_address_lists": {},
     "list_connection_targets": {},
     "wazuh_missing_agents": {}, "list_vms": {}, "list_wireless_links": {},
@@ -58,6 +59,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_circuits": {}, "list_providers": {}, "list_asns": {}, "list_tenants": {},
     "list_contacts": {}, "list_ssids": {}, "list_cables": {}, "list_power": {},
     "list_wazuh_agents": {}, "list_ocs_computers": {}, "list_rustdesk_peers": {}, "list_rustdesk_audit": {}, "cable_trace": {"cable_id": _U},
+    "list_isoinsight_leases": {},
     "recent_ip_changes": {}, "list_subnet_ips": {"subnet_cidr": "10.0.0.0/24"},
     "get_subnet_detail": {"subnet_cidr": "10.0.0.0/24"},
     "get_customer_summary": {"name": "nope"},
@@ -77,7 +79,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "switch_port_for_ip": {"ip": "10.0.0.1"},
     # ── 管理 / 變更（用查無資料的參數，預期 IPAMToolError，不污染 DB） ──
     "allocate_ip": {"subnet_cidr": "10.255.255.0/24", "requested_ip": "10.255.255.9"},
-    # 變更影響預演：功能預設關閉時工具回 impact_feature_disabled（只驗證走得到、不會爆）
+    # IP 變更評估：功能預設關閉時工具回 impact_feature_disabled（只驗證走得到、不會爆）
     "impact_list_plans": {}, "impact_get_run": {"run_id": "00000000-0000-0000-0000-000000000000"},
     "impact_list_findings": {"run_id": "00000000-0000-0000-0000-000000000000"},
     "impact_get_evidence": {"run_id": "00000000-0000-0000-0000-000000000000",

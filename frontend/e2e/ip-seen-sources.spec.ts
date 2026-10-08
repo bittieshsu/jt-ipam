@@ -69,6 +69,8 @@ test("各來源最後出現獨立一區：固定順序、附多久以前、最�
   await expect(sec.getByTestId("seen-verdict-scanner")).toHaveText(exp.scanner.verdict);
   await expect(sec.getByTestId("seen-verdict-librenms")).toHaveText(exp.librenms.verdict);
   await expect(sec.getByTestId("seen-verdict-arp")).toHaveCount(0);
+  // 種子資料沒有 AdGuard 整合：不列「AdGuard 設定」（使用者 2026-10-08）
+  await expect(sec).not.toContainText("AdGuard");
   await expect(sec.locator("thead")).toContainText("說明");
   // 這些欄位不再散在上面的基本資料裡
   await expect(page.locator(".n-descriptions").first()).not.toContainText("最後出現");

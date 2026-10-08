@@ -85,14 +85,19 @@ install_rdp_optional() {
     local u; u="$(stat -c '%U' "$bd/.venv" 2>/dev/null || echo jtipam)"
     [ -x "$bd/.venv/bin/pip" ] || return 0
     log "Installing optional fallback console engine (aardwolf, prebuilt wheel only)…"
-    if ( cd "$bd" && sudo -u "$u" "$bd/.venv/bin/pip" install --quiet --only-binary=:all: -e ".[rdp]" ); then
+    # pip 找不到合適的 wheel 時會印兩行紅色 ERROR（Python 3.14 必然如此）。這是選用的備援引擎，
+    # 紅字只會讓人以為升級失敗（客戶 2026-10-08，Ubuntu 26.04）→ pip 的輸出收進暫存檔，下面一行講清楚。
+    local pip_log; pip_log="$(mktemp /tmp/jt-ipam-aardwolf.XXXXXX.log)"
+    chmod 0644 "$pip_log"
+    if ( cd "$bd" && sudo -u "$u" "$bd/.venv/bin/pip" install --quiet --only-binary=:all: -e ".[rdp]" ) >"$pip_log" 2>&1; then
         log "aardwolf installed (optional fallback engine)."
+        rm -f "$pip_log"
     else
         # Usual cause: a Python newer than the wheels aardwolf publishes (GitHub issues #39, #42).
         # Nothing depends on it any more -- guacd serves RDP and VNC.
         local pyver
         pyver="$("$bd/.venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")"
-        log "aardwolf (optional fallback engine) not installed: its prebuilt wheels cover CPython 3.9-3.13 and this host runs Python ${pyver} (or is offline). RDP / VNC use guacd; nothing else is affected."
+        log "aardwolf (optional fallback engine) not installed: its prebuilt wheels cover CPython 3.9-3.13 and this host runs Python ${pyver} (or is offline). RDP / VNC use guacd; nothing else is affected. (pip output: ${pip_log})"
     fi
     # Python side of the FreeRDP engine (screen capture + input injection). These are small,
     # pure-Python packages, so they go on every host -- the heavy part is the apt side
@@ -123,6 +128,34 @@ freerdp_client_pkg() {
     fi
 }
 FREERDP_APT_PACKAGES=("$(freerdp_client_pkg)" xvfb xclip ffmpeg)
+
+# NUMA memory-policy calls (mbind / set_mempolicy / get_mempolicy) for the backend.
+# The unit's SystemCallFilter drops @resources, and the filter's default action is to KILL. fpdf2 (PDF
+# reports) imports numpy, and numpy's OpenBLAS calls mbind for its thread buffers the moment it loads --
+# so the first PDF export killed the uvicorn worker with SIGSYS, silently, taking any other request on
+# that worker with it (prod 2026-10-08). These calls only set the NUMA placement of the process's own
+# memory: no privilege, no effect on other processes.
+# A drop-in rather than an edit to the unit: upgrades do not reinstall jt-ipam-backend.service, so this
+# is the only way existing sites get it. Called from BOTH install and upgrade.
+BACKEND_NUMA_DROPIN=/etc/systemd/system/jt-ipam-backend.service.d/20-numa-syscalls.conf
+
+ensure_backend_syscall_dropin() {
+    mkdir -p "$(dirname "$BACKEND_NUMA_DROPIN")"
+    local want
+    want="$(cat <<'NUMA'
+# Installed by jt-ipam.sh. numpy's OpenBLAS (pulled in by fpdf2 for PDF reports) calls mbind when it loads;
+# without this the unit's SystemCallFilter kills the worker with SIGSYS. Own-memory NUMA policy only.
+[Service]
+SystemCallFilter=mbind set_mempolicy get_mempolicy
+NUMA
+)"
+    if [ -f "$BACKEND_NUMA_DROPIN" ] && [ "$(cat "$BACKEND_NUMA_DROPIN")" = "$want" ]; then
+        return 0
+    fi
+    printf '%s\n' "$want" > "$BACKEND_NUMA_DROPIN"
+    systemctl daemon-reload 2>/dev/null || true
+    log "Installed systemd drop-in for NUMA memory-policy calls ($BACKEND_NUMA_DROPIN)."
+}
 
 # The backend's systemd unit carries a SystemCallFilter allowlist. Xvfb needs four calls the
 # backend itself never makes, and the filter's default action is to KILL -- so Xvfb dies with
@@ -973,6 +1006,7 @@ ensure_runtime_deps() {
     # ICMP echo, which almost always gets through. It lives in /usr/sbin.
     { command -v traceroute >/dev/null 2>&1 || [ -x /usr/sbin/traceroute ]; } \
         || missing+=("traceroute")
+    ensure_report_font
     if [ "${#missing[@]}" -eq 0 ]; then
         log "Runtime dependencies present (ping, tracepath, traceroute)"
         return 0
@@ -982,6 +1016,26 @@ ensure_runtime_deps() {
         log "Installed ${missing[*]}"
     else
         warn "could not install ${missing[*]} — the connectivity diagnostics in Tools will show those tools as unavailable"
+    fi
+}
+
+# CJK font for PDF reports (the backend embeds a subset into each PDF, so Chinese and
+# Japanese show up in any viewer). Noto Sans CJK has proper Traditional Chinese and Japanese
+# glyph forms plus a bold face, which the smaller WenQuanYi fonts lack (~60 MB download,
+# ~90 MB installed). Never fatal: without it the PDF export returns report_pdf_no_font with
+# the command to run, and DOCX/ODT exports keep working.
+ensure_report_font() {
+    if find /usr/share/fonts /usr/local/share/fonts -name 'NotoSansCJK*' -print -quit 2>/dev/null | grep -q .; then
+        log "CJK font for PDF reports present (Noto Sans CJK)"
+        return 0
+    fi
+    log "Installing the CJK font for PDF reports (fonts-noto-cjk, ~60 MB download)…"
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends fonts-noto-cjk >/dev/null 2>&1 \
+        || { apt-get update -qq >/dev/null 2>&1 \
+             && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends fonts-noto-cjk >/dev/null 2>&1; }; then
+        log "Installed fonts-noto-cjk"
+    else
+        warn "could not install fonts-noto-cjk — PDF reports will fall back to another CJK font if one is installed, otherwise PDF export reports that a font is missing (DOCX/ODT still work). Install later with: sudo apt install fonts-noto-cjk"
     fi
 }
 
@@ -1573,6 +1627,7 @@ EOF
     log "Installing systemd units…"
     install -m 0644 "$REPO_ROOT/deploy/systemd/jt-ipam-backend.service" \
         /etc/systemd/system/jt-ipam-backend.service
+    ensure_backend_syscall_dropin
     install -m 0644 "$REPO_ROOT/deploy/systemd/jt-ipam-sync.service" \
         /etc/systemd/system/jt-ipam-sync.service
     install -m 0644 "$REPO_ROOT/deploy/systemd/jt-ipam-sync.timer" \
@@ -1974,12 +2029,24 @@ cmd_doctor() {
     # Without the directory the backup unit dies at 226/NAMESPACE, and the message
     # looks like "script not found".
     if [[ -d /var/backups/jt-ipam ]]; then
-        local latest
-        latest="$(ls -1t /var/backups/jt-ipam 2>/dev/null | head -1)"
-        if [[ -n "$latest" ]]; then
-            _ok "backups present (latest: $latest)"
+        # Look at the status file the backup script writes and at real (non-empty) dump files. "The
+        # newest dated directory exists" is not enough: a failed run used to leave one with a 0-byte dump, and
+        # backups failed for weeks on a real site while this check said OK.
+        local bst="" berr="" latest_dump=""
+        if [[ -r /var/backups/jt-ipam/last-run ]]; then
+            bst="$(sed -n 's/^status=//p' /var/backups/jt-ipam/last-run | head -1)"
+            berr="$(sed -n 's/^error=//p' /var/backups/jt-ipam/last-run | head -1)"
+        fi
+        latest_dump="$(find /var/backups/jt-ipam -mindepth 2 -maxdepth 2 -name '*.dump' -size +0 -printf '%T@ %p\n' 2>/dev/null \
+                       | sort -n | tail -1 | cut -d' ' -f2-)"
+        if [[ "$bst" == "fail" ]]; then
+            _bad "the last backup failed: ${berr:-see the backup log}" "journalctl -u jt-ipam-backup -n 30"
+        elif [[ -z "$latest_dump" ]]; then
+            _warn "no backup file yet" "sudo systemctl start jt-ipam-backup.service"
+        elif [[ -z "$(find "$latest_dump" -mmin -2880 2>/dev/null)" ]]; then
+            _warn "the newest backup is older than 48 hours: $latest_dump" "journalctl -u jt-ipam-backup -n 30"
         else
-            _warn "backup directory exists but is empty" "sudo systemctl start jt-ipam-backup.service"
+            _ok "backups present (latest: $latest_dump)"
         fi
     else
         _bad "/var/backups/jt-ipam is missing — the backup unit will fail at 226/NAMESPACE" \
@@ -2276,7 +2343,16 @@ cmd_upgrade() {
     # jt-ipam-backup.service lists it in ReadWritePaths -- so the daily backup died at
     # 226/NAMESPACE every night, with a message that looked like "backup script not
     # found".
+    # PDF 報告的 fpdf2 會載入 numpy／OpenBLAS，它一載入就呼叫 mbind：沒有這份 drop-in 會被 SystemCallFilter 殺掉
+    ensure_backend_syscall_dropin
     ensure_unit_dirs
+
+    # -- 6c2. the daily backup runs /usr/local/bin/jt-ipam-backup.sh, a copy made at install
+    # time. Without refreshing it here no fix to the backup script ever reaches an existing
+    # site (2026-10-08: the status file and the safe temp-then-rename only exist in the repo copy).
+    if [[ -f "$ROOT/scripts/jt-ipam-backup.sh" ]]; then
+        install -m 0755 "$ROOT/scripts/jt-ipam-backup.sh" /usr/local/bin/jt-ipam-backup.sh
+    fi
 
     # -- 6d. scheduled refresh of GeoIP / OUI / Recog (older installs never had these timers) --
     install_refresh_timers

@@ -44,7 +44,9 @@ const optionalTools = computed(() => {
 });
 // 備用引擎（aardwolf）沒裝是正常的：不列進警告（有的 Python 版本根本裝不起來）；
 // GeoIP 要管理員自己的 MaxMind 帳號（opt_in），沒設定也是正常的
-const missingTools = computed(() => optionalTools.value.filter((x) => !x.present && !x.fallback && !x.opt_in));
+// FreeRDP 引擎沒選用（engine_off）：那組套件本來就不裝，不算缺（客戶 2026-10-08）
+const missingTools = computed(() => optionalTools.value.filter((x) => !x.present && !x.fallback && !x.opt_in
+                                                                      && !x.engine_off));
 // 下載來的資料庫各有自己的頁面（版本、更新、設定），這裡只列狀態並連過去
 const toolPages: Record<string, string> = { recog: "recog_admin", oui: "oui_admin", geoip: "system_settings" };
 // 必要相依（guacd：RDP／VNC 的預設引擎，必裝）：沒裝或沒在跑都要用紅色講清楚
@@ -192,9 +194,10 @@ onMounted(load);
               <template v-else>{{ p.name }}</template>
               <span class="ver-opt-use">{{ p.used_by }}</span>
             </span>
-            <span class="ver-pkg__ver" :style="p.present || p.fallback || p.opt_in ? '' : 'color:#d03050'">
+            <span class="ver-pkg__ver" :style="p.present || p.fallback || p.opt_in || p.engine_off ? '' : 'color:#d03050'">
               {{ p.present ? (p.version ? p.version : t("version.optional_present"))
-                : (p.opt_in ? t("version.optional_not_configured") : t("version.optional_absent")) }}
+                : (p.engine_off ? t("version.optional_engine_off")
+                  : (p.opt_in ? t("version.optional_not_configured") : t("version.optional_absent"))) }}
             </span>
           </div>
         </div>

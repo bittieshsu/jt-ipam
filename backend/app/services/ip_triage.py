@@ -161,9 +161,21 @@ async def full_ip_context(session: AsyncSession, user: Any, ip: str) -> list[str
             elif k == "change":
                 lines.append(f"異動[{fence(e.get('source'))}] {fence(e.get('field'))}: "
                              f"<data>{fence(e.get('old'))}</data>→<data>{fence(e.get('new'))}</data>")
-        if hist.get("registered"):
-            ipa = (await session.execute(
-                select(IPAddress).where(IPAddress.ip == ip).limit(1))).scalars().first()
+    same: list[Any] = []
+    if hist and hist.get("registered"):
+        same = list((await session.execute(
+            select(IPAddress).where(IPAddress.ip == ip).limit(5))).scalars().all())
+        # 重疊網段（兩個單位用同一段位址）：只給位址分不出是哪一筆，全部列出來並講明，不挑一筆說成事實
+        ipa = same[0] if len(same) == 1 else None
+    if len(same) > 1:
+        lines.append(f"這個位址在 {len(same)} 個子網路都有登錄（重疊網段），歸屬無法只憑位址確定：")
+        for other in same:
+            sub = await session.get(Subnet, other.subnet_id)
+            if sub is None:
+                continue
+            cust = await session.get(Customer, sub.customer_id) if sub.customer_id else None
+            lines.append(f"  候選子網路: {sub.cidr} 說明=<data>{fence(sub.description)}</data>"
+                         + (f" 管理單位=<data>{fence(cust.name)}</data>" if cust else ""))
 
     # 子網路歸屬＋管理單位：規則指到「別的單位的網段」是重要訊號
     if ipa is not None:

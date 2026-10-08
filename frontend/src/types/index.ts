@@ -156,6 +156,8 @@ export interface IPAddress {
   /** 防火牆給的逐來源觀測時間：`{"arp:opnsense": "…", "lease:pfsense": "…"}` */
   arp_seen?: Record<string, string> | null;
   last_seen_dns: string | null;
+  /** 「各來源最後出現」的整合有沒有設定（只在單筆讀取帶） */
+  seen_integrations?: Record<string, boolean> | null;
   effective_status: string | null;
   subnet_scan_enabled: boolean | null;
   ssh_enabled?: boolean;

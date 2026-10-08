@@ -29,6 +29,7 @@ Docker Compose の経路もありますが、**任意かつ副次的で、優先
 | Node | 22 LTS | なし | フロントエンドのビルドにだけ使います。`jt-ipam.sh` がインストール時に NodeSource 22 を入れ（22 を同梱しているのは Ubuntu 26.04 だけ）、アップグレード時に古い Node を 22 に上げます |
 | guacd | jt-ipam がこの OS 向けにビルドしたもの | なし | **必須**：RDP/VNC コンソールの接続エンジン。`jt-ipam.sh` が入れます（下の guacd の節）。旧エンジンの aardwolf は任意 |
 | Recog | 最新リリース | なし | **任意**：IP 探索が機器や OS バージョンを識別するためのフィンガープリント DB。`jt-ipam.sh` がダウンロードし、毎週新版を確認（下の Recog の節） |
+| CJK フォント | `fonts-noto-cjk` | なし | **PDF レポートに必要**：バックエンドが PDF に埋め込む中国語・日本語フォント（ダウンロード約 60 MB）。`jt-ipam.sh` がインストール時とアップグレード時に入れます。アップグレード時に apt のミラーへ接続できない場合は警告だけで、PDF のエクスポートはフォント不足を表示します（DOCX/ODT は使えます）。あとから `sudo apt install fonts-noto-cjk` で追加できます |
 
 ### 対応ディストリビューション
 
@@ -429,7 +430,7 @@ cd jt-ipam/deploy/docker
 
 ## 4. 連携の設定（インストール後）
 
-連携はすべて管理画面（`/firewall`、`/wazuh`、`/librenms`、`/dns`）から追加します。
+連携はすべて管理画面の「管理 → 外部システム連携」（例：`/firewall`、`/wazuh`、`/librenms`、`/dns`）から追加します。設定済みの連携はメニューに印が付きます。
 追加すると、既定では `jt-ipam-sync.timer` が 5 分ごとに自動で同期します。
 
 > 補足：v0.4.76 以降、OIDC と SAML の SSO も管理 → システム設定 の Web UI から設定できます
@@ -556,8 +557,8 @@ OpenAI 互換エンドポイント（ChatGPT、vLLM、LM Studio、OpenRouter な
 
 ### 自動バックアップ
 
-インストーラはバックアップを有効にしません。cron か systemd のタイマーを手で追加してください。
-最も簡単なのは次のとおりです。
+インストーラは日次バックアップ（`jt-ipam-backup.timer`）をインストールして有効にし、アップグレード時にはバックアップスクリプトも更新します。
+インストーラを使っていない場合は、次のように手で追加できます。
 
 ```bash
 sudo cp /opt/jt-ipam/scripts/jt-ipam-backup.sh /usr/local/bin/
@@ -569,6 +570,8 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 既定では毎日 03:30 に実行し、`pg_dump -Fc` と `/etc/jt-ipam/backend.env`、TLS の証明書を
 `/var/backups/jt-ipam/` にまとめ、14 日間保持します。
+
+実行のたびに（成功でも失敗でも）`/var/backups/jt-ipam/last-run` に結果、時刻、最後に成功した時刻、失敗の理由を書きます。「システム診断」画面の「日次バックアップ」と `sudo /opt/jt-ipam/scripts/jt-ipam.sh doctor` はこのファイルを見ます。バックアップが失敗したり 48 時間成功していなかったりすると診断が赤くなり、管理者にシステムアラートが送られます。よくある原因は、jt-ipam のロールが所有していないテーブル（手で残したコピーなど）があり、pg_dump が読めずに中止することです。診断画面に実行するコマンドが表示されます。
 
 ### 遠隔地へのバックアップ
 

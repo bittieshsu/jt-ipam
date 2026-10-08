@@ -15,7 +15,7 @@ export interface ExportColumn {
 }
 
 // ── 下載 ──
-function download(filename: string, data: Blob | Uint8Array, mime: string) {
+export function download(filename: string, data: Blob | Uint8Array, mime: string) {
   const blob = data instanceof Blob ? data : new Blob([data as BlobPart], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -35,7 +35,7 @@ export function cellText(row: Record<string, any>, col: ExportColumn): string {
   return String(v);
 }
 
-function xmlEscape(s: string): string {
+export function xmlEscape(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -156,7 +156,7 @@ function crc32(buf: Uint8Array): number {
   for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
   return (c ^ 0xFFFFFFFF) >>> 0;
 }
-function zipStore(files: { name: string; data: Uint8Array }[]): Uint8Array {
+export function zipStore(files: { name: string; data: Uint8Array }[]): Uint8Array {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   const central: Uint8Array[] = [];

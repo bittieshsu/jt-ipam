@@ -1,4 +1,4 @@
-"""變更影響預演 API（docs/SPEC_CHANGE_IMPACT_zh-TW.md §8；M0 §13.3 的落地）。
+"""IP 變更評估 API（docs/SPEC_CHANGE_IMPACT_zh-TW.md §8；M0 §13.3 的落地）。
 
 權限（M0 §13.7，使用者 2026-10-07 開工時採保守版本）：
 - 看計畫與結果：對根目標（IP／裝置）有讀取權
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import Field
@@ -32,14 +32,22 @@ from app.models.change_impact import (
     ImpactAIArtifact,
     ImpactEvidence,
     ImpactFinding,
+    ImpactRelation,
     ImpactReview,
     ImpactRun,
 )
 from app.models.user import User
 from app.schemas.base import StrictModel
 from app.services.change_impact import ai as impact_ai
-from app.services.change_impact import jobs, plans
-from app.services.change_impact.access import Viewer, viewer
+from app.services.change_impact import jobs, plans, review_policy, reviewers
+from app.services.change_impact.access import (
+    Viewer,
+    same_scope,
+    viewer,
+    visible_counts,
+    visible_manifest,
+    visible_task_findings,
+)
 from app.services.change_impact.config import ai_available, get_config, set_config
 from app.services.change_impact.model import stable_hash
 from app.services.change_impact.scenario import (
@@ -47,6 +55,7 @@ from app.services.change_impact.scenario import (
     candidates_for_address,
     require_target_access,
 )
+from app.services.change_impact.scenario import target_subnets as list_target_subnets
 
 router = APIRouter(tags=["change-impact"])
 Session = Annotated[AsyncSession, Depends(get_session)]
@@ -63,7 +72,7 @@ def _err(exc: ScenarioError) -> HTTPException:
 async def _enabled(session: AsyncSession) -> dict[str, Any]:
     cfg = await get_config(session)
     if not cfg["enabled"]:
-        raise HTTPException(403, detail=ui_detail("impact_feature_disabled", "Change impact preview is turned off"))
+        raise HTTPException(403, detail=ui_detail("impact_feature_disabled", "IP change assessment is turned off"))
     return cfg
 
 
@@ -86,12 +95,20 @@ async def _plan(session: AsyncSession, user: User, plan_id: uuid.UUID, need: str
     try:
         await require_target_access(session, user, plan.target_type, plan.target_id, need=need)
     except ScenarioError as exc:
-        if exc.status == 404 and plan.created_by == user.id and need == "read":
+        # 看不到也回 404，所以要另外確認「目標真的不在了」才放行建立者；權限被收回時跟別人一樣
+        if exc.status == 404 and plan.created_by == user.id and need == "read" and not await _target_exists(session, plan):
             return plan
         if exc.status == 404:
             raise HTTPException(404, detail="Plan not found") from exc
         raise _err(exc) from exc
     return plan
+
+
+async def _target_exists(session: AsyncSession, plan: ChangePlan) -> bool:
+    from app.models.address import IPAddress
+    from app.models.device import Device
+    model = IPAddress if plan.target_type == "ip_address" else Device
+    return (await session.execute(select(model.id).where(model.id == plan.target_id))).first() is not None
 
 
 async def _run(session: AsyncSession, user: User, run_id: uuid.UUID) -> tuple[ImpactRun, ChangePlan]:
@@ -118,18 +135,20 @@ def _plan_out(p: ChangePlan) -> dict[str, Any]:
             "archived_at": _iso(p.archived_at), "created_at": _iso(p.created_at), "updated_at": _iso(p.updated_at)}
 
 
-def _run_out(r: ImpactRun, v: Viewer | None = None) -> dict[str, Any]:
+def _run_out(r: ImpactRun, v: Viewer, counts: dict[str, Any] | None = None) -> dict[str, Any]:
+    """數量與資料來源都依讀者：範圍跟分析當時一樣才直接用存下來的數量，不一樣就用呼叫端重算的
+    （清單類端點不重算，回 None，畫面顯示「—」）。不可以讓看不到的發現從數字透露出來。"""
     out = {"id": str(r.id), "plan_id": str(r.plan_id), "plan_revision": r.plan_revision, "job_status": r.job_status,
            "stage": r.stage, "decision_status": r.decision_status, "completeness": r.completeness,
-           "scope_manifest": r.scope_manifest, "counts": r.counts, "snapshot_hash": r.snapshot_hash,
+           "scope_manifest": visible_manifest(r.scope_manifest, v),
+           "counts": r.counts if same_scope(r, v) else counts, "snapshot_hash": r.snapshot_hash,
            "scenario_hash": r.scenario_hash, "engine_version": r.engine_version, "rules_version": r.rules_version,
            "attempt": r.attempt, "started_at": _iso(r.started_at), "completed_at": _iso(r.completed_at),
            "expires_at": _iso(r.expires_at), "truncated": r.truncated, "truncation": r.truncation,
            "error_code": r.error_code, "created_at": _iso(r.created_at),
            "cancel_requested": r.cancel_requested_at is not None,
            "requested_by": str(r.requested_by) if r.requested_by else None}
-    if v is not None:
-        out["permission_scope_changed"] = bool(r.visible_scope_hash and r.visible_scope_hash != v.scope_hash())
+    out["permission_scope_changed"] = not same_scope(r, v)
     return out
 
 
@@ -139,6 +158,8 @@ class SettingsIn(StrictModel):
     enabled: bool | None = None
     ai_enabled: bool | None = None
     allow_self_review: bool | None = None
+    reviewer_user_ids: list[str] | None = Field(None, max_length=200)
+    reviewer_group_ids: list[str] | None = Field(None, max_length=200)
     run_valid_hours: int | None = None
     default_stale_hours: int | None = None
     retention_days: int | None = None
@@ -160,6 +181,16 @@ async def put_settings(body: SettingsIn, user: CurrentUser, request: Request, se
     patch = body.model_dump(exclude_none=True)
     before = await get_config(session)
     cfg = await set_config(session, patch, updated_by=user.id)
+    legacy = {"reviewer_user_ids", "reviewer_group_ids", "allow_self_review"} & set(patch)
+    if legacy:
+        # 舊 API 的審核人欄位：照舊可以用，寫進「申請審核設定」的審核關卡（那裡才是唯一的設定）
+        pol = await review_policy.get_policy(session, cfg)
+        if "allow_self_review" in patch:
+            pol["allow_self_approve"] = bool(cfg.get("allow_self_review"))
+        if {"reviewer_user_ids", "reviewer_group_ids"} & set(patch) and pol["approver_mode"] in ("editors", "designated"):
+            legacy_pol = review_policy.from_legacy(cfg)
+            pol.update({k: legacy_pol[k] for k in ("approver_mode", "designated_user_ids", "designated_group_ids")})
+        await review_policy.set_policy(session, pol, updated_by=user.id)
     await _audit(session, request, user, "change_impact_settings", None,
                  {"before": {k: before.get(k) for k in patch}, "after": {k: cfg.get(k) for k in patch}})
     await session.commit()
@@ -167,15 +198,69 @@ async def put_settings(body: SettingsIn, user: CurrentUser, request: Request, se
             "config": cfg}
 
 
+# ─────────────────── 審核關卡（「申請審核設定」的 IP 變更評估審核） ───────────────────
+
+class ReviewStepIn(StrictModel):
+    name: str = Field("", max_length=64)
+    user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+    group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+
+
+class ReviewPolicyIn(StrictModel):
+    approver_mode: Literal["editors", "admin", "designated", "parallel", "stages"]
+    designated_user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+    designated_group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+    allow_self_approve: bool = False
+    stages: list[ReviewStepIn] = Field(default_factory=list, max_length=20)
+
+
+def _policy_out(pol: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in pol.items() if k != "saved"}
+
+
+@router.get("/change-impact/review-policy", dependencies=[Depends(require_admin)])
+async def get_review_policy(user: CurrentUser, session: Session) -> dict[str, Any]:
+    return _policy_out(await review_policy.get_policy(session))
+
+
+@router.put("/change-impact/review-policy", dependencies=[Depends(require_admin)])
+async def put_review_policy(body: ReviewPolicyIn, user: CurrentUser, request: Request,
+                            session: Session) -> dict[str, Any]:
+    pol = review_policy.normalize(body.model_dump(mode="json"))
+    code = review_policy.validate(pol)
+    if code:
+        raise HTTPException(422, detail=ui_detail(code, "Invalid review policy"))
+    before = await review_policy.get_policy(session)
+    pol = await review_policy.set_policy(session, pol, updated_by=user.id)
+    await append_audit(session, actor_user_id=str(user.id),
+                       actor_ip=request.client.host if request.client else None,
+                       actor_user_agent=request.headers.get("user-agent"), object_type="system_setting",
+                       object_id=None, action="update",
+                       diff={"change_impact_review_policy": {"before": _policy_out(before), "after": _policy_out(pol)}},
+                       request_id=getattr(request.state, "request_id", None))
+    await session.commit()
+    return _policy_out(pol)
+
+
 # ─────────────────── 候選目標（同一個位址好幾筆） ───────────────────
 
 @router.get("/change-impact/candidates")
-async def candidates(ip: str, user: CurrentUser, session: Session) -> dict[str, Any]:
+async def candidates(ip: str, user: CurrentUser, session: Session,
+                     subnet_id: uuid.UUID | None = Query(None)) -> dict[str, Any]:
     await _enabled(session)
     try:
-        return {"items": await candidates_for_address(session, user, ip)}
+        return {"items": await candidates_for_address(session, user, ip, subnet_id=subnet_id)}
     except ScenarioError as exc:
         raise _err(exc) from exc
+
+
+@router.get("/change-impact/target-subnets")
+async def target_subnets(user: CurrentUser, session: Session, q: str | None = Query(None, max_length=100),
+                         section_id: uuid.UUID | None = Query(None),
+                         customer_id: uuid.UUID | None = Query(None)) -> dict[str, Any]:
+    """建立視窗的子網路下拉：只列可以修改的子網路，單位／區段選項也只從這些子網路推出來。"""
+    await _enabled(session)
+    return await list_target_subnets(session, user, q=q, section_id=section_id, customer_id=customer_id)
 
 
 # ─────────────────── 計畫 ───────────────────
@@ -198,13 +283,53 @@ class PlanPatch(StrictModel):
     expected_revision: int | None = None
 
 
+async def _awaiting_review_filter(session: AsyncSession, user: User, cfg: dict[str, Any], stmt: Any) -> Any:
+    """「待我覆核」：送審中、不是自己建的（除非允許自己覆核）、而且依審核關卡輪得到我。
+
+    單一關卡的模式全部推進 SQL；多關卡要看每份計畫走到第幾關，送審中的計畫不多，逐筆判斷後以 id 限定（分頁照樣對）。
+    """
+    from app.core.sqlin import in_values
+    from app.services.permission import visible_ids
+    stmt = stmt.where(ChangePlan.lifecycle == "in_review")
+    if user.is_admin:
+        return stmt
+    pol = await reviewers.policy(session, cfg)
+    if not pol["allow_self_approve"]:
+        stmt = stmt.where(or_(ChangePlan.created_by.is_(None), ChangePlan.created_by != user.id))
+    mode = pol["approver_mode"]
+    if mode == "admin":
+        return stmt.where(ChangePlan.id.is_(None))
+    if mode == "designated":
+        if not await reviewers.is_designated(session, user, cfg):
+            return stmt.where(ChangePlan.id.is_(None))
+        return stmt
+    if mode in ("parallel", "stages"):
+        ids = []
+        for p in (await session.execute(stmt.limit(2000))).scalars().all():
+            if (await reviewers.can_review(session, user, p, cfg))[0]:
+                ids.append(p.id)
+        return stmt.where(in_values(ChangePlan.id, ids)) if ids else stmt.where(ChangePlan.id.is_(None))
+    w_ip = await visible_ids(session, user=user, object_type="ip", required="write")
+    w_dev = await visible_ids(session, user=user, object_type="device", required="write")
+    conds = []
+    for ttype, wids in (("ip_address", w_ip), ("device", w_dev)):
+        if wids is None:
+            conds.append(ChangePlan.target_type == ttype)
+        elif wids:
+            conds.append((ChangePlan.target_type == ttype) & in_values(ChangePlan.target_id, list(wids)))
+    return stmt.where(or_(*conds)) if conds else stmt.where(ChangePlan.id.is_(None))
+
+
 @router.get("/change-plans")
 async def list_plans(user: CurrentUser, session: Session, scenario_type: str | None = None,
                      lifecycle: str | None = None, q: str | None = None, include_archived: bool = False,
                      target_type: str | None = None, target_id: uuid.UUID | None = None,
+                     awaiting_my_review: bool = False,
                      page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
-    await _enabled(session)
+    cfg = await _enabled(session)
     stmt = select(ChangePlan)
+    if awaiting_my_review:
+        stmt = await _awaiting_review_filter(session, user, cfg, stmt)
     if not user.is_admin:
         from app.core.sqlin import in_values
         from app.services.permission import visible_ids
@@ -235,11 +360,12 @@ async def list_plans(user: CurrentUser, session: Session, scenario_type: str | N
     if ids:
         runs = {r.id: r for r in (await session.execute(select(ImpactRun).where(ImpactRun.id.in_(ids)))).scalars()}  # bounded: one page
     items = []
+    v = await viewer(session, user)
     for p in rows:
         o = _plan_out(p)
         lr = runs.get(p.latest_run_id) if p.latest_run_id else None
         o["latest_run"] = {"job_status": lr.job_status, "decision_status": lr.decision_status,
-                           "completeness": lr.completeness, "counts": lr.counts,
+                           "completeness": lr.completeness, "counts": lr.counts if same_scope(lr, v) else None,
                            "completed_at": _iso(lr.completed_at)} if lr else None
         items.append(o)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -278,6 +404,21 @@ async def get_plan(plan_id: uuid.UUID, user: CurrentUser, session: Session) -> d
     out["current_run_id"] = str(cur.id) if cur else None
     out["current_run_expired"] = plans.run_expired(cur) if cur else None
     out["can_edit"] = await plans.can_edit(session, user, plan)
+    cfg = await get_config(session)
+    out["can_review"] = (await reviewers.can_review(session, user, plan, cfg))[0]
+    pool = await reviewers.pool(session, plan, cfg)
+    out["reviewers"] = [{"id": str(u.id), "name": u.display_name or u.username} for u in pool[:20]]
+    out["reviewers_total"] = len(pool)
+    pol = await reviewers.policy(session, cfg)
+    out["review_mode"] = pol["approver_mode"]
+    out["reviewers_designated"] = pol["approver_mode"] in ("designated", "parallel", "stages")
+    out["review_steps"] = await reviewers.steps_progress(session, plan, cfg)
+    also = (plan.parameters or {}).get("also_down") or []
+    if also:
+        from app.models.device import Device
+        names = {str(d.id): d.name for d in (await session.execute(select(Device).where(
+            Device.id.in_([uuid.UUID(str(x)) for x in also])))).scalars()}  # bounded: at most 20 targets
+        out["also_down_labels"] = [names.get(str(x), str(x)[:8]) for x in also]
     review = await plans.latest_review(session, plan)
     out["latest_review"] = _review_out(review) if review else None
     return out
@@ -339,7 +480,7 @@ class TransitionIn(StrictModel):
 @router.post("/change-plans/{plan_id}/transitions")
 async def transition(plan_id: uuid.UUID, body: TransitionIn, user: CurrentUser, request: Request,
                      session: Session) -> dict[str, Any]:
-    await _enabled(session)
+    cfg = await _enabled(session)
     plan = await _plan(session, user, plan_id)
     before = plan.lifecycle
     try:
@@ -352,8 +493,10 @@ async def transition(plan_id: uuid.UUID, body: TransitionIn, user: CurrentUser, 
         raise _err(exc) from exc
     except ScenarioError as exc:
         raise _err(exc) from exc
-    await _audit(session, request, user, "change_plan_transition", plan.id,
-                 {"action": body.action, "from": before, "to": plan.lifecycle})
+    diff: dict[str, Any] = {"action": body.action, "from": before, "to": plan.lifecycle}
+    if body.action == "submit":
+        diff["notified"] = await reviewers.notify_submitted(session, plan, user, cfg)
+    await _audit(session, request, user, "change_plan_transition", plan.id, diff)
     await session.commit()
     await session.refresh(plan)
     return _plan_out(plan)
@@ -375,13 +518,13 @@ async def start_run(plan_id: uuid.UUID, user: CurrentUser, request: Request, ses
         raise _err(exc) from exc
     if not created:
         response.status_code = status.HTTP_200_OK
-        return _run_out(run)
+        return _run_out(run, await viewer(session, user))
     await _audit(session, request, user, "impact_run_start", plan.id,
                  {"run_id": str(run.id), "revision": plan.revision})
     await session.commit()
     await jobs.launch(run.id, label=plan.title, actor_user_id=user.id, plan_id=plan.id)
     await session.refresh(run)
-    return _run_out(run)
+    return _run_out(run, await viewer(session, user))
 
 
 @router.get("/change-plans/{plan_id}/runs")
@@ -390,7 +533,8 @@ async def list_runs(plan_id: uuid.UUID, user: CurrentUser, session: Session) -> 
     plan = await _plan(session, user, plan_id)
     rows = (await session.execute(select(ImpactRun).where(ImpactRun.plan_id == plan.id)
                                   .order_by(ImpactRun.created_at.desc()).limit(100))).scalars().all()
-    return {"items": [_run_out(r) for r in rows]}
+    v = await viewer(session, user)
+    return {"items": [_run_out(r, v) for r in rows]}
 
 
 @router.get("/impact-runs/{run_id}")
@@ -408,7 +552,11 @@ async def get_run(run_id: uuid.UUID, user: CurrentUser, session: Session) -> dic
                 if r and p:
                     await jobs.launch(rid, label=p.title, actor_user_id=r.requested_by, plan_id=p.id)
         await session.refresh(run)
-    return _run_out(run, await viewer(session, user))
+    v = await viewer(session, user)
+    counts = None
+    if not same_scope(run, v) and run.job_status in ("completed", "partial"):
+        counts = visible_counts(await impact_ai.visible_bundle(session, run, v), run.counts)
+    return _run_out(run, v, counts)
 
 
 @router.get("/impact-runs/{run_id}/findings")
@@ -429,10 +577,104 @@ async def run_findings(run_id: uuid.UUID, user: CurrentUser, session: Session, d
                                                                       run.visible_scope_hash != v.scope_hash())}
 
 
+_IMPACT_RANK = {"modeled_disruption": 0, "potential_disruption": 1, "redundancy_unverified": 2, "change_required": 3,
+                "unknown": 4, "reference_only": 5}
+# 節點類型 → 讀取時的可見性檢查（Viewer.can 的類型）
+_REF_VIS = {"device": "device", "ip_address": "ip", "subnet": "subnet", "virtual_machine": "global", "service": "global"}
+_REF_LABEL_SQL = {
+    "device": "SELECT id, name AS label FROM devices WHERE id = ANY(CAST(:ids AS uuid[]))",
+    "ip_address": "SELECT id, host(ip) AS label FROM ip_addresses WHERE id = ANY(CAST(:ids AS uuid[]))",
+    "subnet": "SELECT id, cidr::text AS label FROM subnets WHERE id = ANY(CAST(:ids AS uuid[]))",
+    "virtual_machine": "SELECT vm.id, c.name || '/' || vm.name AS label FROM virtual_machines vm "
+                       "JOIN virt_clusters c ON c.id = vm.cluster_id WHERE vm.id = ANY(CAST(:ids AS uuid[]))",
+    "service": "SELECT id, name AS label FROM impact_services WHERE id = ANY(CAST(:ids AS uuid[]))",
+}
+
+
+@router.get("/impact-runs/{run_id}/relations")
+async def run_relations(run_id: uuid.UUID, user: CurrentUser, session: Session,
+                        limit: int = Query(100, ge=10, le=500)) -> dict[str, Any]:
+    """關係圖（規格 §3.4）：有界的子圖，節點是根目標與看得到的發現主體，邊是保存下來的關係。
+
+    依讀者過濾：看不到的發現不出現，邊另一端的物件也要看得到；超過上限只畫前面的（依影響排序），
+    完整結果仍在影響清單。AI 不會在圖上新增事實節點或邊。"""
+    from sqlalchemy import text as _text
+    await _enabled(session)
+    run, plan = await _run(session, user, run_id)
+    v = await viewer(session, user)
+    bundle = await impact_ai.visible_bundle(session, run, v)
+    from app.services.change_impact.labels import display_label
+    ev_by_key = {e.key: e for e in bundle["evidence"]}
+    nodes: dict[str, dict[str, Any]] = {}
+    for f in bundle["findings"]:
+        ref = f"{f.subject_type}:{f.subject_id or f.subject_key}"
+        # 分類（dns、firewall…）：關係圖把同一類、掛在同一個物件下的葉節點收成一個群組
+        n = nodes.setdefault(ref, {"id": ref, "type": f.subject_type,
+                                   "label": display_label(f.subject_type, f.subject_label, f.params),
+                                   "impact": f.impact, "category": f.category, "root": False,
+                                   "subject_id": str(f.subject_id) if f.subject_id else None,
+                                   "kind": (f.params or {}).get("kind"), "rules": [], "evidence": []})
+        if _IMPACT_RANK.get(f.impact, 9) < _IMPACT_RANK.get(n["impact"] or "", 9):
+            n["impact"], n["category"] = f.impact, f.category
+        # 明細面板：這個物件為什麼出現（規則＋原因參數）與證據來自哪裡、什麼時候看到的
+        n["rules"].append({"rule_id": f.rule_id, "reason": f.reason_code, "params": f.params, "impact": f.impact})
+        for k in f.evidence_keys:
+            e = ev_by_key.get(k)
+            if e is not None and len(n["evidence"]) < 5 and all(x["label"] != e.label for x in n["evidence"]):
+                n["evidence"].append({"source_type": e.source_type, "object_type": e.source_object_type,
+                                      "label": e.label, "freshness": e.freshness,
+                                      "observed_at": e.observed_at.isoformat() if e.observed_at else None})
+    roots = [f"{'ip_address' if plan.target_type == 'ip_address' else 'device'}:{plan.target_id}"]
+    for also in (plan.parameters or {}).get("also_down") or []:
+        roots.append(f"device:{also}")
+    rels = (await session.execute(select(ImpactRelation).where(ImpactRelation.run_id == run.id))).scalars().all()
+
+    def visible_ref(ref: str) -> bool:
+        kind, _, oid = ref.partition(":")
+        try:
+            return v.can(_REF_VIS.get(kind, "global"), uuid.UUID(oid))
+        except ValueError:
+            return False
+
+    edges = []
+    for r in rels:
+        if r.from_ref not in nodes:
+            continue
+        if r.to_ref not in nodes and r.to_ref not in roots and not visible_ref(r.to_ref):
+            continue
+        edges.append({"from": r.from_ref, "to": r.to_ref, "relation": r.relation_type, "strength": r.strength})
+    # 邊另一端不是發現主體的（根目標、節點、服務依賴的物件）：補上名稱
+    missing: dict[str, list[str]] = {}
+    for ref in {e["to"] for e in edges} | set(roots):
+        if ref not in nodes:
+            kind, _, oid = ref.partition(":")
+            missing.setdefault(kind, []).append(oid)
+    for kind, ids in missing.items():
+        labels = {}
+        if kind in _REF_LABEL_SQL:
+            labels = {str(r.id): r.label for r in (await session.execute(_text(_REF_LABEL_SQL[kind]), {"ids": ids})).all()}
+        for oid in ids:
+            ref = f"{kind}:{oid}"
+            if ref in roots and not visible_ref(ref) and kind != "ip_address":
+                continue
+            nodes[ref] = {"id": ref, "type": kind, "label": labels.get(oid, oid[:8]), "impact": None, "category": None,
+                          "root": False, "subject_id": oid, "kind": None, "rules": [], "evidence": []}
+    for ref in roots:
+        if ref in nodes:
+            nodes[ref]["root"] = True
+    ordered = sorted(nodes.values(), key=lambda n: (not n["root"], _IMPACT_RANK.get(n["impact"] or "", 9), n["label"]))
+    kept = {n["id"] for n in ordered[:limit]}
+    return {"nodes": [n for n in ordered if n["id"] in kept],
+            "edges": [e for e in edges if e["from"] in kept and e["to"] in kept],
+            "truncated": len(ordered) > limit, "total_nodes": len(ordered), "limit": limit}
+
+
 def _finding_out(f: ImpactFinding, ev_ids: dict[str, str]) -> dict[str, Any]:
+    from app.services.change_impact.labels import display_label
     return {"id": str(f.id), "rule_id": f.rule_id, "rule_version": f.rule_version, "category": f.category,
             "subject_type": f.subject_type, "subject_id": str(f.subject_id) if f.subject_id else None,
-            "subject_key": f.subject_key, "subject_label": f.subject_label, "match_kind": f.match_kind,
+            "subject_key": f.subject_key, "subject_label": display_label(f.subject_type, f.subject_label, f.params),
+            "match_kind": f.match_kind,
             "impact": f.impact, "severity": f.severity, "disposition": f.disposition,
             "evidence_strength": f.evidence_strength, "reason_code": f.reason_code, "params": f.params,
             "evidence_ids": [ev_ids[k] for k in f.evidence_keys if k in ev_ids], "relationship_path": f.path_refs,
@@ -487,7 +729,7 @@ async def cancel_run(run_id: uuid.UUID, user: CurrentUser, request: Request, ses
         await _audit(session, request, user, "impact_run_cancel", plan.id, {"run_id": str(run.id)})
     await session.commit()
     await session.refresh(run)
-    return _run_out(run)
+    return _run_out(run, await viewer(session, user))
 
 
 @router.get("/impact-runs/{run_id}/export")
@@ -502,9 +744,11 @@ async def export_run(run_id: uuid.UUID, user: CurrentUser, request: Request, ses
         raise HTTPException(409, detail=ui_detail("impact_run_not_complete", "The analysis is not finished"))
     v = await viewer(session, user)
     bundle = await impact_ai.visible_bundle(session, run, v)
-    tasks = list((await session.execute(select(ChangeTask).where(ChangeTask.plan_id == plan.id)
-                                        .order_by(ChangeTask.phase, ChangeTask.position))).scalars())
-    changed = bool(run.visible_scope_hash and run.visible_scope_hash != v.scope_hash())
+    all_tasks = list((await session.execute(select(ChangeTask).where(ChangeTask.plan_id == plan.id)
+                                            .order_by(ChangeTask.phase, ChangeTask.position))).scalars())
+    seen = await visible_task_findings(session, all_tasks, v)
+    tasks = [t for t in all_tasks if not t.finding_ids or seen[t.id]]
+    changed = not same_scope(run, v)
     await _audit(session, request, user, "impact_export", plan.id, {"run_id": str(run.id), "format": format})
     await session.commit()
     stamp = (run.completed_at or run.created_at).strftime("%Y%m%d-%H%M")
@@ -531,7 +775,7 @@ def _review_out(r: ImpactReview) -> dict[str, Any]:
     return {"id": str(r.id), "revision": r.revision, "run_id": str(r.run_id) if r.run_id else None,
             "snapshot_hash": r.snapshot_hash, "reviewer_id": str(r.reviewer_id) if r.reviewer_id else None,
             "decision": r.decision, "rationale": r.rationale, "dispositions": r.dispositions,
-            "created_at": _iso(r.created_at)}
+            "step_index": r.step_index, "created_at": _iso(r.created_at)}
 
 
 @router.post("/change-plans/{plan_id}/reviews", status_code=status.HTTP_201_CREATED)
@@ -541,14 +785,19 @@ async def create_review(plan_id: uuid.UUID, body: ReviewIn, user: CurrentUser, r
     plan = await _plan(session, user, plan_id)
     try:
         rv = await plans.review(session, user, plan, decision=body.decision, rationale=body.rationale,
-                                dispositions=body.dispositions, run_id=body.run_id,
-                                allow_self_review=bool(cfg.get("allow_self_review")))
+                                dispositions=body.dispositions, run_id=body.run_id, cfg=cfg)
     except ScenarioError as exc:
         raise _err(exc) from exc
     await session.flush()
+    if plan.lifecycle == "in_review":
+        # 多關卡、還有關卡沒過：依序模式通知下一關（會簽在送審時已經通知所有組）
+        if (await reviewers.policy(session, cfg))["approver_mode"] == "stages":
+            await reviewers.notify_submitted(session, plan, user, cfg)
+    else:
+        await reviewers.notify_reviewed(session, plan, user, body.decision)
     await _audit(session, request, user, "impact_review", plan.id,
                  {"decision": body.decision, "revision": plan.revision, "run_id": str(rv.run_id),
-                  "snapshot_hash": rv.snapshot_hash, "lifecycle": plan.lifecycle})
+                  "snapshot_hash": rv.snapshot_hash, "lifecycle": plan.lifecycle, "step_index": rv.step_index})
     await session.commit()
     return _review_out(rv)
 
@@ -585,10 +834,15 @@ class AcceptDraftIn(StrictModel):
     indices: list[int]
 
 
-def _task_out(t: ChangeTask) -> dict[str, Any]:
+def _task_out(t: ChangeTask, finding_ids: list[str] | None = None) -> dict[str, Any]:
+    """finding_ids 是依讀者過濾過的；模板參數裡的筆數跟著改成看得到的數量。"""
+    params = dict(t.template_params or {})
+    ids = t.finding_ids if finding_ids is None else finding_ids
+    if finding_ids is not None and "count" in params:
+        params["count"] = len(ids)
     return {"id": str(t.id), "phase": t.phase, "position": t.position, "title": t.title,
-            "instruction": t.instruction, "template_code": t.template_code, "template_params": t.template_params,
-            "origin": t.origin, "finding_ids": t.finding_ids, "depends_on": t.depends_on,
+            "instruction": t.instruction, "template_code": t.template_code, "template_params": params,
+            "origin": t.origin, "finding_ids": ids, "depends_on": t.depends_on,
             "assignee_user_id": str(t.assignee_user_id) if t.assignee_user_id else None, "state": t.state,
             "version": t.version, "completed_by": str(t.completed_by) if t.completed_by else None,
             "completed_at": _iso(t.completed_at), "completion_note": t.completion_note}
@@ -598,9 +852,10 @@ def _task_out(t: ChangeTask) -> dict[str, Any]:
 async def list_tasks(plan_id: uuid.UUID, user: CurrentUser, session: Session) -> dict[str, Any]:
     await _enabled(session)
     plan = await _plan(session, user, plan_id)
-    rows = (await session.execute(select(ChangeTask).where(ChangeTask.plan_id == plan.id)
-                                  .order_by(ChangeTask.position))).scalars().all()
-    return {"items": [_task_out(t) for t in rows]}
+    rows = list((await session.execute(select(ChangeTask).where(ChangeTask.plan_id == plan.id)
+                                       .order_by(ChangeTask.position))).scalars().all())
+    seen = await visible_task_findings(session, rows, await viewer(session, user))
+    return {"items": [_task_out(t, seen[t.id]) for t in rows if not t.finding_ids or seen[t.id]]}
 
 
 @router.post("/change-plans/{plan_id}/tasks", status_code=status.HTTP_201_CREATED)
@@ -681,7 +936,8 @@ class QuestionIn(StrictModel):
 
 def _artifact_out(a: ImpactAIArtifact, v: Viewer) -> dict[str, Any]:
     hidden = bool(a.scope_hash and a.scope_hash != v.scope_hash())
-    return {"id": str(a.id), "artifact_type": a.artifact_type, "status": a.status, "question": a.question,
+    return {"id": str(a.id), "artifact_type": a.artifact_type, "status": a.status, "stage": a.stage,
+            "question": a.question,
             "model": a.model, "prompt_version": a.prompt_version, "validation_state": a.validation_state,
             "truncated": a.truncated, "error_code": a.error_code, "generated_at": _iso(a.generated_at),
             "created_at": _iso(a.created_at),

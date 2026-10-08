@@ -101,6 +101,6 @@ export const IP_CHANGE_EVENT_TYPES = [
 // 「上線／失聯」翻轉的來源是讓它上線的那個整合；失聯是 system（系統判定證據過期，#49）
 export const IP_CHANGE_SOURCES = [
   "manual", "user", "system", "scanner", "librenms", "dns",
-  "proxmox", "esxi", "opnsense", "pfsense", "fortigate", "paloalto", "mikrotik",
-  "wazuh", "zabbix", "ocs", "adguard", "kea_dhcp", "isc_dhcp", "windows_dhcp", "rustdesk",
+  "proxmox", "esxi", "opnsense", "pfsense", "fortigate", "paloalto", "checkpoint", "mikrotik",
+  "wazuh", "zabbix", "ocs", "adguard", "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "windows_dhcp", "rustdesk",
 ] as const;

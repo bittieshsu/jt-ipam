@@ -27,6 +27,7 @@ the preferred mode**; see [§2.7](#27-optional-docker-compose-not-the-preferred-
 | Node | 22 LTS | None | only for building the frontend; `jt-ipam.sh` installs NodeSource 22 on install (only Ubuntu 26.04 ships 22 itself) and moves an older Node to 22 on upgrade |
 | guacd | jt-ipam build for this OS | None | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
 | Recog | latest release | None | **Optional**: fingerprint database the IP probe uses to recognise devices and OS versions; downloaded by `jt-ipam.sh`, checked weekly (see [Recog](#recog-fingerprint-database-optional)) |
+| CJK font | `fonts-noto-cjk` | None | **Needed for PDF reports**: the Chinese / Japanese font the backend embeds into PDF exports (about 60 MB download). `jt-ipam.sh` installs it on install and upgrade; if apt cannot reach a mirror the upgrade only warns, PDF export then says the font is missing (DOCX / ODT still work). Fix later with `sudo apt install fonts-noto-cjk` |
 
 ### Supported distributions
 
@@ -412,7 +413,7 @@ See the Settings class in `app/core/config.py` for the full list.
 
 ## 4. Integration setup (after install)
 
-All integrations are added in the admin UI (`/firewall`, `/wazuh`, `/librenms`, `/dns`).
+All integrations are added in the admin UI under Admin → External integrations (for example `/firewall`, `/wazuh`, `/librenms`, `/dns`); configured ones are marked in the menu.
 Once added, `jt-ipam-sync.timer` syncs them automatically every 5 minutes by default.
 
 > Note: as of v0.4.76+, OIDC and SAML SSO are also configurable in the web UI under Admin → System Settings (no need to edit env). The env vars below still work as defaults.
@@ -518,7 +519,7 @@ You can point it at an external OpenAI-compatible endpoint instead (ChatGPT, vLL
 
 ### Automatic backup
 
-The installer doesn't enable backups; add a cron or systemd timer manually. Simplest:
+The installer installs and enables the daily backup (`jt-ipam-backup.timer`), and upgrades refresh the backup script. If you did not use the installer, add it by hand:
 
 ```bash
 sudo cp /opt/jt-ipam/scripts/jt-ipam-backup.sh /usr/local/bin/
@@ -530,6 +531,8 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 Runs daily at 03:30 by default, packaging `pg_dump -Fc` + `/etc/jt-ipam/backend.env` + TLS certs
 into `/var/backups/jt-ipam/`, retained for 14 days.
+
+Every run, successful or not, writes `/var/backups/jt-ipam/last-run`: the result, the time, the last successful time and the reason for a failure. "Daily backup" on the System diagnostics page and `sudo /opt/jt-ipam/scripts/jt-ipam.sh doctor` both read it; a failed backup, or no success for 48 hours, turns the check red and sends a system alert to admins. The most common failure is a table in the database not owned by the jt-ipam role (for example a copy someone left behind): pg_dump cannot read it and stops; the diagnostics page shows the command to run.
 
 ### Offsite backup
 

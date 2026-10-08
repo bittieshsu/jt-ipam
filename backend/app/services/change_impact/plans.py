@@ -38,7 +38,8 @@ TRANSITIONS: dict[str, tuple[frozenset[str], str]] = {
     "start": (frozenset({"approved"}), "in_progress"),
     "verify": (frozenset({"in_progress"}), "verified"),
     "close": (frozenset({"verified"}), "closed"),
-    "reopen": (frozenset({"in_review", "approved"}), "draft"),
+    # 已取消的也可以重新開啟、再分析（使用者 2026-10-08）；已結案的不行
+    "reopen": (frozenset({"in_review", "approved", "cancelled"}), "draft"),
     "cancel": (frozenset({"draft", "in_review", "approved", "in_progress", "verified"}), "cancelled"),
 }
 
@@ -155,6 +156,8 @@ async def transition(session: AsyncSession, user: Any, plan: ChangePlan, action:
             raise PlanError("impact_run_not_complete", "Run an analysis of this revision first", status=409)
         if run_expired(run):
             raise PlanError("impact_run_stale", "The analysis is too old; run it again", status=409)
+        # 多關卡審核從這個時間算起：退回或撤回後重新送審，之前通過的關卡不算
+        plan.submitted_at = datetime.now(UTC)
     if action == "start":
         await _assert_still_current(session, user, plan)
     if action == "verify":
@@ -192,7 +195,7 @@ async def latest_review(session: AsyncSession, plan: ChangePlan) -> ImpactReview
 
 
 async def review(session: AsyncSession, user: Any, plan: ChangePlan, *, decision: str, rationale: str,
-                 dispositions: dict[str, Any], run_id: uuid.UUID | None, allow_self_review: bool) -> ImpactReview:
+                 dispositions: dict[str, Any], run_id: uuid.UUID | None, cfg: dict[str, Any]) -> ImpactReview:
     """覆核。核准條件：送審中、綁定這個版本最新且未過期的分析、沒有阻擋項目、每個需覆核項目都有處置。"""
     from app.models.change_impact import REVIEW_DECISION
     if decision not in REVIEW_DECISION:
@@ -201,10 +204,11 @@ async def review(session: AsyncSession, user: Any, plan: ChangePlan, *, decision
     if plan.lifecycle != "in_review":
         raise PlanError("impact_invalid_transition", "The plan is not in review", status=409,
                         action="review", lifecycle=plan.lifecycle)
-    if not user.is_admin:
-        await require_target_access(session, user, plan.target_type, plan.target_id, need="write")
-        if plan.created_by == user.id and not allow_self_review:
-            raise PlanError("impact_self_review", "The creator cannot review their own plan", status=403)
+    from app.services.change_impact.reviewers import can_review
+    ok, why = await can_review(session, user, plan, cfg)
+    if not ok:
+        raise PlanError(why or "impact_target_forbidden", "You cannot review this plan",
+                        status=404 if why == "impact_target_not_found" else 403)
     run = await current_run(session, plan)
     if run is None or (run_id is not None and run.id != run_id):
         raise PlanError("impact_run_stale", "Review the latest analysis of this revision", status=409)
@@ -226,14 +230,27 @@ async def review(session: AsyncSession, user: Any, plan: ChangePlan, *, decision
                             status=409, count=len(missing))
     if decision in ("reject", "request_changes") and len((rationale or "").strip()) < 2:
         raise PlanError("impact_rationale_required", "A reason is required")
+    # 多關卡（會簽／依序）：這筆核准屬於哪一關；全部關卡都通過才算核准（「申請審核設定」）
+    from app.services.change_impact import review_policy
+    from app.services.change_impact.reviewers import actionable_step, pending_steps
+    pol = await review_policy.get_policy(session, cfg)
+    multi = pol["approver_mode"] in review_policy.MULTI_STEP_MODES and decision in ("approve", "accept_risk")
+    step = await actionable_step(session, user, plan, pol) if multi else None
+    if multi and step is None:
+        raise PlanError("impact_review_not_your_stage", "It is not your stage yet", status=403)
     rv = ImpactReview(plan_id=plan.id, revision=plan.revision, run_id=run.id, snapshot_hash=run.snapshot_hash,
                       reviewer_id=user.id, decision=decision, rationale=(rationale or "")[:4000],
                       dispositions={k: {"action": str((v or {}).get("action") or "")[:64],
                                         "note": str((v or {}).get("note") or "")[:1000]}
-                                    for k, v in (dispositions or {}).items()})
+                                    for k, v in (dispositions or {}).items()},
+                      step_index=step)
     session.add(rv)
-    plan.lifecycle = {"approve": "approved", "accept_risk": "approved", "request_changes": "draft",
-                      "reject": "cancelled"}[decision]
+    if multi:
+        await session.flush()       # autoflush 關閉：剛加的這關要算進去
+        plan.lifecycle = "in_review" if await pending_steps(session, plan, pol) else "approved"
+    else:
+        plan.lifecycle = {"approve": "approved", "accept_risk": "approved", "request_changes": "draft",
+                          "reject": "cancelled"}[decision]
     plan.reviewer_user_id = user.id
     return rv
 
@@ -260,6 +277,8 @@ def _template_tasks(scenario_type: str, findings: list[ImpactFinding], params: d
         out += [("verify", "verify_address_services", {"new_ip": new}, []),
                 ("verify", "verify_no_old_refs", {"old_ip": old}, []),
                 ("rollback", "rollback_address", {"old_ip": old, "new_ip": new}, [])]
+    elif scenario_type in ("switch_maintenance", "node_downtime"):
+        out += _m2_template_tasks(scenario_type, findings, target_label)
     else:
         out += [("precheck", "confirm_owner_window", {"device": target_label}, []),
                 ("precheck", "confirm_recovery", {}, [])]
@@ -275,6 +294,39 @@ def _template_tasks(scenario_type: str, findings: list[ImpactFinding], params: d
                 ("verify", "verify_unreferenced", {}, []),
                 ("verify", "verify_no_activity", {}, []),
                 ("rollback", "rollback_restore_service", {"device": target_label}, [])]
+    return out
+
+
+def _m2_template_tasks(scenario_type: str, findings: list[ImpactFinding],
+                       target_label: str) -> list[tuple[str, str, dict[str, Any], list[str]]]:
+    """維護／停機的待辦：都是人工操作，系統不執行遷移或維護（規格 §6.4、§12）。"""
+    def ids(*rules: str) -> list[str]:
+        return [str(f.id) for f in findings if f.rule_id in rules]
+    services = ids("service.modeled_disruption", "service.redundancy_unverified")
+    out: list[tuple[str, str, dict[str, Any], list[str]]] = [
+        ("precheck", "confirm_owner_window", {"device": target_label}, [])]
+    if services:
+        out.append(("precheck", "notify_service_owners", {"count": len(services)}, services))
+    if scenario_type == "switch_maintenance":
+        unverified = ids("network.redundancy_unverified")
+        if unverified:
+            out.append(("precheck", "check_redundancy", {"count": len(unverified)}, unverified))
+        out += [("change", "perform_maintenance", {"device": target_label}, []),
+                ("verify", "verify_links", {"device": target_label}, [])]
+        if services:
+            out.append(("verify", "verify_services", {}, services))
+        out.append(("rollback", "rollback_maintenance", {"device": target_label}, []))
+        return out
+    running = ids("workload.vm_stops", "workload.vm_ha_unverified")
+    if running:
+        out.append(("precheck", "migrate_workloads", {"count": len(running)}, running))
+    if ids("workload.vm_ha_unverified"):
+        out.append(("precheck", "check_ha", {}, []))
+    out += [("change", "perform_node_downtime", {"device": target_label}, []),
+            ("verify", "verify_workloads", {}, running)]
+    if services:
+        out.append(("verify", "verify_services", {}, services))
+    out.append(("rollback", "rollback_node", {"device": target_label}, []))
     return out
 
 

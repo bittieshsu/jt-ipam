@@ -55,3 +55,22 @@ async def test_guacd_is_listed_as_required_and_aardwolf_as_optional(client, auth
     assert "RDP / VNC" in g["used_by"]
     assert "aardwolf" in host["optional_tools"]
     assert "aardwolf" not in host["required_tools"]
+
+
+async def test_freerdp_tools_are_not_flagged_missing_unless_that_engine_is_selected(client, auth_headers, db_session):
+    """客戶 2026-10-08（Ubuntu 26.04 桌面版）：預設引擎是 guacd，FreeRDP 那組套件（約 150 MB）本來就不裝，
+    版本頁卻用紅字列「未安裝」、還說「重新執行 upgrade 會自動補上」—— upgrade 只在選了 FreeRDP 時才裝，
+    兩邊說法打架，客戶以為裝壞了。沒選這個引擎時要標成未選用，不進缺少警告。"""
+    from app.services.system_config import set_rdp_engine
+
+    r = await client.get("/api/v1/system/version", headers=auth_headers)
+    tools = r.json()["host"]["optional_tools"]
+    for exe in ("xfreerdp", "Xvfb", "ffmpeg", "xclip"):
+        assert tools[exe].get("engine_off") is True, f"{exe}：預設引擎（guacd）下應標成未選用"
+
+    await set_rdp_engine(db_session, engine="freerdp")
+    await db_session.commit()
+    r = await client.get("/api/v1/system/version", headers=auth_headers)
+    tools = r.json()["host"]["optional_tools"]
+    for exe in ("xfreerdp", "Xvfb", "ffmpeg", "xclip"):
+        assert not tools[exe].get("engine_off"), f"{exe}：選了 FreeRDP 之後缺了就是真的缺"

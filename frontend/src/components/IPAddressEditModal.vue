@@ -196,6 +196,7 @@ const FW_PAGES: Record<string, { route: string; rules?: string; aliases?: string
   pfsense: { route: "pfsense_fw", rules: "rules", aliases: "aliases" },
   fortigate: { route: "fortigate_fw" },
   paloalto: { route: "paloalto_fw" },
+  checkpoint: { route: "checkpoint", rules: "rules", aliases: "objects" },
   mikrotik: { route: "mikrotik_fw", rules: "rules", aliases: "lists" },
 };
 function fwLink(kind: "rules" | "aliases", x: any): RouteLocationRaw | null {
@@ -620,13 +621,18 @@ interface SeenRow { key: string; label: string; at: string | null | undefined; j
 const seenRows = computed<SeenRow[]>(() => {
   const a = props.address as any;
   if (!a) return [];
+  // 依整合而來的來源：沒設定那個整合、也沒有資料就不列（使用者 2026-10-08：沒設定 AdGuard 卻有一列「AdGuard 設定」）。
+  // 舊後端沒帶 seen_integrations 時照舊全列
+  const has = (k: string, at: unknown) => !!at || !a.seen_integrations || a.seen_integrations[k] === true;
   const rows: SeenRow[] = [
     { key: "scanner", label: t("addresses.seen_src_scanner"), at: a.last_seen_scanner, live: ["scanner"],
       why: t("addresses.seen_why_scanner") },
-    { key: "librenms", label: "LibreNMS", at: a.last_seen_librenms, jump: "librenms", live: ["librenms"],
-      why: t("addresses.seen_why_librenms") },
-    { key: "arp", label: "ARP", at: a.last_seen_arp, live: ["arp", "arp:librenms"], why: t("addresses.seen_why_arp") },
   ];
+  if (has("librenms", a.last_seen_librenms)) rows.push({ key: "librenms", label: "LibreNMS", at: a.last_seen_librenms,
+    jump: "librenms", live: ["librenms"], why: t("addresses.seen_why_librenms") });
+  // ARP 這一列是 LibreNMS 讀到的交換器 ARP 快取
+  if (has("librenms", a.last_seen_arp)) rows.push({ key: "arp", label: "ARP", at: a.last_seen_arp,
+    live: ["arp", "arp:librenms"], why: t("addresses.seen_why_arp") });
   if (a.last_seen_wazuh) rows.push({ key: "wazuh", label: t("addresses.seen_src_wazuh"), at: a.last_seen_wazuh,
     jump: "wazuh", live: ["wazuh"], why: t("addresses.seen_why_wazuh") });
   if (a.last_seen_zabbix) rows.push({ key: "zabbix", label: "Zabbix", at: a.last_seen_zabbix, live: ["zabbix"],
@@ -642,8 +648,8 @@ const seenRows = computed<SeenRow[]>(() => {
     const why = ["arp", "vpn", "lease"].includes(kind) ? t(`addresses.seen_why_fw_${kind}`) : "";
     rows.push({ key: k, label: fwSeenLabel(k), at: v, live: [k], why });
   }
-  rows.push({ key: "dns", label: t("addresses.seen_src_dns"), at: a.last_seen_dns, live: ["dns"],
-    why: t("addresses.seen_why_dns") });
+  if (has("adguard", a.last_seen_dns)) rows.push({ key: "dns", label: t("addresses.seen_src_dns"), at: a.last_seen_dns,
+    live: ["dns"], why: t("addresses.seen_why_dns") });
   return rows;
 });
 const seenTs = (r: SeenRow) => (r.at ? Date.parse(r.at) || 0 : 0);

@@ -11,7 +11,8 @@ PowerShell cmdlets：
 
 OWASP A04：password 即時解密、不在 instance 上常駐
 OWASP A05：所有 PowerShell 參數透過 winrm 的 named parameters 傳，不字串拼接
-OWASP A02：use_ssl=true 為預設；不接受 cert validation skip
+OWASP A02：use_ssl=true、驗證憑證為預設；HTTP 5985 時強制 NTLM 訊息加密（message_encryption=always）；WinRM HTTPS 常用自簽憑證（客戶 2026-10-08），
+           比照其他整合可在設定頁關閉「驗證 TLS 憑證」—— 仍走 HTTPS 加密，只是不驗憑證
 OWASP A06：host 透過 socket 解析後檢查（DNS 解析後 pin IP 防 rebinding）
 """
 
@@ -66,6 +67,7 @@ class WindowsDNSAdapter(DNSAdapter):
         password: str,
         port: int = 5986,
         use_ssl: bool = True,
+        verify_tls: bool = True,
         timeout: float = 30.0,
     ) -> None:
         if not host:
@@ -76,6 +78,7 @@ class WindowsDNSAdapter(DNSAdapter):
         self.password = password
         self.port = port
         self.use_ssl = use_ssl
+        self.verify_tls = verify_tls
         self.timeout = timeout
 
     def _session(self) -> Any:
@@ -87,7 +90,9 @@ class WindowsDNSAdapter(DNSAdapter):
             target=endpoint,
             auth=(self.username, self.password),
             transport="ntlm",
-            server_cert_validation="validate" if self.use_ssl else "ignore",
+            server_cert_validation="validate" if self.use_ssl and self.verify_tls else "ignore",
+            # HTTP 5985（Windows Server 預設只開這個）：一定要 NTLM 加密，不支援就失敗、不可退回明文
+            message_encryption="auto" if self.use_ssl else "always",
             operation_timeout_sec=int(self.timeout),
             read_timeout_sec=int(self.timeout) + 5,
         )
@@ -101,6 +106,12 @@ class WindowsDNSAdapter(DNSAdapter):
         except Exception as exc:  # winrm/requests 連線/認證/TLS/timeout 都不是 DNSAdapterError
             # 不轉成 DNSAdapterError 的話，dns.py 端點只 except DNSAdapterError →
             # 連線測試一失敗就變未處理的 500、且無可讀訊息。
+            if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+                # 自簽／內部 CA：講清楚兩條路（匯入 CA 或關閉驗證），原文附在後面
+                raise DNSAdapterError(
+                    f"Windows DNS WinRM certificate not trusted: {exc}", code="dns_winrm_cert",
+                    reason=str(exc)[-300:],
+                ) from exc
             raise DNSAdapterError(
                 f"Windows DNS WinRM connection failed: {exc.__class__.__name__}: {exc}"
             ) from exc

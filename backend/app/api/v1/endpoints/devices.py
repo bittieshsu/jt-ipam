@@ -361,11 +361,13 @@ async def list_devices(
     from app.models.address import IPAddress
     eff_ips = {v for v in ip_map.values() if v}
     addr_by_ip: dict[str, tuple[Any, ...]] = {}
-    if eff_ips:
-        for aid, ahost, adev in (await session.execute(
-            select(IPAddress.id, _func.host(IPAddress.ip), IPAddress.device_id)
-            .where(in_values(_func.host(IPAddress.ip), eff_ips, type_=String()))
-        )).all():
+    vis_ip = await visible_ids(session, user=_user, object_type="ip")
+    if eff_ips and (vis_ip is None or vis_ip):
+        q = (select(IPAddress.id, _func.host(IPAddress.ip), IPAddress.device_id)
+             .where(in_values(_func.host(IPAddress.ip), eff_ips, type_=String())))
+        if vis_ip is not None:   # 看不到的 IP 不給 id（不能點進去，也不該知道它存在；2026-10-07 稽核）
+            q = q.where(in_values(IPAddress.id, vis_ip))
+        for aid, ahost, adev in (await session.execute(q)).all():
             addr_by_ip.setdefault(str(ahost), (aid, adev))
     # 虛擬 / 實體：一次撈出所有 VM 名稱，避免逐台查
     from app.models.virt import VirtualMachine as _VM
@@ -488,7 +490,8 @@ async def get_device_relations(
                     sec = await session.get(Section, sn.section_id)
                     if sec is not None:
                         chain.append({"type": "section", "id": str(sec.id), "label": sec.name})
-    return {"chain": chain}
+    from app.services.permission import visible_chain
+    return {"chain": await visible_chain(session, _user, chain)}
 
 
 @router.get(

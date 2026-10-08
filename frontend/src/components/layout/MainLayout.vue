@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick, h } from "vue";
+import { fillPageCount } from "@/composables/usePageFill";
+import { type Component, computed, ref, watch, onMounted, onBeforeUnmount, nextTick, h } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useFloatingHScroll } from "@/composables/useFloatingHScroll";
@@ -39,7 +40,8 @@ import {
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
   AiAuditIcon, ChatHistoryIcon, ChangeImpactIcon,
-  DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, RustDeskIcon, WazuhIcon, ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
+  IntegrationsIcon, OkIcon, DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, IsoInsightIcon, TechnitiumIcon, RustDeskIcon, WazuhIcon,
+  ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, MenuIcon,
@@ -167,7 +169,9 @@ const menuValue = computed(() =>
     : (route.name as string),
 );
 
-const expandedKeys = ref<string[]>([]);
+// 外部系統整合子樹預設展開（使用者收合後，這次開著的期間維持收合）
+const INTEGRATIONS_KEY = "integrations";
+const expandedKeys = ref<string[]>([INTEGRATIONS_KEY]);
 watch(inSubnetContext, (v) => { if (v) void loadNavSubnets(); }, { immediate: true });
 watch([inSubnetContext, currentSubnetId, navSubnets], () => {
   if (!inSubnetContext.value) return;
@@ -186,14 +190,65 @@ const intgPresence = ref<Record<string, boolean>>({
   dns: true,
   cert_agents: true, proxmox: true, esxi: true,
 });
+const intgPresenceLoaded = ref(false);
 async function loadIntegrationPresence() {
   try {
     const { data } = await apiClient.get("/api/v1/system/integration-presence");
     intgPresence.value = data;
+    intgPresenceLoaded.value = true;
   } catch {
     // 讀不到（例如無全域讀取權）→ 保持預設值，交給後端把關，不要因此藏掉選單
   }
 }
+
+// 「外部系統整合」子樹：選單 key、標籤、圖示，以及對到 /system/integration-presence 的哪個鍵
+const INTEGRATION_ITEMS: [string, string, Component][] = [
+  ["dns", "nav.dns", DnsIcon],
+  ["adguard", "nav.adguard", DnsIcon],
+  ["librenms", "nav.librenms", LibreNMSIcon],
+  ["firewall_admin", "nav.firewall_admin", FirewallIcon],
+  ["pfsense", "nav.pfsense", FirewallIcon],
+  ["fortigate", "nav.fortigate", FirewallIcon],
+  ["paloalto", "nav.paloalto", FirewallIcon],
+  ["checkpoint", "nav.checkpoint", FirewallIcon],
+  ["mikrotik", "nav.mikrotik", FirewallIcon],
+  ["windows_dhcp", "nav.windows_dhcp", WindowsDhcpIcon],
+  ["kea_dhcp", "nav.kea_dhcp", KeaDhcpIcon],
+  ["isc_dhcp", "nav.isc_dhcp", IscDhcpIcon],
+  ["technitium_dhcp", "nav.technitium_dhcp", TechnitiumIcon],
+  ["isoinsight", "nav.isoinsight", IsoInsightIcon],
+  ["rustdesk", "nav.rustdesk", RustDeskIcon],
+  ["virt_admin", "nav.virt_admin", VirtualizationIcon],
+  ["esxi_admin", "nav.esxi_admin", VirtualizationIcon],
+  ["wazuh", "nav.wazuh", WazuhIcon],
+  ["zabbix", "nav.zabbix", LibreNMSIcon],
+  ["ocs", "nav.ocs", DevicesIcon],
+  ["graylog_dsv", "nav.graylog_dsv", ExportIcon],
+];
+// 後端 tests/test_integration_presence.py 會檢查這張表涵蓋每個整合
+const INTEGRATION_PRESENCE_KEY: Record<string, string> = {
+  dns: "dns", adguard: "adguard", librenms: "librenms", firewall_admin: "opnsense", pfsense: "pfsense",
+  fortigate: "fortigate", paloalto: "paloalto", checkpoint: "checkpoint", mikrotik: "mikrotik", windows_dhcp: "windows_dhcp",
+  kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium_dhcp: "technitium", isoinsight: "isoinsight", rustdesk: "rustdesk", virt_admin: "proxmox", esxi_admin: "esxi",
+  wazuh: "wazuh", zabbix: "zabbix", ocs: "ocs", graylog_dsv: "graylog",
+};
+/** 已設定的整合在名稱後面加一個勾（使用者 2026-10-07）；選單是 render 函式，樣式要寫在行內 */
+function integrationLabel(key: string, labelKey: string) {
+  const on = intgPresenceLoaded.value && intgPresence.value[INTEGRATION_PRESENCE_KEY[key]] === true;
+  if (!on) return t(labelKey);
+  return h("span", { style: "display: inline-flex; align-items: center; gap: 6px" }, [
+    t(labelKey),
+    h(NIcon, { size: 14, color: "#18a058", title: t("nav.integration_configured"),
+               "aria-label": t("nav.integration_configured"), "data-testid": `nav-intg-on-${key}` },
+      { default: () => h(OkIcon) }),
+  ]);
+}
+// 新增或刪除整合之後，從那一頁離開或進到另一個整合頁時重新抓（便宜：每種只問有沒有）
+watch(() => route.name, (now, before) => {
+  if ([now, before].some((n) => typeof n === "string" && n in INTEGRATION_PRESENCE_KEY)) {
+    void loadIntegrationPresence();
+  }
+});
 
 const menuOptions = computed<MenuOption[]>(() => {
   const base: MenuOption[] = [
@@ -283,25 +338,17 @@ const menuOptions = computed<MenuOption[]>(() => {
           ...(me.value?.ai_enabled
             ? [{ label: () => t("nav.ai_audit"), key: "ai_audit", icon: renderIcon(AiAuditIcon) }]
             : []),
-          { label: () => t("nav.dns"),           key: "dns",            icon: renderIcon(DnsIcon) },
-          { label: () => t("nav.adguard"),       key: "adguard",        icon: renderIcon(DnsIcon) },
-          { label: () => t("nav.librenms"),      key: "librenms",       icon: renderIcon(LibreNMSIcon) },
-          { label: () => t("nav.firewall_admin"), key: "firewall_admin", icon: renderIcon(FirewallIcon) },
-          { label: () => t("nav.pfsense"),        key: "pfsense",        icon: renderIcon(FirewallIcon) },
-          { label: () => t("nav.fortigate"),      key: "fortigate",      icon: renderIcon(FirewallIcon) },
-          { label: () => t("nav.paloalto"),       key: "paloalto",       icon: renderIcon(FirewallIcon) },
-          { label: () => t("nav.mikrotik"),       key: "mikrotik",       icon: renderIcon(FirewallIcon) },
-          { label: () => t("nav.windows_dhcp"),  key: "windows_dhcp",   icon: renderIcon(WindowsDhcpIcon) },
-          { label: () => t("nav.kea_dhcp"),      key: "kea_dhcp",       icon: renderIcon(KeaDhcpIcon) },
-          { label: () => t("nav.isc_dhcp"),      key: "isc_dhcp",       icon: renderIcon(IscDhcpIcon) },
-          { label: () => t("nav.rustdesk"),      key: "rustdesk",       icon: renderIcon(RustDeskIcon) },
-          { label: () => t("nav.virt_admin"),    key: "virt_admin",     icon: renderIcon(VirtualizationIcon) },
-          { label: () => t("nav.esxi_admin"),    key: "esxi_admin",     icon: renderIcon(VirtualizationIcon) },
-          { label: () => t("nav.wazuh"),         key: "wazuh",          icon: renderIcon(WazuhIcon) },
-          { label: () => t("nav.zabbix"),        key: "zabbix",         icon: renderIcon(LibreNMSIcon) },
-          { label: () => t("nav.ocs"),            key: "ocs",            icon: renderIcon(DevicesIcon) },
+          // 外部系統整合收成一個子樹（使用者 2026-10-07：一長串「整合 X」擠在管理裡）；預設展開、可收合。
+          // 子樹裡只寫產品名，不再每項重複「整合」
+          {
+            label: () => t("nav.integrations"),
+            key: INTEGRATIONS_KEY,
+            icon: renderIcon(IntegrationsIcon),
+            children: INTEGRATION_ITEMS.map(([key, labelKey, icon]) => ({
+              key, icon: renderIcon(icon), label: () => integrationLabel(key, labelKey),
+            })),
+          },
           { label: () => t("nav.event_rules"),  key: "event_rules",    icon: renderIcon(WebhooksIcon) },
-          { label: () => t("nav.graylog_dsv"),   key: "graylog_dsv",    icon: renderIcon(ExportIcon) },
           { label: () => t("nav.scan_agents"),   key: "scan_agents",    icon: renderIcon(ScanAgentsIcon) },
           { label: () => t("nav.certificates"),  key: "certificates",   icon: renderIcon(LockIcon) },
           { label: () => t("nav.webhooks"),      key: "webhooks",       icon: renderIcon(WebhooksIcon) },
@@ -311,7 +358,7 @@ const menuOptions = computed<MenuOption[]>(() => {
           { label: () => "LLM / AI",             key: "llm_settings",   icon: renderIcon(SettingsIcon) },
           { label: () => t("nav.system_settings"), key: "system_settings", icon: renderIcon(SettingsIcon) },
           { label: () => t("nav.notification_channels"), key: "notification_channels", icon: renderIcon(SettingsIcon) },
-          { label: () => t("nav.ip_request_policy"), key: "ip_request_policy", icon: renderIcon(RequestsIcon) },
+          { label: () => t("nav.approval_settings"), key: "approval_settings", icon: renderIcon(RequestsIcon) },
           { label: () => t("nav.version"),       key: "version",        icon: renderIcon(AdminIcon) },
           { label: () => t("nav.doctor"),        key: "doctor",         icon: renderIcon(TestIcon) },
           { label: () => t("nav.system_logs"),   key: "system_logs",    icon: renderIcon(AuditIcon) },
@@ -633,8 +680,9 @@ function startDrag(e: MouseEvent) {
         </n-space>
       </n-layout-header>
       <!-- 底部多留 88px：AI 助手浮動按鈕固定在右下角（bottom 24 + 高 56），
-           不留的話清單最後一列右邊的操作鈕（刪除）捲到底也還壓在它底下、點不到。 -->
-      <n-layout-content content-style="padding: 16px 16px 88px;">
+           不留的話清單最後一列右邊的操作鈕（刪除）捲到底也還壓在它底下、點不到。
+           有滿版圖的頁面（關係圖、IP 拓樸圖）例外，縮成 16px，圖才能往下佔滿（composables/usePageFill） -->
+      <n-layout-content :content-style="`padding: 16px 16px ${fillPageCount > 0 ? 16 : 88}px;`">
         <!-- 資料庫結構落後於程式時，讀完整欄位的頁面會 500（清單空白、儀表板卻正常）。
              系統啟動時就知道了，所以要在使用者踩到之前講，而不是讓人一頁一頁試。 -->
         <n-alert v-if="me?.schema_behind" type="error" :bordered="false"

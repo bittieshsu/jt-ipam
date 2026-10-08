@@ -195,6 +195,9 @@ class IPAddressRead(IPAddressBase):
     #: 「上線 (scanner)」（見 services/arp_seen.py）。
     arp_seen: dict[str, str] = {}
     last_seen_dns: datetime | None
+    #: 「各來源最後出現」的來源有沒有設定整合（只在單筆讀取帶）：{"librenms": bool, "adguard": bool}。
+    #: 沒設定的整合不列那一列（使用者 2026-10-08）；只有布林值，看得到這個 IP 的人都可以拿
+    seen_integrations: dict[str, bool] | None = None
     #: OCS Inventory 最後一次盤點到這個 IP（顯示用、非活性訊號）
     last_seen_ocs: datetime | None = None
     effective_status: str | None

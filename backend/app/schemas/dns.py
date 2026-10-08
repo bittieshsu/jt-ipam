@@ -10,7 +10,7 @@ from pydantic import Field, HttpUrl
 
 from app.schemas.base import StrictModel
 
-DNSServerType = Literal["powerdns", "bind9", "unbound_opnsense", "windows_dns", "univention_ucs"]
+DNSServerType = Literal["powerdns", "bind9", "unbound_opnsense", "windows_dns", "univention_ucs", "technitium"]
 
 
 class DNSServerCreate(StrictModel):

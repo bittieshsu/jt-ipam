@@ -1,6 +1,6 @@
-"""變更影響預演（docs/SPEC_CHANGE_IMPACT_zh-TW.md，M1）。
+"""IP 變更評估（docs/SPEC_CHANGE_IMPACT_zh-TW.md，M1）。
 
-預演只讀：不改任何來源設備或 IPAM 資料。計畫（change_plans）每次修改產生新的版本（change_plan_revisions，
+評估只讀：不改任何來源設備或 IPAM 資料。計畫（change_plans）每次修改產生新的版本（change_plan_revisions，
 不可變）；每次分析是一個 impact_runs，結果（證據、關係、發現、缺口）以 run 為單位保存成快照，
 之後來源資料怎麼變，這份結果都不會變。覆核（impact_reviews）只能新增。
 
@@ -34,7 +34,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
-SCENARIOS = ("ip_renumber", "device_decommission")
+# M2（2026-10-08）：交換器維護、虛擬化節點停機
+SCENARIOS = ("ip_renumber", "device_decommission", "switch_maintenance", "node_downtime")
 TARGET_TYPES = ("ip_address", "device")
 LIFECYCLE = ("draft", "in_review", "approved", "in_progress", "verified", "closed", "cancelled")
 JOB_STATUS = ("queued", "snapshotting", "extracting", "analyzing", "persisting",
@@ -89,6 +90,8 @@ class ChangePlan(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     lifecycle: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     latest_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))   # 刻意不設外鍵（見檔頭）
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 最近一次送審的時間（0190）：重新送審後，之前通過的關卡不算
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     request_hash: Mapped[str | None] = mapped_column(String(64))
 
@@ -324,6 +327,8 @@ class ImpactReview(Base, UUIDPrimaryKeyMixin):
     # 逐項處置：{finding_id: {"action": "...", "note": "..."}}
     dispositions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # 多關卡審核時這筆核准屬於第幾關（0190；單一關卡的模式為 NULL）
+    step_index: Mapped[int | None] = mapped_column(Integer)
 
     __table_args__ = (CheckConstraint(_in("decision", REVIEW_DECISION), name="decision"),
                       Index("ix_impact_reviews_plan", "plan_id", "created_at"))
@@ -336,6 +341,8 @@ class ImpactAIArtifact(Base, UUIDPrimaryKeyMixin):
         UUID(as_uuid=True), ForeignKey("impact_runs.id", ondelete="CASCADE"), nullable=False)
     artifact_type: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    # 執行中做到哪一步（collecting／asking／checking／retrying；做完清掉）—— 畫面輪詢時顯示「正在做什麼」
+    stage: Mapped[str | None] = mapped_column(String(24))
     question: Mapped[str | None] = mapped_column(Text)
     provider: Mapped[str | None] = mapped_column(String(32))
     model: Mapped[str | None] = mapped_column(String(128))
@@ -358,3 +365,113 @@ class ImpactAIArtifact(Base, UUIDPrimaryKeyMixin):
         Index("ix_impact_ai_run_type", "run_id", "artifact_type"),
         _fk_ix("impact_ai_artifacts", "requested_by"),
     )
+
+
+# ─────────────────── M2：最小服務物件與依賴（規格 §6） ───────────────────
+# 只為呈現業務影響，不是 CMDB。依賴邊 A → B 一律代表「A 依賴 B」；
+# 同一服務的每個依賴群組都必要，群組內 required_count 個成員可用就算滿足（k-of-n，三值邏輯）。
+
+SERVICE_CRITICALITY = ("critical", "high", "normal", "low")
+SERVICE_STATUS = ("active", "retired")
+DEP_MEMBER_TYPES = ("device", "vm", "ip", "subnet", "service")
+DEP_RELATIONS = ("hosted_on", "requires_network", "requires_storage", "requires_power", "requires_service",
+                 "references", "observed_on")
+# 這兩種只是關聯、不傳播停機（規格 §6.1）
+NON_PROPAGATING = frozenset({"references", "observed_on"})
+
+
+class ImpactService(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "impact_services"
+
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    owner_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("groups.id", ondelete="SET NULL"))
+    criticality: Mapped[str] = mapped_column(String(16), nullable=False, server_default="normal")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="active")
+    maintenance_notes: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+
+    __table_args__ = (
+        CheckConstraint(_in("criticality", SERVICE_CRITICALITY), name="criticality"),
+        CheckConstraint(_in("status", SERVICE_STATUS), name="status"),
+        _fk_ix("impact_services", "customer_id"),
+        _fk_ix("impact_services", "owner_user_id"),
+        _fk_ix("impact_services", "owner_group_id"),
+        _fk_ix("impact_services", "created_by"),
+        Index("uq_impact_services_name", "customer_id", func.lower(name), unique=True,
+              postgresql_nulls_not_distinct=True),
+    )
+
+
+class ImpactServiceEndpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """服務的進入點：既有物件（IP／裝置／虛擬機），或主機名稱＋埠＋協定（只是登錄資料，不會被拿去探測）。"""
+    __tablename__ = "impact_service_endpoints"
+
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("impact_services.id", ondelete="CASCADE"), nullable=False, index=True)
+    object_type: Mapped[str | None] = mapped_column(String(16))
+    object_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    hostname: Mapped[str | None] = mapped_column(String(255))
+    port: Mapped[int | None] = mapped_column(Integer)
+    protocol: Mapped[str | None] = mapped_column(String(8))
+    source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="manual")
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("object_type IS NULL OR object_type IN ('ip', 'device', 'vm')", name="object_type"),
+        CheckConstraint("(object_type IS NULL) = (object_id IS NULL)", name="object_pair"),
+        CheckConstraint("object_id IS NOT NULL OR hostname IS NOT NULL", name="has_target"),
+        _fk_ix("impact_service_endpoints", "confirmed_by"),
+        Index("ix_impact_service_endpoints_object", "object_type", "object_id",
+              postgresql_where="object_id IS NOT NULL"),
+    )
+
+
+class ImpactDependencyGroup(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """一個必要的依賴群組：成員中至少 required_count 個可用才算滿足。required_count 一定要明確設定。"""
+    __tablename__ = "impact_dependency_groups"
+
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("impact_services.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    required_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    purpose: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("required_count >= 1", name="required_count"),
+        _fk_ix("impact_dependency_groups", "confirmed_by"),
+    )
+
+
+class ImpactDependencyMember(Base, UUIDPrimaryKeyMixin):
+    __tablename__ = "impact_dependency_members"
+
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("impact_dependency_groups.id", ondelete="CASCADE"), nullable=False,
+        index=True)
+    object_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    object_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(_in("object_type", DEP_MEMBER_TYPES), name="object_type"),
+        CheckConstraint(_in("relation_type", DEP_RELATIONS), name="relation_type"),
+        UniqueConstraint("group_id", "object_type", "object_id", name="uq_impact_dependency_members"),
+        Index("ix_impact_dependency_members_object", "object_type", "object_id"),
+    )
+

@@ -19,6 +19,7 @@ import DashboardAIAudit from "@/components/DashboardAIAudit.vue";
 import DashboardRacksCard from "@/components/DashboardRacksCard.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "vue-router";
+import { kpiTarget } from "@/utils/dashboardKpiTarget";
 import {
   NCard,
   NH2,
@@ -107,7 +108,9 @@ const kpiTiles = computed(() => {
       sub: t("dashboard.kpi_ipv6_sub"),
     });
   }
-  return tiles;
+  // 點卡片到對應清單（使用者 2026-10-08）；稽核頁限管理員，非管理員不可點
+  const isAdmin = !!useAuthStore().me?.is_admin;
+  return tiles.map((x) => ({ ...x, to: kpiTarget(x.key, isAdmin) }));
 });
 
 // ── 統計圖表（純 SVG/CSS，無圖表 lib）──
@@ -260,7 +263,13 @@ onMounted(() => { void load(); void loadPins(); });
           :key="k.key"
           size="small"
           class="kpi-card"
+          :class="{ 'kpi-card--link': !!k.to }"
           :style="{ '--accent': k.color }"
+          :role="k.to ? 'link' : undefined"
+          :tabindex="k.to ? 0 : undefined"
+          :data-testid="`kpi-${k.key}`"
+          @click="k.to && router.push(k.to).catch(() => {})"
+          @keydown.enter="k.to && router.push(k.to).catch(() => {})"
           :content-style="{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px' }"
         >
           <div class="kpi-icon">
@@ -744,10 +753,13 @@ onMounted(() => { void load(); void loadPins(); });
 .kpi-card {
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
-.kpi-card:hover {
+/* 只有點得下去的卡片才有浮起與手形游標（不能點的看起來也要像不能點） */
+.kpi-card--link { cursor: pointer; }
+.kpi-card--link:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
+.kpi-card--link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kpi-icon {
   width: 44px;
   height: 44px;

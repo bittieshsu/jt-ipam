@@ -1,11 +1,11 @@
-"""變更影響預演的 MCP／AI 對話工具（規格 §10.6）。
+"""IP 變更評估的 MCP／AI 對話工具（規格 §10.6）。
 
 讀取類（逐物件層，跟 REST 一樣依目前權限過濾）：impact_list_plans、impact_get_run、impact_list_findings、
 impact_get_evidence。草稿類：impact_prepare_scenario 只驗證、不寫入，回一個綁定內容的草稿憑證。
 有副作用的（列在 MUTATING_TOOLS，只給管理員、唯讀金鑰不能呼叫、AI 對話要人按確認）：
 impact_create_plan（必須帶有效的草稿憑證，內容被改過就拒絕）、impact_start_run、impact_accept_task_draft。
 
-沒有、也不會有 apply_change／execute_shell／push_firewall 這類工具：預演不寫回任何來源。
+沒有、也不會有 apply_change／execute_shell／push_firewall 這類工具：評估不寫回任何來源。
 """
 
 from __future__ import annotations
@@ -59,19 +59,22 @@ async def _enabled(session: AsyncSession) -> bool:
     return bool((await get_config(session))["enabled"])
 
 
-_OFF = {"error": "impact_feature_disabled", "message": "變更影響預演尚未啟用"}
+_OFF = {"error": "impact_feature_disabled", "message": "IP 變更評估尚未啟用"}
 
 
 def _draft_payload(scenario_type: str, target_type: str, target_id: str, parameters: dict[str, Any],
                    title: str) -> dict[str, Any]:
     return {"scenario_type": scenario_type, "target_type": target_type, "target_id": str(target_id),
-            "parameters": {k: parameters.get(k) for k in ("new_ip", "target_subnet_id") if parameters.get(k)},
+            # 草稿憑證綁這一份；建案時以同樣方式重算比對（M2 的停機模式與一起停機的裝置也算在內）
+            "parameters": {k: parameters.get(k) for k in ("new_ip", "target_subnet_id", "mode", "also_down")
+                           if parameters.get(k)},
             "title": title or ""}
 
 
 async def impact_prepare_scenario(session: AsyncSession, *, user: User, scenario_type: str = "ip_renumber",
                                   target_ip: str | None = None, target_id: str | None = None,
                                   new_ip: str | None = None, target_subnet_id: str | None = None,
+                                  mode: str | None = None, also_down: list[str] | None = None,
                                   title: str | None = None) -> dict[str, Any]:
     """草稿：解析目標與參數、驗證，回草稿與憑證。不寫入任何東西；同一個位址有好幾筆時回候選、不猜。"""
     from app.services.change_impact.scenario import ScenarioError, build, candidates_for_address
@@ -80,16 +83,17 @@ async def impact_prepare_scenario(session: AsyncSession, *, user: User, scenario
     target_type = "ip_address" if scenario_type == "ip_renumber" else "device"
     try:
         if not target_id and target_ip and target_type == "ip_address":
+            # 沒有看得到的記錄時會丟出原因（沒有權限／IPAM 沒登記／不在管理的子網路），由下面的 except 回給模型
             cands = await candidates_for_address(session, user, target_ip)
-            if not cands:
-                return {"error": "impact_target_not_found", "message": "找不到你看得到的這個位址"}
             if len(cands) > 1:
                 return {"needs_choice": True, "candidates": cands,
                         "message": "同一個位址有好幾筆（重疊網段），請指定 target_id"}
             target_id = cands[0]["id"]
         if not target_id:
             return {"error": "impact_target_not_found", "message": "需要 target_id（或 IP 改址時給 target_ip）"}
-        params = {"new_ip": new_ip, "target_subnet_id": target_subnet_id}
+        # M2（交換器維護、節點停機）：停機模式與一起停機的裝置；驗證（權限、上限、模式）交給 build
+        params = {"new_ip": new_ip, "target_subnet_id": target_subnet_id} if scenario_type in (
+            "ip_renumber", "device_decommission") else {"mode": mode, "also_down": also_down or []}
         sc = await build(session, user, scenario_type=scenario_type, target_type=target_type,
                          target_id=uuid.UUID(str(target_id)), parameters=params, need="write")
     except (ScenarioError, ValueError) as exc:
@@ -212,12 +216,23 @@ async def impact_list_plans(session: AsyncSession, *, user: User, limit: int = 2
     stmt = select(ChangePlan).where(ChangePlan.archived_at.is_(None)).order_by(ChangePlan.created_at.desc())
     if lifecycle:
         stmt = stmt.where(ChangePlan.lifecycle == lifecycle)
+    from app.services.change_impact import reviewers
+    from app.services.change_impact.config import get_config
+    cfg = await get_config(session)
     out = []
     for p in (await session.execute(stmt.limit(500))).scalars():
         if await _visible_plan(session, user, str(p.id)) is None:
             continue
-        out.append({"id": str(p.id), "title": p.title, "scenario": p.scenario_type, "target": p.target_label,
-                    "lifecycle": p.lifecycle, "latest_run_id": str(p.latest_run_id) if p.latest_run_id else None})
+        row: dict[str, Any] = {"id": str(p.id), "title": p.title, "scenario": p.scenario_type, "target": p.target_label,
+                               "lifecycle": p.lifecycle,
+                               "latest_run_id": str(p.latest_run_id) if p.latest_run_id else None}
+        if p.lifecycle == "in_review":
+            # 審核進度（「申請審核設定」的審核關卡）：AI 才答得出「審到第幾關、輪到哪一關」
+            pol = await reviewers.policy(session, cfg)
+            row["review"] = {"mode": pol["approver_mode"], "stages": [
+                {"name": st["name"], "approved": st["approved"], "current": st["is_current"]}
+                for st in await reviewers.steps_progress(session, p, cfg)]}
+        out.append(row)
         if len(out) >= min(int(limit), 100):
             break
     return {"count": len(out), "plans": out}
@@ -237,7 +252,7 @@ async def impact_get_run(session: AsyncSession, *, user: User, run_id: str = "")
         return {"error": "not_found"}
     b = await visible_bundle(session, run, await viewer(session, user))
     return {"run_id": str(run.id), "status": run.job_status, "decision_status": run.decision_status,
-            "completeness": run.completeness, "notice": "預演結果，尚未執行任何變更；只涵蓋你目前的權限範圍",
+            "completeness": run.completeness, "notice": "評估結果，尚未執行任何變更；只涵蓋你目前的權限範圍",
             "visible_findings": len(b["findings"]),
             "top_findings": [{"id": str(f.id), "rule": f.rule_id, "subject": f.subject_label, "impact": f.impact,
                               "severity": f.severity, "disposition": f.disposition} for f in b["findings"][:20]],
@@ -292,13 +307,15 @@ def _p(props: dict[str, Any], required: list[str] | None = None) -> dict[str, An
 IMPACT_TOOLS: dict[str, dict[str, Any]] = {
     "impact_list_plans": {
         "fn": impact_list_plans,
-        "description": "List change impact preview plans the user can see (IP renumber / device decommission dry runs).",
+        "description": "List IP change assessment plans the user can see (renumber, decommission, switch maintenance, node "
+                       "downtime). Plans in review include the review policy mode and, for staged reviews, each stage's "
+                       "name, whether it is approved and whether it is the current one.",
         "parameters": _p({"limit": {"type": "integer"}, "lifecycle": {"type": "string"}}),
     },
     "impact_get_run": {
         "fn": impact_get_run,
         "description": "Get one change impact analysis run: decision status, completeness, top findings and data gaps. "
-                       "It is a dry run: nothing was changed.",
+                       "It is an assessment only: nothing was changed.",
         "parameters": _p({"run_id": {"type": "string"}}, ["run_id"]),
     },
     "impact_list_findings": {
@@ -314,13 +331,18 @@ IMPACT_TOOLS: dict[str, dict[str, Any]] = {
     },
     "impact_prepare_scenario": {
         "fn": impact_prepare_scenario,
-        "description": "Prepare (validate only, nothing is saved) a change impact dry run: scenario_type ip_renumber "
-                       "with target_ip or target_id and new_ip, or device_decommission with target_id. Returns a draft "
-                       "and a draft_token. If the address exists in several overlapping subnets, it returns candidates; "
-                       "never guess.",
-        "parameters": _p({"scenario_type": {"type": "string", "enum": ["ip_renumber", "device_decommission"]},
+        "description": "Prepare (validate only, nothing is saved) an IP change assessment: scenario_type ip_renumber "
+                       "with target_ip or target_id and new_ip; device_decommission with target_id; switch_maintenance "
+                       "with the switch's target_id; node_downtime with the node's target_id and mode (direct, "
+                       "migrate_first or ha_failure). Maintenance and downtime accept also_down, device ids taken down "
+                       "at the same time (20 in total). Returns a draft and a draft_token. If the address exists in "
+                       "several overlapping subnets, it returns candidates; never guess.",
+        "parameters": _p({"scenario_type": {"type": "string", "enum": ["ip_renumber", "device_decommission",
+                                                                        "switch_maintenance", "node_downtime"]},
                           "target_ip": {"type": "string"}, "target_id": {"type": "string"},
                           "new_ip": {"type": "string"}, "target_subnet_id": {"type": "string"},
+                          "mode": {"type": "string", "enum": ["direct", "migrate_first", "ha_failure"]},
+                          "also_down": {"type": "array", "items": {"type": "string"}},
                           "title": {"type": "string"}}),
     },
     "impact_create_plan": {
@@ -334,7 +356,7 @@ IMPACT_TOOLS: dict[str, dict[str, Any]] = {
     },
     "impact_start_run": {
         "fn": impact_start_run,
-        "description": "ADMIN ONLY. Start the analysis of a change impact plan (read-only dry run).",
+        "description": "ADMIN ONLY. Start the analysis of a change impact plan (read-only assessment).",
         "parameters": _p({"plan_id": {"type": "string"}}, ["plan_id"]),
     },
     "impact_accept_task_draft": {

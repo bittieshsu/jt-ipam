@@ -94,6 +94,10 @@ _DHCP_SOURCE_MODELS: dict[str, tuple[str, str]] = {
     "windows_dhcp": ("app.models.windows_dhcp", "WindowsDhcpServer"),
     "kea_dhcp": ("app.models.dhcp_standalone", "KeaDhcpServer"),
     "isc_dhcp": ("app.models.dhcp_standalone", "IscDhcpServer"),
+    "isoinsight": ("app.models.isoinsight", "IsoInsightSource"),
+    "technitium": ("app.models.technitium", "TechnitiumDhcpServer"),
+    # Check Point：租約與發放範圍來自閘道的 Gaia API（第二階段），source_id 是那台閘道的連線設定
+    "checkpoint": ("app.models.checkpoint_gaia", "CheckPointGaiaTarget"),
 }
 
 #: 異常偵測的一筆發現裡，調查要帶出來的欄位（其餘是畫面專用或太長）
@@ -726,7 +730,7 @@ async def _sec_firewall_refs(c: _Ctx) -> dict[str, Any] | None:
     的規則上面 firewall_rules 已經列了，這裡不重複。
     """
     from app.services.fw_lookup import rules_touching_ip
-    r = await rules_touching_ip(c.session, c.ip)
+    r = await rules_touching_ip(c.session, c.ip, ip_id=c.ipa.id)
 
     def dup(x: dict[str, Any]) -> bool:
         m = x.get("match") or {}

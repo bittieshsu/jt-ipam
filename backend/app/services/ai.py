@@ -708,59 +708,53 @@ async def semantic_search(
     *,
     query: str,
     limit: int = 20,
+    user: Any,
 ) -> dict[str, Any]:
-    """跨 subnets / ip_addresses / devices 的語意搜尋（cosine 距離，越小越像）。"""
+    """跨 subnets / ip_addresses / devices 的語意搜尋（cosine 距離，越小越像）。
+
+    可見範圍推進 SQL（先過濾再 LIMIT，否則看得到的會被看不到的擠掉）；歸檔的子網路與其中的 IP 不列。
+    以前完全沒帶使用者：任何登入帳號都拿得到全站資料（2026-10-07 RBAC 稽核）。
+    """
+    from app.services.permission import visible_ids
+    vis = {t: await visible_ids(session, user=user, object_type=t) for t in ("subnet", "ip", "device")}  # type: ignore[arg-type]
     vec = await embed(session, query)
     vlit = _vector_literal(vec)
 
-    sub_rows = (
-        await session.execute(
-            text(
-                """
-                SELECT id::text AS id, cidr::text AS label, description,
-                       (description_embedding <=> (:v)::vector) AS distance
-                  FROM subnets
-                 WHERE description_embedding IS NOT NULL
-                 ORDER BY description_embedding <=> (:v)::vector
-                 LIMIT :limit
-                """
-            ),
-            {"v": vlit, "limit": limit},
-        )
-    ).all()
+    async def rows(t: str, sql: str) -> list[Any]:
+        ids = vis[t]
+        if ids is not None and not ids:
+            return []
+        params: dict[str, Any] = {"v": vlit, "limit": limit}
+        scope = ""
+        if ids is not None:
+            scope = " AND x.id = ANY(CAST(:ids AS uuid[]))"
+            params["ids"] = [str(i) for i in ids]
+        return list((await session.execute(text(sql.replace("{scope}", scope)), params)).all())
 
-    ip_rows = (
-        await session.execute(
-            text(
-                """
-                SELECT id::text AS id, host(ip)::text AS label,
-                       hostname, description,
-                       (description_embedding <=> (:v)::vector) AS distance
-                  FROM ip_addresses
-                 WHERE description_embedding IS NOT NULL
-                 ORDER BY description_embedding <=> (:v)::vector
-                 LIMIT :limit
-                """
-            ),
-            {"v": vlit, "limit": limit},
-        )
-    ).all()
-
-    dev_rows = (
-        await session.execute(
-            text(
-                """
-                SELECT id::text AS id, name AS label, description,
-                       (description_embedding <=> (:v)::vector) AS distance
-                  FROM devices
-                 WHERE description_embedding IS NOT NULL
-                 ORDER BY description_embedding <=> (:v)::vector
-                 LIMIT :limit
-                """
-            ),
-            {"v": vlit, "limit": limit},
-        )
-    ).all()
+    sub_rows = await rows("subnet", """
+        SELECT x.id::text AS id, x.cidr::text AS label, x.description,
+               (x.description_embedding <=> (:v)::vector) AS distance
+          FROM subnets x
+         WHERE x.description_embedding IS NOT NULL AND x.archived_at IS NULL{scope}
+         ORDER BY x.description_embedding <=> (:v)::vector
+         LIMIT :limit
+    """)
+    ip_rows = await rows("ip", """
+        SELECT x.id::text AS id, host(x.ip)::text AS label, x.hostname, x.description,
+               (x.description_embedding <=> (:v)::vector) AS distance
+          FROM ip_addresses x JOIN subnets s ON s.id = x.subnet_id
+         WHERE x.description_embedding IS NOT NULL AND s.archived_at IS NULL{scope}
+         ORDER BY x.description_embedding <=> (:v)::vector
+         LIMIT :limit
+    """)
+    dev_rows = await rows("device", """
+        SELECT x.id::text AS id, x.name AS label, x.description,
+               (x.description_embedding <=> (:v)::vector) AS distance
+          FROM devices x
+         WHERE x.description_embedding IS NOT NULL{scope}
+         ORDER BY x.description_embedding <=> (:v)::vector
+         LIMIT :limit
+    """)
 
     return {
         "query": query,

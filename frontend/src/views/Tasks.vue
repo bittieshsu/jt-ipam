@@ -252,9 +252,35 @@ function formatSummary(kind: string, summary: any): string {
     if (num(summary.removed)) p.push(t("tasks.summary.removed_n", { n: num(summary.removed) }));
     return p.join("．");
   }
+  if (kind === "checkpoint.sync") {
+    const p = [t("tasks.summary.checkpoint", { gateways: num(summary.gateways), rules: num(summary.rules),
+                                              objects: num(summary.objects), nat: num(summary.nat) })];
+    if (summary.errors && typeof summary.errors === "object") {
+      p.push(t("tasks.summary.partial_failed", { what: Object.keys(summary.errors).join(", ") }));
+    }
+    return p.join("．");
+  }
+  if (kind === "checkpoint_gaia.sync") {
+    const p = [t("tasks.summary.checkpoint_gaia", { subnets: num(summary.dhcp_subnets), pools: num(summary.pools),
+                                                   arp: num(summary.arp_rows), leases: num(summary.leases) })];
+    if (summary.errors && typeof summary.errors === "object") {
+      p.push(t("tasks.summary.partial_failed", { what: Object.keys(summary.errors).join(", ") }));
+    }
+    return p.join("．");
+  }
+  if (kind === "technitium_dhcp.sync") {
+    return t("tasks.summary.isc_dhcp", { pools: num(summary.pools), reservations: num(summary.reservations),
+                                         leases: num(summary.leases) });
+  }
   if (kind === "isc_dhcp.sync") {
     return t("tasks.summary.isc_dhcp", { pools: num(summary.pools), reservations: num(summary.reservations),
                                          leases: num(summary.leases) });
+  }
+  if (kind === "isoinsight.sync") {
+    // 結果類型要講出來：部分成功不可以看起來跟完全成功一樣
+    return t("tasks.summary.isoinsight", {
+      result: t(`isoinsight.result.${summary.result ?? "success"}`), fetched: num(summary.fetched),
+      created: num(summary.created), updated: num(summary.updated), unmatched: num(summary.unmatched) });
   }
   if (kind === "oui.refresh") {
     return t("tasks.summary.oui", { parsed: num(summary.parsed), inserted: num(summary.inserted),
@@ -383,7 +409,7 @@ function formatSummary(kind: string, summary: any): string {
   return lines.join("；");
 }
 
-const TEXT_SUMMARY_KINDS = new Set(["ip.identify", "rustdesk.sync", "isc_dhcp.sync",
+const TEXT_SUMMARY_KINDS = new Set(["ip.identify", "rustdesk.sync", "isc_dhcp.sync", "isoinsight.sync", "checkpoint.sync", "checkpoint_gaia.sync",
                                     "oui.refresh", "recog.refresh", "geoip.refresh"]);
 
 const allHistoryCols = computed<DataTableColumns<BackgroundTask>>(() => autoSort([

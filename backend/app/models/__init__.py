@@ -27,13 +27,24 @@ from app.models.change_impact import (
     ChangePlanRevision,
     ChangeTask,
     ImpactAIArtifact,
+    ImpactDependencyGroup,
+    ImpactDependencyMember,
     ImpactEvidence,
     ImpactFinding,
     ImpactGap,
     ImpactRelation,
     ImpactReview,
     ImpactRun,
+    ImpactService,
+    ImpactServiceEndpoint,
 )
+from app.models.checkpoint import (
+    CheckPointGateway,
+    CheckPointObject,
+    CheckPointRule,
+    CheckPointServer,
+)
+from app.models.checkpoint_gaia import CheckPointDhcpSubnet, CheckPointGaiaTarget
 from app.models.custom_field import CustomFieldDefinition
 from app.models.customer import Customer
 from app.models.device import Device
@@ -62,6 +73,7 @@ from app.models.ip_hostname import IPHostnameObservation
 from app.models.ip_liveness import IPLivenessDay
 from app.models.ip_range import IPRange
 from app.models.ip_request import IPRequest, IPRequestEvent, IPRequestStageApproval
+from app.models.isoinsight import IsoInsightLease, IsoInsightSource, IsoInsightSyncRun
 from app.models.jump_host import JumpHost
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice, LibreNMSInstance
 from app.models.location import Location, Rack
@@ -101,6 +113,7 @@ from app.models.section import Section
 from app.models.ssh_credential import SSHCredential
 from app.models.subnet import Subnet
 from app.models.system_setting import SystemSetting
+from app.models.technitium import TechnitiumDhcpScope, TechnitiumDhcpServer
 from app.models.unmanaged_sighting import UnmanagedSighting
 from app.models.user import APIToken, Group, User, UserGroupMember, UserPreference
 from app.models.virt import (
@@ -162,12 +175,16 @@ __all__ = [
     "IPRequestEvent",
     "IPRequestStageApproval",
     "ImpactAIArtifact",
+    "ImpactDependencyGroup",
+    "ImpactDependencyMember",
     "ImpactEvidence",
     "ImpactFinding",
     "ImpactGap",
     "ImpactRelation",
     "ImpactReview",
     "ImpactRun",
+    "ImpactService",
+    "ImpactServiceEndpoint",
     "JumpHost",
     "LibreNMSDevice",
     "LibreNMSInstance",

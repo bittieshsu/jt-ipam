@@ -50,7 +50,7 @@ class DNSServer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "type IN ('powerdns','bind9','unbound_opnsense','windows_dns','univention_ucs')",
+            "type IN ('powerdns','bind9','unbound_opnsense','windows_dns','univention_ucs','technitium')",
             name="ck_dns_servers_type_valid",
         ),
     )

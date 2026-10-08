@@ -19,10 +19,17 @@ def _listed() -> set[str]:
             if ln.strip() and not ln.strip().startswith("#")}
 
 
+# 各功能自己的全站設定也算：IP 變更評估的開關（/change-impact/settings）、審核關卡（/review-policy、
+# /ip-requests/policy）。2026-10-08 發版：change-impact.spec 先把功能關掉再打開，平行跑的 change-impact-m2
+# 剛好碰上功能被關，精靈送不出去，看起來像維護評估壞了。
+_GLOBAL_PATHS = re.compile(
+    r"/api/v1/system/(?!permissions)[a-z-]+"   # 權限授予給的是 spec 自己建的臨時帳號，不算全站設定
+    r"|/api/v1/[a-z-]+/(?:settings|review-policy)\b"
+    r"|/api/v1/ip-requests/policy\b")
+
+
 def _writes_system_settings(src: str) -> bool:
-    # 權限授予（/system/permissions）給的是 spec 自己建的臨時帳號，不算全站設定
-    return bool(re.search(r"/api/v1/system/(?!permissions)[a-z-]+", src)
-                and re.search(r'"(PUT|PATCH)"|\.(put|patch)\(', src))
+    return bool(_GLOBAL_PATHS.search(src) and re.search(r'"(PUT|PATCH)"|\.(put|patch)\(', src))
 
 
 def test_specs_that_write_system_settings_are_listed() -> None:

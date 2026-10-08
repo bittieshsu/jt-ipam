@@ -61,7 +61,7 @@ function srcLabel(v: string): string {
   return te(key) ? t(key) : v;
 }
 const VENDOR: Record<string, string> = {
-  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto",
+  opnsense: "OPNsense", pfsense: "pfSense", fortigate: "FortiGate", paloalto: "Palo Alto", checkpoint: "Check Point",
   mikrotik: "MikroTik", librenms: "LibreNMS",
 };
 /** 依據：ipam＝IP 記錄現在就是這個 MAC、change_log＝異動記錄、arp:<來源>＝ARP 觀測 */
