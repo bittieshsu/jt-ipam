@@ -1478,6 +1478,8 @@ NOTIFY_MATRIX_KEY = "notification_matrix"
 # 但**仍然是升級時的預設來源**：已經把異常通知的 Email 打開的站台，升級後十類都還開著。
 ANOMALY_EVENTS: tuple[str, ...] = (
     "anomaly.ip_conflicts",
+    "anomaly.arp_flux",
+    "anomaly.l2_subnet_bleed",
     "anomaly.mac_drifts",
     "anomaly.ghost_ips",
     "anomaly.unauthorized_ips",

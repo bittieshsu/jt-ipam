@@ -815,6 +815,27 @@ sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart jt-ipam-backend</
           <span class="ja">モデルがツールを調べて回答をまとめている間、数十秒間何も送られないことがあり、リバースプロキシの読み取りタイムアウト（同梱の nginx 設定では 30 秒）で接続が切られます。バックエンドはまだ処理を続けています。1.0.4 から AI チャット、IP 調査の解説、経路追跡は待機中に 10 秒ごとにキープアライブを送るため、プロキシに切られなくなりました。アップグレードするだけでよく、タイムアウトの変更は不要です。jt-ipam の前に独自のリバースプロキシがある場合は、これらの応答をバッファリングしないでください（nginx なら <code>proxy_buffering off</code>、または上流の <code>X-Accel-Buffering: no</code> に従う設定）。そうしないと進捗が最後にまとめて表示されます。長く待ったあとに出るのがネットワークエラーではなく「LLM サーバーが時間内に応答しませんでした」なら、モデル自体が遅すぎます。「管理 → LLM / AI」でタイムアウトを延ばすか、より小さいモデルを選んでください。</span>
         </p>
       </article>
+
+      <article class="qa" id="qa-arp-flux">
+        <h3>
+          <span class="zh">路由器日誌一直出現 <code>arp: ... moved from ... to ...</code>，異常偵測說 IP 衝突，其實是同一台主機</span>
+          <span class="en">The router log keeps printing <code>arp: ... moved from ... to ...</code> and anomaly detection reports an IP conflict, but it is one host</span>
+          <span class="ja">ルーターのログに <code>arp: ... moved from ... to ...</code> が出続け、異常検出が IP 衝突と報告するが、実は同じホスト</span>
+        </h3>
+        <p>
+          <span class="zh">這是 ARP flux：一台有兩張網卡的 Linux 主機，預設（arp_ignore=0）會用任何一張網卡回答本機任何一個位址的 ARP；兩個網段又在同一個二層時，同一個 IP 就會被兩張網卡輪流回答。兩個 MAC 都已經連到同一台裝置時，異常偵測會把它列在「同一台主機多張網卡（ARP flux）」，並在「子網段混在同一個二層」列出兩個網段沒有隔離的證據。在那台主機設定下面兩行並寫進 <code>/etc/sysctl.d/</code>：</span>
+          <span class="en">This is ARP flux: a Linux host with two NICs answers ARP for any of its addresses on either NIC by default (arp_ignore=0), and when the two segments share one layer 2 the same IP is answered by both NICs in turn. When both MACs are linked to the same device, anomaly detection lists it under "One host on several NICs (ARP flux)" and shows the evidence that the segments are not isolated under "Subnets sharing one layer 2". Set these two lines on that host and save them under <code>/etc/sysctl.d/</code>:</span>
+          <span class="ja">これは ARP flux です。NIC が 2 枚ある Linux ホストは既定（arp_ignore=0）で、自分のどのアドレスの ARP にもどちらの NIC でも応答します。2 つのセグメントが同じレイヤー 2 にあると、同じ IP に 2 枚の NIC が交互に応答します。両方の MAC が同じデバイスに関連付けられていれば、異常検出は「同一ホストの複数 NIC（ARP flux）」に表示し、セグメントが分離されていない証拠を「同じレイヤー 2 に複数サブネット」に表示します。そのホストで次の 2 行を設定し、<code>/etc/sysctl.d/</code> に保存してください。</span>
+        </p>
+        <pre><code>printf 'net.ipv4.conf.all.arp_ignore=1\nnet.ipv4.conf.all.arp_announce=2\n' | \
+  sudo tee /etc/sysctl.d/90-arp-flux.conf
+sudo sysctl --system</code></pre>
+        <p>
+          <span class="zh">IP 衝突裡標成「疑似讀壞」的 MAC（只有一個來源、查不到廠商、由另外兩個 MAC 拼成）是設備的 ARP 表正在切換時 SNMP 讀到一半，不是另一台機器；修好 ARP flux 之後就不會再出現。</span>
+          <span class="en">A MAC marked "Likely misread" in an IP conflict (single source, no vendor, spliced from two other MACs) is an SNMP walk that caught a device's ARP table mid-change, not another machine; it stops once the ARP flux is fixed.</span>
+          <span class="ja">IP 衝突で「読み取り破損の疑い」とされた MAC（報告元 1 つ・ベンダー不明・別の 2 つの MAC をつなぎ合わせた形）は、デバイスの ARP テーブルの切り替え中に SNMP が途中まで読んだもので、別の機器ではありません。ARP flux を直せば出なくなります。</span>
+        </p>
+      </article>
     </section>
 
     <!-- ══════════════ 遠端主控台 ══════════════ -->

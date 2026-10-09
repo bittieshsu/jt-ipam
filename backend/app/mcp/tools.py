@@ -1124,11 +1124,28 @@ async def get_ip_history(
         """), {"sid": ipa.subnet_id, "ip": ip})
         arp_stmt = arp_stmt.where(or_(ARPEntry.subnet_id == ipa.subnet_id,
                                       and_(ARPEntry.subnet_id.is_(None), literal(not others))))
-    for a in ([] if not can_see_global_evidence else (await session.execute(
-            arp_stmt.order_by(ARPEntry.last_seen_at.desc()).limit(20))).scalars().all()):
-        events.append({"at": a.last_seen_at.isoformat() if a.last_seen_at else None,
-                       "kind": "arp", "mac": str(a.mac),
-                       "first_seen": a.first_seen_at.isoformat() if getattr(a, "first_seen_at", None) else None})
+    # 一個 MAC 一筆：誰回報過（哪台設備的 ARP 表、哪個介面）、幾個回報者、是否疑似讀壞或過期快取 ——
+    # 以前一列一筆原始紀錄、最多 20 筆、沒有來源，看不出「這個 MAC 只有路由器看過一次」（2026-10-09 回饋）
+    if can_see_global_evidence:
+        from app.services.anomaly import mac_rows, reporter_names
+        from app.services.arp_quality import MacSeen, classify_suspects, reporter_key
+        from app.services.oui import mac_prefix, vendor_map
+        arp_macs: dict[str, MacSeen] = {}
+        for a in (await session.execute(arp_stmt.order_by(ARPEntry.last_seen_at.desc()).limit(500))).scalars().all():
+            arp_macs.setdefault(str(a.mac), MacSeen()).add(
+                reporter_key(str(a.source), a.device_id), source=str(a.source), at=a.last_seen_at,
+                first=getattr(a, "first_seen_at", None), device_id=a.device_id, interface=a.interface)
+        if arp_macs:
+            by_prefix = await vendor_map(session, list(arp_macs))
+            vendors = {m: by_prefix.get(mac_prefix(m) or "") for m in arp_macs}
+            names = await reporter_names(session, {r["device_id"] for sn in arp_macs.values()
+                                                   for r in sn.reporters.values()})
+            for row in mac_rows(arp_macs, vendors, classify_suspects(arp_macs, vendors), names):
+                first = arp_macs[row["mac"]].first
+                events.append({"at": row["last_seen_at"], "kind": "arp", "mac": row["mac"],
+                               "first_seen": first.isoformat() if first else None,
+                               "vendor": row["vendor"], "reporter_count": row["reporter_count"],
+                               "reporters": row["reporters"][:20], "suspect": row["suspect"]})
 
     # 主機名稱觀測：各來源（rdns/netbios/mdns/dhcp…）各自的說法
     if ipa is not None:
@@ -1157,7 +1174,10 @@ async def get_ip_history(
             "discovery_source": ipa.discovery_source,
         },
         "events": events,
-        "note": "資料為系統記錄的原始證據；時間為 UTC。判讀請以多筆證據交叉為準。",
+        "note": "資料為系統記錄的原始證據；時間為 UTC。判讀請以多筆證據交叉為準。ARP 每個 MAC 一筆："
+                "reporter_count＝幾個來源（設備）看過；suspect＝corrupt（只有一個來源、查不到廠商、"
+                "是另外兩個 MAC 拼起來的，多半是 SNMP 讀到一半）或 stale_cache（單一來源的本地管理位址，"
+                "與多來源佐證的 MAC 不一致），這兩種不要當成真的另一台機器。",
     }
 
 
@@ -2728,6 +2748,9 @@ async def list_anomalies(
     from app.services import anomaly as _an
     detectors = {
         "ip_conflicts": _an.detect_ip_conflicts,
+        # 2026-10-09：同一台主機多張網卡回應同一個 IP（從 IP 衝突分出來）、兩個子網段混在同一個二層
+        "arp_flux": _an.detect_arp_flux,
+        "l2_subnet_bleed": _an.detect_l2_subnet_bleed,
         "mac_drifts": _an.detect_mac_drifts,
         "ghost_ips": _an.detect_ghost_ips,
         "unauthorized_ips": _an.detect_unauthorized_ips,
@@ -2764,8 +2787,14 @@ async def list_anomalies(
     out: dict[str, Any] = {
         "total": total,
         "counts": {k: len(v) for k, v in buckets.items()},
+        # 指定單一 kind 時 items 直接是陣列（附 kind）；沒指定時是 {kind: [...]}。以前一律是物件，
+        # 用戶端以為是陣列、拿到長度 1 或 0，就誤判成「有統計沒明細」（2026-10-09 回饋）
         "items": {k: v[:n] for k, v in buckets.items()},
     }
+    if kind:
+        only = next(iter(buckets))
+        out["kind"] = only
+        out["items"] = buckets[only][:n]
     if "ip_conflicts" in buckets:
         # GitHub issue #41：偵測器沒有資料時，模型把空結果講成「系統中沒有任何已記錄的 IP 衝突」。
         # 「沒有依據」與「看過了、沒有衝突」要分得開，而且結果是**此刻**的狀態、不是歷史。
@@ -3336,14 +3365,23 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_anomalies": {
         "fn": list_anomalies,
         "description": "Anomaly detection results (measured facts, not AI inference): IP "
-                       "conflicts, MAC drifts, ghost IPs, unauthorised IPs, rogue DHCP servers, and "
-                       "externally exposed hosts (NAT / WAN firewall rules, cross-checked "
-                       "against liveness, monitoring coverage and DNS).",
+                       "conflicts, ARP flux (one host answering an IP on several NICs), two subnets "
+                       "sharing one layer-2 segment, MAC drifts, ghost IPs, unauthorised IPs, rogue DHCP "
+                       "servers, and externally exposed hosts (NAT / WAN firewall rules, cross-checked "
+                       "against liveness, monitoring coverage and DNS). Result shape: {total, counts: "
+                       "{kind: n}, items, note}. Without `kind`, items is an object {kind: [rows]}; with "
+                       "`kind`, items is the array of rows for that kind and `kind` is echoed. In "
+                       "ip_conflicts / arp_flux rows each MAC carries `reporters` (which device's ARP "
+                       "table, interface, last seen), `reporter_count` and `suspect` (\"corrupt\" = a "
+                       "MAC spliced from two others by a half-read SNMP walk, \"stale_cache\" = a "
+                       "single-source locally administered MAC contradicting a corroborated one); "
+                       "suspect MACs are listed but not counted as machines. arp_flux rows include the "
+                       "host, which NIC each MAC belongs to and the sysctl fix.",
         "parameters": {
             "type": "object",
             "properties": {
                 "kind": {"type": "string", "description":
-                         "ip_conflicts | mac_drifts | ghost_ips | unauthorized_ips | "
+                         "ip_conflicts | arp_flux | l2_subnet_bleed | mac_drifts | ghost_ips | unauthorized_ips | "
                          "rogue_dhcp | external_exposure | dangling_dns | duplicate_ip_records | suspicious_changes | "
                          "fw_rule_rot | arp_only_liveness | stale_device_links | mac_flapping | "
                          "identity_changes (device type or OS family changed)"},

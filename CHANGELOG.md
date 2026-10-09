@@ -6,6 +6,14 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+### Added
+- Anomaly detection, "One host on several NICs (ARP flux)": when every trustworthy MAC on a conflicting IP belongs to the same device, the row is no longer an IP conflict (before, it silently disappeared). It shows the host, which NIC each MAC belongs to (registered IP or port name) and the fix (`net.ipv4.conf.all.arp_ignore=1`, `net.ipv4.conf.all.arp_announce=2`).
+- Anomaly detection, "Subnets sharing one layer 2": an IP in one subnet answered by a MAC in use in another subnet, or one VLAN on a switch learning MACs from two subnets. MACs registered in several subnets (router subinterfaces) or registered but not in use are not used as evidence.
+
+### Changed
+- IP conflicts and IP changing MAC often no longer count MACs that are likely misread or stale. Likely misread: reported by one source, no vendor, and spliced from two other MACs of the same IP (or one byte away from a MAC several sources agree on), typical of an SNMP walk catching a router's ARP table mid-change. Likely stale cache: a locally administered MAC reported by one device while several sources see another MAC. Both stay listed with a marker. Each MAC now shows how many sources reported it and, on hover, which device's ARP table, interface and when; IP conflicts get a confidence (low when the other machine is reported by a single source). The MAC history page shows the same per IP.
+- AI tools: `list_anomalies` documents its result shape and returns `items` as an array (with `kind`) when a single kind is requested; `get_ip_history` lists one ARP entry per MAC with its reporters, reporter count and suspect marker.
+
 ## [1.0.5] - 2026-10-09
 
 ### Changed

@@ -158,7 +158,7 @@ async function doIgnore(ipId: string, category: string) {
 }
 
 const CATEGORY_KEYS = [
-  "ip_conflicts", "mac_drifts", "ghost_ips", "unauthorized_ips", "rogue_dhcp",
+  "ip_conflicts", "arp_flux", "l2_subnet_bleed", "mac_drifts", "ghost_ips", "unauthorized_ips", "rogue_dhcp",
   "external_exposure", "dangling_dns", "duplicate_ip_records", "suspicious_changes",
   "fw_rule_rot",
   "arp_only_liveness",
@@ -173,7 +173,7 @@ const links = useEntityLinks(router);
 const activeTab = ref(
   CATEGORY_KEYS.includes(String(route.query.tab)) ? String(route.query.tab) : "ip_conflicts");
 
-type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
+type CatKey = "ip_conflicts" | "arp_flux" | "l2_subnet_bleed" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "rogue_dhcp" | "external_exposure" | "dangling_dns" | "duplicate_ip_records" | "suspicious_changes"
   | "fw_rule_rot"
   | "arp_only_liveness"
@@ -182,6 +182,9 @@ type CatKey = "ip_conflicts" | "mac_drifts" | "ghost_ips" | "unauthorized_ips"
   | "identity_changes";
 const CATEGORIES: { key: CatKey; label: () => string }[] = [
   { key: "ip_conflicts", label: () => t("anomaly.ip_conflicts") },
+  // 2026-10-09：同一台主機多張網卡（從 IP 衝突分出來）、兩個子網段混在同一個二層
+  { key: "arp_flux", label: () => t("anomaly.arp_flux") },
+  { key: "l2_subnet_bleed", label: () => t("anomaly.l2_bleed") },
   { key: "mac_drifts", label: () => t("anomaly.mac_drifts") },
   { key: "ghost_ips", label: () => t("anomaly.ghost_ips") },
   { key: "unauthorized_ips", label: () => t("anomaly.unauthorized") },
@@ -224,6 +227,7 @@ const anyFindings = computed(() => {
     + (r.stale_device_links?.length ?? 0)
     + (r.mac_flapping?.length ?? 0)
     + (r.identity_changes?.length ?? 0)
+    + (r.arp_flux?.length ?? 0) + (r.l2_subnet_bleed?.length ?? 0)
     + (r.mac_drift_reference?.length ?? 0)) > 0;
 });
 // MAC 漂移的參考項目（虛擬機遷移、隨機 MAC 漫遊、上行路徑變更）：同一個頁籤下方收合顯示，不通知
@@ -315,7 +319,12 @@ function colLabel(k: string): string {
 // 各類別的欄位（順序）＋預設隱藏（ip_address_id 是內部 UUID，預設不顯示，可在「欄位」勾選）
 const CAT_KEYS: Record<CatKey, string[]> = {
   // 依據：ARP（1 小時內多個 MAC）或 MAC 來回切換（24 小時內，issue #41）
-  ip_conflicts: ["ip", "live", "device_kind", "evidence", "changes", "macs"],
+  // 可信度：至少兩台機器各有兩個以上來源看到才算高（2026-10-09）
+  ip_conflicts: ["ip", "live", "device_kind", "evidence", "confidence", "changes", "macs"],
+  // 同一台主機多張網卡：哪台、每個 MAC 是哪張網卡、建議的 sysctl
+  arp_flux: ["ip", "live", "host", "evidence", "macs", "fix"],
+  // 兩個子網段混在同一個二層：哪兩段、證據數量與例子
+  l2_subnet_bleed: ["subnets", "evidence", "arp_count", "fdb_count", "arp_examples", "fdb_examples"],
   // 同一台交換器上換了埠：從哪個埠換到哪個埠、什麼時候（出現位置是明細，預設收起）
   mac_drifts: ["mac", "ips", "device_name", "from_port", "to_port", "moved_at", "locations"],
   ghost_ips: ["ip", "live", "hostname", "device_kind", "last_seen_scanner", "last_seen_librenms", "ip_address_id"],
@@ -345,6 +354,9 @@ const CAT_KEYS: Record<CatKey, string[]> = {
 // 設備類型（IP 記錄上掃描代理判讀出的類型）：各頁都可以在「欄位」勾選；只有「類型或 OS 突變」預設顯示
 const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   ip_conflicts: ["device_kind"],
+  // 欄位多、MAC 欄又寬：次要的預設收起，讓「建議修法」「例子」不必橫向捲動就看得到
+  arp_flux: ["evidence"],
+  l2_subnet_bleed: ["arp_count", "fdb_count"],
   mac_drifts: ["locations"],
   mac_flapping: ["ip_id", "days", "device_kind"],
   identity_changes: ["ip_id"],
@@ -432,13 +444,26 @@ function seenBy(src: string): string {
 function renderMac(o: Record<string, any>) {
   // 本地管理位址（虛擬機／容器／手機 MAC 隨機化）沒有 OUI 登記，查不到廠商是正常的。
   // 標出來才看得懂：同一 IP 上「真實 MAC + 隨機 MAC」多半是同一台裝置，不是兩台在搶。
-  const tag = o.local
-    ? h("span", { class: "anm-mac-tag anm-mac-tag--local", title: t("anomaly.mac_local") }, t("anomaly.mac_local"))
-    : (o.vendor ? h("span", { class: "anm-mac-tag", title: String(o.vendor) }, String(o.vendor)) : h("span"));
-  // 誰看到的（掃描代理／防火牆 ARP 表／LibreNMS）：兩個 MAC 各是誰回報的，判斷真假時很關鍵
-  const seen = Array.isArray(o.sources) && o.sources.length
-    ? h("span", { class: "anm-mac-seen", title: colLabel("sources") },
-      o.sources.map((x: string) => seenBy(String(x))).join("、"))
+  // 疑似讀壞／過期快取（2026-10-09）：照樣列出、不算一台機器。標在廠商的位置（讀壞的本來就查不到廠商）
+  const tag = o.suspect
+    ? h("span", { class: "anm-mac-tag anm-mac-tag--suspect", title: t(`anomaly.suspect_${o.suspect}_hint`) },
+        t(`anomaly.suspect_${o.suspect}`))
+    : o.local
+      ? h("span", { class: "anm-mac-tag anm-mac-tag--local", title: t("anomaly.mac_local") }, t("anomaly.mac_local"))
+      : (o.vendor ? h("span", { class: "anm-mac-tag", title: String(o.vendor) }, String(o.vendor)) : h("span"));
+  // 誰看到的（掃描代理／防火牆 ARP 表／LibreNMS）：兩個 MAC 各是誰回報的，判斷真假時很關鍵。
+  // 幾個來源＋滑過看是哪幾台設備的 ARP 表（哪個介面、最後一次）——「只有一台看過」一眼就看得出來
+  const reporters: any[] = Array.isArray(o.reporters) ? o.reporters : [];
+  const parts: string[] = [];
+  if (Array.isArray(o.nic) && o.nic.length) parts.push(`${t("anomaly.nic")}：${o.nic.join("、")}`);
+  if (Array.isArray(o.sources) && o.sources.length) parts.push(o.sources.map((x: string) => seenBy(String(x))).join("、"));
+  if (reporters.length) parts.push(t("anomaly.reporter_count", { n: o.reporter_count ?? reporters.length }));
+  const detail = reporters.map((r) => [r.device || seenBy(String(r.source)), r.interface,
+                                       r.last_seen_at ? fmtDateTime(String(r.last_seen_at)) : null]
+    .filter(Boolean).join(" · ")).join("\n");
+  const seen = parts.length
+    ? h("span", { class: "anm-mac-seen", title: detail || colLabel("sources"),
+                  "data-testid": reporters.length ? "anm-mac-reporters" : undefined }, parts.join(" · "))
     : h("span");
   // 每一列同一組欄寬（MAC｜廠商｜誰看到的｜時間），多個 MAC 疊起來時上下對齊；MAC 與廠商不折行
   return h("div", { class: "anm-mac-row" }, [
@@ -465,8 +490,38 @@ function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
   if ((k === "ip" || k === "server_ip" || k === "offered_ip") && typeof v === "string") {
     return renderIp(row, v);
   }
+  if (cat === "l2_subnet_bleed" && k === "evidence" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
+      v.map((x: string) => h("div", null, te(`anomaly.evidence_${x}`) ? t(`anomaly.evidence_${x}`) : x)));
+  }
   // 依據是代碼清單（arp / mac_flip），要翻成字 —— 走下面通用的陣列處理會把代碼原樣印出來
   if (k === "evidence") return pretty(k, v);
+  if (k === "confidence") {
+    return h(NTag, { size: "small", bordered: false, type: v === "high" ? "error" : "default",
+                     title: t("anomaly.confidence_hint") },
+             { default: () => t(`anomaly.confidence_${v}`) });
+  }
+  // ARP flux 的建議修法：一行一個 sysctl，等寬字
+  if (k === "fix" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12px" },
+      v.map((line: string) => h("code", { style: "white-space:nowrap" }, line)));
+  }
+  if (k === "subnets" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px;white-space:nowrap" },
+      v.map((c: string, i: number) => h("div", null, i ? `↔ ${c}` : c)));
+  }
+  if (k === "arp_examples" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
+      v.map((x: any) => h("div", { style: "white-space:normal" }, t("anomaly.bleed_arp_line", {
+        ip: x.ip, subnet: x.subnet ?? "—", mac: x.mac, owner: x.mac_owner_ip, owner_subnet: x.mac_owner_subnet ?? "—" }))));
+  }
+  if (k === "fdb_examples" && Array.isArray(v)) {
+    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
+      v.map((x: any) => h("div", { style: "white-space:normal" }, t("anomaly.bleed_fdb_line", {
+        switch: x.switch, vlan: x.vlan,
+        detail: Object.entries(x.macs ?? {}).map(([cidr, list]) => `${cidr}：${(list as any[])
+          .map((m) => (m.port ? `${m.mac}（${m.port}）` : m.mac)).join("、")}`).join("；") }))));
+  }
   // MAC 歷程（只有「頻繁更換 MAC」這一類）：一個 MAC 一行、**不折行**。MAC 字串被折成
   // 「0a:1b:2 / c:00:00 / :01」三行的話，這一欄就完全讀不出先後順序。
   // ⚠️ 只限這一類：IP 衝突的 MAC 要走 renderMac（廠商、本地管理標記、誰看到的）——
@@ -476,6 +531,11 @@ function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
       v.map((it: any) => h("div", { style: "white-space:nowrap" }, [
         h("span", { style: "font-family:var(--mono,monospace)" }, String(it.mac ?? "")),
+        // 疑似讀壞／過期快取：列出來但沒算進「換過幾個 MAC」
+        it.suspect
+          ? h("span", { class: "anm-mac-tag anm-mac-tag--suspect", style: "margin-left:8px",
+                        title: t(`anomaly.suspect_${it.suspect}_hint`) }, t(`anomaly.suspect_${it.suspect}`))
+          : null,
         it.last_seen_at
           ? h("span", { style: "opacity:.65;margin-left:8px" }, fmtDateTime(String(it.last_seen_at)))
           : null,
@@ -534,7 +594,7 @@ function textWidth(s: string): number {
   return measureCtx ? measureCtx.measureText(s).width : s.length * 8;
 }
 // 這幾欄一格裡放好幾行物件（MAC＋廠商＋誰看到的、出現位置…），維持原本的寬度設定
-const MULTI_LINE_KEYS = new Set(["locations", "macs", "ips"]);
+const MULTI_LINE_KEYS = new Set(["locations", "macs", "ips", "fix", "arp_examples", "fdb_examples"]);
 const COL_PAD = 26;          // 儲存格左右內距
 const SORT_ICON = 30;        // 標頭的排序圖示
 const COL_MIN = 64;
@@ -559,7 +619,7 @@ function autoWidth(key: CatKey, k: string): number {
 // 使用者要求：清單的操作欄也要有 IP 詳細頁那顆「探測」，同一個功能（只有管理員）。
 // 每一列是單一主機的類別才有；IPAM 有記錄就開那筆記錄的探測頁，沒有（未授權 IP）就以位址探測。
 const IDENTIFY_FIELD: Partial<Record<CatKey, string>> = {
-  ip_conflicts: "ip", ghost_ips: "ip", unauthorized_ips: "ip", rogue_dhcp: "server_ip",
+  ip_conflicts: "ip", arp_flux: "ip", ghost_ips: "ip", unauthorized_ips: "ip", rogue_dhcp: "server_ip",
   external_exposure: "ip", duplicate_ip_records: "ip", arp_only_liveness: "ip",
   mac_flapping: "ip", stale_device_links: "ip", identity_changes: "ip",
 };
@@ -585,12 +645,14 @@ function catCols(key: CatKey): DataTableColumns<any> {
   // 這幾張表原本整排標頭都不能排 —— 十幾筆 MAC 變動想按時間或按網段看都做不到。
   const cols = autoSort(keys.map((k) => {
     // MAC 清單一列要放好幾個「MAC＋時間」，窄欄會擠成一團看不出先後
-    const wide = k === "locations" || k === "macs";
-    const sizing = MULTI_LINE_KEYS.has(k)
-      ? { minWidth: wide ? 420 : 220,
+    const wide = k === "locations" || k === "macs" || k === "arp_examples" || k === "fdb_examples";
+    // 子網段混用的「子網段」「依據」一項一行（兩段 CIDR、兩種證據擺一行會被截斷）
+    const multi = MULTI_LINE_KEYS.has(k) || (key === "l2_subnet_bleed" && (k === "subnets" || k === "evidence"));
+    const sizing = multi
+      ? { minWidth: wide ? 420 : k === "fix" ? 300 : (key === "l2_subnet_bleed" && k === "evidence") ? 270 : 220,
           // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上。
           // IP 衝突每個 MAC 還帶廠商與「誰看到的」，要寬一些
-          ...(k === "macs" ? { width: key === "ip_conflicts" ? 560 : 340 } : {}) }
+          ...(k === "macs" ? { width: key === "ip_conflicts" || key === "arp_flux" ? 600 : 340 } : {}) }
       // 最後一欄吃掉剩下的寬度（只有它是最後一欄時；最後是多行欄的話就照內容寬度）
       : k === flexKey && k === lastKey
         ? { minWidth: Math.max(160, autoWidth(key, k)) }
@@ -968,6 +1030,8 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
 }
 /* 本地管理／隨機位址：標成警示色，因為它是「多半不是真衝突」的主要線索 */
 .anm-mac-tag--local { background: rgba(240, 160, 32, .16); color: #b26a00; }
+/* 疑似讀壞／過期快取：灰底刪除線語氣，表示「列出來但不算數」 */
+.anm-mac-tag--suspect { background: rgba(128, 128, 128, .18); color: inherit; opacity: .8; font-style: italic; }
 .anm-mac-seen { font-size: 11.5px; opacity: .6; }
 .anm-mac-time { opacity: .55; white-space: nowrap; }
 </style>

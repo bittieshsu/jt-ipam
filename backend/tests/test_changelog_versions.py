@@ -31,3 +31,15 @@ def test_both_changelogs_have_the_same_latest_version() -> None:
 def test_changelog_is_not_behind_the_version() -> None:
     latest = _versions("CHANGELOG.md")[0]
     assert _key(latest) >= _key(__version__), f"版本號已是 {__version__}，CHANGELOG 最新卻是 {latest}"
+
+
+def test_no_empty_unreleased_section() -> None:
+    """發版時把 [Unreleased] 改名成版本號，不留空的標題（使用者 2026-10-09：留著讓人以為還沒發布）。
+
+    有新改動時再加回 `## [Unreleased]` 並寫在它底下；只要出現，底下就一定要有內容。
+    """
+    for name in ("CHANGELOG.md", "CHANGELOG_zh-TW.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        m = re.search(r"^## \[Unreleased\]\s*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
+        if m:
+            assert m.group(1).strip(), f"{name}：[Unreleased] 底下是空的，發版時應該直接改名成版本號"

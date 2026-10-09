@@ -52,6 +52,10 @@ class AnomalyReport:
     stale_device_links: list[dict[str, Any]] = field(default_factory=list)
     mac_flapping: list[dict[str, Any]] = field(default_factory=list)
     identity_changes: list[dict[str, Any]] = field(default_factory=list)
+    #: 同一台主機的多張網卡回應同一個 IP（ARP flux，2026-10-09 從 IP 衝突分出來）
+    arp_flux: list[dict[str, Any]] = field(default_factory=list)
+    #: 兩個子網段混在同一個二層（2026-10-09）
+    l2_subnet_bleed: list[dict[str, Any]] = field(default_factory=list)
     #: 未授權 IP 的總數（清單最多列 MAX_UNAUTHORIZED 筆）
     unauthorized_total: int = 0
 
@@ -62,6 +66,8 @@ class AnomalyReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "ip_conflicts": self.ip_conflicts,
+            "arp_flux": self.arp_flux,
+            "l2_subnet_bleed": self.l2_subnet_bleed,
             "mac_drifts": self.mac_drifts,
             "mac_drift_reference": self.mac_drift_reference,
             "ghost_ips": self.ghost_ips,
@@ -85,6 +91,7 @@ class AnomalyReport:
                 + len(self.dangling_dns) + len(self.duplicate_ip_records)
                 + len(self.suspicious_changes) + len(self.stale_device_links)
                 + len(self.mac_flapping) + len(self.identity_changes)
+                + len(self.arp_flux) + len(self.l2_subnet_bleed)
             ),
         }
 
@@ -97,11 +104,8 @@ def _is_locally_administered(mac: str) -> bool:
     位址（重新連線、遷移、故障接手），而不是兩台機器搶同一個 IP —— 不標示的話，
     這些會混在真正的衝突裡讓整張表看起來像雜訊。
     """
-    try:
-        first = int(mac.replace(":", "").replace("-", "")[:2], 16)
-    except (ValueError, IndexError):
-        return False
-    return bool(first & 0b10)
+    from app.services.arp_quality import is_locally_administered
+    return is_locally_administered(mac)
 
 
 #: MAC 來回切換：這段時間內，在同樣兩個 MAC 之間切換至少這麼多次才算（見 detect_ip_conflicts）
@@ -123,21 +127,93 @@ async def detect_ip_conflicts(
 
     範圍以子網路界定 —— 重疊網段（兩個單位各有一個 10.9.0.5）不能互相判成衝突。LibreNMS 的
     觀測沒有子網路：IP 只落在一個子網路時歸到那裡，否則只跟同樣沒有子網路的觀測比。
+
+    2026-10-09：疑似讀壞的 MAC 與過期快取（services/arp_quality）照樣列出、標上原因，但不算機器數；
+    全部 MAC 都屬於同一台裝置的移到 `detect_arp_flux`。
     """
+    conflicts, _flux = await analyze_ip_conflicts(session, window=window, flip_window=flip_window)
+    return conflicts
+
+
+async def detect_arp_flux(
+    session: AsyncSession, *, window: timedelta = timedelta(hours=1),
+    flip_window: timedelta = FLIP_WINDOW,
+) -> list[dict[str, Any]]:
+    """同一台主機的多張網卡回應同一個 IP（ARP flux），不是兩台機器在搶。
+
+    以前直接從 IP 衝突裡拿掉、什麼都不說；但它本身是要處理的設定問題（路由器的日誌每 20 分鐘一筆
+    `arp: ... moved from ... to ...`），而且一般「IP 衝突」的處理方式是去找另一台設錯的機器 ——
+    使用者照那個方向查會白繞一大圈（2026-10-09 回饋）。成因通常是 Linux 的 arp_ignore=0 加上
+    兩個網段在同一個二層；回傳裡直接附上建議的 sysctl。
+    """
+    _conflicts, flux = await analyze_ip_conflicts(session, window=window, flip_window=flip_window)
+    return flux
+
+
+#: ARP flux 的建議修法（Linux）：只用擁有那個位址的網卡回答、只用同網段的來源位址發 ARP
+ARP_FLUX_FIX = ("net.ipv4.conf.all.arp_ignore=1", "net.ipv4.conf.all.arp_announce=2")
+
+
+async def reporter_names(session: AsyncSession, device_ids: set[Any]) -> dict[str, str]:
+    """LibreNMS 設備 → 顯示名稱：連到的 jt-ipam 裝置名稱優先，其次 sysName，最後才是 hostname（多半是 IP）。"""
+    from app.models.device import Device
+    ids = {d for d in device_ids if d}
+    if not ids:
+        return {}
+    rows = (await session.execute(
+        select(LibreNMSDevice.id, LibreNMSDevice.sysname, LibreNMSDevice.hostname, Device.name)
+        .outerjoin(Device, Device.id == LibreNMSDevice.jt_ipam_device_id)
+        .where(in_values(LibreNMSDevice.id, ids)))).all()
+    return {str(i): (dn or sn or hn or str(i)) for i, sn, hn, dn in rows}
+
+
+def mac_rows(macs: dict[str, Any], vendors: dict[str, str | None], suspects: dict[str, str | None],
+             names: dict[str, str]) -> list[dict[str, Any]]:
+    """一個 IP 的 MAC 清單（最近看到的在前）：廠商、本地管理、誰回報、幾個回報者、可疑原因。"""
+    out = []
+    for m, seen in sorted(macs.items(), key=lambda kv: kv[1].last or datetime.min.replace(tzinfo=UTC),
+                          reverse=True):
+        reporters = sorted(seen.reporters.values(),
+                           key=lambda r: r["last"] or datetime.min.replace(tzinfo=UTC), reverse=True)
+        out.append({
+            "mac": m,
+            "vendor": vendors.get(m),
+            "local": _is_locally_administered(m),
+            "last_seen_at": seen.last.isoformat() if seen.last else None,
+            "sources": sorted(seen.sources),
+            # 2026-10-09：每個回報者（哪台設備的 ARP 表、哪個介面、最後一次）—— 看得出「只有一台看過」
+            "reporter_count": len(seen.reporters),
+            "reporters": [{"source": r["source"],
+                           "device": names.get(str(r["device_id"])) if r["device_id"] else None,
+                           "interface": r["interface"],
+                           "last_seen_at": r["last"].isoformat() if r["last"] else None}
+                          for r in reporters],
+            "suspect": suspects.get(m),
+        })
+    return out
+
+
+async def analyze_ip_conflicts(
+    session: AsyncSession, *, window: timedelta = timedelta(hours=1),
+    flip_window: timedelta = FLIP_WINDOW,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(IP 衝突, ARP flux)。兩者同一份資料算出來，run_detection 只跑一次。"""
     from app.models.ip_change_log import IPChangeLog
     from app.services.arp_evidence import normalize
+    from app.services.arp_quality import MacSeen, classify_suspects, reporter_key
 
     now = datetime.now(UTC)
     rows = (
         await session.execute(
-            select(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, ARPEntry.source,
-                   func.max(ARPEntry.last_seen_at))
+            select(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, ARPEntry.source, ARPEntry.device_id,
+                   ARPEntry.interface, func.max(ARPEntry.last_seen_at), func.min(ARPEntry.first_seen_at))
             .where(ARPEntry.last_seen_at >= now - window)
-            .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, ARPEntry.source)
+            .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, ARPEntry.source, ARPEntry.device_id,
+                      ARPEntry.interface)
         )
     ).all()
     # asyncpg 把 INET/MACADDR 回成物件不是字串（已知地雷 #10）—— 一進來就轉成字串
-    unscoped = {str(ip).split("/")[0] for ip, _m, sid, _s, _t in rows if sid is None}
+    unscoped = {str(r[0]).split("/")[0] for r in rows if r[2] is None}
     owner: dict[str, str] = {}
     if unscoped:
         seen_in: dict[str, set[str]] = defaultdict(set)
@@ -146,22 +222,20 @@ async def detect_ip_conflicts(
             seen_in[str(ip).split("/")[0]].add(str(sid))
         owner = {ip: next(iter(sids)) for ip, sids in seen_in.items() if len(sids) == 1}
 
-    # (子網路, IP) → MAC → {最後看到, 誰看到的}
-    found: dict[tuple[str | None, str], dict[str, dict[str, Any]]] = defaultdict(dict)
+    # (子網路, IP) → MAC → 誰在什麼時候看到
+    found: dict[tuple[str | None, str], dict[str, MacSeen]] = defaultdict(dict)
     evidence: dict[tuple[str | None, str], set[str]] = defaultdict(set)
     changes: dict[tuple[str | None, str], int] = {}
 
-    def _see(key: tuple[str | None, str], mac: str, at: datetime, source: str) -> None:
-        cur = found[key].setdefault(mac, {"last": at, "sources": set()})
-        cur["last"] = max(cur["last"], at)
-        cur["sources"].add(source)
-
-    for ip, mac, sid, source, last in rows:
+    for ip, mac, sid, source, device_id, interface, last, first in rows:
         ip_s = str(ip).split("/")[0]
         m = normalize(mac)
         if m is None:
             continue
-        _see((str(sid) if sid else owner.get(ip_s), ip_s), m, last, str(source))
+        key = (str(sid) if sid else owner.get(ip_s), ip_s)
+        found[key].setdefault(m, MacSeen()).add(
+            reporter_key(str(source), device_id), source=str(source), at=last, first=first,
+            device_id=device_id, interface=interface)
     for key in [k for k, macs in found.items() if len(macs) >= 2]:
         evidence[key].add("arp")
 
@@ -185,51 +259,146 @@ async def detect_ip_conflicts(
         if len(seq) < FLIP_MIN_CHANGES:
             continue
         for mac, at, source in seq:
-            _see(key, mac, at, source)
+            found[key].setdefault(mac, MacSeen()).add(source, source=source, at=at)
         evidence[key].add("mac_flip")
         changes[key] = max(changes.get(key, 0), len(seq))
 
-    # 同一台機器的兩張網卡（ARP flux）不是衝突：只剩一台機器的 MAC 就拿掉
-    machines = await _device_macs(session, list(evidence))
+    if not evidence:
+        return [], []
+    # 帶上 OUI 廠商：兩個裸 MAC 位址擺在一起看不出是誰在打架，「Dell vs Apple」才讓人知道該去找
+    # 哪一台；判斷讀壞的 MAC 也要用到（查不到廠商是條件之一）。一次批次查完，不要逐筆查。
+    all_macs = {m for k in evidence for m in found[k]}
+    by_prefix = await vendor_map(session, list(all_macs))
+    vendors = {m: by_prefix.get(mac_prefix(m) or "") for m in all_macs}
+    device_of, nics = await _device_nics(session, list(evidence))
+    known, corroborated_known = await _known_macs(session, list(evidence), device_of, nics)
+    suspects = {k: classify_suspects(found[k], vendors, known.get(k, ()), corroborated_known.get(k[1], ()))
+                for k in evidence}
+
+    # 同一台機器的多張網卡（ARP flux）不是衝突：可信的 MAC 只剩一台機器的 → 移到 arp_flux
+    flux_keys: list[tuple[str | None, str]] = []
+    flux_evidence: dict[tuple[str | None, str], list[str]] = {}
     for key in list(evidence):
-        own = machines.get(key)
-        if not own:
+        good = {m for m, why in suspects[key].items() if why is None}
+        dev = device_of.get(key)
+        own = set(nics.get(dev, {})) if dev else set()
+        machines = len(good - own) + (1 if good & own else 0)
+        if machines >= 2:
             continue
-        seen = set(found[key])
-        if len(seen - own) + (1 if seen & own else 0) < 2:
-            del evidence[key]
+        if len(good & own) >= 2:
+            flux_keys.append(key)
+            flux_evidence[key] = sorted(evidence[key])
+        del evidence[key]
 
-    conflicts = {k: found[k] for k in evidence}
-    # 帶上 OUI 廠商：兩個裸 MAC 位址擺在一起看不出是誰在打架，
-    # 「Dell vs Apple」才讓人知道該去找哪一台。一次批次查完，不要逐筆查。
-    vendors = await vendor_map(session, [m for macs in conflicts.values() for m in macs])
-
-    out: list[dict[str, Any]] = []
-    for (sid, ip), macs in sorted(conflicts.items(), key=lambda kv: (kv[0][1], kv[0][0] or "")):
-        out.append({
+    names = await reporter_names(session, {r["device_id"] for k in [*evidence, *flux_keys]
+                                           for s_ in found[k].values() for r in s_.reporters.values()})
+    conflicts: list[dict[str, Any]] = []
+    for key in sorted(evidence, key=lambda k: (k[1], k[0] or "")):
+        sid, ip = key
+        rows_ = mac_rows(found[key], vendors, suspects[key], names)
+        dev = device_of.get(key)
+        own = set(nics.get(dev, {})) if dev else set()
+        conflicts.append({
             "ip": ip,
             "subnet_id": sid,
-            "evidence": sorted(evidence[(sid, ip)]),
-            "changes": changes.get((sid, ip)),
-            "macs": [
-                {
-                    "mac": m,
-                    # vendor_map 的 key 是正規化後的 6 碼前綴，不是完整 MAC
-                    "vendor": vendors.get(mac_prefix(m) or ""),
-                    "local": _is_locally_administered(m),
-                    "last_seen_at": info["last"].isoformat(),
-                    "sources": sorted(info["sources"]),
-                }
-                for m, info in sorted(macs.items(), key=lambda kv: kv[1]["last"], reverse=True)
-            ],
+            "evidence": sorted(evidence[key]),
+            "changes": changes.get(key),
+            "suspect_count": sum(1 for r in rows_ if r["suspect"]),
+            # 可信度：至少兩台機器各有兩個以上回報者（或 MAC 來回切換的紀錄）才算 high。
+            # 正式環境 2026-10-09：很多衝突的另一方只有某一台 AP 的 ARP 表回報、另一方有十幾個來源 ——
+            # 多半是那台的過期快取，但 MAC 是正式燒錄位址，不能直接藏起來，只標低可信度
+            "confidence": _conflict_confidence(found[key], suspects[key], own, bool(changes.get(key))),
+            "macs": rows_,
         })
-    return out
+
+    flux: list[dict[str, Any]] = []
+    dev_names = await _device_names(session, {device_of[k] for k in flux_keys})
+    for key in sorted(flux_keys, key=lambda k: (k[1], k[0] or "")):
+        sid, ip = key
+        dev = device_of[key]
+        rows_ = mac_rows(found[key], vendors, suspects[key], names)
+        for r in rows_:
+            # 這個 MAC 是那台裝置的哪一張網卡（登記在哪個 IP、或哪個裝置埠）
+            r["nic"] = nics.get(dev, {}).get(r["mac"], [])
+        flux.append({
+            "ip": ip,
+            "subnet_id": sid,
+            "host_id": str(dev),
+            # 不叫 device_name：畫面上那個欄名在 MAC 變動頁的意思是「交換器」
+            "host": dev_names.get(dev),
+            "evidence": flux_evidence[key],
+            "macs": rows_,
+            "cause": "arp_ignore",
+            "fix": list(ARP_FLUX_FIX),
+        })
+    return conflicts, flux
 
 
-async def _device_macs(
+def _conflict_confidence(macs: dict[str, Any], suspects: dict[str, str | None], own: set[str],
+                         flipping: bool) -> str:
+    """high＝至少兩台機器各有兩個以上回報者佐證（同一台裝置的多張網卡算一台）；有來回切換紀錄也算 high。"""
+    if flipping:
+        return "high"
+    strong = {m for m, seen in macs.items() if suspects.get(m) is None and len(seen.reporters) >= 2}
+    machines = len(strong - own) + (1 if strong & own else 0)
+    return "high" if machines >= 2 else "low"
+
+
+#: 「已知的真實 MAC」往回看多久（判斷拼接出來的 MAC 用）
+KNOWN_MAC_DAYS = 30
+
+
+async def _known_macs(
     session: AsyncSession, keys: list[tuple[str | None, str]],
-) -> dict[tuple[str | None, str], set[str]]:
-    """(子網路, IP) → 這個 IP 所屬裝置的全部 MAC（它其他 IP 上登記的、裝置埠的）。
+    device_of: dict[tuple[str | None, str], Any], nics: dict[Any, dict[str, list[str]]],
+) -> tuple[dict[tuple[str | None, str], set[str]], dict[str, set[str]]]:
+    """((子網路, IP) → 真實存在的 MAC：所屬裝置的網卡、登記的 MAC、30 天內有兩個以上來源看過的；
+    IP → 30 天內有兩個以上來源看過的 MAC)。"""
+    from app.services.arp_evidence import normalize
+    from app.services.arp_quality import reporter_key
+
+    out: dict[tuple[str | None, str], set[str]] = defaultdict(set)
+    for key, dev in device_of.items():
+        out[key] |= set(nics.get(dev, {}))
+    ips = {ip for _s, ip in keys}
+    if not ips:
+        return out, {}
+    wanted = set(keys)
+    for sid, ip, mac in (await session.execute(
+            select(IPAddress.subnet_id, IPAddress.ip, IPAddress.mac)
+            .where(in_values(IPAddress.ip, ips), IPAddress.mac.is_not(None)))).all():
+        k = (str(sid), str(ip).split("/")[0])
+        if k in wanted and (m := normalize(str(mac))) is not None:
+            out[k].add(m)
+    since = datetime.now(UTC) - timedelta(days=KNOWN_MAC_DAYS)
+    reporters: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for ip, mac, source, dev in (await session.execute(
+            select(ARPEntry.ip, ARPEntry.mac, ARPEntry.source, ARPEntry.device_id)
+            .where(in_values(ARPEntry.ip, ips), ARPEntry.last_seen_at >= since)
+            .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.source, ARPEntry.device_id))).all():
+        if (m := normalize(mac)) is not None:
+            reporters[(str(ip).split("/")[0], m)].add(reporter_key(str(source), dev))
+    corroborated: dict[str, set[str]] = defaultdict(set)
+    for (ip, m), who in reporters.items():
+        if len(who) >= 2:
+            corroborated[ip].add(m)
+    for key in keys:
+        out[key] |= corroborated.get(key[1], set())
+    return out, corroborated
+
+
+async def _device_names(session: AsyncSession, device_ids: set[Any]) -> dict[Any, str]:
+    from app.models.device import Device
+    if not device_ids:
+        return {}
+    return {i: n for i, n in (await session.execute(
+        select(Device.id, Device.name).where(in_values(Device.id, device_ids)))).all()}
+
+
+async def _device_nics(
+    session: AsyncSession, keys: list[tuple[str | None, str]],
+) -> tuple[dict[tuple[str | None, str], Any], dict[Any, dict[str, list[str]]]]:
+    """(子網路, IP) → 所屬裝置；裝置 → {MAC: [這個 MAC 是哪張網卡：它登記在哪個 IP、或哪個裝置埠]}。
 
     Linux 預設會用任何一張網卡回答本機任何一個 IP 的 ARP（arp_ignore=0）；兩個網段在同一個
     廣播網域時，雙網卡主機的一個 IP 會被兩張網卡同時回答，看起來就像兩台機器在搶這個 IP
@@ -241,30 +410,40 @@ async def _device_macs(
 
     scoped = [(sid, ip) for sid, ip in keys if sid]
     if not scoped:
-        return {}
-    device_of: dict[tuple[str, str], uuid.UUID] = {}
+        return {}, {}
+    device_of: dict[tuple[str | None, str], Any] = {}
+    wanted = {(str(sid), ip) for sid, ip in scoped}
     for sid, ip, dev in (await session.execute(
             select(IPAddress.subnet_id, IPAddress.ip, IPAddress.device_id)
             .where(in_values(IPAddress.ip, {ip for _s, ip in scoped}),
                    IPAddress.device_id.is_not(None)))).all():
-        device_of[(str(sid), str(ip).split("/")[0])] = dev
+        k = (str(sid), str(ip).split("/")[0])
+        if k in wanted:
+            device_of[k] = dev
     if not device_of:
-        return {}
+        return {}, {}
     devices = set(device_of.values())
-    macs: dict[uuid.UUID, set[str]] = defaultdict(set)
-    for dev, mac in (await session.execute(
-            select(IPAddress.device_id, IPAddress.mac)
+    nics: dict[Any, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for dev, mac, ip in (await session.execute(
+            select(IPAddress.device_id, IPAddress.mac, IPAddress.ip)
             .where(in_values(IPAddress.device_id, devices), IPAddress.mac.is_not(None)))).all():
         if (m := normalize(str(mac))) is not None:
-            macs[dev].add(m)
-    for dev, mac in (await session.execute(
-            select(DevicePort.device_id, DevicePort.mac_address)
+            nics[dev][m].append(str(ip).split("/")[0])
+    for dev, mac, name in (await session.execute(
+            select(DevicePort.device_id, DevicePort.mac_address, DevicePort.name)
             .where(in_values(DevicePort.device_id, devices),
                    DevicePort.mac_address.is_not(None)))).all():
         if (m := normalize(str(mac))) is not None:
-            macs[dev].add(m)
-    return {key: macs[dev] for key in scoped
-            if (dev := device_of.get((str(key[0]), key[1]))) is not None and macs.get(dev)}
+            nics[dev][m].append(str(name))
+    return device_of, {d: dict(v) for d, v in nics.items()}
+
+
+async def _device_macs(
+    session: AsyncSession, keys: list[tuple[str | None, str]],
+) -> dict[tuple[str | None, str], set[str]]:
+    """(子網路, IP) → 這個 IP 所屬裝置的全部 MAC（它其他 IP 上登記的、裝置埠的）。"""
+    device_of, nics = await _device_nics(session, keys)
+    return {k: set(nics[d]) for k, d in device_of.items() if nics.get(d)}
 
 
 async def ip_conflict_coverage(
@@ -574,20 +753,28 @@ def is_ignored(ip: Any, category: str) -> bool:
 async def detect_mac_flapping(
     session: AsyncSession, *, days: int = 7, min_macs: int = 4,
 ) -> list[dict[str, Any]]:
-    """N 天內出現 ≥ min_macs 種不同 MAC 的 IP。"""
+    """N 天內出現 ≥ min_macs 種不同 MAC 的 IP。
+
+    疑似讀壞的 MAC、過期快取（services/arp_quality）不算進種數，但照樣列出、標上原因 ——
+    正式環境 2026-10-09：一台雙網卡主機的 IP 被算成「4 個 MAC」，其中兩個是路由器 ARP 表切換時
+    SNMP 讀到一半拼出來的。
+    """
     from app.models.librenms import ARPEntry
+    from app.services.arp_quality import MacSeen, classify_suspects, reporter_key
 
     cutoff = datetime.now(UTC) - timedelta(days=days)
     rows = (await session.execute(
-        select(ARPEntry.ip, ARPEntry.mac, func.max(ARPEntry.last_seen_at),
-               func.min(ARPEntry.first_seen_at))
+        select(ARPEntry.ip, ARPEntry.mac, ARPEntry.source, ARPEntry.device_id,
+               func.max(ARPEntry.last_seen_at), func.min(ARPEntry.first_seen_at))
         .where(ARPEntry.last_seen_at >= cutoff)
-        .group_by(ARPEntry.ip, ARPEntry.mac)
+        .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.source, ARPEntry.device_id)
     )).all()
 
-    by_ip: dict[str, list[tuple[str, Any, Any]]] = defaultdict(list)
-    for ip_val, mac, last, first in rows:
-        by_ip[str(ip_val).split("/")[0]].append((str(mac), last, first))
+    by_ip: dict[str, dict[str, MacSeen]] = defaultdict(dict)
+    for ip_val, mac, source, device_id, last, first in rows:
+        by_ip[str(ip_val).split("/")[0]].setdefault(str(mac), MacSeen()).add(
+            reporter_key(str(source), device_id), source=str(source), at=last, first=first,
+            device_id=device_id)
 
     candidates = {ip: macs for ip, macs in by_ip.items() if len(macs) >= min_macs}
     if not candidates:
@@ -598,37 +785,177 @@ async def detect_mac_flapping(
     if not subnet_ids:
         return []
     ip_rows = (await session.execute(
-        select(IPAddress).where(in_values(IPAddress.subnet_id, subnet_ids))
+        select(IPAddress).where(in_values(IPAddress.subnet_id, subnet_ids),
+                                in_values(IPAddress.ip, set(candidates)))
     )).scalars().all()
-    known = {str(r.ip): r for r in ip_rows}
+    known = {str(r.ip).split("/")[0]: r for r in ip_rows}
+    all_macs = {m for macs in candidates.values() for m in macs}
+    by_prefix = await vendor_map(session, list(all_macs))
+    vendors = {m: by_prefix.get(mac_prefix(m) or "") for m in all_macs}
 
     out: list[dict[str, Any]] = []
     for ip_text, macs in candidates.items():
         row = known.get(ip_text)
         if row is None or is_ignored(row, "mac_flapping"):
             continue
-        macs_sorted = sorted(macs, key=lambda x: x[1] or datetime.min.replace(tzinfo=UTC),
+        suspects = classify_suspects(macs, vendors)
+        good = [m for m, why in suspects.items() if why is None]
+        if len(good) < min_macs:
+            continue
+        macs_sorted = sorted(macs.items(), key=lambda kv: kv[1].last or datetime.min.replace(tzinfo=UTC),
                              reverse=True)
-        local = [m for m, _, _ in macs_sorted if _is_locally_administered(m)]
+        local = [m for m in good if _is_locally_administered(m)]
         out.append({
             "ip": ip_text,
             "ip_id": str(row.id),
             "hostname": row.hostname,
             "subnet_id": str(row.subnet_id),
-            "mac_count": len(macs_sorted),
+            "mac_count": len(good),
+            # 疑似讀壞或過期、沒算進 mac_count 的 MAC 數
+            "suspect_count": len(macs) - len(good),
             "days": days,
             # 多數是本地管理位址 → 幾乎可以確定是隱私隨機化。講出來，讓人一眼決定
             # 要不要把這個 IP 加進忽略清單，而不是替他決定。
-            "randomized": len(local) * 2 >= len(macs_sorted),
+            "randomized": len(local) * 2 >= len(good),
             "randomized_count": len(local),
             "macs": [
-                {"mac": m, "last_seen_at": (last.isoformat() if last else None),
-                 "first_seen_at": (first.isoformat() if first else None),
-                 "randomized": _is_locally_administered(m)}
-                for m, last, first in macs_sorted
+                {"mac": m, "last_seen_at": (seen.last.isoformat() if seen.last else None),
+                 "first_seen_at": (seen.first.isoformat() if seen.first else None),
+                 "randomized": _is_locally_administered(m),
+                 "reporter_count": len(seen.reporters),
+                 "suspect": suspects.get(m)}
+                for m, seen in macs_sorted
             ],
         })
     out.sort(key=lambda r: r["mac_count"], reverse=True)
+    return out
+
+
+# ── 兩個子網段混在同一個二層 ──────────────────────────────────────────────
+# 2026-10-09 回饋：ARP flux 的根因是兩個網段沒有真正隔離（交換器之間的連接把兩邊接成同一個廣播網域）。
+# 兩種證據：
+# - ARP：子網段 A 的某個 IP，ARP 回應用的是子網段 B 的某個 MAC —— 那個 MAC 登記在 B 的某個 IP 上、
+#   而且最近確實在 B 回應過（只登記沒在用的舊紀錄不算：VM 改過 IP 時舊紀錄常還留著它的 MAC）。
+# - 交換器 MAC 表：同一台交換器、同一個 VLAN 學到兩個不同子網段的 MAC。
+# 同一個 MAC 登記在好幾個子網段（路由器的子介面共用一個 MAC）不拿來判斷。
+BLEED_DAYS = 7
+BLEED_EXAMPLES = 10
+
+
+async def detect_l2_subnet_bleed(
+    session: AsyncSession, *, days: int = BLEED_DAYS,
+) -> list[dict[str, Any]]:
+    """兩個子網段混在同一個二層（同一個廣播網域）：一組子網段一筆，附 ARP 與交換器 MAC 表的例子。"""
+    from app.models.mikrotik import MikroTikRouter
+    from app.models.subnet import Subnet
+    from app.services.arp_evidence import normalize
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    enabled = {str(x) for x in await _anomaly_subnet_ids(session)}   # 下面一律用字串比
+    if not enabled:
+        return []
+
+    # 登記：(子網路, IP) → MAC；MAC → 登記在哪些子網路的哪些 IP
+    reg_mac: dict[tuple[str, str], str] = {}
+    reg_of: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    ip_subnets: dict[str, set[str]] = defaultdict(set)
+    for ip, sid, mac in (await session.execute(
+            select(IPAddress.ip, IPAddress.subnet_id, IPAddress.mac))).all():
+        ip_s, sid_s = str(ip).split("/")[0], str(sid)
+        ip_subnets[ip_s].add(sid_s)
+        if mac is not None and (m := normalize(str(mac))) is not None:
+            reg_mac[(sid_s, ip_s)] = m
+            reg_of[m].add((sid_s, ip_s))
+
+    arp = (await session.execute(
+        select(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id, func.max(ARPEntry.last_seen_at))
+        .where(ARPEntry.last_seen_at >= cutoff)
+        .group_by(ARPEntry.ip, ARPEntry.mac, ARPEntry.subnet_id))).all()
+    observed: list[tuple[str, str, str]] = []          # (子網路, IP, MAC)
+    for ip, mac, sid, _last in arp:
+        ip_s = str(ip).split("/")[0]
+        m = normalize(mac)
+        if m is None:
+            continue
+        sid_s = str(sid) if sid else (next(iter(ip_subnets[ip_s])) if len(ip_subnets.get(ip_s, ())) == 1 else None)
+        if sid_s:
+            observed.append((sid_s, ip_s, m))
+    # MAC 的「家」：登記在那裡、而且最近在那裡被看到自己的 IP 回應過；只認只有一個家的 MAC
+    active = {(sid, ip, m) for sid, ip, m in observed if reg_mac.get((sid, ip)) == m}
+    home: dict[str, tuple[str, str]] = {}
+    for m, regs in reg_of.items():
+        live = [(sid, ip) for sid, ip in regs if (sid, ip, m) in active]
+        if len({sid for sid, _ip in regs}) == 1 and live:
+            home[m] = live[0]
+
+    pairs: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = defaultdict(lambda: {"arp": [], "fdb": []})
+    for sid, ip, m in observed:
+        h = home.get(m)
+        if h is None or h[0] == sid or reg_mac.get((sid, ip)) == m:
+            continue
+        if sid not in enabled and h[0] not in enabled:
+            continue
+        pairs[tuple(sorted((sid, h[0])))]["arp"].append(
+            {"ip": ip, "subnet_id": sid, "mac": m, "mac_owner_ip": h[1], "mac_owner_subnet_id": h[0]})
+
+    # 交換器 MAC 表：同一台交換器、同一個 VLAN（沒有 VLAN 的列不拿來判斷：一條 trunk 本來就帶著所有 VLAN）
+    fdb = (await session.execute(
+        select(FDBEntry.device_id, FDBEntry.mikrotik_router_id, FDBEntry.vlan_id_num, FDBEntry.port_name,
+               FDBEntry.mac)
+        .where(FDBEntry.last_seen_at >= cutoff, FDBEntry.vlan_id_num.is_not(None)))).all()
+    groups: dict[tuple[str, int], dict[str, list[tuple[str, str | None]]]] = defaultdict(lambda: defaultdict(list))
+    ln_ids: set[Any] = set()
+    ros_ids: set[Any] = set()
+    for ln_dev, ros, vlan, port, mac in fdb:
+        m = normalize(mac)
+        if m is None or m not in home or not (ln_dev or ros):
+            continue
+        if ln_dev:
+            ln_ids.add(ln_dev)
+        else:
+            ros_ids.add(ros)
+        groups[(f"librenms:{ln_dev}" if ln_dev else f"mikrotik:{ros}", int(vlan))][home[m][0]].append((m, port))
+    sw_names = {f"librenms:{k}": v for k, v in (await reporter_names(session, ln_ids)).items()}
+    if ros_ids:
+        sw_names.update({f"mikrotik:{i}": n for i, n in (await session.execute(
+            select(MikroTikRouter.id, MikroTikRouter.name).where(in_values(MikroTikRouter.id, ros_ids)))).all()})
+    for (sw, vlan), by_subnet in groups.items():
+        subs = sorted(by_subnet)
+        if len(subs) < 2:
+            continue
+        name = sw_names.get(sw)
+        for i, sa in enumerate(subs):
+            for sb in subs[i + 1:]:
+                if sa not in enabled and sb not in enabled:
+                    continue
+                pairs[(sa, sb)]["fdb"].append({
+                    "switch": name or sw, "vlan": vlan,
+                    "macs": {sa: [{"mac": m, "port": pt} for m, pt in by_subnet[sa][:5]],
+                             sb: [{"mac": m, "port": pt} for m, pt in by_subnet[sb][:5]]},
+                })
+
+    if not pairs:
+        return []
+    cidrs = {str(i): str(c) for i, c in (await session.execute(
+        select(Subnet.id, Subnet.cidr).where(in_values(Subnet.id, {x for k in pairs for x in k})))).all()}
+    out: list[dict[str, Any]] = []
+    for (sa, sb), ev in sorted(pairs.items(), key=lambda kv: -(len(kv[1]["arp"]) + len(kv[1]["fdb"]))):
+        ca, cb = cidrs.get(sa, sa), cidrs.get(sb, sb)
+        for x in ev["arp"]:
+            x["subnet"] = cidrs.get(x.pop("subnet_id"))
+            x["mac_owner_subnet"] = cidrs.get(x.pop("mac_owner_subnet_id"))
+        for x in ev["fdb"]:
+            x["macs"] = {cidrs.get(k, k): v for k, v in x["macs"].items()}
+        out.append({
+            "id": f"{ca}|{cb}",                    # 通知去重用
+            "subnets": [ca, cb],
+            # 代碼跟 IP 衝突的 arp 分開：意思不同（這裡是「ARP 回應用了另一個子網段的 MAC」）
+            "evidence": [code for k, code in (("arp", "arp_answer"), ("fdb", "switch_fdb")) if ev[k]],
+            "arp_count": len(ev["arp"]),
+            "fdb_count": len(ev["fdb"]),
+            "arp_examples": ev["arp"][:BLEED_EXAMPLES],
+            "fdb_examples": ev["fdb"][:BLEED_EXAMPLES],
+        })
     return out
 
 
@@ -1592,8 +1919,11 @@ async def run_detection(
     """一次跑所有偵測規則；命中時發通知 + webhook event。"""
     drifts = await detect_mac_drifts(session)
     unauth_meta: dict[str, Any] = {}
+    conflicts, flux = await analyze_ip_conflicts(session)
     report = AnomalyReport(
-        ip_conflicts=await detect_ip_conflicts(session),
+        ip_conflicts=conflicts,
+        arp_flux=flux,
+        l2_subnet_bleed=await detect_l2_subnet_bleed(session),
         mac_drifts=[d for d in drifts if d["category"] not in MAC_DRIFT_REFERENCE],
         mac_drift_reference=[d for d in drifts if d["category"] in MAC_DRIFT_REFERENCE],
         ghost_ips=await detect_ghost_ips(session),
@@ -1636,6 +1966,8 @@ async def run_detection(
 # 存在資料庫，舊資料列還指著它們，刪掉會讓歷史通知顯示成鍵的原文。
 _NOTIFY_CATEGORIES: tuple[tuple[str, str, str, str], ...] = (
     ("ip_conflicts", "IP 衝突", "anomaly.ip_conflicts", "ip_conflicts"),
+    ("arp_flux", "同一台主機多張網卡回應同一個 IP", "anomaly.arp_flux", "arp_flux"),
+    ("l2_subnet_bleed", "兩個子網段混在同一個二層", "anomaly.l2_bleed", "l2_subnet_bleed"),
     ("mac_drifts", "MAC 變動", "anomaly.mac_drifts", "mac_drifts"),
     ("ghost_ips", "失聯 IP", "anomaly.ghost_ips", "ghost_ips"),
     ("unauthorized_ips", "未授權 IP", "anomaly.unauthorized", "unauthorized_ips"),

@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, literal_column, or_, select
@@ -162,11 +162,13 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
         .where(*ev_where).order_by(IPChangeLog.created_at.desc()).limit(EVENTS_SCAN_LIMIT))).all()
 
     # ── ARP 觀測 ──
+    # 每個回報者（LibreNMS 的每台設備、掃描代理、各防火牆）各一列：看得出「只有一台看過」（2026-10-09 回饋）
     arp_rows = (await session.execute(
-        select(ARPEntry.ip, ARPEntry.subnet_id, ARPEntry.source,
+        select(ARPEntry.ip, ARPEntry.subnet_id, ARPEntry.source, ARPEntry.device_id, ARPEntry.interface,
                func.min(ARPEntry.first_seen_at), func.max(ARPEntry.last_seen_at))
         .where(ARPEntry.mac == m)
-        .group_by(ARPEntry.ip, ARPEntry.subnet_id, ARPEntry.source).limit(4 * ips_limit))).all()
+        .group_by(ARPEntry.ip, ARPEntry.subnet_id, ARPEntry.source, ARPEntry.device_id, ARPEntry.interface)
+        .limit(8 * ips_limit))).all()
 
     # ── 合併成「用過的 IP」：(位址, 子網路) 一列 ──
     rows: dict[tuple[str, Any], dict[str, Any]] = {}
@@ -175,7 +177,7 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
         key = (ip_text, sid)
         if key not in rows:
             rows[key] = {"ip": ip_text, "subnet_id": sid, "ip_id": None, "first_seen": None, "last_seen": None,
-                         "current": False, "evidence": set(), "_last_event": None}
+                         "current": False, "evidence": set(), "_last_event": None, "_reporters": {}}
         return rows[key]
 
     def _span(r: dict[str, Any], first: datetime | None, last: datetime | None) -> None:
@@ -212,18 +214,27 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
                            "source": source, "event_type": etype})
 
     # ARP 沒有子網路的列（LibreNMS）：對到唯一一筆同位址的列；對不到就看 IP 記錄
-    unresolved: list[tuple[str, str, datetime | None, datetime | None]] = []
-    for ipv, sid, source, first, last in arp_rows:
+    def _reporter(r: dict[str, Any], source: str, device_id: Any, interface: str | None,
+                  last: datetime | None) -> None:
+        k = f"{source}:{device_id}" if device_id else source
+        cur = r["_reporters"].setdefault(k, {"source": source, "device_id": device_id,
+                                             "interface": interface, "last": last})
+        if last and (cur["last"] is None or last > cur["last"]):
+            cur["last"] = last
+
+    unresolved: list[tuple[str, str, Any, str | None, datetime | None, datetime | None]] = []
+    for ipv, sid, source, device_id, interface, first, last in arp_rows:
         ip_text = str(ipv).split("/")[0]
         if sid is None:
             same = [k for k in rows if k[0] == ip_text]
             if len(same) == 1:
                 sid = same[0][1]
             else:
-                unresolved.append((ip_text, str(source), first, last))
+                unresolved.append((ip_text, str(source), device_id, interface, first, last))
                 continue
         r = _row(ip_text, sid)
         r["evidence"].add(f"arp:{source}")
+        _reporter(r, str(source), device_id, interface, last)
         _span(r, first, last)
     if unresolved:
         from app.core.sqlin import in_values
@@ -232,13 +243,14 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
                 select(IPAddress.id, IPAddress.ip, IPAddress.subnet_id)
                 .where(in_values(IPAddress.ip, list({u[0] for u in unresolved}))))).all():
             owners[str(ipv).split("/")[0]].append((iid, sid))
-        for ip_text, source, first, last in unresolved:
+        for ip_text, source, device_id, interface, first, last in unresolved:
             own = owners.get(ip_text) or []
             sid = own[0][1] if len(own) == 1 else None      # 重疊網段對到好幾筆：不猜是哪一個子網路
             r = _row(ip_text, sid)
             if len(own) == 1:
                 r["ip_id"] = r["ip_id"] or own[0][0]
             r["evidence"].add(f"arp:{source}")
+            _reporter(r, source, device_id, interface, last)
             _span(r, first, last)
 
     # 可見範圍：看不到的子網路整列拿掉；說不出子網路的（IPAM 沒記錄）只有全域讀取看得到
@@ -261,6 +273,9 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
         cidr_of = {sid: str(c) for sid, c in (await session.execute(
             select(Subnet.id, Subnet.cidr).where(in_values(Subnet.id, list(missing_sids))))).all()}
     by_id, by_text = await liveness_lookup(session, ids, {r["ip"] for r in visible_rows if not r["ip_id"]})
+    from app.services.anomaly import reporter_names
+    rep_names = await reporter_names(session, {rp["device_id"] for r in visible_rows
+                                               for rp in r["_reporters"].values()})
     out_ips = []
     for r in visible_rows:
         info = rec.get(r["ip_id"])
@@ -277,6 +292,15 @@ async def mac_history(session: AsyncSession, *, user: Any, mac: str,
             # 目前還用著的，「現在是否在線上」看上線燈；這裡是各來源記到的最後時間
             "last_seen": _iso(r["last_seen"]),
             "evidence": sorted(r["evidence"]),
+            # ARP：幾個回報者、各是哪台設備的哪個介面（只有一台看過一次的，多半是讀壞或過期快取）
+            "arp_reporter_count": len(r["_reporters"]),
+            "arp_reporters": [
+                {"source": rp["source"],
+                 "device": rep_names.get(str(rp["device_id"])) if rp["device_id"] else None,
+                 "interface": rp["interface"], "last_seen": _iso(rp["last"])}
+                for rp in sorted(r["_reporters"].values(),
+                                 key=lambda x: x["last"] or datetime.min.replace(tzinfo=UTC), reverse=True)
+            ][:20],
             "live": by_id.get(r["ip_id"]) if r["ip_id"] else by_text.get(r["ip"]),
         })
     # 目前用著的在前，其餘由近到遠

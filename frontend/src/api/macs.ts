@@ -7,6 +7,9 @@ export interface MacIpRow {
   ip: string; ip_id: string | null; subnet_id: string | null; subnet_cidr: string | null;
   hostname: string | null; deleted: boolean; current: boolean;
   first_seen: string | null; last_seen: string | null; evidence: string[]; live: LiveEvidence;
+  /** ARP：幾個回報者（LibreNMS 的每台設備、掃描代理、各防火牆）與明細（2026-10-09） */
+  arp_reporter_count?: number;
+  arp_reporters?: { source: string; device: string | null; interface: string | null; last_seen: string | null }[];
 }
 export interface MacEvent {
   id: string; at: string; kind: "assigned" | "released"; ip: string; ip_id: string | null;

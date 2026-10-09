@@ -100,8 +100,19 @@ const ipCols = computed<DataTableColumns<MacIpRow>>(() => autoSort([
   { title: t("mac_history.col_last"), key: "last_seen", width: 150, render: (r) => fmtDateTime(r.last_seen) },
   // 最後一欄吃剩下的寬度、標籤自動換行。「IP 記錄」與「狀態：目前使用中」重複，不另外列
   { title: t("mac_history.col_evidence"), key: "evidence", minWidth: 190,
-    render: (r) => h(NSpace, { size: 4, wrap: true }, () => r.evidence.filter((e) => e !== "ipam").map((e) =>
-      h(NTag, { size: "tiny", bordered: false }, () => evidenceLabel(e)))) },
+    render: (r) => h(NSpace, { size: 4, wrap: true }, () => [
+      ...r.evidence.filter((e) => e !== "ipam").map((e) =>
+        h(NTag, { size: "tiny", bordered: false }, () => evidenceLabel(e))),
+      // ARP 有幾個來源看過、各是哪台設備的哪個介面：「只有一台看過」多半是讀壞或過期快取（2026-10-09）
+      ...(r.arp_reporter_count
+        ? [h(NTag, { size: "tiny", bordered: false, type: r.arp_reporter_count === 1 ? "warning" : "default",
+                     "data-testid": "mh-arp-reporters",
+                     title: (r.arp_reporters ?? []).map((x) => [x.device || evidenceLabel(`arp:${x.source}`),
+                       x.interface, x.last_seen ? fmtDateTime(x.last_seen) : null].filter(Boolean).join(" · "))
+                       .join("\n") },
+               () => t("anomaly.reporter_count", { n: r.arp_reporter_count }))]
+        : []),
+    ]) },
 ]));
 
 const portCols = computed<DataTableColumns<MacHistory["switch_ports"][number]>>(() => autoSort([

@@ -2145,7 +2145,7 @@
     "raw_report": "Raw report",
     "none_found": "No anomalies found",
     "mac_local": "locally administered",
-    "explain_ip_conflicts": "One IP in the same network used by two or more machines. Two kinds of evidence: \"ARP\" means ARP observations (LibreNMS, scan agents, firewall ARP tables) saw two or more MACs in the last hour; \"MAC keeps flipping\" means the IP's MAC switched between the same two addresses 3 or more times in the last 24 hours (a scan agent sees only one MAC per sweep, so this catches conflicts when scans are far apart). Overlapping subnets are judged separately and never conflict with each other. Addresses tagged as locally administered have no vendor registration — virtual machines, containers and phone MAC randomisation all produce them. An IP showing both a real MAC and a randomised one is usually a single device that changed address (reconnect, migration, NIC failover) rather than two machines fighting over an IP. The ones worth acting on are those where both MACs resolve to a vendor and belong to different devices.",
+    "explain_ip_conflicts": "One IP in the same network used by two or more machines. Two kinds of evidence: \"ARP\" means ARP observations (LibreNMS, scan agents, firewall ARP tables) saw two or more MACs in the last hour; \"MAC keeps flipping\" means the IP's MAC switched between the same two addresses 3 or more times in the last 24 hours (a scan agent sees only one MAC per sweep, so this catches conflicts when scans are far apart). Overlapping subnets are judged separately and never conflict with each other. Addresses tagged as locally administered have no vendor registration — virtual machines, containers and phone MAC randomisation all produce them. An IP showing both a real MAC and a randomised one is usually a single device that changed address (reconnect, migration, NIC failover) rather than two machines fighting over an IP. The ones worth acting on are those where both MACs resolve to a vendor and belong to different devices. Confidence is high when at least two machines are each seen by two or more sources, and low when the other side is reported by a single source (often a device's stale ARP cache). Hover \"N sources\" next to a MAC to see which devices and interfaces reported it. MACs marked \"Likely misread\" or \"Likely stale cache\" are listed but not counted as machines; when every MAC belongs to one host the row moves to \"One host on several NICs (ARP flux)\".",
     "explain_mac_drifts": "A MAC moved to a different port on the same switch (seen on the new port in the last 24 hours, on another port within the previous 7 days): usually a device re-plugged or relocated. Appearing on different switches is the normal forwarding path and does not count. VM migrations, random-MAC roaming and moves between shared ports (uplinks, access points) are listed below for reference and are not notified.",
     "explain_ghost_ips": "IPs marked as assigned in IPAM but with no sign of life for a long time (neither the scan agent nor LibreNMS has seen them). Usually decommissioned hosts whose records were never reclaimed — useful for cleaning up address space.",
     "explain_unauthorized_ips": "IPs actually seen on the network but not recorded in IPAM. Could be a device configured without going through a request, or simply a record not added yet.",
@@ -2271,7 +2271,16 @@
       "category": "Category",
       "device_model": "Model",
       "os_guess": "OS",
-      "shifts": "Change"
+      "shifts": "Change",
+      "confidence": "Confidence",
+      "fix": "Suggested fix",
+      "subnets": "Subnets",
+      "arp_count": "ARP evidence",
+      "fdb_count": "Switch MAC table evidence",
+      "arp_examples": "ARP examples",
+      "fdb_examples": "Switch MAC table examples",
+      "suspect_count": "Misread / stale",
+      "host": "Host"
     },
     "rot": {
       "dangling_nat": "The port forward's destination is not in IPAM — it may have been reclaimed, or never recorded",
@@ -2302,7 +2311,24 @@
     "identity_kind": "Device type",
     "identity_os": "OS",
     "identity_times": " ({n} times)",
-    "unauthorized_truncated": "Showing the {shown} most recently seen of {total}. Numbers this large usually mean a whole subnet was never registered: check the subnets first, or consider turning on automatic IP creation in the integration."
+    "unauthorized_truncated": "Showing the {shown} most recently seen of {total}. Numbers this large usually mean a whole subnet was never registered: check the subnets first, or consider turning on automatic IP creation in the integration.",
+    "arp_flux": "One host on several NICs (ARP flux)",
+    "l2_bleed": "Subnets sharing one layer 2",
+    "explain_arp_flux": "One IP is answered by two or more NICs of the same host: not two machines fighting over it, but a host answering ARP on interfaces that do not own the address. The usual cause is Linux's default arp_ignore=0 plus two subnets sharing one layer 2 (see \"Subnets sharing one layer 2\"); the router log keeps printing \"arp: ... moved from ... to ...\". Fix it on the host with net.ipv4.conf.all.arp_ignore=1 and net.ipv4.conf.all.arp_announce=2, saved under /etc/sysctl.d/ so it survives a reboot. \"NIC\" tells which of the device's interfaces each MAC belongs to (its registered IP or port name).",
+    "explain_l2_subnet_bleed": "Two IP subnets are really one broadcast domain: an IP in one subnet was answered by a MAC in use in the other, or one VLAN on a switch learned MACs from both. The segments are not isolated (for example a link between two switches joins them), which is also what causes ARP flux. If it is by design (two subnets on one VLAN) you can ignore it; otherwise check the switches' VLAN setup and the physical links between the segments. A MAC registered in several subnets (router subinterfaces) or registered but not in use is not used as evidence.",
+    "suspect_corrupt": "Likely misread",
+    "suspect_corrupt_hint": "Reported by a single source, no vendor, and spliced from two other MACs of the same IP (or one byte away from a MAC several sources agree on): most likely an SNMP walk caught the device's ARP table mid-change. Listed, but not counted as a machine.",
+    "suspect_stale_cache": "Likely stale cache",
+    "suspect_stale_cache_hint": "A locally administered MAC reported by one device's ARP table while several other sources see another MAC: most likely that device's ARP cache has not expired yet. Listed, but not counted as a machine.",
+    "reporter_count": "{n} sources",
+    "nic": "NIC",
+    "confidence_high": "High",
+    "confidence_low": "Low",
+    "confidence_hint": "High: at least two machines each seen by two or more sources (or MAC flipping is recorded). Low: the other side is reported by a single source, often a device's stale ARP cache.",
+    "bleed_arp_line": "{ip} ({subnet}) was answered by {mac}, which belongs to {owner} ({owner_subnet})",
+    "bleed_fdb_line": "{switch}, VLAN {vlan}: {detail}",
+    "evidence_arp_answer": "ARP answered with another subnet's MAC",
+    "evidence_switch_fdb": "One VLAN learned MACs from both subnets"
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -3886,7 +3912,9 @@
       "anomaly_identity_changes": "Anomaly: device type or OS changed",
       "rustdesk_alarm": "RustDesk client alarm (too many wrong passwords, allowlist violation…)",
       "change_impact_submitted": "IP change assessment to review (to reviewers)",
-      "change_impact_reviewed": "IP change assessment reviewed (to the creator)"
+      "change_impact_reviewed": "IP change assessment reviewed (to the creator)",
+      "anomaly_arp_flux": "Anomaly detection: one host answering an IP on several NICs",
+      "anomaly_l2_subnet_bleed": "Anomaly detection: two subnets sharing one layer 2"
     },
     "enable": "Enable",
     "secret_keep": "(set — leave blank to keep)",

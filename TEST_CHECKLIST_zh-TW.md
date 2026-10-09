@@ -636,6 +636,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 彈出層在 AI 助手浮動按鈕之上：開在右下角的確認框/下拉選單，與按鈕重疊的地方也點得到（`frontend/e2e/chat-fab-overlays.spec.ts`）
 - [ ] AI 對話視窗右上：動作按鈕、放大/縮小、關閉（關閉在最右邊，提示文字「關閉」）
 - [ ] **滿版圖不會比視窗高**（`frontend/src/composables/__tests__/usePageFill.test.ts`、`frontend/e2e/change-impact.spec.ts`）：視窗高 720 px，打開一筆 IP 變更評估、捲到證據區，再切到關係圖頁籤；圖放得進視窗，評估目標看得到也點得到。IP 拓樸圖也一樣
+- [ ] **異常偵測的 ARP 資料品質**（`backend/tests/test_arp_quality.py`、`backend/tests/test_anomaly_arp_quality.py`、`frontend/e2e/anomaly-arp-quality.spec.ts`；樣本在 `tests/seed_e2e.py`）：兩個 MAC 都連到同一台裝置的雙網卡主機，出現在「同一台主機多張網卡（ARP flux）」，寫出每個 MAC 是哪張網卡與兩行 sysctl，不在 IP 衝突裡；由另外兩個 MAC 拼成、只有一台路由器回報的 MAC 標「疑似讀壞」且不算數；「子網段混在同一個二層」列出那組子網段與 ARP、交換器 MAC 表的例子；第二台機器只有一個來源的 IP 衝突，可信度為「低」；滑過「N 個來源」看得到是哪幾台設備；MAC 歷程頁拼接出來的 MAC 顯示「1 個來源」。有真實資料的站台再用 `get_ip_history` 與 `list_anomalies(kind=...)`（items 是陣列）確認一次
 - [ ] **匯出是名稱不是編號**（`frontend/src/utils/__tests__/tableExport.test.ts`、`frontend/e2e/circuits-export.spec.ts`，issue #50）：匯出電路清單，供應商與類型是名稱、狀態翻好、頻寬跟畫面一樣格式；抽查裝置（地點、機櫃、單位）與 NAT 的匯出沒有 UUID
 - [ ] **匯出按鈕會顯示處理中**（`frontend/src/composables/__tests__/useExportBusy.test.ts`、`frontend/e2e/change-impact.spec.ts`）：
   選了檔案格式後，到檔案存好之前按鈕反灰並轉圈，期間再選一次不會重複產檔；涵蓋 IP 變更評估（報告與關係圖）、所有表格匯出按鈕、

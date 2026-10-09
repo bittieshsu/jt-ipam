@@ -2145,7 +2145,7 @@
     "raw_report": "完整報告",
     "none_found": "未發現異常",
     "mac_local": "本地管理/隨機",
-    "explain_ip_conflicts": "同一個網路裡的同一個 IP 被兩台以上的機器使用。兩種依據：「ARP」是最近 1 小時內，ARP 觀測（LibreNMS、掃描代理、防火牆 ARP 表）看到兩個以上的 MAC；「MAC 來回切換」是最近 24 小時內，這個 IP 的 MAC 在同樣兩個位址之間切換了 3 次以上（掃描代理每輪只看得到一個 MAC，掃描間隔較長時靠這一條）。重疊網段各自判斷，不會互相算成衝突。標成「本地管理/隨機」的位址沒有廠商登記 —— 虛擬機、容器、以及手機的 MAC 隱私隨機化都會產生這種位址；同一個 IP 同時出現「真實 MAC ＋ 隨機 MAC」，通常是同一台裝置換了位址（重新連線、遷移、網卡接手），不是兩台機器在搶同一個 IP。真正需要處理的，是兩個 MAC 都查得到廠商、且分屬不同裝置的情況。",
+    "explain_ip_conflicts": "同一個網路裡的同一個 IP 被兩台以上的機器使用。兩種依據：「ARP」是最近 1 小時內，ARP 觀測（LibreNMS、掃描代理、防火牆 ARP 表）看到兩個以上的 MAC；「MAC 來回切換」是最近 24 小時內，這個 IP 的 MAC 在同樣兩個位址之間切換了 3 次以上（掃描代理每輪只看得到一個 MAC，掃描間隔較長時靠這一條）。重疊網段各自判斷，不會互相算成衝突。標成「本地管理/隨機」的位址沒有廠商登記 —— 虛擬機、容器、以及手機的 MAC 隱私隨機化都會產生這種位址；同一個 IP 同時出現「真實 MAC ＋ 隨機 MAC」，通常是同一台裝置換了位址（重新連線、遷移、網卡接手），不是兩台機器在搶同一個 IP。真正需要處理的，是兩個 MAC 都查得到廠商、且分屬不同裝置的情況。「可信度」為高：至少兩台機器各有兩個以上來源看到；為低：另一方只有一個來源回報（常見是某台設備的 ARP 快取過期）。每個 MAC 旁的「N 個來源」滑過可看是哪幾台設備、哪個介面回報的。標成「疑似讀壞」「疑似過期快取」的 MAC 照樣列出，但不算一台機器；全部 MAC 都屬於同一台主機的，改列在「同一台主機多張網卡（ARP flux）」。",
     "explain_mac_drifts": "同一個 MAC 在同一台交換器上換了埠（最近 24 小時內出現在新的埠，前 7 天在另一個埠）：通常是設備換插或搬移。出現在不同交換器上是正常的傳輸路徑，不算。虛擬機遷移、手機隨機 MAC 漫遊、在共用埠之間的移動（上行埠、無線基地台）列在下方參考，不通知。",
     "explain_ghost_ips": "IPAM 中登記為已配發，但長時間沒有任何存活跡象（掃描代理與 LibreNMS 都沒看到）的 IP。多半是已退役卻沒回收的登記，可用來清理位址空間。",
     "explain_unauthorized_ips": "在網路上實際偵測到、但 IPAM 裡沒有登記的 IP。可能是未經申請就自行設定的裝置，也可能只是還沒補登記。",
@@ -2271,7 +2271,16 @@
       "category": "分類",
       "device_model": "型號",
       "os_guess": "OS",
-      "shifts": "變更"
+      "shifts": "變更",
+      "confidence": "可信度",
+      "fix": "建議修法",
+      "subnets": "子網段",
+      "arp_count": "ARP 證據",
+      "fdb_count": "交換器 MAC 表證據",
+      "arp_examples": "ARP 例子",
+      "fdb_examples": "交換器 MAC 表例子",
+      "suspect_count": "疑似讀壞／過期",
+      "host": "主機"
     },
     "rot": {
       "dangling_nat": "埠轉發的目標位址不在 IPAM —— 目標可能已回收，或從未登記",
@@ -2302,7 +2311,24 @@
     "identity_kind": "設備類型",
     "identity_os": "OS",
     "identity_times": "（{n} 次）",
-    "unauthorized_truncated": "清單只列出最近看到的 {shown} 筆，共 {total} 筆。數量這麼多時，通常是某個網段整段沒登記：先檢查子網路，或考慮開啟整合的自動建立 IP。"
+    "unauthorized_truncated": "清單只列出最近看到的 {shown} 筆，共 {total} 筆。數量這麼多時，通常是某個網段整段沒登記：先檢查子網路，或考慮開啟整合的自動建立 IP。",
+    "arp_flux": "同一台主機多張網卡（ARP flux）",
+    "l2_bleed": "子網段混在同一個二層",
+    "explain_arp_flux": "同一個 IP 被同一台主機的兩張以上網卡回應，不是兩台機器在搶，而是這台主機在不屬於那個位址的網卡上也回答 ARP。常見成因是 Linux 預設的 arp_ignore=0，加上兩個網段其實在同一個二層（見「子網段混在同一個二層」）；路由器的日誌會一直出現「arp: ... moved from ... to ...」。修法是在這台主機設定 net.ipv4.conf.all.arp_ignore=1 與 net.ipv4.conf.all.arp_announce=2，並寫進 /etc/sysctl.d/ 讓重開機後仍生效。「網卡」是每個 MAC 屬於這台裝置的哪一張網卡（登記的 IP 或裝置埠名稱）。",
+    "explain_l2_subnet_bleed": "兩個 IP 子網段實際上在同一個廣播網域：某個子網段 IP 的 ARP 回應，用了另一個子網段裡正在使用的 MAC；或同一台交換器的同一個 VLAN 學到兩個子網段的 MAC。這表示網段沒有真正隔離（例如兩台交換器之間的連接把兩邊接在一起），也是 ARP flux 的成因。若是刻意設計（同一個 VLAN 跑兩個網段）可以不理會；否則請檢查交換器的 VLAN 設定與兩個網段之間的實體連接。同一個 MAC 登記在多個子網段（路由器的子介面）、或只登記沒在使用的舊紀錄，不拿來判斷。",
+    "suspect_corrupt": "疑似讀壞",
+    "suspect_corrupt_hint": "只有一個來源回報、查不到廠商，而且是同一個 IP 另外兩個 MAC 拼起來的（或跟有多個來源佐證的 MAC 只差一個位元組），多半是設備的 ARP 表正在切換時 SNMP 讀到一半。照樣列出，但不算一台機器。",
+    "suspect_stale_cache": "疑似過期快取",
+    "suspect_stale_cache_hint": "本地管理位址，只有一台設備的 ARP 表回報，而其他多個來源都看到另一個 MAC，多半是那台設備的 ARP 快取還沒過期。照樣列出，但不算一台機器。",
+    "reporter_count": "{n} 個來源",
+    "nic": "網卡",
+    "confidence_high": "高",
+    "confidence_low": "低",
+    "confidence_hint": "高：至少兩台機器各有兩個以上來源看到（或 MAC 來回切換的紀錄）。低：另一方只有一個來源回報，常見是某台設備的 ARP 快取過期。",
+    "bleed_arp_line": "{ip}（{subnet}）的 ARP 回應用了 {mac}，這個 MAC 屬於 {owner}（{owner_subnet}）",
+    "bleed_fdb_line": "{switch}，VLAN {vlan}：{detail}",
+    "evidence_arp_answer": "ARP 回應用了另一個子網段的 MAC",
+    "evidence_switch_fdb": "同一個 VLAN 學到兩個子網段的 MAC"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -3886,7 +3912,9 @@
       "anomaly_identity_changes": "異常偵測：類型或 OS 突變",
       "rustdesk_alarm": "RustDesk 客戶端告警（密碼錯太多次、允許清單違規…）",
       "change_impact_submitted": "IP 變更評估待覆核（通知審核人）",
-      "change_impact_reviewed": "IP 變更評估已覆核（通知建立者）"
+      "change_impact_reviewed": "IP 變更評估已覆核（通知建立者）",
+      "anomaly_arp_flux": "異常偵測：同一台主機多張網卡回應同一個 IP",
+      "anomaly_l2_subnet_bleed": "異常偵測：兩個子網段混在同一個二層"
     },
     "enable": "啟用",
     "secret_keep": "（已設定，留空＝不變更）",

@@ -20,6 +20,7 @@ import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 
 def _guard() -> None:
@@ -362,6 +363,56 @@ async def seed() -> None:
             # 看起來像功能壞了。實際上是 fixture 過期了。
             row.first_seen_at = now_arp - timedelta(days=5)
             row.last_seen_at = now_arp - timedelta(hours=i * 6)
+        # ── ARP 資料品質（e2e/anomaly-arp-quality.spec.ts，2026-10-09）─────────────────
+        # 雙網卡主機：A 有三台設備看過、B 兩台；路由器 ARP 表切換時 SNMP 讀到一半拼出的兩個假 MAC 只有它回報。
+        # 交換器同一個 VLAN 學到兩個子網段的 MAC → 子網段混在同一個二層。另一個 IP 的第二台機器只有一個來源 → 低可信度。
+        from app.models.librenms import FDBEntry
+        flux_dev = await one(Device, name="arpflux-host-01", type="server", vendor="generic", model="E2E")
+        mac_a, mac_b = "02:00:5e:30:00:a1", "06:00:5e:40:00:b2"
+        flux_ip = await ip(subnets["10.20.0.0/24"], "10.20.0.50", "arpflux-host-01")
+        flux_ip2 = await ip(subnets["203.0.113.0/24"], "203.0.113.50", "arpflux-host-01-nic2")
+        flux_ip.mac, flux_ip.device_id = mac_a, flux_dev.id
+        flux_ip2.mac, flux_ip2.device_id = mac_b, flux_dev.id
+        low_ip = await ip(subnets["10.20.0.0/24"], "10.20.0.60", "low-confidence-01")
+        low_ip.mac = "00:00:5e:00:53:c1"
+        aq_lnms = await one(LibreNMSInstance, name="lnms-arpq-e2e", api_url="https://librenms-arpq.example.net",
+                            api_token_enc=b"x", api_token_nonce=b"y", enabled=False)
+        aq = {}
+        for n, legacy in (("edge-router-e2e", 9101), ("core-sw-e2e", 9102), ("access-sw-e2e", 9103)):
+            aq[n] = await one(LibreNMSDevice, legacy_device_id=legacy, instance_id=aq_lnms.id,
+                              hostname=f"192.0.2.{legacy - 9000}", sysname=n)
+        _now = datetime.now(UTC)
+
+        async def _arp(ip_text: str, mac: str, dev: Any) -> None:
+            row = (await s.execute(select(ARPEntry).where(
+                ARPEntry.ip == ip_text, ARPEntry.mac == mac, ARPEntry.device_id == dev.id))).scalars().first()
+            if row is None:
+                row = ARPEntry(ip=ip_text, mac=mac, device_id=dev.id, instance_id=dev.instance_id,
+                               source="librenms", interface="igb0")
+                s.add(row)
+            row.first_seen_at = _now - timedelta(days=3)
+            row.last_seen_at = _now - timedelta(minutes=5)       # 每次 seed 重新錨定（偵測看最近 1 小時）
+
+        for n in aq:
+            await _arp("10.20.0.50", mac_a, aq[n])
+        await _arp("10.20.0.50", mac_b, aq["edge-router-e2e"])
+        await _arp("10.20.0.50", mac_b, aq["core-sw-e2e"])
+        await _arp("10.20.0.50", "02:00:5e:40:00:b2", aq["edge-router-e2e"])   # 拼接
+        await _arp("10.20.0.50", "06:00:5e:30:00:a1", aq["edge-router-e2e"])   # 拼接
+        await _arp("203.0.113.50", mac_b, aq["edge-router-e2e"])
+        await _arp("10.20.0.60", "00:00:5e:00:53:c1", aq["edge-router-e2e"])
+        await _arp("10.20.0.60", "00:00:5e:00:53:c1", aq["core-sw-e2e"])
+        await _arp("10.20.0.60", "00:00:5e:00:53:c9", aq["access-sw-e2e"])      # 只有一個來源
+        for mac, port in ((mac_a, "Gi1/0/5"), (mac_b, "Gi1/0/25")):
+            row = (await s.execute(select(FDBEntry).where(
+                FDBEntry.mac == mac, FDBEntry.device_id == aq["core-sw-e2e"].id))).scalars().first()
+            if row is None:
+                row = FDBEntry(mac=mac, device_id=aq["core-sw-e2e"].id, instance_id=aq_lnms.id,
+                               vlan_id_num=1, port_name=port, source="librenms")
+                s.add(row)
+            row.first_seen_at = _now - timedelta(days=2)
+            row.last_seen_at = _now - timedelta(minutes=5)
+
         # ⚠️ 忽略清單一定要重設：e2e 會按「忽略這個 IP」，不重設的話第二次跑就
         # 什麼都看不到 —— 而失敗訊息長得像「功能壞了」。
         web.anomaly_ignore = []
