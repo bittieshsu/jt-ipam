@@ -10,7 +10,7 @@ import { useI18n } from "vue-i18n";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NTooltip, NAlert,
-  NModal, NForm, NFormItem, NInput, NInputNumber, NSwitch, NSelect, NCheckbox, NPopconfirm,
+  NModal, NForm, NFormItem, NInput, NInputNumber, NSwitch, NSelect, NCheckbox, NPopconfirm, NRadioGroup, NRadio,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import { listSubnets } from "@/api/subnets";
@@ -48,10 +48,17 @@ const loading = ref(false);
 const show = ref(false);
 const editing = ref<WindowsDhcpServer | null>(null);
 
+/** 切換 HTTP／HTTPS：連接埠還是另一邊的預設值時跟著換（自訂的連接埠不動） */
+function setTransport(https: boolean) {
+  if (form.value.port === (https ? 5985 : 5986)) form.value.port = https ? 5986 : 5985;
+  form.value.use_ssl = https;
+}
+
 function blankForm() {
   return {
     name: "", host: "", username: "", password: "",
-    port: 5986, use_ssl: true, verify_tls: true, enabled: true,
+    // 預設 HTTP 5985：Windows Server 防火牆預設封鎖 5986（使用者 2026-10-09）；HTTP 時一律 NTLM 加密
+    port: 5985, use_ssl: false, verify_tls: true, enabled: true,
     sync_scopes: true, sync_leases: true,
     sync_interval_seconds: 300, description: "",
     scope_subnet_ids: [] as string[],
@@ -230,21 +237,25 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           <n-input v-model:value="form.host" placeholder="dhcp01.corp.example.com" />
         </n-form-item>
         <n-form-item :label="t('windows_dhcp.username')">
-          <n-input v-model:value="form.username" placeholder="CORP\\svc-ipam" />
+          <n-input v-model:value="form.username" placeholder="CORP\svc-ipam" />
         </n-form-item>
         <n-form-item :label="editing ? t('windows_dhcp.password_keep') : t('windows_dhcp.password')">
           <n-input v-model:value="form.password" type="password" show-password-on="click" />
         </n-form-item>
+        <!-- 與 Windows DNS 的 WinRM 設定同一套：HTTP 5985 預設在前、驗證憑證只在 HTTPS 時有意義 -->
         <n-form-item :label="t('windows_dhcp.winrm')">
-          <n-space align="center" :size="16">
-            <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width: 120px" />
-            <span><n-switch v-model:value="form.use_ssl" size="small" /> HTTPS</span>
-            <span><n-switch v-model:value="form.verify_tls" size="small" /> {{ t("firewall_admin.verify_tls") }}</span>
+          <n-space vertical :size="4" style="width: 100%">
+            <n-space align="center" :wrap-item="false">
+              <n-radio-group :value="form.use_ssl" data-testid="wdhcp-winrm-transport" @update:value="setTransport">
+                <n-radio :value="false">{{ t("dns_admin.winrm_http_label") }}</n-radio>
+                <n-radio :value="true">HTTPS（5986）</n-radio>
+              </n-radio-group>
+              <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width: 120px" data-testid="wdhcp-winrm-port" />
+            </n-space>
+            <span v-if="form.use_ssl"><n-switch v-model:value="form.verify_tls" size="small" /> {{ t("firewall_admin.verify_tls") }}</span>
+            <span style="font-size: 11px; opacity: .7">{{ t("windows_dhcp.winrm_hint") }}</span>
           </n-space>
         </n-form-item>
-        <div style="margin: -8px 0 12px">
-          <span style="font-size: 11px; opacity: .7">{{ t("windows_dhcp.winrm_hint") }}</span>
-        </div>
         <n-form-item :label="t('windows_dhcp.pull_what')">
           <n-space :size="20">
             <n-checkbox v-model:checked="form.sync_scopes">{{ t("windows_dhcp.scopes") }}</n-checkbox>

@@ -994,13 +994,20 @@ keeps its data, Multi-Domain logins, IP detail lookup, IP change assessment, API
   reference the address (Check Point appears as a source)
 - [ ] Deleting the integration takes back its NAT rows; system export/import keeps the integration with its key encrypted
 
-## 7b3c. Windows DNS over WinRM: **whenever the Windows DNS adapter or the DNS server form changes**
+## 7b3c. Windows DNS and Windows DHCP over WinRM: **whenever either adapter, the DNS server form or the Windows DHCP form changes**
 
-Automated: `backend/tests/test_dns_adapter_connection_errors.py` (certificate validated by default, can be skipped,
-HTTP forces NTLM message encryption, default port follows the scheme, the untrusted-certificate error has a fix hint).
+Automated: `backend/tests/test_dns_adapter_connection_errors.py` (certificate validated on HTTPS, can be skipped,
+HTTP forces NTLM message encryption, default port follows the scheme, the untrusted-certificate error has a fix hint),
+`backend/tests/test_winrm_http_default.py` (both default to HTTP 5985, Windows DHCP over HTTP always encrypts, saving a
+Windows DNS server records the transport, migration 0197 and imports of older export files keep earlier Windows DNS
+servers on HTTPS), `frontend/e2e/windows-dhcp.spec.ts` (both forms pre-select "HTTP (5985, default)").
 
-- [ ] Windows Server 2022 with the default firewall (WinRM HTTP 5985 only): choose "HTTP (5985)", the test connection
-  succeeds and zones sync
+- [ ] New Windows DNS and Windows DHCP connections pre-select "HTTP (5985, default)"; the hint says the Windows Server
+  firewall blocks HTTPS 5986 by default; "Verify TLS certificate" only appears for HTTPS; switching to HTTPS changes the
+  port to 5986 (a custom port is left alone)
+- [ ] Upgrading from 1.0.4 leaves existing Windows DNS / Windows DHCP connections on the transport they used
+- [ ] Windows Server 2022 with the default firewall (WinRM HTTP 5985 only): with the defaults the test connection
+  succeeds and zones / scopes sync
 - [ ] HTTPS 5986 listener with a self-signed certificate: with "Verify TLS certificate" on the error says the certificate
   is not trusted and how to fix it; turned off, it connects; reopening the form keeps the transport, port and switch
 

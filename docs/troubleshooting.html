@@ -792,14 +792,14 @@ sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart jt-ipam-backend</
 
       <article class="qa" id="qa-windows-dns-winrm">
         <h3>
-          <span class="zh">Windows DNS 測試連線出現 <code>CERTIFICATE_VERIFY_FAILED</code>，或連不到 5986</span>
-          <span class="en">Windows DNS connection test shows <code>CERTIFICATE_VERIFY_FAILED</code>, or port 5986 is unreachable</span>
-          <span class="ja">Windows DNS の接続テストで <code>CERTIFICATE_VERIFY_FAILED</code> が出る、または 5986 に接続できない</span>
+          <span class="zh">Windows DNS、Windows DHCP 測試連線出現 <code>CERTIFICATE_VERIFY_FAILED</code>，或連不到 5986</span>
+          <span class="en">Windows DNS or Windows DHCP connection test shows <code>CERTIFICATE_VERIFY_FAILED</code>, or port 5986 is unreachable</span>
+          <span class="ja">Windows DNS や Windows DHCP の接続テストで <code>CERTIFICATE_VERIFY_FAILED</code> が出る、または 5986 に接続できない</span>
         </h3>
         <p>
-          <span class="zh">Windows Server 的防火牆預設只開 WinRM HTTP 5985，HTTPS 5986 要另外建立憑證監聽與防火牆規則，而且通常是自簽憑證。到 DNS 伺服器設定，把「WinRM 連線」改成 HTTP（5985）即可（內容與帳密一律以 NTLM 加密，無法加密就連線失敗、不會退回明文）；要走 HTTPS 5986 且是自簽憑證，就關閉「驗證 TLS 憑證」，或把簽發的 CA 匯入 jt-ipam 主機。帳號要能使用 WinRM（Remote Management Users 群組或管理員）並能管理 DNS（DnsAdmins 群組）。</span>
-          <span class="en">The Windows Server firewall opens only WinRM HTTP 5985 by default; HTTPS 5986 needs a certificate listener and a firewall rule, and the certificate is usually self-signed. In the DNS server settings set "WinRM transport" to HTTP (5985) (content and credentials are always NTLM-encrypted; if that is not possible the connection fails instead of falling back to clear text). To use HTTPS 5986 with a self-signed certificate, turn off "Verify TLS certificate" or import the issuing CA on the jt-ipam host. The account needs WinRM access (Remote Management Users or an administrator) and DNS rights (DnsAdmins).</span>
-          <span class="ja">Windows Server のファイアウォールは既定で WinRM HTTP 5985 のみ開いています。HTTPS 5986 には証明書付きリスナーとファイアウォール規則が別途必要で、証明書は自己署名であることがほとんどです。DNS サーバーの設定で「WinRM 接続」を HTTP（5985）にしてください（内容と資格情報は常に NTLM で暗号化され、暗号化できなければ平文には戻さず接続に失敗します）。自己署名証明書で HTTPS 5986 を使う場合は「TLS 証明書を検証」をオフにするか、発行元 CA を jt-ipam ホストにインポートしてください。アカウントには WinRM の利用権限（Remote Management Users または管理者）と DNS の管理権限（DnsAdmins）が必要です。</span>
+          <span class="zh">Windows Server 的防火牆預設只開 WinRM HTTP 5985，HTTPS 5986 預設是封鎖的，要另外建立憑證監聽與防火牆規則，而且通常是自簽憑證。所以 1.0.5 起新增的 Windows DNS、Windows DHCP 連線預設就走 HTTP 5985（內容與帳密一律以 NTLM 加密，無法加密就連線失敗、不會退回明文）；之前建立的連線維持原本的設定。還在用 5986 的話，到設定裡把「WinRM 連線」改成 HTTP（5985）即可；要走 HTTPS 5986 且是自簽憑證，就關閉「驗證 TLS 憑證」，或把簽發的 CA 匯入 jt-ipam 主機。帳號要能使用 WinRM（Remote Management Users 群組或管理員），並有對應的權限（Windows DNS 要 DnsAdmins，Windows DHCP 要 DHCP Users）。</span>
+          <span class="en">The Windows Server firewall opens only WinRM HTTP 5985 by default and blocks HTTPS 5986, which needs a certificate listener and a firewall rule, usually with a self-signed certificate. From 1.0.5 new Windows DNS and Windows DHCP connections therefore default to HTTP 5985 (content and credentials are always NTLM-encrypted; if that is not possible the connection fails instead of falling back to clear text); connections made earlier keep their settings. If one still uses 5986, set "WinRM transport" to HTTP (5985) in its settings. To use HTTPS 5986 with a self-signed certificate, turn off "Verify TLS certificate" or import the issuing CA on the jt-ipam host. The account needs WinRM access (Remote Management Users or an administrator) and the matching rights (DnsAdmins for Windows DNS, DHCP Users for Windows DHCP).</span>
+          <span class="ja">Windows Server のファイアウォールは既定で WinRM HTTP 5985 のみ開いており、HTTPS 5986 はブロックされています。HTTPS には証明書付きリスナーとファイアウォール規則が別途必要で、証明書はほとんどが自己署名です。そのため 1.0.5 から新しく作成する Windows DNS と Windows DHCP の接続は既定で HTTP 5985 を使います（内容と資格情報は常に NTLM で暗号化され、暗号化できなければ平文には戻さず接続に失敗します）。それ以前に作成した接続は設定を変えません。5986 を使っている場合は、設定の「WinRM 接続」を HTTP（5985）にしてください。自己署名証明書で HTTPS 5986 を使う場合は「TLS 証明書を検証」をオフにするか、発行元 CA を jt-ipam ホストにインポートしてください。アカウントには WinRM の利用権限（Remote Management Users または管理者）と、対応する権限（Windows DNS は DnsAdmins、Windows DHCP は DHCP Users）が必要です。</span>
         </p>
       </article>
 

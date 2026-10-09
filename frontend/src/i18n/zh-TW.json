@@ -1527,6 +1527,41 @@
       "checkpoint": "閘道 {gateways}．規則 {rules}．物件 {objects}．NAT {nat}",
       "partial_failed": "部分失敗：{what}",
       "checkpoint_gaia": "DHCP 子網路 {subnets}．發放範圍 {pools}．ARP {arp}．租約 {leases}"
+    },
+    "kinds": {
+      "adguard_sync": "AdGuard Home 同步",
+      "ai_audit_run": "AI 巡檢",
+      "checkpoint_sync": "Check Point 管理伺服器同步（規則、物件、NAT）",
+      "checkpoint_gaia_sync": "Check Point 閘道同步（DHCP、ARP、租約）",
+      "device_csv_import": "裝置 CSV 匯入",
+      "dns_sync": "DNS 同步",
+      "esxi_sync": "VMware ESXi / vCenter 同步",
+      "fortigate_sync": "FortiGate 同步",
+      "geoip_refresh": "GeoIP 資料庫更新",
+      "impact_ai": "IP 變更評估：AI 建議",
+      "impact_run": "IP 變更評估：分析",
+      "ip_csv_import": "IP CSV 匯入",
+      "ip_identify": "IP 探測",
+      "isc_dhcp_sync": "ISC DHCP 同步",
+      "isoinsight_sync": "ISOinsight 同步",
+      "kea_dhcp_sync": "Kea DHCP 同步",
+      "librenms_sync": "LibreNMS 同步",
+      "mikrotik_sync": "MikroTik 同步",
+      "ocs_sync": "OCS Inventory 同步",
+      "opnsense_sync": "OPNsense 同步",
+      "oui_refresh": "OUI 廠商資料庫更新",
+      "paloalto_sync": "Palo Alto 同步",
+      "pfsense_sync": "pfSense 同步",
+      "phpipam_migration": "phpIPAM 匯入",
+      "proxmox_sync": "Proxmox VE 同步",
+      "recog_refresh": "Recog 指紋庫更新",
+      "rustdesk_sync": "RustDesk 同步",
+      "system_export": "系統匯出",
+      "system_import": "系統匯入",
+      "technitium_dhcp_sync": "Technitium DHCP 同步",
+      "wazuh_sync": "Wazuh 同步",
+      "windows_dhcp_sync": "Windows DHCP 同步",
+      "zabbix_sync": "Zabbix 同步"
     }
   },
   "groups": {
@@ -1896,7 +1931,8 @@
     "technitium_can_modify": "這個 token 有修改權限。jt-ipam 只讀取，建議改用只有檢視權限的帳號。",
     "verify_tls_winrm_hint": "WinRM HTTPS 用自簽憑證時關閉；關閉後仍走 HTTPS 加密，只是不驗證憑證（建議改用內部 CA 簽發的憑證）。",
     "winrm_transport": "WinRM 連線",
-    "winrm_transport_hint": "Windows Server 防火牆預設只開 HTTP 5985；HTTPS 5986 要另外建立憑證監聽與防火牆規則。走 HTTP 時一律以 NTLM 加密內容與帳密（不會明文傳送）。連接埠留空用預設值。"
+    "winrm_transport_hint": "預設 HTTP 5985，因為 Windows Server 防火牆預設封鎖 HTTPS 5986（要用 HTTPS 得另外建立憑證監聽與防火牆規則）。走 HTTP 時一律以 NTLM 加密內容與帳密，不會明文傳送。連接埠留空用預設值。",
+    "winrm_http_label": "HTTP（5985，預設）"
   },
   "scope_overlap": {
     "warning": "偵測到有重疊網段（同一個 IP 存在於多個子網路）。此整合未設定「限定子網路範圍」，同步時可能把上線狀態／DHCP／MAC 標到錯誤單位的同 IP。建議在下方指定關聯子網路範圍。"
@@ -4340,13 +4376,13 @@
   },
   "windows_dhcp": {
     "title": "Windows DHCP 伺服器",
-    "intro": "透過 WinRM + PowerShell 唯讀同步 Windows DHCP 伺服器。jt-ipam 只執行 Get-* 指令，不會更動 DHCP 伺服器上的任何設定。需要 WinRM 可連線（預設 5986/HTTPS），以及一個具 DHCP 讀取權限的帳號。",
+    "intro": "透過 WinRM + PowerShell 唯讀同步 Windows DHCP 伺服器。jt-ipam 只執行 Get-* 指令，不會更動 DHCP 伺服器上的任何設定。需要 WinRM 可連線（預設 HTTP 5985，因為 Windows Server 防火牆預設封鎖 HTTPS 5986；走 HTTP 時內容與帳密一律以 NTLM 加密），以及一個具 DHCP 讀取權限的帳號。",
     "host": "主機",
     "username": "帳號",
     "password": "密碼",
     "password_keep": "密碼（留空表示不更改）",
-    "winrm": "WinRM 連接埠／TLS",
-    "winrm_hint": "預設 5986（HTTPS）；HTTP 為 5985。若伺服器位於私有網段，後端需啟用 OUTBOUND_ALLOW_PRIVATE。",
+    "winrm": "WinRM 連線",
+    "winrm_hint": "預設 HTTP 5985，因為 Windows Server 防火牆預設封鎖 HTTPS 5986（要用 HTTPS 得另外建立憑證監聽與防火牆規則）。走 HTTP 時內容與帳密一律以 NTLM 加密，不會明文傳送。若伺服器位於私有網段，後端需啟用 OUTBOUND_ALLOW_PRIVATE。",
     "pull_what": "要拉取的資料",
     "scopes": "發放範圍（scope）",
     "leases": "租約",
@@ -5128,7 +5164,7 @@
   },
   "checkpoint": {
     "title": "Check Point",
-    "intro": "透過 Check Point 管理伺服器（Security Management Server／Multi-Domain）的 Management API 唯讀同步閘道清單、網路物件、存取規則與 NAT（登入時要求唯讀工作階段，不會更動任何設定）。一台管理伺服器管的所有閘道與政策套件都在這裡；IP 詳細資料的防火牆反查、規則異動偵測與 IP 變更評估都會用到。尚未在實機驗收，標示 Beta。",
+    "intro": "透過 Check Point 管理伺服器（Security Management Server／Multi-Domain）的 Management API 唯讀同步閘道清單、網路物件、存取規則與 NAT（登入時要求唯讀工作階段，不會更動任何設定）。一台管理伺服器管的所有閘道與政策套件都在這裡；IP 詳細資料的防火牆反查、規則異動偵測與 IP 變更評估都會用到。閘道的 DHCP 設定、ARP 表與 DHCP 租約在「閘道」頁籤，替每台閘道另外設定 Gaia 連線。已在 R81.20 實機驗證，仍標示 Beta。",
     "tab_servers": "管理伺服器",
     "tab_rules": "存取規則",
     "tab_objects": "網路物件",
@@ -5227,7 +5263,10 @@
     "gaia_skip_no_permission": "帳號沒有執行指令的權限",
     "gaia_skip_unsupported": "這版 Gaia API 沒有 run-script",
     "gaia_skip_no_lease_file": "閘道上沒有租約檔",
-    "gaia_skip_dhcp_off": "DHCP 伺服器沒有啟用"
+    "gaia_skip_dhcp_off": "DHCP 伺服器沒有啟用",
+    "gaia_where_hint": "閘道的 DHCP 設定、ARP 表與 DHCP 租約不在這裡：那是閘道自己（Gaia）的資料，要到「閘道」頁籤替每台閘道設定 Gaia 連線（閘道的帳號，跟這裡的 API key 不同）。",
+    "gaia_where_after_save": "儲存並同步一次後，閘道會出現在「閘道」頁籤。",
+    "go_gateways": "前往閘道頁籤"
   },
   "mikrotik": {
     "title": "MikroTik RouterOS",

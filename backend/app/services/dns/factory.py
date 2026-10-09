@@ -53,6 +53,23 @@ def parse_tsig(raw: str | None) -> tuple[str, str, str]:
     return ("", "", raw.strip())
 
 
+def explicit_winrm_transport(server_type: str | None, extra_text: str | None) -> str | None:
+    """Windows DNS 的設定一律明確記下 use_ssl（沒給＝HTTP 5985）。
+
+    0197 之前沒記錄傳輸方式的伺服器一律走 HTTPS；之後沒記錄的意思變成 HTTP。存檔時把它寫明，
+    系統匯入才分得出「舊版匯出檔裡沒記錄的（HTTPS）」與新版的設定。JSON 壞掉的不碰（讓既有驗證處理）。
+    """
+    if server_type != "windows_dns":
+        return extra_text
+    try:
+        extra = json.loads(extra_text) if extra_text and extra_text.strip() else {}
+    except ValueError:
+        return extra_text
+    if not isinstance(extra, dict) or "use_ssl" in extra:
+        return extra_text
+    return json.dumps({**extra, "use_ssl": False}, ensure_ascii=False)
+
+
 async def get_adapter(session: AsyncSession, server: DNSServer) -> DNSAdapter:
     """主入口：給定 DNSServer 物件，回對應 adapter（密鑰已解密）。"""
     extra = json.loads(server.extra_config) if server.extra_config else {}
@@ -110,8 +127,10 @@ async def get_adapter(session: AsyncSession, server: DNSServer) -> DNSAdapter:
             host=server.server_address or "",
             username=str(extra.get("username", "")),
             password=password or "",
-            port=int(extra.get("winrm_port") or (5986 if extra.get("use_ssl", True) else 5985)),
-            use_ssl=bool(extra.get("use_ssl", True)),
+            # 沒記錄傳輸方式＝HTTP 5985（Windows Server 防火牆預設封鎖 5986）；0197 之前建立的
+            # 伺服器當時一律 HTTPS，升級時已明確寫入 use_ssl=true，不會被切換
+            port=int(extra.get("winrm_port") or (5986 if extra.get("use_ssl", False) else 5985)),
+            use_ssl=bool(extra.get("use_ssl", False)),
             verify_tls=bool(extra.get("verify_tls", True)),
         )
 

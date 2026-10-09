@@ -209,7 +209,7 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 - **VMInterface**：`mac`、`primary_ip`、`bridge`、`vlan_id`。
 
 ### 6.5 DNS：`dns.py`
-- **DNSServer**：provider 抽象 `type`（powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs/technitium）；密鑰在 `encrypted_secrets`，非機密設定在 `extra_config`（`windows_dns` 用 `username`、`use_ssl`（HTTPS 5986 為預設，或 HTTP 5985 並強制 NTLM 加密）、選用的 `winrm_port`、`verify_tls`）。
+- **DNSServer**：provider 抽象 `type`（powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs/technitium）；密鑰在 `encrypted_secrets`，非機密設定在 `extra_config`（`windows_dns` 用 `username`、`use_ssl`（預設 HTTP 5985 並強制 NTLM 加密，或 HTTPS 5986；存檔時一律寫明，migration 0197 把之前建立的伺服器明確記成 HTTPS）、選用的 `winrm_port`、`verify_tls`）。
 - **DNSZone**：`type`（forward/reverse）、`managed`、`associated_subnet_ids`（`uuid[]`）。
 - **DNSRecord**：`type`（A/AAAA/PTR/CNAME/MX/TXT/SRV/NS/SOA）、`source`（manual/from_ipam/from_dns_pulled）、`consistency_state`（consistent/dns_only/ipam_only/mismatch）供不一致報表、選填 `ipam_address_id` 反向連結。
 

@@ -11,7 +11,7 @@ PowerShell cmdlets：
 
 OWASP A04：password 即時解密、不在 instance 上常駐
 OWASP A05：所有 PowerShell 參數透過 winrm 的 named parameters 傳，不字串拼接
-OWASP A02：use_ssl=true、驗證憑證為預設；HTTP 5985 時強制 NTLM 訊息加密（message_encryption=always）；WinRM HTTPS 常用自簽憑證（客戶 2026-10-08），
+OWASP A02：預設 HTTP 5985（Windows Server 防火牆預設封鎖 5986，使用者 2026-10-09），此時強制 NTLM 訊息加密（message_encryption=always），加密不了就連線失敗；HTTPS 時預設驗證憑證；WinRM HTTPS 常用自簽憑證（客戶 2026-10-08），
            比照其他整合可在設定頁關閉「驗證 TLS 憑證」—— 仍走 HTTPS 加密，只是不驗憑證
 OWASP A06：host 透過 socket 解析後檢查（DNS 解析後 pin IP 防 rebinding）
 """
@@ -65,8 +65,8 @@ class WindowsDNSAdapter(DNSAdapter):
         host: str,
         username: str,
         password: str,
-        port: int = 5986,
-        use_ssl: bool = True,
+        port: int = 5985,
+        use_ssl: bool = False,
         verify_tls: bool = True,
         timeout: float = 30.0,
     ) -> None:

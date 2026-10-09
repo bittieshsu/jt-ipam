@@ -17,7 +17,8 @@ import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { fmtDateTime } from "@/utils/datetime";
-const { t } = useI18n();
+import { taskKindLabel } from "@/utils/taskKind";
+const { t, te } = useI18n();
 
 const { visibleKeys: tkVis, setVisible: tkSet, reset: tkReset,
   order: tkOrder, setOrder: tkSetOrder, orderColumns: tkOrderCols } = useColumnPrefs(
@@ -51,7 +52,11 @@ const q = ref("");
 const fKind = ref<string | null>(null);
 const fStatus = ref<string | null>(null);
 const fTrigger = ref<"manual" | "scheduled" | null>(null);
-const kindOptions = ref<{ label: string; value: string }[]>([]);
+const taskKinds = ref<string[]>([]);
+// computed：換語言時選項跟著換
+const kindOptions = computed(() => taskKinds.value
+  .map((k) => ({ label: taskKindLabel(k, t, te), value: k }))
+  .sort((a, b) => a.label.localeCompare(b.label)));
 const statusOptions = computed(() => (["succeeded", "failed", "cancelled"] as const)
   .map((s) => ({ label: t(`tasks.status_${s}`), value: s })));
 const triggerOptions = computed(() => [
@@ -60,7 +65,7 @@ const triggerOptions = computed(() => [
 ]);
 async function fetchKinds() {
   try {
-    kindOptions.value = (await listTaskKinds()).map((k) => ({ label: k, value: k }));
+    taskKinds.value = await listTaskKinds();
   } catch {
     // 選項拿不到不影響清單
   }
@@ -128,7 +133,15 @@ function fmtTs(s: string | null): string {
 }
 
 const commonCols = computed<DataTableColumns<BackgroundTask>>(() => autoSort([
-  { title: t("tasks.col_kind"), key: "kind", width: 180 },
+  // 顯示翻好的名稱，內部名稱放下面當小字（查日誌、對 API 時用得到）
+  { title: t("tasks.col_kind"), key: "kind", width: 240,
+    render: (r) => {
+      const label = taskKindLabel(r.kind, t, te);
+      return label === r.kind ? r.kind : h("div", null, [
+        h("div", null, label),
+        h("div", { style: "font-size: 11.5px; opacity: .55; font-family: var(--n-font-family-mono, monospace)" }, r.kind),
+      ]);
+    } },
   {
     title: t("tasks.col_trigger"), key: "trigger", width: 96,
     render: (r) => h(

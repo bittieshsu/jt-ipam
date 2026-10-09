@@ -72,7 +72,7 @@ class WindowsDhcpClient:
     """對單一台 Windows DHCP Server 的唯讀 WinRM 用戶端。"""
 
     def __init__(self, *, host: str, username: str, password: str,
-                 port: int = 5986, use_ssl: bool = True, verify_tls: bool = True,
+                 port: int = 5985, use_ssl: bool = False, verify_tls: bool = True,
                  timeout: float = 30.0) -> None:
         if not host:
             raise WindowsDhcpError("Windows DHCP: host is required")
@@ -94,6 +94,8 @@ class WindowsDhcpClient:
             auth=(self.username, self.password),
             transport="ntlm",
             server_cert_validation="validate" if (self.use_ssl and self.verify_tls) else "ignore",
+            # HTTP 5985 時內容與帳密一律以 NTLM 加密；加密不了就連線失敗，不退回明文（OWASP A02）
+            message_encryption="auto" if self.use_ssl else "always",
             operation_timeout_sec=int(self.timeout),
             read_timeout_sec=int(self.timeout) + 5,
         )

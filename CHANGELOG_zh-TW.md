@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### 變更
+- Windows DHCP 與 Windows DNS（WinRM）：新增的連線預設改走 HTTP 5985，不再是 HTTPS 5986，因為 Windows Server 防火牆預設封鎖 5986；設定頁寫明原因、預設選「HTTP（5985，預設）」，「驗證 TLS 憑證」只在選 HTTPS 時出現。走 HTTP 時內容與帳密一律以 NTLM 加密（Windows DHCP 也改成明確要求，加密不了就連線失敗、不退回明文）。既有連線維持原本的方式：migration 0197 把沒記錄傳輸方式的 Windows DNS 伺服器明確記成 HTTPS，匯入舊版的匯出檔也一樣。
+- 作業頁：背景作業的類型改顯示名稱（例如「Check Point 閘道同步（DHCP、ARP、租約）」而不是 `checkpoint_gaia.sync`），內部名稱放在下方小字；類型篩選也用名稱。
+- Check Point 管理伺服器的設定視窗寫明閘道的 DHCP 設定、ARP 表與租約在「閘道」頁籤，並附上直接開啟的按鈕。
+
 ## [1.0.4] - 2026-10-08
 
 ### 變更

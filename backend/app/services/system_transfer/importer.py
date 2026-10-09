@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import datetime as _dt
+import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,6 +51,10 @@ def _coerce(table, row: dict[str, Any]) -> dict[str, Any]:
         from app.services.rack import legacy_side_to_slots
         slot, span = legacy_side_to_slots(row.get("rack_side"))
         row = {**row, "rack_slot": slot, "rack_slot_span": span}
+    # 舊版（0197 之前）匯出檔裡沒記錄傳輸方式的 Windows DNS，當時一律走 HTTPS 5986；新版沒記錄＝HTTP，
+    # 不補上的話搬到新站台會被切成 HTTP（新版存檔時一律寫明 use_ssl，所以沒記錄的只會是舊檔）
+    if table.name == "dns_servers" and row.get("type") == "windows_dns":
+        row = {**row, "extra_config": _pin_legacy_winrm_https(row.get("extra_config"))}
     cols = table.columns
     out: dict[str, Any] = {}
     for name, val in row.items():
@@ -69,6 +74,18 @@ def _coerce(table, row: dict[str, Any]) -> dict[str, Any]:
         else:
             out[name] = val
     return out
+
+
+def _pin_legacy_winrm_https(extra_text: Any) -> Any:
+    if extra_text is not None and not isinstance(extra_text, str):
+        return extra_text
+    try:
+        extra = json.loads(extra_text) if extra_text and extra_text.strip() else {}
+    except ValueError:
+        return extra_text
+    if not isinstance(extra, dict) or "use_ssl" in extra:
+        return extra_text
+    return json.dumps({**extra, "use_ssl": True}, ensure_ascii=False)
 
 
 def _parse_temporal(val: Any) -> Any:

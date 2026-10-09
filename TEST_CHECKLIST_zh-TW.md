@@ -728,12 +728,17 @@ IP 變更評估、API 增刪改不回傳金鑰、限管理員）。
   IP 變更評估列出引用這個位址的規則與 NAT（來源有 Check Point）
 - [ ] 刪除整合會收回它的 NAT；系統匯出/匯入保留這個整合，金鑰維持加密
 
-## 7b3c. Windows DNS（WinRM）：**動到 Windows DNS 的連線程式或 DNS 伺服器表單就要跑**
+## 7b3c. Windows DNS 與 Windows DHCP（WinRM）：**動到這兩個整合的連線程式、DNS 伺服器表單或 Windows DHCP 表單就要跑**
 
-自動化：`backend/tests/test_dns_adapter_connection_errors.py`（預設驗證憑證、可關閉、HTTP 強制 NTLM 加密、預設連接埠跟著
-連線方式、憑證不受信任的錯誤附處理方式）。
+自動化：`backend/tests/test_dns_adapter_connection_errors.py`（HTTPS 時驗證憑證、可關閉、HTTP 強制 NTLM 加密、預設連接埠跟著
+連線方式、憑證不受信任的錯誤附處理方式）、`backend/tests/test_winrm_http_default.py`（兩者預設 HTTP 5985、Windows DHCP 走 HTTP
+一律加密、存 Windows DNS 時寫明傳輸方式、migration 0197 與匯入舊版匯出檔都讓之前的 Windows DNS 維持 HTTPS）、
+`frontend/e2e/windows-dhcp.spec.ts`（兩個表單都預設選「HTTP（5985，預設）」）。
 
-- [ ] Windows Server 2022 預設防火牆（只開 WinRM HTTP 5985）：選「HTTP（5985）」，測試連線成功、區域同步得到
+- [ ] 新增 Windows DNS、Windows DHCP 連線時預設選「HTTP（5985，預設）」，說明寫明 Windows Server 防火牆預設封鎖 HTTPS 5986；
+  「驗證 TLS 憑證」只在選 HTTPS 時出現；切到 HTTPS 時連接埠換成 5986（自訂的連接埠不動）
+- [ ] 從 1.0.4 升級後，既有的 Windows DNS／Windows DHCP 連線維持原本的連線方式
+- [ ] Windows Server 2022 預設防火牆（只開 WinRM HTTP 5985）：用預設值測試連線成功，區域／範圍同步得到
 - [ ] HTTPS 5986 監聽用自簽憑證：「驗證 TLS 憑證」開著時錯誤訊息說憑證不受信任與處理方式；關掉後連得上；重開表單時
   連線方式、連接埠與開關都保留
 

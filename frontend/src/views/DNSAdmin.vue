@@ -69,7 +69,8 @@ function emptyForm(): Form {
     api_url: "", server_address: "",
     enabled: true, sync_interval_seconds: 300,
     api_key: "", api_secret: "", tsig_key: "", password: "", zones: [] as string[],
-    username: "", verify_tls: true, winrm_https: true, winrm_port: null,
+    // WinRM 預設 HTTP 5985：Windows Server 防火牆預設封鎖 5986（使用者 2026-10-09）
+    username: "", verify_tls: true, winrm_https: false, winrm_port: null,
     scope_subnet_ids: [],
   };
 }
@@ -272,7 +273,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
         <template #icon><n-icon><RefreshIcon /></n-icon></template>
         {{ t("common.refresh") }}
       </n-button>
-      <n-button type="primary" @click="openCreate">
+      <n-button type="primary" data-testid="dns-create" @click="openCreate">
         <template #icon><n-icon><PlusIcon /></n-icon></template>
         {{ t("dns_admin.create") }}
       </n-button>
@@ -300,7 +301,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           <n-input v-model:value="form.name" placeholder="dns-edge" />
         </n-form-item>
         <n-form-item :label="t('dns_admin.type')">
-          <n-select v-model:value="form.type" :options="typeOpts" />
+          <n-select v-model:value="form.type" :options="typeOpts" data-testid="dns-type" />
         </n-form-item>
 
         <!-- 各類型設定說明 -->
@@ -334,8 +335,8 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           <n-space vertical :size="4" style="width: 100%">
             <n-space align="center" :wrap-item="false">
               <n-radio-group v-model:value="form.winrm_https" data-testid="dns-winrm-transport">
+                <n-radio :value="false">{{ t("dns_admin.winrm_http_label") }}</n-radio>
                 <n-radio :value="true">HTTPS（5986）</n-radio>
-                <n-radio :value="false">HTTP（5985）</n-radio>
               </n-radio-group>
               <n-input-number v-model:value="form.winrm_port" :min="1" :max="65535" clearable style="width: 140px"
                               :placeholder="form.winrm_https ? '5986' : '5985'" />

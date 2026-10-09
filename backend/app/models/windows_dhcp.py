@@ -22,8 +22,9 @@ class WindowsDhcpServer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     host: Mapped[str] = mapped_column(String(255), nullable=False)       # DHCP 主機（FQDN 或 IP）
-    port: Mapped[int] = mapped_column(Integer, default=5986, nullable=False)
-    use_ssl: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)   # WinRM over HTTPS
+    # 預設 HTTP 5985（0197 起）：Windows Server 防火牆預設封鎖 5986；HTTP 時內容一律 NTLM 加密
+    port: Mapped[int] = mapped_column(Integer, default=5985, nullable=False)
+    use_ssl: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)   # WinRM over HTTPS
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     username: Mapped[str] = mapped_column(String(255), nullable=False)   # DOMAIN\\user 或本機帳號
 

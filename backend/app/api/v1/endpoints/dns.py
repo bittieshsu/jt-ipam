@@ -30,6 +30,7 @@ from app.schemas.dns import (
     InconsistentRecord,
 )
 from app.services.dns import DNSAdapterError, get_adapter
+from app.services.dns.factory import explicit_winrm_transport
 from app.services.dns_sync import pull_server
 
 router = APIRouter(prefix="/dns", tags=["dns"], dependencies=[Depends(require_global_read)])
@@ -104,7 +105,7 @@ async def create_server(
         type=payload.type,
         api_url=str(payload.api_url).rstrip("/") if payload.api_url else None,
         server_address=payload.server_address,
-        extra_config=payload.extra_config,
+        extra_config=explicit_winrm_transport(payload.type, payload.extra_config),
         enabled=payload.enabled,
         sync_interval_seconds=payload.sync_interval_seconds,
         scope_subnet_ids=payload.scope_subnet_ids,
@@ -161,6 +162,7 @@ async def update_server(
         obj.server_address = payload.server_address
     if payload.extra_config is not None:
         obj.extra_config = payload.extra_config
+    obj.extra_config = explicit_winrm_transport(obj.type, obj.extra_config)
     if payload.enabled is not None:
         obj.enabled = payload.enabled
     if payload.sync_interval_seconds is not None:

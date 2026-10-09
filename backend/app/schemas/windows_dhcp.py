@@ -15,8 +15,9 @@ class WindowsDhcpBase(StrictModel):
     name: Annotated[str, Field(min_length=1, max_length=128)]
     host: Annotated[str, Field(min_length=1, max_length=255)]
     username: Annotated[str, Field(min_length=1, max_length=255)]
-    port: Annotated[int, Field(ge=1, le=65535)] = 5986
-    use_ssl: bool = True
+    # 預設 HTTP 5985：Windows Server 防火牆預設只開 5985、封鎖 5986（使用者 2026-10-09）；HTTP 一律 NTLM 加密
+    port: Annotated[int, Field(ge=1, le=65535)] = 5985
+    use_ssl: bool = False
     verify_tls: bool = True
     enabled: bool = True
     sync_scopes: bool = True

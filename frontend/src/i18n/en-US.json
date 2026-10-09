@@ -1527,6 +1527,41 @@
       "checkpoint": "Gateways {gateways}. Rules {rules}. Objects {objects}. NAT {nat}",
       "partial_failed": "Partly failed: {what}",
       "checkpoint_gaia": "DHCP subnets {subnets}. Pools {pools}. ARP {arp}. Leases {leases}"
+    },
+    "kinds": {
+      "adguard_sync": "AdGuard Home sync",
+      "ai_audit_run": "AI review",
+      "checkpoint_sync": "Check Point management server sync (rules, objects, NAT)",
+      "checkpoint_gaia_sync": "Check Point gateway sync (DHCP, ARP, leases)",
+      "device_csv_import": "Device CSV import",
+      "dns_sync": "DNS sync",
+      "esxi_sync": "VMware ESXi / vCenter sync",
+      "fortigate_sync": "FortiGate sync",
+      "geoip_refresh": "GeoIP database update",
+      "impact_ai": "IP change assessment: AI suggestions",
+      "impact_run": "IP change assessment: analysis",
+      "ip_csv_import": "IP CSV import",
+      "ip_identify": "IP probe",
+      "isc_dhcp_sync": "ISC DHCP sync",
+      "isoinsight_sync": "ISOinsight sync",
+      "kea_dhcp_sync": "Kea DHCP sync",
+      "librenms_sync": "LibreNMS sync",
+      "mikrotik_sync": "MikroTik sync",
+      "ocs_sync": "OCS Inventory sync",
+      "opnsense_sync": "OPNsense sync",
+      "oui_refresh": "OUI vendor database update",
+      "paloalto_sync": "Palo Alto sync",
+      "pfsense_sync": "pfSense sync",
+      "phpipam_migration": "phpIPAM migration",
+      "proxmox_sync": "Proxmox VE sync",
+      "recog_refresh": "Recog fingerprint update",
+      "rustdesk_sync": "RustDesk sync",
+      "system_export": "System export",
+      "system_import": "System import",
+      "technitium_dhcp_sync": "Technitium DHCP sync",
+      "wazuh_sync": "Wazuh sync",
+      "windows_dhcp_sync": "Windows DHCP sync",
+      "zabbix_sync": "Zabbix sync"
     }
   },
   "groups": {
@@ -1896,7 +1931,8 @@
     "technitium_can_modify": "This token can modify zones. jt-ipam only reads; an account with view permission only is recommended.",
     "verify_tls_winrm_hint": "Turn off when WinRM HTTPS uses a self-signed certificate; traffic stays HTTPS-encrypted, only the certificate is not checked (a certificate from an internal CA is better).",
     "winrm_transport": "WinRM transport",
-    "winrm_transport_hint": "The Windows Server firewall opens only HTTP 5985 by default; HTTPS 5986 needs a certificate listener and a firewall rule. Over HTTP the content and credentials are always NTLM-encrypted (never sent in clear). Leave the port empty for the default."
+    "winrm_transport_hint": "HTTP 5985 by default, because the Windows Server firewall blocks HTTPS 5986 by default (HTTPS needs a certificate listener and a firewall rule). Over HTTP the content and credentials are always NTLM-encrypted, never sent in clear. Leave the port empty for the default.",
+    "winrm_http_label": "HTTP (5985, default)"
   },
   "scope_overlap": {
     "warning": "Overlapping subnets detected (the same IP exists in more than one subnet). This integration has no subnet scope set, so a sync may stamp liveness / DHCP / MAC onto the wrong tenant's copy of an IP. Consider setting the subnet scope below."
@@ -4340,13 +4376,13 @@
   },
   "windows_dhcp": {
     "title": "Windows DHCP Server",
-    "intro": "Read-only sync from a Windows DHCP Server over WinRM + PowerShell. jt-ipam only runs Get-* cmdlets and never changes anything on the DHCP server. Requires WinRM to be reachable (5986/HTTPS by default) and an account with DHCP read permission.",
+    "intro": "Read-only sync from a Windows DHCP Server over WinRM + PowerShell. jt-ipam only runs Get-* cmdlets and never changes anything on the DHCP server. Requires WinRM to be reachable (HTTP 5985 by default, because the Windows Server firewall blocks HTTPS 5986 by default; over HTTP the content and credentials are always NTLM-encrypted) and an account with DHCP read permission.",
     "host": "Host",
     "username": "Username",
     "password": "Password",
     "password_keep": "Password (leave blank to keep current)",
-    "winrm": "WinRM port / TLS",
-    "winrm_hint": "Default 5986 over HTTPS (5985 for HTTP). If the server sits on a private network, the backend needs OUTBOUND_ALLOW_PRIVATE enabled.",
+    "winrm": "WinRM transport",
+    "winrm_hint": "HTTP 5985 by default, because the Windows Server firewall blocks HTTPS 5986 by default (HTTPS needs a certificate listener and a firewall rule). Over HTTP the content and credentials are always NTLM-encrypted, never sent in clear. If the server sits on a private network, the backend needs OUTBOUND_ALLOW_PRIVATE enabled.",
     "pull_what": "What to pull",
     "scopes": "Scopes (address ranges)",
     "leases": "Leases",
@@ -5128,7 +5164,7 @@
   },
   "checkpoint": {
     "title": "Check Point",
-    "intro": "Read-only sync of gateways, network objects, access rules and NAT through the Management API of a Check Point management server (Security Management Server / Multi-Domain). The login asks for a read-only session and nothing is ever changed. All gateways and policy packages managed by the server appear here; the IP detail firewall lookup, rule change detection and IP change assessment use them. Not yet verified on a real system, hence Beta.",
+    "intro": "Read-only sync of gateways, network objects, access rules and NAT through the Management API of a Check Point management server (Security Management Server / Multi-Domain). The login asks for a read-only session and nothing is ever changed. All gateways and policy packages managed by the server appear here; the IP detail firewall lookup, rule change detection and IP change assessment use them. The gateways' DHCP settings, ARP table and DHCP leases are in the Gateways tab, where each gateway gets its own Gaia connection. Verified on a real R81.20 system; still marked Beta.",
     "tab_servers": "Management servers",
     "tab_rules": "Access rules",
     "tab_objects": "Network objects",
@@ -5227,7 +5263,10 @@
     "gaia_skip_no_permission": "the account may not run commands",
     "gaia_skip_unsupported": "this Gaia API has no run-script",
     "gaia_skip_no_lease_file": "no lease file on the gateway",
-    "gaia_skip_dhcp_off": "the DHCP server is not enabled"
+    "gaia_skip_dhcp_off": "the DHCP server is not enabled",
+    "gaia_where_hint": "Gateway DHCP settings, the ARP table and DHCP leases are not set here: they live on the gateway itself (Gaia), so set up a Gaia connection for each gateway in the Gateways tab (with the gateway's account, not this API key).",
+    "gaia_where_after_save": "After saving and syncing once, the gateways appear in the Gateways tab.",
+    "go_gateways": "Go to the Gateways tab"
   },
   "mikrotik": {
     "title": "MikroTik RouterOS",

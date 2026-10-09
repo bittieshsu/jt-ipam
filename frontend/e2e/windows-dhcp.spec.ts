@@ -27,6 +27,19 @@ test.describe("Windows DHCP Server（Beta）", () => {
     const dialog = page.locator(".n-modal");
     await expect(dialog).toBeVisible();
 
+    // WinRM 預設 HTTP 5985（使用者 2026-10-09：Windows Server 防火牆預設封鎖 5986）
+    const transport = dialog.getByTestId("wdhcp-winrm-transport");
+    await expect(transport.locator(".n-radio--checked")).toContainText("HTTP（5985，預設）");
+    const port = dialog.getByTestId("wdhcp-winrm-port").locator("input");
+    await expect(port).toHaveValue("5985");
+    await expect(dialog).toContainText("Windows Server 防火牆預設封鎖 HTTPS 5986");
+    await expect(dialog.getByText("驗證 TLS", { exact: false })).toHaveCount(0);   // 只有 HTTPS 才有意義
+    await transport.getByText("HTTPS（5986）").click();
+    await expect(port).toHaveValue("5986");
+    await expect(dialog.getByText("驗證 TLS", { exact: false })).toHaveCount(1);
+    await transport.getByText("HTTP（5985，預設）").click();
+    await expect(port).toHaveValue("5985");
+
     const boxes = dialog.getByRole("textbox");
     await boxes.nth(0).fill(name);                    // 名稱
     await boxes.nth(1).fill("192.0.2.240");           // 主機（TEST-NET，必連不到）
@@ -53,5 +66,18 @@ test.describe("Windows DHCP Server（Beta）", () => {
     await confirmBtn.dispatchEvent("click");
     await deleted;
     await expect(page.locator(".n-data-table-tr", { hasText: name })).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("Windows DNS 新增：WinRM 也預設 HTTP 5985", async ({ page }) => {
+    await login(page);
+    await page.goto("/dns");
+    await page.getByTestId("dns-create").click();
+    const dialog = page.locator(".n-modal");
+    await dialog.getByTestId("dns-type").click();
+    await page.locator(".n-base-select-option", { hasText: "Microsoft Windows DNS (WinRM)" }).click();
+    const transport = dialog.getByTestId("dns-winrm-transport");
+    await expect(transport.locator(".n-radio--checked")).toContainText("HTTP（5985，預設）");
+    await expect(dialog).toContainText("Windows Server 防火牆預設封鎖 HTTPS 5986");
+    await dialog.getByRole("button", { name: "取消" }).click();
   });
 });

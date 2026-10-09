@@ -39,7 +39,7 @@ def _captured_session(monkeypatch):  # type: ignore[no-untyped-def]
 def test_windows_validates_the_certificate_by_default(monkeypatch):
     from app.services.dns.windows_dns import WindowsDNSAdapter
     seen = _captured_session(monkeypatch)
-    WindowsDNSAdapter(host=HOST, username="u", password="p")._session()
+    WindowsDNSAdapter(host=HOST, username="u", password="p", port=5986, use_ssl=True)._session()
     assert seen["server_cert_validation"] == "validate"
     assert seen["target"].startswith("https://")
 
@@ -48,7 +48,7 @@ def test_windows_can_skip_certificate_validation_for_self_signed_winrm(monkeypat
     """客戶 2026-10-08：WinRM HTTPS 用自簽憑證 → CERTIFICATE_VERIFY_FAILED；比照其他整合可關閉驗證。"""
     from app.services.dns.windows_dns import WindowsDNSAdapter
     seen = _captured_session(monkeypatch)
-    WindowsDNSAdapter(host=HOST, username="u", password="p", verify_tls=False)._session()
+    WindowsDNSAdapter(host=HOST, username="u", password="p", port=5986, use_ssl=True, verify_tls=False)._session()
     assert seen["server_cert_validation"] == "ignore"
     assert seen["target"].startswith("https://"), "關閉驗證仍然走 HTTPS（加密照舊，只是不驗憑證）"
 
@@ -98,9 +98,12 @@ async def test_factory_default_port_follows_the_scheme(monkeypatch):
                           extra_config=_json.dumps({"username": "u", "use_ssl": False}))
     a = await factory.get_adapter(None, srv)
     assert (a.use_ssl, a.port) == (False, 5985)
+    # 沒記錄傳輸方式＝HTTP 5985（使用者 2026-10-09；既有伺服器在 0197 已明確寫成 HTTPS）
     srv.extra_config = _json.dumps({"username": "u"})
     a = await factory.get_adapter(None, srv)
-    assert (a.use_ssl, a.port) == (True, 5986)
+    assert (a.use_ssl, a.port) == (False, 5985)
+    srv.extra_config = _json.dumps({"username": "u", "use_ssl": True})
+    assert (await factory.get_adapter(None, srv)).port == 5986
     srv.extra_config = _json.dumps({"username": "u", "use_ssl": True, "winrm_port": 15986})
     assert (await factory.get_adapter(None, srv)).port == 15986
 

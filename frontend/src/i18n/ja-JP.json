@@ -1527,6 +1527,41 @@
       "checkpoint": "ゲートウェイ {gateways}．ルール {rules}．オブジェクト {objects}．NAT {nat}",
       "partial_failed": "一部失敗：{what}",
       "checkpoint_gaia": "DHCP サブネット {subnets}．配布範囲 {pools}．ARP {arp}．リース {leases}"
+    },
+    "kinds": {
+      "adguard_sync": "AdGuard Home 同期",
+      "ai_audit_run": "AI 点検",
+      "checkpoint_sync": "Check Point 管理サーバー同期（ルール、オブジェクト、NAT）",
+      "checkpoint_gaia_sync": "Check Point ゲートウェイ同期（DHCP、ARP、リース）",
+      "device_csv_import": "デバイス CSV インポート",
+      "dns_sync": "DNS 同期",
+      "esxi_sync": "VMware ESXi / vCenter 同期",
+      "fortigate_sync": "FortiGate 同期",
+      "geoip_refresh": "GeoIP データベース更新",
+      "impact_ai": "IP 変更評価：AI 提案",
+      "impact_run": "IP 変更評価：分析",
+      "ip_csv_import": "IP CSV インポート",
+      "ip_identify": "IP 探査",
+      "isc_dhcp_sync": "ISC DHCP 同期",
+      "isoinsight_sync": "ISOinsight 同期",
+      "kea_dhcp_sync": "Kea DHCP 同期",
+      "librenms_sync": "LibreNMS 同期",
+      "mikrotik_sync": "MikroTik 同期",
+      "ocs_sync": "OCS Inventory 同期",
+      "opnsense_sync": "OPNsense 同期",
+      "oui_refresh": "OUI ベンダーデータベース更新",
+      "paloalto_sync": "Palo Alto 同期",
+      "pfsense_sync": "pfSense 同期",
+      "phpipam_migration": "phpIPAM 移行",
+      "proxmox_sync": "Proxmox VE 同期",
+      "recog_refresh": "Recog フィンガープリント更新",
+      "rustdesk_sync": "RustDesk 同期",
+      "system_export": "システムのエクスポート",
+      "system_import": "システムのインポート",
+      "technitium_dhcp_sync": "Technitium DHCP 同期",
+      "wazuh_sync": "Wazuh 同期",
+      "windows_dhcp_sync": "Windows DHCP 同期",
+      "zabbix_sync": "Zabbix 同期"
     }
   },
   "groups": {
@@ -1896,7 +1931,8 @@
     "technitium_can_modify": "このトークンにはゾーンの変更権限があります。jt-ipam は読み取るだけなので、閲覧権限のみのアカウントをおすすめします。",
     "verify_tls_winrm_hint": "WinRM HTTPS が自己署名証明書の場合はオフにします。オフでも HTTPS で暗号化されますが、証明書は検証しません（社内 CA の証明書を推奨）。",
     "winrm_transport": "WinRM 接続",
-    "winrm_transport_hint": "Windows Server のファイアウォールは既定で HTTP 5985 のみ開いています。HTTPS 5986 には証明書付きリスナーとファイアウォール規則が別途必要です。HTTP の場合も内容と資格情報は常に NTLM で暗号化されます（平文では送信しません）。ポートを空欄にすると既定値を使います。"
+    "winrm_transport_hint": "既定は HTTP 5985 です。Windows Server のファイアウォールは既定で HTTPS 5986 をブロックしているためです（HTTPS には証明書付きリスナーとファイアウォール規則が別途必要）。HTTP の場合も内容と資格情報は常に NTLM で暗号化され、平文では送信しません。ポートを空欄にすると既定値を使います。",
+    "winrm_http_label": "HTTP（5985、既定）"
   },
   "scope_overlap": {
     "warning": "サブネットの重複を検出しました（同じ IP が複数のサブネットに存在します）。この連携にはサブネットの範囲が設定されていないため、同期の際に死活・DHCP・MAC の情報を、別の組織側の IP に書き込んでしまう可能性があります。下でサブネットの範囲を設定することを検討してください。"
@@ -4340,13 +4376,13 @@
   },
   "windows_dhcp": {
     "title": "Windows DHCP サーバー",
-    "intro": "WinRM と PowerShell を使った Windows DHCP サーバーからの読み取り専用の同期です。jt-ipam は Get-* コマンドレットしか実行せず、DHCP サーバー側を変更することはありません。WinRM に到達できること（既定は 5986/HTTPS）と、DHCP の読み取り権限を持つアカウントが必要です。",
+    "intro": "WinRM と PowerShell を使った Windows DHCP サーバーからの読み取り専用の同期です。jt-ipam は Get-* コマンドレットしか実行せず、DHCP サーバー側を変更することはありません。WinRM に到達できること（既定は HTTP 5985。Windows Server のファイアウォールは既定で HTTPS 5986 をブロックしているため。HTTP の場合も内容と資格情報は常に NTLM で暗号化）と、DHCP の読み取り権限を持つアカウントが必要です。",
     "host": "ホスト",
     "username": "ユーザー名",
     "password": "パスワード",
     "password_keep": "パスワード（空欄なら現在のものを維持）",
-    "winrm": "WinRM のポート／TLS",
-    "winrm_hint": "既定は HTTPS の 5986 です（HTTP なら 5985）。サーバーがプライベートネットワークにある場合、バックエンドで OUTBOUND_ALLOW_PRIVATE を有効にする必要があります。",
+    "winrm": "WinRM 接続",
+    "winrm_hint": "既定は HTTP 5985 です。Windows Server のファイアウォールは既定で HTTPS 5986 をブロックしているためです（HTTPS には証明書付きリスナーとファイアウォール規則が別途必要）。HTTP の場合も内容と資格情報は常に NTLM で暗号化され、平文では送信しません。サーバーがプライベートネットワークにある場合、バックエンドで OUTBOUND_ALLOW_PRIVATE を有効にする必要があります。",
     "pull_what": "取得する内容",
     "scopes": "スコープ（アドレス範囲）",
     "leases": "リース",
@@ -5128,7 +5164,7 @@
   },
   "checkpoint": {
     "title": "Check Point",
-    "intro": "Check Point 管理サーバー（Security Management Server / Multi-Domain）の Management API から、ゲートウェイ一覧・ネットワークオブジェクト・アクセスルール・NAT を読み取り専用で同期します（読み取り専用セッションでログインし、設定は一切変更しません）。管理サーバーが管理するすべてのゲートウェイとポリシーパッケージがここに表示され、IP 詳細のファイアウォール照会・ルール変更検出・IP 変更評価で使われます。実機での検証前のため Beta です。",
+    "intro": "Check Point 管理サーバー（Security Management Server / Multi-Domain）の Management API から、ゲートウェイ一覧・ネットワークオブジェクト・アクセスルール・NAT を読み取り専用で同期します（読み取り専用セッションでログインし、設定は一切変更しません）。管理サーバーが管理するすべてのゲートウェイとポリシーパッケージがここに表示され、IP 詳細のファイアウォール照会・ルール変更検出・IP 変更評価で使われます。ゲートウェイの DHCP 設定、ARP テーブル、DHCP リースは「ゲートウェイ」タブで、ゲートウェイごとに Gaia 接続を設定して取得します。R81.20 の実機で検証済みですが、引き続き Beta です。",
     "tab_servers": "管理サーバー",
     "tab_rules": "アクセスルール",
     "tab_objects": "ネットワークオブジェクト",
@@ -5227,7 +5263,10 @@
     "gaia_skip_no_permission": "アカウントにコマンド実行の権限がありません",
     "gaia_skip_unsupported": "この Gaia API には run-script がありません",
     "gaia_skip_no_lease_file": "ゲートウェイにリースファイルがありません",
-    "gaia_skip_dhcp_off": "DHCP サーバーが有効になっていません"
+    "gaia_skip_dhcp_off": "DHCP サーバーが有効になっていません",
+    "gaia_where_hint": "ゲートウェイの DHCP 設定、ARP テーブル、DHCP リースはここでは設定しません。ゲートウェイ自身（Gaia）のデータなので、「ゲートウェイ」タブでゲートウェイごとに Gaia 接続を設定してください（この API キーではなく、ゲートウェイのアカウントを使います）。",
+    "gaia_where_after_save": "保存して一度同期すると、ゲートウェイが「ゲートウェイ」タブに表示されます。",
+    "go_gateways": "ゲートウェイタブへ"
   },
   "mikrotik": {
     "title": "MikroTik RouterOS",

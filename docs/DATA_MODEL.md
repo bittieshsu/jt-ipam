@@ -209,7 +209,7 @@ Talks to the **management server** (Security Management Server / Multi-Domain, R
 - **VMInterface**: `mac`, `primary_ip`, `bridge`, `vlan_id`.
 
 ### 6.5 DNS: `dns.py`
-- **DNSServer**: provider abstraction `type` (powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs/technitium); credentials in `encrypted_secrets`, non-secret settings in `extra_config` (for `windows_dns`: `username`, `use_ssl` (HTTPS 5986, default, or HTTP 5985 with forced NTLM message encryption), optional `winrm_port`, `verify_tls`).
+- **DNSServer**: provider abstraction `type` (powerdns/bind9/unbound_opnsense/windows_dns/univention_ucs/technitium); credentials in `encrypted_secrets`, non-secret settings in `extra_config` (for `windows_dns`: `username`, `use_ssl` (HTTP 5985 with forced NTLM message encryption by default, or HTTPS 5986; always written on save, and migration 0197 pinned servers created earlier to HTTPS), optional `winrm_port`, `verify_tls`).
 - **DNSZone**: `type` (forward/reverse), `managed`, `associated_subnet_ids` (`uuid[]`).
 - **DNSRecord**: `type` (A/AAAA/PTR/CNAME/MX/TXT/SRV/NS/SOA), `source` (manual/from_ipam/from_dns_pulled), `consistency_state` (consistent/dns_only/ipam_only/mismatch) for the drift report, optional `ipam_address_id` back-link.
 

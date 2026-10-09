@@ -126,7 +126,12 @@ test("Check Point Gaia：預設就讀 ARP 與租約；唯讀帳號照讀 DHCP �
     expect(["no_permission", "dhcp_off"]).toContain(after.last_summary.skipped.leases);
 
     await login(page);
-    await page.goto(`/checkpoint?tab=gateways&fw=${srv.id}`);
+    // 管理伺服器的設定視窗：寫明 DHCP／ARP 在閘道頁籤，按鈕直接跳過去（使用者 2026-10-09 在這裡找不到）
+    await page.goto("/checkpoint");
+    await page.getByTestId("cp-list").locator("tr", { hasText: name }).getByTestId("cp-edit").click();
+    await expect(page.getByTestId("cp-gaia-where")).toContainText("ARP 表與 DHCP 租約不在這裡");
+    await page.getByTestId("cp-go-gateways").click();
+    await expect(page.locator(".n-tabs-tab--active")).toContainText("閘道");
     const row = page.getByTestId("cp-gateways").locator("tr", { hasText: gw.name });
     await expect(row).toContainText(/DHCP 子網路 \d+/, { timeout: 15_000 });
     await expect(row).toContainText(/ARP 表(、DHCP 租約)?略過：帳號沒有執行指令的權限/);

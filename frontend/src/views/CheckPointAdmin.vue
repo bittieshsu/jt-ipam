@@ -91,6 +91,13 @@ async function refresh() {
   finally { loading.value = false; }
 }
 
+/** 從管理伺服器的設定視窗跳到它的閘道頁籤（DHCP／ARP 在那裡設定） */
+function goGateways() {
+  if (editing.value) viewServer.value = editing.value.id;
+  show.value = false;
+  tab.value = "gateways";
+}
+
 function openCreate() {
   editing.value = null;
   form.value = blankForm();
@@ -448,6 +455,18 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
             <n-checkbox v-model:checked="form.sync_nat">NAT</n-checkbox>
           </n-space>
         </n-form-item>
+        <!-- 使用者 2026-10-09 在這裡找 DHCP／ARP 找不到：那是閘道的 Gaia 連線，在另一個頁籤 -->
+        <n-alert type="info" :bordered="false" :show-icon="true" style="margin-bottom: 18px" data-testid="cp-gaia-where">
+          {{ t("checkpoint.gaia_where_hint") }}
+          <template v-if="editing">
+            <div style="margin-top: 8px">
+              <n-button size="small" type="primary" secondary data-testid="cp-go-gateways" @click="goGateways">
+                <template #icon><n-icon><DevicesIcon /></n-icon></template>{{ t("checkpoint.go_gateways") }}
+              </n-button>
+            </div>
+          </template>
+          <div v-else style="margin-top: 6px">{{ t("checkpoint.gaia_where_after_save") }}</div>
+        </n-alert>
         <n-form-item :label="t('adguard_admin.sync_interval')">
           <n-input-number v-model:value="form.sync_interval_seconds" :min="300" :max="86400" />
         </n-form-item>

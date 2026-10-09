@@ -209,7 +209,7 @@ Management API（`POST <url>/web_api/<コマンド>`、`X-chkp-sid`）で**管�
 - **VMInterface**：`mac`、`primary_ip`、`bridge`、`vlan_id`。
 
 ### 6.5 DNS：`dns.py`
-- **DNSServer**：提供元の抽象化である `type`（powerdns / bind9 / unbound_opnsense / windows_dns / univention_ucs / technitium）。資格情報は `encrypted_secrets`、秘密でない設定は `extra_config` にあります（`windows_dns` では `username`、`use_ssl`（既定は HTTPS 5986、または NTLM 暗号化を強制する HTTP 5985）、任意の `winrm_port`、`verify_tls`）。
+- **DNSServer**：提供元の抽象化である `type`（powerdns / bind9 / unbound_opnsense / windows_dns / univention_ucs / technitium）。資格情報は `encrypted_secrets`、秘密でない設定は `extra_config` にあります（`windows_dns` では `username`、`use_ssl`（既定は NTLM 暗号化を強制する HTTP 5985、または HTTPS 5986。保存時に必ず記録し、migration 0197 でそれ以前に作成したサーバーは HTTPS と明記）、任意の `winrm_port`、`verify_tls`）。
 - **DNSZone**：`type`（forward / reverse）、`managed`、`associated_subnet_ids`（`uuid[]`）。
 - **DNSRecord**：`type`（A / AAAA / PTR / CNAME / MX / TXT / SRV / NS / SOA）、`source`（manual / from_ipam / from_dns_pulled）、ずれの報告に使う `consistency_state`（consistent / dns_only / ipam_only / mismatch）、任意の `ipam_address_id` による逆参照。
 
