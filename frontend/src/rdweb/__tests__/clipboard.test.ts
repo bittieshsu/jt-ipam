@@ -326,3 +326,18 @@ describe("Message 的種類", () => {
     expect(decodeMessage(fMsg(28, multi(item(utf8("a"))))).kind).toBe("multi_clipboards");
   });
 });
+
+describe("htmlToText 沒有 DOMParser 時的備援（CodeQL #44）", () => {
+  it("巢狀的標籤寫法也不會留下可用的標籤", async () => {
+    const { htmlToText } = await import("../clipboard");
+    const saved = (globalThis as any).DOMParser;
+    (globalThis as any).DOMParser = undefined;
+    try {
+      const out = htmlToText("<<b>script>alert(1)<</b>/script><b>hi</b>");
+      expect(out).not.toMatch(/[<>]/);
+      expect(out).toContain("hi");
+    } finally {
+      (globalThis as any).DOMParser = saved;
+    }
+  });
+});

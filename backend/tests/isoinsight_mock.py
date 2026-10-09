@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import threading
 import time
 from collections.abc import Callable
@@ -83,6 +84,8 @@ class MockServer:
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.httpd.daemon_threads = True
         if ssl_context is not None:
+            if ssl_context.minimum_version < ssl.TLSVersion.TLSv1_2:
+                ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2   # 不讓舊版 TLS 進來（CodeQL #49）
             self.httpd.socket = ssl_context.wrap_socket(self.httpd.socket, server_side=True)
         self.port = self.httpd.server_address[1]
         self.scheme = "https" if ssl_context is not None else "http"

@@ -636,6 +636,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 彈出層在 AI 助手浮動按鈕之上：開在右下角的確認框/下拉選單，與按鈕重疊的地方也點得到（`frontend/e2e/chat-fab-overlays.spec.ts`）
 - [ ] AI 對話視窗右上：動作按鈕、放大/縮小、關閉（關閉在最右邊，提示文字「關閉」）
 - [ ] **滿版圖不會比視窗高**（`frontend/src/composables/__tests__/usePageFill.test.ts`、`frontend/e2e/change-impact.spec.ts`）：視窗高 720 px，打開一筆 IP 變更評估、捲到證據區，再切到關係圖頁籤；圖放得進視窗，評估目標看得到也點得到。IP 拓樸圖也一樣
+- [ ] **匯出是名稱不是編號**（`frontend/src/utils/__tests__/tableExport.test.ts`、`frontend/e2e/circuits-export.spec.ts`，issue #50）：匯出電路清單，供應商與類型是名稱、狀態翻好、頻寬跟畫面一樣格式；抽查裝置（地點、機櫃、單位）與 NAT 的匯出沒有 UUID
 - [ ] **匯出按鈕會顯示處理中**（`frontend/src/composables/__tests__/useExportBusy.test.ts`、`frontend/e2e/change-impact.spec.ts`）：
   選了檔案格式後，到檔案存好之前按鈕反灰並轉圈，期間再選一次不會重複產檔；涵蓋 IP 變更評估（報告與關係圖）、所有表格匯出按鈕、
   機櫃圖、機房整排工具列、IP 拓樸圖與佈線追蹤

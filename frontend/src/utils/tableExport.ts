@@ -300,6 +300,39 @@ function toCSVBlob(cols: ExportColumn[], rows: Record<string, any>[]): Blob {
 }
 
 /** 從 naive DataTable columns 萃取可匯出的 {key,label}（略過 selection / 操作欄）。 */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** render 的結果（字串、數字、VNode、元件的預設插槽）→ 純文字 */
+function renderedText(v: any, depth = 0): string {
+  if (v == null || typeof v === "boolean" || depth > 8) return "";
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (Array.isArray(v)) return v.map((x) => renderedText(x, depth + 1)).filter(Boolean).join(" ");
+  if (typeof v === "object") {
+    const ch = v.children;
+    if (typeof ch === "string") return ch;
+    if (Array.isArray(ch)) return renderedText(ch, depth + 1);
+    if (ch && typeof ch === "object" && typeof ch.default === "function") {
+      try { return renderedText(ch.default(), depth + 1); } catch { return ""; }
+    }
+  }
+  return "";
+}
+
+/**
+ * 關聯欄位（`provider_id`、`customer_id`…）資料裡是 UUID，畫面靠 render 換成名稱；匯出只拿 key 的話
+ * 就會輸出 UUID（issue #50：電路的供應商、類型匯出成一串編碼）。原始值是 UUID 而且欄位有 render 時，
+ * 改用畫面上的文字；找不到名稱（畫面顯示「—」）就留空。其他原始值照舊（例如 MAC 欄畫面上多一行廠商）。
+ */
+function uuidAsRendered(key: string, render: (row: any, index: number) => unknown) {
+  return (row: Record<string, any>): unknown => {
+    const raw = row[key];
+    if (typeof raw !== "string" || !UUID_RE.test(raw)) return raw;
+    let text = "";
+    try { text = renderedText(render(row, 0)).trim(); } catch { text = ""; }
+    return text === "—" ? "" : text;
+  };
+}
+
 export function columnsForExport(tableColumns: any[]): ExportColumn[] {
   const out: ExportColumn[] = [];
   for (const c of tableColumns) {
@@ -311,8 +344,9 @@ export function columnsForExport(tableColumns: any[]): ExportColumn[] {
       try { label = c.title(); } catch { label = c.key; }
     }
     if (label == null || typeof label === "object") label = c.key;
-    out.push({ key: String(c.key), label: String(label),
-               ...(typeof c.exportValue === "function" ? { value: c.exportValue } : {}) });
+    const value = typeof c.exportValue === "function" ? c.exportValue
+      : typeof c.render === "function" ? uuidAsRendered(String(c.key), c.render) : undefined;
+    out.push({ key: String(c.key), label: String(label), ...(value ? { value } : {}) });
   }
   return out;
 }

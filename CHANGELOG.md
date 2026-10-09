@@ -6,10 +6,15 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-09
+
 ### Changed
 - Windows DHCP and Windows DNS (WinRM): new connections default to HTTP 5985 instead of HTTPS 5986, because the Windows Server firewall blocks 5986 by default; the settings forms say so, pre-select "HTTP (5985, default)" and show "Verify TLS certificate" only for HTTPS. Over HTTP the content and credentials are always NTLM-encrypted (Windows DHCP now requires it explicitly too; if encryption is not possible the connection fails rather than falling back to clear text). Existing connections keep their transport: migration 0197 records HTTPS on Windows DNS servers that had no transport saved, and importing an older export file does the same.
 - Tasks page: background task types are shown by name (for example "Check Point gateway sync (DHCP, ARP, leases)" instead of `checkpoint_gaia.sync`), with the internal type underneath; the type filter uses the names too.
 - Check Point management server settings now point to the Gateways tab for the gateways' DHCP settings, ARP table and leases, with a button that opens it.
+
+### Fixed
+- Table exports showed internal IDs instead of names for linked fields (issue #50: a circuit's provider and type came out as UUIDs such as `adbedc6c-…` instead of "Hinet" or "DSL / VDSL"). When a column's raw value is an ID and the screen shows a name, the export now uses that name (blank when there is none); this covers every table with linked fields (devices' location / rack / unit, NAT addresses, subnets' unit and more). Circuit status and bandwidth also export as shown on screen instead of `active` and raw kbps.
 
 ## [1.0.4] - 2026-10-08
 

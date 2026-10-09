@@ -388,6 +388,7 @@ def _self_signed_context(tmp_path):
     key_p.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                         serialization.NoEncryption()))
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2      # 測試靶也不開舊版 TLS（CodeQL #49）
     ctx.load_cert_chain(cert_p, key_p)
     return ctx
 

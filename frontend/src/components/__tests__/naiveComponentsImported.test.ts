@@ -21,15 +21,21 @@ describe("naive-ui 元件匯入", () => {
   it("每個 <n-xxx> 都有對應的 Nxxx 匯入", () => {
     const root = join(__dirname, "..", "..");
     const missing: string[] = [];
+    let scanned = 0;
     for (const f of vueFiles(root)) {
       const src = readFileSync(f, "utf8");
-      const template = src.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<style[\s\S]*?<\/style>/g, "");
+      // 只看 <template> 區塊（照位置切，不用正規表示式去濾 HTML：CodeQL #50～#52）
+      const start = src.indexOf("<template");
+      const end = src.lastIndexOf("</template>");
+      const template = start >= 0 && end > start ? src.slice(start, end) : "";
+      if (template) scanned += 1;
       const tags = new Set([...template.matchAll(/<(n-[a-z0-9-]+)/g)].map((m) => m[1]));
       for (const tag of tags) {
         const name = "N" + tag.slice(2).split("-").map((p) => p[0].toUpperCase() + p.slice(1)).join("");
         if (!new RegExp(`\\b${name}\\b`).test(src)) missing.push(`${f.slice(root.length + 1)}: <${tag}>`);
       }
     }
+    expect(scanned, "一個 <template> 都沒切到：檢查方式失效").toBeGreaterThan(50);
     expect(missing).toEqual([]);
   });
 });

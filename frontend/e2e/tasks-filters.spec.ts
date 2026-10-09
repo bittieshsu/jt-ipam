@@ -26,7 +26,8 @@ test("作業歷史：搜尋與篩選送到後端；代理回報與資料庫更�
   await page.getByTestId("tasks-search").locator("input").fill("rd-e2e");
   await expect(table.locator("tbody tr")).toHaveCount(1, { timeout: 10_000 });
   const row = table.locator("tbody tr").first();
-  await expect(row).toContainText("rustdesk.sync");
+  await expect(row).toContainText("rustdesk.sync");     // 內部名稱留在小字
+  await expect(row).toContainText("RustDesk 同步");      // 類型顯示名稱（2026-10-09）
   await expect(row.getByTestId("task-summary-text")).toContainText("上線 2");
 
   // 資料庫更新：結論是幾個廠商前綴，不是四個數字
@@ -46,5 +47,6 @@ test("作業歷史：搜尋與篩選送到後端；代理回報與資料庫更�
 
   // 類型選項來自後端（看得到的作業裡出現過的類型）
   await page.getByTestId("tasks-filter-kind").click();
-  await expect(page.locator(".n-base-select-option", { hasText: "oui.refresh" })).toBeVisible();
+  // 選項顯示名稱，不是內部的 oui.refresh（2026-10-09）
+  await expect(page.locator(".n-base-select-option", { hasText: "OUI 廠商資料庫更新" })).toBeVisible();
 });

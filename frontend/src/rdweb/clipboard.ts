@@ -47,7 +47,14 @@ export type Incoming =
 
 /** HTML → 純文字（F.2：DOMParser 的 textContent）。解析出來的文件是惰性的：不執行指令碼、不載入圖片。 */
 export function htmlToText(html: string): string {
-  if (typeof DOMParser === "undefined") return html.replace(/<[^>]*>/g, "");
+  if (typeof DOMParser === "undefined") {
+    // 沒有 DOMParser（只有非瀏覽器環境）：一次替換擋不住 `<<b>script>` 這種巢狀寫法，
+    // 反覆拿掉標籤直到沒有變化，最後把殘留的角括號也去掉（CodeQL #44）
+    let out = html;
+    let prev: string;
+    do { prev = out; out = out.replace(/<[^<>]*>/g, ""); } while (out !== prev);
+    return out.replace(/[<>]/g, "");
+  }
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("script, style, template").forEach((n) => n.remove());
   return doc.body?.textContent ?? "";

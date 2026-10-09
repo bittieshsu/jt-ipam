@@ -871,6 +871,7 @@ what a console is allowed to do.
   corner can be clicked where it overlaps the button (`frontend/e2e/chat-fab-overlays.spec.ts`)
 - [ ] AI chat window top right: action buttons, expand/collapse, then close (close is rightmost, tooltip "Close")
 - [ ] **Full-height graphs never exceed the window** (`frontend/src/composables/__tests__/usePageFill.test.ts`, `frontend/e2e/change-impact.spec.ts`): on a 720 px tall window, open an IP change assessment, scroll down to the evidence, then switch to the relation graph tab; the graph fits the window and the assessed IP is visible and clickable. Same for IP topology
+- [ ] **Exports show names, not IDs** (`frontend/src/utils/__tests__/tableExport.test.ts`, `frontend/e2e/circuits-export.spec.ts`, issue #50): export the circuits list; provider and type are names, status is translated and bandwidth formatted as on screen; spot-check devices (location / rack / unit) and NAT exports for UUIDs
 - [ ] **Export buttons show they are working** (`frontend/src/composables/__tests__/useExportBusy.test.ts`,
   `frontend/e2e/change-impact.spec.ts`): after picking a format, the export button greys out with a spinner until the file
   is saved, and picking again meanwhile does nothing; covers IP change assessment (report and relation graph), every table

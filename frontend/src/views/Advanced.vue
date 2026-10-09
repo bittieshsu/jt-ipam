@@ -19,6 +19,7 @@ import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
+import { withExportValue } from "@/utils/tableExport";
 import { useTablePagination } from "@/composables/useTablePagination";
 
 const { t } = useI18n();
@@ -252,15 +253,22 @@ function fmtBandwidth(r: any): string {
   if (r.commit_rate_kbps != null) return fmtKbps(r.commit_rate_kbps);
   return "—";
 }
+function circuitStatusText(r: any): string {
+  const k = `circuits.status_${r.status}`;
+  const o = t(k);
+  return o === k ? (r.status ?? "—") : o;
+}
 const circuitCols = computed<DataTableColumns<any>>(() => autoSort([
   { title: t("cols.cid"), key: "cid", minWidth: 160, ellipsis: { tooltip: true } },
   { title: t("circuits.provider"), key: "provider_id", width: 180, ellipsis: { tooltip: true },
     render: (r) => providers.value.find((p) => p.id === r.provider_id)?.name ?? "—" },
   { title: t("circuits.type"), key: "type_id", width: 160, ellipsis: { tooltip: true },
     render: (r) => circuitTypes.value.find((p) => p.id === r.type_id)?.name ?? "—" },
-  { title: t("common.status"), key: "status", width: 120,
-    render: (r) => { const k = `circuits.status_${r.status}`; const o = t(k); return o === k ? (r.status ?? "—") : o; } },
-  { title: t("circuits.bandwidth"), key: "down_kbps", width: 170, render: (r) => fmtBandwidth(r) },
+  // 狀態、頻寬匯出時也用畫面上的文字（issue #50：以前匯出 active 與原始 kbps 數字）
+  withExportValue({ title: t("common.status"), key: "status", width: 120,
+    render: (r: any) => circuitStatusText(r) }, (r) => circuitStatusText(r)),
+  withExportValue({ title: t("circuits.bandwidth"), key: "down_kbps", width: 170,
+    render: (r: any) => fmtBandwidth(r) }, (r) => fmtBandwidth(r)),
   { title: t("circuits.ip_address"), key: "ip_address", width: 150, ellipsis: { tooltip: true }, render: (r) => r.ip_address || "—" },
   { title: t("circuits.gateway"), key: "gateway", width: 140, ellipsis: { tooltip: true }, render: (r) => r.gateway || "—" },
   { title: t("circuits.device"), key: "device_id", width: 160, ellipsis: { tooltip: true },
