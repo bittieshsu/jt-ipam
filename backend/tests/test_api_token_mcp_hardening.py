@@ -34,10 +34,25 @@ def test_object_filters_column_is_gone() -> None:
     assert "object_filters" not in APIToken.__table__.columns
 
 
+class CountingRedis:
+    """限流用的假 Redis：照 check_rate_limit 的 EVAL 介面逐 bucket 計數（CI 的後端 job 沒有 Redis）。"""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    async def eval(self, _script, _numkeys, bucket, _now_ms, _window, limit):  # noqa: ANN001
+        self.counts[bucket] = self.counts.get(bucket, 0) + 1
+        n = self.counts[bucket]
+        return [1 if n <= int(limit) else 0, n]
+
+
 @pytest.mark.anyio
 async def test_api_token_requests_are_rate_limited(client, auth_headers, monkeypatch) -> None:
+    from app.core import rate_limit
     r = await client.post("/api/v1/api-tokens", headers=auth_headers, json={"name": "rl"})
     token = r.json()["token"]
+    fake = CountingRedis()
+    monkeypatch.setattr(rate_limit, "_redis_client", lambda: fake)
     s = get_settings()
     monkeypatch.setattr(s, "rate_limit_enabled", True)
     monkeypatch.setattr(s, "rate_limit_api_token", "2/minute")
@@ -45,6 +60,22 @@ async def test_api_token_requests_are_rate_limited(client, auth_headers, monkeyp
     assert (await client.get("/api/v1/auth/me", headers=h)).status_code == 200
     assert (await client.get("/api/v1/auth/me", headers=h)).status_code == 200
     assert (await client.get("/api/v1/auth/me", headers=h)).status_code == 429
+
+
+@pytest.mark.anyio
+async def test_api_token_rate_limit_fails_open_when_redis_is_down(client, auth_headers, monkeypatch) -> None:
+    """限流壞掉不該讓所有用 API 權杖的程式一起 500（比照代理限流；登入的限流維持原本的行為）。"""
+    from app.core import rate_limit
+
+    class Down:
+        async def eval(self, *_a):  # noqa: ANN002
+            raise ConnectionError("redis is down")
+
+    r = await client.post("/api/v1/api-tokens", headers=auth_headers, json={"name": "rl-down"})
+    token = r.json()["token"]
+    monkeypatch.setattr(rate_limit, "_redis_client", lambda: Down())
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
+    assert (await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})).status_code == 200
 
 
 @pytest.mark.anyio

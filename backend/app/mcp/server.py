@@ -47,9 +47,8 @@ def _build_tool_list(allowed: set[str] | None = None) -> list[dict[str, Any]]:
 
 async def _limit(bucket_id: str) -> None:
     """每把權杖／MCP 金鑰的限流（與 REST 共用同一個 bucket：同一把權杖兩邊加總）。"""
-    from app.core.config import get_settings
-    from app.core.rate_limit import check_rate_limit
-    await check_rate_limit(bucket=f"rl:{bucket_id}", rate=get_settings().rate_limit_api_token)
+    from app.core.rate_limit import limit_api_token
+    await limit_api_token(bucket_id)
 
 
 async def resolve_token(token: str):  # type: ignore[no-untyped-def]

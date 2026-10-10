@@ -86,6 +86,18 @@ async def test_agent_cannot_touch_ips_outside_its_subnets(db_session, client, mo
     assert got.mac is None, "代理改到了沒有指派給它的子網路"
 
 
+class CountingRedis:
+    """限流用的假 Redis：照 check_rate_limit 的 EVAL 介面逐 bucket 計數（CI 的後端 job 沒有 Redis）。"""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    async def eval(self, _script, _numkeys, bucket, _now_ms, _window, limit):  # noqa: ANN001
+        self.counts[bucket] = self.counts.get(bucket, 0) + 1
+        n = self.counts[bucket]
+        return [1 if n <= int(limit) else 0, n]
+
+
 @pytest.mark.anyio
 async def test_agent_endpoints_are_rate_limited_per_agent(monkeypatch) -> None:
     from fastapi import HTTPException
@@ -93,6 +105,8 @@ async def test_agent_endpoints_are_rate_limited_per_agent(monkeypatch) -> None:
     from app.core import rate_limit
     from app.core.config import get_settings
 
+    fake = CountingRedis()
+    monkeypatch.setattr(rate_limit, "_redis_client", lambda: fake)
     s = get_settings()
     monkeypatch.setattr(s, "rate_limit_enabled", True)
     monkeypatch.setattr(s, "rate_limit_agent", "3/minute")

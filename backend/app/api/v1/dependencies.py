@@ -66,9 +66,8 @@ async def get_current_user(
             raise HTTPException(status_code=401, detail="Token expired")
         # 每把權杖的限流（rate_limit_api_token）：定義了好幾版卻從沒套用（2026-10-09 合規核對）。
         # 與 MCP 共用同一個 bucket（mcp/server._limit），同一把權杖兩邊加總
-        from app.core.config import get_settings
-        from app.core.rate_limit import check_rate_limit
-        await check_rate_limit(bucket=f"rl:api_token:{token.id}", rate=get_settings().rate_limit_api_token)
+        from app.core.rate_limit import limit_api_token
+        await limit_api_token(f"api_token:{token.id}")
         # 更新 last_used（不阻塞請求）
         token.last_used_at = now
         if request.client:

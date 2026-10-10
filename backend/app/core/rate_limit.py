@@ -114,3 +114,17 @@ async def limit_agent(kind: str, agent_id: object) -> None:
         raise
     except Exception as exc:
         _log.warning("agent rate limit skipped (%s): %s", kind, exc)
+
+
+async def limit_api_token(bucket_id: str) -> None:
+    """每把 API 權杖／MCP 金鑰的限流（REST 與 MCP 共用 bucket：同一把權杖兩邊加總）。
+
+    Redis 連不上時放行（只記警告），理由同 limit_agent：權杖已經驗證過，這道限流防的是
+    單一程式失控，不是猜密碼；限流本身壞掉不該讓所有用權杖的整合一起 500。
+    """
+    try:
+        await check_rate_limit(bucket=f"rl:{bucket_id}", rate=get_settings().rate_limit_api_token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.warning("api token rate limit skipped: %s", exc)
