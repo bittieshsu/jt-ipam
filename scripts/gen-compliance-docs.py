@@ -621,6 +621,34 @@ def md(lang: str) -> str:
 
 # ─────────────────────────── HTML ───────────────────────────
 
+H_EVID_BTN = T("驗證方式", "How to verify", "確認方法")
+_ICON_CHECK = ('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" '
+               'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/>'
+               '<path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>')
+_ICON_X = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" '
+           'stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>')
+
+
+class WithEvidence:
+    """第一欄：名稱底下一個「驗證方式」按鈕，按下去以 popover 顯示測試與設定位置（網頁版不另佔一欄）。"""
+
+    def __init__(self, label: dict[str, str], evidence: str, key: str) -> None:
+        self.label, self.evidence, self.key = label, evidence, key
+
+    def html(self) -> str:
+        pid = f"ev-{self.key}"
+        return (f'{_tri(self.label)}<div class="evw"><button type="button" class="evbtn" popovertarget="{pid}">'
+                f'{_ICON_CHECK}{_tri(H_EVID_BTN)}</button></div>'
+                f'<div id="{pid}" popover class="ev"><div class="evh"><strong>{_tri(self.label)}</strong>'
+                f'<button type="button" class="evx" popovertarget="{pid}" popovertargetaction="hide" '
+                f'aria-label="close">{_ICON_X}</button></div><p class="evt">{_tri(H_EVID)}</p>'
+                f'<div class="evb">{_code(self.evidence)}</div></div>')
+
+
+def _ev_rows(prefix: str, rows) -> list:  # type: ignore[no-untyped-def]
+    return [(WithEvidence(r[0], r[-1], f"{prefix}-{i}"), *r[1:-1]) for i, r in enumerate(rows, 1)]
+
+
 class Refs(tuple):
     """表格裡的「對應控制項」：HTML 一個編號一行（Markdown 用 _codes 以逗號連接）。"""
 
@@ -642,6 +670,9 @@ def _table(heads: tuple[dict[str, str], ...], rows: list[tuple[str, ...]], cls: 
     for row in rows:
         cells = []
         for c in row:
+            if isinstance(c, WithEvidence):
+                cells.append(f'<td class="area">{c.html()}</td>')
+                continue
             if isinstance(c, Points):
                 cells.append(f'<td class="how">{_html_points(c)}</td>')
                 continue
@@ -670,13 +701,13 @@ def html_body() -> str:
         *[f'  <p class="sub">{_tri(p)}</p>' for p in INTRO],
         '  <ul class="toc">', toc, "  </ul>",
         '  <section class="blk">', _h2("iso27001"),
-        _table((H_CTRL, H_REF, H_HOW, H_EVID), [(a, Refs(REFS_27001[a["en"]]), Points(b), e) for a, b, e in ISO27001]),
+        _table((H_CTRL, H_REF, H_HOW), _ev_rows("27001", [(a, Refs(REFS_27001[a["en"]]), Points(b), e) for a, b, e in ISO27001])),
         _h3("iso27001-index"), f'    <p class="note">{_tri(_with_n(REF_NOTE_27001, _n_annex(REFS_27001)))}</p>',
         _table((H_CODE, H_NAME, H_BY_JT, H_BY_ORG), INDEX_27001(), cls="ct idx"), "  </section>",
         '  <section class="blk">', _h2("iso42001"), _h3("ai-inventory"),
         _table((H_FEAT, H_USE, H_DEF), AI_INVENTORY),
         f'    <p class="note">{_tri(AI_INV_NOTE)}</p>', _h3("ai-controls"),
-        _table((H_CTRL, H_REF, H_HOW, H_EVID), [(a, Refs(REFS_42001[a["en"]]), Points(b), e) for a, b, e in ISO42001]),
+        _table((H_CTRL, H_REF, H_HOW), _ev_rows("42001", [(a, Refs(REFS_42001[a["en"]]), Points(b), e) for a, b, e in ISO42001])),
         _h3("iso42001-index"),
         f'    <p class="note">{_tri(_with_n(REF_NOTE_42001, _n_annex(REFS_42001, [AI_INV_REFS])))}</p>',
         _table((H_CODE, H_NAME, H_BY_JT, H_BY_ORG), INDEX_42001(), cls="ct idx"), "  </section>",
@@ -685,7 +716,7 @@ def html_body() -> str:
         _h3("customer-42001"),
         '    <div class="box"><ul>' + "".join(f"<li>{_tri(_resp(x, r))}</li>" for x, r in zip(RESP_42001, RESP_REFS_42001)) + "</ul></div>",
         "  </section>",
-        '  <section class="blk">', _h2("acceptance"), _table((H_CASE, H_PASS, H_EVID), CASES),
+        '  <section class="blk">', _h2("acceptance"), _table((H_CASE, H_PASS), _ev_rows("case", CASES)),
         f'    <p class="note">{_tri(CASES_NOTE)}</p>', "  </section>",
         '  <section class="blk">', _h2("worksheet"),
         f'    <div class="box"><p>{_tri(WORKSHEET_NOTE)}</p><p><code class="cols">{_tri(TEMPLATE_COLS)}</code></p></div>',
@@ -694,14 +725,13 @@ def html_body() -> str:
     return "\n".join(parts)
 
 
-_EXTRA_CSS = """  /* 合規對照的表格：三欄，最後一欄是測試與設定位置（等寬字、小一號） */
+_EXTRA_CSS = """  /* 合規對照的表格；驗證方式（測試與設定位置）收在第一欄的按鈕裡，以 popover 顯示 */
   .tbl{overflow-x:auto;margin:6px 0 4px}
   table.ct{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;
     overflow:hidden;font-size:14px}
   table.ct th{background:#f4f8f5;color:var(--ink);text-align:left;padding:10px 12px;font-size:13px;white-space:nowrap}
   table.ct td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}
   table.ct td:first-child{font-weight:600;color:var(--ink);white-space:nowrap}
-  table.ct td:last-child{font-size:12.5px;color:var(--muted);word-break:break-word;min-width:180px}
   table.ct code,.cols{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   p.note{color:var(--muted);font-size:14px;margin:8px 0 0}
   /* 對應控制項欄：編號不折行；索引表的最後一欄（組織的責任）維持一般字型 */
@@ -712,6 +742,21 @@ _EXTRA_CSS = """  /* 合規對照的表格：三欄，最後一欄是測試與�
   table.ct td.refs{white-space:pre-line;width:6.5em;font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   table.idx td:first-child{font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   table.idx td:last-child{font-size:14px;color:var(--ink)}
+  .evw{margin-top:8px}
+  button.evbtn{display:inline-flex;align-items:center;gap:5px;font:500 12.5px/1.2 inherit;color:var(--ext);
+    background:var(--ext-soft);border:1px solid #bfdcef;border-radius:999px;padding:4px 10px;cursor:pointer}
+  button.evbtn:hover{background:#d6ebf8}
+  button.evbtn:focus-visible,button.evx:focus-visible{outline:2px solid var(--ext);outline-offset:2px}
+  [popover].ev{border:1px solid var(--line);border-radius:14px;padding:16px 18px 18px;width:min(560px,calc(100vw - 32px));
+    background:var(--card);color:var(--body);box-shadow:0 18px 48px rgba(15,23,42,.18);font-weight:400}
+  [popover].ev::backdrop{background:rgba(15,23,42,.28)}
+  .ev .evh{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;color:var(--ink);font-size:15px}
+  .ev .evt{margin:6px 0 10px;color:var(--muted);font-size:13px}
+  .ev .evb{font-size:13px;line-height:1.9;word-break:break-word}
+  .ev .evb code{background:#f1f5f2;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+  button.evx{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
+    border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;cursor:pointer}
+  button.evx:hover{background:#fef2f2}
   @media (max-width:720px){ table.ct td:first-child{white-space:normal} }
 """
 
