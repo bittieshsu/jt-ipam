@@ -66,6 +66,20 @@
     .nav-links{gap:8px;width:100%;justify-content:flex-end}
   }
   @media(max-width:860px){.nav-links a:not(.btn){display:none}}
+  /* 小螢幕：導覽連結收起來之後，用「選單」按鈕展開（連結由頁尾的程式從導覽列複製）。
+     以前只有收起來、沒有替代入口，手機上整個導覽不見了（2026-10-10 使用者回報）。 */
+  .btn.nav-menu-btn{display:none}
+  .nav-menu-btn .i-close,.nav-menu-btn[aria-expanded="true"] .i-open{display:none}
+  .nav-menu-btn[aria-expanded="true"] .i-close{display:inline}
+  .mnav{display:none}
+  @media(max-width:860px){
+    .btn.nav-menu-btn{display:inline-flex}
+    .mnav.open{display:block;position:absolute;left:0;right:0;top:100%;background:#fff;border-bottom:1px solid var(--line);
+      box-shadow:0 14px 28px rgba(15,23,42,.10);padding:4px 20px 10px;max-height:calc(100vh - 80px);overflow:auto}
+    .mnav a{display:block;padding:12px 2px;border-bottom:1px solid #eef2ef;color:var(--body);font-size:15px;font-weight:500}
+    .mnav a:last-child{border-bottom:0}
+    .mnav a[aria-current="page"]{color:var(--green);font-weight:700}
+  }
 
   /* ── 版面：左側目錄 + 內容 ── */
   .layout{display:grid;grid-template-columns:236px minmax(0,1fr);gap:34px;align-items:start;margin:28px 0 0}
@@ -141,7 +155,7 @@
 </head>
 <body>
 <script>
-  /* 在內容繪製前先決定語言（避免閃爍）。優先序：網址 ?lang= > localStorage 偏好 > 預設英文。 */
+  /* 在內容繪製前先決定語言（避免閃爍）。優先序：網址 ?lang= > localStorage 偏好 > 瀏覽器語言 > 英文。 */
   (function(){
     try{
       function norm(v){ v = (v || '').toLowerCase();
@@ -150,7 +164,12 @@
         if (v === 'zh' || v === 'zh-tw' || v === 'zh-hant') return 'zh';
         return null; }
       var u = null; try { u = norm(new URLSearchParams(location.search).get('lang')); } catch (e) {}
-      var lang = u || norm(localStorage.getItem('jtipam-doc-lang')) || 'en';
+      function fromBrowser(){ var ls = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''];
+        for (var i = 0; i < ls.length; i++){ var v = String(ls[i] || '').toLowerCase();
+          if (v.indexOf('zh') === 0) return 'zh'; if (v.indexOf('ja') === 0) return 'ja'; if (v.indexOf('en') === 0) return 'en'; }
+        return null; }
+      // 瀏覽器語言只當預設、不寫進偏好：之後改了瀏覽器語言仍會跟著變；自己選過的才記住
+      var lang = u || norm(localStorage.getItem('jtipam-doc-lang')) || fromBrowser() || 'en';
       document.body.classList.add('lang-' + lang);
       document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : lang === 'ja' ? 'ja' : 'zh-Hant');
       if (u){ try {
@@ -178,6 +197,7 @@
       jt-ipam
     </span>
     <div class="nav-links">
+      <button type="button" class="btn btn-ghost btn-sm nav-menu-btn" aria-expanded="false" aria-controls="mnav"><svg class="i-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="i-close" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg><span class="zh">選單</span><span class="en">Menu</span><span class="ja">メニュー</span></button>
       <a href="index.html#features"><span class="zh">特色</span><span class="en">Features</span><span class="ja">機能</span></a>
       <a href="index.html#integrations"><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></a>
       <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
@@ -1396,5 +1416,22 @@ set -a &amp;&amp; . /etc/jt-ipam/backend.env &amp;&amp; set +a
   })();
 </script>
 <script src="anchors.js" defer></script>
+<script>
+  // 小螢幕的導覽選單：把導覽列的連結（GitHub 按鈕除外）複製到下拉面板；點連結、點外面、按 Esc 都會關。
+  (function(){
+    var nav = document.querySelector('nav'), btn = document.querySelector('.nav-menu-btn');
+    if (!nav || !btn) return;
+    var panel = document.createElement('div');
+    panel.className = 'mnav'; panel.id = 'mnav';
+    Array.prototype.forEach.call(document.querySelectorAll('.nav-links > a:not(.btn)'), function(a){
+      panel.appendChild(a.cloneNode(true)); });
+    nav.appendChild(panel);
+    function open(v){ panel.classList.toggle('open', v); btn.setAttribute('aria-expanded', String(v)); }
+    btn.addEventListener('click', function(e){ e.stopPropagation(); open(!panel.classList.contains('open')); });
+    panel.addEventListener('click', function(e){ if (e.target.closest('a')) open(false); });
+    document.addEventListener('click', function(e){ if (panel.classList.contains('open') && !panel.contains(e.target)) open(false); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
+  })();
+</script>
 </body>
 </html>

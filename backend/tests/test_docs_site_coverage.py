@@ -131,3 +131,14 @@ def test_compliance_rows_name_real_controls() -> None:
             assert refs[area["en"]], f"{area['en']} 沒有對應的控制項"
     zh = (DOCS / "COMPLIANCE_zh-TW.md").read_text(encoding="utf-8")
     assert "A.8.5" in zh and "A.6.2.8" in zh and "6.1.3" in zh
+
+
+def test_site_pages_have_mobile_menu_and_browser_language() -> None:
+    """2026-10-10 使用者回報：手機上整個導覽不見了（小螢幕把連結藏起來卻沒有選單按鈕），
+    而且網站不看瀏覽器語言、一律先顯示英文。有導覽列的頁面都要有「選單」按鈕與瀏覽器語言判斷。"""
+    pages = [p for p in DOCS.glob("*.html") if 'class="nav-links"' in p.read_text(encoding="utf-8")]
+    assert len(pages) >= 8, f"只找到 {len(pages)} 個有導覽列的頁面，偵測方式可能失效了"
+    for p in pages:
+        src = p.read_text(encoding="utf-8")
+        assert "nav-menu-btn" in src and "mnav" in src, f"{p.name} 小螢幕沒有選單按鈕"
+        assert "fromBrowser()" in src, f"{p.name} 沒有依瀏覽器語言決定預設語言"
