@@ -30,17 +30,17 @@ def T(zh: str, en: str, ja: str) -> dict[str, str]:
     return {"zh": zh, "en": en, "ja": ja}
 
 
-TITLE = T("合規對照：ISO/IEC 27001 與 ISO/IEC 42001", "Compliance mapping: ISO/IEC 27001 and ISO/IEC 42001",
-          "コンプライアンス対応：ISO/IEC 27001 と ISO/IEC 42001")
+TITLE = T("合規對照：ISO/IEC 27001:2022 與 ISO/IEC 42001:2023", "Compliance mapping: ISO/IEC 27001:2022 and ISO/IEC 42001:2023",
+          "コンプライアンス対応：ISO/IEC 27001:2022 と ISO/IEC 42001:2023")
 SHORT = T("合規對照", "Compliance", "コンプライアンス")
 DESC = T("jt-ipam 已具備、可作為佐證的資訊安全與 AI 管理控制，以及導入組織使用後要自己做的事。",
          "The information security and AI management controls jt-ipam already provides as evidence, and what the adopting organisation has to do itself.",
          "jt-ipam が備え、根拠として使える情報セキュリティと AI 管理の管理策、および導入組織が自ら行うこと。")
 
 INTRO = [
-    T("jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或 ISO/IEC 42001。這份文件分兩部分：jt-ipam 已經做到、可以拿來當佐證的控制（每一項都附上可以自行驗證的測試或設定位置），以及導入組織使用 jt-ipam 之後要自己負責的事。",
-      "jt-ipam is not a certification, and using it does not mean passing ISO/IEC 27001 or ISO/IEC 42001. This document has two parts: the controls jt-ipam already implements and that can serve as evidence (each with a test or setting you can check yourself), and what the adopting organisation is responsible for after deploying jt-ipam.",
-      "jt-ipam 自体は認証ではなく、使用したからといって ISO/IEC 27001 や ISO/IEC 42001 に適合するわけではありません。この文書は 2 部構成です。jt-ipam がすでに実装し、根拠として使える管理策（それぞれ自分で確認できるテストや設定の場所付き）と、導入組織が jt-ipam を使った後に自ら責任を持つことです。"),
+    T("jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001:2022 或 ISO/IEC 42001:2023。這份文件分兩部分：jt-ipam 已經做到、可以拿來當佐證的控制（每一項都附上可以自行驗證的測試或設定位置），以及導入組織使用 jt-ipam 之後要自己負責的事。",
+      "jt-ipam is not a certification, and using it does not mean passing ISO/IEC 27001:2022 or ISO/IEC 42001:2023. This document has two parts: the controls jt-ipam already implements and that can serve as evidence (each with a test or setting you can check yourself), and what the adopting organisation is responsible for after deploying jt-ipam.",
+      "jt-ipam 自体は認証ではなく、使用したからといって ISO/IEC 27001:2022 や ISO/IEC 42001:2023 に適合するわけではありません。この文書は 2 部構成です。jt-ipam がすでに実装し、根拠として使える管理策（それぞれ自分で確認できるテストや設定の場所付き）と、導入組織が jt-ipam を使った後に自ら責任を持つことです。"),
     T("這裡只列出目前程式確實具備的功能，依 main 分支撰寫（1.0.5 之後的改動見 CHANGELOG 的 Unreleased），之後的變動以 CHANGELOG 為準。正式盤點時請固定版本或 commit，並在自己的環境實際驗收。",
       "Only capabilities the code actually has are listed. It was written for the main branch (changes after 1.0.5 are under Unreleased in the CHANGELOG); later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.",
       "現在のコードに実際にある機能だけを記載しています。main ブランチに基づいて作成しており（1.0.5 以降の変更は CHANGELOG の Unreleased を参照）、以降の変更は CHANGELOG を参照してください。正式な棚卸しではバージョンまたは commit を固定し、自社環境で実際に検証してください。"),
@@ -319,7 +319,19 @@ ANNEX_42001 = frozenset(["A.2.2", "A.2.3", "A.2.4", "A.3.2", "A.3.3"] + [f"A.4.{
                         + [f"A.6.2.{i}" for i in range(2, 9)] + [f"A.7.{i}" for i in range(2, 7)]
                         + [f"A.8.{i}" for i in range(2, 6)] + [f"A.9.{i}" for i in range(2, 5)]
                         + [f"A.10.{i}" for i in range(2, 5)])
-assert len(ANNEX_27001) == 93 and len(ANNEX_42001) == 38
+
+
+class MappingError(ValueError):
+    """控制項對應有誤（編號不存在、缺名稱、某一列沒有對應）。"""
+
+
+def _require(ok: object, msg: str) -> None:
+    # 不用 assert：python -O 會整個略過，而且 bandit S101 不允許
+    if not ok:
+        raise MappingError(msg)
+
+
+_require(len(ANNEX_27001) == 93 and len(ANNEX_42001) == 38, "附錄 A 的編號數量不對")
 
 NAMES_27001 = {
     "6.1.2": T("資訊安全風險評鑑", "Information security risk assessment", "情報セキュリティリスクアセスメント"),
@@ -445,15 +457,16 @@ def _check_refs() -> None:
     """編號一定要是附錄 A 真的有的、名稱要有、每一列都要有對應（產生時就擋下來）。"""
     for rows, refs, names, annex in ((ISO27001, REFS_27001, NAMES_27001, ANNEX_27001),
                                      (ISO42001, REFS_42001, NAMES_42001, ANNEX_42001)):
-        assert {a["en"] for a, _b, _e in rows} == set(refs), "每一列都要有對應的控制項（REFS_*）"
+        _require({a["en"] for a, _b, _e in rows} == set(refs), "每一列都要有對應的控制項（REFS_*）")
         for codes in refs.values():
-            assert codes and all(c.startswith("A.") for c in codes), codes
+            _require(codes and all(c.startswith("A.") for c in codes), f"對應要是附錄 A 的控制項：{codes}")
     for codes, names, annex in [(c, NAMES_27001, ANNEX_27001) for c in [*REFS_27001.values(), *RESP_REFS_27001]] + \
                                [(c, NAMES_42001, ANNEX_42001) for c in [*REFS_42001.values(), *RESP_REFS_42001, AI_INV_REFS]]:
         for c in codes:
-            assert c in names, f"缺名稱：{c}"
-            assert (c in annex) if c.startswith("A.") else re.fullmatch(r"\d+(\.\d+)+", c), f"不存在的編號：{c}"
-    assert len(RESP_REFS_27001) == len(RESP_27001) and len(RESP_REFS_42001) == len(RESP_42001)
+            _require(c in names, f"缺名稱：{c}")
+            _require((c in annex) if c.startswith("A.") else re.fullmatch(r"\d+(\.\d+)+", c), f"不存在的編號：{c}")
+    _require(len(RESP_REFS_27001) == len(RESP_27001) and len(RESP_REFS_42001) == len(RESP_42001),
+             "RESP_REFS_* 要與 RESP_* 一樣長")
 
 
 def _sort_key(code: str) -> tuple[int, ...]:
@@ -509,16 +522,16 @@ TEMPLATE_COLS = T("項目編號 | 標準與管理面向 | 適用功能 | 狀態 
                   "項目番号 | 規格と管理項目 | 対象機能 | 状態 | コードまたは設定の場所 | 確認方法 | テストの証拠 | 不足 | 担当者 | 期限")
 
 SECTIONS = {
-    "iso27001": T("ISO/IEC 27001：jt-ipam 提供的資訊安全控制", "ISO/IEC 27001: information security controls jt-ipam provides",
-                  "ISO/IEC 27001：jt-ipam が提供する情報セキュリティの管理策"),
-    "iso42001": T("ISO/IEC 42001：AI 功能與控制", "ISO/IEC 42001: AI features and controls", "ISO/IEC 42001：AI 機能と管理策"),
+    "iso27001": T("ISO/IEC 27001:2022：jt-ipam 提供的資訊安全控制", "ISO/IEC 27001:2022: information security controls jt-ipam provides",
+                  "ISO/IEC 27001:2022：jt-ipam が提供する情報セキュリティの管理策"),
+    "iso42001": T("ISO/IEC 42001:2023：AI 功能與控制", "ISO/IEC 42001:2023: AI features and controls", "ISO/IEC 42001:2023：AI 機能と管理策"),
     "ai-inventory": T("AI 功能清冊", "AI feature inventory", "AI 機能の一覧"),
     "ai-controls": T("AI 控制", "AI controls", "AI の管理策"),
-    "iso27001-index": T("對應的條文與控制項（ISO/IEC 27001）", "Clauses and controls (ISO/IEC 27001)", "対応する箇条と管理策（ISO/IEC 27001）"),
-    "iso42001-index": T("對應的條文與控制項（ISO/IEC 42001）", "Clauses and controls (ISO/IEC 42001)", "対応する箇条と管理策（ISO/IEC 42001）"),
+    "iso27001-index": T("對應的條文與控制項（ISO/IEC 27001:2022）", "Clauses and controls (ISO/IEC 27001:2022)", "対応する箇条と管理策（ISO/IEC 27001:2022）"),
+    "iso42001-index": T("對應的條文與控制項（ISO/IEC 42001:2023）", "Clauses and controls (ISO/IEC 42001:2023)", "対応する箇条と管理策（ISO/IEC 42001:2023）"),
     "customer": T("導入組織要負責的事", "What the adopting organisation is responsible for", "導入組織が責任を持つこと"),
-    "customer-27001": T("資訊安全（ISO/IEC 27001）", "Information security (ISO/IEC 27001)", "情報セキュリティ（ISO/IEC 27001）"),
-    "customer-42001": T("AI 管理（ISO/IEC 42001）", "AI management (ISO/IEC 42001)", "AI マネジメント（ISO/IEC 42001）"),
+    "customer-27001": T("資訊安全（ISO/IEC 27001:2022）", "Information security (ISO/IEC 27001:2022)", "情報セキュリティ（ISO/IEC 27001:2022）"),
+    "customer-42001": T("AI 管理（ISO/IEC 42001:2023）", "AI management (ISO/IEC 42001:2023)", "AI マネジメント（ISO/IEC 42001:2023）"),
     "acceptance": T("建議的驗收案例", "Suggested acceptance cases", "推奨する受け入れ確認"),
     "worksheet": T("盤點表欄位", "Assessment worksheet columns", "棚卸し表の列"),
 }
@@ -532,6 +545,47 @@ def _md_cell(s: str) -> str:
     return s.replace("|", "\\|").replace("\n", " ")
 
 
+def _points(text: str, lang: str) -> list[str]:
+    """一大段「做法」→ 條列：在括號外的「；」「。」（英文是 "; " ". "）切開，一個要點一行。"""
+    seps = ("; ", ". ") if lang == "en" else ("；", "。")
+    out, buf, depth, i = [], "", 0, 0
+    while i < len(text):
+        ch = text[i]
+        if ch in "(（":
+            depth += 1
+        elif ch in ")）":
+            depth = max(0, depth - 1)
+        hit = next((sp for sp in seps if depth == 0 and text.startswith(sp, i)), None)
+        if hit:
+            out.append(buf)
+            buf, i = "", i + len(hit)
+            continue
+        buf += ch
+        i += 1
+    out.append(buf)
+    pts = [x.strip().rstrip(".;；。") for x in out if x.strip().rstrip(".;；。")]
+    return [x[:1].upper() + x[1:] if lang == "en" else x for x in pts]
+
+
+class Points(dict):
+    """表格裡的「做法」：HTML 用條列、Markdown 用「•」加換行。"""
+
+
+def _md_points(t: dict[str, str], lang: str) -> str:
+    pts = _points(t[lang], lang)
+    return _md_cell(pts[0]) if len(pts) == 1 else "<br>".join("• " + _md_cell(x) for x in pts)
+
+
+def _html_points(t: dict[str, str]) -> str:
+    cells = []
+    for lang in LANGS:
+        pts = _points(t[lang], lang)
+        inner = (html.escape(pts[0]) if len(pts) == 1
+                 else '<ul class="pts">' + "".join(f"<li>{html.escape(x)}</li>" for x in pts) + "</ul>")
+        cells.append(f'<span class="{lang}">{inner}</span>')
+    return "".join(cells)
+
+
 def md(lang: str) -> str:
     L = lang
     out = [f"# {TITLE[L]}", ""]
@@ -541,7 +595,7 @@ def md(lang: str) -> str:
     for p in INTRO:
         out += [p[L], ""]
     out += [f"## {SECTIONS['iso27001'][L]}", "", f"| {H_CTRL[L]} | {H_REF[L]} | {H_HOW[L]} | {H_EVID[L]} |", "|---|---|---|---|"]
-    out += [f"| {_md_cell(a[L])} | {_codes(REFS_27001[a['en']])[L]} | {_md_cell(b[L])} | {_md_cell(e)} |" for a, b, e in ISO27001]
+    out += [f"| {_md_cell(a[L])} | {_codes(REFS_27001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(e)} |" for a, b, e in ISO27001]
     out += ["", f"### {SECTIONS['iso27001-index'][L]}", "", _with_n(REF_NOTE_27001, _n_annex(REFS_27001))[L], "",
             f"| {H_CODE[L]} | {H_NAME[L]} | {H_BY_JT[L]} | {H_BY_ORG[L]} |", "|---|---|---|---|"]
     out += [f"| {c} | {_md_cell(n[L])} | {_md_cell(j[L])} | {_md_cell(o[L])} |" for c, n, j, o in INDEX_27001()]
@@ -550,7 +604,7 @@ def md(lang: str) -> str:
     out += [f"| {_md_cell(a[L])} | {_md_cell(b[L])} | {_md_cell(c[L])} |" for a, b, c in AI_INVENTORY]
     out += ["", AI_INV_NOTE[L], "", f"### {SECTIONS['ai-controls'][L]}", "",
             f"| {H_CTRL[L]} | {H_REF[L]} | {H_HOW[L]} | {H_EVID[L]} |", "|---|---|---|---|"]
-    out += [f"| {_md_cell(a[L])} | {_codes(REFS_42001[a['en']])[L]} | {_md_cell(b[L])} | {_md_cell(e)} |" for a, b, e in ISO42001]
+    out += [f"| {_md_cell(a[L])} | {_codes(REFS_42001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(e)} |" for a, b, e in ISO42001]
     out += ["", f"### {SECTIONS['iso42001-index'][L]}", "",
             _with_n(REF_NOTE_42001, _n_annex(REFS_42001, [AI_INV_REFS]))[L], "",
             f"| {H_CODE[L]} | {H_NAME[L]} | {H_BY_JT[L]} | {H_BY_ORG[L]} |", "|---|---|---|---|"]
@@ -588,6 +642,9 @@ def _table(heads: tuple[dict[str, str], ...], rows: list[tuple[str, ...]], cls: 
     for row in rows:
         cells = []
         for c in row:
+            if isinstance(c, Points):
+                cells.append(f'<td class="how">{_html_points(c)}</td>')
+                continue
             if isinstance(c, Refs):
                 cells.append(f'<td class="refs">{html.escape(chr(10).join(c))}</td>')
                 continue
@@ -613,13 +670,13 @@ def html_body() -> str:
         *[f'  <p class="sub">{_tri(p)}</p>' for p in INTRO],
         '  <ul class="toc">', toc, "  </ul>",
         '  <section class="blk">', _h2("iso27001"),
-        _table((H_CTRL, H_REF, H_HOW, H_EVID), [(a, Refs(REFS_27001[a["en"]]), b, e) for a, b, e in ISO27001]),
+        _table((H_CTRL, H_REF, H_HOW, H_EVID), [(a, Refs(REFS_27001[a["en"]]), Points(b), e) for a, b, e in ISO27001]),
         _h3("iso27001-index"), f'    <p class="note">{_tri(_with_n(REF_NOTE_27001, _n_annex(REFS_27001)))}</p>',
         _table((H_CODE, H_NAME, H_BY_JT, H_BY_ORG), INDEX_27001(), cls="ct idx"), "  </section>",
         '  <section class="blk">', _h2("iso42001"), _h3("ai-inventory"),
         _table((H_FEAT, H_USE, H_DEF), AI_INVENTORY),
         f'    <p class="note">{_tri(AI_INV_NOTE)}</p>', _h3("ai-controls"),
-        _table((H_CTRL, H_REF, H_HOW, H_EVID), [(a, Refs(REFS_42001[a["en"]]), b, e) for a, b, e in ISO42001]),
+        _table((H_CTRL, H_REF, H_HOW, H_EVID), [(a, Refs(REFS_42001[a["en"]]), Points(b), e) for a, b, e in ISO42001]),
         _h3("iso42001-index"),
         f'    <p class="note">{_tri(_with_n(REF_NOTE_42001, _n_annex(REFS_42001, [AI_INV_REFS])))}</p>',
         _table((H_CODE, H_NAME, H_BY_JT, H_BY_ORG), INDEX_42001(), cls="ct idx"), "  </section>",
@@ -649,6 +706,9 @@ _EXTRA_CSS = """  /* 合規對照的表格：三欄，最後一欄是測試與�
   p.note{color:var(--muted);font-size:14px;margin:8px 0 0}
   /* 對應控制項欄：編號不折行；索引表的最後一欄（組織的責任）維持一般字型 */
   table.ct td:first-child{white-space:normal;width:17%;min-width:9em}
+  table.ct ul.pts{margin:0;padding-left:1.15em}
+  table.ct ul.pts li{margin:0 0 4px;line-height:1.6}
+  table.ct ul.pts li:last-child{margin-bottom:0}
   table.ct td.refs{white-space:pre-line;width:6.5em;font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   table.idx td:first-child{font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   table.idx td:last-child{font-size:14px;color:var(--ink)}

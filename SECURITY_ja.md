@@ -49,7 +49,7 @@ English: [SECURITY.md](SECURITY.md) · 繁體中文: [SECURITY_zh-TW.md](SECURIT
 - 監査イベントは SHA-256 で連鎖させ、データベースでは追記のみ、外部にアンカーし、
   エクスポートや機密の表示も記録します。
 - 毎日のバックアップはパスフレーズで暗号化できます。
-- ISO/IEC 27001 と ISO/IEC 42001 のどの管理策に対応し、各項目をどう確認するかは
+- ISO/IEC 27001:2022 と ISO/IEC 42001:2023 のどの管理策に対応し、各項目をどう確認するかは
   [docs/COMPLIANCE_ja.md](docs/COMPLIANCE_ja.md) にあります。
 
 ## 受容しているリスク（代替の統制つきで明記）

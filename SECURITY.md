@@ -50,7 +50,7 @@ you.
 - Audit events are chained with SHA-256, append-only in the database, anchored
  externally, and include exports and secret reveals.
 - Daily backups can be encrypted with a passphrase.
-- What maps to ISO/IEC 27001 and ISO/IEC 42001 controls, and how to verify each item,
+- What maps to ISO/IEC 27001:2022 and ISO/IEC 42001:2023 controls, and how to verify each item,
  is in [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 
 ## Accepted risks (documented, with compensating controls)

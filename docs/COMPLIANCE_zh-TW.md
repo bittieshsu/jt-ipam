@@ -1,31 +1,31 @@
-# 合規對照：ISO/IEC 27001 與 ISO/IEC 42001
+# 合規對照：ISO/IEC 27001:2022 與 ISO/IEC 42001:2023
 
 > 本檔由 scripts/gen-compliance-docs.py 產生，請改那支腳本再重新產生。
 
-jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或 ISO/IEC 42001。這份文件分兩部分：jt-ipam 已經做到、可以拿來當佐證的控制（每一項都附上可以自行驗證的測試或設定位置），以及導入組織使用 jt-ipam 之後要自己負責的事。
+jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001:2022 或 ISO/IEC 42001:2023。這份文件分兩部分：jt-ipam 已經做到、可以拿來當佐證的控制（每一項都附上可以自行驗證的測試或設定位置），以及導入組織使用 jt-ipam 之後要自己負責的事。
 
 這裡只列出目前程式確實具備的功能，依 main 分支撰寫（1.0.5 之後的改動見 CHANGELOG 的 Unreleased），之後的變動以 CHANGELOG 為準。正式盤點時請固定版本或 commit，並在自己的環境實際驗收。
 
-## ISO/IEC 27001：jt-ipam 提供的資訊安全控制
+## ISO/IEC 27001:2022：jt-ipam 提供的資訊安全控制
 
 | 面向 | 對應控制項 | jt-ipam 的做法 | 驗證方式（測試、設定） |
 |---|---|---|---|
-| 登入、雙因素驗證與工作階段 | A.5.16、A.5.17、A.8.5 | 本機與 LDAP 帳號可啟用 TOTP 雙因素驗證；管理員可要求管理員或所有人使用（還沒設定的人登入時先完成設定，不會被鎖在外面；被要求的人不能自行停用），SSO 可選擇是否一併套用。啟用時產生 10 組只能用一次的復原碼（只存雜湊），管理員可以重設某人的雙因素驗證（唯一的管理員可從主機的指令列重設）；同一組驗證碼不能用第二次。密碼或驗證碼連續錯 5 次鎖定 15 分鐘並寫進稽核；登入、驗證碼與換發權杖每個來源 IP 每分鐘最多 10 次。登入建立伺服器端工作階段：更新權杖只放在 HttpOnly Cookie、每次換發都換新，已經換掉的又被使用就撤銷整個工作階段並通知管理員與本人；存取權杖 15 分鐘到期並綁定工作階段，登出、強制登出、停用帳號與管理員重設密碼都立即生效，改密碼會登出其他裝置；使用者可以檢視並登出自己的裝置。每個請求都重新讀取帳號狀態與權限。 | `backend/tests/test_mfa_policy.py`, `test_session_revocation.py`, `test_security_alerts.py`, `test_rate_limit_switch.py`; `frontend/src/api/__tests__/tokenStorage.test.ts` |
-| 物件權限與跨單位隔離 | A.5.15、A.5.18、A.8.2、A.8.3 | 依單位、區段、子網路、IP、裝置、機櫃、地點授權，可往下繼承。搜尋、IP 關聯、拓樸圖、AI 對話的工具、MCP 工具與 REST 用同一套可見範圍；重疊網段依子網路比對，不會對到其他單位的同一個位址；看不到的物件回應不存在（404）。只被授權部分物件的帳號在拓樸圖上只看得到自己範圍內的裝置與子網路，VPN、虛擬機等全域資料只給有全域讀取權限的帳號。 | `test_mcp_tools_match_rest_permissions.py`, `test_rbac_enforcement.py`, `test_rbac_detail_idor.py`, `test_search_overlapping.py`, `test_semantic_search_scope.py`, `test_topology_scope.py` |
-| API 權杖與 MCP | A.5.17、A.8.3、A.8.5 | 個人 API 權杖有效期 1 到 365 天（預設 90 天），可隨時撤銷並留下稽核，資料庫只存雜湊；唯讀權杖不能呼叫會異動資料的方法；每把權杖每分鐘最多 600 次（REST 與 MCP 合計）；帳號停用時權杖一併撤銷。外部 MCP 預設關閉，使用同一套權杖，或可輪替的唯讀 MCP 金鑰（有效 30 到 365 天）。API 權杖、MCP 金鑰與公開端點權杖在到期前 14、7、1 天與當天通知擁有者或管理員。 | `test_api_token_scope.py`, `test_api_token_mcp_hardening.py`, `test_session_revocation.py`, `test_mcp_transport.py` |
-| 機密資料加密 | A.5.17、A.8.24 | 整合的密碼、API 金鑰、公開端點的權杖等以 AES-256-GCM 加密存放，每一處加解密都綁定用途（密文搬到別的欄位就解不開，守門測試逐一檢查），SSH 帳密使用每筆獨立的資料金鑰；加密金鑰在主機的 backend.env，不放在資料庫。設定頁不直接回傳權杖與金鑰，要檢視時另外取回並留稽核。系統匯出檔以使用者設定的密碼加密（scrypt 加 AES-256-GCM）。 | `test_security.py`, `test_secret_aad.py`, `test_encryption_key_format.py`, `test_public_endpoint_tokens.py`, `test_system_transfer.py` |
-| 傳輸加密 | A.5.14、A.8.24 | 網頁與 API 強制 HTTPS（nginx 反向代理或後端直接提供 TLS，二擇一；對外網址不是 https 時後端不會啟動），nginx 設定為 TLS 1.2 與 1.3，並送出 HSTS。Graylog DSV 查表的明文 8088 埠要在設定頁明確開啟才服務（新安裝預設關閉），可限制允許的來源位址；網址上的權杖不寫進 nginx 存取記錄。 | `app/core/config.py`, `deploy/nginx/jt-ipam.conf`, `test_public_endpoint_tokens.py` |
-| 出站連線防護 | A.8.20、A.8.26 | HTTP 類整合在建立連線的當下檢查目標位址並連到檢查過的位址，擋下本機、雲端中繼資料位址與 DNS rebinding；轉址時重新檢查，而且不把認證資訊帶到別的主機。其他協定（SSH、LDAP、SMTP、RADIUS、WinRM、DNS、syslog 轉送）連線前解析並檢查所有位址，擋雲端中繼資料、link-local 與多播；遠端主控台的目標另外不能是本機位址（守門測試檢查每一處連線都經過檢查）。 | `test_safe_http_guard.py`, `test_netdiag_http_guard.py`, `test_net_guard.py` |
-| 稽核記錄 | A.5.28、A.5.33、A.8.15、A.8.16 | 會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）；瀏覽器產生的表格與報告匯出由瀏覽器回報一筆。稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空；安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護。定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）；設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出。 | `test_audit_coverage.py`, `test_audit_read_coverage.py`, `test_audit_immutability.py`, `test_audit_hardening.py`, `test_audit_anchor.py`, `test_audit_chain_order.py`; `scripts/sql/audit-harden.sql` |
-| 遠端主控台 | A.5.15、A.5.18、A.8.2 | 看得到 IP 不等於能連線：該 IP 要開啟對應的主控台功能，而且使用者是管理員、對子網路有寫入權，或被明確授予主控台權限；目標不能是本機、link-local 或保留位址。連線使用 60 秒內有效的單次票證（綁定使用者、IP 與工作階段），連線期間每 30 秒重新檢查：帳號被停用、被強制登出、登出那個工作階段或被收回權限時立即中斷並寫稽核。SFTP 的開啟、上傳、下載、改名、刪除都寫稽核，每個主控台連線結束時記錄連線時間。 | `test_ticket_take_once.py`, `test_console_guard.py`, `test_net_guard.py`, `test_sftp_permissions.py`, `test_console_session_duration.py` |
-| 憑證與私鑰派送 | A.8.3、A.8.24 | 每個憑證代理只拿得到指派給它的憑證；代理每次下載、管理員每次匯出私鑰都寫稽核；代理金鑰可輪替、停用或刪除。 | `test_cert_agents_api.py` |
-| 掃描代理 | A.5.16、A.8.3 | 代理只會收到指派給它的子網路去掃描，回報也只在指派的子網路內比對（沒有指派任何子網路的代理不能更新任何 IP）；每個代理一把金鑰（只存雜湊），可輪替、停用或刪除；掃描、憑證與 RustDesk 代理的端點逐代理限流；同一台代理的回報排隊處理，單次回報筆數有上限。 | `test_scan_agent_scope.py`, `test_scan_agent_report_concurrency.py`, `test_scan_agent_load.py` |
-| 資料來源與時間 | A.5.9、A.8.9 | 每個 IP 的主機名稱、MAC、ARP 觀測都記錄來源與觀測時間，欄位異動有異動記錄（誰、哪個來源、舊值與新值）；手動輸入的值依來源優先序或釘選保留（預設手動最優先），不會被自動同步覆蓋；異常偵測標出疑似讀壞的資料與可信度。 | `test_hostname_sources.py`, `test_ip_edit_manual_sources.py`, `test_evidence_contract.py`, `test_anomaly_arp_quality.py` |
-| 匯出與對外嵌入 | A.5.14、A.8.3 | 表格匯出只包含使用者看得到的資料，每次匯出都留稽核（伺服器產生的由伺服器記，瀏覽器產生的由瀏覽器回報）；系統匯出限管理員，並以密碼加密；機櫃圖對外嵌入需要系統權杖，而且要逐一開啟每個機櫃；機櫃嵌入與 Graylog DSV 的權杖會到期（30 到 365 天）。 | `test_audit_read_coverage.py`, `frontend/src/utils/__tests__/saveFileOnly.test.ts`, `test_rack_embed.py`, `test_public_endpoint_tokens.py`, `test_system_transfer.py` |
-| 備份與還原 | A.8.13、A.8.24 | 每天自動備份資料庫、設定檔（含加密金鑰）、TLS 憑證與上傳的檔案，保留 14 天；設定備份密碼後，每天的備份整包加密成一個檔案（scrypt 加 AES-256-GCM 分塊加密，截斷、調換或修改都解不開），明文刪除，解密工具只需要 Python 與 cryptography。系統診斷顯示最近一次備份的結果與是否加密；還原步驟寫在安裝維運手冊。 | `test_backup_script.py`, `test_backup_encryption.py`, `test_self_check_backup.py`, `docs/INSTALL.md` |
-| 安全開發與弱點管理 | A.8.8、A.8.25、A.8.28、A.8.29 | 每次推送由 CI 執行 bandit 安全規則、pip-audit、pnpm audit，以及對著實際 nginx 設定與正式建置前端的 OWASP ZAP 基準掃描（基準檔以外的任何警示都讓 CI 失敗）；GitHub 程式碼掃描（CodeQL）的警示逐項判讀；發版前另跑登入後的 ZAP 掃描、在乾淨系統實測全新安裝與升級；每次改動對應的檢查項目與守門測試寫在測試清單。 | `.github/workflows/ci.yml`, `deploy/zap-baseline.conf`, `TEST_CHECKLIST.md`, `scripts/test-fresh-install.sh`, `scripts/test-upgrade.sh` |
+| 登入、雙因素驗證與工作階段 | A.5.16、A.5.17、A.8.5 | • 本機與 LDAP 帳號可啟用 TOTP 雙因素驗證<br>• 管理員可要求管理員或所有人使用（還沒設定的人登入時先完成設定，不會被鎖在外面；被要求的人不能自行停用），SSO 可選擇是否一併套用<br>• 啟用時產生 10 組只能用一次的復原碼（只存雜湊），管理員可以重設某人的雙因素驗證（唯一的管理員可從主機的指令列重設）<br>• 同一組驗證碼不能用第二次<br>• 密碼或驗證碼連續錯 5 次鎖定 15 分鐘並寫進稽核<br>• 登入、驗證碼與換發權杖每個來源 IP 每分鐘最多 10 次<br>• 登入建立伺服器端工作階段：更新權杖只放在 HttpOnly Cookie、每次換發都換新，已經換掉的又被使用就撤銷整個工作階段並通知管理員與本人<br>• 存取權杖 15 分鐘到期並綁定工作階段，登出、強制登出、停用帳號與管理員重設密碼都立即生效，改密碼會登出其他裝置<br>• 使用者可以檢視並登出自己的裝置<br>• 每個請求都重新讀取帳號狀態與權限 | `backend/tests/test_mfa_policy.py`, `test_session_revocation.py`, `test_security_alerts.py`, `test_rate_limit_switch.py`; `frontend/src/api/__tests__/tokenStorage.test.ts` |
+| 物件權限與跨單位隔離 | A.5.15、A.5.18、A.8.2、A.8.3 | • 依單位、區段、子網路、IP、裝置、機櫃、地點授權，可往下繼承<br>• 搜尋、IP 關聯、拓樸圖、AI 對話的工具、MCP 工具與 REST 用同一套可見範圍<br>• 重疊網段依子網路比對，不會對到其他單位的同一個位址<br>• 看不到的物件回應不存在（404）<br>• 只被授權部分物件的帳號在拓樸圖上只看得到自己範圍內的裝置與子網路，VPN、虛擬機等全域資料只給有全域讀取權限的帳號 | `test_mcp_tools_match_rest_permissions.py`, `test_rbac_enforcement.py`, `test_rbac_detail_idor.py`, `test_search_overlapping.py`, `test_semantic_search_scope.py`, `test_topology_scope.py` |
+| API 權杖與 MCP | A.5.17、A.8.3、A.8.5 | • 個人 API 權杖有效期 1 到 365 天（預設 90 天），可隨時撤銷並留下稽核，資料庫只存雜湊<br>• 唯讀權杖不能呼叫會異動資料的方法<br>• 每把權杖每分鐘最多 600 次（REST 與 MCP 合計）<br>• 帳號停用時權杖一併撤銷<br>• 外部 MCP 預設關閉，使用同一套權杖，或可輪替的唯讀 MCP 金鑰（有效 30 到 365 天）<br>• API 權杖、MCP 金鑰與公開端點權杖在到期前 14、7、1 天與當天通知擁有者或管理員 | `test_api_token_scope.py`, `test_api_token_mcp_hardening.py`, `test_session_revocation.py`, `test_mcp_transport.py` |
+| 機密資料加密 | A.5.17、A.8.24 | • 整合的密碼、API 金鑰、公開端點的權杖等以 AES-256-GCM 加密存放，每一處加解密都綁定用途（密文搬到別的欄位就解不開，守門測試逐一檢查），SSH 帳密使用每筆獨立的資料金鑰<br>• 加密金鑰在主機的 backend.env，不放在資料庫<br>• 設定頁不直接回傳權杖與金鑰，要檢視時另外取回並留稽核<br>• 系統匯出檔以使用者設定的密碼加密（scrypt 加 AES-256-GCM） | `test_security.py`, `test_secret_aad.py`, `test_encryption_key_format.py`, `test_public_endpoint_tokens.py`, `test_system_transfer.py` |
+| 傳輸加密 | A.5.14、A.8.24 | • 網頁與 API 強制 HTTPS（nginx 反向代理或後端直接提供 TLS，二擇一；對外網址不是 https 時後端不會啟動），nginx 設定為 TLS 1.2 與 1.3，並送出 HSTS<br>• Graylog DSV 查表的明文 8088 埠要在設定頁明確開啟才服務（新安裝預設關閉），可限制允許的來源位址<br>• 網址上的權杖不寫進 nginx 存取記錄 | `app/core/config.py`, `deploy/nginx/jt-ipam.conf`, `test_public_endpoint_tokens.py` |
+| 出站連線防護 | A.8.20、A.8.26 | • HTTP 類整合在建立連線的當下檢查目標位址並連到檢查過的位址，擋下本機、雲端中繼資料位址與 DNS rebinding<br>• 轉址時重新檢查，而且不把認證資訊帶到別的主機<br>• 其他協定（SSH、LDAP、SMTP、RADIUS、WinRM、DNS、syslog 轉送）連線前解析並檢查所有位址，擋雲端中繼資料、link-local 與多播<br>• 遠端主控台的目標另外不能是本機位址（守門測試檢查每一處連線都經過檢查） | `test_safe_http_guard.py`, `test_netdiag_http_guard.py`, `test_net_guard.py` |
+| 稽核記錄 | A.5.28、A.5.33、A.8.15、A.8.16 | • 會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）<br>• 瀏覽器產生的表格與報告匯出由瀏覽器回報一筆<br>• 稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空<br>• 安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護<br>• 定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）<br>• 設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出 | `test_audit_coverage.py`, `test_audit_read_coverage.py`, `test_audit_immutability.py`, `test_audit_hardening.py`, `test_audit_anchor.py`, `test_audit_chain_order.py`; `scripts/sql/audit-harden.sql` |
+| 遠端主控台 | A.5.15、A.5.18、A.8.2 | • 看得到 IP 不等於能連線：該 IP 要開啟對應的主控台功能，而且使用者是管理員、對子網路有寫入權，或被明確授予主控台權限<br>• 目標不能是本機、link-local 或保留位址<br>• 連線使用 60 秒內有效的單次票證（綁定使用者、IP 與工作階段），連線期間每 30 秒重新檢查：帳號被停用、被強制登出、登出那個工作階段或被收回權限時立即中斷並寫稽核<br>• SFTP 的開啟、上傳、下載、改名、刪除都寫稽核，每個主控台連線結束時記錄連線時間 | `test_ticket_take_once.py`, `test_console_guard.py`, `test_net_guard.py`, `test_sftp_permissions.py`, `test_console_session_duration.py` |
+| 憑證與私鑰派送 | A.8.3、A.8.24 | • 每個憑證代理只拿得到指派給它的憑證<br>• 代理每次下載、管理員每次匯出私鑰都寫稽核<br>• 代理金鑰可輪替、停用或刪除 | `test_cert_agents_api.py` |
+| 掃描代理 | A.5.16、A.8.3 | • 代理只會收到指派給它的子網路去掃描，回報也只在指派的子網路內比對（沒有指派任何子網路的代理不能更新任何 IP）<br>• 每個代理一把金鑰（只存雜湊），可輪替、停用或刪除<br>• 掃描、憑證與 RustDesk 代理的端點逐代理限流<br>• 同一台代理的回報排隊處理，單次回報筆數有上限 | `test_scan_agent_scope.py`, `test_scan_agent_report_concurrency.py`, `test_scan_agent_load.py` |
+| 資料來源與時間 | A.5.9、A.8.9 | • 每個 IP 的主機名稱、MAC、ARP 觀測都記錄來源與觀測時間，欄位異動有異動記錄（誰、哪個來源、舊值與新值）<br>• 手動輸入的值依來源優先序或釘選保留（預設手動最優先），不會被自動同步覆蓋<br>• 異常偵測標出疑似讀壞的資料與可信度 | `test_hostname_sources.py`, `test_ip_edit_manual_sources.py`, `test_evidence_contract.py`, `test_anomaly_arp_quality.py` |
+| 匯出與對外嵌入 | A.5.14、A.8.3 | • 表格匯出只包含使用者看得到的資料，每次匯出都留稽核（伺服器產生的由伺服器記，瀏覽器產生的由瀏覽器回報）<br>• 系統匯出限管理員，並以密碼加密<br>• 機櫃圖對外嵌入需要系統權杖，而且要逐一開啟每個機櫃<br>• 機櫃嵌入與 Graylog DSV 的權杖會到期（30 到 365 天） | `test_audit_read_coverage.py`, `frontend/src/utils/__tests__/saveFileOnly.test.ts`, `test_rack_embed.py`, `test_public_endpoint_tokens.py`, `test_system_transfer.py` |
+| 備份與還原 | A.8.13、A.8.24 | • 每天自動備份資料庫、設定檔（含加密金鑰）、TLS 憑證與上傳的檔案，保留 14 天<br>• 設定備份密碼後，每天的備份整包加密成一個檔案（scrypt 加 AES-256-GCM 分塊加密，截斷、調換或修改都解不開），明文刪除，解密工具只需要 Python 與 cryptography<br>• 系統診斷顯示最近一次備份的結果與是否加密<br>• 還原步驟寫在安裝維運手冊 | `test_backup_script.py`, `test_backup_encryption.py`, `test_self_check_backup.py`, `docs/INSTALL.md` |
+| 安全開發與弱點管理 | A.8.8、A.8.25、A.8.28、A.8.29 | • 每次推送由 CI 執行 bandit 安全規則、pip-audit、pnpm audit，以及對著實際 nginx 設定與正式建置前端的 OWASP ZAP 基準掃描（基準檔以外的任何警示都讓 CI 失敗）<br>• GitHub 程式碼掃描（CodeQL）的警示逐項判讀<br>• 發版前另跑登入後的 ZAP 掃描、在乾淨系統實測全新安裝與升級<br>• 每次改動對應的檢查項目與守門測試寫在測試清單 | `.github/workflows/ci.yml`, `deploy/zap-baseline.conf`, `TEST_CHECKLIST.md`, `scripts/test-fresh-install.sh`, `scripts/test-upgrade.sh` |
 
-### 對應的條文與控制項（ISO/IEC 27001）
+### 對應的條文與控制項（ISO/IEC 27001:2022）
 
 編號依 ISO/IEC 27001:2022 附錄 A（與 ISO/IEC 27002:2022 相同），不帶 A. 的是本文條文；中文與日文名稱為參考譯名，以標準原文為準。jt-ipam 提供的是技術面的佐證，控制項是否達成由導入組織依風險評鑑與適用性聲明判定。附錄 A 共 93 項，jt-ipam 能提供佐證的有 22 項；下表另列出「導入組織要做的事」對應的條文與控制項，表中沒有的控制項由導入組織以其他方式處理。
 
@@ -64,7 +64,7 @@ jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或
 | A.8.29 | 開發及驗收中之安全測試 | 安全開發與弱點管理 |  |
 | A.8.32 | 變更管理 |  | 更新 |
 
-## ISO/IEC 42001：AI 功能與控制
+## ISO/IEC 42001:2023：AI 功能與控制
 
 ### AI 功能清冊
 
@@ -84,17 +84,17 @@ jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或
 
 | 面向 | 對應控制項 | jt-ipam 的做法 | 驗證方式（測試、設定） |
 |---|---|---|---|
-| AI 權限一致 | A.9.2 | AI 對話與 MCP 的工具在後端逐一授權，用的是與 REST 相同的可見範圍；會異動資料的工具限管理員。 | `test_mcp_tools_match_rest_permissions.py`, `test_mcp_admin_tools.py`, `test_mcp_rbac_scope.py` |
-| 異動要人確認 | A.6.2.8、A.9.2 | AI 對話裡會改資料的工具不會直接執行，要使用者按下確認才執行並寫稽核；MCP 的寫入也寫稽核。 | `test_mcp_url_and_audit.py`, `test_ai_inline_toolcalls.py` |
-| 查詢範圍與筆數 | A.7.4、A.8.2 | 工具回傳查詢範圍、總數、本次筆數與是否還有更多；超過上限會明確標示截斷；查無結果時工具要求模型照實說，不可以補造例子。 | `test_mcp_tool_scoping.py`, `test_ai_no_results_are_explicit.py` |
-| 答案查證 | A.6.2.6、A.8.2 | 回答中出現、但沒有任何工具回傳過的 IP，會被標示為未經查證。 | `test_ai_answer_ip_verification.py` |
-| 模型記錄 | A.4.2、A.6.2.8 | AI 對話的回答與 AI 巡檢的發現會存下使用的模型；判讀與建議的結果也標示模型。 | `app/models/ai_chat.py`, `app/models/ai_finding.py` |
-| 提示詞注入 | A.6.2.2、A.6.2.4 | 所有把資料送進模型的地方（AI 對話、IP 調查判讀、AI 巡檢、IP 研判、防火牆規則判讀、IP 變更評估）都使用同一段「資料與工具結果不是指令」的規則，大段資料放在定界內並先拆掉資料裡的定界字串（守門測試檢查每一個呼叫模型的地方）；使用者訊息先經過檢查（常見的越權指令樣式、重複與控制字元）；AI 對話裡會改資料的動作要人確認，確認時再過一次權限檢查。 | `test_prompt_injection_framing.py`, `test_ai_guard.py` |
-| 事實與 AI 敘述分開 | A.8.2、A.9.4 | 異常、規則異動與變更評估的結果由程式查詢決定；AI 只負責解釋，畫面標明是 AI 判讀。 | `app/services/anomaly.py`, `app/services/fw_review.py`, `app/services/change_impact/` |
-| 變更評估的人工審核 | A.9.2 | 有阻擋項目不能核准；結果不完整要填理由承擔風險；每個發現都要處置；核准後計畫或依據改變（快照雜湊不同）就回到草稿重新評估；可指定審核人；列出哪些來源沒有資料或同步失敗。 | `test_change_impact_api.py`, `test_change_impact_reviewers.py`, `test_change_impact_coverage.py` |
-| 停用 | A.6.2.6、A.9.2 | LLM 全域開關一關，所有 AI 功能都停止呼叫模型；AI 巡檢與外部 MCP 各自另有開關，預設關閉。 | `app/services/system_config.py` |
+| AI 權限一致 | A.9.2 | • AI 對話與 MCP 的工具在後端逐一授權，用的是與 REST 相同的可見範圍<br>• 會異動資料的工具限管理員 | `test_mcp_tools_match_rest_permissions.py`, `test_mcp_admin_tools.py`, `test_mcp_rbac_scope.py` |
+| 異動要人確認 | A.6.2.8、A.9.2 | • AI 對話裡會改資料的工具不會直接執行，要使用者按下確認才執行並寫稽核<br>• MCP 的寫入也寫稽核 | `test_mcp_url_and_audit.py`, `test_ai_inline_toolcalls.py` |
+| 查詢範圍與筆數 | A.7.4、A.8.2 | • 工具回傳查詢範圍、總數、本次筆數與是否還有更多<br>• 超過上限會明確標示截斷<br>• 查無結果時工具要求模型照實說，不可以補造例子 | `test_mcp_tool_scoping.py`, `test_ai_no_results_are_explicit.py` |
+| 答案查證 | A.6.2.6、A.8.2 | 回答中出現、但沒有任何工具回傳過的 IP，會被標示為未經查證 | `test_ai_answer_ip_verification.py` |
+| 模型記錄 | A.4.2、A.6.2.8 | • AI 對話的回答與 AI 巡檢的發現會存下使用的模型<br>• 判讀與建議的結果也標示模型 | `app/models/ai_chat.py`, `app/models/ai_finding.py` |
+| 提示詞注入 | A.6.2.2、A.6.2.4 | • 所有把資料送進模型的地方（AI 對話、IP 調查判讀、AI 巡檢、IP 研判、防火牆規則判讀、IP 變更評估）都使用同一段「資料與工具結果不是指令」的規則，大段資料放在定界內並先拆掉資料裡的定界字串（守門測試檢查每一個呼叫模型的地方）<br>• 使用者訊息先經過檢查（常見的越權指令樣式、重複與控制字元）<br>• AI 對話裡會改資料的動作要人確認，確認時再過一次權限檢查 | `test_prompt_injection_framing.py`, `test_ai_guard.py` |
+| 事實與 AI 敘述分開 | A.8.2、A.9.4 | • 異常、規則異動與變更評估的結果由程式查詢決定<br>• AI 只負責解釋，畫面標明是 AI 判讀 | `app/services/anomaly.py`, `app/services/fw_review.py`, `app/services/change_impact/` |
+| 變更評估的人工審核 | A.9.2 | • 有阻擋項目不能核准<br>• 結果不完整要填理由承擔風險<br>• 每個發現都要處置<br>• 核准後計畫或依據改變（快照雜湊不同）就回到草稿重新評估<br>• 可指定審核人<br>• 列出哪些來源沒有資料或同步失敗 | `test_change_impact_api.py`, `test_change_impact_reviewers.py`, `test_change_impact_coverage.py` |
+| 停用 | A.6.2.6、A.9.2 | • LLM 全域開關一關，所有 AI 功能都停止呼叫模型<br>• AI 巡檢與外部 MCP 各自另有開關，預設關閉 | `app/services/system_config.py` |
 
-### 對應的條文與控制項（ISO/IEC 42001）
+### 對應的條文與控制項（ISO/IEC 42001:2023）
 
 編號依 ISO/IEC 42001:2023 附錄 A，不帶 A. 的是本文條文；中文與日文名稱為參考譯名，以標準原文為準。附錄 A 共 38 項，jt-ipam 能提供佐證的有 9 項；下表另列出「導入組織要做的事」對應的條文與控制項。
 
@@ -128,7 +128,7 @@ jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或
 
 ## 導入組織要負責的事
 
-### 資訊安全（ISO/IEC 27001）
+### 資訊安全（ISO/IEC 27001:2022）
 
 - 帳號：在使用者管理頁的「登入安全」把雙因素驗證設成管理員必須或所有人必須，並定期確認例外。（A.5.17、A.8.5）
 - 離職與調職：停用帳號（工作階段、API 權杖與開著的主控台會一併失效），或用「強制登出」結束所有登入；調整權限與群組成員。（A.5.18、A.6.5）
@@ -141,7 +141,7 @@ jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或
 - 更新：追蹤新版本並依 CHANGELOG 升級（升級腳本會先備份）。（A.8.8、A.8.32）
 - 管理制度：風險評鑑與處理、適用性聲明、教育訓練、內部稽核與管理審查由導入組織負責。（6.1.2、6.1.3、7.2、7.3、9.2、9.3）
 
-### AI 管理（ISO/IEC 42001）
+### AI 管理（ISO/IEC 42001:2023）
 
 - AI 政策與清冊：決定要開哪些 AI 功能、由誰負責，記錄模型端點與版本。（5.2、A.2.2、A.3.2、A.4.2）
 - 資料流：選擇自架模型或外部 API；若開放外部 MCP，外部 AI 用戶端拿到的資料可能再交給它自己的雲端模型處理，這條資料流要另外評估與核准。（A.10.3）

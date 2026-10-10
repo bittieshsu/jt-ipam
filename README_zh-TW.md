@@ -126,7 +126,7 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 
 ## 安全（OWASP Top 10:2025）
 
-安全是 day-one 需求，每個模組與 PR 都對齊 **OWASP Top 10:2025**，詳見 [`SECURITY_zh-TW.md`](SECURITY_zh-TW.md)。可作為 ISO/IEC 27001 與 ISO/IEC 42001 佐證的控制，以及導入組織要自己做的事，見 [`docs/COMPLIANCE_zh-TW.md`](docs/COMPLIANCE_zh-TW.md)。
+安全是 day-one 需求，每個模組與 PR 都對齊 **OWASP Top 10:2025**，詳見 [`SECURITY_zh-TW.md`](SECURITY_zh-TW.md)。可作為 ISO/IEC 27001:2022 與 ISO/IEC 42001:2023 佐證的控制，以及導入組織要自己做的事，見 [`docs/COMPLIANCE_zh-TW.md`](docs/COMPLIANCE_zh-TW.md)。
 
 - **強制 TLS**：二擇一，nginx 反代終止 TLS（`BACKEND_TLS_MODE=nginx`），或 uvicorn 直接掛自簽憑證（`BACKEND_TLS_MODE=direct`）
 - A01：deny-by-default RBAC、物件級檢查（如上）

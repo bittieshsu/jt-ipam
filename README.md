@@ -133,7 +133,7 @@ Object-level permissions across **7 object types** (customer / section / subnet 
 
 ## Security (OWASP Top 10:2025)
 
-Security is a day-one requirement; every module and PR is checked against **OWASP Top 10:2025**. See [`SECURITY.md`](SECURITY.md). For the controls that can serve as ISO/IEC 27001 and ISO/IEC 42001 evidence, and what the adopting organisation has to do itself, see [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
+Security is a day-one requirement; every module and PR is checked against **OWASP Top 10:2025**. See [`SECURITY.md`](SECURITY.md). For the controls that can serve as ISO/IEC 27001:2022 and ISO/IEC 42001:2023 evidence, and what the adopting organisation has to do itself, see [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
 
 - **TLS enforced**: pick one of nginx reverse-proxy termination (`BACKEND_TLS_MODE=nginx`) or uvicorn serving a self-signed cert directly (`BACKEND_TLS_MODE=direct`)
 - A01: deny-by-default RBAC with object-level checks (above)

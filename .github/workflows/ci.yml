@@ -249,6 +249,9 @@ jobs:
       CORS_ORIGINS: https://localhost
       BACKEND_TLS_MODE: nginx
       APP_ENV: production
+      # 正式模式的設定檢查不允許 APP_DEBUG 開著（預設值不是 false），沒寫的話後端拒絕啟動。
+      # 正式安裝的 backend.env 會寫 APP_DEBUG=false，這裡比照
+      APP_DEBUG: "false"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -304,9 +307,10 @@ jobs:
       - name: ZAP baseline scan
         run: |
           mkdir -p zap && cp deploy/zap-baseline.conf zap/ && chmod -R 777 zap
-          # -m 2：爬站 2 分鐘；沒有 -I：zap-baseline.conf 以外的任何警示都讓這一步失敗
+          # -m 2：爬站 2 分鐘；沒有 -I：zap-baseline.conf 以外的任何警示都讓這一步失敗；
+          # -z "-silent"：不檢查附加元件更新（曾經在啟動時卡住 26 分鐘，超過這個 job 的時限）
           docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t https://localhost/ -c zap-baseline.conf -m 2 -r zap-report.html -J zap-report.json
+            zap-baseline.py -t https://localhost/ -c zap-baseline.conf -m 2 -z "-silent" -r zap-report.html -J zap-report.json
 
       - name: Keep the report
         if: always()
