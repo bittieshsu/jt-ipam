@@ -5,7 +5,7 @@
 > 規矩：**每次 bump `frontend/package.json` 的 `version` 之前，先把這份清單跑過一輪，全綠才升版。**
 > 把它當成手動把關的關卡。紅的先修，不要帶病升版。
 
-升版流程：跑清單 → 全綠 → 改 version → 部署（backend rsync + alembic + restart；frontend build）。
+升版流程：跑清單 → 全綠 → 改 version（`frontend/package.json`、`backend/app/version.py`、三份 README 的標題、CHANGELOG 段落；`tests/test_changelog_versions.py` 會檢查）→ 部署（backend rsync + alembic + restart；frontend build）。
 
 ---
 

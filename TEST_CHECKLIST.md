@@ -6,7 +6,8 @@
 > checklist once; only release when everything is green.**
 > Treat it as the manual gate. Fix the red ones first; do not ship sick.
 
-Release flow: run the checklist → all green → bump version → deploy
+Release flow: run the checklist → all green → bump version (`frontend/package.json`, `backend/app/version.py`,
+the titles of the three READMEs and the CHANGELOG section; `tests/test_changelog_versions.py` checks them) → deploy
 (backend rsync + alembic + restart; frontend build).
 
 ---

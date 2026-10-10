@@ -79,6 +79,24 @@
     .mnav a:last-child{border-bottom:0}
     .mnav a[aria-current="page"]{color:var(--green);font-weight:700}
   }
+  /* 頂列固定一行：放不下時先把 GitHub、再把語言收進選單（頁尾程式量寬度決定；三種語言的字寬不同）。
+     2026-10-10 使用者：topbar 不要換行。選擇器多一層 nav 是為了蓋過各頁 560px 那條換行規則。 */
+  .mnav .m-gh,.mnav .m-lang{display:none}
+  @media(max-width:900px){
+    nav .nav-in{flex-wrap:nowrap}
+    nav .brand{flex:0 0 auto;white-space:nowrap}
+    nav .nav-links{flex:0 0 auto;flex-wrap:nowrap;width:auto;margin-left:auto;gap:8px}
+    nav .nav-links > *{flex-shrink:0}
+    nav.nav-c1 .nav-links > a.btn{display:none}
+    nav.nav-c2 .nav-links > .langsw{display:none}
+    nav.nav-c1 .mnav .m-gh{display:block}
+    nav.nav-c2 .mnav .m-lang{display:block}
+    .mnav .m-lang{padding:12px 2px 4px}
+    .mnav .m-lang-h{font-size:12px;color:var(--muted);margin-bottom:8px}
+    .mnav .m-lang button{display:inline-flex;align-items:center;margin:0 6px 6px 0;padding:7px 14px;border:1px solid var(--line);
+      border-radius:999px;background:#fff;color:var(--body);font:500 14px/1.2 inherit;cursor:pointer}
+    .mnav .m-lang button[aria-pressed="true"]{border-color:var(--green);color:var(--green);font-weight:700}
+  }
 
   /* ── 頁首 ── */
   h1{font-size:clamp(26px,4vw,36px);color:var(--ink);margin:30px 0 6px}
@@ -858,6 +876,46 @@ A.9.2</td><td class="how"><span class="zh"><ul class="pts"><li>LLM 全域開關�
     panel.addEventListener('click', function(e){ if (e.target.closest('a')) open(false); });
     document.addEventListener('click', function(e){ if (panel.classList.contains('open') && !panel.contains(e.target)) open(false); });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
+  })();
+</script>
+<script>
+  // 頂列固定一行：放不下時先把 GitHub、再把語言收進選單。實際量寬度（三種語言的字寬不同），
+  // 視窗大小、轉向、字型載入完、換語言之後都重算。
+  (function(){
+    var nav = document.querySelector('nav'), panel = document.getElementById('mnav'),
+        btn = document.querySelector('.nav-menu-btn'), inner = document.querySelector('.nav-in');
+    if (!nav || !panel || !btn || !inner) return;
+    var gh = document.querySelector('.nav-links > a.btn');
+    if (gh){ var a = gh.cloneNode(true); a.className = 'm-gh'; panel.appendChild(a); }
+    var items = Array.prototype.slice.call(document.querySelectorAll('#langMenu li[data-lang]'));
+    if (items.length){
+      var box = document.createElement('div'); box.className = 'm-lang';
+      box.innerHTML = '<div class="m-lang-h"><span class="zh">語言</span><span class="en">Language</span><span class="ja">言語</span></div>';
+      items.forEach(function(li){
+        var b = document.createElement('button'); b.type = 'button'; b.dataset.lang = li.dataset.lang;
+        b.textContent = li.textContent.replace('\u2713', '').trim();
+        b.addEventListener('click', function(){
+          li.click();                                   // 沿用語言選單自己的切換（記住偏好、改網址、通知頁面）
+          panel.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
+        });
+        box.appendChild(b);
+      });
+      panel.appendChild(box);
+    }
+    function cur(){ var c = document.body.className; return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en'; }
+    function mark(){ Array.prototype.forEach.call(panel.querySelectorAll('.m-lang button'), function(b){
+      b.setAttribute('aria-pressed', String(b.dataset.lang === cur())); }); }
+    function over(){ return inner.scrollWidth > inner.clientWidth + 1; }
+    function fit(){
+      nav.classList.remove('nav-c1', 'nav-c2');
+      if (getComputedStyle(btn).display === 'none') return;   // 寬螢幕：導覽連結都在頂列，不收
+      if (over()) nav.classList.add('nav-c1');                 // 先收 GitHub
+      if (over()) nav.classList.add('nav-c2');                 // 還是放不下：再收語言
+    }
+    window.addEventListener('resize', fit);
+    document.addEventListener('jtipam:langchange', function(){ mark(); fit(); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    mark(); fit();
   })();
 </script>
 </body>

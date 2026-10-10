@@ -43,3 +43,15 @@ def test_no_empty_unreleased_section() -> None:
         m = re.search(r"^## \[Unreleased\]\s*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
         if m:
             assert m.group(1).strip(), f"{name}：[Unreleased] 底下是空的，發版時應該直接改名成版本號"
+
+
+def test_readme_titles_show_the_current_version() -> None:
+    """README 的標題寫死版本號，升版時從沒跟著改：1.0.6 發布時 GitHub 首頁還寫 v0.6.51、日文版 v0.6.35
+    （2026-10-10 使用者在手機上看到）。三份 README 的標題都要等於目前的版本。"""
+    import re
+    root = Path(__file__).resolve().parents[2]
+    for name in ("README.md", "README_zh-TW.md", "README_ja.md"):
+        first = (root / name).read_text(encoding="utf-8").splitlines()[0]
+        m = re.fullmatch(r"# jt-ipam v(\d+\.\d+\.\d+)", first.strip())
+        assert m, f"{name} 第一行不是「# jt-ipam vX.Y.Z」：{first!r}"
+        assert m.group(1) == __version__, f"{name} 標題寫 v{m.group(1)}，目前版本是 {__version__}"

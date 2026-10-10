@@ -142,3 +142,5 @@ def test_site_pages_have_mobile_menu_and_browser_language() -> None:
         src = p.read_text(encoding="utf-8")
         assert "nav-menu-btn" in src and "mnav" in src, f"{p.name} 小螢幕沒有選單按鈕"
         assert "fromBrowser()" in src, f"{p.name} 沒有依瀏覽器語言決定預設語言"
+        # 頂列固定一行：放不下時先收 GitHub（nav-c1）、再收語言（nav-c2），不可以換成兩行（使用者 2026-10-10）
+        assert "nav-c1" in src and "nav-c2" in src and "nav .nav-in{flex-wrap:nowrap}" in src, f"{p.name} 頂列會換行"
