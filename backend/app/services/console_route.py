@@ -316,6 +316,12 @@ async def _connect(jump: ViaJumpHost) -> asyncssh.SSHClientConnection:
         opts["client_keys"] = []      # 不要讓 asyncssh 去翻本機的 ~/.ssh
         opts["preferred_auth"] = ("keyboard-interactive", "password")
 
+    from app.services.ssh_tunnel import guard_ssh_target
+    try:
+        await guard_ssh_target(jump.host, jump.port)
+    except SSHTunnelError as exc:
+        raise JumpHostError(f"跳板「{jump.name}」的位址不允許連線：{exc}", code="jump_host_blocked",
+                            name=jump.name, host=jump.host, reason=str(exc)[:200]) from exc
     try:
         async with asyncio.timeout(CONNECT_TIMEOUT):
             return await asyncssh.connect(jump.host, port=jump.port, **opts)

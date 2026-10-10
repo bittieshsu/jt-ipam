@@ -614,6 +614,55 @@ ensure_unit_dirs() {
 WS_PROTOCOLS='ssh|sftp|rdp|vnc|novnc|bmc|rustdesk'
 WS_LOCATION_LINE="location ~ ^/api/v1/addresses/[0-9a-fA-F-]+/(${WS_PROTOCOLS})/ws\$ {"
 
+# Idempotently stop writing tokens into nginx's access log on an EXISTING site (2026-10-09):
+# Graylog DSV lookups and the rack embed SVG carry their token in the query string, and the
+# default "combined" format logs the whole request line. Adds a query-less log format, uses it
+# for those locations (and a dedicated HTTPS lookup location). Same safety rules as the other
+# patch_* functions: only-if-missing marker, back up, gate on `nginx -t`, restore on failure.
+patch_nginx_token_logging() {
+    local site=/etc/nginx/sites-available/jt-ipam
+    [[ -f "$site" ]] || return 0
+    command -v nginx >/dev/null 2>&1 || return 0
+    grep -q 'jtipam_noquery' "$site" && return 0
+    local bak="${site}.pre-noquery.bak"
+    cp -p "$site" "$bak" 2>/dev/null || true
+    log "Keeping DSV / rack-embed tokens out of the nginx access log…"
+    awk '
+      !fmt && /^server[[:space:]]*\{/ {
+        print "# Requests whose query string carries a token (Graylog DSV lookups, rack embed SVG) are logged without it.";
+        print "log_format jtipam_noquery \047$remote_addr - $remote_user [$time_local] \"$request_method $uri $server_protocol\" \047";
+        print "                          \047$status $body_bytes_sent \"$http_referer\" \"$http_user_agent\"\047;";
+        print "";
+        fmt = 1;
+      }
+      !lk && /location \/api\/ \{/ {
+        print "    # jtipam-lookup-noquery: Graylog DSV lookups carry the token in the query string.";
+        print "    location /api/v1/lookup/ {";
+        print "        access_log /var/log/nginx/access.log jtipam_noquery;";
+        print "        limit_req zone=api burst=80 nodelay;";
+        print "        proxy_pass http://127.0.0.1:8000;";
+        print "        include /etc/nginx/snippets/jt-ipam-proxy.conf;";
+        print "    }";
+        print "";
+        lk = 1;
+      }
+      { print }
+      /location \/api\/v1\/lookup\/ \{/ || /embed\\\.svg\$ \{/ {
+        if (!(getline nxt)) { next }
+        if (nxt !~ /jtipam_noquery/) print "        access_log /var/log/nginx/access.log jtipam_noquery;";
+        print nxt;
+      }
+    ' "$site" > "${site}.tmp" && mv "${site}.tmp" "$site"
+    if apply_nginx_config; then
+        log "nginx access log no longer records DSV / rack-embed tokens."
+    else
+        warn "nginx -t failed after the access-log patch; restoring previous config."
+        cp -p "$bak" "$site" 2>/dev/null || true
+        apply_nginx_config || true
+    fi
+    return 0
+}
+
 # Apply an nginx config change: test it, make sure nginx is actually RUNNING and
 # enabled at boot, then pick reload or start as appropriate.
 #
@@ -944,6 +993,7 @@ Commands:
                                                           the IP probe) from this recog-content-<ver>.zip instead of
                                                           downloading it from GitHub -- for offline hosts
   doctor       check a running install and print an exact fix for anything wrong
+  harden-audit give the audit table to a NOLOGIN role (install and upgrade do this; run it after a restore)
   upgrade      upgrade existing install (git pull -> backup -> pip -> alembic -> build -> restart)
                  --no-pull                                skip git pull
                  --force                                  discard local changes to tracked files (e.g. an edited
@@ -1152,6 +1202,58 @@ verify_icmp_ready() {
     warn "Ping tool: NOT available on this host -- it will report 'cannot send packets'."
     warn "Everything else (TCP / UDP / TLS / HTTP checks) is unaffected; those never needed privileges."
 }
+
+# ── Audit table ownership (2026-10-09) ──────────────────────────────────────────────
+# The append-only triggers on audit_logs (migrations 0149/0201) can be disabled by the
+# table owner, and the app's database role used to own it. harden-audit gives the table to
+# a NOLOGIN role so the app role keeps only SELECT/INSERT; unharden hands it back for the
+# duration of a migration run (migrations run as the app role). Local PostgreSQL only:
+# with an external database the DBA runs scripts/sql/audit-harden.sql once.
+audit_db_setting() {
+    local key="$1" def="$2" v=""
+    [[ -f "${ENV_FILE:-/etc/jt-ipam/backend.env}" ]] &&         v="$(grep -oP "^${key}=\K\S+" "${ENV_FILE:-/etc/jt-ipam/backend.env}" 2>/dev/null | tail -1)"
+    echo "${v:-$def}"
+}
+
+audit_db_is_local() {
+    local host; host="$(audit_db_setting POSTGRES_HOST 127.0.0.1)"
+    [[ "$host" == "127.0.0.1" || "$host" == "localhost" || "$host" == "::1" || "$host" == /* ]] || return 1
+    command -v psql >/dev/null 2>&1 && id -u postgres >/dev/null 2>&1
+}
+
+audit_table_sql() {
+    local file="$1" db app root
+    root="${ROOT:-$REPO_ROOT}"
+    db="$(audit_db_setting POSTGRES_DB jt_ipam)"
+    app="$(audit_db_setting POSTGRES_USER jt_ipam)"
+    if ! audit_db_is_local; then
+        warn "Database is not local; ask the DBA to run $root/scripts/sql/$file as a superuser (-v app=$app -d $db)."
+        return 0
+    fi
+    if ! sudo -u postgres psql -d "$db" -tAc "SELECT 1 FROM pg_tables WHERE tablename='audit_logs'" 2>/dev/null | grep -q 1; then
+        return 0          # fresh install before migrations, or no database yet
+    fi
+    sudo -u postgres psql -q -v ON_ERROR_STOP=1 -v app="$app" -d "$db" -f "$root/scripts/sql/$file" >/dev/null
+}
+
+harden_audit_table() {
+    if audit_table_sql audit-harden.sql; then
+        log "Audit table owned by jt_ipam_audit_owner (the app role can only read and append)."
+    else
+        warn "Could not hand the audit table to jt_ipam_audit_owner; the app role can still disable its triggers. Re-run: sudo bash $0 harden-audit"
+    fi
+}
+
+unharden_audit_table() {
+    audit_table_sql audit-unharden.sql || warn "Could not hand the audit table back for migrations; a migration that changes it may fail."
+}
+
+cmd_harden_audit() {
+    require_root
+    local ENV_FILE="${ENV_FILE:-/etc/jt-ipam/backend.env}"
+    harden_audit_table
+}
+
 
 cmd_install() {
     # -- default parameters --
@@ -1572,6 +1674,7 @@ EOF
     cd "$BACKEND_DIR"
     sudo -u "$JTIPAM_USER" --preserve-env=PATH \
         bash -c "set -a; source $ENV_FILE; set +a; .venv/bin/alembic upgrade head"
+    harden_audit_table
 
     # -- 7b. first admin (only if none yet): generate a random password and show it once --
     ADMIN_PW_RECORD="$ETC_DIR/.admin-initial-password"
@@ -1949,6 +2052,14 @@ cmd_doctor() {
                 _bad "pgvector is not enabled in database '$dbname'" \
                      "sudo apt install -y postgresql-${pgmaj}-pgvector && sudo -u postgres psql -d $dbname -c 'CREATE EXTENSION IF NOT EXISTS vector;'"
             fi
+            local aowner
+            aowner="$(sudo -u postgres psql -d "$dbname" -tAc "SELECT tableowner FROM pg_tables WHERE tablename='audit_logs'" 2>/dev/null | tr -d ' ')"
+            if [[ "$aowner" == "jt_ipam_audit_owner" ]]; then
+                _ok "audit table owned by jt_ipam_audit_owner (app role can only read and append)"
+            elif [[ -n "$aowner" ]]; then
+                _warn "audit table is owned by '$aowner': that role can disable its append-only triggers" \
+                      "sudo bash $ROOT/scripts/jt-ipam.sh harden-audit"
+            fi
         else
             _bad "cannot reach PostgreSQL as the postgres user" "systemctl status postgresql"
         fi
@@ -2032,13 +2143,16 @@ cmd_doctor() {
         # Look at the status file the backup script writes and at real (non-empty) dump files. "The
         # newest dated directory exists" is not enough: a failed run used to leave one with a 0-byte dump, and
         # backups failed for weeks on a real site while this check said OK.
-        local bst="" berr="" latest_dump=""
+        local bst="" berr="" benc="" latest_dump=""
         if [[ -r /var/backups/jt-ipam/last-run ]]; then
             bst="$(sed -n 's/^status=//p' /var/backups/jt-ipam/last-run | head -1)"
             berr="$(sed -n 's/^error=//p' /var/backups/jt-ipam/last-run | head -1)"
+            benc="$(sed -n 's/^encrypted=//p' /var/backups/jt-ipam/last-run | head -1)"
         fi
-        latest_dump="$(find /var/backups/jt-ipam -mindepth 2 -maxdepth 2 -name '*.dump' -size +0 -printf '%T@ %p\n' 2>/dev/null \
-                       | sort -n | tail -1 | cut -d' ' -f2-)"
+        # Plain backups are <date>/<name>.dump; encrypted ones (2026-10-09) are jt-ipam-<date>.jtbak
+        latest_dump="$( { find /var/backups/jt-ipam -mindepth 2 -maxdepth 2 -name '*.dump' -size +0 -printf '%T@ %p\n'
+                          find /var/backups/jt-ipam -mindepth 1 -maxdepth 1 -name '*.jtbak' -size +0 -printf '%T@ %p\n'
+                        } 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)"
         if [[ "$bst" == "fail" ]]; then
             _bad "the last backup failed: ${berr:-see the backup log}" "journalctl -u jt-ipam-backup -n 30"
         elif [[ -z "$latest_dump" ]]; then
@@ -2047,6 +2161,10 @@ cmd_doctor() {
             _warn "the newest backup is older than 48 hours: $latest_dump" "journalctl -u jt-ipam-backup -n 30"
         else
             _ok "backups present (latest: $latest_dump)"
+        fi
+        if [[ "$bst" == "ok" && "$benc" != "1" ]]; then
+            _warn "the latest backup is not encrypted: it holds the database and backend.env (the key that decrypts its secrets) in the clear" \
+                  "set a passphrase under System settings → Backup encryption"
         fi
     else
         _bad "/var/backups/jt-ipam is missing — the backup unit will fail at 226/NAMESPACE" \
@@ -2219,8 +2337,12 @@ cmd_upgrade() {
     on_err() {
       warn "Upgrade aborted. How to roll back:"
       warn "  1) Code: sudo -u $JTIPAM_USER git -C $ROOT reset --hard $OLD_REV"
-      [[ -n "$DUMP_PATH" ]] && \
-      warn "  2) Database: pg_restore --clean --no-owner -d <db> $DUMP_PATH"
+      if [[ "$DUMP_PATH" == *.jtbak ]]; then
+        warn "  2) Database: decrypt first: python3 $ROOT/backend/app/services/backup_crypt.py decrypt $DUMP_PATH --out /root/jt-ipam-restore"
+        warn "     then: pg_restore --clean --no-owner -d <db> /root/jt-ipam-restore/*/*.dump"
+      elif [[ -n "$DUMP_PATH" ]]; then
+        warn "  2) Database: pg_restore --clean --no-owner -d <db> $DUMP_PATH"
+      fi
       warn "  3) Rebuild frontend and restart: run build in $ROOT/frontend, then systemctl restart $SVC"
     }
     trap on_err ERR
@@ -2298,7 +2420,7 @@ cmd_upgrade() {
     if [[ -x "$ROOT/scripts/jt-ipam-backup.sh" ]]; then
       log "Backing up the database…"
       "$ROOT/scripts/jt-ipam-backup.sh"
-      DUMP_PATH="$(find /var/backups/jt-ipam -name '*.dump' -newermt '-2 min' 2>/dev/null | sort | tail -1 || true)"
+      DUMP_PATH="$(find /var/backups/jt-ipam \( -name '*.dump' -o -name '*.jtbak' \) -newermt '-2 min' 2>/dev/null | sort | tail -1 || true)"
       [[ -n "$DUMP_PATH" ]] && log "Backup file: $DUMP_PATH"
     else
       warn "cannot find jt-ipam-backup.sh, skipping automatic backup (strongly recommend a manual pg_dump first)"
@@ -2322,9 +2444,16 @@ cmd_upgrade() {
     fi
 
     # -- 5. database migration --
+    # The audit table belongs to a NOLOGIN role; migrations run as the app role, so hand it
+    # back for the migration and take it away again right after (also on failure below).
+    unharden_audit_table
     log "alembic upgrade head…"
     # env must be sourced inside the sudo subshell (sudo does not carry parent environment by default)
-    as_user bash -c "cd '$ROOT/backend'; set -a; source '$ENV_FILE'; set +a; .venv/bin/alembic upgrade head"
+    if ! as_user bash -c "cd '$ROOT/backend'; set -a; source '$ENV_FILE'; set +a; .venv/bin/alembic upgrade head"; then
+        harden_audit_table
+        die "alembic upgrade failed (see above)."
+    fi
+    harden_audit_table
 
     # -- 5b. Recog fingerprint database (optional): install if missing, update if GitHub has a newer release --
     install_recog_db "$ROOT/backend" "$ENV_FILE" "$JTIPAM_USER" "$RECOG_ZIP"
@@ -2337,6 +2466,7 @@ cmd_upgrade() {
     patch_nginx_websocket
     patch_nginx_readyz_phpipam
     patch_nginx_agent_relay
+    patch_nginx_token_logging
 
     # -- 6c. directories the sandboxed units require --
     # Installs from older versions never created /var/backups/jt-ipam, while
@@ -2522,6 +2652,7 @@ cmd_uninstall() {
         if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='jt_ipam'" 2>/dev/null | grep -q 1; then
             sudo -u postgres psql -c "DROP ROLE IF EXISTS jt_ipam;" 2>/dev/null \
                 || warn "DROP ROLE jt_ipam failed (may have dependent objects)"
+            sudo -u postgres psql -c "DROP ROLE IF EXISTS jt_ipam_audit_owner;" 2>/dev/null || true
         fi
     else
         warn "cannot find psql, skipping dropdb (please clean up PostgreSQL manually)"
@@ -2573,6 +2704,7 @@ main() {
         upgrade)   shift; cmd_upgrade "$@" ;;
         uninstall) shift; cmd_uninstall "$@" ;;
         doctor)    shift; cmd_doctor "$@" ;;
+        harden-audit) shift; cmd_harden_audit "$@" ;;
         *)
             echo "[error] Unknown command: $cmd" >&2
             echo >&2

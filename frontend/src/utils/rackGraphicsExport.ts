@@ -13,6 +13,7 @@
 import { rackTypeColor as colorFor } from "@/utils/rackColors";
 import { boardList } from "@/utils/rackSlots";
 import { finishColors, normalizeFinish, PLY_COLOR, ANGLE_HOLE_PITCH_PX, ANGLE_PLY_PX } from "@/utils/rackFinish";
+import { saveBlob } from "@/utils/saveFile";
 
 export type RackNameAlign = "left" | "center" | "right";
 
@@ -459,10 +460,7 @@ export function buildRacksDrawio(
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+  saveBlob(filename, blob, blob.type, { source: "rack-graphics" });
 }
 
 export function exportRacksSvg(

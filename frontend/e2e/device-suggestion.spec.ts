@@ -51,7 +51,7 @@ test("沒有裝置時給建議，按下去才建立，並一併接上同名的 I
   //    直接打會拿到 401 的內容，斷言就變成在檢查錯誤訊息（這條踩過）。
   const auth = async () => ({
     Authorization: `Bearer ${await page.evaluate(
-      () => localStorage.getItem("access_token") ?? "")}`,
+      () => sessionStorage.getItem("access_token") ?? "")}`,
   });
   const before = await page.request.get(
     `/api/v1/addresses/${IP_ID}/device-suggestion`, { headers: await auth() });

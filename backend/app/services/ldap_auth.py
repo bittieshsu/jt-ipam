@@ -58,6 +58,13 @@ def _build_server(cfg: LdapConfig) -> Server:
     if not cfg.enabled or not cfg.server:
         raise LDAPNotConfigured("LDAP not configured")
 
+    # 連線前檢查目標位址（core/net_guard）；TLS 要驗憑證名稱，所以 Server 仍給主機名稱
+    from app.core.net_guard import check_target
+    from app.core.safe_http import UnsafeOutboundURL
+    try:
+        check_target(cfg.server, cfg.port)
+    except UnsafeOutboundURL as exc:
+        raise LDAPAuthError(str(exc)) from exc
     tls = Tls(validate=ssl.CERT_REQUIRED, version=ssl.PROTOCOL_TLS_CLIENT)
     return Server(
         host=cfg.server,

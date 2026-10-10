@@ -50,7 +50,7 @@ test("設定頁：選判讀模型會存起來、重新載入還在；嵌入模�
     const r = await fetch(`${origin}/api/v1/system/llm`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json",
-                 Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+                 Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
       body: JSON.stringify({ ai_interpret_model: "", ai_interpret_num_ctx: 0 }),
     });
     return (await r.json()).ai_interpret_model;

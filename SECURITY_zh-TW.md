@@ -33,10 +33,17 @@
 
 ## 重點範圍
 
-- 強制 TLS(nginx 反向代理或 uvicorn 自簽)。
-- 機密(DNS 憑證、SNMP、API token)在應用層加密;密碼使用 argon2id;以 TOTP 做 MFA。
-- 所有對外整合 URL 走 SSRF 白名單(封鎖 metadata / link-local)。
-- 稽核事件以 SHA-256 串鏈。
+- 強制 TLS（nginx 反向代理或 uvicorn 自簽）。
+- 機密（DNS 憑證、SNMP、API token）在應用層加密，每一筆以 AES-GCM 附加資料綁定用途；密碼使用 argon2id。
+- 雙因素驗證（TOTP）可要求管理員或所有人使用，附單次使用的復原碼；同一組驗證碼不能用第二次。
+- 伺服器端工作階段：更新用的權杖只放在 HttpOnly、SameSite=Strict 的 cookie，每次換發並偵測重複使用；
+  登出、停用、管理員撤銷立即生效，開著的主控台 30 秒內結束。
+- 對外連線：HTTP 在連線當下檢查，其他協定在連線前檢查（封鎖雲端中繼資料、link-local 與保留位址；
+  主控台另外不連本機）。
+- 稽核事件以 SHA-256 串鏈、資料庫層只能新增、外部錨定，匯出與檢視機密也留記錄。
+- 每日備份可用密碼加密。
+- 對應 ISO/IEC 27001 與 ISO/IEC 42001 的哪些控制項、每一項怎麼驗證，見
+  [docs/COMPLIANCE_zh-TW.md](docs/COMPLIANCE_zh-TW.md)。
 
 ## 已接受風險（已記錄，附補償控制）
 
@@ -62,5 +69,7 @@
 
 每次發版前都會跑 ZAP 掃描（HTTP 及經對外反向代理），要求**沒有上述基準以外的任何發現**
 （`deploy/zap-baseline.conf`），即零新增 High/Medium/Low。
+
+CI 也在每次推送時跑 ZAP baseline 掃描，對象是真的 nginx 設定與正式建置的前端；基準以外的任何警示都會讓 CI 失敗。
 
 若不確定某件事是否屬安全問題,請私下回報,我們會協助分級判斷。

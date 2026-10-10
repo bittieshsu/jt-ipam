@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { safeNextPath } from "@/utils/safeRedirect";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import {
@@ -20,13 +20,15 @@ import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores/auth";
 import { useUiStore } from "@/stores/ui";
 import { apiClient } from "@/api/client";
-import { LoginIcon } from "@/icons";
+import { CancelIcon, CheckIcon, LoginIcon } from "@/icons";
+import TotpEnroll from "@/components/auth/TotpEnroll.vue";
+import RecoveryCodes from "@/components/auth/RecoveryCodes.vue";
 import { ShieldCheck, Globe } from "@iconoir/vue";
 
 const { t, te } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
-const { mfaToken } = storeToRefs(auth);
+const { mfaToken, mfaSetup, pendingRecoveryCodes } = storeToRefs(auth);
 
 // 登入頁語言切換（未登入，不寫回後端偏好）：點開下拉再選，不是一按就切
 const ui = useUiStore();
@@ -68,19 +70,28 @@ try {
   }
 } catch { /* ignore */ }
 onMounted(async () => {
-  // SSO（OIDC / SAML）callback：後端把 token 放在 URL fragment 帶回（#access_token=…&refresh_token=…）。
-  // 先處理它（落地 token → 抓 me → 整頁導向目標頁）；否則登入頁會忽略 token、無限停在登入頁。
+  // SSO（OIDC / SAML）回來：後端已經把工作階段放進 HttpOnly Cookie，網址只帶 #sso=1
+  // （以前把權杖放在網址上）。MFA 政策套用到 SSO 時帶回的是 MFA 挑戰（#mfa_token=…）。
   const frag = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  const ssoAccess = frag.get("access_token");
-  if (ssoAccess) {
+  if (frag.has("sso") || frag.has("mfa_token")) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  if (frag.get("mfa_token")) {
+    auth.startSecondStep({
+      access_token: null, refresh_token: null, token_type: "bearer", expires_in: null,
+      mfa_required: frag.get("mfa_setup") !== "1", mfa_token: frag.get("mfa_token"),
+      mfa_setup_required: frag.get("mfa_setup") === "1",
+    });
+  } else if (frag.get("sso") === "1") {
     try {
-      await auth.loginFromSso(ssoAccess, frag.get("refresh_token") ?? "");
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      window.location.assign(targetAfterLogin());
-      return;
+      if (await auth.ensureSession()) {
+        await auth.fetchMe();
+        window.location.assign(targetAfterLogin());
+        return;
+      }
+      errorMsg.value = t("login.failed");
     } catch {
       errorMsg.value = t("login.failed");
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
   }
   try {
@@ -127,7 +138,7 @@ async function submitLogin() {
   loading.value = true;
   try {
     const res = await auth.login(username.value, password.value, realm.value);
-    if (!res.mfa_required) {
+    if (!res.mfa_required && !res.mfa_setup_required) {
       // 整頁載入(非 SPA 導向)：以新 token 全新啟動，清掉前一個 session 殘留的
       // 模組級快取 / loading 旗標，避免登入後某些功能因舊狀態出錯、要切頁才好。
       window.location.assign(targetAfterLogin());
@@ -146,10 +157,47 @@ async function submitMfa() {
     await auth.verifyMfa(code.value);
     window.location.assign(targetAfterLogin());
   } catch (err: unknown) {
-    errorMsg.value = t("login.mfa_failed");
+    const st = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+    // 驗證碼錯太多次會鎖定帳號（跟密碼錯一樣）：講清楚，不要讓人以為只是打錯
+    errorMsg.value = st?.data?.detail === "Account temporarily locked" ? t("login.locked") : t("login.mfa_failed");
   } finally {
     loading.value = false;
   }
+}
+
+// 管理員要求 MFA、還沒設定：登入時先設定（不會被鎖在外面），完成後顯示復原碼
+const setupEnrollment = ref<{ secret: string; otpauth_uri: string } | null>(null);
+async function loadSetup() {
+  errorMsg.value = null;
+  try {
+    setupEnrollment.value = await auth.beginMfaSetup();
+  } catch {
+    errorMsg.value = t("login.mfa_setup_expired");
+  }
+}
+watch([mfaToken, mfaSetup], ([tok, setup]) => {
+  if (tok && setup && !setupEnrollment.value) void loadSetup();
+}, { immediate: true });
+async function confirmSetup(c: string) {
+  if (!setupEnrollment.value) return;
+  errorMsg.value = null;
+  loading.value = true;
+  try {
+    await auth.confirmMfaSetup(setupEnrollment.value.secret, c);
+    setupEnrollment.value = null;
+  } catch {
+    errorMsg.value = t("settings.security.totp_invalid");
+  } finally {
+    loading.value = false;
+  }
+}
+function recoveryDone() {
+  pendingRecoveryCodes.value = null;
+  window.location.assign(targetAfterLogin());
+}
+function cancelSecondStep() {
+  setupEnrollment.value = null;
+  auth.clearTokens();
 }
 
 function ssoOidc() {
@@ -165,7 +213,7 @@ function ssoSaml() {
 
 <template>
   <div class="login-shell">
-    <n-card style="width: 380px">
+    <n-card :style="{ width: pendingRecoveryCodes || mfaSetup ? '440px' : '380px', maxWidth: 'calc(100vw - 32px)' }">
       <template #header>
         <div class="login-brand">
           <span class="login-brand-name">
@@ -184,8 +232,23 @@ function ssoSaml() {
         {{ errorMsg }}
       </n-alert>
 
+      <!-- 首次設定完成：顯示復原碼，確認存好才進系統 -->
+      <recovery-codes v-if="pendingRecoveryCodes" :codes="pendingRecoveryCodes" :account="auth.me?.username"
+                      @done="recoveryDone" />
+
+      <!-- 管理員要求 MFA、還沒設定：先設定 -->
+      <div v-else-if="mfaToken && mfaSetup" data-testid="login-mfa-setup">
+        <n-alert type="info" style="margin-bottom: 12px">{{ t("login.mfa_setup_intro") }}</n-alert>
+        <totp-enroll v-if="setupEnrollment" :enrollment="setupEnrollment" :busy="loading" @confirm="confirmSetup" />
+        <n-space justify="start" style="margin-top: 12px">
+          <n-button type="error" ghost @click="cancelSecondStep">
+            <template #icon><n-icon><CancelIcon /></n-icon></template>{{ t("common.cancel") }}
+          </n-button>
+        </n-space>
+      </div>
+
       <!-- Step 1: 帳密 -->
-      <n-form v-if="!mfaToken" @submit.prevent="submitLogin">
+      <n-form v-else-if="!mfaToken" @submit.prevent="submitLogin">
         <n-form-item :label="t('login.username')">
           <n-input
             v-model:value="username"
@@ -237,15 +300,20 @@ function ssoSaml() {
           <n-input
             v-model:value="code"
             placeholder="123456"
-            maxlength="6"
+            maxlength="11"
             :disabled="loading"
+            :input-props="{ autocomplete: 'one-time-code' }"
+            data-testid="login-mfa-code"
             @keyup.enter="submitMfa"
           />
         </n-form-item>
+        <p class="mfa-hint">{{ t("login.mfa_recovery_hint") }}</p>
         <n-space justify="space-between">
-          <n-button @click="auth.clearTokens()">{{ t("common.cancel") }}</n-button>
-          <n-button type="primary" :loading="loading" @click="submitMfa">
-            {{ t("login.mfa_submit") }}
+          <n-button type="error" ghost @click="cancelSecondStep">
+            <template #icon><n-icon><CancelIcon /></n-icon></template>{{ t("common.cancel") }}
+          </n-button>
+          <n-button type="primary" :loading="loading" data-testid="login-mfa-submit" @click="submitMfa">
+            <template #icon><n-icon><CheckIcon /></n-icon></template>{{ t("login.mfa_submit") }}
           </n-button>
         </n-space>
       </n-form>
@@ -278,6 +346,11 @@ function ssoSaml() {
   flex: 0 0 auto;
   opacity: 0.8;
   font-weight: 400;
+}
+.mfa-hint {
+  margin: -8px 0 12px 0;
+  font-size: 12px;
+  opacity: 0.7;
 }
 .login-logo {
   width: 26px;

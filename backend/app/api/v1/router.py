@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     dns,
     esxi,
     event_rules,
+    export_events,
     firewall,
     fortigate,
     import_external,
@@ -189,6 +190,7 @@ api_v1_router.include_router(dhcp_standalone.isc_router)
 api_v1_router.include_router(technitium.router)
 api_v1_router.include_router(checkpoint.router)
 api_v1_router.include_router(reports.router)
+api_v1_router.include_router(export_events.router)
 api_v1_router.include_router(checkpoint_gaia.router)
 api_v1_router.include_router(isoinsight.router)
 api_v1_router.include_router(rustdesk.router)

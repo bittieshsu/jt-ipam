@@ -515,3 +515,18 @@ describe("記住密碼（附錄 D）", () => {
     expect(s.phase).toBe("need_password");
   });
 });
+
+describe("開著的連線被收回權限（core/console_guard 以 4403 關閉）", () => {
+  it("帶出原因，不是當成對方結束了連線", () => {
+    const { ws, closes } = start();
+    ws.onclose?.({ code: 4403, reason: "access revoked: permission_revoked" });
+    expect(last(closes).code).toBe("console_revoked");
+    expect(last(closes).detail).toBeTruthy();
+  });
+
+  it("一般關閉照舊", () => {
+    const { ws, closes } = start();
+    ws.onclose?.({ code: 1006, reason: "" });
+    expect(last(closes).code).toBe("ws_closed");
+  });
+});

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser
 from app.core.audit import append_audit
 from app.core.config import get_settings
+from app.core.console_guard import note_ticket, ticket_fields, watch_console
 from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
@@ -152,7 +153,7 @@ async def issue_novnc_ticket(
 
     ticket = secrets.token_urlsafe(32)
     payload_json = json.dumps({
-        "user_id": str(user.id), "ip_id": str(ip.id),
+        "user_id": str(user.id), "ip_id": str(ip.id), **ticket_fields(request),
         "kind": target.kind, "base_url": target.base_url, "node": target.node,
         "vmid": target.vmid, "port": port, "vncticket": vncticket,
         "pve_cookie": pve_ticket, "verify_tls": target.verify_tls,
@@ -175,6 +176,7 @@ async def _redeem(ticket: str, address_id: uuid.UUID) -> dict[str, Any] | None:
     if not ticket:
         return None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
+    note_ticket(raw)
     if not raw:
         return None
     try:
@@ -196,6 +198,7 @@ async def _audit(*, user_id: str, actor_ip: str | None, ip_id: str, action: str,
 
 
 @router.websocket("/{address_id}/novnc/ws")
+@watch_console("novnc")
 async def novnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     global _active_sessions
 
@@ -239,6 +242,12 @@ async def novnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = ""
     counted = False
     pve_ws = None
     try:
+        # PVE 整合：跟 HTTP 相同的出站規則，連線前檢查（core/net_guard 的 strict）
+        from urllib.parse import urlparse
+
+        from app.core.net_guard import acheck_target
+        _pve = urlparse(pve_url)
+        await acheck_target(_pve.hostname or "", _pve.port or 8006, policy="strict")
         pve_ws = await websockets.connect(
             pve_url,
             additional_headers={"Cookie": f"PVEAuthCookie={data['pve_cookie']}"},

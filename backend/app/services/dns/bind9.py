@@ -12,8 +12,6 @@ OWASP 對應：
 from __future__ import annotations
 
 import asyncio
-import ipaddress
-import socket
 from typing import Any
 
 import dns.message
@@ -28,29 +26,17 @@ import dns.update
 import dns.zone
 from dns.exception import DNSException
 
-from app.core.config import get_settings
-from app.core.safe_http import _BLOCKED_CIDRS, _PRIVATE_CIDRS, _ip_in
 from app.services.dns.base import DNSAdapter, DNSAdapterError, DNSRecordOp, DNSZoneInfo
 
 
 def _check_address_safe(host: str) -> None:
-    """A10：BIND 9 server 不能是 metadata IP / loopback；私網需明確允許。"""
-    settings = get_settings()
+    """A10：跟 HTTP 相同的出站規則（core/net_guard 的 strict）：雲端中繼資料／本機擋、私網照設定。"""
+    from app.core.net_guard import check_target
+    from app.core.safe_http import UnsafeOutboundURL
     try:
-        addrs = [ipaddress.ip_address(host)]
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, 53, proto=socket.IPPROTO_UDP)
-        except socket.gaierror as exc:
-            raise DNSAdapterError(f"DNS resolution failed for {host}") from exc
-        addrs = [ipaddress.ip_address(info[4][0]) for info in infos]
-    for ip in addrs:
-        if _ip_in(ip, _BLOCKED_CIDRS):
-            raise DNSAdapterError(f"Blocked IP for SSRF: {ip}")
-        if _ip_in(ip, _PRIVATE_CIDRS) and not settings.outbound_allow_private:
-            raise DNSAdapterError(
-                f"Private IP {ip} not allowed (set OUTBOUND_ALLOW_PRIVATE=true if intended)"
-            )
+        check_target(host, policy="strict")
+    except UnsafeOutboundURL as exc:
+        raise DNSAdapterError(str(exc)) from exc
 
 
 _TSIG_ALGOS = {

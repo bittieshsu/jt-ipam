@@ -551,14 +551,15 @@ function saveSvg() {
   const dark = isDark();
   const svg = graphToSvg(cy, { bg: dark ? "#111827" : "#ffffff", fg: dark ? "#e5e7eb" : "#1f2328" });
   for (const [el, c] of cls) el.classes(c);
-  download(`change-impact-graph-${layoutName.value}.svg`, new Blob([svg], { type: "image/svg+xml" }), "image/svg+xml");
+  download(`change-impact-graph-${layoutName.value}.svg`, new Blob([svg], { type: "image/svg+xml" }), "image/svg+xml",
+           { source: "change-impact-graph" });
 }
 
 /** 匯出整張圖（不是只有看得到的那一塊），兩倍解析度，底色跟著主題 */
 function savePng() {
   if (!cy) return;
   const blob = cy.png({ output: "blob", full: true, scale: 2, bg: isDark() ? "#111827" : "#ffffff" }) as unknown as Blob;
-  download(`change-impact-graph-${layoutName.value}.png`, blob, "image/png");
+  download(`change-impact-graph-${layoutName.value}.png`, blob, "image/png", { source: "change-impact-graph" });
 }
 
 /** 符合畫面；節點很少時不要放大到一顆球佔半個畫面 */

@@ -14,15 +14,12 @@ import asyncio
 import ipaddress
 import json
 import re
-import socket
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.safe_http import _BLOCKED_CIDRS, _PRIVATE_CIDRS, _ip_in
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.windows_dhcp import WindowsDhcpServer
 
@@ -52,20 +49,13 @@ def _safe_ps_arg(value: str) -> str:
 
 
 def _check_address_safe(host: str) -> None:
-    settings = get_settings()
+    """A10：跟 HTTP 相同的出站規則（core/net_guard 的 strict）：雲端中繼資料／本機擋、私網照設定。"""
+    from app.core.net_guard import check_target
+    from app.core.safe_http import UnsafeOutboundURL
     try:
-        addrs = [ipaddress.ip_address(host)]
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-        except socket.gaierror as exc:
-            raise WindowsDhcpError(f"DNS resolution failed for {host}") from exc
-        addrs = [ipaddress.ip_address(info[4][0]) for info in infos]
-    for ip in addrs:
-        if _ip_in(ip, _BLOCKED_CIDRS):
-            raise WindowsDhcpError(f"Blocked IP for SSRF: {ip}")
-        if _ip_in(ip, _PRIVATE_CIDRS) and not settings.outbound_allow_private:
-            raise WindowsDhcpError(f"Private IP {ip} not allowed without OUTBOUND_ALLOW_PRIVATE")
+        check_target(host, policy="strict")
+    except UnsafeOutboundURL as exc:
+        raise WindowsDhcpError(str(exc)) from exc
 
 
 class WindowsDhcpClient:
@@ -88,6 +78,7 @@ class WindowsDhcpClient:
     def _session(self) -> Any:
         # winrm import 放這裡，讓單元測試不必裝齊全部相依
         import winrm
+        _check_address_safe(self.host)        # 連線當下再檢查一次（建構之後 DNS 可能換了答案）
         scheme = "https" if self.use_ssl else "http"
         return winrm.Session(
             target=f"{scheme}://{self.host}:{self.port}/wsman",

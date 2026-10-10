@@ -31,7 +31,7 @@ async function openIp(page: Page) {
 async function expectedSeen(page: Page) {
   const id = page.url().split("/addresses/")[1]?.split(/[?#]/)[0] ?? "";
   return page.evaluate(async (ipId) => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const a = await (await fetch(`/api/v1/addresses/${ipId}`, { headers: { Authorization: `Bearer ${tok}` } })).json();
     const rtf = new Intl.RelativeTimeFormat("zh-TW", { numeric: "auto" });
     const ago = (iso: string) => {

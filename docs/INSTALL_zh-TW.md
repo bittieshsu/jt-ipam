@@ -507,6 +507,18 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 每次執行（成功或失敗）都會寫 `/var/backups/jt-ipam/last-run`：結果、時間、最後一次成功的時間、失敗原因。「系統診斷」頁的「每日備份」與 `sudo /opt/jt-ipam/scripts/jt-ipam.sh doctor` 都看這個檔；備份失敗或超過 48 小時沒有成功時診斷會標紅，並發系統告警給管理員。最常見的失敗原因是資料庫裡有一張不是 jt-ipam 角色擁有的資料表（例如手動留下的複本），pg_dump 讀不到就整份中止；診斷頁會直接列出要執行的指令。
 
+### 備份加密
+
+備份目錄裡有資料庫 dump，**也有** `backend.env`（解密 dump 裡那些機密用的金鑰）。在 **系統設定 → 每日備份加密** 設定備份密碼（至少 12 個字元）之後，每天的備份會整包加密成一個檔案 `/var/backups/jt-ipam/jt-ipam-<日期>.jtbak`（scrypt 導出金鑰、AES-256-GCM 以 1 MiB 為單位分塊加密；截斷、調換或修改都解不開），明文目錄刪除。`last-run` 會記 `encrypted=1`；沒設定密碼時系統診斷頁與 `doctor` 會提醒。
+
+密碼請存在這台主機以外的地方（例如密碼管理器）：忘記就解不開備份。更換密碼後，之前的備份仍要用當時的密碼解。解密工具只需要 Python 3 與 `cryptography`（`apt install python3-cryptography`），還沒重裝 jt-ipam 的新機器也能用：
+
+```bash
+python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
+    /var/backups/jt-ipam/jt-ipam-2026-10-09.jtbak --out /root/jt-ipam-restore
+# → /root/jt-ipam-restore/2026-10-09/（dump、backend.env、tls.tar.gz、uploads.tar.gz）
+```
+
 ### 異地備份
 
 把 `/var/backups/jt-ipam/` rsync 到 NAS / S3 / 另一台機器：
@@ -522,6 +534,11 @@ sudo systemctl enable --now jt-ipam-backup.timer
 # 0. 停服務
 sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer
 
+# 0b. 加密的備份（.jtbak）：先解密（會問備份密碼）
+python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
+    /var/backups/jt-ipam/jt-ipam-2026-05-10.jtbak --out /root/jt-ipam-restore
+# 下面的 /var/backups/jt-ipam/2026-05-10/ 改用 /root/jt-ipam-restore/2026-05-10/
+
 # 1. 重建空 DB
 sudo -u postgres dropdb jt_ipam
 sudo -u postgres createdb -O jt_ipam jt_ipam
@@ -535,12 +552,13 @@ sudo -u postgres psql -d jt_ipam -c '
 
 # 2. 還原 dump（注意：必須用相同 ENCRYPTION_KEY 才能解密 DNS/API 憑證等敏感欄）
 sudo -u postgres pg_restore -d jt_ipam \
-    /var/backups/jt-ipam/jt-ipam-2026-05-10.dump
+    /var/backups/jt-ipam/2026-05-10/jt-ipam-2026-05-10.dump
 
 # 3. 還原設定檔（如果還在）
 sudo cp /var/backups/jt-ipam/2026-05-10/backend.env /etc/jt-ipam/
 
-# 4. 啟動
+# 4. 把稽核表交回不能登入的擁有者（應用程式帳號只能讀取與新增），再啟動
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit
 sudo systemctl start jt-ipam-backend jt-ipam-sync.timer
 
 # 5. 驗 chain（任何 row 被竄改會立刻看到）
@@ -549,7 +567,7 @@ curl -X POST https://ipam.example.com/api/v1/audit/verify \
 ```
 
 >  備份檔內含敏感資料（DB 含加密的 API 憑證；env 含 SECRET_KEY/ENCRYPTION_KEY）。
-> 必須以 `0600` 權限儲存，並做加密傳輸（rsync over ssh / s3 server-side encryption）。
+> 請設定備份加密密碼（見上方），以 `0600` 權限儲存，並做加密傳輸（rsync over ssh / s3 server-side encryption）。
 
 ---
 

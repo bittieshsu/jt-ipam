@@ -8,14 +8,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import CurrentUser, require_global_read
+from app.api.v1.dependencies import CurrentUser, forbid_zero_visibility
 from app.core.db import get_session
 from app.services.topology import build_topology
 
 router = APIRouter(prefix="/topology", tags=["topology"])
 
 
-@router.get("", dependencies=[Depends(require_global_read)])
+@router.get("", dependencies=[Depends(forbid_zero_visibility)])
 async def topology(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -28,6 +28,10 @@ async def topology(
     include_vms: bool = Query(False, description="畫虛擬機與它所在的實體主機（預設關）"),
     online_only: bool = Query(False, description="只畫上線的裝置"),
 ) -> dict[str, Any]:
+    """拓樸圖。只被授權部分物件的帳號（2026-10-09 起）也看得到，但只有看得到的裝置、子網路與
+    兩端都看得到的連線；VPN 與虛擬機不畫（回應的 hidden_layers）。零權限帳號仍是 403。"""
+    from app.mcp.tools import has_global_read
+    limited = not await has_global_read(session, _user)
     return await build_topology(
         session,
         user=_user,
@@ -39,4 +43,5 @@ async def topology(
         include_fdb=include_fdb,
         include_vms=include_vms,
         online_only=online_only,
+        scope_limited=limited,
     )

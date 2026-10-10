@@ -2,6 +2,9 @@
 
 best-effort：任何錯誤都吞掉，不影響主流程（登入 / 異動）。實際送出走 thread executor，
 不阻塞 event loop。設定在管理區「稽核轉送」卡，存於 system_settings。
+
+每筆都帶自己的雜湊與前一筆的雜湊，排程的錨定點（audit_anchor）也一併送出：外部收到的是一份
+獨立的鏈，資料庫被整段改寫時拿得出比對的依據（外部端要不可改寫，由導入單位決定）。
 """
 
 from __future__ import annotations
@@ -38,6 +41,8 @@ def _gelf(host: str, ev: dict[str, Any]) -> bytes:
         "_actor_ip": ev.get("actor_ip"),
         "_request_id": ev.get("request_id"),
         "_ts": ev.get("ts"),
+        "_this_hash": ev.get("this_hash"),
+        "_prev_hash": ev.get("prev_hash"),
     }
     if ev.get("diff"):
         msg["_diff"] = json.dumps(ev["diff"], ensure_ascii=False)
@@ -53,6 +58,9 @@ def _kv(ev: dict[str, Any]) -> str:
         f"src={ev.get('actor_ip')}",
         f"requestId={ev.get('request_id')}",
     ]
+    if ev.get("this_hash"):
+        parts.append(f"hash={ev.get('this_hash')}")
+        parts.append(f"prevHash={ev.get('prev_hash')}")
     return " ".join(parts)
 
 
@@ -65,7 +73,8 @@ def _cef(host: str, ev: dict[str, Any]) -> bytes:
     act = str(ev.get("action") or "event")
     ext = (f"rt={ev.get('ts')} suser={ev.get('actor_user_id')} src={ev.get('actor_ip')} "
            f"requestId={ev.get('request_id')} "
-           f"cs1Label=object cs1={ev.get('object_type')}/{ev.get('object_id')}")
+           f"cs1Label=object cs1={ev.get('object_type')}/{ev.get('object_id')}"
+           + (f" cs2Label=hash cs2={ev.get('this_hash')}" if ev.get("this_hash") else ""))
     body = f"CEF:0|JasonTools|jt-ipam|1|{act}|{act}|3|{ext}"
     return (f"<{_PRI}>1 {ev.get('ts')} {host} jt-ipam - audit - {body}").encode()
 
@@ -79,6 +88,8 @@ def _format(cfg: AuditForwardConfig, ev: dict[str, Any], host: str) -> bytes:
 
 
 def _send_sync(cfg: AuditForwardConfig, data: bytes) -> None:
+    from app.core.net_guard import check_target
+    check_target(cfg.host or "", cfg.port)   # 擋雲端中繼資料／link-local（本機的收集器允許）
     try:
         if cfg.protocol == "udp":
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

@@ -14,6 +14,7 @@ import { useTablePagination } from "@/composables/useTablePagination";
 import { apiErrMsg } from "@/api/client";
 import { renderMacWithVendor } from "@/utils/macVendor";
 import { withExportValue } from "@/utils/tableExport";
+import { saveBlob } from "@/utils/saveFile";
 const props = defineProps<{ deviceId: string; deviceName: string; admin: boolean }>();
 const { t } = useI18n();
 const msg = useMessage();
@@ -161,11 +162,7 @@ function traceFilename(): string {
   return `cable-trace-${traceTitle.value.replace(/[^\w.-]+/g, "_")}`;
 }
 function dl(blob: Blob, name: string) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveBlob(name, blob, blob.type, { source: "cable-trace" });
 }
 // 共用幾何，SVG / PNG 都用
 const TRACE_GEO = { W: 420, boxH: 46, gap: 40, padY: 16 };

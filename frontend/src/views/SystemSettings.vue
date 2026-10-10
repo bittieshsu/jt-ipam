@@ -12,8 +12,10 @@ import {
   NButton, NPopconfirm, NTag, NAlert, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
-import { AdminIcon, SaveIcon, RefreshIcon, RequestsIcon, WarnIcon } from "@/icons";
-import { getRackEmbedConfig, setRackEmbedConfig, type RackEmbedConfig } from "@/api/racks";
+import { AdminIcon, SaveIcon, RefreshIcon, RequestsIcon, WarnIcon, DeleteIcon } from "@/icons";
+import { getRackEmbedConfig, revealRackEmbedToken, setRackEmbedConfig, type RackEmbedConfig } from "@/api/racks";
+import { getBackupEncryption, removeBackupEncryption, setBackupEncryption, type BackupEncryption } from "@/api/system";
+import { fmtDate } from "@/utils/datetime";
 import { getLdap, putLdap, testLdap, testLdapAuth, type LdapConfig,
   getAuditForward, putAuditForward, testAuditForward, type AuditForward,
   getOidcConfig, putOidcConfig, testOidc, type OidcConfig,
@@ -343,9 +345,26 @@ async function changeGrace(v: number | null) {
 // 機櫃圖對外嵌入：這裡只管系統層的總開關與權杖，要公開哪一櫃在機櫃頁逐櫃決定
 const rackEmbed = ref<RackEmbedConfig | null>(null);
 const showRackToken = ref(false);
-const rackEmbedToken = computed(() => rackEmbed.value?.token ?? "");
+// 權杖不再隨設定回傳：按「顯示」或「複製」才向後端取（後端每次都留稽核）
+const rackEmbedToken = ref("");
+const rackTokenDays = ref(365);
+const tokenDayOptions = computed(() => [30, 90, 180, 365].map((d) => ({ label: t("llm_settings.mcp_key_days_n", { n: d }), value: d })));
+const rackTokenExpired = computed(() => {
+  const s = rackEmbed.value?.token_expires_at;
+  return !!s && new Date(s).getTime() <= Date.now();
+});
 async function loadRackEmbed() {
   try { rackEmbed.value = await getRackEmbedConfig(); } catch { rackEmbed.value = null; }
+}
+async function ensureRackToken(): Promise<string> {
+  if (!rackEmbedToken.value && rackEmbed.value?.token_set) rackEmbedToken.value = await revealRackEmbedToken();
+  return rackEmbedToken.value;
+}
+async function toggleRackToken() {
+  if (!showRackToken.value) {
+    try { await ensureRackToken(); } catch { msg.error(t("errors.server")); return; }
+  }
+  showRackToken.value = !showRackToken.value;
 }
 async function changeRackEmbed(v: boolean) {
   try {
@@ -355,17 +374,43 @@ async function changeRackEmbed(v: boolean) {
 }
 async function regenRackToken() {
   try {
-    rackEmbed.value = await setRackEmbedConfig(rackEmbed.value?.enabled ?? true, true);
+    rackEmbed.value = await setRackEmbedConfig(rackEmbed.value?.enabled ?? true, true, rackTokenDays.value);
+    rackEmbedToken.value = "";
+    showRackToken.value = false;
     // 舊網址立刻失效，這件事一定要講出來，否則別人的儀表板會突然破圖而找不到原因
     msg.success(t("system_settings.rack_embed_regenerated"));
   } catch { msg.error(t("errors.server")); }
 }
 async function copyRackToken() {
-  if (!rackEmbedToken.value) return;
   try {
-    await navigator.clipboard.writeText(rackEmbedToken.value);
+    const tok = await ensureRackToken();
+    if (!tok) return;
+    await navigator.clipboard.writeText(tok);
     msg.success(t("common.copied"));
   } catch { msg.error(t("errors.server")); }
+}
+
+// 每日備份加密：沒設定時備份檔裡同時有資料庫與解密金鑰（backend.env）
+const backupEnc = ref<BackupEncryption | null>(null);
+const backupPw = ref("");
+const backupPw2 = ref("");
+const backupEncSaving = ref(false);
+async function loadBackupEnc() {
+  try { backupEnc.value = await getBackupEncryption(); } catch { backupEnc.value = null; }
+}
+async function saveBackupEnc() {
+  if (backupPw.value.length < 12) { msg.warning(t("system_settings.backup_enc_too_short")); return; }
+  if (backupPw.value !== backupPw2.value) { msg.warning(t("users.error_password_mismatch")); return; }
+  backupEncSaving.value = true;
+  try {
+    backupEnc.value = await setBackupEncryption(backupPw.value);
+    backupPw.value = ""; backupPw2.value = "";
+    msg.success(t("common.saved"));
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { backupEncSaving.value = false; }
+}
+async function clearBackupEnc() {
+  try { await removeBackupEncryption(); await loadBackupEnc(); msg.success(t("common.saved")); }
+  catch (e) { msg.error(apiErrMsg(e)); }
 }
 
 const geoip = ref<GeoIPConfig | null>(null);
@@ -578,6 +623,7 @@ async function doTestAf() {
 onMounted(() => {
   void loadImpact();
   void loadRackEmbed();
+  void loadBackupEnc();
   getUiDisplay().then((d) => { changeLogDimDays.value = d.change_log_dim_days; }).catch(() => {});
   getDevicePortFilter().then((d) => {
     portFilterOn.value = d.filter_pseudo;
@@ -926,13 +972,19 @@ async function doPreviewAutolink() {
           </div>
           <div v-if="rackEmbed?.enabled" class="fld">
             <label>{{ t("system_settings.rack_embed_token") }}</label>
-            <n-input :value="rackEmbedToken" readonly
-                     :type="showRackToken ? 'text' : 'password'" style="width: 100%" />
-            <n-space size="small" style="margin-top: 6px">
-              <n-button size="small" @click="showRackToken = !showRackToken">
+            <n-input :value="showRackToken ? rackEmbedToken : '••••••••••••••••'" readonly style="width: 100%" />
+            <n-space size="small" align="center" style="margin-top: 6px">
+              <n-tag v-if="rackEmbed?.token_expires_at" size="small" :bordered="false"
+                     :type="rackTokenExpired ? 'error' : 'default'" data-testid="rack-token-expiry">
+                {{ rackTokenExpired ? t("llm_settings.mcp_key_expired", { date: fmtDate(rackEmbed.token_expires_at) })
+                                    : t("llm_settings.mcp_key_expires", { date: fmtDate(rackEmbed.token_expires_at) }) }}
+              </n-tag>
+              <n-button size="small" @click="toggleRackToken">
                 {{ showRackToken ? t("common.hide") : t("common.show") }}
               </n-button>
               <n-button size="small" @click="copyRackToken">{{ t("common.copy") }}</n-button>
+              <n-select v-model:value="rackTokenDays" :options="tokenDayOptions" size="small" style="width: 110px"
+                        :aria-label="t('llm_settings.mcp_key_days')" />
               <n-popconfirm @positive-click="regenRackToken">
                 <template #trigger>
                   <n-button size="small" type="warning" ghost>
@@ -943,6 +995,43 @@ async function doPreviewAutolink() {
               </n-popconfirm>
             </n-space>
             <div class="hint">{{ t("system_settings.rack_embed_token_hint") }}</div>
+          </div>
+        </div>
+      </n-card>
+
+      <!-- 每日備份加密 -->
+      <n-card class="ss-group" size="small" data-testid="backup-encryption">
+        <template #header><span class="ss-h">{{ t("system_settings.grp_backup_enc") }}</span></template>
+        <div class="ss-grid">
+          <div class="fld">
+            <label>{{ t("system_settings.backup_enc_status") }}</label>
+            <n-tag :type="backupEnc?.enabled ? 'success' : 'warning'" size="small" :bordered="false">
+              {{ backupEnc?.enabled ? t("system_settings.backup_enc_on", { at: fmtDate(backupEnc.set_at) })
+                                    : t("system_settings.backup_enc_off") }}
+            </n-tag>
+            <div class="hint">{{ t("system_settings.backup_enc_hint") }}</div>
+          </div>
+          <div class="fld">
+            <label>{{ backupEnc?.enabled ? t("system_settings.backup_enc_change") : t("system_settings.backup_enc_set") }}</label>
+            <n-input v-model:value="backupPw" type="password" show-password-on="click"
+                     :placeholder="t('system_settings.backup_enc_ph')" data-testid="backup-enc-pw" />
+            <n-input v-model:value="backupPw2" type="password" show-password-on="click" style="margin-top: 6px"
+                     :placeholder="t('users.password_confirm')" data-testid="backup-enc-pw2" />
+            <n-space size="small" style="margin-top: 6px">
+              <n-button size="small" type="primary" :loading="backupEncSaving" data-testid="backup-enc-save"
+                        @click="saveBackupEnc">
+                <template #icon><n-icon :component="SaveIcon" /></template>{{ t("common.save") }}
+              </n-button>
+              <n-popconfirm v-if="backupEnc?.enabled" @positive-click="clearBackupEnc">
+                <template #trigger>
+                  <n-button size="small" type="error" ghost>
+                    <template #icon><n-icon :component="DeleteIcon" /></template>{{ t("system_settings.backup_enc_remove") }}
+                  </n-button>
+                </template>
+                {{ t("system_settings.backup_enc_remove_confirm") }}
+              </n-popconfirm>
+            </n-space>
+            <div class="hint">{{ t("system_settings.backup_enc_keep_hint") }}</div>
           </div>
         </div>
       </n-card>

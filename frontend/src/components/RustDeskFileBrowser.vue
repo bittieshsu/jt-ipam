@@ -173,6 +173,8 @@ const LOGIN_ERRORS: Record<string, string> = {
 };
 
 function closeText(info: CloseInfo): string {
+  // 開著的連線被收回權限（core/console_guard）：detail 已是翻好的句子
+  if (info.code === "console_revoked") return info.detail || t("errors.console_revoked");
   if (info.code === "rd_login_error") {
     const raw = info.detail || "";
     // 原文是受控端送來的：不可以比對到 constructor 這類原型上的名字

@@ -14,6 +14,10 @@ export interface UserMe {
   is_active: boolean;
   is_admin: boolean;
   totp_enabled?: boolean;
+  /** 管理員的 MFA 政策要求這個帳號一定要開 */
+  mfa_required_by_policy?: boolean;
+  /** 還沒用過的復原碼組數 */
+  recovery_codes_remaining?: number;
   has_visibility?: boolean;
   has_global_read?: boolean;
   can_edit?: boolean;
@@ -32,6 +36,10 @@ export interface TokenResponse {
   expires_in: number | null;
   mfa_required: boolean;
   mfa_token: string | null;
+  /** 管理員要求 MFA、這個帳號還沒設定：用 mfa_token 走設定流程 */
+  mfa_setup_required?: boolean;
+  /** 剛設定好 TOTP 時的 10 組復原碼（只出現這一次） */
+  recovery_codes?: string[] | null;
 }
 
 export interface Section {

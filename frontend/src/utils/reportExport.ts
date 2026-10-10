@@ -10,7 +10,8 @@
  *   顏色與 backend/app/services/report_pdf.py 相同
  * - 表格：每個分頁一張工作表的 XLSX／ODS
  */
-import { download, xmlEscape, zipStore } from "@/utils/tableExport";
+import { xmlEscape, zipStore } from "@/utils/tableExport";
+import { saveBlob, type SaveMeta } from "@/utils/saveFile";
 
 /** 列的語氣：只影響第一欄的顏色（阻擋＝danger、需覆核＝warning） */
 export type ReportTone = "danger" | "warning" | "info";
@@ -370,6 +371,7 @@ export const MIME = {
   ods: "application/vnd.oasis.opendocument.spreadsheet",
 } as const;
 
-export function saveBytes(filename: string, bytes: Uint8Array, mime: string): void {
-  download(filename, bytes, mime);
+/** 報告存檔。`meta.source` 是報告種類；伺服器排版的 PDF 伺服器已經記過，帶 audited。 */
+export function saveBytes(filename: string, bytes: Uint8Array, mime: string, meta: SaveMeta): void {
+  saveBlob(filename, bytes, mime, meta);
 }

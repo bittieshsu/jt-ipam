@@ -38,6 +38,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
+from app.core.console_guard import (
+    console_target_blocked,
+    note_ticket,
+    require_console_target,
+    ticket_fields,
+    watch_console,
+)
 from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
@@ -132,9 +139,10 @@ async def issue_sftp_ticket(
     if not await can_use_sftp(session, user=user, ip=ip):
         # 不洩漏存在性差異 —— 一律 403（與 SSH 相同）
         raise HTTPException(status_code=403, detail=ui_detail("console_sftp_forbidden", "無 SSH／SFTP 連線權限"))
+    await require_console_target(str(ip.ip).split("/")[0])
 
     ticket = secrets.token_urlsafe(32)
-    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id)})
+    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), **ticket_fields(request)})
     await _redis_client().set(_ticket_key(ticket), payload, ex=_TICKET_TTL)
     return {
         "ticket": ticket,
@@ -149,6 +157,7 @@ async def _redeem(ticket: str, address_id: uuid.UUID) -> uuid.UUID | None:
     if not ticket:
         return None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
+    note_ticket(raw)
     if not raw:
         return None
     try:
@@ -250,6 +259,7 @@ ACK_EVERY = 16 * 1024
 
 
 @router.websocket("/{address_id}/sftp/ws")
+@watch_console("sftp")
 async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     from app.services.sftp_probe import PROBE_ADDRESS_ID
     if address_id == PROBE_ADDRESS_ID:
@@ -275,6 +285,10 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
         # 連線出口：直連或經由跳板（IP 覆寫 > 子網路 > 直連）
         route = await console_route.resolve_route(s, ip)
     if not allowed:
+        await websocket.close(code=4403)
+        return
+    # 目標位址不能是本機／link-local／保留位址（IP 記錄可以被有寫入權限的人自己建）
+    if await console_target_blocked(host):
         await websocket.close(code=4403)
         return
 

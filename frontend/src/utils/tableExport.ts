@@ -5,6 +5,8 @@
  * 不引入 JSZip 等相依。PDF 走瀏覽器列印（開新視窗 → 列印 → 另存 PDF），同樣零相依。
  */
 
+import { logExport, saveBlob, type SaveMeta } from "@/utils/saveFile";
+
 export type ExportFormat = "csv" | "txt" | "md" | "pdf" | "ods" | "odt" | "xlsx";
 
 export interface ExportColumn {
@@ -15,16 +17,11 @@ export interface ExportColumn {
 }
 
 // ── 下載 ──
-export function download(filename: string, data: Blob | Uint8Array, mime: string) {
-  const blob = data instanceof Blob ? data : new Blob([data as BlobPart], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+// 實際存檔與匯出稽核在 utils/saveFile；`exportTable` 進來時已經回報過一次（含列數），
+// 這裡不再回報。其他直接呼叫 download 的地方要帶 meta（來源），才會留下稽核。
+export function download(filename: string, data: Blob | Uint8Array, mime: string,
+                         meta: SaveMeta = { source: "table", audited: true }) {
+  saveBlob(filename, data, mime, meta);
 }
 
 export function cellText(row: Record<string, any>, col: ExportColumn): string {
@@ -270,6 +267,8 @@ export function exportTable(
   title?: string,
 ) {
   const ttl = title || filenameBase;
+  // 一次匯出回報一筆稽核（PDF 走列印不經過下載，也要在這裡記）
+  logExport(filenameBase, `${filenameBase}.${format}`, rows.length);
   switch (format) {
     case "csv":
       download(`${filenameBase}.csv`, toCSVBlob(cols, rows), "text/csv;charset=utf-8");

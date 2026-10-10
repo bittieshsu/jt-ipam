@@ -5,14 +5,16 @@ import { apiClient } from "@/api/client";
 describe("apiClient interceptors", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("帶入 Authorization header(若 localStorage 有 token)", async () => {
-    localStorage.setItem("access_token", "fake-token-abc");
+  // 2026-10-09 起存取權杖在這個分頁的 sessionStorage；更新權杖在 HttpOnly Cookie（JS 讀不到）
+  it("帶入 Authorization header(若這個分頁有存取權杖)", async () => {
+    sessionStorage.setItem("access_token", "fake-token-abc");
     const req = apiClient.interceptors.request as any;
     const interceptor = req.handlers[0].fulfilled;
     const captured: Record<string, string> = {};
@@ -45,8 +47,7 @@ describe("apiClient interceptors", () => {
   });
 
   it("401 且 refresh 失敗 → 清空 token 並導向 login", async () => {
-    localStorage.setItem("access_token", "expired");
-    localStorage.setItem("refresh_token", "expired-r");
+    sessionStorage.setItem("access_token", "expired");
     // refresh 端點失敗 → tryRefreshToken 回傳 null → 視為登入逾時
     vi.spyOn(axios, "post").mockRejectedValue(new Error("refresh failed"));
     // mock window.location.assign（無註冊 session handler 時走硬導向後備）
@@ -62,10 +63,26 @@ describe("apiClient interceptors", () => {
     // 等 microtask/timer 後驗證副作用即可。
     void errHandler({ response: { status: 401 }, config: { url: "/api/v1/sections" } });
     await new Promise((r) => setTimeout(r, 50));
-    expect(localStorage.getItem("access_token")).toBeNull();
-    expect(localStorage.getItem("refresh_token")).toBeNull();
+    expect(sessionStorage.getItem("access_token")).toBeNull();
     expect(assignMock).toHaveBeenCalledWith(
       expect.stringContaining("/login?next=%2Fsections"),
     );
+  });
+});
+
+describe("權杖不放 localStorage", () => {
+  it("換發用 Cookie、帶 CSRF 標頭、本文不送更新權杖", async () => {
+    const post = vi.spyOn(axios, "post").mockResolvedValue({ data: { access_token: "new-tok" } });
+    const { tryRefreshToken } = await import("@/api/client");
+    expect(await tryRefreshToken()).toBe("new-tok");
+    const [url, body, cfg] = post.mock.calls[0] as [string, unknown, any];
+    expect(url).toContain("/api/v1/auth/refresh");
+    expect(body).toBeNull();
+    expect(cfg.withCredentials).toBe(true);
+    expect(cfg.headers["X-Requested-With"]).toBe("jt-ipam");
+    expect(sessionStorage.getItem("access_token")).toBe("new-tok");
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull();
+    post.mockRestore();
   });
 });

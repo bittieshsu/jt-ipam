@@ -233,7 +233,7 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 ## 八、安全、RBAC 與系統
 
 ### 8.1 `users` / `groups` / `user_group_members`
-- **User**：`username`/`email`（citext 唯一）、`password_hash`（argon2id；外部驗證為 NULL）、`auth_provider`（local/ldap/radius/saml/oidc）、`external_subject`、`is_active`、`is_admin`、加密 TOTP（`totp_secret_enc`/`totp_nonce`）、帳號鎖定（`failed_login_count`/`locked_until`）、`last_login_at`/`last_login_ip`。CHECK：local 使用者必須有密碼。
+- **User**：`username`/`email`（citext 唯一）、`password_hash`（argon2id；外部驗證為 NULL）、`auth_provider`（local/ldap/radius/saml/oidc）、`external_subject`、`is_active`、`is_admin`、加密 TOTP（`totp_secret_enc`/`totp_nonce`）、帳號鎖定（`failed_login_count`/`locked_until`，TOTP 驗證碼錯誤也算）、`last_login_at`/`last_login_ip`、`tokens_valid_after`（早於這個時間簽發的存取權杖一律拒絕：強制登出、停用、管理員重設密碼時設定）、`totp_last_step`（最後用過的 TOTP 時間步，驗證碼不能重放）。CHECK：local 使用者必須有密碼。
 - **Group**：`name`（citext 唯一）、`is_builtin`。成員透過 `user_group_members`（複合 PK）。
 
 ### 8.2 `permissions`：物件層級 RBAC（預設關閉，A01）
@@ -250,7 +250,10 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 任意敏感欄位的 AES-256-GCM 保險庫。`(object_type, object_id, field, key_id)` 唯一；`ciphertext` + `nonce`。承載 DNS/Proxmox 帳密、SNMP community、TOTP 等。
 
 ### 8.5 `api_tokens`
-`token_hash`（sha256，明文不存）+ `token_prefix` 供識別、`scopes`（`text[]`）、`object_filters`（jsonb ACL）、`expires_at`（必填）、使用 / 撤銷時間。
+`token_hash`（sha256，明文不存）+ `token_prefix` 供識別、`scopes`（`text[]`）、`expires_at`（必填）、使用 / 撤銷時間。從來沒有作用的 `object_filters` 欄位已在 migration 0199 移除。
+
+### 8.5b `user_sessions` / `user_recovery_codes`
+`user_sessions`：每次登入一列（migration 0200）。`refresh_hash`（HttpOnly Cookie 裡更新權杖的 sha256）與 `prev_refresh_hash` + `rotated_at`（上一把 60 秒內還能用，給多個分頁同時換發；之後再用就撤銷整個工作階段）、`expires_at`（閒置到期，每次換發往後延）、`revoked_at`/`revoked_reason`、`method`（local/ldap/radius/oidc/saml）、`mfa`、`ip`、`user_agent`。存取權杖以 `sid` 帶這一列的 id。`user_recovery_codes`：10 組 TOTP 復原碼的 argon2id 雜湊，用過填 `used_at`。
 
 ### 8.6 `custom_field_definitions`
 admin 為 `object_type` ∈ `subnet / ip / device` 定義欄位。`field_type` ∈ text/int/float/bool/date/select/multi_select/regex，含 `options`/`validation_regex`/`required`/`display_order`。值經驗證後存進各實體的 `custom_fields` jsonb。`(object_type, name)` 唯一。

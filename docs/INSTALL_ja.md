@@ -573,6 +573,18 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 実行のたびに（成功でも失敗でも）`/var/backups/jt-ipam/last-run` に結果、時刻、最後に成功した時刻、失敗の理由を書きます。「システム診断」画面の「日次バックアップ」と `sudo /opt/jt-ipam/scripts/jt-ipam.sh doctor` はこのファイルを見ます。バックアップが失敗したり 48 時間成功していなかったりすると診断が赤くなり、管理者にシステムアラートが送られます。よくある原因は、jt-ipam のロールが所有していないテーブル（手で残したコピーなど）があり、pg_dump が読めずに中止することです。診断画面に実行するコマンドが表示されます。
 
+### バックアップの暗号化
+
+バックアップのディレクトリにはデータベースのダンプ**と** `backend.env`（ダンプ内の機密を復号する鍵）が入っています。**システム設定 → 日次バックアップの暗号化** でバックアップのパスフレーズ（12 文字以上）を設定すると、毎日のバックアップを 1 つのファイル `/var/backups/jt-ipam/jt-ipam-<日付>.jtbak` にまとめて暗号化し（scrypt で導出した鍵、1 MiB 単位の AES-256-GCM。切り詰め・入れ替え・改ざんがあると復号できません）、平文のディレクトリは削除します。`last-run` に `encrypted=1` が記録され、パスフレーズが未設定の間はシステム診断と `doctor` が警告します。
+
+パスフレーズはこのホスト以外（パスワードマネージャーなど）に保管してください。忘れるとバックアップを復号できません。変更後も、以前のバックアップには当時のパスフレーズが必要です。復号ツールは Python 3 と `cryptography`（`apt install python3-cryptography`）だけで動くため、jt-ipam を入れ直す前の新しいマシンでも使えます：
+
+```bash
+python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
+    /var/backups/jt-ipam/jt-ipam-2026-10-09.jtbak --out /root/jt-ipam-restore
+# → /root/jt-ipam-restore/2026-10-09/（ダンプ、backend.env、tls.tar.gz、uploads.tar.gz）
+```
+
 ### 遠隔地へのバックアップ
 
 `/var/backups/jt-ipam/` を NAS / S3 / 別のマシンへ rsync します。
@@ -588,6 +600,11 @@ sudo systemctl enable --now jt-ipam-backup.timer
 # 0. サービスを停止します
 sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer
 
+# 0b. 暗号化したバックアップ（.jtbak）は先に復号します（バックアップのパスフレーズを聞かれます）
+python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
+    /var/backups/jt-ipam/jt-ipam-2026-05-10.jtbak --out /root/jt-ipam-restore
+# 以下の /var/backups/jt-ipam/2026-05-10/ は /root/jt-ipam-restore/2026-05-10/ に読み替えます
+
 # 1. 空のデータベースを作り直します
 sudo -u postgres dropdb jt_ipam
 sudo -u postgres createdb -O jt_ipam jt_ipam
@@ -601,12 +618,13 @@ sudo -u postgres psql -d jt_ipam -c '
 
 # 2. ダンプを戻します（注意：DNS や API の資格情報など機密の項目を復号するには、同じ ENCRYPTION_KEY が必要です）
 sudo -u postgres pg_restore -d jt_ipam \
-    /var/backups/jt-ipam/jt-ipam-2026-05-10.dump
+    /var/backups/jt-ipam/2026-05-10/jt-ipam-2026-05-10.dump
 
 # 3. 設定ファイルを戻します（残っていれば）
 sudo cp /var/backups/jt-ipam/2026-05-10/backend.env /etc/jt-ipam/
 
-# 4. 起動します
+# 4. 監査テーブルをログインできない所有者に戻してから（アプリのロールは読み取りと追加のみ）起動します
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit
 sudo systemctl start jt-ipam-backend jt-ipam-sync.timer
 
 # 5. チェーンを検証します（改ざんされた行があれば直ちに分かります）
@@ -615,7 +633,7 @@ curl -X POST https://ipam.example.com/api/v1/audit/verify \
 ```
 
 > バックアップファイルには機密情報が含まれます（DB には暗号化された API の資格情報、env には
-> SECRET_KEY と ENCRYPTION_KEY）。`0600` の権限で保管し、暗号化された経路で転送してください
+> SECRET_KEY と ENCRYPTION_KEY）。バックアップの暗号化パスフレーズを設定し（上記）、`0600` の権限で保管し、暗号化された経路で転送してください
 > （ssh 越しの rsync、S3 のサーバー側暗号化など）。
 
 ---

@@ -2,13 +2,13 @@
 
 OWASP 對應：
 - A02：密碼用 argon2id（core.security.hash_password），自動 rehash
-- A07：失敗計數 + 暫時鎖定、JWT 短有效期、refresh token 旋轉
+- A07：失敗計數 + 暫時鎖定（MFA 驗證碼錯誤也算）、存取權杖 15 分鐘、更新權杖每次換發都換新
+  （伺服器端工作階段，見 services/sessions）
 - A09：所有 login 嘗試（成功/失敗）寫入 audit log
 """
 
 from __future__ import annotations
 
-import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
@@ -134,13 +134,7 @@ async def authenticate(
         raise InvalidCredentials
 
     async def _bump_lock(u: User) -> None:
-        u.failed_login_count = (u.failed_login_count or 0) + 1
-        if u.failed_login_count >= _MAX_FAILED_ATTEMPTS:
-            u.locked_until = now + _LOCK_DURATION
-            # 鎖定原本只改欄位就 commit —— 「這個帳號什麼時候被鎖過、從哪個位址打的」
-            # 事後完全查不到。鎖定是資安事件，一定要留下記錄。
-            from app.services.security_alert import audit_lockout
-            await audit_lockout(session, user=u, actor_ip=actor_ip, until=u.locked_until)
+        await register_failure(session, u, actor_ip=actor_ip)
 
     # ───────────── LDAP / AD realm ─────────────
     if realm == "ldap":
@@ -291,25 +285,31 @@ async def authenticate(
     return user
 
 
-def issue_access_token(user: User) -> str:
-    return create_access_token(
-        subject=str(user.id),
-        extra_claims={
-            "username": user.username,
-            "is_admin": user.is_admin,
-            "type": "access",
-        },
-    )
+async def register_failure(session: AsyncSession, user: User, *, actor_ip: str | None) -> None:
+    """密碼或 MFA 驗證碼錯一次：累計失敗次數，達門檻就鎖定（並留稽核）。
+
+    MFA 驗證碼錯誤以前不算進來：知道密碼的人可以對 6 位數驗證碼無限次嘗試（只受每分鐘限流）。"""
+    now = datetime.now(UTC)
+    user.failed_login_count = (user.failed_login_count or 0) + 1
+    if user.failed_login_count >= _MAX_FAILED_ATTEMPTS:
+        user.locked_until = now + _LOCK_DURATION
+        # 鎖定原本只改欄位就 commit —— 「這個帳號什麼時候被鎖過、從哪個位址打的」
+        # 事後完全查不到。鎖定是資安事件，一定要留下記錄。
+        from app.services.security_alert import audit_lockout
+        await audit_lockout(session, user=user, actor_ip=actor_ip, until=user.locked_until)
 
 
-def issue_refresh_token(user: User) -> str:
-    """Refresh token 走 JWT；放在 HttpOnly cookie。"""
-    settings = get_settings()
-    return create_access_token(
-        subject=str(user.id),
-        extra_claims={"type": "refresh", "jti": secrets.token_urlsafe(16)},
-        expires_in_minutes=settings.refresh_token_expire_days * 24 * 60,
-    )
+def is_locked(user: User) -> bool:
+    return user.locked_until is not None and user.locked_until > datetime.now(UTC)
+
+
+def issue_access_token(user: User, *, sid: object | None = None) -> str:
+    """存取權杖。正式的登入流程一律帶 `sid`（工作階段），撤銷工作階段就立即失效；
+    不帶 sid 的只有測試在用（守門：tests/test_session_revocation.py 檢查 app/ 裡每個呼叫都帶 sid）。"""
+    claims: dict[str, object] = {"username": user.username, "is_admin": user.is_admin, "type": "access"}
+    if sid is not None:
+        claims["sid"] = str(sid)
+    return create_access_token(subject=str(user.id), extra_claims=claims)
 
 
 def decode_token(token: str, *, expected_type: str) -> dict[str, object]:

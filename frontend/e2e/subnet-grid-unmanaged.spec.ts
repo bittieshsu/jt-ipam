@@ -19,7 +19,7 @@ test("沒有記錄、但看得到在用的位址畫成「未納管」，不是�
   await login(page);
   const subs = await page.evaluate(async () => {
     const r = await fetch("/api/v1/subnets?page_size=500", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` } });
     return r.json();
   });
   const sn = subs.items.find((s: any) => s.cidr === "10.20.0.0/24");
@@ -44,7 +44,7 @@ test("IP 清單也列出未納管的位址；點指示計的格子進到這個�
   await login(page);
   const subs = await page.evaluate(async () => {
     const r = await fetch("/api/v1/subnets?page_size=500", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` } });
     return r.json();
   });
   const sn = subs.items.find((s: any) => s.cidr === "10.20.0.0/24");

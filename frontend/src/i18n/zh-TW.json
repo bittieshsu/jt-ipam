@@ -21,7 +21,10 @@
     "server_down": "伺服器目前無法處理登入（HTTP {code}）。後端服務可能未啟動或啟動失敗；請檢查 systemctl status jt-ipam-backend —— 這不是帳號密碼的問題。",
     "too_many": "嘗試次數過多，請稍候再試。",
     "locked": "此帳號已被鎖定，請聯繫管理員。",
-    "realm_local": "本機"
+    "realm_local": "本機",
+    "mfa_setup_intro": "管理員要求這個帳號使用雙因素驗證。請用驗證器 App 掃描下方的 QR code，輸入顯示的 6 位數驗證碼完成設定。",
+    "mfa_setup_expired": "設定逾時，請重新登入。",
+    "mfa_recovery_hint": "驗證器不在身邊？可以改輸入一組復原碼（XXXXX-XXXXX，每組只能用一次）。"
   },
   "certStatus": {
     "col_agent": "派送代理",
@@ -892,7 +895,21 @@
     "assign_perms": "權限指派",
     "deactivate": "停用",
     "reactivate": "啟用",
-    "admin_external_hint": "這是外部帳號（LDAP / SSO）。若站台設定了「管理員群組對應」，這個開關會在每次登入時依目錄的群組重新判定；沒有設定對應時才由這裡決定。"
+    "admin_external_hint": "這是外部帳號（LDAP / SSO）。若站台設定了「管理員群組對應」，這個開關會在每次登入時依目錄的群組重新判定；沒有設定對應時才由這裡決定。",
+    "force_logout": "強制登出",
+    "force_logout_confirm": "撤銷這個人所有的登入（含開著的主控台）？API 權杖不受影響。",
+    "force_logout_done": "已撤銷 {n} 個登入",
+    "reset_mfa": "重設雙因素驗證",
+    "reset_mfa_confirm": "清掉這個人的雙因素驗證與復原碼，並撤銷所有登入？",
+    "reset_mfa_done": "已重設；政策要求時，對方下次登入要重新設定",
+    "mfa_policy": "登入安全",
+    "mfa_policy_required": "雙因素驗證（TOTP）",
+    "mfa_policy_off": "不要求（各人自選）",
+    "mfa_policy_admins": "管理員必須使用",
+    "mfa_policy_all": "所有人必須使用",
+    "mfa_policy_hint": "被要求但還沒設定的人不會被鎖在外面：下次登入時先完成設定，並拿到 10 組復原碼。被要求的人不能自行停用。",
+    "mfa_policy_sso": "SSO 登入也要求",
+    "mfa_policy_sso_hint": "預設不要求：OIDC／SAML 登入交給身分提供者自己的多因素驗證。打開後 SSO 登入也要通過 jt-ipam 的 TOTP。"
   },
   "ipChanges": {
     "title": "IP 異動記錄",
@@ -1169,7 +1186,8 @@
     "ev_inferred": "名稱推測",
     "kind_inferred": "推測（非登記或觀測）",
     "too_large": "這個範圍有 {n} 台裝置，超過一次能畫的上限（{limit} 台）：圖會大到看不懂，也要算很久。請用上方的子網路篩選縮小範圍。",
-    "via_neighbor": "鄰居宣告（MikroTik）"
+    "via_neighbor": "鄰居宣告（MikroTik）",
+    "scope_limited": "只顯示你有權限的裝置與子網路，以及兩端都在範圍內的連線；VPN 通道與虛擬機屬於全域資料，不顯示。"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",
@@ -2678,7 +2696,9 @@
       "disable_reauth_required": "請先輸入驗證資料",
       "disable_pw_ph": "輸入目前密碼以確認身分",
       "disable_code_ph": "輸入驗證器上目前的 6 位數",
-      "disable_code_label": "驗證碼"
+      "disable_code_label": "驗證碼",
+      "required_by_policy": "管理員要求",
+      "required_by_policy_hint": "管理員要求這個帳號一定要使用雙因素驗證，不能停用"
     },
     "prefs": {
       "tab": "偏好設定",
@@ -2804,7 +2824,7 @@
       "graylog_regen": "重新產生權杖",
       "graylog_url": "對照表網址（HTTPS，給 Graylog）",
       "graylog_url_http": "對照表網址（明文 HTTP，給 Graylog）",
-      "graylog_url_http_hint": "走專用埠 8088、不加密；token 會以明文經過網路，僅限信任內網。要關掉就移除 nginx 設定中的 8088 server 區塊。",
+      "graylog_url_http_hint": "走專用埠 8088、不加密：權杖會以明文經過網路，僅限信任內網。要在上方打開「允許明文 HTTP」才會服務。",
       "graylog_copy": "複製",
       "graylog_hint": "在 Graylog 新增「DSV File from HTTP」資料配接器，URL 填入上方網址；分隔符依格式選 , 或 Tab，key 欄=1、value 欄=2（key=IP、value=主機名稱 / FQDN）。權杖外洩可按「重新產生權杖」即時失效。",
       "graylog_fw_title": "OPNsense 防火牆 DSV（規則 / 別名）",
@@ -2899,7 +2919,29 @@
       "sftp_probe_no_data_down": "下載的資料收不到：{sec} 秒沒有新資料（已收到 {done}／{total}）。",
       "sftp_probe_error": "檢查失敗：{reason}",
       "sftp_probe_note": "這是從你這台瀏覽器實測的結果：經過你到伺服器之間的每一層。從別的網路連進來的人，走的路可能不同。",
-      "sftp_max_mb_range": "SFTP 上限要在 1～102400 MB（100 GB）之間"
+      "sftp_max_mb_range": "SFTP 上限要在 1～102400 MB（100 GB）之間",
+      "graylog_token_hint2": "權杖不會隨設定頁一起載入：按「顯示」或複製網址時才取回，每次都留稽核。權杖會到期（重新產生時選天數），到期前 14、7、1 天通知管理員。",
+      "graylog_plain_label": "允許明文 HTTP（8088 埠）",
+      "graylog_plain_warn": "權杖放在網址上：明文 HTTP 會讓路上的每一台設備都看得到權杖。只在 Graylog 無法使用 HTTPS（例如不信任自簽憑證）、而且在受信任的內網時才打開；建議同時設定允許的來源位址。",
+      "graylog_plain_off_hint": "關閉時 8088 埠一律回 404，只能走 HTTPS。",
+      "graylog_sources_label": "允許的來源位址",
+      "graylog_sources_ph": "每行一個位址或網段，例如 192.0.2.10 或 192.0.2.0/24",
+      "graylog_sources_hint": "填了之後只接受這些位址來的查表請求（HTTPS 與 8088 都適用），通常填 Graylog 伺服器的位址；留空＝不限制。"
+    },
+    "sessions": {
+      "title": "登入中的裝置",
+      "hint": "每一次登入是一列。看到不認得的就登出它；登出、改密碼或被管理員強制登出時，那個登入開著的主控台也會在 30 秒內中斷。",
+      "device": "裝置",
+      "current": "這個裝置",
+      "method": "登入方式",
+      "created": "登入時間",
+      "last_used": "最後使用",
+      "revoke": "登出",
+      "revoke_confirm": "登出這個裝置？",
+      "revoked": "已登出",
+      "revoked_n": "已登出 {n} 個裝置",
+      "revoke_others": "登出其他所有裝置",
+      "revoke_others_confirm": "除了這個裝置以外，全部登出？"
     }
   },
   "errors": {
@@ -3500,7 +3542,17 @@
     "cpg_script_timeout": "閘道上的讀取指令（{script}）跑了 {seconds} 秒還沒結束，這一輪先略過",
     "report_pdf_no_font": "伺服器上沒有中文字型，無法產生 PDF：請管理員執行 sudo apt install fonts-noto-cjk（或執行 jt-ipam 升級，會自動補上）",
     "report_pdf_busy": "目前有太多份報告正在產生，請稍後再試",
-    "report_pdf_failed": "PDF 產生失敗：{reason}"
+    "report_pdf_failed": "PDF 產生失敗：{reason}",
+    "mfa_required_by_policy": "管理員要求這個帳號一定要使用雙因素驗證，不能停用",
+    "dsv_bad_source": "允許的來源不是合法的位址或網段：{reason}",
+    "console_target_blocked": "這個位址不能開主控台（本機、link-local 或保留位址）：{reason}",
+    "jump_host_blocked": "跳板「{name}」的位址不允許連線：{reason}",
+    "ssh_target_blocked": "不允許連到這個位址：{host}（{reason}）",
+    "console_revoked": "這個主控台的存取權已被收回，連線已結束。",
+    "console_revoked_account_inactive": "帳號已被停用，主控台連線已結束。",
+    "console_revoked_session_revoked": "這次登入已被登出（自己登出、被強制登出或重設雙因素驗證），主控台連線已結束。請重新登入。",
+    "console_revoked_target_removed": "這個 IP 已被刪除或不再能開主控台，連線已結束。",
+    "console_revoked_permission_revoked": "你對這個 IP 開主控台的權限已被收回，連線已結束。"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -3586,7 +3638,7 @@
     "mcp_key_rotate": "重新產生",
     "mcp_key_rotate_confirm": "重新產生會立即讓舊金鑰失效，已串接的系統需更新金鑰。確定要重新產生？",
     "mcp_key_generate": "產生金鑰",
-    "mcp_key_hint": "此金鑰為「唯讀」範圍：外部系統只能查詢，6 個會異動資料的工具一律擋下。金鑰以加密保存、依目前管理員的可見範圍授權；一旦外洩請立即重新產生。",
+    "mcp_key_hint": "此金鑰為「唯讀」範圍：外部系統只能查詢，6 個會異動資料的工具一律擋下。金鑰以加密保存、依目前管理員的可見範圍授權；一旦外洩請立即重新產生。金鑰會到期（產生或更換時選天數），到期前 14、7、1 天會通知管理員。",
     "mcp_gen_config": "產生用戶端設定",
     "mcp_gen_title": "用戶端 MCP 設定",
     "mcp_gen_hint": "把對應工具的設定貼進它的設定檔，即可連到本站 MCP。金鑰已自動帶入；不同工具／版本格式可能略有差異。",
@@ -3659,7 +3711,11 @@
     "think_why_empty": "回答是空的，思考內容可能被閘道藏起來",
     "think_failed": "{who}：檢查失敗 —— {err}",
     "think_rejected": "伺服器不收：{params}（已自動拿掉）。",
-    "think_on_hint": "模型沒照做時，AI 巡檢、AI 判讀（以及關閉思考的 AI 對話）會變慢，答案也可能被思考吃掉額度。Ollama 請用 0.9 以後的版本；經過 LiteLLM 時模型名稱用 ollama/ 或 ollama_chat/ 開頭；llama.cpp 請升級到 b10434 以後，或啟動時加 --reasoning-budget 0。"
+    "think_on_hint": "模型沒照做時，AI 巡檢、AI 判讀（以及關閉思考的 AI 對話）會變慢，答案也可能被思考吃掉額度。Ollama 請用 0.9 以後的版本；經過 LiteLLM 時模型名稱用 ollama/ 或 ollama_chat/ 開頭；llama.cpp 請升級到 b10434 以後，或啟動時加 --reasoning-budget 0。",
+    "mcp_key_days": "有效天數",
+    "mcp_key_days_n": "{n} 天",
+    "mcp_key_expires": "到期：{date}",
+    "mcp_key_expired": "已於 {date} 過期"
   },
   "rack_diagram": {
     "empty": "此機櫃尚無裝置",
@@ -3914,7 +3970,9 @@
       "change_impact_submitted": "IP 變更評估待覆核（通知審核人）",
       "change_impact_reviewed": "IP 變更評估已覆核（通知建立者）",
       "anomaly_arp_flux": "異常偵測：同一台主機多張網卡回應同一個 IP",
-      "anomaly_l2_subnet_bleed": "異常偵測：兩個子網段混在同一個二層"
+      "anomaly_l2_subnet_bleed": "異常偵測：兩個子網段混在同一個二層",
+      "credential_expiring": "API 權杖／MCP 金鑰／公開端點權杖即將到期",
+      "security_session_reuse": "疑似登入權杖被盜用（工作階段已撤銷）"
     },
     "enable": "啟用",
     "secret_keep": "（已設定，留空＝不變更）",
@@ -3969,7 +4027,19 @@
     "src_kind_base": "探測／監控",
     "src_zabbix": "Zabbix 主機可用性",
     "liveness_no_aging_warn": "勾了標「不會過期」的來源＝看過一次就永遠算上線。除非你清楚知道為什麼要這樣，否則不要勾。",
-    "grp_device_ports": "裝置連接埠"
+    "grp_device_ports": "裝置連接埠",
+    "grp_backup_enc": "每日備份加密",
+    "backup_enc_status": "狀態",
+    "backup_enc_on": "已加密（{at} 設定）",
+    "backup_enc_off": "沒有加密",
+    "backup_enc_hint": "每日備份裡有資料庫，也有解密資料庫內機密的金鑰（backend.env）。設定密碼後，每天的備份會整包加密成一個 .jtbak 檔、明文刪除；沒設定時兩者以明文放在一起。",
+    "backup_enc_set": "設定密碼",
+    "backup_enc_change": "更換密碼",
+    "backup_enc_ph": "至少 12 個字元",
+    "backup_enc_too_short": "密碼至少要 12 個字元",
+    "backup_enc_remove": "移除",
+    "backup_enc_remove_confirm": "移除之後，之後的備份回到明文。確定？",
+    "backup_enc_keep_hint": "密碼忘記就解不開備份：請存在這台主機以外的地方（例如密碼管理器）。更換密碼後，之前的備份仍要用當時的密碼解。解密：python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <檔案> --out <目錄>"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",
@@ -4343,7 +4413,15 @@
     "change_impact_reviewed_approve": "{user} 核准了「{title}」。",
     "change_impact_reviewed_accept_risk": "{user} 接受風險後核准了「{title}」。",
     "change_impact_reviewed_request_changes": "{user} 退回了「{title}」，請修改後再送審。",
-    "change_impact_reviewed_reject": "{user} 駁回了「{title}」。"
+    "change_impact_reviewed_reject": "{user} 駁回了「{title}」。",
+    "credential_expiring": "即將到期：{name}",
+    "credential_expiring_body": "{name} 將於 {date} 到期（剩 {days} 天），請到設定頁產生新的。",
+    "credential_expired": "已過期：{name}",
+    "credential_expired_body": "{name} 已於 {date} 到期，使用它的整合已經無法存取，請到設定頁產生新的。",
+    "session_reuse": "疑似登入權杖被盜用：{user}",
+    "session_reuse_body": "{user} 已經換掉的更新權杖從 {ip} 又被使用，那個登入已撤銷。若不是本人在多個裝置同時操作，請重設密碼並檢查稽核記錄。",
+    "session_reuse_self": "你的一個登入已被撤銷",
+    "session_reuse_self_body": "已經換掉的登入權杖從 {ip} 又被使用，可能被盜用；請變更密碼。"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",
@@ -5559,7 +5637,16 @@
     "f_backup_logs": "看備份記錄：journalctl -u jt-ipam-backup -n 30",
     "f_backup_owner": "有一張資料表不是 jt-ipam 的資料庫角色擁有，pg_dump 讀不到；是殘留的複本就刪掉，或改成 jt-ipam 擁有：{cmd}",
     "f_backup_timer": "sudo systemctl enable --now jt-ipam-backup.timer",
-    "f_backup_run": "sudo systemctl start jt-ipam-backup.service"
+    "f_backup_run": "sudo systemctl start jt-ipam-backup.service",
+    "c_audit_owner": "稽核表的保護",
+    "d_audit_owner_ok": "稽核表由 {owner} 擁有，應用程式帳號只能讀取與新增",
+    "d_audit_owner_app": "稽核表由應用程式帳號（{owner}）擁有：它可以停用「只能新增」的保護後改寫記錄",
+    "f_audit_owner": "把稽核表交給不能登入的角色（安裝與升級會自動做；還原備份或外部資料庫時要手動）：{cmd}",
+    "c_backup_enc": "備份加密",
+    "d_backup_enc_off": "沒有設定備份加密密碼：備份檔裡同時有資料庫與解密金鑰（backend.env），拿到備份檔就等於拿到所有機密",
+    "d_backup_enc_missed": "已設定備份加密，但最後一次備份沒有加密（升級前的備份腳本，或加密失敗）",
+    "d_backup_enc_ok": "每日備份以設定的密碼加密（.jtbak）",
+    "f_backup_enc_off": "到「系統設定 → 每日備份加密」設定密碼"
   },
   "tool_verbs": {
     "get": "查詢",
@@ -7389,5 +7476,16 @@
     "days": "{n} 天",
     "hours": "{n} 小時",
     "minutes": "{n} 分鐘"
+  },
+  "recovery": {
+    "title": "復原碼",
+    "intro": "驗證器遺失或換手機時，可以用其中一組代替驗證碼登入，每組只能用一次。這些代碼只會顯示這一次，請存在安全的地方（例如密碼管理器）。",
+    "file_note": "每組只能用一次。用掉之後請到「個人設定 → 安全」重新產生。",
+    "download": "下載文字檔",
+    "saved_check": "我已經把復原碼存在安全的地方",
+    "continue": "繼續",
+    "remaining": "剩餘復原碼",
+    "regenerate": "重新產生復原碼",
+    "regenerate_confirm": "重新產生之後，舊的復原碼全部作廢。"
   }
 }

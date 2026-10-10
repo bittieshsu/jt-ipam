@@ -42,3 +42,18 @@ export function aiErrText(ev: { code?: string | null; params?: Record<string, un
   const reason = typeof ev.params?.reason === "string" ? ev.params.reason : "";
   return reason && !base.includes(reason) ? `${base}（${reason}）` : base;
 }
+
+/**
+ * 開著的主控台被收回權限時，後端以 4403 關閉 WebSocket（backend/app/core/console_guard.py），
+ * reason 是 `access revoked: <原因>`。不是 4403 回 null，呼叫端照原本的「已中斷」處理。
+ */
+export const CONSOLE_REVOKED = 4403;
+
+export function revokedCloseText(ev: { code?: number; reason?: string } | null | undefined): string | null {
+  if (!ev || ev.code !== CONSOLE_REVOKED) return null;
+  const t = (i18n.global as any).t;
+  const why = String(ev.reason ?? "").replace(/^access revoked:\s*/, "").trim();
+  const key = `errors.console_revoked_${why}`;
+  const out = why ? t(key) : key;
+  return out !== key ? out : t("errors.console_revoked");
+}

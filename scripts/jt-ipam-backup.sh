@@ -6,6 +6,12 @@
 #   1. PostgreSQL: pg_dump -Fc (all data + alembic_version)
 #   2. /etc/jt-ipam/backend.env       — SECRET_KEY/ENCRYPTION_KEY
 #   3. /etc/jt-ipam/tls/              — self-signed certs (if TLS_MODE=direct)
+#   4. uploaded files (floor plans etc.)
+#
+# Encryption (2026-10-09): when a backup passphrase is set (System settings → Backup encryption),
+# the dated directory is packed and encrypted into jt-ipam-<date>.jtbak and the plain copy is
+# removed -- the dump and the key that decrypts its secrets no longer sit side by side in the
+# clear. Decrypt: python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <file> --out <dir>
 #
 # Run daily by jt-ipam-backup.timer. Retained for RETENTION_DAYS days; older ones auto-deleted.
 #
@@ -27,9 +33,11 @@ RETENTION_DAYS="${RETENTION_DAYS:-14}"
 ENV_FILE="${ENV_FILE:-/etc/jt-ipam/backend.env}"
 TLS_DIR="${TLS_DIR:-/etc/jt-ipam/tls}"
 STATUS_FILE="$BACKUP_DIR/last-run"
+APP_DIR="${APP_DIR:-/opt/jt-ipam/backend}"
 ERR_FILE=""
 TARGET_DIR=""
 DUMP_SIZE=""
+ENCRYPTED=0
 
 # Previous successful run (kept when this one fails, so "last good backup" survives a failure)
 LAST_SUCCESS=""
@@ -53,6 +61,7 @@ write_status() {
         echo "exit_code=$code"
         echo "last_success_at=$LAST_SUCCESS"
         echo "dump_size=$DUMP_SIZE"
+        echo "encrypted=$ENCRYPTED"
         echo "error=$err"
     } > "$STATUS_FILE.tmp"
     chown jtipam:jtipam "$STATUS_FILE.tmp" 2>/dev/null || true
@@ -142,8 +151,27 @@ if [[ -d "$UPLOAD_DIR" ]]; then
     echo "  uploads: $(du -h "$TARGET_DIR/uploads.tar.gz" 2>/dev/null | awk '{print $1}')"
 fi
 
-# ── 4. Prune expired backups ──
-find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime "+$RETENTION_DAYS" -exec rm -rf {} +
+# ── 4. Encrypt (when a backup passphrase is set in the web UI) ──
+# exit 0 = encrypted (plain directory removed), 3 = no passphrase set (stay plain; the diagnostics
+# page warns), anything else = failure: keep the plain copy and fail this run so it is noticed.
+if [[ -x "$APP_DIR/.venv/bin/python" ]]; then
+    set +e
+    ENC_OUT="$(cd "$APP_DIR" && PYTHONDONTWRITEBYTECODE=1 bash -c \
+        "set -a; source '$ENV_FILE'; set +a; exec .venv/bin/python -m app.cli.backup_encrypt '$TARGET_DIR'" 2>>"$ERR_FILE")"
+    ENC_RC=$?
+    set -e
+    if [[ $ENC_RC -eq 0 ]]; then
+        ENCRYPTED=1
+        TARGET_DIR=""          # gone; nothing for the failure trap to clean up
+        echo "  encrypted: ${ENC_OUT#encrypted	}"
+    elif [[ $ENC_RC -ne 3 ]]; then
+        echo "backup encryption failed (exit $ENC_RC); the plain copy was kept" | tee -a "$ERR_FILE" >&2
+        exit 1
+    fi
+fi
+
+# ── 5. Prune expired backups (plain dated directories and encrypted files) ──
+find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 \( -type d -o -name '*.jtbak' \) -mtime "+$RETENTION_DAYS" -exec rm -rf {} +
 
 write_status ok 0
 echo "[$(date -Iseconds)] backup OK"

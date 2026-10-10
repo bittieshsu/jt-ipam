@@ -46,6 +46,8 @@ async def _server_from_key(session: AsyncSession, key: str | None) -> RustDeskSe
         RustDeskServer.agent_key_hash == rustdesk_svc.agent_key_hash(key)))).scalar_one_or_none()
     if srv is None:
         raise HTTPException(401, detail="invalid agent key")
+    from app.core.rate_limit import limit_agent
+    await limit_agent("rustdesk", srv.id)
     return srv
 
 

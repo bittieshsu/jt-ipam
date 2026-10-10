@@ -1,6 +1,7 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 import { i18n } from "@/i18n";
+import { getAccessToken } from "@/api/token";
 
 type Theme = "light" | "dark" | "auto";
 type Locale = "zh-TW" | "en-US" | "ja-JP";
@@ -40,7 +41,7 @@ export const useUiStore = defineStore("ui", () => {
   // 把佈景 / 語言寫回後端偏好（跨裝置同步）；未登入就略過。persist=false 用於
   // 從後端套用時，避免回寫造成迴圈。
   async function persistPref(patch: Record<string, unknown>) {
-    if (!localStorage.getItem("access_token")) return;
+    if (!getAccessToken()) return;
     try {
       const { updatePreferences } = await import("@/api/preferences");
       await updatePreferences(patch as any);
@@ -73,7 +74,7 @@ export const useUiStore = defineStore("ui", () => {
 
   // 啟動 / 登入後呼叫：用後端偏好覆寫本地（跨裝置同步），不回寫。
   async function hydrateFromServer() {
-    if (!localStorage.getItem("access_token")) return;
+    if (!getAccessToken()) return;
     try {
       const { getPreferences } = await import("@/api/preferences");
       const p = await getPreferences();

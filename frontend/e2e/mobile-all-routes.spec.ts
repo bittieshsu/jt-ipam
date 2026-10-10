@@ -59,7 +59,7 @@ const ID_SOURCES: Record<string, string> = {
 const SKIP = new Set(["/login", "/novnc/:id", "/bmc/:id"]);   // 需要 PVE／BMC 目標，另有專屬 spec
 
 async function resolveIds(page: Page, paths: string[]): Promise<{ urls: string[]; skipped: string[] }> {
-  const token = await page.evaluate(() => localStorage.getItem("access_token"));
+  const token = await page.evaluate(() => sessionStorage.getItem("access_token"));
   const urls: string[] = [];
   const skipped: string[] = [];
   for (const p of paths) {

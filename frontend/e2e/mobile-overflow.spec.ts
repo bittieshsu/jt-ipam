@@ -96,7 +96,7 @@ test("通知彈出框不超出畫面", async ({ page }) => {
 
 test("主控台狀態列：放不下時換行，不擠成直排、不超出畫面", async ({ page }) => {
   await login(page);
-  const auth = await page.evaluate(() => `Bearer ${localStorage.getItem("access_token")}`);
+  const auth = await page.evaluate(() => `Bearer ${sessionStorage.getItem("access_token")}`);
   const found = await (await page.request.get(`/api/v1/addresses?q=${SAMPLE_IP}&page_size=5`,
     { headers: { Authorization: auth } })).json();
   const id = found.items?.find((x: { ip: string }) => String(x.ip).split("/")[0] === SAMPLE_IP)?.id;

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import Field, field_validator
 
@@ -21,13 +21,6 @@ class APITokenCreate(StrictModel):
         description=(
             "留空＝不限制（沿用擁有者權限）；填 ['read']＝唯讀，"
             "任何會改資料的操作一律 403。目前只支援這兩種。"
-        ),
-    )
-    object_filters: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "保留欄位，目前不生效。要限制 token 只能碰特定物件，請另建低權限使用者、"
-            "用 RBAC 授權指定物件，再以該帳號建立 token。"
         ),
     )
 
@@ -65,7 +58,6 @@ class APITokenRead(StrictModel):
     name: str
     token_prefix: str
     scopes: list[str]
-    object_filters: dict[str, Any] | None
     expires_at: datetime
     last_used_at: datetime | None
     last_used_ip: str | None

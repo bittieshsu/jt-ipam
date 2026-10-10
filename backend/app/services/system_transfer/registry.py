@@ -38,6 +38,8 @@ CATEGORY: dict[str, str] = {
     "groups": "users_rbac",
     "user_group_members": "users_rbac",
     "api_tokens": "users_rbac",
+    # 復原碼只存 argon2 雜湊，搬到別台照樣能用
+    "user_recovery_codes": "users_rbac",
     "user_preferences": "users_rbac",
     "permissions": "users_rbac",
     # core — IPAM
@@ -166,6 +168,8 @@ CATEGORY: dict[str, str] = {
     "esxi_instances": "integrations",
     # operational（短暫／歷史）
     "audit_logs": "operational",
+    # 登入工作階段：搬到別台沒有意義（Cookie 屬於原本的網址），只在選了「營運資料」時才帶
+    "user_sessions": "operational",
     # IP 變更評估（0187）：計畫、每次分析的快照、待辦、覆核、AI 產出 —— 歷史資料
     "change_plans": "operational",
     "change_plan_revisions": "operational",

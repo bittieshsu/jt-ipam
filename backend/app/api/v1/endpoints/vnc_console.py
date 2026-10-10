@@ -30,6 +30,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser
 from app.core.audit import append_audit
 from app.core.config import get_settings
+from app.core.console_guard import (
+    console_target_blocked,
+    note_ticket,
+    require_console_target,
+    ticket_fields,
+    watch_console,
+)
 from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
@@ -211,6 +218,7 @@ async def issue_vnc_ticket(
         raise HTTPException(status_code=404, detail="Address not found")
     if not await can_use_vnc(session, user=user, ip=ip):
         raise HTTPException(status_code=403, detail=ui_detail("console_vnc_forbidden", "無 VNC 連線權限"))
+    await require_console_target(str(ip.ip).split("/")[0])
 
     saved = (await session.execute(
         select(SSHCredential.id).where(
@@ -222,7 +230,7 @@ async def issue_vnc_ticket(
 
     ticket = secrets.token_urlsafe(32)
     # 引擎寫進票證：WebSocket 照這個用，不自己再判斷（guacd 剛好起落時兩邊會講不同協定）
-    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), "engine": engine})
+    payload = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), **ticket_fields(request), "engine": engine})
     await _redis_client().set(_ticket_key(ticket), payload, ex=_TICKET_TTL)
 
     return {
@@ -240,6 +248,7 @@ async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> tuple[uuid.UUID 
     if not ticket:
         return None, None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
+    note_ticket(raw)
     if not raw:
         return None, None
     try:
@@ -291,6 +300,7 @@ def _classify_connect_error(err: BaseException) -> tuple[str, str]:
 
 
 @router.websocket("/{address_id}/vnc/ws")
+@watch_console("vnc")
 async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     global _active_sessions
 
@@ -312,6 +322,10 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         from app.services.system_config import VNC_ENGINES, get_vnc_engine
         engine = ticket_engine if ticket_engine in VNC_ENGINES else await get_vnc_engine(s)
     if not allowed:
+        await websocket.close(code=4403)
+        return
+    # 目標位址不能是本機／link-local／保留位址（IP 記錄可以被有寫入權限的人自己建）
+    if await console_target_blocked(host):
         await websocket.close(code=4403)
         return
     if engine != "guacd" and not VNC_AVAILABLE:

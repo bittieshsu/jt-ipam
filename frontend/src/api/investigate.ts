@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { getAccessToken } from "@/api/token";
 
 /**
  * 調查模式：一個位址的完整線索。
@@ -42,7 +43,7 @@ export async function narrativeStream(
   signal?: AbortSignal,
 ): Promise<void> {
   const base = import.meta.env.VITE_API_BASE_URL || "";
-  const token = localStorage.getItem("access_token");
+  const token = getAccessToken();
   const url = `${base}/api/v1/investigate/narrative/stream`
     + `?ip=${encodeURIComponent(ip)}&lang=${encodeURIComponent(lang)}`;
   const resp = await fetch(url, {

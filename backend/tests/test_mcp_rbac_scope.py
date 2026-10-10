@@ -153,6 +153,8 @@ _PER_OBJECT_TOOLS = frozenset({
     "list_ip_requests", "switch_port_for_ip", "trace_mac", "mac_history", "allocate_ip", "update_ip",
     "create_subnet", "create_device", "approve_ip_request", "reject_ip_request",
     "list_connection_targets", "investigate_ip",
+    # 拓樸：與 REST /topology 相同，部分範圍帳號只看得到自己範圍內的節點與兩端都在範圍內的連線（2026-10-09）
+    "get_topology",
     # ISOinsight 來源租約：依可見子網路過濾，配對不到子網路的只給管理員（services/isoinsight/queries.py）
     "list_isoinsight_leases",
     # IP 變更評估：計畫依根目標的可見性、結果依 Viewer 逐筆過濾（services/change_impact/access.py）

@@ -3,6 +3,7 @@
  */
 import { apiClient } from "@/api/client";
 import type { Paginated } from "@/api/admin";
+import { saveBlob } from "@/utils/saveFile";
 
 export interface CertVersion {
   id: string;
@@ -116,10 +117,8 @@ export async function downloadVersionFile(certId: string, versionId: string, fmt
   const cd = String(res.headers["content-disposition"] ?? "");
   const m = cd.match(/filename="?([^"]+)"?/);
   const filename = m ? m[1] : `cert.${fmt}`;
-  const url = URL.createObjectURL(res.data as Blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
-  a.remove(); URL.revokeObjectURL(url);
+  // 伺服器端已記稽核（cert_export）
+  saveBlob(filename, res.data as Blob, "application/octet-stream", { source: "certificate", audited: true });
 }
 export async function uploadVersion(
   id: string, files: { cert: File; key: File; chain?: File | null }, allowExpired = false,

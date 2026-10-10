@@ -11,6 +11,7 @@
  * sessionStorage 在重新載入、分頁被回收後還原時都會保留，所以上一次的事件帶得過來。
  */
 import { apiClient } from "@/api/client";
+import { getAccessToken } from "@/api/token";
 
 const LC_KEY = "jt-diag-lifecycle";
 export const RELOAD_REASON_KEY = "jt-diag-reload-reason";
@@ -34,7 +35,7 @@ export function startPageDiag() {
 }
 
 export function reportPageLoad() {
-  if (!localStorage.getItem("access_token")) return;
+  if (!getAccessToken()) return;
   let lifecycle: string[] = [];
   let reloadReason: string | null = null;
   try {

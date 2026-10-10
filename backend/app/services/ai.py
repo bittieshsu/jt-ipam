@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.safe_http import UnsafeOutboundURL, safe_request, safe_stream, transport_detail
+from app.services.prompt_safety import DATA_RULE_EN
 
 log = logging.getLogger(__name__)
 
@@ -1238,6 +1239,7 @@ def _build_chat_context(
                 "Some list tools return has_more/next_offset; if a result is truncated "
                 "or the user asks for more, tell them there are more and, when they ask "
                 "for the next batch, call the SAME tool again with offset=next_offset. "
+                + DATA_RULE_EN + " "
                 + _lang_instruction(locale)
                 + _page_context_line(page_context)
             ),

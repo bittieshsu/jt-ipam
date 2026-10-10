@@ -35,7 +35,7 @@ test("OCS：代理數一台電腦一筆、未裝 Agent 的 IP 不含已盤點的
 async function api(page: import("@playwright/test").Page, method: string, path: string, body?: unknown) {
   return page.evaluate(async ({ method, path, body }) => {
     const r = await fetch(path, { method, body: body === undefined ? undefined : JSON.stringify(body),
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}`,
                  "Content-Type": "application/json" } });
     return { status: r.status, json: r.status === 204 ? null : await r.json().catch(() => null) };
   }, { method, path, body });

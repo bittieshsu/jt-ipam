@@ -63,7 +63,7 @@ test("IP 位址清單：拖拉欄位選單改變欄位順序，重新整理後�
   // 存在帳號上：後端讀回來的偏好裡有這張表的順序
   const stored = await page.evaluate(async () => {
     const r = await fetch("/api/v1/me/preferences", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
     });
     return (await r.json()).table_columns?.["addresses:order"] as string[] | undefined;
   });

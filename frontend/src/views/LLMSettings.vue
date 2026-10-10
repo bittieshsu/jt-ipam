@@ -22,6 +22,7 @@ import { listSubnets, setAIAuditScope } from "@/api/subnets";
 import type { Subnet } from "@/types";
 import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon, AnomalyIcon, PlusIcon, DeleteIcon, TestIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
+import { fmtDate } from "@/utils/datetime";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -243,11 +244,22 @@ async function doRevealKey() {
   catch { msg.error(t("errors.server")); }
   finally { mcpKeyBusy.value = false; }
 }
+// 金鑰會過期：產生／更換時選有效天數，到期前 14／7／1 天會通知管理員
+const mcpKeyDays = ref(90);
+const mcpKeyDayOptions = computed(() => [30, 90, 180, 365].map((d) => ({ label: t("llm_settings.mcp_key_days_n", { n: d }), value: d })));
+const mcpKeyExpired = computed(() => {
+  const s = llm.value?.mcp_api_key_expires_at;
+  return !!s && new Date(s).getTime() <= Date.now();
+});
 async function doRotateKey() {
   mcpKeyBusy.value = true;
   try {
-    mcpKey.value = await rotateMcpKey();
-    if (llm.value) llm.value.mcp_api_key_set = true;
+    const out = await rotateMcpKey(mcpKeyDays.value);
+    mcpKey.value = out.api_key;
+    if (llm.value) {
+      llm.value.mcp_api_key_set = true;
+      llm.value.mcp_api_key_expires_at = out.expires_at;
+    }
     msg.success(t("common.saved"));
   } catch { msg.error(t("errors.server")); }
   finally { mcpKeyBusy.value = false; }
@@ -675,6 +687,11 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           <code v-if="mcpKey" class="mcp-keybox mcp-keybox--val">{{ mcpKey }}</code>
           <span v-else-if="llm.mcp_api_key_set" class="mcp-keybox">••••••••••••（{{ t("llm_settings.mcp_key_hidden") }}）</span>
           <span v-else class="mcp-keybox mcp-keybox--none">{{ t("llm_settings.mcp_key_none") }}</span>
+          <n-tag v-if="llm.mcp_api_key_set && llm.mcp_api_key_expires_at" size="small" :bordered="false"
+                 :type="mcpKeyExpired ? 'error' : 'default'" data-testid="mcp-key-expiry">
+            {{ mcpKeyExpired ? t("llm_settings.mcp_key_expired", { date: fmtDate(llm.mcp_api_key_expires_at) })
+                             : t("llm_settings.mcp_key_expires", { date: fmtDate(llm.mcp_api_key_expires_at) }) }}
+          </n-tag>
 
           <n-button v-if="llm.mcp_api_key_set && !mcpKey" size="small" :loading="mcpKeyBusy" @click="doRevealKey">
             <template #icon><n-icon :component="EyeIcon" /></template>{{ t("llm_settings.mcp_key_reveal") }}
@@ -686,6 +703,8 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
             <template #icon><n-icon :component="EyeOffIcon" /></template>{{ t("llm_settings.mcp_key_hide") }}
           </n-button>
 
+          <n-select v-model:value="mcpKeyDays" :options="mcpKeyDayOptions" size="small" style="width: 130px"
+                    :aria-label="t('llm_settings.mcp_key_days')" data-testid="mcp-key-days" />
           <n-popconfirm v-if="llm.mcp_api_key_set" @positive-click="doRotateKey">
             <template #trigger>
               <n-button size="small" type="warning" ghost :loading="mcpKeyBusy">

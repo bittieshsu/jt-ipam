@@ -103,6 +103,7 @@ import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import { renderDeviceKind } from "@/utils/deviceKindCell";
 import type { IPAddress, Section, Subnet, SubnetUsage } from "@/types";
 import { renderMacWithVendor } from "@/utils/macVendor";
+import { saveBlob } from "@/utils/saveFile";
 
 const route = useRoute();
 const router = useRouter();
@@ -348,12 +349,9 @@ async function handleExport() {
       responseType: "blob",
     });
     const blob = new Blob([resp.data], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `addresses-${subnet.value.cidr.replace("/", "_")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // 伺服器產生 CSV 時已記稽核（export_csv）
+    saveBlob(`addresses-${subnet.value.cidr.replace("/", "_")}.csv`, blob, blob.type,
+             { source: "subnet-csv", audited: true });
   } catch {
     msg.error(t("errors.network"));
   }

@@ -18,7 +18,7 @@ async function login(page: Page) {
 
 test("只看失聯＋只看 DHCP＋篩選字 三者疊加", async ({ page }) => {
   await login(page);
-  const token = await page.evaluate(() => localStorage.getItem("access_token"));
+  const token = await page.evaluate(() => sessionStorage.getItem("access_token"));
   const subs = await (await page.request.get("/api/v1/subnets?page_size=200", {
     headers: { Authorization: `Bearer ${token}` } })).json();
   const sub = (subs.items ?? subs).find((s: { cidr: string }) => String(s.cidr).startsWith("10.20.0.0"));

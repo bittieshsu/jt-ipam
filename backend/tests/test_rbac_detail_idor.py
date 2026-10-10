@@ -112,14 +112,26 @@ async def test_rack_diagram_idor_hidden_returns_404(client, db_session):
 
 # ───────────────────────── topology global-read gate ─────────────────────────
 
-async def test_topology_requires_global_read(client, db_session):
-    """只被指派特定物件（部門帳號）→ topology 403；admin → 200。"""
+async def test_topology_is_scoped_for_partial_visibility(client, db_session):
+    """只被指派特定物件（部門帳號）→ 只看得到自己的那部分（2026-10-09 以前是整張 403）；
+    看不到別人的裝置。範圍細節見 tests/test_topology_scope.py。"""
     u, token = await _nonadmin_token(db_session)
     d = Device(name=f"vis-{uuid.uuid4().hex[:6]}", type="switch")
-    db_session.add(d)
+    other = Device(name=f"hid-{uuid.uuid4().hex[:6]}", type="switch")
+    db_session.add_all([d, other])
     await db_session.flush()
     db_session.add(Permission(object_type="device", object_id=d.id,
                               principal_type="user", principal_id=u.id, level="read"))
+    await db_session.commit()
+    r = await client.get("/api/v1/topology", headers=_hdr(token))
+    assert r.status_code == 200
+    g = r.json()
+    ids = {n["data"]["id"] for n in g["nodes"]}
+    assert g["scope"] == "limited" and str(d.id) in ids and str(other.id) not in ids
+
+
+async def test_topology_refuses_zero_visibility(client, db_session):
+    _u, token = await _nonadmin_token(db_session)
     await db_session.commit()
     r = await client.get("/api/v1/topology", headers=_hdr(token))
     assert r.status_code == 403

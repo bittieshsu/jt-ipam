@@ -181,7 +181,8 @@ async def start_export(
 @router.get("/export/{task_id}/download")
 async def download_export(
     task_id: uuid.UUID,
-    _user: CurrentUser,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> FileResponse:
     task = await session.get(BackgroundTask, task_id)
@@ -193,6 +194,16 @@ async def download_export(
     if not path.exists():
         raise HTTPException(status_code=410, detail="export file expired")
     fname = (task.summary or {}).get("filename") or f"jt-ipam-export-{task_id}.json"
+    # 整台的資料與設定（機密以匯出密碼加密）被下載走 —— 每次下載都留稽核，不只是產生的那一次
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="system_export_download",
+        diff={"task_id": str(task_id), "filename": fname},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
     return FileResponse(path, media_type="application/json", filename=fname)
 
 

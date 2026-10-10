@@ -3,6 +3,8 @@
 用法：
     python -m app.cli.bootstrap create-admin --username admin --email admin@example.com
     # 互動式輸入密碼；或用 --password-stdin
+    python -m app.cli.bootstrap reset-mfa --username admin
+    # 唯一的管理員遺失驗證器又沒有復原碼時：清掉 TOTP 與復原碼、撤銷所有登入（留稽核）
 
 OWASP A07：
 - 密碼從 TTY / stdin 讀，不接受 --password 命令列參數（會留在 shell history）
@@ -82,6 +84,35 @@ async def _create_admin(username: str, email: str, password: str, force: bool) -
         return 0
 
 
+async def _reset_mfa(username: str) -> int:
+    """網頁上的「重設雙因素驗證」需要另一位管理員；只有一位時只能從主機 shell 救回來。"""
+    from app.core.audit import append_audit
+    from app.services import sessions as sessions_service
+    from app.services.mfa import clear_recovery_codes
+
+    async with SessionLocal() as session:
+        user = (await session.execute(select(User).where(User.username == username))).scalars().first()
+        if user is None:
+            print(f"[error] no such user: {username}", file=sys.stderr)
+            return 1
+        had = user.totp_secret_enc is not None
+        user.totp_secret_enc = None
+        user.totp_nonce = None
+        user.totp_last_step = None
+        await clear_recovery_codes(session, user.id)
+        n = await sessions_service.revoke_all(session, user, reason="mfa_reset", cutoff=True)
+        await append_audit(
+            session, actor_user_id=None, actor_ip=None, actor_user_agent="jt-ipam CLI",
+            object_type="user", object_id=str(user.id), action="mfa_reset",
+            diff={"username": user.username, "had_totp": had, "sessions_revoked": n, "via": "cli"},
+            request_id=None,
+        )
+        await session.commit()
+        print(f"[ok] two-factor authentication reset for {user.username} "
+              f"(had TOTP: {had}; signed out of {n} session(s))")
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jt-ipam-bootstrap")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -100,7 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         help="If user exists, reset password and grant admin",
     )
 
+    p_mfa = sub.add_parser("reset-mfa", help="Clear a user's two-factor authentication and sign them out")
+    p_mfa.add_argument("--username", required=True)
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "reset-mfa":
+        return asyncio.run(_reset_mfa(args.username))
 
     if args.cmd == "create-admin":
         if args.password_stdin:

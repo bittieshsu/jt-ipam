@@ -19,7 +19,7 @@ async function login(page: Page) {
 test("子網路的 IP 清單：第 2 頁點出去再按上一頁，還在第 2 頁", async ({ page }) => {
   await login(page);
   const subnetId = await page.evaluate(async () => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const r = await fetch("/api/v1/subnets?q=10.20.0.0&page_size=20", { headers: { Authorization: `Bearer ${tok}` } });
     return ((await r.json()).items as { id: string; cidr: string }[]).find((s) => s.cidr === "10.20.0.0/24")!.id;
   });

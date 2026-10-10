@@ -230,4 +230,15 @@ async def verify_and_anchor(
             rec["baseline_id"] = result["baseline_id"]
         append_anchor(rec, path)
         result["anchored_to"] = latest.id
+        # 有設稽核轉送就把錨定點也送出去：本機的錨定檔與系統日誌都在同一台主機上，
+        # 主機整台被拿下時只有外部那一份還可信
+        try:
+            from app.services.audit_forward import maybe_forward
+            await maybe_forward(session, {
+                "ts": rec["at"], "action": "audit_anchor", "object_type": "audit", "object_id": None,
+                "actor_user_id": None, "actor_ip": None, "request_id": None,
+                "diff": {"audit_id": latest.id, "count": total}, "this_hash": rec["this_hash"],
+                "prev_hash": None})
+        except Exception:
+            log.warning("audit anchor forward failed", exc_info=True)
     return result

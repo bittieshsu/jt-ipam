@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { wsErrorText } from "@/utils/wsError";
+import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 /**
  * BMC 主控台（IPMI SOL）— 瀏覽器內序列主控台，版面比照 SshTerminal。
  * 與後端 `/addresses/{id}/bmc/ws` 連線：先送 JSON config，之後資料雙向走 binary（鍵盤 ↔ SOL）。
@@ -126,7 +126,11 @@ async function connect() {
       } catch { /* ignore */ }
     } else { term?.write(new Uint8Array(ev.data as ArrayBuffer)); }
   };
-  ws.onclose = () => { if (phase.value === "connected") phase.value = "closed"; };
+  ws.onclose = (ev) => {
+    const revoked = revokedCloseText(ev);
+    if (revoked) { phase.value = "error"; errorMsg.value = revoked; }
+    else if (phase.value === "connected") phase.value = "closed";
+  };
   ws.onerror = () => { if (phase.value === "connecting") { phase.value = "error"; errorMsg.value = t("bmc.ws_failed"); } };
 }
 

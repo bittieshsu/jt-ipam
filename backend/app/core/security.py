@@ -45,6 +45,15 @@ def hash_password(password: str) -> str:
     return _password_hasher.hash(password)
 
 
+def hash_one_time_code(code: str) -> str:
+    """一次性代碼（MFA 復原碼，約 50 位元隨機）的 argon2id 雜湊。
+
+    跟密碼用同一組參數，但不套「至少 12 字元」的密碼政策：代碼是系統隨機產生的，不是人選的。"""
+    if not code:
+        raise ValueError("empty code")
+    return _password_hasher.hash(code)
+
+
 def verify_password(password: str, stored_hash: str) -> bool:
     """常數時間比較。"""
     try:

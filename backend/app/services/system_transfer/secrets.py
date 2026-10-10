@@ -145,9 +145,18 @@ _SETTINGS_V1: dict[str, dict[str, bytes]] = {
     "oidc": {"client_secret_enc": b"oidc:client_secret"},
     "saml": {"sp_private_key_enc": b"saml:sp_private_key"},
     "notification_channels": dict.fromkeys(("smtp_password_enc", "telegram_token_enc", "slack_webhook_enc", "teams_webhook_enc", "nextcloud_secret_enc", "zulip_api_key_enc", "webhook_url_enc", "webhook_token_enc"), b"notification:smtp_password"),
+    # 公開端點的權杖（0202 起加密存放；以前明文，匯出照原樣帶走）
+    "graylog_dsv": {"token_enc": b"setting:graylog_dsv:token"},
+    "rack_embed": {"token_enc": b"setting:rack_embed:token"},
+    # 備份加密密碼（搬到新主機後，新主機的備份照樣加密）
+    "backup_encryption": {"passphrase_enc": b"setting:backup_encryption:passphrase"},
 }
-# phpipam_migration 用 b64(ct)+b64(nonce) 且無 AAD
-_SETTINGS_B64PAIR = {"phpipam_migration": ("key_enc", "key_nonce")}
+# base64 一對（密文、nonce）存在設定 JSON 裡的機密：設定鍵 → (密文欄位, nonce 欄位, AAD)
+# geoip 以前不在這裡：匯出時原封不動帶走來源主機的密文，到了別台（不同金鑰）就解不開
+_SETTINGS_B64PAIR = {
+    "phpipam_migration": ("key_enc", "key_nonce", b"setting:phpipam_migration:ssh_private_key"),
+    "geoip": ("key_ct", "key_nonce", b"setting:geoip:license_key"),
+}
 
 _PLAIN = "__plain__"  # 匯出包內明文保留值：{"__plain__": "<明文>"} 或 None
 
@@ -244,10 +253,10 @@ def transform_settings_out(key: str, value: Any) -> Any:
         if isinstance(blob, str) and blob:
             v[enc_field] = {_PLAIN: _dec_v1(blob, aad)}
     if key in _SETTINGS_B64PAIR:
-        enc_f, nonce_f = _SETTINGS_B64PAIR[key]
+        enc_f, nonce_f, pair_aad = _SETTINGS_B64PAIR[key]
         ct, nonce = v.get(enc_f), v.get(nonce_f)
         if isinstance(ct, str) and isinstance(nonce, str) and ct and nonce:
-            v[enc_f] = {_PLAIN: _dec_b64pair(ct, nonce)}
+            v[enc_f] = {_PLAIN: _dec_b64pair(ct, nonce, pair_aad)}
             v.pop(nonce_f, None)
     return v
 
@@ -263,12 +272,12 @@ def transform_settings_in(key: str, value: Any) -> Any:
             plain = cell[_PLAIN]
             v[enc_field] = _enc_v1(str(plain), aad) if plain else None
     if key in _SETTINGS_B64PAIR:
-        enc_f, nonce_f = _SETTINGS_B64PAIR[key]
+        enc_f, nonce_f, pair_aad = _SETTINGS_B64PAIR[key]
         cell = v.get(enc_f)
         if isinstance(cell, dict) and _PLAIN in cell:
             plain = cell[_PLAIN]
             if plain:
-                enc, nonce = encrypt_secret(str(plain))
+                enc, nonce = encrypt_secret(str(plain), aad=pair_aad)
                 v[enc_f] = base64.b64encode(enc).decode()
                 v[nonce_f] = base64.b64encode(nonce).decode()
             else:
@@ -290,9 +299,9 @@ def _enc_v1(plain: str, aad: bytes) -> str:
     return "v1:" + base64.b64encode(nonce).decode() + ":" + base64.b64encode(ct).decode()
 
 
-def _dec_b64pair(ct_b64: str, nonce_b64: str) -> str | None:
+def _dec_b64pair(ct_b64: str, nonce_b64: str, aad: bytes) -> str | None:
     try:
-        return decrypt_secret(base64.b64decode(ct_b64), base64.b64decode(nonce_b64)).decode("utf-8")
+        return decrypt_secret(base64.b64decode(ct_b64), base64.b64decode(nonce_b64), aad=aad).decode("utf-8")
     except Exception:
         return None
 

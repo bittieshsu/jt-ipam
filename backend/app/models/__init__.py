@@ -116,6 +116,7 @@ from app.models.system_setting import SystemSetting
 from app.models.technitium import TechnitiumDhcpScope, TechnitiumDhcpServer
 from app.models.unmanaged_sighting import UnmanagedSighting
 from app.models.user import APIToken, Group, User, UserGroupMember, UserPreference
+from app.models.user_session import UserRecoveryCode, UserSession
 from app.models.virt import (
     ProxmoxInstance,
     VirtCluster,
@@ -224,6 +225,8 @@ __all__ = [
     "User",
     "UserGroupMember",
     "UserPreference",
+    "UserRecoveryCode",
+    "UserSession",
     "VLANDomain",
     "VMInterface",
     "VPNTunnel",

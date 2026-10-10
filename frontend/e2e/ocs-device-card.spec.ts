@@ -32,7 +32,7 @@ const SERVER_HW = {
 
 async function openWithOcs(page: Page, ocs: Record<string, unknown>) {
   const id = await page.evaluate(async () => {
-    const auth = { Authorization: `Bearer ${localStorage.getItem("access_token")}` };
+    const auth = { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` };
     const r = await (await fetch("/api/v1/devices?page=1&page_size=1", { headers: auth })).json();
     const items = Array.isArray(r) ? r : (r.items ?? []);
     return items[0]?.id as string | undefined;

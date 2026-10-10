@@ -23,6 +23,7 @@ from app.core.security import hash_password
 from app.models.permission import Permission
 from app.models.user import Group, User, UserGroupMember
 from app.schemas.base import Paginated, StrictModel
+from app.services import sessions as sessions_service
 
 router = APIRouter(
     tags=["admin"],
@@ -203,6 +204,7 @@ async def update_user(
     # 權限變更要在覆寫之前記下舊值 —— 這是整個系統最重要的事實變化之一，
     # 事後才從稽核翻出來太慢（`security.privilege_changed`）
     was_admin = bool(user.is_admin)
+    was_active = bool(user.is_active)
     for k, v in data.items():
         setattr(user, k, v)
     if new_pwd is not None:
@@ -214,6 +216,15 @@ async def update_user(
     if unlock:
         user.locked_until = None
         user.failed_login_count = 0
+    # 停用帳號、管理員重設密碼：這個人所有的登入立即失效（含已開著的主控台，見 core/console_guard）。
+    # 停用時 API 權杖一併撤銷 —— 以前只是暫時被擋，帳號重新啟用時舊權杖就全部回來了
+    revoked_sessions = 0
+    revoked_tokens = 0
+    if (was_active and user.is_active is False) or new_pwd is not None:
+        revoked_sessions = await sessions_service.revoke_all(
+            session, user, reason="deactivated" if not user.is_active else "password_reset", cutoff=True)
+    if was_active and user.is_active is False:
+        revoked_tokens = await _revoke_api_tokens(session, user.id)
     await append_audit(
         session,
         actor_user_id=str(getattr(request.state, "user_id", "")) or None,
@@ -221,7 +232,9 @@ async def update_user(
         actor_user_agent=request.headers.get("user-agent"),
         object_type="user", object_id=str(user.id),
         action="update",
-        diff={**data, "username": new_username, "password_changed": new_pwd is not None, "unlocked": unlock},
+        diff={**data, "username": new_username, "password_changed": new_pwd is not None, "unlocked": unlock,
+              **({"sessions_revoked": revoked_sessions} if revoked_sessions else {}),
+              **({"api_tokens_revoked": revoked_tokens} if revoked_tokens else {})},
         request_id=getattr(request.state, "request_id", None),
     )
     if bool(user.is_admin) != was_admin:
@@ -246,6 +259,100 @@ async def update_user(
         raise HTTPException(409, detail="username or email already exists") from exc
     await session.refresh(user)
     return user
+
+
+async def _revoke_api_tokens(session: AsyncSession, user_id: uuid.UUID) -> int:
+    from datetime import UTC
+    from datetime import datetime as _dt
+
+    from sqlalchemy import update
+
+    from app.models.user import APIToken
+    res = await session.execute(
+        update(APIToken).where(APIToken.user_id == user_id, APIToken.revoked_at.is_(None))
+        .values(revoked_at=_dt.now(UTC)))
+    return int(res.rowcount or 0)
+
+
+async def _user_or_404(session: AsyncSession, user_id: uuid.UUID) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, detail="user not found")
+    return user
+
+
+async def _audit_admin(session: AsyncSession, request: Request, user: User, action: str,
+                       diff: dict[str, Any]) -> None:
+    await append_audit(
+        session,
+        actor_user_id=str(getattr(request.state, "user_id", "")) or None,
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="user", object_id=str(user.id), action=action,
+        diff={"username": user.username, **diff},
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+class SessionSummary(StrictModel):
+    id: uuid.UUID
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+    ip: str | None
+    user_agent: str | None
+    method: str
+    mfa: bool
+
+
+@router.get("/users/{user_id}/sessions", response_model=list[SessionSummary])
+async def list_user_sessions(
+    user_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[Any]:
+    """這個人目前登入中的工作階段（管理員檢視）。"""
+    await _user_or_404(session, user_id)
+    return list(await sessions_service.list_active(session, user_id))
+
+
+@router.post("/users/{user_id}/revoke-sessions")
+async def revoke_user_sessions(
+    user_id: uuid.UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, int]:
+    """強制登出：撤銷這個人所有的工作階段，連已發出的存取權杖與開著的主控台一起失效。
+
+    API 權杖不在這裡處理（那是給程式用的，要撤銷請到 API 權杖頁或停用帳號）。"""
+    user = await _user_or_404(session, user_id)
+    n = await sessions_service.revoke_all(session, user, reason="admin_revoked", cutoff=True)
+    await _audit_admin(session, request, user, "sessions_revoked", {"count": n, "by_admin": True})
+    await session.commit()
+    return {"revoked": n}
+
+
+@router.post("/users/{user_id}/reset-mfa")
+async def reset_user_mfa(
+    user_id: uuid.UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """重設雙因素驗證（裝置遺失又沒有復原碼時）：清掉 TOTP 與復原碼、撤銷所有登入。
+
+    政策要求 MFA 的話，這個人下次登入時會被要求重新設定。"""
+    from app.services import totp as totp_service
+
+    user = await _user_or_404(session, user_id)
+    had = totp_service.is_enabled(user)
+    user.totp_secret_enc = None
+    user.totp_nonce = None
+    user.totp_last_step = None
+    from app.services.mfa import clear_recovery_codes
+    await clear_recovery_codes(session, user.id)
+    n = await sessions_service.revoke_all(session, user, reason="mfa_reset", cutoff=True)
+    await _audit_admin(session, request, user, "mfa_reset", {"had_totp": had, "sessions_revoked": n})
+    await session.commit()
+    return {"had_totp": had, "sessions_revoked": n}
 
 
 @router.delete("/users/{user_id}", status_code=204)

@@ -44,7 +44,7 @@ async function login(page: Page) {
 
 async function recordId(page: Page): Promise<string> {
   const r = await page.request.get(`/api/v1/addresses?q=${RECORD_IP}&page_size=5`, {
-    headers: { Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem("access_token") || "")}` },
+    headers: { Authorization: `Bearer ${await page.evaluate(() => sessionStorage.getItem("access_token") || "")}` },
   });
   const items = (await r.json()).items ?? [];
   return items.find((x: { ip: string }) => String(x.ip).split("/")[0] === RECORD_IP)?.id ?? "";
@@ -163,7 +163,11 @@ test("頁籤列放不下時兩端有左右捲動按鈕，按得到最左、最�
   await expect(left).toBeVisible();
 
   // 一直按右：最後一個頁籤完整進到畫面、右箭頭消失
-  for (let i = 0; i < 8 && await right.isVisible(); i++) { await right.click(); await page.waitForTimeout(400); }
+  // 捲到底時箭頭會在點擊進行中消失（平滑捲動還沒停）：那一下點不到不算失敗，迴圈下一輪就會看到它不見了
+  for (let i = 0; i < 8 && await right.isVisible(); i++) {
+    await right.click({ timeout: 2_000 }).catch(() => undefined);
+    await page.waitForTimeout(400);
+  }
   await expect(right).toBeHidden();
   const last = page.locator(".n-tabs-tab").filter({ hasText: /IP 頻繁更換 MAC/ }).first();
   const lb = (await last.boundingBox())!;

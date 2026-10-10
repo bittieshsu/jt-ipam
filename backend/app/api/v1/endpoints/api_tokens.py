@@ -82,7 +82,6 @@ async def create_token(
         token_hash=digest,
         token_prefix=prefix,
         scopes=payload.scopes,
-        object_filters=payload.object_filters,
         expires_at=expires_at,
     )
     session.add(token)

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Final
 
@@ -15,6 +16,7 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 
 _redis: Redis[bytes] | None = None
+_log = logging.getLogger("jt_ipam.rate_limit")
 
 _LUA_SLIDING_WINDOW: Final[str] = """
 -- KEYS[1] = bucket key
@@ -97,3 +99,18 @@ async def limit_per_ip(request: Request, *, name: str = "default") -> None:
     rate = rate_map.get(name, settings.rate_limit_default)
     ip = request.client.host if request.client else "unknown"
     await check_rate_limit(bucket=f"rl:{name}:ip:{ip}", rate=rate)
+
+
+async def limit_agent(kind: str, agent_id: object) -> None:
+    """代理端點（掃描／憑證／RustDesk）逐代理限流。
+
+    以金鑰對應到的那台代理為單位，不看來源位址：同一個 NAT 後面可能有很多台代理。
+    Redis 連不上時放行（只記警告）：代理回報是監控資料的來源，限流本身壞掉不該讓
+    所有代理一起停擺；登入那類端點則維持原本的行為。
+    """
+    try:
+        await check_rate_limit(bucket=f"rl:agent:{kind}:{agent_id}", rate=get_settings().rate_limit_agent)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.warning("agent rate limit skipped (%s): %s", kind, exc)

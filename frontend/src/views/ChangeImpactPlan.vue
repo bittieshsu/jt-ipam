@@ -440,6 +440,7 @@ import {
   type Report, type ReportSection, type ReportTone, type Sheet,
 } from "@/utils/reportExport";
 import { renderReportPdf } from "@/api/reports";
+import { saveBlob } from "@/utils/saveFile";
 import { useExportBusy } from "@/composables/useExportBusy";
 import { fmtDateTime } from "@/utils/datetime";
 import {
@@ -944,25 +945,24 @@ async function doExport(fmt: string) {
     if (fmt === "pdf") {
       // 後端排版成真正的 PDF 檔（內嵌中文字型），不再開瀏覽器列印視窗
       const blob = await renderReportPdf(pdfPayload(buildReport(), String(locale.value), exportBase()));
-      saveBytes(`${exportBase()}.pdf`, new Uint8Array(await blob.arrayBuffer()), "application/pdf");
+      saveBytes(`${exportBase()}.pdf`, new Uint8Array(await blob.arrayBuffer()), "application/pdf",
+                { source: "change-impact-report", audited: true });   // 伺服器排版時已記稽核
       return;
     }
     if (fmt === "docx" || fmt === "odt") {
-      saveBytes(`${exportBase()}.${fmt}`, fmt === "docx" ? reportDocx(buildReport()) : reportOdt(buildReport()), MIME[fmt]);
+      saveBytes(`${exportBase()}.${fmt}`, fmt === "docx" ? reportDocx(buildReport()) : reportOdt(buildReport()), MIME[fmt],
+                { source: "change-impact-report" });
       return;
     }
     if (fmt === "xlsx" || fmt === "ods") {
-      saveBytes(`${exportBase()}.${fmt}`, fmt === "xlsx" ? workbookXlsx(buildSheets()) : workbookOds(buildSheets()), MIME[fmt]);
+      saveBytes(`${exportBase()}.${fmt}`, fmt === "xlsx" ? workbookXlsx(buildSheets()) : workbookOds(buildSheets()), MIME[fmt],
+                { source: "change-impact-report" });
       return;
     }
     const blob = await exportRun(run.value.id, fmt as "md" | "json");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `change-impact-${plan.value.title.replace(/[^\w.-]+/g, "_").slice(0, 40)}.${fmt}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    // 伺服器產生這份檔案時已記稽核（impact_export）
+    saveBlob(`change-impact-${plan.value.title.replace(/[^\w.-]+/g, "_").slice(0, 40)}.${fmt}`, blob, blob.type,
+             { source: "change-impact", audited: true });
   } catch (e) { msg.error(apiErrMsg(e)); }
 }
 

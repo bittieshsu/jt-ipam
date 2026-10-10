@@ -87,6 +87,8 @@ class LLMConfig:
     mcp_external_enabled: bool = False
     mcp_api_key: str | None = None          # 明文（已解密）；僅程序內使用，不外傳
     mcp_principal_user_id: str | None = None  # MCP 金鑰所代表的管理員身份（唯讀，僅供 RBAC 可見範圍）
+    # MCP 金鑰到期時間（輪替時選天數；0199 起每把都有，到期前由 credential_expiry 通知管理員）
+    mcp_api_key_expires_at: datetime | None = None
     # AI 巡檢：定期讓模型檢視 IPAM 資料找可疑之處。預設關閉 —— 它會把資料送給 LLM，
     # 該不該做是使用者的決定，不是升版就自動開始跑的事。
     ai_audit_enabled: bool = False
@@ -209,6 +211,11 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
             cfg.mcp_api_key = _dec_mcp(str(v["mcp_api_key_enc"]))
         if v.get("mcp_principal_user_id"):
             cfg.mcp_principal_user_id = str(v["mcp_principal_user_id"])
+        if v.get("mcp_api_key_expires_at"):
+            try:
+                cfg.mcp_api_key_expires_at = datetime.fromisoformat(str(v["mcp_api_key_expires_at"]))
+            except ValueError:
+                cfg.mcp_api_key_expires_at = None
         if isinstance(v.get("ai_audit_enabled"), bool):
             cfg.ai_audit_enabled = v["ai_audit_enabled"]
         if v.get("ai_audit_model"):
@@ -337,14 +344,33 @@ async def set_llm_config(
     return current
 
 
+#: 對外 MCP 金鑰的預設有效天數（輪替時可選 1–365）
+MCP_KEY_DEFAULT_DAYS = 90
+
+
+def mcp_key_valid(cfg: LLMConfig, token: str) -> bool:
+    """這把是不是目前有效的對外 MCP 金鑰（常數時間比對＋未過期）。"""
+    import secrets
+
+    if not (cfg.mcp_api_key and cfg.mcp_principal_user_id and token):
+        return False
+    if not secrets.compare_digest(token.encode(), cfg.mcp_api_key.encode()):
+        return False
+    return cfg.mcp_api_key_expires_at is None or cfg.mcp_api_key_expires_at > datetime.now(UTC)
+
+
 async def rotate_mcp_api_key(
     session: AsyncSession,
     *,
     principal_user_id: uuid.UUID,
     updated_by_user_id: uuid.UUID | None = None,
+    expires_in_days: int = MCP_KEY_DEFAULT_DAYS,
 ) -> str:
-    """產生一把新的對外 MCP 金鑰（唯讀），加密保存並綁定代表身份；回傳明文（僅此一次完整顯示）。"""
+    """產生一把新的對外 MCP 金鑰（唯讀），加密保存並綁定代表身份；回傳明文（僅此一次完整顯示）。
+
+    金鑰會過期（2026-10-09 起）：以前不會，一把外流的金鑰可以永遠用下去。"""
     import secrets
+    from datetime import timedelta
 
     key = "jtmcp_" + secrets.token_urlsafe(32)
     row = await session.get(SystemSetting, LLM_KEY)
@@ -354,6 +380,7 @@ async def rotate_mcp_api_key(
     current: dict[str, Any] = dict(row.value or {})
     current["mcp_api_key_enc"] = _enc_mcp(key)
     current["mcp_principal_user_id"] = str(principal_user_id)
+    current["mcp_api_key_expires_at"] = (datetime.now(UTC) + timedelta(days=expires_in_days)).isoformat()
     row.value = current
     row.updated_by = updated_by_user_id
     from sqlalchemy.orm.attributes import flag_modified
@@ -882,23 +909,78 @@ async def set_device_port_filter(
 RACK_EMBED_KEY = "rack_embed"
 
 
+# ── 公開端點的權杖（機櫃嵌入圖、Graylog DSV）──
+# 2026-10-09 起：權杖加密存放並綁定用途（以前明文存在設定 JSON 裡）、會到期（預設一年，
+# 到期前由 credential_expiry 通知管理員）。管理區的設定頁不再直接回權杖，要按「顯示」
+# （另一個端點，留稽核）才看得到。
+RACK_TOKEN_AAD = b"setting:rack_embed:token"
+DSV_TOKEN_AAD = b"setting:graylog_dsv:token"
+PUBLIC_TOKEN_DEFAULT_DAYS = 365
+PUBLIC_TOKEN_DAYS = (30, 90, 180, 365)
+
+
+def _public_token(v: dict[str, Any], aad: bytes) -> tuple[str, datetime | None]:
+    """(權杖明文, 到期時間)。沒有權杖回 ("", None)；0202 之前的明文欄位也讀得到。"""
+    tok = ""
+    if v.get("token_enc"):
+        tok = _dec(str(v["token_enc"]), aad) or ""
+    elif v.get("token"):
+        tok = str(v["token"])
+    exp = None
+    if v.get("token_expires_at"):
+        try:
+            exp = datetime.fromisoformat(str(v["token_expires_at"]))
+        except ValueError:
+            exp = None
+    return tok, exp
+
+
+def _new_public_token(cur: dict[str, Any], aad: bytes, days: int, nbytes: int) -> None:
+    import secrets as _secrets
+    from datetime import timedelta
+
+    cur["token_enc"] = _enc(_secrets.token_urlsafe(nbytes), aad)
+    cur.pop("token", None)
+    cur["token_expires_at"] = (datetime.now(UTC) + timedelta(days=days)).isoformat()
+
+
+def public_token_problem(cfg: dict[str, Any], supplied: str) -> str | None:
+    """公開端點的權杖檢查：None＝通過；否則 "invalid" 或 "expired"（常數時間比對）。"""
+    import hmac
+
+    expected = str(cfg.get("token") or "")
+    if not expected:
+        return "invalid"
+    try:
+        a = (supplied or "").encode("utf-8", "surrogatepass")
+        b = expected.encode("utf-8", "surrogatepass")
+    except (UnicodeEncodeError, AttributeError):
+        return "invalid"
+    if not hmac.compare_digest(a, b):
+        return "invalid"
+    exp = cfg.get("token_expires_at")
+    if isinstance(exp, datetime) and exp <= datetime.now(UTC):
+        return "expired"
+    return None
+
+
 async def get_rack_embed(session: AsyncSession) -> dict[str, Any]:
-    """機櫃示意圖對外嵌入設定：enabled / token。
+    """機櫃示意圖對外嵌入設定：enabled / token（明文，僅程序內用）/ token_set / token_expires_at。
 
     與 Graylog DSV 同一個模式（單一 token + 逐物件 expose 開關），刻意不共用同一把
     token：撤銷嵌入網址時不該把 Graylog 的查表一起打掉。
     """
     row = await session.get(SystemSetting, RACK_EMBED_KEY)
     v = dict(row.value) if (row and isinstance(row.value, dict)) else {}
-    return {"enabled": bool(v.get("enabled", False)), "token": str(v.get("token") or "")}
+    tok, exp = _public_token(v, RACK_TOKEN_AAD)
+    return {"enabled": bool(v.get("enabled", False)), "token": tok, "token_set": bool(tok),
+            "token_expires_at": exp}
 
 
 async def set_rack_embed(
     session: AsyncSession, *, enabled: bool, regenerate_token: bool = False,
-    updated_by_user_id: uuid.UUID | None = None,
+    token_days: int = PUBLIC_TOKEN_DEFAULT_DAYS, updated_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    import secrets as _secrets
-
     from sqlalchemy.orm.attributes import flag_modified
 
     row = await session.get(SystemSetting, RACK_EMBED_KEY)
@@ -907,33 +989,59 @@ async def set_rack_embed(
         session.add(row)
     cur = dict(row.value or {})
     cur["enabled"] = bool(enabled)
-    if regenerate_token or not cur.get("token"):
-        cur["token"] = _secrets.token_urlsafe(32)
+    if regenerate_token or not (cur.get("token_enc") or cur.get("token")):
+        _new_public_token(cur, RACK_TOKEN_AAD, token_days, 32)
     row.value = cur
     row.updated_by = updated_by_user_id
     flag_modified(row, "value")
     await session.flush()
-    return dict(cur)
+    return await get_rack_embed(session)
 
 
 async def get_graylog_dsv(session: AsyncSession) -> dict[str, Any]:
-    """Graylog DSV 查表設定：enabled / token / fmt(csv|tsv) / path(URL slug)。"""
+    """Graylog DSV 查表設定：enabled / token（明文，僅程序內用）/ token_set / token_expires_at /
+    fmt(csv|tsv) / path(URL slug) / allow_plain_http / allowed_sources。
+
+    - allow_plain_http：明文 8088 埠要在這裡明確打開才服務（新安裝預設關；0202 升級時
+      已經在用 DSV 的站台保留原本的行為）
+    - allowed_sources：只接受這些網段來的查表請求（空＝不限制）
+    """
     row = await session.get(SystemSetting, GRAYLOG_DSV_KEY)
     v = dict(row.value) if (row and isinstance(row.value, dict)) else {}
+    tok, exp = _public_token(v, DSV_TOKEN_AAD)
+    srcs = v.get("allowed_sources")
     return {
         "enabled": bool(v.get("enabled", False)),
-        "token": str(v.get("token") or ""),
+        "token": tok,
+        "token_set": bool(tok),
+        "token_expires_at": exp,
         "fmt": v.get("fmt") if v.get("fmt") in ("csv", "tsv") else "csv",
         "path": str(v.get("path") or "ip-fqdn"),
+        "allow_plain_http": bool(v.get("allow_plain_http", False)),
+        "allowed_sources": [str(x) for x in srcs] if isinstance(srcs, list) else [],
     }
+
+
+def clean_cidrs(items: list[str] | None) -> list[str]:
+    """允許的來源：每行一個位址或網段；不合法的丟 ValueError（不要靜靜略過，否則以為限制了其實沒有）。"""
+    import ipaddress as _ip
+
+    out: list[str] = []
+    for raw in items or []:
+        raw = str(raw).strip()
+        if not raw:
+            continue
+        out.append(str(_ip.ip_network(raw, strict=False)))
+    return out[:200]
 
 
 async def set_graylog_dsv(
     session: AsyncSession, *, enabled: bool, fmt: str, path: str,
-    regenerate_token: bool = False, updated_by_user_id: uuid.UUID | None = None,
+    regenerate_token: bool = False, token_days: int = PUBLIC_TOKEN_DEFAULT_DAYS,
+    allow_plain_http: bool | None = None, allowed_sources: list[str] | None = None,
+    updated_by_user_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     import re
-    import secrets
 
     from sqlalchemy.orm.attributes import flag_modified
 
@@ -947,8 +1055,12 @@ async def set_graylog_dsv(
     # path 限英數 / 連字號 / 底線，避免亂跑路由
     slug = re.sub(r"[^A-Za-z0-9_-]", "", path or "").strip("-") or "ip-fqdn"
     cur["path"] = slug[:48]
-    if regenerate_token or not cur.get("token"):
-        cur["token"] = secrets.token_urlsafe(24)
+    if allow_plain_http is not None:
+        cur["allow_plain_http"] = bool(allow_plain_http)
+    if allowed_sources is not None:
+        cur["allowed_sources"] = clean_cidrs(allowed_sources)
+    if regenerate_token or not (cur.get("token_enc") or cur.get("token")):
+        _new_public_token(cur, DSV_TOKEN_AAD, token_days, 24)
     row.value = cur
     row.updated_by = updated_by_user_id
     flag_modified(row, "value")
@@ -1499,6 +1611,8 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("ip_request.approved", True, True),   # 申請人：申請已核准（含配發 IP）
     ("ip_request.rejected", True, True),   # 申請人：申請已拒絕
     ("cert.expiring", True, False),        # 憑證即將到期 / 已過期
+    # API 權杖、對外 MCP 金鑰、DSV／機櫃嵌入權杖即將到期（14／7／1 天與當天各一次）
+    ("credential.expiring", True, False),
     ("cert.deployed", True, False),        # 代理成功部署新憑證
     ("cert.drift", True, False),           # 憑證飄移（某代理未套到最新版）
     *((ev, True, False) for ev in ANOMALY_EVENTS),   # 異常偵測（逐類別）
@@ -1517,6 +1631,8 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("ip.stale", True, False),                 # 失聯 IP 提醒
     # 權限變更是低頻高影響 → 預設連 Email 都開；暴力破解只在「多個帳號同時被鎖」時發
     ("security.privilege_changed", True, True),
+    # 已經換掉的更新權杖又被使用（疑似盜用；工作階段已自動撤銷）
+    ("security.session_reuse", True, True),
     ("security.brute_force", True, False),
     # RustDesk 客戶端回報的告警（密碼一分鐘錯 6 次、累計 30 次、允許清單違規…）；同一台同一類 10 分鐘內只發一次
     ("rustdesk.alarm", True, False),
@@ -1677,3 +1793,35 @@ async def set_cert_expiry_days(
     row.value = {"days": clean}
     row.updated_by = updated_by_user_id
     return clean
+
+
+# ─────────────────── 每日備份加密（2026-10-09）───────────────────
+# 密碼加密存在這裡（綁定用途）；每日備份（root 的 jt-ipam-backup.sh）透過 app.cli.backup_encrypt
+# 取出來把整包備份加密成 .jtbak（格式見 services/backup_crypt）。沒設定就維持原本的明文目錄，
+# 系統診斷會提醒。
+BACKUP_ENC_KEY = "backup_encryption"
+BACKUP_PASS_AAD = b"setting:backup_encryption:passphrase"
+
+
+async def get_backup_encryption(session: AsyncSession) -> dict[str, Any]:
+    """{enabled, set_at, passphrase（明文，僅程序內用）}。"""
+    row = await session.get(SystemSetting, BACKUP_ENC_KEY)
+    v = dict(row.value) if (row and isinstance(row.value, dict)) else {}
+    pw = _dec(str(v["passphrase_enc"]), BACKUP_PASS_AAD) if v.get("passphrase_enc") else None
+    return {"enabled": bool(pw), "set_at": v.get("set_at"), "passphrase": pw}
+
+
+async def set_backup_encryption(session: AsyncSession, passphrase: str | None, *,
+                                updated_by: uuid.UUID | None) -> None:
+    """設定（或用 None 移除）備份加密密碼。"""
+    row = await session.get(SystemSetting, BACKUP_ENC_KEY)
+    value: dict[str, Any] = {}
+    if passphrase:
+        value = {"passphrase_enc": _enc(passphrase, BACKUP_PASS_AAD), "set_at": datetime.now(UTC).isoformat()}
+    if row is None:
+        session.add(SystemSetting(key=BACKUP_ENC_KEY, value=value, updated_by=updated_by))
+    else:
+        row.value = value
+        row.updated_by = updated_by
+        flag_modified(row, "value")
+    await session.flush()

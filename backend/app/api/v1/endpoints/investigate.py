@@ -94,8 +94,11 @@ def _prompt(dossier: dict[str, Any], lang: str) -> str:
         hint_block = rule6 + f"\n{label}:\n" + "\n".join(f"- {h}" for h in hints) + "\n"
     # 送的是精簡版（每個清單有上限、拿掉空值與內部識別碼）：檔案加強後大了好幾倍，
     # 超過模型的 num_ctx 不會報錯，只會被靜靜截斷（services/investigate.prompt_view）
-    return (f"{rules}{hint_block}\n---\n"
-            f"{json.dumps(prompt_view(dossier), ensure_ascii=False, default=str)}\n")
+    from app.services.prompt_safety import data_block, data_rule
+
+    # 檔案裡的主機名稱、描述、DHCP／mDNS 名稱可能由不可信的裝置填寫 → 定界＋明講不是指令
+    return (f"{rules}{hint_block}{data_rule(zh)}\n---\n"
+            f"{data_block(json.dumps(prompt_view(dossier), ensure_ascii=False, default=str))}\n")
 
 
 @router.get("")

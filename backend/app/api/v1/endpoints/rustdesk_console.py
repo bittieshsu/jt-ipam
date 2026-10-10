@@ -53,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser
 from app.core.audit import append_audit
 from app.core.config import get_settings
+from app.core.console_guard import note_ticket, ticket_fields, watch_console
 from app.core.db import SessionLocal, get_session
 from app.core.rate_limit import _redis_client
 from app.core.security import envelope_decrypt
@@ -170,7 +171,7 @@ async def issue_rustdesk_ticket(
     )).first()
 
     ticket = secrets.token_urlsafe(32)
-    data = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), "server_id": str(srv.id),
+    data = json.dumps({"user_id": str(user.id), "ip_id": str(ip.id), **ticket_fields(request), "server_id": str(srv.id),
                        "peer_id": peer.rustdesk_id, "kind": kind})
     await _redis_client().set(_ticket_key(ticket), data, ex=_TICKET_TTL)
     extra: dict[str, Any] = {"file_limits": rustdesk_svc.file_limits(srv)} if kind == "file" else {}
@@ -192,6 +193,7 @@ async def _redeem(ticket: str, address_id: uuid.UUID) -> dict[str, str] | None:
     if not ticket or len(ticket) > 128:
         return None
     raw = await take_once(_redis_client(), _ticket_key(ticket))
+    note_ticket(raw)
     if not raw:
         return None
     try:
@@ -263,6 +265,7 @@ class _State:
 
 
 @router.websocket("/{address_id}/rustdesk/ws")
+@watch_console("rustdesk")
 async def rustdesk_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") -> None:
     global _active_total
 

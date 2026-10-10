@@ -23,7 +23,7 @@ async function login(page: Page) {
 async function api(page: Page, method: string, path: string, body?: unknown) {
   return page.evaluate(async ({ method, path, body }) => {
     const r = await fetch(path, { method, headers: { "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+      Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
       body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, json: r.status === 204 ? null : await r.json().catch(() => null) };
   }, { method, path, body });

@@ -31,6 +31,8 @@ from app.models.system_setting import SystemSetting
 from app.schemas.base import StrictModel
 
 _MIG_CFG_KEY = "phpipam_migration"
+#: SSH 私鑰密文綁定用途（AAD）；0198 之前存的由 migration 重加密
+KEY_AAD = b"setting:phpipam_migration:ssh_private_key"
 from app.services.phpipam_migration import run_migration
 from app.services.ssh_tunnel import (
     SSHHostKeyMismatch,
@@ -155,7 +157,7 @@ async def _stored_private_key(session: AsyncSession) -> str | None:
     if not enc_b64 or not nonce_b64:
         return None
     try:
-        return decrypt_secret(base64.b64decode(enc_b64), base64.b64decode(nonce_b64)).decode()
+        return decrypt_secret(base64.b64decode(enc_b64), base64.b64decode(nonce_b64), aad=KEY_AAD).decode()
     except Exception:
         return None
 
@@ -201,7 +203,7 @@ async def put_config(
     })
     # 私鑰：有給才更新（加密存）；沒給保留舊的
     if payload.ssh_private_key and payload.ssh_private_key.get_secret_value().strip():
-        enc, nonce = encrypt_secret(payload.ssh_private_key.get_secret_value())
+        enc, nonce = encrypt_secret(payload.ssh_private_key.get_secret_value(), aad=KEY_AAD)
         cur["key_enc"] = base64.b64encode(enc).decode()
         cur["key_nonce"] = base64.b64encode(nonce).decode()
     if row is None:

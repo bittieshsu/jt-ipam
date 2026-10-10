@@ -30,7 +30,6 @@ from app.core.security import create_access_token, decode_access_token
 from app.core.ui_error import detail_of
 from app.services import oidc as oidc_service
 from app.services import saml as saml_service
-from app.services.auth import issue_access_token, issue_refresh_token
 from app.services.system_config import (
     get_oidc_config,
     get_saml_config,
@@ -68,6 +67,28 @@ class OidcConfigIn(BaseModel):
     admin_groups: list[str] = Field(default_factory=list)
     default_group_id: str | None = None
 
+
+
+async def _sso_finish(session: AsyncSession, user: Any, request: Request, *, method: str,
+                      login_url: str) -> RedirectResponse:
+    """SSO 驗證通過之後：建立工作階段（更新權杖放 HttpOnly Cookie）再導回登入頁。
+
+    以前把存取權杖與更新權杖放在網址的 fragment 帶回前端（瀏覽器歷史與畫面上都看得到）；
+    現在網址只帶 `#sso=1`，前端再用 Cookie 換存取權杖。MFA 政策套用到 SSO 時，
+    帶回的是短期的 MFA 挑戰（`#mfa_token=…`），通過驗證才發工作階段。"""
+    from app.api.v1.endpoints.auth import begin_second_step
+    from app.services import sessions
+
+    second = await begin_second_step(session, user, method=method)
+    if second is not None:
+        await session.commit()
+        setup = "1" if second.mfa_setup_required else "0"
+        return RedirectResponse(f"{login_url}#mfa_token={second.mfa_token}&mfa_setup={setup}", status_code=302)
+    issued = await sessions.create_session(session, user, request, method=method, mfa=False)
+    await session.commit()
+    resp = RedirectResponse(f"{login_url}#sso=1", status_code=302)
+    sessions.set_refresh_cookie(resp, issued)
+    return resp
 
 @router.get("/oidc/config", response_model=OidcConfigOut,
             dependencies=[Depends(require_admin)])
@@ -333,13 +354,8 @@ async def oidc_callback(
     )
     await session.commit()
 
-    access = issue_access_token(user)
-    refresh = issue_refresh_token(user)
-
-    # 重導到前端，把 token 透過 fragment 傳遞（避免 query 進 referrer）
-    target = settings.app_public_url
-    redir = f"{str(target).rstrip('/')}/login#access_token={access}&refresh_token={refresh}"
-    resp = RedirectResponse(redir, status_code=302)
+    resp = await _sso_finish(session, user, request, method="oidc",
+                             login_url=f"{str(settings.app_public_url).rstrip('/')}/login")
     resp.delete_cookie("jt_oidc_flow")
     return resp
 
@@ -480,9 +496,6 @@ async def saml_acs(
     )
     await session.commit()
 
-    access = issue_access_token(user)
-    refresh = issue_refresh_token(user)
-
     # 驗 RelayState（同 OIDC：透過 cookie 驗一次）
     return_to = "/"
     flow_token = request.cookies.get("jt_saml_flow")
@@ -493,11 +506,8 @@ async def saml_acs(
             return_to = "/"
 
     target = settings.app_public_url
-    redir = (
-        f"{str(target).rstrip('/')}{return_to.rstrip('/') or ''}/login"
-        f"#access_token={access}&refresh_token={refresh}"
-    )
-    resp = RedirectResponse(redir, status_code=302)
+    resp = await _sso_finish(session, user, request, method="saml",
+                             login_url=f"{str(target).rstrip('/')}{return_to.rstrip('/') or ''}/login")
     resp.delete_cookie("jt_saml_flow")
     return resp
 

@@ -9,6 +9,8 @@ import { reportPageLoad, startPageDiag } from "@/utils/pageDiag";
 import { installResizableColumns } from "@/utils/resizableColumns";
 import { installColResizeStyle, vColResize } from "@/directives/colResize";
 import { installTabArrowStyle, installTabScrollArrows } from "@/utils/tabScrollArrows";
+import { setExportLogger } from "@/utils/saveFile";
+import { reportExportEvent } from "@/api/exportEvents";
 
 // 全站表格欄寬可拖拉（必須在任何畫面建立表格之前）
 installResizableColumns(NDataTable);
@@ -18,6 +20,9 @@ installTabArrowStyle();
 
 // 頁面載入診斷（「切回分頁就整頁重新載入」要靠這個分辨是誰重載的）
 startPageDiag();
+
+// 瀏覽器端產生的檔案（表格、報告、拓樸圖…）存檔時回報一筆匯出稽核
+setExportLogger(reportExportEvent);
 
 const app = createApp(App);
 app.use(createPinia());

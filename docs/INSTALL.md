@@ -534,6 +534,18 @@ into `/var/backups/jt-ipam/`, retained for 14 days.
 
 Every run, successful or not, writes `/var/backups/jt-ipam/last-run`: the result, the time, the last successful time and the reason for a failure. "Daily backup" on the System diagnostics page and `sudo /opt/jt-ipam/scripts/jt-ipam.sh doctor` both read it; a failed backup, or no success for 48 hours, turns the check red and sends a system alert to admins. The most common failure is a table in the database not owned by the jt-ipam role (for example a copy someone left behind): pg_dump cannot read it and stops; the diagnostics page shows the command to run.
 
+### Backup encryption
+
+The backup directory holds the database dump **and** `backend.env`, which contains the key that decrypts the secrets in that dump. Set a backup passphrase under **System settings → Daily backup encryption** (at least 12 characters): from then on each day's backup is packed and encrypted into one file, `/var/backups/jt-ipam/jt-ipam-<date>.jtbak` (scrypt-derived key, AES-256-GCM in 1 MiB chunks; a truncated, reordered or modified file fails to decrypt), and the plain directory is removed. `last-run` records `encrypted=1`; while no passphrase is set, the diagnostics page and `doctor` warn.
+
+Keep the passphrase somewhere other than this host (a password manager): without it the backups cannot be decrypted. After changing it, older backups still need the passphrase they were made with. The decrypt tool needs only Python 3 and `cryptography` (`apt install python3-cryptography`), so it also works on a fresh machine before jt-ipam is reinstalled:
+
+```bash
+python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
+    /var/backups/jt-ipam/jt-ipam-2026-10-09.jtbak --out /root/jt-ipam-restore
+# → /root/jt-ipam-restore/2026-10-09/ (dump, backend.env, tls.tar.gz, uploads.tar.gz)
+```
+
 ### Offsite backup
 
 rsync `/var/backups/jt-ipam/` to a NAS / S3 / another machine:
@@ -549,6 +561,11 @@ rsync `/var/backups/jt-ipam/` to a NAS / S3 / another machine:
 # 0. stop services
 sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer
 
+# 0b. encrypted backup (.jtbak): decrypt it first (asks for the backup passphrase)
+python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
+    /var/backups/jt-ipam/jt-ipam-2026-05-10.jtbak --out /root/jt-ipam-restore
+# then use /root/jt-ipam-restore/2026-05-10/ in place of /var/backups/jt-ipam/2026-05-10/ below
+
 # 1. recreate an empty DB
 sudo -u postgres dropdb jt_ipam
 sudo -u postgres createdb -O jt_ipam jt_ipam
@@ -562,12 +579,14 @@ sudo -u postgres psql -d jt_ipam -c '
 
 # 2. restore the dump (note: you MUST use the same ENCRYPTION_KEY to decrypt sensitive fields like DNS/API credentials)
 sudo -u postgres pg_restore -d jt_ipam \
-    /var/backups/jt-ipam/jt-ipam-2026-05-10.dump
+    /var/backups/jt-ipam/2026-05-10/jt-ipam-2026-05-10.dump
 
 # 3. restore the config file (if still present)
 sudo cp /var/backups/jt-ipam/2026-05-10/backend.env /etc/jt-ipam/
 
-# 4. start
+# 4. give the audit table back to its NOLOGIN owner (the app role may only read and append),
+#    then start
+sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit
 sudo systemctl start jt-ipam-backend jt-ipam-sync.timer
 
 # 5. verify the chain (any tampered row shows up immediately)
@@ -576,7 +595,7 @@ curl -X POST https://ipam.example.com/api/v1/audit/verify \
 ```
 
 > Backup files contain sensitive data (the DB holds encrypted API credentials; the env holds SECRET_KEY/ENCRYPTION_KEY).
-> Store them with `0600` permissions and transfer encrypted (rsync over ssh / S3 server-side encryption).
+> Set a backup encryption passphrase (above), store them with `0600` permissions and transfer encrypted (rsync over ssh / S3 server-side encryption).
 
 ---
 

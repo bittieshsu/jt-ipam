@@ -170,9 +170,14 @@ async def chat_confirm(
 ) -> dict[str, Any]:
     """執行使用者在 AI 對話中按下「確認」的異動動作（允許清單工具；權限仍由工具本身把關）。"""
     await limit_per_ip(request, name="ai")
-    from app.mcp.tools import MUTATING_TOOLS, TOOLS, IPAMToolError, summarize_action
+    from app.mcp.tools import MUTATING_TOOLS, TOOLS, IPAMToolError, authorize_tool, summarize_action
     if payload.tool not in MUTATING_TOOLS or payload.tool not in TOOLS:
         raise HTTPException(status_code=400, detail="not a confirmable action")
+    # 執行前再過一次 RBAC 閘（跟模型提出動作時同一個）：以前只靠每個工具自己的 is_admin 檢查，
+    # 新增的工具漏寫就會被確認端點直接執行（2026-10-09 合規核對）
+    denied = await authorize_tool(session, user, payload.tool)
+    if denied is not None:
+        raise HTTPException(status_code=403, detail=denied)
     try:
         result = await TOOLS[payload.tool]["fn"](session, user=user, **payload.args)
     except IPAMToolError as exc:

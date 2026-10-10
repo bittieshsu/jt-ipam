@@ -151,7 +151,15 @@ async def _clean_db(_engine, request):  # type: ignore[no-untyped-def]
         ).fetchall()
         if rows:
             tables = ", ".join(f'"{r[0]}"' for r in rows)
+            # 稽核表擋 TRUNCATE（0201）：測試帳號是表的擁有者，清表時暫停觸發器、清完立刻恢復。
+            # 正式環境的應用程式帳號不是擁有者（scripts/jt-ipam.sh harden-audit），做不到這件事
+            has_guard = (await conn.execute(text(
+                "SELECT 1 FROM pg_trigger WHERE tgname = 'audit_logs_no_truncate'"))).first() is not None
+            if has_guard:
+                await conn.execute(text("ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_truncate"))
             await conn.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
+            if has_guard:
+                await conn.execute(text("ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_truncate"))
     yield
 
 

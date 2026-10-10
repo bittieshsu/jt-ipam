@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -313,10 +315,13 @@ async def rack_embed_svg(
     token: str = "",
 ) -> Response:
     from app.services.rack_svg import build_rack_svg
-    from app.services.system_config import get_rack_embed
+    from app.services.system_config import get_rack_embed, public_token_problem
 
     cfg = await get_rack_embed(session)
-    if not cfg["enabled"] or not _embed_token_ok(token, cfg["token"]):
+    problem = public_token_problem(cfg, token) if cfg["enabled"] else "invalid"
+    if problem == "expired":
+        raise HTTPException(status_code=401, detail="Token expired")
+    if problem:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     rack = await session.get(Rack, rack_id)
@@ -356,29 +361,28 @@ async def rack_embed_svg(
     )
 
 
-def _embed_token_ok(supplied: str, expected: str | None) -> bool:
-    """常數時間比對。這是**未登入**端點，token 是唯一守門，比對方式本身也不能洩漏資訊。"""
-    import hmac
-
-    if not expected:
-        return False
-    return hmac.compare_digest((supplied or "").encode(), expected.encode())
-
-
 # ─────────────────── 嵌入功能的管理設定（admin）───────────────────
 
 class RackEmbedOut(StrictModel):
+    """設定看到的：不含權杖本身（按「顯示」另外取，留稽核）。"""
     enabled: bool
-    token: str
+    token_set: bool
+    token_expires_at: datetime | None = None
 
 
 class RackEmbedPatch(StrictModel):
     enabled: bool = False
     regenerate_token: bool = False
+    #: 新權杖的有效天數（30／90／180／365）
+    token_days: int = Field(default=365, ge=1, le=365)
 
 
 admin_router = APIRouter(prefix="/system", tags=["system"],
                          dependencies=[Depends(require_admin)])
+
+
+def _embed_out(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in cfg.items() if k != "token"}
 
 
 @admin_router.get("/rack-embed", response_model=RackEmbedOut)
@@ -388,7 +392,32 @@ async def get_rack_embed_ep(
 ) -> dict[str, Any]:
     from app.services.system_config import get_rack_embed
 
-    return await get_rack_embed(session)
+    return _embed_out(await get_rack_embed(session))
+
+
+@admin_router.get("/rack-embed/token")
+async def reveal_rack_embed_token(
+    user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """顯示嵌入權杖（組 `<img>` 網址用）。拿到權杖就能不登入看開放的機櫃圖，每次都留稽核。"""
+    from app.core.audit import append_audit
+    from app.services.system_config import get_rack_embed
+
+    cfg = await get_rack_embed(session)
+    if not cfg["token"]:
+        raise HTTPException(status_code=404, detail="Not found")
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system_setting", object_id=None, action="secret_view",
+        diff={"setting": "rack_embed_token"},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    exp = cfg["token_expires_at"]
+    return {"token": cfg["token"], "expires_at": exp.isoformat() if exp else None}
 
 
 @admin_router.put("/rack-embed", response_model=RackEmbedOut)
@@ -401,7 +430,7 @@ async def put_rack_embed_ep(
 
     out = await set_rack_embed(
         session, enabled=payload.enabled,
-        regenerate_token=payload.regenerate_token,
+        regenerate_token=payload.regenerate_token, token_days=payload.token_days,
         updated_by_user_id=uuid.UUID(str(user.id)),
     )
     await append_audit(
@@ -415,4 +444,4 @@ async def put_rack_embed_ep(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return out
+    return _embed_out(out)

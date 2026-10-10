@@ -163,10 +163,11 @@ async def append_audit(
     entry._chain_seq = seq        # 只在同一交易內用的暫時屬性
     session.add(entry)
 
-    # best-effort 轉送到 Graylog（syslog / CEF / GELF）；任何錯誤都不影響主交易
+    # best-effort 轉送到 Graylog（syslog / CEF / GELF）；任何錯誤都不影響主交易。
+    # 連同雜湊一起送：外部的記錄就是一份獨立的鏈，可以拿來比對資料庫裡的（2026-10-09 起）
     try:
         from app.services.audit_forward import maybe_forward
-        await maybe_forward(session, record)
+        await maybe_forward(session, {**record, "this_hash": this_hash.hex(), "prev_hash": prev.hex()})
     except Exception:
         pass
 

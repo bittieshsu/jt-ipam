@@ -380,15 +380,27 @@ async def list_unmanaged(
 @router.get("/export.csv")
 async def export_csv(
     user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     subnet_id: uuid.UUID = Query(..., description="必要：限定要匯出的 subnet"),
 ) -> Response:
-    """以 CSV 匯出某個 subnet 的所有 IP（須對該 subnet 有 read 權限）。Excel 友善：UTF-8 + BOM。"""
+    """以 CSV 匯出某個 subnet 的所有 IP（須對該 subnet 有 read 權限）。Excel 友善：UTF-8 + BOM。
+
+    整個子網路的位址清單被帶走，要留下是誰、什麼時候、幾筆（稽核）。"""
     await _require_subnet_perm(session, user, subnet_id, "read")
     rows = list((await session.execute(
         select(IPAddress).where(IPAddress.subnet_id == subnet_id).order_by(IPAddress.ip)
     )).scalars().all())
     body = export_addresses_csv(rows)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="subnet", object_id=str(subnet_id), action="export_csv",
+        diff={"rows": len(rows)},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",

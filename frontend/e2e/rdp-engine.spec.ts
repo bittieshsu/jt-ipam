@@ -25,7 +25,7 @@ async function login(page: Page) {
 async function readSetting(page: Page) {
   return page.evaluate(async () => {
     const r = await fetch("/api/v1/system/console-security", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
     });
     return r.json();
   });
@@ -40,7 +40,7 @@ test.describe("RDP 連線引擎", () => {
       await fetch("/api/v1/system/console-security", {
         method: "PUT",
         headers: { "Content-Type": "application/json",
-                   Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+                   Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
         body: JSON.stringify({ rdp_clipboard_paste: false, rdp_engine: "guacd", vnc_engine: "guacd",
                                ssh_engine: "builtin" }),
       });
@@ -79,7 +79,7 @@ test.describe("RDP 連線引擎", () => {
       await fetch("/api/v1/system/console-security", {
         method: "PUT",
         headers: { "Content-Type": "application/json",
-                   Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+                   Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
         body: JSON.stringify({ rdp_clipboard_paste: true, rdp_engine: "guacd" }),
       });
     });
@@ -95,7 +95,7 @@ test.describe("RDP 連線引擎", () => {
       await fetch("/api/v1/system/console-security", {
         method: "PUT",
         headers: { "Content-Type": "application/json",
-                   Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+                   Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
         body: JSON.stringify({ rdp_clipboard_paste: false, rdp_engine: "guacd" }),
       });
     });

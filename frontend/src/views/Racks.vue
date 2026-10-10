@@ -38,7 +38,7 @@ import RackRoomToolbar from "@/components/RackRoomToolbar.vue";
 import { RACK_DEVICE_TYPES, rackTypeColor } from "@/utils/rackColors";
 import RackFloorPlan from "@/components/RackFloorPlan.vue";
 import {
-  getRackDiagram, getRackEmbedConfig, rackEmbedUrl,
+  getRackDiagram, getRackEmbedConfig, rackEmbedUrl, revealRackEmbedToken,
   type RackDiagram as RD, type RackEmbedConfig,
   rackLevelOp, type RackLevelPlan, type RackKind, type RackFinish,
 } from "@/api/racks";
@@ -316,9 +316,10 @@ async function loadEmbedCfg() {
   try { embedCfg.value = await getRackEmbedConfig(); } catch { embedCfg.value = null; }
 }
 async function copyEmbedUrl() {
-  if (!editing.value || !embedCfg.value?.token) return;
-  const url = rackEmbedUrl(editing.value.id, embedCfg.value.token);
+  if (!editing.value || !embedCfg.value?.token_set) return;
   try {
+    // 權杖不再隨設定回傳，複製時才向後端取（後端留稽核）
+    const url = rackEmbedUrl(editing.value.id, await revealRackEmbedToken());
     await navigator.clipboard.writeText(url);
     // 提醒使用者這串等同鑰匙 —— 貼到公開的地方等於把所有已開放的機櫃一起公開
     msg.success(t("racks.embed_copied"));

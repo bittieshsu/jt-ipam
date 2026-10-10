@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>jt-ipam: Compliance</title>
+<meta name="description" content="The information security and AI management controls jt-ipam already provides as evidence, and what the adopting organisation has to do itself." />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<style>
+  :root{
+    --green:#18a058; --green-h:#36ad6a; --cyan:#22d3ee;
+    --ink:#0f172a; --body:#334155; --muted:#64748b;
+    --bg:#eef3ee; --card:#ffffff; --line:#e2e8e4;
+    /* 導入流程圖的兩種階段：核心（綠）與擴充（藍） */
+    --core:#18a058; --core-soft:#e8f6ee; --ext:#0284c7; --ext-soft:#e6f3fb;
+    --warn-bg:#fff7ed; --warn-line:#fed7aa; --warn-ink:#7c2d12;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    color:var(--body);background:var(--bg);line-height:1.7}
+  a{color:inherit;text-decoration:none}
+  /* 三語切換：只顯示目前語言的節點。 */
+  .zh,.en,.ja{display:none}
+  body.lang-zh .zh{display:initial}
+  body.lang-en .en{display:initial}
+  body.lang-ja .ja{display:initial}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  /* ── 與首頁一致的頂列 ── */
+  nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(8px);
+    border-bottom:1px solid var(--line)}
+  .nav-in{display:flex;align-items:center;gap:18px;height:60px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--ink);font-size:18px}
+  .nav-links{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap;align-items:center}
+  .nav-links a{color:var(--body);font-size:14px;font-weight:500}
+  .nav-links a:hover{color:var(--green)}
+  .nav-links a[aria-current="page"]{color:var(--green);font-weight:700}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 18px;border-radius:10px;
+    font-weight:600;font-size:15px;line-height:1.3;border:1px solid transparent;cursor:pointer;font-family:inherit}
+  .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--green)}
+  .btn-sm{padding:6px 12px;font-size:13px}
+  /* ── 語言切換（自訂下拉） ── */
+  .langsw{position:relative;display:inline-flex;align-items:center}
+  .langsw > button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+    border-radius:10px;background:#fff;color:var(--ink);font-family:inherit;font-size:13px;
+    font-weight:600;padding:6px 11px;cursor:pointer;line-height:1.3;white-space:nowrap}
+  .langsw > button:hover{border-color:var(--green)}
+  .langsw > button:focus-visible{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(24,160,88,.12)}
+  .langsw .chev{width:7px;height:7px;flex:none;border-right:1.6px solid var(--muted);
+    border-bottom:1.6px solid var(--muted);transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+  .langsw > button[aria-expanded="true"] .chev{transform:translateY(1px) rotate(-135deg)}
+  .langsw ul{position:absolute;top:calc(100% + 6px);right:0;z-index:60;margin:0;padding:5px;
+    list-style:none;min-width:140px;background:#fff;border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 10px 28px rgba(15,23,42,.13)}
+  .langsw li{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+    font-size:13.5px;color:var(--body);cursor:pointer;white-space:nowrap}
+  .langsw li:hover{background:#f1f5f2;color:var(--ink)}
+  .langsw li[aria-selected="true"]{color:var(--green);font-weight:700}
+  .langsw li .tick{width:14px;flex:none;text-align:center;opacity:0}
+  .langsw li[aria-selected="true"] .tick{opacity:1}
+  @media(max-width:560px){
+    .wrap{padding:0 16px}
+    .nav-in{height:auto;padding:10px 16px;flex-wrap:wrap;gap:10px}
+    .brand{font-size:16px;white-space:nowrap}
+    .nav-links{gap:8px;width:100%;justify-content:flex-end}
+  }
+  @media(max-width:900px){.nav-links a:not(.btn){display:none}}
+
+  /* ── 頁首 ── */
+  h1{font-size:clamp(26px,4vw,36px);color:var(--ink);margin:30px 0 6px}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 10px;max-width:820px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;padding:0;list-style:none}
+  .toc a{display:inline-block;font-size:13px;font-weight:600;color:var(--ink);background:var(--card);
+    border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+  .toc a:hover{border-color:var(--green);color:var(--green)}
+
+  /* ── 區塊 ── */
+  section.blk{margin:34px 0 0}
+  h2{font-size:clamp(20px,2.6vw,24px);color:var(--ink);margin:0 0 12px;line-height:1.4}
+  h3{font-size:16.5px;color:var(--ink);margin:18px 0 8px;line-height:1.5}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 24px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .box p{margin:8px 0;font-size:14.8px}
+  .box ul{margin:6px 0 10px;padding-left:22px;font-size:14.6px}
+  .box li{margin:4px 0}
+  code{background:#eef3ee;border:1px solid var(--line);border-radius:5px;padding:1px 5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.8px;color:var(--ink);
+    overflow-wrap:anywhere}
+  pre{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px 14px;overflow:auto;margin:10px 0;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.8px;line-height:1.6}
+  pre code{background:transparent;border:0;padding:0;color:inherit;font-size:inherit}
+  a.lnk{color:var(--green);font-weight:600}
+  a.lnk:hover{text-decoration:underline}
+  .note{border-left:3px solid var(--green);background:#f1f8f3;border-radius:8px;padding:9px 13px;margin:12px 0;font-size:14px}
+  .warn{border-left:3px solid #f59e0b;background:var(--warn-bg);border-radius:8px;padding:9px 13px;margin:12px 0;
+    font-size:14px;color:var(--warn-ink)}
+
+  /* ── 三個原則 ── */
+  .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .card h3{margin:0 0 6px;font-size:15.5px}
+  .card p{margin:0;font-size:14.2px}
+  @media(max-width:820px){.cards{grid-template-columns:minmax(0,1fr)}}
+
+  /* ── 導入流程圖（純 CSS） ──
+     六個階段排成一列、中間用箭頭接起來；寬度不夠時改成兩列三個，手機改成直排、箭頭朝下。
+     上緣色條區分核心（每個站台都做）與擴充（依環境選擇）。 */
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 12px;font-size:13px;color:var(--muted)}
+  .legend span.k{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:22px;height:8px;border-radius:4px;display:inline-block}
+  .legend i.core{background:var(--core)}
+  .legend i.ext{background:var(--ext)}
+  ol.flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}
+  ol.flow > li{position:relative;min-width:0}
+  ol.flow > li > a{display:flex;flex-direction:column;gap:4px;height:100%;background:var(--card);
+    border:1px solid var(--line);border-top:5px solid var(--c);border-radius:12px;padding:10px 12px 12px;
+    box-shadow:0 1px 3px rgba(15,23,42,.05);transition:border-color .15s, transform .15s}
+  ol.flow > li > a:hover{border-color:var(--c);transform:translateY(-1px)}
+  ol.flow > li.core{--c:var(--core);--s:var(--core-soft)}
+  ol.flow > li.ext{--c:var(--ext);--s:var(--ext-soft)}
+  .ph-n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;
+    background:var(--c);color:#fff;font-weight:800;font-size:14px;flex:none}
+  .ph-top{display:flex;align-items:center;gap:8px}
+  .ph-k{font-size:11.5px;font-weight:700;letter-spacing:.04em;color:var(--c);text-transform:uppercase}
+  .ph-t{font-weight:800;color:var(--ink);font-size:14.5px;line-height:1.4}
+  .ph-d{font-size:12.8px;color:var(--body);line-height:1.55}
+  .ph-time{margin-top:auto;padding-top:6px;font-size:12px;color:var(--muted)}
+  .ph-time b{color:var(--ink);font-weight:700}
+  /* 箭頭：放在格線間距裡 */
+  ol.flow > li:not(:last-child)::after{content:"";position:absolute;top:50%;right:-13px;width:9px;height:9px;
+    border-top:2.5px solid #94a3b8;border-right:2.5px solid #94a3b8;transform:translateY(-50%) rotate(45deg)}
+  @media(max-width:960px){
+    ol.flow{grid-template-columns:repeat(3,minmax(0,1fr))}
+    ol.flow > li:nth-child(3)::after{display:none}
+  }
+  @media(max-width:560px){
+    ol.flow{grid-template-columns:minmax(0,1fr);gap:20px}
+    ol.flow > li:not(:last-child)::after,
+    ol.flow > li:nth-child(3)::after{display:block;top:auto;bottom:-15px;right:auto;left:50%;
+      transform:translateX(-50%) rotate(135deg)}
+  }
+
+  /* ── 兩種節奏的時間軸（與上面六個階段對齊成六欄） ── */
+  .pchart{margin:22px 0 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 16px}
+  .pc-head,.pc-track{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}
+  .pc-head > span{display:flex;justify-content:center}
+  .pc-head > span.core{--c:var(--core)} .pc-head > span.ext{--c:var(--ext)}
+  .pc-head .ph-n{font-style:normal;width:22px;height:22px;font-size:12.5px}
+  .pc-label{font-size:13.5px;font-weight:700;color:var(--ink);margin:12px 0 5px}
+  .pc-label small{font-weight:500;color:var(--muted);margin-left:6px;font-size:12.5px}
+  .pc-track > span{min-height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    text-align:center;font-size:12px;line-height:1.25;padding:3px 4px;background:#f1f5f2;color:var(--muted)}
+  .pc-track > span.q{background:var(--core);color:#fff;font-weight:600}
+  .pc-track > span.qp{background:repeating-linear-gradient(135deg,var(--core-soft) 0 6px,#d3eedd 6px 12px);
+    color:#14532d;font-weight:600;border:1px dashed var(--core)}
+  .pc-track > span.f{background:var(--ext);color:#fff;font-weight:600}
+  .pc-note{font-size:12.5px;color:var(--muted);margin:10px 0 0}
+  /* 手機：六欄擠不下（「第 10～13 週」會折成三行）→ 改成一個階段一列的表 */
+  .pc-mobile{display:none}
+  @media(max-width:560px){
+    .pchart .pc-head,.pchart .pc-label,.pchart .pc-track{display:none}
+    .pc-mobile{display:table;width:100%;border-collapse:collapse;font-size:13.5px}
+    .pc-mobile th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:2px 6px 6px}
+    .pc-mobile td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
+    .pc-mobile tr.core{--c:var(--core)} .pc-mobile tr.ext{--c:var(--ext)}
+    .pc-mobile td.ph{white-space:nowrap;font-weight:600;color:var(--ink)}
+    .pc-mobile td.ph .ph-n{font-style:normal;width:22px;height:22px;font-size:12.5px;margin-right:6px;vertical-align:middle}
+    .pc-mobile td.w{color:var(--core);font-weight:600}
+    .pc-mobile td.w.later{color:var(--muted);font-weight:500}
+    .pc-mobile td.q{color:var(--ext);font-weight:600}
+  }
+
+  /* ── 階段總表：桌面是表格，窄螢幕改成一階段一張卡片 ── */
+  .tbl{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;font-size:13.8px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .tbl th,.tbl td{padding:11px 13px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  .tbl thead th{background:rgba(24,160,88,.07);color:var(--ink);font-weight:700;font-size:13.2px}
+  .tbl tbody tr:last-child td{border-bottom:0}
+  .tbl td.ph-cell{font-weight:800;color:var(--ink);white-space:nowrap}
+  .tbl td.ph-cell .ph-n{width:22px;height:22px;font-size:12.5px;margin-right:6px;vertical-align:-5px}
+  .tbl tr.core{--c:var(--core)} .tbl tr.ext{--c:var(--ext)}
+  .tbl td.ph-cell span.nm{display:inline}
+  .tbl ul{margin:0;padding-left:17px} .tbl li{margin:2px 0}
+  .tbl.order td.ord{font-weight:800;color:var(--ink);white-space:nowrap}
+  @media(max-width:760px){
+    .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+    .tbl{border:0;background:transparent;box-shadow:none;overflow:visible}
+    .tbl thead{display:none}
+    .tbl tr{background:var(--card);border:1px solid var(--line);border-top:5px solid var(--c,var(--green));
+      border-radius:12px;margin:0 0 12px;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+    .tbl td{border-bottom:1px dashed var(--line);padding:9px 14px}
+    .tbl tbody tr:last-child td{border-bottom:1px dashed var(--line)}
+    .tbl tr td:last-child,.tbl tbody tr:last-child td:last-child{border-bottom:0}
+    .tbl td.ph-cell,.tbl.order td.ord{white-space:normal;font-size:15px}
+    /* 卡片裡每一格前面補上欄名（依目前語言） */
+    .tbl td[data-zh]::before{display:block;font-size:11.5px;font-weight:700;color:var(--muted);
+      letter-spacing:.03em;margin-bottom:2px}
+    body.lang-zh .tbl td[data-zh]::before{content:attr(data-zh)}
+    body.lang-en .tbl td[data-zh]::before{content:attr(data-en)}
+    body.lang-ja .tbl td[data-zh]::before{content:attr(data-ja)}
+  }
+
+  /* ── 兩條路線 ── */
+  .paths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .path{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    border-top:5px solid var(--c);box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .path.quick{--c:var(--core)} .path.full{--c:var(--ext)}
+  .path h3{margin:0 0 4px}
+  .path .who{font-size:13.5px;color:var(--muted);margin:0 0 8px}
+  .path ol{margin:0;padding-left:0;list-style:none;font-size:14.2px}
+  .path ol li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:7px 0;border-top:1px dashed var(--line)}
+  .path ol li:first-child{border-top:0}
+  .path .when{font-weight:700;color:var(--c);white-space:nowrap;font-size:13.2px;min-width:74px}
+  .path .out{margin:10px 0 0;font-size:13.5px;background:var(--s,#f1f8f3);border-radius:8px;padding:8px 11px}
+  .path.quick .out{background:var(--core-soft)} .path.full .out{background:var(--ext-soft)}
+  @media(max-width:820px){.paths{grid-template-columns:minmax(0,1fr)}}
+
+  /* ── 各階段細節 ── */
+  .phase{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:16px;
+    padding:18px 24px 20px;box-shadow:0 1px 3px rgba(15,23,42,.05);margin:0 0 18px}
+  .phase.core{--c:var(--core)} .phase.ext{--c:var(--ext)}
+  .phase > h2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .phase > h2 .ph-n{width:30px;height:30px;font-size:15px;margin-top:2px}
+  /* anchors.js 把標題包成可換行的 inline-flex；數字圓圈與標題要留在同一列，長標題自己在文字內換行 */
+  .phase > h2 .head-link{flex-wrap:nowrap;align-items:flex-start}
+  .phase p{margin:8px 0;font-size:14.6px}
+  .phase .goal{margin:0 0 6px;font-size:15px;color:var(--ink)}
+  .phase h3{font-size:15px;margin:16px 0 6px;color:var(--ink)}
+  .phase ul{margin:4px 0 8px;padding-left:22px;font-size:14.5px}
+  .phase li{margin:5px 0}
+  /* 連結之間沒有空白可斷行，所以用 flex-wrap 讓它們自己換行（否則窄螢幕整列撐出頁面） */
+  .phase .refs{margin:14px 0 0;padding-top:10px;border-top:1px dashed var(--line);font-size:13.5px;
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+  .phase .refs b{color:var(--ink)}
+  .phase .refs a{color:var(--green);font-weight:600;white-space:nowrap}
+  .phase .refs a:hover{text-decoration:underline}
+  @media(max-width:560px){
+    .box,.phase{padding:16px 16px 18px}
+    .phase .refs a{white-space:normal}
+  }
+
+  footer{margin:36px 0 80px;font-size:12.5px;color:var(--muted);text-align:center}
+  footer a{color:var(--green)}
+  /* ── 階段改版（2026-10-06 使用者：「全都是字」）：每階段一張圖＋短步驟＋完成標準，地雷收進可展開。
+     視覺跟首頁的整合配線圖同一套：墨色線條、等寬字標籤、品牌綠、深色機箱；不用彩色左邊框與膠囊。 ── */
+  .phase{border-left:1px solid var(--line);border-top:3px solid var(--ink);border-radius:6px;padding:20px 24px 18px}
+  .phase > h2 .ph-n{border-radius:4px;background:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .ph-tag{font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;
+    padding:4px 7px;border-radius:3px;border:1px solid var(--c);color:var(--c);margin-left:2px}
+  .ph-body{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:22px;align-items:start;margin-top:12px}
+  @media(max-width:880px){.ph-body{grid-template-columns:minmax(0,1fr)}}
+  .phase .ph-side h3{margin:2px 0 8px;font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--muted)}
+  .phase .ph-side h3 + *{margin-top:0}
+  .phase .ph-side .steps + h3,.phase .ph-side pre + h3{margin-top:16px}
+  ol.steps{list-style:none;margin:0;padding:0;counter-reset:st}
+  ol.steps li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:0 10px;padding:7px 0;margin:0;border-bottom:1px dashed var(--line);font-size:14px;line-height:1.5}
+  ol.steps li::before{counter-increment:st;content:counter(st);grid-row:1 / span 2;width:20px;height:20px;border-radius:3px;background:var(--ink);color:#fff;
+    font:600 11px/20px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-align:center;margin-top:1px}
+  ol.steps b{color:var(--ink);font-size:13.5px}
+  ol.steps span{color:var(--body);font-size:13.5px}
+  .phase .ph-side pre{margin:10px 0 0;font-size:11.5px}
+  ul.done{list-style:none;margin:0;padding:0}
+  ul.done li{position:relative;padding:5px 0 5px 24px;margin:0;font-size:14px;line-height:1.5;color:var(--ink)}
+  ul.done li::before{content:"";position:absolute;left:2px;top:9px;width:12px;height:12px;border-radius:2px;background:var(--green)}
+  ul.done li::after{content:"";position:absolute;left:6px;top:11px;width:3px;height:6px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  details.pit{margin:16px 0 0;border-top:1px solid var(--line);padding-top:10px}
+  details.pit > summary{cursor:pointer;list-style:none;font-weight:700;font-size:14px;color:#9a3412;display:inline-flex;align-items:center;gap:8px}
+  details.pit > summary::-webkit-details-marker{display:none}
+  details.pit > summary::before{content:"";width:0;height:0;border-left:6px solid #9a3412;border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;transition:transform .15s}
+  details.pit[open] > summary::before{transform:rotate(90deg)}
+  details.pit ul{margin:8px 0 4px;padding-left:20px;font-size:14px}
+  details.pit h4{margin:12px 0 4px;font-size:13.5px;color:var(--ink)}
+  details.pit b.pn{display:block;color:var(--ink);font-size:13px}
+  h3.sub-h{font-size:17px;margin:26px 0 0}
+  /* ── 圖：方格紙底、墨線節點 ── */
+  figure.dg{margin:0;border:1px solid var(--line);border-radius:6px;padding:14px 14px 16px;
+    background-color:#fafcfb;background-image:linear-gradient(#edf2ee 1px,transparent 1px),linear-gradient(90deg,#edf2ee 1px,transparent 1px);
+    background-size:18px 18px;min-width:0}
+  figure.dg figcaption{font:600 10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+  .nd{display:inline-flex;flex-direction:column;justify-content:center;background:#fff;border:1.5px solid var(--ink);border-radius:4px;
+    padding:6px 10px;font-size:12.5px;font-weight:700;color:var(--ink);line-height:1.35;min-width:0}
+  .nd small{font-weight:500;font-size:11px;color:var(--muted)}
+  .nd.g{border-color:var(--green);box-shadow:inset 0 -3px 0 var(--green)}
+  .nd.dark,.box.dark{background:#0f1913;color:#e8f2eb;border:1.5px solid #0f1913}
+  .nd.dark small{color:#a9bdb0}
+  .ar{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:2px;background:var(--ink);flex:none;margin:0 2px}
+  .ar::after{content:"";position:absolute;right:-1px;top:-4px;border-left:7px solid var(--ink);border-top:5px solid transparent;border-bottom:5px solid transparent}
+  .ar em{position:absolute;bottom:5px;left:50%;transform:translateX(-50%);font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-style:normal;white-space:nowrap;color:var(--muted)}
+  .chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
+  .chips .lbl{font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-right:2px}
+  .chips i{font-style:normal;font-size:12px;border:1px solid #9fb3a7;border-radius:3px;padding:2px 7px;background:#fff;color:var(--ink)}
+  /* 階段 0：部署 */
+  .arch{display:flex;align-items:center;flex-wrap:wrap;gap:16px 4px}
+  .arch .ar{min-width:48px}
+  .box{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:5px}
+  .box b{font:700 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .box .mods{display:grid;grid-template-columns:repeat(2,auto);gap:3px}
+  .box .mods i{font-style:normal;font-size:10.5px;padding:1px 5px;border-radius:2px;background:rgba(255,255,255,.08);color:#cfe3d6;white-space:nowrap}
+  /* 階段 1：樹狀結構 */
+  .tree{display:block}
+  .tree .t-in{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding-top:2px}
+  .tree .t-in .ar{transform:rotate(90deg);margin:10px 0 0 22px;min-width:26px}
+  ul.t,ul.t ul{list-style:none;margin:0;padding:0}
+  ul.t ul{margin-left:14px;padding-left:14px}
+  ul.t ul > li::after{content:"";position:absolute;left:-14px;top:-6px;bottom:0;border-left:1.5px solid var(--ink)}
+  ul.t ul > li:last-child::after{bottom:auto;height:21px}
+  ul.t li{position:relative;margin:6px 0 0}
+  ul.t ul > li::before{content:"";position:absolute;left:-14px;top:15px;width:12px;border-top:1.5px solid var(--ink)}
+  .tree .meter-h{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:14px;font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .tree .meter-h .mh-k{display:inline-flex;font-weight:500;align-items:center;gap:5px;font:500 11.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;letter-spacing:0;text-transform:none}
+  .tree .meter-h .mh-k i{width:10px;height:10px;border-radius:2px;background:#dfe7e2;margin-left:6px}
+  .tree .meter-h .mh-k i.u{background:var(--green)} .tree .meter-h .mh-k i.r{background:#f59e0b}
+  .tree .meter{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:3px;margin-top:6px;max-width:300px}
+  @media(min-width:700px){.tree .meter{grid-template-columns:repeat(16,18px);max-width:none}}
+  .tree .meter i{aspect-ratio:1;border-radius:2px;background:#dfe7e2}
+  .tree .meter i.u{background:var(--green)} .tree .meter i.r{background:#f59e0b}
+  /* 階段 2：兩個網段 */
+  .seg2{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:10px;align-items:center}
+  .seg{display:flex;flex-direction:column;gap:8px;align-items:flex-start;border:1.5px dashed #8aa596;border-radius:6px;padding:10px;background:rgba(255,255,255,.7);min-height:132px}
+  .seg-h{font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted)}
+  .hosts{display:flex;gap:4px;flex-wrap:wrap}
+  .hosts i,.legend2 i.k::before{width:12px;height:12px;border-radius:2px;display:inline-block}
+  .hosts i.on,.legend2 i.on::before{background:var(--green)}
+  .hosts i.off,.legend2 i.off::before{background:#b8c4bd}
+  .hosts i.unk,.legend2 i.unk::before{background:#fff;box-shadow:inset 0 0 0 1.5px #b8c4bd}
+  .seg-f{font-size:11.5px;line-height:1.4;color:var(--muted)}
+  .seg-f.ok{color:#0c7a43;font-weight:600}
+  .rtr{display:flex;flex-direction:column;align-items:center}
+  .legend2 i.k{font-style:normal;border:0;background:transparent;padding:0 8px 0 0;font-size:12px;display:inline-flex;align-items:center;gap:5px}
+  .legend2 i.k::before{content:""}
+  @media(max-width:560px){.seg2{grid-template-columns:minmax(0,1fr)}.rtr{flex-direction:row}}
+  /* 階段 3：疊層 */
+  .stack{display:flex;flex-direction:column;gap:6px}
+  .stack .up{font-size:11.5px;color:var(--muted)}
+  .stack ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  .stack li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:0 10px;align-items:center;background:#fff;border:1.5px solid var(--ink);border-radius:4px;padding:6px 10px}
+  .stack li:last-child{background:#0f1913;color:#e8f2eb;border-color:#0f1913}
+  .stack .lv{grid-row:1 / span 2;font:700 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--green)}
+  .stack .lp{font-size:12px;font-weight:700;color:inherit;line-height:1.35}
+  .stack .lg{font-size:11.5px;color:var(--muted)}
+  .stack li:last-child .lg{color:#a9bdb0}
+  /* 階段 4：一條鏈 */
+  .chain{display:flex;flex-wrap:wrap;align-items:center;gap:12px 2px}
+  .chain .ar{min-width:20px}
+  .dg-note{margin:12px 0 0 !important;font-size:12px !important;color:var(--muted)}
+  /* 階段 5：中樞 */
+  .hub5{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px 22px;align-items:center}
+  .hub5 .h-l,.hub5 .h-r{display:flex;flex-direction:column;gap:6px}
+  .hub5 .h-l .nd{position:relative}
+  .hub5 .h-l .nd::after,.hub5 .h-r .nd::before{content:"";position:absolute;top:50%;width:20px;border-top:1.5px solid var(--ink)}
+  .hub5 .h-l .nd::after{right:-22px}
+  .hub5 .h-r .nd{position:relative}
+  .hub5 .h-r .nd::before{left:-22px}
+  .hub5 .core5{padding:20px 12px;align-self:stretch;justify-content:center;align-items:center}
+  @media(max-width:560px){
+    .hub5{grid-template-columns:minmax(0,1fr)}
+    .hub5 .h-l .nd::after,.hub5 .h-r .nd::before{display:none}
+    .hub5 .core5{padding:10px}
+  }
+  /* 頁首的原則卡、流程圖、時間軸、目錄：跟各階段同一套（方角、墨色頂線、等寬字編號、不加陰影） */
+  .ph-tag{white-space:nowrap}
+  .toc a{border-radius:4px}
+  .cards{counter-reset:pr}
+  .card{border-radius:6px;box-shadow:none;border-top:3px solid var(--ink)}
+  .card h3::before{counter-increment:pr;content:"0" counter(pr);display:block;margin-bottom:4px;
+    font:600 11px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;color:var(--green)}
+  .note{border-radius:4px}
+  ol.flow > li > a{border-radius:6px;box-shadow:none;border-top-width:3px}
+  ol.flow .ph-n,.pchart .ph-n,.pc-mobile .ph-n{border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .ph-k{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em}
+  .pchart{border-radius:6px;box-shadow:none}
+  .pc-track > span{border-radius:3px}
+  /* 版面改成上下排（使用者 2026-10-06：左右兩欄時左邊一大塊空白）：圖整寬放最上面、高度就是內容本身；
+     步驟改成一排排小磚塊、完成標準改成一行可換行的勾選清單，兩邊不再一長一短 */
+  .ph-body{display:block;margin-top:12px}
+  .ph-body figure.dg{margin:0 0 16px}
+  .phase .ph-side h3{margin:0 0 8px}
+  .phase .ph-side .steps + h3,.phase .ph-side pre + h3{margin-top:16px}
+  ol.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+  ol.steps li{border:1px solid var(--line);border-radius:4px;padding:9px 11px;background:#fff}
+  .phase .ph-side pre{margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+  ul.done{display:flex;flex-wrap:wrap;gap:4px 22px}
+  /* 階段 1：寬的時候格子圖放在樹的右邊 */
+  @media(min-width:700px){
+    .tree{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:36px;align-items:end}
+    .tree > ul.t{grid-row:1 / span 3}
+    .tree > .chips,.tree > .meter-h,.tree > .meter{grid-column:2}
+  }
+  .dg-note{margin:12px 0 0 !important}
+  /* 磚塊：說明貼齊標題；依步驟數量排欄（6、5 個排 3 欄，4 個排一排） */
+  ol.steps li{align-content:start}
+  ol.steps{grid-template-columns:repeat(3,minmax(0,1fr))}
+  ol.steps.n4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  @media(max-width:860px){ol.steps,ol.steps.n4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:560px){ol.steps,ol.steps.n4{grid-template-columns:minmax(0,1fr)}}
+  /* 圖的內容置中，右半邊不會空著 */
+  .arch,.chain{justify-content:center}
+  figure.dg > .chips{justify-content:center}
+  .dg-note{text-align:center}
+  .stack,.hub5,.seg2{max-width:760px;margin:0 auto;width:100%}
+  @media(min-width:700px){
+    .tree{grid-template-columns:auto auto;grid-template-rows:1fr auto auto auto;justify-content:center}
+    .tree > ul.t{grid-row:1 / span 4}
+    .tree > .chips{grid-row:2;justify-content:flex-start}
+    .tree > .meter-h{grid-row:3}
+    .tree > .meter{grid-row:4}
+  }
+  /* 原則卡的小圖（使用者 2026-10-06：「這區也全是文字」） */
+  .card{display:flex;flex-direction:column}
+  .card h3::before{content:none}
+  .pv{height:92px;margin:0 0 12px;border:1px solid var(--line);border-radius:5px;padding:12px;display:flex;align-items:center;justify-content:center;gap:8px;
+    background-color:#fafcfb;background-image:linear-gradient(#edf2ee 1px,transparent 1px),linear-gradient(90deg,#edf2ee 1px,transparent 1px);background-size:14px 14px}
+  .pv1{display:grid;grid-template-columns:auto auto auto;grid-template-rows:auto auto;gap:6px 8px;align-content:center;justify-content:center}
+  .pv1 .pv-l{font:600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .pv1 .pv-c{display:flex;gap:3px}
+  .pv1 .pv-c i{width:13px;height:13px;border-radius:2px;background:#dfe7e2}
+  .pv1 .pv-c i.u{background:var(--green)}
+  .pv1 .pv-c i.diff{outline:2px solid #f59e0b;outline-offset:1px}
+  .pv1 .pv-tag{grid-column:3;grid-row:1 / span 2;align-self:center;font-size:11px;font-weight:700;color:#b45309;border:1.5px solid #f59e0b;border-radius:3px;padding:2px 6px;background:#fff}
+  .pv2 .ar{min-width:46px}
+  .pv2 .sw{display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-size:11px;color:var(--muted)}
+  .pv2 .sw i{position:relative;width:28px;height:16px;border-radius:9px;background:#cbd5d0}
+  .pv2 .sw i::after{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+  .pv3{align-items:flex-end;gap:5px}
+  .pv3 .st{position:relative;width:26px;border:1.5px solid var(--ink);border-bottom-width:1.5px;border-radius:3px 3px 0 0;background:#fff;display:flex;justify-content:center}
+  .pv3 .st.ok{background:var(--green);border-color:var(--green)}
+  .pv3 .st b{position:absolute;top:-17px;font:600 10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted)}
+  .pv3 .st.ok::after{content:"";position:absolute;top:calc(50% - 5px);width:4px;height:7px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  /* 導入順序圖改成路線圖：一條線串六站，核心綠、擴充藍；每站只留名稱與時間（細節在下面各階段） */
+  ol.flow{gap:0}
+  ol.flow > li > a{background:transparent;border:0;box-shadow:none;padding:0 6px;align-items:center;text-align:center;gap:6px}
+  ol.flow > li > a:hover{transform:none}
+  ol.flow > li > a:hover .ph-t{color:var(--c)}
+  ol.flow > li::before{content:"";position:absolute;top:17px;left:0;right:0;height:5px;background:var(--c)}
+  ol.flow > li:first-child::before{left:50%}
+  ol.flow > li:last-child::before{right:50%}
+  ol.flow > li:not(:last-child)::after{display:none}
+  ol.flow .ph-top{flex-direction:column;gap:6px}
+  ol.flow .ph-n{position:relative;z-index:1;width:38px;height:38px;border-radius:50%;border:5px solid var(--c);background:#fff;color:var(--ink);font-size:15px}
+  ol.flow .ph-k{font-size:10.5px}
+  ol.flow .ph-d{display:none}
+  ol.flow .ph-t{font-size:14px}
+  ol.flow .ph-time{margin-top:0;padding:2px 8px;border:1px solid var(--line);border-radius:3px;background:#fff}
+  @media(max-width:960px){
+    ol.flow{grid-template-columns:minmax(0,1fr);gap:0}
+    ol.flow > li::before,ol.flow > li:first-child::before,ol.flow > li:last-child::before{top:0;bottom:0;left:17px;right:auto;width:5px;height:auto}
+    ol.flow > li:first-child::before{top:50%}
+    ol.flow > li:last-child::before{bottom:50%}
+    ol.flow > li > a{flex-direction:row;flex-wrap:wrap;text-align:left;padding:8px 0;gap:4px 12px}
+    ol.flow .ph-top{flex-direction:row}
+    ol.flow .ph-k{display:none}
+    ol.flow > li:nth-child(3)::after{display:none}
+  }
+  /* 合規對照的表格：三欄，最後一欄是測試與設定位置（等寬字、小一號） */
+  .tbl{overflow-x:auto;margin:6px 0 4px}
+  table.ct{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;
+    overflow:hidden;font-size:14px}
+  table.ct th{background:#f4f8f5;color:var(--ink);text-align:left;padding:10px 12px;font-size:13px;white-space:nowrap}
+  table.ct td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}
+  table.ct td:first-child{font-weight:600;color:var(--ink);white-space:nowrap}
+  table.ct td:last-child{font-size:12.5px;color:var(--muted);word-break:break-word;min-width:180px}
+  table.ct code,.cols{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  p.note{color:var(--muted);font-size:14px;margin:8px 0 0}
+  /* 對應控制項欄：編號不折行；索引表的最後一欄（組織的責任）維持一般字型 */
+  table.ct td:first-child{white-space:normal;width:17%;min-width:9em}
+  table.ct td.refs{white-space:pre-line;width:6.5em;font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  table.idx td:first-child{font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  table.idx td:last-child{font-size:14px;color:var(--ink)}
+  @media (max-width:720px){ table.ct td:first-child{white-space:normal} }
+</style>
+<noscript><style>.en{display:initial}</style></noscript>
+</head>
+<body>
+<script>
+  /* 在內容繪製前先決定語言（避免閃爍）。優先序：網址 ?lang= > localStorage 偏好 > 預設英文。 */
+  (function(){
+    try{
+      function norm(v){ v = (v || '').toLowerCase();
+        if (v === 'en' || v === 'en-us') return 'en';
+        if (v === 'ja' || v === 'ja-jp') return 'ja';
+        if (v === 'zh' || v === 'zh-tw' || v === 'zh-hant') return 'zh';
+        return null; }
+      var u = null; try { u = norm(new URLSearchParams(location.search).get('lang')); } catch (e) {}
+      var lang = u || norm(localStorage.getItem('jtipam-doc-lang')) || 'en';
+      document.body.classList.add('lang-' + lang);
+      document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : lang === 'ja' ? 'ja' : 'zh-Hant');
+      if (u){ try {
+        localStorage.setItem('jtipam-doc-lang', u);
+        var url = new URL(location.href);
+        url.searchParams.set('lang', u === 'en' ? 'en' : u === 'ja' ? 'ja' : 'zh-TW');
+        history.replaceState(null, '', url);
+      } catch (e) {} }
+    } catch (e) {}
+  })();
+</script>
+<nav>
+  <div class="wrap nav-in">
+    <span class="brand">
+      <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+        <rect width="64" height="64" rx="14" fill="#18a058"/>
+        <g stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-opacity="0.9">
+          <line x1="18" y1="18" x2="32" y2="32"/><line x1="46" y1="18" x2="32" y2="32"/>
+          <line x1="18" y1="46" x2="32" y2="32"/><line x1="46" y1="46" x2="32" y2="32"/>
+        </g>
+        <g fill="#fff"><circle cx="18" cy="18" r="5"/><circle cx="46" cy="18" r="5"/>
+          <circle cx="18" cy="46" r="5"/><circle cx="46" cy="46" r="5"/></g>
+        <circle cx="32" cy="32" r="8" fill="#fff"/><circle cx="32" cy="32" r="3.5" fill="#18a058"/>
+      </svg>
+      jt-ipam
+    </span>
+    <div class="nav-links">
+      <a href="index.html#features"><span class="zh">特色</span><span class="en">Features</span><span class="ja">機能</span></a>
+      <a href="index.html#integrations"><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></a>
+      <a href="index.html#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
+      <a href="adoption.html"><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></a>
+      <a href="features.html"><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></a>
+      <a href="api.html">API</a>
+      <a href="compliance.html" aria-current="page"><span class="zh">合規對照</span><span class="en">Compliance</span><span class="ja">コンプライアンス</span></a>
+      <a class="btn btn-ghost btn-sm" href="index.html"><span class="zh">回首頁</span><span class="en">Home</span><span class="ja">ホーム</span></a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
+      <span class="langsw">
+        <button type="button" id="langBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+          <span id="langCur">繁體中文</span><span class="chev" aria-hidden="true"></span>
+        </button>
+        <ul id="langMenu" role="listbox" hidden>
+          <li role="option" data-lang="zh"><span class="tick">✓</span>繁體中文</li>
+          <li role="option" data-lang="en"><span class="tick">✓</span>English</li>
+          <li role="option" data-lang="ja"><span class="tick">✓</span>日本語</li>
+        </ul>
+      </span>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+<!-- generated:start -->
+  <h1><span class="zh">合規對照：ISO/IEC 27001 與 ISO/IEC 42001</span><span class="en">Compliance mapping: ISO/IEC 27001 and ISO/IEC 42001</span><span class="ja">コンプライアンス対応：ISO/IEC 27001 と ISO/IEC 42001</span></h1>
+  <p class="sub"><span class="zh">jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001 或 ISO/IEC 42001。這份文件分兩部分：jt-ipam 已經做到、可以拿來當佐證的控制（每一項都附上可以自行驗證的測試或設定位置），以及導入組織使用 jt-ipam 之後要自己負責的事。</span><span class="en">jt-ipam is not a certification, and using it does not mean passing ISO/IEC 27001 or ISO/IEC 42001. This document has two parts: the controls jt-ipam already implements and that can serve as evidence (each with a test or setting you can check yourself), and what the adopting organisation is responsible for after deploying jt-ipam.</span><span class="ja">jt-ipam 自体は認証ではなく、使用したからといって ISO/IEC 27001 や ISO/IEC 42001 に適合するわけではありません。この文書は 2 部構成です。jt-ipam がすでに実装し、根拠として使える管理策（それぞれ自分で確認できるテストや設定の場所付き）と、導入組織が jt-ipam を使った後に自ら責任を持つことです。</span></p>
+  <p class="sub"><span class="zh">這裡只列出目前程式確實具備的功能，依 main 分支撰寫（1.0.5 之後的改動見 CHANGELOG 的 Unreleased），之後的變動以 CHANGELOG 為準。正式盤點時請固定版本或 commit，並在自己的環境實際驗收。</span><span class="en">Only capabilities the code actually has are listed. It was written for the main branch (changes after 1.0.5 are under Unreleased in the CHANGELOG); later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.</span><span class="ja">現在のコードに実際にある機能だけを記載しています。main ブランチに基づいて作成しており（1.0.5 以降の変更は CHANGELOG の Unreleased を参照）、以降の変更は CHANGELOG を参照してください。正式な棚卸しではバージョンまたは commit を固定し、自社環境で実際に検証してください。</span></p>
+  <ul class="toc">
+    <li><a href="#iso27001"><span class="zh">ISO/IEC 27001：jt-ipam 提供的資訊安全控制</span><span class="en">ISO/IEC 27001: information security controls jt-ipam provides</span><span class="ja">ISO/IEC 27001：jt-ipam が提供する情報セキュリティの管理策</span></a></li>
+    <li><a href="#iso42001"><span class="zh">ISO/IEC 42001：AI 功能與控制</span><span class="en">ISO/IEC 42001: AI features and controls</span><span class="ja">ISO/IEC 42001：AI 機能と管理策</span></a></li>
+    <li><a href="#customer"><span class="zh">導入組織要負責的事</span><span class="en">What the adopting organisation is responsible for</span><span class="ja">導入組織が責任を持つこと</span></a></li>
+    <li><a href="#acceptance"><span class="zh">建議的驗收案例</span><span class="en">Suggested acceptance cases</span><span class="ja">推奨する受け入れ確認</span></a></li>
+    <li><a href="#worksheet"><span class="zh">盤點表欄位</span><span class="en">Assessment worksheet columns</span><span class="ja">棚卸し表の列</span></a></li>
+  </ul>
+  <section class="blk">
+    <h2 id="iso27001"><span class="zh">ISO/IEC 27001：jt-ipam 提供的資訊安全控制</span><span class="en">ISO/IEC 27001: information security controls jt-ipam provides</span><span class="ja">ISO/IEC 27001：jt-ipam が提供する情報セキュリティの管理策</span></h2>
+    <div class="tbl"><table class="ct">
+      <thead><tr><th><span class="zh">面向</span><span class="en">Area</span><span class="ja">項目</span></th><th><span class="zh">對應控制項</span><span class="en">Related controls</span><span class="ja">関連する管理策</span></th><th><span class="zh">jt-ipam 的做法</span><span class="en">What jt-ipam does</span><span class="ja">jt-ipam の実装</span></th><th><span class="zh">驗證方式（測試、設定）</span><span class="en">How to verify (tests, settings)</span><span class="ja">確認方法（テスト・設定）</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">登入、雙因素驗證與工作階段</span><span class="en">Sign-in, two-factor authentication and sessions</span><span class="ja">ログイン・二要素認証・セッション</span></td><td class="refs">A.5.16
+A.5.17
+A.8.5</td><td><span class="zh">本機與 LDAP 帳號可啟用 TOTP 雙因素驗證；管理員可要求管理員或所有人使用（還沒設定的人登入時先完成設定，不會被鎖在外面；被要求的人不能自行停用），SSO 可選擇是否一併套用。啟用時產生 10 組只能用一次的復原碼（只存雜湊），管理員可以重設某人的雙因素驗證（唯一的管理員可從主機的指令列重設）；同一組驗證碼不能用第二次。密碼或驗證碼連續錯 5 次鎖定 15 分鐘並寫進稽核；登入、驗證碼與換發權杖每個來源 IP 每分鐘最多 10 次。登入建立伺服器端工作階段：更新權杖只放在 HttpOnly Cookie、每次換發都換新，已經換掉的又被使用就撤銷整個工作階段並通知管理員與本人；存取權杖 15 分鐘到期並綁定工作階段，登出、強制登出、停用帳號與管理員重設密碼都立即生效，改密碼會登出其他裝置；使用者可以檢視並登出自己的裝置。每個請求都重新讀取帳號狀態與權限。</span><span class="en">Local and LDAP accounts can turn on TOTP two-factor authentication; administrators can require it for administrators or for everyone (people who have not set it up do so at sign-in and are not locked out; people who are required cannot turn it off), optionally including SSO. Turning it on creates 10 single-use recovery codes (stored hashed), and administrators can reset someone&#x27;s two-factor authentication (the only administrator can be reset from the host&#x27;s command line); the same code cannot be used twice. Five wrong passwords or codes in a row lock the account for 15 minutes and are audited; sign-in, codes and token refresh are limited to 10 per minute per source IP. Signing in creates a server-side session: the refresh token lives only in an HttpOnly cookie and changes on every refresh, and using a replaced one again revokes the whole session and notifies administrators and the user; access tokens expire after 15 minutes and are bound to the session, so signing out, being signed out by an administrator, deactivation and an administrator password reset take effect immediately, and changing your password signs out your other devices; users can see and sign out their own devices. Every request re-reads the account status and permissions.</span><span class="ja">ローカルと LDAP のアカウントは TOTP の二要素認証を有効にできます。管理者は管理者または全員に必須とすることができ（未設定のユーザーはログイン時に設定を済ませるため締め出されず、必須のユーザーは自分で無効にできません）、SSO にも適用するかを選べます。有効にすると 1 回限りのリカバリーコードを 10 個生成し（ハッシュのみ保存）、管理者は特定ユーザーの二要素認証をリセットできます（管理者が 1 人だけならホストのコマンドラインからリセット）。同じコードは 2 回使えません。パスワードまたはコードを 5 回続けて間違えると 15 分間ロックされ監査に記録されます。ログイン・コード・トークン更新は送信元 IP ごとに毎分 10 回までです。ログインするとサーバー側のセッションを作成します。リフレッシュトークンは HttpOnly Cookie にのみ置き、更新のたびに入れ替わります。入れ替え済みのものが再び使われるとセッション全体を取り消し、管理者と本人に通知します。アクセストークンは 15 分で期限切れになりセッションに紐付くため、ログアウト・強制ログアウト・アカウントの無効化・管理者によるパスワードのリセットは即時に有効で、パスワードを変更すると他のデバイスはログアウトされます。ユーザーは自分のデバイスを確認しログアウトできます。リクエストごとにアカウントの状態と権限を読み直します。</span></td><td><code>backend/tests/test_mfa_policy.py</code>, <code>test_session_revocation.py</code>, <code>test_security_alerts.py</code>, <code>test_rate_limit_switch.py</code>; <code>frontend/src/api/__tests__/tokenStorage.test.ts</code></td></tr>
+        <tr><td><span class="zh">物件權限與跨單位隔離</span><span class="en">Object permissions and tenant isolation</span><span class="ja">オブジェクト権限と組織間の分離</span></td><td class="refs">A.5.15
+A.5.18
+A.8.2
+A.8.3</td><td><span class="zh">依單位、區段、子網路、IP、裝置、機櫃、地點授權，可往下繼承。搜尋、IP 關聯、拓樸圖、AI 對話的工具、MCP 工具與 REST 用同一套可見範圍；重疊網段依子網路比對，不會對到其他單位的同一個位址；看不到的物件回應不存在（404）。只被授權部分物件的帳號在拓樸圖上只看得到自己範圍內的裝置與子網路，VPN、虛擬機等全域資料只給有全域讀取權限的帳號。</span><span class="en">Permissions are granted per unit, section, subnet, IP, device, rack and location, and inherit downwards. Search, IP relations, the topology graph, AI chat tools, MCP tools and REST share the same visibility; overlapping subnets are matched per subnet, so the same address in another unit is never reached; objects you cannot see answer as not found (404). Accounts granted only some objects see only their own devices and subnets on the topology graph; global data such as VPNs and virtual machines is shown only to accounts with global read.</span><span class="ja">組織・セクション・サブネット・IP・機器・ラック・拠点ごとに権限を付与でき、下位に継承されます。検索・IP の関連・トポロジー図・AI チャットのツール・MCP ツール・REST は同じ閲覧範囲を使います。重複するネットワークはサブネット単位で照合するため、別組織の同じアドレスに届くことはありません。見えないオブジェクトは存在しない（404）と応答します。一部のオブジェクトだけを許可されたアカウントは、トポロジー図で自分の範囲の機器とサブネットだけが見え、VPN や仮想マシンなどのグローバルなデータは全体の読み取り権限を持つアカウントだけに表示されます。</span></td><td><code>test_mcp_tools_match_rest_permissions.py</code>, <code>test_rbac_enforcement.py</code>, <code>test_rbac_detail_idor.py</code>, <code>test_search_overlapping.py</code>, <code>test_semantic_search_scope.py</code>, <code>test_topology_scope.py</code></td></tr>
+        <tr><td><span class="zh">API 權杖與 MCP</span><span class="en">API tokens and MCP</span><span class="ja">API トークンと MCP</span></td><td class="refs">A.5.17
+A.8.3
+A.8.5</td><td><span class="zh">個人 API 權杖有效期 1 到 365 天（預設 90 天），可隨時撤銷並留下稽核，資料庫只存雜湊；唯讀權杖不能呼叫會異動資料的方法；每把權杖每分鐘最多 600 次（REST 與 MCP 合計）；帳號停用時權杖一併撤銷。外部 MCP 預設關閉，使用同一套權杖，或可輪替的唯讀 MCP 金鑰（有效 30 到 365 天）。API 權杖、MCP 金鑰與公開端點權杖在到期前 14、7、1 天與當天通知擁有者或管理員。</span><span class="en">Personal API tokens last 1 to 365 days (90 by default), can be revoked at any time with an audit record, and only their hash is stored; read-only tokens cannot call methods that change data; each token is limited to 600 requests a minute (REST and MCP combined); deactivating an account revokes its tokens. External MCP is off by default and uses the same tokens or a rotatable read-only MCP key (valid for 30 to 365 days). API tokens, the MCP key and public endpoint tokens notify their owner or administrators 14, 7 and 1 days before expiry and on the day.</span><span class="ja">個人の API トークンの有効期間は 1〜365 日（既定 90 日）で、いつでも取り消せて監査に記録され、データベースにはハッシュだけを保存します。読み取り専用トークンはデータを変更するメソッドを呼べません。トークンごとに毎分 600 回まで（REST と MCP の合計）で、アカウントを無効化するとトークンも取り消されます。外部 MCP は既定で無効で、同じトークンか、ローテーションできる読み取り専用 MCP キー（有効期間 30〜365 日）を使います。API トークン・MCP キー・公開エンドポイントのトークンは、期限の 14・7・1 日前と当日に所有者または管理者へ通知します。</span></td><td><code>test_api_token_scope.py</code>, <code>test_api_token_mcp_hardening.py</code>, <code>test_session_revocation.py</code>, <code>test_mcp_transport.py</code></td></tr>
+        <tr><td><span class="zh">機密資料加密</span><span class="en">Secrets at rest</span><span class="ja">機密情報の暗号化</span></td><td class="refs">A.5.17
+A.8.24</td><td><span class="zh">整合的密碼、API 金鑰、公開端點的權杖等以 AES-256-GCM 加密存放，每一處加解密都綁定用途（密文搬到別的欄位就解不開，守門測試逐一檢查），SSH 帳密使用每筆獨立的資料金鑰；加密金鑰在主機的 backend.env，不放在資料庫。設定頁不直接回傳權杖與金鑰，要檢視時另外取回並留稽核。系統匯出檔以使用者設定的密碼加密（scrypt 加 AES-256-GCM）。</span><span class="en">Integration passwords, API keys, public endpoint tokens and similar secrets are stored encrypted with AES-256-GCM, every encryption is bound to its purpose (ciphertext moved to another field fails to decrypt, and a guard test checks every call), and SSH credentials use a separate data key per record; the encryption key lives in backend.env on the host, not in the database. Settings pages do not return tokens and keys; viewing one fetches it separately and is audited. System export files are encrypted with a password you set (scrypt plus AES-256-GCM).</span><span class="ja">連携のパスワード・API キー・公開エンドポイントのトークンなどは AES-256-GCM で暗号化して保存し、すべての暗号化を用途に紐付けています（暗号文を別の項目に移すと復号できず、ガードテストで 1 つずつ確認）。SSH の資格情報はレコードごとに別のデータキーを使います。暗号鍵はホストの backend.env にあり、データベースには置きません。設定ページはトークンやキーを返さず、表示するときは別途取得して監査に記録します。システムのエクスポートファイルは設定したパスワードで暗号化します（scrypt と AES-256-GCM）。</span></td><td><code>test_security.py</code>, <code>test_secret_aad.py</code>, <code>test_encryption_key_format.py</code>, <code>test_public_endpoint_tokens.py</code>, <code>test_system_transfer.py</code></td></tr>
+        <tr><td><span class="zh">傳輸加密</span><span class="en">Encryption in transit</span><span class="ja">通信の暗号化</span></td><td class="refs">A.5.14
+A.8.24</td><td><span class="zh">網頁與 API 強制 HTTPS（nginx 反向代理或後端直接提供 TLS，二擇一；對外網址不是 https 時後端不會啟動），nginx 設定為 TLS 1.2 與 1.3，並送出 HSTS。Graylog DSV 查表的明文 8088 埠要在設定頁明確開啟才服務（新安裝預設關閉），可限制允許的來源位址；網址上的權杖不寫進 nginx 存取記錄。</span><span class="en">The web UI and API require HTTPS (nginx reverse proxy or TLS served by the backend; the backend refuses to start when the public URL is not https); the nginx configuration uses TLS 1.2 and 1.3, and HSTS is sent. The plain-HTTP port 8088 for Graylog DSV lookups answers only after it is turned on in settings (off for new installs), allowed source addresses can be restricted, and tokens in URLs are not written to the nginx access log.</span><span class="ja">Web 画面と API は HTTPS が必須です（nginx のリバースプロキシかバックエンドが直接 TLS を提供、いずれか一方。公開 URL が https でなければバックエンドは起動しません）。nginx の設定は TLS 1.2 と 1.3 で、HSTS を送ります。Graylog DSV ルックアップ用の平文 8088 番ポートは設定で明示的に有効にしたときだけ応答し（新規インストールでは無効）、許可する送信元を制限できます。URL のトークンは nginx のアクセスログに書き込みません。</span></td><td><code>app/core/config.py</code>, <code>deploy/nginx/jt-ipam.conf</code>, <code>test_public_endpoint_tokens.py</code></td></tr>
+        <tr><td><span class="zh">出站連線防護</span><span class="en">Outbound connection protection</span><span class="ja">外向き接続の保護</span></td><td class="refs">A.8.20
+A.8.26</td><td><span class="zh">HTTP 類整合在建立連線的當下檢查目標位址並連到檢查過的位址，擋下本機、雲端中繼資料位址與 DNS rebinding；轉址時重新檢查，而且不把認證資訊帶到別的主機。其他協定（SSH、LDAP、SMTP、RADIUS、WinRM、DNS、syslog 轉送）連線前解析並檢查所有位址，擋雲端中繼資料、link-local 與多播；遠端主控台的目標另外不能是本機位址（守門測試檢查每一處連線都經過檢查）。</span><span class="en">HTTP-based integrations check the destination at connect time and connect to the checked address, blocking loopback, cloud metadata addresses and DNS rebinding; redirects are checked again and credentials are never carried to another host. Other protocols (SSH, LDAP, SMTP, RADIUS, WinRM, DNS, syslog forwarding) resolve and check every address before connecting, blocking cloud metadata, link-local and multicast; remote console targets also cannot be loopback (a guard test checks that every connection goes through the check).</span><span class="ja">HTTP 系の連携は接続の時点で宛先を確認し、確認したアドレスに接続して、ローカル・クラウドのメタデータアドレス・DNS リバインディングを防ぎます。リダイレクト時も再確認し、認証情報を別のホストへ持ち込みません。その他のプロトコル（SSH・LDAP・SMTP・RADIUS・WinRM・DNS・syslog 転送）は接続前にすべてのアドレスを解決して確認し、クラウドのメタデータ・リンクローカル・マルチキャストを防ぎます。リモートコンソールの宛先はさらにローカルアドレスも不可です（ガードテストですべての接続が確認を通ることを検査）。</span></td><td><code>test_safe_http_guard.py</code>, <code>test_netdiag_http_guard.py</code>, <code>test_net_guard.py</code></td></tr>
+        <tr><td><span class="zh">稽核記錄</span><span class="en">Audit trail</span><span class="ja">監査ログ</span></td><td class="refs">A.5.28
+A.5.33
+A.8.15
+A.8.16</td><td><span class="zh">會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）；瀏覽器產生的表格與報告匯出由瀏覽器回報一筆。稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空；安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護。定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）；設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出。</span><span class="en">Every endpoint that changes data must write an audit record, and so must downloads of exports and views of keys and tokens (two guard tests check each one, and exceptions must state a reason); table and report exports generated in the browser are reported by the browser. Audit records form a hash chain and the database rejects updates, deletes and truncation; install and upgrade give the audit table to a database role that cannot sign in, so the app&#x27;s own database account can only read and append and cannot disable these protections. The chain is verified regularly and its tail anchored outside the database (a file and the system journal); with forwarding to Graylog, every record carries its own hash and the previous one, and the anchors are forwarded too.</span><span class="ja">データを変更するエンドポイントは監査への記録が必須で、エクスポートのダウンロードとキーやトークンの表示も同様です（2 つのガードテストで 1 つずつ確認し、例外には理由の記載が必要）。ブラウザで生成する表やレポートのエクスポートはブラウザが報告します。監査ログはハッシュチェーンでつながり、データベースは変更・削除・TRUNCATE を拒否します。インストールとアップグレードで監査テーブルをログインできないデータベースロールに渡すため、アプリのデータベースアカウントは読み取りと追加しかできず、これらの保護を無効にできません。定期的に検証し、チェーンの末尾をデータベースの外（ファイルとシステムジャーナル）にアンカーします。Graylog への転送を設定すると、各レコードが自分と直前のハッシュを持ち、アンカーも一緒に転送されます。</span></td><td><code>test_audit_coverage.py</code>, <code>test_audit_read_coverage.py</code>, <code>test_audit_immutability.py</code>, <code>test_audit_hardening.py</code>, <code>test_audit_anchor.py</code>, <code>test_audit_chain_order.py</code>; <code>scripts/sql/audit-harden.sql</code></td></tr>
+        <tr><td><span class="zh">遠端主控台</span><span class="en">Remote console</span><span class="ja">リモートコンソール</span></td><td class="refs">A.5.15
+A.5.18
+A.8.2</td><td><span class="zh">看得到 IP 不等於能連線：該 IP 要開啟對應的主控台功能，而且使用者是管理員、對子網路有寫入權，或被明確授予主控台權限；目標不能是本機、link-local 或保留位址。連線使用 60 秒內有效的單次票證（綁定使用者、IP 與工作階段），連線期間每 30 秒重新檢查：帳號被停用、被強制登出、登出那個工作階段或被收回權限時立即中斷並寫稽核。SFTP 的開啟、上傳、下載、改名、刪除都寫稽核，每個主控台連線結束時記錄連線時間。</span><span class="en">Seeing an IP does not mean being able to connect: the console must be enabled on that IP, and the user must be an admin, have write access to the subnet, or be granted console permission explicitly; the target cannot be a loopback, link-local or reserved address. Connections use a single-use ticket valid for 60 seconds and bound to the user, IP and session, and open connections are re-checked every 30 seconds: when the account is deactivated or signed out by an administrator, the session that opened it ends, or the permission is withdrawn, the connection closes and is audited. SFTP open, upload, download, rename and delete are audited, and every console session records its duration when it closes.</span><span class="ja">IP が見えることは接続できることを意味しません。その IP でコンソールを有効にし、さらにユーザーが管理者・サブネットへの書き込み権限を持つ・コンソール権限を明示的に付与されている、のいずれかが必要で、宛先はローカル・リンクローカル・予約済みアドレスにできません。接続には 60 秒以内有効な 1 回限りのチケット（ユーザー・IP・セッションに紐付け）を使い、接続中は 30 秒ごとに再確認します。アカウントの無効化・強制ログアウト・そのセッションのログアウト・権限の取り消しがあると直ちに切断し、監査に記録します。SFTP のオープン・アップロード・ダウンロード・名前変更・削除は監査に記録され、各コンソールの終了時に接続時間を記録します。</span></td><td><code>test_ticket_take_once.py</code>, <code>test_console_guard.py</code>, <code>test_net_guard.py</code>, <code>test_sftp_permissions.py</code>, <code>test_console_session_duration.py</code></td></tr>
+        <tr><td><span class="zh">憑證與私鑰派送</span><span class="en">Certificates and private keys</span><span class="ja">証明書と秘密鍵の配布</span></td><td class="refs">A.8.3
+A.8.24</td><td><span class="zh">每個憑證代理只拿得到指派給它的憑證；代理每次下載、管理員每次匯出私鑰都寫稽核；代理金鑰可輪替、停用或刪除。</span><span class="en">Each certificate agent can fetch only the certificates assigned to it; every agent download and every admin export of a private key is audited; agent keys can be rotated, disabled or deleted.</span><span class="ja">各証明書エージェントは割り当てられた証明書だけを取得できます。エージェントのダウンロードと管理者による秘密鍵のエクスポートは毎回監査に記録されます。エージェントのキーはローテーション・無効化・削除ができます。</span></td><td><code>test_cert_agents_api.py</code></td></tr>
+        <tr><td><span class="zh">掃描代理</span><span class="en">Scan agents</span><span class="ja">スキャンエージェント</span></td><td class="refs">A.5.16
+A.8.3</td><td><span class="zh">代理只會收到指派給它的子網路去掃描，回報也只在指派的子網路內比對（沒有指派任何子網路的代理不能更新任何 IP）；每個代理一把金鑰（只存雜湊），可輪替、停用或刪除；掃描、憑證與 RustDesk 代理的端點逐代理限流；同一台代理的回報排隊處理，單次回報筆數有上限。</span><span class="en">An agent receives only the subnets assigned to it for scanning, and its reports are matched only within those subnets (an agent with no assigned subnets cannot update any IP); each agent has its own key (only the hash is stored) that can be rotated, disabled or deleted; the scan, certificate and RustDesk agent endpoints are rate limited per agent; reports from one agent are processed one at a time and the size of a report is capped.</span><span class="ja">エージェントには割り当てられたサブネットだけがスキャン対象として渡され、報告もそのサブネット内でだけ照合します（サブネットが割り当てられていないエージェントはどの IP も更新できません）。エージェントごとに 1 つのキー（ハッシュのみ保存）があり、ローテーション・無効化・削除ができます。スキャン・証明書・RustDesk エージェントのエンドポイントはエージェントごとにレート制限され、同じエージェントの報告は順番に処理され、1 回の報告件数には上限があります。</span></td><td><code>test_scan_agent_scope.py</code>, <code>test_scan_agent_report_concurrency.py</code>, <code>test_scan_agent_load.py</code></td></tr>
+        <tr><td><span class="zh">資料來源與時間</span><span class="en">Data provenance</span><span class="ja">データの出所と時刻</span></td><td class="refs">A.5.9
+A.8.9</td><td><span class="zh">每個 IP 的主機名稱、MAC、ARP 觀測都記錄來源與觀測時間，欄位異動有異動記錄（誰、哪個來源、舊值與新值）；手動輸入的值依來源優先序或釘選保留（預設手動最優先），不會被自動同步覆蓋；異常偵測標出疑似讀壞的資料與可信度。</span><span class="en">Host names, MACs and ARP observations of each IP keep their source and observation time, and field changes are logged (who, which source, old and new value); manually entered values are kept by the source order or a pin (manual ranks first by default) and are not overwritten by automatic sync; anomaly detection marks likely misread data and gives a confidence.</span><span class="ja">各 IP のホスト名・MAC・ARP の観測は出所と観測時刻を記録し、項目の変更は変更履歴（誰が・どの出所・旧値と新値）に残ります。手動入力の値は出所の優先順位または固定で保持され（既定では手動が最優先）、自動同期で上書きされません。異常検出は読み取り破損の疑いがあるデータと信頼度を示します。</span></td><td><code>test_hostname_sources.py</code>, <code>test_ip_edit_manual_sources.py</code>, <code>test_evidence_contract.py</code>, <code>test_anomaly_arp_quality.py</code></td></tr>
+        <tr><td><span class="zh">匯出與對外嵌入</span><span class="en">Exports and embedding</span><span class="ja">エクスポートと外部埋め込み</span></td><td class="refs">A.5.14
+A.8.3</td><td><span class="zh">表格匯出只包含使用者看得到的資料，每次匯出都留稽核（伺服器產生的由伺服器記，瀏覽器產生的由瀏覽器回報）；系統匯出限管理員，並以密碼加密；機櫃圖對外嵌入需要系統權杖，而且要逐一開啟每個機櫃；機櫃嵌入與 Graylog DSV 的權杖會到期（30 到 365 天）。</span><span class="en">Table exports contain only data the user can see, and every export is audited (by the server for files it generates, reported by the browser for files generated there); system export is admin-only and password-encrypted; embedding a rack diagram elsewhere needs a system token and must be enabled per rack; the rack embed and Graylog DSV tokens expire (30 to 365 days).</span><span class="ja">表のエクスポートにはユーザーが見られるデータだけが含まれ、エクスポートは毎回監査に記録されます（サーバーが生成するものはサーバーが、ブラウザで生成するものはブラウザが報告）。システムのエクスポートは管理者限定でパスワードで暗号化されます。ラック図の外部埋め込みにはシステムトークンが必要で、ラックごとに有効化します。ラック埋め込みと Graylog DSV のトークンには期限があります（30〜365 日）。</span></td><td><code>test_audit_read_coverage.py</code>, <code>frontend/src/utils/__tests__/saveFileOnly.test.ts</code>, <code>test_rack_embed.py</code>, <code>test_public_endpoint_tokens.py</code>, <code>test_system_transfer.py</code></td></tr>
+        <tr><td><span class="zh">備份與還原</span><span class="en">Backup and restore</span><span class="ja">バックアップと復元</span></td><td class="refs">A.8.13
+A.8.24</td><td><span class="zh">每天自動備份資料庫、設定檔（含加密金鑰）、TLS 憑證與上傳的檔案，保留 14 天；設定備份密碼後，每天的備份整包加密成一個檔案（scrypt 加 AES-256-GCM 分塊加密，截斷、調換或修改都解不開），明文刪除，解密工具只需要 Python 與 cryptography。系統診斷顯示最近一次備份的結果與是否加密；還原步驟寫在安裝維運手冊。</span><span class="en">The database, configuration (including the encryption key), TLS certificates and uploaded files are backed up daily and kept for 14 days; with a backup passphrase set, each day&#x27;s backup is encrypted into one file (scrypt plus chunked AES-256-GCM, so a truncated, reordered or modified file fails to decrypt) and the plain copy is removed, and the decrypt tool needs only Python and cryptography. The system diagnostics show the result of the last backup and whether it was encrypted; restore steps are in the installation and operations guide.</span><span class="ja">データベース・設定ファイル（暗号鍵を含む）・TLS 証明書・アップロードファイルを毎日自動でバックアップし、14 日間保持します。バックアップのパスフレーズを設定すると、毎日のバックアップを 1 つのファイルに暗号化し（scrypt と AES-256-GCM のチャンク暗号化。切り詰め・入れ替え・改ざんがあると復号できません）、平文は削除します。復号ツールは Python と cryptography だけで動きます。システム診断に直近のバックアップ結果と暗号化の有無が表示されます。復元手順はインストール・運用ガイドにあります。</span></td><td><code>test_backup_script.py</code>, <code>test_backup_encryption.py</code>, <code>test_self_check_backup.py</code>, <code>docs/INSTALL.md</code></td></tr>
+        <tr><td><span class="zh">安全開發與弱點管理</span><span class="en">Secure development and vulnerability management</span><span class="ja">セキュアな開発と脆弱性管理</span></td><td class="refs">A.8.8
+A.8.25
+A.8.28
+A.8.29</td><td><span class="zh">每次推送由 CI 執行 bandit 安全規則、pip-audit、pnpm audit，以及對著實際 nginx 設定與正式建置前端的 OWASP ZAP 基準掃描（基準檔以外的任何警示都讓 CI 失敗）；GitHub 程式碼掃描（CodeQL）的警示逐項判讀；發版前另跑登入後的 ZAP 掃描、在乾淨系統實測全新安裝與升級；每次改動對應的檢查項目與守門測試寫在測試清單。</span><span class="en">On every push CI runs bandit security rules, pip-audit, pnpm audit and an OWASP ZAP baseline scan of the production frontend build behind the shipped nginx configuration (any alert outside the baseline file fails CI); GitHub code scanning (CodeQL) alerts are triaged one by one; before a release an authenticated ZAP scan runs and fresh installs and upgrades are tested on clean systems; the checks and guard tests for each change are recorded in the test checklist.</span><span class="ja">プッシュのたびに CI が bandit のセキュリティルール・pip-audit・pnpm audit と、出荷する nginx 設定の後ろで本番ビルドのフロントエンドに対する OWASP ZAP のベースラインスキャンを実行します（ベースラインファイル以外のアラートは CI を失敗させます）。GitHub のコードスキャン（CodeQL）のアラートは 1 件ずつ判定します。リリース前にはログイン後の ZAP スキャンを実行し、クリーンな環境で新規インストールとアップグレードを検証します。変更ごとの確認項目とガードテストはテストチェックリストに記録しています。</span></td><td><code>.github/workflows/ci.yml</code>, <code>deploy/zap-baseline.conf</code>, <code>TEST_CHECKLIST.md</code>, <code>scripts/test-fresh-install.sh</code>, <code>scripts/test-upgrade.sh</code></td></tr>
+      </tbody>
+    </table></div>
+    <h3 class="sub-h" id="iso27001-index"><span class="zh">對應的條文與控制項（ISO/IEC 27001）</span><span class="en">Clauses and controls (ISO/IEC 27001)</span><span class="ja">対応する箇条と管理策（ISO/IEC 27001）</span></h3>
+    <p class="note"><span class="zh">編號依 ISO/IEC 27001:2022 附錄 A（與 ISO/IEC 27002:2022 相同），不帶 A. 的是本文條文；中文與日文名稱為參考譯名，以標準原文為準。jt-ipam 提供的是技術面的佐證，控制項是否達成由導入組織依風險評鑑與適用性聲明判定。附錄 A 共 93 項，jt-ipam 能提供佐證的有 22 項；下表另列出「導入組織要做的事」對應的條文與控制項，表中沒有的控制項由導入組織以其他方式處理。</span><span class="en">Numbers follow ISO/IEC 27001:2022 Annex A (the same as ISO/IEC 27002:2022); numbers without A. are clauses of the main text. jt-ipam provides technical evidence; whether a control is met is decided by the adopting organisation through its risk assessment and statement of applicability. Annex A has 93 controls; jt-ipam provides evidence for 22 of them. The table also lists the clauses and controls behind the organisation&#x27;s responsibilities further down; controls not in the table are handled by the organisation by other means.</span><span class="ja">番号は ISO/IEC 27001:2022 附属書 A（ISO/IEC 27002:2022 と同じ）に従い、A. の付かない番号は本文の箇条です。日本語と中国語の名称は参考訳で、規格の原文が優先します。jt-ipam が示すのは技術面の根拠で、管理策を満たすかどうかは導入組織がリスクアセスメントと適用宣言書に基づいて判断します。附属書 A の 93 項目のうち、jt-ipam が根拠を示せるのは 22 項目です。下表には「導入組織が責任を持つこと」に対応する箇条と管理策も載せており、表にない管理策は導入組織が別の方法で対応します。</span></p>
+    <div class="tbl"><table class="ct idx">
+      <thead><tr><th><span class="zh">編號</span><span class="en">No.</span><span class="ja">番号</span></th><th><span class="zh">名稱</span><span class="en">Title</span><span class="ja">名称</span></th><th><span class="zh">jt-ipam 提供佐證的面向</span><span class="en">Where jt-ipam provides evidence</span><span class="ja">jt-ipam が根拠を示す項目</span></th><th><span class="zh">導入組織要做的事</span><span class="en">What the organisation does</span><span class="ja">導入組織が行うこと</span></th></tr></thead>
+      <tbody>
+        <tr><td>6.1.2</td><td><span class="zh">資訊安全風險評鑑</span><span class="en">Information security risk assessment</span><span class="ja">情報セキュリティリスクアセスメント</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>6.1.3</td><td><span class="zh">資訊安全風險處理（含適用性聲明）</span><span class="en">Information security risk treatment (including the statement of applicability)</span><span class="ja">情報セキュリティリスク対応（適用宣言書を含む）</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>7.2</td><td><span class="zh">適任性</span><span class="en">Competence</span><span class="ja">力量</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>7.3</td><td><span class="zh">認知</span><span class="en">Awareness</span><span class="ja">認識</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>9.2</td><td><span class="zh">內部稽核</span><span class="en">Internal audit</span><span class="ja">内部監査</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>9.3</td><td><span class="zh">管理階層審查</span><span class="en">Management review</span><span class="ja">マネジメントレビュー</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>A.5.9</td><td><span class="zh">資訊及其他相關聯資產之清冊</span><span class="en">Inventory of information and other associated assets</span><span class="ja">情報及びその他の関連資産の目録</span></td><td><span class="zh">資料來源與時間</span><span class="en">Data provenance</span><span class="ja">データの出所と時刻</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.5.14</td><td><span class="zh">資訊傳送</span><span class="en">Information transfer</span><span class="ja">情報転送</span></td><td><span class="zh">傳輸加密、匯出與對外嵌入</span><span class="en">Encryption in transit, Exports and embedding</span><span class="ja">通信の暗号化、エクスポートと外部埋め込み</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.5.15</td><td><span class="zh">存取控制</span><span class="en">Access control</span><span class="ja">アクセス制御</span></td><td><span class="zh">物件權限與跨單位隔離、遠端主控台</span><span class="en">Object permissions and tenant isolation, Remote console</span><span class="ja">オブジェクト権限と組織間の分離、リモートコンソール</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.5.16</td><td><span class="zh">身分管理</span><span class="en">Identity management</span><span class="ja">識別情報の管理</span></td><td><span class="zh">登入、雙因素驗證與工作階段、掃描代理</span><span class="en">Sign-in, two-factor authentication and sessions, Scan agents</span><span class="ja">ログイン・二要素認証・セッション、スキャンエージェント</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.5.17</td><td><span class="zh">鑑別資訊</span><span class="en">Authentication information</span><span class="ja">認証情報</span></td><td><span class="zh">登入、雙因素驗證與工作階段、API 權杖與 MCP、機密資料加密</span><span class="en">Sign-in, two-factor authentication and sessions, API tokens and MCP, Secrets at rest</span><span class="ja">ログイン・二要素認証・セッション、API トークンと MCP、機密情報の暗号化</span></td><td><span class="zh">帳號、整合帳號</span><span class="en">Accounts, Integration accounts</span><span class="ja">アカウント、連携用アカウント</span></td></tr>
+        <tr><td>A.5.18</td><td><span class="zh">存取權限</span><span class="en">Access rights</span><span class="ja">アクセス権</span></td><td><span class="zh">物件權限與跨單位隔離、遠端主控台</span><span class="en">Object permissions and tenant isolation, Remote console</span><span class="ja">オブジェクト権限と組織間の分離、リモートコンソール</span></td><td><span class="zh">離職與調職、存取審查、掃描代理與憑證代理</span><span class="en">Leavers and movers, Access reviews, Scan and certificate agents</span><span class="ja">退職と異動、アクセスレビュー、スキャンエージェントと証明書エージェント</span></td></tr>
+        <tr><td>A.5.28</td><td><span class="zh">證據之蒐集</span><span class="en">Collection of evidence</span><span class="ja">証拠の収集</span></td><td><span class="zh">稽核記錄</span><span class="en">Audit trail</span><span class="ja">監査ログ</span></td><td><span class="zh">稽核證據</span><span class="en">Audit evidence</span><span class="ja">監査の証拠</span></td></tr>
+        <tr><td>A.5.30</td><td><span class="zh">營運持續之 ICT 備妥性</span><span class="en">ICT readiness for business continuity</span><span class="ja">事業継続のための ICT の備え</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">金鑰與備份</span><span class="en">Keys and backups</span><span class="ja">鍵とバックアップ</span></td></tr>
+        <tr><td>A.5.33</td><td><span class="zh">紀錄之保護</span><span class="en">Protection of records</span><span class="ja">記録の保護</span></td><td><span class="zh">稽核記錄</span><span class="en">Audit trail</span><span class="ja">監査ログ</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.6.5</td><td><span class="zh">聘用終止或變更後之責任</span><span class="en">Responsibilities after termination or change of employment</span><span class="ja">雇用の終了又は変更後の責任</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">離職與調職</span><span class="en">Leavers and movers</span><span class="ja">退職と異動</span></td></tr>
+        <tr><td>A.8.2</td><td><span class="zh">特殊存取權限</span><span class="en">Privileged access rights</span><span class="ja">特権的アクセス権</span></td><td><span class="zh">物件權限與跨單位隔離、遠端主控台</span><span class="en">Object permissions and tenant isolation, Remote console</span><span class="ja">オブジェクト権限と組織間の分離、リモートコンソール</span></td><td><span class="zh">存取審查、整合帳號</span><span class="en">Access reviews, Integration accounts</span><span class="ja">アクセスレビュー、連携用アカウント</span></td></tr>
+        <tr><td>A.8.3</td><td><span class="zh">資訊存取限制</span><span class="en">Information access restriction</span><span class="ja">情報へのアクセス制限</span></td><td><span class="zh">物件權限與跨單位隔離、API 權杖與 MCP、憑證與私鑰派送、掃描代理、匯出與對外嵌入</span><span class="en">Object permissions and tenant isolation, API tokens and MCP, Certificates and private keys, Scan agents, Exports and embedding</span><span class="ja">オブジェクト権限と組織間の分離、API トークンと MCP、証明書と秘密鍵の配布、スキャンエージェント、エクスポートと外部埋め込み</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.5</td><td><span class="zh">安全鑑別</span><span class="en">Secure authentication</span><span class="ja">セキュリティを保った認証</span></td><td><span class="zh">登入、雙因素驗證與工作階段、API 權杖與 MCP</span><span class="en">Sign-in, two-factor authentication and sessions, API tokens and MCP</span><span class="ja">ログイン・二要素認証・セッション、API トークンと MCP</span></td><td><span class="zh">帳號</span><span class="en">Accounts</span><span class="ja">アカウント</span></td></tr>
+        <tr><td>A.8.8</td><td><span class="zh">技術脆弱性之管理</span><span class="en">Management of technical vulnerabilities</span><span class="ja">技術的ぜい弱性の管理</span></td><td><span class="zh">安全開發與弱點管理</span><span class="en">Secure development and vulnerability management</span><span class="ja">セキュアな開発と脆弱性管理</span></td><td><span class="zh">更新</span><span class="en">Updates</span><span class="ja">更新</span></td></tr>
+        <tr><td>A.8.9</td><td><span class="zh">組態管理</span><span class="en">Configuration management</span><span class="ja">構成管理</span></td><td><span class="zh">資料來源與時間</span><span class="en">Data provenance</span><span class="ja">データの出所と時刻</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.13</td><td><span class="zh">資訊備份</span><span class="en">Information backup</span><span class="ja">情報のバックアップ</span></td><td><span class="zh">備份與還原</span><span class="en">Backup and restore</span><span class="ja">バックアップと復元</span></td><td><span class="zh">金鑰與備份</span><span class="en">Keys and backups</span><span class="ja">鍵とバックアップ</span></td></tr>
+        <tr><td>A.8.15</td><td><span class="zh">存錄（日誌）</span><span class="en">Logging</span><span class="ja">ログ取得</span></td><td><span class="zh">稽核記錄</span><span class="en">Audit trail</span><span class="ja">監査ログ</span></td><td><span class="zh">稽核證據</span><span class="en">Audit evidence</span><span class="ja">監査の証拠</span></td></tr>
+        <tr><td>A.8.16</td><td><span class="zh">監視活動</span><span class="en">Monitoring activities</span><span class="ja">監視活動</span></td><td><span class="zh">稽核記錄</span><span class="en">Audit trail</span><span class="ja">監査ログ</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.20</td><td><span class="zh">網路安全</span><span class="en">Networks security</span><span class="ja">ネットワークセキュリティ</span></td><td><span class="zh">出站連線防護</span><span class="en">Outbound connection protection</span><span class="ja">外向き接続の保護</span></td><td><span class="zh">網路</span><span class="en">Network</span><span class="ja">ネットワーク</span></td></tr>
+        <tr><td>A.8.22</td><td><span class="zh">網路區隔</span><span class="en">Segregation of networks</span><span class="ja">ネットワークの分離</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">網路</span><span class="en">Network</span><span class="ja">ネットワーク</span></td></tr>
+        <tr><td>A.8.24</td><td><span class="zh">密碼技術之使用</span><span class="en">Use of cryptography</span><span class="ja">暗号の利用</span></td><td><span class="zh">機密資料加密、傳輸加密、憑證與私鑰派送、備份與還原</span><span class="en">Secrets at rest, Encryption in transit, Certificates and private keys, Backup and restore</span><span class="ja">機密情報の暗号化、通信の暗号化、証明書と秘密鍵の配布、バックアップと復元</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.25</td><td><span class="zh">安全開發生命週期</span><span class="en">Secure development life cycle</span><span class="ja">セキュリティに配慮した開発のライフサイクル</span></td><td><span class="zh">安全開發與弱點管理</span><span class="en">Secure development and vulnerability management</span><span class="ja">セキュアな開発と脆弱性管理</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.26</td><td><span class="zh">應用程式安全要求事項</span><span class="en">Application security requirements</span><span class="ja">アプリケーションのセキュリティの要求事項</span></td><td><span class="zh">出站連線防護</span><span class="en">Outbound connection protection</span><span class="ja">外向き接続の保護</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.28</td><td><span class="zh">安全程式設計</span><span class="en">Secure coding</span><span class="ja">セキュリティに配慮したコーディング</span></td><td><span class="zh">安全開發與弱點管理</span><span class="en">Secure development and vulnerability management</span><span class="ja">セキュアな開発と脆弱性管理</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.29</td><td><span class="zh">開發及驗收中之安全測試</span><span class="en">Security testing in development and acceptance</span><span class="ja">開発及び受入れにおけるセキュリティ試験</span></td><td><span class="zh">安全開發與弱點管理</span><span class="en">Secure development and vulnerability management</span><span class="ja">セキュアな開発と脆弱性管理</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.32</td><td><span class="zh">變更管理</span><span class="en">Change management</span><span class="ja">変更管理</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">更新</span><span class="en">Updates</span><span class="ja">更新</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+  <section class="blk">
+    <h2 id="iso42001"><span class="zh">ISO/IEC 42001：AI 功能與控制</span><span class="en">ISO/IEC 42001: AI features and controls</span><span class="ja">ISO/IEC 42001：AI 機能と管理策</span></h2>
+    <h3 class="sub-h" id="ai-inventory"><span class="zh">AI 功能清冊</span><span class="en">AI feature inventory</span><span class="ja">AI 機能の一覧</span></h3>
+    <div class="tbl"><table class="ct">
+      <thead><tr><th><span class="zh">AI 功能</span><span class="en">AI feature</span><span class="ja">AI 機能</span></th><th><span class="zh">用途</span><span class="en">Purpose</span><span class="ja">用途</span></th><th><span class="zh">預設</span><span class="en">Default</span><span class="ja">既定</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">AI 對話</span><span class="en">AI chat</span><span class="ja">AI チャット</span></td><td><span class="zh">用自然語言查詢 IPAM，模型透過工具取得資料</span><span class="en">Query the IPAM in natural language; the model reads data through tools</span><span class="ja">自然言語で IPAM を照会し、モデルはツールでデータを取得</span></td><td><span class="zh">啟用 LLM 後可用</span><span class="en">Available once the LLM is enabled</span><span class="ja">LLM を有効にすると利用可</span></td></tr>
+        <tr><td><span class="zh">語意搜尋</span><span class="en">Semantic search</span><span class="ja">セマンティック検索</span></td><td><span class="zh">以嵌入模型做相似度搜尋</span><span class="en">Similarity search with an embedding model</span><span class="ja">埋め込みモデルによる類似検索</span></td><td><span class="zh">啟用 LLM 後可用</span><span class="en">Available once the LLM is enabled</span><span class="ja">LLM を有効にすると利用可</span></td></tr>
+        <tr><td><span class="zh">IP 調查判讀、IP 研判卡</span><span class="en">IP investigation narrative, IP triage card</span><span class="ja">IP 調査の解説・IP トリアージカード</span></td><td><span class="zh">把已查到的事實整理成說明</span><span class="en">Turn facts already collected into an explanation</span><span class="ja">収集済みの事実を説明にまとめる</span></td><td><span class="zh">啟用 LLM 後可用</span><span class="en">Available once the LLM is enabled</span><span class="ja">LLM を有効にすると利用可</span></td></tr>
+        <tr><td><span class="zh">防火牆規則異動判讀</span><span class="en">Firewall rule change review</span><span class="ja">ファイアウォールルール変更の解説</span></td><td><span class="zh">解釋程式比對出的規則差異</span><span class="en">Explain the rule differences found by the program</span><span class="ja">プログラムが比較したルールの差分を解説</span></td><td><span class="zh">啟用 LLM 後可用</span><span class="en">Available once the LLM is enabled</span><span class="ja">LLM を有効にすると利用可</span></td></tr>
+        <tr><td><span class="zh">IP 變更評估的 AI 建議</span><span class="en">AI suggestions in IP change assessment</span><span class="ja">IP 変更評価の AI 提案</span></td><td><span class="zh">依評估結果提出待辦建議</span><span class="en">Suggest to-dos from the assessment result</span><span class="ja">評価結果から作業項目を提案</span></td><td><span class="zh">啟用 LLM 後可用</span><span class="en">Available once the LLM is enabled</span><span class="ja">LLM を有効にすると利用可</span></td></tr>
+        <tr><td><span class="zh">AI 巡檢</span><span class="en">AI review</span><span class="ja">AI 点検</span></td><td><span class="zh">排程檢視資料並列出發現</span><span class="en">Review data on a schedule and list findings</span><span class="ja">スケジュールでデータを確認し発見事項を一覧化</span></td><td><span class="zh">關閉</span><span class="en">Off</span><span class="ja">無効</span></td></tr>
+        <tr><td><span class="zh">外部 MCP</span><span class="en">External MCP</span><span class="ja">外部 MCP</span></td><td><span class="zh">讓外部 AI 用戶端呼叫 jt-ipam 的工具</span><span class="en">Let external AI clients call jt-ipam tools</span><span class="ja">外部の AI クライアントが jt-ipam のツールを呼び出す</span></td><td><span class="zh">關閉</span><span class="en">Off</span><span class="ja">無効</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="note"><span class="zh">模型端點可以是自架的 Ollama，或 OpenAI 相容的 API（由管理員選擇）。LLM 未啟用時，以上功能都不會呼叫模型；AI 巡檢與外部 MCP 另有各自的開關。異常偵測、規則異動偵測與 IP 變更評估的結果由程式查詢算出，不是模型產生的。</span><span class="en">The model endpoint can be a self-hosted Ollama or an OpenAI-compatible API (chosen by an admin). While the LLM is disabled none of the features above call a model; AI review and external MCP have their own switches. The results of anomaly detection, rule change detection and IP change assessment are computed by queries, not produced by a model.</span><span class="ja">モデルのエンドポイントは自前の Ollama か OpenAI 互換 API（管理者が選択）です。LLM が無効の間、上記の機能はモデルを呼び出しません。AI 点検と外部 MCP には個別のスイッチがあります。異常検出・ルール変更検出・IP 変更評価の結果はプログラムの照会で算出され、モデルが生成したものではありません。</span></p>
+    <h3 class="sub-h" id="ai-controls"><span class="zh">AI 控制</span><span class="en">AI controls</span><span class="ja">AI の管理策</span></h3>
+    <div class="tbl"><table class="ct">
+      <thead><tr><th><span class="zh">面向</span><span class="en">Area</span><span class="ja">項目</span></th><th><span class="zh">對應控制項</span><span class="en">Related controls</span><span class="ja">関連する管理策</span></th><th><span class="zh">jt-ipam 的做法</span><span class="en">What jt-ipam does</span><span class="ja">jt-ipam の実装</span></th><th><span class="zh">驗證方式（測試、設定）</span><span class="en">How to verify (tests, settings)</span><span class="ja">確認方法（テスト・設定）</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">AI 權限一致</span><span class="en">Consistent AI permissions</span><span class="ja">AI の権限の一貫性</span></td><td class="refs">A.9.2</td><td><span class="zh">AI 對話與 MCP 的工具在後端逐一授權，用的是與 REST 相同的可見範圍；會異動資料的工具限管理員。</span><span class="en">AI chat and MCP tools are authorised on the server one by one, using the same visibility as REST; tools that change data are admin-only.</span><span class="ja">AI チャットと MCP のツールはサーバー側で 1 つずつ認可され、REST と同じ閲覧範囲を使います。データを変更するツールは管理者限定です。</span></td><td><code>test_mcp_tools_match_rest_permissions.py</code>, <code>test_mcp_admin_tools.py</code>, <code>test_mcp_rbac_scope.py</code></td></tr>
+        <tr><td><span class="zh">異動要人確認</span><span class="en">Changes need a person to confirm</span><span class="ja">変更には人の確認が必要</span></td><td class="refs">A.6.2.8
+A.9.2</td><td><span class="zh">AI 對話裡會改資料的工具不會直接執行，要使用者按下確認才執行並寫稽核；MCP 的寫入也寫稽核。</span><span class="en">In AI chat, tools that change data never run directly: they run only after the user confirms, and are audited; MCP writes are audited too.</span><span class="ja">AI チャットでデータを変更するツールは直接実行されず、ユーザーが確認して初めて実行され監査に記録されます。MCP の書き込みも監査に記録されます。</span></td><td><code>test_mcp_url_and_audit.py</code>, <code>test_ai_inline_toolcalls.py</code></td></tr>
+        <tr><td><span class="zh">查詢範圍與筆數</span><span class="en">Scope and counts</span><span class="ja">照会範囲と件数</span></td><td class="refs">A.7.4
+A.8.2</td><td><span class="zh">工具回傳查詢範圍、總數、本次筆數與是否還有更多；超過上限會明確標示截斷；查無結果時工具要求模型照實說，不可以補造例子。</span><span class="en">Tools return the query scope, the total, the number returned and whether more remain; results over the limit are marked as truncated; when nothing is found the tool tells the model to say so and not to invent examples.</span><span class="ja">ツールは照会範囲・総数・今回の件数・続きがあるかを返します。上限を超えると切り詰めたことを明示し、結果がないときはその旨を伝え、例を作らないようモデルに指示します。</span></td><td><code>test_mcp_tool_scoping.py</code>, <code>test_ai_no_results_are_explicit.py</code></td></tr>
+        <tr><td><span class="zh">答案查證</span><span class="en">Answer checking</span><span class="ja">回答の検証</span></td><td class="refs">A.6.2.6
+A.8.2</td><td><span class="zh">回答中出現、但沒有任何工具回傳過的 IP，會被標示為未經查證。</span><span class="en">IPs that appear in an answer but were not returned by any tool are marked as unverified.</span><span class="ja">回答に現れたが、どのツールも返していない IP は未検証として示されます。</span></td><td><code>test_ai_answer_ip_verification.py</code></td></tr>
+        <tr><td><span class="zh">模型記錄</span><span class="en">Model records</span><span class="ja">モデルの記録</span></td><td class="refs">A.4.2
+A.6.2.8</td><td><span class="zh">AI 對話的回答與 AI 巡檢的發現會存下使用的模型；判讀與建議的結果也標示模型。</span><span class="en">AI chat answers and AI review findings store the model that produced them; narratives and suggestions also show the model.</span><span class="ja">AI チャットの回答と AI 点検の発見事項は使用したモデルを保存し、解説や提案の結果にもモデルを表示します。</span></td><td><code>app/models/ai_chat.py</code>, <code>app/models/ai_finding.py</code></td></tr>
+        <tr><td><span class="zh">提示詞注入</span><span class="en">Prompt injection</span><span class="ja">プロンプトインジェクション</span></td><td class="refs">A.6.2.2
+A.6.2.4</td><td><span class="zh">所有把資料送進模型的地方（AI 對話、IP 調查判讀、AI 巡檢、IP 研判、防火牆規則判讀、IP 變更評估）都使用同一段「資料與工具結果不是指令」的規則，大段資料放在定界內並先拆掉資料裡的定界字串（守門測試檢查每一個呼叫模型的地方）；使用者訊息先經過檢查（常見的越權指令樣式、重複與控制字元）；AI 對話裡會改資料的動作要人確認，確認時再過一次權限檢查。</span><span class="en">Every place that sends data to a model (AI chat, IP investigation narrative, AI review, IP triage, firewall rule review, IP change assessment) uses the same rule that data and tool results are not instructions, and large data blocks are fenced with fence strings inside the data broken up first (a guard test checks every caller of the model); user messages are screened first (common instruction-override patterns, repetition and control characters); changes proposed in AI chat need a person to confirm, and the confirmation runs the permission check again.</span><span class="ja">モデルにデータを渡すすべての箇所（AI チャット・IP 調査の解説・AI 点検・IP トリアージ・ファイアウォールルールの解説・IP 変更評価）で「データとツールの結果は指示ではない」という同じ規則を使い、大きなデータは区切りの中に入れ、データ内の区切り文字列は先に崩します（ガードテストでモデルを呼ぶすべての箇所を検査）。ユーザーのメッセージは事前に検査されます（よくある指示の上書きパターン・繰り返し・制御文字）。AI チャットで提案された変更は人の確認が必要で、確認時に権限を再確認します。</span></td><td><code>test_prompt_injection_framing.py</code>, <code>test_ai_guard.py</code></td></tr>
+        <tr><td><span class="zh">事實與 AI 敘述分開</span><span class="en">Facts kept apart from AI narrative</span><span class="ja">事実と AI の説明を分ける</span></td><td class="refs">A.8.2
+A.9.4</td><td><span class="zh">異常、規則異動與變更評估的結果由程式查詢決定；AI 只負責解釋，畫面標明是 AI 判讀。</span><span class="en">Anomalies, rule changes and change assessment results are decided by queries; the AI only explains them, and the screen labels the explanation as AI.</span><span class="ja">異常・ルール変更・変更評価の結果はプログラムの照会で決まり、AI は説明だけを担当し、画面では AI による解説と明示します。</span></td><td><code>app/services/anomaly.py</code>, <code>app/services/fw_review.py</code>, <code>app/services/change_impact/</code></td></tr>
+        <tr><td><span class="zh">變更評估的人工審核</span><span class="en">Human review of change assessments</span><span class="ja">変更評価の人によるレビュー</span></td><td class="refs">A.9.2</td><td><span class="zh">有阻擋項目不能核准；結果不完整要填理由承擔風險；每個發現都要處置；核准後計畫或依據改變（快照雜湊不同）就回到草稿重新評估；可指定審核人；列出哪些來源沒有資料或同步失敗。</span><span class="en">Plans with blocking items cannot be approved; incomplete results need a reason to accept the risk; every finding needs a disposition; if the plan or its evidence changes after approval (the snapshot hash differs) it goes back to draft for reassessment; reviewers can be assigned; sources with no data or failed syncs are listed.</span><span class="ja">ブロック項目があると承認できません。結果が不完全な場合はリスク受容の理由が必要で、すべての発見事項に対処が必要です。承認後に計画や根拠が変わると（スナップショットのハッシュが異なる）下書きに戻り再評価になります。レビュー担当者を指定でき、データがない出所や同期に失敗した出所を一覧表示します。</span></td><td><code>test_change_impact_api.py</code>, <code>test_change_impact_reviewers.py</code>, <code>test_change_impact_coverage.py</code></td></tr>
+        <tr><td><span class="zh">停用</span><span class="en">Switching off</span><span class="ja">停止</span></td><td class="refs">A.6.2.6
+A.9.2</td><td><span class="zh">LLM 全域開關一關，所有 AI 功能都停止呼叫模型；AI 巡檢與外部 MCP 各自另有開關，預設關閉。</span><span class="en">Turning off the global LLM switch stops every AI feature from calling a model; AI review and external MCP each have their own switch and are off by default.</span><span class="ja">LLM の全体スイッチを切ると、すべての AI 機能がモデルを呼び出さなくなります。AI 点検と外部 MCP には個別のスイッチがあり、既定では無効です。</span></td><td><code>app/services/system_config.py</code></td></tr>
+      </tbody>
+    </table></div>
+    <h3 class="sub-h" id="iso42001-index"><span class="zh">對應的條文與控制項（ISO/IEC 42001）</span><span class="en">Clauses and controls (ISO/IEC 42001)</span><span class="ja">対応する箇条と管理策（ISO/IEC 42001）</span></h3>
+    <p class="note"><span class="zh">編號依 ISO/IEC 42001:2023 附錄 A，不帶 A. 的是本文條文；中文與日文名稱為參考譯名，以標準原文為準。附錄 A 共 38 項，jt-ipam 能提供佐證的有 9 項；下表另列出「導入組織要做的事」對應的條文與控制項。</span><span class="en">Numbers follow ISO/IEC 42001:2023 Annex A; numbers without A. are clauses of the main text. Annex A has 38 controls; jt-ipam provides evidence for 9 of them. The table also lists the clauses and controls behind the organisation&#x27;s responsibilities further down.</span><span class="ja">番号は ISO/IEC 42001:2023 附属書 A に従い、A. の付かない番号は本文の箇条です。日本語と中国語の名称は参考訳で、規格の原文が優先します。附属書 A の 38 項目のうち、jt-ipam が根拠を示せるのは 9 項目です。下表には「導入組織が責任を持つこと」に対応する箇条と管理策も載せています。</span></p>
+    <div class="tbl"><table class="ct idx">
+      <thead><tr><th><span class="zh">編號</span><span class="en">No.</span><span class="ja">番号</span></th><th><span class="zh">名稱</span><span class="en">Title</span><span class="ja">名称</span></th><th><span class="zh">jt-ipam 提供佐證的面向</span><span class="en">Where jt-ipam provides evidence</span><span class="ja">jt-ipam が根拠を示す項目</span></th><th><span class="zh">導入組織要做的事</span><span class="en">What the organisation does</span><span class="ja">導入組織が行うこと</span></th></tr></thead>
+      <tbody>
+        <tr><td>5.2</td><td><span class="zh">AI 政策</span><span class="en">AI policy</span><span class="ja">AI 方針</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">AI 政策與清冊</span><span class="en">AI policy and inventory</span><span class="ja">AI ポリシーと一覧</span></td></tr>
+        <tr><td>6.1.3</td><td><span class="zh">AI 風險處理（含適用性聲明）</span><span class="en">AI risk treatment (including the statement of applicability)</span><span class="ja">AI リスク対応（適用宣言書を含む）</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>6.1.4</td><td><span class="zh">AI 系統衝擊評鑑</span><span class="en">AI system impact assessment</span><span class="ja">AI システム影響評価</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">影響評估</span><span class="en">Impact assessment</span><span class="ja">影響評価</span></td></tr>
+        <tr><td>7.2</td><td><span class="zh">適任性</span><span class="en">Competence</span><span class="ja">力量</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>7.3</td><td><span class="zh">認知</span><span class="en">Awareness</span><span class="ja">認識</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>8.4</td><td><span class="zh">AI 系統衝擊評鑑（運作）</span><span class="en">AI system impact assessment (operation)</span><span class="ja">AI システム影響評価（運用）</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">影響評估</span><span class="en">Impact assessment</span><span class="ja">影響評価</span></td></tr>
+        <tr><td>9.2</td><td><span class="zh">內部稽核</span><span class="en">Internal audit</span><span class="ja">内部監査</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>9.3</td><td><span class="zh">管理階層審查</span><span class="en">Management review</span><span class="ja">マネジメントレビュー</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">管理制度</span><span class="en">Management system</span><span class="ja">マネジメントシステム</span></td></tr>
+        <tr><td>A.2.2</td><td><span class="zh">AI 政策</span><span class="en">AI policy</span><span class="ja">AI 方針</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">AI 政策與清冊</span><span class="en">AI policy and inventory</span><span class="ja">AI ポリシーと一覧</span></td></tr>
+        <tr><td>A.3.2</td><td><span class="zh">AI 角色與責任</span><span class="en">AI roles and responsibilities</span><span class="ja">AI の役割及び責任</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">AI 政策與清冊</span><span class="en">AI policy and inventory</span><span class="ja">AI ポリシーと一覧</span></td></tr>
+        <tr><td>A.3.3</td><td><span class="zh">關切事項之通報</span><span class="en">Reporting of concerns</span><span class="ja">懸念の報告</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">事件處理</span><span class="en">Incidents</span><span class="ja">インシデント対応</span></td></tr>
+        <tr><td>A.4.2</td><td><span class="zh">資源之文件化</span><span class="en">Resource documentation</span><span class="ja">資源の文書化</span></td><td><span class="zh">模型記錄、AI 功能清冊</span><span class="en">Model records, AI feature inventory</span><span class="ja">モデルの記録、AI 機能の一覧</span></td><td><span class="zh">AI 政策與清冊</span><span class="en">AI policy and inventory</span><span class="ja">AI ポリシーと一覧</span></td></tr>
+        <tr><td>A.5.2</td><td><span class="zh">AI 系統衝擊評鑑過程</span><span class="en">AI system impact assessment process</span><span class="ja">AI システム影響評価プロセス</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">影響評估</span><span class="en">Impact assessment</span><span class="ja">影響評価</span></td></tr>
+        <tr><td>A.5.4</td><td><span class="zh">評鑑 AI 系統對個人或群體之衝擊</span><span class="en">Assessing AI system impact on individuals or groups of individuals</span><span class="ja">個人又は個人の集団への AI システムの影響の評価</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">影響評估</span><span class="en">Impact assessment</span><span class="ja">影響評価</span></td></tr>
+        <tr><td>A.6.2.2</td><td><span class="zh">AI 系統要求事項與規格</span><span class="en">AI system requirements and specification</span><span class="ja">AI システムの要求事項及び仕様</span></td><td><span class="zh">提示詞注入</span><span class="en">Prompt injection</span><span class="ja">プロンプトインジェクション</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.6.2.4</td><td><span class="zh">AI 系統之驗證與確認</span><span class="en">AI system verification and validation</span><span class="ja">AI システムの検証及び妥当性確認</span></td><td><span class="zh">提示詞注入</span><span class="en">Prompt injection</span><span class="ja">プロンプトインジェクション</span></td><td><span class="zh">模型變更</span><span class="en">Model changes</span><span class="ja">モデルの変更</span></td></tr>
+        <tr><td>A.6.2.5</td><td><span class="zh">AI 系統部署</span><span class="en">AI system deployment</span><span class="ja">AI システムの展開</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">模型變更</span><span class="en">Model changes</span><span class="ja">モデルの変更</span></td></tr>
+        <tr><td>A.6.2.6</td><td><span class="zh">AI 系統運作與監視</span><span class="en">AI system operation and monitoring</span><span class="ja">AI システムの運用及び監視</span></td><td><span class="zh">答案查證、停用</span><span class="en">Answer checking, Switching off</span><span class="ja">回答の検証、停止</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.6.2.8</td><td><span class="zh">AI 系統事件日誌之紀錄</span><span class="en">AI system recording of event logs</span><span class="ja">AI システムのイベントログの記録</span></td><td><span class="zh">異動要人確認、模型記錄</span><span class="en">Changes need a person to confirm, Model records</span><span class="ja">変更には人の確認が必要、モデルの記録</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.7.4</td><td><span class="zh">AI 系統資料之品質</span><span class="en">Quality of data for AI systems</span><span class="ja">AI システムのためのデータの品質</span></td><td><span class="zh">查詢範圍與筆數</span><span class="en">Scope and counts</span><span class="ja">照会範囲と件数</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.2</td><td><span class="zh">系統文件及提供使用者之資訊</span><span class="en">System documentation and information for users</span><span class="ja">システムの文書及び利用者への情報</span></td><td><span class="zh">查詢範圍與筆數、答案查證、事實與 AI 敘述分開、AI 功能清冊</span><span class="en">Scope and counts, Answer checking, Facts kept apart from AI narrative, AI feature inventory</span><span class="ja">照会範囲と件数、回答の検証、事実と AI の説明を分ける、AI 機能の一覧</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.8.4</td><td><span class="zh">事故之溝通</span><span class="en">Communication of incidents</span><span class="ja">インシデントの伝達</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">事件處理</span><span class="en">Incidents</span><span class="ja">インシデント対応</span></td></tr>
+        <tr><td>A.9.2</td><td><span class="zh">負責任使用 AI 系統之過程</span><span class="en">Processes for responsible use of AI systems</span><span class="ja">AI システムの責任ある利用のためのプロセス</span></td><td><span class="zh">AI 權限一致、異動要人確認、變更評估的人工審核、停用</span><span class="en">Consistent AI permissions, Changes need a person to confirm, Human review of change assessments, Switching off</span><span class="ja">AI の権限の一貫性、変更には人の確認が必要、変更評価の人によるレビュー、停止</span></td><td><span class="zh">人工覆核</span><span class="en">Human review</span><span class="ja">人によるレビュー</span></td></tr>
+        <tr><td>A.9.4</td><td><span class="zh">AI 系統之預期用途</span><span class="en">Intended use of the AI system</span><span class="ja">AI システムの意図した利用</span></td><td><span class="zh">事實與 AI 敘述分開</span><span class="en">Facts kept apart from AI narrative</span><span class="ja">事実と AI の説明を分ける</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td></tr>
+        <tr><td>A.10.3</td><td><span class="zh">供應者</span><span class="en">Suppliers</span><span class="ja">供給者</span></td><td><span class="zh"></span><span class="en"></span><span class="ja"></span></td><td><span class="zh">資料流</span><span class="en">Data flows</span><span class="ja">データの流れ</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+  <section class="blk">
+    <h2 id="customer"><span class="zh">導入組織要負責的事</span><span class="en">What the adopting organisation is responsible for</span><span class="ja">導入組織が責任を持つこと</span></h2>
+    <h3 class="sub-h" id="customer-27001"><span class="zh">資訊安全（ISO/IEC 27001）</span><span class="en">Information security (ISO/IEC 27001)</span><span class="ja">情報セキュリティ（ISO/IEC 27001）</span></h3>
+    <div class="box"><ul><li><span class="zh">帳號：在使用者管理頁的「登入安全」把雙因素驗證設成管理員必須或所有人必須，並定期確認例外。（A.5.17、A.8.5）</span><span class="en">Accounts: set two-factor authentication to required for administrators or for everyone under Sign-in security on the users page, and review exceptions regularly. (A.5.17, A.8.5)</span><span class="ja">アカウント：ユーザー管理ページの「ログインのセキュリティ」で 二要素認証を管理者必須または全員必須にし、例外を定期的に確認します。（A.5.17、A.8.5）</span></li><li><span class="zh">離職與調職：停用帳號（工作階段、API 權杖與開著的主控台會一併失效），或用「強制登出」結束所有登入；調整權限與群組成員。（A.5.18、A.6.5）</span><span class="en">Leavers and movers: deactivate the account (its sessions, API tokens and open consoles stop working with it), or use Sign out everywhere to end all sign-ins; adjust permissions and group memberships. (A.5.18, A.6.5)</span><span class="ja">退職と異動：アカウントを無効化する（セッション・API トークン・開いているコンソールも同時に無効になります）か、「強制ログアウト」ですべてのログインを終了し、権限とグループのメンバーを調整します。（A.5.18、A.6.5）</span></li><li><span class="zh">存取審查：定期檢視權限指派、群組成員、API 權杖、主控台授權與登入中的工作階段，必要時對照稽核記錄。（A.5.18、A.8.2）</span><span class="en">Access reviews: regularly review permission grants, group members, API tokens, console rights and active sessions, using the audit log where needed. (A.5.18, A.8.2)</span><span class="ja">アクセスレビュー：権限の付与・グループのメンバー・API トークン・コンソール権限・ログイン中のセッションを定期的に見直し、必要に応じて監査ログと照合します。（A.5.18、A.8.2）</span></li><li><span class="zh">整合帳號：每個整合使用專用的最小權限帳號，多數整合只需要唯讀；定期輪替密碼與金鑰；到期通知出現時及時更換權杖。（A.5.17、A.8.2）</span><span class="en">Integration accounts: give each integration its own least-privilege account (most only need read access); rotate passwords and keys regularly; replace tokens when expiry notices arrive. (A.5.17, A.8.2)</span><span class="ja">連携用アカウント：連携ごとに最小権限の専用アカウントを使い（多くは読み取り専用で十分）、パスワードとキーを定期的にローテーションし、期限の通知が届いたらトークンを交換します。（A.5.17、A.8.2）</span></li><li><span class="zh">金鑰與備份：設定備份加密密碼並把密碼保存在 jt-ipam 主機以外；把備份放到異地儲存，定期做還原演練（含解密），並訂出 RPO 與 RTO。（A.5.30、A.8.13）</span><span class="en">Keys and backups: set a backup encryption passphrase and keep it somewhere other than the jt-ipam host; store backups off-site, rehearse restores (including decryption) regularly, and set an RPO and RTO. (A.5.30, A.8.13)</span><span class="ja">鍵とバックアップ：バックアップの暗号化パスフレーズを設定し、jt-ipam のホスト以外に保管します。バックアップを外部に保存し、復号を含む復元訓練を定期的に行い、RPO と RTO を定めます。（A.5.30、A.8.13）</span></li><li><span class="zh">稽核證據：把稽核記錄轉送到獨立、不可改寫的 Graylog 或 SIEM 儲存，定期查看稽核鏈的驗證結果；還原備份或使用外部資料庫時執行 harden-audit。（A.5.28、A.8.15）</span><span class="en">Audit evidence: forward audit records to independent, write-once Graylog or SIEM storage and review chain verification results regularly; run harden-audit after restoring a backup or when using an external database. (A.5.28, A.8.15)</span><span class="ja">監査の証拠：監査ログを独立した書き換え不可の Graylog または SIEM のストレージへ転送し、チェーンの検証結果を定期的に確認します。バックアップの復元後や外部データベースを使う場合は harden-audit を実行します。（A.5.28、A.8.15）</span></li><li><span class="zh">網路：只開放必要的連入埠；把 jt-ipam 放在管理網段；Graylog DSV 盡量走 HTTPS，必須用明文 8088 時限制允許的來源位址。（A.8.20、A.8.22）</span><span class="en">Network: open only the inbound ports you need; keep jt-ipam in a management network; use HTTPS for Graylog DSV where possible, and restrict allowed sources when plain port 8088 is required. (A.8.20, A.8.22)</span><span class="ja">ネットワーク：必要な着信ポートだけを開け、jt-ipam を管理用ネットワークに置きます。Graylog DSV はできるだけ HTTPS を使い、平文の 8088 番が必要な場合は許可する送信元を制限します。（A.8.20、A.8.22）</span></li><li><span class="zh">掃描代理與憑證代理：只指派需要的子網路與憑證；不再使用的代理停用或刪除，定期輪替代理金鑰。（A.5.18）</span><span class="en">Scan and certificate agents: assign only the subnets and certificates they need; disable or delete unused agents and rotate agent keys regularly. (A.5.18)</span><span class="ja">スキャンエージェントと証明書エージェント：必要なサブネットと証明書だけを割り当て、使わなくなったエージェントは無効化または削除し、エージェントのキーを定期的にローテーションします。（A.5.18）</span></li><li><span class="zh">更新：追蹤新版本並依 CHANGELOG 升級（升級腳本會先備份）。（A.8.8、A.8.32）</span><span class="en">Updates: follow new releases and upgrade according to the CHANGELOG (the upgrade script backs up first). (A.8.8, A.8.32)</span><span class="ja">更新：新しいバージョンを追い、CHANGELOG に沿ってアップグレードします（アップグレードスクリプトは先にバックアップします）。（A.8.8、A.8.32）</span></li><li><span class="zh">管理制度：風險評鑑與處理、適用性聲明、教育訓練、內部稽核與管理審查由導入組織負責。（6.1.2、6.1.3、7.2、7.3、9.2、9.3）</span><span class="en">Management system: risk assessment and treatment, the statement of applicability, training, internal audits and management reviews are the adopting organisation&#x27;s responsibility. (6.1.2, 6.1.3, 7.2, 7.3, 9.2, 9.3)</span><span class="ja">マネジメントシステム：リスクアセスメントとリスク対応・適用宣言書・教育訓練・内部監査・マネジメントレビューは導入組織の責任です。（6.1.2、6.1.3、7.2、7.3、9.2、9.3）</span></li></ul></div>
+    <h3 class="sub-h" id="customer-42001"><span class="zh">AI 管理（ISO/IEC 42001）</span><span class="en">AI management (ISO/IEC 42001)</span><span class="ja">AI マネジメント（ISO/IEC 42001）</span></h3>
+    <div class="box"><ul><li><span class="zh">AI 政策與清冊：決定要開哪些 AI 功能、由誰負責，記錄模型端點與版本。（5.2、A.2.2、A.3.2、A.4.2）</span><span class="en">AI policy and inventory: decide which AI features to turn on and who owns them, and record the model endpoint and version. (5.2, A.2.2, A.3.2, A.4.2)</span><span class="ja">AI ポリシーと一覧：どの AI 機能を有効にし、誰が責任を持つかを決め、モデルのエンドポイントとバージョンを記録します。（5.2、A.2.2、A.3.2、A.4.2）</span></li><li><span class="zh">資料流：選擇自架模型或外部 API；若開放外部 MCP，外部 AI 用戶端拿到的資料可能再交給它自己的雲端模型處理，這條資料流要另外評估與核准。（A.10.3）</span><span class="en">Data flows: choose a self-hosted model or an external API; if you open external MCP, the data an external AI client receives may be passed on to its own cloud model, so assess and approve that flow separately. (A.10.3)</span><span class="ja">データの流れ：自前のモデルか外部 API かを選びます。外部 MCP を開放すると、外部の AI クライアントが受け取ったデータがそのクラウドモデルに渡される可能性があるため、この流れは別途評価・承認します。（A.10.3）</span></li><li><span class="zh">模型變更：換模型或調整參數前，用一組固定問題做回歸測試（工具使用、查詢範圍、查無結果時的回答）。（A.6.2.4、A.6.2.5）</span><span class="en">Model changes: before switching models or changing parameters, run a fixed set of questions as a regression test (tool use, query scope, answers when nothing is found). (A.6.2.4, A.6.2.5)</span><span class="ja">モデルの変更：モデルの切り替えやパラメーター変更の前に、固定の質問セットで回帰テストを行います（ツールの使い方・照会範囲・結果がないときの回答）。（A.6.2.4、A.6.2.5）</span></li><li><span class="zh">人工覆核：AI 的回答與巡檢發現是建議，不是結論；網路變更走 IP 變更評估與審核流程。（A.9.2）</span><span class="en">Human review: AI answers and review findings are suggestions, not conclusions; network changes go through IP change assessment and its review workflow. (A.9.2)</span><span class="ja">人によるレビュー：AI の回答と点検の発見事項は提案であり結論ではありません。ネットワークの変更は IP 変更評価とレビューの手順に従います。（A.9.2）</span></li><li><span class="zh">影響評估：評估錯誤判讀對人與組織的影響，例如誤把設備歸給某位使用者、錯誤的維護建議造成服務中斷。（6.1.4、8.4、A.5.2、A.5.4）</span><span class="en">Impact assessment: assess how wrong conclusions affect people and the organisation, such as attributing a device to the wrong user or a wrong maintenance suggestion causing an outage. (6.1.4, 8.4, A.5.2, A.5.4)</span><span class="ja">影響評価：誤った判断が人と組織に与える影響を評価します。例えば機器を誤ったユーザーに結び付ける、誤った保守の提案でサービスが停止する、などです。（6.1.4、8.4、A.5.2、A.5.4）</span></li><li><span class="zh">事件處理：訂出回報 AI 錯誤與暫停 AI 功能的程序（LLM 全域開關）。（A.3.3、A.8.4）</span><span class="en">Incidents: define how AI mistakes are reported and how AI features are paused (the global LLM switch). (A.3.3, A.8.4)</span><span class="ja">インシデント対応：AI の誤りの報告手順と、AI 機能を一時停止する手順（LLM の全体スイッチ）を定めます。（A.3.3、A.8.4）</span></li><li><span class="zh">管理制度：適用性聲明、教育訓練、內部稽核與管理審查由導入組織負責。（6.1.3、7.2、7.3、9.2、9.3）</span><span class="en">Management system: the statement of applicability, training, internal audits and management reviews are the adopting organisation&#x27;s responsibility. (6.1.3, 7.2, 7.3, 9.2, 9.3)</span><span class="ja">マネジメントシステム：適用宣言書・教育訓練・内部監査・マネジメントレビューは導入組織の責任です。（6.1.3、7.2、7.3、9.2、9.3）</span></li></ul></div>
+  </section>
+  <section class="blk">
+    <h2 id="acceptance"><span class="zh">建議的驗收案例</span><span class="en">Suggested acceptance cases</span><span class="ja">推奨する受け入れ確認</span></h2>
+    <div class="tbl"><table class="ct">
+      <thead><tr><th><span class="zh">驗收案例</span><span class="en">Acceptance case</span><span class="ja">受け入れ確認</span></th><th><span class="zh">合格判定</span><span class="en">Pass criterion</span><span class="ja">合格条件</span></th><th><span class="zh">驗證方式（測試、設定）</span><span class="en">How to verify (tests, settings)</span><span class="ja">確認方法（テスト・設定）</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">A、B 單位使用相同的私有網段</span><span class="en">Units A and B use the same private network</span><span class="ja">組織 A と B が同じプライベートネットワークを使う</span></td><td><span class="zh">A 透過搜尋、IP 關聯、AI 對話與 MCP 都拿不到 B 的資料</span><span class="en">A cannot reach B&#x27;s data through search, IP relations, AI chat or MCP</span><span class="ja">A は検索・IP の関連・AI チャット・MCP のいずれでも B のデータを取得できない</span></td><td><code>test_search_overlapping.py</code>, <code>test_mcp_rbac_scope.py</code></td></tr>
+        <tr><td><span class="zh">唯讀權杖或一般帳號要求修改 IP</span><span class="en">A read-only token or ordinary account asks to change an IP</span><span class="ja">読み取り専用トークンまたは一般アカウントが IP の変更を求める</span></td><td><span class="zh">後端拒絕，資料沒有變更</span><span class="en">The server refuses and nothing changes</span><span class="ja">サーバーが拒否し、データは変更されない</span></td><td><code>test_api_token_scope.py</code>, <code>test_mcp_admin_tools.py</code></td></tr>
+        <tr><td><span class="zh">查詢結果超過單次上限</span><span class="en">A query returns more than the limit</span><span class="ja">照会結果が 1 回の上限を超える</span></td><td><span class="zh">回傳總數與本次筆數，不把部分清單當成全部</span><span class="en">The total and the number returned are given; a partial list is not presented as complete</span><span class="ja">総数と今回の件数を返し、一部の一覧を全体として扱わない</span></td><td><code>test_mcp_tool_scoping.py</code></td></tr>
+        <tr><td><span class="zh">查無資料</span><span class="en">Nothing is found</span><span class="ja">データが見つからない</span></td><td><span class="zh">AI 照實說沒有，不編造位址或設備</span><span class="en">The AI says so and does not invent addresses or devices</span><span class="ja">AI はその旨を伝え、アドレスや機器を作らない</span></td><td><code>test_ai_no_results_are_explicit.py</code></td></tr>
+        <tr><td><span class="zh">核准後依據改變</span><span class="en">Evidence changes after approval</span><span class="ja">承認後に根拠が変わる</span></td><td><span class="zh">舊核准不能直接套用，要重新評估</span><span class="en">The earlier approval cannot be applied; the plan must be reassessed</span><span class="ja">以前の承認はそのまま使えず、再評価が必要</span></td><td><code>test_change_impact_api.py</code></td></tr>
+        <tr><td><span class="zh">撤銷 API 權杖或停用帳號</span><span class="en">An API token is revoked or an account deactivated</span><span class="ja">API トークンの取り消しまたはアカウントの無効化</span></td><td><span class="zh">下一個 REST、API 權杖或 MCP 請求就被拒絕</span><span class="en">The next REST, API token or MCP request is refused</span><span class="ja">次の REST・API トークン・MCP のリクエストから拒否される</span></td><td><code>test_api_token_scope.py</code>, <code>app/api/v1/dependencies.py</code></td></tr>
+        <tr><td><span class="zh">修改或刪除稽核記錄</span><span class="en">An audit record is modified or deleted</span><span class="ja">監査ログを変更または削除する</span></td><td><span class="zh">資料庫拒絕；鏈尾錨定能發現尾端被截掉</span><span class="en">The database refuses; the tail anchor reveals a truncated tail</span><span class="ja">データベースが拒否し、末尾のアンカーで末尾の切り詰めを検出できる</span></td><td><code>test_audit_immutability.py</code>, <code>test_audit_anchor.py</code></td></tr>
+        <tr><td><span class="zh">重複使用主控台票證</span><span class="en">A console ticket is reused</span><span class="ja">コンソールのチケットを再利用する</span></td><td><span class="zh">第二次使用被拒絕</span><span class="en">The second use is refused</span><span class="ja">2 回目の使用は拒否される</span></td><td><code>test_ticket_take_once.py</code></td></tr>
+        <tr><td><span class="zh">管理員要求所有人使用雙因素驗證</span><span class="en">Administrators require two-factor authentication for everyone</span><span class="ja">管理者が全員に二要素認証を必須にする</span></td><td><span class="zh">沒設定的人登入時先設定並拿到復原碼，不能自行停用；復原碼只能用一次</span><span class="en">People without it set it up at sign-in and receive recovery codes, and cannot turn it off; each recovery code works once</span><span class="ja">未設定のユーザーはログイン時に設定してリカバリーコードを受け取り、自分で無効にできない。リカバリーコードは 1 回限り</span></td><td><code>test_mfa_policy.py</code></td></tr>
+        <tr><td><span class="zh">登出、強制登出或停用帳號</span><span class="en">Sign out, Sign out everywhere or deactivation</span><span class="ja">ログアウト・強制ログアウト・アカウントの無効化</span></td><td><span class="zh">存取權杖與更新權杖立即失效；開著的主控台 30 秒內中斷</span><span class="en">Access and refresh tokens stop working immediately; open consoles close within 30 seconds</span><span class="ja">アクセストークンとリフレッシュトークンは即時に無効になり、開いているコンソールは 30 秒以内に切断される</span></td><td><code>test_session_revocation.py</code>, <code>test_console_guard.py</code></td></tr>
+        <tr><td><span class="zh">已經換掉的更新權杖又被使用</span><span class="en">A replaced refresh token is used again</span><span class="ja">入れ替え済みのリフレッシュトークンが再び使われる</span></td><td><span class="zh">整個工作階段撤銷，通知管理員與本人</span><span class="en">The whole session is revoked and administrators and the user are notified</span><span class="ja">セッション全体が取り消され、管理者と本人に通知される</span></td><td><code>test_session_revocation.py</code></td></tr>
+        <tr><td><span class="zh">用應用程式的資料庫帳號停用稽核表的保護或清空稽核表</span><span class="en">The app&#x27;s database account tries to disable the audit table protection or truncate it</span><span class="ja">アプリのデータベースアカウントで監査テーブルの保護を無効化または TRUNCATE する</span></td><td><span class="zh">資料庫拒絕</span><span class="en">The database refuses</span><span class="ja">データベースが拒否する</span></td><td><code>test_audit_hardening.py</code>, <code>scripts/sql/audit-harden.sql</code></td></tr>
+        <tr><td><span class="zh">加密備份被截斷、調換或修改</span><span class="en">An encrypted backup is truncated, reordered or modified</span><span class="ja">暗号化バックアップが切り詰め・入れ替え・改ざんされる</span></td><td><span class="zh">解密失敗，不會還原出被動過的資料</span><span class="en">Decryption fails and no tampered data is restored</span><span class="ja">復号に失敗し、改ざんされたデータは復元されない</span></td><td><code>test_backup_encryption.py</code></td></tr>
+        <tr><td><span class="zh">對 127.0.0.1 或 169.254.169.254 的 IP 開主控台</span><span class="en">A console is opened to an IP of 127.0.0.1 or 169.254.169.254</span><span class="ja">127.0.0.1 または 169.254.169.254 の IP にコンソールを開く</span></td><td><span class="zh">被拒絕並說明原因</span><span class="en">It is refused with the reason</span><span class="ja">理由を示して拒否される</span></td><td><code>test_net_guard.py</code></td></tr>
+        <tr><td><span class="zh">主機名稱裡夾帶給模型的指令</span><span class="en">A host name carries instructions for the model</span><span class="ja">ホスト名にモデル宛ての指示が含まれる</span></td><td><span class="zh">提示詞把它標成資料並放在定界內，資料拆不掉定界</span><span class="en">The prompt marks it as data inside a fence that the data cannot close</span><span class="ja">プロンプトはそれをデータとして区切りの中に入れ、データが区切りを閉じられない</span></td><td><code>test_prompt_injection_framing.py</code></td></tr>
+        <tr><td><span class="zh">憑證代理要求別的憑證</span><span class="en">A certificate agent asks for another certificate</span><span class="ja">証明書エージェントが別の証明書を求める</span></td><td><span class="zh">回應不存在，沒有內容外流</span><span class="en">It is answered as not found and nothing leaks</span><span class="ja">存在しないと応答し、内容は漏れない</span></td><td><code>test_cert_agents_api.py</code></td></tr>
+      </tbody>
+    </table></div>
+    <p class="note"><span class="zh">右欄的測試在每次發版前執行；導入組織可以在自己的環境用同樣的情境驗收。</span><span class="en">The tests on the right run before every release; adopting organisations can run the same scenarios in their own environment.</span><span class="ja">右欄のテストはリリースのたびに実行されます。導入組織は同じシナリオで自社環境の受け入れ確認ができます。</span></p>
+  </section>
+  <section class="blk">
+    <h2 id="worksheet"><span class="zh">盤點表欄位</span><span class="en">Assessment worksheet columns</span><span class="ja">棚卸し表の列</span></h2>
+    <div class="box"><p><span class="zh">盤點時可以沿用以下欄位，一列一個控制項目：</span><span class="en">When assessing, these columns work well, one control per row:</span><span class="ja">棚卸しでは次の列を使えます。1 行に 1 つの管理策です：</span></p><p><code class="cols"><span class="zh">項目編號 | 標準與管理面向 | 適用功能 | 狀態 | 程式碼或設定位置 | 驗收方式 | 測試證據 | 缺口 | 負責人 | 完成期限</span><span class="en">Item ID | Standard and area | Feature | Status | Code or setting location | How verified | Test evidence | Gap | Owner | Due date</span><span class="ja">項目番号 | 規格と管理項目 | 対象機能 | 状態 | コードまたは設定の場所 | 確認方法 | テストの証拠 | 不足 | 担当者 | 期限</span></code></p></div>
+  </section>
+<!-- generated:end -->
+  <footer>
+    <span class="zh">完整原始碼與文件見 </span><span class="en">Full source &amp; docs at </span><span class="ja">ソースとドキュメントは </span>
+    <a href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+</div>
+
+<script>
+  (function(){
+    // 初始語言已由 <body> 開頭的 inline script 決定（避免閃爍）；這裡只負責切換按鈕。
+    var KEY = 'jtipam-doc-lang';
+    var btn = document.getElementById('langBtn');
+    var menu = document.getElementById('langMenu');
+    var label = document.getElementById('langCur');
+    var items = menu ? Array.prototype.slice.call(menu.querySelectorAll('li')) : [];
+    function cur(){ return document.body.classList.contains('lang-ja') ? 'ja'
+                         : document.body.classList.contains('lang-en') ? 'en' : 'zh'; }
+    function mark(){
+      var c = cur();
+      items.forEach(function(li){ li.setAttribute('aria-selected', String(li.dataset.lang === c)); });
+      var on = items.filter(function(li){ return li.dataset.lang === c; })[0];
+      if (label && on) label.textContent = on.textContent.replace('✓', '').trim();
+    }
+    function open(v){
+      if (!menu || !btn) return;
+      menu.hidden = !v;
+      btn.setAttribute('aria-expanded', String(v));
+    }
+    function set(l){
+      document.body.classList.remove('lang-zh','lang-en','lang-ja');
+      document.body.classList.add('lang-' + l);
+      document.documentElement.setAttribute('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-Hant');
+      try {
+        localStorage.setItem(KEY, l);
+        var u = new URL(location.href);
+        u.searchParams.set('lang', l === 'en' ? 'en' : l === 'ja' ? 'ja' : 'zh-TW');
+        history.replaceState(null, '', u);
+      } catch (e) {}
+      mark(); open(false);
+      document.dispatchEvent(new CustomEvent('jtipam:langchange', { detail: { lang: l } }));
+    }
+    if (btn) btn.addEventListener('click', function(e){ e.stopPropagation(); open(menu.hidden); });
+    items.forEach(function(li){ li.addEventListener('click', function(){ set(li.dataset.lang); }); });
+    document.addEventListener('click', function(e){ if (menu && !menu.hidden && !menu.contains(e.target)) open(false); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') open(false); });
+    mark();
+  })();
+</script>
+<script>
+  /* <title> / description / <html lang> 跟著語言走；靜態值放預設語言（英文）。 */
+  (function(){
+    var META = {"zh": ["jt-ipam：合規對照", "jt-ipam 已具備、可作為佐證的資訊安全與 AI 管理控制，以及導入組織使用後要自己做的事。"], "en": ["jt-ipam: Compliance", "The information security and AI management controls jt-ipam already provides as evidence, and what the adopting organisation has to do itself."], "ja": ["jt-ipam：コンプライアンス", "jt-ipam が備え、根拠として使える情報セキュリティと AI 管理の管理策、および導入組織が自ら行うこと。"]};
+    function cur(){
+      var c = document.body.className;
+      return c.indexOf('lang-ja') >= 0 ? 'ja' : c.indexOf('lang-zh') >= 0 ? 'zh' : 'en';
+    }
+    function apply(l){
+      var m = META[l] || META.en;
+      document.title = m[0];
+      var d = document.querySelector('meta[name="description"]');
+      if (d) d.setAttribute('content', m[1]);
+      document.documentElement.setAttribute('lang', {"zh": "zh-Hant", "en": "en", "ja": "ja"}[l] || 'en');
+    }
+    document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
+    apply(cur());
+  })();
+</script>
+<script src="anchors.js" defer></script>
+</body>
+</html>

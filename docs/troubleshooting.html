@@ -721,6 +721,34 @@ echo "$ADMIN_PW"</code></pre>
           <span class="ja">パスワードは 12 文字以上が必要です。ログイン失敗の繰り返しによるロックも、この再設定で解除されます。</span>
         </p>
       </article>
+
+      <article class="qa" id="qa-mfa-setup">
+        <h3>
+          <span class="zh">登入之後一直要我先設定雙因素驗證</span>
+          <span class="en">After signing in I am asked to set up two-factor authentication first</span>
+          <span class="ja">ログインすると先に二要素認証の設定を求められる</span>
+        </h3>
+        <p>
+          <span class="zh">管理員在「使用者 → 登入安全」把雙因素驗證設成「管理員必須使用」或「所有人必須使用」。還沒設定的人不會被鎖在外面：輸入密碼之後先用驗證器 App 掃描 QR code、輸入一組驗證碼，接著拿到 10 組復原碼（每組只能用一次，請存在密碼管理器等安全的地方），完成之後才進入系統。被要求的人不能自行停用雙因素驗證。SSO（OIDC / SAML）登入預設交給身分提供者自己的多因素驗證，除非管理員另外打開「SSO 登入也要求」。</span>
+          <span class="en">An administrator set two-factor authentication to "Required for administrators" or "Required for everyone" under Users → Sign-in security. People who have not set it up are not locked out: after the password they scan a QR code with an authenticator app, enter one code, and receive 10 recovery codes (each works once; keep them somewhere safe such as a password manager) before they get in. People it applies to cannot turn it off themselves. SSO (OIDC / SAML) sign-ins rely on the identity provider's own multi-factor authentication unless the administrator also turns on "Also require for SSO sign-ins".</span>
+          <span class="ja">管理者が「ユーザー → ログインのセキュリティ」で二要素認証を「管理者は必須」または「全員必須」にしています。未設定のユーザーが締め出されることはありません。パスワードのあと認証アプリで QR コードを読み取ってコードを 1 つ入力し、リカバリーコード 10 個（各 1 回限り。パスワードマネージャーなど安全な場所に保管）を受け取ってから入れます。対象のユーザーは自分で無効にできません。SSO（OIDC / SAML）のログインは、管理者が「SSO ログインにも適用」をオンにしない限り、ID プロバイダー側の多要素認証に任せます。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-mfa-lost">
+        <h3>
+          <span class="zh">手機遺失（或換手機），復原碼也不見了</span>
+          <span class="en">Lost (or replaced) the phone and the recovery codes are gone too</span>
+          <span class="ja">スマートフォンを紛失（または機種変更）し、リカバリーコードもない</span>
+        </h3>
+        <p>
+          <span class="zh">請另一位管理員到「使用者」頁，在這個人那一列按「重設雙因素驗證」：驗證器與復原碼一併清掉、所有登入撤銷，政策要求的話下次登入會重新設定。系統裡只有你一位管理員時，從主機 shell 重設（會留稽核記錄）：</span>
+          <span class="en">Ask another administrator to open Users and click "Reset two-factor authentication" on that person's row: the authenticator and recovery codes are cleared and every sign-in is revoked; if the policy requires it, they set it up again at the next sign-in. If you are the only administrator, reset it from a shell on the host (an audit record is written):</span>
+          <span class="ja">別の管理者に「ユーザー」ページでその人の行の「二要素認証をリセット」を押してもらいます。認証アプリとリカバリーコードが消去され、すべてのログインが取り消されます。ポリシーで必須なら次回ログイン時に設定し直します。管理者があなた 1 人だけの場合は、ホストのシェルからリセットします（監査記録が残ります）。</span>
+        </p>
+        <pre><code>sudo -u jtipam bash -c "cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/backend.env; set +a; \
+  .venv/bin/python -m app.cli.bootstrap reset-mfa --username admin"</code></pre>
+      </article>
     </section>
 
     <!-- ══════════════ 升級後畫面或功能不對 ══════════════ -->
@@ -836,6 +864,45 @@ sudo sysctl --system</code></pre>
           <span class="ja">IP 衝突で「読み取り破損の疑い」とされた MAC（報告元 1 つ・ベンダー不明・別の 2 つの MAC をつなぎ合わせた形）は、デバイスの ARP テーブルの切り替え中に SNMP が途中まで読んだもので、別の機器ではありません。ARP flux を直せば出なくなります。</span>
         </p>
       </article>
+
+      <article class="qa" id="qa-relogin">
+        <h3>
+          <span class="zh">升級之後所有人都被登出、要重新登入</span>
+          <span class="en">After the upgrade everyone was signed out and has to sign in again</span>
+          <span class="ja">アップグレード後に全員がログアウトされ、ログインし直す必要がある</span>
+        </h3>
+        <p>
+          <span class="zh">這是預期的，只會發生一次。登入改成伺服器端的工作階段：更新用的權杖只放在瀏覽器碰不到的 HttpOnly cookie，存取權杖只留在這個分頁。舊版放在瀏覽器儲存空間裡的權杖不再被接受，最晚 15 分鐘後（舊的存取權杖到期）會回到登入頁。重新登入一次即可；之後每個人可以在「個人設定 → 安全 → 登入中的裝置」看到並登出自己在其他地方的登入，管理員可以在「使用者」頁強制某人登出。</span>
+          <span class="en">This is expected and happens once. Sign-in now uses server-side sessions: the refresh token lives only in an HttpOnly cookie that page scripts cannot read, and the access token stays in the tab. Tokens that older versions kept in browser storage are no longer accepted, so within 15 minutes (when the old access token expires) people land on the sign-in page. Signing in once is enough; afterwards everyone can see and sign out their other sign-ins under Settings → Security → Signed-in devices, and administrators can sign someone out everywhere from Users.</span>
+          <span class="ja">想定どおりの動作で、一度だけ起こります。ログインはサーバー側のセッションになりました。更新用トークンはページのスクリプトから読めない HttpOnly cookie にだけ置かれ、アクセストークンはそのタブの中にだけ残ります。旧バージョンがブラウザのストレージに置いていたトークンは受け付けないため、遅くとも 15 分後（古いアクセストークンの期限）にログイン画面に戻ります。一度ログインし直せば十分です。以後は各自が「設定 → セキュリティ → ログイン中のデバイス」で他の場所のログインを確認・ログアウトでき、管理者は「ユーザー」ページから強制ログアウトできます。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-dsv-404">
+        <h3>
+          <span class="zh">Graylog 查表（DSV）回 404 或 401</span>
+          <span class="en">The Graylog lookup (DSV) returns 404 or 401</span>
+          <span class="ja">Graylog の参照（DSV）が 404 または 401 を返す</span>
+        </h3>
+        <p>
+          <span class="zh"><strong>404</strong>：權杖在網址上，所以明文的 8088 埠預設不服務，一律回 404，只有 HTTPS 可以用。升級前就在用 DSV 的站台會保留原本的行為；新設定的話，Graylog 能信任 jt-ipam 的憑證就改用 <code>https://</code> 網址，不能的話到「整合 Graylog」打開「允許明文 HTTP（8088 埠）」，並建議同時填「允許的來源位址」。有設允許的來源位址時，其他位址來的請求也一律回 404。<strong>401</strong>：權杖錯了或已過期。權杖現在有效期限，到期前會發通知；在同一頁按顯示可以看到目前的權杖（會留稽核記錄），換發之後要把新網址貼回 Graylog 的 Data Adapter。</span>
+          <span class="en"><strong>404</strong>: the token is in the URL, so plain-HTTP port 8088 is off by default and always answers 404; only HTTPS works. Sites that already used DSV before upgrading keep their previous behaviour. For a new setup, use the <code>https://</code> URL if Graylog trusts jt-ipam's certificate; otherwise turn on "Allow plain HTTP (port 8088)" under Graylog integration, preferably together with "Allowed sources". When allowed sources are set, requests from any other address also get 404. <strong>401</strong>: the token is wrong or has expired. Tokens now expire and a notification goes out before they do; reveal the current token on the same page (an audit record is written), and after rotating it paste the new URL into Graylog's Data Adapter.</span>
+          <span class="ja"><strong>404</strong>：トークンが URL に含まれるため、平文の 8088 番ポートは既定で無効になっていて常に 404 を返し、HTTPS だけが使えます。アップグレード前から DSV を使っていたサイトは従来の動作を維持します。新しく設定する場合は、Graylog が jt-ipam の証明書を信頼できるなら <code>https://</code> の URL を使い、できないなら「Graylog 連携」で「平文 HTTP を許可（8088 番ポート）」をオンにし、あわせて「許可する送信元」も設定してください。許可する送信元を設定すると、それ以外のアドレスからの要求も 404 になります。<strong>401</strong>：トークンが違うか期限切れです。トークンには有効期限があり、期限前に通知が届きます。同じページで現在のトークンを表示でき（監査記録が残ります）、再発行したら新しい URL を Graylog の Data Adapter に貼り直してください。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-backup-unencrypted">
+        <h3>
+          <span class="zh">系統診斷說「備份加密」沒有設定</span>
+          <span class="en">System diagnostics warns that backup encryption is not set</span>
+          <span class="ja">システム診断で「バックアップの暗号化」が未設定と警告される</span>
+        </h3>
+        <p>
+          <span class="zh">每日備份裡同時有資料庫與解密資料庫內機密的金鑰（backend.env），拿到備份檔就等於拿到所有整合的密碼。到「系統設定 → 每日備份加密」設定密碼（至少 12 個字元），之後每天的備份會整包加密成一個 <code>.jtbak</code> 檔、明文刪除。密碼忘記就解不開，請存在這台主機以外的地方。設定了卻仍警告「最後一次備份沒有加密」，是 <code>/usr/local/bin</code> 裡還是升級前的備份腳本（再跑一次升級），或加密失敗（看 <code>journalctl -u jt-ipam-backup</code>）。還原步驟見安裝文件的「備份與還原」一節。</span>
+          <span class="en">The daily backup holds both the database and the key that decrypts the secrets inside it (backend.env), so anyone with the backup file has every integration password. Set a passphrase (at least 12 characters) under System Settings → Daily backup encryption; from then on each day's backup becomes one encrypted <code>.jtbak</code> file and the plain copy is deleted. A forgotten passphrase cannot be recovered, so keep it somewhere other than this host. If it is set but the warning says the last backup was not encrypted, <code>/usr/local/bin</code> still has the pre-upgrade backup script (run the upgrade again) or encryption failed (see <code>journalctl -u jt-ipam-backup</code>). Restoring is described in the Backup &amp; restore section of the install guide.</span>
+          <span class="ja">毎日のバックアップにはデータベースと、その中の機密を復号する鍵（backend.env）の両方が入っているため、バックアップファイルを手に入れればすべての連携のパスワードが手に入ります。「システム設定 → 日次バックアップの暗号化」でパスフレーズ（12 文字以上）を設定すると、以後は毎日のバックアップが 1 つの暗号化された <code>.jtbak</code> ファイルになり、平文は削除されます。パスフレーズを忘れると復号できないので、このホスト以外の場所に保管してください。設定済みなのに「最後のバックアップが暗号化されていない」と出る場合は、<code>/usr/local/bin</code> にアップグレード前のバックアップスクリプトが残っている（アップグレードをもう一度実行）か、暗号化に失敗しています（<code>journalctl -u jt-ipam-backup</code> を確認）。復元手順はインストールガイドの「バックアップと復元」を参照してください。</span>
+        </p>
+      </article>
     </section>
 
     <!-- ══════════════ 遠端主控台 ══════════════ -->
@@ -947,6 +1014,32 @@ sudo loginctl terminate-user &lt;username&gt;</code></pre>
           <span class="zh">最常見的原因是對方電腦的 RustDesk Key 設錯（例如大小寫打錯）。Key 錯的電腦照樣能向 ID 伺服器註冊（顯示「就緒」）、照樣回報主機名稱，同一區網內的 RustDesk 程式會直接連線、不經過中繼，所以也連得上；只有走中繼時會被中繼伺服器（hbbr）拒絕，而網頁連線一定走中繼，從外網用 RustDesk 程式連也一樣會失敗。RustDesk 代理 1.1.0 起會讀 hbbr/hbbs 的日誌找出這種電腦：伺服器列顯示「Key 錯誤 N」、裝置清單標「Key 錯誤」、IP 頁說明被拒的時間，網頁連線的錯誤訊息也會直接說是對方的 Key。修法：在那台電腦的 RustDesk「設定 → 網路 → ID / 中繼伺服器」把 Key 改成跟伺服器公鑰完全相同（用複製貼上）。改好之後下一次經過中繼成功，標記就會消失。日誌不在 <code>/var/log/rustdesk-server/</code> 的站台（例如自己寫 systemd unit 或用容器）可以在代理的設定檔加 <code>JT_RD_LOG_DIR=</code> 指到日誌目錄；按「測試」會顯示讀不讀得到。</span>
           <span class="en">Most often the device's RustDesk Key is wrong (for example a letter in the wrong case). A device with a wrong Key still registers with the ID server (it shows "Ready") and still reports its host name, and the RustDesk app on the same LAN connects directly without the relay, so that works too; only connections through the relay are refused by the relay server (hbbr). The web connection always uses the relay, and the RustDesk app connecting from outside fails as well. From RustDesk agent 1.1.0 the agent reads the hbbr/hbbs logs to find such devices: the server row shows "Wrong Key N", the device list marks "Wrong Key", the IP page says when it was refused, and the web connection error names the device's Key directly. Fix: on that computer, set the Key in RustDesk "Settings → Network → ID/Relay server" to exactly the server's public key (copy and paste it). The mark goes away after the next successful connection through the relay. If the logs are not in <code>/var/log/rustdesk-server/</code> (a hand-written systemd unit or a container, for example), add <code>JT_RD_LOG_DIR=</code> with the log directory to the agent's config file; <b>Test</b> shows whether they can be read.</span>
           <span class="ja">最も多い原因は、接続先の RustDesk の Key の設定ミス（大文字と小文字の打ち間違いなど）です。Key が誤っていても ID サーバーへの登録（「準備完了」と表示）やホスト名の報告はでき、同じ LAN 内の RustDesk アプリは中継を通さず直接接続するので、それもつながります。中継を通る接続だけが中継サーバー（hbbr）に拒否されます。Web 接続は必ず中継を使い、外部から RustDesk アプリで接続しても同じく失敗します。RustDesk エージェント 1.1.0 以降は hbbr/hbbs のログを読んでこうしたデバイスを見つけます。サーバー行に「Key 不一致 N」、デバイス一覧に「Key 不一致」、IP ページに拒否された時刻を表示し、Web 接続のエラーも接続先の Key が原因だと示します。対処：そのコンピューターの RustDesk「設定 → ネットワーク → ID/中継サーバー」で Key をサーバーの公開鍵と完全に同じにします（コピー＆ペースト推奨）。次に中継経由の接続が成功すると表示は消えます。ログが <code>/var/log/rustdesk-server/</code> にないサイト（自作の systemd unit やコンテナなど）は、エージェントの設定ファイルに <code>JT_RD_LOG_DIR=</code> でログのディレクトリを指定してください。「テスト」で読めるかどうか確認できます。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-console-blocked">
+        <h3>
+          <span class="zh">主控台說「這個位址不能開主控台（本機、link-local 或保留位址）」</span>
+          <span class="en">The console says it cannot be opened to this address (loopback, link-local or reserved)</span>
+          <span class="ja">コンソールに「このアドレスにはコンソールを開けません（ループバック、リンクローカル、予約済みアドレス）」と出る</span>
+        </h3>
+        <p>
+          <span class="zh">IP 記錄是有子網路寫入權限的人可以自己建的，所以主控台不連本機（127.0.0.0/8、::1）、link-local（169.254.0.0/16，含雲端中繼資料位址）、多播與保留位址，避免有人建一筆 127.0.0.1 再開主控台，把 jt-ipam 當跳板連本機的服務。私網與 CGNAT（例如 Tailscale 的 100.64.0.0/10）照常可以連。主機名稱也一樣，會先解析再檢查每一個位址。真的需要例外（例如測試環境），在 <code>/etc/jt-ipam/backend.env</code> 的 <code>OUTBOUND_ALLOW_CIDRS</code> 加入該網段後重啟 <code>jt-ipam-backend</code>；這個設定也會放行其他對外連線，請只加需要的網段。</span>
+          <span class="en">Anyone who can write to a subnet can create IP records, so consoles do not connect to loopback (127.0.0.0/8, ::1), link-local (169.254.0.0/16, which includes cloud metadata addresses), multicast or reserved addresses; otherwise someone could create 127.0.0.1 and open a console to reach services on the jt-ipam host. Private ranges and CGNAT (for example Tailscale's 100.64.0.0/10) work as usual. Host names are resolved first and every address is checked. If you really need an exception (a test lab, say), add the range to <code>OUTBOUND_ALLOW_CIDRS</code> in <code>/etc/jt-ipam/backend.env</code> and restart <code>jt-ipam-backend</code>; it also allows other outbound connections, so add only what you need.</span>
+          <span class="ja">IP レコードはサブネットへの書き込み権限があれば誰でも作れるため、コンソールはループバック（127.0.0.0/8、::1）、リンクローカル（169.254.0.0/16。クラウドのメタデータアドレスを含む）、マルチキャスト、予約済みアドレスには接続しません。そうしないと 127.0.0.1 のレコードを作ってコンソールを開き、jt-ipam ホスト上のサービスに届いてしまいます。プライベートアドレスと CGNAT（Tailscale の 100.64.0.0/10 など）は通常どおり使えます。ホスト名は先に名前解決してすべてのアドレスを確認します。どうしても例外が必要な場合（検証環境など）は、<code>/etc/jt-ipam/backend.env</code> の <code>OUTBOUND_ALLOW_CIDRS</code> にその範囲を追加して <code>jt-ipam-backend</code> を再起動します。ほかの外向き接続も許可されるので、必要な範囲だけにしてください。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-console-revoked">
+        <h3>
+          <span class="zh">開著的主控台突然結束，說存取權已被收回</span>
+          <span class="en">An open console suddenly ends, saying access was revoked</span>
+          <span class="ja">開いていたコンソールが突然終了し、アクセス権が取り消されたと表示される</span>
+        </h3>
+        <p>
+          <span class="zh">主控台開著的期間每 30 秒會重新確認一次：帳號仍是啟用的、開主控台的那次登入沒有被登出，以及仍有這個 IP 的連線權限。帳號被停用、被強制登出（含重設雙因素驗證）、自己在別處登出這次登入，或是 IP 被刪除、連線權限被收回時，連線會在 30 秒內結束，畫面會說明是哪一種原因，並留一筆 <code>console_revoked</code> 稽核記錄。原因是登出的話，重新登入之後再開即可；是權限的話，請管理員確認權限設定。</span>
+          <span class="en">While a console is open it is re-checked every 30 seconds: the account is still active, the sign-in that opened it has not been signed out, and you still have console rights on that IP. If the account is deactivated, you are signed out (including a two-factor authentication reset), you sign that session out elsewhere, or the IP is deleted or your rights are withdrawn, the connection ends within 30 seconds, the screen says which of these happened, and a <code>console_revoked</code> audit record is written. If it was a sign-out, sign in again and reopen it; if it was permissions, ask an administrator to check them.</span>
+          <span class="ja">コンソールを開いている間は 30 秒ごとに、アカウントが有効であること、そのコンソールを開いたログインがログアウトされていないこと、その IP への接続権限がまだあることを確認します。アカウントの無効化、強制ログアウト（二要素認証のリセットを含む）、別の場所でのそのログインのログアウト、IP の削除や接続権限の取り消しがあると、30 秒以内に接続を終了し、どの理由かを画面に表示して <code>console_revoked</code> の監査記録を残します。ログアウトが理由ならログインし直して開き直してください。権限が理由なら管理者に設定を確認してもらってください。</span>
         </p>
       </article>
     </section>

@@ -4,6 +4,7 @@
  * 連線時要求輸入 PVE 帳密（可選擇存進金庫）；kind=vm → @novnc/novnc 圖形 RFB（可送出按鍵、縮放切換）；
  * kind=ct → xterm.js + PVE term 協定。WS 走同站後端代理到 PVE。
  */
+import { revokedCloseText } from "@/utils/wsError";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useTerminalLinks } from "@/composables/useTerminalLinks";
 import { useI18n } from "vue-i18n";
@@ -216,7 +217,12 @@ async function connectXterm(wsUrl: string, pveUser: string, vncticket: string) {
       term.write(buf);
     };
     ws.onerror = () => { if (phase.value !== "connected") { phase.value = "error"; errorMsg.value = t("novnc.err_connect"); } };
-    ws.onclose = () => { if (phase.value === "connected") phase.value = "closed"; stopConnection(); };
+    ws.onclose = (ev) => {
+      const revoked = revokedCloseText(ev);
+      if (revoked) { phase.value = "error"; errorMsg.value = revoked; }
+      else if (phase.value === "connected") phase.value = "closed";
+      stopConnection();
+    };
     window.addEventListener("resize", onResize);
   } catch (e: any) {
     phase.value = "error"; errorMsg.value = e?.message || t("novnc.err_connect");

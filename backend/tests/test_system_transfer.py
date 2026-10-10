@@ -69,13 +69,15 @@ def test_settings_v1_blob_roundtrip():
 
 def test_settings_phpipam_b64pair_roundtrip():
     import base64
-    enc, nonce = encrypt_secret("ssh-key-pem")
+    from app.api.v1.endpoints.migration import KEY_AAD   # 0198 起綁定用途
+    enc, nonce = encrypt_secret("ssh-key-pem", aad=KEY_AAD)
     val = {"key_enc": base64.b64encode(enc).decode(), "key_nonce": base64.b64encode(nonce).decode(), "host": "h"}
     out = secrets.transform_settings_out("phpipam_migration", val)
     assert out["key_enc"] == {"__plain__": "ssh-key-pem"}
     assert "key_nonce" not in out
     back = secrets.transform_settings_in("phpipam_migration", out)
-    got = decrypt_secret(base64.b64decode(back["key_enc"]), base64.b64decode(back["key_nonce"])).decode()
+    got = decrypt_secret(base64.b64decode(back["key_enc"]), base64.b64decode(back["key_nonce"]),
+                         aad=KEY_AAD).decode()
     assert got == "ssh-key-pem"
 
 

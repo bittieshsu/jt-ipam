@@ -22,7 +22,7 @@ test("主要 IP 的關鍵字搜尋走後端，找得到第一批以外的位址"
   // 目標必須是**不在第一批裡**的位址 —— 那正是這個缺陷的成立條件。
   // 直接照舊版的載入方式抓第一頁 500 筆，再從後面的頁挑一筆有主機名稱的。
   const target = await page.evaluate(async () => {
-    const auth = { Authorization: `Bearer ${localStorage.getItem("access_token")}` };
+    const auth = { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` };
     const first = await (await fetch("/api/v1/addresses?page=1&page_size=500", { headers: auth })).json();
     const seen = new Set((first.items ?? []).map((a: any) => a.id));
     if (first.total <= 500) return { total: first.total as number, hostname: "" };

@@ -225,6 +225,8 @@ async def _agent_from_key(session: AsyncSession, key: str | None) -> CertAgent:
     )).scalar_one_or_none()
     if obj is None or not obj.enabled:
         raise HTTPException(401, detail="invalid agent key")
+    from app.core.rate_limit import limit_agent
+    await limit_agent("cert", obj.id)
     return obj
 
 
@@ -435,17 +437,23 @@ async def rotate_key(
 @router.get("/{agent_id}/key", dependencies=[Depends(require_admin)])
 async def get_agent_key(
     agent_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, str]:
     """再次取得此代理的 enroll key（管理員）。金鑰 AES-GCM 加密保存，僅 admin 可解。
 
+    看到金鑰的人就能冒充這台代理領走憑證私鑰，所以每次檢視都留稽核（同 RustDesk 代理金鑰）。
     舊版建立、未保存明文的代理回 404，請改用輪替金鑰取得新的。"""
-    if await session.get(CertAgent, agent_id) is None:
+    obj = await session.get(CertAgent, agent_id)
+    if obj is None:
         raise HTTPException(404, detail="Not found")
     key = await _load_agent_key(session, agent_id)
     if key is None:
         raise HTTPException(404, detail=ui_detail("cert_agent_no_stored_key",
                             "此代理未保存金鑰（可能建立於舊版），請輪替金鑰取得新的"))
+    await _agent_audit(session, user, request, obj=obj, action="cert_agent_key_view")
+    await session.commit()
     return {"enroll_key": key}
 
 

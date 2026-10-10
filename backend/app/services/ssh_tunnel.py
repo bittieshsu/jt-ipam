@@ -92,6 +92,17 @@ def server_key_fingerprint_sha256(key_blob: bytes) -> str:
     return f"SHA256:{b64}"
 
 
+async def guard_ssh_target(host: str, port: int) -> None:
+    """管理員設定的 SSH 目標（phpIPAM 搬移、跳板）：連線前檢查位址（core/net_guard 的 integration）。"""
+    from app.core.net_guard import acheck_target
+    from app.core.safe_http import UnsafeOutboundURL
+    try:
+        await acheck_target(host, port)
+    except UnsafeOutboundURL as exc:
+        raise SSHTunnelError(f"不允許連到這個位址：{host}（{exc}）", code="ssh_target_blocked",
+                             host=host, reason=str(exc)[:200]) from exc
+
+
 async def fetch_host_key(
     host: str, port: int = 22, timeout: float = TunnelConfig.timeout,
 ) -> dict[str, str]:
@@ -107,6 +118,7 @@ async def fetch_host_key(
       known_host:  'ssh-ed25519 AAAAC3...'  ← 可直接存進 TunnelConfig.known_host
       fingerprint: 'SHA256:abc...'
     """
+    await guard_ssh_target(host, port)
     try:
         async with asyncio.timeout(timeout):
             key = await asyncssh.get_server_host_key(
@@ -200,6 +212,7 @@ async def open_tunnel(cfg: TunnelConfig) -> AsyncIterator[int]:
         client_factory = None
         known_hosts = None
 
+    await guard_ssh_target(cfg.host, cfg.port)
     try:
         async with asyncio.timeout(cfg.timeout):
             async with asyncssh.connect(

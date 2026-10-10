@@ -229,6 +229,7 @@ genuinely disagree, for example the same address appearing twice, or one hostnam
 different devices.
 
 Rules you must follow:
+- {data_rule}
 - Report only what the data below actually supports. Do not speculate beyond it.
 - Every finding must cite the specific records it came from.
 - If nothing stands out, return an empty list. An empty result is a valid and useful answer;
@@ -697,7 +698,9 @@ async def _run_audit(
 
     cfg = await get_llm_config(session)
     locale = await _locale_for(session, user)
-    prompt = _PROMPT.replace("{language}", _language_instruction(locale))
+    from app.services.prompt_safety import DATA_RULE_EN, data_block
+    prompt = (_PROMPT.replace("{language}", _language_instruction(locale))
+              .replace("{data_rule}", DATA_RULE_EN))
     batches = _batches(snapshot, _budget_tokens(cfg))
     total = len(batches)
     await _emit("analyzing", 0, total,
@@ -723,7 +726,7 @@ async def _run_audit(
 
         await _emit("analyzing", i - 1, total, batch=i, found=len(items))
         try:
-            raw = await raw_chat(session, prompt + payload, timeout=AUDIT_TIMEOUT,
+            raw = await raw_chat(session, prompt + data_block(payload), timeout=AUDIT_TIMEOUT,
                                  model=cfg.ai_audit_model, force_json=True,
                                  max_output_tokens=MAX_OUTPUT_TOKENS, no_thinking=True,
                                  num_ctx=cfg.ai_audit_num_ctx,

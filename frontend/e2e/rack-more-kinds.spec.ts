@@ -204,7 +204,7 @@ test("表單：換型態時還沒動過的列數跟著換成該型態的常見�
 async function lackId(page: Page): Promise<string> {
   const r = await page.evaluate(async () => {
     const res = await fetch("/api/v1/racks?page_size=500",
-      { headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } });
+      { headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` } });
     return res.json();
   });
   return r.items.find((x: any) => x.name === "LACK-16").id;

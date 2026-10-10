@@ -10,46 +10,29 @@
 
 from __future__ import annotations
 
-import hmac
 import uuid
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin
 from app.core.audit import append_audit
 from app.core.db import get_session
+from app.core.ui_error import ui_detail
 from app.models.address import IPAddress
 from app.models.firewall import OPNsenseFirewall, OPNsenseRuleLabel, OPNsenseSyncedAlias
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 from app.models.virt import VirtCluster, VirtualMachine
 from app.schemas.base import StrictModel
-from app.services.system_config import get_graylog_dsv, set_graylog_dsv
+from app.services.system_config import get_graylog_dsv, public_token_problem, set_graylog_dsv
 
 # 單一 alias→成員 DSV 每列成員數上限（crowdsec 類 alias 可達數萬筆，避免單格爆量）
 _ALIAS_MEMBER_CAP = 1000
-
-
-def _token_ok(supplied: str, expected: str | None) -> bool:
-    """DSV 存取權杖比對 —— 常數時間（避免 timing side-channel 洩漏 token）。
-
-    這些是**公開、未登入、無 rate limit** 的端點（且可經明文 8088 抓取），token 是唯一
-    守門，故一律用 hmac.compare_digest；先 encode 成 bytes 讓非 ASCII 的惡意 token 也
-    安全比對（不會丟 TypeError → 500）。expected 為空一律拒絕。
-    """
-    if not expected:
-        return False
-    # surrogatepass：URL 解碼可能塞進 surrogate（如 %ED%B3%BF），純 utf-8 encode 會丟
-    # UnicodeEncodeError → 500；用 surrogatepass 讓任何輸入都能安全比對成 bytes（不匹配即拒）。
-    try:
-        a = (supplied or "").encode("utf-8", "surrogatepass")
-        b = expected.encode("utf-8", "surrogatepass")
-    except (UnicodeEncodeError, AttributeError):
-        return False
-    return hmac.compare_digest(a, b)
 
 
 def _dsv_lines(pairs: list[tuple[str, str]], fmt: str) -> str:
@@ -78,13 +61,58 @@ def _dsv_lines(pairs: list[tuple[str, str]], fmt: str) -> str:
     return media, "\n".join(lines) + ("\n" if lines else "")
 
 
+def _is_plain_http(request: Request) -> bool:
+    """這個請求是不是經過明文 HTTP 進來的（nginx 的 8088 埠）。
+
+    nginx 對每個 server 區塊設 `X-Forwarded-Proto $scheme`，uvicorn 以 `--proxy-headers` 把它
+    換成請求的 scheme；直接以 TLS 模式執行時本來就是 https。"""
+    return request.url.scheme != "https"
+
+
+def _client_allowed(request: Request, cidrs: list[str]) -> bool:
+    import ipaddress as _ip
+    if not cidrs:
+        return True
+    try:
+        addr = _ip.ip_address((request.client.host if request.client else "") or "")
+    except ValueError:
+        return False
+    for c in cidrs:
+        try:
+            net = _ip.ip_network(c, strict=False)
+        except ValueError:
+            continue
+        if addr.version == net.version and addr in net:
+            return True
+    return False
+
+
+async def _authorize(request: Request, session: AsyncSession, token: str,
+                     cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """所有 DSV 端點共用的守門（2026-10-09 起集中在這裡；守門測試檢查每個端點都經過它）。
+
+    1. 明文 8088：要在設定頁明確打開才服務（權杖在網址上，明文等於把權杖送給路上每一台設備）
+    2. 允許的來源網段（有設才檢查）
+    3. 權杖（網址的 `token=`，或 `X-Auth-Token` 標頭）＋到期時間
+    明文沒開、來源不符都回 404，跟「不存在」一樣，不透露端點在不在。"""
+    cfg = cfg or await get_graylog_dsv(session)
+    if _is_plain_http(request) and not cfg["allow_plain_http"]:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _client_allowed(request, cfg["allowed_sources"]):
+        raise HTTPException(status_code=404, detail="Not found")
+    problem = public_token_problem(cfg, token or request.headers.get("x-auth-token", ""))
+    if problem == "expired":
+        raise HTTPException(status_code=401, detail="Token expired")
+    if problem:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return cfg
+
+
 async def _fw_dsv_guard(
-    firewall_id: uuid.UUID, token: str, session: AsyncSession,
+    request: Request, firewall_id: uuid.UUID, token: str, session: AsyncSession,
 ) -> tuple[OPNsenseFirewall, dict[str, Any]]:
     """防火牆 DSV 共用守門：token（沿用 graylog_dsv）+ 該防火牆 expose_dsv。"""
-    cfg = await get_graylog_dsv(session)
-    if not _token_ok(token, cfg["token"]):
-        raise HTTPException(status_code=401, detail="Invalid token")
+    cfg = await _authorize(request, session, token)
     fw = await session.get(OPNsenseFirewall, firewall_id)
     if fw is None or not fw.expose_dsv:
         raise HTTPException(status_code=404, detail="Not found")
@@ -99,14 +127,14 @@ admin_router = APIRouter(prefix="/system", tags=["system"], dependencies=[Depend
 @public_router.get("/{name}")
 async def dsv_lookup(
     name: str,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖"),
 ) -> PlainTextResponse:
     cfg = await get_graylog_dsv(session)
     if not cfg["enabled"] or name != cfg["path"]:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _token_ok(token, cfg["token"]):
-        raise HTTPException(status_code=401, detail="Invalid token")
+    await _authorize(request, session, token, cfg)
     sep = "\t" if cfg["fmt"] == "tsv" else ","
     rows = (await session.execute(
         select(func.host(IPAddress.ip), IPAddress.hostname)
@@ -143,11 +171,12 @@ async def dsv_lookup(
 @public_router.get("/firewall/{firewall_id}/rule-aliases")
 async def fw_rule_aliases_dsv(
     firewall_id: uuid.UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖（沿用 Graylog DSV token）"),
 ) -> PlainTextResponse:
     """防火牆規則 DSV：key = filterlog rid（pf 規則 label），value = 引用的 alias 名。"""
-    fw, cfg = await _fw_dsv_guard(firewall_id, token, session)
+    fw, cfg = await _fw_dsv_guard(request, firewall_id, token, session)
     rows = (await session.execute(
         select(OPNsenseRuleLabel.label, OPNsenseRuleLabel.alias_names)
         .where(OPNsenseRuleLabel.firewall_id == fw.id)
@@ -164,11 +193,12 @@ async def fw_rule_aliases_dsv(
 @public_router.get("/firewall/{firewall_id}/aliases")
 async def fw_aliases_dsv(
     firewall_id: uuid.UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖（沿用 Graylog DSV token）"),
 ) -> PlainTextResponse:
     """別名 DSV：key = alias 名，value = 成員清單（空白分隔，超量截斷）。"""
-    fw, cfg = await _fw_dsv_guard(firewall_id, token, session)
+    fw, cfg = await _fw_dsv_guard(request, firewall_id, token, session)
     rows = (await session.execute(
         select(OPNsenseSyncedAlias.name, OPNsenseSyncedAlias.content)
         .where(OPNsenseSyncedAlias.firewall_id == fw.id)
@@ -187,11 +217,9 @@ async def fw_aliases_dsv(
 
 # ─────────────────── pfSense DSV（與 OPNsense 平行，獨立路徑）───────────────────
 async def _pfsense_dsv_guard(
-    firewall_id: uuid.UUID, token: str, session: AsyncSession,
+    request: Request, firewall_id: uuid.UUID, token: str, session: AsyncSession,
 ) -> tuple[PfSenseFirewall, dict[str, Any]]:
-    cfg = await get_graylog_dsv(session)
-    if not _token_ok(token, cfg["token"]):
-        raise HTTPException(status_code=401, detail="Invalid token")
+    cfg = await _authorize(request, session, token)
     fw = await session.get(PfSenseFirewall, firewall_id)
     if fw is None or not fw.expose_dsv:
         raise HTTPException(status_code=404, detail="Not found")
@@ -201,11 +229,12 @@ async def _pfsense_dsv_guard(
 @public_router.get("/pfsense/{firewall_id}/aliases")
 async def pfsense_aliases_dsv(
     firewall_id: uuid.UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖（沿用 Graylog DSV token）"),
 ) -> PlainTextResponse:
     """pfSense 別名 DSV：key = alias 名，value = 成員清單（空白分隔，超量截斷）。"""
-    fw, cfg = await _pfsense_dsv_guard(firewall_id, token, session)
+    fw, cfg = await _pfsense_dsv_guard(request, firewall_id, token, session)
     rows = (await session.execute(
         select(PfSenseSyncedAlias.name, PfSenseSyncedAlias.members)
         .where(PfSenseSyncedAlias.firewall_id == fw.id)
@@ -225,11 +254,12 @@ async def pfsense_aliases_dsv(
 @public_router.get("/pfsense/{firewall_id}/rules")
 async def pfsense_rules_dsv(
     firewall_id: uuid.UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖（沿用 Graylog DSV token）"),
 ) -> PlainTextResponse:
     """pfSense 規則 DSV：key = filterlog tracker（規則追蹤 ID），value = 規則說明。"""
-    fw, cfg = await _pfsense_dsv_guard(firewall_id, token, session)
+    fw, cfg = await _pfsense_dsv_guard(request, firewall_id, token, session)
     pairs: list[tuple[str, str]] = []
     for r in (fw.rules or []):
         if not isinstance(r, dict):
@@ -248,12 +278,10 @@ async def pfsense_rules_dsv(
 
 
 async def _proxmox_vms_pairs(
-    session: AsyncSession, token: str, cluster_id: uuid.UUID | None,
+    request: Request, session: AsyncSession, token: str, cluster_id: uuid.UUID | None,
 ) -> tuple[list[tuple[str, str]], dict[str, Any]]:
     """共用：token 守門 + 撈 vmid→名稱。cluster_id=None 表示全部叢集（去重）。"""
-    cfg = await get_graylog_dsv(session)
-    if not _token_ok(token, cfg["token"]):
-        raise HTTPException(status_code=401, detail="Invalid token")
+    cfg = await _authorize(request, session, token)
     stmt = (
         select(VirtualMachine.legacy_vmid, VirtualMachine.name)
         .where(VirtualMachine.legacy_vmid.is_not(None))
@@ -267,6 +295,7 @@ async def _proxmox_vms_pairs(
 
 @public_router.get("/proxmox/vms")
 async def proxmox_vms_dsv(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖（沿用 Graylog DSV token）"),
 ) -> PlainTextResponse:
@@ -275,7 +304,7 @@ async def proxmox_vms_dsv(
     多叢集時 vmid 會跨叢集重複 → _dsv_lines 去重只保留第一筆；要正確區分請改用每叢集端點
     `/proxmox/{cluster_id}/vms`（比照 OPNsense 多防火牆）。路徑兩段，不撞 dsv_lookup 的單段 `/{name}`。
     """
-    pairs, cfg = await _proxmox_vms_pairs(session, token, None)
+    pairs, cfg = await _proxmox_vms_pairs(request, session, token, None)
     media, body = _dsv_lines(pairs, cfg["fmt"])
     return PlainTextResponse(body, media_type=f"{media}; charset=utf-8")
 
@@ -283,6 +312,7 @@ async def proxmox_vms_dsv(
 @public_router.get("/proxmox/{cluster_id}/vms")
 async def proxmox_cluster_vms_dsv(
     cluster_id: uuid.UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     token: str = Query("", description="存取權杖（沿用 Graylog DSV token）"),
 ) -> PlainTextResponse:
@@ -293,18 +323,22 @@ async def proxmox_cluster_vms_dsv(
     cluster = await session.get(VirtCluster, cluster_id)
     if cluster is None:
         # token 仍要先驗（避免用此端點探測叢集是否存在）
-        await _proxmox_vms_pairs(session, token, cluster_id)
+        await _proxmox_vms_pairs(request, session, token, cluster_id)
         raise HTTPException(status_code=404, detail="Not found")
-    pairs, cfg = await _proxmox_vms_pairs(session, token, cluster_id)
+    pairs, cfg = await _proxmox_vms_pairs(request, session, token, cluster_id)
     media, body = _dsv_lines(pairs, cfg["fmt"])
     return PlainTextResponse(body, media_type=f"{media}; charset=utf-8")
 
 
 class GraylogDsvOut(StrictModel):
+    """設定頁看到的：不含權杖本身（按「顯示」另外取，留稽核）。"""
     enabled: bool
     fmt: str
     path: str
-    token: str
+    token_set: bool
+    token_expires_at: datetime | None = None
+    allow_plain_http: bool = False
+    allowed_sources: list[str] = []
 
 
 class GraylogDsvPatch(StrictModel):
@@ -312,6 +346,16 @@ class GraylogDsvPatch(StrictModel):
     fmt: str = "csv"
     path: str = "ip-fqdn"
     regenerate_token: bool = False
+    #: 新權杖的有效天數（30／90／180／365）
+    token_days: int = Field(default=365, ge=1, le=365)
+    #: 明文 8088 埠要明確打開（不送＝不變）
+    allow_plain_http: bool | None = None
+    #: 允許的來源位址／網段（不送＝不變；空清單＝不限制）
+    allowed_sources: list[str] | None = None
+
+
+def _out(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in cfg.items() if k != "token"}
 
 
 @admin_router.get("/graylog-dsv", response_model=GraylogDsvOut)
@@ -319,7 +363,30 @@ async def get_graylog_dsv_ep(
     _user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    return await get_graylog_dsv(session)
+    return _out(await get_graylog_dsv(session))
+
+
+@admin_router.get("/graylog-dsv/token")
+async def reveal_graylog_dsv_token(
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """顯示 DSV 權杖（組 Graylog 用的網址）。看得到權杖就能不登入讀主機名稱對照，每次都留稽核。"""
+    cfg = await get_graylog_dsv(session)
+    if not cfg["token"]:
+        raise HTTPException(status_code=404, detail="Not found")
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system_setting", object_id=None, action="secret_view",
+        diff={"setting": "graylog_dsv_token"},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    exp = cfg["token_expires_at"]
+    return {"token": cfg["token"], "expires_at": exp.isoformat() if exp else None}
 
 
 @admin_router.put("/graylog-dsv", response_model=GraylogDsvOut)
@@ -329,19 +396,25 @@ async def put_graylog_dsv_ep(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    out = await set_graylog_dsv(
-        session, enabled=payload.enabled, fmt=payload.fmt, path=payload.path,
-        regenerate_token=payload.regenerate_token,
-        updated_by_user_id=uuid.UUID(str(user.id)),
-    )
+    try:
+        out = await set_graylog_dsv(
+            session, enabled=payload.enabled, fmt=payload.fmt, path=payload.path,
+            regenerate_token=payload.regenerate_token, token_days=payload.token_days,
+            allow_plain_http=payload.allow_plain_http, allowed_sources=payload.allowed_sources,
+            updated_by_user_id=uuid.UUID(str(user.id)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=ui_detail(
+            "dsv_bad_source", f"允許的來源不是合法的位址或網段：{exc}", reason=str(exc))) from exc
     await append_audit(
         session, actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="system_setting", object_id=None, action="update",
         diff={"setting": "graylog_dsv", "enabled": out["enabled"], "fmt": out["fmt"],
-              "path": out["path"]},
+              "path": out["path"], "token_rotated": payload.regenerate_token,
+              "allow_plain_http": out["allow_plain_http"], "allowed_sources": out["allowed_sources"]},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return out
+    return _out(out)

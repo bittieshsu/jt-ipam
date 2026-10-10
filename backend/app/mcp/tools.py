@@ -1637,6 +1637,7 @@ async def get_topology(
         subnet_ids = [sub.id]
     graph = await build_topology(
         session, user=user, subnet_ids=subnet_ids, include_l3=include_l3, include_vpn=include_vpn,
+        scope_limited=not await has_global_read(session, user),
     )
     if graph.get("too_large"):
         return {"too_large": graph["too_large"],
@@ -1648,11 +1649,15 @@ async def get_topology(
         "kind": e["data"].get("kind"), "label": e["data"].get("label"),
         "via": e["data"].get("via"),
     } for e in graph["edges"]]
-    return {
+    out: dict[str, Any] = {
         "node_count": len(graph["nodes"]),
         "edge_count": len(graph["edges"]),
         "edges": edges[:300],
     }
+    if graph.get("scope") == "limited":
+        out["scope"] = "limited: only the devices and subnets this account can see"
+        out["hidden_layers"] = graph.get("hidden_layers", [])
+    return out
 
 
 async def list_dns_servers(session: AsyncSession, *, user: User, limit: int = 200) -> dict[str, Any]:
@@ -3728,7 +3733,9 @@ GLOBAL_READ_TOOLS: frozenset[str] = frozenset({
     "list_vms", "list_wireless_links", "list_vpn_tunnels",
     "list_arp", "list_fdb", "list_circuits", "list_providers", "list_asns",
     "list_tenants", "list_contacts", "list_ssids", "list_cables", "cable_trace",
-    "list_power", "get_topology",
+    "list_power",
+    # get_topology 不在這裡（2026-10-09）：與 REST /topology 相同，只被授權部分物件的帳號也看得到
+    # 自己範圍內的那一塊（build_topology 的 scope_limited）
     "list_attack_surface",
     "list_dhcp_ranges", "list_fortigate_policies", "list_fortigate_addresses",
     "list_paloalto_policies", "list_paloalto_addresses",

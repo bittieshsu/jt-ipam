@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { wsErrorText } from "@/utils/wsError";
+import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
@@ -321,7 +321,9 @@ async function connect() {
       abortDownloadWriter();
       const wasConnected = everConnected;
       closeCode.value = ev.code || 0;
-      phase.value = wasConnected ? "closed" : "error";
+      const revoked = revokedCloseText(ev);
+      if (revoked) errorMsg.value = revoked;
+      phase.value = wasConnected && !revoked ? "closed" : "error";
       // 還沒連上就被關掉，而且後端也沒送 error —— 這時什麼都不說，畫面看起來像
       // 「按了沒反應」。實際遇過的原因是反向代理沒轉發 WebSocket 升級標頭
       // （nginx 的 location 少列 sftp），瀏覽器只看得到連線被關閉。

@@ -52,6 +52,8 @@ jt-ipam generates a **live** IP → hostname / FQDN lookup table that Graylog's 
 
 - In Graylog's "DSV File from HTTP" adapter: set the URL above, separator to comma or tab per format, and **Key column = 0, Value column = 1** (Graylog's column indices are 0-based)
 - The token is validated per request and can be regenerated anytime; the settings page shows a ready-to-copy full lookup URL
+- The token expires (30 to 365 days, notified before expiry) and is shown only when an administrator reveals it, which is audited
+- Use the HTTPS URL: the token is in the URL, so plain-HTTP port 8088 answers 404 unless **Allow plain HTTP** is turned on (sites that used it before upgrading keep it on); **Allowed sources** can restrict which addresses may poll
 
 ## BMC out-of-band console (IPMI SOL, Beta)
 
@@ -131,20 +133,21 @@ Object-level permissions across **7 object types** (customer / section / subnet 
 
 ## Security (OWASP Top 10:2025)
 
-Security is a day-one requirement; every module and PR is checked against **OWASP Top 10:2025**. See [`SECURITY.md`](SECURITY.md).
+Security is a day-one requirement; every module and PR is checked against **OWASP Top 10:2025**. See [`SECURITY.md`](SECURITY.md). For the controls that can serve as ISO/IEC 27001 and ISO/IEC 42001 evidence, and what the adopting organisation has to do itself, see [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
 
 - **TLS enforced**: pick one of nginx reverse-proxy termination (`BACKEND_TLS_MODE=nginx`) or uvicorn serving a self-signed cert directly (`BACKEND_TLS_MODE=direct`)
 - A01: deny-by-default RBAC with object-level checks (above)
-- A02: argon2id password hashing; application-layer encryption for stored secrets (DNS credentials / SNMP / API tokens)
+- A02: argon2id password hashing; application-layer encryption for stored secrets (DNS credentials / SNMP / API tokens), each bound to its purpose; daily backups can be encrypted with a passphrase
 - A03: parameterized SQLAlchemy, strict Pydantic v2 validation, CSP + output escaping
 - A05: HSTS, CSP, X-Frame-Options, Referrer-Policy
-- A07: TOTP MFA, account lockout, HttpOnly+Secure+SameSite cookies, API-token TTL
+- A07: TOTP two-factor authentication that administrators can require (with recovery codes and replay protection), account lockout that also counts wrong codes, server-side sessions with the refresh token only in an HttpOnly+Secure+SameSite=Strict cookie (revocable per device, deactivation takes effect immediately, open consoles close within 30 seconds), API-token TTL
 - A08: SHA-256 audit chain, verified every sync round and anchored outside the database
   (`/var/lib/jt-ipam/audit-anchors.jsonl` + journald), because the chain alone cannot detect
   the tail being cut off. `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` sets the id verification starts
-  from, for deployments carrying older records that can no longer be made verifiable
-- A09: structured audit logging
-- A10: SSRF allow-listing for all outbound integrations; metadata / link-local blocked
+  from, for deployments carrying older records that can no longer be made verifiable. The table is
+  append-only in the database and the application account cannot disable that (`scripts/jt-ipam.sh harden-audit`)
+- A09: structured audit logging, including exports and reveals of keys and tokens
+- A10: outbound connections checked for every protocol (HTTP at connect time; LDAP, SMTP, RADIUS, WinRM, DNS, syslog and consoles before connecting); metadata / link-local blocked, and consoles also refuse loopback
 
 ## Stack
 
@@ -205,6 +208,14 @@ sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/bac
 ```
 
 Omit `--force-update` to create a brand-new admin instead of resetting an existing one.
+
+If the only administrator has lost both the authenticator and the recovery codes, clear their two-factor
+authentication from the server (it also signs them out everywhere and writes an audit record):
+
+```bash
+sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/backend.env; set +a; \
+  .venv/bin/python -m app.cli.bootstrap reset-mfa --username admin'
+```
 
 ## TLS / HTTPS
 
@@ -308,7 +319,9 @@ widget, for example) can show it with a plain `<img>`:
 Two switches must both be on: enable embedding and generate a token under **Admin → System
 settings**, and turn on **that rack's** own "external embedding" toggle (per rack, off by
 default). A rack diagram shows device names and positions, and the token is a key; do not
-post it publicly. Regenerating the token invalidates every existing URL immediately.
+post it publicly. Regenerating the token invalidates every existing URL immediately. The token
+expires (30 to 365 days, notified before expiry) and is shown only when an administrator reveals
+it, which is audited.
 
 Serving an image rather than an iframe is deliberate: this service sends
 `frame-ancestors 'none'`, so iframe embedding is blocked by design, and allowing specific

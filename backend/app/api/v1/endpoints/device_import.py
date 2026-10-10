@@ -27,12 +27,26 @@ MAX_UPLOAD = 16 * 1024 * 1024
 
 @router.get("/import-template")
 async def import_template(
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     include_devices: bool = False,
 ) -> Response:
-    """匯入範本（CSV，標準欄名）。include_devices=true 時帶出全部現有裝置，改完用「更新」模式匯回來。"""
+    """匯入範本（CSV，標準欄名）。include_devices=true 時帶出全部現有裝置，改完用「更新」模式匯回來。
+
+    帶出全部裝置＝整份裝置清單被下載走，要留稽核；空白範本不含資料，不記。"""
     body = await svc.template_csv(session, include_devices=include_devices)
     name = "devices-import.csv" if include_devices else "devices-import-template.csv"
+    if include_devices:
+        await append_audit(
+            session, actor_user_id=str(user.id),
+            actor_ip=request.client.host if request.client else None,
+            actor_user_agent=request.headers.get("user-agent"),
+            object_type="device", object_id=None, action="export_csv",
+            diff={"filename": name, "rows": max(body.count("\n") - 1, 0)},
+            request_id=getattr(request.state, "request_id", None),
+        )
+        await session.commit()
     return Response(content=body.encode("utf-8"), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 

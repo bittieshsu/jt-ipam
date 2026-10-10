@@ -26,7 +26,9 @@ import {
 } from "@/api/admin";
 import {
   UsersIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, TokenIcon, AdminIcon,
+  LogoutIcon, KeyIcon, LockIcon,
 } from "@/icons";
+import { getAuthPolicy, putAuthPolicy, resetUserMfa, revokeUserSessions, type AuthPolicy } from "@/api/sessions";
 import { useRouter } from "vue-router";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -216,6 +218,36 @@ async function unlock(u: User) {
   try { await updateUser(u.id, { unlock: true }); msg.success(t("common.ok")); await refresh(); }
   catch { msg.error(t("errors.server")); }
 }
+// 強制登出：撤銷這個人所有的登入（含已開著的主控台）；重設 MFA：裝置遺失又沒有復原碼時
+async function forceLogout(u: User) {
+  try { const n = await revokeUserSessions(u.id); msg.success(t("users.force_logout_done", { n })); }
+  catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
+async function resetMfa(u: User) {
+  try { await resetUserMfa(u.id); msg.success(t("users.reset_mfa_done")); }
+  catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
+
+// 登入安全（MFA 政策）
+const policyShow = ref(false);
+const policy = ref<AuthPolicy>({ mfa_required: "off", mfa_apply_to_sso: false });
+const policySaving = ref(false);
+const policyOptions = computed(() => [
+  { label: t("users.mfa_policy_off"), value: "off" },
+  { label: t("users.mfa_policy_admins"), value: "admins" },
+  { label: t("users.mfa_policy_all"), value: "all" },
+]);
+async function openPolicy() {
+  try { policy.value = await getAuthPolicy(); policyShow.value = true; }
+  catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+}
+async function savePolicy() {
+  policySaving.value = true;
+  try { policy.value = await putAuthPolicy(policy.value); policyShow.value = false; msg.success(t("common.saved")); }
+  catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  finally { policySaving.value = false; }
+}
+
 async function remove(u: User) {
   try { await deleteUser(u.id); msg.success(t("common.ok")); await refresh(); }
   catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
@@ -298,13 +330,21 @@ const allColumns = computed<DataTableColumns<User>>(() => autoSort([
       : "—",
   },
   {
-    title: t("common.actions"), key: "actions", className: "col-actions", width: 150, fixed: "right",
+    title: t("common.actions"), key: "actions", className: "col-actions", width: 220, fixed: "right",
     render: (r) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
       iconAction(EditIcon, t("common.edit"), () => openEdit(r)),
       iconAction(AdminIcon, t("users.assign_perms"), () => goPerms(r)),
       r.locked_until
         ? iconAction(TokenIcon, t("users.unlock"), () => unlock(r))
         : null,
+      h(NPopconfirm, { onPositiveClick: () => forceLogout(r) }, {
+        trigger: () => iconAction(LogoutIcon, t("users.force_logout"), () => {}, "warning"),
+        default: () => t("users.force_logout_confirm"),
+      }),
+      h(NPopconfirm, { onPositiveClick: () => resetMfa(r) }, {
+        trigger: () => iconAction(KeyIcon, t("users.reset_mfa"), () => {}, "warning"),
+        default: () => t("users.reset_mfa_confirm"),
+      }),
       h(NPopconfirm, { onPositiveClick: () => remove(r) }, {
         trigger: () => iconAction(DeleteIcon, t("common.delete"), () => {}, "error"),
         default: () => t("common.confirm_delete"),
@@ -346,6 +386,10 @@ onMounted(() => { void refresh(); });
                     :order="usrOrder" @update:order="usrSetOrder" />
       <ExportButton :columns="columns" :rows="rows" :fetch-all="fetchAllForExport"
                     filename="users" :title="t('users.title')" />
+      <n-button data-testid="mfa-policy-open" @click="openPolicy">
+        <template #icon><n-icon><LockIcon /></n-icon></template>
+        {{ t("users.mfa_policy") }}
+      </n-button>
       <span style="opacity: 0.6">{{ t("common.total_n", { n: total }) }}</span>
     </n-space>
 
@@ -358,7 +402,7 @@ onMounted(() => { void refresh(); });
         prefix: ({ itemCount }) => t('common.total_rows', { n: itemCount ?? 0 }),
         onUpdatePage: (p) => { offset = (p - 1) * limit; void refresh(); },
       }"
-      remote :bordered="false" :scroll-x="1084"
+      remote :bordered="false" :scroll-x="1154"
     >
       <template #empty>
         <n-space justify="center">{{ t("common.no_data") }}</n-space>
@@ -423,6 +467,37 @@ onMounted(() => { void refresh(); });
       </n-space>
     </n-modal>
 
+    <n-modal v-model:show="policyShow" preset="card" style="width: 520px; max-width: 94vw">
+      <template #header>
+        <n-space align="center">
+          <n-icon :size="20"><LockIcon /></n-icon>
+          <span>{{ t("users.mfa_policy") }}</span>
+        </n-space>
+      </template>
+      <n-form label-placement="top">
+        <n-form-item :label="t('users.mfa_policy_required')">
+          <n-select v-model:value="policy.mfa_required" :options="policyOptions" data-testid="mfa-policy-select" />
+        </n-form-item>
+        <p class="policy-hint">{{ t("users.mfa_policy_hint") }}</p>
+        <n-form-item :label="t('users.mfa_policy_sso')">
+          <n-space vertical :size="2" style="width:100%">
+            <n-switch v-model:value="policy.mfa_apply_to_sso" />
+            <span class="policy-hint">{{ t("users.mfa_policy_sso_hint") }}</span>
+          </n-space>
+        </n-form-item>
+      </n-form>
+      <n-space justify="end">
+        <n-button type="error" ghost @click="policyShow = false">
+          <template #icon><n-icon><CancelIcon /></n-icon></template>
+          {{ t("common.cancel") }}
+        </n-button>
+        <n-button type="primary" :loading="policySaving" data-testid="mfa-policy-save" @click="savePolicy">
+          <template #icon><n-icon><SaveIcon /></n-icon></template>
+          {{ t("common.save") }}
+        </n-button>
+      </n-space>
+    </n-modal>
+
     <n-modal v-model:show="showEdit" preset="card" style="width: 460px">
       <template #header>
         <n-space align="center">
@@ -461,3 +536,7 @@ onMounted(() => { void refresh(); });
     </n-modal>
   </n-card>
 </template>
+
+<style scoped>
+.policy-hint { font-size: 12px; opacity: 0.7; margin: -4px 0 8px; }
+</style>

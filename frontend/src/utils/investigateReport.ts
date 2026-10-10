@@ -11,19 +11,15 @@
  * - `.html` 用 `<meta charset="utf-8">` 宣告，不靠 BOM。
  */
 
+import { saveBlob } from "@/utils/saveFile";
+
 export type ReportFormat = "md" | "txt" | "html" | "csv";
 
 const BOM = "﻿";
 
 function download(text: string, filename: string, mime: string, bom: boolean): void {
   const blob = new Blob([bom ? BOM + text : text], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  // 立刻 revoke 在部分瀏覽器會讓下載中斷，延後釋放
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  saveBlob(filename, blob, blob.type, { source: "investigate" });
 }
 
 /** 給「一段文字直接存檔」的輕量出口（如 AI 解讀報告）——沿用同一套 BOM 規則。 */

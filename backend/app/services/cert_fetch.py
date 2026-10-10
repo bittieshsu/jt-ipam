@@ -10,8 +10,6 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
-import socket
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,12 +19,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import append_audit
-from app.core.config import get_settings
 from app.core.safe_http import (
-    _BLOCKED_CIDRS,
-    _PRIVATE_CIDRS,
     UnsafeOutboundURL,
-    _ip_in,
     safe_request,
 )
 from app.core.security import decrypt_secret, encrypt_secret
@@ -80,20 +74,17 @@ async def save_cert_secret(session: AsyncSession, cert_id: Any, field: str, valu
 
 
 def _check_host_safe(host: str) -> None:
-    settings = get_settings()
+    """SFTP 來源主機：跟 HTTP 相同的出站規則（core/net_guard 的 strict）。"""
+    from app.core.net_guard import BlockedTarget, check_target
     try:
-        addrs = [ipaddress.ip_address(host)]
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, None)
-        except socket.gaierror as exc:
+        check_target(host, policy="strict")
+    except BlockedTarget as exc:
+        if exc.reason == "dns":
             raise FetchError(f"無法解析主機 {host}", code="cert_src_dns", host=host) from exc
-        addrs = [ipaddress.ip_address(i[4][0]) for i in infos]
-    for ip in addrs:
-        if _ip_in(ip, _BLOCKED_CIDRS):
-            raise FetchError(f"封鎖的 IP(SSRF):{ip}", code="cert_src_blocked_ip", ip=str(ip))
-        if _ip_in(ip, _PRIVATE_CIDRS) and not settings.outbound_allow_private:
-            raise FetchError(f"私網 IP {ip} 未允許(需 OUTBOUND_ALLOW_PRIVATE)", code="cert_src_private_ip", ip=str(ip))
+        if exc.reason == "private":
+            raise FetchError(f"私網位址未允許(需 OUTBOUND_ALLOW_PRIVATE)：{host}", code="cert_src_private_ip",
+                             ip=host) from exc
+        raise FetchError(f"封鎖的位址(SSRF)：{host}", code="cert_src_blocked_ip", ip=host) from exc
 
 
 async def _get_url(url: str) -> str:

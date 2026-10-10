@@ -202,6 +202,8 @@ async def _agent_from_key(session: AsyncSession, key: str | None) -> ScanAgent:
     )).scalar_one_or_none()
     if obj is None or not obj.enabled:
         raise HTTPException(401, detail="invalid agent key")
+    from app.core.rate_limit import limit_agent
+    await limit_agent("scan", obj.id)
     return obj
 
 
@@ -812,12 +814,16 @@ async def agent_report(
                for src in ("scanner", "netbios", "mdns")}
     recog_matcher: Any = _UNSET            # 第一筆需要判讀時才載入（多數回報沒有 OS 偵測結果）
     vm_guests: dict[str, str] | None = None   # 虛擬機（"vm"）／容器（"ct"）的位址（同樣第一次需要時整批查）
-    for item in payload.results:
+    # 沒有指派任何子網路的代理不能碰任何位址。以前這裡是「有指派才過濾」，沒指派的代理因此
+    # 跳過整道過濾、可以改全站任何一筆 IP 的 MAC／OS／主機名稱（2026-10-09 合規核對抓到）
+    results = payload.results if agent_subnet_ids else []
+    if not agent_subnet_ids:
+        skipped_no_subnet = sum(1 for it in payload.results if it.alive)
+    for item in results:
         if not item.alive:
             continue
-        stmt = select(IPAddress).where(IPAddress.ip == item.ip)
-        if agent_subnet_ids:
-            stmt = stmt.where(in_values(IPAddress.subnet_id, agent_subnet_ids))
+        stmt = select(IPAddress).where(IPAddress.ip == item.ip,
+                                       in_values(IPAddress.subnet_id, agent_subnet_ids))
         # 重疊網段下可能有多筆同 IP；限定 agent 子網路後通常唯一，取第一筆
         ipa = (await session.execute(stmt.limit(1))).scalar_one_or_none()
         if ipa is None and not item.liveness:

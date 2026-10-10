@@ -26,7 +26,7 @@ test("區段清單不會停在第一頁", async ({ page }) => {
   // 而測試看起來像「畫面錯了」。
   const serverTotal = await page.evaluate(async () => {
     const r = await fetch("/api/v1/sections?page=1&page_size=1", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
     });
     return (await r.json()).total as number;
   });

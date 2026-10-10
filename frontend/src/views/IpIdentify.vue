@@ -301,6 +301,7 @@ import { useAuthStore } from "@/stores/auth";
 import type { IPAddress } from "@/types";
 import { fmtDateTime } from "@/utils/datetime";
 import { decodeNmapEscapes, serviceKind } from "@/utils/nmapText";
+import { saveBlob } from "@/utils/saveFile";
 
 const route = useRoute();
 const router = useRouter();
@@ -675,13 +676,7 @@ async function start() {
 function downloadRaw() {
   const stamp = (job.value?.finished_at || job.value?.created_at || "").replace(/[:.]/g, "-").slice(0, 19);
   const blob = new Blob([rawText.value], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `identify-${ipText.value}-${stamp}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  saveBlob(`identify-${ipText.value}-${stamp}.json`, blob, blob.type, { source: "ip-identify" });
 }
 
 function goBack() {

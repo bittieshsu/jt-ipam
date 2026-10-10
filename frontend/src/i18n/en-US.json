@@ -21,7 +21,10 @@
     "server_down": "The server cannot handle logins right now (HTTP {code}). The backend may be down or failing to start; check systemctl status jt-ipam-backend — this is not a credentials problem.",
     "too_many": "Too many attempts. Please wait and try again.",
     "locked": "This account is locked. Please contact an administrator.",
-    "realm_local": "Local"
+    "realm_local": "Local",
+    "mfa_setup_intro": "Your administrator requires two-factor authentication for this account. Scan the QR code below with an authenticator app and enter the 6-digit code it shows to finish.",
+    "mfa_setup_expired": "Setup timed out. Please sign in again.",
+    "mfa_recovery_hint": "Don't have your authenticator? Enter a recovery code instead (XXXXX-XXXXX; each works once)."
   },
   "certStatus": {
     "col_agent": "Agent",
@@ -892,7 +895,21 @@
     "assign_perms": "Assign permissions",
     "deactivate": "Deactivate",
     "reactivate": "Reactivate",
-    "admin_external_hint": "This is an external account (LDAP / SSO). If the site configures an admin-group mapping, this switch is re-evaluated from the directory on every login; it is only decisive when no mapping is configured."
+    "admin_external_hint": "This is an external account (LDAP / SSO). If the site configures an admin-group mapping, this switch is re-evaluated from the directory on every login; it is only decisive when no mapping is configured.",
+    "force_logout": "Sign out everywhere",
+    "force_logout_confirm": "Revoke all of this person's sign-ins (including open consoles)? API tokens are not affected.",
+    "force_logout_done": "Revoked {n} sign-ins",
+    "reset_mfa": "Reset two-factor authentication",
+    "reset_mfa_confirm": "Clear this person's two-factor authentication and recovery codes, and revoke all their sign-ins?",
+    "reset_mfa_done": "Reset. If the policy requires it, they set it up again at their next sign-in",
+    "mfa_policy": "Sign-in security",
+    "mfa_policy_required": "Two-factor authentication (TOTP)",
+    "mfa_policy_off": "Not required (each person chooses)",
+    "mfa_policy_admins": "Required for administrators",
+    "mfa_policy_all": "Required for everyone",
+    "mfa_policy_hint": "People who are required but have not set it up are not locked out: they set it up at their next sign-in and receive 10 recovery codes. People who are required cannot turn it off.",
+    "mfa_policy_sso": "Also require for SSO sign-ins",
+    "mfa_policy_sso_hint": "Off by default: OIDC and SAML sign-ins rely on the identity provider's own multi-factor authentication. When on, SSO sign-ins also need jt-ipam's TOTP."
   },
   "ipChanges": {
     "title": "IP Change Log",
@@ -1169,7 +1186,8 @@
     "ev_inferred": "Guessed from the name",
     "kind_inferred": "Guessed (neither recorded nor observed)",
     "too_large": "This view has {n} devices, more than can be drawn at once ({limit}): the graph would be unreadable and slow to build. Use the subnet filter above to narrow it down.",
-    "via_neighbor": "Neighbor discovery (MikroTik)"
+    "via_neighbor": "Neighbor discovery (MikroTik)",
+    "scope_limited": "Showing only the devices and subnets you have access to, and links whose both ends are in scope; VPN tunnels and virtual machines are global data and are not shown."
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",
@@ -2678,7 +2696,9 @@
       "disable_reauth_required": "Enter your credentials first",
       "disable_pw_ph": "Enter your current password to confirm",
       "disable_code_ph": "Enter the current 6-digit code from your authenticator",
-      "disable_code_label": "Verification code"
+      "disable_code_label": "Verification code",
+      "required_by_policy": "Required by administrator",
+      "required_by_policy_hint": "Your administrator requires two-factor authentication for this account, so it cannot be turned off"
     },
     "prefs": {
       "tab": "Preferences",
@@ -2804,7 +2824,7 @@
       "graylog_regen": "Regenerate token",
       "graylog_url": "Lookup URL (HTTPS, for Graylog)",
       "graylog_url_http": "Lookup URL (plain HTTP, for Graylog)",
-      "graylog_url_http_hint": "Served on dedicated port 8088, unencrypted; the token is exposed on the wire — trusted LAN only. To disable, remove the 8088 server block in the nginx config.",
+      "graylog_url_http_hint": "Served on dedicated port 8088, unencrypted; the token crosses the network in plain text, so trusted networks only. It is served only after \"Allow plain HTTP\" is turned on above.",
       "graylog_copy": "Copy",
       "graylog_hint": "In Graylog, add a “DSV File from HTTP” data adapter and paste the URL above; pick separator , or Tab per format, key column = 1, value column = 2 (key = IP, value = hostname / FQDN). Regenerate the token any time to revoke access.",
       "graylog_fw_title": "OPNsense firewall DSV (rules / aliases)",
@@ -2899,7 +2919,29 @@
       "sftp_probe_no_data_down": "Download data does not arrive: nothing new for {sec} s ({done} of {total} received).",
       "sftp_probe_error": "Check failed: {reason}",
       "sftp_probe_note": "Measured from this browser, through every layer between you and the server. Users on other networks may take a different path.",
-      "sftp_max_mb_range": "The SFTP limit must be between 1 and 102400 MB (100 GB)"
+      "sftp_max_mb_range": "The SFTP limit must be between 1 and 102400 MB (100 GB)",
+      "graylog_token_hint2": "The token is not loaded with this page: it is fetched when you click Show or copy a URL, and every fetch is audited. It expires (choose the validity when you regenerate it), and administrators are notified 14, 7 and 1 days before.",
+      "graylog_plain_label": "Allow plain HTTP (port 8088)",
+      "graylog_plain_warn": "The token is in the URL, so plain HTTP shows it to every device on the path. Turn this on only when Graylog cannot use HTTPS (for example it does not trust a self-signed certificate) and only on a trusted network; consider restricting the allowed sources too.",
+      "graylog_plain_off_hint": "While off, port 8088 always answers 404 and only HTTPS works.",
+      "graylog_sources_label": "Allowed sources",
+      "graylog_sources_ph": "One address or network per line, e.g. 192.0.2.10 or 192.0.2.0/24",
+      "graylog_sources_hint": "When set, lookups are accepted only from these addresses (over HTTPS and port 8088); usually the Graylog server. Empty means no restriction."
+    },
+    "sessions": {
+      "title": "Signed-in devices",
+      "hint": "Each sign-in is one row. Sign out any you don't recognise. When you sign out, change your password or an administrator signs you out, consoles opened from that sign-in also close within 30 seconds.",
+      "device": "Device",
+      "current": "This device",
+      "method": "Method",
+      "created": "Signed in",
+      "last_used": "Last used",
+      "revoke": "Sign out",
+      "revoke_confirm": "Sign out this device?",
+      "revoked": "Signed out",
+      "revoked_n": "Signed out {n} devices",
+      "revoke_others": "Sign out all other devices",
+      "revoke_others_confirm": "Sign out everywhere except this device?"
     }
   },
   "errors": {
@@ -3500,7 +3542,17 @@
     "cpg_script_timeout": "The read command on the gateway ({script}) was still running after {seconds} s; skipped this round",
     "report_pdf_no_font": "The server has no CJK font, so the PDF cannot be generated: ask an administrator to run sudo apt install fonts-noto-cjk (or run the jt-ipam upgrade, which installs it)",
     "report_pdf_busy": "Too many reports are being generated right now; please try again shortly",
-    "report_pdf_failed": "PDF generation failed: {reason}"
+    "report_pdf_failed": "PDF generation failed: {reason}",
+    "mfa_required_by_policy": "Your administrator requires two-factor authentication for this account, so it cannot be turned off",
+    "dsv_bad_source": "An allowed source is not a valid address or network: {reason}",
+    "console_target_blocked": "A console cannot be opened to this address (loopback, link-local or reserved): {reason}",
+    "jump_host_blocked": "Connections to the address of jump host \"{name}\" are not allowed: {reason}",
+    "ssh_target_blocked": "Connections to this address are not allowed: {host} ({reason})",
+    "console_revoked": "Access to this console was revoked and the connection has ended.",
+    "console_revoked_account_inactive": "Your account was deactivated, so the console connection has ended.",
+    "console_revoked_session_revoked": "This sign-in has ended (you signed out, were signed out, or two-factor authentication was reset), so the console connection has ended. Please sign in again.",
+    "console_revoked_target_removed": "This IP was deleted or no longer allows consoles, so the connection has ended.",
+    "console_revoked_permission_revoked": "Your permission to open a console to this IP was revoked, so the connection has ended."
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -3582,7 +3634,7 @@
     "mcp_key_rotate": "Regenerate",
     "mcp_key_rotate_confirm": "Regenerating immediately invalidates the old key; connected systems must update. Continue?",
     "mcp_key_generate": "Generate key",
-    "mcp_key_hint": "This key is read-only: external systems can only query — the 6 data-changing tools are always blocked. It is stored encrypted and authorized within the current admin's visibility; regenerate immediately if leaked.",
+    "mcp_key_hint": "This key is read-only: external systems can only query — the 6 data-changing tools are always blocked. It is stored encrypted and authorized within the current admin's visibility; regenerate immediately if leaked. The key expires (choose the validity when you generate or replace it); administrators are notified 14, 7 and 1 days before.",
     "mcp_gen_config": "Generate client config",
     "mcp_gen_title": "Client MCP configuration",
     "mcp_gen_hint": "Paste the snippet into the tool's config file to connect to this MCP. The API key is filled in for you; exact schema may vary by tool/version.",
@@ -3659,7 +3711,11 @@
     "think_why_empty": "the answer is empty; the gateway may be hiding the reasoning",
     "think_failed": "{who}: check failed — {err}",
     "think_rejected": "Rejected by the server: {params} (dropped automatically).",
-    "think_on_hint": "When the model ignores this, AI audit, AI interpretation (and AI chat with thinking off) get slow, and the reasoning can use up the answer's token budget. Use Ollama 0.9 or later; through LiteLLM, prefix the model with ollama/ or ollama_chat/; for llama.cpp, upgrade to b10434 or later or start it with --reasoning-budget 0."
+    "think_on_hint": "When the model ignores this, AI audit, AI interpretation (and AI chat with thinking off) get slow, and the reasoning can use up the answer's token budget. Use Ollama 0.9 or later; through LiteLLM, prefix the model with ollama/ or ollama_chat/; for llama.cpp, upgrade to b10434 or later or start it with --reasoning-budget 0.",
+    "mcp_key_days": "Valid for",
+    "mcp_key_days_n": "{n} days",
+    "mcp_key_expires": "Expires {date}",
+    "mcp_key_expired": "Expired on {date}"
   },
   "rack_diagram": {
     "empty": "No devices in this rack",
@@ -3914,7 +3970,9 @@
       "change_impact_submitted": "IP change assessment to review (to reviewers)",
       "change_impact_reviewed": "IP change assessment reviewed (to the creator)",
       "anomaly_arp_flux": "Anomaly detection: one host answering an IP on several NICs",
-      "anomaly_l2_subnet_bleed": "Anomaly detection: two subnets sharing one layer 2"
+      "anomaly_l2_subnet_bleed": "Anomaly detection: two subnets sharing one layer 2",
+      "credential_expiring": "API token / MCP key / public endpoint token expiring",
+      "security_session_reuse": "Sign-in token possibly stolen (session revoked)"
     },
     "enable": "Enable",
     "secret_keep": "(set — leave blank to keep)",
@@ -3969,7 +4027,19 @@
     "src_kind_base": "Probes & monitoring",
     "src_zabbix": "Zabbix host availability",
     "liveness_no_aging_warn": "Ticking a source marked \"never expires\" means one sighting keeps the address online forever. Do not tick it unless you know exactly why you want that.",
-    "grp_device_ports": "Device ports"
+    "grp_device_ports": "Device ports",
+    "grp_backup_enc": "Daily backup encryption",
+    "backup_enc_status": "Status",
+    "backup_enc_on": "Encrypted (set {at})",
+    "backup_enc_off": "Not encrypted",
+    "backup_enc_hint": "The daily backup holds the database and the key that decrypts the secrets in it (backend.env). With a passphrase set, each day's backup is packed and encrypted into one .jtbak file and the plain copy is removed; without one, both sit side by side in plain form.",
+    "backup_enc_set": "Set passphrase",
+    "backup_enc_change": "Change passphrase",
+    "backup_enc_ph": "At least 12 characters",
+    "backup_enc_too_short": "The passphrase needs at least 12 characters",
+    "backup_enc_remove": "Remove",
+    "backup_enc_remove_confirm": "After removal, later backups are written in plain form again. Continue?",
+    "backup_enc_keep_hint": "Without the passphrase the backups cannot be decrypted: keep it somewhere other than this host (for example a password manager). After changing it, older backups still need the passphrase they were made with. Decrypt: python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <file> --out <dir>"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",
@@ -4343,7 +4413,15 @@
     "change_impact_reviewed_approve": "{user} approved \"{title}\".",
     "change_impact_reviewed_accept_risk": "{user} approved \"{title}\" with accepted risk.",
     "change_impact_reviewed_request_changes": "{user} sent \"{title}\" back for changes.",
-    "change_impact_reviewed_reject": "{user} rejected \"{title}\"."
+    "change_impact_reviewed_reject": "{user} rejected \"{title}\".",
+    "credential_expiring": "Expiring soon: {name}",
+    "credential_expiring_body": "{name} expires on {date} ({days} days left). Generate a new one on its settings page.",
+    "credential_expired": "Expired: {name}",
+    "credential_expired_body": "{name} expired on {date}; integrations that use it can no longer connect. Generate a new one on its settings page.",
+    "session_reuse": "Sign-in token possibly stolen: {user}",
+    "session_reuse_body": "A refresh token {user} had already replaced was used again from {ip}; that sign-in has been revoked. Unless it was the same person on several devices at once, reset the password and check the audit log.",
+    "session_reuse_self": "One of your sign-ins was revoked",
+    "session_reuse_self_body": "A sign-in token that had already been replaced was used again from {ip} and may have been stolen. Please change your password."
   },
   "system_transfer": {
     "title": "System Export / Import",
@@ -5559,7 +5637,16 @@
     "f_backup_logs": "Read the backup log: journalctl -u jt-ipam-backup -n 30",
     "f_backup_owner": "A table is not owned by the jt-ipam database role, so pg_dump cannot read it. Drop it if it is a leftover copy, or give it to the app role: {cmd}",
     "f_backup_timer": "sudo systemctl enable --now jt-ipam-backup.timer",
-    "f_backup_run": "sudo systemctl start jt-ipam-backup.service"
+    "f_backup_run": "sudo systemctl start jt-ipam-backup.service",
+    "c_audit_owner": "Audit table protection",
+    "d_audit_owner_ok": "The audit table is owned by {owner}; the app role can only read and append",
+    "d_audit_owner_app": "The audit table is owned by the app role ({owner}), which can disable the append-only protection and rewrite records",
+    "f_audit_owner": "Give the audit table to a role that cannot sign in (install and upgrade do this; after a restore or with an external database do it by hand): {cmd}",
+    "c_backup_enc": "Backup encryption",
+    "d_backup_enc_off": "No backup passphrase is set: backup files hold the database and the key that decrypts it (backend.env), so whoever gets a backup gets every secret",
+    "d_backup_enc_missed": "A backup passphrase is set, but the latest backup was not encrypted (a backup script from before the upgrade, or encryption failed)",
+    "d_backup_enc_ok": "Daily backups are encrypted with the configured passphrase (.jtbak)",
+    "f_backup_enc_off": "Set a passphrase under System settings → Daily backup encryption"
   },
   "tool_verbs": {
     "get": "Look up",
@@ -7389,5 +7476,16 @@
     "days": "{n} d",
     "hours": "{n} h",
     "minutes": "{n} min"
+  },
+  "recovery": {
+    "title": "Recovery codes",
+    "intro": "If you lose your authenticator or change phones, sign in with one of these instead of a code. Each works once. They are shown only now, so keep them somewhere safe (for example a password manager).",
+    "file_note": "Each code works once. When you have used them, generate new ones under Settings → Security.",
+    "download": "Download as text",
+    "saved_check": "I have saved the recovery codes somewhere safe",
+    "continue": "Continue",
+    "remaining": "Recovery codes left",
+    "regenerate": "Generate new recovery codes",
+    "regenerate_confirm": "Generating new codes invalidates all the old ones."
   }
 }

@@ -24,6 +24,10 @@ class UserMe(StrictModel):
     is_admin: bool
     # 此帳號是否已啟用 TOTP 雙因素驗證（前端在「個人設定 → 安全」顯示狀態、決定顯示啟用/停用鈕）
     totp_enabled: bool = False
+    # 管理員的 MFA 政策要求這個帳號一定要開（不能停用 TOTP）
+    mfa_required_by_policy: bool = False
+    # 還沒用過的復原碼組數（0 而且已啟用 TOTP → 提醒重新產生）
+    recovery_codes_remaining: int = 0
     # 非管理員是否對任何物件類型有可見範圍；前端用來隱藏零權限看不到的選單
     has_visibility: bool = True
     # 是否具「全域讀取」（管理員或任一類型有萬用授權）；前端用來隱藏全域基礎設施選單

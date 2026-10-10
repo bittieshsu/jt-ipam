@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import { triggerSessionExpired } from "@/utils/session";
+import { AUTH_COOKIE_HEADERS, getAccessToken, setAccessToken } from "@/api/token";
 import { i18n } from "@/i18n";
 
 // 後端常見英文錯誤訊息 → 在地化（元件多半直接顯示 response.data.detail）
@@ -107,7 +108,7 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use((config) => {
   config.headers.set("X-Request-ID", generateRequestId());
-  const token = localStorage.getItem("access_token");
+  const token = getAccessToken();
   if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
   }
@@ -117,22 +118,21 @@ apiClient.interceptors.request.use((config) => {
 // 一次同時收到多個 401 時，只觸發一次 refresh；其它等同一個 promise
 let refreshingPromise: Promise<string | null> | null = null;
 
-async function tryRefreshToken(): Promise<string | null> {
+/**
+ * 用 HttpOnly Cookie 裡的更新權杖換一把新的存取權杖（Cookie 本身由後端換新）。
+ * 同一時間多個 401 只換一次。也給「新分頁還沒有存取權杖」時用（stores/auth.ensureSession）。
+ */
+export async function tryRefreshToken(): Promise<string | null> {
   if (refreshingPromise) return refreshingPromise;
-  const refreshToken = localStorage.getItem("refresh_token");
-  if (!refreshToken) return null;
   refreshingPromise = (async () => {
     try {
       // 用 axios 裸請求避免拉 interceptor 連鎖
-      const resp = await axios.post("/api/v1/auth/refresh",
-        { refresh_token: refreshToken },
-        { headers: { "X-Request-ID": generateRequestId() }, timeout: 10_000 });
-      const data = resp.data as { access_token?: string; refresh_token?: string };
+      const resp = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ""}/api/v1/auth/refresh`, null,
+        { headers: { "X-Request-ID": generateRequestId(), ...AUTH_COOKIE_HEADERS },
+          withCredentials: true, timeout: 10_000 });
+      const data = resp.data as { access_token?: string };
       if (data?.access_token) {
-        localStorage.setItem("access_token", data.access_token);
-        if (data.refresh_token) {
-          localStorage.setItem("refresh_token", data.refresh_token);
-        }
+        setAccessToken(data.access_token);
         return data.access_token;
       }
       return null;
@@ -153,7 +153,8 @@ apiClient.interceptors.response.use(
     const url = typeof config.url === "string" ? config.url : "";
     // 登入 / MFA / refresh 端點自己的 401 不算「逾時」(例如密碼錯誤)，照常往上拋
     const isAuthEndpoint =
-      url.includes("/auth/login") || url.includes("/auth/refresh") || url.includes("/auth/mfa");
+      url.includes("/auth/login") || url.includes("/auth/refresh") || url.includes("/auth/mfa")
+      || url.includes("/auth/logout");
     // 401 嘗試 refresh 一次 (避免 refresh 自己再 refresh 無限迴圈)
     if (error.response?.status === 401 && !config._retried && !isAuthEndpoint) {
       const newToken = await tryRefreshToken();

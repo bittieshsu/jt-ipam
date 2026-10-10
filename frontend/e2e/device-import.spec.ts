@@ -27,7 +27,7 @@ async function login(page: Page) {
 test("匯入：選檔 → 預覽 → 匯入 → 清單出現；錯誤列講清楚原因、不會寫入", async ({ page, request }) => {
   test.setTimeout(90_000);
   await login(page);
-  const token = await page.evaluate(() => localStorage.getItem("access_token") || "");
+  const token = await page.evaluate(() => sessionStorage.getItem("access_token") || "");
   const h = { Authorization: `Bearer ${token}` };
 
   // 清單匯出的中文檔頭（含推算出來的「虛實」欄）＋ 一列錯誤

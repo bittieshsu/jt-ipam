@@ -315,6 +315,8 @@ const LOGIN_ERRORS: Record<string, string> = {
 const WAYLAND_LOGIN_DOC = "https://rustdesk.com/docs/en/manual/linux/#login-screen";
 function closeText(info: CloseInfo): string {
   if (info.code === TICKET_UNAVAILABLE || info.code === TICKET_REFUSED) return info.detail || t("rdweb.err_ticket");
+  // 開著的連線被收回權限（core/console_guard）：detail 已是翻好的句子
+  if (info.code === "console_revoked") return info.detail || t("errors.console_revoked");
   if (info.code === "rd_login_error") {
     const raw = info.detail || "";
     // 原文是受控端送來的：不可以比對到 constructor 這類原型上的名字

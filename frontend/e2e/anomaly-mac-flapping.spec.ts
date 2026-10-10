@@ -27,7 +27,7 @@ test("頻繁換 MAC 的 IP 會被列出，而且可以忽略", async ({ page }) 
   const sample = await page.evaluate(async () => {
     const r = await fetch("/api/v1/anomalies/scan", {
       method: "POST",
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
     });
     if (!r.ok) return null;
     const body = await r.json();
@@ -65,7 +65,7 @@ test("頻繁換 MAC 的 IP 會被列出，而且可以忽略", async ({ page }) 
   // 樣本被自己加進忽略清單，偵測再也列不出它，訊息只會說「等不到表格列」，
   // 看起來像功能壞了。實際踩過一次，追了十分鐘才發現是上一輪留下的狀態。
   const restored = await page.evaluate(async () => {
-    const auth = { Authorization: `Bearer ${localStorage.getItem("access_token")}` };
+    const auth = { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` };
     const r = await fetch("/api/v1/addresses?q=10.20.0.10&page_size=5", { headers: auth });
     const id = (await r.json()).items?.[0]?.id;
     if (!id) return "找不到樣本 IP";

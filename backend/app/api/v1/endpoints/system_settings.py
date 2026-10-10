@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -921,6 +922,7 @@ class LLMConfigOut(StrictModel):
     num_ctx: int | None = None
     mcp_external_enabled: bool = False
     mcp_api_key_set: bool = False        # 是否已產生對外 MCP 金鑰（不回明文）
+    mcp_api_key_expires_at: datetime | None = None   # 到期時間（過期的金鑰會被拒絕）
     ai_audit_enabled: bool = False
     ai_audit_times: list[str] = []       # 執行時刻（"HH:MM"，伺服器本地時區）
     # 排程的「哪幾天」：daily / weekly（配 weekdays）／monthly（配 month_day）
@@ -984,6 +986,7 @@ def _llm_out(cfg: Any) -> LLMConfigOut:
         num_ctx=cfg.num_ctx,
         mcp_external_enabled=cfg.mcp_external_enabled,
         mcp_api_key_set=bool(cfg.mcp_api_key),
+        mcp_api_key_expires_at=cfg.mcp_api_key_expires_at if cfg.mcp_api_key else None,
         ai_audit_enabled=cfg.ai_audit_enabled,
         ai_audit_times=cfg.ai_audit_times,
         ai_audit_frequency=cfg.ai_audit_frequency,
@@ -1056,12 +1059,28 @@ async def patch_llm(
 
 @router.get("/llm/mcp-key")
 async def reveal_mcp_key(
-    _user: CurrentUser,
+    user: CurrentUser,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """檢視目前的對外 MCP 金鑰明文（管理員專用；尚未產生回 null）。"""
+    """檢視目前的對外 MCP 金鑰明文（管理員專用；尚未產生回 null）。每次檢視都留稽核。"""
     cfg = await get_llm_config(session)
+    if cfg.mcp_api_key:
+        await append_audit(
+            session, actor_user_id=str(user.id),
+            actor_ip=request.client.host if request.client else None,
+            actor_user_agent=request.headers.get("user-agent"),
+            object_type="system_setting", object_id=None, action="secret_view",
+            diff={"setting": "mcp_api_key"},
+            request_id=getattr(request.state, "request_id", None),
+        )
+        await session.commit()
     return {"api_key": cfg.mcp_api_key}
+
+
+class McpKeyRotateIn(StrictModel):
+    #: 有效天數（1–365）；不送 body 時用預設 90 天
+    expires_in_days: int = Field(default=90, ge=1, le=365)
 
 
 @router.post("/llm/mcp-key/rotate")
@@ -1069,21 +1088,26 @@ async def rotate_mcp_key(
     user: CurrentUser,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    payload: Annotated[McpKeyRotateIn | None, Body()] = None,
 ) -> dict[str, Any]:
-    """產生 / 更換對外 MCP 金鑰（唯讀），綁定目前管理員身份；回傳明文（僅此一次完整顯示）。"""
+    """產生 / 更換對外 MCP 金鑰（唯讀），綁定目前管理員身份；回傳明文（僅此一次完整顯示）與到期時間。"""
     from app.services.system_config import rotate_mcp_api_key
-    key = await rotate_mcp_api_key(session, principal_user_id=user.id, updated_by_user_id=user.id)
+    days = (payload or McpKeyRotateIn()).expires_in_days
+    key = await rotate_mcp_api_key(session, principal_user_id=user.id, updated_by_user_id=user.id,
+                                   expires_in_days=days)
     await append_audit(
         session,
         actor_user_id=str(user.id),
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="system_setting", object_id=None,
-        action="update", diff={"changes": {"mcp_api_key": "rotated"}},
+        action="update", diff={"changes": {"mcp_api_key": "rotated"}, "expires_in_days": days},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return {"api_key": key}
+    cfg = await get_llm_config(session)
+    exp = cfg.mcp_api_key_expires_at
+    return {"api_key": key, "expires_at": exp.isoformat() if exp else None}
 
 
 @router.get("/llm/models")
@@ -2067,3 +2091,98 @@ async def integration_presence(
     from app.services.system_config import get_graylog_dsv
     out["graylog"] = (await get_graylog_dsv(session))["enabled"]
     return out
+
+
+# ─────────────────── 登入安全（MFA 政策）───────────────────
+class AuthPolicyIO(StrictModel):
+    #: off＝不要求（個人自選）／admins＝管理員必須／all＝所有人必須
+    mfa_required: Literal["off", "admins", "all"] = "off"
+    #: SSO（OIDC／SAML）登入也套用：預設不套用，交給身分提供者自己的 MFA
+    mfa_apply_to_sso: bool = False
+
+
+@router.get("/auth-policy", response_model=AuthPolicyIO)
+async def get_auth_policy(session: Annotated[AsyncSession, Depends(get_session)]) -> AuthPolicyIO:
+    from app.services.mfa import get_policy
+    p = await get_policy(session)
+    return AuthPolicyIO(mfa_required=p.mfa_required, mfa_apply_to_sso=p.mfa_apply_to_sso)  # type: ignore[arg-type]
+
+
+@router.put("/auth-policy", response_model=AuthPolicyIO)
+async def put_auth_policy(
+    payload: AuthPolicyIO,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AuthPolicyIO:
+    """改 MFA 政策。被要求但還沒設定的帳號不會被鎖在外面：下次登入時先完成 TOTP 設定。"""
+    from app.services.mfa import AuthPolicy, get_policy, set_policy
+    before = await get_policy(session)
+    await set_policy(session, AuthPolicy(payload.mfa_required, payload.mfa_apply_to_sso), updated_by=user.id)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system_setting", object_id=None, action="update",
+        diff={"setting": "auth_policy",
+              "mfa_required": {"old": before.mfa_required, "new": payload.mfa_required},
+              "mfa_apply_to_sso": {"old": before.mfa_apply_to_sso, "new": payload.mfa_apply_to_sso}},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return payload
+
+
+# ─────────────────── 每日備份加密 ───────────────────
+class BackupEncryptionOut(StrictModel):
+    enabled: bool
+    set_at: str | None = None
+
+
+class BackupEncryptionIn(StrictModel):
+    #: 至少 12 個字元；忘記就解不開舊備份 —— 請存在這台主機以外的地方
+    passphrase: Annotated[str, Field(min_length=12, max_length=256)]
+
+
+@router.get("/backup-encryption", response_model=BackupEncryptionOut)
+async def get_backup_encryption_ep(session: Annotated[AsyncSession, Depends(get_session)]) -> BackupEncryptionOut:
+    from app.services.system_config import get_backup_encryption
+    cfg = await get_backup_encryption(session)
+    return BackupEncryptionOut(enabled=cfg["enabled"], set_at=cfg["set_at"])
+
+
+async def _audit_backup_enc(session: AsyncSession, user: Any, request: Request, change: str) -> None:
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system_setting", object_id=None, action="update",
+        diff={"setting": "backup_encryption", "change": change},     # 不記密碼本身
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+@router.put("/backup-encryption", response_model=BackupEncryptionOut)
+async def put_backup_encryption(
+    payload: BackupEncryptionIn, user: CurrentUser, request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> BackupEncryptionOut:
+    """設定或更換備份加密密碼。之後的每日備份都會加密；舊備份仍要用當時的密碼解。"""
+    from app.services.system_config import get_backup_encryption, set_backup_encryption
+    had = (await get_backup_encryption(session))["enabled"]
+    await set_backup_encryption(session, payload.passphrase, updated_by=user.id)
+    await _audit_backup_enc(session, user, request, "changed" if had else "set")
+    await session.commit()
+    cfg = await get_backup_encryption(session)
+    return BackupEncryptionOut(enabled=cfg["enabled"], set_at=cfg["set_at"])
+
+
+@router.delete("/backup-encryption", status_code=204)
+async def delete_backup_encryption(
+    user: CurrentUser, request: Request, session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    """移除備份加密密碼（之後的備份回到明文目錄；系統診斷會提醒）。"""
+    from app.services.system_config import set_backup_encryption
+    await set_backup_encryption(session, None, updated_by=user.id)
+    await _audit_backup_enc(session, user, request, "removed")
+    await session.commit()

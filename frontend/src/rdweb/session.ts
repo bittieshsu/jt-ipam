@@ -30,6 +30,7 @@
  * portable_service_running 交給畫面；requestElevation 送 Misc.elevation_request（logon 的帳號密碼只放進那一則加密的
  * 訊息，這裡不留）；reportElevation 送稽核摘要給後端（`elevation_audit`：method、result、detail 四個欄位，不含帳號密碼）。
  */
+import { revokedCloseText } from "@/utils/wsError";
 import { base64ToBytes, keyExchangeV0, openSigned, passwordHash, randomSessionId, SecretBoxStream } from "./crypto";
 import { MouseKind } from "./input";
 import {
@@ -234,7 +235,11 @@ export class RdSession {
     this.ws = factory(opts.url);
     this.ws.binaryType = "arraybuffer";
     this.ws.onmessage = (ev) => this.onWsMessage(ev.data);
-    this.ws.onclose = () => this.finish({ code: this.phase === "connected" ? "rd_peer_closed" : "ws_closed" });
+    this.ws.onclose = (ev) => {
+      const revoked = revokedCloseText(ev as { code?: number; reason?: string });
+      if (revoked) this.finish({ code: "console_revoked", detail: revoked });
+      else this.finish({ code: this.phase === "connected" ? "rd_peer_closed" : "ws_closed" });
+    };
     this.ws.onerror = () => { /* onclose 會接著來 */ };
   }
 

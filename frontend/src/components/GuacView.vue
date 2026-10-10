@@ -13,7 +13,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import Guacamole from "@/vendor/guacamole/guacamole-common.js";
-import { wsErrorText } from "@/utils/wsError";
+import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 
 const props = withDefaults(defineProps<{
   wsUrl: string;
@@ -272,7 +272,11 @@ async function connect() {
       case "error": fail(wsErrorText(payload, t("rdp.err_generic"))); break;
     }
   };
-  ws.onclose = () => { if (!finished) closed(); };
+  ws.onclose = (ev) => {
+    const revoked = revokedCloseText(ev);
+    if (revoked) fail(revoked);
+    else if (!finished) closed();
+  };
   ws.onerror = () => { if (!tunnel && !finished) fail(t("rdp.err_ws")); };
 }
 

@@ -1,3 +1,4 @@
+import { clearAccessToken } from "@/api/token";
 // 集中處理「登入逾時」：任何 API 因 401 且無法 refresh 時，統一彈出提示並導向登入頁。
 // 由 App 內(可用 useMessage/useRouter/i18n 的元件)註冊 handler；client.ts 在攔截器呼叫 trigger。
 
@@ -14,11 +15,8 @@ export function setSessionExpiredHandler(h: Handler): void {
 export function triggerSessionExpired(): void {
   if (firing) return;
   firing = true;
-  // 一律先清掉 token
-  try {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-  } catch { /* ignore */ }
+  // 一律先清掉這個分頁的存取權杖（更新權杖在 HttpOnly Cookie，已經失效，讀不到也不必清）
+  clearAccessToken();
 
   if (handler) {
     handler();

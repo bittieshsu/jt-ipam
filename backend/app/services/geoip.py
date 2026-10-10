@@ -24,6 +24,8 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.models.system_setting import SystemSetting
 
 GEOIP_KEY = "geoip"
+#: 授權金鑰密文綁定用途（AAD）：密文被搬到別的欄位就解不開（0198 起；之前的由 migration 重加密）
+KEY_AAD = b"setting:geoip:license_key"
 _WS_HOST = "geolite.info"                          # web service fallback
 _DL_BASE = "https://download.maxmind.com/geoip/databases"   # 本地 DB 下載
 DB_DIR = Path("/var/lib/jt-ipam/geoip")
@@ -54,7 +56,8 @@ async def get_geoip_creds(session: AsyncSession) -> tuple[str | None, str | None
     key: str | None = None
     if v.get("key_ct") and v.get("key_nonce"):
         try:
-            key = decrypt_secret(base64.b64decode(v["key_ct"]), base64.b64decode(v["key_nonce"])).decode()
+            key = decrypt_secret(base64.b64decode(v["key_ct"]), base64.b64decode(v["key_nonce"]),
+                                 aad=KEY_AAD).decode()
         except Exception:
             key = None
     return acct, key
@@ -101,7 +104,7 @@ async def set_geoip_config(
     if account_id is not None:
         cur["account_id"] = account_id.strip()
     if license_key:
-        ct, nonce = encrypt_secret(license_key.strip())
+        ct, nonce = encrypt_secret(license_key.strip(), aad=KEY_AAD)
         cur["key_ct"] = base64.b64encode(ct).decode()
         cur["key_nonce"] = base64.b64encode(nonce).decode()
     if editions is not None:

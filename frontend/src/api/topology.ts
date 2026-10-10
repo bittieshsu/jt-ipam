@@ -35,6 +35,9 @@ export interface TopologyData {
   edges: CytoscapeEdge[];
   /** 裝置太多（超過後端上限）時不建圖，只回這個：畫面請使用者先用子網路篩選 */
   too_large?: { devices: number; limit: number };
+  /** 只被授權部分物件的帳號：只畫看得到的裝置與子網路；hidden_layers 是沒畫的圖層（vpn、vms） */
+  scope?: "limited";
+  hidden_layers?: string[];
 }
 
 export async function getTopology(params: {

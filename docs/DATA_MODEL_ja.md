@@ -233,7 +233,7 @@ Management API（`POST <url>/web_api/<コマンド>`、`X-chkp-sid`）で**管�
 ## 8. セキュリティ、RBAC、システム
 
 ### 8.1 `users` / `groups` / `user_group_members`
-- **User**：`username` / `email`（citext で一意）、`password_hash`（argon2id。外部認証では NULL）、`auth_provider`（local / ldap / radius / saml / oidc）、`external_subject`、`is_active`、`is_admin`、暗号化された TOTP（`totp_secret_enc` / `totp_nonce`）、ロックアウト（`failed_login_count` / `locked_until`）、`last_login_at` / `last_login_ip`。CHECK：ローカルの利用者にはパスワードが必須です。
+- **User**：`username` / `email`（citext で一意）、`password_hash`（argon2id。外部認証では NULL）、`auth_provider`（local / ldap / radius / saml / oidc）、`external_subject`、`is_active`、`is_admin`、暗号化された TOTP（`totp_secret_enc` / `totp_nonce`）、ロックアウト（`failed_login_count` / `locked_until`。TOTP コードの誤りも数えます）、`last_login_at` / `last_login_ip`、`tokens_valid_after`（これより前に発行されたアクセストークンは拒否。強制ログアウト・無効化・管理者によるパスワードのリセットで設定）、`totp_last_step`（最後に使った TOTP のタイムステップ。コードの再利用を防ぎます）。CHECK：ローカルの利用者にはパスワードが必須です。
 - **Group**：`name`（citext で一意）、`is_builtin`。所属は `user_group_members`（複合主キー）で表します。
 
 ### 8.2 `permissions`：オブジェクト単位の RBAC（既定は拒否、A01）
@@ -250,7 +250,10 @@ Management API（`POST <url>/web_api/<コマンド>`、`X-chkp-sid`）で**管�
 あらゆる機微な項目のための AES-256-GCM の保管庫です。`(object_type, object_id, field, key_id)` が一意で、`ciphertext` と `nonce` を持ちます。DNS や Proxmox の資格情報、SNMP のコミュニティ名、TOTP などがここに乗ります。
 
 ### 8.5 `api_tokens`
-`token_hash`（sha256。平文は保存しません）と識別用の `token_prefix`、`scopes`（`text[]`）、`object_filters`（jsonb の ACL）、`expires_at`（必須）、使用と失効の日時。
+`token_hash`（sha256。平文は保存しません）と識別用の `token_prefix`、`scopes`（`text[]`）、`expires_at`（必須）、使用と失効の日時。強制されていなかった `object_filters` 列は migration 0199 で削除しました。
+
+### 8.5b `user_sessions` / `user_recovery_codes`
+`user_sessions`：ログインごとに 1 行（migration 0200）。`refresh_hash`（HttpOnly Cookie にあるリフレッシュトークンの sha256）と `prev_refresh_hash` + `rotated_at`（直前のものは複数タブの同時更新のため 60 秒間有効。その後に使うとセッション全体を取り消し）、`expires_at`（無操作による期限。更新のたびに延長）、`revoked_at` / `revoked_reason`、`method`（local / ldap / radius / oidc / saml）、`mfa`、`ip`、`user_agent`。アクセストークンはこの行の id を `sid` として持ちます。`user_recovery_codes`：10 個の TOTP リカバリーコードの argon2id ハッシュ。使用済みなら `used_at` が入ります。
 
 ### 8.6 `custom_field_definitions`
 管理者が定義する項目で、対象の `object_type` は `subnet / ip / device` です。`field_type` は text / int / float / bool / date / select / multi_select / regex で、`options` / `validation_regex` / `required` / `display_order` を伴います。値は検証のうえ、各エンティティの `custom_fields` jsonb に保存されます。`(object_type, name)` に一意制約。

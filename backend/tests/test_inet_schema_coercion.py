@@ -51,7 +51,7 @@ def test_api_token_read_coerces_last_used_ip():
     from app.schemas.api_token import APITokenRead
     m = APITokenRead.model_validate({
         "id": uuid.uuid4(), "name": "t", "token_prefix": "jt_x", "scopes": [],
-        "object_filters": None, "expires_at": _now(), "last_used_at": _now(),
+        "expires_at": _now(), "last_used_at": _now(),
         "last_used_ip": IPv4Address("10.0.0.9"), "revoked_at": None, "created_at": _now(),
     })
     assert m.last_used_ip == "10.0.0.9"

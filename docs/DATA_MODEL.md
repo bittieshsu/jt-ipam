@@ -233,7 +233,7 @@ Talks to the **management server** (Security Management Server / Multi-Domain, R
 ## 8. Security, RBAC & system
 
 ### 8.1 `users` / `groups` / `user_group_members`
-- **User**: `username`/`email` (citext unique), `password_hash` (argon2id; NULL for external auth), `auth_provider` (local/ldap/radius/saml/oidc), `external_subject`, `is_active`, `is_admin`, encrypted TOTP (`totp_secret_enc`/`totp_nonce`), lockout (`failed_login_count`/`locked_until`), `last_login_at`/`last_login_ip`. CHECK: local users must have a password.
+- **User**: `username`/`email` (citext unique), `password_hash` (argon2id; NULL for external auth), `auth_provider` (local/ldap/radius/saml/oidc), `external_subject`, `is_active`, `is_admin`, encrypted TOTP (`totp_secret_enc`/`totp_nonce`), lockout (`failed_login_count`/`locked_until`, wrong TOTP codes count too), `last_login_at`/`last_login_ip`, `tokens_valid_after` (access tokens issued earlier are refused: set by Sign out everywhere, deactivation and admin password resets), `totp_last_step` (the last TOTP time step used, so a code cannot be replayed). CHECK: local users must have a password.
 - **Group**: `name` (citext unique), `is_builtin`. Membership via `user_group_members` (composite PK).
 
 ### 8.2 `permissions`: object-level RBAC (deny by default, A01)
@@ -250,7 +250,10 @@ Object-level authorization: `(object_type, object_id, principal_type, principal_
 AES-256-GCM vault for any sensitive field. `(object_type, object_id, field, key_id)` unique; `ciphertext` + `nonce`. Backs DNS/Proxmox credentials, SNMP communities, TOTP, etc.
 
 ### 8.5 `api_tokens`
-`token_hash` (sha256; plaintext never stored) + `token_prefix` for identification, `scopes` (`text[]`), `object_filters` (jsonb ACL), `expires_at` (required), usage/revocation timestamps.
+`token_hash` (sha256; plaintext never stored) + `token_prefix` for identification, `scopes` (`text[]`), `expires_at` (required), usage/revocation timestamps. The never-enforced `object_filters` column was dropped in migration 0199.
+
+### 8.5b `user_sessions` / `user_recovery_codes`
+`user_sessions`: one row per sign-in (migration 0200). `refresh_hash` (sha256 of the refresh token kept in the HttpOnly cookie) and `prev_refresh_hash` + `rotated_at` (the previous one stays valid for 60 seconds so several tabs can refresh at once; using it later revokes the session), `expires_at` (idle expiry, pushed forward on each refresh), `revoked_at`/`revoked_reason`, `method` (local/ldap/radius/oidc/saml), `mfa`, `ip`, `user_agent`. Access tokens carry the row's id as `sid`. `user_recovery_codes`: argon2id hashes of the 10 TOTP recovery codes, `used_at` once spent.
 
 ### 8.6 `custom_field_definitions`
 Admin-defined fields for `object_type` ∈ `subnet / ip / device`. `field_type` ∈ text/int/float/bool/date/select/multi_select/regex, with `options`/`validation_regex`/`required`/`display_order`. Values are validated and stored in each entity's `custom_fields` jsonb. Unique `(object_type, name)`.

@@ -16,7 +16,10 @@ class LoginRequest(StrictModel):
 
 
 class TokenResponse(StrictModel):
-    """登入 / refresh 成功的回應；若 user 有開 TOTP 則回傳 mfa_required + mfa_token。"""
+    """登入 / refresh 成功的回應；若 user 有開 TOTP 則回傳 mfa_required + mfa_token。
+
+    更新權杖不在回應本文裡：它只放在 HttpOnly Cookie（`jt_refresh`，JavaScript 讀不到）。
+    `refresh_token` 欄位留著是為了相容，一律是 null。"""
 
     access_token: str | None = None
     refresh_token: str | None = None
@@ -26,10 +29,24 @@ class TokenResponse(StrictModel):
     # MFA 挑戰（僅 login 第一步成功且 user 有 TOTP 時設定）
     mfa_required: bool = False
     mfa_token: str | None = None
+    # 政策要求 MFA 但這個帳號還沒設定：用 mfa_token 走 /auth/mfa/setup/* 設定完才發工作階段
+    mfa_setup_required: bool = False
+    # 剛設定好 TOTP 時的復原碼（明文只出現這一次）
+    recovery_codes: list[str] | None = None
 
 
-class RefreshRequest(StrictModel):
-    refresh_token: Annotated[str, Field(min_length=1, max_length=4096)]
+class SessionRead(StrictModel):
+    """自己的登入工作階段（「登入中的裝置」）。"""
+
+    id: str
+    created_at: str
+    last_used_at: str
+    expires_at: str
+    ip: str | None
+    user_agent: str | None
+    method: str
+    mfa: bool
+    current: bool
 
 
 class TotpDisableRequest(StrictModel):
@@ -41,6 +58,10 @@ class TotpDisableRequest(StrictModel):
 
     password: Annotated[str | None, Field(default=None, max_length=256)] = None
     code: Annotated[str | None, Field(default=None, min_length=6, max_length=6)] = None
+
+
+class ReauthRequest(TotpDisableRequest):
+    """需要升級驗證的操作（重新產生復原碼）：同 TotpDisableRequest。"""
 
 
 class ChangePasswordRequest(StrictModel):

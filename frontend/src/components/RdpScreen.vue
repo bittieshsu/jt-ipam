@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { wsErrorText } from "@/utils/wsError";
+import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
@@ -344,7 +344,11 @@ async function startSession(w: number, h: number) {
         break;
     }
   };
-  ws.onclose = () => { if (phase.value !== "error") phase.value = "closed"; };
+  ws.onclose = (ev) => {
+    const revoked = revokedCloseText(ev);
+    if (revoked) { phase.value = "error"; errorMsg.value = revoked; return; }
+    if (phase.value !== "error") phase.value = "closed";
+  };
   ws.onerror = () => {
     if (phase.value !== "error" && phase.value !== "connected") {
       phase.value = "error";

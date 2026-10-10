@@ -82,7 +82,7 @@ test("整合頁：伺服器狀態與裝置清單（搜尋、上線篩選、對�
 test("IP 詳細資料：RustDesk ID 與連線按鈕（帶伺服器與公鑰、不帶密碼）", async ({ page }) => {
   await login(page);
   const id = await page.evaluate(async () => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const r = await fetch("/api/v1/addresses?q=10.20.0.40&page_size=5", { headers: { Authorization: `Bearer ${tok}` } });
     return ((await r.json()).items as { id: string; ip: string }[]).find((i) => i.ip.split("/")[0] === "10.20.0.40")!.id;
   });
@@ -249,7 +249,7 @@ test("告警通知的連結直接開到連線稽核頁籤", async ({ page }) => 
 test("IP 詳細資料：顯示客戶端回報的使用者與 OS（主機名稱在「主機名稱來源」）", async ({ page }) => {
   await login(page);
   const id = await page.evaluate(async () => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const r = await fetch("/api/v1/addresses?q=10.20.0.40&page_size=5", { headers: { Authorization: `Bearer ${tok}` } });
     return ((await r.json()).items as { id: string; ip: string }[]).find((i) => i.ip.split("/")[0] === "10.20.0.40")!.id;
   });
@@ -262,7 +262,7 @@ test("IP 詳細資料：顯示客戶端回報的使用者與 OS（主機名稱�
 
 async function ipIdOf(page: Page, ip: string): Promise<string> {
   return page.evaluate(async (want) => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const r = await fetch(`/api/v1/addresses?q=${want}&page_size=5`, { headers: { Authorization: `Bearer ${tok}` } });
     return ((await r.json()).items as { id: string; ip: string }[]).find((i) => i.ip.split("/")[0] === want)!.id;
   }, ip);

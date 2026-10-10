@@ -21,7 +21,7 @@ async function login(page: Page) {
 
 async function api(page: Page, path: string) {
   return page.evaluate(async (p) => (await fetch(p, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
   })).json(), path);
 }
 

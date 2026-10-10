@@ -12,6 +12,7 @@ import {
   analyzeImport, applyImport, downloadExport, getTransferSchema, startExport,
   type AnalyzeResult, type ImportReport, type TransferSchema,
 } from "@/api/systemTransfer";
+import { saveBlob } from "@/utils/saveFile";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -85,12 +86,8 @@ async function doDownload() {
   try {
     const blob = await downloadExport(expTaskId.value);
     const fname = (expSummary.value?.filename as string) || `jt-ipam-export-${expTaskId.value}.json`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fname;
-    a.click();
-    URL.revokeObjectURL(url);
+    // 伺服器端每次下載都記稽核（system_export_download）
+    saveBlob(fname, blob, blob.type, { source: "system-export", audited: true });
   } catch {
     msg.error(t("system_transfer.download_failed"));
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { wsErrorText } from "@/utils/wsError";
+import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 /**
@@ -305,7 +305,14 @@ async function connect() {
         break;
     }
   };
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
+    const revoked = revokedCloseText(ev);
+    if (revoked) {
+      phase.value = "error";
+      errorMsg.value = revoked;
+      term?.write(`\r\n\x1b[31m${revoked}\x1b[0m\r\n`);
+      return;
+    }
     if (phase.value !== "error") {
       phase.value = "closed";
       term?.write(`\r\n\x1b[33m${t("ssh.disconnected")}\x1b[0m\r\n`);

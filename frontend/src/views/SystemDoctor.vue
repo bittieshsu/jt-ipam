@@ -18,6 +18,7 @@ import {
 import { apiClient, apiErrMsg } from "@/api/client";
 import { RefreshIcon, ExportIcon, TestIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
+import { saveBlob } from "@/utils/saveFile";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -95,12 +96,8 @@ function download() {
     lines.push("  sudo bash /opt/jt-ipam/scripts/jt-ipam.sh doctor");
     const data = lines.join("\n");
     const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
-    const url = URL.createObjectURL(new Blob([data], { type: "text/plain;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `jt-ipam-doctor-${stamp}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(`jt-ipam-doctor-${stamp}.txt`, new Blob([data], { type: "text/plain;charset=utf-8" }),
+             "text/plain;charset=utf-8", { source: "system-doctor" });
   } catch (e) { msg.error(apiErrMsg(e)); }
 }
 

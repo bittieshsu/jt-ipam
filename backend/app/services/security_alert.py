@@ -20,6 +20,7 @@ from app.services.state_alert import observe
 
 EVENT_PRIVILEGE = "security.privilege_changed"
 EVENT_BRUTE = "security.brute_force"
+EVENT_SESSION_REUSE = "security.session_reuse"
 
 
 async def notify_privilege_change(
@@ -35,6 +36,33 @@ async def notify_privilege_change(
         title=f"管理權限變更：{target}",
         body=f"{change}（操作者：{actor}）。若不是預期中的異動，請立刻檢查稽核記錄。",
         link="/users", severity="error")
+
+
+async def notify_session_reuse(session: AsyncSession, *, user_id: Any, actor_ip: str | None) -> None:
+    """已經換掉的更新權杖又被拿來用（超過多分頁的寬限）＝權杖很可能被偷了。
+
+    工作階段已經撤銷；這裡告訴管理員與本人：低頻、高影響，預設連 Email 都開。"""
+    if user_id is None:
+        return
+    from app.models.user import User
+    from app.services.notification import push_notification
+
+    user = await session.get(User, user_id)
+    name = user.username if user is not None else str(user_id)
+    params = {"user": name, "ip": actor_ip or "?"}
+    await _notify(
+        session, event=EVENT_SESSION_REUSE,
+        title=f"疑似登入權杖被盜用：{name}",
+        body=f"{name} 已經換掉的更新權杖從 {actor_ip or '?'} 又被使用，那個登入已撤銷。"
+             "若不是本人在多個裝置同時操作，請重設密碼並檢查稽核記錄。",
+        link="/audit", severity="error",
+        title_key="notif.session_reuse", body_key="notif.session_reuse_body", params=params)
+    if user is not None and not user.is_admin:
+        await push_notification(
+            session, user_id=user.id, severity="error",
+            title="你的一個登入已被撤銷", body="已經換掉的登入權杖又被使用，可能被盜用；請變更密碼。",
+            link="/settings", object_type="system",
+            title_key="notif.session_reuse_self", body_key="notif.session_reuse_self_body", params=params)
 
 
 async def audit_lockout(

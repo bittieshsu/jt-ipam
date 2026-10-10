@@ -179,15 +179,29 @@ async def build_topology(
     include_vms: bool = False,
     online_only: bool = False,
     max_devices: int | None = None,
+    scope_limited: bool = False,
 ) -> dict[str, Any]:
+    """`scope_limited`：只被授權部分物件的帳號（沒有萬用讀取）。2026-10-09 以前這種帳號整張圖都看不到
+    （403）；現在只畫看得到的裝置與子網路、兩端都看得到的連線。VPN 通道與虛擬機是全域基礎設施資料
+    （REST 上也只給有全域讀取的人），這種帳號一律不畫，回應的 `hidden_layers` 寫明少了哪些。"""
     nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, Any]] = []
+    hidden_layers: list[str] = []
+    vis_sub: set[uuid.UUID] | None = None
+    if scope_limited:
+        if include_vpn:
+            hidden_layers.append("vpn")
+        if include_vms:
+            hidden_layers.append("vms")
+        include_vpn = include_vms = False
 
     # RBAC：可見的 device / subnet id（None = 全部可見，admin/wildcard）
     vis_dev: set[uuid.UUID] | None = None
     if user is not None and not getattr(user, "is_admin", False):
         from app.services.permission import visible_ids
         vis_dev = await visible_ids(session, user=user, object_type="device")
+        if scope_limited:
+            vis_sub = await visible_ids(session, user=user, object_type="subnet")
 
     # 若指定 subnet_ids：只保留「在這些子網路裡有 IP」的裝置，圖才不會被無關裝置塞爆
     subnet_filter = set(subnet_ids) if subnet_ids else None
@@ -424,6 +438,8 @@ async def build_topology(
         for sn in subnets_all:
             if subnet_filter is not None and sn.id not in subnet_filter:
                 continue
+            if vis_sub is not None and sn.id not in vis_sub:
+                continue          # 只被授權部分子網路的帳號：看不到的子網路不畫
             try:
                 cand.append((sn, _ipaddr.ip_network(str(sn.cidr), strict=False)))
             except ValueError:
@@ -885,4 +901,9 @@ async def build_topology(
                 if mapped:
                     data["type"] = mapped
 
+    if scope_limited:
+        # 最後一道：兩端都在圖上的邊才留（任何一種邊漏過濾也不會帶出看不到的節點編號）
+        edges = [e for e in edges if e["data"].get("source") in nodes and e["data"].get("target") in nodes]
+        return {"nodes": list(nodes.values()), "edges": edges, "scope": "limited",
+                "hidden_layers": hidden_layers}
     return {"nodes": list(nodes.values()), "edges": edges}

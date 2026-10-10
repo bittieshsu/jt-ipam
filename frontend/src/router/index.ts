@@ -220,7 +220,8 @@ router.beforeEach(async (to, _from) => {
   const auth = useAuthStore();
   if (to.meta.public) return true;
 
-  if (!auth.isAuthenticated) {
+  // 這個分頁還沒有存取權杖（新分頁、重新整理）：先用 HttpOnly Cookie 換一把，換不到才去登入頁
+  if (!auth.isAuthenticated && !(await auth.ensureSession())) {
     return {
       name: "login",
       query: { next: to.fullPath },

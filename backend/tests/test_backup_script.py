@@ -17,7 +17,17 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "jt-ipam-backup.sh"
 
 
-def _run(tmp_path: Path, pg_dump_body: str) -> subprocess.CompletedProcess[str]:
+def _run(tmp_path: Path, pg_dump_body: str, encrypt_exit: int | None = None) -> subprocess.CompletedProcess[str]:
+    """`encrypt_exit`：None＝沒有後端（跳過加密那一步）；其他＝假的 `python -m app.cli.backup_encrypt` 的結束碼。"""
+    app_dir = tmp_path / "app"
+    if encrypt_exit is not None:
+        py = app_dir / ".venv" / "bin" / "python"
+        py.parent.mkdir(parents=True, exist_ok=True)
+        # 0＝加密成功：模擬 CLI 把目錄打包成 .jtbak 並刪掉明文目錄
+        body = ('d="${@: -1}"; tar -czf "$(dirname "$d")/jt-ipam-$(basename "$d").jtbak" -C "$(dirname "$d")" '
+                '"$(basename "$d")" && rm -rf "$d"; echo "encrypted\tx"\n') if encrypt_exit == 0 else "true\n"
+        py.write_text(f"#!/bin/bash\n{body}exit {encrypt_exit}\n")
+        py.chmod(0o755)
     fake = tmp_path / "bin"
     fake.mkdir(exist_ok=True)
     pg = fake / "pg_dump"
@@ -26,7 +36,8 @@ def _run(tmp_path: Path, pg_dump_body: str) -> subprocess.CompletedProcess[str]:
     env_file = tmp_path / "backend.env"
     env_file.write_text("POSTGRES_DB=jt_ipam\nPOSTGRES_USER=jt_ipam\nPOSTGRES_PASSWORD=x\n")
     env = {**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "BACKUP_DIR": str(tmp_path / "backups"),
-           "ENV_FILE": str(env_file), "TLS_DIR": str(tmp_path / "no-tls"), "UPLOAD_DIR": str(tmp_path / "no-up")}
+           "ENV_FILE": str(env_file), "TLS_DIR": str(tmp_path / "no-tls"), "UPLOAD_DIR": str(tmp_path / "no-up"),
+           "APP_DIR": str(app_dir)}
     return subprocess.run(["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
 
 
@@ -80,3 +91,29 @@ def test_first_ever_failure_leaves_no_empty_directory(tmp_path: Path) -> None:
     assert not [p for p in (tmp_path / "backups").iterdir() if p.is_dir()]
     st = _status(tmp_path)
     assert st["status"] == "fail" and st.get("last_success_at", "") == ""
+
+
+@pytest.mark.skipif(not SCRIPT.exists(), reason="no backup script")
+def test_encrypted_backup_replaces_the_plain_directory(tmp_path: Path) -> None:
+    r = _run(tmp_path, _OK, encrypt_exit=0)
+    assert r.returncode == 0, r.stderr
+    st = _status(tmp_path)
+    assert st["status"] == "ok" and st["encrypted"] == "1"
+    names = sorted(p.name for p in (tmp_path / "backups").iterdir())
+    assert any(n.endswith(".jtbak") for n in names)
+    assert not any((tmp_path / "backups" / n).is_dir() for n in names), "明文目錄應該已經刪掉"
+
+
+@pytest.mark.skipif(not SCRIPT.exists(), reason="no backup script")
+def test_no_passphrase_keeps_the_plain_backup(tmp_path: Path) -> None:
+    r = _run(tmp_path, _OK, encrypt_exit=3)
+    assert r.returncode == 0, r.stderr
+    assert _status(tmp_path)["encrypted"] == "0"
+
+
+@pytest.mark.skipif(not SCRIPT.exists(), reason="no backup script")
+def test_encryption_failure_fails_the_run_and_keeps_the_plain_copy(tmp_path: Path) -> None:
+    r = _run(tmp_path, _OK, encrypt_exit=1)
+    assert r.returncode != 0
+    assert _status(tmp_path)["status"] == "fail"
+    assert any(p.is_dir() for p in (tmp_path / "backups").iterdir()), "加密失敗時明文要留著"

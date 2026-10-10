@@ -14,7 +14,7 @@ test("連接埠的 MAC 欄第二行是廠商", async ({ page }) => {
   await page.getByRole("button", { name: /^(登入|Sign in)$/ }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
   const id = await page.evaluate(async () => {
-    const auth = { Authorization: `Bearer ${localStorage.getItem("access_token")}` };
+    const auth = { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` };
     const r = await (await fetch("/api/v1/devices?page=1&page_size=1", { headers: auth })).json();
     return (r.items ?? [])[0]?.id as string | undefined;
   });

@@ -52,6 +52,8 @@ jt-ipam 會**即時**產生一份 IP → 主機名稱 / FQDN 的對照表，讓 
 
 - 在 Graylog 的「DSV File from HTTP」配接器：URL 填上方網址、分隔符依格式選逗號或 Tab、**Key column = 0、Value column = 1**（Graylog 欄位索引從 0 起算）
 - token 逐次驗證、可隨時重新產生；設定頁直接提供可複製的完整對照表網址
+- 權杖有效期限（30 到 365 天，到期前通知），管理員按「顯示」才看得到，並留稽核記錄
+- 請用 HTTPS 網址：權杖放在網址上，所以明文的 8088 埠預設回 404，要打開「允許明文 HTTP」才服務（升級前就在用的站台維持開啟）；「允許的來源位址」可限制哪些位址能來抓
 
 ## BMC 主控台（IPMI SOL，Beta；不經作業系統的獨立連線）
 
@@ -124,19 +126,20 @@ SOL 只是把主機的**序列埠**轉播出來，所以主機端要先設好序
 
 ## 安全（OWASP Top 10:2025）
 
-安全是 day-one 需求，每個模組與 PR 都對齊 **OWASP Top 10:2025**，詳見 [`SECURITY_zh-TW.md`](SECURITY_zh-TW.md)。
+安全是 day-one 需求，每個模組與 PR 都對齊 **OWASP Top 10:2025**，詳見 [`SECURITY_zh-TW.md`](SECURITY_zh-TW.md)。可作為 ISO/IEC 27001 與 ISO/IEC 42001 佐證的控制，以及導入組織要自己做的事，見 [`docs/COMPLIANCE_zh-TW.md`](docs/COMPLIANCE_zh-TW.md)。
 
 - **強制 TLS**：二擇一，nginx 反代終止 TLS（`BACKEND_TLS_MODE=nginx`），或 uvicorn 直接掛自簽憑證（`BACKEND_TLS_MODE=direct`）
 - A01：deny-by-default RBAC、物件級檢查（如上）
-- A02：argon2id 密碼雜湊；儲存的敏感資料（DNS 憑證 / SNMP / API token）應用層加密
+- A02：argon2id 密碼雜湊；儲存的敏感資料（DNS 憑證 / SNMP / API token）應用層加密，每一筆綁定用途；每日備份可用密碼加密
 - A03：參數化 SQLAlchemy、嚴格 Pydantic v2 驗證、CSP + 輸出跳脫
 - A05：HSTS、CSP、X-Frame-Options、Referrer-Policy
-- A07：TOTP MFA、帳號鎖定、HttpOnly+Secure+SameSite cookie、API token TTL
+- A07：管理員可要求使用的 TOTP 雙因素驗證（附復原碼、防重放）、帳號鎖定（驗證碼打錯也算）、伺服器端工作階段（更新用權杖只放在 HttpOnly+Secure+SameSite=Strict cookie，可逐裝置撤銷，停用立即生效，開著的主控台 30 秒內結束）、API token TTL
 - A08：SHA-256 稽核鏈，每輪同步驗證一次並錨定到資料庫外面
   （`/var/lib/jt-ipam/audit-anchors.jsonl` 與 journald），因為只有鏈本身抓不到「尾端被切掉」。
-  `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` 可指定驗證起點，給既有站台那些再也驗不回來的舊記錄用
-- A09：結構化稽核記錄
-- A10：所有對外整合走 SSRF 允許清單；封鎖 metadata / link-local
+  `JT_IPAM_AUDIT_CHAIN_BASELINE_ID` 可指定驗證起點，給既有站台那些再也驗不回來的舊記錄用。
+  稽核表在資料庫層只能新增，應用程式帳號也無法停用（`scripts/jt-ipam.sh harden-audit`）
+- A09：結構化稽核記錄，匯出與檢視金鑰、權杖也留記錄
+- A10：每一種協定的對外連線都檢查（HTTP 在連線當下；LDAP、SMTP、RADIUS、WinRM、DNS、syslog 與主控台在連線前）；封鎖 metadata / link-local，主控台另外不連本機
 
 ## 技術堆疊
 
@@ -196,6 +199,13 @@ sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/bac
 ```
 
 不加 `--force-update` 則是新建管理員，而非重置既有帳號。
+
+唯一的管理員把驗證器與復原碼都弄丟時，從伺服器清掉他的雙因素驗證（同時登出所有裝置並留稽核記錄）：
+
+```bash
+sudo -u jtipam bash -c 'cd /opt/jt-ipam/backend; set -a; source /etc/jt-ipam/backend.env; set +a; \
+  .venv/bin/python -m app.cli.bootstrap reset-mfa --username admin'
+```
 
 ## TLS / HTTPS
 
@@ -299,7 +309,8 @@ jt-ipam/
 
 兩道開關都要成立才會給圖：**管理 → 系統設定**啟用嵌入並產生權杖，加上**該機櫃**自己的
 「對外嵌入」開關（逐櫃、預設關）。機櫃圖會顯示裝置名稱與位置，權杖等同鑰匙，請勿貼到
-公開場合；權杖可隨時重新產生，舊網址即刻失效。
+公開場合；權杖可隨時重新產生，舊網址即刻失效。權杖有效期限（30 到 365 天，到期前通知），
+管理員按「顯示」才看得到，並留稽核記錄。
 
 用圖片而不是 iframe 是刻意的：本服務送 `frame-ancestors 'none'`，iframe 嵌入本來就會被
 擋，而放行特定來源等於自己打開點擊劫持的面。

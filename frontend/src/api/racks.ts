@@ -125,7 +125,9 @@ export async function setRackPositions(
 // ─────────────────── 對外嵌入設定（admin）───────────────────
 export interface RackEmbedConfig {
   enabled: boolean;
-  token: string;
+  /** 權杖不再隨設定回傳：按「顯示」才另外取（後端留稽核） */
+  token_set: boolean;
+  token_expires_at: string | null;
 }
 
 export async function getRackEmbedConfig(): Promise<RackEmbedConfig> {
@@ -133,11 +135,17 @@ export async function getRackEmbedConfig(): Promise<RackEmbedConfig> {
   return data;
 }
 
+/** 取嵌入權杖明文（組 <img> 網址用）；每次呼叫後端都留稽核。 */
+export async function revealRackEmbedToken(): Promise<string> {
+  const { data } = await apiClient.get<{ token: string }>("/api/v1/system/rack-embed/token");
+  return data.token;
+}
+
 export async function setRackEmbedConfig(
-  enabled: boolean, regenerate_token = false,
+  enabled: boolean, regenerate_token = false, token_days = 365,
 ): Promise<RackEmbedConfig> {
   const { data } = await apiClient.put<RackEmbedConfig>(
-    "/api/v1/system/rack-embed", { enabled, regenerate_token },
+    "/api/v1/system/rack-embed", { enabled, regenerate_token, token_days },
   );
   return data;
 }

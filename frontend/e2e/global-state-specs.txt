@@ -15,3 +15,5 @@ rack-floorplan-tray.spec.ts
 # 會把 IP 變更評估整個關掉再打開（測「關閉時沒有入口」）：平行時另一支的精靈會碰上功能被關（2026-10-08 發版 e2e）
 change-impact.spec.ts
 change-impact-m2.spec.ts
+# 改 MFA 政策（所有人必須）、DSV 明文開關、備份加密：平行時別的 spec 登入會被要求設定 MFA
+security-controls.spec.ts

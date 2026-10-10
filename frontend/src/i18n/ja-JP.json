@@ -21,7 +21,10 @@
     "server_down": "サーバーが現在ログインを処理できません（HTTP {code}）。バックエンドが停止しているか、起動に失敗している可能性があります。systemctl status jt-ipam-backend を確認してください。資格情報の問題ではありません。",
     "too_many": "試行回数が多すぎます。しばらく待ってからやり直してください。",
     "locked": "このアカウントはロックされています。管理者にご連絡ください。",
-    "realm_local": "ローカル"
+    "realm_local": "ローカル",
+    "mfa_setup_intro": "管理者がこのアカウントに二要素認証を必須にしています。認証アプリで下の QR コードを読み取り、表示された 6 桁のコードを入力して設定を完了してください。",
+    "mfa_setup_expired": "設定の有効期限が切れました。もう一度ログインしてください。",
+    "mfa_recovery_hint": "認証アプリが手元にない場合は、リカバリーコード（XXXXX-XXXXX、各 1 回のみ）を入力できます。"
   },
   "certStatus": {
     "col_agent": "エージェント",
@@ -892,7 +895,21 @@
     "assign_perms": "権限を割り当て",
     "deactivate": "無効にする",
     "reactivate": "再び有効にする",
-    "admin_external_hint": "これは外部アカウント（LDAP / SSO）です。管理者グループの対応付けが設定されている場合、このスイッチはログインのたびにディレクトリから再評価されます。対応付けが未設定のときにのみ、この設定が決め手になります。"
+    "admin_external_hint": "これは外部アカウント（LDAP / SSO）です。管理者グループの対応付けが設定されている場合、このスイッチはログインのたびにディレクトリから再評価されます。対応付けが未設定のときにのみ、この設定が決め手になります。",
+    "force_logout": "強制ログアウト",
+    "force_logout_confirm": "このユーザーのすべてのログイン（開いているコンソールを含む）を取り消しますか？API トークンには影響しません。",
+    "force_logout_done": "{n} 件のログインを取り消しました",
+    "reset_mfa": "二要素認証をリセット",
+    "reset_mfa_confirm": "このユーザーの二要素認証とリカバリーコードを削除し、すべてのログインを取り消しますか？",
+    "reset_mfa_done": "リセットしました。ポリシーで必須の場合、次回ログイン時に再設定が必要です",
+    "mfa_policy": "ログインのセキュリティ",
+    "mfa_policy_required": "二要素認証（TOTP）",
+    "mfa_policy_off": "必須にしない（各自で選択）",
+    "mfa_policy_admins": "管理者は必須",
+    "mfa_policy_all": "全員必須",
+    "mfa_policy_hint": "必須なのに未設定のユーザーも締め出されません。次回ログイン時に設定し、10 個のリカバリーコードを受け取ります。必須のユーザーは自分で無効にできません。",
+    "mfa_policy_sso": "SSO ログインにも適用",
+    "mfa_policy_sso_hint": "既定ではオフ：OIDC／SAML のログインは ID プロバイダー側の多要素認証に任せます。オンにすると SSO ログインでも jt-ipam の TOTP が必要になります。"
   },
   "ipChanges": {
     "title": "IP 変更履歴",
@@ -1169,7 +1186,8 @@
     "ev_inferred": "名称からの推測",
     "kind_inferred": "推測（記録も観測もされていません）",
     "too_large": "この範囲には {n} 台の機器があり、一度に描画できる上限（{limit} 台）を超えています。図が読めないほど大きくなり、生成にも時間がかかります。上のサブネットフィルターで範囲を絞ってください。",
-    "via_neighbor": "ネイバー通知（MikroTik）"
+    "via_neighbor": "ネイバー通知（MikroTik）",
+    "scope_limited": "権限のある機器とサブネット、および両端が範囲内の接続だけを表示しています。VPN トンネルと仮想マシンはグローバルなデータのため表示しません。"
   },
   "hostnameSrc": {
     "auto": "自動（全体の順序に従う）",
@@ -2678,7 +2696,9 @@
       "disable_reauth_required": "先に本人確認の情報を入力してください",
       "disable_pw_ph": "確認のため現在のパスワードを入力してください",
       "disable_code_ph": "認証アプリに表示されている 6 桁のコードを入力してください",
-      "disable_code_label": "確認コード"
+      "disable_code_label": "確認コード",
+      "required_by_policy": "管理者が必須に設定",
+      "required_by_policy_hint": "管理者がこのアカウントに二要素認証を必須にしているため、無効にできません"
     },
     "prefs": {
       "tab": "表示設定",
@@ -2804,7 +2824,7 @@
       "graylog_regen": "トークンを再生成",
       "graylog_url": "ルックアップ URL（HTTPS。Graylog 用）",
       "graylog_url_http": "ルックアップ URL（平文 HTTP。Graylog 用）",
-      "graylog_url_http_hint": "専用ポート 8088 で暗号化せずに提供します。トークンが経路上に露出するため、信頼できる LAN 内でのみ使用してください。無効にするには nginx 設定の 8088 の server ブロックを削除します。",
+      "graylog_url_http_hint": "専用ポート 8088 で暗号化せずに提供します。トークンが平文でネットワークを流れるため、信頼できるネットワーク内でのみ使用してください。上の「平文 HTTP を許可」をオンにしたときだけ応答します。",
       "graylog_copy": "コピー",
       "graylog_hint": "Graylog 側で「DSV File from HTTP」データアダプタを追加し、上の URL を貼り付けてください。区切り文字は形式に応じて , または Tab、キー列 = 1、値列 = 2 とします（キー = IP、値 = ホスト名／FQDN）。トークンはいつでも再生成でき、アクセスを無効化できます。",
       "graylog_fw_title": "OPNsense ファイアウォールの DSV（ルール／エイリアス）",
@@ -2899,7 +2919,29 @@
       "sftp_probe_no_data_down": "ダウンロードのデータが届きません：{sec} 秒間新しいデータがありません（{done}／{total} 受信済み）。",
       "sftp_probe_error": "チェックに失敗しました：{reason}",
       "sftp_probe_note": "このブラウザーから実測した結果で、あなたとサーバーの間のすべての層を通っています。別のネットワークから接続する人は経路が異なる場合があります。",
-      "sftp_max_mb_range": "SFTP の上限は 1～102400 MB（100 GB）の範囲で指定してください"
+      "sftp_max_mb_range": "SFTP の上限は 1～102400 MB（100 GB）の範囲で指定してください",
+      "graylog_token_hint2": "トークンはこのページと一緒には読み込まれません。「表示」を押すか URL をコピーしたときに取得し、そのたびに監査に記録します。トークンには期限があり（再生成時に日数を選択）、期限の 14・7・1 日前に管理者へ通知します。",
+      "graylog_plain_label": "平文 HTTP を許可（8088 番ポート）",
+      "graylog_plain_warn": "トークンは URL に含まれるため、平文 HTTP では経路上のすべての機器から見えます。Graylog が HTTPS を使えない場合（自己署名証明書を信頼しないなど）に、信頼できるネットワーク内でのみオンにしてください。許可する送信元も設定することをおすすめします。",
+      "graylog_plain_off_hint": "オフの間、8088 番ポートは常に 404 を返し、HTTPS だけが使えます。",
+      "graylog_sources_label": "許可する送信元",
+      "graylog_sources_ph": "1 行に 1 つのアドレスまたはネットワーク（例：192.0.2.10、192.0.2.0/24）",
+      "graylog_sources_hint": "設定すると、これらのアドレスからのルックアップだけを受け付けます（HTTPS と 8088 の両方）。通常は Graylog サーバーのアドレスです。空欄なら制限しません。"
+    },
+    "sessions": {
+      "title": "ログイン中のデバイス",
+      "hint": "ログインごとに 1 行です。見覚えのないものはログアウトしてください。ログアウト、パスワード変更、管理者による強制ログアウトのときは、そのログインで開いたコンソールも 30 秒以内に切断されます。",
+      "device": "デバイス",
+      "current": "このデバイス",
+      "method": "ログイン方法",
+      "created": "ログイン日時",
+      "last_used": "最終使用",
+      "revoke": "ログアウト",
+      "revoke_confirm": "このデバイスをログアウトしますか？",
+      "revoked": "ログアウトしました",
+      "revoked_n": "{n} 台のデバイスをログアウトしました",
+      "revoke_others": "他のすべてのデバイスをログアウト",
+      "revoke_others_confirm": "このデバイス以外をすべてログアウトしますか？"
     }
   },
   "errors": {
@@ -3500,7 +3542,17 @@
     "cpg_script_timeout": "ゲートウェイ上の読み取りコマンド（{script}）が {seconds} 秒たっても終わらないため、今回はスキップしました",
     "report_pdf_no_font": "サーバーに日本語・中国語のフォントがないため PDF を作成できません：管理者に sudo apt install fonts-noto-cjk の実行（または jt-ipam のアップグレード。自動で追加されます）を依頼してください",
     "report_pdf_busy": "現在、多くのレポートを作成中です。しばらくしてから再試行してください",
-    "report_pdf_failed": "PDF の作成に失敗しました：{reason}"
+    "report_pdf_failed": "PDF の作成に失敗しました：{reason}",
+    "mfa_required_by_policy": "管理者がこのアカウントに二要素認証を必須にしているため、無効にできません",
+    "dsv_bad_source": "許可する送信元に無効なアドレスまたはネットワークがあります：{reason}",
+    "console_target_blocked": "このアドレスにはコンソールを開けません（ループバック、リンクローカル、予約済みアドレス）：{reason}",
+    "jump_host_blocked": "踏み台「{name}」のアドレスへの接続は許可されていません：{reason}",
+    "ssh_target_blocked": "このアドレスへの接続は許可されていません：{host}（{reason}）",
+    "console_revoked": "このコンソールへのアクセス権が取り消されたため、接続を終了しました。",
+    "console_revoked_account_inactive": "アカウントが無効化されたため、コンソール接続を終了しました。",
+    "console_revoked_session_revoked": "このログインは終了しました（ログアウト、強制ログアウト、または 二要素認証のリセット）。コンソール接続を終了しました。もう一度ログインしてください。",
+    "console_revoked_target_removed": "この IP が削除されたか、コンソールを開けなくなったため、接続を終了しました。",
+    "console_revoked_permission_revoked": "この IP にコンソールを開く権限が取り消されたため、接続を終了しました。"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -3586,7 +3638,7 @@
     "mcp_key_rotate": "再生成",
     "mcp_key_rotate_confirm": "再生成すると古いキーは直ちに無効になり、接続中のシステムは設定を更新する必要があります。続行しますか。",
     "mcp_key_generate": "キーを生成",
-    "mcp_key_hint": "このキーは読み取り専用です。外部システムは問い合わせしかできず、データを変更する 6 つのツールは常に拒否されます。キーは暗号化して保存され、現在の管理者の可視範囲内でのみ有効です。漏えいした場合は直ちに再生成してください。",
+    "mcp_key_hint": "このキーは読み取り専用です。外部システムは問い合わせしかできず、データを変更する 6 つのツールは常に拒否されます。キーは暗号化して保存され、現在の管理者の可視範囲内でのみ有効です。漏えいした場合は直ちに再生成してください。キーには期限があり（生成・更新時に日数を選択）、期限の 14・7・1 日前に管理者へ通知します。",
     "mcp_gen_config": "クライアント設定を生成",
     "mcp_gen_title": "クライアントの MCP 設定",
     "mcp_gen_hint": "このスニペットをツールの設定ファイルに貼り付けると、この MCP に接続できます。API キーは埋め込み済みです。書式はツールやバージョンによって異なる場合があります。",
@@ -3659,7 +3711,11 @@
     "think_why_empty": "回答が空です。ゲートウェイが思考内容を隠している可能性があります",
     "think_failed": "{who}：チェックに失敗しました — {err}",
     "think_rejected": "サーバーが受け付けない項目：{params}（自動的に外しました）。",
-    "think_on_hint": "モデルが従わない場合、AI 監査・AI 判定（および思考を無効にした AI チャット）が遅くなり、思考が回答のトークン上限を使い切ることがあります。Ollama は 0.9 以降を使い、LiteLLM 経由ではモデル名を ollama/ または ollama_chat/ で始め、llama.cpp は b10434 以降に更新するか --reasoning-budget 0 を付けて起動してください。"
+    "think_on_hint": "モデルが従わない場合、AI 監査・AI 判定（および思考を無効にした AI チャット）が遅くなり、思考が回答のトークン上限を使い切ることがあります。Ollama は 0.9 以降を使い、LiteLLM 経由ではモデル名を ollama/ または ollama_chat/ で始め、llama.cpp は b10434 以降に更新するか --reasoning-budget 0 を付けて起動してください。",
+    "mcp_key_days": "有効期間",
+    "mcp_key_days_n": "{n} 日",
+    "mcp_key_expires": "期限：{date}",
+    "mcp_key_expired": "{date} に期限切れ"
   },
   "rack_diagram": {
     "empty": "このラックに機器はありません",
@@ -3914,7 +3970,9 @@
       "change_impact_submitted": "IP 変更評価の確認依頼（確認者へ）",
       "change_impact_reviewed": "IP 変更評価の確認結果（作成者へ）",
       "anomaly_arp_flux": "異常検出：同一ホストの複数 NIC が同じ IP に応答",
-      "anomaly_l2_subnet_bleed": "異常検出：2 つのサブネットが同じレイヤー 2 に"
+      "anomaly_l2_subnet_bleed": "異常検出：2 つのサブネットが同じレイヤー 2 に",
+      "credential_expiring": "API トークン／MCP キー／公開エンドポイントのトークンの期限が近い",
+      "security_session_reuse": "ログイントークン盗用の疑い（セッションは取り消し済み）"
     },
     "enable": "有効にする",
     "secret_keep": "（設定済み。変更しない場合は空欄のまま）",
@@ -3969,7 +4027,19 @@
     "src_kind_base": "探査と監視",
     "src_zabbix": "Zabbix のホスト死活",
     "liveness_no_aging_warn": "「期限切れになりません」と付いたソースを選ぶと、一度観測されただけでそのアドレスは永遠にオンラインのままになります。その動作を本当に望む理由が明確でない限り、選ばないでください。",
-    "grp_device_ports": "デバイスポート"
+    "grp_device_ports": "デバイスポート",
+    "grp_backup_enc": "日次バックアップの暗号化",
+    "backup_enc_status": "状態",
+    "backup_enc_on": "暗号化済み（{at} に設定）",
+    "backup_enc_off": "暗号化されていません",
+    "backup_enc_hint": "日次バックアップにはデータベースと、その中の機密を復号する鍵（backend.env）が含まれます。パスフレーズを設定すると、毎日のバックアップを 1 つの .jtbak ファイルにまとめて暗号化し、平文は削除します。未設定のときは両方が平文で並んで保存されます。",
+    "backup_enc_set": "パスフレーズを設定",
+    "backup_enc_change": "パスフレーズを変更",
+    "backup_enc_ph": "12 文字以上",
+    "backup_enc_too_short": "パスフレーズは 12 文字以上必要です",
+    "backup_enc_remove": "削除",
+    "backup_enc_remove_confirm": "削除すると、以降のバックアップは平文に戻ります。よろしいですか？",
+    "backup_enc_keep_hint": "パスフレーズを忘れるとバックアップを復号できません。このホスト以外の場所（パスワードマネージャーなど）に保管してください。変更後も、以前のバックアップには当時のパスフレーズが必要です。復号：python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <ファイル> --out <ディレクトリ>"
   },
   "oui_admin": {
     "title": "MAC ベンダーデータベース（OUI）",
@@ -4343,7 +4413,15 @@
     "change_impact_reviewed_approve": "{user} が「{title}」を承認しました。",
     "change_impact_reviewed_accept_risk": "{user} がリスクを受け入れて「{title}」を承認しました。",
     "change_impact_reviewed_request_changes": "{user} が「{title}」を差し戻しました。修正して再提出してください。",
-    "change_impact_reviewed_reject": "{user} が「{title}」を却下しました。"
+    "change_impact_reviewed_reject": "{user} が「{title}」を却下しました。",
+    "credential_expiring": "期限が近づいています：{name}",
+    "credential_expiring_body": "{name} は {date} に期限切れになります（残り {days} 日）。設定ページで新しいものを生成してください。",
+    "credential_expired": "期限切れ：{name}",
+    "credential_expired_body": "{name} は {date} に期限切れになりました。これを使う連携は接続できません。設定ページで新しいものを生成してください。",
+    "session_reuse": "ログイントークン盗用の疑い：{user}",
+    "session_reuse_body": "{user} の更新済みのリフレッシュトークンが {ip} から再び使われたため、そのログインを取り消しました。本人が複数のデバイスで同時に操作したのでなければ、パスワードをリセットし監査ログを確認してください。",
+    "session_reuse_self": "ログインの 1 つが取り消されました",
+    "session_reuse_self_body": "更新済みのログイントークンが {ip} から再び使われました。盗まれた可能性があるため、パスワードを変更してください。"
   },
   "system_transfer": {
     "title": "システムのエクスポート／インポート",
@@ -5559,7 +5637,16 @@
     "f_backup_logs": "バックアップのログを確認：journalctl -u jt-ipam-backup -n 30",
     "f_backup_owner": "jt-ipam のデータベースロールが所有していないテーブルがあり、pg_dump が読めません。残ったコピーなら削除するか、アプリのロールに所有させてください：{cmd}",
     "f_backup_timer": "sudo systemctl enable --now jt-ipam-backup.timer",
-    "f_backup_run": "sudo systemctl start jt-ipam-backup.service"
+    "f_backup_run": "sudo systemctl start jt-ipam-backup.service",
+    "c_audit_owner": "監査テーブルの保護",
+    "d_audit_owner_ok": "監査テーブルの所有者は {owner} で、アプリのロールは読み取りと追加しかできません",
+    "d_audit_owner_app": "監査テーブルの所有者がアプリのロール（{owner}）のため、追加のみの保護を無効にして記録を書き換えられます",
+    "f_audit_owner": "監査テーブルをログインできないロールに渡します（インストールとアップグレードでは自動。バックアップの復元後や外部データベースでは手動）：{cmd}",
+    "c_backup_enc": "バックアップの暗号化",
+    "d_backup_enc_off": "バックアップのパスフレーズが設定されていません。バックアップファイルにはデータベースと復号鍵（backend.env）が両方含まれるため、入手した人はすべての機密を得られます",
+    "d_backup_enc_missed": "パスフレーズは設定されていますが、最新のバックアップは暗号化されていません（アップグレード前のバックアップスクリプト、または暗号化の失敗）",
+    "d_backup_enc_ok": "日次バックアップは設定したパスフレーズで暗号化されています（.jtbak）",
+    "f_backup_enc_off": "「システム設定 → 日次バックアップの暗号化」でパスフレーズを設定してください"
   },
   "tool_verbs": {
     "get": "照会",
@@ -7389,5 +7476,16 @@
     "days": "{n} 日",
     "hours": "{n} 時間",
     "minutes": "{n} 分"
+  },
+  "recovery": {
+    "title": "リカバリーコード",
+    "intro": "認証アプリを紛失したり機種変更したりしたときは、コードの代わりにこのいずれかでログインできます。各コードは 1 回だけ使えます。表示されるのは今回だけなので、安全な場所（パスワードマネージャーなど）に保存してください。",
+    "file_note": "各コードは 1 回だけ使えます。使い切ったら「設定 → セキュリティ」で再生成してください。",
+    "download": "テキストファイルで保存",
+    "saved_check": "リカバリーコードを安全な場所に保存しました",
+    "continue": "続行",
+    "remaining": "残りのリカバリーコード",
+    "regenerate": "リカバリーコードを再生成",
+    "regenerate_confirm": "再生成すると、古いリカバリーコードはすべて無効になります。"
   }
 }

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import secrets
 import uuid
 from typing import Any
 
@@ -46,6 +45,13 @@ def _build_tool_list(allowed: set[str] | None = None) -> list[dict[str, Any]]:
     ]
 
 
+async def _limit(bucket_id: str) -> None:
+    """每把權杖／MCP 金鑰的限流（與 REST 共用同一個 bucket：同一把權杖兩邊加總）。"""
+    from app.core.config import get_settings
+    from app.core.rate_limit import check_rate_limit
+    await check_rate_limit(bucket=f"rl:{bucket_id}", rate=get_settings().rate_limit_api_token)
+
+
 async def resolve_token(token: str):  # type: ignore[no-untyped-def]
     """API token → `(User, readonly)`（沿用 REST 的 jt_ token 機制）。
 
@@ -72,6 +78,7 @@ async def resolve_token(token: str):  # type: ignore[no-untyped-def]
         user = await session.get(User, api_token.user_id)
         if user is None or not user.is_active:
             return None, False
+        await _limit(f"api_token:{api_token.id}")
         return user, token_is_readonly(api_token.scopes)
 
 
@@ -221,10 +228,11 @@ def build_mcp_app() -> FastAPI:
         # 兩種認證：① 對外唯讀 MCP 金鑰（jtmcp_…，擋異動工具）② 既有 API 權杖（依該使用者權限）
         user = None
         readonly = False
-        if (mcfg.mcp_api_key and mcfg.mcp_principal_user_id
-                and secrets.compare_digest(token, mcfg.mcp_api_key)):
+        from app.services.system_config import mcp_key_valid
+        if mcp_key_valid(mcfg, token):          # 含到期檢查（過期的金鑰當成無效）
             user = await _load_principal(mcfg.mcp_principal_user_id)
             readonly = True
+            await _limit(f"mcp_key:{mcfg.mcp_principal_user_id}")
         if user is None:
             # 一般 API 權杖：唯讀 scope 的 token 同樣進 readonly 模式
             user, readonly = await resolve_token(token)

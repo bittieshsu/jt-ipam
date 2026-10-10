@@ -8,7 +8,6 @@ export interface ApiToken {
   name: string;
   token_prefix: string;
   scopes: string[];
-  object_filters: Record<string, unknown> | null;
   expires_at: string;
   last_used_at: string | null;
   last_used_ip: string | null;

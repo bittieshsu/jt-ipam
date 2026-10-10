@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { NCard, NSpace, NSelect, NButton, NIcon, NInputNumber, useMessage } from "naive-ui";
 import { apiClient } from "@/api/client";
 import { RefreshIcon, AdminIcon, ExportIcon } from "@/icons";
+import { saveBlob } from "@/utils/saveFile";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -40,11 +41,8 @@ async function load() {
 
 function downloadLog() {
   const blob = new Blob([text.value], { type: "text/plain;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${service.value}.log`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveBlob(`${service.value}.log`, blob, blob.type,
+           { source: `system-log:${service.value}`, rows: text.value.split("\n").length });
 }
 
 onMounted(async () => { await loadServices(); await load(); });

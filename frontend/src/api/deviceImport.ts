@@ -1,5 +1,6 @@
 import { apiClient } from "@/api/client";
 import { LONG_OP_TIMEOUT_MS } from "@/api/integrations";
+import { saveBlob } from "@/utils/saveFile";
 
 // 裝置匯入（issue #46）：預覽（dry_run）同步回每一列的結果；實際匯入走背景作業。
 
@@ -39,12 +40,7 @@ export async function downloadDeviceTemplate(includeDevices: boolean): Promise<v
   const resp = await apiClient.get("/api/v1/devices/import-template", {
     params: { include_devices: includeDevices }, responseType: "blob", timeout: LONG_OP_TIMEOUT_MS,
   });
-  const url = URL.createObjectURL(resp.data as Blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = includeDevices ? "devices-import.csv" : "devices-import-template.csv";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // 帶出全部裝置時伺服器端記稽核；空白範本不含資料
+  saveBlob(includeDevices ? "devices-import.csv" : "devices-import-template.csv", resp.data as Blob,
+           "text/csv", { source: "device-import-template", audited: true });
 }

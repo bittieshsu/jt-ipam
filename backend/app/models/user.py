@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -65,6 +66,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_ip: Mapped[str | None] = mapped_column(INET)
+    #: 早於這個時間簽發的存取權杖一律無效（強制登出、停用、管理員重設密碼時設定）
+    tokens_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 最後一次用過的 TOTP 時間步（防重放：同一組驗證碼不能用第二次）
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
 
     __table_args__ = (
         CheckConstraint(
@@ -117,7 +122,6 @@ class APIToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     token_prefix: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
 
     scopes: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
-    object_filters: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

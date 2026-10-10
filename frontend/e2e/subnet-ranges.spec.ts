@@ -31,7 +31,7 @@ async function fillRange(page: Page, start: string, end: string, name: string) {
 test("位址範圍：新增、標在位址圖上、重疊被擋、修改、刪除", async ({ page }) => {
   await login(page);
   const subs = await page.evaluate(async () => (await fetch("/api/v1/subnets?page_size=500", {
-    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } })).json());
+    headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` } })).json());
   const sn = subs.items.find((s: any) => s.cidr === "10.20.0.0/24");
   await page.goto(`/subnets/${sn.id}`);
   const card = page.locator(".n-card").filter({ hasText: /位址範圍（集區）/ }).first();

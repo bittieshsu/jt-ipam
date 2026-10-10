@@ -44,6 +44,12 @@ ATTRIBUTE	NAS-Identifier		32	string
     import io
     rad_dict = Dictionary(io.StringIO(dict_data))
 
+    from app.core.net_guard import check_target
+    from app.core.safe_http import UnsafeOutboundURL
+    try:
+        check_target(s.radius_server, s.radius_port)
+    except UnsafeOutboundURL as exc:
+        raise RadiusAuthError(str(exc)) from exc
     client = Client(
         server=s.radius_server,
         authport=s.radius_port,

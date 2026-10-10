@@ -32,6 +32,7 @@ import { listSubnets } from "@/api/subnets";
 import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
 import { useExportBusy } from "@/composables/useExportBusy";
 import { useFillHeight } from "@/composables/usePageFill";
+import { saveBlob } from "@/utils/saveFile";
 
 cytoscape.use(coseBilkent as any);
 
@@ -72,6 +73,8 @@ const onlineOnly = ref(false);   // 預設：不管上線與否都畫
 const loading = ref(false);
 // 超大規模：裝置太多時後端不建圖，只回裝置數與上限
 const tooLarge = ref<{ devices: number; limit: number } | null>(null);
+// 只被授權部分物件的帳號：後端只回看得到的那一塊，畫面上講清楚少了什麼
+const scopeLimited = ref(false);
 const selected = ref<Record<string, any> | null>(null);
 // 連線(edge)兩端資訊：name=裝置/子網路、ip、port=連接埠、endpoint=VPN 端點
 type EdgeEnd = { name: string | null; ip: string | null; port: string | null; endpoint: string | null };
@@ -312,9 +315,7 @@ const EDGE_STYLE: Record<string, { color: string; width: number; dash: string }>
   l3: { color: "#0ea5e9", width: 1.5, dash: "5,3" },
 };
 function dlBlob(blob: Blob, name: string) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  URL.revokeObjectURL(a.href);
+  saveBlob(name, blob, blob.type, { source: "topology", rows: cy ? cy.nodes().length : 0 });
 }
 function escXml(s: string): string {
   return String(s ?? "").replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c] as string));
@@ -406,6 +407,7 @@ async function refresh() {
       subnetIds: subnetIds.value,
     });
     tooLarge.value = data.too_large ?? null;
+    scopeLimited.value = data.scope === "limited";
     render(data);
   } catch {
     msg.error(t("errors.network"));
@@ -1090,6 +1092,9 @@ onUnmounted(() => {
         </n-space>
       </n-space>
     </div>
+    <n-alert v-if="scopeLimited" type="info" :bordered="false" style="margin-bottom: 10px" data-testid="topology-scope-limited">
+      {{ t("topology.scope_limited") }}
+    </n-alert>
     <n-alert v-if="tooLarge" type="warning" :bordered="false" style="margin-bottom: 10px" data-testid="topology-too-large">
       {{ t("topology.too_large", { n: tooLarge.devices.toLocaleString(), limit: tooLarge.limit.toLocaleString() }) }}
     </n-alert>

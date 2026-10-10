@@ -96,6 +96,16 @@ test.describe("TOTP 狀態顯示（issue 回報）", () => {
     await page.getByPlaceholder("123456").fill(totp(secret));
     await page.getByRole("button", { name: "確認啟用" }).click();
 
+    // 啟用後拿到 10 組復原碼（只出現這一次）：沒勾「已存好」不能繼續
+    const codesBox = page.getByTestId("recovery-codes");
+    await expect(codesBox).toBeVisible({ timeout: 10_000 });
+    await expect(codesBox.locator("li code")).toHaveCount(10);
+    await expect(page.getByTestId("recovery-done")).toBeDisabled();
+    await page.getByTestId("recovery-saved").click();
+    await page.getByTestId("recovery-done").click();
+    await expect(codesBox).toHaveCount(0);
+    await expect(page.getByTestId("recovery-status")).toContainText("10 / 10");
+
     // 已啟用：狀態變「已啟用」、按鈕變「停用 TOTP」
     await expect(page.getByText("已啟用", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: "停用 TOTP" })).toBeVisible();

@@ -25,7 +25,7 @@ const levelsInput = (page: Page) =>
 test("層數調整在設定視窗裡；做完表單就是新的層數，復原也回得去", async ({ page }) => {
   await login(page);
   const racks = await page.evaluate(async () => (await fetch("/api/v1/racks?page_size=500", {
-    headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } })).json());
+    headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` } })).json());
   const id = racks.items.find((r: any) => r.name === "ANGLE-90").id;
   await page.goto(`/racks?rack=${id}`);
   await page.locator(".rack-frame").first().waitFor({ timeout: 20_000 });

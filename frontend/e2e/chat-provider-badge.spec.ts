@@ -11,7 +11,7 @@ async function setProvider(page: any, provider: "ollama" | "openai") {
   const r = await page.evaluate(async (p: string) => {
     const res = await fetch("/api/v1/system/llm", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionStorage.getItem("access_token")}` },
       body: JSON.stringify({ provider: p }),
     });
     return res.status;

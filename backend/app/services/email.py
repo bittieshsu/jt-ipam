@@ -43,12 +43,23 @@ def _build_message(*, to: str, subject: str, body_text: str, body_html: str | No
     return msg
 
 
+def _guard(host: str, port: int) -> None:
+    """連線前檢查 SMTP 主機（core/net_guard：擋雲端中繼資料、link-local；本機轉送允許）。"""
+    from app.core.net_guard import check_target
+    from app.core.safe_http import UnsafeOutboundURL
+    try:
+        check_target(host, port)
+    except UnsafeOutboundURL as exc:
+        raise EmailSendError(str(exc)) from exc
+
+
 def _send_sync(msg: EmailMessage) -> None:
     s = get_settings()
     if not s.smtp_host:
         raise EmailNotConfigured("SMTP_HOST not set")
 
     timeout = s.smtp_timeout
+    _guard(s.smtp_host, s.smtp_port)
     try:
         if s.smtp_tls_mode == "tls":
             client = smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, timeout=timeout)
@@ -97,6 +108,7 @@ def _send_sync_cfg(cfg: dict, msg: EmailMessage) -> None:
     port = int(cfg.get("smtp_port") or 587)
     tls = cfg.get("smtp_tls") or "starttls"
     timeout = 15.0
+    _guard(host, port)
     try:
         if tls == "tls":
             client = smtplib.SMTP_SSL(host, port, timeout=timeout)

@@ -2,13 +2,28 @@ import type { ServerMessage } from "@/utils/wsError";
 import { apiClient } from "@/api/client";
 import { LONG_OP_TIMEOUT_MS } from "@/api/integrations";
 
-export interface GraylogDsv { enabled: boolean; fmt: string; path: string; token: string; }
+export interface GraylogDsv {
+  enabled: boolean; fmt: string; path: string;
+  /** 權杖不再隨設定回傳：按「顯示」才另外取（後端留稽核） */
+  token_set: boolean;
+  token_expires_at: string | null;
+  /** 明文 8088 埠要明確打開才服務 */
+  allow_plain_http: boolean;
+  /** 只接受這些網段來的查表（空＝不限制） */
+  allowed_sources: string[];
+}
 export async function getGraylogDsv(): Promise<GraylogDsv> {
   const { data } = await apiClient.get<GraylogDsv>("/api/v1/system/graylog-dsv");
   return data;
 }
+/** 取 DSV 權杖明文（組 Graylog 用的網址）；每次呼叫後端都留稽核。 */
+export async function revealGraylogDsvToken(): Promise<string> {
+  const { data } = await apiClient.get<{ token: string }>("/api/v1/system/graylog-dsv/token");
+  return data.token;
+}
 export async function putGraylogDsv(p: {
-  enabled: boolean; fmt: string; path: string; regenerate_token?: boolean;
+  enabled: boolean; fmt: string; path: string; regenerate_token?: boolean; token_days?: number;
+  allow_plain_http?: boolean; allowed_sources?: string[];
 }): Promise<GraylogDsv> {
   const { data } = await apiClient.put<GraylogDsv>("/api/v1/system/graylog-dsv", p);
   return data;
@@ -145,6 +160,8 @@ export interface LLMConfig {
   num_ctx?: number | null;
   mcp_external_enabled: boolean;
   mcp_api_key_set: boolean;
+  /** 對外 MCP 金鑰的到期時間（過期的金鑰會被拒絕） */
+  mcp_api_key_expires_at?: string | null;
   ai_audit_enabled: boolean;
   ai_audit_times: string[];
   ai_audit_frequency: string;
@@ -199,9 +216,10 @@ export async function revealMcpKey(): Promise<string | null> {
   return data.api_key;
 }
 
-export async function rotateMcpKey(): Promise<string> {
-  const { data } = await apiClient.post<{ api_key: string }>("/api/v1/system/llm/mcp-key/rotate");
-  return data.api_key;
+export async function rotateMcpKey(expiresInDays = 90): Promise<{ api_key: string; expires_at: string | null }> {
+  const { data } = await apiClient.post<{ api_key: string; expires_at: string | null }>(
+    "/api/v1/system/llm/mcp-key/rotate", { expires_in_days: expiresInDays });
+  return data;
 }
 
 export interface OllamaModel {
@@ -526,4 +544,16 @@ export async function previewAutolink(): Promise<AutolinkPreview> {
   const { data } = await apiClient.post<AutolinkPreview>(
     "/api/v1/system/ip-device-autolink/preview");
   return data;
+}
+
+// ── 每日備份加密 ──
+export interface BackupEncryption { enabled: boolean; set_at: string | null }
+export async function getBackupEncryption(): Promise<BackupEncryption> {
+  return (await apiClient.get<BackupEncryption>("/api/v1/system/backup-encryption")).data;
+}
+export async function setBackupEncryption(passphrase: string): Promise<BackupEncryption> {
+  return (await apiClient.put<BackupEncryption>("/api/v1/system/backup-encryption", { passphrase })).data;
+}
+export async function removeBackupEncryption(): Promise<void> {
+  await apiClient.delete("/api/v1/system/backup-encryption");
 }

@@ -1,4 +1,5 @@
 import { apiClient } from "@/api/client";
+import { getAccessToken } from "@/api/token";
 
 // AI chat 是多輪 tool-calling 迴圈 (max_iterations 輪 × 每輪一次本地 LLM 推論)，
 // 在大模型上單次可達數十秒，遠超 apiClient 預設 15s timeout(會誤報 Chat failed)。
@@ -68,7 +69,7 @@ export async function chatStream(
   conversationId?: string | null,
 ): Promise<void> {
   const base = import.meta.env.VITE_API_BASE_URL || "";
-  const token = localStorage.getItem("access_token");
+  const token = getAccessToken();
   const resp = await fetch(`${base}/api/v1/ai/chat/stream`, {
     method: "POST",
     headers: {

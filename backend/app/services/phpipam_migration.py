@@ -98,6 +98,9 @@ def _connect_mysql_sync(url: str):  # type: ignore[no-untyped-def]
     parsed = urlparse(url)
     if parsed.scheme not in ("mysql", "mariadb"):
         raise ValueError(f"Unsupported scheme: {parsed.scheme}")
+    # 連線前檢查（core/net_guard 的 integration：本機允許，因為經 SSH 隧道時連的是 127.0.0.1 的轉發埠）
+    from app.core.net_guard import check_target
+    check_target(parsed.hostname or "localhost", parsed.port or 3306)
     return pymysql.connect(
         host=parsed.hostname or "localhost",
         port=parsed.port or 3306,

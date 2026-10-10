@@ -20,7 +20,7 @@ async function login(page: Page) {
 
 async function consoleTargetId(page: Page): Promise<string> {
   return page.evaluate(async () => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const r = await fetch("/api/v1/addresses?q=127.0.0.1&page_size=5", { headers: { Authorization: `Bearer ${tok}` } });
     const items = (await r.json()).items as { id: string; ip: string }[];
     return items.find((i) => i.ip.split("/")[0] === "127.0.0.1")!.id;
@@ -43,7 +43,7 @@ test("「變更」就地開視窗改這個 IP 的出口，不會跳到子網路�
   await login(page);
   // 專用的 10.20.0.41（seed_e2e），不動共用的 console-target —— 其他平行跑的主控台 spec 會用到它
   const ids = await page.evaluate(async () => {
-    const tok = localStorage.getItem("access_token") || "";
+    const tok = sessionStorage.getItem("access_token") || "";
     const H = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
     const r = await fetch("/api/v1/addresses?q=10.20.0.41&page_size=5", { headers: H });
     const ip = ((await r.json()).items as { id: string; ip: string }[]).find((i) => i.ip.split("/")[0] === "10.20.0.41")!;
@@ -76,7 +76,7 @@ test("「變更」就地開視窗改這個 IP 的出口，不會跳到子網路�
     await expect(page.locator(".n-card-header", { hasText: "編輯 子網路" })).toBeVisible();
   } finally {
     await page.evaluate(async ({ ipId, jumpId }) => {
-      const tok = localStorage.getItem("access_token") || "";
+      const tok = sessionStorage.getItem("access_token") || "";
       const H = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
       await fetch(`/api/v1/addresses/${ipId}`, { method: "PATCH", headers: H,
         body: JSON.stringify({ jump_host_id: null, console_agent_id: null }) });

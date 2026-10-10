@@ -123,7 +123,7 @@ async function api<T>(page: Page, method: string, path: string, body?: unknown):
   return page.evaluate(async ({ method, path, body }) => {
     const r = await fetch(path, {
       method,
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token") || ""}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token") || ""}`, "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return (r.status === 204 ? null : await r.json()) as T;

@@ -825,6 +825,17 @@ async def _run() -> int:
             await session.rollback()
             log.error("cert alert check failed: %s", exc)
 
+        # ── API 權杖／MCP 金鑰／公開端點權杖即將到期 ──（同一個門檻只通知一次）
+        try:
+            from app.services.credential_expiry import check_credential_expiry
+            stats = await check_credential_expiry(session)
+            await session.commit()
+            if stats.get("notified"):
+                log.info("credential expiry: %s", stats)
+        except Exception as exc:
+            await session.rollback()
+            log.error("credential expiry check failed: %s", exc)
+
         # ── 稽核鏈驗證與外部錨定 ──
         # 雜湊鏈抓得到中間竄改，**抓不到從尾端整段截斷**（被刪的是還沒人引用的最後幾筆）。
         # 每輪把最新雜湊錨定到資料庫外面，之後那個位置消失或改變就是證據。

@@ -371,6 +371,24 @@ async def run_checks(session: AsyncSession) -> Report:
                                 title_key="doctor.c_backup", detail_key="doctor.d_check_failed",
                                 params={"detail": str(exc)[:200]}))
 
+    # 12b) 備份有沒有加密：沒加密的備份檔裡有資料庫，也有解密它的金鑰
+    try:
+        chk = await _backup_encryption_check(session)
+        if chk is not None:
+            rep.checks.append(chk)
+    except Exception as exc:
+        rep.checks.append(Check("backup_encryption", "備份加密", "warn", f"檢查本身失敗：{exc}"[:200],
+                                title_key="doctor.c_backup_enc", detail_key="doctor.d_check_failed",
+                                params={"detail": str(exc)[:200]}))
+
+    # 13) 稽核表的擁有者：應用程式帳號擁有的話可以停用「只能新增」的保護（2026-10-09 起由安裝／升級交出去）
+    try:
+        rep.checks.append(await _audit_owner_check(session))
+    except Exception as exc:
+        rep.checks.append(Check("audit_owner", "稽核表的保護", "warn", f"檢查本身失敗：{exc}"[:200],
+                                title_key="doctor.c_audit_owner", detail_key="doctor.d_check_failed",
+                                params={"detail": str(exc)[:200]}))
+
     return rep
 
 
@@ -467,6 +485,59 @@ async def _systemctl_show(unit: str, props: tuple[str, ...]) -> dict[str, str]:
         proc.kill()
         return {"LoadState": "not-found"}
     return _parse_kv(out.decode("utf-8", "replace"))
+
+
+def backup_encryption_check_from(configured: bool, status_text: str | None) -> Check:
+    """備份有沒有加密：沒設密碼 → warn；設了但最後一次備份沒加密（加密失敗或舊腳本）→ warn。"""
+    st = _parse_kv(status_text) if status_text else {}
+    if not configured:
+        return Check("backup_encryption", "備份加密", "warn",
+                     "沒有設定備份加密密碼：備份檔裡同時有資料庫與解密金鑰（backend.env），拿到備份檔就等於拿到所有機密",
+                     "系統設定 → 備份加密", title_key="doctor.c_backup_enc",
+                     detail_key="doctor.d_backup_enc_off", fix_key="doctor.f_backup_enc_off")
+    if st.get("status") == "ok" and st.get("encrypted") != "1":
+        return Check("backup_encryption", "備份加密", "warn",
+                     "已設定備份加密，但最後一次備份沒有加密（升級前的備份腳本，或加密失敗）", _BACKUP_LOGS,
+                     title_key="doctor.c_backup_enc", detail_key="doctor.d_backup_enc_missed",
+                     fix_key="doctor.f_backup_logs")
+    return Check("backup_encryption", "備份加密", "ok", "每日備份以設定的密碼加密（.jtbak）",
+                 title_key="doctor.c_backup_enc", detail_key="doctor.d_backup_enc_ok")
+
+
+async def _backup_encryption_check(session: AsyncSession) -> Check | None:
+    timer = await _systemctl_show("jt-ipam-backup.timer", ("LoadState",))
+    if timer.get("LoadState", "not-found") == "not-found":
+        return None          # 沒有每日備份（開發環境）就不講加密
+    from app.services.system_config import get_backup_encryption
+    configured = (await get_backup_encryption(session))["enabled"]
+    try:
+        status_text: str | None = (BACKUP_DIR / "last-run").read_text(encoding="utf-8")
+    except OSError:
+        status_text = None
+    return backup_encryption_check_from(configured, status_text)
+
+
+_AUDIT_HARDEN_FIX = "sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit"
+
+
+async def _audit_owner_check(session: AsyncSession) -> Check:
+    """稽核表是不是交給了不能登入的角色（jt_ipam_audit_owner）。
+
+    表的擁有者可以停用「只能新增」的觸發器；應用程式帳號擁有它的話，拿到 backend.env 的人就能
+    停用保護後改寫記錄。安裝與升級會自動處理，還原備份或外部資料庫時可能沒做到。"""
+    from sqlalchemy import text
+    row = (await session.execute(text(
+        "SELECT tableowner, current_user FROM pg_tables WHERE tablename = 'audit_logs'"))).first()
+    owner, me = (row[0], row[1]) if row else ("", "")
+    if owner and owner != me:
+        return Check("audit_owner", "稽核表的保護", "ok",
+                     f"稽核表由 {owner} 擁有，應用程式帳號只能讀取與新增",
+                     title_key="doctor.c_audit_owner", detail_key="doctor.d_audit_owner_ok",
+                     params={"owner": owner})
+    return Check("audit_owner", "稽核表的保護", "warn",
+                 f"稽核表由應用程式帳號（{me}）擁有：它可以停用只能新增的保護", _AUDIT_HARDEN_FIX,
+                 title_key="doctor.c_audit_owner", detail_key="doctor.d_audit_owner_app",
+                 fix_key="doctor.f_audit_owner", params={"owner": me, "cmd": _AUDIT_HARDEN_FIX})
 
 
 async def _backup_check() -> Check | None:
