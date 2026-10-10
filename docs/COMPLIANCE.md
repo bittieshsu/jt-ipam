@@ -4,7 +4,7 @@
 
 jt-ipam is not a certification, and using it does not mean passing ISO/IEC 27001:2022 or ISO/IEC 42001:2023. This document has two parts: the controls jt-ipam already implements and that can serve as evidence (each with a test or setting you can check yourself), and what the adopting organisation is responsible for after deploying jt-ipam.
 
-Only capabilities the code actually has are listed. It was written for the main branch (changes after 1.0.5 are under Unreleased in the CHANGELOG); later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.
+Only capabilities the code actually has are listed. It was written for 1.0.6; later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.
 
 ## ISO/IEC 27001:2022: information security controls jt-ipam provides
 

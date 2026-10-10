@@ -892,9 +892,9 @@ sudo sysctl --system</code></pre>
           <span class="ja">アップグレード後に全員がログアウトされ、ログインし直す必要がある</span>
         </h3>
         <p>
-          <span class="zh">這是預期的，只會發生一次。登入改成伺服器端的工作階段：更新用的權杖只放在瀏覽器碰不到的 HttpOnly cookie，存取權杖只留在這個分頁。舊版放在瀏覽器儲存空間裡的權杖不再被接受，最晚 15 分鐘後（舊的存取權杖到期）會回到登入頁。重新登入一次即可；之後每個人可以在「個人設定 → 安全 → 登入中的裝置」看到並登出自己在其他地方的登入，管理員可以在「使用者」頁強制某人登出。</span>
-          <span class="en">This is expected and happens once. Sign-in now uses server-side sessions: the refresh token lives only in an HttpOnly cookie that page scripts cannot read, and the access token stays in the tab. Tokens that older versions kept in browser storage are no longer accepted, so within 15 minutes (when the old access token expires) people land on the sign-in page. Signing in once is enough; afterwards everyone can see and sign out their other sign-ins under Settings → Security → Signed-in devices, and administrators can sign someone out everywhere from Users.</span>
-          <span class="ja">想定どおりの動作で、一度だけ起こります。ログインはサーバー側のセッションになりました。更新用トークンはページのスクリプトから読めない HttpOnly cookie にだけ置かれ、アクセストークンはそのタブの中にだけ残ります。旧バージョンがブラウザのストレージに置いていたトークンは受け付けないため、遅くとも 15 分後（古いアクセストークンの期限）にログイン画面に戻ります。一度ログインし直せば十分です。以後は各自が「設定 → セキュリティ → ログイン中のデバイス」で他の場所のログインを確認・ログアウトでき、管理者は「ユーザー」ページから強制ログアウトできます。</span>
+          <span class="zh">這是預期的，只會發生一次：1.0.6 起登入改成伺服器端的工作階段：更新用的權杖只放在瀏覽器碰不到的 HttpOnly cookie，存取權杖只留在這個分頁。舊版放在瀏覽器儲存空間裡的權杖不再被接受，最晚 15 分鐘後（舊的存取權杖到期）會回到登入頁。重新登入一次即可；之後每個人可以在「個人設定 → 安全 → 登入中的裝置」看到並登出自己在其他地方的登入，管理員可以在「使用者」頁強制某人登出。</span>
+          <span class="en">This is expected and happens once: from 1.0.6 sign-in uses server-side sessions: the refresh token lives only in an HttpOnly cookie that page scripts cannot read, and the access token stays in the tab. Tokens that older versions kept in browser storage are no longer accepted, so within 15 minutes (when the old access token expires) people land on the sign-in page. Signing in once is enough; afterwards everyone can see and sign out their other sign-ins under Settings → Security → Signed-in devices, and administrators can sign someone out everywhere from Users.</span>
+          <span class="ja">想定どおりの動作で、一度だけ起こります。1.0.6 からログインはサーバー側のセッションになりました。更新用トークンはページのスクリプトから読めない HttpOnly cookie にだけ置かれ、アクセストークンはそのタブの中にだけ残ります。旧バージョンがブラウザのストレージに置いていたトークンは受け付けないため、遅くとも 15 分後（古いアクセストークンの期限）にログイン画面に戻ります。一度ログインし直せば十分です。以後は各自が「設定 → セキュリティ → ログイン中のデバイス」で他の場所のログインを確認・ログアウトでき、管理者は「ユーザー」ページから強制ログアウトできます。</span>
         </p>
       </article>
 

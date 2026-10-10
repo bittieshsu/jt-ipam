@@ -41,9 +41,9 @@ INTRO = [
     T("jt-ipam 本身不是一張認證，用了它也不代表通過 ISO/IEC 27001:2022 或 ISO/IEC 42001:2023。這份文件分兩部分：jt-ipam 已經做到、可以拿來當佐證的控制（每一項都附上可以自行驗證的測試或設定位置），以及導入組織使用 jt-ipam 之後要自己負責的事。",
       "jt-ipam is not a certification, and using it does not mean passing ISO/IEC 27001:2022 or ISO/IEC 42001:2023. This document has two parts: the controls jt-ipam already implements and that can serve as evidence (each with a test or setting you can check yourself), and what the adopting organisation is responsible for after deploying jt-ipam.",
       "jt-ipam 自体は認証ではなく、使用したからといって ISO/IEC 27001:2022 や ISO/IEC 42001:2023 に適合するわけではありません。この文書は 2 部構成です。jt-ipam がすでに実装し、根拠として使える管理策（それぞれ自分で確認できるテストや設定の場所付き）と、導入組織が jt-ipam を使った後に自ら責任を持つことです。"),
-    T("這裡只列出目前程式確實具備的功能，依 main 分支撰寫（1.0.5 之後的改動見 CHANGELOG 的 Unreleased），之後的變動以 CHANGELOG 為準。正式盤點時請固定版本或 commit，並在自己的環境實際驗收。",
-      "Only capabilities the code actually has are listed. It was written for the main branch (changes after 1.0.5 are under Unreleased in the CHANGELOG); later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.",
-      "現在のコードに実際にある機能だけを記載しています。main ブランチに基づいて作成しており（1.0.5 以降の変更は CHANGELOG の Unreleased を参照）、以降の変更は CHANGELOG を参照してください。正式な棚卸しではバージョンまたは commit を固定し、自社環境で実際に検証してください。"),
+    T("這裡只列出目前程式確實具備的功能，依 1.0.6 撰寫，之後的變動以 CHANGELOG 為準。正式盤點時請固定版本或 commit，並在自己的環境實際驗收。",
+      "Only capabilities the code actually has are listed. It was written for 1.0.6; later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.",
+      "現在のコードに実際にある機能だけを記載しています。1.0.6 に基づいて作成しており、以降の変更は CHANGELOG を参照してください。正式な棚卸しではバージョンまたは commit を固定し、自社環境で実際に検証してください。"),
 ]
 
 H_CTRL = T("面向", "Area", "項目")

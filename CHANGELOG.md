@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
-## [Unreleased]
+## [1.0.6] - 2026-10-10
 
 ### Security
 - Scan agents: an agent with no assigned subnets can no longer update any IP. The report endpoint used to filter by subnet only when the agent had some, so an agent without any skipped the filter entirely and could change the MAC, OS, hostname and last-seen time of any IP. The response's `skipped_no_subnet` says how many results were skipped. The endpoints of all three agent types (scan, certificate, RustDesk) are also rate limited per agent (1,200 requests a minute by default; allowed through when Redis is unreachable).

@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
-## [Unreleased]
+## [1.0.6] - 2026-10-10
 
 ### 安全性
 - 掃描代理：沒有指派任何子網路的代理不能再更新任何 IP。以前回報端點寫的是「有指派才過濾」，沒有指派的代理因此跳過整道過濾，可以改全站任何一筆 IP 的 MAC、OS、主機名稱與上線時間。回報裡的 `skipped_no_subnet` 會寫出被略過幾筆。三種代理（掃描、憑證、RustDesk）的端點另外加上逐代理限流（預設每分鐘 1200 次，Redis 連不上時放行）。
