@@ -458,7 +458,7 @@
     "show_all": "Show all",
     "console_engine": "Engine: {name}",
     "console_engine_builtin": "built-in",
-    "console_engine_title": "The engine this connection uses (switch it in Admin -> System settings)",
+    "console_engine_title": "The engine this connection uses (switch it in Admin → System Settings)",
     "duration_sec": "{n} s",
     "duration_min": "{n} min",
     "duration_hour": "{n} h",
@@ -1206,7 +1206,6 @@
     "dev_subtitle": "When several sources supply a name for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder.",
     "save": "Save priority",
     "saved": "Priority updated",
-    "observed_at": "Last reported: {at}",
     "clear_manual_confirm": "Remove the manually set hostname \"{name}\"? The other sources will then decide, in precedence order.",
     "manual_cleared": "Manual hostname removed",
     "src": {
@@ -1237,7 +1236,14 @@
       "checkpoint": "Check Point"
     },
     "model_title": "Device model source order",
-    "model_subtitle": "When several sources supply a model for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder."
+    "model_subtitle": "When several sources supply a model for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder.",
+    "reporter_legacy": "older data (from before the upgrade, reporter unknown)",
+    "reporter_unknown": "deleted or unknown reporter",
+    "last_seen": "last seen {at}",
+    "days_ago": "{n} d ago",
+    "differs": "Differs from the name in use ({name})",
+    "changed_at": "Name last changed: {at}",
+    "manual_at": "Entered: {at}"
   },
   "addresses": {
     "search_placeholder": "Search all fields (IP / hostname / MAC / description / owner / switch location / note)",
@@ -1443,8 +1449,17 @@
     "anomaly_hint": "When unticked, addresses in this subnet never appear in any anomaly list (unauthorised IPs, ghost IPs…). Worth turning off for guest or lab segments.",
     "scan_agent_none": "(unassigned — will not be scanned)",
     "scan_agent_local_named": "{name} (agent on the jt-ipam host)",
-    "scan_agent_none_hint": "No scan agent assigned, so this subnet will not be scanned — scanning always runs through an agent. Pick one; if the list is empty, no agent has been installed here or anywhere else yet (Admin → Scan agents to add one).",
-    "scan_agent_no_local_hint": "There is no scan agent on the jt-ipam host itself. New installs and upgrades add one automatically; if this host was upgraded from an older version without it, add one under Admin → Scan agents and follow the install instructions."
+    "scan_agent_none_hint": "No scan agent assigned, so this subnet will not be scanned — scanning always runs through an agent. Pick one; if the list is empty, no agent has been installed here or anywhere else yet (Admin → Scan Agents to add one).",
+    "scan_agent_no_local_hint": "There is no scan agent on the jt-ipam host itself. New installs and upgrades add one automatically; if this host was upgraded from an older version without it, add one under Admin → Scan Agents and follow the install instructions.",
+    "scan_scope": "Scan scope",
+    "scan_scope_auto": "Automatic (recommended)",
+    "scan_scope_all": "Whole subnet",
+    "scan_scope_known": "Known addresses only",
+    "scan_scope_ranges": "Address ranges only",
+    "scan_scope_auto_large_hint": "This subnet has {total} addresses. Registered IPs and addresses seen in ARP in the last 7 days are scanned every cycle, so online status stays accurate; the rest are explored in the background, {per} per cycle (about {rounds} cycles per pass), to find new devices. Register the subnet with its real mask; there is no need to split it.",
+    "scan_scope_all_large_hint": "This subnet has {total} addresses. Only 4,096 are scanned per cycle, so one pass takes {rounds} cycles; if that exceeds the online threshold, devices show offline between scans. Use Automatic for large subnets.",
+    "scan_scope_known_hint": "Scans only registered IPs and addresses seen in ARP in the last 7 days. New devices are not discovered automatically (register them first, or let an integration's ARP data see them).",
+    "scan_scope_ranges_hint": "Scans only the address ranges defined in this subnet (for example DHCP ranges). With no ranges defined, nothing is scanned."
   },
   "csv_import": {
     "title": "Import addresses (CSV)",
@@ -1866,7 +1881,7 @@
     "split_btn": "Split",
     "t_mail": "Mail / DNS diagnostics (MX / SPF / DKIM)",
     "t_geoip": "GeoIP location lookup",
-    "geoip_not_set": "MaxMind credentials not set (Settings → System)",
+    "geoip_not_set": "MaxMind credentials not set (Admin → System Settings → GeoIP (MaxMind))",
     "dkim_selector_ph": "DKIM selector (optional, e.g. default)",
     "power_calc": "Data-center power calculators",
     "pw_load": "Power load / capacity",
@@ -2218,7 +2233,13 @@
     "filter_device": "Filter device (all)",
     "filter_source": "Source (all)",
     "filter_host": "OPNsense host (all)",
-    "confirm_delete_n": "Delete {n} selected NAT rules? This action cannot be undone."
+    "confirm_delete_n": "Delete {n} selected NAT rules? This action cannot be undone.",
+    "enabled": "Enabled",
+    "status": "Status",
+    "status_enabled": "Enabled",
+    "status_disabled": "Disabled",
+    "filter_status": "Any status",
+    "enabled_hint": "Rules disabled on the firewall (for example the OPNsense \"disabled\" box) sync as disabled; disabled rules do not count as exposed."
   },
   "anomaly": {
     "title": "Anomaly Detection",
@@ -2904,9 +2925,9 @@
       "graylog_copy": "Copy",
       "graylog_hint": "In Graylog, add a “DSV File from HTTP” data adapter and paste the URL above; pick separator , or Tab per format, key column = 1, value column = 2 (key = IP, value = hostname / FQDN). Regenerate the token any time to revoke access.",
       "graylog_fw_title": "OPNsense firewall DSV (rules / aliases)",
-      "graylog_fw_intro": "Besides IP→hostname, each OPNsense firewall with “Expose firewall DSV” enabled gets two lookup tables: ① rule label→alias (use the filterlog rid to find which alias a packet hit) and ② alias→member list. They reuse the same token as above. Enable it per firewall under Integrations → OPNsense.",
+      "graylog_fw_intro": "Besides IP→hostname, each OPNsense firewall with “Expose firewall DSV” enabled gets two lookup tables: ① rule label→alias (use the filterlog rid to find which alias a packet hit) and ② alias→member list. They reuse the same token as above. Enable it per firewall under Admin → External integrations → OPNsense.",
       "graylog_fw_need_token": "No token yet: enable the Graylog DSV above first (it generates a token) so these firewall lookups have working URLs.",
-      "graylog_fw_none": "No firewall has “Expose firewall DSV” enabled. Edit a firewall under Integrations → OPNsense and tick it.",
+      "graylog_fw_none": "No firewall has “Expose firewall DSV” enabled. Edit a firewall under Admin → External integrations → OPNsense and tick it.",
       "graylog_fw_rules_url": "Rule DSV (key = filterlog rid, value = alias name)",
       "graylog_fw_aliases_url": "Alias DSV (key = alias name, value = member list)",
       "graylog_fw_hint": "On the Graylog side, add a separate “DSV File from HTTP” adapter + lookup table for each: bind the rule DSV lookup to the filterlog rid field, key column = 0, value column = 1 (Graylog column indices are 0-based). Each firewall has its own URL (with its firewall id).",
@@ -2918,7 +2939,7 @@
       "graylog_status_on": "Enabled",
       "graylog_status_off": "Disabled",
       "graylog_detail": "URLs / settings",
-      "graylog_tbl_hint": "Click a row to show its setup guide below; click “URLs / settings” for the full URLs (HTTPS / intranet HTTP) and per-source settings (the IP→hostname enable/path live there too). Firewall DSVs are enabled per firewall under Integrations → OPNsense (“Expose firewall DSV”).",
+      "graylog_tbl_hint": "Click a row to show its setup guide below; click “URLs / settings” for the full URLs (HTTPS / intranet HTTP) and per-source settings (the IP→hostname enable/path live there too). Firewall DSVs are enabled per firewall under Admin → External integrations → OPNsense (“Expose firewall DSV”).",
       "graylog_src_hostname": "IP → hostname (global)",
       "graylog_src_pve_vms": "VM names",
       "graylog_pve_hint": "key = Proxmox VMID, value = VM name (from synced Proxmox VE virtual machines). On the Graylog side add a “DSV File from HTTP” adapter + lookup table to turn a log's vmid field into the VM name. If vmids collide across clusters, only the first per vmid is emitted.",
@@ -3263,9 +3284,9 @@
     "console_pve_forbidden": "You do not have permission to open a PVE console",
     "console_target_forbidden": "You do not have permission to connect to this target",
     "console_rdp_not_installed": "RDP is not installed (the optional aardwolf dependency is missing)",
-    "console_rdp_no_aardwolf": "aardwolf is not installed on this server (there is no prebuilt package for Python {python}). An administrator can switch to the FreeRDP engine in System settings → RDP engine.",
+    "console_rdp_no_aardwolf": "aardwolf is not installed on this server (there is no prebuilt package for Python {python}). An administrator can switch to the FreeRDP engine in Admin → System Settings → RDP connection engine.",
     "console_rdp_freerdp_missing": "The FreeRDP engine is missing {missing}: run jt-ipam.sh upgrade on the server to install it.",
-    "console_vnc_not_installed": "The built-in VNC engine is unavailable: it needs aardwolf, which has no prebuilt package for Python {python}. Install guacd and set the VNC engine to guacd under Admin → System settings.",
+    "console_vnc_not_installed": "The built-in VNC engine is unavailable: it needs aardwolf, which has no prebuilt package for Python {python}. Install guacd and set the VNC engine to guacd under Admin → System Settings.",
     "console_pve_not_installed": "The PVE console is not installed (the websockets dependency is missing)",
     "console_rdp_too_many": "The RDP concurrent-session limit ({max}) has been reached",
     "console_vnc_too_many": "The concurrent-session limit ({max}) has been reached",
@@ -3362,7 +3383,7 @@
     "migration_known_host_required": "The SSH host key is required: run \"Get fingerprint\", confirm it, then submit again",
     "migration_refetch_fingerprint": "Fetch the fingerprint again, confirm it, and resubmit",
     "console_remote_closed": "The remote host ended this session: {reason}",
-    "console_remote_ended_early": "The remote host ended the connection as soon as the session started, before sending any screen. Common causes: the account isn't allowed to log on remotely, Remote Desktop licensing or a Connection Broker refused it, or the session limit is reached. Try the FreeRDP engine (System settings → RDP engine); it shows the reason the server gives.",
+    "console_remote_ended_early": "The remote host ended the connection as soon as the session started, before sending any screen. Common causes: the account isn't allowed to log on remotely, Remote Desktop licensing or a Connection Broker refused it, or the session limit is reached. Try the FreeRDP engine (Admin → System Settings → RDP connection engine); it shows the reason the server gives.",
     "console_remote_ended": "The remote host ended this session (no reason given)",
     "console_engine_failed": "The RDP engine could not connect: {reason}",
     "console_char_not_typable": "The character “{char}” cannot be typed directly with the current RDP engine (FreeRDP has no Unicode keyboard channel). Use Paste in the toolbar instead — it handles any text.",
@@ -3412,7 +3433,7 @@
     "guacd_too_many": "Too many simultaneous connections: {reason}",
     "guacd_host_key_mismatch": "The host key does not match the pinned one — possible man-in-the-middle (connection aborted): {reason}",
     "guacd_vnc_rejected": "The VNC server refused the connection — most often a wrong username or password (or an unsupported authentication method; after repeated failures some servers also block the source for a while): {reason}",
-    "console_vnc_username_needs_guacd": "The built-in VNC engine does not support usernames. Set the VNC engine to guacd under Admin → System settings.",
+    "console_vnc_username_needs_guacd": "The built-in VNC engine does not support usernames. Set the VNC engine to guacd under Admin → System Settings.",
     "cred_username_required": "Please enter a username",
     "cred_target_required": "This kind of credential must be bound to an IP",
     "guacd_vnc_username_required": "This VNC server asks for a username and password; enter the username in the Username field",
@@ -3503,7 +3524,7 @@
     "impact_blocked": "There are blocking items; it cannot be approved",
     "impact_concurrency_limit": "Too many jobs are running (limit {limit}); wait for the current ones to finish",
     "impact_dispositions_missing": "{count} items that need review have no decision yet",
-    "impact_feature_disabled": "IP change assessment is turned off (Admin → System settings)",
+    "impact_feature_disabled": "IP change assessment is turned off (Admin → System Settings)",
     "impact_idempotency_conflict": "The same request key was reused for a different request",
     "impact_incomplete_needs_accept_risk": "The analysis is incomplete, so it cannot simply be approved; use accept risk and give a reason",
     "impact_invalid_review": "Invalid review decision",
@@ -3632,7 +3653,8 @@
     "dns_compare_group_not_found": "This DNS comparison group was not found (it may have been deleted).",
     "dns_server_not_found": "The selected DNS server was not found (it may have been deleted).",
     "dns_compare_group_name_taken": "A DNS comparison group with this name already exists. Choose another name.",
-    "dns_compare_group_mixed_kinds": "Unbound (OPNsense) holds host overrides rather than full zones, so it can only share a comparison group with other Unbound servers."
+    "dns_compare_group_mixed_kinds": "Unbound (OPNsense) holds host overrides rather than full zones, so it can only share a comparison group with other Unbound servers.",
+    "dns_winrm_https_unreachable": "Cannot reach WinRM HTTPS on the Windows DNS server ({host}:{port}). Windows Server only opens HTTP 5985 by default: unless an HTTPS listener was set up, edit this server under \"Admin → External integrations → DNS\" and switch WinRM to HTTP (5985). ({reason})"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -4600,7 +4622,7 @@
     "diag_rows": "{n} row(s)",
     "pick_firewall": "Pick a FortiGate",
     "all_vdoms": "All VDOMs",
-    "none_configured": "No FortiGate configured yet — add one under Admin → FortiGate integration.",
+    "none_configured": "No FortiGate configured yet — add one under Admin → External integrations → FortiGate.",
     "col_action": "Action",
     "col_src": "Source (intf / addr)",
     "col_dst": "Destination (intf / addr)",
@@ -5354,7 +5376,7 @@
     "diag_rows": "{n} rows",
     "pick_firewall": "Select Palo Alto",
     "all_vsys": "All vsys",
-    "none_configured": "No Palo Alto firewall configured — add one under Admin → Palo Alto integration.",
+    "none_configured": "No Palo Alto firewall configured — add one under Admin → External integrations → Palo Alto.",
     "col_application": "Application (App-ID)"
   },
   "checkpoint": {
@@ -5735,7 +5757,7 @@
     "d_backup_enc_off": "No backup passphrase is set: backup files hold the database and the key that decrypts it (backend.env), so whoever gets a backup gets every secret",
     "d_backup_enc_missed": "A backup passphrase is set, but the latest backup was not encrypted (a backup script from before the upgrade, or encryption failed)",
     "d_backup_enc_ok": "Daily backups are encrypted with the configured passphrase (.jtbak)",
-    "f_backup_enc_off": "Set a passphrase under System settings → Daily backup encryption"
+    "f_backup_enc_off": "Set a passphrase under Admin → System Settings → Daily backup encryption"
   },
   "tool_verbs": {
     "get": "Look up",
@@ -5921,7 +5943,14 @@
     "sg_split_large": "{cidr} has {total} addresses but the agent scans only the first {scanned} each cycle; the rest are never scanned. Split it into smaller subnets in IPAM, or spread it over several agents.",
     "sg_heavy_interval": "Background name lookups and OS fingerprinting never catch up ({backlog} hosts queued). Lengthen the OS fingerprint interval, or turn it off on the large subnets.",
     "chunk": "part {chunk}/{rounds}",
-    "sg_rotating_large": "{cidr} has {total} addresses and takes {rounds} cycles (about {minutes} min) to cover once. The online threshold is {threshold} min; if covering takes longer, hosts show offline between scans — split it into smaller subnets in IPAM, or spread it over several agents."
+    "sg_rotating_large": "{cidr} has {total} addresses and takes {rounds} cycles (about {minutes} min) to cover once. The online threshold is {threshold} min; if covering takes longer, hosts show offline between scans. Set this subnet's scan scope to Automatic (known addresses every cycle, the rest explored in the background; needs agent 1.18.0 or later, which updates itself). There is no need to split the subnet.",
+    "known_tag": "known {known}",
+    "known_chunk": "known {known}, part {chunk}/{rounds}",
+    "span_under_hour": "under an hour",
+    "span_hours": "about {n} h",
+    "span_days": "about {n} days",
+    "sg_rotating_known": "{cidr} has {known} known addresses, more than the agent scans per cycle, so they take {rounds} cycles (about {minutes} min) to cover once. The online threshold is {threshold} min; if covering takes longer, devices show offline between scans. Raise this agent's per-cycle limit (JT_IPAM_MAX_HOSTS on the agent host; each cycle gets longer), or spread the subnet over several agents.",
+    "sg_discovery_pass": "{cidr} has {total} addresses: known addresses are scanned every cycle and the rest are explored in the background, one pass taking {span}. This only affects how fast new devices are found, not online status."
   },
   "kea_dhcp": {
     "title": "Kea DHCP Server",
@@ -6541,7 +6570,7 @@
     "new_plan": "New assessment",
     "intro": "Before renumbering an IP or decommissioning a device, find what references it and where the data is not enough to tell. It only assesses: no device or setting is changed.",
     "disabled_title": "IP change assessment is turned off",
-    "disabled_desc": "An admin can turn it on in Admin → System settings.",
+    "disabled_desc": "An admin can turn it on in Admin → System Settings.",
     "f_scenario": "Scenario",
     "col_lifecycle": "Status",
     "col_title": "Plan",
@@ -7567,7 +7596,7 @@
   "recovery": {
     "title": "Recovery codes",
     "intro": "If you lose your authenticator or change phones, sign in with one of these instead of a code. Each works once. They are shown only now, so keep them somewhere safe (for example a password manager).",
-    "file_note": "Each code works once. When you have used them, generate new ones under Settings → Security.",
+    "file_note": "Each code works once. When you have used them, generate new ones from the account menu (top right) under Preferences → Security.",
     "download": "Download as text",
     "saved_check": "I have saved the recovery codes somewhere safe",
     "continue": "Continue",

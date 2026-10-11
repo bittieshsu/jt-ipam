@@ -71,7 +71,7 @@ Top-level grouping. Self-referential `parent_id` (SET NULL) for nesting; `strict
 - `vlan_id`, `vrf_id`, `location_id`, `customer_id`, `gateway` (`inet`), `dns_servers` (comma-separated).
 - `is_pool`, `is_full`, `threshold_pct` (utilization alert), `auto_dns`.
 - `archived_at`: non-NULL means archived; data is kept but hidden, not scanned, and ignored by overlap checks (archived child IPs are hidden too).
-- **Scanning**: `scan_enabled`, `scan_method` (`text[]`, default `{icmp}`), `scan_agent_id` (FK → scan_agents; if set, the subnet is scanned via that agent rather than the local host).
+- **Scanning**: `scan_enabled`, `scan_method` (`text[]`, default `{icmp}`), `scan_agent_id` (FK → scan_agents; if set, the subnet is scanned via that agent rather than the local host), `scan_scope` (`auto` / `all` / `known` / `ranges`, default `auto`; CHECK constraint `ck_subnets_scan_scope`). With `auto`, subnets larger than 4,096 addresses get a scan plan: known addresses every cycle, the rest explored in the background (see `services/scan_plan.py`).
 - `custom_fields` (jsonb). GiST index on `cidr`.
 
 ### 2.4 `ip_addresses`
@@ -94,7 +94,8 @@ High-frequency history of every IP change (created/deleted/hostname_changed/mac_
 phpIPAM's signature NAT, extended to mirror OPNsense port-forward rules.
 - `type` (`one_to_one`/`many_to_one`/`port_forward`), `src_ip_id`/`dst_ip_id` (FK ip_addresses), `src_port`/`dst_port` (+ `_to` for ranges), `protocol`, `src_interface`, `device_id`.
 - OPNsense parity: `disabled`, `no_rdr`, `ip_version`, `src_not`/`dst_not`, `log`, `category`, `nat_reflection`, `pool_options`, `filter_rule`, and alias references (`src_alias`/`dst_alias`/`src_port_alias`/`dst_port_alias`/`redirect_alias`).
-- Sync provenance: `source_origin` (`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>`) + `external_id` (unique together = upsert key).
+- `disabled` follows the rule on the firewall for every firewall integration (OPNsense `disabled` or `enabled`, pfSense, FortiGate VIP `status`, Palo Alto `disabled: yes`, Check Point, MikroTik); disabled rules stay listed but do not count as exposure.
+- Sync provenance: `source_origin` (`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>` / `fortigate:<uuid>` / `paloalto:<uuid>` / `checkpoint:<uuid>` / `mikrotik:<uuid>`) + `external_id` (unique together = upsert key).
 
 ### 2.8 `ip_requests` / `ip_request_events`
 IP request workflow with a clear state machine (`pending → approved → fulfilled` / `rejected` / `cancelled`). `ip_request_events` is the timeline (one row per state change). Approval allocates an IP atomically (`allocated_ip_id`).

@@ -28,7 +28,7 @@ import {
 import { listSections } from "@/api/sections";
 import { listScanAgents } from "@/api/phase3";
 import { listVLANs, listVRFs, listLocations, type VLAN, type VRF } from "@/api/basic";
-import type { Subnet, Section } from "@/types";
+import type { Subnet, Section, ScanScope } from "@/types";
 import { EditIcon, PlusIcon, SaveIcon, CancelIcon } from "@/icons";
 import { probeInstall } from "@/utils/probeInstall";
 import { useCustomers } from "@/composables/useCustomers";
@@ -128,6 +128,7 @@ const form = ref({
   scan_method: ["icmp"] as string[],
   threshold_pct: null as number | null,
   scan_agent_id: null as string | null,
+  scan_scope: "auto" as ScanScope,
   gateway: "" as string,
   dns_servers: "" as string,
   location_id: null as string | null,
@@ -135,6 +136,35 @@ const form = ref({
 });
 
 const saving = ref(false);
+
+// 掃描範圍（0205）：數字要與後端 services/scan_plan.py 一致
+const AUTO_SWEEP_MAX = 4096;
+const DISCOVER_PER_CYCLE = 1024;
+const scanScopeOpts = computed(() => (["auto", "all", "known", "ranges"] as const)
+  .map((v) => ({ label: t(`subnets.scan_scope_${v}`), value: v })));
+/** IPv4 可用位址數；IPv6 或格式不對回 null（代理目前只掃 IPv4） */
+function usableV4(cidr: string): number | null {
+  const m = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(cidr.trim());
+  if (!m) return null;
+  const p = Number(m[2]);
+  if (p > 32) return null;
+  const n = 2 ** (32 - p);
+  return p < 31 ? n - 2 : n;
+}
+const scanScopeHint = computed<{ type: "info" | "warning"; text: string } | null>(() => {
+  const scope = form.value.scan_scope;
+  const n = usableV4(form.value.cidr);
+  const fmt = (x: number) => x.toLocaleString(locale.value);
+  if (scope === "known") return { type: "info", text: t("subnets.scan_scope_known_hint") };
+  if (scope === "ranges") return { type: "info", text: t("subnets.scan_scope_ranges_hint") };
+  if (n === null || n <= AUTO_SWEEP_MAX) return null;
+  if (scope === "all") {
+    return { type: "warning", text: t("subnets.scan_scope_all_large_hint",
+      { total: fmt(n), rounds: fmt(Math.ceil(n / AUTO_SWEEP_MAX)) }) };
+  }
+  return { type: "info", text: t("subnets.scan_scope_auto_large_hint",
+    { total: fmt(n), rounds: fmt(Math.ceil(n / DISCOVER_PER_CYCLE)), per: fmt(DISCOVER_PER_CYCLE) }) };
+});
 
 async function loadAuxOpts() {
   try {
@@ -199,6 +229,7 @@ function resetForm() {
       threshold_pct: r.threshold_pct,
       // 既有已啟用掃描但沒代理的子網路＝本機直掃 → 顯示為「本機直接掃」(不強迫重選)
       scan_agent_id: r.scan_agent_id ?? (r.scan_enabled ? LOCAL_SCAN : null),
+      scan_scope: r.scan_scope ?? "auto",
       gateway: r.gateway ?? "",
       dns_servers: r.dns_servers ?? "",
       location_id: r.location_id ?? null,
@@ -217,6 +248,7 @@ function resetForm() {
       scan_enabled: false, scan_method: ["icmp"],
       threshold_pct: null,
       scan_agent_id: null,
+      scan_scope: "auto",
       gateway: "", dns_servers: "", location_id: null,
       allow_overlap: false,
     };
@@ -264,6 +296,7 @@ async function submit() {
         scan_method: form.value.scan_method,
         threshold_pct: form.value.threshold_pct ?? null,
         scan_agent_id: scanAgentId,
+        scan_scope: form.value.scan_scope,
         gateway: form.value.gateway.trim() || null,
         dns_servers: form.value.dns_servers.trim() || null,
         location_id: form.value.location_id ?? null,
@@ -286,6 +319,7 @@ async function submit() {
         scan_method: form.value.scan_method,
         threshold_pct: form.value.threshold_pct ?? null,
         scan_agent_id: scanAgentId,
+        scan_scope: form.value.scan_scope,
         gateway: form.value.gateway.trim() || null,
         dns_servers: form.value.dns_servers.trim() || null,
         location_id: form.value.location_id ?? null,
@@ -441,6 +475,15 @@ async function submit() {
           <!-- 本機根本沒裝代理 → 直接給安裝指引，不要讓人自己猜 -->
           <n-alert v-else-if="!localAgent" type="info" :show-icon="false" :bordered="false">
             {{ t("subnets.scan_agent_no_local_hint") }}
+          </n-alert>
+        </n-space>
+      </n-form-item>
+      <n-form-item v-if="form.scan_enabled" :label="t('subnets.scan_scope')">
+        <n-space vertical :size="6" style="width:100%">
+          <n-select v-model:value="form.scan_scope" :options="scanScopeOpts" data-testid="subnet-scan-scope" />
+          <n-alert v-if="scanScopeHint" :type="scanScopeHint.type" :show-icon="false" :bordered="false"
+                   data-testid="subnet-scan-scope-hint">
+            {{ scanScopeHint.text }}
           </n-alert>
         </n-space>
       </n-form-item>

@@ -288,6 +288,12 @@ async def seed() -> None:
                                  dst_ip_id=pub.id, dst_port=443, protocol="tcp",
                                  src_interface="wan", description="e2e fixture",
                                  disabled=False, source_origin="seed:e2e"))
+        # 防火牆上停用的規則：NAT 頁要整列變淡、標「已停用」（不掛在上面那個 IP：別的 spec 會點那個 IP 的第一條 NAT）
+        if not (await s.execute(select(NATTranslation).where(
+                NATTranslation.name == "e2e-off-forward"))).scalars().first():
+            s.add(NATTranslation(name="e2e-off-forward", type="port_forward", dst_port=8080, protocol="tcp",
+                                 src_interface="wan", description="e2e fixture (disabled)",
+                                 disabled=True, source_origin="seed:e2e"))
 
         # ── DNS（FQDN 視角要看到 A 與 CNAME 各自成列）────────────────
         dsrv = await one(DNSServer, name="e2e-dns", type="bind9",
@@ -555,6 +561,25 @@ async def seed() -> None:
                     row = UnmanagedSighting(subnet_id=sub_um.id, ip=ip_um, source="scanner", first_seen_at=now_um - age)
                     s.add(row)
                 row.last_seen_at, row.mac, row.hostname = now_um - age, mac_um, host_um
+
+        # ── 主機名稱來源（hostname-source-reporters.spec）：哪一台回報的、多久以前、NetBIOS 名稱與 DNS 不同 ─────
+        from app.models.ip_hostname import IPHostnameObservation, IPHostnameReport
+        from app.models.scan_agent import ScanAgent
+        name_agent = await one(ScanAgent, name="e2e-name-agent",
+                               enroll_key_hash=hashlib.sha256(b"e2e-name-agent").hexdigest(), enabled=False)
+        ns1 = (await s.execute(select(DNSServer).where(DNSServer.name == "e2e-ns1"))).scalars().first()
+        hn_ip = await ip(subnets["10.20.0.0/24"], "10.20.0.78", "e2e-fileserver-prod.corp.example")
+        now_hn = datetime.now(UTC)
+        await s.execute(delete(IPHostnameReport).where(IPHostnameReport.ip_id == hn_ip.id))
+        await s.execute(delete(IPHostnameObservation).where(IPHostnameObservation.ip_id == hn_ip.id))
+        for src, origin, name, age in (
+            ("dns", f"dns:{ns1.id}", "e2e-fileserver-prod.corp.example", timedelta(0)),
+            ("netbios", f"netbios:{name_agent.id}", "E2E-FILESERVER", timedelta(0)),
+            ("mdns", f"mdns:{name_agent.id}", "e2e-fileserver-prod", timedelta(days=3)),
+        ):
+            s.add(IPHostnameReport(ip_id=hn_ip.id, source=src, origin=origin, hostname=name,
+                                   first_seen_at=now_hn - age, last_seen_at=now_hn - age))
+            s.add(IPHostnameObservation(ip_id=hn_ip.id, source=src, hostname=name, observed_at=now_hn - age))
 
         # ── 作業頁（tasks-filters.spec）：代理回報、資料庫更新、沒有錯誤訊息的失敗探測 ─────
         from app.models.background_task import BackgroundTask

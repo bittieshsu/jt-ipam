@@ -221,3 +221,97 @@ async def enabled_peers(session: AsyncSession, model: Any) -> int:
     if hasattr(model, "enabled"):
         stmt = stmt.where(model.enabled.is_(True))
     return max(1, int((await session.execute(stmt)).scalar_one()))
+
+
+#: 每個來源的 origin `<來源>:<實例 id>` 指向哪個資料表（給「這個名字是哪一台回報的」顯示用，2026-10-11）。
+#: 客戶在比對各台掃描代理的結果：只寫「NetBIOS（掃描代理）」看不出是哪一台。新來源要加進來（有守門測試）。
+ORIGIN_MODELS: dict[str, tuple[str, str]] = {
+    "scanner": ("app.models.scan_agent", "ScanAgent"),
+    "netbios": ("app.models.scan_agent", "ScanAgent"),
+    "mdns": ("app.models.scan_agent", "ScanAgent"),
+    "dns": ("app.models.dns", "DNSServer"),
+    "librenms": ("app.models.librenms", "LibreNMSInstance"),
+    "opnsense": ("app.models.firewall", "OPNsenseFirewall"),
+    "pfsense": ("app.models.pfsense", "PfSenseFirewall"),
+    "fortigate": ("app.models.fortigate", "FortiGateFirewall"),
+    "paloalto": ("app.models.paloalto", "PaloAltoFirewall"),
+    "checkpoint": ("app.models.checkpoint_gaia", "CheckPointGaiaTarget"),
+    "mikrotik": ("app.models.mikrotik", "MikroTikRouter"),
+    "windows_dhcp": ("app.models.windows_dhcp", "WindowsDhcpServer"),
+    "kea_dhcp": ("app.models.dhcp_standalone", "KeaDhcpServer"),
+    "isc_dhcp": ("app.models.dhcp_standalone", "IscDhcpServer"),
+    "technitium": ("app.models.technitium", "TechnitiumDhcpServer"),
+    "isoinsight": ("app.models.isoinsight", "IsoInsightSource"),
+    # Proxmox 的 origin 是叢集 id（沒有叢集的連線才用連線本身的 id，那張表沒有名稱 → 顯示 API 主機）
+    "proxmox": ("app.models.virt", "VirtCluster"),
+    "zabbix": ("app.models.zabbix", "ZabbixInstance"),
+    "wazuh": ("app.models.wazuh", "WazuhInstance"),
+    "adguard": ("app.models.adguard", "AdGuardInstance"),
+    "ocs": ("app.models.ocs", "OcsServer"),
+    "rustdesk": ("app.models.rustdesk", "RustDeskServer"),
+}
+#: 由使用者輸入、不是任何實例回報的來源
+NO_ORIGIN_SOURCES = ("manual",)
+
+
+def _model(source: str) -> Any:
+    import importlib
+    mod, cls = ORIGIN_MODELS[source]
+    return getattr(importlib.import_module(mod), cls)
+
+
+def _dt(v: datetime | None) -> str | None:
+    return v.isoformat() if v else None
+
+
+async def reports_by_source(session: AsyncSession, ip_id: uuid.UUID) -> dict[str, list[dict[str, Any]]]:
+    """單一 IP 每個來源的逐台回報：哪一台（kind／label）、回報的名字、第一次與最後一次看到。
+
+    kind：scan_agent／integration／legacy（遷移前的舊資料，沒有歸屬）／unknown（那台已經刪除，或 origin 認不得）。
+    認不得的一律 label=None，不拿 id 去猜名字。"""
+    rows = (await session.execute(select(IPHostnameReport).where(IPHostnameReport.ip_id == ip_id)
+                                  .order_by(IPHostnameReport.last_seen_at.desc()))).scalars().all()
+    wanted: dict[str, set[uuid.UUID]] = {}
+    parsed: list[tuple[IPHostnameReport, uuid.UUID | None, str | None]] = []
+    for r in rows:
+        parts = r.origin.split(":")
+        iid: uuid.UUID | None = None
+        if r.origin != LEGACY_ORIGIN and len(parts) >= 2 and r.source in ORIGIN_MODELS:
+            try:
+                iid = uuid.UUID(parts[1])
+            except ValueError:
+                iid = None
+        if iid is not None:
+            wanted.setdefault(r.source, set()).add(iid)
+        parsed.append((r, iid, ":".join(parts[2:]) or None))
+
+    names: dict[tuple[str, uuid.UUID], str] = {}
+    for src, ids in wanted.items():       # 一個 IP 頂多十來個來源，逐來源查一次
+        model = _model(src)
+        for iid, name in (await session.execute(
+                select(model.id, model.name).where(in_values(model.id, list(ids))))).all():
+            names[(src, iid)] = name
+    rest = [i for i in wanted.get("proxmox", set()) if ("proxmox", i) not in names]
+    if rest:
+        from urllib.parse import urlsplit
+
+        from app.models.virt import ProxmoxInstance
+        for iid, url in (await session.execute(select(ProxmoxInstance.id, ProxmoxInstance.api_url).where(
+                in_values(ProxmoxInstance.id, rest)))).all():
+            names[("proxmox", iid)] = urlsplit(url or "").hostname or url
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for r, iid, sub in parsed:
+        label = names.get((r.source, iid)) if iid is not None else None
+        if r.origin == LEGACY_ORIGIN:
+            kind = "legacy"
+        elif label is None:
+            kind = "unknown"
+        elif r.source in ("scanner", "netbios", "mdns"):
+            kind = "scan_agent"
+        else:
+            kind = "integration"
+        out.setdefault(r.source, []).append({
+            "kind": kind, "label": label, "detail": sub, "hostname": r.hostname,
+            "first_seen_at": _dt(r.first_seen_at), "last_seen_at": _dt(r.last_seen_at)})
+    return out

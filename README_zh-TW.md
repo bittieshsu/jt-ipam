@@ -34,13 +34,15 @@ phpIPAM 老使用者幾乎零學習成本；以現代技術全新打造（非基
 
 **IP 變更評估**：改 IP、除役、交換器維護、節點停機之前，把所有整合裡引用到這個位址或裝置的地方（DNS、DHCP、防火牆規則與 NAT、監控、虛擬化、整合連線位址、憑證…）與受影響的服務列出來，分成阻擋、需覆核、需變更與資料不足；附依影響分層的關係圖、覆核流程、待辦與復原步驟，報告可匯出 PDF、Word、OpenDocument，清單匯出 Excel。只讀，不會改任何設備。
 
+**掃描代理**：裝在各網段的輕量代理，回報上線狀態、MAC、名稱（反查、NetBIOS、mDNS）與 OS，伺服器派工、代理自動更新，並有負載面板與超載通知。大子網路照實際遮罩登記也掃得動（例如 /8）：已登記的 IP 與最近 ARP 看過的位址每一輪都掃，其餘位址在背景慢慢探索新設備，不必為了掃描把網段切小。每個 IP 的主機名稱看得出是哪一台代理或哪個整合回報、最後什麼時候看到。
+
 也內建：**瀏覽器內遠端連線管理**，提供 SSH 終端機、**SFTP 檔案瀏覽器**（免另開工具就能上下傳檔案），外加 RDP、VNC 桌面、**BMC 序列主控台**（IPMI SOL，不經作業系統的獨立連線）與相容 RustDesk 的**網頁連線**（加密在瀏覽器裡完成，含檔案傳輸，不用裝 RustDesk 客戶端）（BMC 為 **Beta**），全部在瀏覽器內，狀態列顯示連線時間，連線帳密預設不儲存、可選用**個人加密憑證金庫**（by-user、AES-GCM），**跳板主機**（後端連不到的站台，主控台可改走「後端 → 跳板 → 目標」；出口設在子網路、個別 IP 可覆寫，主機金鑰必須先釘選才允許連線）、物件層級 RBAC、單次 ticket→WebSocket 連線與完整稽核（每次連線都記下連了多久；RDP 與 VNC 走 **guacd**，這是 jt-ipam 逐 OS 版本預編、安裝時自動裝上的必要元件；舊的純 Python 引擎 aardwolf 改為選用的備用引擎；SSH 也可以改用 guacd）、**申請審核流程**（IP 申請與 IP 變更評估各自設定審核關卡：多關卡會簽 / 依序關卡，站內 + Email 通知）、**DNS 記錄檢視**（找出沒有對應 IPAM 的記錄）、**掃描代理**（ICMP/ARP/反解/NetBIOS/mDNS/OS 探測；安裝時會在主機上自動裝一個，掃描一律由代理執行）、管理員限定的 **IP 探測**（由服務、OS 指紋、banner、憑證推出這是什麼主機，並比對選用的 [Recog](https://github.com/rapid7/recog) 指紋庫（安裝時下載、每週檢查新版）；每個結論都附上依據）、**憑證集中保管與派送**（商業 / 自簽憑證一次上傳，純 bash 代理依排程自動派送到 nginx/apache/caddy/haproxy/Proxmox VE·PMG·PBS/Zimbra…等服務並重載；另有 **Windows / IIS 的 PowerShell 代理**，匯入 Windows 憑證存放區、換上 HTTPS 繫結，並實際連線確認送出的是新憑證，不對就自動還原；私鑰加密保存、到期告警、可手動續簽）、**機房平面圖 + 機櫃立面圖**（標準機櫃、工業機櫃與層架/鍍鉻層架/角鋼層架/木質層架（IKEA IVAR 型）/IKEA KALLAX，以及 LackRack（LACK 邊桌當 19 吋機櫃），寬度可自訂、層高逐層設定、頂板上方也放得了設備、同一層還能上下疊放；同一列最多並排 6 台、正背面、SVG/PNG/draw.io 匯出）、**纜線追蹤**（多跳穿透）、IP 異動記錄與失聯 IP 回收、通用表格欄位選擇 + 多格式匯出。
 
 ## Graylog 記錄補實（DSV 對照表）
 
 jt-ipam 會**即時**產生一份 IP → 主機名稱 / FQDN 的對照表，讓 Graylog 的「DSV File from HTTP」資料配接器直接抓取，把記錄裡只有 IP 的事件自動補上可讀名稱。
 
-- 在 **管理 → 系統設定 → Graylog DSV** 啟用：設定路徑代稱、輸出格式（CSV / TSV）並產生存取 token
+- 在 **管理 → 外部系統整合 → Graylog** 啟用：設定路徑代稱、輸出格式（CSV / TSV）並產生存取 token
 - 端點 `GET /api/v1/lookup/<路徑>?token=<token>`，每次請求即時查詢資料庫產生
 - **提供的欄位**：每列兩欄，第 1 欄＝IP（key），第 2 欄＝主機名稱或 FQDN（value）；只輸出「有主機名稱」的 IP
 - **資料格式**：UTF-8 純文字。CSV 以逗號分隔、**每欄用雙引號包覆**並依 RFC 4180 跳脫；TSV 以 Tab 分隔（不加引號）。例如：
@@ -269,7 +271,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 1. **`/etc/jt-ipam/backend.env`** 的 `APP_PUBLIC_URL` / `API_PUBLIC_URL` / `CORS_ORIGINS` 都設成對外網域（`https://ipam.your-domain.com`），不要留預設 `ipam.example.com`（後端簽發 token、OIDC 回呼網址都看它）→ 改完 `systemctl restart jt-ipam-backend`。
 2. **外部 nginx 轉發時要送** `proxy_set_header X-Forwarded-Proto $scheme;`（=https）與 `Host $host;`；本機範本會把它透傳給後端（避免後端誤判成 http、Secure cookie 設不起來）。
-3. **OIDC Redirect URI** 在 IdP 與 jt-ipam UI（系統設定 → SSO → OIDC）都填 `https://ipam.your-domain.com/api/v1/auth/oidc/callback`。注意 **UI 存過的 DB 值優先於 .env**，改 .env 後要在 UI 再存一次。
+3. **OIDC Redirect URI** 在 IdP 與 jt-ipam UI（管理 → 系統設定 → 單一登入（OIDC））都填 `https://ipam.your-domain.com/api/v1/auth/oidc/callback`。注意 **UI 存過的 DB 值優先於 .env**，改 .env 後要在 UI 再存一次。
 > HSTS 由持有憑證的外部 nginx 送出，本機（HTTP）不送。
 
 ## 專案結構

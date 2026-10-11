@@ -872,7 +872,8 @@ async def sync_nat_rules(
         extra = {
             # 不能用 bool()：API 有時回字串 "0"/"1"，而 bool("0") 是 True ——
             # 整批規則會被標成停用（legacy XML 那條路徑就是這樣壞掉的）
-            "disabled": _truthy(r.get("disabled")),
+            # Port forward（d_nat）的欄位叫 disabled；Outbound NAT／1:1 的模型用 enabled（OPNsense 原始碼）
+            "disabled": _truthy(r.get("disabled")) or ("enabled" in r and not _truthy(r.get("enabled"))),
             "no_rdr": _truthy(r.get("nordr")),
             "ip_version": ipv,
             "src_not": _truthy(r.get("source_not")),

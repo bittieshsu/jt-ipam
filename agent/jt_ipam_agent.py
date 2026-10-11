@@ -24,7 +24,9 @@ Environment variables:
   JT_IPAM_INTERVAL   fallback fast-loop seconds if server omits interval_seconds, default 300
   JT_IPAM_INSECURE   =1 to skip TLS verification (self-signed server)
   JT_IPAM_MAX_HOSTS  max hosts scanned per subnet per cycle, default 4096; larger subnets are
-                     scanned in rotating chunks (a /16 takes 16 cycles to cover once)
+                     scanned in rotating chunks (a /16 takes 16 cycles to cover once). From 1.18.0 the
+                     server sends a plan for large subnets: known addresses every cycle, the rest
+                     discovered a slice per cycle
   JT_IPAM_AUTO_UPDATE =0 to disable self-update (default on)
   JT_IPAM_DHCPD_CONF    dhcpd.conf path when this host runs isc-dhcp-server and an "ISC DHCP"
                         source in jt-ipam points at this agent (default: first existing of
@@ -47,6 +49,7 @@ Environment variables:
 from __future__ import annotations
 
 import base64
+import bisect
 import concurrent.futures
 import hashlib
 import ipaddress
@@ -68,7 +71,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.17.4"
+AGENT_VERSION = "1.18.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -987,6 +990,92 @@ def _subnet_chunk(subnet_id: str, cidr: str) -> tuple[list[str], int, dict]:
     return hosts, total, {"chunk": start // MAX_HOSTS + 1, "rounds": rounds}
 
 
+def _parse_runs(raw: list, lo: int, hi: int) -> list[tuple[int, int]]:
+    """伺服器給的 [[起, 迄], …]（字串）→ 整數區段，裁到子網路可用範圍內、排序。壞的略過。"""
+    out: list[tuple[int, int]] = []
+    for item in raw or []:
+        try:
+            a = int(ipaddress.IPv4Address(str(item[0])))
+            b = int(ipaddress.IPv4Address(str(item[1])))
+        except (ValueError, TypeError, IndexError):
+            continue
+        a, b = max(a, lo), min(b, hi)
+        if a <= b:
+            out.append((a, b))
+    return sorted(out)
+
+
+def _runs_slice(runs: list[tuple[int, int]], start: int, count: int) -> list[int]:
+    """區段串起來後，從第 start 個開始取 count 個（不展開整個清單：區段可能是一整段 /16）。"""
+    out: list[int] = []
+    for a, b in runs:
+        n = b - a + 1
+        if start >= n:
+            start -= n
+            continue
+        take = min(n - start, count - len(out))
+        out.extend(range(a + start, a + start + take))
+        start = 0
+        if len(out) >= count:
+            break
+    return out
+
+
+def _in_runs(runs: list[tuple[int, int]], starts: list[int], n: int) -> bool:
+    i = bisect.bisect_right(starts, n) - 1
+    return i >= 0 and runs[i][0] <= n <= runs[i][1]
+
+
+def _plan_hosts(subnet_id: str, cidr: str, plan: dict | None) -> tuple[list[str], int, dict]:
+    """這輪要掃的位址（客戶 2026-10-11：10.0.0.0/8 讓掃描炸掉，伺服器 1.18.0 起會給大子網路掃描計畫）。
+
+    沒有計畫＝照舊全掃（_subnet_chunk，太大就分段輪替）。有計畫（mode=targets）：
+    - 已知位址每一輪都掃（超過單輪上限就輪替）→ 回報的 rounds 是已知位址繞一圈的輪數，伺服器只拿它判斷超載
+    - discover：其餘位址每輪往後看一段（per_cycle 個），已知的不重複探測；繞完一圈從頭開始
+    """
+    if not plan or plan.get("mode") != "targets":
+        return _subnet_chunk(subnet_id, cidr)
+    net = ipaddress.ip_network(cidr, strict=False)
+    if not isinstance(net, ipaddress.IPv4Network):
+        return [], 0, {"chunk": 1, "rounds": 1}
+    edge = 1 if net.prefixlen < 31 else 0
+    lo = int(net.network_address) + edge
+    total = max(net.num_addresses - 2 * edge, 0)
+    hi = lo + total - 1
+    runs = _parse_runs(plan.get("known") or [], lo, hi)
+    known_total = sum(b - a + 1 for a, b in runs)
+    if known_total <= MAX_HOSTS:
+        k_start, k_rounds = 0, 1
+    else:
+        k_rounds = -(-known_total // MAX_HOSTS)
+        k_start = _chunk_pos.get(f"{subnet_id}:k", 0)
+        if k_start >= known_total:
+            k_start = 0
+        nxt = k_start + MAX_HOSTS
+        _chunk_pos[f"{subnet_id}:k"] = nxt if nxt < known_total else 0
+    picked = _runs_slice(runs, k_start, min(MAX_HOSTS, known_total - k_start))
+    hosts = [str(ipaddress.IPv4Address(n)) for n in picked]
+    info: dict = {"mode": "targets", "known": known_total, "chunk": k_start // MAX_HOSTS + 1, "rounds": k_rounds}
+    disc = plan.get("discover")
+    if disc and total:
+        try:
+            per = int(disc.get("per_cycle") or 0)
+        except (TypeError, ValueError):
+            per = 0
+        per = max(1, min(per or 1, MAX_HOSTS))
+        d_start = _chunk_pos.get(f"{subnet_id}:d", 0)
+        if d_start >= total:
+            d_start = 0
+        starts = [a for a, _ in runs]
+        for n in range(lo + d_start, lo + min(d_start + per, total)):
+            if not _in_runs(runs, starts, n):
+                hosts.append(str(ipaddress.IPv4Address(n)))
+        nxt = d_start + per
+        _chunk_pos[f"{subnet_id}:d"] = nxt if nxt < total else 0
+        info.update(discover_chunk=d_start // per + 1, discover_rounds=-(-total // per))
+    return hosts, total, info
+
+
 def _due(subnet_id, probe: str, intervals: dict, fast: int, now: float) -> bool:
     """這個探測本輪是否該對此子網執行（依 per-probe cadence 節流）。
 
@@ -1233,8 +1322,13 @@ def scan_once() -> None:
                 dhcp_servers.append(srv)
             print(f"  {cidr}: dhcp offers={len(dhcp_servers)}", flush=True)
 
-        hosts, total_hosts, chunk = _subnet_chunk(str(subnet_id or cidr), cidr)
-        if chunk["rounds"] > 1:
+        hosts, total_hosts, chunk = _plan_hosts(str(subnet_id or cidr), cidr, s.get("plan"))
+        if chunk.get("mode") == "targets":
+            print(f"  subnet {cidr}: {chunk['known']} known addresses"
+                  + (f" (part {chunk['chunk']}/{chunk['rounds']})" if chunk["rounds"] > 1 else "")
+                  + (f", discovering part {chunk['discover_chunk']}/{chunk['discover_rounds']}"
+                     if chunk.get("discover_rounds") else ""), flush=True)
+        elif chunk["rounds"] > 1 and hosts:
             print(f"  subnet {cidr} has {total_hosts} hosts -> scanning part {chunk['chunk']}/{chunk['rounds']} "
                   f"({hosts[0]}-{hosts[-1]})", flush=True)
         # arp 表用於 arp 探測，也順手在其他探測時補 mac。

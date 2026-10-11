@@ -493,7 +493,7 @@ def backup_encryption_check_from(configured: bool, status_text: str | None) -> C
     if not configured:
         return Check("backup_encryption", "備份加密", "warn",
                      "沒有設定備份加密密碼：備份檔裡同時有資料庫與解密金鑰（backend.env），拿到備份檔就等於拿到所有機密",
-                     "系統設定 → 備份加密", title_key="doctor.c_backup_enc",
+                     "管理 → 系統設定 → 每日備份加密", title_key="doctor.c_backup_enc",
                      detail_key="doctor.d_backup_enc_off", fix_key="doctor.f_backup_enc_off")
     if st.get("status") == "ok" and st.get("encrypted") != "1":
         return Check("backup_encryption", "備份加密", "warn",

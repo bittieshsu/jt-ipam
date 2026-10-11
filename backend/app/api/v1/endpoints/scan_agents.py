@@ -561,18 +561,25 @@ async def agent_poll(
 
     cap = set(agent.enabled_probes or ["icmp"])   # 代理能力天花板
     rows = (await session.execute(
-        select(Subnet.id, Subnet.cidr, Subnet.scan_method).where(
+        select(Subnet.id, Subnet.cidr, Subnet.scan_method, Subnet.scan_scope).where(
             Subnet.scan_agent_id == agent.id,
             Subnet.scan_enabled.is_(True),
             Subnet.archived_at.is_(None),
         )
     )).all()
+    # 大子網路的掃描計畫（已知位址每輪掃＋其餘背景探索；services/scan_plan）。小子網路沒有計畫＝照舊全掃，
+    # 舊代理不認得 plan 欄位也是照舊全掃
+    from app.services.scan_plan import plans as _scan_plans
+    plan_by_id = await _scan_plans(session, rows)
     subnets_out: list[dict[str, Any]] = []
     sub_ids: list[Any] = []
-    for sid, cidr, methods in rows:
+    for sid, cidr, methods, _scope in rows:
         sub_ids.append(sid)
         probes = [p for p in scan_probes.normalize_probes(list(methods or [])) if p in cap]
-        subnets_out.append({"subnet_id": str(sid), "cidr": str(cidr), "probes": probes})
+        entry: dict[str, Any] = {"subnet_id": str(sid), "cidr": str(cidr), "probes": probes}
+        if plan_by_id.get(sid) is not None:
+            entry["plan"] = plan_by_id[sid]
+        subnets_out.append(entry)
 
     # 逐 IP 略過（只送有設定的，量小）
     ip_overrides: dict[str, list[str]] = {}

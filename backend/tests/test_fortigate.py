@@ -159,6 +159,22 @@ async def test_nat_vip_and_ippool(db_session, admin_user, monkeypatch) -> None:
     assert "203.0.113.20-203.0.113.29" in (by_name["snat-pool"].description or "")
 
 
+async def test_nat_vip_status_disable_is_marked(db_session, admin_user, monkeypatch) -> None:
+    """VIP 停用（status: disable）要標成停用（使用者 2026-10-11）；沒有 status 欄位的版本當作啟用。"""
+    from app.models.nat import NATTranslation
+    fw = await _mk_fw(db_session, "fgt-nat-off", vdoms=["root"])
+    _patch_api(monkeypatch, {
+        fg.EP_VIP: [{"name": "off-vip", "extip": "203.0.113.11", "mappedip": [{"range": "192.0.2.11"}],
+                     "status": "disable"},
+                    {"name": "on-vip", "extip": "203.0.113.12", "mappedip": [{"range": "192.0.2.12"}]}],
+        fg.EP_IPPOOL: [],
+    })
+    await fg.sync_nat(db_session, fw, ["root"])
+    rows = (await db_session.execute(select(NATTranslation).where(
+        NATTranslation.source_origin == f"fortigate:{fw.id}"))).scalars().all()
+    assert {r.name: r.disabled for r in rows} == {"off-vip": True, "on-vip": False}
+
+
 @pytest.mark.anyio
 async def test_vpn_status_from_nested_proxyid(db_session, admin_user, monkeypatch) -> None:
     """IPsec 狀態在巢狀 proxyid[].status；SSL-VPN 配發 IP 在 subsessions[].aip。"""

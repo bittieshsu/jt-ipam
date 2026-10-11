@@ -473,6 +473,7 @@ async def sync_nat(session: AsyncSession, fw: PaloAltoFirewall, vsys_list: list[
                 source_origin=origin, external_id=ext_id)
             n.name = name[:255]
             n.type = "port_forward"
+            n.disabled = str(e.get("disabled") or "").strip().lower() == "yes"
             n.description = str(e.get("description") or "") or None
             # protocol 是 String(8) 且不可為空 —— PAN-OS 的 service 是物件名稱
             # （如 service-http），塞不進去也不該截斷成半個名字，統一記 any，

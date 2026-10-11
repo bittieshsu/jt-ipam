@@ -172,8 +172,12 @@ async def _safe(c: _Ctx, name: str, fn: Section) -> Any:
 async def _sec_hostname_sources(c: _Ctx) -> list[dict[str, Any]]:
     """主機名稱各來源分別回報了什麼（名稱對不上多半是張冠李戴的第一個徵兆）。"""
     from app.models.ip_hostname import IPHostnameObservation
+    from app.services.hostname_reports import reports_by_source
+    reports = await reports_by_source(c.session, c.ipa.id)
     return [
-        {"source": o.source, "hostname": o.hostname, "seen_at": _dt(o.observed_at)}
+        {"source": o.source, "hostname": o.hostname, "seen_at": _dt(o.observed_at),
+         # 哪一台回報的、最後一次什麼時候（observed_at 只在名稱改變時才動）
+         "reports": reports.get(o.source, [])[:MAX_ROWS]}
         for o in (await c.session.execute(
             select(IPHostnameObservation).where(IPHostnameObservation.ip_id == c.ipa.id)
             .limit(MAX_ROWS)

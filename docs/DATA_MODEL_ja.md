@@ -71,7 +71,7 @@ erDiagram
 - `vlan_id`、`vrf_id`、`location_id`、`customer_id`、`gateway`（`inet`）、`dns_servers`（カンマ区切り）。
 - `is_pool`、`is_full`、`threshold_pct`（使用率の警告）、`auto_dns`。
 - `archived_at`：非 NULL はアーカイブ済みを意味します。データは保持したまま非表示になり、スキャンもされず、重複チェックの対象からも外れます（配下の IP も併せて非表示になります）。
-- **スキャン**：`scan_enabled`、`scan_method`（`text[]`、既定は `{icmp}`）、`scan_agent_id`（FK → scan_agents。設定されていれば、ローカルホストではなくそのエージェント経由でスキャンします）。
+- **スキャン**：`scan_enabled`、`scan_method`（`text[]`、既定は `{icmp}`）、`scan_agent_id`（FK → scan_agents。設定されていれば、ローカルホストではなくそのエージェント経由でスキャンします）、`scan_scope`（`auto`・`all`・`known`・`ranges`、既定 `auto`。CHECK 制約 `ck_subnets_scan_scope`）。`auto` では 4,096 アドレスを超えるサブネットにスキャン計画が渡されます：既知のアドレスは毎周、残りはバックグラウンドで探索（`services/scan_plan.py` 参照）。
 - `custom_fields`（jsonb）。`cidr` には GiST の索引があります。
 
 ### 2.4 `ip_addresses`
@@ -94,7 +94,8 @@ IP のあらゆる変更の高頻度な履歴です（created / deleted / hostna
 phpIPAM の特徴である NAT を、OPNsense のポート転送ルールを写せるよう拡張したものです。
 - `type`（`one_to_one`/`many_to_one`/`port_forward`）、`src_ip_id` / `dst_ip_id`（FK ip_addresses）、`src_port` / `dst_port`（範囲用に `_to` も）、`protocol`、`src_interface`、`device_id`。
 - OPNsense との対応：`disabled`、`no_rdr`、`ip_version`、`src_not` / `dst_not`、`log`、`category`、`nat_reflection`、`pool_options`、`filter_rule`、そしてエイリアスの参照（`src_alias` / `dst_alias` / `src_port_alias` / `dst_port_alias` / `redirect_alias`）。
-- 同期の出どころ：`source_origin`（`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>`）と `external_id`（この組み合わせが upsert の鍵です）。
+- `disabled` はすべてのファイアウォール連携でファイアウォール上のルールの状態に従います（OPNsense の `disabled` または `enabled`、pfSense、FortiGate VIP の `status`、Palo Alto の `disabled: yes`、Check Point、MikroTik）。無効のルールも一覧に残りますが、外部公開には数えません。
+- 同期の出どころ：`source_origin`（`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>` / `fortigate:<uuid>` / `paloalto:<uuid>` / `checkpoint:<uuid>` / `mikrotik:<uuid>`）と `external_id`（この組み合わせが upsert の鍵です）。
 
 ### 2.8 `ip_requests` / `ip_request_events`
 IP 申請のワークフローで、状態機械は明確です（`pending → approved → fulfilled` / `rejected` / `cancelled`）。`ip_request_events` は時系列（状態変化ごとに 1 行）です。承認時に IP をアトミックに確保します（`allocated_ip_id`）。

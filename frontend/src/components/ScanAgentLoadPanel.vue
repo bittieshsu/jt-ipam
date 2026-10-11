@@ -80,9 +80,17 @@ function fmtSec(s: number): string {
 function levelType(l: ScanLoadLevel) { return l === "overloaded" ? "error" : l === "busy" ? "warning" : "success"; }
 function progressStatus(l: ScanLoadLevel) { return l === "overloaded" ? "error" : l === "busy" ? "warning" : "success"; }
 
+/** 探索繞一圈的時間：不到 1 小時／幾小時／兩天以上改用天 */
+function spanText(hours: number): string {
+  if (hours < 1) return t("scan_load.span_under_hour");
+  if (hours < 48) return t("scan_load.span_hours", { n: hours });
+  return t("scan_load.span_days", { n: Math.round(hours / 24) });
+}
+
 function suggestionText(s: ScanLoadSuggestion): string {
   const p = s.params as Record<string, unknown>;
   if (s.code === "move_subnets") return t("scan_load.sg_move_subnets", { subnets: (p.subnets as string[]).join("、"), target: p.target });
+  if (s.code === "discovery_pass") return t("scan_load.sg_discovery_pass", { ...p, span: spanText(Number(p.hours) || 0) } as Record<string, string | number>);
   return t(`scan_load.sg_${s.code}`, p as Record<string, string | number>);
 }
 
@@ -118,6 +126,11 @@ const cols = computed<DataTableColumns<ScanLoadSubnet>>(() => [
   { title: t("scan_load.col_cidr"), key: "cidr", width: 150,
     render: (r) => {
       if (r.truncated) return h("span", null, [r.cidr, " ", h(NTag, { size: "tiny", type: "warning", bordered: false }, () => t("scan_load.truncated"))]);
+      // 兩層掃描：已知位址每輪掃＋背景探索（代理 1.18.0 起）
+      if (r.mode === "targets") return h("span", null, [r.cidr, " ", h(NTag, { size: "tiny", type: "success", bordered: false },
+        () => ((r.rounds ?? 1) > 1
+          ? t("scan_load.known_chunk", { known: r.known ?? 0, chunk: r.chunk ?? 1, rounds: r.rounds ?? 1 })
+          : t("scan_load.known_tag", { known: r.known ?? 0 })))]);
       if ((r.rounds ?? 1) > 1) return h("span", null, [r.cidr, " ", h(NTag, { size: "tiny", type: "info", bordered: false },
         () => t("scan_load.chunk", { chunk: r.chunk ?? 1, rounds: r.rounds ?? 1 }))]);
       return r.cidr;

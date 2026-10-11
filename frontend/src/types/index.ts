@@ -58,6 +58,8 @@ export interface Section {
   updated_at: string;
 }
 
+export type ScanScope = "auto" | "all" | "known" | "ranges";
+
 export interface Subnet {
   id: string;
   section_id: string;
@@ -73,6 +75,8 @@ export interface Subnet {
   scan_enabled: boolean;
   scan_method: string[];
   scan_agent_id: string | null;
+  /** 掃描範圍（0205）：auto／all／known／ranges，規則在 backend services/scan_plan.py */
+  scan_scope?: ScanScope;
   threshold_pct: number | null;
   auto_dns: boolean;
   customer_id: string | null;

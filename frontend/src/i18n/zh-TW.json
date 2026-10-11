@@ -1206,7 +1206,6 @@
     "dev_subtitle": "多個來源提供同一台裝置名稱時，排越前面者優先採用；手動最高且不可停用。拖拉調整。",
     "save": "儲存順序",
     "saved": "順序已更新",
-    "observed_at": "最後回報：{at}",
     "clear_manual_confirm": "移除手動設定的主機名稱「{name}」？之後改由其他來源依優先序決定。",
     "manual_cleared": "已移除手動主機名稱",
     "src": {
@@ -1237,7 +1236,14 @@
       "checkpoint": "Check Point"
     },
     "model_title": "裝置型號來源順序",
-    "model_subtitle": "多個來源提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。"
+    "model_subtitle": "多個來源提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。",
+    "reporter_legacy": "舊資料（升級前就有，不知道是哪一台）",
+    "reporter_unknown": "已刪除或不明的來源",
+    "last_seen": "最後看到 {at}",
+    "days_ago": "{n} 天前",
+    "differs": "和目前採用的名稱「{name}」不同",
+    "changed_at": "名稱最後變更：{at}",
+    "manual_at": "輸入時間：{at}"
   },
   "addresses": {
     "search_placeholder": "搜尋所有欄位 (IP / 主機名稱 / MAC / 描述 / 擁有者 / 交換器位置 / 備註)",
@@ -1444,7 +1450,16 @@
     "scan_agent_none": "（不指派 —— 不會掃描）",
     "scan_agent_local_named": "{name}（jt-ipam 主機本機代理）",
     "scan_agent_none_hint": "沒有指派掃描代理，這個子網路不會被掃描 —— 掃描一律由代理執行。請選一個代理；若清單是空的，代表本機與其他主機都還沒安裝代理，可到「管理 → 掃描代理」新增並依指引安裝。",
-    "scan_agent_no_local_hint": "本機（jt-ipam 主機）目前沒有掃描代理。新版安裝／升級會自動裝一個；若這台是舊版升上來且未自動安裝，可到「管理 → 掃描代理」新增後依指引安裝。"
+    "scan_agent_no_local_hint": "本機（jt-ipam 主機）目前沒有掃描代理。新版安裝／升級會自動裝一個；若這台是舊版升上來且未自動安裝，可到「管理 → 掃描代理」新增後依指引安裝。",
+    "scan_scope": "掃描範圍",
+    "scan_scope_auto": "自動（建議）",
+    "scan_scope_all": "整個子網路",
+    "scan_scope_known": "只掃已知位址",
+    "scan_scope_ranges": "只掃位址範圍",
+    "scan_scope_auto_large_hint": "這個子網路有 {total} 個位址。已登記的 IP 與最近 7 天 ARP 看過的位址每一輪都掃（上線狀態準確）；其餘位址每輪在背景探索 {per} 個、約 {rounds} 輪找過一遍，用來發現新設備。子網路照實際遮罩登記即可，不必切小。",
+    "scan_scope_all_large_hint": "這個子網路有 {total} 個位址，每輪只能掃 4,096 個，要 {rounds} 輪才繞完一圈；超過上線判定時間的話，設備會在兩次掃描之間被判成離線。大子網路建議用「自動」。",
+    "scan_scope_known_hint": "只掃已登記的 IP 與最近 7 天 ARP 看過的位址，不會自動發現新設備（新設備要先登記，或由整合的 ARP 資料看到）。",
+    "scan_scope_ranges_hint": "只掃這個子網路底下設定的位址範圍（例如 DHCP 範圍）；沒有設定位址範圍的話，什麼都不掃。"
   },
   "csv_import": {
     "title": "匯入 IP 清單 (CSV)",
@@ -1866,7 +1881,7 @@
     "split_btn": "切割",
     "t_mail": "郵件 / DNS 診斷 (MX / SPF / DKIM)",
     "t_geoip": "GeoIP 地理位置查詢",
-    "geoip_not_set": "尚未設定 MaxMind 憑證（請到設定→系統）",
+    "geoip_not_set": "尚未設定 MaxMind 憑證（請到「管理 → 系統設定 → GeoIP（MaxMind）」設定）",
     "dkim_selector_ph": "DKIM selector（選填，如 default）",
     "power_calc": "機房電力試算",
     "pw_load": "電力負載 / 容量",
@@ -2218,7 +2233,13 @@
     "filter_device": "篩選裝置 (全部)",
     "filter_source": "來源 (全部)",
     "filter_host": "OPNsense 主機 (全部)",
-    "confirm_delete_n": "確定刪除選取的 {n} 筆 NAT 規則？此操作不可復原。"
+    "confirm_delete_n": "確定刪除選取的 {n} 筆 NAT 規則？此操作不可復原。",
+    "enabled": "啟用",
+    "status": "狀態",
+    "status_enabled": "啟用",
+    "status_disabled": "已停用",
+    "filter_status": "全部狀態",
+    "enabled_hint": "防火牆上停用的規則（例如 OPNsense 的停用勾選）會同步成停用；停用的規則不算對外開放。"
   },
   "anomaly": {
     "title": "異常偵測",
@@ -2904,9 +2925,9 @@
       "graylog_copy": "複製",
       "graylog_hint": "在 Graylog 新增「DSV File from HTTP」資料配接器，URL 填入上方網址；分隔符依格式選 , 或 Tab，key 欄=1、value 欄=2（key=IP、value=主機名稱 / FQDN）。權杖外洩可按「重新產生權杖」即時失效。",
       "graylog_fw_title": "OPNsense 防火牆 DSV（規則 / 別名）",
-      "graylog_fw_intro": "除了 IP→主機名稱，另對每台「已開啟提供 DSV」的 OPNsense 防火牆提供兩支查表：①規則 label→alias（用 filterlog 的 rid 反查命中哪個 alias）②alias→成員清單。權杖沿用上方同一把；要啟用請到「整合 → OPNsense」勾選該防火牆的「提供防火牆 DSV」。",
+      "graylog_fw_intro": "除了 IP→主機名稱，另對每台「已開啟提供 DSV」的 OPNsense 防火牆提供兩支查表：①規則 label→alias（用 filterlog 的 rid 反查命中哪個 alias）②alias→成員清單。權杖沿用上方同一把；要啟用請到「管理 → 外部系統整合 → OPNsense」勾選該防火牆的「提供防火牆 DSV」。",
       "graylog_fw_need_token": "尚未有權杖：請先在上方啟用 Graylog DSV（會產生權杖），這些防火牆查表才有網址可用。",
-      "graylog_fw_none": "目前沒有任何防火牆開啟「提供防火牆 DSV」。請到「整合 → OPNsense」編輯防火牆並勾選。",
+      "graylog_fw_none": "目前沒有任何防火牆開啟「提供防火牆 DSV」。請到「管理 → 外部系統整合 → OPNsense」編輯防火牆並勾選。",
       "graylog_fw_rules_url": "規則 DSV（key = filterlog rid，value = alias 名）",
       "graylog_fw_aliases_url": "別名 DSV（key = alias 名，value = 成員清單）",
       "graylog_fw_hint": "Graylog 端各自再開一個「DSV File from HTTP」配接器 + Lookup Table：規則 DSV 的 key 綁 filterlog 的 rid 欄位、key 欄=0 value 欄=1（Graylog 欄位索引從 0 起算）。每台防火牆是各自的網址（含 firewall id）。",
@@ -2918,7 +2939,7 @@
       "graylog_status_on": "啟用",
       "graylog_status_off": "未啟用",
       "graylog_detail": "網址 / 設定",
-      "graylog_tbl_hint": "點某一列即在下方顯示它的串接教學；按「網址 / 設定」看完整網址（HTTPS / 內網 HTTP）與該來源的設定（IP→主機名稱的開關 / 路徑也在裡面調整）。防火牆 DSV 的啟用在「整合 → OPNsense」逐台勾選「提供防火牆 DSV」。",
+      "graylog_tbl_hint": "點某一列即在下方顯示它的串接教學；按「網址 / 設定」看完整網址（HTTPS / 內網 HTTP）與該來源的設定（IP→主機名稱的開關 / 路徑也在裡面調整）。防火牆 DSV 的啟用在「管理 → 外部系統整合 → OPNsense」逐台勾選「提供防火牆 DSV」。",
       "graylog_src_hostname": "IP → 主機名稱（全域）",
       "graylog_src_pve_vms": "VM 名稱",
       "graylog_pve_hint": "key = Proxmox VMID、value = VM 名稱（來自已同步的 Proxmox VE 虛擬機）。Graylog 端再開一個「DSV File from HTTP」配接器 + Lookup Table，把記錄裡的 vmid 欄位查成 VM 名稱。跨叢集 vmid 若重複，每個 vmid 只輸出第一筆。",
@@ -3263,7 +3284,7 @@
     "console_pve_forbidden": "無 PVE 主控台連線權限",
     "console_target_forbidden": "無此目標的連線權限",
     "console_rdp_not_installed": "RDP 功能未安裝（缺 aardwolf 選用相依）",
-    "console_rdp_no_aardwolf": "這台伺服器沒有 aardwolf（Python {python} 沒有它的預編譯套件）。請管理員到「系統設定 → RDP 連線引擎」改用 FreeRDP。",
+    "console_rdp_no_aardwolf": "這台伺服器沒有 aardwolf（Python {python} 沒有它的預編譯套件）。請管理員到「管理 → 系統設定 → RDP 連線引擎」改用 FreeRDP。",
     "console_rdp_freerdp_missing": "FreeRDP 引擎缺少 {missing}：請在伺服器上執行 jt-ipam.sh upgrade 安裝。",
     "console_vnc_not_installed": "內建的 VNC 引擎無法使用：需要 aardwolf，而 Python {python} 沒有它的預編譯套件。可以安裝 guacd，再到「管理 → 系統設定」把 VNC 連線引擎改成 guacd。",
     "console_pve_not_installed": "PVE 主控台功能未安裝（缺 websockets 相依）",
@@ -3362,7 +3383,7 @@
     "migration_known_host_required": "需要 SSH 主機金鑰：請先執行「取得指紋」並確認後再送出",
     "migration_refetch_fingerprint": "請重新取得指紋、確認無誤後再送出一次",
     "console_remote_closed": "被控端結束了這個工作階段：{reason}",
-    "console_remote_ended_early": "遠端主機在工作階段一開始就結束了連線，還沒送出任何畫面。常見原因：這個帳號沒有遠端登入權限、遠端桌面授權或連線代理拒絕、工作階段數已滿。可改用 FreeRDP 引擎（系統設定 → RDP 引擎），它會顯示伺服器給的原因。",
+    "console_remote_ended_early": "遠端主機在工作階段一開始就結束了連線，還沒送出任何畫面。常見原因：這個帳號沒有遠端登入權限、遠端桌面授權或連線代理拒絕、工作階段數已滿。可改用 FreeRDP 引擎（管理 → 系統設定 → RDP 連線引擎），它會顯示伺服器給的原因。",
     "console_remote_ended": "遠端主機結束了這個工作階段（沒有提供原因）",
     "console_engine_failed": "RDP 引擎無法建立連線：{reason}",
     "console_char_not_typable": "「{char}」這個字元無法用目前的 RDP 連線引擎直接輸入（FreeRDP 沒有 Unicode 鍵盤通道）。請改用工具列的「貼上」，中文可以正常貼進去。",
@@ -3632,7 +3653,8 @@
     "dns_compare_group_not_found": "找不到這個 DNS 比對群組（可能已被刪除）。",
     "dns_server_not_found": "找不到指定的 DNS 伺服器（可能已被刪除）。",
     "dns_compare_group_name_taken": "已經有同名的 DNS 比對群組，請換一個名稱。",
-    "dns_compare_group_mixed_kinds": "Unbound（OPNsense）只存主機覆寫、不是完整的 zone，只能和其他 Unbound 放在同一個比對群組。"
+    "dns_compare_group_mixed_kinds": "Unbound（OPNsense）只存主機覆寫、不是完整的 zone，只能和其他 Unbound 放在同一個比對群組。",
+    "dns_winrm_https_unreachable": "連不到 Windows DNS 的 WinRM HTTPS（{host}:{port}）。Windows Server 預設只開 HTTP 5985：沒有另外建立 HTTPS 監聽的話，請到「管理 → 外部系統整合 → DNS」編輯這台，把 WinRM 連線改成 HTTP（5985）。（{reason}）"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -4462,7 +4484,7 @@
     "agent_lost_body": "最後一次回報是 {minutes} 分鐘前。代理不回報時，它負責的網段就完全沒有在掃描 —— 畫面上不會有任何異狀，資料只是停在原地。",
     "agent_back": "代理已恢復回報：{name}（{kind}）",
     "agent_back_body": "這個代理又開始回報了。",
-    "selfcheck_failed": "系統檢查未通過：{check}",
+    "selfcheck_failed": "系統診斷未通過：{check}",
     "selfcheck_failed_body": "{detail}",
     "selfcheck_ok": "系統檢查已恢復：{check}",
     "selfcheck_ok_body": "這一項又通過了。",
@@ -4600,7 +4622,7 @@
     "diag_rows": "{n} 筆",
     "pick_firewall": "選擇 FortiGate",
     "all_vdoms": "全部 VDOM",
-    "none_configured": "尚未設定 FortiGate —— 請到「管理 → 整合 FortiGate」新增。",
+    "none_configured": "尚未設定 FortiGate —— 請到「管理 → 外部系統整合 → FortiGate」新增。",
     "col_action": "動作",
     "col_src": "來源（介面／位址）",
     "col_dst": "目的（介面／位址）",
@@ -5354,7 +5376,7 @@
     "diag_rows": "{n} 筆",
     "pick_firewall": "選擇 Palo Alto",
     "all_vsys": "全部 vsys",
-    "none_configured": "尚未設定 Palo Alto —— 請到「管理 → 整合 Palo Alto」新增。",
+    "none_configured": "尚未設定 Palo Alto —— 請到「管理 → 外部系統整合 → Palo Alto」新增。",
     "col_application": "應用程式（App-ID）"
   },
   "checkpoint": {
@@ -5735,7 +5757,7 @@
     "d_backup_enc_off": "沒有設定備份加密密碼：備份檔裡同時有資料庫與解密金鑰（backend.env），拿到備份檔就等於拿到所有機密",
     "d_backup_enc_missed": "已設定備份加密，但最後一次備份沒有加密（升級前的備份腳本，或加密失敗）",
     "d_backup_enc_ok": "每日備份以設定的密碼加密（.jtbak）",
-    "f_backup_enc_off": "到「系統設定 → 每日備份加密」設定密碼"
+    "f_backup_enc_off": "到「管理 → 系統設定 → 每日備份加密」設定密碼"
   },
   "tool_verbs": {
     "get": "查詢",
@@ -5921,7 +5943,14 @@
     "sg_split_large": "{cidr} 有 {total} 個位址，代理每輪只掃前 {scanned} 個，後面的永遠掃不到。建議在 IPAM 切成較小的子網路，或分給多台代理。",
     "sg_heavy_interval": "背景的名稱查詢與 OS 指紋一直消化不完（待辦 {backlog} 台）。把 OS 指紋的週期拉長，或在大的子網路關掉它。",
     "chunk": "第 {chunk}／{rounds} 段",
-    "sg_rotating_large": "{cidr} 有 {total} 個位址，分 {rounds} 輪掃完一遍（約 {minutes} 分鐘）。上線判定門檻是 {threshold} 分鐘，超過的話主機會在兩次掃描之間被判成離線 —— 建議在 IPAM 切成較小的子網路，或分給多台代理。"
+    "sg_rotating_large": "{cidr} 有 {total} 個位址，分 {rounds} 輪掃完一遍（約 {minutes} 分鐘）。上線判定門檻是 {threshold} 分鐘，超過的話主機會在兩次掃描之間被判成離線：建議把這個子網路的掃描範圍改成「自動」（已知位址每輪掃、其餘在背景探索，代理需 1.18.0 以上，會自動更新），子網路不必切小。",
+    "known_tag": "已知 {known}",
+    "known_chunk": "已知 {known}，第 {chunk}／{rounds} 段",
+    "span_under_hour": "不到 1 小時",
+    "span_hours": "約 {n} 小時",
+    "span_days": "約 {n} 天",
+    "sg_rotating_known": "{cidr} 的已知位址有 {known} 個，超過代理單輪上限，分 {rounds} 輪掃完一遍（約 {minutes} 分鐘）。上線判定門檻是 {threshold} 分鐘，超過的話設備會在兩次掃描之間被判成離線：可以調高這台代理的單輪上限（代理主機上的 JT_IPAM_MAX_HOSTS，每輪會跟著變久），或把子網路分給多台代理。",
+    "sg_discovery_pass": "{cidr} 有 {total} 個位址：已知位址每輪都掃，其餘在背景探索，{span}找過一遍。這只影響發現新設備的速度，不影響上線狀態。"
   },
   "kea_dhcp": {
     "title": "Kea DHCP 伺服器",
@@ -7567,7 +7596,7 @@
   "recovery": {
     "title": "復原碼",
     "intro": "驗證器遺失或換手機時，可以用其中一組代替驗證碼登入，每組只能用一次。這些代碼只會顯示這一次，請存在安全的地方（例如密碼管理器）。",
-    "file_note": "每組只能用一次。用掉之後請到「個人設定 → 安全」重新產生。",
+    "file_note": "每組只能用一次。用掉之後請到右上角帳號選單的「偏好設定 → 安全」重新產生。",
     "download": "下載文字檔",
     "saved_check": "我已經把復原碼存在安全的地方",
     "continue": "繼續",

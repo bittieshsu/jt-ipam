@@ -55,7 +55,8 @@
                            :title="`${t('hostnameSrc.sources')}（${d.hostname_sources.length}）`"
                            name="names">
             <div v-for="h in d.hostname_sources" :key="h.source + h.hostname" class="inv-row">
-              <b>{{ h.source }}</b>：{{ h.hostname }}
+              <b>{{ sourceLabel(t, h.source) }}</b>：{{ h.hostname }}
+              <span v-if="h.reports?.length" style="opacity: .7">（{{ reportersText(h) }}）</span>
             </div>
           </n-collapse-item>
 
@@ -164,6 +165,9 @@ import { investigate } from "@/api/investigate";
 import { narrativeStream } from "@/api/investigate";
 import { TestIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
+import { reporterLabel } from "@/utils/hostnameReports";
+import { sourceLabel } from "@/utils/sourceLabel";
+import type { HostnameReport } from "@/api/hostname";
 import { lnmsStatusLabel, wazuhStatusLabel } from "@/utils/integrationStatus";
 import { renderMarkdown } from "@/utils/markdown";
 import { aiErrText } from "@/utils/wsError";
@@ -177,6 +181,12 @@ import ChangeValue from "@/components/ChangeValue.vue";
 const props = defineProps<{ show: boolean; ip: string }>();
 defineEmits<{ (e: "update:show", v: boolean): void }>();
 const { t, te, locale } = useI18n();
+
+/** 主機名稱是哪幾台回報的、最後一次什麼時候（客戶 2026-10-11：NetBIOS 名稱和主機名稱可以不同，要分得出來源） */
+function reportersText(h: { reports?: HostnameReport[] }): string {
+  return (h.reports ?? []).map((r) =>
+    `${reporterLabel(t, r)} · ${t("hostnameSrc.last_seen", { at: fmtDateTime(r.last_seen_at) })}`).join("；");
+}
 
 const d = ref<any>(null);
 const loading = ref(false);
@@ -265,7 +275,8 @@ function sectionsForReport(): ReportSection[] {
   return [
     ...plain(headList.value),
     { title: t("investigate.sec_names"),
-      lines: (v.hostname_sources ?? []).map((h: any) => `${h.source}：${h.hostname}`) },
+      lines: (v.hostname_sources ?? []).map((h: any) =>
+        `${sourceLabel(t, h.source)}：${h.hostname}${h.reports?.length ? `（${reportersText(h)}）` : ""}`) },
     { title: "OS", lines: osList.value },
     { title: t("investigate.sec_mon"), lines: monitorList.value },
     ...plain(midList.value),

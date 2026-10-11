@@ -37,6 +37,7 @@ import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { rustdeskOs } from "@/utils/rustdeskOs";
 import { sourceLabel } from "@/utils/sourceLabel";
+import { daysSince, differsFrom, reporterLabel } from "@/utils/hostnameReports";
 import { useCustomers } from "@/composables/useCustomers";
 import ConsoleEgressSelect from "@/components/ConsoleEgressSelect.vue";
 import { virtTagText } from "@/utils/virt";
@@ -142,7 +143,7 @@ async function loadRelations() {
 const relatedNat = ref<{ id: string; name: string; type: string; src_interface: string | null;
   src_port: number | null; dst_port: number | null; source_label: string | null;
   source_kind: string | null; source_firewall_id: string | null;
-  source_firewall_name?: string | null }[]>([]);
+  source_firewall_name?: string | null; disabled?: boolean }[]>([]);
 async function loadRelatedNat() {
   relatedNat.value = [];
   if (!props.address?.id) return;
@@ -1279,17 +1280,35 @@ async function remove() {
                 <template #trigger>
                   <n-tooltip :delay="200">
                     <template #trigger>
+                      <!-- 綠＝目前採用；黃＝名字和目前採用的不同（例如 NetBIOS 名稱與 DNS 主機名稱不一樣）；
+                           超過一天沒人回報的標「N 天前」，殘留的舊名字才看得出來 -->
                       <n-tag
                         size="small" :bordered="false"
-                        :type="o.hostname === props.address?.hostname ? 'success' : 'default'"
+                        :type="o.hostname === props.address?.hostname ? 'success'
+                          : differsFrom(o.hostname, props.address?.hostname) ? 'warning' : 'default'"
                         :closable="o.source === 'manual' && auth.me?.can_edit !== false"
                         :data-testid="`hostname-src-${o.source}`"
                         @close="clearingSource = o.source"
                       >
                         {{ labelSource(o.source) }}: {{ o.hostname }}
+                        <span v-if="o.source !== 'manual' && daysSince(o.last_seen_at ?? o.observed_at) >= 1"
+                              style="opacity: .7" :data-testid="`hostname-src-age-${o.source}`">
+                          · {{ t("hostnameSrc.days_ago", { n: daysSince(o.last_seen_at ?? o.observed_at) }) }}
+                        </span>
                       </n-tag>
                     </template>
-                    {{ t("hostnameSrc.observed_at", { at: fmtDateTime(o.observed_at) }) }}
+                    <div :data-testid="`hostname-src-tip-${o.source}`">
+                      <div v-if="differsFrom(o.hostname, props.address?.hostname)">
+                        {{ t("hostnameSrc.differs", { name: props.address?.hostname ?? "" }) }}
+                      </div>
+                      <div v-if="o.source === 'manual'">{{ t("hostnameSrc.manual_at", { at: fmtDateTime(o.observed_at) }) }}</div>
+                      <template v-else-if="o.reports?.length">
+                        <div v-for="(r, i) in o.reports" :key="i">
+                          {{ reporterLabel(t, r) }} · {{ r.hostname }} · {{ t("hostnameSrc.last_seen", { at: fmtDateTime(r.last_seen_at) }) }}
+                        </div>
+                      </template>
+                      <div v-else>{{ t("hostnameSrc.changed_at", { at: fmtDateTime(o.observed_at) }) }}</div>
+                    </div>
                   </n-tooltip>
                 </template>
                 {{ t("hostnameSrc.clear_manual_confirm", { name: o.hostname }) }}
@@ -1455,11 +1474,15 @@ async function remove() {
               </tr></thead>
               <tbody>
                 <tr v-for="n in relatedNat" :key="n.id" class="fw-row-link"
+                    :class="{ 'fw-row-disabled': n.disabled }"
                     :title="t('addresses.fw_row_goto')" @click="goTo(natLink(n))">
                   <td><n-tag size="tiny">{{ n.source_firewall_id ? n.source_kind : (n.source_label || "—") }}</n-tag></td>
                   <td class="nowrap">{{ n.source_firewall_name || "—" }}</td>
                   <td><n-tag size="tiny" type="info" :bordered="false">{{ n.type }}</n-tag></td>
-                  <td class="nat-ref-name nowrap">{{ n.name }}</td>
+                  <td class="nat-ref-name nowrap">
+                    {{ n.name }}
+                    <n-tag v-if="n.disabled" size="tiny" :bordered="false" data-testid="ip-nat-disabled">{{ t("nat.status_disabled") }}</n-tag>
+                  </td>
                   <td class="mono">{{ n.src_interface || "—" }}</td>
                   <td class="mono">{{ n.dst_port || "—" }}</td>
                 </tr>
@@ -1824,6 +1847,8 @@ async function remove() {
 .fw-table .fw-pass { color: #18a058; }
 .fw-table .fw-block { color: #d03050; }
 .fw-table tbody tr.fw-row-link { cursor: pointer; }
+/* 防火牆上停用的 NAT 規則：整列變淡（使用者 2026-10-11） */
+.fw-table tbody tr.fw-row-disabled > td { opacity: .5; }
 /* 三張表的前兩欄（廠牌、設備名稱）固定起始寬度，上下三區塊的欄位也對得齊 */
 .fw-table th:nth-child(1) { width: 80px; }
 .fw-table th:nth-child(2) { width: 110px; }

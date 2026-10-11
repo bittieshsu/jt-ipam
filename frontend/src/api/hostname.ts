@@ -1,10 +1,25 @@
 import { apiClient } from "@/api/client";
 
 // feature A：hostname 多來源優先序
+/** 某一台實例的回報（客戶 2026-10-11：要看得出名字是哪一台代理／哪個整合給的） */
+export interface HostnameReport {
+  /** scan_agent／integration／legacy（升級前的舊資料）／unknown（那台已刪除或認不得） */
+  kind: "scan_agent" | "integration" | "legacy" | "unknown";
+  label: string | null;
+  /** 子來源（例如 pfSense 的 lease／arp、AdGuard 的 clients／rewrites） */
+  detail: string | null;
+  hostname: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
 export interface HostnameObservation {
   source: string;
   hostname: string;
+  /** 只在名稱改變時才更新；「最後一次有人回報」看 last_seen_at */
   observed_at: string;
+  last_seen_at?: string;
+  reports?: HostnameReport[];
 }
 
 export interface HostnameSources {

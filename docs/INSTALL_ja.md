@@ -450,7 +450,7 @@ pfSense には REST API が標準で無いため、サードパーティの **pf
 1. pfSense → System → Package Manager で **pfSense-pkg-RESTAPI** を導入します
 2. System → REST API → Settings で認証方式に **API Key** を追加します（既定は BasicAuth のみです）
 3. System → REST API → Keys でキーを作成します
-4. jt-ipam → pfSense 連携 → 追加 で `https://pfsense` と API キーを入力します。自己署名証明書の場合は TLS の検証を無効にします
+4. jt-ipam の 管理 → 外部システム連携 → pfSense → 追加 で `https://pfsense` と API キーを入力します。自己署名証明書の場合は TLS の検証を無効にします
 5. DHCP / ARP / エイリアス / ルール / NAT を同期します（ベースパスは `/api/v2`、認証は `X-API-Key`）。pfSense は独自の設定ページを持ちます（OPNsense とは共用しません）
 
 ### Wazuh
@@ -575,7 +575,7 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 ### バックアップの暗号化
 
-バックアップのディレクトリにはデータベースのダンプ**と** `backend.env`（ダンプ内の機密を復号する鍵）が入っています。**システム設定 → 日次バックアップの暗号化** でバックアップのパスフレーズ（12 文字以上）を設定すると、毎日のバックアップを 1 つのファイル `/var/backups/jt-ipam/jt-ipam-<日付>.jtbak` にまとめて暗号化し（scrypt で導出した鍵、1 MiB 単位の AES-256-GCM。切り詰め・入れ替え・改ざんがあると復号できません）、平文のディレクトリは削除します。`last-run` に `encrypted=1` が記録され、パスフレーズが未設定の間はシステム診断と `doctor` が警告します。
+バックアップのディレクトリにはデータベースのダンプ**と** `backend.env`（ダンプ内の機密を復号する鍵）が入っています。**管理 → システム設定 → 日次バックアップの暗号化** でバックアップのパスフレーズ（12 文字以上）を設定すると、毎日のバックアップを 1 つのファイル `/var/backups/jt-ipam/jt-ipam-<日付>.jtbak` にまとめて暗号化し（scrypt で導出した鍵、1 MiB 単位の AES-256-GCM。切り詰め・入れ替え・改ざんがあると復号できません）、平文のディレクトリは削除します。`last-run` に `encrypted=1` が記録され、パスフレーズが未設定の間はシステム診断と `doctor` が警告します。
 
 パスフレーズはこのホスト以外（パスワードマネージャーなど）に保管してください。忘れるとバックアップを復号できません。変更後も、以前のバックアップには当時のパスフレーズが必要です。復号ツールは Python 3 と `cryptography`（`apt install python3-cryptography`）だけで動くため、jt-ipam を入れ直す前の新しいマシンでも使えます：
 
@@ -679,7 +679,7 @@ journalctl -u jt-ipam-backup -n 50         # バックアップ
 
 ### SIEM / Slack への転送
 
-バックエンドは Webhook の購読に対応しています。管理 → 設定 → 通知 で Webhook の URL を
+バックエンドは Webhook の購読に対応しています。管理 → Webhook で Webhook の URL を
 追加してください。`BACKEND_*` の env に Graylog の GELF エンドポイントを設定して、監査ログを
 すべて転送することもできます。
 
@@ -884,7 +884,7 @@ guacd は [Apache Guacamole](https://guacamole.apache.org/) のサーバー側�
 **必須コンポーネント**でもあります（0.6.49 から。既存の環境もアップグレードで切り替わります）。
 SSH も「管理 → システム設定」で切り替えられます。`install` が入れ、入れられなければそこで止まります。`upgrade` は未導入なら入れます。
 guacd が止まっている間、RDP と VNC は任意の組み込みエンジン（aardwolf、入っていれば）に戻り、`doctor`、
-「管理 → システム診断」、「バージョン情報 → 必須コンポーネント」が問題を表示します。
+「管理 → システムチェック」、「バージョン情報 → 必須コンポーネント」が問題を表示します。
 
 別途インストールが必要な理由：Debian は guacd の提供をやめ、Ubuntu にはリモートコード実行の脆弱性がある 1.3.0 しかありません。
 そのため jt-ipam はサポート中の OS バージョンごとにビルドを用意しています（Debian 12/13、Ubuntu 22.04/24.04/26.04）。

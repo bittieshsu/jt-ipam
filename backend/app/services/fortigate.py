@@ -602,6 +602,8 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
                 description=(str(d.get("comment")) if d.get("comment") else None),
                 source_origin=origin,
                 external_id=f"{vdom_label(vdom)}:{name}"[:200],
+                # FortiOS 7 的 VIP 有 status；舊版沒有這個欄位＝啟用
+                disabled=str(d.get("status") or "").strip().lower() == "disable",
             ))
             n += 1
         # IP pool → many_to_one（SNAT）

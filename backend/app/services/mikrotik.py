@@ -836,8 +836,8 @@ async def sync_nat(
         session.add(_rule_row(router.id, "nat", i, d))
     n = 0
     for i, d in enumerate(rows):
-        if _b(d.get("disabled")):
-            continue
+        # 停用的規則照樣帶進來、標成停用（使用者 2026-10-11：NAT 頁要看得到）；
+        # 曝險清單、防火牆反查、IP 變更評估本來就只看啟用的
         action = str(d.get("action") or "").strip().lower()
         dst_port = _first_port(d.get("dst-port"))
         to_port = _first_port(d.get("to-ports"))
@@ -859,6 +859,7 @@ async def sync_nat(
                 f"→ {d.get('to-addresses') or ''}:{d.get('to-ports') or ''}".strip(":"),
             ) if x.strip(": →")) or None,
             source_origin=origin, external_id=f"{action}:{i}"[:200],
+            disabled=_b(d.get("disabled")),
         ))
         n += 1
     return {"nat": n}

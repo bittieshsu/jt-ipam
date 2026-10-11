@@ -631,6 +631,32 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --no-pull</code></pre>
         </p>
       </article>
 
+      <article class="qa" id="qa-large-subnet">
+        <h3>
+          <span class="zh">大子網路（例如 10.0.0.0/8）一設定掃描，設備就都變離線、代理超載</span>
+          <span class="en">A large subnet (for example 10.0.0.0/8) makes every device go offline and the agent overloaded</span>
+          <span class="ja">大きなサブネット（例：10.0.0.0/8）をスキャンすると機器がすべてオフラインになり、エージェントが過負荷になる</span>
+        </h3>
+        <p>
+          <span class="zh">不要為了掃描把子網路切小，照實際遮罩登記就好。子網路編輯的「掃描範圍」保持「自動」：4,096 個位址以內照舊全掃；更大的子網路，已登記的 IP 與最近 7 天 ARP 看過的位址每一輪都掃（上線狀態準確），其餘位址每輪在背景探索 1,024 個來找新設備，不算進負載。需要掃描代理 1.18.0 以上（代理會自動更新）；舊代理會照舊整段輪替，負載面板會提示。如果選了「整個子網路」，/8 每輪只掃得到 4,096 個，繞一圈要好幾天，設備會在兩次掃描之間被判成離線。</span>
+          <span class="en">Do not split the subnet for scanning; register it with its real mask. Keep the subnet's "Scan scope" at Automatic: subnets up to 4,096 addresses are swept as before; for larger ones, registered IPs and addresses seen in ARP in the last 7 days are scanned every cycle (so online status stays accurate) and the rest are explored in the background, 1,024 per cycle, to find new devices, without counting toward the load. This needs scan agent 1.18.0 or later (agents update themselves); older agents keep rotating through the whole subnet and the load panel says so. With "Whole subnet", a /8 is covered 4,096 addresses per cycle, so one pass takes days and devices show offline between scans.</span>
+          <span class="ja">スキャンのためにサブネットを分割する必要はありません。実際のマスクで登録してください。サブネット編集の「スキャン範囲」は「自動」のままにします：4,096 アドレス以下は従来どおり全スキャン、それより大きいサブネットは登録済みの IP と過去 7 日間に ARP で見えたアドレスを毎周スキャンし（オンライン状態は正確）、残りは毎周 1,024 個ずつバックグラウンドで探索して新しい機器を見つけます（負荷には数えません）。スキャンエージェント 1.18.0 以降が必要です（自動更新されます）。古いエージェントはサブネット全体を分割巡回し、負荷パネルにその旨が表示されます。「サブネット全体」を選ぶと /8 は毎周 4,096 個しかスキャンできず、1 巡に数日かかるため、スキャンの間に機器がオフラインと判定されます。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-hostname-source">
+        <h3>
+          <span class="zh">主機名稱是哪裡來的？NetBIOS 名稱和主機名稱不一樣</span>
+          <span class="en">Where did this hostname come from? The NetBIOS name differs from the host name</span>
+          <span class="ja">このホスト名はどこから来たのか？NetBIOS 名とホスト名が違う</span>
+        </h3>
+        <p>
+          <span class="zh">IP 頁的「主機名稱來源」把每個來源分開列出，滑過標籤看得到是哪一台掃描代理或哪個整合回報的、最後一次什麼時候看到；超過一天沒人回報的會標出幾天前，和目前採用的名稱不同的標成黃色。實際顯示哪一個由「管理 → 名稱/ARP 來源順序」決定，也可以在 IP 上固定某個來源。掃描代理只有勾了 rdns、netbios、mdns 才會查名字（只開 ICMP、ARP 時名字一定來自整合）；NetBIOS 名稱最多 15 字而且全大寫，和 DNS 名稱可以不同；mDNS 只在同一個二層網段有效，Windows 要 Server 2019、Windows 10 1703 之後才會回應；NetBIOS 是 UDP 137，Windows 防火牆的「檔案及印表機共用（NB-Name-In）」預設只允許本機子網路。</span>
+          <span class="en">The IP page's hostname sources list every source separately; hover a tag to see which scan agent or integration reported it and when it was last seen. Names nobody has reported for a day or more show how many days ago, and names that differ from the one in use are highlighted. Which one is shown is decided by Admin → Name / ARP source order, and you can pin a source on an IP. Scan agents only look up names when rdns, netbios or mdns is ticked (with only ICMP and ARP, names come from integrations). A NetBIOS name is at most 15 characters, upper case, and can differ from the DNS name; mDNS only works within one layer-2 segment and Windows answers it from Server 2019 and Windows 10 1703 on; NetBIOS uses UDP 137, which the Windows Firewall rule "File and Printer Sharing (NB-Name-In)" allows only from the local subnet by default.</span>
+          <span class="ja">IP ページの「ホスト名のソース」はソースごとに分けて表示します。タグにカーソルを合わせると、どのスキャンエージェントまたは連携が報告したか、最後に確認した日時が分かります。1 日以上報告のない名前は何日前かを表示し、使用中の名前と異なるものは黄色で示します。表示される名前は「管理 → 名称/ARP のソース順」で決まり、IP ごとにソースを固定することもできます。スキャンエージェントが名前を調べるのは rdns・netbios・mdns を選んだときだけです（ICMP と ARP のみなら名前は連携から来ています）。NetBIOS 名は最大 15 文字・大文字で、DNS 名と異なることがあります。mDNS は同じレイヤー 2 セグメント内でのみ有効で、Windows は Server 2019・Windows 10 1703 以降で応答します。NetBIOS は UDP 137 を使い、Windows ファイアウォールの「ファイルとプリンターの共有（NB-Name-In）」は既定でローカルサブネットからのみ許可します。</span>
+        </p>
+      </article>
+
       <article class="qa" id="qa-done">
         <h3>
           <span class="zh">腳本說 Done，但好像什麼都沒在跑</span>
@@ -818,7 +844,7 @@ echo "$ADMIN_PW"</code></pre>
           <span class="ja">アップグレード後、特定の連携だけ同期が失敗し続ける</span>
         </h3>
         <p>
-          <span class="zh">單一整合失敗不會中斷其他整合；錯誤會寫回該筆整合的 <code>last_error</code>，也會在通知裡出現。先看管理 → 系統檢查，再看同步紀錄：</span>
+          <span class="zh">單一整合失敗不會中斷其他整合；錯誤會寫回該筆整合的 <code>last_error</code>，也會在通知裡出現。先看「管理 → 系統診斷」，再看同步紀錄：</span>
           <span class="en">One failing integration no longer interrupts the others; the error is written back to that instance's <code>last_error</code> and raised as a notification. Check Admin → System check first, then the sync log:</span>
           <span class="ja">ひとつの連携が失敗しても他は止まりません。エラーはその連携の <code>last_error</code> に書き戻され、通知としても上がります。まず 管理 → システムチェック を確認し、次に同期ログを見てください。</span>
         </p>
@@ -923,9 +949,9 @@ sudo sysctl --system</code></pre>
           <span class="ja">アップグレード後に全員がログアウトされ、ログインし直す必要がある</span>
         </h3>
         <p>
-          <span class="zh">這是預期的，只會發生一次：1.0.6 起登入改成伺服器端的工作階段：更新用的權杖只放在瀏覽器碰不到的 HttpOnly cookie，存取權杖只留在這個分頁。舊版放在瀏覽器儲存空間裡的權杖不再被接受，最晚 15 分鐘後（舊的存取權杖到期）會回到登入頁。重新登入一次即可；之後每個人可以在「個人設定 → 安全 → 登入中的裝置」看到並登出自己在其他地方的登入，管理員可以在「使用者」頁強制某人登出。</span>
-          <span class="en">This is expected and happens once: from 1.0.6 sign-in uses server-side sessions: the refresh token lives only in an HttpOnly cookie that page scripts cannot read, and the access token stays in the tab. Tokens that older versions kept in browser storage are no longer accepted, so within 15 minutes (when the old access token expires) people land on the sign-in page. Signing in once is enough; afterwards everyone can see and sign out their other sign-ins under Settings → Security → Signed-in devices, and administrators can sign someone out everywhere from Users.</span>
-          <span class="ja">想定どおりの動作で、一度だけ起こります。1.0.6 からログインはサーバー側のセッションになりました。更新用トークンはページのスクリプトから読めない HttpOnly cookie にだけ置かれ、アクセストークンはそのタブの中にだけ残ります。旧バージョンがブラウザのストレージに置いていたトークンは受け付けないため、遅くとも 15 分後（古いアクセストークンの期限）にログイン画面に戻ります。一度ログインし直せば十分です。以後は各自が「設定 → セキュリティ → ログイン中のデバイス」で他の場所のログインを確認・ログアウトでき、管理者は「ユーザー」ページから強制ログアウトできます。</span>
+          <span class="zh">這是預期的，只會發生一次：1.0.6 起登入改成伺服器端的工作階段：更新用的權杖只放在瀏覽器碰不到的 HttpOnly cookie，存取權杖只留在這個分頁。舊版放在瀏覽器儲存空間裡的權杖不再被接受，最晚 15 分鐘後（舊的存取權杖到期）會回到登入頁。重新登入一次即可；之後每個人可以在右上角帳號選單的「偏好設定 → 安全 → 登入中的裝置」看到並登出自己在其他地方的登入，管理員可以在「使用者」頁強制某人登出。</span>
+          <span class="en">This is expected and happens once: from 1.0.6 sign-in uses server-side sessions: the refresh token lives only in an HttpOnly cookie that page scripts cannot read, and the access token stays in the tab. Tokens that older versions kept in browser storage are no longer accepted, so within 15 minutes (when the old access token expires) people land on the sign-in page. Signing in once is enough; afterwards everyone can see and sign out their other sign-ins in the account menu (top right) under Preferences → Security → Signed-in devices, and administrators can sign someone out everywhere from Users.</span>
+          <span class="ja">想定どおりの動作で、一度だけ起こります。1.0.6 からログインはサーバー側のセッションになりました。更新用トークンはページのスクリプトから読めない HttpOnly cookie にだけ置かれ、アクセストークンはそのタブの中にだけ残ります。旧バージョンがブラウザのストレージに置いていたトークンは受け付けないため、遅くとも 15 分後（古いアクセストークンの期限）にログイン画面に戻ります。一度ログインし直せば十分です。以後は各自が右上のアカウントメニューの「設定 → セキュリティ → ログイン中のデバイス」で他の場所のログインを確認・ログアウトでき、管理者は「ユーザー」ページから強制ログアウトできます。</span>
         </p>
       </article>
 
@@ -949,9 +975,9 @@ sudo sysctl --system</code></pre>
           <span class="ja">システム診断で「バックアップの暗号化」が未設定と警告される</span>
         </h3>
         <p>
-          <span class="zh">每日備份裡同時有資料庫與解密資料庫內機密的金鑰（backend.env），拿到備份檔就等於拿到所有整合的密碼。到「系統設定 → 每日備份加密」設定密碼（至少 12 個字元），之後每天的備份會整包加密成一個 <code>.jtbak</code> 檔、明文刪除。密碼忘記就解不開，請存在這台主機以外的地方。設定了卻仍警告「最後一次備份沒有加密」，是 <code>/usr/local/bin</code> 裡還是升級前的備份腳本（再跑一次升級），或加密失敗（看 <code>journalctl -u jt-ipam-backup</code>）。還原步驟見安裝文件的「備份與還原」一節。</span>
-          <span class="en">The daily backup holds both the database and the key that decrypts the secrets inside it (backend.env), so anyone with the backup file has every integration password. Set a passphrase (at least 12 characters) under System Settings → Daily backup encryption; from then on each day's backup becomes one encrypted <code>.jtbak</code> file and the plain copy is deleted. A forgotten passphrase cannot be recovered, so keep it somewhere other than this host. If it is set but the warning says the last backup was not encrypted, <code>/usr/local/bin</code> still has the pre-upgrade backup script (run the upgrade again) or encryption failed (see <code>journalctl -u jt-ipam-backup</code>). Restoring is described in the Backup &amp; restore section of the install guide.</span>
-          <span class="ja">毎日のバックアップにはデータベースと、その中の機密を復号する鍵（backend.env）の両方が入っているため、バックアップファイルを手に入れればすべての連携のパスワードが手に入ります。「システム設定 → 日次バックアップの暗号化」でパスフレーズ（12 文字以上）を設定すると、以後は毎日のバックアップが 1 つの暗号化された <code>.jtbak</code> ファイルになり、平文は削除されます。パスフレーズを忘れると復号できないので、このホスト以外の場所に保管してください。設定済みなのに「最後のバックアップが暗号化されていない」と出る場合は、<code>/usr/local/bin</code> にアップグレード前のバックアップスクリプトが残っている（アップグレードをもう一度実行）か、暗号化に失敗しています（<code>journalctl -u jt-ipam-backup</code> を確認）。復元手順はインストールガイドの「バックアップと復元」を参照してください。</span>
+          <span class="zh">每日備份裡同時有資料庫與解密資料庫內機密的金鑰（backend.env），拿到備份檔就等於拿到所有整合的密碼。到「管理 → 系統設定 → 每日備份加密」設定密碼（至少 12 個字元），之後每天的備份會整包加密成一個 <code>.jtbak</code> 檔、明文刪除。密碼忘記就解不開，請存在這台主機以外的地方。設定了卻仍警告「最後一次備份沒有加密」，是 <code>/usr/local/bin</code> 裡還是升級前的備份腳本（再跑一次升級），或加密失敗（看 <code>journalctl -u jt-ipam-backup</code>）。還原步驟見安裝文件的「備份與還原」一節。</span>
+          <span class="en">The daily backup holds both the database and the key that decrypts the secrets inside it (backend.env), so anyone with the backup file has every integration password. Set a passphrase (at least 12 characters) under Admin → System Settings → Daily backup encryption; from then on each day's backup becomes one encrypted <code>.jtbak</code> file and the plain copy is deleted. A forgotten passphrase cannot be recovered, so keep it somewhere other than this host. If it is set but the warning says the last backup was not encrypted, <code>/usr/local/bin</code> still has the pre-upgrade backup script (run the upgrade again) or encryption failed (see <code>journalctl -u jt-ipam-backup</code>). Restoring is described in the Backup &amp; restore section of the install guide.</span>
+          <span class="ja">毎日のバックアップにはデータベースと、その中の機密を復号する鍵（backend.env）の両方が入っているため、バックアップファイルを手に入れればすべての連携のパスワードが手に入ります。「管理 → システム設定 → 日次バックアップの暗号化」でパスフレーズ（12 文字以上）を設定すると、以後は毎日のバックアップが 1 つの暗号化された <code>.jtbak</code> ファイルになり、平文は削除されます。パスフレーズを忘れると復号できないので、このホスト以外の場所に保管してください。設定済みなのに「最後のバックアップが暗号化されていない」と出る場合は、<code>/usr/local/bin</code> にアップグレード前のバックアップスクリプトが残っている（アップグレードをもう一度実行）か、暗号化に失敗しています（<code>journalctl -u jt-ipam-backup</code> を確認）。復元手順はインストールガイドの「バックアップと復元」を参照してください。</span>
         </p>
       </article>
     </section>
@@ -967,9 +993,9 @@ sudo sysctl --system</code></pre>
           <span class="ja">Linux への RDP（xrdp/GNOME リモートログイン）で、正しい資格情報なのに認証失敗になる</span>
         </h3>
         <p>
-          <span class="zh">這只發生在 <strong>aardwolf 備用引擎</strong>：它在 NTLM 認證時不送 MIC（訊息完整性碼），而 FreeRDP 的<strong>伺服器端</strong>會強制檢查它，xrdp 與 gnome-remote-desktop 用的正是 FreeRDP 伺服器，於是一律回「帳號或密碼錯誤」。請到 管理 → 系統設定 → 主控台，把 RDP 連線引擎改回預設的 <strong>guacd</strong>（2026-09-27 起的預設，內部用 FreeRDP 用戶端）或 <strong>FreeRDP</strong>。連 Windows 目標時每個引擎都可以。</span>
-          <span class="en">This only happens with the <strong>aardwolf fallback engine</strong>: it does not send the NTLM message integrity code (MIC), and the FreeRDP <strong>server</strong> enforces it; xrdp and gnome-remote-desktop are both built on that server, so they answer with a logon failure regardless of the password. Go to Admin → System settings → Console and switch the RDP engine back to the default <strong>guacd</strong> (the default since 2026-09-27, which uses the FreeRDP client) or to <strong>FreeRDP</strong>. Every engine works against Windows targets.</span>
-          <span class="ja">これは <strong>aardwolf 予備エンジン</strong>でのみ起きます。aardwolf は NTLM の MIC（メッセージ整合性コード）を送らず、FreeRDP の<strong>サーバー側</strong>はそれを必須としています。xrdp と gnome-remote-desktop はどちらもそのサーバーを使っているため、パスワードが正しくてもログオン失敗になります。管理 → システム設定 → コンソール で RDP 接続エンジンを既定の <strong>guacd</strong>（2026-09-27 からの既定、内部で FreeRDP クライアントを使用）または <strong>FreeRDP</strong> に戻してください。Windows が相手ならどのエンジンでも接続できます。</span>
+          <span class="zh">這只發生在 <strong>aardwolf 備用引擎</strong>：它在 NTLM 認證時不送 MIC（訊息完整性碼），而 FreeRDP 的<strong>伺服器端</strong>會強制檢查它，xrdp 與 gnome-remote-desktop 用的正是 FreeRDP 伺服器，於是一律回「帳號或密碼錯誤」。請到「管理 → 系統設定 → RDP 連線引擎」改回預設的 <strong>guacd</strong>（2026-09-27 起的預設，內部用 FreeRDP 用戶端）或 <strong>FreeRDP</strong>。連 Windows 目標時每個引擎都可以。</span>
+          <span class="en">This only happens with the <strong>aardwolf fallback engine</strong>: it does not send the NTLM message integrity code (MIC), and the FreeRDP <strong>server</strong> enforces it; xrdp and gnome-remote-desktop are both built on that server, so they answer with a logon failure regardless of the password. Go to Admin → System Settings → RDP connection engine and switch it back to the default <strong>guacd</strong> (the default since 2026-09-27, which uses the FreeRDP client) or to <strong>FreeRDP</strong>. Every engine works against Windows targets.</span>
+          <span class="ja">これは <strong>aardwolf 予備エンジン</strong>でのみ起きます。aardwolf は NTLM の MIC（メッセージ整合性コード）を送らず、FreeRDP の<strong>サーバー側</strong>はそれを必須としています。xrdp と gnome-remote-desktop はどちらもそのサーバーを使っているため、パスワードが正しくてもログオン失敗になります。「管理 → システム設定 → RDP 接続エンジン」で既定の <strong>guacd</strong>（2026-09-27 からの既定、内部で FreeRDP クライアントを使用）または <strong>FreeRDP</strong> に戻してください。Windows が相手ならどのエンジンでも接続できます。</span>
         </p>
         <p class="note">
           <span class="zh">FreeRDP 引擎需要額外的系統套件（約 150 MB），設定頁會列出缺哪些與安裝指令。也可以在安裝時加 <code>--with-freerdp</code>；升級時若已選用 FreeRDP 會自動補上。沒選用 FreeRDP 時，版本資訊頁會把這組套件標成「未選用此引擎」，不算缺少。Ubuntu 25.10 以後只有 <code>freerdp3-x11</code>。</span>

@@ -303,8 +303,8 @@ cap the file size. What can break large transfers is a layer that:
 - caps the volume or lifetime of one WebSocket connection, or drops idle ones in under 30 s
   (jt-ipam sends a keep-alive every 20 s).
 
-You do not have to work this out by reading configs: **Admin → System settings → SFTP per-file
-transfer limit** runs a real transfer test from your browser through every layer (edge proxy, the
+You do not have to work this out by reading configs:
+**Admin → System Settings → SFTP per-file transfer limit** runs a real transfer test from your browser through every layer (edge proxy, the
 IPAM nginx, the backend) whenever the limit is raised above the default, and says which kind of limit
 got in the way. It also estimates how long a file of the configured size would take at the measured
 speed.
@@ -536,7 +536,7 @@ Every run, successful or not, writes `/var/backups/jt-ipam/last-run`: the result
 
 ### Backup encryption
 
-The backup directory holds the database dump **and** `backend.env`, which contains the key that decrypts the secrets in that dump. Set a backup passphrase under **System settings → Daily backup encryption** (at least 12 characters): from then on each day's backup is packed and encrypted into one file, `/var/backups/jt-ipam/jt-ipam-<date>.jtbak` (scrypt-derived key, AES-256-GCM in 1 MiB chunks; a truncated, reordered or modified file fails to decrypt), and the plain directory is removed. `last-run` records `encrypted=1`; while no passphrase is set, the diagnostics page and `doctor` warn.
+The backup directory holds the database dump **and** `backend.env`, which contains the key that decrypts the secrets in that dump. Set a backup passphrase under **Admin → System Settings → Daily backup encryption** (at least 12 characters): from then on each day's backup is packed and encrypted into one file, `/var/backups/jt-ipam/jt-ipam-<date>.jtbak` (scrypt-derived key, AES-256-GCM in 1 MiB chunks; a truncated, reordered or modified file fails to decrypt), and the plain directory is removed. `last-run` records `encrypted=1`; while no passphrase is set, the diagnostics page and `doctor` warn.
 
 Keep the passphrase somewhere other than this host (a password manager): without it the backups cannot be decrypted. After changing it, older backups still need the passphrase they were made with. The decrypt tool needs only Python 3 and `cryptography` (`apt install python3-cryptography`), so it also works on a fresh machine before jt-ipam is reinstalled:
 
@@ -819,7 +819,7 @@ an older nvm Node is ignored.
 
 ## RDP console engines
 
-The browser RDP console can use one of three engines, selected under **Admin -> System settings**:
+The browser RDP console can use one of three engines, selected under **Admin → System Settings**:
 
 - **guacd** (default, required) -- see the next section. The most compatible, and no virtual display.
 - **aardwolf** (optional) -- a pure-Python client, now only a fallback used while guacd is down. It
@@ -848,9 +848,9 @@ costs 334 ms per frame, which caps the console at under 3 fps.
 guacd is the server side of [Apache Guacamole](https://guacamole.apache.org/). It is the
 **default engine for the RDP and VNC consoles** and a **required component** (since 0.6.49;
 upgrading switches existing installs to it too), and SSH can be switched to it under
-**Admin -> System settings**. `install` puts it in place and stops if it cannot; `upgrade`
+**Admin → System Settings**. `install` puts it in place and stops if it cannot; `upgrade`
 installs it when missing. While guacd is down, RDP and VNC fall back to the optional built-in
-engine (aardwolf) where that is installed, and `doctor`, **Admin -> System check** and
+engine (aardwolf) where that is installed, and `doctor`, **Admin → System check** and
 **Version info -> Required components** report the problem.
 
 Why a separate install: Debian no longer ships guacd, and Ubuntu only has 1.3.0, which has known
@@ -874,7 +874,7 @@ sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --guacd-tarball ./jt-ipam-guacd-...
   still confirmed the first time and pinned, and guacd must match the pinned key.
 - SSH through guacd: the terminal is drawn on the server. Copy and paste with Ctrl+Shift+C /
   Ctrl+Shift+V (⌘C / ⌘V on a Mac). Chinese/Japanese input methods work.
-- `jt-ipam.sh doctor` and **Admin -> System check** report whether guacd is running and whether each
+- `jt-ipam.sh doctor` and **Admin → System check** report whether guacd is running and whether each
   protocol set to it is supported.
 
 Licensing: guacd is Apache-2.0, and each package includes its LICENSE, NOTICE and a SOURCE file

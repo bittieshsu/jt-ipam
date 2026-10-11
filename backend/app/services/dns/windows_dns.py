@@ -102,6 +102,17 @@ class WindowsDNSAdapter(DNSAdapter):
                     f"Windows DNS WinRM certificate not trusted: {exc}", code="dns_winrm_cert",
                     reason=str(exc)[-300:],
                 ) from exc
+            text = str(exc)
+            if self.use_ssl and re.search(
+                    r"ConnectTimeout|Max retries exceeded|Connection refused|NewConnectionError|timed out", text):
+                # 客戶 2026-10-11：Windows Server 預設只開 HTTP 5985，1.0.5 以前建立的連線沿用 HTTPS 5986 →
+                # 一長串連線逾時看不出該怎麼改。直接講：沒有另外建立 HTTPS 監聽就改成 HTTP 5985
+                raise DNSAdapterError(
+                    f"Windows DNS WinRM HTTPS {self.host}:{self.port} is unreachable. Windows Server only opens "
+                    f"HTTP 5985 by default: unless an HTTPS listener was set up, edit this server under "
+                    f"Admin → External integrations → DNS and switch WinRM to HTTP (5985). ({text[-200:]})",
+                    code="dns_winrm_https_unreachable", host=self.host, port=self.port, reason=text[-300:],
+                ) from exc
             raise DNSAdapterError(
                 f"Windows DNS WinRM connection failed: {exc.__class__.__name__}: {exc}"
             ) from exc

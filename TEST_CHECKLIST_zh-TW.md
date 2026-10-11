@@ -237,6 +237,11 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 ## 5k. 文件與網站：**每次發版都要跑**（使用者 2026-10-08：「該更新的都要一併更新到」「以後這些都要檢查，列入發版前作業跟守門」）
 
 - [ ] `tests/test_docs_site_coverage.py` 綠：網站每頁三語段落數一致、每個整合的產品名稱都在功能清單/首頁/三份 README、主要功能在首頁與 README、文件沒有全形「/」與破折號
+- [ ] **說明裡的選單路徑對得上實際選單**（`tests/test_nav_paths.py`，使用者 2026-10-11：工具頁 GeoIP 提示寫的路徑選單裡根本沒有，實際是「管理 → 系統設定」）：
+  三語介面文字、後端給使用者看的訊息、文件網站、README、測試清單裡，以「管理」或「進階」開頭的選單路徑，每一段都要和選單一字不差
+  （含大小寫，同一條路徑同一種語言；文件用半形斜線視為相同）；系統設定、外部系統整合底下的項目要從「管理」寫起；
+  外部產品自己的選單（Proxmox、OPNsense、Graylog、RustDesk…）照那個產品的原文，不翻譯。**改選單名稱或移動選單時一定要跑**，
+  新寫的說明也要寫完整路徑，例如「管理 → 外部系統整合 → OPNsense」
 - [ ] 這次新增或改變的功能：`docs/features.html` 有一行（一項一行）、大功能在 `docs/index.html` 有卡片並加進守門測試的 MAJOR_FEATURES、三份 README 的功能說明跟上
 - [ ] 新的 API：`docs/api.html`（三語，`tests/test_api_manual_coverage.py`）；新的資料表：三份 DATA_MODEL；新的系統需求或套件：三份 INSTALL 與 README 的需求段落
 - [ ] 這次修掉、會讓人卡住的問題：`docs/troubleshooting.html` 補一則（症狀、原因、怎麼處理），並檢查既有條目有沒有因為這次的改動而過時（例如預設值改了）
@@ -491,7 +496,7 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   說明原因）；出口指著舊代理時換掃描代理會被擋。升級會補上 nginx 設定（`grep scan-agents/relay /etc/nginx/sites-available/jt-ipam`、
   `nginx -t`）
 - [ ] **停用的跳板拒絕連線**（`jump_host_disabled`），不改用直連；IP 編輯存得到 IP 層級的跳板或代理
-- [ ] **依 LibreNMS ARP 表自動建立 IP**（#48，`tests/test_librenms_arp_autocreate.py`）：LibreNMS 整合 → 編輯 →
+- [ ] **依 LibreNMS ARP 表自動建立 IP**（#48，`tests/test_librenms_arp_autocreate.py`）：管理 → 外部系統整合 → LibreNMS → 編輯 →
   「依 ARP 表自動建立 IP」新裝與升級的站台都是關的。打開 → 出現警語（不再列入未授權 IP、不算上線證據）與兩個
   選項：「需要交換器 MAC 表佐證」（開）、「略過 DHCP 動態範圍」（開）；取消第一個會改顯示「只看 ARP」的警語。
   同步 → 新位址來源為「LibreNMS ARP」、有自動收錄標記、有 MAC、變更記錄有「新增」；背景作業摘要寫「依 ARP 建立
@@ -506,6 +511,11 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
 - [ ] 掃描代理 / 同步作業：頁面正常、無 console error
 - [ ] **表格欄寬**（`src/utils/__tests__/resizableColumns.test.ts`）：寬螢幕（1800px）上 OCS 代理清單、稽核記錄、作業歷史的日期欄不換行，多出來的寬度各欄按比例分；
   拉寬一欄只有那一欄變、其他欄（含剛拉過的）不動，右邊留白；拉到比畫面寬時可以橫向捲動；手機版巡檢沒有橫向溢出
+- [ ] **NAT 規則的啟用或停用**（`tests/test_nat_disabled_sync.py`、`tests/test_fortigate.py`，使用者 2026-10-11）：NAT 頁有「狀態」欄（啟用、已停用，可排序、
+  可匯出）與狀態篩選，停用的那一列整列變淡、名稱加刪除線（操作欄維持原樣）；編輯表單的開關叫「啟用」（預設開）；防火牆上停用的規則同步成停用：
+  OPNsense（port forward 看 disabled、Outbound NAT 與 1:1 看 enabled）、pfSense、FortiGate（VIP 的 status）、Palo Alto（disabled: yes）、
+  Check Point、MikroTik（以前直接略過停用的規則，現在照樣帶進來）；停用的規則不出現在對外曝露、防火牆反查，IP 變更評估標成停用。
+  表單裡並排的欄位（來源埠、目的埠、NAT 反射那幾排）下方要留和一般欄位一樣的間距，下一個欄位標題不可以貼上來
 - [ ] **操作欄固定在右側**（客戶 2026-10-10：用滑鼠要一直左右捲；`src/utils/__tests__/resizableColumns.test.ts`、
   `e2e/desktop-sticky-actions.spec.ts` 走過每一頁）：桌面寬度（768px 以上）會左右捲的表格，最後一欄「操作」固定在右側，
   捲到最左邊也按得到；手機寬度不固定；不會左右捲的表格不受影響；欄寬拖拉、欄位選擇與排序照常
@@ -1081,7 +1091,11 @@ IPv6 反解 zone 不被當成 IPv4）、`frontend/e2e/dns-compare-groups.spec.ts
 - [ ] **換設備時清掉上一台報的名稱**（`test_mac_change_forgets_names_reported_by_the_previous_device`）：IP 有 NetBIOS/mDNS 名稱時讓 MAC 換成另一台，
   「主機名稱來源」裡的 NetBIOS、mDNS、Wazuh、OCS、RustDesk 消失，手動、DNS、防火牆、DHCP 保留；同一個 MAC 再回報一次不清；第一次填 MAC 不清
 - [ ] **手動主機名稱可刪**（`e2e/hostname-source-clear.spec.ts`）：IP 詳細資料「主機名稱來源」的「手動」有 ×，按下先確認、刪完主機名稱依優先序重算、
-  稽核有一筆；其他來源沒有 ×；唯讀帳號看不到 ×；滑過每個來源顯示「最後回報：時間」
+  稽核有一筆；其他來源沒有 ×；唯讀帳號看不到 ×；滑過「手動」顯示「輸入時間：時間」
+- [ ] **主機名稱來源看得出是誰回報的**（`e2e/hostname-source-reporters.spec.ts`、`tests/test_hostname_source_reports.py`）：滑過來源列出每一台
+  回報的掃描代理或整合名稱與「最後看到 時間」（最後一次回報，不是名稱最後改變）；升級前的舊資料、已刪除的回報者照實說，不拿 id 猜名字；
+  超過一天沒人回報的標籤上顯示「N 天前」；短名和目前採用的不同（NetBIOS 與 DNS）標黃色、提示框說明，大小寫或 FQDN 與短名的差別不算；
+  IP 調查也列出回報者；新增主機名稱來源要加進 `ORIGIN_MODELS`（守門測試）
 - [ ] **同一個 IP 好幾個 MAC 不來回換**（`test_several_devices_disagreeing_on_a_mac_decide_once_per_sync`、`test_mac_run_decides_once_whatever_the_report_order`、
   `test_two_macs_for_one_ip_in_a_batch_do_not_flip`）：LibreNMS 三台回報 A、一台回報 B → A，連跑三輪不再記異動；一樣多且目前的在其中 → 不動；
   一樣多且都不是目前的 → 不換；Proxmox 兩台 guest 同一個 IP 不管回報順序都不換；同步後 `ip_change_log` 同一個 IP 不可以每輪都有「MAC 變更」
@@ -1159,8 +1173,13 @@ IPv6 反解 zone 不被當成 IPv4）、`frontend/e2e/dns-compare-groups.spec.ts
 - [ ] 每輪統計寫進 `scan_agents.last_cycle` 與 `scan_agent_cycles`（保留 7 天）；掃描代理頁「負載」欄與面板顯示得出來
 - [ ] 超載通知：連續 3 輪才發、只發一次、恢復時再發一次；建議內容要能照做（移哪幾個子網路、哪個子網路特別慢、哪個被截斷）
 - [ ] 不自動搬子網路：面板上的「移到別的代理」要管理員自己按，並提醒那台代理要在同一個網段
-- [ ] **超過 4,096 個位址的子網路分段輪替掃描**：指派一個 /19，每一輪掃下一段、掃到最後再從頭開始（以前永遠只掃第一段）；
-  掃完一整遍比上線門檻還慢時算超載，並建議拆分子網路（`tests/test_agent_scan_split.py`）
+- [ ] **掃描範圍「整個子網路」時大子網路分段輪替**：把一個 /19 設成「整個子網路」，每一輪掃下一段 4,096 個、掃到最後再從頭開始（以前永遠只掃第一段）；
+  掃完一整遍比上線門檻還慢時算超載，建議改成「自動」而不是拆分子網路（`tests/test_agent_scan_split.py`）
+- [ ] **「自動」時大子網路兩層掃描**（`tests/test_scan_plan.py`、`e2e/subnet-scan-scope.spec.ts`；代理 1.18.0、migration 0205）：超過 4,096 個位址的
+  子網路（拿 /16 或客戶的 /8 試）在代理輪詢拿到掃描計畫：已登記的 IP 加上 7 天內 ARP 看過的位址每輪都掃，其餘每輪探索 1,024 個、已知的不重複探測；
+  兩輪之間設備不會變離線；4,096 個以內與 IPv6 沒有計畫（照舊全掃）；「只掃已知位址」不送探索；「只掃位址範圍」掃合併後的範圍（沒設定＝不掃）；
+  「整個子網路」不送計畫；負載面板子網路標「已知 N」、只拿已知位址判斷超載、顯示探索繞一圈要多久；舊代理不認得計畫、照舊全掃；
+  子網路表單只在啟用掃描時顯示掃描範圍，說明跟著選項與子網路大小變；升級後既有子網路都是「自動」
 
 ## 7e. 稽核鏈的錨定：**只要動到稽核寫入、錨定或同步排程就要跑**
 
@@ -1354,12 +1373,12 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 - [ ] **IP 變更記錄的上線／失聯來源**（#49，`tests/test_liveness_flip_source.py`）：沒有 LibreNMS 的站台，IP 失聯記為
   `system`、重新上線記為看到它的那個來源（`scanner`、`opnsense`…）；來源篩選列出所有整合
 - [ ] **MCP 用戶端設定產生器**（LLM/AI）：按鈕產出 Claude Desktop/opencode/mcpo/通用片段
-- [ ] **LLM 供應商改成 OpenAI 相容**（管理 → LLM/AI）：切換後出現資料外送警告與 API 金鑰欄；
+- [ ] **LLM 供應商改成 OpenAI 相容**（管理 → LLM / AI）：切換後出現資料外送警告與 API 金鑰欄；
   模型下拉從 `/v1/models` 重新載入（下拉是空的＝打錯路徑）；base URL 已結尾 `/v1` 不會被重複加；
   對話與語意搜尋都可用。切回 Ollama 會恢復 `/api/tags` 清單。
   `select value from system_settings where key='llm'` **不得出現明文金鑰**，只能有 `api_key_enc`；
   設定頁永遠不回傳金鑰本身
-- [ ] **嵌入維度**（管理 → LLM/AI）：「檢查維度」會回報模型實際維度與欄位大小的比對。
+- [ ] **嵌入維度**（管理 → LLM / AI）：「檢查維度」會回報模型實際維度與欄位大小的比對。
   換過嵌入模型之後重新索引必須回 `failed: 0`；若回 `0 indexed`，失敗筆數與原因要看得見，
   不可以只給一個光禿禿的零。候選模型還必須對**不同的繁中描述產生不同向量**
   （純英文模型會把它們壓成一樣，看起來正常但排序其實是亂的）
@@ -1376,7 +1395,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   VM 遷移（已知的 VM 網卡或 Proxmox 的位址）、隨機化 MAC、在共用埠之間移動，歸進預設收合的**參考**區塊並標出分類，
   永遠不發通知。異常偵測的子網路範圍與逐 IP 忽略（「mac_drifts」）都適用。拿正式環境的資料，
   比對 LibreNMS 一次 FDB 探索前後的筆數（FDB 時間戳每 6 小時更新一次）
-- [ ] **AI 判讀模型**（管理 → LLM/AI → AI 判讀；`tests/test_ai_interpret_model.py`、`e2e/llm-interpret-model.spec.ts`）：
+- [ ] **AI 判讀模型**（管理 → LLM / AI → AI 判讀；`tests/test_ai_interpret_model.py`、`e2e/llm-interpret-model.spec.ts`）：
   留空＝用對話模型與它的上下文長度（升級上來的站台行為與以前完全相同）。指定另一個模型後三個都跑一次：
   未授權 IP 的 AI 判讀、IP 調查裡的「請 AI 判讀」（串流）、防火牆規則異動的 AI 解讀；LLM 伺服器的日誌看得到
   選的那個模型，每個結果也都標出它。巡檢（audit）模型是另一個設定、維持不變；選單裡的嵌入模型是反灰的

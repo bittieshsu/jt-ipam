@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -35,6 +35,8 @@ class SubnetBase(StrictModel):
     # 是否納入異常偵測（預設納入）
     anomaly_enabled: bool = True
     scan_enabled: bool = False
+    #: 掃描範圍：auto／all／known／ranges（services/scan_plan.py）
+    scan_scope: Literal["auto", "all", "known", "ranges"] = "auto"
     scan_method: list[str] = Field(default_factory=lambda: ["icmp"])
     threshold_pct: Annotated[int | None, Field(ge=0, le=100)] = None
     auto_dns: bool = False
@@ -96,6 +98,7 @@ class SubnetUpdate(StrictModel):
     ai_audit_enabled: bool | None = None
     anomaly_enabled: bool | None = None
     scan_enabled: bool | None = None
+    scan_scope: Literal["auto", "all", "known", "ranges"] | None = None
     scan_method: list[str] | None = None
     threshold_pct: Annotated[int | None, Field(ge=0, le=100)] = None
     auto_dns: bool | None = None

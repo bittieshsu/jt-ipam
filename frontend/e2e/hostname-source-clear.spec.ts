@@ -59,9 +59,9 @@ test("手動主機名稱可以刪除，來源標籤顯示最後回報時間", as
   const tag = page.getByTestId("hostname-src-manual");
   await expect(tag).toContainText(OLD_NAME, { timeout: 20_000 });
 
-  // 滑過去看得到最後回報時間
+  // 滑過去看得到輸入時間（手動沒有「回報者」，只有輸入的時間）
   await tag.hover();
-  await expect(page.getByText(/最後回報：\d{4}/)).toBeVisible();
+  await expect(page.getByText(/輸入時間：\d{4}/)).toBeVisible();
 
   // × 先問過才刪
   await tag.locator(".n-tag__close").click();

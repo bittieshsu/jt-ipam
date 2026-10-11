@@ -509,7 +509,7 @@ sudo systemctl enable --now jt-ipam-backup.timer
 
 ### 備份加密
 
-備份目錄裡有資料庫 dump，**也有** `backend.env`（解密 dump 裡那些機密用的金鑰）。在 **系統設定 → 每日備份加密** 設定備份密碼（至少 12 個字元）之後，每天的備份會整包加密成一個檔案 `/var/backups/jt-ipam/jt-ipam-<日期>.jtbak`（scrypt 導出金鑰、AES-256-GCM 以 1 MiB 為單位分塊加密；截斷、調換或修改都解不開），明文目錄刪除。`last-run` 會記 `encrypted=1`；沒設定密碼時系統診斷頁與 `doctor` 會提醒。
+備份目錄裡有資料庫 dump，**也有** `backend.env`（解密 dump 裡那些機密用的金鑰）。在 **管理 → 系統設定 → 每日備份加密** 設定備份密碼（至少 12 個字元）之後，每天的備份會整包加密成一個檔案 `/var/backups/jt-ipam/jt-ipam-<日期>.jtbak`（scrypt 導出金鑰、AES-256-GCM 以 1 MiB 為單位分塊加密；截斷、調換或修改都解不開），明文目錄刪除。`last-run` 會記 `encrypted=1`；沒設定密碼時系統診斷頁與 `doctor` 會提醒。
 
 密碼請存在這台主機以外的地方（例如密碼管理器）：忘記就解不開備份。更換密碼後，之前的備份仍要用當時的密碼解。解密工具只需要 Python 3 與 `cryptography`（`apt install python3-cryptography`），還沒重裝 jt-ipam 的新機器也能用：
 

@@ -96,6 +96,8 @@ export interface ScanLoadSubnet {
   duration_s: number; per_host_ms: number | null; truncated: boolean;
   /** 分段輪替（代理 1.11.0 起）：這輪是第幾段／共幾段 */
   chunk?: number; rounds?: number;
+  /** 兩層掃描（代理 1.18.0 起）：known＝已知位址數；discover_* 是背景探索的段數 */
+  mode?: "targets"; known?: number; discover_chunk?: number; discover_rounds?: number;
 }
 export interface ScanLoadSuggestion { code: string; params: Record<string, unknown> }
 export interface ScanAgentLoad {

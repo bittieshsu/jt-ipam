@@ -1024,17 +1024,24 @@ async def get_address_hostname_sources(
 
     from app.models.ip_hostname import IPHostnameObservation
     from app.services.hostname import get_precedence
+    from app.services.hostname_reports import reports_by_source
     rows = (await session.execute(
         select(IPHostnameObservation)
         .where(IPHostnameObservation.ip_id == address_id)
     )).scalars().all()
+    # 逐台回報（客戶 2026-10-11：要看得出名字是哪一台代理／哪個整合給的）。observed_at 只在名稱改變時才動，
+    # 「最後一次有人回報」要看 reports 的 last_seen_at；沒有逐台記錄的（手動）退回 observed_at
+    reports = await reports_by_source(session, address_id)
     return {
         "effective": obj.hostname,
         "pin": obj.hostname_source_pin,
         "order": await get_precedence(session),
         "observations": [
             {"source": r.source, "hostname": r.hostname,
-             "observed_at": r.observed_at.isoformat()}
+             "observed_at": r.observed_at.isoformat(),
+             "last_seen_at": max((x["last_seen_at"] for x in reports.get(r.source, []) if x["last_seen_at"]),
+                                 default=r.observed_at.isoformat()),
+             "reports": reports.get(r.source, [])}
             for r in rows
         ],
     }

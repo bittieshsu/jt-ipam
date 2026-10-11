@@ -71,7 +71,7 @@ erDiagram
 - `vlan_id`、`vrf_id`、`location_id`、`customer_id`、`gateway`（`inet`）、`dns_servers`（逗號分隔）。
 - `is_pool`、`is_full`、`threshold_pct`（使用率通知）、`auto_dns`。
 - `archived_at`：非 NULL 表示已歸檔，資料保留但不顯示、不掃描，重疊檢查也忽略（歸檔子網路底下的 IP 一併隱藏）。
-- **掃描**：`scan_enabled`、`scan_method`（`text[]`，預設 `{icmp}`）、`scan_agent_id`（外鍵 → scan_agents；有設定則該子網路改走該掃描代理，而非本機）。
+- **掃描**：`scan_enabled`、`scan_method`（`text[]`，預設 `{icmp}`）、`scan_agent_id`（外鍵 → scan_agents；有設定則該子網路改走該掃描代理，而非本機）、`scan_scope`（`auto`、`all`、`known`、`ranges`，預設 `auto`；CHECK 約束 `ck_subnets_scan_scope`）。`auto` 時超過 4,096 個位址的子網路會拿到掃描計畫：已知位址每輪掃、其餘背景探索（見 `services/scan_plan.py`）。
 - `custom_fields`（jsonb）。`cidr` 建 GiST 索引。
 
 ### 2.4 `ip_addresses`（IP 位址）
@@ -94,7 +94,8 @@ erDiagram
 phpIPAM 的招牌 NAT，擴充對齊 OPNsense port-forward 規則。
 - `type`（`one_to_one`/`many_to_one`/`port_forward`）、`src_ip_id`/`dst_ip_id`（外鍵 ip_addresses）、`src_port`/`dst_port`（加 `_to` 表埠範圍）、`protocol`、`src_interface`、`device_id`。
 - OPNsense 對齊：`disabled`、`no_rdr`、`ip_version`、`src_not`/`dst_not`、`log`、`category`、`nat_reflection`、`pool_options`、`filter_rule`，以及 alias 參考（`src_alias`/`dst_alias`/`src_port_alias`/`dst_port_alias`/`redirect_alias`）。
-- 來源追蹤：`source_origin`（`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>`）+ `external_id`（兩者合起來唯一 = upsert 鍵）。
+- `disabled` 由各防火牆整合照規則在防火牆上的狀態同步（OPNsense 的 `disabled` 或 `enabled`、pfSense、FortiGate VIP 的 `status`、Palo Alto 的 `disabled: yes`、Check Point、MikroTik）；停用的規則照樣列出，但不算對外開放。
+- 來源追蹤：`source_origin`（`manual` / `phpipam` / `opnsense:<fw_uuid>` / `pfsense:<fw_uuid>` / `fortigate:<uuid>` / `paloalto:<uuid>` / `checkpoint:<uuid>` / `mikrotik:<uuid>`）+ `external_id`（兩者合起來唯一 = upsert 鍵）。
 
 ### 2.8 `ip_requests` / `ip_request_events`
 IP 申請工作流，狀態機清楚（`pending → approved → fulfilled` / `rejected` / `cancelled`）。`ip_request_events` 是 timeline（每次狀態變化一筆）。核准時原子配發一個 IP（`allocated_ip_id`）。

@@ -341,6 +341,13 @@ the reverse proxy dropped the WebSocket upgrade.
 - [ ] `tests/test_docs_site_coverage.py` is green: every site page has matching zh/en/ja paragraph counts, every integration's
   product name appears in features / index / all three READMEs, major features appear on the index and READMEs, docs have no
   full-width slash or em dash
+- [ ] **Menu paths in help text match the real menus** (`tests/test_nav_paths.py`; user 2026-10-11: the GeoIP hint on the tools page
+  pointed to a menu that does not exist; the real one is "Admin → System Settings"): menu paths starting from Admin or Advanced Modules in
+  the three UI languages, backend messages shown to users, the website, READMEs and the test checklists must use the menu names exactly
+  (including case, one language per path; half-width and full-width slashes count as the same); items under System Settings or External
+  integrations are written from Admin; other products' own menus (Proxmox, OPNsense, Graylog, RustDesk…) keep that product's wording.
+  **Run it whenever a menu is renamed or moved**, and write full paths in new help text, for example
+  "Admin → External integrations → OPNsense"
 - [ ] Features added or changed in this release: one line in `docs/features.html`, a card in `docs/index.html` for a major one
   (also added to MAJOR_FEATURES in the guard test), and the three READMEs updated
 - [ ] New APIs: `docs/api.html` (three languages, `tests/test_api_manual_coverage.py`); new tables: the three DATA_MODELs; new
@@ -705,6 +712,13 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   columns of the OCS agent list, audit log and task history do not wrap and spare width is shared in proportion; widening
   one column changes only that column (columns resized earlier stay put) with space left empty on the right; going wider
   than the screen scrolls horizontally; the mobile sweep shows no horizontal overflow
+- [ ] **NAT rule enabled / disabled** (`tests/test_nat_disabled_sync.py`, `tests/test_fortigate.py`; user 2026-10-11): the NAT page has a
+  "Status" column (Enabled / Disabled, sortable and exported) and a status filter; disabled rows are dimmed with the name struck through
+  (the actions column stays normal); the form's switch is "Enabled" (on by default); rules disabled on the firewall sync as disabled:
+  OPNsense (port forward reads disabled, Outbound NAT and 1:1 read enabled), pfSense, FortiGate (VIP status), Palo Alto (disabled: yes),
+  Check Point and MikroTik (disabled rules used to be skipped and are now synced); disabled rules are left out of exposure and the
+  firewall lookup, and IP change assessment marks them disabled. The rows of side-by-side fields in the form (source port, destination
+  port, NAT reflection) keep the same spacing below them as other fields, so the next label does not touch them
 - [ ] **Actions column pinned to the right** (customer 2026-10-10: with a mouse you keep scrolling left and right;
   `src/utils/__tests__/resizableColumns.test.ts`, `e2e/desktop-sticky-actions.spec.ts` visits every page): at desktop width (768px and
   up) tables that scroll sideways keep the last "Actions" column pinned to the right, so it can be clicked while scrolled fully left;
@@ -895,7 +909,7 @@ The same sshd can play both roles: register it as the jump host, and point the t
 ## 7m. guacd console engine: **whenever a console, guacd or its build changes**
 
 guacd is the default engine for RDP and VNC (since 2026-09-27; migration 0158 switches existing
-installs), and SSH can use it (Admin → System settings, per protocol). Switching must not change
+installs), and SSH can use it (Admin → System Settings, per protocol). Switching must not change
 what a console is allowed to do.
 
 - [ ] Defaults: on a fresh install the settings page shows "guacd (default)" for RDP and VNC and
@@ -1512,7 +1526,14 @@ NAT and address objects from syncing at all, while the UI showed a single error 
   first MAC fill clears nothing
 - [ ] **Manual hostname is removable** (`e2e/hostname-source-clear.spec.ts`): "Manual" under "Hostname sources" on the IP
   detail has an x; it asks first, then the hostname is recomputed in precedence order and an audit entry is written;
-  other sources have no x; a read-only account sees no x; hovering each source shows "Last reported: <time>"
+  other sources have no x; a read-only account sees no x; hovering "Manual" shows "Entered: <time>"
+- [ ] **Hostname sources say who reported each name** (`e2e/hostname-source-reporters.spec.ts`,
+  `tests/test_hostname_source_reports.py`): hovering a source lists each reporting scan agent or integration by name
+  with "last seen <time>" (the last time it was reported, not when the name last changed); old data from before the
+  upgrade and reporters that were deleted say so instead of guessing; a source nobody has reported for a day or more
+  shows "N d ago" on the tag; a name whose short form differs from the one in use (NetBIOS vs DNS) is yellow and the
+  tooltip says so, while case or FQDN-vs-short differences are not flagged; the IP investigation lists reporters
+  too; a new hostname source must be added to `ORIGIN_MODELS` (guard test)
 - [ ] **Several MACs for one IP do not flip** (`test_several_devices_disagreeing_on_a_mac_decide_once_per_sync`,
   `test_mac_run_decides_once_whatever_the_report_order`, `test_two_macs_for_one_ip_in_a_batch_do_not_flip`): three LibreNMS
   devices report A and one reports B -> A, and three rounds log nothing more; a tie that includes the current MAC changes
@@ -1633,9 +1654,20 @@ probes on request inside a customer network. The feature is only as safe as its 
   actionable (which subnets to move, which subnet is unusually slow, which one is truncated)
 - [ ] No automatic re-assignment: "Move to another agent" in the panel is an admin's click, with a reminder that
   the agent must be on the same network segment
-- [ ] **Subnets over 4,096 addresses are scanned in rotating chunks**: assign a /19; each cycle covers the next
-  chunk and wraps around (it used to scan only the first chunk forever); a full pass slower than the online
-  threshold counts as overload with a suggestion to split the subnet (`tests/test_agent_scan_split.py`)
+- [ ] **Scan scope "Whole subnet" rotates through large subnets**: set a /19 to Whole subnet; each cycle covers the
+  next 4,096-address chunk and wraps around (it used to scan only the first chunk forever); a full pass slower than
+  the online threshold counts as overload, and the suggestion is to set the scope to Automatic instead of splitting
+  the subnet (`tests/test_agent_scan_split.py`)
+- [ ] **Large subnets in Automatic scope: two-tier scanning** (`tests/test_scan_plan.py`,
+  `e2e/subnet-scan-scope.spec.ts`; agent 1.18.0, migration 0205): a subnet over 4,096 addresses (try a /16 or the
+  customer's /8) gets a plan in the agent poll: registered IPs plus addresses in ARP within 7 days are scanned every
+  cycle, and the rest are explored 1,024 per cycle without repeating known ones; devices stay online between cycles;
+  a subnet of 4,096 or fewer and IPv6 get no plan (swept as before); "Known addresses only" sends no discovery;
+  "Address ranges only" scans the merged ranges (none defined = nothing scanned); "Whole subnet" sends no plan;
+  the load panel shows "known N" on the subnet, judges overload on the known addresses only, and shows how long one
+  discovery pass takes; an older agent ignores the plan and sweeps as before; the subnet form shows the scope only
+  with scanning on, and its hint follows the choice and the subnet size; existing subnets are Automatic after the
+  upgrade
 
 ## 7e. Audit chain anchoring: **whenever audit writes, anchoring or the sync schedule change**
 
@@ -1857,7 +1889,7 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **Ports / cabling: the MAC column shows the vendor** under the MAC, like the IP list
   (`e2e/device-ports-mac-vendor.spec.ts`)
 
-- [ ] **Notification matrix** (Admin → 通知發送設定): toggle events × (in-app / email); save persists; events fire
+- [ ] **Notification matrix** (Admin → Notification Channels): toggle events × (in-app / email); save persists; events fire
   per matrix (IP request, cert expiring/deployed/drift, anomaly).
 - [ ] **Cert distribution `files` profile**: writes cert files only, no reload/restart.
 - [ ] **Anomaly page**: tabs, per-table column picker, `ip_address_id` hidden by default (MAC drift: see the next list).
@@ -1876,18 +1908,18 @@ happy path of "an upload succeeded" is not enough.
   LibreNMS, an IP going offline is recorded with source `system`, one coming back online with the source that saw it
   (`scanner`, `opnsense`, ...); the source filter lists every integration.
 - [ ] **MCP client-config generator** (LLM/AI): button outputs Claude Desktop / opencode / mcpo / generic snippets.
-- [ ] **LLM provider = OpenAI-compatible** (Admin → LLM/AI): switching to it shows the data-egress warning
+- [ ] **LLM provider = OpenAI-compatible** (Admin → LLM / AI): switching to it shows the data-egress warning
   and the API-key field; the model dropdown repopulates from `/v1/models` (empty dropdown = the wrong path
   is being called); a base URL already ending in `/v1` is not doubled; chat and semantic search both work.
   Switching back to Ollama restores the `/api/tags` list. `select value from system_settings where key='llm'`
   must show **no plaintext key**, only `api_key_enc`; the settings page never returns the key itself.
-- [ ] **Embedding dimension** (Admin → LLM/AI): the **Check dimension** button reports the model's actual
+- [ ] **Embedding dimension** (Admin → LLM / AI): the **Check dimension** button reports the model's actual
   dimension against the column size. After changing the embedding model, a reindex must report
   `failed: 0`, and if it reports `0 indexed` the failure count and reason must be visible, never a bare
   zero. A candidate model must also produce **different vectors for different Traditional Chinese
   descriptions** (English-only models collapse them and look fine while ranking at random).
 - [ ] **Add address in a subnet**: the create form has a required IP field (issue #14).
-- [ ] **Attach IPs by NIC MAC** (Admin → 系統設定): off by default on an existing install; **Preview**
+- [ ] **Attach IPs by NIC MAC** (Admin → System Settings): off by default on an existing install; **Preview**
   reports a count plus per-reason skips and changes nothing; enabling it attaches on the next sync round
   and writes one IP-change-log row per address with the match reason. Clear a device link by hand, then
   confirm the next round does **not** restore it (the rule that keeps the job from fighting the operator).
@@ -1901,7 +1933,7 @@ happy path of "an upload succeeded" is not enough.
   address), randomised MACs and moves between shared ports go into the collapsed **Reference** block with their
   category and never notify. Anomaly subnet scope and per-IP ignore ("mac_drifts") apply. On prod data, compare
   the counts before and after one LibreNMS FDB discovery (FDB timestamps refresh every 6 hours)
-- [ ] **AI interpretation model** (Admin → LLM/AI → AI interpretation; `tests/test_ai_interpret_model.py`,
+- [ ] **AI interpretation model** (Admin → LLM / AI → AI interpretation; `tests/test_ai_interpret_model.py`,
   `e2e/llm-interpret-model.spec.ts`): empty = the chat model and its context length (an upgraded site behaves
   exactly as before). Set a different model and run all three: AI triage of an unauthorised IP, "Ask AI to read
   this" in an IP investigation (streamed), and the AI reading of a firewall rule change; the LLM server's log shows
@@ -1973,7 +2005,7 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **MCP over HTTP** (`tests/test_mcp_url_and_audit.py`): `POST /api/mcp` and `POST /api/mcp/` both reach MCP
   (the bare URL, the one the manual and the client-config generator give, used to return 405); a mutating
   tool called through `tools/call` writes an audit entry `mcp_tool_exec` (tool, summary, channel, source IP);
-  configure a real MCP client (mcp-remote) from Admin → LLM/AI and run one read and one write
+  configure a real MCP client (mcp-remote) from Admin → LLM / AI and run one read and one write
 - [ ] **Audit log action column stays inside its cell**: filter a long name such as `rustdesk.peer_delete_requested`;
   the tag stays in the column (underscores visible), and narrowing the column turns it into "…" with the full name on hover
 - [ ] **Audit entries name the actor** (`tests/test_audit_actor_recorded.py`): create a user, change a group's
@@ -2045,7 +2077,7 @@ happy path of "an upload succeeded" is not enough.
   (NAS / OpenWrt / router) are dropped to unknown rather than shown.
 - [ ] **Notification i18n**: switch UI language (繁中 ⇄ English) → the bell **and** the Notifications page
   render in the current language (IP-request, anomaly, cert, stale-IP); old notifications fall back to stored text.
-- [ ] **Notification channels** (Admin → 通知發送設定): Telegram / Slack / Teams / Nextcloud Talk / Zulip each
+- [ ] **Notification channels** (Admin → Notification Channels): Telegram / Slack / Teams / Nextcloud Talk / Zulip each
   save (encrypted token/webhook; a saved value shows as set and is kept when the field is left blank), the per-channel **Test** button delivers, and an
   enabled channel receives a matrix-fired event (e.g. an IP request) alongside Email/in-app.
 - [ ] **Export button** on table pages is bordered (matches Columns / Refresh).

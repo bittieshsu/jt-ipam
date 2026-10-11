@@ -97,6 +97,15 @@ class WindowsDhcpClient:
         except WindowsDhcpError:
             raise
         except Exception as exc:   # winrm/requests 的連線/認證/TLS/timeout 都不是我們的例外型別
+            text = str(exc)
+            if self.use_ssl and re.search(
+                    r"ConnectTimeout|Max retries exceeded|Connection refused|NewConnectionError|timed out", text):
+                # Windows Server 預設只開 HTTP 5985；1.0.5 以前建立的連線沿用 HTTPS 5986（客戶 2026-10-11）
+                raise WindowsDhcpError(
+                    f"WinRM HTTPS {self.host}:{self.port} is unreachable. Windows Server only opens HTTP 5985 by "
+                    f"default: unless an HTTPS listener was set up, edit this server under "
+                    f"Admin → External integrations → Windows DHCP and switch WinRM to HTTP (5985). ({text[-200:]})"
+                ) from exc
             raise WindowsDhcpError(
                 f"WinRM connection failed: {exc.__class__.__name__}: {exc}"
             ) from exc

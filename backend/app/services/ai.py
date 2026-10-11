@@ -1107,7 +1107,7 @@ def _empty_answer_message(locale: str, done_reason: str | None) -> str:
                              "thinking, or exceeded the context length)")
     if locale.startswith("en"):
         return (f"No answer was produced — {why_en}. Try a narrower question, or raise "
-                "num_ctx / the output limit under Admin → LLM/AI.")
+                "num_ctx / the output limit under Admin → LLM / AI.")
     return (f"這次沒有得到回答 —— {why_zh}。可以把問題問得更小一點，"
             "或到「管理 → LLM / AI」調高 num_ctx 與輸出上限。")
 

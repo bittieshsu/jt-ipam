@@ -93,16 +93,29 @@ def evaluate(cycle: dict[str, Any] | None, history: list[dict[str, Any]] | None 
                 "scanned": int(s.get("hosts") or 0)}})
 
     # 分段輪替的大子網路（代理 1.11.0 起）：掃完一遍要幾分鐘？超過上線門檻就會在兩次掃描之間被判成離線
+    # 兩層掃描（代理 1.18.0 起，services/scan_plan）：rounds 是「已知位址」繞一圈要幾輪 —— 只有它決定上線狀態，
+    # 探索（未知位址）再慢都不算超載，只當資訊顯示
     coverage_gap: list[str] = []
     for s in subnets:
         rounds = int(s.get("rounds") or 1)
+        targets = s.get("mode") == "targets"
         if rounds > 1:
             minutes = round(rounds * interval / 60)
-            suggestions.append({"code": "rotating_large", "params": {
-                "cidr": str(s.get("cidr")), "total": int(s.get("total_hosts") or 0), "rounds": rounds,
-                "minutes": minutes, "threshold": online_minutes}})
+            if targets:
+                suggestions.append({"code": "rotating_known", "params": {
+                    "cidr": str(s.get("cidr")), "known": int(s.get("known") or 0), "rounds": rounds,
+                    "minutes": minutes, "threshold": online_minutes}})
+            else:
+                suggestions.append({"code": "rotating_large", "params": {
+                    "cidr": str(s.get("cidr")), "total": int(s.get("total_hosts") or 0), "rounds": rounds,
+                    "minutes": minutes, "threshold": online_minutes}})
             if minutes > online_minutes:
                 coverage_gap.append(str(s.get("cidr")))
+        d_rounds = int(s.get("discover_rounds") or 0)
+        if targets and d_rounds > 0:
+            suggestions.append({"code": "discovery_pass", "params": {
+                "cidr": str(s.get("cidr")), "total": int(s.get("total_hosts") or 0),
+                "hours": round(d_rounds * interval / 3600)}})
 
     # 背景重量探測消化不完：待辦連續 LAG_CYCLES 輪都不少於 LAG_MIN_BACKLOG，而且沒有變少
     hist = [int(h.get("heavy_backlog") or 0) for h in (history or [])][-LAG_CYCLES:]

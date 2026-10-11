@@ -1206,7 +1206,6 @@
     "dev_subtitle": "同じ機器について複数のソースが名前を提供した場合、上にあるものが優先されます。手動が最上位で、無効にはできません。ドラッグで並べ替えられます。",
     "save": "優先順位を保存",
     "saved": "優先順位を更新しました",
-    "observed_at": "最終報告：{at}",
     "clear_manual_confirm": "手動で設定したホスト名「{name}」を削除しますか？以降は他のソースが優先順位に従って決定します。",
     "manual_cleared": "手動ホスト名を削除しました",
     "src": {
@@ -1237,7 +1236,14 @@
       "checkpoint": "Check Point"
     },
     "model_title": "機器の型番のソース順",
-    "model_subtitle": "同じ機器について複数のソースが型番を提供した場合、上にあるものが優先されます。手動が最上位で、無効にはできません。ドラッグで並べ替えられます。"
+    "model_subtitle": "同じ機器について複数のソースが型番を提供した場合、上にあるものが優先されます。手動が最上位で、無効にはできません。ドラッグで並べ替えられます。",
+    "reporter_legacy": "旧データ（アップグレード前から存在、報告元不明）",
+    "reporter_unknown": "削除済みまたは不明な報告元",
+    "last_seen": "最終確認 {at}",
+    "days_ago": "{n} 日前",
+    "differs": "現在使用中の名前「{name}」と異なります",
+    "changed_at": "名前の最終変更：{at}",
+    "manual_at": "入力日時：{at}"
   },
   "addresses": {
     "search_placeholder": "全項目を検索（IP／ホスト名／MAC／説明／所有者／スイッチの位置／備考）",
@@ -1444,7 +1450,16 @@
     "scan_agent_none": "（未割り当て。スキャンされません）",
     "scan_agent_local_named": "{name}（jt-ipam ホスト上のエージェント）",
     "scan_agent_none_hint": "スキャンエージェントが割り当てられていないため、このサブネットはスキャンされません。スキャンは必ずエージェント経由で実行されます。ひとつ選んでください。一覧が空の場合は、このホストにもどこにもエージェントが導入されていません（管理 → スキャンエージェント で追加できます）。",
-    "scan_agent_no_local_hint": "jt-ipam ホスト自体にスキャンエージェントがありません。新規インストールとアップグレードでは自動的に追加されますが、それ以前のバージョンから上げたホストでは、管理 → スキャンエージェント から導入手順に従って追加してください。"
+    "scan_agent_no_local_hint": "jt-ipam ホスト自体にスキャンエージェントがありません。新規インストールとアップグレードでは自動的に追加されますが、それ以前のバージョンから上げたホストでは、管理 → スキャンエージェント から導入手順に従って追加してください。",
+    "scan_scope": "スキャン範囲",
+    "scan_scope_auto": "自動（推奨）",
+    "scan_scope_all": "サブネット全体",
+    "scan_scope_known": "既知のアドレスのみ",
+    "scan_scope_ranges": "アドレス範囲のみ",
+    "scan_scope_auto_large_hint": "このサブネットには {total} 個のアドレスがあります。登録済みの IP と過去 7 日間に ARP で見えたアドレスは毎周スキャンし（オンライン状態は正確）、残りはバックグラウンドで毎周 {per} 個ずつ探索して新しい機器を見つけます（1 巡約 {rounds} 周）。サブネットは実際のマスクで登録してください。分割する必要はありません。",
+    "scan_scope_all_large_hint": "このサブネットには {total} 個のアドレスがあり、1 周でスキャンできるのは 4,096 個なので 1 巡に {rounds} 周かかります。オンライン判定時間を超えると、スキャンの間に機器がオフラインと判定されます。大きなサブネットには「自動」をお勧めします。",
+    "scan_scope_known_hint": "登録済みの IP と過去 7 日間に ARP で見えたアドレスだけをスキャンします。新しい機器は自動では見つかりません（先に登録するか、連携の ARP データで検出されるのを待ってください）。",
+    "scan_scope_ranges_hint": "このサブネットに設定したアドレス範囲（DHCP 範囲など）だけをスキャンします。アドレス範囲が未設定なら何もスキャンしません。"
   },
   "csv_import": {
     "title": "アドレスの取り込み（CSV）",
@@ -1866,7 +1881,7 @@
     "split_btn": "分割",
     "t_mail": "メール／DNS の診断（MX / SPF / DKIM）",
     "t_geoip": "GeoIP による位置の検索",
-    "geoip_not_set": "MaxMind の認証情報が未設定です（設定 → システム）",
+    "geoip_not_set": "MaxMind の認証情報が未設定です（「管理 → システム設定 → GeoIP（MaxMind）」で設定）",
     "dkim_selector_ph": "DKIM セレクタ（任意。例：default）",
     "power_calc": "データセンターの電力計算",
     "pw_load": "電力負荷／容量",
@@ -2218,7 +2233,13 @@
     "filter_device": "機器で絞り込み（すべて）",
     "filter_source": "ソース（すべて）",
     "filter_host": "OPNsense ホスト（すべて）",
-    "confirm_delete_n": "選択した {n} 件の NAT ルールを削除しますか。元に戻せません。"
+    "confirm_delete_n": "選択した {n} 件の NAT ルールを削除しますか。元に戻せません。",
+    "enabled": "有効",
+    "status": "状態",
+    "status_enabled": "有効",
+    "status_disabled": "無効",
+    "filter_status": "すべての状態",
+    "enabled_hint": "ファイアウォールで無効にしたルール（OPNsense の無効チェックなど）は無効として同期されます。無効なルールは外部公開として数えません。"
   },
   "anomaly": {
     "title": "異常検知",
@@ -2904,9 +2925,9 @@
       "graylog_copy": "コピー",
       "graylog_hint": "Graylog 側で「DSV File from HTTP」データアダプタを追加し、上の URL を貼り付けてください。区切り文字は形式に応じて , または Tab、キー列 = 1、値列 = 2 とします（キー = IP、値 = ホスト名／FQDN）。トークンはいつでも再生成でき、アクセスを無効化できます。",
       "graylog_fw_title": "OPNsense ファイアウォールの DSV（ルール／エイリアス）",
-      "graylog_fw_intro": "IP→ホスト名に加えて、「ファイアウォール DSV を提供する」を有効にした OPNsense ごとに 2 つのルックアップテーブルが用意されます。① ルールのラベル→エイリアス（filterlog の rid から、そのパケットがどのエイリアスに当たったかを引けます）と、② エイリアス→メンバー一覧です。トークンは上と共通です。有効化はファイアウォールごとに 連携 → OPNsense で行います。",
+      "graylog_fw_intro": "IP→ホスト名に加えて、「ファイアウォール DSV を提供する」を有効にした OPNsense ごとに 2 つのルックアップテーブルが用意されます。① ルールのラベル→エイリアス（filterlog の rid から、そのパケットがどのエイリアスに当たったかを引けます）と、② エイリアス→メンバー一覧です。トークンは上と共通です。有効化はファイアウォールごとに 管理 → 外部システム連携 → OPNsense で行います。",
       "graylog_fw_need_token": "まだトークンがありません。先に上の Graylog DSV を有効にしてトークンを生成すると、これらのファイアウォール用 URL が使えるようになります。",
-      "graylog_fw_none": "「ファイアウォール DSV を提供する」を有効にしたファイアウォールがありません。連携 → OPNsense でファイアウォールを編集し、チェックを入れてください。",
+      "graylog_fw_none": "「ファイアウォール DSV を提供する」を有効にしたファイアウォールがありません。管理 → 外部システム連携 → OPNsense でファイアウォールを編集し、チェックを入れてください。",
       "graylog_fw_rules_url": "ルールの DSV（キー = filterlog の rid、値 = エイリアス名）",
       "graylog_fw_aliases_url": "エイリアスの DSV（キー = エイリアス名、値 = メンバー一覧）",
       "graylog_fw_hint": "Graylog 側では、それぞれに「DSV File from HTTP」アダプタとルックアップテーブルを別々に追加します。ルールの DSV は filterlog の rid フィールドに結び付け、キー列 = 0、値列 = 1 とします（Graylog の列番号は 0 起算です）。ファイアウォールごとに URL が異なります（それぞれのファイアウォール ID を含みます）。",
@@ -2918,7 +2939,7 @@
       "graylog_status_on": "有効",
       "graylog_status_off": "無効",
       "graylog_detail": "URL／設定",
-      "graylog_tbl_hint": "行をクリックすると、下に設定手順を表示します。「URL／設定」をクリックすると、完全な URL（HTTPS／社内 HTTP）とソースごとの設定を表示します（IP→ホスト名の有効化やパスもそこにあります）。ファイアウォールの DSV は、ファイアウォールごとに 連携 → OPNsense の「ファイアウォール DSV を提供する」で有効にします。",
+      "graylog_tbl_hint": "行をクリックすると、下に設定手順を表示します。「URL／設定」をクリックすると、完全な URL（HTTPS／社内 HTTP）とソースごとの設定を表示します（IP→ホスト名の有効化やパスもそこにあります）。ファイアウォールの DSV は、ファイアウォールごとに 管理 → 外部システム連携 → OPNsense の「ファイアウォール DSV を提供する」で有効にします。",
       "graylog_src_hostname": "IP → ホスト名（全体）",
       "graylog_src_pve_vms": "VM 名",
       "graylog_pve_hint": "キー = Proxmox の VMID、値 = VM 名（同期済みの Proxmox VE 仮想マシンから生成）。Graylog 側で「DSV File from HTTP」アダプタとルックアップテーブルを追加すると、ログの vmid フィールドを VM 名に変換できます。クラスタ間で vmid が衝突する場合、vmid ごとに最初の 1 件だけを出力します。",
@@ -2929,7 +2950,7 @@
       "graylog_g_how": "仕組み：Graylog はルックアップテーブルを使って上の DSV URL を定期的に取得し、各メッセージの IP フィールドを照合して、ホスト名を新しいフィールドに書き込みます。このテーブルにはホスト名を持つ IP だけが含まれます。",
       "graylog_g_click_copy": "ヒント：下でハイライトされている値が Graylog に貼り付ける内容です。クリックするとコピーできます。",
       "graylog_g_lt_title": "ルックアップテーブルを作る（3 つの部品）",
-      "graylog_g_lt_intro": "Graylog のルックアップは 3 つの部品からなり、システム → Lookup Tables でこの順に作成します。データアダプタ（取得元）、キャッシュ、そして両者を結び付けるルックアップテーブルです。以下の表にある Title / Description / Name はそのまま使えます。",
+      "graylog_g_lt_intro": "Graylog のルックアップは 3 つの部品からなり、System → Lookup Tables でこの順に作成します。データアダプタ（取得元）、キャッシュ、そして両者を結び付けるルックアップテーブルです。以下の表にある Title / Description / Name はそのまま使えます。",
       "graylog_g_adapter_desc": "IP → ホスト名の対応（jt-ipam の DSV エンドポイントが提供）",
       "graylog_g_url_or_http": "または平文 HTTP（専用ポート 8088。信頼できる LAN 内のみ）： ",
       "graylog_g_ipfield_label": "使用している IP フィールド名（下の例に自動的に反映されます）： ",
@@ -2946,10 +2967,10 @@
       "graylog_g_alt_ex": "方法 A — Extractor（最も簡単）",
       "graylog_g_alt_pl": "方法 B — Pipeline（より柔軟）",
       "graylog_g_ex_title": "Extractor で適用する（最も簡単）",
-      "graylog_g_ex": "システム → Inputs で対象の Input を選び、「Manage extractors」→「Get started」へ進み、そのフィールドを含むメッセージを選びます。送信元のフィールドに「Lookup Table」Extractor を追加し、作成したルックアップテーブルを選んで結果を新しいフィールドに保存します。以後、受信メッセージは自動的に補完されます。単一の Input と単純なルールに最適です。",
+      "graylog_g_ex": "System → Inputs で対象の Input を選び、「Manage extractors」→「Get started」へ進み、そのフィールドを含むメッセージを選びます。送信元のフィールドに「Lookup Table」Extractor を追加し、作成したルックアップテーブルを選んで結果を新しいフィールドに保存します。以後、受信メッセージは自動的に補完されます。単一の Input と単純なルールに最適です。",
       "graylog_g_pl_title": "Pipeline でルックアップを適用する",
-      "graylog_g_pl": "複数のストリームや条件分岐が必要な場合は Pipeline を使います。システム → Pipelines で対象のストリームに接続したパイプラインを作り、ステージ内に lookup_value() でテーブルを引き、set_field() で結果を書き込むルールを追加します。lookup_value の第 1 引数はルックアップテーブルの名前です（パスではありません）。",
-      "graylog_g_pl_fw": "システム → Pipelines で、lookup_value() によりこの DSV の値を取得し、set_field() で新しいフィールドに書き込むルールを追加します。lookup_value の第 1 引数はルックアップテーブルの名前です（パスではありません）。手順 2 で設定した「ログのフィールド」は、解析済みの filterlog のフィールドに合わせてください。ルールの DSV は rid に、エイリアスの DSV はエイリアスのフィールドに結び付けます。",
+      "graylog_g_pl": "複数のストリームや条件分岐が必要な場合は Pipeline を使います。System → Pipelines で対象のストリームに接続したパイプラインを作り、ステージ内に lookup_value() でテーブルを引き、set_field() で結果を書き込むルールを追加します。lookup_value の第 1 引数はルックアップテーブルの名前です（パスではありません）。",
+      "graylog_g_pl_fw": "System → Pipelines で、lookup_value() によりこの DSV の値を取得し、set_field() で新しいフィールドに書き込むルールを追加します。lookup_value の第 1 引数はルックアップテーブルの名前です（パスではありません）。手順 2 で設定した「ログのフィールド」は、解析済みの filterlog のフィールドに合わせてください。ルールの DSV は rid に、エイリアスの DSV はエイリアスのフィールドに結び付けます。",
       "graylog_g_field_label": "ルックアップに使うログのフィールド（下の例に自動的に反映されます）：",
       "graylog_g_lan_title": "3. 社内サブネットだけを対象にする",
       "graylog_g_lan": "このテーブルには社内の IP しか含まれないため、グローバル IP を引いても意味がありません。パイプラインのルールで cidr_match() を使い、まず IP が RFC1918 のプライベート範囲（10/8、172.16/12、192.168/16）に入るかを判定し、入る場合だけ引くようにします。資源の節約になり、誤った一致も避けられます。src_ip は実際のフィールド名に置き換えてください：",
@@ -3263,7 +3284,7 @@
     "console_pve_forbidden": "PVE コンソール接続の権限がありません",
     "console_target_forbidden": "この接続先への権限がありません",
     "console_rdp_not_installed": "RDP 機能が未インストールです（オプション依存の aardwolf がありません）",
-    "console_rdp_no_aardwolf": "このサーバーには aardwolf がありません（Python {python} 向けのビルド済みパッケージがありません）。管理者が「システム設定 → RDP 接続エンジン」で FreeRDP に切り替えてください。",
+    "console_rdp_no_aardwolf": "このサーバーには aardwolf がありません（Python {python} 向けのビルド済みパッケージがありません）。管理者が「管理 → システム設定 → RDP 接続エンジン」で FreeRDP に切り替えてください。",
     "console_rdp_freerdp_missing": "FreeRDP エンジンに {missing} がありません。サーバーで jt-ipam.sh upgrade を実行してインストールしてください。",
     "console_vnc_not_installed": "内蔵の VNC エンジンは使用できません。aardwolf が必要ですが、Python {python} 向けのビルド済みパッケージがありません。guacd をインストールし、「管理 → システム設定」で VNC の接続エンジンを guacd にしてください。",
     "console_pve_not_installed": "PVE コンソール機能が未インストールです（websockets 依存がありません）",
@@ -3362,7 +3383,7 @@
     "migration_known_host_required": "SSH ホスト鍵が必要です。先に「フィンガープリント取得」を実行し、確認してから送信してください",
     "migration_refetch_fingerprint": "フィンガープリントを取得し直し、確認してから再送信してください",
     "console_remote_closed": "接続先がこのセッションを終了しました：{reason}",
-    "console_remote_ended_early": "セッション開始直後、画面を 1 枚も送らないうちにリモートホストが接続を終了しました。よくある原因：このアカウントにリモートログオン権限がない、リモートデスクトップのライセンスや接続ブローカーに拒否された、セッション数が上限に達している。FreeRDP エンジン（システム設定 → RDP エンジン）に切り替えると、サーバーが示す理由が表示されます。",
+    "console_remote_ended_early": "セッション開始直後、画面を 1 枚も送らないうちにリモートホストが接続を終了しました。よくある原因：このアカウントにリモートログオン権限がない、リモートデスクトップのライセンスや接続ブローカーに拒否された、セッション数が上限に達している。FreeRDP エンジン（管理 → システム設定 → RDP 接続エンジン）に切り替えると、サーバーが示す理由が表示されます。",
     "console_remote_ended": "リモートホストがこのセッションを終了しました（理由は示されていません）",
     "console_engine_failed": "RDP エンジンが接続できませんでした：{reason}",
     "console_char_not_typable": "「{char}」は現在の RDP 接続エンジンでは直接入力できません（FreeRDP に Unicode キーボードチャネルがないため）。ツールバーの「貼り付け」をご利用ください。",
@@ -3632,7 +3653,8 @@
     "dns_compare_group_not_found": "この DNS 比較グループが見つかりません（削除された可能性があります）。",
     "dns_server_not_found": "指定した DNS サーバーが見つかりません（削除された可能性があります）。",
     "dns_compare_group_name_taken": "同じ名前の DNS 比較グループがすでにあります。別の名前にしてください。",
-    "dns_compare_group_mixed_kinds": "Unbound（OPNsense）はホストオーバーライドのみで完全なゾーンではないため、ほかの Unbound としか同じ比較グループにできません。"
+    "dns_compare_group_mixed_kinds": "Unbound（OPNsense）はホストオーバーライドのみで完全なゾーンではないため、ほかの Unbound としか同じ比較グループにできません。",
+    "dns_winrm_https_unreachable": "Windows DNS の WinRM HTTPS（{host}:{port}）に接続できません。Windows Server は既定で HTTP 5985 のみ開いています。HTTPS リスナーを別途作成していない場合は、「管理 → 外部システム連携 → DNS」でこのサーバーを編集し、WinRM 接続を HTTP（5985）にしてください。（{reason}）"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -4600,7 +4622,7 @@
     "diag_rows": "{n} 行",
     "pick_firewall": "FortiGate を選択",
     "all_vdoms": "すべての VDOM",
-    "none_configured": "FortiGate がまだ設定されていません。管理 → FortiGate 連携 から追加してください。",
+    "none_configured": "FortiGate がまだ設定されていません。管理 → 外部システム連携 → FortiGate から追加してください。",
     "col_action": "動作",
     "col_src": "送信元（インタフェース／アドレス）",
     "col_dst": "宛先（インタフェース／アドレス）",
@@ -5354,7 +5376,7 @@
     "diag_rows": "{n} 行",
     "pick_firewall": "Palo Alto を選択",
     "all_vsys": "すべての vsys",
-    "none_configured": "Palo Alto ファイアウォールが設定されていません。管理 → Palo Alto 連携 から追加してください。",
+    "none_configured": "Palo Alto ファイアウォールが設定されていません。管理 → 外部システム連携 → Palo Alto から追加してください。",
     "col_application": "アプリケーション（App-ID）"
   },
   "checkpoint": {
@@ -5735,7 +5757,7 @@
     "d_backup_enc_off": "バックアップのパスフレーズが設定されていません。バックアップファイルにはデータベースと復号鍵（backend.env）が両方含まれるため、入手した人はすべての機密を得られます",
     "d_backup_enc_missed": "パスフレーズは設定されていますが、最新のバックアップは暗号化されていません（アップグレード前のバックアップスクリプト、または暗号化の失敗）",
     "d_backup_enc_ok": "日次バックアップは設定したパスフレーズで暗号化されています（.jtbak）",
-    "f_backup_enc_off": "「システム設定 → 日次バックアップの暗号化」でパスフレーズを設定してください"
+    "f_backup_enc_off": "「管理 → システム設定 → 日次バックアップの暗号化」でパスフレーズを設定してください"
   },
   "tool_verbs": {
     "get": "照会",
@@ -5921,7 +5943,14 @@
     "sg_split_large": "{cidr} には {total} 個のアドレスがありますが、エージェントは毎周先頭の {scanned} 個しかスキャンせず、残りは永遠にスキャンされません。IPAM で小さなサブネットに分割するか、複数のエージェントに分けてください。",
     "sg_heavy_interval": "バックグラウンドの名前照会と OS フィンガープリントが追いつきません（待ち {backlog} 台）。OS フィンガープリントの周期を延ばすか、大きなサブネットで無効にしてください。",
     "chunk": "第 {chunk}／{rounds} 区画",
-    "sg_rotating_large": "{cidr} には {total} 個のアドレスがあり、1 巡するのに {rounds} 周（約 {minutes} 分）かかります。オンライン判定のしきい値は {threshold} 分で、これを超えるとスキャンの間にホストがオフラインと判定されます。IPAM で小さなサブネットに分割するか、複数のエージェントに分けてください。"
+    "sg_rotating_large": "{cidr} には {total} 個のアドレスがあり、1 巡するのに {rounds} 周（約 {minutes} 分）かかります。オンライン判定のしきい値は {threshold} 分で、これを超えるとスキャンの間にホストがオフラインと判定されます。このサブネットのスキャン範囲を「自動」にしてください（既知のアドレスは毎周、残りはバックグラウンドで探索。エージェント 1.18.0 以降が必要で、自動更新されます）。サブネットを分割する必要はありません。",
+    "known_tag": "既知 {known}",
+    "known_chunk": "既知 {known}、第 {chunk}／{rounds} 区画",
+    "span_under_hour": "1 時間未満",
+    "span_hours": "約 {n} 時間",
+    "span_days": "約 {n} 日",
+    "sg_rotating_known": "{cidr} の既知アドレスは {known} 個で、エージェントの 1 周の上限を超えるため 1 巡に {rounds} 周（約 {minutes} 分）かかります。オンライン判定のしきい値は {threshold} 分で、これを超えるとスキャンの間に機器がオフラインと判定されます。このエージェントの 1 周の上限（エージェントホストの JT_IPAM_MAX_HOSTS。1 周が長くなります）を上げるか、サブネットを複数のエージェントに分けてください。",
+    "sg_discovery_pass": "{cidr} には {total} 個のアドレスがあります。既知のアドレスは毎周スキャンし、残りはバックグラウンドで探索します（1 巡に{span}）。新しい機器を見つける速さにだけ影響し、オンライン状態には影響しません。"
   },
   "kea_dhcp": {
     "title": "Kea DHCP サーバー",
@@ -7567,7 +7596,7 @@
   "recovery": {
     "title": "リカバリーコード",
     "intro": "認証アプリを紛失したり機種変更したりしたときは、コードの代わりにこのいずれかでログインできます。各コードは 1 回だけ使えます。表示されるのは今回だけなので、安全な場所（パスワードマネージャーなど）に保存してください。",
-    "file_note": "各コードは 1 回だけ使えます。使い切ったら「設定 → セキュリティ」で再生成してください。",
+    "file_note": "各コードは 1 回だけ使えます。使い切ったら右上のアカウントメニューの「設定 → セキュリティ」で再生成してください。",
     "download": "テキストファイルで保存",
     "saved_check": "リカバリーコードを安全な場所に保存しました",
     "continue": "続行",

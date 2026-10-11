@@ -337,7 +337,7 @@ def rdp_unavailable_detail(engine: str, missing: str) -> dict[str, Any]:
     return ui_detail(
         "console_rdp_no_aardwolf",
         f"這台伺服器沒有 aardwolf（Python {py} 沒有它的預編譯套件）。"
-        "請管理員到「系統設定 → RDP 連線引擎」改用 FreeRDP。",
+        "請管理員到「管理 → 系統設定 → RDP 連線引擎」改用 FreeRDP。",
         engine=engine, missing=missing, python=py)
 
 
@@ -884,7 +884,7 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
             "console_remote_ended_early",
             "遠端主機在工作階段一開始就結束了連線，還沒送出任何畫面。常見原因：這個帳號沒有"
             "遠端登入權限、遠端桌面授權或連線代理拒絕、工作階段數已滿。可改用 FreeRDP 引擎"
-            "（系統設定 → RDP 引擎），它會顯示伺服器給的原因。")
+            "（管理 → 系統設定 → RDP 連線引擎），它會顯示伺服器給的原因。")
             if frames == 0 else
             ui_detail("console_remote_ended", "遠端主機結束了這個工作階段（沒有提供原因）"))
         with contextlib.suppress(Exception):

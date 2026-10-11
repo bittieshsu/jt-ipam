@@ -125,6 +125,31 @@ def test_windows_self_signed_error_says_how_to_fix():
     assert "self-signed" in ei.value.params["reason"]
 
 
+def test_windows_https_port_unreachable_suggests_http_5985():
+    """客戶 2026-10-11：「HTTPSConnectionPool(host=…, port=5986): Max retries exceeded… ConnectTimeout」——
+    Windows Server 預設只開 HTTP 5985，1.0.5 以前建立的連線沿用 HTTPS 5986。錯誤要直接講怎麼改。"""
+    from app.services.dns.windows_dns import WindowsDNSAdapter
+    a = WindowsDNSAdapter(host=HOST, username="u", password="p", use_ssl=True, port=5986)
+
+    def boom():
+        raise ConnectionError(f"HTTPSConnectionPool(host='{HOST}', port=5986): Max retries exceeded with url: "
+                              "/wsman (Caused by ConnectTimeoutError(...))")
+
+    a._session = boom
+    with pytest.raises(DNSAdapterError) as ei:
+        a._run_ps("Get-DnsServer")
+    assert ei.value.code == "dns_winrm_https_unreachable"
+    assert ei.value.params["port"] == 5986 and ei.value.params["host"] == HOST
+    assert "5985" in str(ei.value), "退回訊息（通知、API 使用者看到的）也要講 5985"
+
+    # 走 HTTP 時連不到：不是這個原因，維持一般錯誤
+    b = WindowsDNSAdapter(host=HOST, username="u", password="p", use_ssl=False, port=5985)
+    b._session = boom
+    with pytest.raises(DNSAdapterError) as ei2:
+        b._run_ps("Get-DnsServer")
+    assert ei2.value.code != "dns_winrm_https_unreachable"
+
+
 # ───────────────────────── BIND 9 (dnspython) ─────────────────────────
 
 async def test_bind9_healthcheck_wraps_oserror(monkeypatch):
@@ -181,3 +206,18 @@ async def test_unbound_get_wraps_non_json(monkeypatch):
     )
     with pytest.raises(DNSAdapterError):
         await a.healthcheck()
+
+
+def test_windows_dhcp_https_port_unreachable_suggests_http_5985(monkeypatch):
+    """Windows DHCP 走同一套 WinRM：HTTPS 5986 連不到時同樣要講改成 HTTP 5985（客戶 2026-10-11）。"""
+    from app.services import windows_dhcp as wd
+    monkeypatch.setattr(wd, "_check_address_safe", lambda _h: None)
+    c = wd.WindowsDhcpClient(host="192.0.2.25", username="u", password="p", use_ssl=True, port=5986)
+
+    def boom():
+        raise ConnectionError("HTTPSConnectionPool(host='192.0.2.25', port=5986): Max retries exceeded "
+                              "(Caused by ConnectTimeoutError(...))")
+    monkeypatch.setattr(c, "_session", boom)
+    with pytest.raises(wd.WindowsDhcpError) as ei:
+        c._run_ps("Get-DhcpServerv4Scope")
+    assert "HTTP (5985)" in str(ei.value) and "192.0.2.25:5986" in str(ei.value)
