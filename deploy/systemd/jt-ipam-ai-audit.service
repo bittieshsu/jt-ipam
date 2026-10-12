@@ -1,0 +1,59 @@
+# =============================================================================
+# jt-ipam 排程 AI 巡檢（oneshot；由 jt-ipam-ai-audit.timer 每 5 分鐘觸發）
+#
+# 每次只判斷「是否已越過 管理 → LLM / AI 設定的巡檢時刻」，沒到就結束；巡檢預設關閉。
+# 2026-10-12 從 jt-ipam-sync.service 搬出來：那個服務每輪最多 10 分鐘，巡檢一跑超過就被
+# systemd 砍掉、下一輪又整個重來，而且巡檢的那幾分鐘所有整合的同步都被卡住。
+#
+# 即時跑一次（仍然只在到了設定的時刻才會真的打 LLM）：sudo systemctl start jt-ipam-ai-audit.service
+# 看執行紀錄：journalctl -u jt-ipam-ai-audit -n 100
+# =============================================================================
+
+[Unit]
+Description=jt-ipam scheduled AI review
+Documentation=https://github.com/jasontools/jt-ipam
+After=network-online.target postgresql.service redis-server.service jt-ipam-backend.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=jtipam
+Group=jtipam
+WorkingDirectory=/opt/jt-ipam/backend
+EnvironmentFile=/etc/jt-ipam/backend.env
+ExecStart=/opt/jt-ipam/backend/.venv/bin/python /opt/jt-ipam/scripts/jt-ipam-sync.py --ai-audit
+# 最長的一次巡檢：ceil(MAX_SAMPLE / MAX_IPS_PER_BATCH) 批 × 每批 AUDIT_TIMEOUT（目前 7 × 300 秒）＋收集與存檔。
+# 守門：tests/test_ai_audit_attempt.py
+TimeoutStartSec=3600
+
+# ── Sandbox（同 backend；只要能寫 /var/log/jt-ipam）──
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @debug
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+ReadWritePaths=/var/log/jt-ipam /var/lib/jt-ipam
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jt-ipam-ai-audit

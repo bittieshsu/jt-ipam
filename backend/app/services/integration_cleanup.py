@@ -30,7 +30,7 @@ async def forget_instance(session: AsyncSession, *, source: str, source_id: uuid
     hostname_sources：這個實例用哪些來源名稱回報主機名稱（預設就是 source；
     掃描代理一台回報 scanner／netbios／mdns 三種）。
     """
-    from app.models.dhcp import DHCPPoolRange, DHCPReservation
+    from app.models.dhcp import DHCPExclusion, DHCPPoolRange, DHCPReservation
     from app.models.ip_hostname import HOSTNAME_SOURCES
     from app.models.nat import NATTranslation
     from app.models.physical import VPNTunnel
@@ -40,6 +40,8 @@ async def forget_instance(session: AsyncSession, *, source: str, source_id: uuid
     origin = f"{source}:{source_id}"
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == source, DHCPPoolRange.source_id == source_id))
+    await session.execute(delete(DHCPExclusion).where(
+        DHCPExclusion.source_type == source, DHCPExclusion.source_id == source_id))
     # 依它的發放範圍自動建立的「位址範圍（集區）」（手動建立的 source_origin 是 NULL，不會被刪）
     from app.models.ip_range import IPRange
     await session.execute(delete(IPRange).where(IPRange.source_origin == origin))

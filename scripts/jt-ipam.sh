@@ -937,6 +937,19 @@ install_refresh_timers() {
     fi
 }
 
+# ── Scheduled AI review (2026-10-12) ──
+# Its own timer instead of running inside jt-ipam-sync: that service is capped at 10 minutes
+# (TimeoutStartSec=600), so a long review was killed and started over 5 minutes later, and the
+# minutes it ran held up every integration's sync. Installed by BOTH install and upgrade
+# (upgrade does not reinstall jt-ipam-sync.service, so this cannot ride along with it).
+install_ai_audit_timer() {
+    install -m 0644 "$REPO_ROOT/deploy/systemd/jt-ipam-ai-audit.service" /etc/systemd/system/jt-ipam-ai-audit.service
+    install -m 0644 "$REPO_ROOT/deploy/systemd/jt-ipam-ai-audit.timer" /etc/systemd/system/jt-ipam-ai-audit.timer
+    systemctl daemon-reload
+    systemctl enable --now jt-ipam-ai-audit.timer >/dev/null 2>&1 \
+        || warn "could not enable jt-ipam-ai-audit.timer (scheduled AI review will not run)"
+}
+
 # Recog fingerprint database (optional; the IP probe uses it to tell NAS / firewall /
 # printer / exact OS apart). A failed download only warns: the probe works without it,
 # and jt-ipam-recog-refresh.timer retries every week. Offline hosts: --recog-zip <file>.
@@ -1746,6 +1759,8 @@ EOF
     verify_icmp_ready
     # Periodically sync OPNsense / Wazuh / LibreNMS (per each instance's own sync_interval_seconds)
     systemctl enable --now jt-ipam-sync.timer
+    # Scheduled AI review (does nothing until it is turned on under Admin → LLM / AI)
+    install_ai_audit_timer
     # Daily backup at 03:30; keep 14 days under /var/backups/jt-ipam/
     systemctl enable --now jt-ipam-backup.timer
     # GeoIP / OUI / Recog refresh timers, then the Recog database itself (optional)
@@ -2113,7 +2128,7 @@ cmd_doctor() {
     echo
     echo "Scheduled work"
     local t
-    for t in jt-ipam-sync.timer jt-ipam-backup.timer; do
+    for t in jt-ipam-sync.timer jt-ipam-ai-audit.timer jt-ipam-backup.timer; do
         systemctl is-active --quiet "$t" && _ok "$t enabled" \
             || _bad "$t is not running" "sudo systemctl enable --now $t"
     done
@@ -2486,6 +2501,8 @@ cmd_upgrade() {
 
     # -- 6d. scheduled refresh of GeoIP / OUI / Recog (older installs never had these timers) --
     install_refresh_timers
+    # -- 6e. scheduled AI review now has its own timer (it used to run inside jt-ipam-sync) --
+    install_ai_audit_timer
 
     # -- 7. restart backend --
     log "Restarting $SVC…"
@@ -2556,6 +2573,8 @@ cmd_uninstall() {
         jt-ipam-backend.service
         jt-ipam-sync.timer
         jt-ipam-sync.service
+        jt-ipam-ai-audit.timer
+        jt-ipam-ai-audit.service
         jt-ipam-oui-refresh.timer
         jt-ipam-oui-refresh.service
         jt-ipam-geoip-refresh.timer

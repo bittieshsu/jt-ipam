@@ -1,0 +1,14 @@
+[Unit]
+Description=Check every 5 minutes whether the jt-ipam AI review is due
+Documentation=https://github.com/jasontools/jt-ipam
+
+[Timer]
+# 開機後 4 分鐘跑一次，之後每 5 分鐘；巡檢本身只在設定的時刻才會真的打 LLM
+OnBootSec=4min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=30s
+Unit=jt-ipam-ai-audit.service
+
+[Install]
+WantedBy=timers.target

@@ -46,8 +46,8 @@ _admin = [Depends(require_admin)]
 
 #: 改了就要重新測試（不沿用舊的成功標記）：連線與認證
 _CONN_FIELDS = frozenset({"base_url", "login_path", "login_method", "post_format", "username", "username_param",
-                          "password_param", "auth_mode", "token_path", "token_header", "token_prefix", "lease_path",
-                          "verify_tls"})
+                          "password_param", "auth_mode", "token_path", "token_header", "token_prefix", "token_in",
+                          "token_param", "lease_path", "verify_tls"})
 #: 改了就要重新預覽：連線＋解讀與配對（時區、範圍、租戶、是否新增 IP）
 _PREVIEW_FIELDS = _CONN_FIELDS | {"source_timezone", "scope_subnet_ids", "customer_id", "create_ips", "max_rows",
                                   "max_response_mib"}
@@ -161,7 +161,8 @@ async def update_source(
         raise HTTPException(422, detail=ui_detail(
             "isoinsight_timezone_unconfirmed", "儲存前請確認來源時區（時間會依這個時區換算）"))
     for k in ("name", "base_url", "login_path", "login_method", "post_format", "username", "username_param",
-              "password_param", "auth_mode", "token_header", "token_prefix", "lease_path", "verify_tls",
+              "password_param", "auth_mode", "token_header", "token_prefix", "token_in", "token_param",
+              "lease_path", "verify_tls",
               "source_timezone", "scope_subnet_ids", "create_ips", "enabled", "schedule_enabled",
               "sync_interval_seconds", "connect_timeout_seconds", "request_timeout_seconds", "job_timeout_seconds",
               "max_response_mib", "max_rows"):

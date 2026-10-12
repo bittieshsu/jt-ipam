@@ -547,6 +547,22 @@ async def seed() -> None:
                 rules_hash=hashlib.sha256(b"e2e").hexdigest(), rule_count=len(rules),
                 rules=rules, diff={"added": rules, "removed": [], "changed": []}))
 
+        # ── DHCP 排除區間（dhcp-exclusion.spec）：Windows DHCP 的範圍 10.20.0.80–99 挖掉 .85 給設固定 IP 的印表機 ──
+        from app.models.dhcp import DHCPExclusion, DHCPPoolRange
+        from app.models.windows_dhcp import WindowsDhcpServer
+        wd = await one(WindowsDhcpServer, name="dc-dhcp-e2e", host="dc01.example.com", username="EXAMPLE\\svc-ipam",
+                       password_enc=b"e2e", password_nonce=b"e2e", enabled=False)
+        await ip(subnets["10.20.0.0/24"], "10.20.0.85", "static-printer-01")
+        await ip(subnets["10.20.0.0/24"], "10.20.0.86", "dhcp-client-01")
+        for model in (DHCPPoolRange, DHCPExclusion):
+            await s.execute(delete(model).where(model.source_type == "windows_dhcp", model.source_id == wd.id))
+        for a_, b_ in (("10.20.0.80", "10.20.0.84"), ("10.20.0.86", "10.20.0.99")):
+            s.add(DHCPPoolRange(source_type="windows_dhcp", source_id=wd.id, source_name=wd.name,
+                                subnet_cidr="10.20.0.0/24", start_ip=a_, end_ip=b_, source="windows"))
+        s.add(DHCPExclusion(source_type="windows_dhcp", source_id=wd.id, source_name=wd.name,
+                            subnet_cidr="10.20.0.0/24", start_ip="10.20.0.85", end_ip="10.20.0.85", source="windows"))
+        await s.flush()
+
         # ── 指示計的「未納管」格子（subnet-grid-unmanaged.spec）：10.20.0.0/24 裡沒有 IP 記錄、但看得到在用的兩個位址 ──
         from app.models.subnet import Subnet as _Sub
         from app.models.unmanaged_sighting import UnmanagedSighting

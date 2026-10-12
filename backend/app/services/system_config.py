@@ -395,7 +395,7 @@ AI_AUDIT_KEY = "ai_audit_state"
 
 
 async def get_ai_audit_last_run(session: AsyncSession) -> datetime | None:
-    """上次巡檢執行完成的時間（不論有沒有產生發現）。
+    """上次巡檢開始執行的時間（不論結果、有沒有產生發現；2026-10-12 起開始時就寫，見 mark_ai_audit_started）。
 
     這個必須獨立記錄，**不能拿最後一筆發現的時間當作「上次執行時間」**：一次乾淨的
     巡檢什麼都不會寫，於是排程會誤判成「從沒跑過」，每一輪同步（約 5 分鐘）就再打
@@ -413,14 +413,44 @@ async def get_ai_audit_last_run(session: AsyncSession) -> datetime | None:
 
 
 async def set_ai_audit_last_run(session: AsyncSession, *, at: datetime) -> None:
+    await _update_ai_audit_state(session, last_run_at=at.isoformat())
+
+
+async def _update_ai_audit_state(session: AsyncSession, **fields: Any) -> None:
     row = await session.get(SystemSetting, AI_AUDIT_KEY)
     if row is None:
         row = SystemSetting(key=AI_AUDIT_KEY, value={})
         session.add(row)
-    row.value = {**(row.value or {}), "last_run_at": at.isoformat()}
+    row.value = {**(row.value or {}), **fields}
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(row, "value")
     await session.commit()
+
+
+async def mark_ai_audit_started(session: AsyncSession, *, at: datetime) -> None:
+    """開始送 LLM 之前就記下這次嘗試（2026-10-12）。
+
+    以前「上次執行時間」要整個跑完才寫：巡檢被 systemd 砍掉、或 LLM 主機在途中掛掉時一筆都沒寫，
+    排程下一輪（5 分鐘後）就判定「還沒跑」又整個重來。現在開始時就算這個時段跑過，
+    並記下「正在跑」—— 手動與排程在不同行程，靠這個標記才不會疊在一起打同一台 LLM。
+    """
+    await _update_ai_audit_state(session, last_run_at=at.isoformat(), running_since=at.isoformat())
+
+
+async def mark_ai_audit_finished(session: AsyncSession, *, at: datetime) -> None:
+    await _update_ai_audit_state(session, running_since=None, finished_at=at.isoformat())
+
+
+async def get_ai_audit_running_since(session: AsyncSession) -> datetime | None:
+    """正在跑的巡檢從什麼時候開始（沒有＝None）。行程被砍會留下舊標記，由呼叫端判斷是否過期。"""
+    row = await session.get(SystemSetting, AI_AUDIT_KEY)
+    v = row.value.get("running_since") if row and isinstance(row.value, dict) else None
+    if not isinstance(v, str):
+        return None
+    try:
+        return datetime.fromisoformat(v)
+    except ValueError:
+        return None
 
 
 # ─────────────────── 異常偵測（排程）───────────────────

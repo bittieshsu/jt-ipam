@@ -166,6 +166,7 @@ CATEGORY: dict[str, str] = {
     "vm_interfaces": "synced",
     "dhcp_pool_ranges": "synced",
     "dhcp_reservations": "synced",
+    "dhcp_exclusions": "synced",           # DHCP 伺服器的排除區間（0207）
     "dhcp_lease_sightings": "synced",      # 逐來源的 DHCP 租約目擊（in_dhcp_lease 由它推導）
     "esxi_instances": "integrations",
     # operational（短暫／歷史）

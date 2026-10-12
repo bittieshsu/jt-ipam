@@ -48,6 +48,15 @@ DEFAULT_MAX_BYTES = 20 * 1024 * 1024
 # 登入網址的 Query 在這裡換成 `<redacted>`；其他整合的日誌不受影響（只比對登記過的登入路徑）。
 
 _LOGIN_PATHS: set[str] = set()
+#: 租約網址上帶的 session（token 放在網址參數時）：路徑 → 要遮的參數名稱
+_SECRET_QUERY: dict[str, set[str]] = {}
+
+
+def _redact_params(url: httpx.URL, names: set[str]) -> str:
+    """網址照印，只把指定參數的值換成 <redacted>（其餘 Query 是管理員設的，留著方便除錯）。"""
+    q = httpx.QueryParams(url.query.decode("utf-8", "replace"))
+    parts = [f"{k}={'<redacted>' if k in names else v}" for k, v in q.multi_items()]
+    return f"{url.copy_with(query=None)}?{'&'.join(parts)}"
 
 
 class _RedactLoginQuery(logging.Filter):
@@ -59,6 +68,9 @@ class _RedactLoginQuery(logging.Filter):
             for a in args:
                 if isinstance(a, httpx.URL) and a.query and a.path in _LOGIN_PATHS:
                     new.append(cfg.redact_url(str(a)))
+                    changed = True
+                elif isinstance(a, httpx.URL) and a.query and a.path in _SECRET_QUERY:
+                    new.append(_redact_params(a, _SECRET_QUERY[a.path]))
                     changed = True
                 else:
                     new.append(a)
@@ -109,6 +121,8 @@ class Settings:
     token_path: str | None = None
     token_header: str = "Authorization"  # noqa: S105 -- 參數名／標頭名，不是秘密
     token_prefix: str = "Bearer"  # noqa: S105 -- 參數名／標頭名，不是秘密
+    token_in: str = "header"  # noqa: S105 -- header／query（原廠：sessionid 放在網址參數），不是秘密
+    token_param: str = "sessionid"  # noqa: S105 -- 參數名，不是秘密
     lease_path: str = cfg.DEFAULT_LEASE_PATH
     verify_tls: bool = True
     connect_timeout: float = 5.0
@@ -125,7 +139,8 @@ class Settings:
             post_format=src.post_format, username=src.username, password=password,
             username_param=src.username_param, password_param=src.password_param,
             auth_mode=src.auth_mode, token_path=src.token_path, token_header=src.token_header,
-            token_prefix=src.token_prefix or "", lease_path=src.lease_path, verify_tls=src.verify_tls,
+            token_prefix=src.token_prefix or "", token_in=src.token_in or "header",
+            token_param=src.token_param or "sessionid", lease_path=src.lease_path, verify_tls=src.verify_tls,
             connect_timeout=float(src.connect_timeout_seconds), request_timeout=float(src.request_timeout_seconds),
             max_bytes=int(src.max_response_mib) * 1024 * 1024)
 
@@ -189,6 +204,9 @@ class IsoClient:
         self._login_url = cfg.join_url(settings.base_url, settings.login_path)
         self._lease_url = cfg.join_url(settings.base_url, self._lease_path)
         _LOGIN_PATHS.add(httpx.URL(self._login_url).path)
+        self._query_token = settings.auth_mode == "token" and settings.token_in == "query"  # noqa: S105
+        if self._query_token:
+            _SECRET_QUERY.setdefault(httpx.URL(self._lease_url).path, set()).add(settings.token_param)
 
     async def __aenter__(self) -> IsoClient:
         timeout = httpx.Timeout(connect=self.s.connect_timeout, read=self.s.request_timeout,
@@ -213,17 +231,19 @@ class IsoClient:
         return self._deadline - asyncio.get_running_loop().time()
 
     def _err(self, code: str, message: str, *, stage: str, **kw: Any) -> IsoError:
-        return IsoError(code, cfg.scrub(message, self.s.secrets()), stage=stage, **kw)
+        return IsoError(code, cfg.scrub(message, [*self.s.secrets(), self._token]), stage=stage, **kw)
 
     @staticmethod
-    def _trace_path(url: str, params: Any, stage: str) -> str:
-        """記錄用的路徑：登入的 Query（GET 登入時就是帳密）一律遮蔽；租約路徑的固定 Query 是管理員設的，照樣顯示。"""
+    def _trace_path(url: str, params: Any, stage: str, redact: frozenset[str] = frozenset()) -> str:
+        """記錄用的路徑：登入的 Query（GET 登入時就是帳密）一律遮蔽；租約路徑的固定 Query 是管理員設的，照樣顯示，
+        但放在網址參數的 session（redact）要遮。"""
         path = httpx.URL(url).path
         if not params:
             return path
         if stage == "login":
             return f"{path}?<redacted>"
-        return f"{path}?{httpx.QueryParams(params)}"
+        q = httpx.QueryParams(params)
+        return f"{path}?" + "&".join(f"{k}={'<redacted>' if k in redact else v}" for k, v in q.multi_items())
 
     async def _precheck(self, url: str, stage: str) -> None:
         u = httpx.URL(url)
@@ -239,12 +259,14 @@ class IsoClient:
 
     async def _send(self, method: str, url: str, *, stage: str, max_bytes: int, params: Any = None,
                     data: Any = None, json_body: Any = None, headers: dict[str, str] | None = None,
+                    redact: frozenset[str] = frozenset(),
                     ) -> tuple[httpx.Response, bytes]:
         assert self._client is not None, "use `async with IsoClient(...)`"
         await self._precheck(url, stage)
         loop = asyncio.get_running_loop()
         t0 = loop.time()
-        entry: dict[str, Any] = {"stage": stage, "method": method, "path": self._trace_path(url, params, stage)}
+        entry: dict[str, Any] = {"stage": stage, "method": method,
+                                 "path": self._trace_path(url, params, stage, redact)}
         self.trace.append(entry)
         req = self._client.build_request(method, url, params=params, data=data, json=json_body, headers=headers)
         try:
@@ -350,6 +372,12 @@ class IsoClient:
                                 stage="login", http_status=st) from exc
             token = cfg.extract_token(data, s.token_path or "")
             entry["token_found"] = token is not None
+            code = data.get("code") if isinstance(data, dict) else None
+            if token is None and code is not None and str(code).strip() != "200":
+                # 原廠的登入回應帶 code（成功是 "200"）：帳密錯時仍回 HTTP 200，只是 code 不同、沒有 SessionID
+                entry["login_code"] = str(code)[:16]
+                raise self._err("AUTH_FAILED", f"login refused (code {str(code)[:16]})", stage="login",
+                                http_status=st)
             if token is None:
                 raise self._err("AUTH_RESPONSE_UNSUPPORTED",
                                 "no non-empty string at the configured token path", stage="login",
@@ -365,10 +393,17 @@ class IsoClient:
 
     def _auth_headers(self) -> dict[str, str]:
         h = {"Accept": "application/json"}
-        if self.s.auth_mode == "token" and self._token:
+        if self.s.auth_mode == "token" and self._token and not self._query_token:
             prefix = (self.s.token_prefix or "").strip()
             h[self.s.token_header] = f"{prefix} {self._token}" if prefix else self._token
         return h
+
+    def _lease_query(self) -> list[tuple[str, str]]:
+        """租約網址的 Query：管理員設的固定參數，token 放在網址時再加上 session（每次重新算：重新登入會換）。"""
+        params = list(self._lease_params or [])
+        if self._query_token and self._token:
+            params.append((self.s.token_param, self._token))
+        return params
 
     # ── 租約 ──
 
@@ -378,7 +413,9 @@ class IsoClient:
         while True:
             try:
                 resp, body = await self._send("GET", self._lease_url, stage="fetch", max_bytes=self.s.max_bytes,
-                                              params=self._lease_params or None, headers=self._auth_headers())
+                                              params=self._lease_query() or None, headers=self._auth_headers(),
+                                              redact=frozenset({self.s.token_param}) if self._query_token
+                                              else frozenset())
             except IsoError as exc:
                 if exc.spec_code in RETRYABLE_TRANSPORT and net_retries < 1 and self._time_left() > 1:
                     net_retries += 1

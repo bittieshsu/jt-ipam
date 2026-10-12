@@ -341,6 +341,23 @@ async def test_dhcp_pool_ranges_are_global_data(db_session, target):
     assert "pools" not in d["dhcp"]
 
 
+@pytest.mark.anyio
+async def test_dhcp_exclusion_is_reported(db_session, admin_user, target):
+    """排除在發放範圍外的位址（0207）：調查要講得出被哪台 DHCP 排除；部門帳號只看得到旗標。"""
+    from app.models.dhcp import DHCPExclusion
+    sn, _ipa = target
+    db_session.add(DHCPExclusion(source_type="windows_dhcp", source_id=uuid.uuid4(), source_name="dc01-dhcp",
+                                 start_ip=IP, end_ip=IP, source="windows"))
+    await db_session.commit()
+    d = await collect_dossier(db_session, user=admin_user, ip=IP)
+    assert d["dhcp"]["excluded"] is True and d["dhcp"]["in_pool"] is False
+    assert d["dhcp"]["exclusions"][0]["source_name"] == "dc01-dhcp"
+    u = await _user(db_session, subnet_id=sn.id)
+    d2 = await collect_dossier(db_session, user=u, ip=IP)
+    assert d2["dhcp"]["excluded"] is True
+    assert "exclusions" not in d2["dhcp"]
+
+
 # ─────────────────────────── 接在哪裡（FDB） ───────────────────────────
 
 @pytest.mark.anyio

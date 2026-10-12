@@ -48,7 +48,7 @@ from app.models.checkpoint_gaia import CheckPointDhcpSubnet, CheckPointGaiaTarge
 from app.models.custom_field import CustomFieldDefinition
 from app.models.customer import Customer
 from app.models.device import Device
-from app.models.dhcp import DHCPPoolRange
+from app.models.dhcp import DHCPExclusion, DHCPPoolRange
 from app.models.dhcp_sighting import DHCPSighting
 from app.models.dhcp_standalone import IscDhcpServer, KeaDhcpServer
 from app.models.dns import DNSRecord, DNSServer, DNSZone
@@ -155,6 +155,7 @@ __all__ = [
     "ContactGroup",
     "ContactRole",
     "CustomFieldDefinition",
+    "DHCPExclusion",
     "DHCPPoolRange",
     "DNSCompareGroup",
     "DNSCompareGroupDiff",

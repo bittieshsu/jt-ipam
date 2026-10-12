@@ -479,3 +479,46 @@ async def test_only_reachable_arp_stamps_the_ip(db_session: Any, monkeypatch: An
     reachable, stale = ips
     assert "arp:mikrotik" in (reachable.arp_seen or {})
     assert (stale.arp_seen or {}) == {}, "stale 的條目留下了證據"
+
+
+# ─────────────────── 靜態租約＝固定分配（2026-10-12）───────────────────
+def test_static_leases_become_reservations() -> None:
+    """RouterOS 的固定分配就是靜態租約；以前沒讀。停用的、動態的、位址是集區名稱的都不算。"""
+    rows = [
+        {"address": "10.0.0.20", "mac-address": "AA:BB:CC:00:00:01", "host-name": "nas",
+         "comment": "rack 2", "dynamic": "false", "disabled": "false"},
+        {"address": "10.0.0.21", "mac-address": "AA:BB:CC:00:00:02", "dynamic": "false", "disabled": "true"},
+        {"address": "10.0.0.22", "mac-address": "AA:BB:CC:00:00:03", "dynamic": "true"},     # 舊韌體不理過濾
+        {"address": "pool-lan", "mac-address": "AA:BB:CC:00:00:04", "dynamic": "false"},     # 固定網卡、位址動態
+        {"address": "10.0.0.23", "mac-address": "AA:BB:CC:00:00:05"},                        # 不知道是不是靜態
+    ]
+    got = svc.build_static_reservations(rows)
+    assert [(r.ip, r.mac, r.hostname, r.description) for r in got] == [
+        ("10.0.0.20", "aa:bb:cc:00:00:01", "nas", "rack 2")]
+
+
+@pytest.mark.anyio
+async def test_dhcp_section_writes_static_leases_as_reservations(db_session: Any, monkeypatch: Any) -> None:
+    from app.models.dhcp import DHCPReservation
+    from app.models.mikrotik import MikroTikRouter
+    from sqlalchemy import select
+
+    router = MikroTikRouter(
+        name="ccr-static", api_url="https://192.0.2.9", api_username="ipam",
+        api_password_enc=b"x", api_password_nonce=b"y", section_delay_ms=0)
+    db_session.add(router)
+    await db_session.flush()
+    menus = {**MENUS, "/ip/dhcp-server/lease": [
+        {"address": "10.0.0.20", "mac-address": "AA:BB:CC:00:00:01", "dynamic": "false", "disabled": "false"},
+        {"address": "10.0.0.150", "mac-address": "AA:BB:CC:DD:EE:01", "dynamic": "true", "status": "bound"},
+    ]}
+    transport = _MenuTransport(menus, cpu_seq=[5])
+    monkeypatch.setattr(svc, "_decrypt_password", lambda r: "pw")
+    async with httpx.AsyncClient(transport=transport) as client:
+        out = await svc.sync_dhcp_ranges(db_session, router, client=client)
+    assert out["dhcp_reservations"] == 1
+    rows = (await db_session.execute(select(DHCPReservation).where(
+        DHCPReservation.source_id == router.id))).scalars().all()
+    assert [(r.source_type, r.ip, r.mac) for r in rows] == [("mikrotik", "10.0.0.20", "aa:bb:cc:00:00:01")]
+    assert transport.paths.count("/ip/dhcp-server/lease") == 1
+

@@ -47,7 +47,10 @@ SCOPE = {
                 "exclusions": [{"startingAddress": "203.0.113.1", "endingAddress": "203.0.113.10"}],
                 "reservedLeases": [{"hostName": "x", "hardwareAddress": "02-00-5E-00-53-09", "address": "203.0.113.9"}]},
 }
-LEASES = {"leases": [
+def _leases() -> dict:
+    """呼叫當下才算時間：以前是模組層級常數，在收集測試時就算好 —— 全套測試跑超過 55 分鐘時，
+    第一筆租約跑到這裡已經過期（只有全套跑才會失敗的時間炸彈）。"""
+    return {"leases": [
     {"scope": "lan", "type": "Dynamic", "hardwareAddress": "02-00-5E-00-53-21", "address": "172.31.250.100",
      "hostName": "laptop-01.example.test", "leaseObtained": _iso(-timedelta(minutes=5)),
      "leaseExpires": _iso(timedelta(minutes=55))},
@@ -56,7 +59,7 @@ LEASES = {"leases": [
      "leaseExpires": _iso(timedelta(hours=2))},
     {"scope": "lan", "type": "Dynamic", "hardwareAddress": "02-00-5E-00-53-22", "address": "172.31.250.101",
      "hostName": None, "leaseObtained": _iso(-timedelta(hours=3)), "leaseExpires": _iso(-timedelta(hours=2))},
-]}
+    ]}
 
 
 def test_pool_bounds_subtract_exclusions() -> None:
@@ -81,7 +84,7 @@ def test_scope_parsing() -> None:
 
 
 def test_leases_skip_expired_and_normalise() -> None:
-    out = td.parse_leases(LEASES["leases"])
+    out = td.parse_leases(_leases()["leases"])
     assert [(x["ip"], x["mac"], x["hostname"]) for x in out] == [
         ("172.31.250.100", "02:00:5e:00:53:21", "laptop-01.example.test"),
         ("172.31.250.120", "02:00:5e:00:53:01", "printer-01.example.test")]
@@ -102,7 +105,7 @@ def _fake(monkeypatch, *, denied: bool = False, calls: list | None = None) -> No
         if path == "/api/dhcp/scopes/get":
             return SCOPE[params["name"]]
         if path == "/api/dhcp/leases/list":
-            return LEASES
+            return _leases()
         raise AssertionError(path)
     monkeypatch.setattr(tc.TechnitiumClient, "call", call)
 
@@ -162,6 +165,11 @@ async def test_sync_writes_pools_reservations_leases_and_scope_options(db_sessio
     assert lan.enabled is True and str(lan.router) == "172.31.250.1"
     assert [str(x) for x in lan.dns_servers] == ["172.31.250.2"] and lan.reservations == 1
     assert lan.exclusions == [{"start": "172.31.250.110", "end": "172.31.250.119"}]
+    # 排除區間另外記下來（0207）：IP 上標「DHCP 排除」用；停用的範圍（Default）不算
+    from app.models.dhcp import DHCPExclusion
+    excl = (await db_session.execute(select(DHCPExclusion).where(DHCPExclusion.source_id == inst.id))).scalars().all()
+    assert [(e.source_type, e.start_ip, e.end_ip, e.subnet_cidr) for e in excl] == [
+        ("technitium", "172.31.250.110", "172.31.250.119", "172.31.250.0/24")]
     assert scopes["Default"].enabled is False
 
     await db_session.refresh(inst)

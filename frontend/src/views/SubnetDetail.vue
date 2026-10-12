@@ -51,6 +51,19 @@ const { catalog } = useScanProbes();
 
 const { labelFor: customerLabelFor, ensureLoaded: ensureCustomersLoaded } = useCustomers();
 
+// 指示計的格子大小（使用者 2026-10-11：卡片標題列右邊的拉桿）。每個人記在自己的瀏覽器
+const GRID_CELL_KEY = "jt-ipam:grid_cell_size";
+function loadGridCell(): number {
+  try {
+    const v = Number(localStorage.getItem(GRID_CELL_KEY));
+    return v >= 8 && v <= 32 ? v : 14;
+  } catch { return 14; }
+}
+const gridCell = ref(loadGridCell());
+watch(gridCell, (v) => {
+  try { localStorage.setItem(GRID_CELL_KEY, String(v)); } catch { /* 無痕視窗、封鎖儲存：只是不記住 */ }
+});
+
 // 子網路編輯（表單統一走共用元件 SubnetEditModal.vue）
 const editShow = ref(false);
 function openSubnetEdit() {
@@ -935,8 +948,16 @@ onMounted(() => {
             <span>{{ t("subnets.visualisation") }}</span>
           </n-space>
         </template>
+        <template #header-extra>
+          <span class="grid-zoom" :title="t('visualisation.cell_size')">
+            <span class="grid-zoom__label">{{ t("visualisation.cell_size") }}</span>
+            <n-slider v-model:value="gridCell" :min="8" :max="32" :step="1"
+                      :format-tooltip="(v: number) => `${v}px`" style="width: 120px" data-testid="grid-cell-size" />
+          </span>
+        </template>
         <subnet-grid
           :cidr="subnet.cidr"
+          :cell-size="gridCell"
           :addresses="addresses"
           :ranges="ipRanges"
           :blocks="subnetBlocks"
@@ -1107,4 +1128,7 @@ a {
 a:hover {
   text-decoration: underline;
 }
+.grid-zoom { display: inline-flex; align-items: center; gap: 8px; }
+.grid-zoom__label { font-size: 12px; opacity: 0.65; white-space: nowrap; }
+@media (max-width: 600px) { .grid-zoom__label { display: none; } }
 </style>

@@ -223,6 +223,12 @@ async def sync_instance(session: AsyncSession, inst: Any) -> dict[str, Any]:
         counts["pools"] = await write_pools(
             session, source_type="technitium", source_id=inst.id, source_name=inst.name, engine=SOURCE,
             pools=[{"subnet": p["subnet"], "start": a, "end": b} for p in live for a, b in p["pools"]])
+        # 排除區間本身也記下來（發放範圍已經扣掉），IP 上才標得出「DHCP 排除」
+        from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions
+        await replace_exclusions(
+            session, source_type=SOURCE, source_id=inst.id, source_name=inst.name, engine=SOURCE,
+            rows=[Exclusion(a, b, p["subnet"]) for p in live
+                  for a, b in clip(p["start"] or "", p["end"] or "", [(x["start"], x["end"]) for x in p["exclusions"]])])
         counts["reservations"] = await write_reservations(
             session, source_type=SOURCE, source_id=inst.id, source_name=inst.name, engine=SOURCE,
             rows=[r for p in live for r in p["reservations"]])

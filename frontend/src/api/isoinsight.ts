@@ -26,6 +26,8 @@ export interface IsoInsightSource {
   token_path: string | null;
   token_header: string;
   token_prefix: string;
+  token_in: "header" | "query";   // Token 放在標頭或網址參數（原廠：sessionid 放在網址）
+  token_param: string;
   lease_path: string;
   verify_tls: boolean;
   source_timezone: string;

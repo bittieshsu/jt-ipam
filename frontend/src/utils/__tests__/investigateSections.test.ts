@@ -56,7 +56,9 @@ const full = {
   dhcp: { in_lease: true, reserved: true, in_pool: true,
           reservations: [{ mac: "00:11:22:33:44:77", source_name: "dc01-dhcp" }],
           leases: [{ source_type: "windows_dhcp", source_name: "dc01-dhcp", last_seen: "2026-10-05T03:00:00Z" }],
-          pools: [{ source_type: "kea_dhcp", start: "198.51.100.50", end: "198.51.100.99" }] },
+          pools: [{ source_type: "kea_dhcp", start: "198.51.100.50", end: "198.51.100.99" }],
+          excluded: true,
+          exclusions: [{ source_type: "windows_dhcp", source_name: "dc01-dhcp", start: "198.51.100.60", end: "198.51.100.60" }] },
   switch_ports: [{ switch: "access-sw-1", port: "Gi1/0/7", vlan: 10, source: "librenms" }],
   fw_evidence: [{ key: "arp:mikrotik", kind: "arp", vendor: "mikrotik", at: "2026-10-05T04:00:00Z", aging: true }],
   last_seen: { minutes: 30, rows: [{ source: "scanner", at: "2026-10-05T04:00:00Z", verdict: "fresh" },
@@ -126,6 +128,8 @@ describe("每一段的文字", () => {
     expect(text).toContain("3389/tcp ms-wbt-server");
     expect(text).toContain("win11-vm（虛擬機 · KVM）");
     expect(text).toContain("198.51.100.50 - 198.51.100.99");
+    expect(text).toContain("排除區間：198.51.100.60 - 198.51.100.60（dc01-dhcp）");
+    expect(text).toContain("DHCP 排除");
     expect(text).toContain("access-sw-1 · Gi1/0/7 · VLAN 10");
     expect(text).toContain("ARP 表（MikroTik）");
     expect(text).toContain("DHCP 租約（pfSense）");

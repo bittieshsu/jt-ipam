@@ -85,6 +85,12 @@ test("新增、編輯、刪除比對群組", async ({ page }) => {
   await page.getByTestId("dns-cg-create").click();
   const m = page.getByTestId("dns-cg-modal");
   await m.getByTestId("dns-cg-name").locator("input").fill(name);
+  // 成員選項：伺服器名稱 · 類型（類型本身帶括號，以前寫成「名稱（類型）」會括號套括號）
+  await m.getByTestId("dns-cg-members").click();
+  const opt = page.locator(".n-base-select-option", { hasText: "e2e-ns1" }).first();
+  await expect(opt).toContainText("e2e-ns1 · BIND 9 (rndc / TSIG)");
+  await expect(opt).not.toContainText("（");
+  await page.keyboard.press("Escape");
   await m.getByTestId("dns-cg-save").click();
   const row = page.getByTestId("dns-compare-groups").locator("tr", { hasText: name });
   await expect(row).toBeVisible({ timeout: 10_000 });

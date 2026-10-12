@@ -813,7 +813,8 @@
     "paste_denied": "ブラウザのクリップボードを読み取れません（クリップボードの権限を許可してください）",
     "paste_empty": "クリップボードが空です",
     "paste_set": "接続先のクリップボードに書き込みました。接続先で Ctrl+V を押してください",
-    "keyboard_input": "リモートのキーボード入力"
+    "keyboard_input": "リモートのキーボード入力",
+    "port": "ポート"
   },
   "vnc": {
     "connect": "VNC",
@@ -1314,6 +1315,9 @@
     "dhcp_reserved_tag": "予約済み",
     "dhcp_reserved_hint": "DHCP がこのアドレスを特定の NIC に固定しているため、他の機器に回されることはありません。",
     "dhcp_reserved_mac": "固定先の MAC",
+    "dhcp_excluded_tag": "DHCP 除外",
+    "dhcp_excluded_hint": "DHCP サーバーがこのアドレスを配布範囲から除外しており、どのクライアントにも割り当てません。通常は固定 IP を設定した機器です。",
+    "dhcp_excluded_range": "除外範囲",
     "state": "状態",
     "role_auto_added": "自動記録（未登録）",
     "role_auto_added_hint": "このアドレスは {src} によって自動的に作成されたもので、人の手では登録されていません。その機器が本来あるべきものか確認してください。いったん記録されると、未許可 IP の検知には現れなくなります。",
@@ -1496,7 +1500,8 @@
     "tip_unmanaged": "IPAM にこのアドレスの記録はありませんが、最近使われているのが見えています（スキャンエージェントが見つけたか、LibreNMS の ARP テーブルにあります）。スキャンエージェントの自動登録が無効のときに起こります。マスをクリックするとこのアドレスの情報を表示し、そこからプローブや追加ができます。1 日以上見えていないものは薄く表示します。",
     "auto_added": "自動記録",
     "tip_auto_added": "連携やスキャンエージェントによって自動的に作成され、人の手では登録されていないアドレスです。セルの左上半分が紫（自動記録）になり、右下半分は通常どおり死活の色を示します。いったん記録されると、未許可 IP の検知には挙がらなくなる点に注意してください。",
-    "legend_partial": "このサブネットには {total} 件の登録済みアドレスがあります。ブロック使用率は全件で計算し、下の状態集計は読み込んだ最初の {n} 件のみです。"
+    "legend_partial": "このサブネットには {total} 件の登録済みアドレスがあります。ブロック使用率は全件で計算し、下の状態集計は読み込んだ最初の {n} 件のみです。",
+    "cell_size": "マスの大きさ"
   },
   "tasks": {
     "title": "タスク",
@@ -3654,7 +3659,23 @@
     "dns_server_not_found": "指定した DNS サーバーが見つかりません（削除された可能性があります）。",
     "dns_compare_group_name_taken": "同じ名前の DNS 比較グループがすでにあります。別の名前にしてください。",
     "dns_compare_group_mixed_kinds": "Unbound（OPNsense）はホストオーバーライドのみで完全なゾーンではないため、ほかの Unbound としか同じ比較グループにできません。",
-    "dns_winrm_https_unreachable": "Windows DNS の WinRM HTTPS（{host}:{port}）に接続できません。Windows Server は既定で HTTP 5985 のみ開いています。HTTPS リスナーを別途作成していない場合は、「管理 → 外部システム連携 → DNS」でこのサーバーを編集し、WinRM 接続を HTTP（5985）にしてください。（{reason}）"
+    "dns_winrm_https_unreachable": "Windows DNS の WinRM HTTPS（{host}:{port}）に接続できません。Windows Server は既定で HTTP 5985 のみ開いています。HTTPS リスナーを別途作成していない場合は、「管理 → 外部システム連携 → DNS」でこのサーバーを編集し、WinRM 接続を HTTP（5985）にしてください。（{reason}）",
+    "v_missing": "必須です",
+    "v_too_short_list": "{n} 個以上選択してください",
+    "v_too_long_list": "{n} 個までです",
+    "v_string_too_short": "{n} 文字以上にしてください",
+    "v_string_too_long": "{n} 文字以内にしてください",
+    "v_ge": "{n} 以上にしてください",
+    "v_le": "{n} 以下にしてください",
+    "v_gt": "{n} より大きくしてください",
+    "v_lt": "{n} より小さくしてください",
+    "v_choice": "選択できない値です",
+    "v_integer": "整数にしてください",
+    "v_format": "形式が正しくありません",
+    "v_invalid": "値が正しくありません",
+    "v_more": "（ほかに {n} 個の項目に問題があります）",
+    "v_sep": "；",
+    "v_field": "{field}：{reason}"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -5879,7 +5900,11 @@
     "scope_subnets": "対象サブネットを限定",
     "scope_all": "すべて（限定しない）",
     "scope_hint": "これらのサブネット内の IP の MAC だけを照合し、「エージェント未導入の IP」もこれらのサブネットだけを表示します。空欄なら全体が対象です。",
-    "missing_scoped": "（連携で限定したサブネットのみ）"
+    "missing_scoped": "（連携で限定したサブネットのみ）",
+    "timezone": "OCS のタイムゾーン",
+    "timezone_ph": "jt-ipam ホストと同じ",
+    "timezone_hint": "OCS の最終インベントリ日時（LASTDATE）は OCS ホストのローカル時刻で、タイムゾーンを持ちません。正しく換算するため OCS ホストのタイムゾーンを選んでください。アップグレード前からある連携は UTC です。",
+    "tz_future": "{count} 台の最終インベントリ日時が未来です（最大 {hours} 時間先）：OCS のタイムゾーンは {tz} ではない可能性があります。連携を編集してください"
   },
   "scope_filter": {
     "section": "セクション",
@@ -7358,7 +7383,7 @@
     "step_preview": "プレビュー：リースとサブネット対応付けの結果を確認（未適用）",
     "step_scope": "顧客と同期を許可するサブネットを確認",
     "step_sync": "手動で一度同期し、結果を確認してからスケジュールをオン",
-    "unverified_note": "実機での検証待ち：ログイン応答（Cookie またはトークン）、GET と POST のどちらが使えるか、リースが全件か、タイムゾーンは ISOinsight 実機でまだ確認していません。ここの設定は互換性のための選択肢であり、メーカーの仕様ではありません。",
+    "unverified_note": "実機での検証待ち：メーカーからログイン方式の案内がありました（/logon に JSON を POST して SessionID を取得し、URL パラメーター sessionid でリースを読み取る。新規作成時の既定値はこの方式）。ただし ISOinsight の実機ではまだ動かしておらず、リースが全件か、タイムゾーンも未確認です。",
     "base_url": "Base URL",
     "base_url_hint": "例：https://192.0.2.10。資格情報、クエリ、フラグメントは含めません。ログインとリースのパスはこの配下の相対パスです。",
     "run_on": "実行場所",
@@ -7442,11 +7467,18 @@
     "password_param": "パスワードパラメーター",
     "paths_hint": "パスは Base URL 配下の相対パスである必要があり、別のホストを指すことはできません。",
     "auth_mode": "認証方式",
-    "auth_mode_hint": "既定は Cookie セッションです。トークンモードでは項目パスとヘッダーを明示的に設定する必要があり、推測はしません。",
+    "auth_mode_hint": "メーカーが案内している方式は Token です。ログイン応答の SessionID を URL パラメーター sessionid としてリース URL に付けます。Cookie セッションとヘッダーの Token にも対応しています。どの項目も明示的に設定し、自動で推測はしません。",
     "token_path": "トークン項目パス",
     "token_header": "トークンヘッダー",
     "token_prefix": "トークン接頭辞",
-    "token_hint": "例：data.token。これは例であり、メーカーが確認した項目ではありません。接頭辞は空欄でも構いません。",
+    "vendor_login_applied": "メーカー案内のログイン方式を適用しました。保存してから接続テストをやり直してください",
+    "vendor_login_hint": "/logon に JSON を POST して SessionID を取得し、/isosvc?act=DhcpLease&sessionid=… からリースを読み取ります。",
+    "vendor_login": "メーカー案内のログイン方式を適用",
+    "token_param": "URL パラメーター名",
+    "token_in_header": "ヘッダー",
+    "token_in_query": "URL パラメーター",
+    "token_in": "Token の送り先",
+    "token_hint": "メーカーのログイン応答には SessionID と code（成功時は 200）が含まれるので、項目パスは SessionID です。プレフィックスは空でもかまいません。",
     "connect_timeout": "接続タイムアウト（秒）",
     "request_timeout": "リクエストタイムアウト（秒）",
     "job_timeout": "ジョブ全体の上限（秒）",
@@ -7542,7 +7574,9 @@
       "no_subnet": "許可範囲外"
     },
     "result_col": "結果",
-    "run_counts_col": "処理結果の件数"
+    "run_counts_col": "処理結果の件数",
+    "err_missing": "入力してください：{fields}",
+    "err_scope_required": "「{label}」を 1 つ以上選んでください。リースはこれらのサブネット内でのみ照合されます"
   },
   "approval": {
     "title": "申請の承認設定",
@@ -7603,5 +7637,30 @@
     "remaining": "残りのリカバリーコード",
     "regenerate": "リカバリーコードを再生成",
     "regenerate_confirm": "再生成すると、古いリカバリーコードはすべて無効になります。"
+  },
+  "fields": {
+    "name": "名前",
+    "base_url": "Base URL",
+    "scope_subnet_ids": "同期を許可するサブネット",
+    "username": "アカウント",
+    "password": "パスワード",
+    "login_path": "ログインのパス",
+    "lease_path": "リースのパス",
+    "token_path": "トークンのパス",
+    "source_timezone": "取得元のタイムゾーン",
+    "timezone": "タイムゾーン",
+    "customer_id": "組織",
+    "description": "説明",
+    "sync_interval_seconds": "同期間隔",
+    "cidr": "CIDR",
+    "ip": "IP アドレス",
+    "hostname": "ホスト名",
+    "mac": "MAC",
+    "section_id": "セクション",
+    "subnet_id": "サブネット",
+    "api_url": "API の URL",
+    "url": "URL",
+    "port": "ポート",
+    "email": "メール"
   }
 }

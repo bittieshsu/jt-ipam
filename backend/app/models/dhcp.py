@@ -79,6 +79,35 @@ class DHCPReservation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+class DHCPExclusion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """DHCP 伺服器設定的排除區間（0207）：這段位址在發放範圍裡，但伺服器不會發給任何人。
+
+    Windows DHCP 的 Exclusion、FortiGate 的 exclude-range、Technitium 的 exclusions、
+    Gaia 的 exclude ip-pool。客戶的 Windows DHCP 把設了固定 IP 的設備一個一個排除，以前 jt-ipam
+    不讀這個，那些位址被當成「在 DHCP 範圍內」，還提示「建議把它排除在發放範圍外」（2026-10-12）。
+
+    **發放範圍（`dhcp_pool_ranges`）寫入前已經扣掉這些區間**，所有讀範圍的地方（清單的
+    「在 DHCP 範圍內」、集區使用率、ARP 自動建立略過 DHCP 範圍、指示計底線）因此自動正確；
+    這張表只負責「這個位址被排除了」這個正面標示。各來源各自寫入、只清自己的列。
+    """
+
+    __tablename__ = "dhcp_exclusions"
+
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_name: Mapped[str | None] = mapped_column(String(128))
+    subnet_cidr: Mapped[str | None] = mapped_column(String(64))
+    start_ip: Mapped[str] = mapped_column(String(64), nullable=False)
+    end_ip: Mapped[str] = mapped_column(String(64), nullable=False)
+    family: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_dhcp_exclusions_source", "source_type", "source_id"),
+    )
+
+
 class DHCPLeaseSighting(Base, UUIDPrimaryKeyMixin):
     """某個 DHCP 來源的**某一台實例**目前發著這個位址的租約。
 

@@ -163,6 +163,9 @@ class IPAddressRead(IPAddressBase):
     # 固定分配＝這個位址不會被換人用（位址被回收再發給別台，正是資料張冠李戴的來源）。
     dhcp_reserved: bool = False
     dhcp_reservation: dict[str, Any] | None = None   # 明細：綁哪張網卡、哪台 DHCP（詳細資料頁用）
+    # DHCP 伺服器把這個位址排除在發放範圍外（Windows Exclusion、FortiGate exclude-range…，0207）：
+    # 不會發給任何人，通常是設了固定 IP 的設備。{source_type, source_name, engine, start, end}
+    dhcp_exclusion: dict[str, Any] | None = None
     # ── 清單視覺化用的特殊角色旗標 ──
     is_dhcp_server: bool = False     # 手動標記為 DHCP 伺服器
     dhcp_server_auto: bool = False   # 自動：此 IP = 已整合 OPNsense/pfSense 防火牆的 IP（讀取端推導）

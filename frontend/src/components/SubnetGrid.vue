@@ -65,8 +65,17 @@ interface Props {
   totalAddresses?: number;
   /** 沒有 IP 記錄、但最近看得到在用的位址：格子畫成「未納管」（不是閒置） */
   unmanaged?: UnmanagedAddress[];
+  /** 格子邊長（px；卡片標題列的拉桿調整，使用者 2026-10-11）。預設 14 */
+  cellSize?: number;
 }
 const props = defineProps<Props>();
+const cellPx = computed(() => Math.min(40, Math.max(8, Math.round(props.cellSize ?? 14))));
+/** 位址範圍的底線：粗細跟著格子大小；顏色依主題（App.vue 的 --jt-range-*，淺色主題換深色才看得清楚），
+ *  上面再墊一條分隔線，壓在綠色、紅色的格子上也分得出來（使用者 2026-10-11：DHCP 的藍在淺色主題不明顯） */
+function rangeBar(purpose: IPRangePurpose): string {
+  const w = Math.max(3, Math.round(cellPx.value * 0.22));
+  return `inset 0 -${w}px 0 var(--jt-range-${purpose}, ${RANGE_COLORS[purpose]}), inset 0 -${w + 1}px 0 var(--jt-range-sep, transparent)`;
+}
 
 // 未納管格子的說明：誰看到的、多久以前、MAC（廠商）
 function umTip(u: UnmanagedAddress): string {
@@ -337,7 +346,7 @@ function aggColor(pct: number): string {
 </script>
 
 <template>
-  <div class="subnet-grid">
+  <div class="subnet-grid" :style="{ '--cell': cellPx + 'px' }" data-testid="subnet-grid">
     <n-empty
       v-if="isV6 || !parsed.ok"
       :description="t('visualisation.ipv6_pending')"
@@ -354,7 +363,7 @@ function aggColor(pct: number): string {
         ]"
         :data-state="c.state"
         :style="{ background: cellStyle(c).background,
-                  ...(rangeOf(c.ip) ? { boxShadow: `inset 0 -3px 0 ${RANGE_COLORS[rangeOf(c.ip)!.purpose]}` } : {}) }"
+                  ...(rangeOf(c.ip) ? { boxShadow: rangeBar(rangeOf(c.ip)!.purpose) } : {}) }"
         :data-range="rangeOf(c.ip)?.purpose"
         @mouseenter="(e) => showTip(e, `${c.ip}${c.hostname ? ' · ' + c.hostname : ''} · ${cellStatusLabel(c)}`
           + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : '') + (c.um ? umTip(c.um) : '') + rangeTip(c.ip))"
@@ -407,7 +416,7 @@ function aggColor(pct: number): string {
       <n-tooltip><template #trigger><span class="legend-item" data-testid="grid-legend-unmanaged"><i class="legend-unmanaged"></i>{{ t("visualisation.unmanaged") }} ({{ legendCounts.unmanaged }})</span></template>{{ t("visualisation.tip_unmanaged") }}</n-tooltip>
       <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
       <span v-for="p in rangePurposes" :key="'rg-' + p" class="legend-item">
-        <i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', boxShadow: `inset 0 -3px 0 ${RANGE_COLORS[p]}` }"></i>{{ t(`ranges.purpose_${p}`) }}
+        <i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', boxShadow: `inset 0 -3px 0 var(--jt-range-${p}, ${RANGE_COLORS[p]})` }"></i>{{ t(`ranges.purpose_${p}`) }}
       </span>
     </div>
   </div>
@@ -424,11 +433,11 @@ function aggColor(pct: number): string {
   gap: 2px;
 }
 .grid-direct {
-  grid-template-columns: repeat(auto-fill, 14px);
+  grid-template-columns: repeat(auto-fill, var(--cell, 14px));
 }
 .cell {
-  width: 14px;
-  height: 14px;
+  width: var(--cell, 14px);
+  height: var(--cell, 14px);
   border-radius: 2px;
   cursor: pointer;
   transition: transform 0.08s ease, outline 0.05s ease;

@@ -33,6 +33,9 @@
             <n-tag v-else-if="d.address.in_dhcp_lease" size="small" type="warning" :bordered="false">
               DHCP
             </n-tag>
+            <n-tag v-else-if="d.dhcp?.excluded" size="small" :bordered="false">
+              {{ t("addresses.dhcp_excluded_tag") }}
+            </n-tag>
             <span v-else>—</span>
           </div>
         </div>

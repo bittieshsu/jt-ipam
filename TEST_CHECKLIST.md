@@ -402,6 +402,10 @@ undetected for the entire life of the English translation.
   prompt was broken this exact way and nobody noticed
 - [ ] No Chinese words passed as parameters (`what="下載"`): put the distinction in the code
   (`sftp_download_too_large`), or the English sentence ends up with a Chinese word in it
+- [ ] Field check failures (422): the response keeps `{detail: "Invalid request", errors: [...]}` for API users,
+  and the browser shows "field: reason" in the interface language (for example "Port: must be at most
+  65535"), at most three fields plus "and N more". A field name shown as its raw key (`scope_subnet_ids`) needs a
+  `fields.<name>` entry in all three locales (`utils/validationErrors.test.ts`)
 
 ## 5h. guacd prebuilt binaries: **every release** (not only when the console changes)
 
@@ -608,6 +612,24 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   registers it and the cell turns normal; background probe data (liveness=false) does not count; addresses outside the
   agent's subnets are not kept; unauthorised-IP detection lists an address only the scan agent saw; the API returns 404
   without subnet read access; sightings not seen for 30 days are removed
+- [ ] **Network and broadcast addresses are not unmanaged** (`test_network_and_broadcast_addresses_are_not_unmanaged`, user 2026-10-11): .0 and
+  .255 from router ARP tables (MAC ff:ff:ff:ff:ff:ff) do not appear on the IP list or map; /31 and /32 still do; broadcast and multicast
+  MACs are not shown as a device's MAC
+- [ ] **IP map cell size and range underline** (`e2e/subnet-grid-cell-size.spec.ts`): the slider at the right of the card header scales the
+  cells (8 to 32 px) and is remembered after a reload; in the light theme the DHCP range underline is dark blue with a white separator
+  above it, bright cyan in the dark theme; its thickness follows the cell size; on phones only the slider shows
+- [ ] **A box ticked right after the subnet edit dialog opens stays ticked** (`e2e/scan-agent.spec.ts`): tick "Enable scanning"
+  immediately; it is still ticked after the options load
+- [ ] **RDP can use another port** (`tests/test_console_port.py`, `e2e/rdp-port.spec.ts`): the RDP connect dialog has a Port field (default
+  3389); connecting with another port makes the server dial that port (log `rdp: 開始連線 … port=`) and the audit records it; 0, 65536 and
+  non-numbers return "port must be 1 to 65535"; jump hosts and agent relays still check their allowed ports; VNC uses the same parser
+- [ ] **Scheduled AI review runs on its own, one try per time slot** (`tests/test_ai_audit_attempt.py`): `systemctl list-timers` shows
+  jt-ipam-ai-audit.timer; the regular sync (jt-ipam-sync) no longer runs the review; stopping the LLM host or killing the process mid-review
+  does not rerun it 5 minutes later (`journalctl -u jt-ipam-ai-audit`); a running manual review makes the scheduled one skip and a running
+  scheduled review makes a manual one answer "already running"; upgrade installs the timer; `jt-ipam.sh doctor` checks it
+- [ ] **Compliance page evidence links** (`scripts/gen-compliance-docs.py`): every test file links to the public commit in `PINNED`, and
+  generation checks each file exists in that commit; on a release update `PINNED` (a published commit with green CI) and regenerate; the
+  verification record gives the CI link, the date and the test results
 - [ ] **Two reports at once from one agent do not deadlock** (`tests/test_scan_agent_report_concurrency.py`): the second
   waits while the first is still in its transaction; the same IPs in opposite order sent together both return 200. After
   deploying, `DeadlockDetectedError` no longer shows up for `/scan-agents/report` in the prod log
@@ -719,6 +741,10 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   Check Point and MikroTik (disabled rules used to be skipped and are now synced); disabled rules are left out of exposure and the
   firewall lookup, and IP change assessment marks them disabled. The rows of side-by-side fields in the form (source port, destination
   port, NAT reflection) keep the same spacing below them as other fields, so the next label does not touch them
+- [ ] **FortiGate NAT links the external IP** (`test_nat_links_the_external_address`, `test_nat_external_address_must_be_unique`, issue #52): a
+  VIP's extip is stored as `src_ip_id` (several VIPs on one public IP all link), the internal target as `dst_ip_id`; a single-address IP
+  pool links too; an external IP outside the integration's subnets links when it is the only exact match; 0.0.0.0, ranges, no match and
+  ambiguous matches do not link; the public IP's page shows these NAT rules
 - [ ] **Actions column pinned to the right** (customer 2026-10-10: with a mouse you keep scrolling left and right;
   `src/utils/__tests__/resizableColumns.test.ts`, `e2e/desktop-sticky-actions.spec.ts` visits every page): at desktop width (768px and
   up) tables that scroll sideways keep the last "Actions" column pinned to the right, so it can be clicked while scrolled fully left;
@@ -1144,6 +1170,7 @@ PTR records, reverse zone names come from the DN, IPv6 reverse zones are not tre
 - [ ] Notifications: the notification settings page has "DNS comparison group mismatch" and "DNS comparison group consistent again"; one
   notice arrives for a batch (not repeated), and a resolved notice after the record is restored and pulled; the notice opens that group's
   difference list; a group with notifications off sends nothing
+- [ ] Member options read "name · type" with no nested parentheses (`e2e/dns-compare-groups.spec.ts`)
 - [ ] Make one member's pull fail (wrong password): the group shows "Incomplete data" naming the server, and no mismatch notice is sent
 - [ ] DNS records page: identical records in a group are merged by default with the group and every server in the source column;
   unticking "Merge identical records in comparison groups" lists them per server; the type filter counts follow; servers in different
@@ -1162,6 +1189,26 @@ PTR records, reverse zone names come from the DN, IPv6 reverse zones are not tre
   server is reported; put it back, wait for the transfer, pull → consistent again with a resolved notice
 - [ ] Upgrade from 1.0.6 (migrations 0203 and 0204): existing groups show "Incomplete data" until the next pull fills the normalized columns;
   system export/import keeps groups and members
+
+## 7b3f. DHCP exclusions and reservations across sources: **whenever any DHCP source, the shared DHCP write layers (`dhcp_reservations.py`, `dhcp_exclusions.py`) or the IP role flags change**
+
+A pool that the DHCP server has holes in is stored as several ranges; the holes go to `dhcp_exclusions`.
+Every reader of pools (list flag, pool usage, ARP auto-create, grid underline, IP detail) relies on that.
+
+- [ ] `pytest tests/test_dhcp_exclusions.py tests/test_opnsense_dhcp_engines.py tests/test_mikrotik.py`
+- [ ] Windows DHCP with an exclusion inside a scope: the range shows as two pieces, the excluded IP shows the
+  "DHCP excluded" icon in the IP list (tooltip names the server and range) and the tag on the IP page, and no
+  "DHCP range" tag or "exclude it from the pool" hint (`e2e/dhcp-exclusion.spec.ts`)
+- [ ] One scope's exclusions or reservations unreadable (permissions): the sync fails and the previous ranges,
+  exclusions and reservations stay
+- [ ] FortiGate: exclude-range is cut out; an exclusion with VCI/UCI match is not; reserved-address rows with
+  action assign or block are not reservations
+- [ ] MikroTik: a static lease shows as a reservation; disabled ones and ones whose address is a pool name do not
+- [ ] OPNsense with dnsmasq DHCP (25.1+ default): ranges and hosts with a MAC are read; with dnsmasq off they are
+  not; with only ISC the ranges come from config.xml; an API key without dnsmasq privileges (403) keeps syncing
+  Kea and the result says `dnsmasq: forbidden`
+- [ ] Technitium and Check Point: excluded addresses show "DHCP excluded" too
+- [ ] Deleting the integration removes its exclusions
 
 ## 7b4. RustDesk Server (open source): **whenever this integration, the RustDesk agent or the IP detail change**
 
@@ -1478,6 +1525,14 @@ Automated: `backend/tests/test_isoinsight_parser.py`, `test_isoinsight_config.py
 - [ ] Browser: the page (Admin → External integrations → ISOinsight) has the sources / leases / sync records tabs, the actions
   column (edit, test, preview, sync now, records, delete) stays visible on the right, the GET warning and the TLS-off
   warning show, host names are plain text
+- [ ] Browser: saving the new source form with the account, password or subnets to sync empty says which one is
+  missing instead of "Invalid request" (`e2e/isoinsight.spec.ts`)
+- [ ] Vendor login (`tests/test_isoinsight_session_query.py`): POST JSON to `/logon`, `SessionID` sent as the
+  `sessionid` URL parameter, no header; the session ID never appears in the trace (`sessionid=<redacted>`), the
+  httpx log or errors; HTTP 200 with `code` other than 200 is AUTH_FAILED; an expired session logs in again with
+  the new ID
+- [ ] Browser: a new source defaults to the vendor's method; "Use the vendor's login method" under Advanced
+  settings switches an existing source to it
 
 ## 7c. Integration sync resilience: **applies to every integration, not just the one you changed**
 
@@ -1639,6 +1694,10 @@ probes on request inside a customer network. The feature is only as safe as its 
     database shows the file date, an account alone shows web service); the names link to the OUI page and System settings
   - a failed update (GitHub unreachable) leaves the installed release alone and shows the error on the Recog page;
     the system diagnostics warn after three weeks without a successful check
+- [ ] Printers do not print anything when probed (`tests/test_agent_printer_safe.py`): banner is limited with
+  `--script-args banner.ports=...` to FTP/SSH/Telnet/SMTP/POP3/IMAP ports in both the periodic OS detection and
+  the IP probe, and nothing passes `--allports`. On a real nmap: a listener on 127.0.0.1:9100 that logs what it
+  receives gets nothing during an OS detection or IP probe of 127.0.0.1 (before 1.18.1 it got a TLS ClientHello)
 
 ## 7d2. Scan agent load: **whenever the agent's scan loop, its reports or the load evaluation change**
 
@@ -1882,6 +1941,10 @@ happy path of "an upload succeeded" is not enough.
   threads), memory (total + modules), physical disks (no zram / loop), GPUs (lspci and driver entries
   merged). Before the first sync after upgrading, the card says the details come with the next sync
   (`e2e/ocs-device-card.spec.ts`, `tests/test_ocs_hardware.py`)
+- [ ] **OCS time zone** (`tests/test_ocs_timezone.py`, `e2e/ocs-timezone.spec.ts`, issue #51): LASTDATE converts to UTC with the
+  integration's time zone; on create without one it is the jt-ipam host's APP_TIMEZONE, integrations from before the upgrade are UTC
+  (0206); an unknown zone is 422; converted times in the future put `future_lastdate` in the sync result and a yellow warning in the
+  integration list's "Last error" column (wrapped, not cut off)
 - [ ] **IPs without an agent can be filtered by status** (Wazuh and OCS pages): the status column is the
   same dot as the IP list and the filter uses the same rule; the options only list statuses present;
   exporting the list fills subnet / section / unit / status (these were blank before)

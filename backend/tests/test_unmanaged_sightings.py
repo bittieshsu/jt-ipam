@@ -178,3 +178,28 @@ async def test_librenms_arp_is_not_attributed_when_subnets_overlap(db_session) -
     await db_session.commit()
     got = {r["ip"] for r in await for_subnet(db_session, a.id)}
     assert "192.0.2.55" not in got and "192.0.2.56" in got
+
+
+async def test_network_and_broadcast_addresses_are_not_unmanaged(db_session) -> None:
+    """子網路的網路位址與廣播位址不是機器（使用者 2026-10-11：清單上 .0 顯示成未納管、MAC ff:ff:ff:ff:ff:ff）。
+
+    路由器的 ARP 表常有這兩個位址（廣播 MAC），異常偵測早就排除，指示計與 IP 清單沒有。/31、/32 沒有這個概念。
+    廣播或群播 MAC 也不是某一台機器的 MAC，不顯示。
+    """
+    from app.services.unmanaged import for_subnet
+    sn = await _subnet(db_session, "192.0.2.0/24")
+    now = datetime.now(UTC)
+    await _arp(db_session, "192.0.2.0", "ff:ff:ff:ff:ff:ff")
+    await _arp(db_session, "192.0.2.255", "ff:ff:ff:ff:ff:ff")
+    db_session.add(UnmanagedSighting(subnet_id=sn.id, ip="192.0.2.255", source="scanner",
+                                     first_seen_at=now, last_seen_at=now))
+    await _arp(db_session, "192.0.2.60", "01:00:5e:00:00:fb")       # 群播 MAC
+    await _arp(db_session, "192.0.2.61", "00:00:5e:00:53:61")
+    p2p = await _subnet(db_session, "198.51.100.0/31")
+    await _arp(db_session, "198.51.100.0", "00:00:5e:00:53:62")
+    await db_session.commit()
+    got = {r["ip"]: r for r in await for_subnet(db_session, sn.id)}
+    assert "192.0.2.0" not in got and "192.0.2.255" not in got
+    assert got["192.0.2.60"]["mac"] is None
+    assert got["192.0.2.61"]["mac"] == "00:00:5e:00:53:61"
+    assert "198.51.100.0" in {r["ip"] for r in await for_subnet(db_session, p2p.id)}

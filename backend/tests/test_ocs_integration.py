@@ -227,7 +227,7 @@ async def _mk_ip(session, ip_str: str, mac: str, *, device_id=None):
 def _server(**kw: Any) -> Any:
     from types import SimpleNamespace
     base = {"id": uuid.uuid4(), "name": "ocs", "source_type": "rest",
-            "base_url": "https://192.0.2.10", "sync_bios": True, "stale_after_days": 30}
+            "base_url": "https://192.0.2.10", "sync_bios": True, "stale_after_days": 30, "timezone": "UTC"}
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -552,7 +552,7 @@ async def test_full_sync_pages_and_applies(monkeypatch, db_session) -> None:
     srv = SimpleNamespace(
         id=uuid.uuid4(), name="ocs", source_type="rest", base_url="https://192.0.2.10",
         verify_tls=False, api_username=None, api_password_enc=None, api_password_nonce=None,
-        sync_bios=True, stale_after_days=30, last_incremental_epoch=None,
+        sync_bios=True, stale_after_days=30, timezone="UTC", last_incremental_epoch=None,
         detected_version=None, last_sync_at=None, last_success_at=None,
         last_error="x", last_cost=None)
     summary = await ocs.sync_instance(db_session, srv)
@@ -769,7 +769,7 @@ async def test_ocs_fields_are_cleared_from_an_ip_that_no_longer_matches(monkeypa
     srv = SimpleNamespace(
         id=uuid.uuid4(), name="ocs", source_type="rest", base_url="https://192.0.2.10",
         verify_tls=False, api_username=None, api_password_enc=None, api_password_nonce=None,
-        sync_bios=False, stale_after_days=3650, last_incremental_epoch=None,
+        sync_bios=False, stale_after_days=3650, last_incremental_epoch=None, timezone="UTC",
         detected_version=None, last_sync_at=None, last_success_at=None,
         last_error=None, last_cost=None, scope_subnet_ids=None)
     await ocs.sync_instance(db_session, srv)

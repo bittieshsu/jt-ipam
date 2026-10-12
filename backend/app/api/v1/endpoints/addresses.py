@@ -146,6 +146,22 @@ async def _enrich_special_flags(
         sid = await pool_subnet(session, pool)
         if sid in nets:
             _add(sid, lo, hi)
+    # DHCP 伺服器的排除區間（0207）：發放範圍寫入前已經扣掉（上面不會標成在範圍內），這裡做正面標示。
+    # 歸屬判斷跟發放範圍同一套（重疊網段判斷不了就不標）
+    from app.models.dhcp import DHCPExclusion
+    excl: dict[Any, list[tuple[int, int, dict[str, Any]]]] = {}
+    for ex in (await session.execute(select(DHCPExclusion))).scalars().all():
+        try:
+            elo, ehi = _ip.ip_address(str(ex.start_ip)), _ip.ip_address(str(ex.end_ip))
+        except ValueError:
+            continue
+        if not any(elo.version == n.version and elo in n and ehi in n for n in nets.values()):
+            continue
+        sid = await pool_subnet(session, ex)
+        if sid in nets:
+            excl.setdefault(sid, []).append((int(elo), int(ehi), {
+                "source_type": ex.source_type, "source_name": ex.source_name, "engine": ex.source,
+                "start": str(elo), "end": str(ehi)}))
     # 防火牆的 API 位址＝「DHCP 伺服器（自動）」。只標在它所屬的子網路：有設範圍就限範圍內，
     # 沒設時只在唯一包含它的子網路標；重疊網段裡有好幾個一樣的就不標（不猜），免得另一個單位
     # 同一個位址的 IP 也被當成 DHCP 伺服器
@@ -210,6 +226,7 @@ async def _enrich_special_flags(
         try:
             n = int(_ip.ip_address(ipstr))
             it.in_dhcp_range = any(a <= n <= b for a, b in ranges.get(r.subnet_id, ()))
+            it.dhcp_exclusion = next((info for a, b, info in excl.get(r.subnet_id, ()) if a <= n <= b), None)
         except ValueError:
             it.in_dhcp_range = False
 
@@ -732,6 +749,8 @@ async def get_address(
     await _require_subnet_perm(session, user, obj.subnet_id, "read")
     out = IPAddressRead.model_validate(obj)
     out.mac_vendor = await vendor_for_mac(session, obj.mac)
+    # 閘道／DHCP 範圍／固定分配明細／排除區間：跟清單同一套推導（以前詳細資料沒有，兩邊標示不一致）
+    await _enrich_special_flags(session, [out], [obj])
     # 虛擬化對應：IP 或 MAC 命中 VM 網卡 → 標示為虛擬機（顯示用，不寫回資料）
     from app.services.fw_lookup import vm_match_for
     out.virt_vm = await vm_match_for(session, ip=str(obj.ip).split("/")[0],

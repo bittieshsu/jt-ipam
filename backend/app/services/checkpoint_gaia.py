@@ -471,6 +471,17 @@ async def _write_dhcp(session: AsyncSession, t: Any, parsed: list[dict[str, Any]
     n = await write_pools(session, source_type="checkpoint", source_id=t.id,
                           source_name=t.name, engine=SOURCE,
                           pools=[{"subnet": p["subnet"], "start": a, "end": b} for p in live for a, b in p["pools"]])
+    # exclude 的 ip-pool 本身也記下來（發放範圍已經扣掉），IP 上才標得出「DHCP 排除」
+    from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions
+    excluded: list[Exclusion] = []
+    for p in live:
+        on = [x for x in p["raw_pools"] if x["enabled"]]
+        cuts = [(x["start"], x["end"]) for x in on if x["include"] == "exclude"]
+        for x in on:
+            if x["include"] != "exclude":
+                excluded += [Exclusion(a, b, p["subnet"]) for a, b in clip(x["start"], x["end"], cuts)]
+    await replace_exclusions(session, source_type="checkpoint", source_id=t.id, source_name=t.name,
+                             engine=SOURCE, rows=excluded)
     rows = {r.subnet_cidr: r for r in (await session.execute(select(CheckPointDhcpSubnet).where(
         CheckPointDhcpSubnet.target_id == t.id))).scalars().all()}
     seen = set()

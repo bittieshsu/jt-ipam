@@ -74,7 +74,7 @@ async def test_full_sync_does_not_query_per_computer(monkeypatch, db_session) ->
     srv = SimpleNamespace(
         id=uuid.uuid4(), name="ocs", source_type="rest", base_url="https://192.0.2.10",
         verify_tls=False, api_username=None, api_password_enc=None, api_password_nonce=None,
-        sync_bios=True, stale_after_days=30, last_incremental_epoch=None, detected_version=None,
+        sync_bios=True, stale_after_days=30, timezone="UTC", last_incremental_epoch=None, detected_version=None,
         last_sync_at=None, last_success_at=None, last_error=None, last_cost=None, scope_subnet_ids=None)
 
     counts = []

@@ -813,7 +813,8 @@
     "paste_denied": "無法讀取瀏覽器剪貼簿（請允許剪貼簿權限）",
     "paste_empty": "剪貼簿是空的",
     "paste_set": "已寫進被控端剪貼簿，請於遠端按 Ctrl+V 貼上",
-    "keyboard_input": "遠端鍵盤輸入"
+    "keyboard_input": "遠端鍵盤輸入",
+    "port": "連接埠"
   },
   "vnc": {
     "connect": "VNC 連線",
@@ -1314,6 +1315,9 @@
     "dhcp_reserved_tag": "固定分配",
     "dhcp_reserved_hint": "DHCP 上把這個位址綁給指定的網卡，不會被回收後發給別台機器。",
     "dhcp_reserved_mac": "綁定網卡",
+    "dhcp_excluded_tag": "DHCP 排除",
+    "dhcp_excluded_hint": "DHCP 伺服器把這個位址排除在發放範圍外，不會發給任何人；通常是設了固定 IP 的設備。",
+    "dhcp_excluded_range": "排除區間",
     "state": "狀態",
     "role_auto_added": "自動收錄（未登記）",
     "role_auto_added_hint": "這筆位址是由 {src} 自動建立的，沒有人手動登記過。請確認它是否為預期中的設備 —— 自動收錄之後，它就不會再被「未授權 IP」偵測列出來。",
@@ -1496,7 +1500,8 @@
     "tip_unmanaged": "IPAM 沒有這個位址的記錄，但最近看得到它在用（掃描代理掃到或 LibreNMS 的 ARP 表看到）。掃描代理的「自動收錄」關閉時就會這樣；點格子看這個位址的資訊，可以從那裡探測或新增。超過一天沒再看到的會變淡。",
     "auto_added": "自動收錄",
     "tip_auto_added": "由整合或掃描代理自動建立、沒有人手動登記過的位址——格子左上半是紫色（自動收錄），右下半仍是原本的狀態顏色（上線／離線）。留意：位址一旦收錄進來，就不會再被「未授權 IP」偵測列出來。",
-    "legend_partial": "這個子網路有 {total} 個已登記的位址：區塊使用率依全部位址計算，下方的狀態統計只依已載入的前 {n} 個。"
+    "legend_partial": "這個子網路有 {total} 個已登記的位址：區塊使用率依全部位址計算，下方的狀態統計只依已載入的前 {n} 個。",
+    "cell_size": "格子大小"
   },
   "tasks": {
     "title": "作業",
@@ -3654,7 +3659,23 @@
     "dns_server_not_found": "找不到指定的 DNS 伺服器（可能已被刪除）。",
     "dns_compare_group_name_taken": "已經有同名的 DNS 比對群組，請換一個名稱。",
     "dns_compare_group_mixed_kinds": "Unbound（OPNsense）只存主機覆寫、不是完整的 zone，只能和其他 Unbound 放在同一個比對群組。",
-    "dns_winrm_https_unreachable": "連不到 Windows DNS 的 WinRM HTTPS（{host}:{port}）。Windows Server 預設只開 HTTP 5985：沒有另外建立 HTTPS 監聽的話，請到「管理 → 外部系統整合 → DNS」編輯這台，把 WinRM 連線改成 HTTP（5985）。（{reason}）"
+    "dns_winrm_https_unreachable": "連不到 Windows DNS 的 WinRM HTTPS（{host}:{port}）。Windows Server 預設只開 HTTP 5985：沒有另外建立 HTTPS 監聽的話，請到「管理 → 外部系統整合 → DNS」編輯這台，把 WinRM 連線改成 HTTP（5985）。（{reason}）",
+    "v_missing": "必填",
+    "v_too_short_list": "至少要選 {n} 項",
+    "v_too_long_list": "最多 {n} 項",
+    "v_string_too_short": "至少 {n} 個字",
+    "v_string_too_long": "最多 {n} 個字",
+    "v_ge": "不可小於 {n}",
+    "v_le": "不可大於 {n}",
+    "v_gt": "要大於 {n}",
+    "v_lt": "要小於 {n}",
+    "v_choice": "不是允許的選項",
+    "v_integer": "要是整數",
+    "v_format": "格式不正確",
+    "v_invalid": "內容不正確",
+    "v_more": "（另有 {n} 個欄位有問題）",
+    "v_sep": "；",
+    "v_field": "{field}：{reason}"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -5879,7 +5900,11 @@
     "scope_subnets": "限定子網路範圍",
     "scope_all": "全部（不限範圍）",
     "scope_hint": "只跟這些子網路內 IP 的 MAC 比對；「未裝 Agent 的 IP」也只列這些子網路。空＝全域。",
-    "missing_scoped": "（只列整合設定的限定子網路範圍）"
+    "missing_scoped": "（只列整合設定的限定子網路範圍）",
+    "timezone": "OCS 時區",
+    "timezone_ph": "跟 jt-ipam 主機相同",
+    "timezone_hint": "OCS 的最後盤點時間（LASTDATE）是 OCS 主機的本地時間、沒有時區，這裡要選 OCS 主機的時區，換算才正確。升級前就有的整合是 UTC。",
+    "tz_future": "{count} 台的最後盤點時間在未來（最多超前 {hours} 小時）：OCS 時區可能不是 {tz}，請編輯整合改時區"
   },
   "scope_filter": {
     "section": "區段",
@@ -7358,7 +7383,7 @@
     "step_preview": "預覽：看租約與子網路配對結果（尚未套用）",
     "step_scope": "確認單位與允許同步的子網路",
     "step_sync": "手動同步一次，確認結果後再開排程",
-    "unverified_note": "待真機驗證：登入回應（Cookie 或 Token）、GET 或 POST 何者可用、租約是否全量與時區，都還沒有在 ISOinsight 實機確認。這裡的設定是相容性選項，不代表原廠規格。",
+    "unverified_note": "待真機驗證：原廠已說明登入方式（POST JSON 到 /logon 取得 SessionID，以網址參數 sessionid 讀租約；新增時的預設就是這個），但還沒有在 ISOinsight 實機上跑過，租約是否全量與時區也還沒確認。",
     "base_url": "Base URL",
     "base_url_hint": "例如 https://192.0.2.10，不含帳密、Query 或片段。登入與租約路徑都是它底下的相對路徑。",
     "run_on": "執行位置",
@@ -7442,11 +7467,18 @@
     "password_param": "密碼參數名",
     "paths_hint": "路徑必須是 Base URL 底下的相對路徑，不可指向其他主機。",
     "auth_mode": "認證模式",
-    "auth_mode_hint": "預設 Cookie Session；Token 模式要明確設定欄位路徑與 Header，不會自動猜測。",
+    "auth_mode_hint": "原廠說明的方式是 Token：登入回應的 SessionID 放在網址參數 sessionid 帶給租約網址。也支援 Cookie Session 與放在標頭的 Token；欄位都要明確設定，不會自動猜測。",
     "token_path": "Token 欄位路徑",
     "token_header": "Token Header",
     "token_prefix": "Token 前綴",
-    "token_hint": "例如 data.token。這只是範例，不是原廠已確認的欄位。前綴可留空。",
+    "vendor_login_applied": "已套用原廠說明的登入方式，儲存後請重新測試連線",
+    "vendor_login_hint": "POST JSON 到 /logon 取得 SessionID，再以 /isosvc?act=DhcpLease&sessionid=… 讀租約。",
+    "vendor_login": "套用原廠說明的登入方式",
+    "token_param": "網址參數名稱",
+    "token_in_header": "標頭",
+    "token_in_query": "網址參數",
+    "token_in": "Token 放在",
+    "token_hint": "原廠的登入回應帶 SessionID 與 code（成功是 200），欄位路徑填 SessionID。前綴可留空。",
     "connect_timeout": "連線逾時（秒）",
     "request_timeout": "請求逾時（秒）",
     "job_timeout": "整次工作上限（秒）",
@@ -7542,7 +7574,9 @@
       "no_subnet": "不在允許範圍"
     },
     "result_col": "結果",
-    "run_counts_col": "處理結果計數"
+    "run_counts_col": "處理結果計數",
+    "err_missing": "請填寫：{fields}",
+    "err_scope_required": "請至少選一個「{label}」：租約只會在這些子網路內配對"
   },
   "approval": {
     "title": "申請審核設定",
@@ -7603,5 +7637,30 @@
     "remaining": "剩餘復原碼",
     "regenerate": "重新產生復原碼",
     "regenerate_confirm": "重新產生之後，舊的復原碼全部作廢。"
+  },
+  "fields": {
+    "name": "名稱",
+    "base_url": "Base URL",
+    "scope_subnet_ids": "允許同步的子網路",
+    "username": "帳號",
+    "password": "密碼",
+    "login_path": "登入路徑",
+    "lease_path": "租約路徑",
+    "token_path": "Token 路徑",
+    "source_timezone": "來源時區",
+    "timezone": "時區",
+    "customer_id": "單位",
+    "description": "說明",
+    "sync_interval_seconds": "同步間隔",
+    "cidr": "CIDR",
+    "ip": "IP 位址",
+    "hostname": "主機名稱",
+    "mac": "MAC",
+    "section_id": "區段",
+    "subnet_id": "子網路",
+    "api_url": "API 網址",
+    "url": "網址",
+    "port": "連接埠",
+    "email": "電子郵件"
   }
 }

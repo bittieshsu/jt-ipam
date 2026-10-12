@@ -89,6 +89,9 @@ class OcsServer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: 盤點時間不是活性訊號。也用來擋「過期的 OCS 主機名稱壓過新鮮的掃描結果」。
     stale_after_days: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("30"))
+    #: OCS 伺服器的時區（issue #51，0206）：LASTDATE 是 MySQL DATETIME，存的是 OCS 主機的本地時間、沒有時區。
+    #: 升級前就有的整合是 UTC（維持原本結果）；新建的預設用 jt-ipam 主機的時區（APP_TIMEZONE）
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, server_default="UTC")
 
     # ── 診斷與同步狀態（連線診斷與 sync 回寫）──
     #: 偵測到的版本字串（如 "2.11.0"）。決定能不能走增量。診斷時填。

@@ -38,7 +38,7 @@ BLOCK_MARKERS = [
     "rustdesk_svc.prune_audit",    # RustDesk 客戶端稽核保留天數
     "ProxmoxInstance",
     "DNSServer",
-    "get_ai_audit_last_run",     # AI 巡檢
+    # AI 巡檢 2026-10-12 搬到 --ai-audit 模式（jt-ipam-ai-audit.timer）：守門在 test_ai_audit_attempt.py
     "get_anomaly_last_run",      # 異常偵測排程
     "prune_stale_fdb",           # FDB 過期清除
     "check_integration_health",  # 健康告警（整合／代理／系統）

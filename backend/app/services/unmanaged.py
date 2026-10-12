@@ -54,23 +54,46 @@ async def purge(session: AsyncSession, *, now: datetime | None = None) -> int:
 
 
 def usable_mac(mac: str | None) -> bool:
-    """可以顯示的 MAC：不是全零，也不是只有第一個位元組的殘缺值（LibreNMS 偶爾給 26:00:00:00:00:00 這種）。"""
+    """可以顯示的 MAC：不是全零，也不是只有第一個位元組的殘缺值（LibreNMS 偶爾給 26:00:00:00:00:00 這種）；
+    也不是廣播／群播位址（第一個位元組最低位元是 1，例如 ff:ff:ff:ff:ff:ff、01:00:5e:…）—— 那不是某一台機器。"""
     if not mac:
         return False
     parts = str(mac).lower().replace("-", ":").split(":")
-    return len(parts) == 6 and any(p.strip("0") for p in parts[1:])
+    if len(parts) != 6 or not any(p.strip("0") for p in parts[1:]):
+        return False
+    try:
+        return not int(parts[0], 16) & 1
+    except ValueError:
+        return False
+
+
+def _not_a_host(cidr: str):  # type: ignore[no-untyped-def]
+    """子網路的網路位址與廣播位址（IPv4、/30 以下）→ 判斷函式；這兩個位址不對應到機器。
+    路由器的 ARP 表常有它們（廣播 MAC），異常偵測早就排除（anomaly._in_scope），指示計與清單也要。"""
+    import ipaddress
+    net = ipaddress.ip_network(str(cidr), strict=False)
+    if net.version != 4 or net.prefixlen >= 31:
+        return lambda ip: False
+    edges = {str(net.network_address), str(net.broadcast_address)}
+    return lambda ip: ip in edges
 
 
 async def for_subnet(session: AsyncSession, subnet_id: uuid.UUID, *, now: datetime | None = None,
                      window: timedelta = GRID_WINDOW) -> list[dict[str, Any]]:
     """這個子網路裡、IPAM 沒有記錄、最近看得到的位址（掃描代理目擊＋LibreNMS ARP），一個位址一筆。"""
     from app.models.address import IPAddress
+    from app.models.subnet import Subnet
     from app.models.unmanaged_sighting import UnmanagedSighting
 
     since = (now or datetime.now(UTC)) - window
     out: dict[str, dict[str, Any]] = {}
+    cidr = await session.scalar(select(Subnet.cidr).where(Subnet.id == subnet_id))
+    edge = _not_a_host(str(cidr)) if cidr is not None else (lambda ip: False)
 
     def _merge(ip: str, source: str, last: datetime | None, mac: str | None, hostname: str | None) -> None:
+        if edge(ip):
+            return
+        mac = mac if usable_mac(mac) else None
         e = out.setdefault(ip, {"ip": ip, "last_seen_at": None, "sources": set(), "mac": None, "hostname": None})
         e["sources"].add(source)
         if last and (e["last_seen_at"] is None or last > e["last_seen_at"]):

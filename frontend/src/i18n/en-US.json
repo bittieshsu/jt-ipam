@@ -813,7 +813,8 @@
     "paste_denied": "Cannot read the browser clipboard (allow clipboard permission)",
     "paste_empty": "Clipboard is empty",
     "paste_set": "Copied to the remote clipboard — press Ctrl+V on the remote to paste",
-    "keyboard_input": "Remote keyboard input"
+    "keyboard_input": "Remote keyboard input",
+    "port": "Port"
   },
   "vnc": {
     "connect": "VNC",
@@ -1314,6 +1315,9 @@
     "dhcp_reserved_tag": "Reserved",
     "dhcp_reserved_hint": "DHCP binds this address to a specific NIC, so it will not be recycled to another machine.",
     "dhcp_reserved_mac": "Bound to MAC",
+    "dhcp_excluded_tag": "DHCP excluded",
+    "dhcp_excluded_hint": "The DHCP server excludes this address from its range and never hands it out; usually a device with a static IP.",
+    "dhcp_excluded_range": "Excluded range",
     "state": "State",
     "role_auto_added": "Auto-recorded (unregistered)",
     "role_auto_added_hint": "This address was created automatically by {src}; nobody registered it by hand. Check that the device is meant to be there — once it is recorded, it no longer shows up in unauthorised-IP detection.",
@@ -1496,7 +1500,8 @@
     "tip_unmanaged": "IPAM has no record of this address, but it has been seen in use recently (found by a scan agent or in LibreNMS's ARP table). This happens when the scan agent's auto-create is off; click the cell to see this address, and probe or add it from there. Addresses not seen for over a day are faded.",
     "auto_added": "Auto-recorded",
     "tip_auto_added": "Addresses created automatically by an integration or a scan agent, which nobody registered by hand — the upper-left half of the cell is purple (auto-recorded) while the lower-right half keeps the normal liveness colour. Note: once recorded, unauthorised-IP detection no longer lists them.",
-    "legend_partial": "This subnet has {total} registered addresses: block usage counts all of them, the status counts below only the first {n} loaded."
+    "legend_partial": "This subnet has {total} registered addresses: block usage counts all of them, the status counts below only the first {n} loaded.",
+    "cell_size": "Cell size"
   },
   "tasks": {
     "title": "Tasks",
@@ -3654,7 +3659,23 @@
     "dns_server_not_found": "The selected DNS server was not found (it may have been deleted).",
     "dns_compare_group_name_taken": "A DNS comparison group with this name already exists. Choose another name.",
     "dns_compare_group_mixed_kinds": "Unbound (OPNsense) holds host overrides rather than full zones, so it can only share a comparison group with other Unbound servers.",
-    "dns_winrm_https_unreachable": "Cannot reach WinRM HTTPS on the Windows DNS server ({host}:{port}). Windows Server only opens HTTP 5985 by default: unless an HTTPS listener was set up, edit this server under \"Admin → External integrations → DNS\" and switch WinRM to HTTP (5985). ({reason})"
+    "dns_winrm_https_unreachable": "Cannot reach WinRM HTTPS on the Windows DNS server ({host}:{port}). Windows Server only opens HTTP 5985 by default: unless an HTTPS listener was set up, edit this server under \"Admin → External integrations → DNS\" and switch WinRM to HTTP (5985). ({reason})",
+    "v_missing": "required",
+    "v_too_short_list": "select at least {n}",
+    "v_too_long_list": "at most {n} items",
+    "v_string_too_short": "at least {n} characters",
+    "v_string_too_long": "at most {n} characters",
+    "v_ge": "must be at least {n}",
+    "v_le": "must be at most {n}",
+    "v_gt": "must be greater than {n}",
+    "v_lt": "must be less than {n}",
+    "v_choice": "not an allowed option",
+    "v_integer": "must be a whole number",
+    "v_format": "invalid format",
+    "v_invalid": "invalid value",
+    "v_more": "({n} more fields have problems)",
+    "v_sep": "; ",
+    "v_field": "{field}: {reason}"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -5879,7 +5900,11 @@
     "scope_subnets": "Limit to subnets",
     "scope_all": "All (no limit)",
     "scope_hint": "Only match MACs of IPs within these subnets; “IPs without an agent” also lists only these subnets. Empty = global.",
-    "missing_scoped": "(limited to the integration's subnets)"
+    "missing_scoped": "(limited to the integration's subnets)",
+    "timezone": "OCS time zone",
+    "timezone_ph": "Same as the jt-ipam host",
+    "timezone_hint": "OCS stores the last inventory time (LASTDATE) in the OCS host's local time without a zone; pick the OCS host's time zone so it converts correctly. Integrations created before the upgrade are set to UTC.",
+    "tz_future": "{count} computers have a last inventory time in the future (up to {hours} h ahead): the OCS time zone is probably not {tz}; edit the integration"
   },
   "scope_filter": {
     "section": "Section",
@@ -7358,7 +7383,7 @@
     "step_preview": "Preview the leases and subnet matching (not applied)",
     "step_scope": "Confirm the customer and the subnets that may be synced",
     "step_sync": "Sync once by hand, check the result, then turn the schedule on",
-    "unverified_note": "Pending verification on a real device: the login response (cookie or token), whether GET or POST works, whether the lease list is complete, and the time zone have not been confirmed on ISOinsight yet. These settings are compatibility options, not a vendor specification.",
+    "unverified_note": "Not yet verified on a real device: the vendor has described the login (POST JSON to /logon for a SessionID, then read leases with the sessionid URL parameter; new sources default to this), but it has not been run against an ISOinsight unit yet, and whether leases are complete and their time zone are not confirmed.",
     "base_url": "Base URL",
     "base_url_hint": "For example https://192.0.2.10, without credentials, query or fragment. The login and lease paths are relative to it.",
     "run_on": "Runs on",
@@ -7442,11 +7467,18 @@
     "password_param": "Password parameter",
     "paths_hint": "Paths must be relative to the Base URL and cannot point at another host.",
     "auth_mode": "Authentication mode",
-    "auth_mode_hint": "Cookie session by default. Token mode needs an explicit field path and header; nothing is guessed.",
+    "auth_mode_hint": "The vendor's method is Token: the SessionID from the login response goes to the lease URL as the sessionid query parameter. Cookie sessions and a token in a header are also supported; every field must be set explicitly, nothing is guessed.",
     "token_path": "Token field path",
     "token_header": "Token header",
     "token_prefix": "Token prefix",
-    "token_hint": "For example data.token. This is only an example, not a field confirmed by the vendor. The prefix may be empty.",
+    "vendor_login_applied": "Applied the vendor's login method; save, then test the connection again",
+    "vendor_login_hint": "POST JSON to /logon for a SessionID, then read leases from /isosvc?act=DhcpLease&sessionid=….",
+    "vendor_login": "Use the vendor's login method",
+    "token_param": "URL parameter name",
+    "token_in_header": "Header",
+    "token_in_query": "URL parameter",
+    "token_in": "Token goes in",
+    "token_hint": "The vendor's login response carries SessionID and code (200 on success), so the field path is SessionID. The prefix can be empty.",
     "connect_timeout": "Connect timeout (s)",
     "request_timeout": "Request timeout (s)",
     "job_timeout": "Job time limit (s)",
@@ -7542,7 +7574,9 @@
       "no_subnet": "Outside allowed scope"
     },
     "result_col": "Result",
-    "run_counts_col": "Outcome counts"
+    "run_counts_col": "Outcome counts",
+    "err_missing": "Please fill in: {fields}",
+    "err_scope_required": "Select at least one subnet under \"{label}\": leases are matched only within them"
   },
   "approval": {
     "title": "Approval settings",
@@ -7603,5 +7637,30 @@
     "remaining": "Recovery codes left",
     "regenerate": "Generate new recovery codes",
     "regenerate_confirm": "Generating new codes invalidates all the old ones."
+  },
+  "fields": {
+    "name": "Name",
+    "base_url": "Base URL",
+    "scope_subnet_ids": "Subnets that may be synced",
+    "username": "Username",
+    "password": "Password",
+    "login_path": "Login path",
+    "lease_path": "Lease path",
+    "token_path": "Token path",
+    "source_timezone": "Source time zone",
+    "timezone": "Time zone",
+    "customer_id": "Unit",
+    "description": "Description",
+    "sync_interval_seconds": "Sync interval",
+    "cidr": "CIDR",
+    "ip": "IP address",
+    "hostname": "Hostname",
+    "mac": "MAC",
+    "section_id": "Section",
+    "subnet_id": "Subnet",
+    "api_url": "API URL",
+    "url": "URL",
+    "port": "Port",
+    "email": "Email"
   }
 }

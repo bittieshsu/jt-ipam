@@ -145,6 +145,15 @@ class WindowsDhcpClient:
             "| ConvertTo-Json -Depth 4 -Compress"
         )
 
+    def get_exclusions(self, scope_id: str) -> list[dict[str, Any]]:
+        """Get-DhcpServerv4ExclusionRange：這個 scope 範圍裡不發給任何人的位址（常拿來留給設固定 IP 的設備）。"""
+        sid = _safe_ps_arg(scope_id)
+        return self._run_json(
+            f"Get-DhcpServerv4ExclusionRange -ScopeId {sid} "
+            "| Select-Object StartRange,EndRange "
+            "| ConvertTo-Json -Depth 4 -Compress"
+        )
+
     def get_leases(self, scope_id: str) -> list[dict[str, Any]]:
         sid = _safe_ps_arg(scope_id)
         return self._run_json(
@@ -207,8 +216,10 @@ async def sync_reservations(session: AsyncSession, inst: WindowsDhcpServer) -> i
             continue
         try:
             got = await asyncio.to_thread(cli.get_reservations, sid)
-        except WindowsDhcpError:
-            continue        # 單一 scope 失敗不該讓整台同步失敗
+        except WindowsDhcpError as exc:
+            # 以前略過這個 scope 照樣「取代」：那個 scope 的固定分配全被清掉（2026-10-12）。
+            # 讀不完整就整段失敗、保留上一輪的資料
+            raise WindowsDhcpError(f"reservations of scope {sid}: {exc}（保留既有資料）") from exc
         for r in got:
             ip = _as_str(r.get("IPAddress"))
             if not ip:
@@ -224,14 +235,22 @@ async def sync_reservations(session: AsyncSession, inst: WindowsDhcpServer) -> i
 
 
 async def sync_scopes(session: AsyncSession, inst: WindowsDhcpServer) -> int:
-    """把 Windows DHCP 的 scope 鏡像進 dhcp_pool_ranges（只清自己的列）。"""
+    """把 Windows DHCP 的 scope 鏡像進 dhcp_pool_ranges（只清自己的列）。
+
+    發放範圍要扣掉排除區間（Address Pool 裡「IP addresses excluded from distribution」）：客戶把設了
+    固定 IP 的設備逐一排除，以前沒讀，那些位址都被當成「在 DHCP 範圍內」（2026-10-12）。
+    排除區間另外記進 dhcp_exclusions。任何一個 scope 的排除區間讀不到就整段失敗、保留上一輪 ——
+    照寫完整範圍等於又把那些位址當成會發放。
+    """
     from app.models.dhcp import DHCPPoolRange
+    from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions, subtract
 
     cli = _client(inst)
     scopes = await asyncio.to_thread(cli.get_scopes)
     now = datetime.now(UTC)
 
     rows: list[tuple[str | None, str, str]] = []
+    excluded: list[Exclusion] = []
     for sc in scopes:
         if str(sc.get("State") or "").lower() == "inactive":
             continue   # 停用的 scope 不會發放
@@ -245,8 +264,21 @@ async def sync_scopes(session: AsyncSession, inst: WindowsDhcpServer) -> int:
                 cidr = str(ipaddress.ip_network(f"{scope_id}/{mask}", strict=False))
             except ValueError:
                 cidr = scope_id
-        rows.append((cidr, start, end))
+        cuts: list[tuple[str, str]] = []
+        if scope_id:
+            try:
+                got = await asyncio.to_thread(cli.get_exclusions, scope_id)
+            except WindowsDhcpError as exc:
+                raise WindowsDhcpError(f"exclusions of scope {scope_id}: {exc}（保留既有範圍）") from exc
+            for x in got:
+                a, b = _as_str(x.get("StartRange")), _as_str(x.get("EndRange"))
+                if a and b:
+                    cuts.append((a, b))
+        excluded += [Exclusion(a, b, cidr) for a, b in clip(start, end, cuts)]
+        rows += [(cidr, a, b) for a, b in subtract(start, end, cuts)]
 
+    await replace_exclusions(session, source_type="windows_dhcp", source_id=inst.id,
+                             source_name=inst.name, engine="windows", rows=excluded)
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "windows_dhcp", DHCPPoolRange.source_id == inst.id,
     ))

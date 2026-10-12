@@ -258,9 +258,14 @@ function resetForm() {
 // 開啟時載入選項並重置表單
 watch(() => props.show, (open) => {
   if (open) {
+    // 先填表單、再載選項：以前是載完選項才 resetForm，那之前點的勾選（例如「啟用掃描」）會被蓋掉
+    resetForm();
     void (async () => {
       await loadAuxOpts();
-      resetForm();
+      // 新增時的預設區段要等區段清單載入才知道
+      if (!props.editing && !form.value.section_id) {
+        form.value.section_id = props.presetSectionId || sections.value[0]?.id || "";
+      }
     })();
   }
 });

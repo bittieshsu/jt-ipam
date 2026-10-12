@@ -657,6 +657,34 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh upgrade --no-pull</code></pre>
         </p>
       </article>
 
+      <article class="qa" id="qa-ocs-timezone">
+        <h3>
+          <span class="zh">OCS 的最後盤點時間差了幾個小時（甚至在未來）</span>
+          <span class="en">OCS last inventory times are off by hours (or in the future)</span>
+          <span class="ja">OCS の最終インベントリ日時が数時間ずれる（未来になる）</span>
+        </h3>
+        <p>
+          <span class="zh">OCS 的 LASTDATE 是 OCS 主機的本地時間、沒有時區。到「管理 → 外部系統整合 → OCS」編輯整合，把「OCS 時區」設成 OCS 主機的時區（新建的整合預設跟 jt-ipam 主機相同，升級前就有的是 UTC）。換算後有盤點時間落在未來時，整合清單的「最後錯誤」欄會提醒。已經寫入的時間在每台電腦下次盤點時自動更正。</span>
+          <span class="en">OCS stores LASTDATE in the OCS host's local time without a zone. Edit the integration under Admin → External integrations → OCS and set "OCS time zone" to the OCS host's time zone (new integrations default to the jt-ipam host's, ones created before the upgrade are UTC). When converted inventory times land in the future, the "Last error" column of the integration list says so. Times already stored correct themselves at each computer's next inventory.</span>
+          <span class="ja">OCS の LASTDATE は OCS ホストのローカル時刻で、タイムゾーンを持ちません。「管理 → 外部システム連携 → OCS」で連携を編集し、「OCS のタイムゾーン」を OCS ホストのタイムゾーンにしてください（新しい連携の既定は jt-ipam ホストと同じ、アップグレード前からある連携は UTC）。換算後の日時が未来になると、連携一覧の「直近のエラー」欄に表示されます。保存済みの日時は各 PC の次回インベントリで自動的に直ります。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-ai-audit-schedule">
+        <h3>
+          <span class="zh">排程 AI 巡檢沒有跑，或跑到一半就停了</span>
+          <span class="en">The scheduled AI review did not run, or stopped halfway</span>
+          <span class="ja">定期 AI 点検が実行されない、または途中で止まった</span>
+        </h3>
+        <p>
+          <span class="zh">排程巡檢由 jt-ipam-ai-audit.timer 每 5 分鐘檢查一次是否到了設定的時刻。每個時刻只嘗試一次：開始打 LLM 時就記下這次嘗試，所以途中 LLM 主機掛掉或連不上，不會每 5 分鐘重跑，而是等下一個時刻；手動巡檢正在跑時，排程這次會略過。先確認計時器在跑，再看巡檢的紀錄。</span>
+          <span class="en">The scheduled review is checked every 5 minutes by jt-ipam-ai-audit.timer against the configured times. Each time slot is tried once: the attempt is recorded as soon as the LLM is called, so if the LLM host goes down or cannot be reached partway, the review is not retried every 5 minutes but waits for the next slot; while a manual review is running, the scheduled one skips. Check that the timer is running, then read the review's log.</span>
+          <span class="ja">定期点検は jt-ipam-ai-audit.timer が 5 分ごとに設定した時刻を過ぎたかを確認します。各時刻は 1 回だけ試行します。LLM を呼び出す時点で試行を記録するため、途中で LLM ホストが落ちたり接続できなくなったりしても 5 分ごとに再実行せず、次の時刻を待ちます。手動の点検が実行中なら、定期点検は今回スキップします。まずタイマーが動いていることを確認し、点検のログを見てください。</span>
+        </p>
+        <pre><code>systemctl status jt-ipam-ai-audit.timer
+sudo journalctl -u jt-ipam-ai-audit -n 100 --no-pager</code></pre>
+      </article>
+
       <article class="qa" id="qa-done">
         <h3>
           <span class="zh">腳本說 Done，但好像什麼都沒在跑</span>

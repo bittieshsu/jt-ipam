@@ -61,10 +61,21 @@ function blankForm() {
     sync_networks: true, sync_bios: true, sync_software: false,
     sync_interval_seconds: 3600, stale_after_days: 30,
     scope_subnet_ids: [] as string[],
+    timezone: null as string | null,
     clear_credentials: false,
   };
 }
 const form = ref(blankForm());
+// OCS 的 LASTDATE 沒有時區（issue #51）：列出瀏覽器認得的所有 IANA 時區，UTC 放最前面
+const tzOptions = computed(() => {
+  let zones: string[] = [];
+  try {
+    zones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
+  } catch { zones = []; }
+  if (!zones.length) zones = ["Asia/Taipei", "Asia/Tokyo", "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore",
+    "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles"];
+  return ["UTC", ...zones.filter((z) => z !== "UTC")].map((z) => ({ label: z, value: z }));
+});
 
 // 限定子網路範圍：選單比照 Wazuh 整合頁
 const subnetOptions = ref<{ label: string; value: string }[]>([]);
@@ -135,6 +146,7 @@ function openEdit(row: OcsServer) {
     sync_interval_seconds: row.sync_interval_seconds,
     stale_after_days: row.stale_after_days,
     scope_subnet_ids: row.scope_subnet_ids ?? [],
+    timezone: row.timezone ?? "UTC",
   };
   show.value = true;
 }
@@ -156,6 +168,7 @@ async function save() {
       stale_after_days: f.stale_after_days,
       scope_subnet_ids: f.scope_subnet_ids,
     };
+    if (f.timezone) payload.timezone = f.timezone;
     if (f.api_password) payload.api_password = f.api_password;
     if (editing.value) {
       await updateOcs(editing.value.id, payload);
@@ -222,9 +235,15 @@ const columns = computed<DataTableColumns<OcsServer>>(() => [
   },
   {
     title: t("cols.last_error"), key: "last_error",
-    render: (r) => (r.last_error
-      ? h(NTag, { type: "error", size: "small" }, { default: () => r.last_error })
-      : "—"),
+    render: (r) => {
+      // 換算後最後盤點時間落在未來：整合的時區多半設錯（issue #51）
+      const fut = r.last_cost?.future_lastdate as { count: number; max_hours: number; timezone: string } | undefined;
+      const warn = fut ? h(NTag, { type: "warning", size: "small", "data-testid": "ocs-tz-future",
+                                   style: "white-space: normal; height: auto; line-height: 1.45; padding: 2px 8px" },
+        { default: () => t("ocs.tz_future", { count: fut.count, hours: fut.max_hours, tz: fut.timezone }) }) : null;
+      const err = r.last_error ? h(NTag, { type: "error", size: "small" }, { default: () => r.last_error }) : null;
+      return warn || err ? h(NSpace, { size: 4, vertical: true }, () => [warn, err].filter(Boolean)) : "—";
+    },
   },
   {
     title: t("cols.actions"), key: "actions", className: "col-actions", width: 176,
@@ -416,10 +435,10 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
           :title="editing ? t('ocs.edit_title') : t('ocs.add')">
     <NForm label-placement="left" :label-width="160" size="small">
       <NFormItem :label="t('cols.name')">
-        <NInput v-model:value="form.name" :placeholder="t('ocs.name_ph')" />
+        <NInput v-model:value="form.name" :placeholder="t('ocs.name_ph')" data-testid="ocs-name" />
       </NFormItem>
       <NFormItem label="URL">
-        <NInput v-model:value="form.base_url" placeholder="https://ocs.example.com" />
+        <NInput v-model:value="form.base_url" placeholder="https://ocs.example.com" data-testid="ocs-base-url" />
       </NFormItem>
       <NFormItem :label="t('ocs.username')">
         <NInput v-model:value="form.api_username" :placeholder="t('ocs.auth_optional')" />
@@ -464,6 +483,13 @@ const missCols = computed<DataTableColumns<OcsMissingAgent>>(() =>
       <NFormItem :label="t('ocs.stale_days')">
         <NInputNumber v-model:value="form.stale_after_days" :min="1" :max="3650"
                       style="width: 160px" />
+      </NFormItem>
+      <NFormItem :label="t('ocs.timezone')">
+        <div style="width: 100%">
+          <NSelect v-model:value="form.timezone" :options="tzOptions" filterable :clearable="!editing"
+                   :placeholder="t('ocs.timezone_ph')" data-testid="ocs-timezone" />
+          <div style="font-size: 11px; opacity: .7; margin-top: 2px">{{ t("ocs.timezone_hint") }}</div>
+        </div>
       </NFormItem>
     </NForm>
     <template #footer>

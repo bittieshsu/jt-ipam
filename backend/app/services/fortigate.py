@@ -347,26 +347,52 @@ async def sync_dhcp_leases(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
     return seen
 
 
+def _whole_range_exclusions(d: dict[str, Any]) -> list[tuple[str, str]]:
+    """DHCP server 的 `exclude-range`。開了 vci-match／uci-match 的只對特定用戶端生效，不是整段排除。"""
+    out: list[tuple[str, str]] = []
+    for ex in (d.get("exclude-range") or d.get("exclude_range") or []):
+        if not isinstance(ex, dict):
+            continue
+        if any(str(_first(ex, k, k.replace("-", "_")) or "disable").lower() == "enable"
+               for k in ("vci-match", "uci-match")):
+            continue
+        a = _valid_ip(_first(ex, "start-ip", "start_ip", "startip"))
+        b = _valid_ip(_first(ex, "end-ip", "end_ip", "endip"))
+        if a and b:
+            out.append((a, b))
+    return out
+
+
 async def sync_dhcp_ranges(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
-    """FortiGate DHCP server 的發放範圍 → 共用的 dhcp_pool_ranges（只清自己的列）。"""
+    """FortiGate DHCP server 的發放範圍 → 共用的 dhcp_pool_ranges（只清自己的列）。
+
+    發放範圍扣掉 `exclude-range`（以前沒讀，排除的位址被當成「在 DHCP 範圍內」，2026-10-12）；
+    排除區間另外記進 dhcp_exclusions。
+    """
     from app.models.dhcp import DHCPPoolRange
+    from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions, subtract
 
     now = datetime.now(UTC)
     parsed: list[tuple[str | None, str, str]] = []
+    excluded: list[Exclusion] = []
     by_vdom = await _fetch_all_vdoms(fw, EP_DHCP_SERVERS, vdoms)
     for vdom in vdoms:
         rows = by_vdom[vdom]
         for d in rows:
             if str(d.get("status") or "enable").lower() == "disable":
                 continue
-            iface = d.get("interface") or vdom_label(vdom)
+            iface = str(d.get("interface") or vdom_label(vdom))[:64]
+            cuts = _whole_range_exclusions(d)
             for rg in (d.get("ip-range") or d.get("ip_range") or []):
                 if not isinstance(rg, dict):
                     continue
                 a = _valid_ip(_first(rg, "start-ip", "start_ip", "startip"))
                 b = _valid_ip(_first(rg, "end-ip", "end_ip", "endip"))
                 if a and b:
-                    parsed.append((str(iface)[:64], a, b))
+                    parsed += [(iface, x, y) for x, y in subtract(a, b, cuts)]
+                    excluded += [Exclusion(x, y, iface) for x, y in clip(a, b, cuts)]
+    await replace_exclusions(session, source_type="fortigate", source_id=fw.id, source_name=fw.name,
+                             engine="fortigate", rows=excluded)
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "fortigate", DHCPPoolRange.source_id == fw.id,
     ))
@@ -385,6 +411,8 @@ async def sync_dhcp_reservations(
     """FortiGate 的 DHCP 固定分配：`system.dhcp/server` 每台底下的 `reserved-address`。
 
     FortiGate 沒有獨立的 reservation 端點 —— 保留位址是 DHCP server 設定的一部分。
+    同一張表也放「IP 位址指派規則」：action＝assign（跟一般用戶端一樣動態發放）與 block（不發）
+    不是固定分配；只有 reserved（沒寫時沿用舊行為）才算。
     """
     from app.services.dhcp_reservations import Reservation, replace_reservations
 
@@ -395,6 +423,8 @@ async def sync_dhcp_reservations(
         for d in servers:
             for r in (d.get("reserved-address") or d.get("reserved_address") or []):
                 if not isinstance(r, dict):
+                    continue
+                if str(r.get("action") or "reserved").lower() in ("assign", "block"):
                     continue
                 ip = _valid_ip(_first(r, "ip", "ip-address", "ip_address"))
                 if not ip:
@@ -571,6 +601,21 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
     pools_by = await _fetch_all_vdoms(fw, EP_IPPOOL, vdoms)
     await session.execute(delete(NATTranslation).where(NATTranslation.source_origin == origin))
     scope_ids = _scope(fw)
+
+    async def _external(raw: object) -> uuid.UUID | None:
+        """對外位址 → IPAM 記錄（issue #52）。對外 IP 通常不在關聯子網路裡（只勾內網段），
+        範圍內找不到時，全站「唯一完全相符」也算；0.0.0.0、範圍、對不到、不唯一的都不連。"""
+        val = str(raw or "").strip()
+        if not val or "-" in val:
+            return None
+        ip = _valid_ip(val)
+        if ip is None or ipaddress.ip_address(ip).is_unspecified:
+            return None
+        hit, amb = await match_existing(session, ip, scope_ids)
+        if hit is None and not amb and scope_ids:
+            hit, _amb = await match_existing(session, ip, None)
+        return hit.id if hit is not None else None
+
     n = 0
     for vdom in vdoms:
         # VIP → port_forward / one_to_one
@@ -596,6 +641,7 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
                 type="port_forward" if is_pf else "one_to_one",
                 protocol=str(d.get("protocol") or "any")[:8],
                 src_interface=(_names(d.get("extintf")) or None),
+                src_ip_id=await _external(d.get("extip")),
                 dst_ip_id=dst_ip_id,
                 dst_port=_to_port(d.get("mappedport")),
                 src_port=_to_port(d.get("extport")),
@@ -616,8 +662,11 @@ async def sync_nat(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
             rng = f"{d.get('startip') or ''}-{d.get('endip') or ''}".strip("-")
             note = str(d.get("comments") or d.get("comment") or "").strip()
             desc = " ".join(x for x in (f"IP pool {rng}".strip() if rng else "", note) if x)
+            # 單一位址的 pool 連到 IPAM 記錄（轉換後的來源位址）；範圍只留在說明
+            single = d.get("startip") if (d.get("startip") and d.get("startip") == d.get("endip")) else None
             session.add(NATTranslation(
                 name=str(name)[:200], type="many_to_one", protocol="any",
+                src_ip_id=await _external(single),
                 description=desc or None,
                 source_origin=origin, external_id=f"{vdom_label(vdom)}:pool:{name}"[:200],
             ))

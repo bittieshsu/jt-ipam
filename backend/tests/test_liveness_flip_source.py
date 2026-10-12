@@ -20,8 +20,6 @@ from app.models.subnet import Subnet
 from app.services import librenms as lnms
 from sqlalchemy import select
 
-NOW = datetime.now(UTC)
-
 
 async def _recompute(db, sources=("scanner", "librenms", "arp", "arp:opnsense")):
     async def _cfg(_s):
@@ -38,6 +36,8 @@ async def _flip_source(db, ip_id) -> tuple[str, str]:
 
 
 async def test_flips_record_the_real_source(db_session) -> None:
+    # 執行當下才取時間：模組層級的 NOW 在收集測試時就算好，全套跑到這裡可能已超過 30 分鐘的上線門檻
+    NOW = datetime.now(UTC)
     sec = Section(name=f"fs-{uuid.uuid4().hex[:6]}")
     db_session.add(sec)
     await db_session.flush()

@@ -118,6 +118,15 @@ const resvLine = computed(() => {
   return parts.length ? parts.join("　·　") : t("addresses.dhcp_reserved_tag");
 });
 
+/** DHCP 排除區間（後端在讀取端帶出來）：這台 DHCP 不會把這個位址發給任何人。 */
+const excl = computed<any | null>(() => (props.address as any)?.dhcp_exclusion ?? null);
+const exclLine = computed(() => {
+  const x = excl.value;
+  if (!x) return "";
+  const span = x.start === x.end ? x.start : `${x.start} – ${x.end}`;
+  return [span, x.source_name ? `@${x.source_name}` : null].filter(Boolean).join("　·　");
+});
+
 const investigating = ref(false);
 // 探測是獨立頁面（結果要方便瀏覽、歷次都能點回來看），不是對話框
 function openIdentify() {
@@ -982,6 +991,17 @@ async function remove() {
               </template>
             </div>
           </n-tooltip>
+          <!-- DHCP 排除：在發放範圍裡、但伺服器不發給任何人（通常是設固定 IP 的設備）。
+               發放範圍已經扣掉排除區間，所以不會同時出現「DHCP 範圍」。 -->
+          <n-tooltip v-if="excl" :delay="0">
+            <template #trigger>
+              <n-tag size="small">{{ t("addresses.dhcp_excluded_tag") }}</n-tag>
+            </template>
+            <div style="max-width:300px;line-height:1.5">
+              <div>{{ t("addresses.dhcp_excluded_hint") }}</div>
+              <div style="margin-top:4px"><strong>{{ t("addresses.dhcp_excluded_range") }}：</strong>{{ exclLine }}</div>
+            </div>
+          </n-tooltip>
           <n-tooltip v-if="dhcpInfo || props.address?.in_dhcp_lease" :delay="0">
             <template #trigger>
               <n-tag :type="props.address?.in_dhcp_lease ? 'warning' : 'default'" size="small">
@@ -1330,6 +1350,9 @@ async function remove() {
           <!-- 有固定分配才顯示這一列：沒有的話多一列「否」只是噪音 -->
           <n-descriptions-item v-if="props.address?.dhcp_reserved" :label="t('addresses.dhcp_reserved_tag')">
             {{ resvLine }}
+          </n-descriptions-item>
+          <n-descriptions-item v-if="excl" :label="t('addresses.dhcp_excluded_tag')">
+            {{ exclLine }}
           </n-descriptions-item>
           <n-descriptions-item :label="t('addresses.effective_status')">{{ effectiveDisplay }}</n-descriptions-item>
           <!-- 虛擬化對應：比對到 VM 網卡才顯示「虛擬機」；比對不到不顯示——

@@ -52,9 +52,9 @@ H_EVID = T("驗證方式（測試、設定）", "How to verify (tests, settings)
 
 ISO27001 = [
     (T("登入、雙因素驗證與工作階段", "Sign-in, two-factor authentication and sessions", "ログイン・二要素認証・セッション"),
-     T("本機與 LDAP 帳號可啟用 TOTP 雙因素驗證；管理員可要求管理員或所有人使用（還沒設定的人登入時先完成設定，不會被鎖在外面；被要求的人不能自行停用），SSO 可選擇是否一併套用。啟用時產生 10 組只能用一次的復原碼（只存雜湊），管理員可以重設某人的雙因素驗證（唯一的管理員可從主機的指令列重設）；同一組驗證碼不能用第二次。密碼或驗證碼連續錯 5 次鎖定 15 分鐘並寫進稽核；登入、驗證碼與換發權杖每個來源 IP 每分鐘最多 10 次。登入建立伺服器端工作階段：更新權杖只放在 HttpOnly Cookie、每次換發都換新，已經換掉的又被使用就撤銷整個工作階段並通知管理員與本人；存取權杖 15 分鐘到期並綁定工作階段，登出、強制登出、停用帳號與管理員重設密碼都立即生效，改密碼會登出其他裝置；使用者可以檢視並登出自己的裝置。每個請求都重新讀取帳號狀態與權限。",
-       "Local and LDAP accounts can turn on TOTP two-factor authentication; administrators can require it for administrators or for everyone (people who have not set it up do so at sign-in and are not locked out; people who are required cannot turn it off), optionally including SSO. Turning it on creates 10 single-use recovery codes (stored hashed), and administrators can reset someone's two-factor authentication (the only administrator can be reset from the host's command line); the same code cannot be used twice. Five wrong passwords or codes in a row lock the account for 15 minutes and are audited; sign-in, codes and token refresh are limited to 10 per minute per source IP. Signing in creates a server-side session: the refresh token lives only in an HttpOnly cookie and changes on every refresh, and using a replaced one again revokes the whole session and notifies administrators and the user; access tokens expire after 15 minutes and are bound to the session, so signing out, being signed out by an administrator, deactivation and an administrator password reset take effect immediately, and changing your password signs out your other devices; users can see and sign out their own devices. Every request re-reads the account status and permissions.",
-       "ローカルと LDAP のアカウントは TOTP の二要素認証を有効にできます。管理者は管理者または全員に必須とすることができ（未設定のユーザーはログイン時に設定を済ませるため締め出されず、必須のユーザーは自分で無効にできません）、SSO にも適用するかを選べます。有効にすると 1 回限りのリカバリーコードを 10 個生成し（ハッシュのみ保存）、管理者は特定ユーザーの二要素認証をリセットできます（管理者が 1 人だけならホストのコマンドラインからリセット）。同じコードは 2 回使えません。パスワードまたはコードを 5 回続けて間違えると 15 分間ロックされ監査に記録されます。ログイン・コード・トークン更新は送信元 IP ごとに毎分 10 回までです。ログインするとサーバー側のセッションを作成します。リフレッシュトークンは HttpOnly Cookie にのみ置き、更新のたびに入れ替わります。入れ替え済みのものが再び使われるとセッション全体を取り消し、管理者と本人に通知します。アクセストークンは 15 分で期限切れになりセッションに紐付くため、ログアウト・強制ログアウト・アカウントの無効化・管理者によるパスワードのリセットは即時に有効で、パスワードを変更すると他のデバイスはログアウトされます。ユーザーは自分のデバイスを確認しログアウトできます。リクエストごとにアカウントの状態と権限を読み直します。"),
+     T("本機與 LDAP 帳號可啟用 TOTP 雙因素驗證；管理員可要求管理員或所有人使用（還沒設定的人登入時先完成設定，不會被鎖在外面；被要求的人不能自行停用），SSO 可選擇是否一併套用。啟用時產生 10 組只能用一次的復原碼（只存雜湊），管理員可以重設某人的雙因素驗證（唯一的管理員可從主機的指令列重設）；同一組驗證碼不能用第二次。密碼或驗證碼連續錯 5 次鎖定 15 分鐘並寫進稽核；登入、驗證碼與換發權杖每個來源 IP 每分鐘最多 10 次。登入建立伺服器端工作階段：更新權杖只放在 HttpOnly Cookie、每次換發都換新，已經換掉的又被使用就撤銷整個工作階段並通知管理員與本人；存取權杖 15 分鐘到期並綁定工作階段，登出、強制登出、停用帳號與管理員重設密碼時存取權杖與更新權杖立即失效（已開著的主控台見「遠端主控台」），改密碼會登出其他裝置；使用者可以檢視並登出自己的裝置。每個請求都重新讀取帳號狀態與權限。",
+       "Local and LDAP accounts can turn on TOTP two-factor authentication; administrators can require it for administrators or for everyone (people who have not set it up do so at sign-in and are not locked out; people who are required cannot turn it off), optionally including SSO. Turning it on creates 10 single-use recovery codes (stored hashed), and administrators can reset someone's two-factor authentication (the only administrator can be reset from the host's command line); the same code cannot be used twice. Five wrong passwords or codes in a row lock the account for 15 minutes and are audited; sign-in, codes and token refresh are limited to 10 per minute per source IP. Signing in creates a server-side session: the refresh token lives only in an HttpOnly cookie and changes on every refresh, and using a replaced one again revokes the whole session and notifies administrators and the user; access tokens expire after 15 minutes and are bound to the session, so signing out, being signed out by an administrator, deactivation and an administrator password reset invalidate the access and refresh tokens immediately (for consoles already open see Remote console), and changing your password signs out your other devices; users can see and sign out their own devices. Every request re-reads the account status and permissions.",
+       "ローカルと LDAP のアカウントは TOTP の二要素認証を有効にできます。管理者は管理者または全員に必須とすることができ（未設定のユーザーはログイン時に設定を済ませるため締め出されず、必須のユーザーは自分で無効にできません）、SSO にも適用するかを選べます。有効にすると 1 回限りのリカバリーコードを 10 個生成し（ハッシュのみ保存）、管理者は特定ユーザーの二要素認証をリセットできます（管理者が 1 人だけならホストのコマンドラインからリセット）。同じコードは 2 回使えません。パスワードまたはコードを 5 回続けて間違えると 15 分間ロックされ監査に記録されます。ログイン・コード・トークン更新は送信元 IP ごとに毎分 10 回までです。ログインするとサーバー側のセッションを作成します。リフレッシュトークンは HttpOnly Cookie にのみ置き、更新のたびに入れ替わります。入れ替え済みのものが再び使われるとセッション全体を取り消し、管理者と本人に通知します。アクセストークンは 15 分で期限切れになりセッションに紐付くため、ログアウト・強制ログアウト・アカウントの無効化・管理者によるパスワードのリセットでアクセストークンとリフレッシュトークンは即時に無効になり（開いているコンソールは「リモートコンソール」を参照）、パスワードを変更すると他のデバイスはログアウトされます。ユーザーは自分のデバイスを確認しログアウトできます。リクエストごとにアカウントの状態と権限を読み直します。"),
      "`backend/tests/test_mfa_policy.py`, `test_session_revocation.py`, `test_security_alerts.py`, `test_rate_limit_switch.py`; `frontend/src/api/__tests__/tokenStorage.test.ts`"),
     (T("物件權限與跨單位隔離", "Object permissions and tenant isolation", "オブジェクト権限と組織間の分離"),
      T("依單位、區段、子網路、IP、裝置、機櫃、地點授權，可往下繼承。搜尋、IP 關聯、拓樸圖、AI 對話的工具、MCP 工具與 REST 用同一套可見範圍；重疊網段依子網路比對，不會對到其他單位的同一個位址；看不到的物件回應不存在（404）。只被授權部分物件的帳號在拓樸圖上只看得到自己範圍內的裝置與子網路，VPN、虛擬機等全域資料只給有全域讀取權限的帳號。",
@@ -82,14 +82,14 @@ ISO27001 = [
        "HTTP 系の連携は接続の時点で宛先を確認し、確認したアドレスに接続して、ローカル・クラウドのメタデータアドレス・DNS リバインディングを防ぎます。リダイレクト時も再確認し、認証情報を別のホストへ持ち込みません。その他のプロトコル（SSH・LDAP・SMTP・RADIUS・WinRM・DNS・syslog 転送）は接続前にすべてのアドレスを解決して確認し、クラウドのメタデータ・リンクローカル・マルチキャストを防ぎます。リモートコンソールの宛先はさらにローカルアドレスも不可です（ガードテストですべての接続が確認を通ることを検査）。"),
      "`test_safe_http_guard.py`, `test_netdiag_http_guard.py`, `test_net_guard.py`"),
     (T("稽核記錄", "Audit trail", "監査ログ"),
-     T("會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）；瀏覽器產生的表格與報告匯出由瀏覽器回報一筆。稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空；安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護。定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）；設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出。",
-       "Every endpoint that changes data must write an audit record, and so must downloads of exports and views of keys and tokens (two guard tests check each one, and exceptions must state a reason); table and report exports generated in the browser are reported by the browser. Audit records form a hash chain and the database rejects updates, deletes and truncation; install and upgrade give the audit table to a database role that cannot sign in, so the app's own database account can only read and append and cannot disable these protections. The chain is verified regularly and its tail anchored outside the database (a file and the system journal); with forwarding to Graylog, every record carries its own hash and the previous one, and the anchors are forwarded too.",
-       "データを変更するエンドポイントは監査への記録が必須で、エクスポートのダウンロードとキーやトークンの表示も同様です（2 つのガードテストで 1 つずつ確認し、例外には理由の記載が必要）。ブラウザで生成する表やレポートのエクスポートはブラウザが報告します。監査ログはハッシュチェーンでつながり、データベースは変更・削除・TRUNCATE を拒否します。インストールとアップグレードで監査テーブルをログインできないデータベースロールに渡すため、アプリのデータベースアカウントは読み取りと追加しかできず、これらの保護を無効にできません。定期的に検証し、チェーンの末尾をデータベースの外（ファイルとシステムジャーナル）にアンカーします。Graylog への転送を設定すると、各レコードが自分と直前のハッシュを持ち、アンカーも一緒に転送されます。"),
+     T("會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）；瀏覽器產生的表格與報告匯出由瀏覽器回報一筆。稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空；安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護。定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）；設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出。這些防修改限制適用於應用程式的資料庫角色：資料庫超級使用者與主機管理者仍可繞過；錨定的檔案與系統日誌也在同一台主機上，不能單獨當作獨立證據，要搭配另行保管的錨定資料與外部的證據保存機制。",
+       "Every endpoint that changes data must write an audit record, and so must downloads of exports and views of keys and tokens (two guard tests check each one, and exceptions must state a reason); table and report exports generated in the browser are reported by the browser. Audit records form a hash chain and the database rejects updates, deletes and truncation; install and upgrade give the audit table to a database role that cannot sign in, so the app's own database account can only read and append and cannot disable these protections. The chain is verified regularly and its tail anchored outside the database (a file and the system journal); with forwarding to Graylog, every record carries its own hash and the previous one, and the anchors are forwarded too. These tamper protections apply to the application's database roles: a database superuser or the host administrator can still bypass them, and the anchor file and system journal live on the same host, so they are not independent evidence on their own; pair them with anchors kept elsewhere and an external evidence store.",
+       "データを変更するエンドポイントは監査への記録が必須で、エクスポートのダウンロードとキーやトークンの表示も同様です（2 つのガードテストで 1 つずつ確認し、例外には理由の記載が必要）。ブラウザで生成する表やレポートのエクスポートはブラウザが報告します。監査ログはハッシュチェーンでつながり、データベースは変更・削除・TRUNCATE を拒否します。インストールとアップグレードで監査テーブルをログインできないデータベースロールに渡すため、アプリのデータベースアカウントは読み取りと追加しかできず、これらの保護を無効にできません。定期的に検証し、チェーンの末尾をデータベースの外（ファイルとシステムジャーナル）にアンカーします。Graylog への転送を設定すると、各レコードが自分と直前のハッシュを持ち、アンカーも一緒に転送されます。これらの改ざん防止はアプリのデータベースロールに適用されるもので、データベースのスーパーユーザーやホストの管理者は回避できます。アンカーのファイルとシステムジャーナルも同じホスト上にあるため単独では独立した証拠にならず、別に保管するアンカーと外部の証拠保存の仕組みを組み合わせる必要があります。"),
      "`test_audit_coverage.py`, `test_audit_read_coverage.py`, `test_audit_immutability.py`, `test_audit_hardening.py`, `test_audit_anchor.py`, `test_audit_chain_order.py`; `scripts/sql/audit-harden.sql`"),
     (T("遠端主控台", "Remote console", "リモートコンソール"),
-     T("看得到 IP 不等於能連線：該 IP 要開啟對應的主控台功能，而且使用者是管理員、對子網路有寫入權，或被明確授予主控台權限；目標不能是本機、link-local 或保留位址。連線使用 60 秒內有效的單次票證（綁定使用者、IP 與工作階段），連線期間每 30 秒重新檢查：帳號被停用、被強制登出、登出那個工作階段或被收回權限時立即中斷並寫稽核。SFTP 的開啟、上傳、下載、改名、刪除都寫稽核，每個主控台連線結束時記錄連線時間。",
-       "Seeing an IP does not mean being able to connect: the console must be enabled on that IP, and the user must be an admin, have write access to the subnet, or be granted console permission explicitly; the target cannot be a loopback, link-local or reserved address. Connections use a single-use ticket valid for 60 seconds and bound to the user, IP and session, and open connections are re-checked every 30 seconds: when the account is deactivated or signed out by an administrator, the session that opened it ends, or the permission is withdrawn, the connection closes and is audited. SFTP open, upload, download, rename and delete are audited, and every console session records its duration when it closes.",
-       "IP が見えることは接続できることを意味しません。その IP でコンソールを有効にし、さらにユーザーが管理者・サブネットへの書き込み権限を持つ・コンソール権限を明示的に付与されている、のいずれかが必要で、宛先はローカル・リンクローカル・予約済みアドレスにできません。接続には 60 秒以内有効な 1 回限りのチケット（ユーザー・IP・セッションに紐付け）を使い、接続中は 30 秒ごとに再確認します。アカウントの無効化・強制ログアウト・そのセッションのログアウト・権限の取り消しがあると直ちに切断し、監査に記録します。SFTP のオープン・アップロード・ダウンロード・名前変更・削除は監査に記録され、各コンソールの終了時に接続時間を記録します。"),
+     T("看得到 IP 不等於能連線：該 IP 要開啟對應的主控台功能，而且使用者是管理員、對子網路有寫入權，或被明確授予主控台權限；目標不能是本機、link-local 或保留位址。連線使用 60 秒內有效的單次票證（綁定使用者、IP 與工作階段）。帳號被停用、被強制登出、登出那個工作階段或被收回權限後，新的連線要求立即拒絕；已經開著的連線在下一次權限檢查時中斷並寫稽核（每 30 秒檢查一次，最長 30 秒）。SFTP 的開啟、上傳、下載、改名、刪除都寫稽核，每個主控台連線結束時記錄連線時間。",
+       "Seeing an IP does not mean being able to connect: the console must be enabled on that IP, and the user must be an admin, have write access to the subnet, or be granted console permission explicitly; the target cannot be a loopback, link-local or reserved address. Connections use a single-use ticket valid for 60 seconds and bound to the user, IP and session. Once the account is deactivated or signed out by an administrator, the session that opened it ends, or the permission is withdrawn, new connection requests are refused immediately, and connections already open close at the next permission check and are audited (checked every 30 seconds, so at most 30 seconds). SFTP open, upload, download, rename and delete are audited, and every console session records its duration when it closes.",
+       "IP が見えることは接続できることを意味しません。その IP でコンソールを有効にし、さらにユーザーが管理者・サブネットへの書き込み権限を持つ・コンソール権限を明示的に付与されている、のいずれかが必要で、宛先はローカル・リンクローカル・予約済みアドレスにできません。接続には 60 秒以内有効な 1 回限りのチケット（ユーザー・IP・セッションに紐付け）を使います。アカウントの無効化・強制ログアウト・そのセッションのログアウト・権限の取り消しの後は、新しい接続要求を直ちに拒否し、開いている接続は次の権限確認で切断して監査に記録します（30 秒ごとに確認するため最長 30 秒）。SFTP のオープン・アップロード・ダウンロード・名前変更・削除は監査に記録され、各コンソールの終了時に接続時間を記録します。"),
      "`test_ticket_take_once.py`, `test_console_guard.py`, `test_net_guard.py`, `test_sftp_permissions.py`, `test_console_session_duration.py`"),
     (T("憑證與私鑰派送", "Certificates and private keys", "証明書と秘密鍵の配布"),
      T("每個憑證代理只拿得到指派給它的憑證；代理每次下載、管理員每次匯出私鑰都寫稽核；代理金鑰可輪替、停用或刪除。",
@@ -144,9 +144,9 @@ AI_INVENTORY = [
     (T("外部 MCP", "External MCP", "外部 MCP"),
      T("讓外部 AI 用戶端呼叫 jt-ipam 的工具", "Let external AI clients call jt-ipam tools", "外部の AI クライアントが jt-ipam のツールを呼び出す"), OFF),
 ]
-AI_INV_NOTE = T("模型端點可以是自架的 Ollama，或 OpenAI 相容的 API（由管理員選擇）。LLM 未啟用時，以上功能都不會呼叫模型；AI 巡檢與外部 MCP 另有各自的開關。異常偵測、規則異動偵測與 IP 變更評估的結果由程式查詢算出，不是模型產生的。",
-                "The model endpoint can be a self-hosted Ollama or an OpenAI-compatible API (chosen by an admin). While the LLM is disabled none of the features above call a model; AI review and external MCP have their own switches. The results of anomaly detection, rule change detection and IP change assessment are computed by queries, not produced by a model.",
-                "モデルのエンドポイントは自前の Ollama か OpenAI 互換 API（管理者が選択）です。LLM が無効の間、上記の機能はモデルを呼び出しません。AI 点検と外部 MCP には個別のスイッチがあります。異常検出・ルール変更検出・IP 変更評価の結果はプログラムの照会で算出され、モデルが生成したものではありません。")
+AI_INV_NOTE = T("模型端點可以是自架的 Ollama，或 OpenAI 相容的 API（由管理員選擇）。LLM 未啟用時，jt-ipam 不會主動呼叫模型；AI 巡檢另有開關。外部 MCP 不受 LLM 開關影響：外部 AI 用戶端用的是它自己的模型，由「對外提供 MCP」開關與權杖、MCP 金鑰控制。異常偵測、規則異動偵測與 IP 變更評估的結果由程式查詢算出，不是模型產生的。預期用途是查詢與說明 IPAM 資料、整理已經查到的事實；AI 的回答與判讀是輔助，不是決定，會異動資料的動作一律要人確認。",
+                "The model endpoint can be a self-hosted Ollama or an OpenAI-compatible API (chosen by an admin). While the LLM is disabled, jt-ipam makes no model requests of its own; AI review has its own switch. External MCP is not affected by the LLM switch: external AI clients use their own models, and access is controlled by the Expose MCP switch, tokens and the MCP key. The results of anomaly detection, rule change detection and IP change assessment are computed by queries, not produced by a model. The intended use is querying and explaining IPAM data and summarising facts already collected; AI answers and narratives assist people and do not make decisions, and every action that changes data needs a person to confirm.",
+                "モデルのエンドポイントは自前の Ollama か OpenAI 互換 API（管理者が選択）です。LLM が無効の間、jt-ipam から能動的にモデルを呼び出すことはありません。AI 点検には個別のスイッチがあります。外部 MCP は LLM のスイッチの影響を受けません。外部の AI クライアントは自身のモデルを使い、アクセスは「MCP を外部に公開する」スイッチとトークン・MCP キーで制御します。異常検出・ルール変更検出・IP 変更評価の結果はプログラムの照会で算出され、モデルが生成したものではありません。意図した用途は IPAM のデータの照会と説明、収集済みの事実の整理です。AI の回答や解説は判断の補助であって決定ではなく、データを変更する操作には必ず人の確認が必要です。")
 
 ISO42001 = [
     (T("AI 權限一致", "Consistent AI permissions", "AI の権限の一貫性"),
@@ -155,29 +155,34 @@ ISO42001 = [
        "AI チャットと MCP のツールはサーバー側で 1 つずつ認可され、REST と同じ閲覧範囲を使います。データを変更するツールは管理者限定です。"),
      "`test_mcp_tools_match_rest_permissions.py`, `test_mcp_admin_tools.py`, `test_mcp_rbac_scope.py`"),
     (T("異動要人確認", "Changes need a person to confirm", "変更には人の確認が必要"),
-     T("AI 對話裡會改資料的工具不會直接執行，要使用者按下確認才執行並寫稽核；MCP 的寫入也寫稽核。",
-       "In AI chat, tools that change data never run directly: they run only after the user confirms, and are audited; MCP writes are audited too.",
-       "AI チャットでデータを変更するツールは直接実行されず、ユーザーが確認して初めて実行され監査に記録されます。MCP の書き込みも監査に記録されます。"),
-     "`test_mcp_url_and_audit.py`, `test_ai_inline_toolcalls.py`"),
+     T("AI 對話裡會改資料的工具不會直接執行，要使用者按下確認才執行；確認時再過一次權限檢查。",
+       "In AI chat, tools that change data never run directly: they run only after the user confirms, and the confirmation runs the permission check again.",
+       "AI チャットでデータを変更するツールは直接実行されず、ユーザーが確認して初めて実行されます。確認時に権限を再確認します。"),
+     "`test_ai_inline_toolcalls.py`, `test_ai_guard.py`"),
     (T("查詢範圍與筆數", "Scope and counts", "照会範囲と件数"),
-     T("工具回傳查詢範圍、總數、本次筆數與是否還有更多；超過上限會明確標示截斷；查無結果時工具要求模型照實說，不可以補造例子。",
-       "Tools return the query scope, the total, the number returned and whether more remain; results over the limit are marked as truncated; when nothing is found the tool tells the model to say so and not to invent examples.",
-       "ツールは照会範囲・総数・今回の件数・続きがあるかを返します。上限を超えると切り詰めたことを明示し、結果がないときはその旨を伝え、例を作らないようモデルに指示します。"),
+     T("工具回傳查詢範圍、總數、本次筆數與是否還有更多；超過上限會明確標示截斷；查無結果時回傳明確的空結果，並提示模型不可補造資料。這些是工具輸出與給模型的提示：模型最終怎麼回答取決於所用的模型，要以實際使用的模型與版本另行驗證（見導入組織的「模型變更」）。",
+       "Tools return the query scope, the total, the number returned and whether more remain; results over the limit are marked as truncated; when nothing is found the tool returns an explicit empty result and tells the model not to make data up. These are tool outputs and instructions to the model: what the model finally answers depends on the model, so verify it with the model and version you actually use (see Model changes under the organisation's responsibilities).",
+       "ツールは照会範囲・総数・今回の件数・続きがあるかを返します。上限を超えると切り詰めたことを明示し、結果がないときは明確な空の結果を返して、データを作らないようモデルに指示します。これはツールの出力とモデルへの指示であり、モデルが最終的にどう答えるかはモデル次第なので、実際に使うモデルとバージョンで別途検証してください（導入組織の「モデルの変更」を参照）。"),
      "`test_mcp_tool_scoping.py`, `test_ai_no_results_are_explicit.py`"),
+    (T("AI 讀到的資料品質", "Quality of the data AI reads", "AI が読むデータの品質"),
+     T("AI 工具讀的是 IPAM 的資料，每個值記錄來源與觀測時間（見「資料來源與時間」），主機名稱看得出是哪一台代理或哪個整合回報、最後什麼時候看到；整合同步失敗顯示在整合頁與作業頁，IP 變更評估列出沒有資料或同步失敗的來源；異常偵測與 IP 鑑識工具標出疑似讀壞或過期的 ARP 資料與可信度。查詢範圍、總數與截斷提示只說明資料是否完整，不代表資料正確。",
+       "AI tools read IPAM data, and every value keeps its source and observation time (see Data provenance); a host name shows which agent or integration reported it and when it was last seen; failed integration syncs show on the integration and jobs pages, and IP change assessment lists sources with no data or failed syncs; anomaly detection and the IP forensics tool mark ARP data that looks misread or stale and give a confidence. The query scope, totals and truncation notices only tell whether the data is complete, not whether it is correct.",
+       "AI のツールが読むのは IPAM のデータで、各値は出所と観測時刻を記録しています（「データの出所と時刻」を参照）。ホスト名はどのエージェントまたは連携が報告し、最後にいつ確認したかが分かります。連携の同期失敗は連携ページとジョブページに表示され、IP 変更評価はデータがない出所や同期に失敗した出所を一覧表示します。異常検出と IP フォレンジックのツールは、読み取り破損や古い疑いのある ARP データと信頼度を示します。照会範囲・総数・切り詰めの表示はデータが揃っているかを示すだけで、データが正しいことを示すものではありません。"),
+     "`test_evidence_contract.py`, `test_anomaly_arp_quality.py`, `test_hostname_source_reports.py`, `test_change_impact_coverage.py`"),
     (T("答案查證", "Answer checking", "回答の検証"),
      T("回答中出現、但沒有任何工具回傳過的 IP，會被標示為未經查證。",
        "IPs that appear in an answer but were not returned by any tool are marked as unverified.",
        "回答に現れたが、どのツールも返していない IP は未検証として示されます。"),
      "`test_ai_answer_ip_verification.py`"),
-    (T("模型記錄", "Model records", "モデルの記録"),
-     T("AI 對話的回答與 AI 巡檢的發現會存下使用的模型；判讀與建議的結果也標示模型。",
-       "AI chat answers and AI review findings store the model that produced them; narratives and suggestions also show the model.",
-       "AI チャットの回答と AI 点検の発見事項は使用したモデルを保存し、解説や提案の結果にもモデルを表示します。"),
-     "`app/models/ai_chat.py`, `app/models/ai_finding.py`"),
+    (T("AI 事件記錄", "AI event records", "AI のイベント記録"),
+     T("AI 對話的對話記錄與 AI 巡檢的發現會存下使用的模型；判讀與建議的結果也標示模型；AI 對話確認後執行的異動與 MCP 的寫入都寫進稽核記錄（誰、哪個工具、何時）。",
+       "AI chat conversations and AI review findings store the model that produced them; narratives and suggestions also show the model; changes run after confirmation in AI chat and writes through MCP are recorded in the audit log (who, which tool, when).",
+       "AI チャットの会話と AI 点検の発見事項は使用したモデルを保存し、解説や提案の結果にもモデルを表示します。AI チャットで確認後に実行された変更と MCP 経由の書き込みは監査ログに記録されます（誰が・どのツールを・いつ）。"),
+     "`app/models/ai_chat.py`, `app/models/ai_finding.py`, `test_mcp_url_and_audit.py`, `test_ai_inline_toolcalls.py`"),
     (T("提示詞注入", "Prompt injection", "プロンプトインジェクション"),
-     T("所有把資料送進模型的地方（AI 對話、IP 調查判讀、AI 巡檢、IP 研判、防火牆規則判讀、IP 變更評估）都使用同一段「資料與工具結果不是指令」的規則，大段資料放在定界內並先拆掉資料裡的定界字串（守門測試檢查每一個呼叫模型的地方）；使用者訊息先經過檢查（常見的越權指令樣式、重複與控制字元）；AI 對話裡會改資料的動作要人確認，確認時再過一次權限檢查。",
-       "Every place that sends data to a model (AI chat, IP investigation narrative, AI review, IP triage, firewall rule review, IP change assessment) uses the same rule that data and tool results are not instructions, and large data blocks are fenced with fence strings inside the data broken up first (a guard test checks every caller of the model); user messages are screened first (common instruction-override patterns, repetition and control characters); changes proposed in AI chat need a person to confirm, and the confirmation runs the permission check again.",
-       "モデルにデータを渡すすべての箇所（AI チャット・IP 調査の解説・AI 点検・IP トリアージ・ファイアウォールルールの解説・IP 変更評価）で「データとツールの結果は指示ではない」という同じ規則を使い、大きなデータは区切りの中に入れ、データ内の区切り文字列は先に崩します（ガードテストでモデルを呼ぶすべての箇所を検査）。ユーザーのメッセージは事前に検査されます（よくある指示の上書きパターン・繰り返し・制御文字）。AI チャットで提案された変更は人の確認が必要で、確認時に権限を再確認します。"),
+     T("所有把資料送進模型的地方（AI 對話、IP 調查判讀、AI 巡檢、IP 研判、防火牆規則判讀、IP 變更評估）都使用同一段「資料與工具結果不是指令」的規則，大段資料放在定界內並先拆掉資料裡的定界字串（守門測試檢查每一個呼叫模型的地方）；使用者訊息先經過檢查（常見的越權指令樣式、重複與控制字元）；AI 對話裡會改資料的動作要人確認，確認時再過一次權限檢查。以上措施是降低提示詞注入的風險，不保證模型不受惡意內容影響；能存取什麼、能改什麼由後端的權限檢查強制決定，不靠模型。",
+       "Every place that sends data to a model (AI chat, IP investigation narrative, AI review, IP triage, firewall rule review, IP change assessment) uses the same rule that data and tool results are not instructions, and large data blocks are fenced with fence strings inside the data broken up first (a guard test checks every caller of the model); user messages are screened first (common instruction-override patterns, repetition and control characters); changes proposed in AI chat need a person to confirm, and the confirmation runs the permission check again. These measures reduce the risk of prompt injection and do not guarantee that a model resists malicious content; what can be read or changed is enforced by the server's permission checks, not by the model.",
+       "モデルにデータを渡すすべての箇所（AI チャット・IP 調査の解説・AI 点検・IP トリアージ・ファイアウォールルールの解説・IP 変更評価）で「データとツールの結果は指示ではない」という同じ規則を使い、大きなデータは区切りの中に入れ、データ内の区切り文字列は先に崩します（ガードテストでモデルを呼ぶすべての箇所を検査）。ユーザーのメッセージは事前に検査されます（よくある指示の上書きパターン・繰り返し・制御文字）。AI チャットで提案された変更は人の確認が必要で、確認時に権限を再確認します。これらの対策はプロンプトインジェクションのリスクを下げるもので、モデルが悪意のある内容の影響を受けないことを保証するものではありません。何を読み取り・変更できるかはモデルではなくサーバー側の権限確認で強制されます。"),
      "`test_prompt_injection_framing.py`, `test_ai_guard.py`"),
     (T("事實與 AI 敘述分開", "Facts kept apart from AI narrative", "事実と AI の説明を分ける"),
      T("異常、規則異動與變更評估的結果由程式查詢決定；AI 只負責解釋，畫面標明是 AI 判讀。",
@@ -190,19 +195,22 @@ ISO42001 = [
        "ブロック項目があると承認できません。結果が不完全な場合はリスク受容の理由が必要で、すべての発見事項に対処が必要です。承認後に計画や根拠が変わると（スナップショットのハッシュが異なる）下書きに戻り再評価になります。レビュー担当者を指定でき、データがない出所や同期に失敗した出所を一覧表示します。"),
      "`test_change_impact_api.py`, `test_change_impact_reviewers.py`, `test_change_impact_coverage.py`"),
     (T("停用", "Switching off", "停止"),
-     T("LLM 全域開關一關，所有 AI 功能都停止呼叫模型；AI 巡檢與外部 MCP 各自另有開關，預設關閉。",
-       "Turning off the global LLM switch stops every AI feature from calling a model; AI review and external MCP each have their own switch and are off by default.",
-       "LLM の全体スイッチを切ると、すべての AI 機能がモデルを呼び出さなくなります。AI 点検と外部 MCP には個別のスイッチがあり、既定では無効です。"),
-     "`app/services/system_config.py`"),
+     T("LLM 全域開關控制 jt-ipam 主動發出的模型請求：一關，AI 對話、語意搜尋、判讀與 AI 巡檢都不再呼叫模型。外部 MCP 不經過這個開關（外部 AI 用戶端用自己的模型）；要停止外部 AI 透過 MCP 讀取資料，須關閉「管理 → LLM / AI」的「對外提供 MCP」，或撤銷相關的 API 權杖與 MCP 金鑰。AI 巡檢與外部 MCP 預設關閉。",
+       "The global LLM switch controls the model requests jt-ipam makes itself: turned off, AI chat, semantic search, narratives and AI review stop calling a model. External MCP does not go through this switch (external AI clients use their own models); to stop external AI from reading data through MCP, turn off Expose MCP under Admin → LLM / AI, or revoke the API tokens and the MCP key involved. AI review and external MCP are off by default.",
+       "LLM の全体スイッチは jt-ipam が能動的に行うモデルへのリクエストを制御します。切ると AI チャット・セマンティック検索・解説・AI 点検はモデルを呼び出さなくなります。外部 MCP はこのスイッチを経由しません（外部の AI クライアントは自身のモデルを使います）。外部の AI が MCP 経由でデータを読み取るのを止めるには、「管理 → LLM / AI」の「MCP を外部に公開する」を無効にするか、関係する API トークンと MCP キーを取り消します。AI 点検と外部 MCP は既定で無効です。"),
+     "`app/services/system_config.py`, `app/mcp/server.py`"),
 ]
 
 RESP_27001 = [
     T("帳號：在使用者管理頁的「登入安全」把雙因素驗證設成管理員必須或所有人必須，並定期確認例外。",
       "Accounts: set two-factor authentication to required for administrators or for everyone under Sign-in security on the users page, and review exceptions regularly.",
       "アカウント：ユーザー管理ページの「ログインのセキュリティ」で 二要素認証を管理者必須または全員必須にし、例外を定期的に確認します。"),
-    T("離職與調職：停用帳號（工作階段、API 權杖與開著的主控台會一併失效），或用「強制登出」結束所有登入；調整權限與群組成員。",
-      "Leavers and movers: deactivate the account (its sessions, API tokens and open consoles stop working with it), or use Sign out everywhere to end all sign-ins; adjust permissions and group memberships.",
-      "退職と異動：アカウントを無効化する（セッション・API トークン・開いているコンソールも同時に無効になります）か、「強制ログアウト」ですべてのログインを終了し、権限とグループのメンバーを調整します。"),
+    T("離職：停用帳號，不要只用「強制登出」（強制登出只結束工作階段，帳號仍能再登入，個人 API 權杖也還有效）。停用會撤銷所有工作階段與這個人的個人 API 權杖、拒絕之後的每個請求，開著的主控台在下一次權限檢查時中斷（最長 30 秒）；確認這些都已失效。用 LDAP、OIDC 或 SAML 登入的帳號同時在身分提供者停用；這個人保管過的共用憑證（唯讀 MCP 金鑰、整合帳號的密碼、代理金鑰）要輪替。",
+      "Leavers: deactivate the account; do not rely on Sign out everywhere (it only ends sessions: the account can sign in again and personal API tokens keep working). Deactivation revokes all sessions and the person's API tokens and refuses every later request, and open consoles close at the next permission check (at most 30 seconds); confirm all of these have stopped working. For accounts that sign in through LDAP, OIDC or SAML, disable the person in the identity provider too; rotate shared credentials the person held (the read-only MCP key, integration account passwords, agent keys).",
+      "退職：アカウントを無効化します。「強制ログアウト」だけに頼らないでください（強制ログアウトはセッションを終了するだけで、アカウントは再びログインでき、個人の API トークンも有効なままです）。無効化するとすべてのセッションと本人の API トークンが取り消され、以降のリクエストはすべて拒否され、開いているコンソールは次の権限確認で切断されます（最長 30 秒）。これらがすべて無効になったことを確認します。LDAP・OIDC・SAML でログインするアカウントは ID プロバイダー側でも無効化し、本人が保管していた共有の認証情報（読み取り専用の MCP キー・連携用アカウントのパスワード・エージェントのキー）をローテーションします。"),
+    T("調職：調整權限指派與群組成員；權限每個請求都重新讀取，下一個請求就以新權限判斷，個人 API 權杖跟著帳號權限改變，開著的主控台最長 30 秒內依新權限中斷。必要時用「強制登出」讓本人重新登入，並確認新權限正確。",
+      "Movers: adjust permission grants and group memberships; permissions are read on every request, so the next request uses the new ones, personal API tokens follow the account's permissions, and open consoles close within 30 seconds if the new permissions no longer allow them. Where needed, use Sign out everywhere so the person signs in again, and check the new permissions.",
+      "異動：権限の付与とグループのメンバーを調整します。権限はリクエストごとに読み直すため、次のリクエストから新しい権限で判定され、個人の API トークンもアカウントの権限に従い、開いているコンソールは新しい権限で許可されなければ 30 秒以内に切断されます。必要に応じて「強制ログアウト」で再ログインさせ、新しい権限が正しいことを確認します。"),
     T("存取審查：定期檢視權限指派、群組成員、API 權杖、主控台授權與登入中的工作階段，必要時對照稽核記錄。",
       "Access reviews: regularly review permission grants, group members, API tokens, console rights and active sessions, using the audit log where needed.",
       "アクセスレビュー：権限の付与・グループのメンバー・API トークン・コンソール権限・ログイン中のセッションを定期的に見直し、必要に応じて監査ログと照合します。"),
@@ -212,9 +220,9 @@ RESP_27001 = [
     T("金鑰與備份：設定備份加密密碼並把密碼保存在 jt-ipam 主機以外；把備份放到異地儲存，定期做還原演練（含解密），並訂出 RPO 與 RTO。",
       "Keys and backups: set a backup encryption passphrase and keep it somewhere other than the jt-ipam host; store backups off-site, rehearse restores (including decryption) regularly, and set an RPO and RTO.",
       "鍵とバックアップ：バックアップの暗号化パスフレーズを設定し、jt-ipam のホスト以外に保管します。バックアップを外部に保存し、復号を含む復元訓練を定期的に行い、RPO と RTO を定めます。"),
-    T("稽核證據：把稽核記錄轉送到獨立、不可改寫的 Graylog 或 SIEM 儲存，定期查看稽核鏈的驗證結果；還原備份或使用外部資料庫時執行 harden-audit。",
-      "Audit evidence: forward audit records to independent, write-once Graylog or SIEM storage and review chain verification results regularly; run harden-audit after restoring a backup or when using an external database.",
-      "監査の証拠：監査ログを独立した書き換え不可の Graylog または SIEM のストレージへ転送し、チェーンの検証結果を定期的に確認します。バックアップの復元後や外部データベースを使う場合は harden-audit を実行します。"),
+    T("稽核證據：把稽核記錄與錨定點轉送到另一台主機的 Graylog 或 SIEM，並在那一端另行設定不可改寫的保存機制（轉送本身不提供這個能力）；限制誰能取得資料庫超級使用者與主機管理權限；定期查看稽核鏈的驗證結果；還原備份或使用外部資料庫時執行 harden-audit。",
+      "Audit evidence: forward audit records and anchors to Graylog or a SIEM on another host and configure write-once retention there (forwarding alone does not provide it); restrict who holds database superuser and host administrator rights; review chain verification results regularly; run harden-audit after restoring a backup or when using an external database.",
+      "監査の証拠：監査ログとアンカーを別のホストの Graylog または SIEM へ転送し、そちら側で書き換え不可の保存の仕組みを別途設定します（転送するだけではこの能力はありません）。データベースのスーパーユーザーとホストの管理者権限を持てる人を制限し、チェーンの検証結果を定期的に確認します。バックアップの復元後や外部データベースを使う場合は harden-audit を実行します。"),
     T("網路：只開放必要的連入埠；把 jt-ipam 放在管理網段；Graylog DSV 盡量走 HTTPS，必須用明文 8088 時限制允許的來源位址。",
       "Network: open only the inbound ports you need; keep jt-ipam in a management network; use HTTPS for Graylog DSV where possible, and restrict allowed sources when plain port 8088 is required.",
       "ネットワーク：必要な着信ポートだけを開け、jt-ipam を管理用ネットワークに置きます。Graylog DSV はできるだけ HTTPS を使い、平文の 8088 番が必要な場合は許可する送信元を制限します。"),
@@ -242,12 +250,15 @@ RESP_42001 = [
     T("人工覆核：AI 的回答與巡檢發現是建議，不是結論；網路變更走 IP 變更評估與審核流程。",
       "Human review: AI answers and review findings are suggestions, not conclusions; network changes go through IP change assessment and its review workflow.",
       "人によるレビュー：AI の回答と点検の発見事項は提案であり結論ではありません。ネットワークの変更は IP 変更評価とレビューの手順に従います。"),
+    T("預期用途：訂出 AI 功能允許的用途（例如查詢、說明、整理事實）、使用限制（例如不得當作資安判定或人員責任歸屬的唯一依據），以及哪些情況要人工覆核，並告知使用者。",
+      "Intended use: define the permitted uses of the AI features (such as querying, explaining and summarising facts), their limits (for example, not the sole basis for a security verdict or for attributing responsibility to a person) and when human review is required, and tell users.",
+      "意図した用途：AI 機能の許可する用途（照会・説明・事実の整理など）、利用の制限（例えばセキュリティ上の判定や個人の責任の帰属の唯一の根拠にしない）、人によるレビューが必要な場面を定め、利用者に周知します。"),
     T("影響評估：評估錯誤判讀對人與組織的影響，例如誤把設備歸給某位使用者、錯誤的維護建議造成服務中斷。",
       "Impact assessment: assess how wrong conclusions affect people and the organisation, such as attributing a device to the wrong user or a wrong maintenance suggestion causing an outage.",
       "影響評価：誤った判断が人と組織に与える影響を評価します。例えば機器を誤ったユーザーに結び付ける、誤った保守の提案でサービスが停止する、などです。"),
-    T("事件處理：訂出回報 AI 錯誤與暫停 AI 功能的程序（LLM 全域開關）。",
-      "Incidents: define how AI mistakes are reported and how AI features are paused (the global LLM switch).",
-      "インシデント対応：AI の誤りの報告手順と、AI 機能を一時停止する手順（LLM の全体スイッチ）を定めます。"),
+    T("事件處理：訂出什麼情況算 AI 事故（判定條件）、要通知誰（使用者、管理者、受影響的單位）、由誰負責與處理時限，以及回報 AI 錯誤與暫停 AI 功能的程序（LLM 全域開關、「對外提供 MCP」開關、撤銷權杖）。jt-ipam 的通知事件與通道可以用來發送，對象、條件與時限由導入組織訂定。",
+      "Incidents: define what counts as an AI incident (criteria), who is notified (users, administrators, affected units), who owns it and the time limits, and how AI mistakes are reported and AI features are paused (the global LLM switch, the Expose MCP switch, revoking tokens). jt-ipam's notification events and channels can deliver the messages; the recipients, criteria and time limits are set by the organisation.",
+      "インシデント対応：何を AI のインシデントとするか（判定条件）、誰に通知するか（利用者・管理者・影響を受ける部門）、責任者と対応期限、AI の誤りの報告手順と AI 機能を一時停止する手順（LLM の全体スイッチ・「MCP を外部に公開する」スイッチ・トークンの取り消し）を定めます。jt-ipam の通知イベントとチャネルで送信できますが、通知先・条件・期限は導入組織が定めます。"),
     T("管理制度：適用性聲明、教育訓練、內部稽核與管理審查由導入組織負責。",
       "Management system: the statement of applicability, training, internal audits and management reviews are the adopting organisation's responsibility.",
       "マネジメントシステム：適用宣言書・教育訓練・内部監査・マネジメントレビューは導入組織の責任です。"),
@@ -266,7 +277,7 @@ CASES = [
      T("回傳總數與本次筆數，不把部分清單當成全部", "The total and the number returned are given; a partial list is not presented as complete", "総数と今回の件数を返し、一部の一覧を全体として扱わない"),
      "`test_mcp_tool_scoping.py`"),
     (T("查無資料", "Nothing is found", "データが見つからない"),
-     T("AI 照實說沒有，不編造位址或設備", "The AI says so and does not invent addresses or devices", "AI はその旨を伝え、アドレスや機器を作らない"),
+     T("工具回傳明確的空結果與不可補造資料的提示（模型最終的回答另以實際使用的模型與版本驗證）", "The tool returns an explicit empty result and an instruction not to make data up (the model's final answer is verified separately with the model and version in use)", "ツールが明確な空の結果とデータを作らないよう指示を返す（モデルの最終的な回答は実際に使うモデルとバージョンで別途検証）"),
      "`test_ai_no_results_are_explicit.py`"),
     (T("核准後依據改變", "Evidence changes after approval", "承認後に根拠が変わる"),
      T("舊核准不能直接套用，要重新評估", "The earlier approval cannot be applied; the plan must be reassessed", "以前の承認はそのまま使えず、再評価が必要"),
@@ -274,7 +285,7 @@ CASES = [
     (T("撤銷 API 權杖或停用帳號", "An API token is revoked or an account deactivated", "API トークンの取り消しまたはアカウントの無効化"),
      T("下一個 REST、API 權杖或 MCP 請求就被拒絕", "The next REST, API token or MCP request is refused", "次の REST・API トークン・MCP のリクエストから拒否される"),
      "`test_api_token_scope.py`, `app/api/v1/dependencies.py`"),
-    (T("修改或刪除稽核記錄", "An audit record is modified or deleted", "監査ログを変更または削除する"),
+    (T("用應用程式的資料庫帳號修改或刪除稽核記錄", "The app's database account modifies or deletes an audit record", "アプリのデータベースアカウントで監査ログを変更または削除する"),
      T("資料庫拒絕；鏈尾錨定能發現尾端被截掉", "The database refuses; the tail anchor reveals a truncated tail", "データベースが拒否し、末尾のアンカーで末尾の切り詰めを検出できる"),
      "`test_audit_immutability.py`, `test_audit_anchor.py`"),
     (T("重複使用主控台票證", "A console ticket is reused", "コンソールのチケットを再利用する"),
@@ -284,7 +295,7 @@ CASES = [
      T("沒設定的人登入時先設定並拿到復原碼，不能自行停用；復原碼只能用一次", "People without it set it up at sign-in and receive recovery codes, and cannot turn it off; each recovery code works once", "未設定のユーザーはログイン時に設定してリカバリーコードを受け取り、自分で無効にできない。リカバリーコードは 1 回限り"),
      "`test_mfa_policy.py`"),
     (T("登出、強制登出或停用帳號", "Sign out, Sign out everywhere or deactivation", "ログアウト・強制ログアウト・アカウントの無効化"),
-     T("存取權杖與更新權杖立即失效；開著的主控台 30 秒內中斷", "Access and refresh tokens stop working immediately; open consoles close within 30 seconds", "アクセストークンとリフレッシュトークンは即時に無効になり、開いているコンソールは 30 秒以内に切断される"),
+     T("存取權杖與更新權杖立即失效、新的主控台連線立即拒絕；已開著的主控台在下一次權限檢查時中斷，最長 30 秒", "Access and refresh tokens stop working and new console connections are refused immediately; consoles already open close at the next permission check, at most 30 seconds", "アクセストークンとリフレッシュトークンは即時に無効になり、新しいコンソール接続も即時に拒否される。開いているコンソールは次の権限確認で切断される（最長 30 秒）"),
      "`test_session_revocation.py`, `test_console_guard.py`"),
     (T("已經換掉的更新權杖又被使用", "A replaced refresh token is used again", "入れ替え済みのリフレッシュトークンが再び使われる"),
      T("整個工作階段撤銷，通知管理員與本人", "The whole session is revoked and administrators and the user are notified", "セッション全体が取り消され、管理者と本人に通知される"),
@@ -305,6 +316,59 @@ CASES = [
      T("回應不存在，沒有內容外流", "It is answered as not found and nothing leaks", "存在しないと応答し、内容は漏れない"),
      "`test_cert_agents_api.py`"),
 ]
+# 佐證連結固定在一個公開 commit（審查意見 2026-10-11：測試檔名連到固定 commit，附上執行結果與日期）。
+# 換版時改這裡：commit 要已經公開、CI 綠燈；main() 會確認每個佐證檔案都在這個 commit 裡（本機取得得到該 commit 時）。
+REPO_URL = "https://github.com/jasoncheng7115/jt-ipam"
+PINNED = {"commit": "5f2dc41c5b05f06c8ec5b8086ec5192ae3dd3f9f", "date": "2026-10-11",
+          "ci": "https://github.com/jasoncheng7115/jt-ipam/actions/runs/38124690745",
+          "backend": "3,974", "skipped": "3", "frontend": "934"}
+VERIFY_NOTE = T(
+    "驗證紀錄：上面的測試與設定檔連結固定在 commit {short}（{date} 公開）。這個 commit 在 GitHub Actions 的 CI（後端與前端測試、安全規則、相依套件弱點、OWASP ZAP 基準掃描）全部通過；同一份程式在發版前的完整測試：後端 {backend} 項通過、{skipped} 項略過，前端 {frontend} 項通過（{date}）。導入組織應以固定的版本，在自己的環境重新執行。",
+    "Verification record: the test and file links above are pinned to commit {short} (published {date}). CI on GitHub Actions for this commit (backend and frontend tests, security rules, dependency vulnerabilities, OWASP ZAP baseline scan) passed; the full test run of the same code before release: backend {backend} passed and {skipped} skipped, frontend {frontend} passed ({date}). Adopting organisations should rerun them on a pinned version in their own environment.",
+    "検証記録：上記のテストと設定ファイルへのリンクは commit {short}（{date} 公開）に固定しています。この commit の GitHub Actions の CI（バックエンドとフロントエンドのテスト・セキュリティルール・依存パッケージの脆弱性・OWASP ZAP のベースラインスキャン）はすべて成功しました。同じコードのリリース前の全テスト：バックエンド {backend} 件成功・{skipped} 件スキップ、フロントエンド {frontend} 件成功（{date}）。導入組織は固定したバージョンで、自分の環境で再実行してください。")
+VERIFY_CI = T("CI 執行結果", "CI run", "CI の実行結果")
+
+
+def _verify_text(lang: str) -> str:
+    return VERIFY_NOTE[lang].format(short=PINNED["commit"][:8], date=PINNED["date"], backend=PINNED["backend"],
+                                    skipped=PINNED["skipped"], frontend=PINNED["frontend"])
+
+
+def _ev_path(ref: str) -> str | None:
+    """佐證字串 → repo 內的路徑（與 test_compliance_evidence_exists 同一套找法）。找不到回 None。"""
+    cands = [ref, f"backend/{ref}", f"backend/tests/{ref}", f"frontend/{ref}"]
+    return next((c for c in cands if (ROOT / c).exists()), None)
+
+
+def _ev_url(ref: str) -> str | None:
+    path = _ev_path(ref)
+    if path is None:
+        return None
+    kind = "tree" if (ROOT / path).is_dir() else "blob"
+    return f"{REPO_URL}/{kind}/{PINNED['commit']}/{path.rstrip('/')}"
+
+
+def _check_pinned() -> None:
+    """佐證檔案都要在固定的 commit 裡。沒有 git、或取得不到那個 commit（例如淺層 clone）就略過，只靠工作目錄的存在檢查。"""
+    import shutil
+    import subprocess
+    git = shutil.which("git")
+    if git is None:
+        return
+    sha = PINNED["commit"]
+
+    def has(obj: str) -> bool:
+        # 參數全是固定值（指令路徑、本 repo 目錄、常數 commit 與 repo 內的檔名），沒有外部輸入
+        return subprocess.run([git, "-C", str(ROOT), "cat-file", "-e", obj],  # noqa: S603
+                              capture_output=True, check=False).returncode == 0
+
+    if not has(f"{sha}^{{commit}}"):
+        return
+    refs = {r for rows in (ISO27001, ISO42001, CASES) for *_x, e in rows for r in re.findall(r"`([^`]+)`", e)}
+    missing = [r for r in sorted(refs) if (p := _ev_path(r)) is not None and not has(f"{sha}:{p.rstrip('/')}")]
+    _require(not missing, f"固定的 commit {sha[:8]} 裡沒有這些佐證（換一個已公開、含這些檔案的 commit）：{missing}")
+
+
 CASES_NOTE = T("右欄的測試在每次發版前執行；導入組織可以在自己的環境用同樣的情境驗收。",
                "The tests on the right run before every release; adopting organisations can run the same scenarios in their own environment.",
                "右欄のテストはリリースのたびに実行されます。導入組織は同じシナリオで自社環境の受け入れ確認ができます。")
@@ -416,10 +480,11 @@ REFS_27001 = {
 }
 REFS_42001 = {
     "Consistent AI permissions": ["A.9.2"],
-    "Changes need a person to confirm": ["A.6.2.8", "A.9.2"],
+    "Changes need a person to confirm": ["A.9.2"],
     "Scope and counts": ["A.7.4", "A.8.2"],
+    "Quality of the data AI reads": ["A.7.4"],
     "Answer checking": ["A.6.2.6", "A.8.2"],
-    "Model records": ["A.4.2", "A.6.2.8"],
+    "AI event records": ["A.4.2", "A.6.2.8"],
     "Prompt injection": ["A.6.2.2", "A.6.2.4"],
     "Facts kept apart from AI narrative": ["A.8.2", "A.9.4"],
     "Human review of change assessments": ["A.9.2"],
@@ -427,10 +492,10 @@ REFS_42001 = {
 }
 AI_INV_REFS = ["A.4.2", "A.8.2"]
 # 導入組織要做的事：與 RESP_27001／RESP_42001 同順序
-RESP_REFS_27001 = [["A.5.17", "A.8.5"], ["A.5.18", "A.6.5"], ["A.5.18", "A.8.2"], ["A.5.17", "A.8.2"],
+RESP_REFS_27001 = [["A.5.17", "A.8.5"], ["A.5.18", "A.6.5"], ["A.5.18", "A.6.5"], ["A.5.18", "A.8.2"], ["A.5.17", "A.8.2"],
                    ["A.5.30", "A.8.13"], ["A.5.28", "A.8.15"], ["A.8.20", "A.8.22"], ["A.5.18"], ["A.8.8", "A.8.32"],
                    ["6.1.2", "6.1.3", "7.2", "7.3", "9.2", "9.3"]]
-RESP_REFS_42001 = [["5.2", "A.2.2", "A.3.2", "A.4.2"], ["A.10.3"], ["A.6.2.4", "A.6.2.5"], ["A.9.2"],
+RESP_REFS_42001 = [["5.2", "A.2.2", "A.3.2", "A.4.2"], ["A.10.3"], ["A.6.2.4", "A.6.2.5"], ["A.9.2"], ["A.9.4"],
                    ["6.1.4", "8.4", "A.5.2", "A.5.4"], ["A.3.3", "A.8.4"], ["6.1.3", "7.2", "7.3", "9.2", "9.3"]]
 
 H_REF = T("對應控制項", "Related controls", "関連する管理策")
@@ -571,6 +636,14 @@ class Points(dict):
     """表格裡的「做法」：HTML 用條列、Markdown 用「•」加換行。"""
 
 
+def _md_ev(e: str) -> str:
+    """`a`、`b` → [`a`](固定 commit 的連結)；找不到路徑的維持原樣。"""
+    def one(m: re.Match[str]) -> str:
+        url = _ev_url(m.group(1))
+        return f"[`{m.group(1)}`]({url})" if url else m.group(0)
+    return re.sub(r"`([^`]+)`", one, e)
+
+
 def _md_points(t: dict[str, str], lang: str) -> str:
     pts = _points(t[lang], lang)
     return _md_cell(pts[0]) if len(pts) == 1 else "<br>".join("• " + _md_cell(x) for x in pts)
@@ -595,7 +668,7 @@ def md(lang: str) -> str:
     for p in INTRO:
         out += [p[L], ""]
     out += [f"## {SECTIONS['iso27001'][L]}", "", f"| {H_CTRL[L]} | {H_REF[L]} | {H_HOW[L]} | {H_EVID[L]} |", "|---|---|---|---|"]
-    out += [f"| {_md_cell(a[L])} | {_codes(REFS_27001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(e)} |" for a, b, e in ISO27001]
+    out += [f"| {_md_cell(a[L])} | {_codes(REFS_27001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(_md_ev(e))} |" for a, b, e in ISO27001]
     out += ["", f"### {SECTIONS['iso27001-index'][L]}", "", _with_n(REF_NOTE_27001, _n_annex(REFS_27001))[L], "",
             f"| {H_CODE[L]} | {H_NAME[L]} | {H_BY_JT[L]} | {H_BY_ORG[L]} |", "|---|---|---|---|"]
     out += [f"| {c} | {_md_cell(n[L])} | {_md_cell(j[L])} | {_md_cell(o[L])} |" for c, n, j, o in INDEX_27001()]
@@ -604,7 +677,7 @@ def md(lang: str) -> str:
     out += [f"| {_md_cell(a[L])} | {_md_cell(b[L])} | {_md_cell(c[L])} |" for a, b, c in AI_INVENTORY]
     out += ["", AI_INV_NOTE[L], "", f"### {SECTIONS['ai-controls'][L]}", "",
             f"| {H_CTRL[L]} | {H_REF[L]} | {H_HOW[L]} | {H_EVID[L]} |", "|---|---|---|---|"]
-    out += [f"| {_md_cell(a[L])} | {_codes(REFS_42001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(e)} |" for a, b, e in ISO42001]
+    out += [f"| {_md_cell(a[L])} | {_codes(REFS_42001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(_md_ev(e))} |" for a, b, e in ISO42001]
     out += ["", f"### {SECTIONS['iso42001-index'][L]}", "",
             _with_n(REF_NOTE_42001, _n_annex(REFS_42001, [AI_INV_REFS]))[L], "",
             f"| {H_CODE[L]} | {H_NAME[L]} | {H_BY_JT[L]} | {H_BY_ORG[L]} |", "|---|---|---|---|"]
@@ -614,8 +687,8 @@ def md(lang: str) -> str:
     out += ["", f"### {SECTIONS['customer-42001'][L]}", ""]
     out += [f"- {_resp(x, r)[L]}" for x, r in zip(RESP_42001, RESP_REFS_42001)]
     out += ["", f"## {SECTIONS['acceptance'][L]}", "", f"| {H_CASE[L]} | {H_PASS[L]} | {H_EVID[L]} |", "|---|---|---|"]
-    out += [f"| {_md_cell(a[L])} | {_md_cell(b[L])} | {_md_cell(e)} |" for a, b, e in CASES]
-    out += ["", CASES_NOTE[L], "", f"## {SECTIONS['worksheet'][L]}", "", WORKSHEET_NOTE[L], "", f"`{TEMPLATE_COLS[L]}`", ""]
+    out += [f"| {_md_cell(a[L])} | {_md_cell(b[L])} | {_md_cell(_md_ev(e))} |" for a, b, e in CASES]
+    out += ["", CASES_NOTE[L], "", f"{_verify_text(L)} [{VERIFY_CI[L]}]({PINNED['ci']})", "", f"## {SECTIONS['worksheet'][L]}", "", WORKSHEET_NOTE[L], "", f"`{TEMPLATE_COLS[L]}`", ""]
     return "\n".join(out)
 
 
@@ -642,7 +715,7 @@ class WithEvidence:
                 f'<div id="{pid}" popover class="ev"><div class="evh"><strong>{_tri(self.label)}</strong>'
                 f'<button type="button" class="evx" popovertarget="{pid}" popovertargetaction="hide" '
                 f'aria-label="close">{_ICON_X}</button></div><p class="evt">{_tri(H_EVID)}</p>'
-                f'<div class="evb">{_code(self.evidence)}</div></div>')
+                f'<div class="evb">{_code_links(self.evidence)}</div></div>')
 
 
 def _ev_rows(prefix: str, rows) -> list:  # type: ignore[no-untyped-def]
@@ -657,6 +730,21 @@ def _code(s: str) -> str:
     """`a`、`b` → <code>a</code>、<code>b</code>（其餘跳脫）。"""
     parts = re.split(r"(`[^`]+`)", s)
     return "".join(f"<code>{html.escape(p[1:-1])}</code>" if p.startswith("`") else html.escape(p) for p in parts)
+
+
+def _code_links(s: str) -> str:
+    """佐證用：`a` → 連到固定 commit 的 <a><code>a</code></a>（找不到路徑的只標成 code）。"""
+    parts = re.split(r"(`[^`]+`)", s)
+    out = []
+    for p in parts:
+        if not p.startswith("`"):
+            out.append(html.escape(p))
+            continue
+        name = p[1:-1]
+        url = _ev_url(name)
+        code = f"<code>{html.escape(name)}</code>"
+        out.append(f'<a href="{html.escape(url)}" target="_blank" rel="noopener">{code}</a>' if url else code)
+    return "".join(out)
 
 
 def _tri(t: dict[str, str], *, code: bool = False) -> str:
@@ -717,7 +805,10 @@ def html_body() -> str:
         '    <div class="box"><ul>' + "".join(f"<li>{_tri(_resp(x, r))}</li>" for x, r in zip(RESP_42001, RESP_REFS_42001)) + "</ul></div>",
         "  </section>",
         '  <section class="blk">', _h2("acceptance"), _table((H_CASE, H_PASS), _ev_rows("case", CASES)),
-        f'    <p class="note">{_tri(CASES_NOTE)}</p>', "  </section>",
+        f'    <p class="note">{_tri(CASES_NOTE)}</p>',
+        '    <p class="note" id="verification">' + "".join(
+            f'<span class="{lg}">{html.escape(_verify_text(lg))} <a href="{html.escape(PINNED["ci"])}" target="_blank" '
+            f'rel="noopener">{html.escape(VERIFY_CI[lg])}</a></span>' for lg in LANGS) + "</p>", "  </section>",
         '  <section class="blk">', _h2("worksheet"),
         f'    <div class="box"><p>{_tri(WORKSHEET_NOTE)}</p><p><code class="cols">{_tri(TEMPLATE_COLS)}</code></p></div>',
         "  </section>",
@@ -754,6 +845,10 @@ _EXTRA_CSS = """  /* 合規對照的表格；驗證方式（測試與設定位�
   .ev .evt{margin:6px 0 10px;color:var(--muted);font-size:13px}
   .ev .evb{font-size:13px;line-height:1.9;word-break:break-word}
   .ev .evb code{background:#f1f5f2;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+  /* 檔名連到固定 commit：顏色與底線標出可以點 */
+  .ev .evb a{text-decoration:none}
+  .ev .evb a code{color:var(--ext);border-color:#bfdcef;background:var(--ext-soft)}
+  .ev .evb a:hover code{text-decoration:underline}
   button.evx{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
     border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;cursor:pointer}
   button.evx:hover{background:#fef2f2}
@@ -792,6 +887,7 @@ def render_html(current: str | None) -> str:
 
 def main() -> int:
     _check_refs()
+    _check_pinned()
     check = "--check" in sys.argv
     current = HTML_FILE.read_text(encoding="utf-8") if HTML_FILE.exists() else None
     outputs = {**{p: md(lang) for lang, p in MD_FILES.items()}, HTML_FILE: render_html(current)}

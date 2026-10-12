@@ -10,7 +10,7 @@ import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  NForm, NFormItem, NInput, NButton, NSpace, NAlert, NIcon, NSpin, NTag,
+  NForm, NFormItem, NInput, NInputNumber, NButton, NSpace, NAlert, NIcon, NSpin, NTag,
   NSelect, NSwitch, NPopconfirm, NCard, NDropdown, NTooltip, useMessage,
 } from "naive-ui";
 import {
@@ -99,6 +99,8 @@ const form = reactive({
   password: "",
   domain: "",
   resolution: "auto",
+  // 連接埠（使用者 2026-10-11：VNC 可以選，RDP 沒有）
+  port: 3389,
 });
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
@@ -261,8 +263,9 @@ async function connect() {
 
   // 記住本次連線憑證，供「重新調整大小」重連時複用（不再向使用者詢問）
   sessionCfg = credId
-    ? { credential_id: credId }
-    : { username: form.username.trim(), password: form.password, domain: form.domain.trim() || undefined };
+    ? { credential_id: credId, port: form.port }
+    : { username: form.username.trim(), password: form.password, domain: form.domain.trim() || undefined,
+        port: form.port };
   form.password = "";  // UI 不留明文（sessionCfg 已持有副本供重連）
   await nextTick();
   const [w, h] = resolveSize();   // 在 nextTick 後量測容器（auto 才能對齊實際可用空間）
@@ -433,6 +436,11 @@ onBeforeUnmount(teardown);
           <n-form-item :label="t('rdp.resolution')">
             <n-select v-model:value="form.resolution" :options="resOptions"
                       :consistent-menu-width="false" style="width:180px" />
+          </n-form-item>
+
+          <n-form-item :label="t('rdp.port')">
+            <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width:140px"
+                            data-testid="rdp-port" />
           </n-form-item>
 
           <n-form-item v-if="!selectedCredId" :label="t('rdp.remember')">

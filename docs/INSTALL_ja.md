@@ -111,7 +111,7 @@ sudo ./scripts/jt-ipam.sh install --tls-mode self-signed --public-fqdn ipam.loca
 4. `SECRET_KEY` / `ENCRYPTION_KEY` / `AUDIT_CHAIN_GENESIS` を生成して `/etc/jt-ipam/backend.env`（0640）へ書き込み
 5. `/etc/jt-ipam/tls/` に自己署名証明書を生成（ECDSA P-384、5 年。SAN には `localhost / FQDN / 短いホスト名 / 127.0.0.1 / ::1 / ホストの IP` を自動的に含めます）
 6. pnpm install とフロントエンドの vite ビルド
-7. `jt-ipam-backend.service` と `jt-ipam-sync.timer`（5 分ごと）、`jt-ipam-backup.timer`（毎日 03:30）の導入
+7. `jt-ipam-backend.service` と `jt-ipam-sync.timer`（5 分ごと）、`jt-ipam-ai-audit.timer`（定期 AI 点検の時刻になったかを 5 分ごとに確認。有効にするまで何もしません）、`jt-ipam-backup.timer`（毎日 03:30）の導入
 8. nginx モードのときのみ：nginx のサイト設定を導入して再読み込み
 
 ### 2.3 最初の管理者を作る
@@ -598,7 +598,7 @@ python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
 
 ```bash
 # 0. サービスを停止します
-sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer
+sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer
 
 # 0b. 暗号化したバックアップ（.jtbak）は先に復号します（バックアップのパスフレーズを聞かれます）
 python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
@@ -625,7 +625,7 @@ sudo cp /var/backups/jt-ipam/2026-05-10/backend.env /etc/jt-ipam/
 
 # 4. 監査テーブルをログインできない所有者に戻してから（アプリのロールは読み取りと追加のみ）起動します
 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit
-sudo systemctl start jt-ipam-backend jt-ipam-sync.timer
+sudo systemctl start jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer
 
 # 5. チェーンを検証します（改ざんされた行があれば直ちに分かります）
 curl -X POST https://ipam.example.com/api/v1/audit/verify \
@@ -670,6 +670,7 @@ sudo systemctl start jt-ipam-backend
 ```bash
 journalctl -u jt-ipam-backend -f          # バックエンド
 journalctl -u jt-ipam-sync -n 200          # 定期同期
+journalctl -u jt-ipam-ai-audit -n 200      # 定期 AI 点検
 journalctl -u jt-ipam-backup -n 50         # バックアップ
 ```
 
@@ -701,7 +702,7 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh uninstall --purge
 同等の手動手順：
 
 ```bash
-sudo systemctl disable --now jt-ipam-backend jt-ipam-sync.timer jt-ipam-backup.timer
+sudo systemctl disable --now jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer jt-ipam-backup.timer
 sudo rm /etc/systemd/system/jt-ipam-{backend,sync,backup}.{service,timer}
 sudo rm -rf /etc/jt-ipam /var/log/jt-ipam /var/lib/jt-ipam
 sudo -u postgres dropdb jt_ipam

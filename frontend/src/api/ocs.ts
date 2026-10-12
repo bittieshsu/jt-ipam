@@ -22,6 +22,8 @@ export interface OcsServer {
   /** 預設關：軟體讓每台 ~2 KB → ~80 KB */
   sync_software: boolean;
   scope_subnet_ids?: string[] | null;
+  /** OCS 伺服器的時區（LASTDATE 是 OCS 主機的本地時間；issue #51） */
+  timezone?: string;
   detected_version: string | null;
   last_sync_at: string | null;
   last_success_at: string | null;
@@ -38,6 +40,8 @@ export interface OcsWrite {
   api_password?: string;
   /** 明確清掉已存帳密（改回無驗證） */
   clear_credentials?: boolean;
+  /** 不給＝jt-ipam 主機的時區 */
+  timezone?: string | null;
   sync_interval_seconds?: number;
   stale_after_days?: number;
   sync_networks?: boolean;

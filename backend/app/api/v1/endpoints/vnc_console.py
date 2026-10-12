@@ -367,8 +367,8 @@ async def vnc_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await send({"type": "error", **ui_detail("console_no_config", "缺少連線設定")})
             await websocket.close()
             return
-        port = int(cfg.get("port") or _DEFAULT_PORT)
-        if not (1 <= port <= 65535):
+        port = console_route.config_port(cfg, _DEFAULT_PORT)
+        if port is None:
             await send({"type": "error", **ui_detail("console_bad_port", "連接埠須為 1–65535")})
             await websocket.close()
             return

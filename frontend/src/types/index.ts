@@ -145,6 +145,11 @@ export interface IPAddress {
   dhcp_server_auto?: boolean;   // 自動：對應到已整合防火牆 IP
   is_gateway?: boolean;         // 所屬子網路閘道
   in_dhcp_range?: boolean;      // 落在 DHCP pool 範圍內
+  // DHCP 伺服器把這個位址排除在發放範圍外（Windows Exclusion、FortiGate exclude-range…）
+  dhcp_exclusion?: {
+    source_type?: string | null; source_name?: string | null; engine?: string | null;
+    start: string; end: string;
+  } | null;
   last_seen_scanner: string | null;
   last_seen_librenms: string | null;
   last_seen_arp: string | null;

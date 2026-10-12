@@ -11,7 +11,7 @@
  */
 import { NIcon, NTooltip } from "naive-ui";
 import { useI18n } from "vue-i18n";
-import { GatewayIcon, DhcpServerIcon, ReservedIcon, UnregisteredIcon } from "@/icons";
+import { GatewayIcon, DhcpServerIcon, ReservedIcon, DhcpExcludedIcon, UnregisteredIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 
 const props = withDefaults(defineProps<{ row: any; hideRange?: boolean }>(), { hideRange: false });
@@ -25,6 +25,14 @@ const observedAt = () => r().dhcp_observed_at as string | null | undefined;
 const isRogueDhcp = () => !!observedAt() && !isDhcpServer();
 // DHCP 上把這個位址綁給某張網卡 —— 位址不會被回收給別台
 const isReserved = () => !!r().dhcp_reserved;
+// DHCP 伺服器把這個位址排除在發放範圍外（不會發給任何人；通常是設固定 IP 的設備）
+const exclusion = () => r().dhcp_exclusion as { source_name?: string | null; start: string; end: string } | null | undefined;
+const exclusionWhere = () => {
+  const x = exclusion();
+  if (!x) return "";
+  const span = x.start === x.end ? x.start : `${x.start} – ${x.end}`;
+  return x.source_name ? `${x.source_name}：${span}` : span;
+};
 // 由整合自動建進來、沒有人登記過的位址（DHCP 租約／虛擬化回報／掃描代理探索）。
 // 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約、
 // 或剛好被掃到。而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡
@@ -41,7 +49,7 @@ const srcLabel = () => {
 </script>
 
 <template>
-  <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt() || isReserved() || isAutoAdded()"
+  <span v-if="r().is_gateway || isDhcpServer() || inRange() || observedAt() || isReserved() || exclusion() || isAutoAdded()"
         class="ip-roles">
     <!-- 自動收錄、未經登記 —— 用紫色（提醒而非錯誤，跟指示計同色）並講清楚它的來歷 -->
     <n-tooltip v-if="isAutoAdded()" :delay="150">
@@ -75,6 +83,11 @@ const srcLabel = () => {
     <n-tooltip v-if="isReserved()" :delay="150">
       <template #trigger><n-icon :size="14" color="#18a058" class="r-ic"><ReservedIcon /></n-icon></template>
       {{ t("addresses.dhcp_reserved_tag") }} — {{ t("addresses.dhcp_reserved_hint") }}
+    </n-tooltip>
+    <n-tooltip v-if="exclusion()" :delay="150">
+      <template #trigger><n-icon :size="14" color="#909399" class="r-ic" data-testid="role-dhcp-excluded"><DhcpExcludedIcon /></n-icon></template>
+      {{ t("addresses.dhcp_excluded_tag") }} — {{ t("addresses.dhcp_excluded_hint") }}
+      <br>{{ t("addresses.dhcp_excluded_range") }}：{{ exclusionWhere() }}
     </n-tooltip>
     <n-tooltip v-if="inRange()" :delay="150">
       <template #trigger><span class="r-dot" /></template>

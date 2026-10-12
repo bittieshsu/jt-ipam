@@ -86,6 +86,8 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("rustdesk_servers", "agent_source_ip"): "觀察值：代理下次回報自己更新",
     ("rustdesk_servers", "agent_hostname"): "觀察值：代理回報的主機名稱",
     ("mikrotik_neighbors", "address"): "觀察值：鄰居探索結果，每次同步重抓",
+    ("dhcp_exclusions", "start_ip"): "排除區間：發放範圍寫進 dhcp_pool_ranges 前已扣掉，評估讀那一份；排除的位址不會發給任何人",
+    ("dhcp_exclusions", "end_ip"): "排除區間：發放範圍寫進 dhcp_pool_ranges 前已扣掉，評估讀那一份；排除的位址不會發給任何人",
     ("technitium_dhcp_scopes", "start_ip"): "鏡像：發放範圍另外寫進 dhcp_pool_ranges（扣掉排除區間），評估讀那一份",
     ("technitium_dhcp_scopes", "end_ip"): "鏡像：發放範圍另外寫進 dhcp_pool_ranges（扣掉排除區間），評估讀那一份",
     ("rustdesk_peers", "registered_ip"): "觀察值：客戶端下次回報自己更新（評估以對應的 IP 記錄找它）",

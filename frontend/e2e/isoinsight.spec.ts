@@ -161,3 +161,62 @@ test("ISOinsight：新增、測試連線、（有測試設備時）預覽與同�
   await expect(page.locator("tr").filter({ hasText: name })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("ISOinsight：缺欄位講清楚缺什麼；後端欄位檢查失敗翻成「欄位：原因」", async ({ page }) => {
+  // 2026-10-12 客戶沒選允許同步的子網路，只看到「Invalid request」
+  test.setTimeout(90_000);
+  await login(page);
+  await page.goto("/isoinsight");
+  await page.getByTestId("iso-create").click();
+  await page.getByTestId("iso-name").locator("input").fill(`iso-e2e-422-${SUFFIX}`);
+  await page.getByTestId("iso-url").locator("input").fill("http://192.0.2.199");
+  await page.getByTestId("iso-tz-ok").click();
+  const toast = page.locator(".n-message").last();
+
+  await page.getByTestId("iso-save").click();
+  await expect(toast).toContainText("請填寫：帳號；密碼");
+
+  await page.getByTestId("iso-user").locator("input").fill("ipam-ro");
+  await page.getByTestId("iso-pw").locator("input").fill("e2e-pass");
+  await page.getByTestId("iso-save").click();
+  await expect(page.locator(".n-message").last()).toContainText("請至少選一個「允許同步的子網路」");
+
+  // 前端檢查都過了、後端仍判定欄位不合（例如 API 規則比畫面嚴）：顯示欄位與原因，不再是「Invalid request」
+  await page.getByTestId("iso-subnets").click();
+  await page.locator(".n-base-select-option").first().click();
+  await page.keyboard.press("Escape");
+  let posted = 0;
+  await page.route("**/api/v1/isoinsight/sources", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posted++;
+    await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({
+      detail: "Invalid request",
+      errors: [
+        { type: "too_short", loc: ["body", "scope_subnet_ids"], msg: "List should have at least 1 item", ctx: { min_length: 1 } },
+        { type: "value_error", loc: ["body", "base_url"], msg: "Value error, base_url must start with http:// or https://" },
+      ] }) });
+  });
+  await page.getByTestId("iso-save").click();
+  const last = page.locator(".n-message").last();
+  await expect(last).toContainText("允許同步的子網路：至少要選 1 項");
+  await expect(last).toContainText("Base URL：base_url must start with http:// or https://");
+  await expect(last).not.toContainText("Invalid request");
+  expect(posted).toBe(1);
+  await expect(page.locator(".n-modal")).toHaveCount(1);   // 表單留著讓使用者改
+});
+
+test("ISOinsight：新增時預設用原廠說明的登入方式；一鍵套用", async ({ page }) => {
+  // 原廠回信（2026-10-12）：POST JSON 到 /logon 取得 SessionID，以網址參數 sessionid 讀租約
+  await login(page);
+  await page.goto("/isoinsight");
+  await page.getByTestId("iso-create").click();
+  await page.getByText("進階設定").click();
+  await expect(page.getByTestId("iso-token-param").locator("input")).toHaveValue("sessionid");
+  await page.getByTestId("iso-token-in").getByText("標頭").click();
+  await expect(page.getByTestId("iso-token-param")).toHaveCount(0);
+  await expect(page.getByText("Token Header")).toBeVisible();
+  await page.getByTestId("iso-vendor-login").click();
+  await expect(page.getByTestId("iso-token-param").locator("input")).toHaveValue("sessionid");
+  await expect(page.locator(".n-modal").getByText("/logon", { exact: false }).first()).toBeVisible();
+  await noRawKeys(page);
+});

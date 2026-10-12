@@ -179,7 +179,8 @@ NetBox 風但精簡（一張多型 termination 表，不拆多表）。
 - **OPNsenseSyncedAlias**：從 OPNsense 拉回的 alias（唯讀檢視用，`content`、`member_count`）；也是 alias→members DSV 的來源。
 - **OPNsenseRuleLabel**：從 `pf_statistics` 解析，把 filterlog 的 `rid`（pf 規則 label）對應到規則引用的 alias：`label`/`action`/`interface`/`alias_names` jsonb，給規則→alias 的 Graylog DSV 用。
 - **OPNsenseRule**：拉回的防火牆規則唯讀快取（`legacy_uuid`、action/interface/direction/protocol、src/dst net & port、`raw` jsonb）。
-- **DHCPPoolRange**：從防火牆（Kea/ISC）同步回的 DHCP 發放範圍，含 `subnet_cidr`、`start_ip`/`end_ip`；落在範圍內的 IP 標示為 DHCP。
+- **DHCPPoolRange**：從防火牆（Kea/ISC）同步回的 DHCP 發放範圍，含 `subnet_cidr`、`start_ip`/`end_ip`；落在範圍內的 IP 標示為 DHCP。排除區間已經扣掉（中間有洞的範圍存成好幾列）。
+- **DHCPExclusion**：DHCP 伺服器設定的排除區間（`dhcp_exclusions`：Windows DHCP、FortiGate exclude-range、Technitium、Check Point 的 exclude pool），跟發放範圍一樣逐來源寫入；只用來把位址標成「DHCP 排除」。
 - **TechnitiumDhcpServer** / **TechnitiumDhcpScope**：Technitium DHCP 整合（`technitium_dhcp_servers`，token 加密存在 `token_enc`/`token_nonce`）與它的範圍鏡像（`technitium_dhcp_scopes`：發放範圍、排除區間、`server_address`，以及發給用戶端的 `router`/`dns_servers`/`ntp_servers`/`wins_servers`，IP 變更評估會讀）。發放範圍、保留、租約寫進共用的 DHCP 表，`source_type = technitium`；Technitium DNS 是 `dns_servers.type` 的一種。
 
 > **Graylog DSV**（token 保護的 `/api/v1/lookup/...` 端點）：全域 IP→hostname/FQDN、每台防火牆的 `rid → alias` 與 `alias → members`（受 `expose_dsv` 控制）、每個 PVE 叢集的 `vmid → VM 名稱`；供 Graylog「DSV File from HTTP」配接器抓取（key 欄=0、value 欄=1）。

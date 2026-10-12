@@ -19,6 +19,7 @@ import asyncio
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 logging.basicConfig(
     level=logging.INFO,
@@ -959,45 +960,10 @@ async def _run() -> int:
             await session.rollback()
             log.error("anomaly scheduled scan failed: %s", exc)
 
-        # ── AI 巡檢 ──
-        # 沿用這個 timer 而不是另建一個：每輪只判斷「距上次是否已達設定的間隔」，
-        # 沒到就直接跳過。預設關閉，要在 管理 → LLM / AI 明確打開才會跑。
-        try:
-            from app.models.user import User
-            from app.services.ai_audit import due, run_audit
-            from app.services.system_config import get_ai_audit_last_run, get_llm_config
-            from sqlalchemy import select as _s
+        # ── AI 巡檢 ── 不在這裡跑了：改由 jt-ipam-ai-audit.timer 執行本腳本的 --ai-audit 模式（2026-10-12）。
+        # 這個服務每輪最多 10 分鐘（TimeoutStartSec=600），巡檢一跑超過就被 systemd 砍掉，
+        # 下一輪又判定「還沒跑」整個重來；而且巡檢跑的那幾分鐘，所有整合的同步都被卡住。
 
-            cfg = await get_llm_config(session)
-            if cfg.enabled and cfg.ai_audit_enabled:
-                # 用獨立記錄的「上次執行時間」，不是最後一筆發現的時間 ——
-                # 沒有發現的巡檢什麼都不會寫，靠發現回推會判成從沒跑過而每輪重跑
-                last = await get_ai_audit_last_run(session)
-                if due(last, cfg.ai_audit_times,
-                       frequency=cfg.ai_audit_frequency,
-                       weekdays=cfg.ai_audit_weekdays,
-                       month_day=cfg.ai_audit_month_day):
-                    # 排程沒有「發起者」，取一個管理員當取樣身分 —— 巡檢仍然走 RBAC，
-                    # 只是這裡的可見範圍由該管理員決定，而不是無條件全庫。
-                    principal = None
-                    if cfg.mcp_principal_user_id:
-                        principal = await session.get(User, cfg.mcp_principal_user_id)
-                    if principal is None:
-                        principal = (await session.execute(
-                            _s(User).where(User.is_admin.is_(True), User.is_active.is_(True))
-                            .order_by(User.created_at).limit(1)
-                        )).scalars().first()
-                    if principal is None:
-                        log.warning("ai audit: no admin to run as, skipped")
-                    else:
-                        r = await run_audit(session, principal)
-                        if r.error:
-                            log.error("ai audit failed: %s", r.error)
-                        else:
-                            log.info("ai audit: %s finding(s)", r.findings)
-        except Exception as exc:
-            await session.rollback()
-            log.error("ai audit check failed: %s", exc)
 
     # 個別整合連不到對方（防火牆離線、憑證過期…）是**回報事項**，不是這支排程失敗：
     # 錯誤已寫進該實例的 last_error、畫面上看得到、log 也有。以前這裡回 1，於是
@@ -1009,7 +975,59 @@ async def _run() -> int:
     return 0
 
 
-async def _run_and_dispose() -> int:
+
+async def _run_ai_audit() -> int:
+    """排程 AI 巡檢（jt-ipam-ai-audit.timer → 本腳本 --ai-audit；2026-10-12 從一般同步搬出來）。
+
+    每 5 分鐘只判斷「是否已越過設定的時刻」，沒到就結束。開始打 LLM 之前就記下這次嘗試
+    （system_config.mark_ai_audit_started），所以被砍或 LLM 主機掛掉都不會 5 分鐘後又重來；
+    另一個行程（手動巡檢）正在跑就略過。預設關閉，要在 管理 → LLM / AI 明確打開才會跑。
+    """
+    from app.core.db import SessionLocal
+    from app.models.user import User
+    from app.services.ai_audit import AuditBusy, due, run_audit
+    from app.services.system_config import get_ai_audit_last_run, get_llm_config
+    from sqlalchemy import select as _s
+
+    async with SessionLocal() as session:
+        try:
+            cfg = await get_llm_config(session)
+            if not (cfg.enabled and cfg.ai_audit_enabled):
+                return 0
+            # 用獨立記錄的「上次執行時間」，不是最後一筆發現的時間 ——
+            # 沒有發現的巡檢什麼都不會寫，靠發現回推會判成從沒跑過而每輪重跑
+            last = await get_ai_audit_last_run(session)
+            if not due(last, cfg.ai_audit_times, frequency=cfg.ai_audit_frequency,
+                       weekdays=cfg.ai_audit_weekdays, month_day=cfg.ai_audit_month_day):
+                return 0
+            # 排程沒有「發起者」，取一個管理員當取樣身分 —— 巡檢仍然走 RBAC，
+            # 只是這裡的可見範圍由該管理員決定，而不是無條件全庫。
+            principal = None
+            if cfg.mcp_principal_user_id:
+                principal = await session.get(User, cfg.mcp_principal_user_id)
+            if principal is None:
+                principal = (await session.execute(
+                    _s(User).where(User.is_admin.is_(True), User.is_active.is_(True))
+                    .order_by(User.created_at).limit(1)
+                )).scalars().first()
+            if principal is None:
+                log.warning("ai audit: no admin to run as, skipped")
+                return 0
+            r = await run_audit(session, principal)
+            if r.error:
+                log.error("ai audit failed: %s", r.error)
+            else:
+                log.info("ai audit: %s finding(s)", r.findings)
+        except AuditBusy:
+            log.info("ai audit: another run is in progress, skipped")
+        except Exception as exc:
+            await session.rollback()
+            log.error("ai audit check failed: %s", exc)
+    # LLM 主機連不上、模型回錯都是回報事項（寫在日誌與巡檢狀態），不是這支排程失敗
+    return 0
+
+
+async def _run_and_dispose(job: Any = None) -> int:
     """跑完一定要 dispose engine —— 這是短命腳本用 async engine 的必要收尾。
 
     少了它，連線集區裡的 asyncpg 連線會留到直譯器關閉時才被 GC 回收；那時事件迴圈與
@@ -1021,7 +1039,7 @@ async def _run_and_dispose() -> int:
     from app.core.db import engine
 
     try:
-        return await _run()
+        return await (job or _run)()
     finally:
         # dispose 本身出問題也不該蓋掉主要結果，這裡吞掉並記錄就好
         try:
@@ -1031,7 +1049,9 @@ async def _run_and_dispose() -> int:
 
 
 def main() -> None:
-    sys.exit(asyncio.run(_run_and_dispose()))
+    # --ai-audit：只跑排程 AI 巡檢（jt-ipam-ai-audit.service，逾時上限放得下最長的巡檢）
+    job = _run_ai_audit if "--ai-audit" in sys.argv[1:] else None
+    sys.exit(asyncio.run(_run_and_dispose(job)))
 
 
 if __name__ == "__main__":

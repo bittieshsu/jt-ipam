@@ -74,6 +74,7 @@ import {
   Shield,
   ShieldAlert,
   Lock,
+  Prohibition,
   LogIn,
   LogOut,
   User,
@@ -210,6 +211,8 @@ export const ResolutionIcon = FrameSimple;
 export const LocationsIcon = MapPin;
 // DHCP 固定分配：這個位址被綁給某張網卡，不會被回收給別台
 export const ReservedIcon = Lock;
+// DHCP 排除：DHCP 伺服器把這個位址排除在發放範圍外（不會發給任何人，通常是設固定 IP 的設備）
+export const DhcpExcludedIcon = Prohibition;
 export const PinIcon = Pin;
 export const RequestsIcon = MultiplePages;
 export const TopologyIcon = GraphUp;

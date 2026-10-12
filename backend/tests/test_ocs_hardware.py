@@ -171,7 +171,7 @@ async def _mk_ip(session, ip_str: str, mac: str, *, device_id=None):
 def _server(**kw: Any) -> Any:
     from types import SimpleNamespace
     base = {"id": uuid.uuid4(), "name": "ocs", "source_type": "rest",
-            "base_url": "https://192.0.2.10", "sync_bios": True, "stale_after_days": 30}
+            "base_url": "https://192.0.2.10", "sync_bios": True, "stale_after_days": 30, "timezone": "UTC"}
     base.update(kw)
     return SimpleNamespace(**base)
 

@@ -282,6 +282,10 @@ html.sider-open body {
    文字白色，掛在 body 底下的下拉選單裡的說明就成了白字白底（2026-10-06 使用者回報畫質、請求提權選單最後一塊空白） */
 html[data-theme="light"] { color-scheme: light; }
 html[data-theme="dark"] { color-scheme: dark; }
+/* 子網路指示計的位址範圍底線（SubnetGrid.rangeBar）：淺色主題用深一點的顏色＋白色分隔線，
+   亮青色壓在綠色格子上、又在白底上幾乎看不見（使用者 2026-10-11） */
+html[data-theme="light"] { --jt-range-dhcp: #0369a1; --jt-range-reserved: #be185d; --jt-range-other: #475569; --jt-range-sep: #ffffff; }
+html[data-theme="dark"] { --jt-range-dhcp: #22d3ee; --jt-range-reserved: #f472b6; --jt-range-other: #94a3b8; --jt-range-sep: rgba(0, 0, 0, 0.55); }
 
 /* 淺色：給卡片一點陰影 + 圓角，從一片白裡浮出來 */
 html[data-theme="light"] .n-card {

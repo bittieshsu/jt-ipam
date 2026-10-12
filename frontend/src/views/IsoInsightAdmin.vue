@@ -25,8 +25,8 @@ import {
   type LeaseState,
 } from "@/api/isoinsight";
 import {
-  CancelIcon, DeleteIcon, EditIcon, EyeIcon, IsoInsightIcon, PlusIcon, RefreshIcon, SaveIcon, SyncIcon, TasksIcon,
-  TestIcon, WarnIcon,
+  CancelIcon, CheckIcon, DeleteIcon, EditIcon, EyeIcon, IsoInsightIcon, PlusIcon, RefreshIcon, SaveIcon, SyncIcon,
+  TasksIcon, TestIcon, WarnIcon,
 } from "@/icons";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -201,12 +201,17 @@ const show = ref(false);
 const editing = ref<IsoInsightSource | null>(null);
 const changePassword = ref(false);
 const tzConfirmed = ref(false);
+/** 原廠說明的呼叫方式（2026-10-12 原廠回信）：POST JSON 到 /logon 取得 SessionID，以網址參數 sessionid 讀租約。 */
+const VENDOR_LOGIN = {
+  login_method: "POST" as "GET" | "POST", post_format: "json" as "form" | "json", login_path: "/logon",
+  username_param: "username", password_param: "password", auth_mode: "token" as "cookie" | "token",
+  token_path: "SessionID", token_in: "query" as "header" | "query", token_param: "sessionid",
+  lease_path: "/isosvc?act=DhcpLease",
+};
 function blank() {
   return {
-    name: "", base_url: "", product_version: "", description: "", login_method: "POST" as "GET" | "POST",
-    post_format: "form" as "form" | "json", username: "", password: "", username_param: "username",
-    password_param: "password", login_path: "/api/logon", lease_path: "/isosvc?act=DhcpLease",
-    auth_mode: "cookie" as "cookie" | "token", token_path: "", token_header: "Authorization", token_prefix: "Bearer",
+    name: "", base_url: "", product_version: "", description: "", username: "", password: "",
+    token_header: "Authorization", token_prefix: "Bearer", ...VENDOR_LOGIN,
     verify_tls: true, source_timezone: "Asia/Taipei", customer_id: null as string | null,
     scope_subnet_ids: [] as string[], create_ips: true, enabled: true, schedule_enabled: true,
     sync_interval_seconds: 300, connect_timeout_seconds: 5, request_timeout_seconds: 30, job_timeout_seconds: 120,
@@ -237,7 +242,8 @@ function openEdit(r: IsoInsightSource) {
     description: r.description ?? "", login_method: r.login_method, post_format: r.post_format, username: r.username,
     username_param: r.username_param, password_param: r.password_param, login_path: r.login_path,
     lease_path: r.lease_path, auth_mode: r.auth_mode, token_path: r.token_path ?? "", token_header: r.token_header,
-    token_prefix: r.token_prefix, verify_tls: r.verify_tls, source_timezone: r.source_timezone,
+    token_prefix: r.token_prefix, token_in: r.token_in ?? "header", token_param: r.token_param ?? "sessionid",
+    verify_tls: r.verify_tls, source_timezone: r.source_timezone,
     customer_id: r.customer_id, scope_subnet_ids: [...r.scope_subnet_ids], create_ips: r.create_ips,
     enabled: r.enabled, schedule_enabled: r.schedule_enabled, sync_interval_seconds: r.sync_interval_seconds,
     connect_timeout_seconds: r.connect_timeout_seconds, request_timeout_seconds: r.request_timeout_seconds,
@@ -248,17 +254,39 @@ function openEdit(r: IsoInsightSource) {
   show.value = true;
 }
 const tzChanged = computed(() => !editing.value || editing.value.source_timezone !== form.value.source_timezone);
+/** 套用原廠說明的登入方式（既有來源是照舊的預設值建的，一鍵改過來） */
+function applyVendorLogin() {
+  Object.assign(form.value, VENDOR_LOGIN);
+  msg.success(t("isoinsight.vendor_login_applied"));
+}
 const canSchedule = computed(() => !!editing.value?.preview_ok_at);
 const saving = ref(false);
 async function submit() {
   const f = form.value;
+  // 送出前先講清楚缺什麼（2026-10-12：客戶沒選允許同步的子網路，只拿到後端的「Invalid request」）
+  const missing = [
+    !f.name.trim() && t("common.name"),
+    !f.base_url.trim() && t("isoinsight.base_url"),
+    !f.username.trim() && t("isoinsight.username"),
+    changePassword.value && !f.password && t("isoinsight.password"),
+    f.auth_mode === "token" && !f.token_path.trim() && t("isoinsight.token_path"),
+  ].filter(Boolean) as string[];
+  if (missing.length) {
+    msg.error(t("isoinsight.err_missing", { fields: missing.join(t("errors.v_sep")) }), { duration: 6000, closable: true });
+    return;
+  }
+  if (!f.scope_subnet_ids.length) {
+    msg.error(t("isoinsight.err_scope_required", { label: t("isoinsight.scope_subnets") }), { duration: 6000, closable: true });
+    return;
+  }
   const payload: IsoInsightWrite = {
     name: f.name.trim(), base_url: f.base_url.trim(), product_version: f.product_version || null,
     description: f.description || null, login_method: f.login_method, post_format: f.post_format,
     username: f.username, username_param: f.username_param.trim(), password_param: f.password_param.trim(),
     login_path: f.login_path.trim(), lease_path: f.lease_path.trim(), auth_mode: f.auth_mode,
     token_path: f.auth_mode === "token" ? f.token_path.trim() : (f.token_path.trim() || null),
-    token_header: f.token_header.trim(), token_prefix: f.token_prefix.trim(), verify_tls: f.verify_tls,
+    token_header: f.token_header.trim(), token_prefix: f.token_prefix.trim(), token_in: f.token_in,
+    token_param: f.token_param.trim(), verify_tls: f.verify_tls,
     source_timezone: f.source_timezone.trim(), customer_id: f.customer_id, scope_subnet_ids: f.scope_subnet_ids,
     create_ips: f.create_ips, enabled: f.enabled, sync_interval_seconds: f.sync_interval_seconds,
     connect_timeout_seconds: f.connect_timeout_seconds, request_timeout_seconds: f.request_timeout_seconds,
@@ -608,6 +636,13 @@ onMounted(() => { void refresh(); void loadOptions(); });
 
         <n-collapse>
           <n-collapse-item :title="t('isoinsight.advanced')" name="adv">
+            <div class="iso-vendor">
+              <n-button size="small" data-testid="iso-vendor-login" @click="applyVendorLogin">
+                <template #icon><n-icon><CheckIcon /></n-icon></template>
+                {{ t("isoinsight.vendor_login") }}
+              </n-button>
+              <span class="form-hint">{{ t("isoinsight.vendor_login_hint") }}</span>
+            </div>
             <!-- 登入相關（路徑＋帳密參數名）放同一列，租約路徑獨立一列 -->
             <div class="iso-grid3">
               <n-form-item :label="t('isoinsight.login_path')"><n-input v-model:value="form.login_path" /></n-form-item>
@@ -626,9 +661,20 @@ onMounted(() => { void refresh(); void loadOptions(); });
               </div>
             </n-form-item>
             <div v-if="form.auth_mode === 'token'" class="iso-grid">
-              <n-form-item :label="t('isoinsight.token_path')"><n-input v-model:value="form.token_path" placeholder="data.token" /></n-form-item>
-              <n-form-item :label="t('isoinsight.token_header')"><n-input v-model:value="form.token_header" /></n-form-item>
-              <n-form-item :label="t('isoinsight.token_prefix')"><n-input v-model:value="form.token_prefix" placeholder="Bearer" /></n-form-item>
+              <n-form-item :label="t('isoinsight.token_path')"><n-input v-model:value="form.token_path" placeholder="SessionID" /></n-form-item>
+              <n-form-item :label="t('isoinsight.token_in')">
+                <n-radio-group v-model:value="form.token_in" data-testid="iso-token-in">
+                  <n-radio-button value="query" :label="t('isoinsight.token_in_query')" />
+                  <n-radio-button value="header" :label="t('isoinsight.token_in_header')" />
+                </n-radio-group>
+              </n-form-item>
+              <n-form-item v-if="form.token_in === 'query'" :label="t('isoinsight.token_param')">
+                <n-input v-model:value="form.token_param" placeholder="sessionid" data-testid="iso-token-param" />
+              </n-form-item>
+              <template v-else>
+                <n-form-item :label="t('isoinsight.token_header')"><n-input v-model:value="form.token_header" /></n-form-item>
+                <n-form-item :label="t('isoinsight.token_prefix')"><n-input v-model:value="form.token_prefix" placeholder="Bearer" /></n-form-item>
+              </template>
             </div>
             <div v-if="form.auth_mode === 'token'" class="form-hint" style="margin: -8px 0 10px">{{ t("isoinsight.token_hint") }}</div>
             <div class="iso-grid">
@@ -713,6 +759,7 @@ onMounted(() => { void refresh(); void loadOptions(); });
 .iso-inline-alert { margin-top: 6px; }
 .iso-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); column-gap: 12px; }
 .iso-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; }
+.iso-vendor { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 @media (max-width: 600px) { .iso-grid3 { grid-template-columns: 1fr; } }
 </style>
 

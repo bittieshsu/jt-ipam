@@ -154,6 +154,11 @@ async def test_scripts_off_reads_dhcp_and_never_runs_scripts(db_session, gaia) -
     pools = sorted((p.start_ip, p.end_ip) for p in (await db_session.execute(select(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "checkpoint", DHCPPoolRange.source_id == t.id))).scalars().all())
     assert pools == [("198.51.100.100", "198.51.100.119"), ("198.51.100.126", "198.51.100.150")]
+    # exclude 的 ip-pool 另外記下來（0207）：IP 上標「DHCP 排除」用
+    from app.models.dhcp import DHCPExclusion
+    excl = (await db_session.execute(select(DHCPExclusion).where(DHCPExclusion.source_id == t.id))).scalars().all()
+    assert [(e.source_type, e.start_ip, e.end_ip, e.subnet_cidr) for e in excl] == [
+        ("checkpoint", "198.51.100.120", "198.51.100.125", "198.51.100.0/24")]
     mirror = {m.subnet_cidr: m for m in (await db_session.execute(select(CheckPointDhcpSubnet).where(
         CheckPointDhcpSubnet.target_id == t.id))).scalars().all()}
     assert str(mirror["198.51.100.0/24"].default_gateway) == "198.51.100.1"

@@ -376,6 +376,27 @@ async def sync_dhcp_leases(
     return {"dhcp": seen, "dhcp_rows": len(rows)}
 
 
+def build_static_reservations(rows: list[dict[str, Any]]) -> list[Any]:
+    """`/ip/dhcp-server/lease` 的靜態租約（dynamic=false）→ 固定分配。
+
+    RouterOS 的固定分配就是靜態租約；以前只讀 bound 的租約、沒有把靜態的當成固定分配（2026-10-12）。
+    - 停用的不算；舊韌體可能忽略查詢參數，所以 dynamic 再檢查一次（字串 "false"，見 `_b`；缺欄位不算）
+    - address 也可以填集區名稱（固定這張網卡、位址仍從集區動態發）：不是位址就不是保留位址
+    """
+    from app.services.dhcp_reservations import Reservation
+    out: list[Any] = []
+    for d in rows:
+        if _b(d.get("dynamic"), default=True) or _b(d.get("disabled")):
+            continue        # 沒有 dynamic 欄位＝不知道是不是靜態的，不猜
+        ip = _valid_ip(d.get("address"))
+        if not ip:
+            continue
+        out.append(Reservation(ip=ip, mac=_norm_mac(d.get("mac-address")),
+                               hostname=_txt(d.get("host-name"), 255),
+                               description=_txt(d.get("comment"), 255)))
+    return out
+
+
 def build_pool_ranges(
     pools: list[dict[str, Any]],
     servers: list[dict[str, Any]],
@@ -449,8 +470,19 @@ async def sync_dhcp_ranges(
         router, EP_DHCP_NETWORK, client=client,
         proplist="address,gateway,dns-server,domain"))
 
+    # 靜態租約＝RouterOS 的固定分配，屬於 DHCP 設定，跟發放範圍一起讀（量小：只有設定過的那幾筆）
+    await _breathe(router)
+    static = _rows(await _get(
+        router, EP_LEASE, client=client,
+        proplist="address,mac-address,host-name,comment,dynamic,disabled",
+        filters={"dynamic": "false"}))
+
     parsed = build_pool_ranges(pools, servers, networks)
     now = datetime.now(UTC)
+    from app.services.dhcp_reservations import replace_reservations
+    n_res = await replace_reservations(
+        session, source_type="mikrotik", source_id=router.id, source_name=router.name,
+        engine="mikrotik", rows=build_static_reservations(static))
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "mikrotik", DHCPPoolRange.source_id == router.id))
     for r in parsed:
@@ -479,7 +511,7 @@ async def sync_dhcp_ranges(
             subnet.dns_servers = r["dns_servers"]
             changed = True
         enriched += 1 if changed else 0
-    return {"dhcp_ranges": len(parsed), "subnets_enriched": enriched}
+    return {"dhcp_ranges": len(parsed), "dhcp_reservations": n_res, "subnets_enriched": enriched}
 
 
 # ─────────────────── 第二階段：介面、鄰居、FDB（0170）───────────────────

@@ -179,7 +179,8 @@ NetBox に近い構成ですが、より簡潔です（種別ごとにテーブ�
 - **OPNsenseSyncedAlias**：閲覧用に OPNsense から取得したエイリアス（`content`、`member_count`）。エイリアス→メンバーの Graylog DSV の元にもなります。
 - **OPNsenseRuleLabel**：`pf_statistics` から解析したもので、filterlog の `rid`（pf のルールラベル）を、そのルールが参照するエイリアスへ対応づけます（`label`、`action`、`interface`、`alias_names` jsonb）。ルール→エイリアスの Graylog DSV に供給され、ログイベントを `rid` から補完できます。
 - **OPNsenseRule**：ファイアウォールのルールを読み取り専用のキャッシュとして取得します（`legacy_uuid`、action / interface / direction / protocol、送信元と宛先のネットワークとポート、`raw` jsonb）。
-- **DHCPPoolRange**：ファイアウォール（Kea / ISC）から同期した DHCP のプール範囲（`subnet_cidr`、`start_ip` / `end_ip`）。範囲に入る IP には DHCP の印が付きます。
+- **DHCPPoolRange**：ファイアウォール（Kea / ISC）から同期した DHCP のプール範囲（`subnet_cidr`、`start_ip` / `end_ip`）。範囲に入る IP には DHCP の印が付きます。除外範囲は差し引き済みです（穴のある範囲は複数行で保存）。
+- **DHCPExclusion**：DHCP サーバーで設定した除外範囲（`dhcp_exclusions`：Windows DHCP、FortiGate の exclude-range、Technitium、Check Point の exclude プール）。プール範囲と同じくソースごとに書き込み、アドレスに「DHCP 除外」と表示するためだけに使います。
 - **TechnitiumDhcpServer** / **TechnitiumDhcpScope**：Technitium DHCP 連携（`technitium_dhcp_servers`、トークンは `token_enc` / `token_nonce` に暗号化）とスコープのミラー（`technitium_dhcp_scopes`：配布範囲、除外範囲、`server_address`、クライアントへ配布する `router` / `dns_servers` / `ntp_servers` / `wins_servers`。IP 変更評価が読み取ります）。配布範囲・予約・リースは共通の DHCP テーブルに `source_type = technitium` で書き込みます。Technitium DNS は `dns_servers.type` の一つです。
 
 > **Graylog DSV**（`/api/v1/lookup/...` 配下の、トークンで保護されたルックアップ用エンドポイント）：全体の IP→ホスト名 / FQDN の表、ファイアウォールごとの `rid → エイリアス` と `エイリアス → メンバー`（`expose_dsv` で制御）、クラスタごとの Proxmox `vmid → VM 名`。Graylog の「DSV File from HTTP」データアダプタから利用します（キー列 0、値列 1）。

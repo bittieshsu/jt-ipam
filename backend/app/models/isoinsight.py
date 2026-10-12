@@ -56,6 +56,9 @@ class IsoInsightSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     token_path: Mapped[str | None] = mapped_column(String(255))
     token_header: Mapped[str] = mapped_column(String(64), nullable=False, server_default="Authorization")
     token_prefix: Mapped[str] = mapped_column(String(32), nullable=False, server_default="Bearer")
+    # Token 放哪裡（0208）：header＝token_header＋token_prefix；query＝網址參數 token_param（原廠的 sessionid）
+    token_in: Mapped[str] = mapped_column(String(8), nullable=False, server_default="header")
+    token_param: Mapped[str] = mapped_column(String(64), nullable=False, server_default="sessionid")
 
     lease_path: Mapped[str] = mapped_column(String(255), nullable=False, server_default="/isosvc?act=DhcpLease")
     verify_tls: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -111,6 +114,7 @@ class IsoInsightSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         CheckConstraint("login_method IN ('GET','POST')", name="isoinsight_login_method"),
         CheckConstraint("post_format IN ('form','json')", name="isoinsight_post_format"),
         CheckConstraint("auth_mode IN ('cookie','token')", name="isoinsight_auth_mode"),
+        CheckConstraint("token_in IN ('header','query')", name="isoinsight_token_in"),
         CheckConstraint("auth_mode <> 'token' OR token_path IS NOT NULL", name="isoinsight_token_path"),
         CheckConstraint("sync_interval_seconds >= 60", name="isoinsight_interval_min"),
     )

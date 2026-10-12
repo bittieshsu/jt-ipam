@@ -14,6 +14,7 @@ from app.services.isoinsight import config as cfg
 Method = Literal["GET", "POST"]
 PostFormat = Literal["form", "json"]
 AuthMode = Literal["cookie", "token"]
+TokenIn = Literal["header", "query"]
 #: 帳密原樣保存：前後空白也是帳密的一部分（模型預設會去掉字串前後空白）
 _Exact = StringConstraints(strip_whitespace=False)
 
@@ -34,7 +35,7 @@ class _Validators(StrictModel):
     def _lease(cls, v: str | None) -> str | None:
         return None if v is None else cfg.normalize_path(v, allow_query=True)
 
-    @field_validator("username_param", "password_param", check_fields=False)
+    @field_validator("username_param", "password_param", "token_param", check_fields=False)
     @classmethod
     def _param(cls, v: str | None) -> str | None:
         return None if v is None else cfg.check_param_name(v)
@@ -75,6 +76,9 @@ class IsoInsightCreate(_Validators):
     token_path: Annotated[str | None, Field(max_length=255)] = None
     token_header: Annotated[str, Field(max_length=64)] = "Authorization"  # noqa: S105 -- 參數名／標頭名，不是秘密
     token_prefix: Annotated[str, Field(max_length=32)] = "Bearer"  # noqa: S105 -- 參數名／標頭名，不是秘密
+    # header＝放在標頭；query＝放在網址參數 token_param（原廠：POST /logon 取 SessionID，帶 sessionid 讀租約）
+    token_in: TokenIn = "header"  # noqa: S105 -- 放置位置，不是秘密
+    token_param: Annotated[str, Field(max_length=64)] = "sessionid"  # noqa: S105 -- 參數名，不是秘密
     lease_path: Annotated[str, Field(max_length=255)] = cfg.DEFAULT_LEASE_PATH
     verify_tls: bool = True
     source_timezone: Annotated[str, Field(max_length=64)] = cfg.DEFAULT_TIMEZONE
@@ -116,6 +120,8 @@ class IsoInsightUpdate(_Validators):
     token_path: Annotated[str | None, Field(max_length=255)] = None
     token_header: Annotated[str | None, Field(max_length=64)] = None
     token_prefix: Annotated[str | None, Field(max_length=32)] = None
+    token_in: TokenIn | None = None
+    token_param: Annotated[str | None, Field(max_length=64)] = None
     lease_path: Annotated[str | None, Field(max_length=255)] = None
     verify_tls: bool | None = None
     source_timezone: Annotated[str | None, Field(max_length=64)] = None
@@ -152,6 +158,8 @@ class IsoInsightRead(StrictModel):
     token_path: str | None = None
     token_header: str
     token_prefix: str
+    token_in: str
+    token_param: str
     lease_path: str
     verify_tls: bool
     source_timezone: str

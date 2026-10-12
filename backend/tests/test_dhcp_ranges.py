@@ -146,6 +146,9 @@ class _FakeWinClient:
     def get_scopes(self):
         return self._scopes
 
+    def get_exclusions(self, scope_id):
+        return []
+
     def get_leases(self, scope_id):
         return self._leases.get(scope_id, [])
 

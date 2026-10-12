@@ -406,8 +406,8 @@ async def _source_names(session: AsyncSession, pairs: Iterable[tuple[str, Any]])
 
 
 async def _sec_dhcp(c: _Ctx) -> dict[str, Any] | None:
-    """DHCP：固定分配、哪些 DHCP 來源現在發著它的租約、在不在發放範圍內。"""
-    from app.models.dhcp import DHCPLeaseSighting, DHCPPoolRange, DHCPReservation
+    """DHCP：固定分配、哪些 DHCP 來源現在發著它的租約、在不在發放範圍內、是否被排除在發放範圍外。"""
+    from app.models.dhcp import DHCPExclusion, DHCPLeaseSighting, DHCPPoolRange, DHCPReservation
     from app.services.ip_ranges import manual_dhcp_pools
 
     s, ipa = c.session, c.ipa
@@ -446,15 +446,30 @@ async def _sec_dhcp(c: _Ctx) -> dict[str, Any] | None:
             if lo.version == aip.version and int(lo) <= int(aip) <= int(hi):
                 pools.append(_compact({"source_type": st, "source_name": sn, "start": str(a), "end": str(b)}))
 
+    # 排除區間（0207）：在發放範圍裡、但伺服器不發給任何人（通常是設固定 IP 的設備）
+    exclusions: list[dict[str, Any]] = []
+    if aip is not None:
+        for st, sn, a, b in (await s.execute(
+            select(DHCPExclusion.source_type, DHCPExclusion.source_name, DHCPExclusion.start_ip,
+                   DHCPExclusion.end_ip).limit(5000))).all():
+            try:
+                lo, hi = ipaddress.ip_address(str(a)), ipaddress.ip_address(str(b))
+            except ValueError:
+                continue
+            if lo.version == aip.version and int(lo) <= int(aip) <= int(hi):
+                exclusions.append(_compact({"source_type": st, "source_name": sn, "start": str(a), "end": str(b)}))
+
     out: dict[str, Any] = {"in_lease": bool(ipa.in_dhcp_lease), "reserved": bool(ipa.dhcp_reserved),
-                           "in_pool": bool(pools)}
+                           "in_pool": bool(pools), "excluded": bool(exclusions)}
     if reservations:
         out["reservations"] = reservations
     if leases:
         out["leases"] = leases
     if pools and c.gread:
         out["pools"] = pools[:MAX_ROWS]        # 範圍的設定是全域資料；旗標本身 IP 詳細資料就有
-    if not (out["in_lease"] or out["reserved"] or out["in_pool"] or reservations or leases):
+    if exclusions and c.gread:
+        out["exclusions"] = exclusions[:MAX_ROWS]
+    if not (out["in_lease"] or out["reserved"] or out["in_pool"] or out["excluded"] or reservations or leases):
         return None
     return out
 

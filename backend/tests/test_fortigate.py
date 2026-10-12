@@ -495,3 +495,83 @@ async def test_an_unreadable_vdom_list_removes_nothing(db_session, admin_user, m
     left = (await db_session.execute(select(FortiGatePolicy.name).where(
         FortiGatePolicy.firewall_id == fw.id))).scalars().all()
     assert left == ["guest-rule"]
+
+
+async def test_nat_links_the_external_address(db_session, admin_user, monkeypatch) -> None:
+    """issue #52：VIP 的對外 IP（extip）要連到 IPAM 記錄（src_ip_id），單一位址的 IP pool 也是。
+
+    以前 extip 從頭到尾沒讀，src_ip_id 一律空的：從公網 IP 的頁面查不到「這個位址對外開了哪些服務」。
+    對外 IP 通常不在整合的關聯子網路（只勾內網段）→ 範圍內找不到時，全站唯一完全相符也算；
+    0.0.0.0、範圍、對不到或不唯一的都不連。
+    """
+    from app.models.address import IPAddress
+    from app.models.nat import NATTranslation
+    from app.models.section import Section
+    from app.models.subnet import Subnet
+
+    sec = Section(name=f"fg52-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    pub = Subnet(section_id=sec.id, cidr="203.0.113.0/24")
+    lan = Subnet(section_id=sec.id, cidr="198.51.100.0/24")
+    db_session.add_all([pub, lan])
+    await db_session.flush()
+    ext = IPAddress(subnet_id=pub.id, ip="203.0.113.10")
+    pool_ip = IPAddress(subnet_id=pub.id, ip="203.0.113.20")
+    inner = IPAddress(subnet_id=lan.id, ip="198.51.100.20")
+    db_session.add_all([ext, pool_ip, inner])
+    await db_session.flush()
+    fw = await _mk_fw(db_session, "fgt-extip", vdoms=["root"])
+    fw.scope_subnet_ids = [str(lan.id)]          # 只勾內網段
+    await db_session.flush()
+    _patch_api(monkeypatch, {
+        fg.EP_VIP: [
+            {"name": "https", "extip": "203.0.113.10", "extport": "443", "mappedip": [{"range": "198.51.100.20"}],
+             "mappedport": "443", "portforward": "enable", "protocol": "tcp"},
+            {"name": "ssh", "extip": "203.0.113.10", "extport": "2222", "mappedip": [{"range": "198.51.100.20"}],
+             "mappedport": "22", "portforward": "enable", "protocol": "tcp"},
+            {"name": "any-ext", "extip": "0.0.0.0", "mappedip": [{"range": "198.51.100.20"}]},
+            {"name": "ext-range", "extip": "203.0.113.10-203.0.113.12", "mappedip": [{"range": "198.51.100.20"}]},
+            {"name": "unknown-ext", "extip": "203.0.113.99", "mappedip": [{"range": "198.51.100.20"}]},
+        ],
+        fg.EP_IPPOOL: [{"name": "one", "startip": "203.0.113.20", "endip": "203.0.113.20"},
+                       {"name": "many", "startip": "203.0.113.20", "endip": "203.0.113.29"}],
+    })
+    await fg.sync_nat(db_session, fw, ["root"])
+    rows = {r.name: r for r in (await db_session.execute(select(NATTranslation).where(
+        NATTranslation.source_origin == f"fortigate:{fw.id}"))).scalars().all()}
+    assert rows["https"].src_ip_id == ext.id
+    assert rows["https"].dst_ip_id == inner.id
+    assert rows["ssh"].src_ip_id == ext.id, "同一個公網 IP 掛多條 VIP"
+    assert rows["any-ext"].src_ip_id is None
+    assert rows["ext-range"].src_ip_id is None
+    assert rows["unknown-ext"].src_ip_id is None
+    assert rows["one"].src_ip_id == pool_ip.id
+    assert rows["many"].src_ip_id is None
+    assert "203.0.113.20-203.0.113.29" in (rows["many"].description or "")
+
+
+async def test_nat_external_address_must_be_unique(db_session, admin_user, monkeypatch) -> None:
+    """範圍外放寬時仍然「唯一才連」：同一個位址在兩個子網路都有（重疊網段）就不猜。"""
+    from app.models.address import IPAddress
+    from app.models.nat import NATTranslation
+    from app.models.section import Section
+    from app.models.subnet import Subnet
+
+    secs = [Section(name=f"fg52b-{i}-{uuid.uuid4().hex[:6]}") for i in range(2)]
+    db_session.add_all(secs)
+    await db_session.flush()
+    subs = [Subnet(section_id=s.id, cidr="203.0.113.0/24") for s in secs]
+    db_session.add_all(subs)
+    await db_session.flush()
+    db_session.add_all([IPAddress(subnet_id=s.id, ip="203.0.113.10") for s in subs])
+    await db_session.flush()
+    fw = await _mk_fw(db_session, "fgt-extip-dup", vdoms=["root"])
+    _patch_api(monkeypatch, {
+        fg.EP_VIP: [{"name": "dup", "extip": "203.0.113.10", "mappedip": [{"range": "198.51.100.21"}]}],
+        fg.EP_IPPOOL: [],
+    })
+    await fg.sync_nat(db_session, fw, ["root"])
+    row = (await db_session.execute(select(NATTranslation).where(
+        NATTranslation.source_origin == f"fortigate:{fw.id}"))).scalars().one()
+    assert row.src_ip_id is None

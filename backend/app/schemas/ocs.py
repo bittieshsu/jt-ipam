@@ -10,9 +10,22 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
 
 from app.schemas.base import StrictModel
+
+
+def _check_tz(v: str | None) -> str | None:
+    """IANA 時區名稱（Asia/Taipei、UTC…）。認不得的擋下來：存進去之後每次同步才爆就太晚了。"""
+    if v is None:
+        return None
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    v = v.strip()
+    try:
+        ZoneInfo(v)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise ValueError(f"unknown time zone: {v}") from e
+    return v
 
 
 class OcsBase(StrictModel):
@@ -31,6 +44,13 @@ class OcsBase(StrictModel):
     sync_software: bool = False
     #: 限定子網路範圍（重疊網段時只在這些子網路內比對；未裝 Agent 的 IP 也只列這些）。空＝全域
     scope_subnet_ids: list[str] | None = None
+    #: OCS 伺服器的時區（LASTDATE 沒有時區，是 OCS 主機的本地時間；issue #51）。不給＝jt-ipam 主機的時區
+    timezone: Annotated[str | None, Field(max_length=64)] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _tz(cls, v: str | None) -> str | None:
+        return _check_tz(v)
 
 
 class OcsCreate(OcsBase):
@@ -52,6 +72,12 @@ class OcsUpdate(StrictModel):
     sync_bios: bool | None = None
     sync_software: bool | None = None
     scope_subnet_ids: list[str] | None = None
+    timezone: Annotated[str | None, Field(max_length=64)] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _tz(cls, v: str | None) -> str | None:
+        return _check_tz(v)
 
 
 class OcsRead(StrictModel):
@@ -68,6 +94,7 @@ class OcsRead(StrictModel):
     has_password: bool = False
     sync_interval_seconds: int
     stale_after_days: int
+    timezone: str = "UTC"
     sync_networks: bool
     sync_bios: bool
     sync_software: bool

@@ -101,7 +101,7 @@ sudo ./scripts/jt-ipam.sh install --tls-mode self-signed --public-fqdn ipam.loca
 4. 產生 `SECRET_KEY` / `ENCRYPTION_KEY` / `AUDIT_CHAIN_GENESIS` 寫入 `/etc/jt-ipam/backend.env`（0640）
 5. 在 `/etc/jt-ipam/tls/` 產自簽憑證 ECDSA P-384 / 5 年；SAN 自動含 `localhost / FQDN / 短 hostname / 127.0.0.1 / ::1 / 主機 IP`
 6. pnpm install + 前端 vite build
-7. 安裝 `jt-ipam-backend.service` + `jt-ipam-sync.timer`（每 5 分鐘）+ `jt-ipam-backup.timer`（每天 03:30）
+7. 安裝 `jt-ipam-backend.service` + `jt-ipam-sync.timer`（每 5 分鐘）+ `jt-ipam-ai-audit.timer`（每 5 分鐘檢查排程 AI 巡檢是否到時間；沒打開就什麼都不做）+ `jt-ipam-backup.timer`（每天 03:30）
 8. nginx 模式才裝 nginx site 並 reload
 
 ### 2.3 Bootstrap 第一個 admin
@@ -532,7 +532,7 @@ python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
 
 ```bash
 # 0. 停服務
-sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer
+sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer
 
 # 0b. 加密的備份（.jtbak）：先解密（會問備份密碼）
 python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
@@ -559,7 +559,7 @@ sudo cp /var/backups/jt-ipam/2026-05-10/backend.env /etc/jt-ipam/
 
 # 4. 把稽核表交回不能登入的擁有者（應用程式帳號只能讀取與新增），再啟動
 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit
-sudo systemctl start jt-ipam-backend jt-ipam-sync.timer
+sudo systemctl start jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer
 
 # 5. 驗 chain（任何 row 被竄改會立刻看到）
 curl -X POST https://ipam.example.com/api/v1/audit/verify \
@@ -601,6 +601,7 @@ sudo systemctl start jt-ipam-backend
 ```bash
 journalctl -u jt-ipam-backend -f          # backend
 journalctl -u jt-ipam-sync -n 200          # 定期同步
+journalctl -u jt-ipam-ai-audit -n 200      # 排程 AI 巡檢
 journalctl -u jt-ipam-backup -n 50         # 備份
 ```
 
@@ -631,7 +632,7 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh uninstall --purge
 等同的手動步驟：
 
 ```bash
-sudo systemctl disable --now jt-ipam-backend jt-ipam-sync.timer jt-ipam-backup.timer
+sudo systemctl disable --now jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer jt-ipam-backup.timer
 sudo rm /etc/systemd/system/jt-ipam-{backend,sync,backup}.{service,timer}
 sudo rm -rf /etc/jt-ipam /var/log/jt-ipam /var/lib/jt-ipam
 sudo -u postgres dropdb jt_ipam

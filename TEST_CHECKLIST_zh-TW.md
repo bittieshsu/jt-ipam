@@ -289,6 +289,9 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
   兩階段驗證就是這樣壞掉而沒有人發現
 - [ ] 不要把中文詞當參數傳（`what="下載"`）：差異寫進代碼裡
   （`sftp_download_too_large`），否則英文句子中間會夾一個中文詞
+- [ ] 欄位檢查失敗（422）：API 回應維持 `{detail: "Invalid request", errors: [...]}`（API 使用者靠它），
+  瀏覽器顯示介面語言的「欄位：原因」（例如「連接埠：不可大於 65535」），最多三個欄位、其餘說還有幾個。
+  欄位名稱顯示成原始鍵（`scope_subnet_ids`）就是三個語系少了 `fields.<名稱>`（`utils/validationErrors.test.ts`）
 
 ## 5h. guacd 預編檔：**每次發版都要跑**（不只動到主控台的時候）
 
@@ -444,6 +447,18 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   不建 IP 記錄，格子是橘色虛線框（超過一天變淡），圖例「未納管 (N)」、閒置數同時減少，滑過看到來源／多久以前／MAC；點格子可以登錄，登錄後變成一般格子；
   背景探測（liveness=false）補的資料不算；不在代理子網路內的位址不記；「未授權 IP」列得出只有掃描代理看到的位址；沒有子網路讀取權限打 API 是 404；
   30 天沒再看到就被清掉
+- [ ] **網路位址與廣播位址不是未納管**（`test_network_and_broadcast_addresses_are_not_unmanaged`，使用者 2026-10-11）：路由器 ARP 表裡的 .0 與 .255（MAC ff:ff:ff:ff:ff:ff）
+  不出現在 IP 清單與指示計；/31、/32 照樣顯示；廣播、群播 MAC 不當成某台機器的 MAC
+- [ ] **指示計格子大小與範圍底線**（`e2e/subnet-grid-cell-size.spec.ts`）：卡片標題列右邊的拉桿縮放格子（8 到 32 px），重新整理後還記得；
+  淺色主題下 DHCP 範圍的底線是深藍、上面一條白色分隔線，深色主題是亮青色；底線粗細跟著格子大小；手機寬度只剩拉桿
+- [ ] **子網路編輯視窗剛打開就勾的項目不被蓋掉**（`e2e/scan-agent.spec.ts`）：打開立刻勾「啟用掃描」，選項載入後仍是勾選
+- [ ] **RDP 可以改連接埠**（`tests/test_console_port.py`、`e2e/rdp-port.spec.ts`）：RDP 連線視窗有「連接埠」（預設 3389），改成別的埠連線時後端真的連那個埠
+  （日誌 `rdp: 開始連線 … port=`），稽核記連接埠；0、65536、非數字回「連接埠須為 1–65535」；走跳板或代理中繼時照樣檢查允許的埠；VNC 用同一個解析
+- [ ] **排程 AI 巡檢獨立執行、每個時刻只試一次**（`tests/test_ai_audit_attempt.py`）：`systemctl list-timers` 有 jt-ipam-ai-audit.timer；
+  一般同步（jt-ipam-sync）不再跑巡檢；巡檢途中把 LLM 主機停掉或砍掉程序，5 分鐘後不會重跑（`journalctl -u jt-ipam-ai-audit`）；
+  手動巡檢正在跑時排程略過、排程正在跑時手動回「已經有一次巡檢正在執行」；升級後計時器自動裝好；`jt-ipam.sh doctor` 檢查得到
+- [ ] **合規頁的佐證連結**（`scripts/gen-compliance-docs.py`）：每個測試檔名連到 `PINNED` 的公開 commit，產生時確認檔案都在那個 commit 裡；
+  換版時更新 `PINNED`（commit 要已公開、CI 綠燈）並重新產生；驗證紀錄寫出 CI 連結、日期與測試結果
 - [ ] **同一台代理同時送兩筆回報不會死結**（`tests/test_scan_agent_report_concurrency.py`）：另一筆還在交易裡時下一筆會等；同一批 IP 相反順序同時送，兩筆都 200。上線後看 prod 日誌 `DeadlockDetectedError` 不再出現在 `/scan-agents/report`
 - [ ] **DHCP 集區使用率不混算重疊網段**（`tests/test_dhcp_pool_usage_scope.py`）：兩個同 CIDR 子網路時手動集區只算自己的；整合集區用整合的範圍設定；分不出來不計入；巢狀子網路取最具體的；IP 清單的「在 DHCP 範圍」不會被另一個同 CIDR 子網路的集區（手動或整合）標上，「DHCP 伺服器（自動）」只標在防火牆範圍內的子網路；同位址兩筆時 IP 詳細資料的 NAT 只列這一筆的
 - [ ] **每日備份看得出失敗**（`tests/test_backup_script.py`、`tests/test_self_check_backup.py`、`tests/test_self_check_i18n.py`）：備份腳本成功與失敗都寫 `last-run`，失敗不截斷同一天先前的 dump、不留空目錄、權限錯誤印出 ALTER TABLE 指令；系統診斷「每日備份」成功是綠、失敗或 48 小時沒成功是紅（發系統告警）、timer 沒啟用是黃；`jt-ipam.sh doctor` 失敗時是 ✗；升級後 `/usr/local/bin/jt-ipam-backup.sh` 與 repo 那份相同
@@ -516,6 +531,9 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   OPNsense（port forward 看 disabled、Outbound NAT 與 1:1 看 enabled）、pfSense、FortiGate（VIP 的 status）、Palo Alto（disabled: yes）、
   Check Point、MikroTik（以前直接略過停用的規則，現在照樣帶進來）；停用的規則不出現在對外曝露、防火牆反查，IP 變更評估標成停用。
   表單裡並排的欄位（來源埠、目的埠、NAT 反射那幾排）下方要留和一般欄位一樣的間距，下一個欄位標題不可以貼上來
+- [ ] **FortiGate NAT 連到對外 IP**（`test_nat_links_the_external_address`、`test_nat_external_address_must_be_unique`，issue #52）：VIP 的 extip
+  存成 `src_ip_id`（同一個公網 IP 多條 VIP 都連到）、內部目標是 `dst_ip_id`；單一位址的 IP pool 也連；對外 IP 不在關聯子網路時全站唯一
+  完全相符也算；0.0.0.0、範圍、對不到、不唯一的不連；公網 IP 的頁面看得到這些 NAT
 - [ ] **操作欄固定在右側**（客戶 2026-10-10：用滑鼠要一直左右捲；`src/utils/__tests__/resizableColumns.test.ts`、
   `e2e/desktop-sticky-actions.spec.ts` 走過每一頁）：桌面寬度（768px 以上）會左右捲的表格，最後一欄「操作」固定在右側，
   捲到最左邊也按得到；手機寬度不固定；不會左右捲的表格不受影響；欄寬拖拉、欄位選擇與排序照常
@@ -841,6 +859,7 @@ IPv6 反解 zone 不被當成 IPv4）、`frontend/e2e/dns-compare-groups.spec.ts
 - [ ] **依序拉取不誤報**：寬限設 0，在主要伺服器新增一筆、讓其中一台次要伺服器收不到，逐台按「拉取」：拉完主要伺服器時是「待確認」、沒有通知；拉完收得到的那台它從「沒有」名單消失；拉完收不到的那台才「不一致」，通知只列那一台、中文畫面的內文是中文
 - [ ] 通知：通知設定頁有「DNS 比對群組不一致」與「DNS 比對群組恢復一致」兩個事件；不一致時收到一則（同一批不重發），
   補回紀錄拉取後收到恢復通知；點通知會打開那一組的差異清單；群組關閉通知就不發
+- [ ] 成員選項顯示「名稱 · 類型」，沒有括號套括號（`e2e/dns-compare-groups.spec.ts`）
 - [ ] 讓其中一台拉取失敗（改錯密碼）：群組顯示「資料不完整」並寫出是哪一台，不發不一致通知
 - [ ] DNS 紀錄頁：預設合併同一組相同的紀錄，來源欄標出群組與每一台伺服器；取消「合併比對群組裡相同的紀錄」就逐台列出；
   型別篩選的數量跟著變；不同組或沒分組的伺服器不合併
@@ -849,6 +868,22 @@ IPv6 反解 zone 不被當成 IPv4）、`frontend/e2e/dns-compare-groups.spec.ts
 - [ ] 刪掉群組：成員回到沒分組，差異一起刪除，伺服器上的紀錄不受影響；刪掉一台成員伺服器：剩下的成員重新比對
 - [ ] **真實環境驗證**（2026-10-11 做過一次；有動到比對規則或 DNS adapter 就重做）：在開發機上建一個專用的 Docker 網路，起三台會複寫的 DNS：PowerDNS（`powerdns/pdns-auth-49`，`--allow-axfr-ips=127.0.0.1/32`，各 zone 用中繼資料 `ALLOW-AXFR-FROM` 決定誰能傳送，**全域允許清單會蓋過它**）當主要，BIND9（`internetsystemsconsortium/bind9:9.20`，secondary zone，`allow-transfer { any; }` 讓 jt-ipam 用 AXFR 讀）與 Technitium（Secondary zone，要給 jt-ipam 唯讀群組 zone 檢視權限）當次要；新增紀錄時 **SOA 序號要遞增**，次要伺服器才會傳送。接進 jt-ipam 同一組 → 一致；把某台從 `ALLOW-AXFR-FROM` 拿掉再新增紀錄 → 只通知那台；放回去等它傳送完再拉取 → 恢復一致與恢復通知
 - [ ] 從 1.0.6 升級（migration 0203、0204）：既有群組要等下一輪拉取補上正規化欄位，在那之前顯示「資料不完整」；系統匯出/匯入保留群組與成員
+
+## 7b3f. 各 DHCP 來源的排除區間與固定分配：**動到任何 DHCP 來源、共用寫入層（`dhcp_reservations.py`、`dhcp_exclusions.py`）或 IP 角色標示就要跑**
+
+DHCP 伺服器在中間挖洞的範圍存成好幾段，洞本身寫進 `dhcp_exclusions`。
+讀發放範圍的地方（清單標示、集區使用率、ARP 自動建立、指示計底線、IP 詳細資料）都靠這一點。
+
+- [ ] `pytest tests/test_dhcp_exclusions.py tests/test_opnsense_dhcp_engines.py tests/test_mikrotik.py`
+- [ ] Windows DHCP 的 scope 裡有排除區間：範圍顯示成兩段，被排除的 IP 在 IP 清單有「DHCP 排除」圖示（提示框寫出哪台、哪個區間）、
+  IP 頁有標籤，而且沒有「DHCP 範圍」標籤或「建議把它排除在發放範圍外」的提示（`e2e/dhcp-exclusion.spec.ts`）
+- [ ] 某個 scope 的排除區間或保留讀不到（權限）：同步失敗，上一輪的範圍、排除區間與固定分配都還在
+- [ ] FortiGate：exclude-range 會扣掉；有 VCI/UCI 比對的排除不扣；reserved-address 的 action 是 assign 或 block 的不算固定分配
+- [ ] MikroTik：靜態租約顯示成固定分配；停用的、位址填集區名稱的不算
+- [ ] OPNsense 用 dnsmasq DHCP（25.1 起預設）：讀得到範圍與有 MAC 的主機；dnsmasq 關掉就不算；只有 ISC 時範圍從 config.xml 讀；
+  API key 沒有 dnsmasq 權限（403）時 Kea 照常同步，結果註明 `dnsmasq: forbidden`
+- [ ] Technitium 與 Check Point：被排除的位址同樣標「DHCP 排除」
+- [ ] 刪除整合會一併清掉它的排除區間
 
 ## 7b4. RustDesk Server（開源版）：**動到這個整合、RustDesk 代理或 IP 詳細資料就要跑**
 
@@ -1058,6 +1093,12 @@ IPv6 反解 zone 不被當成 IPv4）、`frontend/e2e/dns-compare-groups.spec.ts
 - [ ] AI 對話：「192.0.2.20 的租約何時到期」會帶來源與觀察時間，不說設備上線；只看得到一個子網路的帳號只拿到那個子網路的租約（含總數）
 - [ ] 瀏覽器：頁面（管理 → 外部系統整合 → ISOinsight）有來源/租約/同步記錄頁籤，操作欄（編輯、測試、預覽、立即同步、記錄、刪除）固定在右邊看得到，
   GET 警告與關閉 TLS 的警告會出現，主機名稱以純文字顯示
+- [ ] 瀏覽器：新增來源時帳號、密碼或允許同步的子網路沒填就存檔，會說明缺哪一項，不是「Invalid request」
+  （`e2e/isoinsight.spec.ts`）
+- [ ] 原廠的登入方式（`tests/test_isoinsight_session_query.py`）：POST JSON 到 `/logon`，`SessionID` 以網址參數 `sessionid` 帶出、
+  不送標頭；Session ID 不出現在連線記錄（`sessionid=<redacted>`）、httpx 日誌與錯誤訊息；HTTP 200 但 `code` 不是 200 是 AUTH_FAILED；
+  Session 到期會用新的 ID 重新登入一次
+- [ ] 瀏覽器：新增來源預設是原廠的方式；既有來源在「進階設定」按「套用原廠說明的登入方式」會改過去
 
 ## 7c. 整合同步的韌性：**每個整合都適用，不只這次動到的那個**
 
@@ -1163,6 +1204,9 @@ IPv6 反解 zone 不被當成 IPv4）、`frontend/e2e/dns-compare-groups.spec.ts
   - 版本資訊的選用相依也列 **oui**（最後更新日期，OUI 表空的時候紅字「未安裝」並進警告）與 **geoip**（沒設定 MaxMind 帳號顯示「未設定」、
     不進警告；有本機資料庫顯示檔案日期、只有帳號顯示 web service）；點名稱分別到 MAC 製造商頁與系統設定
   - 更新失敗（GitHub 連不到）：已安裝的一版不動，錯誤顯示在 Recog 頁；三週沒成功更新時系統診斷警告
+- [ ] 印表機被探測時不會印出東西（`tests/test_agent_printer_safe.py`）：定期 OS 偵測與 IP 探測的 banner 都以
+  `--script-args banner.ports=...` 限定在 FTP/SSH/Telnet/SMTP/POP3/IMAP 的埠，也沒有任何地方加 `--allports`。實機 nmap：
+  在 127.0.0.1:9100 開一個記錄收到內容的接收程式，對 127.0.0.1 做 OS 偵測或 IP 探測時它什麼都沒收到（1.18.1 以前會收到 TLS ClientHello）
 
 ## 7d2. 掃描代理的負載：**只要動到代理的掃描迴圈、回報或負載判斷就要跑**
 
@@ -1353,6 +1397,9 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   （「0123456789」）時改顯示主機板序號並標「（主機板）」；主要零件列出處理器（核心/執行緒）、記憶體
   （總量＋模組）、實體磁碟（不含 zram/loop）、顯示卡（lspci 與驅動回報的同一張合併）。升級後第一次同步前，
   卡片要講「下一次同步後出現」（`e2e/ocs-device-card.spec.ts`、`tests/test_ocs_hardware.py`）
+- [ ] **OCS 時區**（`tests/test_ocs_timezone.py`、`e2e/ocs-timezone.spec.ts`，issue #51）：LASTDATE 依整合設定的時區換算成 UTC；
+  新建不選時區＝jt-ipam 主機的 APP_TIMEZONE，升級前就有的整合是 UTC（0206）；認不得的時區 422；換算後落在未來時同步結果帶
+  `future_lastdate`，整合清單「最後錯誤」欄顯示黃色提醒（會換行，不被截斷）
 - [ ] **未裝 Agent 的 IP 可依狀態篩選**（Wazuh 與 OCS 兩頁）：狀態欄是 IP 清單同一顆燈號、篩選用同一套規則；
   選項只列資料裡有的狀態；匯出的子網路/區段/單位/狀態都有值（以前是空白）（`e2e/missing-agent-scope-filter.spec.ts`）
 - [ ] **連接埠/佈線的 MAC 欄顯示廠商**：MAC 下方一行，與 IP 清單相同（`e2e/device-ports-mac-vendor.spec.ts`）

@@ -71,7 +71,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.18.0"
+AGENT_VERSION = "1.18.1"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -565,6 +565,16 @@ def _derive_os(text: str):
     return None
 
 
+#: banner 腳本只跑在「伺服器先說話」的服務埠（1.18.1；客戶 2026-10-12：Brother、Ricoh 被掃描後印出亂碼）。
+#: nmap 的 banner 對所有 TCP 埠連線、不理會 nmap 自己為印表機設的 Exclude 9100-9107；明文連上等不到對方先說話，
+#: 就改用 TLS 再連一次（comm.tryssl）—— 印表機的 RAW 列印埠把 TLS ClientHello 當成列印工作印出來。
+#: 伺服器只拿 banner 比對 SSH／FTP／SMTP／POP3／IMAP／Telnet，這些服務明文就讀得到 banner（不會退回 TLS），
+#: 限定在這些埠不少任何判讀資料；其他埠送 TLS 只有壞處（印表機、序列設備伺服器、工控設備）。
+#: FTP 21／2121、SSH 22／2222、Telnet 23／2323、SMTP 25／465／587、POP3 110／995、IMAP 143／993
+BANNER_PORTS = "21-23,25,110,143,465,587,993,995,2121,2222,2323"
+#: --script-args 用逗號分隔參數：值裡有逗號要整段加引號
+BANNER_SCRIPT_ARGS = f'banner.ports="{BANNER_PORTS}"'
+
 #: 定期 OS 偵測額外跑的腳本：都只是讀服務自己送出來的東西（banner、網頁標題、伺服器標頭、憑證），
 #: 伺服器拿去比對 Recog 指紋庫（1.14.0 起）。與 IP 探測相比少了 ssh-hostkey、rdp-ntlm-info
 _OS_SCRIPTS = "smb-os-discovery,banner,http-title,http-server-header,ssl-cert"
@@ -611,7 +621,7 @@ def _nmap_os_ports(ip: str, want_os: bool, want_ports: bool) -> dict:
         # --version-light：預設強度會對認不得的服務一連試幾十種探針、每種等好幾秒，一個慢服務（PVE 的 8006）
         # 就能拖過單台時限，nmap 會把這台的結果整筆丟掉（2026-10-04 正式環境）；常見服務輕量模式就認得
         args += ["-sV", "--version-light", "-O", "--osscan-guess",
-                 "--script", _OS_SCRIPTS, "--script-timeout", "15s"]
+                 "--script", _OS_SCRIPTS, "--script-args", BANNER_SCRIPT_ARGS, "--script-timeout", "15s"]
         fd, xml_path = tempfile.mkstemp(prefix="jtipam-nmap-", suffix=".xml")
         os.close(fd)
         args += ["-oX", xml_path]
@@ -1714,7 +1724,8 @@ def _job_run_identify(target: str, progress=None) -> dict:  # noqa: ANN001
     port_list = _identify_port_list()
     ports = ["-p", port_list] if port_list else ["--top-ports", str(_IDENTIFY_TOP_PORTS)]
     argv = ["nmap", "-Pn", "-sV", "--version-intensity", "5", *ports, "-T4",
-            "--host-timeout", f"{_IDENTIFY_TIMEOUT - 30}s", "--script", _IDENTIFY_SCRIPTS]
+            "--host-timeout", f"{_IDENTIFY_TIMEOUT - 30}s", "--script", _IDENTIFY_SCRIPTS,
+            "--script-args", BANNER_SCRIPT_ARGS]     # banner 不碰列印埠，見 BANNER_PORTS
     # IPv6 要 -6，不然 nmap 把位址當成解析不了的主機名稱（以前 IPv6 的探測一定失敗）
     if ipaddress.ip_address(target).version == 6:
         argv.append("-6")

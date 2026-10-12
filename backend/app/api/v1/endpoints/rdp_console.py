@@ -551,6 +551,12 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         password = cfg.get("password") or ""
         domain = (cfg.get("domain") or "").strip()
         credential_id = cfg.get("credential_id")
+        # 連接埠（使用者 2026-10-11：VNC 可以選，RDP 沒有）；跳板與代理中繼的允許埠由 open_route 檢查
+        port = console_route.config_port(cfg, _RDP_PORT)
+        if port is None:
+            await send({"type": "error", **ui_detail("console_bad_port", "連接埠須為 1–65535")})
+            await websocket.close()
+            return
 
         # 4) 已存帳密（金庫）— 明文只在記憶體
         used_cred_id: uuid.UUID | None = None
@@ -593,7 +599,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
 
         # 經跳板時把目標換成本機轉發埠（直連時 open_route 是零成本的）
         try:
-            tunnel = await console_route.open_route(route, host, _RDP_PORT, user_id=user_id, purpose="rdp")
+            tunnel = await console_route.open_route(route, host, port, user_id=user_id, purpose="rdp")
         except console_route.JumpHostError as exc:
             await send({"type": "error", **detail_of(exc, "jump_failed")})
             await websocket.close()
@@ -603,7 +609,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await send({"type": "status", "state": "via_jump", "via": tunnel.via,
                         "via_kind": tunnel.via_kind})
 
-        _log.info("rdp: 開始連線 host=%s engine=%s via_jump=%s", host, engine, tunnel.via)
+        _log.info("rdp: 開始連線 host=%s port=%s engine=%s via_jump=%s", host, port, engine, tunnel.via)
         if engine == "guacd":
             from app.services import guacd as guac
             # 帳密只交給本機的 guacd，不經過瀏覽器；目標是通道的位址（走跳板時是本機轉發埠）
@@ -636,7 +642,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
             await _audit_rdp(
                 actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
                 action="rdp.session_open",
-                diff={"host": host, "username": username, "domain": domain or None,
+                diff={"host": host, "port": port, "username": username, "domain": domain or None,
                       "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind, "size": f"{width}x{height}", "engine": "guacd",
                       "credential_id": str(used_cred_id) if used_cred_id else None},
             )
@@ -697,7 +703,7 @@ async def rdp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
         await _audit_rdp(
             actor_user_id=str(user_id), actor_ip=actor_ip, object_id=str(address_id),
             action="rdp.session_open",
-            diff={"host": host, "username": username, "domain": domain or None,
+            diff={"host": host, "port": port, "username": username, "domain": domain or None,
                   "via_jump_host": tunnel.via, "via_kind": tunnel.via_kind,
                   "size": f"{width}x{height}",
                   "credential_id": str(used_cred_id) if used_cred_id else None},

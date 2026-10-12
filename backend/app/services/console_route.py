@@ -123,6 +123,21 @@ _AGENT_ERRORS: dict[str, tuple[str, str]] = {
 
 
 # ─────────────────── 機密欄位 ───────────────────
+
+def config_port(cfg: dict[str, Any], default: int) -> int | None:
+    """主控台連線設定裡的 `port`：沒給＝預設埠；不是 1 到 65535 的整數回 None（呼叫端回 console_bad_port）。
+    VNC 與 RDP 共用（使用者 2026-10-11：RDP 也要能改連接埠）。"""
+    raw = cfg.get("port")
+    if raw is None or raw == "":
+        return default
+    if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+        return None
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
 def _aad(jump_id: uuid.UUID, field: str) -> bytes:
     return f"jump_host:{jump_id}:{field}".encode()
 

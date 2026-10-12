@@ -23,7 +23,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -45,8 +45,10 @@ from app.services.permission import visible_ids
 from app.services.schedule import due  # noqa: F401
 from app.services.system_config import (
     get_ai_audit_last_run,
+    get_ai_audit_running_since,
     get_llm_config,
-    set_ai_audit_last_run,
+    mark_ai_audit_finished,
+    mark_ai_audit_started,
 )
 
 SEVERITIES = ("low", "medium", "high")
@@ -81,6 +83,9 @@ MAX_OUTPUT_TOKENS = 6000
 # 同時只允許一次巡檢。LLM 通常只有一張卡，兩次同時跑不是變快，是互相拖死
 # ——（實測：第二個請求連 header 都要等兩分鐘以上才回）。
 _RUNNING = asyncio.Lock()
+#: 跨行程的「正在跑」標記多久之後視為遺留（行程被砍、主機當機不會清掉它）。
+#: 要比一次巡檢最長可能跑多久還長：最多 ceil(MAX_SAMPLE / MAX_IPS_PER_BATCH) 批 × 每批 AUDIT_TIMEOUT
+RUN_STALE_AFTER = timedelta(hours=1)
 
 
 class AuditBusy(RuntimeError):
@@ -687,14 +692,36 @@ async def _run_audit(
     want_progress: bool = False,
 ) -> AuditRun:
     """實際流程。跟 `run_audit` 分開只是為了讓「同時只跑一次」的鎖包住整段。"""
-    from app.services.ai import AIError, AINotConfigured, raw_chat
-
     run_id = uuid.uuid4()
+    # 另一個行程正在跑（手動巡檢在後端、排程在 jt-ipam-ai-audit.service）：不要疊在一起打同一台 LLM
+    since = await get_ai_audit_running_since(session)
+    if since is not None and datetime.now(UTC) - since < RUN_STALE_AFTER:
+        raise AuditBusy("已經有一次巡檢正在執行，請等它跑完再試")
     await _emit("collecting")
     snapshot = await _collect(session, user)
     if snapshot.get("empty"):
         return AuditRun(run_id=run_id, findings=0, skipped=0,
                         error="沒有可見的資料可分析（檢查此帳號的權限範圍）")
+
+    # 開始打 LLM 之前就記下這次嘗試：之後被 systemd 砍掉、或 LLM 主機在途中掛掉，
+    # 排程都不會 5 分鐘後又整個重來（2026-10-12：10-04、10-10 都因此跑了兩次）
+    await mark_ai_audit_started(session, at=datetime.now(UTC))
+    try:
+        return await _analyze(session, user, run_id, snapshot, _emit, want_progress)
+    finally:
+        try:
+            await mark_ai_audit_finished(session, at=datetime.now(UTC))
+        except Exception:                      # 收尾失敗不可以蓋掉巡檢本身的結果或例外
+            await session.rollback()
+            log.warning("ai_audit.finish_mark_failed", exc_info=True)
+
+
+async def _analyze(
+    session: AsyncSession, user: User, run_id: uuid.UUID, snapshot: dict[str, Any],
+    _emit: Callable[..., Awaitable[None]], want_progress: bool,
+) -> AuditRun:
+    """把快照分批送給模型、對齊發現。"""
+    from app.services.ai import AIError, AINotConfigured, raw_chat
 
     cfg = await get_llm_config(session)
     locale = await _locale_for(session, user)
@@ -748,8 +775,6 @@ async def _run_audit(
         else:
             items.extend(parsed)
         await _emit("analyzing", i, total, found=len(items))
-
-    await set_ai_audit_last_run(session, at=datetime.now(UTC))
 
     if errors and not items:
         # 每一批都失敗 → 這次巡檢是壞的，不能當成「沒發現問題」

@@ -106,7 +106,7 @@ The script will:
 4. Generate `SECRET_KEY` / `ENCRYPTION_KEY` / `AUDIT_CHAIN_GENESIS` into `/etc/jt-ipam/backend.env` (0640)
 5. Generate a self-signed cert in `/etc/jt-ipam/tls/` ECDSA P-384 / 5 years; SAN auto-includes `localhost / FQDN / short hostname / 127.0.0.1 / ::1 / host IP`
 6. pnpm install + frontend vite build
-7. Install `jt-ipam-backend.service` + `jt-ipam-sync.timer` (every 5 min) + `jt-ipam-backup.timer` (daily 03:30)
+7. Install `jt-ipam-backend.service` + `jt-ipam-sync.timer` (every 5 min) + `jt-ipam-ai-audit.timer` (checks every 5 min whether the scheduled AI review is due; nothing runs until it is turned on) + `jt-ipam-backup.timer` (daily 03:30)
 8. Only in nginx mode: install the nginx site and reload
 
 ### 2.3 Bootstrap the first admin
@@ -559,7 +559,7 @@ rsync `/var/backups/jt-ipam/` to a NAS / S3 / another machine:
 
 ```bash
 # 0. stop services
-sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer
+sudo systemctl stop jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer
 
 # 0b. encrypted backup (.jtbak): decrypt it first (asks for the backup passphrase)
 python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt \
@@ -587,7 +587,7 @@ sudo cp /var/backups/jt-ipam/2026-05-10/backend.env /etc/jt-ipam/
 # 4. give the audit table back to its NOLOGIN owner (the app role may only read and append),
 #    then start
 sudo bash /opt/jt-ipam/scripts/jt-ipam.sh harden-audit
-sudo systemctl start jt-ipam-backend jt-ipam-sync.timer
+sudo systemctl start jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer
 
 # 5. verify the chain (any tampered row shows up immediately)
 curl -X POST https://ipam.example.com/api/v1/audit/verify \
@@ -629,6 +629,7 @@ sudo systemctl start jt-ipam-backend
 ```bash
 journalctl -u jt-ipam-backend -f          # backend
 journalctl -u jt-ipam-sync -n 200          # periodic sync
+journalctl -u jt-ipam-ai-audit -n 200      # scheduled AI review
 journalctl -u jt-ipam-backup -n 50         # backup
 ```
 
@@ -659,7 +660,7 @@ sudo bash /opt/jt-ipam/scripts/jt-ipam.sh uninstall --purge
 The equivalent manual steps:
 
 ```bash
-sudo systemctl disable --now jt-ipam-backend jt-ipam-sync.timer jt-ipam-backup.timer
+sudo systemctl disable --now jt-ipam-backend jt-ipam-sync.timer jt-ipam-ai-audit.timer jt-ipam-backup.timer
 sudo rm /etc/systemd/system/jt-ipam-{backend,sync,backup}.{service,timer}
 sudo rm -rf /etc/jt-ipam /var/log/jt-ipam /var/lib/jt-ipam
 sudo -u postgres dropdb jt_ipam

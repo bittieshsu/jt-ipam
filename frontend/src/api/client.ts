@@ -2,6 +2,7 @@ import axios, { AxiosError } from "axios";
 import { triggerSessionExpired } from "@/utils/session";
 import { AUTH_COOKIE_HEADERS, getAccessToken, setAccessToken } from "@/api/token";
 import { i18n } from "@/i18n";
+import { formatValidationErrors } from "@/utils/validationErrors";
 
 // 後端常見英文錯誤訊息 → 在地化（元件多半直接顯示 response.data.detail）
 const DETAIL_I18N: Record<string, string> = {
@@ -53,6 +54,15 @@ function localizeDetail(error: AxiosError): void {
     // 分支永遠不會成立 —— 所以另外掛一份在 detail_code 上。
     data.detail_code = detail.code;
     return;
+  }
+  // 欄位檢查失敗（422）：原因在 errors 清單，翻成「欄位：原因」（以前只顯示「Invalid request」）
+  if (error.response?.status === 422 && Array.isArray(data?.errors)) {
+    const te = (i18n.global as any).te;
+    const out = formatValidationErrors(t, (k: string) => te(k), data.errors);
+    if (out) {
+      data.detail = out;
+      return;
+    }
   }
   if (typeof detail === "string") {
     const key = DETAIL_I18N[detail];

@@ -171,7 +171,7 @@ def redact_url(url: str) -> str:
 
 _SENSITIVE_LINE = re.compile(
     r"(?im)\b(set-cookie|cookie|authorization|proxy-authorization|x-auth-token)\s*[:=]\s*[^\r\n]*")
-_SENSITIVE_KV = re.compile(r"(?i)\b(password|passwd|pwd|token|secret|session|sid)=([^&\s;]+)")
+_SENSITIVE_KV = re.compile(r"(?i)\b(password|passwd|pwd|token|secret|session|sessionid|sid)=([^&\s;]+)")
 
 
 def scrub(text: Any, secrets: Iterable[str | None]) -> str:

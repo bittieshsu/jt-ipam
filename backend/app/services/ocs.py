@@ -28,6 +28,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from sqlalchemy import func, select
@@ -441,15 +442,27 @@ def ocs_notes_of(computer: dict[str, Any], limit: int = 5) -> list[dict[str, Any
     return out
 
 
-def lastdate_of(hardware: dict[str, Any]) -> datetime | None:
-    """解析 LASTDATE（OCS 回 "2026-09-18 08:00:00" 的無時區字串，視為 UTC）。"""
+def lastdate_of(hardware: dict[str, Any], tz: str | None = None) -> datetime | None:
+    """解析 LASTDATE（OCS 回 "2026-09-18 08:00:00"）→ UTC。
+
+    LASTDATE 是 MySQL DATETIME，存的是 OCS 主機寫入當下的**本地時間**、沒有時區（issue #51：
+    以前一律當成 UTC，UTC+8 的 OCS 會超前 8 小時）。tz 是這套 OCS 的時區（整合設定），沒給＝UTC。"""
     raw = (hardware.get("LASTDATE") or "").strip()
     if not raw:
         return None
     try:
-        return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+        naive = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
+    try:
+        zone: Any = ZoneInfo(tz) if tz else UTC
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = UTC
+    return naive.replace(tzinfo=zone).astimezone(UTC)
+
+
+#: 換算後超前現在多少才算「在未來」（時鐘誤差、同步途中剛好盤點）
+FUTURE_SLACK = timedelta(minutes=15)
 
 
 def is_stale(last: datetime | None, *, stale_after_days: int, now: datetime | None = None) -> bool:
@@ -663,12 +676,16 @@ async def _apply_computer(
     ip_ids_by_mac: dict[str, list[uuid.UUID]], now: datetime,
     ocs_id: int | None = None, hn_run: Any = None,
     addr_of: dict[uuid.UUID, str] | None = None, matched_ids: set[uuid.UUID] | None = None,
+    future: list[timedelta] | None = None,
 ) -> dict[str, int]:
     """把一台 OCS 電腦的資料落到對到的既有 IP（只比不建）。回傳這台命中的計數。"""
     hw = computer.get("hardware") or {}
     hn = hostname_of(hw)
     os_guess = parse_os(hw)[0]
-    last = lastdate_of(hw)
+    last = lastdate_of(hw, server.timezone)
+    if last is not None and future is not None and last > now + FUTURE_SLACK:
+        # 換算後在未來：多半是整合的時區設錯（OCS 是本地時間、這裡設成 UTC）→ 同步結果提醒
+        future.append(last - now)
     stale = is_stale(last, stale_after_days=server.stale_after_days, now=now)
     asset = bios_asset(computer.get("bios")) if server.sync_bios else {}
     hwsum = hardware_summary(computer)
@@ -768,6 +785,7 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
         addr_of = {i: str(a) for i, a in (await session.execute(
             select(IPAddress.id, func.host(IPAddress.ip)).where(in_values(IPAddress.id, ambiguous)))).all()}
     matched_ids: set[uuid.UUID] = set()
+    future: list[timedelta] = []          # 換算後落在未來的盤點時間（時區設錯的徵兆）
 
     seen = matched = 0
     from app.services.hostname_reports import HostnameRun, enabled_peers
@@ -801,7 +819,7 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
                 n += (await _apply_computer(
                     session, server, comp, ip_ids_by_mac, now,
                     ocs_id=cid if isinstance(cid, int) else None, hn_run=hn_run,
-                    addr_of=addr_of, matched_ids=matched_ids))["matched"]
+                    addr_of=addr_of, matched_ids=matched_ids, future=future))["matched"]
             buf.clear()
             del keep
             return n
@@ -845,6 +863,10 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
     }
     if cleared:
         server.last_cost["cleared_ips"] = cleared
+    if future:
+        server.last_cost["future_lastdate"] = {
+            "count": len(future), "max_hours": round(max(future).total_seconds() / 3600),
+            "timezone": server.timezone}
     return server.last_cost
 
 

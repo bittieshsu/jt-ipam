@@ -330,18 +330,109 @@ async def sync_mapping(
     return summary
 
 
+async def _dnsmasq_state(fw: OPNsenseFirewall) -> str:
+    """dnsmasq（OPNsense 25.1 起新安裝的預設 DHCP）：on／off／absent（沒裝）／forbidden（這把 key 沒有權限）。
+
+    範圍與主機在 dnsmasq 停用時還是查得到，不先看開關會把沒在發的設定當成發放範圍。
+    API key 的權限是逐項授予的：只給 Kea 的 key 讀 dnsmasq 會 401／403 —— 以前不讀 dnsmasq 時這種站台是
+    正常的，不可以因此整段失敗，回 forbidden 讓結果註明讀不到。
+    """
+    try:
+        cfg = await _api_get(fw, "/api/dnsmasq/settings/get", timeout=8.0)
+    except OPNsenseError as exc:
+        text = str(exc)
+        if ": 404" in text:
+            return "absent"
+        if ": 401" in text or ": 403" in text:
+            return "forbidden"
+        raise OPNsenseError(f"dnsmasq settings: {exc}（保留既有資料）") from exc
+    on = _truthy(((cfg or {}).get("dnsmasq") or {}).get("enable")) if isinstance(cfg, dict) else False
+    return "on" if on else "off"
+
+
+def _parse_dnsmasq_ranges(rows: list[Any]) -> list[tuple[str | None, str, str, int]]:
+    """dnsmasq 的 dhcp_ranges → (CIDR, 起, 迄, 家族)。
+
+    IPv6 可以設 constructor（以介面前綴組出位址，start_addr 只寫 ::1000）：那不是完整位址，略過；
+    沒有結束位址的（static 模式）不是發放範圍。
+    """
+    out: list[tuple[str | None, str, str, int]] = []
+    for r in rows:
+        if not isinstance(r, dict) or str(r.get("constructor") or "").strip():
+            continue
+        try:
+            a = ipaddress.ip_address(str(r.get("start_addr") or "").strip())
+            b = ipaddress.ip_address(str(r.get("end_addr") or "").strip())
+        except ValueError:
+            continue
+        if a.version != b.version:
+            continue
+        cidr = None
+        mask = str(r.get("subnet_mask") or "").strip()
+        if a.version == 4 and mask:
+            try:
+                cidr = str(ipaddress.ip_network(f"{a}/{mask}", strict=False))
+            except ValueError:
+                cidr = None
+        out.append((cidr, str(a), str(b), a.version))
+    return out
+
+
+def _parse_legacy_ranges(xml_text: str) -> list[tuple[str | None, str, str, int]]:
+    """config.xml 的 ISC 設定（`<dhcpd>`／`<dhcpdv6>` 底下每個介面的 `<range>`）→ 發放範圍。
+
+    ISC 沒有 API（固定分配也是從這裡讀）。沒啟用的介面不算；CIDR 由 `<interfaces>` 的介面位址推，
+    介面是 DHCP 用戶端或 track6 這種推不出來的就留空（交給歸屬判斷依範圍找子網路）。
+    """
+    import xml.etree.ElementTree as ET
+
+    from defusedxml.ElementTree import fromstring as _safe_xml_fromstring
+
+    try:
+        root = _safe_xml_fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise OPNsenseError(f"config.xml parse error: {exc}") from exc
+    nets: dict[tuple[str, int], str] = {}
+    for iface in list(root.find("interfaces") if root.find("interfaces") is not None else []):
+        for fam, addr_tag, plen_tag in ((4, "ipaddr", "subnet"), (6, "ipaddrv6", "subnetv6")):
+            addr, plen = (iface.findtext(addr_tag) or "").strip(), (iface.findtext(plen_tag) or "").strip()
+            try:
+                nets[(iface.tag, fam)] = str(ipaddress.ip_network(f"{addr}/{plen}", strict=False))
+            except ValueError:
+                continue
+    out: list[tuple[str | None, str, str, int]] = []
+    for tag, fam in (("dhcpd", 4), ("dhcpdv6", 6)):
+        sec = root.find(tag)
+        for iface in list(sec) if sec is not None else []:
+            en = iface.find("enable")
+            if en is None or (en.text or "1").strip().lower() in ("0", "false", "no"):
+                continue
+            for rg in [*iface.findall("range"), *iface.findall("pool/range")]:
+                try:
+                    a = ipaddress.ip_address((rg.findtext("from") or "").strip())
+                    b = ipaddress.ip_address((rg.findtext("to") or "").strip())
+                except ValueError:
+                    continue
+                if a.version == b.version == fam:
+                    out.append((nets.get((iface.tag, fam)), str(a), str(b), fam))
+    return out
+
+
 async def sync_dhcp_ranges(
     session: AsyncSession, fw: OPNsenseFirewall,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """從 DHCP server 取得「發放範圍（pool）」並鏡像進 dhcp_pool_ranges（多段都抓）。
 
-    目前支援 Kea（/api/kea/dhcpv{4,6}/searchSubnet），每個 subnet 的 `pools` 欄位是
-    換行（或逗號）分隔的 `from-to`。ISC dhcpd 未提供對應 API → 該防火牆無範圍可同步。
+    三種引擎都要看（2026-10-12；以前只讀 Kea）：
+    - Kea：`/api/kea/dhcpv{4,6}/searchSubnet`，每個 subnet 的 `pools` 是換行（或逗號）分隔的 `from-to`
+    - dnsmasq（25.1 起新安裝的預設）：`/api/dnsmasq/settings/searchRange`，有啟用才算
+    - ISC：沒有 API，前兩種都沒有範圍時才下載 config.xml 讀（固定分配也是這樣讀）
+    任何一種讀取失敗都往外拋、保留既有範圍。
     """
     from app.models.dhcp import DHCPPoolRange
 
     now = datetime.now(UTC)
-    parsed: list[tuple[str, str, str, int]] = []
+    parsed: list[tuple[str | None, str, str, int, str]] = []
     for path, family in (("/api/kea/dhcpv4/searchSubnet", 4), ("/api/kea/dhcpv6/searchSubnet", 6)):
         try:
             data = await _api_get(fw, path, timeout=8.0)
@@ -362,27 +453,45 @@ async def sync_dhcp_ranges(
                 a, _, b = line.partition("-")
                 a, b = a.strip(), b.strip()
                 if a and b:
-                    parsed.append((str(cidr), a, b, family))
+                    parsed.append((str(cidr), a, b, family, "kea"))
+
+    dnsmasq = await _dnsmasq_state(fw)
+    if dnsmasq == "on":
+        try:
+            data = await _api_get(fw, "/api/dnsmasq/settings/searchRange", timeout=8.0)
+        except OPNsenseError as exc:
+            raise OPNsenseError(f"dhcp ranges dnsmasq: {exc}（保留既有範圍）") from exc
+        parsed += [(*r, "dnsmasq") for r in _parse_dnsmasq_ranges(data.get("rows") or [])]
+    if not parsed:
+        try:
+            xml_text = await _download_config_xml(fw)
+        except OPNsenseError as exc:
+            raise OPNsenseError(f"dhcp ranges isc: {exc}（保留既有範圍）") from exc
+        parsed += [(*r, "isc") for r in _parse_legacy_ranges(xml_text)]
 
     # 鏡像同步：只清掉「此防火牆自己」既有範圍後重建（不碰其他來源的列）
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "opnsense", DHCPPoolRange.source_id == fw.id,
     ))
-    for cidr, a, b, fam in parsed:
+    for cidr, a, b, fam, engine in parsed:
         session.add(DHCPPoolRange(
             source_type="opnsense", source_id=fw.id, source_name=fw.name,
             subnet_cidr=cidr, start_ip=a, end_ip=b,
-            family=fam, source="kea", synced_at=now,
+            family=fam, source=engine, synced_at=now,
         ))
-    return {"ranges": len(parsed)}
+    out: dict[str, Any] = {"ranges": len(parsed)}
+    if dnsmasq == "forbidden":
+        out["dnsmasq"] = "forbidden"      # 這把 API key 沒有 dnsmasq 權限：用 dnsmasq 發位址的話要補權限
+    return out
 
 
 async def sync_dhcp_reservations(
     session: AsyncSession, fw: OPNsenseFirewall,
 ) -> int:
-    """OPNsense 的 DHCP 固定分配。兩種引擎都要看：
+    """OPNsense 的 DHCP 固定分配。三種引擎都要看：
 
-    - **Kea**：`/api/kea/dhcpv4/searchReservation`（新版預設引擎）
+    - **Kea**：`/api/kea/dhcpv4/searchReservation`
+    - **dnsmasq**（25.1 起新安裝的預設）：`/api/dnsmasq/settings/searchHost` 裡有 MAC（或 client id）的主機
     - **ISC dhcpd**：沒有對應 API，只能從 config.xml 的 `<dhcpd><介面><staticmap>` 讀
 
     實機上兩台防火牆一台走 Kea（8 筆）、一台只有 ISC（9 筆），所以兩條路都要走，
@@ -407,7 +516,17 @@ async def sync_dhcp_reservations(
     except OPNsenseError as exc:
         if "404" not in str(exc):
             kea_error = str(exc)      # 不是「沒開 Kea」，是讀取失敗
-        # 沒開 Kea → 走 ISC
+        # 沒開 Kea → 走 dnsmasq／ISC
+
+    if await _dnsmasq_state(fw) == "on":
+        try:
+            hosts = await _api_get(fw, "/api/dnsmasq/settings/searchHost")
+        except OPNsenseError as exc:
+            raise OPNsenseError(f"dhcp reservations dnsmasq: {exc}（保留既有資料）") from exc
+        got = _parse_dnsmasq_hosts(hosts.get("rows") or [] if isinstance(hosts, dict) else [])
+        if got and not rows:
+            engine = "dnsmasq"
+        rows += got
 
     if not rows:
         engine = "isc"
@@ -424,6 +543,35 @@ async def sync_dhcp_reservations(
         session, source_type="opnsense", source_id=fw.id, source_name=fw.name,
         engine=engine, rows=rows,
     )
+
+
+def _parse_dnsmasq_hosts(rows: list[Any]) -> list[Any]:
+    """dnsmasq 的主機（hosts）→ 固定分配。
+
+    同一張表也放 DNS 主機覆寫：沒有 MAC 也沒有 client id 的只是 DNS 用，不是固定分配；
+    ignore＝這台不回應 DHCP。ip、hwaddr 都可以是多筆（逗號分隔），每個組合各一筆。
+    """
+    from app.services.dhcp_reservations import Reservation
+
+    out: list[Any] = []
+    for r in rows:
+        if not isinstance(r, dict) or _truthy(r.get("ignore")):
+            continue
+        macs = [m.strip() for m in str(r.get("hwaddr") or "").split(",") if m.strip()]
+        if not macs and not str(r.get("client_id") or "").strip():
+            continue
+        ips: list[str] = []
+        for x in str(r.get("ip") or "").split(","):
+            try:
+                ips.append(str(ipaddress.ip_address(x.strip())))
+            except ValueError:
+                continue
+        name = str(r.get("host") or "").split(",")[0].strip() or None
+        descr = str(r.get("descr") or "").strip() or None
+        for ip in ips:
+            for mac in macs or [None]:
+                out.append(Reservation(ip=ip, mac=mac, hostname=name, description=descr))
+    return out
 
 
 def _parse_legacy_static_maps(xml_text: str) -> list[Any]:

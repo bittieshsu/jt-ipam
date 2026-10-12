@@ -277,7 +277,8 @@ const groups = ref<DNSCompareGroup[]>([]);
 const groupOptions = computed(() => groups.value.map((g) => ({ label: g.name, value: g.id })));
 // 成員選單標出軟體類型：不同軟體可以混搭，但 Unbound 只能和 Unbound 同組（後端會擋，這裡先讓人看得出來）
 const serverOptions = computed(() => rows.value.map((r) => ({
-  label: `${r.name}（${t("dns_admin.type_" + r.type)}）`, value: r.id })));
+  // 類型名稱本身可能帶括號（Univention UCS (UDM REST API)），用「·」分隔才不會括號套括號
+  label: `${r.name} · ${t("dns_admin.type_" + r.type)}`, value: r.id })));
 async function loadGroups() {
   try { groups.value = await listDNSCompareGroups(); } catch (e) { msg.error(apiErrMsg(e)); }
 }

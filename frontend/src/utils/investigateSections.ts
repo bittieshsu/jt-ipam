@@ -215,6 +215,7 @@ function dhcpLines(d: D, h: SectionHelpers): string[] {
     x.reserved ? h.t("addresses.dhcp_reserved_tag") : null,
     x.in_lease ? h.t("investigate.dhcp_has_lease") : null,
     x.in_pool ? h.t("addresses.dhcp_in_range_tag") : null,
+    x.excluded ? h.t("addresses.dhcp_excluded_tag") : null,
   ]);
   if (flags) out.push(flags);
   for (const r of (x.reservations ?? []) as D[]) {
@@ -229,6 +230,10 @@ function dhcpLines(d: D, h: SectionHelpers): string[] {
   for (const p of (x.pools ?? []) as D[]) {
     out.push(`${h.t("addresses.dhcp_range")}：${p.start} - ${p.end}`
       + (p.source_name || p.source_type ? `（${p.source_name ?? vendorLabel(p.source_type)}）` : ""));
+  }
+  for (const e of (x.exclusions ?? []) as D[]) {
+    out.push(`${h.t("addresses.dhcp_excluded_range")}：${e.start} - ${e.end}`
+      + (e.source_name || e.source_type ? `（${e.source_name ?? vendorLabel(e.source_type)}）` : ""));
   }
   return out;
 }

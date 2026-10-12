@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.core.ui_error import detail_of
 from app.models.address import IPAddress
@@ -61,6 +62,8 @@ async def create_server(
 ) -> OcsRead:
     data = payload.model_dump(exclude={"api_password"})
     data["base_url"] = str(data["base_url"]).rstrip("/")
+    # LASTDATE 是 OCS 主機的本地時間（issue #51）：沒指定就假設跟 jt-ipam 主機同一個時區
+    data["timezone"] = data.get("timezone") or get_settings().app_timezone
     obj = OcsServer(source_type="rest", **data)
     session.add(obj)
     try:
@@ -94,6 +97,8 @@ async def update_server(
     for k, v in data.items():
         if k == "base_url" and v is not None:
             v = str(v).rstrip("/")
+        if k == "timezone" and not v:
+            continue           # 不可以清成空的：沒有時區就無法換算 LASTDATE
         setattr(obj, k, v)
     if clear:
         obj.api_username = None
