@@ -2155,6 +2155,12 @@ happy path of "an upload succeeded" is not enough.
 - [ ] **Change log sources are translated**: no raw codes in the IP detail change log or the IP changes page's source filter and tags
   (`system`, `user` in Chinese and Japanese); a new source without all three translations fails
   `src/i18n/__tests__/changeSourceLabels.test.ts`
+- [ ] **IP addresses page columns match the subnet page** (`e2e/addresses-columns-ipchanges.spec.ts`, `tests/test_addresses_column_sort.py`):
+  the picker offers DHCP, vendor, device, description, last seen and days offline (plus Source, only on this page);
+  clicking a new column's header sends `sort=` to the server, and rows without a value sort last
+- [ ] **IP change log links and sorts** (same spec, `tests/test_ip_changes_sort.py`): the IP opens its detail page (plain text
+  once deleted); every header except Change sorts on the server (`sort=ip` by address value); with no sort chosen the time
+  column shows newest first
 - [ ] **All probe fields shown** (agent 1.17.4, `tests/test_ip_identify_fields.py`, `e2e/ip-identify.spec.ts`): probing a Windows host
   shows a Windows name row (computer, domain or workgroup), port counts (open/closed/filtered), scan (duration, hops, estimated
   uptime) and a source after each name; a TLS host gets the certificates and host keys card (subject, issuer or self-signed, expiry

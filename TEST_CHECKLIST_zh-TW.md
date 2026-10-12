@@ -1569,6 +1569,10 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   新增 IP 的表單不顯示燈號
 - [ ] **異動記錄的來源都有中文**：IP 詳情的異動記錄與「IP 異動」頁的來源篩選、標籤都沒有英文代碼（`system`→系統、`user`→使用者）；
   新增來源沒補三語翻譯時 `src/i18n/__tests__/changeSourceLabels.test.ts` 會失敗
+- [ ] **IP 位址頁的欄位與子網路頁一致**（`e2e/addresses-columns-ipchanges.spec.ts`、`tests/test_addresses_column_sort.py`）：欄位選單有 DHCP、
+  製造商、裝置、說明、最後出現、失聯（加上這頁才有的「來源」）；新欄位點標題會送 `sort=` 到後端排序，沒有值的排最後
+- [ ] **IP 異動記錄可以點、可以排序**（同上 spec、`tests/test_ip_changes_sort.py`）：IP 點進詳細資料（IP 已刪除只顯示文字）；
+  除了「變更」以外的標題都能排序，排序送到後端（`sort=ip` 照位址大小）；沒選排序時時間欄顯示新的在前
 - [ ] **IP 探測頁的完整欄位**（代理 1.17.4，`tests/test_ip_identify_fields.py`、`e2e/ip-identify.spec.ts`）：對一台 Windows 探測，
   摘要有「Windows 名稱」（電腦、網域或工作群組）、連接埠數（開放/關閉/過濾）、掃描（耗時、跳數、推估開機）、名稱後面標來源；
   有 TLS 的主機出現「憑證與主機金鑰」卡（主體、簽發者或自簽、到期與 30 天內提醒、指紋滑過看全文），SSH 主機金鑰是 SHA256；

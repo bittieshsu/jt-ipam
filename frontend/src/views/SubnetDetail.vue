@@ -117,6 +117,10 @@ import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import { renderDeviceKind } from "@/utils/deviceKindCell";
 import type { IPAddress, Section, Subnet, SubnetUsage } from "@/types";
 import { renderMacWithVendor } from "@/utils/macVendor";
+import {
+  dhcpInfoFor, ipv4ToInt, isProbed, lastSeenText, renderDeviceLink, renderDhcpCell, staleDays, staleDaysLabel,
+  toDhcpRanges, type DhcpRangeInfo,
+} from "@/utils/ipColumns";
 import { saveBlob } from "@/utils/saveFile";
 
 const route = useRoute();
@@ -171,43 +175,14 @@ const ipPagination = reactive({
 const loading = ref(false);
 
 // ── DHCP 發放範圍：標示落在 pool 內的 IP（多段都涵蓋）──
-interface DhcpRangeInfo { a: number; b: number; server: string; source: string; start: string; end: string; }
 const dhcpRanges = ref<DhcpRangeInfo[]>([]);
-function ipv4ToInt(ip: string): number | null {
-  const m = ip.trim().split(".");
-  if (m.length !== 4) return null;
-  let n = 0;
-  for (const p of m) {
-    const o = Number(p);
-    if (!Number.isInteger(o) || o < 0 || o > 255) return null;
-    n = n * 256 + o;
-  }
-  return n >>> 0;
-}
 async function loadDhcpRanges() {
   try {
-    const rows = await listDhcpRanges();
-    const out: DhcpRangeInfo[] = [];
-    for (const r of rows) {
-      const a = ipv4ToInt(r.start_ip), b = ipv4ToInt(r.end_ip);
-      if (a != null && b != null) {
-        out.push({
-          a: Math.min(a, b), b: Math.max(a, b),
-          server: r.source_name || "—",
-          // 子網路裡手動定義的 DHCP 集區（issue #40）不是哪一台伺服器同步回來的
-          source: r.source === "manual" ? t("ranges.manual") : (r.source || "").toUpperCase(),
-          start: r.start_ip, end: r.end_ip,
-        });
-      }
-    }
-    dhcpRanges.value = out;
+    dhcpRanges.value = toDhcpRanges(await listDhcpRanges(), t("ranges.manual"));
   } catch { dhcpRanges.value = []; }
 }
 function dhcpInfoForIp(ip: string | null | undefined): DhcpRangeInfo | null {
-  if (!ip) return null;
-  const n = ipv4ToInt(String(ip).split("/")[0]);
-  if (n == null) return null;
-  return dhcpRanges.value.find((r) => n >= r.a && n <= r.b) ?? null;
+  return dhcpInfoFor(dhcpRanges.value, ip);
 }
 function isDhcpIp(ip: string | null | undefined): boolean {
   return dhcpInfoForIp(ip) != null;
@@ -406,14 +381,6 @@ async function uploadCsv(opts: UploadCustomRequestOptions) {
 }
 
 // ── IP list table ──
-function lastSeen(r: IPAddress): string {
-  // last_seen_dns 不算（AdGuard 設定裡有＝每輪都是現在，見 useLivenessSettings）
-  const arr = [r.last_seen_scanner, r.last_seen_librenms,
-    (r as { last_seen_arp?: string | null }).last_seen_arp].filter(Boolean) as string[];
-  if (!arr.length) return "—";
-  const max = arr.sort().reverse()[0];
-  return fmtDateTime(max);   // 轉本地時區（原本直接顯示 UTC）
-}
 
 // liveDot 改用共用組件 LiveStatusDot(hover 即時 tooltip)
 function liveDot(r: IPAddress) {
@@ -471,22 +438,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
       ? h(NTag, { size: "small", type: "warning" }, () => t("visualisation.unmanaged"))
       : (r as any).__gap ? "" : stateTag(r.state) },
   { title: "DHCP", key: "dhcp", width: 80,
-    render: (r) => {
-      if ((r as any).__gap) return "";
-      const info = dhcpInfoForIp(r.ip);
-      if (!info) return "";
-      return h(NTooltip, { delay: 0 }, {
-        trigger: () => h(NTag, { size: "tiny", type: "warning", bordered: false }, { default: () => "DHCP" }),
-        default: () => h("div", { style: "max-width:260px;line-height:1.5" }, [
-          h("div", t("addresses.dhcp_pool_hint")),
-          h("div", { style: "margin-top:4px" }, [
-            h("strong", `${t("addresses.dhcp_server")}：`),
-            `${info.server}${info.source ? ` (${info.source})` : ""}`,
-          ]),
-          h("div", `${t("addresses.dhcp_range")}：${info.start} – ${info.end}`),
-        ]),
-      });
-    } },
+    render: (r) => (r as any).__gap ? "" : renderDhcpCell(t, dhcpInfoForIp(r.ip)) },
   { title: t("addresses.mac"), key: "mac", width: 150, render: (r) => renderMacWithVendor(r.mac, r.mac_vendor, "") },
   { title: t("cols.vendor"), key: "mac_vendor", width: 140,
     ellipsis: { tooltip: true }, render: (r) => r.mac_vendor ?? "—" },
@@ -522,18 +474,12 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
               ])
             : h("span", { style: "font-family:monospace;word-break:break-all" }, (r.switch_port ?? "").replace(" / ", "@")) }) },
   { title: t("cols.device"), key: "device", width: 150, ellipsis: { tooltip: true },
-    render: (r) => {
-      if ((r as any).__gap || !r.device_id) return "—";
-      return h("a", {
-        href: "#",
-        style: "color: var(--primary-color, #18a058); text-decoration: none;",
-        onClick: (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); router.push({ name: "device-detail", params: { id: r.device_id } }); },
-      }, r.device_name || (r.device_id.slice(0, 8) + "…"));
-    } },
+    render: (r) => (r as any).__gap ? "—"
+      : renderDeviceLink(r, (id) => { void router.push({ name: "device-detail", params: { id } }); }) },
   { title: t("common.description"), key: "description", width: 200,
     ellipsis: { tooltip: true }, render: (r) => (r as any).__um ? umSeenText((r as any).um) : (r.description ?? "") },
   { title: t("addresses.last_seen"), key: "last_seen", width: 170,
-    render: (r) => (r as any).__um ? fmtRelative((r as any).um.last_seen_at) : (r as any).__gap ? "" : lastSeen(r) },
+    render: (r) => (r as any).__um ? fmtRelative((r as any).um.last_seen_at) : (r as any).__gap ? "" : lastSeenText(r) },
   { title: t("stale.col_stale"), key: "stale_days", width: 110,
     sorter: (a: any, b: any) => {
       if (isVirtualRow(a) || isVirtualRow(b)) return 0;
@@ -541,7 +487,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
       const db = isProbed(b) ? (staleDays(b) ?? Number.MAX_SAFE_INTEGER) : -1;
       return da - db;
     },
-    render: (r) => isVirtualRow(r) ? "" : staleDaysLabel(r) },
+    render: (r) => isVirtualRow(r) ? "" : staleDaysLabel(t, r) },
   { title: t("addresses.note"), key: "note", width: 220,
     ellipsis: { tooltip: true }, render: (r) => r.note ?? "" },
 ]));
@@ -575,22 +521,6 @@ const staleFilterOn = ref(false);
 const staleThreshold = ref(30);          // 天
 const staleNeverOnly = ref(false);       // 只看「從未上線」
 
-function staleDays(r: IPAddress): number | null {
-  // last_seen_dns 不算：有 DNS 改寫的 IP 永遠不會被列為失聯（AdGuard 設定裡有＝每輪都是現在）
-  const arr = [r.last_seen_scanner, r.last_seen_librenms].filter(Boolean) as string[];
-  if (!arr.length) return null;
-  const max = Math.max(...arr.map((s) => new Date(s).getTime()));
-  return Math.floor((Date.now() - max) / 86400000);
-}
-function isProbed(r: IPAddress): boolean {
-  return !r.exclude_from_ping && r.subnet_scan_enabled !== false;
-}
-function staleDaysLabel(r: IPAddress): string {
-  if (!isProbed(r)) return t("stale.not_probed");
-  const d = staleDays(r);
-  if (d === null) return t("stale.never");
-  return t("stale.n_days", { n: d });
-}
 const staleMatches = computed<IPAddress[]>(() =>
   addresses.value.filter((a) => {
     if (!isProbed(a)) return false;

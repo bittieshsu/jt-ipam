@@ -309,15 +309,33 @@ async def list_addresses(
         count_stmt = count_stmt.where(search_clause)
 
     # 伺服器端排序（remote 表格用）；未指定 → 預設依 IP
-    _SORT_COLS = {
+    from app.models.device import Device
+    from app.models.oui import OUIVendor
+    _seen = func.greatest(IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.last_seen_arp)
+    # 失聯天數只看掃描代理與 LibreNMS（跟子網路頁一致）：天數少＝最近看過的那個時間大
+    _probe_seen = func.greatest(IPAddress.last_seen_scanner, IPAddress.last_seen_librenms)
+    _SORT_COLS: dict[str, Any] = {
         "ip": IPAddress.ip, "hostname": IPAddress.hostname, "mac": IPAddress.mac,
         "state": IPAddress.state, "owner": IPAddress.owner,
         "switch_port": IPAddress.switch_port, "note": IPAddress.note,
         "discovery_source": IPAddress.discovery_source,
         "device_kind": IPAddress.device_kind,
+        # 補上子網路頁有的欄位（2026-10-12）
+        "description": IPAddress.description,
+        "last_seen": _seen,
+        "device": select(Device.name).where(Device.id == IPAddress.device_id).scalar_subquery(),
+        "mac_vendor": select(func.coalesce(OUIVendor.short_name, OUIVendor.name)).where(
+            OUIVendor.prefix == func.upper(func.replace(func.left(cast(IPAddress.mac, String), 8), ":", ""))
+        ).scalar_subquery(),
     }
-    sort_col = _SORT_COLS.get(sort or "", IPAddress.ip)
-    stmt = stmt.order_by(sort_col.desc() if order == "desc" else sort_col.asc())
+    if sort == "stale_days":
+        # 天數少的在前＝時間新的在前；從沒看過的最久（升冪排最後、降冪排最前）
+        stmt = stmt.order_by(_probe_seen.asc().nulls_first() if order == "desc" else _probe_seen.desc().nulls_last(),
+                             IPAddress.ip)
+    else:
+        sort_col = _SORT_COLS.get(sort or "", IPAddress.ip)
+        # 沒有值的列一律排最後（升冪降冪都一樣，跟其他清單頁一致）
+        stmt = stmt.order_by((sort_col.desc() if order == "desc" else sort_col.asc()).nulls_last(), IPAddress.ip)
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
     rows = list((await session.execute(stmt)).scalars().all())
 

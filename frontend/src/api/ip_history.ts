@@ -35,6 +35,8 @@ export interface IPChangeFilter {
   until?: string;
   page?: number;
   page_size?: number;
+  sort?: string;                 // created_at（預設）/ ip / event_type / field / source / actor
+  order?: "asc" | "desc";
 }
 
 export interface HistoryFacet { value: string; count: number }

@@ -56,6 +56,8 @@ test.afterAll(async ({ request }) => {
 test("清單的負載欄 → 面板：耗時、趨勢、建議、逐子網路", async ({ page }) => {
   await login(page);
   await page.goto("/scan-agents");
+  // 先篩選到自己這台：清單有分頁，代理一多就不在第一頁
+  await page.getByPlaceholder("篩選").first().fill(agentName);
   const row = page.locator(".n-data-table-tr", { hasText: agentName });
   const cell = row.getByTestId("scan-load-cell");
   await expect(cell).toContainText("97%", { timeout: 20_000 });

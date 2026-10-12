@@ -39,6 +39,10 @@ import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { computed } from "vue";
 import { renderMacWithVendor } from "@/utils/macVendor";
+import { listDhcpRanges } from "@/api/integrations";
+import {
+  dhcpInfoFor, lastSeenText, renderDeviceLink, renderDhcpCell, staleDaysLabel, toDhcpRanges, type DhcpRangeInfo,
+} from "@/utils/ipColumns";
 
 const { t, te, locale } = useI18n();
 const { catalog } = useScanProbes();
@@ -223,6 +227,15 @@ function labelSource(v: string | null | undefined): string {
   return out === key ? v : out;
 }
 
+// DHCP 欄：後端判定「在 DHCP 範圍內」（照子網路歸屬算，重疊網段不會標到別的單位）才標；滑過去的伺服器與範圍從
+// 發放範圍清單查。跟子網路詳細頁同一個儲存格（utils/ipColumns）
+const dhcpRanges = ref<DhcpRangeInfo[]>([]);
+async function loadDhcpRanges() {
+  try {
+    dhcpRanges.value = toDhcpRanges(await listDhcpRanges(), t("ranges.manual"));
+  } catch { dhcpRanges.value = []; }
+}
+
 const allColumns: DataTableColumns<IPAddress> = [
   { type: "selection" },
   { title: "", key: "live", width: 28, render: (r) => liveDot(r) },
@@ -237,9 +250,17 @@ const allColumns: DataTableColumns<IPAddress> = [
     sorter: true,
   },
   {
+    title: "DHCP", key: "dhcp", width: 80,
+    render: (r) => r.in_dhcp_range ? renderDhcpCell(t, dhcpInfoFor(dhcpRanges.value, r.ip)) : "",
+  },
+  {
     title: () => t("addresses.mac"), key: "mac", width: 150,
     render: (r) => renderMacWithVendor(r.mac, r.mac_vendor),
     sorter: true,
+  },
+  {
+    title: () => t("cols.vendor"), key: "mac_vendor", width: 140, ellipsis: { tooltip: true },
+    render: (r) => r.mac_vendor ?? "—", sorter: true,
   },
   {
     title: () => t("common.status"), key: "state", width: 110,
@@ -254,6 +275,22 @@ const allColumns: DataTableColumns<IPAddress> = [
   {
     title: () => t("addresses.switch_port"), key: "switch_port", width: 210, ellipsis: { tooltip: false },
     render: (r) => switchPortCell(r), sorter: true,
+  },
+  {
+    title: () => t("cols.device"), key: "device", width: 150, ellipsis: { tooltip: true }, sorter: true,
+    render: (r) => renderDeviceLink(r, (id) => { void router.push({ name: "device-detail", params: { id } }); }),
+  },
+  {
+    title: () => t("common.description"), key: "description", width: 200, ellipsis: { tooltip: true },
+    render: (r) => r.description ?? "", sorter: true,
+  },
+  {
+    title: () => t("addresses.last_seen"), key: "last_seen", width: 170, sorter: true,
+    render: (r) => lastSeenText(r),
+  },
+  {
+    title: () => t("stale.col_stale"), key: "stale_days", width: 110, sorter: true,
+    render: (r) => staleDaysLabel(t, r),
   },
   {
     title: () => t("addresses.note"), key: "note", minWidth: 160, ellipsis: { tooltip: true },
@@ -289,7 +326,7 @@ const allColumns: DataTableColumns<IPAddress> = [
 const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } = useColumnPrefs(
   "addresses",
   ["live", "ip", "hostname", "mac", "state", "owner", "switch_port", "note", "discovery_source", "os",
-   "device_kind"],
+   "device_kind", "dhcp", "mac_vendor", "device", "description", "last_seen", "stale_days"],
   ["live", "ip", "hostname", "mac", "state", "discovery_source"],
 );
 
@@ -314,18 +351,26 @@ const scrollX = computed(() => {
 });
 
 // 給 ColumnPicker 用的全選用欄位 label
+// 欄位跟子網路詳細頁的 IP 表一樣（使用者 2026-10-12：IP 位址頁缺了 DHCP、製造商、裝置、說明、最後出現、失聯），
+// 再加上這頁才有的「來源」
 const columnPickerItems = computed(() => [
   { key: "live", label: t("cols.live_dot") },
   { key: "ip", label: "IP" },
   { key: "hostname", label: t("cols.hostname") },
+  { key: "dhcp", label: "DHCP" },
   { key: "mac", label: "MAC" },
+  { key: "mac_vendor", label: t("cols.vendor") },
   { key: "state", label: t("cols.status") },
-  { key: "owner", label: t("cols.owner") },
-  { key: "switch_port", label: t("cols.switch_port") },
-  { key: "note", label: t("cols.note") },
-  { key: "discovery_source", label: t("cols.source") },
   { key: "os", label: t("cols.os") },
   { key: "device_kind", label: t("cols.device_kind") },
+  { key: "owner", label: t("cols.owner") },
+  { key: "switch_port", label: t("cols.switch_port") },
+  { key: "device", label: t("cols.device") },
+  { key: "description", label: t("cols.description") },
+  { key: "last_seen", label: t("cols.last_seen") },
+  { key: "stale_days", label: t("stale.col_stale") },
+  { key: "note", label: t("cols.note") },
+  { key: "discovery_source", label: t("cols.source") },
 ]);
 
 const sortField = ref<string | null>(null);
@@ -395,6 +440,7 @@ let pendingOpenId: string | null =
   typeof route.query.open === "string" ? route.query.open : null;
 
 onMounted(() => {
+  void loadDhcpRanges();
   void loadSubnets();
   void loadSections();
   void ensureCustomersLoaded();

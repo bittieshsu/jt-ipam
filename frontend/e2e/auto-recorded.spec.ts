@@ -54,6 +54,20 @@ async function seed(request: any): Promise<{ subnetId: string }> {
       await request.delete(`${API}/api/v1/subnets/${s.id}`, { headers: h });
     }
   }
+  // 前幾輪建的代理與區段也要清：以前每跑一次留一台代理，累積到五十台時掃描代理清單第一頁全是它們，
+  // 別支 spec 在清單上找自己的代理就找不到（2026-10-12 發版 e2e）
+  const agents = await (await request.get(`${API}/api/v1/scan-agents`, { headers: h })).json();
+  for (const a of (Array.isArray(agents) ? agents : agents.items ?? [])) {
+    if (String(a.name).startsWith("e2e-agent-")) {
+      await request.delete(`${API}/api/v1/scan-agents/${a.id}`, { headers: h });
+    }
+  }
+  const sections = await (await request.get(`${API}/api/v1/sections?page_size=500`, { headers: h })).json();
+  for (const s of sections.items ?? []) {
+    if (String(s.name).startsWith("e2e-auto-")) {
+      await request.delete(`${API}/api/v1/sections/${s.id}`, { headers: h });
+    }
+  }
 
   const section = await (await ok(await request.post(`${API}/api/v1/sections`, {
     headers: h, data: { name: `e2e-auto-${Date.now()}` },
