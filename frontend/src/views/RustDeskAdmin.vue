@@ -523,8 +523,8 @@ const onlineOptions = computed(() => [
   { label: t("rustdesk.offline"), value: "offline" },
   { label: t("rustdesk.never_online"), value: "never" },
 ]);
-const MATCH = ["matched", "conflict", "hostname_only", "not_seen_online", "stale", "shared", "ambiguous", "unmanaged",
-  "no_ip"] as const;
+const MATCH = ["matched", "conflict", "device_changed", "hostname_only", "not_seen_online", "stale", "shared", "ambiguous",
+  "unmanaged", "no_ip"] as const;
 const matchOptions = computed(() => MATCH.map((m) => ({ label: t(`rustdesk.match_${m}`), value: m })));
 
 function peerParams() {
@@ -580,7 +580,7 @@ const pagination = computed(() => ({
 }));
 
 const matchType: Record<string, "success" | "warning" | "default" | "info" | "error"> = {
-  matched: "success", conflict: "error", hostname_only: "info", shared: "warning", ambiguous: "warning", stale: "default",
+  matched: "success", conflict: "error", device_changed: "warning", hostname_only: "info", shared: "warning", ambiguous: "warning", stale: "default",
   not_seen_online: "default", unmanaged: "info", no_ip: "default",
 };
 const dash = (v: string | null | undefined) => v || "—";

@@ -71,7 +71,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.18.1"
+AGENT_VERSION = "1.18.2"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -1640,17 +1640,22 @@ def _parse_nmap_xml(text: str) -> dict:
     1.17.4 起：filtered（被過濾的埠數）、distance（跳數）、uptime（nmap 推估的開機時間）、host_found
     （輸出裡有沒有這台：沒有＝nmap 失敗或略過，不是「沒回應」）、timedout（單台時限到了、結果被丟掉）、
     ports[].truncated／host_scripts_truncated（輸出被截斷的腳本）。
+    1.18.2 起：hosts_down（nmap 統計裡判定不在的主機數）：-Pn 時區網內的主機探測當下沒回 ARP，nmap 也會判定
+    不在、輸出裡沒有這台 —— 那是「沒回應」，不是 nmap 失敗（2026-10-12 只回 ARP、時有時無的 VM）。
 
     XML 是本機剛跑完的 nmap 產生的（不是從網路收來的文件），用標準函式庫解析即可。
     """
     # closed：回了 RST 的埠數 —— 有這個就代表主機活著，只是那些埠沒開；全部 filtered 又沒有 MAC 回應＝沒回應
     out: dict = {"hostnames": [], "mac": None, "mac_vendor": None, "ports": [], "os": [], "closed": 0,
                  "filtered": 0, "host_scripts": {}, "host_scripts_truncated": [], "distance": None, "uptime": None,
-                 "host_found": False, "timedout": False}
+                 "host_found": False, "timedout": False, "hosts_down": None}
     try:
         root = ET.fromstring(text)  # noqa: S314 -- local nmap output, not untrusted input
     except Exception:  # noqa: BLE001
         return out
+    hs = root.find("runstats/hosts")
+    if hs is not None and str(hs.get("down") or "").isdigit():
+        out["hosts_down"] = int(hs.get("down"))
     host = root.find("host")
     if host is None:
         return out

@@ -533,6 +533,16 @@ defect is in *what the model was able to ask*.
   machine's path does not have that layer
 - [ ] Existing spec: `frontend/e2e/terminal-links.spec.ts` (needs `E2E_SSH_ADDRESS_ID/USER/PASS`,
   plus `can_ssh` on the user and `ssh_enabled` on the address; accept the host key on first use)
+- [ ] **Host keys are really checked** (2026-10-12; `tests/test_ssh_host_key_enforced.py`,
+  `e2e/ssh-hostkey-reset.spec.ts`): change an address's saved `ssh_host_key` to a different key; SSH (built-in engine)
+  and SFTP must both report "host key does not match" **before** authentication, never "authentication failed" (that
+  means the key was not checked at all: asyncssh skips verification entirely when given `known_hosts=None`). A jump
+  host with a changed pinned fingerprint must be refused too. SFTP with no saved key shows the fingerprint for
+  confirmation first (it shares the SSH key); Cancel does not connect
+- [ ] **Forget the saved host key** (`tests/test_ssh_hostkey_reset.py`): the mismatch error has the button (SSH and
+  SFTP); an account with console permission and read-only access is refused (needs subnet write); after clearing, the
+  audit log has `ssh.hostkey_reset` with the old fingerprint, and reconnecting shows the new key's fingerprint first
+  instead of trusting it
 
 ## 5e. Large-scale environments: **whenever sync, list pages, topology, exports or query patterns change**
 
@@ -1989,6 +1999,33 @@ happy path of "an upload succeeded" is not enough.
 
 ### Recent (v0.6.45–v0.6.55 and not yet released)
 
+- [ ] **DHCP pools are counted per configured range** (customer 2026-10-12; `tests/test_dhcp_pool_scope_grouping.py`,
+  migration 0210): exclude a few single addresses from a Windows DHCP (or FortiGate, Technitium, Check Point) range;
+  after a sync the IPs still show "DHCP excluded", but usage and "DHCP pool nearly exhausted" use the **whole range**:
+  size = range size minus excluded (matches Windows' "Total Addresses"), and the notification shows the whole range and
+  how many were excluded. Filling the first piece from the start of the range must **not** report 100%. The subnet's
+  Address ranges list has one row for the range ("N excluded", next free skips excluded addresses) and the IP map does
+  not underline excluded addresses as DHCP.
+  With a pool that stays full, several sync cycles produce **exactly one** notification (it used to repeat every cycle);
+  dropping below the threshold sends one recovery notice
+- [ ] **Rack thumbnail U numbers on the device page** (`e2e/rack-thumbnail-u-labels.spec.ts`): on the device page of
+  a device in a 42U rack, every number from 1 to 42 stays on one line; two-digit numbers must not wrap or overlap the
+  next row
+- [ ] **No leftovers from the previous device** (2026-10-12; `tests/test_device_turnover.py`, migration 0209):
+  change an address's MAC to a different device (once each by manual edit, MCP `update_ip` and integration ARP): OS,
+  device type, model, OCS inventory and hostnames reported by NetBIOS/mDNS/Wazuh/OCS/RustDesk are cleared and the
+  timeline shows "became unknown"; returning to a MAC used in the last 24 hours clears nothing. After the change: the
+  old Wazuh agent no longer appears on the device page or attack surface, the RustDesk peer shows "Device changed",
+  credentials saved before the change are marked "device changed" and not picked by default in the six consoles,
+  RustDesk login assist refuses them, probe results from before the change carry a warning and are not compared, and
+  AI review dismissals from before the change stop applying. On upgrade check the 0209 backfill: addresses that changed
+  devices have a change time and the old OS guess is gone
+- [ ] **OCS incremental sync, moved computer** (`tests/test_ocs_hardware.py`): after a computer moves to another
+  address, the old address loses its OCS inventory in the same sync
+- [ ] **VM match by IP needs a matching MAC**: when a VM's known NIC MACs do not include the address's MAC, the VM
+  link and PVE console do not match that VM
+- [ ] **Probe with no response** (scan agent 1.18.2): probing an address that is off or filtered says "no response",
+  not "nmap failed"
 - [ ] **MAC drift = a port change on the same switch** (2026-09-30; `tests/test_mac_drift.py`,
   `e2e/mac-drift.spec.ts`): a MAC seen on two switches is the normal path, not a move; only a new port on the
   **same** switch within 24 h (previous port within 7 days) counts. The table shows switch, from port, to port and

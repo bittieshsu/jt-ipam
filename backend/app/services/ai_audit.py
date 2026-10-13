@@ -823,12 +823,13 @@ async def reconcile_findings(
     就會把它們當成「已經解決」而刪掉，畫面上看起來像問題自己好了。寧可留著一筆可能
     已修好的，也不要讓一個還在的問題安靜消失。
     """
-    dismissed_fps = {
-        fp for (fp,) in (await session.execute(
-            select(AIFinding.fingerprint).where(
-                AIFinding.status == "dismissed", AIFinding.fingerprint.is_not(None))
-        )).all()
-    }
+    fp_rows = (await session.execute(
+        select(AIFinding.fingerprint, AIFinding.dismissed_at, AIFinding.evidence).where(
+            AIFinding.status == "dismissed", AIFinding.fingerprint.is_not(None)))).all()
+    since = await _device_since_of(session, {ip for _fp, _at, ev in fp_rows for ip in subjects({"evidence": ev})})
+    # 忽略之後才換了設備的位址（MAC 變了）：那筆忽略說的是上一台，新設備的同一件事照樣要列出（2026-10-12）
+    dismissed_fps = {fp for fp, at, ev in fp_rows
+                     if not _changed_after(subjects({"evidence": ev}), at, since)}
     dismissed_by_cat = await dismissed_subjects(session)
     existing = {
         f.fingerprint: f for f in (await session.execute(
@@ -922,13 +923,36 @@ async def dismissed_subjects(session: AsyncSession) -> dict[str, set[str]]:
     """
     out: dict[str, set[str]] = {}
     rows = (await session.execute(
-        select(AIFinding.category, AIFinding.evidence)
+        select(AIFinding.category, AIFinding.evidence, AIFinding.dismissed_at)
         .where(AIFinding.status == "dismissed"))).all()
-    for category, evidence in rows:
-        got = subjects({"evidence": evidence})
+    since = await _device_since_of(session, {ip for _c, ev, _at in rows for ip in subjects({"evidence": ev})})
+    for category, evidence, at in rows:
+        # 忽略之後才換了設備的位址不算：那是上一台被忽略，不是現在這台（2026-10-12）
+        got = {ip for ip in subjects({"evidence": evidence}) if not _changed_after({ip}, at, since)}
         if got:
             out.setdefault(category or "", set()).update(got)
     return out
+
+
+async def _device_since_of(session: AsyncSession, ips: set[str]) -> dict[str, datetime]:
+    """這些位址目前這台設備從什麼時候開始用（device_since）；沒換過手的不列。"""
+    if not ips:
+        return {}
+    from sqlalchemy import String
+
+    from app.core.sqlin import in_values
+    rows = (await session.execute(
+        select(func.host(IPAddress.ip), IPAddress.device_since)
+        .where(in_values(func.host(IPAddress.ip), list(ips), type_=String()), IPAddress.device_since.is_not(None))
+    )).all()
+    return {str(h): t for h, t in rows}
+
+
+def _changed_after(ips: set[str], at: datetime | None, since: dict[str, datetime]) -> bool:
+    """這些位址裡有沒有哪一個是在 `at`（忽略的時間）之後才換了設備。"""
+    if at is None:
+        return False
+    return any((t := since.get(ip)) is not None and t > at for ip in ips)
 
 
 def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

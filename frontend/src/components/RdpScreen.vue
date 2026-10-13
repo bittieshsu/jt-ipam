@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { credSuffix, defaultCredId } from "@/utils/savedCreds";
 import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
@@ -68,12 +69,11 @@ async function loadCreds() {
     credOptions.value = [
     { label: t('ssh.cred_manual'), value: null as unknown as string },
     ...savedCreds.value.map((c) => ({
-      label: `${c.label}（${c.domain ? c.domain + "\\" : ""}${c.username}）`,
+      label: `${c.label}（${c.domain ? c.domain + "\\" : ""}${c.username}）${credSuffix(t, c)}`,
       value: c.id,
     }))];
-    if (!selectedCredId.value && savedCreds.value.length) {
-      selectedCredId.value = savedCreds.value[0].id;
-    }
+    // 位址換手前存的不自動帶入：RDP 不驗憑證，會直接把帳密送給現在這台（utils/savedCreds）
+    if (!selectedCredId.value) selectedCredId.value = defaultCredId(savedCreds.value);
   } catch { /* 靜默 */ }
 }
 async function delSelectedCred() {

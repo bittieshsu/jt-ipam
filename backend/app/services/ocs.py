@@ -850,6 +850,9 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
     if complete and seen:
         cleared = await _clear_unmatched(session, server, matched_ids,
                                          peers=await enabled_peers(session, OcsServer))
+    elif matched_ids:
+        # 增量同步也要清：這輪對到新位址的電腦，舊位址上的盤點資料（2026-10-12）
+        cleared = await _clear_moved(session, server, matched_ids, peers=await enabled_peers(session, OcsServer))
 
     # 增量游標推進到這次同步的當下（epoch）。因為 lastupdate 是嚴格大於、下次會退重疊窗。
     if incremental:
@@ -868,6 +871,35 @@ async def sync_instance(session: AsyncSession, server: OcsServer) -> dict[str, A
             "count": len(future), "max_hours": round(max(future).total_seconds() / 3600),
             "timezone": server.timezone}
     return server.last_cost
+
+
+async def _clear_moved(session: AsyncSession, server: OcsServer, matched_ids: set[uuid.UUID],
+                       *, peers: int) -> int:
+    """這一輪對到某個位址的 OCS 電腦，殘留在**別的位址**上的舊盤點資料清掉。
+
+    電腦換了 IP（DHCP）時，新位址會被寫上，舊位址卻要等完整同步才清 —— OCS 2.11 起第一次之後每次都是增量，
+    完整同步永遠不再發生，舊位址就一直頂著這台的 OS 與盤點編號（2026-10-12 全面殘留檢查）。
+    範圍保護跟完整同步的清理一樣：IP 上的 OCS 欄位不記是哪一套寫的，有好幾套又沒設範圍就不清。
+    """
+    from app.services.agent_scope import scope_uuids
+    scope = scope_uuids(server)
+    if peers > 1 and not scope:
+        return 0
+    await session.flush()     # 正式環境 autoflush 關閉：這輪剛寫的 ocs_id 要先送出才查得到
+    ids = [i for (i,) in (await session.execute(
+        select(IPAddress.ocs_id).where(in_values(IPAddress.id, list(matched_ids)),
+                                       IPAddress.ocs_id.isnot(None)))).all()]
+    if not ids:
+        return 0
+    stmt = select(IPAddress).where(in_values(IPAddress.ocs_id, ids), not_in_values(IPAddress.id, matched_ids))
+    if scope:
+        stmt = stmt.where(in_values(IPAddress.subnet_id, scope))
+    rows = (await session.execute(stmt)).scalars().all()
+    for ip in rows:
+        ip.ocs_id = ip.ocs_tag = ip.ocs_agent = ip.ocs_notes = ip.ocs_hw = None
+        ip.os_ocs = None
+        ip.last_seen_ocs = None
+    return len(rows)
 
 
 async def _clear_unmatched(session: AsyncSession, server: OcsServer, matched_ids: set[uuid.UUID],

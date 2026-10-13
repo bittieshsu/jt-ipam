@@ -83,6 +83,12 @@ def test_agent_reports_filtered_ports_distance_uptime_and_whether_the_host_was_i
     timed = mod._parse_nmap_xml("""<nmaprun><host timedout="true"><status state="up" reason="user-set"/>
       <address addr="198.51.100.71" addrtype="ipv4"/></host></nmaprun>""")
     assert timed["host_found"] is True and timed["timedout"] is True
+    # nmap 自己判定主機不在（1.18.2）：-Pn 也會發生，區網內探測當下沒收到 ARP 回應就是這樣
+    #（2026-10-12 正式環境：只回 ARP、時有時無的 VM，「1 IP address (0 hosts up)」）
+    down = mod._parse_nmap_xml("""<nmaprun><runstats><finished elapsed="2.00" exit="success"/>
+      <hosts up="0" down="1" total="1"/></runstats></nmaprun>""")
+    assert down["host_found"] is False and down["hosts_down"] == 1
+    assert mod._parse_nmap_xml("<nmaprun></nmaprun>")["hosts_down"] is None
 
 
 def test_agent_reports_certificate_validity_and_fingerprints_without_the_pem() -> None:
@@ -175,6 +181,11 @@ def test_a_failed_nmap_run_is_not_reported_as_no_response() -> None:
     missing = {"names": _NAMES, "nmap": {"available": True, "exit": 0, "ports": [], "os": [], "closed": 0,
                                          "host_found": False}}
     assert summarize(missing)["scan_failed"] is True
+    # nmap 自己的統計說主機不在（0 hosts up）：不是 nmap 失敗，是探測當下沒回應
+    judged_down = {"names": _NAMES, "nmap": {"available": True, "exit": 0, "ports": [], "os": [], "closed": 0,
+                                             "host_found": False, "hosts_down": 1}}
+    s_down = summarize(judged_down)
+    assert s_down["no_response"] is True and s_down["scan_failed"] is False
     # 逾時、例外
     assert summarize({"names": _NAMES, "nmap": {"available": True, "error": "nmap timed out after 300s"}})["scan_failed"]
     # 單台時限到了：nmap 丟掉這台的結果

@@ -182,6 +182,8 @@ class IPAddressRead(IPAddressBase):
     device_kind: str | None = None             # 掃描代理判讀出的設備類型（services/device_identity）
     device_model: str | None = None            # 廠牌型號
     device_identified_at: datetime | None = None
+    # 目前這台設備從什麼時候開始用這個位址（MAC 換成另一台時寫；之前的推導資料不採用）
+    device_since: datetime | None = None
     probe_last_run: dict[str, Any] | None = None
     # 此 IP 實際會被執行的探測（subnet.scan_method − excluded − ∩ agent 能力），後端算好
     effective_probes: list[str] | None = None

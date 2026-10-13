@@ -84,6 +84,8 @@ export interface IdentifyJob extends IdentifyBrief {
   /** 代理回報的目前階段：names（名稱查詢）→ scan（連接埠／服務／OS） */
   progress?: { stage?: string; elapsed?: number } | null;
   changes?: IdentifyChanges | null;
+  /** 這次探測之後位址換了一台設備（MAC 變了）：結果屬於上一台（2026-10-12） */
+  before_device_change?: boolean;
 }
 
 /**

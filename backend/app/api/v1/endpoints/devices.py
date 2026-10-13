@@ -138,6 +138,14 @@ async def get_device_integrations(
             select(WazuhAgent).where(WazuhAgent.ip.in_(ip_strs)).limit(1)  # bounded: IPs of one device
         )).scalar_one_or_none()
     if wa is not None:
+        # 位址換給另一台設備之後就沒再回報的 agent 說的是上一台，不放進這台裝置（2026-10-12）。
+        # 只看換手：卡片顯示的是 agent 本身的狀態（含「離線」），「離線後位址又被看到活著」那條
+        # 是 OS／弱點判讀用的（agent_represents_ip），拿來藏卡片會讓離線的 agent 整張消失。
+        from app.services.wazuh import agent_predates_device
+        wa_ip = await session.get(IPAddress, wa.jt_ipam_address_id) if wa.jt_ipam_address_id else None
+        if wa_ip is not None and agent_predates_device(wa, wa_ip):
+            wa = None
+    if wa is not None:
         inst = await session.get(WazuhInstance, wa.instance_id)
         # Wazuh 儀表板與 API 是不同服務：API 在 :55000，儀表板在同主機的 443。去掉埠即得。
         dash = _drop_port(inst.api_url) if inst else None

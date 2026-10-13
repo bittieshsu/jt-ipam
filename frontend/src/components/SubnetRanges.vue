@@ -66,6 +66,9 @@ const columns = computed<DataTableColumns<IPRange>>(() => [
         showIndicator: false, height: 6, style: "flex:1; min-width:60px",
         status: r.size && r.used / r.size >= 0.9 ? "error" : r.size && r.used / r.size >= 0.75 ? "warning" : "success" }),
       h("span", { style: "font-size:12px; white-space:nowrap" }, `${r.used} / ${r.size}`),
+      // DHCP 伺服器排除、不發放的位址不算在總數裡 —— 講出來，免得跟範圍的起訖對不上
+      r.excluded ? h("span", { class: "range-excluded", title: t("ranges.excluded_hint", { n: r.excluded }),
+                               "data-testid": "range-excluded" }, t("ranges.excluded_n", { n: r.excluded })) : null,
     ]),
   },
   {
@@ -178,5 +181,6 @@ async function remove(r: IPRange) {
 
 <style scoped>
 .field-hint { font-size: 12px; opacity: 0.7; }
+:global(.range-excluded) { font-size: 11px; opacity: 0.65; white-space: nowrap; }
 .empty { font-size: 13px; opacity: 0.6; padding: 6px 0; }
 </style>

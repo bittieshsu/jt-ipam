@@ -102,17 +102,23 @@ async def _evidence(session: AsyncSession, device_ids: list[uuid.UUID]) -> dict[
         return ev
     ip_ids = list(ip_dev)
     fresh = datetime.now(UTC) - AGENT_FRESH
+    from app.models.address import IPAddress as _IP
+    # 位址換給另一台設備之後（device_since）沒再回報的代理說的是上一台（2026-10-12）
     for addr_id, name, plat, ver in (await session.execute(
             select(WazuhAgent.jt_ipam_address_id, WazuhAgent.os_name, WazuhAgent.os_platform, WazuhAgent.os_version)
-            .where(in_values(WazuhAgent.jt_ipam_address_id, ip_ids), WazuhAgent.last_keep_alive >= fresh))).all():
+            .join(_IP, _IP.id == WazuhAgent.jt_ipam_address_id)
+            .where(in_values(WazuhAgent.jt_ipam_address_id, ip_ids), WazuhAgent.last_keep_alive >= fresh,
+                   or_(_IP.device_since.is_(None), WazuhAgent.last_keep_alive >= _IP.device_since)))).all():
         shown = wazuh_os_display(name, plat, ver)
         if shown:
             ev[ip_dev[addr_id]]["agent"].append(shown)
     for addr_id, os_name in (await session.execute(
             select(RustDeskPeer.address_id, RustDeskPeer.os_name)
+            .join(_IP, _IP.id == RustDeskPeer.address_id)
             .where(in_values(RustDeskPeer.address_id, ip_ids), RustDeskPeer.match_status == "matched",
                    RustDeskPeer.os_name.is_not(None),
-                   or_(RustDeskPeer.last_online_at.is_(None), RustDeskPeer.last_online_at >= fresh)))).all():
+                   or_(RustDeskPeer.last_online_at.is_(None), RustDeskPeer.last_online_at >= fresh),
+                   or_(_IP.device_since.is_(None), RustDeskPeer.last_online_at >= _IP.device_since)))).all():
         from app.services.rustdesk import os_display
         ev[ip_dev[addr_id]]["agent"].append(os_display(os_name) or os_name)
     return ev

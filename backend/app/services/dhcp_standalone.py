@@ -34,6 +34,8 @@ async def write_pools(session: AsyncSession, *, source_type: str, source_id: uui
         session.add(DHCPPoolRange(
             source_type=source_type, source_id=source_id, source_name=source_name,
             subnet_cidr=p.get("subnet"), start_ip=start, end_ip=end,
+            # 扣掉排除區間之前設定的範圍（有排除才給；見 DHCPPoolRange.pool_start）
+            pool_start=p.get("pool_start"), pool_end=p.get("pool_end"),
             family=6 if ":" in start else 4, source=engine, synced_at=now))
         n += 1
     return n

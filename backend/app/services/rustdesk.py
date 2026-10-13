@@ -297,13 +297,13 @@ async def _match(session: AsyncSession, peers: list[RustDeskPeer], now: datetime
             reg_by_ip[_ip_str(p.registered_ip) or ""].append(p)
     want_ips = ({_ip_str(p.registered_ip) for p in peers if p.registered_ip}
                 | {_ip_str(p.report_ip) for p in peers if p.report_ip}) - {None}
-    records: dict[str, list[tuple[uuid.UUID, str | None, uuid.UUID | None]]] = defaultdict(list)
+    records: dict[str, list[tuple[uuid.UUID, str | None, uuid.UUID | None, datetime | None]]] = defaultdict(list)
     if want_ips:
-        for addr_id, ip, hostname, device_id in (await session.execute(
-                select(IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.device_id)
+        for addr_id, ip, hostname, device_id, since in (await session.execute(
+                select(IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.device_id, IPAddress.device_since)
                 .where(in_values(IPAddress.ip, [x for x in want_ips if x])))).all():
-            records[_ip_str(ip) or ""].append((addr_id, hostname, device_id))
-    device_ids = {d for recs in records.values() for _a, _h, d in recs if d}
+            records[_ip_str(ip) or ""].append((addr_id, hostname, device_id, since))
+    device_ids = {d for recs in records.values() for _a, _h, d, _s in recs if d}
     device_names: dict[uuid.UUID, str] = {}
     if device_ids:
         device_names = {d: n for d, n in (await session.execute(
@@ -353,7 +353,7 @@ def _reg_ip_signal(p: RustDeskPeer, reg_by_ip: dict[str, list[RustDeskPeer]], no
 def _decide(
     p: RustDeskPeer,
     reg_by_ip: dict[str, list[RustDeskPeer]],
-    records: dict[str, list[tuple[uuid.UUID, str | None, uuid.UUID | None]]],
+    records: dict[str, list[tuple[uuid.UUID, str | None, uuid.UUID | None, datetime | None]]],
     device_names: dict[uuid.UUID, str],
     by_host: dict[str, set[uuid.UUID]],
     now: datetime,
@@ -362,7 +362,7 @@ def _decide(
     rep_ip = _ip_str(p.report_ip) if (p.report_ip and p.report_ip_at
                                        and now - p.report_ip_at <= MATCH_FRESH) else None
 
-    def unique(ip: str | None) -> tuple[tuple[uuid.UUID, str | None, uuid.UUID | None] | None, str]:
+    def unique(ip: str | None) -> tuple[tuple[uuid.UUID, str | None, uuid.UUID | None, datetime | None] | None, str]:
         if not ip:
             return None, ""
         recs = records.get(ip) or []
@@ -386,7 +386,12 @@ def _decide(
 
     host = _short_host(p.hostname)
     if chosen is not None:
-        addr_id, rec_hostname, device_id = chosen
+        addr_id, rec_hostname, device_id, device_since = chosen
+        # 位址換給另一台設備之後（MAC 變了，2026-10-12）：證據（心跳／上線）比換手還舊＝說的是上一台，不關聯。
+        # 以前舊 peer 的心跳位址最多留 7 天，IP 頁的 RustDesk 連線按鈕會連到上一台
+        seen = p.report_ip_at if "report_ip" in evidence else (now if p.online else p.last_online_at)
+        if device_since is not None and (seen is None or seen < device_since):
+            return "device_changed", None, sorted(evidence), None
         names = {n for n in (_short_host(rec_hostname),
                              _short_host(device_names.get(device_id)) if device_id else None) if n}
         if host and names:

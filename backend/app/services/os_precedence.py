@@ -55,7 +55,10 @@ async def _candidates(session: AsyncSession, ip: Any) -> dict[str, str]:
     if ip.os_guess:
         out["scanner"] = ip.os_guess
     # OCS 代理回報的 OS（獨立欄位，排在 scanner 之上 → 蓋過 nmap 指紋猜測）
-    if getattr(ip, "os_ocs", None):
+    since = getattr(ip, "device_since", None)
+    seen_ocs = getattr(ip, "last_seen_ocs", None)
+    # 位址換手之後沒再盤點過的 OCS 資料說的是上一台（2026-10-12）
+    if getattr(ip, "os_ocs", None) and (since is None or (seen_ocs is not None and seen_ocs >= since)):
         out["ocs"] = ip.os_ocs
     if ip.device_id:
         from app.models.device import Device
@@ -85,10 +88,12 @@ async def _candidates(session: AsyncSession, ip: Any) -> dict[str, str]:
             out["wazuh"] = shown
     # RustDesk 客戶端回報的作業系統（只用已對應到這筆 IP 的裝置；預設排最後）
     from app.models.rustdesk import RustDeskPeer
+    rd_q = select(RustDeskPeer.os_name).where(RustDeskPeer.address_id == ip.id, RustDeskPeer.match_status == "matched",
+                                              RustDeskPeer.os_name.is_not(None))
+    if since is not None:     # 換手之前就沒再上線的 peer 說的是上一台
+        rd_q = rd_q.where(RustDeskPeer.last_online_at >= since)
     rd_os = (await session.execute(
-        select(RustDeskPeer.os_name).where(RustDeskPeer.address_id == ip.id, RustDeskPeer.match_status == "matched",
-                                           RustDeskPeer.os_name.is_not(None))
-        .order_by(RustDeskPeer.online.desc(), RustDeskPeer.last_online_at.desc().nulls_last()).limit(1)
+        rd_q.order_by(RustDeskPeer.online.desc(), RustDeskPeer.last_online_at.desc().nulls_last()).limit(1)
     )).scalar_one_or_none()
     if rd_os:
         from app.services.rustdesk import os_display

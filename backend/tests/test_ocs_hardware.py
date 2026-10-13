@@ -245,6 +245,28 @@ async def test_unmatched_ip_loses_the_hardware_summary_too(db_session) -> None:
     assert ip.ocs_hw is None
 
 
+async def test_incremental_sync_clears_the_old_address_of_a_moved_computer(db_session) -> None:
+    """電腦換了 IP（DHCP）：增量同步把新位址寫上，舊位址上同一台的盤點資料也要清（2026-10-12）。
+    以前只有完整同步才清，OCS 2.11 起第一次之後每次都是增量 → 舊位址永遠頂著這台的 OS。"""
+    old = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41")
+    new = await _mk_ip(db_session, "198.51.100.42", "aa:bb:cc:00:00:41")
+    other = await _mk_ip(db_session, "198.51.100.43", "aa:bb:cc:00:00:43")
+    for ip, oid in ((old, 77), (new, 77), (other, 78)):
+        ip.ocs_id, ip.os_ocs, ip.last_seen_ocs = oid, "Windows 11 Pro", NOW
+    await db_session.flush()
+    cleared = await svc._clear_moved(db_session, _server(), {new.id}, peers=1)
+    await db_session.flush()
+    for ip in (old, new, other):
+        await db_session.refresh(ip)
+    assert cleared == 1
+    assert (old.ocs_id, old.os_ocs, old.last_seen_ocs) == (None, None, None)
+    assert new.ocs_id == 77 and other.ocs_id == 78, "這輪對到的與別台電腦的不動"
+    # 好幾套 OCS 又沒設範圍：分不出是哪一套寫的，不清
+    old.ocs_id = 77
+    await db_session.flush()
+    assert await svc._clear_moved(db_session, _server(), {new.id}, peers=2) == 0
+
+
 # ─────────────────── 裝置明細的 OCS 卡片 ───────────────────
 
 async def test_device_card_shows_ocs_values_not_the_device_fields(client, auth_headers, db_session) -> None:

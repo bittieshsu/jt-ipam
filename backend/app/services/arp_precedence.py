@@ -183,7 +183,7 @@ async def _apply(
         old=str(old_mac) if old_mac is not None else None, new=str(mac),
         source=source, latest=latest,
     )
-    # 換了一台設備（不是第一次填 MAC、也不是來回跳）：上一台自己報的名稱（NetBIOS、mDNS、代理）不再適用
+    # 換了一台設備（不是第一次填 MAC、也不是來回跳）：上一台的辨識結果、OCS 盤點、自己報的名稱都不再適用
     if old_mac is not None and not flap_back:
-        from app.services.hostname import forget_device_names
-        await forget_device_names(session, ip=ip, source=source)
+        from app.services.device_turnover import on_device_replaced
+        await on_device_replaced(session, ip=ip, source=source)

@@ -52,6 +52,7 @@ from app.core.tickets import take_once
 from app.core.ui_error import detail_of, ui_detail
 from app.core.ws_timeouts import (
     HANDSHAKE_TIMEOUT,
+    PROMPT_TIMEOUT,
     WsTimeout,
     keepalive_loop,
     receive_text_within,
@@ -74,7 +75,13 @@ from app.services.sftp import (
     to_entry,
     walk_for_delete,
 )
-from app.services.ssh_tunnel import LEGACY_SSH_ALGS
+from app.services.ssh_tunnel import (
+    LEGACY_SSH_ALGS,
+    SSHHostKeyMismatch,
+    SSHTunnelError,
+    fetch_host_key,
+    pinned_connect_options,
+)
 
 log = structlog.get_logger("sftp")
 
@@ -170,6 +177,18 @@ async def _redeem(ticket: str, address_id: uuid.UUID) -> uuid.UUID | None:
         return uuid.UUID(str(data.get("user_id")))
     except ValueError:
         return None
+
+
+async def _connect_pinned(host: str, port: int, username: str, known_host: str,
+                          kw: dict[str, Any]) -> asyncssh.SSHClientConnection:
+    """只接受釘選的那把主機金鑰（不符 → SSHHostKeyMismatch；見 ssh_tunnel.pinned_known_hosts）。"""
+    return await asyncssh.connect(
+        host, port=port, username=username,
+        **pinned_connect_options(known_host),  # type: ignore[arg-type]
+        agent_path=None,     # 不借用後端主機的 ssh-agent（跟 SSH 主控台一樣）
+        connect_timeout=_CONNECT_TIMEOUT,
+        **LEGACY_SSH_ALGS, **kw,
+    )
 
 
 async def _connect_kwargs(
@@ -279,6 +298,8 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             return
         allowed = await can_use_sftp(s, user=user, ip=ip)
         host = str(ip.ip).split("/")[0]
+        # 主機金鑰跟 SSH 主控台共用同一把釘選（同一台主機）
+        pinned = ip.ssh_host_key
         # 單檔上限：系統設定（預設 100 MB）。連線當下讀一次，改了設定對新連線生效
         from app.services.system_config import get_sftp_max_file_mb
         max_bytes = await get_sftp_max_file_mb(s) * 1024 * 1024
@@ -340,12 +361,35 @@ async def sftp_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "")
             await send({"type": "error", **detail_of(exc, "jump_failed")})
             return
         dial_host, dial_port = tunnel.host, tunnel.port
-        conn = await asyncssh.connect(
-            dial_host, port=dial_port, username=username, known_hosts=None,
-            connect_timeout=_CONNECT_TIMEOUT,
-            **LEGACY_SSH_ALGS, **kw,
-        )
-        kw.clear()          # 憑證明文用完即丟
+        # 主機金鑰：以前完全不驗（known_hosts=None）—— 帳密會交給任何冒充這台的主機（2026-10-12）。
+        # 跟 SSH 主控台一樣：沒釘選先把指紋給人確認再釘選，之後只接受那一把。
+        known_host = pinned
+        if not known_host:
+            try:
+                hk = await fetch_host_key(dial_host, port=dial_port)
+            except SSHTunnelError as exc:
+                raise SftpError(f"無法連線取得主機金鑰：{exc}", code="console_host_key_fetch_failed",
+                                reason=str(exc)[:200]) from exc
+            await send({"type": "hostkey", "fingerprint": hk["fingerprint"]})
+            try:
+                ans = json.loads(await receive_text_within(websocket, PROMPT_TIMEOUT, what="host_key"))
+            except WsTimeout as exc:
+                await send({"type": "error", **detail_of(exc, "console_host_key_timeout")})
+                return
+            if ans.get("type") != "hostkey_accept":
+                await send({"type": "error", **ui_detail("console_host_key_rejected", "已取消（未信任主機金鑰）")})
+                return
+            known_host = hk["known_host"]
+            from app.api.v1.endpoints.ssh_console import _pin_host_key
+            await _pin_host_key(address_id, known_host, actor_user_id=str(user_id), actor_ip=actor_ip)
+        try:
+            conn = await _connect_pinned(dial_host, dial_port, username, known_host, kw)
+        except SSHHostKeyMismatch:
+            await send({"type": "error", **ui_detail(
+                "console_host_key_mismatch", "主機金鑰與先前釘選不符，可能遭中間人攻擊（連線中止）")})
+            return
+        finally:
+            kw.clear()          # 憑證明文用完即丟
         sftp = await conn.start_sftp_client()
         try:
             cwd = await sftp.realpath(".")

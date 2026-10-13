@@ -249,7 +249,7 @@ async def sync_scopes(session: AsyncSession, inst: WindowsDhcpServer) -> int:
     scopes = await asyncio.to_thread(cli.get_scopes)
     now = datetime.now(UTC)
 
-    rows: list[tuple[str | None, str, str]] = []
+    rows: list[tuple[str | None, str, str, str, str]] = []
     excluded: list[Exclusion] = []
     for sc in scopes:
         if str(sc.get("State") or "").lower() == "inactive":
@@ -275,17 +275,17 @@ async def sync_scopes(session: AsyncSession, inst: WindowsDhcpServer) -> int:
                 if a and b:
                     cuts.append((a, b))
         excluded += [Exclusion(a, b, cidr) for a, b in clip(start, end, cuts)]
-        rows += [(cidr, a, b) for a, b in subtract(start, end, cuts)]
+        rows += [(cidr, a, b, start, end) for a, b in subtract(start, end, cuts)]
 
     await replace_exclusions(session, source_type="windows_dhcp", source_id=inst.id,
                              source_name=inst.name, engine="windows", rows=excluded)
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "windows_dhcp", DHCPPoolRange.source_id == inst.id,
     ))
-    for cidr, start, end in rows:
+    for cidr, start, end, pool_start, pool_end in rows:
         session.add(DHCPPoolRange(
             source_type="windows_dhcp", source_id=inst.id, source_name=inst.name,
-            subnet_cidr=cidr, start_ip=start, end_ip=end,
+            subnet_cidr=cidr, start_ip=start, end_ip=end, pool_start=pool_start, pool_end=pool_end,
             family=6 if ":" in start else 4, source="windows", synced_at=now,
         ))
     return len(rows)

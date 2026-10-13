@@ -645,16 +645,17 @@ def _md_ev(e: str) -> str:
 
 
 def _md_points(t: dict[str, str], lang: str) -> str:
+    # 只有一點也用項目符號（使用者 2026-10-12）：同一欄有的條列、有的不條列，看起來像漏了格式
     pts = _points(t[lang], lang)
-    return _md_cell(pts[0]) if len(pts) == 1 else "<br>".join("• " + _md_cell(x) for x in pts)
+    return "<br>".join("• " + _md_cell(x) for x in pts)
 
 
 def _html_points(t: dict[str, str]) -> str:
     cells = []
     for lang in LANGS:
         pts = _points(t[lang], lang)
-        inner = (html.escape(pts[0]) if len(pts) == 1
-                 else '<ul class="pts">' + "".join(f"<li>{html.escape(x)}</li>" for x in pts) + "</ul>")
+        # 只有一點也用清單（使用者 2026-10-12）：同一欄有的條列、有的不條列，看起來像漏了格式
+        inner = '<ul class="pts">' + "".join(f"<li>{html.escape(x)}</li>" for x in pts) + "</ul>"
         cells.append(f'<span class="{lang}">{inner}</span>')
     return "".join(cells)
 
@@ -804,7 +805,7 @@ def html_body() -> str:
         _h3("customer-42001"),
         '    <div class="box"><ul>' + "".join(f"<li>{_tri(_resp(x, r))}</li>" for x, r in zip(RESP_42001, RESP_REFS_42001)) + "</ul></div>",
         "  </section>",
-        '  <section class="blk">', _h2("acceptance"), _table((H_CASE, H_PASS), _ev_rows("case", CASES)),
+        '  <section class="blk">', _h2("acceptance"), _table((H_CASE, H_PASS), _ev_rows("case", CASES), cls="ct cases"),
         f'    <p class="note">{_tri(CASES_NOTE)}</p>',
         '    <p class="note" id="verification">' + "".join(
             f'<span class="{lg}">{html.escape(_verify_text(lg))} <a href="{html.escape(PINNED["ci"])}" target="_blank" '
@@ -827,6 +828,7 @@ _EXTRA_CSS = """  /* 合規對照的表格；驗證方式（測試與設定位�
   p.note{color:var(--muted);font-size:14px;margin:8px 0 0}
   /* 對應控制項欄：編號不折行；索引表的最後一欄（組織的責任）維持一般字型 */
   table.ct td:first-child{white-space:normal;width:17%;min-width:9em}
+  table.ct.cases td:first-child{width:32%;min-width:14em}
   table.ct ul.pts{margin:0;padding-left:1.15em}
   table.ct ul.pts li{margin:0 0 4px;line-height:1.6}
   table.ct ul.pts li:last-child{margin-bottom:0}
@@ -853,6 +855,8 @@ _EXTRA_CSS = """  /* 合規對照的表格；驗證方式（測試與設定位�
     border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;cursor:pointer}
   button.evx:hover{background:#fef2f2}
   @media (max-width:720px){ table.ct td:first-child{white-space:normal} }
+  /* 手機改成卡片排法時（網站共用樣式 560px 以下 .tbl td 滿寬），第一欄的比例寬度不可以蓋過它 */
+  @media (max-width:560px){ table.ct td:first-child,table.ct.cases td:first-child{width:100%;min-width:0} }
 """
 
 

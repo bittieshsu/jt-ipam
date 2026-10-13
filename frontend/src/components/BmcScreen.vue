@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { credSuffix, defaultCredId } from "@/utils/savedCreds";
 import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 /**
  * BMC 主控台（IPMI SOL）— 瀏覽器內序列主控台，版面比照 SshTerminal。
@@ -59,8 +60,9 @@ async function loadCreds() {
     creds.value = await listBmcCredentials(props.addressId);
     credOptions.value = [
     { label: t('ssh.cred_manual'), value: null as unknown as string },
-    ...creds.value.map((c) => ({ label: `${c.label} (${c.username})`, value: c.id }))];
-    if (creds.value.length && !selectedCredId.value) selectedCredId.value = creds.value[0].id;
+    ...creds.value.map((c) => ({ label: `${c.label} (${c.username})${credSuffix(t, c)}`, value: c.id }))];
+    // 位址換手前存的不自動帶入（utils/savedCreds）
+    if (!selectedCredId.value) selectedCredId.value = defaultCredId(creds.value);
   } catch { /* ignore */ }
 }
 void loadCreds();

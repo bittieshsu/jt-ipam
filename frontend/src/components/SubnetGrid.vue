@@ -88,10 +88,12 @@ function umOld(u: UnmanagedAddress): boolean {
 }
 
 /** 範圍換成整數區間（位址圖只畫 IPv4） */
-const rangeSpans = computed(() => (props.ranges ?? []).flatMap((r) => {
-  const a = ipToInt(r.start_ip), b = ipToInt(r.end_ip);
-  return a == null || b == null ? [] : [{ a, b, r }];
-}));
+const rangeSpans = computed(() => (props.ranges ?? []).flatMap((r) =>
+  // 自動範圍被 DHCP 排除區間切成好幾段時照段畫：排除的位址不是 DHCP 範圍
+  (r.segments?.length ? r.segments : [[r.start_ip, r.end_ip]]).flatMap(([s, e]) => {
+    const a = ipToInt(s), b = ipToInt(e);
+    return a == null || b == null ? [] : [{ a, b, r }];
+  })));
 function ipToInt(ip: string): number | null {
   const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(ip).split("/")[0].trim());
   if (!m) return null;

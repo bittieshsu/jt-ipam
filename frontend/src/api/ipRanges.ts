@@ -15,6 +15,9 @@ export interface IPRange {
   size: number;
   used: number;
   first_free: string | null;
+  /** 自動範圍：DHCP 伺服器排除、不發放的位址數（不算在 size 裡）與排除切出來的各段起訖（位址圖照段畫） */
+  excluded?: number;
+  segments?: [string, string][] | null;
   /** 由偵測到的 DHCP 發放範圍自動建立（跟著上游走，不能手動改／刪）與它的來源 */
   auto?: boolean;
   source_label?: string | null;

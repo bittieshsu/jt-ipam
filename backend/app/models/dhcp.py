@@ -38,6 +38,12 @@ class DHCPPoolRange(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     subnet_cidr: Mapped[str | None] = mapped_column(String(64))
     start_ip: Mapped[str] = mapped_column(String(64), nullable=False)      # 範圍起（含）
     end_ip: Mapped[str] = mapped_column(String(64), nullable=False)        # 範圍迄（含）
+    # 扣掉排除區間之前、DHCP 伺服器上設定的那一段範圍（0210）。排除會把一個範圍切成好幾段各存一筆
+    # （讀「在不在範圍內」的地方要的是段），同一個範圍的各段 pool_start／pool_end 相同 ——
+    # 使用率與「集區快用完」要以設定的範圍為單位合併計算（客戶 2026-10-12：第一段被租滿就報 100%）。
+    # 沒有排除的來源不寫（＝跟 start_ip／end_ip 相同）。
+    pool_start: Mapped[str | None] = mapped_column(String(64))
+    pool_end: Mapped[str | None] = mapped_column(String(64))
     family: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
     # DHCP 引擎（kea / isc / windows）—— 與 source_type（哪個整合）分工
     source: Mapped[str] = mapped_column(String(16), default="kea", nullable=False)

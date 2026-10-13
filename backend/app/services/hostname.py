@@ -98,11 +98,18 @@ DEVICE_BOUND_SOURCES = ("netbios", "mdns", "wazuh", "ocs", "rustdesk")
 
 
 async def forget_device_names(session: AsyncSession, *, ip: IPAddress, source: str | None = None) -> None:
-    """IP 換了一台設備：清掉上一台自己報的名稱，再重算有效主機名稱。"""
+    """IP 換了一台設備：清掉上一台自己報的名稱，再重算有效主機名稱。
+
+    逐來源的回報（ip_hostname_reports）也要清（2026-10-12）：以前只清觀測，回報表留著上一台的名稱，
+    另一台代理回報或某個來源被移除重算時（HostnameRun._derive 取所有回報），舊名稱又會冒回來。
+    """
     if ip.id is None:
         return
+    from app.models.ip_hostname import IPHostnameReport
     await session.execute(delete(IPHostnameObservation).where(
         IPHostnameObservation.ip_id == ip.id, IPHostnameObservation.source.in_(DEVICE_BOUND_SOURCES)))
+    await session.execute(delete(IPHostnameReport).where(
+        IPHostnameReport.ip_id == ip.id, IPHostnameReport.source.in_(DEVICE_BOUND_SOURCES)))
     await session.flush()
     await recompute_effective(session, ip=ip, source=source or "system")
 

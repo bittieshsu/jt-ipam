@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { credSuffix, defaultCredId } from "@/utils/savedCreds";
 /**
  * PVE 主控台（noVNC / xterm）。版面與工具列比照 SSH/RDP/VNC。
  * 連線時要求輸入 PVE 帳密（可選擇存進金庫）；kind=vm → @novnc/novnc 圖形 RFB（可送出按鍵、縮放切換）；
@@ -69,7 +70,7 @@ const credOptions = computed(() => [
   // 「用別組帳密」必須在**下拉裡**看得到 —— 只靠 hover 才出現的 ✕ 不算可發現
   { label: t("ssh.cred_manual"), value: null as unknown as string },
   ...savedCreds.value.map((c) => ({
-    label: `${c.label}（${c.username}）`, value: c.id,
+    label: `${c.label}（${c.username}）${credSuffix(t, c)}`, value: c.id,
   })),
 ]);
 
@@ -77,7 +78,8 @@ async function loadCreds() {
   try {
     savedCreds.value = await listPveCredentials(props.addressId);
     // 有已存帳密就預設選最近一筆 → 不必再輸入直接連線（比照 SSH）
-    if (!selectedCredId.value && savedCreds.value.length) selectedCredId.value = savedCreds.value[0].id;
+    // 位址換手前存的不自動帶入（utils/savedCreds）
+    if (!selectedCredId.value) selectedCredId.value = defaultCredId(savedCreds.value);
   } catch { savedCreds.value = []; }
 }
 onMounted(loadCreds);

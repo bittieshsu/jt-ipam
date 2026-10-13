@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { credSuffix, defaultCredId } from "@/utils/savedCreds";
 import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
@@ -18,7 +19,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { useTerminalLinks } from "@/composables/useTerminalLinks";
 import "@xterm/xterm/css/xterm.css";
 import {
-  requestSshTicket, buildSshWsUrl,
+  requestSshTicket, buildSshWsUrl, resetSshHostKey,
   listSshCredentials, createSshCredential, deleteSshCredential, type SshCredential,
 } from "@/api/ssh";
 import { TerminalIcon, CancelIcon, RefreshIcon, DeleteIcon } from "@/icons";
@@ -63,13 +64,12 @@ async function loadCreds() {
     credOptions.value = [
     { label: t('ssh.cred_manual'), value: null as unknown as string },
     ...savedCreds.value.map((c) => ({
-      label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）`,
+      label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）${credSuffix(t, c)}`,
       value: c.id,
     }))];
-    // 有已存帳密就預設選最近一筆 → 不必再輸入，直接按連線（要改用其他帳密可清空下拉）
-    if (!selectedCredId.value && savedCreds.value.length) {
-      selectedCredId.value = savedCreds.value[0].id;
-    }
+    // 有已存帳密就預設選最近一筆 → 不必再輸入，直接按連線（要改用其他帳密可清空下拉）；
+    // 位址換手前存的不自動帶入（utils/savedCreds）
+    if (!selectedCredId.value) selectedCredId.value = defaultCredId(savedCreds.value);
   } catch { /* 靜默：沒有已存帳密不影響手動連線 */ }
 }
 async function delSelectedCred() {
@@ -86,6 +86,8 @@ onMounted(loadCreds);
 type Phase = "form" | "connecting" | "connected" | "closed" | "error";
 const phase = ref<Phase>("form");
 const errorMsg = ref("");
+// 錯誤代碼：主機金鑰不符時要多給一個「清除記住的金鑰」
+const errorCode = ref("");
 
 const form = reactive({
   username: "",
@@ -192,6 +194,7 @@ function setFont(delta: number) {
 
 async function connect() {
   errorMsg.value = "";
+  errorCode.value = "";
   if (!selectedCredId.value && !form.username.trim()) { errorMsg.value = t("ssh.err_username"); return; }
   phase.value = "connecting";
 
@@ -301,6 +304,7 @@ async function connect() {
         break;
       case "error":
         phase.value = "error";
+        errorCode.value = payload.code || "";
         errorMsg.value = wsErrorText(payload, t("ssh.err_generic"));
         break;
     }
@@ -338,6 +342,21 @@ function rejectHostKey() {
   teardown();
   guacSession.value = null;
   phase.value = "form";
+}
+// 金鑰不符：位址換給別台設備、對方重灌都會這樣。清掉後重連會再跳出新指紋讓人核對，不是直接信任
+const resettingKey = ref(false);
+async function resetHostKey() {
+  resettingKey.value = true;
+  try {
+    await resetSshHostKey(props.addressId);
+    msg.success(t("ssh.hostkey_reset_done"));
+    errorCode.value = "";
+    backToForm();
+  } catch (e: any) {
+    msg.error(e?.response?.data?.detail || t("ssh.hostkey_reset_failed"));
+  } finally {
+    resettingKey.value = false;
+  }
 }
 function onGuacHostKey(fp: string) { hostKeyFp.value = fp; hostKeyAsk.value = true; }
 function onGuacError(text: string) { phase.value = "error"; errorMsg.value = text; }
@@ -476,6 +495,17 @@ onBeforeUnmount(teardown);
       </div>
       <n-alert v-if="phase === 'error'" type="error" :show-icon="true" style="margin:8px 0">
         {{ errorMsg }}
+        <div v-if="errorCode === 'console_host_key_mismatch'" class="hostkey-reset" data-testid="ssh-hostkey-reset">
+          <div class="hostkey-reset-hint">{{ t("ssh.hostkey_reset_hint") }}</div>
+          <n-popconfirm @positive-click="resetHostKey">
+            <template #trigger>
+              <n-button size="small" type="error" ghost :loading="resettingKey" :disabled="resettingKey">
+                <template #icon><n-icon :component="DeleteIcon" /></template>{{ t("ssh.hostkey_reset") }}
+              </n-button>
+            </template>
+            {{ t("ssh.hostkey_reset_confirm") }}
+          </n-popconfirm>
+        </div>
       </n-alert>
       <div class="ssh-disp" :class="{ 'ssh-full': fullHeight }">
         <div class="term-host">
@@ -507,6 +537,8 @@ onBeforeUnmount(teardown);
 </template>
 
 <style scoped>
+.hostkey-reset { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.hostkey-reset-hint { font-size: 12px; opacity: .85; }
 .ssh-wrap { width: 100%; }
 .ssh-wrap.ssh-full { height: 100%; display: flex; flex-direction: column; }
 /* 全頁模式且尚未連線：把連線表單置中（頁面很大時不要黏左上角） */

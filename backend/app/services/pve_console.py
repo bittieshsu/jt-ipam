@@ -59,6 +59,11 @@ async def resolve_pve_target(session: AsyncSession, ip: object) -> PveTarget | N
     vm = (await session.execute(
         select(VirtualMachine).where(VirtualMachine.primary_ip_id == ip_id)
     )).scalars().first()
+    from app.services.fw_lookup import vm_mac_conflict
+    if vm is not None and await vm_mac_conflict(session, vm.id, getattr(ip, "mac", None)):
+        # 主要 IP 是舊的（VM 關機、guest agent 讀不到時 PVE 不會清）、這個位址已經換給別台：
+        # 開出去的會是另一台 VM 的主控台（2026-10-12）。改用 MAC 找
+        vm = None
     if vm is None:
         # 後援：用此 IP 的 MAC 對應到 VM 的網卡 —— 涵蓋「一台 VM 多個 IP」時的非主 IP
         # （resolve 只認 primary_ip_id 會讓 VM 的其他 IP 開不出主控台開關）。

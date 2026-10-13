@@ -194,6 +194,9 @@ async def full_ip_context(session: AsyncSession, user: Any, ip: str) -> list[str
         select(WazuhAgent).where(WazuhAgent.ip == ip).limit(1)))
     if wa is not None:
         agent = wa.scalars().first()
+        from app.services.wazuh import agent_represents_ip
+        if agent is not None and ipa is not None and not agent_represents_ip(agent, ipa):
+            agent = None   # 舊登記說的是上一台設備（位址換手或 agent 早已失聯），不拿來判讀（2026-10-12）
         if agent is not None:
             lines.append(f"Wazuh 代理: <data>{fence(agent.name)}</data> 狀態={fence(agent.status)} "
                          f"OS=<data>{fence(getattr(agent, 'os_name', None))}</data>")
@@ -223,6 +226,9 @@ async def full_ip_context(session: AsyncSession, user: Any, ip: str) -> list[str
         .where(VMInterface.primary_ip == ip).limit(1)))
     if vmi is not None:
         row = vmi.first()
+        from app.services.fw_lookup import vm_mac_conflict
+        if row is not None and ipa is not None and await vm_mac_conflict(session, row[1].id, ipa.mac):
+            row = None     # 只有 IP 對到、MAC 不同：說的是上一台（2026-10-12）
         if row is not None:
             lines.append(f"虛擬機: <data>{fence(row[1].name)}</data>（虛擬化平台回報）")
 

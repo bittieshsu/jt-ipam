@@ -44,7 +44,7 @@ def test_console_resolves_and_uses_the_route(name: str) -> None:
 #: 但實際連出去的還是原本那個目標 IP。
 DIAL_SITE = {
     "ssh_console": "host, port = tunnel.host, tunnel.port",
-    "sftp_console": "conn = await asyncssh.connect(\n            dial_host, port=dial_port,",
+    "sftp_console": "conn = await _connect_pinned(dial_host, dial_port, username, known_host, kw)",
     "rdp_console": "return factory.create_connection_newtarget(tunnel.host, io)",
     "vnc_console": "conn = factory.create_connection_newtarget(dial_host, io)",
 }
@@ -54,6 +54,11 @@ DIAL_SITE = {
 def test_console_dials_the_tunnel_not_the_original_target(name: str) -> None:
     src = _src(name)
     assert DIAL_SITE[name] in src, f"{name} 沒有把連線目標換成通道的位址"
+
+
+def test_sftp_fetches_the_host_key_through_the_tunnel() -> None:
+    """要確認的指紋也得走同一條路，否則釘到的是「後端直連看到的那台」（可能根本是另一台）。"""
+    assert "fetch_host_key(dial_host, port=dial_port)" in _src("sftp_console")
 
 
 #: RDP 有兩個引擎（aardwolf / FreeRDP）。跳板這件事**每個引擎各做一次** ——

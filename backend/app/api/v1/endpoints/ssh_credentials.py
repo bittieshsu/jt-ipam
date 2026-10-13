@@ -72,9 +72,19 @@ class SSHCredentialRead(StrictModel):
     has_private_key: bool
     last_used_at: datetime | None
     created_at: datetime
+    # 這組帳密存下之後，綁定的位址換了一台設備（MAC 變了）：不要自動帶入，請使用者確認（2026-10-12）
+    device_changed: bool = False
 
 
-def _to_read(c: SSHCredential) -> SSHCredentialRead:
+def stale_for_device(c: SSHCredential, device_since: datetime | None) -> bool:
+    """綁在某個位址的帳密，存下（或最後修改）之後那個位址才換了設備 → 是給上一台的。"""
+    if c.target_ip_id is None or device_since is None:
+        return False
+    saved_at = c.updated_at or c.created_at
+    return saved_at is None or saved_at < device_since
+
+
+def _to_read(c: SSHCredential, device_since: datetime | None = None) -> SSHCredentialRead:
     fields = c.secrets_enc or {}
     return SSHCredentialRead(
         id=c.id, label=c.label, username=c.username, auth_type=c.auth_type,
@@ -83,6 +93,7 @@ def _to_read(c: SSHCredential) -> SSHCredentialRead:
         has_password="password" in fields,
         has_private_key="private_key" in fields,
         last_used_at=c.last_used_at, created_at=c.created_at,
+        device_changed=stale_for_device(c, device_since),
     )
 
 
@@ -107,7 +118,11 @@ async def list_ssh_credentials(
         )
     stmt = stmt.order_by(SSHCredential.created_at.desc())
     rows = (await session.execute(stmt)).scalars().all()
-    return [_to_read(c) for c in rows]
+    since = None
+    if target_ip_id is not None:
+        ip = await session.get(IPAddress, target_ip_id)
+        since = ip.device_since if ip is not None else None
+    return [_to_read(c, since) for c in rows]
 
 
 @router.post("", response_model=SSHCredentialRead, status_code=201)

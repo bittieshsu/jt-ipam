@@ -1255,7 +1255,10 @@ const cells = computed<Cell[]>(() => {
 /* 整張是用 transform 等比縮的，字也會跟著縮 —— 先除以縮放倍率，畫出來剛好是想要的字級。
    （--rd-fit 只含「自動縮到放得下」那一段；使用者拉的縮放本來就該讓字一起變小。） */
 .rd-compact .u-row { font-size: calc(10px / var(--rd-fit, 1)); }
-.rd-compact .u-num-out { font-size: calc(9px / var(--rd-fit, 1)); }
+/* 縮圖整張等比縮小、字級用 --rd-fit 補回來；編號欄的寬度與內距也要一起補，否則兩位數擠不下會折成兩行，
+   十位數疊到下一格（42U 縮圖在裝置頁上，客戶 2026-10-12 回報）。 */
+.rd-compact .u-num-out { font-size: calc(9px / var(--rd-fit, 1)); width: calc(22px / var(--rd-fit, 1));
+  padding-right: calc(4px / var(--rd-fit, 1)); white-space: nowrap; }
 .rd-compact .d-name { font-size: calc(10px / var(--rd-fit, 1)); max-width: 100%; }
 .rd-compact .d-name-half { font-size: calc(9px / var(--rd-fit, 1)); }
 .rd-compact :deep(.n-card-header) { padding: 10px 14px; }

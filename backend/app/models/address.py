@@ -63,6 +63,9 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     device_kind: Mapped[str | None] = mapped_column(String(24))
     device_model: Mapped[str | None] = mapped_column(String(120))
     device_identified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 目前這台設備從什麼時候開始用這個位址（0209）：MAC 換成另一張網卡時寫（services/device_turnover.py）。
+    #: 拿來判斷綁在位址上的資料（RustDesk、Wazuh、OCS、探測結果、已存帳密、AI 忽略）是不是換手前的
+    device_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: OCS Inventory 代理回報的 OS 原始字串。獨立欄位（不污染掃描代理的 os_guess）——
     #: 經 os_precedence 排在 scanner 之上，讓 agent 回報的 OS 蓋過 nmap 的指紋猜測。
     os_ocs: Mapped[str | None] = mapped_column(String(160))

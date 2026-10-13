@@ -274,9 +274,19 @@ async def update_address(
     if "note" in payload:
         a.note = payload["note"]  # type: ignore[assignment]
     if "mac" in payload:
+        old_mac = a.mac
         a.mac = payload["mac"]  # type: ignore[assignment]
         # 透過 API 明確寫入的 MAC 等同人工編輯：標成 manual（優先序最高）；清空時一併清掉來源
         a.mac_source = "manual" if a.mac else None  # type: ignore[assignment]
+        if str(old_mac or "").lower() != str(a.mac or "").lower():
+            # 以前這條路徑改 MAC 不留異動記錄，也不清上一台的資料（2026-10-12）
+            from app.services.ip_history import log_change
+            await log_change(session, ip=a, event_type="mac_changed", field="mac",
+                             old=str(old_mac) if old_mac else None, new=str(a.mac) if a.mac else None,
+                             source="manual", actor_user_id=user.id)
+            if old_mac and a.mac:
+                from app.services.device_turnover import on_device_replaced
+                await on_device_replaced(session, ip=a, source="manual", actor_user_id=user.id)
 
     await append_audit(
         session,

@@ -905,6 +905,9 @@ async def get_address_relations(
                 select(VirtualMachine).join(VMInterface, VMInterface.vm_id == VirtualMachine.id)
                 .where(func.host(VMInterface.primary_ip) == ipstr).limit(1)
             )).scalar_one_or_none()
+        from app.services.fw_lookup import vm_mac_conflict
+        if vm is not None and await vm_mac_conflict(session, vm.id, obj.mac):
+            vm = None      # 只有 IP 對到、MAC 不同：DHCP 位址換了主人，不是這台 VM（2026-10-12）
         if vm is None:
             names = {n.lower() for n in (obj.hostname, device_name) if n}
             if names:
@@ -1347,6 +1350,10 @@ async def update_address(
         session, ip=obj, before=before, changes=changes,
         source="manual", actor_user_id=str(user.id),
     )
+    # 手動把 MAC 改成另一張網卡＝這個位址換了一台設備：上一台的辨識結果、OCS 盤點、自己報的名稱都清掉
+    if mac_edited and prev_mac and obj.mac:
+        from app.services.device_turnover import on_device_replaced
+        await on_device_replaced(session, ip=obj, source="manual", actor_user_id=str(user.id))
 
     # feature A：套用 hostname 觀測 / pin 變更後重算有效 hostname（內含 hostname_changed 記錄）
     if hostname_change is not _UNSET:

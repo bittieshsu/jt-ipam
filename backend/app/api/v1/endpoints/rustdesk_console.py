@@ -671,6 +671,12 @@ async def _saved_password_h2(st: _State, obj: dict[str, Any]) -> bytes:
         if (cred is None or cred.protocol != "rustdesk" or str(cred.owner_user_id) != st.user_id
                 or cred.target_ip_id is None or str(cred.target_ip_id) != st.ip_id):
             raise _AssistRefused(code="rd_saved_password_unavailable", why=f"credential {cred_id} not usable here")
+        # 密碼存下之後這個位址換了一台設備：不自動送出（會把上一台的密碼送給現在這台），請重新輸入（2026-10-12）
+        from app.api.v1.endpoints.ssh_credentials import stale_for_device
+        target = await s.get(IPAddress, cred.target_ip_id)
+        if target is not None and stale_for_device(cred, target.device_since):
+            raise _AssistRefused(code="rd_saved_password_device_changed",
+                                 why=f"credential {cred_id} predates the device change on this address")
         enc = (cred.secrets_enc or {}).get("password")
         if not enc:
             raise _AssistRefused(code="rd_saved_password_unavailable", why=f"credential {cred_id} has no password")

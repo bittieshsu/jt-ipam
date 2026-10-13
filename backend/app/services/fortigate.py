@@ -373,7 +373,7 @@ async def sync_dhcp_ranges(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
     from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions, subtract
 
     now = datetime.now(UTC)
-    parsed: list[tuple[str | None, str, str]] = []
+    parsed: list[tuple[str | None, str, str, str, str]] = []
     excluded: list[Exclusion] = []
     by_vdom = await _fetch_all_vdoms(fw, EP_DHCP_SERVERS, vdoms)
     for vdom in vdoms:
@@ -389,17 +389,17 @@ async def sync_dhcp_ranges(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
                 a = _valid_ip(_first(rg, "start-ip", "start_ip", "startip"))
                 b = _valid_ip(_first(rg, "end-ip", "end_ip", "endip"))
                 if a and b:
-                    parsed += [(iface, x, y) for x, y in subtract(a, b, cuts)]
+                    parsed += [(iface, x, y, a, b) for x, y in subtract(a, b, cuts)]
                     excluded += [Exclusion(x, y, iface) for x, y in clip(a, b, cuts)]
     await replace_exclusions(session, source_type="fortigate", source_id=fw.id, source_name=fw.name,
                              engine="fortigate", rows=excluded)
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == "fortigate", DHCPPoolRange.source_id == fw.id,
     ))
-    for iface, a, b in parsed:
+    for iface, a, b, pool_start, pool_end in parsed:
         session.add(DHCPPoolRange(
             source_type="fortigate", source_id=fw.id, source_name=fw.name,
-            subnet_cidr=iface, start_ip=a, end_ip=b,
+            subnet_cidr=iface, start_ip=a, end_ip=b, pool_start=pool_start, pool_end=pool_end,
             family=6 if ":" in a else 4, source="fortigate", synced_at=now,
         ))
     return len(parsed)

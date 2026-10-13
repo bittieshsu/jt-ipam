@@ -39,6 +39,10 @@ class IPRangeRead(StrictModel):
     size: int = 0
     used: int = 0
     first_free: str | None = None
+    #: 自動範圍：DHCP 伺服器排除、不發放的位址數（不算在 size 裡）與排除區間切出來的各段起訖
+    #: （起訖是設定的整個範圍；位址圖要照各段畫，排除的位址不是 DHCP 範圍）
+    excluded: int = 0
+    segments: list[list[str]] | None = None
     #: 由偵測到的 DHCP 發放範圍自動建立（跟著上游走，不能手動改／刪）與它的來源（firewall-a · KEA）
     auto: bool = False
     source_label: str | None = None

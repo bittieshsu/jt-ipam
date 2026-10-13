@@ -102,6 +102,10 @@
         </n-card>
 
         <template v-if="job?.status === 'done' && job.summary">
+          <!-- 換手前的探測：結果屬於上一台設備，畫面要講清楚，不可以當成現在這台（2026-10-12） -->
+          <n-alert v-if="job.before_device_change" type="warning" :bordered="false" data-testid="identify-before-device-change">
+            {{ t("identify.before_device_change") }}
+          </n-alert>
           <!-- 探測時完全沒有回應：講清楚，不要只寫「無法判斷」讓人以為是探測壞掉 -->
           <n-alert v-if="job.summary.no_response" type="warning" :bordered="false" data-testid="identify-no-response">
             {{ t("identify.no_response_hint") }}

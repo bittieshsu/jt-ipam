@@ -31,6 +31,12 @@ describe.each(CONSOLES)("%s 的帳密下拉", (file) => {
     expect(i).toBeGreaterThan(-1);
     expect(src.slice(i, i + 120)).toContain("null");
   });
+  it("預設帳密用 defaultCredId，選項標出位址換手前存的（2026-10-12）", () => {
+    expect(src.includes("defaultCredId("),
+      "直接拿第一筆：DHCP 位址換給別台後，會把上一台的帳密自動帶給現在這台").toBe(true);
+    expect(src.includes("credSuffix(t, c)"), "選項要看得出哪一筆是換手前存的").toBe(true);
+    expect(/\[0\]\.id/.test(src), "還有地方直接拿第一筆").toBe(false);
+  });
 });
 
 /**
@@ -74,4 +80,5 @@ describe.each(ALL_CONSOLES)("%s 的已存帳密列", (file, list) => {
     expect(row![1]).not.toContain("credOptions");
     expect(row![1]).toBe(`${list}.length`);
   });
+
 });

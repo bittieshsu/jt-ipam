@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { credSuffix, defaultCredId } from "@/utils/savedCreds";
 import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
@@ -45,10 +46,10 @@ async function loadCreds() {
     savedCreds.value = await listVncCredentials(props.addressId);
     credOptions.value = [
     { label: t('ssh.cred_manual'), value: null as unknown as string },
-    ...savedCreds.value.map((c) => ({ label: c.username ? `${c.label} · ${c.username}` : c.label, value: c.id }))];
-    if (!selectedCredId.value && savedCreds.value.length) {
-      selectedCredId.value = savedCreds.value[0].id;
-    }
+    ...savedCreds.value.map((c) => ({
+      label: (c.username ? `${c.label} · ${c.username}` : c.label) + credSuffix(t, c), value: c.id }))];
+    // 位址換手前存的不自動帶入（utils/savedCreds）
+    if (!selectedCredId.value) selectedCredId.value = defaultCredId(savedCreds.value);
   } catch { /* 靜默 */ }
 }
 async function delSelectedCred() {

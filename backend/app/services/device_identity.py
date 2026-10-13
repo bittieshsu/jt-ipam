@@ -253,13 +253,15 @@ async def ipam_facts(session: AsyncSession, ipa: IPAddress) -> Facts:
                                .where(WazuhAgent.jt_ipam_address_id == ipa.id)
                                .order_by(WazuhAgent.last_keep_alive.desc().nulls_last()).limit(1))).first()
     candidates: list[tuple[str, str | None]] = []
-    if w is not None and w[1] is not None and w[1] >= now - FACT_FRESH:
+    # 位址換手之後（device_since）沒再回報過的代理說的是上一台（2026-10-12）
+    since = getattr(ipa, "device_since", None)
+    if w is not None and w[1] is not None and w[1] >= now - FACT_FRESH and (since is None or w[1] >= since):
         candidates.append(("wazuh", w[0]))
     from app.models.rustdesk import RustDeskPeer
     r = (await session.execute(select(RustDeskPeer.os_name, RustDeskPeer.last_online_at)
                                .where(RustDeskPeer.address_id == ipa.id, RustDeskPeer.match_status == "matched")
                                .order_by(RustDeskPeer.last_online_at.desc().nulls_last()).limit(1))).first()
-    if r is not None and r[0] and r[1] is not None and r[1] >= now - FACT_FRESH:
+    if r is not None and r[0] and r[1] is not None and r[1] >= now - FACT_FRESH and (since is None or r[1] >= since):
         candidates.append(("rustdesk", r[0]))
     if ipa.os_ocs and ipa.last_seen_ocs is not None and ipa.last_seen_ocs >= now - FACT_FRESH:
         candidates.append(("ocs", ipa.os_ocs))

@@ -25,6 +25,19 @@ EVENT_JUMP_KEY = "jump_host.key_changed"
 EVENT_CERT_FETCH = "cert.fetch_failed"
 
 
+def pool_alert_key(pool: Any) -> str:
+    """同一個集區每一輪都要是同一個 key：來源＋子網路＋設定的範圍。
+
+    以前用範圍那一筆的 id —— 每個 DHCP 來源每次同步都刪掉重建範圍，id 每輪都變，
+    滿著的集區就每一輪都被當成新的再通知一次（客戶 2026-10-12）。
+    """
+    src = getattr(pool, "source_type", None)
+    sid = getattr(pool, "source_id", None)
+    if src is None or sid is None:
+        return f"dhcp:{pool.id}"
+    return f"dhcp:{src}:{sid}:{pool.subnet_cidr or ''}:{pool.start_ip}-{pool.end_ip}"
+
+
 async def check_dhcp_pools(
     session: AsyncSession, pools: list[tuple[Any, int, int]], *,
     threshold_pct: int = 90, threshold: int = 1,
@@ -33,7 +46,7 @@ async def check_dhcp_pools(
     sent = 0
     alive: set[str] = set()
     for pool, used, size in pools:
-        key = f"dhcp:{pool.id}"
+        key = pool_alert_key(pool)
         alive.add(key)
         # size 0 = 設定錯誤或同步到一半。不是「滿了」，也不能拿來除
         pct = (used * 100 // size) if size > 0 else 0
@@ -47,15 +60,19 @@ async def check_dhcp_pools(
         # 讀的人得自己找界線在哪
         scope = f"{pool.subnet_cidr} " if pool.subnet_cidr else ""
         where = f"{pool.source_name}（{scope}{pool.start_ip}–{pool.end_ip}）"
-        _p = {"where": where, "used": used, "size": size, "pct": pct}
+        # 排除區間不發放：總數已經扣掉，講出來，免得跟範圍的大小對不上
+        excluded = int(getattr(pool, "excluded", 0) or 0)
+        _p = {"where": where, "used": used, "size": size, "pct": pct, "excluded": excluded}
         if change == "down":
+            ex_txt = f"，已扣除排除的 {excluded} 個位址" if excluded else ""
             await _notify(
                 session, event=EVENT_DHCP,
                 title=f"DHCP 集區快用完：{where}",
-                body=(f"已用 {used}/{size}（{pct}%）。集區用完之後新接上來的機器會直接"
+                body=(f"已用 {used}/{size}（{pct}%{ex_txt}）。集區用完之後新接上來的機器會直接"
                       f"拿不到位址，而現場看到的症狀是「網路壞了」。"),
                 link="/subnets", severity="error",
-                title_key="notif.dhcp_pool_full", body_key="notif.dhcp_pool_full_body",
+                title_key="notif.dhcp_pool_full",
+                body_key="notif.dhcp_pool_full_body_excl" if excluded else "notif.dhcp_pool_full_body",
                 params=_p)
         else:
             await _notify(

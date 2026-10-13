@@ -32,7 +32,6 @@ host key 指紋計算與 `SSHHostKeyMismatch`。安全行為因此與既有的 S
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import uuid
 from collections.abc import AsyncIterator
@@ -52,7 +51,8 @@ from app.services.ssh_tunnel import (
     LEGACY_SSH_ALGS,
     SSHHostKeyMismatch,
     SSHTunnelError,
-    server_key_fingerprint_sha256,
+    pinned_known_hosts,
+    strict_client_factory,
 )
 
 #: 建立跳板連線的逾時。比主控台本身的逾時短 —— 跳板不通時要快點講，
@@ -288,20 +288,6 @@ _pool: dict[uuid.UUID, _Pooled] = {}
 _pool_lock = asyncio.Lock()
 
 
-def _client_factory(expected_fp: str) -> type[asyncssh.SSHClient]:
-    """比對釘選指紋；不符就丟 `SSHHostKeyMismatch`（＝可能有中間人）。"""
-
-    class _Strict(asyncssh.SSHClient):
-        def validate_host_public_key(self, host, addr, port, key):  # type: ignore[no-untyped-def]
-            b64 = key.export_public_key("openssh").decode("ascii").split()[1]
-            actual = server_key_fingerprint_sha256(base64.b64decode(b64))
-            if actual != expected_fp:
-                raise SSHHostKeyMismatch(expected_fp, actual)
-            return True
-
-    return _Strict
-
-
 async def _connect(jump: ViaJumpHost) -> asyncssh.SSHClientConnection:
     if not jump.host_key_fingerprint:
         # 沒釘選就連＝接受任何 host key，而跳板是整條路徑的中間人。
@@ -312,8 +298,9 @@ async def _connect(jump: ViaJumpHost) -> asyncssh.SSHClientConnection:
         )
     opts: dict[str, Any] = {
         "username": jump.username,
-        "client_factory": _client_factory(jump.host_key_fingerprint),
-        "known_hosts": None,
+        # 只有指紋：空的信任清單＋回呼比對指紋。不可以傳 known_hosts=None（＝不驗證，見 pinned_known_hosts）
+        "client_factory": strict_client_factory(jump.host_key_fingerprint),
+        "known_hosts": pinned_known_hosts(None),
         "agent_path": None,          # 不繼承 ssh-agent
         **LEGACY_SSH_ALGS,
     }

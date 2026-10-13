@@ -64,6 +64,7 @@ from app.services.ssh_tunnel import (
     SSHHostKeyMismatch,
     _parse_pubkey_line,
     fetch_host_key,
+    pinned_connect_options,
     server_key_fingerprint_sha256,
 )
 
@@ -193,6 +194,50 @@ async def issue_ssh_ticket(
     }
 
 
+@router.delete("/{address_id}/ssh/host-key")
+async def reset_ssh_host_key(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, bool]:
+    """清掉記住的主機金鑰：位址換給另一台設備後，舊金鑰一定對不上（2026-10-12）。
+
+    換手時刻意不自動清（自動清＝換掉 MAC 就能讓人重新信任）。只有管理員或子網路寫入權限能清 ——
+    只有連線管理權限的人能連線，但不能決定要不要重新信任。清掉後下次連線照樣先看指紋再信任。
+    """
+    ip = await session.get(IPAddress, address_id)
+    level = "none" if ip is None else await get_object_permission(
+        session, user=user, object_type="subnet", object_id=ip.subnet_id)
+    if ip is None or level == "none":
+        # A01：看不到跟不存在一樣
+        raise HTTPException(status_code=404, detail="Address not found")
+    if not has_permission(level, "write"):
+        raise HTTPException(status_code=403, detail=ui_detail(
+            "console_hostkey_reset_forbidden", "需要這個子網路的寫入權限才能清除記住的主機金鑰"))
+    old = ip.ssh_host_key
+    if not old:
+        return {"cleared": False}
+    try:
+        fingerprint: str | None = server_key_fingerprint_sha256(_parse_pubkey_line(old))
+    except Exception:  # 存的格式壞了也要能清
+        fingerprint = None
+    ip.ssh_host_key = None
+    await append_audit(
+        session,
+        actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="ip",
+        object_id=str(ip.id),
+        action="ssh.hostkey_reset",
+        diff={"fingerprint": fingerprint},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return {"cleared": True}
+
+
 async def _redeem_ticket(ticket: str, address_id: uuid.UUID) -> tuple[uuid.UUID | None, str | None]:
     """單次取出 ticket → (user_id, 發票證時決定的引擎)；舊票證沒有引擎欄位 → None（呼叫端照設定）。"""
     if not ticket:
@@ -249,19 +294,27 @@ async def _pin_host_key(address_id: uuid.UUID, known_host: str, *, actor_user_id
             await s.commit()
 
 
-def _strict_client_factory(known_host: str) -> type[asyncssh.SSHClient]:
-    """回傳一個會嚴格比對釘選 host key 的 SSHClient（不符 → SSHHostKeyMismatch）。"""
-    expected_fp = server_key_fingerprint_sha256(_parse_pubkey_line(known_host))
+async def _connect_builtin(host: str, port: int, username: str, known_host: str,
+                           connect_kw: dict[str, Any]) -> asyncssh.SSHClientConnection:
+    """內建引擎連線：只接受釘選的那把主機金鑰（不符 → SSHHostKeyMismatch）。
 
-    class _StrictClient(asyncssh.SSHClient):
-        def validate_host_public_key(self, host, addr, port, key):  # type: ignore[no-untyped-def]
-            actual = key.export_public_key("openssh").decode("ascii").split()
-            actual_fp = server_key_fingerprint_sha256(_parse_pubkey_line(f"{actual[0]} {actual[1]}"))
-            if actual_fp != expected_fp:
-                raise SSHHostKeyMismatch(expected_fp, actual_fp)
-            return True
-
-    return _StrictClient
+    ⚠️ 以前傳 known_hosts=None 加自訂回呼 —— asyncssh 遇到 None 根本不呼叫回呼，
+    釘選的金鑰從沒比對過（2026-10-12 e2e 換一把錯的金鑰，結果直接走到認證）。見 pinned_known_hosts。
+    """
+    async with asyncio.timeout(_CONNECT_TIMEOUT):
+        return await asyncssh.connect(
+            host,
+            port=port,
+            username=username,
+            **pinned_connect_options(known_host),  # type: ignore[arg-type]
+            agent_path=None,
+            # keepalive：目標端靜默斷線（斷電/拔線）約 45s 內偵測 → bridge 結束 → 前端顯示已斷
+            keepalive_interval=15,
+            keepalive_count_max=3,
+            # 相容老裝置（老 switch / 防火牆只支援 CBC / sha1 / ssh-rsa）
+            **LEGACY_SSH_ALGS,
+            **connect_kw,
+        )
 
 
 def _host_key_algs(known_host: str) -> list[str]:
@@ -552,21 +605,7 @@ async def ssh_ws(websocket: WebSocket, address_id: uuid.UUID, ticket: str = "") 
                     await websocket.close()
             return
         try:
-            async with asyncio.timeout(_CONNECT_TIMEOUT):
-                conn = await asyncssh.connect(
-                    host,
-                    port=port,
-                    username=username,
-                    client_factory=_strict_client_factory(known_host),
-                    known_hosts=None,
-                    agent_path=None,
-                    # keepalive：目標端靜默斷線（斷電/拔線）約 45s 內偵測 → bridge 結束 → 前端顯示已斷
-                    keepalive_interval=15,
-                    keepalive_count_max=3,
-                    # 相容老裝置（老 switch / 防火牆只支援 CBC / sha1 / ssh-rsa）
-                    **LEGACY_SSH_ALGS,
-                    **connect_kw,
-                )
+            conn = await _connect_builtin(host, port, username, known_host, connect_kw)
         except SSHHostKeyMismatch:
             await send({"type": "error",
                         **ui_detail("console_host_key_mismatch",

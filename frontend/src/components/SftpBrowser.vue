@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { credSuffix, defaultCredId } from "@/utils/savedCreds";
 import { wsErrorText, revokedCloseText } from "@/utils/wsError";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
@@ -32,7 +33,7 @@ import type { DataTableColumns } from "naive-ui";
 import { h } from "vue";
 import {
   buildSshWsUrl, createSshCredential, deleteSshCredential, listSshCredentials,
-  requestSftpTicket, type SftpEntry, type SshCredential,
+  requestSftpTicket, resetSshHostKey, type SftpEntry, type SshCredential,
 } from "@/api/ssh";
 import { fmtDateTime } from "@/utils/datetime";
 import { useTablePagination } from "@/composables/useTablePagination";
@@ -58,6 +59,12 @@ const connecting = computed(() => phase.value === "connecting");
 /** 是否已經在看檔案清單（連上了、或連上後才斷線）—— 其餘階段都停留在連線卡片上。 */
 const onFileList = computed(() => phase.value === "connected" || phase.value === "closed");
 const errorMsg = ref("");
+// 錯誤代碼：主機金鑰不符時要多給一個「清除記住的金鑰」
+const errorCode = ref("");
+// 主機金鑰 TOFU：跟 SSH 主控台共用同一把釘選（同一台主機）；沒釘選時先給人看指紋
+const hostKeyAsk = ref(false);
+const hostKeyFp = ref("");
+const resettingKey = ref(false);
 const cwd = ref("/");
 // 這條連線是否經由跳板（issue #24）：畫面上的位址是目標，實際路徑多了一跳
 const viaJump = ref("");
@@ -80,7 +87,7 @@ const credOptions = computed(() => [
   { label: t("ssh.cred_manual"), value: null as unknown as string },
   ...creds.value.map((c) => ({
     // 標籤格式與 SSH 主控台一致
-    label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）`,
+    label: `${c.label}（${c.username}・${c.auth_type === "key" ? t("ssh.auth_key") : t("ssh.auth_password")}）${credSuffix(t, c)}`,
     value: c.id,
   })),
 ]);
@@ -168,6 +175,7 @@ function request(obj: Record<string, unknown>): Promise<any> {
 
 async function connect() {
   errorMsg.value = "";
+  errorCode.value = "";
   if (!form.value.credential_id && !form.value.username.trim()) {
     errorMsg.value = t("ssh.err_username"); return;
   }
@@ -235,6 +243,10 @@ async function connect() {
       }
       const m = JSON.parse(ev.data);
       switch (m.type) {
+        case "hostkey":
+          hostKeyFp.value = m.fingerprint || "";
+          hostKeyAsk.value = true;
+          break;
         case "ready":
           everConnected = true;
           phase.value = "connected";
@@ -303,7 +315,7 @@ async function connect() {
           // 同名檔案不是錯誤，是要問使用者的事（會跳出選擇視窗），不顯示錯誤列
           if (m.code !== "sftp_exists") errorMsg.value = wsErrorText(m, m.message ?? "");
           // 連線階段失敗要退回表單，否則使用者卡在一片空白、無從重試
-          if (phase.value !== "connected") phase.value = "error";
+          if (phase.value !== "connected") { phase.value = "error"; errorCode.value = m.code || ""; }
           // 帶上整個錯誤框：code／params 是給 wsErrorText 翻譯用的，was_empty 這種
           // 旗標則讓呼叫端分辨可補救的失敗（資料夾不是空的 → 問要不要連內容一起刪）。
           // 只丟字串的話兩件事都做不到。
@@ -341,6 +353,30 @@ async function connect() {
 function disconnect() {
   try { ws?.close(); } catch { /* noop */ }
   phase.value = "closed";
+}
+
+function acceptHostKey() {
+  hostKeyAsk.value = false;
+  send({ type: "hostkey_accept" });
+}
+function rejectHostKey() {
+  hostKeyAsk.value = false;
+  try { send({ type: "hostkey_reject" }); } catch { /* noop */ }
+}
+
+// 金鑰不符：位址換給別台設備、對方重灌都會這樣。清掉後重連會再跳出新指紋讓人核對，不是直接信任
+async function resetHostKey() {
+  resettingKey.value = true;
+  try {
+    await resetSshHostKey(props.addressId);
+    msg.success(t("ssh.hostkey_reset_done"));
+    errorCode.value = "";
+    reconnect();
+  } catch (e: any) {
+    msg.error(e?.response?.data?.detail || t("ssh.hostkey_reset_failed"));
+  } finally {
+    resettingKey.value = false;
+  }
 }
 
 /** 回到連線表單重連（沿用已選的憑證，不必重打帳密）。 */
@@ -1054,9 +1090,8 @@ async function loadCreds() {
     creds.value = await listSshCredentials(props.addressId);
     // 有已存帳密就預設選最近一筆（與 SSH 主控台一致）：不必再輸入，直接按連線；
     // 要改用其他帳密把下拉清空即可，手動欄位就會回來。
-    if (!form.value.credential_id && creds.value.length) {
-      form.value.credential_id = creds.value[0].id;
-    }
+    // 位址換手前存的不自動帶入（utils/savedCreds）
+    if (!form.value.credential_id) form.value.credential_id = defaultCredId(creds.value);
   } catch { /* 沒有就手動輸入 */ }
 }
 void loadCreds();
@@ -1080,6 +1115,17 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
 
         <n-alert v-if="errorMsg" type="error" :bordered="false" style="margin-bottom:12px">
           {{ errorMsg }}
+          <div v-if="errorCode === 'console_host_key_mismatch'" class="hostkey-reset" data-testid="sftp-hostkey-reset">
+            <div class="hostkey-reset-hint">{{ t("ssh.hostkey_reset_hint") }}</div>
+            <n-popconfirm @positive-click="resetHostKey">
+              <template #trigger>
+                <n-button size="small" type="error" ghost :loading="resettingKey" :disabled="resettingKey">
+                  <template #icon><n-icon :component="DeleteIcon" /></template>{{ t("ssh.hostkey_reset") }}
+                </n-button>
+              </template>
+              {{ t("ssh.hostkey_reset_confirm") }}
+            </n-popconfirm>
+          </div>
         </n-alert>
 
         <!-- 已存帳密（個人保管）：選一筆即以 reference 連線 -->
@@ -1417,10 +1463,26 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
       </div>
       </div>
     </div>
+
+    <!-- 主機金鑰 TOFU 確認（與 SSH 主控台相同） -->
+    <n-modal v-model:show="hostKeyAsk" preset="dialog" :title="t('ssh.hostkey_title')"
+             :positive-text="t('ssh.hostkey_trust')" :negative-text="t('common.cancel')"
+             @positive-click="acceptHostKey" @negative-click="rejectHostKey"
+             :mask-closable="false">
+      <div style="line-height:1.6">
+        <div>{{ t("ssh.hostkey_body", { ip: host }) }}</div>
+        <code class="ssh-fp">{{ hostKeyFp }}</code>
+        <div style="opacity:.7;font-size:12px">{{ t("ssh.hostkey_hint") }}</div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
 <style scoped>
+.hostkey-reset { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.hostkey-reset-hint { font-size: 12px; opacity: .85; }
+.ssh-fp { display: block; margin: 8px 0; padding: 6px 8px; background: rgba(128,128,128,.12);
+  border-radius: 4px; word-break: break-all; font-size: 13px; }
 .sftp-conflict-note { margin-top: 8px; font-size: 12px; opacity: .7; line-height: 1.6; }
 /* 版面與 SshTerminal 對齊：全頁模式時表單置中、內容區填滿剩餘高度 */
 .sftp-wrap { width: 100%; }

@@ -2398,7 +2398,18 @@ async def update_ip(
     if description is not None:
         obj.description = description.strip() or None; changed.append("description")
     if mac is not None:
-        obj.mac = (mac.strip().lower() or None); obj.mac_source = "manual"; changed.append("mac")
+        old_mac, new_mac = obj.mac, (mac.strip().lower() or None)
+        if str(old_mac or "").lower() != str(new_mac or ""):
+            from app.services.ip_history import log_change
+            obj.mac, obj.mac_source = new_mac, ("manual" if new_mac else None)
+            # 以前 MCP 改 MAC 不留異動記錄，也不清上一台的資料（2026-10-12）
+            await log_change(session, ip=obj, event_type="mac_changed", field="mac",
+                             old=str(old_mac) if old_mac else None, new=new_mac,
+                             source="manual", actor_user_id=user.id)
+            if old_mac and new_mac:
+                from app.services.device_turnover import on_device_replaced
+                await on_device_replaced(session, ip=obj, source="manual", actor_user_id=user.id)
+            changed.append("mac")
     await session.flush()
     return {"ip": obj.ip, "updated": changed}
 

@@ -103,12 +103,17 @@ async def _job_out(session: AsyncSession, ip_text: str, job: AgentProbeJob,
     out["result"] = job.result
     out["progress"] = job.progress
     out["changes"] = None
+    # 這個位址在這次探測之後換了一台設備（MAC 變了）：結果屬於上一台（2026-10-12）
+    since = ipa.device_since if ipa is not None else None
+    out["before_device_change"] = bool(since is not None and job.created_at < since)
     if job.status == STATUS_DONE and isinstance(job.result, dict):
         # 跟上一次完成的探測比
         prev = (await session.execute(_jobs_of(ip_text).where(
             AgentProbeJob.status == STATUS_DONE,
             AgentProbeJob.created_at < job.created_at,
         ).order_by(AgentProbeJob.created_at.desc()).limit(1))).scalars().first()
+        if prev is not None and since is not None and prev.created_at < since <= job.created_at:
+            prev = None      # 跨過換手的兩次探測比的是兩台不同的設備，差異沒有意義
         if prev is not None and isinstance(prev.result, dict):
             # 上一次的摘要用同一組條件算（IP 記錄的 MAC、Recog、是不是虛擬機），比的才是同一件事
             from app.services.identify_tasks import job_is_virtual_guest

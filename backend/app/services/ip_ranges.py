@@ -71,7 +71,13 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
 
     「已用」＝範圍內**已經存在的 IP 記錄**（與 DHCP 集區使用率同一個定義）：有人把固定 IP
     設在集區裡一樣吃掉可用量，而那正是應該被看見的事。
+
+    自動建立的範圍：DHCP 伺服器上的一個範圍被排除區間切成好幾段（一段一筆，「在不在範圍內」要的是段），
+    這裡合成一列顯示整個範圍：總數扣掉排除、已用只算各段、下一個可用位址跳過排除的位址，`segments`
+    給各段起訖（位址圖照段畫）。以前一段一列，第一段租滿就顯示「已滿」，看不出其他段還有空位（客戶 2026-10-12）。
     """
+    from app.models.dhcp import DHCPPoolRange
+
     rows = (await session.execute(
         select(IPRange).where(IPRange.subnet_id == subnet.id).order_by(IPRange.start_ip)
     )).scalars().all()
@@ -79,21 +85,52 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
                         for (ip,) in (await session.execute(
                             select(IPAddress.ip).where(IPAddress.subnet_id == subnet.id))).all()})
     used_set = set(used_ints)
-    out: list[dict[str, Any]] = []
+
+    # 自動範圍的每一段 → 它來自的設定範圍（DHCPPoolRange.pool_start／pool_end，0210）
+    parent: dict[tuple[str, str, str], tuple[str, str]] = {}
+    if any(r.source_origin for r in rows):
+        for p in (await session.execute(
+                select(DHCPPoolRange).where(DHCPPoolRange.pool_start.is_not(None)))).scalars().all():
+            parent[(f"{p.source_type}:{p.source_id}"[:64], str(p.start_ip), str(p.end_ip))] = (
+                str(p.pool_start), str(p.pool_end))
+
+    groups: dict[Any, dict[str, Any]] = {}
     for r in rows:
-        lo = int(ipaddress.ip_address(str(r.start_ip).split("/")[0]))
-        hi = int(ipaddress.ip_address(str(r.end_ip).split("/")[0]))
-        used = sum(1 for v in used_ints if lo <= v <= hi)
+        s, e = str(r.start_ip).split("/")[0], str(r.end_ip).split("/")[0]
+        whole = parent.get((str(r.source_origin), s, e)) if r.source_origin else None
+        key = (str(r.source_origin), *whole) if whole else r.id
+        g = groups.get(key)
+        if g is None:
+            g = groups[key] = {"row": r, "start": whole[0] if whole else s, "end": whole[1] if whole else e,
+                               "segments": [], "merged": bool(whole)}
+        g["segments"].append((s, e))
+
+    out: list[dict[str, Any]] = []
+    for g in groups.values():
+        r = g["row"]
+        spans = sorted((int(ipaddress.ip_address(a)), int(ipaddress.ip_address(b))) for a, b in g["segments"])
+        size = sum(hi - lo + 1 for lo, hi in spans)
+        used = sum(1 for v in used_ints if any(lo <= v <= hi for lo, hi in spans))
         first_free = None
-        for v in range(lo, min(hi, lo + _FIRST_FREE_SCAN - 1) + 1):
-            if v not in used_set:
-                first_free = str(ipaddress.ip_address(v))
+        scanned = 0      # 各段合計最多看 _FIRST_FREE_SCAN 個
+        for lo, hi in spans:
+            for v in range(lo, hi + 1):
+                if v not in used_set:
+                    first_free = str(ipaddress.ip_address(v))
+                    break
+                scanned += 1
+                if scanned >= _FIRST_FREE_SCAN:
+                    break
+            if first_free or scanned >= _FIRST_FREE_SCAN:
                 break
+        whole = int(ipaddress.ip_address(g["end"])) - int(ipaddress.ip_address(g["start"])) + 1
         out.append({
             "id": r.id, "subnet_id": r.subnet_id,
-            "start_ip": str(r.start_ip).split("/")[0], "end_ip": str(r.end_ip).split("/")[0],
+            "start_ip": g["start"], "end_ip": g["end"],
             "purpose": r.purpose, "name": r.name, "description": r.description,
-            "size": hi - lo + 1, "used": used, "first_free": first_free,
+            "size": size, "used": used, "first_free": first_free,
+            "excluded": max(0, whole - size) if g["merged"] else 0,
+            "segments": [list(x) for x in g["segments"]] if g["merged"] else None,
             "auto": bool(r.source_origin), "source_label": r.name if r.source_origin else None,
         })
     return out

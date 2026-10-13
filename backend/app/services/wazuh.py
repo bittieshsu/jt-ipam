@@ -222,6 +222,13 @@ def _parse_keep_alive(s: str | None) -> datetime | None:
     return dt
 
 
+def agent_predates_device(agent: Any, ip: Any) -> bool:
+    """位址換給另一台設備（device_since）之後就沒再回報過的 agent：說的是上一台（2026-10-12）。"""
+    since = getattr(ip, "device_since", None)
+    ka = getattr(agent, "last_keep_alive", None)
+    return since is not None and (ka is None or ka < since)
+
+
 def agent_represents_ip(agent: Any, ip: Any, *, grace_hours: int = 24) -> bool:
     """這個 Wazuh agent 現在還代表這個 IP 嗎？
 
@@ -237,9 +244,11 @@ def agent_represents_ip(agent: Any, ip: Any, *, grace_hours: int = 24) -> bool:
     """
     from datetime import timedelta
 
+    ka = getattr(agent, "last_keep_alive", None)
+    if agent_predates_device(agent, ip):
+        return False
     if (getattr(agent, "status", "") or "").lower() == "active":
         return True
-    ka = getattr(agent, "last_keep_alive", None)
     if ka is None:
         return False   # 從未回報過，又不是 active → 沒有理由相信這個對映
     from app.services.arp_seen import newest_aging

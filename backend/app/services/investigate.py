@@ -564,12 +564,13 @@ async def _sec_probe(c: _Ctx) -> dict[str, Any] | None:
     from app.services.oui import vendor_for_mac
     from app.services.recog import get_matcher
 
-    job = (await c.session.execute(
-        select(AgentProbeJob).where(
-            AgentProbeJob.kind == "identify", AgentProbeJob.status == STATUS_DONE,
-            AgentProbeJob.params["targets"][0].astext == c.ip)
-        .order_by(AgentProbeJob.created_at.desc()).limit(1)
-    )).scalars().first()
+    q = select(AgentProbeJob).where(
+        AgentProbeJob.kind == "identify", AgentProbeJob.status == STATUS_DONE,
+        AgentProbeJob.params["targets"][0].astext == c.ip)
+    if c.ipa.device_since is not None:
+        # 位址換手之前的探測屬於上一台設備，不拿來說明現在這台（2026-10-12）
+        q = q.where(AgentProbeJob.created_at >= c.ipa.device_since)
+    job = (await c.session.execute(q.order_by(AgentProbeJob.created_at.desc()).limit(1))).scalars().first()
     if job is None or not isinstance(job.result, dict):
         return None
     raw_nmap = job.result.get("nmap")

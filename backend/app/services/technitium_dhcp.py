@@ -91,6 +91,15 @@ def pool_ranges(start: str, end: str, exclusions: Any) -> list[tuple[str, str]]:
     return [(str(ipaddress.ip_address(x)), str(ipaddress.ip_address(y))) for x, y in out]
 
 
+def pool_parts(start: str, end: str, exclusions: Any) -> list[tuple[str, str, str, str]]:
+    """跟 pool_ranges 一樣，每一段另外帶上它來自的設定範圍（使用率以設定的範圍合併計算）。"""
+    a, b = _ip4(start), _ip4(end)
+    if not a or not b:
+        return []
+    lo, hi = sorted((ipaddress.ip_address(a), ipaddress.ip_address(b)))
+    return [(x, y, str(lo), str(hi)) for x, y in pool_ranges(start, end, exclusions)]
+
+
 def parse_scope(sc: dict[str, Any], *, enabled: bool) -> dict[str, Any]:
     start, end = _ip4(sc.get("startingAddress")), _ip4(sc.get("endingAddress"))
     subnet = None
@@ -115,6 +124,7 @@ def parse_scope(sc: dict[str, Any], *, enabled: bool) -> dict[str, Any]:
              for x in (sc.get("exclusions") or []) if isinstance(x, dict)) if s and e]
     return {"name": str(sc.get("name") or ""), "enabled": enabled, "subnet": subnet, "start": start, "end": end,
             "exclusions": excl, "pools": pool_ranges(start or "", end or "", sc.get("exclusions")),
+            "pool_parts": pool_parts(start or "", end or "", sc.get("exclusions")),
             "router": _ip4(sc.get("routerAddress")), "dns_servers": _ips(sc.get("dnsServers")),
             "ntp_servers": _ips(sc.get("ntpServers")), "wins_servers": _ips(sc.get("winsServers")),
             "domain_name": sc.get("domainName") or None, "lease_seconds": lease, "reservations": reservations}
@@ -222,7 +232,8 @@ async def sync_instance(session: AsyncSession, inst: Any) -> dict[str, Any]:
         counts["scopes"] = len(parsed)
         counts["pools"] = await write_pools(
             session, source_type="technitium", source_id=inst.id, source_name=inst.name, engine=SOURCE,
-            pools=[{"subnet": p["subnet"], "start": a, "end": b} for p in live for a, b in p["pools"]])
+            pools=[{"subnet": p["subnet"], "start": a, "end": b, "pool_start": ps, "pool_end": pe}
+                   for p in live for a, b, ps, pe in p["pool_parts"]])
         # 排除區間本身也記下來（發放範圍已經扣掉），IP 上才標得出「DHCP 排除」
         from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions
         await replace_exclusions(

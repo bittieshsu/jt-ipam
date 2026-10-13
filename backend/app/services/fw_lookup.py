@@ -404,6 +404,9 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
         cust = (await session.get(Customer, sub.customer_id)) if (sub and sub.customer_id) else None
         wa = (await session.execute(
             select(WazuhAgent).where(WazuhAgent.ip == str(ipa.ip)).limit(1))).scalars().first()
+        from app.services.wazuh import agent_represents_ip
+        if wa is not None and not agent_represents_ip(wa, ipa):
+            wa = None      # 舊登記：位址已經換了設備或 agent 早已失聯（2026-10-12）
         return {
             "registered": True, "ip": str(ipa.ip), "ip_id": str(ipa.id),
             "hostname": ipa.hostname, "status": ipa.effective_status,
@@ -583,6 +586,17 @@ async def virtual_guest_kind(session: AsyncSession, ip: str | None, mac: str | N
     if mac and str(mac).lower().startswith(PROXMOX_GUEST_OUI):
         return "vm"
     return None
+
+
+async def vm_mac_conflict(session: AsyncSession, vm_id: Any, mac: Any) -> bool:
+    """只靠 IP 對到這台 VM 時用：IP 記錄的 MAC 與這台 VM 的網卡 MAC 都知道、卻沒有一張相同 → DHCP 位址換了主人，
+    不是這台 VM（vm_match_for 同一條規則；2026-10-12 把關係圖、PVE 主控台、AI 判讀也接上）。"""
+    if not mac or vm_id is None:
+        return False
+    from app.models.virt import VMInterface
+    macs = {str(m).lower() for (m,) in (await session.execute(
+        select(VMInterface.mac).where(VMInterface.vm_id == vm_id, VMInterface.mac.is_not(None)))).all()}
+    return bool(macs) and str(mac).lower() not in macs
 
 
 async def vm_match_for(session: AsyncSession, *, ip: str | None = None,

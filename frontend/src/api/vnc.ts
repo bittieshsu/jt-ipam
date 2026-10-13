@@ -13,6 +13,7 @@ export interface VncCredential {
   has_private_key: boolean;
   last_used_at: string | null;
   created_at: string;
+  device_changed?: boolean;   // 存下之後位址換了設備：不自動帶入（utils/savedCreds）
 }
 export async function listVncCredentials(targetIpId?: string): Promise<VncCredential[]> {
   const { data } = await apiClient.get<VncCredential[]>("/api/v1/ssh-credentials", {

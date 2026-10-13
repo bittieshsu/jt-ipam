@@ -304,9 +304,14 @@ def parse_dhcp_server(data: dict[str, Any]) -> list[dict[str, Any]]:
             pair = tuple(sorted((int(ipaddress.ip_address(a)), int(ipaddress.ip_address(b)))))
             (exc if kind == "exclude" else inc).append(pair)  # type: ignore[arg-type]
         dns = sn.get("dns") if isinstance(sn.get("dns"), dict) else {}
+        # 每一段另外帶上它來自的 include 範圍（使用率以設定的範圍合併計算，排除切出來的段不各算一個集區）
+        def _s(v: int) -> str:
+            return str(ipaddress.ip_address(v))
+        parts = [(_s(x), _s(y), _s(lo), _s(hi)) for lo, hi in sorted(inc) for x, y in _subtract([(lo, hi)], exc)]
         out.append({
             "subnet": cidr, "enabled": server_on and bool(sn.get("enabled", True)),
             "pools": [(str(ipaddress.ip_address(x)), str(ipaddress.ip_address(y))) for x, y in _subtract(inc, exc)],
+            "pool_parts": parts,
             "raw_pools": raw_pools,
             "default_gateway": _ip4(sn.get("default-gateway")),
             "dns_servers": [a for a in (_ip4(dns.get(k)) for k in ("primary", "secondary", "tertiary")) if a],
@@ -470,7 +475,9 @@ async def _write_dhcp(session: AsyncSession, t: Any, parsed: list[dict[str, Any]
     live = [p for p in parsed if p["enabled"]]
     n = await write_pools(session, source_type="checkpoint", source_id=t.id,
                           source_name=t.name, engine=SOURCE,
-                          pools=[{"subnet": p["subnet"], "start": a, "end": b} for p in live for a, b in p["pools"]])
+                          pools=[{"subnet": p["subnet"], "start": a, "end": b, "pool_start": ps, "pool_end": pe}
+                                 for p in live for a, b, ps, pe in p.get("pool_parts") or
+                                 [(x, y, None, None) for x, y in p["pools"]]])
     # exclude 的 ip-pool 本身也記下來（發放範圍已經扣掉），IP 上才標得出「DHCP 排除」
     from app.services.dhcp_exclusions import Exclusion, clip, replace_exclusions
     excluded: list[Exclusion] = []

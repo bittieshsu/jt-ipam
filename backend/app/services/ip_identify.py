@@ -768,6 +768,10 @@ def _scan_error(nmap: dict[str, Any]) -> str | None:
     if nmap.get("exit") not in (None, 0):
         return f"exit {nmap.get('exit')}" + (f": {stderr[-500:]}" if stderr else "")
     if nmap.get("host_found") is False:
+        if nmap.get("hosts_down") and not stderr:
+            # nmap 自己判定主機不在（代理 1.18.2 起回報）：-Pn 時區網內探測當下沒收到 ARP 回應也會這樣 ——
+            # 那是沒有回應，不是 nmap 失敗（2026-10-12 只回 ARP、時有時無的 VM 被說成「nmap 執行失敗」）
+            return None
         return stderr[-500:] or "no host in nmap output"
     if nmap.get("timedout"):
         return "host timeout"

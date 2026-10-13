@@ -92,6 +92,51 @@ def server_key_fingerprint_sha256(key_blob: bytes) -> str:
     return f"SHA256:{b64}"
 
 
+def pinned_known_hosts(known_host: str | None = None) -> tuple[list[asyncssh.SSHKey], list, list]:
+    """asyncssh 的 known_hosts 參數：一份「只信這一把」的清單（沒給金鑰＝空清單）。
+
+    ⚠️ 不可以傳 None：asyncssh 收到 None 是「整個關掉主機金鑰驗證」，連
+    SSHClient.validate_host_public_key 都不會被叫到 —— 自訂的比對寫得再嚴也形同虛設。
+    2026-10-12 發現內建 SSH 主控台、跳板、SSH 通道都是這樣：記住的金鑰從沒真的比對過
+    （有守門測試 test_ssh_host_key_enforced.py）。
+    給了金鑰：演算法協商會優先要這種金鑰，伺服器有好幾把時才不會拿到另一把而誤判不符；
+    不在清單裡的金鑰交給 strict_client_factory 比對指紋（不符丟 SSHHostKeyMismatch）。
+    只有指紋沒有金鑰（跳板）時給空清單：每一把都交給它比對。
+    """
+    if not known_host:
+        return [], [], []
+    try:
+        return [asyncssh.import_public_key(known_host.strip())], [], []
+    except (asyncssh.KeyImportError, ValueError) as exc:
+        raise SSHTunnelError("記住的主機金鑰無法解析", code="ssh_known_host_format",
+                             reason=str(exc)[:200]) from exc
+
+
+def fingerprint_of_line(known_host: str) -> str:
+    """'ssh-ed25519 AAAA…' → 'SHA256:…'。"""
+    return server_key_fingerprint_sha256(_parse_pubkey_line(known_host))
+
+
+def strict_client_factory(expected_fp: str) -> type[asyncssh.SSHClient]:
+    """跟 pinned_known_hosts 搭配：伺服器拿出的金鑰指紋不是 expected_fp → SSHHostKeyMismatch。"""
+
+    class _StrictClient(asyncssh.SSHClient):
+        def validate_host_public_key(self, host, addr, port, key):  # type: ignore[no-untyped-def]
+            blob = base64.b64decode(key.export_public_key("openssh").decode("ascii").split()[1])
+            actual = server_key_fingerprint_sha256(blob)
+            if actual != expected_fp:
+                raise SSHHostKeyMismatch(expected_fp, actual)
+            return True
+
+    return _StrictClient
+
+
+def pinned_connect_options(known_host: str) -> dict[str, object]:
+    """asyncssh.connect 的主機金鑰參數：只接受釘選的那一把。"""
+    return {"known_hosts": pinned_known_hosts(known_host),
+            "client_factory": strict_client_factory(fingerprint_of_line(known_host))}
+
+
 async def guard_ssh_target(host: str, port: int) -> None:
     """管理員設定的 SSH 目標（phpIPAM 搬移、跳板）：連線前檢查位址（core/net_guard 的 integration）。"""
     from app.core.net_guard import acheck_target
@@ -188,29 +233,13 @@ async def open_tunnel(cfg: TunnelConfig) -> AsyncIterator[int]:
         raise SSHTunnelError(f"private key 無法解析: {exc}",
                              code="ssh_key_parse", reason=str(exc)[:200]) from exc
 
-    # 設定 known_hosts callback
+    # 主機金鑰：給了 known_host 就只接受那一把（見 pinned_known_hosts，不可以傳 None 加回呼）
     if cfg.known_host:
-        expected_blob = _parse_pubkey_line(cfg.known_host)
-        expected_fp = server_key_fingerprint_sha256(expected_blob)
-
-        def _validate(_host: str, _addr: str, _port: int, key) -> bool:  # type: ignore[no-untyped-def]
-            actual_b64 = key.export_public_key("openssh").decode("ascii").split()[1]
-            actual_blob = base64.b64decode(actual_b64)
-            actual_fp = server_key_fingerprint_sha256(actual_blob)
-            if actual_fp != expected_fp:
-                raise SSHHostKeyMismatch(expected_fp, actual_fp)
-            return True
-
-        class _StrictClient(asyncssh.SSHClient):
-            def validate_host_public_key(self, host, addr, port, key):  # type: ignore[no-untyped-def]
-                return _validate(host, addr, port, key)
-
-        client_factory = _StrictClient
-        known_hosts = None
+        host_key_opts = pinned_connect_options(cfg.known_host)
     else:
-        # 沒給 known_host = 不做 host key 檢查（只應在 TOFU preview 階段用）
-        client_factory = None
-        known_hosts = None
+        # 沒給 known_host = 不做 host key 檢查。只剩 phpIPAM 搬移（管理員、單次）允許不填，
+        # 它的畫面會先取指紋給人確認再帶進來；其餘地方都要釘選。
+        host_key_opts = {"known_hosts": None}  # host-key: unverified-ok（搬移的 known_host 選填）
 
     await guard_ssh_target(cfg.host, cfg.port)
     try:
@@ -220,8 +249,7 @@ async def open_tunnel(cfg: TunnelConfig) -> AsyncIterator[int]:
                 port=cfg.port,
                 username=cfg.username,
                 client_keys=[client_key],
-                client_factory=client_factory,
-                known_hosts=known_hosts,
+                **host_key_opts,  # type: ignore[arg-type]
                 # 安全：不繼承 agent；不允許 password fallback
                 agent_path=None,
                 preferred_auth=("publickey",),
