@@ -21,4 +21,7 @@ async def search_endpoint(
     q: Annotated[str, Query(min_length=1, max_length=128)],
     limit_per_type: Annotated[int, Query(ge=1, le=50)] = 8,
 ) -> dict[str, Any]:
-    return await run_search(session, user=user, q=q, limit_per_type=limit_per_type)
+    # 全站搜尋框照管理員的設定（搜哪些類型與欄位、排列順序）；AI 工具直接呼叫 run_search、不帶設定＝全搜
+    from app.services.search_settings import get_search_settings
+    settings = await get_search_settings(session)
+    return await run_search(session, user=user, q=q, limit_per_type=limit_per_type, settings=settings)

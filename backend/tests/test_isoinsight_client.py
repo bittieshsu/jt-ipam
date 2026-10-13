@@ -212,6 +212,27 @@ async def test_missing_token_fails_without_guessing(srv, body) -> None:
     assert not srv.hits("GET", "/isosvc")
 
 
+async def test_missing_token_says_what_the_response_looks_like(srv) -> None:
+    """取不到 Token 時把登入回應的結構講出來（欄位與型別，不含值），客戶才知道路徑該填什麼（2026-10-13）。"""
+    srv.route("POST", "/api/logon", json_resp({"code": 200, "result": {"Session": "very-secret-token"}}))
+    async with C.IsoClient(_settings(srv, auth_mode="token", token_path="SessionID"), check=_allow_loopback) as cli:
+        with pytest.raises(IsoError) as ei:
+            await cli.login()
+        shape = '{code: 200, result: {Session: str(17)}}'
+        assert shape in str(ei.value)
+        assert cli.trace[-1]["response_shape"] == shape
+        assert "very-secret-token" not in json.dumps(cli.trace, default=str) + str(ei.value)
+
+
+async def test_token_found_under_a_differently_cased_key_is_used_and_noted(srv) -> None:
+    srv.route("POST", "/api/logon", json_resp({"code": 200, "sessionId": "tok-77"}))
+    srv.route("GET", "/isosvc", lease_body(ROWS))
+    async with C.IsoClient(_settings(srv, auth_mode="token", token_path="SessionID"), check=_allow_loopback) as cli:
+        await cli.login()
+        assert cli.trace[-1]["token_found"] is True
+        assert cli.trace[-1]["token_path_used"] == "sessionId"
+
+
 # ── 讀租約：到期、權限、重試 ──────────────────────────────────────────────────
 
 async def test_expired_session_relogs_in_once(srv) -> None:

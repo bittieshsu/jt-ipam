@@ -345,6 +345,66 @@ async def put_ui_display(
     return UiDisplayOut(change_log_dim_days=days)
 
 
+class SearchTypeSetting(StrictModel):
+    type: Annotated[str, Field(max_length=32)]
+    enabled: bool = True
+    fields: Annotated[list[Annotated[str, Field(max_length=32)]], Field(max_length=20)] = Field(default_factory=list)
+
+
+class SearchSettingsIn(StrictModel):
+    # 隨打即找（邊打邊出結果）；關掉就按 Enter 才搜尋
+    instant: bool = True
+    # 順序＝結果的排列順序；沒列到的類型照預設接在後面
+    types: Annotated[list[SearchTypeSetting], Field(max_length=50)] = Field(default_factory=list)
+
+
+class SearchSettingsOut(SearchSettingsIn):
+    # 每個類型可以比對的欄位（允許清單）
+    catalog: dict[str, list[str]] = Field(default_factory=dict)
+
+
+def _search_settings_out(s: dict[str, Any]) -> SearchSettingsOut:
+    from app.services.search_settings import CATALOG
+    return SearchSettingsOut(instant=s["instant"], types=[SearchTypeSetting(**x) for x in s["types"]],
+                             catalog={t: list(f) for t, f in CATALOG.items()})
+
+
+@public_router.get("/search-settings", response_model=SearchSettingsOut)
+async def get_search_settings_endpoint(
+    _user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SearchSettingsOut:
+    """全站搜尋的設定（使用者 2026-10-13）。任何登入的人都讀得到：搜尋框要知道要不要隨打即找、怎麼排。"""
+    from app.services.search_settings import get_search_settings
+    return _search_settings_out(await get_search_settings(session))
+
+
+@router.put("/search-settings", response_model=SearchSettingsOut)
+async def put_search_settings(
+    payload: SearchSettingsIn,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SearchSettingsOut:
+    from app.core.ui_error import UiError, detail_of
+    from app.services.search_settings import set_search_settings
+    try:
+        s = await set_search_settings(session, payload.model_dump(), updated_by_user_id=user.id)
+    except UiError as exc:
+        raise HTTPException(status_code=422, detail=detail_of(exc, "search_settings_invalid")) from exc
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        object_type="system", object_id=None, action="update",
+        diff={"target": "global_search", "instant": s["instant"],
+              "types": [f"{x['type']}{'' if x['enabled'] else ' (off)'}: {','.join(x['fields'])}" for x in s["types"]]},
+        request_id=getattr(request.state, "request_id", None),
+    )
+    await session.commit()
+    return _search_settings_out(s)
+
+
 class DevicePortFilterOut(StrictModel):
     # 匯入裝置連接埠時，過濾掉符合這些名稱樣式（正則）的偽介面（Windows NDIS / WAN Miniport
     # 等）。filter_pseudo 是總開關；關閉時匯入不過濾也不清除。

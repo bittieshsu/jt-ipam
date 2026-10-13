@@ -1280,7 +1280,7 @@ def _pending_prompt_text(pending: list[dict[str, Any]]) -> str:
 
 async def _run_tool_calls(session: AsyncSession, user: Any, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """執行 LLM 要求的 tool_calls，回傳要 append 進 convo 的 tool 訊息（含 name）。"""
-    from app.mcp.tools import TOOLS, IPAMToolError, authorize_tool
+    from app.mcp.tools import TOOLS, IPAMToolError, authorize_tool, call_tool
 
     out: list[dict[str, Any]] = []
     for call in tool_calls:
@@ -1299,7 +1299,8 @@ async def _run_tool_calls(session: AsyncSession, user: Any, tool_calls: list[dic
             tool_result = {"error": denied}
         else:
             try:
-                tool_result = await TOOLS[name]["fn"](session, user=user, **args)
+                # 共用入口：先檢查參數格式、在 SAVEPOINT 裡跑 —— 一個工具出錯不會讓後面的工具與存對話紀錄跟著失敗
+                tool_result = await call_tool(session, user, name, args)
             except IPAMToolError as exc:
                 tool_result = {"error": str(exc)}
             except Exception as exc:

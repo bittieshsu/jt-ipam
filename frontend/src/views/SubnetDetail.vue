@@ -1043,6 +1043,11 @@ onMounted(() => {
   background: rgba(127, 127, 127, 0.06);
   cursor: default;
 }
+/* 未納管列：內容變淡，跟已登記的列分得出來（使用者 2026-10-13）。刻意不用閒置列的灰底：那代表「空的、可以配發」，
+   未納管卻是真的有設備在用，換成那個底色會讓人以為可以拿去用。狀態欄的橘色標籤與操作欄不淡（還是要一眼找得到、點得到）。
+   只淡化內容、不動儲存格：固定在右側的欄位底色若變半透明，橫向捲動時後面的內容會透出來。 */
+:deep(.ip-um-row td:not([data-col-key="state"]):not([data-col-key="actions"])) { color: rgba(127, 127, 127, 0.9); }
+:deep(.ip-um-row td:not([data-col-key="state"]):not([data-col-key="actions"]) > *) { opacity: 0.55; }
 pre {
   font-size: 12px;
   background: rgba(127, 127, 127, 0.08);

@@ -273,7 +273,12 @@ async function toggleRustDeskSwitch(page: Page) {
   const sw = page.getByTestId("ip-rustdesk-enable");
   await sw.scrollIntoViewIfNeeded();
   await sw.click();
+  // 等儲存的回應本身：按完就換頁的話，負載高時請求會被換頁中斷（發版 e2e 與安裝關卡同跑時遇過：
+  // 關掉有存到、開回來沒存到，之後的 RustDesk 測試全部找不到連線按鈕）
+  const saved = page.waitForResponse((r) => /\/api\/v1\/addresses\/[0-9a-f-]+$/.test(new URL(r.url()).pathname)
+    && ["PUT", "PATCH"].includes(r.request().method()));
   await page.getByRole("button", { name: /儲存|保存/ }).first().click();
+  expect((await saved).ok()).toBe(true);
 }
 
 test("RustDesk 連線按鈕比照 VNC：IP 編輯裡關掉就消失，開回來才出現", async ({ page }) => {

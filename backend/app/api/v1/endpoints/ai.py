@@ -7,7 +7,9 @@ POST /api/v1/ai/chat             (auth)：自然語言 + jt-ipam tools（Ollama�
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -26,6 +28,8 @@ from app.schemas.base import StrictModel
 from app.services import ai as ai_service
 from app.services import ai_chat_store, system_config
 from app.services.ai_guard import AIInputRejected, screen_user_messages
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -170,7 +174,14 @@ async def chat_confirm(
 ) -> dict[str, Any]:
     """執行使用者在 AI 對話中按下「確認」的異動動作（允許清單工具；權限仍由工具本身把關）。"""
     await limit_per_ip(request, name="ai")
-    from app.mcp.tools import MUTATING_TOOLS, TOOLS, IPAMToolError, authorize_tool, summarize_action
+    from app.mcp.tools import (
+        MUTATING_TOOLS,
+        TOOLS,
+        IPAMToolError,
+        authorize_tool,
+        call_tool,
+        summarize_action,
+    )
     if payload.tool not in MUTATING_TOOLS or payload.tool not in TOOLS:
         raise HTTPException(status_code=400, detail="not a confirmable action")
     # 執行前再過一次 RBAC 閘（跟模型提出動作時同一個）：以前只靠每個工具自己的 is_admin 檢查，
@@ -179,7 +190,7 @@ async def chat_confirm(
     if denied is not None:
         raise HTTPException(status_code=403, detail=denied)
     try:
-        result = await TOOLS[payload.tool]["fn"](session, user=user, **payload.args)
+        result = await call_tool(session, user, payload.tool, payload.args)
     except IPAMToolError as exc:
         await session.rollback()
         raise HTTPException(status_code=400, detail=detail_of(exc, "ai_tool_error")) from exc
@@ -226,6 +237,9 @@ async def chat_stream(
     if not cfg.enabled:
         raise HTTPException(status_code=503, detail="LLM is disabled")
 
+    # 存對話紀錄失敗時會還原交易，ORM 物件跟著過期（之後在串流裡讀 user.id 會變成同步延遲載入而失敗）
+    user_id, user_is_admin = user.id, bool(user.is_admin)
+
     async def event_gen() -> Any:
         iterations = 0
         try:
@@ -239,27 +253,34 @@ async def chat_stream(
                     continue
                 if ev.get("type") == "done":
                     iterations = len(ev.get("trace_messages") or [])
-                    conv = await ai_chat_store.save_turn(
-                        session,
-                        user_id=user.id,
-                        conversation_id=_parse_uuid(payload.conversation_id),
-                        user_text=_last_user_text(msgs),
-                        assistant_text=ev.get("answer") or "",
-                        model=ev.get("model"),
-                        elapsed_ms=ev.get("elapsed_ms"),
-                    )
-                    ev = {**ev, "conversation_id": str(conv.id)}
+                    # 存紀錄失敗不可以把回答吃掉（2026-10-13：模型其實答好了，存檔失敗讓整段變成錯誤、畫面空白）
+                    try:
+                        conv = await ai_chat_store.save_turn(
+                            session,
+                            user_id=user_id,
+                            conversation_id=_parse_uuid(payload.conversation_id),
+                            user_text=_last_user_text(msgs),
+                            assistant_text=ev.get("answer") or "",
+                            model=ev.get("model"),
+                            elapsed_ms=ev.get("elapsed_ms"),
+                        )
+                        ev = {**ev, "conversation_id": str(conv.id)}
+                    except Exception:
+                        log.warning("AI chat history save failed", exc_info=True)
+                        with contextlib.suppress(Exception):
+                            await session.rollback()
+                        ev = {**ev, "history_saved": False}
                 yield f"data: {json.dumps(ev, ensure_ascii=False, default=str)}\n\n"
         except Exception as exc:
             from app.services.ai import ai_error_event
-            ev = {"type": "error", **ai_error_event(exc, admin=bool(user.is_admin), code="ai_failed",
+            ev = {"type": "error", **ai_error_event(exc, admin=user_is_admin, code="ai_failed",
                                                     reason=f"stream failed: {exc.__class__.__name__}")}
             yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
             return
         # 串流正常結束才寫 audit（與非串流 chat 對齊）
         await append_audit(
             session,
-            actor_user_id=str(user.id),
+            actor_user_id=str(user_id),
             actor_ip=request.client.host if request.client else None,
             actor_user_agent=request.headers.get("user-agent"),
             object_type="ai", object_id=None, action="chat",

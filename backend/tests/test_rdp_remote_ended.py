@@ -6,7 +6,8 @@
 （exit_reason），所以至少要分得出三種情況：
 
 - 還沒送出任何畫面就被伺服器結束 → 多半是伺服器端拒絕（授權、遠端登入權限、工作階段已滿），
-  要講出來並建議改用 FreeRDP 引擎（它會顯示伺服器給的原因）。
+  要講出來並建議改用 guacd 引擎（預設；它會顯示伺服器給的原因）。2026-10-13 起一律建議 guacd，
+  不再建議 FreeRDP（客戶照提示切到 FreeRDP），aardwolf 也會逐步淘汰。
 - 用到一半被結束（例如在遠端登出）→ 說「被控端結束了這個工作階段」。
 - 使用者自己關掉分頁 → 什麼都不用說。
 """
@@ -54,10 +55,11 @@ async def _run(conn, ws) -> list[dict]:
 
 
 @pytest.mark.anyio
-async def test_server_ends_before_any_frame_says_so_and_suggests_freerdp() -> None:
+async def test_server_ends_before_any_frame_says_so_and_suggests_guacd() -> None:
     errs = await _run(_Conn([None]), _WS())
     assert [e["code"] for e in errs] == ["console_remote_ended_early"]
-    assert "FreeRDP" in errs[0]["message"]
+    assert "guacd" in errs[0]["message"]
+    assert "FreeRDP" not in errs[0]["message"]
 
 
 @pytest.mark.anyio

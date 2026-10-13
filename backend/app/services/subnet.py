@@ -223,6 +223,12 @@ async def find_first_free_address(
                 SELECT host(ip)::inet AS ip
                   FROM ip_addresses
                  WHERE subnet_id = :sid
+                UNION
+                -- 冷卻中的位址也不給（2026-10-13）：新增 IP 的 API 會擋，但「配發下一個可用」、IP 申請核准、
+                -- AI 工具的配發直接呼叫建立的服務 —— 不排除就會把冷卻中的位址配出去（等於繞過冷卻期）
+                SELECT host(ip)::inet
+                  FROM ip_cooldowns
+                 WHERE subnet_id = :sid AND cleared_at IS NULL AND until > now()
             )
             SELECT host(CAST(:base AS inet) + g) AS candidate
               FROM generate_series(0, :span) AS g
@@ -248,11 +254,13 @@ async def find_first_free_address(
         """
     )
     max_ip = (await session.execute(sql, {"sid": str(subnet.id)})).scalar()
-    if max_ip is None:
-        # 第一個 host = network + 1（::）；通常 network 自身可不 reserve
-        first = net.network_address + 1  # type: ignore[assignment]
-        return str(first)
-    candidate = ipaddress.ip_address(str(max_ip)) + 1
+    candidate = (net.network_address + 1 if max_ip is None   # 第一個 host = network + 1（::）
+                 else ipaddress.ip_address(str(max_ip)) + 1)
+    # 冷卻中的位址跳過（見上面 IPv4 的說明）
+    from app.services.ip_lifecycle import active_cooldowns
+    cooling = set(await active_cooldowns(session, subnet.id))
+    while candidate in net and str(candidate) in cooling:
+        candidate += 1
     if candidate not in net:
         return None
     return str(candidate)

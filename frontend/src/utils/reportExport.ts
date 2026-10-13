@@ -9,6 +9,8 @@
  *   深色表頭（跨頁重複）、斑馬紋、9pt 表格字、欄寬加總剛好等於可用寬度（不會超出右邊界）、頁尾頁碼
  *   顏色與 backend/app/services/report_pdf.py 相同
  * - 表格：每個分頁一張工作表的 XLSX／ODS
+ * - HTML（2026-10-13，異常偵測匯出要的）：同一份大綱、同一套顏色的單一網頁，樣式內嵌、不連外；
+ *   所有文字都跳脫（主機名稱、規則描述是外部可控的文字）
  */
 import { xmlEscape, zipStore } from "@/utils/tableExport";
 import { saveBlob, type SaveMeta } from "@/utils/saveFile";
@@ -292,6 +294,88 @@ export function reportOdt(r: Report): Uint8Array {
   ]);
 }
 
+// ── HTML ──
+const htmlEsc = (s: string) => xmlEscape(s);
+const htmlText = (s: string) => s.split("\n").map(htmlEsc).join("<br>");
+
+function htmlTable(t: ReportTable): string {
+  if (!t.rows.length) return '<p class="muted">—</p>';
+  const widths = columnWidths(t, 100);
+  const cols = `<colgroup>${widths.map((w) => `<col style="width:${w}%">`).join("")}</colgroup>`;
+  const head = `<thead><tr>${t.cols.map((c) => `<th>${htmlText(c)}</th>`).join("")}</tr></thead>`;
+  const body = t.rows.map((r, i) => {
+    const tone = t.tones?.[i];
+    return `<tr${tone ? ` class="tone-${tone}"` : ""}>${r.map((c) => `<td>${htmlText(c)}</td>`).join("")}</tr>`;
+  }).join("");
+  return `<table class="data">${cols}${head}<tbody>${body}</tbody></table>`;
+}
+
+/** 報告存成單一網頁：版面與 PDF／DOCX／ODT 相同（A4 列印也排得好：表頭每頁重複、列不跨頁截斷） */
+export function reportHtml(r: Report, lang: string): string {
+  const l: ReportLang = lang === "en-US" || lang === "ja-JP" ? lang : "zh-TW";
+  const c = COLOR;
+  const css = `
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:#${c.ink};font:10.5pt/1.55 "Segoe UI","Noto Sans CJK TC","Microsoft JhengHei","Hiragino Sans",sans-serif}
+main{max-width:960px;margin:0 auto;padding:28px 24px 40px}
+.brand{color:#${c.accent};font-weight:700;font-size:9pt}
+h1{font-size:18pt;margin:2px 0 2px}
+.subtitle{color:#${c.muted};margin:0 0 6px}
+.rule{border:0;border-top:2px solid #${c.accent};margin:6px 0 16px}
+h2{font-size:12.5pt;color:#${c.heading};border-left:4px solid #${c.accent};padding-left:8px;margin:22px 0 8px;break-after:avoid}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+td,th{padding:4px 6px;vertical-align:top;overflow-wrap:anywhere;text-align:left}
+table.meta td{border:1px solid #${c.rule}}
+table.meta td.k{background:#${c.labelFill};color:#${c.muted};width:17%}
+table.data{font-size:9pt}
+table.data th{background:#${c.headFill};color:#fff;font-weight:600}
+table.data td{border-bottom:1px solid #${c.rule}}
+table.data tbody tr:nth-child(even) td{background:#${c.zebra}}
+tr{break-inside:avoid}
+${(Object.keys(c.tone) as ReportTone[]).map((k) => `tr.tone-${k} td:first-child{color:#${c.tone[k]};font-weight:600}`).join("\n")}
+ul{margin:4px 0;padding-left:20px}
+li::marker{color:#${c.accent}}
+.muted,.caption{color:#${c.muted}}
+.caption{font-size:8.5pt;margin:4px 0}
+.note{background:#${c.zebra};color:#${c.muted};font-size:8.5pt;padding:8px 10px;margin-top:22px}
+footer{border-top:1px solid #${c.rule};color:#${c.muted};font-size:8pt;margin-top:26px;padding-top:6px}
+@media print{main{max-width:none;padding:0}@page{size:A4;margin:16mm 18mm}}`;
+  const parts: string[] = [
+    `<div class="brand">${htmlEsc(r.brand ?? "jt-ipam")}</div>`,
+    `<h1>${htmlEsc(r.title)}</h1>`,
+  ];
+  if (r.subtitle) parts.push(`<p class="subtitle">${htmlEsc(r.subtitle)}</p>`);
+  parts.push('<hr class="rule">');
+  if (r.meta.length) {
+    parts.push(`<table class="meta">${metaRows(r.meta).map((row) => `<tr class="meta">${row.map((v, i) =>
+      `<td${i % 2 === 0 ? ' class="k"' : ""}>${htmlText(v)}</td>`).join("")}</tr>`).join("")}</table>`);
+  }
+  for (const s of r.sections) {
+    parts.push(`<section><h2>${htmlEsc(s.heading)}</h2>`);
+    for (const p of s.paragraphs ?? []) parts.push(`<p>${htmlText(p)}</p>`);
+    if (s.bullets?.length) parts.push(`<ul>${s.bullets.map((b) => `<li>${htmlText(b)}</li>`).join("")}</ul>`);
+    if (s.table) parts.push(htmlTable(s.table));
+    if (s.caption) parts.push(`<p class="caption">${htmlText(s.caption)}</p>`);
+    parts.push("</section>");
+  }
+  if (r.note) parts.push(`<div class="note">${htmlText(r.note)}</div>`);
+  const foot = [r.footerText ?? r.brand ?? "jt-ipam", r.generatedAt].filter(Boolean).join(" · ");
+  return `<!doctype html>
+<html lang="${l}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${htmlEsc(r.title)}</title>
+<style>${css}</style>
+</head>
+<body><main>
+${parts.join("\n")}
+<footer>${htmlEsc(foot)}</footer>
+</main></body>
+</html>
+`;
+}
+
 // ── PDF：後端排版（POST /api/v1/reports/pdf）──
 export type ReportLang = "zh-TW" | "en-US" | "ja-JP";
 /** 轉成後端 ReportIn 的形狀（欄位名稱 snake_case；語系決定用中文還是日文字面） */
@@ -369,6 +453,7 @@ export const MIME = {
   odt: "application/vnd.oasis.opendocument.text",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ods: "application/vnd.oasis.opendocument.spreadsheet",
+  html: "text/html;charset=utf-8",
 } as const;
 
 /** 報告存檔。`meta.source` 是報告種類；伺服器排版的 PDF 伺服器已經記過，帶 audited。 */

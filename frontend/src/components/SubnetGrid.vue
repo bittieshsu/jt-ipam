@@ -9,7 +9,7 @@
  *   cidr        — 子網路 CIDR(例 "192.168.1.0/24")
  *   addresses   — 此網段的 IP 物件清單 (subnet_id 已篩過)
  */
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { NEmpty, NTooltip } from "naive-ui";
 import type { IPAddress } from "@/types";
@@ -70,11 +70,62 @@ interface Props {
 }
 const props = defineProps<Props>();
 const cellPx = computed(() => Math.min(40, Math.max(8, Math.round(props.cellSize ?? 14))));
-/** 位址範圍的底線：粗細跟著格子大小；顏色依主題（App.vue 的 --jt-range-*，淺色主題換深色才看得清楚），
- *  上面再墊一條分隔線，壓在綠色、紅色的格子上也分得出來（使用者 2026-10-11：DHCP 的藍在淺色主題不明顯） */
-function rangeBar(purpose: IPRangePurpose): string {
-  const w = Math.max(3, Math.round(cellPx.value * 0.22));
-  return `inset 0 -${w}px 0 var(--jt-range-${purpose}, ${RANGE_COLORS[purpose]}), inset 0 -${w + 1}px 0 var(--jt-range-sep, transparent)`;
+/** 位址範圍的底線：畫在背景裡的硬切色帶（底線、1px 分隔線，上面是格子原本的顏色）。
+ *  以前用內陰影：內陰影的內緣會跟著格子的圓角彎，色塊在底線上方多出圓角，看起來像有兩個下緣
+ *  （使用者 2026-10-13）。粗細跟著格子大小；顏色依主題（App.vue 的 --jt-range-*，淺色主題換深色才看得清楚），
+ *  分隔線讓底線壓在綠色、紅色的格子上也分得出來（使用者 2026-10-11：DHCP 的藍在淺色主題不明顯） */
+function rangeLayer(purpose: IPRangePurpose, size = cellPx.value): string {
+  const w = Math.max(3, Math.round(size * 0.22));
+  return `linear-gradient(to top, var(--jt-range-${purpose}, ${RANGE_COLORS[purpose]}) 0 ${w}px, `
+    + `var(--jt-range-sep, transparent) ${w}px ${w + 1}px, transparent ${w + 1}px)`;
+}
+/** 格子的行內樣式：原本的顏色＋（在範圍內的話）底線那一層。顏色是漸層（自動收錄的半格紫）時疊成兩層。 */
+function cellInlineStyle(c: Cell): Record<string, string> {
+  const base = cellStyle(c).background;
+  const r = rangeOf(c.ip);
+  if (!r) return { background: base };
+  const isGradient = base.includes("gradient(");
+  return { backgroundImage: isGradient ? `${rangeLayer(r.purpose)}, ${base}` : rangeLayer(r.purpose),
+           backgroundColor: isGradient ? "transparent" : base };
+}
+
+/** 圖例跟著格子大小放大（使用者 2026-10-13）：比預設（14px）小時維持原本的 10px 色塊、12px 字 */
+const legendVars = computed(() => {
+  const k = Math.max(1, cellPx.value / 14);
+  return { "--lg-sw": `${Math.round(10 * k)}px`, "--lg-font": `${Math.round(12 * (1 + (k - 1) * 0.5))}px`,
+           "--lg-gap": `${Math.round(12 * Math.sqrt(k))}px` };
+});
+const legendSw = computed(() => Math.round(10 * Math.max(1, cellPx.value / 14)));
+
+/** 點圖例只看那一類（使用者 2026-10-13）：其他類型的圖例與格子變很淡，再點一次（或 Esc）恢復。
+ *  鍵盤也能點；選中的那一個用 aria-pressed＋明顯的外框標出來，免得使用者忘了自己點過、以為格子壞了。 */
+const focusKind = ref<string | null>(null);
+watch(() => props.cidr, () => { focusKind.value = null; });
+function toggleFocus(k: string) { focusKind.value = focusKind.value === k ? null : k; }
+function legendAttrs(k: string): Record<string, unknown> {
+  if (!directCells.value) return {};
+  const on = focusKind.value === k;
+  return {
+    "data-legend": k, role: "button", tabindex: 0, "aria-pressed": String(on),
+    class: { "legend-clickable": true, "legend-active": on, "legend-dim": !!focusKind.value && !on },
+    onClick: () => toggleFocus(k),
+    onKeydown: (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFocus(k); }
+      else if (e.key === "Escape") focusKind.value = null;
+    },
+  };
+}
+/** 格子屬不屬於圖例的某一類（分類規則與 legendCounts 相同） */
+function cellMatches(c: Cell, k: string): boolean {
+  if (k.startsWith("range:")) return rangeOf(c.ip)?.purpose === k.slice(6);
+  if (k === "unmanaged") return c.state === "unmanaged";
+  if (k === "free") return c.state !== "unmanaged" && (c.state === "free" || !c.addr);
+  if (k === "auto") return isAutoAdded(c.addr);
+  if (!c.addr || c.state === "unmanaged" || c.state === "free") return false;
+  const st = c.state || "used";
+  if (st === "reserved") return k === "reserved";
+  if (st === "dhcp") return k === "stale";
+  return classifyAddressLiveness(c.addr) === k;
 }
 
 // 未納管格子的說明：誰看到的、多久以前、MAC（廠商）
@@ -362,10 +413,10 @@ function aggColor(pct: number): string {
           cellStyle(c).kind === 'free' ? 'cell-free' : cellStyle(c).kind === 'unmanaged' ? 'cell-unmanaged' : 'cell-filled',
           isAutoAdded(c.addr) ? 'cell-auto' : '',
           c.um && umOld(c.um) ? 'cell-unmanaged-old' : '',
+          focusKind && !cellMatches(c, focusKind) ? 'cell-dim' : '',
         ]"
         :data-state="c.state"
-        :style="{ background: cellStyle(c).background,
-                  ...(rangeOf(c.ip) ? { boxShadow: rangeBar(rangeOf(c.ip)!.purpose) } : {}) }"
+        :style="cellInlineStyle(c)"
         :data-range="rangeOf(c.ip)?.purpose"
         @mouseenter="(e) => showTip(e, `${c.ip}${c.hostname ? ' · ' + c.hostname : ''} · ${cellStatusLabel(c)}`
           + (isAutoAdded(c.addr) ? ` · ${t('visualisation.auto_added')}` : '') + (c.um ? umTip(c.um) : '') + rangeTip(c.ip))"
@@ -408,17 +459,17 @@ function aggColor(pct: number): string {
     <div v-if="partial" class="agg-hint" data-testid="grid-legend-partial">
       {{ t("visualisation.legend_partial", { n: addresses.length.toLocaleString(), total: (totalAddresses ?? 0).toLocaleString() }) }}
     </div>
-    <div class="legend">
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-active, #22c55e)' }"></i>{{ t("visualisation.online") }} ({{ legendCounts.online }})</span></template>{{ t("visualisation.tip_online", { grace: graceMin }) }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-dhcp, #f59e0b)' }"></i>{{ t("visualisation.stale") }} ({{ legendCounts.stale }})</span></template>{{ t("visualisation.tip_stale", { grace: graceMin, staleMax: staleMaxMin }) }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-offline, #ef4444)' }"></i>{{ t("visualisation.offline") }} ({{ legendCounts.offline }})</span></template>{{ t("visualisation.tip_offline", { staleMax: staleMaxMin }) }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-reserved, #3b82f6)' }"></i>{{ t("visualisation.reserved") }} ({{ legendCounts.reserved }})</span></template>{{ t("visualisation.tip_reserved") }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, var(--jt-cell-active, #22c55e) 50% 100%)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item" data-testid="grid-legend-unmanaged"><i class="legend-unmanaged"></i>{{ t("visualisation.unmanaged") }} ({{ legendCounts.unmanaged }})</span></template>{{ t("visualisation.tip_unmanaged") }}</n-tooltip>
-      <n-tooltip><template #trigger><span class="legend-item"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}</n-tooltip>
-      <span v-for="p in rangePurposes" :key="'rg-' + p" class="legend-item">
-        <i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', boxShadow: `inset 0 -3px 0 var(--jt-range-${p}, ${RANGE_COLORS[p]})` }"></i>{{ t(`ranges.purpose_${p}`) }}
+    <div class="legend" :style="legendVars">
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('online')"><i :style="{ background: 'var(--jt-cell-active, #22c55e)' }"></i>{{ t("visualisation.online") }} ({{ legendCounts.online }})</span></template>{{ t("visualisation.tip_online", { grace: graceMin }) }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('stale')"><i :style="{ background: 'var(--jt-cell-dhcp, #f59e0b)' }"></i>{{ t("visualisation.stale") }} ({{ legendCounts.stale }})</span></template>{{ t("visualisation.tip_stale", { grace: graceMin, staleMax: staleMaxMin }) }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('offline')"><i :style="{ background: 'var(--jt-cell-offline, #ef4444)' }"></i>{{ t("visualisation.offline") }} ({{ legendCounts.offline }})</span></template>{{ t("visualisation.tip_offline", { staleMax: staleMaxMin }) }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('reserved')"><i :style="{ background: 'var(--jt-cell-reserved, #3b82f6)' }"></i>{{ t("visualisation.reserved") }} ({{ legendCounts.reserved }})</span></template>{{ t("visualisation.tip_reserved") }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('unknown')"><i :style="{ background: 'var(--jt-cell-unknown, rgba(127,127,127,0.45))' }"></i>{{ t("visualisation.unknown") }} ({{ legendCounts.unknown }})</span></template>{{ t("visualisation.tip_unknown") }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('auto')"><i :style="{ background: 'linear-gradient(135deg, var(--jt-cell-auto, #8b5cf6) 0 50%, var(--jt-cell-active, #22c55e) 50% 100%)' }"></i>{{ t("visualisation.auto_added") }} ({{ legendCounts.auto }})</span></template>{{ t("visualisation.tip_auto_added") }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('unmanaged')" data-testid="grid-legend-unmanaged"><i class="legend-unmanaged"></i>{{ t("visualisation.unmanaged") }} ({{ legendCounts.unmanaged }})</span></template>{{ t("visualisation.tip_unmanaged") }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <n-tooltip><template #trigger><span class="legend-item" v-bind="legendAttrs('free')"><i :style="{ background: 'var(--jt-cell-free, rgba(127,127,127,0.16))', border: '1px solid rgba(127,127,127,0.4)' }"></i>{{ t("visualisation.free") }} ({{ legendCounts.free }})</span></template>{{ t("visualisation.tip_free") }}<div v-if="directCells" class="legend-tip-hint">{{ t("visualisation.legend_click_hint") }}</div></n-tooltip>
+      <span v-for="p in rangePurposes" :key="'rg-' + p" class="legend-item" v-bind="legendAttrs('range:' + p)">
+        <i :style="{ backgroundImage: rangeLayer(p, legendSw), backgroundColor: 'var(--jt-cell-free, rgba(127,127,127,0.16))' }"></i>{{ t(`ranges.purpose_${p}`) }}
       </span>
     </div>
   </div>
@@ -442,21 +493,24 @@ function aggColor(pct: number): string {
   height: var(--cell, 14px);
   border-radius: 2px;
   cursor: pointer;
-  transition: transform 0.08s ease, outline 0.05s ease;
+  transition: transform 0.08s ease, outline 0.05s ease, opacity 0.15s ease;
   position: relative;
   outline: 0 solid transparent;
   box-sizing: border-box;
 }
 .cell.cell-free {
-  /* 空格：dashed border，視覺權重明顯弱於 unknown 的實心灰 */
+  /* 空格：dashed border，視覺權重明顯弱於 unknown 的實心灰。只蓋掉底色（background-color）：
+     範圍的底線畫在 background-image，用 background 簡寫會連底線一起蓋掉 */
   border: 1px dashed rgba(127, 127, 127, 0.55);
-  background: transparent !important;
+  background-color: transparent !important;
 }
 /* 未納管：IPAM 沒有記錄、但看得到在用 —— 橘色虛線框＋淡橘底，跟閒置的灰色虛線分得出來 */
 .cell.cell-unmanaged {
   border: 1.5px dashed #f59e0b;
-  background: rgba(245, 158, 11, 0.16) !important;
+  background-color: rgba(245, 158, 11, 0.16) !important;
 }
+/* 點了圖例的某一類：其他類型的格子變很淡（不是藏起來，位置還看得出來） */
+.cell.cell-dim { opacity: 0.12; }
 /* 超過一天沒再看到：淡一點（可能已經不在了） */
 .cell.cell-unmanaged-old { opacity: 0.5; }
 .legend-unmanaged { border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.16) !important; box-sizing: border-box; }
@@ -499,21 +553,31 @@ function aggColor(pct: number): string {
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-  opacity: 0.85;
+  gap: var(--lg-gap, 12px);
+  font-size: var(--lg-font, 12px);
 }
 .legend-item {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  opacity: 0.85;
+  padding: 1px 6px;
+  border-radius: 4px;
+  transition: opacity 0.12s ease;
 }
 .legend-item i {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: var(--lg-sw, 10px);
+  height: var(--lg-sw, 10px);
   border-radius: 2px;
+  box-sizing: border-box;
 }
+.legend-clickable { cursor: pointer; user-select: none; }
+.legend-clickable:hover { opacity: 1; background: rgba(127, 127, 127, 0.12); }
+.legend-clickable:focus-visible { outline: 2px solid var(--primary-color, #18a058); outline-offset: 1px; }
+.legend-item.legend-active { opacity: 1; font-weight: 600; box-shadow: inset 0 0 0 1.5px currentColor; }
+.legend-item.legend-dim { opacity: 0.35; }
+.legend-tip-hint { margin-top: 4px; font-size: 12px; opacity: 0.75; }
 </style>
 
 <style>

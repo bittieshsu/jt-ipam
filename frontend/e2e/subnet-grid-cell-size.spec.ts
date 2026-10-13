@@ -2,6 +2,7 @@
  * 子網路指示計（使用者 2026-10-11）：
  *   1. 卡片標題列右邊的拉桿可以縮放格子大小，重新整理後還記得
  *   2. 位址範圍（DHCP 集區）的底線在淺色主題要看得清楚：換成深一點的顏色、上面墊一條白色分隔線
+ *   3. 底線畫在背景裡，色塊下緣是平的（2026-10-13）；圖例跟著格子大小放大
  * 用 seed_e2e 的 10.20.0.0/24；測試建一個暫時的 DHCP 範圍，測完刪掉。
  */
 import { test, expect, type Page } from "@playwright/test";
@@ -42,6 +43,9 @@ test("格子大小拉桿；淺色主題的 DHCP 底線看得清楚", async ({ pa
     const cell = grid.locator(".cell").first();
     await expect(cell).toBeVisible({ timeout: 20_000 });
     expect(Math.round((await cell.boundingBox())!.width)).toBe(14);
+    // 預設大小時圖例維持原本的 10px 色塊、12px 字
+    expect(Math.round((await grid.locator(".legend-item i").first().boundingBox())!.width)).toBe(10);
+    expect(await grid.locator(".legend-item").first().evaluate((el) => getComputedStyle(el).fontSize)).toBe("12px");
 
     // 拉到最大：點拉桿最右端
     const slider = page.getByTestId("grid-cell-size");
@@ -56,11 +60,25 @@ test("格子大小拉桿；淺色主題的 DHCP 底線看得清楚", async ({ pa
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
     const dhcpCell = grid.locator('.cell[data-range="dhcp"]').first();
     await expect(dhcpCell).toBeVisible();
-    const shadow = await dhcpCell.evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(shadow).toContain("rgb(3, 105, 161)");
-    expect(shadow).toContain("rgb(255, 255, 255)");
-    // 粗細跟著格子大小（32px → 7px）
-    expect(shadow).toMatch(/-7px/);
+    // 底線畫在背景裡（硬切的色帶），不是內陰影：內陰影的內緣會跟著格子的圓角彎，
+    // 色塊在底線上方多出圓角、看起來像有兩個下緣（使用者 2026-10-13）
+    const bg = await dhcpCell.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { image: cs.backgroundImage, shadow: cs.boxShadow };
+    });
+    expect(bg.shadow).toBe("none");
+    expect(bg.image).toContain("rgb(3, 105, 161)");
+    expect(bg.image).toContain("rgb(255, 255, 255)");
+    // 粗細跟著格子大小（32px → 7px，上面 1px 白線）
+    expect(bg.image).toMatch(/7px/);
+    expect(bg.image).toMatch(/8px/);
+
+    // 圖例的色塊與文字跟著格子大小放大（14px 時是 10px／12px）
+    const sw = grid.locator(".legend-item i").first();
+    const swPx = (await sw.boundingBox())!.width;
+    const fontPx = parseFloat(await grid.locator(".legend-item").first().evaluate((el) => getComputedStyle(el).fontSize));
+    expect(swPx).toBeGreaterThanOrEqual(20);
+    expect(fontPx).toBeGreaterThanOrEqual(16);
   } finally {
     await request.delete(`${API}/api/v1/subnets/${sub.id}/ranges/${rng.id}`, { headers: h });
   }

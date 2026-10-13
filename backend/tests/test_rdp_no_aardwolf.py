@@ -2,7 +2,8 @@
 
 aardwolf 0.2.13 只有 CPython 3.9–3.13 的預編譯 wheel；Ubuntu 26.04 是 Python 3.14，安裝時
 （刻意只收 wheel、不現場編 Rust）就會跳過。那是設計好的行為，但以前只說「缺 aardwolf」：
-使用者不知道為什麼缺、也不知道 RDP 其實還能改用 FreeRDP 引擎 —— 而 VNC 主控台沒有替代引擎。
+使用者不知道為什麼缺、也不知道 RDP 其實還能改用別的引擎 —— 而 VNC 主控台沒有替代引擎。
+2026-10-13 起出路一律是 guacd（預設）：以前寫「改用 FreeRDP」，客戶照著切過去；aardwolf 也會逐步淘汰。
 """
 from __future__ import annotations
 
@@ -13,20 +14,24 @@ def _py() -> str:
     return f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
-def test_missing_aardwolf_points_to_the_freerdp_engine() -> None:
+def test_missing_aardwolf_points_to_guacd() -> None:
     from app.api.v1.endpoints.rdp_console import rdp_unavailable_detail
     d = rdp_unavailable_detail("aardwolf", "aardwolf")
     assert d["code"] == "console_rdp_no_aardwolf"
     assert d["params"]["python"] == _py(), "要講出這台的 Python 版本（沒有 wheel 的原因）"
-    assert "FreeRDP" in d["message"]
+    assert "guacd" in d["message"]
+    assert "FreeRDP" not in d["message"]
 
 
-def test_missing_freerdp_packages_point_to_the_upgrade_script() -> None:
+def test_missing_freerdp_packages_recommend_guacd_first() -> None:
     from app.api.v1.endpoints.rdp_console import rdp_unavailable_detail
     d = rdp_unavailable_detail("freerdp", "xfreerdp、Xvfb")
     assert d["code"] == "console_rdp_freerdp_missing"
     assert d["params"]["missing"] == "xfreerdp、Xvfb"
-    assert "jt-ipam.sh upgrade" in d["message"]
+    msg = d["message"]
+    assert "guacd" in msg
+    assert msg.index("guacd") < msg.index("jt-ipam.sh upgrade"), "先建議改回 guacd，仍要用 FreeRDP 才講怎麼裝"
+
 
 
 def test_vnc_says_why_and_that_there_is_no_other_engine() -> None:

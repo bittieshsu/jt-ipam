@@ -47,7 +47,7 @@ const msg = useMessage();
 // 那個分頁，第一次渲染時 value 若還是 "clusters" 就對不到任何分頁，naive-ui 會畫出
 // 一個空的內容區，要再點一下分頁才會出現（使用者回報「有時點進來下面是空的」）。
 const tab = ref<"clusters" | "vms" | "pvefw" | "proxmox">(
-  route.name === "virt_admin" ? "proxmox" : "clusters");
+  route.name === "virt_admin" ? "proxmox" : (route.query.vm ? "vms" : "clusters"));
 
 /** 這一頁顯示哪個平台。虛擬化拆成「PVE」與「VMware」兩個選單項，同一個元件、不同 props。
  *  不給就顯示全部（管理區的 virt-admin 走這條）。 */
@@ -535,6 +535,17 @@ const fwP = useVirtPrefs("pvefw", fwCols as any, fwRows);
 // 兩個選單項共用這個元件 → 在它們之間切換時**不會重新掛載**，只有路由變。
 // 沒有這個 watch 的話，分頁值會停在上一個模式、同樣對不到任何分頁。
 watch(adminMode, (isAdmin) => { tab.value = isAdmin ? "proxmox" : "clusters"; });
+
+// 從全站搜尋點了沒有 IP 記錄的 VM（?vm=名稱）：切到 VM 頁籤、用名稱篩選（2026-10-13）
+function applyVmQuery() {
+  const name = route.query.vm;
+  if (typeof name === "string" && name && !adminMode.value) {
+    tab.value = "vms";
+    vmP.query = name;
+  }
+}
+applyVmQuery();
+watch(() => route.query.vm, applyVmQuery);
 
 onMounted(() => {
   void loadFw();

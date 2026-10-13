@@ -12,7 +12,7 @@ import {
   NButton, NPopconfirm, NTag, NAlert, useMessage,
 } from "naive-ui";
 const origin = window.location.origin;
-import { AdminIcon, SaveIcon, RefreshIcon, RequestsIcon, WarnIcon, DeleteIcon } from "@/icons";
+import { AdminIcon, SaveIcon, RefreshIcon, RequestsIcon, WarnIcon, DeleteIcon, OkIcon } from "@/icons";
 import { getRackEmbedConfig, revealRackEmbedToken, setRackEmbedConfig, type RackEmbedConfig } from "@/api/racks";
 import { getBackupEncryption, removeBackupEncryption, setBackupEncryption, type BackupEncryption } from "@/api/system";
 import { fmtDate } from "@/utils/datetime";
@@ -31,6 +31,7 @@ import { getAutolink, putAutolink, previewAutolink,
 import { listSubnets } from "@/api/subnets";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { apiErrMsg } from "@/api/client";
+import GlobalSearchSettings from "@/components/GlobalSearchSettings.vue";
 import { runSftpProbe, fmtRate, roughDuration, type ProbeResult } from "@/utils/sftpProbe";
 import {
   getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign,
@@ -694,7 +695,7 @@ async function doPreviewAutolink() {
         <!-- 一列一個設定：左邊名稱與說明、右邊控制項。以前三欄格子裡說明有長有短，
              整區高低不齊、控制項東一個西一個（使用者回報排列不好看） -->
         <div class="ss-rows">
-          <div class="ss-r fld">
+          <div class="ss-r fld" data-testid="rdp-engine-row">
             <div class="ss-r__text">
               <label>{{ t("settings.system.rdp_engine") }}</label>
               <div class="hint">{{ t("settings.system.rdp_engine_hint") }}</div>
@@ -702,16 +703,29 @@ async function doPreviewAutolink() {
             <div class="ss-r__ctl">
               <n-select :value="rdpEngine" :options="rdpEngineOpts" @update:value="changeRdpEngine" />
             </div>
-            <!-- 缺套件就講清楚缺哪些、怎麼裝；選了 FreeRDP 卻沒裝是會連不上的，要用警示色 -->
-            <!-- aardwolf 是選用的備用引擎（2026-09-27 起）：沒裝只在真的選了它時才要講 -->
+            <!-- 一律建議 guacd（使用者 2026-10-13）：以前不管選哪個引擎，這台沒裝 FreeRDP 就跳黃色警告＋安裝指令，
+                 客戶以為要裝 FreeRDP 就切了過去。現在缺套件只在真的選了那個引擎時講，而且先建議改回 guacd；
+                 選了備用引擎（FreeRDP／aardwolf）就提示改回 guacd，按一下就改。aardwolf 會逐步淘汰 -->
             <n-alert v-if="!aardwolfOk && (rdpEngine === 'aardwolf' || vncEngine === 'builtin')" type="error"
                      :bordered="false" class="ss-r__full">
               {{ t("settings.system.rdp_engine_no_aardwolf", { python: pythonVer }) }}
             </n-alert>
-            <n-alert v-if="!freerdpOk" :type="rdpEngine === 'freerdp' ? 'error' : 'warning'"
-                     :bordered="false" class="ss-r__full">
+            <n-alert v-if="rdpEngine === 'freerdp' && !freerdpOk" type="error" :bordered="false" class="ss-r__full"
+                     data-testid="rdp-freerdp-missing">
               <div>{{ t("settings.system.rdp_engine_missing", { pkgs: freerdpMissing.join("、") }) }}</div>
-              <code class="rdp-install-cmd">{{ freerdpCmd }}</code>
+              <div v-if="freerdpCmd" class="hint" style="margin-top:6px">{{ t("settings.system.freerdp_install_note") }}</div>
+              <code v-if="freerdpCmd" class="rdp-install-cmd">{{ freerdpCmd }}</code>
+            </n-alert>
+            <n-alert v-if="consoleLoaded && rdpEngine !== 'guacd'" type="warning" :bordered="false" class="ss-r__full"
+                     data-testid="rdp-engine-recommend">
+              <div class="engine-rec">
+                <!-- aardwolf 多一句「會逐步淘汰」：用完整的另一句，不靠拼接（中文句號後不該有空白、英文又需要） -->
+                <span>{{ t(rdpEngine === "aardwolf" ? "settings.system.engine_recommend_retiring" : "settings.system.engine_recommend",
+                           { engine: rdpEngine === "freerdp" ? "FreeRDP" : "aardwolf" }) }}</span>
+                <n-button size="small" type="primary" @click="changeRdpEngine('guacd')">
+                  <template #icon><n-icon :component="OkIcon" /></template>{{ t("settings.system.use_guacd") }}
+                </n-button>
+              </div>
             </n-alert>
           </div>
           <div class="ss-r fld">
@@ -722,6 +736,15 @@ async function doPreviewAutolink() {
             <div class="ss-r__ctl">
               <n-select :value="vncEngine" :options="vncEngineOpts" @update:value="changeVncEngine" />
             </div>
+            <n-alert v-if="consoleLoaded && vncEngine !== 'guacd'" type="warning" :bordered="false" class="ss-r__full"
+                     data-testid="vnc-engine-recommend">
+              <div class="engine-rec">
+                <span>{{ t("settings.system.engine_recommend_retiring", { engine: "aardwolf" }) }}</span>
+                <n-button size="small" type="primary" @click="changeVncEngine('guacd')">
+                  <template #icon><n-icon :component="OkIcon" /></template>{{ t("settings.system.use_guacd") }}
+                </n-button>
+              </div>
+            </n-alert>
           </div>
           <div class="ss-r fld">
             <div class="ss-r__text">
@@ -878,6 +901,12 @@ async function doPreviewAutolink() {
             <div class="hint">{{ t("settings.system.change_log_dim_days_hint") }}</div>
           </div>
         </div>
+      </n-card>
+
+      <!-- 全站搜尋：隨打即找、搜哪些類型與欄位、結果的排列順序（2026-10-13） -->
+      <n-card class="ss-group" size="small" data-testid="ss-global-search">
+        <template #header><span class="ss-h">{{ t("search_settings.title") }}</span></template>
+        <GlobalSearchSettings />
       </n-card>
 
       <!-- 裝置連接埠匯入：偽介面過濾 -->
@@ -1480,6 +1509,7 @@ async function doPreviewAutolink() {
 .ss-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
 .ss-status { margin-top: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
 .db-row { display: flex; gap: 8px; align-items: center; }
+.engine-rec { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .rdp-install-cmd {
   display: block; margin-top: 6px; padding: 5px 8px; border-radius: 4px;
   background: rgba(0, 0, 0, .06); font-size: 12px;

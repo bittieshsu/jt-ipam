@@ -116,27 +116,8 @@ async def find_free_ip(
     subnet_id: str | None = None,
 ) -> dict[str, Any]:
     """找指定 subnet 的第一個空閒 IP。可給 cidr 或 subnet_id。"""
-    subnet: Subnet | None = None
-    if subnet_id:
-        subnet = await session.get(Subnet, _as_uuid(subnet_id, "subnet_id"))
-    elif subnet_cidr:
-        # 透過 cidr 直接查
-        rows = (
-            await session.execute(
-                text("SELECT id::text AS id FROM subnets WHERE cidr = CAST(:c AS cidr) LIMIT 1"),
-                {"c": subnet_cidr},
-            )
-        ).first()
-        if rows:
-            subnet = await session.get(Subnet, uuid.UUID(rows.id))
-    if subnet is None:
-        raise IPAMToolError("subnet not found")
-    visible = set(await filter_visible(
-        session, user=user, object_type="subnet",
-        object_ids=[subnet.id], required="read",
-    ))
-    if subnet.id not in visible:
-        raise IPAMToolError("subnet not found")   # 跟不存在同一句，不透露它在不在
+    # 與其他工具同一個解析（可見性、只給位址、重疊網段不猜）；以前這裡自己另寫一份 CAST 查詢
+    subnet = await _resolve_subnet(session, user=user, subnet_id=subnet_id, subnet_cidr=subnet_cidr)
     ip = await find_first_free_address(session, subnet)
     return {
         "subnet_id": str(subnet.id),
@@ -153,12 +134,7 @@ async def _resolve_subnet(
     if subnet_id:
         subnet = await session.get(Subnet, _as_uuid(subnet_id, "subnet_id"))
     elif subnet_cidr:
-        rows = (await session.execute(
-            text("SELECT id::text AS id FROM subnets WHERE cidr = CAST(:c AS cidr) LIMIT 1"),
-            {"c": subnet_cidr},
-        )).first()
-        if rows:
-            subnet = await session.get(Subnet, uuid.UUID(rows.id))
+        subnet = await _subnet_by_cidr_arg(session, user=user, value=subnet_cidr)
     if subnet is None:
         raise IPAMToolError("subnet not found")
     visible = set(await filter_visible(
@@ -168,6 +144,45 @@ async def _resolve_subnet(
     if subnet.id not in visible:
         raise IPAMToolError("subnet not found")   # 跟不存在同一句，不透露它在不在
     return subnet
+
+
+async def _subnet_by_cidr_arg(session: AsyncSession, *, user: User, value: str) -> Subnet | None:
+    """模型給的子網路字串 → 子網路。
+
+    - `198.51.100.0/24`（主機位元有值也行）→ 完全相同的子網路
+    - 只給位址（`192.0.2.0`，使用者這樣問很常見；以前被當成 /32 而找不到）→ 包含它、最小的那個子網路
+    - 在 Python 先解析：不合法的字串是看得懂的錯誤，不能交給資料庫轉型（轉型失敗會讓整個交易中止）
+    - 重疊網段（不同 VRF／客戶）同時符合、而且這個帳號都看得到時不猜，列出候選要模型改帶 subnet_id
+    """
+    raw = (value or "").strip()
+    try:
+        if "/" in raw:
+            net = ipaddress.ip_network(raw, strict=False)
+            rows = (await session.execute(
+                text("SELECT id::text AS id, cidr::text AS cidr, masklen(cidr) AS ml FROM subnets "
+                     "WHERE cidr = CAST(:c AS cidr)"), {"c": str(net)})).all()
+        else:
+            addr = ipaddress.ip_address(raw)
+            rows = (await session.execute(
+                text("SELECT id::text AS id, cidr::text AS cidr, masklen(cidr) AS ml FROM subnets "
+                     "WHERE cidr >>= CAST(:a AS inet) ORDER BY masklen(cidr) DESC"), {"a": str(addr)})).all()
+    except ValueError:
+        raise IPAMToolError(f"invalid subnet_cidr: {raw[:80]!r} (expected a CIDR such as 192.0.2.0/24)") from None
+    if not rows:
+        return None
+    visible = set(await filter_visible(
+        session, user=user, object_type="subnet",
+        object_ids=[uuid.UUID(r.id) for r in rows], required="read",
+    ))
+    seen = [r for r in rows if uuid.UUID(r.id) in visible]
+    if not seen:
+        return None
+    best = [r for r in seen if r.ml == seen[0].ml]
+    if len(best) > 1:
+        listed = "; ".join(f"{r.cidr} (subnet_id={r.id})" for r in best[:10])
+        raise IPAMToolError(f"{len(best)} subnets match {raw!r} (overlapping networks); "
+                            f"call again with subnet_id: {listed}")
+    return await session.get(Subnet, uuid.UUID(best[0].id))
 
 
 async def _scope_subnet(
@@ -1419,19 +1434,32 @@ async def list_dhcp_ranges(
     from app.models.dhcp import DHCPPoolRange
     scope_ids, scope = await _scope_subnet(
         session, user=user, subnet_cidr=subnet_cidr, subnet_id=subnet_id)
-    stmt = select(DHCPPoolRange)
-    if scope_ids is not None:
-        # 範圍表存的是 CIDR 字串，直接以該子網路的 cidr 比對
-        stmt = stmt.where(DHCPPoolRange.subnet_cidr.in_(
-            select(Subnet.cidr).where(in_values(Subnet.id, scope_ids))))
     from app.services.ip_ranges import manual_dhcp_pools
+    stmt = select(DHCPPoolRange).order_by(DHCPPoolRange.source_type, DHCPPoolRange.start_ip)
+    synced: list[Any]
+    if scope_ids is None:
+        total_synced = int(await session.scalar(select(func.count()).select_from(DHCPPoolRange)) or 0)
+        synced = list((await session.execute(stmt.limit(limit))).scalars().all())
+    else:
+        # 以「範圍的起點落在這個子網路裡」判斷（與位址範圍頁、集區使用率同一個規則）。以前拿字串欄位
+        # subnet_cidr 跟子網路的 cidr 比 —— 型別不同，只要帶範圍就是 SQL 錯誤（2026-10-13 事故）；
+        # 而且 pfSense 的範圍沒有 CIDR，就算型別對了也比不到。範圍表的列數是 DHCP 集區數，整張讀進來比較即可
+        nets = [ipaddress.ip_network(str(c), strict=False) for c in (await session.execute(
+            select(Subnet.cidr).where(in_values(Subnet.id, scope_ids)))).scalars().all()]
+
+        def _inside(r: Any) -> bool:
+            try:
+                start = ipaddress.ip_address(str(r.start_ip))
+            except ValueError:
+                return False
+            return any(start.version == n.version and start in n for n in nets)
+        matched = [r for r in (await session.execute(stmt)).scalars().all() if _inside(r)]
+        total_synced = len(matched)
+        synced = matched[:limit]
     # 子網路裡手動定義的 DHCP 集區（issue #40），跟整合同步回來的一起列
     manual = await manual_dhcp_pools(session, list(scope_ids) if scope_ids is not None else None)
-    total = int(await session.scalar(
-        select(func.count()).select_from(stmt.subquery())) or 0) + len(manual)
-    rows: list[Any] = [*(await session.execute(
-        stmt.order_by(DHCPPoolRange.source_type, DHCPPoolRange.start_ip).limit(limit)
-    )).scalars().all(), *manual][:limit]
+    total = total_synced + len(manual)
+    rows: list[Any] = [*synced, *manual][:limit]
     return {"scope": scope, "count": total, "returned": len(rows), "ranges": [{
         "source_type": r.source_type, "source_name": r.source_name,
         "subnet_cidr": str(r.subnet_cidr) if r.subnet_cidr else None,
@@ -3821,6 +3849,121 @@ async def authorize_tool(session: AsyncSession, user: User, name: str) -> str | 
     if name in GLOBAL_READ_TOOLS and not await has_global_read(session, user):
         return "permission_denied: 此為全域基礎設施資料，僅限管理員或具全域讀取權限者檢視。"
     return None
+
+
+# ── 共用呼叫入口（AI 對話、MCP、AI 對話的「確認」都走這裡）──────────────────────────────
+# 2026-10-13 事故：AI 對話問某網段的 DHCP 範圍，list_dhcp_ranges 的 SQL 型別錯誤 → 交易中止 →
+# 同一輪後面的工具全部 InFailedSQLTransactionError → 連存對話紀錄都失敗，畫面什麼都沒出來。
+# 模型亂填的參數（IP 欄位給 "abc"）也會在資料庫轉型時出同樣的錯。所以：
+#   1. 依參數名稱先檢查格式、轉成標準寫法，不合法就是看得懂的 IPAMToolError（模型可以改了再試）
+#   2. 每個工具在自己的 SAVEPOINT 裡跑：出錯只還原這個工具，交易還能用
+#   3. 不認得的參數名稱要講出來 —— 默默丟掉會讓「subnet」這種寫錯的範圍變成全站資料
+# tests/test_ai_tools_every_param.py 用每個工具的每個參數實際跑過一次，另有守門確保沒有地方繞過這裡。
+
+_IP_ARGS = frozenset({"ip", "target_ip", "new_ip", "requested_ip", "gateway"})
+_NETWORK_ARGS = frozenset({"subnet_cidr", "cidr"})
+# 這幾個工具的 MAC 本來就收不完整或各種寫法（查廠商只給前幾碼、格式換算），由工具自己判斷
+_LOOSE_MAC_TOOLS = frozenset({"oui_lookup", "calc_mac_format", "calc_eui64"})
+
+
+def _bad_arg(name: str, value: Any, expected: str) -> IPAMToolError:
+    return IPAMToolError(f"invalid {name}: {str(value)[:80]!r} (expected {expected})")
+
+
+def validate_tool_args(name: str, args: Any) -> dict[str, Any]:
+    """依工具的參數定義檢查並整理模型給的參數；回傳可以直接傳給工具的 dict。"""
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        raise IPAMToolError("arguments must be a JSON object")
+    props: dict[str, Any] = TOOLS[name]["parameters"].get("properties", {})
+    unknown = sorted(set(args) - set(props))
+    if unknown:
+        raise IPAMToolError(f"unknown argument(s) for {name}: {', '.join(unknown)}; "
+                            f"allowed: {', '.join(props) or '(none)'}")
+    from app.services.mac_history import normalize_mac
+    out: dict[str, Any] = {}
+    for key, value in args.items():
+        schema = props[key]
+        kind = schema.get("type")
+        if value is None:
+            out[key] = None
+            continue
+        if kind == "integer":
+            if isinstance(value, bool):
+                raise _bad_arg(key, value, "an integer")
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            elif isinstance(value, str) and value.strip().lstrip("-").isdigit():
+                value = int(value.strip())
+            if not isinstance(value, int):
+                raise _bad_arg(key, value, "an integer")
+        elif kind == "number":
+            try:
+                value = float(value) if not isinstance(value, bool) else float("nan")
+            except (TypeError, ValueError):
+                value = float("nan")
+            if value != value:  # NaN
+                raise _bad_arg(key, args[key], "a number")
+        elif kind == "boolean":
+            if isinstance(value, str) and value.strip().lower() in ("true", "false", "1", "0", "yes", "no"):
+                value = value.strip().lower() in ("true", "1", "yes")
+            if not isinstance(value, bool):
+                raise _bad_arg(key, value, "true or false")
+        elif kind == "string":
+            if not isinstance(value, str):
+                value = str(value)
+            value = value.strip()
+            # 列舉值不在這裡擋：工具自己回結構化的錯誤代碼（例如 impact_invalid_scenario），前端與模型靠它判斷
+            if value and key in _IP_ARGS:
+                try:
+                    value = str(ipaddress.ip_interface(value).ip)
+                except ValueError:
+                    raise _bad_arg(key, value, "an IPv4 or IPv6 address") from None
+            elif value and key in _NETWORK_ARGS:
+                try:
+                    ipaddress.ip_network(value, strict=False)
+                except ValueError:
+                    raise _bad_arg(key, value, "a CIDR such as 192.0.2.0/24") from None
+            elif value and key == "mac" and name not in _LOOSE_MAC_TOOLS:
+                mac = normalize_mac(value)
+                if mac is None:
+                    raise _bad_arg(key, value, "a MAC address such as aa:bb:cc:dd:ee:ff")
+                value = mac
+            elif value and key.endswith("_id"):
+                value = str(_as_uuid(value, key))
+        out[key] = value
+    return out
+
+
+async def call_tool(session: AsyncSession, user: User, name: str, args: Any) -> Any:
+    """檢查參數 → 在 SAVEPOINT 裡執行工具。出錯只還原這個工具的變動、同一個交易後面照常可用。
+
+    RBAC 不在這裡（呼叫端各自先過 authorize_tool，拒絕的訊息各有各的呈現方式）。
+    `UiError`（服務層給人看的錯誤）轉成 IPAMToolError，三個呼叫端都把它當成「工具回報的錯誤」。
+    """
+    import contextlib
+
+    from sqlalchemy.exc import InvalidRequestError
+
+    from app.core.ui_error import UiError
+    if name not in TOOLS:
+        raise IPAMToolError(f"unknown tool: {name}")
+    clean = validate_tool_args(name, args)
+    savepoint = await session.begin_nested()
+    try:
+        result = await TOOLS[name]["fn"](session, user=user, **clean)
+    except Exception as exc:
+        # flush 失敗後 SAVEPOINT 是「待還原」狀態（is_active 已經是 False）也要還原；
+        # 工具自己 commit 過的話 SAVEPOINT 已經關閉，還原會丟 InvalidRequestError
+        with contextlib.suppress(InvalidRequestError):
+            await savepoint.rollback()
+        if isinstance(exc, UiError):
+            raise IPAMToolError(str(exc)) from exc
+        raise
+    if savepoint.is_active:
+        await savepoint.commit()
+    return result
 
 
 async def allowed_tool_names(session: AsyncSession, user: User) -> set[str]:

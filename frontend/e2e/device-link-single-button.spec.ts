@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 const ADMIN_USER = process.env.E2E_ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.E2E_ADMIN_PASS || "";
 const API = process.env.E2E_API_URL || "http://127.0.0.1:8010";
-const ADDR = "10.20.0.78";          // seed_e2e 的「伺服器網段」裡沒有用到的位址
+const ADDR = "10.20.0.79";          // seed_e2e 與其他 spec 都沒用到的位址（.78 後來成了 hostname-source-reporters 的樣本）
 const NAME = "e2e-link-once";
 const OTHER = "e2e-link-other";
 test.skip(!ADMIN_PASS, "需要 E2E_ADMIN_PASS");

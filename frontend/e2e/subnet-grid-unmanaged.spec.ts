@@ -72,3 +72,35 @@ test("IP 清單也列出未納管的位址；點指示計的格子進到這個�
   await page.getByTestId("ip-row-unmanaged").filter({ hasText: "10.20.0.241" }).click();
   await expect(page).toHaveURL(/\/unmanaged\/10\.20\.0\.241/);
 });
+
+test("IP 清單的未納管列：內容變淡，橘色「未納管」標籤不淡，右側固定欄的底色不透明", async ({ page }) => {
+  await login(page);
+  const subs = await page.evaluate(async () => {
+    const r = await fetch("/api/v1/subnets?page_size=500", {
+      headers: { Authorization: `Bearer ${sessionStorage.getItem("access_token")}` } });
+    return r.json();
+  });
+  const sn = subs.items.find((s: any) => s.cidr === "10.20.0.0/24");
+  await page.goto(`/subnets/${sn.id}`);
+  const row = page.getByTestId("ip-row-unmanaged").filter({ hasText: "10.20.0.240" });
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  // 從元素一路乘到 tr 的不透明度＝畫面上實際看到的淡度
+  const eff = (sel: string) => row.locator(sel).first().evaluate((el) => {
+    let o = 1;
+    for (let n: Element | null = el; n && n.tagName !== "TR"; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+    return o;
+  });
+  expect(await eff(".ip-cell-addr")).toBeLessThan(0.75);
+  expect(await eff('td[data-col-key="state"] .n-tag')).toBe(1);
+  // 儲存格本身不設透明度：固定在右側的欄位底色若變半透明，橫向捲動時後面的內容會透出來
+  const tdOpacity = await row.locator("td").evaluateAll((tds) => tds.map((td) => getComputedStyle(td).opacity));
+  expect(new Set(tdOpacity)).toEqual(new Set(["1"]));
+  // 已登記的列不受影響
+  const normal = page.locator("tr", { hasText: "10.20.0.10" }).first();
+  const normalOpacity = await normal.locator(".ip-cell-addr").first().evaluate((el) => {
+    let o = 1;
+    for (let n: Element | null = el; n && n.tagName !== "TR"; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+    return o;
+  });
+  expect(normalOpacity).toBe(1);
+});

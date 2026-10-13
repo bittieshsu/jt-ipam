@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  TEXT_WIDTH, columnWidths, pdfPayload, reportDocx, reportOdt, workbookOds, workbookXlsx, type Report,
+  TEXT_WIDTH, columnWidths, pdfPayload, reportDocx, reportHtml, reportOdt, workbookOds, workbookXlsx, type Report,
 } from "./reportExport";
 
 /** 讀手刻的 STORE zip：檔名 → 內容（只為了測試） */
@@ -105,6 +105,52 @@ describe("report documents", () => {
     expect(p.sections[1].table).toBeNull();
     expect(Object.keys(p).sort()).toEqual(["brand", "filename", "footer_text", "generated_at", "lang", "meta", "note",
                                            "sections", "subtitle", "title"]);
+  });
+});
+
+describe("HTML report (2026-10-13: the anomaly export asks for HTML next to PDF / Word / ODT)", () => {
+  it("is one self-contained page with the same outline: brand, title, meta pairs, headings, bullets, table, note", () => {
+    const html = reportHtml(REPORT, "zh-TW");
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain('<html lang="zh-TW">');
+    expect(html).toContain('<meta charset="utf-8">');
+    // 不連外：沒有外部樣式表、字型或腳本
+    expect(html).not.toMatch(/<script|<link |@import|url\(/i);
+    expect(html).toContain("<title>198.51.100.10 改為 198.51.100.80</title>");
+    expect(html).toContain("IP 變更評估 · 第 1 版");
+    // 基本資料兩組一列（第三組落在下一列，空的那一半補空白格）
+    expect(html.match(/<tr class="meta">/g)?.length).toBe(2);
+    expect(html).toContain("<h2>影響清單</h2>");
+    expect(html).toContain("<li>DNS 沒有 CNAME</li>");
+    expect(html).toContain("這是評估，不會執行任何變更。");
+    expect(html).toContain("jt-ipam · IP 變更評估 · 2026-10-08 15:20");
+  });
+
+  it("escapes every piece of text (host names and rule descriptions are attacker-controlled)", () => {
+    const html = reportHtml({ ...REPORT, title: "<img src=x onerror=alert(1)>",
+                              sections: [{ heading: "a&b", table: { cols: ["<b>"], rows: [['"><script>x</script>']] } }] }, "en-US");
+    expect(html).not.toContain("<img src=x");
+    expect(html).not.toContain("<script>x");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(html).toContain("<h2>a&amp;b</h2>");
+    expect(html).toContain("&lt;b&gt;");
+  });
+
+  it("keeps multi-line cells, the column widths and the row tone (first column only)", () => {
+    const html = reportHtml(REPORT, "zh-TW");
+    expect(html).toContain("阻擋<br>嚴重");
+    expect(html).toContain('<col style="width:15%">');
+    expect(html).toContain('<tr class="tone-danger">');
+    expect(html.match(/<tr class="tone-danger">/g)?.length).toBe(1);
+    // 表頭在 thead（列印時每一頁重複）
+    expect(html).toMatch(/<thead><tr><th>處置／嚴重度<\/th>/);
+  });
+
+  it("an empty table prints a dash instead of a header with no rows; lang falls back to zh-TW", () => {
+    const html = reportHtml({ ...REPORT, sections: [{ heading: "空", table: { cols: ["A"], rows: [] } }] }, "fr");
+    expect(html).toContain('<html lang="zh-TW">');
+    expect(html).toContain('<p class="muted">—</p>');
+    expect(html).not.toContain("<thead>");
   });
 });
 

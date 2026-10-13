@@ -59,7 +59,7 @@ import { apiErrMsg } from "@/api/client";
 import { getScanAgentLoad, type ScanAgent, type ScanAgentLoad, type ScanLoadLevel, type ScanLoadSubnet,
          type ScanLoadSuggestion } from "@/api/phase3";
 import { updateSubnet } from "@/api/subnets";
-import { PlusIcon } from "@/icons";
+import { MoveIcon, PlusIcon, renderIcon } from "@/icons";
 import { fmtDateTime } from "@/utils/datetime";
 
 const props = defineProps<{ show: boolean; agent: ScanAgent | null; agents: ScanAgent[] }>();
@@ -148,7 +148,8 @@ const cols = computed<DataTableColumns<ScanLoadSubnet>>(() => [
                        placeholder: t("scan_load.move_to"), value: moveTarget.value[r.cidr] ?? null,
                        "onUpdate:value": (v: string) => { moveTarget.value = { ...moveTarget.value, [r.cidr]: v }; } }),
           h(NPopconfirm, { onPositiveClick: () => move(r) }, {
-            trigger: () => h(NButton, { size: "small", disabled: !moveTarget.value[r.cidr] }, () => t("scan_load.move")),
+            trigger: () => h(NButton, { size: "small", disabled: !moveTarget.value[r.cidr] },
+                             { icon: renderIcon(MoveIcon, 15), default: () => t("scan_load.move") }),
             default: () => t("scan_load.move_confirm", { cidr: r.cidr }),
           }),
         ])

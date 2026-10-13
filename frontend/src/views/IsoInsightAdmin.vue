@@ -337,6 +337,15 @@ const stageCols = computed<DataTableColumns<any>>(() => [
   { title: t("isoinsight.elapsed_col"), key: "elapsed_ms", width: 90, render: (s) => s.elapsed_ms != null ? `${s.elapsed_ms} ms` : "—" },
   { title: t("isoinsight.detail_col"), key: "detail", minWidth: 200, render: (s) => {
     if (s.error) return h("span", { class: "iso-err" }, codeText(s.error));
+    // 登入回應取不到 Token：列出回應的結構（欄位與型別，不含值），才知道 Token 路徑該填什麼（2026-10-13）
+    if (s.stage === "login" && s.response_shape)
+      return h("div", { class: "iso-shape", "data-testid": "iso-response-shape" }, [
+        h("div", t("isoinsight.response_shape")),
+        h("code", { class: "iso-shape-code" }, s.response_shape),
+        h("div", { class: "iso-shape-hint" }, t("isoinsight.response_shape_hint")),
+      ]);
+    if (s.stage === "login" && s.token_found && s.token_path_used)
+      return t("isoinsight.token_seen_at", { path: s.token_path_used });
     if (s.stage === "login" && s.cookies) return s.cookies.length
       ? t("isoinsight.cookies_seen", { names: s.cookies.join(", ") }) : (s.token_found ? t("isoinsight.token_seen") : "—");
     if (s.stage === "validate") return t("isoinsight.rows_seen", { rows: s.rows ?? 0, valid: s.valid ?? 0 });
@@ -751,6 +760,9 @@ onMounted(() => { void refresh(); void loadOptions(); });
 </template>
 
 <style scoped>
+:global(.iso-shape) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.5; }
+:global(.iso-shape-code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; background: rgba(127, 127, 127, 0.12); padding: 2px 6px; border-radius: 4px; }
+:global(.iso-shape-hint) { opacity: 0.75; }
 .form-hint { font-size: 11.5px; opacity: .7; margin-top: 4px; line-height: 1.5; }
 .iso-full { width: 100%; }
 .iso-tab { display: inline-flex; align-items: center; gap: 6px; }

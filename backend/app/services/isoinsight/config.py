@@ -97,18 +97,81 @@ def check_token_path(path: Any) -> str:
     return s
 
 
-def extract_token(body: Any, path: str) -> str | None:
-    """依**明確設定**的路徑取 Token：每一段是物件的鍵，數字段也可以是陣列索引。
-    取到的必須是非空字串，否則 None（缺值即失敗；不猜其他欄位）。"""
+def extract_token_ex(body: Any, path: str) -> tuple[str | None, str | None]:
+    """依**明確設定**的路徑取 Token，回傳 (Token, 實際走到的路徑)。每一段是物件的鍵，數字段也可以是陣列索引。
+
+    - 取到的必須是非空字串或整數（Session ID 是整數很常見；布林與小數不算），否則 (None, None)
+    - 某一段的鍵不存在、而同一層**只有一個**鍵是大小寫不同的同名欄位時採用它（實際路徑回報給呼叫端記下來）；
+      兩個以上就不猜。不跨層級找、不找別的欄位名（客戶 2026-10-13：原廠寫 SessionID，回應的寫法可能不同）。
+    """
     cur = body
+    used: list[str] = []
     for seg in path.split("."):
-        if isinstance(cur, dict) and seg in cur:
-            cur = cur[seg]
+        if isinstance(cur, dict):
+            if seg in cur:
+                key = seg
+            else:
+                same = [k for k in cur if isinstance(k, str) and k.lower() == seg.lower()]
+                if len(same) != 1:
+                    return None, None
+                key = same[0]
+            cur = cur[key]
+            used.append(key)
         elif isinstance(cur, list) and seg.isdigit() and int(seg) < len(cur):
             cur = cur[int(seg)]
+            used.append(seg)
         else:
-            return None
-    return cur if isinstance(cur, str) and cur.strip() else None
+            return None, None
+    if isinstance(cur, bool):
+        return None, None
+    if isinstance(cur, int):
+        return str(cur), ".".join(used)
+    return (cur, ".".join(used)) if isinstance(cur, str) and cur.strip() else (None, None)
+
+
+def extract_token(body: Any, path: str) -> str | None:
+    return extract_token_ex(body, path)[0]
+
+
+#: 回應結構裡會給值的欄位：狀態碼與訊息（看得出是不是登入被拒），其他一律只給型別
+_STATUS_KEYS = {"code", "status", "msg", "message", "result_code", "errcode", "errmsg", "error", "success"}
+#: 狀態訊息可以有空白（"login failed"），不能有控制字元
+_CTRL_NO_SPACE = re.compile(r"[\x00-\x1f\x7f]")
+_SHAPE_MAX = 400
+
+
+def describe_shape(body: Any, depth: int = 0) -> str:
+    """登入回應的結構：欄位名稱與型別（字串只給長度），給人判斷 Token 路徑該填什麼。
+
+    不含值 —— Token 本身就在回應裡；只有 code／msg 這類狀態欄位給值（看得出是不是登入被拒）。長度有上限。"""
+    def scalar(v: Any, key: str = "") -> str:
+        if v is None:
+            return "null"
+        if isinstance(v, bool):
+            return "bool" if key.lower() not in _STATUS_KEYS else str(v).lower()
+        if isinstance(v, int | float):
+            return (str(v) if key.lower() in _STATUS_KEYS else ("int" if isinstance(v, int) else "float"))
+        if isinstance(v, str):
+            if key.lower() in _STATUS_KEYS and len(v) <= 60 and not _CTRL_NO_SPACE.search(v):
+                return '"' + v.replace('"', "'") + '"'
+            return f"str({len(v)})"
+        return type(v).__name__
+
+    if isinstance(body, list):
+        return f"[{len(body)} items]"
+    if not isinstance(body, dict):
+        return scalar(body)
+    parts: list[str] = []
+    for k, v in body.items():
+        key = str(k)[:40]
+        if isinstance(v, dict):
+            parts.append(f"{key}: " + (describe_shape(v, depth + 1) if depth < 2 else "{…}"))
+        elif isinstance(v, list):
+            parts.append(f"{key}: [{len(v)} items]")
+        else:
+            parts.append(f"{key}: {scalar(v, key)}")
+    out = "{" + ", ".join(parts) + "}"
+    return out if len(out) <= _SHAPE_MAX else out[:_SHAPE_MAX - 2] + "…}"
 
 
 def check_header_name(name: Any) -> str:

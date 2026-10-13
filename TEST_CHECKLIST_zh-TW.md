@@ -32,6 +32,8 @@
 ## 3. 後端整合測試（test DB + pytest，全面）
 
 - [ ] 設 `JTIPAM_TEST_DATABASE_URL` 後 `.venv/bin/pytest -q` 全綠（e2e CRUD / auth / 各模組）
+- [ ] **再在沒有 Redis 的條件下跑一次全套**：`REDIS_HOST=redis-does-not-exist.invalid REDIS_URL=redis://redis-does-not-exist.invalid:6379/0 .venv/bin/pytest -q`。
+  CI 的後端 job 沒有 Redis，開發機有 —— 新測試順手碰到要 Redis 的端點，本機全綠、CI 紅（v0.6.49、v1.0.8 都踩過）
 - [ ] 認證：登入、refresh、TOTP、權限（`require_admin` 的端點未授權回 401/403）
 - [ ] 核心 CRUD：sections / subnets / addresses / devices / customers / locations / racks
 - [ ] 稽核鏈：寫入操作有 audit、鏈完整性驗證過
@@ -347,6 +349,11 @@ guacd 由我們自己編、每個作業系統版本一份：Debian 已經移除�
 - [ ] **範圍**：每支回傳逐物件資料的工具，都用指名單一子網路/機櫃/地點的問題問一次，
   確認答案只含該範圍。要防的回歸：「198.51.100.0/24 裡哪些主機沒裝 Wazuh 代理」被用全站資料
   回答，因為那支工具根本沒有子網路參數（v0.5.194）
+- [ ] **每個工具的每個參數都跑過**（`tests/test_ai_tools_every_param.py`）：管理員與只看得到一個子網路的帳號各跑一輪，
+  只帶必填、每個選用參數各帶一次（列舉逐一、布林兩種、數字寫成字串、IP/MAC/CIDR/ID 給亂寫的值）、全部一起帶；
+  只允許看得懂的工具錯誤。要防的回歸：問「192.0.2.0 的 dhcp range」，`list_dhcp_ranges` 帶範圍一定 SQL 失敗，
+  交易中止讓後面的工具全部跟著失敗、連存對話紀錄都失敗，畫面什麼都沒出來（2026-10-13）。另要確認：工具只經由
+  `call_tool` 呼叫（同一支測試有守門）；實際在 AI 對話問一次某個子網路的 DHCP 範圍，只給網路位址（不寫遮罩）也要答得出來
 - [ ] **schema 要露出範圍參數**：工具說明明確要求「問題指定範圍就必須帶」，回傳含 `scope`
   讓答案能說明涵蓋範圍
 - [ ] **不可靜默截斷**：每支清單工具都要同時回 `count`（範圍內總數）與 `returned`；
@@ -1081,6 +1088,10 @@ DHCP 伺服器在中間挖洞的範圍存成好幾段，洞本身寫進 `dhcp_ex
 （資料庫：配對、合併、非破壞性、鎖、排程、兩萬筆租約）、`test_isoinsight_api.py`、`test_isoinsight_mcp.py`。
 這些只證明 jt-ipam 的行為，**不代表**設備接受。
 
+- [ ] **Token 取不到時看得到回應結構**（2026-10-13 客戶；`test_isoinsight_config.py`、`test_isoinsight_client.py`）：
+  Token 模式設定的路徑取不到值時，測試連線「說明」欄列出登入回應的欄位與型別（不含值，Token 不可出現），code／msg 給值；
+  照著改路徑（例如 result.Session）再測要過。路徑只差大小寫且同一層唯一時照樣取到，說明欄寫出實際欄位；整數 Token 也接受
+
 - [ ] **待真機驗證（逐版本填相容性矩陣）**：GET、POST form、POST JSON 各自能否登入；登入回應（Cookie 名稱與屬性，或
   Token 欄位與 Header，值要遮蔽）；用登入後的 Session 讀租約；是否全量、有無分頁、含不含過期租約；`start_time`/`end_time`
   的時區與設備時間；唯讀帳號看得到所有需要的子網路；正式機與測試機路徑是否相同
@@ -1443,6 +1454,19 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 
 ### 近期（v0.6.45–v0.6.55 與尚未發布）
 
+- [ ] **下一個可用位址跳過冷卻中的**（`backend/tests/test_first_free_cooldown.py`）：刪掉一筆 IP（進冷卻期）後，子網路的「下一個可用」、位址範圍的「下一個可用」、
+  配發下一個可用、IP 申請核准都不可以給那個位址；解除冷卻後才會再給
+- [ ] **全站搜尋設定**（2026-10-13；`backend/tests/test_search_settings.py`、`e2e/global-search-settings.spec.ts`）：
+  管理 → 系統設定 → 全站搜尋。關掉隨打即找後打字不出結果、按 Enter 才搜尋（頁面剛打開就打字也一樣）；關掉的類型不出現、沒勾的欄位不比對；
+  拖拉把手（或把手聚焦後按上下方向鍵）調整順序後，結果分組照順序；清單比畫面高時拖到邊緣會自動捲動；各列的欄位勾選上下對齊，手機上開關在第一行右側；一個類型都沒開、或開了的類型沒勾欄位時存不了並說明原因；非管理員改不了（403）、改了有稽核；AI 對話搜尋不受影響；還原預設
+- [ ] **全站搜尋不漏結果**（GitHub issue #55；`backend/tests/test_search_substring_priority.py`）：很多名稱相近、但不含查詢字的資料時，
+  包含查詢字的結果一筆都不能少（每類 8 筆內）；裝置用說明／序號命中時要出現、副標顯示命中的那一段；某欄是空值的資料不可以排到真正命中的前面；
+  打錯字時仍有模糊結果。用名稱搜虛擬機：有 IP 記錄的開 IP 頁，沒有的開虛擬化頁 VM 頁籤並篩選；只被授權部分子網路的帳號搜不到沒有 IP 記錄的 VM
+- [ ] **IP 指示計圖例與底線**（2026-10-13；`e2e/subnet-grid-legend-focus.spec.ts`、`e2e/subnet-grid-cell-size.spec.ts`）：
+  點圖例只看那一類，沒變淡的格子數要等於圖例上的數字；再點一次、或聚焦時按 Esc 恢復；Tab 到圖例按 Enter 也能點，選中的有外框。
+  格子拉大時圖例的色塊與文字一起放大（14px 時維持 10px／12px）。DHCP 範圍的底線在格子裡，色塊下緣是平的、細白線保留，淺色主題也看得清楚
+- [ ] **子網路 IP 清單的未納管列**（`e2e/subnet-grid-unmanaged.spec.ts`）：內容變淡，橘色「未納管」標籤與操作欄不淡；
+  橫向捲動時右側固定欄的底色不透明（不可以對儲存格設透明度）
 - [ ] **DHCP 集區以設定的範圍計算**（客戶 2026-10-12；`tests/test_dhcp_pool_scope_grouping.py`、migration 0210）：
   Windows DHCP（或 FortiGate、Technitium、Check Point）一個範圍裡排除幾個單一位址，同步後 IP 上「DHCP 排除」照舊，
   但使用率與「DHCP 集區快用完」要以**整個範圍**計算：總數＝範圍大小扣掉排除數（與 Windows 的「Total Addresses」相同），
@@ -1487,6 +1511,19 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   都有新段落，矛盾跟畫面一樣；三種語系都切換看一次
 - [ ] **異常偵測篩選**（`e2e/anomaly-filter.spec.ts`）：一個關鍵字（IP/主機名稱/MAC/說明）篩選所有分類，
   頁籤上的數字顯示「符合/全部」
+- [ ] **異常偵測匯出與分類說明**（`e2e/anomaly-export-notes.spec.ts`、`src/utils/anomalyExport.test.ts`、
+  `src/utils/reportExport.test.ts`）：「偵測範圍」「排程」「匯出」是有框線的按鈕；每個頁籤的說明只有一句話，按「詳細說明」
+  展開完整內容，換頁籤、重新整理都記得。匯出選單分三組：整份報告（PDF、Word、ODT、HTML）、表格（XLSX、ODS，總覽一張＋
+  每個有資料的分類一張）、目前分類（CSV）。打開每一種檔案看：總覽列出所有分類與筆數、沒資料的分類不另外印空表格、
+  欄位與順序跟畫面一樣（在「欄位」關掉一欄再匯出一次）、多個 MAC 一個一行、IP 欄不折行；有篩選時報告寫出篩選條件、
+  總覽是「符合/全部」；主機名稱裡的 `<b>` 在 HTML 裡照原樣顯示成文字。PDF 欄數或筆數超過上限時跳出說明（改用 Excel/ODS
+  或先篩選），不是只有一個錯誤。三種語系各匯出一次 HTML
+- [ ] **主控台引擎一律建議 guacd**（`e2e/rdp-engine-recommend-guacd.spec.ts`、`tests/test_rdp_no_aardwolf.py`、`tests/test_rdp_remote_ended.py`）：
+  在沒裝 FreeRDP 的機器上，選 guacd 時系統設定頁不提 FreeRDP；選 FreeRDP 時是紅色錯誤、先建議改回 guacd，安裝指令標「仍要用 FreeRDP 的話」；
+  選 aardwolf、FreeRDP 或 VNC 內建時有「改用 guacd（建議）」按鈕，按下去存成 guacd、提示消失；引擎選單 aardwolf／內建標「將淘汰」。
+  主控台錯誤訊息（沒有 aardwolf、缺 FreeRDP 套件、遠端一開始就斷線）都建議 guacd，三種語系各看一次
+- [ ] **防火牆規則異動的對齊**（`e2e/fw-changes-align.spec.ts`）：一筆異動有好幾行、其中一行描述很長會換行時，
+  每個類型標籤都貼著它自己那一行，文字起點相同、與「異動內容」標題對齊；初次快照照舊顯示「—」與「（初次快照，作為比對基準）」
 - [ ] **防火牆規則劣化**（`tests/test_fw_rule_rot.py`）：OPNsense 的 Anti-Lockout 規則、轉到別名的埠轉發、
   只放行 ICMP 的 WAN 規則都**不**回報；any → any 指的是所有協定、所有埠；表格有「防火牆」欄，種類用文字寫出來
 - [ ] **PFX 匯出密碼**（`e2e/cert-pfx-export.spec.ts`、`tests/test_certificates_api.py`）：選 PFX 時要輸入兩次密碼

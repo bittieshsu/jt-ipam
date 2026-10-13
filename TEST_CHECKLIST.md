@@ -42,6 +42,10 @@ the titles of the three READMEs and the CHANGELOG section; `tests/test_changelog
 
 - [ ] With `JTIPAM_TEST_DATABASE_URL` set, `.venv/bin/pytest -q` is all green
   (e2e CRUD / auth / each module)
+- [ ] **Run the full suite once more without Redis**: `REDIS_HOST=redis-does-not-exist.invalid
+  REDIS_URL=redis://redis-does-not-exist.invalid:6379/0 .venv/bin/pytest -q`. The CI backend job has no Redis
+  while dev machines do, so a new test that touches a Redis-backed endpoint is green locally and red in CI
+  (happened in v0.6.49 and v1.0.8)
 - [ ] Auth: login, refresh, TOTP, permissions (unauthorized `require_admin`
   endpoints return 401/403)
 - [ ] Core CRUD: sections / subnets / addresses / devices / customers / locations / racks
@@ -480,6 +484,14 @@ defect is in *what the model was able to ask*.
   rack / location and confirm the answer contains only that scope. Regression to guard:
   "which hosts in 198.51.100.0/24 have no Wazuh agent" answered with the whole system
   because the tool had no subnet parameter at all (v0.5.194)
+- [ ] **Every parameter of every tool has run** (`tests/test_ai_tools_every_param.py`): one pass as an admin and one
+  as an account that sees a single subnet, with only the required arguments, each optional argument on its own
+  (every enum value, both booleans, numbers as strings, malformed IP/MAC/CIDR/ID values) and all of them together;
+  only readable tool errors are allowed. Regression to guard: asking for "the DHCP range of 192.0.2.0" made
+  `list_dhcp_ranges` fail in SQL whenever a scope was given, the aborted transaction failed every later tool and even
+  saving the conversation, and the chat showed nothing (2026-10-13). Also confirm tools are only called through
+  `call_tool` (the same file guards it), and ask the AI chat for one subnet's DHCP range giving just the network
+  address (no prefix length)
 - [ ] **Schema exposes the scope**: the tool description tells the model it MUST pass the
   scope for a scoped question, and the reply carries `scope` so the answer can state coverage
 - [ ] **No silent truncation**: every list tool returns `count` (total in scope) next to
@@ -1503,6 +1515,12 @@ Automated: `backend/tests/test_isoinsight_parser.py`, `test_isoinsight_config.py
 `test_isoinsight_sync.py` (database: matching, merge, non-destructive rules, lock, schedule, 20,000 leases),
 `test_isoinsight_api.py`, `test_isoinsight_mcp.py`. They prove what jt-ipam does, **not** that the device accepts it.
 
+- [ ] **Login response structure when the token is missing** (customer 2026-10-13; `test_isoinsight_config.py`,
+  `test_isoinsight_client.py`): when token mode finds nothing at the configured path, the test's detail column lists the
+  login response's fields and types (no values, never the token), with values for code/msg; setting the path it shows
+  (for example result.Session) makes the next test pass. A path that differs only in case and is unique at its level
+  still works and the detail column names the actual field; an integer token is accepted
+
 - [ ] **Pending verification on a real device (fill in the compatibility matrix per version)**: GET, POST form and
   POST JSON each logged in or not; the login response (cookie names and attributes, or the token field and header;
   values masked); the lease request with the logged-in session; whether the list is complete, paginated, includes
@@ -1999,6 +2017,29 @@ happy path of "an upload succeeded" is not enough.
 
 ### Recent (v0.6.45–v0.6.55 and not yet released)
 
+- [ ] **Next free address skips addresses in cooldown** (`backend/tests/test_first_free_cooldown.py`): after deleting an IP
+  (which starts its cooldown), the subnet's next free, the address range next free, allocate-next-free and IP request
+  approval never return that address until the cooldown is cleared
+- [ ] **Global search settings** (2026-10-13; `backend/tests/test_search_settings.py`, `e2e/global-search-settings.spec.ts`):
+  Admin → System Settings → Global search. With search as you type off, typing shows nothing and Enter searches (also when
+  typing right after the page opens); disabled types do not appear and unticked fields are not matched; dragging the handle (or the arrow keys on a
+  focused handle) changes the group order, the page scrolls when dragging to its edge, the field checkboxes line up
+  across rows, and on a phone the switch stays at the right of the first line; saving with no type on, or an enabled type with no field, is refused with the reason; non-admins
+  get 403 and changes are audited; AI chat search is unaffected; Restore defaults
+- [ ] **Global search does not drop results** (GitHub issue #55; `backend/tests/test_search_substring_priority.py`): with many
+  similar names that do not contain the query, every result containing it appears (within 8 per type); devices matched by
+  description / serial appear with the matched part in the subtitle; rows with an empty column never rank above real
+  matches; typos still give fuzzy results. VM names: with an IP record they open the IP page, without one the
+  virtualization VM tab filtered to it; a user with access to only some subnets cannot find VMs without an IP record
+- [ ] **IP map legend and range underline** (2026-10-13; `e2e/subnet-grid-legend-focus.spec.ts`,
+  `e2e/subnet-grid-cell-size.spec.ts`): clicking a legend entry shows only that type, and the number of cells that
+  stay bright equals the legend count; clicking again, or Esc while focused, restores; Tab to an entry and Enter works,
+  and the selected one is outlined. Enlarging the cells enlarges the legend swatches and text (10px / 12px at 14px).
+  The DHCP range underline sits inside the cell with a straight edge above the thin white separator, visible in the
+  light theme too
+- [ ] **Unmanaged rows in the subnet IP list** (`e2e/subnet-grid-unmanaged.spec.ts`): content is lighter, the orange
+  "Unmanaged" tag and the actions column are not; the fixed right-hand column stays opaque when scrolling sideways
+  (never set opacity on the cells themselves)
 - [ ] **DHCP pools are counted per configured range** (customer 2026-10-12; `tests/test_dhcp_pool_scope_grouping.py`,
   migration 0210): exclude a few single addresses from a Windows DHCP (or FortiGate, Technitium, Check Point) range;
   after a sync the IPs still show "DHCP excluded", but usage and "DHCP pool nearly exhausted" use the **whole range**:
@@ -2061,6 +2102,25 @@ happy path of "an upload succeeded" is not enough.
   / .html / .csv) contain the new sections and the same conflicts as the screen; check all three languages
 - [ ] **Anomaly filter** (`e2e/anomaly-filter.spec.ts`): one keyword (IP / hostname / MAC / details) filters every
   category and the tab counts read "matching / total"
+- [ ] **Anomaly export and category notes** (`e2e/anomaly-export-notes.spec.ts`, `src/utils/anomalyExport.test.ts`,
+  `src/utils/reportExport.test.ts`): "Scope", "Schedule" and "Export" are bordered buttons; each tab's note is one
+  sentence and "Details" expands the full text, remembered across tabs and reloads. The export menu has three groups:
+  full report (PDF, Word, ODT, HTML), spreadsheet (XLSX, ODS: an overview sheet plus one per category with findings)
+  and current category (CSV). Open every file: the overview lists every category with its count, categories without
+  findings get no empty table, columns and their order match the screen (hide a column under "Columns" and export
+  again), several MACs go one per line, the IP column does not wrap; with a filter the report states it and the
+  overview reads "matching/total"; a `<b>` in a host name shows as text in the HTML. When a PDF would exceed the
+  column or row limit a message explains what to do (use Excel/ODS or filter first) instead of a bare error.
+  Export HTML once in each of the three languages
+- [ ] **Console engines always recommend guacd** (`e2e/rdp-engine-recommend-guacd.spec.ts`, `tests/test_rdp_no_aardwolf.py`,
+  `tests/test_rdp_remote_ended.py`): on a machine without FreeRDP, the system settings page says nothing about FreeRDP while guacd is
+  selected; with FreeRDP selected it is a red error that first recommends switching back to guacd, the install command labelled "if you
+  still want FreeRDP"; with aardwolf, FreeRDP or the built-in VNC engine there is a "Use guacd (recommended)" button that saves guacd and
+  clears the notice; the engine lists mark aardwolf / built-in as being phased out. Console error messages (no aardwolf, FreeRDP packages
+  missing, remote ended at once) recommend guacd; check each in the three languages
+- [ ] **Firewall rule change alignment** (`e2e/fw-changes-align.spec.ts`): when one change has several lines and
+  one long description wraps, every type tag stays next to its own line, the text starts at the same position and
+  lines up with the "What changed" header; a first snapshot still shows "—" and "(first snapshot, used as the comparison baseline)"
 - [ ] **Firewall rule rot** (`tests/test_fw_rule_rot.py`): OPNsense Anti-Lockout rules, port forwards to an alias
   and a WAN rule allowing only ICMP are **not** reported; any → any means every protocol and every port; the
   table has a Firewall column and the kind in words

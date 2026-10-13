@@ -370,18 +370,23 @@ class IsoClient:
             except IsoError as exc:
                 raise self._err("AUTH_RESPONSE_UNSUPPORTED", f"login response is not JSON: {exc}",
                                 stage="login", http_status=st) from exc
-            token = cfg.extract_token(data, s.token_path or "")
+            token, used_path = cfg.extract_token_ex(data, s.token_path or "")
             entry["token_found"] = token is not None
+            if token is not None and used_path and used_path != s.token_path:
+                entry["token_path_used"] = used_path   # 大小寫不同的同名欄位（見 extract_token_ex）
             code = data.get("code") if isinstance(data, dict) else None
+            if token is None:
+                # 取不到時把回應的結構（欄位與型別，不含值）記下來：不然只看得到「沒有值」，不知道路徑該填什麼
+                entry["response_shape"] = cfg.scrub(cfg.describe_shape(data), [*s.secrets()])
             if token is None and code is not None and str(code).strip() != "200":
                 # 原廠的登入回應帶 code（成功是 "200"）：帳密錯時仍回 HTTP 200，只是 code 不同、沒有 SessionID
                 entry["login_code"] = str(code)[:16]
-                raise self._err("AUTH_FAILED", f"login refused (code {str(code)[:16]})", stage="login",
-                                http_status=st)
+                raise self._err("AUTH_FAILED", f"login refused (code {str(code)[:16]}); response: {entry['response_shape']}",
+                                stage="login", http_status=st)
             if token is None:
                 raise self._err("AUTH_RESPONSE_UNSUPPORTED",
-                                "no non-empty string at the configured token path", stage="login",
-                                http_status=st, path=s.token_path)
+                                f"no non-empty string at the configured token path; response: {entry['response_shape']}",
+                                stage="login", http_status=st, path=s.token_path)
             self._token = token
             return
         if not jar:

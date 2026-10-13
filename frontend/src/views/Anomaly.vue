@@ -9,7 +9,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
   NCard, NSpace, NIcon, NButton, NAlert, NGrid, NGi, NDataTable, NEmpty, NInput,
-  NTabs, NTabPane, NModal, NSelect, NSwitch, NInputNumber, NTimePicker, NCollapse, NCollapseItem, NTag,
+  NTabs, NTabPane, NModal, NSelect, NSwitch, NInputNumber, NTimePicker, NCollapse, NCollapseItem, NTag, NDropdown,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
@@ -17,14 +17,21 @@ import {
   runAnomalyScan, updateAnomalySchedule, getLastAnomalyReport,
   type AnomalyReport, type AnomalySchedule,
 } from "@/api/phase3";
-import { AiAuditIcon, AnomalyIcon, DownloadIcon, EyeIcon, IdentifyIcon, InfoIcon, PendingIcon, SettingsIcon, TestIcon, renderIcon } from "@/icons";
+import {
+  AiAuditIcon, AnomalyIcon, DownloadIcon, ExportIcon, EyeIcon, EyeOffIcon, IdentifyIcon, InfoIcon, PendingIcon, SettingsIcon,
+  TestIcon, renderIcon,
+} from "@/icons";
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
 import { downloadTextFile } from "@/utils/investigateReport";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { autoSort } from "@/composables/useTableSort";
-import { withExportValue } from "@/utils/tableExport";
+import { exportTable, withExportValue } from "@/utils/tableExport";
+import { MIME, pdfPayload, reportDocx, reportHtml, reportOdt, saveBytes, workbookOds, workbookXlsx } from "@/utils/reportExport";
+import { PDF_MAX, anomalyReport, anomalySheets, clipForPdf, pdfProblem, type AnomalyExport } from "@/utils/anomalyExport";
+import { renderReportPdf } from "@/api/reports";
+import { useExportBusy } from "@/composables/useExportBusy";
 import { deviceKindColumn, deviceKindLabel } from "@/utils/deviceKindCell";
 import type { Subnet } from "@/types";
 import { useTablePagination } from "@/composables/useTablePagination";
@@ -643,9 +650,13 @@ function btnWidth(label: string, icon = true): number {
 }
 
 // 依該類別的可見欄位（已套欄位偏好與使用者拖拉的順序）組欄位
-function catCols(key: CatKey): DataTableColumns<any> {
+/** 這個分類目前顯示的欄位（套用欄位偏好與拖拉的順序）：表格與匯出共用 */
+function shownKeys(key: CatKey): string[] {
   const visible = prefs[key].visibleKeys.value;
-  const keys = prefs[key].orderKeys(CAT_KEYS[key].filter((k) => visible.includes(k)));
+  return prefs[key].orderKeys(CAT_KEYS[key].filter((k) => visible.includes(k)));
+}
+function catCols(key: CatKey): DataTableColumns<any> {
+  const keys = shownKeys(key);
   const flexKey = [...keys].reverse().find((k) => !MULTI_LINE_KEYS.has(k));
   const lastKey = keys[keys.length - 1];
   // autoSort：與全站表格一致，替沒有自訂 sorter 的欄位補上預設排序。
@@ -713,7 +724,8 @@ function catCols(key: CatKey): DataTableColumns<any> {
                 size: "tiny", secondary: true, loading: ignoreBusy.value.has(r.ip_id),
                 disabled: ignoreBusy.value.has(r.ip_id), title: t("anomaly.ignore_btn"),
                 onClick: () => doIgnore(r.ip_id, key),
-              }, { default: () => t("anomaly.ignore_btn") })
+                // 一定要有圖示：視窗窄時操作欄只剩圖示，沒有圖示就變成一個空白的灰色塊（使用者 2026-10-13）
+              }, { icon: renderIcon(EyeOffIcon, 15), default: () => t("anomaly.ignore_btn") })
             : null,
           canTriage
             ? h(NButton, {
@@ -774,6 +786,148 @@ function downloadTriage(fmt: "md" | "txt") {
   downloadTextFile(text, `ip-triage-${ip}.${fmt}`, fmt);
 }
 
+// ── 匯出（使用者 2026-10-13：pdf html csv odt docx ods xlsx）───────────────────────────────
+// 整份報告（PDF／Word／ODT／HTML）與工作表（XLSX／ODS）涵蓋所有分類；CSV 只能一張表，匯出目前的分類。
+// 都照畫面：顯示中的欄位、拖拉過的順序、目前的篩選。說明用每個分類的一句話摘要。
+const paren = (s: string) => (String(locale.value).startsWith("en") ? ` (${s})` : `（${s}）`);
+/** MAC 一行：位址（廠商／本地管理／疑似讀壞）· 網卡 · 誰看到的 · 最後看到 */
+function macText(o: any): string {
+  if (!o || typeof o !== "object") return String(o ?? "");
+  const tag = o.suspect ? t(`anomaly.suspect_${o.suspect}`) : o.local ? t("anomaly.mac_local") : (o.vendor ?? "");
+  const extra: string[] = [];
+  if (Array.isArray(o.nic) && o.nic.length) extra.push(`${t("anomaly.nic")}：${o.nic.join("、")}`);
+  if (Array.isArray(o.sources) && o.sources.length) extra.push(o.sources.map((x: string) => seenBy(String(x))).join("、"));
+  if (o.last_seen_at) extra.push(fmtDateTime(String(o.last_seen_at)));
+  return `${o.mac ?? ""}${tag ? paren(String(tag)) : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}`;
+}
+/** 儲存格的純文字：與 renderVal 同一套規則，多個項目一項一行 */
+function exportCell(cat: CatKey, k: string, row: Record<string, any>): string {
+  const v = row[k];
+  if (k === "live") return v ? liveText(v) : "";
+  if (k === "device_kind") return deviceKindLabel(v, t, te);
+  if (v == null || v === "") return "";
+  if (k === "confidence") return t(`anomaly.confidence_${v}`);
+  if (k === "evidence" && Array.isArray(v)) {
+    return v.map((x) => (te(`anomaly.evidence_${x}`) ? t(`anomaly.evidence_${x}`) : String(x))).join("\n");
+  }
+  if (k === "subnets" && Array.isArray(v)) return v.join(" ↔ ");
+  if (k === "arp_examples" && Array.isArray(v)) {
+    return v.map((x: any) => t("anomaly.bleed_arp_line", { ip: x.ip, subnet: x.subnet ?? "—", mac: x.mac,
+                                                          owner: x.mac_owner_ip, owner_subnet: x.mac_owner_subnet ?? "—" })).join("\n");
+  }
+  if (k === "fdb_examples" && Array.isArray(v)) {
+    return v.map((x: any) => t("anomaly.bleed_fdb_line", { switch: x.switch, vlan: x.vlan,
+      detail: Object.entries(x.macs ?? {}).map(([cidr, list]) => `${cidr}：${(list as any[])
+        .map((m) => (m.port ? `${m.mac}（${m.port}）` : m.mac)).join("、")}`).join("；") })).join("\n");
+  }
+  if (cat === "identity_changes" && k === "shifts" && Array.isArray(v)) return v.map(identityChangeText).join("\n");
+  if (k === "ips" && Array.isArray(v)) {
+    return v.map((it: any) => `${it.ip}${it.hostname ? paren(String(it.hostname)) : ""}`).join("\n");
+  }
+  if (k === "macs" && Array.isArray(v)) return v.map(macText).join("\n");
+  if (k === "locations" && Array.isArray(v)) {
+    return v.map((o: any) => [o.device_name || (o.device_id ? String(o.device_id).slice(0, 8) : "—"), o.port ?? "—",
+                              pretty("last_seen_at", o.last_seen_at)].filter(Boolean).join(" · ")).join("\n");
+  }
+  if (Array.isArray(v)) return v.map((it: any) => (it && typeof it === "object" ? objLine(it) : String(it))).join("\n");
+  if (typeof v === "object") return objLine(v);
+  return pretty(k, v);
+}
+function exportBase(): string {
+  const d = new Date();
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `anomaly-report-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
+}
+function buildExport(): AnomalyExport {
+  const meta: [string, string][] = [
+    [t("anomaly.last_run"), lastRunAt.value ?? "—"],
+    [t("anomaly.export_trigger"), lastTrigger.value === "schedule" ? t("anomaly.by_schedule") : t("anomaly.export_manual")],
+    [t("anomaly.export_generated"), fmtDateTime(new Date())],
+  ];
+  if (filterQ.value.trim()) meta.push([t("anomaly.export_filter"), filterQ.value.trim()]);
+  return {
+    title: t("anomaly.export_title"),
+    generatedAt: fmtDateTime(new Date()),
+    meta,
+    note: t("anomaly.export_note"),
+    footerText: `jt-ipam · ${t("anomaly.title")}`,
+    overview: { heading: t("anomaly.export_overview"), colCategory: t("anomaly.export_col_category"),
+                colCount: t("anomaly.export_col_count"), colSummary: t("anomaly.export_col_summary") },
+    tables: CATEGORIES.map((c) => {
+      const keys = shownKeys(c.key);
+      return { key: c.key, title: c.label(), summary: t(`anomaly.summary_${c.key}`),
+               cols: keys.map(colLabel), total: catRows(c.key).length,
+               rows: shownRows(c.key).map((r) => keys.map((k) => exportCell(c.key, k, r))) };
+    }),
+  };
+}
+const exportOptions = computed(() => [
+  { type: "group", key: "g-report", label: t("anomaly.export_group_report"), children: [
+    { label: "PDF", key: "pdf" }, { label: "Word (.docx)", key: "docx" }, { label: "OpenDocument (.odt)", key: "odt" },
+    { label: "HTML", key: "html" }] },
+  { type: "group", key: "g-table", label: t("anomaly.export_group_table"), children: [
+    { label: "Excel (.xlsx)", key: "xlsx" }, { label: t("export.fmt_ods_sheet"), key: "ods" }] },
+  { type: "group", key: "g-current", label: t("anomaly.export_group_current"), children: [
+    { label: "CSV", key: "csv" }] },
+]);
+// 選了格式到檔案存好之前：按鈕反灰＋轉圈（全站匯出按鈕同一套）
+const { exporting, run: runExport } = useExportBusy();
+async function doExport(fmt: string) {
+  if (!report.value) return;
+  const base = exportBase();
+  try {
+    await runExport(async () => {
+      if (fmt === "csv") {
+        const cat = activeTab.value as CatKey;
+        const rows = shownRows(cat);
+        if (!rows.length) { msg.warning(t("export.empty")); return; }
+        exportTable("csv", `${base}-${cat}`, shownKeys(cat).map((k) => ({
+          key: k, label: colLabel(k), value: (r: Record<string, any>) => exportCell(cat, k, r) })), rows);
+        return;
+      }
+      const x = buildExport();
+      if (!x.tables.some((tb) => tb.rows.length)) { msg.warning(t("export.empty")); return; }
+      if (fmt === "xlsx" || fmt === "ods") {
+        const sheets = anomalySheets(x);
+        saveBytes(`${base}.${fmt}`, fmt === "xlsx" ? workbookXlsx(sheets) : workbookOds(sheets), MIME[fmt],
+                  { source: "anomaly-report" });
+        return;
+      }
+      const rep = anomalyReport(x);
+      if (fmt === "pdf") {
+        const problem = pdfProblem(rep);
+        if (problem) {
+          const max = problem.kind === "cols" ? PDF_MAX.cols : problem.kind === "rows" ? PDF_MAX.rows : PDF_MAX.cells;
+          msg.warning(t(`anomaly.export_pdf_${problem.kind}`, { ...problem, max }), { duration: 8000 });
+          return;
+        }
+        // 後端排版成真正的 PDF（內嵌中文字型）；伺服器排版時已記稽核
+        const blob = await renderReportPdf(pdfPayload(clipForPdf(rep), String(locale.value), base));
+        saveBytes(`${base}.pdf`, new Uint8Array(await blob.arrayBuffer()), "application/pdf",
+                  { source: "anomaly-report", audited: true });
+        return;
+      }
+      if (fmt === "html") {
+        saveBytes(`${base}.html`, new TextEncoder().encode(reportHtml(rep, String(locale.value))), MIME.html,
+                  { source: "anomaly-report" });
+        return;
+      }
+      if (fmt === "docx" || fmt === "odt") {
+        saveBytes(`${base}.${fmt}`, fmt === "docx" ? reportDocx(rep) : reportOdt(rep), MIME[fmt], { source: "anomaly-report" });
+      }
+    });
+  } catch (e) { msg.error(apiErrMsg(e)); }
+}
+
+// 分類說明：預設只顯示一句話摘要，「詳細說明」展開完整內容（使用者 2026-10-13：說明文字過多）。
+// 展開與否記在這台瀏覽器（只是個人方便，讀寫失敗就當作收起）
+const EXPLAIN_KEY = "jt-ipam:anomaly-explain-open";
+const explainOpen = ref((() => { try { return localStorage.getItem(EXPLAIN_KEY) === "1"; } catch { return false; } })());
+function toggleExplain() {
+  explainOpen.value = !explainOpen.value;
+  try { localStorage.setItem(EXPLAIN_KEY, explainOpen.value ? "1" : "0"); } catch { /* 無痕模式等：只是不記住 */ }
+}
+
 // 進頁面載入上次結果時不要動到「執行偵測」的載入狀態：按鈕載入中會吃掉點擊，使用者一進來就按
 // 會沒反應（e2e 抓到）。手動按過就以手動結果為準，晚到的「上次結果」不蓋掉它
 let ranThisVisit = false;
@@ -823,14 +977,21 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
       <span v-if="lastRunAt" style="opacity: 0.7; font-size: 13px">
         {{ t("anomaly.last_run") }}: {{ lastRunAt }}<template v-if="lastTrigger === 'schedule'">（{{ t("anomaly.by_schedule") }}）</template>
       </span>
-      <n-button size="small" quaternary @click="openScope">
+      <!-- 有框線的一般按鈕（使用者 2026-10-13：以前是無框的文字按鈕，看不出是按鈕） -->
+      <n-button data-testid="anomaly-scope-btn" @click="openScope">
         <template #icon><n-icon><SettingsIcon /></n-icon></template>
         {{ t("anomaly.scope_btn") }}
       </n-button>
-      <n-button size="small" quaternary @click="openSched">
+      <n-button data-testid="anomaly-sched-btn" @click="openSched">
         <template #icon><n-icon><PendingIcon /></n-icon></template>
         {{ t("anomaly.sched_btn") }}
       </n-button>
+      <n-dropdown trigger="click" :options="exportOptions" :disabled="!report || exporting" @select="doExport">
+        <n-button :disabled="!report || exporting" :loading="exporting" data-testid="anomaly-export">
+          <template #icon><n-icon><ExportIcon /></n-icon></template>
+          {{ t("export.label") }}
+        </n-button>
+      </n-dropdown>
     </n-space>
 
     <!-- 偵測範圍：訪客／實驗網段本來就會一堆異常，留著只會把真正該處理的埋掉 -->
@@ -957,9 +1118,18 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
       <n-tabs v-else v-model:value="activeTab" type="line" animated>
         <n-tab-pane v-for="c in CATEGORIES" :key="c.key" :name="c.key"
                     :tab="tabLabel(c)">
-          <!-- 每個類別先講清楚「這是什麼、為什麼會出現」，否則一長串 IP 沒人看得懂 -->
-          <n-alert type="default" :bordered="false" :show-icon="false" class="cat-note">
-            {{ t(`anomaly.explain_${c.key}`) }}
+          <!-- 每個類別先講清楚「這是什麼」：預設一句話摘要，完整的判斷依據收在「詳細說明」裡
+               （以前整段攤開，使用者 2026-10-13：說明文字過多） -->
+          <n-alert type="default" :bordered="false" :show-icon="false" class="cat-note" data-testid="cat-note">
+            <span data-testid="cat-summary">{{ t(`anomaly.summary_${c.key}`) }}</span>
+            <button type="button" class="cat-note__toggle" :aria-expanded="explainOpen"
+                    data-testid="cat-explain-toggle" @click="toggleExplain">
+              {{ explainOpen ? t("anomaly.explain_less") : t("anomaly.explain_more") }}
+              <span class="cat-note__chev" :class="{ open: explainOpen }" aria-hidden="true">›</span>
+            </button>
+            <div v-if="explainOpen" class="cat-note__full" data-testid="cat-explain">
+              {{ t(`anomaly.explain_${c.key}`) }}
+            </div>
           </n-alert>
           <n-alert v-if="c.key === 'unauthorized_ips' && unauthTruncated" type="warning" :bordered="false"
                    :show-icon="false" class="cat-note" data-testid="unauth-truncated">
@@ -1075,6 +1245,15 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
 .triage-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .triage-model { font-size: 12px; opacity: .65; }
 .cat-note { margin: 4px 0 14px; font-size: 12.5px; line-height: 1.7; }
+.cat-note__toggle {
+  margin-left: 8px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--primary-color, #18a058); font: inherit; white-space: nowrap;
+}
+.cat-note__toggle:hover { text-decoration: underline; }
+.cat-note__toggle:focus-visible { outline: 2px solid rgba(24, 160, 88, 0.6); outline-offset: 2px; border-radius: 3px; }
+.cat-note__chev { display: inline-block; margin-left: 2px; transition: transform .15s; transform: rotate(90deg); }
+.cat-note__chev.open { transform: rotate(-90deg); }
+.cat-note__full { margin-top: 6px; opacity: .85; }
 .cat-toolbar {
   display: flex; justify-content: space-between; align-items: center;
   gap: 8px; flex-wrap: wrap; margin-bottom: 8px;

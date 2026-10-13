@@ -85,6 +85,9 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
                         for (ip,) in (await session.execute(
                             select(IPAddress.ip).where(IPAddress.subnet_id == subnet.id))).all()})
     used_set = set(used_ints)
+    # 「下一個可用」也跳過冷卻中的位址（按下去是新增 IP，冷卻中的會被擋）；冷卻中不算「已用」
+    from app.services.ip_lifecycle import active_cooldowns
+    taken = used_set | {int(ipaddress.ip_address(c)) for c in await active_cooldowns(session, subnet.id)}
 
     # 自動範圍的每一段 → 它來自的設定範圍（DHCPPoolRange.pool_start／pool_end，0210）
     parent: dict[tuple[str, str, str], tuple[str, str]] = {}
@@ -115,7 +118,7 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
         scanned = 0      # 各段合計最多看 _FIRST_FREE_SCAN 個
         for lo, hi in spans:
             for v in range(lo, hi + 1):
-                if v not in used_set:
+                if v not in taken:
                     first_free = str(ipaddress.ip_address(v))
                     break
                 scanned += 1

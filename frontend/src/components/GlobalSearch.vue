@@ -17,7 +17,7 @@ import {
   NIcon,
 } from "naive-ui";
 import { SearchIcon } from "@/icons";
-import { search, type SearchHit } from "@/api/search";
+import { loadSearchSettings, search, type SearchHit } from "@/api/search";
 import { normalizeMac } from "@/utils/mac";
 
 const { t: tr } = useI18n();
@@ -30,12 +30,32 @@ const loading = ref(false);
 let debounceTimer: number | null = null;
 let lastIssued = 0;
 
-watch(q, (val) => {
+// 全站搜尋的設定（管理 → 系統設定 → 全站搜尋）：隨打即找、結果的排列順序。讀不到就照舊（隨打即找）
+const instant = ref(true);
+const order = ref<string[] | null>(null);
+// 目前的結果是哪一個查詢字的（按 Enter 才搜尋時，用來判斷要搜尋還是前往第一筆）
+const searchedFor = ref("");
+// 設定讀回來之前先等，讀到了才決定要不要隨打即找：頁面剛打開就開始打字時，
+// 不可以先用預設的「隨打即找」搜下去（關掉隨打即找的站台就是不想每打一個字就查一次）
+const settingsReady: Promise<void> = loadSearchSettings().then((st) => {
+  instant.value = st.instant;
+  order.value = st.types.filter((x) => x.enabled && x.fields.length).map((x) => x.type);
+}).catch(() => { /* 讀不到：照預設（隨打即找） */ });
+
+watch(q, async (val) => {
   if (debounceTimer !== null) window.clearTimeout(debounceTimer);
   if (!val || val.trim().length < 2) {
     hits.value = [];
     detected.value = "";
     loading.value = false;
+    searchedFor.value = "";
+    return;
+  }
+  await settingsReady;
+  if (q.value !== val) return;   // 等設定的時候字又改了：交給後來那一次
+  if (!instant.value) {
+    // 按 Enter 才搜尋：字改了，舊的結果就不算數
+    if (searchedFor.value && searchedFor.value !== val.trim()) { hits.value = []; detected.value = ""; }
     return;
   }
   // 立刻進 loading 狀態 — 不等 debounce + API，讓使用者馬上看到「搜尋中」
@@ -48,7 +68,7 @@ watch(q, (val) => {
 // 重新聚焦時：若框內仍留有上次的字，直接拿它當搜尋條件，而不是顯示「無結果」
 function onFocus() {
   const val = q.value.trim();
-  if (val.length >= 2 && hits.value.length === 0 && !loading.value) {
+  if (instant.value && val.length >= 2 && hits.value.length === 0 && !loading.value) {
     void runSearch(val);
   }
 }
@@ -61,6 +81,8 @@ async function runSearch(query: string) {
     if (myIssue !== lastIssued) return; // race-safe
     hits.value = res.results;
     detected.value = res.detected;
+    searchedFor.value = query.trim();
+    if (res.order?.length) order.value = res.order;
   } catch {
     // ignore — keep prior results
   } finally {
@@ -106,9 +128,12 @@ const baseOptions = computed<any[]>(() => {
   }
   const groups: Record<string, SearchHit[]> = {};
   for (const x of hits.value) {
-    (groups[x.type] ??= []).push(x);
+    // 沒有 IP 記錄的 VM 跟有 IP 的放在同一組「虛擬機」
+    (groups[x.type === "vm_record" ? "vm" : x.type] ??= []).push(x);
   }
-  const order = ["section", "subnet", "vlan", "vm", "ip_address", "device", "vpn", "customer", "rack", "location", "nat", "dns_record", "firewall", "ip_request"];
+  // 排列順序照全站搜尋的設定；讀不到設定時用預設順序
+  const order_ = order.value?.length ? order.value
+    : ["section", "subnet", "vlan", "vm", "ip_address", "device", "vpn", "customer", "rack", "location", "nat", "dns_record", "firewall", "ip_request"];
   const labelMap: Record<string, string> = {
     section: tr("global_search.t_section"),
     subnet: tr("global_search.t_subnet"),
@@ -125,7 +150,7 @@ const baseOptions = computed<any[]>(() => {
     firewall: tr("nav.firewall"),
     ip_request: tr("nav.requests"),
   };
-  return order
+  return order_
     .filter((t) => groups[t]?.length)
     .map((t) => ({
       type: "group",
@@ -173,6 +198,13 @@ function navigateTo(value: string) {
       // VM/CT 搜尋結果導到其主 IP 詳細資料頁（可開 PVE 主控台）
       router.push({ name: "address-detail", params: { id } });
       break;
+    case "vm_record": {
+      // 沒有 IP 記錄的 VM：到虛擬化頁的 VM 頁籤、用名稱篩選（id 是「平台.VM id」）
+      const hit = hits.value.find((h) => `${h.type}:${h.id}` === value);
+      const platform = id.split(".")[0];
+      router.push({ name: platform === "vmware" ? "virt_vmware" : "virt", query: hit?.label ? { vm: hit.label } : {} });
+      break;
+    }
     case "device":
       router.push({ name: "device-detail", params: { id } });
       break;
@@ -215,6 +247,11 @@ function navigateTo(value: string) {
 // hits 已空就不重複動作；否則（沒選到任何項目）就帶去最相關的第一筆結果。
 function onEnter() {
   if (qMac.value) { navigateTo(`mac:${qMac.value}`); return; }   // 完整 MAC：直接看它的歷程
+  // 按 Enter 才搜尋（隨打即找關閉）：這個查詢字還沒搜過就先搜，結果出來後再按 Enter 前往第一筆
+  if (!instant.value && q.value.trim().length >= 2 && searchedFor.value !== q.value.trim()) {
+    void runSearch(q.value);
+    return;
+  }
   if (hits.value.length) {
     const h = hits.value[0];
     navigateTo(`${h.type}:${h.id}`);
@@ -244,9 +281,9 @@ function detectedLabel(d: string): string {
       :render-label="renderOption"
       :loading="loading"
       size="small"
-      :placeholder="tr('global_search.placeholder')"
+      :placeholder="instant ? tr('global_search.placeholder') : tr('global_search.press_enter')"
       clearable
-      :get-show="() => q.trim().length >= 2"
+      :get-show="() => q.trim().length >= 2 && (instant || loading || searchedFor === q.trim() || !!qMac)"
       class="global-search__input"
       @select="(v: string) => navigateTo(v)"
       @keyup.enter="onEnter"

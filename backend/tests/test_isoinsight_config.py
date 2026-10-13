@@ -65,8 +65,32 @@ def test_bad_param_names(name: str) -> None:
 def test_token_path_extraction_is_explicit() -> None:
     assert C.extract_token({"data": {"token": "abc"}}, "data.token") == "abc"
     assert C.extract_token({"items": [{"t": "z"}]}, "items.0.t") == "z"
-    for body in ({"data": {}}, {"data": {"token": ""}}, {"data": {"token": 5}}, [], {"data": None}):
+    for body in ({"data": {}}, {"data": {"token": ""}}, {"data": {"token": True}}, {"data": {"token": 1.5}},
+                 [], {"data": None}, {"token": "x"}):
         assert C.extract_token(body, "data.token") is None
+
+
+def test_numeric_session_id_is_accepted() -> None:
+    """Session ID 是整數也算（很常見）；布林與小數不算。客戶 2026-10-13：登入 HTTP 200、設定的路徑卻取不到值。"""
+    assert C.extract_token({"code": 200, "SessionID": 1234567}, "SessionID") == "1234567"
+
+
+def test_key_case_is_forgiven_only_when_unambiguous() -> None:
+    """同一層只有一個欄位是大小寫不同的同名欄位時採用它，並回報實際的路徑；兩個以上就不猜。"""
+    assert C.extract_token_ex({"data": {"sessionId": "abc"}}, "data.SessionID") == ("abc", "data.sessionId")
+    assert C.extract_token_ex({"SessionID": "abc"}, "SessionID") == ("abc", "SessionID")
+    assert C.extract_token_ex({"sessionid": "a", "SESSIONID": "b"}, "SessionID") == (None, None)
+
+
+def test_response_shape_lists_keys_and_types_not_values() -> None:
+    """登入回應取不到 Token 時給人看的結構：欄位與型別、字串只給長度；code／msg 這類狀態欄位才給值。"""
+    shape = C.describe_shape({"code": 200, "msg": "ok", "data": {"sessionId": "s" * 32, "n": 3, "on": True,
+                                                                  "items": [1, 2], "x": None}})
+    assert shape == '{code: 200, msg: "ok", data: {sessionId: str(32), n: int, on: bool, items: [2 items], x: null}}'
+    assert "sss" not in shape
+    assert C.describe_shape({"code": 401, "msg": "wrong password"}) == '{code: 401, msg: "wrong password"}'
+    assert C.describe_shape([{"a": 1}]) == "[1 items]"
+    assert len(C.describe_shape({f"k{i}": "v" for i in range(200)})) <= 400
 
 
 @pytest.mark.parametrize("bad", ["", "a..b", ".a", "a b", "a." + "b." * 12])

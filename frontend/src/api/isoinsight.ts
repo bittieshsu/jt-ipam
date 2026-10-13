@@ -83,6 +83,10 @@ export interface IsoStage {
   post_format?: string;
   cookies?: string[];
   token_found?: boolean;
+  /** Token 實際所在的欄位（設定的路徑大小寫不同時） */
+  token_path_used?: string;
+  /** 登入回應取不到 Token 時的結構：欄位與型別（不含值） */
+  response_shape?: string;
   content_type?: string | null;
   bytes?: number;
   rows?: number;

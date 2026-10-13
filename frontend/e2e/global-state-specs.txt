@@ -17,3 +17,5 @@ change-impact.spec.ts
 change-impact-m2.spec.ts
 # 改 MFA 政策（所有人必須）、DSV 明文開關、備份加密：平行時別的 spec 登入會被要求設定 MFA
 security-controls.spec.ts
+# 改全站搜尋的設定（隨打即找、類型、排列順序）：平行時別的 spec 的搜尋框會拿到不一樣的設定
+global-search-settings.spec.ts

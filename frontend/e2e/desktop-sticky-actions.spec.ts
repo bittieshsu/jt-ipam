@@ -57,7 +57,27 @@ async function offenders(page: Page): Promise<string[]> {
   });
 }
 
-test("桌面寬度：會左右捲的表格，操作欄都固定在右側", async ({ page }) => {
+/**
+ * 操作欄裡沒有圖示的按鈕（使用者 2026-10-13：異常偵測的「忽略這個 IP」在窄視窗變成空白的灰色塊）。
+ * 視窗窄時全站的 col-actions 規則只留圖示、把文字藏起來 —— 沒有圖示的按鈕就什麼都看不到。
+ * 當成連結用的文字按鈕（IP、名稱）不算。
+ */
+async function iconless(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    for (const cell of Array.from(document.querySelectorAll<HTMLElement>("td.col-actions, td[data-col-key='actions'], td[data-col-key='_actions']"))) {
+      for (const btn of Array.from(cell.querySelectorAll<HTMLElement>("button.n-button"))) {
+        if (btn.classList.contains("n-button--text-type")) continue;
+        if (btn.querySelector("svg, img, .n-icon")) continue;
+        const label = (btn.innerText || btn.getAttribute("title") || btn.getAttribute("aria-label") || "").trim();
+        out.push(`操作欄的按鈕「${label || "（沒有文字）"}」沒有圖示`);
+      }
+    }
+    return [...new Set(out)];
+  });
+}
+
+test("桌面寬度：會左右捲的表格，操作欄都固定在右側；操作欄的按鈕都有圖示", async ({ page }) => {
   await page.goto("/login");
   await page.getByPlaceholder(/帳號|Username/).fill(ADMIN_USER);
   await page.getByPlaceholder(/密碼|Password/).fill(ADMIN_PASS);
@@ -74,6 +94,7 @@ test("桌面寬度：會左右捲的表格，操作欄都固定在右側", async
     await page.waitForTimeout(400);
     checkedTables += await page.locator(".n-data-table").count();
     for (const p of await offenders(page)) problems.push(`${url}｜${p}`);
+    for (const p of await iconless(page)) problems.push(`${url}｜${p}`);
   }
   expect(checkedTables, "一張表格都沒量到（選擇器失效？）").toBeGreaterThan(20);
   expect(problems, problems.join("\n")).toEqual([]);

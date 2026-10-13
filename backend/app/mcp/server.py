@@ -94,8 +94,8 @@ async def _dispatch_call(name: str, arguments: dict[str, Any], user, session, *,
     denied = await authorize_tool(session, user, name)
     if denied is not None:
         raise IPAMToolError(denied)
-    fn = TOOLS[name]["fn"]
-    return await fn(session, user=user, **arguments)
+    from app.mcp.tools import call_tool
+    return await call_tool(session, user, name, arguments)
 
 
 def _is_notification(body: dict[str, Any]) -> bool:

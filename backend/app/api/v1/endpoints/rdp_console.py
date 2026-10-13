@@ -325,19 +325,21 @@ def rdp_unavailable_detail(engine: str, missing: str) -> dict[str, Any]:
     """RDP 用不了時給使用者看的說明：原因加出路（GitHub issue #39）。
 
     以前只說「缺 aardwolf」。實際最常見的原因是這台的 Python 太新（aardwolf 0.2.13 只有
-    CPython 3.9–3.13 的預編譯 wheel，安裝時刻意不現場編 Rust）—— 而 RDP 其實可以改用
-    FreeRDP 引擎，只是使用者不會知道。
+    CPython 3.9–3.13 的預編譯 wheel，安裝時刻意不現場編 Rust）。
+    出路一律是 guacd（預設，使用者 2026-10-13）：以前寫「改用 FreeRDP」，客戶照著切過去；
+    aardwolf 也會逐步淘汰。仍要用 FreeRDP 的才附上怎麼裝。
     """
     if engine == "freerdp":
         return ui_detail(
             "console_rdp_freerdp_missing",
-            f"FreeRDP 引擎缺少 {missing}：請在伺服器上執行 jt-ipam.sh upgrade 安裝。",
+            f"FreeRDP 引擎缺少 {missing}。建議請管理員到「管理 → 系統設定 → RDP 連線引擎」改回 guacd（預設，"
+            "不需要額外套件）；仍要用 FreeRDP 的話，請在伺服器上執行 jt-ipam.sh upgrade 安裝。",
             engine=engine, missing=missing)
     py = python_version()
     return ui_detail(
         "console_rdp_no_aardwolf",
-        f"這台伺服器沒有 aardwolf（Python {py} 沒有它的預編譯套件）。"
-        "請管理員到「管理 → 系統設定 → RDP 連線引擎」改用 FreeRDP。",
+        f"這台伺服器沒有 aardwolf（Python {py} 沒有它的預編譯套件；aardwolf 會逐步淘汰）。"
+        "請管理員到「管理 → 系統設定 → RDP 連線引擎」改回 guacd（預設）。",
         engine=engine, missing=missing, python=py)
 
 
@@ -889,8 +891,8 @@ async def _bridge(websocket: WebSocket, conn: Any, send: Any, *, clip_enabled: b
         detail = (ui_detail(
             "console_remote_ended_early",
             "遠端主機在工作階段一開始就結束了連線，還沒送出任何畫面。常見原因：這個帳號沒有"
-            "遠端登入權限、遠端桌面授權或連線代理拒絕、工作階段數已滿。可改用 FreeRDP 引擎"
-            "（管理 → 系統設定 → RDP 連線引擎），它會顯示伺服器給的原因。")
+            "遠端登入權限、遠端桌面授權或連線代理拒絕、工作階段數已滿。建議改用 guacd 引擎"
+            "（管理 → 系統設定 → RDP 連線引擎，預設），它會顯示伺服器給的原因。")
             if frames == 0 else
             ui_detail("console_remote_ended", "遠端主機結束了這個工作階段（沒有提供原因）"))
         with contextlib.suppress(Exception):

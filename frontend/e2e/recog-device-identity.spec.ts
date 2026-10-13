@@ -22,7 +22,10 @@ test("異常偵測：類型或 OS 突變列出從什麼變成什麼，並有說�
   await page.goto("/anomaly?tab=identity_changes");
   await page.getByRole("button", { name: /執行偵測/ }).click();
   const pane = page.locator(".n-tab-pane:visible");
-  await expect(pane).toContainText("掃描代理的定期偵測判讀出的設備類型或 OS 家族變了", { timeout: 20_000 });
+  // 說明預設只有一句話摘要，完整說明在「詳細說明」裡（2026-10-13：說明文字過多）
+  await expect(pane.getByTestId("cat-summary")).toContainText("判讀出的設備類型或 OS 家族變了", { timeout: 20_000 });
+  if (!(await pane.getByTestId("cat-explain").count())) await pane.getByTestId("cat-explain-toggle").click();
+  await expect(pane.getByTestId("cat-explain")).toContainText("掃描代理的定期偵測判讀出的設備類型或 OS 家族變了");
   const row = pane.locator(".n-data-table-tr", { hasText: "10.20.0.11" });
   await expect(row).toContainText("設備類型：印表機 → Windows 主機");
   await expect(row).toContainText(/OS：Linux → Windows/);
