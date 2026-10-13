@@ -19,3 +19,5 @@ change-impact-m2.spec.ts
 security-controls.spec.ts
 # 改全站搜尋的設定（隨打即找、類型、排列順序）：平行時別的 spec 的搜尋框會拿到不一樣的設定
 global-search-settings.spec.ts
+# 攔截主控台設定 API（不真的寫入），但攔截萬一沒生效，按「改用 guacd」就會改到全站引擎設定：依序跑
+rdp-engine-recommend-guacd.spec.ts
