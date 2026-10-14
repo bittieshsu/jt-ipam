@@ -1115,6 +1115,24 @@ async def mark_scanner_seen(
             )
 
 
+async def sync_interface_ips(session: AsyncSession, instance: LibreNMSInstance) -> dict[str, int]:
+    """LibreNMS 記錄的設備介面位址＝上線證據 iface:librenms（多 LAN 的閘道常不回 ping；services/iface_evidence）。
+
+    設備在 LibreNMS 是 up（停用的不算）、而且那個埠是 up 才算。位址清單只給 port_id，
+    用一次 /api/v0/ports（只取三個欄位）對回設備 —— 逐台查會是 N 次請求。
+    """
+    from app.services import iface_evidence
+    addrs = (await _api_get(instance, "/api/v0/resources/ip/addresses", timeout=60.0)).get("ip_addresses") or []
+    ports = (await _api_get(instance, "/api/v0/ports?columns=port_id,device_id,ifOperStatus",
+                            timeout=60.0)).get("ports") or []
+    up = {int(x) for (x,) in (await session.execute(
+        select(LibreNMSDevice.legacy_device_id).where(
+            LibreNMSDevice.instance_id == instance.id, LibreNMSDevice.status == "up"))).all()}
+    scope = list(instance.scope_subnet_ids) if instance.scope_subnet_ids else None
+    return await iface_evidence.stamp(session, "iface:librenms",
+                                      iface_evidence.librenms_addrs(addrs, ports, up_devices=up), scope_ids=scope)
+
+
 async def recompute_effective_status(
     session: AsyncSession, instance: LibreNMSInstance | None = None,
 ) -> int:
@@ -1150,6 +1168,9 @@ async def recompute_effective_status(
     from app.services.ip_history import latest_changes
 
     await session.flush()             # 同一個 session 裡還沒寫出的證據（防火牆 ARP 等）要算進來
+    # 「上線狀態跟著設備」：先把同設備其他位址的證據搬過來（services/device_liveness），下面才算得到
+    from app.services.device_liveness import materialize as _materialize_device
+    await _materialize_device(session)
     rows = (await session.execute(select(
         IPAddress.id, IPAddress.ip, IPAddress.subnet_id, IPAddress.mac, IPAddress.effective_status,
         IPAddress.last_seen_scanner, IPAddress.last_seen_librenms, IPAddress.last_seen_arp,
@@ -1608,6 +1629,14 @@ async def sync_instance(
             # LibreNMS 介面清單 → 已連結裝置的連接埠（device_ports），自動帶入不必手動匯入
             await sync_device_ports(session, instance)
             await session.commit()
+            # 設備自己的介面位址（多 LAN 的閘道）：只在這個實例「用於上線判定」時採用；讀不到不算失敗
+            if instance.use_for_status:
+                try:
+                    await sync_interface_ips(session, instance)
+                    await session.commit()
+                except LibreNMSError as exc:
+                    await session.rollback()
+                    logging.getLogger(__name__).warning("librenms %s interface ips: %s", instance.name, exc)
         if instance.sync_arp:
             ac: dict[str, Any] = {}
             s, i, u, f = await sync_arp(session, instance, autocreate_stats=ac)

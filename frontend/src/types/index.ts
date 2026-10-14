@@ -114,6 +114,10 @@ export interface IPAddress {
   device_id: string | null;
   switch_port: string | null;
   exclude_from_ping: boolean;
+  /** 上線狀態跟著所屬設備（多 LAN 路由器的閘道不回 ping 但在用） */
+  liveness_from_device?: boolean;
+  /** 「跟著設備」這一輪的依據是同設備的哪個位址 */
+  device_evidence_ip?: string | null;
   excluded_probes: string[];
   os_guess: string | null;
   /** 掃描代理定期偵測判讀出的設備類型（camera／printer…）與廠牌型號 */

@@ -1485,6 +1485,18 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 
 ### 近期（v0.6.45–v0.6.55 與尚未發布）
 
+- [ ] **不回應探測的閘道：設備介面位址＋跟著設備**（客戶 2026-10-14；`tests/test_iface_evidence.py`、`tests/test_device_liveness.py`、
+  `tests/test_liveness_sources.py`、`src/composables/__tests__/liveness.test.ts`、`e2e/gateway-liveness.spec.ts`、migration 0215）：
+  接 OPNsense／pfSense／FortiGate／MikroTik／LibreNMS 的路由器，同步後它啟用中的介面位址（對得到 IP 記錄的）燈號變綠，提示列出「設備介面位址（廠牌）」；
+  介面 down、OPNsense 設定上停用、MikroTik disabled／invalid、LibreNMS 設備 down 或埠 down 的不算；整合連不上之後證據過期變紅；不會新建 IP 記錄。
+  沒接整合：閘道 IP 掛到路由器並勾「上線狀態跟著所屬設備」→ 路由器其他位址在線時跟著綠（提示「同設備 x.x.x.x」）、路由器掛了一起紅；勾了沒掛設備是灰色
+  「使用中（不回應探測）」，表單有提醒、詳細頁有一列。同 MAC 的另一個位址在線時詳細頁提示並可一鍵套用（只列看得到的子網路）。
+  以前存過上線來源的站台升級後自動採信新來源；系統設定的上線判定列出「設備介面位址」「跟著所屬設備」
+- [ ] **系統診斷的容量用量**（2026-10-14；`backend/tests/test_storage_usage.py`、`e2e/system-doctor.spec.ts`）：管理 → 系統診斷有「容量用量」：
+  資料庫、備份、程式與套件、磁碟剩餘四張摘要卡；資料庫依功能的環圈圖，滑過圖例時中間換成那個分類、其他變淡；主機上的目錄（備份、程式與套件含
+  Python 套件／前端套件／前端建置檔、資料目錄、日誌）長條；最大的資料表由大到小、標出分類與約略筆數。正式站台的數字要與 `du -sh`、
+  `pg_database_size` 大致相符；目錄不存在時講出來、讀不到時寫「部分無法讀取」；按「重新檢查」重新量目錄。新增資料表沒分類時
+  `test_every_table_belongs_to_a_feature_group` 會擋。「資料統計」一組一張卡、0 筆淡化，手機寬度單欄不擠
 - [ ] **DNS 比對群組選比對類型**（2026-10-14；`tests/test_dns_compare_types.py`、`tests/test_dns_ucs_adapter.py`、`e2e/dns-compare-groups.spec.ts`、migration 0214）：
   新增群組時「比對的紀錄類型」預設勾 A、AAAA、PTR，另有 CNAME、MX、TXT、NS、SRV、CAA；全部取消不能存；表格有「比對的紀錄類型」欄。
   勾 CNAME 後對成員按「拉取」，別名才存進來並開始比對（兩台不同就列差異）；拿掉後下一次拉取把多存的清掉；沒分組的伺服器照舊只存 A、AAAA、PTR；

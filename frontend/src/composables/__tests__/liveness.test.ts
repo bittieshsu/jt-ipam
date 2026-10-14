@@ -55,6 +55,23 @@ describe("classifyAddressLiveness", () => {
   it("沒有任何證據、又刻意不偵測 → 未知（不是紅燈）", () => {
     expect(classifyAddressLiveness({ exclude_from_ping: true })).toBe("unknown");
   });
+
+  // 客戶 2026-10-14：多 LAN 路由器的閘道不回 ping 卻在用
+  it("勾了「上線狀態跟著設備」卻沒掛設備 → 未知（不是紅燈）；掛了設備就照證據判斷", () => {
+    expect(classifyAddressLiveness({ liveness_from_device: true })).toBe("unknown");
+    expect(classifyAddressLiveness({ liveness_from_device: true, device_id: "d1" })).toBe("offline");
+  });
+
+  it("「跟著設備」與設備介面位址的證據照採信的來源算", () => {
+    livenessSources.value = ["scanner", "device", "iface:opnsense"];
+    expect(classifyAddressLiveness({ liveness_from_device: true, device_id: "d1",
+                                      arp_seen: { device: agoIso(2) } })).toBe("online");
+    expect(classifyAddressLiveness({ arp_seen: { "iface:opnsense": agoIso(1) } })).toBe("online");
+    expect(classifyAddressLiveness({ liveness_from_device: true, device_id: "d1",
+                                      arp_seen: { device: agoIso(600) } })).toBe("offline");
+    livenessSources.value = ["scanner"];
+    expect(classifyAddressLiveness({ arp_seen: { "iface:opnsense": agoIso(1) } })).toBe("offline");
+  });
 });
 
 describe("isArpOnlyEvidence", () => {

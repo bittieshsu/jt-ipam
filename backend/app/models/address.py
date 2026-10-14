@@ -51,6 +51,13 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     switch_port_confident: Mapped[bool | None] = mapped_column(Boolean)
 
     exclude_from_ping: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    #: 上線狀態跟著所屬設備（0215，客戶 2026-10-14）：多 LAN 路由器的閘道不回 ping 但在用。
+    #: 每輪把同設備其他位址最新的會過期證據搬到 arp_seen["device"]（services/device_liveness）；
+    #: 沒掛設備時不算離線（「使用中（不回應探測）」）
+    liveness_from_device: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default=text("false"))
+    #: 「跟著設備」這一輪的依據是同設備的哪個位址（沒有＝來自 LibreNMS 的設備狀態或沒有依據）
+    device_evidence_ip: Mapped[str | None] = mapped_column(INET)
     # 此 IP「略過」的探測項目（扣除）；icmp 與 exclude_from_ping 雙向同步以保留既有行為。
     excluded_probes: Mapped[list[str]] = mapped_column(
         ARRAY(String), server_default=text("'{}'::varchar[]"), nullable=False,

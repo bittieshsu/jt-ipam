@@ -20,12 +20,13 @@ import { apiClient, apiErrMsg } from "@/api/client";
 import type { IPAddress } from "@/types";
 import {
   getAddress, updateAddress, deleteAddress, createAddress, getDeviceSuggestion, applyDeviceSuggestion,
-  type IPAddressUpdate, type DeviceSuggestion,
+  getSameMacAddresses, type IPAddressUpdate, type DeviceSuggestion,
 } from "@/api/addresses";
+import { classifyAddressLiveness } from "@/composables/useLivenessSettings";
 import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
   type SwitchPortInfo } from "@/api/ip_history";
 import { clearHostnameSource, getHostnameSources, type HostnameSources } from "@/api/hostname";
-import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon, FilesIcon, IdentifyIcon, RustDeskIcon, ChevronDownIcon, ChangeImpactIcon } from "@/icons";
+import { EditIcon, SaveIcon, CancelIcon, DeleteIcon, PlusIcon, LinkIcon, TerminalIcon, DisplayIcon, VncIcon, NoVncIcon, SearchIcon, FilesIcon, IdentifyIcon, RustDeskIcon, ChevronDownIcon, ChangeImpactIcon, CheckIcon } from "@/icons";
 import CopyButton from "@/components/CopyButton.vue";
 import InvestigateModal from "@/components/InvestigateModal.vue";
 import ChangeImpactWizard from "@/components/ChangeImpactWizard.vue";
@@ -269,7 +270,8 @@ const effectiveDisplay = computed(() => {
   const a = props.address;
   const v = a?.effective_status;
   if (!v) return "—";
-  const noProbe = !!a?.exclude_from_ping || a?.subnet_scan_enabled === false;
+  const noProbe = !!a?.exclude_from_ping || a?.subnet_scan_enabled === false
+    || (!!a?.liveness_from_device && !a?.device_id);
   if (noProbe && /^offline/i.test(v)) return t("addresses.effective_unknown");
   return labelEffective(v);
 });
@@ -356,6 +358,7 @@ const consoleCompact = ref(false);
 let cro: ResizeObserver | null = null;
 onMounted(() => {
   void loadSuggestion();
+  void loadSameMac();
   void ensureDeviceLoaded(props.address?.device_id);
   const el = (rootEl.value?.$el ?? rootEl.value) as HTMLElement | undefined;
   if (el instanceof HTMLElement) {
@@ -392,6 +395,7 @@ interface FormState {
   bmc_enabled: boolean;
   rustdesk_enabled: boolean;
   is_dhcp_server: boolean;
+  liveness_from_device: boolean;
 }
 
 const form = ref<FormState>(emptyForm());
@@ -416,6 +420,7 @@ function emptyForm(): FormState {
     bmc_enabled: false,
     rustdesk_enabled: false,
     is_dhcp_server: false,
+    liveness_from_device: false,
   };
 }
 
@@ -518,6 +523,7 @@ function fromAddress(a: IPAddress): FormState {
     bmc_enabled: !!a.bmc_enabled,
     rustdesk_enabled: !!a.rustdesk_enabled,
     is_dhcp_server: !!a.is_dhcp_server,
+    liveness_from_device: !!a.liveness_from_device,
   };
 }
 
@@ -828,9 +834,41 @@ watch([swName, swPort], ([a, b]) => {
   form.value.switch_port = port ? `${name} / ${port}` : name;
 });
 
+// 同一個 MAC 的另一個位址在線、這一個沒有（客戶 2026-10-14）：多 LAN 路由器各網段的閘道常是同一個 MAC，
+// 多半是同一台設備的介面位址 → 提示可以勾「上線狀態跟著設備」。只是提示，套不套用由人決定
+const sameMac = ref<IPAddress[]>([]);
+async function loadSameMac() {
+  sameMac.value = [];
+  const a = props.address;
+  if (!a?.id || !a.mac || a.liveness_from_device) return;
+  try { sameMac.value = await getSameMacAddresses(a.id); } catch { /* 提示而已，讀不到就不顯示 */ }
+}
+const sameMacHint = computed(() => {
+  const a = props.address;
+  if (!a || a.liveness_from_device || classifyAddressLiveness(a) === "online") return null;
+  return sameMac.value.find((x) => classifyAddressLiveness(x) === "online") ?? null;
+});
+const applyingSameMac = ref(false);
+async function applySameMac() {
+  const a = props.address;
+  const sib = sameMacHint.value;
+  if (!a || !sib) return;
+  applyingSameMac.value = true;
+  try {
+    // 還沒掛設備、而在線的那個有掛 → 一起掛到同一台；已經掛了就不動（不替人改關聯）
+    const payload: IPAddressUpdate = { liveness_from_device: true };
+    if (!a.device_id && sib.device_id) payload.device_id = sib.device_id;
+    const updated = await updateAddress(a.id, payload);
+    msg.success(t("common.ok"));
+    emit("saved", updated);
+  } catch (e) { msg.error(apiErrMsg(e)); }
+  finally { applyingSameMac.value = false; }
+}
+
 // 換 IP 時清掉舊快取
 watch(() => props.address?.id, () => {
   void loadSuggestion();
+  void loadSameMac();
   void ensureDeviceLoaded(props.address?.device_id);
   history.value = [];
   historyLoaded.value = false;
@@ -918,6 +956,7 @@ async function save() {
       bmc_enabled: form.value.bmc_enabled,
       rustdesk_enabled: form.value.rustdesk_enabled,
       is_dhcp_server: form.value.is_dhcp_server,
+      liveness_from_device: form.value.liveness_from_device,
     };
     const updated = await updateAddress(props.address?.id, payload);
     hostnameSourcesLoaded.value = false;  // 重新整理來源/有效 hostname
@@ -1347,6 +1386,13 @@ async function remove() {
           <n-descriptions-item :label="t('addresses.exclude_from_ping')">{{ props.address?.exclude_from_ping ? "✓" : "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.ptr_ignore')">{{ props.address?.ptr_ignore ? "✓" : "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('addresses.source')">{{ labelSource(props.address?.discovery_source) }}</n-descriptions-item>
+          <!-- 勾了「上線狀態跟著設備」才顯示：依據是同設備的哪個位址（每輪同步更新） -->
+          <n-descriptions-item v-if="props.address?.liveness_from_device" :label="t('addresses.liveness_from_device')">
+            <span data-testid="ip-liveness-from-device-row">
+              ✓ {{ props.address?.device_evidence_ip ? t("addresses.liveness_from_device_via", { ip: props.address.device_evidence_ip })
+                : !props.address?.device_id ? t("addresses.liveness_from_device_no_device_short") : "" }}
+            </span>
+          </n-descriptions-item>
           <!-- 有固定分配才顯示這一列：沒有的話多一列「否」只是噪音 -->
           <n-descriptions-item v-if="props.address?.dhcp_reserved" :label="t('addresses.dhcp_reserved_tag')">
             {{ resvLine }}
@@ -1404,6 +1450,18 @@ async function remove() {
           </n-descriptions>
         </div>
 
+        <n-alert v-if="!editMode && sameMacHint" type="info" :bordered="false" style="margin-top: 12px"
+                 data-testid="ip-same-mac-hint">
+          {{ t("addresses.same_mac_hint", { ip: sameMacHint.ip.split("/")[0] }) }}
+          <div style="margin-top: 6px">
+            <n-button size="small" type="primary" :loading="applyingSameMac" :disabled="auth.me?.can_edit === false"
+                      data-testid="ip-same-mac-apply" @click="applySameMac">
+              <template #icon><n-icon><CheckIcon /></n-icon></template>
+              {{ !props.address?.device_id && sameMacHint.device_id ? t("addresses.same_mac_apply_link")
+                : t("addresses.same_mac_apply") }}
+            </n-button>
+          </div>
+        </n-alert>
         <div v-if="!editMode && seenRows.length" data-testid="ip-seen-section">
           <div class="detail-sec-title">{{ t("addresses.seen_title") }}</div>
           <n-data-table class="seen-table" size="small" :bordered="true" :single-line="false"
@@ -1697,6 +1755,16 @@ async function remove() {
               <span style="font-size: 11px; opacity: .7">{{ t("scan_probes.excluded_hint") }}</span>
             </n-space>
           </n-form-item>
+          <!-- 上線狀態跟著所屬設備（客戶 2026-10-14：多 LAN 路由器的閘道不回 ping 但在用，顯示紅燈） -->
+          <n-form-item :label="t('addresses.liveness_from_device')">
+            <n-space vertical :size="2" style="width:100%">
+              <n-switch v-model:value="form.liveness_from_device" data-testid="ip-liveness-from-device" />
+              <span style="font-size: 11px; opacity: .7">{{ t("addresses.liveness_from_device_hint") }}</span>
+              <span v-if="form.liveness_from_device && !form.device_id" class="lfd-warn" data-testid="ip-liveness-no-device">
+                {{ t("addresses.liveness_from_device_no_device") }}
+              </span>
+            </n-space>
+          </n-form-item>
           <n-form-item :label="t('addresses.ptr_ignore')">
             <n-switch v-model:value="form.ptr_ignore" />
           </n-form-item>
@@ -1905,4 +1973,5 @@ async function remove() {
 .mac-history-link { color: var(--primary-color, #18a058); text-decoration: none; font-family: var(--jt-mono, monospace); }
 .mac-history-link:hover { text-decoration: underline; }
 .split-caret { padding: 0 6px; }
+.lfd-warn { font-size: 12px; color: #d97706; }
 </style>

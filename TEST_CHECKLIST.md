@@ -2055,6 +2055,20 @@ happy path of "an upload succeeded" is not enough.
 
 ### Recent (v0.6.45–v0.6.55 and not yet released)
 
+- [ ] **Gateways that do not answer probes: device interface addresses and following the device** (customer 2026-10-14; `tests/test_iface_evidence.py`,
+  `tests/test_device_liveness.py`, `tests/test_liveness_sources.py`, `src/composables/__tests__/liveness.test.ts`, `e2e/gateway-liveness.spec.ts`, migration 0215):
+  for a router connected through OPNsense / pfSense / FortiGate / MikroTik / LibreNMS, after a sync its enabled interface addresses (those matching IP records) turn green and the
+  tooltip lists "Device interface address (vendor)"; interfaces that are down, disabled in OPNsense, disabled/invalid in MikroTik, or on a LibreNMS device or port that is down do
+  not count; the evidence expires and turns red once the integration stops answering; no IP records are created. Without an integration: link the gateway IPs to the router and tick
+  "Liveness follows its device" → green while another router address is online (tooltip "Same device x.x.x.x"), red with the router; ticked without a device is grey "In use (does
+  not answer probes)", with a note in the form and a row on the detail page. When another address with the same MAC is online the detail page suggests it with a one-click apply
+  (only visible subnets). Sites that saved liveness sources earlier trust the new sources after upgrading; System settings' liveness list shows "Device interface address" and "Follows its device"
+- [ ] **Storage usage in System check** (2026-10-14; `backend/tests/test_storage_usage.py`, `e2e/system-doctor.spec.ts`): Admin → System check shows
+  "Storage usage": four summary cards (database, backups, program and packages, free disk); a donut of the database by feature where hovering the legend
+  shows that feature in the middle and dims the rest; bars for the host directories (backups, program and packages with Python packages / frontend packages /
+  frontend build, data directory, logs); the largest tables in descending order with their feature and approximate rows. On production the figures roughly
+  match `du -sh` and `pg_database_size`; a missing directory is named, an unreadable one says so; Re-check remeasures. `test_every_table_belongs_to_a_feature_group`
+  fails when a new table has no feature. The data statistics show one card per group with zeros dimmed, single column at phone width
 - [ ] **DNS comparison groups choose the record types** (2026-10-14; `tests/test_dns_compare_types.py`, `tests/test_dns_ucs_adapter.py`, `e2e/dns-compare-groups.spec.ts`, migration 0214):
   a new group has A, AAAA and PTR ticked under "Record types compared", with CNAME, MX, TXT, NS, SRV and CAA available; clearing all cannot be saved; the table has a column for it.
   After ticking CNAME and clicking Pull on the members, aliases are stored and compared (a difference between two servers is listed); removing it clears the extra records at the next pull;

@@ -1740,7 +1740,11 @@ ONLINE_GRACE_KEY = "online_grace_minutes"
 
 async def get_liveness_config(session: AsyncSession) -> dict[str, Any]:
     """上線判定：閾值（分鐘）＋哪些來源算數。"""
-    from app.services.evidence import LIVENESS_SOURCES, default_liveness_sources
+    from app.services.evidence import (
+        LIVENESS_SOURCES,
+        SOURCES_ADDED_LATER,
+        default_liveness_sources,
+    )
     row = await session.get(SystemSetting, ONLINE_GRACE_KEY)
     v = row.value if row and isinstance(row.value, dict) else {}
     try:
@@ -1750,6 +1754,11 @@ async def get_liveness_config(session: AsyncSession) -> dict[str, Any]:
     raw = v.get("sources")
     if isinstance(raw, list):
         sources = [str(x) for x in raw if str(x) in LIVENESS_SOURCES]
+        # 存設定之後才新增的來源：會過期的預設採信（使用者當時根本沒看過，談不上「沒勾」）。
+        # `known`＝存設定時畫面上有哪些來源；更早的設定沒有這一欄，就以 SOURCES_ADDED_LATER 為準
+        known = ({str(x) for x in v["known"]} if isinstance(v.get("known"), list)
+                 else set(LIVENESS_SOURCES) - set(SOURCES_ADDED_LATER))
+        sources += [s for s in default_liveness_sources() if s not in known and s not in sources]
     else:
         sources = default_liveness_sources()
     return {"minutes": min(43200, max(1, minutes)), "sources": sources}

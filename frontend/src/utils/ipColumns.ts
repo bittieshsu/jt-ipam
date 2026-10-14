@@ -84,7 +84,7 @@ export function staleDays(r: IPAddress): number | null {
 
 /** 這個位址有沒有在被探測（排除 ping 或子網路沒開掃描就沒有）。 */
 export function isProbed(r: IPAddress): boolean {
-  return !r.exclude_from_ping && r.subnet_scan_enabled !== false;
+  return !r.exclude_from_ping && r.subnet_scan_enabled !== false && !(r.liveness_from_device && !r.device_id);
 }
 
 export function staleDaysLabel(t: T, r: IPAddress): string {

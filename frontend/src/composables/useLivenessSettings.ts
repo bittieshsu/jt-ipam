@@ -101,10 +101,14 @@ export function classifyAddressLiveness(addr: {
   arp_seen?: Record<string, string> | null;
   exclude_from_ping?: boolean | null;
   subnet_scan_enabled?: boolean | null;
+  liveness_from_device?: boolean | null;
+  device_id?: string | null;
 }): LivenessKind {
   // 刻意不偵測（exclude_from_ping）或所屬 subnet 沒啟用掃描時：根本沒主動探測，
   // 不論有沒有舊的 last_seen，都不該顯示「離線(紅)」——過期最多降為未知(灰)。
-  const noProbe = !!addr.exclude_from_ping || addr.subnet_scan_enabled === false;
+  // 勾了「上線狀態跟著設備」卻沒掛設備（2026-10-14，多 LAN 路由器的閘道）：沒有設備可以跟，同樣不算離線
+  const noProbe = !!addr.exclude_from_ping || addr.subnet_scan_enabled === false
+    || (!!addr.liveness_from_device && !addr.device_id);
   const use = livenessSources.value;
   const ts = [
     use.includes("scanner") ? addr.last_seen_scanner : null,

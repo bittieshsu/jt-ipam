@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -831,6 +831,8 @@ async def _liveness_candidates(
 
     present = {
         "scanner": True,
+        # 「跟著所屬設備」是內建的（勾在 IP 上），跟掃描代理一樣永遠列出
+        "device": True,
         "librenms": await _has(LibreNMSInstance),
         "wazuh": await _has(WazuhInstance),
         "zabbix": await _has(ZabbixInstance),
@@ -870,7 +872,8 @@ async def put_online_grace(
     if row is None:
         row = SystemSetting(key="online_grace_minutes", value={}, updated_by=user.id)
         session.add(row)
-    row.value = {"minutes": m, "sources": srcs}
+    # known：存的當下畫面上有哪些來源 —— 之後新增的來源才分得出「沒看過」與「看過、沒勾」
+    row.value = {"minutes": m, "sources": srcs, "known": list(LIVENESS_SOURCES)}
     row.updated_by = user.id
     flag_modified(row, "value")
     await append_audit(
@@ -1553,6 +1556,17 @@ async def system_doctor_stats(
 
     from app.services.data_stats import collect
     return {"generated_at": datetime.now(UTC).isoformat(), "groups": await collect(session)}
+
+
+@router.get("/doctor/storage")
+async def system_doctor_storage(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    refresh: bool = Query(False, description="重新量主機上的目錄（預設用幾分鐘內的結果）"),
+) -> dict[str, Any]:
+    """系統診斷的「容量用量」（admin）：資料庫依功能分類、最大的資料表、主機上 jt-ipam 的各個目錄。
+    只在本機計算，不回傳、不蒐集。"""
+    from app.services.storage_usage import collect
+    return await collect(session, refresh=refresh)
 
 
 @router.get("/doctor/report", response_class=PlainTextResponse)

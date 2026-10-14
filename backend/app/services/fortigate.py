@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -457,6 +458,17 @@ async def sync_arp(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str
     return sum(1 for found, _e in await batch.flush() if found)
 
 
+async def sync_interface_ips(session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str]) -> int:
+    """這台防火牆自己啟用中的介面位址（含 secondaryip）＝上線證據 iface:fortigate（services/iface_evidence）。"""
+    from app.services import iface_evidence
+    addrs: list[str] = []
+    for vdom in vdoms or [None]:  # type: ignore[list-item]
+        for a in iface_evidence.fortigate_addrs(_rows(await _api_get(fw, "/api/v2/cmdb/system/interface", vdom=vdom))):
+            if a not in addrs:
+                addrs.append(a)
+    return (await iface_evidence.stamp(session, "iface:fortigate", addrs, scope_ids=_scope(fw)))["matched"]
+
+
 async def sync_vpn(
     session: AsyncSession, fw: FortiGateFirewall, vdoms: list[str], *, authoritative: bool = True,
 ) -> dict[str, Any]:
@@ -817,6 +829,11 @@ async def sync_instance(session: AsyncSession, fw: FortiGateFirewall) -> dict[st
         await _section("nat", lambda: sync_nat(session, fw, vdoms))
     if fw.sync_addresses and vdoms_ok:
         await _section("addresses", lambda: sync_addresses(session, fw, vdoms))
+    # 自己的介面位址（多 LAN 的閘道）：讀不到不算失敗（API 管理員可能沒有 system 讀取權限），只記日誌
+    try:
+        counts["interface_ips"] = await sync_interface_ips(session, fw, vdoms)
+    except FortiGateError as exc:
+        logging.getLogger(__name__).warning("fortigate %s interface ips: %s", fw.name, exc)
 
     fw.last_sync_at = datetime.now(UTC)
     # 部分失敗要留下痕跡（否則使用者以為全部同步成功），但不影響其他區段

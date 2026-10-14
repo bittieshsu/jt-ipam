@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -38,6 +39,7 @@ EP_DHCP_SERVERS = "/api/v2/services/dhcp_servers"
 EP_DHCP_ADDRESS_POOLS = "/api/v2/services/dhcp_server/address_pools"
 EP_DHCP_STATIC_MAPPINGS = "/api/v2/services/dhcp_server/static_mappings"
 EP_ARP_TABLE = "/api/v2/diagnostics/arp_table"
+EP_STATUS_INTERFACES = "/api/v2/status/interfaces"
 EP_ALIASES = "/api/v2/firewall/aliases"
 EP_RULES = "/api/v2/firewall/rules"
 EP_NAT_PF = "/api/v2/firewall/nat/port_forwards"
@@ -442,6 +444,15 @@ async def sync_nat(session: AsyncSession, fw: PfSenseFirewall) -> int:
     return n
 
 
+async def sync_interface_ips(session: AsyncSession, fw: PfSenseFirewall) -> int:
+    """這台防火牆自己 up 的介面位址＝上線證據 iface:pfsense（多 LAN 的閘道常不回 ping；services/iface_evidence）。"""
+    from app.services import iface_evidence
+    data = await _api_get(fw, EP_STATUS_INTERFACES)
+    scope = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
+    return (await iface_evidence.stamp(session, "iface:pfsense", iface_evidence.pfsense_addrs(data),
+                                       scope_ids=scope))["matched"]
+
+
 async def sync_instance(session: AsyncSession, fw: PfSenseFirewall) -> dict[str, int]:
     """跑此實例所有啟用的同步；設定 last_sync_at / last_error。"""
     counts: dict[str, int] = {}
@@ -467,6 +478,11 @@ async def sync_instance(session: AsyncSession, fw: PfSenseFirewall) -> dict[str,
         from app.services.fw_review import run_sentinel
         await run_sentinel(session, source_type="pfsense", instance=fw)
         counts["nat"] = await sync_nat(session, fw)
+    # 自己的介面位址（多 LAN 的閘道）：舊版 REST API 沒有這支也不算失敗，只記日誌
+    try:
+        counts["interface_ips"] = await sync_interface_ips(session, fw)
+    except PfSenseError as exc:
+        logging.getLogger(__name__).warning("pfsense %s interface ips: %s", fw.name, exc)
     fw.last_sync_at = datetime.now(UTC)
     fw.last_error = ("部分區段失敗：" + "；".join(partial)) if partial else None
     return counts

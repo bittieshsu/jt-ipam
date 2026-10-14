@@ -570,6 +570,31 @@ async def _sibling_rows(
     return list((await session.execute(q.limit(50))).all())
 
 
+@router.get("/{address_id}/same-mac", response_model=list[IPAddressRead])
+async def same_mac_addresses(
+    address_id: uuid.UUID,
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[IPAddressRead]:
+    """同一個 MAC 的其他位址（看得到的子網路才列，最多 20 筆）。
+
+    給「上線狀態跟著設備」的提示用（客戶 2026-10-14）：多 LAN 路由器各網段的閘道常是同一個 MAC，
+    這一個不回應探測、同 MAC 的另一個在線 → 多半是同一台設備的介面位址。只回事實，套不套用由人決定。
+    """
+    obj = await session.get(IPAddress, address_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+    await _require_subnet_perm(session, user, obj.subnet_id, "read")
+    if not obj.mac:
+        return []
+    rows = list((await session.execute(
+        select(IPAddress).where(IPAddress.mac == obj.mac, IPAddress.id != obj.id)
+        .order_by(IPAddress.ip).limit(20))).scalars().all())
+    visible = set(await filter_visible(session, user=user, object_type="subnet",
+                                       object_ids=list({r.subnet_id for r in rows}), required="read"))
+    return [IPAddressRead.model_validate(r) for r in rows if r.subnet_id in visible]
+
+
 @router.get("/{address_id}/device-suggestion", response_model=DeviceSuggestion)
 async def device_suggestion(
     address_id: uuid.UUID,
@@ -1185,6 +1210,7 @@ async def create_address(
     obj.device_id = payload.device_id
     obj.switch_port = payload.switch_port
     obj.exclude_from_ping = payload.exclude_from_ping
+    obj.liveness_from_device = payload.liveness_from_device
     obj.ptr_ignore = payload.ptr_ignore
     obj.note = payload.note
     obj.custom_fields = cf or None

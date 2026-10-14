@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import ipaddress
+import logging
 import re
 import uuid
 from datetime import UTC, datetime
@@ -1606,6 +1607,14 @@ async def sync_rule_labels(session: AsyncSession, fw: OPNsenseFirewall) -> dict[
     return {"count": len(seen)}
 
 
+async def sync_interface_ips(session: AsyncSession, fw: OPNsenseFirewall) -> dict[str, Any]:
+    """這台防火牆自己啟用中的介面位址＝上線證據 iface:opnsense（多 LAN 的閘道常不回 ping；services/iface_evidence）。"""
+    from app.services import iface_evidence
+    data = await _api_get(fw, "/api/interfaces/overview/export")
+    scope = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
+    return await iface_evidence.stamp(session, "iface:opnsense", iface_evidence.opnsense_addrs(data), scope_ids=scope)
+
+
 async def sync_all_for_firewall(
     session: AsyncSession, fw: OPNsenseFirewall,
 ) -> list[dict[str, Any]]:
@@ -1680,6 +1689,12 @@ async def sync_all_for_firewall(
         out.append({"task": "vpn", **(await sync_vpn_tunnels(session, fw))})
     except OPNsenseError as exc:
         out.append({"task": "vpn", "error": str(exc)})
+
+    # 自己的介面位址（多 LAN 的閘道）：舊版沒有這支 API 也不算失敗，只記日誌
+    try:
+        out.append({"task": "interface_ips", **(await sync_interface_ips(session, fw))})
+    except OPNsenseError as exc:
+        logging.getLogger(__name__).warning("opnsense %s interface ips: %s", fw.name, exc)
 
     fw.last_sync_at = datetime.now(UTC)
     # 部分失敗要留下痕跡：以前一律設回 None，連不上時每個區段都失敗、畫面卻顯示成功，

@@ -276,6 +276,7 @@ const livenessAvail = ref<LivenessSource[]>([]);
 const VENDOR_LABEL: Record<string, string> = {
   opnsense: "OPNsense", pfsense: "pfSense",
   fortigate: "FortiGate", paloalto: "Palo Alto", checkpoint: "Check Point", mikrotik: "MikroTik",
+  librenms: "LibreNMS",
 };
 
 /** `arp:opnsense` → 「ARP 表（OPNsense）」；沒有廠牌後綴的用既有翻譯。 */

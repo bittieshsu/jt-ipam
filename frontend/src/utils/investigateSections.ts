@@ -47,6 +47,7 @@ export function vendorLabel(v: string | null | undefined): string {
 
 /** `arp:opnsense` → 「ARP 表（OPNsense）」 */
 export function fwSeenLabel(key: string, t: Translate): string {
+  if (key === "device") return t("system_settings.src_device");
   const [kind, vendor] = key.split(":", 2);
   if (!vendor) return key;
   return `${t(`system_settings.src_kind_${kind}`)}（${vendorLabel(vendor)}）`;

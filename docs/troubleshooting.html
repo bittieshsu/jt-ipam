@@ -996,6 +996,19 @@ sudo sysctl --system</code></pre>
         </p>
       </article>
 
+      <article class="qa" id="qa-gateway-no-ping">
+        <h3>
+          <span class="zh">閘道（路由器的介面位址）不回 ping，登記後顯示紅燈</span>
+          <span class="en">A gateway (a router's interface address) does not answer ping and shows red after it is registered</span>
+          <span class="ja">ゲートウェイ（ルーターのインターフェースアドレス）が ping に応答せず、登録すると赤になる</span>
+        </h3>
+        <p>
+          <span class="zh">一台路由器接好幾個 LAN 時，每個 LAN 的閘道都是它自己的介面位址，常被防火牆政策擋掉 ICMP，或掃描代理不在那個網段，探測沒有回應。路由器有接 OPNsense、pfSense、FortiGate、MikroTik 或 LibreNMS 整合的話，每輪同步會讀它啟用中的介面位址，對得到的 IP 記錄就算在線（上線判定的來源「設備介面位址」，預設採信），不用另外設定；FortiGate 的 API 管理員要能讀取系統設定（介面），讀不到時這一段只記日誌。沒有接整合的，把這些閘道 IP 掛到所屬的路由器（裝置），在 IP 編輯勾「上線狀態跟著所屬設備」：同一台設備的其他位址或 LibreNMS 回報設備在線，這些位址就跟著在線，設備掛了一起變離線。IP 詳細頁發現同一個 MAC 的另一個位址在線時，會提示並可以一鍵套用。只勾選、還沒掛設備時顯示灰色「使用中（不回應探測）」，不算離線。</span>
+          <span class="en">When one router serves several LANs, each LAN's gateway is one of the router's own interface addresses; firewall policy often drops ICMP to them, or the scan agent is not on that subnet, so probes get no answer. If the router is connected through an OPNsense, pfSense, FortiGate, MikroTik or LibreNMS integration, every sync reads its enabled interface addresses and the matching IP records count as online (the liveness source "Device interface address", trusted by default), with nothing else to set up; a FortiGate API administrator needs read access to system settings (interfaces), otherwise that step is only logged. Without an integration, link these gateway IPs to their router (device) and tick "Liveness follows its device" when editing the IP: whenever another address of the same device, or LibreNMS, reports the device up, these addresses are online too, and they go offline with the device. The IP detail page suggests this, with a one-click apply, when another address with the same MAC is online. Ticked but with no device linked, the address shows grey "In use (does not answer probes)" instead of offline.</span>
+          <span class="ja">1 台のルーターが複数の LAN を収容する場合、各 LAN のゲートウェイはルーター自身のインターフェースアドレスで、ファイアウォールのポリシーで ICMP が落とされたり、スキャンエージェントがそのセグメントにいなかったりして応答がありません。ルーターを OPNsense、pfSense、FortiGate、MikroTik、LibreNMS のいずれかで連携していれば、同期のたびに有効なインターフェースアドレスを読み、一致する IP レコードをオンラインとします（オンライン判定の根拠「機器のインターフェースアドレス」、既定で採用）。追加の設定は不要です。FortiGate の API 管理者にはシステム設定（インターフェース）の読み取り権限が必要で、読めない場合はログに記録するだけです。連携していない場合は、これらのゲートウェイ IP を所属ルーター（機器）に紐づけ、IP の編集で「オンライン状態を所属機器に従わせる」にチェックを入れてください。同じ機器のほかのアドレスか LibreNMS が機器のオンラインを報告していればオンラインとなり、機器が落ちれば一緒にオフラインになります。IP 詳細ページは、同じ MAC のほかのアドレスがオンラインのときに提案し、ワンクリックで適用できます。チェックだけで機器が未紐づけの場合は、オフラインではなく灰色の「使用中（プローブに応答しない）」になります。</span>
+        </p>
+      </article>
+
       <article class="qa" id="qa-relogin">
         <h3>
           <span class="zh">升級之後所有人都被登出、要重新登入</span>

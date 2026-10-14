@@ -29,6 +29,8 @@ class IPAddressBase(StrictModel):
     device_id: uuid.UUID | None = None
     switch_port: Annotated[str | None, Field(max_length=64)] = None
     exclude_from_ping: bool = False
+    #: 上線狀態跟著所屬設備（多 LAN 路由器的閘道不回 ping 但在用；services/device_liveness）
+    liveness_from_device: bool = False
     # 此 IP 略過的探測項目（扣除）；icmp 與 exclude_from_ping 在端點層雙向同步
     excluded_probes: list[str] = Field(default_factory=list)
     ptr_ignore: bool = False
@@ -117,6 +119,7 @@ class IPAddressUpdate(StrictModel):
     device_id: uuid.UUID | None = None
     switch_port: Annotated[str | None, Field(max_length=64)] = None
     exclude_from_ping: bool | None = None
+    liveness_from_device: bool | None = None
     excluded_probes: list[str] | None = None
     ptr_ignore: bool | None = None
     note: Annotated[str | None, Field(max_length=2048)] = None
@@ -158,6 +161,13 @@ class PveConsoleTarget(StrictModel):
 class IPAddressRead(IPAddressBase):
     id: uuid.UUID
     discovery_source: str
+    #: 「跟著設備」這一輪的依據是同設備的哪個位址（每輪同步更新）
+    device_evidence_ip: str | None = None
+
+    @field_validator("device_evidence_ip", mode="before")
+    @classmethod
+    def _evidence_ip(cls, v: object) -> str | None:
+        return None if v is None else str(v).split("/")[0]
     in_dhcp_lease: bool = False   # 自動判定：目前有 DHCP 租約（由各 DHCP 來源推導，見 services/dhcp_leases.py）
     # DHCP 上有把這個位址固定綁給某張網卡。與「有租約」意義不同：有租約＝現在有人在用，
     # 固定分配＝這個位址不會被換人用（位址被回收再發給別台，正是資料張冠李戴的來源）。

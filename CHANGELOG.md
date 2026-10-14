@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [Unreleased]
+
+### Added
+- Gateways that do not answer probes: when one router serves several LANs, each LAN's gateway is the router's own interface address, which often does not answer ping and showed red although it is in use (customer report).
+  - Integrations report the device's own interface addresses as a new liveness source, "Device interface address": OPNsense, pfSense, FortiGate, MikroTik and LibreNMS read the enabled interfaces each sync, and matching IP records count as online while the integration answers (they expire when it stops).
+  - "Liveness follows its device" on an IP: the newest expiring evidence of the same device's other addresses, or LibreNMS reporting the device up, keeps it online, and it goes offline with the device; ticked without a linked device it shows grey "In use (does not answer probes)" instead of red (migration 0215).
+  - The IP detail page suggests this when another address with the same MAC is online, with a one-click apply that also links the same device; the status light tooltip now lists every evidence source, including firewall, interface and same-device evidence.
+  - Sites that saved their liveness sources earlier automatically trust the new sources (both expire); sources unticked back then stay unticked.
+- System check shows storage usage: the database by feature as a donut chart with a legend (IP management, history, audit log, notifications, DNS/DHCP, firewalls, ARP/MAC tables, sites and devices, integrations, reference data, AI, IP change assessment, system), the largest tables, and jt-ipam's directories on the host (backups, program and packages with Python packages, frontend packages and build, data directory, logs) next to the disk's free space. Directory sizes are measured with a time limit (shown as approximate when it runs out) and cached for a few minutes; Re-check measures again, and the checks no longer wait for it. The daily backup folders are readable by root only, so the backup script now records the backup directory's total size in last-run and the page uses it, saying which backup recorded it. A test fails when a new table is not assigned to a feature.
+
+### Changed
+- System check: the data statistics are shown as one card per group, with numbers aligned right and zero counts dimmed.
+
 ## [1.0.11] - 2026-10-14
 
 ### Added

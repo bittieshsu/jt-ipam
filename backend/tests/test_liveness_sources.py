@@ -336,3 +336,50 @@ async def test_zabbix_availability_makes_it_online(db_session):
     await _recompute(db_session, ["zabbix"])
     await db_session.refresh(ipa)
     assert ipa.effective_status == "online (zabbix)"
+
+
+# ── 設備介面位址與「跟著設備」（客戶 2026-10-14：多 LAN 的閘道不回 ping 卻在用，顯示紅燈）──
+
+IFACE = ("iface:opnsense", "iface:pfsense", "iface:fortigate", "iface:mikrotik", "iface:librenms")
+
+
+def test_interface_and_device_evidence_are_trusted_by_default() -> None:
+    """整合回報的設備介面位址：整合連得上、介面啟用才蓋時間 → 會過期，可以宣稱上線。
+    「跟著設備」是把同設備其他位址的會過期證據搬過來 → 同樣會過期（設備掛了一起變紅）。"""
+    defaults = evidence.default_liveness_sources()
+    for key in (*IFACE, "device"):
+        assert evidence.is_aging(key), key
+        assert key in evidence.LIVENESS_SOURCES, key
+        assert key in defaults, key
+
+
+async def test_saved_settings_pick_up_sources_added_later(db_session) -> None:
+    """升級後新功能要自己生效：以前存過來源清單的站台，新增的（會過期）來源要自動算進去，
+    但使用者當初取消勾選的不可以被加回來。"""
+    from app.models.system_setting import SystemSetting
+    from app.services.system_config import get_liveness_config
+    row = await db_session.get(SystemSetting, "online_grace_minutes")
+    if row is None:
+        row = SystemSetting(key="online_grace_minutes", value={})
+        db_session.add(row)
+    row.value = {"minutes": 30, "sources": ["scanner"]}          # 舊格式：沒有 known
+    await db_session.flush()
+    got = (await get_liveness_config(db_session))["sources"]
+    assert "scanner" in got
+    for key in (*IFACE, "device"):
+        assert key in got, f"{key} 是後來才有的，舊設定要自動採信"
+    assert "arp:opnsense" not in got, "當初就有、使用者沒勾的，不可以加回來"
+
+    row.value = {"minutes": 30, "sources": ["scanner"], "known": list(evidence.LIVENESS_SOURCES)}
+    await db_session.flush()
+    assert (await get_liveness_config(db_session))["sources"] == ["scanner"], "存設定時已經看過的，照使用者的選擇"
+
+
+async def test_saving_records_the_sources_seen(client, auth_headers, db_session) -> None:
+    r = await client.put("/api/v1/system/online-grace", json={"minutes": 30, "sources": ["scanner"]}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    from app.models.system_setting import SystemSetting
+    await db_session.commit()
+    row = await db_session.get(SystemSetting, "online_grace_minutes")
+    await db_session.refresh(row)
+    assert set(row.value.get("known") or []) == set(evidence.LIVENESS_SOURCES)

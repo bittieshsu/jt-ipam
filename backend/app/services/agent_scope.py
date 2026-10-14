@@ -33,7 +33,7 @@ async def annotate_scope(session: AsyncSession, rows: list[dict[str, Any]]) -> l
          exclude, s_scan, s_lnms, s_arp, s_wazuh, s_zbx, arp_seen, kind, model) in (await session.execute(
         select(IPAddress.id, IPAddress.customer_id, Subnet.id, Subnet.cidr, Subnet.customer_id,
                Section.id, Section.name, Section.customer_id, Subnet.scan_enabled,
-               IPAddress.exclude_from_ping, IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
+               not_probed_expr(), IPAddress.last_seen_scanner, IPAddress.last_seen_librenms,
                IPAddress.last_seen_arp, IPAddress.last_seen_wazuh, IPAddress.last_seen_zabbix,
                IPAddress.arp_seen, IPAddress.device_kind, IPAddress.device_model)
         .join(Subnet, Subnet.id == IPAddress.subnet_id)
@@ -116,6 +116,17 @@ def _parse_ts(v: Any) -> Any:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
+def not_probed_expr() -> Any:
+    """「沒在探測」的 SQL 條件：刻意不偵測，或勾了「上線狀態跟著設備」卻沒掛設備（2026-10-14）。
+
+    後者是多 LAN 路由器的閘道這類不回 ping 但在用的位址：沒有設備可以跟，就不要因為探測沒回應而顯示離線。
+    清單與異常偵測把它算進 exclude_from_ping 那一欄送出 —— 前端燈號、「沒在探測」的字樣都跟著同一個判斷。
+    """
+    from sqlalchemy import and_, or_
+    return or_(IPAddress.exclude_from_ping,
+               and_(IPAddress.liveness_from_device.is_(True), IPAddress.device_id.is_(None)))
+
+
 def classify_liveness(row: Any, *, minutes: int, sources: Any, now: Any) -> str:
     """online／stale／offline／unknown —— 與前端 classifyAddressLiveness 逐條對應（改一邊要改另一邊）。
 
@@ -123,7 +134,9 @@ def classify_liveness(row: Any, *, minutes: int, sources: Any, now: Any) -> str:
     last_seen_dns（AdGuard）不算：它只代表設定裡有這個 IP，每輪都蓋成現在。
     """
     use = set(sources or ())
-    no_probe = bool(getattr(row, "exclude_from_ping", False)) or getattr(row, "subnet_scan_enabled", None) is False
+    no_probe = (bool(getattr(row, "exclude_from_ping", False)) or getattr(row, "subnet_scan_enabled", None) is False
+                # 勾了「上線狀態跟著設備」卻沒掛設備：沒有設備可以跟，不算離線（not_probed_expr 的 Python 版）
+                or (bool(getattr(row, "liveness_from_device", False)) and getattr(row, "device_id", None) is None))
     cand = [
         getattr(row, "last_seen_scanner", None) if "scanner" in use else None,
         getattr(row, "last_seen_librenms", None) if "librenms" in use else None,
@@ -253,7 +266,7 @@ async def _compute_missing(session: AsyncSession, *, missing: Any, subnet_ids: l
                    cast(Subnet.id, Text).label("sid"), cast(Subnet.cidr, Text).label("cidr"),
                    cast(Section.id, Text).label("secid"), Section.name.label("secname"),
                    cast(cust, Text).label("cust"), Subnet.scan_enabled.label("subnet_scan_enabled"),
-                   IPAddress.exclude_from_ping, IPAddress.device_kind, IPAddress.device_model,
+                   not_probed_expr().label("exclude_from_ping"), IPAddress.device_kind, IPAddress.device_model,
                    seen_col.label("seen"), *keyed)
             .join(Subnet, Subnet.id == IPAddress.subnet_id)
             .join(Section, Section.id == Subnet.section_id, isouter=True)

@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import ipaddress
+import logging
 import re
 import time
 import uuid
@@ -57,6 +58,7 @@ EP_RESOURCE = "/system/resource"
 EP_IDENTITY = "/system/identity"
 EP_ROUTERBOARD = "/system/routerboard"
 EP_ARP = "/ip/arp"
+EP_IP_ADDRESS = "/ip/address"
 EP_LEASE = "/ip/dhcp-server/lease"
 EP_DHCP_SERVER = "/ip/dhcp-server"
 EP_DHCP_NETWORK = "/ip/dhcp-server/network"
@@ -334,6 +336,17 @@ async def sync_arp(
         batch.add(ip, evidence="arp:mikrotik", mac=_norm_mac(d.get("mac-address")), seen_at=now)
     matched = sum(1 for found, _e in await batch.flush() if found)
     return {"arp": matched, "arp_rows": len(rows)}
+
+
+async def sync_interface_ips(
+    session: AsyncSession, router: MikroTikRouter, *, client: httpx.AsyncClient,
+) -> dict[str, Any]:
+    """這台路由器自己啟用中的位址（/ip/address）＝上線證據 iface:mikrotik（多 LAN 的閘道；services/iface_evidence）。"""
+    from app.services import iface_evidence
+    rows = _rows(await _get(router, EP_IP_ADDRESS, client=client, proplist="address,interface,disabled,invalid"))
+    res = await iface_evidence.stamp(session, "iface:mikrotik", iface_evidence.mikrotik_addrs(rows),
+                                     scope_ids=_scope(router))
+    return {"interface_ips": res["matched"]}
 
 
 # ─────────────────── DHCP ───────────────────
@@ -1167,6 +1180,13 @@ async def sync_instance(session: AsyncSession, router: MikroTikRouter) -> dict[s
                     }
                     counts["stopped_early"] = name
                     break
+
+        # 自己的位址（多 LAN 的閘道）：一支很小的請求；CPU 過高提早停下的那一輪就不打。讀不到不算失敗
+        if not counts.get("stopped_early"):
+            try:
+                counts.update(await sync_interface_ips(session, router, client=client))
+            except RouterOSError as exc:
+                logging.getLogger(__name__).warning("mikrotik %s interface ips: %s", router.name, exc)
 
     # 規則異動偵測要等**所有寫 mikrotik_rules 的區段**都跑完才比對。
     # filter/mangle 與 nat 分屬兩個區段：只等前者的話，下一輪多出來的 nat 規則

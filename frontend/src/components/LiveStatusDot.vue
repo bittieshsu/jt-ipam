@@ -8,6 +8,7 @@ import { useI18n } from "vue-i18n";
 import type { IPAddress } from "@/types";
 import { classifyAddressLiveness, isArpOnlyEvidence, onlineGraceMinutes } from "@/composables/useLivenessSettings";
 import { fmtDateTime } from "@/utils/datetime";
+import { fwSeenLabel } from "@/utils/investigateSections";
 
 const { t } = useI18n();
 
@@ -38,11 +39,23 @@ function fmtAge(ageMin: number): string {
 
 const meta = computed(() => {
   const a = props.address;
+  // 依據：各來源最後看到的時間。防火牆逐來源、設備介面位址、「跟著設備」（arp_seen）也要列出來 ——
+  // 以前只列三種，燈號是綠的卻看不出是誰說它在線
   const ts = [
     { key: "scanner", at: a.last_seen_scanner },
     { key: "LibreNMS", at: a.last_seen_librenms },
+    { key: "Wazuh", at: a.last_seen_wazuh },
+    { key: "Zabbix", at: a.last_seen_zabbix },
     { key: "ARP", at: a.last_seen_arp },
+    ...Object.entries(a.arp_seen || {}).map(([k, at]) => ({
+      key: k === "device"
+        ? (a.device_evidence_ip ? t("live_dot.via_device", { ip: a.device_evidence_ip }) : t("live_dot.via_device_librenms"))
+        : fwSeenLabel(k, t),
+      at,
+    })),
   ].filter((x) => x.at) as { key: string; at: string }[];
+  // 勾了「上線狀態跟著設備」卻沒掛設備：不回應探測不算離線，要講清楚為什麼是灰的
+  const silent = !!a.liveness_from_device && !a.device_id;
   // 只有 ARP 撐著 → 綠燈的可信度與實際探測不同，要標出來（ARP 沒有時間概念）
   const arpOnly = isArpOnlyEvidence(a);
   const newestMs = ts.length ? Math.max(...ts.map((x) => new Date(x.at).getTime())) : null;
@@ -65,10 +78,11 @@ const meta = computed(() => {
     label = `${labelMap[kind]}(${fmtAge(ageMin)})`;
   }
   if (arpOnly && kind === "online") label = t("live_dot.arp_only_label");
+  if (silent && kind === "unknown") label = t("live_dot.silent_label");
   return {
     // 只有 ARP 時用比較淡的綠：仍然算上線，但不要跟「實際探測到」長得一模一樣
     color: arpOnly && kind === "online" ? "#84cc16" : colorMap[kind],
-    label, ts, kind, grace: onlineGraceMinutes.value, arpOnly,
+    label, ts, kind, grace: onlineGraceMinutes.value, arpOnly, silent: silent && kind === "unknown",
   };
 });
 </script>
@@ -91,6 +105,8 @@ const meta = computed(() => {
       <div v-if="!meta.ts.length" class="tip-row tip-empty">{{ t("live_dot.no_records") }}</div>
       <div v-if="meta.arpOnly" class="tip-sep" />
       <div v-if="meta.arpOnly" class="tip-row tip-warn">{{ t("live_dot.arp_only_hint") }}</div>
+      <div v-if="meta.silent" class="tip-sep" />
+      <div v-if="meta.silent" class="tip-row tip-warn" data-testid="live-dot-silent">{{ t("live_dot.silent_hint") }}</div>
       <div class="tip-sep" />
       <div class="tip-row" style="font-size: 11px; opacity: 0.55;">
         {{ t("live_dot.online_threshold", { n: meta.grace }) }}

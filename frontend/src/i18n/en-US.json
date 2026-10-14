@@ -1403,7 +1403,15 @@
     "source_isoinsight": "ISOinsight",
     "source_technitium": "Technitium DHCP",
     "source_checkpoint": "Check Point",
-    "role_dhcp_server_auto_plain": "An integrated DHCP source"
+    "role_dhcp_server_auto_plain": "An integrated DHCP source",
+    "liveness_from_device": "Liveness follows its device",
+    "liveness_from_device_hint": "This is the device's own interface address (for example the gateway of each LAN on a multi-LAN router) and does not answer probes itself: it counts as online whenever another address of the same device, or LibreNMS, reports the device up, and goes offline with the device.",
+    "liveness_from_device_no_device": "No device is linked yet: unanswered probes show \"In use (does not answer probes)\" instead of offline. Link it to its device to follow that device.",
+    "same_mac_hint": "This address has the same MAC as {ip} (online), so it is probably an interface address of the same device (for example the gateway of each LAN on a multi-LAN router). Tick \"Liveness follows its device\" and it will follow that device's status.",
+    "same_mac_apply": "Tick \"Liveness follows its device\"",
+    "same_mac_apply_link": "Link to the same device and tick \"Liveness follows its device\"",
+    "liveness_from_device_via": "(evidence: same device {ip})",
+    "liveness_from_device_no_device_short": "(no device linked yet)"
   },
   "subnets": {
     "title": "Subnets",
@@ -3838,7 +3846,11 @@
     "no_records": "No scanner / LibreNMS / DNS records",
     "online_threshold": "Online threshold: {n} min",
     "arp_only_label": "Online (ARP only)",
-    "arp_only_hint": "Seen only in an ARP table. ARP records carry no timestamp and the reporting device's cache does not expire, so this can still read as online after the machine has been powered off."
+    "arp_only_hint": "Seen only in an ARP table. ARP records carry no timestamp and the reporting device's cache does not expire, so this can still read as online after the machine has been powered off.",
+    "silent_label": "In use (does not answer probes)",
+    "silent_hint": "\"Liveness follows its device\" is ticked but no device is linked, so unanswered probes do not count as offline. Link it to its device to follow that device's status.",
+    "via_device": "Same device {ip}",
+    "via_device_librenms": "Device status (LibreNMS)"
   },
   "llm_settings": {
     "title": "LLM / AI global settings",
@@ -4288,7 +4300,9 @@
     "backup_enc_too_short": "The passphrase needs at least 12 characters",
     "backup_enc_remove": "Remove",
     "backup_enc_remove_confirm": "After removal, later backups are written in plain form again. Continue?",
-    "backup_enc_keep_hint": "Without the passphrase the backups cannot be decrypted: keep it somewhere other than this host (for example a password manager). After changing it, older backups still need the passphrase they were made with. Decrypt: python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <file> --out <dir>"
+    "backup_enc_keep_hint": "Without the passphrase the backups cannot be decrypted: keep it somewhere other than this host (for example a password manager). After changing it, older backups still need the passphrase they were made with. Decrypt: python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <file> --out <dir>",
+    "src_kind_iface": "Device interface address",
+    "src_device": "Follows its device"
   },
   "oui_admin": {
     "title": "MAC Vendor Database (OUI)",
@@ -5903,7 +5917,52 @@
     "d_backup_enc_off": "No backup passphrase is set: backup files hold the database and the key that decrypts it (backend.env), so whoever gets a backup gets every secret",
     "d_backup_enc_missed": "A backup passphrase is set, but the latest backup was not encrypted (a backup script from before the upgrade, or encryption failed)",
     "d_backup_enc_ok": "Daily backups are encrypted with the configured passphrase (.jtbak)",
-    "f_backup_enc_off": "Set a passphrase under Admin → System Settings → Daily backup encryption"
+    "f_backup_enc_off": "Set a passphrase under Admin → System Settings → Daily backup encryption",
+    "storage_title": "Storage usage",
+    "storage_hint": "How much space jt-ipam uses on this server. Calculated on this server only and never sent anywhere.",
+    "storage_db": "Database",
+    "storage_disk": "Disk",
+    "storage_disk_free": "{free} free of {total}",
+    "storage_db_by_group": "Database by feature",
+    "storage_dirs": "Directories on the host",
+    "storage_top_tables": "Largest tables",
+    "storage_rows": "~{n} rows",
+    "storage_approx": "~",
+    "storage_denied": "Some files could not be read; the real size may be larger",
+    "storage_missing": "These directories do not exist: {dirs}",
+    "storage_measured": "Directory sizes measured at {at} (click Re-check to remeasure)",
+    "storage_group": {
+      "ipam": "IP address management",
+      "history": "IP changes and uptime history",
+      "audit": "Audit log",
+      "notifications": "Notifications",
+      "dns_dhcp": "DNS and DHCP",
+      "firewall": "Firewalls, NAT and VPN",
+      "network_data": "ARP, MAC tables and neighbors",
+      "physical": "Sites and devices",
+      "integrations": "Integrations and agents",
+      "reference": "Reference data (OUI, fingerprints)",
+      "ai": "AI chats and findings",
+      "change_impact": "IP change assessment",
+      "system": "System and accounts",
+      "other": "Other"
+    },
+    "storage_dir": {
+      "backups": "Backups",
+      "install": "Program and packages",
+      "data": "Data directory",
+      "logs": "Logs"
+    },
+    "storage_child": {
+      "python_packages": "Python packages",
+      "frontend_packages": "Frontend packages",
+      "frontend_build": "Frontend build",
+      "uploads": "Uploaded files",
+      "geoip": "GeoIP databases",
+      "package_cache": "Package caches"
+    },
+    "storage_measuring": "Measuring storage usage…",
+    "storage_from_backup": "Size recorded by the daily backup ({at}): the daily backup folders are readable by root only"
   },
   "tool_verbs": {
     "get": "Look up",

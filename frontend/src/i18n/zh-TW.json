@@ -1403,7 +1403,15 @@
     "source_isoinsight": "ISOinsight",
     "source_technitium": "Technitium DHCP",
     "source_checkpoint": "Check Point",
-    "role_dhcp_server_auto_plain": "整合中的 DHCP 來源"
+    "role_dhcp_server_auto_plain": "整合中的 DHCP 來源",
+    "liveness_from_device": "上線狀態跟著所屬設備",
+    "liveness_from_device_hint": "這是設備自己的介面位址（例如多 LAN 路由器各網段的閘道），本身不回應探測：只要同一台設備的其他位址或 LibreNMS 回報設備在線，就算上線；設備掛了一起變離線。",
+    "liveness_from_device_no_device": "還沒有掛設備：不回應探測時顯示「使用中（不回應探測）」，不算離線。掛到所屬設備後才會跟著設備判斷。",
+    "same_mac_hint": "這個位址與 {ip}（上線中）是同一個 MAC，可能是同一台設備的介面位址（例如多 LAN 路由器各網段的閘道）。勾「上線狀態跟著設備」後，就會跟著那台設備顯示上線或離線。",
+    "same_mac_apply": "勾「上線狀態跟著設備」",
+    "same_mac_apply_link": "掛到同一台設備並勾「上線狀態跟著設備」",
+    "liveness_from_device_via": "（依據：同設備 {ip}）",
+    "liveness_from_device_no_device_short": "（還沒有掛設備）"
   },
   "subnets": {
     "title": "子網路",
@@ -3838,7 +3846,11 @@
     "no_records": "沒有 scanner / LibreNMS / DNS 紀錄",
     "online_threshold": "上線閾值：{n} 分鐘",
     "arp_only_label": "上線（僅 ARP）",
-    "arp_only_hint": "只有 ARP 看到它。ARP 記錄沒有時間資訊，來源設備的快取不會過期，所以機器就算已經關機，這裡仍可能顯示上線。"
+    "arp_only_hint": "只有 ARP 看到它。ARP 記錄沒有時間資訊，來源設備的快取不會過期，所以機器就算已經關機，這裡仍可能顯示上線。",
+    "silent_label": "使用中（不回應探測）",
+    "silent_hint": "勾了「上線狀態跟著設備」但沒有掛設備：不回應探測不算離線。掛到所屬設備後，會跟著設備顯示上線或離線。",
+    "via_device": "同設備 {ip}",
+    "via_device_librenms": "設備狀態（LibreNMS）"
   },
   "llm_settings": {
     "title": "LLM / AI 全域設定",
@@ -4288,7 +4300,9 @@
     "backup_enc_too_short": "密碼至少要 12 個字元",
     "backup_enc_remove": "移除",
     "backup_enc_remove_confirm": "移除之後，之後的備份回到明文。確定？",
-    "backup_enc_keep_hint": "密碼忘記就解不開備份：請存在這台主機以外的地方（例如密碼管理器）。更換密碼後，之前的備份仍要用當時的密碼解。解密：python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <檔案> --out <目錄>"
+    "backup_enc_keep_hint": "密碼忘記就解不開備份：請存在這台主機以外的地方（例如密碼管理器）。更換密碼後，之前的備份仍要用當時的密碼解。解密：python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <檔案> --out <目錄>",
+    "src_kind_iface": "設備介面位址",
+    "src_device": "跟著所屬設備"
   },
   "oui_admin": {
     "title": "MAC 製造商資料庫 (OUI)",
@@ -5903,7 +5917,52 @@
     "d_backup_enc_off": "沒有設定備份加密密碼：備份檔裡同時有資料庫與解密金鑰（backend.env），拿到備份檔就等於拿到所有機密",
     "d_backup_enc_missed": "已設定備份加密，但最後一次備份沒有加密（升級前的備份腳本，或加密失敗）",
     "d_backup_enc_ok": "每日備份以設定的密碼加密（.jtbak）",
-    "f_backup_enc_off": "到「管理 → 系統設定 → 每日備份加密」設定密碼"
+    "f_backup_enc_off": "到「管理 → 系統設定 → 每日備份加密」設定密碼",
+    "storage_title": "容量用量",
+    "storage_hint": "jt-ipam 在這台伺服器上用掉多少空間。只在這台伺服器上計算，不會傳送到任何地方。",
+    "storage_db": "資料庫",
+    "storage_disk": "磁碟",
+    "storage_disk_free": "剩 {free}／共 {total}",
+    "storage_db_by_group": "資料庫（依功能）",
+    "storage_dirs": "主機上的目錄",
+    "storage_top_tables": "最大的資料表",
+    "storage_rows": "約 {n} 筆",
+    "storage_approx": "約",
+    "storage_denied": "部分檔案沒有權限讀取，實際可能更大",
+    "storage_missing": "沒有這些目錄：{dirs}",
+    "storage_measured": "目錄大小量測於 {at}（按「重新檢查」重新量）",
+    "storage_group": {
+      "ipam": "IP 位址管理",
+      "history": "IP 異動與上線歷史",
+      "audit": "稽核記錄",
+      "notifications": "通知",
+      "dns_dhcp": "DNS 與 DHCP",
+      "firewall": "防火牆、NAT 與 VPN",
+      "network_data": "ARP、MAC 表與鄰居",
+      "physical": "機房與設備",
+      "integrations": "整合與代理",
+      "reference": "參考資料（OUI、指紋庫）",
+      "ai": "AI 對話與發現",
+      "change_impact": "IP 變更評估",
+      "system": "系統與帳號",
+      "other": "其他"
+    },
+    "storage_dir": {
+      "backups": "備份",
+      "install": "程式與套件",
+      "data": "資料目錄",
+      "logs": "日誌"
+    },
+    "storage_child": {
+      "python_packages": "Python 套件",
+      "frontend_packages": "前端套件",
+      "frontend_build": "前端建置檔",
+      "uploads": "上傳的檔案",
+      "geoip": "GeoIP 資料庫",
+      "package_cache": "套件快取"
+    },
+    "storage_measuring": "正在量容量用量…",
+    "storage_from_backup": "依每日備份記錄的大小（{at}）：每日備份的資料夾只有 root 讀得到"
   },
   "tool_verbs": {
     "get": "查詢",

@@ -63,6 +63,9 @@ write_status() {
         echo "dump_size=$DUMP_SIZE"
         echo "encrypted=$ENCRYPTED"
         echo "error=$err"
+        # Size of the whole backup dir: the dated subdirectories are root-only (0700), so the backend
+        # (jtipam) cannot measure them; System check's storage usage reads this line instead
+        echo "total_bytes=$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1)"
     } > "$STATUS_FILE.tmp"
     chown jtipam:jtipam "$STATUS_FILE.tmp" 2>/dev/null || true
     chmod 0640 "$STATUS_FILE.tmp"

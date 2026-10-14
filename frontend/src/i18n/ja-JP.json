@@ -1403,7 +1403,15 @@
     "source_isoinsight": "ISOinsight",
     "source_technitium": "Technitium DHCP",
     "source_checkpoint": "Check Point",
-    "role_dhcp_server_auto_plain": "連携中の DHCP ソース"
+    "role_dhcp_server_auto_plain": "連携中の DHCP ソース",
+    "liveness_from_device": "オンライン状態を所属機器に従わせる",
+    "liveness_from_device_hint": "機器自身のインターフェースアドレス（複数 LAN のルーターの各セグメントのゲートウェイなど）で、それ自体はプローブに応答しません。同じ機器のほかのアドレスか LibreNMS が機器のオンラインを報告していればオンラインとし、機器が落ちれば一緒にオフラインになります。",
+    "liveness_from_device_no_device": "まだ機器に紐づいていません。応答がなくても「使用中（プローブに応答しない）」と表示し、オフラインにはしません。所属機器に紐づけると機器に従います。",
+    "same_mac_hint": "このアドレスは {ip}（オンライン）と同じ MAC で、同じ機器のインターフェースアドレス（複数 LAN のルーターの各セグメントのゲートウェイなど）の可能性があります。「オンライン状態を所属機器に従わせる」にチェックを入れると、その機器に合わせて表示します。",
+    "same_mac_apply": "「オンライン状態を所属機器に従わせる」にチェック",
+    "same_mac_apply_link": "同じ機器に紐づけて「オンライン状態を所属機器に従わせる」にチェック",
+    "liveness_from_device_via": "（根拠：同じ機器の {ip}）",
+    "liveness_from_device_no_device_short": "（まだ機器に紐づいていません）"
   },
   "subnets": {
     "title": "サブネット",
@@ -3838,7 +3846,11 @@
     "no_records": "スキャナ／LibreNMS／DNS の記録がありません",
     "online_threshold": "オンライン判定のしきい値：{n} 分",
     "arp_only_label": "オンライン（ARP のみ）",
-    "arp_only_hint": "ARP テーブルでしか観測されていません。ARP の記録には時刻が無く、報告元の機器のキャッシュも期限切れにならないため、機器の電源を落とした後でもオンラインと表示され続けることがあります。"
+    "arp_only_hint": "ARP テーブルでしか観測されていません。ARP の記録には時刻が無く、報告元の機器のキャッシュも期限切れにならないため、機器の電源を落とした後でもオンラインと表示され続けることがあります。",
+    "silent_label": "使用中（プローブに応答しない）",
+    "silent_hint": "「オンライン状態を機器に従わせる」にチェックがありますが、機器が紐づいていません。応答がなくてもオフラインにはしません。所属機器に紐づけると、その機器に合わせて表示します。",
+    "via_device": "同じ機器の {ip}",
+    "via_device_librenms": "機器の状態（LibreNMS）"
   },
   "llm_settings": {
     "title": "LLM / AI の全体設定",
@@ -4288,7 +4300,9 @@
     "backup_enc_too_short": "パスフレーズは 12 文字以上必要です",
     "backup_enc_remove": "削除",
     "backup_enc_remove_confirm": "削除すると、以降のバックアップは平文に戻ります。よろしいですか？",
-    "backup_enc_keep_hint": "パスフレーズを忘れるとバックアップを復号できません。このホスト以外の場所（パスワードマネージャーなど）に保管してください。変更後も、以前のバックアップには当時のパスフレーズが必要です。復号：python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <ファイル> --out <ディレクトリ>"
+    "backup_enc_keep_hint": "パスフレーズを忘れるとバックアップを復号できません。このホスト以外の場所（パスワードマネージャーなど）に保管してください。変更後も、以前のバックアップには当時のパスフレーズが必要です。復号：python3 /opt/jt-ipam/backend/app/services/backup_crypt.py decrypt <ファイル> --out <ディレクトリ>",
+    "src_kind_iface": "機器のインターフェースアドレス",
+    "src_device": "所属機器に従う"
   },
   "oui_admin": {
     "title": "MAC ベンダーデータベース（OUI）",
@@ -5903,7 +5917,52 @@
     "d_backup_enc_off": "バックアップのパスフレーズが設定されていません。バックアップファイルにはデータベースと復号鍵（backend.env）が両方含まれるため、入手した人はすべての機密を得られます",
     "d_backup_enc_missed": "パスフレーズは設定されていますが、最新のバックアップは暗号化されていません（アップグレード前のバックアップスクリプト、または暗号化の失敗）",
     "d_backup_enc_ok": "日次バックアップは設定したパスフレーズで暗号化されています（.jtbak）",
-    "f_backup_enc_off": "「管理 → システム設定 → 日次バックアップの暗号化」でパスフレーズを設定してください"
+    "f_backup_enc_off": "「管理 → システム設定 → 日次バックアップの暗号化」でパスフレーズを設定してください",
+    "storage_title": "容量の使用状況",
+    "storage_hint": "jt-ipam がこのサーバーで使っている容量です。このサーバー上でのみ計算し、どこにも送信しません。",
+    "storage_db": "データベース",
+    "storage_disk": "ディスク",
+    "storage_disk_free": "残り {free}／全体 {total}",
+    "storage_db_by_group": "データベース（機能別）",
+    "storage_dirs": "ホスト上のディレクトリ",
+    "storage_top_tables": "大きいテーブル",
+    "storage_rows": "約 {n} 件",
+    "storage_approx": "約",
+    "storage_denied": "読み取れないファイルがあり、実際はもっと大きい可能性があります",
+    "storage_missing": "存在しないディレクトリ：{dirs}",
+    "storage_measured": "ディレクトリの容量は {at} に計測（「再確認」で再計測）",
+    "storage_group": {
+      "ipam": "IP アドレス管理",
+      "history": "IP 変更とオンライン履歴",
+      "audit": "監査ログ",
+      "notifications": "通知",
+      "dns_dhcp": "DNS と DHCP",
+      "firewall": "ファイアウォール・NAT・VPN",
+      "network_data": "ARP・MAC テーブル・隣接機器",
+      "physical": "拠点と機器",
+      "integrations": "連携とエージェント",
+      "reference": "参照データ（OUI・フィンガープリント）",
+      "ai": "AI 対話と検出",
+      "change_impact": "IP 変更評価",
+      "system": "システムとアカウント",
+      "other": "その他"
+    },
+    "storage_dir": {
+      "backups": "バックアップ",
+      "install": "プログラムとパッケージ",
+      "data": "データディレクトリ",
+      "logs": "ログ"
+    },
+    "storage_child": {
+      "python_packages": "Python パッケージ",
+      "frontend_packages": "フロントエンドのパッケージ",
+      "frontend_build": "フロントエンドのビルド",
+      "uploads": "アップロードされたファイル",
+      "geoip": "GeoIP データベース",
+      "package_cache": "パッケージのキャッシュ"
+    },
+    "storage_measuring": "容量の使用状況を計測中…",
+    "storage_from_backup": "日次バックアップが記録した容量（{at}）：日次バックアップのフォルダーは root しか読めません"
   },
   "tool_verbs": {
     "get": "照会",

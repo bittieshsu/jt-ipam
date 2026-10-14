@@ -55,6 +55,7 @@ export interface IPAddressUpdate {
   bmc_enabled?: boolean | null;
   rustdesk_enabled?: boolean | null;
   is_dhcp_server?: boolean | null;
+  liveness_from_device?: boolean | null;
 }
 
 export async function updateAddress(id: string, payload: IPAddressUpdate): Promise<IPAddress> {
@@ -132,6 +133,12 @@ export interface DeviceSuggestion {
 }
 
 /** 這個 IP 看起來屬於哪一台裝置 —— 或該建立哪一台。**只查詢，不會動到任何資料。** */
+/** 同一個 MAC 的其他位址（看得到的才列）：「上線狀態跟著設備」的提示用 */
+export async function getSameMacAddresses(id: string): Promise<IPAddress[]> {
+  const { data } = await apiClient.get(`/api/v1/addresses/${id}/same-mac`);
+  return data;
+}
+
 export async function getDeviceSuggestion(id: string): Promise<DeviceSuggestion> {
   const { data } = await apiClient.get(`/api/v1/addresses/${id}/device-suggestion`);
   return data;

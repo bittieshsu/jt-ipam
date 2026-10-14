@@ -396,9 +396,13 @@ async def test_one_dead_endpoint_does_not_abort_whole_sync(db_session, monkeypat
     async def _arp_ok(*_a, **_k):
         return 7
 
+    async def _iface(*_a, **_k):
+        return 0
+
     monkeypatch.setattr(fg, "list_vdoms_ex", _vdoms)
     monkeypatch.setattr(fg, "sync_dhcp_leases", _dead)
     monkeypatch.setattr(fg, "sync_arp", _arp_ok)
+    monkeypatch.setattr(fg, "sync_interface_ips", _iface)     # 介面位址（2026-10-14）：這支測試不管它
 
     counts = await fg.sync_instance(db_session, fw)
     assert counts["arp"] == 7, "DHCP 失敗把 ARP 一起帶走了"

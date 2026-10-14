@@ -150,6 +150,19 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("isoinsight", TIER_LEARNED, aging=False),
     _s("adguard", TIER_LEARNED, aging=False),
 
+    # ── 設備自己的介面位址（客戶 2026-10-14：多 LAN 的閘道不回 ping 卻在用，顯示紅燈）──
+    #   iface:<整合>  整合回報「這個位址設定在我某個啟用中的介面上」。只在整合的 API 這一輪有回應、
+    #                 介面是啟用（LibreNMS 再加上設備在線、埠 up）時才蓋上同步當下的時間 → 設備掛了
+    #                 同步失敗、不再蓋時間，證據自然過期 → aging=True，可以宣稱上線
+    #   device        「上線狀態跟著設備」：每輪把同一台設備其他位址最新的**會過期**證據搬過來
+    #                 （services/device_liveness），時間是原本那筆證據的時間 → 同樣會過期
+    _s("iface:opnsense", TIER_MONITORED, aging=True),
+    _s("iface:pfsense", TIER_MONITORED, aging=True),
+    _s("iface:fortigate", TIER_MONITORED, aging=True),
+    _s("iface:mikrotik", TIER_MONITORED, aging=True),
+    _s("iface:librenms", TIER_MONITORED, aging=True),
+    _s("device", TIER_MONITORED, aging=True),
+
     # 虛擬化平台：回報的是「設定上這台 VM 有這個 IP」
     _s("proxmox", TIER_LEARNED, aging=False),
     _s("esxi", TIER_LEARNED, aging=False),
@@ -172,6 +185,13 @@ LIVENESS_SOURCES: tuple[str, ...] = (
     "vpn:opnsense", "vpn:pfsense", "vpn:fortigate", "vpn:mikrotik",
     "lease:opnsense", "lease:pfsense", "lease:fortigate", "lease:paloalto",
     "lease:mikrotik", "lease:checkpoint",
+    "iface:opnsense", "iface:pfsense", "iface:fortigate", "iface:mikrotik", "iface:librenms", "device",
+)
+
+#: 2026-10-14 才加入的來源。在這之前存過設定的站台（存的值沒有 `known`）不認得它們，
+#: 讀設定時把其中會過期的自動算進去：新功能升級後要自己生效，不可以要人再去勾一次
+SOURCES_ADDED_LATER: tuple[str, ...] = (
+    "iface:opnsense", "iface:pfsense", "iface:fortigate", "iface:mikrotik", "iface:librenms", "device",
 )
 
 #: 存在 `ip_addresses.arp_seen` JSONB 裡的那些（其餘各有自己的 last_seen_* 欄位）。

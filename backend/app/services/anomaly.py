@@ -1208,9 +1208,10 @@ async def _liveness_lookup(
     session: AsyncSession, ids: set[uuid.UUID], texts: set[str],
 ) -> tuple[dict[uuid.UUID, dict[str, Any]], dict[str, dict[str, Any]]]:
     from app.models.subnet import Subnet
+    from app.services.agent_scope import not_probed_expr
 
     cols = [IPAddress.id, IPAddress.ip, *[getattr(IPAddress, c) for c in _LIVE_COLS],
-            IPAddress.arp_seen, IPAddress.exclude_from_ping, Subnet.scan_enabled,
+            IPAddress.arp_seen, not_probed_expr(), Subnet.scan_enabled,
             IPAddress.device_kind, IPAddress.device_model]
     by_id: dict[uuid.UUID, dict[str, Any]] = {}
     by_text: dict[str, dict[str, Any]] = {}
