@@ -84,6 +84,12 @@ class UnboundOPNsenseAdapter(DNSAdapter):
         data = await self._get("/api/unbound/service/status")
         return {"server": self.api_url, "status": data}
 
+    @staticmethod
+    def _enabled(entry: dict) -> bool:  # type: ignore[type-arg]
+        """停用的 host override 不算紀錄（使用者 2026-10-13：「停用的不要抓」）。沒有這個欄位當作啟用。"""
+        v = entry.get("enabled", "1")
+        return not (v in (0, False) or str(v).strip().lower() in ("0", "false", "no"))
+
     async def list_zones(self) -> list[DNSZoneInfo]:
         # OPNsense Unbound 用 host overrides；把所有出現過的 domain 視作 forward zone
         data = await self._get("/api/unbound/settings/get")
@@ -91,7 +97,7 @@ class UnboundOPNsenseAdapter(DNSAdapter):
         domains: set[str] = set()
         if isinstance(rows, dict):
             for entry in rows.values():
-                if isinstance(entry, dict):
+                if isinstance(entry, dict) and self._enabled(entry):
                     domain = (entry.get("domain") or "").rstrip(".")
                     if domain:
                         domains.add(domain)
@@ -103,7 +109,7 @@ class UnboundOPNsenseAdapter(DNSAdapter):
         out: list[DNSRecordOp] = []
         if isinstance(rows, dict):
             for entry in rows.values():
-                if not isinstance(entry, dict):
+                if not isinstance(entry, dict) or not self._enabled(entry):
                     continue
                 domain = (entry.get("domain") or "").rstrip(".")
                 if domain != zone_name.rstrip("."):

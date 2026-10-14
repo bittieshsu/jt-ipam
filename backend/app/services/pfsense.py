@@ -22,7 +22,7 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.models.pfsense import PfSenseFirewall, PfSenseSyncedAlias
 from app.services import arp_seen as arp_seen_svc
 from app.services.dhcp_leases import LeaseRun
-from app.services.fw_sightings import SightingBatch
+from app.services.fw_sightings import SightingBatch, lease_inactive
 from app.services.hostname_reports import HostnameRun, enabled_peers
 from app.services.ip_autocreate import (
     addable_subnets,
@@ -158,7 +158,7 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PfSenseFirewall) -> int:
         if not isinstance(d, dict):
             continue
         ip = _ip_of(d)
-        if not ip:
+        if not ip or lease_inactive(d):    # 明確過期的租約（active_status: expired）不算
             continue
         batch.add(str(ip).split("/")[0], evidence="lease:pfsense", mac=_mac_of(d), hostname=_host_of(d))
     seen = sum(1 for found, _e in await batch.flush() if found)
@@ -263,11 +263,23 @@ async def sync_dhcp_reservations(session: AsyncSession, fw: PfSenseFirewall) -> 
         if "404" not in str(exc):
             raise
         data = []
+    # 停用 DHCP 的介面：它底下的固定分配不生效（發放範圍早就這樣跳過；使用者 2026-10-13：「停用的不要抓」）。
+    # 固定分配以 parent_id 指回介面 —— 欄位沒有逐版實機驗證，讀不到伺服器清單或沒有這個欄位就照收
+    off: set[str] = set()
+    try:
+        servers = await _api_get(fw, EP_DHCP_SERVERS, timeout=10.0)
+        off = {str(x.get("id") or x.get("interface")) for x in servers if isinstance(x, dict)
+               and x.get("enable") is False} if isinstance(servers, list) else set()
+    except PfSenseError:
+        off = set()
     for d in data if isinstance(data, list) else []:
         if not isinstance(d, dict):
             continue
         ip = str(_first(d, "ipaddr", "ip_address", "ip") or "").strip()
         if not ip:
+            continue
+        parent = _first(d, "parent_id", "interface")
+        if parent is not None and str(parent) in off:
             continue
         rows.append(Reservation(
             ip=ip, mac=_first(d, "mac", "mac_address"),

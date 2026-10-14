@@ -45,6 +45,7 @@ const msg = useMessage();
 const rows = ref<LibreNMSInstance[]>([]);
 import { useTableQuickFilter } from "@/composables/useTableQuickFilter";
 import { apiErrMsg } from "@/api/client";
+import { listVLANDomains } from "@/api/basic";
 const { query: filterQ, filtered: filteredRows } = useTableQuickFilter(rows);
 const loading = ref(false);
 const show = ref(false);
@@ -58,7 +59,16 @@ const form = ref({
   auto_create_from_arp: false, arp_create_require_fdb: true, arp_create_skip_dhcp: true,
   sync_interval_seconds: 300,
   scope_subnet_ids: [] as string[],
+  // VLAN 寫進哪個 domain（issue #53）：null＝專用的 LibreNMS domain
+  vlan_domain_id: null as string | null,
+  vlan_create_missing: true,
 });
+const vlanDomainOptions = ref<{ label: string; value: string }[]>([]);
+async function loadVlanDomains() {
+  try {
+    vlanDomainOptions.value = (await listVLANDomains()).items.map((d) => ({ label: d.name, value: d.id }));
+  } catch { /* silent */ }
+}
 const subnetOptions = ref<{ label: string; value: string }[]>([]);
 async function loadSubnetOptions() {
   try {
@@ -84,6 +94,7 @@ function openCreate() {
     use_for_status: true, auto_add_devices: true, auto_create_ips: true,
     auto_create_from_arp: false, arp_create_require_fdb: true, arp_create_skip_dhcp: true,
     sync_interval_seconds: 300, scope_subnet_ids: [],
+    vlan_domain_id: null, vlan_create_missing: true,
   };
   show.value = true;
 }
@@ -108,6 +119,8 @@ function openEdit(r: LibreNMSInstance) {
     arp_create_skip_dhcp: r.arp_create_skip_dhcp ?? true,
     sync_interval_seconds: r.sync_interval_seconds,
     scope_subnet_ids: r.scope_subnet_ids ?? [],
+    vlan_domain_id: r.vlan_domain_id ?? null,
+    vlan_create_missing: r.vlan_create_missing ?? true,
   };
   show.value = true;
 }
@@ -138,6 +151,8 @@ async function submit() {
         arp_create_skip_dhcp: form.value.arp_create_skip_dhcp,
         sync_interval_seconds: form.value.sync_interval_seconds,
         scope_subnet_ids: form.value.scope_subnet_ids,
+        vlan_domain_id: form.value.vlan_domain_id,      // null＝改回專用的 LibreNMS domain
+        vlan_create_missing: form.value.vlan_create_missing,
       };
       if (form.value.api_token) payload.api_token = form.value.api_token;
       await updateLibreNMS(editing.value.id, payload);
@@ -147,7 +162,7 @@ async function submit() {
     show.value = false;
     msg.success(t("common.ok"));
     await refresh();
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 async function test(id: string) {
   try { await testLibreNMS(id); msg.success(t("librenms_admin.test_ok")); }
@@ -158,14 +173,14 @@ async function sync(id: string) {
     const r = await syncLibreNMS(id);
     // 背景跑：右下角的「背景作業」面板顯示進度與結果，跑完重新整理清單
     trackTask(r.task_id, { onDone: () => void refresh() });
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 async function linkDevices(id: string) {
   try {
     const r = await linkLibreNMSDevices(id);
     msg.success(t("librenms_admin.link_done", { linked: r.linked, created: r.created }));
     await refresh();
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.server")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
 }
 async function del(id: string) {
   try { await deleteLibreNMS(id); msg.success(t("common.ok")); await refresh(); }
@@ -174,7 +189,8 @@ async function del(id: string) {
 
 function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
   return h(NTooltip, null, {
-    trigger: () => h(NButton, { size: "small", quaternary: true, type,
+    // 只有圖示的按鈕要有可存取名稱（螢幕閱讀器、鍵盤使用者才知道這顆是什麼）
+    trigger: () => h(NButton, { size: "small", quaternary: true, type, "aria-label": label,
       onClick: (e: MouseEvent) => { e.stopPropagation(); onClick(); } },
       { icon: () => h(NIcon, null, () => h(icon)) }),
     default: () => label,
@@ -213,7 +229,7 @@ const cols = computed<DataTableColumns<LibreNMSInstance>>(() =>
   lnOrderCols(allCols.value.filter((c: any) => lnVis.value.includes(c.key))),
 );
 
-onMounted(() => { void refresh(); void loadSubnetOptions(); });
+onMounted(() => { void refresh(); void loadSubnetOptions(); void loadVlanDomains(); });
 </script>
 
 <template>
@@ -285,6 +301,19 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           <div class="row"><span>{{ t('librenms_admin.sync_arp') }}</span><n-switch size="small" v-model:value="form.sync_arp" /></div>
           <div class="row"><span>{{ t('librenms_admin.sync_fdb') }}</span><n-switch size="small" v-model:value="form.sync_fdb" /></div>
           <div class="row"><span>{{ t('librenms_admin.sync_vlans') }}</span><n-switch size="small" v-model:value="form.sync_vlans" /></div>
+          <!-- VLAN 寫進哪個 domain（issue #53）：同一個 VLAN 編號不要在兩個 domain 各一份 -->
+          <div v-if="form.sync_vlans" class="vlan-domain" data-testid="lnms-vlan-domain">
+            <span>{{ t('librenms_admin.vlan_domain') }}</span>
+            <n-select v-model:value="form.vlan_domain_id" :options="vlanDomainOptions" clearable filterable
+                      :placeholder="t('librenms_admin.vlan_domain_placeholder')" size="small"
+                      data-testid="lnms-vlan-domain-select" />
+            <p class="row-hint">{{ t('librenms_admin.vlan_domain_hint') }}</p>
+            <n-checkbox v-if="form.vlan_domain_id" :checked="!form.vlan_create_missing"
+                        data-testid="lnms-vlan-only-existing"
+                        @update:checked="(v: boolean) => (form.vlan_create_missing = !v)">
+              {{ t('librenms_admin.vlan_only_existing') }}
+            </n-checkbox>
+          </div>
           <div class="row">
             <span>{{ t('librenms_admin.sync_links') }}</span>
             <n-switch size="small" v-model:value="form.sync_links" />
@@ -364,6 +393,14 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
   padding: 4px 0;
 }
 .sync-toggles .row span { font-size: 13px; }
+/* VLAN domain（issue #53）：開關格是兩欄，這一區橫跨整列 */
+.sync-toggles .vlan-domain {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 12px;
+  padding: 4px 0 6px;
+}
+.sync-toggles .vlan-domain > span { font-size: 13px; }
+.sync-toggles .vlan-domain > .n-checkbox { grid-column: 1 / -1; font-size: 13px; }
 /* 開關格是兩欄，但說明要占滿整列 —— 不然它會掉進右邊那半格，
    一行只放得下五六個字，讀起來像被切碎的 */
 .sync-toggles .row-hint {

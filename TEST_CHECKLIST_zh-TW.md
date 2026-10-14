@@ -584,6 +584,30 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   與 `…/rules?token=…` 回 CSV/TSV；**token 錯 → 401**；`expose_dsv` 關閉 → 404
 - [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
+## 7a9. 上游停用的東西不採用：**動到任何整合的同步、上線證據、主機名稱來源、DHCP/DNS 寫入就要跑**
+
+- [ ] **LibreNMS 停用的裝置**（`tests/test_librenms_disabled_devices.py`）：在 LibreNMS 把一台裝置停用（停用輪詢）後同步：裝置還在清單、
+  狀態是「LibreNMS 已停用」；它主要 IP 的 LibreNMS 名稱被收回、不再算上線；它的 ARP、MAC 表、LLDP 鄰居消失，下一輪 ARP 也不收回來；
+  不再打它的 FDB/連接埠/VLAN API。只是「忽略告警」的裝置照常。已經建好的裝置與 IP 關聯不動
+- [ ] **IP 指示計只看閒置**（`e2e/subnet-grid-legend-focus.spec.ts`）：淺色與深色主題各點一次圖例「閒置」：閒置格是實線框加底色、
+  一眼看得出來；其他格子是灰階的極淡；再點一次恢復。點其他類型也看一次對比
+- [ ] **語意搜尋索引狀態與嵌入維度錯誤**（`tests/test_semantic_index_status.py`、`e2e/llm-index-status.spec.ts`）：AI 設定換成 4096 維的模型 →
+  「檢查維度」顯示「模型回 4096 維，資料庫欄位是 768 維」，沒有 EMBEDDING_DIM 字樣；重建失敗也是看得懂的訊息。索引狀態：從沒重建過、
+  換了嵌入模型（上次用 A 建、現在是 B）、有 N 筆缺向量 → 黃字「建議重建」並寫出原因；重建完變綠字「索引是最新的」。三種語系各看一次
+- [ ] **LibreNMS VLAN 指定 domain**（issue #53；`tests/test_librenms_vlan_domain.py`、`e2e/librenms-vlan-domain.spec.ts`）：在整合設定選一個已有
+  VLAN 的 domain 同步：同編號沿用那一筆、名稱不被 VLAN0010 蓋掉、裝置對應補在它上面、不再多出「LibreNMS」domain；勾「只對應既有」時
+  交換器上的 1002 之類不會新建；清掉 domain 送 null、回到專用 domain；刪掉被指定的 domain 後同步照常（改回專用 domain）。升級後 0211 欄位存在
+- [ ] **Zabbix 不監控／維護中**（`tests/test_zabbix_unmonitored.py`）：不監控的主機不命名、不關聯 IP、不算上線；維護中且不收資料的不算上線
+- [ ] **Proxmox／ESXi**（`tests/test_proxmox_inactive_guests.py`、`tests/test_disabled_low_severity.py`）：範本不跟 IP 關聯；
+  關機的 VM 不命名新 IP、不改 MAC、不自動建 IP，但保留它報過的名稱與主要 IP（重開機時名稱不會一消一長）
+- [ ] **Wazuh 斷線超過 30 天**（`tests/test_wazuh_stale_agent.py`）：不再提供主機名稱與 OS；30 天內的斷線照舊
+- [ ] **DHCP 停用的範圍／伺服器／介面、明確過期的租約**（`tests/test_dhcp_lease_sightings.py`、`tests/test_disabled_low_severity.py`）：
+  Windows DHCP、Technitium、FortiGate、pfSense、OPNsense 停用的部分其保留與租約不採用；四家防火牆明確標示過期/釋放/拒絕的租約不算
+  （沒有狀態欄位的照收）
+- [ ] **DNS 與防火牆物件**（`tests/test_unbound_opnsense_disabled.py`、`tests/test_disabled_dns_entries.py`、`tests/test_disabled_low_severity.py`、
+  `tests/test_mikrotik.py`）：Unbound 停用的 override、AdGuard 停用的 rewrite、Windows DNS 暫停的 zone 不採用；OPNsense 停用的別名、
+  MikroTik 停用的位址清單項目不算成員。正式站台確認一次：停用裝置的位址名稱在下一輪同步後回到其他來源的名稱
+
 ## 7b. VMware ESXi / vCenter 整合（管理 → 外部系統整合 → VMware）：**Beta**
 
 > SOAP 端點固定是 `<url>/sdk`。同一套實作**同時**涵蓋單機 ESXi 與 vCenter：它們是同一組 VIM API，
@@ -1454,6 +1478,13 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 
 ### 近期（v0.6.45–v0.6.55 與尚未發布）
 
+- [ ] **裝置關聯可能過期：裝置已下線＋MAC 廠牌對不上**（2026-10-14；`backend/tests/test_anomaly_device_vendor_mismatch.py`、`e2e/anomaly-stale-link-reason.spec.ts`）：
+  IP 關聯到一台網路設備（例如 UniFi 基地台），那台在 LibreNMS 停用或離線，位址上的 MAC 是別家廠牌（例如電視）→ 異常偵測「裝置關聯可能過期」列出，
+  「原因」欄寫「裝置在 LibreNMS 已停用，MAC 是 X 的，不是 Ubiquiti」（參數有代入）。LibreNMS 上還在線上、廠牌對得上、裝置廠牌認不得（一般伺服器）、
+  MAC 是隨機（本地管理）或 VRRP 虛擬 MAC 都**不可以**列出；同一個位址兩種依據都成立只列一筆、原因兩個都寫；上線燈號對的是那筆 IP 記錄
+- [ ] **MAC 只是寫法不同不算變動**（2026-10-14；`backend/tests/test_mac_format_only_changes.py`、migration 0212）：同一個 MAC 一邊有冒號一邊沒有（或大小寫不同），
+  IP 時間軸與 MAC 歷程不出現「MAC 變動」，也不讓「裝置關聯可能過期」誤報；升級後既有的這種記錄被清掉，真的換 MAC 的記錄保留。
+  migration 的 revision 名稱不可超過 32 字元（`alembic_version` 欄位長度；`backend/tests/test_migration_revision_length.py` 守門）
 - [ ] **下一個可用位址跳過冷卻中的**（`backend/tests/test_first_free_cooldown.py`）：刪掉一筆 IP（進冷卻期）後，子網路的「下一個可用」、位址範圍的「下一個可用」、
   配發下一個可用、IP 申請核准都不可以給那個位址；解除冷卻後才會再給
 - [ ] **全站搜尋設定**（2026-10-13；`backend/tests/test_search_settings.py`、`e2e/global-search-settings.spec.ts`）：

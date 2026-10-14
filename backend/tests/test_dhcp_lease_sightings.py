@@ -190,3 +190,109 @@ async def test_windows_dhcp_inactive_reservations_are_not_leases(db_session, mon
     assert await _flag(db_session, a)
     assert not await _flag(db_session, b)
     assert not await _flag(db_session, c)
+
+
+async def test_windows_dhcp_inactive_scope_gives_no_leases_or_reservations(db_session, monkeypatch) -> None:
+    """停用（Inactive）的 scope 不會發放：它的租約與保留都不算（使用者 2026-10-13：「停用的不要抓」）。
+    以前只有集區跳過停用的 scope，租約與保留照收。"""
+    from app.models.dhcp import DHCPReservation
+    from app.models.windows_dhcp import WindowsDhcpServer
+    from app.services import windows_dhcp as wd
+    from sqlalchemy import select
+
+    a, b = await _ips(db_session, 2)
+
+    class _Fake:
+        def get_scopes(self):
+            return [{"ScopeId": "198.51.100.0", "State": "Active"},
+                    {"ScopeId": "203.0.113.0", "State": "Inactive"}]
+
+        def get_leases(self, sid):
+            return ([{"IPAddress": "198.51.100.1", "AddressState": "Active"}] if sid == "198.51.100.0"
+                    else [{"IPAddress": "198.51.100.2", "AddressState": "Active"}])
+
+        def get_reservations(self, sid):
+            return ([{"IPAddress": "198.51.100.1", "ClientId": "02-00-00-00-00-01", "Name": "a"}]
+                    if sid == "198.51.100.0" else
+                    [{"IPAddress": "203.0.113.9", "ClientId": "02-00-00-00-00-09", "Name": "z"}])
+    inst = WindowsDhcpServer(name="dhcp-b", host="192.0.2.6", username="u",
+                             password_enc=b"x", password_nonce=b"x")
+    db_session.add(inst)
+    await db_session.flush()
+    monkeypatch.setattr(wd, "_client", lambda _i: _Fake())
+    await wd.sync_leases(db_session, inst)
+    await wd.sync_reservations(db_session, inst)
+    await db_session.flush()
+    assert await _flag(db_session, a)
+    assert not await _flag(db_session, b), "停用 scope 的租約不算"
+    ips = set((await db_session.execute(select(DHCPReservation.ip).where(
+        DHCPReservation.source_id == inst.id))).scalars().all())
+    assert ips == {"198.51.100.1"}, "停用 scope 的保留不算"
+
+
+def test_lease_state_helper_only_drops_explicitly_inactive_rows() -> None:
+    """防火牆租約：來源明確寫著過期／釋放／拒絕的才不算（使用者 2026-10-13：「停用的不要抓」）。
+    沒有狀態欄位、或值不認得 → 照舊收（欄位沒在每一家實機驗證過，寧可漏擋也不要把有效租約丟掉）。"""
+    from app.services.fw_sightings import lease_inactive
+    assert lease_inactive({"state": "expired"})
+    assert lease_inactive({"binding_state": "free"})
+    assert lease_inactive({"binding-state": "abandoned"})
+    assert lease_inactive({"active_status": "expired"})
+    assert lease_inactive({"status": "Released"})
+    assert lease_inactive({"state": "2"}, kea=True), "Kea：2＝過期回收"
+    assert lease_inactive({"state": 1}, kea=True), "Kea：1＝拒絕"
+    assert not lease_inactive({"state": 0}, kea=True)
+    assert not lease_inactive({"state": "2"}), "不是 Kea 的數字狀態不猜"
+    assert not lease_inactive({})
+    assert not lease_inactive({"state": "active"})
+    assert not lease_inactive({"status": "leased"})
+    assert not lease_inactive({"state": "committed"})
+
+
+async def test_palo_alto_expired_lease_is_not_a_lease(db_session, monkeypatch) -> None:
+    import xml.etree.ElementTree as ET
+
+    from app.models.paloalto import PaloAltoFirewall
+    from app.services import paloalto as pa
+
+    a, b = await _ips(db_session, 2)
+    fw = PaloAltoFirewall(name="pa-x", api_url="https://pa.example.com", api_key_enc=b"x", api_key_nonce=b"x")
+    db_session.add(fw)
+    await db_session.flush()
+    xml = ("<result><entry><ip>198.51.100.1</ip><mac>02:00:00:00:00:01</mac><state>committed</state></entry>"
+           "<entry><ip>198.51.100.2</ip><mac>02:00:00:00:00:02</mac><state>expired</state></entry></result>")
+
+    async def _get(_fw, _params, **_kw):
+        return ET.fromstring(xml)
+    monkeypatch.setattr(pa, "_xml_get", _get)
+    await pa.sync_dhcp_leases(db_session, fw)
+    assert await _flag(db_session, a)
+    assert not await _flag(db_session, b)
+
+
+async def test_opnsense_expired_and_reclaimed_leases_are_not_leases(db_session, monkeypatch) -> None:
+    from app.models.firewall import OPNsenseFirewall
+    from app.services import opnsense_firewall as op
+
+    a, b, c = await _ips(db_session, 3)
+    fw = OPNsenseFirewall(name=f"fw-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.254",
+                          api_key_enc=b"x", api_key_nonce=b"x", api_secret_enc=b"x", api_secret_nonce=b"x")
+    db_session.add(fw)
+    await db_session.flush()
+    data = {
+        "/api/kea/leases4/search": {"rows": [
+            {"address": "198.51.100.1", "hwaddr": "02:00:00:00:00:01", "state": "0"},
+            {"address": "198.51.100.2", "hwaddr": "02:00:00:00:00:02", "state": "2"}]},
+        "/api/dhcpv4/leases/searchLease": {"rows": [
+            {"address": "198.51.100.3", "mac": "02:00:00:00:00:03", "state": "expired"}]},
+    }
+
+    async def _get(_fw, path, **_kw):
+        if path in data:
+            return data[path]
+        raise op.OPNsenseError(f"{path}: 404")
+    monkeypatch.setattr(op, "_api_get", _get)
+    await op.sync_dhcp_leases(db_session, fw)
+    assert await _flag(db_session, a)
+    assert not await _flag(db_session, b), "Kea 過期回收的不是租約"
+    assert not await _flag(db_session, c), "ISC 過期的不是租約"

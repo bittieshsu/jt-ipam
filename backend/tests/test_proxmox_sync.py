@@ -30,6 +30,12 @@ _RESP = {
 }
 
 
+# 開機但沒裝 guest agent 的 VM（MAC 後援、主要 IP 那幾支測的是這個情境）。關機的 VM 從 2026-10-13 起
+# 不再跟 IP 關聯（「停用的不要抓」，見 test_proxmox_inactive_guests.py），所以這裡要是 running
+_RUNNING = {**_RESP, "/api2/json/nodes/pve1/qemu": {"data": [
+    {**_RESP["/api2/json/nodes/pve1/qemu"]["data"][0], "status": "running"}]}}
+
+
 def _patch(monkeypatch, resp=_RESP):
     async def _fake(_session, _instance, path, *, base_url=None, timeout=None):
         return resp.get(path, {"data": []})
@@ -123,7 +129,7 @@ async def _seed_ip(session, ip: str, mac: str | None):
 async def test_no_agent_vm_hostname_via_mac(db_session, monkeypatch):
     """沒有 IP、只有 MAC → 用 MAC 對到既有 IP，並把 PVE 的 VM 名稱記成主機名稱觀測。"""
     ipa = await _seed_ip(db_session, "10.9.0.5", "aa:bb:cc:dd:ee:ff")
-    _patch(monkeypatch)
+    _patch(monkeypatch, _RUNNING)
     inst = await _instance(db_session)
     await px.sync_instance(db_session, inst)
     await db_session.refresh(ipa)
@@ -139,7 +145,7 @@ async def test_no_agent_vm_mac_unknown_creates_nothing(db_session, monkeypatch):
     """MAC 在 IPAM 找不到 → 什麼都不做（絕不憑空建 IP）。"""
     from app.models.address import IPAddress
     before = await db_session.scalar(select(func.count()).select_from(IPAddress))
-    _patch(monkeypatch)
+    _patch(monkeypatch, _RUNNING)
     inst = await _instance(db_session)
     await px.sync_instance(db_session, inst)
     after = await db_session.scalar(select(func.count()).select_from(IPAddress))
@@ -150,7 +156,7 @@ async def test_no_agent_vm_ambiguous_mac_skipped(db_session, monkeypatch):
     """同一 MAC 對到多筆（重疊網段）→ 視為不明確，不猜、不寫主機名稱。"""
     a = await _seed_ip(db_session, "10.9.0.7", "aa:bb:cc:dd:ee:ff")
     b = await _seed_ip(db_session, "10.9.0.8", "aa:bb:cc:dd:ee:ff")
-    _patch(monkeypatch)
+    _patch(monkeypatch, _RUNNING)
     inst = await _instance(db_session)
     await px.sync_instance(db_session, inst)
     for ipa in (a, b):
@@ -241,7 +247,7 @@ async def test_another_platforms_vms_are_not_touched(db_session, monkeypatch):
 async def test_primary_ip_follows_the_vm_when_its_ip_changes(db_session, monkeypatch):
     """主 IP 每輪重算：網卡改到別的 IP（同 MAC 被搬到另一個位址），主 IP 跟著走。"""
     a = await _seed_ip(db_session, "10.9.0.5", "aa:bb:cc:dd:ee:ff")
-    _patch(monkeypatch)
+    _patch(monkeypatch, _RUNNING)
     inst = await _instance(db_session)
     await px.sync_instance(db_session, inst)
     vm = (await db_session.execute(select(VirtualMachine))).scalar_one()
@@ -255,7 +261,7 @@ async def test_primary_ip_follows_the_vm_when_its_ip_changes(db_session, monkeyp
 
 async def test_primary_ip_is_cleared_when_nothing_maps_any_more(db_session, monkeypatch):
     a = await _seed_ip(db_session, "10.9.0.5", "aa:bb:cc:dd:ee:ff")
-    _patch(monkeypatch)
+    _patch(monkeypatch, _RUNNING)
     inst = await _instance(db_session)
     await px.sync_instance(db_session, inst)
     vm = (await db_session.execute(select(VirtualMachine))).scalar_one()
@@ -270,7 +276,7 @@ async def test_primary_ip_is_cleared_when_nothing_maps_any_more(db_session, monk
 async def test_primary_ip_is_kept_when_the_config_could_not_be_read(db_session, monkeypatch):
     """設定讀不到＝這一輪不知道它的網卡：保留原值，不要清了下一輪又設回來。"""
     a = await _seed_ip(db_session, "10.9.0.5", "aa:bb:cc:dd:ee:ff")
-    _patch(monkeypatch)
+    _patch(monkeypatch, _RUNNING)
     inst = await _instance(db_session)
     await px.sync_instance(db_session, inst)
     vm = (await db_session.execute(select(VirtualMachine))).scalar_one()
@@ -278,7 +284,7 @@ async def test_primary_ip_is_kept_when_the_config_could_not_be_read(db_session, 
     async def _fake(_s, _i, path, *, base_url=None, timeout=None):
         if path.endswith("/config"):
             raise px.ProxmoxError("HTTP 500")
-        return _RESP.get(path, {"data": []})
+        return _RUNNING.get(path, {"data": []})
     monkeypatch.setattr(px, "_api_get", _fake)
     await px.sync_instance(db_session, inst)
     assert vm.primary_ip_id == a.id

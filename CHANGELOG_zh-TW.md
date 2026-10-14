@@ -4,6 +4,28 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [1.0.10] - 2026-10-14
+
+### 新增
+- AI 設定：語意搜尋那一區會顯示索引需不需要重建、為什麼：還沒用目前的嵌入模型重建過、上次重建之後換過模型，或有幾筆有說明卻沒有向量。每次重建都會記下用的是哪個模型。API：`GET /api/v1/ai/index-status`。
+- LibreNMS：可以指定 VLAN 同步寫進哪個 VLAN domain（GitHub issue #53）。以前固定寫進另一個叫「LibreNMS」的 domain，從 phpIPAM 搬到 default 的 VLAN 因此出現兩份，子網路也連不到帶這個 VLAN 的交換器。指定 domain 後，同一個編號沿用既有的那一筆、只補上裝置對應，已經取好的名稱不會被交換器上的名稱（例如 VLAN0010）蓋掉；勾「只對應既有 VLAN」就不會把交換器預設的 1002 到 1005 之類帶進來。不指定就跟以前一樣用專用的 domain。升級：migration 0211 加上這兩個設定，沒選 domain 之前行為不變。
+- 異常偵測「裝置關聯可能過期」多一種依據：IP 關聯到一台網路設備，那台在 LibreNMS 已離線或停用，而位址上的 MAC 是別家廠牌的。有個位址關聯到一台早就停用的 UniFi 基地台，實際上是一台電視在用；關聯之後 MAC 從沒換過，原本的規則抓不到。新增「原因」欄說明是哪一種依據（同一個位址兩種都成立只列一筆）。只比網路設備類廠牌（Ubiquiti、Cisco、Juniper、Fortinet、MikroTik、Aruba、TP-Link、Synology、QNAP、Zyxel、Hikvision、Netgear、D-Link、Ruckus、Palo Alto），因為伺服器與 PC 的網卡常是 Intel、Broadcom、Realtek；LibreNMS 上還在線上的裝置、隨機（本地管理）MAC 與 VRRP 虛擬 MAC 都不比。
+- 相依套件：multidict ≥ 6.9.1（6.7.1 有 CVE-2026-104874，經 geoip2、aiohttp 帶進來）。升級時會換掉有漏洞的版本。
+
+### 修正
+- LibreNMS：為 issue #53 新增的 VLAN domain 欄位沒有索引，刪除 VLAN domain 時會整表掃描整合設定（migration 0213）。
+- 同一個 MAC 只是寫法不同（有沒有冒號、大小寫）被記成 MAC 變動。有個站台累積了上千筆：會出現在 IP 時間軸與 MAC 歷程，還讓「裝置關聯可能過期」把 MAC 從沒換過的位址列出來。現在不再記錄，升級時清掉既有的這種記錄（migration 0212）；真的換了 MAC 的記錄保留。
+- 「裝置關聯可能過期」：上線狀態用位址文字對應而不是 IP 記錄，重疊網段時可能顯示到另一筆的狀態；「IP 內部編號」欄也一直是空的。
+- IP 指示計：在圖例點「閒置」只看閒置時看不明顯：閒置格是透明底加虛線框，其他類型變淡後仍是淺色塊。現在被淡化的格子會變成灰階，被選中的閒置格改成實線框加底色。
+- 選了維度不對的嵌入模型時，畫面顯示「Embedding dim mismatch ... (adjust EMBEDDING_DIM or migration vector(N))」，叫管理員去改設定檔；「檢查維度」也從來走不到它自己那句「模型回 N 維，資料庫需要 768 維」。現在改成三語的代碼化錯誤，檢查維度和重建失敗都看得懂。單筆建索引失敗時，舊的向量會清掉，不再留著對應上一段說明的向量。
+- 各整合不再採用上游已停用或不在使用中的東西。有個位址被命名成一台在 LibreNMS 停用超過一年的 UniFi 基地台，實際上那個位址是電視在用。逐一盤點所有整合後修正：
+  - LibreNMS：停止輪詢的裝置照樣列出（標示「LibreNMS 已停用」），但不再命名 IP、不算上線、不自動建 IP 或裝置，也不再提供 ARP、交換器 MAC 表、連接埠、VLAN、LLDP 鄰居。它們凍結的 ARP 與 MAC 表一併清掉：LibreNMS 不會清這些資料，以前每一輪都被當成剛看到，可能讓早就不在的位址顯示上線或被判成 IP 衝突。只是關閉告警的裝置照常採用；已經建好的裝置與 IP 關聯不動。
+  - Zabbix：不監控的主機不再命名、關聯 IP，也不算上線；維護中且不收資料的主機不算上線。
+  - Proxmox：範本不再跟 IP 關聯；關機的 VM 不再命名 IP、改 MAC 或自動建 IP，但保留它報過的名稱與主要 IP。ESXi：只有開機、不是範本的 VM 回報的 IP 才拿來建立或關聯。
+  - Wazuh：斷線超過 30 天的代理不再代表它登記的 IP（主機名稱、OS）；斷線時間較短的照舊當成只是關機。
+  - DHCP：Windows DHCP 停用的範圍、Technitium 停用的範圍、FortiGate 停用的伺服器、pfSense 與 OPNsense 沒啟用 DHCP 的介面，它們的保留與租約都不採用（發放範圍早就這樣）；Palo Alto、pfSense、OPNsense（含 Kea）、FortiGate 明確標示過期、釋放、拒絕的租約不算租約。
+  - DNS 與防火牆物件：OPNsense Unbound 停用的 host override、AdGuard Home 停用的 rewrite、Windows DNS 暫停的 zone 不採用；OPNsense 停用的別名與 MikroTik 停用的位址清單項目不算成員。
+
 ## [1.0.9] - 2026-10-13
 
 ### 新增

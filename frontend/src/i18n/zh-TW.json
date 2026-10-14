@@ -1194,7 +1194,8 @@
     "kind_inferred": "推測（非登記或觀測）",
     "too_large": "這個範圍有 {n} 台裝置，超過一次能畫的上限（{limit} 台）：圖會大到看不懂，也要算很久。請用上方的子網路篩選縮小範圍。",
     "via_neighbor": "鄰居宣告（MikroTik）",
-    "scope_limited": "只顯示你有權限的裝置與子網路，以及兩端都在範圍內的連線；VPN 通道與虛擬機屬於全域資料，不顯示。"
+    "scope_limited": "只顯示你有權限的裝置與子網路，以及兩端都在範圍內的連線；VPN 通道與虛擬機屬於全域資料，不顯示。",
+    "status_disabled": "LibreNMS 已停用"
   },
   "hostnameSrc": {
     "auto": "自動 (跟全域順序)",
@@ -2100,7 +2101,11 @@
       "cooldown": "冷卻期內",
       "dhcp_range": "DHCP 範圍",
       "cap": "超過本輪上限"
-    }
+    },
+    "vlan_domain": "VLAN 寫進哪個 domain",
+    "vlan_domain_placeholder": "LibreNMS（專用，預設）",
+    "vlan_domain_hint": "指定後，同一個編號的 VLAN 沿用這個 domain 裡既有的那一筆，只補上「哪台交換器帶了這個 VLAN」，已經取好的名稱不會被交換器上的名稱（例如 VLAN0010）蓋掉。從 phpIPAM 搬來的 VLAN 在 default 時，選它就不會出現兩份。",
+    "vlan_only_existing": "只對應這個 domain 裡既有的 VLAN，不新建（交換器預設的 1002 到 1005 之類就不會被帶進來）"
   },
   "firewall": {
     "scope_title": "關聯範圍 (NAT 對應)",
@@ -2301,7 +2306,7 @@
     "arp_only": "僅 ARP 看得到",
     "explain_arp_only_liveness": "這些 IP 看起來上線，但唯一的證據是 ARP 記錄 —— 而 ARP 沒有時間資訊，來源設備（AP／路由器）的快取不會過期。機器就算已經關機，這裡仍會顯示上線。要確認實際狀態，請用掃描代理探測，或改由 LibreNMS／Zabbix 納管。",
     "stale_link": "裝置關聯可能過期",
-    "explain_stale_device_links": "這些 IP 掛著某台裝置，但**位址在關聯之後又換過 MAC** —— 多半是位址被回收給另一台機器（DHCP 常見），關聯已經指到錯的裝置。系統刻意不自動解除：要不要拆是人的判斷。請比對現在的 MAC 與那台裝置，再決定改掛或清空。",
+    "explain_stale_device_links": "這些 IP 掛著某台裝置，但證據顯示位址已經是別台機器在用，關聯可能指到錯的裝置。依據有兩種：（1）位址在關聯之後換過 MAC，多半是位址被回收給另一台機器（DHCP 常見）；（2）那台裝置在 LibreNMS 已經離線或停用，而位址上的 MAC 廠牌又不是那台裝置的廠牌（只比網路設備類廠牌，例如 Ubiquiti、Cisco、Fortinet）。系統刻意不自動解除，要不要拆是人的判斷：請比對現在的 MAC 與那台裝置，再決定改掛或清空。",
     "sched_btn": "排程",
     "sched_title": "異常偵測排程",
     "sched_hint": "排程執行只會通知「與上次相比是新的」發現。偵測結果是目前的狀態不是事件流，每輪把同一件未處理的事再通知一次，只會讓人把整類通知關掉。",
@@ -2470,7 +2475,7 @@
     "summary_suspicious_changes": "短時間內的大量異動，或來自非預期來源的異動。",
     "summary_fw_rule_rot": "生效中的防火牆規則有問題：轉發目標不存在、any → any 放行、WAN 開放管理埠。",
     "summary_arp_only_liveness": "看起來上線，但唯一的證據是不會過期的 ARP 記錄，實際可能已關機。",
-    "summary_stale_device_links": "IP 掛著某台裝置，但關聯之後位址換過 MAC，可能已指到錯的裝置。",
+    "summary_stale_device_links": "IP 掛著某台裝置，但關聯之後換過 MAC，或裝置已下線且 MAC 廠牌對不上，可能已指到錯的裝置。",
     "summary_mac_flapping": "同一個 IP 在統計期間出現過多個不同的 MAC。",
     "summary_identity_changes": "判讀出的設備類型或 OS 家族變了，可能是位址被別台機器使用或設備被換掉。",
     "explain_more": "詳細說明",
@@ -2490,7 +2495,12 @@
     "export_note": "這份報告是匯出當下畫面上的偵測結果（上次執行的結果），已依你的權限過濾；表格的欄位與順序和畫面相同。",
     "export_pdf_cols": "「{title}」顯示了 {n} 欄，PDF 一張表最多 {max} 欄：請在「欄位」少勾幾欄，或改用 Excel、ODS。",
     "export_pdf_rows": "「{title}」有 {n} 筆，PDF 一張表最多 {max} 筆：請先篩選，或改用 Excel、ODS、CSV。",
-    "export_pdf_cells": "結果太多（{n} 格，PDF 最多 {max} 格）：請先篩選，或改用 Excel、ODS、CSV。"
+    "export_pdf_cells": "結果太多（{n} 格，PDF 最多 {max} 格）：請先篩選，或改用 Excel、ODS、CSV。",
+    "stale_reason_mac_changed": "關聯之後 MAC 換過",
+    "stale_reason_vendor_down": "裝置在 LibreNMS 離線，MAC 是 {mac_vendor} 的，不是 {device_vendor}",
+    "stale_reason_vendor_disabled": "裝置在 LibreNMS 已停用，MAC 是 {mac_vendor} 的，不是 {device_vendor}",
+    "stale_reason_mac_vendor_down": "關聯之後 MAC 換過；裝置在 LibreNMS 離線，MAC 是 {mac_vendor} 的，不是 {device_vendor}",
+    "stale_reason_mac_vendor_disabled": "關聯之後 MAC 換過；裝置在 LibreNMS 已停用，MAC 是 {mac_vendor} 的，不是 {device_vendor}"
   },
   "webhooks": {
     "events_label": "事件 (* = 全部)",
@@ -3726,7 +3736,9 @@
     "v_invalid": "內容不正確",
     "v_more": "（另有 {n} 個欄位有問題）",
     "v_sep": "；",
-    "v_field": "{field}：{reason}"
+    "v_field": "{field}：{reason}",
+    "librenms_vlan_domain_not_found": "找不到指定的 VLAN domain（可能已被刪除），請重新選擇。",
+    "ai_embedding_dim_mismatch": "嵌入模型輸出 {got} 維，目前需要 {expected} 維：請改用 {expected} 維的嵌入模型（例如 granite-embedding:278m）。"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -3934,7 +3946,12 @@
     "mcp_key_days": "有效天數",
     "mcp_key_days_n": "{n} 天",
     "mcp_key_expires": "到期：{date}",
-    "mcp_key_expired": "已於 {date} 過期"
+    "mcp_key_expired": "已於 {date} 過期",
+    "index_ok": "索引是最新的：{n}/{total} 筆有說明的資料都有向量（{model}，{at} 重建）。",
+    "index_never": "建議重建：還沒有用目前的嵌入模型建過索引（{n} 筆有說明）。",
+    "index_model_changed": "建議重建：上次是用 {old} 建的，現在設定的是 {now}，既有的向量跟新的查詢配不起來。",
+    "index_missing": "建議重建：有 {n} 筆有說明但沒有向量（換模型或維度不合期間新增、修改的）。",
+    "index_nothing": "還沒有任何說明可以索引（子網路、IP、裝置的說明欄都是空的）。"
   },
   "rack_diagram": {
     "empty": "此機櫃尚無裝置",

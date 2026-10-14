@@ -39,7 +39,7 @@ from app.models.firewall import OPNsenseAliasMapping, OPNsenseFirewall
 from app.models.subnet import Subnet
 from app.services import arp_seen as arp_seen_svc
 from app.services.dhcp_leases import LeaseRun
-from app.services.fw_sightings import SightingBatch
+from app.services.fw_sightings import SightingBatch, lease_inactive
 from app.services.hostname_reports import HostnameRun, enabled_peers
 from app.services.ip_autocreate import (
     addable_subnets,
@@ -600,6 +600,10 @@ def _parse_legacy_static_maps(xml_text: str) -> list[Any]:
         return (el.text or "").strip() or None if el is not None else None
 
     for iface in list(dhcpd):
+        # 跟發放範圍同一條規則：介面沒啟用 DHCP，它的固定分配不會生效（使用者 2026-10-13：「停用的不要抓」）
+        en = iface.find("enable")
+        if en is None or (en.text or "1").strip().lower() in ("0", "false", "no"):
+            continue
         for sm in iface.findall("staticmap"):
             ip = _t(sm, "ipaddr")
             if not ip:
@@ -679,6 +683,9 @@ async def sync_dhcp_leases(
                 or ""
             ).strip() or None
             if not ip:
+                continue
+            # 明確過期／被拒絕的不算（Kea 用數字：1 拒絕、2 過期回收；ISC 用文字）
+            if lease_inactive(r, kea=kind.startswith("kea")):
                 continue
             seen += 1
             batch.add(ip, evidence="lease:opnsense", mac=mac, hostname=host)

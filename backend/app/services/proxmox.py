@@ -718,6 +718,14 @@ async def sync_instance(
                     if ip:
                         ipcfg[f"net{idx}"] = ip
 
+            # 範本與沒在跑的 guest（使用者 2026-10-13：「停用的不要抓」）：設定裡的 IP 可能早就給別台用了。
+            # 網卡照樣記（畫面看得到），但不跟 IPAM 的 IP 關聯 —— 不報名稱、不投 MAC 票、不自動建 IP。
+            # 關機的 VM 以前報過的名稱先保留（重開機、暫時關機時不會一消一長）；範本不保留
+            is_template = bool(vm.is_template)
+            claims = status == "running" and not is_template
+            if not claims and not is_template and not cfg_failed:
+                hn_run.hold(vm.name)
+
             for key, raw in cfg.items():
                 if not key.startswith("net") or not isinstance(raw, str):
                     continue
@@ -730,7 +738,7 @@ async def sync_instance(
                 # IP↔MAC↔主機名稱 對應進 IPAM
                 # 沒有 IP 也要試（PVE 不知道 IP 時走 MAC 後援比對既有 IP），否則沒裝
                 # guest agent 的 VM 永遠對不到、主機名稱與 primary_ip 都補不上。
-                if ip or mac:
+                if (ip or mac) and claims:
                     linked = await _link_ip_to_ipam(session, ip, mac, vm.name,
                                                     scope_ids=scope_ids, create_in=create_in,
                                                     hn_run=hn_run, mac_run=mac_run)
@@ -743,7 +751,11 @@ async def sync_instance(
             # 之後永不重算：VM 改 IP 或 VMID 被重複使用時，從舊 IP 開主控台會開到錯的、甚至已刪除的
             # guest（2026-09-26 稽核）。設定與 agent 都讀到時照本輪結果（沒對到就清空）；
             # 資料不確定時保留原值，但有找到新的就用新的。
-            if first_linked is not None:
+            if is_template:
+                vm.primary_ip_id = None          # 範本不是一台機器，沒有自己的 IP
+            elif not claims:
+                pass                             # 關機：這一輪不重算，維持原值
+            elif first_linked is not None:
                 vm.primary_ip_id = first_linked
             elif not cfg_failed and not agent_failed:
                 vm.primary_ip_id = None

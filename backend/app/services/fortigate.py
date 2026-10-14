@@ -31,7 +31,7 @@ from app.models.fortigate import (
     FortiGatePolicy,
 )
 from app.services.dhcp_leases import LeaseRun
-from app.services.fw_sightings import SightingBatch
+from app.services.fw_sightings import SightingBatch, lease_inactive
 from app.services.hostname_reports import HostnameRun, enabled_peers
 from app.services.ip_autocreate import match_existing
 
@@ -336,7 +336,7 @@ async def sync_dhcp_leases(session: AsyncSession, fw: FortiGateFirewall, vdoms: 
     for vdom in vdoms:
         for d in _rows(await _api_get(fw, EP_DHCP_LEASES, vdom=vdom)):
             ip = _valid_ip(_first(d, "ip", "ip_address", "address"))
-            if not ip:
+            if not ip or lease_inactive(d):     # 明確過期／釋放的租約不算
                 continue
             batch.add(ip, evidence="lease:fortigate", mac=_norm_mac(_first(d, "mac", "mac_address")),
                       hostname=(_first(d, "hostname", "host") or None))
@@ -421,6 +421,8 @@ async def sync_dhcp_reservations(
     for vdom in vdoms:
         servers = by_vdom[vdom]
         for d in servers:
+            if str(d.get("status") or "enable").lower() == "disable":
+                continue   # 停用的 DHCP 伺服器：它的保留不生效（發放範圍早就這樣跳過）
             for r in (d.get("reserved-address") or d.get("reserved_address") or []):
                 if not isinstance(r, dict):
                     continue

@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy import true as sa_true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -365,13 +365,14 @@ async def sync_devices(
                          peers=await enabled_peers(session, _Inst))
 
     seen_legacy: set[int] = set()
+    disabled_legacy: set[int] = set()
     # 超大規模：鏡像列與主 IP 一次撈回來（以前每台各查兩次：5,000 台＝1.5 萬次查詢、31 秒）
     from app.services.ip_autocreate import match_existing_many
     mirror = {r.legacy_device_id: r for r in (await session.execute(
         select(LibreNMSDevice).where(LibreNMSDevice.instance_id == instance.id))).scalars().all()}
     matches = await match_existing_many(
         session, {str(d.get("ip") or d.get("ip_address") or d.get("snmp_ip") or "").split("/")[0]
-                  for d in devices}, scope_ids)
+                  for d in devices if not _is_disabled(d)}, scope_ids)
     for d in devices:
         legacy = int(d.get("device_id"))
         seen += 1
@@ -390,10 +391,17 @@ async def sync_devices(
         # status 字串：明確區分 up / down / unknown（status_raw=0 是「離線」不是「未知」，
         # 別讓 `0 or "unknown"` 把離線誤標成未知）
         status_str = "unknown" if status_raw is None else ("up" if is_up else "down")
+        # LibreNMS 停用（停止輪詢）：鏡像留著、標成 disabled，但不採用它的任何資料（使用者 2026-10-13：
+        # 「停用的不要抓」）。停用後 status 停在最後的值，常常還是 1，以前一直算「上線」、名稱照報、
+        # 凍結的 ARP 每輪被當成剛看到。`ignore` 只是不告警、仍在輪詢 → 照常採用。
+        disabled = _is_disabled(d)
+        if disabled:
+            status_str = "disabled"
+            disabled_legacy.add(legacy)
 
         # 若 LibreNMS device 上線 + primary_ip 對得到 jt-ipam IPAddress，
         # stamp last_seen_librenms 讓 effective_status 計算抓得到證據。
-        if primary_ip:
+        if primary_ip and not disabled:
             # 唯一才算：重疊網段又沒設範圍時不猜、也不新建（以前任意取一筆）
             ipa, ambiguous = matches.get(str(primary_ip).split("/")[0], (None, False))
             # auto_create_ips：IPAM 還沒有這個裝置主 IP，且它落在既有/符合 scope 的子網路
@@ -471,15 +479,34 @@ async def sync_devices(
             existing.last_seen_at = datetime.now(UTC)
             updated += 1
 
-        # feature D：開了 auto_add_devices 就 match-or-create jt-ipam Device
-        if instance.auto_add_devices:
+        # feature D：開了 auto_add_devices 就 match-or-create jt-ipam Device（停用的不建；已建的是使用者的資料，不動）
+        if instance.auto_add_devices and not disabled:
             ldev = obj if existing is None else existing
             await link_librenms_device(session, ldev, create=True, scope_ids=scope_ids)
 
     # /devices 讀取失敗會往外拋；走到這裡就是完整的裝置清單
+    # （停用的裝置沒報名稱 → finish 收回它以前報過的）
     await hn_run.finish(complete=True)
     await _prune_devices(session, instance, seen_legacy)
+    # 停用裝置凍結的 ARP／FDB：LibreNMS 不會清，留著就一直被當成目前的觀測（假上線、假衝突）
+    gone = [mirror[lg].id for lg in disabled_legacy if lg in mirror]
+    if gone:
+        await session.execute(delete(ARPEntry).where(in_values(ARPEntry.device_id, gone)))
+        await session.execute(delete(FDBEntry).where(in_values(FDBEntry.device_id, gone)))
     return seen, inserted, updated
+
+
+def _is_disabled(d: dict[str, Any]) -> bool:
+    """LibreNMS 的 `disabled`（停用輪詢）：0/1、字串或布林都有可能。"""
+    v = d.get("disabled")
+    return v in (1, True) or str(v).strip().lower() in ("1", "true", "yes")
+
+
+def _active_devices(instance_id: Any) -> Any:
+    """要拿資料的鏡像裝置：排除 LibreNMS 停用的（舊資料的 status 可能是空的，算啟用）。"""
+    return select(LibreNMSDevice).where(
+        LibreNMSDevice.instance_id == instance_id,
+        or_(LibreNMSDevice.status.is_(None), LibreNMSDevice.status != "disabled"))
 
 
 async def _prune_devices(session: AsyncSession, instance: LibreNMSInstance, seen: set[int]) -> int:
@@ -518,13 +545,8 @@ async def sync_arp(
 
     `autocreate_stats`：有給就填入「依 ARP 自動建立 IP」的結果（{"created", "skipped"}）。
     """
-    devices = list(
-        (await session.execute(
-            select(LibreNMSDevice).where(
-                LibreNMSDevice.instance_id == instance.id,
-            )
-        )).scalars().all()
-    )
+    # 停用的裝置不在對照表裡 → 它凍結的 ARP 一筆都不收（下面「未追蹤的裝置 → 跳過」）
+    devices = list((await session.execute(_active_devices(instance.id))).scalars().all())
     seen = inserted = updated = filled = 0
     now = datetime.now(UTC)
     # 重疊網段：若 instance 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
@@ -686,13 +708,8 @@ async def prune_stale_arp(session: AsyncSession, *, max_age_days: int = 30) -> i
 async def sync_fdb(
     session: AsyncSession, instance: LibreNMSInstance,
 ) -> tuple[int, int, int]:
-    devices = list(
-        (await session.execute(
-            select(LibreNMSDevice).where(
-                LibreNMSDevice.instance_id == instance.id,
-            )
-        )).scalars().all()
-    )
+    # 停用的裝置不打它的 FDB API（資料是凍結的）
+    devices = list((await session.execute(_active_devices(instance.id))).scalars().all())
     seen = inserted = updated = 0
     now = datetime.now(UTC)
 
@@ -995,16 +1012,15 @@ async def sync_vlans(
     回傳 (vlans_seen, vlans_upserted, mappings_upserted)。device↔VLAN 對應直接掛在
     librenms_devices（拉進來的裝置），不需先建 jt-ipam Device。
     """
-    devices = list(
-        (await session.execute(
-            select(LibreNMSDevice).where(LibreNMSDevice.instance_id == instance.id)
-        )).scalars().all()
-    )
-    domain = await _get_or_create_vlan_domain(session)
+    devices = list((await session.execute(_active_devices(instance.id))).scalars().all())
+    # 指定的 domain（issue #53）：沿用裡面同編號的 VLAN、不覆寫已有的名稱；沒指定（或被刪掉）＝專用的 LibreNMS domain
+    chosen = await session.get(VLANDomain, instance.vlan_domain_id) if instance.vlan_domain_id else None
+    domain = chosen or await _get_or_create_vlan_domain(session)
+    create_missing = chosen is None or bool(instance.vlan_create_missing)
     now = datetime.now(UTC)
     seen = upserted = mapped = 0
-    # 同一次 sync 的 number→VLAN 快取，避免重複 query
-    vlan_cache: dict[int, VLAN] = {}
+    # 同一次 sync 的 number→VLAN 快取，避免重複 query（None＝domain 裡沒有、而且設定成不新建）
+    vlan_cache: dict[int, VLAN | None] = {}
 
     for d in devices:
         path = f"/api/v0/devices/{d.legacy_device_id}/vlans"
@@ -1025,20 +1041,26 @@ async def sync_vlans(
             name = (v.get("vlan_name") or f"VLAN{number}").strip()[:64] or f"VLAN{number}"
             seen += 1
 
-            vlan = vlan_cache.get(number)
-            if vlan is None:
+            if number in vlan_cache:
+                vlan = vlan_cache[number]
+            else:
                 vlan = (await session.execute(
                     select(VLAN).where(VLAN.domain_id == domain.id, VLAN.number == number)
                 )).scalar_one_or_none()
                 if vlan is None:
-                    vlan = VLAN(domain_id=domain.id, number=number, name=name)
-                    session.add(vlan)
-                    await session.flush()
-                    upserted += 1
-                elif name and vlan.name != name and name != f"VLAN{number}":
-                    vlan.name = name  # 用 LibreNMS 最新名稱
+                    if create_missing:
+                        vlan = VLAN(domain_id=domain.id, number=number, name=name)
+                        session.add(vlan)
+                        await session.flush()
+                        upserted += 1
+                elif name and vlan.name != name and name != f"VLAN{number}" \
+                        and (chosen is None or not (vlan.name or "").strip()):
+                    # 專用 domain 用 LibreNMS 最新名稱；指定的 domain 是 IPAM 規劃的 VLAN，已有名稱就不覆寫
+                    vlan.name = name
                     upserted += 1
                 vlan_cache[number] = vlan
+            if vlan is None:
+                continue      # domain 裡沒有、而且設定成不新建 → 這台的這個 VLAN 不對應
 
             # device↔VLAN 對應（直接掛在 LibreNMS 裝置）
             existing = (await session.execute(
@@ -1316,10 +1338,7 @@ async def sync_device_ports(session: AsyncSession, instance: LibreNMSInstance) -
     from app.services.device_port_filter import is_pseudo_iface, load_patterns, prune_pseudo_ports
 
     ldevs = list((await session.execute(
-        select(LibreNMSDevice).where(
-            LibreNMSDevice.instance_id == instance.id,
-            LibreNMSDevice.jt_ipam_device_id.is_not(None),
-        )
+        _active_devices(instance.id).where(LibreNMSDevice.jt_ipam_device_id.is_not(None))
     )).scalars().all())
     # 偽介面過濾（與手動匯入同一份設定）：以前排程同步沒套，手動清完下一輪又加回來
     pseudo = await load_patterns(session)
@@ -1522,12 +1541,17 @@ async def sync_links(
     seen = upserted = 0
     now = datetime.now(UTC)
     fresh_ids: set[int] = set()
+    # 本端是 LibreNMS 停用的裝置：鄰居資料是凍結的，不收（沒算進 fresh_ids，下面會把舊的一起清掉）
+    disabled_legacy = set((await session.execute(select(LibreNMSDevice.legacy_device_id).where(
+        LibreNMSDevice.instance_id == instance.id, LibreNMSDevice.status == "disabled"))).scalars().all())
 
     for r in rows:
         if not isinstance(r, dict):
             continue
         lid = _int(_first(r, "id", "link_id"))
         if lid is None:
+            continue
+        if _int(_first(r, "local_device_id")) in disabled_legacy:
             continue
         seen += 1
         fresh_ids.add(lid)

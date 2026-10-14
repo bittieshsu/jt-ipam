@@ -45,6 +45,10 @@ def _s(v: Any) -> str | None:
 _FLAP_WINDOW = timedelta(minutes=10)
 
 
+def _hex(v: Any) -> str:
+    return "".join(ch for ch in str(v).lower() if ch in "0123456789abcdef")
+
+
 async def log_change(
     session: AsyncSession,
     *,
@@ -65,6 +69,10 @@ async def log_change(
     來由：兩個 Wazuh 代理登記同一個 IP，每輪同步互相覆寫，實機十天洗出 620 筆，
     把真正有意義的人為編輯完全埋掉。根因在各 sync 端用 tiebreak 收斂，這裡是最後一道防線。
     """
+    # 同一個 MAC 只是寫法不同（有沒有冒號、大小寫）不是異動（2026-10-14：正式站台曾累積 2,168 筆，
+    # 讓「裝置關聯可能過期」誤報；既有的由 migration 0212 清掉）
+    if field == "mac" and old and new and _hex(old) == _hex(new):
+        return
     if field is not None:
         prev = await _reverted_change(session, ip=ip, field=field, old=old, new=new, latest=latest)
         if prev is not None:

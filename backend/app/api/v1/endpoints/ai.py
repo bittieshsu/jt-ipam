@@ -312,6 +312,14 @@ async def embedding_check(
     return await ai_service.probe_embedding(session)
 
 
+@router.get("/index-status", dependencies=[Depends(require_admin)])
+async def index_status(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """語意搜尋的索引需不需要重建、為什麼（使用者 2026-10-13：「看不出來要不要按」）。只讀資料庫，不呼叫模型。"""
+    return await ai_service.index_status(session)
+
+
 @router.get("/thinking-check", dependencies=[Depends(require_admin)])
 async def thinking_check(
     session: Annotated[AsyncSession, Depends(get_session)],

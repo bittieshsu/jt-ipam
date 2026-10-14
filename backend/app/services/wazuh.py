@@ -229,6 +229,14 @@ def agent_predates_device(agent: Any, ip: Any) -> bool:
     return since is not None and (ka is None or ka < since)
 
 
+#: 斷線的代理最多代表它登記的 IP 多久（天）；超過就當作那個位址已經沒有這台
+AGENT_STALE_DAYS = 30
+
+
+def _aware(t: datetime) -> datetime:
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
 def agent_represents_ip(agent: Any, ip: Any, *, grace_hours: int = 24) -> bool:
     """這個 Wazuh agent 現在還代表這個 IP 嗎？
 
@@ -251,6 +259,11 @@ def agent_represents_ip(agent: Any, ip: Any, *, grace_hours: int = 24) -> bool:
         return True
     if ka is None:
         return False   # 從未回報過，又不是 active → 沒有理由相信這個對映
+    # 斷線太久的代理不再代表這個 IP（使用者 2026-10-13：「停用的不要抓」）。以前沒有上限：
+    # 失聯好幾年的代理只要那個 IP 沒有別的存活證據，就一直替它命名、提供 OS。
+    # 30 天內的「只是關機」照舊採用（與 OCS 預設的過期天數相同）
+    if _aware(ka) < datetime.now(UTC) - timedelta(days=AGENT_STALE_DAYS):
+        return False
     from app.services.arp_seen import newest_aging
     from app.services.evidence import DETAILED_SOURCES
     # 防火牆的 ARP／VPN 表也算「這個位址現在有人在用」的證據（會逾時淘汰的那些），

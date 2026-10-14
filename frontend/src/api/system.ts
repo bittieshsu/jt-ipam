@@ -510,6 +510,24 @@ export interface ReindexResult {
   devices: number;
   failed: number;
   error: string | null;
+  /** 第一個失敗的錯誤代碼（errors.<code>）與參數；舊後端沒有 */
+  error_code?: string | null;
+  error_params?: Record<string, unknown> | null;
+}
+
+/** 語意搜尋的索引需不需要重建（不呼叫模型，只看資料庫） */
+export interface IndexStatus {
+  model: string;
+  last: { model: string; dim: number; at: string; indexed: number; failed: number } | null;
+  counts: Record<string, { described: number; indexed: number }>;
+  described: number;
+  missing: number;
+  needs_reindex: boolean;
+  reason: "never" | "model_changed" | "missing" | null;
+}
+export async function getIndexStatus(): Promise<IndexStatus> {
+  const { data } = await apiClient.get<IndexStatus>("/api/v1/ai/index-status");
+  return data;
 }
 
 /** 重新計算所有描述的向量。慢（依資料量可能數分鐘），只在換模型或初次設定後需要。 */

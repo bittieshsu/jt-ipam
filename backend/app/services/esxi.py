@@ -604,6 +604,10 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
         select(VirtualMachine).where(VirtualMachine.cluster_id == cluster.id))).scalars()}
     cands: dict[Any, str] = {}
     for v in vms:
+        # 只有開機、不是範本的 VM 回報的 IP 才算（使用者 2026-10-13：「停用的不要抓」）。關機的 VM
+        # 一般回報不出 IP；萬一留著舊的，那個位址也可能已經給別台 —— 不拿來建 IP、也不設主要 IP
+        if v.get("power_state") != "poweredOn" or v.get("is_template"):
+            continue
         cand = pick_vm_ip([v.get("ip"),
                            *(ip for n in (v.get("nics") or []) for ip in (n.get("ips") or []))])
         c = _canon_ip(cand)
@@ -647,6 +651,8 @@ async def sync_instance(session: AsyncSession, inst: ESXiInstance) -> dict[str, 
         row.vcpus = v.get("vcpus")
         row.memory_mb = v.get("memory_mb")
         row.is_template = bool(v.get("is_template"))
+        if row.is_template:
+            row.primary_ip_id = None         # 範本不是一台機器，沒有自己的 IP（關機的 VM 維持原值）
         if v.get("notes"):
             row.description = v["notes"]
         seen.add(row.id)

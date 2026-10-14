@@ -77,6 +77,19 @@ async def test_powered_off_machine_still_counts(db_session):
 
 
 @pytest.mark.anyio
+async def test_agent_gone_for_more_than_a_month_no_longer_counts(db_session):
+    """斷線超過 30 天（與 OCS「多久算過期」的預設相同）就不再代表這個 IP（使用者 2026-10-13：「停用的不要抓」）。
+
+    以前沒有上限：一台失聯好幾年的代理，只要那個 IP 沒有別的存活證據，就一直替它命名、提供 OS。
+    30 天內的「只是關機」照舊採用（上一支測試）。
+    """
+    ipa, wa = await _ip_and_agent(
+        db_session, status="disconnected",
+        keep_alive=NOW - timedelta(days=31), seen=None)
+    assert agent_represents_ip(wa, ipa) is False
+
+
+@pytest.mark.anyio
 async def test_stale_agent_does_not_supply_os(db_session):
     """端到端：失聯 agent 不該再提供 OS 候選值（這就是畫面上那個 macOS 的來源）。"""
     from app.services.os_precedence import _candidates

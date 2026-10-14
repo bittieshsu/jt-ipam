@@ -60,6 +60,31 @@ def _norm_ip(raw: object) -> str | None:
         return None
 
 
+#: 租約狀態欄位明確寫著這些值 → 不是有效租約（過期、釋放、被拒絕、閒置）
+_INACTIVE_LEASE_STATES = frozenset({"expired", "free", "released", "declined", "abandoned", "reset",
+                                    "expired-reclaimed", "backup"})
+_LEASE_STATE_FIELDS = ("state", "status", "active_status", "binding_state", "binding-state", "lease_state")
+
+
+def lease_inactive(row: dict[str, object], *, kea: bool = False) -> bool:
+    """防火牆回報的租約是否明確不是有效租約（使用者 2026-10-13：「停用的不要抓」）。
+
+    只看「明確寫著」過期／釋放／拒絕的：各家欄位沒有逐一在實機驗證過，欄位不存在或值不認得
+    就照舊當成有效 —— 寧可漏擋，也不要把有效租約丟掉。Kea 的數字狀態（0 正常、1 拒絕、
+    2 過期回收）只在呼叫端說是 Kea 時才看。
+    """
+    for f in _LEASE_STATE_FIELDS:
+        v = row.get(f)
+        if v is None:
+            continue
+        txt = str(v).strip().lower()
+        if kea and f == "state" and txt in ("1", "2"):
+            return True
+        if txt in _INACTIVE_LEASE_STATES:
+            return True
+    return False
+
+
 class SightingBatch:
     """見模組說明。"""
 

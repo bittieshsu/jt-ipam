@@ -810,7 +810,7 @@ async def sync_address_lists(
     """
     rows = _rows(await _get(
         router, EP_ADDRESS_LIST, client=client,
-        proplist="list,address,comment,dynamic,timeout"))
+        proplist="list,address,comment,dynamic,timeout,disabled"))
     now = datetime.now(UTC)
     await session.execute(
         delete(MikroTikAddressList).where(MikroTikAddressList.router_id == router.id))
@@ -818,8 +818,8 @@ async def sync_address_lists(
     for d in rows:
         name = _txt(d.get("list"), 128)
         addr = _txt(d.get("address"), 2048)
-        if not name or not addr:
-            continue
+        if not name or not addr or _b(d.get("disabled")):
+            continue   # 停用的項目不是清單成員（反查與 IP 變更評估都讀這張表）
         session.add(MikroTikAddressList(
             router_id=router.id, list_name=name, address=addr,
             dynamic=_b(d.get("dynamic")), timeout=_txt(d.get("timeout"), 32),

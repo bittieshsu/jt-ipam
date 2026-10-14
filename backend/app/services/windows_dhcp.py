@@ -200,6 +200,11 @@ async def healthcheck(inst: WindowsDhcpServer) -> dict[str, Any]:
     return {"host": inst.host, "scopes": len(scopes)}
 
 
+def _inactive(scope: dict[str, Any]) -> bool:
+    """Get-DhcpServerv4Scope 的 State：Active／Inactive。"""
+    return str(scope.get("State") or "").lower() == "inactive"
+
+
 async def sync_reservations(session: AsyncSession, inst: WindowsDhcpServer) -> int:
     """Windows DHCP 的保留位址（每個 scope 各問一次）。
 
@@ -212,8 +217,8 @@ async def sync_reservations(session: AsyncSession, inst: WindowsDhcpServer) -> i
     rows: list[Reservation] = []
     for sc in scopes:
         sid = _as_str(sc.get("ScopeId"))
-        if not sid:
-            continue
+        if not sid or _inactive(sc):
+            continue   # 停用的 scope 不會發放：它的保留不算（使用者 2026-10-13：「停用的不要抓」）
         try:
             got = await asyncio.to_thread(cli.get_reservations, sid)
         except WindowsDhcpError as exc:
@@ -252,7 +257,7 @@ async def sync_scopes(session: AsyncSession, inst: WindowsDhcpServer) -> int:
     rows: list[tuple[str | None, str, str, str, str]] = []
     excluded: list[Exclusion] = []
     for sc in scopes:
-        if str(sc.get("State") or "").lower() == "inactive":
+        if _inactive(sc):
             continue   # 停用的 scope 不會發放
         start, end = _as_str(sc.get("StartRange")), _as_str(sc.get("EndRange"))
         if not start or not end:
@@ -316,8 +321,8 @@ async def sync_leases(session: AsyncSession, inst: WindowsDhcpServer) -> int:
                           lease_run=lease_run, hn_run=hn_run)
     for sc in scopes:
         sid = _as_str(sc.get("ScopeId"))
-        if not sid:
-            continue
+        if not sid or _inactive(sc):
+            continue   # 停用的 scope 不會發放：清單裡殘留的租約不算
         try:
             leases = await asyncio.to_thread(cli.get_leases, sid)
         except WindowsDhcpError:

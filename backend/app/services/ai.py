@@ -21,6 +21,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -66,6 +67,24 @@ class AIUpstream(AIError):
     """LLM 伺服器回了錯誤（HTTP 狀態、串流裡的 error）。"""
 
     code = "ai_upstream_error"
+
+
+class EmbeddingDimMismatch(AIError):
+    """嵌入模型的輸出維度跟資料庫欄位不合（使用者 2026-10-13）。
+
+    以前丟的是 `Embedding dim mismatch ... (adjust EMBEDDING_DIM or migration vector(N))`：叫使用者去改
+    設定檔與 migration，網頁上根本做不到；「檢查維度」也因此走到「取不到向量」、拿不到維度。
+    """
+
+    code = "ai_embedding_dim_mismatch"
+
+    def __init__(self, got: int, expected: int) -> None:
+        self.got, self.expected = got, expected
+        super().__init__(f"嵌入模型輸出 {got} 維，目前需要 {expected} 維：請改用 {expected} 維的嵌入模型")
+
+    @property
+    def params(self) -> dict[str, int]:
+        return {"got": self.got, "expected": self.expected}
 
 
 #: 錯誤代碼的退路文字（前端有翻譯 errors.<code> 就不會用到）
@@ -602,10 +621,7 @@ async def embed(session: AsyncSession, text_in: str) -> list[float]:
         raise AIUpstream(f"{provider_label(cfg.provider)} returned no embedding")
     expected_dim = get_settings().embedding_dim
     if len(vec) != expected_dim:
-        raise AIError(
-            f"Embedding dim mismatch: got {len(vec)}, expected {expected_dim} "
-            f"(adjust EMBEDDING_DIM or migration vector(N))"
-        )
+        raise EmbeddingDimMismatch(len(vec), expected_dim)
     return [float(x) for x in vec]
 
 
@@ -631,6 +647,8 @@ async def index_subnet(session: AsyncSession, subnet_id: str, description: str |
     except (AIError, AINotConfigured):
         # 單筆寫入路徑（存檔時順手索引）不因為 LLM 不通就讓存檔失敗；
         # 批次 reindex 則要知道原因，否則「全失敗」會被當成「沒事可做」。
+        # 舊向量清掉：它是上一段說明的向量，留著會讓搜尋配錯、索引狀態也看起來是好的（2026-10-13）
+        await session.execute(text("UPDATE subnets SET description_embedding = NULL WHERE id = :id"), {"id": subnet_id})
         if raise_on_error:
             raise
         return False
@@ -654,6 +672,8 @@ async def index_ip(session: AsyncSession, ip_id: str, description: str | None,
     except (AIError, AINotConfigured):
         # 單筆寫入路徑（存檔時順手索引）不因為 LLM 不通就讓存檔失敗；
         # 批次 reindex 則要知道原因，否則「全失敗」會被當成「沒事可做」。
+        # 舊向量清掉：它是上一段說明的向量，留著會讓搜尋配錯、索引狀態也看起來是好的（2026-10-13）
+        await session.execute(text("UPDATE ip_addresses SET description_embedding = NULL WHERE id = :id"), {"id": ip_id})
         if raise_on_error:
             raise
         return False
@@ -677,6 +697,8 @@ async def index_device(session: AsyncSession, device_id: str, description: str |
     except (AIError, AINotConfigured):
         # 單筆寫入路徑（存檔時順手索引）不因為 LLM 不通就讓存檔失敗；
         # 批次 reindex 則要知道原因，否則「全失敗」會被當成「沒事可做」。
+        # 舊向量清掉：它是上一段說明的向量，留著會讓搜尋配錯、索引狀態也看起來是好的（2026-10-13）
+        await session.execute(text("UPDATE devices SET description_embedding = NULL WHERE id = :id"), {"id": device_id})
         if raise_on_error:
             raise
         return False
@@ -699,6 +721,9 @@ async def probe_embedding(session: AsyncSession) -> dict[str, Any]:
     expected = get_settings().embedding_dim
     try:
         vec = await embed(session, "jt-ipam embedding dimension probe")
+    except EmbeddingDimMismatch as exc:
+        # 有拿到向量、只是維度不對：講出模型回幾維（畫面那句「模型回 N 維，資料庫要 M 維」）
+        return {"ok": False, "dim": exc.got, "expected": expected, "error": None}
     except (AIError, AINotConfigured) as exc:
         return {"ok": False, "dim": None, "expected": expected, "error": str(exc)[:300]}
     return {"ok": len(vec) == expected, "dim": len(vec), "expected": expected, "error": None}
@@ -1501,12 +1526,15 @@ async def reindex_all(session: AsyncSession) -> dict[str, Any]:
     from app.models.subnet import Subnet
 
     stats: dict[str, Any] = {"subnets": 0, "ip_addresses": 0, "devices": 0,
-                             "failed": 0, "error": None}
+                             "failed": 0, "error": None, "error_code": None, "error_params": None}
 
     def _note(exc: Exception) -> None:
         stats["failed"] = int(stats["failed"]) + 1
         if not stats["error"]:
             stats["error"] = str(exc)[:300]
+            # 代碼化：前端翻成三語（維度不合時帶模型回幾維、需要幾維）
+            stats["error_code"] = getattr(exc, "code", None)
+            stats["error_params"] = getattr(exc, "params", None)
 
     # 分批 commit：整表放在同一個交易裡，會跟同時在跑的整合同步（jt-ipam-sync 每 ~5 分鐘
     # 更新同一批 ip_addresses）互鎖 —— 實機第一次真的跑得動 reindex 就撞到 deadlock，
@@ -1560,7 +1588,61 @@ async def reindex_all(session: AsyncSession) -> dict[str, Any]:
             await session.commit()
     await session.commit()
 
+    # 記下這次重建用的是哪個模型：之後換了模型，索引狀態才知道既有的向量是舊模型的（需要重建）
+    await _save_index_record(session, stats)
+    await session.commit()
     return stats
+
+
+INDEX_RECORD_KEY = "semantic_index"
+
+
+async def _save_index_record(session: AsyncSession, stats: dict[str, Any]) -> None:
+    from app.models.system_setting import SystemSetting
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    rec = {"model": cfg.embedding_model, "dim": get_settings().embedding_dim,
+           "at": datetime.now(UTC).isoformat(),
+           "indexed": int(stats["subnets"]) + int(stats["ip_addresses"]) + int(stats["devices"]),
+           "failed": int(stats["failed"])}
+    row = await session.get(SystemSetting, INDEX_RECORD_KEY)
+    if row is None:
+        session.add(SystemSetting(key=INDEX_RECORD_KEY, value=rec))
+    else:
+        row.value = rec
+
+
+async def index_status(session: AsyncSession) -> dict[str, Any]:
+    """語意搜尋的索引需不需要重建（使用者 2026-10-13：「看不出來要不要按」）。
+
+    - never：還沒有重建紀錄（升級前建的、或從沒重建過）
+    - model_changed：上次重建用的模型跟現在設定的不同 → 既有向量是舊模型的，跟新的查詢配不起來
+    - missing：有說明卻沒有向量（換模型或維度不合期間新增、修改的；或單筆索引失敗）
+    """
+    from app.models.system_setting import SystemSetting
+    from app.services.system_config import get_llm_config
+    cfg = await get_llm_config(session)
+    counts: dict[str, dict[str, int]] = {}
+    for table in ("subnets", "ip_addresses", "devices"):
+        row = (await session.execute(text(
+            f"SELECT count(*) FILTER (WHERE coalesce(btrim(description), '') <> '') AS described, "  # noqa: S608 - 固定表名
+            f"count(*) FILTER (WHERE coalesce(btrim(description), '') <> '' "
+            f"AND description_embedding IS NOT NULL) AS indexed FROM {table}"))).one()
+        counts[table] = {"described": int(row.described), "indexed": int(row.indexed)}
+    described = sum(c["described"] for c in counts.values())
+    missing = sum(c["described"] - c["indexed"] for c in counts.values())
+    rec_row = await session.get(SystemSetting, INDEX_RECORD_KEY)
+    last = rec_row.value if rec_row is not None and isinstance(rec_row.value, dict) else None
+    reason: str | None = None
+    if described:
+        if last is None:
+            reason = "never"
+        elif last.get("model") != cfg.embedding_model:
+            reason = "model_changed"
+        elif missing:
+            reason = "missing"
+    return {"model": cfg.embedding_model, "last": last, "counts": counts, "described": described,
+            "missing": missing, "needs_reindex": reason is not None, "reason": reason}
 
 
 async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = None,

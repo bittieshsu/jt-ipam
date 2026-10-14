@@ -155,6 +155,8 @@ async def rules_touching_ip(session: AsyncSession, ip: str, *, ip_id: Any = None
     opn_names = {f.id: f.name for f in (await session.execute(
         select(OPNsenseFirewall))).scalars().all()}
     for alias in (await session.execute(select(OPNsenseSyncedAlias))).scalars().all():
+        if not alias.enabled:
+            continue   # 停用的別名不生效（規則與 NAT 早就篩掉停用的，別名以前漏了）
         if _member_covers(alias.content, aip):
             alias_names.add(alias.name)
             out["aliases"].append({"source_type": "opnsense", "name": alias.name,

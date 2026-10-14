@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [1.0.10] - 2026-10-14
+
+### Added
+- AI settings: the semantic search section shows whether the index needs a rebuild and why: never rebuilt with the current embedding model, the model changed since the last rebuild, or how many items have a description but no vector. Each rebuild records the model it used. API: `GET /api/v1/ai/index-status`.
+- LibreNMS: choose the VLAN domain that VLAN sync writes to (GitHub issue #53). It used to always write to a separate "LibreNMS" domain, so VLANs migrated from phpIPAM into "default" appeared twice and subnets could not be tied to the switches that carry their VLAN. With a domain chosen, existing VLANs with the same number are reused and only gain the device mappings, names you already gave are not overwritten by the switch's (such as VLAN0010), and "only map existing VLANs" keeps switch defaults such as 1002 to 1005 out. Leaving it empty keeps the dedicated domain. Upgrade: migration 0211 adds the two settings; nothing changes until a domain is chosen.
+- Anomaly detection, "Device link may be stale": a second kind of evidence. The IP is linked to network equipment that is down or disabled in LibreNMS, and the MAC on the address belongs to another vendor. An address linked to a UniFi access point that had long been disabled was actually used by a TV; its MAC never changed after the link, so the existing rule could not see it. A new "Reason" column says which evidence applies (both on one address give one row). Only network equipment vendors are compared (Ubiquiti, Cisco, Juniper, Fortinet, MikroTik, Aruba, TP-Link, Synology, QNAP, Zyxel, Hikvision, Netgear, D-Link, Ruckus, Palo Alto), because servers and PCs often carry Intel, Broadcom or Realtek network cards; devices still up in LibreNMS, randomized (locally administered) MACs and VRRP virtual MACs are skipped.
+- Dependencies: multidict ≥ 6.9.1 (CVE-2026-104874 in 6.7.1; pulled in through geoip2 and aiohttp). Upgrading replaces the vulnerable version.
+
+### Fixed
+- LibreNMS: the VLAN domain column added for issue #53 had no index, so deleting a VLAN domain scanned the whole integrations table (migration 0213).
+- A MAC written differently (with or without colons, upper or lower case) was recorded as a MAC change. One site had thousands of these rows: they showed in the IP timeline and MAC history and made "Device link may be stale" report addresses whose MAC never changed. They are no longer recorded, and upgrading removes the existing ones (migration 0212); real MAC changes are kept.
+- "Device link may be stale": the online status was looked up by address text instead of the IP record, so with overlapping subnets it could show another record's status, and the "IP internal ID" column was always empty.
+- IP map: with "Idle" picked in the legend, idle cells were hard to find: they are transparent with a dashed outline, and the faded cells of other types still showed as pale colored blocks. Faded cells are now also grayscale, and focused idle cells get a solid outline and a fill.
+- Choosing an embedding model with the wrong dimension showed "Embedding dim mismatch ... (adjust EMBEDDING_DIM or migration vector(N))", which told administrators to edit configuration files, and the dimension check never reached its own "the model returns N dimensions, the database needs 768" message. The error is now coded and readable in the three languages, both in the dimension check and in rebuild failures. When indexing a single item fails, its old vector is cleared instead of staying behind for the previous description.
+- Integrations no longer use objects that are disabled or inactive upstream. An address was named after a UniFi access point that had been disabled in LibreNMS for over a year, while the address actually belonged to a TV. Found in an audit of every integration:
+  - LibreNMS: devices with polling disabled stay listed (shown as "Disabled in LibreNMS") but no longer name IPs, count as online, create IPs or devices, or supply ARP, FDB, ports, VLANs or LLDP neighbours. Their frozen ARP and FDB entries are removed: LibreNMS never clears them, so they looked freshly seen on every run and could make old addresses look online or in conflict. Devices that only ignore alerts are still used. Devices and IP links already created are left alone.
+  - Zabbix: hosts that are not monitored no longer name or link IPs or count as online; hosts in maintenance without data collection do not count as online.
+  - Proxmox: templates no longer claim IPs; stopped guests no longer name IPs, change their MAC or create IPs, but keep the names they reported and their primary IP. ESXi: only powered-on, non-template VMs give IPs to create or link.
+  - Wazuh: an agent disconnected for more than 30 days no longer represents its registered IP (host name, OS); shorter outages still count as a machine that is just powered off.
+  - DHCP: reservations and leases of inactive Windows DHCP scopes, disabled Technitium scopes, disabled FortiGate servers, pfSense and OPNsense interfaces without DHCP enabled are ignored, as their ranges already were; leases that Palo Alto, pfSense, OPNsense (including Kea) or FortiGate explicitly mark expired, released or declined are not leases.
+  - DNS and firewall objects: disabled OPNsense Unbound host overrides, disabled AdGuard Home rewrites and paused Windows DNS zones are not used; disabled OPNsense aliases and MikroTik address-list entries are not memberships.
+
 ## [1.0.9] - 2026-10-13
 
 ### Added

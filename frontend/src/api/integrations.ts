@@ -179,6 +179,9 @@ export interface LibreNMSInstance {
   auto_create_from_arp?: boolean;
   arp_create_require_fdb?: boolean;
   arp_create_skip_dhcp?: boolean;
+  /** VLAN 同步寫進哪個 domain（issue #53）；null＝專用的 LibreNMS domain */
+  vlan_domain_id?: string | null;
+  vlan_create_missing?: boolean;
   sync_interval_seconds: number;
   last_sync_at: string | null;
   last_error: string | null;

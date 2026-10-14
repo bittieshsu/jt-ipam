@@ -808,6 +808,35 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   and `…/rules?token=…` return CSV/TSV; **wrong token → 401**; `expose_dsv` off → 404.
 - [ ] Delete instance; periodic `jt-ipam-sync` picks up enabled instances every ~5 min without errors.
 
+## 7a9. Objects disabled upstream are not used: **whenever an integration's sync, liveness evidence, host name sources or DHCP/DNS writes change**
+
+- [ ] **LibreNMS disabled devices** (`tests/test_librenms_disabled_devices.py`): disable polling for a device in LibreNMS and sync: the
+  device stays listed as "Disabled in LibreNMS"; the LibreNMS name of its primary IP is withdrawn and it no longer counts as online; its ARP,
+  MAC table and LLDP neighbours disappear and the next ARP run does not bring them back; its FDB/ports/VLAN APIs are not called. Devices that
+  only ignore alerts are still used. Devices and IP links already created are left alone
+- [ ] **IP map, idle only** (`e2e/subnet-grid-legend-focus.spec.ts`): in light and dark themes click "Idle" in the legend: idle cells have a
+  solid outline and a fill and stand out; other cells are faint grayscale; clicking again restores. Check the contrast for other types too
+- [ ] **Semantic index status and embedding dimension errors** (`tests/test_semantic_index_status.py`, `e2e/llm-index-status.spec.ts`):
+  switch AI settings to a 4096-dimension model → the dimension check says "the model returns 4096 dimensions, the database column has 768",
+  with no EMBEDDING_DIM text; rebuild failures are readable too. Index status: never rebuilt, embedding model changed (built with A, now B),
+  N items without a vector → amber "Rebuild recommended" with the reason; after a rebuild, green "The index is up to date". Check each language
+- [ ] **LibreNMS VLAN domain** (issue #53; `tests/test_librenms_vlan_domain.py`, `e2e/librenms-vlan-domain.spec.ts`): choose a domain that
+  already has VLANs and sync: the same number reuses that VLAN, its name is not replaced by VLAN0010, device mappings land on it and no extra
+  "LibreNMS" domain appears; with "only map existing" switch VLANs such as 1002 are not created; clearing the domain sends null and goes back
+  to the dedicated domain; deleting the chosen domain leaves sync working (back to the dedicated domain). After upgrade the 0211 columns exist
+- [ ] **Zabbix not monitored / maintenance** (`tests/test_zabbix_unmonitored.py`): not-monitored hosts do not name or link IPs or count as
+  online; hosts in maintenance without data collection do not count as online
+- [ ] **Proxmox / ESXi** (`tests/test_proxmox_inactive_guests.py`, `tests/test_disabled_low_severity.py`): templates claim no IP; stopped
+  VMs name no new IP, change no MAC and create no IP, but keep the names they reported and their primary IP (no name flapping on reboot)
+- [ ] **Wazuh disconnected over 30 days** (`tests/test_wazuh_stale_agent.py`): no longer supplies host name and OS; shorter outages still do
+- [ ] **Disabled DHCP scopes / servers / interfaces and explicitly expired leases** (`tests/test_dhcp_lease_sightings.py`,
+  `tests/test_disabled_low_severity.py`): reservations and leases of the disabled parts of Windows DHCP, Technitium, FortiGate, pfSense and
+  OPNsense are not used; leases the four firewalls mark expired/released/declined are not leases (rows without a state are still taken)
+- [ ] **DNS and firewall objects** (`tests/test_unbound_opnsense_disabled.py`, `tests/test_disabled_dns_entries.py`,
+  `tests/test_disabled_low_severity.py`, `tests/test_mikrotik.py`): disabled Unbound overrides, disabled AdGuard rewrites and paused
+  Windows DNS zones are not used; disabled OPNsense aliases and MikroTik address-list entries are not members. On the production site,
+  confirm once that a disabled device's address falls back to another source's name after the next sync
+
 ## 7b. VMware ESXi / vCenter integration (Admin → External integrations → VMware): **Beta**
 
 > The SOAP endpoint is always `<url>/sdk`. One implementation covers **both** a standalone ESXi
@@ -2017,6 +2046,15 @@ happy path of "an upload succeeded" is not enough.
 
 ### Recent (v0.6.45–v0.6.55 and not yet released)
 
+- [ ] **Device link may be stale: device down plus mismatched MAC vendor** (2026-10-14; `backend/tests/test_anomaly_device_vendor_mismatch.py`, `e2e/anomaly-stale-link-reason.spec.ts`):
+  an IP linked to network equipment (for example a UniFi access point) that is disabled or down in LibreNMS, with a MAC from another vendor (for example a TV)
+  on the address, is listed under "Device link may be stale"; the "Reason" column reads "Device is disabled in LibreNMS; the MAC is from X, not Ubiquiti"
+  (parameters filled in). Devices still up in LibreNMS, matching vendors, unrecognised device vendors (ordinary servers), randomized (locally administered)
+  MACs and VRRP virtual MACs must **not** be listed; both kinds of evidence on one address give one row with both reasons; the online indicator matches that IP record
+- [ ] **A MAC written differently is not a change** (2026-10-14; `backend/tests/test_mac_format_only_changes.py`, migration 0212): the same MAC with and without
+  colons (or in another case) does not appear as a MAC change in the IP timeline or MAC history and does not trigger "Device link may be stale"; upgrading removes
+  existing rows of this kind and keeps real MAC changes. Migration revision ids must be at most 32 characters (the `alembic_version` column;
+  guarded by `backend/tests/test_migration_revision_length.py`)
 - [ ] **Next free address skips addresses in cooldown** (`backend/tests/test_first_free_cooldown.py`): after deleting an IP
   (which starts its cooldown), the subnet's next free, the address range next free, allocate-next-free and IP request
   approval never return that address until the cooldown is cleared

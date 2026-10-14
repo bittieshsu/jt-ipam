@@ -84,6 +84,15 @@ class LibreNMSInstance(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Boolean, default=True, nullable=False, server_default=text("true"),
     )
 
+    # VLAN 同步寫進哪個 domain（GitHub issue #53，0211）：NULL＝專用的「LibreNMS」domain（原本的行為）。
+    # 指定了就沿用那個 domain 裡同編號的 VLAN、只補 device↔VLAN 對應，已有的名稱不覆寫
+    vlan_domain_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vlan_domains.id", ondelete="SET NULL"), nullable=True, index=True)
+    # 指定 domain 時，交換器上有、domain 裡沒有的 VLAN 要不要新建（關掉＝只對應既有的，
+    # 交換器預設的 1002–1005 之類就不會被帶進來）
+    vlan_create_missing: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default=text("true"))
+
     # 限定 sync 解析 IP 的子網路範圍（解決重疊網段：A/B 客戶都用 192.168.1.x）。
     # 空 = 全域比對（向下相容）。存 subnet UUID 字串陣列。
     scope_subnet_ids: Mapped[list[Any] | None] = mapped_column(JSONB)

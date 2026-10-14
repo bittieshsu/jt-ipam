@@ -13,18 +13,18 @@ import {
 } from "naive-ui";
 import {
   getLLMConfig, patchLLMConfig, listOllamaModels, revealMcpKey, rotateMcpKey, checkEmbedding,
-  reindexEmbeddings, checkThinking,
+  reindexEmbeddings, checkThinking, getIndexStatus,
   type LLMConfig, type LLMConfigPatch, type OllamaModel, type EmbeddingCheck, type ThinkingCheck,
-  type ReindexResult,
+  type ReindexResult, type IndexStatus,
 } from "@/api/system";
 import { listMcpTools, type McpTool } from "@/api/chat";
 import { listSubnets, setAIAuditScope } from "@/api/subnets";
 import type { Subnet } from "@/types";
 import { SettingsIcon, RefreshIcon, ToolsIcon, KeyIcon, CopyIcon, EyeIcon, EyeOffIcon, AnomalyIcon, PlusIcon, DeleteIcon, TestIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
-import { fmtDate } from "@/utils/datetime";
+import { fmtDate, fmtDateTime } from "@/utils/datetime";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const msg = useMessage();
 const llm = ref<LLMConfig | null>(null);
 const models = ref<OllamaModel[]>([]);
@@ -173,8 +173,32 @@ async function doReindex() {
   reindexResult.value = null;
   try { reindexResult.value = await reindexEmbeddings(); }
   catch (e) { msg.error(apiErrMsg(e)); }
-  finally { reindexBusy.value = false; }
+  finally { reindexBusy.value = false; void loadIndexStatus(); }
 }
+/** 重建失敗的原因：有代碼就翻譯（維度不合會說模型回幾維、需要幾維），沒有才用原文 */
+function reindexError(r: ReindexResult): string {
+  if (r.error_code && te(`errors.${r.error_code}`)) return t(`errors.${r.error_code}`, r.error_params ?? {});
+  return String(r.error ?? "").slice(0, 100);
+}
+
+// 索引狀態（使用者 2026-10-13：「要檢查是不是需要重建索引，因為看不出來要不要按」）：
+// 只看資料庫（不呼叫模型），換了嵌入模型、重建完都重新讀一次
+const indexStatus = ref<IndexStatus | null>(null);
+async function loadIndexStatus() {
+  try { indexStatus.value = await getIndexStatus(); } catch { indexStatus.value = null; }
+}
+const indexLine = computed(() => {
+  const s = indexStatus.value;
+  if (!s) return null;
+  if (!s.described) return { ok: true, text: t("llm_settings.index_nothing") };
+  if (s.reason === "never") return { ok: false, text: t("llm_settings.index_never", { n: s.described }) };
+  if (s.reason === "model_changed") {
+    return { ok: false, text: t("llm_settings.index_model_changed", { old: s.last?.model ?? "", now: s.model }) };
+  }
+  if (s.reason === "missing") return { ok: false, text: t("llm_settings.index_missing", { n: s.missing }) };
+  return { ok: true, text: t("llm_settings.index_ok", {
+    n: s.described - s.missing, total: s.described, model: s.model, at: s.last?.at ? fmtDateTime(s.last.at) : "" }) };
+});
 
 // 思考檢查：AI 巡檢與判讀一律送「關閉思考」的參數，伺服器或閘道沒照做時只會變慢、
 // 答案被思考吃掉額度，不會報錯 —— 所以要能當場問一次（不自動跑：每個模型要真的問一句）
@@ -206,7 +230,7 @@ async function load() {
   try { llm.value = await getLLMConfig(); }
   catch (e) { msg.error(apiErrMsg(e)); }
   // 未啟用連接時不要自動去抓清單（否則會冒出「無法連上 LLM 伺服器」錯誤）
-  if (llm.value?.enabled) { void loadModels(); void doCheckEmbedding(); }
+  if (llm.value?.enabled) { void loadModels(); void doCheckEmbedding(); void loadIndexStatus(); }
 }
 
 // URL 改了也重新拉 model 清單 (換 LLM 伺服器時可能不同)；僅在已啟用時
@@ -227,9 +251,11 @@ function patch(p: LLMConfigPatch) {
   debounce = setTimeout(async () => {
     try {
       llm.value = await patchLLMConfig(p);
+      // 換了嵌入模型：既有向量是舊模型的，索引狀態要跟著變成「建議重建」
+      if ("embedding_model" in p) void loadIndexStatus();
       msg.success(t("common.saved"));
-    } catch (e: any) {
-      msg.error(e?.response?.data?.detail ?? t("errors.server"));
+    } catch (e) {
+      msg.error(apiErrMsg(e));
     }
   }, 600);
 }
@@ -450,12 +476,15 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
           <span v-if="reindexResult" class="hint" style="margin:0"
                 :style="reindexResult.failed ? 'color:#e88080' : 'color:#18a058'">
             {{ reindexResult.failed
-              ? t("llm_settings.reindex_failed", { n: reindexResult.failed,
-                    err: String(reindexResult.error).slice(0, 100) })
+              ? t("llm_settings.reindex_failed", { n: reindexResult.failed, err: reindexError(reindexResult) })
               : t("llm_settings.reindex_ok", { n: reindexResult.subnets
                     + reindexResult.ip_addresses + reindexResult.devices }) }}
           </span>
         </n-space>
+        <p v-if="indexLine" class="hint index-status" data-testid="llm-index-status"
+           :style="indexLine.ok ? 'color:#18a058' : 'color:#f0a020'">
+          {{ indexLine.text }}
+        </p>
         <p class="hint">{{ t("llm_settings.reindex_hint") }}</p>
       </div>
       <div>

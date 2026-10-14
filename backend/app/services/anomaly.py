@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import String, func, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sqlin import in_values
@@ -1174,7 +1174,7 @@ _LIVE_FIELDS: dict[str, tuple[str, str | None]] = {
     "dangling_dns": ("value", None),
     "duplicate_ip_records": ("ip", None),
     "arp_only_liveness": ("ip", "ip_address_id"),
-    "stale_device_links": ("ip", "ip_address_id"),
+    "stale_device_links": ("ip", "ip_id"),
     "mac_flapping": ("ip", "ip_id"),
     "identity_changes": ("ip", "ip_id"),
 }
@@ -1902,20 +1902,131 @@ async def detect_suspicious_changes(session: AsyncSession) -> list[dict[str, Any
     return out
 
 
+#: 裝置廠牌家族：(顯示名稱, 從裝置的廠牌／型號／LibreNMS os／硬體認出它的字, MAC 廠牌裡算「同一家」的字)
+#: 只收網路設備類：這類設備位址上的 MAC 就是自家的 OUI。伺服器、PC 的網卡常是 Intel／Broadcom／Realtek，
+#: 拿來比只會誤報，所以認不得的廠牌一律不比。
+#: 裝置那一邊用「整個字」比對（`ios` 不能命中 `bios`）；MAC 廠牌那一邊用子字串（官方名稱寫法很多種）。
+_DEVICE_VENDOR_FAMILIES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("Ubiquiti", ("ubiquiti", "ubnt", "unifi", "airos", "edgeos", "edgeswitch", "unifios"), ("ubiquiti",)),
+    ("Cisco", ("cisco", "ios", "iosxe", "iosxr", "nxos", "asa", "catalyst", "meraki", "ciscowlc", "ciscosb"),
+     ("cisco",)),
+    ("Juniper", ("juniper", "junos", "mist"), ("juniper", "mist systems")),
+    ("Fortinet", ("fortinet", "fortigate", "fortios", "fortiswitch", "fortiap"), ("fortinet",)),
+    ("MikroTik", ("mikrotik", "routeros", "routerboard"), ("mikrotik", "routerboard")),
+    ("Aruba", ("aruba", "arubaos", "procurve"), ("aruba", "hewlett packard", "hewlettp")),
+    ("TP-Link", ("tp-link", "tplink", "omada", "jetstream"), ("tp-link", "tplink")),
+    ("Synology", ("synology", "dsm"), ("synology",)),
+    ("QNAP", ("qnap", "qts"), ("qnap",)),
+    ("Zyxel", ("zyxel", "zynos"), ("zyxel",)),
+    ("Hikvision", ("hikvision",), ("hikvision",)),
+    ("Netgear", ("netgear",), ("netgear",)),
+    ("D-Link", ("d-link", "dlink"), ("d-link", "dlink")),
+    ("Ruckus", ("ruckus",), ("ruckus", "commscope", "arris")),
+    ("Palo Alto", ("paloalto", "palo alto", "pan-os", "panos"), ("palo alto", "paloalto")),
+)
+#: VRRP／CARP 的虛擬 MAC（00:00:5e:00:01:xx、IPv6 的 00:00:5e:00:02:xx）不屬於任何廠牌
+_VRRP_PREFIXES = ("00005e0001", "00005e0002")
+
+
+def _device_families(*texts: str | None) -> list[tuple[str, tuple[str, ...]]]:
+    import re
+    blob = " ".join(t for t in texts if t).lower()
+    if not blob:
+        return []
+    words = set(re.split(r"[^0-9a-z]+", blob))
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for label, dev_tokens, oui_tokens in _DEVICE_VENDOR_FAMILIES:
+        # 有符號的（tp-link、palo alto）用子字串；單字（ios、dsm）要整個字
+        if any((t in blob) if not t.isalnum() else (t in words) for t in dev_tokens):
+            out.append((label, oui_tokens))
+    return out
+
+
+def _comparable_mac_hex(mac: str | None) -> str | None:
+    """可以拿來比廠牌的 MAC（12 位小寫十六進位）；本地管理（隨機）與 VRRP 虛擬 MAC 回 None。"""
+    import re
+    if not mac:
+        return None
+    h = re.sub(r"[^0-9a-f]", "", str(mac).lower())
+    if len(h) != 12 or int(h[:2], 16) & 0x02 or h.startswith(_VRRP_PREFIXES):
+        return None
+    return h
+
+
+async def _vendor_mismatch_links(session: AsyncSession) -> dict[str, dict[str, Any]]:
+    """關聯的裝置在 LibreNMS 已下線（down／停用），位址上的 MAC 又不是那台裝置的廠牌。
+
+    事故（2026-10-14）：位址關聯到一台 UniFi 基地台，那台早就在 LibreNMS 停用，位址卻是一台電視在用。
+    MAC 從頭到尾沒變過（電視的 MAC 在關聯之前就在了），「關聯之後 MAC 換過」那條規則抓不到。
+    兩個條件都要成立才提出來：裝置還在線上的不算（廠牌不同可能只是代理 ARP），
+    廠牌對得上的不算，認不得裝置廠牌的不比。
+    """
+    from app.models.device import Device
+    from app.models.oui import OUIVendor
+
+    rows = (await session.execute(
+        select(IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.mac,
+               Device.id, Device.name, Device.vendor, Device.model,
+               LibreNMSDevice.status, LibreNMSDevice.os, LibreNMSDevice.hardware)
+        .join(Device, Device.id == IPAddress.device_id)
+        .join(LibreNMSDevice, LibreNMSDevice.jt_ipam_device_id == Device.id)
+        .where(LibreNMSDevice.status.in_(("down", "disabled")), IPAddress.mac.isnot(None))
+    )).all()
+    cands = []
+    for r in rows:
+        h = _comparable_mac_hex(r[3])
+        fams = _device_families(r[6], r[7], r[9], r[10]) if h else []
+        if h and fams:
+            cands.append((r, h, fams))
+    if not cands:
+        return {}
+    ouis = {p: (short, name) for p, short, name in (await session.execute(
+        select(OUIVendor.prefix, OUIVendor.short_name, OUIVendor.name)
+        .where(in_values(OUIVendor.prefix, {h[:6].upper() for _r, h, _f in cands}))
+    )).all()}
+
+    out: dict[str, dict[str, Any]] = {}
+    for r, h, fams in cands:
+        short, name = ouis.get(h[:6].upper(), (None, None))
+        if not (short or name):
+            continue                      # MAC 廠牌查不到：沒有證據
+        blob = f"{short or ''} {name or ''}".lower()
+        if any(tok in blob for _label, toks in fams for tok in toks):
+            continue
+        ip_id = str(r[0])
+        status = r[8]
+        # 同一個位址可能對到好幾筆 LibreNMS 裝置（多個整合）：停用優先於 down（停用是人明確做的決定）
+        if ip_id in out and out[ip_id]["librenms_status"] == "disabled":
+            continue
+        out[ip_id] = {
+            "kind": "stale_device_link",
+            "ip_id": ip_id,
+            "ip": str(r[1]).split("/")[0],
+            "hostname": r[2],
+            "mac": str(r[3]),
+            "device_id": str(r[4]),
+            "device": r[5],
+            "mac_vendor": short or name,
+            "device_vendor": fams[0][0],
+            "librenms_status": status,
+        }
+    return out
+
+
 async def detect_stale_device_links(session: AsyncSession) -> list[dict[str, Any]]:
-    """IP 掛著某台裝置，但那個位址後來換了 MAC —— 關聯多半已經過期。
+    """IP 掛著某台裝置，但證據顯示那個位址已經是別台機器在用 —— 關聯多半已經過期。
 
     這是「把 IP 掛到裝置」這件事本來就有的殘留風險：關聯一旦寫下去就不再重新評估，
     位址日後被別台機器拿去用（DHCP 尤其常見），關聯會**安靜地變成錯的** ——
     畫面上看起來一切正常，只是指到了另一台機器。
 
     刻意做成事後偵測而不是在寫入端多加判斷：寫入端再怎麼聰明也只是猜，
-    而這裡有真正的證據 —— **異動記錄裡，MAC 的變更發生在關聯之後**。
+    而這裡有真正的證據。兩種證據，各自成立都提出來（同一個位址合成一筆，`reason` 說明依據）：
+    1. **異動記錄裡，MAC 的變更發生在關聯之後**
+       - 只看有 `device_id` 的 IP，找出「設定 device_id」的最後一次時間，那之後有 `mac` 欄位的變更
+    2. **裝置在 LibreNMS 已下線或停用，位址上的 MAC 又不是那台裝置的廠牌**（見 `_vendor_mismatch_links`）
 
-    只用記錄下來的事實，不推論：
-    - 只看有 `device_id` 的 IP
-    - 找出「設定 device_id」的最後一次時間
-    - 那之後若有 `mac` 欄位的變更 → 提出來讓人確認（不自動解除關聯：那同樣是猜）
+    只提出來讓人確認，不自動解除關聯：那同樣是猜。
     """
     from app.models.device import Device
     from app.models.ip_change_log import IPChangeLog
@@ -1933,16 +2044,21 @@ async def detect_stale_device_links(session: AsyncSession) -> list[dict[str, Any
         .join(link_q, link_q.c.ip_id == IPAddress.id)
         .join(Device, Device.id == IPAddress.device_id)
         .join(IPChangeLog, IPChangeLog.ip_id == IPAddress.id)
-        .where(IPChangeLog.field == "mac")
+        .where(IPChangeLog.field == "mac",
+               # 同一個 MAC 只是寫法不同（有沒有冒號）不算換過（2026-10-14；寫入端也已經不記）
+               or_(IPChangeLog.old_value.is_(None), IPChangeLog.new_value.is_(None),
+                   func.lower(func.regexp_replace(IPChangeLog.old_value, "[^0-9A-Fa-f]", "", "g"))
+                   != func.lower(func.regexp_replace(IPChangeLog.new_value, "[^0-9A-Fa-f]", "", "g"))))
         .group_by(IPAddress.id, IPAddress.ip, IPAddress.hostname, IPAddress.mac,
                   Device.id, Device.name, link_q.c.linked_at)
         .having(func.max(IPChangeLog.created_at) > link_q.c.linked_at)
         .limit(200)
     )).all()
 
+    vendor = await _vendor_mismatch_links(session)
     out: list[dict[str, Any]] = []
     for ip_id, ip, hostname, mac, dev_id, dev_name, linked_at, mac_changed_at in rows:
-        out.append({
+        row: dict[str, Any] = {
             "kind": "stale_device_link",
             "ip_id": str(ip_id),
             "ip": str(ip).split("/")[0],
@@ -1952,7 +2068,19 @@ async def detect_stale_device_links(session: AsyncSession) -> list[dict[str, Any
             "device": dev_name,
             "linked_at": linked_at.isoformat() if linked_at else None,
             "mac_changed_at": mac_changed_at.isoformat() if mac_changed_at else None,
-        })
+            "reason_key": "anomaly.stale_reason_mac_changed",
+            "reason_params": {},
+        }
+        if v := vendor.pop(str(ip_id), None):
+            row.update(mac_vendor=v["mac_vendor"], device_vendor=v["device_vendor"],
+                       librenms_status=v["librenms_status"],
+                       reason_key=f"anomaly.stale_reason_mac_vendor_{v['librenms_status']}",
+                       reason_params={"mac_vendor": v["mac_vendor"], "device_vendor": v["device_vendor"]})
+        out.append(row)
+    for v in list(vendor.values())[:200]:
+        out.append({**v, "linked_at": None, "mac_changed_at": None,
+                    "reason_key": f"anomaly.stale_reason_vendor_{v['librenms_status']}",
+                    "reason_params": {"mac_vendor": v["mac_vendor"], "device_vendor": v["device_vendor"]}})
     return out
 
 

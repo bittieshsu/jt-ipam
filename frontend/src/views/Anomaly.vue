@@ -359,8 +359,9 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   // randomized 要露出來 —— 那一欄是「這些看起來是隱私隨機化位址」，
   // 使用者據此判斷要不要把這個 IP 加進忽略清單。
   mac_flapping: ["ip", "live", "hostname", "device_kind", "mac_count", "randomized", "days", "macs", "ip_id"],
-  stale_device_links: ["ip", "live", "hostname", "device_kind", "mac", "device", "linked_at", "mac_changed_at",
-                       "ip_address_id"],
+  // 原因：關聯之後 MAC 換過，或裝置在 LibreNMS 已下線且 MAC 廠牌對不上（2026-10-14）
+  stale_device_links: ["ip", "live", "hostname", "device_kind", "mac", "device", "reason", "linked_at",
+                       "mac_changed_at", "ip_id"],
   // 類型或 OS 突變：哪個 IP、從什麼變成什麼，再看現在判讀出的型號與 OS
   identity_changes: ["ip", "live", "hostname", "device_kind", "shifts", "device_model", "os_guess", "last_at",
                      "ip_id"],
@@ -376,7 +377,7 @@ const CAT_HIDDEN: Partial<Record<CatKey, string[]>> = {
   identity_changes: ["ip_id"],
   ghost_ips: ["ip_address_id", "device_kind"],
   arp_only_liveness: ["device_kind"],
-  stale_device_links: ["device_kind"],
+  stale_device_links: ["device_kind", "ip_id"],
   // owner 實務上幾乎沒人填、rules 是原始規則明細、ip_address_id 是內部 UUID：
   // 預設不顯示，需要的人可在「欄位」自行勾選
   external_exposure: ["ip_address_id", "owner", "rules", "device_kind"],

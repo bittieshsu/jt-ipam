@@ -1194,7 +1194,8 @@
     "kind_inferred": "推測（記録も観測もされていません）",
     "too_large": "この範囲には {n} 台の機器があり、一度に描画できる上限（{limit} 台）を超えています。図が読めないほど大きくなり、生成にも時間がかかります。上のサブネットフィルターで範囲を絞ってください。",
     "via_neighbor": "ネイバー通知（MikroTik）",
-    "scope_limited": "権限のある機器とサブネット、および両端が範囲内の接続だけを表示しています。VPN トンネルと仮想マシンはグローバルなデータのため表示しません。"
+    "scope_limited": "権限のある機器とサブネット、および両端が範囲内の接続だけを表示しています。VPN トンネルと仮想マシンはグローバルなデータのため表示しません。",
+    "status_disabled": "LibreNMS で無効"
   },
   "hostnameSrc": {
     "auto": "自動（全体の順序に従う）",
@@ -2100,7 +2101,11 @@
       "cooldown": "クールダウン中",
       "dhcp_range": "DHCP 範囲",
       "cap": "今回の上限超過"
-    }
+    },
+    "vlan_domain": "VLAN の書き込み先ドメイン",
+    "vlan_domain_placeholder": "LibreNMS（専用、既定）",
+    "vlan_domain_hint": "指定すると、同じ番号の VLAN はこのドメインの既存の VLAN を使い、「どのスイッチがこの VLAN を持つか」だけを追加します。既に付けた名前はスイッチ側の名前（VLAN0010 など）で上書きされません。phpIPAM から移行した VLAN が default にある場合はそれを選ぶと二重になりません。",
+    "vlan_only_existing": "このドメインに既にある VLAN だけを対応付け、新規作成しない（スイッチ既定の 1002〜1005 などを取り込まない）"
   },
   "firewall": {
     "scope_title": "対応付けの範囲（NAT の照合）",
@@ -2301,7 +2306,7 @@
     "arp_only": "ARP のみの死活",
     "explain_arp_only_liveness": "これらのアドレスはオンラインに見えますが、根拠は ARP の記録だけです。ARP には時刻が無く、報告元の機器のキャッシュも期限切れになりません。数週間前に電源を落とした機器でも、ここではオンラインと表示され続けます。実際の状態を知るには、スキャンエージェントで探査するか、LibreNMS や Zabbix の監視対象に加えてください。",
     "stale_link": "機器との紐づけが古い可能性",
-    "explain_stale_device_links": "これらの IP は機器と紐づいていますが、紐づけた後にアドレスの MAC が変わっています。多くはアドレスが別の機器へ渡った（DHCP ではよくあることです）ケースで、紐づけが誤った機器を指している状態です。自動で解除することはありません。外すかどうかは判断が要るためです。変更または解除する前に、現在の MAC をその機器と照合してください。",
+    "explain_stale_device_links": "これらの IP は機器と紐づいていますが、アドレスがすでに別の機器で使われている形跡があり、紐づけが誤った機器を指している可能性があります。根拠は 2 種類です。(1) 紐づけた後にアドレスの MAC が変わった（多くはアドレスが別の機器へ渡ったケースで、DHCP ではよくあります）。(2) その機器が LibreNMS でダウンまたは無効になっており、アドレスの MAC のベンダーが機器のベンダーと異なる（比較するのは Ubiquiti、Cisco、Fortinet などネットワーク機器のベンダーのみ）。自動で解除することはありません。外すかどうかは判断が要るためです。変更または解除する前に、現在の MAC をその機器と照合してください。",
     "sched_btn": "スケジュール",
     "sched_title": "異常検知のスケジュール",
     "sched_hint": "スケジュール実行では、前回から新たに増えた指摘だけを通知します。異常検知が報告するのは現在の状態であって、イベントの流れではありません。未解決のものを毎回通知すると、その通知分類ごと無視されるようになります。",
@@ -2470,7 +2475,7 @@
     "summary_suspicious_changes": "短時間の大量変更、または想定外の送信元からの変更です。",
     "summary_fw_rule_rot": "有効なファイアウォールルールの問題：転送先が存在しない、any → any の許可、WAN で管理ポートを公開。",
     "summary_arp_only_liveness": "オンラインに見えますが、根拠は期限切れにならない ARP の記録だけで、実際は停止している可能性があります。",
-    "summary_stale_device_links": "IP がデバイスに紐付いていますが、紐付け後に MAC が変わっており、誤ったデバイスを指している可能性があります。",
+    "summary_stale_device_links": "IP が機器に紐づいていますが、紐づけ後に MAC が変わったか、機器がダウンしていて MAC のベンダーが一致しないため、誤った機器を指している可能性があります。",
     "summary_mac_flapping": "集計期間中に同じ IP で複数の異なる MAC が観測されました。",
     "summary_identity_changes": "判定されたデバイスの種類または OS ファミリーが変わりました。別の機器がアドレスを使っているか、機器が交換された可能性があります。",
     "explain_more": "詳細",
@@ -2490,7 +2495,12 @@
     "export_note": "このレポートは出力時に画面に表示されていた検知結果（前回の実行結果）で、あなたの権限で絞り込まれています。表の列と順序は画面と同じです。",
     "export_pdf_cols": "「{title}」は {n} 列を表示しています。PDF の表は最大 {max} 列です。「列」でいくつか外すか、Excel または ODS を使ってください。",
     "export_pdf_rows": "「{title}」は {n} 件あります。PDF の表は最大 {max} 件です。先に絞り込むか、Excel、ODS、CSV を使ってください。",
-    "export_pdf_cells": "結果が多すぎます（{n} セル、PDF は最大 {max} セル）。先に絞り込むか、Excel、ODS、CSV を使ってください。"
+    "export_pdf_cells": "結果が多すぎます（{n} セル、PDF は最大 {max} セル）。先に絞り込むか、Excel、ODS、CSV を使ってください。",
+    "stale_reason_mac_changed": "紐づけ後に MAC が変わった",
+    "stale_reason_vendor_down": "LibreNMS で機器がダウン。MAC は {mac_vendor} のもので、{device_vendor} ではありません",
+    "stale_reason_vendor_disabled": "LibreNMS で機器が無効。MAC は {mac_vendor} のもので、{device_vendor} ではありません",
+    "stale_reason_mac_vendor_down": "紐づけ後に MAC が変わった。LibreNMS で機器がダウンし、MAC は {mac_vendor} のもので、{device_vendor} ではありません",
+    "stale_reason_mac_vendor_disabled": "紐づけ後に MAC が変わった。LibreNMS で機器が無効で、MAC は {mac_vendor} のもので、{device_vendor} ではありません"
   },
   "webhooks": {
     "events_label": "イベント（* はすべて）",
@@ -3726,7 +3736,9 @@
     "v_invalid": "値が正しくありません",
     "v_more": "（ほかに {n} 個の項目に問題があります）",
     "v_sep": "；",
-    "v_field": "{field}：{reason}"
+    "v_field": "{field}：{reason}",
+    "librenms_vlan_domain_not_found": "指定した VLAN ドメインが見つかりません（削除された可能性があります）。選び直してください。",
+    "ai_embedding_dim_mismatch": "埋め込みモデルの出力は {got} 次元ですが、{expected} 次元が必要です：{expected} 次元の埋め込みモデル（granite-embedding:278m など）を使ってください。"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -3934,7 +3946,12 @@
     "mcp_key_days": "有効期間",
     "mcp_key_days_n": "{n} 日",
     "mcp_key_expires": "期限：{date}",
-    "mcp_key_expired": "{date} に期限切れ"
+    "mcp_key_expired": "{date} に期限切れ",
+    "index_ok": "インデックスは最新です：説明のある {total} 件中 {n} 件にベクトルがあります（{model}、{at} に再構築）。",
+    "index_never": "再構築を推奨：現在の埋め込みモデルでまだインデックスを作っていません（説明のあるデータ {n} 件）。",
+    "index_model_changed": "再構築を推奨：前回は {old} で作成しましたが、現在の設定は {now} です。既存のベクトルは新しい検索と照合できません。",
+    "index_missing": "再構築を推奨：説明があるのにベクトルがないデータが {n} 件あります（モデル変更中や次元不一致の間に追加・変更されたもの）。",
+    "index_nothing": "インデックスする説明がまだありません（サブネット・IP・デバイスの説明が空です）。"
   },
   "rack_diagram": {
     "empty": "このラックに機器はありません",

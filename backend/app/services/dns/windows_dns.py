@@ -138,7 +138,7 @@ class WindowsDNSAdapter(DNSAdapter):
         out = await asyncio.to_thread(
             self._run_ps,
             "Get-DnsServerZone | Where-Object {$_.IsAutoCreated -eq $false} "
-            "| Select-Object ZoneName, IsReverseLookupZone "
+            "| Select-Object ZoneName, IsReverseLookupZone, IsPaused, IsShutdown "
             "| ConvertTo-Json -Compress",
         )
         if not out.strip():
@@ -150,6 +150,9 @@ class WindowsDNSAdapter(DNSAdapter):
         for z in data:
             name = (z.get("ZoneName") or "").rstrip(".")
             if not name:
+                continue
+            # 暫停或關閉的 zone 不在服務（使用者 2026-10-13：「停用的不要抓」）
+            if z.get("IsPaused") is True or z.get("IsShutdown") is True:
                 continue
             kind = "reverse" if z.get("IsReverseLookupZone") else "forward"
             result.append(DNSZoneInfo(name=name, kind=kind))

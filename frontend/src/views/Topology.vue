@@ -168,6 +168,8 @@ function displayValue(key: string, val: any): string {
   if (key === "status") {
     if (val === "up") return t("topology.status_up");
     if (val === "down") return t("topology.status_down");
+    // LibreNMS 停用輪詢的裝置（2026-10-13）：狀態不再更新，不是「離線」
+    if (val === "disabled") return t("topology.status_disabled");
   }
   return String(val);
 }

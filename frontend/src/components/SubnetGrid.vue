@@ -413,7 +413,7 @@ function aggColor(pct: number): string {
           cellStyle(c).kind === 'free' ? 'cell-free' : cellStyle(c).kind === 'unmanaged' ? 'cell-unmanaged' : 'cell-filled',
           isAutoAdded(c.addr) ? 'cell-auto' : '',
           c.um && umOld(c.um) ? 'cell-unmanaged-old' : '',
-          focusKind && !cellMatches(c, focusKind) ? 'cell-dim' : '',
+          focusKind ? (cellMatches(c, focusKind) ? 'cell-focus' : 'cell-dim') : '',
         ]"
         :data-state="c.state"
         :style="cellInlineStyle(c)"
@@ -509,8 +509,14 @@ function aggColor(pct: number): string {
   border: 1.5px dashed #f59e0b;
   background-color: rgba(245, 158, 11, 0.16) !important;
 }
-/* 點了圖例的某一類：其他類型的格子變很淡（不是藏起來，位置還看得出來） */
-.cell.cell-dim { opacity: 0.12; }
+/* 點了圖例的某一類：其他類型的格子變很淡（不是藏起來，位置還看得出來）。加灰階：淡化後原本的顏色
+   仍是一片淺色塊，被選的類型（尤其是透明底的閒置格）反而不突出（使用者 2026-10-13） */
+.cell.cell-dim { opacity: 0.12; filter: grayscale(1); }
+/* 只看閒置時，閒置格改成實線框加底色：透明底的虛線框在淡色背景裡看不出來 */
+.cell.cell-free.cell-focus {
+  border: 1.5px solid var(--jt-cell-free-focus-border, #64748b);
+  background-color: var(--jt-cell-free-focus, rgba(100, 116, 139, 0.32)) !important;
+}
 /* 超過一天沒再看到：淡一點（可能已經不在了） */
 .cell.cell-unmanaged-old { opacity: 0.5; }
 .legend-unmanaged { border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.16) !important; box-sizing: border-box; }

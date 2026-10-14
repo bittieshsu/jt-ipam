@@ -522,3 +522,29 @@ async def test_dhcp_section_writes_static_leases_as_reservations(db_session: Any
     assert [(r.source_type, r.ip, r.mac) for r in rows] == [("mikrotik", "10.0.0.20", "aa:bb:cc:00:00:01")]
     assert transport.paths.count("/ip/dhcp-server/lease") == 1
 
+
+
+@pytest.mark.anyio
+async def test_disabled_address_list_entries_are_not_members(db_session: Any, monkeypatch: Any) -> None:
+    """停用的 address-list 項目不是清單成員（使用者 2026-10-13：「停用的不要抓」）：
+    以前沒抓 disabled 欄位，停用的項目照樣出現在 IP 的「所屬清單」與 IP 變更評估。"""
+    from app.models.mikrotik import MikroTikAddressList, MikroTikRouter
+    from sqlalchemy import select
+
+    router = MikroTikRouter(
+        name="ccr-al", api_url="https://192.0.2.10", api_username="ipam",
+        api_password_enc=b"x", api_password_nonce=b"y", section_delay_ms=0, cpu_load_limit=0,
+        sync_dhcp=False, sync_dhcp_ranges=False, sync_vpn=False, sync_arp=False)
+    db_session.add(router)
+    await db_session.flush()
+    menus = {**MENUS, "/ip/firewall/address-list": [
+        {"list": "allowed", "address": "198.51.100.4", "disabled": "false"},
+        {"list": "allowed", "address": "198.51.100.5", "disabled": "true"},
+    ]}
+    transport = _MenuTransport(menus, cpu_seq=[5])
+    _fake_client(monkeypatch, transport)
+    await svc.sync_instance(db_session, router)
+    await db_session.flush()
+    lists = (await db_session.execute(select(MikroTikAddressList).where(
+        MikroTikAddressList.router_id == router.id))).scalars().all()
+    assert [x.address for x in lists] == ["198.51.100.4"]

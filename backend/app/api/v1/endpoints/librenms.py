@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import CurrentUser, require_admin, require_global_read
 from app.core.audit import append_audit
 from app.core.db import get_session
-from app.core.ui_error import detail_of
+from app.core.ui_error import detail_of, ui_detail
 from app.models.librenms import (
     ARPEntry,
     FDBEntry,
@@ -48,6 +48,9 @@ class LibreNMSInstanceCreate(StrictModel):
     arp_create_skip_dhcp: bool = True
     sync_interval_seconds: Annotated[int, Field(ge=60, le=86400)] = 300
     scope_subnet_ids: list[str] | None = None
+    # VLAN 同步寫進哪個 domain（issue #53）：不填＝專用的 LibreNMS domain
+    vlan_domain_id: uuid.UUID | None = None
+    vlan_create_missing: bool = True
 
 
 class LibreNMSInstanceUpdate(StrictModel):
@@ -68,6 +71,9 @@ class LibreNMSInstanceUpdate(StrictModel):
     arp_create_skip_dhcp: bool | None = None
     sync_interval_seconds: Annotated[int | None, Field(ge=60, le=86400)] = None
     scope_subnet_ids: list[str] | None = None
+    # 送 null＝改回專用的 LibreNMS domain；沒送＝不動（用 model_fields_set 分辨）
+    vlan_domain_id: uuid.UUID | None = None
+    vlan_create_missing: bool | None = None
 
 
 class LibreNMSInstanceRead(StrictModel):
@@ -89,6 +95,8 @@ class LibreNMSInstanceRead(StrictModel):
     arp_create_skip_dhcp: bool = True
     sync_interval_seconds: int
     scope_subnet_ids: list[str] | None = None
+    vlan_domain_id: uuid.UUID | None = None
+    vlan_create_missing: bool = True
     last_sync_at: Any
     last_error: str | None
     created_at: Any
@@ -202,6 +210,8 @@ async def create_instance(
         arp_create_require_fdb=payload.arp_create_require_fdb,
         arp_create_skip_dhcp=payload.arp_create_skip_dhcp,
         sync_interval_seconds=payload.sync_interval_seconds,
+        vlan_domain_id=await _checked_vlan_domain(session, payload.vlan_domain_id),
+        vlan_create_missing=payload.vlan_create_missing,
     )
     session.add(obj)
     try:
@@ -229,6 +239,16 @@ async def create_instance(
     return LibreNMSInstanceRead.model_validate(obj)
 
 
+async def _checked_vlan_domain(session: AsyncSession, domain_id: uuid.UUID | None) -> uuid.UUID | None:
+    """指定的 VLAN domain 要存在（issue #53）；None＝專用的 LibreNMS domain。"""
+    if domain_id is None:
+        return None
+    from app.models.vlan import VLANDomain
+    if await session.get(VLANDomain, domain_id) is None:
+        raise HTTPException(422, detail=ui_detail("librenms_vlan_domain_not_found", "VLAN domain not found"))
+    return domain_id
+
+
 @router.patch("/instances/{instance_id}",
               response_model=LibreNMSInstanceRead,
               dependencies=[Depends(require_admin)])
@@ -249,12 +269,17 @@ async def update_instance(
     for field_name in ("enabled", "verify_tls", "sync_devices", "sync_arp", "sync_fdb", "sync_vlans", "sync_links",
                        "use_for_status", "auto_add_devices", "auto_create_ips",
                        "auto_create_from_arp", "arp_create_require_fdb", "arp_create_skip_dhcp",
-                       "sync_interval_seconds", "scope_subnet_ids"):
+                       "sync_interval_seconds", "scope_subnet_ids", "vlan_create_missing"):
         v = getattr(payload, field_name)
         if v is not None:
             if getattr(obj, field_name) != v:
                 changed[field_name] = v
             setattr(obj, field_name, v)
+    if "vlan_domain_id" in payload.model_fields_set:
+        dom_id = await _checked_vlan_domain(session, payload.vlan_domain_id)
+        if obj.vlan_domain_id != dom_id:
+            changed["vlan_domain_id"] = str(dom_id) if dom_id else None
+        obj.vlan_domain_id = dom_id
     if payload.api_token is not None:
         enc, nonce = svc.encrypt_instance_token(obj.id, payload.api_token)
         obj.api_token_enc = enc

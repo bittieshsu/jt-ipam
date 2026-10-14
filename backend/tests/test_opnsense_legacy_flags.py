@@ -89,8 +89,10 @@ def test_truthy_handles_the_string_zero():
     assert _truthy({"0": {"value": "x", "selected": 0}}) is False
 
 
+# 介面有 <enable> 才是啟用 DHCP（跟發放範圍同一條規則；2026-10-13 起停用介面的固定分配不算）
 STATIC_MAPS = """<opnsense><dhcpd>
   <lan>
+    <enable>1</enable>
     <staticmap>
       <mac>00:11:22:33:44:55</mac><ipaddr>192.168.11.53</ipaddr>
       <hostname>voip-phone-01</hostname><descr>櫃檯話機</descr>
@@ -100,6 +102,7 @@ STATIC_MAPS = """<opnsense><dhcpd>
     </staticmap>
   </lan>
   <opt1>
+    <enable>1</enable>
     <staticmap><mac>aa:bb:cc:dd:ee:ff</mac><ipaddr>10.0.0.5</ipaddr></staticmap>
   </opt1>
 </dhcpd></opnsense>"""

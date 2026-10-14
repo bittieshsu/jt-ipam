@@ -212,7 +212,8 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
     major = _major(version)
     token = await _auth_token(inst, major=major)
 
-    output = ["hostid", "host", "name", "status", "maintenance_status"]
+    # maintenance_type：0＝維護中照收資料、1＝不收資料（可用性停在進維護前的值）
+    output = ["hostid", "host", "name", "status", "maintenance_status", "maintenance_type"]
     iface = ["ip", "dns", "useip", "type", "main"]
     params: dict[str, Any] = {
         "selectTags": ["tag", "value"],
@@ -251,9 +252,14 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
             continue            # 同一台主機回了兩次：以前會再新增一筆、撞唯一鍵
         seen.add(hostid)
         ip, dns = first_ips[hostid]
+        # 不監控的主機（使用者 2026-10-13：「停用的不要抓」）：不命名 IP、不當上線證據、不關聯 IP ——
+        # 它的位址可能早就給別台用了。鏡像照樣留著（畫面看得到「不監控」）
+        monitored = str(h.get("status")) == "0"
+        # 維護中且不收資料：可用性停在進維護前的值，不能當成「此刻可達」
+        frozen = str(h.get("maintenance_status") or "0") == "1" and str(h.get("maintenance_type") or "0") == "1"
 
         addr_id = None
-        if ip:
+        if ip and monitored:
             # 唯一才算（重疊網段又沒設範圍時不猜）
             ipa, _amb = matches.get(ip, (None, False))
             if ipa is not None:
@@ -262,7 +268,7 @@ async def sync_instance(session: AsyncSession, inst: ZabbixInstance) -> dict[str
                 # 上線判定：Zabbix server 自己在輪詢，說 up 就是此刻可達（與 LibreNMS
                 # 裝置狀態同一層）。**只有 up 才蓋時間** —— down 是「不活著」的證據、
                 # unknown 是沒有證據，兩者寫進去都會變成「看到過」。
-                if _availability(h) == "up":
+                if _availability(h) == "up" and not frozen:
                     ipa.last_seen_zabbix = now
                 # 主機名稱觀測（來源 zabbix，依全域優先序決定是否採用）。
                 # 多台 Zabbix 主機可能指向同一 IP → HostnameRun 同一輪內取固定的一個

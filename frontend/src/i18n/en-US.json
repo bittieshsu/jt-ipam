@@ -1194,7 +1194,8 @@
     "kind_inferred": "Guessed (neither recorded nor observed)",
     "too_large": "This view has {n} devices, more than can be drawn at once ({limit}): the graph would be unreadable and slow to build. Use the subnet filter above to narrow it down.",
     "via_neighbor": "Neighbor discovery (MikroTik)",
-    "scope_limited": "Showing only the devices and subnets you have access to, and links whose both ends are in scope; VPN tunnels and virtual machines are global data and are not shown."
+    "scope_limited": "Showing only the devices and subnets you have access to, and links whose both ends are in scope; VPN tunnels and virtual machines are global data and are not shown.",
+    "status_disabled": "Disabled in LibreNMS"
   },
   "hostnameSrc": {
     "auto": "Auto (follow global order)",
@@ -2100,7 +2101,11 @@
       "cooldown": "in cooldown",
       "dhcp_range": "DHCP range",
       "cap": "over this round's cap"
-    }
+    },
+    "vlan_domain": "VLAN domain",
+    "vlan_domain_placeholder": "LibreNMS (dedicated, default)",
+    "vlan_domain_hint": "When set, a VLAN number reuses the existing VLAN in this domain and only adds which switches carry it; names you already gave are not overwritten by the switch's name (such as VLAN0010). If VLANs migrated from phpIPAM are in default, choose it to avoid two copies.",
+    "vlan_only_existing": "Only map VLANs that already exist in this domain; do not create new ones (keeps switch defaults such as 1002 to 1005 out)"
   },
   "firewall": {
     "scope_title": "Association scope (NAT mapping)",
@@ -2301,7 +2306,7 @@
     "arp_only": "ARP-only liveness",
     "explain_arp_only_liveness": "These addresses look online, but the only evidence is an ARP record — and ARP carries no timestamp while the reporting device's cache never expires. A machine that was powered off weeks ago still reads as online here. To find out the real state, probe them with a scan agent or bring them under LibreNMS/Zabbix monitoring.",
     "stale_link": "Device link may be stale",
-    "explain_stale_device_links": "These IPs are linked to a device but the address has changed MAC since that link was made — usually the address was handed to a different machine (common with DHCP), so the link now points at the wrong device. Nothing is unlinked automatically: whether to detach is a judgement call. Compare the current MAC against that device before changing or clearing it.",
+    "explain_stale_device_links": "These IPs are linked to a device, but the evidence says another machine is now using the address, so the link may point at the wrong device. Two kinds of evidence: (1) the address changed MAC after the link was made, usually because it was handed to another machine (common with DHCP); (2) the device is down or disabled in LibreNMS and the MAC on the address belongs to a different vendor (only network equipment vendors are compared, such as Ubiquiti, Cisco and Fortinet). Nothing is unlinked automatically: whether to detach is a judgement call. Compare the current MAC against that device before changing or clearing it.",
     "sched_btn": "Schedule",
     "sched_title": "Anomaly detection schedule",
     "sched_hint": "A scheduled run only notifies about findings that are new since the last run. Detection reports the current state, not a stream of events; repeating an unresolved one every run is how a whole notification category gets muted.",
@@ -2470,7 +2475,7 @@
     "summary_suspicious_changes": "A burst of changes in a short window, or changes from an unexpected source.",
     "summary_fw_rule_rot": "Problems in active firewall rules: forwards to missing targets, any-to-any permits, management ports open on WAN.",
     "summary_arp_only_liveness": "Looks online, but the only evidence is an ARP record that never expires; the machine may be off.",
-    "summary_stale_device_links": "The IP is linked to a device, but its MAC changed after the link was made; the link may be wrong.",
+    "summary_stale_device_links": "The IP is linked to a device, but its MAC changed after the link, or the device is down and the MAC vendor does not match; the link may be wrong.",
     "summary_mac_flapping": "The same IP has been seen with several different MACs during the window.",
     "summary_identity_changes": "The detected device type or OS family changed: another machine may be using the address, or the device was replaced.",
     "explain_more": "Details",
@@ -2490,7 +2495,12 @@
     "export_note": "This report is the detection result shown on screen when exported (the last run), filtered by your permissions; tables use the same columns and order as the screen.",
     "export_pdf_cols": "\"{title}\" shows {n} columns; a PDF table holds at most {max}. Untick some under \"Columns\", or use Excel or ODS.",
     "export_pdf_rows": "\"{title}\" has {n} rows; a PDF table holds at most {max}. Filter first, or use Excel, ODS or CSV.",
-    "export_pdf_cells": "Too many results ({n} cells; a PDF holds at most {max}). Filter first, or use Excel, ODS or CSV."
+    "export_pdf_cells": "Too many results ({n} cells; a PDF holds at most {max}). Filter first, or use Excel, ODS or CSV.",
+    "stale_reason_mac_changed": "MAC changed after the link was made",
+    "stale_reason_vendor_down": "Device is down in LibreNMS; the MAC is from {mac_vendor}, not {device_vendor}",
+    "stale_reason_vendor_disabled": "Device is disabled in LibreNMS; the MAC is from {mac_vendor}, not {device_vendor}",
+    "stale_reason_mac_vendor_down": "MAC changed after the link; device is down in LibreNMS and the MAC is from {mac_vendor}, not {device_vendor}",
+    "stale_reason_mac_vendor_disabled": "MAC changed after the link; device is disabled in LibreNMS and the MAC is from {mac_vendor}, not {device_vendor}"
   },
   "webhooks": {
     "events_label": "events (* = all)",
@@ -3726,7 +3736,9 @@
     "v_invalid": "invalid value",
     "v_more": "({n} more fields have problems)",
     "v_sep": "; ",
-    "v_field": "{field}: {reason}"
+    "v_field": "{field}: {reason}",
+    "librenms_vlan_domain_not_found": "The selected VLAN domain was not found (it may have been deleted). Choose it again.",
+    "ai_embedding_dim_mismatch": "The embedding model outputs {got} dimensions but {expected} are needed: use a {expected}-dimension embedding model (such as granite-embedding:278m)."
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -3934,7 +3946,12 @@
     "mcp_key_days": "Valid for",
     "mcp_key_days_n": "{n} days",
     "mcp_key_expires": "Expires {date}",
-    "mcp_key_expired": "Expired on {date}"
+    "mcp_key_expired": "Expired on {date}",
+    "index_ok": "The index is up to date: {n} of {total} items with a description have a vector ({model}, rebuilt {at}).",
+    "index_never": "Rebuild recommended: the index has not been built with the current embedding model ({n} items have a description).",
+    "index_model_changed": "Rebuild recommended: the index was built with {old}, but the current model is {now}; existing vectors do not match new queries.",
+    "index_missing": "Rebuild recommended: {n} items have a description but no vector (added or changed while the model was switched or mismatched).",
+    "index_nothing": "There is nothing to index yet (subnet, IP and device descriptions are empty)."
   },
   "rack_diagram": {
     "empty": "No devices in this rack",

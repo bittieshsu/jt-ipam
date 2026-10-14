@@ -183,6 +183,10 @@ async def sync_rewrites(session: AsyncSession, inst: AdGuardInstance) -> dict[st
         answer = (r.get("answer") or "").strip()
         if not domain or not answer:
             continue
+        # 新版 AdGuard Home 的 rewrite 可以停用（enabled: false）：停用的不拿來命名 IP
+        # （使用者 2026-10-13：「停用的不要抓」）。舊版沒有這個欄位 → 照舊
+        if r.get("enabled") is False:
+            continue
         seen += 1
         # 只處理 answer 是 IP（含 . 跟全數字段）
         parts = answer.split(".")

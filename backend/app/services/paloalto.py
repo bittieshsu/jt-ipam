@@ -49,7 +49,7 @@ from app.core.security import decrypt_secret, encrypt_secret
 from app.core.ui_error import UiError
 from app.models.paloalto import PaloAltoAddressObject, PaloAltoFirewall, PaloAltoPolicy
 from app.services.dhcp_leases import LeaseRun
-from app.services.fw_sightings import SightingBatch
+from app.services.fw_sightings import SightingBatch, lease_inactive
 from app.services.hostname_reports import HostnameRun, enabled_peers
 
 
@@ -337,6 +337,9 @@ async def sync_dhcp_leases(session: AsyncSession, fw: PaloAltoFirewall) -> int:
         ip = (e.findtext("ip") or "").strip()
         mac = (e.findtext("mac") or "").strip()
         host = (e.findtext("hostname") or "").strip() or None
+        # 明確過期的租約 PAN-OS 也會列出來（<state>expired</state>）：那不是有效租約
+        if lease_inactive({"state": e.findtext("state")}):
+            continue
         batch.add(ip, evidence="lease:paloalto", mac=_norm_mac(mac), hostname=host)
     seen = sum(1 for found, _e in await batch.flush() if found)
     # 讀取失敗會往外拋；走到這裡就是完整的租約清單（op 指令涵蓋所有介面）

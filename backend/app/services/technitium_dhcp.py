@@ -246,6 +246,10 @@ async def sync_instance(session: AsyncSession, inst: Any) -> dict[str, Any]:
         await _write_scope_mirror(session, inst, parsed, now)
     if raw_leases is not None:
         leases = parse_leases(raw_leases, now=now)
+        # 停用範圍的租約不算（範圍、保留、排除早就只用啟用中的；這一輪有讀範圍時才知道哪些停用）
+        off = {p["name"] for p in parsed if not p["enabled"]}
+        if off:
+            leases = [le for le in leases if le.get("scope") not in off]
         counts["leases"] = await write_leases(
             session, source_type=SOURCE, source_id=inst.id, peers_model=TechnitiumDhcpServer,
             scope_ids=list(inst.scope_subnet_ids) if inst.scope_subnet_ids else None,

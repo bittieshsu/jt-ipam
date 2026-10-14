@@ -83,3 +83,24 @@ test("換點另一個類型直接切換；鍵盤 Enter 也能點；Esc 恢復；
   await expect(grid.locator(".cell.cell-dim")).toHaveCount(0);
   await expect(item).toHaveAttribute("aria-pressed", "false");
 });
+
+test("只看閒置：閒置格要明顯（實線框＋底色），其他格子變成灰階的極淡", async ({ page }) => {
+  // 使用者 2026-10-13：以前閒置格是透明底＋灰色虛線，其他類型雖然變淡仍是淺色塊，閒置格反而不突出
+  await login(page);
+  const grid = await openSubnet(page);
+  await grid.locator(".legend-item[data-legend='free']").click();
+  const freeCells = grid.locator(".cell.cell-free.cell-focus");
+  expect(await freeCells.count()).toBeGreaterThan(0);
+  const focus = await freeCells.first().evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { border: s.borderTopStyle, bg: s.backgroundColor };
+  });
+  expect(focus.border).toBe("solid");
+  expect(focus.bg).not.toBe("rgba(0, 0, 0, 0)");
+  const dim = await grid.locator(".cell.cell-dim").first().evaluate((el) => getComputedStyle(el).filter);
+  expect(dim).toContain("grayscale");
+  // 再點一次恢復：沒有強調、沒有淡化
+  await grid.locator(".legend-item[data-legend='free']").click();
+  await expect(grid.locator(".cell.cell-focus")).toHaveCount(0);
+  await expect(grid.locator(".cell.cell-dim")).toHaveCount(0);
+});
