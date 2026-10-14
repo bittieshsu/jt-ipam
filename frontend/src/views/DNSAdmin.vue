@@ -1,21 +1,24 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { trackTask } from "@/composables/useTaskTracker";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
 import {
   NCard, NDataTable, NSpace, NButton, NTag, NIcon, NTooltip, NAlert,
   NModal, NForm, NFormItem, NInput, NInputNumber, NSelect, NSwitch, NPopconfirm, NRadioGroup, NRadio,
+  NCheckbox, NCheckboxGroup,
   useMessage, type DataTableColumns,
 } from "naive-ui";
 import {
   listDNSServers, createDNSServer, updateDNSServer, deleteDNSServer, testDNSServer, syncDNSServer,
   listDNSCompareGroups, createDNSCompareGroup, updateDNSCompareGroup, deleteDNSCompareGroup, checkDNSCompareGroup,
+  getDNSCompareGroupZoneOptions, DNS_COMPARE_TYPES, DNS_COMPARE_DEFAULT_TYPES,
   listDNSCompareGroupDiffs,
   type DNSServer, type DNSServerType, type DNSCompareGroup, type DNSCompareGroupDiff, type DNSCompareStatus,
 } from "@/api/integrations";
 import { useRoute } from "vue-router";
 import { fmtDateTime } from "@/utils/datetime";
+import { columnsWidth, fitWidth, textWidth, COL_PAD_DENSE } from "@/utils/fitColumns";
 import { listSubnets } from "@/api/subnets";
 import {
   DnsIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SyncIcon, TestIcon, SaveIcon, CancelIcon,
@@ -288,29 +291,50 @@ function statusType(s: DNSCompareStatus | null | undefined): "success" | "error"
 }
 interface GroupForm {
   name: string; description: string; notify_enabled: boolean; grace_minutes: number; server_ids: string[]; excluded_zones: string[]
+  compare_types: string[]
 }
 const groupShow = ref(false);
 const groupEditing = ref<string | null>(null);
-const groupForm = ref<GroupForm>({ name: "", description: "", notify_enabled: true, grace_minutes: 30, server_ids: [], excluded_zones: [] });
-// 「不比對的 zone」選單：成員拉回來的 zone（編輯時有）＋已經排除的；也可以直接輸入
-const zoneOptions = computed(() => {
-  const g = groups.value.find((x) => x.id === groupEditing.value);
-  return [...new Set([...(g?.zones ?? []), ...groupForm.value.excluded_zones])].map((z) => ({ label: z, value: z }));
+const groupForm = ref<GroupForm>({ name: "", description: "", notify_enabled: true, grace_minutes: 30, server_ids: [], excluded_zones: [],
+                                   compare_types: [...DNS_COMPARE_DEFAULT_TYPES] });
+// 「不比對的 zone」選單：目前選的成員拉回來的 zone＋已經排除的；也可以直接輸入。
+// 跟著表單上的成員走（以前只讀存檔後群組的 zones：新增時選了成員也沒得選，使用者 2026-10-14）
+const memberZones = ref<string[]>([]);
+const memberZonesLoading = ref(false);
+let memberZonesSeq = 0;
+watch(() => [groupShow.value, [...groupForm.value.server_ids].sort().join(",")] as const, async ([show]) => {
+  if (!show) return;
+  const seq = ++memberZonesSeq;
+  memberZonesLoading.value = true;
+  try {
+    const zones = await getDNSCompareGroupZoneOptions(groupForm.value.server_ids);
+    if (seq === memberZonesSeq) memberZones.value = zones;      // 連續改成員時只採最後一次
+  } catch (e) {
+    if (seq === memberZonesSeq) memberZones.value = [];
+    msg.error(apiErrMsg(e));
+  } finally {
+    if (seq === memberZonesSeq) memberZonesLoading.value = false;
+  }
 });
+const zoneOptions = computed(() =>
+  [...new Set([...memberZones.value, ...groupForm.value.excluded_zones])].map((z) => ({ label: z, value: z })));
 function openGroupCreate() {
   groupEditing.value = null;
-  groupForm.value = { name: "", description: "", notify_enabled: true, grace_minutes: 30, server_ids: [], excluded_zones: [] };
+  groupForm.value = { name: "", description: "", notify_enabled: true, grace_minutes: 30, server_ids: [], excluded_zones: [],
+                      compare_types: [...DNS_COMPARE_DEFAULT_TYPES] };
   groupShow.value = true;
 }
 function openGroupEdit(g: DNSCompareGroup) {
   groupEditing.value = g.id;
   groupForm.value = { name: g.name, description: g.description ?? "", notify_enabled: g.notify_enabled,
                       grace_minutes: g.grace_minutes, server_ids: g.members.map((m) => m.id),
-                      excluded_zones: [...(g.excluded_zones ?? [])] };
+                      excluded_zones: [...(g.excluded_zones ?? [])],
+                      compare_types: [...(g.compare_types?.length ? g.compare_types : DNS_COMPARE_DEFAULT_TYPES)] };
   groupShow.value = true;
 }
 async function submitGroup() {
   if (!groupForm.value.name.trim()) { msg.error(t("dns_admin.cg_name_required")); return; }
+  if (!groupForm.value.compare_types.length) { msg.error(t("dns_admin.cg_types_required")); return; }
   const payload = { ...groupForm.value, name: groupForm.value.name.trim(), description: groupForm.value.description || null };
   try {
     if (groupEditing.value) await updateDNSCompareGroup(groupEditing.value, payload);
@@ -365,39 +389,71 @@ const groupStatusLabel = (g: DNSCompareGroup) =>
 
 // 群組表格：成員、狀態等攤平成文字欄位，排序、篩選、匯出才有東西可比
 interface GroupRow extends DNSCompareGroup {
-  member_names: string; status_label: string; notify_label: string; excluded_label: string
+  member_names: string; status_label: string; notify_label: string; excluded_label: string; types_label: string
 }
 const groupRows = computed<GroupRow[]>(() => groups.value.map((g) => ({
   ...g, member_names: g.members.map((m) => m.name).join(", "),
   status_label: groupStatusLabel(g), notify_label: g.notify_enabled ? t("common.yes") : t("common.no"),
   excluded_label: (g.excluded_zones ?? []).join(", "),
+  types_label: (g.compare_types?.length ? g.compare_types : DNS_COMPARE_DEFAULT_TYPES).join(", "),
 })));
 const GROUP_KEYS = ["name", "member_names", "status_label", "diff_count", "last_checked_at", "grace_minutes",
-  "excluded_label", "notify_label", "description", "actions"];
+  "types_label", "excluded_label", "notify_label", "description", "actions"];
 const { visibleKeys: gVis, setVisible: gSet, reset: gReset, order: gOrder, setOrder: gSetOrder,
   orderColumns: gOrderCols } = useColumnPrefs("dns_compare_groups", GROUP_KEYS,
-  GROUP_KEYS.filter((k) => k !== "description"));
+  // 說明、發告警（是／否，編輯時看得到）預設收起：欄一多，1440 寬的畫面也得左右捲動（2026-10-14）
+  GROUP_KEYS.filter((k) => k !== "description" && k !== "notify_label"));
 const { query: groupQ, filtered: groupFiltered } = useTableQuickFilter(groupRows,
   () => gVis.value.filter((k) => k !== "actions"));
+// 欄寬依內容（使用者 2026-10-14：名稱、狀態都還有空間可以縮）：短欄量出寬度，
+// 剩下的空間給一個長欄（不比對的 zone；被隱藏時依序改給說明、比對類型、成員）
+const groupFlexKey = computed(() => ["excluded_label", "description", "types_label", "member_names", "name"]
+  .find((k) => gVis.value.includes(k)));
+function gSize(key: keyof GroupRow & string, header: string, values: string[], opts: Parameters<typeof fitWidth>[2] = {}) {
+  const w = fitWidth(header, values, { dense: true, ...opts });     // 這張是 size="small" 的表格
+  return key === groupFlexKey.value ? { minWidth: Math.max(140, w) } : { width: w };
+}
+const groupSizes = computed(() => {
+  const rows = groupRows.value;
+  // 成員是一排標籤：每個名稱另加標籤內距與間隔
+  const members = Math.max(textWidth(t("dns_admin.cg_members")) + 22,
+    ...rows.map((g) => g.members.reduce((w, m) => w + textWidth(m.name, 12) + 22, 0)));
+  return {
+    name: gSize("name", t("common.name"), rows.map((g) => g.name), { max: 240 }),
+    member_names: groupFlexKey.value === "member_names" ? { minWidth: Math.max(140, Math.round(members + COL_PAD_DENSE)) }
+      : { width: Math.round(Math.min(360, Math.max(100, members + COL_PAD_DENSE))) },
+    status_label: gSize("status_label", t("common.status"), rows.map((g) => g.status_label), { px: 12, extra: 18 }),
+    diff_count: gSize("diff_count", t("dns_admin.cg_diff_count"), rows.map((g) => String(g.diff_count))),
+    last_checked_at: gSize("last_checked_at", t("dns_admin.cg_last_checked"),
+      rows.map((g) => g.last_checked_at ? fmtDateTime(g.last_checked_at) : "—")),
+    grace_minutes: gSize("grace_minutes", t("dns_admin.cg_grace"),
+      rows.map((g) => `${g.grace_minutes} ${t("dns_admin.cg_minutes")}`)),
+    types_label: gSize("types_label", t("dns_admin.cg_types_col"), rows.map((g) => g.types_label), { max: 240 }),
+    excluded_label: gSize("excluded_label", t("dns_admin.cg_excluded"), rows.map((g) => g.excluded_label), { max: 320 }),
+    notify_label: gSize("notify_label", t("dns_admin.cg_notify"), rows.map((g) => g.notify_label)),
+    description: gSize("description", t("dns_admin.cg_description"), rows.map((g) => g.description ?? ""), { max: 300 }),
+  };
+});
 const allGroupCols = computed<DataTableColumns<GroupRow>>(() => autoSort<GroupRow>([
-  { title: t("common.name"), key: "name", minWidth: 140, ellipsis: { tooltip: true } },
-  { title: t("dns_admin.cg_members"), key: "member_names", minWidth: 200,
+  { title: t("common.name"), key: "name", ...groupSizes.value.name, ellipsis: { tooltip: true } },
+  { title: t("dns_admin.cg_members"), key: "member_names", ...groupSizes.value.member_names,
     render: (g) => g.members.length ? serverTags(g.members, "default") : "—" },
-  { title: t("common.status"), key: "status_label", width: 140,
+  { title: t("common.status"), key: "status_label", ...groupSizes.value.status_label,
     render: (g) => h(NTooltip, null, {
       trigger: () => h(NTag, { size: "small", type: statusType(g.last_status) }, () => g.status_label),
       default: () => g.last_message || t(`dns_admin.cg_status_hint_${g.last_status ?? "never"}`),
     }) },
-  { title: t("dns_admin.cg_diff_count"), key: "diff_count", width: 90 },
-  withExportValue({ title: t("dns_admin.cg_last_checked"), key: "last_checked_at", width: 170,
+  { title: t("dns_admin.cg_diff_count"), key: "diff_count", ...groupSizes.value.diff_count },
+  withExportValue({ title: t("dns_admin.cg_last_checked"), key: "last_checked_at", ...groupSizes.value.last_checked_at,
     render: (g: GroupRow) => g.last_checked_at ? fmtDateTime(g.last_checked_at) : "—" },
     (g: GroupRow) => g.last_checked_at ? fmtDateTime(g.last_checked_at) : ""),
-  { title: t("dns_admin.cg_grace"), key: "grace_minutes", width: 110,
+  { title: t("dns_admin.cg_grace"), key: "grace_minutes", ...groupSizes.value.grace_minutes,
     render: (g) => `${g.grace_minutes} ${t("dns_admin.cg_minutes")}` },
-  { title: t("dns_admin.cg_excluded"), key: "excluded_label", minWidth: 150, ellipsis: { tooltip: true },
+  { title: t("dns_admin.cg_types_col"), key: "types_label", ...groupSizes.value.types_label, ellipsis: { tooltip: true } },
+  { title: t("dns_admin.cg_excluded"), key: "excluded_label", ...groupSizes.value.excluded_label, ellipsis: { tooltip: true },
     render: (g) => g.excluded_label || "—" },
-  { title: t("dns_admin.cg_notify"), key: "notify_label", width: 90 },
-  { title: t("dns_admin.cg_description"), key: "description", minWidth: 160, ellipsis: { tooltip: true } },
+  { title: t("dns_admin.cg_notify"), key: "notify_label", ...groupSizes.value.notify_label },
+  { title: t("dns_admin.cg_description"), key: "description", ...groupSizes.value.description, ellipsis: { tooltip: true } },
   {
     title: t("common.actions"), key: "actions", className: "col-actions", width: 158,
     render: (g) => h(NSpace, { size: 2, wrapItem: false, wrap: false }, () => [
@@ -515,6 +571,14 @@ onMounted(async () => {
         <n-alert v-if="form.type === 'univention_ucs'" type="info" :bordered="false"
                  :show-icon="true" style="margin-bottom: 12px">
           {{ t("dns_admin.help_ucs") }}
+          <!-- UDM REST API 沒裝的那台（Replica、或當初沒裝）回 Apache 的 404；手動裝上後常少了授權群組而回 403（使用者 2026-10-14） -->
+          <div class="ucs-rest-help" data-testid="dns-ucs-rest-help">
+            <div class="ucs-rest-title">{{ t("dns_admin.help_ucs_rest_title") }}</div>
+            <div>{{ t("dns_admin.help_ucs_rest") }}</div>
+            <pre class="ucs-rest-cmd">univention-install univention-directory-manager-rest
+ucr set directory/manager/rest/authorized-groups/domain-admins="cn=Domain Admins,cn=groups,$(ucr get ldap/base)"
+systemctl restart univention-directory-manager-rest</pre>
+          </div>
         </n-alert>
         <n-alert v-else type="default" :bordered="false" :show-icon="true" style="margin-bottom: 12px">
           {{ t("dns_admin.help_" + form.type) }}
@@ -646,7 +710,8 @@ onMounted(async () => {
                       :order="gOrder" @update:order="gSetOrder" />
         <ExportButton :columns="groupCols" :rows="groupFiltered" filename="dns-compare-groups" :title="t('dns_admin.cg_title')" />
       </n-space>
-      <n-data-table :columns="groupCols" :data="groupFiltered" :bordered="false" :scroll-x="1100" size="small">
+      <n-data-table :columns="groupCols" :data="groupFiltered" :bordered="false" :scroll-x="columnsWidth(groupCols)"
+                    size="small" data-testid="dns-cg-table">
         <template #empty>
           <n-space justify="center">{{ t("dns_admin.cg_empty") }}</n-space>
         </template>
@@ -680,9 +745,20 @@ onMounted(async () => {
           <span style="font-size:11px;opacity:.7">{{ t("dns_admin.cg_grace_hint") }}</span>
         </n-space>
       </n-form-item>
+      <n-form-item :label="t('dns_admin.cg_types')">
+        <n-space vertical :size="2" style="width: 100%">
+          <n-checkbox-group v-model:value="groupForm.compare_types" data-testid="dns-cg-types">
+            <n-space :size="[12, 4]">
+              <n-checkbox v-for="ty in DNS_COMPARE_TYPES" :key="ty" :value="ty" :label="ty" />
+            </n-space>
+          </n-checkbox-group>
+          <span style="font-size:11px;opacity:.7">{{ t("dns_admin.cg_types_hint") }}</span>
+        </n-space>
+      </n-form-item>
       <n-form-item :label="t('dns_admin.cg_excluded')">
         <n-space vertical :size="2" style="width: 100%">
-          <n-select v-model:value="groupForm.excluded_zones" :options="zoneOptions" multiple filterable tag clearable
+          <n-select v-model:value="groupForm.excluded_zones" :options="zoneOptions" :loading="memberZonesLoading"
+                    multiple filterable tag clearable
                     :placeholder="t('dns_admin.cg_excluded_ph')" data-testid="dns-cg-excluded" />
           <span style="font-size:11px;opacity:.7">{{ t("dns_admin.cg_excluded_hint") }}</span>
         </n-space>
@@ -756,3 +832,12 @@ onMounted(async () => {
   </n-modal>
   </div>
 </template>
+
+<style scoped>
+.ucs-rest-help { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--n-border-color, rgba(128, 128, 128, 0.3)); }
+.ucs-rest-title { font-weight: 600; margin-bottom: 2px; }
+.ucs-rest-cmd {
+  margin: 6px 0 0; padding: 6px 8px; border-radius: 4px; font-size: 12px; line-height: 1.5;
+  background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; word-break: break-all; user-select: all;
+}
+</style>

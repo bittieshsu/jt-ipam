@@ -98,16 +98,13 @@ async def _require_subnet_perm(
 async def _enrich_special_flags(
     session: AsyncSession, items: list[Any], rows: list[Any]
 ) -> None:
-    """批次推導清單視覺化用的特殊角色旗標：閘道 / 在 DHCP 範圍 / DHCP 伺服器（對應防火牆 IP）。
-    來源資料（防火牆 / DHCP pool）本身受權限管控，但這裡只回布林旗標，故所有可見此 IP 的使用者都看得到標記。
+    """批次推導清單視覺化用的特殊角色旗標：閘道 / 在 DHCP 範圍 / DHCP 伺服器（整合中的 DHCP 來源）。
+    來源資料（整合 / DHCP pool）本身受權限管控，但這裡只回旗標與整合名稱，故所有可見此 IP 的使用者都看得到標記。
     """
     import ipaddress as _ip
-    from urllib.parse import urlparse
 
     from app.models.dhcp import DHCPPoolRange
     from app.models.dhcp_sighting import DHCPSighting
-    from app.models.firewall import OPNsenseFirewall
-    from app.models.pfsense import PfSenseFirewall
 
     if not rows:
         return
@@ -162,30 +159,30 @@ async def _enrich_special_flags(
             excl.setdefault(sid, []).append((int(elo), int(ehi), {
                 "source_type": ex.source_type, "source_name": ex.source_name, "engine": ex.source,
                 "start": str(elo), "end": str(ehi)}))
-    # 防火牆的 API 位址＝「DHCP 伺服器（自動）」。只標在它所屬的子網路：有設範圍就限範圍內，
-    # 沒設時只在唯一包含它的子網路標；重疊網段裡有好幾個一樣的就不標（不猜），免得另一個單位
-    # 同一個位址的 IP 也被當成 DHCP 伺服器
-    fw_ips: dict[str, set[Any]] = {}
-    for model in (OPNsenseFirewall, PfSenseFirewall):
-        for url, scope in (await session.execute(select(model.api_url, model.scope_subnet_ids))).all():
-            h = urlparse(url).hostname if url else None
-            if not h:
-                continue
-            try:
-                hip = _ip.ip_address(h)
-            except ValueError:
-                continue
-            cands = {sid for sid, n in nets.items() if hip.version == n.version and hip in n}
-            if not cands:
-                continue
-            if scope:
-                keep = {sid for sid in cands if str(sid) in {str(x) for x in scope}}
-            else:
+    # 整合中的 DHCP 來源指向的主機＝「DHCP 伺服器（自動）」（清單與異常偵測共用 services/dhcp_known）。
+    # 沒有觀測佐證時只標在它所屬的子網路：有設範圍就限範圍內，沒設時只在唯一包含它的子網路標；
+    # 重疊網段裡有好幾個一樣的就不標（不猜），免得另一個單位同一個位址的 IP 也被當成 DHCP 伺服器
+    from app.services.dhcp_known import load_known_dhcp_servers
+    known = await load_known_dhcp_servers(session)
+    fw_ips: dict[str, dict[Any, str]] = {}
+    unique_cache: dict[str, bool] = {}
+    for src in known.sources:
+        if not src.ip:
+            continue
+        hip = _ip.ip_address(src.ip)
+        cands = {sid for sid, n in nets.items() if hip.version == n.version and hip in n}
+        if not cands:
+            continue
+        if src.scope:
+            keep = {sid for sid in cands if str(sid) in src.scope}
+        else:
+            if src.ip not in unique_cache:
                 total = await session.scalar(select(func.count()).select_from(Subnet).where(
-                    Subnet.archived_at.is_(None), Subnet.cidr.op(">>=")(cast(h, INET))))
-                keep = cands if total == 1 else set()
-            if keep:
-                fw_ips.setdefault(h, set()).update(keep)
+                    Subnet.archived_at.is_(None), Subnet.cidr.op(">>=")(cast(src.ip, INET))))
+                unique_cache[src.ip] = total == 1
+            keep = cands if unique_cache[src.ip] else set()
+        for sid in keep:
+            fw_ips.setdefault(src.ip, {}).setdefault(sid, src.label)
     # 掃描代理實際觀測到「這個位址在回應 DHCP」的時間。設定與實測是兩件事：
     # 標記了不代表真的在發，沒標記也不代表沒有在發 —— 兩個都要看得到。
     # 只看異常偵測同一個時間窗內的：以前沒有界線，私接的路由器拔掉一個月了清單上還是紅的
@@ -196,7 +193,9 @@ async def _enrich_special_flags(
     observed: dict[tuple[Any, str], Any] = {}
     for sub_id, srv_ip, seen in (await session.execute(
         select(DHCPSighting.subnet_id, DHCPSighting.server_ip, DHCPSighting.last_seen_at)
-        .where(in_values(DHCPSighting.subnet_id, subnet_ids), DHCPSighting.last_seen_at >= observed_since)
+        .where(in_values(DHCPSighting.subnet_id, subnet_ids), DHCPSighting.last_seen_at >= observed_since,
+               # 經由中繼轉送來的回應不算（異常偵測同一條規則）
+               DHCPSighting.via_relay.is_(False))
     )).all():
         key = (sub_id, str(srv_ip))
         if key not in observed or seen > observed[key]:
@@ -220,8 +219,15 @@ async def _enrich_special_flags(
         it.dhcp_reservation = resv.get(r.id)
         gw = gw_map.get(r.subnet_id)
         it.is_gateway = bool(gw) and ipstr == str(gw)
-        it.dhcp_server_auto = r.subnet_id in fw_ips.get(ipstr, ())
         seen_at = observed.get((r.subnet_id, ipstr))
+        auto = fw_ips.get(ipstr, {}).get(r.subnet_id)
+        if auto is None:
+            # 確實觀測到它在這個子網路發 DHCP：對得到整合就是那台（跨網段、名稱對應都算，與異常偵測一致）；
+            # 沒有觀測佐證時只認完整名稱相同
+            m = known.match(ipstr if seen_at else None, r.hostname, exact_names_only=not seen_at)
+            auto = m[0].label if m else None
+        it.dhcp_server_auto = auto is not None
+        it.dhcp_server_integration = auto
         it.dhcp_observed_at = seen_at.isoformat() if seen_at else None
         try:
             n = int(_ip.ip_address(ipstr))

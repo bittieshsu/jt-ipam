@@ -1309,7 +1309,7 @@
     "role_gateway_hint": "此 IP 是所屬子網路的閘道",
     "role_dhcp_server": "DHCP 伺服器",
     "role_dhcp_server_manual": "已手動標記為 DHCP 伺服器",
-    "role_dhcp_server_auto": "對應到已整合的 OPNsense／pfSense 防火牆 IP",
+    "role_dhcp_server_auto": "整合中的 DHCP 來源（{src}）",
     "role_dhcp_range": "DHCP",
     "role_dhcp_range_hint": "此 IP 落在 DHCP 發放範圍／目前有租約",
     "is_dhcp_server": "標記為 DHCP 伺服器",
@@ -1402,7 +1402,8 @@
     "um_seen_by": "{sources}看到 · {ago}",
     "source_isoinsight": "ISOinsight",
     "source_technitium": "Technitium DHCP",
-    "source_checkpoint": "Check Point"
+    "source_checkpoint": "Check Point",
+    "role_dhcp_server_auto_plain": "整合中的 DHCP 來源"
   },
   "subnets": {
     "title": "子網路",
@@ -1996,7 +1997,7 @@
     "compare_group_none": "不屬於任何比對群組",
     "compare_group_hint": "內容應該一致的 DNS 伺服器（例如主從、AD 整合）放在同一個比對群組：相同的紀錄合併顯示，每次拉取後比對各台的資料是否一致。jt-ipam 不會在伺服器之間同步紀錄。",
     "cg_title": "比對群組",
-    "cg_intro": "把內容應該一致的 DNS 伺服器（主從、AD 整合、多主等，伺服器之間自己會複寫）放在同一組。jt-ipam 不會在它們之間同步或修改紀錄，只比對各台拉取回來的資料：DNS 紀錄頁、異常偵測與 IP 變更評估把相同的紀錄合併成一筆並寫出哪幾台都有；每台拉取完就比對組內各台，不一致的列出來，確認後用通知功能發告警。比對 A、AAAA、PTR 紀錄；AD 的服務定位資料（_msdcs、TrustAnchors、DomainDnsZones、ForestDnsZones）不比對；只複寫部分 zone 時，其餘的可以設成不比對。",
+    "cg_intro": "把內容應該一致的 DNS 伺服器（主從、AD 整合、多主等，伺服器之間自己會複寫）放在同一組。jt-ipam 不會在它們之間同步或修改紀錄，只比對各台拉取回來的資料：DNS 紀錄頁、異常偵測與 IP 變更評估把相同的紀錄合併成一筆並寫出哪幾台都有；每台拉取完就比對組內各台，不一致的列出來，確認後用通知功能發告警。預設比對 A、AAAA、PTR 紀錄（每組可以另外勾 CNAME、MX、TXT 等）；AD 的服務定位資料（_msdcs、TrustAnchors、DomainDnsZones、ForestDnsZones）不比對；只複寫部分 zone 時，其餘的可以設成不比對。",
     "cg_create": "新增比對群組",
     "cg_edit": "編輯比對群組",
     "cg_empty": "還沒有比對群組",
@@ -2048,7 +2049,13 @@
     "cg_last_seen": "最後一次看到",
     "cg_confirmed": "已確認",
     "cg_pending": "待確認",
-    "cg_no_diffs": "沒有差異"
+    "cg_no_diffs": "沒有差異",
+    "help_ucs_rest": "測試連線回 404（找不到 /univention/udm/）表示那台沒有 UDM REST API：Primary 與 Backup Directory Node 預設會裝，Replica Directory Node、或當初沒裝的沒有。回 403「Not in allowed groups」表示帳號不在允許使用 API 的群組裡（UCR 的 directory/manager/rest/authorized-groups/*，手動裝在 Replica 上常少了這組，可以到 Primary 執行 ucr search authorized-groups 對照）。用 root 在那台執行下面三行；裝好後瀏覽 https://<UCS 主機>/univention/udm/ 應該要求登入（401），不再是 404。也可以改填 Primary Directory Node 的位址。",
+    "help_ucs_rest_title": "啟用 UDM REST API",
+    "cg_types": "比對的紀錄類型",
+    "cg_types_hint": "預設比對 A、AAAA、PTR（IPAM 有對應的三種）。勾了其他類型，成員下一次拉取時才會存下那些紀錄（可以按各台的「拉取」）；伺服器拉不到的類型不會有差異。AD 的服務定位資料一律不比。",
+    "cg_types_required": "至少要勾一種紀錄類型",
+    "cg_types_col": "比對類型"
   },
   "scope_overlap": {
     "warning": "偵測到有重疊網段（同一個 IP 存在於多個子網路）。此整合未設定「限定子網路範圍」，同步時可能把上線狀態／DHCP／MAC 標到錯誤單位的同 IP。建議在下方指定關聯子網路範圍。"
@@ -3738,7 +3745,9 @@
     "v_sep": "；",
     "v_field": "{field}：{reason}",
     "librenms_vlan_domain_not_found": "找不到指定的 VLAN domain（可能已被刪除），請重新選擇。",
-    "ai_embedding_dim_mismatch": "嵌入模型輸出 {got} 維，目前需要 {expected} 維：請改用 {expected} 維的嵌入模型（例如 granite-embedding:278m）。"
+    "ai_embedding_dim_mismatch": "嵌入模型輸出 {got} 維，目前需要 {expected} 維：請改用 {expected} 維的嵌入模型（例如 granite-embedding:278m）。",
+    "dns_ucs_no_rest": "這台 UCS 沒有 UDM REST API（{url} 回 404）：在那台執行 univention-install univention-directory-manager-rest，或改填 Primary Directory Node 的位址",
+    "dns_ucs_not_allowed": "帳號 {user} 不在這台 UCS 允許使用 UDM REST API 的群組裡：在那台用 ucr set directory/manager/rest/authorized-groups/<名稱>=<群組 DN> 加入帳號所在的群組（例如 Domain Admins），再重新啟動 univention-directory-manager-rest"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -5232,7 +5241,8 @@
     "console_unknown_user": "（已刪除的帳號）",
     "console_from": "從 {ip}",
     "console_login_as": "登入帳號 {user}",
-    "console_duration": "連線 {time}"
+    "console_duration": "連線 {time}",
+    "dhcp_server_integrated": "已整合的 DHCP 伺服器（{src}）"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -7698,7 +7708,14 @@
     "result_col": "結果",
     "run_counts_col": "處理結果計數",
     "err_missing": "請填寫：{fields}",
-    "err_scope_required": "請至少選一個「{label}」：租約只會在這些子網路內配對"
+    "err_scope_required": "請至少選一個「{label}」：租約只會在這些子網路內配對",
+    "login_refused": "設備拒絕登入：「{msg}」",
+    "login_refused_hint": "帳號或密碼錯誤，或這個帳號不能用 API 登入（設定的登入方式本身沒問題）。請重新輸入密碼再測；仍然失敗時，在 jt-ipam 主機上用 curl 直接送一次登入，看是帳密還是設備端的問題。",
+    "curl_title": "用 curl 自己測",
+    "curl_hint": "在 jt-ipam 主機上執行（與 jt-ipam 走同一條網路），把 <密碼> 換成真的密碼（密碼裡有單引號要改寫）。第 1 行是同樣的登入，回應裡應該有 {token}；把它填進第 2 行讀租約。curl 也被拒的話，是帳密或帳號權限的問題，要找設備管理者或原廠確認。",
+    "curl_login": "登入",
+    "curl_fetch": "讀租約",
+    "curl_ph_password": "<密碼>"
   },
   "approval": {
     "title": "申請審核設定",

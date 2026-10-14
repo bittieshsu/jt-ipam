@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
 
 from app.schemas.base import StrictModel
 
@@ -118,6 +118,20 @@ class InconsistentRecord(StrictModel):
 
 # ── 比對群組 ────────────────────────────────────────────────────────────
 
+def _compare_types(v: list[str] | None) -> list[str] | None:
+    """比對的紀錄類型：至少一種、只能是 COMPARE_TYPES 裡的；回傳大寫、去重複、固定順序。"""
+    if v is None:
+        return None
+    from app.services.dns_compare import COMPARE_TYPES, normalize_compare_types
+    bad = sorted({str(t).strip().upper() for t in v} - set(COMPARE_TYPES))
+    if bad:
+        raise ValueError(f"unsupported record types: {', '.join(bad)} (allowed: {', '.join(COMPARE_TYPES)})")
+    out = normalize_compare_types(v)
+    if not out:
+        raise ValueError("choose at least one record type to compare")
+    return out
+
+
 class DNSCompareGroupCreate(StrictModel):
     name: Annotated[str, Field(min_length=1, max_length=128)]
     description: Annotated[str | None, Field(max_length=1000)] = None
@@ -127,6 +141,13 @@ class DNSCompareGroupCreate(StrictModel):
     server_ids: list[uuid.UUID] = []
     #: 不比對的 zone（主從只複寫部分 zone、或某台另外放自己的 zone）
     excluded_zones: Annotated[list[Annotated[str, Field(max_length=253)]], Field(max_length=500)] = []
+    #: 比對哪些紀錄類型（預設 A、AAAA、PTR；可另選 CNAME、MX、TXT、NS、SRV、CAA）
+    compare_types: Annotated[list[Annotated[str, Field(max_length=8)]], Field(max_length=20)] = ["A", "AAAA", "PTR"]
+
+    @field_validator("compare_types")
+    @classmethod
+    def _check_types(cls, v: list[str] | None) -> list[str] | None:
+        return _compare_types(v)
 
 
 class DNSCompareGroupUpdate(StrictModel):
@@ -137,6 +158,12 @@ class DNSCompareGroupUpdate(StrictModel):
     #: 有帶就整組換成這些成員
     server_ids: list[uuid.UUID] | None = None
     excluded_zones: Annotated[list[Annotated[str, Field(max_length=253)]] | None, Field(max_length=500)] = None
+    compare_types: Annotated[list[Annotated[str, Field(max_length=8)]] | None, Field(max_length=20)] = None
+
+    @field_validator("compare_types")
+    @classmethod
+    def _check_types(cls, v: list[str] | None) -> list[str] | None:
+        return _compare_types(v)
 
 
 class DNSCompareGroupMember(StrictModel):
@@ -163,6 +190,7 @@ class DNSCompareGroupRead(StrictModel):
     members: list[DNSCompareGroupMember] = []
     diff_count: int = 0
     excluded_zones: list[str] = []
+    compare_types: list[str] = ["A", "AAAA", "PTR"]
     #: 成員拉回來的 zone（正規化、排序）：給「不比對的 zone」選單用
     zones: list[str] = []
 

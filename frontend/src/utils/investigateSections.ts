@@ -292,7 +292,9 @@ function rogueLines(d: D, h: SectionHelpers): string[] {
       : h.t("investigate.dhcp_rogue_offered", { server: r.server_ip, offered: r.offered_ip ?? "—" }),
     r.server_mac, r.subnet,
     r.last_seen ? `${h.t("investigate.last_seen")} ${h.fmt(r.last_seen)}` : null,
-    r.server_marked ? h.t("investigate.dhcp_server_marked") : h.t("investigate.dhcp_server_unmarked"),
+    r.server_marked ? h.t("investigate.dhcp_server_marked")
+      : r.server_integration ? h.t("investigate.dhcp_server_integrated", { src: r.server_integration })
+      : h.t("investigate.dhcp_server_unmarked"),
   ]));
 }
 

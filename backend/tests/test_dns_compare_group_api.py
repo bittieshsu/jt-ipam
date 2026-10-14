@@ -220,3 +220,26 @@ async def test_saving_members_or_excluded_zones_recompares_right_away(client, au
     assert r.json()["last_status"] == "ok" and r.json()["diff_count"] == 0
     r = await client.patch(f"{API}/compare-groups/{g['id']}", headers=auth_headers, json={"description": "x"})
     assert r.json()["last_status"] == "ok", "只改說明不需要重新比對"
+
+
+async def test_zone_options_for_chosen_members_before_saving(client, auth_headers, db_session) -> None:
+    """新增比對群組時選了成員，「不比對的 zone」就要有得選（使用者 2026-10-14：以前要先存檔再編輯才有）。
+    選單跟著目前選的成員走：編輯時改了成員也一樣。"""
+    a = await _srv(db_session, "ucs-a")
+    b = await _srv(db_session, "ucs-b")
+    other = await _srv(db_session, "other")
+    await _zone(db_session, a, "Corp.Example.", [])
+    await _zone(db_session, b, "corp.example", [])
+    await _zone(db_session, b, "lab.example", [])
+    await _zone(db_session, other, "not-chosen.example", [])
+    await db_session.commit()
+    r = await client.get(f"{API}/compare-groups/zone-options", params=[("server_ids", str(a.id)), ("server_ids", str(b.id))],
+                         headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == ["corp.example", "lab.example"], "兩台的 zone 合併、正規化後去重複；沒選的那台不列"
+    r = await client.get(f"{API}/compare-groups/zone-options", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == []
+    viewer = await _viewer_headers(db_session)
+    r = await client.get(f"{API}/compare-groups/zone-options", params={"server_ids": str(a.id)}, headers=viewer)
+    assert r.status_code == 403, "群組設定是管理員限定，zone 選單也一樣"

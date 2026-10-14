@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import re
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -52,8 +53,27 @@ def normalize_name(name: str | None, zone: str | None = None) -> str:
     return f"{n}.{z}"
 
 
+#: 比對群組可以選的紀錄類型（畫面上的順序）；預設只比 IPAM 有對應的三種
+COMPARE_TYPES = ("A", "AAAA", "PTR", "CNAME", "MX", "TXT", "NS", "SRV", "CAA")
+DEFAULT_COMPARE_TYPES = ("A", "AAAA", "PTR")
+
+
+def normalize_compare_types(types: list[str] | None) -> list[str]:
+    """大寫、去重複、照 COMPARE_TYPES 的順序；不認得的丟掉（呼叫端要先驗證）。"""
+    want = {str(t).strip().upper() for t in (types or [])}
+    return [t for t in COMPARE_TYPES if t in want]
+
+
+def _host(v: str) -> str:
+    return v.rstrip(".").lower()
+
+
 def normalize_value(rtype: str | None, value: str | None) -> str:
-    """A／AAAA 取標準寫法（IPv6 縮寫、小寫）；指向名稱的（PTR、CNAME…）小寫、去結尾點。"""
+    """各廠牌寫法不同的值取同一種寫法，比對才不會因為格式誤報。
+
+    A／AAAA 取標準寫法（IPv6 縮寫）；指向名稱的（PTR、CNAME、NS）小寫、去結尾點；
+    MX「優先序 主機」、SRV「優先序 權重 埠 主機」的主機也一樣處理；TXT 去掉引號、多段接起來（BIND 寫成 "a" "b"）。
+    """
     t = (rtype or "").upper()
     v = (value or "").strip()
     if t in ("A", "AAAA"):
@@ -62,8 +82,16 @@ def normalize_value(rtype: str | None, value: str | None) -> str:
         except ValueError:
             return v.lower()
     if t in ("PTR", "CNAME", "NS"):
-        return v.rstrip(".").lower()
-    return " ".join(v.split())
+        return _host(v)
+    parts = v.split()
+    if t == "MX" and len(parts) == 2:
+        return f"{parts[0]} {_host(parts[1])}"
+    if t == "SRV" and len(parts) == 4:
+        return " ".join([*parts[:3], _host(parts[3])])
+    if t == "TXT":
+        chunks = re.findall(r'"((?:[^"\\]|\\.)*)"', v)
+        return "".join(chunks) if chunks else v
+    return " ".join(parts)
 
 
 def normalize_zone_list(zones: list[str] | None) -> list[str]:
@@ -113,7 +141,8 @@ async def group_of_servers(session: AsyncSession) -> dict[uuid.UUID, uuid.UUID |
 
 # ── 比對 ────────────────────────────────────────────────────────────────
 
-async def _snapshot(session: AsyncSession, member_ids: list[uuid.UUID], excluded: frozenset[str] = frozenset()) -> tuple[
+async def _snapshot(session: AsyncSession, member_ids: list[uuid.UUID], excluded: frozenset[str] = frozenset(),
+                    types: tuple[str, ...] = DEFAULT_COMPARE_TYPES) -> tuple[
         dict[uuid.UUID, set[str]], dict[uuid.UUID, set[tuple[str, str, str, str]]], int]:
     """每台成員的 zone 集合與紀錄集合（正規化後），以及還沒填正規化欄位的紀錄數。
     AD 服務定位 zone 與群組設定不比對的 zone 一律略過。"""
@@ -130,7 +159,8 @@ async def _snapshot(session: AsyncSession, member_ids: list[uuid.UUID], excluded
     rows = (await session.execute(
         select(DNSZone.server_id, DNSZone.name, DNSRecord.name_norm, DNSRecord.type, DNSRecord.value_norm)
         .join(DNSZone, DNSZone.id == DNSRecord.zone_id)
-        .where(in_values(DNSZone.server_id, member_ids), DNSRecord.type != "SOA"))).all()
+        .where(in_values(DNSZone.server_id, member_ids),
+               func.upper(DNSRecord.type).in_(types)))).all()  # bounded: 至多 9 種紀錄類型（COMPARE_TYPES）
     for sid, zname, nn, rtype, vn in rows:
         if skip(zname):
             continue
@@ -197,7 +227,8 @@ async def check_group(session: AsyncSession, group: DNSCompareGroup, *, now: dat
     if not_ready:
         return done("incomplete", ", ".join(not_ready))
     ids = [m.id for m in members]
-    zones, recs, missing_norm = await _snapshot(session, ids, frozenset(normalize_zone_list(group.excluded_zones)))
+    types = tuple(normalize_compare_types(group.compare_types) or DEFAULT_COMPARE_TYPES)
+    zones, recs, missing_norm = await _snapshot(session, ids, frozenset(normalize_zone_list(group.excluded_zones)), types)
     if missing_norm:
         # 升級前同步進來的紀錄還沒有正規化欄位：下一輪同步就會補上
         return done("incomplete", f"{missing_norm} records waiting for the next sync")

@@ -82,3 +82,28 @@ async def test_name_does_not_flap_on_record_order(db_session, monkeypatch):
     await dns_sync.pull_server(db_session, server)
     await db_session.refresh(ipa)
     assert ipa.hostname == "aaa"
+
+
+async def test_zone_apex_name_does_not_replace_host_names(db_session, monkeypatch):
+    """區域頂端的 A（網域本身指向每台 DC，UCS 2026-10-14 起也拉進來）不可以蓋掉主機名稱，
+    也不可以把名字數推到「太多就不報」；只有這個 IP 沒有別的名字時才用網域名稱（維持以前的行為）。"""
+    ipa = await _mk_ip(db_session, "10.10.0.5")
+    sub_id = ipa.subnet_id
+    from app.models.address import IPAddress
+    ipb = IPAddress(subnet_id=sub_id, ip="10.10.0.6")
+    db_session.add(ipb)
+    server = DNSServer(name="ucs-apex", type="univention_ucs")
+    db_session.add(server)
+    await db_session.flush()
+    _patch(monkeypatch, [
+        DNSRecordOp(name="example.com", type="A", value="10.10.0.5"),
+        DNSRecordOp(name="dc1.example.com", type="A", value="10.10.0.5"),
+        DNSRecordOp(name="sso.example.com", type="A", value="10.10.0.5"),
+        DNSRecordOp(name="portal.example.com", type="A", value="10.10.0.5"),
+        DNSRecordOp(name="example.com", type="A", value="10.10.0.6"),
+    ])
+    await dns_sync.pull_server(db_session, server)
+    await db_session.refresh(ipa)
+    await db_session.refresh(ipb)
+    assert ipa.hostname == "dc1.example.com", "網域本身不算一個主機名稱，也不推高名字數"
+    assert ipb.hostname == "example.com", "只有網域名稱時照舊用它"

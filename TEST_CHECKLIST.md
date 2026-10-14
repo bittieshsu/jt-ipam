@@ -1544,6 +1544,15 @@ Automated: `backend/tests/test_isoinsight_parser.py`, `test_isoinsight_config.py
 `test_isoinsight_sync.py` (database: matching, merge, non-destructive rules, lock, schedule, 20,000 leases),
 `test_isoinsight_api.py`, `test_isoinsight_mcp.py`. They prove what jt-ipam does, **not** that the device accepts it.
 
+- [ ] **A device saying the credentials are wrong means exactly that** (customer device 2026-10-14; `test_isoinsight_client.py`,
+  `e2e/isoinsight.spec.ts`): a login answering HTTP 200 with a message field (msg, message, errmsg…) such as Invalid
+  User/Password, Login failed or 帳號或密碼錯誤 → AUTH_FAILED, the detail column shows "The device refused the login" with the
+  device's text and what to check, and **no longer** asks to change the token path; also when code is still "200". A message
+  that looks like success (such as OK) with the token simply not at the configured path still shows the response shape and the token path hint.
+  "Test it yourself with curl" in the connection test (`src/utils/__tests__/isoinsightCurl.test.ts`): the commands follow the method, format,
+  parameter names, token location and TLS verification, the password is a placeholder (never the real one), and it opens when the login fails;
+  run on the jt-ipam host with the password filled in, the result matches the connection test
+
 - [ ] **Login response structure when the token is missing** (customer 2026-10-13; `test_isoinsight_config.py`,
   `test_isoinsight_client.py`): when token mode finds nothing at the configured path, the test's detail column lists the
   login response's fields and types (no values, never the token), with values for code/msg; setting the path it shows
@@ -2046,6 +2055,25 @@ happy path of "an upload succeeded" is not enough.
 
 ### Recent (v0.6.45–v0.6.55 and not yet released)
 
+- [ ] **DNS comparison groups choose the record types** (2026-10-14; `tests/test_dns_compare_types.py`, `tests/test_dns_ucs_adapter.py`, `e2e/dns-compare-groups.spec.ts`, migration 0214):
+  a new group has A, AAAA and PTR ticked under "Record types compared", with CNAME, MX, TXT, NS, SRV and CAA available; clearing all cannot be saved; the table has a column for it.
+  After ticking CNAME and clicking Pull on the members, aliases are stored and compared (a difference between two servers is listed); removing it clears the extra records at the next pull;
+  servers outside groups still store only A, AAAA and PTR; the DNS/IPAM consistency figures (`/dns/consistency`, the inconsistent list, MCP) count only A, AAAA and PTR. UCS reads the zone apex
+  A/AAAA/NS/MX/TXT, SRV, TXT and NS delegations; the zone apex name does not replace a domain controller's host name, while an address with only the domain name still gets it.
+  The group table needs no horizontal scrolling at 1440 px: short columns fit their content, the rest goes to "Zones not compared", and "Notify" is hidden by default (`src/utils/__tests__/fitColumns.test.ts`)
+- [ ] **Integrated DHCP servers are no longer red "Rogue DHCP"** (customer 2026-10-14; `backend/tests/test_dhcp_known_servers.py`):
+  an address a scan agent saw serving DHCP shows the red icon; after adding that server to any DHCP integration (Windows DHCP, Kea, ISC, Technitium,
+  ISOinsight, MikroTik, OPNsense, pfSense, FortiGate, Palo Alto, Check Point) the IP list shows "DHCP server (auto)" with the integration kind in the tooltip,
+  and anomaly detection "Rogue DHCP" no longer lists it; a Windows DHCP host entered as an FQDN or short name that matches the IP record's host name also counts,
+  a different name (including another domain) stays red; IP investigation's DHCP section names the integration; replies through a DHCP relay do not turn the list red.
+  `test_every_dhcp_source_type_is_collected` fails when a new DHCP source is not included
+- [ ] **DNS comparison groups offer "Zones not compared" while creating** (2026-10-14; `e2e/dns-compare-groups.spec.ts`, `tests/test_dns_compare_group_api.py`):
+  with no members chosen the list is empty; after choosing members it lists the zones pulled from them (normalized, deduplicated); changing members while
+  editing updates it; non-admins get 403 from zone-options
+- [ ] **UCS without the UDM REST API says so** (2026-10-14; `tests/test_dns_ucs_adapter.py`, `e2e/dns-compare-groups.spec.ts`): an API URL pointing at a UCS
+  server without the UDM REST API (a Replica, or `/univention/udm/` answers 404) gives a test/pull error saying the API is missing with the install command,
+  no raw HTML; an account outside the authorized groups (403 Not in allowed groups) gets the directory/manager/rest/authorized-groups setting, no raw JSON;
+  choosing UCS when adding a DNS server shows "Enable the UDM REST API" with the three commands (install, authorized group, restart)
 - [ ] **Device link may be stale: device down plus mismatched MAC vendor** (2026-10-14; `backend/tests/test_anomaly_device_vendor_mismatch.py`, `e2e/anomaly-stale-link-reason.spec.ts`):
   an IP linked to network equipment (for example a UniFi access point) that is disabled or down in LibreNMS, with a MAC from another vendor (for example a TV)
   on the address, is listed under "Device link may be stale"; the "Reason" column reads "Device is disabled in LibreNMS; the MAC is from X, not Ubiquiti"

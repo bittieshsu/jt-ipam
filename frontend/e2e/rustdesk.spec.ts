@@ -187,8 +187,11 @@ test("新增伺服器：客戶端位址格式不對會被擋下，正確的可�
   await page.getByTestId("rustdesk-create").click();
   await page.getByTestId("rustdesk-name").locator("input").fill(name);
   await page.getByTestId("rustdesk-client-address").locator("input").fill("rd.example.net/evil");
+  // 先等存檔的回應再看訊息：發版 e2e 平行跑時回應超過 5 秒，訊息還沒出來就逾時（v1.0.10、v1.0.11 各一次）
+  const rejected = page.waitForResponse((r) => r.request().method() === "POST" && /\/rustdesk\/servers$/.test(r.url()));
   await page.getByTestId("rustdesk-save").click();
-  await expect(page.locator(".n-message")).toBeVisible();
+  expect((await rejected).status()).toBe(422);
+  await expect(page.locator(".n-message")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("rustdesk-servers").locator("tr", { hasText: name })).toHaveCount(0);
   await page.getByTestId("rustdesk-client-address").locator("input").fill("rd2.example.net:21116");
   await page.getByTestId("rustdesk-save").click();

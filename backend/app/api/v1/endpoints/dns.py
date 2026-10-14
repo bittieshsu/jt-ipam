@@ -38,7 +38,7 @@ from app.schemas.dns import (
 )
 from app.services.dns import DNSAdapterError, get_adapter
 from app.services.dns.factory import explicit_winrm_transport
-from app.services.dns_sync import pull_server
+from app.services.dns_sync import IPAM_RECORD_TYPES, pull_server
 
 router = APIRouter(prefix="/dns", tags=["dns"], dependencies=[Depends(require_global_read)])
 
@@ -407,6 +407,22 @@ async def list_compare_groups(session: Annotated[AsyncSession, Depends(get_sessi
     return [await _group_out(session, g, counts) for g in groups]
 
 
+@router.get("/compare-groups/zone-options", response_model=list[str], dependencies=[Depends(require_admin)])
+async def compare_group_zone_options(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    server_ids: Annotated[list[uuid.UUID], Query(max_length=200)] = [],  # noqa: B006
+) -> list[str]:
+    """「不比對的 zone」選單：目前選的成員拉回來的 zone（正規化、去重複）。
+
+    以前只有存檔後的群組帶 zones，新增時選了成員也沒得選、編輯時改了成員也不會更新（使用者 2026-10-14）。
+    """
+    if not server_ids:
+        return []
+    from app.services.dns_compare import normalize_zone_list
+    return normalize_zone_list(list((await session.execute(
+        select(DNSZone.name).where(in_values(DNSZone.server_id, server_ids)).distinct())).scalars().all()))
+
+
 @router.post("/compare-groups", response_model=DNSCompareGroupRead, status_code=201, dependencies=[Depends(require_admin)])
 async def create_compare_group(
     payload: DNSCompareGroupCreate, user: CurrentUser, request: Request,
@@ -415,7 +431,8 @@ async def create_compare_group(
     from app.services.dns_compare import normalize_zone_list
     g = DNSCompareGroup(name=payload.name.strip(), description=payload.description,
                      notify_enabled=payload.notify_enabled, grace_minutes=payload.grace_minutes,
-                     excluded_zones=normalize_zone_list(payload.excluded_zones))
+                     excluded_zones=normalize_zone_list(payload.excluded_zones),
+                     compare_types=list(payload.compare_types))
     session.add(g)
     try:
         await session.flush()
@@ -426,7 +443,8 @@ async def create_compare_group(
     members = await _set_members(session, g, payload.server_ids)
     await append_audit(session, object_type="dns_compare_group", object_id=str(g.id), action="create",
                        diff={"name": g.name, "grace_minutes": g.grace_minutes, "notify_enabled": g.notify_enabled,
-                             "members": members["added"], "excluded_zones": g.excluded_zones}, **_audit_kw(user, request))
+                             "members": members["added"], "excluded_zones": g.excluded_zones,
+                             "compare_types": g.compare_types}, **_audit_kw(user, request))
     await session.commit()
     await session.refresh(g)
     if len(members["added"]) >= 2:
@@ -458,6 +476,10 @@ async def update_compare_group(
         if zones != list(g.excluded_zones or []):
             diff["excluded_zones"] = {"from": list(g.excluded_zones or []), "to": zones}
             g.excluded_zones = zones
+    if payload.compare_types is not None and payload.compare_types != list(g.compare_types or []):
+        # 新勾的類型要等各台下一次拉取才有資料（dns_sync 依群組設定存）；拿掉的類型下一次拉取會清掉
+        diff["compare_types"] = {"from": list(g.compare_types or []), "to": payload.compare_types}
+        g.compare_types = payload.compare_types
     await append_audit(session, object_type="dns_compare_group", object_id=str(g.id), action="update",
                        diff=diff, **_audit_kw(user, request))
     try:
@@ -467,7 +489,7 @@ async def update_compare_group(
         raise HTTPException(409, detail=ui_detail("dns_compare_group_name_taken", "DNS comparison group name already exists")
                             ) from exc
     await session.refresh(g)
-    if "members" in diff or "excluded_zones" in diff:
+    if "members" in diff or "excluded_zones" in diff or "compare_types" in diff:
         await _recheck(session, g)
     return await _group_out(session, g)
 
@@ -740,6 +762,8 @@ async def consistency_summary(
     rows = (
         await session.execute(
             select(DNSRecord.consistency_state, func.count())
+            # 只看 IPAM 有對應的類型：比對群組另外存的 CNAME／MX…不是「IPAM 沒有」
+            .where(DNSRecord.type.in_(IPAM_RECORD_TYPES))
             .group_by(DNSRecord.consistency_state)
         )
     ).all()
@@ -758,7 +782,7 @@ async def list_inconsistent(
             select(DNSRecord, DNSZone, DNSServer)
             .join(DNSZone, DNSZone.id == DNSRecord.zone_id)
             .join(DNSServer, DNSServer.id == DNSZone.server_id)
-            .where(DNSRecord.consistency_state != "consistent")
+            .where(DNSRecord.consistency_state != "consistent", DNSRecord.type.in_(IPAM_RECORD_TYPES))
             .limit(limit)
         )
     ).all()

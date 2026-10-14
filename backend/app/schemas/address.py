@@ -168,7 +168,8 @@ class IPAddressRead(IPAddressBase):
     dhcp_exclusion: dict[str, Any] | None = None
     # ── 清單視覺化用的特殊角色旗標 ──
     is_dhcp_server: bool = False     # 手動標記為 DHCP 伺服器
-    dhcp_server_auto: bool = False   # 自動：此 IP = 已整合 OPNsense/pfSense 防火牆的 IP（讀取端推導）
+    dhcp_server_auto: bool = False   # 自動：此 IP = 整合中的 DHCP 來源指向的主機（讀取端推導，services/dhcp_known）
+    dhcp_server_integration: str | None = None   # 對到哪一種整合（產品名稱，不帶整合名稱），給提示用
     is_gateway: bool = False         # 此 IP = 所屬子網路的閘道（讀取端推導）
     in_dhcp_range: bool = False      # 此 IP 落在 OPNsense DHCP pool 範圍內（讀取端推導）
     # 掃描代理實際觀測到這個位址在回應 DHCP 的時間（讀取端推導）。

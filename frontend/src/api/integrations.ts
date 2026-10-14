@@ -109,6 +109,8 @@ export interface DNSCompareGroup {
   excluded_zones: string[];
   /** 成員拉回來的 zone：給「不比對的 zone」選單用 */
   zones: string[];
+  /** 比對哪些紀錄類型（預設 A、AAAA、PTR） */
+  compare_types: string[];
 }
 
 export interface DNSCompareGroupInput {
@@ -118,7 +120,12 @@ export interface DNSCompareGroupInput {
   grace_minutes?: number;
   server_ids?: string[];
   excluded_zones?: string[];
+  compare_types?: string[];
 }
+
+/** 比對群組可以選的紀錄類型（與後端 dns_compare.COMPARE_TYPES 同順序） */
+export const DNS_COMPARE_TYPES = ["A", "AAAA", "PTR", "CNAME", "MX", "TXT", "NS", "SRV", "CAA"] as const;
+export const DNS_COMPARE_DEFAULT_TYPES = ["A", "AAAA", "PTR"];
 
 export interface DNSCompareGroupDiff {
   id: string;
@@ -136,6 +143,15 @@ export interface DNSCompareGroupDiff {
 
 export async function listDNSCompareGroups(): Promise<DNSCompareGroup[]> {
   return (await apiClient.get<DNSCompareGroup[]>("/api/v1/dns/compare-groups")).data;
+}
+
+/** 「不比對的 zone」選單：目前選的成員拉回來的 zone（新增時、編輯時改了成員都適用） */
+export async function getDNSCompareGroupZoneOptions(serverIds: string[]): Promise<string[]> {
+  if (!serverIds.length) return [];
+  return (await apiClient.get<string[]>("/api/v1/dns/compare-groups/zone-options", {
+    params: { server_ids: serverIds },
+    paramsSerializer: { indexes: null },   // server_ids 重複同一個 key
+  })).data;
 }
 
 export async function createDNSCompareGroup(payload: DNSCompareGroupInput): Promise<DNSCompareGroup> {

@@ -49,6 +49,9 @@ class DNSCompareGroup(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: 不比對的 zone（正規化後的名稱；空＝全部都比）：主從只複寫部分 zone、或某台另外放自己的 zone 時用（0204）
     excluded_zones: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    #: 比對哪些紀錄類型（0214，預設 A／AAAA／PTR）：勾了其他類型，成員拉取時那些類型也會存下來（dns_sync）
+    compare_types: Mapped[list[str]] = mapped_column(
+        JSONB, default=lambda: ["A", "AAAA", "PTR"], server_default='["A", "AAAA", "PTR"]', nullable=False)
 
     __table_args__ = (
         CheckConstraint("grace_minutes >= 0 AND grace_minutes <= 1440", name="ck_dns_compare_groups_grace"),

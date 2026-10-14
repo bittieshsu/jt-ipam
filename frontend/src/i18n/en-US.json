@@ -1309,7 +1309,7 @@
     "role_gateway_hint": "This IP is the subnet's gateway",
     "role_dhcp_server": "DHCP server",
     "role_dhcp_server_manual": "Manually marked as a DHCP server",
-    "role_dhcp_server_auto": "Matches an integrated OPNsense / pfSense firewall IP",
+    "role_dhcp_server_auto": "An integrated DHCP source ({src})",
     "role_dhcp_range": "DHCP",
     "role_dhcp_range_hint": "This IP is within a DHCP range / currently has a lease",
     "is_dhcp_server": "Mark as DHCP server",
@@ -1402,7 +1402,8 @@
     "um_seen_by": "seen by {sources} · {ago}",
     "source_isoinsight": "ISOinsight",
     "source_technitium": "Technitium DHCP",
-    "source_checkpoint": "Check Point"
+    "source_checkpoint": "Check Point",
+    "role_dhcp_server_auto_plain": "An integrated DHCP source"
   },
   "subnets": {
     "title": "Subnets",
@@ -1996,7 +1997,7 @@
     "compare_group_none": "Not in a comparison group",
     "compare_group_hint": "Put DNS servers whose content should match (for example primary/secondary or AD-integrated) in one comparison group: identical records are shown once, and the servers' data is compared after each pull. jt-ipam does not sync records between the servers.",
     "cg_title": "Comparison groups",
-    "cg_intro": "Put DNS servers whose content should match (primary/secondary, AD-integrated, multi-primary and so on, replicating among themselves) in one group. jt-ipam does not sync or change records between them; it only compares the data pulled from each one. The DNS records page, anomaly detection and IP change assessment show identical records once with the servers that hold them; after each pull the group is compared, differences are listed, and confirmed ones are alerted through notifications. A, AAAA and PTR records are compared; AD service locator data (_msdcs, TrustAnchors, DomainDnsZones, ForestDnsZones) is not; when only some zones are replicated, the others can be left out.",
+    "cg_intro": "Put DNS servers whose content should match (primary/secondary, AD-integrated, multi-primary and so on, replicating among themselves) in one group. jt-ipam does not sync or change records between them; it only compares the data pulled from each one. The DNS records page, anomaly detection and IP change assessment show identical records once with the servers that hold them; after each pull the group is compared, differences are listed, and confirmed ones are alerted through notifications. A, AAAA and PTR records are compared by default (each group can also compare CNAME, MX, TXT and others); AD service locator data (_msdcs, TrustAnchors, DomainDnsZones, ForestDnsZones) is not; when only some zones are replicated, the others can be left out.",
     "cg_create": "New comparison group",
     "cg_edit": "Edit comparison group",
     "cg_empty": "No comparison groups yet",
@@ -2048,7 +2049,13 @@
     "cg_last_seen": "Last seen",
     "cg_confirmed": "Confirmed",
     "cg_pending": "Pending",
-    "cg_no_diffs": "No differences"
+    "cg_no_diffs": "No differences",
+    "help_ucs_rest": "A 404 from the connection test (/univention/udm/ not found) means that server has no UDM REST API: Primary and Backup Directory Nodes have it by default, a Replica Directory Node or a server where it was never installed does not. A 403 \"Not in allowed groups\" means the account is not in a group allowed to use the API (the UCR variables directory/manager/rest/authorized-groups/*, often missing when the API was installed by hand on a Replica; compare with ucr search authorized-groups on the Primary). Run the three lines below as root on that server; afterwards https://<UCS host>/univention/udm/ should ask for a login (401) instead of 404. You can also use the Primary Directory Node's address.",
+    "help_ucs_rest_title": "Enable the UDM REST API",
+    "cg_types": "Record types compared",
+    "cg_types_hint": "A, AAAA and PTR (the three IPAM tracks) are compared by default. Other types are stored from the members' next pull once ticked (click each server's Pull); types a server cannot read show no differences. AD service locator data is never compared.",
+    "cg_types_required": "Choose at least one record type",
+    "cg_types_col": "Types compared"
   },
   "scope_overlap": {
     "warning": "Overlapping subnets detected (the same IP exists in more than one subnet). This integration has no subnet scope set, so a sync may stamp liveness / DHCP / MAC onto the wrong tenant's copy of an IP. Consider setting the subnet scope below."
@@ -3738,7 +3745,9 @@
     "v_sep": "; ",
     "v_field": "{field}: {reason}",
     "librenms_vlan_domain_not_found": "The selected VLAN domain was not found (it may have been deleted). Choose it again.",
-    "ai_embedding_dim_mismatch": "The embedding model outputs {got} dimensions but {expected} are needed: use a {expected}-dimension embedding model (such as granite-embedding:278m)."
+    "ai_embedding_dim_mismatch": "The embedding model outputs {got} dimensions but {expected} are needed: use a {expected}-dimension embedding model (such as granite-embedding:278m).",
+    "dns_ucs_no_rest": "This UCS server has no UDM REST API ({url} returned 404): run univention-install univention-directory-manager-rest on it, or use the Primary Directory Node's address",
+    "dns_ucs_not_allowed": "Account {user} is not in a group allowed to use the UDM REST API on this UCS server: on that server add the account's group (for example Domain Admins) with ucr set directory/manager/rest/authorized-groups/<name>=<group DN>, then restart univention-directory-manager-rest"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -5232,7 +5241,8 @@
     "console_unknown_user": "(deleted account)",
     "console_from": "from {ip}",
     "console_login_as": "logged in as {user}",
-    "console_duration": "connected {time}"
+    "console_duration": "connected {time}",
+    "dhcp_server_integrated": "integrated DHCP server ({src})"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -7698,7 +7708,14 @@
     "result_col": "Result",
     "run_counts_col": "Outcome counts",
     "err_missing": "Please fill in: {fields}",
-    "err_scope_required": "Select at least one subnet under \"{label}\": leases are matched only within them"
+    "err_scope_required": "Select at least one subnet under \"{label}\": leases are matched only within them",
+    "login_refused": "The device refused the login: \"{msg}\"",
+    "login_refused_hint": "The account or password is wrong, or this account cannot log in through the API (the login method itself is fine). Enter the password again and retest; if it still fails, send one login with curl from the jt-ipam host to tell whether it is the credentials or the device.",
+    "curl_title": "Test it yourself with curl",
+    "curl_hint": "Run these on the jt-ipam host (same network path as jt-ipam) and replace <password> with the real password (rewrite single quotes in it). Line 1 is the same login and its response should contain {token}; put it into line 2 to read the leases. If curl is refused too, the credentials or the account's permissions are the problem; check with the device administrator or the vendor.",
+    "curl_login": "Log in",
+    "curl_fetch": "Read leases",
+    "curl_ph_password": "<password>"
   },
   "approval": {
     "title": "Approval settings",

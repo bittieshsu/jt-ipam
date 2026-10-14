@@ -2,7 +2,7 @@
 /**
  * IP 角色標記（清單視覺化）：閘道 / DHCP 伺服器 / 在 DHCP 範圍內。
  * 用緊湊 icon（+tooltip）呈現，避免寬文字標籤把 IP 欄擠成一條線。
- * 旗標由後端讀取端推導（is_gateway / is_dhcp_server / dhcp_server_auto / in_dhcp_range /
+ * 旗標由後端讀取端推導（is_gateway / is_dhcp_server / dhcp_server_auto＋dhcp_server_integration / in_dhcp_range /
  * in_dhcp_lease / dhcp_observed_at）。
  *
  * 「有沒有登記」與「有沒有真的在發」是兩回事，兩個都要看得到：
@@ -68,7 +68,9 @@ const srcLabel = () => {
         </n-icon>
       </template>
       {{ t("addresses.role_dhcp_server") }} —
-      {{ r().is_dhcp_server ? t("addresses.role_dhcp_server_manual") : t("addresses.role_dhcp_server_auto") }}
+      {{ r().is_dhcp_server ? t("addresses.role_dhcp_server_manual")
+         : r().dhcp_server_integration ? t("addresses.role_dhcp_server_auto", { src: r().dhcp_server_integration })
+         : t("addresses.role_dhcp_server_auto_plain") }}
       <template v-if="observedAt()">
         <br>{{ t("addresses.role_dhcp_observed", { at: fmtDateTime(observedAt()!) }) }}
       </template>

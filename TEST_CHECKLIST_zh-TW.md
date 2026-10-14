@@ -1112,6 +1112,13 @@ DHCP 伺服器在中間挖洞的範圍存成好幾段，洞本身寫進 `dhcp_ex
 （資料庫：配對、合併、非破壞性、鎖、排程、兩萬筆租約）、`test_isoinsight_api.py`、`test_isoinsight_mcp.py`。
 這些只證明 jt-ipam 的行為，**不代表**設備接受。
 
+- [ ] **設備說帳密錯就是帳密錯**（客戶實機 2026-10-14；`test_isoinsight_client.py`、`e2e/isoinsight.spec.ts`）：
+  登入回 HTTP 200 但訊息欄位（msg、message、errmsg…）寫 Invalid User/Password、Login failed、帳號或密碼錯誤這類字樣
+  → AUTH_FAILED，說明欄寫「設備拒絕登入：「原文」」與排查方向，**不再**叫人改 Token 欄位路徑；code 照樣是 "200" 也一樣。
+  訊息看起來是成功（例如 OK）、只是 Token 不在設定的路徑 → 照舊顯示回應結構與 Token 路徑提示。
+  測試連線的「用 curl 自己測」（`src/utils/__tests__/isoinsightCurl.test.ts`）：指令跟著方法、格式、參數名、Token 位置、TLS 驗證走，
+  密碼是佔位字（不可出現真的密碼），登入失敗時自動展開；複製下來在 jt-ipam 主機上替換密碼執行，結果要與測試連線一致
+
 - [ ] **Token 取不到時看得到回應結構**（2026-10-13 客戶；`test_isoinsight_config.py`、`test_isoinsight_client.py`）：
   Token 模式設定的路徑取不到值時，測試連線「說明」欄列出登入回應的欄位與型別（不含值，Token 不可出現），code／msg 給值；
   照著改路徑（例如 result.Session）再測要過。路徑只差大小寫且同一層唯一時照樣取到，說明欄寫出實際欄位；整數 Token 也接受
@@ -1478,6 +1485,23 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
 
 ### 近期（v0.6.45–v0.6.55 與尚未發布）
 
+- [ ] **DNS 比對群組選比對類型**（2026-10-14；`tests/test_dns_compare_types.py`、`tests/test_dns_ucs_adapter.py`、`e2e/dns-compare-groups.spec.ts`、migration 0214）：
+  新增群組時「比對的紀錄類型」預設勾 A、AAAA、PTR，另有 CNAME、MX、TXT、NS、SRV、CAA；全部取消不能存；表格有「比對的紀錄類型」欄。
+  勾 CNAME 後對成員按「拉取」，別名才存進來並開始比對（兩台不同就列差異）；拿掉後下一次拉取把多存的清掉；沒分組的伺服器照舊只存 A、AAAA、PTR；
+  DNS 與 IPAM 一致性（`/dns/consistency`、不一致清單、MCP）只算 A、AAAA、PTR。UCS 拉得到區域頂端 A/AAAA/NS/MX/TXT、SRV、TXT、NS 委派；
+  區域頂端的網域名稱不會蓋掉 DC 的主機名稱，只有網域名稱的位址照舊用它。
+  群組表格在 1440 寬的畫面不用左右捲動：短欄依內容、剩下的空間給「不比對的 zone」，「發告警」預設隱藏（`src/utils/__tests__/fitColumns.test.ts`）
+- [ ] **已整合的 DHCP 伺服器不再是紅色「非法 DHCP」**（客戶 2026-10-14；`backend/tests/test_dhcp_known_servers.py`）：
+  掃描代理觀測到某位址在發 DHCP、IP 清單是紅色圖示 → 把那台加進任一種 DHCP 整合（Windows DHCP、Kea、ISC、Technitium、ISOinsight、MikroTik、
+  OPNsense、pfSense、FortiGate、Palo Alto、Check Point）後，IP 清單變成「DHCP 伺服器（自動）」、提示寫出整合種類，異常偵測「非授權 DHCP」也不再列；
+  Windows DHCP 主機填 FQDN 或短名稱、與 IP 記錄主機名稱相符也算，名稱不同（含不同網域）仍是紅的；IP 調查的 DHCP 段寫出是哪個整合；
+  經由 DHCP 中繼的回應不讓清單變紅。新增 DHCP 來源時 `test_every_dhcp_source_type_is_collected` 會擋
+- [ ] **DNS 比對群組新增時就能選「不比對的 zone」**（2026-10-14；`e2e/dns-compare-groups.spec.ts`、`tests/test_dns_compare_group_api.py`）：
+  新增群組、還沒選成員時選單是空的；選了成員後列出那幾台拉回來的 zone（正規化、去重複）；編輯時改成員也跟著更新；非管理員打 zone-options 回 403
+- [ ] **UCS 沒有 UDM REST API 時講清楚**（2026-10-14；`tests/test_dns_ucs_adapter.py`、`e2e/dns-compare-groups.spec.ts`）：
+  API URL 指向沒裝 UDM REST API 的 UCS（Replica，或 `/univention/udm/` 回 404）→ 測試連線與拉取的錯誤寫「這台 UCS 沒有 UDM REST API」與安裝指令，
+  不出現整段 HTML；帳號不在授權群組（403 Not in allowed groups）時寫出 directory/manager/rest/authorized-groups 設定，不出現整包 JSON；
+  新增 DNS 伺服器選 UCS 時，說明有「啟用 UDM REST API」與三行指令（安裝、授權群組、重啟）
 - [ ] **裝置關聯可能過期：裝置已下線＋MAC 廠牌對不上**（2026-10-14；`backend/tests/test_anomaly_device_vendor_mismatch.py`、`e2e/anomaly-stale-link-reason.spec.ts`）：
   IP 關聯到一台網路設備（例如 UniFi 基地台），那台在 LibreNMS 停用或離線，位址上的 MAC 是別家廠牌（例如電視）→ 異常偵測「裝置關聯可能過期」列出，
   「原因」欄寫「裝置在 LibreNMS 已停用，MAC 是 X 的，不是 Ubiquiti」（參數有代入）。LibreNMS 上還在線上、廠牌對得上、裝置廠牌認不得（一般伺服器）、

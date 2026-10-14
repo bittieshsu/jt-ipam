@@ -140,6 +140,28 @@ _CTRL_NO_SPACE = re.compile(r"[\x00-\x1f\x7f]")
 _SHAPE_MAX = 400
 
 
+#: 設備用來說明結果的欄位，與看起來是「登入被拒」的字樣
+_MSG_KEYS = {"msg", "message", "errmsg", "error", "error_msg", "errormsg", "errormessage", "reason", "detail"}
+_LOGIN_FAILED = re.compile(
+    r"invalid|incorrect|wrong|fail|denied|unauthori[sz]ed|forbidden|not allowed|locked|expired|bad credential"
+    r"|錯誤|失敗|無效|拒絕|不正確|未授權|鎖定", re.I)
+
+
+def login_failure_message(body: Any) -> str | None:
+    """登入回應裡設備說「登入失敗」的那句話；沒有就回 None。
+
+    原廠說成功時 code 是 "200"，但客戶實機帳密錯時 code 也是 "200"，只在 msg 寫 Invalid User/Password
+    （2026-10-14）：不能只看 code。只認訊息欄位、而且字樣像失敗的，免得把 "OK" 這種當成被拒。
+    """
+    if not isinstance(body, dict):
+        return None
+    for k, v in body.items():
+        if str(k).lower() in _MSG_KEYS and isinstance(v, str) and _LOGIN_FAILED.search(v):
+            text = _CTRL_NO_SPACE.sub(" ", v).strip()
+            return text[:120] or None
+    return None
+
+
 def describe_shape(body: Any, depth: int = 0) -> str:
     """登入回應的結構：欄位名稱與型別（字串只給長度），給人判斷 Token 路徑該填什麼。
 

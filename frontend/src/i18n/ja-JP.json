@@ -1309,7 +1309,7 @@
     "role_gateway_hint": "この IP はサブネットのゲートウェイです",
     "role_dhcp_server": "DHCP サーバー",
     "role_dhcp_server_manual": "手動で DHCP サーバーとして指定されています",
-    "role_dhcp_server_auto": "連携している OPNsense / pfSense ファイアウォールの IP と一致します",
+    "role_dhcp_server_auto": "連携中の DHCP ソース（{src}）",
     "role_dhcp_range": "DHCP",
     "role_dhcp_range_hint": "この IP は DHCP 範囲内にあるか、現在リースされています",
     "is_dhcp_server": "DHCP サーバーとして指定",
@@ -1402,7 +1402,8 @@
     "um_seen_by": "{sources}が検出 · {ago}",
     "source_isoinsight": "ISOinsight",
     "source_technitium": "Technitium DHCP",
-    "source_checkpoint": "Check Point"
+    "source_checkpoint": "Check Point",
+    "role_dhcp_server_auto_plain": "連携中の DHCP ソース"
   },
   "subnets": {
     "title": "サブネット",
@@ -1996,7 +1997,7 @@
     "compare_group_none": "どの比較グループにも属さない",
     "compare_group_hint": "内容が一致するはずの DNS サーバー（プライマリ / セカンダリ、AD 統合など）を同じ比較グループに入れると、同じレコードはまとめて表示され、取得のたびに各サーバーのデータを比較します。jt-ipam がサーバー間でレコードを同期することはありません。",
     "cg_title": "比較グループ",
-    "cg_intro": "内容が一致するはずの DNS サーバー（プライマリ / セカンダリ、AD 統合、マルチマスターなど、サーバー同士で複製しているもの）を同じグループに入れます。jt-ipam はサーバー間でレコードを同期・変更せず、各サーバーから取得したデータを比較するだけです。DNS レコードのページ、異常検知、IP 変更評価で同じレコードを 1 件にまとめ、どのサーバーにあるかを示します。取得のたびにグループ内を比較し、違いを一覧にして、確定したものは通知機能でアラートを送ります。比較するのは A・AAAA・PTR レコードで、AD のサービスロケーター情報（_msdcs、TrustAnchors、DomainDnsZones、ForestDnsZones）は比較しません。一部のゾーンだけを複製している場合は、ほかのゾーンを比較対象から外せます。",
+    "cg_intro": "内容が一致するはずの DNS サーバー（プライマリ / セカンダリ、AD 統合、マルチマスターなど、サーバー同士で複製しているもの）を同じグループに入れます。jt-ipam はサーバー間でレコードを同期・変更せず、各サーバーから取得したデータを比較するだけです。DNS レコードのページ、異常検知、IP 変更評価で同じレコードを 1 件にまとめ、どのサーバーにあるかを示します。取得のたびにグループ内を比較し、違いを一覧にして、確定したものは通知機能でアラートを送ります。既定で比較するのは A・AAAA・PTR レコード（グループごとに CNAME・MX・TXT なども追加可能）で、AD のサービスロケーター情報（_msdcs、TrustAnchors、DomainDnsZones、ForestDnsZones）は比較しません。一部のゾーンだけを複製している場合は、ほかのゾーンを比較対象から外せます。",
     "cg_create": "比較グループを追加",
     "cg_edit": "比較グループを編集",
     "cg_empty": "比較グループはまだありません",
@@ -2048,7 +2049,13 @@
     "cg_last_seen": "最終確認",
     "cg_confirmed": "確定",
     "cg_pending": "確認待ち",
-    "cg_no_diffs": "違いはありません"
+    "cg_no_diffs": "違いはありません",
+    "help_ucs_rest": "接続テストが 404（/univention/udm/ が見つからない）を返す場合、そのサーバーには UDM REST API がありません。Primary と Backup Directory Node には標準で入っていますが、Replica Directory Node や導入時に入れなかったサーバーにはありません。403「Not in allowed groups」は、アカウントが API の利用を許可されたグループに入っていないことを示します（UCR の directory/manager/rest/authorized-groups/*。Replica に手動で入れた場合によく欠けています。Primary で ucr search authorized-groups を実行して比べてください）。そのサーバーで root として下の 3 行を実行してください。導入後に https://<UCS ホスト>/univention/udm/ を開くと、404 ではなくログイン（401）を求められます。Primary Directory Node のアドレスを指定することもできます。",
+    "help_ucs_rest_title": "UDM REST API を有効にする",
+    "cg_types": "比較するレコードの種類",
+    "cg_types_hint": "既定では A・AAAA・PTR（IPAM が扱う 3 種類）を比較します。ほかの種類にチェックを入れると、メンバーの次回の取得からそのレコードも保存されます（各サーバーの「取得」を押してもかまいません）。サーバーが読めない種類には違いが出ません。AD のサービスロケーター情報は比較しません。",
+    "cg_types_required": "レコードの種類を 1 つ以上選んでください",
+    "cg_types_col": "比較する種類"
   },
   "scope_overlap": {
     "warning": "サブネットの重複を検出しました（同じ IP が複数のサブネットに存在します）。この連携にはサブネットの範囲が設定されていないため、同期の際に死活・DHCP・MAC の情報を、別の組織側の IP に書き込んでしまう可能性があります。下でサブネットの範囲を設定することを検討してください。"
@@ -3738,7 +3745,9 @@
     "v_sep": "；",
     "v_field": "{field}：{reason}",
     "librenms_vlan_domain_not_found": "指定した VLAN ドメインが見つかりません（削除された可能性があります）。選び直してください。",
-    "ai_embedding_dim_mismatch": "埋め込みモデルの出力は {got} 次元ですが、{expected} 次元が必要です：{expected} 次元の埋め込みモデル（granite-embedding:278m など）を使ってください。"
+    "ai_embedding_dim_mismatch": "埋め込みモデルの出力は {got} 次元ですが、{expected} 次元が必要です：{expected} 次元の埋め込みモデル（granite-embedding:278m など）を使ってください。",
+    "dns_ucs_no_rest": "この UCS には UDM REST API がありません（{url} が 404）。そのサーバーで univention-install univention-directory-manager-rest を実行するか、Primary Directory Node のアドレスを指定してください",
+    "dns_ucs_not_allowed": "アカウント {user} は、この UCS で UDM REST API の利用を許可されたグループに入っていません。そのサーバーで ucr set directory/manager/rest/authorized-groups/<名前>=<グループ DN> によりアカウントのグループ（例：Domain Admins）を追加し、univention-directory-manager-rest を再起動してください"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -5232,7 +5241,8 @@
     "console_unknown_user": "（削除されたアカウント）",
     "console_from": "{ip} から",
     "console_login_as": "ログインアカウント {user}",
-    "console_duration": "接続 {time}"
+    "console_duration": "接続 {time}",
+    "dhcp_server_integrated": "連携中の DHCP サーバー（{src}）"
   },
   "esxi": {
     "title": "ESXi / vCenter",
@@ -7698,7 +7708,14 @@
     "result_col": "結果",
     "run_counts_col": "処理結果の件数",
     "err_missing": "入力してください：{fields}",
-    "err_scope_required": "「{label}」を 1 つ以上選んでください。リースはこれらのサブネット内でのみ照合されます"
+    "err_scope_required": "「{label}」を 1 つ以上選んでください。リースはこれらのサブネット内でのみ照合されます",
+    "login_refused": "機器がログインを拒否しました：「{msg}」",
+    "login_refused_hint": "アカウントかパスワードが違うか、このアカウントは API でログインできません（設定したログイン方法自体は問題ありません）。パスワードを入れ直して再テストし、それでも失敗する場合は jt-ipam ホストから curl で一度ログインを送り、資格情報と機器側のどちらの問題か確認してください。",
+    "curl_title": "curl で自分でテストする",
+    "curl_hint": "jt-ipam ホスト上で実行し（jt-ipam と同じネットワーク経路）、<パスワード> を実際のパスワードに置き換えてください（パスワードに単一引用符がある場合は書き換えが必要）。1 行目は同じログインで、応答に {token} が含まれるはずです。それを 2 行目に入れてリースを読み取ります。curl でも拒否される場合は、資格情報かアカウント権限の問題です。機器の管理者かベンダーに確認してください。",
+    "curl_login": "ログイン",
+    "curl_fetch": "リースの読み取り",
+    "curl_ph_password": "<パスワード>"
   },
   "approval": {
     "title": "申請の承認設定",

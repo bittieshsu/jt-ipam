@@ -773,7 +773,8 @@ async def _sec_firewall_refs(c: _Ctx) -> dict[str, Any] | None:
 async def _sec_dhcp_rogue(c: _Ctx) -> list[dict[str, Any]] | None:
     """掃描代理在網段上觀測到的 DHCP 回應：發了這個位址的、或這個位址本身在發的。
 
-    `server_marked`＝那台伺服器在 IPAM 有沒有被標記為 DHCP 伺服器（合法與否由人判斷，這裡只給事實）。
+    `server_marked`＝那台伺服器在 IPAM 有沒有被標記為 DHCP 伺服器；`server_integration`＝它是哪個整合中的
+    DHCP 來源（與異常偵測、IP 清單同一份判斷：services/dhcp_known）。合法與否由人判斷，這裡只給事實。
     """
     from app.models.dhcp_sighting import DHCPSighting
     rows = (await c.session.execute(
@@ -784,9 +785,22 @@ async def _sec_dhcp_rogue(c: _Ctx) -> list[dict[str, Any]] | None:
     if not rows:
         return None
     servers = {str(x.server_ip).split("/")[0] for x, _ in rows}
-    marked = {(sid, str(ip).split("/")[0]) for sid, ip in (await c.session.execute(
-        select(IPAddress.subnet_id, IPAddress.ip).where(
-            IPAddress.is_dhcp_server.is_(True), in_values(IPAddress.ip, sorted(servers))))).all()}
+    marked: set[tuple[Any, str]] = set()
+    hostnames: dict[str, list[str]] = {}
+    for sid, ip, is_srv, hn in (await c.session.execute(
+        select(IPAddress.subnet_id, IPAddress.ip, IPAddress.is_dhcp_server, IPAddress.hostname).where(
+            in_values(IPAddress.ip, sorted(servers))))).all():
+        key = str(ip).split("/")[0]
+        if is_srv:
+            marked.add((sid, key))
+        if hn:
+            hostnames.setdefault(key, []).append(hn)
+    from app.services.dhcp_known import load_known_dhcp_servers
+    known = await load_known_dhcp_servers(c.session)
+
+    def _integration(srv: str) -> str | None:
+        m = known.match(srv) or [x for hn in hostnames.get(srv, []) for x in known.match(None, hn)]
+        return m[0].display if m else None
     out = []
     for x, cidr in rows:
         srv = str(x.server_ip).split("/")[0]
@@ -797,6 +811,7 @@ async def _sec_dhcp_rogue(c: _Ctx) -> list[dict[str, Any]] | None:
             "router": str(x.router).split("/")[0] if x.router else None,
             "via_relay": bool(x.via_relay), "subnet": str(cidr),
             "server_marked": (x.subnet_id, srv) in marked,
+            "server_integration": _integration(srv),
             "first_seen": _dt(x.first_seen_at), "last_seen": _dt(x.last_seen_at),
         }))
     return out

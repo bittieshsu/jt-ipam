@@ -87,6 +87,8 @@ export interface IsoStage {
   token_path_used?: string;
   /** 登入回應取不到 Token 時的結構：欄位與型別（不含值） */
   response_shape?: string;
+  /** 設備在登入回應裡說的失敗原因（例如 Invalid User/Password） */
+  login_message?: string;
   content_type?: string | null;
   bytes?: number;
   rows?: number;

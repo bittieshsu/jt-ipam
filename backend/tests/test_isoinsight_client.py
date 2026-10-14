@@ -224,6 +224,36 @@ async def test_missing_token_says_what_the_response_looks_like(srv) -> None:
         assert "very-secret-token" not in json.dumps(cli.trace, default=str) + str(ei.value)
 
 
+@pytest.mark.parametrize("body", [
+    {"msg": "Invalid User/Password", "code": "200"},          # 客戶實機 2026-10-14：帳密錯也回 code "200"
+    {"message": "Login failed", "code": 200},
+    {"errmsg": "帳號或密碼錯誤"},
+])
+async def test_device_message_saying_login_failed_is_auth_failed(srv, body) -> None:
+    """設備用訊息說登入失敗時就是帳密被拒，不是 Token 路徑沒設對（以前叫人去改 Token 欄位）。
+    原廠說成功時 code 是 "200"，但這台失敗時 code 也是 "200"：不能只看 code。"""
+    srv.route("POST", "/logon", json_resp(body))
+    async with C.IsoClient(_settings(srv, login_path="/logon", post_format="json", auth_mode="token",
+                                     token_path="SessionID"), check=_allow_loopback) as cli:
+        with pytest.raises(IsoError) as ei:
+            await cli.login()
+    assert ei.value.spec_code == "AUTH_FAILED"
+    msg = next(v for k, v in body.items() if k != "code")
+    assert msg in str(ei.value), "要講出設備說了什麼"
+    assert cli.trace[-1]["login_message"] == msg
+    assert not srv.hits("GET", "/isosvc")
+
+
+async def test_a_harmless_message_still_points_at_the_token_path(srv) -> None:
+    """訊息看起來是成功（只是 Token 不在設定的路徑）→ 照舊是 Token 路徑的問題。"""
+    srv.route("POST", "/logon", json_resp({"msg": "OK", "code": "200", "data": {"sid": "abc"}}))
+    async with C.IsoClient(_settings(srv, login_path="/logon", post_format="json", auth_mode="token",
+                                     token_path="SessionID"), check=_allow_loopback) as cli:
+        with pytest.raises(IsoError) as ei:
+            await cli.login()
+    assert ei.value.spec_code == "AUTH_RESPONSE_UNSUPPORTED"
+
+
 async def test_token_found_under_a_differently_cased_key_is_used_and_noted(srv) -> None:
     srv.route("POST", "/api/logon", json_resp({"code": 200, "sessionId": "tok-77"}))
     srv.route("GET", "/isosvc", lease_body(ROWS))

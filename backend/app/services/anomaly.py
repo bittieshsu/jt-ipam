@@ -1383,82 +1383,41 @@ async def detect_rogue_dhcp(
         )).all()
     }
 
-    # 整合中的防火牆是另一回事：那是**我們自己在管的設備**，租約、規則、NAT 都是
+    # 整合中的 DHCP 來源是另一回事：那是**我們自己在管的設備**，租約、規則、NAT 都是
     # 我們同步進來的，還要人來勾一個框說「它是 DHCP 伺服器」並不合理。
     #
-    # 這條之所以可以跨網段成立、而人工標記不行，差別在證據強度：「我們管理這台防火牆」
+    # 這條之所以可以跨網段成立、而人工標記不行，差別在證據強度：「我們管理這台」
     # 是確定的事實；「別的網段有人勾過同一個 IP 字串」不是（實機：一台服務多個網段的
     # 路由器，在別的網段被看到時會變成永遠消不掉的誤報）。
-    integrated: set[str] = set()
-    from urllib.parse import urlparse
+    # 哪些整合算數與 IP 清單的紅色圖示共用一份（services/dhcp_known）：以前這裡認得十種、
+    # 清單只認兩種，加了 Windows DHCP 整合後清單還是紅的（2026-10-14）。
+    from app.services.dhcp_known import load_known_dhcp_servers
+    known = await load_known_dhcp_servers(session)
+    # 整合的主機填名稱（WinRM 常用 FQDN）時，用伺服器那筆 IP 記錄的主機名稱對應：
+    # 先找觀測到的那個子網路裡的記錄，沒有（路由器服務別的網段）就看同一個位址的所有記錄
+    server_ips = sorted({str(sg.server_ip) for sg, _c in rows})
+    names: dict[tuple[Any, str], str] = {}
+    names_any: dict[str, list[str]] = {}
+    if known.by_name:
+        for sid, ipv, hn in (await session.execute(
+            select(IPAddress.subnet_id, IPAddress.ip, IPAddress.hostname)
+            .where(in_values(IPAddress.ip, server_ips), IPAddress.hostname.is_not(None))
+        )).all():
+            key = str(ipv).split("/")[0]
+            names[(sid, key)] = hn
+            names_any.setdefault(key, []).append(hn)
 
-    from app.models.firewall import OPNsenseFirewall
-    _fw_models = [OPNsenseFirewall]
-    try:
-        from app.models.pfsense import PfSenseFirewall
-        _fw_models.append(PfSenseFirewall)
-    except Exception:
-        pass
-    try:
-        from app.models.fortigate import FortiGateFirewall
-        _fw_models.append(FortiGateFirewall)
-    except Exception:
-        pass
-    try:
-        from app.models.paloalto import PaloAltoFirewall
-        _fw_models.append(PaloAltoFirewall)
-    except Exception:
-        pass
-    # Check Point：DHCP 由閘道發，管理伺服器的網址不是發 DHCP 的主機 → 放行它管的閘道位址
-    from app.models.checkpoint import CheckPointGateway
-    for (gw_ip,) in (await session.execute(select(CheckPointGateway.ipv4_address).where(
-            CheckPointGateway.ipv4_address.is_not(None)))).all():
-        integrated.add(str(gw_ip))
-    # 第二階段：手動新增、不在管理伺服器清單裡的閘道也是發 DHCP 的主機 → 看 Gaia API 網址的主機
-    from app.models.checkpoint_gaia import CheckPointGaiaTarget
-    for (url,) in (await session.execute(select(CheckPointGaiaTarget.gaia_url))).all():
-        host = (urlparse(str(url)).hostname or "").strip()
-        if host:
-            integrated.add(host)
-    # 獨立 DHCP 伺服器（issue #45）本來就是發 IP 的：Kea 看控制網址的主機、ISC DHCP 看回報代理的來源位址、
-    # Windows DHCP 看設定的主機（以前沒列，Windows DHCP 主機會被報成非法 DHCP）
-    from app.models.dhcp_standalone import KeaDhcpServer
-    _fw_models.append(KeaDhcpServer)
-    for model in _fw_models:
-        for (url,) in (await session.execute(select(model.api_url))).all():
-            host = (urlparse(str(url)).hostname or "").strip()
-            if host:
-                integrated.add(host)
-    from app.models.dhcp_standalone import IscDhcpServer
-    from app.models.scan_agent import ScanAgent
-    from app.models.windows_dhcp import WindowsDhcpServer
-    for (ip,) in (await session.execute(select(ScanAgent.last_source_ip).join(
-            IscDhcpServer, IscDhcpServer.agent_id == ScanAgent.id))).all():
-        if ip:
-            integrated.add(str(ip).strip())
-    for (host,) in (await session.execute(select(WindowsDhcpServer.host))).all():
-        if host:
-            integrated.add(str(host).strip())
-    # ISOinsight 本身就是發 IP 的設備：看設定的 Base URL 主機
-    from app.models.isoinsight import IsoInsightSource
-    for (url,) in (await session.execute(select(IsoInsightSource.base_url))).all():
-        host = (urlparse(str(url)).hostname or "").strip()
-        if host:
-            integrated.add(host)
-    # Technitium DHCP：主控台網址的主機，加上它回報的 DHCP 介面位址（可以跟主控台不是同一個位址）
-    from app.models.technitium import TechnitiumDhcpScope, TechnitiumDhcpServer
-    for (url,) in (await session.execute(select(TechnitiumDhcpServer.api_url))).all():
-        host = (urlparse(str(url)).hostname or "").strip()
-        if host:
-            integrated.add(host)
-    for (addr,) in (await session.execute(select(TechnitiumDhcpScope.server_address).where(
-            TechnitiumDhcpScope.server_address.is_not(None)).distinct())).all():
-        integrated.add(str(addr))
+    def _integrated(subnet_id: Any, ip: str) -> bool:
+        if known.match(ip):
+            return True
+        own = names.get((subnet_id, ip))
+        cands = [own] if own else names_any.get(ip, [])
+        return any(known.match(None, hn) for hn in cands)
 
     out: list[dict[str, Any]] = []
     for sighting, cidr in rows:
         server_ip = str(sighting.server_ip)
-        if (sighting.subnet_id, server_ip) in marked or server_ip in integrated:
+        if (sighting.subnet_id, server_ip) in marked or _integrated(sighting.subnet_id, server_ip):
             continue
         mac = str(sighting.server_mac) if sighting.server_mac else None
         out.append({

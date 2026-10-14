@@ -402,6 +402,8 @@ async def check_dns_consistency(
     rows = (
         await session.execute(
             select(DNSRecord.consistency_state, func.count())
+            # 只看 IPAM 有對應的類型（與 GET /dns/consistency 一致）
+            .where(DNSRecord.type.in_(("A", "AAAA", "PTR")))
             .group_by(DNSRecord.consistency_state)
         )
     ).all()

@@ -176,6 +176,22 @@ def _canon_ip(raw: str | None) -> str | None:
         return None
 
 
+#: IPAM 有對應的紀錄類型：平常只存這三種，一致性統計也只看這三種
+IPAM_RECORD_TYPES = ("A", "AAAA", "PTR")
+
+
+async def _kept_types(session: AsyncSession, server: DNSServer) -> frozenset[str]:
+    """這台拉取時要存哪些類型：IPAM 那三種，加上它所在的比對群組勾的類型（SOA 永遠不存）。"""
+    keep = set(IPAM_RECORD_TYPES)
+    if server.compare_group_id is not None:
+        from app.models.dns_compare_group import DNSCompareGroup
+        from app.services.dns_compare import normalize_compare_types
+        types = await session.scalar(select(DNSCompareGroup.compare_types)
+                                     .where(DNSCompareGroup.id == server.compare_group_id))
+        keep.update(normalize_compare_types(types))
+    return frozenset(keep)
+
+
 async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int]:
     """從 server 端 list_zones + list_records，更新本地 dns_records 表並標
     consistency_state。
@@ -189,6 +205,7 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
         "dns_only": 0,
         "ipam_only": 0,
     }
+    keep_types = await _kept_types(session, server)
     try:
         adapter = await get_adapter(session, server)
     except DNSAdapterError as exc:
@@ -210,6 +227,9 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
         # 避免同一 IP 有多筆 A 記錄（如 old 與 old-host）時每次 sync 挑到不同
         # 名稱 → hostname 反覆跳動、洗版異動記錄。
         dns_ip_names: dict[str, set[str]] = {}
+        # 區域頂端（網域本身）的 A：AD 的網域名稱指向每台 DC。它是網域、不是主機名稱，只在那個 IP
+        # 沒有別的名字時才用（否則會蓋掉 dc1、或把名字數推過 MANY_NAMES 而整個不報，2026-10-14）
+        dns_apex_names: dict[str, set[str]] = {}
         # 同一輪用同一個時間戳：記錄的 last_seen_at 才比得起來
         run_at = datetime.now(UTC)
         # 讀取失敗或結果可疑的 zone：它的記錄與名稱這一輪都不清（沒看到不代表伺服器上刪了）
@@ -251,9 +271,10 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
             seen: set[tuple[str, str, str]] = set()
 
             for op in records:
-                # 只保留與「IP↔名稱對應」相關的型別：正向 A/AAAA + 反向 PTR；
-                # CNAME/MX/TXT/NS/SOA/SRV/CAA 等對 IPAM 無對應價值，不取也不存。
-                if op.type not in ("A", "AAAA", "PTR"):
+                # 只保留與「IP↔名稱對應」相關的型別：正向 A/AAAA + 反向 PTR；CNAME/MX/TXT/NS/SRV/CAA 等
+                # 對 IPAM 沒有對應，平常不存 —— 只有這台所在的比對群組勾了那些類型才存（2026-10-14）。
+                # 群組拿掉某個類型後，那些紀錄不在 seen 裡，下面「伺服器上已經刪掉」那段會一併清掉
+                if (op.type or "").upper() not in keep_types:
                     continue
                 key = (op.name, op.type, op.value)
                 seen.add(key)
@@ -261,7 +282,8 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
 
                 # 正解 A/AAAA → 先收集名稱，迴圈跑完再挑穩定的一個套用（見下方）
                 if zone.type == "forward" and op.type in ("A", "AAAA") and op.value and op.name:
-                    dns_ip_names.setdefault(op.value, set()).add(op.name)
+                    is_apex = op.name.rstrip(".").lower() == zinfo.name.rstrip(".").lower()
+                    (dns_apex_names if is_apex else dns_ip_names).setdefault(op.value, set()).add(op.name)
 
                 # 正規化後的名稱與值：比對群組的比對與合併顯示用（各廠牌大小寫、結尾點、IPv6 寫法不同）
                 name_norm = normalize_name(op.name, zinfo.name)
@@ -278,7 +300,8 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
                         name_norm=name_norm, value_norm=value_norm,
                     )
                     session.add(rec)
-                    summary["dns_only"] += 1
+                    if op.type in IPAM_RECORD_TYPES:      # 比對群組多存的類型不算「IPAM 沒有」
+                        summary["dns_only"] += 1
                 else:
                     rec.ttl = op.ttl
                     rec.last_seen_at = run_at
@@ -326,6 +349,10 @@ async def pull_server(session: AsyncSession, server: DNSServer) -> dict[str, int
             key = _canon_ip(ip_val)
             if key and names:
                 by_ip.setdefault(key, set()).update(names)
+        for ip_val, names in dns_apex_names.items():
+            key = _canon_ip(ip_val)
+            if key and names and key not in by_ip:
+                by_ip[key] = set(names)
         matches = await match_existing_many(session, set(by_ip), scope_ids) if by_ip else {}
         hits = {k: m[0] for k, m in matches.items() if m[0] is not None}
         other_names: dict[uuid.UUID, set[str]] = {}

@@ -171,3 +171,99 @@ test("不比對這個 zone：一鍵排除、馬上重新比對，群組設定拿
   await row.getByRole("button", { name: "差異清單" }).click();
   await expect(page.getByTestId("dns-cg-diffs").locator("tbody tr", { hasText: "extra.example" })).toBeVisible();
 });
+
+test("新增比對群組：選了成員，「不比對的 zone」馬上有得選（不必先存檔再編輯）", async ({ page }) => {
+  // 使用者 2026-10-14：以前選單只讀存檔後群組的 zones，新增時選了成員還是「無資料」
+  await login(page);
+  await page.goto("/dns");
+  await page.getByTestId("dns-cg-create").click();
+  const m = page.getByTestId("dns-cg-modal");
+  const zoneOpts = page.locator(".n-base-select-option");
+
+  // 還沒選成員：沒有可選的 zone
+  await m.getByTestId("dns-cg-excluded").click();
+  await expect(zoneOpts).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  const zonesReq = page.waitForResponse((r) => r.url().includes("/compare-groups/zone-options") && r.status() === 200);
+  await m.getByTestId("dns-cg-members").click();
+  await page.locator(".n-base-select-option", { hasText: "e2e-ns1" }).first().click();
+  await page.locator(".n-base-select-option", { hasText: "e2e-ns2" }).first().click();
+  await page.keyboard.press("Escape");
+  await zonesReq;
+
+  await m.getByTestId("dns-cg-excluded").click();
+  await expect(zoneOpts.filter({ hasText: /^corp\.example$/ })).toHaveCount(1);
+  await expect(zoneOpts.filter({ hasText: /^extra\.example$/ })).toHaveCount(1, { timeout: 10_000 });
+  await page.keyboard.press("Escape");
+  // 不存檔（不要把樣本的兩台搬到新群組）
+  await m.getByRole("button", { name: "取消" }).click();
+});
+
+test("DNS 伺服器選 UCS：說明怎麼啟用 UDM REST API", async ({ page }) => {
+  // 使用者 2026-10-14：Backup 沒裝 UDM REST API，同步只看到一整段 Apache 404 HTML
+  await login(page);
+  await page.goto("/dns");
+  await page.getByTestId("dns-create").click();
+  await page.getByTestId("dns-type").click();
+  await page.locator(".n-base-select-option", { hasText: "Univention UCS" }).first().click();
+  const help = page.getByTestId("dns-ucs-rest-help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("啟用 UDM REST API");
+  await expect(help).toContainText("univention-install univention-directory-manager-rest");
+  await expect(help).toContainText("/univention/udm/");
+  // 手動裝上後帳號不在授權群組會回 403：說明要寫出設定
+  await expect(help).toContainText("directory/manager/rest/authorized-groups");
+  await expect(help).toContainText("systemctl restart univention-directory-manager-rest");
+});
+
+test("比對群組：比對的紀錄類型預設 A、AAAA、PTR，可以另外勾 CNAME", async ({ page }) => {
+  // 使用者 2026-10-14：「加入一個比對類型的複選，預設有 A AAAA PTR，其它有 CNAME MX TXT…」
+  await login(page);
+  await page.goto("/dns");
+  const name = `e2e-types-${Date.now().toString(36)}`;
+  await page.getByTestId("dns-cg-create").click();
+  const m = page.getByTestId("dns-cg-modal");
+  await m.getByTestId("dns-cg-name").locator("input").fill(name);
+  const types = m.getByTestId("dns-cg-types");
+  for (const ty of ["A", "AAAA", "PTR"]) await expect(types.getByRole("checkbox", { name: ty, exact: true })).toBeChecked();
+  for (const ty of ["CNAME", "MX", "TXT", "NS", "SRV"]) await expect(types.getByRole("checkbox", { name: ty, exact: true })).not.toBeChecked();
+  await types.getByRole("checkbox", { name: "CNAME", exact: true }).click();
+  const req = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/dns/compare-groups"));
+  await m.getByTestId("dns-cg-save").click();
+  expect((await req).postDataJSON().compare_types).toEqual(["A", "AAAA", "PTR", "CNAME"]);
+  const row = page.getByTestId("dns-compare-groups").locator("tr", { hasText: name });
+  await expect(row).toContainText("A, AAAA, PTR, CNAME", { timeout: 10_000 });
+
+  // 全部取消勾選不能存
+  await row.getByRole("button", { name: "編輯" }).click();
+  for (const ty of ["A", "AAAA", "PTR", "CNAME"]) await types.getByRole("checkbox", { name: ty, exact: true }).click();
+  await m.getByTestId("dns-cg-save").click();
+  await expect(page.locator(".n-message").filter({ hasText: "至少要勾一種紀錄類型" })).toBeVisible();
+  await m.getByRole("button", { name: "取消" }).click();
+
+  await row.getByRole("button", { name: "刪除" }).click();
+  const confirmBtn = page.locator(".n-popconfirm__action button").last();
+  await expect(confirmBtn).toBeVisible();
+  await confirmBtn.dispatchEvent("click");
+  await expect(row).toHaveCount(0, { timeout: 10_000 });
+});
+
+test("比對群組表格：短欄依內容縮小，剩下的空間給長欄，不用左右捲動", async ({ page }) => {
+  // 使用者 2026-10-14：「欄位寬度沒利用好，名稱、狀態都還有空間可以縮」
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await login(page);
+  await page.goto("/dns");
+  const table = page.getByTestId("dns-cg-table");
+  await expect(table.locator("tr", { hasText: "e2e-dns-group" })).toBeVisible({ timeout: 15_000 });
+  const th = (name: string) => table.locator("th", { hasText: name }).first();
+  const width = async (name: string) => (await th(name).boundingBox())!.width;
+  expect(await width("名稱")).toBeLessThan(150);
+  expect(await width("狀態")).toBeLessThan(110);
+  expect(await width("差異")).toBeLessThan(100);
+  // 長欄（不比對的 zone）拿到剩下的空間，比短欄寬
+  expect(await width("不比對的 zone")).toBeGreaterThan(await width("名稱"));
+  const scroll = await table.locator(".n-scrollbar-container").first().evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(scroll, "1440 寬的畫面不該需要左右捲動").toBeLessThanOrEqual(2);
+  if (process.env.E2E_SHOTS_DIR) await page.getByTestId("dns-compare-groups").screenshot({ path: `${process.env.E2E_SHOTS_DIR}/cg-table.png` });
+});

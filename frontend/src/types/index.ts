@@ -142,7 +142,8 @@ export interface IPAddress {
     source_name?: string | null; source_type?: string | null; engine?: string | null;
   } | null;
   is_dhcp_server?: boolean;     // 手動標記為 DHCP 伺服器
-  dhcp_server_auto?: boolean;   // 自動：對應到已整合防火牆 IP
+  dhcp_server_auto?: boolean;   // 自動：整合中的 DHCP 來源指向的主機（後端 services/dhcp_known）
+  dhcp_server_integration?: string | null;   // 哪一種整合（產品名稱）
   is_gateway?: boolean;         // 所屬子網路閘道
   in_dhcp_range?: boolean;      // 落在 DHCP pool 範圍內
   // DHCP 伺服器把這個位址排除在發放範圍外（Windows Exclusion、FortiGate exclude-range…）

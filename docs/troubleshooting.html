@@ -970,6 +970,32 @@ sudo sysctl --system</code></pre>
         </p>
       </article>
 
+      <article class="qa" id="qa-ucs-udm-rest-404">
+        <h3>
+          <span class="zh">UCS 的 DNS 拉取失敗，錯誤是 UDM REST 404（找不到 /univention/udm/）或 403（Not in allowed groups）</span>
+          <span class="en">Pulling DNS from UCS fails with UDM REST 404 (/univention/udm/ not found) or 403 (Not in allowed groups)</span>
+          <span class="ja">UCS の DNS 取得が UDM REST 404（/univention/udm/ が見つからない）または 403（Not in allowed groups）で失敗する</span>
+        </h3>
+        <p>
+          <span class="zh">jt-ipam 透過 UCS 的 UDM REST API 讀 DNS，那台沒有這個 API 時，Apache 會回 404。Primary 與 Backup Directory Node 預設會裝，Replica Directory Node、或當初沒裝的就沒有。用 root 在那台執行 <code>univention-install univention-directory-manager-rest</code>，再用 <code>systemctl status univention-directory-manager-rest</code> 確認服務在跑。裝好後瀏覽 <code>https://&lt;UCS 主機&gt;/univention/udm/</code> 應該要求登入（401），不再是 404。也可以改填 Primary Directory Node 的位址：UCS 的 DNS 資料存在 LDAP，每台 Directory Node 讀到的都一樣。裝好之後如果變成 403「Not in allowed groups」，表示帳號不在允許使用 API 的群組裡：UDM REST API 只讓 UCR 變數 <code>directory/manager/rest/authorized-groups/*</code> 列出的群組使用，手動裝在 Replica 上時常少了這組。到 Primary 執行 <code>ucr search authorized-groups</code> 對照，在那台補上同樣的設定，例如 <code>ucr set directory/manager/rest/authorized-groups/domain-admins="cn=Domain Admins,cn=groups,$(ucr get ldap/base)"</code>，再執行 <code>systemctl restart univention-directory-manager-rest</code>。</span>
+          <span class="en">jt-ipam reads DNS through the UCS UDM REST API; when that server has no such API, Apache answers 404. Primary and Backup Directory Nodes have it by default; a Replica Directory Node, or a server where it was never installed, does not. Run <code>univention-install univention-directory-manager-rest</code> as root on that server, then check the service with <code>systemctl status univention-directory-manager-rest</code>. Afterwards <code>https://&lt;UCS host&gt;/univention/udm/</code> should ask for a login (401) instead of 404. You can also use the Primary Directory Node's address: UCS keeps DNS data in LDAP, so every Directory Node reads the same data. If it then answers 403 "Not in allowed groups", the account is not in a group allowed to use the API: the UDM REST API only admits the groups listed in the UCR variables <code>directory/manager/rest/authorized-groups/*</code>, which are often missing when it was installed by hand on a Replica. Compare with <code>ucr search authorized-groups</code> on the Primary and add the same settings on that server, for example <code>ucr set directory/manager/rest/authorized-groups/domain-admins="cn=Domain Admins,cn=groups,$(ucr get ldap/base)"</code>, then run <code>systemctl restart univention-directory-manager-rest</code>.</span>
+          <span class="ja">jt-ipam は UCS の UDM REST API で DNS を読み取ります。そのサーバーに API がないと Apache が 404 を返します。Primary と Backup Directory Node には標準で入っていますが、Replica Directory Node や導入時に入れなかったサーバーにはありません。そのサーバーで root として <code>univention-install univention-directory-manager-rest</code> を実行し、<code>systemctl status univention-directory-manager-rest</code> でサービスが動いていることを確認してください。導入後に <code>https://&lt;UCS ホスト&gt;/univention/udm/</code> を開くと、404 ではなくログイン（401）を求められます。Primary Directory Node のアドレスを指定することもできます。UCS の DNS データは LDAP にあるため、どの Directory Node から読んでも同じです。導入後に 403「Not in allowed groups」になる場合は、アカウントが API の利用を許可されたグループに入っていません。UDM REST API は UCR 変数 <code>directory/manager/rest/authorized-groups/*</code> に列挙されたグループだけを受け付け、Replica に手動で入れた場合はよく欠けています。Primary で <code>ucr search authorized-groups</code> を実行して比べ、そのサーバーに同じ設定を追加してください（例：<code>ucr set directory/manager/rest/authorized-groups/domain-admins="cn=Domain Admins,cn=groups,$(ucr get ldap/base)"</code>）。その後 <code>systemctl restart univention-directory-manager-rest</code> を実行します。</span>
+        </p>
+      </article>
+
+      <article class="qa" id="qa-rogue-dhcp-integrated">
+        <h3>
+          <span class="zh">DHCP 伺服器已經加進整合，IP 清單還是顯示紅色的「非法 DHCP 伺服器」</span>
+          <span class="en">A DHCP server is already integrated, but the IP list still shows the red "Rogue DHCP server" icon</span>
+          <span class="ja">DHCP サーバーを連携に追加したのに、IP 一覧に赤い「不正な DHCP サーバー」が出たまま</span>
+        </h3>
+        <p>
+          <span class="zh">紅色圖示表示掃描代理收到這個位址發出的 DHCP 回應，而它不是已知的 DHCP 伺服器。整合中的 DHCP 來源（Windows DHCP、Kea、ISC DHCP、Technitium、ISOinsight、MikroTik，以及 OPNsense、pfSense、FortiGate、Palo Alto、Check Point 防火牆）會自動算成已知，IP 清單、異常偵測與 IP 調查用的是同一份判斷。整合的主機欄位填的是名稱（例如 WinRM 用的 FQDN）時，是用這個位址 IP 記錄上的主機名稱對應：完整名稱相同，或其中一邊只寫短名稱時比第一段。主機名稱對不上（例如 IP 記錄還沒有名稱）時，把整合的主機改填 IP，或編輯這筆 IP 勾「標記為 DHCP 伺服器」。</span>
+          <span class="en">The red icon means a scan agent received DHCP replies from this address and it is not a known DHCP server. Integrated DHCP sources (Windows DHCP, Kea, ISC DHCP, Technitium, ISOinsight, MikroTik, and OPNsense, pfSense, FortiGate, Palo Alto and Check Point firewalls) count as known automatically; the IP list, anomaly detection and IP investigation share the same check. When the integration's host field holds a name (for example the FQDN used for WinRM), it is matched against the host name on this address's IP record: the full names are equal, or the first labels are equal when one side is a short name. If the names do not match (for example the IP record has no name yet), enter the integration's host as an IP address, or edit the IP and tick "Mark as DHCP server".</span>
+          <span class="ja">赤いアイコンは、スキャンエージェントがこのアドレスからの DHCP 応答を受け取り、それが既知の DHCP サーバーではないことを示します。連携中の DHCP ソース（Windows DHCP、Kea、ISC DHCP、Technitium、ISOinsight、MikroTik、および OPNsense、pfSense、FortiGate、Palo Alto、Check Point のファイアウォール）は自動で既知として扱われ、IP 一覧・異常検知・IP 調査は同じ判定を使います。連携のホスト欄が名前（例：WinRM 用の FQDN）の場合は、このアドレスの IP レコードのホスト名と照合します。完全な名前が一致するか、片方が短い名前なら先頭のラベルが一致すれば同じとみなします。名前が一致しない場合（例：IP レコードにまだ名前がない）は、連携のホストを IP アドレスで指定するか、この IP を編集して「DHCP サーバーとして指定」にチェックを入れてください。</span>
+        </p>
+      </article>
+
       <article class="qa" id="qa-relogin">
         <h3>
           <span class="zh">升級之後所有人都被登出、要重新登入</span>

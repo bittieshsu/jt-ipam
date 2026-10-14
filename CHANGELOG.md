@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [1.0.11] - 2026-10-14
+
+### Added
+- DNS comparison groups: choose which record types to compare. A, AAAA and PTR stay the default; CNAME, MX, TXT, NS, SRV and CAA can be ticked per group. Pulls used to store only A, AAAA and PTR, so a CNAME that differed between two UCS servers could not be seen; servers in a group now also store the types that group compares (servers outside groups are unchanged, and the DNS/IPAM consistency figures still count only A, AAAA and PTR). UCS now also reads the zone apex (A, AAAA, NS, MX, TXT), host MX/TXT, SRV, TXT records and NS delegations, and logs alias/SRV/TXT/NS read failures instead of dropping them silently (migration 0214).
+
+### Fixed
+- DNS comparison groups table: columns were sized evenly, so short ones (name, status) took space while the record types and excluded zones were cut off behind the action column. Short columns are now sized to their content (a shared helper taken from the anomaly page, aware of compact tables), the remaining space goes to the excluded zones column, and "Notify" is hidden by default (it stays in the edit dialog and the column picker).
+- DNS: the zone apex name (for example an AD domain pointing at every domain controller) could replace a host name or push an address past the "too many names" limit so it got no DNS name at all; it is now used only when the address has no other name.
+- ISOinsight: a device that refuses the login answers HTTP 200 with code "200" and only says "Invalid User/Password" in msg; the connection test called this an unset token path and suggested changing it. A message field that says the login failed is now treated as refused credentials: the test shows the device's text and what to check. The connection test also offers "Test it yourself with curl": the same login and lease request built from the source settings (password as a placeholder), opened automatically when the login fails, to tell wrong credentials from a request format problem.
+- The red "Rogue DHCP server" icon in the IP list stayed after the DHCP server was added as an integration. The IP list only recognised OPNsense and pfSense as known DHCP servers, while anomaly detection recognised ten kinds of integrations; neither knew MikroTik. The IP list, anomaly detection and IP investigation now share one check that covers every DHCP source (Windows DHCP, Kea, ISC DHCP, Technitium, ISOinsight, MikroTik, OPNsense, pfSense, FortiGate, Palo Alto, Check Point), and a test fails when a new DHCP source is not included. An integration whose host is a name (such as the FQDN used for WinRM) is matched against the host name on the IP record. The tooltip names the kind of integration, and IP investigation names the integration. Replies received through a DHCP relay no longer light up the IP list either, matching anomaly detection.
+- DNS comparison groups: when creating a group, "Zones not compared" offered nothing after choosing the members; it only worked after saving and editing the group. The list now follows the members chosen in the form (also when they change while editing).
+- UCS: a server without the UDM REST API (a Replica Directory Node, or one where it was never installed) failed with a whole Apache 404 page as the error. The error now says the API is missing and how to install it; a 403 "Not in allowed groups" (the API installed by hand without the authorized-groups settings) names the UCR setting to add; other HTTP errors show the message or page title instead of raw JSON or HTML; and choosing UCS as a DNS server explains how to install the API, allow the account's group and restart the service.
+
 ## [1.0.10] - 2026-10-14
 
 ### Added

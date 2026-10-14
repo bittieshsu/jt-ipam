@@ -220,3 +220,46 @@ test("ISOinsight：新增時預設用原廠說明的登入方式；一鍵套用"
   await expect(page.locator(".n-modal").getByText("/logon", { exact: false }).first()).toBeVisible();
   await noRawKeys(page);
 });
+
+test("ISOinsight：設備說帳密錯（code 仍是 200）→ 講出設備原文，不叫人改 Token 欄位", async ({ page }) => {
+  // 客戶實機 2026-10-14：POST /logon 回 HTTP 200 {msg: "Invalid User/Password", code: "200"}
+  await login(page);
+  const token = await page.evaluate(() => sessionStorage.getItem("access_token") || "");
+  const headers = { Authorization: `Bearer ${token}` };
+  const subs = await (await page.request.get("/api/v1/subnets?page_size=50", { headers })).json();
+  const created = await page.request.post("/api/v1/isoinsight/sources", { headers, data: {
+    name: `iso-refused-${SUFFIX}`, base_url: "https://192.0.2.199", login_path: "/logon", post_format: "json",
+    username: "ipam-ro", password: "wrong", auth_mode: "token", token_path: "SessionID", token_in: "query",
+    timezone_confirmed: true, scope_subnet_ids: [subs.items[0].id], schedule_enabled: false } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const src = await created.json();
+  try {
+    await page.route(`**/api/v1/isoinsight/sources/${src.id}/test`, (route) => route.fulfill({ json: {
+      ok: false, applied: false, run_id: "00000000-0000-4000-8000-000000000001", error_code: "AUTH_FAILED",
+      error: 'login refused by the device: "Invalid User/Password"', stage: "login", http_status: 200,
+      stages: [{ stage: "login", method: "POST", post_format: "json", path: "/logon", status: 200, elapsed_ms: 22,
+                 login_method: "POST", token_found: false, response_shape: '{msg: "Invalid User/Password", code: "200"}',
+                 login_message: "Invalid User/Password" }] } }));
+    await page.goto("/isoinsight");
+    const row = page.locator("tr", { hasText: `iso-refused-${SUFFIX}` }).first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.getByTestId("iso-test").click();
+    await page.getByTestId("iso-probe-run").click();
+    const refused = page.getByTestId("iso-login-refused");
+    await expect(refused).toContainText("設備拒絕登入：「Invalid User/Password」");
+    await expect(refused).toContainText("帳號或密碼錯誤");
+    await expect(page.getByTestId("iso-response-shape")).toHaveCount(0);
+    await expect(page.locator(".n-modal")).not.toContainText("Token 欄位路徑」，例如");
+    // 登入失敗時「用 curl 自己測」自動展開：同樣的登入（原廠方式、關閉 TLS 驗證就加 -k），密碼是佔位字
+    const loginCmd = page.getByTestId("iso-curl-login");
+    await expect(loginCmd).toBeVisible();
+    await expect(loginCmd).toContainText("curl -sS -X POST 'https://192.0.2.199/logon'");
+    await expect(loginCmd).toContainText(`-d '{"username":"ipam-ro","password":"<密碼>"}'`);
+    await expect(loginCmd).not.toContainText("wrong");
+    await expect(page.getByTestId("iso-curl-fetch")).toContainText("--data-urlencode 'sessionid=<SessionID>'");
+    if (SHOTS) await page.locator(".n-modal").first().screenshot({ path: `${SHOTS}/iso-curl.png` });
+    await noRawKeys(page);
+  } finally {
+    await page.request.delete(`/api/v1/isoinsight/sources/${src.id}`, { headers });
+  }
+});

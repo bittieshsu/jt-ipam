@@ -378,6 +378,12 @@ class IsoClient:
             if token is None:
                 # 取不到時把回應的結構（欄位與型別，不含值）記下來：不然只看得到「沒有值」，不知道路徑該填什麼
                 entry["response_shape"] = cfg.scrub(cfg.describe_shape(data), [*s.secrets()])
+                refused = cfg.login_failure_message(data)
+                if refused:
+                    # 設備自己說了登入失敗（帳密錯、帳號鎖定…）：不是 Token 路徑的問題
+                    entry["login_message"] = cfg.scrub(refused, [*s.secrets()])
+                    raise self._err("AUTH_FAILED", f'login refused by the device: "{entry["login_message"]}"',
+                                    stage="login", http_status=st)
             if token is None and code is not None and str(code).strip() != "200":
                 # 原廠的登入回應帶 code（成功是 "200"）：帳密錯時仍回 HTTP 200，只是 code 不同、沒有 SessionID
                 entry["login_code"] = str(code)[:16]

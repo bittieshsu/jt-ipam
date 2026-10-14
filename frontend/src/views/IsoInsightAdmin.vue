@@ -31,6 +31,8 @@ import {
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
+import CopyButton from "@/components/CopyButton.vue";
+import { isoCurlCommands } from "@/utils/isoinsightCurl";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 
 const { t } = useI18n();
@@ -316,7 +318,15 @@ const probe = reactive({
 });
 function openProbe(r: IsoInsightSource, kind: "test" | "preview") {
   Object.assign(probe, { show: true, kind, source: r, loading: false, anonymous: false, result: null });
+  curlOpen.value = [];
 }
+// 用 curl 自己測（使用者 2026-10-14）：照來源設定產生同樣的登入與讀租約，密碼是佔位字。
+// 登入失敗時自動展開：設備說帳密錯而重填仍一樣時，要能分辨是帳密還是我們送的格式
+const curlOpen = ref<string[]>([]);
+const curlToken = computed(() => `<${probe.source?.token_path || "Token"}>`);
+const curl = computed(() => probe.source
+  ? isoCurlCommands(probe.source, { password: t("isoinsight.curl_ph_password"), token: curlToken.value }) : null);
+watch(() => probe.result, (r) => { if (r && !r.ok && (r.stage ?? "login") === "login") curlOpen.value = ["curl"]; });
 async function runProbe() {
   if (!probe.source) return;
   probe.loading = true;
@@ -337,6 +347,13 @@ const stageCols = computed<DataTableColumns<any>>(() => [
   { title: t("isoinsight.elapsed_col"), key: "elapsed_ms", width: 90, render: (s) => s.elapsed_ms != null ? `${s.elapsed_ms} ms` : "—" },
   { title: t("isoinsight.detail_col"), key: "detail", minWidth: 200, render: (s) => {
     if (s.error) return h("span", { class: "iso-err" }, codeText(s.error));
+    // 設備自己說登入失敗（客戶實機：帳密錯也回 code "200"、msg "Invalid User/Password"，2026-10-14）：
+    // 是帳密被拒，不要叫人去改 Token 欄位路徑
+    if (s.stage === "login" && s.login_message)
+      return h("div", { class: "iso-shape", "data-testid": "iso-login-refused" }, [
+        h("div", { class: "iso-err" }, t("isoinsight.login_refused", { msg: s.login_message })),
+        h("div", { class: "iso-shape-hint" }, t("isoinsight.login_refused_hint")),
+      ]);
     // 登入回應取不到 Token：列出回應的結構（欄位與型別，不含值），才知道 Token 路徑該填什麼（2026-10-13）
     if (s.stage === "login" && s.response_shape)
       return h("div", { class: "iso-shape", "data-testid": "iso-response-shape" }, [
@@ -755,11 +772,28 @@ onMounted(() => { void refresh(); void loadOptions(); });
                         :scroll-x="1300" :max-height="420" virtual-scroll data-testid="iso-preview-rows" />
         </template>
       </template>
+      <n-collapse v-if="probe.kind === 'test' && curl" v-model:expanded-names="curlOpen" style="margin-top: 4px"
+                  data-testid="iso-curl">
+        <n-collapse-item :title="t('isoinsight.curl_title')" name="curl">
+          <div class="iso-sub" style="margin-bottom: 6px">
+            {{ t("isoinsight.curl_hint", { token: probe.source?.auth_mode === "token" ? curlToken : "Cookie" }) }}
+          </div>
+          <div class="iso-curl-step">1. {{ t("isoinsight.curl_login") }} <CopyButton :text="curl.login" /></div>
+          <pre class="iso-curl" data-testid="iso-curl-login">{{ curl.login }}</pre>
+          <div class="iso-curl-step">2. {{ t("isoinsight.curl_fetch") }} <CopyButton :text="curl.fetch" /></div>
+          <pre class="iso-curl" data-testid="iso-curl-fetch">{{ curl.fetch }}</pre>
+        </n-collapse-item>
+      </n-collapse>
     </n-modal>
   </n-card>
 </template>
 
 <style scoped>
+.iso-curl-step { font-size: 13px; margin-top: 6px; }
+.iso-curl {
+  margin: 4px 0 0; padding: 8px 10px; border-radius: 4px; font-size: 12px; line-height: 1.5;
+  background: rgba(128, 128, 128, 0.12); white-space: pre-wrap; word-break: break-all;
+}
 :global(.iso-shape) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.5; }
 :global(.iso-shape-code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; background: rgba(127, 127, 127, 0.12); padding: 2px 6px; border-radius: 4px; }
 :global(.iso-shape-hint) { opacity: 0.75; }

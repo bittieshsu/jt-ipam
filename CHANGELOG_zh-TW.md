@@ -4,6 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [1.0.11] - 2026-10-14
+
+### 新增
+- DNS 比對群組可以選比對哪些紀錄類型：預設照舊是 A、AAAA、PTR，每組可以另外勾 CNAME、MX、TXT、NS、SRV、CAA。以前拉取只存 A、AAAA、PTR，兩台 UCS 的別名（CNAME）不一樣也看不出來；現在加入比對群組的伺服器會連那組勾的類型一起存（沒分組的不變，DNS 與 IPAM 的一致性統計也照舊只算 A、AAAA、PTR）。UCS 另外會讀區域頂端（A、AAAA、NS、MX、TXT）、主機的 MX/TXT、SRV、TXT 紀錄與 NS 委派，別名／SRV／TXT／NS 讀不到時會留下紀錄，不再靜靜略過（migration 0214）。
+
+### 修正
+- DNS 比對群組表格：欄寬平均分配，名稱、狀態這些短欄佔著空間，比對類型與不比對的 zone 卻被操作欄蓋住。現在短欄依內容量寬度（從異常偵測頁抽出的共用工具，並考慮緊湊表格），剩下的空間給「不比對的 zone」；「發告警」預設隱藏（編輯對話框與欄位選單裡都還有）。
+- DNS：區域頂端的名字（例如 AD 網域指向每台網域控制站）可能蓋掉主機名稱，或把位址的名字數推過「太多就不報」而整個沒有 DNS 名稱；現在只在那個位址沒有其他名字時才用它。
+- ISOinsight：設備拒絕登入時回 HTTP 200、code 也是 "200"，只在 msg 寫 "Invalid User/Password"，測試連線卻說成 Token 欄位路徑沒設對、還叫人去改。現在訊息欄位寫的是登入失敗時就判成帳密被拒，測試結果寫出設備原文與排查方向。測試連線另外提供「用 curl 自己測」：依來源設定產生同樣的登入與讀租約指令（密碼是佔位字），登入失敗時自動展開，用來分辨是帳密錯還是送出的格式有問題。
+- DHCP 伺服器已經加進整合，IP 清單上那台的紅色「非法 DHCP 伺服器」圖示還在。IP 清單只認 OPNsense、pfSense 是已知的 DHCP 伺服器，異常偵測卻認得十種整合，兩邊都漏了 MikroTik。現在 IP 清單、異常偵測、IP 調查共用一份判斷，涵蓋所有 DHCP 來源（Windows DHCP、Kea、ISC DHCP、Technitium、ISOinsight、MikroTik、OPNsense、pfSense、FortiGate、Palo Alto、Check Point），新增 DHCP 來源沒列進來時測試會失敗。整合的主機填名稱（例如 WinRM 用的 FQDN）時，用 IP 記錄上的主機名稱對應。提示會寫出是哪一種整合，IP 調查會寫出是哪個整合。經由 DHCP 中繼收到的回應，IP 清單也和異常偵測一樣不算。
+- DNS 比對群組：新增群組時選了成員，「不比對的 zone」沒有東西可選，要先存檔再編輯才有。現在選單跟著表單上選的成員走（編輯時改了成員也會更新）。
+- UCS：沒有 UDM REST API 的那台（Replica Directory Node，或當初沒裝的）拉取失敗時，錯誤訊息是一整段 Apache 的 404 網頁。現在會講出是沒有這個 API、怎麼安裝；回 403「Not in allowed groups」（手動裝上卻少了授權群組設定）時寫出要加哪個 UCR 設定；其他 HTTP 錯誤只顯示訊息或網頁標題，不再塞整段 JSON 或 HTML；選 UCS 當 DNS 伺服器時，說明會寫出怎麼安裝、怎麼允許帳號所在的群組、怎麼重啟服務。
+
 ## [1.0.10] - 2026-10-14
 
 ### 新增
