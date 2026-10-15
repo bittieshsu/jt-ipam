@@ -24,6 +24,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { renderMarkdown } from "@/utils/markdown";
 import { downloadTextFile } from "@/utils/investigateReport";
+import { evidenceVendorLabel } from "@/utils/investigateSections";
 import { listSubnets, setAnomalyScope } from "@/api/subnets";
 import { apiClient, apiErrMsg } from "@/api/client";
 import { autoSort } from "@/composables/useTableSort";
@@ -451,10 +452,10 @@ const SEEN_VENDOR: Record<string, string> = {
 /** 誰看到這個 MAC：`scanner` → 掃描代理、`arp:opnsense` → ARP 表（OPNsense） */
 function seenBy(src: string): string {
   const [kind, vendor] = src.includes(":") ? src.split(":", 2) : ["", src];
-  if (kind === "arp") return t("anomaly.seen_arp_vendor", { vendor: SEEN_VENDOR[vendor] ?? vendor });
+  if (kind === "arp") return t("anomaly.seen_arp_vendor", { vendor: SEEN_VENDOR[vendor] ?? evidenceVendorLabel(vendor, t) });
   if (vendor === "scanner") return t("anomaly.seen_scanner");
   if (vendor === "manual") return t("anomaly.seen_manual");
-  return SEEN_VENDOR[vendor] ?? vendor;
+  return SEEN_VENDOR[vendor] ?? evidenceVendorLabel(vendor, t);
 }
 function renderMac(o: Record<string, any>) {
   // 本地管理位址（虛擬機／容器／手機 MAC 隨機化）沒有 OUI 登記，查不到廠商是正常的。

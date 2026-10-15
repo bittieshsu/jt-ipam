@@ -31,7 +31,9 @@ JOB_TTL = timedelta(minutes=2)
 # 領走但沒回報（代理當掉／被 kill）多久視為失敗，才不會永遠卡在 running
 CLAIM_TTL = timedelta(minutes=5)
 # identify（服務版本＋OS 指紋）本身可能跑到四、五分鐘，要給它更長的時間才算卡住
-CLAIM_TTL_BY_KIND = {"identify": timedelta(minutes=9)}
+CLAIM_TTL_BY_KIND = {"identify": timedelta(minutes=9),
+                     # SNMP 測試／立即收集：一台設備最多 300 秒（services/snmp.BUDGET），同一台正在被排程收集時要先等它
+                     "snmp_test": timedelta(minutes=9), "snmp_collect": timedelta(minutes=9)}
 # 進度只是幾行狀態，不是結果：超過就拒收，免得被當成另一條傳大量資料的管道
 MAX_PROGRESS_BYTES = 8192
 MAX_TARGETS = 64
@@ -245,6 +247,9 @@ async def finish_job(
         await on_finished(session, job)
     if job.kind == RELAY_KIND:
         await _relay_finished(job, error)
+    if job.kind in ("snmp_test", "snmp_collect"):
+        from app.services.snmp_collect import on_job_finished
+        await on_job_finished(session, job)
     return True
 
 

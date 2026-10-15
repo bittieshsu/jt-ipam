@@ -104,7 +104,7 @@ async def test_password_keeps_its_whitespace(client, auth_headers, db_session, s
     ({"auth_mode": "token"}, None),
     ({"token_header": "Cookie", "auth_mode": "token", "token_path": "data.token"}, None),
     ({"source_timezone": "Mars/Base"}, None),
-    ({"scope_subnet_ids": []}, None),
+    ({"scope_subnet_ids": [], "scope_all": False}, "isoinsight_scope_empty"),
     ({"timezone_confirmed": False}, "isoinsight_timezone_unconfirmed"),
     ({"sync_interval_seconds": 30}, None),
 ])
@@ -129,6 +129,51 @@ async def test_scope_cannot_mix_tenants(client, auth_headers, db_session, srv) -
     r = await client.post("/api/v1/isoinsight/sources", headers=auth_headers,
                           json=_payload(srv, mine))      # 沒指定客戶，子網路卻屬於某客戶
     assert r.status_code == 422 and r.json()["detail"]["code"] == "isoinsight_scope_mixed_tenant"
+
+
+async def test_all_subnets_is_the_default_and_stays_inside_the_tenant(client, auth_headers, db_session, srv) -> None:
+    """使用者 2026-10-15：「預設可以默認全部子網路嗎」。沒給子網路清單＝全部（所選單位底下的），
+    之後新建的子網路自動納入；封存的、別的單位的不算（規格：不可跨租戶配對）。給了清單照舊只用清單。"""
+    from app.models.isoinsight import IsoInsightSource
+    from app.services.isoinsight.reconcile import scope_nets
+    ca = Customer(name=f"c-{uuid.uuid4().hex[:4]}")
+    db_session.add(ca)
+    await db_session.commit()
+    a1 = await _subnet(db_session, "192.0.2.0/24", customer=ca)
+    other = await _subnet(db_session, "198.51.100.0/24")                    # 沒有單位的子網路：不同租戶
+    p = _payload(srv, a1, customer_id=str(ca.id))
+    p.pop("scope_subnet_ids")
+    r = await client.post("/api/v1/isoinsight/sources", headers=auth_headers, json=p)
+    assert r.status_code == 201, r.text
+    assert r.json()["scope_all"] is True
+    assert r.json()["scope_subnet_ids"] == []
+    a2 = await _subnet(db_session, "203.0.113.0/24", customer=ca)          # 之後才建的
+    gone = await _subnet(db_session, "192.0.2.128/25", customer=ca)
+    from datetime import UTC, datetime
+    gone.archived_at = datetime.now(UTC)
+    await db_session.commit()
+    src = await db_session.get(IsoInsightSource, uuid.UUID(r.json()["id"]))
+    _nets, cidrs, _excl = await scope_nets(db_session, src)
+    assert set(cidrs) == {a1.id, a2.id}, "全部＝這個單位底下、沒封存的子網路"
+    assert other.id not in cidrs
+
+    # 給了清單：照舊只用清單（API 用戶端不受影響）
+    r = await client.post("/api/v1/isoinsight/sources", headers=auth_headers,
+                          json=_payload(srv, a1, customer_id=str(ca.id)))
+    assert r.status_code == 201, r.text
+    assert r.json()["scope_all"] is False
+    src = await db_session.get(IsoInsightSource, uuid.UUID(r.json()["id"]))
+    _nets, cidrs, _excl = await scope_nets(db_session, src)
+    assert set(cidrs) == {a1.id}
+
+    # 改成全部、再改回指定但沒選 → 422
+    sid = r.json()["id"]
+    r = await client.patch(f"/api/v1/isoinsight/sources/{sid}", headers=auth_headers, json={"scope_all": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["scope_all"] is True
+    r = await client.patch(f"/api/v1/isoinsight/sources/{sid}", headers=auth_headers,
+                           json={"scope_all": False, "scope_subnet_ids": []})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "isoinsight_scope_empty"
 
 
 async def test_non_admins_cannot_manage_or_read_sources(client, db_session, srv) -> None:

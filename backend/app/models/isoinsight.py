@@ -67,9 +67,12 @@ class IsoInsightSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # 隔離範圍：租戶（客戶）。允許的子網路必須都屬於它（NULL＝不屬於任何客戶的子網路）
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), index=True)
-    # 允許同步的子網路（必選）：只在這些子網路內配對，最長首碼；重疊而無法唯一判定就不配對
+    # 允許同步的子網路：只在這些子網路內配對，最長首碼；重疊而無法唯一判定就不配對
     scope_subnet_ids: Mapped[list[Any]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'::uuid[]"))
+    # 全部子網路（0216，使用者 2026-10-15）：所選單位底下、沒封存的全部子網路，之後新建的自動納入；
+    # 開著時不看 scope_subnet_ids。仍不跨單位（規格：不可跨租戶配對）
+    scope_all: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # 唯一配對到允許子網路、而且在租約期間內 → 可以新增正式 IP（關掉就只更新既有的）
     create_ips: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 

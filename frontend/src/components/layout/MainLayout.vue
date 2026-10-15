@@ -42,7 +42,7 @@ import {
   AdminIcon, AuditIcon, UsersIcon, GroupsIcon, CustomFieldsIcon, CustomersIcon, AnomalyIcon,
   AiAuditIcon, ChatHistoryIcon, ChangeImpactIcon,
   IntegrationsIcon, OkIcon, DnsIcon, LibreNMSIcon, FirewallIcon, WindowsDhcpIcon, KeaDhcpIcon, IscDhcpIcon, IsoInsightIcon, TechnitiumIcon, RustDeskIcon, WazuhIcon,
-  ScanAgentsIcon, WebhooksIcon, LockIcon, KeyIcon,
+  ScanAgentsIcon, SnmpIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
   LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, MenuIcon,
@@ -213,6 +213,7 @@ const INTEGRATION_ITEMS: [string, string, Component][] = [
   ["paloalto", "nav.paloalto", FirewallIcon],
   ["checkpoint", "nav.checkpoint", FirewallIcon],
   ["mikrotik", "nav.mikrotik", FirewallIcon],
+  ["snmp", "nav.snmp", SnmpIcon],
   ["windows_dhcp", "nav.windows_dhcp", WindowsDhcpIcon],
   ["kea_dhcp", "nav.kea_dhcp", KeaDhcpIcon],
   ["isc_dhcp", "nav.isc_dhcp", IscDhcpIcon],
@@ -229,7 +230,8 @@ const INTEGRATION_ITEMS: [string, string, Component][] = [
 // 後端 tests/test_integration_presence.py 會檢查這張表涵蓋每個整合
 const INTEGRATION_PRESENCE_KEY: Record<string, string> = {
   dns: "dns", adguard: "adguard", librenms: "librenms", firewall_admin: "opnsense", pfsense: "pfsense",
-  fortigate: "fortigate", paloalto: "paloalto", checkpoint: "checkpoint", mikrotik: "mikrotik", windows_dhcp: "windows_dhcp",
+  fortigate: "fortigate", paloalto: "paloalto", checkpoint: "checkpoint", mikrotik: "mikrotik", snmp: "snmp",
+  windows_dhcp: "windows_dhcp",
   kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium_dhcp: "technitium", isoinsight: "isoinsight", rustdesk: "rustdesk", virt_admin: "proxmox", esxi_admin: "esxi",
   wazuh: "wazuh", zabbix: "zabbix", ocs: "ocs", graylog_dsv: "graylog",
 };

@@ -37,7 +37,7 @@ const exclusionWhere = () => {
 // 這種紀錄跟「有人登記過」在意義上差很多：它可能是私接的機器，只是剛好拿到租約、
 // 或剛好被掃到。而且一旦被建進 IPAM，就不會再出現在「未授權 IP」異常偵測裡
 // （那道偵測看的是「看得到、IPAM 沒有」）—— 所以它必須在清單上一眼認得出來。
-const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner", "librenms_arp"];
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "scanner", "librenms_arp", "snmp_arp"];
 const isAutoAdded = () => AUTO_SOURCES.includes(String(r().discovery_source ?? ""));
 // 來源名稱照翻譯（librenms_arp → LibreNMS ARP）；沒有翻譯的才大寫原樣顯示
 const srcLabel = () => {

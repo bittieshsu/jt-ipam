@@ -68,6 +68,7 @@ from app.api.v1.endpoints import (
     search,
     sections,
     sftp_console,
+    snmp,
     ssh_console,
     ssh_credentials,
     sso,
@@ -193,6 +194,7 @@ api_v1_router.include_router(reports.router)
 api_v1_router.include_router(export_events.router)
 api_v1_router.include_router(checkpoint_gaia.router)
 api_v1_router.include_router(isoinsight.router)
+api_v1_router.include_router(snmp.router)
 api_v1_router.include_router(rustdesk.router)
 api_v1_router.include_router(rustdesk_agent.router)
 api_v1_router.include_router(rustdesk_console.router)

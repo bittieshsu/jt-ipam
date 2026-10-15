@@ -30,6 +30,7 @@ import { getAutolink, putAutolink, previewAutolink,
   type AutolinkConfig, type AutolinkPreview } from "@/api/system";
 import { listSubnets } from "@/api/subnets";
 import { fmtDateTime, fmtRelative } from "@/utils/datetime";
+import { evidenceVendorLabel } from "@/utils/investigateSections";
 import { apiErrMsg } from "@/api/client";
 import GlobalSearchSettings from "@/components/GlobalSearchSettings.vue";
 import { runSftpProbe, fmtRate, roughDuration, type ProbeResult } from "@/utils/sftpProbe";
@@ -283,7 +284,7 @@ const VENDOR_LABEL: Record<string, string> = {
 function srcLabel(key: string): string {
   if (!key.includes(":")) return t(`system_settings.src_${key}`);
   const [kind, vendor] = key.split(":", 2);
-  return `${t(`system_settings.src_kind_${kind}`)}（${VENDOR_LABEL[vendor] ?? vendor}）`;
+  return `${t(`system_settings.src_kind_${kind}`)}（${VENDOR_LABEL[vendor] ?? evidenceVendorLabel(vendor, t)}）`;
 }
 
 /** 分組顯示時，種類已經在列首寫過了 → 每一格只寫廠牌名。 */
@@ -292,7 +293,7 @@ function vendorLabel(key: string): string {
   // 放在「探測／監控」會既不同類、又因為字長而把那一列撐出換行。
   if (key === "arp") return "LibreNMS";
   const vendor = key.split(":", 2)[1] ?? key;
-  return VENDOR_LABEL[vendor] ?? vendor;
+  return VENDOR_LABEL[vendor] ?? evidenceVendorLabel(vendor, t);
 }
 
 /** 這個來源歸在哪一組。 */
@@ -302,7 +303,8 @@ function srcKind(key: string): string {
 }
 
 //: 分組的順序＝可信度由高到低（探測 → 防火牆的 ARP／VPN → 不會過期的租約與 ARP 記錄）
-const SRC_KINDS = ["base", "arp", "vpn", "lease"] as const;
+// iface＝設備自己的介面位址（會過期）：以前漏在這張表外，介面來源整組沒有出現在設定頁
+const SRC_KINDS = ["base", "arp", "vpn", "iface", "lease"] as const;
 
 const livenessGroups = computed(() =>
   SRC_KINDS.map((kind) => ({

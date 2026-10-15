@@ -131,6 +131,14 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     # ⚠️ 若哪天改成收 `stale`，這一列就必須改回 aging=False。
     _s("arp:mikrotik", TIER_MONITORED, aging=True),
     _s("arp:librenms", TIER_LEARNED, aging=False),
+    # SNMP 收集（掃描代理讀路由器／L3 交換器的 ARP 表，0217）。同樣叫 ARP，依「有沒有時間」分成兩個來源：
+    #   arp:snmp       ipNetToMediaTable（舊 MIB，沒有任何狀態或時間）以及新表裡不是 reachable 的項目 →
+    #                  跟 arp:librenms 同一個毛病（快取不老化，關機的機器也一直在），只補 MAC、不算上線
+    #   arp:snmp_live  IP-MIB ipNetToPhysicalTable 的 ipNetToPhysicalState＝reachable(1) 的動態項目：
+    #                  定義就是「在可達性逾時內被確認過」，跟 arp:mikrotik 只收 reachable 同一個道理 → 會過期
+    #   ⚠️ 若哪天改成 stale 也算 live，arp:snmp_live 必須改回 aging=False。
+    _s("arp:snmp", TIER_LEARNED, aging=False),
+    _s("arp:snmp_live", TIER_MONITORED, aging=True),
     _s("vpn:opnsense", TIER_MONITORED, aging=True),
     _s("vpn:pfsense", TIER_MONITORED, aging=True),
     _s("vpn:fortigate", TIER_MONITORED, aging=True),
@@ -161,6 +169,8 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
     _s("iface:fortigate", TIER_MONITORED, aging=True),
     _s("iface:mikrotik", TIER_MONITORED, aging=True),
     _s("iface:librenms", TIER_MONITORED, aging=True),
+    # SNMP 收集：介面位址（IP-MIB ipAddressTable／ipAddrTable）且該介面 ifOperStatus＝up，這一輪讀得到才蓋時間
+    _s("iface:snmp", TIER_MONITORED, aging=True),
     _s("device", TIER_MONITORED, aging=True),
 
     # 虛擬化平台：回報的是「設定上這台 VM 有這個 IP」
@@ -186,12 +196,16 @@ LIVENESS_SOURCES: tuple[str, ...] = (
     "lease:opnsense", "lease:pfsense", "lease:fortigate", "lease:paloalto",
     "lease:mikrotik", "lease:checkpoint",
     "iface:opnsense", "iface:pfsense", "iface:fortigate", "iface:mikrotik", "iface:librenms", "device",
+    # SNMP 收集（0217）：arp:snmp 不會過期（預設不採信，跟 "arp" 一樣可以自己勾）
+    "arp:snmp", "arp:snmp_live", "iface:snmp",
 )
 
 #: 2026-10-14 才加入的來源。在這之前存過設定的站台（存的值沒有 `known`）不認得它們，
 #: 讀設定時把其中會過期的自動算進去：新功能升級後要自己生效，不可以要人再去勾一次
 SOURCES_ADDED_LATER: tuple[str, ...] = (
     "iface:opnsense", "iface:pfsense", "iface:fortigate", "iface:mikrotik", "iface:librenms", "device",
+    # 2026-10-15 SNMP 收集（0217）：會過期的兩個升級後自動採信；arp:snmp 不會過期，本來就不在預設裡
+    "arp:snmp_live", "iface:snmp",
 )
 
 #: 存在 `ip_addresses.arp_seen` JSONB 裡的那些（其餘各有自己的 last_seen_* 欄位）。

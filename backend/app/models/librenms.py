@@ -201,6 +201,9 @@ class FDBEntry(Base, UUIDPrimaryKeyMixin):
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), index=True)
     mikrotik_router_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("mikrotik_routers.id", ondelete="CASCADE"), index=True)
+    #: source=snmp 的列（0217）：哪個 SNMP 收集目標回報的（刪目標時跟著刪）；switch_device_id 同樣記目標裝置
+    snmp_target_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("snmp_targets.id", ondelete="CASCADE"), index=True)
 
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

@@ -38,6 +38,7 @@ EXEMPT: dict[str, str] = {
     "rustdesk_agent.py::agent_events": "RustDesk 代理轉送客戶端的心跳／系統資訊／稽核（每 5 秒一批），這些本身就是稽核資料，另存 rustdesk_audit_events",
     "rustdesk_agent.py::agent_test_result": "RustDesk 代理送回「測試」的逐項結果；發起測試時已稽核",
     "scan_agents.py::agent_job_progress": "代理回報執行中的進度，只更新自己那筆工作的狀態欄；發起探測時已稽核",
+    "scan_agents.py::agent_snmp_report": "代理定期回報 SNMP 收集結果（ARP 每 5 分鐘一次），只收目前判定由這台代理收集的目標；收集目標與憑證的異動、測試、立即收集另有稽核，每次收集另有 snmp_runs 記錄",
     "cert_agents.py::agent_report": "憑證代理回報，高頻",
     # 個人 UI 狀態，不涉及他人可見的資料
     "notifications.py::mark_read": "個人通知已讀狀態",

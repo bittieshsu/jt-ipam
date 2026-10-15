@@ -33,6 +33,9 @@ TOOL_REST = {
     "list_attack_surface": "/api/v1/anomalies/attack-surface",
     "list_anomalies": "/api/v1/anomalies/scan",
     "list_ai_findings": "/api/v1/ai-audit/findings",
+    # 依物件授權的兩支（2026-10-15）：工具內部再依子網路／交換器可見性逐筆遮蔽，與 REST 相同
+    "switch_port_for_ip": "/api/v1/addresses/{address_id}/switch-port",
+    "list_connection_targets": "/api/v1/addresses/connections/targets",
 }
 
 

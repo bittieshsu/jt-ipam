@@ -22,6 +22,9 @@
 **建了不代表上線**：LibreNMS 的 ARP 不會過期，預設不算上線證據（services/evidence.py）。
 
 開了之後私接的設備也會被收錄，而且從此不再出現在「未授權 IP」異常偵測（設定頁要講清楚）。
+
+SNMP 收集（0217，收集目標的「依 ARP 自動建立」）共用同一套把關：`discovery_source='snmp_arp'`；
+ipNetToPhysicalTable 狀態是 reachable 的位址（`fresh_ips`）本身就證明最近在講話，不必再要 MAC 表佐證。
 """
 from __future__ import annotations
 
@@ -110,11 +113,17 @@ class _Ranges:
 async def create_from_arp(
     session: AsyncSession, instance: Any, pairs: list[tuple[str, str]], *,
     scope_ids: Any = None, now: datetime | None = None,
+    fresh_ips: set[str] | None = None, discovery_source: str = "librenms_arp",
+    change_source: str = "librenms", who: str | None = None,
+    change_note: str = "依 LibreNMS ARP 表自動建立",
 ) -> dict[str, Any]:
     """依這一輪的 (ip, mac) 建立 IPAM 還沒有的位址；回傳 {"created": n, "skipped": {原因: 筆數}}。
 
     呼叫端要在 commit 前呼叫（同一個交易）；新建的列已 flush、取得 id。
+    `fresh_ips`：來源自己就證明最近看過的位址（SNMP 的 reachable 項目），不必再要 MAC 表佐證。
+    `who`／`change_source`／`change_note`／`discovery_source`：記錄上寫誰建的（預設 LibreNMS）。
     """
+    fresh_ips = fresh_ips or set()
     from app.models.dhcp import DHCPPoolRange
     from app.models.ip_cooldown import IPCooldown
     from app.models.librenms import FDBEntry
@@ -200,7 +209,7 @@ async def create_from_arp(
         fresh = {str(m) for (m,) in (await session.execute(
             select(FDBEntry.mac).where(in_values(FDBEntry.mac, macs, type_=MACADDR()),
                                        FDBEntry.last_seen_at >= cutoff).distinct())).all()}
-        for ip in [ip for ip, (_sid, m) in placed.items() if m not in fresh]:
+        for ip in [ip for ip, (_sid, m) in placed.items() if m not in fresh and ip not in fresh_ips]:
             skipped["no_recent_fdb"] += 1
             del placed[ip]
 
@@ -232,16 +241,17 @@ async def create_from_arp(
     when = now.astimezone().strftime("%Y-%m-%d %H:%M")
     require_fdb = getattr(instance, "arp_create_require_fdb", True)
     created: list[IPAddress] = []
+    who = who or f"LibreNMS 整合「{instance.name}」"
     for ip in order:
         sid, mac = placed[ip]
-        note = (f"此 IP 由 LibreNMS 整合「{instance.name}」於 {when} 同步 ARP 表時自動建立"
-                f"（MAC {mac}{'，交換器 MAC 表 24 小時內也看過' if require_fdb else ''}）。")
-        obj = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source="librenms_arp", note=note)
+        proof = ("，設備的 ARP 狀態是 reachable" if ip in fresh_ips
+                 else "，交換器 MAC 表 24 小時內也看過" if require_fdb else "")
+        note = f"此 IP 由 {who} 於 {when} 同步 ARP 表時自動建立（MAC {mac}{proof}）。"
+        obj = IPAddress(subnet_id=sid, ip=ip, state="used", discovery_source=discovery_source, note=note)
         session.add(obj)
         created.append(obj)
     if created:
         await session.flush()      # autoflush=False：先取得 id，異動記錄與後面補 MAC 才有對象
         for obj in created:
-            await log_change(session, ip=obj, event_type="created", source="librenms",
-                             note="依 LibreNMS ARP 表自動建立")
+            await log_change(session, ip=obj, event_type="created", source=change_source, note=change_note)
     return {"created": len(created), "skipped": dict(skipped)}

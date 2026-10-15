@@ -121,6 +121,8 @@ const routes: RouteRecordRaw[] = [
       // 跳板移到掃描代理頁的頁籤（2026-10-04）；舊網址與書籤照樣到得了
       { path: "jump-hosts", name: "jump_hosts", redirect: { name: "scan_agents", query: { tab: "jump" } } },
       { path: "mikrotik", name: "mikrotik", component: () => import("@/views/MikroTikAdmin.vue"), meta: { admin: true } },
+      // SNMP 收集（0217）：掃描代理以唯讀 SNMP 讀網路設備的 ARP／MAC 表／鄰居／介面
+      { path: "snmp", name: "snmp", component: () => import("@/views/SnmpAdmin.vue"), meta: { admin: true } },
       { path: "ocs", name: "ocs", component: () => import("@/views/OcsAdmin.vue"), meta: { admin: true } },
       { path: "pfsense-fw", name: "pfsense_fw", component: () => import("@/views/PfSenseFirewallView.vue") },
       { path: "fortigate-fw", name: "fortigate_fw", component: () => import("@/views/FortiGateFirewallView.vue") },

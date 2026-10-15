@@ -33,6 +33,8 @@ export interface IsoInsightSource {
   source_timezone: string;
   customer_id: string | null;
   scope_subnet_ids: string[];
+  /** 全部子網路（所選單位底下的，之後新建的自動納入） */
+  scope_all: boolean;
   create_ips: boolean;
   enabled: boolean;
   schedule_enabled: boolean;

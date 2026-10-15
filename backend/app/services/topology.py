@@ -605,10 +605,11 @@ async def build_topology(
             .where(FDBEntry.port_name.is_not(None),
                    LibreNMSDevice.jt_ipam_device_id.is_not(None))
         )).all()
-        # MikroTik 的 bridge host 表（0170）：直接記 jt-ipam 裝置，不經 LibreNMS
+        # MikroTik 的 bridge host 表（0170）與 SNMP 收集的 MAC 表（0217）：直接記 jt-ipam 裝置，不經 LibreNMS。
+        # 不分來源（以「沒有 LibreNMS 裝置、有 jt-ipam 裝置」判斷）：以前寫死 source == "mikrotik"，新來源就畫不出來
         fdb_rows = [*fdb_rows, *(await session.execute(
             select(FDBEntry.port_name, FDBEntry.mac, FDBEntry.vlan_id_num, FDBEntry.switch_device_id)
-            .where(FDBEntry.source == "mikrotik", FDBEntry.port_name.is_not(None),
+            .where(FDBEntry.device_id.is_(None), FDBEntry.port_name.is_not(None),
                    FDBEntry.switch_device_id.is_not(None))
         )).all()]
 
@@ -769,6 +770,36 @@ async def build_topology(
                 "kind": "l2_uplink", "via": "neighbor", "evidence": EV_MONITORED,
                 "port": n.interface, "peer_port": n.remote_interface,
                 "protocol": n.discovered_by,
+            }})
+
+    # ── 鄰居探索：SNMP 收集的 LLDP／CDP（0217）──
+    #
+    # 跟上面 MikroTik 的鄰居同一個道理：對方親口說「我是誰、接在你哪個埠」。對到唯一一台裝置才畫
+    # （services/snmp_collect.match_neighbors：管理位址、chassis MAC、系統名稱）。同一對裝置已經畫過就不重複
+    if include_fdb:
+        from app.models.snmp import SnmpNeighbor, SnmpTarget
+        from app.services.snmp_collect import match_neighbors
+        snmp_neigh = list((await session.execute(
+            select(SnmpNeighbor).join(SnmpTarget, SnmpTarget.id == SnmpNeighbor.target_id)
+            .where(SnmpTarget.enabled.is_(True)))).scalars().all())
+        snmp_matched = await match_neighbors(session, snmp_neigh) if snmp_neigh else {}
+        drawn_snmp = {(min(e["data"]["source"], e["data"]["target"]), max(e["data"]["source"], e["data"]["target"]))
+                      for e in edges if e["data"].get("via") == "neighbor"}
+        for n in snmp_neigh:
+            a = str(n.device_id)
+            b = (snmp_matched.get(n.id) or {}).get("remote_device_id")
+            if not b or a == b or a not in visible_device_ids or b not in visible_device_ids:
+                continue
+            pair = (min(a, b), max(a, b))
+            if pair in drawn_snmp:
+                continue
+            drawn_snmp.add(pair)
+            label = f"{n.local_port} ↔ {n.remote_port}" if n.local_port and n.remote_port else (n.local_port or "")
+            edges.append({"data": {
+                "id": f"nbs:{a}:{b}:{n.local_port}",
+                "source": a, "target": b, "label": label,
+                "kind": "l2_uplink", "via": "neighbor", "evidence": EV_MONITORED,
+                "port": n.local_port, "peer_port": n.remote_port, "protocol": n.protocol,
             }})
 
     # ── 虛擬機 ↔ 它跑在哪台實體主機 ──

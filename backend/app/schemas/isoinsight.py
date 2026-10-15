@@ -85,7 +85,10 @@ class IsoInsightCreate(_Validators):
     # 規格：來源時區「儲存前由管理員確認」—— 沒有勾就不收（伺服器自己的時區不能默默代替）
     timezone_confirmed: bool = False
     customer_id: uuid.UUID | None = None
-    scope_subnet_ids: Annotated[list[uuid.UUID], Field(min_length=1, max_length=5000)]
+    #: 指定的子網路；空＋scope_all 沒給＝全部子網路（所選單位底下的）
+    scope_subnet_ids: Annotated[list[uuid.UUID], Field(max_length=5000)] = []
+    #: 全部子網路（所選單位底下、之後新建的自動納入）。沒給時：有清單＝false、沒清單＝true
+    scope_all: bool | None = None
     create_ips: bool = True
     enabled: bool = True
     schedule_enabled: bool = True
@@ -128,6 +131,7 @@ class IsoInsightUpdate(_Validators):
     timezone_confirmed: bool | None = None
     customer_id: uuid.UUID | None = None
     scope_subnet_ids: Annotated[list[uuid.UUID] | None, Field(max_length=5000)] = None
+    scope_all: bool | None = None
     create_ips: bool | None = None
     enabled: bool | None = None
     schedule_enabled: bool | None = None
@@ -165,6 +169,7 @@ class IsoInsightRead(StrictModel):
     source_timezone: str
     customer_id: uuid.UUID | None = None
     scope_subnet_ids: list[uuid.UUID] = []
+    scope_all: bool = False
     create_ips: bool
     enabled: bool
     schedule_enabled: bool

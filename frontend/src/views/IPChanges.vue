@@ -5,8 +5,9 @@
  */
 import { computed, h, onMounted, ref, watch } from "vue";
 import {
-  NButton, NCard, NDataTable, NInput, NPagination, NSelect, NSpace, NTag, NText,
+  NButton, NCard, NDataTable, NIcon, NInput, NPagination, NSelect, NSpace, NTag, NText,
 } from "naive-ui";
+import { IPChangesIcon } from "@/icons";
 import type { DataTableColumns } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
@@ -205,7 +206,13 @@ const columns = computed<DataTableColumns<IPChangeLog>>(() => [
 </script>
 
 <template>
-  <n-card :title="t('ipChanges.title')" :bordered="false">
+  <n-card :bordered="false">
+    <template #header>
+      <n-space align="center" :wrap-item="false">
+        <n-icon :size="22"><IPChangesIcon /></n-icon>
+        <span>{{ t("ipChanges.title") }}</span>
+      </n-space>
+    </template>
     <!-- 卡片標題列只放標題。說明文字與動作都屬於內容區：
          說明自成一行，動作靠右與篩選同一列 —— 動作不會自己佔掉一整條空帶，
          也不會因為多加幾個篩選就被擠到下一行單獨一個。 -->

@@ -120,6 +120,9 @@ PRESENCE_KIND = {
 }
 NOT_SOURCES = {
     "graylog": "只把 IPAM 的資料匯出給 Graylog 查表，本身不存任何引用；改址後匯出內容自動跟著變",
+    # SNMP 收集（0217）：讀到的 MAC 表寫進共用的 fdb_entries（交換器維護評估本來就讀，不分來源）；管理位址覆寫列在
+    # adapters_ipam._INTEGRATION_URLS（連線位址）；LLDP/CDP 鄰居是觀察值。本身沒有另外的引用資料
+    "snmp": "MAC 表寫進共用的 fdb_entries（交換器維護評估已讀）、管理位址覆寫已列為連線位址；鄰居是觀察值",
 }
 
 

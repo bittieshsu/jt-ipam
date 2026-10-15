@@ -27,6 +27,7 @@ PRODUCT_NAMES: dict[str, list[str]] = {
     "dns": ["PowerDNS", "BIND", "Unbound", "Windows DNS", "Univention", "Technitium"],
     "adguard": ["AdGuard"], "librenms": ["LibreNMS"], "opnsense": ["OPNsense"], "pfsense": ["pfSense"],
     "fortigate": ["FortiGate"], "paloalto": ["Palo Alto"], "checkpoint": ["Check Point"], "mikrotik": ["MikroTik"],
+    "snmp": ["SNMP"],
     "windows_dhcp": ["Windows DHCP"], "kea_dhcp": ["Kea"], "isc_dhcp": ["ISC DHCP"], "isoinsight": ["ISOinsight"],
     "technitium": ["Technitium"], "rustdesk": ["RustDesk"], "proxmox": ["Proxmox VE"], "esxi": ["ESXi"],
     "wazuh": ["Wazuh"], "zabbix": ["Zabbix"], "ocs": ["OCS Inventory"], "graylog": ["Graylog"],

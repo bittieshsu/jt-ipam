@@ -14,14 +14,12 @@ from app.api.v1.write_guards import (
     require_admin_for_infra,
     require_admin_for_monitoring,
     require_move,
-    require_parent_write,
     require_visible,
 )
 from app.core.audit import append_audit
 from app.core.db import get_session
 from app.core.sqlin import in_values
 from app.core.ui_error import detail_of, ui_detail
-from app.models.section import Section
 from app.models.subnet import Subnet
 from app.schemas.base import Paginated, StrictModel
 from app.schemas.subnet import (
@@ -42,12 +40,12 @@ from app.services.permission import (
 from app.services.subnet import (
     SubnetOverlap,
     assert_no_overlap,
-    compute_master_subnet,
     find_first_free_address,
     get_usage,
     has_overlapping_subnets,
     rebuild_subnet_hierarchy,
 )
+from app.services.subnet_write import create_subnet_checked
 
 router = APIRouter(prefix="/subnets", tags=["subnets"])
 
@@ -207,53 +205,8 @@ async def create_subnet(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SubnetRead:
-    # A01：要在指定 section 有 write 權限
-    section = await session.get(Section, payload.section_id)
-    if section is None:
-        raise HTTPException(status_code=400, detail="Invalid section_id")
-    level = await get_object_permission(
-        session, user=user, object_type="section", object_id=section.id
-    )
-    if not has_permission(level, "write"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    requested = payload.model_dump(exclude_unset=True)
-    require_admin_for_infra(user, requested)
-    require_admin_for_monitoring(user, requested)
-    await require_parent_write(session, user, "customer", payload.customer_id)
-
-    try:
-        await assert_no_overlap(
-            session, cidr=payload.cidr, vrf_id=payload.vrf_id,
-            allow_overlap=payload.allow_overlap,
-        )
-    except SubnetOverlap as exc:
-        raise HTTPException(status_code=409, detail=detail_of(exc, "subnet_overlap")) from exc
-
-    try:
-        validated_cf = await validate_custom_fields(
-            session, object_type="subnet", payload=payload.custom_fields
-        )
-    except CustomFieldError as exc:
-        raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
-
-    master_id = await compute_master_subnet(
-        session, cidr=payload.cidr, vrf_id=payload.vrf_id
-    )
-
-    data = payload.model_dump()
-    data.pop("allow_overlap", None)   # 僅建立時的旗標，非欄位
-    data["master_subnet_id"] = master_id
-    # 新增的若是某子網路的下層、且未指定單位 → 繼承父網段的單位
-    #（側邊選單依單位分組，這樣子網段才會自動歸到與父網段同一個單位群組下）
-    if not data.get("customer_id") and master_id:
-        parent = await session.get(Subnet, master_id)
-        if parent is not None and parent.customer_id is not None:
-            data["customer_id"] = parent.customer_id
-    data["custom_fields"] = validated_cf or None
-    await _egress_or_422(session, data, scan_agent_id=data.get("scan_agent_id"))
-    subnet = Subnet(**data)
-    session.add(subnet)
-    await session.flush()
+    # 區段寫入權、守門、重疊、上層子網路、繼承單位、主控台出口：與 AI 工具 create_subnet 共用（services/subnet_write）
+    subnet = await create_subnet_checked(session, user=user, payload=payload)
 
     await append_audit(
         session,
@@ -492,7 +445,6 @@ async def bulk_delete_subnets(
         return {"deleted": 0, "failed": 0, "errors": []}
     if len(payload.ids) > 500:
         raise HTTPException(400, detail="too many ids (max 500)")
-    from app.services.permission import get_object_permission, has_permission
     deleted = 0
     errors: list[dict[str, str]] = []
     actor_ip = request.client.host if request.client else None

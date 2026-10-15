@@ -70,6 +70,8 @@ COVERED: set[tuple[str, str]] = {
     ("librenms_instances", "api_url"), ("zabbix_instances", "api_url"), ("wazuh_instances", "api_url"),
     ("ocs_servers", "base_url"), ("ocs_servers", "db_host"),
     ("rustdesk_servers", "client_address"), ("rustdesk_servers", "hbbs_host"), ("rustdesk_servers", "relay_host"),
+    # SNMP 收集目標的管理位址覆寫（0217，代理連這個位址讀設備）
+    ("snmp_targets", "ip_override"),
 }
 
 # 不用讀的欄位與理由
@@ -86,6 +88,7 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("rustdesk_servers", "agent_source_ip"): "觀察值：代理下次回報自己更新",
     ("rustdesk_servers", "agent_hostname"): "觀察值：代理回報的主機名稱",
     ("mikrotik_neighbors", "address"): "觀察值：鄰居探索結果，每次同步重抓",
+    ("snmp_neighbors", "remote_mgmt_address"): "觀察值：LLDP/CDP 鄰居宣告的管理位址，每次收集重抓（維護評估走佈線與 FDB）",
     ("ip_addresses", "device_evidence_ip"): "觀察值：「上線狀態跟著設備」的依據，每輪同步由同設備的位址重算（services/device_liveness）",
     ("dhcp_exclusions", "start_ip"): "排除區間：發放範圍寫進 dhcp_pool_ranges 前已扣掉，評估讀那一份；排除的位址不會發給任何人",
     ("dhcp_exclusions", "end_ip"): "排除區間：發放範圍寫進 dhcp_pool_ranges 前已扣掉，評估讀那一份；排除的位址不會發給任何人",

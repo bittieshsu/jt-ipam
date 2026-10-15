@@ -85,6 +85,14 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
         ("api_password", "api_password_enc", "api_password_nonce",
          _aad_id("mikrotik_router:{id}:api_password")),
     ],
+    # SNMP 收集（0217）：三個機密都可能是空的（v2c 沒有 v3 密碼、authNoPriv 沒有加密密碼）
+    "snmp_credentials": [
+        ("community", "community_enc", "community_nonce", _aad_id("snmp_credential:{id}:community")),
+        ("auth_passphrase", "auth_passphrase_enc", "auth_passphrase_nonce",
+         _aad_id("snmp_credential:{id}:auth_passphrase")),
+        ("priv_passphrase", "priv_passphrase_enc", "priv_passphrase_nonce",
+         _aad_id("snmp_credential:{id}:priv_passphrase")),
+    ],
     "ocs_servers": [
         ("api_password", "api_password_enc", "api_password_nonce",
          _aad_id("ocs_server:{id}:api_password")),

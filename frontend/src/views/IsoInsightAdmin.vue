@@ -215,7 +215,8 @@ function blank() {
     name: "", base_url: "", product_version: "", description: "", username: "", password: "",
     token_header: "Authorization", token_prefix: "Bearer", ...VENDOR_LOGIN,
     verify_tls: true, source_timezone: "Asia/Taipei", customer_id: null as string | null,
-    scope_subnet_ids: [] as string[], create_ips: true, enabled: true, schedule_enabled: true,
+    // 預設全部子網路（使用者 2026-10-15）：所選單位底下的全部，之後新建的自動納入
+    scope_all: true, scope_subnet_ids: [] as string[], create_ips: true, enabled: true, schedule_enabled: true,
     sync_interval_seconds: 300, connect_timeout_seconds: 5, request_timeout_seconds: 30, job_timeout_seconds: 120,
     max_response_mib: 20, max_rows: 100000,
   };
@@ -246,7 +247,7 @@ function openEdit(r: IsoInsightSource) {
     lease_path: r.lease_path, auth_mode: r.auth_mode, token_path: r.token_path ?? "", token_header: r.token_header,
     token_prefix: r.token_prefix, token_in: r.token_in ?? "header", token_param: r.token_param ?? "sessionid",
     verify_tls: r.verify_tls, source_timezone: r.source_timezone,
-    customer_id: r.customer_id, scope_subnet_ids: [...r.scope_subnet_ids], create_ips: r.create_ips,
+    customer_id: r.customer_id, scope_all: !!r.scope_all, scope_subnet_ids: [...r.scope_subnet_ids], create_ips: r.create_ips,
     enabled: r.enabled, schedule_enabled: r.schedule_enabled, sync_interval_seconds: r.sync_interval_seconds,
     connect_timeout_seconds: r.connect_timeout_seconds, request_timeout_seconds: r.request_timeout_seconds,
     job_timeout_seconds: r.job_timeout_seconds, max_response_mib: r.max_response_mib, max_rows: r.max_rows,
@@ -277,7 +278,7 @@ async function submit() {
     msg.error(t("isoinsight.err_missing", { fields: missing.join(t("errors.v_sep")) }), { duration: 6000, closable: true });
     return;
   }
-  if (!f.scope_subnet_ids.length) {
+  if (!f.scope_all && !f.scope_subnet_ids.length) {
     msg.error(t("isoinsight.err_scope_required", { label: t("isoinsight.scope_subnets") }), { duration: 6000, closable: true });
     return;
   }
@@ -289,7 +290,8 @@ async function submit() {
     token_path: f.auth_mode === "token" ? f.token_path.trim() : (f.token_path.trim() || null),
     token_header: f.token_header.trim(), token_prefix: f.token_prefix.trim(), token_in: f.token_in,
     token_param: f.token_param.trim(), verify_tls: f.verify_tls,
-    source_timezone: f.source_timezone.trim(), customer_id: f.customer_id, scope_subnet_ids: f.scope_subnet_ids,
+    source_timezone: f.source_timezone.trim(), customer_id: f.customer_id, scope_all: f.scope_all,
+    scope_subnet_ids: f.scope_all ? [] : f.scope_subnet_ids,
     create_ips: f.create_ips, enabled: f.enabled, sync_interval_seconds: f.sync_interval_seconds,
     connect_timeout_seconds: f.connect_timeout_seconds, request_timeout_seconds: f.request_timeout_seconds,
     job_timeout_seconds: f.job_timeout_seconds, max_response_mib: f.max_response_mib, max_rows: f.max_rows,
@@ -618,10 +620,15 @@ onMounted(() => { void refresh(); void loadOptions(); });
         </n-form-item>
         <n-form-item :label="t('isoinsight.scope_subnets')">
           <div class="iso-full">
-            <n-select v-model:value="form.scope_subnet_ids" :options="subnetOptions" multiple filterable
+            <n-checkbox v-model:checked="form.scope_all" data-testid="iso-scope-all">{{ t("isoinsight.scope_all") }}</n-checkbox>
+            <div v-if="form.scope_all" class="form-hint" data-testid="iso-scope-all-hint">
+              {{ form.customer_id ? t("isoinsight.scope_all_hint_customer") : t("isoinsight.scope_all_hint") }}
+            </div>
+            <n-select v-if="!form.scope_all" v-model:value="form.scope_subnet_ids" :options="subnetOptions" multiple filterable
+                      style="margin-top: 6px"
                       :placeholder="t('isoinsight.scope_subnets_ph')" data-testid="iso-subnets"
                       :render-tag="({ option, handleClose }: any) => h(NTag, { size: 'small', closable: true, onClose: handleClose }, () => subnetLabel(option.value))" />
-            <div class="form-hint">{{ t("isoinsight.scope_subnets_hint") }}</div>
+            <div v-if="!form.scope_all" class="form-hint">{{ t("isoinsight.scope_subnets_hint") }}</div>
           </div>
         </n-form-item>
         <n-form-item :label="t('isoinsight.create_ips')">
@@ -777,6 +784,10 @@ onMounted(() => { void refresh(); void loadOptions(); });
         <n-collapse-item :title="t('isoinsight.curl_title')" name="curl">
           <div class="iso-sub" style="margin-bottom: 6px">
             {{ t("isoinsight.curl_hint", { token: probe.source?.auth_mode === "token" ? curlToken : "Cookie" }) }}
+          </div>
+          <!-- 來源有驗證憑證時指令不帶 -k；設備多半是自簽憑證，手動執行會被 curl 擋下（客戶 2026-10-15） -->
+          <div v-if="probe.source?.verify_tls" class="iso-sub" style="margin-bottom: 6px" data-testid="iso-curl-tls-hint">
+            {{ t("isoinsight.curl_tls_hint") }}
           </div>
           <div class="iso-curl-step">1. {{ t("isoinsight.curl_login") }} <CopyButton :text="curl.login" /></div>
           <pre class="iso-curl" data-testid="iso-curl-login">{{ curl.login }}</pre>

@@ -37,6 +37,10 @@ class InvalidStateTransition(IPRequestError):
     pass
 
 
+class NoActionableStep(IPRequestError):
+    """多關卡（parallel / stages）：這個人目前沒有可以核准的關卡（REST 回 403）。"""
+
+
 def _add_event(
     session: AsyncSession,
     *,
@@ -402,6 +406,31 @@ async def record_step_approval(
         if pending:
             await _notify_stage(session, request=request, subnet=subnet, step_index=pending[0])
     return False
+
+
+async def approve_per_policy(
+    session: AsyncSession, *, request: IPRequest, subnet: Subnet, approver: User,
+    override_ip: str | None = None,
+) -> bool:
+    """依審核政策核准（REST 端點與 AI 工具共用）。回傳 True＝已全數通過並配發。
+
+    多關卡模式只核准「此使用者目前可審的最前面那一關」，全部通過才配發；單關卡模式直接核准＋配發。
+    呼叫端要先用 ip_request_policy.can_approve 確認這個人是審核人。2026-10-15 以前 AI 工具自己
+    直接呼叫 approve_request：多關卡審核在第一關就配發 IP，等於跳過後面的關卡。
+    """
+    from app.services.ip_request_policy import MULTI_STEP_MODES, actionable_steps, get_policy
+    pol = await get_policy(session)
+    if pol["approver_mode"] in MULTI_STEP_MODES:
+        steps = await actionable_steps(session, approver, request, pol)
+        if not steps:
+            raise NoActionableStep("No approval step is actionable for you")
+        return await record_step_approval(
+            session, request=request, subnet=subnet, approver=approver,
+            step_index=steps[0], override_ip=override_ip,
+        )
+    await approve_request(session, request=request, subnet=subnet, approver=approver,
+                          override_ip=override_ip)
+    return True
 
 
 async def reject_request(

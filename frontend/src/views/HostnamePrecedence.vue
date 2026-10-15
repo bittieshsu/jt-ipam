@@ -5,7 +5,7 @@
  */
 import { onMounted, ref } from "vue";
 import { NButton, NCard, NSpin, NText, NSwitch, NSpace, NIcon, useMessage } from "naive-ui";
-import { SaveIcon } from "@/icons";
+import { HostnameIcon, SaveIcon } from "@/icons";
 import { useI18n } from "vue-i18n";
 import {
   getHostnamePrecedence, setHostnamePrecedence,
@@ -15,7 +15,7 @@ import {
   getOsPrecedence, setOsPrecedence,
 } from "@/api/hostname";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const msg = useMessage();
 
 const order = ref<string[]>([]);
@@ -36,6 +36,10 @@ function arpSetEnabled(s: string, on: boolean) {
   else if (!arpDisabled.value.includes(s)) arpDisabled.value = [...arpDisabled.value, s];
 }
 function arpSrcLabel(s: string): string {
+  // 同一個鍵在兩張清單裡意思不同時先看 MAC 專用的說法：主機名稱的 "snmp" 是 LibreNMS 的 sysName，
+  // MAC 來源的 "snmp" 是 SNMP 收集讀到的 ARP 表（0217）
+  const own = `hostnameSrc.arp_src.${s}`;
+  if (te(own)) return t(own);
   const key = `hostnameSrc.src.${s}`;
   const out = t(key);
   return out === key ? s : out;
@@ -224,7 +228,13 @@ onMounted(load);
 <template>
   <n-spin :show="loading">
    <n-space vertical :size="16">
-    <n-card :title="t('hostnameSrc.page_title')">
+    <n-card>
+      <template #header>
+        <n-space align="center" :wrap-item="false">
+          <n-icon :size="22"><HostnameIcon /></n-icon>
+          <span>{{ t("hostnameSrc.page_title") }}</span>
+        </n-space>
+      </template>
       <n-text depth="3" style="display: block; margin-bottom: 12px; font-size: 13px">
         {{ t("hostnameSrc.page_subtitle") }}
       </n-text>

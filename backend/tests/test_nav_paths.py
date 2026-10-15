@@ -47,7 +47,9 @@ def _labels() -> dict[str, dict[str, object]]:
     admin_literals = re.findall(r'label: \(\) => "([^"]+)"', layout[a0:a1 + 30])
     p0 = layout.index('t("nav.phase3_section")')
     p1 = layout.index('t("nav.tools")', p0)
-    adv_keys = re.findall(r't\("(nav\.[a-z_]+)"\)', layout[p0:p1])
+    # 「進階」底下有些項目用 advanced.* 的字串或直接寫字（ASN），不只 nav.*
+    adv_keys = re.findall(r't\("((?:nav|advanced)\.[a-z_]+)"\)', layout[p0:p1])
+    adv_literals = re.findall(r'label: \(\) => "([^"]+)"', layout[p0:p1])
     intg_keys = re.findall(r'\["[a-z_]+", "(nav\.[a-z_]+)", [A-Za-z]+Icon\]', layout)
     ss = (FE / "views" / "SystemSettings.vue").read_text(encoding="utf-8")
     ss_keys = set(re.findall(r"""t\(["']([a-z_]+\.[a-z_.]+)["']""", ss))
@@ -68,7 +70,7 @@ def _labels() -> dict[str, dict[str, object]]:
             "admin": tr("nav.admin_section"),
             "advanced": tr("nav.phase3_section"),
             "admin_children": {x for x in admin_children if x},
-            "adv_children": {x for x in (tr(k) for k in adv_keys if k != "nav.phase3_section") if x},
+            "adv_children": {x for x in (tr(k) for k in adv_keys if k != "nav.phase3_section") if x} | set(adv_literals),
             "integrations": tr("nav.integrations"),
             "intg_children": {x for x in (tr(k) for k in intg_keys) if x},
             "system_settings": tr("nav.system_settings"),

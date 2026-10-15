@@ -480,6 +480,25 @@ Wrong AI answers do not look wrong: every number in them is real, just computed 
 wrong set. Unit tests pass because each tool returns exactly what it was asked for; the
 defect is in *what the model was able to ask*.
 
+- [ ] **"Where is it"** (`tests/test_ui_map.py`): ask the AI chat where a circuit's application and expiry dates are
+  recorded → it answers Advanced Modules → Circuits → Circuits tab, the "Install date" and "Contract end" fields of the
+  edit dialog, never "there is no such field"; ask where ISOinsight's "all subnets" is set →
+  Admin → External integrations → ISOinsight, noting it needs an administrator; the same question in the English UI is answered with
+  English menu names; a feature that does not exist → says nothing matches, invents no path.
+  `test_every_routed_page_is_placed` fails when a new page is not placed
+- [ ] **Write tools follow the web rules** (`tests/test_mcp_write_tools_parity.py`): approve a multi-step request
+  through the AI → one step passes, nothing is allocated; the AI creates a subnet overlapping an existing one →
+  refused; the AI changes a host name, then a sync runs → the name stays; an IP present in overlapping subnets without
+  a subnet named → candidates are listed; a restricted account asks which port an IP is on → switches it cannot see
+  are hidden; an IP with only BMC enabled appears in the console target list
+- [ ] **Every tool's fields** (`tests/test_mcp_core_tool_fields.py`, `tests/test_mcp_tool_fields_network.py`): spot
+  check an IP's detail (device kind, ignore PTR, liveness follows its device), a subnet's address ranges, one
+  firewall's rules (firewall name on every row), a cable's ends and path, certificates expiring within 30 days (found
+  even with more than 200 certificates), a device name shared by two devices (candidates listed)
+- [ ] **Tools return the fields shown on screen** (`tests/test_mcp_tool_fields.py`): ask which circuits' contracts
+  end within 30 days → answered from `contract_days_left`; the circuit fields match the circuit edit dialog (install
+  date, contract end, DNS, tenant)
+
 - [ ] **Scope**: for each tool returning per-object data, ask a question naming one subnet /
   rack / location and confirm the answer contains only that scope. Regression to guard:
   "which hosts in 198.51.100.0/24 have no Wazuh agent" answered with the whole system
@@ -1591,14 +1610,102 @@ Automated: `backend/tests/test_isoinsight_parser.py`, `test_isoinsight_config.py
 - [ ] Browser: the page (Admin → External integrations → ISOinsight) has the sources / leases / sync records tabs, the actions
   column (edit, test, preview, sync now, records, delete) stays visible on the right, the GET warning and the TLS-off
   warning show, host names are plain text
-- [ ] Browser: saving the new source form with the account, password or subnets to sync empty says which one is
-  missing instead of "Invalid request" (`e2e/isoinsight.spec.ts`)
+- [ ] Browser: saving the new source form with the account, password or subnets to sync (after unticking "All
+  subnets") empty says which one is missing instead of "Invalid request" (`e2e/isoinsight.spec.ts`)
+- [ ] All subnets (`scope_all`, 0216): ticked by default for a new source, with the subnet picker hidden; a sync covers
+  every subnet of the chosen unit (no unit = subnets without a unit), including subnets created later, but not other
+  units' or archived ones; existing sources keep their lists; the API with a list uses the list, without one means all;
+  `scope_all=false` with no list returns `isoinsight_scope_empty`
+  (`tests/test_isoinsight_api.py::test_all_subnets_is_the_default_and_stays_inside_the_tenant`)
 - [ ] Vendor login (`tests/test_isoinsight_session_query.py`): POST JSON to `/logon`, `SessionID` sent as the
   `sessionid` URL parameter, no header; the session ID never appears in the trace (`sessionid=<redacted>`), the
   httpx log or errors; HTTP 200 with `code` other than 200 is AUTH_FAILED; an expired session logs in again with
   the new ID
 - [ ] Browser: a new source defaults to the vendor's method; "Use the vendor's login method" under Advanced
   settings switches an existing source to it
+
+## 7b6. SNMP collection by scan agents (0217, agent 1.19.0): **whenever the SNMP endpoints, the agent's SNMP code, the shared ARP / FDB / interface write layers, the evidence sources or the installers change**
+
+Automated: `backend/tests/test_snmp_collector.py` (credentials, targets, collector resolution, poll, report ingest,
+jobs, auto-create, topology), `test_agent_snmp.py` (the agent against fake `snmpget` / `snmpbulkwalk` on PATH:
+argv, the private snmp.conf, OID allowlist, parsing, budgets), and the optional `test_snmp_real_snmpd.py` against a
+real net-snmp snmpd: skipped unless `JTIPAM_TEST_SNMPD=host:port:community` is set (optional
+`JTIPAM_TEST_SNMPD_V3=user:authpass:privpass`); its docstring has a localhost-only snmpd.conf. Run it before a release
+that touches the agent. They prove what jt-ipam does, **not** that a given vendor's device answers the same way.
+
+- [ ] **Credentials never leave in clear except to the assigned agent**: create a v2c and a v3 credential; the list
+  and detail show only has_community / has_auth_passphrase / has_priv_passphrase; saving with the secret fields empty
+  keeps them; the audit log shows which secrets changed, never the values; the job record of a test (agent_probe_jobs.params)
+  holds only ids; `ps` on the agent host during a collection shows no community or passphrase on any command line, and
+  `/tmp/jt-snmp-*` is gone right after
+- [ ] Credential rules: v2c without a community, v3 without user / security level / auth protocol and passphrase,
+  authPriv without privacy, a passphrase under 8 characters, a line break in any field all say which field is wrong;
+  noAuthNoPriv is not offered; only one default (setting another moves the mark); a credential limited to a unit cannot
+  be given to another unit's device (single and bulk); deleting a credential in use lists the devices instead
+- [ ] Collector: automatic picks the scan agent of the subnet holding the device's primary IP; with a management
+  address override, the most specific subnet containing it; "specific agent" and "server" (the local agent) work; each
+  failure shows its reason on the target (no primary IP, not in any subnet, subnet without an agent, overlapping
+  subnets handled by different agents, agent disabled, agent older than 1.19.0 or without the net-snmp tools)
+- [ ] A target from an IP (`ip_address_id`, the subnet page's one-click for the gateway): an IP linked to a device uses
+  that device (management address override set when the device's primary IP is another address); an IP without a
+  device gets a new device (type router, primary IP = that IP, unit of the subnet; audited as a device create); an
+  unknown IP returns `snmp_ip_not_found`; giving both or neither of `device_id` and `ip_address_id` is refused
+- [ ] Old agents (before 1.19.0) or agents without `snmpbulkwalk` get no `snmp` in their poll and keep scanning as
+  before; after `apt install snmp` on the agent host the next poll reports the tool and the targets arrive
+- [ ] Real devices, one per family if available (Cisco IOS / IOS XE, a Q-BRIDGE switch such as HPE / Aruba / Netgear,
+  a Linux router with snmpd, MikroTik with SNMP on): Test with the right credential shows sysName / sysDescr /
+  sysObjectID / sysUpTime and per item whether it answered and how many rows; with two credentials only the right one
+  is OK; a wrong v3 passphrase says authentication failed, a wrong community times out
+- [ ] ARP: an IP behind a router that the agent could ping but had no MAC gets its MAC (source SNMP) after the next
+  ARP round; reachable entries mark the IP online ("ARP (SNMP, reachable)"), stale or legacy-table entries only fill
+  the MAC; the same address in two overlapping subnets is left alone; with "auto-create IPs" off nothing is created, on
+  only reachable entries (or ones the switch MAC table saw in 24 hours) inside a unique existing subnet, outside DHCP
+  dynamic ranges and cooldown, are created (discovery source snmp_arp)
+- [ ] MAC table: rows appear in the FDB list with source snmp and the target device as switch; the IP's switch position
+  is filled; on Cisco, MACs of every VLAN appear (community@vlan or context vlan-N) and VLANs 1002 to 1005 are not read;
+  MAC drift detection and the subnet-bleed anomaly see these rows
+- [ ] LLDP / CDP: a Cisco 2960 with only CDP and a switch with LLDP both list neighbors; the topology draws the link
+  between the two devices with both port names when the neighbor matches a device by management address, chassis MAC
+  or system name
+- [ ] Interfaces: physical ports become the device's ports (source `snmp:<target id>`), VLAN and loopback interfaces do
+  not; a port description (ifAlias) different from the name fills the port description; addresses on up interfaces
+  turn their IP green ("Device interface address (SNMP)")
+- [ ] Not reading everything is not deleting: make one section time out (firewall the agent mid-walk or set a tiny row
+  cap) and the old MAC table / neighbors / ports stay; the next complete read removes what is really gone
+- [ ] Load: one device at a time, ARP every 5 minutes, MAC table every 15, neighbors and interfaces every 60 (agent log
+  `[snmp]` lines); the device's CPU does not spike during a walk of a 50,000-row ARP table; a target with a huge table
+  stops at the row cap and says the result is partial
+- [ ] Collect now and the run records: the record appears as manual, the per-section counts match the agent log; a run
+  with the agent offline becomes failed (agent did not report back) after ten minutes; records older than 14 days or
+  beyond 300 per target are pruned
+- [ ] Deleting a target removes its MAC table rows, neighbors and records; ports it wrote are removed unless cabled;
+  deleting the device removes the target
+- [ ] Install and upgrade: a fresh `jt-ipam.sh install` and an upgrade both install `snmp` (the upgrade only warns
+  when apt fails); the version page lists snmpbulkwalk; the agent installer installs snmp (apt), net-snmp-utils (dnf),
+  net-snmp-tools (apk)
+- [ ] System export / import carries credentials (re-encrypted) and targets; IP change assessment lists a target whose
+  management address override is the changed IP
+- [ ] Browser, Admin → External integrations → SNMP (`frontend/e2e/snmp.spec.ts` covers the main path): the three tabs
+  load; a v2c credential shows the plain-text warning and its community is never shown again after saving; on a v3
+  credential MD5 and DES are marked not recommended and saving with the passphrase fields empty keeps them; a new
+  target preselects the default credential and the items by device type (switch: MAC table, neighbors and interfaces;
+  router or firewall: ARP and interfaces; others: interfaces), and "New credential" inside the dialog selects the new
+  one; Automatic shows the agent and subnet that will collect, or the reason it cannot; Test spins until the agent
+  answers, then shows OK or the error, sysName, sysDescr, uptime and rows per item for every credential tried (up to
+  five); Collect now spins on that row only and then reports rows per item; History lists the runs with per-item counts;
+  deleting a credential in use shows the error and the devices using it
+- [ ] The other entry points open the same dialogs: the device page SNMP block (admins only: status with Edit, Test,
+  Collect now and History, or "Enable SNMP collection" with the device fixed); the subnet page button "Enable SNMP
+  collection for the gateway" (says the gateway IP must be registered first when it is not; with an unlinked gateway IP
+  it says a router device will be created; becomes "View SNMP collection" once the gateway's device has a target); the
+  scan agents page SNMP column (capability and target count, links to the SNMP page filtered to that agent) and the
+  dependencies dialog (apt, dnf and apk package names for the net-snmp tools); evidence sources read "ARP table (SNMP)",
+  "ARP table (SNMP, reachable)" and "Device interface address (SNMP)", and the liveness settings list the interface
+  address sources
+- [ ] Bulk assignment from the device list (`e2e/snmp.spec.ts`): tick a router and a switch → "Assign SNMP collection" →
+  pick a credential, collect items "By device type" → Apply → the router's target reads ARP and interfaces, the
+  switch's the MAC table, neighbours and interfaces; devices that already had a target only switch credentials; a
+  credential limited to another unit lists each skipped device with the reason
 
 ## 7c. Integration sync resilience: **applies to every integration, not just the one you changed**
 

@@ -38,6 +38,8 @@ export const VENDOR_LABEL: Record<string, string> = {
   technitium: "Technitium DHCP",
   isc_dhcp: "ISC DHCP", isoinsight: "ISOinsight", proxmox: "Proxmox", vmware: "VMware", wazuh: "Wazuh", rustdesk: "RustDesk",
   ocs: "OCS", zabbix: "Zabbix",
+  // SNMP 收集（0217）：`arp:snmp`、`iface:snmp`；`arp:snmp_live`（設備標成 reachable 的項目）見 evidenceVendorLabel
+  snmp: "SNMP",
 };
 
 export function vendorLabel(v: string | null | undefined): string {
@@ -45,12 +47,21 @@ export function vendorLabel(v: string | null | undefined): string {
   return VENDOR_LABEL[v] ?? v;
 }
 
+/**
+ * 證據來源鍵裡的「廠牌」部分：產品名照 VENDOR_LABEL；`snmp_live` 不是產品名，要翻譯
+ * （「SNMP，reachable」：IP-MIB 裡設備標成 reachable 的 ARP 項目，會過期、可以宣稱上線）。
+ */
+export function evidenceVendorLabel(v: string | null | undefined, t: Translate): string {
+  if (v === "snmp_live") return t("snmp.vendor_live");
+  return vendorLabel(v);
+}
+
 /** `arp:opnsense` → 「ARP 表（OPNsense）」 */
 export function fwSeenLabel(key: string, t: Translate): string {
   if (key === "device") return t("system_settings.src_device");
   const [kind, vendor] = key.split(":", 2);
   if (!vendor) return key;
-  return `${t(`system_settings.src_kind_${kind}`)}（${vendorLabel(vendor)}）`;
+  return `${t(`system_settings.src_kind_${kind}`)}（${evidenceVendorLabel(vendor, t)}）`;
 }
 
 function join(parts: (string | null | undefined | false)[]): string {

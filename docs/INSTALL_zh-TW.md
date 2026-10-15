@@ -25,6 +25,7 @@
 | guacd | jt-ipam 為該 OS 編的版本 | 無 | **必要**：RDP/VNC 主控台的連線引擎，`jt-ipam.sh` 會裝（見下方 guacd 一節）；舊引擎 aardwolf 改為選用 |
 | Recog | 最新發佈版 | 無 | **選用**：IP 探測用來認出設備與 OS 版本的指紋庫；`jt-ipam.sh` 會下載、每週檢查新版（見下方 Recog 一節） |
 | 中文字型 | `fonts-noto-cjk` | 無 | **PDF 報告需要**：後端產生 PDF 時內嵌的中文/日文字型（下載約 60 MB）。`jt-ipam.sh` 安裝與升級時都會裝；升級時連不到 apt 鏡像只會警告，PDF 匯出會說明缺字型（DOCX/ODT 照常可用），之後用 `sudo apt install fonts-noto-cjk` 補上 |
+| SNMP 用戶端工具 | `snmp`（net-snmp） | 無 | **選用**：本機掃描代理做 SNMP 收集（收集者「伺服器」）要用的 `snmpget`/`snmpbulkwalk`。`jt-ipam.sh` 安裝與升級時都會裝（升級裝不起來只會警告）；遠端掃描代理由它的安裝腳本安裝（apt 是 `snmp`、dnf 是 `net-snmp-utils`、apk 是 `net-snmp-tools`）。沒裝時那台代理就只是沒有 SNMP 能力 |
 
 ### 支援的發行版本
 

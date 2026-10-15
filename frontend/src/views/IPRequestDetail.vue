@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
 import {
   NCard,
+  NIcon,
   NSpace,
   NTag,
   NTimeline,
@@ -20,6 +21,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { storeToRefs } from "pinia";
+import { RequestsIcon } from "@/icons";
 import { useAuthStore } from "@/stores/auth";
 import {
   approveRequest,
@@ -122,6 +124,7 @@ onMounted(() => {
       <n-card>
         <template #header>
           <n-space align="center">
+            <n-icon :size="22"><RequestsIcon /></n-icon>
             <span>{{ t("request_detail.title") }}</span>
             <n-tag :type="tagType(detail.request.status)">{{ statusLabel(detail.request.status) }}</n-tag>
           </n-space>

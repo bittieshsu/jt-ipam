@@ -719,15 +719,33 @@ async def _sec_dns(c: _Ctx) -> list[dict[str, Any]]:
 
 
 async def _sec_nat(c: _Ctx) -> list[dict[str, Any]]:
-    """NAT：對外開了什麼。"""
+    """NAT：對外開了什麼（轉發目標是這個位址的規則）。
+
+    來源限制（src_ip／src_port）、埠範圍、說明與來自哪台防火牆也要給：「只有合作夥伴的位址能連」與
+    「全世界都能連」是兩回事（2026-10-15 AI 工具盤點）。"""
     from app.models.nat import NATTranslation
-    return [
-        {"name": n.name, "type": n.type, "protocol": n.protocol,
-         "port": n.dst_port, "interface": n.src_interface, "disabled": n.disabled}
-        for n in (await c.session.execute(
-            select(NATTranslation).where(NATTranslation.dst_ip_id == c.ipa.id).limit(MAX_ROWS)
-        )).scalars().all()
-    ]
+    rows = list((await c.session.execute(
+        select(NATTranslation).where(NATTranslation.dst_ip_id == c.ipa.id).limit(MAX_ROWS)
+    )).scalars().all())
+    src_ids = {n.src_ip_id for n in rows if n.src_ip_id}
+    src_ip = {i: str(v).split("/")[0] for i, v in (await c.session.execute(
+        select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, src_ids)))).all()} if src_ids else {}
+    fw_names: dict[str, str] = {}
+    refs = {(n.source_origin or "").partition(":")[2] for n in rows} - {""}
+    if refs:
+        from app.mcp.tools import _firewall_name_map
+        fw_names = await _firewall_name_map(c.session)
+    out = []
+    for n in rows:
+        kind, _, ref = (n.source_origin or "manual").partition(":")
+        out.append({
+            "name": n.name, "type": n.type, "protocol": n.protocol,
+            "port": n.dst_port, "interface": n.src_interface, "disabled": n.disabled,
+            **_compact({"port_to": n.dst_port_to, "src_ip": src_ip.get(n.src_ip_id), "src_alias": n.src_alias,
+                        "src_not": n.src_not or None, "src_port": n.src_port, "src_port_to": n.src_port_to,
+                        "description": n.description, "source": kind, "firewall": fw_names.get(ref)}),
+        })
+    return out
 
 
 async def _sec_firewall_rules(c: _Ctx) -> list[dict[str, Any]]:
@@ -851,21 +869,37 @@ async def collect_dossier(
     gread = await _global_read(session, user)
     admin = bool(getattr(user, "is_admin", False))
     c = _Ctx(session=session, user=user, ip=ip, ipa=ipa, subnet=subnet, gread=gread, admin=admin)
+    # 掛的裝置：看得到那台裝置才給名稱（與 REST 位址清單同一規則）；單位名稱跟著位址走
+    from app.models.customer import Customer
+    from app.models.device import Device
+    dev_name = None
+    if ipa.device_id is not None:
+        vis_dev = await visible_ids(session, user=user, object_type="device")
+        if vis_dev is None or ipa.device_id in vis_dev:
+            dev_name = await session.scalar(select(Device.name).where(Device.id == ipa.device_id))
+    cust_name = (await session.scalar(select(Customer.name).where(Customer.id == ipa.customer_id))
+                 if ipa.customer_id else None)
     out: dict[str, Any] = {
         "found": True, "ip": ip, "global_read": gread,
         "address": {
             "ip_address_id": str(ipa.id), "hostname": ipa.hostname,
             "state": ipa.state, "effective_status": ipa.effective_status,
             "mac": str(ipa.mac) if ipa.mac else None,
-            "owner": ipa.owner, "description": ipa.description,
+            "owner": ipa.owner, "description": ipa.description, "note": ipa.note,
+            "device": dev_name, "customer": cust_name,
             "subnet": str(subnet.cidr), "subnet_description": subnet.description,
             "discovery_source": ipa.discovery_source,
             "in_dhcp_lease": bool(ipa.in_dhcp_lease),
             "dhcp_reserved": bool(getattr(ipa, "dhcp_reserved", False)),
+            "is_dhcp_server": bool(ipa.is_dhcp_server),
             "last_seen_scanner": _dt(ipa.last_seen_scanner),
             "last_seen_librenms": _dt(ipa.last_seen_librenms),
             "switch_port": ipa.switch_port,
             "switch_port_confident": ipa.switch_port_confident,
+            # 人工設定的旗標：不 ping、上線跟著所屬裝置（多 LAN 閘道）、忽略 PTR 不一致
+            "exclude_from_ping": bool(ipa.exclude_from_ping),
+            "liveness_from_device": bool(ipa.liveness_from_device),
+            "ptr_ignore": bool(ipa.ptr_ignore),
         },
         # 重疊網段下同一位址的其他紀錄。挑一筆正是這幾天連續修掉的那類 bug，
         # 調查用的檔案更不該重蹈覆轍 —— 全部列出來，讓人看見有幾筆。

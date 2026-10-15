@@ -210,6 +210,9 @@ async def _visible_plan(session: AsyncSession, user: User, plan_id: str) -> Any:
 
 async def impact_list_plans(session: AsyncSession, *, user: User, limit: int = 20,
                             lifecycle: str | None = None) -> dict[str, Any]:
+    """看得到的計畫（未封存）：情境、目標、參數、維護時段、版次、建立／送審時間、最新分析，送審中的帶審核進度。
+
+    total 是看得到的計畫總數（2026-10-15 以前 count 是截斷後的筆數，模型分不出還有沒有）。"""
     from app.models.change_impact import ChangePlan
     if not await _enabled(session):
         return _OFF
@@ -219,28 +222,49 @@ async def impact_list_plans(session: AsyncSession, *, user: User, limit: int = 2
     from app.services.change_impact import reviewers
     from app.services.change_impact.config import get_config
     cfg = await get_config(session)
+    lim = max(1, min(int(limit), 100))
+    pol: dict[str, Any] | None = None
     out = []
-    for p in (await session.execute(stmt.limit(500))).scalars():
+    total = 0
+    for p in (await session.execute(stmt)).scalars():
         if await _visible_plan(session, user, str(p.id)) is None:
             continue
+        total += 1
+        if len(out) >= lim:
+            continue
         row: dict[str, Any] = {"id": str(p.id), "title": p.title, "scenario": p.scenario_type, "target": p.target_label,
-                               "lifecycle": p.lifecycle,
+                               "target_type": p.target_type, "lifecycle": p.lifecycle, "revision": p.revision,
+                               "parameters": p.parameters,
+                               # 維護時段（計畫畫面的「預計開始／結束」）
+                               "planned_start": _iso(p.planned_start), "planned_end": _iso(p.planned_end),
+                               "created_at": _iso(p.created_at), "updated_at": _iso(p.updated_at),
+                               "submitted_at": _iso(p.submitted_at),
                                "latest_run_id": str(p.latest_run_id) if p.latest_run_id else None}
         if p.lifecycle == "in_review":
             # 審核進度（「申請審核設定」的審核關卡）：AI 才答得出「審到第幾關、輪到哪一關」
-            pol = await reviewers.policy(session, cfg)
+            if pol is None:
+                pol = await reviewers.policy(session, cfg)
             row["review"] = {"mode": pol["approver_mode"], "stages": [
                 {"name": st["name"], "approved": st["approved"], "current": st["is_current"]}
                 for st in await reviewers.steps_progress(session, p, cfg)]}
         out.append(row)
-        if len(out) >= min(int(limit), 100):
-            break
-    return {"count": len(out), "plans": out}
+    return {"count": total, "total": total, "returned": len(out), "truncated": total > len(out), "plans": out}
+
+
+def _iso(d: Any) -> str | None:
+    return d.isoformat() if d else None
 
 
 async def impact_get_run(session: AsyncSession, *, user: User, run_id: str = "") -> dict[str, Any]:
-    from app.models.change_impact import ImpactRun
-    from app.services.change_impact.access import viewer
+    """一次分析的結果：狀態、判定、完整度、**是否超過分析上限而不完整（truncated／truncation）**、數量、
+    時間（開始／完成／有效期限）、錯誤代碼、前 20 項發現與資料不足（含參數與影響到哪一段分析）。
+
+    數量依讀者：權限範圍跟分析當時一樣才用存下來的數量，不一樣就依看得到的重算（與 REST 同一套），
+    看不到的發現不能從數字透露出來。"""
+    from datetime import UTC, datetime
+
+    from app.models.change_impact import ChangePlan, ImpactRun
+    from app.services.change_impact.access import same_scope, viewer, visible_counts
     from app.services.change_impact.ai import visible_bundle
     if not await _enabled(session):
         return _OFF
@@ -250,13 +274,33 @@ async def impact_get_run(session: AsyncSession, *, user: User, run_id: str = "")
         run = None
     if run is None or await _visible_plan(session, user, str(run.plan_id)) is None:
         return {"error": "not_found"}
-    b = await visible_bundle(session, run, await viewer(session, user))
-    return {"run_id": str(run.id), "status": run.job_status, "decision_status": run.decision_status,
-            "completeness": run.completeness, "notice": "評估結果，尚未執行任何變更；只涵蓋你目前的權限範圍",
+    v = await viewer(session, user)
+    b = await visible_bundle(session, run, v)
+    scope_same = same_scope(run, v)
+    plan = await session.get(ChangePlan, run.plan_id)
+    notice = "評估結果，尚未執行任何變更；只涵蓋你目前的權限範圍"
+    if run.truncated:
+        t = run.truncation or {}
+        notice += (f"。分析超過上限（{t.get('what')} 上限 {t.get('limit')}，階段 {t.get('stage')}），"
+                   "結果不完整：沒列出的影響不代表沒有")
+    return {"run_id": str(run.id), "plan_id": str(run.plan_id), "plan_title": plan.title if plan else None,
+            "status": run.job_status, "stage": run.stage, "decision_status": run.decision_status,
+            "completeness": run.completeness,
+            "truncated": bool(run.truncated), "truncation": run.truncation,
+            "counts": run.counts if scope_same else visible_counts(b, run.counts),
+            "permission_scope_changed": not scope_same,
+            "started_at": _iso(run.started_at), "completed_at": _iso(run.completed_at),
+            "expires_at": _iso(run.expires_at),
+            "expired": bool(run.expires_at and run.expires_at < datetime.now(UTC)),
+            "error_code": run.error_code, "notice": notice,
             "visible_findings": len(b["findings"]),
-            "top_findings": [{"id": str(f.id), "rule": f.rule_id, "subject": f.subject_label, "impact": f.impact,
-                              "severity": f.severity, "disposition": f.disposition} for f in b["findings"][:20]],
-            "gaps": [{"id": str(g.id), "reason": g.reason_code, "category": g.category} for g in b["gaps"][:20]]}
+            "top_findings": [{"id": str(f.id), "rule": f.rule_id, "category": f.category, "subject": f.subject_label,
+                              "impact": f.impact, "severity": f.severity, "disposition": f.disposition,
+                              "strength": f.evidence_strength} for f in b["findings"][:20]],
+            "gaps_total": len(b["gaps"]),
+            "gaps": [{"id": str(g.id), "reason": g.reason_code, "category": g.category, "params": g.params,
+                      "affected_analysis": g.affected_analysis, "remediation_hint": g.remediation_hint,
+                      "source_scope": g.source_scope} for g in b["gaps"][:20]]}
 
 
 async def impact_list_findings(session: AsyncSession, *, user: User, run_id: str = "", disposition: str | None = None,
@@ -273,11 +317,14 @@ async def impact_list_findings(session: AsyncSession, *, user: User, run_id: str
     if run is None or await _visible_plan(session, user, str(run.plan_id)) is None:
         return {"error": "not_found"}
     b = await visible_bundle(session, run, await viewer(session, user))
-    items = [f for f in b["findings"] if not disposition or f.disposition == disposition][:min(int(limit), 200)]
+    matched = [f for f in b["findings"] if not disposition or f.disposition == disposition]
+    items = matched[:max(1, min(int(limit), 200))]
     ev = {e.key: str(e.id) for e in b["evidence"]}
-    return {"count": len(items), "findings": [
-        {"id": str(f.id), "rule": f.rule_id, "subject": f.subject_label, "impact": f.impact, "severity": f.severity,
+    return {"count": len(items), "total": len(matched), "truncated": len(matched) > len(items), "findings": [
+        {"id": str(f.id), "rule": f.rule_id, "category": f.category, "subject_type": f.subject_type,
+         "subject": f.subject_label, "match_kind": f.match_kind, "impact": f.impact, "severity": f.severity,
          "disposition": f.disposition, "strength": f.evidence_strength, "reason": f.reason_code, "params": f.params,
+         "suggested_action": f.suggested_action,
          "evidence_ids": [ev[k] for k in f.evidence_keys if k in ev]} for f in items]}
 
 
@@ -296,8 +343,11 @@ async def impact_get_evidence(session: AsyncSession, *, user: User, run_id: str 
         return {"error": "not_found"}
     if not (await viewer(session, user)).can(e.visibility_type, e.visibility_id):
         return {"error": "not_found"}
-    return {"id": str(e.id), "source_type": e.source_type, "object_type": e.source_object_type, "label": e.label,
-            "observed_at": e.observed_at.isoformat() if e.observed_at else None, "payload": e.sanitized_payload}
+    return {"id": str(e.id), "key": e.key, "source_type": e.source_type, "integration": e.integration_ref,
+            "object_type": e.source_object_type, "object_key": e.source_object_key, "label": e.label,
+            "observed_at": _iso(e.observed_at), "collected_at": _iso(e.collected_at),
+            # 資料新鮮度：舊資料推出來的結論要打折
+            "freshness": e.freshness, "payload": e.sanitized_payload}
 
 
 def _p(props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -307,36 +357,40 @@ def _p(props: dict[str, Any], required: list[str] | None = None) -> dict[str, An
 IMPACT_TOOLS: dict[str, dict[str, Any]] = {
     "impact_list_plans": {
         "fn": impact_list_plans,
-        "description": "List IP change assessment plans the user can see (renumber, decommission, switch maintenance, node "
-                       "downtime). Plans in review include the review policy mode and, for staged reviews, each stage's "
-                       "name, whether it is approved and whether it is the current one.",
+        "description": (
+            "IP change assessment plans the user can see: scenario, target, parameters, maintenance window, "
+            "revision, review status and latest run."),
         "parameters": _p({"limit": {"type": "integer"}, "lifecycle": {"type": "string"}}),
     },
     "impact_get_run": {
         "fn": impact_get_run,
-        "description": "Get one change impact analysis run: decision status, completeness, top findings and data gaps. "
-                       "It is an assessment only: nothing was changed.",
+        "description": (
+            "One IP change assessment run: status, decision, completeness, counts, top findings, data gaps. "
+            "truncated=true means the analysis hit a limit and results are incomplete: say so. Assessment only, "
+            "nothing was changed."),
         "parameters": _p({"run_id": {"type": "string"}}, ["run_id"]),
     },
     "impact_list_findings": {
         "fn": impact_list_findings,
-        "description": "List findings of a change impact run (filter by disposition: blocker, review, informational).",
+        "description": "List findings of a change impact run (filter by disposition: blocker, review, informational): "
+                       "rule, category, subject, impact, severity, evidence strength, reason, params, suggested "
+                       "action and evidence ids. The reply carries 'total' and 'truncated'.",
         "parameters": _p({"run_id": {"type": "string"}, "disposition": {"type": "string"},
                           "limit": {"type": "integer"}}, ["run_id"]),
     },
     "impact_get_evidence": {
         "fn": impact_get_evidence,
-        "description": "Get one evidence item of a change impact run.",
+        "description": "Get one evidence item of a change impact run: source, object, label, observed_at, "
+                       "collected_at, freshness and the sanitized payload.",
         "parameters": _p({"run_id": {"type": "string"}, "evidence_id": {"type": "string"}}, ["run_id", "evidence_id"]),
     },
     "impact_prepare_scenario": {
         "fn": impact_prepare_scenario,
-        "description": "Prepare (validate only, nothing is saved) an IP change assessment: scenario_type ip_renumber "
-                       "with target_ip or target_id and new_ip; device_decommission with target_id; switch_maintenance "
-                       "with the switch's target_id; node_downtime with the node's target_id and mode (direct, "
-                       "migrate_first or ha_failure). Maintenance and downtime accept also_down, device ids taken down "
-                       "at the same time (20 in total). Returns a draft and a draft_token. If the address exists in "
-                       "several overlapping subnets, it returns candidates; never guess.",
+        "description": (
+            "Validate (nothing saved) an IP change assessment: ip_renumber (target_ip or target_id, new_ip), "
+            "device_decommission (target_id), switch_maintenance (target_id), node_downtime (target_id, mode "
+            "direct / migrate_first / ha_failure); also_down = devices down at the same time (max 20). Returns "
+            "draft_token. Overlapping addresses return candidates: never guess."),
         "parameters": _p({"scenario_type": {"type": "string", "enum": ["ip_renumber", "device_decommission",
                                                                         "switch_maintenance", "node_downtime"]},
                           "target_ip": {"type": "string"}, "target_id": {"type": "string"},

@@ -152,6 +152,8 @@ _DEP_TOOL_META: dict[str, tuple[list[str], str]] = {
     "nmblookup": (["netbios"], "samba-common-bin"),
     "nbtscan": (["netbios"], "nbtscan"),
     "avahi-resolve": (["mdns"], "avahi-utils"),
+    # SNMP 收集（0217）：net-snmp 用戶端工具；不是逐子網路的探測，是「外部系統整合 → SNMP」的收集目標
+    "snmpbulkwalk": (["snmp"], "snmp"),
 }
 
 
@@ -497,6 +499,12 @@ class AgentPollOut(StrictModel):
     relay_cidrs: list[str] = Field(default_factory=list)
     relay_ports: list[int] = Field(default_factory=list)
     relay_max: int = 0
+    # SNMP 收集（0217，代理 1.19.0 起）：指派給這台代理的收集目標（含解密後的憑證，只給被指派的代理）與負載上限。
+    # 每筆 {target_id, ip, port, sections:{arp:300,...}, credential:{version, community | username/
+    # security_level/auth_protocol/auth_passphrase/priv_protocol/priv_passphrase, timeout_s, retries}}。
+    # 代理沒有 SNMP 能力（沒裝 net-snmp 用戶端工具）就是空的；舊代理不認得這兩個欄位，照舊忽略
+    snmp: list[dict[str, Any]] = Field(default_factory=list)
+    snmp_budget: dict[str, int] = Field(default_factory=dict)
 
 
 def parse_relay_header(raw: str | None) -> dict[str, Any] | None:
@@ -605,8 +613,12 @@ async def agent_poll(
         agent.force_scan_at = None
     from app.services.relay_scope import relay_scope
     scope = await relay_scope(session, agent)
+    from app.services import snmp as snmp_svc
+    snmp_targets = await snmp_svc.poll_targets(session, agent)
     await session.commit()
     return AgentPollOut(
+        snmp=snmp_targets,
+        snmp_budget=dict(snmp_svc.BUDGET) if snmp_targets else {},
         agent=agent.name,
         subnets=subnets_out,
         relay_cidrs=scope["cidrs"],
@@ -771,6 +783,58 @@ async def agent_dhcpd_report(
         session, kind="isc_dhcp.sync", target_type="isc_dhcp_server", target_id=sid,
         target_label=sname, ok=not serr, error=serr, summary=dict(counts))
     return {"status": "ok", **counts}
+
+
+class SnmpReportIn(StrictModel):
+    """代理的 SNMP 收集結果（只有解析後的列，沒有設備的原始輸出）。
+
+    sections 逐區段：{"status": ok|partial|error|absent, "error", "elapsed_ms", "truncated", "rows": [...]}
+    - arp.rows：[[ip, mac, ifIndex, state, type], ...]（state 只有 ipNetToPhysicalTable 有）
+    - fdb.rows：[[mac, 埠名, vlan], ...]
+    - interfaces.rows：[{if_index, name, descr, alias, type, mac, admin, oper}]；interfaces.addresses：[{ip, if_index}]
+    - neighbors.rows：[{protocol, local_port, remote_sysname, remote_port, remote_chassis_id, remote_mac,
+      remote_mgmt_address, remote_platform}]
+    列數上限在 services/snmp_collect（MAX_ROWS）；這裡不逐列驗證（十萬列的 Pydantic 模型太慢）。
+    """
+    target_id: uuid.UUID
+    job_id: uuid.UUID | None = None
+    credential_id: uuid.UUID | None = None
+    elapsed_ms: int | None = None
+    system: dict[str, Any] | None = None
+    error: Annotated[str | None, Field(max_length=1000)] = None
+    error_code: Annotated[str | None, Field(max_length=64)] = None
+    sections: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+@router.post("/snmp-report")
+async def agent_snmp_report(
+    payload: SnmpReportIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    x_agent_key: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """SNMP 收集的回報（0217）。只收**目前判定由這台代理收集**、而且啟用中的目標；別的一律 404（不透露存不存在）。
+    比對與寫入全在伺服器（services/snmp_collect）。"""
+    from app.models.snmp import SnmpTarget
+    from app.services import snmp as snmp_svc
+    from app.services.snmp_collect import ingest_report
+
+    agent = await _agent_from_key(session, x_agent_key)
+    target = await session.get(SnmpTarget, payload.target_id)
+    if target is None:
+        raise HTTPException(404, detail="Not found")
+    res = await snmp_svc.resolve(session, target)
+    if res.agent_id != agent.id:
+        raise HTTPException(404, detail="Not found")
+    if not target.enabled and payload.job_id is None:
+        return {"status": "disabled"}
+    # 跟掃描回報排同一個隊（同一台代理）：SNMP 的 ARP 與掃描結果會改到同一批 IP 記錄，交錯時會死結
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": report_lock_key(agent.id)})
+    agent.last_seen_at = datetime.now(UTC)
+    out = await ingest_report(session, agent, target, payload.model_dump(mode="json"))
+    await session.commit()
+    return {"status": "ok", "result": out["result"],
+            "sections": {k: {kk: v.get(kk) for kk in ("status", "rows", "matched", "new", "removed")}
+                         for k, v in out["sections"].items()}}
 
 
 def report_lock_key(agent_id: Any) -> str:
@@ -1086,10 +1150,10 @@ async def agent_take_jobs(
             if jobs and hung_up is not None and hung_up.done():
                 await session.rollback()        # 領的當下才斷線：放回去，留給重新連上來的代理
                 return {"jobs": []}
+            out_jobs = await _expand_jobs(session, jobs) if jobs else []
             await session.commit()
-            if jobs:
-                return {"jobs": [{"id": str(j.id), "kind": j.kind, "params": j.params}
-                                 for j in jobs]}
+            if out_jobs:
+                return {"jobs": out_jobs}
             if time.monotonic() >= deadline:
                 return {"jobs": []}
             await asyncio.sleep(1.0)
@@ -1098,6 +1162,28 @@ async def agent_take_jobs(
             hung_up.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await hung_up
+
+
+async def _expand_jobs(session: AsyncSession, jobs: list[Any]) -> list[dict[str, Any]]:
+    """領走的工作 → 給代理的內容。SNMP 的測試／立即收集在這裡才展開成目標＋解密後的憑證
+    （資料庫裡的工作記錄只有 id）；目標已經不在、或已經不歸這台代理收 → 工作作廢、不交出去。"""
+    from app.models.agent_probe_job import STATUS_FAILED
+    from app.services import snmp as snmp_svc
+
+    out: list[dict[str, Any]] = []
+    for j in jobs:
+        params = j.params
+        if j.kind in snmp_svc.SNMP_JOB_KINDS:
+            params = await snmp_svc.job_params(session, j)
+            if params is None:
+                j.status = STATUS_FAILED
+                j.finished_at = datetime.now(UTC)
+                j.error = "收集目標已不存在或已改由其他代理收集"
+                from app.services.snmp_collect import on_job_finished
+                await on_job_finished(session, j)
+                continue
+        out.append({"id": str(j.id), "kind": j.kind, "params": params})
+    return out
 
 
 async def _wait_disconnect(request: Request) -> None:

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { NCard, NList, NListItem, NSpace, NText, NTag, NButton, NPagination, NEmpty, useMessage } from "naive-ui";
+import { NCard, NIcon, NList, NListItem, NSpace, NText, NTag, NButton, NPagination, NEmpty, useMessage } from "naive-ui";
+import { BellIcon } from "@/icons";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { notifTitle, notifBody } from "@/utils/notifText";
@@ -71,7 +72,13 @@ onMounted(load);
 </script>
 
 <template>
-  <n-card :title="t('notifications.history_title')">
+  <n-card>
+    <template #header>
+      <n-space align="center" :wrap-item="false">
+        <n-icon :size="22"><BellIcon /></n-icon>
+        <span>{{ t("notifications.history_title") }}</span>
+      </n-space>
+    </template>
     <!-- 控制列：自標題列搬到內文最上方 -->
     <n-space align="center" justify="end" style="margin-bottom: 10px">
       <n-button size="small" @click="clearAll">{{ t("notifications.mark_all_read") }}</n-button>

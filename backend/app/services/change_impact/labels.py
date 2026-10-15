@@ -14,7 +14,7 @@ PRODUCT: dict[str, str] = {
     "esxi": "VMware ESXi", "zabbix": "Zabbix", "wazuh": "Wazuh", "dns_server": "DNS", "kea_dhcp": "Kea DHCP",
     "isc_dhcp": "ISC DHCP", "technitium": "Technitium", "windows_dhcp": "Windows DHCP", "ocs": "OCS Inventory",
     "adguard": "AdGuard Home", "isoinsight": "ISOinsight", "rustdesk": "RustDesk", "scan_agent": "掃描代理",
-    "cert_agent": "憑證代理", "webhook": "Webhook",
+    "cert_agent": "憑證代理", "webhook": "Webhook", "snmp": "SNMP",
 }
 
 

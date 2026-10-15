@@ -7,7 +7,7 @@
 - `dhcp_lease_sightings`／`dhcp_reservations`／`dhcp_pool_ranges`：租約、固定分配、發放範圍
   （`in_dhcp_lease`／`dhcp_reserved` 旗標重算）
 - `nat_translations`／`vpn_tunnels`：以 `source_origin = "<來源>:<id>"` 標記的列
-- `device_ports`（MikroTik 介面，0170）：沒接線的刪、已接線的留著並拿掉來源標記
+- `device_ports`（MikroTik 介面 0170、SNMP 收集的介面 0217）：沒接線的刪、已接線的留著並拿掉來源標記
 
 每個條件都帶來源類型＋實例 id，只清自己的列。**不 commit**，交易邊界由呼叫端決定。
 """
@@ -59,8 +59,8 @@ async def forget_instance(session: AsyncSession, *, source: str, source_id: uuid
         from app.models.librenms import ARPEntry, FDBEntry
         await session.execute(delete(ARPEntry).where(ARPEntry.instance_id == source_id))
         await session.execute(delete(FDBEntry).where(FDBEntry.instance_id == source_id))
-    if source == "mikrotik":
-        # FDB／鄰居有外鍵 CASCADE 跟著路由器走；介面寫進裝置連接埠（0170）沒有，要自己收回
+    if source in ("mikrotik", "snmp"):
+        # FDB／鄰居有外鍵 CASCADE 跟著路由器（SNMP 收集目標，0217）走；介面寫進裝置連接埠沒有，要自己收回
         await release_origin_ports(session, origin)
     # 作業頁上它的排程心跳列（每個實例一列，target_id＝實例 id）：不刪的話作業頁永遠留著一台已經不存在的來源。
     # 手動作業是歷史記錄（誰在什麼時候按了同步），留著。

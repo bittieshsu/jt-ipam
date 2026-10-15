@@ -49,7 +49,7 @@ _CONN_FIELDS = frozenset({"base_url", "login_path", "login_method", "post_format
                           "password_param", "auth_mode", "token_path", "token_header", "token_prefix", "token_in",
                           "token_param", "lease_path", "verify_tls"})
 #: 改了就要重新預覽：連線＋解讀與配對（時區、範圍、租戶、是否新增 IP）
-_PREVIEW_FIELDS = _CONN_FIELDS | {"source_timezone", "scope_subnet_ids", "customer_id", "create_ips", "max_rows",
+_PREVIEW_FIELDS = _CONN_FIELDS | {"source_timezone", "scope_subnet_ids", "scope_all", "customer_id", "create_ips", "max_rows",
                                   "max_response_mib"}
 #: 不影響進行中工作結果的欄位（其餘改了都要讓進行中的工作放棄提交）
 _NO_VERSION_BUMP = frozenset({"name", "description", "product_version", "schedule_enabled",
@@ -77,12 +77,16 @@ async def _or_404(session: AsyncSession, sid: uuid.UUID) -> IsoInsightSource:
     return src
 
 
-async def _check_scope(session: AsyncSession, subnet_ids: list[uuid.UUID], customer_id: uuid.UUID | None) -> None:
-    """允許的子網路必選、必須存在，而且全部屬於設定的租戶（不可跨租戶自動配對）。"""
-    if not subnet_ids:
-        raise HTTPException(422, detail=ui_detail("isoinsight_scope_empty", "至少要選一個允許同步的子網路"))
+async def _check_scope(session: AsyncSession, subnet_ids: list[uuid.UUID], customer_id: uuid.UUID | None,
+                       scope_all: bool = False) -> None:
+    """允許的子網路：「全部」（所選單位底下的），或指定的清單 —— 指定時必選、必須存在、全部屬於設定的租戶
+    （不可跨租戶自動配對）。"""
     if customer_id is not None and await session.get(Customer, customer_id) is None:
         raise HTTPException(422, detail=ui_detail("isoinsight_customer_unknown", "找不到這個客戶"))
+    if scope_all:
+        return
+    if not subnet_ids:
+        raise HTTPException(422, detail=ui_detail("isoinsight_scope_empty", "至少要選一個允許同步的子網路"))
     rows = (await session.execute(select(Subnet.id, Subnet.cidr, Subnet.customer_id)
                                   .where(in_values(Subnet.id, subnet_ids)))).all()
     if len(rows) != len(set(subnet_ids)):
@@ -127,8 +131,13 @@ async def create_source(
     if not payload.timezone_confirmed:
         raise HTTPException(422, detail=ui_detail(
             "isoinsight_timezone_unconfirmed", "儲存前請確認來源時區（時間會依這個時區換算）"))
-    await _check_scope(session, payload.scope_subnet_ids, payload.customer_id)
+    # 沒說要不要全部：沒給清單＝全部（使用者 2026-10-15：預設全部子網路），給了清單照舊只用清單
+    scope_all = payload.scope_all if payload.scope_all is not None else not payload.scope_subnet_ids
+    await _check_scope(session, payload.scope_subnet_ids, payload.customer_id, scope_all)
     data = payload.model_dump(exclude={"password", "timezone_confirmed"})
+    data["scope_all"] = scope_all
+    if scope_all:
+        data["scope_subnet_ids"] = []
     src = IsoInsightSource(**data, password_enc=b"", password_nonce=b"")
     session.add(src)
     try:
@@ -141,7 +150,8 @@ async def create_source(
                        diff={"name": src.name, "base_url": src.base_url, "login_method": src.login_method,
                              "post_format": src.post_format, "auth_mode": src.auth_mode,
                              "verify_tls": src.verify_tls, "source_timezone": src.source_timezone,
-                             "scope_subnets": len(src.scope_subnet_ids or []), "create_ips": src.create_ips},
+                             "scope_subnets": len(src.scope_subnet_ids or []), "scope_all": src.scope_all,
+                             "create_ips": src.create_ips},
                        **_meta(request))
     await session.commit()
     await session.refresh(src)
@@ -163,7 +173,7 @@ async def update_source(
     for k in ("name", "base_url", "login_path", "login_method", "post_format", "username", "username_param",
               "password_param", "auth_mode", "token_header", "token_prefix", "token_in", "token_param",
               "lease_path", "verify_tls",
-              "source_timezone", "scope_subnet_ids", "create_ips", "enabled", "schedule_enabled",
+              "source_timezone", "scope_subnet_ids", "scope_all", "create_ips", "enabled", "schedule_enabled",
               "sync_interval_seconds", "connect_timeout_seconds", "request_timeout_seconds", "job_timeout_seconds",
               "max_response_mib", "max_rows"):
         if k in data and data[k] is None:
@@ -173,9 +183,10 @@ async def update_source(
     token_path = changed.get("token_path", src.token_path) if "token_path" in data else src.token_path
     if auth_mode == "token" and not token_path:
         raise HTTPException(422, detail=ui_detail("isoinsight_token_path_required", "Token 模式需要設定 Token 欄位路徑"))
-    if "scope_subnet_ids" in changed or "customer_id" in changed:
+    if "scope_subnet_ids" in changed or "customer_id" in changed or "scope_all" in changed:
         await _check_scope(session, list(changed.get("scope_subnet_ids", src.scope_subnet_ids) or []),
-                           changed.get("customer_id", src.customer_id) if "customer_id" in data else src.customer_id)
+                           changed.get("customer_id", src.customer_id) if "customer_id" in data else src.customer_id,
+                           bool(changed.get("scope_all", src.scope_all)))
     conn = bool(new_password) or bool(_CONN_FIELDS & set(changed))
     needs_preview = conn or bool(_PREVIEW_FIELDS & set(changed))
     # 排程開關隨時可以切（使用者 2026-10-08：預設開啟）；沒有目前這組設定的成功預覽時，排程輪到也不同步（job.run_due）

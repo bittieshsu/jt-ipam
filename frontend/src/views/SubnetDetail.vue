@@ -99,7 +99,7 @@ const ipColumnPickerItems = [
   { key: "stale_days", label: t("stale.col_stale") },
   { key: "note", label: t("cols.note") },
 ];
-import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon, AddressesIcon, DeleteIcon } from "@/icons";
+import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon, AddressesIcon, DeleteIcon, SnmpIcon } from "@/icons";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { apiClient } from "@/api/client";
 import { listAddresses, listUnmanaged, type UnmanagedAddress } from "@/api/addresses";
@@ -108,11 +108,14 @@ import { listDhcpRanges } from "@/api/integrations";
 import { getSubnetUsage, deleteSubnet } from "@/api/subnets";
 import { getSection } from "@/api/sections";
 import { useSubnetTree } from "@/composables/useSubnetTree";
-import { listVLANs, listVRFs, type VLAN, type VRF } from "@/api/basic";
+import { getDevice, listVLANs, listVRFs, type VLAN, type VRF } from "@/api/basic";
 import SubnetGrid from "@/components/SubnetGrid.vue";
 import SubnetRanges from "@/components/SubnetRanges.vue";
 import { listIPRanges, type IPRange } from "@/api/ipRanges";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
+import SnmpTargetForm from "@/components/SnmpTargetForm.vue";
+import { getSnmpTargetForDevice, type SnmpTarget } from "@/api/snmp";
+import type { SnmpPresetIp } from "@/utils/snmp";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import { renderDeviceKind } from "@/utils/deviceKindCell";
 import type { IPAddress, Section, Subnet, SubnetUsage } from "@/types";
@@ -143,6 +146,54 @@ async function delThisSubnet() {
   } finally {
     deleting.value = false;
   }
+}
+
+// 「對閘道啟用 SNMP 收集」（限管理員）：閘道的 IP 記錄 → 收集目標表單（同一個元件，帶入那筆 IP、收集者自動、預設憑證）。
+// 閘道 IP 沒登記就講清楚要先登記；那台裝置已經有收集目標就改成「檢視 SNMP 收集」（到裝置頁的 SNMP 區塊）
+const isAdmin = computed(() => !!_authBtn.me?.is_admin);
+const gwRecord = ref<IPAddress | null>(null);
+const gwTarget = ref<SnmpTarget | null>(null);
+const gwPreset = ref<SnmpPresetIp | null>(null);
+const gwFormShow = ref(false);
+const gwChecking = ref(false);
+async function loadGatewaySnmp() {
+  gwRecord.value = null;
+  gwTarget.value = null;
+  gwPreset.value = null;
+  const s = subnet.value;
+  if (!isAdmin.value || !s?.gateway) return;
+  const gw = String(s.gateway).split("/")[0];
+  gwChecking.value = true;
+  try {
+    const r = await listAddresses({ subnetId: s.id, q: gw, exact: true, pageSize: 5 });
+    const rec = r.items.find((a) => String(a.ip).split("/")[0] === gw) ?? null;
+    gwRecord.value = rec;
+    const deviceId = (rec as { device_id?: string | null } | null)?.device_id ?? null;
+    let deviceName: string | null = null;
+    let deviceType: string | null = null;
+    if (deviceId) {
+      const [tg, dev] = await Promise.all([
+        getSnmpTargetForDevice(deviceId).catch(() => null),
+        getDevice(deviceId).catch(() => null),
+      ]);
+      gwTarget.value = tg;
+      deviceName = dev?.name ?? null;
+      deviceType = dev?.type ?? null;
+    }
+    if (rec) gwPreset.value = { id: rec.id, ip: gw, deviceId, deviceName, deviceType };
+  } catch { /* 查不到就當沒有：按鈕按下去時會講要先登記 */ }
+  finally { gwChecking.value = false; }
+}
+function onGatewaySnmp() {
+  if (gwTarget.value) {
+    void router.push({ name: "device-detail", params: { id: gwTarget.value.device_id }, query: { card: "snmp" } });
+    return;
+  }
+  if (!gwRecord.value || !gwPreset.value) {
+    msg.warning(t("snmp.gateway_not_registered", { ip: String(subnet.value?.gateway ?? "").split("/")[0] }));
+    return;
+  }
+  gwFormShow.value = true;
 }
 
 const subnet = ref<Subnet | null>(null);
@@ -275,6 +326,7 @@ async function load(id: string) {
       listAddresses({ subnetId: id, page: 1, pageSize: ADDRESS_LOAD_LIMIT }),
     ]);
     subnet.value = s;
+    void loadGatewaySnmp();
     usage.value = u;
     addresses.value = a.items;
     addressesTotal.value = a.total ?? a.items.length;
@@ -715,6 +767,11 @@ onMounted(() => {
             <template #icon><n-icon><PinIcon /></n-icon></template>
             {{ isPinned(subnet.id) ? t('subnet_detail.unpin') : t('subnet_detail.pin') }}
           </n-button>
+          <n-button v-if="isAdmin && subnet.gateway" size="small" :loading="gwChecking" :disabled="gwChecking"
+                    data-testid="subnet-gateway-snmp" @click="onGatewaySnmp">
+            <template #icon><n-icon><SnmpIcon /></n-icon></template>
+            {{ gwTarget ? t("snmp.view_for_gateway") : t("snmp.enable_for_gateway") }}
+          </n-button>
           <n-button
             v-if="section"
             size="small"
@@ -1023,6 +1080,7 @@ onMounted(() => {
   />
 
   <SubnetEditModal v-model:show="editShow" :editing="subnet" @saved="onSubnetSaved" />
+  <SnmpTargetForm v-if="isAdmin" v-model:show="gwFormShow" :preset-ip="gwPreset" @saved="loadGatewaySnmp" />
 </template>
 
 <style scoped>

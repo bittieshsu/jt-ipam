@@ -36,6 +36,10 @@ Environment variables:
                         Only parsed ranges / fixed addresses / active leases are sent -- never the
                         file contents (dhcpd.conf often holds DDNS/OMAPI keys). The server cannot
                         change these paths.
+  SNMP collection (1.19.0) needs the net-snmp client tools (apt install snmp / dnf install net-snmp-utils /
+  apk add net-snmp-tools). It reads only the network devices the jt-ipam server assigns to this agent, with
+  the credentials the server sends (kept in memory, handed to net-snmp via a private 0600 snmp.conf, never on
+  the command line), read-only, OIDs from a fixed list in this file. Nothing to set here.
   Console relay (SSH/SFTP/RDP/VNC from the browser into the subnets this agent scans) is switched on
   and configured in the jt-ipam web UI (system settings + the agent page); nothing to set here. The
   agent relays only what the server currently allows. Optional local limits for the host owner:
@@ -71,7 +75,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.18.2"
+AGENT_VERSION = "1.19.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -117,7 +121,8 @@ def _capabilities() -> list[str]:
 
     icmp/tcp/rdns 一律支援；arp 需 neigh 表可讀；os/ports 需 PATH 上有 nmap；
     netbios 需 nmblookup/nbtscan、mdns 需 avahi-resolve（有才回報能力、才會實際查名）。
-    不做需要憑證/社群字串的探測（如 SNMP）。
+    snmp（1.19.0）：有 net-snmp 用戶端工具（snmpbulkwalk／snmpget）才回報。SNMP 不是逐子網路的探測：
+    只對伺服器指派的網路設備、用伺服器下發的憑證做唯讀讀取（見下方 SNMP collection 一節）。
     """
     caps = ["icmp", "tcp", "rdns"]
     try:
@@ -137,7 +142,10 @@ def _capabilities() -> list[str]:
         caps.append("dhcp")
     # 去重並維持 ALL_PROBES 順序
     seen = set(caps)
-    return [p for p in ALL_PROBES if p in seen]
+    out = [p for p in ALL_PROBES if p in seen]
+    if _snmp_available():
+        out.append("snmp")      # 不在 ALL_PROBES：子網路的探測清單裡沒有它（伺服器另外指派收集目標）
+    return out
 
 
 # 探測相依的外部工具（name, version-args）。server 端另有 probes/package 對照表（顯示用）。
@@ -149,6 +157,7 @@ _DEP_TOOLS = (
     ("nmblookup", ["-V"]),
     ("nbtscan", []),         # 無可靠的版本旗標
     ("avahi-resolve", []),   # 無可靠的版本旗標
+    ("snmpbulkwalk", ["--version"]),   # net-snmp 用戶端工具（apt: snmp）→ SNMP 收集（1.19.0）
 )
 
 
@@ -1292,6 +1301,8 @@ def scan_once() -> None:
           f"fast={fast}s caps={','.join(caps)}", flush=True)
     # 獨立 ISC DHCP Server：伺服器指派了才讀本機 dhcpd 檔（背景執行，不佔這一輪的時間）
     _dhcpd_maybe_report(poll.get("dhcpd"), time.time())
+    # SNMP 收集：伺服器指派給這台代理的網路設備（憑證只放記憶體；背景執行緒依各區段間隔讀取）
+    _snmp_set_assigned(poll.get("snmp") or [], poll.get("snmp_budget") or {})
 
     cap_set = set(caps)
     now = time.time()
@@ -1386,7 +1397,8 @@ def scan_once() -> None:
                     alive = True  # 在 neigh 表代表本子網有回應過
             if mac:
                 item["mac"] = mac   # 即使沒跑 arp 探測，arp 表剛好有資料也順手補 mac
-            # snmp 仍不實作（需社群字串/憑證，違反「不做需憑證探測」原則）
+            # SNMP 不在逐主機探測裡：不對網段每台主機試社群字串（v2c 是明文，等於送給每一台）。
+            # 只對伺服器指派的網路設備、用下發的憑證唯讀讀取（_snmp_loop，見 SNMP collection 一節）
             if not alive:
                 continue
             item["alive"] = True
@@ -1420,6 +1432,749 @@ def scan_once() -> None:
     }})
 
 
+# ─────────────────── SNMP collection (server-assigned targets only, 1.19.0) ───────────────────
+# Principle (replaces the old "never run probes that need credentials" rule, 2026-10-15):
+#   * only the targets the server assigns to THIS agent (network devices the admin picked), never a sweep:
+#     a v2c community travels in clear text, so trying it against every host would hand it to every host
+#   * only the credentials the server sends for that target; kept in memory only, handed to net-snmp through
+#     a private 0600 snmp.conf in a fresh 0700 temp directory (never on argv, so `ps` cannot show them),
+#     deleted right after each command
+#   * read-only GET / GETNEXT / GETBULK of the OIDs hard-coded below (SNMP_OIDS); nothing else is ever asked
+#   * gentle on the device: one walk at a time per agent, a pause between walks, small max-repetitions,
+#     a time limit per walk, a row cap per walk and a time budget per device
+# net-snmp's command line tools are used because the agent is standard-library only and SNMPv3 privacy
+# needs AES; the tools exist only when the "snmp" package is installed (capability reported as such).
+SNMP_OIDS = {
+    # SNMPv2-MIB system group
+    "sysDescr": "1.3.6.1.2.1.1.1.0", "sysObjectID": "1.3.6.1.2.1.1.2.0",
+    "sysUpTime": "1.3.6.1.2.1.1.3.0", "sysName": "1.3.6.1.2.1.1.5.0",
+    # IF-MIB
+    "ifDescr": "1.3.6.1.2.1.2.2.1.2", "ifType": "1.3.6.1.2.1.2.2.1.3", "ifPhysAddress": "1.3.6.1.2.1.2.2.1.6",
+    "ifAdminStatus": "1.3.6.1.2.1.2.2.1.7", "ifOperStatus": "1.3.6.1.2.1.2.2.1.8",
+    "ifName": "1.3.6.1.2.1.31.1.1.1.1", "ifAlias": "1.3.6.1.2.1.31.1.1.1.18",
+    # IP-MIB: neighbour (ARP / ND) table, new and legacy
+    "ipNetToPhysicalPhysAddress": "1.3.6.1.2.1.4.35.1.4", "ipNetToPhysicalType": "1.3.6.1.2.1.4.35.1.6",
+    "ipNetToPhysicalState": "1.3.6.1.2.1.4.35.1.7",
+    "ipNetToMediaPhysAddress": "1.3.6.1.2.1.4.22.1.2", "ipNetToMediaType": "1.3.6.1.2.1.4.22.1.4",
+    # IP-MIB: the device's own addresses, new and legacy
+    "ipAddressIfIndex": "1.3.6.1.2.1.4.34.1.3", "ipAddressType": "1.3.6.1.2.1.4.34.1.4",
+    "ipAdEntIfIndex": "1.3.6.1.2.1.4.20.1.2",
+    # Q-BRIDGE-MIB / BRIDGE-MIB: MAC address table
+    "dot1qTpFdbPort": "1.3.6.1.2.1.17.7.1.2.2.1.2", "dot1qVlanFdbId": "1.3.6.1.2.1.17.7.1.4.2.1.3",
+    "dot1dTpFdbPort": "1.3.6.1.2.1.17.4.3.1.2", "dot1dBasePortIfIndex": "1.3.6.1.2.1.17.1.4.1.2",
+    # LLDP-MIB
+    "lldpLocPortIdSubtype": "1.0.8802.1.1.2.1.3.7.1.2", "lldpLocPortId": "1.0.8802.1.1.2.1.3.7.1.3",
+    "lldpLocPortDesc": "1.0.8802.1.1.2.1.3.7.1.4",
+    "lldpRemChassisIdSubtype": "1.0.8802.1.1.2.1.4.1.1.4", "lldpRemChassisId": "1.0.8802.1.1.2.1.4.1.1.5",
+    "lldpRemPortIdSubtype": "1.0.8802.1.1.2.1.4.1.1.6", "lldpRemPortId": "1.0.8802.1.1.2.1.4.1.1.7",
+    "lldpRemPortDesc": "1.0.8802.1.1.2.1.4.1.1.8", "lldpRemSysName": "1.0.8802.1.1.2.1.4.1.1.9",
+    "lldpRemSysDesc": "1.0.8802.1.1.2.1.4.1.1.10", "lldpRemManAddrIfSubtype": "1.0.8802.1.1.2.1.4.2.1.3",
+    # CISCO-CDP-MIB cdpCacheTable
+    "cdpCacheAddressType": "1.3.6.1.4.1.9.9.23.1.2.1.1.3", "cdpCacheAddress": "1.3.6.1.4.1.9.9.23.1.2.1.1.4",
+    "cdpCacheDeviceId": "1.3.6.1.4.1.9.9.23.1.2.1.1.6", "cdpCacheDevicePort": "1.3.6.1.4.1.9.9.23.1.2.1.1.7",
+    "cdpCachePlatform": "1.3.6.1.4.1.9.9.23.1.2.1.1.8",
+    # CISCO-VTP-MIB vtpVlanState (which VLANs exist, for the per-VLAN MAC table on Cisco)
+    "vtpVlanState": "1.3.6.1.4.1.9.9.46.1.3.1.1.2",
+}
+_SNMP_ALLOWED = frozenset(SNMP_OIDS.values())
+SNMP_SECTIONS = ("arp", "fdb", "neighbors", "interfaces")
+SNMP_MIN_INTERVAL = 60
+_SNMP_AUTH = {"MD5": "MD5", "SHA": "SHA", "SHA-224": "SHA-224", "SHA-256": "SHA-256",
+              "SHA-384": "SHA-384", "SHA-512": "SHA-512"}
+_SNMP_PRIV = {"DES": "DES", "AES-128": "AES", "AES-192": "AES-192", "AES-256": "AES-256"}
+_SNMP_LEVELS = ("authPriv", "authNoPriv")
+# Defaults and hard ceilings for the server-sent budget (the server cannot make us hammer a device)
+_SNMP_BUDGET_LIMITS = {"target_seconds": (300, 30, 600), "walk_seconds": (120, 5, 300),
+                       "max_rows": (150000, 100, 200000), "max_repetitions": (10, 1, 25),
+                       "pause_ms": (200, 0, 5000), "max_vlans": (64, 0, 128)}
+_SNMP_ABSENT = ("No Such Object", "No Such Instance", "No more variables left")
+_SNMP_REPORT_SPLIT = 12 * 1024 * 1024      # nginx accepts 16 MB; above this, one request per section
+_SNMP_STATE: dict = {"targets": [], "budget": {}}
+_SNMP_LAST: dict[tuple, float] = {}
+_SNMP_STATE_LOCK = threading.Lock()
+_SNMP_DEV_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _snmp_available() -> bool:
+    return bool(shutil.which("snmpbulkwalk") and shutil.which("snmpget"))
+
+
+def _snmp_budget(raw) -> dict:  # noqa: ANN001
+    raw = raw if isinstance(raw, dict) else {}
+    out = {}
+    for k, (default, lo, hi) in _SNMP_BUDGET_LIMITS.items():
+        try:
+            v = int(raw.get(k, default))
+        except (TypeError, ValueError):
+            v = default
+        out[k] = max(lo, min(v, hi))
+    return out
+
+
+def _snmp_clean_str(v, limit: int = 128, spaces: bool = True) -> str | None:  # noqa: ANN001
+    """A credential value we are willing to write into snmp.conf: no control characters at all
+    (a newline would let the sender add arbitrary net-snmp directives), bounded length."""
+    if not isinstance(v, str) or not v or len(v) > limit:
+        return None
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in v):
+        return None
+    if not spaces and " " in v:
+        return None
+    return v
+
+
+def _snmp_cred_ok(cred) -> dict | None:  # noqa: ANN001
+    """Validate a server-sent credential ourselves (never trust the server's validation)."""
+    if not isinstance(cred, dict):
+        return None
+    out = {"credential_id": str(cred.get("credential_id") or "")[:64]}
+    try:
+        out["timeout_s"] = max(1, min(int(cred.get("timeout_s") or 5), 30))
+        out["retries"] = max(0, min(int(cred.get("retries") or 0), 5))
+    except (TypeError, ValueError):
+        return None
+    if cred.get("version") == "v2c":
+        community = _snmp_clean_str(cred.get("community"))
+        if not community:
+            return None
+        out.update(version="v2c", community=community)
+        return out
+    if cred.get("version") != "v3":
+        return None
+    user = _snmp_clean_str(cred.get("username"), 64, spaces=False)
+    level = cred.get("security_level")
+    auth = _SNMP_AUTH.get(cred.get("auth_protocol"))
+    apass = _snmp_clean_str(cred.get("auth_passphrase"))
+    if not user or level not in _SNMP_LEVELS or not auth or not apass:
+        return None
+    out.update(version="v3", username=user, security_level=level, auth_protocol=auth, auth_passphrase=apass)
+    if level == "authPriv":
+        priv = _SNMP_PRIV.get(cred.get("priv_protocol"))
+        ppass = _snmp_clean_str(cred.get("priv_passphrase"))
+        if not priv or not ppass:
+            return None
+        out.update(priv_protocol=priv, priv_passphrase=ppass)
+    return out
+
+
+def _snmp_target_ok(spec) -> dict | None:  # noqa: ANN001
+    """A server-sent target: an IP literal (no host names, no multicast), a port, known sections."""
+    if not isinstance(spec, dict):
+        return None
+    try:
+        ip = ipaddress.ip_address(str(spec.get("ip") or "").strip())
+        port = int(spec.get("port") or 161)
+    except (TypeError, ValueError):
+        return None
+    if ip.is_multicast or ip.is_unspecified or not 1 <= port <= 65535:
+        return None
+    sections = {}
+    for k, v in (spec.get("sections") or {}).items() if isinstance(spec.get("sections"), dict) else []:
+        if k in SNMP_SECTIONS:
+            try:
+                sections[k] = max(SNMP_MIN_INTERVAL, min(int(v), 86400))
+            except (TypeError, ValueError):
+                continue
+    return {"target_id": str(spec.get("target_id") or "")[:64], "ip": str(ip), "port": port,
+            "sections": sections}
+
+
+def _snmp_conf_value(v: str) -> str:
+    """net-snmp reads the rest of the line as the value unless it starts with a double quote, and cuts a line
+    at '#' (comment) outside quotes; quote (with backslash escapes) when the value starts with a quote, has
+    surrounding blanks or contains '#' or a backslash."""
+    if v.startswith('"') or v != v.strip() or "#" in v or "\\" in v:
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return v
+
+
+def _snmp_conf_text(cred: dict, community_suffix: str = "") -> str:
+    lines = ["mibs :", "hexOutputLength 0"]
+    if cred["version"] == "v2c":
+        lines += ["defVersion 2c", "defCommunity " + _snmp_conf_value(cred["community"] + community_suffix)]
+    else:
+        lines += ["defVersion 3", "defSecurityName " + _snmp_conf_value(cred["username"]),
+                  "defSecurityLevel " + cred["security_level"], "defAuthType " + cred["auth_protocol"],
+                  "defAuthPassphrase " + _snmp_conf_value(cred["auth_passphrase"])]
+        if cred["security_level"] == "authPriv":
+            lines += ["defPrivType " + cred["priv_protocol"],
+                      "defPrivPassphrase " + _snmp_conf_value(cred["priv_passphrase"])]
+    return "\n".join(lines) + "\n"
+
+
+def _snmp_parse(text: str) -> list[tuple[str, str]]:
+    """`-On -Oq` output -> [(oid, raw value)]. A line that does not start with '.' continues the previous
+    value (old net-snmp versions wrap long hex strings even with hexOutputLength 0)."""
+    out: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        if line.startswith("."):
+            oid, _, val = line.partition(" ")
+            out.append((oid[1:], val.strip()))
+        elif out and line.strip():
+            oid, val = out[-1]
+            out[-1] = (oid, (val + " " + line.strip()).strip())
+    return out
+
+
+def _snmp_absent(val: str) -> bool:
+    return any(val.startswith(m) for m in _SNMP_ABSENT)
+
+
+def _snmp_bytes(val: str) -> bytes | None:
+    """`"4C 69 6E "` (hex, from -Ox) -> bytes. Plain quoted text (some agents' empty strings) -> its bytes."""
+    s = val.strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1]
+    parts = s.split()
+    if parts and all(len(p) == 2 and all(c in "0123456789abcdefABCDEF" for c in p) for p in parts):
+        return bytes(int(p, 16) for p in parts)
+    return s.encode("utf-8", "replace") if s else b""
+
+
+def _snmp_text(val: str, limit: int = 255, first_line: bool = False) -> str | None:
+    b = _snmp_bytes(val)
+    if b is None:
+        return None
+    t = b.decode("utf-8", "replace").replace("\x00", "").strip()
+    if first_line:
+        t = (t.splitlines() or [""])[0]
+    # line breaks / tabs become spaces (Cisco's sysDescr is several lines); other control characters go
+    t = " ".join("".join(c if c >= " " else (" " if c in "\r\n\t" else "") for c in t).split())
+    return t[:limit] or None
+
+
+def _snmp_mac(val) -> str | None:  # noqa: ANN001
+    b = _snmp_bytes(val) if isinstance(val, str) else val
+    if not b or len(b) != 6:
+        return None
+    return ":".join(f"{x:02x}" for x in b)
+
+
+def _snmp_int(val: str) -> int | None:
+    try:
+        return int(str(val).strip().split()[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def _snmp_suffix(oid: str, col: str) -> list[int] | None:
+    if not oid.startswith(col + "."):
+        return None
+    try:
+        return [int(x) for x in oid[len(col) + 1:].split(".")]
+    except ValueError:
+        return None
+
+
+def _snmp_inet(parts: list[int]) -> tuple[str | None, list[int]]:
+    """InetAddressType.InetAddress (length-prefixed) at the start of an index -> (ip, rest)."""
+    if len(parts) < 2:
+        return None, []
+    typ, ln = parts[0], parts[1]
+    raw = parts[2:2 + ln]
+    try:
+        if typ in (1, 3) and ln in (4, 8) and len(raw) == ln:       # ipv4 / ipv4z (zone index dropped)
+            return str(ipaddress.IPv4Address(bytes(raw[:4]))), parts[2 + ln:]
+        if typ in (2, 4) and ln in (16, 20) and len(raw) == ln:     # ipv6 / ipv6z
+            return ipaddress.IPv6Address(bytes(raw[:16])).compressed, parts[2 + ln:]
+    except (ValueError, TypeError):
+        pass
+    return None, parts[2 + ln:]
+
+
+class _SnmpSession:
+    """One device, one credential, one run: runs net-snmp commands with the budget applied."""
+
+    def __init__(self, ip: str, port: int, cred: dict, budget: dict) -> None:
+        self.ip, self.port, self.cred, self.budget = ip, port, cred, budget
+        self.deadline = time.monotonic() + budget["target_seconds"]
+        self._ifnames: dict | None = None
+        self.sys_object_id = ""
+
+    def host(self) -> str:
+        return f"udp6:[{self.ip}]:{self.port}" if ":" in self.ip else f"udp:{self.ip}:{self.port}"
+
+    def run(self, tool: str, oids: list, *, context: str | None = None, community_suffix: str = "",
+            limit_rows: int | None = None) -> tuple[list[tuple[str, str]], str, str | None]:
+        """-> (varbinds, status ok|partial|error|absent, error). Never raises."""
+        if tool not in ("snmpget", "snmpbulkwalk") or not oids or any(o not in _SNMP_ALLOWED for o in oids):
+            return [], "error", "OID not in the allowlist"
+        if tool == "snmpbulkwalk" and len(oids) != 1:
+            return [], "error", "one subtree per walk"
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 1:
+            return [], "error", "device time budget used up"
+        max_rows = min(limit_rows or self.budget["max_rows"], self.budget["max_rows"])
+        argv = [tool, "-On", "-Oq", "-Ox", "-Oe", "-Ot", "-OU",
+                "-t", str(self.cred["timeout_s"]), "-r", str(self.cred["retries"])]
+        if tool == "snmpbulkwalk":
+            argv.append(f"-Cr{self.budget['max_repetitions']}")
+        if context:
+            argv += ["-n", context]          # SNMPv3 context name (vlan-N): not a secret
+        argv += [self.host(), *oids]
+        tmp = tempfile.mkdtemp(prefix="jt-snmp-")       # 0700
+        try:
+            fd = os.open(os.path.join(tmp, "snmp.conf"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(_snmp_conf_text(self.cred, community_suffix))
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "SNMPCONFPATH": tmp,
+                   "SNMP_PERSISTENT_DIR": tmp, "MIBDIRS": tmp, "HOME": tmp, "LC_ALL": "C"}
+            return self._exec(argv, env, min(self.budget["walk_seconds"], remaining), max_rows)
+        except Exception as exc:  # noqa: BLE001
+            return [], "error", f"{type(exc).__name__}: {exc}"[:300]
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+            time.sleep(self.budget["pause_ms"] / 1000.0)
+
+    @staticmethod
+    def _exec(argv: list, env: dict, limit_s: float, max_rows: int) -> tuple[list, str, str | None]:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,  # noqa: S603
+                                stdin=subprocess.DEVNULL)
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stdout, selectors.EVENT_READ, "out")
+        sel.register(proc.stderr, selectors.EVENT_READ, "err")
+        out, err = bytearray(), bytearray()
+        lines, cut, open_streams = 0, None, 2
+        end = time.monotonic() + limit_s
+        try:
+            while open_streams:
+                left = end - time.monotonic()
+                if left <= 0:
+                    cut = "timeout"
+                    break
+                for key, _ev in sel.select(timeout=min(left, 1.0)):
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        sel.unregister(key.fileobj)
+                        open_streams -= 1
+                        continue
+                    if key.data == "out":
+                        lines += chunk.count(b"\n")
+                        out += chunk
+                    elif len(err) < 4096:
+                        err += chunk
+                if lines > max_rows:
+                    cut = "rows"
+                    break
+        finally:
+            sel.close()
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            for s in (proc.stdout, proc.stderr):
+                try:
+                    s.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        rows = _snmp_parse(out.decode("utf-8", "replace"))
+        real = [(o, v) for o, v in rows if not _snmp_absent(v)]
+        # net-snmp notes that it created cert_indexes inside our temp dir: not an error
+        msg = " ".join(ln.strip() for ln in err.decode("utf-8", "replace").splitlines()
+                       if ln.strip() and not ln.startswith("Created directory"))
+        if cut == "rows":
+            return real[:max_rows], "partial", "row limit reached"
+        if cut == "timeout":
+            return real, ("partial" if real else "error"), "timed out" if real else (msg or "timed out")[:300]
+        if proc.returncode != 0:
+            return real, ("partial" if real else "error"), (msg or f"exit {proc.returncode}")[:300]
+        if not real:
+            return [], "absent", None
+        return real, "ok", None
+
+    def walk(self, name: str, **kw) -> tuple[list[tuple[list[int], str]], str, str | None]:  # noqa: ANN003
+        col = SNMP_OIDS[name]
+        rows, st, err = self.run("snmpbulkwalk", [col], **kw)
+        out = []
+        for oid, val in rows:
+            idx = _snmp_suffix(oid, col)
+            if idx is not None:
+                out.append((idx, val))
+        return out, st, err
+
+    def system(self) -> tuple[dict | None, str | None]:
+        names = ("sysDescr", "sysObjectID", "sysUpTime", "sysName")
+        rows, st, err = self.run("snmpget", [SNMP_OIDS[n] for n in names])
+        if st == "error":
+            return None, err or "no response"
+        got = dict(rows)
+        oid = got.get(SNMP_OIDS["sysObjectID"], "")
+        self.sys_object_id = oid.lstrip(".") if oid.startswith(".") else oid
+        return {"sys_descr": _snmp_text(got.get(SNMP_OIDS["sysDescr"], ""), 1000),
+                "sys_object_id": self.sys_object_id or None,
+                "sys_uptime": _snmp_int(got.get(SNMP_OIDS["sysUpTime"], "")),
+                "sys_name": _snmp_text(got.get(SNMP_OIDS["sysName"], ""))}, None
+
+    def ifnames(self) -> dict:
+        """ifIndex -> short interface name (ifName, else ifDescr); read once per run."""
+        if self._ifnames is None:
+            names: dict = {}
+            for col in ("ifName", "ifDescr"):
+                rows, _st, _err = self.walk(col)
+                for idx, val in rows:
+                    t = _snmp_text(val)
+                    if t and idx and idx[0] not in names:
+                        names[idx[0]] = t
+                if names:
+                    break
+            self._ifnames = names
+        return self._ifnames
+
+
+def _snmp_worst(statuses: list) -> str:
+    """Combine walk statuses: an error next to usable rows is partial; ok beside absent is still ok."""
+    useful = any(x in ("ok", "partial") for x in statuses)
+    if "error" in statuses:
+        return "partial" if useful else "error"
+    if "partial" in statuses:
+        return "partial"
+    return "ok" if "ok" in statuses else "absent"
+
+
+def _snmp_arp(s: _SnmpSession) -> dict:
+    """ARP / ND: ipNetToPhysicalTable (has a state) with the legacy ipNetToMediaTable as fallback."""
+    rows, st, err = s.walk("ipNetToPhysicalPhysAddress")
+    out: list = []
+    if rows:
+        state = {tuple(i): _snmp_int(v) for i, v in s.walk("ipNetToPhysicalState")[0]}
+        typ = {tuple(i): _snmp_int(v) for i, v in s.walk("ipNetToPhysicalType")[0]}
+        for idx, val in rows:
+            ip, _rest = _snmp_inet(idx[1:]) if idx else (None, [])
+            mac = _snmp_mac(val)
+            if ip and mac:
+                out.append([ip, mac, idx[0], state.get(tuple(idx)), typ.get(tuple(idx))])
+        return {"status": st, "error": err, "table": "physical", "rows": out, "truncated": st == "partial"}
+    if st == "error":
+        return {"status": "error", "error": err, "rows": []}
+    rows, st, err = s.walk("ipNetToMediaPhysAddress")
+    typ = {tuple(i): _snmp_int(v) for i, v in s.walk("ipNetToMediaType")[0]} if rows else {}
+    for idx, val in rows:
+        if len(idx) != 5:
+            continue
+        mac = _snmp_mac(val)
+        if mac:
+            out.append([".".join(str(x) for x in idx[1:]), mac, idx[0], None, typ.get(tuple(idx))])
+    return {"status": st, "error": err, "table": "media", "rows": out, "truncated": st == "partial"}
+
+
+def _snmp_fdb_walk(s: _SnmpSession, vlan: int | None = None, *, context: str | None = None,
+                   suffix: str = "") -> tuple[list, str, str | None]:
+    """One BRIDGE-MIB pass (optionally inside a Cisco VLAN context) -> [[mac, port, vlan]]."""
+    names = s.ifnames()
+    bp = {i[0]: _snmp_int(v) for i, v in s.walk("dot1dBasePortIfIndex", context=context,
+                                                community_suffix=suffix)[0] if i}
+    rows, st, err = s.walk("dot1dTpFdbPort", context=context, community_suffix=suffix)
+    out = []
+    for idx, val in rows:
+        port = _snmp_int(val)
+        if len(idx) != 6 or not port:                 # port 0 = the switch's own address
+            continue
+        ifx = bp.get(port)
+        name = names.get(ifx) if ifx is not None else None
+        out.append([_snmp_mac(bytes(idx)), name or f"port {port}", vlan])
+    return out, st, err
+
+
+def _snmp_fdb(s: _SnmpSession) -> dict:
+    """MAC table: Q-BRIDGE (per FDB id / VLAN) first, then BRIDGE-MIB; Cisco keeps one BRIDGE-MIB instance
+    per VLAN (community@vlan for v2c, context vlan-N for v3), read only for VLANs that exist (vtpVlanState)."""
+    names = s.ifnames()
+    rows, st, err = s.walk("dot1qTpFdbPort")
+    if rows:
+        bp = {i[0]: _snmp_int(v) for i, v in s.walk("dot1dBasePortIfIndex")[0] if i}
+        fid_vlan: dict = {}
+        for idx, val in s.walk("dot1qVlanFdbId")[0]:
+            fid = _snmp_int(val)
+            if fid is not None and idx:
+                fid_vlan.setdefault(fid, set()).add(idx[-1])
+        out = []
+        for idx, val in rows:
+            port = _snmp_int(val)
+            if len(idx) != 7 or not port:
+                continue
+            vl = fid_vlan.get(idx[0])
+            vlan = next(iter(vl)) if vl and len(vl) == 1 else (idx[0] if 0 < idx[0] < 4095 else None)
+            ifx = bp.get(port)
+            out.append([_snmp_mac(bytes(idx[1:])), (names.get(ifx) if ifx is not None else None) or f"port {port}",
+                        vlan])
+        return {"status": st, "error": err, "rows": out, "truncated": st == "partial"}
+    if st == "error":
+        return {"status": "error", "error": err, "rows": []}
+    if s.sys_object_id.startswith("1.3.6.1.4.1.9."):
+        vlans = sorted({i[-1] for i, v in s.walk("vtpVlanState")[0] if i and _snmp_int(v) == 1
+                        and not 1002 <= i[-1] <= 1005})
+        if vlans:
+            cap = s.budget["max_vlans"]
+            out, statuses, errs = [], [], []
+            for vl in vlans[:cap]:
+                if s.cred["version"] == "v3":
+                    r, st2, e2 = _snmp_fdb_walk(s, vl, context=f"vlan-{vl}")
+                else:
+                    r, st2, e2 = _snmp_fdb_walk(s, vl, suffix=f"@{vl}")
+                out += r
+                statuses.append(st2)
+                if e2:
+                    errs.append(f"vlan {vl}: {e2}")
+            status = _snmp_worst(statuses)
+            truncated = len(vlans) > cap or status == "partial"
+            if len(vlans) > cap:
+                errs.append(f"only the first {cap} of {len(vlans)} VLANs were read")
+                status = "partial" if status in ("ok", "absent") else status
+            return {"status": status, "error": "; ".join(errs)[:300] or None, "rows": out, "truncated": truncated}
+    out, st, err = _snmp_fdb_walk(s)
+    return {"status": st, "error": err, "rows": out, "truncated": st == "partial"}
+
+
+def _snmp_interfaces(s: _SnmpSession) -> dict:
+    cols = {}
+    statuses = []
+    for name in ("ifDescr", "ifName", "ifAlias", "ifType", "ifPhysAddress", "ifAdminStatus", "ifOperStatus"):
+        rows, st, _err = s.walk(name)
+        cols[name] = {i[0]: v for i, v in rows if i}
+        if name == "ifDescr":
+            statuses.append(st)
+            if st == "error":
+                return {"status": "error", "error": _err, "rows": []}
+    out = []
+    for ifx in sorted(set(cols["ifDescr"]) | set(cols["ifName"])):
+        out.append({"if_index": ifx, "name": _snmp_text(cols["ifName"].get(ifx, "")),
+                    "descr": _snmp_text(cols["ifDescr"].get(ifx, "")),
+                    "alias": _snmp_text(cols["ifAlias"].get(ifx, ""), 500),
+                    "type": _snmp_int(cols["ifType"].get(ifx, "")),
+                    "mac": _snmp_mac(cols["ifPhysAddress"].get(ifx, "")),
+                    "admin": _snmp_int(cols["ifAdminStatus"].get(ifx, "")),
+                    "oper": _snmp_int(cols["ifOperStatus"].get(ifx, ""))})
+    addrs = []
+    rows, st, _err = s.walk("ipAddressIfIndex")
+    if rows:
+        kinds = {tuple(i): _snmp_int(v) for i, v in s.walk("ipAddressType")[0]}
+        for idx, val in rows:
+            ip, _rest = _snmp_inet(idx)
+            if ip and kinds.get(tuple(idx), 1) == 1:          # unicast only (Linux lists broadcasts too)
+                addrs.append({"ip": ip, "if_index": _snmp_int(val)})
+    else:
+        for idx, val in s.walk("ipAdEntIfIndex")[0]:
+            if len(idx) == 4:
+                addrs.append({"ip": ".".join(str(x) for x in idx), "if_index": _snmp_int(val)})
+    s._ifnames = {k: (_snmp_text(cols["ifName"].get(k, "")) or _snmp_text(cols["ifDescr"].get(k, "")))
+                  for k in set(cols["ifDescr"]) | set(cols["ifName"])}
+    return {"status": statuses[0], "rows": out, "addresses": addrs, "truncated": statuses[0] == "partial"}
+
+
+def _snmp_lldp_id(val: str, is_mac: bool) -> str | None:
+    """LLDP port / chassis id: a MAC subtype becomes aa:bb:..; everything else stays text."""
+    if is_mac:
+        return _snmp_mac(val) or _snmp_text(val)
+    return _snmp_text(val)
+
+
+def _snmp_neighbors(s: _SnmpSession) -> dict:
+    out = []
+    statuses = []
+    errs = []
+    # ── LLDP ──
+    names, st, err = s.walk("lldpRemSysName")
+    chassis, st2, _e = s.walk("lldpRemChassisId")
+    statuses += [st if names else st2]
+    if err and st == "error":
+        errs.append(f"lldp: {err}")
+    keys = {tuple(i[1:3]) for i, _v in names + chassis if len(i) >= 3}
+    if keys:
+        def col(name: str) -> dict:
+            return {tuple(i[1:3]): v for i, v in s.walk(name)[0] if len(i) >= 3}
+        sysname = {tuple(i[1:3]): v for i, v in names if len(i) >= 3}
+        chas = {tuple(i[1:3]): v for i, v in chassis if len(i) >= 3}
+        chas_sub = {k: _snmp_int(v) for k, v in col("lldpRemChassisIdSubtype").items()}
+        port_id, port_sub, port_desc = col("lldpRemPortId"), col("lldpRemPortIdSubtype"), col("lldpRemPortDesc")
+        sysdesc = col("lldpRemSysDesc")
+        mgmt: dict = {}
+        # index: timeMark.localPort.remIndex.addrFamily(1 ipv4, 2 ipv6).len.address -- prefer IPv4
+        for idx, _v in s.walk("lldpRemManAddrIfSubtype")[0]:
+            if len(idx) >= 6:
+                ip, _rest = _snmp_inet(idx[3:])
+                if ip and ((idx[1], idx[2]) not in mgmt or ":" in mgmt[(idx[1], idx[2])]):
+                    mgmt[(idx[1], idx[2])] = ip
+        loc_id = {i[0]: v for i, v in s.walk("lldpLocPortId")[0] if i}
+        loc_sub = {i[0]: _snmp_int(v) for i, v in s.walk("lldpLocPortIdSubtype")[0] if i}
+        loc_desc = {i[0]: v for i, v in s.walk("lldpLocPortDesc")[0] if i}
+        ifn = s.ifnames()
+        for key in sorted(keys):
+            lp = key[0]
+            local = (_snmp_text(loc_id.get(lp, "")) if loc_sub.get(lp) in (5, 7) else None) \
+                or _snmp_text(loc_desc.get(lp, "")) or ifn.get(lp) or str(lp)
+            # port id subtypes: 3 macAddress, 5 interfaceName, 7 local; chassis id subtype 4 = macAddress
+            psub = _snmp_int(port_sub.get(key, ""))
+            rport = (_snmp_text(port_id.get(key, "")) if psub in (5, 7) else None) \
+                or _snmp_text(port_desc.get(key, "")) or _snmp_lldp_id(port_id.get(key, ""), psub == 3)
+            csub = chas_sub.get(key)
+            cid = _snmp_lldp_id(chas.get(key, ""), csub == 4)
+            out.append({"protocol": "lldp", "local_port": local, "remote_sysname": _snmp_text(sysname.get(key, "")),
+                        "remote_port": rport, "remote_chassis_id": cid,
+                        "remote_mac": cid if csub == 4 else None, "remote_mgmt_address": mgmt.get(key),
+                        "remote_platform": _snmp_text(sysdesc.get(key, ""), 255, first_line=True)})
+    # ── CDP ──
+    dev, st3, err3 = s.walk("cdpCacheDeviceId")
+    statuses.append(st3)
+    if err3 and st3 == "error":
+        errs.append(f"cdp: {err3}")
+    if dev:
+        def ccol(name: str) -> dict:
+            return {tuple(i[:2]): v for i, v in s.walk(name)[0] if len(i) >= 2}
+        port, plat, atype, addr = (ccol("cdpCacheDevicePort"), ccol("cdpCachePlatform"),
+                                   ccol("cdpCacheAddressType"), ccol("cdpCacheAddress"))
+        ifn = s.ifnames()
+        for idx, val in dev:
+            if len(idx) < 2:
+                continue
+            key = tuple(idx[:2])
+            ip = None
+            b = _snmp_bytes(addr.get(key, ""))
+            if _snmp_int(atype.get(key, "")) == 1 and b and len(b) == 4:
+                ip = str(ipaddress.IPv4Address(b))
+            out.append({"protocol": "cdp", "local_port": ifn.get(idx[0]) or str(idx[0]),
+                        "remote_sysname": _snmp_text(val), "remote_port": _snmp_text(port.get(key, "")),
+                        "remote_chassis_id": _snmp_text(val), "remote_mac": None, "remote_mgmt_address": ip,
+                        "remote_platform": _snmp_text(plat.get(key, ""))})
+    status = _snmp_worst(statuses)
+    return {"status": status, "error": "; ".join(errs)[:300] or None, "rows": out}
+
+
+_SNMP_COLLECTORS = {"interfaces": _snmp_interfaces, "arp": _snmp_arp, "fdb": _snmp_fdb,
+                    "neighbors": _snmp_neighbors}
+# interfaces first: it also fills the ifIndex -> name map the MAC table and CDP use
+_SNMP_ORDER = ("interfaces", "arp", "fdb", "neighbors")
+
+
+def _snmp_dev_lock(ip: str) -> threading.Lock:
+    """Never two runs against the same device at once (scheduled collection vs. a test from the web UI)."""
+    with _SNMP_STATE_LOCK:
+        return _SNMP_DEV_LOCKS.setdefault(ip, threading.Lock())
+
+
+def _snmp_collect(spec: dict, cred: dict, sections: list, budget: dict) -> dict:
+    """Run the given sections against one device -> report payload (without target_id / job_id)."""
+    started = time.monotonic()
+    with _snmp_dev_lock(spec["ip"]):
+        s = _SnmpSession(spec["ip"], spec["port"], cred, budget)
+        system, err = s.system()
+        payload: dict = {"credential_id": cred.get("credential_id") or None}
+        if system is None:
+            payload.update(error=err or "no response", error_code="snmp_unreachable", sections={})
+        else:
+            payload["system"] = system
+            out = {}
+            for name in _SNMP_ORDER:
+                if name not in sections:
+                    continue
+                t0 = time.monotonic()
+                if time.monotonic() >= s.deadline:
+                    out[name] = {"status": "error", "error": "device time budget used up", "rows": []}
+                    continue
+                try:
+                    out[name] = _SNMP_COLLECTORS[name](s)
+                except Exception as exc:  # noqa: BLE001
+                    out[name] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"[:300], "rows": []}
+                out[name]["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+            payload["sections"] = out
+    payload["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+    return payload
+
+
+def _snmp_report(payload: dict) -> dict:
+    """POST to the server; one request per section when the whole thing would be too large."""
+    body = json.dumps(payload)
+    if len(body) <= _SNMP_REPORT_SPLIT or len(payload.get("sections") or {}) <= 1:
+        return _req("POST", "/api/v1/scan-agents/snmp-report", payload, timeout=120)
+    last: dict = {}
+    for name, sec in payload["sections"].items():
+        part = {k: v for k, v in payload.items() if k != "sections"}
+        part["sections"] = {name: sec}
+        last = _req("POST", "/api/v1/scan-agents/snmp-report", part, timeout=120)
+    return last
+
+
+def _snmp_set_assigned(targets, budget) -> None:  # noqa: ANN001
+    """From each poll: what the server currently assigns to this agent (credentials stay in memory only)."""
+    clean = []
+    for t in targets if isinstance(targets, list) else []:
+        spec, cred = _snmp_target_ok(t), _snmp_cred_ok((t or {}).get("credential") if isinstance(t, dict) else None)
+        if spec and cred and spec["target_id"] and spec["sections"]:
+            spec["credential"] = cred
+            clean.append(spec)
+    with _SNMP_STATE_LOCK:
+        _SNMP_STATE["targets"] = clean
+        _SNMP_STATE["budget"] = _snmp_budget(budget)
+        keep = {t["target_id"] for t in clean}
+        for k in [k for k in _SNMP_LAST if k[0] not in keep]:
+            del _SNMP_LAST[k]
+
+
+def _snmp_due(now: float) -> list:
+    with _SNMP_STATE_LOCK:
+        targets, budget = list(_SNMP_STATE["targets"]), dict(_SNMP_STATE["budget"])
+        due = []
+        for t in targets:
+            names = [n for n, iv in t["sections"].items() if now - _SNMP_LAST.get((t["target_id"], n), 0) >= iv]
+            if names:
+                for n in names:            # marked at start: a failing device is retried next interval, not every 10 s
+                    _SNMP_LAST[(t["target_id"], n)] = now
+                due.append((t, names))
+    return [(t, names, budget) for t, names in due]
+
+
+def _snmp_loop() -> None:
+    """Background thread: one device at a time, only sections whose interval has passed."""
+    while True:
+        try:
+            due = _snmp_due(time.time())
+            if not due:
+                time.sleep(10)
+                continue
+            for spec, names, budget in due:
+                payload = _snmp_collect(spec, spec["credential"], names, budget)
+                payload["target_id"] = spec["target_id"]
+                r = _snmp_report(payload)
+                counts = ",".join(f"{k}={v.get('status')}/{len(v.get('rows') or [])}"
+                                  for k, v in (payload.get("sections") or {}).items())
+                print(f"[snmp] {spec['ip']} {counts or payload.get('error')} -> {r.get('result', r.get('status'))}",
+                      flush=True)
+        except Exception as exc:  # noqa: BLE001 -- never let SNMP take the agent down
+            print(f"[snmp] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            time.sleep(30)
+
+
+def _snmp_job(kind: str, params: dict) -> tuple[object, str | None]:
+    """snmp_test / snmp_collect jobs (validated here, not only on the server)."""
+    if not _snmp_available():
+        return None, "net-snmp client tools are not installed on this agent (apt install snmp)"
+    spec = _snmp_target_ok(params)
+    if spec is None:
+        return None, "invalid snmp target"
+    budget = _snmp_budget(params.get("budget"))
+    if kind == "snmp_collect":
+        cred = _snmp_cred_ok(params.get("credential"))
+        if cred is None:
+            return None, "invalid snmp credential"
+        payload = _snmp_collect(spec, cred, list(spec["sections"]), budget)
+        payload.update(target_id=spec["target_id"], job_id=str(params.get("_job_id") or "") or None)
+        r = _snmp_report(payload)
+        summary = {k: {"status": v.get("status"), "rows": len(v.get("rows") or [])}
+                   for k, v in (payload.get("sections") or {}).items()}
+        return {"result": r.get("result"), "sections": summary}, payload.get("error")
+    creds = [c for c in (_snmp_cred_ok(c) for c in (params.get("credentials") or [])[:5]) if c]
+    if not creds:
+        return None, "invalid snmp credential"
+    items = []
+    for cred in creds:
+        p = _snmp_collect(spec, cred, list(spec["sections"]), budget)
+        secs = {k: {"status": v.get("status"), "rows": len(v.get("rows") or []), "error": v.get("error"),
+                    "elapsed_ms": v.get("elapsed_ms"), "table": v.get("table"), "truncated": v.get("truncated")}
+                for k, v in (p.get("sections") or {}).items()}
+        items.append({"credential_id": cred.get("credential_id"), "ok": p.get("system") is not None,
+                      "system": p.get("system"), "error": p.get("error"), "elapsed_ms": p.get("elapsed_ms"),
+                      "sections": secs})
+    return {"items": items}, None
+
+
 # ─────────────────── On-demand probe jobs (Tools page) ───────────────────
 # The server cannot reach us: we only dial out. So on-demand probes arrive through a
 # long-poll queue -- we ask for work, run it locally, and post the result back.
@@ -1429,7 +2184,9 @@ def scan_once() -> None:
 # this check is the last thing standing between it and arbitrary probing of the
 # customer network. Only these read-only probe kinds are ever executed; identify runs a
 # fixed, read-only script list defined in this file (see _IDENTIFY_SCRIPTS).
-_JOB_KINDS = ("ping", "tcp", "traceroute", "rdns", "identify")
+_JOB_KINDS = ("ping", "tcp", "traceroute", "rdns", "identify", "snmp_test", "snmp_collect")
+# snmp_test / snmp_collect: one server-assigned device, read-only, OIDs from SNMP_OIDS only (see _snmp_job)
+_SNMP_JOB_KINDS = ("snmp_test", "snmp_collect")
 _JOB_MAX_TARGETS = 64
 _JOB_MAX_PORTS = 64
 _HOSTNAME_OK = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
@@ -1754,6 +2511,11 @@ def _job_execute(kind: str, params: dict, progress=None) -> tuple[object, str | 
     """Run one job. Returns (result, error). Never raises."""
     if kind not in _JOB_KINDS:
         return None, f"unsupported probe: {kind}"
+    if kind in _SNMP_JOB_KINDS:
+        try:
+            return _snmp_job(kind, params if isinstance(params, dict) else {})
+        except Exception as exc:  # noqa: BLE001
+            return None, f"{type(exc).__name__}: {exc}"
     raw = params.get("targets") or []
     items = raw if isinstance(raw, list) else re.split(r"[\s,]+", str(raw))
     targets = [x for x in (_job_valid_target(t) for t in items if t) if x]
@@ -1794,7 +2556,7 @@ def _job_execute(kind: str, params: dict, progress=None) -> tuple[object, str | 
 def _job_runs_in_background(kind: str) -> bool:
     """identify 要跑好幾分鐘；放在工作佇列的執行緒上跑，這段期間其他工具探測會排不到
     （待辦兩分鐘沒被領就作廢）。其他種類幾秒內就結束，照順序跑即可。"""
-    return kind == "identify"
+    return kind == "identify" or kind in _SNMP_JOB_KINDS
 
 
 def _job_run_and_report(job: dict) -> None:
@@ -1803,7 +2565,10 @@ def _job_run_and_report(job: dict) -> None:
     def progress(p: dict) -> None:
         _req("POST", f"/api/v1/scan-agents/jobs/{jid}/progress", {"progress": p})
 
-    result, error = _job_execute(kind, job.get("params") or {},
+    params = dict(job.get("params") or {}) if isinstance(job.get("params"), dict) else {}
+    if kind in _SNMP_JOB_KINDS:
+        params["_job_id"] = jid       # the collection report carries it, so the server fills the right record
+    result, error = _job_execute(kind, params,
                                  progress=progress if kind == "identify" else None)
     try:
         _req("POST", f"/api/v1/scan-agents/jobs/{jid}/result", {"result": result, "error": error})
@@ -2244,6 +3009,8 @@ def main() -> int:
     threading.Thread(target=_jobs_loop, name="jt-ipam-jobs", daemon=True).start()
     # 重量探測（反解／NetBIOS／mDNS／OS 指紋）在背景跑，上線偵測每輪都能準時做完、立刻回報
     threading.Thread(target=_heavy_loop, name="jt-ipam-heavy", daemon=True).start()
+    # SNMP 收集（1.19.0）：跟掃描週期分開，各區段依自己的間隔；沒有指派目標時什麼都不做
+    threading.Thread(target=_snmp_loop, name="jt-ipam-snmp", daemon=True).start()
     while True:
         try:
             scan_once()

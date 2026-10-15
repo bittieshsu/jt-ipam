@@ -3,6 +3,7 @@
  * 後端只送代碼與參數（沒有寫死任何語言的句子），翻不到時退回代碼本身，不會整格空白。
  */
 import { fmtDateTime } from "@/utils/datetime";
+import { evidenceVendorLabel } from "@/utils/investigateSections";
 
 type TagType = "default" | "info" | "success" | "warning" | "error";
 type T = (key: string, params?: Record<string, unknown>) => string;
@@ -40,7 +41,7 @@ function sourceText(t: T, te: Te, token: string): string {
   const [kind, vendor] = token.split(":", 2);
   if (vendor !== undefined) {
     const k = `change_impact.param.source_kind.${kind}`;
-    return te(k) ? t("change_impact.param.source_fmt", { kind: t(k), vendor: VENDOR_NAME[vendor] ?? vendor }) : token;
+    return te(k) ? t("change_impact.param.source_fmt", { kind: t(k), vendor: VENDOR_NAME[vendor] ?? evidenceVendorLabel(vendor, t) }) : token;
   }
   return te(`change_impact.param.source.${token}`) ? t(`change_impact.param.source.${token}`) : token;
 }

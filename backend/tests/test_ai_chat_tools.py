@@ -60,6 +60,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     "list_contacts": {}, "list_ssids": {}, "list_cables": {}, "list_power": {},
     "list_wazuh_agents": {}, "list_ocs_computers": {}, "list_rustdesk_peers": {}, "list_rustdesk_audit": {}, "cable_trace": {"cable_id": _U},
     "list_isoinsight_leases": {},
+    "find_ui_location": {"keywords": ["電路"]},
     "recent_ip_changes": {}, "list_subnet_ips": {"subnet_cidr": "10.0.0.0/24"},
     "get_subnet_detail": {"subnet_cidr": "10.0.0.0/24"},
     "get_customer_summary": {"name": "nope"},

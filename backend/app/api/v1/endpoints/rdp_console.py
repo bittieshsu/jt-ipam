@@ -58,9 +58,6 @@ from app.schemas.address import IPAddressRead
 from app.services import console_route
 from app.services.permission import (
     can_use_rdp,
-    get_object_permission,
-    has_permission,
-    visible_ids,
 )
 from app.services.rdp_freerdp import UnsupportedCharacter  # 模組層沒有硬相依，沒裝也載得起來
 
@@ -170,47 +167,11 @@ async def list_connection_targets(
     相容 RustDesk 的網頁連線（can_use_rustdesk 同一套權限）：IP 開了 rustdesk_enabled、對應到的 RustDesk
     裝置所在的伺服器開放網頁連線，才算一種可用的連線；只開了 RustDesk 卻不能網頁連線的 IP 不列出。
     """
-    stmt = select(IPAddress).where(
-        IPAddress.ssh_enabled.is_(True)
-        | IPAddress.rdp_enabled.is_(True)
-        | IPAddress.vnc_enabled.is_(True)
-        | IPAddress.novnc_enabled.is_(True)
-        | IPAddress.bmc_enabled.is_(True)
-        | IPAddress.rustdesk_enabled.is_(True)
-    )
-    vis: set[uuid.UUID] | None = None  # None = 不限（admin 或萬用可見）
-    if not user.is_admin:
-        vis = await visible_ids(session, user=user, object_type="subnet")
-        if vis is not None:
-            if not vis:
-                return []
-            stmt = stmt.where(in_values(IPAddress.subnet_id, vis))
-    rows = (await session.execute(stmt)).scalars().all()
-
-    perm_cache: dict[uuid.UUID, str] = {}
-    kept: list[tuple[IPAddress, bool, bool, bool, bool]] = []
-    for ip in rows:
-        if user.is_admin:
-            usable = True
-        else:
-            lvl = perm_cache.get(ip.subnet_id)
-            if lvl is None:
-                lvl = await get_object_permission(
-                    session, user=user, object_type="subnet", object_id=ip.subnet_id
-                )
-                perm_cache[ip.subnet_id] = lvl
-            if lvl == "none":
-                continue
-            usable = has_permission(lvl, "write") or bool(user.can_ssh)
-        if not usable:
-            continue
-        kept.append((ip, bool(ip.ssh_enabled), bool(ip.rdp_enabled), bool(ip.vnc_enabled), bool(ip.bmc_enabled)))
-
-    # 相容 RustDesk 的網頁連線：一次查完（IP 可能上萬筆，不逐筆查）
-    rd_web = await _rustdesk_web_ready(session, [ip.id for ip, *_ in kept if ip.rustdesk_enabled])
-    kept = [k for k in kept
-            if k[0].ssh_enabled or k[0].rdp_enabled or k[0].vnc_enabled or k[0].novnc_enabled
-            or k[0].bmc_enabled or k[0].id in rd_web]
+    # 篩選與 AI 工具 list_connection_targets 共用（services/connection_targets）
+    from app.services.connection_targets import usable_connection_targets
+    targets, rd_web, vis = await usable_connection_targets(session, user=user)
+    kept = [(ip, bool(ip.ssh_enabled), bool(ip.rdp_enabled), bool(ip.vnc_enabled), bool(ip.bmc_enabled))
+            for ip in targets]
 
     dev_ids = {ip.device_id for ip, *_ in kept if ip.device_id}
     dev_names: dict[uuid.UUID, str] = {}
@@ -268,34 +229,6 @@ async def list_connection_targets(
         _os = await effective_os(session, ip)
         r.os_guess = _os["os_guess"]; r.os_family = _os["os_family"]; r.os_source = _os["os_source"]
         out.append(r)
-    return out
-
-
-async def _rustdesk_web_ready(session: AsyncSession, ip_ids: list[uuid.UUID]) -> set[uuid.UUID]:
-    """這些 IP 裡，哪些可以走相容 RustDesk 的網頁連線（伺服器設定面；權限已在呼叫端過濾）。
-
-    與 IP 詳細資料同一個選法（rustdesk.matched_peer：取最近上線的那一台），所以清單上的按鈕與
-    詳細資料頁的按鈕一致。
-    """
-    if not ip_ids:
-        return set()
-    from app.models.rustdesk import RustDeskPeer, RustDeskServer
-    from app.services.rustdesk import web_problem
-    rows = (await session.execute(
-        select(RustDeskPeer.address_id, RustDeskServer)
-        .join(RustDeskServer, RustDeskServer.id == RustDeskPeer.server_id)
-        .where(in_values(RustDeskPeer.address_id, ip_ids), RustDeskPeer.match_status == "matched")
-        .order_by(RustDeskPeer.address_id, RustDeskPeer.online.desc(),
-                  RustDeskPeer.last_online_at.desc().nulls_last())
-    )).all()
-    out: set[uuid.UUID] = set()
-    seen: set[uuid.UUID] = set()
-    for addr_id, srv in rows:
-        if addr_id in seen:
-            continue                    # 每個 IP 只看排第一的那台（同 matched_peer）
-        seen.add(addr_id)
-        if web_problem(srv) is None:
-            out.add(addr_id)
     return out
 
 

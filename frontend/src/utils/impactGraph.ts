@@ -198,7 +198,7 @@ export const INTEGRATION_PAGE: Record<string, string> = {
   checkpoint: "checkpoint", mikrotik: "mikrotik", proxmox: "virt_admin", esxi: "esxi_admin", zabbix: "zabbix",
   wazuh: "wazuh", dns_server: "dns", kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium: "technitium_dhcp",
   windows_dhcp: "windows_dhcp", ocs: "ocs", adguard: "adguard", isoinsight: "isoinsight", rustdesk: "rustdesk",
-  scan_agent: "scan_agents", webhook: "webhooks",
+  scan_agent: "scan_agents", webhook: "webhooks", snmp: "snmp",
 };
 
 /** 節點 → 原始物件的頁面；找不到合適的頁就回 null（不要給一個點了會 404 的連結） */

@@ -28,6 +28,7 @@ the preferred mode**; see [§2.7](#27-optional-docker-compose-not-the-preferred-
 | guacd | jt-ipam build for this OS | None | **Required**: the RDP / VNC console engine. `jt-ipam.sh` installs it (see [guacd](#guacd-console-engine-default-for-rdp--vnc)); aardwolf, the old engine, is optional |
 | Recog | latest release | None | **Optional**: fingerprint database the IP probe uses to recognise devices and OS versions; downloaded by `jt-ipam.sh`, checked weekly (see [Recog](#recog-fingerprint-database-optional)) |
 | CJK font | `fonts-noto-cjk` | None | **Needed for PDF reports**: the Chinese / Japanese font the backend embeds into PDF exports (about 60 MB download). `jt-ipam.sh` installs it on install and upgrade; if apt cannot reach a mirror the upgrade only warns, PDF export then says the font is missing (DOCX / ODT still work). Fix later with `sudo apt install fonts-noto-cjk` |
+| SNMP client tools | `snmp` (net-snmp) | None | **Optional**: `snmpget` / `snmpbulkwalk` for SNMP collection by the local scan agent (collector "server"). `jt-ipam.sh` installs it on install and upgrade (the upgrade only warns if it cannot); remote scan agents get it from their installer (`snmp` on apt, `net-snmp-utils` on dnf, `net-snmp-tools` on apk). Without it that agent simply has no SNMP capability |
 
 ### Supported distributions
 

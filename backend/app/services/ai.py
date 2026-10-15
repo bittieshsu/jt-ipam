@@ -353,6 +353,15 @@ class _StreamDelta:
     done: bool = False
     done_reason: str | None = None
     error: str = ""
+    #: 提示詞用掉幾個 token（Ollama 最後一片的 prompt_eval_count；OpenAI 相容服務有回 usage 時的 prompt_tokens）
+    prompt_tokens: int | None = None
+
+
+def _prompt_tokens(chunk: dict[str, Any]) -> int | None:
+    v = chunk.get("prompt_eval_count")
+    if v is None and isinstance(chunk.get("usage"), dict):
+        v = chunk["usage"].get("prompt_tokens")
+    return v if isinstance(v, int) else None
 
 
 def _stream_delta(chunk: dict[str, Any]) -> _StreamDelta:
@@ -371,12 +380,13 @@ def _stream_delta(chunk: dict[str, Any]) -> _StreamDelta:
             # 推論模型的思考內容：vLLM／DeepSeek 用 reasoning_content，部分服務用 reasoning
             thinking=str(d.get("reasoning_content") or d.get("reasoning") or d.get("thinking") or ""),
             tool_calls=list(d.get("tool_calls") or []),
-            done=finish is not None, done_reason=finish, error=error)
+            done=finish is not None, done_reason=finish, error=error, prompt_tokens=_prompt_tokens(chunk))
     m = chunk.get("message") or {}
     return _StreamDelta(
         content=str(m.get("content") or ""), thinking=str(m.get("thinking") or ""),
         tool_calls=list(m.get("tool_calls") or []),
-        done=bool(chunk.get("done")), done_reason=chunk.get("done_reason"), error=error)
+        done=bool(chunk.get("done")), done_reason=chunk.get("done_reason"), error=error,
+        prompt_tokens=_prompt_tokens(chunk))
 
 
 def _with_call_ids(calls: list[dict[str, Any]], provider: str) -> list[dict[str, Any]]:
@@ -1041,7 +1051,8 @@ async def chat(
                 content = msg.get("content") or ""
                 if not content.strip():
                     content = (await _force_final_answer(cfg, convo)
-                               or _empty_answer_message(locale, None))
+                               or _empty_answer_message(locale, data.get("done_reason"),
+                                                        _prompt_tokens(data), cfg.num_ctx))
                 return {"answer": _annotate_unverified(content, convo, locale),
                         "messages": convo, **_meta()}
 
@@ -1054,7 +1065,7 @@ async def chat(
         convo.extend(await _run_tool_calls(session, user, tool_calls))
 
     # 用完 max_iterations 還在叫工具 → 最後不給工具再叫一次，逼它用現有資訊作答
-    answer = await _force_final_answer(cfg, convo)
+    answer = await _force_final_answer(cfg, convo) or _steps_exceeded_message(locale)
     return {"answer": _annotate_unverified(answer, convo, locale),
             "messages": convo, **_meta()}
 
@@ -1119,8 +1130,28 @@ def _annotate_unverified(answer: str, convo: list[dict[str, Any]], locale: str |
                                                            if key != "en" else ", ".join(bad))
 
 
-def _empty_answer_message(locale: str, done_reason: str | None) -> str:
-    """模型什麼都沒產出時，說清楚可能的原因與下一步 —— 空白訊息無法行動。"""
+#: 提示詞用掉 num_ctx 的這個比例以上就當成「塞滿了」：剩下的空間連一句回答都放不下
+_CONTEXT_FULL_RATIO = 0.95
+
+
+def _empty_answer_message(locale: str | None, done_reason: str | None, prompt_tokens: int | None = None,
+                          num_ctx: int | None = None) -> str:
+    """模型什麼都沒產出時，說清楚可能的原因與下一步 —— 空白訊息無法行動。
+
+    提示詞把 num_ctx 塞滿是最常見、也最不會報錯的原因（Ollama 默默截掉前面的內容）：2026-10-15
+    工具說明變長後，正式站台的提示詞吃掉 16,231／16,384 token，gemma 開始空白回答。量得到就講出數字。"""
+    locale = locale or "zh-TW"
+    if prompt_tokens and num_ctx and prompt_tokens >= num_ctx * _CONTEXT_FULL_RATIO:
+        if locale.startswith("en"):
+            return (f"No answer was produced: the prompt (tool list and conversation) already uses "
+                    f"{prompt_tokens} of {num_ctx} tokens (num_ctx), leaving the model no room to answer. "
+                    "Raise num_ctx under Admin → LLM / AI, or start a new conversation.")
+        if locale.startswith("ja"):
+            return (f"回答が得られませんでした：プロンプト（ツール一覧と会話）だけで {prompt_tokens} / {num_ctx} "
+                    "トークン（num_ctx）を使っており、モデルが回答する余地がありません。"
+                    "「管理 → LLM / AI」で num_ctx を上げるか、新しい会話で試してください。")
+        return (f"這次沒有得到回答：提示詞（工具清單與對話）已經用掉 {prompt_tokens} / {num_ctx} 個 token"
+                "（num_ctx），模型沒有空間回答。請到「管理 → LLM / AI」調高 num_ctx，或開新對話再試。")
     why_zh = {
         "length": "回答被輸出長度上限截斷",
         "load": "模型正在載入",
@@ -1133,8 +1164,23 @@ def _empty_answer_message(locale: str, done_reason: str | None) -> str:
     if locale.startswith("en"):
         return (f"No answer was produced — {why_en}. Try a narrower question, or raise "
                 "num_ctx / the output limit under Admin → LLM / AI.")
+    if locale.startswith("ja"):
+        why_ja = {"length": "回答が出力上限で切れました", "load": "モデルを読み込み中でした"}.get(
+            done_reason or "", "モデルが文字を出力しませんでした（思考だけを出力したか、コンテキスト長を超えた可能性）")
+        return (f"回答が得られませんでした：{why_ja}。質問を小さくするか、"
+                "「管理 → LLM / AI」で num_ctx と出力上限を上げてください。")
     return (f"這次沒有得到回答 —— {why_zh}。可以把問題問得更小一點，"
             "或到「管理 → LLM / AI」調高 num_ctx 與輸出上限。")
+
+
+def _steps_exceeded_message(locale: str | None) -> str:
+    """工具呼叫輪數用完、最後強制作答也沒有內容。只有真的叫過工具才用這段話。"""
+    locale = locale or "zh-TW"
+    if locale.startswith("en"):
+        return "(Too many lookup steps without an answer: please ask a smaller question.)"
+    if locale.startswith("ja"):
+        return "（照会の手順が多すぎて回答できませんでした。質問を小さくして再度お試しください）"
+    return "（查詢步驟過多仍未完成，請把問題拆小一點再試一次）"
 
 
 async def _force_final_answer(cfg: Any, convo: list[dict[str, Any]]) -> str:
@@ -1162,7 +1208,8 @@ async def _force_final_answer(cfg: Any, convo: list[dict[str, Any]]) -> str:
                 return content  # type: ignore[no-any-return]
     except (UnsafeOutboundURL, httpx.HTTPError):
         pass
-    return "（查詢步驟過多仍未完成，請把問題拆小一點再試一次）"
+    # 空字串：由呼叫端決定要怎麼說明（以前這裡回「查詢步驟過多」，空白回答也被說成步驟過多）
+    return ""
 
 
 def _page_context_line(context: dict[str, Any] | None) -> str:
@@ -1248,6 +1295,11 @@ def _build_chat_context(
                 "every IP, CIDR, MAC, hostname and identifier VERBATIM, character for "
                 "character — never translate, localise, reformat or alter a single digit. "
                 "If a tool errors, explain it briefly. "
+                "When the user asks WHERE something is in jt-ipam (a feature, page, setting or field; where to "
+                "record, set or look something up), call find_ui_location and answer with the menu path, tab and "
+                "label it returns; never invent menu paths or labels. A data tool only returns the fields it "
+                "returns: if the user asks about a field that is missing from a tool result, do NOT conclude that "
+                "jt-ipam has no such field — call find_ui_location (with the object name and synonyms) first. "
                 "Stay strictly on-topic: only answer questions about THIS jt-ipam system, "
                 "its data (network / IPAM / devices / firewalls / DNS …) or how to use it. "
                 "For unrelated questions (general coding, world knowledge, chit-chat), "
@@ -1264,6 +1316,9 @@ def _build_chat_context(
                 "Some list tools return has_more/next_offset; if a result is truncated "
                 "or the user asks for more, tell them there are more and, when they ask "
                 "for the next batch, call the SAME tool again with offset=next_offset. "
+                "List replies carry total and truncated: report the total, and say so when truncated. "
+                "When the question is about one subnet/CIDR and the tool takes subnet_cidr, you MUST "
+                "pass it; when a reply carries 'scope', state it. "
                 + DATA_RULE_EN + " "
                 + _lang_instruction(locale)
                 + _page_context_line(page_context)
@@ -1394,6 +1449,7 @@ async def chat_stream(
         tool_calls: list[dict[str, Any]] = []
         tool_buf = _ToolCallBuffer()
         done_reason: str | None = None
+        prompt_tokens: int | None = None
         # 思考內容不是答案，但**使用者需要知道它在動**：只吐 thinking 的那段時間，
         # 畫面上原本什麼都沒有，看起來就像當機（實測 gemma4 可以想十幾秒）。
         thinking_chars = 0
@@ -1425,6 +1481,8 @@ async def chat_stream(
                         content_parts.append(d.content)
                         yield {"type": "token", "text": d.content}
                     tool_buf.add(d.tool_calls)
+                    if d.prompt_tokens is not None:
+                        prompt_tokens = d.prompt_tokens
                     if d.done:
                         done_reason = d.done_reason
                         break
@@ -1465,7 +1523,7 @@ async def chat_stream(
                 yield {"type": "tool_round"}
                 retry = await _force_final_answer(cfg, convo)
                 yield {"type": "done",
-                       "answer": retry or _empty_answer_message(locale, done_reason),
+                       "answer": retry or _empty_answer_message(locale, done_reason, prompt_tokens, cfg.num_ctx),
                        "trace_messages": convo, **_meta()}
                 return
             else:
@@ -1504,7 +1562,7 @@ async def chat_stream(
                         break
     except (UnsafeOutboundURL, httpx.HTTPError):
         pass
-    answer = "".join(final_parts) or "（查詢步驟過多仍未完成，請把問題拆小一點再試一次）"
+    answer = "".join(final_parts) or _steps_exceeded_message(locale)
     if final_parts:
         convo.append({"role": "assistant", "content": answer})
     yield {"type": "done", "answer": _annotate_unverified(answer, convo, locale),

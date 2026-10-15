@@ -1639,6 +1639,13 @@ async def get_version_info() -> dict[str, Any]:
             "used_by": _rdp_used_by.get(exe, "RDP console (FreeRDP engine)"),
             "engine_off": not _freerdp_on,
         }
+    # SNMP 收集（0217）：本機掃描代理（收集者「伺服器」）要 net-snmp 用戶端工具；install／upgrade 的
+    # ensure_runtime_deps 會裝，裝不起來時這裡看得到。遠端代理的工具盤點在掃描代理頁
+    info["host"]["optional_tools"]["snmpbulkwalk"] = {
+        "present": _shutil.which("snmpbulkwalk") is not None and _shutil.which("snmpget") is not None,
+        "package": "snmp",
+        "used_by": "SNMP collection by the local scan agent (ARP / MAC table / LLDP / CDP / interfaces)",
+    }
     # PDF 報告的中文字型（fonts-noto-cjk）：沒有的話 PDF 匯出會回 report_pdf_no_font
     from app.services.report_pdf import font_status
     _font = font_status()
@@ -2129,6 +2136,7 @@ async def integration_presence(
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
     from app.models.rustdesk import RustDeskServer
+    from app.models.snmp import SnmpTarget
     from app.models.technitium import TechnitiumDhcpServer
     from app.models.virt import ProxmoxInstance
     from app.models.wazuh import WazuhInstance
@@ -2158,6 +2166,8 @@ async def integration_presence(
         ("wazuh", WazuhInstance),
         ("zabbix", ZabbixInstance),
         ("ocs", OcsServer),
+        # SNMP 收集（0217）：有收集目標才算已設定（只有憑證、沒有目標＝還沒開始收）
+        ("snmp", SnmpTarget),
     ):
         # 只要知道有沒有：EXISTS 比 count 省（大站台的表可能很大）
         out[key] = bool(await session.scalar(select(select(model.id).limit(1).exists())))

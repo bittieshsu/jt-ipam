@@ -1069,16 +1069,20 @@ ensure_runtime_deps() {
     # ICMP echo, which almost always gets through. It lives in /usr/sbin.
     { command -v traceroute >/dev/null 2>&1 || [ -x /usr/sbin/traceroute ]; } \
         || missing+=("traceroute")
+    # net-snmp client tools (snmpget / snmpbulkwalk) for the LOCAL scan agent's SNMP collection
+    # (Integrations -> SNMP, collector "server"). Remote agents get them from their own installer.
+    { command -v snmpbulkwalk >/dev/null 2>&1 && command -v snmpget >/dev/null 2>&1; } \
+        || missing+=("snmp")
     ensure_report_font
     if [ "${#missing[@]}" -eq 0 ]; then
-        log "Runtime dependencies present (ping, tracepath, traceroute)"
+        log "Runtime dependencies present (ping, tracepath, traceroute, snmp)"
         return 0
     fi
     log "Installing runtime dependencies: ${missing[*]}"
     if apt-get install -y -qq "${missing[@]}" >/dev/null 2>&1; then
         log "Installed ${missing[*]}"
     else
-        warn "could not install ${missing[*]} — the connectivity diagnostics in Tools will show those tools as unavailable"
+        warn "could not install ${missing[*]} — the connectivity diagnostics in Tools will show those tools as unavailable (and without 'snmp' the local scan agent cannot do SNMP collection)"
     fi
 }
 

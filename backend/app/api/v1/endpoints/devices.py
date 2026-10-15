@@ -544,27 +544,14 @@ async def create_device(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> DeviceRead:
+    # 自訂欄位、類型來源、機櫃 U 位防呆、主要 IP 雙向連結：與 AI 工具 create_device 共用（services/device_write）
+    from app.services.device_write import PlacementError, create_device_checked
     try:
-        cf = await validate_custom_fields(
-            session, object_type="device", payload=payload.custom_fields
-        )
+        obj = await create_device_checked(session, payload)
     except CustomFieldError as exc:
         raise HTTPException(status_code=400, detail=detail_of(exc, "custom_field_error")) from exc
-    data = payload.model_dump()
-    data["custom_fields"] = cf or None
-    obj = Device(**data)
-    # 建立時明確選了類型（不是表單預設的 other）就算人定的，自動判斷不碰
-    if "type" in payload.model_fields_set and obj.type != "other":
-        obj.type_source = "manual"
-    # 放進機櫃時先防呆：U 位不可越界或與其他裝置重疊（規則與裝置匯入共用 services/device_write）
-    from app.services.device_write import PlacementError, check_placement, link_primary_ip
-    try:
-        await check_placement(session, obj)
     except PlacementError as exc:
         raise HTTPException(status_code=409, detail=detail_of(exc, "rack_placement_error")) from exc
-    session.add(obj)
-    await session.flush()
-    await link_primary_ip(session, obj)
     await append_audit(
         session,
         actor_user_id=str(user.id),

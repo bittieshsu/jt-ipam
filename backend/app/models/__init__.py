@@ -111,6 +111,7 @@ from app.models.rustdesk import RustDeskAuditEvent, RustDeskPeer, RustDeskPeerDe
 from app.models.scan_agent import ScanAgent
 from app.models.scan_agent_cycle import ScanAgentCycle
 from app.models.section import Section
+from app.models.snmp import SnmpCredential, SnmpNeighbor, SnmpRun, SnmpTarget
 from app.models.ssh_credential import SSHCredential
 from app.models.subnet import Subnet
 from app.models.system_setting import SystemSetting
@@ -222,6 +223,10 @@ __all__ = [
     "ScanAgent",
     "ScanAgentCycle",
     "Section",
+    "SnmpCredential",
+    "SnmpNeighbor",
+    "SnmpRun",
+    "SnmpTarget",
     "Subnet",
     "Tenant",
     "TenantGroup",

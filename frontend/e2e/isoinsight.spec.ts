@@ -52,12 +52,10 @@ test("ISOinsight：新增、測試連線、（有測試設備時）預覽與同�
   await page.getByTestId("iso-url").locator("input").fill(ISO_URL || "http://192.0.2.199");
   await page.getByTestId("iso-user").locator("input").fill("ipam-ro");
   await page.getByTestId("iso-pw").locator("input").fill("e2e pass&=word");
-  await page.getByTestId("iso-subnets").click();
-  const opts = page.locator(".n-base-select-option");
-  await expect(opts.first()).toBeVisible();
-  const hq = opts.filter({ hasText: "192.0.2.0/24" });
-  await ((await hq.count()) ? hq.first() : opts.first()).click();
-  await page.keyboard.press("Escape");
+  // 允許同步的子網路預設「全部」（使用者 2026-10-15），子網路選單收起來
+  await expect(page.getByTestId("iso-scope-all")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("iso-scope-all-hint")).toContainText("之後新建的也會自動納入");
+  await expect(page.getByTestId("iso-subnets")).toHaveCount(0);
   // 時區沒勾確認就存不了
   await expect(page.getByTestId("iso-save")).toBeDisabled();
   await page.getByTestId("iso-tz-ok").click();
@@ -178,6 +176,8 @@ test("ISOinsight：缺欄位講清楚缺什麼；後端欄位檢查失敗翻成�
 
   await page.getByTestId("iso-user").locator("input").fill("ipam-ro");
   await page.getByTestId("iso-pw").locator("input").fill("e2e-pass");
+  // 預設是全部子網路；取消「全部」、又沒選子網路時才要求選
+  await page.getByTestId("iso-scope-all").click();
   await page.getByTestId("iso-save").click();
   await expect(page.locator(".n-message").last()).toContainText("請至少選一個「允許同步的子網路」");
 
@@ -256,6 +256,8 @@ test("ISOinsight：設備說帳密錯（code 仍是 200）→ 講出設備原文
     await expect(loginCmd).toContainText("curl -sS -X POST 'https://192.0.2.199/logon'");
     await expect(loginCmd).toContainText(`-d '{"username":"ipam-ro","password":"<密碼>"}'`);
     await expect(loginCmd).not.toContainText("wrong");
+    // 這個來源有驗證憑證（指令不帶 -k）：提示自簽憑證時加 -k
+    await expect(page.getByTestId("iso-curl-tls-hint")).toContainText("-k");
     await expect(page.getByTestId("iso-curl-fetch")).toContainText("--data-urlencode 'sessionid=<SessionID>'");
     if (SHOTS) await page.locator(".n-modal").first().screenshot({ path: `${SHOTS}/iso-curl.png` });
     await noRawKeys(page);

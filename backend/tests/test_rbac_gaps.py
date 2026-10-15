@@ -223,9 +223,14 @@ async def test_mcp_ip_lookup_survives_overlapping_subnets(db_session, admin_user
     ) or 0)
     assert dupes == 2, f"測試前提不成立：同 IP 只有 {dupes} 筆"
 
-    # 修正前這兩支都會拋 MultipleResultsFound
-    got = await switch_port_for_ip(db_session, user=admin_user, ip=dup_ip)
-    assert got["ip"] == dup_ip
+    # 修正前這兩支都會拋 MultipleResultsFound。
+    # switch_port_for_ip 之後（2026-10-15）也不再默默取第一筆：回看得懂的錯誤並列出候選，帶 ip_id 才回答
+    from app.mcp.tools import IPAMToolError
+    with pytest.raises(IPAMToolError, match="overlapping"):
+        await switch_port_for_ip(db_session, user=admin_user, ip=dup_ip)
+    one = (await db_session.execute(select(IPAddress.id).where(IPAddress.ip == dup_ip).limit(1))).scalar_one()
+    got = await switch_port_for_ip(db_session, user=admin_user, ip=dup_ip, ip_id=str(one))
+    assert got["ip"] == dup_ip and got["ip_id"] == str(one)
     assert (await get_ip_detail(db_session, user=admin_user, ip=dup_ip))["found"] is True
 
 

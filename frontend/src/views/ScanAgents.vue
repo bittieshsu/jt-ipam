@@ -10,7 +10,7 @@ import {
 } from "naive-ui";
 import {
   ScanAgentsIcon, PlusIcon, EditIcon, DeleteIcon, RefreshIcon, SyncIcon, SaveIcon, CancelIcon,
-  InfoIcon, CloneIcon,
+  InfoIcon, CloneIcon, SnmpIcon,
 } from "@/icons";
 import {
   listScanAgents, createScanAgent, updateScanAgent, deleteScanAgent, rotateScanAgentKey, scanNowAgent,
@@ -25,7 +25,8 @@ import ScanAgentLoadPanel from "@/components/ScanAgentLoadPanel.vue";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import { autoSort } from "@/composables/useTableSort";
 import { SUDO } from "@/utils/sudo";
-import { probeInstall } from "@/utils/probeInstall";
+import { probeInstall, toolInstallCmd } from "@/utils/probeInstall";
+import { listSnmpAgents, type SnmpAgentInfo } from "@/api/snmp";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
@@ -35,7 +36,7 @@ const { catalog } = useScanProbes();
 // 所有欄位 = 預設可見（含新加的 tools「相依套件」）。tools 同時在 allKeys（才點得動/開得起來）
 // 與 defaultVisible（才預設打開；在此 → withNewDefaults 讓舊用戶升級後也自動帶出這欄）。
 const SA_COLS = ["name", "enabled", "has_key", "agent_version", "source_ip", "subnet_count", "load",
-  "tools", "last_seen_at", "last_error", "actions"];
+  "tools", "snmp", "last_seen_at", "last_error", "actions"];
 const { visibleKeys: saVis, setVisible: saSet, reset: saReset,
   order: saOrder, setOrder: saSetOrder, orderColumns: saOrderCols } = useColumnPrefs(
   "scan_agents", SA_COLS, SA_COLS,
@@ -49,6 +50,7 @@ const saPicker = computed(() => [
   { key: "subnet_count", label: t("cols.subnet") },
   { key: "load", label: t("scan_load.col_load") },
   { key: "tools", label: t("scan_agent.deps") },
+  { key: "snmp", label: "SNMP" },
   { key: "last_seen_at", label: t("cols.last_report") },
   { key: "last_error", label: t("cols.last_error") },
   { key: "actions", label: t("cols.actions") },
@@ -170,9 +172,23 @@ const installerOneLiner = computed(() =>
   + `JT_IPAM_URL=${serverOrigin} JT_IPAM_AGENT_KEY=${revealedKey.value || "<KEY>"} JT_IPAM_INSECURE=1 bash`,
 );
 
+// SNMP 收集（0217）：這裡只顯示能力與被指派幾個收集目標，設定在 SNMP 頁（憑證不是代理的屬性，換代理不該重填）
+const snmpInfo = ref<Record<string, SnmpAgentInfo>>({});
+const snmpMinVersion = ref("");
+async function loadSnmpInfo() {
+  try {
+    const r = await listSnmpAgents();
+    snmpInfo.value = Object.fromEntries(r.items.map((a) => [a.agent_id, a]));
+    snmpMinVersion.value = r.min_agent_version;
+  } catch { snmpInfo.value = {}; }   // 拿不到（舊後端）就整欄顯示「—」，不影響代理清單
+}
+
 async function refresh() {
   loading.value = true;
-  try { rows.value = (await listScanAgents()).items; }
+  try {
+    const [r] = await Promise.all([listScanAgents(), loadSnmpInfo()]);
+    rows.value = r.items;
+  }
   catch (e) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
@@ -346,6 +362,29 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
       }, () => `${ok}/${ts.length}`);
     },
   },
+  {
+    // SNMP 能力＋被指派的收集目標數；點了到 SNMP 頁、只看這台代理負責的收集目標
+    title: "SNMP", key: "snmp", width: 104,
+    sorter: (a, b) => (snmpInfo.value[a.id]?.target_count ?? -1) - (snmpInfo.value[b.id]?.target_count ?? -1),
+    render: (r) => {
+      const s = snmpInfo.value[r.id];
+      if (!s) return h("span", { style: "opacity:.5" }, "—");
+      const reason = s.capable ? t("scan_agent.snmp_capable_hint", { n: s.target_count })
+        : !s.version_ok ? t("scan_agent.snmp_old_agent", { v: snmpMinVersion.value })
+          : t("scan_agent.snmp_no_tool");
+      return h(NTooltip, null, {
+        trigger: () => h(NTag, {
+          size: "small", round: true, bordered: false, style: "cursor:pointer", "data-testid": "scan-agent-snmp",
+          type: s.capable ? (s.target_count ? "success" : "info") : "default",
+          onClick: () => void router.push({ name: "snmp", query: { agent: r.id } }),
+        }, {
+          icon: () => h(NIcon, null, () => h(SnmpIcon)),
+          default: () => (s.capable ? String(s.target_count) : t("scan_agent.snmp_unavailable")),
+        }),
+        default: () => reason,
+      });
+    },
+  },
   { title: t("scanAgentHelp.col_last_seen"), key: "last_seen_at", width: 168,
     render: (r) => h("span", { style: "white-space:nowrap" }, fmtDateTime(r.last_seen_at)) },
   { title: t("scanAgentHelp.col_last_error"), key: "last_error", minWidth: 150, ellipsis: { tooltip: true }, render: (r) => r.last_error ?? "—" },
@@ -439,7 +478,7 @@ onMounted(async () => {
                         :order="saOrder" @update:order="saSetOrder" />
           <ExportButton :columns="cols" :rows="rows" filename="scan-agents" :title="t('nav.scan_agents')" />
         </n-space>
-        <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1080" :pagination="pg" />
+        <n-data-table :columns="cols" :data="filteredRows" :loading="loading" :bordered="false" :scroll-x="1190" :pagination="pg" />
       </n-tab-pane>
       <n-tab-pane name="jump" :tab="t('jump_hosts.tab')" display-directive="show:lazy">
         <JumpHosts embedded />
@@ -470,7 +509,7 @@ onMounted(async () => {
             <td>{{ tdep.version || "—" }}</td>
             <td>{{ tdep.probes.length ? tdep.probes.join(", ") : "—" }}</td>
             <td>
-              <code v-if="toolState(toolsRow, tdep) === 'missing' && tdep.package">sudo apt install {{ tdep.package }}</code>
+              <code v-if="toolState(toolsRow, tdep) === 'missing' && tdep.package">{{ toolInstallCmd(tdep.name, tdep.package, t) }}</code>
               <span v-else style="opacity:.4">—</span>
             </td>
           </tr>

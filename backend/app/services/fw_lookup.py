@@ -371,8 +371,12 @@ async def rules_touching_ip(session: AsyncSession, ip: str, *, ip_id: Any = None
     return out
 
 
-async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
+async def attack_surface(session: AsyncSession, *, limit: int | None = 500,
+                         nat_limit: int | None = 300) -> list[dict[str, Any]]:
     """對外攻擊面清單：從外面可達的 IP:port，每項配 IPAM 身分。
+
+    `limit`／`nat_limit`：畫面用的上限（全部項目／NAT 轉發）。要篩選的呼叫端（AI 工具依 IP／FQDN 查）
+    傳 None 取回全部再篩 —— 先截再篩，排在後面的目標就不見了（2026-10-15）。
 
     異常偵測的「對外曝險」是抓問題；這裡是**清單** —— 資安稽核第一個要的東西。
     保守原則同規則劣化：**只列明確可判定的**——
@@ -428,10 +432,11 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
     for model in (OPNsenseFirewall, PfSenseFirewall, FortiGateFirewall, _PA, _MT, _CP):
         for f in (await session.execute(select(model))).scalars().all():
             inst_names[str(f.id)] = f.name
-    for n in (await session.execute(
-            select(NATTranslation).where(
-                NATTranslation.type == "port_forward",
-                NATTranslation.disabled.is_(False)).limit(300))).scalars().all():
+    nat_stmt = select(NATTranslation).where(
+        NATTranslation.type == "port_forward", NATTranslation.disabled.is_(False))
+    if nat_limit is not None:
+        nat_stmt = nat_stmt.limit(nat_limit)
+    for n in (await session.execute(nat_stmt)).scalars().all():
         ident = await identity(None, n.dst_ip_id) if n.dst_ip_id else {"registered": False}
         # 目標 IP 與埠**都**不明（如 OPNsense 的 Anti-Lockout 自動規則）→ 不可判定，
         # 列出來只是一排「? 未登錄」噪音（使用者回饋）；未登錄但有埠的仍要列——懸空轉發是警訊。
@@ -503,7 +508,8 @@ async def attack_surface(session: AsyncSession) -> list[dict[str, Any]]:
             "identity": await identity(target),
         })
 
-    items = items[:500]
+    if limit is not None:
+        items = items[:limit]
     await _attach_fqdns(session, items)
     return items
 

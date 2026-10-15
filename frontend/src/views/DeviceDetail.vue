@@ -24,6 +24,7 @@ import UptimeBar from "@/components/UptimeBar.vue";
 import RackDiagram from "@/components/RackDiagram.vue";
 import DevicePortsPanel from "@/components/DevicePortsPanel.vue";
 import DevicePowerPortsPanel from "@/components/DevicePowerPortsPanel.vue";
+import SnmpDeviceCard from "@/components/SnmpDeviceCard.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import { getRackDiagram } from "@/api/racks";
 type RackDiagramData = Awaited<ReturnType<typeof getRackDiagram>>;
@@ -607,6 +608,13 @@ onMounted(() => {
           </n-space>
         </n-space>
       </n-modal>
+
+      <!-- SNMP 收集（限管理員）：有收集目標就顯示狀態與編輯／測試／立即收集，沒有就「啟用 SNMP 收集」。
+           編輯表單與 SNMP 頁是同一個元件 -->
+      <div v-if="device && isAdmin" id="card-snmp" :class="{ 'card-focus': focusedCard === 'snmp' }">
+        <SnmpDeviceCard :device-id="device.id" :device-name="device.name" :device-type="device.type"
+                        @loaded="focusRequestedCard" />
+      </div>
 
       <n-card v-if="device && lnms" id="card-librenms"
               :class="{ 'card-focus': focusedCard === 'librenms' }"

@@ -148,7 +148,7 @@ class FDBEntryRead(StrictModel):
     vlan_id_num: int | None
     port_name: str | None
     device_id: uuid.UUID | None
-    #: librenms／mikrotik；mikrotik 的列 device_id 是空的，看 switch_device_id（jt-ipam 裝置）
+    #: librenms／mikrotik／snmp；後兩種的列 device_id 是空的，看 switch_device_id（jt-ipam 裝置）
     source: str = "librenms"
     switch_device_id: uuid.UUID | None = None
     first_seen_at: Any

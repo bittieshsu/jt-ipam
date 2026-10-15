@@ -28,21 +28,20 @@ from app.schemas.ip_request import (
 from app.services.ip_request import (
     InvalidStateTransition,
     IPRequestError,
-    approve_request,
+    NoActionableStep,
+    approve_per_policy,
     cancel_request,
     create_request,
-    record_step_approval,
     reject_request,
 )
 from app.services.ip_request_policy import (
-    actionable_steps,
+    can_approve as _can_approve,
+)
+from app.services.ip_request_policy import (
     get_policy,
     is_global_approver,
     set_policy,
     stage_progress,
-)
-from app.services.ip_request_policy import (
-    can_approve as _can_approve,
 )
 from app.services.permission import (
     get_object_permission,
@@ -215,20 +214,12 @@ async def approve(
         raise HTTPException(409, detail="Subnet no longer exists")
 
     override_ip = (payload.ip if payload else None) or None
-    pol = await get_policy(session)
     try:
-        if pol["approver_mode"] in ("parallel", "stages"):
-            # 多關卡：核准「此使用者目前可審的最前面那一關」；全通過才配發
-            steps = await actionable_steps(session, user, obj, pol)
-            if not steps:
-                raise HTTPException(403, detail="No approval step is actionable for you")
-            await record_step_approval(
-                session, request=obj, subnet=subnet, approver=user,
-                step_index=steps[0], override_ip=override_ip,
-            )
-        else:
-            await approve_request(session, request=obj, subnet=subnet, approver=user,
-                                  override_ip=override_ip)
+        # 多關卡：核准「此使用者目前可審的最前面那一關」；全通過才配發（與 AI 工具共用 approve_per_policy）
+        await approve_per_policy(session, request=obj, subnet=subnet, approver=user,
+                                 override_ip=override_ip)
+    except NoActionableStep as exc:
+        raise HTTPException(403, detail="No approval step is actionable for you") from exc
     except InvalidStateTransition as exc:
         raise HTTPException(409, detail=detail_of(exc, "ip_request_bad_transition")) from exc
     except IPRequestError as exc:

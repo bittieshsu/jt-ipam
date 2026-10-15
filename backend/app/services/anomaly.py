@@ -493,12 +493,14 @@ async def detect_mac_drifts(
 
     now = datetime.now(UTC)
     since = now - lookback
+    # 交換器：LibreNMS 的列看 device_id（LibreNMS 裝置）；MikroTik／SNMP 收集（0217）的列看 switch_device_id
+    # （jt-ipam 裝置）。以前只看前者，只有 SNMP 或 MikroTik 的站台永遠偵測不到換埠
+    sw = func.coalesce(FDBEntry.device_id, FDBEntry.switch_device_id)
     rows = (await session.execute(
-        select(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name,
+        select(FDBEntry.mac, sw, FDBEntry.port_name,
                func.min(FDBEntry.first_seen_at), func.max(FDBEntry.last_seen_at))
-        .where(FDBEntry.last_seen_at >= since, FDBEntry.port_name.is_not(None),
-               FDBEntry.device_id.is_not(None))
-        .group_by(FDBEntry.mac, FDBEntry.device_id, FDBEntry.port_name)
+        .where(FDBEntry.last_seen_at >= since, FDBEntry.port_name.is_not(None), sw.is_not(None))
+        .group_by(FDBEntry.mac, sw, FDBEntry.port_name)
     )).all()
     # (交換器, MAC) → [(埠, 首見, 末見)]；每個埠背後幾個 MAC（分辨上行埠）
     by_key: dict[tuple[str, str], list[tuple[str, datetime, datetime]]] = defaultdict(list)
@@ -549,9 +551,13 @@ async def detect_mac_drifts(
     vm_macs = {str(v) for v in (await session.execute(
         select(VMInterface.mac).where(in_values(VMInterface.mac, {m["mac"] for m in moves})))).scalars().all()
         if v}
+    switch_ids = {uuid.UUID(m["did"]) for m in moves}
     name_by_id = {str(i): (sn or hn or str(i)[:8]) for i, sn, hn in (await session.execute(
         select(LibreNMSDevice.id, LibreNMSDevice.sysname, LibreNMSDevice.hostname)
-        .where(in_values(LibreNMSDevice.id, {uuid.UUID(m["did"]) for m in moves})))).all()}
+        .where(in_values(LibreNMSDevice.id, switch_ids)))).all()}
+    from app.models.device import Device as _Dev
+    name_by_id.update({str(i): n for i, n in (await session.execute(
+        select(_Dev.id, _Dev.name).where(in_values(_Dev.id, switch_ids - {uuid.UUID(k) for k in name_by_id})))).all()})
 
     def _busy(did: str, port: str) -> bool:
         return port_macs.get((did, port), 0) > UPLINK_MAC_THRESHOLD
@@ -903,26 +909,38 @@ async def detect_l2_subnet_bleed(
             {"ip": ip, "subnet_id": sid, "mac": m, "mac_owner_ip": h[1], "mac_owner_subnet_id": h[0]})
 
     # 交換器 MAC 表：同一台交換器、同一個 VLAN（沒有 VLAN 的列不拿來判斷：一條 trunk 本來就帶著所有 VLAN）
+    # 列有三種：LibreNMS（device_id 是 LibreNMS 裝置）、MikroTik（mikrotik_router_id）、其他直接記 jt-ipam 裝置的
+    # （switch_device_id；SNMP 收集，0217）。新來源不必再改這裡
     fdb = (await session.execute(
-        select(FDBEntry.device_id, FDBEntry.mikrotik_router_id, FDBEntry.vlan_id_num, FDBEntry.port_name,
-               FDBEntry.mac)
+        select(FDBEntry.device_id, FDBEntry.mikrotik_router_id, FDBEntry.switch_device_id, FDBEntry.vlan_id_num,
+               FDBEntry.port_name, FDBEntry.mac)
         .where(FDBEntry.last_seen_at >= cutoff, FDBEntry.vlan_id_num.is_not(None)))).all()
     groups: dict[tuple[str, int], dict[str, list[tuple[str, str | None]]]] = defaultdict(lambda: defaultdict(list))
     ln_ids: set[Any] = set()
     ros_ids: set[Any] = set()
-    for ln_dev, ros, vlan, port, mac in fdb:
+    sw_dev_ids: set[Any] = set()
+    for ln_dev, ros, sw_dev, vlan, port, mac in fdb:
         m = normalize(mac)
-        if m is None or m not in home or not (ln_dev or ros):
+        if m is None or m not in home or not (ln_dev or ros or sw_dev):
             continue
         if ln_dev:
             ln_ids.add(ln_dev)
-        else:
+            key = f"librenms:{ln_dev}"
+        elif ros:
             ros_ids.add(ros)
-        groups[(f"librenms:{ln_dev}" if ln_dev else f"mikrotik:{ros}", int(vlan))][home[m][0]].append((m, port))
+            key = f"mikrotik:{ros}"
+        else:
+            sw_dev_ids.add(sw_dev)
+            key = f"device:{sw_dev}"
+        groups[(key, int(vlan))][home[m][0]].append((m, port))
     sw_names = {f"librenms:{k}": v for k, v in (await reporter_names(session, ln_ids)).items()}
     if ros_ids:
         sw_names.update({f"mikrotik:{i}": n for i, n in (await session.execute(
             select(MikroTikRouter.id, MikroTikRouter.name).where(in_values(MikroTikRouter.id, ros_ids)))).all()})
+    if sw_dev_ids:
+        from app.models.device import Device as _Dev
+        sw_names.update({f"device:{i}": n for i, n in (await session.execute(
+            select(_Dev.id, _Dev.name).where(in_values(_Dev.id, sw_dev_ids)))).all()})
     for (sw, vlan), by_subnet in groups.items():
         subs = sorted(by_subnet)
         if len(subs) < 2:

@@ -21,10 +21,12 @@ import { getRackDiagram, type RackDiagram } from "@/api/racks";
 import { resolveRackLocation } from "@/utils/rackLocation";
 import {
   DevicesIcon, PlusIcon, EditIcon, UploadIcon, DeleteIcon, RefreshIcon, SaveIcon, CancelIcon, EyeIcon, LinkIcon, RacksIcon,
+  SnmpIcon,
 } from "@/icons";
 import { cmpNatural } from "@/utils/sort";
 import { useIpOptions } from "@/composables/useIpOptions";
 import { listSubnets } from "@/api/subnets";
+import SnmpBulkAssign from "@/components/SnmpBulkAssign.vue";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import DeviceImportModal from "@/components/DeviceImportModal.vue";
@@ -39,6 +41,7 @@ const router = useRouter();
 const links = useEntityLinks(router);
 const checkedKeys = ref<DataTableRowKey[]>([]);
 const bulkBusy = ref(false);
+const snmpBulkShow = ref(false);
 
 async function doBulkDelete() {
   if (!checkedKeys.value.length) return;
@@ -627,8 +630,17 @@ onMounted(async () => {
         </template>
         {{ t("common.confirm_delete_n", { n: checkedKeys.length }) }}
       </n-popconfirm>
-      <n-button size="small" @click="checkedKeys = []">{{ t("common.clear_selection") }}</n-button>
+      <n-button v-if="_authBtn.me?.is_admin" size="small" data-testid="device-snmp-bulk" @click="snmpBulkShow = true">
+        <template #icon><n-icon><SnmpIcon /></n-icon></template>
+        {{ t("snmp.bulk_button") }}
+      </n-button>
+      <n-button size="small" @click="checkedKeys = []">
+        <template #icon><n-icon><CancelIcon /></n-icon></template>
+        {{ t("common.clear_selection") }}
+      </n-button>
     </n-space>
+    <SnmpBulkAssign v-if="_authBtn.me?.is_admin" v-model:show="snmpBulkShow"
+                    :device-ids="checkedKeys.map((k) => String(k))" @done="refresh" />
     <n-data-table
       :columns="cols"
       :data="filteredRows"

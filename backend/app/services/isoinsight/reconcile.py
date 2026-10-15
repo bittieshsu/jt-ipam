@@ -78,12 +78,20 @@ class Plan:
 
 async def scope_nets(session: AsyncSession, src: IsoInsightSource) -> tuple[list[tuple[Any, uuid.UUID]],
                                                                             dict[uuid.UUID, str], int]:
-    """允許的子網路（依首碼由長到短）、id → CIDR、被排除的數量（已封存或不屬於來源的租戶）。"""
-    ids = list(src.scope_subnet_ids or [])
-    if not ids:
-        return [], {}, 0
-    rows = (await session.execute(select(Subnet.id, Subnet.cidr, Subnet.customer_id, Subnet.archived_at)
-                                  .where(in_values(Subnet.id, ids)))).all()
+    """允許的子網路（依首碼由長到短）、id → CIDR、被排除的數量（已封存或不屬於來源的租戶）。
+
+    `scope_all`：所選單位底下的全部子網路（之後新建的自動納入；單位沒選＝沒有指定單位的子網路，一樣不跨租戶）。"""
+    if getattr(src, "scope_all", False):
+        rows = (await session.execute(
+            select(Subnet.id, Subnet.cidr, Subnet.customer_id, Subnet.archived_at)
+            .where(Subnet.archived_at.is_(None), Subnet.customer_id.is_not_distinct_from(src.customer_id)))).all()
+        ids: list[Any] = [r[0] for r in rows]
+    else:
+        ids = list(src.scope_subnet_ids or [])
+        if not ids:
+            return [], {}, 0
+        rows = (await session.execute(select(Subnet.id, Subnet.cidr, Subnet.customer_id, Subnet.archived_at)
+                                      .where(in_values(Subnet.id, ids)))).all()
     nets: list[tuple[Any, uuid.UUID]] = []
     cidrs: dict[uuid.UUID, str] = {}
     excluded = len(ids) - len(rows)

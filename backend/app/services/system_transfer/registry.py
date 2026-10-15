@@ -128,6 +128,12 @@ CATEGORY: dict[str, str] = {
     # 第二階段：每台閘道的 Gaia API 連線跟著整合走；DHCP 子網路鏡像可以重新拉
     "checkpoint_gaia_targets": "integrations",
     "mikrotik_routers": "integrations",
+    # SNMP 收集（0217）：憑證（含加密的社群字串／v3 密碼）與收集目標跟著整合走；鄰居是可重新收集的鏡像；
+    # 收集記錄是歷史
+    "snmp_credentials": "integrations",
+    "snmp_targets": "integrations",
+    "snmp_neighbors": "synced",
+    "snmp_runs": "operational",
     "ocs_servers": "integrations",
     "opnsense_alias_mappings": "integrations",
     "ssh_credentials": "integrations",

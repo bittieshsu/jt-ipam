@@ -167,6 +167,8 @@ _STATELESS_TOOLS = frozenset({
     "calc_cidr_to_range", "calc_eui64", "calc_fqdn", "calc_ip_in_cidr", "calc_ip_info",
     "calc_mac_format", "calc_netmask", "calc_range_to_cidr", "oui_lookup", "oui_search",
     "power_calc", "geoip_locate", "dns_resolve", "dns_mail_check",
+    # 畫面地圖：只讀前端原始碼的選單與欄位名稱，不碰資料
+    "find_ui_location",
 })
 
 

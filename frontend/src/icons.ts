@@ -92,6 +92,7 @@ import {
   Send,
   Activity,
   Antenna,
+  AntennaSignal,
   BrainResearch,
   Flash,
   // Status
@@ -253,6 +254,7 @@ export const LibreNMSIcon = Cloud;
 export const FirewallIcon = Shield;
 export const WazuhIcon = ShieldAlert;
 export const ScanAgentsIcon = Antenna;
+export const SnmpIcon = AntennaSignal;        // SNMP 收集（掃描代理讀網路設備）
 export const WebhooksIcon = Send;
 export const MigrationIcon = Database;
 export const ImportIcon = Database;

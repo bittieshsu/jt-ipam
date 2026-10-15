@@ -31,7 +31,7 @@ GROUP_RULES: list[tuple[str, tuple[str, ...]]] = [
                   "checkpoint_dhcp")),
     ("firewall", ("opnsense_", "pfsense_", "fortigate_", "paloalto_", "checkpoint_", "mikrotik_", "pve_firewall_",
                   "nat_translations", "vpn_tunnels", "fw_rule_snapshots")),
-    ("network_data", ("arp_entries", "fdb_entries", "librenms_", "wireless_")),
+    ("network_data", ("arp_entries", "fdb_entries", "librenms_", "wireless_", "snmp_")),
     ("physical", ("devices", "device_", "racks", "cables", "cable_", "locations", "circuits", "circuit_", "providers",
                   "power_")),
     ("integrations", ("virtual_machines", "vm_interfaces", "virt_clusters", "proxmox_", "esxi_", "zabbix_", "wazuh_",

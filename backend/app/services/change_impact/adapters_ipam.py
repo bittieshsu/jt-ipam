@@ -250,6 +250,8 @@ _INTEGRATION_URLS: tuple[tuple[str, str, str, str], ...] = (
     ("app.models.rustdesk", "RustDeskServer", "client_address", "rustdesk"),
     # 舊 pull 模式的掃描代理：伺服器主動連 agent_url
     ("app.models.scan_agent", "ScanAgent", "agent_url", "scan_agent"),
+    # SNMP 收集目標的管理位址覆寫（0217）：掃描代理連這個位址讀設備。沒填覆寫時用裝置主要 IP，那是 IP 記錄本身
+    ("app.models.snmp", "SnmpTarget", "ip_override", "snmp"),
     ("app.models.notification", "WebhookSubscription", "target_url", "webhook"),
 )
 
@@ -364,6 +366,12 @@ async def config_refs(ctx: Ctx) -> None:
     from app.services.change_impact.labels import integration_label
     # Proxmox 連線沒有名稱欄位：用它所屬的叢集名稱
     clusters = {c.id: c.name for c in (await ctx.session.execute(select(VirtCluster))).scalars().all()}
+    # SNMP 收集目標也沒有名稱欄位：用它的裝置名稱（以收集目標的 id 查）
+    from app.models.device import Device
+    from app.models.snmp import SnmpTarget
+    clusters.update({tid: dname for tid, dname in (await ctx.session.execute(
+        select(SnmpTarget.id, Device.name).join(Device, Device.id == SnmpTarget.device_id)
+        .where(SnmpTarget.ip_override.is_not(None)))).all()})
     for mod, cls, attr, kind in _INTEGRATION_URLS:
         model = getattr(importlib.import_module(mod), cls, None)
         if model is None or not hasattr(model, attr):
@@ -377,7 +385,8 @@ async def config_refs(ctx: Ctx) -> None:
                 host = _host_of(getattr(row, "api_url", None) or getattr(row, "base_url", None)
                                 or getattr(row, "server_address", None) or getattr(row, "host", None))
                 name = integration_label(kind, getattr(row, "name", None)
-                                         or clusters.get(getattr(row, "cluster_id", None)), host)
+                                         or clusters.get(getattr(row, "cluster_id", None))
+                                         or clusters.get(row.id), host)
                 key = ctx.add(Evidence(key=f"integration:{kind}:{row.id}:{attr}", source_type="config",
                                        object_type="integration", object_id=row.id, label=name,
                                        payload={"kind": kind, "field": attr}, freshness="current",

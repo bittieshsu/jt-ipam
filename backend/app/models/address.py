@@ -185,12 +185,13 @@ class IPAddress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("subnet_id", "ip", name="ip_subnet_ip_uq"),
         CheckConstraint(
-            "state IN ('active','reserved','offline','dhcp','used')",
+            # deprecated／quarantine 是 0218 才加進來的（之前畫面能選、存檔卻 500）
+            "state IN ('active','reserved','offline','dhcp','used','deprecated','quarantine')",
             name="ip_state_valid",
         ),
         CheckConstraint(
             "discovery_source IN ('manual','scanner','librenms','dns','proxmox','opnsense','phpipam',"
-            "'pfsense','vmware','librenms_arp')",
+            "'pfsense','vmware','librenms_arp','isoinsight','snmp_arp')",
             name="ip_discovery_source_valid",
         ),
         Index("ix_ip_addresses_ip_gist", "ip", postgresql_using="gist"),

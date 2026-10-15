@@ -13,6 +13,9 @@ from pydantic import Field, field_validator
 from app.schemas.base import StrictModel
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}([:\-]|$)){6}$|^[0-9A-Fa-f]{12}$")
+#: IP 狀態的允許清單（REST 建立與 AI 工具共用；說明見 IPAddressBase._state_valid）
+IP_STATES: frozenset[str] = frozenset({"active", "reserved", "offline", "dhcp", "used",
+                                       "deprecated", "quarantine"})
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
 )
@@ -82,10 +85,8 @@ class IPAddressBase(StrictModel):
         # deprecated/quarantine 是生命週期用的意圖標記：
         #   deprecated — 準備退場，不要再拿來配新服務
         #   quarantine — 有疑慮（資安事件／衝突），暫時不得使用
-        allowed = {"active", "reserved", "offline", "dhcp", "used",
-                   "deprecated", "quarantine"}
-        if v not in allowed:
-            raise ValueError(f"state must be one of {sorted(allowed)}")
+        if v not in IP_STATES:
+            raise ValueError(f"state must be one of {sorted(IP_STATES)}")
         return v
 
 

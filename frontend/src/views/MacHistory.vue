@@ -14,9 +14,11 @@ import {
   NTooltip, type DataTableColumns,
 } from "naive-ui";
 import { getMacHistory, type MacHistory, type MacIpRow } from "@/api/macs";
+import { MacIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
 import { fmtDateTime } from "@/utils/datetime";
 import { normalizeMac } from "@/utils/mac";
+import { evidenceVendorLabel } from "@/utils/investigateSections";
 import { autoSort } from "@/composables/useTableSort";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import { classifyAddressLiveness, type LivenessKind } from "@/composables/useLivenessSettings";
@@ -71,7 +73,7 @@ function evidenceLabel(e: string): string {
   const src = e.startsWith("arp:") ? e.slice(4) : e;
   if (src === "scanner") return t("mac_history.ev_arp_scanner");
   const vendor = src.startsWith("arp:") ? src.slice(4) : src;
-  return t("mac_history.ev_arp", { src: VENDOR[vendor] ?? vendor });
+  return t("mac_history.ev_arp", { src: VENDOR[vendor] ?? evidenceVendorLabel(vendor, t) });
 }
 function macLink(mac: string | null, random = false) {
   if (!mac) return h("span", { style: "opacity:.6" }, t("mac_history.none"));
@@ -125,7 +127,7 @@ const portCols = computed<DataTableColumns<MacHistory["switch_ports"][number]>>(
   { title: t("mac_history.col_first"), key: "first_seen", width: 165, render: (r) => fmtDateTime(r.first_seen) },
   { title: t("mac_history.col_last"), key: "last_seen", width: 165, render: (r) => fmtDateTime(r.last_seen) },
   { title: t("mac_history.col_source"), key: "source", width: 110,
-    render: (r) => (VENDOR[r.source] ?? r.source) },
+    render: (r) => (VENDOR[r.source] ?? evidenceVendorLabel(r.source, t)) },
 ]));
 </script>
 
@@ -134,7 +136,12 @@ const portCols = computed<DataTableColumns<MacHistory["switch_ports"][number]>>(
        卡片之間就沒有間距（使用者回報三張卡片黏在一起）；spin 的內容層也要同樣排（見 style） -->
   <div class="mh-page">
     <n-card>
-      <template #header>{{ t("mac_history.title") }}</template>
+      <template #header>
+        <n-space align="center" :wrap-item="false">
+          <n-icon :size="22"><MacIcon /></n-icon>
+          <span>{{ t("mac_history.title") }}</span>
+        </n-space>
+      </template>
       <n-space align="center" :wrap="true" :size="10">
         <n-input v-model:value="input" clearable style="width: 280px" :placeholder="t('mac_history.placeholder')"
                  data-testid="mh-input" @keyup.enter="go" />
