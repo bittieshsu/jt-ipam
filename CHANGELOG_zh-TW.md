@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
-## [Unreleased]
+## [1.0.12] - 2026-10-15
 
 ### 新增
 - 掃描代理的 SNMP 收集（客戶回報：掃描代理隔著路由器掃另一個網段，ping 得到卻沒有 MAC，現場也沒有 LibreNMS）。負責網路設備所在子網路的掃描代理改以唯讀 SNMP 讀取設備，比對與寫入全在伺服器（migration 0217、代理 1.19.0）。

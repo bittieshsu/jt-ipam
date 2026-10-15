@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
-## [Unreleased]
+## [1.0.12] - 2026-10-15
 
 ### Added
 - SNMP collection by scan agents (customer report: an agent scanning a subnet behind a router got replies but no MACs, and the site has no LibreNMS). The scan agent responsible for a network device's subnet now reads it over SNMP, read-only, and the server does all matching and writing (migration 0217, agent 1.19.0).
