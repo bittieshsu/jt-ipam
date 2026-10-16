@@ -110,4 +110,14 @@ async def effective_os(session: AsyncSession, ip: Any) -> dict[str, Any]:
     src, raw = _P.pick(dict(cand), order, disabled)
     if not raw:
         return {"os_guess": None, "os_family": None, "os_source": None}
-    return {"os_guess": raw, "os_family": normalize_os(raw), "os_source": src}
+    family = normalize_os(raw)
+    if family == "unknown":
+        # 優先的來源寫的是對照表不認得的名稱：家族改用其他來源判得出的（依同一個順序），顯示文字仍用優先來源的原文。
+        # 一台 Bazzite 桌機：Wazuh 只說「Bazzite」，LibreNMS 說 linux、OCS 說「… (Kinoite)」—— 明明有人知道它是 Linux（2026-10-16）
+        for s in [*order, *cand]:
+            if s in cand and s not in disabled and s != src:
+                f = normalize_os(cand[s])
+                if f != "unknown":
+                    family = f
+                    break
+    return {"os_guess": raw, "os_family": family, "os_source": src}

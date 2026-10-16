@@ -213,6 +213,13 @@ to see what a customer sees.**
 
 ## 5c. Real-browser testing: **mandatory for every release that touches the UI**
 
+- [ ] Tabs look clickable (check dark and light): on anomaly detection, SNMP, Advanced → Circuits, scan agents and
+  other pages the tab row has a thin underline in light (no grey block) and a tinted strip in dark, each tab gets a hover background, the active one is bold with a
+  background and a 3px underline; segment and card tabs are unchanged; tabs still scroll sideways at phone width
+- [ ] The login card has a shadow on light and dark backgrounds; the device page shows the SNMP card only when the
+  device has a target, with the same header height and spacing as the other cards
+- [ ] OS column (`tests/test_os_family_fallback.py`): a host Wazuh reports only as "Bazzite" shows the Linux icon and
+  "Linux (source Wazuh)"; when every source names something the table does not know, the raw text is shown, not "Unknown"
 - [ ] **Run the full e2e with `frontend/e2e/run-release.sh`** (not a hand-rolled `--workers=2` over everything): ordinary
   specs run in parallel, the specs in `e2e/global-state-specs.txt` that change system-wide settings run afterwards one at
   a time; run `seed_e2e` first
@@ -1694,8 +1701,9 @@ that touches the agent. They prove what jt-ipam does, **not** that a given vendo
   answers, then shows OK or the error, sysName, sysDescr, uptime and rows per item for every credential tried (up to
   five); Collect now spins on that row only and then reports rows per item; History lists the runs with per-item counts;
   deleting a credential in use shows the error and the devices using it
-- [ ] The other entry points open the same dialogs: the device page SNMP block (admins only: status with Edit, Test,
-  Collect now and History, or "Enable SNMP collection" with the device fixed); the subnet page button "Enable SNMP
+- [ ] The other entry points open the same dialogs: the device page SNMP block (admins only, shown only when the device has a
+  target: status with Edit, Test, Collect now and History; devices without a target show no card, targets are added on
+  the SNMP page; its header height and spacing match the other cards); the subnet page button "Enable SNMP
   collection for the gateway" (says the gateway IP must be registered first when it is not; with an unlinked gateway IP
   it says a router device will be created; becomes "View SNMP collection" once the gateway's device has a target); the
   scan agents page SNMP column (capability and target count, links to the SNMP page filtered to that agent) and the

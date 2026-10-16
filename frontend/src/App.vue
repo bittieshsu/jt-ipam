@@ -73,6 +73,16 @@ const FIXED_TH_DARK = "#1c2634";        // TH_DARK 疊在卡片上
 const FIXED_TD_DARK = "#0f1825";        // 卡片底色
 const FIXED_TD_HOVER_DARK = "#17202e";  // 滑過列 rgba(148,163,184,.06) 疊在卡片上
 
+// 頁籤要看得出可以切換（使用者 2026-10-16：「頁籤視覺上不夠明顯，常常被忽略」）：每個頁籤是有內距的按鈕、
+// 彼此緊湊、選中的加粗；底色條與滑過效果在下方全域樣式（.n-tabs--bar-type／--line-type）
+const _tabsShape = {
+  tabFontWeight: "500", tabFontWeightActive: "600",
+  tabPaddingSmallBar: "6px 12px", tabPaddingMediumBar: "8px 14px", tabPaddingLargeBar: "10px 16px",
+  tabPaddingSmallLine: "6px 12px", tabPaddingMediumLine: "8px 14px", tabPaddingLargeLine: "10px 16px",
+  tabGapSmallBar: "2px", tabGapMediumBar: "4px", tabGapLargeBar: "4px",
+  tabGapSmallLine: "2px", tabGapMediumLine: "4px", tabGapLargeLine: "4px",
+};
+
 const lightOverrides = {
   common: {
     ..._common,
@@ -100,7 +110,8 @@ const lightOverrides = {
   Card: { color: "#ffffff", borderColor: "#e8ebf2" },
   Menu: _menuActive,
   DataTable: { thColor: TH_LIGHT, borderColor: "#eef1f6", tdColorHover: "#f7f9fc" },
-  Tabs: { tabTextColorActiveLine: PRIMARY, barColor: PRIMARY },
+  Tabs: { ..._tabsShape, tabTextColorActiveLine: PRIMARY, tabTextColorActiveBar: PRIMARY, barColor: PRIMARY,
+          tabTextColorLine: "#334155", tabTextColorBar: "#334155" },
 };
 
 // 深色：科幻風——藍黑深色 + 青色(cyan)點綴、霓光綠主色，分層藍石板，細邊框帶藍調
@@ -143,7 +154,8 @@ const darkOverrides = {
     itemIconColorChildActive: "#34d399",
   },
   DataTable: { thColor: TH_DARK_BASE, borderColor: "rgba(255,255,255,0.07)", tdColorHover: "rgba(255,255,255,0.04)" },
-  Tabs: { tabTextColorActiveLine: "#34d399", barColor: "#34d399" },
+  Tabs: { ..._tabsShape, tabTextColorActiveLine: "#34d399", tabTextColorActiveBar: "#34d399", barColor: "#34d399",
+          tabTextColorLine: "#c3cfdf", tabTextColorBar: "#c3cfdf" },
 };
 const themeOverrides = computed(() =>
   effectiveTheme.value === "dark" ? darkOverrides : lightOverrides,
@@ -180,6 +192,41 @@ const cssVars = computed(() => ({
 </template>
 
 <style>
+/* ── 頁籤看得出可以切換（使用者 2026-10-16）──
+   以前只是一排字加一條底線，沒選中的頁籤看起來不像能點。現在：頁籤列有淡底色條、每個頁籤是圓角按鈕，
+   滑過有底色、選中的加底色與 3px 底線。只套用預設（bar）與 line 型；segment／card 型本來就像按鈕。 */
+/* 淺色：不要灰色底條（使用者 2026-10-16：一整條灰色色塊不好看），改用頁籤列下方細線＋選中淡綠底 */
+html { --jt-tabs-strip: transparent; --jt-tabs-hover: rgba(15, 23, 42, 0.04);
+       --jt-tabs-active: rgba(24, 160, 88, 0.08); --jt-tabs-line: #e5e9f0; }
+html[data-theme="dark"] { --jt-tabs-strip: rgba(148, 197, 255, 0.05); --jt-tabs-hover: rgba(148, 197, 255, 0.09);
+       --jt-tabs-active: rgba(52, 211, 153, 0.14); --jt-tabs-line: transparent; }
+.n-tabs.n-tabs--bar-type > .n-tabs-nav,
+.n-tabs.n-tabs--line-type > .n-tabs-nav {
+  background: var(--jt-tabs-strip);
+  border-radius: 8px 8px 0 0;
+  padding: 4px 6px 0;
+  box-shadow: inset 0 -1px 0 var(--jt-tabs-line);
+}
+.n-tabs.n-tabs--bar-type .n-tabs-tab,
+.n-tabs.n-tabs--line-type .n-tabs-tab {
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  transition: background-color .15s ease;
+}
+.n-tabs.n-tabs--bar-type .n-tabs-tab:not(.n-tabs-tab--active):not(.n-tabs-tab--disabled):hover,
+.n-tabs.n-tabs--line-type .n-tabs-tab:not(.n-tabs-tab--active):not(.n-tabs-tab--disabled):hover {
+  background: var(--jt-tabs-hover);
+}
+.n-tabs.n-tabs--bar-type .n-tabs-tab.n-tabs-tab--active,
+.n-tabs.n-tabs--line-type .n-tabs-tab.n-tabs-tab--active {
+  background: var(--jt-tabs-active);
+}
+.n-tabs.n-tabs--bar-type .n-tabs-bar,
+.n-tabs.n-tabs--line-type .n-tabs-bar {
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+}
+
 /* 卡片柔和陰影：淺色模式給層次感（深色靠表面/邊框對比，黑陰影本就不明顯） */
 .n-card { box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 2px 6px rgba(16, 24, 40, 0.05); }
 

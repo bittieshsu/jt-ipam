@@ -35,7 +35,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import OsIcon from "@/components/OsIcon.vue";
 import { renderDeviceKind } from "@/utils/deviceKindCell";
-import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
+import { useScanProbes, osDisplayLabel } from "@/api/scanProbes";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { computed } from "vue";
 import { renderMacWithVendor } from "@/utils/macVendor";
@@ -304,7 +304,7 @@ const allColumns: DataTableColumns<IPAddress> = [
     title: () => t("cols.os"), key: "os", width: 150,
     render: (r) => {
       if (!r.os_family) return "—";
-      const label = osFamilyLabel(catalog.value.os_families, r.os_family, locale.value);
+      const label = osDisplayLabel(catalog.value.os_families, r.os_family, r.os_guess, locale.value);
       // 一行顯示，icon 永遠不縮；空間不夠時 label 被裁掉、只剩 icon
       return h("div", {
         style: "display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap",

@@ -6,7 +6,7 @@
  */
 import { NTooltip } from "naive-ui";
 import { useI18n } from "vue-i18n";
-import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
+import { useScanProbes, osDisplayLabel } from "@/api/scanProbes";
 import OsIcon from "@/components/OsIcon.vue";
 
 defineProps<{
@@ -25,7 +25,8 @@ const { catalog } = useScanProbes();
       <template #trigger>
         <span class="os-cell-in">
           <OsIcon :family="family" :size="size || 16" />
-          <span>{{ osFamilyLabel(catalog.os_families, family, locale) }}</span>
+          <!-- 家族對不到但有原文（例如某個對照表還不認得的發行版）：顯示原文，比「未知」有用（2026-10-16） -->
+          <span class="os-cell-raw">{{ osDisplayLabel(catalog.os_families, family, guess, locale) }}</span>
           <span v-if="source" class="os-cell-src">{{
             "（" + t("os_precedence.source_label") + ": " + t("os_precedence.src_" + source) + "）"
           }}</span>
@@ -41,5 +42,6 @@ const { catalog } = useScanProbes();
 .os-cell { display: inline-flex; align-items: center; white-space: nowrap; }
 .os-cell-in { display: inline-flex; align-items: center; gap: 5px; }
 .os-cell-src { opacity: .6; font-size: .85em; }
+.os-cell-raw { max-width: 22em; overflow: hidden; text-overflow: ellipsis; }
 .os-cell-none { opacity: .5; }
 </style>

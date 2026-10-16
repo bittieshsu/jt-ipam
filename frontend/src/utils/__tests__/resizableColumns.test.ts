@@ -3,7 +3,7 @@ import { h, nextTick, ref } from "vue";
 import { mount } from "@vue/test-utils";
 import { NDataTable } from "naive-ui";
 import {
-  FILL_KEY, installResizableColumns, usesFixedLayout, withProportionalWidths, withResizable,
+  FILL_KEY, effectiveScrollX, installResizableColumns, usesFixedLayout, withProportionalWidths, withResizable,
 } from "@/utils/resizableColumns";
 
 // 使用者要求：所有有欄位標頭的表格都能拖拉改欄寬 —— 做在元件層，逐頁補一定會漏
@@ -162,5 +162,23 @@ describe("操作欄固定在右側（stickyActions）", () => {
     setWideViewportForTest(true);
     await nextTick();
     expect(noScroll.findAll("th.n-data-table-th--fixed-right").length).toBe(0);
+  });
+});
+
+describe("effectiveScrollX", () => {
+  // 掃描代理頁（2026-10-16）：scroll-x 寫死 1190，加了 SNMP 欄之後欄寬加總超過它，
+  // 固定在右側的操作欄把「最後回報」蓋住，捲到最右也看不全
+  const cols = [
+    { key: "name", width: 300 }, { key: "snmp", width: 104 }, { key: "last_seen_at", width: 168 },
+    { key: "group", title: "g", children: [{ key: "a", width: 200 }, { key: "b", minWidth: 150 }] },
+    { key: "actions", width: 180 },
+  ];
+  it("grows a hard-coded scroll-x to the sum of the visible column widths", () => {
+    expect(effectiveScrollX(600, cols)).toBe(300 + 104 + 168 + 200 + 150 + 180);
+  });
+  it("keeps a scroll-x that is already wide enough, and leaves non-numbers alone", () => {
+    expect(effectiveScrollX(5000, cols)).toBe(5000);
+    expect(effectiveScrollX(undefined, cols)).toBeUndefined();
+    expect(effectiveScrollX("max-content", cols)).toBe("max-content");
   });
 });

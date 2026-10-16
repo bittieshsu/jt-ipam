@@ -112,6 +112,19 @@ interface SetupComponent {
 }
 
 /**
+ * 表格的 scroll-x 不可以比欄位寬度加總還窄：很多畫面把 scroll-x 寫死成一個數字，之後加了欄位（或欄位選擇器
+ * 打開更多欄）就變得比欄寬加總窄，固定在右側的操作欄會蓋住最後幾欄、捲到最右也看不全
+ * （掃描代理頁 2026-10-16：加 SNMP 欄之後「最後回報」被蓋住）。寫死的值夠寬就照用，不是數字就不碰。
+ */
+export function effectiveScrollX(scrollX: unknown, cols: Col[] | undefined | null): unknown {
+  if (typeof scrollX !== "number" || !Array.isArray(cols)) return scrollX;
+  const sum = leafColumns(cols).reduce((acc, c) =>
+    acc + (c.type === "selection" || c.type === "expand" ? Number(c.width) || 48
+      : Number(c.width) || Number(c.minWidth) || 120), 0);
+  return Math.max(scrollX, Math.ceil(sum));
+}
+
+/**
  * 包住元件的 setup，讓它看到的 `props.columns` 是 `withResizable` 之後的版本
  * （可拖拉欄寬；可橫向捲動的表格在桌面寬度把操作欄固定在右側）。
  * 用 computed：父層就地改動欄位（響應式）時跟著重算，跟原本的行為一樣。
@@ -148,6 +161,7 @@ export function installResizableColumns(component: unknown): void {
     const proxied = new Proxy(props, {
       get(target, key, receiver) {
         if (key === "columns") return mapped.value;
+        if (key === "scrollX") return effectiveScrollX(Reflect.get(target, key, receiver), mapped.value as Col[]);
         if (key === "onUnstableColumnResize") return onUnstableColumnResize;
         return Reflect.get(target, key, receiver);
       },

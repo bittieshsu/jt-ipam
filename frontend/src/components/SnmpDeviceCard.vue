@@ -10,7 +10,7 @@ import { useRouter } from "vue-router";
 import {
   NCard, NButton, NIcon, NSpace, NTag, NDescriptions, NDescriptionsItem, NTooltip, NSpin, useMessage,
 } from "naive-ui";
-import { SnmpIcon, EditIcon, TestIcon, SyncIcon, AuditIcon, PlusIcon, OpenNewWindowIcon } from "@/icons";
+import { SnmpIcon, EditIcon, TestIcon, SyncIcon, AuditIcon, OpenNewWindowIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
 import { getSnmpTargetForDevice, SNMP_SECTIONS, type SnmpSection, type SnmpTarget } from "@/api/snmp";
 import { fmtDateTime } from "@/utils/datetime";
@@ -71,15 +71,16 @@ function onSaved(tg: SnmpTarget) { target.value = tg; }
 </script>
 
 <template>
-  <n-card size="small" data-testid="device-snmp-card">
+  <n-card data-testid="device-snmp-card">
+    <!-- 標題與裝置頁其他卡片同一個寫法（cardHead：18px 圖示、間距 8px、預設尺寸），高度才一致 -->
     <template #header>
-      <n-space align="center" :size="8" :wrap-item="false">
+      <span style="display: inline-flex; align-items: center; gap: 8px">
         <n-icon :size="18"><SnmpIcon /></n-icon>
         <span>{{ t("snmp.device_card_title") }}</span>
-        <n-tag v-if="health" size="small" :bordered="false" :type="HEALTH_TAG[health]">
+        <n-tag v-if="health" size="small" :type="HEALTH_TAG[health]">
           {{ t(`snmp.health_${health}`) }}
         </n-tag>
-      </n-space>
+      </span>
     </template>
     <n-spin :show="loading && !loaded">
       <template v-if="target">
@@ -152,13 +153,6 @@ function onSaved(tg: SnmpTarget) { target.value = tg; }
           </n-descriptions-item>
         </n-descriptions>
       </template>
-      <div v-else-if="loaded" class="sdc-empty">
-        <span>{{ t("snmp.device_none") }}</span>
-        <n-button size="small" type="primary" data-testid="device-snmp-enable" @click="formShow = true">
-          <template #icon><n-icon><PlusIcon /></n-icon></template>
-          {{ t("snmp.enable_for_device") }}
-        </n-button>
-      </div>
     </n-spin>
 
     <SnmpTargetForm v-model:show="formShow" :target="target" :preset-device="target ? null : presetDevice"
@@ -171,5 +165,4 @@ function onSaved(tg: SnmpTarget) { target.value = tg; }
 <style scoped>
 .sdc-dim { opacity: .65; font-size: 12px; margin-left: 4px; }
 .sdc-err { color: var(--n-error-color, #d03050); word-break: break-word; }
-.sdc-empty { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; }
 </style>

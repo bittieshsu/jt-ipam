@@ -45,7 +45,7 @@ import SubnetEditModal from "@/components/SubnetEditModal.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import IpRoleTags from "@/components/IpRoleTags.vue";
 import OsIcon from "@/components/OsIcon.vue";
-import { useScanProbes, osFamilyLabel } from "@/api/scanProbes";
+import { useScanProbes, osDisplayLabel } from "@/api/scanProbes";
 const { t, te, locale } = useI18n();
 const { catalog } = useScanProbes();
 
@@ -497,7 +497,7 @@ const allIpColumns = computed<DataTableColumns<IPAddress>>(() => autoSort([
   { title: t("cols.os"), key: "os", width: 150,
     render: (r) => {
       if ((r as any).__gap || !r.os_family) return "—";
-      const label = osFamilyLabel(catalog.value.os_families, r.os_family, locale.value);
+      const label = osDisplayLabel(catalog.value.os_families, r.os_family, r.os_guess, locale.value);
       // 一行顯示，icon 永遠不縮；空間不夠時 label 被裁掉、只剩 icon
       return h("div", {
         style: "display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap",

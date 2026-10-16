@@ -36,8 +36,14 @@ _RULES: list[tuple[str, list[str]]] = [
     ("ios", ["iphone", "ipad", "ios "]),
     ("android", ["android"]),
     ("windows", ["windows", "microsoft", "win32", "winnt"]),
-    ("linux", ["linux", "ubuntu", "debian", "centos", "red hat", "redhat", "fedora",
-               "rocky", "alma", "suse", "openwrt", "raspbian", "android-x86"]),
+    # 發行版名稱常常不帶「linux」字樣（Wazuh 的 os.name 只給「Bazzite」；2026-10-16 一台 Bazzite 桌機被判成未知）。
+    # 「arch」「mint」單獨比對會誤中 architecture 之類，只收完整名稱
+    ("linux", ["linux", "ubuntu", "debian", "centos", "red hat", "redhat", "rhel", "fedora",
+               "rocky", "alma", "suse", "openwrt", "raspbian", "android-x86",
+               "bazzite", "kinoite", "silverblue", "aurora", "bluefin", "arch linux", "archlinux", "manjaro",
+               "linux mint", "pop!_os", "pop_os", "nixos", "alpine", "kali", "steamos", "endeavouros", "cachyos",
+               "garuda", "gentoo", "slackware", "void linux", "zorin", "elementary os", "mx linux", "deepin",
+               "clear linux", "amazon linux", "oracle linux", "photon os", "talos", "flatcar", "coreos"]),
 ]
 
 

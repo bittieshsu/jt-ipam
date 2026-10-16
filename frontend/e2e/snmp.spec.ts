@@ -4,7 +4,7 @@
  *   - 收集目標：替一台交換器新增（收集項目預設值跟著裝置類型：MAC 表＋鄰居＋介面，不讀 ARP）
  *   - 測試：按下去真的 POST，結果畫得出 sysName 與逐區段列數（e2e 環境沒有掃描代理 → 用路由攔截代理的回報）
  *   - 使用中的憑證刪不掉：顯示 409 的原因並列出用它的裝置
- *   - 裝置詳情的 SNMP 區塊、子網路的「對閘道啟用 SNMP 收集」
+ *   - 裝置詳情的 SNMP 區塊（只在有收集目標時出現）、子網路的「對閘道啟用 SNMP 收集」
  * 建立的東西都在 finally 裡刪掉（用 API，不靠畫面）。
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
@@ -155,13 +155,10 @@ test("憑證 → 收集目標 → 測試 → 使用中的憑證刪不掉 → 裝
     await expect(card).toContainText(credName);
     await expect(page.getByTestId("device-snmp-test")).toBeVisible();
     await expect(page.getByTestId("device-snmp-collect")).toBeVisible();
+    // 沒有收集目標的裝置不顯示 SNMP 卡片（新增到 SNMP 頁，使用者 2026-10-16）
     await page.goto(`/devices/${bare.id}`);
-    await expect(page.getByTestId("device-snmp-enable")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("device-snmp-enable").click();
-    await expect(page.getByTestId("snmp-target-device-fixed").locator("input")).toHaveValue(bare.name);
-    // 伺服器：只讀介面
-    await expect(page.getByTestId("snmp-flag-interfaces")).toHaveClass(/n-checkbox--checked/);
-    await expect(page.getByTestId("snmp-flag-fdb")).not.toHaveClass(/n-checkbox--checked/);
+    await expect(page.getByText(bare.name).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("device-snmp-card")).toHaveCount(0);
   } finally {
     await cleanup(request, H, { deviceIds: [dev.id, bare.id], credName });
   }

@@ -25,6 +25,7 @@ import RackDiagram from "@/components/RackDiagram.vue";
 import DevicePortsPanel from "@/components/DevicePortsPanel.vue";
 import DevicePowerPortsPanel from "@/components/DevicePowerPortsPanel.vue";
 import SnmpDeviceCard from "@/components/SnmpDeviceCard.vue";
+import { getSnmpTargetForDevice } from "@/api/snmp";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
 import { getRackDiagram } from "@/api/racks";
 type RackDiagramData = Awaited<ReturnType<typeof getRackDiagram>>;
@@ -213,6 +214,7 @@ async function doLinkIp() {
 }
 const vlans = ref<DeviceVLAN[]>([]);
 const lnms = ref<DeviceLibreNMS | null>(null);
+const hasSnmpTarget = ref(false);   // 這台有 SNMP 收集目標才顯示 SNMP 卡片
 const integrations = ref<{ wazuh: any; vm: any; ocs: any; rustdesk?: any } | null>(null);
 
 // OCS 硬體摘要（後端 services/ocs.hardware_summary）。記憶體與顯示記憶體是 MiB；
@@ -313,6 +315,10 @@ async function load(id: string) {
     addresses.value = addrs.items;
     getDeviceRelations(id).then((c) => { relations.value = c; }).catch(() => { relations.value = []; });
     getDeviceVlans(id).then((v) => { vlans.value = v; }).catch(() => { vlans.value = []; });
+    hasSnmpTarget.value = false;
+    if (isAdmin.value) {
+      getSnmpTargetForDevice(id).then((tg) => { hasSnmpTarget.value = !!tg; }).catch(() => { hasSnmpTarget.value = false; });
+    }
     cardFocusDone = false;
     getDeviceLibrenms(id).then((l) => { lnms.value = l; focusRequestedCard(); }).catch(() => { lnms.value = null; });
     apiClient.get(`/api/v1/devices/${id}/integrations`).then((r) => {
@@ -594,27 +600,13 @@ onMounted(() => {
         </n-data-table>
       </n-card>
 
-      <n-modal v-model:show="showLinkIp" preset="card" :title="t('devices.link_ip')" style="width: 480px">
-        <n-space vertical :size="12">
-          <span style="font-size: 13px; opacity: .75">{{ t("devices.link_ip_hint") }}</span>
-          <n-select v-model:value="linkIpId" :options="linkOptions" filterable clearable
-                    remote :loading="linkLoading" @search="onLinkSearch"
-                    :placeholder="t('devices.link_ip_ph')" />
-          <n-space justify="end">
-            <n-button @click="showLinkIp = false">{{ t("common.cancel") }}</n-button>
-            <n-button type="success" :loading="linking" :disabled="!linkIpId" @click="doLinkIp">
-              {{ t("common.ok") }}
-            </n-button>
-          </n-space>
-        </n-space>
-      </n-modal>
 
-      <!-- SNMP 收集（限管理員）：有收集目標就顯示狀態與編輯／測試／立即收集，沒有就「啟用 SNMP 收集」。
-           編輯表單與 SNMP 頁是同一個元件 -->
-      <div v-if="device && isAdmin" id="card-snmp" :class="{ 'card-focus': focusedCard === 'snmp' }">
-        <SnmpDeviceCard :device-id="device.id" :device-name="device.name" :device-type="device.type"
-                        @loaded="focusRequestedCard" />
-      </div>
+      <!-- SNMP 收集（限管理員）：只有這台設了收集目標才顯示（狀態與編輯／測試／立即收集）；
+           新增收集目標到「管理 → 外部系統整合 → SNMP」（使用者 2026-10-16）。編輯表單與 SNMP 頁是同一個元件 -->
+      <SnmpDeviceCard v-if="device && isAdmin && hasSnmpTarget" id="card-snmp"
+                      :class="{ 'card-focus': focusedCard === 'snmp' }"
+                      :device-id="device.id" :device-name="device.name" :device-type="device.type"
+                      @loaded="focusRequestedCard" />
 
       <n-card v-if="device && lnms" id="card-librenms"
               :class="{ 'card-focus': focusedCard === 'librenms' }"
@@ -854,6 +846,20 @@ onMounted(() => {
     </n-space>
   </n-spin>
 
+  <n-modal v-model:show="showLinkIp" preset="card" :title="t('devices.link_ip')" style="width: 480px">
+    <n-space vertical :size="12">
+      <span style="font-size: 13px; opacity: .75">{{ t("devices.link_ip_hint") }}</span>
+      <n-select v-model:value="linkIpId" :options="linkOptions" filterable clearable
+                remote :loading="linkLoading" @search="onLinkSearch"
+                :placeholder="t('devices.link_ip_ph')" />
+      <n-space justify="end">
+        <n-button @click="showLinkIp = false">{{ t("common.cancel") }}</n-button>
+        <n-button type="success" :loading="linking" :disabled="!linkIpId" @click="doLinkIp">
+          {{ t("common.ok") }}
+        </n-button>
+      </n-space>
+    </n-space>
+  </n-modal>
   <IPAddressEditModal
     v-model:show="modalShow"
     :address="selected"

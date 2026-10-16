@@ -50,7 +50,7 @@ import { listDhcpRanges } from "@/api/integrations";
 import { logRustDeskLocalOpen } from "@/api/rustdeskWeb";
 import RelationChain from "@/components/RelationChain.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
-import { useScanProbes, probeLabel, osFamilyLabel } from "@/api/scanProbes";
+import { useScanProbes, probeLabel, osDisplayLabel } from "@/api/scanProbes";
 import OsIcon from "@/components/OsIcon.vue";
 import DeviceKindIcon from "@/components/DeviceKindIcon.vue";
 import { fwSeenLabel as fwSeenLabelOf } from "@/utils/investigateSections";
@@ -1276,7 +1276,7 @@ async function remove() {
               <template #trigger>
                 <span style="display:inline-flex;align-items:center;gap:6px">
                   <os-icon :family="props.address.os_family" :size="16" />
-                  <span>{{ osFamilyLabel(catalog.os_families, props.address.os_family, locale) }}</span>
+                  <span>{{ osDisplayLabel(catalog.os_families, props.address.os_family, props.address.os_guess, locale) }}</span>
                   <span v-if="props.address?.os_source" style="opacity:0.6;font-size:0.85em">
                     {{ "（" + t("os_precedence.source_label") + ": " + t("os_precedence.src_" + props.address.os_source) + "）" }}
                   </span>

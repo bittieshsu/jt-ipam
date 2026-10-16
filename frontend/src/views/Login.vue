@@ -213,7 +213,8 @@ function ssoSaml() {
 
 <template>
   <div class="login-shell">
-    <n-card :style="{ width: pendingRecoveryCodes || mfaSetup ? '440px' : '380px', maxWidth: 'calc(100vw - 32px)' }">
+    <n-card class="login-card"
+            :style="{ width: pendingRecoveryCodes || mfaSetup ? '440px' : '380px', maxWidth: 'calc(100vw - 32px)' }">
       <template #header>
         <div class="login-brand">
           <span class="login-brand-name">
@@ -357,5 +358,14 @@ function ssoSaml() {
   height: 26px;
   display: block;
   flex: 0 0 auto;
+}
+/* 登入卡片要浮在背景上：淺色背景下只靠細框線，邊緣幾乎看不出來（使用者 2026-10-16） */
+/* 要比 App.vue 的全站「html[data-theme=light] .n-card」更具體，否則淺色模式下被它蓋掉 */
+html[data-theme="light"] .login-card,
+html:not([data-theme]) .login-card {
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+html[data-theme="dark"] .login-card {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.30);
 }
 </style>

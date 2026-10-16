@@ -42,6 +42,16 @@ export function useScanProbes() {
 export function probeLabel(p: ProbeDef, locale: string): string {
   return locale.startsWith("zh") ? p.label_zh : p.label_en;
 }
+/**
+ * 畫面上 OS 欄要寫的字：家族對不到（unknown）但來源有給原文時，寫原文 —— 對照表還不認得的發行版
+ * （例如 Bazzite）顯示「未知」比原文沒用得多（2026-10-16）。其他情況照家族名稱。
+ */
+export function osDisplayLabel(fams: OsFamily[], key: string | null | undefined, guess: string | null | undefined,
+                               locale: string): string {
+  if ((key || "unknown") === "unknown" && guess && guess.trim()) return guess.trim();
+  return osFamilyLabel(fams, key, locale);
+}
+
 export function osFamilyLabel(fams: OsFamily[], key: string | null | undefined, locale: string): string {
   const f = fams.find((x) => x.key === (key || "unknown"));
   if (!f) return key || "";
