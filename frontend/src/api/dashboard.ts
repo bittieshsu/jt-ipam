@@ -45,6 +45,8 @@ export interface DashboardOverview {
   device_types: { type: string; count: number }[];
   customer_resources: { customer_id: string | null; label: string; subnets: number; ips: number; devices: number }[];
   activity_trend: { day: string; audit: number; ip_changes: number }[];
+  /** 這個人對 IP 異動趨勢套用了哪些排除 */
+  activity_trend_filter?: { active: boolean; excluded_subnets: number; exclude_dhcp: boolean; event_groups: string[] | null };
   rack_usage: { rack_id: string; name: string; used_u: number; total_u: number; pct: number; kind?: string }[];
 }
 

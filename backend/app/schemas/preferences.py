@@ -9,6 +9,21 @@ from pydantic import Field
 
 from app.schemas.base import StrictModel
 
+#: 儀表板趨勢圖可以只計入的 IP 異動類別（對應 endpoints/dashboard.TREND_EVENT_GROUPS）
+TrendEventGroup = Literal["status", "mac", "hostname", "identity", "edited", "lifecycle"]
+
+
+class DashboardTrendPrefs(StrictModel):
+    """「近 14 日 稽核 / IP 異動 趨勢」的個人設定（使用者 2026-10-18）。空值＝照舊全部計入。"""
+    exclude_subnet_ids: Annotated[list[uuid.UUID], Field(max_length=2000)] = []
+    exclude_dhcp: bool = False
+    #: None＝全部類別；有給就只計入這些類別
+    event_groups: list[TrendEventGroup] | None = None
+
+
+class DashboardPrefs(StrictModel):
+    trend: DashboardTrendPrefs | None = None
+
 
 class UserPreferenceRead(StrictModel):
     locale: Literal["zh-TW", "en-US", "ja-JP"]
@@ -20,6 +35,7 @@ class UserPreferenceRead(StrictModel):
     pinned_subnet_ids: list[uuid.UUID] | None = None
     pinned: dict[str, list[str]] | None = None
     sftp_sort_dirs_first: bool = True
+    dashboard: DashboardPrefs | None = None
 
 
 class UserPreferenceUpdate(StrictModel):
@@ -32,3 +48,4 @@ class UserPreferenceUpdate(StrictModel):
     pinned_subnet_ids: list[uuid.UUID] | None = None
     pinned: dict[str, list[str]] | None = None
     sftp_sort_dirs_first: bool | None = None
+    dashboard: DashboardPrefs | None = None

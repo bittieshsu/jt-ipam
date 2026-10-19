@@ -213,6 +213,18 @@ to see what a customer sees.**
 
 ## 5c. Real-browser testing: **mandatory for every release that touches the UI**
 
+- [ ] Dashboard trend settings (`e2e/dashboard-trend-settings.spec.ts`, `tests/test_dashboard_trend_filters.py`): "Settings" at the
+  top right of the card → exclude a subnet, tick exclude DHCP ranges, untick "Online / offline" → after saving the IP
+  change count drops and the legend shows "Excluded: …"; another account does not see these settings; resetting removes the tag
+- [ ] DHCP range usage leaves out stale records (`tests/test_dhcp_range_stale_usage.py`): in a subnet with a DHCP range, an
+  offline IP without lease or reservation is not counted in "Used" and the row shows "N stale" (hover explains); a range
+  whose every address has a record but some are stale says "No blank address", not "Full"; a reserved range still counts
+  every record; get_subnet_detail in AI chat reports free, records and stale; the "DHCP pool nearly full" alert uses the same count
+- [ ] Bogus MACs (`tests/test_bogus_mac_cleanup.py`): LibreNMS ARP rows with c4:00:00:00:00:00-style, all-zero or broadcast
+  MACs are not stored or written onto IPs; after migration 0220 an IP whose "manual" MAC was only resent by the old form
+  takes the MAC that leases and ARP see on the next sync, while a MAC someone really typed stays
+- [ ] Notification channels layout: on a wide screen every channel card uses two columns up to the right edge (hint, enable switch and buttons span the row; Port + TLS share a column); at phone width it is one column with no horizontal scroll; every send-test button has an icon
+- [ ] Channel and email notifications link to the page (`tests/test_notify_channels.py`, `tests/test_notification_links.py`): run anomaly detection with Zulip/Slack/Teams enabled; each message has "前往檢視" (Teams: an Open button) that opens the right Anomaly detection tab on APP_PUBLIC_URL (login first if signed out); the generic webhook JSON has `url`; channel "Send test" still works without a link
 - [ ] Tabs look clickable (check dark and light): on anomaly detection, SNMP, Advanced → Circuits, scan agents and
   other pages the tab row has a thin underline in light (no grey block) and a tinted strip in dark, each tab gets a hover background, the active one is bold with a
   background and a 3px underline; segment and card tabs are unchanged; tabs still scroll sideways at phone width

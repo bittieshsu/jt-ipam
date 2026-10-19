@@ -35,9 +35,13 @@ class IPRangeRead(StrictModel):
     purpose: IPRangePurpose
     name: str | None = None
     description: str | None = None
-    #: 範圍內有幾個位址、其中幾個已有 IP 記錄、下一個還沒有記錄的位址
+    #: 範圍內有幾個位址、已用（DHCP 範圍只算使用中的記錄）、可用、全部記錄數、
+    #: 過期記錄數（DHCP 範圍裡離線又沒租約的，不算已用）、下一個還沒有記錄的位址
     size: int = 0
     used: int = 0
+    free: int = 0
+    records: int = 0
+    stale: int = 0
     first_free: str | None = None
     #: 自動範圍：DHCP 伺服器排除、不發放的位址數（不算在 size 裡）與排除區間切出來的各段起訖
     #: （起訖是設定的整個範圍；位址圖要照各段畫，排除的位址不是 DHCP 範圍）

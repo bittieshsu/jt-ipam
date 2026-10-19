@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -526,8 +526,10 @@ async def test_full_sync_pages_and_applies(monkeypatch, db_session) -> None:
 
     ip = await _mk_ip(db_session, "198.51.100.41", "aa:bb:cc:00:00:41")
 
+    # 盤點時間要相對於今天：寫死日期過了 stale_after_days 就變成「過期不採用」（2026-10-19 踩到）
+    recent = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     page = {"1": {"hardware": {"NAME": "host-x", "OSNAME": "Linux",
-                              "OSCOMMENTS": "Ubuntu 24.04 LTS", "LASTDATE": "2026-09-18 08:00:00"},
+                              "OSCOMMENTS": "Ubuntu 24.04 LTS", "LASTDATE": recent},
                   "networks": [{"MACADDR": "aa:bb:cc:00:00:41", "VIRTUALDEV": 0}],
                   "bios": [{"SSN": "SN-1", "SMODEL": "M", "SMANUFACTURER": "V"}]}}
 

@@ -159,6 +159,11 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 
 ## 5c. 真實瀏覽器測試：**每次動到 UI 的發版都必跑**
 
+- [ ] 儀表板趨勢圖設定（`e2e/dashboard-trend-settings.spec.ts`、`tests/test_dashboard_trend_filters.py`）：卡片內容右上「設定」→ 排除一個子網路、勾排除 DHCP 範圍、取消「上線／離線」→ 存檔後 IP 異動數字變少、圖例旁出現「已排除：…」；換一個帳號看不到這組設定；全部恢復後標籤消失
+- [ ] DHCP 範圍使用量不算過期記錄（`tests/test_dhcp_range_stale_usage.py`）：有 DHCP 範圍的子網路，離線又沒有租約、沒有固定分配的 IP 不算進「已用」，該列顯示「過期 N」（滑過有說明）；每個位址都有記錄但有過期記錄時顯示「沒有空白位址」而不是「已滿」；保留範圍仍然有記錄就算；AI 對話 get_subnet_detail 回 free、records、stale；「DHCP 集區快滿了」告警用同一個算法
+- [ ] 假 MAC（`tests/test_bogus_mac_cleanup.py`）：LibreNMS ARP 的 c4:00:00:00:00:00 這類殘缺值、全零、廣播不會存成觀測也不會寫進 IP；migration 0220 之後，「手動」MAC 只是被舊表單原封不動送出的 IP，下一輪同步就換成租約與 ARP 看到的 MAC，真的有人輸入的維持不變
+- [ ] 通知發送設定版面：寬螢幕每張管道卡片兩欄、輸入格延伸到右緣（提示、啟用開關、按鈕列橫跨整列；Port＋TLS 並排在一欄）；手機寬度單欄、沒有水平捲動；每個「寄出測試」按鈕都有圖示
+- [ ] 外部管道與 Email 通知帶連結（`tests/test_notify_channels.py`、`tests/test_notification_links.py`）：開著 Zulip／Slack／Teams 跑一次異常偵測，每則訊息都有「前往檢視」（Teams 是卡片按鈕），點了開到 APP_PUBLIC_URL 上對應的異常偵測頁籤（沒登入先登入再回來）；通用 Webhook 的 JSON 有 `url`；各管道「寄出測試」沒有連結也照常送出
 - [ ] 頁籤看得出可以切換（深色與淺色都看）：異常偵測、SNMP、進階 → 電路、掃描代理等頁的頁籤：淺色是頁籤列下方細線（沒有灰色色塊）、深色是淡底色條，每個頁籤滑過有底色、
   選中的加粗加底色、底線 3px；segment／card 型頁籤不受影響；手機寬度頁籤仍可左右捲動
 - [ ] 登入卡片在淺色與深色背景都有陰影；裝置頁 SNMP 卡片只在有收集目標時出現，標題高度與間距跟其他卡片一致

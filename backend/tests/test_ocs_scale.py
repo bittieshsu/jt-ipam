@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from app.models.address import IPAddress
@@ -39,9 +40,11 @@ async def _seed(db):
 
 
 def _pages():
+    # 盤點時間相對於今天（寫死日期過了 stale_after_days 就全部變成過期，測試會在某天突然失敗）
+    recent = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     comps = {str(i + 1): {
         "hardware": {"NAME": f"pc-{i}", "OSNAME": "Windows", "OSCOMMENTS": "Windows 11 Pro",
-                     "LASTDATE": "2026-09-29 08:00:00"},
+                     "LASTDATE": recent},
         "networks": [{"MACADDR": _mac(i), "VIRTUALDEV": 0, "IPADDRESS": f"10.70.{i // 256}.{i % 256}"}],
         "bios": [{"SSN": f"SN-{i}", "SMODEL": "OptiPlex", "SMANUFACTURER": "Dell Inc."}],
     } for i in range(N)}

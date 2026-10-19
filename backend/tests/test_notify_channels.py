@@ -127,3 +127,74 @@ async def test_broadcast_concurrent_best_effort(monkeypatch):
     # 一個管道丟例外不可中斷另一個；兩個啟用的都要被呼叫
     await nc.broadcast_channels(None, subject="s", text="t")
     assert set(ran) == {"slack", "telegram"}
+
+
+# ── 「前往檢視」連結（使用者 2026-10-19：Zulip 收到「詳見異常偵測頁面」卻點不過去）──
+URL = "https://ipam.example.com/anomaly?tab=conflicts"
+
+
+async def test_every_channel_carries_the_link(sent):
+    cfgs = {
+        "telegram": {"telegram_token": "T:tok", "telegram_chat_id": "-100"},
+        "slack": {"slack_webhook": "https://hooks.slack/x"},
+        "teams": {"teams_webhook": "https://teams/x"},
+        "zulip": {"zulip_site": "https://z.example", "zulip_bot_email": "b@z", "zulip_api_key": "k",
+                  "zulip_stream": "s"},
+        "nextcloud": {"nextcloud_url": "https://nc", "nextcloud_token": "t", "nextcloud_secret": "x"},
+        "webhook": {"webhook_url": "https://hook"},
+    }
+    for ch, cfg in cfgs.items():
+        sent.clear()
+        await nc.send_one(cfg, ch, "Sub", "Body", link=URL)
+        blob = str(sent[0])
+        assert URL in blob, ch
+    # 各管道用自己會顯示成可點連結的寫法
+    sent.clear()
+    await nc.send_slack(cfgs["slack"], "Sub", "Body", link=URL)
+    assert f"<{URL}|前往檢視>" in sent[0]["json"]["text"]
+    sent.clear()
+    await nc.send_zulip(cfgs["zulip"], "Sub", "Body", link=URL)
+    assert f"[前往檢視]({URL})" in sent[0]["data"]["content"]
+    sent.clear()
+    await nc.send_webhook(cfgs["webhook"], "Sub", "Body", link=URL)
+    assert sent[0]["json"]["url"] == URL
+
+
+async def test_teams_card_has_an_open_button(monkeypatch):
+    calls: list[dict] = []
+
+    async def flaky_post(url, *, json=None, data=None, headers=None, auth=None):
+        calls.append(json)
+        if len(calls) == 1:
+            raise RuntimeError("400 legacy rejected")
+
+    monkeypatch.setattr(nc, "_post", flaky_post)
+    await nc.send_teams({"teams_webhook": "https://teams/x"}, "Sub", "Body", link=URL)
+    assert f"[前往檢視]({URL})" in calls[0]["text"]
+    card = calls[1]["attachments"][0]["content"]
+    assert card["actions"] == [{"type": "Action.OpenUrl", "title": "前往檢視", "url": URL}]
+
+
+async def test_no_link_keeps_the_old_message(sent):
+    await nc.send_zulip({"zulip_site": "https://z", "zulip_bot_email": "b", "zulip_api_key": "k",
+                         "zulip_stream": "s"}, "Sub", "Body")
+    assert sent[0]["data"]["content"] == "**Sub**\nBody"
+
+
+async def test_broadcast_turns_a_site_path_into_a_full_url(monkeypatch):
+    got: list[str | None] = []
+
+    async def ok(cfg, s, t, link=None):
+        got.append(link)
+
+    monkeypatch.setitem(nc._SENDERS, "slack", ok)
+
+    async def fake_cfg(session):
+        return {"slack_enabled": True}
+
+    monkeypatch.setattr("app.services.system_config.get_notification_channels", fake_cfg)
+    monkeypatch.setattr(nc, "_public_base", lambda: "https://ipam.example.com/")
+    await nc.broadcast_channels(None, subject="s", text="t", link="/anomaly?tab=conflicts")
+    await nc.broadcast_channels(None, subject="s", text="t", link="https://other.example/x")
+    await nc.broadcast_channels(None, subject="s", text="t")
+    assert got == [URL, "https://other.example/x", None]

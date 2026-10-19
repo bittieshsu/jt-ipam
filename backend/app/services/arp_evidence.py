@@ -39,7 +39,8 @@ _OBSERVED = text("device_id IS NULL AND subnet_id IS NOT NULL")
 def normalize(value: object) -> str | None:
     """MAC 正規化成 `aa:bb:cc:dd:ee:ff`；不是一個真的位址就回 None。"""
     hexs = "".join(c for c in str(value or "").lower() if c in "0123456789abcdef")
-    if len(hexs) != 12 or hexs in _PLACEHOLDER:
+    # 只有第一個位元組、後面全零的是讀壞的殘缺值（LibreNMS 偶爾給 c4:00:00:00:00:00，2026-10-18）
+    if len(hexs) != 12 or hexs in _PLACEHOLDER or hexs[2:] == "0000000000":
         return None
     return ":".join(hexs[i:i + 2] for i in range(0, 12, 2))
 

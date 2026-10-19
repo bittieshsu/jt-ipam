@@ -570,6 +570,7 @@ async def sync_arp(
     # （2026-09-29 超大規模測試）。現在先把需要的一次撈回來（這台實例的 ARP 列、這一輪出現的 IP），
     # last_seen 整批更新、新的整批寫入；只有 MAC 真的要改的那幾筆才載入 IP 物件、走 consider_mac
     # （規則同一份：arp_precedence.would_take）。
+    from app.services.arp_evidence import normalize as arp_normalize
     from app.services.arp_precedence import consider_mac, load_precedence, normalize_mac, would_take
 
     entries: dict[tuple[str, str, uuid.UUID], dict[str, Any]] = {}
@@ -581,6 +582,9 @@ async def sync_arp(
         d = legacy_map.get(arp.get("device_id"))
         if d is None:
             continue   # ARP 來自本 instance 未追蹤的裝置 → 跳過
+        # 全零、廣播、只有第一個位元組的殘缺值都不是機器（以前照收，AI 看到就說位址被假網卡占用）
+        if arp_normalize(mac) is None:
+            continue
         mac = mac.lower()
         key = (str(ip), normalize_mac(mac), d.id)
         if key not in entries:

@@ -144,6 +144,10 @@ def would_take(order: Any, disabled: Any, *, cur_mac: object, cur_source: str | 
     """這個來源的 MAC 要不要覆寫 IP 目前的 MAC（consider_mac 與整批同步共用同一份規則）。"""
     if not mac:
         return False
+    hexs = normalize_mac(mac)
+    # 全零、廣播、只有第一個位元組的殘缺值（LibreNMS 偶爾給 c4:00:00:00:00:00）不是任何一台機器
+    if len(hexs) != 12 or hexs in ("000000000000", "ffffffffffff") or hexs[2:] == "0000000000":
+        return False
     if source not in ARP_SOURCES:
         source = "scanner"
     if source in disabled:

@@ -17,6 +17,7 @@ import { apiClient } from "@/api/client";
 import DashboardUptime from "@/components/DashboardUptime.vue";
 import DashboardAIAudit from "@/components/DashboardAIAudit.vue";
 import DashboardRacksCard from "@/components/DashboardRacksCard.vue";
+import DashboardTrendSettings from "@/components/DashboardTrendSettings.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "vue-router";
 import { kpiTarget } from "@/utils/dashboardKpiTarget";
@@ -29,6 +30,7 @@ import {
   NAlert,
   NSpin,
   NTag,
+  NButton,
   useMessage,
 } from "naive-ui";
 import { getOverview, type DashboardOverview } from "@/api/dashboard";
@@ -37,7 +39,7 @@ import { usePinned } from "@/composables/usePinned";
 import CardTitle from "@/components/CardTitle.vue";
 import {
   DashboardIcon, SectionsIcon, SubnetsIcon, AddressesIcon, AuditIcon, LocationsIcon, RacksIcon, DevicesIcon, VirtualizationIcon,
-  TopologyIcon, UsageIcon, CustomersIcon, PinIcon,
+  TopologyIcon, UsageIcon, CustomersIcon, PinIcon, SettingsIcon,
 } from "@/icons";
 // 即時狀態卡片：用「訊號/天線」語意，與側邊選單的掃描代理同一顆
 import { Antenna as LiveIcon } from "@iconoir/vue";
@@ -130,6 +132,17 @@ const custResMax = computed(() => Math.max(1, ...custResources.value.map((c) => 
 
 // 趨勢折線：把 14 天的 audit / ip_changes 轉成 SVG polyline points
 const trend = computed(() => data.value?.activity_trend ?? []);
+const trendSettingsShow = ref(false);
+/** 有套用排除時在圖例旁講明，免得以為數字是全部 */
+const trendFilterText = computed(() => {
+  const f = data.value?.activity_trend_filter;
+  if (!f?.active) return "";
+  const parts: string[] = [];
+  if (f.excluded_subnets) parts.push(t("dashboard.trend_tag_subnets", { n: f.excluded_subnets }));
+  if (f.exclude_dhcp) parts.push(t("dashboard.trend_tag_dhcp"));
+  if (f.event_groups) parts.push(t("dashboard.trend_tag_groups", { n: f.event_groups.length }));
+  return t("dashboard.trend_tag", { what: parts.join(t("dashboard.trend_tag_sep")) });
+});
 const trendMax = computed(() => Math.max(1, ...trend.value.flatMap((p) => [p.audit, p.ip_changes])));
 const TREND_W = 320, TREND_H = 90, TREND_PAD = 4;
 function trendPoints(key: "audit" | "ip_changes"): string {
@@ -447,9 +460,19 @@ onMounted(() => { void load(); void loadPins(); });
           <template #header>
             <CardTitle :icon="AuditIcon" :text="t('dashboard.chart_activity_trend')" />
           </template>
-          <div class="chart-legend">
-            <span><i style="background:#f59e0b"></i>{{ t("dashboard.chart_audit_events") }} · {{ trendTotals.audit }}</span>
-            <span><i style="background:#0ea5e9"></i>{{ t("nav.ip_changes") }} · {{ trendTotals.ip }}</span>
+          <!-- 控制列放在內文最上方（卡片標題列只放標題）：設定可排除子網路／DHCP 範圍／異動類型 -->
+          <div class="trend-head">
+            <div class="chart-legend" style="margin-bottom: 0">
+              <span><i style="background:#f59e0b"></i>{{ t("dashboard.chart_audit_events") }} · {{ trendTotals.audit }}</span>
+              <span><i style="background:#0ea5e9"></i>{{ t("nav.ip_changes") }} · {{ trendTotals.ip }}</span>
+              <n-tag v-if="trendFilterText" size="tiny" type="info" :bordered="true" data-testid="trend-filter-tag">
+                {{ trendFilterText }}
+              </n-tag>
+            </div>
+            <n-button size="tiny" quaternary data-testid="trend-settings-open" @click="trendSettingsShow = true">
+              <template #icon><n-icon><SettingsIcon /></n-icon></template>
+              {{ t("dashboard.trend_settings") }}
+            </n-button>
           </div>
           <div class="trend-wrap" @mousemove="onTrendMove" @mouseleave="onTrendLeave">
             <svg class="trend-svg" :viewBox="`0 0 ${TREND_W} ${TREND_H}`" preserveAspectRatio="none">
@@ -471,6 +494,7 @@ onMounted(() => { void load(); void loadPins(); });
           </div>
           <div class="trend-axis"><span>{{ trend[0]?.day?.slice(5) }}</span><span>{{ trend[trend.length - 1]?.day?.slice(5) }}</span></div>
         </n-card>
+        <DashboardTrendSettings v-model:show="trendSettingsShow" @saved="load" />
       </div>
 
       <!-- Pinned subnets(使用者釘選) -->
@@ -655,6 +679,7 @@ onMounted(() => { void load(); void loadPins(); });
 .hbar-track.stack > div { height: 100%; }
 .hbar-fill { height: 100%; border-radius: 6px; transition: width .3s; }
 .hbar-val { flex: 0 0 auto; min-width: 40px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.trend-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .chart-legend { display: flex; gap: 14px; font-size: 12px; opacity: 0.7; margin-bottom: 8px; flex-wrap: wrap; }
 .chart-legend span { display: inline-flex; align-items: center; }
 .chart-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; flex: none; }

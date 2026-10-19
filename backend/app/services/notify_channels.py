@@ -27,8 +27,35 @@ WEBHOOK_CHANNELS = ("telegram", "slack", "teams", "nextcloud", "zulip", "webhook
 _TIMEOUT = httpx.Timeout(12.0)
 
 
-def _msg(subject: str, text: str | None) -> str:
-    return f"{subject}\n{text}" if text else subject
+#: 連結的顯示文字。通知標題與內容本來就是中文（後端不知道收件者的語言），連結跟著用中文
+LINK_LABEL = "前往檢視"
+
+
+def _msg(subject: str, text: str | None, link: str | None = None) -> str:
+    """純文字訊息（Telegram、Nextcloud Talk）：網址單獨一行，兩邊都會自動變成可點的連結。"""
+    out = f"{subject}\n{text}" if text else subject
+    return f"{out}\n{LINK_LABEL}：{link}" if link else out
+
+
+def _md(subject: str, text: str | None, link: str | None, *, bold: str = "**") -> str:
+    out = f"{bold}{subject}{bold}\n{text}" if text else f"{bold}{subject}{bold}"
+    return f"{out}\n[{LINK_LABEL}]({link})" if link else out
+
+
+def _public_base() -> str:
+    from app.core.config import get_settings
+    return str(get_settings().app_public_url)
+
+
+def absolute_link(link: str | None) -> str | None:
+    """站內路徑（/anomaly?tab=…）→ 外部收得到的完整網址（APP_PUBLIC_URL）；已經是完整網址就照用。
+
+    沒登入的人點了會先到登入頁，登入後回到這一頁（前端 router 的 next 機制）。"""
+    if not link:
+        return None
+    if link.startswith(("https://", "http://")):
+        return link
+    return _public_base().rstrip("/") + "/" + link.lstrip("/")
 
 
 async def _post(url: str, *, json: dict | None = None, data: dict | None = None,
@@ -50,26 +77,31 @@ async def _post(url: str, *, json: dict | None = None, data: dict | None = None,
             raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
 
 
-async def send_telegram(cfg: dict[str, Any], subject: str, text: str | None) -> None:
+async def send_telegram(cfg: dict[str, Any], subject: str, text: str | None, link: str | None = None) -> None:
     token, chat = cfg.get("telegram_token"), cfg.get("telegram_chat_id")
     if not (token and chat):
         raise RuntimeError("Telegram bot token / chat id not set")
     await _post(f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat, "text": _msg(subject, text), "disable_web_page_preview": True})
+                json={"chat_id": chat, "text": _msg(subject, text, link), "disable_web_page_preview": True})
 
 
-async def send_slack(cfg: dict[str, Any], subject: str, text: str | None) -> None:
+async def send_slack(cfg: dict[str, Any], subject: str, text: str | None, link: str | None = None) -> None:
     url = cfg.get("slack_webhook")
     if not url:
         raise RuntimeError("Slack webhook URL not set")
-    await _post(url, json={"text": f"*{subject}*\n{text}" if text else f"*{subject}*"})
+    body = f"*{subject}*\n{text}" if text else f"*{subject}*"
+    if link:
+        body += f"\n<{link}|{LINK_LABEL}>"      # Slack mrkdwn 的連結寫法
+    await _post(url, json={"text": body})
 
 
-async def send_teams(cfg: dict[str, Any], subject: str, text: str | None) -> None:
+async def send_teams(cfg: dict[str, Any], subject: str, text: str | None, link: str | None = None) -> None:
     url = cfg.get("teams_webhook")
     if not url:
         raise RuntimeError("Teams webhook URL not set")
     body = f"**{subject}**\n\n{text}" if text else f"**{subject}**"
+    if link:
+        body += f"\n\n[{LINK_LABEL}]({link})"
     try:
         # 舊版 Office365 connector：純 text
         await _post(url, json={"text": body})
@@ -83,29 +115,32 @@ async def send_teams(cfg: dict[str, Any], subject: str, text: str | None) -> Non
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard", "version": "1.4",
                     "body": [{"type": "TextBlock", "text": body, "wrap": True}],
+                    # 卡片底下一顆按鈕，比內文裡的連結好點
+                    **({"actions": [{"type": "Action.OpenUrl", "title": LINK_LABEL, "url": link}]} if link else {}),
                 },
             }],
         })
 
 
-async def send_zulip(cfg: dict[str, Any], subject: str, text: str | None) -> None:
+async def send_zulip(cfg: dict[str, Any], subject: str, text: str | None, link: str | None = None) -> None:
     site = (cfg.get("zulip_site") or "").rstrip("/")
     email, api_key = cfg.get("zulip_bot_email"), cfg.get("zulip_api_key")
     stream, topic = cfg.get("zulip_stream"), cfg.get("zulip_topic") or "jt-ipam"
     if not (site and email and api_key and stream):
-        raise RuntimeError("Zulip site / bot email / API key / stream not set")
+        raise RuntimeError("Zulip site / bot email / API key / channel not set")
+    # Zulip 9.0 起「stream」改名「channel」（畫面照新名稱）；API 的 type 仍送 "stream"：新版兩者都收，舊版只認 stream
     await _post(f"{site}/api/v1/messages", auth=(email, api_key),
                 data={"type": "stream", "to": stream, "topic": topic,
-                      "content": f"**{subject}**\n{text}" if text else f"**{subject}**"})
+                      "content": _md(subject, text, link)})
 
 
-async def send_nextcloud(cfg: dict[str, Any], subject: str, text: str | None) -> None:
+async def send_nextcloud(cfg: dict[str, Any], subject: str, text: str | None, link: str | None = None) -> None:
     # Nextcloud Talk bot：對話 token + bot 密鑰（HMAC-SHA256 簽章 random+message）
     site = (cfg.get("nextcloud_url") or "").rstrip("/")
     token, secret = cfg.get("nextcloud_token"), cfg.get("nextcloud_secret")
     if not (site and token and secret):
         raise RuntimeError("Nextcloud URL / conversation token / bot secret not set")
-    message = _msg(subject, text)
+    message = _msg(subject, text, link)
     rnd = _secrets.token_hex(32)
     sig = hmac.new(secret.encode(), (rnd + message).encode(), hashlib.sha256).hexdigest()
     await _post(
@@ -121,7 +156,7 @@ async def send_nextcloud(cfg: dict[str, Any], subject: str, text: str | None) ->
     )
 
 
-async def send_webhook(cfg: dict[str, Any], subject: str, text: str | None) -> None:
+async def send_webhook(cfg: dict[str, Any], subject: str, text: str | None, link: str | None = None) -> None:
     # 通用 webhook：POST JSON 到自訂 URL；選填 Bearer token。方便串 n8n / 自寫端點等。
     url = cfg.get("webhook_url")
     if not url:
@@ -130,7 +165,8 @@ async def send_webhook(cfg: dict[str, Any], subject: str, text: str | None) -> N
     tok = cfg.get("webhook_token")
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
-    await _post(url, json={"app": "jt-ipam", "subject": subject, "text": text or ""},
+    # 有連結才加 url 欄位：沒有時內容跟以前一模一樣（接收端可能有固定格式）
+    await _post(url, json={"app": "jt-ipam", "subject": subject, "text": text or "", **({"url": link} if link else {})},
                 headers=headers or None)
 
 
@@ -144,16 +180,21 @@ _SENDERS = {
 }
 
 
-async def send_one(cfg: dict[str, Any], channel: str, subject: str, text: str | None) -> None:
+async def send_one(cfg: dict[str, Any], channel: str, subject: str, text: str | None,
+                   link: str | None = None) -> None:
     """發送到單一管道（供測試端點用）。失敗丟例外。"""
     fn = _SENDERS.get(channel)
     if fn is None:
         raise RuntimeError(f"unknown channel: {channel}")
-    await fn(cfg, subject, text)
+    await fn(cfg, subject, text, link=link)
 
 
-async def broadcast_channels(session: AsyncSession, *, subject: str, text: str | None = None) -> None:
-    """把一則事件推到所有『已啟用』的 webhook 型管道（各自 best-effort，不影響主流程）。"""
+async def broadcast_channels(session: AsyncSession, *, subject: str, text: str | None = None,
+                             link: str | None = None) -> None:
+    """把一則事件推到所有『已啟用』的 webhook 型管道（各自 best-effort，不影響主流程）。
+
+    `link` 是站內路徑（跟站內通知的 link 同一個值），這裡換成完整網址、各管道附上「前往檢視」。"""
+    url = absolute_link(link)
     from app.services.system_config import get_notification_channels
     try:
         cfg = await get_notification_channels(session)
@@ -165,7 +206,10 @@ async def broadcast_channels(session: AsyncSession, *, subject: str, text: str |
 
     async def _one(ch: str) -> None:
         try:
-            await _SENDERS[ch](cfg, subject, text)
+            if url:
+                await _SENDERS[ch](cfg, subject, text, link=url)
+            else:
+                await _SENDERS[ch](cfg, subject, text)
         except Exception as exc:
             log.warning("notify channel %s failed: %s: %s", ch, type(exc).__name__, exc)
 

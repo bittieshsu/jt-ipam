@@ -148,7 +148,7 @@ async def notify_chain_failure(
     if ch.get("email"):
         from app.services.notification import email_users
         await email_users(session, [a.email for a in admins],
-                          f"[jt-ipam] {_NOTIFY_TITLE}", detail)
+                          f"[jt-ipam] {_NOTIFY_TITLE}", detail, link="/audit")
     return len(admins)
 
 

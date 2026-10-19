@@ -72,9 +72,9 @@ async def _notify(
                                     title_key=title_key, body_key=body_key, params=params)
     if ch.get("email"):
         from app.services.notification import email_users
-        await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body)
+        await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body, link=link)
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body)
+    await broadcast_channels(session, subject=title, text=body, link=link)
 
 
 async def check_integration_health(

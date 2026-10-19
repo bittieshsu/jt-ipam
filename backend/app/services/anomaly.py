@@ -2210,8 +2210,9 @@ async def _notify_categories(
                     params={"label_key": lkey, "count": count, "total": total},
                 )
         if ch.get("email"):
-            await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body)
-        await broadcast_channels(session, subject=title, text=body)
+            await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body,
+                              link=f"/anomaly?tab={tab}")
+        await broadcast_channels(session, subject=title, text=body, link=f"/anomaly?tab={tab}")
 
     if only_new:
         await set_anomaly_seen(session, new_seen)

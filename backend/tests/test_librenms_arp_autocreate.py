@@ -168,7 +168,7 @@ async def test_noise_is_skipped(db_session, monkeypatch) -> None:
     assert set(await _ips(db_session)) == {"198.51.100.46"}
     sk = stats["skipped"]
     assert sk["proxy_arp"] == arp_autocreate.PROXY_ARP_MIN_IPS
-    assert sk["bad_mac"] == 2
+    assert sk["bad_mac"] == 1      # 群播；廣播在 ARP 同步時就不收了（2026-10-18），到不了這裡
     assert sk["not_host"] == 2
     assert sk["mac_conflict"] == 1
 

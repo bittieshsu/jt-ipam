@@ -114,12 +114,13 @@ def group_pools(rows: list[Any]) -> list[PoolGroup]:
 
 
 async def pool_usage(session: AsyncSession) -> list[tuple[Any, int, int]]:
-    """回傳每個集區的 (集區, 已用, 總數)。已用只算集區所屬子網路的 IP 記錄（重疊網段不混算）。
+    """回傳每個集區的 (集區, 已用, 總數)。已用只算集區所屬子網路的 IP 記錄（重疊網段不混算），
+    而且只算使用中的（`DHCP_IN_USE_SQL`）：離線又沒租約的過期記錄不算，否則會發假的「集區快滿了」。
 
     集區以 DHCP 伺服器上設定的範圍為單位：排除區間切出來的各段合併計算，總數已扣掉排除的位址、
     排除位址上的 IP 記錄（多半就是設了固定 IP 的設備）不算已用（客戶 2026-10-12）。
     """
-    from app.services.ip_ranges import manual_dhcp_pools
+    from app.services.ip_ranges import DHCP_IN_USE_SQL, manual_dhcp_pools
     # 手動定義的 DHCP 集區（子網路內的位址範圍，issue #40）欄位與 DHCPPoolRange 同名，一起算
     pools: list[Any] = [*group_pools(list((await session.execute(select(DHCPPoolRange))).scalars().all())),
                         *await manual_dhcp_pools(session)]
@@ -137,9 +138,10 @@ async def pool_usage(session: AsyncSession) -> list[tuple[Any, int, int]]:
             continue
         used = 0
         for a, b in segments:
-            used += (await session.execute(text("""
+            used += (await session.execute(text(f"""
                 SELECT count(*) FROM ip_addresses
                  WHERE subnet_id = :sid AND ip BETWEEN CAST(:lo AS inet) AND CAST(:hi AS inet)
-            """), {"sid": sid, "lo": str(a), "hi": str(b)})).scalar_one()
+                   AND {DHCP_IN_USE_SQL}
+            """), {"sid": sid, "lo": str(a), "hi": str(b)})).scalar_one()  # noqa: S608 -- 常數條件
         out.append((pool, int(used), size))
     return out

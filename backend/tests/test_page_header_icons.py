@@ -36,11 +36,18 @@ def _first_card_problem(src: str) -> str | None:
         return None                     # 這頁沒有卡片（例如儀表板、全畫面主控台）
     if re.search(r"(?:^|\s)(?::title|title)=", m.group(1)):
         return "第一張卡片用 title 屬性：放不進圖示，改用 <template #header> 加 n-icon"
-    rest = body[m.end():]
-    h = re.match(r"\s*(?:<!--.*?-->\s*)*<template #header>(.*?)</template>", rest, re.S)
-    if not h:
+    rest = body[m.end():].lstrip()
+    # 跳過卡片開頭的註解。不用 `\s*(?:<!--.*?-->\s*)*` 這種巢狀量詞：CodeQL #53 判定會大量回溯
+    while rest.startswith("<!--"):
+        end = rest.find("-->")
+        if end < 0:
+            return None
+        rest = rest[end + 3:].lstrip()
+    if not rest.startswith("<template #header>"):
         return None                     # 沒有標題列的卡片（例如純篩選列）
-    if not re.search(r"<n-icon\b|<[A-Z][A-Za-z]*Icon\b|<component :is=|:icon=", h.group(1)):
+    close = rest.find("</template>")
+    header = rest[len("<template #header>"):close if close >= 0 else None]
+    if not re.search(r"<n-icon\b|<[A-Z][A-Za-z]*Icon\b|<component :is=|:icon=", header):
         return "第一張卡片的 #header 沒有圖示"
     return None
 

@@ -22,6 +22,19 @@ from app.models.address import IPAddress
 from app.models.ip_range import IPRange
 from app.models.subnet import Subnet
 
+#: DHCP 範圍裡「使用中」的 IP 記錄（SQL 版，與 dhcp_in_use() 同一個判斷）：有租約、DHCP 固定分配、
+#: 狀態保留／隔離，或沒有確定離線（上線、狀態未知都保守算）。離線＋沒租約＋沒固定分配的是過期記錄：
+#: DHCP 客戶端離開後留下來的，DHCP 伺服器早就可以把它租給別人（2026-10-18 外部 AI 實測 MCP 回報
+#: 「50/51 已用、沒有可用位址」，DHCP 伺服器自己只租出 31 個）。
+DHCP_IN_USE_SQL = ("(in_dhcp_lease OR dhcp_reserved OR state IN ('reserved', 'quarantine') "
+                   "OR effective_status IS DISTINCT FROM 'offline')")
+
+
+def dhcp_in_use(*, effective_status: str | None, in_dhcp_lease: bool, dhcp_reserved: bool, state: str) -> bool:
+    return bool(in_dhcp_lease or dhcp_reserved or state in ("reserved", "quarantine")
+                or effective_status != "offline")
+
+
 #: 找下一個可用位址時最多看幾個（/16 的範圍逐一掃會太久；前面這麼多都用掉了就不再找）
 _FIRST_FREE_SCAN = 65536
 
@@ -67,10 +80,12 @@ async def validate_range(session: AsyncSession, subnet: Subnet, start: str, end:
 
 
 async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[str, Any]]:
-    """子網路裡的每段範圍，連同大小、已有記錄的位址數、下一個可用位址。
+    """子網路裡的每段範圍，連同大小、已用、可用、下一個可用位址。
 
-    「已用」＝範圍內**已經存在的 IP 記錄**（與 DHCP 集區使用率同一個定義）：有人把固定 IP
-    設在集區裡一樣吃掉可用量，而那正是應該被看見的事。
+    「已用」：保留／其他用途的範圍＝範圍內**已經存在的 IP 記錄**；DHCP 範圍＝其中使用中的
+    （`DHCP_IN_USE_SQL`，與 DHCP 集區使用率同一個定義），有人把固定 IP 設在集區裡一樣吃掉可用量，
+    但離線又沒租約的過期記錄不算，另外以 `stale` 列出（`records` 是全部記錄數）。
+    「下一個可用位址」仍然跳過所有已有記錄的位址：按下去是新增 IP，已有記錄會被擋。
 
     自動建立的範圍：DHCP 伺服器上的一個範圍被排除區間切成好幾段（一段一筆，「在不在範圍內」要的是段），
     這裡合成一列顯示整個範圍：總數扣掉排除、已用只算各段、下一個可用位址跳過排除的位址，`segments`
@@ -81,9 +96,14 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
     rows = (await session.execute(
         select(IPRange).where(IPRange.subnet_id == subnet.id).order_by(IPRange.start_ip)
     )).scalars().all()
-    used_ints = sorted({int(ipaddress.ip_address(str(ip).split("/")[0]))
-                        for (ip,) in (await session.execute(
-                            select(IPAddress.ip).where(IPAddress.subnet_id == subnet.id))).all()})
+    # 位址 → 在 DHCP 範圍裡算不算使用中
+    in_use: dict[int, bool] = {}
+    for ip, eff, lease, resv, state in (await session.execute(
+            select(IPAddress.ip, IPAddress.effective_status, IPAddress.in_dhcp_lease, IPAddress.dhcp_reserved,
+                   IPAddress.state).where(IPAddress.subnet_id == subnet.id))).all():
+        in_use[int(ipaddress.ip_address(str(ip).split("/")[0]))] = dhcp_in_use(
+            effective_status=eff, in_dhcp_lease=lease, dhcp_reserved=resv, state=state)
+    used_ints = sorted(in_use)
     used_set = set(used_ints)
     # 「下一個可用」也跳過冷卻中的位址（按下去是新增 IP，冷卻中的會被擋）；冷卻中不算「已用」
     from app.services.ip_lifecycle import active_cooldowns
@@ -113,7 +133,9 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
         r = g["row"]
         spans = sorted((int(ipaddress.ip_address(a)), int(ipaddress.ip_address(b))) for a, b in g["segments"])
         size = sum(hi - lo + 1 for lo, hi in spans)
-        used = sum(1 for v in used_ints if any(lo <= v <= hi for lo, hi in spans))
+        inside = [v for v in used_ints if any(lo <= v <= hi for lo, hi in spans)]
+        stale = sum(1 for v in inside if not in_use[v]) if r.purpose == "dhcp" else 0
+        used = len(inside) - stale
         first_free = None
         scanned = 0      # 各段合計最多看 _FIRST_FREE_SCAN 個
         for lo, hi in spans:
@@ -131,7 +153,8 @@ async def ranges_with_usage(session: AsyncSession, subnet: Subnet) -> list[dict[
             "id": r.id, "subnet_id": r.subnet_id,
             "start_ip": g["start"], "end_ip": g["end"],
             "purpose": r.purpose, "name": r.name, "description": r.description,
-            "size": size, "used": used, "first_free": first_free,
+            "size": size, "used": used, "free": max(0, size - used), "records": len(inside), "stale": stale,
+            "first_free": first_free,
             "excluded": max(0, whole - size) if g["merged"] else 0,
             "segments": [list(x) for x in g["segments"]] if g["merged"] else None,
             "auto": bool(r.source_origin), "source_label": r.name if r.source_origin else None,

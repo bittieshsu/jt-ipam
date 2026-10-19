@@ -80,11 +80,17 @@ async def push_notification(
 # ─────────────────── 通知矩陣分派（站內 + Email，依矩陣設定）───────────────────
 async def email_users(
     session: AsyncSession, recipients: list[str | None], subject: str, body_text: str,
+    *, link: str | None = None,
 ) -> None:
-    """對一組收件者寄信（best-effort；email 管道沒開或單筆失敗都不會中斷流程）。"""
+    """對一組收件者寄信（best-effort；email 管道沒開或單筆失敗都不會中斷流程）。
+
+    `link`（站內路徑）會換成完整網址附在信末「前往檢視」。"""
     tos = [r for r in recipients if r]
     if not tos:
         return
+    if link:
+        from app.services.notify_channels import LINK_LABEL, absolute_link
+        body_text = f"{body_text}\n\n{LINK_LABEL}：{absolute_link(link)}"
     from app.services.email import send_email_via_config
     from app.services.system_config import get_notification_channels
     try:
@@ -124,9 +130,9 @@ async def notify_admins_event(
                 title_key=title_key, body_key=body_key, params=params)
             sent += 1
     if ch.get("email"):
-        await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body or title)
+        await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body or title, link=link)
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body)
+    await broadcast_channels(session, subject=title, text=body, link=link)
     return sent
 
 

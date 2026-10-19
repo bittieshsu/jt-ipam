@@ -108,7 +108,8 @@ async def test_tens_of_thousands_of_arp_entries_take_a_handful_of_queries(db_ses
         {"subnet_id": b.id, "ip": f"10.{i // 65536}.{i // 256 % 256}.{i % 256}"} for i in range(n)])
     await db_session.commit()
     _api(monkeypatch, [{"ipv4_address": f"10.{i // 65536}.{i // 256 % 256}.{i % 256}",
-                        "mac_address": f"02{i:010x}", "device_id": 7} for i in range(n)])
+                        # i+1：02:00:00:00:00:00 是殘缺值，ARP 同步不收（2026-10-18）
+                        "mac_address": f"02{i + 1:010x}", "device_id": 7} for i in range(n)])
     count = {"n": 0}
     conn = await db_session.connection()
 

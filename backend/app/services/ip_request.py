@@ -92,9 +92,10 @@ async def _notify_requester(
         from app.services.notification import email_users
         u = await session.get(_U, request.requester_user_id)
         if u and u.email:
-            await email_users(session, [u.email], f"[jt-ipam] {title}", body or title)
+            await email_users(session, [u.email], f"[jt-ipam] {title}", body or title,
+                              link=f"/requests/{request.id}")
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body)
+    await broadcast_channels(session, subject=title, text=body, link=f"/requests/{request.id}")
 
 
 async def _deliver_to_approvers(
@@ -129,7 +130,7 @@ async def _deliver_to_approvers(
                 link=link, object_type="ip_request", object_id=request.id,
             )
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body)
+    await broadcast_channels(session, subject=title, text=body, link=link)
     if not mx.get("email"):
         return
     try:

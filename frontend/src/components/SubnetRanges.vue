@@ -69,6 +69,9 @@ const columns = computed<DataTableColumns<IPRange>>(() => [
       // DHCP 伺服器排除、不發放的位址不算在總數裡 —— 講出來，免得跟範圍的起訖對不上
       r.excluded ? h("span", { class: "range-excluded", title: t("ranges.excluded_hint", { n: r.excluded }),
                                "data-testid": "range-excluded" }, t("ranges.excluded_n", { n: r.excluded })) : null,
+      // DHCP 範圍裡離線又沒租約的舊記錄不算已用 —— 講出來，免得跟 IP 清單的筆數對不上
+      r.stale ? h("span", { class: "range-excluded", title: t("ranges.stale_hint", { n: r.stale }),
+                            "data-testid": "range-stale" }, t("ranges.stale_n", { n: r.stale })) : null,
     ]),
   },
   {
@@ -77,7 +80,11 @@ const columns = computed<DataTableColumns<IPRange>>(() => [
       ? h(NButton, { text: true, type: "primary", size: "small", disabled: !props.canEdit,
           title: t("ranges.assign_hint"), onClick: () => emit("create-ip", r.first_free as string) },
         () => r.first_free)
-      : h("span", { style: "opacity:.6" }, t("ranges.full")),
+      : r.stale && (r.free ?? 0) > 0
+        // 沒有空白位址，但有過期記錄：不是「已滿」，DHCP 還發得出去
+        ? h("span", { style: "opacity:.6", title: t("ranges.no_blank_hint", { n: r.stale }),
+                      "data-testid": "range-no-blank" }, t("ranges.no_blank"))
+        : h("span", { style: "opacity:.6" }, t("ranges.full")),
   },
   { title: t("common.description"), key: "description", ellipsis: { tooltip: true },
     render: (r) => r.description || (r.auto ? t("ranges.auto_desc") : "—") },

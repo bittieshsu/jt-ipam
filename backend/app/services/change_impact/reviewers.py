@@ -199,7 +199,7 @@ async def _send(session: AsyncSession, *, event: str, users: list[User], plan: C
                                     title_key=title_key, body_key=body_key, params=params, link=link,
                                     object_type="change_plan", object_id=plan.id)
     try:
-        await broadcast_channels(session, subject=title, text=body)
+        await broadcast_channels(session, subject=title, text=body, link=link)
     except Exception as exc:     # 外部管道壞了不影響流程
         log.warning("change impact notify channels failed: %s", exc)
     if not mx.get("email"):

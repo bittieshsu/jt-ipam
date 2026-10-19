@@ -11,9 +11,13 @@ export interface IPRange {
   purpose: IPRangePurpose;
   name: string | null;
   description: string | null;
-  /** 範圍內有幾個位址、其中幾個已有 IP 記錄、下一個還沒有記錄的位址 */
+  /** 範圍內有幾個位址、已用（DHCP 範圍只算使用中的記錄）、可用、全部記錄數、
+   *  過期記錄數（DHCP 範圍裡離線又沒租約的，不算已用）、下一個還沒有記錄的位址 */
   size: number;
   used: number;
+  free?: number;
+  records?: number;
+  stale?: number;
   first_free: string | null;
   /** 自動範圍：DHCP 伺服器排除、不發放的位址數（不算在 size 裡）與排除切出來的各段起訖（位址圖照段畫） */
   excluded?: number;

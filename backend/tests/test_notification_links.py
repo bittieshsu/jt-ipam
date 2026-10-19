@@ -23,12 +23,12 @@ def _routes() -> set[str]:
     return {m.group(1) for m in re.finditer(r'path:\s*"([^"]*)"', text)}
 
 
-def _calls() -> list[tuple[str, int, str, bool]]:
+def _calls(names: str = "notify_admins_event|push_notification") -> list[tuple[str, int, str, bool]]:
     """(檔案, 行號, 函式, 有沒有帶 link)。"""
     out = []
     for f in BACKEND.rglob("*.py"):
         s = f.read_text(encoding="utf-8")
-        for m in re.finditer(r"await (notify_admins_event|push_notification)\(", s):
+        for m in re.finditer(rf"await ({names})\(", s):
             i, depth, j = m.end() - 1, 0, m.end() - 1
             while j < len(s):
                 if s[j] == "(":
@@ -48,6 +48,15 @@ def test_every_notification_carries_a_link():
     missing = [f"{f}:{line} {fn}" for f, line, fn, has in _calls() if not has]
     assert not missing, (
         "這些通知沒有帶連結，點了會停在原地：\n  " + "\n  ".join(missing)
+    )
+
+
+def test_channel_and_email_notifications_carry_a_link():
+    """送到 Zulip／Slack／Teams／Email 的通知也要帶「前往檢視」連結（使用者 2026-10-19：
+    Zulip 收到「詳見『異常偵測』頁面」，卻沒有可以點的地方）。"""
+    missing = [f"{f}:{line} {fn}" for f, line, fn, has in _calls("broadcast_channels|email_users") if not has]
+    assert not missing, (
+        "這些外部通知沒有帶連結，收到的人只能自己去找頁面：\n  " + "\n  ".join(missing)
     )
 
 

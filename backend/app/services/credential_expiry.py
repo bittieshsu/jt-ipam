@@ -142,7 +142,8 @@ async def check_credential_expiry(session: AsyncSession) -> dict[str, int]:
                     body_key="notif.credential_expired_body" if expired else "notif.credential_expiring_body",
                     params=params)
         if ch.get("email"):
-            await email_users(session, [u.email for u in c.recipients if u.email], f"[jt-ipam] {title}", body)
+            await email_users(session, [u.email for u in c.recipients if u.email], f"[jt-ipam] {title}", body,
+                              link=c.link)
         notified += 1
     # 只留目前還存在的憑證（換新或刪掉的就不再佔位）
     if live != state:

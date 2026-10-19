@@ -1967,7 +1967,8 @@ async def get_subnet_detail(
         ranges = [{
             "range": f"{r['start_ip']}-{r['end_ip']}", "start_ip": r["start_ip"], "end_ip": r["end_ip"],
             "purpose": r["purpose"], "name": r["name"], "description": r["description"],
-            "size": r["size"], "used": r["used"], "first_free": r["first_free"],
+            "size": r["size"], "used": r["used"], "free": r["free"], "records": r["records"],
+            "stale": r["stale"], "first_free": r["first_free"],
             "excluded": r["excluded"], "auto": r["auto"],
         } for r in await ranges_with_usage(session, sub)]
     return {
@@ -4901,7 +4902,9 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": (
             "Full subnet info: every field of the subnet form (gateway, DNS, VLAN, VRF, section, customer, "
             "location, parent, pool/full, usage threshold, scan settings, anomaly / AI review, console exit), "
-            "usage and its address ranges (DHCP pool / reserved / other). Provide subnet_id or subnet_cidr."),
+            "usage and its address ranges (DHCP pool / reserved / other). In a DHCP range, used counts records "
+            "in use (lease, reservation, or not offline); stale = offline records with no lease, not counted; "
+            "first_free = next address with no record. Provide subnet_id or subnet_cidr."),
         "parameters": {"type": "object", "properties": {
             "subnet_id": {"type": "string"}, "subnet_cidr": {"type": "string"}}},
     },

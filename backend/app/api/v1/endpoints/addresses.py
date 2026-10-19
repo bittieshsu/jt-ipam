@@ -1521,7 +1521,7 @@ async def notify_stale(
             params=_gp,
         )
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body)
+    await broadcast_channels(session, subject=title, text=body, link=f"/subnets/{payload.subnet_id}")
     await session.commit()
     return {"notified_admins": len(admins), "ip_count": n}
 

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser
 from app.core.db import get_session
-from app.core.sqlin import in_values
+from app.core.sqlin import in_values, not_in_values
 from app.models.address import IPAddress
 from app.models.audit import AuditLog
 from app.models.section import Section
@@ -131,7 +131,49 @@ class DashboardOverview(StrictModel):
     device_types: list[TypeCount]        # 裝置類型分布
     customer_resources: list[CustomerResource]   # 各單位資源占比
     activity_trend: list[TrendPoint]     # 近 14 日 稽核 / IP 異動 趨勢
+    activity_trend_filter: TrendFilter   # 這個人對 IP 異動趨勢套用了哪些排除（畫面標示「已排除…」）
     rack_usage: list[RackUsage]          # 機櫃 U 使用率
+
+
+class TrendFilter(StrictModel):
+    active: bool = False
+    excluded_subnets: int = 0
+    exclude_dhcp: bool = False
+    event_groups: list[str] | None = None
+
+
+#: 趨勢圖的 IP 異動類別 → 事件類型（ip_change_log.EVENT_TYPES 每一種都要歸到一組，有守門測試）。
+#: 異動量多半是 DHCP 範圍裡的機器上線／離線與 MAC 變化，真正在意的被淹掉（使用者 2026-10-18）
+TREND_EVENT_GROUPS: dict[str, tuple[str, ...]] = {
+    "status": ("online", "offline", "state_changed"),
+    "mac": ("mac_changed", "arp_changed"),
+    "hostname": ("hostname_changed",),
+    "identity": ("os_changed", "kind_changed"),
+    "edited": ("edited",),
+    "lifecycle": ("created", "deleted"),
+}
+
+
+async def _dhcp_ranges(session: AsyncSession) -> tuple[list[str], list[str]]:
+    """所有 DHCP 範圍（整合同步來的集區＋子網路裡手動設定的 DHCP 範圍）→ (起, 迄) 兩個 inet 字串清單。
+    整合來的起迄是文字欄位：先在這裡驗過是合法位址才送進 SQL 當 inet，壞掉的一筆不會讓整個儀表板 500。"""
+    from app.models.dhcp import DHCPPoolRange
+    from app.models.ip_range import IPRange
+    starts: list[str] = []
+    ends: list[str] = []
+    rows = [*(await session.execute(select(DHCPPoolRange.start_ip, DHCPPoolRange.end_ip))).all(),
+            *(await session.execute(select(IPRange.start_ip, IPRange.end_ip)
+                                    .where(IPRange.purpose == "dhcp"))).all()]
+    for a, b in rows:
+        try:
+            lo = ipaddress.ip_address(str(a).split("/")[0])
+            hi = ipaddress.ip_address(str(b).split("/")[0])
+        except ValueError:
+            continue
+        if lo.version == hi.version and lo <= hi:
+            starts.append(str(lo))
+            ends.append(str(hi))
+    return starts, ends
 
 
 @router.get("/overview", response_model=DashboardOverview)
@@ -414,6 +456,32 @@ async def overview(
         ipc_stmt = ipc_stmt.where(in_values(IPChangeLog.subnet_id, visible_subnet_ids))
     else:
         ipc_stmt = ipc_stmt.where(False)
+    # 個人設定的排除（user_preferences.dashboard.trend；沒設＝照舊全部計入）
+    from app.models.user import UserPreference
+    pref = await session.get(UserPreference, user.id)
+    tp = ((pref.dashboard or {}).get("trend") if pref is not None else None) or {}
+    trend_filter = TrendFilter()
+    ex_subs = [uuid.UUID(str(x)) for x in (tp.get("exclude_subnet_ids") or [])]
+    if ex_subs:
+        ipc_stmt = ipc_stmt.where(IPChangeLog.subnet_id.is_(None) | not_in_values(IPChangeLog.subnet_id, ex_subs))
+        trend_filter.excluded_subnets = len(ex_subs)
+    groups = [g for g in (tp.get("event_groups") or []) if g in TREND_EVENT_GROUPS] \
+        if tp.get("event_groups") is not None else None
+    if groups is not None and set(groups) != set(TREND_EVENT_GROUPS):
+        evs = sorted({e for g in groups for e in TREND_EVENT_GROUPS[g]})
+        ipc_stmt = ipc_stmt.where(IPChangeLog.event_type.in_(evs))   # bounded: 至多 11 種事件類型
+        trend_filter.event_groups = groups
+    if tp.get("exclude_dhcp"):
+        starts, ends = await _dhcp_ranges(session)
+        if starts:
+            from sqlalchemy import exists, text
+            rng = (select(text("1")).select_from(text(
+                "unnest(CAST(:dh_starts AS inet[]), CAST(:dh_ends AS inet[])) AS r(s, e)"))
+                .where(text("CAST(ip_change_log.ip_text AS inet) BETWEEN r.s AND r.e")))
+            ipc_stmt = ipc_stmt.where(~exists(rng)).params(dh_starts=starts, dh_ends=ends)
+        trend_filter.exclude_dhcp = True
+    trend_filter.active = bool(trend_filter.excluded_subnets or trend_filter.exclude_dhcp
+                               or trend_filter.event_groups is not None)
     ipc_by_day = {str(r[0].date()): int(r[1]) for r in (await session.execute(
         ipc_stmt.group_by(day2))).all()}
     today = datetime.now(UTC).date()
@@ -472,5 +540,6 @@ async def overview(
         device_types=device_types,
         customer_resources=customer_resources,
         activity_trend=activity_trend,
+        activity_trend_filter=trend_filter,
         rack_usage=rack_usage,
     )
