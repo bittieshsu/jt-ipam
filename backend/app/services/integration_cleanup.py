@@ -38,6 +38,10 @@ async def forget_instance(session: AsyncSession, *, source: str, source_id: uuid
     from app.services.hostname_reports import forget_origin
 
     origin = f"{source}:{source_id}"
+    # 這台設備自己的介面位址（外部 DNS 用來判斷公網 IP 是誰的，2026-10-19）
+    from app.models.external_dns import IntegrationOwnAddress
+    await session.execute(delete(IntegrationOwnAddress).where(
+        IntegrationOwnAddress.source_type == source, IntegrationOwnAddress.source_id == source_id))
     await session.execute(delete(DHCPPoolRange).where(
         DHCPPoolRange.source_type == source, DHCPPoolRange.source_id == source_id))
     await session.execute(delete(DHCPExclusion).where(

@@ -580,3 +580,31 @@ export async function setBackupEncryption(passphrase: string): Promise<BackupEnc
 export async function removeBackupEncryption(): Promise<void> {
   await apiClient.delete("/api/v1/system/backup-encryption");
 }
+
+// ── 外部 DNS 解析器（系統設定；2026-10-19）──
+export interface DnsResolver { name: string; address: string; port: number; enabled: boolean }
+export interface DnsResolversConfig {
+  resolvers: DnsResolver[];
+  public_domains: string[];
+  public_ranges: string[];
+  query_authoritative: boolean;
+  interval_hours: number;
+  notify_on_change: boolean;
+  state?: { last_run_at?: string; last_summary?: Record<string, unknown> };
+}
+export async function getDnsResolvers(): Promise<DnsResolversConfig> {
+  const { data } = await apiClient.get<DnsResolversConfig>("/api/v1/system/dns-resolvers");
+  return data;
+}
+export async function putDnsResolvers(p: Omit<DnsResolversConfig, "state">): Promise<DnsResolversConfig> {
+  const { data } = await apiClient.put<DnsResolversConfig>("/api/v1/system/dns-resolvers", p);
+  return data;
+}
+export interface DnsTestResult {
+  name: string; resolver: string; rcode: string; a: string[]; aaaa: string[]; cname: string[];
+  ttl: number | null; error: string | null;
+}
+export async function testDnsResolver(address: string, port: number, name = ""): Promise<DnsTestResult> {
+  const { data } = await apiClient.post<DnsTestResult>("/api/v1/system/dns-resolvers/test", { address, port, name });
+  return data;
+}

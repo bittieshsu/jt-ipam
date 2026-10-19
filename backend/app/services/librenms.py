@@ -1134,7 +1134,8 @@ async def sync_interface_ips(session: AsyncSession, instance: LibreNMSInstance) 
             LibreNMSDevice.instance_id == instance.id, LibreNMSDevice.status == "up"))).all()}
     scope = list(instance.scope_subnet_ids) if instance.scope_subnet_ids else None
     return await iface_evidence.stamp(session, "iface:librenms",
-                                      iface_evidence.librenms_addrs(addrs, ports, up_devices=up), scope_ids=scope)
+                                      iface_evidence.librenms_addrs(addrs, ports, up_devices=up), scope_ids=scope,
+                                      instance=(instance.id, instance.name))
 
 
 async def recompute_effective_status(

@@ -31,6 +31,8 @@ export interface Report {
   note?: string;
   /** 頁尾左邊的文字（右邊是頁碼） */
   footerText?: string;
+  /** A4 橫式（欄位多的表格用）；預設直式 */
+  landscape?: boolean;
 }
 export interface Sheet { name: string; cols: string[]; rows: string[][] }
 
@@ -44,6 +46,10 @@ export const COLOR = {
 };
 /** 可用寬度：A4 寬 21 cm 扣掉左右邊界各 1.8 cm（DOCX 是 twips：11906 − 2 × 1021） */
 export const TEXT_WIDTH = { docx: 9864, odt: 17.4, pdf: 174 };
+/** A4 橫式的可用寬度（欄位多的表格：直式 11 欄時 NAT、TCP 會被折成一字一行） */
+export const TEXT_WIDTH_LANDSCAPE = { docx: 14796, odt: 26.1, pdf: 261 };
+/** 目前產生中的報告用哪一組寬度：reportDocx／reportOdt 進來時設定（同步執行，不會交錯） */
+let PAGE: { docx: number; odt: number; pdf: number } = TEXT_WIDTH;
 const META_WIDTHS = [17, 33, 17, 33];
 
 /** 欄寬比例換成實際寬度，加總剛好等於 total（DOCX 要整數 twips：用最大餘數法補齊） */
@@ -95,7 +101,7 @@ const wBorder = (side: string, color = COLOR.rule, sz = 4) =>
 const wNil = (side: string) => `<w:${side} w:val="nil"/>`;
 
 function wTable(t: ReportTable, opts: { meta?: boolean } = {}): string {
-  const tw = columnWidths(t, TEXT_WIDTH.docx, true);
+  const tw = columnWidths(t, PAGE.docx, true);
   const cell = (s: string, i: number, kind: "head" | "body" | "zebra" | "label", tone?: ReportTone | null) => {
     const fill = kind === "head" ? COLOR.headFill : kind === "zebra" ? COLOR.zebra : kind === "label" ? COLOR.labelFill : "";
     const run = kind === "head" ? { bold: true, size: 18, color: "FFFFFF" }
@@ -116,7 +122,7 @@ function wTable(t: ReportTable, opts: { meta?: boolean } = {}): string {
   const borders = opts.meta
     ? ["top", "left", "bottom", "right", "insideH", "insideV"].map((s) => wBorder(s)).join("")
     : [wBorder("top"), wNil("left"), wBorder("bottom"), wNil("right"), wBorder("insideH"), wNil("insideV")].join("");
-  return `<w:tbl><w:tblPr><w:tblW w:w="${TEXT_WIDTH.docx}" w:type="dxa"/><w:tblLayout w:type="fixed"/>`
+  return `<w:tbl><w:tblPr><w:tblW w:w="${PAGE.docx}" w:type="dxa"/><w:tblLayout w:type="fixed"/>`
     + `<w:tblBorders>${borders}</w:tblBorders>`
     + `<w:tblCellMar><w:top w:w="50" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="50" w:type="dxa"/>`
     + `<w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr>`
@@ -125,6 +131,10 @@ function wTable(t: ReportTable, opts: { meta?: boolean } = {}): string {
 }
 
 export function reportDocx(r: Report): Uint8Array {
+  PAGE = r.landscape ? TEXT_WIDTH_LANDSCAPE : TEXT_WIDTH;
+  try { return reportDocxInner(r); } finally { PAGE = TEXT_WIDTH; }
+}
+function reportDocxInner(r: Report): Uint8Array {
   const parts: string[] = [
     wPara(r.brand ?? "jt-ipam", { bold: true, size: 18, color: COLOR.accent, after: 40 }),
     wPara(r.title, { bold: true, size: 36, after: 40 }),
@@ -151,13 +161,13 @@ export function reportDocx(r: Report): Uint8Array {
   const fRun = (s: string) => wRunText(s, { size: 16, color: COLOR.muted });
   const field = (instr: string) => `<w:fldSimple w:instr="${instr}">${fRun("1")}</w:fldSimple>`;
   const footer = `${XML}<w:ftr ${W_NS}>`
-    + wPara("", { tabs: `<w:tabs><w:tab w:val="right" w:pos="${TEXT_WIDTH.docx}"/></w:tabs>`, after: 0,
+    + wPara("", { tabs: `<w:tabs><w:tab w:val="right" w:pos="${PAGE.docx}"/></w:tabs>`, after: 0,
                   border: `<w:top w:val="single" w:sz="4" w:space="4" w:color="${COLOR.rule}"/>` },
             fRun(footLeft) + `<w:r><w:tab/></w:r>` + field("PAGE") + fRun(" / ") + field("NUMPAGES"))
     + "</w:ftr>";
   const doc = `${XML}<w:document ${W_NS}><w:body>${parts.join("")}`
     + `<w:sectPr><w:footerReference w:type="default" r:id="rIdFooter"/>`
-    + `<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="907" w:right="1021" w:bottom="1021" w:left="1021"`
+    + (r.landscape ? `<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>` : `<w:pgSz w:w="11906" w:h="16838"/>`) + `<w:pgMar w:top="907" w:right="1021" w:bottom="1021" w:left="1021"`
     + ` w:header="454" w:footer="454" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   const types = `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
     + `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`
@@ -205,7 +215,7 @@ function odtColStyles(name: string, widths: number[]): string {
     + `<style:table-column-properties style:column-width="${w.toFixed(2)}cm"/></style:style>`).join("");
 }
 function odtTable(t: ReportTable, name: string, meta = false): string {
-  const n = columnWidths(t, TEXT_WIDTH.odt).length;
+  const n = columnWidths(t, PAGE.odt).length;
   const cell = (s: string, cs: string, ps: string) => `<table:table-cell table:style-name="${cs}" office:value-type="string">`
     + `<text:p text:style-name="${ps}">${odtText(s)}</text:p></table:table-cell>`;
   const cols = Array.from({ length: n }, (_x, i) => `<table:table-column table:style-name="${name}C${i}"/>`).join("");
@@ -223,9 +233,13 @@ function odtTable(t: ReportTable, name: string, meta = false): string {
 }
 
 export function reportOdt(r: Report): Uint8Array {
+  PAGE = r.landscape ? TEXT_WIDTH_LANDSCAPE : TEXT_WIDTH;
+  try { return reportOdtInner(r); } finally { PAGE = TEXT_WIDTH; }
+}
+function reportOdtInner(r: Report): Uint8Array {
   const tables: [string, number[]][] = [];
-  if (r.meta.length) tables.push(["meta", columnWidths({ cols: ["", "", "", ""], rows: [], widths: META_WIDTHS }, TEXT_WIDTH.odt)]);
-  r.sections.forEach((s, i) => { if (s.table?.rows.length) tables.push([`T${i + 1}`, columnWidths(s.table, TEXT_WIDTH.odt)]); });
+  if (r.meta.length) tables.push(["meta", columnWidths({ cols: ["", "", "", ""], rows: [], widths: META_WIDTHS }, PAGE.odt)]);
+  r.sections.forEach((s, i) => { if (s.table?.rows.length) tables.push([`T${i + 1}`, columnWidths(s.table, PAGE.odt)]); });
   const cellBox = (bg = "", all = false) => `<style:table-cell-properties fo:padding-top="0.07cm" fo:padding-bottom="0.07cm"`
     + ` fo:padding-left="0.15cm" fo:padding-right="0.15cm"`
     + (all ? ` fo:border="0.5pt solid #${COLOR.rule}"` : ` fo:border-top="none" fo:border-left="none" fo:border-right="none" fo:border-bottom="0.5pt solid #${COLOR.rule}"`)
@@ -250,7 +264,7 @@ export function reportOdt(r: Report): Uint8Array {
  <style:style style:name="HeadCell" style:family="table-cell">${cellBox(COLOR.headFill)}</style:style>
  <style:style style:name="MetaLabel" style:family="table-cell">${cellBox(COLOR.labelFill, true)}</style:style>
  <style:style style:name="MetaCell" style:family="table-cell">${cellBox("", true)}</style:style>
- <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="${TEXT_WIDTH.odt}cm" table:align="left" fo:margin-bottom="0.2cm" table:border-model="collapsing"/></style:style>
+ <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="${PAGE.odt}cm" table:align="left" fo:margin-bottom="0.2cm" table:border-model="collapsing"/></style:style>
  ${tables.map(([n, w]) => odtColStyles(n, w)).join("")}
 </office:automatic-styles>`;
   const body: string[] = [
@@ -278,10 +292,10 @@ export function reportOdt(r: Report): Uint8Array {
   const stylesXml = `<?xml version="1.0" encoding="UTF-8"?><office:document-styles ${ODF_NS}>
 <office:styles>
  <style:default-style style:family="paragraph">${tp("10pt")}</style:default-style>
- <style:style style:name="Footer" style:family="paragraph"><style:paragraph-properties fo:border-top="0.5pt solid #${COLOR.rule}" fo:padding-top="0.1cm"><style:tab-stops><style:tab-stop style:position="${TEXT_WIDTH.odt}cm" style:type="right"/></style:tab-stops></style:paragraph-properties>${tp("8pt", COLOR.muted)}</style:style>
+ <style:style style:name="Footer" style:family="paragraph"><style:paragraph-properties fo:border-top="0.5pt solid #${COLOR.rule}" fo:padding-top="0.1cm"><style:tab-stops><style:tab-stop style:position="${PAGE.odt}cm" style:type="right"/></style:tab-stops></style:paragraph-properties>${tp("8pt", COLOR.muted)}</style:style>
 </office:styles>
 <office:automatic-styles>
- <style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" style:print-orientation="portrait" fo:margin-top="1.5cm" fo:margin-bottom="1.2cm" fo:margin-left="1.8cm" fo:margin-right="1.8cm"/><style:footer-style><style:header-footer-properties fo:min-height="0.5cm" fo:margin-top="0.3cm"/></style:footer-style></style:page-layout>
+ <style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="${r.landscape ? "29.7cm" : "21cm"}" fo:page-height="${r.landscape ? "21cm" : "29.7cm"}" style:print-orientation="${r.landscape ? "landscape" : "portrait"}" fo:margin-top="1.5cm" fo:margin-bottom="1.2cm" fo:margin-left="1.8cm" fo:margin-right="1.8cm"/><style:footer-style><style:header-footer-properties fo:min-height="0.5cm" fo:margin-top="0.3cm"/></style:footer-style></style:page-layout>
 </office:automatic-styles>
 <office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"><style:footer><text:p text:style-name="Footer">${xmlEscape(footLeft)}<text:tab/><text:page-number text:select-page="current">1</text:page-number> / <text:page-count>1</text:page-count></text:p></style:footer></style:master-page></office:master-styles>
 </office:document-styles>`;
@@ -317,7 +331,7 @@ export function reportHtml(r: Report, lang: string): string {
   const css = `
 *{box-sizing:border-box}
 body{margin:0;background:#fff;color:#${c.ink};font:10.5pt/1.55 "Segoe UI","Noto Sans CJK TC","Microsoft JhengHei","Hiragino Sans",sans-serif}
-main{max-width:960px;margin:0 auto;padding:28px 24px 40px}
+main{max-width:${r.landscape ? 1360 : 960}px;margin:0 auto;padding:28px 24px 40px}
 .brand{color:#${c.accent};font-weight:700;font-size:9pt}
 h1{font-size:18pt;margin:2px 0 2px}
 .subtitle{color:#${c.muted};margin:0 0 6px}
@@ -339,7 +353,7 @@ li::marker{color:#${c.accent}}
 .caption{font-size:8.5pt;margin:4px 0}
 .note{background:#${c.zebra};color:#${c.muted};font-size:8.5pt;padding:8px 10px;margin-top:22px}
 footer{border-top:1px solid #${c.rule};color:#${c.muted};font-size:8pt;margin-top:26px;padding-top:6px}
-@media print{main{max-width:none;padding:0}@page{size:A4;margin:16mm 18mm}}`;
+@media print{main{max-width:none;padding:0}@page{size:A4${r.landscape ? " landscape" : ""};margin:16mm 18mm}}`;
   const parts: string[] = [
     `<div class="brand">${htmlEsc(r.brand ?? "jt-ipam")}</div>`,
     `<h1>${htmlEsc(r.title)}</h1>`,
@@ -383,7 +397,7 @@ export function pdfPayload(r: Report, lang: string, filename: string) {
   const l: ReportLang = lang === "en-US" || lang === "ja-JP" ? lang : "zh-TW";
   return {
     title: r.title, subtitle: r.subtitle ?? "", brand: r.brand ?? "jt-ipam", generated_at: r.generatedAt ?? "",
-    meta: r.meta, note: r.note ?? "", footer_text: r.footerText ?? "", lang: l, filename,
+    meta: r.meta, note: r.note ?? "", footer_text: r.footerText ?? "", lang: l, filename, landscape: !!r.landscape,
     sections: r.sections.map((s) => ({
       heading: s.heading, paragraphs: s.paragraphs ?? [], bullets: s.bullets ?? [], caption: s.caption ?? "",
       table: s.table ? { cols: s.table.cols, rows: s.table.rows, widths: s.table.widths ?? null,
@@ -459,4 +473,26 @@ export const MIME = {
 /** 報告存檔。`meta.source` 是報告種類；伺服器排版的 PDF 伺服器已經記過，帶 audited。 */
 export function saveBytes(filename: string, bytes: Uint8Array, mime: string, meta: SaveMeta): void {
   saveBlob(filename, bytes, mime, meta);
+}
+
+/** 報告的 Markdown 版（對外開放服務清單等；與 HTML／DOCX 同一份 Report）。表格儲存格裡的 `|` 與換行要跳脫 */
+export function reportMarkdown(r: Report): string {
+  const cell = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+  const out: string[] = [`# ${r.title}`];
+  if (r.subtitle) out.push("", r.subtitle);
+  if (r.meta.length) {
+    out.push("", "| | |", "|---|---|", ...r.meta.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`));
+  }
+  for (const s of r.sections) {
+    out.push("", `## ${s.heading}`);
+    for (const p of s.paragraphs ?? []) out.push("", p);
+    if (s.bullets?.length) out.push("", ...s.bullets.map((b) => `- ${b}`));
+    if (s.table) {
+      out.push("", `| ${s.table.cols.map(cell).join(" | ")} |`, `|${s.table.cols.map(() => "---").join("|")}|`,
+               ...s.table.rows.map((row) => `| ${row.map(cell).join(" | ")} |`));
+    }
+    if (s.caption) out.push("", `_${s.caption}_`);
+  }
+  if (r.note) out.push("", `> ${r.note}`);
+  return out.join("\n") + "\n";
 }

@@ -63,6 +63,9 @@ CATEGORY: dict[str, str] = {
     "dns_records": "core",
     "dns_compare_groups": "core",          # 比對群組設定（成員是 dns_servers.compare_group_id）
     "dns_compare_group_diffs": "synced",   # 比對結果：下一輪同步就重算
+    "integration_own_addresses": "synced",  # 整合回報的設備自身位址：下一輪同步就重抓
+    "external_dns_results": "synced",       # 外部 DNS 解析結果：下一輪查詢就重算
+    "external_dns_changes": "operational",  # 公網解析變動的歷史
     # core — 憑證集中保管
     "certificates": "core",
     "cert_versions": "core",

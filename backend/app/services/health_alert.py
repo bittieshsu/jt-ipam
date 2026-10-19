@@ -74,7 +74,7 @@ async def _notify(
         from app.services.notification import email_users
         await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body, link=link)
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=link)
+    await broadcast_channels(session, subject=title, text=body, link=link, severity=severity)
 
 
 async def check_integration_health(

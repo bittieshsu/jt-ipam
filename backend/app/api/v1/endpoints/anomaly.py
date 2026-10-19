@@ -222,12 +222,108 @@ async def get_attack_surface(
     只列明確可判定的對外開口；目的是別名／any／網段的規則不展開猜測 ——
     稽核拿去簽名的清單不能有猜的成分。
     """
+    from app.services.attack_surface_ai import surface_key
     from app.services.fw_lookup import attack_surface
-
-    items = await attack_surface(session)
+    from app.services.surface_service import enrich
+    from app.services.system_config import get_llm_config
+    items = await enrich(session, await attack_surface(session))   # 每列的服務判定（證據等級，2026-10-19）
+    for it in items:   # AI 分析時前端送回畫面上那些列的 key（後端照 key 重挑，不採信前端送來的內容）
+        it["key"] = surface_key(it)
     # 範圍說明由前端 i18n 提供（surface.scope_note）——後端硬寫中文會讓英文介面
     # 冒出中文（使用者截圖）。
-    return {"items": items}
+    return {"items": items, "ai_available": bool(getattr(await get_llm_config(session), "enabled", False))}
+
+
+class SurfaceAnalyzeIn(StrictModel):
+    #: 畫面上（篩選後）那些列的 key；不給＝整份清單
+    keys: Annotated[list[Annotated[str, Field(max_length=32)]], Field(max_length=5000)] | None = None
+
+
+@router.post("/attack-surface/analyze/stream")
+async def attack_surface_analyze(
+    payload: SurfaceAnalyzeIn,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _gr: Annotated[None, Depends(require_global_read)],
+) -> Any:
+    """對外開放服務清單的 AI 分析（SSE，邊寫邊送）。
+
+    統計由程式算（services/attack_surface_ai），模型只寫判讀；跑幾十秒是常態，
+    nginx 對 /api/ 只等 30 秒，所以模型還沒吐字時每隔幾秒送保活。
+    """
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    from app.core import sse
+    from app.services import ai as ai_mod
+    from app.services.attack_surface_ai import (
+        build_prompt,
+        run_analysis,
+        surface_facts,
+        surface_key,
+    )
+    from app.services.fw_lookup import attack_surface
+    from app.services.surface_service import enrich
+    items = await attack_surface(session)
+    if payload.keys is not None:
+        want = set(payload.keys)
+        items = [i for i in items if surface_key(i) in want]
+    items = await enrich(session, items)
+    facts = surface_facts(items)
+    await append_audit(
+        session, actor_user_id=str(user.id),
+        actor_ip=request.client.host if request.client else None,
+        actor_user_agent=request.headers.get("user-agent"),
+        request_id=getattr(request.state, "request_id", None),
+        object_type="anomaly", object_id=None, action="surface_analyze",
+        diff={"rows": len(items), "filtered": payload.keys is not None})
+    await session.commit()
+    prompt = build_prompt(facts, items) + await ai_mod.answer_language(session, user)
+
+    async def gen() -> Any:
+        started = time.monotonic()
+        queue: list[str] = []
+
+        async def on_chunk(text: str, kind: str) -> None:
+            queue.append(_json.dumps({"type": kind, "text": text,
+                                      "elapsed": round(time.monotonic() - started, 1)}, ensure_ascii=False))
+
+        task = asyncio.create_task(run_analysis(session, prompt, on_chunk=on_chunk))
+        last_sent = time.monotonic()
+        try:
+            while not task.done() or queue:
+                while queue:
+                    yield f"data: {queue.pop(0)}\n\n"
+                    last_sent = time.monotonic()
+                if task.done():
+                    break
+                if time.monotonic() - last_sent >= sse.KEEPALIVE_SECONDS:
+                    yield sse.KEEPALIVE      # 模型還沒吐字：保活，免得反向代理逾時切斷
+                    last_sent = time.monotonic()
+                await asyncio.sleep(0.05)
+            text, model = await task
+            yield "data: " + _json.dumps(
+                {"type": "done", "text": (text or "").strip(), "model": model, "facts": facts,
+                 "elapsed": round(time.monotonic() - started, 1),
+                 "disclaimer": "此為語言模型依清單統計所做的判讀，請對照原始資料後再行動。"},
+                ensure_ascii=False) + "\n\n"
+        except Exception as exc:   # 模型不可用不可以變成 500；清單本身照樣在畫面上
+            admin = bool(getattr(user, "is_admin", False))
+            if isinstance(exc, (ai_mod.AIError, TimeoutError)):
+                err = ai_mod.ai_error_event(exc, admin=admin)
+            else:
+                err = ai_mod.ai_error_event(exc, admin=admin, code="ai_failed", reason=type(exc).__name__)
+            yield "data: " + _json.dumps({"type": "error", **err}, ensure_ascii=False) + "\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ── 排程設定 ────────────────────────────────────────────────────────────────

@@ -493,6 +493,14 @@ still works; it just identifies less.
   [releases page](https://github.com/rapid7/recog/releases), then
   `sudo /opt/jt-ipam/scripts/jt-ipam.sh upgrade --recog-zip <file>` (or `install --recog-zip <file>`).
 
+### External DNS resolution (optional)
+
+The FQDN tab of **Exposed services** can show what each name resolves to on the internet. Set it up under
+Admin → System Settings, in the **DNS resolvers** card: one or more resolvers (for example 1.1.1.1), the public
+domains to check, and optionally your public ranges. Only names under those domains are sent out. The server needs
+outbound UDP and TCP port 53 to the resolvers, and to the domains' authoritative servers when that option is on. No
+extra package is needed.
+
 ### LLM / AI (optional)
 
 AI chat and semantic search run against a **self-hosted Ollama** by default, so data stays on your own network. The installer does not install the LLM server; it usually lives on a separate machine with a GPU.

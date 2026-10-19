@@ -1612,7 +1612,8 @@ async def sync_interface_ips(session: AsyncSession, fw: OPNsenseFirewall) -> dic
     from app.services import iface_evidence
     data = await _api_get(fw, "/api/interfaces/overview/export")
     scope = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
-    return await iface_evidence.stamp(session, "iface:opnsense", iface_evidence.opnsense_addrs(data), scope_ids=scope)
+    return await iface_evidence.stamp(session, "iface:opnsense", iface_evidence.opnsense_addrs(data), scope_ids=scope,
+                                      instance=(fw.id, fw.name))
 
 
 async def sync_all_for_firewall(

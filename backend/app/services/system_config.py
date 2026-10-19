@@ -1662,6 +1662,7 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("identify.done", True, False),            # 自己發起的 IP 探測完成／失敗（只通知發起人）
     ("system.health", True, False),            # 系統檢查未通過／恢復
     ("dhcp.pool_exhausted", True, False),      # DHCP 集區快用完／回到門檻以下
+    ("external_dns.changed", True, False),     # 對外網域在外部 DNS 的解析變了（外部 DNS 解析，2026-10-19）
     ("jump_host.key_changed", True, True),     # 跳板主機金鑰改變（資安事件，預設連 Email 都開）
     ("cert.fetch_failed", True, False),        # 憑證來源抓取失敗／恢復
     # 這兩個原本直接推通知、設定頁上沒有對應的列 —— 使用者收得到卻關不掉

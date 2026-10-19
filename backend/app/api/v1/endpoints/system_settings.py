@@ -2096,11 +2096,11 @@ async def test_notification_channel(
         raise HTTPException(400, detail="unknown channel")
     cfg = await get_notification_channels(session)
     try:
-        await send_one(
-            cfg, payload.channel,
-            "jt-ipam 測試通知 / test notification",
-            "這是一則來自 jt-ipam 的測試通知；若你收到，代表此管道設定正確。",
-        )
+        from app.services.notify_channels import make_rich
+        subject, text = "jt-ipam 測試通知 / test notification", "這是一則來自 jt-ipam 的測試通知；若你收到，代表此管道設定正確。"
+        # 聊天型管道用正式通知的版面（🧪、引用、資訊列、連結），按一下就能預覽之後通知長什麼樣子
+        await send_one(cfg, payload.channel, subject, text,
+                       rich=make_rich(subject, text, link="/notification-channels", severity="info", emoji="🧪"))
     except Exception as exc:
         raise HTTPException(502, detail=f"send failed: {str(exc)[:300]}") from exc
     return {"ok": True}

@@ -33,6 +33,7 @@ import { fmtDateTime, fmtRelative } from "@/utils/datetime";
 import { evidenceVendorLabel } from "@/utils/investigateSections";
 import { apiErrMsg } from "@/api/client";
 import GlobalSearchSettings from "@/components/GlobalSearchSettings.vue";
+import DnsResolversSettings from "@/components/DnsResolversSettings.vue";
 import { runSftpProbe, fmtRate, roughDuration, type ProbeResult } from "@/utils/sftpProbe";
 import {
   getMapProvider, setMapProvider, getRackNameAlign, setRackNameAlign,
@@ -1121,6 +1122,12 @@ async function doPreviewAutolink() {
           {{ t("settings.system.geoip_hint") }}<br>
           {{ t("settings.system.geoip_freq_advice") }}
         </div>
+      </n-card>
+
+      <!-- 外部 DNS 解析器（對外開放服務的 FQDN 從外面看；2026-10-19） -->
+      <n-card class="ss-group" size="small" data-testid="ss-dns-resolvers">
+        <template #header><span class="ss-h">{{ t("dns_resolvers.title") }}</span></template>
+        <DnsResolversSettings />
       </n-card>
 
       <!-- 外部認證 / LDAP（AD） -->

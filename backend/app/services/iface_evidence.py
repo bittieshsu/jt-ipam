@@ -107,13 +107,46 @@ def librenms_addrs(addresses: Any, ports: Any, *, up_devices: set[int]) -> list[
     return _dedupe(out)
 
 
-async def stamp(session: AsyncSession, source: str, addrs: Iterable[str], *, scope_ids: Any) -> dict[str, int]:
-    """對得到唯一 IP 記錄的蓋上 `arp_seen[source]`（現在）；不建新記錄。"""
+async def stamp(session: AsyncSession, source: str, addrs: Iterable[str], *, scope_ids: Any,
+                instance: tuple[Any, str | None] | None = None) -> dict[str, int]:
+    """對得到唯一 IP 記錄的蓋上 `arp_seen[source]`（現在）；不建新記錄。
+
+    `instance`＝(整合 id, 名稱)：同時記下這台設備自己有哪些位址（integration_own_addresses），
+    外部 DNS 才答得出「這個公網 IP 是哪台防火牆的」（2026-10-19）。"""
     from app.services.fw_sightings import SightingBatch
+    addrs = list(addrs)
     batch = SightingBatch(session, source=source.split(":", 1)[-1], subnet_ids=scope_ids)
     seen = 0
     for ip in addrs:
         seen += 1
         batch.add(ip, evidence=source)
     matched = sum(1 for found, _e in await batch.flush() if found)
+    if instance is not None:
+        await record_own(session, source.split(":", 1)[-1], instance[0], instance[1], addrs)
     return {"seen": seen, "matched": matched}
+
+
+async def record_own(session: AsyncSession, source: str, source_id: Any, name: str | None,
+                     addrs: Iterable[str]) -> None:
+    """這一輪完整讀到的自身位址：新的加入、還在的更新時間、不見的刪掉（只在讀取成功時呼叫）。"""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import Text, delete, func
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.core.sqlin import not_in_values
+    from app.models.external_dns import IntegrationOwnAddress
+    want = sorted({a for a in (_clean(x) for x in addrs) if a})
+    now = datetime.now(UTC)
+    if want:
+        stmt = insert(IntegrationOwnAddress).values([
+            {"source_type": source, "source_id": source_id, "instance_name": name, "address": a, "last_seen_at": now}
+            for a in want])
+        await session.execute(stmt.on_conflict_do_update(
+            constraint="uq_integration_own_addresses",
+            set_={"last_seen_at": stmt.excluded.last_seen_at, "instance_name": stmt.excluded.instance_name}))
+    q = delete(IntegrationOwnAddress).where(IntegrationOwnAddress.source_type == source,
+                                            IntegrationOwnAddress.source_id == source_id)
+    if want:
+        q = q.where(not_in_values(func.host(IntegrationOwnAddress.address), want, type_=Text()))
+    await session.execute(q)

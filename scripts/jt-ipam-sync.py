@@ -960,6 +960,31 @@ async def _run() -> int:
             await session.rollback()
             log.error("anomaly scheduled scan failed: %s", exc)
 
+        # ── 外部 DNS 解析（2026-10-19）── 對外網域底下的名稱，照設定的間隔問外部解析器與權威伺服器。
+        # 沒設定解析器或對外網域就什麼都不做。一輪有名稱上限、每筆查詢 3 秒逾時、併發有上限，
+        # 不會把這支排程拖過 TimeoutStartSec。
+        try:
+            from datetime import datetime as _dt
+
+            from app.services import external_dns as _xdns
+            from app.services.schedule import due as _due
+
+            xcfg = await _xdns.get_settings(session)
+            if _xdns.configured(xcfg):
+                xlast_raw = (await _xdns.get_state(session)).get("last_run_at")
+                xlast = _dt.fromisoformat(xlast_raw) if xlast_raw else None
+                if _due(xlast, [], frequency="interval", interval_minutes=xcfg["interval_hours"] * 60):
+                    xsum = await _xdns.run_round(session)
+                    await session.commit()
+                    await _hb(session, kind="external_dns.run", target_type="system", target_id=None,
+                              target_label="external-dns", ok=True, summary=xsum)
+                    log.info("external dns: %s", xsum)
+        except Exception as exc:
+            await session.rollback()
+            log.error("external dns round failed: %s", exc)
+            await _hb(session, kind="external_dns.run", target_type="system", target_id=None,
+                      target_label="external-dns", ok=False, error=str(exc))
+
         # ── AI 巡檢 ── 不在這裡跑了：改由 jt-ipam-ai-audit.timer 執行本腳本的 --ai-audit 模式（2026-10-12）。
         # 這個服務每輪最多 10 分鐘（TimeoutStartSec=600），巡檢一跑超過就被 systemd 砍掉，
         # 下一輪又判定「還沒跑」整個重來；而且巡檢跑的那幾分鐘，所有整合的同步都被卡住。

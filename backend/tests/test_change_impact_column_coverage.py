@@ -78,6 +78,7 @@ COVERED: set[tuple[str, str]] = {
 EXEMPT: dict[tuple[str, str], str] = {
     ("api_tokens", "last_used_ip"): "歷史：API 呼叫者上次的來源位址",
     ("audit_logs", "actor_ip"): "歷史：稽核記錄不可改",
+    ("integration_own_addresses", "address"): "鏡像：整合回報的設備自身介面位址，每輪同步重抓；整合本身的連線位址已在評估內",
     ("users", "last_login_ip"): "歷史：使用者上次登入的來源位址",
     ("user_sessions", "ip"): "歷史：登入工作階段的來源位址（使用者從哪裡登入，不是網路上的設備或服務）",
     ("ip_change_log", "ip_text"): "歷史：IP 異動記錄",

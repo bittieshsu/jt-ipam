@@ -259,7 +259,8 @@ async def ingest_interfaces(session: AsyncSession, target: SnmpTarget, sec: dict
     out: dict[str, Any] = {"rows": len(rows)}
     addrs = up_addresses(rows, _rows(sec, "addresses"))
     if addrs:
-        res = await iface_evidence.stamp(session, "iface:snmp", addrs, scope_ids=None)
+        res = await iface_evidence.stamp(session, "iface:snmp", addrs, scope_ids=None,
+                                         instance=(target.id, await _device_name(session, target.device_id)))
         out["addresses"] = res["matched"]
     ports = interface_ports(rows)
     if not ports:

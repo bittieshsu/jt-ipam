@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 import hmac
 
 import pytest
@@ -110,10 +111,10 @@ async def test_missing_config_raises():
 async def test_broadcast_concurrent_best_effort(monkeypatch):
     ran: list[str] = []
 
-    async def ok(cfg, s, t):
+    async def ok(cfg, s, t, **kw):
         ran.append("slack")
 
-    async def boom(cfg, s, t):
+    async def boom(cfg, s, t, **kw):
         ran.append("telegram")
         raise RuntimeError("channel down")
 
@@ -184,7 +185,7 @@ async def test_no_link_keeps_the_old_message(sent):
 async def test_broadcast_turns_a_site_path_into_a_full_url(monkeypatch):
     got: list[str | None] = []
 
-    async def ok(cfg, s, t, link=None):
+    async def ok(cfg, s, t, link=None, **kw):
         got.append(link)
 
     monkeypatch.setitem(nc._SENDERS, "slack", ok)
@@ -198,3 +199,89 @@ async def test_broadcast_turns_a_site_path_into_a_full_url(monkeypatch):
     await nc.broadcast_channels(None, subject="s", text="t", link="https://other.example/x")
     await nc.broadcast_channels(None, subject="s", text="t")
     assert got == [URL, "https://other.example/x", None]
+
+
+# ── 美觀：emoji 前綴與連結圖示（使用者 2026-10-19）──
+async def test_chat_channels_get_an_emoji_but_the_webhook_gets_a_severity_field(monkeypatch):
+    got: dict[str, Any] = {}
+
+    async def zulip(cfg, s, t, link=None, rich=None):
+        got["zulip"] = nc.rich_markdown(rich, zulip=True)
+
+    async def hook(url, *, json=None, data=None, headers=None, auth=None):
+        got["webhook"] = json
+
+    monkeypatch.setitem(nc._SENDERS, "zulip", zulip)
+    monkeypatch.setattr(nc, "_post", hook)
+
+    async def fake_cfg(session):
+        return {"zulip_enabled": True, "webhook_enabled": True, "webhook_url": "https://hook"}
+
+    monkeypatch.setattr("app.services.system_config.get_notification_channels", fake_cfg)
+    monkeypatch.setattr(nc, "_public_base", lambda: "https://ipam.example.com/")
+    await nc.broadcast_channels(None, subject="疑似登入權杖被盜用", text="t", link="/audit", severity="error")
+    assert got["zulip"].startswith("**🚨 疑似登入權杖被盜用**")
+    assert got["webhook"]["subject"] == "疑似登入權杖被盜用"
+    assert got["webhook"]["severity"] == "error"
+    await nc.broadcast_channels(None, subject="IP 申請", text="t", link="/requests", emoji="📝")
+    assert got["zulip"].startswith("**📝 IP 申請**")
+    assert "severity" not in got["webhook"]
+
+
+async def test_link_line_has_an_icon(sent):
+    await nc.send_zulip({"zulip_site": "https://z", "zulip_bot_email": "b", "zulip_api_key": "k",
+                         "zulip_stream": "s"}, "⚠️ Sub", "Body", link=URL)
+    assert sent[0]["data"]["content"] == f"**⚠️ Sub**\nBody\n🔗 [前往檢視]({URL})"
+
+
+def test_anomaly_notifications_name_a_few_examples():
+    from app.services.anomaly import _notify_examples
+    items = [{"ip": "192.0.2.1"}, {"ip": "192.0.2.2"}, {"mac": "00:00:5e:00:53:01"}, {"ip": "192.0.2.4"}]
+    assert _notify_examples(items) == ["192.0.2.1", "192.0.2.2", "00:00:5e:00:53:01"]
+    assert _notify_examples([{"other": 1}]) == []
+
+
+
+def _rich(**k: Any):
+    from datetime import UTC, datetime
+    base = dict(title="⚠️ IP 衝突：新增 3 筆（共 12 筆）", bullets=["192.0.2.13", "192.0.2.20"], link=URL,
+                severity="warning", when=datetime(2026, 10, 19, 9, 5, tzinfo=UTC), source="ipam.example.com")
+    base.update(k)
+    return nc.Rich(**base)
+
+
+def test_rich_markdown_layout() -> None:
+    md = nc.rich_markdown(_rich(), zulip=True)
+    assert md.splitlines() == [
+        "**⚠️ IP 衝突：新增 3 筆（共 12 筆）**", "> • `192.0.2.13`", "> • `192.0.2.20`", "",
+        "🟠 警告　·　🕒 <time:2026-10-19T09:05:00+00:00>　·　🖥️ ipam.example.com", f"🔗 [前往檢視]({URL})"]
+
+
+def test_rich_telegram_escapes_and_uses_html() -> None:
+    out = nc.rich_telegram(_rich(text="<script>x</script>"))
+    assert "<b>⚠️ IP 衝突" in out
+    assert "&lt;script&gt;" in out
+    assert "<code>192.0.2.13</code>" in out
+    assert f'<a href="{URL}">' in out
+
+
+def test_rich_slack_blocks_and_teams_card() -> None:
+    sl = nc.rich_slack(_rich())
+    assert [b["type"] for b in sl["blocks"]] == ["header", "section", "context", "actions"]
+    assert sl["blocks"][-1]["elements"][0]["url"] == URL
+    card = nc.rich_teams_card(_rich(severity="error"))["attachments"][0]["content"]
+    assert card["body"][0]["style"] == "attention"
+    assert card["actions"][0]["url"] == URL
+
+
+async def test_broadcast_sends_rich_to_every_chat_channel(monkeypatch, sent) -> None:
+    async def fake_cfg(session):
+        return {"telegram_enabled": True, "telegram_token": "T:t", "telegram_chat_id": "-1",
+                "slack_enabled": True, "slack_webhook": "https://hooks.slack/x"}
+    monkeypatch.setattr("app.services.system_config.get_notification_channels", fake_cfg)
+    monkeypatch.setattr(nc, "_public_base", lambda: "https://ipam.example.com/")
+    await nc.broadcast_channels(None, subject="IP 衝突", link="/anomaly", severity="warning", bullets=["192.0.2.1"])
+    tg = next(c for c in sent if "telegram" in c["url"])
+    sl = next(c for c in sent if "slack" in c["url"])
+    assert tg["json"]["parse_mode"] == "HTML"
+    assert "blocks" in sl["json"]

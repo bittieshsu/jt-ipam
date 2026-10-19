@@ -89,8 +89,8 @@ async def email_users(
     if not tos:
         return
     if link:
-        from app.services.notify_channels import LINK_LABEL, absolute_link
-        body_text = f"{body_text}\n\n{LINK_LABEL}：{absolute_link(link)}"
+        from app.services.notify_channels import LINK_ICON, LINK_LABEL, absolute_link
+        body_text = f"{body_text}\n\n{LINK_ICON} {LINK_LABEL}：{absolute_link(link)}"
     from app.services.email import send_email_via_config
     from app.services.system_config import get_notification_channels
     try:
@@ -132,7 +132,7 @@ async def notify_admins_event(
     if ch.get("email"):
         await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body or title, link=link)
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=link)
+    await broadcast_channels(session, subject=title, text=body, link=link, severity=severity)
     return sent
 
 

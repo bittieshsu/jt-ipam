@@ -2185,8 +2185,10 @@ async def _notify_categories(
             fresh = [f for f in fps if f not in before]
             new_seen[key] = fps        # 消失的要跟著移除，否則它再出現時不會通知
             count, total = len(fresh), len(fps)
+            fresh_items = [i for i, f in zip(items, fps, strict=True) if f not in before]
         else:
             count, total = len(items), len(items)
+            fresh_items = items
 
         # 逐類別的通知設定（管理 → 通知發送設定）。十種發現的份量差很多，
         # 全有全無會讓人為了不被吵而整類關掉，連要緊的那幾種一起消失。
@@ -2197,6 +2199,11 @@ async def _notify_categories(
         title = (f"{label}：新增 {count} 筆（共 {total} 筆）" if only_new
                  else f"{label}：{count} 筆")
         body = "詳見「異常偵測」頁面。"
+        # 外部管道與 Email：舉幾筆實例（有「前往檢視」連結了，「詳見頁面」只是重複；2026-10-19）
+        examples = _notify_examples(fresh_items)
+        more = count - len(examples)
+        channel_text = f"另有 {more} 筆，完整清單在異常偵測頁。" if examples and more > 0 else (None if examples else body)
+        email_body = ("例：" + "、".join(examples) + ("…" if more > 0 else "")) if examples else body
         if ch.get("in_app"):
             for admin in admins:
                 await push_notification(
@@ -2210,13 +2217,29 @@ async def _notify_categories(
                     params={"label_key": lkey, "count": count, "total": total},
                 )
         if ch.get("email"):
-            await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body,
+            await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", email_body,
                               link=f"/anomaly?tab={tab}")
-        await broadcast_channels(session, subject=title, text=body, link=f"/anomaly?tab={tab}")
+        await broadcast_channels(session, subject=title, text=channel_text, link=f"/anomaly?tab={tab}",
+                                 severity="warning", bullets=examples)
 
     if only_new:
         await set_anomaly_seen(session, new_seen)
     return sent
+
+
+def _notify_examples(items: list[dict[str, Any]], n: int = 3) -> list[str]:
+    """通知裡舉的實例：每筆挑最能指認它的一個值（IP、MAC、名稱…），最多 n 筆。"""
+    out: list[str] = []
+    for it in items:
+        for k in ("ip", "ip_text", "address", "mac", "fqdn", "hostname", "name", "server_ip", "target"):
+            v = it.get(k)
+            if isinstance(v, str) and v.strip():
+                if v not in out:
+                    out.append(v.strip()[:60])
+                break
+        if len(out) >= n:
+            break
+    return out
 
 
 async def notify_new_findings(

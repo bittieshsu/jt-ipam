@@ -99,6 +99,9 @@ from app.api.v1.endpoints import (
     change_impact_services as change_impact_services_ep,
 )
 from app.api.v1.endpoints import (
+    external_dns as external_dns_ep,
+)
+from app.api.v1.endpoints import (
     graylog_dsv as graylog_dsv_ep,
 )
 from app.api.v1.endpoints import (
@@ -161,6 +164,9 @@ api_v1_router.include_router(certificates.router)
 api_v1_router.include_router(cert_agents.router)
 api_v1_router.include_router(dns.router)
 api_v1_router.include_router(librenms.router)
+# 外部 DNS 解析（/system/dns-resolvers 與 /anomalies/attack-surface/external-dns）
+api_v1_router.include_router(external_dns_ep.router)
+api_v1_router.include_router(external_dns_ep.admin_router)
 api_v1_router.include_router(anomaly.router)
 api_v1_router.include_router(ai.router)
 api_v1_router.include_router(advanced.router)

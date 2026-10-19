@@ -1646,7 +1646,8 @@
       "technitium_dhcp_sync": "Technitium DHCP 同步",
       "wazuh_sync": "Wazuh 同步",
       "windows_dhcp_sync": "Windows DHCP 同步",
-      "zabbix_sync": "Zabbix 同步"
+      "zabbix_sync": "Zabbix 同步",
+      "external_dns_run": "外部 DNS 查詢"
     },
     "tracker": {
       "title": "背景作業",
@@ -3832,7 +3833,12 @@
     "snmp_sections_failed": "部分收集項目沒有讀完整（舊資料保留，不會被清掉）",
     "snmp_test_failed": "SNMP 測試失敗：沒有任何一組憑證得到回應",
     "snmp_job_expired": "掃描代理沒有在時限內回報（可能離線）",
-    "snmp_ip_not_found": "找不到這筆 IP"
+    "snmp_ip_not_found": "找不到這筆 IP",
+    "ext_dns_invalid_entries": "有不合格的項目沒有存（解析器 {resolvers}、網域 {public_domains}、網段 {public_ranges}）",
+    "ext_dns_bad_address": "「{value}」不是有效的 IP 位址",
+    "ext_dns_need_name": "請先設定對外網域，或指定要查的名稱",
+    "ext_dns_running": "外部 DNS 查詢正在執行",
+    "ext_dns_not_configured": "尚未設定外部解析器與對外網域"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -4310,7 +4316,8 @@
       "credential_expiring": "API 權杖／MCP 金鑰／公開端點權杖即將到期",
       "security_session_reuse": "疑似登入權杖被盜用（工作階段已撤銷）",
       "dns_compare_mismatch": "DNS 比對群組不一致",
-      "dns_compare_resolved": "DNS 比對群組恢復一致"
+      "dns_compare_resolved": "DNS 比對群組恢復一致",
+      "external_dns_changed": "外部 DNS 解析變動"
     },
     "enable": "啟用",
     "secret_keep": "（已設定，留空＝不變更）",
@@ -4329,7 +4336,7 @@
     "zulip_stream": "頻道 (Channel)",
     "zulip_topic": "主題 (Topic)",
     "webhook_title": "通用 Webhook",
-    "webhook_hint": "POST 一段 JSON 到你指定的 URL：{'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":..., \"url\":... {'}'}（url 是前往檢視的完整網址，有對應頁面時才帶）。可串 n8n、自寫端點等；選填 Bearer token 會以 Authorization 標頭帶上。",
+    "webhook_hint": "POST 一段 JSON 到你指定的 URL：{'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":..., \"url\":..., \"severity\":... {'}'}（url 是前往檢視的完整網址、severity 是嚴重度，有才帶）。可串 n8n、自寫端點等；選填 Bearer token 會以 Authorization 標頭帶上。",
     "webhook_token": "Bearer Token（選填）",
     "webhook_token_ph": "留空＝不帶授權標頭"
   },
@@ -4767,7 +4774,9 @@
     "dns_compare_mismatch_body": "{what}：{missing} 沒有",
     "dns_compare_mismatch_body_more": "{what}：{missing} 沒有（另外還有 {more} 筆，見差異清單）",
     "dns_compare_resolved": "DNS 比對群組「{group}」已恢復一致",
-    "dns_compare_resolved_body": "組內各台的紀錄已經相同。"
+    "dns_compare_resolved_body": "組內各台的紀錄已經相同。",
+    "external_dns_changed": "外部 DNS 解析變動：{n} 個名稱",
+    "external_dns_changed_body": "{names}"
   },
   "system_transfer": {
     "title": "系統匯出／匯入",
@@ -5496,6 +5505,28 @@
     "kind": "類型"
   },
   "surface": {
+    "export": "匯出",
+    "export_group_report": "報告",
+    "export_group_table": "試算表",
+    "export_group_data": "資料",
+    "export_csv_tab": "CSV（目前頁籤）",
+    "export_no_filter": "無（全部）",
+    "export_generated": "產生時間",
+    "export_filters": "篩選條件",
+    "export_counts": "筆數",
+    "export_counts_v": "IP 檢視 {ip} 筆、FQDN 檢視 {fqdn} 筆",
+    "ai_btn": "AI 分析",
+    "ai_view": "檢視 AI 分析",
+    "ai_title": "AI 分析",
+    "ai_about": "關於這份 AI 分析",
+    "ai_model": "模型",
+    "ai_disclaimer": "此為語言模型依清單統計所做的判讀；統計數字由系統計算，判讀請對照原始資料後再行動。",
+    "ai_unavailable": "尚未設定 AI 模型（管理 → LLM / AI）",
+    "ai_scope": "分析範圍：畫面上的 {n} 筆",
+    "ai_running": "分析中，已 {s} 秒",
+    "ai_waiting": "模型正在讀取資料…",
+    "ai_stop": "停止",
+    "ai_rerun": "重新分析",
     "title": "對外開放服務清單",
     "target": "目標",
     "via": "途徑",
@@ -5537,7 +5568,32 @@
     "paired_with": "與它配對的是：",
     "st_online": "上線",
     "st_offline": "離線",
-    "all_firewalls": "全部防火牆"
+    "all_firewalls": "全部防火牆",
+    "ext_not_ours": "不是我方",
+    "ext_authoritative": "權威",
+    "ext_all_status": "全部外部狀態",
+    "ext_st_consistent": "一致",
+    "ext_st_not_public": "外部查不到",
+    "ext_st_foreign": "指向非我方 IP",
+    "ext_st_mismatch": "答案不一致",
+    "ext_st_no_path": "到我方但沒有轉發",
+    "ext_st_query_failed": "查詢失敗",
+    "ext_st_outside_domains": "不在對外網域",
+    "ext_st_not_checked": "尚未查詢",
+    "col_ext_addrs": "外部解析",
+    "col_ext_owner": "公網 IP 屬於",
+    "col_ext_status": "外部狀態",
+    "col_ext_checked": "最後查詢",
+    "ext_not_configured": "尚未設定外部 DNS：到「管理 → 系統設定」的「DNS 解析器」卡片設定解析器與對外網域，就能看到每個名稱從網際網路上查到什麼。",
+    "ext_last_run": "外部 DNS 上次查詢",
+    "ext_run": "立即查詢外部 DNS",
+    "col_service": "服務",
+    "svc_confirmed": "已確認",
+    "svc_named": "依名稱",
+    "svc_port_guess": "依埠號推測",
+    "svc_mismatch": "名稱與實際不符",
+    "svc_sensitive": "管理／敏感",
+    "svc_unverified": "未確認"
   },
   "zabbix": {
     "title": "整合 Zabbix",
@@ -8110,5 +8166,29 @@
     "bulk_apply": "套用",
     "bulk_done": "已新建 {created} 個、更新 {updated} 個收集目標",
     "bulk_skipped": "{n} 台略過："
+  },
+  "dns_resolvers": {
+    "title": "DNS 解析器（外部）",
+    "intro": "對外開放服務的名稱會用這裡的解析器從外面查（另外可直接問網域的權威伺服器），在「對外開放服務」的 FQDN 頁籤比對內外是否一致。只有「對外網域」底下的名稱會送出去查：內部名稱送去公共解析器等於洩漏內部架構。伺服器要能對外連 UDP/TCP 53。",
+    "resolvers": "外部解析器",
+    "name_ph": "名稱（例：Cloudflare）",
+    "test": "測試",
+    "add": "新增解析器",
+    "public_domains": "對外網域",
+    "public_domains_hint": "例：example.com；子網域會一起比對。",
+    "public_ranges": "我方公網位址／網段",
+    "public_ranges_hint": "CIDR，例：203.0.113.0/29。防火牆自己的介面位址會從各整合自動帶入，這裡補上沒接整合的線路。",
+    "interval": "查詢間隔",
+    "hours": "小時",
+    "authoritative": "同時直接問權威伺服器",
+    "authoritative_hint": "不經快取，看得到最新的答案；跟解析器的答案不同時標成「答案不一致」。",
+    "notify": "公網解析變動時通知",
+    "run_now": "立即查詢",
+    "run_started": "已開始查詢，完成後會更新",
+    "last_run": "上次查詢",
+    "summary": "{names} 個名稱、{failed} 次查詢失敗、{changed} 個變動",
+    "not_configured": "尚未設定",
+    "test_ok": "{name} 查到：{addrs}",
+    "test_fail": "{name}：{rcode} {error}"
   }
 }

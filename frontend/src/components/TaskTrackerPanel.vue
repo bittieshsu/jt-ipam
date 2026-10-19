@@ -140,7 +140,15 @@ async function copy(text: string): Promise<void> {
   width: 380px;
   max-width: calc(100vw - 32px);
   z-index: 1850;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
+}
+/* 四周都有陰影，從頁面上浮出來（使用者 2026-10-19）。要帶主題前綴：全站的
+   html[data-theme="light"] .n-card 比單一類別更具體，以前這裡寫的陰影一直被它蓋掉 */
+html[data-theme="light"] .jt-task-tracker,
+html:not([data-theme]) .jt-task-tracker {
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.06), 0 0 22px rgba(15, 23, 42, 0.16), 0 10px 28px rgba(15, 23, 42, 0.14);
+}
+html[data-theme="dark"] .jt-task-tracker {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 22px rgba(0, 0, 0, 0.55), 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 /* 有 AI 對話按鈕（右下 24px、56px 高）時放在它上方，不擋住它 */
 .jt-task-tracker.jt-tt-raised { bottom: 92px; }

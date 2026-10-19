@@ -1,7 +1,7 @@
 """PDF 報告（使用者 2026-10-08：「匯出 PDF 卻出了瀏覽器列印頁，這不對」）。
 
 前端組好報告大綱（標題、基本資料、段落、條列、表格）送來，這裡排版成真正的 PDF 檔：
-A4 直式、內嵌字型子集（中文／日文在任何閱讀器都顯示得出來）、表頭跨頁重複、頁尾頁碼。
+A4 直式（`landscape` 時橫式，欄位多的表格用）、內嵌字型子集（中文／日文在任何閱讀器都顯示得出來）、表頭跨頁重複、頁尾頁碼。
 DOCX／ODT 由前端產生，三種格式的版面規則刻意一致（顏色、欄寬算法、表格樣式）。
 
 字型：Noto Sans CJK（apt 的 fonts-noto-cjk；install／upgrade 都會補）優先，依語系挑 TC／JP 字面；
@@ -188,7 +188,7 @@ def _render(doc: ReportIn, font: FontChoice) -> bytes:
             self.cell(self.epw * 0.8, 4, footer_left)
             self.cell(self.epw * 0.2, 4, f"{self.page_no()} / {{nb}}", align="R")
 
-    pdf = Pdf(format="A4", unit="mm")
+    pdf = Pdf(orientation="L" if doc.landscape else "P", format="A4", unit="mm")
     pdf.set_title(doc.title)
     pdf.set_creator(doc.brand)
     pdf.set_author(doc.brand)

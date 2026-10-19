@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  TEXT_WIDTH, columnWidths, pdfPayload, reportDocx, reportHtml, reportOdt, workbookOds, workbookXlsx, type Report,
+  TEXT_WIDTH, TEXT_WIDTH_LANDSCAPE, columnWidths, pdfPayload, reportDocx, reportHtml, reportOdt, workbookOds, workbookXlsx, type Report,
 } from "./reportExport";
 
 /** 讀手刻的 STORE zip：檔名 → 內容（只為了測試） */
@@ -103,8 +103,8 @@ describe("report documents", () => {
     expect(p.sections[2].table?.tones).toEqual(["danger", null]);
     expect(p.sections[0].caption).toBe("AI 只根據這份結果解說");
     expect(p.sections[1].table).toBeNull();
-    expect(Object.keys(p).sort()).toEqual(["brand", "filename", "footer_text", "generated_at", "lang", "meta", "note",
-                                           "sections", "subtitle", "title"]);
+    expect(Object.keys(p).sort()).toEqual(["brand", "filename", "footer_text", "generated_at", "landscape", "lang", "meta",
+                                           "note", "sections", "subtitle", "title"]);
   });
 });
 
@@ -172,5 +172,22 @@ describe("workbooks", () => {
     const files = unzip(workbookOds(sheets));
     expect(files.mimetype).toBe("application/vnd.oasis.opendocument.spreadsheet");
     expect((files["content.xml"].match(/<table:table /g) ?? []).length).toBe(2);
+  });
+});
+
+
+describe("landscape", () => {
+  it("turns the page and widens every table in DOCX, ODT, HTML and the PDF payload", () => {
+    const r: Report = { ...REPORT, landscape: true };
+    const docx = unzip(reportDocx(r))["word/document.xml"];
+    expect(docx).toContain('<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>');
+    expect(docx).toContain(`<w:tblW w:w="${TEXT_WIDTH_LANDSCAPE.docx}" w:type="dxa"/>`);
+    const odt = unzip(reportOdt(r));
+    expect(odt["styles.xml"] + odt["content.xml"]).toContain('style:print-orientation="landscape"');
+    expect(odt["content.xml"]).toContain(`style:width="${TEXT_WIDTH_LANDSCAPE.odt}cm"`);
+    expect(reportHtml(r, "zh-TW")).toContain("size:A4 landscape");
+    expect(pdfPayload(r, "zh-TW", "x").landscape).toBe(true);
+    // 產生完回到直式：下一份沒有指定橫式的報告不受影響
+    expect(unzip(reportDocx(REPORT))["word/document.xml"]).toContain('<w:pgSz w:w="11906" w:h="16838"/>');
   });
 });

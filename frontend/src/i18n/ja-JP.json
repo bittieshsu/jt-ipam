@@ -1646,7 +1646,8 @@
       "technitium_dhcp_sync": "Technitium DHCP 同期",
       "wazuh_sync": "Wazuh 同期",
       "windows_dhcp_sync": "Windows DHCP 同期",
-      "zabbix_sync": "Zabbix 同期"
+      "zabbix_sync": "Zabbix 同期",
+      "external_dns_run": "外部 DNS の確認"
     },
     "tracker": {
       "title": "バックグラウンドジョブ",
@@ -3832,7 +3833,12 @@
     "snmp_sections_failed": "一部の収集項目を最後まで読み取れませんでした（以前のデータは保持され、削除されません）",
     "snmp_test_failed": "SNMP テストに失敗しました。どの認証情報でも応答がありません",
     "snmp_job_expired": "スキャンエージェントが時間内に応答しませんでした（オフラインの可能性があります）",
-    "snmp_ip_not_found": "この IP アドレスが見つかりません"
+    "snmp_ip_not_found": "この IP アドレスが見つかりません",
+    "ext_dns_invalid_entries": "無効な項目があり保存されませんでした（リゾルバー {resolvers}、ドメイン {public_domains}、範囲 {public_ranges}）",
+    "ext_dns_bad_address": "「{value}」は有効な IP アドレスではありません",
+    "ext_dns_need_name": "先に公開ドメインを設定するか、問い合わせる名前を指定してください",
+    "ext_dns_running": "外部 DNS の確認はすでに実行中です",
+    "ext_dns_not_configured": "外部リゾルバーと公開ドメインが設定されていません"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -4310,7 +4316,8 @@
       "credential_expiring": "API トークン／MCP キー／公開エンドポイントのトークンの期限が近い",
       "security_session_reuse": "ログイントークン盗用の疑い（セッションは取り消し済み）",
       "dns_compare_mismatch": "DNS 比較グループの不一致",
-      "dns_compare_resolved": "DNS 比較グループの一致回復"
+      "dns_compare_resolved": "DNS 比較グループの一致回復",
+      "external_dns_changed": "外部 DNS の解決結果の変化"
     },
     "enable": "有効にする",
     "secret_keep": "（設定済み。変更しない場合は空欄のまま）",
@@ -4329,7 +4336,7 @@
     "zulip_stream": "チャンネル",
     "zulip_topic": "トピック",
     "webhook_title": "汎用 Webhook",
-    "webhook_hint": "指定した URL へ JSON を POST します：{'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":..., \"url\":... {'}'}（url は該当ページへの完全な URL で、対応するページがある場合のみ付きます）。n8n や自作のエンドポイントなどで使えます。任意の Bearer トークンを指定すると Authorization ヘッダとして送信します。",
+    "webhook_hint": "指定した URL へ JSON を POST します：{'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":..., \"url\":..., \"severity\":... {'}'}（url は該当ページへの完全な URL、severity は重要度で、それぞれある場合のみ付きます）。n8n や自作のエンドポイントなどで使えます。任意の Bearer トークンを指定すると Authorization ヘッダとして送信します。",
     "webhook_token": "Bearer トークン（任意）",
     "webhook_token_ph": "空欄にすると Authorization ヘッダを送りません"
   },
@@ -4767,7 +4774,9 @@
     "dns_compare_mismatch_body": "{what}：{missing} にありません",
     "dns_compare_mismatch_body_more": "{what}：{missing} にありません（ほか {more} 件。違いの一覧を参照）",
     "dns_compare_resolved": "DNS 比較グループ「{group}」が一致に戻りました",
-    "dns_compare_resolved_body": "グループ内のすべてのサーバーのレコードが同じになりました。"
+    "dns_compare_resolved_body": "グループ内のすべてのサーバーのレコードが同じになりました。",
+    "external_dns_changed": "外部 DNS の解決結果が変化：{n} 件",
+    "external_dns_changed_body": "{names}"
   },
   "system_transfer": {
     "title": "システムのエクスポート／インポート",
@@ -5496,6 +5505,28 @@
     "kind": "種別"
   },
   "surface": {
+    "export": "エクスポート",
+    "export_group_report": "レポート",
+    "export_group_table": "スプレッドシート",
+    "export_group_data": "データ",
+    "export_csv_tab": "CSV（現在のタブ）",
+    "export_no_filter": "なし（すべて）",
+    "export_generated": "作成日時",
+    "export_filters": "絞り込み条件",
+    "export_counts": "件数",
+    "export_counts_v": "IP 表示 {ip} 件、FQDN 表示 {fqdn} 件",
+    "ai_btn": "AI 分析",
+    "ai_view": "AI 分析を表示",
+    "ai_title": "AI 分析",
+    "ai_about": "この AI 分析について",
+    "ai_model": "モデル",
+    "ai_disclaimer": "一覧の統計をもとに言語モデルが行った解釈です。数値はシステムが算出しています。行動する前に元データを確認してください。",
+    "ai_unavailable": "AI モデルが設定されていません（管理 → LLM / AI）",
+    "ai_scope": "分析範囲：画面上の {n} 件",
+    "ai_running": "分析中（{s} 秒経過）",
+    "ai_waiting": "モデルがデータを読み込んでいます…",
+    "ai_stop": "停止",
+    "ai_rerun": "再分析",
     "title": "公開されているサービスの一覧",
     "target": "対象",
     "via": "経路",
@@ -5537,7 +5568,32 @@
     "paired_with": "対になっているもの：",
     "st_online": "オンライン",
     "st_offline": "オフライン",
-    "all_firewalls": "すべてのファイアウォール"
+    "all_firewalls": "すべてのファイアウォール",
+    "ext_not_ours": "自組織以外",
+    "ext_authoritative": "権威",
+    "ext_all_status": "すべての外部状態",
+    "ext_st_consistent": "一致",
+    "ext_st_not_public": "外部で解決されない",
+    "ext_st_foreign": "他組織の IP",
+    "ext_st_mismatch": "回答が不一致",
+    "ext_st_no_path": "自組織宛てだが転送なし",
+    "ext_st_query_failed": "問い合わせ失敗",
+    "ext_st_outside_domains": "公開ドメイン外",
+    "ext_st_not_checked": "未確認",
+    "col_ext_addrs": "外部での解決結果",
+    "col_ext_owner": "グローバル IP の所属",
+    "col_ext_status": "外部状態",
+    "col_ext_checked": "最終確認",
+    "ext_not_configured": "外部 DNS が未設定です。「管理 → システム設定」の「DNS リゾルバー」カードでリゾルバーと公開ドメインを設定すると、各名前がインターネット上でどう解決されるかを表示できます。",
+    "ext_last_run": "外部 DNS の最終確認",
+    "ext_run": "外部 DNS を今すぐ確認",
+    "col_service": "サービス",
+    "svc_confirmed": "確認済み",
+    "svc_named": "名前から推定",
+    "svc_port_guess": "ポート番号から推測",
+    "svc_mismatch": "名前と実体が不一致",
+    "svc_sensitive": "管理／機微",
+    "svc_unverified": "未確認"
   },
   "zabbix": {
     "title": "Zabbix 連携",
@@ -8110,5 +8166,29 @@
     "bulk_apply": "適用",
     "bulk_done": "収集対象を {created} 件作成、{updated} 件更新しました",
     "bulk_skipped": "{n} 台をスキップ："
+  },
+  "dns_resolvers": {
+    "title": "DNS リゾルバー（外部）",
+    "intro": "公開サービスの名前を、ここで設定したリゾルバー（必要に応じてドメインの権威サーバーにも直接）で外部から問い合わせ、「公開されているサービス」の FQDN タブで内外を比較します。公開ドメイン配下の名前だけを外部に問い合わせます。社内の名前を公共リゾルバーに送ると内部構成が漏れるためです。サーバーから UDP/TCP 53 で外部に接続できる必要があります。",
+    "resolvers": "外部リゾルバー",
+    "name_ph": "名前（例：Cloudflare）",
+    "test": "テスト",
+    "add": "リゾルバーを追加",
+    "public_domains": "公開ドメイン",
+    "public_domains_hint": "例：example.com。サブドメインも対象です。",
+    "public_ranges": "自組織のグローバルアドレス／範囲",
+    "public_ranges_hint": "CIDR（例：203.0.113.0/29）。ファイアウォールのインターフェースアドレスは各連携から自動で取り込みます。連携していない回線をここに追加します。",
+    "interval": "確認間隔",
+    "hours": "時間",
+    "authoritative": "権威サーバーにも直接問い合わせる",
+    "authoritative_hint": "キャッシュを経由せず最新の回答を確認します。リゾルバーと回答が違う場合は「回答が不一致」になります。",
+    "notify": "外部での解決結果が変わったら通知",
+    "run_now": "今すぐ確認",
+    "run_started": "確認を開始しました。完了すると更新されます",
+    "last_run": "最終確認",
+    "summary": "名前 {names} 件、失敗 {failed} 回、変化 {changed} 件",
+    "not_configured": "未設定",
+    "test_ok": "{name} の解決結果：{addrs}",
+    "test_fail": "{name}：{rcode} {error}"
   }
 }

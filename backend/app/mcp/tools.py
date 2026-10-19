@@ -3146,6 +3146,8 @@ async def list_attack_surface(
         scope = f"ip:{want_ip}"
     n = _clamp_limit(limit)
     shown = items[:n]
+    from app.services.surface_service import enrich
+    shown = await enrich(session, shown)   # 服務判定附證據等級：只有埠號推測的不可以當事實講
     return {
         "scope": scope,
         "count": len(items),
@@ -3165,8 +3167,23 @@ async def list_attack_surface(
             "device_model": i["identity"].get("device_model"),
             "wazuh": i["identity"].get("wazuh"),
             "status": i["identity"].get("status"),
+            "service": i.get("service"),
         } for i in shown],
+        # 外部 DNS：這些名稱從網際網路上查到什麼、那個位址是誰的、跟內部一不一致（設定了才有，2026-10-19）
+        "external_dns": await _external_dns_for(session, shown),
     }
+
+
+async def _external_dns_for(session: AsyncSession, items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    from app.services import external_dns as xdns
+    if not xdns.configured(await xdns.get_settings(session)):
+        return None
+    want = {str(f).lower().rstrip(".") for i in items for f in (i["identity"].get("fqdns") or [])}
+    if not want:
+        return {}
+    names = (await xdns.view(session))["names"]
+    return {f: {k: names[f][k] for k in ("status", "addresses", "owners", "checked_at")}
+            for f in sorted(want) if f in names}
 
 
 async def get_customer_summary(
@@ -5157,7 +5174,8 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": (
             "Externally reachable services (IP:port) with their IPAM identity and the DNS names resolving to "
             "them. Ask by fqdn= or ip=. registered=false means IPAM does not know the host: report it as a "
-            "finding."),
+            "finding. external_dns (when set up) gives each FQDN's public answer, who owns that IP and a status "
+            "(consistent, not_public, foreign, mismatch, no_path, query_failed)."),
         "parameters": {"type": "object", "properties": {
             "fqdn": {"type": "string", "description": "Restrict to services reachable via this FQDN"},
             "ip": {"type": "string", "description": "Restrict to this address"},

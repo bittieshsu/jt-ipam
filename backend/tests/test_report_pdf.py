@@ -138,3 +138,12 @@ async def test_falls_back_to_another_cjk_font_when_noto_is_missing(client, auth_
         assert re.search(rb"/FontFile[23]", r.content)
     finally:
         report_pdf.clear_font_cache()
+
+
+@needs_font
+async def test_landscape_for_wide_tables(client, auth_headers) -> None:
+    """欄位多的表格（對外開放服務清單 11 欄）要橫式：直式時 NAT、TCP 被折成一字一行（2026-10-19）。"""
+    portrait = (await client.post("/api/v1/reports/pdf", json=DOC, headers=auth_headers)).content
+    land = (await client.post("/api/v1/reports/pdf", json={**DOC, "landscape": True}, headers=auth_headers)).content
+    assert re.search(rb"/MediaBox\s*\[\s*0\.?0*\s+0\.?0*\s+595\.\d+\s+841\.\d+\s*\]", portrait)
+    assert re.search(rb"/MediaBox\s*\[\s*0\.?0*\s+0\.?0*\s+841\.\d+\s+595\.\d+\s*\]", land)

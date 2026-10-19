@@ -48,6 +48,8 @@ class ReportIn(StrictModel):
     footer_text: Annotated[str, Field(max_length=200)] = ""
     lang: Literal["zh-TW", "en-US", "ja-JP"] = "zh-TW"
     filename: Annotated[str, Field(max_length=150)] = "report"
+    #: A4 橫式（欄位多的表格：直式放 11 欄會把短欄折成一字一行）
+    landscape: bool = False
 
     @model_validator(mode="after")
     def _bounded(self) -> ReportIn:

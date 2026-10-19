@@ -1646,7 +1646,8 @@
       "technitium_dhcp_sync": "Technitium DHCP sync",
       "wazuh_sync": "Wazuh sync",
       "windows_dhcp_sync": "Windows DHCP sync",
-      "zabbix_sync": "Zabbix sync"
+      "zabbix_sync": "Zabbix sync",
+      "external_dns_run": "External DNS check"
     },
     "tracker": {
       "title": "Background jobs",
@@ -3832,7 +3833,12 @@
     "snmp_sections_failed": "Some collection items were not read completely (previous data is kept, not cleared)",
     "snmp_test_failed": "SNMP test failed: no credential got an answer",
     "snmp_job_expired": "The scan agent did not report back in time (it may be offline)",
-    "snmp_ip_not_found": "IP address not found"
+    "snmp_ip_not_found": "IP address not found",
+    "ext_dns_invalid_entries": "Some entries were invalid and not saved (resolvers {resolvers}, domains {public_domains}, ranges {public_ranges})",
+    "ext_dns_bad_address": "\"{value}\" is not a valid IP address",
+    "ext_dns_need_name": "Set a public domain first, or give a name to look up",
+    "ext_dns_running": "An external DNS check is already running",
+    "ext_dns_not_configured": "External resolvers and public domains are not set up"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -4310,7 +4316,8 @@
       "credential_expiring": "API token / MCP key / public endpoint token expiring",
       "security_session_reuse": "Sign-in token possibly stolen (session revoked)",
       "dns_compare_mismatch": "DNS comparison group mismatch",
-      "dns_compare_resolved": "DNS comparison group consistent again"
+      "dns_compare_resolved": "DNS comparison group consistent again",
+      "external_dns_changed": "External DNS resolution changed"
     },
     "enable": "Enable",
     "secret_keep": "(set — leave blank to keep)",
@@ -4329,7 +4336,7 @@
     "zulip_stream": "Channel",
     "zulip_topic": "Topic",
     "webhook_title": "Generic Webhook",
-    "webhook_hint": "POSTs JSON to your URL: {'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":..., \"url\":... {'}'} (url is the full link to the related page, sent when there is one). Works with n8n, custom endpoints, etc.; an optional Bearer token is sent as the Authorization header.",
+    "webhook_hint": "POSTs JSON to your URL: {'{'} \"app\":\"jt-ipam\", \"subject\":..., \"text\":..., \"url\":..., \"severity\":... {'}'} (url is the full link to the related page and severity the level; each is sent only when there is one). Works with n8n, custom endpoints, etc.; an optional Bearer token is sent as the Authorization header.",
     "webhook_token": "Bearer token (optional)",
     "webhook_token_ph": "leave blank for no Authorization header"
   },
@@ -4767,7 +4774,9 @@
     "dns_compare_mismatch_body": "{what}: missing on {missing}",
     "dns_compare_mismatch_body_more": "{what}: missing on {missing} (and {more} more; see the difference list)",
     "dns_compare_resolved": "DNS comparison group \"{group}\" is consistent again",
-    "dns_compare_resolved_body": "Every server in the group has the same records."
+    "dns_compare_resolved_body": "Every server in the group has the same records.",
+    "external_dns_changed": "External DNS resolution changed: {n} names",
+    "external_dns_changed_body": "{names}"
   },
   "system_transfer": {
     "title": "System Export / Import",
@@ -5496,6 +5505,28 @@
     "kind": "Type"
   },
   "surface": {
+    "export": "Export",
+    "export_group_report": "Report",
+    "export_group_table": "Spreadsheet",
+    "export_group_data": "Data",
+    "export_csv_tab": "CSV (current tab)",
+    "export_no_filter": "None (all)",
+    "export_generated": "Generated",
+    "export_filters": "Filters",
+    "export_counts": "Rows",
+    "export_counts_v": "IP view {ip}, FQDN view {fqdn}",
+    "ai_btn": "AI analysis",
+    "ai_view": "View AI analysis",
+    "ai_title": "AI analysis",
+    "ai_about": "About this AI analysis",
+    "ai_model": "Model",
+    "ai_disclaimer": "This is a language model's reading of the list statistics; the numbers are computed by the system. Check the source data before acting.",
+    "ai_unavailable": "No AI model is configured (Admin → LLM / AI)",
+    "ai_scope": "Scope: the {n} rows on screen",
+    "ai_running": "Analyzing, {s} s",
+    "ai_waiting": "The model is reading the data…",
+    "ai_stop": "Stop",
+    "ai_rerun": "Analyze again",
     "title": "Exposed services list",
     "target": "Target",
     "via": "Via",
@@ -5537,7 +5568,32 @@
     "paired_with": "Paired with:",
     "st_online": "online",
     "st_offline": "offline",
-    "all_firewalls": "All firewalls"
+    "all_firewalls": "All firewalls",
+    "ext_not_ours": "Not ours",
+    "ext_authoritative": "Authoritative",
+    "ext_all_status": "All external statuses",
+    "ext_st_consistent": "Consistent",
+    "ext_st_not_public": "Not public",
+    "ext_st_foreign": "Points elsewhere",
+    "ext_st_mismatch": "Answers differ",
+    "ext_st_no_path": "Ours, no forwarding",
+    "ext_st_query_failed": "Query failed",
+    "ext_st_outside_domains": "Not a public domain",
+    "ext_st_not_checked": "Not checked yet",
+    "col_ext_addrs": "External answer",
+    "col_ext_owner": "Public IP belongs to",
+    "col_ext_status": "External status",
+    "col_ext_checked": "Last checked",
+    "ext_not_configured": "External DNS is not set up: add resolvers and public domains in the \"DNS resolvers\" card under Admin → System Settings to see what each name resolves to on the internet.",
+    "ext_last_run": "External DNS last checked",
+    "ext_run": "Check external DNS now",
+    "col_service": "Service",
+    "svc_confirmed": "Confirmed",
+    "svc_named": "By name",
+    "svc_port_guess": "Port guess",
+    "svc_mismatch": "Name mismatch",
+    "svc_sensitive": "Admin / sensitive",
+    "svc_unverified": "Unverified"
   },
   "zabbix": {
     "title": "Zabbix integration",
@@ -8110,5 +8166,29 @@
     "bulk_apply": "Apply",
     "bulk_done": "Created {created} and updated {updated} collection targets",
     "bulk_skipped": "{n} skipped:"
+  },
+  "dns_resolvers": {
+    "title": "DNS resolvers (external)",
+    "intro": "Names of exposed services are looked up from outside with these resolvers (and optionally the domain's authoritative servers), and the FQDN tab of Exposed services compares inside and outside. Only names under the public domains are sent out: sending internal names to public resolvers leaks your internal layout. The server needs outbound UDP/TCP 53.",
+    "resolvers": "External resolvers",
+    "name_ph": "Name (e.g. Cloudflare)",
+    "test": "Test",
+    "add": "Add resolver",
+    "public_domains": "Public domains",
+    "public_domains_hint": "e.g. example.com; subdomains are included.",
+    "public_ranges": "Our public addresses / ranges",
+    "public_ranges_hint": "CIDR, e.g. 203.0.113.0/29. Firewall interface addresses come from the integrations automatically; add lines that have no integration here.",
+    "interval": "Check interval",
+    "hours": "hours",
+    "authoritative": "Also ask the authoritative servers",
+    "authoritative_hint": "Bypasses caches to see the latest answer; a different answer from the resolvers is marked \"Answers differ\".",
+    "notify": "Notify when public resolution changes",
+    "run_now": "Check now",
+    "run_started": "Check started; results update when it finishes",
+    "last_run": "Last checked",
+    "summary": "{names} names, {failed} failed queries, {changed} changed",
+    "not_configured": "Not set up",
+    "test_ok": "{name} resolved to: {addrs}",
+    "test_fail": "{name}: {rcode} {error}"
   }
 }

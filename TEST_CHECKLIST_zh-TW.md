@@ -165,6 +165,9 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 - [ ] 通知發送設定版面：寬螢幕每張管道卡片兩欄、輸入格延伸到右緣（提示、啟用開關、按鈕列橫跨整列；Port＋TLS 並排在一欄）；手機寬度單欄、沒有水平捲動；每個「寄出測試」按鈕都有圖示
 - [ ] 外部管道與 Email 通知帶連結（`tests/test_notify_channels.py`、`tests/test_notification_links.py`）：開著 Zulip／Slack／Teams 跑一次異常偵測，每則訊息都有「前往檢視」（Teams 是卡片按鈕），點了開到 APP_PUBLIC_URL 上對應的異常偵測頁籤（沒登入先登入再回來）；通用 Webhook 的 JSON 有 `url`；各管道「寄出測試」沒有連結也照常送出
 - [ ] LDAP/AD 加密與錯誤（`tests/test_ldap_tls_and_errors.py`；可丟棄的 OpenLDAP，憑證是內部 CA 簽的 RSA 1024 位元）：StartTLS 不設定時說金鑰太短；打開「允許較弱的憑證金鑰」後說不信任 CA；貼上 CA 憑證後顯示「目前信任」，測試連線與用帳密測試都成功（憑證含 IP 時用 IP 也行）；名稱不在憑證上時說名稱不符；不是有效 PEM 會被擋；「用帳密測試」不再出現 Internal Server Error
+- [ ] 對外開放服務清單（`tests/test_attack_surface_ai.py`、`src/utils/__tests__/attackSurfaceExport.test.ts`）：「單位／網段」預設不顯示（FQDN 檢視也跟著）；每種匯出格式都下載得到（PDF/DOCX/ODT/HTML 11 欄時是橫式、短欄不會一字一行；XLSX/ODS 有 IP 與 FQDN 兩張表；CSV 是目前頁籤；跑過 AI 分析後 JSON 與 Markdown 會附上）；沒設定模型時「AI 分析」反灰並有說明、有模型時邊寫邊顯示、關掉對話框後可以「檢視 AI 分析」、只分析篩選後的列、模型出錯顯示訊息而不是 500
+- [ ] 外部 DNS 解析（`tests/test_external_dns_core.py`、`tests/test_external_dns_round.py`；可在 127.0.0.1 起一個可丟棄的 DNS 試）：沒設定時 FQDN 頁籤說明去哪裡設；「管理 → 系統設定」的「DNS 解析器」加解析器（測試顯示答案）、對外網域、存檔（不合格的 IP 或網域會被擋，不會靜靜丟掉），「立即查詢」走背景作業；之後 FQDN 頁籤在內部 IP 旁顯示外部答案、屬於誰、外部狀態（一致／外部查不到／指向非我方／答案不一致／沒有轉發／失敗），滑過看各解析器答案，篩選可用，匯出帶這些欄位；不在對外網域的名稱絕不送出去查；改答案再查一次會記錄變動並發「外部 DNS 解析變動」通知，連結開到該頁籤；刪除防火牆整合會清掉它的自身位址
+- [ ] 對外開放服務「服務」欄（`tests/test_surface_service.py`）：規則名稱寫了應用程式（Jitsi、OpenVPN、Reverse Proxy）時顯示該應用程式「依名稱」；只有埠號的顯示「依埠號推測」，敏感埠另標「未確認」；對目標按過 IP 探測後顯示探測到的產品「已確認」（滑過看探測那一行）；位址換手前的探測不採用；名稱寫別的、實際探到 SSH/RDP 時標「名稱與實際不符」；AI 分析不再把 UDP 10000 講成 Webmin
 - [ ] 頁籤看得出可以切換（深色與淺色都看）：異常偵測、SNMP、進階 → 電路、掃描代理等頁的頁籤：淺色是頁籤列下方細線（沒有灰色色塊）、深色是淡底色條，每個頁籤滑過有底色、
   選中的加粗加底色、底線 3px；segment／card 型頁籤不受影響；手機寬度頁籤仍可左右捲動
 - [ ] 登入卡片在淺色與深色背景都有陰影；裝置頁 SNMP 卡片只在有收集目標時出現，標題高度與間距跟其他卡片一致

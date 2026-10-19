@@ -14,25 +14,49 @@
 import { computed, onMounted, ref, watch, h } from "vue";
 import {
   NCard, NSpace, NIcon, NTag, NDataTable, NEmpty, NAlert, NButton, NSelect, NInput,
-  NPopover, NTabs, NTabPane, useMessage, type DataTableColumns,
+  NPopover, NTabs, NTabPane, NDropdown, NModal, NTooltip, useMessage, type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import { apiClient, apiErrMsg } from "@/api/client";
-import { FirewallIcon, RefreshIcon, SearchIcon } from "@/icons";
+import { AiAuditIcon, CancelIcon, EyeIcon, ExportIcon, FirewallIcon, RefreshIcon, SearchIcon } from "@/icons";
+import {
+  analyzeSurfaceStream, getExternalDns, runExternalDns, type ExternalDnsName, type ExternalDnsView, type SurfaceAiEvent,
+} from "@/api/attackSurface";
+import { useAuthStore } from "@/stores/auth";
+import { trackTask } from "@/composables/useTaskTracker";
+import { renderReportPdf } from "@/api/reports";
+import { useExportBusy } from "@/composables/useExportBusy";
+import { exportTable } from "@/utils/tableExport";
+import {
+  MIME, pdfPayload, reportDocx, reportHtml, reportMarkdown, reportOdt, saveBytes, workbookOds, workbookXlsx,
+  type Report, type ReportSection, type Sheet,
+} from "@/utils/reportExport";
+import { PDF_MAX, clipForPdf, pdfProblem, suggestWidths } from "@/utils/anomalyExport";
+import { markdownSections } from "@/utils/attackSurfaceExport";
+import { renderMarkdown } from "@/utils/markdown";
+import { aiErrText } from "@/utils/wsError";
+import { fmtDateTime } from "@/utils/datetime";
 import { autoSort } from "@/composables/useTableSort";
 import { useTablePagination } from "@/composables/useTablePagination";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import ColumnPicker from "@/components/ColumnPicker.vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import { deviceKindColumn } from "@/utils/deviceKindCell";
 
-const { t, te } = useI18n();
+const { t, te, locale } = useI18n();
 const msg = useMessage();
 const pg = useTablePagination();
 const links = useEntityLinks(useRouter());
 
+/** 這個埠上跑的是什麼（後端 surface_service：已確認／依名稱／依埠號推測，2026-10-19） */
+interface ServiceInfo {
+  name: string | null; level: "confirmed" | "named" | "port_guess" | null; evidence: string[];
+  sensitive: boolean; unverified_sensitive: boolean; mismatch: string | null;
+}
 interface Entry {
+  key?: string;
+  service?: ServiceInfo;
   via: string; source: string; firewall: string | null; name: string;
   protocol: string | null; port: number | string | null; descr: string;
   identity: { registered: boolean; ip?: string; ip_id?: string; hostname?: string | null;
@@ -49,22 +73,52 @@ interface Row {
   owner: string | null; wazuh: string | null;
   status: string | null; online: boolean | null; statusSrc: string;
   descr: string; key: string; fqdns: string[];
+  /** 後端給的列識別（AI 分析時送回畫面上那些列；後端照它重挑） */
+  akey: string;
+  service: ServiceInfo | null;
   /** 這一列的穩定識別。**不可以用陣列索引** —— 過濾之後同一個索引會指到不同的列，
    *  表格會拿舊的列來重用，於是被篩掉的列還留在畫面上（實機遇過：搜尋 A 卻看到 B）。 */
   uid: string;
 }
 const items = ref<Entry[]>([]);
 const loading = ref(false);
+const aiAvailable = ref(false);
+const auth = useAuthStore();
+const route = useRoute();
+
+// ── 外部 DNS 解析（FQDN 頁籤；使用者 2026-10-19 定案）──
+const ext = ref<ExternalDnsView | null>(null);
+const extRunning = ref(false);
+async function loadExternal() {
+  try { ext.value = await getExternalDns(); } catch { ext.value = null; }
+}
+async function runExternal() {
+  extRunning.value = true;
+  try {
+    const r = await runExternalDns();
+    trackTask(r.task_id, { onDone: () => { extRunning.value = false; void loadExternal(); } });
+  } catch (e) { extRunning.value = false; msg.error(apiErrMsg(e)); }
+}
+const extOf = (fqdn: string): ExternalDnsName | undefined => ext.value?.names[fqdn.toLowerCase().replace(/\.$/, "")];
+const EXT_TONE: Record<string, "success" | "warning" | "error" | "default" | "info"> = {
+  consistent: "success", not_public: "default", foreign: "error", mismatch: "error", no_path: "warning",
+  query_failed: "warning", outside_domains: "default", not_checked: "default",
+};
 
 async function load() {
   loading.value = true;
   try {
     const { data } = await apiClient.get("/api/v1/anomalies/attack-surface");
     items.value = data.items ?? [];
+    aiAvailable.value = !!data.ai_available;
   } catch (e: any) { msg.error(apiErrMsg(e)); }
   finally { loading.value = false; }
 }
-onMounted(load);
+onMounted(() => {
+  if (route.query.tab === "fqdn") tab.value = "fqdn";   // 外部 DNS 變動通知的連結會帶 ?tab=fqdn
+  void load();
+  void loadExternal();
+});
 
 const rows = computed<Row[]>(() => items.value.map((i, idx) => {
   const ident = i.identity ?? { registered: false };
@@ -88,6 +142,8 @@ const rows = computed<Row[]>(() => items.value.map((i, idx) => {
     descr: i.descr || "",
     fqdns: ident.fqdns ?? [],
     key: `${ident.ip ?? "?"}:${i.port ?? ""}`,
+    akey: i.key ?? "",
+    service: i.service ?? null,
     // 在**未過濾**的來源清單裡的位置 —— 只有重新載入資料才會變
     uid: `r${idx}`,
   };
@@ -185,6 +241,7 @@ interface FqdnRow {
   ports: string; portCount: number; owner: string | null;
   status: string | null; online: boolean | null;
   firewalls: string; names: string; key: string;
+  extStatus: string; extAddrs: string; extOwner: string; extChecked: string | null; ext?: ExternalDnsName;
 }
 const fqdnRows = computed<FqdnRow[]>(() => {
   const by = new Map<string, Row[]>();
@@ -205,9 +262,34 @@ const fqdnRows = computed<FqdnRow[]>(() => {
       firewalls: [...new Set(rs.map((r) => r.firewall).filter(Boolean))].join("、"),
       names: [...new Set(rs.map((r) => r.name).filter(Boolean))].join("、"),
       key: fqdn,
+      ...extFields(fqdn),
     };
   }).sort((a, b) => a.fqdn.localeCompare(b.fqdn));
 });
+function extFields(fqdn: string) {
+  const e = extOf(fqdn);
+  const status = e?.status ?? "not_checked";
+  const owners = e ? [...new Set(e.addresses.map((a) => e.owners[a] ?? t("surface.ext_not_ours")))] : [];
+  return { ext: e, extStatus: status, extAddrs: e?.addresses.join("、") ?? "",
+           extOwner: owners.join("、"), extChecked: e?.checked_at ?? null };
+}
+/** 外部解析的明細（滑過看）：每個解析器／權威伺服器各自的答案 */
+function extDetail(e: ExternalDnsName) {
+  return h("div", { style: "font-size:12.5px; line-height:1.8; max-width: 420px" }, e.answers.map((a) =>
+    h("div", null, [
+      h("b", null, a.authoritative ? `${t("surface.ext_authoritative")} ${a.resolver.replace(/^authoritative:/, "")}` : a.resolver),
+      "：", [...a.a, ...a.aaaa].join("、") || a.rcode,
+      a.cname.length ? h("span", { style: "opacity:.6" }, ` （CNAME ${a.cname.join(" → ")}）`) : null,
+      a.error ? h("span", { style: "opacity:.6" }, ` ${a.error}`) : null,
+    ])));
+}
+const extFilter = ref<string | null>(null);
+const extStatusOptions = computed(() => [{ label: t("surface.ext_all_status"), value: "__all__" },
+  ...["consistent", "not_public", "foreign", "mismatch", "no_path", "query_failed", "outside_domains", "not_checked"]
+    .map((v) => ({ label: t(`surface.ext_st_${v}`), value: v }))]);
+const fqdnShown = computed(() => (!extFilter.value || extFilter.value === "__all__")
+  ? fqdnRows.value : fqdnRows.value.filter((r) => r.extStatus === extFilter.value));
+
 // 有對外開口、卻沒有任何 DNS 名稱對應 —— FQDN 視角看不到它們，要明講有幾筆，
 // 否則使用者會以為「FQDN 頁籤的筆數就是全部」。
 const noFqdnCount = computed(() => shown.value.filter((r) => !r.fqdns.length).length);
@@ -217,14 +299,28 @@ const fqdnCols = computed<DataTableColumns<FqdnRow>>(() => autoSort([
   { title: () => t("surface.col_ip"), key: "ip", width: 150,
     render: (r: FqdnRow) => r.registered && r.ip_id
       ? links.ipById(r.ip_id, r.ip ?? "") : (r.ip ?? "—") },
+  // 外部 DNS：從網際網路上查這個名稱得到什麼、那個位址是誰的、跟內部一不一致
+  ...(ext.value?.configured ? [
+    { title: () => t("surface.col_ext_addrs"), key: "extAddrs", width: 170,
+      render: (r: FqdnRow) => r.ext && r.ext.answers.length
+        ? h(NPopover, { trigger: "hover" }, { trigger: () => h("span", { style: "cursor: help" }, r.extAddrs || "—"),
+                                             default: () => extDetail(r.ext!) })
+        : "—" },
+    { title: () => t("surface.col_ext_owner"), key: "extOwner", width: 190, ellipsis: { tooltip: true },
+      render: (r: FqdnRow) => r.extOwner || "—" },
+    { title: () => t("surface.col_ext_status"), key: "extStatus", width: 150,
+      render: (r: FqdnRow) => h(NTag, { size: "small", type: EXT_TONE[r.extStatus] ?? "default", bordered: true },
+                                { default: () => t(`surface.ext_st_${r.extStatus}`) }) },
+  ] : []),
   { title: () => t("surface.col_ports"), key: "ports", minWidth: 200,
     ellipsis: { tooltip: true }, render: (r: FqdnRow) => r.ports || "—" },
   { title: () => t("surface.col_name"), key: "names", minWidth: 200,
     ellipsis: { tooltip: true }, render: (r: FqdnRow) => r.names || "—" },
   { title: () => t("surface.col_firewall"), key: "firewalls", width: 180,
     render: (r: FqdnRow) => r.firewalls || "—" },
-  { title: () => t("surface.col_owner"), key: "owner", width: 190,
-    render: (r: FqdnRow) => r.owner || "—" },
+  // 「單位／網段」跟著 IP 檢視的欄位設定（預設不顯示，使用者 2026-10-19）
+  ...(visibleKeys.value.includes("owner") ? [{ title: () => t("surface.col_owner"), key: "owner", width: 190,
+    render: (r: FqdnRow) => r.owner || "—" }] : []),
   { title: () => t("surface.col_status"), key: "status", width: 130,
     render: (r: FqdnRow) => r.status
       ? h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
@@ -232,13 +328,20 @@ const fqdnCols = computed<DataTableColumns<FqdnRow>>(() => autoSort([
           r.status,
         ])
       : "—" },
+  ...(ext.value?.configured ? [
+    { title: () => t("surface.col_ext_checked"), key: "extChecked", width: 160,
+      render: (r: FqdnRow) => r.extChecked ? fmtDateTime(r.extChecked) : "—" },
+  ] : []),
 ]));
+const fqdnScrollX = computed(() => fqdnCols.value.reduce((sum, c: any) => sum + (c.width ?? c.minWidth ?? 160), 0));
 const tab = ref<"ip" | "fqdn">("ip");
 
-const ALL_KEYS = ["ip", "port", "hostname", "device_kind", "via", "name", "firewall",
+const ALL_KEYS = ["ip", "port", "service", "hostname", "device_kind", "via", "name", "firewall",
                   "protocol", "owner", "wazuh", "status", "descr"];
+// 「單位／網段」預設不顯示（使用者 2026-10-19）；要看的人從「欄位」打開
+const DEFAULT_KEYS = ALL_KEYS.filter((k) => k !== "owner");
 const { visibleKeys, setVisible, reset, order, setOrder, orderColumns } =
-  useColumnPrefs("attack_surface", ALL_KEYS, ALL_KEYS);
+  useColumnPrefs("attack_surface", ALL_KEYS, DEFAULT_KEYS);
 const pickerCols = computed(() => ALL_KEYS.map((k) => ({
   key: k, label: k === "device_kind" ? t("cols.device_kind") : t(`surface.col_${k}`) })));
 
@@ -251,6 +354,29 @@ const allCols: Record<string, any> = {
           { default: () => t("surface.unregistered") })]) },
   port: { title: () => t("surface.col_port"), key: "port", width: 90,
     render: (r: Row) => r.portText || "—" },
+  // 這個埠上跑的是什麼，附證據等級；只有埠號推測的不當事實（Jitsi 的 UDP 10000 曾被講成 Webmin）
+  service: { title: () => t("surface.col_service"), key: "service", width: 210,
+    sorter: (a: Row, b: Row) => (a.service?.name ?? "").localeCompare(b.service?.name ?? ""),
+    render: (r: Row) => {
+      const s = r.service;
+      const svcName = s?.name;
+      if (!s || !svcName) return "—";
+      const tone = s.level === "confirmed" ? "success" : s.level === "named" ? "info" : "default";
+      return h(NPopover, { trigger: "hover" }, {
+        trigger: () => h("span", { style: "display:inline-flex;align-items:center;gap:6px;cursor:help" }, [
+          h("span", null, svcName),
+          h(NTag, { size: "tiny", type: tone, bordered: true }, { default: () => t(`surface.svc_${s.level}`) }),
+          s.mismatch ? h(NTag, { size: "tiny", type: "error", bordered: true }, { default: () => t("surface.svc_mismatch") }) : null,
+          s.sensitive || s.unverified_sensitive
+            ? h("span", { style: `font-size:11px;color:${s.sensitive ? "#d03050" : "#999"}` },
+                s.sensitive ? t("surface.svc_sensitive") : t("surface.svc_unverified")) : null,
+        ]),
+        default: () => h("div", { style: "font-size:12.5px;line-height:1.8;max-width:420px" }, [
+          ...(s.mismatch ? [h("div", { style: "color:#d03050" }, s.mismatch)] : []),
+          ...s.evidence.map((e) => h("div", null, e)),
+        ]),
+      });
+    } },
   hostname: { title: () => t("surface.col_hostname"), key: "hostname", width: 160,
     render: (r: Row) => r.hostname || "—" },
   // 對外開的是攝影機、NAS 還是伺服器（掃描代理判讀出的設備類型，滑過看型號）
@@ -313,6 +439,191 @@ const cols = computed<DataTableColumns<Row>>(
 const scrollX = computed(() =>
   ALL_KEYS.filter((k) => visibleKeys.value.includes(k))
     .reduce((sum, k) => sum + (allCols[k].width ?? allCols[k].minWidth ?? 160), 0));
+
+// ── 匯出（使用者 2026-10-19：pdf html odt ods docx xlsx csv markdown json）─────────────
+// 內容＝畫面上看到的：IP 檢視的可見欄位、FQDN 檢視、篩選條件；跑過 AI 分析就一併附上。
+const exportOptions = computed(() => [
+  { type: "group", key: "g-report", label: t("surface.export_group_report"), children: [
+    { label: "PDF", key: "pdf" }, { label: "HTML", key: "html" },
+    { label: "Word (.docx)", key: "docx" }, { label: "OpenDocument (.odt)", key: "odt" }] },
+  { type: "group", key: "g-table", label: t("surface.export_group_table"), children: [
+    { label: "Excel (.xlsx)", key: "xlsx" }, { label: t("export.fmt_ods_sheet"), key: "ods" }] },
+  { type: "group", key: "g-data", label: t("surface.export_group_data"), children: [
+    { label: t("surface.export_csv_tab"), key: "csv" }, { label: "Markdown", key: "md" }, { label: "JSON", key: "json" }] },
+]);
+const visibleIpKeys = computed(() => orderColumns(ALL_KEYS.filter((k) => visibleKeys.value.includes(k))
+  .map((k) => allCols[k])).map((c: any) => c.key as string));
+function ipColLabel(k: string): string {
+  return k === "device_kind" ? t("cols.device_kind") : k === "wazuh" ? "Wazuh" : t(`surface.col_${k}`);
+}
+function ipCell(r: Row, k: string): string {
+  switch (k) {
+    case "ip": return r.registered ? (r.ip ?? "") : `? (${t("surface.unregistered")})`;
+    case "port": return r.portText;
+    case "service": return r.service?.name
+      ? `${r.service.name}（${t(`surface.svc_${r.service.level}`)}）${r.service.mismatch ? `；${r.service.mismatch}` : ""}`
+      : "";
+    case "device_kind": return r.device_kind ? (te(`device_kind.${r.device_kind}`) ? t(`device_kind.${r.device_kind}`) : r.device_kind) : "";
+    case "via": return (r.via === "nat" ? "NAT" : t("surface.rule")) + (isPaired(r) ? ` (${t("surface.paired")})` : "");
+    case "firewall": return [r.source, r.firewall].filter(Boolean).join(" ");
+    case "wazuh": return r.registered ? (r.wazuh || t("surface.no_agent")) : "";
+    case "status": return [r.status, r.statusSrc].filter(Boolean).join(" ");
+    default: return String((r as any)[k] ?? "");
+  }
+}
+const fqdnExportCols = computed(() => ["fqdn", "ip",
+  ...(ext.value?.configured ? ["extAddrs", "extOwner", "extStatus"] : []), "ports", "names", "firewalls",
+  ...(visibleKeys.value.includes("owner") ? ["owner"] : []), "status",
+  ...(ext.value?.configured ? ["extChecked"] : [])]);
+const FQDN_LABEL_KEY: Record<string, string> = { names: "name", firewalls: "firewall", extAddrs: "ext_addrs",
+  extOwner: "ext_owner", extStatus: "ext_status", extChecked: "ext_checked" };
+const fqdnLabel = (k: string) => t(`surface.col_${FQDN_LABEL_KEY[k] ?? k}`);
+const fqdnCell = (r: FqdnRow, k: string) => k === "extStatus" ? t(`surface.ext_st_${r.extStatus}`)
+  : k === "extChecked" ? (r.extChecked ? fmtDateTime(r.extChecked) : "") : String((r as any)[k] ?? "");
+function filterSummary(): string {
+  const f: string[] = [];
+  const add = (v: string | null, label: string) => { if (v && v !== "__all__") f.push(`${label}：${v}`); };
+  add(sourceFilter.value, t("surface.all_sources")); add(firewallFilter.value, t("surface.all_firewalls"));
+  add(viaFilter.value, t("surface.all_via")); add(protoFilter.value, t("surface.all_proto"));
+  add(statusFilter.value, t("surface.all_status")); add(ownerFilter.value, t("surface.all_owner"));
+  if (extFilter.value && extFilter.value !== "__all__") f.push(`${t("surface.col_ext_status")}：${t(`surface.ext_st_${extFilter.value}`)}`);
+  if (searchText.value.trim()) f.push(`${t("common.search")}：${searchText.value.trim()}`);
+  return f.join("；") || t("surface.export_no_filter");
+}
+const exportBase = () => `attack-surface-${new Date().toISOString().slice(0, 10)}`;
+function buildReport(): Report {
+  // 欄寬照內容分配（平均分的話 IP 會在中間被折斷）
+  const ipCols = visibleIpKeys.value.map(ipColLabel);
+  const ipRows = shown.value.map((r) => visibleIpKeys.value.map((k) => ipCell(r, k)));
+  const fqCols = fqdnExportCols.value.map(fqdnLabel);
+  const fqRows = fqdnShown.value.map((r) => fqdnExportCols.value.map((k) => fqdnCell(r, k)));
+  const sections: ReportSection[] = [
+    { heading: `${t("surface.tab_ip")} (${shown.value.length})`,
+      table: { cols: ipCols, rows: ipRows, widths: suggestWidths(ipCols, ipRows),
+               tones: shown.value.map((r) => (r.registered ? null : "danger")) } },
+    { heading: `${t("surface.tab_fqdn")} (${fqdnShown.value.length})`,
+      table: { cols: fqCols, rows: fqRows, widths: suggestWidths(fqCols, fqRows) },
+      caption: noFqdnCount.value ? t("surface.no_fqdn_note", { n: noFqdnCount.value }) : undefined },
+  ];
+  if (aiText.value) {
+    sections.push(...markdownSections(aiText.value, t("surface.ai_title")));
+    sections.push({ heading: t("surface.ai_about"), paragraphs: [
+      `${t("surface.ai_model")}：${aiModel.value || "—"}`, t("surface.ai_disclaimer")] });
+  }
+  return {
+    title: t("surface.title"), generatedAt: fmtDateTime(new Date()),
+    meta: [[t("surface.export_generated"), fmtDateTime(new Date())], [t("surface.export_filters"), filterSummary()],
+           [t("surface.export_counts"), t("surface.export_counts_v", { ip: shown.value.length, fqdn: fqdnShown.value.length })]],
+    sections, note: t("surface.scope_note"),
+    // 欄位多時用橫式：直式放 11 欄，NAT、TCP 這種短欄會被折成一字一行
+    landscape: ipCols.length > 8,
+  };
+}
+function buildSheets(): Sheet[] {
+  return [
+    { name: t("surface.tab_ip"), cols: visibleIpKeys.value.map(ipColLabel),
+      rows: shown.value.map((r) => visibleIpKeys.value.map((k) => ipCell(r, k))) },
+    { name: t("surface.tab_fqdn"), cols: fqdnExportCols.value.map(fqdnLabel),
+      rows: fqdnShown.value.map((r) => fqdnExportCols.value.map((k) => fqdnCell(r, k))) },
+  ];
+}
+const { exporting, run: runExport } = useExportBusy();
+async function doExport(fmt: string) {
+  if (!shown.value.length) { msg.warning(t("export.empty")); return; }
+  const base = exportBase();
+  const meta = { source: "attack-surface", rows: shown.value.length };
+  try {
+    await runExport(async () => {
+      if (fmt === "csv") {   // CSV 一次只能一張表：匯出目前的頁籤
+        if (tab.value === "fqdn") {
+          exportTable("csv", `${base}-fqdn`, fqdnExportCols.value.map((k) => ({ key: k, label: fqdnLabel(k),
+            value: (r: Record<string, any>) => fqdnCell(r as FqdnRow, k) })), fqdnShown.value);
+        } else {
+          exportTable("csv", `${base}-ip`, visibleIpKeys.value.map((k) => ({ key: k, label: ipColLabel(k),
+            value: (r: Record<string, any>) => ipCell(r as Row, k) })), shown.value);
+        }
+        return;
+      }
+      if (fmt === "json") {
+        const data = {
+          title: t("surface.title"), generated_at: new Date().toISOString(), filters: filterSummary(),
+          items: shown.value.map((r) => ({ ip: r.ip, registered: r.registered, port: r.portText, protocol: r.protocol,
+            hostname: r.hostname, device_kind: r.device_kind, via: r.via, paired: isPaired(r), name: r.name,
+            service: r.service,
+            firewall: r.firewall, source: r.source, owner: r.owner, wazuh: r.wazuh, online: r.online,
+            status_source: r.statusSrc || null, description: r.descr, fqdns: r.fqdns })),
+          fqdns: fqdnShown.value.map((r) => ({ fqdn: r.fqdn, ip: r.ip, registered: r.registered, ports: r.ports,
+            names: r.names, firewalls: r.firewalls, owner: r.owner, online: r.online,
+            external: r.ext ? { status: r.extStatus, addresses: r.ext.addresses, owners: r.ext.owners,
+                                answers: r.ext.answers, checked_at: r.extChecked } : null })),
+          ai_analysis: aiText.value ? { text: aiText.value, model: aiModel.value, facts: aiFacts.value } : null,
+        };
+        saveBytes(`${base}.json`, new TextEncoder().encode(JSON.stringify(data, null, 2)), "application/json", meta);
+        return;
+      }
+      if (fmt === "xlsx" || fmt === "ods") {
+        saveBytes(`${base}.${fmt}`, fmt === "xlsx" ? workbookXlsx(buildSheets()) : workbookOds(buildSheets()), MIME[fmt], meta);
+        return;
+      }
+      const rep = buildReport();
+      if (fmt === "md") {
+        saveBytes(`${base}.md`, new TextEncoder().encode(reportMarkdown(rep)), "text/markdown", meta);
+        return;
+      }
+      if (fmt === "html") {
+        saveBytes(`${base}.html`, new TextEncoder().encode(reportHtml(rep, String(locale.value))), MIME.html, meta);
+        return;
+      }
+      if (fmt === "pdf") {
+        const problem = pdfProblem(rep);
+        if (problem) {
+          const max = problem.kind === "cols" ? PDF_MAX.cols : problem.kind === "rows" ? PDF_MAX.rows : PDF_MAX.cells;
+          msg.warning(t(`anomaly.export_pdf_${problem.kind}`, { ...problem, max }), { duration: 8000 });
+          return;
+        }
+        // 後端排版成 PDF（內嵌中文字型）；伺服器排版時已記稽核
+        const blob = await renderReportPdf(pdfPayload(clipForPdf(rep), String(locale.value), base));
+        saveBytes(`${base}.pdf`, new Uint8Array(await blob.arrayBuffer()), "application/pdf", { ...meta, audited: true });
+        return;
+      }
+      saveBytes(`${base}.${fmt}`, fmt === "docx" ? reportDocx(rep) : reportOdt(rep), MIME[fmt as "docx" | "odt"], meta);
+    });
+  } catch (e) { msg.error(apiErrMsg(e)); }
+}
+
+// ── AI 分析（使用者 2026-10-19）────────────────────────────────────────────
+// 分析畫面上（篩選後）的那些列；統計由後端算、模型只寫判讀，邊寫邊顯示。結果留在頁面可重看、可匯出。
+const aiOpen = ref(false);
+const aiRunning = ref(false);
+const aiText = ref("");
+const aiModel = ref("");
+const aiFacts = ref<SurfaceAiEvent["facts"] | null>(null);
+const aiError = ref("");
+const aiElapsed = ref(0);
+const aiRows = ref(0);
+let aiAbort: AbortController | null = null;
+async function runAi() {
+  if (!shown.value.length) { msg.warning(t("export.empty")); return; }
+  aiAbort?.abort();
+  aiAbort = new AbortController();
+  aiOpen.value = true; aiRunning.value = true;
+  aiText.value = ""; aiModel.value = ""; aiFacts.value = null; aiError.value = ""; aiElapsed.value = 0;
+  aiRows.value = shown.value.length;
+  const all = shown.value.length === rows.value.length;
+  try {
+    await analyzeSurfaceStream(all ? null : shown.value.map((r) => r.akey).filter(Boolean), (ev) => {
+      if (ev.elapsed != null) aiElapsed.value = ev.elapsed;
+      if (ev.type === "content" && ev.text) aiText.value += ev.text;
+      else if (ev.type === "done") {
+        aiText.value = ev.text || aiText.value; aiModel.value = ev.model ?? ""; aiFacts.value = ev.facts ?? null;
+      } else if (ev.type === "error") aiError.value = aiErrText(ev, ev.detail ?? "");
+    }, aiAbort.signal);
+  } catch (e: any) {
+    if (e?.name !== "AbortError") aiError.value = e?.message || t("errors.network");
+  } finally { aiRunning.value = false; }
+}
+function stopAi() { aiAbort?.abort(); aiRunning.value = false; }
+const aiHtml = computed(() => renderMarkdown(aiText.value));
 </script>
 
 <template>
@@ -348,9 +659,29 @@ const scrollX = computed(() =>
       <ColumnPicker :all="pickerCols" :visible="visibleKeys"
                     @update:visible="setVisible" @reset="reset"
                     :order="order" @update:order="setOrder" />
-      <n-button size="small" :loading="loading" @click="load">
+      <n-button size="small" :loading="loading" @click="() => { void load(); void loadExternal(); }">
         <template #icon><n-icon><RefreshIcon /></n-icon></template>
         {{ t("common.refresh") }}
+      </n-button>
+      <n-dropdown :options="exportOptions" :disabled="exporting" trigger="click" @select="doExport">
+        <n-button size="small" :loading="exporting" :disabled="exporting" data-testid="surface-export">
+          <template #icon><n-icon><ExportIcon /></n-icon></template>
+          {{ t("surface.export") }}
+        </n-button>
+      </n-dropdown>
+      <n-tooltip :disabled="aiAvailable">
+        <template #trigger>
+          <n-button size="small" type="primary" secondary :disabled="!aiAvailable || aiRunning" :loading="aiRunning"
+                    data-testid="surface-ai" @click="runAi">
+            <template #icon><n-icon><AiAuditIcon /></n-icon></template>
+            {{ t("surface.ai_btn") }}
+          </n-button>
+        </template>
+        {{ t("surface.ai_unavailable") }}
+      </n-tooltip>
+      <n-button v-if="(aiText || aiError) && !aiOpen" size="small" data-testid="surface-ai-view" @click="aiOpen = true">
+        <template #icon><n-icon><EyeIcon /></n-icon></template>
+        {{ t("surface.ai_view") }}
       </n-button>
     </n-space>
     <n-tabs v-model:value="tab" type="line" animated size="small">
@@ -362,18 +693,67 @@ const scrollX = computed(() =>
         <n-empty v-if="!loading && !shown.length" style="margin: 24px 0"
                  :description="t('surface.empty')" />
       </n-tab-pane>
-      <n-tab-pane name="fqdn" :tab="`${t('surface.tab_fqdn')} (${fqdnRows.length})`">
+      <n-tab-pane name="fqdn" :tab="`${t('surface.tab_fqdn')} (${fqdnShown.length})`">
+        <!-- 外部 DNS：沒設定時說去哪裡設；設定了就顯示上次查詢時間、可以立即查 -->
+        <n-alert v-if="ext && !ext.configured" type="info" :bordered="false" size="small" style="margin-bottom: 10px"
+                 data-testid="surface-ext-hint">
+          {{ t("surface.ext_not_configured") }}
+        </n-alert>
+        <n-space v-else-if="ext" align="center" style="margin-bottom: 10px" data-testid="surface-ext-bar">
+          <n-select v-model:value="extFilter" :options="extStatusOptions" style="width: 190px" clearable
+                    :placeholder="t('surface.ext_all_status')" />
+          <span style="font-size: 12.5px; opacity: .7">
+            {{ t("surface.ext_last_run") }}：{{ ext.last_run_at ? fmtDateTime(ext.last_run_at) : "—" }}
+          </span>
+          <n-button v-if="auth.me?.is_admin" size="small" :loading="extRunning" data-testid="surface-ext-run" @click="runExternal">
+            <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("surface.ext_run") }}
+          </n-button>
+        </n-space>
         <!-- 沒有 DNS 名稱的開口在這個視角看不到 → 明講筆數，避免被當成全部 -->
         <n-alert v-if="noFqdnCount" type="warning" :bordered="false" size="small"
                  style="margin-bottom: 10px">
           {{ t("surface.no_fqdn_note", { n: noFqdnCount }) }}
         </n-alert>
-        <n-data-table :columns="fqdnCols" :data="fqdnRows" :loading="loading" size="small"
-                      :scroll-x="1110" :row-key="(r: FqdnRow) => r.key"
+        <n-data-table :columns="fqdnCols" :data="fqdnShown" :loading="loading" size="small"
+                      :scroll-x="fqdnScrollX" :row-key="(r: FqdnRow) => r.key"
                       :pagination="pg" :bordered="false" />
-        <n-empty v-if="!loading && !fqdnRows.length" style="margin: 24px 0"
+        <n-empty v-if="!loading && !fqdnShown.length" style="margin: 24px 0"
                  :description="t('surface.empty_fqdn')" />
       </n-tab-pane>
     </n-tabs>
+
+    <!-- AI 分析：邊寫邊顯示；關掉對話框不會中斷，結果留著可以再看、可以一起匯出 -->
+    <n-modal v-model:show="aiOpen" preset="card" :title="t('surface.ai_title')" style="width: min(820px, 96vw)"
+             data-testid="surface-ai-modal">
+      <div class="surface-ai-meta">
+        {{ t("surface.ai_scope", { n: aiRows }) }}
+        <span v-if="aiRunning"> · {{ t("surface.ai_running", { s: aiElapsed }) }}</span>
+        <span v-else-if="aiModel"> · {{ t("surface.ai_model") }}：{{ aiModel }} · {{ aiElapsed }}s</span>
+      </div>
+      <n-alert v-if="aiError" type="error" :bordered="false" style="margin-bottom: 10px">{{ aiError }}</n-alert>
+      <div v-if="aiText" class="surface-ai-body" data-testid="surface-ai-body" v-html="aiHtml" />
+      <div v-else-if="aiRunning" class="surface-ai-meta">{{ t("surface.ai_waiting") }}</div>
+      <div v-if="aiText && !aiRunning" class="surface-ai-meta" style="margin-top: 10px">{{ t("surface.ai_disclaimer") }}</div>
+      <template #footer>
+        <n-space justify="end">
+          <n-button v-if="aiRunning" type="error" ghost @click="stopAi">
+            <template #icon><n-icon><CancelIcon /></n-icon></template>{{ t("surface.ai_stop") }}
+          </n-button>
+          <n-button v-else :disabled="!aiAvailable" @click="runAi">
+            <template #icon><n-icon><AiAuditIcon /></n-icon></template>{{ t("surface.ai_rerun") }}
+          </n-button>
+          <n-button @click="aiOpen = false">
+            <template #icon><n-icon><CancelIcon /></n-icon></template>{{ t("common.close") }}
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </n-card>
 </template>
+
+<style scoped>
+.surface-ai-meta { font-size: 12.5px; opacity: .7; margin-bottom: 8px; }
+.surface-ai-body { line-height: 1.7; font-size: 14px; }
+.surface-ai-body :deep(h2) { font-size: 15px; margin: 14px 0 6px; }
+.surface-ai-body :deep(ul) { padding-left: 20px; margin: 4px 0; }
+</style>

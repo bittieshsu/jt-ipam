@@ -55,6 +55,7 @@ from app.models.dns import DNSRecord, DNSServer, DNSZone
 from app.models.dns_compare_group import DNSCompareGroup, DNSCompareGroupDiff
 from app.models.encrypted_secret import EncryptedSecret
 from app.models.event_rule import EventRule
+from app.models.external_dns import ExternalDnsChange, ExternalDnsResult, IntegrationOwnAddress
 from app.models.firewall import (
     OPNsenseAliasMapping,
     OPNsenseFirewall,
@@ -169,6 +170,8 @@ __all__ = [
     "DeviceVLAN",
     "EncryptedSecret",
     "EventRule",
+    "ExternalDnsChange",
+    "ExternalDnsResult",
     "FDBEntry",
     "Group",
     "IPAddress",
@@ -191,6 +194,7 @@ __all__ = [
     "ImpactRun",
     "ImpactService",
     "ImpactServiceEndpoint",
+    "IntegrationOwnAddress",
     "JumpHost",
     "LibreNMSDevice",
     "LibreNMSInstance",

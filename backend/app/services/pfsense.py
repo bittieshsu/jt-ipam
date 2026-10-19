@@ -450,7 +450,7 @@ async def sync_interface_ips(session: AsyncSession, fw: PfSenseFirewall) -> int:
     data = await _api_get(fw, EP_STATUS_INTERFACES)
     scope = list(fw.scope_subnet_ids) if fw.scope_subnet_ids else None
     return (await iface_evidence.stamp(session, "iface:pfsense", iface_evidence.pfsense_addrs(data),
-                                       scope_ids=scope))["matched"]
+                                       scope_ids=scope, instance=(fw.id, fw.name)))["matched"]
 
 
 async def sync_instance(session: AsyncSession, fw: PfSenseFirewall) -> dict[str, int]:

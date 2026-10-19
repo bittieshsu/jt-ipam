@@ -345,7 +345,7 @@ async def sync_interface_ips(
     from app.services import iface_evidence
     rows = _rows(await _get(router, EP_IP_ADDRESS, client=client, proplist="address,interface,disabled,invalid"))
     res = await iface_evidence.stamp(session, "iface:mikrotik", iface_evidence.mikrotik_addrs(rows),
-                                     scope_ids=_scope(router))
+                                     scope_ids=_scope(router), instance=(router.id, router.name))
     return {"interface_ips": res["matched"]}
 
 

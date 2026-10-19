@@ -466,7 +466,8 @@ async def sync_interface_ips(session: AsyncSession, fw: FortiGateFirewall, vdoms
         for a in iface_evidence.fortigate_addrs(_rows(await _api_get(fw, "/api/v2/cmdb/system/interface", vdom=vdom))):
             if a not in addrs:
                 addrs.append(a)
-    return (await iface_evidence.stamp(session, "iface:fortigate", addrs, scope_ids=_scope(fw)))["matched"]
+    return (await iface_evidence.stamp(session, "iface:fortigate", addrs, scope_ids=_scope(fw),
+                                       instance=(fw.id, fw.name)))["matched"]
 
 
 async def sync_vpn(
