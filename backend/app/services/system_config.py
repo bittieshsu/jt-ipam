@@ -1124,6 +1124,8 @@ class LdapConfig:
     admin_groups: list[str]
     timeout: float
     default_group_id: str | None = None   # 自動建立帳號時加入的群組（預設角色）
+    ca_cert_pem: str | None = None        # 驗證 LDAPS／StartTLS 用的 CA 憑證（企業內部 CA），沒設＝系統信任清單
+    allow_weak_tls: bool = False          # 接受 RSA 1024 位元等較弱金鑰的伺服器憑證（OpenSSL 安全等級 1）
 
 
 def _enc_pw(pw: str) -> str:
@@ -1176,6 +1178,10 @@ async def get_ldap_config(session: AsyncSession) -> LdapConfig:
             cfg.admin_groups = [str(x) for x in v["admin_groups"]]
         if isinstance(v.get("default_group_id"), str) and v["default_group_id"]:
             cfg.default_group_id = v["default_group_id"]
+        if isinstance(v.get("ca_cert_pem"), str) and v["ca_cert_pem"].strip():
+            cfg.ca_cert_pem = v["ca_cert_pem"]
+        if isinstance(v.get("allow_weak_tls"), bool):
+            cfg.allow_weak_tls = v["allow_weak_tls"]
         if isinstance(v.get("bind_password_enc"), str) and v["bind_password_enc"]:
             pw = _dec_pw(v["bind_password_enc"])
             if pw is not None:
@@ -1185,7 +1191,7 @@ async def get_ldap_config(session: AsyncSession) -> LdapConfig:
 
 _LDAP_SCALARS = ("enabled", "server", "port", "use_ssl", "use_starttls", "bind_dn",
                  "search_base", "user_filter", "attr_email", "attr_display_name",
-                 "attr_member_of", "admin_groups", "default_group_id")
+                 "attr_member_of", "admin_groups", "default_group_id", "ca_cert_pem", "allow_weak_tls")
 
 
 async def set_ldap_config(

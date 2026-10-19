@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -25,6 +26,21 @@ from app.services.system_config import (
     get_ldap_config,
     set_ldap_config,
 )
+
+log = logging.getLogger("ldap_admin")
+
+#: CA 憑證欄位上限（一整串內部 CA 鏈也遠低於這個大小）
+_CA_PEM_MAX = 64 * 1024
+
+
+def _ca_subjects(pem: str | None) -> list[str]:
+    """解析 PEM 裡的每一張憑證，回傳主旨（畫面顯示「目前信任：…」）；不是有效憑證就丟 ValueError。"""
+    if not pem or not pem.strip():
+        return []
+    from cryptography import x509
+    certs = x509.load_pem_x509_certificates(pem.encode())
+    return [c.subject.rfc4514_string() for c in certs]
+
 
 admin_router = APIRouter(
     prefix="/system", tags=["system"], dependencies=[Depends(require_admin)]
@@ -46,6 +62,11 @@ class LdapOut(StrictModel):
     attr_member_of: str
     admin_groups: list[str]
     default_group_id: str | None = None
+    #: 驗證伺服器憑證用的 CA（企業內部 CA，PEM，可以多張）；空＝系統信任清單
+    ca_cert_pem: str | None = None
+    ca_cert_subjects: list[str] = []
+    #: 接受 RSA 1024 位元等較弱金鑰的伺服器憑證（舊版 AD 網域控制站）；憑證照樣驗證
+    allow_weak_tls: bool = False
 
 
 class LdapPatch(StrictModel):
@@ -63,6 +84,8 @@ class LdapPatch(StrictModel):
     attr_member_of: str = "memberOf"
     admin_groups: list[str] = []
     default_group_id: str | None = None
+    ca_cert_pem: str | None = None      # None／""＝不使用自訂 CA
+    allow_weak_tls: bool = False
 
 
 async def _password_set(session: AsyncSession) -> bool:
@@ -80,7 +103,16 @@ async def _as_out(session: AsyncSession) -> dict:  # type: ignore[type-arg]
         "attr_email": cfg.attr_email, "attr_display_name": cfg.attr_display_name,
         "attr_member_of": cfg.attr_member_of, "admin_groups": cfg.admin_groups,
         "default_group_id": str(cfg.default_group_id) if cfg.default_group_id else None,
+        "ca_cert_pem": cfg.ca_cert_pem, "ca_cert_subjects": _safe_subjects(cfg.ca_cert_pem),
+        "allow_weak_tls": cfg.allow_weak_tls,
     }
+
+
+def _safe_subjects(pem: str | None) -> list[str]:
+    try:
+        return _ca_subjects(pem)
+    except ValueError:
+        return []
 
 
 @admin_router.get("/ldap", response_model=LdapOut)
@@ -97,6 +129,16 @@ async def put_ldap(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:  # type: ignore[type-arg]
     data = payload.model_dump()
+    pem = (payload.ca_cert_pem or "").strip()
+    if len(pem) > _CA_PEM_MAX:
+        raise HTTPException(422, detail=ui_detail("ldap_ca_invalid", "CA 憑證太大", reason="too large"))
+    try:
+        if pem and not _ca_subjects(pem):
+            raise ValueError("no certificate found")
+    except ValueError as exc:
+        raise HTTPException(422, detail=ui_detail("ldap_ca_invalid", f"CA 憑證不是有效的 PEM：{exc}",
+                                                  reason=str(exc)[:200])) from exc
+    data["ca_cert_pem"] = pem + "\n" if pem else ""
     if payload.bind_password is None:   # 不變更密碼
         data.pop("bind_password", None)
     await set_ldap_config(session, data=data, updated_by_user_id=uuid.UUID(str(user.id)))
@@ -106,7 +148,7 @@ async def put_ldap(
         actor_user_agent=request.headers.get("user-agent"),
         object_type="system_setting", object_id=None, action="update",
         diff={"setting": "ldap", "enabled": payload.enabled, "server": payload.server,
-              "bind_dn": payload.bind_dn},
+              "bind_dn": payload.bind_dn, "ca_cert": bool(pem), "allow_weak_tls": payload.allow_weak_tls},
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
@@ -124,7 +166,10 @@ async def ldap_test_conn(
     except ldap_auth.LDAPNotConfigured as exc:
         raise HTTPException(503, detail=detail_of(exc, "ldap_not_configured")) from exc
     except ldap_auth.LDAPAuthError as exc:
-        raise HTTPException(502, detail=f"LDAP error: {exc}") from exc
+        raise HTTPException(502, detail=detail_of(exc, "ldap_error")) from exc
+    except Exception as exc:   # 不可以變成 500：管理員要看得到原因才能修設定
+        log.exception("LDAP test connection failed unexpectedly")
+        raise HTTPException(502, detail=detail_of(ldap_auth._translate(exc), "ldap_error")) from exc
 
 
 class LdapTestAuth(StrictModel):
@@ -149,7 +194,10 @@ async def ldap_test_auth(
     except ldap_auth.LDAPNotConfigured as exc:
         raise HTTPException(503, detail=detail_of(exc, "ldap_not_configured")) from exc
     except ldap_auth.LDAPAuthError as exc:
-        raise HTTPException(502, detail=f"LDAP error: {exc}") from exc
+        raise HTTPException(502, detail=detail_of(exc, "ldap_error")) from exc
+    except Exception as exc:   # 以前搜尋階段的例外會穿出來變成 500（客戶 2026-10-19）
+        log.exception("LDAP test-auth failed unexpectedly")
+        raise HTTPException(502, detail=detail_of(ldap_auth._translate(exc), "ldap_error")) from exc
     return {
         "ok": True, "dn": info.dn, "username": info.username,
         "display_name": info.display_name, "email": info.email,

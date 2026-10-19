@@ -38,8 +38,13 @@ export interface LdapConfig {
   attr_email: string; attr_display_name: string; attr_member_of: string;
   admin_groups: string[];
   default_group_id: string | null;
+  /** 驗證伺服器憑證用的企業內部 CA（PEM）；空＝系統信任清單。subjects 是後端解析出來的憑證主旨 */
+  ca_cert_pem: string | null;
+  ca_cert_subjects?: string[];
+  /** 接受 RSA 1024 位元等較弱金鑰的伺服器憑證（舊版 AD）；憑證照樣驗證 */
+  allow_weak_tls: boolean;
 }
-export type LdapPatch = Omit<LdapConfig, "password_set"> & { bind_password?: string | null };
+export type LdapPatch = Omit<LdapConfig, "password_set" | "ca_cert_subjects"> & { bind_password?: string | null };
 
 export async function getLdap(): Promise<LdapConfig> {
   const { data } = await apiClient.get<LdapConfig>("/api/v1/system/ldap");

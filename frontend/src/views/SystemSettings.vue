@@ -462,7 +462,7 @@ const ldap = ref<LdapConfig>({
   bind_dn: null, password_set: false, search_base: null,
   user_filter: "(sAMAccountName={username})", attr_email: "mail",
   attr_display_name: "displayName", attr_member_of: "memberOf", admin_groups: [],
-  default_group_id: null,
+  default_group_id: null, ca_cert_pem: null, allow_weak_tls: false,
 });
 const ldapGroups = ref<{ label: string; value: string }[]>([]);
 const ldapGroupOpts = computed(() => [{ label: t("settings.system.ldap_no_default_role"), value: "" }, ...ldapGroups.value]);
@@ -485,6 +485,10 @@ const ldapTlsMode = computed<"starttls" | "ssl" | "none">({
   get: () => ldap.value.use_ssl ? "ssl" : ldap.value.use_starttls ? "starttls" : "none",
   set: (m) => { ldap.value.use_ssl = m === "ssl"; ldap.value.use_starttls = m === "starttls"; },
 });
+const ldapCaPem = computed<string>({
+  get: () => ldap.value.ca_cert_pem ?? "",
+  set: (v) => { ldap.value.ca_cert_pem = v; },
+});
 const ldapGroupsText = computed<string>({
   get: () => ldap.value.admin_groups.join("\n"),
   set: (v) => { ldap.value.admin_groups = v.split("\n").map((s) => s.trim()).filter(Boolean); },
@@ -493,16 +497,16 @@ async function loadLdap() { try { ldap.value = await getLdap(); ldapPw.value = "
 async function saveLdap() {
   ldapSaving.value = true;
   try {
-    const { password_set: _ps, ...rest } = ldap.value;
+    const { password_set: _ps, ca_cert_subjects: _cs, ...rest } = ldap.value;
     ldap.value = await putLdap({ ...rest, bind_password: ldapPw.value ? ldapPw.value : null });
     ldapPw.value = "";
     msg.success(t("common.saved"));
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("errors.network")); } finally { ldapSaving.value = false; }
+  } catch (e) { msg.error(apiErrMsg(e)); } finally { ldapSaving.value = false; }
 }
 async function clearLdapPw() {
   ldapSaving.value = true;
   try {
-    const { password_set: _ps, ...rest } = ldap.value;
+    const { password_set: _ps, ca_cert_subjects: _cs, ...rest } = ldap.value;
     ldap.value = await putLdap({ ...rest, bind_password: "" });
     ldapPw.value = "";
     msg.success(t("common.ok"));
@@ -513,7 +517,7 @@ async function doTestLdap() {
   try {
     const r = await testLdap();
     msg.success(`${t("settings.system.ldap_test_ok")} — ${r.who_am_i || r.server}`);
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("settings.system.ldap_test_fail")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { ldapTesting.value = false; }
 }
 
@@ -601,7 +605,7 @@ async function doTestLdapAuth() {
     const r = await testLdapAuth(ldapTestUser.value, ldapTestPw.value);
     msg.success(`✓ ${r.dn}${r.is_admin ? ` · ${t("users.is_admin")}` : ""}${r.display_name ? " · " + r.display_name : ""}`, { duration: 8000 });
     ldapTestPw.value = "";
-  } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("settings.system.ldap_test_fail")); }
+  } catch (e) { msg.error(apiErrMsg(e)); }
   finally { ldapAuthTesting.value = false; }
 }
 
@@ -1142,6 +1146,26 @@ async function doPreviewAutolink() {
           <label>{{ t("settings.system.ldap_tls") }}</label>
           <n-select v-model:value="ldapTlsMode" :options="ldapTlsOpts" />
         </div>
+        <!-- 加密時才用得到：企業內部 CA 與舊版 AD 的弱金鑰憑證（客戶 2026-10-19） -->
+        <template v-if="ldapTlsMode !== 'none'">
+          <div class="fld">
+            <label>{{ t("settings.system.ldap_ca") }}</label>
+            <n-input v-model:value="ldapCaPem" type="textarea" :autosize="{ minRows: 2, maxRows: 8 }"
+                     placeholder="-----BEGIN CERTIFICATE-----" data-testid="ldap-ca-pem"
+                     style="font-family: var(--jt-mono, monospace); font-size: 12px" />
+            <div class="hint">{{ t("settings.system.ldap_ca_hint") }}</div>
+            <div v-if="ldap.ca_cert_subjects?.length" class="hint" data-testid="ldap-ca-current">
+              {{ t("settings.system.ldap_ca_current", { names: ldap.ca_cert_subjects.join("；") }) }}
+            </div>
+          </div>
+          <div class="fld">
+            <n-space align="center" :size="8" :wrap-item="false">
+              <n-switch v-model:value="ldap.allow_weak_tls" data-testid="ldap-weak-tls" />
+              <span style="font-size:13px">{{ t("settings.system.ldap_weak_tls") }}</span>
+            </n-space>
+            <div class="hint">{{ t("settings.system.ldap_weak_tls_hint") }}</div>
+          </div>
+        </template>
         <div class="fld">
           <label>{{ t("settings.system.ldap_bind_dn") }}</label>
           <n-input v-model:value="ldap.bind_dn" placeholder="CN=svc-ipam,OU=Svc,DC=example,DC=com" />
@@ -1199,6 +1223,7 @@ async function doPreviewAutolink() {
             <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("settings.system.ldap_test") }}
           </n-button>
         </n-space>
+        <div class="hint" style="margin-top:4px">{{ t("settings.system.ldap_test_saved_hint") }}</div>
         <div class="fld" style="margin-top:14px; border-top:1px dashed var(--n-border-color,#eee); padding-top:12px">
           <label>{{ t("settings.system.ldap_authtest") }}</label>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">

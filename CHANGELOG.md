@@ -17,6 +17,12 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 - Notification channels: each channel's settings use the full card width in two columns (they were capped at 640 px, leaving the right half empty); hints, the enable switch and the buttons span the row, Port and TLS (and Zulip channel and topic) share one column, and narrow screens get one column. The send-test buttons now have an icon.
 
 ### Fixed
+- LDAP/AD: "Test with an account" (and sign-in) returned Internal Server Error when searching for the user or binding as the user failed; those errors were never converted. Every LDAP failure now returns a readable error with the original text, and unexpected ones are logged with a traceback. Encrypted connections to Active Directory now work in practice:
+  - a "CA certificate" field takes the internal CA that issued the domain controller's certificate (PEM, several allowed; the page shows which CAs are trusted);
+  - "Allow weak certificate keys" (off by default) accepts 1024-bit RSA domain controller certificates, which OpenSSL rejects by default ("EE certificate key too weak"); the chain and name are still verified;
+  - connecting by IP works when the certificate has that IP (Python 3.12 removed the check ldap3 relied on, so an IP SAN never matched);
+  - errors explain the fix: key too short, CA not trusted, or name not matching the certificate;
+  - LDAP connections no longer follow referrals to other hosts (that skipped the outbound address check).
 - Zulip notification settings said "Stream"; Zulip renamed streams to channels in 9.0, so the field and hint now say channel (the API call still sends type "stream", which every Zulip version accepts).
 - An IP's OS showed "Unknown" when the preferred source named a distribution the OS table did not know (for example a desktop that Wazuh reports as "Bazzite" while LibreNMS says linux). Common distributions are now recognised (Bazzite, Kinoite, Silverblue, Arch, Manjaro, Mint, Pop!_OS, NixOS, Alpine, Kali, SteamOS and more), the OS family falls back to another source that knows it, and when no source does, the OS column shows the reported text instead of "Unknown".
 - Tables whose width was fixed in code got narrower than their columns once a column was added or turned on (scan agents page after the SNMP column): the action column pinned on the right covered the last columns even when scrolled fully right. Every table now scrolls at least as wide as its visible columns.
