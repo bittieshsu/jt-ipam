@@ -134,7 +134,11 @@ export interface DeviceSuggestion {
 
 /** 這個 IP 看起來屬於哪一台裝置 —— 或該建立哪一台。**只查詢，不會動到任何資料。** */
 /** 同一個 MAC 的其他位址（看得到的才列）：「上線狀態跟著設備」的提示用 */
-export async function getSameMacAddresses(id: string): Promise<IPAddress[]> {
+export type SameMacAddress = IPAddress & {
+  /** 這個 MAC 最早什麼時候出現在那個位址（ARP 記錄）—— 分辨「搬走了」與「同一台的另一個介面」 */
+  mac_since?: string | null;
+};
+export async function getSameMacAddresses(id: string): Promise<SameMacAddress[]> {
   const { data } = await apiClient.get(`/api/v1/addresses/${id}/same-mac`);
   return data;
 }

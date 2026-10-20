@@ -88,7 +88,8 @@ def reporter_key(source: str, device_id: Any) -> str:
 
 
 def classify_suspects(macs: dict[str, MacSeen], vendors: dict[str, str | None],
-                     known: Iterable[str] = (), corroborated_known: Iterable[str] = ()) -> dict[str, str | None]:
+                     known: Iterable[str] = (), corroborated_known: Iterable[str] = (),
+                     elsewhere: Iterable[str] = ()) -> dict[str, str | None]:
     """同一個 IP 的所有 MAC → 每個 MAC 的可疑原因（None＝正常）。`vendors` 以完整 MAC 為鍵。
 
     `known`：真實存在的 MAC，不一定出現在這次的時間窗裡 —— 這台裝置的網卡、這個 IP 登記的 MAC、
@@ -101,6 +102,9 @@ def classify_suspects(macs: dict[str, MacSeen], vendors: dict[str, str | None],
     """
     corroborated = {m for m, s in macs.items() if len(s.reporters) >= 2} | {k.lower() for k in corroborated_known}
     trusted = {k.lower() for k in known}
+    # IPAM 知道這個 MAC 現在在別的位址（而且那裡是上線的）：只有一台還這樣回報＝它的 ARP 快取過期了
+    # （正式環境 2026-10-20：一台主機還留著「.173 → 另一台 VM」，那台 VM 早就在 .154）
+    moved = {k.lower() for k in elsewhere}
     out: dict[str, str | None] = {}
     for m, seen in macs.items():
         reason: str | None = None
@@ -111,7 +115,7 @@ def classify_suspects(macs: dict[str, MacSeen], vendors: dict[str, str | None],
             if not vendors.get(m) and (is_splice(m, others) or one_byte_apart(
                     m, [o for o in [*macs, *trusted] if o != m and o in corroborated])):
                 reason = SUSPECT_CORRUPT
-            elif is_locally_administered(m) and (corroborated - {m}):
+            elif (is_locally_administered(m) or m in moved) and (corroborated - {m}):
                 reason = SUSPECT_STALE
         out[m] = reason
     return out

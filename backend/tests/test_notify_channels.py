@@ -228,10 +228,11 @@ async def test_chat_channels_get_an_emoji_but_the_webhook_gets_a_severity_field(
     assert "severity" not in got["webhook"]
 
 
-async def test_link_line_has_an_icon(sent):
+async def test_link_line_is_plain(sent):
+    """emoji 只留標題那一個（使用者 2026-10-20：「emoji 過多了適量就好」）。"""
     await nc.send_zulip({"zulip_site": "https://z", "zulip_bot_email": "b", "zulip_api_key": "k",
                          "zulip_stream": "s"}, "⚠️ Sub", "Body", link=URL)
-    assert sent[0]["data"]["content"] == f"**⚠️ Sub**\nBody\n🔗 [前往檢視]({URL})"
+    assert sent[0]["data"]["content"] == f"**⚠️ Sub**\nBody\n[前往檢視]({URL})"
 
 
 def test_anomaly_notifications_name_a_few_examples():
@@ -243,31 +244,38 @@ def test_anomaly_notifications_name_a_few_examples():
 
 
 def _rich(**k: Any):
-    from datetime import UTC, datetime
-    base = dict(title="⚠️ IP 衝突：新增 3 筆（共 12 筆）", bullets=["192.0.2.13", "192.0.2.20"], link=URL,
-                severity="warning", when=datetime(2026, 10, 19, 9, 5, tzinfo=UTC), source="ipam.example.com")
+    base = dict(title="⚠️ 異常偵測：2 類有新發現", link=URL, severity="warning", rows=[
+        nc.Row("IP 衝突", "新增 1 筆，共 12 筆", ["192.0.2.13"], URL + "&a"),
+        nc.Row("類型或 OS 突變", "新增 3 筆，共 28 筆", ["192.0.2.20", "192.0.2.21"], URL + "&b", more=True)])
     base.update(k)
     return nc.Rich(**base)
 
 
 def test_rich_markdown_layout() -> None:
+    """一個 emoji（標題）、每類一列（名稱是連結、後面接實例）、最後前往檢視；沒有時間與主機名稱（聊天軟體自己有）。"""
     md = nc.rich_markdown(_rich(), zulip=True)
     assert md.splitlines() == [
-        "**⚠️ IP 衝突：新增 3 筆（共 12 筆）**", "> • `192.0.2.13`", "> • `192.0.2.20`", "",
-        "🟠 警告　·　🕒 <time:2026-10-19T09:05:00+00:00>　·　🖥️ ipam.example.com", f"🔗 [前往檢視]({URL})"]
+        "**⚠️ 異常偵測：2 類有新發現**",
+        f"- [IP 衝突]({URL}&a)：新增 1 筆，共 12 筆　`192.0.2.13`",
+        f"- [類型或 OS 突變]({URL}&b)：新增 3 筆，共 28 筆　`192.0.2.20`　`192.0.2.21` …",
+        "", f"[前往檢視]({URL})"]
+    assert "<time:" not in md
+    single = nc.rich_markdown(nc.Rich(title="🚨 疑似登入權杖被盜用", text="說明一句。", link=URL))
+    assert single.splitlines() == ["**🚨 疑似登入權杖被盜用**", "說明一句。", f"[前往檢視]({URL})"]
 
 
 def test_rich_telegram_escapes_and_uses_html() -> None:
     out = nc.rich_telegram(_rich(text="<script>x</script>"))
-    assert "<b>⚠️ IP 衝突" in out
+    assert "<b>⚠️ 異常偵測" in out
     assert "&lt;script&gt;" in out
     assert "<code>192.0.2.13</code>" in out
-    assert f'<a href="{URL}">' in out
+    assert f'<a href="{URL}&amp;a">IP 衝突</a>' in out
 
 
 def test_rich_slack_blocks_and_teams_card() -> None:
     sl = nc.rich_slack(_rich())
-    assert [b["type"] for b in sl["blocks"]] == ["header", "section", "context", "actions"]
+    assert [b["type"] for b in sl["blocks"]] == ["section", "actions"]
+    assert f"<{URL}&a|IP 衝突>" in sl["blocks"][0]["text"]["text"]
     assert sl["blocks"][-1]["elements"][0]["url"] == URL
     card = nc.rich_teams_card(_rich(severity="error"))["attachments"][0]["content"]
     assert card["body"][0]["style"] == "attention"

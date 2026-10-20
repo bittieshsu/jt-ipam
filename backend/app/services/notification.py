@@ -89,8 +89,8 @@ async def email_users(
     if not tos:
         return
     if link:
-        from app.services.notify_channels import LINK_ICON, LINK_LABEL, absolute_link
-        body_text = f"{body_text}\n\n{LINK_ICON} {LINK_LABEL}：{absolute_link(link)}"
+        from app.services.notify_channels import LINK_LABEL, absolute_link
+        body_text = f"{body_text}\n\n{LINK_LABEL}：{absolute_link(link)}"
     from app.services.email import send_email_via_config
     from app.services.system_config import get_notification_channels
     try:

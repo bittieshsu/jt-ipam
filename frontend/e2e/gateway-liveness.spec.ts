@@ -31,9 +31,15 @@ test("同 MAC 的位址在線 → 提示並一鍵掛到同一台設備、勾「�
   const subs = await (await request.get("/api/v1/subnets?page_size=500", { headers: H })).json();
   const sub = subs.items.find((s: any) => s.cidr === "10.20.0.0/24");
   const dev = await (await request.post("/api/v1/devices", { headers: H, data: { name: `${tag}-rtr`, type: "router" } })).json();
-  const octet = 150 + (Date.now() % 80);
-  const ipRes = await request.post("/api/v1/addresses", { headers: H, data: {
-    subnet_id: sub.id, ip: `10.20.0.${octet}`, hostname: `${tag}-gw`, mac: "02:00:5e:42:00:01", state: "active" } });
+  // 刪掉的位址會進冷卻期（重跑時可能抽到上一輪用過的）→ 換一個再試
+  let ipRes = null as Awaited<ReturnType<typeof request.post>> | null;
+  for (let i = 0; i < 10; i += 1) {
+    const octet = 150 + Math.floor(Math.random() * 80);
+    ipRes = await request.post("/api/v1/addresses", { headers: H, data: {
+      subnet_id: sub.id, ip: `10.20.0.${octet}`, hostname: `${tag}-gw`, mac: "02:00:5e:42:00:01", state: "active" } });
+    if (ipRes.ok() || !(await ipRes.text()).includes("ip_in_cooldown")) break;
+  }
+  if (!ipRes) throw new Error("unreachable");
   expect(ipRes.ok(), await ipRes.text()).toBeTruthy();
   const gw = await ipRes.json();
   try {

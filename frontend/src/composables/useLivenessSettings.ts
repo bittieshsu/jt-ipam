@@ -109,8 +109,29 @@ export function classifyAddressLiveness(addr: {
   // 勾了「上線狀態跟著設備」卻沒掛設備（2026-10-14，多 LAN 路由器的閘道）：沒有設備可以跟，同樣不算離線
   const noProbe = !!addr.exclude_from_ping || addr.subnet_scan_enabled === false
     || (!!addr.liveness_from_device && !addr.device_id);
+  const ts = countedTimes(addr);
+  if (ts.length) {
+    const kind = classifyLiveness(Math.max(...ts));
+    if (kind === "offline" && noProbe) return "unknown";
+    return kind;
+  }
+  return noProbe ? "unknown" : "offline";
+}
+
+type EvidenceFields = {
+  last_seen_scanner?: string | null;
+  last_seen_librenms?: string | null;
+  last_seen_arp?: string | null;
+  last_seen_dns?: string | null;
+  last_seen_wazuh?: string | null;
+  last_seen_zabbix?: string | null;
+  arp_seen?: Record<string, string> | null;
+};
+
+/** 會算數的上線證據時間（ms），依「上線判定」勾選的來源 */
+function countedTimes(addr: EvidenceFields): number[] {
   const use = livenessSources.value;
-  const ts = [
+  return [
     use.includes("scanner") ? addr.last_seen_scanner : null,
     use.includes("librenms") ? addr.last_seen_librenms : null,
     use.includes("wazuh") ? addr.last_seen_wazuh : null,
@@ -125,12 +146,28 @@ export function classifyAddressLiveness(addr: {
   ]
     .filter(Boolean)
     .map((s) => new Date(s as string).getTime());
-  if (ts.length) {
-    const kind = classifyLiveness(Math.max(...ts));
-    if (kind === "offline" && noProbe) return "unknown";
-    return kind;
-  }
-  return noProbe ? "unknown" : "offline";
+}
+
+// 兩邊時間的容許誤差：掃描代理／ARP 快取在機器換址後還會殘留幾個小時
+const MOVE_SLACK_MS = 24 * 3600 * 1000;
+
+/**
+ * 同一個 MAC 的另一個位址：這台機器是不是「搬過去了」（而不是同一台的另一個介面）。
+ *
+ * 判準：這裡曾經有會算數的證據，而那個 MAC 是在這裡最後一次出現之後（容許一天）才開始出現在那裡。
+ * 正式環境 2026-10-20：主機重灌換了位址，舊位址的頁面卻建議「上線狀態跟著設備」，照做的話舊位址會一直顯示上線。
+ * 多 LAN 路由器的閘道：要嘛這裡從來不回探測（沒有證據），要嘛兩邊長期同時在 —— 都不算搬走。
+ */
+/** 會算數的證據最後一次出現的時間（ms）；沒有就 null */
+export function lastCountedAt(addr: EvidenceFields): number | null {
+  const ts = countedTimes(addr);
+  return ts.length ? Math.max(...ts) : null;
+}
+
+export function looksMoved(addr: EvidenceFields, sibling: { mac_since?: string | null }): boolean {
+  const ts = countedTimes(addr);
+  if (!ts.length || !sibling.mac_since) return false;
+  return new Date(sibling.mac_since).getTime() >= Math.max(...ts) - MOVE_SLACK_MS;
 }
 
 /**

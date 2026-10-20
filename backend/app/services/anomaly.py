@@ -21,6 +21,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 from sqlalchemy import String, func, or_, select
@@ -267,6 +268,16 @@ async def analyze_ip_conflicts(
         evidence[key].add("mac_flip")
         changes[key] = max(changes.get(key, 0), len(seq))
 
+    # 偵測範圍（2026-10-20：以前這兩類沒照範圍，列出每台主機自己的 172.17.0.x）：有子網路的看它有沒有納入；
+    # 沒有子網路的（LibreNMS 觀測、IPAM 沒登記）看位址落在哪個有納入的子網路網段裡，規則同未授權 IP
+    from app.services.ip_autocreate import subnet_index
+    enabled = {str(x) for x in await _anomaly_subnet_ids(session)}
+    nets = subnet_index([(n, None) for n in await _anomaly_networks(session)])
+    for key in list(evidence):
+        sid, ip_s = key
+        inside = sid in enabled if sid else nets.longest(ipaddress.ip_address(ip_s)) is not None
+        if not inside:
+            del evidence[key]
     if not evidence:
         return [], []
     # 帶上 OUI 廠商：兩個裸 MAC 位址擺在一起看不出是誰在打架，「Dell vs Apple」才讓人知道該去找
@@ -275,8 +286,22 @@ async def analyze_ip_conflicts(
     by_prefix = await vendor_map(session, list(all_macs))
     vendors = {m: by_prefix.get(mac_prefix(m) or "") for m in all_macs}
     device_of, nics = await _device_nics(session, list(evidence))
+    # 沒連到裝置的：看虛擬化整合知不知道這些 MAC 是同一台 VM 的網卡
+    vm_of, vm_nics, vm_names = await _vm_nics(
+        session, {k: set(found[k]) for k in evidence if k not in device_of})
+    device_of.update(vm_of)
+    nics.update(vm_nics)
     known, corroborated_known = await _known_macs(session, list(evidence), device_of, nics)
-    suspects = {k: classify_suspects(found[k], vendors, known.get(k, ()), corroborated_known.get(k[1], ()))
+    lives_at = await _mac_registered_ips(session, {m for k in evidence for m, s_ in found[k].items()
+                                                   if len(s_.reporters) == 1})
+
+    def moved(k: tuple[str | None, str]) -> set[str]:
+        # 同一台（裝置或 VM）另一張網卡的 MAC 本來就登記在別的 IP —— 那是 ARP flux，不是過期快取
+        own = set(nics.get(device_of[k], {})) if k in device_of else set()
+        return {m for m in found[k] if m not in own and lives_at.get(m, set()) - {k[1]}}
+
+    suspects = {k: classify_suspects(found[k], vendors, known.get(k, ()), corroborated_known.get(k[1], ()),
+                                     elsewhere=moved(k))
                 for k in evidence}
 
     # 同一台機器的多張網卡（ARP flux）不是衝突：可信的 MAC 只剩一台機器的 → 移到 arp_flux
@@ -284,6 +309,22 @@ async def analyze_ip_conflicts(
     flux_evidence: dict[tuple[str | None, str], list[str]] = {}
     for key in list(evidence):
         good = {m for m, why in suspects[key].items() if why is None}
+        # IPAM 沒有這個網段、每個 MAC 都只有一台回報、回報者互不重疊＝各台主機自己的網段剛好用同一段位址
+        # （docker0 的 172.17.0.0/16、br-xxxx 等；正式環境 2026-10-20 三台主機各報一個 172.17.0.2）。
+        # 不是同一個網路，不是衝突。有 IPAM 網段的不套用：那裡的回報者本來就該看到同一個網路。
+        if key[0] is None and len(good) >= 2:
+            who = [set(found[key][m].reporters) for m in good]
+            if all(len(w) == 1 for w in who) and len(set().union(*who)) == len(who):
+                del evidence[key]
+                continue
+            # 同一台主機自己回報、一個 MAC 消失之後下一個才出現＝換掉（容器重建拿到新的隨機 MAC），不是同時在搶。
+            # 同一台看到兩個 MAC 時間重疊（真的在搶）照樣算衝突。
+            spans = sorted((found[key][m].first, found[key][m].last) for m in good)
+            if (evidence[key] == {"arp"} and len(set().union(*who)) == 1
+                    and all(f is not None and t is not None and f <= t for f, t in spans)
+                    and all(nxt[0] > prev[1] for prev, nxt in pairwise(spans))):
+                del evidence[key]
+                continue
         dev = device_of.get(key)
         own = set(nics.get(dev, {})) if dev else set()
         machines = len(good - own) + (1 if good & own else 0)
@@ -316,7 +357,8 @@ async def analyze_ip_conflicts(
         })
 
     flux: list[dict[str, Any]] = []
-    dev_names = await _device_names(session, {device_of[k] for k in flux_keys})
+    dev_names = await _device_names(session, {device_of[k] for k in flux_keys} - set(vm_names))
+    dev_names.update(vm_names)
     for key in sorted(flux_keys, key=lambda k: (k[1], k[0] or "")):
         sid, ip = key
         dev = device_of[key]
@@ -440,6 +482,69 @@ async def _device_nics(
         if (m := normalize(str(mac))) is not None:
             nics[dev][m].append(str(name))
     return device_of, {d: dict(v) for d, v in nics.items()}
+
+
+async def _mac_registered_ips(session: AsyncSession, macs: set[str]) -> dict[str, set[str]]:
+    """MAC → IPAM 登記它、而且目前上線的位址（判斷「單一來源的舊 ARP 快取」用）。"""
+    from sqlalchemy import Text, func
+
+    from app.services.arp_evidence import normalize
+    if not macs:
+        return {}
+    out: dict[str, set[str]] = defaultdict(set)
+    for mac, ip in (await session.execute(select(IPAddress.mac, IPAddress.ip).where(
+            in_values(func.lower(func.cast(IPAddress.mac, Text)), sorted(macs), type_=Text()),
+            IPAddress.effective_status.like("online%")))).all():
+        if (m := normalize(str(mac))) is not None:
+            out[m].add(str(ip).split("/")[0])
+    return out
+
+
+async def _vm_nics(
+    session: AsyncSession, macs_by_key: dict[tuple[str | None, str], set[str]],
+) -> tuple[dict[tuple[str | None, str], Any], dict[Any, dict[str, list[str]]], dict[Any, str]]:
+    """沒連到裝置的 IP：看到的 MAC 都是同一台 VM 的網卡（虛擬化整合的 vm_interfaces）→ 當成同一台機器。
+
+    正式環境 2026-10-20：Proxmox VM 兩張網卡分屬兩個網段，掃描代理看到 net0 回答 net1 的位址，因為 IP 沒有連到
+    裝置，被報成 IP 衝突；虛擬化整合明明知道兩張網卡是同一台。回傳 (鍵 → VM id、VM id → {MAC: [網卡名稱, 登記的 IP]}、
+    VM id → 名稱)。"""
+    from sqlalchemy import Text, func
+
+    from app.models.virt import VirtualMachine, VMInterface
+    from app.services.arp_evidence import normalize
+
+    all_macs = sorted({m for ms in macs_by_key.values() for m in ms})
+    if not all_macs:
+        return {}, {}, {}
+    vm_of_mac: dict[str, Any] = {}
+    for mac, vm in (await session.execute(select(func.lower(func.cast(VMInterface.mac, Text)), VMInterface.vm_id)
+                                          .where(in_values(func.lower(func.cast(VMInterface.mac, Text)), all_macs,
+                                                           type_=Text())))).all():
+        if (m := normalize(str(mac))) is not None:
+            vm_of_mac.setdefault(m, vm)
+    vm_for_key: dict[tuple[str | None, str], Any] = {}
+    for key, ms in macs_by_key.items():
+        hits = [m for m in ms if m in vm_of_mac]
+        if len(hits) >= 2 and len({vm_of_mac[m] for m in hits}) == 1:
+            vm_for_key[key] = vm_of_mac[hits[0]]
+    if not vm_for_key:
+        return {}, {}, {}
+    vm_ids = set(vm_for_key.values())
+    nics: dict[Any, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for vm, mac, name in (await session.execute(select(VMInterface.vm_id, VMInterface.mac, VMInterface.name)
+                                                .where(in_values(VMInterface.vm_id, vm_ids)))).all():
+        if mac and (m := normalize(str(mac))) is not None:
+            nics[vm][m].append(str(name))
+    for mac, ip in (await session.execute(select(IPAddress.mac, IPAddress.ip).where(
+            in_values(func.lower(func.cast(IPAddress.mac, Text)), [m for v in nics.values() for m in v],
+                      type_=Text())))).all():
+        if (m := normalize(str(mac))) is not None:
+            for vm in vm_ids:
+                if m in nics[vm]:
+                    nics[vm][m].append(str(ip).split("/")[0])
+    names = {vm: name for vm, name in (await session.execute(
+        select(VirtualMachine.id, VirtualMachine.name).where(in_values(VirtualMachine.id, vm_ids)))).all()}
+    return vm_for_key, {v: dict(d) for v, d in nics.items()}, names
 
 
 async def _device_macs(
@@ -890,6 +995,8 @@ async def detect_l2_subnet_bleed(
         sid_s = str(sid) if sid else (next(iter(ip_subnets[ip_s])) if len(ip_subnets.get(ip_s, ())) == 1 else None)
         if sid_s:
             observed.append((sid_s, ip_s, m))
+    # 同一筆被有子網路與沒子網路（LibreNMS）的觀測各報一次：只算一筆（2026-10-20 畫面上同一行出現兩次）
+    observed = list(dict.fromkeys(observed))
     # MAC 的「家」：登記在那裡、而且最近在那裡被看到自己的 IP 回應過；只認只有一個家的 MAC
     active = {(sid, ip, m) for sid, ip, m in observed if reg_mac.get((sid, ip)) == m}
     home: dict[str, tuple[str, str]] = {}
@@ -1991,6 +2098,48 @@ async def _vendor_mismatch_links(session: AsyncSession) -> dict[str, dict[str, A
     return out
 
 
+async def _drop_own_nic_flips(session: AsyncSession, rows: list[Any]) -> list[Any]:
+    """拿掉「目前的 MAC 還是這台裝置自己的網卡」的：關聯之後 MAC 只是在自己幾張網卡之間換（ARP flux）。
+
+    正式環境 2026-10-20：這一頁 14 筆幾乎都是雙網卡主機，兩個網段在同一個二層、兩張網卡都回答，IP 記錄的 MAC
+    來回換了幾十次。裝置認得的 MAC：關聯當時這個 IP 的 MAC、同一台裝置其他 IP 的 MAC、裝置的埠。
+    """
+    from app.models.ip_change_log import IPChangeLog
+    from app.models.physical import DevicePort
+    from app.services.arp_evidence import normalize
+    if not rows:
+        return rows
+    ip_ids = [r[0] for r in rows]
+    dev_ids = {r[4] for r in rows}
+    known: dict[Any, set[tuple[Any, str]]] = defaultdict(set)       # 裝置 → {(IP id, MAC)}
+    for iid, did, mac in (await session.execute(select(IPAddress.id, IPAddress.device_id, IPAddress.mac).where(
+            in_values(IPAddress.device_id, dev_ids), IPAddress.mac.is_not(None)))).all():
+        if (m := normalize(str(mac))) is not None:
+            known[did].add((iid, m))
+    for did, mac in (await session.execute(select(DevicePort.device_id, DevicePort.mac_address).where(
+            in_values(DevicePort.device_id, dev_ids), DevicePort.mac_address.is_not(None)))).all():
+        if (m := normalize(str(mac))) is not None:
+            known[did].add((None, m))
+    linked = {r[0]: r[6] for r in rows}
+    at_link: dict[Any, str] = {}
+    for iid, old, new, at in (await session.execute(
+            select(IPChangeLog.ip_id, IPChangeLog.old_value, IPChangeLog.new_value, IPChangeLog.created_at)
+            .where(in_values(IPChangeLog.ip_id, ip_ids), IPChangeLog.field == "mac")
+            .order_by(IPChangeLog.created_at))).all():
+        # 關聯當時的 MAC：關聯之前最後一次變更的新值；關聯之前沒變更過就是關聯之後第一次變更的舊值
+        if at <= linked[iid] and (m := normalize(new)) is not None:
+            at_link[iid] = m
+        elif at > linked[iid] and iid not in at_link and (m := normalize(old)) is not None:
+            at_link[iid] = m
+    out = []
+    for r in rows:
+        iid, cur, did = r[0], normalize(str(r[3])) if r[3] else None, r[4]
+        own = {m for other, m in known[did] if other != iid} | ({at_link[iid]} if iid in at_link else set())
+        if cur is None or cur not in own:
+            out.append(r)
+    return out
+
+
 async def detect_stale_device_links(session: AsyncSession) -> list[dict[str, Any]]:
     """IP 掛著某台裝置，但證據顯示那個位址已經是別台機器在用 —— 關聯多半已經過期。
 
@@ -2033,6 +2182,7 @@ async def detect_stale_device_links(session: AsyncSession) -> list[dict[str, Any
         .limit(200)
     )).all()
 
+    rows = await _drop_own_nic_flips(session, rows)
     vendor = await _vendor_mismatch_links(session)
     out: list[dict[str, Any]] = []
     for ip_id, ip, hostname, mac, dev_id, dev_name, linked_at, mac_changed_at in rows:
@@ -2176,6 +2326,10 @@ async def _notify_categories(
     admins = (await session.execute(
         select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
     )).scalars().all()
+    from app.services.notify_channels import Row, absolute_link
+    # 外部管道與 Email 一次偵測只發一則：每一類一列（使用者 2026-10-20：一次洗出四則太亂）
+    channel_rows: list[Row] = []
+    email_lines: list[str] = []
 
     for key, label, lkey, tab in _NOTIFY_CATEGORIES:
         items = [i for i in (data.get(key) or []) if isinstance(i, dict)]
@@ -2202,8 +2356,8 @@ async def _notify_categories(
         # 外部管道與 Email：舉幾筆實例（有「前往檢視」連結了，「詳見頁面」只是重複；2026-10-19）
         examples = _notify_examples(fresh_items)
         more = count - len(examples)
-        channel_text = f"另有 {more} 筆，完整清單在異常偵測頁。" if examples and more > 0 else (None if examples else body)
-        email_body = ("例：" + "、".join(examples) + ("…" if more > 0 else "")) if examples else body
+        detail = f"新增 {count} 筆，共 {total} 筆" if only_new else f"{count} 筆"
+        tab_link = f"/anomaly?tab={tab}"
         if ch.get("in_app"):
             for admin in admins:
                 await push_notification(
@@ -2217,10 +2371,18 @@ async def _notify_categories(
                     params={"label_key": lkey, "count": count, "total": total},
                 )
         if ch.get("email"):
-            await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", email_body,
-                              link=f"/anomaly?tab={tab}")
-        await broadcast_channels(session, subject=title, text=channel_text, link=f"/anomaly?tab={tab}",
-                                 severity="warning", bullets=examples)
+            email_lines.append(f"• {label}：{detail}" + (f"　例：{'、'.join(examples)}" + ("…" if more > 0 else "")
+                                                          if examples else "") + f"\n  {absolute_link(tab_link)}")
+        channel_rows.append(Row(label=label, detail=detail, codes=examples, more=more > 0,
+                                link=absolute_link(tab_link)))
+
+    if channel_rows:
+        n = len(channel_rows)
+        head = f"異常偵測：{n} 類有新發現" if only_new else f"異常偵測：{n} 類"
+        await broadcast_channels(session, subject=head, link="/anomaly", severity="warning", rows=channel_rows)
+        if email_lines:
+            await email_users(session, [a.email for a in admins], f"[jt-ipam] {head}", "\n".join(email_lines),
+                              link="/anomaly")
 
     if only_new:
         await set_anomaly_seen(session, new_seen)

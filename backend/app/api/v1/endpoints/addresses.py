@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import (
@@ -18,7 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from pydantic import Field
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, Text, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -565,12 +566,17 @@ async def _sibling_rows(
     return list((await session.execute(q.limit(50))).all())
 
 
-@router.get("/{address_id}/same-mac", response_model=list[IPAddressRead])
+class SameMacAddressRead(IPAddressRead):
+    #: 這個 MAC 最早什麼時候出現在那個位址（ARP 記錄）—— 分辨「搬走了」與「同一台的另一個介面」
+    mac_since: datetime | None = None
+
+
+@router.get("/{address_id}/same-mac", response_model=list[SameMacAddressRead])
 async def same_mac_addresses(
     address_id: uuid.UUID,
     user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> list[IPAddressRead]:
+) -> list[SameMacAddressRead]:
     """同一個 MAC 的其他位址（看得到的子網路才列，最多 20 筆）。
 
     給「上線狀態跟著設備」的提示用（客戶 2026-10-14）：多 LAN 路由器各網段的閘道常是同一個 MAC，
@@ -587,7 +593,19 @@ async def same_mac_addresses(
         .order_by(IPAddress.ip).limit(20))).scalars().all())
     visible = set(await filter_visible(session, user=user, object_type="subnet",
                                        object_ids=list({r.subnet_id for r in rows}), required="read"))
-    return [IPAddressRead.model_validate(r) for r in rows if r.subnet_id in visible]
+    rows = [r for r in rows if r.subnet_id in visible]
+    # 主機重灌換了位址（正式環境 2026-10-20）時，舊位址不該被建議「跟著設備」：給前端比對時間用
+    from app.models.librenms import ARPEntry
+    since: dict[str, datetime] = {}
+    if rows:
+        for ip, first in (await session.execute(
+                select(func.host(ARPEntry.ip), func.min(ARPEntry.first_seen_at))
+                .where(ARPEntry.mac == obj.mac,
+                       in_values(func.host(ARPEntry.ip), [str(r.ip).split("/")[0] for r in rows], type_=Text()))
+                .group_by(func.host(ARPEntry.ip)))).all():
+            since[str(ip)] = first
+    return [SameMacAddressRead.model_validate(r).model_copy(
+        update={"mac_since": since.get(str(r.ip).split("/")[0])}) for r in rows]
 
 
 @router.get("/{address_id}/device-suggestion", response_model=DeviceSuggestion)

@@ -14,6 +14,8 @@ from app.models.librenms import ARPEntry
 from app.models.oui import OUIVendor
 from app.services.anomaly import _is_locally_administered, detect_ip_conflicts
 
+from tests.test_ip_conflict_evidence import _subnet
+
 
 @pytest.mark.parametrize(("mac", "expected"), [
     ("bc:24:11:c6:68:c8", False),   # Proxmox，廠商燒錄的全球唯一位址
@@ -39,6 +41,7 @@ async def test_conflict_reports_vendor_and_local_flag(db_session):
     """
     db_session.add(OUIVendor(prefix="BC2411", short_name="ProxmoxServe",
                              name="Proxmox Server Solutions GmbH", source="test"))
+    await _subnet(db_session, "198.51.100.0/24")    # 在偵測範圍內（預設納入）
     now = datetime.now(UTC)
     for mac in ("bc:24:11:c6:68:c8", "46:f2:98:05:0e:5e"):
         db_session.add(ARPEntry(ip="198.51.100.7", mac=mac, last_seen_at=now))

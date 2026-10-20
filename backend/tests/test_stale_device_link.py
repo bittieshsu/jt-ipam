@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from app.models.address import IPAddress
 from app.models.device import Device
 from app.models.ip_change_log import IPChangeLog
@@ -80,3 +81,44 @@ async def test_detector_does_not_change_anything(db_session):
     await detect_stale_device_links(db_session)
     await db_session.refresh(addr)
     assert addr.device_id == before, "偵測規則動到了資料"
+
+
+async def _dual_nic(session, *, current: str) -> IPAddress:  # type: ignore[no-untyped-def]
+    """雙網卡主機：兩個 IP 都關聯到同一台裝置；198.51.100.45 關聯之後 MAC 在兩張網卡之間來回換（ARP flux）。"""
+    own, other = "bc:24:11:5e:01:01", "bc:24:11:5e:02:02"
+    sec = Section(name="sdl-dual")
+    session.add(sec)
+    await session.flush()
+    s1 = Subnet(section_id=sec.id, cidr="198.51.100.0/24")
+    s2 = Subnet(section_id=sec.id, cidr="203.0.113.0/24")
+    dev = Device(name="srv-dual", type="server")
+    session.add_all([s1, s2, dev])
+    await session.flush()
+    a = IPAddress(subnet_id=s1.id, ip="198.51.100.45", device_id=dev.id, mac=current)
+    b = IPAddress(subnet_id=s2.id, ip="203.0.113.45", device_id=dev.id, mac=other)
+    session.add_all([a, b])
+    await session.flush()
+    now = datetime.now(UTC)
+    session.add(IPChangeLog(ip_id=a.id, subnet_id=s1.id, ip_text=str(a.ip), event_type="edited", field="device_id",
+                            old_value=None, new_value=str(dev.id), source="user", created_at=now - timedelta(days=30)))
+    seq = [(own, other), (other, own)] * 3
+    if current not in (own, other):
+        seq.append((own, current))
+    for i, (o, n) in enumerate(seq):
+        session.add(IPChangeLog(ip_id=a.id, subnet_id=s1.id, ip_text=str(a.ip), event_type="mac_changed",
+                                field="mac", old_value=o, new_value=n, source="scanner",
+                                created_at=now - timedelta(days=10) + timedelta(hours=i)))
+    await session.commit()
+    return a
+
+
+@pytest.mark.parametrize("cur", ["bc:24:11:5e:01:01", "bc:24:11:5e:02:02"])
+async def test_flipping_between_the_devices_own_nics_is_not_stale(db_session, cur):
+    """正式環境 2026-10-20：「裝置關聯可能過期」整頁是雙網卡主機 —— MAC 只是在自己兩張網卡之間換。"""
+    a = await _dual_nic(db_session, current=cur)
+    assert not [h for h in await detect_stale_device_links(db_session) if h["ip_id"] == str(a.id)]
+
+
+async def test_a_mac_the_device_does_not_have_is_still_stale(db_session):
+    a = await _dual_nic(db_session, current="00:00:5e:00:53:77")
+    assert [h for h in await detect_stale_device_links(db_session) if h["ip_id"] == str(a.id)]

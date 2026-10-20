@@ -344,8 +344,9 @@ const CAT_KEYS: Record<CatKey, string[]> = {
   unauthorized_ips: ["ip", "live", "last_seen_at", "macs"],
   rogue_dhcp: ["server_ip", "live", "subnet_cidr", "mac", "vendor", "offered_ip", "router",
                "first_seen_at", "last_seen_at"],
+  // 不放 effective_status：那是後端的快照原始值（online (scanner)），跟「狀態」燈重複又沒翻譯（2026-10-20）
   external_exposure: ["kind", "ip", "live", "hostname", "device_kind", "ports", "subnet", "monitored",
-                      "effective_status", "names", "owner", "rules", "ip_address_id"],
+                      "names", "owner", "rules", "ip_address_id"],
   // 同一個比對群組裡相同的紀錄合成一筆：server 會列出哪幾台都有，compare_group 是哪一組
   dangling_dns: ["name", "value", "live", "type", "zone", "server", "compare_group"],
   // 哪一組、哪個 zone 的哪筆紀錄，哪幾台有、哪幾台沒有、從什麼時候開始
@@ -500,6 +501,45 @@ function renderIp(row: any, ipText: string) {
     ? links.ipById(row.ip_address_id, ipText)
     : links.ipByText(ipText);
 }
+// 子網段混在同一個二層的例子：以前一格塞一整段句子（「X 的 ARP 回應用了 Y，這個 MAC 屬於 Z」一句接一句、
+// MAC 表一個交換器一大段），使用者回饋非常不好讀（2026-10-20）。改成小表格：ARP 一筆一行三欄；
+// MAC 表依交換器／VLAN 分塊，塊內依子網段、埠排列。儲存格吃不到 scoped 樣式，一律行內。
+const BLEED_GRID = "display:grid;column-gap:14px;row-gap:2px;font-size:12.5px;align-items:baseline";
+const BLEED_HEAD = "font-size:11.5px;opacity:.6";
+const MONO = "font-family:var(--mono,monospace)";
+function renderBleedArp(list: any[]) {
+  const seen = new Set<string>();
+  const rows = list.filter((x) => { const key = `${x.ip}|${x.mac}`; return seen.has(key) ? false : (seen.add(key), true); });
+  return h("div", { style: `${BLEED_GRID};grid-template-columns:auto auto auto` }, [
+    ...["bleed_col_ip", "bleed_col_mac", "bleed_col_owner"].map((c) => h("div", { style: BLEED_HEAD }, t(`anomaly.${c}`))),
+    ...rows.flatMap((x) => [
+      h("div", { style: MONO, title: x.subnet ?? "" }, x.ip),
+      h("div", { style: MONO }, x.mac),
+      h("div", { style: MONO, title: x.mac_owner_subnet ?? "" }, x.mac_owner_ip),
+    ]),
+  ]);
+}
+function renderBleedFdb(list: any[]) {
+  return h("div", { style: "display:flex;flex-direction:column;gap:8px" }, list.map((x: any) => {
+    const cells: any[] = [];
+    for (const [cidr, macs] of Object.entries(x.macs ?? {})) {
+      const byPort = new Map<string, string[]>();
+      for (const m of macs as any[]) byPort.set(m.port || "—", [...(byPort.get(m.port || "—") ?? []), m.mac]);
+      [...byPort.entries()].forEach(([port, ms], i) => cells.push(
+        h("div", { style: "white-space:nowrap" }, i ? "" : cidr),
+        h("div", { style: `${MONO};white-space:nowrap` }, port),
+        h("div", { style: MONO }, ms.join("、")),
+      ));
+    }
+    return h("div", null, [
+      h("div", { style: "font-size:12.5px;font-weight:600;margin-bottom:2px" }, `${x.switch} · VLAN ${x.vlan}`),
+      h("div", { style: `${BLEED_GRID};grid-template-columns:auto auto 1fr` }, [
+        ...["bleed_col_subnet", "bleed_col_port", "bleed_col_macs"].map((c) => h("div", { style: BLEED_HEAD }, t(`anomaly.${c}`))),
+        ...cells,
+      ]),
+    ]);
+  }));
+}
 function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
   if (k === "live") return liveDot(v);
   if (v == null || v === "") return "—";
@@ -526,18 +566,8 @@ function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
     return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px;white-space:nowrap" },
       v.map((c: string, i: number) => h("div", null, i ? `↔ ${c}` : c)));
   }
-  if (k === "arp_examples" && Array.isArray(v)) {
-    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
-      v.map((x: any) => h("div", { style: "white-space:normal" }, t("anomaly.bleed_arp_line", {
-        ip: x.ip, subnet: x.subnet ?? "—", mac: x.mac, owner: x.mac_owner_ip, owner_subnet: x.mac_owner_subnet ?? "—" }))));
-  }
-  if (k === "fdb_examples" && Array.isArray(v)) {
-    return h("div", { style: "display:flex;flex-direction:column;gap:2px;font-size:12.5px" },
-      v.map((x: any) => h("div", { style: "white-space:normal" }, t("anomaly.bleed_fdb_line", {
-        switch: x.switch, vlan: x.vlan,
-        detail: Object.entries(x.macs ?? {}).map(([cidr, list]) => `${cidr}：${(list as any[])
-          .map((m) => (m.port ? `${m.mac}（${m.port}）` : m.mac)).join("、")}`).join("；") }))));
-  }
+  if (k === "arp_examples" && Array.isArray(v)) return renderBleedArp(v);
+  if (k === "fdb_examples" && Array.isArray(v)) return renderBleedFdb(v);
   // MAC 歷程（只有「頻繁更換 MAC」這一類）：一個 MAC 一行、**不折行**。MAC 字串被折成
   // 「0a:1b:2 / c:00:00 / :01」三行的話，這一欄就完全讀不出先後順序。
   // ⚠️ 只限這一類：IP 衝突的 MAC 要走 renderMac（廠商、本地管理標記、誰看到的）——
@@ -669,7 +699,8 @@ function catCols(key: CatKey): DataTableColumns<any> {
     // 子網段混用的「子網段」「依據」一項一行（兩段 CIDR、兩種證據擺一行會被截斷）
     const multi = MULTI_LINE_KEYS.has(k) || (key === "l2_subnet_bleed" && (k === "subnets" || k === "evidence"));
     const sizing = multi
-      ? { minWidth: wide ? 420 : k === "fix" ? 300 : (key === "l2_subnet_bleed" && k === "evidence") ? 270 : 220,
+      ? { minWidth: k === "arp_examples" ? 380 : wide ? 420 : k === "fix" ? 300
+            : (key === "l2_subnet_bleed" && k === "evidence") ? 230 : key === "l2_subnet_bleed" && k === "subnets" ? 150 : 220,
           // MAC 歷程不折行 —— 沒有明確寬度時會蓋到「操作」欄的按鈕上。
           // IP 衝突每個 MAC 還帶廠商與「誰看到的」，要寬一些
           ...(k === "macs" ? { width: key === "ip_conflicts" || key === "arp_flux" ? 600 : 340 } : {}) }
@@ -1147,6 +1178,7 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
                             :order="prefs[c.key].order.value" @update:order="prefs[c.key].setOrder" />
             </div>
             <n-data-table :columns="catCols(c.key)" :data="shownRows(c.key)"
+                          :class="{ 'anm-cells-top': c.key === 'l2_subnet_bleed' }"
                           :bordered="false" size="small" :scroll-x="catScrollX(c.key)" :pagination="pg" />
           </template>
           <n-empty v-else :description="t('anomaly.none_found')" style="margin: 16px 0" />
@@ -1195,6 +1227,8 @@ onMounted(() => { void loadIgnorable(); void loadLast(); });
 <!-- 表格儲存格是 NDataTable 用 render 函式畫的，scoped 樣式套不到：IP 衝突的 MAC 列樣式放這裡（以前寫在 scoped 裡，
      廠商標籤沒有底色也不會不折行，MAC 與廠商被折成兩三行、各列對不齊） -->
 <style>
+/* 子網段混在同一個二層：一格好幾行的小表格，靠上對齊才對得起來（置中時各欄的第一行高低不一） */
+.anm-cells-top .n-data-table-td { vertical-align: top; }
 .anm-mac-row {
   display: grid; grid-template-columns: 17.5ch 8.5em minmax(0, 1fr) auto;
   column-gap: 8px; align-items: baseline; font-size: 12.5px;

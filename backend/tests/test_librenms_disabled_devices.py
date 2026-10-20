@@ -180,3 +180,53 @@ async def test_lldp_links_of_a_disabled_device_are_dropped(db_session, monkeypat
     left = set((await db_session.execute(select(LibreNMSLink.legacy_link_id).where(
         LibreNMSLink.instance_id == inst.id))).scalars().all())
     assert left == {11}
+
+
+async def test_frozen_arp_of_a_down_device_is_not_refreshed(db_session, monkeypatch) -> None:
+    """正式環境 2026-10-20：一台主機重灌後換了位址，LibreNMS 裡舊的那筆一直 down（最後輪詢 23 天前、
+    沒有停用），但 ARP API 還是回它關機前的 ARP 表；每輪被蓋成「剛看到」→ 假衝突（閘道位址出現兩個 MAC）、
+    舊位址看起來還有 ARP。down 的設備：不收新的、不更新既有的（讓它照保存期限自然過期；回到 up 就恢復）。"""
+    inst, _sub = await _setup(db_session)
+    _api(monkeypatch, {"/api/v0/devices": {"devices": [_dev(1, "198.51.100.1"), _dev(2, "198.51.100.2", status=0)]}})
+    await lib.sync_devices(db_session, inst)
+    await db_session.flush()
+    devs = {d.legacy_device_id: d for d in (await db_session.execute(select(LibreNMSDevice).where(
+        LibreNMSDevice.instance_id == inst.id))).scalars().all()}
+    old = datetime.now(UTC) - timedelta(days=3)
+    db_session.add(ARPEntry(ip="198.51.100.102", mac="02:00:00:00:02:02", device_id=devs[2].id,
+                            instance_id=inst.id, source="librenms", last_seen_at=old))
+    await db_session.flush()
+    _api(monkeypatch, {"/api/v0/resources/ip/arp": {"arp": [
+        {"device_id": 1, "ipv4_address": "198.51.100.101", "mac_address": "02:00:00:00:01:01"},
+        {"device_id": 2, "ipv4_address": "198.51.100.102", "mac_address": "02:00:00:00:02:02"},
+        {"device_id": 2, "ipv4_address": "198.51.100.103", "mac_address": "02:00:00:00:02:03"},
+    ]}})
+    await lib.sync_arp(db_session, inst)
+    await db_session.flush()
+    rows = (await db_session.execute(select(ARPEntry).where(ARPEntry.device_id == devs[2].id))).scalars().all()
+    assert len(rows) == 1, "down 的設備不收新的 ARP"
+    assert rows[0].last_seen_at <= old + timedelta(seconds=1), "也不把凍結的那筆蓋成剛看到"
+    assert await _count(db_session, ARPEntry, ARPEntry.device_id == devs[1].id) == 1
+
+    # 回到 up：照常收
+    _api(monkeypatch, {"/api/v0/devices": {"devices": [_dev(1, "198.51.100.1"), _dev(2, "198.51.100.2")]}})
+    await lib.sync_devices(db_session, inst)
+    _api(monkeypatch, {"/api/v0/resources/ip/arp": {"arp": [
+        {"device_id": 2, "ipv4_address": "198.51.100.103", "mac_address": "02:00:00:00:02:03"}]}})
+    await lib.sync_arp(db_session, inst)
+    await db_session.flush()
+    assert await _count(db_session, ARPEntry, ARPEntry.device_id == devs[2].id) == 2
+
+
+async def test_per_device_calls_skip_down_devices(db_session, monkeypatch) -> None:
+    """MAC 表同理：down 的設備 LibreNMS 回的是最後一次輪詢的凍結資料。"""
+    inst, _sub = await _setup(db_session)
+    _api(monkeypatch, {"/api/v0/devices": {"devices": [_dev(1, "198.51.100.1"), _dev(2, "198.51.100.2", status=0)]}})
+    await lib.sync_devices(db_session, inst)
+    await db_session.flush()
+    called: list[str] = []
+    _api(monkeypatch, {}, called)
+    await lib.sync_fdb(db_session, inst)
+    per_device = [p for p in called if p.startswith("/api/v0/devices/")]
+    assert any(p.startswith("/api/v0/devices/1/") for p in per_device), per_device
+    assert not any(p.startswith("/api/v0/devices/2/") for p in per_device), per_device

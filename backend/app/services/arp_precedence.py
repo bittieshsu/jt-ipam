@@ -85,8 +85,7 @@ async def consider_mac(
         source = "scanner"
     order, disabled = await _P.load(session)
     if would_take(order, disabled, cur_mac=ip.mac, cur_source=ip.mac_source, mac=mac, source=source):
-        await _apply(session, ip=ip, mac=mac, source=source, latest=latest)
-        return True
+        return await _apply(session, ip=ip, mac=mac, source=source, latest=latest)
     return False
 
 
@@ -161,10 +160,44 @@ def would_take(order: Any, disabled: Any, *, cur_mac: object, cur_source: str | 
     return new_rank < cur_rank or (new_rank == cur_rank and not _same_mac(cur_mac, mac))
 
 
+async def is_other_nic(session: AsyncSession, *, ip: IPAddress, mac: str) -> bool:
+    """`mac` 是不是同一台主機另一張網卡的（ARP flux），不該寫成這個 IP 的 MAC。
+
+    正式環境 2026-10-20：雙網卡主機兩個網段在同一個二層（Linux 預設 arp_ignore=0），兩張網卡都回答這個 IP，
+    看到哪張就寫哪張 → 一個 IP 30 天換了 91 次 MAC。全部成立才算：
+      - 新的 MAC 登記在**另一個子網路**的 IP 上（那張網卡自己的位址；同子網路共用 MAC 是別名／VIP，不算）
+      - 目前的 MAC 只屬於這個 IP（已經被寫錯、兩筆掛同一個 MAC 時要能換回來）
+      - 目前的 MAC 24 小時內還在這個 IP 被看到（真的換網卡、搬 VLAN 時舊的不會再出現）
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import Text, cast, select
+
+    from app.models.librenms import ARPEntry
+    if ip.mac is None or _same_mac(ip.mac, mac):
+        return False
+
+    def colon(v: object) -> str:
+        h = normalize_mac(v)
+        return ":".join(h[i:i + 2] for i in range(0, 12, 2))
+    # MACADDR 欄位有索引，等號比對（寫法不同也比得到）；大站台每輪可能有上百次換 MAC，不可逐列算字串
+    elsewhere = (await session.execute(select(IPAddress.subnet_id, cast(IPAddress.mac, Text)).where(
+        IPAddress.id != ip.id, IPAddress.mac.in_([colon(mac), colon(ip.mac)])))).all()  # bounded: 兩個 MAC
+    new_here = [sid for sid, m in elsewhere if _same_mac(m, mac)]
+    if not new_here or all(sid == ip.subnet_id for sid in new_here):
+        return False
+    if any(_same_mac(m, ip.mac) for _sid, m in elsewhere):
+        return False
+    since = datetime.now(UTC) - timedelta(hours=24)
+    return (await session.execute(select(ARPEntry.id).where(
+        ARPEntry.ip == str(ip.ip).split("/")[0], ARPEntry.mac == colon(ip.mac),
+        ARPEntry.last_seen_at >= since).limit(1))).first() is not None
+
+
 async def _apply(
     session: AsyncSession, *, ip: IPAddress, mac: str, source: str,
     latest: dict[Any, Any] | None = None,
-) -> None:
+) -> bool:
     """覆寫 ip.mac，**並留下異動記錄**。
 
     主機名稱每次改變都會寫一筆，MAC 卻不會 —— 於是 IP 詳細資料頁的時間軸上
@@ -178,7 +211,9 @@ async def _apply(
         # 值本來就對、只是來源不明：記下來源，之後照正常優先序（不寫異動記錄）
         if ip.mac_source is None:
             ip.mac_source = source
-        return
+        return False
+    if await is_other_nic(session, ip=ip, mac=mac):
+        return False
     # 換回 24 小時內用過的 MAC＝同一批設備輪流出現（雙網卡的 ARP flux、兩台 VM 同一個 IP），不是換了一台設備
     flap_back = old_mac is not None and await had_mac_recently(
         session, ip=ip, mac=mac, within=timedelta(hours=24))
@@ -193,3 +228,4 @@ async def _apply(
     if old_mac is not None and not flap_back:
         from app.services.device_turnover import on_device_replaced
         await on_device_replaced(session, ip=ip, source=source)
+    return True

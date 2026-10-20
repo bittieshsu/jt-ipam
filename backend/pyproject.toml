@@ -40,6 +40,8 @@ dependencies = [
     "urllib3>=2.8.0",
     # geoip2 → aiohttp／yarl 帶進來的：6.7.1 有 CVE-2026-104874（2026-10-14 pip-audit），寫下限讓既有站台升級時換掉
     "multidict>=6.9.1",
+    # geoip2 帶進來的：3.14.3 有 3 個 CVE（2026-10-20 pip-audit），寫下限讓既有站台升級時換掉
+    "aiohttp>=3.14.4",
 
     # ── Network / IP ──
     "httpx[http2]>=0.27",          # 統一 async HTTP client（A10 SSRF 包裝）
@@ -59,7 +61,7 @@ dependencies = [
 
     # ── AI ──
     "pgvector>=0.3",                        # Phase 2 語意搜尋向量欄位
-    "mcp>=1.28.1",                             # Phase 4 Model Context Protocol
+    "mcp>=2.2.0",                              # Phase 4 Model Context Protocol（2.1.1 有 CVE-2026-59951，2026-10-20）
 
     # ── Caching / Queue ──
     "redis[hiredis]>=5.2",

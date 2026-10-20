@@ -128,3 +128,27 @@ async def test_device_source_is_always_offered(client, auth_headers) -> None:
     assert r.status_code == 200
     avail = {x["key"]: x for x in r.json()["available"]}
     assert avail["device"]["configured"] is True
+
+
+async def test_same_mac_says_since_when_the_mac_is_at_the_sibling(client, auth_headers, db_session) -> None:
+    """正式環境 2026-10-20：主機重灌換位址（.69 → .139），舊位址的頁面卻建議「上線狀態跟著設備」。
+    要分得出「搬走了」與「同一台的另一個介面」：回傳這個 MAC 從什麼時候開始出現在那個位址（ARP 最早看到的時間）。"""
+    from app.models.librenms import ARPEntry
+    _dev, main, gw = await _router(db_session, sibling_scanner=datetime.now(UTC))
+    mac = "02:00:5e:10:00:02"
+    main.mac = mac
+    gw.mac = mac
+    gw.liveness_from_device = False
+    first = datetime.now(UTC) - timedelta(days=23)
+    db_session.add_all([
+        ARPEntry(ip="192.0.2.1", mac=mac, source="scanner", first_seen_at=first, last_seen_at=datetime.now(UTC)),
+        ARPEntry(ip="192.0.2.1", mac=mac, source="arp:opnsense", first_seen_at=first + timedelta(hours=1),
+                 last_seen_at=datetime.now(UTC)),
+        ARPEntry(ip="192.0.2.1", mac="02:00:5e:10:00:99", source="scanner",
+                 first_seen_at=first - timedelta(days=90), last_seen_at=first - timedelta(days=80)),
+    ])
+    await db_session.commit()
+    r = await client.get(f"/api/v1/addresses/{gw.id}/same-mac", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    (row,) = r.json()
+    assert abs(datetime.fromisoformat(row["mac_since"]) - first) < timedelta(seconds=2), "只看同一個 MAC 的最早時間"

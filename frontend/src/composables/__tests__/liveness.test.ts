@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   classifyAddressLiveness,
   isArpOnlyEvidence,
+  looksMoved,
   livenessSources,
   onlineGraceMinutes,
 } from "../useLivenessSettings";
@@ -89,5 +90,24 @@ describe("isArpOnlyEvidence", () => {
     expect(isArpOnlyEvidence({
       last_seen_arp: nowIso(), arp_seen: { "lease:pfsense": nowIso() },
     })).toBe(true);
+  });
+});
+
+describe("looksMoved（同一個 MAC 的另一個位址：搬走了，還是同一台的另一個介面）", () => {
+  const dayAgo = (d: number) => agoIso(d * 24 * 60);
+  it("這裡停了之後，MAC 才開始出現在那裡 → 搬走了（正式環境 2026-10-20：主機重灌 .69 → .139）", () => {
+    const here = { last_seen_scanner: dayAgo(23) };
+    expect(looksMoved(here, { mac_since: agoIso(23 * 24 * 60 + 300) })).toBe(true);
+  });
+  it("兩邊長期同時在 → 同一台的另一個介面", () => {
+    const here = { last_seen_scanner: dayAgo(2) };
+    expect(looksMoved(here, { mac_since: dayAgo(90) })).toBe(false);
+  });
+  it("這裡從來沒有會算數的證據（閘道不回探測）→ 不算搬走", () => {
+    expect(looksMoved({ last_seen_dns: dayAgo(1) }, { mac_since: dayAgo(1) })).toBe(false);
+    expect(looksMoved({}, { mac_since: dayAgo(1) })).toBe(false);
+  });
+  it("不知道那邊從什麼時候開始 → 不猜", () => {
+    expect(looksMoved({ last_seen_scanner: dayAgo(23) }, { mac_since: null })).toBe(false);
   });
 });

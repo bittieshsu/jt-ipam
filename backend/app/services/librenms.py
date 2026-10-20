@@ -509,6 +509,17 @@ def _active_devices(instance_id: Any) -> Any:
         or_(LibreNMSDevice.status.is_(None), LibreNMSDevice.status != "disabled"))
 
 
+def _live_devices(instance_id: Any) -> Any:
+    """要收 ARP／MAC 表的鏡像裝置：再排除 down 的。
+
+    LibreNMS 對 down 的設備照樣回傳最後一次輪詢到的 ARP／MAC 表（正式環境 2026-10-20：重灌換位址的舊主機
+    down 了 23 天，凍結的 ARP 每輪被蓋成剛看到 → 假衝突）。不收新的、不更新既有的，讓它照保存期限過期；
+    回到 up 下一輪就恢復。不刪：暫時斷線的交換器不該讓 MAC 表整片消失。
+    """
+    return _active_devices(instance_id).where(
+        or_(LibreNMSDevice.status.is_(None), LibreNMSDevice.status != "down"))
+
+
 async def _prune_devices(session: AsyncSession, instance: LibreNMSInstance, seen: set[int]) -> int:
     """LibreNMS 已刪除的裝置：鏡像連同它的 VLAN 對應（CASCADE）、ARP、FDB 一起刪。
 
@@ -545,8 +556,8 @@ async def sync_arp(
 
     `autocreate_stats`：有給就填入「依 ARP 自動建立 IP」的結果（{"created", "skipped"}）。
     """
-    # 停用的裝置不在對照表裡 → 它凍結的 ARP 一筆都不收（下面「未追蹤的裝置 → 跳過」）
-    devices = list((await session.execute(_active_devices(instance.id))).scalars().all())
+    # 停用與 down 的裝置不在對照表裡 → 它凍結的 ARP 一筆都不收（下面「未追蹤的裝置 → 跳過」）
+    devices = list((await session.execute(_live_devices(instance.id))).scalars().all())
     seen = inserted = updated = filled = 0
     now = datetime.now(UTC)
     # 重疊網段：若 instance 設了 scope_subnet_ids，IP→IPAddress 比對限定在這些子網路內
@@ -712,8 +723,8 @@ async def prune_stale_arp(session: AsyncSession, *, max_age_days: int = 30) -> i
 async def sync_fdb(
     session: AsyncSession, instance: LibreNMSInstance,
 ) -> tuple[int, int, int]:
-    # 停用的裝置不打它的 FDB API（資料是凍結的）
-    devices = list((await session.execute(_active_devices(instance.id))).scalars().all())
+    # 停用與 down 的裝置不打它的 FDB API（資料是凍結的）
+    devices = list((await session.execute(_live_devices(instance.id))).scalars().all())
     seen = inserted = updated = 0
     now = datetime.now(UTC)
 

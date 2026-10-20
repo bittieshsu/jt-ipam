@@ -174,3 +174,24 @@ async def test_legacy_notification_keys_stay_translatable():
                 assert isinstance(node, dict) and part in node, f"{loc} 少了舊鍵 {key}"
                 node = node[part]
             assert isinstance(node, str) and node
+
+
+async def test_one_channel_message_per_run(db_session, admin_user, monkeypatch):
+    """一次偵測對外部管道只發一則、每類一列（使用者 2026-10-20：一次洗出四則太亂）。"""
+    from app.services import notify_channels
+    from app.services.anomaly import notify_new_findings
+    calls: list[dict] = []
+
+    async def capture(session, **kw):
+        calls.append(kw)
+    monkeypatch.setattr(notify_channels, "broadcast_channels", capture)
+    sent = await notify_new_findings(db_session, {
+        "ip_conflicts": [{"ip": "198.51.100.20"}],
+        "rogue_dhcp": [{"server_ip": "198.51.100.30"}, {"server_ip": "198.51.100.31"}],
+    })
+    assert sent == 2
+    assert len(calls) == 1
+    rows = calls[0]["rows"]
+    assert [r.codes for r in rows] == [["198.51.100.20"], ["198.51.100.30", "198.51.100.31"]]
+    assert calls[0]["link"] == "/anomaly"
+    assert "2 類" in calls[0]["subject"]

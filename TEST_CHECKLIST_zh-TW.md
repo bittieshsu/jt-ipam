@@ -764,7 +764,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 彈出層在 AI 助手浮動按鈕之上：開在右下角的確認框/下拉選單，與按鈕重疊的地方也點得到（`frontend/e2e/chat-fab-overlays.spec.ts`）
 - [ ] AI 對話視窗右上：動作按鈕、放大/縮小、關閉（關閉在最右邊，提示文字「關閉」）
 - [ ] **滿版圖不會比視窗高**（`frontend/src/composables/__tests__/usePageFill.test.ts`、`frontend/e2e/change-impact.spec.ts`）：視窗高 720 px，打開一筆 IP 變更評估、捲到證據區，再切到關係圖頁籤；圖放得進視窗，評估目標看得到也點得到。IP 拓樸圖也一樣
-- [ ] **異常偵測的 ARP 資料品質**（`backend/tests/test_arp_quality.py`、`backend/tests/test_anomaly_arp_quality.py`、`frontend/e2e/anomaly-arp-quality.spec.ts`；樣本在 `tests/seed_e2e.py`）：兩個 MAC 都連到同一台裝置的雙網卡主機，出現在「同一台主機多張網卡（ARP flux）」，寫出每個 MAC 是哪張網卡與兩行 sysctl，不在 IP 衝突裡；由另外兩個 MAC 拼成、只有一台路由器回報的 MAC 標「疑似讀壞」且不算數；「子網段混在同一個二層」列出那組子網段與 ARP、交換器 MAC 表的例子；第二台機器只有一個來源的 IP 衝突，可信度為「低」；滑過「N 個來源」看得到是哪幾台設備；MAC 歷程頁拼接出來的 MAC 顯示「1 個來源」。有真實資料的站台再用 `get_ip_history` 與 `list_anomalies(kind=...)`（items 是陣列）確認一次
+- [ ] **異常偵測的 ARP 資料品質**（`backend/tests/test_arp_quality.py`、`backend/tests/test_anomaly_arp_quality.py`、`frontend/e2e/anomaly-arp-quality.spec.ts`；樣本在 `tests/seed_e2e.py`）：兩個 MAC 都連到同一台裝置的雙網卡主機，出現在「同一台主機多張網卡（ARP flux）」，寫出每個 MAC 是哪張網卡與兩行 sysctl，不在 IP 衝突裡；由另外兩個 MAC 拼成、只有一台路由器回報的 MAC 標「疑似讀壞」且不算數；「子網段混在同一個二層」列出那組子網段與 ARP、交換器 MAC 表的例子；第二台機器只有一個來源的 IP 衝突，可信度為「低」；滑過「N 個來源」看得到是哪幾台設備；MAC 歷程頁拼接出來的 MAC 顯示「1 個來源」。有真實資料的站台再用 `get_ip_history` 與 `list_anomalies(kind=...)`（items 是陣列）確認一次。另外：雙網卡主機的位址在另一張網卡回應時保留自己的 MAC（另一張的 MAC 登記在別的子網路、自己的 MAC 24 小時內有看到），舊的 MAC 一天沒出現才換成新的；「裝置關聯可能過期」不列目前 MAC 仍是裝置自己網卡的位址；IP 衝突與 ARP flux 只列偵測範圍內子網路的位址（沒登記的位址落在納入的子網路內才算）；「子網段混在同一個二層」的 ARP 與交換器 MAC 表例子是小表格、沒有重複；對外曝險頁籤沒有「存活狀態」欄。另外：LibreNMS 上 down 的設備不再新增 ARP 或 MAC 表、既有記錄維持舊時間（恢復 up 後照收）；MAC 已經換到另一個上線位址的 IP（這裡最後出現的時間約等於 MAC 出現在那裡的時間），詳細頁顯示「換了位址」的警告並列出兩個時間、沒有套用按鈕，而從來不回應的閘道仍是「上線狀態跟著設備」的提示。另外：同一台 Proxmox VM 的兩張網卡（IP 沒連到裝置）列在 ARP flux 而不是 IP 衝突；IPAM 沒有子網路、三台主機各報一個不同 MAC 的同一位址（Docker 橋接，各一個來源）不算衝突；同一台主機在第一個 MAC 不再出現之後才回報第二個（容器重建）不算衝突；只有一個來源、而且登記在另一個上線 IP 的 MAC，在其他來源對這個 IP 意見一致時標成過期記錄，但若是同一台 VM 或裝置的另一張網卡則仍是 ARP flux；同一台路由器看到同一 IP 兩個 MAC 仍算衝突
 - [ ] **匯出是名稱不是編號**（`frontend/src/utils/__tests__/tableExport.test.ts`、`frontend/e2e/circuits-export.spec.ts`，issue #50）：匯出電路清單，供應商與類型是名稱、狀態翻好、頻寬跟畫面一樣格式；抽查裝置（地點、機櫃、單位）與 NAT 的匯出沒有 UUID
 - [ ] **匯出按鈕會顯示處理中**（`frontend/src/composables/__tests__/useExportBusy.test.ts`、`frontend/e2e/change-impact.spec.ts`）：
   選了檔案格式後，到檔案存好之前按鈕反灰並轉圈，期間再選一次不會重複產檔；涵蓋 IP 變更評估（報告與關係圖）、所有表格匯出按鈕、
@@ -1541,7 +1541,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   事件依矩陣實際送出（IP 申請、憑證到期/派送/飄移、異常）
 - [ ] **憑證派送 `files` profile**：只寫憑證檔案，不做 reload/restart
 - [ ] **異常偵測頁**：頁籤、各表欄位選擇、`ip_address_id` 預設隱藏（MAC 變動：見下一份清單）
-- [ ] **異常偵測的上線燈**（`tests/test_anomaly_liveness.py`）：每個有 IP 的頁籤都有「上線狀態」欄（與 IP 清單同一顆燈、
+- [ ] **異常偵測的上線燈**（`tests/test_anomaly_liveness.py`）：每個有 IP 的頁籤都有「狀態」欄（與 IP 清單同一顆燈、
   滑過看各來源時間、可排序、匯出成文字）；MAC 變動一列多個 IP 時每個 IP 各一顆。狀態是打開頁面當下算的：
   結果跑完後讓某個 IP 上線，重新進頁面燈要變。未授權 IP（IPAM 沒記錄）依 ARP 觀測判定，並列出 ARP 看到的 MAC
   （廠商、本地管理/隨機、誰看到的）與最後出現時間

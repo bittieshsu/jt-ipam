@@ -21,8 +21,9 @@ import type { IPAddress } from "@/types";
 import {
   getAddress, updateAddress, deleteAddress, createAddress, getDeviceSuggestion, applyDeviceSuggestion,
   getSameMacAddresses, type IPAddressUpdate, type DeviceSuggestion,
+  type SameMacAddress,
 } from "@/api/addresses";
-import { classifyAddressLiveness } from "@/composables/useLivenessSettings";
+import { classifyAddressLiveness, lastCountedAt, looksMoved } from "@/composables/useLivenessSettings";
 import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
   type SwitchPortInfo } from "@/api/ip_history";
 import { clearHostnameSource, getHostnameSources, type HostnameSources } from "@/api/hostname";
@@ -836,7 +837,7 @@ watch([swName, swPort], ([a, b]) => {
 
 // 同一個 MAC 的另一個位址在線、這一個沒有（客戶 2026-10-14）：多 LAN 路由器各網段的閘道常是同一個 MAC，
 // 多半是同一台設備的介面位址 → 提示可以勾「上線狀態跟著設備」。只是提示，套不套用由人決定
-const sameMac = ref<IPAddress[]>([]);
+const sameMac = ref<SameMacAddress[]>([]);
 async function loadSameMac() {
   sameMac.value = [];
   const a = props.address;
@@ -848,6 +849,10 @@ const sameMacHint = computed(() => {
   if (!a || a.liveness_from_device || classifyAddressLiveness(a) === "online") return null;
   return sameMac.value.find((x) => classifyAddressLiveness(x) === "online") ?? null;
 });
+// 機器換了位址（主機重灌、DHCP 換址）：MAC 是在這裡停了之後才出現在那裡 → 這筆多半是舊位址，
+// 不建議「跟著設備」（照做的話舊位址會一直顯示上線；正式環境 2026-10-20）
+const sameMacMoved = computed(() => !!props.address && !!sameMacHint.value
+  && looksMoved(props.address, sameMacHint.value));
 const applyingSameMac = ref(false);
 async function applySameMac() {
   const a = props.address;
@@ -1450,7 +1455,13 @@ async function remove() {
           </n-descriptions>
         </div>
 
-        <n-alert v-if="!editMode && sameMacHint" type="info" :bordered="false" style="margin-top: 12px"
+        <n-alert v-if="!editMode && sameMacHint && sameMacMoved" type="warning" :bordered="false"
+                 style="margin-top: 12px" data-testid="ip-same-mac-moved">
+          {{ t("addresses.same_mac_moved", { ip: sameMacHint.ip.split("/")[0],
+                                             since: fmtDateTime(sameMacHint.mac_since ?? ""),
+                                             last: fmtDateTime(new Date(lastCountedAt(props.address!) ?? 0).toISOString()) }) }}
+        </n-alert>
+        <n-alert v-else-if="!editMode && sameMacHint" type="info" :bordered="false" style="margin-top: 12px"
                  data-testid="ip-same-mac-hint">
           {{ t("addresses.same_mac_hint", { ip: sameMacHint.ip.split("/")[0] }) }}
           <div style="margin-top: 6px">
