@@ -1458,7 +1458,7 @@ def _gather_version_info() -> dict[str, Any]:
         "fastapi", "starlette", "sqlalchemy", "pydantic", "pydantic-settings",
         "asyncpg", "alembic", "uvicorn", "httpx", "redis", "celery",
         "argon2-cffi", "cryptography", "defusedxml", "pyjwt", "pyotp",
-        "python-multipart", "email-validator", "urllib3", "multidict",
+        "python-multipart", "email-validator", "urllib3", "multidict", "aiohttp",
         "authlib", "python3-saml", "ldap3", "pyrad",
         "pymysql", "asyncssh", "dnspython", "pywinrm", "geoip2",
         "pgvector", "mcp",
