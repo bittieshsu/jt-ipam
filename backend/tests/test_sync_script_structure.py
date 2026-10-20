@@ -23,6 +23,7 @@ BLOCK_MARKERS = [
     "OPNsenseFirewall",
     "PfSenseFirewall",
     "ESXiInstance",
+    "HyperVInstance",              # Hyper-V（直連主機或 SCVMM）
     "WazuhInstance",
     "LibreNMSInstance",
     "AdGuardInstance",

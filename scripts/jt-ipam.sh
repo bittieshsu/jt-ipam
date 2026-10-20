@@ -110,6 +110,35 @@ install_rdp_optional() {
     fi
 }
 
+# Kerberos for WinRM (Hyper-V integration; some customers' domains only allow Kerberos, 2026-10-20).
+# krb5-user gives kinit (the backend trades the account's password for a ticket in a private cache);
+# libkrb5-dev lets pip compile pykerberos, which has no Linux wheels. Best-effort on install AND upgrade:
+# without it the Kerberos option shows as unavailable in the Hyper-V form, NTLM keeps working.
+ensure_kerberos_support() {
+    local bd="${REPO_ROOT}/backend"
+    local u; u="$(stat -c '%U' "$bd/.venv" 2>/dev/null || echo jtipam)"
+    [ -x "$bd/.venv/bin/pip" ] || return 0
+    if ! command -v kinit >/dev/null 2>&1 || ! command -v krb5-config >/dev/null 2>&1; then
+        log "Installing Kerberos client tools for WinRM (krb5-user, libkrb5-dev)…"
+        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-user libkrb5-dev >/dev/null 2>&1; then
+            warn "could not install krb5-user / libkrb5-dev: Hyper-V can still use NTLM; Kerberos stays unavailable"
+            return 0
+        fi
+    fi
+    if "$bd/.venv/bin/python" -c 'import kerberos' >/dev/null 2>&1; then
+        log "Kerberos for WinRM present (kinit, pykerberos)"
+        return 0
+    fi
+    local pip_log; pip_log="$(mktemp /tmp/jt-ipam-kerberos.XXXXXX.log)"
+    chmod 0644 "$pip_log"
+    if ( cd "$bd" && sudo -u "$u" "$bd/.venv/bin/pip" install --quiet -e ".[kerberos]" ) >"$pip_log" 2>&1; then
+        log "Kerberos for WinRM installed (pykerberos)."
+        rm -f "$pip_log"
+    else
+        warn "pykerberos could not be built (pip output: ${pip_log}): Hyper-V can still use NTLM; Kerberos stays unavailable"
+    fi
+}
+
 # apt packages the FreeRDP engine needs. ffmpeg is in the list for screen capture, not for video:
 # reading the framebuffer through python-xlib costs 334 ms per 1280x800 frame (it parses 4 MB of
 # pixels in pure Python), which caps the console at 2.8 fps. ffmpeg's x11grab uses MIT-SHM and
@@ -1586,6 +1615,7 @@ SQL
     # prod installs runtime deps only (matching upgrade); for dev/test tools run pip install -e ".[dev]" separately
     sudo -u "$JTIPAM_USER" .venv/bin/pip install -e .
     install_rdp_optional
+    ensure_kerberos_support
     if [[ "$WITH_FREERDP" == "1" ]]; then
         install_freerdp_apt || true
     else
@@ -2453,6 +2483,7 @@ cmd_upgrade() {
     log "Updating backend dependencies (pip install -e .)…"
     ( cd "$ROOT/backend"; as_user .venv/bin/pip install --quiet -e . )
     install_rdp_optional
+    ensure_kerberos_support
     ensure_freerdp_if_selected
     ensure_guacd_current "$GUACD_TARBALL"
     # IPMI tools for the BMC console (install on upgrade of existing setups; best-effort)

@@ -3225,7 +3225,7 @@ async def list_vms(
     session: AsyncSession, *, user: User, limit: int = 200,
     subnet_cidr: str | None = None, subnet_id: str | None = None,
 ) -> dict[str, Any]:
-    """虛擬機清單（Proxmox VE 等同步回來）：VMID、叢集、節點、規格、主要 IP、對應裝置、租戶、說明、網卡。
+    """虛擬機清單（Proxmox VE、VMware、Hyper-V 同步回來）：VMID、叢集、節點、規格、作業系統、主要 IP、對應裝置、租戶、說明、網卡。
     問某網段有哪些 VM 要帶 subnet_cidr。"""
     from app.models.advanced import Tenant
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
@@ -3256,6 +3256,8 @@ async def list_vms(
         "vmid": v.legacy_vmid, "external_id": v.external_id,
         "cluster": clusters.get(v.cluster_id), "node": v.node, "kind": v.kind, "status": v.status,
         "vcpus": v.vcpus, "memory_mb": v.memory_mb, "disk_gb": v.disk_gb,
+        # 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
+        "os": v.os_name,
         "is_template": v.is_template,
         "primary_ip": ips.get(v.primary_ip_id),
         "device": devs.get(v.device_id), "tenant": tenants.get(v.tenant_id),
@@ -5191,7 +5193,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_vms": {
         "fn": list_vms,
         "description": (
-            "Virtual machines (Proxmox VE, VMware): VMID, cluster, node, kind, status, resources, primary IP, "
+            "Virtual machines (Proxmox VE, VMware, Hyper-V): VMID, cluster, node, kind, status, resources, guest OS, primary IP, "
             "linked device, NICs (MAC, IP, bridge, VLAN)."),
         "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string"}, "subnet_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },

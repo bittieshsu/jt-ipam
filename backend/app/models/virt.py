@@ -80,6 +80,8 @@ class VirtualMachine(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     vcpus: Mapped[int | None] = mapped_column(Integer)
     memory_mb: Mapped[int | None] = mapped_column(Integer)
     disk_gb: Mapped[int | None] = mapped_column(Integer)
+    # 客體作業系統（Hyper-V 的 KVP、SCVMM 的 OperatingSystem；0222）
+    os_name: Mapped[str | None] = mapped_column(String(255))
 
     primary_ip_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -33,6 +33,7 @@ from app.api.v1.endpoints import (
     export_events,
     firewall,
     fortigate,
+    hyperv,
     import_external,
     investigate,
     ip_changes,
@@ -157,6 +158,7 @@ api_v1_router.include_router(migration.router)
 api_v1_router.include_router(ai_audit.router)
 api_v1_router.include_router(investigate.router)
 api_v1_router.include_router(esxi.router)
+api_v1_router.include_router(hyperv.router)
 api_v1_router.include_router(import_external.router)
 api_v1_router.include_router(scan_agents.router)
 api_v1_router.include_router(scan_agent_relay.router)

@@ -91,6 +91,7 @@ _SPECS: tuple[tuple[str, str, str, tuple[str, ...], str, tuple[str, ...]], ...] 
      ("devices", "arp", "fdb")),
     ("app.models.virt", "ProxmoxInstance", "proxmox", ("virt",), "sync_interval_seconds", ("vms", "interfaces")),
     ("app.models.esxi", "ESXiInstance", "esxi", ("virt",), "sync_interval_seconds", ("vms", "interfaces")),
+    ("app.models.hyperv", "HyperVInstance", "hyperv", ("virt",), "sync_interval_seconds", ("vms", "interfaces")),
     ("app.models.zabbix", "ZabbixInstance", "zabbix", ("monitoring",), "sync_interval_seconds", ("hosts",)),
     ("app.models.wazuh", "WazuhInstance", "wazuh", ("monitoring",), "sync_interval_seconds", ("agents",)),
     ("app.models.ocs", "OcsServer", "ocs", ("monitoring",), "sync_interval_seconds", ("inventory",)),
@@ -116,7 +117,7 @@ PRESENCE_KIND = {
     "fortigate": "fortigate", "paloalto": "paloalto", "mikrotik": "mikrotik", "windows_dhcp": "windows_dhcp",
     "kea_dhcp": "kea_dhcp", "isc_dhcp": "isc_dhcp", "isoinsight": "isoinsight", "rustdesk": "rustdesk",
     "technitium": "technitium", "checkpoint": "checkpoint",
-    "proxmox": "proxmox", "esxi": "esxi", "wazuh": "wazuh", "zabbix": "zabbix", "ocs": "ocs",
+    "proxmox": "proxmox", "esxi": "esxi", "hyperv": "hyperv", "wazuh": "wazuh", "zabbix": "zabbix", "ocs": "ocs",
 }
 NOT_SOURCES = {
     "graylog": "只把 IPAM 的資料匯出給 Graylog 查表，本身不存任何引用；改址後匯出內容自動跟著變",

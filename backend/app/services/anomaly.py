@@ -291,6 +291,11 @@ async def analyze_ip_conflicts(
         session, {k: set(found[k]) for k in evidence if k not in device_of})
     device_of.update(vm_of)
     nics.update(vm_nics)
+    # 再不行：看 IPAM 登記（實體機、VMware／Hyper-V 的 VM 沒連到裝置時）
+    host_of, host_nics, host_names = await _registered_nics(
+        session, {k: set(found[k]) for k in evidence if k not in device_of}, found)
+    device_of.update(host_of)
+    nics.update(host_nics)
     known, corroborated_known = await _known_macs(session, list(evidence), device_of, nics)
     lives_at = await _mac_registered_ips(session, {m for k in evidence for m, s_ in found[k].items()
                                                    if len(s_.reporters) == 1})
@@ -357,8 +362,9 @@ async def analyze_ip_conflicts(
         })
 
     flux: list[dict[str, Any]] = []
-    dev_names = await _device_names(session, {device_of[k] for k in flux_keys} - set(vm_names))
+    dev_names = await _device_names(session, {device_of[k] for k in flux_keys} - set(vm_names) - set(host_names))
     dev_names.update(vm_names)
+    dev_names.update(host_names)
     for key in sorted(flux_keys, key=lambda k: (k[1], k[0] or "")):
         sid, ip = key
         dev = device_of[key]
@@ -498,6 +504,53 @@ async def _mac_registered_ips(session: AsyncSession, macs: set[str]) -> dict[str
         if (m := normalize(str(mac))) is not None:
             out[m].add(str(ip).split("/")[0])
     return out
+
+
+async def _registered_nics(
+    session: AsyncSession, macs_by_key: dict[tuple[str | None, str], set[str]],
+    found: dict[tuple[str | None, str], dict[str, Any]],
+) -> tuple[dict[tuple[str | None, str], Any], dict[Any, dict[str, list[str]]], dict[Any, str]]:
+    """沒連到裝置、虛擬化整合也不認得：用 IPAM 的登記判斷「另一個 MAC 是同一台主機的另一張網卡」。
+
+    使用者 2026-10-20：「我們 IPAM 可以判斷然後不要誤判嗎？」雙網卡主機的 ARP flux 是 Linux 預設行為，
+    兩個 IP 沒連到同一台裝置時以前只能報成衝突。成立條件（全部）：
+      - 這個 IP 登記的 MAC 在這次看到的 MAC 裡（IPAM 認得的主人還在）
+      - 其他每個 MAC 都登記在**另一個子網路**的某個 IP，而且同一段時間也在那個 IP 回應
+        （那個位址沒出現：可能是那台機器搬過來搶這個 IP，照樣算衝突）
+    回傳 (鍵 → 合成的主機識別、主機 → {MAC: [登記的 IP]}、主機 → 名稱)。"""
+    from sqlalchemy import Text, func
+
+    from app.services.arp_evidence import normalize
+    all_macs = sorted({m for ms in macs_by_key.values() for m in ms})
+    if not all_macs:
+        return {}, {}, {}
+    regs: dict[str, list[tuple[str, str, str | None]]] = defaultdict(list)     # MAC → [(子網路, IP, 名稱)]
+    for mac, sid, ip, hostname in (await session.execute(
+            select(IPAddress.mac, IPAddress.subnet_id, IPAddress.ip, IPAddress.hostname).where(
+                in_values(func.lower(func.cast(IPAddress.mac, Text)), all_macs, type_=Text())))).all():
+        if (m := normalize(str(mac))) is not None:
+            regs[m].append((str(sid), str(ip).split("/")[0], hostname))
+    host_of: dict[tuple[str | None, str], Any] = {}
+    nics: dict[Any, dict[str, list[str]]] = {}
+    names: dict[Any, str] = {}
+    for key, ms in macs_by_key.items():
+        sid, ip = key
+        mine = [m for m in ms if any(r[1] == ip and (sid is None or r[0] == sid) for r in regs.get(m, ()))]
+        if len(mine) != 1 or len(ms) < 2:
+            continue
+        others = ms - set(mine)
+        home: dict[str, list[str]] = {}
+        for m in others:
+            live = [r[1] for r in regs.get(m, ()) if r[0] != sid and m in found.get((r[0], r[1]), {})]
+            if not live:
+                break
+            home[m] = live
+        else:
+            hid = ("host", sid, ip)
+            host_of[key] = hid
+            nics[hid] = {mine[0]: [ip], **home}
+            names[hid] = next((r[2] for r in regs[mine[0]] if r[1] == ip and r[2]), None) or ip
+    return host_of, nics, names
 
 
 async def _vm_nics(

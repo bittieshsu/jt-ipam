@@ -1105,7 +1105,7 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
     <!-- 連線設定表單（版面與 SSH 終端機一致：卡片 + 左標籤表單 + 說明 + 右下連線鈕）
          連線中也留在這裡：按下連線後把卡片挪走會讓畫面整個跳一下，而失敗時又跳回來 -->
     <div v-if="!onFileList" class="sftp-form">
-      <n-card size="small" :bordered="true">
+      <n-card size="small" :bordered="true" class="console-connect-card">
         <template #header>
           <span style="display:flex;align-items:center;gap:8px">
             <n-icon :component="FilesIcon" :size="18" />

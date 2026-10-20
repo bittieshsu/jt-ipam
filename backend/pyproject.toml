@@ -96,6 +96,11 @@ rdp-freerdp = [
     "python-xlib>=0.33",
     "pillow>=10.0",
 ]
+# Kerberos for WinRM（Hyper-V；客戶的網域只開 Kerberos，2026-10-20）：pykerberos 是 C 擴充、Linux 沒有 wheel，
+# 要先有 libkrb5-dev 才編得起來 —— 由 scripts/jt-ipam.sh 的 ensure_kerberos_support 安裝（裝不起來只警告，NTLM 照常）
+kerberos = [
+    "pywinrm[kerberos]>=0.5",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

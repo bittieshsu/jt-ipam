@@ -45,7 +45,7 @@ import {
   ScanAgentsIcon, SnmpIcon, WebhooksIcon, LockIcon, KeyIcon,
   MigrationIcon, ImportIcon, PluginsIcon, ExportIcon, TerminalIcon, TestIcon,
   // topbar / user menu
-  LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, MenuIcon,
+  LogoutIcon, AccountIcon, LanguageIcon, ThemeDarkIcon, ThemeLightIcon, ThemeAutoIcon, MenuIcon,
   renderIcon,
 } from "@/icons";
 import { User as UserOutline } from "@iconoir/vue";
@@ -189,7 +189,7 @@ watch([inSubnetContext, currentSubnetId, navSubnets], () => {
 const intgPresence = ref<Record<string, boolean>>({
   opnsense: true, pfsense: true, fortigate: true, paloalto: true, mikrotik: true,
   dns: true,
-  cert_agents: true, proxmox: true, esxi: true,
+  cert_agents: true, proxmox: true, esxi: true, hyperv: true,
 });
 const intgPresenceLoaded = ref(false);
 async function loadIntegrationPresence() {
@@ -222,6 +222,7 @@ const INTEGRATION_ITEMS: [string, string, Component][] = [
   ["rustdesk", "nav.rustdesk", RustDeskIcon],
   ["virt_admin", "nav.virt_admin", VirtualizationIcon],
   ["esxi_admin", "nav.esxi_admin", VirtualizationIcon],
+  ["hyperv_admin", "nav.hyperv_admin", VirtualizationIcon],
   ["wazuh", "nav.wazuh", WazuhIcon],
   ["zabbix", "nav.zabbix", LibreNMSIcon],
   ["ocs", "nav.ocs", DevicesIcon],
@@ -232,7 +233,7 @@ const INTEGRATION_PRESENCE_KEY: Record<string, string> = {
   dns: "dns", adguard: "adguard", librenms: "librenms", firewall_admin: "opnsense", pfsense: "pfsense",
   fortigate: "fortigate", paloalto: "paloalto", checkpoint: "checkpoint", mikrotik: "mikrotik", snmp: "snmp",
   windows_dhcp: "windows_dhcp",
-  kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium_dhcp: "technitium", isoinsight: "isoinsight", rustdesk: "rustdesk", virt_admin: "proxmox", esxi_admin: "esxi",
+  kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium_dhcp: "technitium", isoinsight: "isoinsight", rustdesk: "rustdesk", virt_admin: "proxmox", esxi_admin: "esxi", hyperv_admin: "hyperv",
   wazuh: "wazuh", zabbix: "zabbix", ocs: "ocs", graylog_dsv: "graylog",
 };
 /** 已設定的整合在名稱後面加一個勾（使用者 2026-10-07）；選單是 render 函式，樣式要寫在行內 */
@@ -293,6 +294,8 @@ const menuOptions = computed<MenuOption[]>(() => {
           ? [{ label: () => t("nav.virt_pve"), key: "virt", icon: renderIcon(VirtualizationIcon) }] : []),
         ...(intgPresence.value.esxi
           ? [{ label: () => t("nav.virt_vmware"), key: "virt_vmware", icon: renderIcon(VirtualizationIcon) }] : []),
+        ...(intgPresence.value.hyperv
+          ? [{ label: () => t("nav.virt_hyperv"), key: "virt_hyperv", icon: renderIcon(VirtualizationIcon) }] : []),
         ...(intgPresence.value.opnsense
           ? [{ label: () => t("nav.firewall"), key: "firewall", icon: renderIcon(FirewallIcon) }] : []),
         ...(intgPresence.value.pfsense
@@ -413,18 +416,21 @@ watch([menuValue, menuOptions], () => {
   if (keys.size !== before) expandedKeys.value = [...keys];
 }, { immediate: true });
 
+const THEME_ICONS = { light: ThemeLightIcon, dark: ThemeDarkIcon, auto: ThemeAutoIcon } as const;
 const themeOptions = computed(() => [
-  { label: t("topbar.theme.light"), value: "light" },
-  { label: t("topbar.theme.dark"),  value: "dark" },
-  { label: t("topbar.theme.auto"),  value: "auto" },
+  { label: t("topbar.theme.light"), value: "light" as const },
+  { label: t("topbar.theme.dark"),  value: "dark" as const },
+  { label: t("topbar.theme.auto"),  value: "auto" as const },
 ]);
 
 // 窄螢幕時語言 / 佈景改用 icon 觸發的下拉（n-dropdown 用 key）
 const localeMenuOptions = computed(() => localeOptions.map((o) => ({ label: o.label, key: o.value })));
-const themeMenuOptions = computed(() => themeOptions.value.map((o) => ({ label: o.label, key: o.value })));
+// 選單項目也要有圖示（使用者 2026-10-20），跟按鈕上的圖示同一套
+const themeMenuOptions = computed(() => themeOptions.value.map((o) => ({
+  label: o.label, key: o.value, icon: renderIcon(THEME_ICONS[o.value]) })));
 const currentLocaleLabel = computed(() => localeOptions.find((o) => o.value === locale.value)?.label ?? "");
 const currentThemeLabel = computed(() => themeOptions.value.find((o) => o.value === theme.value)?.label ?? "");
-const currentThemeIcon = computed(() => (theme.value === "light" ? ThemeLightIcon : ThemeDarkIcon));
+const currentThemeIcon = computed(() => THEME_ICONS[theme.value as keyof typeof THEME_ICONS] ?? ThemeLightIcon);
 // n-dropdown @select 會帶 (key, option)，需包一層只取 key（避免把 option 當成 setLocale 的第二參數）
 function pickLocale(k: string | number) { ui.setLocale(String(k) as "zh-TW" | "en-US" | "ja-JP"); }
 function pickTheme(k: string | number) { ui.setTheme(String(k) as "light" | "dark" | "auto"); }

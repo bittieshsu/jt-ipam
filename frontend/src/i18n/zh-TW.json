@@ -353,7 +353,9 @@
     "approval_settings": "申請審核設定",
     "technitium_dhcp": "Technitium DHCP",
     "checkpoint": "Check Point",
-    "snmp": "SNMP"
+    "snmp": "SNMP",
+    "hyperv_admin": "Hyper-V",
+    "virt_hyperv": "虛擬化 (Hyper-V)"
   },
   "topbar": {
     "search": "搜尋…",
@@ -1267,7 +1269,8 @@
       "rustdesk": "RustDesk 客戶端",
       "isoinsight": "ISOinsight",
       "technitium": "Technitium DHCP",
-      "checkpoint": "Check Point"
+      "checkpoint": "Check Point",
+      "hyperv": "Hyper-V / SCVMM"
     },
     "model_title": "裝置型號來源順序",
     "model_subtitle": "多個來源提供同一台裝置型號時，排越前面優先採用；手動最高且不可停用。拖拉調整。",
@@ -1443,7 +1446,10 @@
     "liveness_from_device_via": "（依據：同設備 {ip}）",
     "liveness_from_device_no_device_short": "（還沒有掛設備）",
     "source_snmp": "SNMP",
-    "source_snmp_arp": "SNMP ARP"
+    "source_snmp_arp": "SNMP ARP",
+    "source_hyperv": "Hyper-V",
+    "in_reserved_range": "這個位址在保留範圍「{name}」裡：自動配發會跳過這一段。確定要手動使用再儲存。",
+    "in_dhcp_range": "這個位址在 DHCP 範圍「{name}」裡：設成固定 IP 可能跟 DHCP 租約衝突，自動配發也會跳過這一段。確定要手動使用再儲存。"
   },
   "subnets": {
     "title": "子網路",
@@ -1648,7 +1654,8 @@
       "wazuh_sync": "Wazuh 同步",
       "windows_dhcp_sync": "Windows DHCP 同步",
       "zabbix_sync": "Zabbix 同步",
-      "external_dns_run": "外部 DNS 查詢"
+      "external_dns_run": "外部 DNS 查詢",
+      "hyperv_sync": "Hyper-V 同步"
     },
     "tracker": {
       "title": "背景作業",
@@ -2516,7 +2523,7 @@
     "dns_compare_mismatch": "DNS 比對不一致",
     "explain_dns_compare_mismatch": "標成同一個比對群組的 DNS 伺服器，紀錄卻不一樣：整個 zone 或某筆紀錄只在部分伺服器上，而且沒有的那台在群組設定的寬限時間之後重新拉取，仍然沒有（剛改完、還在複寫中、或還沒輪到拉取的不列）。常見原因是伺服器之間的複寫（區域傳送、AD 複寫）中斷，或 jt-ipam 用的帳號讀不到某些 zone。比對用的是 jt-ipam 已經拉取回來的紀錄。",
     "summary_ip_conflicts": "同一個 IP 被兩台以上的機器使用（不同 MAC 搶同一個位址）。",
-    "summary_arp_flux": "同一台主機的兩張以上網卡都回應同一個 IP；不是兩台在搶，是主機的設定問題。",
+    "summary_arp_flux": "同一台主機的兩張以上網卡都回應同一個 IP：這是 Linux 預設行為（arp_ignore=0），本身不是故障，也不是兩台在搶；列出來供參考，預設不發通知。",
     "summary_l2_subnet_bleed": "兩個子網段其實在同一個二層廣播網域，沒有真正隔離。",
     "summary_mac_drifts": "同一個 MAC 在同一台交換器上換了埠，通常是設備換插或搬移。",
     "summary_ghost_ips": "登記為已配發，但很久沒有任何存活跡象的 IP，多半可以回收。",
@@ -2704,7 +2711,8 @@
     "vm_status_unknown": "未知",
     "cluster_col": "叢集",
     "empty_group": "（空群組）",
-    "empty_set": "（空集合）"
+    "empty_set": "（空集合）",
+    "os": "作業系統"
   },
   "physical": {
     "cabling": "佈線",
@@ -3845,7 +3853,21 @@
     "ext_dns_bad_address": "「{value}」不是有效的 IP 位址",
     "ext_dns_need_name": "請先設定對外網域，或指定要查的名稱",
     "ext_dns_running": "外部 DNS 查詢正在執行",
-    "ext_dns_not_configured": "尚未設定外部解析器與對外網域"
+    "ext_dns_not_configured": "尚未設定外部解析器與對外網域",
+    "hyperv_connect": "連不上 {host}：{reason}",
+    "hyperv_auth": "{host} 的帳號密碼被拒絕，或帳號沒有權限：{reason}",
+    "hyperv_cert": "{host} 的 WinRM HTTPS 憑證不受信任：{reason}",
+    "hyperv_https_unreachable": "WinRM HTTPS {host}:{port} 連不上。Windows Server 預設只開 HTTP 5985；除非另外建立了 HTTPS 監聽，請把這個連線的 WinRM 改成 HTTP（5985）。（{reason}）",
+    "hyperv_no_module": "{host} 上沒有 Hyper-V 或 VMM 的 PowerShell 模組（直連主機要裝 Hyper-V 管理工具；SCVMM 要連 VMM 伺服器本身）：{reason}",
+    "hyperv_error": "Hyper-V：{reason}",
+    "kerberos_auth": "Kerberos 拒絕 {principal}：密碼錯誤、帳號停用或密碼過期（{reason}）",
+    "kerberos_principal": "網域裡沒有 {principal} 這個帳號（{reason}）",
+    "kerberos_kdc": "找不到或連不上網域控制站（KDC）：請確認 DNS 查得到網域的 Kerberos 記錄，或直接填網域控制站，並確認 TCP 88 有通（{reason}）",
+    "kerberos_clock": "這台伺服器跟網域控制站的時間差太多，Kerberos 拒絕驗證：請校正時間（NTP）（{reason}）",
+    "kerberos_error": "Kerberos 驗證失敗：{reason}",
+    "kerberos_realm": "Kerberos 需要領域：帳號寫成 帳號{'@'}網域，或填 Kerberos 領域",
+    "kerberos_needs_fqdn": "{host}：Kerberos 要用完整的主機名稱（FQDN），不能用 IP 位址或短名稱",
+    "kerberos_unavailable": "這台伺服器還不能用 Kerberos（缺少：{missing}），執行一次升級就會補裝"
   },
   "adguard_admin": {
     "scope_subnets": "限定子網路範圍",
@@ -4168,7 +4190,8 @@
     "wrap_hint": "接續到下一排",
     "vm": "虛擬機",
     "pve_node": "PVE 節點",
-    "esxi_host": "ESXi 主機"
+    "esxi_host": "ESXi 主機",
+    "hyperv_host": "Hyper-V 主機"
   },
   "version": {
     "title": "版本資訊",
@@ -7235,7 +7258,8 @@
         "webhook": "Webhook",
         "technitium": "Technitium DHCP",
         "checkpoint": "Check Point",
-        "snmp": "SNMP 收集目標"
+        "snmp": "SNMP 收集目標",
+        "hyperv": "Hyper-V"
       },
       "endpoint": {
         "any": "未指定埠"
@@ -8197,5 +8221,37 @@
     "not_configured": "尚未設定",
     "test_ok": "{name} 查到：{addrs}",
     "test_fail": "{name}：{rcode} {error}"
+  },
+  "hyperv": {
+    "page_title": "Hyper-V",
+    "beta_note": "Beta：開發時沒有 Hyper-V／SCVMM 實機驗證過。欄位對不上時會是「空的」而不是同步失敗；請先用「測試」逐步確認，遇到問題請回報。",
+    "create_title": "新增 Hyper-V 連線",
+    "edit_title": "編輯 Hyper-V 連線",
+    "mode": "連線方式",
+    "mode_hosts": "直連 Hyper-V 主機",
+    "mode_scvmm": "經 SCVMM（System Center VMM）",
+    "mode_hosts_short": "直連主機",
+    "mode_hosts_hint": "逐台連 Hyper-V 主機。容錯移轉叢集的每個節點都要填：NTLM 不能從一台節點再轉連其他節點。",
+    "mode_scvmm_hint": "連 VMM 伺服器，一次拿到它管理的所有主機與 VM。",
+    "host_hosts": "Hyper-V 主機",
+    "host_scvmm": "VMM 伺服器",
+    "extra_hosts": "同一個叢集的其他節點（每台都會連）",
+    "extra_scvmm": "備援 VMM 伺服器（依序試到通為止）",
+    "extra_ph": "一行一台，或用逗號分隔",
+    "col_hosts": "主機",
+    "help_title": "設定步驟",
+    "help_hosts_1": "建立一個網域帳號，加入每台主機的「Hyper-V Administrators」與「Remote Management Users」群組（唯讀查詢，不需要本機管理員）。",
+    "help_scvmm_1": "建立一個網域帳號，在 VMM 裡給它唯讀的使用者角色（Read-Only Administrator），並加入 VMM 伺服器的「Remote Management Users」群組。",
+    "help_2": "每台要連的 Windows 開啟 WinRM（Windows Server 通常預設已開）：",
+    "help_hosts_3": "jt-ipam 伺服器要連得到每台主機的 TCP 5985（HTTP）或 5986（HTTPS）。儲存後按「測試」逐台確認。",
+    "help_scvmm_3": "jt-ipam 伺服器要連得到 VMM 伺服器的 TCP 5985（HTTP）或 5986（HTTPS）。儲存後按「測試」確認。",
+    "diag": "連線診斷",
+    "auth": "驗證方式",
+    "krb_hint": "Kerberos：帳號寫成 帳號{'@'}網域（或寫 網域\\帳號 並填下面的領域）；主機與其他主機一律要寫完整的主機名稱（FQDN），不能用 IP 位址。伺服器要連得到網域控制站的 TCP 88。",
+    "krb_missing": "這台伺服器還不能用 Kerberos（缺少：{missing}）。執行一次升級就會補裝：",
+    "krb_realm": "Kerberos 領域（帳號寫成 帳號{'@'}網域 時可以留空）",
+    "krb_kdc": "網域控制站（KDC）",
+    "krb_kdc_ph": "留空＝依 DNS 自動尋找（AD 的預設）；或一行一台填網域控制站",
+    "winrm_hint_krb": "預設 HTTP 5985（Windows Server 防火牆預設封鎖 HTTPS 5986）。走 HTTP 時內容一律以 Kerberos 加密，不會明文傳送。"
   }
 }

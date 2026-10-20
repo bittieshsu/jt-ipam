@@ -5,6 +5,7 @@
  * currentId 標出「目前所在」的節點（高亮、不可點）。
  */
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
+import { virtRouteFor } from "@/utils/virt";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { NIcon } from "naive-ui";
@@ -47,7 +48,8 @@ const ICONS: Record<string, any> = {
 // 一律標成「PVE 節點」的話，VMware 使用者看到的是別家產品的名詞。
 function nodeTypeLabel(n: RelationNode): string {
   if (n.type === "vmnode") {
-    return n.platform === "vmware" ? t("relations.esxi_host") : t("relations.pve_node");
+    return n.platform === "vmware" ? t("relations.esxi_host")
+      : n.platform === "hyper-v" ? t("relations.hyperv_host") : t("relations.pve_node");
   }
   return TYPE_LABEL.value[n.type] ?? n.type;
 }
@@ -64,7 +66,7 @@ function go(n: RelationNode) {
     case "subnet":   router.push({ name: "subnet-detail", params: { id: n.id } }); break;
     // 虛擬化拆成 PVE / VMware 兩頁後，這裡不能再寫死 —— 依節點自帶的平台決定，
     // 否則 VMware 的 VM 會被送到 PVE 那一頁看到 0 筆（實機回報）。
-    case "vm":       router.push({ name: n.platform === "vmware" ? "virt_vmware" : "virt" }); break;
+    case "vm":       router.push({ name: virtRouteFor(n.platform) }); break;
     // 虛擬化主機：對得到實體裝置（id 為 UUID）就跳裝置詳細資料；只有名稱（id 以 host: 開頭）則不動作
     case "vmnode":   if (!n.id.startsWith("host:")) router.push({ name: "device-detail", params: { id: n.id } }); break;
     case "device":   router.push({ name: "device-detail", params: { id: n.id } }); break;

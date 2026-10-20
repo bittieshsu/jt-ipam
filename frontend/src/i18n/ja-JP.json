@@ -353,7 +353,9 @@
     "approval_settings": "申請の承認設定",
     "technitium_dhcp": "Technitium DHCP",
     "checkpoint": "Check Point",
-    "snmp": "SNMP"
+    "snmp": "SNMP",
+    "hyperv_admin": "Hyper-V",
+    "virt_hyperv": "仮想化（Hyper-V）"
   },
   "topbar": {
     "search": "検索…",
@@ -1267,7 +1269,8 @@
       "rustdesk": "RustDesk クライアント",
       "isoinsight": "ISOinsight",
       "technitium": "Technitium DHCP",
-      "checkpoint": "Check Point"
+      "checkpoint": "Check Point",
+      "hyperv": "Hyper-V / SCVMM"
     },
     "model_title": "機器の型番のソース順",
     "model_subtitle": "同じ機器について複数のソースが型番を提供した場合、上にあるものが優先されます。手動が最上位で、無効にはできません。ドラッグで並べ替えられます。",
@@ -1443,7 +1446,10 @@
     "liveness_from_device_via": "（根拠：同じ機器の {ip}）",
     "liveness_from_device_no_device_short": "（まだ機器に紐づいていません）",
     "source_snmp": "SNMP",
-    "source_snmp_arp": "SNMP ARP"
+    "source_snmp_arp": "SNMP ARP",
+    "source_hyperv": "Hyper-V",
+    "in_reserved_range": "このアドレスは予約範囲「{name}」内にあります。自動割り当てではこの範囲を飛ばします。手動で使う場合のみ保存してください。",
+    "in_dhcp_range": "このアドレスは DHCP 範囲「{name}」内にあります。固定 IP にすると DHCP リースと衝突するおそれがあり、自動割り当てでもこの範囲を飛ばします。手動で使う場合のみ保存してください。"
   },
   "subnets": {
     "title": "サブネット",
@@ -1648,7 +1654,8 @@
       "wazuh_sync": "Wazuh 同期",
       "windows_dhcp_sync": "Windows DHCP 同期",
       "zabbix_sync": "Zabbix 同期",
-      "external_dns_run": "外部 DNS の確認"
+      "external_dns_run": "外部 DNS の確認",
+      "hyperv_sync": "Hyper-V 同期"
     },
     "tracker": {
       "title": "バックグラウンドジョブ",
@@ -2516,7 +2523,7 @@
     "dns_compare_mismatch": "DNS 比較の不一致",
     "explain_dns_compare_mismatch": "同じ比較グループの DNS サーバーなのにレコードが違います。ゾーン全体またはあるレコードが一部のサーバーにしかなく、ないサーバーをグループの猶予時間後に取得し直してもまだありません（変更直後で複製中のもの、まだ取得していないものは表示しません）。よくある原因は、サーバー間の複製（ゾーン転送、AD レプリケーション）の停止や、jt-ipam が使うアカウントで一部のゾーンを読めないことです。比較には jt-ipam が取得済みのレコードを使います。",
     "summary_ip_conflicts": "同じ IP を 2 台以上の機器が使っています（異なる MAC が同じアドレスを名乗っている）。",
-    "summary_arp_flux": "1 台のホストの複数の NIC が同じ IP に応答しています。2 台の競合ではなくホストの設定の問題です。",
+    "summary_arp_flux": "1 台のホストの複数の NIC が同じ IP に応答しています。Linux の既定の動作（arp_ignore=0）で、障害でも 2 台の競合でもありません。参考として表示し、既定では通知しません。",
     "summary_l2_subnet_bleed": "2 つのサブネットが実際には同じレイヤー 2 のブロードキャストドメインにあり、分離されていません。",
     "summary_mac_drifts": "同じ MAC が同じスイッチの別のポートに移動しました。通常は機器の差し替えや移設です。",
     "summary_ghost_ips": "IPAM では割り当て済みなのに長期間応答の兆候がない IP です。多くは回収できます。",
@@ -2704,7 +2711,8 @@
     "vm_status_unknown": "不明",
     "cluster_col": "クラスタ",
     "empty_group": "（空のグループ）",
-    "empty_set": "（空のセット）"
+    "empty_set": "（空のセット）",
+    "os": "OS"
   },
   "physical": {
     "cabling": "配線",
@@ -3845,7 +3853,21 @@
     "ext_dns_bad_address": "「{value}」は有効な IP アドレスではありません",
     "ext_dns_need_name": "先に公開ドメインを設定するか、問い合わせる名前を指定してください",
     "ext_dns_running": "外部 DNS の確認はすでに実行中です",
-    "ext_dns_not_configured": "外部リゾルバーと公開ドメインが設定されていません"
+    "ext_dns_not_configured": "外部リゾルバーと公開ドメインが設定されていません",
+    "hyperv_connect": "{host} に接続できません：{reason}",
+    "hyperv_auth": "{host} が資格情報を拒否したか、アカウントに権限がありません：{reason}",
+    "hyperv_cert": "{host} の WinRM HTTPS 証明書は信頼されていません：{reason}",
+    "hyperv_https_unreachable": "WinRM HTTPS {host}:{port} に接続できません。Windows Server の既定は HTTP 5985 のみです。HTTPS リスナーを別途作成していない場合は、この接続の WinRM を HTTP（5985）に変更してください。（{reason}）",
+    "hyperv_no_module": "{host} に Hyper-V または VMM の PowerShell モジュールがありません（直接接続には Hyper-V 管理ツール、SCVMM は VMM サーバー自体への接続が必要です）：{reason}",
+    "hyperv_error": "Hyper-V：{reason}",
+    "kerberos_auth": "Kerberos が {principal} を拒否しました：パスワードの誤り、無効なアカウント、またはパスワードの期限切れです（{reason}）",
+    "kerberos_principal": "ドメインに {principal} というアカウントがありません（{reason}）",
+    "kerberos_kdc": "ドメインコントローラー（KDC）が見つからないか接続できません。DNS にドメインの Kerberos レコードがあるか確認するか、ドメインコントローラーを入力し、TCP 88 が通ることを確認してください（{reason}）",
+    "kerberos_clock": "このサーバーとドメインコントローラーの時刻差が大きすぎるため Kerberos が拒否しました。時刻（NTP）を合わせてください（{reason}）",
+    "kerberos_error": "Kerberos 認証に失敗しました：{reason}",
+    "kerberos_realm": "Kerberos にはレルムが必要です。アカウントを user{'@'}ドメイン で入力するか、Kerberos レルムを入力してください",
+    "kerberos_needs_fqdn": "{host}：Kerberos には IP アドレスや短い名前ではなく完全なホスト名（FQDN）が必要です",
+    "kerberos_unavailable": "このサーバーではまだ Kerberos を使えません（不足：{missing}）。アップグレードを 1 回実行すると導入されます"
   },
   "adguard_admin": {
     "scope_subnets": "対象サブネットを限定",
@@ -4168,7 +4190,8 @@
     "wrap_hint": "次の行へ続く",
     "vm": "VM",
     "pve_node": "PVE ノード",
-    "esxi_host": "ESXi ホスト"
+    "esxi_host": "ESXi ホスト",
+    "hyperv_host": "Hyper-V ホスト"
   },
   "version": {
     "title": "バージョン情報",
@@ -7235,7 +7258,8 @@
         "webhook": "Webhook",
         "technitium": "Technitium DHCP",
         "checkpoint": "Check Point",
-        "snmp": "SNMP 収集対象"
+        "snmp": "SNMP 収集対象",
+        "hyperv": "Hyper-V"
       },
       "endpoint": {
         "any": "ポート未指定"
@@ -8197,5 +8221,37 @@
     "not_configured": "未設定",
     "test_ok": "{name} の解決結果：{addrs}",
     "test_fail": "{name}：{rcode} {error}"
+  },
+  "hyperv": {
+    "page_title": "Hyper-V",
+    "beta_note": "Beta：開発時に Hyper-V／SCVMM の実機では検証していません。項目が合わない場合は同期失敗ではなく空欄になります。「テスト」で段階的に確認し、問題があれば報告してください。",
+    "create_title": "Hyper-V 接続を追加",
+    "edit_title": "Hyper-V 接続を編集",
+    "mode": "接続方法",
+    "mode_hosts": "Hyper-V ホストに直接接続",
+    "mode_scvmm": "SCVMM（System Center VMM）経由",
+    "mode_hosts_short": "ホスト直接",
+    "mode_hosts_hint": "Hyper-V ホストに 1 台ずつ接続します。フェールオーバークラスターは全ノードを入力してください（NTLM はノードから別のノードへ転送できません）。",
+    "mode_scvmm_hint": "VMM サーバーに接続し、管理下のすべてのホストと VM を一度に取得します。",
+    "host_hosts": "Hyper-V ホスト",
+    "host_scvmm": "VMM サーバー",
+    "extra_hosts": "同じクラスターの他のノード（すべて接続します）",
+    "extra_scvmm": "予備の VMM サーバー（順に試します）",
+    "extra_ph": "1 行に 1 台、またはカンマ区切り",
+    "col_hosts": "ホスト",
+    "help_title": "設定手順",
+    "help_hosts_1": "ドメインアカウントを作成し、各ホストの「Hyper-V Administrators」と「Remote Management Users」グループに追加します（読み取りのみ。ローカル管理者は不要です）。",
+    "help_scvmm_1": "ドメインアカウントを作成し、VMM で読み取り専用のユーザーロール（Read-Only Administrator）を付与し、VMM サーバーの「Remote Management Users」グループに追加します。",
+    "help_2": "接続先の各 Windows で WinRM を有効にします（Windows Server は通常既定で有効）：",
+    "help_hosts_3": "jt-ipam サーバーから各ホストの TCP 5985（HTTP）または 5986（HTTPS）に接続できる必要があります。保存後「テスト」で各ホストを確認してください。",
+    "help_scvmm_3": "jt-ipam サーバーから VMM サーバーの TCP 5985（HTTP）または 5986（HTTPS）に接続できる必要があります。保存後「テスト」で確認してください。",
+    "diag": "接続診断",
+    "auth": "認証方式",
+    "krb_hint": "Kerberos：アカウントは user{'@'}ドメイン（または ドメイン\\ユーザー と下のレルム）で入力します。ホストは IP アドレスではなく完全なホスト名（FQDN）で入力してください。サーバーからドメインコントローラーの TCP 88 に接続できる必要があります。",
+    "krb_missing": "このサーバーではまだ Kerberos を使えません（不足：{missing}）。アップグレードを 1 回実行すると導入されます：",
+    "krb_realm": "Kerberos レルム（アカウントが user{'@'}ドメイン の場合は空欄で可）",
+    "krb_kdc": "ドメインコントローラー（KDC）",
+    "krb_kdc_ph": "空欄＝DNS で自動検出（AD の既定）。または 1 行に 1 台ドメインコントローラーを入力",
+    "winrm_hint_krb": "既定は HTTP 5985 です（Windows Server のファイアウォールは既定で HTTPS 5986 をブロック）。HTTP でも内容は常に Kerberos で暗号化され、平文では送信されません。"
   }
 }

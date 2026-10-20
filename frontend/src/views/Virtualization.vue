@@ -49,9 +49,16 @@ const msg = useMessage();
 const tab = ref<"clusters" | "vms" | "pvefw" | "proxmox">(
   route.name === "virt_admin" ? "proxmox" : (route.query.vm ? "vms" : "clusters"));
 
-/** 這一頁顯示哪個平台。虛擬化拆成「PVE」與「VMware」兩個選單項，同一個元件、不同 props。
+/** 這一頁顯示哪個平台。虛擬化拆成 PVE／VMware／Hyper-V 三個選單項，同一個元件、不同 props。
  *  不給就顯示全部（管理區的 virt-admin 走這條）。 */
-const props = defineProps<{ platform?: "proxmox" | "vmware" }>();
+type Platform = "proxmox" | "vmware" | "hyperv";
+//  type：virt_clusters.type 的值（Hyper-V 是 "hyper-v"，資料表 CHECK 早就預留）
+const PLATFORMS: Record<Platform, { type: string; route: string; nav: string }> = {
+  proxmox: { type: "proxmox", route: "virt", nav: "nav.virt_pve" },
+  vmware: { type: "vmware", route: "virt_vmware", nav: "nav.virt_vmware" },
+  hyperv: { type: "hyper-v", route: "virt_hyperv", nav: "nav.virt_hyperv" },
+};
+const props = defineProps<{ platform?: Platform }>();
 
 const allClusters = ref<any[]>([]);
 const allVms = ref<any[]>([]);
@@ -60,7 +67,7 @@ const loading = ref(false);
 
 // 依平台篩：叢集看 type，VM 跟著自己的叢集走
 const clusters = computed(() => (props.platform
-  ? allClusters.value.filter((c) => c.type === props.platform)
+  ? allClusters.value.filter((c) => c.type === PLATFORMS[props.platform!].type)
   : allClusters.value));
 const vms = computed(() => {
   if (!props.platform) return allVms.value;
@@ -68,16 +75,22 @@ const vms = computed(() => {
   return allVms.value.filter((v) => ids.has(v.cluster_id));
 });
 
-// 另一個平台有幾台 VM —— 用來把「空白頁」變成「你要的東西在另一頁」
-const otherPlatformCount = computed(() => {
-  if (!props.platform) return 0;
-  const otherIds = new Set(allClusters.value
-    .filter((c) => c.type !== props.platform).map((c) => c.id));
-  return allVms.value.filter((v) => otherIds.has(v.cluster_id)).length;
+// 別的平台有 VM —— 把「空白頁」變成「你要的東西在另一頁」（三個平台時指向 VM 最多的那個）
+const otherPlatform = computed<{ key: Platform; count: number } | null>(() => {
+  if (!props.platform) return null;
+  let best: { key: Platform; count: number } | null = null;
+  for (const key of Object.keys(PLATFORMS) as Platform[]) {
+    if (key === props.platform) continue;
+    const ids = new Set(allClusters.value.filter((c) => c.type === PLATFORMS[key].type).map((c) => c.id));
+    const count = allVms.value.filter((v) => ids.has(v.cluster_id)).length;
+    if (count && (!best || count > best.count)) best = { key, count };
+  }
+  return best;
 });
+const otherPlatformCount = computed(() => otherPlatform.value?.count ?? 0);
 
 function goOtherPlatform() {
-  void router.push({ name: props.platform === "vmware" ? "virt" : "virt_vmware" });
+  if (otherPlatform.value) void router.push({ name: PLATFORMS[otherPlatform.value.key].route });
 }
 
 // ── PVE 防火牆（東西向分段）──
@@ -441,6 +454,8 @@ const vmCols = computed<DataTableColumns<any>>(() => autoSort([
     render: (r) => clusters.value.find((c) => c.id === r.cluster_id)?.name ?? "—",
   },
   { title: t("virt.node"), key: "node", render: (r) => r.node ?? "—" },
+  // 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
+  { title: t("virt.os"), key: "os_name", minWidth: 140, ellipsis: { tooltip: true }, render: (r) => r.os_name ?? "—" },
   {
     title: "IP", key: "ips", minWidth: 150,
     // 在 IPAM 裡找得到的位址就做成連結 —— 資料早就在系統裡，不該要人複製那串數字、
@@ -564,8 +579,7 @@ onMounted(() => {
              實機回報「vCenter 設定成功、說讀到 169 台，但虛擬化頁面看不到 VM」，就是
              人在 PVE 那一頁找 VMware 的資料。 -->
         <span>{{ adminMode ? t("virt.proxmox_admin_title")
-                 : (platform === "vmware" ? t("nav.virt_vmware")
-                    : platform === "proxmox" ? t("nav.virt_pve") : t("nav.virtualization")) }}</span>
+                 : (platform ? t(PLATFORMS[platform].nav) : t("nav.virtualization")) }}</span>
       </n-space>
     </template>
     <!-- 空頁面要能自己解釋。這一頁沒東西、別的平台卻有，那不是「沒有資料」，
@@ -573,7 +587,7 @@ onMounted(() => {
     <n-alert v-if="otherPlatformCount > 0" type="info" :bordered="false"
              style="margin-bottom: 12px">
       {{ t("virt.other_platform_hint", { n: otherPlatformCount,
-            name: platform === "vmware" ? t("nav.virt_pve") : t("nav.virt_vmware") }) }}
+            name: otherPlatform ? t(PLATFORMS[otherPlatform.key].nav) : "" }) }}
       <n-button text type="primary" size="small" style="margin-left:6px"
                 @click="goOtherPlatform">{{ t("virt.other_platform_go") }}</n-button>
     </n-alert>
@@ -616,7 +630,7 @@ onMounted(() => {
       </n-tab-pane>
       <!-- PVE 防火牆：東西向／主機層分段。刻意不與「對外開放服務」混在一起 ——
            PVE 規則不代表對外可達，混談會製造假的曝險警訊 -->
-      <n-tab-pane v-if="!adminMode" name="pvefw">
+      <n-tab-pane v-if="!adminMode && (!platform || platform === 'proxmox')" name="pvefw">
         <template #tab>
           <span style="display:inline-flex;align-items:center;gap:6px"><n-icon :size="16"><FirewallIcon /></n-icon>{{ `${t('virt.pve_fw')} (${fwStates.length})` }}</span>
         </template>

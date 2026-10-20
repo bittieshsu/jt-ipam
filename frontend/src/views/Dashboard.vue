@@ -198,11 +198,10 @@ onMounted(async () => {
 // 兩個平台都在用時**不跳頁**：這個數字是兩邊的合計，送去任何一頁都只顯示一半，
 // 看起來像資料少了。只有一邊時才有唯一正確的目的地。
 const virtRoute = computed<string | null>(() => {
-  const pve = !!intg.value.proxmox;
-  const vmw = !!intg.value.esxi;
-  if (pve && vmw) return null;
-  if (vmw) return "virt_vmware";
-  return "virt";
+  const on = [["virt", !!intg.value.proxmox], ["virt_vmware", !!intg.value.esxi],
+              ["virt_hyperv", !!intg.value.hyperv]].filter(([, v]) => v).map(([k]) => k as string);
+  if (on.length > 1) return null;
+  return on[0] ?? "virt";
 });
 
 const hierLayers = computed(() => [
@@ -469,7 +468,7 @@ onMounted(() => { void load(); void loadPins(); });
                 {{ trendFilterText }}
               </n-tag>
             </div>
-            <n-button size="tiny" quaternary data-testid="trend-settings-open" @click="trendSettingsShow = true">
+            <n-button size="small" data-testid="trend-settings-open" @click="trendSettingsShow = true">
               <template #icon><n-icon><SettingsIcon /></n-icon></template>
               {{ t("dashboard.trend_settings") }}
             </n-button>

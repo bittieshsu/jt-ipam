@@ -1343,7 +1343,7 @@ onBeforeUnmount(() => {
        data-testid="rdweb-screen">
     <!-- 連線表單 -->
     <div v-if="ui === 'form'" class="rdw-form">
-      <n-card size="small" :bordered="true">
+      <n-card size="small" :bordered="true" class="console-connect-card">
         <template #header>
           <span style="display:flex;align-items:center;gap:8px">
             <n-icon :component="RustDeskIcon" :size="18" />

@@ -689,7 +689,7 @@ onBeforeUnmount(() => {
        data-testid="rdfile-browser">
     <!-- 連線表單（照遠端桌面的表單：已存密碼、密碼、記住密碼） -->
     <div v-if="ui === 'form'" class="rdf-form">
-      <n-card size="small" :bordered="true">
+      <n-card size="small" :bordered="true" class="console-connect-card">
         <template #header>
           <span style="display:flex;align-items:center;gap:8px">
             <n-icon :component="FilesIcon" :size="18" />

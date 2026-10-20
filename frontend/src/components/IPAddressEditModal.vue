@@ -24,6 +24,8 @@ import {
   type SameMacAddress,
 } from "@/api/addresses";
 import { classifyAddressLiveness, lastCountedAt, looksMoved } from "@/composables/useLivenessSettings";
+import { listIPRanges, type IPRange } from "@/api/ipRanges";
+import { rangeContaining } from "@/utils/ipColumns";
 import { getAddressHistory, getAddressSwitchPort, type HistoryFacet, type IPChangeLog,
   type SwitchPortInfo } from "@/api/ip_history";
 import { clearHostnameSource, getHostnameSources, type HostnameSources } from "@/api/hostname";
@@ -402,6 +404,18 @@ interface FormState {
 const form = ref<FormState>(emptyForm());
 // create 模式要填的 IP（FormState 不含 ip；新增時用此欄，可帶入 createContext.ip 預設值）
 const createIp = ref("");
+// 新增時：這個子網路裡用途是保留或 DHCP 的範圍（輸入的 IP 落在裡面就警告，不擋；GitHub issue #56）
+const createRanges = ref<IPRange[]>([]);
+const createRangeHit = computed(() => (isCreate.value && createIp.value.trim()
+  ? rangeContaining(createIp.value.trim(), createRanges.value) : null));
+watch(() => [props.show, props.createContext?.subnet_id] as const, async ([show, sid]) => {
+  createRanges.value = [];
+  if (!show || !sid || props.address) return;
+  try {
+    createRanges.value = (await listIPRanges(sid)).filter((r) => r.purpose === "reserved" || r.purpose === "dhcp");
+  } catch { /* 只是提醒，讀不到就不提醒 */ }
+}, { immediate: true });
+
 
 function emptyForm(): FormState {
   return {
@@ -1643,7 +1657,15 @@ async function remove() {
         <!-- edit mode -->
         <n-form v-else label-placement="top">
           <n-form-item v-if="isCreate" :label="t('addresses.ip')" required style="margin-bottom: 12px">
-            <n-input v-model:value="createIp" placeholder="198.51.100.10" />
+            <div style="width: 100%">
+              <n-input v-model:value="createIp" placeholder="198.51.100.10" />
+              <!-- 落在保留或 DHCP 範圍：自動配發會跳過，手動仍可以用，但要讓人知道（GitHub issue #56） -->
+              <n-alert v-if="createRangeHit" type="warning" :bordered="false" style="margin-top: 6px"
+                       data-testid="ip-create-in-range">
+                {{ t(createRangeHit.purpose === "dhcp" ? "addresses.in_dhcp_range" : "addresses.in_reserved_range",
+                     { name: createRangeHit.name || `${createRangeHit.start_ip} – ${createRangeHit.end_ip}` }) }}
+              </n-alert>
+            </div>
           </n-form-item>
           <n-space :size="12" :wrap-item="false" style="flex-wrap: wrap">
             <n-form-item :label="t('addresses.hostname')" style="flex: 1 1 300px">

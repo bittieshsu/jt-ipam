@@ -28,7 +28,7 @@ EVENT_INTEGRATION = "integration.sync_failed"
 # 通知點了打不開，比沒有連結更糟（使用者會以為功能壞了）。
 _INTEGRATION_ROUTE = {
     "librenms": "/librenms", "wazuh": "/wazuh", "zabbix": "/zabbix",
-    "adguard": "/adguard", "proxmox": "/virt-admin", "esxi": "/esxi",
+    "adguard": "/adguard", "proxmox": "/virt-admin", "esxi": "/esxi", "hyperv": "/hyperv",
     "opnsense": "/firewall", "pfsense": "/pfsense", "fortigate": "/fortigate",
     "paloalto": "/paloalto", "checkpoint": "/checkpoint", "checkpoint_gaia": "/checkpoint",
     "mikrotik": "/mikrotik",

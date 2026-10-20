@@ -68,6 +68,7 @@ async def _run() -> int:
     from app.models.adguard import AdGuardInstance
     from app.models.dns import DNSServer
     from app.models.esxi import ESXiInstance
+    from app.models.hyperv import HyperVInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.mikrotik import MikroTikRouter
@@ -190,6 +191,31 @@ async def _run() -> int:
                 log.error("esxi %s sync failed: %s", name, exc)
                 failed += 1
                 await _hb(session, kind="esxi.sync", target_type="esxi_instance",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Hyper-V（直連主機或 SCVMM）──
+        for inst in (await session.execute(
+            select(HyperVInstance).where(HyperVInstance.enabled.is_(True))
+        )).scalars().all():
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and inst.last_sync_at + interval > now:
+                continue
+            name = inst.name
+            try:
+                from app.services import hyperv as hyperv_svc
+                summary = await hyperv_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("hyperv %s: %s", name, summary)
+                await _hb(session, kind="hyperv.sync", target_type="hyperv_instance",
+                          target_id=inst.id, target_label=name, ok=True, summary=summary)
+            except Exception as exc:
+                # 先 rollback 再寫 last_error：不 rollback 會二次爆、連鎖中斷整輪
+                await session.rollback()
+                inst.last_error = str(exc)[:2000]
+                await session.commit()
+                log.error("hyperv %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="hyperv.sync", target_type="hyperv_instance",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
         # ── Wazuh ──
         wzs = (
@@ -316,7 +342,7 @@ async def _run() -> int:
             for kind, model in (
                 ("librenms", LibreNMSInstance), ("wazuh", WazuhInstance),
                 ("zabbix", ZabbixInstance), ("adguard", AdGuardInstance),
-                ("proxmox", ProxmoxInstance), ("esxi", ESXiInstance),
+                ("proxmox", ProxmoxInstance), ("esxi", ESXiInstance), ("hyperv", HyperVInstance),
                 ("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
                 ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
                 ("checkpoint", CheckPointServer), ("checkpoint_gaia", CheckPointGaiaTarget),

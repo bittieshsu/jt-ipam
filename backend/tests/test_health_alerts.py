@@ -162,7 +162,7 @@ def test_the_alert_list_covers_every_integration_that_syncs():
     src = (Path(__file__).resolve().parents[2] / "scripts" / "jt-ipam-sync.py").read_text()
     block = src.split("for kind, model in (")[1].split("):")[0]
     for model in ("LibreNMSInstance", "WazuhInstance", "ZabbixInstance", "AdGuardInstance",
-                  "ProxmoxInstance", "ESXiInstance", "OPNsenseFirewall", "PfSenseFirewall",
+                  "ProxmoxInstance", "ESXiInstance", "HyperVInstance", "OPNsenseFirewall", "PfSenseFirewall",
                   "FortiGateFirewall", "PaloAltoFirewall", "MikroTikRouter",
                   "WindowsDhcpServer", "DNSServer"):
         assert model in block, f"{model} 不在健康告警的清單裡 —— 它壞掉時不會有人知道"

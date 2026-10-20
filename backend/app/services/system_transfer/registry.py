@@ -178,6 +178,7 @@ CATEGORY: dict[str, str] = {
     "dhcp_exclusions": "synced",           # DHCP 伺服器的排除區間（0207）
     "dhcp_lease_sightings": "synced",      # 逐來源的 DHCP 租約目擊（in_dhcp_lease 由它推導）
     "esxi_instances": "integrations",
+    "hyperv_instances": "integrations",
     # operational（短暫／歷史）
     "audit_logs": "operational",
     # 登入工作階段：搬到別台沒有意義（Cookie 屬於原本的網址），只在選了「營運資料」時才帶

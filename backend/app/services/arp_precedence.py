@@ -21,7 +21,7 @@ ARP_KEY = "arp_precedence"
 ARP_SOURCES = ("manual", "scanner", "opnsense", "pfsense", "fortigate", "paloalto", "checkpoint", "mikrotik",
                # SNMP 收集（0217）：路由器／L3 交換器的 ARP 表，跟防火牆的 ARP 表同一級
                "snmp",
-               "windows_dhcp", "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "librenms", "adguard", "proxmox")
+               "windows_dhcp", "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "librenms", "adguard", "proxmox", "hyperv")
 # 預設：手動最優先，其次主動掃描、防火牆 ARP、LibreNMS、AdGuard、Proxmox
 DEFAULT_ARP_ORDER: list[str] = list(ARP_SOURCES)
 

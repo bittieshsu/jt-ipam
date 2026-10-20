@@ -60,7 +60,10 @@ def as_json(plan: ChangePlan, run: ImpactRun, bundle: dict[str, Any], tasks: lis
 
 
 def _cell(s: Any) -> str:
-    return str(s if s is not None else "").replace("|", "\\|").replace("\n", " ")[:200]
+    """Markdown 表格儲存格：反斜線先跳脫，否則內容本身的 `a\\|b` 會讓 `|` 變回欄位分隔（同前端 CodeQL #54）。
+    先截再跳脫：截斷不會把一個跳脫切成兩半。"""
+    return (str(s if s is not None else "").replace("\n", " ")[:200]
+            .replace("\\", "\\\\").replace("|", "\\|"))
 
 
 def as_markdown(plan: ChangePlan, run: ImpactRun, bundle: dict[str, Any], tasks: list[ChangeTask],

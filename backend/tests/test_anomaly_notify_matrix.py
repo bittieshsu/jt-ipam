@@ -41,8 +41,11 @@ async def test_existing_setting_carries_over(db_session):
     ))
     await db_session.flush()
 
+    from app.services.system_config import INFO_ANOMALY_EVENTS
     m = await get_notification_matrix(db_session)
     for ev in ANOMALY_EVENTS:
+        if ev in INFO_ANOMALY_EVENTS:        # 只是參考的類別刻意不帶（見 test_arp_flux_is_informational…）
+            continue
         assert m[ev] == {"in_app": False, "email": True}, f"{ev} 沒有沿用舊設定"
 
 
@@ -195,3 +198,20 @@ async def test_one_channel_message_per_run(db_session, admin_user, monkeypatch):
     assert [r.codes for r in rows] == [["198.51.100.20"], ["198.51.100.30", "198.51.100.31"]]
     assert calls[0]["link"] == "/anomaly"
     assert "2 類" in calls[0]["subject"]
+
+
+async def test_arp_flux_is_informational_and_off_by_default(db_session):
+    """使用者 2026-10-20：雙網卡 ARP flux 是 Linux 預設行為，不是故障 —— 列在頁籤上供參考，預設不通知。
+    舊的總開關（anomaly.detected）打開過也不帶過來；想收的人可以在通知設定自己打開。"""
+    from app.models.system_setting import SystemSetting
+    from app.services.system_config import NOTIFY_MATRIX_KEY, get_notification_matrix
+
+    m = await get_notification_matrix(db_session)
+    assert m["anomaly.arp_flux"] == {"in_app": False, "email": False}
+    assert m["anomaly.ip_conflicts"]["in_app"] is True
+    db_session.add(SystemSetting(key=NOTIFY_MATRIX_KEY,
+                                 value={"anomaly.detected": {"in_app": True, "email": True}}))
+    await db_session.flush()
+    m = await get_notification_matrix(db_session)
+    assert m["anomaly.arp_flux"] == {"in_app": False, "email": False}
+    assert m["anomaly.ip_conflicts"]["email"] is True

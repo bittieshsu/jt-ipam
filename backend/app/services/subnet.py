@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import uuid
+from typing import Any
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -196,6 +197,30 @@ async def rebuild_subnet_hierarchy(session: AsyncSession) -> int:
     return changed
 
 
+#: 自動配發不給的範圍用途（GitHub issue #56）：保留（例如給 MetalLB 的 VIP）、DHCP 動態範圍（配成固定 IP 會跟租約衝突）。
+#: 「其他」只是標註。只擋自動配發 —— 手動新增給警告、自動收錄（掃描、ARP）照常建記錄（範圍裡真的有設備就該有記錄）
+NO_AUTO_ALLOCATE_PURPOSES = ("reserved", "dhcp")
+
+
+async def blocked_ranges(session: AsyncSession, subnet_id: Any) -> list[tuple[ipaddress.IPv4Address | ipaddress.IPv6Address,
+                                                                               ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    """這個子網路裡不給自動配發的範圍（起, 迄，含）。"""
+    rows = (await session.execute(text(
+        "SELECT host(start_ip), host(end_ip) FROM ip_ranges WHERE subnet_id = :sid AND purpose = ANY(:p)"),
+        {"sid": str(subnet_id), "p": list(NO_AUTO_ALLOCATE_PURPOSES)})).all()
+    out = []
+    for a, b in rows:
+        try:
+            out.append((ipaddress.ip_address(str(a)), ipaddress.ip_address(str(b))))
+        except ValueError:
+            continue
+    return out
+
+
+def _in_ranges(addr: Any, ranges: list[tuple[Any, Any]]) -> bool:
+    return any(a.version == addr.version and a <= addr <= b for a, b in ranges)
+
+
 async def find_first_free_address(
     session: AsyncSession,
     subnet: Subnet,
@@ -233,6 +258,11 @@ async def find_first_free_address(
             SELECT host(CAST(:base AS inet) + g) AS candidate
               FROM generate_series(0, :span) AS g
              WHERE (CAST(:base AS inet) + g) NOT IN (SELECT ip FROM used)
+               -- 用途是保留或 DHCP 的範圍不給（issue #56）
+               AND NOT EXISTS (
+                   SELECT 1 FROM ip_ranges r
+                    WHERE r.subnet_id = :sid AND r.purpose = ANY(:purposes)
+                      AND (CAST(:base AS inet) + g) BETWEEN host(r.start_ip)::inet AND host(r.end_ip)::inet)
              LIMIT 1
             """
         )
@@ -242,6 +272,7 @@ async def find_first_free_address(
                 "sid": str(subnet.id),
                 "base": str(ipaddress.IPv4Address(first)),
                 "span": last - first,
+                "purposes": list(NO_AUTO_ALLOCATE_PURPOSES),
             },
         )
         row = result.first()
@@ -259,8 +290,10 @@ async def find_first_free_address(
     # 冷卻中的位址跳過（見上面 IPv4 的說明）
     from app.services.ip_lifecycle import active_cooldowns
     cooling = set(await active_cooldowns(session, subnet.id))
-    while candidate in net and str(candidate) in cooling:
-        candidate += 1
+    ranges = await blocked_ranges(session, subnet.id)
+    while candidate in net and (str(candidate) in cooling or _in_ranges(candidate, ranges)):
+        hit = next((b for a, b in ranges if a.version == candidate.version and a <= candidate <= b), None)
+        candidate = hit + 1 if hit is not None else candidate + 1      # 整段跳過（IPv6 的範圍可能很大）
     if candidate not in net:
         return None
     return str(candidate)
@@ -310,6 +343,11 @@ async def find_free_addresses(
                 used.add(int(ipaddress.IPv4Address(cip)))
             except (ValueError, ipaddress.AddressValueError):
                 pass
+        # 保留與 DHCP 範圍（issue #56）：用區間判斷，不展開成集合（DHCP 範圍可能是整個 /16）
+        spans = [(int(a), int(b)) for a, b in await blocked_ranges(session, subnet.id) if a.version == 4]
+
+        def _blocked(i: int) -> bool:
+            return i in used or any(a <= i <= b for a, b in spans)
 
         if consecutive:
             run_start: int | None = None
@@ -317,7 +355,7 @@ async def find_free_addresses(
             i = first
             scanned = 0
             while i <= last and scanned < scan_limit:
-                if i not in used:
+                if not _blocked(i):
                     if run_len == 0:
                         run_start = i
                     run_len += 1
@@ -334,7 +372,7 @@ async def find_free_addresses(
         i = first
         scanned = 0
         while i <= last and len(out) < count and scanned < scan_limit:
-            if i not in used:
+            if not _blocked(i):
                 out.append(str(ipaddress.IPv4Address(i)))
             i += 1
             scanned += 1
@@ -345,10 +383,15 @@ async def find_free_addresses(
     if base is None:
         return []
     start = ipaddress.ip_address(base)
+    ranges6 = await blocked_ranges(session, subnet.id)
     out6: list[str] = []
-    for k in range(count):
-        cand = start + k
-        if cand not in net:
-            break
+    cand = start
+    while len(out6) < count and cand in net:
+        if _in_ranges(cand, ranges6):
+            if consecutive:
+                out6 = []                     # 連續一段不能跨過保留範圍
+            cand = next(b for a, b in ranges6 if a.version == cand.version and a <= cand <= b) + 1
+            continue
         out6.append(str(cand))
+        cand += 1
     return out6

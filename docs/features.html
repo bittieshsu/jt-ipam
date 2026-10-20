@@ -230,6 +230,7 @@
     <ul class="branch">
       <li><span class="leaf"><span class="zh">Proxmox VE：叢集 / 節點 / VM / CT、網路介面（bridge / bond / NIC）對應</span><span class="en">Proxmox VE: cluster / node / VM / CT and network interfaces (bridge / bond / NIC)</span><span class="ja">Proxmox VE：クラスター / ノード / VM / CT とネットワークインターフェース（bridge / bond / NIC）</span></span></li>
       <li><span class="leaf"><span class="zh">VMware ESXi / vCenter（Beta）：vSphere API 唯讀盤點 VM、網卡與 IP</span><span class="en">VMware ESXi / vCenter (Beta): read-only inventory of VMs, NICs and IPs over the vSphere API</span><span class="ja">VMware ESXi / vCenter（Beta）：vSphere API で VM・NIC・IP を読み取り専用で棚卸し</span></span></li>
+      <li><span class="leaf"><span class="zh">Microsoft Hyper-V（Beta）：WinRM（NTLM 或 Kerberos）唯讀盤點 VM、網卡、VLAN、IP 與客體 OS，直連主機（含叢集每個節點）或經 SCVMM</span><span class="en">Microsoft Hyper-V (Beta): read-only inventory of VMs, NICs, VLANs, IPs and guest OS over WinRM (NTLM or Kerberos), directly from the hosts (every cluster node) or through SCVMM</span><span class="ja">Microsoft Hyper-V（Beta）：WinRM（NTLM または Kerberos）で VM・NIC・VLAN・IP・ゲスト OS を読み取り専用で棚卸し。ホストへ直接（クラスターの全ノード）または SCVMM 経由</span></span></li>
       <li><span class="leaf"><span class="zh">兩者寫進同一組虛擬化資料，拓樸與 AI 直接可用；沒有 guest agent 時以 MAC 對應 IP</span><span class="en">Both feed the same virtualization data used by topology and AI; MAC matching without a guest agent</span><span class="ja">両者は同じ仮想化データに入り、トポロジーと AI で利用可能。guest agent が無くても MAC で IP を対応付け</span></span></li>
     </ul>
 

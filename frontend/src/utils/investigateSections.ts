@@ -209,7 +209,7 @@ function virtLines(d: D, h: SectionHelpers): string[] {
   if (!v) return [];
   const tag = v.kind === "ct" ? h.t("addresses.virt_ct_tag") : h.t("addresses.virt_vm_tag");
   const tech = v.platform === "proxmox" ? (v.kind === "ct" ? "LXC" : v.kind === "vm" ? "KVM" : "")
-    : v.platform === "vmware" ? "VMware" : "";
+    : v.platform === "vmware" ? "VMware" : v.platform === "hyper-v" ? "Hyper-V" : "";
   return [join([
     `${v.vm}（${tech ? `${tag} · ${tech}` : tag}）`,
     v.node ? `${h.t("investigate.virt_node")} ${v.node}` : null,

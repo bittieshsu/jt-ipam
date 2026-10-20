@@ -1641,6 +1641,9 @@ ANOMALY_EVENTS: tuple[str, ...] = (
     "anomaly.identity_changes",
 )
 LEGACY_ANOMALY_EVENT = "anomaly.detected"
+# 只是參考、預設不通知的類別：雙網卡 ARP flux 是 Linux 預設行為（arp_ignore=0），不是故障（使用者 2026-10-20）。
+# 舊的總開關也不帶過來；想收的人可以在通知設定自己打開
+INFO_ANOMALY_EVENTS: frozenset[str] = frozenset({"anomaly.arp_flux"})
 
 NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("ip_request.created", True, True),    # 審核者：有新 IP 申請待審
@@ -1651,7 +1654,7 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("credential.expiring", True, False),
     ("cert.deployed", True, False),        # 代理成功部署新憑證
     ("cert.drift", True, False),           # 憑證飄移（某代理未套到最新版）
-    *((ev, True, False) for ev in ANOMALY_EVENTS),   # 異常偵測（逐類別）
+    *((ev, ev not in INFO_ANOMALY_EVENTS, False) for ev in ANOMALY_EVENTS),   # 異常偵測（逐類別）
     ("firewall.rules_changed", True, False),  # 防火牆規則有異動
     # 「東西壞了卻沒人知道」三類。只在開始與恢復時發（見 services/state_alert）。
     ("integration.sync_failed", True, False),  # 整合同步失敗／恢復
@@ -1697,7 +1700,7 @@ async def get_notification_matrix(session: AsyncSession) -> dict[str, dict[str, 
     legacy = stored.get(LEGACY_ANOMALY_EVENT)
     if isinstance(legacy, dict):
         for ev in ANOMALY_EVENTS:
-            if ev in stored:
+            if ev in stored or ev in INFO_ANOMALY_EVENTS:
                 continue
             if isinstance(legacy.get("in_app"), bool):
                 out[ev]["in_app"] = legacy["in_app"]

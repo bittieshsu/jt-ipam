@@ -129,6 +129,7 @@ _DELETE_HANDLERS = {
     "isoinsight.py": "delete_source",          # ISOinsight 整合
     "technitium.py": "delete_server",          # Technitium DHCP
     "virt.py": "delete_proxmox",
+    "hyperv.py": "delete_instance",            # Hyper-V（直連主機或 SCVMM）
     "scan_agents.py": "delete_agent",
 }
 # 同一個檔案裡有好幾個整合的（字典一個檔案只能對一個函式）
@@ -148,7 +149,7 @@ def test_every_integration_delete_forgets_its_shared_rows(fname: str, func: str)
     assert fn is not None, f"{fname} 找不到 {func}"
     called = {n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
               for n in ast.walk(fn) if isinstance(n, ast.Call)}
-    assert called & {"forget_instance", "forget_proxmox_instance", "cleanup_shared_rows"}, (
+    assert called & {"forget_instance", "forget_proxmox_instance", "forget_hyperv_instance", "cleanup_shared_rows"}, (
         f"{fname}:{func} 刪除實例時沒有收回它寫進共用表的資料（integration_cleanup.forget_instance）")
 
 
@@ -159,7 +160,7 @@ def test_every_hostname_source_is_covered_by_a_delete_handler() -> None:
     assert "forget_origin" in src
     covered = {"opnsense", "pfsense", "fortigate", "paloalto", "mikrotik", "windows_dhcp", "dns",
                "adguard", "librenms", "zabbix", "wazuh", "ocs", "proxmox", "scanner", "netbios", "mdns",
-               "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "rustdesk", "checkpoint"}
+               "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "rustdesk", "checkpoint", "hyperv"}
     missing = set(HOSTNAME_SOURCES) - covered - {"manual"}
     assert not missing, f"這些主機名稱來源沒有刪除時的收回：{sorted(missing)}"
 

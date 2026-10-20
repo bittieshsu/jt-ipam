@@ -339,6 +339,15 @@ html[data-theme="light"] .n-card {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06),
               0 0 0 1px rgba(15, 23, 42, 0.04);
 }
+/* 主控台（SSH／RDP／VNC／SFTP／RustDesk／BMC／noVNC）的連線卡片：整頁只有這一張卡浮在背景上，
+   一般卡片那層淡陰影看不出邊緣（使用者 2026-10-20）。比照登入卡片；選擇器要比上面那條更具體才不會被蓋掉 */
+html[data-theme="light"] .n-card.console-connect-card,
+html:not([data-theme]) .n-card.console-connect-card {
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+html[data-theme="dark"] .n-card.console-connect-card {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.30);
+}
 html[data-theme="light"] .n-layout-sider {
   box-shadow: 1px 0 0 rgba(15, 23, 42, 0.05);
 }

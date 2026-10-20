@@ -87,6 +87,7 @@ import {
   Globe,
   Language,
   HalfMoon,
+  Computer,
   SunLight,
   Database,
   Send,
@@ -234,6 +235,8 @@ export const AccountIcon = User;
 export const LanguageIcon = Language;
 export const ThemeDarkIcon = HalfMoon;
 export const ThemeLightIcon = SunLight;
+/** 主題「自動」：跟著作業系統 */
+export const ThemeAutoIcon = Computer;
 export const GroupsIcon = Group;
 export const CustomFieldsIcon = Page;
 export const AnomalyIcon = ShieldAlert;

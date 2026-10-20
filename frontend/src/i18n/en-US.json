@@ -353,7 +353,9 @@
     "approval_settings": "Approval settings",
     "technitium_dhcp": "Technitium DHCP",
     "checkpoint": "Check Point",
-    "snmp": "SNMP"
+    "snmp": "SNMP",
+    "hyperv_admin": "Hyper-V",
+    "virt_hyperv": "Virtualization (Hyper-V)"
   },
   "topbar": {
     "search": "Search…",
@@ -1267,7 +1269,8 @@
       "rustdesk": "RustDesk client",
       "isoinsight": "ISOinsight",
       "technitium": "Technitium DHCP",
-      "checkpoint": "Check Point"
+      "checkpoint": "Check Point",
+      "hyperv": "Hyper-V / SCVMM"
     },
     "model_title": "Device model source order",
     "model_subtitle": "When several sources supply a model for the same device, the one higher up wins; manual is highest and cannot be disabled. Drag to reorder.",
@@ -1443,7 +1446,10 @@
     "liveness_from_device_via": "(evidence: same device {ip})",
     "liveness_from_device_no_device_short": "(no device linked yet)",
     "source_snmp": "SNMP",
-    "source_snmp_arp": "SNMP ARP"
+    "source_snmp_arp": "SNMP ARP",
+    "source_hyperv": "Hyper-V",
+    "in_reserved_range": "This address is in the reserved range \"{name}\": automatic allocation skips it. Save only if you mean to use it by hand.",
+    "in_dhcp_range": "This address is in the DHCP range \"{name}\": a fixed IP here may clash with DHCP leases, and automatic allocation skips it. Save only if you mean to use it by hand."
   },
   "subnets": {
     "title": "Subnets",
@@ -1648,7 +1654,8 @@
       "wazuh_sync": "Wazuh sync",
       "windows_dhcp_sync": "Windows DHCP sync",
       "zabbix_sync": "Zabbix sync",
-      "external_dns_run": "External DNS check"
+      "external_dns_run": "External DNS check",
+      "hyperv_sync": "Hyper-V sync"
     },
     "tracker": {
       "title": "Background jobs",
@@ -2516,7 +2523,7 @@
     "dns_compare_mismatch": "DNS comparison mismatch",
     "explain_dns_compare_mismatch": "DNS servers in one comparison group whose records differ: a whole zone or a record exists on only some of them, and the server missing it was pulled again after the group's grace period and still lacks it (changes still replicating, or servers not pulled since, are not listed). The usual cause is broken replication between the servers (zone transfer, AD replication) or an account used by jt-ipam that cannot read some zones. The comparison uses the records jt-ipam has already pulled.",
     "summary_ip_conflicts": "One IP in use by two or more machines (different MACs claiming the same address).",
-    "summary_arp_flux": "Several NICs of one host answer for the same IP: a host setting, not two machines fighting.",
+    "summary_arp_flux": "Several NICs of one host answer for the same IP: Linux's default behaviour (arp_ignore=0), not a fault and not two machines fighting. Listed for reference; no notification by default.",
     "summary_l2_subnet_bleed": "Two subnets are really one layer 2 broadcast domain and are not isolated.",
     "summary_mac_drifts": "A MAC moved to another port on the same switch, usually a device re-plugged or relocated.",
     "summary_ghost_ips": "Assigned in IPAM but no sign of life for a long time; usually ready to reclaim.",
@@ -2704,7 +2711,8 @@
     "vm_status_unknown": "Unknown",
     "cluster_col": "Cluster",
     "empty_group": "(empty group)",
-    "empty_set": "(empty set)"
+    "empty_set": "(empty set)",
+    "os": "OS"
   },
   "physical": {
     "cabling": "Cabling",
@@ -3845,7 +3853,21 @@
     "ext_dns_bad_address": "\"{value}\" is not a valid IP address",
     "ext_dns_need_name": "Set a public domain first, or give a name to look up",
     "ext_dns_running": "An external DNS check is already running",
-    "ext_dns_not_configured": "External resolvers and public domains are not set up"
+    "ext_dns_not_configured": "External resolvers and public domains are not set up",
+    "hyperv_connect": "Cannot reach {host}: {reason}",
+    "hyperv_auth": "{host} rejected the credentials, or the account lacks permission: {reason}",
+    "hyperv_cert": "The WinRM HTTPS certificate of {host} is not trusted: {reason}",
+    "hyperv_https_unreachable": "WinRM HTTPS {host}:{port} is unreachable. Windows Server only opens HTTP 5985 by default; unless an HTTPS listener was set up, switch this connection's WinRM to HTTP (5985). ({reason})",
+    "hyperv_no_module": "{host} has no Hyper-V or VMM PowerShell module (direct mode needs the Hyper-V management tools; SCVMM mode must connect to the VMM server itself): {reason}",
+    "hyperv_error": "Hyper-V: {reason}",
+    "kerberos_auth": "Kerberos rejected {principal}: wrong password, disabled account or expired password ({reason})",
+    "kerberos_principal": "The domain has no account {principal} ({reason})",
+    "kerberos_kdc": "No domain controller (KDC) found or reachable: check that DNS has the domain's Kerberos records, or fill in the domain controllers, and that TCP 88 is open ({reason})",
+    "kerberos_clock": "This server's clock is too far from the domain controller's, so Kerberos refuses: fix the time (NTP) ({reason})",
+    "kerberos_error": "Kerberos authentication failed: {reason}",
+    "kerberos_realm": "Kerberos needs the realm: write the account as user{'@'}domain or fill in the Kerberos realm",
+    "kerberos_needs_fqdn": "{host}: Kerberos needs the full host name (FQDN), not an IP address or a short name",
+    "kerberos_unavailable": "Kerberos is not available on this server yet (missing: {missing}); running an upgrade installs it"
   },
   "adguard_admin": {
     "scope_subnets": "Limit to subnets",
@@ -4168,7 +4190,8 @@
     "wrap_hint": "continues on next row",
     "vm": "VM",
     "pve_node": "PVE node",
-    "esxi_host": "ESXi host"
+    "esxi_host": "ESXi host",
+    "hyperv_host": "Hyper-V host"
   },
   "version": {
     "title": "Version Info",
@@ -7235,7 +7258,8 @@
         "webhook": "Webhook",
         "technitium": "Technitium DHCP",
         "checkpoint": "Check Point",
-        "snmp": "SNMP collection target"
+        "snmp": "SNMP collection target",
+        "hyperv": "Hyper-V"
       },
       "endpoint": {
         "any": "port not specified"
@@ -8197,5 +8221,37 @@
     "not_configured": "Not set up",
     "test_ok": "{name} resolved to: {addrs}",
     "test_fail": "{name}: {rcode} {error}"
+  },
+  "hyperv": {
+    "page_title": "Hyper-V",
+    "beta_note": "Beta: not verified on real Hyper-V or SCVMM during development. Fields that do not line up come back empty rather than failing the sync; use \"Test\" to check step by step and report any problem.",
+    "create_title": "Add Hyper-V connection",
+    "edit_title": "Edit Hyper-V connection",
+    "mode": "Connection",
+    "mode_hosts": "Directly to Hyper-V hosts",
+    "mode_scvmm": "Through SCVMM (System Center VMM)",
+    "mode_hosts_short": "Hosts",
+    "mode_hosts_hint": "Connects to each Hyper-V host. List every node of a failover cluster: NTLM cannot hop from one node to the others.",
+    "mode_scvmm_hint": "Connects to the VMM server and reads every host and VM it manages in one go.",
+    "host_hosts": "Hyper-V host",
+    "host_scvmm": "VMM server",
+    "extra_hosts": "Other nodes of the same cluster (each is contacted)",
+    "extra_scvmm": "Fallback VMM servers (tried in order)",
+    "extra_ph": "One per line, or comma separated",
+    "col_hosts": "Hosts",
+    "help_title": "Setup",
+    "help_hosts_1": "Create a domain account and add it to \"Hyper-V Administrators\" and \"Remote Management Users\" on every host (read-only queries; local admin is not needed).",
+    "help_scvmm_1": "Create a domain account, give it a read-only user role in VMM (Read-Only Administrator) and add it to \"Remote Management Users\" on the VMM server.",
+    "help_2": "Enable WinRM on every Windows machine to be contacted (usually already on for Windows Server):",
+    "help_hosts_3": "The jt-ipam server must reach TCP 5985 (HTTP) or 5986 (HTTPS) on every host. Save, then press \"Test\" to check each host.",
+    "help_scvmm_3": "The jt-ipam server must reach TCP 5985 (HTTP) or 5986 (HTTPS) on the VMM server. Save, then press \"Test\".",
+    "diag": "Connection check",
+    "auth": "Authentication",
+    "krb_hint": "Kerberos: write the account as user{'@'}domain (or DOMAIN\\user plus the realm below); hosts must be full host names (FQDN), not IP addresses. The server needs TCP 88 to the domain controllers.",
+    "krb_missing": "Kerberos is not available on this server yet (missing: {missing}). Running an upgrade installs it:",
+    "krb_realm": "Kerberos realm (may stay empty when the account is user{'@'}domain)",
+    "krb_kdc": "Domain controllers (KDC)",
+    "krb_kdc_ph": "Empty = found through DNS (the AD default); or one domain controller per line",
+    "winrm_hint_krb": "HTTP 5985 by default (the Windows Server firewall blocks HTTPS 5986 by default). Over HTTP the content is always Kerberos-encrypted, never sent in clear text."
   }
 }

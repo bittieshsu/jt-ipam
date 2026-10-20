@@ -42,3 +42,23 @@ describe("ipColumns", () => {
     expect(dhcpInfoFor(ranges, null)).toBeNull();
   });
 });
+
+describe("ipToBigInt／rangeContaining（手動新增落在保留／DHCP 範圍的警告，GitHub issue #56）", () => {
+  it("IPv4 與 IPv6 都比得出大小", async () => {
+    const { ipToBigInt } = await import("../ipColumns");
+    expect(ipToBigInt("198.51.100.227")).toBe(3325256931n);
+    expect(ipToBigInt("2001:db8::1")).toBe((0x20010db8n << 96n) + 1n);
+    expect(ipToBigInt("::")).toBe(0n);
+    expect(ipToBigInt("198.51.100.1/24")).toBe(ipToBigInt("198.51.100.1"));
+    expect(ipToBigInt("nope")).toBeNull();
+    expect(ipToBigInt("1::2::3")).toBeNull();
+  });
+  it("找出包含它的範圍；不同位址族不算", async () => {
+    const { rangeContaining } = await import("../ipColumns");
+    const ranges = [{ start_ip: "198.51.100.224", end_ip: "198.51.100.230", name: "metallb" },
+                    { start_ip: "2001:db8::10", end_ip: "2001:db8::ff", name: "v6" }];
+    expect(rangeContaining("198.51.100.227", ranges)?.name).toBe("metallb");
+    expect(rangeContaining("198.51.100.231", ranges)).toBeNull();
+    expect(rangeContaining("2001:db8::20", ranges)?.name).toBe("v6");
+  });
+});

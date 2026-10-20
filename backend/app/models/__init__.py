@@ -69,6 +69,7 @@ from app.models.fortigate import (
     FortiGatePolicy,
 )
 from app.models.fw_snapshot import FwRuleSnapshot
+from app.models.hyperv import HyperVInstance
 from app.models.ip_change_log import IPChangeLog
 from app.models.ip_cooldown import IPCooldown
 from app.models.ip_hostname import IPHostnameObservation
@@ -174,6 +175,7 @@ __all__ = [
     "ExternalDnsResult",
     "FDBEntry",
     "Group",
+    "HyperVInstance",
     "IPAddress",
     "IPChangeLog",
     "IPCooldown",

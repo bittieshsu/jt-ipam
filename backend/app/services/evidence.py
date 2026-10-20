@@ -175,6 +175,7 @@ SOURCES: dict[str, Source] = {s.name: s for s in (
 
     # 虛擬化平台：回報的是「設定上這台 VM 有這個 IP」
     _s("proxmox", TIER_LEARNED, aging=False),
+    _s("hyperv", TIER_LEARNED, aging=False),
     _s("esxi", TIER_LEARNED, aging=False),
 
     # 匯入來源

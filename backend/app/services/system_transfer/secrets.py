@@ -46,6 +46,9 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
     "esxi_instances": [
         ("password", "password_enc", "password_nonce", _aad_id("esxi_instance:{id}:password")),
     ],
+    "hyperv_instances": [
+        ("password", "password_enc", "password_nonce", _aad_id("hyperv_instance:{id}:password")),
+    ],
     "librenms_instances": [
         ("api_token", "api_token_enc", "api_token_nonce", _aad_id("librenms_instance:{id}:api_token")),
     ],

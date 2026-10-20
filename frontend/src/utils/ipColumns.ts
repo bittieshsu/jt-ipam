@@ -26,6 +26,39 @@ export function ipv4ToInt(ip: string): number | null {
   return n >>> 0;
 }
 
+/** IPv4／IPv6 → 可以比大小的整數（範圍比對用）；看不懂就 null。帶前綴長度（/24）時忽略前綴 */
+export function ipToBigInt(raw: string): bigint | null {
+  const ip = raw.trim().split("/")[0];
+  const v4 = ipv4ToInt(ip);
+  if (v4 !== null) return BigInt(v4);
+  if (!ip.includes(":") || ip.split("::").length > 2) return null;
+  const [head, tail] = ip.includes("::") ? ip.split("::") : [ip, null];
+  const h = head ? head.split(":") : [];
+  const tl = tail ? tail.split(":") : [];
+  if (tail === null && h.length !== 8) return null;
+  const parts = tail === null ? h : [...h, ...Array(8 - h.length - tl.length).fill("0"), ...tl];
+  if (parts.length !== 8) return null;
+  let n = 0n;
+  for (const p of parts) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(p)) return null;
+    n = (n << 16n) + BigInt(parseInt(p, 16));
+  }
+  return n;
+}
+
+/** 位址落在哪一個範圍（IPv4 與 IPv6；範圍的起迄含）。 */
+export function rangeContaining<R extends { start_ip: string; end_ip: string }>(ip: string, ranges: R[]): R | null {
+  const n = ipToBigInt(ip);
+  if (n === null) return null;
+  for (const r of ranges) {
+    const a = ipToBigInt(r.start_ip);
+    const b = ipToBigInt(r.end_ip);
+    const sameFamily = ip.includes(":") === r.start_ip.includes(":");
+    if (a !== null && b !== null && sameFamily && a <= n && n <= b) return r;
+  }
+  return null;
+}
+
 /** DHCP 發放範圍 → 比對用的整數區間（目前只比 IPv4）。`manualLabel`：子網路裡手動定義的集區顯示成什麼。 */
 export function toDhcpRanges(rows: DhcpPoolRange[], manualLabel: string): DhcpRangeInfo[] {
   const out: DhcpRangeInfo[] = [];

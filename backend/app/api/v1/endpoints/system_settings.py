@@ -2129,6 +2129,7 @@ async def integration_presence(
     from app.models.esxi import ESXiInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
+    from app.models.hyperv import HyperVInstance
     from app.models.isoinsight import IsoInsightSource
     from app.models.librenms import LibreNMSInstance
     from app.models.mikrotik import MikroTikRouter
@@ -2155,6 +2156,7 @@ async def integration_presence(
         ("cert_agents", CertAgent),
         ("proxmox", ProxmoxInstance),
         ("esxi", ESXiInstance),
+        ("hyperv", HyperVInstance),
         ("adguard", AdGuardInstance),
         ("librenms", LibreNMSInstance),
         ("windows_dhcp", WindowsDhcpServer),

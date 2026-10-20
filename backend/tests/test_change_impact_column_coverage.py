@@ -58,6 +58,7 @@ COVERED: set[tuple[str, str]] = {
     # 各整合的連線位址（adapters_ipam._INTEGRATION_URLS）
     ("adguard_instances", "api_url"), ("dns_servers", "api_url"), ("dns_servers", "server_address"),
     ("esxi_instances", "api_url"), ("esxi_instances", "extra_api_urls"),
+    ("hyperv_instances", "host"), ("hyperv_instances", "extra_hosts"),
     ("proxmox_instances", "api_url"), ("proxmox_instances", "extra_api_urls"),
     ("fortigate_firewalls", "api_url"), ("opnsense_firewalls", "api_url"), ("paloalto_firewalls", "api_url"),
     ("pfsense_firewalls", "api_url"), ("mikrotik_routers", "api_url"),

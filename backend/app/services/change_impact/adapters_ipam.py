@@ -225,6 +225,7 @@ _INTEGRATION_URLS: tuple[tuple[str, str, str, str], ...] = (
     ("app.models.mikrotik", "MikroTikRouter", "api_url", "mikrotik"),
     ("app.models.virt", "ProxmoxInstance", "api_url", "proxmox"),
     ("app.models.esxi", "ESXiInstance", "api_url", "esxi"),
+    ("app.models.hyperv", "HyperVInstance", "host", "hyperv"),
     ("app.models.zabbix", "ZabbixInstance", "api_url", "zabbix"),
     ("app.models.wazuh", "WazuhInstance", "api_url", "wazuh"),
     ("app.models.dns", "DNSServer", "api_url", "dns_server"),
@@ -244,6 +245,7 @@ _INTEGRATION_URLS: tuple[tuple[str, str, str, str], ...] = (
     # 叢集的其他節點：換行或逗號分隔
     ("app.models.virt", "ProxmoxInstance", "extra_api_urls", "proxmox"),
     ("app.models.esxi", "ESXiInstance", "extra_api_urls", "esxi"),
+    ("app.models.hyperv", "HyperVInstance", "extra_hosts", "hyperv"),
     # RustDesk：網頁連線連 hbbs／hbbr 的位址、客戶端連線用的位址（都可以帶 :埠）
     ("app.models.rustdesk", "RustDeskServer", "hbbs_host", "rustdesk"),
     ("app.models.rustdesk", "RustDeskServer", "relay_host", "rustdesk"),

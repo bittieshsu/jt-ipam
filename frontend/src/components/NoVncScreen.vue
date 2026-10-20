@@ -284,7 +284,7 @@ async function removeCred() {
   <div class="vnc-wrap" :class="{ 'vnc-full': fullHeight, 'vnc-center': fullHeight && (phase === 'form' || phase === 'error') }">
     <!-- 連線設定表單（版面比照 SSH/RDP/VNC）-->
     <div v-if="phase === 'form' || phase === 'error'" class="vnc-form">
-      <n-card size="small" :bordered="true">
+      <n-card size="small" :bordered="true" class="console-connect-card">
         <template #header>
           <span style="display:flex;align-items:center;gap:8px">
             <n-icon :component="headIcon" :size="18" />

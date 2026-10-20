@@ -661,6 +661,32 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   第三方平台給的名稱長度，不是我們可以自己假設的。
 - [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
+- [ ] **自動配發跳過保留與 DHCP 範圍**（GitHub issue #56，`backend/tests/test_free_ip_skips_ranges.py`）：子網路裡有保留範圍與 DHCP 範圍時，「配發下一個可用 IP」、IP 申請核准、`first_free_address`、`find_free_ips` 都不會給範圍裡的位址（連續一段也不跨過）；用途「其他」的範圍照常可配；手動新增落在範圍裡的位址會顯示是哪個範圍的警告，仍可存檔
+
+## 7b1. Microsoft Hyper-V 整合（管理 → 外部系統整合 → Hyper-V）：**Beta**
+
+> 走 WinRM（PowerShell、NTLM）唯讀。兩種連法：直連主機（單機或容錯移轉叢集的每個節點，NTLM 不能在節點之間
+> 轉連）或經 System Center VMM。開發時沒有實機（`backend/tests/test_hyperv.py` 用固定的 PowerShell 輸出），
+> 第一次接真機要對照欄位。
+
+- [ ] 兩種連法各新增一個：名稱、主機（或 VMM 伺服器）、其他主機（叢集節點或備援 VMM）、WinRM HTTP 5985 或
+  HTTPS 5986（連埠跟著單選鈕換）、`DOMAIN\user` 與密碼；密碼不會回傳，編輯時留空不變更。主機帶 http:// 或路徑會被擋（422）
+- [ ] **測試**：每台一個「WinRM <主機>」與「Hyper-V <主機>」（或「VMM <主機>」）步驟，顯示 PowerShell 版本與 VM 數；
+  密碼錯誤停在 WinRM 並顯示目前語言的認證訊息；沒裝 Hyper-V 模組的主機說明缺模組
+- [ ] **立即同步**走背景作業（作業面板看進度）；進階 → 虛擬化 (Hyper-V) 列出叢集（容錯移轉叢集名稱，單機或 SCVMM 用連線名稱）
+  與 VM：所在主機、狀態、vCPU、記憶體、作業系統、網卡（同名網卡第二張加「#2」）、虛擬交換器與 VLAN（沒有唯一的 VLAN 記錄時號碼寫在交換器名稱後面）
+- [ ] **IPAM**：執行中 VM 的位址連到既有 IP，寫入 MAC（來源 `hyperv`）與主機名稱（KVP 的客體 FQDN，沒有用 VM 名稱）；
+  關機的 VM 不認領；打開自動建立時新位址的發現來源是 `hyperv`
+- [ ] **叢集安全**：一個節點連不上時不刪任何 VM 並顯示錯誤；即時移轉中出現在兩個節點的 VM 只出現一次（執行中的節點）；
+  兩個節點都讀到之後，刪掉的 VM 才消失
+- [ ] 某台主機 **KVP 讀不到**：之前回報的客體 FQDN 保留，不會改成回報 VM 名稱
+- [ ] **主機連接埠**：IPAM 有這台主機的裝置（依位址或名稱）時，實體網卡（含 MAC）與虛擬交換器出現在連接埠，
+  單一上行的交換器對應到那張網卡；拔掉的網卡對應的埠消失，手動建立的埠保留
+- [ ] **Kerberos**：連線設成 Kerberos、帳號寫 `user@網域`，對只開 Kerberos 的網域「測試」通過；密碼錯顯示 Kerberos 拒絕、沒有這個帳號會講、KDC 連不上（或 DNS 沒有 Kerberos 記錄）顯示找不到 KDC、時間差超過五分鐘顯示時間差；主機填 IP 或短名稱存檔時擋下；寫 `網域\帳號` 沒填領域會要求填領域。KDC 欄留空時依 DNS 找網域控制站。伺服器沒有 krb5-user／pykerberos 時 Kerberos 選項反灰並附升級指令。（`backend/tests/test_hyperv_kerberos.py`；最後一支在設了 `JTIPAM_TEST_KDC` 時連 Samba AD DC 實測）
+- [ ] **SCVMM**：第一台 VMM 伺服器連不上時改用下一台；VM 的所在主機取自 VMM
+- [ ] 刪除連線：它的 VM、主機連接埠、主機名稱回報一併移除，叢集記錄保留
+- [ ] 第一次接真機：拿幾台 VM 跟 Hyper-V 管理員／VMM 主控台對照（狀態、記憶體、MAC、IP、VLAN、客體 OS）；對不上的屬性是空的，不是錯誤
+
 ## 7b2. MikroTik RouterOS 整合（管理 → 外部系統整合 → MikroTik）：**Beta**
 
 > **這個整合的重點是不要把路由器拖慢。** 提出需求的那個站台，MikroTik 是**主力**路由器，所以保護機制本身就是功能；
@@ -764,7 +790,7 @@ guacd 是 RDP 與 VNC 的預設引擎（2026-09-27 起，已安裝的站台由�
 - [ ] 彈出層在 AI 助手浮動按鈕之上：開在右下角的確認框/下拉選單，與按鈕重疊的地方也點得到（`frontend/e2e/chat-fab-overlays.spec.ts`）
 - [ ] AI 對話視窗右上：動作按鈕、放大/縮小、關閉（關閉在最右邊，提示文字「關閉」）
 - [ ] **滿版圖不會比視窗高**（`frontend/src/composables/__tests__/usePageFill.test.ts`、`frontend/e2e/change-impact.spec.ts`）：視窗高 720 px，打開一筆 IP 變更評估、捲到證據區，再切到關係圖頁籤；圖放得進視窗，評估目標看得到也點得到。IP 拓樸圖也一樣
-- [ ] **異常偵測的 ARP 資料品質**（`backend/tests/test_arp_quality.py`、`backend/tests/test_anomaly_arp_quality.py`、`frontend/e2e/anomaly-arp-quality.spec.ts`；樣本在 `tests/seed_e2e.py`）：兩個 MAC 都連到同一台裝置的雙網卡主機，出現在「同一台主機多張網卡（ARP flux）」，寫出每個 MAC 是哪張網卡與兩行 sysctl，不在 IP 衝突裡；由另外兩個 MAC 拼成、只有一台路由器回報的 MAC 標「疑似讀壞」且不算數；「子網段混在同一個二層」列出那組子網段與 ARP、交換器 MAC 表的例子；第二台機器只有一個來源的 IP 衝突，可信度為「低」；滑過「N 個來源」看得到是哪幾台設備；MAC 歷程頁拼接出來的 MAC 顯示「1 個來源」。有真實資料的站台再用 `get_ip_history` 與 `list_anomalies(kind=...)`（items 是陣列）確認一次。另外：雙網卡主機的位址在另一張網卡回應時保留自己的 MAC（另一張的 MAC 登記在別的子網路、自己的 MAC 24 小時內有看到），舊的 MAC 一天沒出現才換成新的；「裝置關聯可能過期」不列目前 MAC 仍是裝置自己網卡的位址；IP 衝突與 ARP flux 只列偵測範圍內子網路的位址（沒登記的位址落在納入的子網路內才算）；「子網段混在同一個二層」的 ARP 與交換器 MAC 表例子是小表格、沒有重複；對外曝險頁籤沒有「存活狀態」欄。另外：LibreNMS 上 down 的設備不再新增 ARP 或 MAC 表、既有記錄維持舊時間（恢復 up 後照收）；MAC 已經換到另一個上線位址的 IP（這裡最後出現的時間約等於 MAC 出現在那裡的時間），詳細頁顯示「換了位址」的警告並列出兩個時間、沒有套用按鈕，而從來不回應的閘道仍是「上線狀態跟著設備」的提示。另外：同一台 Proxmox VM 的兩張網卡（IP 沒連到裝置）列在 ARP flux 而不是 IP 衝突；IPAM 沒有子網路、三台主機各報一個不同 MAC 的同一位址（Docker 橋接，各一個來源）不算衝突；同一台主機在第一個 MAC 不再出現之後才回報第二個（容器重建）不算衝突；只有一個來源、而且登記在另一個上線 IP 的 MAC，在其他來源對這個 IP 意見一致時標成過期記錄，但若是同一台 VM 或裝置的另一張網卡則仍是 ARP flux；同一台路由器看到同一 IP 兩個 MAC 仍算衝突
+- [ ] **異常偵測的 ARP 資料品質**（`backend/tests/test_arp_quality.py`、`backend/tests/test_anomaly_arp_quality.py`、`frontend/e2e/anomaly-arp-quality.spec.ts`；樣本在 `tests/seed_e2e.py`）：兩個 MAC 都連到同一台裝置的雙網卡主機，出現在「同一台主機多張網卡（ARP flux）」，寫出每個 MAC 是哪張網卡與兩行 sysctl，不在 IP 衝突裡；由另外兩個 MAC 拼成、只有一台路由器回報的 MAC 標「疑似讀壞」且不算數；「子網段混在同一個二層」列出那組子網段與 ARP、交換器 MAC 表的例子；第二台機器只有一個來源的 IP 衝突，可信度為「低」；滑過「N 個來源」看得到是哪幾台設備；MAC 歷程頁拼接出來的 MAC 顯示「1 個來源」。有真實資料的站台再用 `get_ip_history` 與 `list_anomalies(kind=...)`（items 是陣列）確認一次。另外：沒連裝置的雙網卡主機（另一個 MAC 登記在另一個子網路的位址、同一小時內也在那裡回應）列在 ARP flux 而不是 IP 衝突，那個位址沒出現時仍算衝突；全新安裝時 ARP flux 預設不發通知，舊的異常偵測總開關也不會把它帶開。另外：雙網卡主機的位址在另一張網卡回應時保留自己的 MAC（另一張的 MAC 登記在別的子網路、自己的 MAC 24 小時內有看到），舊的 MAC 一天沒出現才換成新的；「裝置關聯可能過期」不列目前 MAC 仍是裝置自己網卡的位址；IP 衝突與 ARP flux 只列偵測範圍內子網路的位址（沒登記的位址落在納入的子網路內才算）；「子網段混在同一個二層」的 ARP 與交換器 MAC 表例子是小表格、沒有重複；對外曝險頁籤沒有「存活狀態」欄。另外：LibreNMS 上 down 的設備不再新增 ARP 或 MAC 表、既有記錄維持舊時間（恢復 up 後照收）；MAC 已經換到另一個上線位址的 IP（這裡最後出現的時間約等於 MAC 出現在那裡的時間），詳細頁顯示「換了位址」的警告並列出兩個時間、沒有套用按鈕，而從來不回應的閘道仍是「上線狀態跟著設備」的提示。另外：同一台 Proxmox VM 的兩張網卡（IP 沒連到裝置）列在 ARP flux 而不是 IP 衝突；IPAM 沒有子網路、三台主機各報一個不同 MAC 的同一位址（Docker 橋接，各一個來源）不算衝突；同一台主機在第一個 MAC 不再出現之後才回報第二個（容器重建）不算衝突；只有一個來源、而且登記在另一個上線 IP 的 MAC，在其他來源對這個 IP 意見一致時標成過期記錄，但若是同一台 VM 或裝置的另一張網卡則仍是 ARP flux；同一台路由器看到同一 IP 兩個 MAC 仍算衝突
 - [ ] **匯出是名稱不是編號**（`frontend/src/utils/__tests__/tableExport.test.ts`、`frontend/e2e/circuits-export.spec.ts`，issue #50）：匯出電路清單，供應商與類型是名稱、狀態翻好、頻寬跟畫面一樣格式；抽查裝置（地點、機櫃、單位）與 NAT 的匯出沒有 UUID
 - [ ] **匯出按鈕會顯示處理中**（`frontend/src/composables/__tests__/useExportBusy.test.ts`、`frontend/e2e/change-impact.spec.ts`）：
   選了檔案格式後，到檔案存好之前按鈕反灰並轉圈，期間再選一次不會重複產檔；涵蓋 IP 變更評估（報告與關係圖）、所有表格匯出按鈕、

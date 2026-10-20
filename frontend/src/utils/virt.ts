@@ -10,6 +10,11 @@ export function virtTagText(v: VirtMatch, t: (k: string) => string): string {
   const isCt = v.kind === "ct";
   const base = isCt ? t("addresses.virt_ct_tag") : t("addresses.virt_vm_tag");
   const tech = v.platform === "proxmox" ? (isCt ? "LXC" : v.kind === "vm" ? "KVM" : "")
-    : v.platform === "vmware" ? "VMware" : "";
+    : v.platform === "vmware" ? "VMware" : v.platform === "hyper-v" ? "Hyper-V" : "";
   return tech ? `${base} · ${tech}` : base;
+}
+
+/** 虛擬化平台（virt_clusters.type）→ 那個平台的虛擬化頁路由名稱。平台清單只寫在這裡，各處共用 */
+export function virtRouteFor(platform: string | null | undefined): string {
+  return platform === "vmware" ? "virt_vmware" : platform === "hyper-v" || platform === "hyperv" ? "virt_hyperv" : "virt";
 }

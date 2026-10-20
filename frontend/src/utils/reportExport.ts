@@ -475,9 +475,10 @@ export function saveBytes(filename: string, bytes: Uint8Array, mime: string, met
   saveBlob(filename, bytes, mime, meta);
 }
 
-/** 報告的 Markdown 版（對外開放服務清單等；與 HTML／DOCX 同一份 Report）。表格儲存格裡的 `|` 與換行要跳脫 */
+/** 報告的 Markdown 版（對外開放服務清單等；與 HTML／DOCX 同一份 Report）。表格儲存格裡的反斜線、`|` 與換行要跳脫：
+ *  反斜線一定要先處理，否則內容本身的 `a\|b` 會變成 `a\\|b`，`|` 又變回欄位分隔（CodeQL #54） */
 export function reportMarkdown(r: Report): string {
-  const cell = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+  const cell = (s: string) => String(s ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
   const out: string[] = [`# ${r.title}`];
   if (r.subtitle) out.push("", r.subtitle);
   if (r.meta.length) {

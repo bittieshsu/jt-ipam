@@ -8,6 +8,7 @@
  *  - 結果按類別分組，每類限 8 筆，分數排序
  */
 import { computed, h as vh, ref, watch, nextTick } from "vue";
+import { virtRouteFor } from "@/utils/virt";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import {
@@ -202,7 +203,7 @@ function navigateTo(value: string) {
       // 沒有 IP 記錄的 VM：到虛擬化頁的 VM 頁籤、用名稱篩選（id 是「平台.VM id」）
       const hit = hits.value.find((h) => `${h.type}:${h.id}` === value);
       const platform = id.split(".")[0];
-      router.push({ name: platform === "vmware" ? "virt_vmware" : "virt", query: hit?.label ? { vm: hit.label } : {} });
+      router.push({ name: virtRouteFor(platform), query: hit?.label ? { vm: hit.label } : {} });
       break;
     }
     case "device":

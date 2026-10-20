@@ -64,6 +64,8 @@ class VMRead(StrictModel):
     disk_gb: int | None
     primary_ip_id: uuid.UUID | None
     is_template: bool
+    # 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
+    os_name: str | None = None
     # 從 VMInterface 帶上來（list_vms 批次填）
     ips: list[str] = []
     macs: list[str] = []

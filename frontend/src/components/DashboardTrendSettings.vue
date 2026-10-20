@@ -28,10 +28,11 @@ const groups = ref<TrendEventGroup[]>([...TREND_EVENT_GROUPS]);
 const saving = ref(false);
 
 async function loadSubnets() {
-  // 子網路可能上千個：分頁抓完（每頁 1000），選單本身會虛擬捲動
+  // 子網路可能上千個：分頁抓完，選單本身會虛擬捲動。子網路 API 每頁上限 500（以前寫 1000，一打開就 422：
+  // 「page_size：不可大於 500」，使用者 2026-10-20）
   const out: { label: string; value: string }[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const r = await listSubnets({ page, pageSize: 1000 });
+  for (let page = 1; page <= 40; page++) {
+    const r = await listSubnets({ page, pageSize: 500 });
     for (const s of r.items) out.push({ label: s.description ? `${s.cidr} — ${s.description}` : s.cidr, value: s.id });
     if (out.length >= r.total || !r.items.length) break;
   }

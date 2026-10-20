@@ -224,9 +224,11 @@ def _agent_ipv4_by_mac(agent_data: dict[str, Any]) -> dict[str, str]:
 async def _link_ip_to_ipam(
     session: AsyncSession, ip_text: str | None, mac: str | None, hostname: str | None,
     *, scope_ids: set[Any] | None = None, create_in: SubnetCandidates | None = None, hn_run: Any = None,
-    mac_run: Any = None,
+    mac_run: Any = None, source: str = "proxmox",
 ) -> Any:
     """把 Proxmox 撈到的 VM/CT IP+MAC+主機名稱對應進 IPAM 的 ip_addresses。
+
+    `source`：Hyper-V 也走這一套（同一份規則，不另寫一份），discovery／MAC／主機名稱的來源跟著換。
 
     - 既有 IP：補 MAC（原本空才補，避免蓋掉 scanner/ARP）；記 proxmox 主機名稱觀測
     - 沒有的 IP：**只有 create_in 有值時**（實例開了 auto_create_ips）才在唯一命中的
@@ -255,7 +257,7 @@ async def _link_ip_to_ipam(
         if hn_run is not None:
             hn_run.report(ipa, hostname)
         elif hostname:
-            await apply_observation(session, ip=ipa, source="proxmox", hostname=hostname)
+            await apply_observation(session, ip=ipa, source=source, hostname=hostname)
         return ipa
 
     # 先找既有紀錄（重疊網段下同 IP 可能有多筆 → 限定在 scope 內，並取第一筆而非
@@ -270,10 +272,10 @@ async def _link_ip_to_ipam(
         if subnet_id is None:
             return None                       # 沒有唯一落點（無包含網段或重疊歧義）→ 不建
         ipa = IPAddress(subnet_id=subnet_id, ip=ip_text, state="active",
-                        discovery_source="proxmox")
+                        discovery_source=source)
         if mac:
             ipa.mac = mac
-            ipa.mac_source = "proxmox"
+            ipa.mac_source = source
         session.add(ipa)
         await session.flush()
         if mac_run is not None and mac:
@@ -284,13 +286,13 @@ async def _link_ip_to_ipam(
             mac_run.report(ipa, mac)
         else:
             from app.services.arp_precedence import consider_mac
-            await consider_mac(session, ip=ipa, mac=mac, source="proxmox")
+            await consider_mac(session, ip=ipa, mac=mac, source=source)
     # 多台 PVE guest 可能回報同一 IP（共用/浮動 IP）→ HostnameRun 在同一輪內取固定的一個。
     # 以前用 tiebreak_min 跨輪比較：改名成字典序較大的名字就永遠不會生效（2026-09-26 稽核）
     if hn_run is not None:
         hn_run.report(ipa, hostname)
     elif hostname:
-        await apply_observation(session, ip=ipa, source="proxmox", hostname=hostname)
+        await apply_observation(session, ip=ipa, source=source, hostname=hostname)
     return ipa
 
 

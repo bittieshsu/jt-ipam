@@ -373,3 +373,38 @@ async def test_conflicts_respect_the_detection_scope(db_session) -> None:
     assert "203.0.113.40" not in got
     assert "172.31.253.40" not in got
     assert on is not None
+
+
+async def _unlinked_dual_nic(db, *, other_seen: bool):  # type: ignore[no-untyped-def]
+    """實體雙網卡主機（沒有連到裝置、也不是虛擬化整合認得的 VM）：兩個 IP 各自登記自己的 MAC。"""
+    ln = await _ln(db, "r1", "r2")
+    s1 = await _subnet(db, "198.51.100.0/24", anomaly_enabled=True)
+    s2 = await _subnet(db, "203.0.113.0/24", anomaly_enabled=True)
+    a, b = "bc:24:11:7a:00:01", "bc:24:11:7b:00:02"
+    await _ip(db, s1, "198.51.100.61", mac=a, hostname="srv-dual")
+    await _ip(db, s2, "203.0.113.61", mac=b, hostname="srv-dual-nic2")
+    for d in ln.values():
+        _arp(db, "198.51.100.61", a, d)
+        _arp(db, "198.51.100.61", b, d)          # 另一張網卡也回答（兩個來源都看到，不是單一來源的舊快取）
+        if other_seen:
+            _arp(db, "203.0.113.61", b, d)
+    await db.flush()
+
+
+async def test_an_unlinked_dual_nic_host_is_arp_flux_not_a_conflict(db_session) -> None:
+    """使用者 2026-10-20：「我們 IPAM 可以判斷然後不要誤判嗎？」—— 兩個 IP 沒連到同一台裝置時，以前只能報衝突。
+    另一個 MAC 是另一個子網路某個 IP 登記的 MAC、而且同一段時間也在那裡回應 → 同一台主機的另一張網卡。"""
+    from app.services.anomaly import detect_arp_flux, detect_ip_conflicts
+    await _unlinked_dual_nic(db_session, other_seen=True)
+    assert not [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.61"]
+    (row,) = [r for r in await detect_arp_flux(db_session) if r["ip"] == "198.51.100.61"]
+    assert row["host"] == "srv-dual"
+    nic = {m["mac"]: m["nic"] for m in row["macs"]}
+    assert "203.0.113.61" in nic["bc:24:11:7b:00:02"]
+
+
+async def test_a_mac_whose_own_address_is_silent_is_still_a_conflict(db_session) -> None:
+    """那個 MAC 登記的位址這段時間沒出現：可能是那台機器搬過來搶了這個 IP，不能當成同一台的另一張網卡。"""
+    from app.services.anomaly import detect_ip_conflicts
+    await _unlinked_dual_nic(db_session, other_seen=False)
+    assert [r for r in await detect_ip_conflicts(db_session) if r["ip"] == "198.51.100.61"]
