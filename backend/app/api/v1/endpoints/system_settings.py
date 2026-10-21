@@ -1462,7 +1462,7 @@ def _gather_version_info() -> dict[str, Any]:
         "authlib", "python3-saml", "ldap3", "pyrad",
         "pymysql", "asyncssh", "dnspython", "pywinrm", "geoip2",
         "pgvector", "mcp",
-        "aardwolf", "websockets", "pillow", "fpdf2",
+        "aardwolf", "websockets", "pillow", "fpdf2", "certifi",
         "structlog", "python-json-logger",
     ]
     versions: dict[str, str | None] = {}

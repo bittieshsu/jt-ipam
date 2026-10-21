@@ -587,6 +587,7 @@ TEMPLATE_COLS = T("項目編號 | 標準與管理面向 | 適用功能 | 狀態 
                   "項目番号 | 規格と管理項目 | 対象機能 | 状態 | コードまたは設定の場所 | 確認方法 | テストの証拠 | 不足 | 担当者 | 期限")
 
 SECTIONS = {
+    "data": T("資料在哪裡", "Where the data is", "データの所在"),
     "iso27001": T("ISO/IEC 27001:2022：jt-ipam 提供的資訊安全控制", "ISO/IEC 27001:2022: information security controls jt-ipam provides",
                   "ISO/IEC 27001:2022：jt-ipam が提供する情報セキュリティの管理策"),
     "iso42001": T("ISO/IEC 42001:2023：AI 功能與控制", "ISO/IEC 42001:2023: AI features and controls", "ISO/IEC 42001:2023：AI 機能と管理策"),
@@ -602,6 +603,114 @@ SECTIONS = {
 }
 WORKSHEET_NOTE = T("盤點時可以沿用以下欄位，一列一個控制項目：", "When assessing, these columns work well, one control per row:",
                    "棚卸しでは次の列を使えます。1 行に 1 つの管理策です：")
+
+
+# ─────────────────────────── 資料在哪裡（流向圖＋保存表；使用者 2026-10-20 比照 jt-doc-tools 合規頁畫圖） ───────────────────────────
+# 每一項都對過程式（保存期限的常數、systemd timer、加密方式）；改了預設值這裡要跟著改
+
+DATA_INTRO = T(
+    "IPAM 資料、稽核記錄與整合系統的帳號密碼都存在你自己的伺服器上，不需要任何雲端服務也能完整運作；啟用下圖標成「選用」的項目時，相關資料才會送到管理員設定的服務。",
+    "IPAM data, audit records and the credentials of integrated systems all stay on your own server, and jt-ipam works fully without any cloud service. Data only goes to a service the administrator sets up when an item marked optional below is turned on.",
+    "IPAM のデータ、監査記録、連携システムの認証情報はすべて自社サーバーに保存され、クラウドサービスなしで完全に動作します。下図で「任意」とある項目を有効にした場合のみ、関連データが管理者の設定したサービスへ送られます。")
+
+FLOW_ZONE = T("你的內網（自己架設的伺服器）", "Your network (your own servers)", "自社ネットワーク（自前のサーバー）")
+FLOW_OUT = T("外部", "Outside", "外部")
+FLOW_BROWSER = (T("使用者的瀏覽器", "Users' browsers", "利用者のブラウザ"),
+                [T("網頁只連本站（HTTPS）", "The page only talks to this server (HTTPS)", "ページはこのサーバーとのみ通信（HTTPS）")])
+FLOW_MAIN = (T("jt-ipam 伺服器", "jt-ipam server", "jt-ipam サーバー"),
+             [T("IPAM 資料與稽核記錄都在自己的 PostgreSQL", "IPAM data and audit records in your own PostgreSQL",
+                "IPAM データと監査記録は自前の PostgreSQL に保存"),
+              T("整合系統的帳號密碼加密保存", "Integration credentials stored encrypted", "連携システムの認証情報は暗号化して保存")])
+#: (名稱, 說明, 選用)：內網裡和 jt-ipam 往來的對象
+FLOW_INNER = [
+    (T("網路設備與整合系統", "Network devices and integrated systems", "ネットワーク機器と連携システム"),
+     [T("交換器、防火牆、DNS、DHCP、虛擬化、監控", "Switches, firewalls, DNS, DHCP, virtualization, monitoring",
+        "スイッチ、ファイアウォール、DNS、DHCP、仮想化、監視"),
+      T("jt-ipam 依排程連過去同步", "jt-ipam connects to them on a schedule", "jt-ipam がスケジュールに従って接続")], False),
+    (T("掃描代理（選用）", "Scan agents (optional)", "スキャンエージェント（任意）"),
+     [T("裝在各網段，主動連回 jt-ipam 回報", "Installed in each network segment; they connect back to report",
+        "各セグメントに設置し、jt-ipam へ接続して報告")], True),
+    (T("LLM 伺服器（選用）", "LLM server (optional)", "LLM サーバー（任意）"),
+     [T("例如自架 Ollama；AI 功能預設關閉", "For example a self-hosted Ollama; AI features are off by default",
+        "例：自前の Ollama。AI 機能は既定で無効"),
+      T("放在內網或外部由你決定", "Inside your network or outside, your choice", "社内か社外かは自由に選択")], True),
+    (T("公司目錄與單一登入（選用）", "Directory and single sign-on (optional)", "ディレクトリとシングルサインオン（任意）"),
+     [T("LDAP、AD、RADIUS、OIDC、SAML", "LDAP, AD, RADIUS, OIDC, SAML", "LDAP、AD、RADIUS、OIDC、SAML")], True),
+    (T("稽核記錄轉送（選用）", "Audit forwarding (optional)", "監査記録の転送（任意）"),
+     [T("Graylog、syslog、CEF、GELF", "Graylog, syslog, CEF, GELF", "Graylog、syslog、CEF、GELF")], True),
+]
+#: (名稱, 說明, 結論, 種類)：opt＝你開啟才送；ok＝只下載
+FLOW_OUTER = [
+    (T("雲端 AI 服務", "Cloud AI services", "クラウド AI サービス"),
+     T("OpenAI 相容的 API", "OpenAI-compatible APIs", "OpenAI 互換の API"),
+     T("不需要；把 LLM 設成雲端服務才會送", "Not needed; only used if you point the LLM at one", "不要。LLM をクラウドに設定した場合のみ送信"), "opt"),
+    (T("通知管道", "Notification channels", "通知チャネル"),
+     T("Email、Telegram、Slack、Teams、Webhook…", "Email, Telegram, Slack, Teams, webhooks…", "メール、Telegram、Slack、Teams、Webhook…"),
+     T("你開啟才送", "Only sent if you turn them on", "有効にした場合のみ送信"), "opt"),
+    (T("公開 DNS 解析器", "Public DNS resolvers", "公開 DNS リゾルバー"),
+     T("對外開放服務的外部解析檢查", "External resolution check of exposed services", "公開サービスの外部名前解決チェック"),
+     T("只送你指定的公開網域底下的名稱", "Only names under the public domains you list", "指定した公開ドメイン配下の名前のみ"), "opt"),
+    (T("公開資料", "Public data", "公開データ"),
+     T("OUI 廠商清單、Recog 指紋、GeoIP（選用）", "OUI vendor list, Recog fingerprints, GeoIP (optional)",
+       "OUI ベンダー一覧、Recog フィンガープリント、GeoIP（任意）"),
+     T("只下載，不上傳你的資料", "Download only; none of your data is sent", "ダウンロードのみ。データは送信しない"), "ok"),
+]
+FLOW_NOTE = T(
+    "版本檢查與 RDAP 查詢只在按下按鈕時才連到外部（GitHub、RIPE、APNIC）；安裝與升級時會從作業系統套件庫、PyPI、npm 與 GitHub 下載程式。",
+    "The version check and RDAP lookups only go out when you press their button (GitHub, RIPE, APNIC); installing and upgrading download software from the OS package repositories, PyPI, npm and GitHub.",
+    "バージョン確認と RDAP 照会はボタンを押したときのみ外部（GitHub、RIPE、APNIC）へ接続します。インストールとアップグレードでは OS のパッケージリポジトリ、PyPI、npm、GitHub からソフトウェアを取得します。")
+
+H_DATA = T("資料", "Data", "データ")
+H_WHERE = T("存在哪裡、留多久", "Where it is kept, and for how long", "保存場所と保存期間")
+DATA_ROWS = [
+    (T("IPAM 資料（區段、子網路、IP、裝置、機櫃、整合同步來的資料）", "IPAM data (sections, subnets, IPs, devices, racks, data synced from integrations)",
+       "IPAM データ（セクション、サブネット、IP、機器、ラック、連携から同期したデータ）"),
+     T("PostgreSQL（預設資料庫 `jt_ipam`），保留到刪除為止", "PostgreSQL (database `jt_ipam` by default), kept until deleted",
+       "PostgreSQL（既定のデータベース `jt_ipam`）。削除するまで保持")),
+    (T("稽核記錄", "Audit records", "監査記録"),
+     T("PostgreSQL；資料庫層只能新增，不能修改、刪除或清空，以雜湊鏈串接，每 5 分鐘驗證並錨定到 `/var/lib/jt-ipam/audit-anchors.jsonl` 與 journald。不會自動清除；長期留存建議另外轉送 SIEM",
+       "PostgreSQL; the database only allows inserts (no update, delete or truncate), records are hash-chained, verified every 5 minutes and anchored to `/var/lib/jt-ipam/audit-anchors.jsonl` and journald. Never purged automatically; forward them to a SIEM for long-term retention",
+       "PostgreSQL。データベース層で追加のみ許可（更新、削除、全削除は不可）、ハッシュチェーンで連結し、5 分ごとに検証して `/var/lib/jt-ipam/audit-anchors.jsonl` と journald に記録。自動削除なし。長期保存は SIEM への転送を推奨")),
+    (T("IP 異動記錄、上線歷程", "IP change log, liveness history", "IP 変更履歴、稼働履歴"),
+     T("PostgreSQL，保留到刪除為止（「淡化天數」只影響畫面上的顯示）", "PostgreSQL, kept until deleted (the dimming setting only affects the display)",
+       "PostgreSQL。削除するまで保持（淡色表示の日数は画面表示のみに影響）")),
+    (T("ARP 表、交換器 MAC 表", "ARP tables, switch MAC tables", "ARP テーブル、スイッチの MAC テーブル"),
+     T("ARP 預設 30 天、MAC 表預設 365 天（`ARP_RETENTION_DAYS`、`FDB_RETENTION_DAYS`，0 表示永久保留）",
+       "ARP 30 days and MAC tables 365 days by default (`ARP_RETENTION_DAYS`, `FDB_RETENTION_DAYS`; 0 keeps them forever)",
+       "ARP は既定 30 日、MAC テーブルは既定 365 日（`ARP_RETENTION_DAYS`、`FDB_RETENTION_DAYS`。0 で無期限）")),
+    (T("未納管位址的觀測、外部 DNS 解析變化、掃描代理負載", "Unmanaged-address sightings, external DNS changes, scan agent load",
+       "未管理アドレスの観測、外部 DNS の変化、スキャンエージェントの負荷"),
+     T("分別保留 30 天、90 天、7 天", "Kept 30, 90 and 7 days respectively", "それぞれ 30 日、90 日、7 日保持")),
+    (T("AI 對話歷程", "AI chat history", "AI チャット履歴"),
+     T("PostgreSQL，預設 90 天（可調整，0 表示永久保留），也可以手動清除", "PostgreSQL, 90 days by default (adjustable; 0 keeps it forever), can also be cleared by hand",
+       "PostgreSQL。既定 90 日（変更可、0 で無期限）。手動でも削除可能")),
+    (T("IP 變更評估", "IP change assessments", "IP 変更評価"),
+     T("結案、取消或封存的計畫保留 180 天；失敗或取消的執行保留 30 天，清除時寫入稽核記錄",
+       "Closed, cancelled or archived plans 180 days; failed or cancelled runs 30 days; each purge is audited",
+       "完了、取消、アーカイブ済みの計画は 180 日、失敗または取消の実行は 30 日。削除は監査記録に残る")),
+    (T("整合系統的帳號密碼與金鑰", "Integration credentials and keys", "連携システムの認証情報と鍵"),
+     T("PostgreSQL，以 AES-256-GCM 加密，金鑰在 `/etc/jt-ipam/backend.env`；API 權杖只存雜湊",
+       "PostgreSQL, encrypted with AES-256-GCM; the key is in `/etc/jt-ipam/backend.env`. API tokens are stored only as hashes",
+       "PostgreSQL に AES-256-GCM で暗号化して保存。鍵は `/etc/jt-ipam/backend.env`。API トークンはハッシュのみ保存")),
+    (T("登入工作階段", "Sign-in sessions", "ログインセッション"),
+     T("PostgreSQL（伺服器端），存取權杖 15 分鐘、工作階段 14 天；Redis 只放限流計數與主控台的單次票證（30 至 60 秒）",
+       "PostgreSQL (server side): access tokens 15 minutes, sessions 14 days. Redis only holds rate-limit counters and single-use console tickets (30 to 60 seconds)",
+       "PostgreSQL（サーバー側）。アクセストークン 15 分、セッション 14 日。Redis にはレート制限のカウンターとコンソールの使い捨てチケット（30 から 60 秒）のみ")),
+    (T("主控台連線（SSH、SFTP、RDP、VNC 等）", "Console connections (SSH, SFTP, RDP, VNC and others)", "コンソール接続（SSH、SFTP、RDP、VNC など）"),
+     T("不錄影、不側錄按鍵；連線的開啟與結束、SFTP 每個檔案操作（路徑、大小）寫入稽核記錄；上傳的檔案直接寫到目標主機，不留在 jt-ipam",
+       "Screens and keystrokes are not recorded; session open and close and every SFTP file operation (path, size) go into the audit records. Uploaded files are written straight to the target host, not kept on jt-ipam",
+       "画面とキー入力は記録しない。接続の開始と終了、SFTP の各ファイル操作（パス、サイズ）は監査記録に残る。アップロードしたファイルは対象ホストへ直接書き込み、jt-ipam には残らない")),
+    (T("平面圖等上傳的檔案", "Uploaded files such as floor plans", "フロアマップなどのアップロードファイル"),
+     T("`/var/lib/jt-ipam/uploads`，保留到刪除為止", "`/var/lib/jt-ipam/uploads`, kept until deleted", "`/var/lib/jt-ipam/uploads`。削除するまで保持")),
+    (T("系統匯出檔", "System export files", "システムのエクスポートファイル"),
+     T("以密碼加密（scrypt、AES-256-GCM），暫存在 `/var/lib/jt-ipam/transfer`，超過 48 小時的在下次匯出或匯入時刪除",
+       "Password-encrypted (scrypt, AES-256-GCM), spooled in `/var/lib/jt-ipam/transfer`; files older than 48 hours are removed at the next export or import",
+       "パスワードで暗号化（scrypt、AES-256-GCM）し `/var/lib/jt-ipam/transfer` に一時保存。48 時間を過ぎたものは次回のエクスポートまたはインポート時に削除")),
+    (T("每日備份", "Daily backups", "日次バックアップ"),
+     T("`/var/backups/jt-ipam`，每天 03:30，保留 14 天；內容是資料庫、`backend.env`、TLS 憑證與上傳的檔案。在系統設定填了備份密碼才會加密（`.jtbak`），沒填是明文，要另外保護",
+       "`/var/backups/jt-ipam`, daily at 03:30, kept 14 days; contains the database, `backend.env`, TLS certificates and uploaded files. Encrypted (`.jtbak`) only when a backup passphrase is set in system settings; otherwise plain, so protect it separately",
+       "`/var/backups/jt-ipam`。毎日 03:30、14 日保持。データベース、`backend.env`、TLS 証明書、アップロードファイルを含む。システム設定でバックアップのパスワードを設定した場合のみ暗号化（`.jtbak`）、未設定なら平文のため別途保護が必要")),
+]
 
 
 # ─────────────────────────── Markdown ───────────────────────────
@@ -668,7 +777,14 @@ def md(lang: str) -> str:
                      "このファイルは scripts/gen-compliance-docs.py で生成しています。スクリプトを編集して再生成してください。")[L], ""]
     for p in INTRO:
         out += [p[L], ""]
-    out += [f"## {SECTIONS['iso27001'][L]}", "", f"| {H_CTRL[L]} | {H_REF[L]} | {H_HOW[L]} | {H_EVID[L]} |", "|---|---|---|---|"]
+    out += [f"## {SECTIONS['data'][L]}", "", DATA_INTRO[L], ""]
+    inner = "、".join(n[L] for n, _d, _o in FLOW_INNER) if L != "en" else ", ".join(n[L] for n, _d, _o in FLOW_INNER)
+    colon, lp, rp = (": ", " (", ")") if L == "en" else ("：", "（", "）")
+    out += [f"- **{FLOW_ZONE[L]}**{colon}{FLOW_BROWSER[0][L]} ↔ {FLOW_MAIN[0][L]} ↔ {inner}"]
+    out += [f"- **{FLOW_OUT[L]}**{colon}{n[L]}{lp}{d[L]}{rp}{colon}{e[L]}" for n, d, e, _k in FLOW_OUTER]
+    out += ["", FLOW_NOTE[L], "", f"| {H_DATA[L]} | {H_WHERE[L]} |", "|---|---|"]
+    out += [f"| {_md_cell(a[L])} | {_md_cell(b[L])} |" for a, b in DATA_ROWS]
+    out += ["", f"## {SECTIONS['iso27001'][L]}", "", f"| {H_CTRL[L]} | {H_REF[L]} | {H_HOW[L]} | {H_EVID[L]} |", "|---|---|---|---|"]
     out += [f"| {_md_cell(a[L])} | {_codes(REFS_27001[a['en']])[L]} | {_md_points(b, L)} | {_md_cell(_md_ev(e))} |" for a, b, e in ISO27001]
     out += ["", f"### {SECTIONS['iso27001-index'][L]}", "", _with_n(REF_NOTE_27001, _n_annex(REFS_27001))[L], "",
             f"| {H_CODE[L]} | {H_NAME[L]} | {H_BY_JT[L]} | {H_BY_ORG[L]} |", "|---|---|---|---|"]
@@ -765,6 +881,9 @@ def _table(heads: tuple[dict[str, str], ...], rows: list[tuple[str, ...]], cls: 
             if isinstance(c, Points):
                 cells.append(f'<td class="how">{_html_points(c)}</td>')
                 continue
+            if isinstance(c, Coded):
+                cells.append(f"<td>{_tri(c, code=True)}</td>")
+                continue
             if isinstance(c, Refs):
                 cells.append(f'<td class="refs">{html.escape(chr(10).join(c))}</td>')
                 continue
@@ -772,6 +891,33 @@ def _table(heads: tuple[dict[str, str], ...], rows: list[tuple[str, ...]], cls: 
         body.append("<tr>" + "".join(cells) + "</tr>")
     return (f'    <div class="tbl"><table class="{cls}">\n      <thead><tr>{th}</tr></thead>\n      <tbody>\n        '
             + "\n        ".join(body) + "\n      </tbody>\n    </table></div>")
+
+
+_ARROW = ('<svg class="df-arrow" viewBox="0 0 44 16" aria-hidden="true"><path d="M5 8h34M33 3l6 5-6 5M11 3 5 8l6 5" '
+          'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+
+def _node(title: dict[str, str], lines: list[dict[str, str]], cls: str = "", em: dict[str, str] | None = None) -> str:
+    # 每行用 div：語言的 span 要維持行內，網站「只顯示目前語言」的規則才不會被這裡的 display 蓋掉
+    body = "".join(f'<div class="df-l">{_tri(x)}</div>' for x in lines)
+    return (f'<div class="df-node{(" " + cls) if cls else ""}"><div class="df-t">{_tri(title)}</div>{body}'
+            + (f'<div class="df-em">{_tri(em)}</div>' if em else "") + "</div>")
+
+
+def _flow_html() -> str:
+    """資料流向圖：內網（瀏覽器 ↔ jt-ipam ↔ 內網的往來對象）與外部（虛線＝你開啟才送、實線往內＝只下載）。
+    純 HTML／CSS，不是圖片：三種語言跟著切換，手機上改成直排。"""
+    inner = "".join(_node(n, d, "df-opt" if opt else "") for n, d, opt in FLOW_INNER)
+    outer = "".join(_node(n, [d], f"df-out df-out-{k}", e) for n, d, e, k in FLOW_OUTER)
+    return ('    <div class="df" role="img" aria-label="data flow">'
+            f'<div class="df-zone"><div class="df-zone-title">{_tri(FLOW_ZONE)}</div><div class="df-row">'
+            f'{_node(*FLOW_BROWSER)}{_ARROW}{_node(*FLOW_MAIN, cls="df-main")}{_ARROW}'
+            f'<div class="df-col">{inner}</div></div></div>'
+            f'<div class="df-zone df-zone-out"><div class="df-zone-title">{_tri(FLOW_OUT)}</div>{outer}</div></div>')
+
+
+class Coded(dict):
+    """表格裡要把 `x` 排成 <code> 的文字（路徑、設定名稱；不是佐證連結）。"""
 
 
 def _h2(key: str) -> str:
@@ -783,12 +929,15 @@ def _h3(key: str) -> str:
 
 
 def html_body() -> str:
-    toc_keys = ("iso27001", "iso42001", "customer", "acceptance", "worksheet")
+    toc_keys = ("data", "iso27001", "iso42001", "customer", "acceptance", "worksheet")
     toc = "\n".join(f'    <li><a href="#{k}">{_tri(SECTIONS[k])}</a></li>' for k in toc_keys)
     parts = [
         f"  <h1>{_tri(TITLE)}</h1>",
         *[f'  <p class="sub">{_tri(p)}</p>' for p in INTRO],
         '  <ul class="toc">', toc, "  </ul>",
+        '  <section class="blk">', _h2("data"), f'    <p class="note df-intro">{_tri(DATA_INTRO)}</p>', _flow_html(),
+        f'    <p class="note">{_tri(FLOW_NOTE)}</p>',
+        _table((H_DATA, H_WHERE), [(a, Coded(b)) for a, b in DATA_ROWS], cls="ct data"), "  </section>",
         '  <section class="blk">', _h2("iso27001"),
         _table((H_CTRL, H_REF, H_HOW), _ev_rows("27001", [(a, Refs(REFS_27001[a["en"]]), Points(b), e) for a, b, e in ISO27001])),
         _h3("iso27001-index"), f'    <p class="note">{_tri(_with_n(REF_NOTE_27001, _n_annex(REFS_27001)))}</p>',
@@ -854,9 +1003,41 @@ _EXTRA_CSS = """  /* 合規對照的表格；驗證方式（測試與設定位�
   button.evx{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
     border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;cursor:pointer}
   button.evx:hover{background:#fef2f2}
+  /* 資料流向圖（比照 jt-doc-tools 合規頁）：內網一框、外部一欄，虛線＝你開啟才送、實線往內＝只下載 */
+  .df{display:grid;grid-template-columns:minmax(0,1fr) 236px;gap:72px;align-items:center;background:var(--card);
+    border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:14px 0 10px}
+  .df-zone{background:#f0f8f3;border:1.5px solid #9fd8b6;border-radius:12px;padding:14px 16px 18px}
+  .df-zone-title{font-size:13px;font-weight:700;color:#14532d;margin:0 0 14px}
+  .df-zone-out{background:none;border:0;padding:0;display:flex;flex-direction:column;gap:14px}
+  .df-zone-out .df-zone-title{text-align:center;margin:0;color:var(--muted)}
+  .df-row{display:grid;grid-template-columns:minmax(0,.9fr) 40px minmax(0,1.1fr) 40px minmax(0,1.4fr);align-items:center}
+  .df-col{display:flex;flex-direction:column;gap:10px}
+  .df-node{position:relative;background:#fff;border:1.5px solid #6cc495;border-radius:10px;padding:10px 12px;text-align:center}
+  .df-t{font-size:14px;font-weight:700;color:var(--ink)}
+  .df-l{font-size:12px;line-height:1.5;color:var(--muted);margin-top:2px}
+  .df-main{border-color:var(--core);box-shadow:0 4px 14px rgba(24,160,88,.18);padding:16px 12px}
+  .df-opt{border-style:dashed}
+  .df-arrow{width:40px;height:16px;color:#64748b}
+  .df-out{border-color:#cbd5e1}
+  .df-em{font-size:12px;font-weight:700;margin-top:4px}
+  .df-out-opt .df-em{color:#b45309}
+  .df-out-ok .df-em{color:#15803d}
+  .df-out::before{content:"";position:absolute;right:calc(100% + 6px);top:50%;width:56px;border-top:2px dashed #f59e0b}
+  .df-out-ok::before{border-top-style:solid;border-top-color:#22c55e}
+  .df-out::after{content:"";position:absolute;top:50%;transform:translateY(-50%);right:calc(100% + 1px);
+    border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:7px solid #f59e0b;margin-top:1px}
+  .df-out-ok::after{right:calc(100% + 56px);border-left:0;border-right:7px solid #22c55e}
+  p.df-intro{font-size:15px;color:var(--body)}
+  table.ct.data td:first-child{width:30%;min-width:12em}
+  @media (max-width:900px){
+    .df{grid-template-columns:1fr;gap:18px;padding:16px}
+    .df-row{grid-template-columns:1fr;justify-items:stretch;gap:4px}
+    .df-arrow{transform:rotate(90deg);margin:6px auto}
+    .df-out::before,.df-out::after{display:none}
+  }
   @media (max-width:720px){ table.ct td:first-child{white-space:normal} }
   /* 手機改成卡片排法時（網站共用樣式 560px 以下 .tbl td 滿寬），第一欄的比例寬度不可以蓋過它 */
-  @media (max-width:560px){ table.ct td:first-child,table.ct.cases td:first-child{width:100%;min-width:0} }
+  @media (max-width:560px){ table.ct td:first-child,table.ct.cases td:first-child,table.ct.data td:first-child{width:100%;min-width:0} }
 """
 
 

@@ -9,8 +9,13 @@
 - 已知位址（已登記的 IP、ARP_RECENT_DAYS 天內 ARP 看過的）每一輪都掃 → 上線狀態不管子網路多大都準確
 - 其餘位址每輪抽 DISCOVER_PER_CYCLE 個慢慢找新設備（探索）；不算進上線偵測的負載（scan_load）
 
+- 鄰近探索（客戶 2026-10-20）：已經有設備的 /24 裡其餘的位址，每輪優先掃 NEAR_PER_CYCLE 個、很快繞完一圈。
+  /8 的全域探索要約 57 天繞一圈，新接的印表機（10.0.0.54，旁邊的 .52、.55 都在）五、六個小時都沒被發現；
+  新設備最可能出現在已經有設備的網段。舊代理不認得 near，照舊只有全域探索（不會壞）。
+
 計畫的形狀（`None`＝照舊全掃；舊代理不認得 plan 欄位也是照舊全掃，不會壞）：
-    {"mode": "targets", "known": [[起, 迄], …], "discover": {"per_cycle": N} | None}
+    {"mode": "targets", "known": [[起, 迄], …],
+     "discover": {"per_cycle": N, "near": [[起, 迄], …], "near_per_cycle": M} | None}
 `known` 是連續位址壓成的區段（不展開，位址範圍可能是一整段 /16）。代理目前只掃 IPv4。
 """
 
@@ -34,6 +39,10 @@ from app.models.librenms import ARPEntry
 AUTO_SWEEP_MAX = 4096
 #: 探索：每輪抽幾個未知位址（/8 約 57 天繞一圈；/16 約 5 小時）
 DISCOVER_PER_CYCLE = 1024
+#: 鄰近探索：每輪掃幾個（已經有設備的 /24 裡其餘的位址；30 個 /24 約 8 輪＝40 分鐘繞完）
+NEAR_PER_CYCLE = 1024
+#: 鄰近探索最多涵蓋幾個 /24（設備最多的優先；6 萬多個位址）
+NEAR_BLOCK_CAP = 256
 #: ARP 看過多久以內算已知
 ARP_RECENT_DAYS = 7
 #: 已知位址最多送幾個（超過就截斷：一個子網路幾十萬台設備，應該拆給多台代理）
@@ -72,6 +81,22 @@ def merge_ranges(ranges: Iterable[tuple[str, str]]) -> list[list[str]]:
         else:
             out.append([a, b])
     return [[_ip(a), _ip(b)] for a, b in out]
+
+
+def near_addresses(cidr: str, known: set[int]) -> list[int]:
+    """已經有設備的 /24 裡其餘的主機位址（設備最多的 NEAR_BLOCK_CAP 個 /24；不含網路／廣播位址與已知位址）。"""
+    net = ipaddress.ip_network(str(cidr), strict=False)
+    lo, hi = int(net.network_address) + 1, int(net.broadcast_address) - 1
+    counts: dict[int, int] = {}
+    for n in known:
+        counts[n >> 8] = counts.get(n >> 8, 0) + 1
+    blocks = sorted(counts, key=lambda b: (-counts[b], b))[:NEAR_BLOCK_CAP]
+    out: list[int] = []
+    for b in sorted(blocks):
+        for n in range(max(b << 8, lo), min((b << 8) + 255, hi) + 1):
+            if n not in known:
+                out.append(n)
+    return out
 
 
 def needs_plan(cidr: str, scope: str) -> bool:
@@ -117,7 +142,9 @@ async def plans(session: AsyncSession, subnets: Iterable[Any]) -> dict[uuid.UUID
             continue
         ints = sorted(known[s.id])[:KNOWN_CAP]
         plan: dict[str, Any] = {"mode": "targets", "known": to_runs(ints),
-                                "discover": {"per_cycle": DISCOVER_PER_CYCLE} if scope == "auto" else None}
+                                "discover": ({"per_cycle": DISCOVER_PER_CYCLE,
+                                              "near": to_runs(near_addresses(str(s.cidr), known[s.id])),
+                                              "near_per_cycle": NEAR_PER_CYCLE} if scope == "auto" else None)}
         if len(known[s.id]) > KNOWN_CAP:
             plan["known_truncated"] = len(known[s.id])
         out[s.id] = plan

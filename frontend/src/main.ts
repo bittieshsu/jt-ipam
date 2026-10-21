@@ -11,12 +11,15 @@ import { installColResizeStyle, vColResize } from "@/directives/colResize";
 import { installTabArrowStyle, installTabScrollArrows } from "@/utils/tabScrollArrows";
 import { setExportLogger } from "@/utils/saveFile";
 import { reportExportEvent } from "@/api/exportEvents";
+import { installSelectionCellClick } from "@/utils/selectionCellClick";
 
 // 全站表格欄寬可拖拉（必須在任何畫面建立表格之前）
 installResizableColumns(NDataTable);
 // 頁籤列放不下時兩端出現左右捲動按鈕（沒有滾輪的滑鼠也到得了最左、最右）
 installTabScrollArrows(NTabs);
 installTabArrowStyle();
+// 表格勾選欄整格都可以點（點到勾選框旁邊不會變成點整列、跳進詳細頁）
+installSelectionCellClick();
 
 // 頁面載入診斷（「切回分頁就整頁重新載入」要靠這個分辨是誰重載的）
 startPageDiag();

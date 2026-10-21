@@ -99,7 +99,8 @@ const ipColumnPickerItems = [
   { key: "stale_days", label: t("stale.col_stale") },
   { key: "note", label: t("cols.note") },
 ];
-import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon, AddressesIcon, DeleteIcon, SnmpIcon } from "@/icons";
+import { SubnetsIcon, RefreshIcon, UsageIcon, GridIcon, ListIcon, PinIcon, PlusIcon, MissingIcon, SearchIcon, AddressesIcon, DeleteIcon, SnmpIcon, DevicesIcon, CancelIcon, BellIcon } from "@/icons";
+import { useBulkCreateDevices } from "@/composables/useBulkCreateDevices";
 import { ArrowLeft as ArrowLeftIcon } from "@iconoir/vue";
 import { apiClient } from "@/api/client";
 import { listAddresses, listUnmanaged, type UnmanagedAddress } from "@/api/addresses";
@@ -551,6 +552,12 @@ const ipColumns = computed<DataTableColumns<IPAddress>>(() =>
 // IP 清單複選 + 批次刪除（閒置區間列不可選）
 const checkedIps = ref<Array<string | number>>([]);
 const ipBulkBusy = ref(false);
+const { creatingDevices, createDevices } = useBulkCreateDevices();
+async function bulkCreateDevicesForIps() {
+  const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:") && !k.startsWith("um:"));
+  const res = await createDevices(ids, () => subnet.value && load(subnet.value.id));
+  if (res) checkedIps.value = [];
+}
 async function bulkDeleteIps() {
   const ids = checkedIps.value.map(String).filter((k) => !k.startsWith("gap:") && !k.startsWith("um:"));
   if (!ids.length) return;
@@ -1028,18 +1035,36 @@ onMounted(() => {
           <n-popconfirm @positive-click="bulkDeleteIps">
             <template #trigger>
               <n-button type="error" size="small" :loading="ipBulkBusy">
+                <template #icon><n-icon><DeleteIcon /></n-icon></template>
                 {{ t("common.bulk_delete") }}
               </n-button>
             </template>
             {{ t("common.confirm_delete_n", { n: checkedIps.length }) }}
           </n-popconfirm>
+          <n-popconfirm v-if="isAdmin" @positive-click="bulkCreateDevicesForIps">
+            <template #trigger>
+              <n-button type="primary" size="small" :loading="creatingDevices" :disabled="creatingDevices"
+                        data-testid="bulk-create-devices">
+                <template #icon><n-icon><DevicesIcon /></n-icon></template>
+                {{ t("addresses.bulk_devices") }}
+              </n-button>
+            </template>
+            <div style="max-width: 360px">{{ t("addresses.bulk_devices_confirm", { n: checkedIps.length }) }}</div>
+          </n-popconfirm>
           <n-dropdown trigger="click" :options="stateMenuOptions" @select="bulkSetState">
-            <n-button size="small" :loading="ipBulkBusy">{{ t("stale.set_state") }}</n-button>
+            <n-button size="small" :loading="ipBulkBusy">
+              <template #icon><n-icon><EditIcon /></n-icon></template>
+              {{ t("stale.set_state") }}
+            </n-button>
           </n-dropdown>
           <n-button size="small" :loading="ipBulkBusy" @click="bulkNotifyStale">
+            <template #icon><n-icon><BellIcon /></n-icon></template>
             {{ t("stale.notify") }}
           </n-button>
-          <n-button size="small" @click="checkedIps = []">{{ t("common.clear_selection") }}</n-button>
+          <n-button size="small" @click="checkedIps = []">
+            <template #icon><n-icon><CancelIcon /></n-icon></template>
+            {{ t("common.clear_selection") }}
+          </n-button>
         </n-space>
         <n-data-table
           :columns="ipColumns"

@@ -11,7 +11,7 @@
 
 **🌐 [專案介紹網站 / Project site →](https://jasoncheng7115.github.io/jt-ipam/?lang=zh-TW)**
 
-> 可自架、以整合為核心的 IPAM，操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、Check Point、MikroTik RouterOS、Windows DHCP Server、獨立的 Kea 與 ISC DHCP、Technitium DNS/DHCP、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix 與本地 AI。
+> 可自架、以整合為核心的 IPAM，操作流程沿襲 phpIPAM 使用者熟悉的風格、全新獨立開發，整合多家 DNS Server、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、Check Point、MikroTik RouterOS、Windows DHCP Server、獨立的 Kea 與 ISC DHCP、Technitium DNS/DHCP、Proxmox VE、VMware ESXi / vCenter、Hyper-V / SCVMM、Wazuh、Zabbix 與本地 AI。
 >
 > 作者：Jason Tools Co., Ltd.（節省工具箱）｜授權：AGPL-3.0｜English: [README.md](README.md)｜日本語: [README_ja.md](README_ja.md)
 

@@ -42,6 +42,10 @@ dependencies = [
     "multidict>=6.9.1",
     # geoip2 帶進來的：3.14.3 有 3 個 CVE（2026-10-20 pip-audit），寫下限讓既有站台升級時換掉
     "aiohttp>=3.14.4",
+    # fpdf2 帶進來的 Pillow：12.3.0 有 8 個 CVE（2026-10-21 pip-audit，13.0.0 修補）；certifi 是 httpx／requests
+    # 帶進來的 CA 清單（2026.7.22 有 PYSEC-2026-4320）。寫下限讓既有站台升級時換掉
+    "pillow>=13.0.0",
+    "certifi>=2026.10.19",
 
     # ── Network / IP ──
     "httpx[http2]>=0.27",          # 統一 async HTTP client（A10 SSRF 包裝）
@@ -94,7 +98,7 @@ rdp = [
 # `scripts/jt-ipam.sh install --with-freerdp` 或 upgrade 時依設定自動補上。
 rdp-freerdp = [
     "python-xlib>=0.33",
-    "pillow>=10.0",
+    "pillow>=13.0.0",
 ]
 # Kerberos for WinRM（Hyper-V；客戶的網域只開 Kerberos，2026-10-20）：pykerberos 是 C 擴充、Linux 沒有 wheel，
 # 要先有 libkrb5-dev 才編得起來 —— 由 scripts/jt-ipam.sh 的 ensure_kerberos_support 安裝（裝不起來只警告，NTLM 照常）

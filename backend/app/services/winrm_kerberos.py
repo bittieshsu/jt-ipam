@@ -114,6 +114,14 @@ def parse_kdcs(raw: str | None) -> list[str]:
 
 def _classify_kinit(err: str, principal: str) -> KerberosError:
     e = err.strip()
+    if re.search(r"no support for encryption type", e, re.I):
+        # 帳號與網域控制站沒有共同的加密方式（客戶 2026-10-20）：多半是帳號只有舊的 RC4 金鑰（密碼在網域功能等級
+        # 升到 2008 之前設的，從沒產生 AES 金鑰），而網域控制站已停用 RC4。我們這端預設 AES 與 RC4 都會提出，
+        # 所以修法在 AD：改一次密碼（或改用新建的服務帳號）。領域寫成 NetBIOS 名稱時另外點出來
+        rlm = principal.rpartition("@")[2]
+        code = "kerberos_enctype" if "." in rlm else "kerberos_enctype_netbios"
+        return KerberosError(f"no common Kerberos encryption type for {principal}: {e[-300:]}", code=code,
+                             principal=principal, realm=rlm, reason=e[-300:])
     if re.search(r"Password incorrect|Preauthentication failed|password has expired|revoked", e, re.I):
         return KerberosError(f"Kerberos rejected {principal}: {e[-300:]}", code="kerberos_auth",
                              principal=principal, reason=e[-300:])

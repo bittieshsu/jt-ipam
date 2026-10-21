@@ -113,7 +113,7 @@ class RustDeskPeer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # jt-ipam 最後一次看到它上線（hbbs 不記，是我們自己記的）
     last_online_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 對應到的 IP 記錄；match_status 說明為什麼有或沒有：
-    # matched／not_seen_online／stale／shared（NAT）／ambiguous／unmanaged／no_ip／device_changed（最後看到早於位址換手）
+    # matched／not_seen_online／stale／shared（NAT）／ambiguous／unmanaged／no_ip／device_changed（最後出現早於位址換手）
     address_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ip_addresses.id", ondelete="SET NULL"), index=True)
     match_status: Mapped[str] = mapped_column(String(16), default="no_ip", nullable=False)

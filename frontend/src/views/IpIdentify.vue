@@ -101,6 +101,20 @@
           <div class="idf-muted">{{ t("identify.none_yet") }}</div>
         </n-card>
 
+        <!-- 其他整合系統認得這個位址嗎（虛擬化、監控、代理、DHCP、交換器）：探測前就知道對象是誰（2026-10-20） -->
+        <n-card :title="t('identify.integrations_title')" size="small" data-testid="identify-integrations">
+          <n-spin v-if="loadingDossier" :size="14" />
+          <div v-else-if="dossier && !integrations.length" class="idf-muted">{{ t("identify.integrations_none") }}</div>
+          <!-- 一段一張表、值放在自己的欄位（同頁憑證表的排法；2026-10-21 用「 · 」串成一行時參差不齊） -->
+          <div v-else-if="integrations.length" class="idf-integ">
+            <div v-for="tb in integrations" :key="tb.key" :data-testid="`identify-integ-${tb.key}`">
+              <div class="idf-integ__k">{{ tb.rows.length > 1 ? `${tb.title}（${tb.rows.length}）` : tb.title }}</div>
+              <n-data-table :columns="integCols(tb)" :data="integRows(tb)" size="small" :bordered="false"
+                            :row-key="(r: Record<string, string>) => r.__k" :scroll-x="Math.max(520, tb.cols.length * 108)" />
+            </div>
+          </div>
+        </n-card>
+
         <template v-if="job?.status === 'done' && job.summary">
           <!-- 換手前的探測：結果屬於上一台設備，畫面要講清楚，不可以當成現在這台（2026-10-12） -->
           <n-alert v-if="job.before_device_change" type="warning" :bordered="false" data-testid="identify-before-device-change">
@@ -306,10 +320,13 @@ import type { IPAddress } from "@/types";
 import { fmtDateTime } from "@/utils/datetime";
 import { decodeNmapEscapes, serviceKind } from "@/utils/nmapText";
 import { saveBlob } from "@/utils/saveFile";
+import { investigate } from "@/api/investigate";
+import { integrationTables, type IntegTable, type SectionHelpers } from "@/utils/investigateSections";
+import { lnmsStatusLabel, wazuhStatusLabel } from "@/utils/integrationStatus";
 
 const route = useRoute();
 const router = useRouter();
-const { t, te } = useI18n();
+const { t, te, locale } = useI18n();
 const auth = useAuthStore();
 
 // 兩種進入點：IP 記錄（/addresses/:id/identify）或 IPAM 沒有記錄的位址（/identify/ip/:ip，
@@ -321,6 +338,35 @@ const isAdmin = computed(() => !!auth.me?.is_admin);
 const addr = ref<IPAddress | null>(null);
 const ipTarget = ref<IdentifyIpTarget | null>(null);
 const ipText = computed(() => (addr.value ? String(addr.value.ip).split("/")[0] : (ipTarget.value?.ip ?? byIp.value)));
+
+// 其他整合系統的對應：已登記的位址拿調查檔案（各整合回報的段落）；未登記的只有虛擬化（標題資訊一起帶回）
+const dossier = ref<any>(null);
+const loadingDossier = ref(false);
+const invHelpers: SectionHelpers = { t: (k, p) => (p ? t(k, p) : t(k)), te: (k) => te(k), fmt: (v) => fmtDateTime(v) };
+const integrations = computed(() => integrationTables(
+  dossier.value, invHelpers, (s) => wazuhStatusLabel(t, s), (s) => lnmsStatusLabel(t, s)));
+function integCols(tb: IntegTable): DataTableColumns<Record<string, string>> {
+  return tb.cols.map((title, i) => ({ title, key: `c${i}`, minWidth: 90 }));
+}
+function integRows(tb: IntegTable): Record<string, string>[] {
+  return tb.rows.map((r, n) => Object.fromEntries([["__k", String(n)], ...r.map((v, i) => [`c${i}`, v || "—"])]));
+}
+async function loadIntegrations() {
+  dossier.value = null;
+  if (ipTarget.value) {
+    dossier.value = { found: true, virtualization: ipTarget.value.virtualization ?? null };
+    return;
+  }
+  if (!addr.value) return;
+  loadingDossier.value = true;
+  try {
+    dossier.value = (await investigate(ipText.value, false, locale.value)).dossier;
+  } catch {
+    dossier.value = null;   // 拿不到就不顯示對應，不擋探測本身
+  } finally {
+    loadingDossier.value = false;
+  }
+}
 
 const history = ref<IdentifyBrief[]>([]);
 const loadingHistory = ref(true);
@@ -555,8 +601,10 @@ function fitWidth(header: string, values: string[], min: number, max: number): n
   const w = Math.max(textWidth(header) + 24, ...values.map((v) => textWidth(v)));
   return Math.round(Math.min(max, Math.max(min, w + 32)));
 }
+// 產品一行、版本另起一行（2026-10-21：「OpenSSH 9.6p1 Ubuntu 3ubuntu13.20」整串一行把欄位撐得太寬），
+// 欄寬只看兩者中比較長的那段，再長的在欄內折行
 const productWidth = computed(() => fitWidth(t("identify.col_product"),
-  ports.value.map((p) => [p.product, p.version].filter(Boolean).join(" ")), 110, 360));
+  ports.value.flatMap((p) => [p.product || "", p.version || ""]), 110, 240));
 const extraWidth = computed(() => fitWidth(t("identify.col_extra"),
   ports.value.map((p) => p.extrainfo || ""), 100, 300));
 const portTableWidth = computed(() => 100 + 150 + productWidth.value + extraWidth.value + 360);
@@ -581,8 +629,8 @@ const portCols = computed<DataTableColumns<IdentifyPort>>(() => [
       : "—") },
   { title: t("identify.col_product"), key: "product", width: productWidth.value,
     render: (r) => (r.product || r.version
-      ? h("span", null, [h("span", { class: "idf-prod" }, r.product || ""),
-                         r.version ? h("span", { class: "idf-ver" }, ` ${r.version}`) : null])
+      ? h("div", { class: "idf-prodcell" }, [r.product ? h("div", { class: "idf-prod" }, r.product) : null,
+                                             r.version ? h("div", { class: "idf-ver" }, r.version) : null])
       : "—") },
   { title: t("identify.col_extra"), key: "extrainfo", width: extraWidth.value,
     render: (r) => (r.extrainfo ? h("span", { class: "idf-extra" }, r.extrainfo) : "—") },
@@ -714,13 +762,16 @@ async function init() {
     loadingHistory.value = false;
     return;
   }
+  void loadIntegrations();
   await loadHistory();
   const wanted = String(route.query.job || "");
   const first = history.value.find((x) => x.job_id === wanted) ?? history.value[0];
   if (first) await select(first.job_id);
 }
 
-watch([addressId, byIp], () => void init());
+// isAdmin 也要看：剛登入時帳號資料可能還沒到（isAdmin 先是 false，init 直接結束），到了要重載，
+// 否則歷次探測與整合對應都停在空白
+watch([addressId, byIp, isAdmin], () => void init());
 onMounted(() => {
   window.addEventListener("resize", onResize);
   clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
@@ -763,6 +814,8 @@ function ipamSource(reason: string): string {
 .idf-hist__sub { font-size: 12px; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .idf-status { display: flex; align-items: center; gap: 8px; }
 .idf-muted { opacity: .6; font-size: 13px; }
+.idf-integ { display: flex; flex-direction: column; gap: 14px; }
+.idf-integ__k { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .idf-steps { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .idf-steps li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .idf-steps li.is-todo { opacity: .45; }
@@ -809,8 +862,9 @@ function ipamSource(reason: string): string {
 :deep(.idf-svc--file) { background: rgba(24, 160, 88, .15); color: #18a058; }
 :deep(.idf-svc--mail) { background: rgba(208, 48, 80, .13); color: #d03050; }
 :deep(.idf-svc--infra) { background: rgba(0, 160, 170, .15); color: #0e9aa7; }
+:deep(.idf-prodcell) { overflow-wrap: anywhere; line-height: 1.45; }
 :deep(.idf-prod) { font-weight: 600; }
-:deep(.idf-ver) { opacity: .6; font-variant-numeric: tabular-nums; }
+:deep(.idf-ver) { opacity: .6; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 :deep(.idf-extra) { font-size: 12.5px; opacity: .7; }
 :deep(.idf-scripts) { display: flex; flex-direction: column; gap: 6px; }
 :deep(.idf-script) { display: flex; flex-direction: column; gap: 2px; }

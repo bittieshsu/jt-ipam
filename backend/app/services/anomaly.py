@@ -1244,7 +1244,7 @@ async def detect_unauthorized_ips(
 
     超大規模：以前只任取 2,000 個 ARP 位址、全部 IPAM 位址載進記憶體比對、結果再照字串排序
     切 200 筆 —— 大站台的未授權位址大多根本看不到，也不知道被截掉。現在差集在資料庫做，
-    依最後看到時間排序（最近的在前），超過 MAX_UNAUTHORIZED 才截斷；`meta` 有給就填入
+    依最後出現時間排序（最近的在前），超過 MAX_UNAUTHORIZED 才截斷；`meta` 有給就填入
     {"total": 範圍內總數, "truncated": 是否截斷}。
     """
     from app.services.ip_autocreate import subnet_index
@@ -1309,7 +1309,7 @@ async def detect_unauthorized_ips(
         info["sources"].add(str(source))
         if last and (info["last"] is None or last > info["last"]):
             info["last"] = last
-    # 掃描代理的目擊：有 MAC 就併進同一個 MAC 的來源，沒有 MAC 的只算最後看到的時間
+    # 掃描代理的目擊：有 MAC 就併進同一個 MAC 的來源，沒有 MAC 的只算最後出現的時間
     for ip_s, info in sighted.items():
         if ip_s not in seen and not info["mac"]:
             continue
@@ -1339,7 +1339,7 @@ async def detect_unauthorized_ips(
 # ── 上線狀態（顯示當下才算）──────────────────────────────────────────────────
 # 使用者要求（2026-10-01）：異常偵測每一頁有 IP 清單的，都要順便顯示它現在有沒有上線。
 # 狀態在**送出結果的當下**算，不存進結果裡：保留下來的結果可能是一個小時前跑的。
-# 只送「依據」（各來源最後看到的時間），判定交給前端 —— 與 IP 清單同一顆燈、同一套規則
+# 只送「依據」（各來源最後出現的時間），判定交給前端 —— 與 IP 清單同一顆燈、同一套規則
 # （上線門檻與採用哪些來源是每個使用者自己的設定）。
 
 #: 各類別：哪一欄是 IP、哪一欄是 IP 記錄的 id（有 id 就用 id 對，重疊網段才不會對錯筆）

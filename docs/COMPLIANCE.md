@@ -6,6 +6,34 @@ jt-ipam is not a certification, and using it does not mean passing ISO/IEC 27001
 
 Only capabilities the code actually has are listed. It was written for 1.0.6; later changes are in the CHANGELOG. For a formal assessment, pin a version or commit and verify in your own environment.
 
+## Where the data is
+
+IPAM data, audit records and the credentials of integrated systems all stay on your own server, and jt-ipam works fully without any cloud service. Data only goes to a service the administrator sets up when an item marked optional below is turned on.
+
+- **Your network (your own servers)**: Users' browsers ↔ jt-ipam server ↔ Network devices and integrated systems, Scan agents (optional), LLM server (optional), Directory and single sign-on (optional), Audit forwarding (optional)
+- **Outside**: Cloud AI services (OpenAI-compatible APIs): Not needed; only used if you point the LLM at one
+- **Outside**: Notification channels (Email, Telegram, Slack, Teams, webhooks…): Only sent if you turn them on
+- **Outside**: Public DNS resolvers (External resolution check of exposed services): Only names under the public domains you list
+- **Outside**: Public data (OUI vendor list, Recog fingerprints, GeoIP (optional)): Download only; none of your data is sent
+
+The version check and RDAP lookups only go out when you press their button (GitHub, RIPE, APNIC); installing and upgrading download software from the OS package repositories, PyPI, npm and GitHub.
+
+| Data | Where it is kept, and for how long |
+|---|---|
+| IPAM data (sections, subnets, IPs, devices, racks, data synced from integrations) | PostgreSQL (database `jt_ipam` by default), kept until deleted |
+| Audit records | PostgreSQL; the database only allows inserts (no update, delete or truncate), records are hash-chained, verified every 5 minutes and anchored to `/var/lib/jt-ipam/audit-anchors.jsonl` and journald. Never purged automatically; forward them to a SIEM for long-term retention |
+| IP change log, liveness history | PostgreSQL, kept until deleted (the dimming setting only affects the display) |
+| ARP tables, switch MAC tables | ARP 30 days and MAC tables 365 days by default (`ARP_RETENTION_DAYS`, `FDB_RETENTION_DAYS`; 0 keeps them forever) |
+| Unmanaged-address sightings, external DNS changes, scan agent load | Kept 30, 90 and 7 days respectively |
+| AI chat history | PostgreSQL, 90 days by default (adjustable; 0 keeps it forever), can also be cleared by hand |
+| IP change assessments | Closed, cancelled or archived plans 180 days; failed or cancelled runs 30 days; each purge is audited |
+| Integration credentials and keys | PostgreSQL, encrypted with AES-256-GCM; the key is in `/etc/jt-ipam/backend.env`. API tokens are stored only as hashes |
+| Sign-in sessions | PostgreSQL (server side): access tokens 15 minutes, sessions 14 days. Redis only holds rate-limit counters and single-use console tickets (30 to 60 seconds) |
+| Console connections (SSH, SFTP, RDP, VNC and others) | Screens and keystrokes are not recorded; session open and close and every SFTP file operation (path, size) go into the audit records. Uploaded files are written straight to the target host, not kept on jt-ipam |
+| Uploaded files such as floor plans | `/var/lib/jt-ipam/uploads`, kept until deleted |
+| System export files | Password-encrypted (scrypt, AES-256-GCM), spooled in `/var/lib/jt-ipam/transfer`; files older than 48 hours are removed at the next export or import |
+| Daily backups | `/var/backups/jt-ipam`, daily at 03:30, kept 14 days; contains the database, `backend.env`, TLS certificates and uploaded files. Encrypted (`.jtbak`) only when a backup passphrase is set in system settings; otherwise plain, so protect it separately |
+
 ## ISO/IEC 27001:2022: information security controls jt-ipam provides
 
 | Area | Related controls | What jt-ipam does | How to verify (tests, settings) |

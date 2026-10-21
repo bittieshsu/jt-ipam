@@ -11,7 +11,7 @@
 
 **🌐 [プロジェクトサイト →](https://jasoncheng7115.github.io/jt-ipam/?lang=ja)**
 
-> 自社運用型で連携を中心に据えた IPAM です。phpIPAM の利用者にとって馴染みのある操作の流れを保ちながら独自に開発し、複数の DNS サーバー、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、Check Point、MikroTik RouterOS、Windows DHCP Server、単独の Kea と ISC DHCP、Technitium DNS/DHCP、Proxmox VE、VMware ESXi / vCenter、Wazuh、Zabbix、そしてローカルの LLM と深く連携します。
+> 自社運用型で連携を中心に据えた IPAM です。phpIPAM の利用者にとって馴染みのある操作の流れを保ちながら独自に開発し、複数の DNS サーバー、LibreNMS、OPNsense、pfSense、FortiGate、Palo Alto、Check Point、MikroTik RouterOS、Windows DHCP Server、単独の Kea と ISC DHCP、Technitium DNS/DHCP、Proxmox VE、VMware ESXi / vCenter、Hyper-V / SCVMM、Wazuh、Zabbix、そしてローカルの LLM と深く連携します。
 >
 > Jason Tools Co., Ltd. 提供 · ライセンス：AGPL-3.0 · English: [README.md](README.md) · 繁體中文: [README_zh-TW.md](README_zh-TW.md)
 

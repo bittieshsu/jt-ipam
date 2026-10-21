@@ -7,7 +7,8 @@ settings:
 overrides:
   esbuild: '>=0.28.1'
   form-data@<4.0.6: '>=4.0.6'
-  vite@<6.4.3: '>=6.4.3 <7'
+  vite@<6.4.4: '>=6.4.4 <7'
+  follow-redirects@<1.16.1: '>=1.16.1'
   js-yaml@<5.4.1: '>=5.4.1 <6'
   postcss@<8.5.18: '>=8.5.18'
   brace-expansion@1: '>=1.1.21 <2'
@@ -92,7 +93,7 @@ importers:
         version: 1.5.6
       '@vitejs/plugin-vue':
         specifier: ^5.2.1
-        version: 5.2.4(vite@6.4.3(@types/node@25.6.2))(vue@3.5.43(typescript@5.6.3))
+        version: 5.2.4(vite@6.4.4(@types/node@25.6.2))(vue@3.5.43(typescript@5.6.3))
       '@vitest/coverage-v8':
         specifier: ^4.1.11
         version: 4.1.11(vitest@4.1.11)
@@ -124,11 +125,11 @@ importers:
         specifier: ~5.6.3
         version: 5.6.3
       vite:
-        specifier: '>=6.4.3 <7'
-        version: 6.4.3(@types/node@25.6.2)
+        specifier: '>=6.4.4 <7'
+        version: 6.4.4(@types/node@25.6.2)
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@types/node@25.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.3(@types/node@25.6.2))
+        version: 4.1.11(@types/node@25.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.4(@types/node@25.6.2))
       vue-tsc:
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.6.3)
@@ -724,7 +725,7 @@ packages:
     resolution: {integrity: sha512-7Yx/SXSOcQq5HiiV3orevHUFn+pmMB4cgbEkDYgnkUWb0WfeQ/wa2yFv6D5ICiCQOVpjA7vYDXrC7AGO8yjDHA==}
     engines: {node: ^18.0.0 || >=20.0.0}
     peerDependencies:
-      vite: '>=6.4.3 <7'
+      vite: '>=6.4.4 <7'
       vue: ^3.2.25
 
   '@vitest/coverage-v8@4.1.11':
@@ -743,7 +744,7 @@ packages:
     resolution: {integrity: sha512-2XJVD55d1o5AZous5CCGKS74g/riOj9odEt2bQpCVZeblHyHdnMeFl4jl0XjU21stf4mbjUkew2eXQZt65g5CQ==}
     peerDependencies:
       msw: ^2.4.9
-      vite: '>=6.4.3 <7'
+      vite: '>=6.4.4 <7'
     peerDependenciesMeta:
       msw:
         optional: true
@@ -1300,8 +1301,8 @@ packages:
   flatted@3.4.2:
     resolution: {integrity: sha512-PjDse7RzhcPkIJwy5t7KPWQSZ9cAbzQXcafsetQoD7sOJRQlGikNbx7yZp2OotDnJyrDcbyRq3Ttb18iYOqkxA==}
 
-  follow-redirects@1.16.0:
-    resolution: {integrity: sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw==}
+  follow-redirects@1.16.1:
+    resolution: {integrity: sha512-FNvFGzoMLWmE6Yj9spb/zjd7yiNCHiAW9/Tg9CXrQ8wuu32HtlJOwWO11OJafl5FfY3DxTdQ0vj42zU1kvv5jg==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -1703,10 +1704,6 @@ packages:
     resolution: {integrity: sha512-7qASPzhKF2l2KLboRZux8CCTRMdGiV08vWmyKzPz22qZ7ZjQBOeY7rNzNoCLSUiftJ7HUq0GERHmxw/t0dCdMw==}
     engines: {node: '>=4'}
 
-  postcss@8.5.24:
-    resolution: {integrity: sha512-8RyVklq0owXUTa4xlpzu4l9AaVKIdQvAcOHZWaMh98HgySsUtxRVf/chRe3dsSLqb6i40BzGRzEUddRaI+9TSw==}
-    engines: {node: ^10 || ^12 || >=14}
-
   postcss@8.5.29:
     resolution: {integrity: sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==}
     engines: {node: ^10 || ^12 || >=14}
@@ -1930,8 +1927,8 @@ packages:
   vfonts@0.0.3:
     resolution: {integrity: sha512-nguyw8L6Un8eelg1vQ31vIU2ESxqid7EYmy8V+MDeMaHBqaRSkg3dTBToC1PR00D89UzS/SLkfYPnx0Wf23IQQ==}
 
-  vite@6.4.3:
-    resolution: {integrity: sha512-NTKlcQjlAK7MlQoyb6LgaqHc8sso/pVyUJYWMws3jg21uTJw/LddqIFPcPqP6PzpgbIcZyKI85sFE4HBrQDA8A==}
+  vite@6.4.4:
+    resolution: {integrity: sha512-xGjU/SyjeNyb0E4KxXBvYz/1C+3JXuujvf2hXNOtnlcE+58o5ajd9N2/n2VhkiJvpCP2qQasnUpx5PXNeI+p1Q==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
     peerDependencies:
@@ -1986,7 +1983,7 @@ packages:
       '@vitest/ui': 4.1.11
       happy-dom: '*'
       jsdom: '*'
-      vite: '>=6.4.3 <7'
+      vite: '>=6.4.4 <7'
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true
@@ -2629,9 +2626,9 @@ snapshots:
       '@typescript-eslint/types': 8.59.2
       eslint-visitor-keys: 5.0.1
 
-  '@vitejs/plugin-vue@5.2.4(vite@6.4.3(@types/node@25.6.2))(vue@3.5.43(typescript@5.6.3))':
+  '@vitejs/plugin-vue@5.2.4(vite@6.4.4(@types/node@25.6.2))(vue@3.5.43(typescript@5.6.3))':
     dependencies:
-      vite: 6.4.3(@types/node@25.6.2)
+      vite: 6.4.4(@types/node@25.6.2)
       vue: 3.5.43(typescript@5.6.3)
 
   '@vitest/coverage-v8@4.1.11(vitest@4.1.11)':
@@ -2646,7 +2643,7 @@ snapshots:
       obug: 2.1.2
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.11(@types/node@25.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.3(@types/node@25.6.2))
+      vitest: 4.1.11(@types/node@25.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.4(@types/node@25.6.2))
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -2657,13 +2654,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.11(vite@6.4.3(@types/node@25.6.2))':
+  '@vitest/mocker@4.1.11(vite@6.4.4(@types/node@25.6.2))':
     dependencies:
       '@vitest/spy': 4.1.11
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 6.4.3(@types/node@25.6.2)
+      vite: 6.4.4(@types/node@25.6.2)
 
   '@vitest/pretty-format@4.1.11':
     dependencies:
@@ -2906,7 +2903,7 @@ snapshots:
 
   axios@1.20.0:
     dependencies:
-      follow-redirects: 1.16.0
+      follow-redirects: 1.16.1
       form-data: 4.0.6
       https-proxy-agent: 5.0.1
       proxy-from-env: 2.1.0
@@ -3277,7 +3274,7 @@ snapshots:
 
   flatted@3.4.2: {}
 
-  follow-redirects@1.16.0: {}
+  follow-redirects@1.16.1: {}
 
   foreground-child@3.3.1:
     dependencies:
@@ -3679,12 +3676,6 @@ snapshots:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
 
-  postcss@8.5.24:
-    dependencies:
-      nanoid: 3.3.18
-      picocolors: 1.1.1
-      source-map-js: 1.2.2
-
   postcss@8.5.29:
     dependencies:
       nanoid: 3.3.18
@@ -3891,22 +3882,22 @@ snapshots:
 
   vfonts@0.0.3: {}
 
-  vite@6.4.3(@types/node@25.6.2):
+  vite@6.4.4(@types/node@25.6.2):
     dependencies:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.24
+      postcss: 8.5.29
       rollup: 4.60.3
       tinyglobby: 0.2.16
     optionalDependencies:
       '@types/node': 25.6.2
       fsevents: 2.3.3
 
-  vitest@4.1.11(@types/node@25.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.3(@types/node@25.6.2)):
+  vitest@4.1.11(@types/node@25.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.4(@types/node@25.6.2)):
     dependencies:
       '@vitest/expect': 4.1.11
-      '@vitest/mocker': 4.1.11(vite@6.4.3(@types/node@25.6.2))
+      '@vitest/mocker': 4.1.11(vite@6.4.4(@types/node@25.6.2))
       '@vitest/pretty-format': 4.1.11
       '@vitest/runner': 4.1.11
       '@vitest/snapshot': 4.1.11
@@ -3923,7 +3914,7 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 6.4.3(@types/node@25.6.2)
+      vite: 6.4.4(@types/node@25.6.2)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.6.2

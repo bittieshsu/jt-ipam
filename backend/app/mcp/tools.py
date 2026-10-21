@@ -141,7 +141,7 @@ async def _visible_device_names(session: AsyncSession, user: User, ids: Any) -> 
 
 
 def _ip_last_seen(o: Any) -> str | None:
-    """清單「最後看到」欄：掃描代理／LibreNMS／ARP 三者取最新（與 REST 位址清單的排序欄同一個定義）。"""
+    """清單「最後出現」欄：掃描代理／LibreNMS／ARP 三者取最新（與 REST 位址清單的排序欄同一個定義）。"""
     vals = [v for v in (o.last_seen_scanner, o.last_seen_librenms, o.last_seen_arp) if v is not None]
     return max(vals).isoformat() if vals else None
 
@@ -1840,7 +1840,7 @@ async def get_ip_detail(session: AsyncSession, *, user: User, ip: str) -> dict[s
     """單一 IP 的完整資料：IP 編輯表單與詳細資料頁上的每個欄位。
 
     除了基本欄位，還有：設備類型／型號、各種旗標（不 ping、忽略 PTR、上線跟著裝置、DHCP 固定分配／
-    租約／伺服器）、逐來源最後看到時間與防火牆 ARP 證據、各主控台開關與連線出口、閘道／DHCP 範圍／
+    租約／伺服器）、逐來源最後出現時間與防火牆 ARP 證據、各主控台開關與連線出口、閘道／DHCP 範圍／
     排除區間標記、MAC 廠商、OCS／RustDesk、有效 OS 與探測項目、建立／更新時間。
     """
     try:
@@ -2019,7 +2019,7 @@ async def list_subnet_ips(
     """列出某子網路內所有「已紀錄／已用」的 IP（選用 state 過濾）。
 
     每筆是子網路頁 IP 清單的欄位：IP、主機名稱、狀態、MAC＋廠商、擁有者、說明、備註、裝置、交換器埠、
-    設備類型、OS、最後看到、探索來源。更多（旗標、主控台、逐來源時間…）用 get_ip_detail。
+    設備類型、OS、最後出現、探索來源。更多（旗標、主控台、逐來源時間…）用 get_ip_detail。
     結果多時用 offset 分批：回傳含 total / has_more / next_offset，需要下一批就帶 next_offset 再呼叫。
     """
     from app.services.oui import mac_prefix, vendor_map

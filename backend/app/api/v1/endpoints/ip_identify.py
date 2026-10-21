@@ -343,7 +343,13 @@ async def identify_target(
     arp = (await session.execute(select(ARPEntry.last_seen_at, ARPEntry.source).where(
         text("host(arp_entries.ip) = :ip").bindparams(ip=t.ip_text)).order_by(
         ARPEntry.last_seen_at.desc()).limit(1))).first()
+    # 虛擬化平台認得它嗎（使用者 2026-10-20「探測時也要搭配有整合的其它系統從 IP 找對應」）：
+    # 未登記的位址沒有調查檔案可看，這裡用 VM 網卡的 IP／ARP 看到的 MAC 對（MAC 不同的不算，見 vm_match_for）
+    from app.services.fw_lookup import vm_match_for
+    _vendor, arp_mac = await _vendor_of(session, t)
+    virt = await vm_match_for(session, ip=t.ip_text, macs=[arp_mac] if arp_mac else None)
     return {"ip": t.ip_text, "subnet_id": str(t.subnet.id), "subnet_cidr": str(t.subnet.cidr),
+            "virtualization": virt,
             "arp_last_seen": arp[0] if arp else None, "arp_source": arp[1] if arp else None,
             "agent_name": agent.name if agent else None,
             "address_id": str(t.record.id) if t.record is not None else None,

@@ -608,6 +608,43 @@ async def same_mac_addresses(
         update={"mac_since": since.get(str(r.ip).split("/")[0])}) for r in rows]
 
 
+async def _match_existing_device(session: AsyncSession, obj: IPAddress) -> tuple[uuid.UUID, str, str] | None:
+    """這個 IP 看起來屬於哪一台既有裝置：(id, 名稱, 依據 name／mac／ip)。對到多台就不猜（同 ip_device_link）。"""
+    from app.models.device import Device
+    from app.models.physical import DevicePort
+    hostname = (obj.hostname or "").strip()
+    ip_host = str(obj.ip).split("/")[0]
+    if hostname:
+        row = (await session.execute(
+            select(Device.id, Device.name).where(
+                or_(func.lower(Device.name) == hostname.lower(),
+                    func.lower(Device.name) == (_first_label(hostname) or "").lower(),
+                    func.lower(Device.fqdn) == hostname.lower())
+            ).limit(2)
+        )).all()
+        if len(row) == 1:
+            return row[0][0], row[0][1], "name"
+    if obj.mac:
+        row = (await session.execute(
+            select(DevicePort.device_id, Device.name)
+            .join(Device, Device.id == DevicePort.device_id)
+            .where(func.lower(DevicePort.mac_address) == str(obj.mac).lower())
+            .limit(2)
+        )).all()
+        if len(row) == 1:
+            return row[0][0], row[0][1], "mac"
+    # 精確比對位址本身。用字串前綴比對會把 10.0.0.1 命中成 10.0.0.10／10.0.0.100 ——
+    # 掛錯的裝置關聯比沒有關聯更難發現。
+    row = (await session.execute(
+        select(Device.id, Device.name)
+        .join(IPAddress, IPAddress.id == Device.primary_ip_id)
+        .where(func.host(IPAddress.ip) == ip_host).limit(2)
+    )).all()
+    if len(row) == 1:
+        return row[0][0], row[0][1], "ip"
+    return None
+
+
 @router.get("/{address_id}/device-suggestion", response_model=DeviceSuggestion)
 async def device_suggestion(
     address_id: uuid.UUID,
@@ -619,8 +656,6 @@ async def device_suggestion(
     **只回建議，不會建立也不會關聯任何東西。** DHCP 的筆電會散在十幾個 IP 上，
     每一筆都手動建裝置、手動關聯是純粹的苦工；但要不要建立仍然是人決定。
     """
-    from app.models.device import Device
-    from app.models.physical import DevicePort
 
     obj = await session.get(IPAddress, address_id)
     if obj is None:
@@ -632,42 +667,12 @@ async def device_suggestion(
         return out                      # 已經有裝置就沒什麼好建議的
 
     hostname = (obj.hostname or "").strip()
-    ip_host = str(obj.ip).split("/")[0]
+    str(obj.ip).split("/")[0]
     out.suggested_name = _first_label(hostname)
 
-    # ── 先找既有裝置：名稱 / FQDN / 主要 IP / 連接埠 MAC
-    dev: tuple[uuid.UUID, str] | None = None
-    reason: str | None = None
-    if hostname:
-        row = (await session.execute(
-            select(Device.id, Device.name).where(
-                or_(func.lower(Device.name) == hostname.lower(),
-                    func.lower(Device.name) == (out.suggested_name or "").lower(),
-                    func.lower(Device.fqdn) == hostname.lower())
-            ).limit(2)
-        )).all()
-        # 對到多台就不猜 —— 這與 ip_device_link 的規則一致
-        if len(row) == 1:
-            dev, reason = (row[0][0], row[0][1]), "name"
-    if dev is None and obj.mac:
-        row = (await session.execute(
-            select(DevicePort.device_id, Device.name)
-            .join(Device, Device.id == DevicePort.device_id)
-            .where(func.lower(DevicePort.mac_address) == str(obj.mac).lower())
-            .limit(2)
-        )).all()
-        if len(row) == 1:
-            dev, reason = (row[0][0], row[0][1]), "mac"
-    if dev is None:
-        # 精確比對位址本身。用字串前綴比對會把 10.0.0.1 命中成 10.0.0.10／10.0.0.100 ——
-        # 掛錯的裝置關聯比沒有關聯更難發現。
-        row = (await session.execute(
-            select(Device.id, Device.name)
-            .join(IPAddress, IPAddress.id == Device.primary_ip_id)
-            .where(func.host(IPAddress.ip) == ip_host).limit(2)
-        )).all()
-        if len(row) == 1:
-            dev, reason = (row[0][0], row[0][1]), "ip"
+    # ── 先找既有裝置：名稱 / FQDN / 主要 IP / 連接埠 MAC（批次建立裝置也用同一套，_match_existing_device）
+    hit = await _match_existing_device(session, obj)
+    dev, reason = ((hit[0], hit[1]), hit[2]) if hit else (None, None)
 
     # 對得上的裝置看不到就不建議（以前會回看不到的裝置 id 與名稱）
     if dev is not None and not user.is_admin and not has_permission(
@@ -1483,6 +1488,79 @@ async def bulk_set_state(
 
     await session.commit()
     return {"updated": updated, "failed": len(errors), "errors": errors[:50]}
+
+
+class BulkCreateDevicesPayload(StrictModel):
+    ids: Annotated[list[uuid.UUID], Field(max_length=2000)]
+
+
+@router.post("/bulk-create-devices", status_code=status.HTTP_200_OK)
+async def bulk_create_devices(
+    payload: BulkCreateDevicesPayload,
+    user: CurrentUser,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    """批次建立裝置（使用者 2026-10-20）：勾選的 IP 已經有裝置就跳過；沒有的，對得到唯一一台既有裝置
+    （主機名稱／MAC／主要 IP，同單筆的「建議裝置」）就關聯過去，否則建一台再關聯。同一批裡主機名稱相同的共用一台。
+    建立裝置是管理員限定（與 POST /devices、單筆套用同一條線）。"""
+    from app.models.device import Device
+    from app.services.device_type_auto import refresh_auto_types
+
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail=ui_detail("addr_device_create_admin_only", "只有管理員能建立裝置"))
+    actor = {"actor_user_id": str(user.id), "actor_ip": request.client.host if request.client else None,
+             "actor_user_agent": request.headers.get("user-agent"),
+             "request_id": getattr(request.state, "request_id", None)}
+    created_ids: list[uuid.UUID] = []
+    by_host: dict[str, Any] = {}             # 這一批裡主機名稱 → 剛建的裝置
+    created = linked_existing = skipped = 0
+    errors: list[dict[str, str]] = []
+    devices: dict[uuid.UUID, dict[str, Any]] = {}
+    for aid in dict.fromkeys(payload.ids):
+        obj = await session.get(IPAddress, aid)
+        if obj is None:
+            errors.append({"id": str(aid), "error": "not_found"})
+            continue
+        if obj.device_id is not None:
+            skipped += 1
+            continue
+        hostname = (obj.hostname or "").strip()
+        key = hostname.lower()
+        device = by_host.get(key) if key else None
+        how = "batch"
+        if device is None:
+            hit = await _match_existing_device(session, obj)
+            if hit is not None:
+                device, how = await session.get(Device, hit[0]), "existing"
+        if device is None:
+            name = _first_label(hostname) or str(obj.ip).split("/")[0]
+            device = Device(name=name[:255], type="other", fqdn=hostname if "." in hostname else None)
+            session.add(device)
+            await session.flush()
+            created += 1
+            created_ids.append(device.id)
+            how = "created"
+            await append_audit(session, object_type="device", object_id=str(device.id), action="create",
+                               diff={"name": device.name, "from_ip": str(obj.ip), "bulk": True}, **actor)
+        if key and how != "existing":
+            by_host[key] = device
+        if how == "existing":
+            linked_existing += 1
+        await log_change(session, ip=obj, event_type="edited", field="device_id", old=None, new=str(device.id),
+                         source="user", actor_user_id=user.id, note="bulk create devices")
+        obj.device_id = device.id
+        await append_audit(session, object_type="ip_address", object_id=str(obj.id), action="update",
+                           diff={"device_id": str(device.id), "bulk": True, "how": how}, **actor)
+        d = devices.setdefault(device.id, {"id": str(device.id), "name": device.name, "how": how, "ips": []})
+        d["ips"].append(str(obj.ip).split("/")[0])
+    if created_ids:
+        # 剛從 IP 建出來的裝置：照 IP 的作業系統證據先判斷類型（同單筆套用）
+        await session.flush()
+        await refresh_auto_types(session, created_ids)
+    await session.commit()
+    return {"created": created, "linked_existing": linked_existing, "skipped": skipped,
+            "failed": len(errors), "errors": errors[:50], "devices": list(devices.values())[:200]}
 
 
 class NotifyStalePayload(StrictModel):

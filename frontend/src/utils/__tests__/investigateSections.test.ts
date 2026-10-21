@@ -7,7 +7,8 @@
 import { describe, expect, it } from "vitest";
 import zh from "../../i18n/zh-TW.json";
 import {
-  conflictLines, fwSeenLabel, headSections, kindReasonText, midSections, monitorLines, tailSections,
+  conflictLines, fwSeenLabel, headSections, integrationTables, kindReasonText, midSections, monitorLines,
+  tailSections,
   type SectionHelpers,
 } from "../investigateSections";
 
@@ -171,5 +172,48 @@ describe("輔助", () => {
   it("防火牆證據的廠牌名稱包含 MikroTik（以前印成原始的 mikrotik）", () => {
     expect(fwSeenLabel("vpn:mikrotik", h.t)).toBe("VPN 連線（MikroTik）");
     expect(fwSeenLabel("scanner", h.t)).toBe("scanner");
+  });
+});
+
+
+describe("integrationTables（探測頁：其他整合系統的對應，欄位對齊的表格）", () => {
+  const st = (x: any) => String(x);
+  const d = {
+    found: true,
+    virtualization: { vm: "vm-web-07", platform: "proxmox", kind: "ct", node: "node-07", status: "running",
+                      cluster: "lab-cluster", vmid: 136 },
+    monitoring: { wazuh: { name: "vm-web-07", agent_id: "007", status: "active" } },
+    switch_ports: [
+      { switch: "sw-access-07", port: "eth1/0/4", vlan: 1, last_seen: "2026-10-21T07:18:37Z", source: "snmp" },
+      { switch: "sw-access-08", port: "Eth1/1/1", vlan: 1, last_seen: "2026-10-06T14:00:33Z", source: "librenms" },
+    ],
+    probe: { services: ["22/tcp ssh"] },
+  };
+  it("每段一張表：欄位標題與每列的格數一致，值放在自己的欄位（不再用 · 串成一行）", () => {
+    const tabs = integrationTables(d, h, st, st);
+    expect(tabs.map((x) => x.key)).toEqual(["virt", "mon", "switch"]);
+    for (const tb of tabs) {
+      expect(tb.cols.every((c) => !c.startsWith("<<"))).toBe(true);
+      for (const r of tb.rows) expect(r.length).toBe(tb.cols.length);
+    }
+    const sw = tabs.find((x) => x.key === "switch")!;
+    expect(sw.rows.map((r) => r[0])).toEqual(["sw-access-07", "sw-access-08"]);
+    expect(sw.rows[0]).toContain("eth1/0/4");
+    expect(sw.rows[0]).toContain("SNMP");
+    expect(sw.rows.every((r) => r.every((c) => !c.includes(" · ")))).toBe(true);
+    const virt = tabs.find((x) => x.key === "virt")!;
+    expect(virt.rows[0][0]).toBe("vm-web-07");
+    expect(virt.rows[0]).toContain("node-07");
+    expect(virt.rows[0]).toContain("136");
+  });
+  it("整欄都沒有值的欄位拿掉（例如 Wazuh 沒有 SCA 分數時不留空的說明欄）", () => {
+    const mon = integrationTables(d, h, st, st).find((x) => x.key === "mon")!;
+    expect(mon.cols.length).toBe(3);
+    expect(mon.rows[0]).toEqual(["Wazuh", "vm-web-07", "active"]);
+  });
+  it("找不到位址或什麼都沒有：空清單", () => {
+    expect(integrationTables({ found: false }, h, st, st)).toEqual([]);
+    expect(integrationTables({ found: true }, h, st, st)).toEqual([]);
+    expect(integrationTables(null, h, st, st)).toEqual([]);
   });
 });

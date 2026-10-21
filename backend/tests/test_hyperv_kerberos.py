@@ -99,6 +99,8 @@ def test_ticket_scopes_the_environment(monkeypatch) -> None:
     ("kinit: Cannot find KDC for realm \"CORP.EXAMPLE\" while getting initial credentials", "kerberos_kdc"),
     ("kinit: Clock skew too great while getting initial credentials", "kerberos_clock"),
     ("kinit: something else", "kerberos_error"),
+    # 客戶 2026-10-20：帳號只有舊的 RC4 金鑰、網域控制站停用 RC4 → 要講出怎麼修，不只轉述原文
+    ("kinit: KDC has no support for encryption type while getting initial credentials", "kerberos_enctype"),
 ])
 def test_kinit_errors(monkeypatch, stderr: str, code: str) -> None:
     _fake_kinit(monkeypatch, rc=1, stderr=stderr)
@@ -217,3 +219,12 @@ def test_real_kdc_ticket_and_service_token() -> None:
     with pytest.raises(krb.KerberosError) as e, krb.ticket(user, pw + "-wrong", kdcs=[os.environ["JTIPAM_TEST_KDC"]]):
         pass
     assert e.value.code == "kerberos_auth"
+
+
+def test_enctype_error_with_a_netbios_realm_says_so(monkeypatch) -> None:
+    """領域填成 NetBIOS 名稱（CORP）而不是 AD 的 DNS 網域名稱（CORP.EXAMPLE）時，訊息另外點出來。"""
+    _fake_kinit(monkeypatch, rc=1, stderr="kinit: KDC has no support for encryption type while getting initial credentials")
+    with pytest.raises(krb.KerberosError) as e, krb.ticket("corp\\administrator", "x", realm="CORP"):
+        pass
+    assert e.value.code == "kerberos_enctype_netbios"
+    assert e.value.params["realm"] == "CORP"

@@ -125,6 +125,8 @@ export async function cancelIdentify(target: IdentifyTarget | string, jobId: str
 export interface IdentifyIpTarget {
   ip: string; subnet_id: string; subnet_cidr: string; agent_name: string | null; address_id: string | null;
   arp_last_seen?: string | null; arp_source?: string | null;
+  /** 虛擬化平台回報的 VM（網卡 IP 或 ARP 看到的 MAC 對得到才有）：同調查檔案的 virtualization 段 */
+  virtualization?: Record<string, any> | null;
   /** 0＝IPAM 沒有記錄；>1＝重複記錄（不是未登記） */
   record_count: number;
 }

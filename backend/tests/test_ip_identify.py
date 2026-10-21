@@ -1335,3 +1335,27 @@ async def test_finished_probes_cannot_be_cancelled(client, auth_headers, db_sess
     await db_session.commit()
     r = await client.post(f"/api/v1/addresses/{ip.id}/identify/{job.id}/cancel", headers=auth_headers)
     assert r.status_code == 409
+
+
+async def test_an_unregistered_address_shows_the_vm_a_hypervisor_reports(client, auth_headers, db_session) -> None:
+    """探測頁要搭配整合系統（使用者 2026-10-20）：IPAM 沒登記的位址，虛擬化平台回報的 VM 網卡有這個 IP 時，
+    標題資訊帶出是哪一台 VM（哪個叢集、節點、平台），探測前就知道對象是誰。"""
+    from app.models.virt import VirtCluster, VirtualMachine, VMInterface
+
+    await _subnet_only(db_session)
+    cl = VirtCluster(name=f"hv-{uuid.uuid4().hex[:6]}", type="hyper-v")
+    db_session.add(cl)
+    await db_session.flush()
+    vm = VirtualMachine(cluster_id=cl.id, name="sql-01", node="hv-node-02")
+    db_session.add(vm)
+    await db_session.flush()
+    db_session.add(VMInterface(vm_id=vm.id, name="eth0", mac="00:00:5e:00:53:44", primary_ip="198.51.100.51"))
+    await db_session.commit()
+
+    got = (await client.get("/api/v1/identify/ip/198.51.100.51", headers=auth_headers)).json()
+    assert got["virtualization"]["vm"] == "sql-01"
+    assert got["virtualization"]["platform"] == "hyper-v"
+    assert got["virtualization"]["node"] == "hv-node-02"
+    # 沒有任何整合認得的位址：不帶（不是空物件）
+    none = (await client.get("/api/v1/identify/ip/198.51.100.52", headers=auth_headers)).json()
+    assert none.get("virtualization") is None

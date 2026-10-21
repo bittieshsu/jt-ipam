@@ -75,7 +75,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-AGENT_VERSION = "1.19.0"
+AGENT_VERSION = "1.20.0"
 SERVER = os.environ.get("JT_IPAM_URL", "").rstrip("/")
 KEY = os.environ.get("JT_IPAM_AGENT_KEY", "")
 INTERVAL = int(os.environ.get("JT_IPAM_INTERVAL", "300"))
@@ -1051,6 +1051,8 @@ def _plan_hosts(subnet_id: str, cidr: str, plan: dict | None) -> tuple[list[str]
     沒有計畫＝照舊全掃（_subnet_chunk，太大就分段輪替）。有計畫（mode=targets）：
     - 已知位址每一輪都掃（超過單輪上限就輪替）→ 回報的 rounds 是已知位址繞一圈的輪數，伺服器只拿它判斷超載
     - discover：其餘位址每輪往後看一段（per_cycle 個），已知的不重複探測；繞完一圈從頭開始
+    - discover.near（伺服器 2026-10-20 起）：已經有設備的 /24 裡其餘的位址，每輪先掃 near_per_cycle 個、繞完從頭。
+      /8 的全域探索要約 57 天一圈，新接的設備最可能出現在已經有設備的網段（客戶的印表機五、六小時沒被發現）
     """
     if not plan or plan.get("mode") != "targets":
         return _subnet_chunk(subnet_id, cidr)
@@ -1082,6 +1084,24 @@ def _plan_hosts(subnet_id: str, cidr: str, plan: dict | None) -> tuple[list[str]
         except (TypeError, ValueError):
             per = 0
         per = max(1, min(per or 1, MAX_HOSTS))
+        near = _parse_runs(disc.get("near") or [], lo, hi)
+        near_total = sum(b - a + 1 for a, b in near)
+        if near_total:
+            try:
+                n_per = int(disc.get("near_per_cycle") or 0)
+            except (TypeError, ValueError):
+                n_per = 0
+            n_per = max(1, min(n_per or 1, MAX_HOSTS))
+            n_start = _chunk_pos.get(f"{subnet_id}:n", 0)
+            if n_start >= near_total:
+                n_start = 0
+            k_starts = [a for a, _ in runs]
+            for n in _runs_slice(near, n_start, min(n_per, near_total - n_start)):
+                if not _in_runs(runs, k_starts, n):
+                    hosts.append(str(ipaddress.IPv4Address(n)))
+            nxt_n = n_start + n_per
+            _chunk_pos[f"{subnet_id}:n"] = nxt_n if nxt_n < near_total else 0
+            info.update(near=near_total, near_chunk=n_start // n_per + 1, near_rounds=-(-near_total // n_per))
         d_start = _chunk_pos.get(f"{subnet_id}:d", 0)
         if d_start >= total:
             d_start = 0

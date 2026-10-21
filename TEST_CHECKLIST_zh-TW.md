@@ -477,6 +477,8 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
   - 設定裡的「大小」滑桿（50%～300%）：放大後整排一起變大、比例不變；重新整理與換瀏覽器後照舊（跟著帳號）
 - [ ] 儀表板機櫃卡片：點機櫃圖本身（框架、空白處）會開那個機櫃（`/racks?rack=`）；點設備到設備頁；鍵盤 Tab 到機櫃圖按 Enter 也可以
 - [ ] **探測頁的 MAC**：摘要有「MAC」一欄；一般網卡顯示 MAC（廠牌），iPhone 等隨機 MAC 顯示「隨機（私人）位址」標籤（滑過有說明）
+- [ ] **探測頁的「其他整合系統的對應」**（`tests/test_ip_identify.py`、`src/utils/__tests__/investigateSections.test.ts`）：已登記位址的探測頁列出虛擬化（VM 名稱、平台、節點、叢集）、監控（Wazuh、LibreNMS、Zabbix）、電腦上的代理（OCS、RustDesk）、DHCP、交換器埠，文字與調查視窗相同；沒有任何整合認得時寫「都沒有這個位址的資料」；未登記的位址（異常偵測的未授權 IP）也會依 VM 網卡的 IP 或 ARP 看到的 MAC 帶出 VM，MAC 不同的不算；剛登入直接開探測頁，歷次探測與對應也會載入
+- [ ] **Kerberos 加密方式不合的訊息**（`tests/test_hyperv_kerberos.py`）：kinit 回「KDC has no support for encryption type」時，測試連線寫出「帳號只有 RC4 金鑰、網域控制站停用 RC4，改一次密碼並啟用 AES」；領域填成沒有點的 NetBIOS 名稱時另外提醒改填 DNS 網域名稱
 - [ ] **探測取消**（`tests/test_ip_identify.py`）：探測執行中按「取消探測」→ 狀態變失敗並寫「這次探測已取消」、作業頁「已取消」、沒有通知；
   之後代理送回結果不會改回完成；馬上可以再探測；已結束的取消回 409
 - [ ] **憑證 SFTP 來源主機金鑰**（`tests/test_cert_source_host_key.py`）：第一次測試連線或抓取後來源設定顯示 SHA256 指紋；把 SFTP 主機換一把主機金鑰 →
@@ -662,6 +664,9 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
 - [ ] 刪除整合；`jt-ipam-sync` 每 ~5 分鐘會自己帶到已啟用的整合且不出錯
 
 - [ ] **自動配發跳過保留與 DHCP 範圍**（GitHub issue #56，`backend/tests/test_free_ip_skips_ranges.py`）：子網路裡有保留範圍與 DHCP 範圍時，「配發下一個可用 IP」、IP 申請核准、`first_free_address`、`find_free_ips` 都不會給範圍裡的位址（連續一段也不跨過）；用途「其他」的範圍照常可配；手動新增落在範圍裡的位址會顯示是哪個範圍的警告，仍可存檔
+- [ ] **批次增加裝置**（`backend/tests/test_bulk_create_devices.py`）：IP 位址頁與子網路的 IP 頁勾選幾筆 →「批次增加裝置」（只有管理員看得到）→ 確認：已有裝置的 IP 跳過；主機名稱、MAC 或主要 IP 對得到唯一一台既有裝置的關聯過去（對到多台不猜，改建新的）；其餘各建一台，名稱取主機名稱第一段（含網域時同時填 FQDN），沒有主機名稱用 IP；同一批主機名稱相同的共用一台；訊息寫出新建／關聯／跳過筆數；非管理員直接打 API 回 403；稽核有裝置建立與 IP 異動
+
+- [ ] **大子網路的鄰近探索**（`backend/tests/test_scan_plan.py`）：掃描範圍「自動」的 /8，在已經有登記設備的 /24 裡新接一台設備，幾輪內就會被發現（代理 1.20.0；代理日誌有 near 的段數），沒有設備的 /24 照舊慢慢探索；掃描範圍的說明有寫到
 
 ## 7b1. Microsoft Hyper-V 整合（管理 → 外部系統整合 → Hyper-V）：**Beta**
 
@@ -1293,7 +1298,7 @@ DHCP 伺服器在中間挖洞的範圍存成好幾段，洞本身寫進 `dhcp_ex
 - [ ] **手動主機名稱可刪**（`e2e/hostname-source-clear.spec.ts`）：IP 詳細資料「主機名稱來源」的「手動」有 ×，按下先確認、刪完主機名稱依優先序重算、
   稽核有一筆；其他來源沒有 ×；唯讀帳號看不到 ×；滑過「手動」顯示「輸入時間：時間」
 - [ ] **主機名稱來源看得出是誰回報的**（`e2e/hostname-source-reporters.spec.ts`、`tests/test_hostname_source_reports.py`）：滑過來源列出每一台
-  回報的掃描代理或整合名稱與「最後看到 時間」（最後一次回報，不是名稱最後改變）；升級前的舊資料、已刪除的回報者照實說，不拿 id 猜名字；
+  回報的掃描代理或整合名稱與「最後出現 時間」（最後一次回報，不是名稱最後改變）；升級前的舊資料、已刪除的回報者照實說，不拿 id 猜名字；
   超過一天沒人回報的標籤上顯示「N 天前」；短名和目前採用的不同（NetBIOS 與 DNS）標黃色、提示框說明，大小寫或 FQDN 與短名的差別不算；
   IP 調查也列出回報者；新增主機名稱來源要加進 `ORIGIN_MODELS`（守門測試）
 - [ ] **同一個 IP 好幾個 MAC 不來回換**（`test_several_devices_disagreeing_on_a_mac_decide_once_per_sync`、`test_mac_run_decides_once_whatever_the_report_order`、
@@ -1575,7 +1580,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   排程跑的會標「排程」。在「未授權 IP」頁籤點「探測」再按返回 → 回到同一個頁籤、結果還在（網址帶 `?tab=`）
 - [ ] **大站台的未授權 IP**（`tests/test_anomaly_scope.py::test_large_arp_tables_are_not_sampled`）：ARP 位址超過
   2,000 個時，排在 2,000 名之後的未登記位址也找得到；結果超過 1,000 筆時頁籤寫「清單只列出最近看到的 N 筆，
-  共 M 筆」，清單依最後看到時間排序
+  共 M 筆」，清單依最後出現時間排序
 - [ ] **IP 變更記錄的上線／失聯來源**（#49，`tests/test_liveness_flip_source.py`）：沒有 LibreNMS 的站台，IP 失聯記為
   `system`、重新上線記為看到它的那個來源（`scanner`、`opnsense`…）；來源篩選列出所有整合
 - [ ] **MCP 用戶端設定產生器**（LLM/AI）：按鈕產出 Claude Desktop/opencode/mcpo/通用片段
@@ -1682,7 +1687,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   顯示「上線/離線/從未連線」，不是 `active`/`disconnected`；三種語系都切換看一次
 - [ ] **調查涵蓋每個整合**（`tests/test_investigate_sections.py`、`src/utils/__tests__/investigateSections.test.ts`）：對一台有 OCS、
   RustDesk、Zabbix、虛擬機、DHCP 與交換器埠資料的 Windows 主機按「調查」，看得到設備識別（類型、決定依據、網卡廠牌、隨機 MAC）、
-  電腦上的代理、虛擬化、DHCP、接在哪裡、防火牆的觀測、各來源最後出現；只有基本資料的位址一段都不出現（沒有空標題）。部門帳號
+  電腦上的代理、虛擬化、DHCP、連接位置、防火牆的觀測、各來源最後出現；只有基本資料的位址一段都不出現（沒有空標題）。部門帳號
   看不到防火牆物件與規則、DHCP 回應；非管理員的全域讀取帳號看得到那些，但看不到探測、異常、AI 巡檢與主控台連線。三個來源分別
   回報 `win11-desk-01`、`win11-desk-01.`、`WIN11-DESK-01` **不算**主機名稱不一致，`web01` 對 `db01` 算。四種匯出（.md/.txt/.html/.csv）
   都有新段落，矛盾跟畫面一樣；三種語系都切換看一次
@@ -1803,7 +1808,7 @@ ARP 被當成有時間概念的證據，讓一台關機數週的 VM 顯示 52 �
   其主 IP 會被建到對應（限定範圍內）的子網路；重疊而有歧義時跳過，不亂放
 - [ ] **PVE 瀏覽器主控台**（VM 走 noVNC/CT 走 xterm，migration 0089）：PVE VM/CT 的 IP 逐筆開關；
   用 PVE 帳號連線；IP 詳細資料與連線管理上有橘色按鈕與 PVE 標籤
-- [ ] **IP 詳情標題有燈號**：IP 左邊一顆燈，顏色與 IP 清單同一筆一致（上線綠、近期出現黃、離線紅），滑過列出各來源最後看到的時間；
+- [ ] **IP 詳情標題有燈號**：IP 左邊一顆燈，顏色與 IP 清單同一筆一致（上線綠、近期出現黃、離線紅），滑過列出各來源最後出現的時間；
   新增 IP 的表單不顯示燈號
 - [ ] **異動記錄的來源都有中文**：IP 詳情的異動記錄與「IP 異動」頁的來源篩選、標籤都沒有英文代碼（`system`→系統、`user`→使用者）；
   新增來源沒補三語翻譯時 `src/i18n/__tests__/changeSourceLabels.test.ts` 會失敗

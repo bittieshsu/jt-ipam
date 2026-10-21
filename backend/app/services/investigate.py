@@ -475,7 +475,7 @@ async def _sec_dhcp(c: _Ctx) -> dict[str, Any] | None:
 
 
 async def _sec_switch_ports(c: _Ctx) -> list[dict[str, Any]] | None:
-    """接在哪裡：交換器 MAC 表上這張網卡出現在哪台交換器的哪個埠（依交換器的裝置可見性）。"""
+    """連接位置：交換器 MAC 表上這張網卡出現在哪台交換器的哪個埠（依交換器的裝置可見性）。"""
     from app.services.mac_history import normalize_mac, switch_ports_for_mac
     m = normalize_mac(c.mac)
     if not m:

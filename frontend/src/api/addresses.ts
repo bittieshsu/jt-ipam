@@ -106,6 +106,20 @@ export async function bulkSetAddressState(ids: string[], state: string): Promise
   return data;
 }
 
+export interface BulkCreateDevicesResult {
+  created: number;
+  linked_existing: number;
+  skipped: number;
+  failed: number;
+  errors: { id: string; error: string }[];
+  devices: { id: string; name: string; how: "created" | "existing"; ips: string[] }[];
+}
+/** 勾選的 IP 中還沒歸屬裝置的：比對得到既有裝置就連過去，否則以主機名稱建一台新裝置（僅管理員）。 */
+export async function bulkCreateDevices(ids: string[]): Promise<BulkCreateDevicesResult> {
+  const { data } = await apiClient.post<BulkCreateDevicesResult>("/api/v1/addresses/bulk-create-devices", { ids });
+  return data;
+}
+
 export interface NotifyStaleResult { notified_admins: number; ip_count: number; }
 export async function notifyStaleAddresses(subnetId: string, ids: string[], days: number): Promise<NotifyStaleResult> {
   const { data } = await apiClient.post<NotifyStaleResult>("/api/v1/addresses/notify-stale",

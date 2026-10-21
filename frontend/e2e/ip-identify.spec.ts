@@ -169,7 +169,9 @@ test("管理員：按下探測 → 開探測頁 → 看得到進度 → 完成�
   const wExtra = (await th("其他資訊").boundingBox())!.width;
   const wScripts = (await th("讀到的資訊").boundingBox())!.width;
   expect(wScripts).toBeGreaterThan(wProduct + wExtra);
-  expect(wProduct).toBeLessThan(400);
+  // 版本另起一行、欄寬上限 240（2026-10-21：產品＋版本整串一行把欄位撐得太寬）
+  expect(wProduct).toBeLessThanOrEqual(250);
+  await expect(page.getByTestId("identify-ports").locator(".idf-ver").first()).toBeVisible();
 
   // 原始結果可以直接下載，不用自己複製
   await page.getByText("原始結果").click();

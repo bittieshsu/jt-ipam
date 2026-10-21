@@ -389,3 +389,94 @@ export function tailSections(d: D | null | undefined, h: SectionHelpers): InvSec
     make("console", h.t("investigate.sec_console"), consoleLines(d, h), len(d.console_sessions)),
   ].filter((s): s is InvSection => s !== null);
 }
+
+/** 探測頁「其他整合系統的對應」的一段：欄位標題＋每列一格一個值（cols 與每列等長） */
+export interface IntegTable {
+  key: string;
+  title: string;
+  cols: string[];
+  rows: string[][];
+}
+
+/** 拿掉整欄都沒有值的欄位；沒有列的段落不回傳 */
+function table(key: string, title: string, cols: string[], rows: (string | null | undefined)[][]): IntegTable | null {
+  if (!rows.length) return null;
+  const keep = cols.map((_c, i) => rows.some((r) => r[i] != null && r[i] !== ""));
+  return {
+    key, title,
+    cols: cols.filter((_c, i) => keep[i]),
+    rows: rows.map((r) => r.map((v) => (v == null ? "" : String(v))).filter((_v, i) => keep[i])),
+  };
+}
+
+/** 「項目：內容」→ [項目, 內容]；沒有冒號的整行放在內容、項目用 fallback */
+function itemRow(line: string, fallback: string): string[] {
+  const i = line.indexOf("：");
+  return i > 0 ? [line.slice(0, i), line.slice(i + 1)] : [fallback, line];
+}
+
+/**
+ * 探測頁的「其他整合系統的對應」（使用者 2026-10-20「探測時也要搭配有整合的其它系統從 IP 找對應，例如虛擬化」）。
+ * 2026-10-21 使用者：右邊用「 · 」串成一行的內容參差不齊 → 改成一段一張表，值放在自己的欄位，同頁憑證表的排法。
+ * 資料與調查視窗同一份（調查檔案），只是排成表格。
+ */
+export function integrationTables(d: D | null | undefined, h: SectionHelpers,
+                                  wazuhStatus: (s: any) => string, lnmsStatus: (s: any) => string): IntegTable[] {
+  if (!d?.found) return [];
+  const c = (k: string) => h.t(`identify.integ_cols.${k}`);
+  const out: (IntegTable | null)[] = [];
+
+  const v = d.virtualization;
+  if (v) {
+    const tag = v.kind === "ct" ? h.t("addresses.virt_ct_tag") : h.t("addresses.virt_vm_tag");
+    const tech = v.platform === "proxmox" ? (v.kind === "ct" ? "LXC" : v.kind === "vm" ? "KVM" : "")
+      : v.platform === "vmware" ? "VMware" : v.platform === "hyper-v" ? "Hyper-V" : "";
+    out.push(table("virt", h.t("investigate.sec_virt"),
+      [c("name"), c("type"), c("node"), c("status"), c("cluster"), "VMID"],
+      [[v.vm, tech ? `${tag} · ${tech}` : tag, v.node, v.status ? label(h, `virt.vm_status_${v.status}`, v.status) : null,
+        v.cluster, v.vmid != null ? String(v.vmid) : null]]));
+  }
+
+  const m = d.monitoring ?? {};
+  const mon: (string | null | undefined)[][] = [];
+  if (m.wazuh) {
+    mon.push(["Wazuh", m.wazuh.name ?? m.wazuh.agent_id, wazuhStatus(m.wazuh.status),
+              m.wazuh.sca_score != null ? `SCA ${m.wazuh.sca_score}` : null]);
+  }
+  if (m.librenms) {
+    mon.push(["LibreNMS", m.librenms.hostname ?? m.librenms.sysname, lnmsStatus(m.librenms.status),
+              join([m.librenms.hardware, m.librenms.matched_by === "primary_ip" ? h.t("investigate.matched_by_ip") : null]) || null]);
+  }
+  for (const z of (m.zabbix ?? []) as D[]) {
+    mon.push(["Zabbix", z.name ?? z.host, label(h, `zabbix.${z.status}`, z.status ?? "—"),
+              join([z.available === "up" ? h.t("topology.status_up") : z.available === "down" ? h.t("topology.status_down") : null,
+                    z.maintenance ? h.t("zabbix.maintenance") : null]) || null]);
+  }
+  out.push(table("mon", h.t("investigate.sec_mon"), [c("system"), c("name"), c("status"), c("note")], mon));
+
+  const a = d.agents ?? {};
+  if (a.ocs) {
+    // OCS 的盤點內容是「項目：內容」一行一筆（作業系統、硬體、CPU、記憶體、磁碟…）
+    const lines = agentLines({ agents: { ocs: a.ocs } }, h);
+    out.push(table("ocs", "OCS Inventory", [c("item"), c("content")], lines.map((l) => itemRow(l, "OCS"))));
+  }
+  out.push(table("rustdesk", "RustDesk",
+    ["ID", c("status"), c("last_online"), c("os"), c("hostname"), c("user"), c("match")],
+    ((a.rustdesk ?? []) as D[]).map((p) => [
+      String(p.id), p.online ? h.t("rustdesk.online") : h.t("rustdesk.offline"),
+      p.last_online_at ? h.fmt(p.last_online_at) : null, p.os, p.hostname, p.username,
+      label(h, `rustdesk.match_${p.match_status}`, p.match_status ?? "—")
+        + (p.key_problem ? `（${h.t("rustdesk.key_problem")}）` : ""),
+    ])));
+
+  out.push(table("dhcp", "DHCP", [c("item"), c("content")], dhcpLines(d, h).map((l) => itemRow(l, c("status")))));
+
+  out.push(table("switch", h.t("investigate.sec_switch"),
+    [c("switch"), c("port"), "VLAN", c("last_seen"), c("source")],
+    ((d.switch_ports ?? []) as D[]).map((x) => [
+      x.switch ?? "—", x.port, x.vlan != null ? String(x.vlan) : null, x.last_seen ? h.fmt(x.last_seen) : null,
+      vendorLabel(x.source),
+    ])));
+
+  return out.filter((x): x is IntegTable => x !== null);
+}

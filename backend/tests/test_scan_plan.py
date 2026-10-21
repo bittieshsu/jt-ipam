@@ -74,7 +74,37 @@ async def test_large_subnet_in_auto_mode_scans_known_addresses_and_discovers_the
     assert plan["mode"] == "targets"
     assert [str(ipaddress.ip_address(x)) for x in _ints(plan["known"])] == \
         ["10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.9", "10.20.30.40"]
-    assert plan["discover"] == {"per_cycle": scan_plan.DISCOVER_PER_CYCLE}
+    assert plan["discover"]["per_cycle"] == scan_plan.DISCOVER_PER_CYCLE
+
+
+async def test_neighbourhood_of_known_devices_is_discovered_first(db_session) -> None:
+    """客戶 2026-10-20：10.0.0.0/8 裡新接的印表機 10.0.0.54，五、六個小時都沒被發現 —— 探索每輪 1,024 個，
+    /8 要約 57 天才繞完一圈。新設備最可能出現在已經有設備的 /24 裡（.52、.55 都在），這些 /24 其餘的位址
+    要放進「鄰近探索」，每輪優先掃、很快繞完一圈。"""
+    s = await _subnet(db_session, "10.0.0.0/8")
+    for ip in ("10.0.0.52", "10.0.0.55", "10.20.30.40"):
+        db_session.add(IPAddress(subnet_id=s.id, ip=ip))
+    await db_session.flush()
+    plan = (await scan_plan.plans(db_session, [s]))[s.id]
+    near = {str(ipaddress.ip_address(x)) for x in _ints(plan["discover"]["near"])}
+    assert "10.0.0.54" in near
+    assert "10.20.30.41" in near
+    assert not {"10.0.0.52", "10.0.0.55", "10.20.30.40"} & near        # 已知的每輪都掃，不重複
+    assert "10.0.0.0" not in near                                       # 網路位址不是主機
+    assert len(near) == (255 - 2) + (256 - 1)          # /8 裡 .0 與 .255 也是主機位址，只有 10.0.0.0 不是
+    assert "10.0.1.1" not in near                                       # 沒有設備的 /24 照舊慢慢探索
+    assert plan["discover"]["near_per_cycle"] == scan_plan.NEAR_PER_CYCLE
+
+
+async def test_neighbourhood_is_capped_to_the_busiest_blocks(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(scan_plan, "NEAR_BLOCK_CAP", 2)
+    s = await _subnet(db_session, "10.0.0.0/8")
+    for ip in ("10.1.0.1", "10.1.0.2", "10.1.0.3", "10.2.0.1", "10.2.0.2", "10.3.0.1"):
+        db_session.add(IPAddress(subnet_id=s.id, ip=ip))
+    await db_session.flush()
+    near = _ints((await scan_plan.plans(db_session, [s]))[s.id]["discover"]["near"])
+    blocks = {n >> 8 for n in near}
+    assert blocks == {int(ipaddress.ip_address("10.1.0.0")) >> 8, int(ipaddress.ip_address("10.2.0.0")) >> 8}
 
 
 async def test_scope_all_keeps_the_full_sweep_even_for_a_large_subnet(db_session) -> None:
@@ -169,6 +199,22 @@ def test_agent_scans_known_every_cycle_plus_a_discovery_window(monkeypatch) -> N
     assert h2[3:] == ["10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8"]
     assert (i1["mode"], i1["known"], i1["rounds"]) == ("targets", 3, 1), "上線偵測一輪就繞完已知位址"
     assert i1["discover_rounds"] == -(-16777214 // 4) and i2["discover_chunk"] == 2
+
+
+def test_agent_discovers_the_neighbourhood_first(monkeypatch) -> None:
+    """鄰近探索：每輪先掃 near 的下一段（繞完從頭），再掃全域探索的視窗。舊代理不認得 near，照舊只有全域探索。"""
+    mod = _agent()
+    plan = {"mode": "targets", "known": [["10.0.0.52", "10.0.0.52"], ["10.0.0.55", "10.0.0.55"]],
+            "discover": {"per_cycle": 2, "near": [["10.0.0.50", "10.0.0.51"], ["10.0.0.53", "10.0.0.54"]],
+                         "near_per_cycle": 3}}
+    h1, _, i1 = mod._plan_hosts("nb", "10.0.0.0/8", plan)
+    h2, _, i2 = mod._plan_hosts("nb", "10.0.0.0/8", plan)
+    assert h1[:2] == ["10.0.0.52", "10.0.0.55"]
+    assert h1[2:5] == ["10.0.0.50", "10.0.0.51", "10.0.0.53"]
+    assert h2[2:3] == ["10.0.0.54"], "第二輪接著掃 near 剩下的（四個位址、每輪三個）"
+    assert h1[5:] == ["10.0.0.1", "10.0.0.2"], "全域探索照舊往後推"
+    assert (i1["near"], i1["near_rounds"]) == (4, 2)
+    assert i2["near_chunk"] == 2
 
 
 def test_agent_rotates_known_addresses_beyond_the_cycle_limit(monkeypatch) -> None:

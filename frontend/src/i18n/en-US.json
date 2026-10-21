@@ -1448,6 +1448,10 @@
     "source_snmp": "SNMP",
     "source_snmp_arp": "SNMP ARP",
     "source_hyperv": "Hyper-V",
+    "bulk_devices": "Bulk add devices",
+    "bulk_devices_confirm": "Create devices for the {n} selected IPs? IPs that already belong to a device are skipped; IPs whose host name or MAC matches an existing device are linked to it; the rest each get a new device named after the host name (or the IP when there is none).",
+    "bulk_devices_done": "Created {created} devices, linked {linked} to existing devices, skipped {skipped} that already had one",
+    "bulk_devices_failed": "; {n} failed",
     "in_reserved_range": "This address is in the reserved range \"{name}\": automatic allocation skips it. Save only if you mean to use it by hand.",
     "in_dhcp_range": "This address is in the DHCP range \"{name}\": a fixed IP here may clash with DHCP leases, and automatic allocation skips it. Save only if you mean to use it by hand."
   },
@@ -1514,7 +1518,7 @@
     "scan_scope_all": "Whole subnet",
     "scan_scope_known": "Known addresses only",
     "scan_scope_ranges": "Address ranges only",
-    "scan_scope_auto_large_hint": "This subnet has {total} addresses. Registered IPs and addresses seen in ARP in the last 7 days are scanned every cycle, so online status stays accurate; the rest are explored in the background, {per} per cycle (about {rounds} cycles per pass), to find new devices. Register the subnet with its real mask; there is no need to split it.",
+    "scan_scope_auto_large_hint": "This subnet has {total} addresses. Registered IPs and addresses seen in ARP in the last 7 days are scanned every cycle (accurate liveness); the rest of every /24 that already has devices is explored first each cycle and covered quickly, so a newly connected device is usually found within a few cycles (agent 1.20.0 or later, updated automatically); every other address is explored in the background, {per} per cycle, about {rounds} cycles for one pass. Register the subnet with its real mask; there is no need to split it.",
     "scan_scope_all_large_hint": "This subnet has {total} addresses. Only 4,096 are scanned per cycle, so one pass takes {rounds} cycles; if that exceeds the online threshold, devices show offline between scans. Use Automatic for large subnets.",
     "scan_scope_known_hint": "Scans only registered IPs and addresses seen in ARP in the last 7 days. New devices are not discovered automatically (register them first, or let an integration's ARP data see them).",
     "scan_scope_ranges_hint": "Scans only the address ranges defined in this subnet (for example DHCP ranges). With no ranges defined, nothing is scanned."
@@ -3864,6 +3868,8 @@
     "kerberos_principal": "The domain has no account {principal} ({reason})",
     "kerberos_kdc": "No domain controller (KDC) found or reachable: check that DNS has the domain's Kerberos records, or fill in the domain controllers, and that TCP 88 is open ({reason})",
     "kerberos_clock": "This server's clock is too far from the domain controller's, so Kerberos refuses: fix the time (NTP) ({reason})",
+    "kerberos_enctype": "The domain controller and {principal} have no encryption type in common: usually the account only has old RC4 keys (its password was set before the domain was upgraded, so it has no AES keys) and the domain controller has RC4 turned off. Change the account's password in AD once (or use a newly created service account) and tick \"This account supports Kerberos AES 256 bit encryption\" in its properties ({reason})",
+    "kerberos_enctype_netbios": "The domain controller and {principal} have no encryption type in common. Also, the realm \"{realm}\" looks like a NetBIOS name: use the AD DNS domain name instead (for example CORP.EXAMPLE). If that does not help, the account usually only has old RC4 keys and the domain controller has RC4 turned off: change the account's password in AD once (or use a newly created service account) and tick \"This account supports Kerberos AES 256 bit encryption\" ({reason})",
     "kerberos_error": "Kerberos authentication failed: {reason}",
     "kerberos_realm": "Kerberos needs the realm: write the account as user{'@'}domain or fill in the Kerberos realm",
     "kerberos_needs_fqdn": "{host}: Kerberos needs the full host name (FQDN), not an IP address or a short name",
@@ -5131,6 +5137,9 @@
     "allocation": "Allocation"
   },
   "identify": {
+    "integ_cols": {"name": "Name", "type": "Type", "node": "Node", "status": "Status", "cluster": "Cluster", "system": "System", "note": "Notes", "item": "Item", "content": "Value", "last_online": "Last online", "os": "OS", "hostname": "Host name", "user": "User", "match": "Match", "switch": "Switch", "port": "Port", "last_seen": "Last seen", "source": "Source"},
+    "integrations_title": "What other integrations know",
+    "integrations_none": "No other integration (virtualization, monitoring, agents on the computer, DHCP, switches) has data for this address",
     "mac_label": "MAC",
     "mac_random_tag": "Random (private) address",
     "cancel": "Cancel probe",

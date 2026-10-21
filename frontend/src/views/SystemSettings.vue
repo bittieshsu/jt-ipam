@@ -1139,7 +1139,7 @@ async function doPreviewAutolink() {
             <span style="font-size:13px">{{ t("settings.system.ldap_enable") }}</span>
           </n-space>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 140px; gap:12px">
+        <div class="fld-grid" style="grid-template-columns:1fr 140px">
           <div class="fld">
             <label>{{ t("settings.system.ldap_server") }}</label>
             <n-input v-model:value="ldap.server" placeholder="dc01.example.com" />
@@ -1197,7 +1197,7 @@ async function doPreviewAutolink() {
           <n-input v-model:value="ldap.user_filter" placeholder="(sAMAccountName={username})" />
           <div class="hint" style="margin-top:4px">{{ t("settings.system.ldap_user_filter_hint") }}</div>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px">
+        <div class="fld-grid" style="grid-template-columns:1fr 1fr 1fr">
           <div class="fld">
             <label>{{ t("settings.system.ldap_attr_email") }}</label>
             <n-input v-model:value="ldap.attr_email" placeholder="mail" />
@@ -1375,7 +1375,7 @@ async function doPreviewAutolink() {
             <span style="font-size:13px">{{ t("settings.system.af_enable") }}</span>
           </n-space>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 130px; gap:12px">
+        <div class="fld-grid" style="grid-template-columns:1fr 130px">
           <div class="fld">
             <label>{{ t("settings.system.af_host") }}</label>
             <n-input v-model:value="af.host" placeholder="graylog.example.com" />
@@ -1385,7 +1385,7 @@ async function doPreviewAutolink() {
             <n-input-number v-model:value="af.port" :min="1" :max="65535" style="width:100%" />
           </div>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+        <div class="fld-grid" style="grid-template-columns:1fr 1fr">
           <div class="fld">
             <label>{{ t("settings.system.af_protocol") }}</label>
             <n-select v-model:value="af.protocol" :options="afProtoOpts" />
@@ -1473,6 +1473,9 @@ async function doPreviewAutolink() {
 /* 直向排列的容器用 gap，橫向排列的（.ss-grid）由它自己的 gap 負責 */
 .ss-group :deep(.n-card__content) { display: flex; flex-direction: column; }
 .ss-group :deep(.n-card__content) > .fld + .fld { margin-top: 14px; }
+/* 並排的欄位（主機＋埠、協定＋格式…）：跟上下的欄位一樣留 14px，標籤才不會貼著上一列的輸入框（使用者 2026-10-20） */
+/* （用 `* + .fld-grid` 這種選擇器時，scoped 編譯會把它弄壞，所以直接給上邊距） */
+.fld-grid { display: grid; gap: 12px; margin-top: 14px; }
 /* 開關列之後一定要留白：開關本身沒有下邊界，視覺上會黏住下一個欄位的標題 */
 .ss-group :deep(.n-switch) { margin-bottom: 2px; }
 .ss-group :deep(.fld > .n-space) { margin-bottom: 6px; }

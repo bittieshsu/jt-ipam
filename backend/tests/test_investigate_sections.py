@@ -358,7 +358,7 @@ async def test_dhcp_exclusion_is_reported(db_session, admin_user, target):
     assert "exclusions" not in d2["dhcp"]
 
 
-# ─────────────────────────── 接在哪裡（FDB） ───────────────────────────
+# ─────────────────────────── 連接位置（FDB） ───────────────────────────
 
 @pytest.mark.anyio
 async def test_switch_ports_from_librenms_and_mikrotik(db_session, admin_user, target):

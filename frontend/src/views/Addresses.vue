@@ -26,7 +26,9 @@ import type { SubnetUsage } from "@/types";
 import { listSections } from "@/api/sections";
 import { useCustomers } from "@/composables/useCustomers";
 import type { IPAddress, Subnet } from "@/types";
-import { AddressesIcon, RefreshIcon, DeleteIcon } from "@/icons";
+import { AddressesIcon, RefreshIcon, DeleteIcon, DevicesIcon, CancelIcon } from "@/icons";
+import { useAuthStore } from "@/stores/auth";
+import { useBulkCreateDevices } from "@/composables/useBulkCreateDevices";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import SwitchPortLabel from "@/components/SwitchPortLabel.vue";
@@ -120,6 +122,13 @@ const modalShow = ref(false);
 
 const checkedKeys = ref<DataTableRowKey[]>([]);
 const bulkBusy = ref(false);
+const authStore = useAuthStore();
+const isAdmin = computed(() => !!authStore.me?.is_admin);
+const { creatingDevices, createDevices } = useBulkCreateDevices();
+async function doBulkCreateDevices() {
+  const res = await createDevices(checkedKeys.value.map(String), refresh);
+  if (res) checkedKeys.value = [];
+}
 
 function openRow(row: IPAddress) {
   // 點既有 IP → 進獨立詳細資料頁（不再彈 modal）
@@ -526,7 +535,20 @@ onMounted(() => {
         </template>
         {{ t("common.confirm_delete_n_irreversible", { n: checkedKeys.length }) }}
       </n-popconfirm>
-      <n-button size="small" @click="checkedKeys = []">{{ t("common.clear_selection") }}</n-button>
+      <n-popconfirm v-if="isAdmin" @positive-click="doBulkCreateDevices">
+        <template #trigger>
+          <n-button type="primary" size="small" :loading="creatingDevices" :disabled="creatingDevices"
+                    data-testid="bulk-create-devices">
+            <template #icon><n-icon><DevicesIcon /></n-icon></template>
+            {{ t("addresses.bulk_devices") }}
+          </n-button>
+        </template>
+        <div style="max-width: 360px">{{ t("addresses.bulk_devices_confirm", { n: checkedKeys.length }) }}</div>
+      </n-popconfirm>
+      <n-button size="small" @click="checkedKeys = []">
+        <template #icon><n-icon><CancelIcon /></n-icon></template>
+        {{ t("common.clear_selection") }}
+      </n-button>
     </n-space>
     <n-data-table
       :columns="columns"
