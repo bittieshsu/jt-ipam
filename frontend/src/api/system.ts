@@ -54,7 +54,8 @@ export async function putLdap(p: LdapPatch): Promise<LdapConfig> {
   const { data } = await apiClient.put<LdapConfig>("/api/v1/system/ldap", p);
   return data;
 }
-export async function testLdap(): Promise<{ bound: boolean; server: string; port: number; tls: string; who_am_i?: string }> {
+export async function testLdap(): Promise<{ bound: boolean; server: string; port: number; tls: string; who_am_i?: string;
+  directory?: "ad" | "ldap"; warnings?: { code: string; params: Record<string, unknown> }[] }> {
   const { data } = await apiClient.post("/api/v1/system/ldap/test", {});
   return data;
 }

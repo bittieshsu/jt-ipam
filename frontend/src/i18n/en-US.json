@@ -2639,6 +2639,10 @@
     "group": "Group"
   },
   "virt": {
+    "memory": "Memory",
+    "disk": "Disk",
+    "ip_by_mac": "by MAC",
+    "ip_by_mac_hint": "This VM reports no IP (for example no Hyper-V integration services or guest agent); this address is the existing IPAM record matched by the NIC's MAC",
     "scope_subnets": "Limit to subnets",
     "scope_all": "All (no limit)",
     "scope_hint": "For overlapping ranges: only match IPs within these subnets. Empty = global.",
@@ -3386,6 +3390,11 @@
     "evr_condition_needs_field": "A condition must name a field",
     "evr_bad_action": "Unsupported action: {value} (available: {allowed})",
     "evr_webhook_needs_subscription": "A webhook action must name a target subscription",
+    "ldap_user_not_found_uid_filter": "User not found. The user filter {filter} is the OpenLDAP form; for Active Directory use (sAMAccountName={'{'}username{'}'}), save, and test again",
+    "ldap_warn_uid_filter_on_ad": "This is Active Directory, but the user filter is {filter} (the OpenLDAP form), so sign-in will not find users: change it to (sAMAccountName={'{'}username{'}'}) and save",
+    "ldap_warn_search_base": "The service account can bind, but the search base {base} cannot be read: check the spelling (for example DC=corp,DC=example) and the account's read permission ({reason})",
+    "ldap_filter_no_username": "The user filter {filter} has no {'{'}username{'}'}: write it like (sAMAccountName={'{'}username{'}'}); it is replaced with the account the user types",
+    "ldap_filter_invalid": "The parentheses in the user filter {filter} do not match, for example (sAMAccountName={'{'}username{'}'})",
     "ldap_bad_credentials": "Wrong username or password / user not found: {reason}",
     "ldap_invalid_credentials": "Wrong username or password: {reason}",
     "ldap_error": "LDAP error: {reason}",

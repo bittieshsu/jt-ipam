@@ -74,6 +74,9 @@ class VMRead(StrictModel):
     # **重疊網段下同一個位址字串會有多筆**（本專案的設計），分不出是哪一筆時
     # 就不放進來 —— 給錯的連結比沒有連結更糟，因為使用者會信它。
     ip_links: dict[str, str] = {}
+    # 平台沒回報 IP（Hyper-V 沒裝整合服務、PVE 沒 guest agent），但同步時用網卡 MAC 比對到 IPAM 既有位址
+    # （primary_ip_id）→ 放這裡，畫面標「MAC 比對」，不和平台回報的 ips 混在一起（2026-10-21）
+    ips_by_mac: list[str] = []
 
 
 class VMInterfaceRead(StrictModel):
@@ -340,6 +343,18 @@ async def list_vms(
             unique = {ip: ids[0] for ip, ids in seen.items() if len(ids) == 1}
             for it in items:
                 it.ip_links = {ip: unique[ip] for ip in it.ips if ip in unique}
+
+        # 沒有回報 IP、但已經關聯到 IPAM 位址的：直接用那筆位址（同步時 MAC 唯一比對到才會設）
+        need = {it.primary_ip_id for it in items if not it.ips and it.primary_ip_id}
+        if need:
+            hosts = dict((await session.execute(
+                select(_IPA.id, func.host(_IPA.ip)).where(in_values(_IPA.id, list(need)))
+            )).all())
+            for it in items:
+                h = hosts.get(it.primary_ip_id) if not it.ips and it.primary_ip_id else None
+                if h:
+                    it.ips_by_mac = [str(h)]
+                    it.ip_links = {**it.ip_links, str(h): str(it.primary_ip_id)}
 
     return Paginated[VMRead](items=items, total=total, page=page, page_size=page_size)
 

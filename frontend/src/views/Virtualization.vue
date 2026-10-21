@@ -428,6 +428,10 @@ const clusterCols = computed<DataTableColumns<any>>(() => autoSort([
   },
 ]));
 // 每個 NIC 一行（IP / bridge / MAC 三欄同 index 對齊）— 多 IP 一看就知道對應關係
+function fmtMemory(mb?: number | null): string {
+  if (mb == null) return "—";
+  return mb >= 1024 ? `${Number((mb / 1024).toFixed(mb % 1024 ? 1 : 0))} GB` : `${mb} MB`;
+}
 function stackedCell(arr?: string[] | null, links?: Record<string, string> | null) {
   if (!arr || !arr.length) return "—";
   return h("div", { class: "nic-stack" }, arr.map((v) => {
@@ -456,12 +460,28 @@ const vmCols = computed<DataTableColumns<any>>(() => autoSort([
   { title: t("virt.node"), key: "node", render: (r) => r.node ?? "—" },
   // 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
   { title: t("virt.os"), key: "os_name", minWidth: 140, ellipsis: { tooltip: true }, render: (r) => r.os_name ?? "—" },
+  // 規格：三個平台的同步本來就有收，清單以前沒顯示（2026-10-21 客戶第一次接 Hyper-V 時發現）。
+  // Hyper-V 的記憶體是啟動記憶體（動態記憶體時實際用量會變）；Hyper-V 不收磁碟大小
+  { title: "vCPU", key: "vcpus", width: 80, render: (r) => r.vcpus ?? "—" },
+  { title: t("virt.memory"), key: "memory_mb", width: 100, render: (r) => fmtMemory(r.memory_mb) },
+  { title: t("virt.disk"), key: "disk_gb", width: 100, render: (r) => (r.disk_gb != null ? `${r.disk_gb} GB` : "—") },
   {
     title: "IP", key: "ips", minWidth: 150,
     // 在 IPAM 裡找得到的位址就做成連結 —— 資料早就在系統裡，不該要人複製那串數字、
     // 切到 IP 位址頁再貼上搜尋。找不到、或重疊網段下分不出是哪一筆時維持純文字
     // （後端不給 id）：給錯的連結比沒有連結更糟，因為使用者會信它。
-    render: (r) => stackedCell(r.ips, r.ip_links),
+    // 平台沒回報 IP、但同步時用網卡 MAC 比對到 IPAM 位址的（Hyper-V 沒裝整合服務、PVE 沒 guest agent；
+    // 2026-10-21 客戶第一次接 Hyper-V）：顯示那個位址並標「MAC 比對」，不冒充成平台回報的
+    render: (r) => (r.ips?.length || !r.ips_by_mac?.length
+      ? stackedCell(r.ips, r.ip_links)
+      : h("div", { class: "nic-stack" }, [
+          stackedCell(r.ips_by_mac, r.ip_links),
+          h(NTooltip, null, {
+            trigger: () => h(NTag, { size: "tiny", bordered: false, "data-testid": "vm-ip-by-mac" },
+                             () => t("virt.ip_by_mac")),
+            default: () => t("virt.ip_by_mac_hint"),
+          }),
+        ])),
   },
   {
     title: t("virt.bridge"), key: "bridges", minWidth: 100,

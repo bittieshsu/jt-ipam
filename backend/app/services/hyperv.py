@@ -100,6 +100,7 @@ $o.vms = @(foreach ($vm in @(Get-VM)) {
     state = "$($vm.State)"
     cpu = $vm.ProcessorCount
     memory_mb = [int64]($vm.MemoryStartup / 1MB)
+    disk_gb = $(try { $t = [int64]0; foreach ($d in @(Get-VMHardDiskDrive -VM $vm -ErrorAction Stop)) { if ($d.Path) { $t += (Get-VHD -Path $d.Path -ErrorAction Stop).Size } }; [int64]($t / 1GB) } catch { $null })
     notes = "$($vm.Notes)"
     fqdn = $(if ($k) { $k['FullyQualifiedDomainName'] } else { $null })
     os = $(if ($k) { $k['OSName'] } else { $null })
@@ -171,6 +172,7 @@ $o.vms = @(foreach ($vm in @(Get-SCVirtualMachine)) {
     host = $(if ($vm.VMHost) { $(if ($vm.VMHost.ComputerName) { "$($vm.VMHost.ComputerName)" } else { "$($vm.VMHost.Name)" }) } else { $null })
     cpu = $vm.CPUCount
     memory_mb = $vm.Memory
+    disk_gb = $(try { [int64]((@(foreach ($d in @($vm.VirtualDiskDrives)) { $d.VirtualHardDisk.MaximumSize }) | Measure-Object -Sum).Sum / 1GB) } catch { $null })
     notes = "$($vm.Description)"
     fqdn = "$($vm.ComputerNameString)"
     os = $(if ($vm.OperatingSystem) { "$($vm.OperatingSystem.Name)" } else { $null })
@@ -367,6 +369,8 @@ def normalize_vm(raw: dict[str, Any], *, host: str | None) -> dict[str, Any] | N
         "id": vid.lower(), "name": (_text(raw.get("name")) or vid)[:128],
         "node": _text(raw.get("host")) or host, "status": map_state(raw.get("state")),
         "vcpus": _int(raw.get("cpu")), "memory_mb": _int(raw.get("memory_mb")),
+        # 虛擬磁碟大小合計（讀不到或 0 都是不知道；VHD 放在 SMB 共享時 WinRM 第二跳讀不到）
+        "disk_gb": _int(raw.get("disk_gb")) or None,
         "notes": _text(raw.get("notes")), "fqdn": _text(raw.get("fqdn")),
         "os": (_text(raw.get("os")) or "")[:255] or None, "nics": nics, "vlan": vlan,
     }
@@ -552,6 +556,8 @@ async def sync_instance(session: AsyncSession, inst: HyperVInstance) -> dict[str
         row.status = v["status"]
         row.vcpus = v["vcpus"]
         row.memory_mb = v["memory_mb"]
+        if v["disk_gb"]:
+            row.disk_gb = v["disk_gb"]        # 這次讀不到時保留上次的值
         row.is_template = False
         if v["os"]:
             row.os_name = v["os"]

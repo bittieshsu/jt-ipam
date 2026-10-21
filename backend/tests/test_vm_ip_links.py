@@ -77,3 +77,36 @@ async def test_an_ip_not_in_ipam_gets_no_link(client: AsyncClient, auth_headers,
                          params={"cluster_id": str(cl.id)})
     row = next(x for x in r.json()["items"] if x["id"] == str(vm.id))
     assert (row.get("ip_links") or {}) == {}
+
+
+@pytest.mark.anyio
+async def test_a_vm_without_reported_ip_shows_the_address_matched_by_mac(client: AsyncClient, auth_headers, db_session):
+    """客戶 2026-10-21 第一次接 Hyper-V：沒裝整合服務（KVP）的 VM 不回報 IP，清單整欄「—」；但同步時已經用
+    網卡 MAC 比對到 IPAM 既有的位址（primary_ip_id）。要顯示出來，並標明是 MAC 比對來的、不是平台回報的。"""
+    from app.models.address import IPAddress
+    from app.models.section import Section
+    from app.models.subnet import Subnet
+    from app.models.virt import VirtCluster, VirtualMachine, VMInterface
+
+    sec = Section(name=f"sec-{uuid.uuid4().hex[:6]}")
+    db_session.add(sec)
+    await db_session.flush()
+    sub = Subnet(section_id=sec.id, cidr="198.51.100.0/24")
+    cl = VirtCluster(name=f"cl-{uuid.uuid4().hex[:6]}", type="hyper-v", is_standalone=True)
+    db_session.add_all([sub, cl])
+    await db_session.flush()
+    ipa = IPAddress(subnet_id=sub.id, ip="198.51.100.60", mac="00:15:5d:00:00:11")
+    db_session.add(ipa)
+    await db_session.flush()
+    vm = VirtualMachine(cluster_id=cl.id, external_id=uuid.uuid4().hex[:8], name="appliance-07",
+                        status="running", primary_ip_id=ipa.id)
+    db_session.add(vm)
+    await db_session.flush()
+    db_session.add(VMInterface(vm_id=vm.id, name="Network Adapter", mac="00:15:5d:00:00:11"))
+    await db_session.commit()
+
+    r = await client.get("/api/v1/virt/vms", headers=auth_headers, params={"cluster_id": str(cl.id)})
+    row = next(x for x in r.json()["items"] if x["id"] == str(vm.id))
+    assert row["ips"] == []                                  # 平台沒回報就是沒回報
+    assert row["ips_by_mac"] == ["198.51.100.60"]
+    assert row["ip_links"]["198.51.100.60"] == str(ipa.id)

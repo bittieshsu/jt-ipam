@@ -389,3 +389,16 @@ async def test_delete_takes_back_what_it_wrote(client, auth_headers, db_session,
     assert not (await db_session.execute(select(DevicePort).where(
         DevicePort.source_origin == f"hyperv:{inst_id}"))).scalars().first()
     assert await db_session.get(VirtCluster, cluster_id) is not None    # 叢集留著（可能有使用者設的地點）
+
+
+def test_disk_size_is_parsed_and_zero_means_unknown() -> None:
+    """虛擬磁碟大小（2026-10-21 客戶第一次接真機，清單補規格欄）：腳本讀不到（VHD 放在 SMB 共享，WinRM
+    第二跳被拒）時給 null；0 也當不知道，不要顯示成「0 GB」。"""
+    from app.services.hyperv import _HOST_SCRIPT, _SCVMM_SCRIPT, normalize_vm
+    gid = "6f1c2c1e-0000-4000-8000-000000000007"
+    assert normalize_vm({"id": gid, "name": "a", "disk_gb": 120}, host="hv1")["disk_gb"] == 120
+    assert normalize_vm({"id": gid, "name": "a", "disk_gb": 0}, host="hv1")["disk_gb"] is None
+    assert normalize_vm({"id": gid, "name": "a"}, host="hv1")["disk_gb"] is None
+    # 讀磁碟一定包在 try 裡：一台 VM 讀不到不可以讓整份清單失敗
+    assert "Get-VHD" in _HOST_SCRIPT and "disk_gb = $(try" in _HOST_SCRIPT
+    assert "VirtualDiskDrives" in _SCVMM_SCRIPT and "disk_gb = $(try" in _SCVMM_SCRIPT

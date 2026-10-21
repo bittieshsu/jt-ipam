@@ -139,6 +139,23 @@ async def put_ldap(
         raise HTTPException(422, detail=ui_detail("ldap_ca_invalid", f"CA 憑證不是有效的 PEM：{exc}",
                                                   reason=str(exc)[:200])) from exc
     data["ca_cert_pem"] = pem + "\n" if pem else ""
+    # 空白存檔時就整理好（客戶 2026-10-21：逗號後的空白讓 ldap3 拒絕搜尋起點）；舊設定在使用時再正規化
+    data["bind_dn"] = ldap_auth.normalize_dn(payload.bind_dn) or None
+    data["search_base"] = ldap_auth.normalize_dn(payload.search_base) or None
+    data["admin_groups"] = [g for g in (ldap_auth.normalize_dn(x) for x in payload.admin_groups) if g]
+    flt = ldap_auth.normalize_filter(payload.user_filter)
+    if "{username}" not in flt:
+        raise HTTPException(422, detail=ui_detail(
+            "ldap_filter_no_username", "使用者篩選條件裡要有 {username}（登入時換成帳號）", filter=payload.user_filter))
+    depth = 0
+    for ch in flt:
+        depth += 1 if ch == "(" else -1 if ch == ")" else 0
+        if depth < 0:
+            break
+    if depth != 0 or not flt.startswith("("):
+        raise HTTPException(422, detail=ui_detail(
+            "ldap_filter_invalid", "使用者篩選條件的括號不成對", filter=payload.user_filter))
+    data["user_filter"] = flt
     if payload.bind_password is None:   # 不變更密碼
         data.pop("bind_password", None)
     await set_ldap_config(session, data=data, updated_by_user_id=uuid.UUID(str(user.id)))
@@ -189,6 +206,12 @@ async def ldap_test_auth(
     try:
         info = await ldap_auth.authenticate(cfg, account, payload.password)
     except ldap_auth.LDAPInvalidCredentials as exc:
+        if str(exc) == "user not found" and "uid=" in (cfg.user_filter or "").lower():
+            # (uid=…) 是 OpenLDAP 的寫法；AD 的帳號在 sAMAccountName（客戶 2026-10-21 照預設值用在 AD）
+            raise HTTPException(401, detail=ui_detail(
+                "ldap_user_not_found_uid_filter",
+                "找不到這個使用者；篩選條件 (uid=…) 是 OpenLDAP 的寫法，AD 請改成 (sAMAccountName={username})",
+                filter=cfg.user_filter)) from exc
         raise HTTPException(401, detail=ui_detail("ldap_bad_credentials", f"帳號或密碼錯誤／找不到使用者：{exc}",
                                  reason=str(exc)[:200])) from exc
     except ldap_auth.LDAPNotConfigured as exc:

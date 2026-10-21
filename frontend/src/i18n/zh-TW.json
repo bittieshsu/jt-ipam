@@ -2639,6 +2639,10 @@
     "group": "群組"
   },
   "virt": {
+    "memory": "記憶體",
+    "disk": "磁碟",
+    "ip_by_mac": "MAC 比對",
+    "ip_by_mac_hint": "這台 VM 沒有回報 IP（例如沒裝 Hyper-V 整合服務或 guest agent），這個位址是用網卡 MAC 比對到 IPAM 既有的記錄",
     "scope_subnets": "限定子網路範圍",
     "scope_all": "全部 (不限範圍)",
     "scope_hint": "重疊網段時用：只在這些子網路內比對 IP。空=全域比對。",
@@ -3386,6 +3390,11 @@
     "evr_condition_needs_field": "條件必須指定欄位",
     "evr_bad_action": "不支援的動作：{value}（可用：{allowed}）",
     "evr_webhook_needs_subscription": "webhook 動作必須指定目標訂閱",
+    "ldap_user_not_found_uid_filter": "找不到這個使用者。使用者篩選條件 {filter} 是 OpenLDAP 的寫法；連 AD 時請改成 (sAMAccountName={'{'}username{'}'})，存檔後再測一次",
+    "ldap_warn_uid_filter_on_ad": "這台是 Active Directory，但使用者篩選條件是 {filter}（OpenLDAP 的寫法），登入會找不到人：請改成 (sAMAccountName={'{'}username{'}'}) 並存檔",
+    "ldap_warn_search_base": "服務帳號連得上，但讀不到搜尋起點 {base}：請確認拼法（例如 DC=corp,DC=example）與這個帳號的讀取權限（{reason}）",
+    "ldap_filter_no_username": "使用者篩選條件 {filter} 裡沒有 {'{'}username{'}'}：要寫成例如 (sAMAccountName={'{'}username{'}'})，登入時會換成使用者輸入的帳號",
+    "ldap_filter_invalid": "使用者篩選條件 {filter} 的括號不成對，例如 (sAMAccountName={'{'}username{'}'})",
     "ldap_bad_credentials": "帳號或密碼錯誤／找不到使用者：{reason}",
     "ldap_invalid_credentials": "帳號或密碼錯誤：{reason}",
     "ldap_error": "LDAP 錯誤：{reason}",

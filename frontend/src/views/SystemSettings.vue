@@ -518,6 +518,8 @@ async function doTestLdap() {
   try {
     const r = await testLdap();
     msg.success(`${t("settings.system.ldap_test_ok")} — ${r.who_am_i || r.server}`);
+    // 連得上不代表登入會過：搜尋起點讀不到、AD 卻用 OpenLDAP 的 (uid=…) 都在這裡先講（2026-10-21）
+    for (const w of r.warnings ?? []) msg.warning(t(`errors.${w.code}`, w.params), { duration: 15000, closable: true });
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { ldapTesting.value = false; }
 }

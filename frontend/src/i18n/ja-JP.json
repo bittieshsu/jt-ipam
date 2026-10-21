@@ -2639,6 +2639,10 @@
     "group": "グループ"
   },
   "virt": {
+    "memory": "メモリ",
+    "disk": "ディスク",
+    "ip_by_mac": "MAC で照合",
+    "ip_by_mac_hint": "この VM は IP を報告していません（Hyper-V 統合サービスやゲストエージェントがないなど）。このアドレスは NIC の MAC で照合した IPAM の既存レコードです",
     "scope_subnets": "対象サブネットを限定",
     "scope_all": "すべて（限定しない）",
     "scope_hint": "範囲が重複している場合に使います。これらのサブネット内の IP だけを照合します。空欄なら全体が対象です。",
@@ -3386,6 +3390,11 @@
     "evr_condition_needs_field": "条件には項目の指定が必要です",
     "evr_bad_action": "対応していないアクションです：{value}（利用可能：{allowed}）",
     "evr_webhook_needs_subscription": "webhook アクションには送信先の購読先を指定してください",
+    "ldap_user_not_found_uid_filter": "ユーザーが見つかりません。ユーザーフィルター {filter} は OpenLDAP の書き方です。AD では (sAMAccountName={'{'}username{'}'}) に変更して保存し、もう一度テストしてください",
+    "ldap_warn_uid_filter_on_ad": "このサーバーは Active Directory ですが、ユーザーフィルターが {filter}（OpenLDAP の書き方）のため、ログイン時にユーザーが見つかりません。(sAMAccountName={'{'}username{'}'}) に変更して保存してください",
+    "ldap_warn_search_base": "サービスアカウントでは接続できましたが、検索ベース {base} を読み取れません。綴り（例：DC=corp,DC=example）とこのアカウントの読み取り権限を確認してください（{reason}）",
+    "ldap_filter_no_username": "ユーザーフィルター {filter} に {'{'}username{'}'} がありません。(sAMAccountName={'{'}username{'}'}) のように書いてください。ログイン時に入力したアカウントに置き換えられます",
+    "ldap_filter_invalid": "ユーザーフィルター {filter} の括弧が対応していません。例：(sAMAccountName={'{'}username{'}'})",
     "ldap_bad_credentials": "ユーザー名またはパスワードが違う／ユーザーが見つかりません：{reason}",
     "ldap_invalid_credentials": "ユーザー名またはパスワードが違います：{reason}",
     "ldap_error": "LDAP エラー：{reason}",

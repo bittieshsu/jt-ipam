@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import ssl
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ldap3 import (
     ALL,
+    BASE,
     SUBTREE,
     Connection,
     Server,
@@ -27,7 +29,7 @@ from ldap3 import (
 from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
 
-from app.core.ui_error import UiError
+from app.core.ui_error import UiError, ui_detail
 
 if TYPE_CHECKING:
     from app.services.system_config import LdapConfig
@@ -112,6 +114,67 @@ class LDAPUserInfo:
     raw_attrs: dict[str, Any]
 
 
+def normalize_dn(dn: str | None) -> str:
+    """拿掉 DN 裡逗號、加號與等號兩邊的空白（客戶 2026-10-21：`CN=svc, CN=Users, DC=corp, DC=example`）。
+
+    AD 接受這種寫法，但 ldap3 檢查搜尋起點時會報 `character ' ' not allowed in attribute type`。
+    值裡面的空白（`CN=John Smith`）與跳脫的字元（`CN=Smith\\, John`）照原樣；只切沒被跳脫的分隔符號。
+    """
+    s = (dn or "").strip()
+    if not s:
+        return ""
+    rdns: list[list[str]] = [[]]
+    buf, i = "", 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\\" and i + 1 < len(s):
+            buf += s[i:i + 2]
+            i += 2
+            continue
+        if ch in ",+":
+            rdns[-1].append(buf)
+            buf = ""
+            if ch == ",":
+                rdns.append([])
+        else:
+            buf += ch
+        i += 1
+    rdns[-1].append(buf)
+
+    def one(ava: str) -> str:
+        t, eq, v = ava.partition("=")
+        return f"{t.strip()}={v.strip()}" if eq else ava.strip()
+    return ",".join("+".join(one(a) for a in rdn) for rdn in rdns)
+
+
+#: 值是 DN 的屬性：篩選條件裡這些值照 DN 規則正規化（memberOf=CN=IPAM Users, OU=Groups, … 的逗號後空白）
+_DN_VALUED = {"memberof", "distinguishedname", "manager", "member", "directreports", "objectcategory"}
+
+
+def normalize_filter(flt: str | None) -> str:
+    """拿掉篩選條件裡結構上多餘的空白（客戶 2026-10-21）：括號內外、&|! 後面、等號兩邊、`{ username }`。
+
+    值裡面的空白（`(cn=John Smith)`）保留；值是 DN 的屬性（memberOf 等）照 normalize_dn。
+    """
+    s = re.sub(r"\{\s*username\s*\}", "{username}", (flt or "").strip())
+    s = re.sub(r"\(\s+", "(", s)
+    s = re.sub(r"\s+\)", ")", s)
+    s = re.sub(r"\)\s+\(", ")(", s)
+    s = re.sub(r"([&|!])\s+\(", r"\1(", s)
+
+    def leaf(m: re.Match[str]) -> str:
+        body = m.group(1)
+        op = re.search(r"~=|>=|<=|:=|=", body)
+        if not op:
+            return m.group(0)
+        attr, val = body[:op.start()].strip(), body[op.end():].strip()
+        base = attr.split(":", 1)[0].lower()
+        if base in _DN_VALUED and "=" in val:
+            val = normalize_dn(val)
+        return f"({attr}{op.group(0)}{val})"
+    return re.sub(r"\(([^()&|!][^()]*)\)", leaf, s)
+
+
 def _build_server(cfg: LdapConfig) -> Server:
     if not cfg.enabled or not cfg.server:
         raise LDAPNotConfigured("LDAP not configured")
@@ -150,7 +213,7 @@ def _bind_admin_sync(cfg: LdapConfig) -> Connection:
 def _bind_admin_conn(cfg: LdapConfig, server: Server) -> Connection:
     conn = Connection(
         server,
-        user=cfg.bind_dn,
+        user=normalize_dn(cfg.bind_dn),
         password=cfg.bind_password,
         auto_bind=False,
         receive_timeout=int(cfg.timeout),
@@ -182,14 +245,15 @@ def _authenticate_sync(cfg: LdapConfig, username: str, password: str) -> LDAPUse
         raise LDAPNotConfigured("LDAP search base not set")
 
     safe_username = escape_filter_chars(username)
-    user_filter = cfg.user_filter.format(username=safe_username)
+    # 只換 {username}：用 str.format 的話篩選條件裡其他大括號會讓它出錯
+    user_filter = normalize_filter(cfg.user_filter).replace("{username}", safe_username)
 
     # 1. admin bind 找出使用者 DN + 屬性
     conn = _bind_admin_sync(cfg)
     try:
         try:
             conn.search(
-                search_base=cfg.search_base,
+                search_base=normalize_dn(cfg.search_base),
                 search_filter=user_filter,
                 search_scope=SUBTREE,
                 attributes=[cfg.attr_email, cfg.attr_display_name,
@@ -244,7 +308,9 @@ def _authenticate_sync(cfg: LdapConfig, username: str, password: str) -> LDAPUse
     email = (attrs.get(cfg.attr_email) or [None])[0]
     display_name = (attrs.get(cfg.attr_display_name) or [None])[0]
     groups = attrs.get(cfg.attr_member_of) or []
-    is_admin = any(g in cfg.admin_groups for g in groups)
+    # 群組 DN 比對前都正規化並忽略大小寫：設定裡手打的常有逗號後空白，AD 回來的 memberOf 沒有
+    wanted = {normalize_dn(g).lower() for g in cfg.admin_groups if g}
+    is_admin = any(normalize_dn(str(g)).lower() in wanted for g in groups)
 
     return LDAPUserInfo(
         dn=user_dn,
@@ -263,6 +329,23 @@ async def authenticate(cfg: LdapConfig, username: str, password: str) -> LDAPUse
     return await asyncio.to_thread(_authenticate_sync, cfg, username, password)
 
 
+#: rootDSE supportedCapabilities 裡的 LDAP_CAP_ACTIVE_DIRECTORY_OID（AD 與 Samba AD 都會公告）
+_AD_CAPABILITY = "1.2.840.113556.1.4.800"
+
+
+def _is_active_directory(conn: Any, who: Any) -> bool:
+    info = getattr(getattr(conn, "server", None), "info", None)
+    other = getattr(info, "other", None) or {}
+    caps = other.get("supportedCapabilities") or []
+    if _AD_CAPABILITY in [str(c) for c in caps]:
+        return True
+    # ldap3 讀 rootDSE 時不一定帶 supportedCapabilities；這幾個屬性只有 AD（含 Samba AD）才有（2026-10-21 實測）
+    if any(k in other for k in ("domainControllerFunctionality", "forestFunctionality", "dsServiceName")):
+        return True
+    # 後援：AD 的 Who am I 回「u:網域\\帳號」（OpenLDAP 回「dn:…」）
+    return isinstance(who, str) and who.startswith("u:") and "\\" in who
+
+
 async def test_connection(cfg: LdapConfig) -> dict[str, Any]:
     """admin bind 測試 — 不需要任何使用者密碼。"""
     if not cfg.enabled:
@@ -271,12 +354,33 @@ async def test_connection(cfg: LdapConfig) -> dict[str, Any]:
     def _go() -> dict[str, Any]:
         conn = _bind_admin_sync(cfg)
         try:
+            # Who am I 是附加資訊：Samba AD 不支援這個擴充操作，不可以因此判定測試失敗（2026-10-21 實測）
+            try:
+                who = conn.extend.standard.who_am_i()
+            except LDAPException:
+                who = None
+            directory = "ad" if _is_active_directory(conn, who) else "ldap"
+            warnings: list[dict[str, Any]] = []
+            # 以前只做 bind：搜尋起點寫錯、AD 用了 OpenLDAP 的篩選條件都顯示成功，到登入才爆（客戶 2026-10-21）
+            if cfg.search_base:
+                try:
+                    conn.search(search_base=normalize_dn(cfg.search_base), search_filter="(objectClass=*)",
+                                search_scope=BASE, attributes=[], time_limit=int(cfg.timeout))
+                except LDAPException as exc:
+                    warnings.append(ui_detail("ldap_warn_search_base", f"search base {cfg.search_base} is not readable",
+                                              base=cfg.search_base, reason=str(exc)[:200]))
+            if directory == "ad" and "uid=" in (cfg.user_filter or "").lower():
+                warnings.append(ui_detail("ldap_warn_uid_filter_on_ad",
+                                          "Active Directory with an OpenLDAP-style (uid=...) filter; use sAMAccountName",
+                                          filter=cfg.user_filter))
             return {
                 "bound": True,
                 "server": cfg.server,
                 "port": cfg.port,
                 "tls": "ssl" if cfg.use_ssl else "starttls" if cfg.use_starttls else "none",
-                "who_am_i": conn.extend.standard.who_am_i(),
+                "who_am_i": who,
+                "directory": directory,
+                "warnings": warnings,
             }
         finally:
             try:
