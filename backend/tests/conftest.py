@@ -238,4 +238,10 @@ def _reset_precedence_caches():
     """
     from app.services.precedence import bust_all
     bust_all()
+    # system_config 的設定快取（LLM／MCP、稽核轉送、通知管道）同樣是模組級 60 秒：一支測試打開對外 MCP，
+    # 緊接著的測試在 60 秒內還讀到「已開啟」（v1.0.13 推上 GitHub 後 CI 才抓到，本機那次跑得慢剛好過）
+    from app.services import system_config as _sc
+    _sc._cache.clear()
+    _sc._af_cache.clear()
+    _sc._ncfg_cache.clear()
     yield
