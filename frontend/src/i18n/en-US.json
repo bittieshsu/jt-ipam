@@ -761,7 +761,7 @@
   },
   "ssh": {
     "connect": "SSH",
-    "tmux_hint": "This is a Linux host: run long jobs inside tmux or screen. If the browser disconnects, the tab is closed or the session is cut off as idle, the SSH session ends and programs running in it are ended too; after reconnecting, use tmux attach or screen -r to get back. Close this with × to stop showing it.",
+    "tmux_hint": "Run long jobs in tmux or screen so a disconnect does not end them (reattach with tmux attach or screen -r).",
     "connect_to": "SSH to {ip}",
     "terminal_title": "SSH terminal",
     "open_popout": "Open in new window",

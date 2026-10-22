@@ -1073,7 +1073,7 @@ async def get_llm(
 ) -> LLMConfigOut:
     cfg = await get_llm_config(session)
     from app.services.system_config import get_mcp_key_usage
-    return _llm_out(cfg, await get_mcp_key_usage(session, cfg.mcp_api_key))
+    return _llm_out(cfg, await get_mcp_key_usage(session, cfg.mcp_api_key_id))
 
 
 @router.patch("/llm", response_model=LLMConfigOut)
@@ -1122,7 +1122,7 @@ async def patch_llm(
     await session.commit()
     cfg = await get_llm_config(session)
     from app.services.system_config import get_mcp_key_usage
-    return _llm_out(cfg, await get_mcp_key_usage(session, cfg.mcp_api_key))
+    return _llm_out(cfg, await get_mcp_key_usage(session, cfg.mcp_api_key_id))
 
 
 @router.get("/llm/mcp-key")

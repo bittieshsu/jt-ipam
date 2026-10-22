@@ -95,6 +95,7 @@ AI 巡檢的發現每跑一次就回來一次、得一再忽略，因為識別�
 - [ ] **Email 選用**（`tests/test_user_email_optional.py`）：新增本機帳號不填 Email 可以存（正式版畫面看得到 Email 欄位與提示）；
   亂填（沒有 @）回「Email 格式不正確」；編輯時清空可以存；不含 @ 的登入名稱不會比中空的 email；
   目錄沒有 email 的 LDAP 帳號第一次登入後 email 是空的（不是 帳號@ldap.local）；通知信不寄給空白或 @ldap.local
+- [ ] **PVE xterm 字級**（`composables/__tests__/useTerminalFontSize.test.ts`）：開 PVE 容器的 xterm 主控台，連上後有 A−／A+，按了字變大變小、行列跟著重算；在 SSH 調過的字級，PVE xterm 打開時沿用
 - [ ] **SSH 的 tmux／screen 提示**（`e2e/ssh-tmux-hint.spec.ts`、`utils/__tests__/sshHints.test.ts`）：連 Linux 主機的 SSH 表單與連線後顯示提示；Windows、網路設備、看不出 OS 的不顯示；按 × 後重新整理不再出現
 - [ ] **防火牆系統自動規則不算異動**（`tests/test_fw_sentinel.py`）：OPNsense 升級後 API 多回傳的系統規則（raw 帶 is_automatic）不發「規則有異動」通知；規則異動頁顯示一行「系統自動規則…」可展開、標「不需確認」；管理員新增的規則照樣通知；升級後下一輪同步不會再多一筆快照
 - [ ] **IP 拓樸圖依子網路排版**（`utils/__tests__/topologyLayout.test.ts`）：「只看子網路」同網段繞成一圈、不同網段拉開；「自動（混合）」不勾存取層時子網路框不重疊、成員在框內排格子；VPN 端點在面向對方的一側；關掉某個圖例類別後重排不留空位

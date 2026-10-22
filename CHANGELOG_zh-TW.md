@@ -4,6 +4,15 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [Unreleased]
+
+### 變更
+- PVE 主控台（容器的 xterm）：跟 SSH 主控台一樣有 A−／A+ 調整字級，兩邊共用同一個記住的字級。
+- SSH 主控台：Linux 主機的 tmux/screen 提示縮成一句。
+
+### 安全性
+- MCP 金鑰的「最後使用」記錄改綁重產時產生的隨機編號，不再用金鑰 SHA-256 的前 16 碼（CodeQL #56，用弱雜湊處理敏感資料）；資料庫裡不再有任何從金鑰衍生的值。既有金鑰在重產前視為同一個「legacy」編號。
+
 ## [1.0.13] - 2026-10-22
 
 ### 新增

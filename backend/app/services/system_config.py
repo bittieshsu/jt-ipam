@@ -89,6 +89,8 @@ class LLMConfig:
     mcp_principal_user_id: str | None = None  # MCP 金鑰所代表的管理員身份（唯讀，僅供 RBAC 可見範圍）
     # MCP 金鑰到期時間（輪替時選天數；0199 起每把都有，到期前由 credential_expiry 通知管理員）
     mcp_api_key_expires_at: datetime | None = None
+    # 金鑰編號：重產時隨機產生，跟金鑰本身無關；「最後使用」記錄綁這個（10-22 起，舊金鑰沒有編號＝legacy）
+    mcp_api_key_id: str | None = None
     # AI 巡檢：定期讓模型檢視 IPAM 資料找可疑之處。預設關閉 —— 它會把資料送給 LLM，
     # 該不該做是使用者的決定，不是升版就自動開始跑的事。
     ai_audit_enabled: bool = False
@@ -211,6 +213,8 @@ async def get_llm_config(session: AsyncSession) -> LLMConfig:
             cfg.mcp_api_key = _dec_mcp(str(v["mcp_api_key_enc"]))
         if v.get("mcp_principal_user_id"):
             cfg.mcp_principal_user_id = str(v["mcp_principal_user_id"])
+        if cfg.mcp_api_key:
+            cfg.mcp_api_key_id = str(v.get("mcp_api_key_id") or "legacy")
         if v.get("mcp_api_key_expires_at"):
             try:
                 cfg.mcp_api_key_expires_at = datetime.fromisoformat(str(v["mcp_api_key_expires_at"]))
@@ -359,21 +363,18 @@ def mcp_key_valid(cfg: LLMConfig, token: str) -> bool:
     return cfg.mcp_api_key_expires_at is None or cfg.mcp_api_key_expires_at > datetime.now(UTC)
 
 
-#: MCP 金鑰的最後使用（使用者 2026-10-21）：另存一個鍵，綁金鑰指紋 —— 重產後新金鑰自然是「從沒用過」
+#: MCP 金鑰的最後使用（使用者 2026-10-21）：另存一個鍵，綁金鑰編號（重產時隨機產生）—— 重產後新金鑰自然是「從沒用過」。
+#: 以前綁的是金鑰的 SHA-256 前 16 碼，CodeQL #56 判定為「用弱雜湊處理敏感資料」；改成跟金鑰無關的隨機編號，
+#: 資料庫裡就沒有任何從金鑰衍生的值（10-22）。
 MCP_USAGE_KEY = "mcp_key_usage"
 MCP_USE_THROTTLE_S = 60
 _mcp_use_written: dict[str, float] = {}
 
 
-def _mcp_fp(key: str) -> str:
-    import hashlib
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
-
-
-async def _save_mcp_use(session: AsyncSession, fp: str, ip: str | None) -> None:
+async def _save_mcp_use(session: AsyncSession, key_id: str, ip: str | None) -> None:
     from sqlalchemy.orm.attributes import flag_modified
     row = await session.get(SystemSetting, MCP_USAGE_KEY)
-    value = {"fp": fp, "at": datetime.now(UTC).isoformat(), "ip": (ip or "")[:64] or None}
+    value = {"key_id": key_id, "at": datetime.now(UTC).isoformat(), "ip": (ip or "")[:64] or None}
     if row is None:
         session.add(SystemSetting(key=MCP_USAGE_KEY, value=value))
     else:
@@ -382,24 +383,25 @@ async def _save_mcp_use(session: AsyncSession, fp: str, ip: str | None) -> None:
     await session.commit()
 
 
-async def record_mcp_key_use(session: AsyncSession, key: str, ip: str | None) -> None:
-    """MCP 請求用金鑰驗證成功時呼叫。同一把金鑰 MCP_USE_THROTTLE_S 秒內只寫一次。"""
+async def record_mcp_key_use(session: AsyncSession, key_id: str | None, ip: str | None) -> None:
+    """MCP 請求用金鑰驗證成功時呼叫（傳 cfg.mcp_api_key_id）。同一把金鑰 MCP_USE_THROTTLE_S 秒內只寫一次。"""
     import time
-    fp = _mcp_fp(key)
-    now = time.monotonic()
-    if now - _mcp_use_written.get(fp, -1e9) < MCP_USE_THROTTLE_S:
+    if not key_id:
         return
-    _mcp_use_written[fp] = now
-    await _save_mcp_use(session, fp, ip)
+    now = time.monotonic()
+    if now - _mcp_use_written.get(key_id, -1e9) < MCP_USE_THROTTLE_S:
+        return
+    _mcp_use_written[key_id] = now
+    await _save_mcp_use(session, key_id, ip)
 
 
-async def get_mcp_key_usage(session: AsyncSession, key: str | None) -> tuple[datetime | None, str | None]:
+async def get_mcp_key_usage(session: AsyncSession, key_id: str | None) -> tuple[datetime | None, str | None]:
     """(最後使用時間, 來源 IP)；記錄是別把金鑰的（已重產）或從沒用過 → (None, None)。"""
-    if not key:
+    if not key_id:
         return None, None
     row = await session.get(SystemSetting, MCP_USAGE_KEY)
     v = row.value if row and isinstance(row.value, dict) else {}
-    if v.get("fp") != _mcp_fp(key):
+    if v.get("key_id") != key_id:
         return None, None
     try:
         return datetime.fromisoformat(str(v.get("at"))), v.get("ip")
@@ -427,6 +429,7 @@ async def rotate_mcp_api_key(
         session.add(row)
     current: dict[str, Any] = dict(row.value or {})
     current["mcp_api_key_enc"] = _enc_mcp(key)
+    current["mcp_api_key_id"] = secrets.token_hex(8)       # 與金鑰無關的隨機編號（最後使用記錄綁它）
     current["mcp_principal_user_id"] = str(principal_user_id)
     current["mcp_api_key_expires_at"] = (datetime.now(UTC) + timedelta(days=expires_in_days)).isoformat()
     row.value = current

@@ -761,7 +761,7 @@
   },
   "ssh": {
     "connect": "SSH",
-    "tmux_hint": "Linux ホストです：時間のかかる作業は tmux か screen の中で実行してください。ブラウザーの切断、タブを閉じる、アイドルで切られる、のいずれでも SSH セッションが終わり、中で動いているプログラムも終了します。再接続後は tmux attach か screen -r で戻れます。右上の × で今後表示しません。",
+    "tmux_hint": "長時間の作業は tmux か screen の中で実行すると、切断されても止まりません（再接続後は tmux attach か screen -r）。",
     "connect_to": "{ip} へ SSH 接続",
     "terminal_title": "SSH 端末",
     "open_popout": "新しいウィンドウで開く",

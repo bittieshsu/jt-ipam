@@ -49,5 +49,18 @@ async def test_writes_are_throttled(db_session, monkeypatch) -> None:
         return await orig(*a, **k)
     monkeypatch.setattr(sc, "_save_mcp_use", spy)
     for _ in range(5):
-        await sc.record_mcp_key_use(db_session, "jtmcp_example", "192.0.2.9")
+        await sc.record_mcp_key_use(db_session, "k-example", "192.0.2.9")
     assert len(calls) == 1
+
+
+async def test_usage_is_bound_to_a_random_key_id_not_derived_from_the_key(client, auth_headers, db_session) -> None:
+    """記錄綁的是重產時產生的隨機編號，不是從金鑰算出來的雜湊（CodeQL #56：對金鑰做 SHA-256 會被當成
+    弱雜湊處理敏感資料）。每次重產編號都不同；資料庫裡找不到金鑰的任何衍生值。"""
+    await _enable(client, auth_headers)
+    first = (await sc.get_llm_config(db_session)).mcp_api_key_id
+    await client.post("/api/v1/system/llm/mcp-key/rotate", headers=auth_headers, json={"expires_in_days": 30})
+    sc._cache.clear()
+    cfg = await sc.get_llm_config(db_session)
+    assert first and cfg.mcp_api_key_id and cfg.mcp_api_key_id != first
+    import hashlib
+    assert hashlib.sha256(cfg.mcp_api_key.encode()).hexdigest()[:16] != cfg.mcp_api_key_id

@@ -27,6 +27,7 @@ import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.
 import GuacView from "@/components/GuacView.vue";
 import { consoleEngineLabel } from "@/utils/consoleEngine";
 import { isLinuxTarget } from "@/utils/sshHints";
+import { useTerminalFontSize } from "@/composables/useTerminalFontSize";
 
 const props = withDefaults(defineProps<{
   addressId: string;
@@ -49,15 +50,12 @@ function dismissTmuxHint() {
   try { localStorage.setItem(TMUX_HINT_KEY, "1"); } catch { /* 無痕模式等：這次關掉就好 */ }
 }
 
-const FONT_MIN = 9;
-const FONT_MAX = 24;
-// 字級（px）記住：換頁、重連、換引擎都沿用
-const FONT_KEY = "jt.sshFontSize";
-const fontSize = ref(13);
-try {
-  const v = Number(localStorage.getItem(FONT_KEY));
-  if (v >= FONT_MIN && v <= FONT_MAX) fontSize.value = v;
-} catch { /* 隱私模式讀不到就用預設 */ }
+// 字級（px）與 PVE xterm 共用一份（composables/useTerminalFontSize）：換頁、重連、換引擎都沿用
+const { fontSize, step: stepFont, atMin: fontAtMin, atMax: fontAtMax } = useTerminalFontSize((px) => {
+  if (term) { term.options.fontSize = px; doFit(); }
+  // guacd 引擎：連線中改字級（argv 串流），工作階段不中斷
+  if (guacSession.value) guacRef.value?.setArgument("font-size", String(fontPt()));
+});
 /** guacd 的字級單位是 pt（96 DPI 下 1pt＝4/3 px） */
 const fontPt = () => Math.round(fontSize.value * 0.75);
 
@@ -196,14 +194,6 @@ function doFit() {
   } catch { /* noop */ }
 }
 
-// 文字大小快速調整
-function setFont(delta: number) {
-  fontSize.value = Math.min(FONT_MAX, Math.max(FONT_MIN, fontSize.value + delta));
-  try { localStorage.setItem(FONT_KEY, String(fontSize.value)); } catch { /* 忽略 */ }
-  if (term) { term.options.fontSize = fontSize.value; doFit(); }
-  // guacd 引擎：連線中改字級（argv 串流），工作階段不中斷
-  if (guacSession.value) guacRef.value?.setArgument("font-size", String(fontPt()));
-}
 
 async function connect() {
   errorMsg.value = "";
@@ -500,8 +490,8 @@ onBeforeUnmount(teardown);
         <n-space :size="8" align="center">
           <!-- 文字大小快速調整 -->
           <n-button-group v-if="phase === 'connected'" size="tiny">
-            <n-button :disabled="fontSize <= FONT_MIN" :title="t('ssh.font_smaller')" @click="setFont(-1)">A−</n-button>
-            <n-button :disabled="fontSize >= FONT_MAX" :title="t('ssh.font_larger')" @click="setFont(1)">A+</n-button>
+            <n-button :disabled="fontAtMin" :title="t('ssh.font_smaller')" @click="stepFont(-1)">A−</n-button>
+            <n-button :disabled="fontAtMax" :title="t('ssh.font_larger')" @click="stepFont(1)">A+</n-button>
           </n-button-group>
           <n-button v-if="phase === 'connected'" size="tiny" type="error" ghost @click="disconnect">
             <template #icon><n-icon :component="CancelIcon" /></template>{{ t("ssh.disconnect") }}

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [Unreleased]
+
+### Changed
+- PVE console (xterm, for containers): A− / A+ font size buttons like the SSH console, sharing the same remembered size.
+- SSH console: the tmux/screen note for Linux targets is one short sentence.
+
+### Security
+- MCP key "last used" record is bound to a random key id created at rotation instead of a truncated SHA-256 of the key (CodeQL #56, weak hashing of sensitive data); the database no longer holds anything derived from the key. Existing keys count as one "legacy" id until rotated.
+
 ## [1.0.13] - 2026-10-22
 
 ### Added

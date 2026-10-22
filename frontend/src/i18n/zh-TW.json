@@ -761,7 +761,7 @@
   },
   "ssh": {
     "connect": "SSH 連線",
-    "tmux_hint": "這台是 Linux：長時間的工作建議在 tmux 或 screen 裡執行。瀏覽器斷線、關掉分頁或閒置被切斷時，SSH 工作階段結束，裡面跑的程式會跟著被結束；重新連線後用 tmux attach 或 screen -r 接回。按右上角 × 不再顯示。",
+    "tmux_hint": "長時間工作建議在 tmux 或 screen 裡執行，斷線才不會被中止（重連後用 tmux attach 或 screen -r 接回）。",
     "connect_to": "SSH 連線到 {ip}",
     "terminal_title": "SSH 終端機",
     "open_popout": "另開視窗",

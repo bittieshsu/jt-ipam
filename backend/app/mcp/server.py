@@ -236,7 +236,7 @@ def build_mcp_app() -> FastAPI:
             try:
                 from app.services.system_config import record_mcp_key_use
                 async with SessionLocal() as _s:
-                    await record_mcp_key_use(_s, token, request.client.host if request.client else None)
+                    await record_mcp_key_use(_s, mcfg.mcp_api_key_id, request.client.host if request.client else None)
             except Exception:  # pragma: no cover - 防護
                 pass
         if user is None:

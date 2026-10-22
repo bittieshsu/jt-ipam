@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { credSuffix, defaultCredId } from "@/utils/savedCreds";
+import { useTerminalFontSize } from "@/composables/useTerminalFontSize";
 /**
  * PVE 主控台（noVNC / xterm）。版面與工具列比照 SSH/RDP/VNC。
  * 連線時要求輸入 PVE 帳密（可選擇存進金庫）；kind=vm → @novnc/novnc 圖形 RFB（可送出按鍵、縮放切換）；
@@ -191,7 +192,7 @@ async function connectXterm(wsUrl: string, pveUser: string, vncticket: string) {
       import("@xterm/xterm"), import("@xterm/addon-fit"),
     ]);
     await import("@xterm/xterm/css/xterm.css");
-    term = new Terminal({ cursorBlink: true, fontSize: 13, allowProposedApi: true,
+    term = new Terminal({ cursorBlink: true, fontSize: fontSize.value, allowProposedApi: true,
       theme: { background: "#000000" } });
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -230,6 +231,11 @@ async function connectXterm(wsUrl: string, pveUser: string, vncticket: string) {
     phase.value = "error"; errorMsg.value = e?.message || t("novnc.err_connect");
   }
 }
+
+// xterm（CT）的字級：與 SSH 主控台共用一份（composables/useTerminalFontSize）
+const { fontSize, step: stepFont, atMin: fontAtMin, atMax: fontAtMax } = useTerminalFontSize((px) => {
+  if (term) { term.options.fontSize = px; onResize(); }
+});
 
 function onResize() {
   if (fitAddon && term && ws && ws.readyState === 1) {
@@ -388,6 +394,10 @@ async function removeCred() {
             <n-button :type="scaleMode === 'native' ? 'primary' : 'default'" @click="setScale('native')">
               <template #icon><n-icon :component="ReduceIcon" /></template>{{ t("vnc.scale_native") }}
             </n-button>
+          </n-button-group>
+          <n-button-group v-if="phase === 'connected' && !isVm" size="tiny" data-testid="xterm-font">
+            <n-button :disabled="fontAtMin" :title="t('ssh.font_smaller')" @click="stepFont(-1)">A−</n-button>
+            <n-button :disabled="fontAtMax" :title="t('ssh.font_larger')" @click="stepFont(1)">A+</n-button>
           </n-button-group>
           <n-button v-if="phase === 'connected'" size="tiny" type="error" ghost @click="disconnect">
             <template #icon><n-icon :component="CancelIcon" /></template>{{ t("vnc.disconnect") }}
